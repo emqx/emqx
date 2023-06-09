@@ -382,15 +382,17 @@ import_mnesia_tab(BackupDir, TabName, Opts) ->
     end.
 
 restore_mnesia_tab(BackupDir, MnesiaBackupFileName, TabName, Opts) ->
-    BackupNameToImport = MnesiaBackupFileName ++ "_for_import",
-    Prepared =
+    Validated =
         catch mnesia:traverse_backup(
-            MnesiaBackupFileName, BackupNameToImport, fun backup_converter/2, 0
+            MnesiaBackupFileName, mnesia_backup, dummy, read_only, fun validate_mnesia_backup/2, 0
         ),
     try
-        case Prepared of
+        case Validated of
             {ok, _} ->
-                Restored = mnesia:restore(BackupNameToImport, [{default_op, keep_tables}]),
+                %% As we use keep_tables option, we don't need to modify 'copies' (nodes)
+                %% in a backup file before restoring it,  as `mnsia:restore/2` will ignore
+                %% backed-up schema and keep the current table schema unchanged
+                Restored = mnesia:restore(MnesiaBackupFileName, [{default_op, keep_tables}]),
                 case Restored of
                     {atomic, [TabName]} ->
                         ok;
@@ -416,30 +418,23 @@ restore_mnesia_tab(BackupDir, MnesiaBackupFileName, TabName, Opts) ->
         end
     after
         %% Cleanup files as soon as they are not needed any more for more efficient disk usage
-        _ = file:delete(BackupNameToImport),
         _ = file:delete(MnesiaBackupFileName)
     end.
 
-backup_converter({schema, Tab, CreateList}, Acc) ->
-    check_rec_attributes(Tab, CreateList),
-    {[{schema, Tab, lists:map(fun convert_copies/1, CreateList)}], Acc};
-backup_converter(Other, Acc) ->
-    {[Other], Acc}.
-
-check_rec_attributes(Tab, CreateList) ->
+%% NOTE: if backup file is valid, we keep traversing it, though we only need to validate schema.
+%% Looks like there is no clean way to abort traversal without triggering any error reporting,
+%% `mnesia_bup:read_schema/2` is an option but its direct usage should also be avoided...
+validate_mnesia_backup({schema, Tab, CreateList} = Schema, Acc) ->
     ImportAttributes = proplists:get_value(attributes, CreateList),
     Attributes = mnesia:table_info(Tab, attributes),
     case ImportAttributes =/= Attributes of
         true ->
             throw({error, different_table_schema});
         false ->
-            ok
-    end.
-
-convert_copies({K, [_ | _]}) when K == ram_copies; K == disc_copies; K == disc_only_copies ->
-    {K, [node()]};
-convert_copies(Other) ->
-    Other.
+            {[Schema], Acc}
+    end;
+validate_mnesia_backup(Other, Acc) ->
+    {[Other], Acc}.
 
 extract_backup(BackupFileName) ->
     BackupDir = root_backup_dir(),
