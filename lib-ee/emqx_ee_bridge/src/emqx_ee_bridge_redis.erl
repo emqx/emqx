@@ -101,23 +101,23 @@ namespace() -> "bridge_redis".
 roots() -> [].
 
 fields("post_single") ->
-    method_fileds(post, redis_single);
+    method_fields(post, redis_single);
 fields("post_sentinel") ->
-    method_fileds(post, redis_sentinel);
+    method_fields(post, redis_sentinel);
 fields("post_cluster") ->
-    method_fileds(post, redis_cluster);
+    method_fields(post, redis_cluster);
 fields("put_single") ->
-    method_fileds(put, redis_single);
+    method_fields(put, redis_single);
 fields("put_sentinel") ->
-    method_fileds(put, redis_sentinel);
+    method_fields(put, redis_sentinel);
 fields("put_cluster") ->
-    method_fileds(put, redis_cluster);
+    method_fields(put, redis_cluster);
 fields("get_single") ->
-    method_fileds(get, redis_single);
+    method_fields(get, redis_single);
 fields("get_sentinel") ->
-    method_fileds(get, redis_sentinel);
+    method_fields(get, redis_sentinel);
 fields("get_cluster") ->
-    method_fileds(get, redis_cluster);
+    method_fields(get, redis_cluster);
 fields(Type) when
     Type == redis_single orelse Type == redis_sentinel orelse Type == redis_cluster
 ->
@@ -126,16 +126,16 @@ fields(Type) when
 fields("creation_opts_" ++ Type) ->
     resource_creation_fields(Type).
 
-method_fileds(post, ConnectorType) ->
+method_fields(post, ConnectorType) ->
     redis_bridge_common_fields(ConnectorType) ++
         connector_fields(ConnectorType) ++
         type_name_fields(ConnectorType);
-method_fileds(get, ConnectorType) ->
+method_fields(get, ConnectorType) ->
     redis_bridge_common_fields(ConnectorType) ++
         connector_fields(ConnectorType) ++
         type_name_fields(ConnectorType) ++
         emqx_bridge_schema:status_fields();
-method_fileds(put, ConnectorType) ->
+method_fields(put, ConnectorType) ->
     redis_bridge_common_fields(ConnectorType) ++
         connector_fields(ConnectorType).
 

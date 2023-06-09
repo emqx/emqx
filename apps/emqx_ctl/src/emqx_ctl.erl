@@ -157,16 +157,19 @@ help() ->
                     print("No commands available.~n");
                 Cmds ->
                     print("Usage: ~ts~n", ["emqx ctl"]),
-                    lists:foreach(
-                        fun({_, {Mod, Cmd}, _}) ->
-                            print("~110..-s~n", [""]),
-                            apply(Mod, Cmd, [usage])
-                        end,
-                        Cmds
-                    )
+                    lists:foreach(fun print_usage/1, Cmds)
             end;
         false ->
             print("Command table is initializing.~n")
+    end.
+
+print_usage({_, {Mod, Cmd}, Opts}) ->
+    case proplists:get_bool(hidden, Opts) of
+        true ->
+            ok;
+        false ->
+            print("~110..-s~n", [""]),
+            apply(Mod, Cmd, [usage])
     end.
 
 -spec print(io:format()) -> ok.

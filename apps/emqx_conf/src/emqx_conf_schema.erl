@@ -1323,7 +1323,7 @@ roots(Module) ->
     lists:map(fun({_BinName, Root}) -> Root end, hocon_schema:roots(Module)).
 
 %% Like authentication schema, authorization schema is incomplete in emqx_schema
-%% module, this function replaces the root filed "authorization" with a new schema
+%% module, this function replaces the root field "authorization" with a new schema
 emqx_schema_high_prio_roots() ->
     Roots = emqx_schema:roots(high),
     Authz =
