@@ -56,8 +56,7 @@ on_gateway_load(
     },
     Ctx
 ) ->
-    %% We Also need to start `emqx_mqttsn_broadcast` &
-    %% `emqx_mqttsn_registry` process
+    %% We Also need to start `emqx_mqttsn_broadcast`
     case maps:get(broadcast, Config, false) of
         false ->
             ok;
@@ -70,12 +69,9 @@ on_gateway_load(
     end,
 
     PredefTopics = maps:get(predefined, Config, []),
-    {ok, RegistrySvr} = emqx_mqttsn_registry:start_link(GwName, PredefTopics),
+    ok = emqx_mqttsn_registry:persist_predefined_topics(PredefTopics),
 
-    NConfig = maps:without(
-        [broadcast, predefined],
-        Config#{registry => emqx_mqttsn_registry:lookup_name(RegistrySvr)}
-    ),
+    NConfig = maps:without([broadcast, predefined], Config),
 
     Listeners = emqx_gateway_utils:normalize_config(NConfig),
 
@@ -125,6 +121,7 @@ on_gateway_unload(
     },
     _GwState
 ) ->
-    emqx_mqttsn_registry:clean_predefined_topics(GwName, maps:get(predefined, Config, [])),
+    PredefTopics = maps:get(predefined, Config, []),
+    ok = emqx_mqttsn_registry:clear_predefined_topics(PredefTopics),
     Listeners = normalize_config(Config),
     stop_listeners(GwName, Listeners).

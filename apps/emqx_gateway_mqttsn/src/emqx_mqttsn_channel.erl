@@ -479,11 +479,7 @@ handle_in(
                     ?SN_SHORT_TOPIC ->
                         TopicId;
                     ?SN_PREDEFINED_TOPIC ->
-                        emqx_mqttsn_registry:lookup_topic(
-                            Registry,
-                            ?NEG_QOS_CLIENT_ID,
-                            TopicId
-                        );
+                        emqx_mqttsn_registry:lookup_topic(TopicId, Registry);
                     _ ->
                         undefined
                 end,
@@ -631,20 +627,17 @@ handle_in(
     end;
 handle_in(
     ?SN_REGISTER_MSG(_TopicId, MsgId, TopicName),
-    Channel = #channel{
-        registry = Registry,
-        clientinfo = #{clientid := ClientId}
-    }
+    Channel = #channel{registry = Registry}
 ) ->
-    case emqx_mqttsn_registry:register_topic(Registry, ClientId, TopicName) of
-        TopicId when is_integer(TopicId) ->
+    case emqx_mqttsn_registry:reg(TopicName, Registry) of
+        {ok, TopicId, NRegistry} ->
             ?SLOG(debug, #{
                 msg => "registered_topic_name",
                 topic_name => TopicName,
                 topic_id => TopicId
             }),
             AckPacket = ?SN_REGACK_MSG(TopicId, MsgId, ?SN_RC_ACCEPTED),
-            {ok, {outgoing, AckPacket}, Channel};
+            {ok, {outgoing, AckPacket}, Channel#channel{registry = NRegistry}};
         {error, too_large} ->
             ?SLOG(error, #{
                 msg => "register_topic_failed",
@@ -758,7 +751,7 @@ handle_in(
         ctx = Ctx,
         registry = Registry,
         session = Session,
-        clientinfo = ClientInfo = #{clientid := ClientId}
+        clientinfo = ClientInfo
     }
 ) ->
     case ReturnCode of
@@ -795,7 +788,7 @@ handle_in(
                     {ok, Channel}
             end;
         ?SN_RC_INVALID_TOPIC_ID ->
-            case emqx_mqttsn_registry:lookup_topic(Registry, ClientId, TopicId) of
+            case emqx_mqttsn_registry:lookup_topic(TopicId, Registry) of
                 undefined ->
                     {ok, Channel};
                 TopicName ->
@@ -1100,12 +1093,9 @@ convert_topic_id_to_name({{name, TopicName}, Flags, Data}, Channel) ->
     {ok, {TopicName, Flags, Data}, Channel};
 convert_topic_id_to_name(
     {{id, TopicId}, Flags, Data},
-    Channel = #channel{
-        registry = Registry,
-        clientinfo = #{clientid := ClientId}
-    }
+    Channel = #channel{registry = Registry}
 ) ->
-    case emqx_mqttsn_registry:lookup_topic(Registry, ClientId, TopicId) of
+    case emqx_mqttsn_registry:lookup_topic(TopicId, Registry) of
         undefined ->
             {error, ?SN_RC_INVALID_TOPIC_ID};
         TopicName ->
@@ -1207,15 +1197,12 @@ preproc_subs_type(
         TopicName,
         QoS
     ),
-    Channel = #channel{
-        registry = Registry,
-        clientinfo = #{clientid := ClientId}
-    }
+    Channel = #channel{registry = Registry}
 ) ->
     %% If the gateway is able accept the subscription,
     %% it assigns a topic id to the received topic name
     %% and returns it within a SUBACK message
-    case emqx_mqttsn_registry:register_topic(Registry, ClientId, TopicName) of
+    case emqx_mqttsn_registry:reg(TopicName, Registry) of
         {error, too_large} ->
             {error, ?SN_RC2_EXCEED_LIMITATION};
         {error, wildcard_topic} ->
@@ -1226,8 +1213,8 @@ preproc_subs_type(
             %% value when it has the first PUBLISH message with a matching
             %% topic name to be sent to the client, see also Section 6.10.
             {ok, {?SN_INVALID_TOPIC_ID, TopicName, QoS}, Channel};
-        TopicId when is_integer(TopicId) ->
-            {ok, {TopicId, TopicName, QoS}, Channel}
+        {ok, TopicId, NRegistry} ->
+            {ok, {TopicId, TopicName, QoS}, Channel#channel{registry = NRegistry}}
     end;
 preproc_subs_type(
     ?SN_SUBSCRIBE_MSG_TYPE(
@@ -1235,18 +1222,9 @@ preproc_subs_type(
         TopicId,
         QoS
     ),
-    Channel = #channel{
-        registry = Registry,
-        clientinfo = #{clientid := ClientId}
-    }
+    Channel = #channel{registry = Registry}
 ) ->
-    case
-        emqx_mqttsn_registry:lookup_topic(
-            Registry,
-            ClientId,
-            TopicId
-        )
-    of
+    case emqx_mqttsn_registry:lookup_topic(TopicId, Registry) of
         undefined ->
             {error, ?SN_RC_INVALID_TOPIC_ID};
         TopicName ->
@@ -1351,18 +1329,9 @@ preproc_unsub_type(
         ?SN_PREDEFINED_TOPIC,
         TopicId
     ),
-    Channel = #channel{
-        registry = Registry,
-        clientinfo = #{clientid := ClientId}
-    }
+    Channel = #channel{registry = Registry}
 ) ->
-    case
-        emqx_mqttsn_registry:lookup_topic(
-            Registry,
-            ClientId,
-            TopicId
-        )
-    of
+    case emqx_mqttsn_registry:lookup_topic(TopicId, Registry) of
         undefined ->
             {error, not_found};
         TopicName ->
@@ -1765,10 +1734,7 @@ outgoing_deliver_and_register({Packets, Channel}) ->
 message_to_packet(
     MsgId,
     Message,
-    #channel{
-        registry = Registry,
-        clientinfo = #{clientid := ClientId}
-    }
+    #channel{registry = Registry}
 ) ->
     QoS = emqx_message:qos(Message),
     Topic = emqx_message:topic(Message),
@@ -1778,7 +1744,7 @@ message_to_packet(
             ?QOS_0 -> 0;
             _ -> MsgId
         end,
-    case emqx_mqttsn_registry:lookup_topic_id(Registry, ClientId, Topic) of
+    case emqx_mqttsn_registry:lookup_topic_id(Topic, Registry) of
         {predef, PredefTopicId} ->
             Flags = #mqtt_sn_flags{qos = QoS, topic_id_type = ?SN_PREDEFINED_TOPIC},
             ?SN_PUBLISH_MSG(Flags, PredefTopicId, NMsgId, Payload);
@@ -1911,8 +1877,8 @@ handle_info(clean_authz_cache, Channel) ->
     {ok, Channel};
 handle_info({subscribe, _}, Channel) ->
     {ok, Channel};
-handle_info({register, TopicName}, Channel) ->
-    case ensure_registered_topic_name(TopicName, Channel) of
+handle_info({register, TopicName}, Channel = #channel{registry = Registry}) ->
+    case emqx_mqttsn_registry:reg(TopicName, Registry) of
         {error, Reason} ->
             ?SLOG(error, #{
                 msg => "register_topic_failed",
@@ -1920,8 +1886,8 @@ handle_info({register, TopicName}, Channel) ->
                 reason => Reason
             }),
             {ok, Channel};
-        {ok, TopicId} ->
-            handle_out(register, {TopicId, TopicName}, Channel)
+        {ok, TopicId, NRegistry} ->
+            handle_out(register, {TopicId, TopicName}, Channel#channel{registry = NRegistry})
     end;
 handle_info(Info, Channel) ->
     ?SLOG(error, #{
@@ -1938,21 +1904,6 @@ maybe_shutdown(Reason, Channel = #channel{conninfo = ConnInfo}) ->
             {ok, ensure_timer(expire_timer, I, Channel)};
         _ ->
             shutdown(Reason, Channel)
-    end.
-
-ensure_registered_topic_name(
-    TopicName,
-    Channel = #channel{registry = Registry}
-) ->
-    ClientId = clientid(Channel),
-    case emqx_mqttsn_registry:lookup_topic_id(Registry, ClientId, TopicName) of
-        undefined ->
-            case emqx_mqttsn_registry:register_topic(Registry, ClientId, TopicName) of
-                {error, Reason} -> {error, Reason};
-                TopicId -> {ok, TopicId}
-            end;
-        TopicId ->
-            {ok, TopicId}
     end.
 
 %%--------------------------------------------------------------------
@@ -2308,9 +2259,6 @@ interval(await_timer, #channel{session = Session}) ->
 %%--------------------------------------------------------------------
 %% Helper functions
 %%--------------------------------------------------------------------
-
-clientid(#channel{clientinfo = #{clientid := ClientId}}) ->
-    ClientId.
 
 run_hooks(Ctx, Name, Args) ->
     emqx_gateway_ctx:metrics_inc(Ctx, Name),
