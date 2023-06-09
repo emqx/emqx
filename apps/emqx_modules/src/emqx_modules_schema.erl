@@ -36,6 +36,7 @@ roots() ->
         array("rewrite", #{
             desc => "List of topic rewrite rules.",
             importance => ?IMPORTANCE_HIDDEN,
+            validator => fun rewrite_validator/1,
             default => []
         }),
         array("topic_metrics", #{
@@ -44,6 +45,37 @@ roots() ->
             default => []
         })
     ].
+
+rewrite_validator(Rules) ->
+    case
+        lists:foldl(
+            fun
+                (#{<<"action">> := subscribe}, Acc) ->
+                    Acc;
+                (#{<<"dest_topic">> := DestTopic}, InvalidAcc) ->
+                    try
+                        true = emqx_topic:validate(name, DestTopic),
+                        InvalidAcc
+                    catch
+                        _:_ ->
+                            [DestTopic | InvalidAcc]
+                    end
+            end,
+            [],
+            Rules
+        )
+    of
+        [] ->
+            ok;
+        InvalidTopics ->
+            {
+                error,
+                #{
+                    msg => "cannot_use_wildcard_for_destination_topic",
+                    invalid_topics => InvalidTopics
+                }
+            }
+    end.
 
 fields("delayed") ->
     [
