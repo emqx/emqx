@@ -320,9 +320,15 @@ typename_to_spec("atom()", _Mod) ->
     #{type => string};
 typename_to_spec("duration()", _Mod) ->
     #{type => duration};
+typename_to_spec("timeout_duration()", _Mod) ->
+    #{type => duration};
 typename_to_spec("duration_s()", _Mod) ->
     #{type => duration};
+typename_to_spec("timeout_duration_s()", _Mod) ->
+    #{type => duration};
 typename_to_spec("duration_ms()", _Mod) ->
+    #{type => duration};
+typename_to_spec("timeout_duration_ms()", _Mod) ->
     #{type => duration};
 typename_to_spec("percent()", _Mod) ->
     #{type => percent};
