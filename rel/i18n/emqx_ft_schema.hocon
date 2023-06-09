@@ -7,16 +7,16 @@ This toggle also affects the availability of the File Transfer REST API and
 storage-dependent background activities (e.g. garbage collection)."""
 
 init_timeout.desc:
-"""Timeout for initializing the file transfer.<br/>
-After reaching the timeout, `init` message will be acked with an error"""
+"""Timeout for EMQX to initialize the file transfer.<br/>
+After reaching the timeout (e.g. due to system is overloaded), the PUBACK message for `init` will contain error code (0x80)."""
 
 assemble_timeout.desc:
 """Timeout for assembling and exporting file segments into a final file.<br/>
-After reaching the timeout, `fin` message will be acked with an error"""
+After reaching the timeout (e.g. due to system is overloaded), the PUBACK message for `fin` will contain error code (0x80)"""
 
 store_segment_timeout.desc:
 """Timeout for storing a file segment.<br/>
-After reaching the timeout, message with the segment will be acked with an error"""
+After reaching the timeout (e.g. due to system overloaded), the PUBACK message will contain error code (0x80)."""
 
 storage_backend.desc:
 """Storage settings for file transfer."""

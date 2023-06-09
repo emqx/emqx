@@ -1,23 +1,23 @@
 emqx_dashboard_monitor_api {
 
 list_monitor.desc:
-"""List monitor data."""
+"""List monitor (statistics) data for the whole cluster."""
 list_monitor.label:
-"""List monitor data."""
+"""List cluster stats data"""
 
 list_monitor_node.desc:
-"""List the monitor data on the node."""
+"""List the monitor (statistics) data on the specified node."""
 list_monitor_node.label:
-"""List the monitor data on the node."""
+"""List node's stats data"""
 
-current_status.desc:
-"""Current status. Gauge and rate."""
-current_status.label:
-"""Current status. Gauge and rate."""
+current_stats.desc:
+"""Current monitor (statistics) data, e.g. number of connections and connection rate in the whole cluster."""
+current_stats.label:
+"""Cluster runtime stats"""
 
-current_status_node.desc:
-"""Node current status. Gauge and rate."""
-current_status_node.label:
-"""Node current status. Gauge and rate."""
+current_stats_node.desc:
+"""Node monitor (statistics) data, e.g. number of connections and connection rate on the specified node."""
+current_stats_node.label:
+"""Node runtime stats"""
 
 }
