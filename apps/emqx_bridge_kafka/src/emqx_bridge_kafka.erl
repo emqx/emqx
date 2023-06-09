@@ -276,7 +276,7 @@ fields(producer_kafka_opts) ->
             )},
         {partition_count_refresh_interval,
             mk(
-                emqx_schema:duration_s(),
+                emqx_schema:timeout_duration_s(),
                 #{
                     default => <<"60s">>,
                     desc => ?DESC(partition_count_refresh_interval)
@@ -380,8 +380,8 @@ fields(consumer_kafka_opts) ->
             )},
         {offset_commit_interval_seconds,
             mk(
-                pos_integer(),
-                #{default => 5, desc => ?DESC(consumer_offset_commit_interval_seconds)}
+                emqx_schema:timeout_duration_s(),
+                #{default => <<"5s">>, desc => ?DESC(consumer_offset_commit_interval_seconds)}
             )}
     ].
 
