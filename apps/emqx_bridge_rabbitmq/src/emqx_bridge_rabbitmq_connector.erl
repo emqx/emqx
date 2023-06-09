@@ -34,7 +34,6 @@
     %% Optional callbacks
     on_get_status/2,
     on_query/3,
-    is_buffer_supported/0,
     on_batch_query/3
 ]).
 
@@ -186,11 +185,6 @@ values(_) ->
 callback_mode() -> always_sync.
 
 %% emqx_resource callback
-
--spec is_buffer_supported() -> boolean().
-is_buffer_supported() ->
-    %% We want to make use of EMQX's buffer mechanism
-    false.
 
 %% emqx_resource callback called when the resource is started
 

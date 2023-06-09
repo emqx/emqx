@@ -11,7 +11,7 @@
 %% `emqx_resource' API
 -export([
     callback_mode/0,
-    is_buffer_supported/0,
+    query_mode/1,
     on_start/2,
     on_stop/2,
     on_get_status/2,
@@ -70,10 +70,8 @@
 
 callback_mode() -> async_if_possible.
 
-%% there are no queries to be made to this bridge, so we say that
-%% buffer is supported so we don't spawn unused resource buffer
-%% workers.
-is_buffer_supported() -> true.
+query_mode(_Config) ->
+    simple_async.
 
 -spec on_start(resource_id(), config()) -> {ok, state()}.
 on_start(InstanceId, Config) ->

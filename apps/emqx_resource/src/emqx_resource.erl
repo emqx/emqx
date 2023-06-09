@@ -100,7 +100,8 @@
     call_health_check/3,
     %% stop the instance
     call_stop/3,
-    is_buffer_supported/1
+    %% get the query mode of the resource
+    query_mode/3
 ]).
 
 %% list all the instances, id only.
@@ -132,7 +133,7 @@
     on_query_async/4,
     on_batch_query_async/4,
     on_get_status/2,
-    is_buffer_supported/0
+    query_mode/1
 ]).
 
 %% when calling emqx_resource:start/1
@@ -173,7 +174,8 @@
     | {resource_status(), resource_state()}
     | {resource_status(), resource_state(), term()}.
 
--callback is_buffer_supported() -> boolean().
+-callback query_mode(Config :: term()) ->
+    simple_sync | simple_async | sync | async | no_queries.
 
 -spec list_types() -> [module()].
 list_types() ->
@@ -276,16 +278,20 @@ query(ResId, Request) ->
     Result :: term().
 query(ResId, Request, Opts) ->
     case emqx_resource_manager:lookup_cached(ResId) of
-        {ok, _Group, #{query_mode := QM, mod := Module}} ->
-            IsBufferSupported = is_buffer_supported(Module),
-            case {IsBufferSupported, QM} of
-                {true, _} ->
-                    %% only Kafka producer so far
+        {ok, _Group, #{query_mode := QM}} ->
+            case QM of
+                simple_async ->
+                    %% TODO(5.1.1): pass Resource instead of ResId to simple APIs
+                    %% so the buffer worker does not need to lookup the cache again
                     Opts1 = Opts#{is_buffer_supported => true},
                     emqx_resource_buffer_worker:simple_async_query(ResId, Request, Opts1);
-                {false, sync} ->
+                simple_sync ->
+                    %% TODO(5.1.1): pass Resource instead of ResId to simple APIs
+                    %% so the buffer worker does not need to lookup the cache again
+                    emqx_resource_buffer_worker:simple_sync_query(ResId, Request);
+                sync ->
                     emqx_resource_buffer_worker:sync_query(ResId, Request, Opts);
-                {false, async} ->
+                async ->
                     emqx_resource_buffer_worker:async_query(ResId, Request, Opts)
             end;
         {error, not_found} ->
@@ -367,15 +373,6 @@ list_group_instances(Group) -> emqx_resource_manager:list_group(Group).
 get_callback_mode(Mod) ->
     Mod:callback_mode().
 
--spec is_buffer_supported(module()) -> boolean().
-is_buffer_supported(Module) ->
-    try
-        Module:is_buffer_supported()
-    catch
-        _:_ ->
-            false
-    end.
-
 -spec call_start(resource_id(), module(), resource_config()) ->
     {ok, resource_state()} | {error, Reason :: term()}.
 call_start(ResId, Mod, Config) ->
@@ -415,6 +412,17 @@ call_stop(ResId, Mod, ResourceState) ->
         end,
         Res
     end).
+
+-spec query_mode(module(), term(), creation_opts()) ->
+    simple_sync | simple_async | sync | async | no_queries.
+
+query_mode(Mod, Config, Opts) ->
+    case erlang:function_exported(Mod, query_mode, 1) of
+        true ->
+            Mod:query_mode(Config);
+        false ->
+            maps:get(query_mode, Opts, sync)
+    end.
 
 -spec check_config(resource_type(), raw_resource_config()) ->
     {ok, resource_config()} | {error, term()}.

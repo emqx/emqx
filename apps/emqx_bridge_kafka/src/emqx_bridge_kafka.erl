@@ -294,7 +294,23 @@ fields(producer_kafka_opts) ->
             mk(ref(producer_buffer), #{
                 required => false,
                 desc => ?DESC(producer_buffer)
-            })}
+            })},
+        {query_mode,
+            mk(
+                enum([async, sync]),
+                #{
+                    default => async,
+                    desc => ?DESC(query_mode)
+                }
+            )},
+        {sync_query_timeout,
+            mk(
+                emqx_schema:timeout_duration_ms(),
+                #{
+                    default => <<"5s">>,
+                    desc => ?DESC(sync_query_timeout)
+                }
+            )}
     ];
 fields(kafka_message) ->
     [

@@ -144,12 +144,18 @@ create(ResId, Group, ResourceType, Config, Opts) ->
         ],
         [matched]
     ),
-    case emqx_resource:is_buffer_supported(ResourceType) of
-        true ->
-            %% the resource it self supports
-            %% buffer, so there is no need for resource workers
+    QueryMode = emqx_resource:query_mode(ResourceType, Config, Opts),
+    case QueryMode of
+        %% the resource has built-in buffer, so there is no need for resource workers
+        simple_sync ->
             ok;
-        false ->
+        simple_async ->
+            ok;
+        %% The resource is a consumer resource, so there is no need for resource workers
+        no_queries ->
+            ok;
+        _ ->
+            %% start resource workers as the query type requires them
             ok = emqx_resource_buffer_worker_sup:start_workers(ResId, Opts),
             case maps:get(start_after_created, Opts, ?START_AFTER_CREATED) of
                 true ->
@@ -288,16 +294,17 @@ health_check(ResId) ->
 
 %% @doc Function called from the supervisor to actually start the server
 start_link(ResId, Group, ResourceType, Config, Opts) ->
+    QueryMode = emqx_resource:query_mode(
+        ResourceType,
+        Config,
+        Opts
+    ),
     Data = #data{
         id = ResId,
         group = Group,
         mod = ResourceType,
         callback_mode = emqx_resource:get_callback_mode(ResourceType),
-        %% query_mode = dynamic | sync | async
-        %% TODO:
-        %%  dynamic mode is async mode when things are going well, but becomes sync mode
-        %%  if the resource worker is overloaded
-        query_mode = maps:get(query_mode, Opts, sync),
+        query_mode = QueryMode,
         config = Config,
         opts = Opts,
         state = undefined,
