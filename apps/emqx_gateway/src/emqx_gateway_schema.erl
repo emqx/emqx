@@ -266,7 +266,7 @@ common_listener_opts() ->
             )},
         {max_connections,
             sc(
-                hoconsc:union([infinity, pos_integer()]),
+                hoconsc:union([pos_integer(), infinity]),
                 #{
                     default => 1024,
                     desc => ?DESC(gateway_common_listener_max_connections)
