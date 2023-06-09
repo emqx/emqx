@@ -902,6 +902,8 @@ typename_to_spec("json_binary()", _Mod) ->
     #{type => string, example => <<"{\"a\": [1,true]}">>};
 typename_to_spec("port_number()", _Mod) ->
     range("1..65535");
+typename_to_spec("secret_access_key()", _Mod) ->
+    #{type => string, example => <<"TW8dPwmjpjJJuLW....">>};
 typename_to_spec(Name, Mod) ->
     try_convert_to_spec(Name, Mod, [
         fun try_remote_module_type/2,
