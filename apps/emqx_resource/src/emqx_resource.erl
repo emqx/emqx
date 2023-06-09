@@ -388,7 +388,11 @@ call_start(ResId, Mod, Config) ->
         throw:Error ->
             {error, Error};
         Kind:Error:Stacktrace ->
-            {error, #{exception => Kind, reason => Error, stacktrace => Stacktrace}}
+            {error, #{
+                exception => Kind,
+                reason => Error,
+                stacktrace => emqx_utils:redact(Stacktrace)
+            }}
     end.
 
 -spec call_health_check(resource_id(), module(), resource_state()) ->
