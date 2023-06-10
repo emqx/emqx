@@ -14,25 +14,26 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
--module(emqx_plugin_libs_proto_v1).
+-module(emqx_metrics_proto_v1).
 
 -behaviour(emqx_bpapi).
 
 -export([
     introduced_in/0,
 
-    get_metrics/3
+    get_metrics/4
 ]).
 
--include_lib("emqx/include/bpapi.hrl").
+-include("bpapi.hrl").
 
 introduced_in() ->
-    "5.0.0".
+    "5.1.0".
 
 -spec get_metrics(
-    node(),
+    [node()],
     emqx_metrics_worker:handler_name(),
-    emqx_metrics_worker:metric_id()
-) -> emqx_metrics_worker:metrics() | {badrpc, _}.
-get_metrics(Node, HandlerName, MetricId) ->
-    rpc:call(Node, emqx_metrics_worker, get_metrics, [HandlerName, MetricId]).
+    emqx_metrics_worker:metric_id(),
+    timeout()
+) -> emqx_rpc:erpc_multicall(emqx_metrics_worker:metrics()).
+get_metrics(Nodes, HandlerName, MetricId, Timeout) ->
+    erpc:multicall(Nodes, emqx_metrics_worker, get_metrics, [HandlerName, MetricId], Timeout).

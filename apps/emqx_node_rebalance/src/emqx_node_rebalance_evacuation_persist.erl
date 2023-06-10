@@ -21,24 +21,16 @@
 %% APIs
 %%--------------------------------------------------------------------
 
-%% do not persist `migrate_to`:
-%% * after restart there is nothing to migrate
-%% * this value may be invalid after node was offline
--type persisted_start_opts() :: #{
-    server_reference => emqx_eviction_agent:server_reference(),
-    conn_evict_rate => pos_integer(),
-    sess_evict_rate => pos_integer(),
-    wait_takeover => pos_integer()
-}.
 -type start_opts() :: #{
     server_reference => emqx_eviction_agent:server_reference(),
     conn_evict_rate => pos_integer(),
     sess_evict_rate => pos_integer(),
-    wait_takeover => pos_integer(),
-    migrate_to => emqx_node_rebalance_evacuation:migrate_to()
+    wait_takeover => number(),
+    migrate_to => emqx_node_rebalance_evacuation:migrate_to(),
+    wait_health_check => number()
 }.
 
--spec save(persisted_start_opts()) -> ok_or_error(term()).
+-spec save(start_opts()) -> ok_or_error(term()).
 save(
     #{
         server_reference := ServerReference,
@@ -50,7 +42,7 @@ save(
     (is_binary(ServerReference) orelse ServerReference =:= undefined) andalso
         is_integer(ConnEvictRate) andalso ConnEvictRate > 0 andalso
         is_integer(SessEvictRate) andalso SessEvictRate > 0 andalso
-        is_integer(WaitTakeover) andalso WaitTakeover >= 0
+        is_number(WaitTakeover) andalso WaitTakeover >= 0
 ->
     Filepath = evacuation_filepath(),
     case filelib:ensure_dir(Filepath) of

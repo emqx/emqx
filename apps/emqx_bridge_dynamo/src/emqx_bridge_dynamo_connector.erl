@@ -17,7 +17,6 @@
 %% `emqx_resource' API
 -export([
     callback_mode/0,
-    is_buffer_supported/0,
     on_start/2,
     on_stop/2,
     on_query/3,
@@ -63,8 +62,6 @@ fields(config) ->
 %%========================================================================================
 
 callback_mode() -> always_sync.
-
-is_buffer_supported() -> false.
 
 on_start(
     InstanceId,
@@ -200,7 +197,7 @@ parse_template(Config) ->
     parse_template(maps:to_list(Templates), #{}).
 
 parse_template([{Key, H} | T], Templates) ->
-    ParamsTks = emqx_plugin_libs_rule:preproc_tmpl(H),
+    ParamsTks = emqx_placeholder:preproc_tmpl(H),
     parse_template(
         T,
         Templates#{Key => ParamsTks}

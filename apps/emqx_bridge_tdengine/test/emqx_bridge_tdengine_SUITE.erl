@@ -496,7 +496,7 @@ t_simple_sql_query(Config) ->
         ),
     case EnableBatch of
         true ->
-            ?assertEqual({error, {unrecoverable_error, batch_prepare_not_implemented}}, Result);
+            ?assertEqual({error, {unrecoverable_error, invalid_request}}, Result);
         false ->
             ?assertMatch({ok, #{<<"code">> := 0, <<"data">> := [[1]]}}, Result)
     end,
@@ -535,7 +535,7 @@ t_bad_sql_parameter(Config) ->
             2_000
         ),
 
-    ?assertMatch({error, #{<<"code">> := _}}, Result),
+    ?assertMatch({error, {unrecoverable_error, invalid_request}}, Result),
     ok.
 
 t_nasty_sql_string(Config) ->

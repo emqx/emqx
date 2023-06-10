@@ -212,7 +212,7 @@ get_rules_for_topic(Topic) ->
     [
         Rule
      || Rule = #{from := From} <- get_rules(),
-        emqx_plugin_libs_rule:can_topic_match_oneof(Topic, From)
+        emqx_topic:match_any(Topic, From)
     ].
 
 -spec get_rules_with_same_event(Topic :: binary()) -> [rule()].

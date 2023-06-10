@@ -21,6 +21,7 @@
 %% APIs
 -export([
     match/2,
+    match_any/2,
     validate/1,
     validate/2,
     levels/1,
@@ -85,6 +86,12 @@ match([_H1 | _], []) ->
     false;
 match([], [_H | _T2]) ->
     false.
+
+-spec match_any(Name, [Filter]) -> boolean() when
+    Name :: topic() | words(),
+    Filter :: topic() | words().
+match_any(Topic, Filters) ->
+    lists:any(fun(Filter) -> match(Topic, Filter) end, Filters).
 
 %% @doc Validate topic name or filter
 -spec validate(topic() | {name | filter, topic()}) -> true.

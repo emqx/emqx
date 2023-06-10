@@ -128,13 +128,13 @@ process_batch_data(BatchData, CommandTemplate) ->
 proc_command_template(CommandTemplate, Msg) ->
     lists:map(
         fun(ArgTks) ->
-            emqx_plugin_libs_rule:proc_tmpl(ArgTks, Msg, #{return => full_binary})
+            emqx_placeholder:proc_tmpl(ArgTks, Msg, #{return => full_binary})
         end,
         CommandTemplate
     ).
 
 preproc_command_template(CommandTemplate) ->
     lists:map(
-        fun emqx_plugin_libs_rule:preproc_tmpl/1,
+        fun emqx_placeholder:preproc_tmpl/1,
         CommandTemplate
     ).

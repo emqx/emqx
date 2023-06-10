@@ -45,9 +45,10 @@ init_per_testcase(TC, Config) ->
                 <<"enable">> => true,
                 <<"storage">> => #{
                     <<"local">> => #{
+                        <<"enable">> => true,
                         <<"segments">> => #{<<"root">> => SegmentsRoot},
                         <<"exporter">> => #{
-                            <<"local">> => #{<<"root">> => ExportsRoot}
+                            <<"local">> => #{<<"enable">> => true, <<"root">> => ExportsRoot}
                         }
                     }
                 }

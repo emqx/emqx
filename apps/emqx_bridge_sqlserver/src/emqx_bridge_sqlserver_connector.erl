@@ -30,7 +30,6 @@
 %% callbacks for behaviour emqx_resource
 -export([
     callback_mode/0,
-    is_buffer_supported/0,
     on_start/2,
     on_stop/2,
     on_query/3,
@@ -44,7 +43,7 @@
 %% Internal exports used to execute code with ecpool worker
 -export([do_get_status/1, worker_do_insert/3]).
 
--import(emqx_plugin_libs_rule, [str/1]).
+-import(emqx_utils_conv, [str/1]).
 -import(hoconsc, [mk/2, enum/1, ref/2]).
 
 -define(ACTION_SEND_MESSAGE, send_message).
@@ -168,8 +167,6 @@ server() ->
 %%====================================================================
 
 callback_mode() -> always_sync.
-
-is_buffer_supported() -> false.
 
 on_start(
     ResourceId = PoolName,
@@ -443,11 +440,11 @@ parse_sql_template(Config) ->
     parse_sql_template(maps:to_list(RawSQLTemplates), BatchInsertTks).
 
 parse_sql_template([{Key, H} | T], BatchInsertTks) ->
-    case emqx_plugin_libs_rule:detect_sql_type(H) of
-        {ok, select} ->
+    case emqx_utils_sql:get_statement_type(H) of
+        select ->
             parse_sql_template(T, BatchInsertTks);
-        {ok, insert} ->
-            case emqx_plugin_libs_rule:split_insert_sql(H) of
+        insert ->
+            case emqx_utils_sql:parse_insert(H) of
                 {ok, {InsertSQL, Params}} ->
                     parse_sql_template(
                         T,
@@ -455,9 +452,7 @@ parse_sql_template([{Key, H} | T], BatchInsertTks) ->
                             Key =>
                                 #{
                                     ?BATCH_INSERT_PART => InsertSQL,
-                                    ?BATCH_PARAMS_TOKENS => emqx_plugin_libs_rule:preproc_tmpl(
-                                        Params
-                                    )
+                                    ?BATCH_PARAMS_TOKENS => emqx_placeholder:preproc_tmpl(Params)
                                 }
                         }
                     );
@@ -465,6 +460,9 @@ parse_sql_template([{Key, H} | T], BatchInsertTks) ->
                     ?SLOG(error, #{msg => "split sql failed", sql => H, reason => Reason}),
                     parse_sql_template(T, BatchInsertTks)
             end;
+        Type when is_atom(Type) ->
+            ?SLOG(error, #{msg => "detect sql type unsupported", sql => H, type => Type}),
+            parse_sql_template(T, BatchInsertTks);
         {error, Reason} ->
             ?SLOG(error, #{msg => "detect sql type failed", sql => H, reason => Reason}),
             parse_sql_template(T, BatchInsertTks)
@@ -478,7 +476,7 @@ parse_sql_template([], BatchInsertTks) ->
 apply_template(
     {?ACTION_SEND_MESSAGE = _Key, _Msg} = Query, Templates
 ) ->
-    %% TODO: fix emqx_plugin_libs_rule:proc_tmpl/2
+    %% TODO: fix emqx_placeholder:proc_tmpl/2
     %% it won't add single quotes for string
     apply_template([Query], Templates);
 %% batch inserts
@@ -490,10 +488,19 @@ apply_template(
         undefined ->
             BatchReqs;
         #{?BATCH_INSERT_PART := BatchInserts, ?BATCH_PARAMS_TOKENS := BatchParamsTks} ->
-            SQL = emqx_plugin_libs_rule:proc_batch_sql(BatchReqs, BatchInserts, BatchParamsTks),
+            SQL = proc_batch_sql(BatchReqs, BatchInserts, BatchParamsTks),
             {Key, SQL}
     end;
 apply_template(Query, Templates) ->
     %% TODO: more detail infomatoin
     ?SLOG(error, #{msg => "apply sql template failed", query => Query, templates => Templates}),
     {error, failed_to_apply_sql_template}.
+
+proc_batch_sql(BatchReqs, BatchInserts, Tokens) ->
+    Values = erlang:iolist_to_binary(
+        lists:join($,, [
+            emqx_placeholder:proc_sql_param_str(Tokens, Msg)
+         || {_, Msg} <- BatchReqs
+        ])
+    ),
+    <<BatchInserts/binary, " values ", Values/binary>>.

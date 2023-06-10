@@ -51,8 +51,14 @@
     "gen_rpc, recon, redbug, observer_cli, snabbkaffe, ekka, mria, amqp_client, rabbit_common"
 ).
 -define(IGNORED_MODULES, "emqx_rpc").
--define(FORCE_DELETED_MODULES, [emqx_statsd, emqx_statsd_proto_v1]).
--define(FORCE_DELETED_APIS, [{emqx_statsd, 1}]).
+-define(FORCE_DELETED_MODULES, [
+    emqx_statsd,
+    emqx_statsd_proto_v1
+]).
+-define(FORCE_DELETED_APIS, [
+    {emqx_statsd, 1},
+    {emqx_plugin_libs, 1}
+]).
 %% List of known RPC backend modules:
 -define(RPC_MODULES, "gen_rpc, erpc, rpc, emqx_rpc").
 %% List of known functions also known to do RPC:

@@ -25,6 +25,10 @@
 
 -export([schema/1]).
 
+%% Utilities
+-export([backend/1]).
+
+%% Test-only helpers
 -export([translate/1]).
 
 -type json_value() ::
@@ -145,7 +149,7 @@ fields(local_storage) ->
                     }
                 }
             )}
-    ];
+    ] ++ common_backend_fields();
 fields(local_storage_segments) ->
     [
         {root,
@@ -193,9 +197,9 @@ fields(local_storage_exporter) ->
                     required => false
                 }
             )}
-    ];
+    ] ++ common_backend_fields();
 fields(s3_exporter) ->
-    emqx_s3_schema:fields(s3);
+    emqx_s3_schema:fields(s3) ++ common_backend_fields();
 fields(local_storage_segments_gc) ->
     [
         {interval,
@@ -228,6 +232,18 @@ fields(local_storage_segments_gc) ->
                     % NOTE
                     % This setting does not seem to be useful to an end-user.
                     hidden => true
+                }
+            )}
+    ].
+
+common_backend_fields() ->
+    [
+        {enable,
+            mk(
+                boolean(), #{
+                    desc => ?DESC("backend_enable"),
+                    required => false,
+                    default => true
                 }
             )}
     ].
@@ -278,11 +294,14 @@ validator(filename) ->
     ];
 validator(backend) ->
     fun(Config) ->
-        case maps:keys(Config) of
-            [_Type] ->
+        Enabled = maps:filter(fun(_, #{<<"enable">> := E}) -> E end, Config),
+        case maps:to_list(Enabled) of
+            [{_Type, _BackendConfig}] ->
                 ok;
             _Conflicts = [_ | _] ->
-                {error, multiple_conflicting_backends}
+                {error, multiple_enabled_backends};
+            _None = [] ->
+                {error, no_enabled_backend}
         end
     end.
 
@@ -314,11 +333,24 @@ converter(unicode_string) ->
 ref(Ref) ->
     ref(?MODULE, Ref).
 
+%% Utilities
+
+-spec backend(emqx_config:config()) ->
+    {_Type :: atom(), emqx_config:config()}.
+backend(Config) ->
+    catch maps:foreach(fun emit_enabled/2, Config).
+
+-spec emit_enabled(atom(), emqx_config:config()) ->
+    no_return().
+emit_enabled(Type, BConf = #{enable := Enabled}) ->
+    Enabled andalso throw({Type, BConf}).
+
+%% Test-only helpers
+
+-spec translate(emqx_config:raw_config()) ->
+    emqx_config:config().
 translate(Conf) ->
     [Root] = roots(),
-    maps:get(
-        Root,
-        hocon_tconf:check_plain(
-            ?MODULE, #{atom_to_binary(Root) => Conf}, #{atom_key => true}, [Root]
-        )
-    ).
+    RootRaw = atom_to_binary(Root),
+    ConfChecked = hocon_tconf:check_plain(?MODULE, #{RootRaw => Conf}, #{}, [Root]),
+    emqx_utils_maps:unsafe_atom_key_map(maps:get(RootRaw, ConfChecked)).

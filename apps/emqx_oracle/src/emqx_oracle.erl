@@ -18,7 +18,6 @@
 %% callbacks for behaviour emqx_resource
 -export([
     callback_mode/0,
-    is_buffer_supported/0,
     on_start/2,
     on_stop/2,
     on_query/3,
@@ -68,8 +67,6 @@
 % be sync for now.
 callback_mode() -> always_sync.
 
-is_buffer_supported() -> false.
-
 -spec on_start(binary(), hoconsc:config()) -> {ok, state()} | {error, _}.
 on_start(
     InstId,
@@ -93,14 +90,14 @@ on_start(
     ServiceName =
         case maps:get(service_name, Config, undefined) of
             undefined -> undefined;
-            ServiceName0 -> emqx_plugin_libs_rule:str(ServiceName0)
+            ServiceName0 -> emqx_utils_conv:str(ServiceName0)
         end,
     Options = [
         {host, Host},
         {port, Port},
-        {user, emqx_plugin_libs_rule:str(User)},
+        {user, emqx_utils_conv:str(User)},
         {password, jamdb_secret:wrap(maps:get(password, Config, ""))},
-        {sid, emqx_plugin_libs_rule:str(Sid)},
+        {sid, emqx_utils_conv:str(Sid)},
         {service_name, ServiceName},
         {pool_size, maps:get(<<"pool_size">>, Config, ?DEFAULT_POOL_SIZE)},
         {timeout, ?OPT_TIMEOUT},
@@ -168,7 +165,7 @@ on_batch_query(
                     {error, {unrecoverable_error, batch_prepare_not_implemented}};
                 TokenList ->
                     {_, Datas} = lists:unzip(BatchReq),
-                    Datas2 = [emqx_plugin_libs_rule:proc_sql(TokenList, Data) || Data <- Datas],
+                    Datas2 = [emqx_placeholder:proc_sql(TokenList, Data) || Data <- Datas],
                     St = maps:get(BinKey, Sts),
                     case
                         on_sql_query(InstId, PoolName, execute_batch, ?SYNC_QUERY_MODE, St, Datas2)
@@ -204,7 +201,7 @@ proc_sql_params(TypeOrKey, SQLOrData, Params, #{
                 undefined ->
                     {SQLOrData, Params};
                 Sql ->
-                    {Sql, emqx_plugin_libs_rule:proc_sql(Tokens, SQLOrData)}
+                    {Sql, emqx_placeholder:proc_sql(Tokens, SQLOrData)}
             end
     end.
 
@@ -268,14 +265,14 @@ connect(Opts) ->
     jamdb_oracle:start_link(Opts).
 
 sql_query_to_str(SqlQuery) ->
-    emqx_plugin_libs_rule:str(SqlQuery).
+    emqx_utils_conv:str(SqlQuery).
 
 sql_params_to_str(Params) when is_list(Params) ->
     lists:map(
         fun
             (false) -> "0";
             (true) -> "1";
-            (Value) -> emqx_plugin_libs_rule:str(Value)
+            (Value) -> emqx_utils_conv:str(Value)
         end,
         Params
     ).
@@ -305,7 +302,7 @@ parse_prepare_sql(Config) ->
     parse_prepare_sql(maps:to_list(SQL), #{}, #{}).
 
 parse_prepare_sql([{Key, H} | T], Prepares, Tokens) ->
-    {PrepareSQL, ParamsTokens} = emqx_plugin_libs_rule:preproc_sql(H, ':n'),
+    {PrepareSQL, ParamsTokens} = emqx_placeholder:preproc_sql(H, ':n'),
     parse_prepare_sql(
         T, Prepares#{Key => PrepareSQL}, Tokens#{Key => ParamsTokens}
     );

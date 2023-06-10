@@ -81,7 +81,7 @@ t_compile(_) ->
                 {{127, 0, 0, 1}, {127, 0, 0, 1}, 32},
                 {{192, 168, 1, 0}, {192, 168, 1, 255}, 24}
             ]},
-            subscribe, [{pattern, [{var, {var, <<"clientid">>}}]}]},
+            subscribe, [{pattern, [{var, [<<"clientid">>]}]}]},
         emqx_authz_rule:compile(?SOURCE3)
     ),
 
@@ -99,14 +99,14 @@ t_compile(_) ->
                 {clientid, {re_pattern, _, _, _, _}}
             ]},
             publish, [
-                {pattern, [{var, {var, <<"username">>}}]}, {pattern, [{var, {var, <<"clientid">>}}]}
+                {pattern, [{var, [<<"username">>]}]}, {pattern, [{var, [<<"clientid">>]}]}
             ]},
         emqx_authz_rule:compile(?SOURCE5)
     ),
 
     ?assertEqual(
         {allow, {username, {eq, <<"test">>}}, publish, [
-            {pattern, [{str, <<"t/foo">>}, {var, {var, <<"username">>}}, {str, <<"boo">>}]}
+            {pattern, [{str, <<"t/foo">>}, {var, [<<"username">>]}, {str, <<"boo">>}]}
         ]},
         emqx_authz_rule:compile(?SOURCE6)
     ),

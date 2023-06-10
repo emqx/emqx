@@ -485,7 +485,8 @@ to_server_opts(Type, Opts) ->
             cacertfile => Path(cacertfile),
             ciphers => Ciphers,
             versions => Versions
-        })
+        }),
+        Versions
     ).
 
 %% @doc Convert hocon-checked tls client options (map()) to
@@ -510,19 +511,22 @@ to_client_opts(Type, Opts) ->
             SNI = ensure_sni(Get(server_name_indication)),
             Versions = integral_versions(Type, Get(versions)),
             Ciphers = integral_ciphers(Versions, Get(ciphers)),
-            filter([
-                {keyfile, KeyFile},
-                {certfile, CertFile},
-                {cacertfile, CAFile},
-                {verify, Verify},
-                {server_name_indication, SNI},
-                {versions, Versions},
-                {ciphers, Ciphers},
-                {reuse_sessions, Get(reuse_sessions)},
-                {depth, Get(depth)},
-                {password, ensure_str(Get(password))},
-                {secure_renegotiate, Get(secure_renegotiate)}
-            ]);
+            filter(
+                [
+                    {keyfile, KeyFile},
+                    {certfile, CertFile},
+                    {cacertfile, CAFile},
+                    {verify, Verify},
+                    {server_name_indication, SNI},
+                    {versions, Versions},
+                    {ciphers, Ciphers},
+                    {reuse_sessions, Get(reuse_sessions)},
+                    {depth, Get(depth)},
+                    {password, ensure_str(Get(password))},
+                    {secure_renegotiate, Get(secure_renegotiate)}
+                ],
+                Versions
+            );
         false ->
             []
     end.
@@ -552,10 +556,35 @@ resolve_cert_path_for_read_strict(Path) ->
 resolve_cert_path_for_read(Path) ->
     emqx_schema:naive_env_interpolation(Path).
 
-filter([]) -> [];
-filter([{_, undefined} | T]) -> filter(T);
-filter([{_, ""} | T]) -> filter(T);
-filter([H | T]) -> [H | filter(T)].
+filter([], _) ->
+    [];
+filter([{_, undefined} | T], Versions) ->
+    filter(T, Versions);
+filter([{_, ""} | T], Versions) ->
+    filter(T, Versions);
+filter([{K, V} | T], Versions) ->
+    case tls_option_compatible_versions(K) of
+        all ->
+            [{K, V} | filter(T, Versions)];
+        CompatibleVersions ->
+            case CompatibleVersions -- (CompatibleVersions -- Versions) of
+                [] ->
+                    filter(T, Versions);
+                _ ->
+                    [{K, V} | filter(T, Versions)]
+            end
+    end.
+
+tls_option_compatible_versions(reuse_sessions) ->
+    [dtlsv1, 'dtlsv1.2', 'tlsv1', 'tlsv1.1', 'tlsv1.2'];
+tls_option_compatible_versions(secure_renegotiate) ->
+    [dtlsv1, 'dtlsv1.2', 'tlsv1', 'tlsv1.1', 'tlsv1.2'];
+tls_option_compatible_versions(user_lookup_fun) ->
+    [dtlsv1, 'dtlsv1.2', 'tlsv1', 'tlsv1.1', 'tlsv1.2'];
+tls_option_compatible_versions(client_renegotiation) ->
+    [dtlsv1, 'dtlsv1.2', 'tlsv1', 'tlsv1.1', 'tlsv1.2'];
+tls_option_compatible_versions(_) ->
+    all.
 
 -spec fuzzy_map_get(atom() | binary(), map(), any()) -> any().
 fuzzy_map_get(Key, Options, Default) ->

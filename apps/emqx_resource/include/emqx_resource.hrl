@@ -22,7 +22,7 @@
 -type resource_state() :: term().
 -type resource_status() :: connected | disconnected | connecting | stopped.
 -type callback_mode() :: always_sync | async_if_possible.
--type query_mode() :: async | sync | dynamic.
+-type query_mode() :: async | sync | simple_async | simple_sync | dynamic.
 -type result() :: term().
 -type reply_fun() :: {fun((result(), Args :: term()) -> any()), Args :: term()} | undefined.
 -type query_opts() :: #{
