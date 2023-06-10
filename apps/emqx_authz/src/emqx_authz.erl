@@ -163,20 +163,19 @@ do_pre_config_update(?ROOT_KEY, NewConf, OldConf) ->
     do_pre_config_replace(NewConf, OldConf).
 
 do_pre_config_merge(NewConf, OldConf) ->
-    MergeConf0 = emqx_utils_maps:deep_merge(OldConf, NewConf),
-    NewSources = merge_sources(NewConf, OldConf),
-    do_pre_config_replace(MergeConf0#{<<"sources">> := NewSources}, OldConf).
+    MergeConf = emqx_utils_maps:deep_merge(OldConf, NewConf),
+    NewSources = merge_sources(OldConf, NewConf),
+    do_pre_config_replace(MergeConf#{<<"sources">> => NewSources}, OldConf).
 
 %% override the entire config when updating the root key
 %% emqx_conf:update(?ROOT_KEY, Conf);
 do_pre_config_replace(Conf, Conf) ->
     Conf;
 do_pre_config_replace(NewConf, OldConf) ->
-    Default = [emqx_authz_schema:default_authz()],
-    NewSources = maps:get(<<"sources">>, NewConf, Default),
-    OldSources = maps:get(<<"sources">>, OldConf, Default),
-    NewSources1 = do_pre_config_update({?CMD_REPLACE, NewSources}, OldSources),
-    NewConf#{<<"sources">> => NewSources1}.
+    NewSources = get_sources(NewConf),
+    OldSources = get_sources(OldConf),
+    ReplaceSources = do_pre_config_update({?CMD_REPLACE, NewSources}, OldSources),
+    NewConf#{<<"sources">> => ReplaceSources}.
 
 do_pre_config_update({?CMD_MOVE, _, _} = Cmd, Sources) ->
     do_move(Cmd, Sources);
@@ -472,8 +471,8 @@ get_enabled_authzs() ->
 %%------------------------------------------------------------------------------
 
 import_config(#{?CONF_NS_BINARY := AuthzConf}) ->
-    Sources = maps:get(<<"sources">>, AuthzConf, []),
-    OldSources = emqx:get_raw_config(?CONF_KEY_PATH, []),
+    Sources = get_sources(AuthzConf),
+    OldSources = emqx:get_raw_config(?CONF_KEY_PATH, [emqx_authz_schema:default_authz()]),
     MergedSources = emqx_utils:merge_lists(OldSources, Sources, fun type/1),
     MergedAuthzConf = AuthzConf#{<<"sources">> => MergedSources},
     case emqx_conf:update([?CONF_NS_ATOM], MergedAuthzConf, #{override_to => cluster}) of
@@ -533,12 +532,12 @@ take(Type) -> take(Type, lookup()).
 %% Take the source of give type, the sources list is split into two parts
 %% front part and rear part.
 take(Type, Sources) ->
-    {Front, Rear} = lists:splitwith(fun(T) -> type(T) =/= type(Type) end, Sources),
-    case Rear =:= [] of
-        true ->
+    Expect = type(Type),
+    case lists:splitwith(fun(T) -> type(T) =/= Expect end, Sources) of
+        {_Front, []} ->
             throw({not_found_source, Type});
-        _ ->
-            {hd(Rear), Front, tl(Rear)}
+        {Front, [Found | Rear]} ->
+            {Found, Front, Rear}
     end.
 
 find_action_in_hooks() ->
@@ -636,14 +635,11 @@ check_acl_file_rules(Path, Rules) ->
         _ = file:delete(TmpPath)
     end.
 
-merge_sources(OldConf, NewConf) ->
-    Default = [emqx_authz_schema:default_authz()],
-    NewSources0 = maps:get(<<"sources">>, NewConf, Default),
-    OriginSources0 = maps:get(<<"sources">>, OldConf, Default),
+merge_sources(OriginConf, NewConf) ->
     {OriginSource, NewSources} =
         lists:foldl(
             fun(Old = #{<<"type">> := Type}, {OriginAcc, NewAcc}) ->
-                case search(Type, NewAcc) of
+                case type_take(Type, NewAcc) of
                     not_found ->
                         {[Old | OriginAcc], NewAcc};
                     {New, NewAcc1} ->
@@ -651,15 +647,20 @@ merge_sources(OldConf, NewConf) ->
                         {[MergeSource | OriginAcc], NewAcc1}
                 end
             end,
-            {[], NewSources0},
-            OriginSources0
+            {[], get_sources(NewConf)},
+            get_sources(OriginConf)
         ),
     lists:reverse(OriginSource) ++ NewSources.
 
-search(Type, Sources) ->
-    case lists:splitwith(fun(T) -> type(T) =/= type(Type) end, Sources) of
-        {_Front, []} -> not_found;
-        {Front, [Target | Rear]} -> {Target, Front ++ Rear}
+get_sources(Conf) ->
+    Default = [emqx_authz_schema:default_authz()],
+    maps:get(<<"sources">>, Conf, Default).
+
+type_take(Type, Sources) ->
+    try take(Type, Sources) of
+        {Found, Front, Rear} -> {Found, Front ++ Rear}
+    catch
+        throw:{not_found_source, Type} -> not_found
     end.
 
 -ifdef(TEST).
