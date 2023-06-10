@@ -435,19 +435,19 @@ parse_body(ContentType, _) ->
 uri_encode(T) ->
     emqx_http_lib:uri_encode(to_list(T)).
 
-request_for_log(Credential, #{url := Url} = State) ->
+request_for_log(Credential, #{url := Url, method := Method} = State) ->
     SafeCredential = emqx_authn_utils:without_password(Credential),
     case generate_request(SafeCredential, State) of
         {PathQuery, Headers} ->
             #{
-                method => post,
+                method => Method,
                 base_url => Url,
                 path_query => PathQuery,
                 headers => Headers
             };
         {PathQuery, Headers, Body} ->
             #{
-                method => post,
+                method => Method,
                 base_url => Url,
                 path_query => PathQuery,
                 headers => Headers,
