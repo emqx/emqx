@@ -31,7 +31,6 @@
 -export([dump_schema/2]).
 -export([schema_module/0]).
 -export([gen_example_conf/2]).
--export([reload_etc_conf_on_local_node/0]).
 -export([check_config/2]).
 
 %% TODO: move to emqx_dashboard when we stop building api schema at build time
@@ -216,94 +215,6 @@ schema_module() ->
         Value -> list_to_existing_atom(Value)
     end.
 
-%% @doc Reload etc/emqx.conf to runtime config except for the readonly config
--spec reload_etc_conf_on_local_node() -> ok | {error, term()}.
-reload_etc_conf_on_local_node() ->
-    case load_etc_config_file() of
-        {ok, RawConf} ->
-            case check_readonly_config(RawConf) of
-                {ok, Reloaded} -> reload_config(Reloaded);
-                {error, Error} -> {error, Error}
-            end;
-        {error, _Error} ->
-            {error, bad_hocon_file}
-    end.
-
-reload_config(AllConf) ->
-    Func = fun(Key, Conf, Acc) ->
-        case emqx:update_config([Key], Conf, #{persistent => false}) of
-            {ok, _} ->
-                io:format("Reloaded ~ts config ok~n", [Key]),
-                Acc;
-            Error ->
-                ?ELOG("Reloaded ~ts config failed~n~p~n", [Key, Error]),
-                ?SLOG(error, #{
-                    msg => "failed_to_reload_etc_config",
-                    key => Key,
-                    value => Conf,
-                    error => Error
-                }),
-                Acc#{Key => Error}
-        end
-    end,
-    Res = maps:fold(Func, #{}, AllConf),
-    case Res =:= #{} of
-        true -> ok;
-        false -> {error, Res}
-    end.
-
-%% @doc Merge etc/emqx.conf on top of cluster.hocon.
-%% For example:
-%% `authorization.sources` will be merged into cluster.hocon when updated via dashboard,
-%% but `authorization.sources` in not in the default emqx.conf file.
-%% To make sure all root keys in emqx.conf has a fully merged value.
-load_etc_config_file() ->
-    ConfFiles = emqx_config:config_files(),
-    Opts = #{format => map, include_dirs => emqx_config:include_dirs()},
-    case hocon:files(ConfFiles, Opts) of
-        {ok, RawConf} ->
-            HasDeprecatedFile = emqx_config:has_deprecated_file(),
-            %% Merge etc.conf on top of cluster.hocon,
-            %% Don't use map deep_merge, use hocon files merge instead.
-            %% In order to have a chance to delete. (e.g. zones.zone1.mqtt = null)
-            Keys = maps:keys(RawConf),
-            MergedRaw = emqx_config:load_config_files(HasDeprecatedFile, ConfFiles),
-            {ok, maps:with(Keys, MergedRaw)};
-        {error, Error} ->
-            ?SLOG(error, #{
-                msg => "failed_to_read_etc_config",
-                files => ConfFiles,
-                error => Error
-            }),
-            {error, Error}
-    end.
-
-check_readonly_config(Raw) ->
-    SchemaMod = schema_module(),
-    RawDefault = emqx_config:fill_defaults(Raw),
-    case check_config(SchemaMod, RawDefault) of
-        {ok, CheckedConf} ->
-            case
-                lists:filtermap(fun(Key) -> filter_changed(Key, CheckedConf) end, ?READONLY_KEYS)
-            of
-                [] ->
-                    {ok, maps:without([atom_to_binary(K) || K <- ?READONLY_KEYS], Raw)};
-                Error ->
-                    ?SLOG(error, #{
-                        msg => "failed_to_change_read_only_key_in_etc_config",
-                        read_only_keys => ?READONLY_KEYS,
-                        error => Error
-                    }),
-                    {error, Error}
-            end;
-        {error, Error} ->
-            ?SLOG(error, #{
-                msg => "failed_to_check_etc_config",
-                error => Error
-            }),
-            {error, Error}
-    end.
-
 check_config(Mod, Raw) ->
     try
         {_AppEnvs, CheckedConf} = emqx_config:check_config(Mod, Raw),
@@ -316,18 +227,6 @@ check_config(Mod, Raw) ->
 %%--------------------------------------------------------------------
 %% Internal functions
 %%--------------------------------------------------------------------
-
-filter_changed(Key, ChangedConf) ->
-    Prev = get([Key], #{}),
-    New = maps:get(Key, ChangedConf, #{}),
-    case Prev =/= New of
-        true -> {true, {Key, changed(New, Prev)}};
-        false -> false
-    end.
-
-changed(New, Prev) ->
-    Diff = emqx_utils_maps:diff_maps(New, Prev),
-    maps:filter(fun(_Key, Value) -> Value =/= #{} end, maps:remove(identical, Diff)).
 
 %% @doc Make a resolver function that can be used to lookup the description by hocon_schema_json dump.
 make_desc_resolver(Lang) ->

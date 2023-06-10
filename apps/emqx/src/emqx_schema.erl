@@ -382,7 +382,7 @@ fields("persistent_table_mria_opts") ->
     ];
 fields("persistent_session_builtin") ->
     [
-        {"type", sc(hoconsc:enum([builtin]), #{default => builtin, desc => ""})},
+        {"type", sc(hoconsc:enum([builtin]), #{default => <<"builtin">>, desc => ""})},
         {"session",
             sc(ref("persistent_table_mria_opts"), #{
                 desc => ?DESC(persistent_session_builtin_session_table)
@@ -548,7 +548,7 @@ fields("mqtt") ->
             sc(
                 hoconsc:union([integer(), disabled]),
                 #{
-                    default => disabled,
+                    default => <<"disabled">>,
                     desc => ?DESC(mqtt_server_keepalive)
                 }
             )},
@@ -575,7 +575,7 @@ fields("mqtt") ->
             sc(
                 hoconsc:union([range(1, inf), infinity]),
                 #{
-                    default => infinity,
+                    default => <<"infinity">>,
                     desc => ?DESC(mqtt_max_subscriptions)
                 }
             )},
@@ -639,7 +639,7 @@ fields("mqtt") ->
             sc(
                 hoconsc:union([disabled, map()]),
                 #{
-                    default => disabled,
+                    default => <<"disabled">>,
                     desc => ?DESC(mqtt_mqueue_priorities)
                 }
             )},
@@ -647,7 +647,7 @@ fields("mqtt") ->
             sc(
                 hoconsc:enum([highest, lowest]),
                 #{
-                    default => lowest,
+                    default => <<"lowest">>,
                     desc => ?DESC(mqtt_mqueue_default_priority)
                 }
             )},
@@ -671,7 +671,7 @@ fields("mqtt") ->
             sc(
                 hoconsc:enum([disabled, cn, dn, crt, pem, md5]),
                 #{
-                    default => disabled,
+                    default => <<"disabled">>,
                     desc => ?DESC(mqtt_peer_cert_as_username)
                 }
             )},
@@ -679,7 +679,7 @@ fields("mqtt") ->
             sc(
                 hoconsc:enum([disabled, cn, dn, crt, pem, md5]),
                 #{
-                    default => disabled,
+                    default => <<"disabled">>,
                     desc => ?DESC(mqtt_peer_cert_as_clientid)
                 }
             )}
@@ -1224,7 +1224,7 @@ fields("ws_opts") ->
             sc(
                 hoconsc:enum([single, multiple]),
                 #{
-                    default => multiple,
+                    default => <<"multiple">>,
                     desc => ?DESC(fields_ws_opts_mqtt_piggyback)
                 }
             )},
@@ -1248,7 +1248,7 @@ fields("ws_opts") ->
             sc(
                 hoconsc:union([infinity, integer()]),
                 #{
-                    default => infinity,
+                    default => <<"infinity">>,
                     desc => ?DESC(fields_ws_opts_max_frame_size)
                 }
             )},
@@ -1506,7 +1506,7 @@ fields("deflate_opts") ->
             sc(
                 hoconsc:enum([default, filtered, huffman_only, rle]),
                 #{
-                    default => default,
+                    default => <<"default">>,
                     desc => ?DESC(fields_deflate_opts_strategy)
                 }
             )},
@@ -1514,7 +1514,7 @@ fields("deflate_opts") ->
             sc(
                 hoconsc:enum([takeover, no_takeover]),
                 #{
-                    default => takeover,
+                    default => <<"takeover">>,
                     desc => ?DESC(fields_deflate_opts_server_context_takeover)
                 }
             )},
@@ -1522,7 +1522,7 @@ fields("deflate_opts") ->
             sc(
                 hoconsc:enum([takeover, no_takeover]),
                 #{
-                    default => takeover,
+                    default => <<"takeover">>,
                     desc => ?DESC(fields_deflate_opts_client_context_takeover)
                 }
             )},
@@ -1557,7 +1557,7 @@ fields("broker") ->
             sc(
                 hoconsc:enum([local, leader, quorum, all]),
                 #{
-                    default => quorum,
+                    default => <<"quorum">>,
                     desc => ?DESC(broker_session_locking_strategy)
                 }
             )},
@@ -1573,7 +1573,7 @@ fields("broker") ->
                     hash_clientid
                 ]),
                 #{
-                    default => round_robin,
+                    default => <<"round_robin">>,
                     desc => ?DESC(broker_shared_subscription_strategy)
                 }
             )},
@@ -1626,7 +1626,7 @@ fields("shared_subscription_group") ->
                     hash_clientid
                 ]),
                 #{
-                    default => random,
+                    default => <<"random">>,
                     desc => ?DESC(shared_subscription_strategy_enum)
                 }
             )}
@@ -1637,7 +1637,7 @@ fields("broker_perf") ->
             sc(
                 hoconsc:enum([key, tab, global]),
                 #{
-                    default => key,
+                    default => <<"key">>,
                     desc => ?DESC(broker_perf_route_lock_type)
                 }
             )},
@@ -1759,7 +1759,7 @@ fields("sysmon_vm") ->
             sc(
                 hoconsc:union([disabled, duration()]),
                 #{
-                    default => disabled,
+                    default => <<"disabled">>,
                     desc => ?DESC(sysmon_vm_long_gc)
                 }
             )},
@@ -1959,7 +1959,7 @@ fields("trace") ->
     [
         {"payload_encode",
             sc(hoconsc:enum([hex, text, hidden]), #{
-                default => text,
+                default => <<"text">>,
                 deprecated => {since, "5.0.22"},
                 importance => ?IMPORTANCE_HIDDEN,
                 desc => ?DESC(fields_trace_payload_encode)
@@ -2048,7 +2048,7 @@ base_listener(Bind) ->
                 atom(),
                 #{
                     desc => ?DESC(base_listener_zone),
-                    default => 'default'
+                    default => <<"default">>
                 }
             )},
         {"limiter",
@@ -2283,7 +2283,7 @@ common_ssl_opts_schema(Defaults, Type) ->
             sc(
                 hoconsc:enum([verify_peer, verify_none]),
                 #{
-                    default => Df("verify", verify_none),
+                    default => Df("verify", <<"verify_none">>),
                     desc => ?DESC(common_ssl_opts_schema_verify)
                 }
             )},
@@ -2351,7 +2351,7 @@ common_ssl_opts_schema(Defaults, Type) ->
                     emergency, alert, critical, error, warning, notice, info, debug, none, all
                 ]),
                 #{
-                    default => notice,
+                    default => <<"notice">>,
                     desc => ?DESC(common_ssl_opts_schema_log_level),
                     importance => ?IMPORTANCE_LOW
                 }
@@ -2611,7 +2611,7 @@ authz_fields() ->
             sc(
                 hoconsc:enum([allow, deny]),
                 #{
-                    default => allow,
+                    default => <<"allow">>,
                     required => true,
                     desc => ?DESC(fields_authorization_no_match)
                 }
@@ -2620,7 +2620,7 @@ authz_fields() ->
             sc(
                 hoconsc:enum([ignore, disconnect]),
                 #{
-                    default => ignore,
+                    default => <<"ignore">>,
                     required => true,
                     desc => ?DESC(fields_authorization_deny_action)
                 }

@@ -46,11 +46,10 @@
 
 -export([schema/2]).
 
--define(MOD, module).
+-define(MOD, '$mod').
 -define(WKEY, '?').
 
 -type handler_name() :: module().
--type handlers() :: #{emqx_config:config_key() => handlers(), ?MOD => handler_name()}.
 
 -optional_callbacks([
     pre_config_update/3,
@@ -69,10 +68,7 @@
 ) ->
     ok | {ok, Result :: any()} | {error, Reason :: term()}.
 
--type state() :: #{
-    handlers := handlers(),
-    atom() => term()
-}.
+-type state() :: #{handlers := any()}.
 
 start_link() ->
     gen_server:start_link({local, ?MODULE}, ?MODULE, {}, []).

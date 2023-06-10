@@ -19,7 +19,7 @@
 -compile(export_all).
 -compile(nowarn_export_all).
 
--define(MOD, {mod}).
+-define(MOD, '$mod').
 -define(WKEY, '?').
 -define(CLUSTER_CONF, "/tmp/cluster.conf").
 

@@ -286,9 +286,9 @@ perform_sanity_checks(_App) ->
     ok.
 
 ensure_config_handler(Module, ConfigPath) ->
-    #{handlers := Handlers} = sys:get_state(emqx_config_handler),
+    #{handlers := Handlers} = emqx_config_handler:info(),
     case emqx_utils_maps:deep_get(ConfigPath, Handlers, not_found) of
-        #{{mod} := Module} -> ok;
+        #{'$mod' := Module} -> ok;
         NotFound -> error({config_handler_missing, ConfigPath, Module, NotFound})
     end,
     ok.

@@ -31,6 +31,7 @@
 %% kept cluster_call for compatibility
 -define(CLUSTER_CALL, cluster_call).
 -define(CONF, conf).
+-define(UPDATE_READONLY_KEYS_PROHIBITED, "update_readonly_keys_prohibited").
 
 load() ->
     emqx_ctl:register_command(?CLUSTER_CALL, {?MODULE, admins}, [hidden]),
@@ -55,7 +56,7 @@ conf(["load", Path]) ->
 conf(["cluster_sync" | Args]) ->
     admins(Args);
 conf(["reload"]) ->
-    emqx_conf:reload_etc_conf_on_local_node();
+    reload_etc_conf_on_local_node();
 conf(_) ->
     emqx_ctl:usage(usage_conf() ++ usage_sync()).
 
@@ -190,16 +191,25 @@ load_config(Path, AuthChain) ->
         {ok, RawConf} ->
             case check_config(RawConf) of
                 ok ->
-                    maps:foreach(fun(K, V) -> update_config(K, V, AuthChain) end, RawConf);
-                {error, Reason} when is_list(Reason) ->
+                    lists:foreach(
+                        fun({K, V}) -> update_config(K, V, AuthChain) end,
+                        to_sorted_list(RawConf)
+                    );
+                {error, ?UPDATE_READONLY_KEYS_PROHIBITED = Reason} ->
                     emqx_ctl:warning("load ~ts failed~n~ts~n", [Path, Reason]),
                     emqx_ctl:warning(
                         "Maybe try `emqx_ctl conf reload` to reload etc/emqx.conf on local node~n"
                     ),
                     {error, Reason};
-                {error, Reason} when is_map(Reason) ->
-                    emqx_ctl:warning("load ~ts schema check failed~n~p~n", [Path, Reason]),
-                    {error, Reason}
+                {error, Errors} ->
+                    emqx_ctl:warning("load ~ts schema check failed~n", [Path]),
+                    lists:foreach(
+                        fun({Key, Error}) ->
+                            emqx_ctl:warning("~ts: ~p~n", [Key, Error])
+                        end,
+                        Errors
+                    ),
+                    {error, Errors}
             end;
         {error, Reason} ->
             emqx_ctl:warning("load ~ts failed~n~p~n", [Path, Reason]),
@@ -207,14 +217,11 @@ load_config(Path, AuthChain) ->
     end.
 
 update_config(?EMQX_AUTHORIZATION_CONFIG_ROOT_NAME = Key, Conf, "merge") ->
-    Res = emqx_authz:merge(Conf),
-    check_res(Key, Res);
+    check_res(Key, emqx_authz:merge(Conf));
 update_config(?EMQX_AUTHENTICATION_CONFIG_ROOT_NAME = Key, Conf, "merge") ->
-    Res = emqx_authn:merge_config(Conf),
-    check_res(Key, Res);
+    check_res(Key, emqx_authn:merge_config(Conf));
 update_config(Key, Value, _) ->
-    Res = emqx_conf:update([Key], Value, ?OPTIONS),
-    check_res(Key, Res).
+    check_res(Key, emqx_conf:update([Key], Value, ?OPTIONS)).
 
 check_res(Key, {ok, _}) -> emqx_ctl:print("load ~ts in cluster ok~n", [Key]);
 check_res(Key, {error, Reason}) -> emqx_ctl:warning("load ~ts failed~n~p~n", [Key, Reason]).
@@ -230,24 +237,123 @@ check_keys_is_not_readonly(Conf) ->
     ReadOnlyKeys = [atom_to_binary(K) || K <- ?READONLY_KEYS],
     case ReadOnlyKeys -- Keys of
         ReadOnlyKeys -> ok;
-        _ -> {error, "update_readonly_keys_prohibited"}
+        _ -> {error, ?UPDATE_READONLY_KEYS_PROHIBITED}
     end.
 
 check_config_schema(Conf) ->
     SchemaMod = emqx_conf:schema_module(),
-    Res =
-        maps:fold(
-            fun(Key, Value, Acc) ->
-                Schema = emqx_config_handler:schema(SchemaMod, [Key]),
-                case emqx_conf:check_config(Schema, #{Key => Value}) of
-                    {ok, _} -> Acc;
-                    {error, Reason} -> #{Key => Reason}
-                end
-            end,
-            #{},
-            Conf
-        ),
-    case Res =:= #{} of
-        true -> ok;
-        false -> {error, Res}
+    Fold = fun({Key, Value}, Acc) ->
+        Schema = emqx_config_handler:schema(SchemaMod, [Key]),
+        case emqx_conf:check_config(Schema, #{Key => Value}) of
+            {ok, _} -> Acc;
+            {error, Reason} -> [{Key, Reason} | Acc]
+        end
+    end,
+    sorted_fold(Fold, Conf).
+
+%% @doc Reload etc/emqx.conf to runtime config except for the readonly config
+-spec reload_etc_conf_on_local_node() -> ok | {error, term()}.
+reload_etc_conf_on_local_node() ->
+    case load_etc_config_file() of
+        {ok, RawConf} ->
+            case check_readonly_config(RawConf) of
+                {ok, Reloaded} -> reload_config(Reloaded);
+                {error, Error} -> {error, Error}
+            end;
+        {error, _Error} ->
+            {error, bad_hocon_file}
     end.
+
+%% @doc Merge etc/emqx.conf on top of cluster.hocon.
+%% For example:
+%% `authorization.sources` will be merged into cluster.hocon when updated via dashboard,
+%% but `authorization.sources` in not in the default emqx.conf file.
+%% To make sure all root keys in emqx.conf has a fully merged value.
+load_etc_config_file() ->
+    ConfFiles = emqx_config:config_files(),
+    Opts = #{format => map, include_dirs => emqx_config:include_dirs()},
+    case hocon:files(ConfFiles, Opts) of
+        {ok, RawConf} ->
+            HasDeprecatedFile = emqx_config:has_deprecated_file(),
+            %% Merge etc.conf on top of cluster.hocon,
+            %% Don't use map deep_merge, use hocon files merge instead.
+            %% In order to have a chance to delete. (e.g. zones.zone1.mqtt = null)
+            Keys = maps:keys(RawConf),
+            MergedRaw = emqx_config:load_config_files(HasDeprecatedFile, ConfFiles),
+            {ok, maps:with(Keys, MergedRaw)};
+        {error, Error} ->
+            ?SLOG(error, #{
+                msg => "failed_to_read_etc_config",
+                files => ConfFiles,
+                error => Error
+            }),
+            {error, Error}
+    end.
+
+check_readonly_config(Raw) ->
+    SchemaMod = emqx_conf:schema_module(),
+    RawDefault = emqx_config:fill_defaults(Raw),
+    case emqx_conf:check_config(SchemaMod, RawDefault) of
+        {ok, CheckedConf} ->
+            case filter_changed_readonly_keys(CheckedConf) of
+                [] ->
+                    ReadOnlyKeys = [atom_to_binary(K) || K <- ?READONLY_KEYS],
+                    {ok, maps:without(ReadOnlyKeys, Raw)};
+                Error ->
+                    ?SLOG(error, #{
+                        msg => ?UPDATE_READONLY_KEYS_PROHIBITED,
+                        read_only_keys => ?READONLY_KEYS,
+                        error => Error
+                    }),
+                    {error, Error}
+            end;
+        {error, Error} ->
+            ?SLOG(error, #{
+                msg => "bad_etc_config_schema_found",
+                error => Error
+            }),
+            {error, Error}
+    end.
+
+reload_config(AllConf) ->
+    Fold = fun({Key, Conf}, Acc) ->
+        case emqx:update_config([Key], Conf, #{persistent => false}) of
+            {ok, _} ->
+                emqx_ctl:print("Reloaded ~ts config ok~n", [Key]),
+                Acc;
+            Error ->
+                emqx_ctl:warning("Reloaded ~ts config failed~n~p~n", [Key, Error]),
+                ?SLOG(error, #{
+                    msg => "failed_to_reload_etc_config",
+                    key => Key,
+                    value => Conf,
+                    error => Error
+                }),
+                [{Key, Error} | Acc]
+        end
+    end,
+    sorted_fold(Fold, AllConf).
+
+filter_changed_readonly_keys(Conf) ->
+    lists:filtermap(fun(Key) -> filter_changed(Key, Conf) end, ?READONLY_KEYS).
+
+filter_changed(Key, ChangedConf) ->
+    Prev = emqx_conf:get([Key], #{}),
+    New = maps:get(Key, ChangedConf, #{}),
+    case Prev =/= New of
+        true -> {true, {Key, changed(New, Prev)}};
+        false -> false
+    end.
+
+changed(New, Prev) ->
+    Diff = emqx_utils_maps:diff_maps(New, Prev),
+    maps:filter(fun(_Key, Value) -> Value =/= #{} end, maps:remove(identical, Diff)).
+
+sorted_fold(Func, Conf) ->
+    case lists:foldl(Func, [], to_sorted_list(Conf)) of
+        [] -> ok;
+        Error -> {error, Error}
+    end.
+
+to_sorted_list(Conf) ->
+    lists:keysort(1, maps:to_list(Conf)).

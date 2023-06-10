@@ -40,18 +40,21 @@ t_load_config(Config) ->
     ConfBin0 = hocon_pp:do(#{<<"authorization">> => Conf#{<<"sources">> => []}}, #{}),
     ConfFile0 = prepare_conf_file(?FUNCTION_NAME, ConfBin0, Config),
     ok = emqx_conf_cli:conf(["load", ConfFile0]),
-    ?assertEqual(Conf#{<<"sources">> := []}, emqx_conf:get_raw([Authz])),
+    ?assertEqual(Conf#{<<"sources">> => []}, emqx_conf:get_raw([Authz])),
     %% remove sources, it will reset to default file source.
     ConfBin1 = hocon_pp:do(#{<<"authorization">> => maps:remove(<<"sources">>, Conf)}, #{}),
     ConfFile1 = prepare_conf_file(?FUNCTION_NAME, ConfBin1, Config),
     ok = emqx_conf_cli:conf(["load", ConfFile1]),
     Default = [emqx_authz_schema:default_authz()],
-    ?assertEqual(Conf#{<<"sources">> := Default}, emqx_conf:get_raw([Authz])),
+    ?assertEqual(Conf#{<<"sources">> => Default}, emqx_conf:get_raw([Authz])),
     %% reset
     ConfBin2 = hocon_pp:do(#{<<"authorization">> => Conf}, #{}),
     ConfFile2 = prepare_conf_file(?FUNCTION_NAME, ConfBin2, Config),
     ok = emqx_conf_cli:conf(["load", ConfFile2]),
-    ?assertEqual(Conf, emqx_conf:get_raw([Authz])),
+    ?assertEqual(
+        Conf#{<<"sources">> => [emqx_authz_schema:default_authz()]},
+        emqx_conf:get_raw([Authz])
+    ),
     ?assertEqual({error, empty_hocon_file}, emqx_conf_cli:conf(["load", "non-exist-file"])),
     ok.
 
