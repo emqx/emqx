@@ -464,8 +464,8 @@ preprocess_request(
     } = Req
 ) ->
     #{
-        method => emqx_plugin_libs_rule:preproc_tmpl(to_bin(Method)),
-        path => emqx_plugin_libs_rule:preproc_tmpl(Path),
+        method => emqx_placeholder:preproc_tmpl(to_bin(Method)),
+        path => emqx_placeholder:preproc_tmpl(Path),
         body => maybe_preproc_tmpl(body, Req),
         headers => wrap_auth_header(preproc_headers(Headers)),
         request_timeout => maps:get(request_timeout, Req, ?DEFAULT_REQUEST_TIMEOUT_MS),
@@ -477,8 +477,8 @@ preproc_headers(Headers) when is_map(Headers) ->
         fun(K, V, Acc) ->
             [
                 {
-                    emqx_plugin_libs_rule:preproc_tmpl(to_bin(K)),
-                    emqx_plugin_libs_rule:preproc_tmpl(to_bin(V))
+                    emqx_placeholder:preproc_tmpl(to_bin(K)),
+                    emqx_placeholder:preproc_tmpl(to_bin(V))
                 }
                 | Acc
             ]
@@ -490,8 +490,8 @@ preproc_headers(Headers) when is_list(Headers) ->
     lists:map(
         fun({K, V}) ->
             {
-                emqx_plugin_libs_rule:preproc_tmpl(to_bin(K)),
-                emqx_plugin_libs_rule:preproc_tmpl(to_bin(V))
+                emqx_placeholder:preproc_tmpl(to_bin(K)),
+                emqx_placeholder:preproc_tmpl(to_bin(V))
             }
         end,
         Headers
@@ -530,7 +530,7 @@ try_bin_to_lower(Bin) ->
 maybe_preproc_tmpl(Key, Conf) ->
     case maps:get(Key, Conf, undefined) of
         undefined -> undefined;
-        Val -> emqx_plugin_libs_rule:preproc_tmpl(Val)
+        Val -> emqx_placeholder:preproc_tmpl(Val)
     end.
 
 process_request(
@@ -544,8 +544,8 @@ process_request(
     Msg
 ) ->
     Conf#{
-        method => make_method(emqx_plugin_libs_rule:proc_tmpl(MethodTks, Msg)),
-        path => emqx_plugin_libs_rule:proc_tmpl(PathTks, Msg),
+        method => make_method(emqx_placeholder:proc_tmpl(MethodTks, Msg)),
+        path => emqx_placeholder:proc_tmpl(PathTks, Msg),
         body => process_request_body(BodyTks, Msg),
         headers => proc_headers(HeadersTks, Msg),
         request_timeout => ReqTimeout
@@ -554,14 +554,14 @@ process_request(
 process_request_body(undefined, Msg) ->
     emqx_utils_json:encode(Msg);
 process_request_body(BodyTks, Msg) ->
-    emqx_plugin_libs_rule:proc_tmpl(BodyTks, Msg).
+    emqx_placeholder:proc_tmpl(BodyTks, Msg).
 
 proc_headers(HeaderTks, Msg) ->
     lists:map(
         fun({K, V}) ->
             {
-                emqx_plugin_libs_rule:proc_tmpl(K, Msg),
-                emqx_plugin_libs_rule:proc_tmpl(emqx_secret:unwrap(V), Msg)
+                emqx_placeholder:proc_tmpl(K, Msg),
+                emqx_placeholder:proc_tmpl(emqx_secret:unwrap(V), Msg)
             }
         end,
         HeaderTks

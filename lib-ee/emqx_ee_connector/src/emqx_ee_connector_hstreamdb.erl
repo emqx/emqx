@@ -225,9 +225,9 @@ start_producer(
                 msg => "hstreamdb connector: producer started"
             }),
             EnableBatch = maps:get(enable_batch, Options, false),
-            Payload = emqx_plugin_libs_rule:preproc_tmpl(PayloadBin),
+            Payload = emqx_placeholder:preproc_tmpl(PayloadBin),
             OrderingKeyBin = maps:get(ordering_key, Options, <<"">>),
-            OrderingKey = emqx_plugin_libs_rule:preproc_tmpl(OrderingKeyBin),
+            OrderingKey = emqx_placeholder:preproc_tmpl(OrderingKeyBin),
             State = #{
                 client => Client,
                 producer => Producer,
@@ -254,8 +254,8 @@ start_producer(
     end.
 
 to_record(OrderingKeyTmpl, PayloadTmpl, Data) ->
-    OrderingKey = emqx_plugin_libs_rule:proc_tmpl(OrderingKeyTmpl, Data),
-    Payload = emqx_plugin_libs_rule:proc_tmpl(PayloadTmpl, Data),
+    OrderingKey = emqx_placeholder:proc_tmpl(OrderingKeyTmpl, Data),
+    Payload = emqx_placeholder:proc_tmpl(PayloadTmpl, Data),
     to_record(OrderingKey, Payload).
 
 to_record(OrderingKey, Payload) when is_binary(OrderingKey) ->

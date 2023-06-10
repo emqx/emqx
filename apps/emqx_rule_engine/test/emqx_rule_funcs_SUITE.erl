@@ -126,7 +126,7 @@ t_int(_) ->
     ?assertEqual(1, emqx_rule_funcs:int(1.0001)),
     ?assertEqual(1, emqx_rule_funcs:int(true)),
     ?assertEqual(0, emqx_rule_funcs:int(false)),
-    ?assertError({invalid_number, {a, v}}, emqx_rule_funcs:int({a, v})),
+    ?assertError(badarg, emqx_rule_funcs:int({a, v})),
     ?assertError(_, emqx_rule_funcs:int("a")).
 
 t_float(_) ->
@@ -137,7 +137,7 @@ t_float(_) ->
     ?assertEqual(1.9, emqx_rule_funcs:float(1.9)),
     ?assertEqual(1.0001, emqx_rule_funcs:float(1.0001)),
     ?assertEqual(1.0000000001, emqx_rule_funcs:float(1.0000000001)),
-    ?assertError({invalid_number, {a, v}}, emqx_rule_funcs:float({a, v})),
+    ?assertError(badarg, emqx_rule_funcs:float({a, v})),
     ?assertError(_, emqx_rule_funcs:float("a")).
 
 t_map(_) ->
@@ -158,7 +158,7 @@ t_bool(_) ->
     ?assertEqual(true, emqx_rule_funcs:bool(<<"true">>)),
     ?assertEqual(false, emqx_rule_funcs:bool(false)),
     ?assertEqual(false, emqx_rule_funcs:bool(<<"false">>)),
-    ?assertError({invalid_boolean, _}, emqx_rule_funcs:bool(3)).
+    ?assertError(badarg, emqx_rule_funcs:bool(3)).
 
 t_proc_dict_put_get_del(_) ->
     ?assertEqual(undefined, emqx_rule_funcs:proc_dict_get(<<"abc">>)),

@@ -256,6 +256,7 @@ storage(Config) ->
                     },
                     <<"exporter">> => #{
                         <<"local">> => #{
+                            <<"enable">> => true,
                             <<"root">> => ?config(exports_root, Config)
                         }
                     }

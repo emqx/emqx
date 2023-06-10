@@ -17,7 +17,6 @@
 %% `emqx_resource' API
 -export([
     callback_mode/0,
-    is_buffer_supported/0,
     on_start/2,
     on_stop/2,
     on_query/3,
@@ -86,8 +85,6 @@ servers() ->
 
 callback_mode() -> always_sync.
 
-is_buffer_supported() -> false.
-
 on_start(
     InstanceId,
     #{servers := BinServers, topic := Topic, sync_timeout := SyncTimeout} = Config
@@ -102,7 +99,7 @@ on_start(
         emqx_schema:parse_servers(BinServers, ?ROCKETMQ_HOST_OPTIONS)
     ),
     ClientId = client_id(InstanceId),
-    TopicTks = emqx_plugin_libs_rule:preproc_tmpl(Topic),
+    TopicTks = emqx_placeholder:preproc_tmpl(Topic),
     #{acl_info := AclInfo} = ProducerOpts = make_producer_opts(Config),
     ClientCfg = #{acl_info => AclInfo},
     Templates = parse_template(Config),
@@ -240,7 +237,7 @@ parse_template(Config) ->
     parse_template(maps:to_list(Templates), #{}).
 
 parse_template([{Key, H} | T], Templates) ->
-    ParamsTks = emqx_plugin_libs_rule:preproc_tmpl(H),
+    ParamsTks = emqx_placeholder:preproc_tmpl(H),
     parse_template(
         T,
         Templates#{Key => ParamsTks}
@@ -249,7 +246,7 @@ parse_template([], Templates) ->
     Templates.
 
 get_topic_key({_, Msg}, TopicTks) ->
-    emqx_plugin_libs_rule:proc_tmpl(TopicTks, Msg);
+    emqx_placeholder:proc_tmpl(TopicTks, Msg);
 get_topic_key([Query | _], TopicTks) ->
     get_topic_key(Query, TopicTks).
 
@@ -258,14 +255,14 @@ apply_template({Key, Msg} = _Req, Templates) ->
         undefined ->
             emqx_utils_json:encode(Msg);
         Template ->
-            emqx_plugin_libs_rule:proc_tmpl(Template, Msg)
+            emqx_placeholder:proc_tmpl(Template, Msg)
     end;
 apply_template([{Key, _} | _] = Reqs, Templates) ->
     case maps:get(Key, Templates, undefined) of
         undefined ->
             [emqx_utils_json:encode(Msg) || {_, Msg} <- Reqs];
         Template ->
-            [emqx_plugin_libs_rule:proc_tmpl(Template, Msg) || {_, Msg} <- Reqs]
+            [emqx_placeholder:proc_tmpl(Template, Msg) || {_, Msg} <- Reqs]
     end.
 
 client_id(ResourceId) ->

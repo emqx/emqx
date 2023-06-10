@@ -21,7 +21,7 @@
 
 -export_type([msgvars/0]).
 
--type template() :: emqx_plugin_libs_rule:tmpl_token().
+-type template() :: emqx_placeholder:tmpl_token().
 
 -type msgvars() :: #{
     topic => template(),
@@ -48,7 +48,7 @@ parse(Conf) ->
 parse_field(Key, Conf, Acc) ->
     case Conf of
         #{Key := Val} when is_binary(Val) ->
-            Acc#{Key => emqx_plugin_libs_rule:preproc_tmpl(Val)};
+            Acc#{Key => emqx_placeholder:preproc_tmpl(Val)};
         #{Key := Val} ->
             Acc#{Key => Val};
         #{} ->

@@ -77,6 +77,7 @@ t_update_config(_Config) ->
                         },
                         <<"exporter">> => #{
                             <<"local">> => #{
+                                <<"enable">> => true,
                                 <<"root">> => <<"/tmp/exports">>
                             }
                         }
@@ -104,7 +105,10 @@ t_disable_restore_config(Config) ->
         {ok, _},
         emqx_conf:update(
             [file_transfer],
-            #{<<"enable">> => true, <<"storage">> => #{<<"local">> => #{}}},
+            #{
+                <<"enable">> => true,
+                <<"storage">> => #{<<"local">> => #{}}
+            },
             #{}
         )
     ),
@@ -207,6 +211,7 @@ t_switch_exporter(_Config) ->
             [file_transfer, storage, local, exporter],
             #{
                 <<"s3">> => #{
+                    <<"enable">> => true,
                     <<"bucket">> => <<"emqx">>,
                     <<"host">> => <<"https://localhost">>,
                     <<"port">> => 9000,
@@ -234,7 +239,7 @@ t_switch_exporter(_Config) ->
         {ok, _},
         emqx_conf:update(
             [file_transfer, storage, local, exporter],
-            #{<<"local">> => #{}},
+            #{<<"local">> => #{<<"enable">> => true}},
             #{}
         )
     ),

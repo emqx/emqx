@@ -18,6 +18,9 @@ store_segment_timeout.desc:
 """Timeout for storing a file segment.<br/>
 After reaching the timeout (e.g. due to system overloaded), the PUBACK message will contain error code (0x80)."""
 
+backend_enable.desc:
+"""Whether to enable this backend."""
+
 storage_backend.desc:
 """Storage settings for file transfer."""
 

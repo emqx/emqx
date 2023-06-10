@@ -34,7 +34,6 @@
     %% Optional callbacks
     on_get_status/2,
     on_query/3,
-    is_buffer_supported/0,
     on_batch_query/3
 ]).
 
@@ -187,11 +186,6 @@ callback_mode() -> always_sync.
 
 %% emqx_resource callback
 
--spec is_buffer_supported() -> boolean().
-is_buffer_supported() ->
-    %% We want to make use of EMQX's buffer mechanism
-    false.
-
 %% emqx_resource callback called when the resource is started
 
 -spec on_start(resource_id(), term()) -> {ok, resource_state()} | {error, _}.
@@ -225,7 +219,7 @@ on_start(
         {pool_size, PoolSize},
         {pool, InstanceID}
     ],
-    ProcessedTemplate = emqx_plugin_libs_rule:preproc_tmpl(PayloadTemplate),
+    ProcessedTemplate = emqx_placeholder:preproc_tmpl(PayloadTemplate),
     State = #{
         poolname => InstanceID,
         processed_payload_template => ProcessedTemplate,
@@ -547,7 +541,7 @@ is_send_message_atom(_) ->
 format_data([], Msg) ->
     emqx_utils_json:encode(Msg);
 format_data(Tokens, Msg) ->
-    emqx_plugin_libs_rule:proc_tmpl(Tokens, Msg).
+    emqx_placeholder:proc_tmpl(Tokens, Msg).
 
 handle_result({error, ecpool_empty}) ->
     {error, {recoverable_error, ecpool_empty}};

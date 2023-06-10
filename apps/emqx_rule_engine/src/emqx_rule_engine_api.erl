@@ -44,10 +44,13 @@
 %% query callback
 -export([qs2ms/2, run_fuzzy_match/2, format_rule_info_resp/1]).
 
+-define(RPC_GET_METRICS_TIMEOUT, 5000).
+
 -define(ERR_BADARGS(REASON), begin
     R0 = err_msg(REASON),
     <<"Bad Arguments: ", R0/binary>>
 end).
+
 -define(CHECK_PARAMS(PARAMS, TAG, EXPR),
     case emqx_rule_api_schema:check_params(PARAMS, TAG) of
         {ok, CheckedParams} ->
@@ -56,6 +59,7 @@ end).
             {400, #{code => 'BAD_REQUEST', message => ?ERR_BADARGS(REASON)}}
     end
 ).
+
 -define(METRICS(
     MATCH,
     PASS,
@@ -87,6 +91,7 @@ end).
         'matched.rate.last5m' => RATE_5
     }
 ).
+
 -define(metrics(
     MATCH,
     PASS,
@@ -248,6 +253,7 @@ schema("/rules/:id") ->
             summary => <<"Delete rule">>,
             parameters => param_path_id(),
             responses => #{
+                404 => error_schema('NOT_FOUND', "Rule not found"),
                 204 => <<"Delete rule successfully">>
             }
         }
@@ -527,74 +533,77 @@ printable_function_name(Mod, Func) ->
     list_to_binary(lists:concat([Mod, ":", Func])).
 
 get_rule_metrics(Id) ->
-    Format = fun
-        (
-            Node,
-            #{
-                counters :=
-                    #{
-                        'matched' := Matched,
-                        'passed' := Passed,
-                        'failed' := Failed,
-                        'failed.exception' := FailedEx,
-                        'failed.no_result' := FailedNoRes,
-                        'actions.total' := OTotal,
-                        'actions.failed' := OFailed,
-                        'actions.failed.out_of_service' := OFailedOOS,
-                        'actions.failed.unknown' := OFailedUnknown,
-                        'actions.success' := OFailedSucc
-                    },
-                rate :=
-                    #{
-                        'matched' :=
-                            #{current := Current, max := Max, last5m := Last5M}
-                    }
-            }
-        ) ->
-            #{
-                metrics => ?METRICS(
-                    Matched,
-                    Passed,
-                    Failed,
-                    FailedEx,
-                    FailedNoRes,
-                    OTotal,
-                    OFailed,
-                    OFailedOOS,
-                    OFailedUnknown,
-                    OFailedSucc,
-                    Current,
-                    Max,
-                    Last5M
-                ),
-                node => Node
-            };
-        (Node, _Metrics) ->
-            %% Empty metrics: can happen when a node joins another and a bridge is not yet
-            %% replicated to it, so the counters map is empty.
-            #{
-                metrics => ?METRICS(
-                    _Matched = 0,
-                    _Passed = 0,
-                    _Failed = 0,
-                    _FailedEx = 0,
-                    _FailedNoRes = 0,
-                    _OTotal = 0,
-                    _OFailed = 0,
-                    _OFailedOOS = 0,
-                    _OFailedUnknown = 0,
-                    _OFailedSucc = 0,
-                    _Current = 0,
-                    _Max = 0,
-                    _Last5M = 0
-                ),
-                node => Node
-            }
-    end,
-    [
-        Format(Node, emqx_plugin_libs_proto_v1:get_metrics(Node, rule_metrics, Id))
-     || Node <- mria:running_nodes()
-    ].
+    Nodes = emqx:running_nodes(),
+    Results = emqx_metrics_proto_v1:get_metrics(Nodes, rule_metrics, Id, ?RPC_GET_METRICS_TIMEOUT),
+    NodeResults = lists:zip(Nodes, Results),
+    NodeMetrics = [format_metrics(Node, Metrics) || {Node, {ok, Metrics}} <- NodeResults],
+    NodeErrors = [Result || Result = {_Node, {NOk, _}} <- NodeResults, NOk =/= ok],
+    NodeErrors == [] orelse
+        ?SLOG(warning, #{
+            msg => "rpc_get_rule_metrics_errors",
+            errors => NodeErrors
+        }),
+    NodeMetrics.
+
+format_metrics(Node, #{
+    counters :=
+        #{
+            'matched' := Matched,
+            'passed' := Passed,
+            'failed' := Failed,
+            'failed.exception' := FailedEx,
+            'failed.no_result' := FailedNoRes,
+            'actions.total' := OTotal,
+            'actions.failed' := OFailed,
+            'actions.failed.out_of_service' := OFailedOOS,
+            'actions.failed.unknown' := OFailedUnknown,
+            'actions.success' := OFailedSucc
+        },
+    rate :=
+        #{
+            'matched' :=
+                #{current := Current, max := Max, last5m := Last5M}
+        }
+}) ->
+    #{
+        metrics => ?METRICS(
+            Matched,
+            Passed,
+            Failed,
+            FailedEx,
+            FailedNoRes,
+            OTotal,
+            OFailed,
+            OFailedOOS,
+            OFailedUnknown,
+            OFailedSucc,
+            Current,
+            Max,
+            Last5M
+        ),
+        node => Node
+    };
+format_metrics(Node, _Metrics) ->
+    %% Empty metrics: can happen when a node joins another and a bridge is not yet
+    %% replicated to it, so the counters map is empty.
+    #{
+        metrics => ?METRICS(
+            _Matched = 0,
+            _Passed = 0,
+            _Failed = 0,
+            _FailedEx = 0,
+            _FailedNoRes = 0,
+            _OTotal = 0,
+            _OFailed = 0,
+            _OFailedOOS = 0,
+            _OFailedUnknown = 0,
+            _OFailedSucc = 0,
+            _Current = 0,
+            _Max = 0,
+            _Last5M = 0
+        ),
+        node => Node
+    }.
 
 aggregate_metrics(AllMetrics) ->
     InitMetrics = ?METRICS(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0),

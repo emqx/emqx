@@ -17,7 +17,6 @@
 %% `emqx_resource' API
 -export([
     callback_mode/0,
-    is_buffer_supported/0,
     on_start/2,
     on_stop/2,
     on_query/3,
@@ -79,8 +78,6 @@ server() ->
 
 callback_mode() -> always_sync.
 
-is_buffer_supported() -> false.
-
 on_start(
     InstanceId,
     #{
@@ -126,8 +123,8 @@ on_query(InstanceId, {query, SQL}, State) ->
     do_query(InstanceId, SQL, State);
 on_query(InstanceId, {Key, Data}, #{insert_tokens := InsertTksMap} = State) ->
     case maps:find(Key, InsertTksMap) of
-        {ok, Tokens} ->
-            SQL = emqx_plugin_libs_rule:proc_sql_param_str(Tokens, Data),
+        {ok, Tokens} when is_map(Data) ->
+            SQL = emqx_placeholder:proc_sql_param_str(Tokens, Data),
             do_query(InstanceId, SQL, State);
         _ ->
             {error, {unrecoverable_error, invalid_request}}
@@ -136,7 +133,7 @@ on_query(InstanceId, {Key, Data}, #{insert_tokens := InsertTksMap} = State) ->
 %% aggregate the batch queries to one SQL is a heavy job, we should put it in the worker process
 on_batch_query(
     InstanceId,
-    [{Key, _} | _] = BatchReq,
+    [{Key, _Data = #{}} | _] = BatchReq,
     #{batch_tokens := BatchTksMap, query_opts := Opts} = State
 ) ->
     case maps:find(Key, BatchTksMap) of
@@ -231,8 +228,8 @@ do_batch_insert(Conn, Tokens, BatchReqs, Opts) ->
 aggregate_query({InsertPartTks, ParamsPartTks}, BatchReqs) ->
     lists:foldl(
         fun({_, Data}, Acc) ->
-            InsertPart = emqx_plugin_libs_rule:proc_sql_param_str(InsertPartTks, Data),
-            ParamsPart = emqx_plugin_libs_rule:proc_sql_param_str(ParamsPartTks, Data),
+            InsertPart = emqx_placeholder:proc_sql_param_str(InsertPartTks, Data),
+            ParamsPart = emqx_placeholder:proc_sql_param_str(ParamsPartTks, Data),
             Values = maps:get(InsertPart, Acc, []),
             maps:put(InsertPart, [ParamsPart | Values], Acc)
         end,
@@ -256,16 +253,16 @@ parse_prepare_sql(Config) ->
     parse_batch_prepare_sql(maps:to_list(SQL), #{}, #{}).
 
 parse_batch_prepare_sql([{Key, H} | T], InsertTksMap, BatchTksMap) ->
-    case emqx_plugin_libs_rule:detect_sql_type(H) of
-        {ok, select} ->
+    case emqx_utils_sql:get_statement_type(H) of
+        select ->
             parse_batch_prepare_sql(T, InsertTksMap, BatchTksMap);
-        {ok, insert} ->
-            InsertTks = emqx_plugin_libs_rule:preproc_tmpl(H),
+        insert ->
+            InsertTks = emqx_placeholder:preproc_tmpl(H),
             H1 = string:trim(H, trailing, ";"),
             case split_insert_sql(H1) of
                 [_InsertStr, InsertPart, _ValuesStr, ParamsPart] ->
-                    InsertPartTks = emqx_plugin_libs_rule:preproc_tmpl(InsertPart),
-                    ParamsPartTks = emqx_plugin_libs_rule:preproc_tmpl(ParamsPart),
+                    InsertPartTks = emqx_placeholder:preproc_tmpl(InsertPart),
+                    ParamsPartTks = emqx_placeholder:preproc_tmpl(ParamsPart),
                     parse_batch_prepare_sql(
                         T,
                         InsertTksMap#{Key => InsertTks},
@@ -275,6 +272,9 @@ parse_batch_prepare_sql([{Key, H} | T], InsertTksMap, BatchTksMap) ->
                     ?SLOG(error, #{msg => "split sql failed", sql => H, result => Result}),
                     parse_batch_prepare_sql(T, InsertTksMap, BatchTksMap)
             end;
+        Type when is_atom(Type) ->
+            ?SLOG(error, #{msg => "detect sql type unsupported", sql => H, type => Type}),
+            parse_batch_prepare_sql(T, InsertTksMap, BatchTksMap);
         {error, Reason} ->
             ?SLOG(error, #{msg => "detect sql type failed", sql => H, reason => Reason}),
             parse_batch_prepare_sql(T, InsertTksMap, BatchTksMap)
@@ -289,7 +289,7 @@ to_bin(List) when is_list(List) ->
     unicode:characters_to_binary(List, utf8).
 
 split_insert_sql(SQL0) ->
-    SQL = emqx_plugin_libs_rule:formalize_sql(SQL0),
+    SQL = formalize_sql(SQL0),
     lists:filtermap(
         fun(E) ->
             case string:trim(E) of
@@ -301,3 +301,9 @@ split_insert_sql(SQL0) ->
         end,
         re:split(SQL, "(?i)(insert into)|(?i)(values)")
     ).
+
+formalize_sql(Input) ->
+    %% 1. replace all whitespaces like '\r' '\n' or spaces to a single space char.
+    SQL = re:replace(Input, "\\s+", " ", [global, {return, binary}]),
+    %% 2. trims the result
+    string:trim(SQL).

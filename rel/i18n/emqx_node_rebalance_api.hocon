@@ -49,7 +49,7 @@ param_node.label:
 """Node name"""
 
 wait_health_check.desc:
-"""Time to wait before starting the rebalance process, in seconds"""
+"""Time to wait before starting the rebalance/evacuation process, in seconds"""
 
 wait_health_check.label:
 """Wait health check"""

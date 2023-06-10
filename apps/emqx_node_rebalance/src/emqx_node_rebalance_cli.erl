@@ -103,6 +103,7 @@ cli(_) ->
         [
             {
                 "rebalance start --evacuation \\\n"
+                "    [--wait-health-check Secs] \\\n"
                 "    [--redirect-to \"Host1:Port1 Host2:Port2 ...\"] \\\n"
                 "    [--conn-evict-rate CountPerSec] \\\n"
                 "    [--migrate-to \"node1@host1 node2@host2 ...\"] \\\n"
@@ -182,8 +183,6 @@ collect_args(["--migrate-to", MigrateTo | Args], Map) ->
 %% rebalance
 collect_args(["--nodes", Nodes | Args], Map) ->
     collect_args(Args, Map#{"--nodes" => Nodes});
-collect_args(["--wait-health-check", WaitHealthCheck | Args], Map) ->
-    collect_args(Args, Map#{"--wait-health-check" => WaitHealthCheck});
 collect_args(["--abs-conn-threshold", AbsConnThres | Args], Map) ->
     collect_args(Args, Map#{"--abs-conn-threshold" => AbsConnThres});
 collect_args(["--rel-conn-threshold", RelConnThres | Args], Map) ->
@@ -193,6 +192,8 @@ collect_args(["--abs-sess-threshold", AbsSessThres | Args], Map) ->
 collect_args(["--rel-sess-threshold", RelSessThres | Args], Map) ->
     collect_args(Args, Map#{"--rel-sess-threshold" => RelSessThres});
 %% common
+collect_args(["--wait-health-check", WaitHealthCheck | Args], Map) ->
+    collect_args(Args, Map#{"--wait-health-check" => WaitHealthCheck});
 collect_args(["--conn-evict-rate", ConnEvictRate | Args], Map) ->
     collect_args(Args, Map#{"--conn-evict-rate" => ConnEvictRate});
 collect_args(["--wait-takeover", WaitTakeover | Args], Map) ->
@@ -207,6 +208,8 @@ validate_evacuation([], Map) ->
     {ok, Map};
 validate_evacuation([{"--evacuation", _} | Rest], Map) ->
     validate_evacuation(Rest, Map);
+validate_evacuation([{"--wait-health-check", _} | _] = Opts, Map) ->
+    validate_pos_int(wait_health_check, Opts, Map, fun validate_evacuation/2);
 validate_evacuation([{"--redirect-to", ServerReference} | Rest], Map) ->
     validate_evacuation(Rest, Map#{server_reference => list_to_binary(ServerReference)});
 validate_evacuation([{"--conn-evict-rate", _} | _] = Opts, Map) ->

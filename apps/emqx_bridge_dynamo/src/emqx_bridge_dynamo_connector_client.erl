@@ -144,7 +144,7 @@ apply_template({Key, Msg} = Req, Templates) ->
         undefined ->
             Req;
         Template ->
-            {Key, emqx_plugin_libs_rule:proc_tmpl(Template, Msg)}
+            {Key, emqx_placeholder:proc_tmpl(Template, Msg)}
     end;
 %% now there is no batch delete, so
 %% 1. we can simply replace the `send_message` to `put`

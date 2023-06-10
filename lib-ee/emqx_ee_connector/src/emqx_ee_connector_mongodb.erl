@@ -15,7 +15,6 @@
 %% `emqx_resource' API
 -export([
     callback_mode/0,
-    is_buffer_supported/0,
     on_start/2,
     on_stop/2,
     on_query/3,
@@ -27,8 +26,6 @@
 %%========================================================================================
 
 callback_mode() -> emqx_connector_mongo:callback_mode().
-
-is_buffer_supported() -> false.
 
 on_start(InstanceId, Config) ->
     case emqx_connector_mongo:on_start(InstanceId, Config) of
@@ -57,7 +54,7 @@ on_query(InstanceId, {send_message, Message0}, State) ->
         connector_state := ConnectorState
     } = State,
     NewConnectorState = ConnectorState#{
-        collection => emqx_plugin_libs_rule:proc_tmpl(CollectionTemplate, Message0)
+        collection => emqx_placeholder:proc_tmpl(CollectionTemplate, Message0)
     },
     Message = render_message(PayloadTemplate, Message0),
     Res = emqx_connector_mongo:on_query(InstanceId, {send_message, Message}, NewConnectorState),
@@ -76,7 +73,7 @@ on_get_status(InstanceId, _State = #{connector_state := ConnectorState}) ->
 preprocess_template(undefined = _PayloadTemplate) ->
     undefined;
 preprocess_template(PayloadTemplate) ->
-    emqx_plugin_libs_rule:preproc_tmpl(PayloadTemplate).
+    emqx_placeholder:preproc_tmpl(PayloadTemplate).
 
 render_message(undefined = _PayloadTemplate, Message) ->
     Message;
@@ -102,14 +99,14 @@ format_data(PayloadTks, Msg) ->
     case maps:size(PreparedTupleMap) of
         % If no tuples were found simply proceed with the json decoding and be done with it
         0 ->
-            emqx_utils_json:decode(emqx_plugin_libs_rule:proc_tmpl(PayloadTks, Msg), [return_maps]);
+            emqx_utils_json:decode(emqx_placeholder:proc_tmpl(PayloadTks, Msg), [return_maps]);
         _ ->
             % If tuples were found, replace the tuple values with the references created, run
             % the modified message through the json parser, and then at the end replace the
             % references with the actual tuple values.
             ProcessedMessage = replace_message_values_with_references(Msg, PreparedTupleMap),
             DecodedMap = emqx_utils_json:decode(
-                emqx_plugin_libs_rule:proc_tmpl(PayloadTks, ProcessedMessage), [return_maps]
+                emqx_placeholder:proc_tmpl(PayloadTks, ProcessedMessage), [return_maps]
             ),
             populate_map_with_tuple_values(PreparedTupleMap, DecodedMap)
     end.

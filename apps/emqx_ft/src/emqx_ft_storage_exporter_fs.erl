@@ -46,6 +46,7 @@
 -export_type([options/0]).
 
 -type options() :: #{
+    enable := true,
     root => file:name(),
     _ => _
 }.

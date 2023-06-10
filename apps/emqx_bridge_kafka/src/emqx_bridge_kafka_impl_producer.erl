@@ -4,10 +4,11 @@
 -module(emqx_bridge_kafka_impl_producer).
 
 -include_lib("emqx_resource/include/emqx_resource.hrl").
+-include_lib("snabbkaffe/include/trace.hrl").
 
 %% callbacks of behaviour emqx_resource
 -export([
-    is_buffer_supported/0,
+    query_mode/1,
     callback_mode/0,
     on_start/2,
     on_stop/2,
@@ -32,7 +33,10 @@
 %% to hocon; keeping this as just `kafka' for backwards compatibility.
 -define(BRIDGE_TYPE, kafka).
 
-is_buffer_supported() -> true.
+query_mode(#{kafka := #{query_mode := sync}}) ->
+    simple_sync;
+query_mode(_) ->
+    simple_async.
 
 callback_mode() -> async_if_possible.
 
@@ -43,7 +47,11 @@ on_start(InstId, Config) ->
         bootstrap_hosts := Hosts0,
         bridge_name := BridgeName,
         connect_timeout := ConnTimeout,
-        kafka := KafkaConfig = #{message := MessageTemplate, topic := KafkaTopic},
+        kafka := KafkaConfig = #{
+            message := MessageTemplate,
+            topic := KafkaTopic,
+            sync_query_timeout := SyncQueryTimeout
+        },
         metadata_request_timeout := MetaReqTimeout,
         min_metadata_refresh_interval := MinMetaRefreshInterval,
         socket_opts := SocketOpts,
@@ -99,7 +107,8 @@ on_start(InstId, Config) ->
                 client_id => ClientId,
                 kafka_topic => KafkaTopic,
                 producers => Producers,
-                resource_id => ResourceId
+                resource_id => ResourceId,
+                sync_query_timeout => SyncQueryTimeout
             }};
         {error, Reason2} ->
             ?SLOG(error, #{
@@ -189,14 +198,16 @@ on_stop(InstanceId, _State) ->
 on_query(
     _InstId,
     {send_message, Message},
-    #{message_template := Template, producers := Producers}
+    #{
+        message_template := Template,
+        producers := Producers,
+        sync_query_timeout := SyncTimeout
+    }
 ) ->
+    ?tp(emqx_bridge_kafka_impl_producer_sync_query, #{}),
     KafkaMessage = render_message(Template, Message),
-    %% TODO: this function is not used so far,
-    %% timeout should be configurable
-    %% or the on_query/3 should be on_query/4 instead.
     try
-        {_Partition, _Offset} = wolff:send_sync(Producers, [KafkaMessage], 5000),
+        {_Partition, _Offset} = wolff:send_sync(Producers, [KafkaMessage], SyncTimeout),
         ok
     catch
         error:{producer_down, _} = Reason ->
@@ -217,6 +228,7 @@ on_query_async(
     AsyncReplyFn,
     #{message_template := Template, producers := Producers}
 ) ->
+    ?tp(emqx_bridge_kafka_impl_producer_async_query, #{}),
     KafkaMessage = render_message(Template, Message),
     %% * Must be a batch because wolff:send and wolff:send_sync are batch APIs
     %% * Must be a single element batch because wolff books calls, but not batch sizes
@@ -240,7 +252,7 @@ compile_message_template(T) ->
     }.
 
 preproc_tmpl(Tmpl) ->
-    emqx_plugin_libs_rule:preproc_tmpl(Tmpl).
+    emqx_placeholder:preproc_tmpl(Tmpl).
 
 render_message(
     #{key := KeyTemplate, value := ValueTemplate, timestamp := TimestampTemplate}, Message
@@ -255,11 +267,11 @@ render(Template, Message) ->
     Opts = #{
         var_trans => fun
             (undefined) -> <<"">>;
-            (X) -> emqx_plugin_libs_rule:bin(X)
+            (X) -> emqx_utils_conv:bin(X)
         end,
         return => full_binary
     },
-    emqx_plugin_libs_rule:proc_tmpl(Template, Message, Opts).
+    emqx_placeholder:proc_tmpl(Template, Message, Opts).
 
 render_timestamp(Template, Message) ->
     try
