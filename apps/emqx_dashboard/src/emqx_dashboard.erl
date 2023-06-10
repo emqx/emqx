@@ -72,8 +72,7 @@ start_listeners(Listeners) ->
         {"/", cowboy_static, {priv_file, emqx_dashboard, "www/index.html"}},
         {"/static/[...]", cowboy_static, {priv_dir, emqx_dashboard, "www/static"}},
         {emqx_mgmt_api_status:path(), emqx_mgmt_api_status, []},
-        {emqx_dashboard_swagger:relative_uri("/[...]"), emqx_dashboard_bad_api, []},
-        {'_', cowboy_static, {priv_file, emqx_dashboard, "www/index.html"}}
+        {'_', emqx_dashboard_not_found, []}
     ],
     BaseMinirest = #{
         base_path => emqx_dashboard_swagger:base_path(),
