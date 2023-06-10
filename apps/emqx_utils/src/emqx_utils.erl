@@ -600,15 +600,18 @@ try_to_existing_atom(Convert, Data, Encoding) ->
         _:Reason -> {error, Reason}
     end.
 
-is_sensitive_key(token) -> true;
-is_sensitive_key("token") -> true;
-is_sensitive_key(<<"token">>) -> true;
 is_sensitive_key(authorization) -> true;
 is_sensitive_key("authorization") -> true;
 is_sensitive_key(<<"authorization">>) -> true;
+is_sensitive_key(aws_secret_access_key) -> true;
+is_sensitive_key("aws_secret_access_key") -> true;
+is_sensitive_key(<<"aws_secret_access_key">>) -> true;
 is_sensitive_key(password) -> true;
 is_sensitive_key("password") -> true;
 is_sensitive_key(<<"password">>) -> true;
+is_sensitive_key('proxy-authorization') -> true;
+is_sensitive_key("proxy-authorization") -> true;
+is_sensitive_key(<<"proxy-authorization">>) -> true;
 is_sensitive_key(secret) -> true;
 is_sensitive_key("secret") -> true;
 is_sensitive_key(<<"secret">>) -> true;
@@ -618,9 +621,9 @@ is_sensitive_key(<<"secret_key">>) -> true;
 is_sensitive_key(security_token) -> true;
 is_sensitive_key("security_token") -> true;
 is_sensitive_key(<<"security_token">>) -> true;
-is_sensitive_key(aws_secret_access_key) -> true;
-is_sensitive_key("aws_secret_access_key") -> true;
-is_sensitive_key(<<"aws_secret_access_key">>) -> true;
+is_sensitive_key(token) -> true;
+is_sensitive_key("token") -> true;
+is_sensitive_key(<<"token">>) -> true;
 is_sensitive_key(_) -> false.
 
 redact(Term) ->
@@ -731,9 +734,14 @@ redact_test_() ->
 
     Types = [atom, string, binary],
     Keys = [
-        token,
+        authorization,
+        aws_secret_access_key,
         password,
-        secret
+        'proxy-authorization',
+        secret,
+        secret_key,
+        security_token,
+        token
     ],
     [{case_name(Type, Key), fun() -> Case(Type, Key) end} || Key <- Keys, Type <- Types].
 
