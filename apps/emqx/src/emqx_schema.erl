@@ -1435,7 +1435,9 @@ fields("listener_quic_ssl_opts") ->
                 true ->
                     {Name, Schema};
                 false ->
-                    {Name, Schema#{deprecated => {since, "5.0.20"}}}
+                    {Name, Schema#{
+                        deprecated => {since, "5.0.20"}, importance => ?IMPORTANCE_HIDDEN
+                    }}
             end
         end,
         Schema1
