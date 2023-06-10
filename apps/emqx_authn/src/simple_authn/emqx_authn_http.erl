@@ -451,7 +451,7 @@ request_for_log(Credential, #{url := Url, method := Method} = State) ->
                 base_url => Url,
                 path_query => PathQuery,
                 headers => Headers,
-                mody => Body
+                body => Body
             }
     end.
 
