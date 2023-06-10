@@ -46,7 +46,7 @@
 
 -export([schema/2]).
 
--define(MOD, {mod}).
+-define(MOD, module).
 -define(WKEY, '?').
 
 -type handler_name() :: module().
