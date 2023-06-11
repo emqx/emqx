@@ -26,6 +26,41 @@
 all() ->
     emqx_common_test_helpers:all(?MODULE).
 
+init_per_suite(Config) ->
+    Root = ?config(data_dir, Config),
+    D1 = filename:join([Root, "nonempty", "d1/"]),
+    D2 = filename:join([Root, "nonempty", "d2/"]),
+    F1 = filename:join([D1, "1"]),
+    F2 = filename:join([D1, "2"]),
+    DeepDir = filename:join([Root, "nonempty", "d2", "deep", "down/"]),
+    DeepFile = filename:join([DeepDir, "here"]),
+    ok = filelib:ensure_dir(F1),
+    ok = filelib:ensure_dir(F2),
+    ok = filelib:ensure_dir(DeepFile),
+    D1Mutrec = filename:join([D1, "mutrec"]),
+    D2Mutrec = filename:join([D2, "deep", "mutrec"]),
+    ok = file:write_file(F1, <<"">>, [write]),
+    ok = file:write_file(F2, <<"">>, [write]),
+    ok = file:write_file(DeepFile, <<"">>, [write]),
+    {ok, D1FileInfo} = file:read_file_info(D1),
+    ok = file:write_file_info(D1, D1FileInfo#file_info{mode = 8#00777}),
+    _ = file:delete(D1Mutrec),
+    _ = file:delete(D2Mutrec),
+    ok = file:make_symlink(DeepDir, D1Mutrec),
+    %% can't file:make_link("../../d1", D2Mutrec) on mac, it return {error, eperm}
+    ok = file:make_symlink("../../d1", D2Mutrec),
+    {ok, DeepFileInfo} = file:read_file_info(DeepFile),
+    ok = file:write_file_info(DeepFile, DeepFileInfo#file_info{mode = 8#00600}),
+    {ok, D2MutrecInfo} = file:read_link_info(D2Mutrec),
+    ct:pal("~p~n", [D2MutrecInfo]),
+    %ok = file:write_link_info(D2Mutrec, D2MutrecInfo#file_info{mode = 8#00777}),
+    Config.
+
+end_per_suite(Config) ->
+    Root = ?config(data_dir, Config),
+    %ok = file:del_dir_r(filename:join([Root, "nonempty"])),
+    ok.
+
 %%
 
 t_traverse_dir(Config) ->
