@@ -21,6 +21,9 @@
 -include("logger.hrl").
 -include("types.hrl").
 
+-include_lib("snabbkaffe/include/snabbkaffe.hrl").
+
+
 -ifdef(TEST).
 -include_lib("eunit/include/eunit.hrl").
 -endif.
@@ -285,6 +288,7 @@ handle_cast({del, HookPoint, Action}, State) ->
         Callbacks ->
             ok = insert_hook(HookPoint, Callbacks)
     end,
+    ?tp(debug, emqx_hook_removed, #{hookpoint => HookPoint, action => Action}),
     {noreply, State};
 
 handle_cast(Msg, State) ->

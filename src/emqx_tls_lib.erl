@@ -26,6 +26,7 @@
         , inject_verify_fun/1
         , opt_partial_chain/1
         , opt_verify_fun/1
+        , maybe_drop_incompatible_options/1
         ]).
 
 -include("logger.hrl").
@@ -239,6 +240,23 @@ do_rootfun_trusted_ca_from_cacertfile(NumOfCerts, Cacertfile) ->
                              lists:sublist(public_key:pem_decode(PemBin), Pos, NumOfCerts)],
     emqx_const_v2:make_tls_root_fun(cacert_from_cacertfile, Trusted).
 
+maybe_drop_incompatible_options(Options) ->
+    case proplists:get_value(ssl_options, Options) of
+        undefined ->
+            Options;
+        SslOpts ->
+            maybe_drop_incompatible_options(Options, SslOpts, lists:keyfind(versions, 1, SslOpts))
+    end.
+
+maybe_drop_incompatible_options(Options, _SslOpts, false) ->
+    Options;
+maybe_drop_incompatible_options(Options, SslOpts0, {versions, ['tlsv1.3']}) ->
+    Incompatible = [reuse_sessions, secure_renegotiate, user_lookup_fun, client_renegotiation],
+    SslOpts = lists:filter(fun({K, _V}) -> not lists:member(K, Incompatible) end, SslOpts0),
+    lists:keyreplace(ssl_options, 1, Options, {ssl_options, SslOpts});
+maybe_drop_incompatible_options(Options, _SslOpts, {versions, [_ | _]}) ->
+    Options.
+
 -if(?OTP_RELEASE > 22).
 -ifdef(TEST).
 -include_lib("eunit/include/eunit.hrl").
@@ -260,6 +278,19 @@ drop_tls13_no_versions_cipers_test() ->
 
 has_tlsv13_cipher(Ciphers) ->
     lists:any(fun(C) -> lists:member(C, Ciphers) end, ?TLSV13_EXCLUSIVE_CIPHERS).
+
+maybe_drop_incompatible_options_test() ->
+    Opts0 = [{ssl_options, [{versions, ['tlsv1.3']}, {ciphers, ?TLSV13_EXCLUSIVE_CIPHERS},
+                            {reuse_sessions, true}, {secure_renegotiate, true},
+                            {user_lookup_fun, fun maybe_drop_incompatible_options/1},
+                            {client_renegotiation, true}]}],
+    Opts = maybe_drop_incompatible_options(Opts0),
+    ?assertNot(lists:member(reuse_sessions, proplists:get_value(ssl_options, Opts))),
+    ?assertNot(lists:member(secure_renegotiate, proplists:get_value(ssl_options, Opts))),
+    ?assertNot(lists:member(user_lookup_fun, proplists:get_value(ssl_options, Opts))),
+    ?assertNot(lists:member(client_renegotiation, proplists:get_value(ssl_options, Opts))),
+    ?assertEqual([{versions, ['tlsv1.3']}, {ciphers, ?TLSV13_EXCLUSIVE_CIPHERS}],
+                 proplists:get_value(ssl_options, Opts)).
 
 -endif. %% TEST
 -endif. %% OTP_RELEASE > 22
