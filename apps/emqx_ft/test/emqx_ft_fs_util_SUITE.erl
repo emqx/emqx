@@ -26,6 +26,51 @@
 all() ->
     emqx_common_test_helpers:all(?MODULE).
 
+%%├── a
+%%│   ├── b
+%%│   │  └── foo
+%%│   │     ├── 42
+%%│   │     └── Я
+%%│   └── link -> ../c
+%%├── c
+%%│   ├── bar
+%%│   │  └── 中文
+%%│   └── link -> ../a
+%%└── d
+%%    ├── e
+%%    │  └── baz
+%%    │      └── needle
+%%    └── haystack
+
+init_per_suite(Config) ->
+    Root = ?config(data_dir, Config),
+    A = filename:join([Root, "a", "b", "foo"]),
+    C = filename:join([Root, "c", "bar"]),
+    D = filename:join([Root, "d", "e", "baz"]),
+
+    F42 = filename:join([A, "42"]),
+    F42_1 = filename:join([A, "Я"]),
+    FBar = filename:join([C, "中文"]),
+    FNeedle = filename:join([D, "needle"]),
+    FHayStack = filename:join([Root, "d", "haystack"]),
+    Files = [F42, F42_1, FBar, FNeedle, FHayStack],
+    lists:foreach(fun filelib:ensure_dir/1, Files),
+    %% create files
+    lists:foreach(fun(File) -> file:write_file(File, <<"">>, [write]) end, Files),
+    %% create links
+    ALink = filename:join([Root, "a", "link"]),
+    CLink = filename:join([Root, "c", "link"]),
+    make_symlink("../c", ALink),
+    make_symlink("../a", CLink),
+    Config.
+
+end_per_suite(Config) ->
+    Root = ?config(data_dir, Config),
+    ok = file:del_dir_r(filename:join([Root, "a"])),
+    ok = file:del_dir_r(filename:join([Root, "c"])),
+    ok = file:del_dir_r(filename:join([Root, "d"])),
+    ok.
+
 t_fold_single_level(Config) ->
     Root = ?config(data_dir, Config),
     ?assertMatch(
@@ -248,3 +293,7 @@ cons(Entry, Acc) ->
 
 sort(L) when is_list(L) ->
     lists:sort(L).
+
+make_symlink(FileOrDir, NewLink) ->
+    _ = file:delete(NewLink),
+    ok = file:make_symlink(FileOrDir, NewLink).

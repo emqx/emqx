@@ -34,31 +34,23 @@ init_per_suite(Config) ->
     F2 = filename:join([D1, "2"]),
     DeepDir = filename:join([Root, "nonempty", "d2", "deep", "down/"]),
     DeepFile = filename:join([DeepDir, "here"]),
-    ok = filelib:ensure_dir(F1),
-    ok = filelib:ensure_dir(F2),
-    ok = filelib:ensure_dir(DeepFile),
-    D1Mutrec = filename:join([D1, "mutrec"]),
-    D2Mutrec = filename:join([D2, "deep", "mutrec"]),
-    ok = file:write_file(F1, <<"">>, [write]),
-    ok = file:write_file(F2, <<"">>, [write]),
-    ok = file:write_file(DeepFile, <<"">>, [write]),
-    {ok, D1FileInfo} = file:read_file_info(D1),
-    ok = file:write_file_info(D1, D1FileInfo#file_info{mode = 8#00777}),
-    _ = file:delete(D1Mutrec),
-    _ = file:delete(D2Mutrec),
-    ok = file:make_symlink(DeepDir, D1Mutrec),
-    %% can't file:make_link("../../d1", D2Mutrec) on mac, it return {error, eperm}
-    ok = file:make_symlink("../../d1", D2Mutrec),
-    {ok, DeepFileInfo} = file:read_file_info(DeepFile),
-    ok = file:write_file_info(DeepFile, DeepFileInfo#file_info{mode = 8#00600}),
-    {ok, D2MutrecInfo} = file:read_link_info(D2Mutrec),
-    ct:pal("~p~n", [D2MutrecInfo]),
-    %ok = file:write_link_info(D2Mutrec, D2MutrecInfo#file_info{mode = 8#00777}),
+    Files = [F1, F2, DeepFile],
+    lists:foreach(fun filelib:ensure_dir/1, Files),
+    D1LinkMutrec = filename:join([D1, "mutrec"]),
+    D2LinkMutrec = filename:join([D2, "deep", "mutrec"]),
+    lists:foreach(fun(File) -> file:write_file(File, <<"">>, [write]) end, Files),
+    chmod_file(D1, 8#00777),
+    chmod_file(DeepFile, 8#00600),
+    make_symlink(DeepDir, D1LinkMutrec),
+    %% can't file:make_link("../../d1", D2Mutrec) on mac, return {error, eperm}
+    make_symlink("../../d1", D2LinkMutrec),
+    {ok, D2MutrecInfo} = file:read_link_info(D2LinkMutrec),
+    ct:pal("~ts 's file_info is ~p~n", [D2LinkMutrec, D2MutrecInfo]),
     Config.
 
 end_per_suite(Config) ->
     Root = ?config(data_dir, Config),
-    %ok = file:del_dir_r(filename:join([Root, "nonempty"])),
+    ok = file:del_dir_r(filename:join([Root, "nonempty"])),
     ok.
 
 %%
@@ -150,3 +142,11 @@ t_canonicalize_non_utf8(_) ->
         badarg,
         emqx_utils_fs:canonicalize(<<128, 128, 128>>)
     ).
+
+chmod_file(File, Mode) ->
+    {ok, FileInfo} = file:read_file_info(File),
+    ok = file:write_file_info(File, FileInfo#file_info{mode = Mode}).
+
+make_symlink(FileOrDir, NewLink) ->
+    _ = file:delete(NewLink),
+    ok = file:make_symlink(FileOrDir, NewLink).
