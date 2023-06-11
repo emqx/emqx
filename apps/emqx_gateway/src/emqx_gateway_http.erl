@@ -161,7 +161,10 @@ max_connections_count(Config) ->
     Listeners = emqx_gateway_utils:normalize_config(Config),
     lists:foldl(
         fun({_, _, _, SocketOpts, _}, Acc) ->
-            Acc + proplists:get_value(max_connections, SocketOpts, 0)
+            emqx_gateway_utils:plus_max_connections(
+                Acc,
+                proplists:get_value(max_connections, SocketOpts, 0)
+            )
         end,
         0,
         Listeners
@@ -588,10 +591,12 @@ sum_cluster_connections(List) ->
 
 %%--------------------------------------------------------------------
 %% Internal funcs
+
 sum_cluster_connections(
     [#{max_connections := Max, current_connections := Current} | T], MaxAcc, CurrAcc
 ) ->
-    sum_cluster_connections(T, MaxAcc + Max, Current + CurrAcc);
+    NMaxAcc = emqx_gateway_utils:plus_max_connections(MaxAcc, Max),
+    sum_cluster_connections(T, NMaxAcc, Current + CurrAcc);
 sum_cluster_connections([_ | T], MaxAcc, CurrAcc) ->
     sum_cluster_connections(T, MaxAcc, CurrAcc);
 sum_cluster_connections([], MaxAcc, CurrAcc) ->

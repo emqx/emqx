@@ -439,6 +439,13 @@ t_listeners_max_conns(_) ->
     {200, [Listeners]} = request(get, "/gateways/stomp/listeners"),
     ?assertMatch(#{max_connections := <<"infinity">>}, Listeners),
 
+    {200, Gateways} = request(get, "/gateways"),
+    [StompGwOverview] = lists:filter(
+        fun(Gw) -> maps:get(name, Gw) =:= <<"stomp">> end,
+        Gateways
+    ),
+    ?assertMatch(#{max_connections := <<"infinity">>}, StompGwOverview),
+
     {204, _} = request(delete, "/gateways/stomp/listeners/stomp:tcp:def"),
     {404, _} = request(get, "/gateways/stomp/listeners/stomp:tcp:def"),
     ok.
