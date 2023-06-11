@@ -335,11 +335,11 @@ fields("persistent_session_store") ->
                     default => #{
                         <<"type">> => <<"builtin">>,
                         <<"session">> =>
-                            #{<<"ram_cache">> => <<"true">>},
+                            #{<<"ram_cache">> => true},
                         <<"session_messages">> =>
-                            #{<<"ram_cache">> => <<"true">>},
+                            #{<<"ram_cache">> => true},
                         <<"messages">> =>
-                            #{<<"ram_cache">> => <<"false">>}
+                            #{<<"ram_cache">> => false}
                     },
                     desc => ?DESC(persistent_session_store_backend)
                 }
