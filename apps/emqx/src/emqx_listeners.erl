@@ -423,8 +423,8 @@ do_start_listener(quic, ListenerName, #{bind := Bind} = Opts) ->
             ),
             ListenOpts =
                 [
-                    {certfile, str(maps:get(certfile, SSLOpts))},
-                    {keyfile, str(maps:get(keyfile, SSLOpts))},
+                    {certfile, emqx_schema:naive_env_interpolation(maps:get(certfile, SSLOpts))},
+                    {keyfile, emqx_schema:naive_env_interpolation(maps:get(keyfile, SSLOpts))},
                     {alpn, ["mqtt"]},
                     {conn_acceptors, lists:max([DefAcceptors, maps:get(acceptors, Opts, 0)])},
                     {keep_alive_interval_ms, maps:get(keep_alive_interval, Opts, 0)},
@@ -434,8 +434,10 @@ do_start_listener(quic, ListenerName, #{bind := Bind} = Opts) ->
                     {verify, maps:get(verify, SSLOpts, verify_none)}
                 ] ++
                     case maps:get(cacertfile, SSLOpts, undefined) of
-                        undefined -> [];
-                        CaCertFile -> [{cacertfile, str(CaCertFile)}]
+                        undefined ->
+                            [];
+                        CaCertFile ->
+                            [{cacertfile, emqx_schema:naive_env_interpolation(CaCertFile)}]
                     end ++
                     case maps:get(password, SSLOpts, undefined) of
                         undefined -> [];
