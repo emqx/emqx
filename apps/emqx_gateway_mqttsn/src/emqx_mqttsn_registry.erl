@@ -35,7 +35,7 @@
 -define(PKEY(Id), {mqttsn, predef_topics, Id}).
 
 -type registry() :: #{
-    %% The next topic id to be assigned to new registration
+    %% The last topic id aallocated
     last_topic_id := pos_integer(),
     %% The mapping from topic id to topic name
     id_to_name := map(),
