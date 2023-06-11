@@ -33,38 +33,40 @@
 ]).
 
 -define(PKEY(Id), {mqttsn, predef_topics, Id}).
--define(PKEY_MAX_PREDEF_ID, {mqttsn, max_predef_topic_id}).
 
 -type registry() :: #{
     %% The next topic id to be assigned to new registration
-    next_topic_id := pos_integer(),
+    last_topic_id := pos_integer(),
     %% The mapping from topic id to topic name
     id_to_name := map(),
     %% The mapping from topic name to topic id
     name_to_id := map()
 }.
 
-%%-----------------------------------------------------------------------------
+-type predef_topic() :: #{
+    id := 1..1024,
+    topic := iolist()
+}.
 
--spec persist_predefined_topics(list()) -> ok.
+%%-----------------------------------------------------------------------------
+%% APIs
+
+-spec persist_predefined_topics([predef_topic()]) -> ok.
 persist_predefined_topics(PredefTopics) when is_list(PredefTopics) ->
-    MaxPredefId = lists:foldl(
-        fun(#{id := TopicId, topic := TopicName0}, AccId) ->
+    try
+        F = fun(#{id := TopicId, topic := TopicName0}) when TopicId =< 1024 ->
             TopicName = iolist_to_binary(TopicName0),
             persistent_term:put(?PKEY(TopicId), TopicName),
-            persistent_term:put(?PKEY(TopicName), TopicId),
-            case TopicId > AccId of
-                true -> TopicId;
-                false -> AccId
-            end
+            persistent_term:put(?PKEY(TopicName), TopicId)
         end,
-        0,
-        PredefTopics
-    ),
-    persistent_term:put(?PKEY_MAX_PREDEF_ID, MaxPredefId),
-    ok.
+        lists:foreach(F, PredefTopics)
+    catch
+        _:_ ->
+            clear_predefined_topics(PredefTopics),
+            error(badarg)
+    end.
 
--spec clear_predefined_topics(list()) -> ok.
+-spec clear_predefined_topics([predef_topic()]) -> ok.
 clear_predefined_topics(PredefTopics) ->
     lists:foreach(
         fun(#{id := TopicId, topic := TopicName0}) ->
@@ -74,13 +76,12 @@ clear_predefined_topics(PredefTopics) ->
         end,
         PredefTopics
     ),
-    persistent_term:erase(?PKEY_MAX_PREDEF_ID),
     ok.
 
 -spec init() -> registry().
 init() ->
     #{
-        next_topic_id => persistent_term:get(?PKEY_MAX_PREDEF_ID, 0),
+        last_topic_id => ?SN_MAX_PREDEF_TOPIC_ID,
         id_to_name => #{},
         name_to_id => #{}
     }.
@@ -113,7 +114,7 @@ reg(
 do_reg(
     TopicName,
     Registry = #{
-        next_topic_id := TopicId0,
+        last_topic_id := TopicId0,
         id_to_name := IdMap,
         name_to_id := NameMap
     }
@@ -123,7 +124,7 @@ do_reg(
             {error, too_large};
         NextTopicId ->
             NRegistry = Registry#{
-                next_topic_id := NextTopicId,
+                last_topic_id := NextTopicId,
                 id_to_name := maps:put(NextTopicId, TopicName, IdMap),
                 name_to_id := maps:put(TopicName, NextTopicId, NameMap)
             },

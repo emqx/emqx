@@ -47,7 +47,7 @@
 
 -define(LOG(Format, Args), ct:log("TEST: " ++ Format, Args)).
 
--define(MAX_PRED_TOPIC_ID, 2).
+-define(MAX_PRED_TOPIC_ID, ?SN_MAX_PREDEF_TOPIC_ID).
 -define(PREDEF_TOPIC_ID1, 1).
 -define(PREDEF_TOPIC_ID2, 2).
 -define(PREDEF_TOPIC_NAME1, <<"/predefined/topic/name/hello">>).

@@ -19,10 +19,11 @@
 -compile(export_all).
 -compile(nowarn_export_all).
 
+-include("emqx_mqttsn.hrl").
 -include_lib("eunit/include/eunit.hrl").
 
 -define(REGISTRY, emqx_mqttsn_registry).
--define(MAX_PREDEF_ID, 2).
+-define(MAX_PREDEF_ID, ?SN_MAX_PREDEF_TOPIC_ID).
 -define(PREDEF_TOPICS, [
     #{id => 1, topic => <<"/predefined/topic/name/hello">>},
     #{id => 2, topic => <<"/predefined/topic/name/nice">>}
@@ -75,8 +76,8 @@ t_reach_maximum(_) ->
     Reg0 = ?REGISTRY:init(),
     Reg = register_a_lot(?MAX_PREDEF_ID + 1, 16#ffff, Reg0),
     ?assertEqual({error, too_large}, ?REGISTRY:reg(<<"TopicABC">>, Reg)),
-    ?assertEqual(?MAX_PREDEF_ID + 1, ?REGISTRY:lookup_topic_id(<<"Topic3">>, Reg)),
-    ?assertEqual(?MAX_PREDEF_ID + 2, ?REGISTRY:lookup_topic_id(<<"Topic4">>, Reg)).
+    ?assertEqual(?MAX_PREDEF_ID + 1, ?REGISTRY:lookup_topic_id(<<"Topic1025">>, Reg)),
+    ?assertEqual(?MAX_PREDEF_ID + 2, ?REGISTRY:lookup_topic_id(<<"Topic1026">>, Reg)).
 
 t_deny_wildcard_topic(_) ->
     Reg = ?REGISTRY:init(),

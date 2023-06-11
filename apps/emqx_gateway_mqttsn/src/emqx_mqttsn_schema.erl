@@ -16,6 +16,7 @@
 
 -module(emqx_mqttsn_schema).
 
+-include("emqx_mqttsn.hrl").
 -include_lib("hocon/include/hoconsc.hrl").
 -include_lib("typerefl/include/types.hrl").
 
@@ -72,7 +73,7 @@ fields(mqttsn) ->
 fields(mqttsn_predefined) ->
     [
         {id,
-            sc(integer(), #{
+            sc(range(1, ?SN_MAX_PREDEF_TOPIC_ID), #{
                 required => true,
                 desc => ?DESC(mqttsn_predefined_id)
             })},
