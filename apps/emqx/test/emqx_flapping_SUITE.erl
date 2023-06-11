@@ -138,22 +138,32 @@ t_conf_update(_) ->
 
 t_conf_update_timer(_Config) ->
     _ = emqx_flapping:start_link(),
-    validate_timer([default]),
+    validate_timer([{default, true}]),
+    %% change zones
     {ok, _} =
         emqx:update_config([zones], #{
             <<"timer_1">> => #{<<"flapping_detect">> => #{<<"enable">> => true}},
             <<"timer_2">> => #{<<"flapping_detect">> => #{<<"enable">> => true}},
             <<"timer_3">> => #{<<"flapping_detect">> => #{<<"enable">> => false}}
         }),
-    validate_timer([timer_1, timer_2, timer_3, default]),
+    validate_timer([{timer_1, true}, {timer_2, true}, {timer_3, false}, {default, true}]),
+    %% change global flapping_detect
+    Global = emqx:get_raw_config([flapping_detect]),
+    {ok, _} = emqx:update_config([flapping_detect], Global#{<<"enable">> => false}),
+    validate_timer([{timer_1, true}, {timer_2, true}, {timer_3, false}, {default, false}]),
+    %% reset
+    {ok, _} = emqx:update_config([flapping_detect], Global#{<<"enable">> => true}),
+    validate_timer([{timer_1, true}, {timer_2, true}, {timer_3, false}, {default, true}]),
     ok.
 
-validate_timer(Names) ->
+validate_timer(Lists) ->
+    {Names, _} = lists:unzip(Lists),
     Zones = emqx:get_config([zones]),
     ?assertEqual(lists:sort(Names), lists:sort(maps:keys(Zones))),
     Timers = sys:get_state(emqx_flapping),
     maps:foreach(
         fun(Name, #{flapping_detect := #{enable := Enable}}) ->
+            ?assertEqual(lists:keyfind(Name, 1, Lists), {Name, Enable}),
             ?assertEqual(Enable, is_reference(maps:get(Name, Timers)), Timers)
         end,
         Zones
