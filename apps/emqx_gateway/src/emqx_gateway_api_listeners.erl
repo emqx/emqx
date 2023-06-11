@@ -334,18 +334,11 @@ aggregate_listener_status(
     CurrAcc,
     RunningAcc
 ) ->
-    NMaxAcc = plus_max_connections(MaxAcc, Max),
+    NMaxAcc = emqx_gateway_utils:plus_max_connections(MaxAcc, Max),
     NRunning = aggregate_running(Running, RunningAcc),
     aggregate_listener_status(T, NMaxAcc, Current + CurrAcc, NRunning);
 aggregate_listener_status([], MaxAcc, CurrAcc, RunningAcc) ->
     {MaxAcc, CurrAcc, RunningAcc}.
-
-plus_max_connections(_, infinity) ->
-    infinity;
-plus_max_connections(infinity, _) ->
-    infinity;
-plus_max_connections(A, B) when is_integer(A) andalso is_integer(B) ->
-    A + B.
 
 aggregate_running(R, R) -> R;
 aggregate_running(R, undefined) -> R;

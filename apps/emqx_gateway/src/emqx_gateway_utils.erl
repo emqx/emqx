@@ -45,7 +45,8 @@
     is_running/2,
     global_chain/1,
     listener_chain/3,
-    find_gateway_definitions/0
+    find_gateway_definitions/0,
+    plus_max_connections/2
 ]).
 
 -export([stringfy/1]).
@@ -607,3 +608,12 @@ ignore_lib_apps(Apps) ->
         wx
     ],
     [AppName || {AppName, _, _} <- Apps, not lists:member(AppName, LibApps)].
+
+-spec plus_max_connections(non_neg_integer() | infinity, non_neg_integer() | infinity) ->
+    pos_integer() | infinity.
+plus_max_connections(_, infinity) ->
+    infinity;
+plus_max_connections(infinity, _) ->
+    infinity;
+plus_max_connections(A, B) when is_integer(A) andalso is_integer(B) ->
+    A + B.
