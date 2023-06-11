@@ -304,8 +304,7 @@ do_listeners_cluster_status(Listeners) ->
                     status => #{
                         running => Running,
                         current_connections => Curr,
-                        %% XXX: Since it is taken from raw-conf, it is possible a string
-                        max_connections => int(Max)
+                        max_connections => ensure_integer_or_infinity(Max)
                     }
                 }
             }
@@ -314,10 +313,15 @@ do_listeners_cluster_status(Listeners) ->
         Listeners
     ).
 
-int(B) when is_binary(B) ->
+ensure_integer_or_infinity(infinity) ->
+    infinity;
+ensure_integer_or_infinity(<<"infinity">>) ->
+    infinity;
+ensure_integer_or_infinity(B) when is_binary(B) ->
     binary_to_integer(B);
-int(I) when is_integer(I) ->
+ensure_integer_or_infinity(I) when is_integer(I) ->
     I.
+
 aggregate_listener_status(NodeStatus) ->
     aggregate_listener_status(NodeStatus, 0, 0, undefined).
 
@@ -330,10 +334,18 @@ aggregate_listener_status(
     CurrAcc,
     RunningAcc
 ) ->
+    NMaxAcc = plus_max_connections(MaxAcc, Max),
     NRunning = aggregate_running(Running, RunningAcc),
-    aggregate_listener_status(T, MaxAcc + Max, Current + CurrAcc, NRunning);
+    aggregate_listener_status(T, NMaxAcc, Current + CurrAcc, NRunning);
 aggregate_listener_status([], MaxAcc, CurrAcc, RunningAcc) ->
     {MaxAcc, CurrAcc, RunningAcc}.
+
+plus_max_connections(_, infinity) ->
+    infinity;
+plus_max_connections(infinity, _) ->
+    infinity;
+plus_max_connections(A, B) when is_integer(A) andalso is_integer(B) ->
+    A + B.
 
 aggregate_running(R, R) -> R;
 aggregate_running(R, undefined) -> R;
