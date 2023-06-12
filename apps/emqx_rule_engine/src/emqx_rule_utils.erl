@@ -67,6 +67,11 @@
         , log_action/4
         ]).
 
+-export([ set_runtime_env_sqltest/0
+        , unset_runtime_env_sqltest/0
+        , get_runtime_env_sqltest/0
+        ]).
+
 -compile({no_auto_import,
           [ float/1
           ]}).
@@ -417,3 +422,15 @@ metadata_values(Metadata) ->
     ActionName = maps:get(action_name, Metadata, undefined),
     ResourceName = maps:get(resource_id, Metadata, undefined),
     [RuleId, ActionName, ResourceName].
+
+set_runtime_env_sqltest() ->
+    erlang:put('rule_runtime_env:sqltest', true), ok.
+
+unset_runtime_env_sqltest() ->
+    erlang:erase('rule_runtime_env:sqltest'), ok.
+
+get_runtime_env_sqltest() ->
+    case erlang:get('rule_runtime_env:sqltest') of
+        true -> true;
+        _ -> false
+    end.

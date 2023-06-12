@@ -737,6 +737,43 @@ prop_format_date_fun() ->
     Args3DTUS = [<<"second">>, <<"+04:00">>, <<"--%m--%d--%Y---%H:%M:%S">>, Formatters3],
     Second == apply_func(date_to_unix_ts, Args3DTUS).
 
+t_mongo_date(_) ->
+    TimestampToSystemTimeMs = fun({MegaSecs, Secs, MicroSecs}) ->
+        (MegaSecs * 1000_000_000_000 + Secs * 1000_000 + MicroSecs) div 1000
+    end,
+    Diff = fun(Ms, ErlTs) -> abs(Ms - TimestampToSystemTimeMs(ErlTs)) end,
+    ?assert(Diff(erlang:system_time(millisecond), apply_func(mongo_date, [])) =< 1),
+    Ms1 = erlang:system_time(millisecond),
+    ?assert(Diff(Ms1, apply_func(mongo_date, [Ms1])) == 0),
+    Ms2 = erlang:system_time(microsecond),
+    ?assert(Diff(Ms2 div 1000, apply_func(mongo_date, [Ms2, <<"microsecond">>])) == 0),
+    Ms3 = erlang:system_time(nanosecond),
+    ?assert(Diff(Ms3 div 1000_000, apply_func(mongo_date, [Ms3, <<"nanosecond">>])) == 0),
+    Ms4 = erlang:system_time(second),
+    ?assert(Diff(Ms4 * 1000, apply_func(mongo_date, [Ms4, <<"second">>])) == 0).
+
+t_mongo_date_display_format(_) ->
+    try
+        emqx_rule_utils:set_runtime_env_sqltest(),
+        ISODateToSystemTimeMs = fun(ISODateStr) ->
+            <<"ISODate(", Ts3339Str1/binary>> = ISODateStr,
+            Ts3339Str = string:slice(Ts3339Str1, 0, byte_size(Ts3339Str1) - 1),
+            calendar:rfc3339_to_system_time(binary_to_list(Ts3339Str), [{unit, millisecond}])
+        end,
+        Diff = fun(Ms, ErlTs) -> abs(Ms - ISODateToSystemTimeMs(ErlTs)) end,
+        ?assert(Diff(erlang:system_time(millisecond), apply_func(mongo_date, [])) =< 1),
+        Ms1 = erlang:system_time(millisecond),
+        ?assert(Diff(Ms1, apply_func(mongo_date, [Ms1])) == 0),
+        Ms2 = erlang:system_time(microsecond),
+        ?assert(Diff(Ms2 div 1000, apply_func(mongo_date, [Ms2, <<"microsecond">>])) == 0),
+        Ms3 = erlang:system_time(nanosecond),
+        ?assert(Diff(Ms3 div 1000_000, apply_func(mongo_date, [Ms3, <<"nanosecond">>])) == 0),
+        Ms4 = erlang:system_time(second),
+        ?assert(Diff(Ms4 * 1000, apply_func(mongo_date, [Ms4, <<"second">>])) == 0)
+    after
+        emqx_rule_utils:unset_runtime_env_sqltest()
+    end.
+
 apply_func(Name, Args) when is_atom(Name) ->
     erlang:apply(emqx_rule_funcs, Name, Args);
 apply_func(Fun, Args) when is_function(Fun) ->

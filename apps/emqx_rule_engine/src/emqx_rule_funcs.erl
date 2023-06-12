@@ -982,22 +982,36 @@ date_to_unix_ts(TimeUnit, Offset, FormatString, InputString) ->
     date_to_unix_ts(Unit, FormatString, InputString) - OffsetDelta.
 
 mongo_date() ->
-    erlang:timestamp().
+    maybe_isodate_format(erlang:timestamp()).
 
-mongo_date(MillisecondsTimestamp) ->
-    convert_timestamp(MillisecondsTimestamp).
+mongo_date(MsTimestamp) ->
+    maybe_isodate_format(convert_timestamp(MsTimestamp)).
 
 mongo_date(Timestamp, Unit) ->
     InsertedTimeUnit = time_unit(Unit),
     ScaledEpoch = erlang:convert_time_unit(Timestamp, InsertedTimeUnit, millisecond),
-    convert_timestamp(ScaledEpoch).
+    mongo_date(ScaledEpoch).
 
-convert_timestamp(MillisecondsTimestamp) ->
-    MicroTimestamp = MillisecondsTimestamp * 1000,
+convert_timestamp(MsTimestamp) ->
+    MicroTimestamp = MsTimestamp * 1000,
     MegaSecs = MicroTimestamp div 1000_000_000_000,
     Secs = MicroTimestamp div 1000_000 - MegaSecs*1000_000,
     MicroSecs = MicroTimestamp rem 1000_000,
     {MegaSecs, Secs, MicroSecs}.
+
+maybe_isodate_format(ErlTimestamp) ->
+    case emqx_rule_utils:get_runtime_env_sqltest() of
+        false -> ErlTimestamp;
+        true ->
+            %% if this is called from sqltest, we need to convert it to the ISODate() format,
+            %% so that it can be correctly converted into a JSON string.
+            isodate_format(ErlTimestamp)
+    end.
+
+isodate_format({MegaSecs, Secs, MicroSecs}) ->
+    SystemTimeMs = (MegaSecs * 1000_000_000_000 + Secs * 1000_000 + MicroSecs) div 1000,
+    Ts3339Str = calendar:system_time_to_rfc3339(SystemTimeMs, [{unit, millisecond}, {offset, "Z"}]),
+    iolist_to_binary(["ISODate(", Ts3339Str, ")"]).
 
 %% @doc This is for sql funcs that should be handled in the specific modules.
 %% Here the emqx_rule_funcs module acts as a proxy, forwarding
