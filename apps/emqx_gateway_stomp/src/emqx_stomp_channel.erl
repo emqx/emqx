@@ -994,7 +994,7 @@ handle_deliver(
     Delivers,
     Channel = #channel{
         ctx = Ctx,
-        clientinfo = ClientInfo,
+        clientinfo = ClientInfo = #{mountpoint := Mountpoint},
         subscriptions = Subs
     }
 ) ->
@@ -1005,22 +1005,21 @@ handle_deliver(
         fun({_, _, Message}, Acc) ->
             Topic0 = emqx_message:topic(Message),
             case lists:keyfind(Topic0, 2, Subs) of
-                {Id, Topic, Ack, _SubOpts} ->
-                    %% XXX: refactor later
+                {Id, _Topic, Ack, _SubOpts} ->
+                    Message1 = emqx_mountpoint:unmount(Mountpoint, Message),
                     metrics_inc('messages.delivered', Channel),
                     NMessage = run_hooks_without_metrics(
                         Ctx,
                         'message.delivered',
                         [ClientInfo],
-                        Message
+                        Message1
                     ),
-                    Topic = emqx_message:topic(NMessage),
                     Headers = emqx_message:get_headers(NMessage),
                     Payload = emqx_message:payload(NMessage),
                     Headers0 = [
                         {<<"subscription">>, Id},
                         {<<"message-id">>, next_msgid()},
-                        {<<"destination">>, Topic},
+                        {<<"destination">>, emqx_message:topic(NMessage)},
                         {<<"content-type">>, <<"text/plain">>}
                     ],
                     Headers1 =
