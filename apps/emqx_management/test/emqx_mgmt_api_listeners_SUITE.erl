@@ -19,6 +19,7 @@
 -compile(nowarn_export_all).
 
 -include_lib("eunit/include/eunit.hrl").
+-include_lib("common_test/include/ct.hrl").
 
 -define(PORT(Base), (Base + ?LINE)).
 -define(PORT, ?PORT(20000)).
@@ -404,6 +405,62 @@ t_action_listeners(Config) when is_list(Config) ->
     action_listener(ID, "start", true),
     action_listener(ID, "restart", true).
 
+t_update_validation_error_message({init, Config}) ->
+    NewListenerId = <<"ssl:new", (integer_to_binary(?LINE))/binary>>,
+    NewPath = emqx_mgmt_api_test_util:api_path(["listeners", NewListenerId]),
+    ListenerId = "ssl:default",
+    OriginalPath = emqx_mgmt_api_test_util:api_path(["listeners", ListenerId]),
+    OriginalListener = request(get, OriginalPath, [], []),
+    [
+        {new_listener_id, NewListenerId},
+        {new_path, NewPath},
+        {original_listener, OriginalListener}
+        | Config
+    ];
+t_update_validation_error_message(Config) when is_list(Config) ->
+    NewListenerId = ?config(new_listener_id, Config),
+    NewPath = ?config(new_path, Config),
+    OriginalListener = ?config(original_listener, Config),
+    Port = integer_to_binary(?PORT),
+    NewListener = OriginalListener#{
+        <<"id">> := NewListenerId,
+        <<"bind">> => <<"0.0.0.0:", Port/binary>>
+    },
+    CreateResp = request(post, NewPath, [], NewListener),
+    ?assertEqual(lists:sort(maps:keys(OriginalListener)), lists:sort(maps:keys(CreateResp))),
+
+    %% check that a validation error is user-friendly
+    WrongConf1a = emqx_utils_maps:deep_put(
+        [<<"ssl_options">>, <<"enable_crl_check">>],
+        CreateResp,
+        true
+    ),
+    WrongConf1 = emqx_utils_maps:deep_put(
+        [<<"ssl_options">>, <<"verify">>],
+        WrongConf1a,
+        <<"verify_none">>
+    ),
+    Result1 = request(put, NewPath, [], WrongConf1, #{return_all => true}),
+    ?assertMatch({error, {{_, 400, _}, _Headers, _Body}}, Result1),
+    {error, {{_, _Code, _}, _Headers, Body1}} = Result1,
+    #{<<"message">> := RawMsg1} = emqx_utils_json:decode(Body1, [return_maps]),
+    Msg1 = emqx_utils_json:decode(RawMsg1, [return_maps]),
+    %% No confusing union type errors.
+    ?assertNotMatch(#{<<"mismatches">> := _}, Msg1),
+    ?assertMatch(
+        #{
+            <<"kind">> := <<"validation_error">>,
+            <<"reason">> := <<"verify must be verify_peer when CRL check is enabled">>,
+            <<"value">> := #{}
+        },
+        Msg1
+    ),
+    ok;
+t_update_validation_error_message({'end', Config}) ->
+    NewPath = ?config(new_path, Config),
+    ?assertEqual([], delete(NewPath)),
+    ok.
+
 action_listener(ID, Action, Running) ->
     Path = emqx_mgmt_api_test_util:api_path(["listeners", ID, Action]),
     {ok, _} = emqx_mgmt_api_test_util:request_api(post, Path),
@@ -413,8 +470,11 @@ action_listener(ID, Action, Running) ->
     listener_stats(Listener, Running).
 
 request(Method, Url, QueryParams, Body) ->
+    request(Method, Url, QueryParams, Body, _Opts = #{}).
+
+request(Method, Url, QueryParams, Body, Opts) ->
     AuthHeader = emqx_mgmt_api_test_util:auth_header_(),
-    case emqx_mgmt_api_test_util:request_api(Method, Url, QueryParams, AuthHeader, Body) of
+    case emqx_mgmt_api_test_util:request_api(Method, Url, QueryParams, AuthHeader, Body, Opts) of
         {ok, Res} -> emqx_utils_json:decode(Res, [return_maps]);
         Error -> Error
     end.
