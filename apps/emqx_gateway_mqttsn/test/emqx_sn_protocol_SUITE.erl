@@ -47,12 +47,15 @@
 
 -define(LOG(Format, Args), ct:log("TEST: " ++ Format, Args)).
 
--define(MAX_PRED_TOPIC_ID, 2).
+-define(MAX_PRED_TOPIC_ID, ?SN_MAX_PREDEF_TOPIC_ID).
 -define(PREDEF_TOPIC_ID1, 1).
 -define(PREDEF_TOPIC_ID2, 2).
 -define(PREDEF_TOPIC_NAME1, <<"/predefined/topic/name/hello">>).
 -define(PREDEF_TOPIC_NAME2, <<"/predefined/topic/name/nice">>).
--define(ENABLE_QOS3, true).
+-define(DEFAULT_PREDEFINED_TOPICS, [
+    #{<<"id">> => ?PREDEF_TOPIC_ID1, <<"topic">> => ?PREDEF_TOPIC_NAME1},
+    #{<<"id">> => ?PREDEF_TOPIC_ID2, <<"topic">> => ?PREDEF_TOPIC_NAME2}
+]).
 % FLAG NOT USED
 -define(FNU, 0).
 
@@ -141,6 +144,13 @@ restart_mqttsn_with_mountpoint(Mp) ->
     emqx_gateway_conf:update_gateway(
         mqttsn,
         Conf#{<<"mountpoint">> => Mp}
+    ).
+
+restart_mqttsn_with_predefined_topics(Topics) ->
+    Conf = emqx:get_raw_config([gateway, mqttsn]),
+    emqx_gateway_conf:update_gateway(
+        mqttsn,
+        Conf#{<<"predefined">> => Topics}
     ).
 
 default_config() ->
@@ -487,6 +497,35 @@ t_subscribe_case08(_) ->
     ?assertEqual(<<2, ?SN_DISCONNECT>>, receive_response(Socket)),
     gen_udp:close(Socket).
 
+t_subscribe_predefined_topic(_) ->
+    Dup = 0,
+    QoS = 0,
+    Retain = 0,
+    Will = 0,
+    CleanSession = 0,
+    MsgId = 1,
+    Socket = ensure_connected_client(?CLIENTID),
+    send_subscribe_msg_predefined_topic(Socket, 0, ?PREDEF_TOPIC_ID1, 1),
+    ?assertEqual(
+        <<8, ?SN_SUBACK, Dup:1, QoS:2, Retain:1, Will:1, CleanSession:1, ?SN_NORMAL_TOPIC:2,
+            ?PREDEF_TOPIC_ID1:16, MsgId:16, ?SN_RC_ACCEPTED>>,
+        receive_response(Socket)
+    ),
+    send_disconnect_msg(Socket, undefined),
+    gen_udp:close(Socket),
+
+    restart_mqttsn_with_predefined_topics([]),
+    Socket1 = ensure_connected_client(?CLIENTID),
+    send_subscribe_msg_predefined_topic(Socket1, 0, ?PREDEF_TOPIC_ID1, 1),
+    ?assertEqual(
+        <<8, ?SN_SUBACK, Dup:1, QoS:2, Retain:1, Will:1, CleanSession:1, ?SN_NORMAL_TOPIC:2, 0:16,
+            MsgId:16, ?SN_RC_INVALID_TOPIC_ID>>,
+        receive_response(Socket1)
+    ),
+    send_disconnect_msg(Socket1, undefined),
+    restart_mqttsn_with_predefined_topics(?DEFAULT_PREDEFINED_TOPICS),
+    gen_udp:close(Socket1).
+
 t_publish_negqos_enabled(_) ->
     Dup = 0,
     QoS = 0,
@@ -513,14 +552,11 @@ t_publish_negqos_enabled(_) ->
     Payload1 = <<20, 21, 22, 23>>,
     send_publish_msg_normal_topic(Socket, NegQoS, MsgId1, TopicId1, Payload1),
     timer:sleep(100),
-    case ?ENABLE_QOS3 of
-        true ->
-            Eexp =
-                <<11, ?SN_PUBLISH, Dup:1, QoS:2, Retain:1, Will:1, CleanSession:1,
-                    ?SN_NORMAL_TOPIC:2, TopicId1:16, (mid(0)):16, <<20, 21, 22, 23>>/binary>>,
-            What = receive_response(Socket),
-            ?assertEqual(Eexp, What)
-    end,
+    Eexp =
+        <<11, ?SN_PUBLISH, Dup:1, QoS:2, Retain:1, Will:1, CleanSession:1, ?SN_NORMAL_TOPIC:2,
+            TopicId1:16, (mid(0)):16, <<20, 21, 22, 23>>/binary>>,
+    What = receive_response(Socket),
+    ?assertEqual(Eexp, What),
 
     send_disconnect_msg(Socket, undefined),
     ?assertEqual(<<2, ?SN_DISCONNECT>>, receive_response(Socket)),
@@ -2777,3 +2813,9 @@ flush(Msgs) ->
         M -> flush([M | Msgs])
     after 0 -> lists:reverse(Msgs)
     end.
+
+ensure_connected_client(ClientId) ->
+    {ok, Socket} = gen_udp:open(0, [binary]),
+    send_connect_msg(Socket, ClientId),
+    ?assertEqual(<<3, ?SN_CONNACK, 0>>, receive_response(Socket)),
+    Socket.
