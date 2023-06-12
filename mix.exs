@@ -64,7 +64,7 @@ defmodule EMQXUmbrella.MixProject do
       {:pbkdf2, github: "emqx/erlang-pbkdf2", tag: "2.0.4", override: true},
       # maybe forbid to fetch quicer
       {:emqtt,
-       github: "emqx/emqtt", tag: "1.8.5", override: true, system_env: maybe_no_quic_env()},
+       github: "emqx/emqtt", tag: "1.8.6", override: true, system_env: maybe_no_quic_env()},
       {:rulesql, github: "emqx/rulesql", tag: "0.1.6"},
       {:observer_cli, "1.7.1"},
       {:system_monitor, github: "ieQu1/system_monitor", tag: "3.0.3"},
