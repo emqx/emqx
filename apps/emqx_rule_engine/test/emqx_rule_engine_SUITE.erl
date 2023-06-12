@@ -66,6 +66,7 @@ groups() ->
             t_sqlselect_with_3rd_party_impl2,
             t_sqlselect_with_3rd_party_funcs_unknown,
             t_sqlselect_001,
+            t_sqlselect_002,
             t_sqlselect_inject_props,
             t_sqlselect_01,
             t_sqlselect_02,
@@ -1080,6 +1081,36 @@ t_sqlselect_001(_Config) ->
         emqx_rule_sqltester:test(
             #{
                 sql => Sql2,
+                context =>
+                    #{
+                        payload => #{<<"what">> => 4},
+                        topic => <<"t/a">>
+                    }
+            }
+        )
+    ).
+
+t_sqlselect_002(_Config) ->
+    %% Verify that the div and mod can be used both as infix operations and as
+    %% function calls
+    Sql =
+        ""
+        "select 2 mod 2   as mod1,\n"
+        "                  mod(3, 2) as mod2,\n"
+        "                  4 div 2   as div1,\n"
+        "                  div(7, 2) as div2\n"
+        "           from \"t/#\" "
+        "",
+    ?assertMatch(
+        {ok, #{
+            <<"mod1">> := 0,
+            <<"mod2">> := 1,
+            <<"div1">> := 2,
+            <<"div2">> := 3
+        }},
+        emqx_rule_sqltester:test(
+            #{
+                sql => Sql,
                 context =>
                     #{
                         payload => #{<<"what">> => 4},
