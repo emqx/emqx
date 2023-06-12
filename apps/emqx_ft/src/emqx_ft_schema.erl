@@ -76,6 +76,7 @@ fields(file_transfer) ->
                 #{
                     desc => ?DESC("init_timeout"),
                     required => false,
+                    importance => ?IMPORTANCE_LOW,
                     default => "10s"
                 }
             )},
@@ -85,6 +86,7 @@ fields(file_transfer) ->
                 #{
                     desc => ?DESC("store_segment_timeout"),
                     required => false,
+                    importance => ?IMPORTANCE_LOW,
                     default => "5m"
                 }
             )},
@@ -94,6 +96,7 @@ fields(file_transfer) ->
                 #{
                     desc => ?DESC("assemble_timeout"),
                     required => false,
+                    importance => ?IMPORTANCE_LOW,
                     default => "5m"
                 }
             )},

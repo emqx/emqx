@@ -17,6 +17,7 @@
 -module(emqx_banned).
 
 -behaviour(gen_server).
+-behaviour(emqx_db_backup).
 
 -include("emqx.hrl").
 -include("logger.hrl").
@@ -50,6 +51,8 @@
     code_change/3
 ]).
 
+-export([backup_tables/0]).
+
 %% Internal exports (RPC)
 -export([
     expire_banned_items/1
@@ -81,6 +84,11 @@ mnesia(boot) ->
         {attributes, record_info(fields, banned)},
         {storage_properties, [{ets, [{read_concurrency, true}]}]}
     ]).
+
+%%--------------------------------------------------------------------
+%% Data backup
+%%--------------------------------------------------------------------
+backup_tables() -> [?BANNED_TAB].
 
 %% @doc Start the banned server.
 -spec start_link() -> startlink_ret().

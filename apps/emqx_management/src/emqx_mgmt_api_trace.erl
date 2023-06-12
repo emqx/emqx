@@ -206,7 +206,7 @@ fields(log_file_detail) ->
     fields(node) ++
         [
             {size, hoconsc:mk(integer(), #{description => ?DESC(file_size)})},
-            {mtime, hoconsc:mk(integer(), #{description => ?DESC(modification_date)})}
+            {mtime, hoconsc:mk(integer(), #{description => ?DESC(file_mtime)})}
         ];
 fields(trace) ->
     [
@@ -214,7 +214,7 @@ fields(trace) ->
             hoconsc:mk(
                 binary(),
                 #{
-                    description => ?DESC(format),
+                    description => ?DESC(trace_name),
                     validator => fun ?MODULE:validate_name/1,
                     required => true,
                     example => <<"EMQX-TRACE-1">>

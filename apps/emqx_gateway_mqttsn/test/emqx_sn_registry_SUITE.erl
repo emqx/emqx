@@ -19,10 +19,11 @@
 -compile(export_all).
 -compile(nowarn_export_all).
 
+-include("emqx_mqttsn.hrl").
 -include_lib("eunit/include/eunit.hrl").
 
 -define(REGISTRY, emqx_mqttsn_registry).
--define(MAX_PREDEF_ID, 2).
+-define(MAX_PREDEF_ID, ?SN_MAX_PREDEF_TOPIC_ID).
 -define(PREDEF_TOPICS, [
     #{id => 1, topic => <<"/predefined/topic/name/hello">>},
     #{id => 2, topic => <<"/predefined/topic/name/nice">>}
@@ -36,96 +37,64 @@ all() ->
     emqx_common_test_helpers:all(?MODULE).
 
 init_per_suite(Config) ->
-    application:ensure_all_started(ekka),
-    mria:start(),
     Config.
 
 end_per_suite(_Config) ->
-    application:stop(ekka),
     ok.
 
 init_per_testcase(_TestCase, Config) ->
-    {ok, Pid} = ?REGISTRY:start_link('mqttsn', ?PREDEF_TOPICS),
-    {Tab, Pid} = ?REGISTRY:lookup_name(Pid),
-    [{reg, {Tab, Pid}} | Config].
+    emqx_mqttsn_registry:persist_predefined_topics(?PREDEF_TOPICS),
+    Config.
 
 end_per_testcase(_TestCase, Config) ->
-    {Tab, _Pid} = proplists:get_value(reg, Config),
-    mria:clear_table(Tab),
+    emqx_mqttsn_registry:clear_predefined_topics(?PREDEF_TOPICS),
     Config.
 
 %%--------------------------------------------------------------------
 %% Test cases
 %%--------------------------------------------------------------------
 
-t_register(Config) ->
-    Reg = proplists:get_value(reg, Config),
-    ?assertEqual(?MAX_PREDEF_ID + 1, ?REGISTRY:register_topic(Reg, <<"ClientId">>, <<"Topic1">>)),
-    ?assertEqual(?MAX_PREDEF_ID + 2, ?REGISTRY:register_topic(Reg, <<"ClientId">>, <<"Topic2">>)),
-    ?assertEqual(<<"Topic1">>, ?REGISTRY:lookup_topic(Reg, <<"ClientId">>, ?MAX_PREDEF_ID + 1)),
-    ?assertEqual(<<"Topic2">>, ?REGISTRY:lookup_topic(Reg, <<"ClientId">>, ?MAX_PREDEF_ID + 2)),
-    ?assertEqual(?MAX_PREDEF_ID + 1, ?REGISTRY:lookup_topic_id(Reg, <<"ClientId">>, <<"Topic1">>)),
-    ?assertEqual(?MAX_PREDEF_ID + 2, ?REGISTRY:lookup_topic_id(Reg, <<"ClientId">>, <<"Topic2">>)),
-    emqx_mqttsn_registry:unregister_topic(Reg, <<"ClientId">>),
-    ?assertEqual(undefined, ?REGISTRY:lookup_topic(Reg, <<"ClientId">>, ?MAX_PREDEF_ID + 1)),
-    ?assertEqual(undefined, ?REGISTRY:lookup_topic(Reg, <<"ClientId">>, ?MAX_PREDEF_ID + 2)),
-    ?assertEqual(undefined, ?REGISTRY:lookup_topic_id(Reg, <<"ClientId">>, <<"Topic1">>)),
-    ?assertEqual(undefined, ?REGISTRY:lookup_topic_id(Reg, <<"ClientId">>, <<"Topic2">>)).
+t_register(_) ->
+    Reg = ?REGISTRY:init(),
+    {ok, ?MAX_PREDEF_ID + 1, Reg1} = ?REGISTRY:reg(<<"Topic1">>, Reg),
+    {ok, ?MAX_PREDEF_ID + 2, Reg2} = ?REGISTRY:reg(<<"Topic2">>, Reg1),
+    ?assertMatch({ok, ?MAX_PREDEF_ID + 1, Reg2}, ?REGISTRY:reg(<<"Topic1">>, Reg2)),
+    ?assertEqual(<<"Topic1">>, ?REGISTRY:lookup_topic(?MAX_PREDEF_ID + 1, Reg2)),
+    ?assertEqual(<<"Topic2">>, ?REGISTRY:lookup_topic(?MAX_PREDEF_ID + 2, Reg2)),
+    ?assertEqual(?MAX_PREDEF_ID + 1, ?REGISTRY:lookup_topic_id(<<"Topic1">>, Reg2)),
+    ?assertEqual(?MAX_PREDEF_ID + 2, ?REGISTRY:lookup_topic_id(<<"Topic2">>, Reg2)),
 
-t_register_case2(Config) ->
-    Reg = proplists:get_value(reg, Config),
-    ?assertEqual(?MAX_PREDEF_ID + 1, ?REGISTRY:register_topic(Reg, <<"ClientId">>, <<"Topic1">>)),
-    ?assertEqual(?MAX_PREDEF_ID + 2, ?REGISTRY:register_topic(Reg, <<"ClientId">>, <<"Topic2">>)),
-    ?assertEqual(?MAX_PREDEF_ID + 1, ?REGISTRY:register_topic(Reg, <<"ClientId">>, <<"Topic1">>)),
-    ?assertEqual(<<"Topic1">>, ?REGISTRY:lookup_topic(Reg, <<"ClientId">>, ?MAX_PREDEF_ID + 1)),
-    ?assertEqual(<<"Topic2">>, ?REGISTRY:lookup_topic(Reg, <<"ClientId">>, ?MAX_PREDEF_ID + 2)),
-    ?assertEqual(?MAX_PREDEF_ID + 1, ?REGISTRY:lookup_topic_id(Reg, <<"ClientId">>, <<"Topic1">>)),
-    ?assertEqual(?MAX_PREDEF_ID + 2, ?REGISTRY:lookup_topic_id(Reg, <<"ClientId">>, <<"Topic2">>)),
-    ?assertEqual(undefined, ?REGISTRY:lookup_topic_id(Reg, <<"ClientId">>, <<"Topic3">>)),
-    ?REGISTRY:unregister_topic(Reg, <<"ClientId">>),
-    ?assertEqual(undefined, ?REGISTRY:lookup_topic(Reg, <<"ClientId">>, ?MAX_PREDEF_ID + 1)),
-    ?assertEqual(undefined, ?REGISTRY:lookup_topic(Reg, <<"ClientId">>, ?MAX_PREDEF_ID + 2)),
-    ?assertEqual(undefined, ?REGISTRY:lookup_topic_id(Reg, <<"ClientId">>, <<"Topic1">>)),
-    ?assertEqual(undefined, ?REGISTRY:lookup_topic_id(Reg, <<"ClientId">>, <<"Topic2">>)).
+    Reg3 = emqx_mqttsn_registry:unreg(<<"Topic1">>, Reg2),
+    ?assertEqual(undefined, ?REGISTRY:lookup_topic(?MAX_PREDEF_ID + 1, Reg3)),
+    ?assertEqual(undefined, ?REGISTRY:lookup_topic_id(<<"Topic1">>, Reg3)),
+    ?assertEqual(<<"Topic2">>, ?REGISTRY:lookup_topic(?MAX_PREDEF_ID + 2, Reg3)),
+    ?assertEqual(?MAX_PREDEF_ID + 2, ?REGISTRY:lookup_topic_id(<<"Topic2">>, Reg3)),
 
-t_reach_maximum(Config) ->
-    Reg = proplists:get_value(reg, Config),
-    register_a_lot(?MAX_PREDEF_ID + 1, 16#ffff, Reg),
-    ?assertEqual({error, too_large}, ?REGISTRY:register_topic(Reg, <<"ClientId">>, <<"TopicABC">>)),
-    Topic1 = iolist_to_binary(io_lib:format("Topic~p", [?MAX_PREDEF_ID + 1])),
-    Topic2 = iolist_to_binary(io_lib:format("Topic~p", [?MAX_PREDEF_ID + 2])),
-    ?assertEqual(?MAX_PREDEF_ID + 1, ?REGISTRY:lookup_topic_id(Reg, <<"ClientId">>, Topic1)),
-    ?assertEqual(?MAX_PREDEF_ID + 2, ?REGISTRY:lookup_topic_id(Reg, <<"ClientId">>, Topic2)),
-    ?REGISTRY:unregister_topic(Reg, <<"ClientId">>),
-    ?assertEqual(undefined, ?REGISTRY:lookup_topic(Reg, <<"ClientId">>, ?MAX_PREDEF_ID + 1)),
-    ?assertEqual(undefined, ?REGISTRY:lookup_topic(Reg, <<"ClientId">>, ?MAX_PREDEF_ID + 2)),
-    ?assertEqual(undefined, ?REGISTRY:lookup_topic_id(Reg, <<"ClientId">>, Topic1)),
-    ?assertEqual(undefined, ?REGISTRY:lookup_topic_id(Reg, <<"ClientId">>, Topic2)).
+    ?assertMatch({ok, ?MAX_PREDEF_ID + 3, _Reg4}, ?REGISTRY:reg(<<"Topic3">>, Reg3)).
 
-t_register_case4(Config) ->
-    Reg = proplists:get_value(reg, Config),
-    ?assertEqual(?MAX_PREDEF_ID + 1, ?REGISTRY:register_topic(Reg, <<"ClientId">>, <<"TopicA">>)),
-    ?assertEqual(?MAX_PREDEF_ID + 2, ?REGISTRY:register_topic(Reg, <<"ClientId">>, <<"TopicB">>)),
-    ?assertEqual(?MAX_PREDEF_ID + 3, ?REGISTRY:register_topic(Reg, <<"ClientId">>, <<"TopicC">>)),
-    ?REGISTRY:unregister_topic(Reg, <<"ClientId">>),
-    ?assertEqual(?MAX_PREDEF_ID + 1, ?REGISTRY:register_topic(Reg, <<"ClientId">>, <<"TopicD">>)).
+t_reach_maximum(_) ->
+    Reg0 = ?REGISTRY:init(),
+    Reg = register_a_lot(?MAX_PREDEF_ID + 1, 16#ffff, Reg0),
+    ?assertEqual({error, too_large}, ?REGISTRY:reg(<<"TopicABC">>, Reg)),
+    ?assertEqual(?MAX_PREDEF_ID + 1, ?REGISTRY:lookup_topic_id(<<"Topic1025">>, Reg)),
+    ?assertEqual(?MAX_PREDEF_ID + 2, ?REGISTRY:lookup_topic_id(<<"Topic1026">>, Reg)).
 
-t_deny_wildcard_topic(Config) ->
-    Reg = proplists:get_value(reg, Config),
-    ?assertEqual(
-        {error, wildcard_topic}, ?REGISTRY:register_topic(Reg, <<"ClientId">>, <<"/TopicA/#">>)
-    ),
-    ?assertEqual(
-        {error, wildcard_topic}, ?REGISTRY:register_topic(Reg, <<"ClientId">>, <<"/+/TopicB">>)
-    ).
+t_deny_wildcard_topic(_) ->
+    Reg = ?REGISTRY:init(),
+    ?assertEqual({error, wildcard_topic}, ?REGISTRY:reg(<<"/TopicA/#">>, Reg)),
+    ?assertEqual({error, wildcard_topic}, ?REGISTRY:reg(<<"/+/TopicB">>, Reg)).
 
 %%--------------------------------------------------------------------
 %% Helper funcs
 %%--------------------------------------------------------------------
 
-register_a_lot(Max, Max, _Reg) ->
-    ok;
-register_a_lot(N, Max, Reg) when N < Max ->
+register_a_lot(N, Max, Reg) when N =< Max ->
     Topic = iolist_to_binary(["Topic", integer_to_list(N)]),
-    ?assertEqual(N, ?REGISTRY:register_topic(Reg, <<"ClientId">>, Topic)),
-    register_a_lot(N + 1, Max, Reg).
+    {ok, ReturnedId, Reg1} = ?REGISTRY:reg(Topic, Reg),
+    ?assertEqual(N, ReturnedId),
+    case N == Max of
+        true ->
+            Reg1;
+        _ ->
+            register_a_lot(N + 1, Max, Reg1)
+    end.

@@ -74,7 +74,8 @@ values(common_config) ->
         socket_opts => #{
             sndbuf => <<"1024KB">>,
             recbuf => <<"1024KB">>,
-            nodelay => true
+            nodelay => true,
+            tcp_keepalive => <<"none">>
         }
     };
 values(producer) ->
@@ -236,7 +237,13 @@ fields(socket_opts) ->
                     importance => ?IMPORTANCE_HIDDEN,
                     desc => ?DESC(socket_nodelay)
                 }
-            )}
+            )},
+        {tcp_keepalive,
+            mk(string(), #{
+                default => <<"none">>,
+                desc => ?DESC(socket_tcp_keepalive),
+                validator => fun emqx_schema:validate_tcp_keepalive/1
+            })}
     ];
 fields(producer_opts) ->
     [
@@ -276,7 +283,7 @@ fields(producer_kafka_opts) ->
             )},
         {partition_count_refresh_interval,
             mk(
-                emqx_schema:duration_s(),
+                emqx_schema:timeout_duration_s(),
                 #{
                     default => <<"60s">>,
                     desc => ?DESC(partition_count_refresh_interval)
@@ -396,8 +403,8 @@ fields(consumer_kafka_opts) ->
             )},
         {offset_commit_interval_seconds,
             mk(
-                pos_integer(),
-                #{default => 5, desc => ?DESC(consumer_offset_commit_interval_seconds)}
+                emqx_schema:timeout_duration_s(),
+                #{default => <<"5s">>, desc => ?DESC(consumer_offset_commit_interval_seconds)}
             )}
     ].
 

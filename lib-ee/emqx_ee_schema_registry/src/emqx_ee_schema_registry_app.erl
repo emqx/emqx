@@ -11,9 +11,13 @@
 
 start(_StartType, _StartArgs) ->
     ok = mria_rlog:wait_for_shards([?SCHEMA_REGISTRY_SHARD], infinity),
+    %% HTTP API handler
     emqx_conf:add_handler([?CONF_KEY_ROOT, schemas, '?'], emqx_ee_schema_registry),
+    %% Conf load / data import handler
+    emqx_conf:add_handler(?CONF_KEY_PATH, emqx_ee_schema_registry),
     emqx_ee_schema_registry_sup:start_link().
 
 stop(_State) ->
     emqx_conf:remove_handler([?CONF_KEY_ROOT, schemas, '?']),
+    emqx_conf:remove_handler(?CONF_KEY_PATH),
     ok.

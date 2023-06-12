@@ -50,15 +50,15 @@ file_size.desc:
 file_size.label:
 """file size"""
 
-modification_date.desc:
-"""the modification and last access times of a file"""
-modification_date.label:
-"""last access time"""
+file_mtime.desc:
+"""The last time this file is modified."""
+file_mtime.label:
+"""file mtime"""
 
-format.desc:
-"""Unique and format by [a-zA-Z0-9-_]"""
-format.label:
-"""Unique and format by [a-zA-Z0-9-_]"""
+trace_name.desc:
+"""Unique name of the trace. Only ascii letters in a-z, A-Z, 0-9 and underscore '_' are allowed."""
+trace_name.label:
+"""Unique name of the trace"""
 
 filter_type.desc:
 """Filter type"""
@@ -66,19 +66,19 @@ filter_type.label:
 """Filter type"""
 
 support_wildcard.desc:
-"""support mqtt wildcard topic."""
+"""Specify the topic or topic filter if the trace 'type' is 'topic'."""
 support_wildcard.label:
-"""support mqtt wildcard topic"""
+"""MQTT Topic"""
 
 mqtt_clientid.desc:
-"""mqtt clientid."""
+"""Specify the MQTT clientid if the trace 'type' is 'clientid'."""
 mqtt_clientid.label:
-"""mqtt clientid"""
+"""MQTT clientid"""
 
 client_ip_addess.desc:
-"""client ip address"""
+"""Specify the client's IP address if the trace type is 'ip_address'."""
 client_ip_addess.label:
-"""client ip address"""
+"""Client IP Address"""
 
 trace_status.desc:
 """trace status"""
@@ -88,11 +88,6 @@ trace_status.label:
 time_format.desc:
 """rfc3339 timestamp or epoch second"""
 time_format.label:
-"""rfc3339 timestamp or epoch second"""
-
-time_format_g.desc:
-"""rfc3339 timestamp or epoch second"""
-time_format_g.label:
 """rfc3339 timestamp or epoch second"""
 
 trace_log_size.desc:

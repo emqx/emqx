@@ -3,12 +3,12 @@ emqx_mgmt_api_listeners {
 list_node_live_statuses.desc:
 """List all running node's listeners live status. group by listener type"""
 list_node_live_statuses.label:
-"""List all running node's listeners live status. group by listener type"""
+"""List listeners live status"""
 
 list_listeners.desc:
 """List all running node's listeners for the specified type."""
 list_listeners.label:
-"""List all running node's listeners for the specified type."""
+"""List listeners per type"""
 
 listener_type.desc:
 """Listener type"""
@@ -18,42 +18,37 @@ listener_type.label:
 create_on_all_nodes.desc:
 """Create the specified listener on all nodes."""
 create_on_all_nodes.label:
-"""Create the specified listener on all nodes."""
+"""Create listener"""
 
 list_by_id.desc:
 """List all running node's listeners for the specified id."""
 list_by_id.label:
-"""List all running node's listeners for the specified id."""
+"""List listeners per ID"""
 
 update_lisener.desc:
 """Update the specified listener on all nodes."""
 update_lisener.label:
-"""Update the specified listener on all nodes."""
-
-create_on_all_nodes_2.desc:
-"""Create the specified listener on all nodes."""
-create_on_all_nodes_2.label:
-"""Create the specified listener on all nodes."""
+"""Update listener"""
 
 delete_on_all_nodes.desc:
 """Delete the specified listener on all nodes."""
 delete_on_all_nodes.label:
-"""Delete the specified listener on all nodes."""
+"""Delete listener"""
 
 start_on_all_nodes.desc:
 """Start the listener on all nodes."""
 start_on_all_nodes.label:
-"""Start the listener on all nodes."""
+"""Start listener"""
 
 stop_on_all_nodes.desc:
 """Stop the listener on all nodes."""
 stop_on_all_nodes.label:
-"""Stop the listener on all nodes."""
+"""Stop listener"""
 
 restart_on_all_nodes.desc:
 """Restart listeners on all nodes."""
 restart_on_all_nodes.label:
-"""Restart listeners on all nodes."""
+"""Restart listener"""
 
 
 }

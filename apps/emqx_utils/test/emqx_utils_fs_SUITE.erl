@@ -26,6 +26,33 @@
 all() ->
     emqx_common_test_helpers:all(?MODULE).
 
+init_per_suite(Config) ->
+    Root = ?config(data_dir, Config),
+    D1 = filename:join([Root, "nonempty", "d1/"]),
+    D2 = filename:join([Root, "nonempty", "d2/"]),
+    F1 = filename:join([D1, "1"]),
+    F2 = filename:join([D1, "2"]),
+    DeepDir = filename:join([Root, "nonempty", "d2", "deep", "down/"]),
+    DeepFile = filename:join([DeepDir, "here"]),
+    Files = [F1, F2, DeepFile],
+    lists:foreach(fun filelib:ensure_dir/1, Files),
+    D1LinkMutrec = filename:join([D1, "mutrec"]),
+    D2LinkMutrec = filename:join([D2, "deep", "mutrec"]),
+    lists:foreach(fun(File) -> file:write_file(File, <<"">>, [write]) end, Files),
+    chmod_file(D1, 8#00777),
+    chmod_file(DeepFile, 8#00600),
+    make_symlink(DeepDir, D1LinkMutrec),
+    %% can't file:make_link("../../d1", D2Mutrec) on mac, return {error, eperm}
+    make_symlink("../../d1", D2LinkMutrec),
+    {ok, D2MutrecInfo} = file:read_link_info(D2LinkMutrec),
+    ct:pal("~ts 's file_info is ~p~n", [D2LinkMutrec, D2MutrecInfo]),
+    Config.
+
+end_per_suite(Config) ->
+    Root = ?config(data_dir, Config),
+    ok = file:del_dir_r(filename:join([Root, "nonempty"])),
+    ok.
+
 %%
 
 t_traverse_dir(Config) ->
@@ -115,3 +142,11 @@ t_canonicalize_non_utf8(_) ->
         badarg,
         emqx_utils_fs:canonicalize(<<128, 128, 128>>)
     ).
+
+chmod_file(File, Mode) ->
+    {ok, FileInfo} = file:read_file_info(File),
+    ok = file:write_file_info(File, FileInfo#file_info{mode = Mode}).
+
+make_symlink(FileOrDir, NewLink) ->
+    _ = file:delete(NewLink),
+    ok = file:make_symlink(FileOrDir, NewLink).

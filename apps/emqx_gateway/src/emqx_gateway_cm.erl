@@ -389,7 +389,7 @@ open_session(
                 end,
             case takeover_session(GwName, ClientId) of
                 {ok, ConnMod, ChanPid, Session} ->
-                    ok = emqx_session:resume(ClientInfo, Session),
+                    ok = SessionMod:resume(ClientInfo, Session),
                     case request_stepdown({takeover, 'end'}, ConnMod, ChanPid) of
                         {ok, Pendings} ->
                             register_channel(

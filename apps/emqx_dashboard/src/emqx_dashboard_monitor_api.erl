@@ -65,7 +65,7 @@ schema("/monitor_current") ->
         'operationId' => monitor_current,
         get => #{
             tags => [<<"Metrics">>],
-            description => ?DESC(current_status),
+            description => ?DESC(current_stats),
             responses => #{
                 200 => hoconsc:mk(hoconsc:ref(sampler_current), #{})
             }
@@ -76,7 +76,7 @@ schema("/monitor_current/nodes/:node") ->
         'operationId' => monitor_current,
         get => #{
             tags => [<<"Metrics">>],
-            description => ?DESC(current_status_node),
+            description => ?DESC(current_stats_node),
             parameters => [parameter_node()],
             responses => #{
                 200 => hoconsc:mk(hoconsc:ref(sampler_current), #{}),

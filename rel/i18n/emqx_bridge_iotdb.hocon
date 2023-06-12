@@ -42,7 +42,9 @@ config_is_aligned.label:
 """Align Timeseries"""
 
 config_device_id.desc:
-"""A fixed device name this data should be inserted for. If empty it must either be set in the rule action, the message itself, or it will be extracted from the topic."""
+"""The IoTDB device ID this data should be inserted for.
+If left empty, the MQTT message payload must contain a `device_id` field,
+or EMQX's rule-engine SQL must produce a `device_id` field."""
 config_device_id.label:
 """Device ID"""
 
@@ -56,12 +58,6 @@ config_max_retries.desc:
 
 config_max_retries.label:
 """HTTP Request Max Retries"""
-
-config_request_timeout.desc:
-"""HTTP request timeout."""
-
-config_request_timeout.label:
-"""HTTP Request Timeout"""
 
 desc_config.desc:
 """Configuration for Apache IoTDB bridge."""

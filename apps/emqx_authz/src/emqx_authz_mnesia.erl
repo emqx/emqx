@@ -42,6 +42,7 @@
 }).
 
 -behaviour(emqx_authz).
+-behaviour(emqx_db_backup).
 
 %% AuthZ Callbacks
 -export([
@@ -64,6 +65,8 @@
     list_username_rules/0,
     record_count/0
 ]).
+
+-export([backup_tables/0]).
 
 -ifdef(TEST).
 -compile(export_all).
@@ -118,6 +121,12 @@ authorize(
                 [#emqx_acl{rules = Rules2}] when is_list(Rules2) -> Rules2
             end,
     do_authorize(Client, PubSub, Topic, Rules).
+
+%%--------------------------------------------------------------------
+%% Data backup
+%%--------------------------------------------------------------------
+
+backup_tables() -> [?ACL_TABLE].
 
 %%--------------------------------------------------------------------
 %% Management API

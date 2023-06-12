@@ -59,3 +59,27 @@
         end
     end)()
 ).
+
+-define(retrying(CONFIG, NUM_RETRIES, TEST_BODY_FN), begin
+    __TEST_CASE = ?FUNCTION_NAME,
+    (fun
+        __GO(__CONFIG, __N) when __N >= NUM_RETRIES ->
+            TEST_BODY_FN(__CONFIG);
+        __GO(__CONFIG, __N) ->
+            try
+                TEST_BODY_FN(__CONFIG)
+            catch
+                __KIND:__REASON:__STACKTRACE ->
+                    ct:pal("test errored; will retry\n  ~p", [
+                        #{kind => __KIND, reason => __REASON, stacktrace => __STACKTRACE}
+                    ]),
+                    end_per_testcase(__TEST_CASE, __CONFIG),
+                    garbage_collect(),
+                    timer:sleep(1000),
+                    __CONFIG1 = init_per_testcase(__TEST_CASE, __CONFIG),
+                    __GO(__CONFIG1, __N + 1)
+            end
+    end)(
+        CONFIG, 0
+    )
+end).

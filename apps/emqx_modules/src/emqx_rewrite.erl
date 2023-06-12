@@ -49,9 +49,12 @@
 %% exported for `emqx_telemetry'
 -export([get_basic_usage_info/0]).
 
-%%--------------------------------------------------------------------
+-define(update(_Rules_),
+    emqx_conf:update([rewrite], _Rules_, #{override_to => cluster})
+).
+%%------------------------------------------------------------------------------
 %% Load/Unload
-%%--------------------------------------------------------------------
+%%------------------------------------------------------------------------------
 
 enable() ->
     emqx_conf:add_handler([rewrite], ?MODULE),
@@ -67,7 +70,7 @@ list() ->
     emqx_conf:get_raw([<<"rewrite">>], []).
 
 update(Rules0) ->
-    case emqx_conf:update([rewrite], Rules0, #{override_to => cluster}) of
+    case ?update(Rules0) of
         {ok, _} ->
             ok;
         {error, Reason} ->
@@ -109,18 +112,19 @@ rewrite_publish(Message = #message{topic = Topic}, Rules) ->
     Binds = fill_client_binds(Message),
     {ok, Message#message{topic = match_and_rewrite(Topic, Rules, Binds)}}.
 
-%%--------------------------------------------------------------------
+%%------------------------------------------------------------------------------
 %% Telemetry
-%%--------------------------------------------------------------------
+%%------------------------------------------------------------------------------
 
 -spec get_basic_usage_info() -> #{topic_rewrite_rule_count => non_neg_integer()}.
 get_basic_usage_info() ->
     RewriteRules = list(),
     #{topic_rewrite_rule_count => length(RewriteRules)}.
 
-%%--------------------------------------------------------------------
+%%------------------------------------------------------------------------------
 %% Internal functions
-%%--------------------------------------------------------------------
+%%------------------------------------------------------------------------------
+
 compile(Rules) ->
     lists:foldl(
         fun(Rule, {Publish, Subscribe, Error}) ->

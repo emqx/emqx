@@ -54,4 +54,9 @@ payload_template.desc:
 payload_template.label:
 """Payload template"""
 
+batch_size.desc:
+"""There is no batching support for MongoDB at the moment, so this config field has no effect. Internally the value is overridden to 1."""
+batch_size.label:
+"""Batch Size"""
+
 }

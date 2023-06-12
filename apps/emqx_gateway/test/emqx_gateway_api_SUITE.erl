@@ -411,6 +411,45 @@ t_listeners_tcp(_) ->
     {404, _} = request(get, "/gateways/stomp/listeners/stomp:tcp:def"),
     ok.
 
+t_listeners_max_conns(_) ->
+    {204, _} = request(put, "/gateways/stomp", #{}),
+    {404, _} = request(get, "/gateways/stomp/listeners"),
+    LisConf = #{
+        name => <<"def">>,
+        type => <<"tcp">>,
+        bind => <<"127.0.0.1:61613">>,
+        max_connections => 1024
+    },
+    {201, _} = request(post, "/gateways/stomp/listeners", LisConf),
+    {200, ConfResp} = request(get, "/gateways/stomp/listeners"),
+    assert_confs([LisConf], ConfResp),
+    {200, ConfResp1} = request(get, "/gateways/stomp/listeners/stomp:tcp:def"),
+    assert_confs(LisConf, ConfResp1),
+
+    LisConf2 = maps:merge(LisConf, #{max_connections => <<"infinity">>}),
+    {200, _} = request(
+        put,
+        "/gateways/stomp/listeners/stomp:tcp:def",
+        LisConf2
+    ),
+
+    {200, ConfResp2} = request(get, "/gateways/stomp/listeners/stomp:tcp:def"),
+    assert_confs(LisConf2, ConfResp2),
+
+    {200, [Listeners]} = request(get, "/gateways/stomp/listeners"),
+    ?assertMatch(#{max_connections := <<"infinity">>}, Listeners),
+
+    {200, Gateways} = request(get, "/gateways"),
+    [StompGwOverview] = lists:filter(
+        fun(Gw) -> maps:get(name, Gw) =:= <<"stomp">> end,
+        Gateways
+    ),
+    ?assertMatch(#{max_connections := <<"infinity">>}, StompGwOverview),
+
+    {204, _} = request(delete, "/gateways/stomp/listeners/stomp:tcp:def"),
+    {404, _} = request(get, "/gateways/stomp/listeners/stomp:tcp:def"),
+    ok.
+
 t_listeners_authn(_) ->
     GwConf = #{
         name => <<"stomp">>,

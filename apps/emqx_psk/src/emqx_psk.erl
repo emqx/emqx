@@ -17,6 +17,8 @@
 -module(emqx_psk).
 
 -behaviour(gen_server).
+-behaviour(emqx_db_backup).
+-behaviour(emqx_config_backup).
 
 -include_lib("emqx/include/logger.hrl").
 -include_lib("emqx/include/emqx_hooks.hrl").
@@ -46,6 +48,12 @@
 %% Internal exports (RPC)
 -export([
     insert_psks/1
+]).
+
+%% Data backup
+-export([
+    import_config/1,
+    backup_tables/0
 ]).
 
 -record(psk_entry, {
@@ -87,6 +95,12 @@ mnesia(boot) ->
     ]).
 
 %%------------------------------------------------------------------------------
+%% Data backup
+%%------------------------------------------------------------------------------
+
+backup_tables() -> [?TAB].
+
+%%------------------------------------------------------------------------------
 %% APIs
 %%------------------------------------------------------------------------------
 
@@ -115,9 +129,27 @@ start_link() ->
 stop() ->
     gen_server:stop(?MODULE).
 
-%%--------------------------------------------------------------------
+%%------------------------------------------------------------------------------
+%% Data backup
+%%------------------------------------------------------------------------------
+
+import_config(#{<<"psk_authentication">> := PskConf}) ->
+    case emqx_conf:update([psk_authentication], PskConf, #{override_to => cluster}) of
+        {ok, _} ->
+            case get_config(enable) of
+                true -> load();
+                false -> ok
+            end,
+            {ok, #{root_key => psk_authentication, changed => []}};
+        Error ->
+            {error, #{root_key => psk_authentication, reason => Error}}
+    end;
+import_config(_RawConf) ->
+    {ok, #{root_key => psk_authentication, changed => []}}.
+
+%%------------------------------------------------------------------------------
 %% gen_server callbacks
-%%--------------------------------------------------------------------
+%%------------------------------------------------------------------------------
 
 init(_Opts) ->
     _ =

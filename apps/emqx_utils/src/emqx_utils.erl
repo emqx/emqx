@@ -56,7 +56,9 @@
     safe_to_existing_atom/2,
     pub_props_to_packet/1,
     safe_filename/1,
-    diff_lists/3
+    diff_lists/3,
+    merge_lists/3,
+    tcp_keepalive_opts/4
 ]).
 
 -export([
@@ -487,6 +489,26 @@ safe_to_existing_atom(Atom, _Encoding) when is_atom(Atom) ->
 safe_to_existing_atom(_Any, _Encoding) ->
     {error, invalid_type}.
 
+-spec tcp_keepalive_opts(term(), non_neg_integer(), non_neg_integer(), non_neg_integer()) ->
+    {ok, [{keepalive, true} | {raw, non_neg_integer(), non_neg_integer(), binary()}]}
+    | {error, {unsupported_os, term()}}.
+tcp_keepalive_opts({unix, linux}, Idle, Interval, Probes) ->
+    {ok, [
+        {keepalive, true},
+        {raw, 6, 4, <<Idle:32/native>>},
+        {raw, 6, 5, <<Interval:32/native>>},
+        {raw, 6, 6, <<Probes:32/native>>}
+    ]};
+tcp_keepalive_opts({unix, darwin}, Idle, Interval, Probes) ->
+    {ok, [
+        {keepalive, true},
+        {raw, 6, 16#10, <<Idle:32/native>>},
+        {raw, 6, 16#101, <<Interval:32/native>>},
+        {raw, 6, 16#102, <<Probes:32/native>>}
+    ]};
+tcp_keepalive_opts(OS, _Idle, _Interval, _Probes) ->
+    {error, {unsupported_os, OS}}.
+
 %%------------------------------------------------------------------------------
 %% Internal Functions
 %%------------------------------------------------------------------------------
@@ -578,15 +600,18 @@ try_to_existing_atom(Convert, Data, Encoding) ->
         _:Reason -> {error, Reason}
     end.
 
-is_sensitive_key(token) -> true;
-is_sensitive_key("token") -> true;
-is_sensitive_key(<<"token">>) -> true;
 is_sensitive_key(authorization) -> true;
 is_sensitive_key("authorization") -> true;
 is_sensitive_key(<<"authorization">>) -> true;
+is_sensitive_key(aws_secret_access_key) -> true;
+is_sensitive_key("aws_secret_access_key") -> true;
+is_sensitive_key(<<"aws_secret_access_key">>) -> true;
 is_sensitive_key(password) -> true;
 is_sensitive_key("password") -> true;
 is_sensitive_key(<<"password">>) -> true;
+is_sensitive_key('proxy-authorization') -> true;
+is_sensitive_key("proxy-authorization") -> true;
+is_sensitive_key(<<"proxy-authorization">>) -> true;
 is_sensitive_key(secret) -> true;
 is_sensitive_key("secret") -> true;
 is_sensitive_key(<<"secret">>) -> true;
@@ -596,9 +621,9 @@ is_sensitive_key(<<"secret_key">>) -> true;
 is_sensitive_key(security_token) -> true;
 is_sensitive_key("security_token") -> true;
 is_sensitive_key(<<"security_token">>) -> true;
-is_sensitive_key(aws_secret_access_key) -> true;
-is_sensitive_key("aws_secret_access_key") -> true;
-is_sensitive_key(<<"aws_secret_access_key">>) -> true;
+is_sensitive_key(token) -> true;
+is_sensitive_key("token") -> true;
+is_sensitive_key(<<"token">>) -> true;
 is_sensitive_key(_) -> false.
 
 redact(Term) ->
@@ -709,9 +734,14 @@ redact_test_() ->
 
     Types = [atom, string, binary],
     Keys = [
-        token,
+        authorization,
+        aws_secret_access_key,
         password,
-        secret
+        'proxy-authorization',
+        secret,
+        secret_key,
+        security_token,
+        token
     ],
     [{case_name(Type, Key), fun() -> Case(Type, Key) end} || Key <- Keys, Type <- Types].
 
@@ -818,6 +848,42 @@ diff_lists(New, Old, KeyFunc) when is_list(New) andalso is_list(Old) ->
         identical => lists:reverse(Identical),
         changed => lists:reverse(Changed)
     }.
+
+%% @doc Merges two lists preserving the original order of elements in both lists.
+%% KeyFunc must extract a unique key from each element.
+%% If two keys exist in both lists, the value in List1 is superseded by the value in List2, but
+%% the element position in the result list will equal its position in List1.
+%% Example:
+%%     emqx_utils:merge_append_lists(
+%%         [#{id => a, val => old}, #{id => b, val => old}],
+%%         [#{id => a, val => new}, #{id => c}, #{id => b, val => new}, #{id => d}],
+%%         fun(#{id := Id}) -> Id end).
+%%    [#{id => a,val => new},
+%%     #{id => b,val => new},
+%%     #{id => c},
+%%     #{id => d}]
+-spec merge_lists(list(T), list(T), KeyFunc) -> list(T) when
+    KeyFunc :: fun((T) -> any()),
+    T :: any().
+merge_lists(List1, List2, KeyFunc) ->
+    WithKeysList2 = lists:map(fun(E) -> {KeyFunc(E), E} end, List2),
+    WithKeysList1 = lists:map(
+        fun(E) ->
+            K = KeyFunc(E),
+            case lists:keyfind(K, 1, WithKeysList2) of
+                false -> {K, E};
+                WithKey1 -> WithKey1
+            end
+        end,
+        List1
+    ),
+    NewWithKeysList2 = lists:filter(
+        fun({K, _}) ->
+            not lists:keymember(K, 1, WithKeysList1)
+        end,
+        WithKeysList2
+    ),
+    [E || {_, E} <- WithKeysList1 ++ NewWithKeysList2].
 
 search(_ExpectValue, _KeyFunc, []) ->
     false;

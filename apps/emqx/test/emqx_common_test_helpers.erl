@@ -725,10 +725,17 @@ start_slave(Name, Opts) when is_map(Opts) ->
     Node = node_name(Name),
     put_peer_mod(Node, SlaveMod),
     Cookie = atom_to_list(erlang:get_cookie()),
+    PrivDataDir = maps:get(priv_data_dir, Opts, "/tmp"),
+    NodeDataDir = filename:join([
+        PrivDataDir,
+        Node,
+        integer_to_list(erlang:unique_integer())
+    ]),
     DoStart =
         fun() ->
             case SlaveMod of
                 ct_slave ->
+                    ct:pal("~p: node data dir: ~s", [Node, NodeDataDir]),
                     ct_slave:start(
                         Node,
                         [
@@ -739,7 +746,8 @@ start_slave(Name, Opts) when is_map(Opts) ->
                             {erl_flags, erl_flags()},
                             {env, [
                                 {"HOCON_ENV_OVERRIDE_PREFIX", "EMQX_"},
-                                {"EMQX_NODE__COOKIE", Cookie}
+                                {"EMQX_NODE__COOKIE", Cookie},
+                                {"EMQX_NODE__DATA_DIR", NodeDataDir}
                             ]}
                         ]
                     );
@@ -844,7 +852,14 @@ setup_node(Node, Opts) when is_map(Opts) ->
         integer_to_list(erlang:unique_integer()),
         "mnesia"
     ]),
-    erpc:call(Node, application, set_env, [mnesia, dir, MnesiaDataDir]),
+    case erpc:call(Node, application, get_env, [mnesia, dir, undefined]) of
+        undefined ->
+            ct:pal("~p: setting mnesia dir: ~p", [Node, MnesiaDataDir]),
+            erpc:call(Node, application, set_env, [mnesia, dir, MnesiaDataDir]);
+        PreviousMnesiaDir ->
+            ct:pal("~p: mnesia dir already set: ~p", [Node, PreviousMnesiaDir]),
+            ok
+    end,
 
     %% Needs to be set explicitly because ekka:start() (which calls `gen`) is called without Handler
     %% in emqx_common_test_helpers:start_apps(...)
@@ -859,6 +874,12 @@ setup_node(Node, Opts) when is_map(Opts) ->
     %% Setting env before starting any applications
     set_envs(Node, Env),
 
+    NodeDataDir = filename:join([
+        PrivDataDir,
+        node(),
+        integer_to_list(erlang:unique_integer())
+    ]),
+
     %% Here we start the apps
     EnvHandlerForRpc =
         fun(App) ->
@@ -870,17 +891,10 @@ setup_node(Node, Opts) when is_map(Opts) ->
                     %% to avoid sharing data between executions and/or
                     %% nodes.  these variables might not be in the
                     %% config file (e.g.: emqx_enterprise_schema).
-                    NodeDataDir = filename:join([
-                        PrivDataDir,
-                        node(),
-                        integer_to_list(erlang:unique_integer())
-                    ]),
                     Cookie = atom_to_list(erlang:get_cookie()),
-                    os:putenv("EMQX_NODE__DATA_DIR", NodeDataDir),
-                    os:putenv("EMQX_NODE__COOKIE", Cookie),
+                    set_env_once("EMQX_NODE__DATA_DIR", NodeDataDir),
+                    set_env_once("EMQX_NODE__COOKIE", Cookie),
                     emqx_config:init_load(SchemaMod),
-                    os:unsetenv("EMQX_NODE__DATA_DIR"),
-                    os:unsetenv("EMQX_NODE__COOKIE"),
                     application:set_env(emqx, init_config_load_done, true)
                 end,
 
@@ -930,6 +944,15 @@ setup_node(Node, Opts) when is_map(Opts) ->
     ok.
 
 %% Helpers
+
+set_env_once(Var, Value) ->
+    case os:getenv(Var) of
+        false ->
+            os:putenv(Var, Value);
+        _OldValue ->
+            ok
+    end,
+    ok.
 
 put_peer_mod(Node, SlaveMod) ->
     put({?MODULE, Node}, SlaveMod),
@@ -1290,6 +1313,7 @@ call_janitor() ->
 call_janitor(Timeout) ->
     Janitor = get_or_spawn_janitor(),
     ok = emqx_test_janitor:stop(Janitor, Timeout),
+    erase({?MODULE, janitor_proc}),
     ok.
 
 get_or_spawn_janitor() ->

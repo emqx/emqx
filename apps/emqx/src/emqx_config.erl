@@ -930,7 +930,9 @@ maybe_update_zone([RootName | T], RootValue, Value) when is_atom(RootName) ->
                 end,
                 ExistingZones
             ),
-            persistent_term:put(?PERSIS_KEY(?CONF, zones), NewZones)
+            ZonesKey = ?PERSIS_KEY(?CONF, zones),
+            persistent_term:put(ZonesKey, NewZones),
+            put_config_post_change_actions(ZonesKey, NewZones)
     end,
     NewRootValue.
 

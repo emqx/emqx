@@ -307,6 +307,8 @@ fields("persistent_session_store") ->
                 boolean(),
                 #{
                     default => false,
+                    %% TODO(5.2): change field name to 'enable' and keep 'enabled' as an alias
+                    aliases => [enable],
                     desc => ?DESC(persistent_session_store_enabled)
                 }
             )},
@@ -333,11 +335,11 @@ fields("persistent_session_store") ->
                     default => #{
                         <<"type">> => <<"builtin">>,
                         <<"session">> =>
-                            #{<<"ram_cache">> => <<"true">>},
+                            #{<<"ram_cache">> => true},
                         <<"session_messages">> =>
-                            #{<<"ram_cache">> => <<"true">>},
+                            #{<<"ram_cache">> => true},
                         <<"messages">> =>
-                            #{<<"ram_cache">> => <<"false">>}
+                            #{<<"ram_cache">> => false}
                     },
                     desc => ?DESC(persistent_session_store_backend)
                 }
@@ -2005,6 +2007,8 @@ base_listener(Bind) ->
                 boolean(),
                 #{
                     default => true,
+                    %% TODO(5.2): change field name to 'enable' and keep 'enabled' as an alias
+                    aliases => [enable],
                     desc => ?DESC(fields_listener_enabled)
                 }
             )},

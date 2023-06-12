@@ -5,9 +5,4 @@ error_codes.desc:
 error_codes.label:
 """API Error Codes"""
 
-error_codes_u.desc:
-"""API Error Codes"""
-error_codes_u.label:
-"""API Error Codes"""
-
 }
