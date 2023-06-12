@@ -624,6 +624,9 @@ is_sensitive_key(<<"security_token">>) -> true;
 is_sensitive_key(token) -> true;
 is_sensitive_key("token") -> true;
 is_sensitive_key(<<"token">>) -> true;
+is_sensitive_key(jwt) -> true;
+is_sensitive_key("jwt") -> true;
+is_sensitive_key(<<"jwt">>) -> true;
 is_sensitive_key(_) -> false.
 
 redact(Term) ->
