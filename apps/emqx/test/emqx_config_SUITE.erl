@@ -63,12 +63,12 @@ t_fill_default_values(C) when is_list(C) ->
                     <<"enable_session_registry">> := true,
                     <<"perf">> :=
                         #{
-                            <<"route_lock_type">> := key,
+                            <<"route_lock_type">> := <<"key">>,
                             <<"trie_compaction">> := true
                         },
                     <<"route_batch_clean">> := false,
-                    <<"session_locking_strategy">> := quorum,
-                    <<"shared_subscription_strategy">> := round_robin
+                    <<"session_locking_strategy">> := <<"quorum">>,
+                    <<"shared_subscription_strategy">> := <<"round_robin">>
                 }
         },
         WithDefaults

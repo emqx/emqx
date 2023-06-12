@@ -19,6 +19,7 @@
 -include_lib("emqx/include/logger.hrl").
 -include_lib("hocon/include/hoconsc.hrl").
 -include_lib("emqx/include/emqx_schema.hrl").
+-include("emqx_conf.hrl").
 
 -export([add_handler/2, remove_handler/1]).
 -export([get/1, get/2, get_raw/1, get_raw/2, get_all/1]).
@@ -30,6 +31,7 @@
 -export([dump_schema/2]).
 -export([schema_module/0]).
 -export([gen_example_conf/2]).
+-export([check_config/2]).
 
 %% TODO: move to emqx_dashboard when we stop building api schema at build time
 -export([
@@ -211,6 +213,15 @@ schema_module() ->
     case os:getenv("SCHEMA_MOD") of
         false -> emqx_conf_schema;
         Value -> list_to_existing_atom(Value)
+    end.
+
+check_config(Mod, Raw) ->
+    try
+        {_AppEnvs, CheckedConf} = emqx_config:check_config(Mod, Raw),
+        {ok, CheckedConf}
+    catch
+        throw:Error ->
+            {error, Error}
     end.
 
 %%--------------------------------------------------------------------

@@ -24,11 +24,6 @@
 -include_lib("emqx/include/emqx_hooks.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
--ifdef(TEST).
--compile(export_all).
--compile(nowarn_export_all).
--endif.
-
 -export([
     register_metrics/0,
     init/0,
@@ -37,6 +32,7 @@
     lookup/1,
     move/2,
     update/2,
+    merge/1,
     authorize/5,
     %% for telemetry information
     get_enabled_authzs/0
@@ -128,6 +124,9 @@ lookup(Type) ->
     {Source, _Front, _Rear} = take(Type),
     Source.
 
+merge(NewConf) ->
+    emqx_authz_utils:update_config(?ROOT_KEY, {?CMD_MERGE, NewConf}).
+
 move(Type, ?CMD_MOVE_BEFORE(Before)) ->
     emqx_authz_utils:update_config(
         ?CONF_KEY_PATH, {?CMD_MOVE, type(Type), ?CMD_MOVE_BEFORE(type(Before))}
@@ -158,18 +157,25 @@ pre_config_update(Path, Cmd, Sources) ->
 
 do_pre_config_update(?CONF_KEY_PATH, Cmd, Sources) ->
     do_pre_config_update(Cmd, Sources);
+do_pre_config_update(?ROOT_KEY, {?CMD_MERGE, NewConf}, OldConf) ->
+    do_pre_config_merge(NewConf, OldConf);
 do_pre_config_update(?ROOT_KEY, NewConf, OldConf) ->
     do_pre_config_replace(NewConf, OldConf).
+
+do_pre_config_merge(NewConf, OldConf) ->
+    MergeConf = emqx_utils_maps:deep_merge(OldConf, NewConf),
+    NewSources = merge_sources(OldConf, NewConf),
+    do_pre_config_replace(MergeConf#{<<"sources">> => NewSources}, OldConf).
 
 %% override the entire config when updating the root key
 %% emqx_conf:update(?ROOT_KEY, Conf);
 do_pre_config_replace(Conf, Conf) ->
     Conf;
 do_pre_config_replace(NewConf, OldConf) ->
-    #{<<"sources">> := NewSources} = NewConf,
-    #{<<"sources">> := OldSources} = OldConf,
-    NewSources1 = do_pre_config_update({?CMD_REPLACE, NewSources}, OldSources),
-    NewConf#{<<"sources">> := NewSources1}.
+    NewSources = get_sources(NewConf),
+    OldSources = get_sources(OldConf),
+    ReplaceSources = do_pre_config_update({?CMD_REPLACE, NewSources}, OldSources),
+    NewConf#{<<"sources">> => ReplaceSources}.
 
 do_pre_config_update({?CMD_MOVE, _, _} = Cmd, Sources) ->
     do_move(Cmd, Sources);
@@ -465,8 +471,8 @@ get_enabled_authzs() ->
 %%------------------------------------------------------------------------------
 
 import_config(#{?CONF_NS_BINARY := AuthzConf}) ->
-    Sources = maps:get(<<"sources">>, AuthzConf, []),
-    OldSources = emqx:get_raw_config(?CONF_KEY_PATH, []),
+    Sources = get_sources(AuthzConf),
+    OldSources = emqx:get_raw_config(?CONF_KEY_PATH, [emqx_authz_schema:default_authz()]),
     MergedSources = emqx_utils:merge_lists(OldSources, Sources, fun type/1),
     MergedAuthzConf = AuthzConf#{<<"sources">> => MergedSources},
     case emqx_conf:update([?CONF_NS_ATOM], MergedAuthzConf, #{override_to => cluster}) of
@@ -526,12 +532,12 @@ take(Type) -> take(Type, lookup()).
 %% Take the source of give type, the sources list is split into two parts
 %% front part and rear part.
 take(Type, Sources) ->
-    {Front, Rear} = lists:splitwith(fun(T) -> type(T) =/= type(Type) end, Sources),
-    case Rear =:= [] of
-        true ->
+    Expect = type(Type),
+    case lists:splitwith(fun(T) -> type(T) =/= Expect end, Sources) of
+        {_Front, []} ->
             throw({not_found_source, Type});
-        _ ->
-            {hd(Rear), Front, tl(Rear)}
+        {Front, [Found | Rear]} ->
+            {Found, Front, Rear}
     end.
 
 find_action_in_hooks() ->
@@ -628,3 +634,80 @@ check_acl_file_rules(Path, Rules) ->
     after
         _ = file:delete(TmpPath)
     end.
+
+merge_sources(OriginConf, NewConf) ->
+    {OriginSource, NewSources} =
+        lists:foldl(
+            fun(Old = #{<<"type">> := Type}, {OriginAcc, NewAcc}) ->
+                case type_take(Type, NewAcc) of
+                    not_found ->
+                        {[Old | OriginAcc], NewAcc};
+                    {New, NewAcc1} ->
+                        MergeSource = emqx_utils_maps:deep_merge(Old, New),
+                        {[MergeSource | OriginAcc], NewAcc1}
+                end
+            end,
+            {[], get_sources(NewConf)},
+            get_sources(OriginConf)
+        ),
+    lists:reverse(OriginSource) ++ NewSources.
+
+get_sources(Conf) ->
+    Default = [emqx_authz_schema:default_authz()],
+    maps:get(<<"sources">>, Conf, Default).
+
+type_take(Type, Sources) ->
+    try take(Type, Sources) of
+        {Found, Front, Rear} -> {Found, Front ++ Rear}
+    catch
+        throw:{not_found_source, Type} -> not_found
+    end.
+
+-ifdef(TEST).
+-include_lib("eunit/include/eunit.hrl").
+-compile(nowarn_export_all).
+-compile(export_all).
+
+merge_sources_test() ->
+    Default = [emqx_authz_schema:default_authz()],
+    Http = #{<<"type">> => <<"http">>, <<"enable">> => true},
+    Mysql = #{<<"type">> => <<"mysql">>, <<"enable">> => true},
+    Mongo = #{<<"type">> => <<"mongodb">>, <<"enable">> => true},
+    Redis = #{<<"type">> => <<"redis">>, <<"enable">> => true},
+    Postgresql = #{<<"type">> => <<"postgresql">>, <<"enable">> => true},
+    HttpDisable = Http#{<<"enable">> => false},
+    MysqlDisable = Mysql#{<<"enable">> => false},
+    MongoDisable = Mongo#{<<"enable">> => false},
+
+    %% has default source
+    ?assertEqual(Default, merge_sources(#{}, #{})),
+    ?assertEqual([], merge_sources(#{<<"sources">> => []}, #{<<"sources">> => []})),
+    ?assertEqual(Default, merge_sources(#{}, #{<<"sources">> => []})),
+
+    %% add
+    ?assertEqual(
+        [Http, Mysql, Mongo, Redis, Postgresql],
+        merge_sources(
+            #{<<"sources">> => [Http, Mysql]},
+            #{<<"sources">> => [Mongo, Redis, Postgresql]}
+        )
+    ),
+    %% replace
+    ?assertEqual(
+        [HttpDisable, MysqlDisable],
+        merge_sources(
+            #{<<"sources">> => [Http, Mysql]},
+            #{<<"sources">> => [HttpDisable, MysqlDisable]}
+        )
+    ),
+    %% add + replace + change position
+    ?assertEqual(
+        [HttpDisable, Mysql, MongoDisable, Redis],
+        merge_sources(
+            #{<<"sources">> => [Http, Mysql, Mongo]},
+            #{<<"sources">> => [MongoDisable, HttpDisable, Redis]}
+        )
+    ),
+    ok.
+
+-endif.

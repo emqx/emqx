@@ -55,7 +55,9 @@
     {create_authenticator, chain_name(), map()}
     | {delete_authenticator, chain_name(), authenticator_id()}
     | {update_authenticator, chain_name(), authenticator_id(), map()}
-    | {move_authenticator, chain_name(), authenticator_id(), position()}.
+    | {move_authenticator, chain_name(), authenticator_id(), position()}
+    | {merge_authenticators, map()}
+    | map().
 
 %%------------------------------------------------------------------------------
 %% Callbacks of config handler
@@ -128,6 +130,9 @@ do_pre_config_update(_, {move_authenticator, _ChainName, AuthenticatorID, Positi
                     end
             end
     end;
+do_pre_config_update(Paths, {merge_authenticators, NewConfig}, OldConfig) ->
+    MergeConfig = merge_authenticators(OldConfig, NewConfig),
+    do_pre_config_update(Paths, MergeConfig, OldConfig);
 do_pre_config_update(_, OldConfig, OldConfig) ->
     {ok, OldConfig};
 do_pre_config_update(Paths, NewConfig, _OldConfig) ->
@@ -327,3 +332,77 @@ chain_name([authentication]) ->
     ?GLOBAL;
 chain_name([listeners, Type, Name, authentication]) ->
     binary_to_existing_atom(<<(atom_to_binary(Type))/binary, ":", (atom_to_binary(Name))/binary>>).
+
+merge_authenticators(OriginConf0, NewConf0) ->
+    {OriginConf1, NewConf1} =
+        lists:foldl(
+            fun(Origin, {OriginAcc, NewAcc}) ->
+                AuthenticatorID = authenticator_id(Origin),
+                case split_by_id(AuthenticatorID, NewAcc) of
+                    {error, _} ->
+                        {[Origin | OriginAcc], NewAcc};
+                    {ok, BeforeFound, [Found | AfterFound]} ->
+                        Merged = emqx_utils_maps:deep_merge(Origin, Found),
+                        {[Merged | OriginAcc], BeforeFound ++ AfterFound}
+                end
+            end,
+            {[], NewConf0},
+            OriginConf0
+        ),
+    lists:reverse(OriginConf1) ++ NewConf1.
+
+-ifdef(TEST).
+-include_lib("eunit/include/eunit.hrl").
+-compile(nowarn_export_all).
+-compile(export_all).
+
+merge_authenticators_test() ->
+    ?assertEqual([], merge_authenticators([], [])),
+
+    Http = #{
+        <<"mechanism">> => <<"password_based">>, <<"backend">> => <<"http">>, <<"enable">> => true
+    },
+    Jwt = #{<<"mechanism">> => <<"jwt">>, <<"enable">> => true},
+    BuildIn = #{
+        <<"mechanism">> => <<"password_based">>,
+        <<"backend">> => <<"built_in_database">>,
+        <<"enable">> => true
+    },
+    Mongodb = #{
+        <<"mechanism">> => <<"password_based">>,
+        <<"backend">> => <<"mongodb">>,
+        <<"enable">> => true
+    },
+    Redis = #{
+        <<"mechanism">> => <<"password_based">>, <<"backend">> => <<"redis">>, <<"enable">> => true
+    },
+    BuildInDisable = BuildIn#{<<"enable">> => false},
+    MongodbDisable = Mongodb#{<<"enable">> => false},
+    RedisDisable = Redis#{<<"enable">> => false},
+
+    %% add
+    ?assertEqual([Http], merge_authenticators([], [Http])),
+    ?assertEqual([Http, Jwt, BuildIn], merge_authenticators([Http], [Jwt, BuildIn])),
+
+    %% merge
+    ?assertEqual(
+        [BuildInDisable, MongodbDisable],
+        merge_authenticators([BuildIn, Mongodb], [BuildInDisable, MongodbDisable])
+    ),
+    ?assertEqual(
+        [BuildInDisable, Jwt],
+        merge_authenticators([BuildIn, Jwt], [BuildInDisable])
+    ),
+    ?assertEqual(
+        [BuildInDisable, Jwt, Mongodb],
+        merge_authenticators([BuildIn, Jwt], [Mongodb, BuildInDisable])
+    ),
+
+    %% position changed
+    ?assertEqual(
+        [BuildInDisable, Jwt, Mongodb, RedisDisable, Http],
+        merge_authenticators([BuildIn, Jwt, Mongodb, Redis], [RedisDisable, BuildInDisable, Http])
+    ),
+    ok.
+
+-endif.

@@ -19,7 +19,7 @@
 -compile(export_all).
 -compile(nowarn_export_all).
 
--define(MOD, {mod}).
+-define(MOD, '$mod').
 -define(WKEY, '?').
 -define(CLUSTER_CONF, "/tmp/cluster.conf").
 
@@ -99,7 +99,7 @@ t_conflict_handler(_Config) ->
     %% override
     ok = emqx_config_handler:add_handler([sysmon], emqx_config_logger),
     ?assertMatch(
-        #{handlers := #{sysmon := #{{mod} := emqx_config_logger}}},
+        #{handlers := #{sysmon := #{?MOD := emqx_config_logger}}},
         emqx_config_handler:info()
     ),
     ok.
