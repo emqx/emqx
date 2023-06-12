@@ -1104,14 +1104,9 @@ do_t_validations(_Config) ->
         emqx_utils_json:decode(ResRaw1, [return_maps]),
     ?assertMatch(
         #{
-            <<"mismatches">> :=
-                #{
-                    <<"listeners:ssl_not_required_bind">> :=
-                        #{
-                            <<"reason">> :=
-                                <<"verify must be verify_peer when CRL check is enabled">>
-                        }
-                }
+            <<"kind">> := <<"validation_error">>,
+            <<"reason">> :=
+                <<"verify must be verify_peer when CRL check is enabled">>
         },
         emqx_utils_json:decode(MsgRaw1, [return_maps])
     ),

@@ -277,9 +277,38 @@ fields(Type) ->
 
 listener_schema(Opts) ->
     emqx_dashboard_swagger:schema_with_example(
-        ?UNION(lists:map(fun(#{ref := Ref}) -> Ref end, listeners_info(Opts))),
+        hoconsc:union(listener_union_member_selector(Opts)),
         tcp_schema_example()
     ).
+
+listener_union_member_selector(Opts) ->
+    ListenersInfo = listeners_info(Opts),
+    Index = maps:from_list([
+        {iolist_to_binary(ListenerType), Ref}
+     || #{listener_type := ListenerType, ref := Ref} <- ListenersInfo
+    ]),
+    fun
+        (all_union_members) ->
+            maps:values(Index);
+        ({value, V}) ->
+            case V of
+                #{<<"type">> := T} ->
+                    case maps:get(T, Index, undefined) of
+                        undefined ->
+                            throw(#{
+                                field_name => type,
+                                reason => <<"unknown listener type">>
+                            });
+                        Ref ->
+                            [Ref]
+                    end;
+                _ ->
+                    throw(#{
+                        field_name => type,
+                        reason => <<"unknown listener type">>
+                    })
+            end
+    end.
 
 create_listener_schema(Opts) ->
     Schemas = [
@@ -311,6 +340,7 @@ listeners_info(Opts) ->
             TypeAtom = list_to_existing_atom(ListenerType),
             #{
                 ref => ?R_REF(Ref),
+                listener_type => ListenerType,
                 schema => [
                     {type, ?HOCON(?ENUM([TypeAtom]), #{desc => "Listener type", required => true})},
                     {running, ?HOCON(boolean(), #{desc => "Listener status", required => false})},
