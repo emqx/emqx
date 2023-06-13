@@ -124,10 +124,13 @@ create_bridge_api(Config) ->
 
 create_bridge_api(Config, Overrides) ->
     BridgeType = ?config(bridge_type, Config),
-    Name = ?config(bridge_name, Config),
+    BridgeName = ?config(bridge_name, Config),
     BridgeConfig0 = ?config(bridge_config, Config),
     BridgeConfig = emqx_utils_maps:deep_merge(BridgeConfig0, Overrides),
-    Params = BridgeConfig#{<<"type">> => BridgeType, <<"name">> => Name},
+    create_bridge_api(BridgeType, BridgeName, BridgeConfig).
+
+create_bridge_api(BridgeType, BridgeName, BridgeConfig) ->
+    Params = BridgeConfig#{<<"type">> => BridgeType, <<"name">> => BridgeName},
     Path = emqx_mgmt_api_test_util:api_path(["bridges"]),
     AuthHeader = emqx_mgmt_api_test_util:auth_header_(),
     Opts = #{return_all => true},
@@ -162,6 +165,24 @@ update_bridge_api(Config, Overrides) ->
             Error -> Error
         end,
     ct:pal("bridge update result: ~p", [Res]),
+    Res.
+
+op_bridge_api(Op, BridgeType, BridgeName) ->
+    BridgeId = emqx_bridge_resource:bridge_id(BridgeType, BridgeName),
+    Path = emqx_mgmt_api_test_util:api_path(["bridges", BridgeId, Op]),
+    AuthHeader = emqx_mgmt_api_test_util:auth_header_(),
+    Opts = #{return_all => true},
+    ct:pal("calling bridge ~p (via http): ~p", [BridgeId, Op]),
+    Res =
+        case emqx_mgmt_api_test_util:request_api(post, Path, "", AuthHeader, "", Opts) of
+            {ok, {Status, Headers, Body}} ->
+                {ok, {Status, Headers, emqx_utils_json:decode(Body, [return_maps])}};
+            {error, {Status, Headers, Body}} ->
+                {error, {Status, Headers, emqx_utils_json:decode(Body, [return_maps])}};
+            Error ->
+                Error
+        end,
+    ct:pal("bridge op result: ~p", [Res]),
     Res.
 
 probe_bridge_api(Config) ->
