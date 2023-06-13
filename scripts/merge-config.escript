@@ -23,7 +23,7 @@ main(_) ->
 
 merge(BaseConf, Cfgs) ->
     Confs = [BaseConf | lists:map(fun read_conf/1, Cfgs)],
-    infix(lists:filter(fun(I) -> iolist_size(I) > 0 end, Confs), [io_lib:nl(), io_lib:nl()]).
+    infix(lists:filter(fun(I) -> iolist_size(I) > 0 end, Confs), [io_lib:nl()]).
 
 read_conf(CfgFile) ->
     case filelib:is_regular(CfgFile) of
