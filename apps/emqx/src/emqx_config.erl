@@ -19,6 +19,7 @@
 -elvis([{elvis_style, god_modules, disable}]).
 -include("logger.hrl").
 -include("emqx.hrl").
+-include("emqx_schema.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
 -export([
@@ -108,7 +109,6 @@
 -define(ZONE_CONF_PATH(ZONE, PATH), [zones, ZONE | PATH]).
 -define(LISTENER_CONF_PATH(TYPE, LISTENER, PATH), [listeners, TYPE, LISTENER | PATH]).
 
--define(CONFIG_NOT_FOUND_MAGIC, '$0tFound').
 -define(MAX_KEEP_BACKUP_CONFIGS, 10).
 
 -export_type([

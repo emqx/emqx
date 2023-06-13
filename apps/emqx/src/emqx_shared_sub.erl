@@ -18,6 +18,7 @@
 
 -behaviour(gen_server).
 
+-include("emqx_schema.hrl").
 -include("emqx.hrl").
 -include("emqx_mqtt.hrl").
 -include("logger.hrl").
@@ -158,23 +159,17 @@ dispatch(Group, Topic, Delivery = #delivery{message = Msg}, FailedSubs) ->
 
 -spec strategy(emqx_types:group()) -> strategy().
 strategy(Group) ->
-    try
-        emqx:get_config([
-            broker,
-            shared_subscription_group,
-            binary_to_existing_atom(Group),
-            strategy
-        ])
+    try binary_to_existing_atom(Group) of
+        GroupAtom ->
+            Key = [broker, shared_subscription_group, GroupAtom, strategy],
+            case emqx:get_config(Key, ?CONFIG_NOT_FOUND_MAGIC) of
+                ?CONFIG_NOT_FOUND_MAGIC -> get_default_shared_subscription_strategy();
+                Strategy -> Strategy
+            end
     catch
-        error:{config_not_found, _} ->
-            get_default_shared_subscription_strategy();
         error:badarg ->
             get_default_shared_subscription_strategy()
     end.
-
--spec ack_enabled() -> boolean().
-ack_enabled() ->
-    emqx:get_config([broker, shared_dispatch_ack_enabled], false).
 
 do_dispatch(SubPid, _Group, Topic, Msg, _Type) when SubPid =:= self() ->
     %% Deadlock otherwise
@@ -187,14 +182,8 @@ do_dispatch(SubPid, _Group, Topic, #message{qos = ?QOS_0} = Msg, _Type) ->
 do_dispatch(SubPid, _Group, Topic, Msg, retry) ->
     %% Retry implies all subscribers nack:ed, send again without ack
     send(SubPid, Topic, {deliver, Topic, Msg});
-do_dispatch(SubPid, Group, Topic, Msg, fresh) ->
-    case ack_enabled() of
-        true ->
-            %% TODO: delete this clase after 5.1.0
-            do_dispatch_with_ack(SubPid, Group, Topic, Msg);
-        false ->
-            send(SubPid, Topic, {deliver, Topic, Msg})
-    end.
+do_dispatch(SubPid, _Group, Topic, Msg, fresh) ->
+    send(SubPid, Topic, {deliver, Topic, Msg}).
 
 -spec do_dispatch_with_ack(pid(), emqx_types:group(), emqx_types:topic(), emqx_types:message()) ->
     ok | {error, _}.
@@ -240,7 +229,7 @@ with_redispatch_to(#message{qos = ?QOS_0} = Msg, _Group, _Topic) ->
 with_redispatch_to(Msg, Group, Topic) ->
     emqx_message:set_headers(#{redispatch_to => ?REDISPATCH_TO(Group, Topic)}, Msg).
 
-%% @hidden Redispatch is neede only for the messages with redispatch_to header added.
+%% @hidden Redispatch is needed only for the messages with redispatch_to header added.
 is_redispatch_needed(#message{} = Msg) ->
     case get_redispatch_to(Msg) of
         ?REDISPATCH_TO(_, _) ->
@@ -555,4 +544,4 @@ delete_route_if_needed({Group, Topic} = GroupTopic) ->
     end).
 
 get_default_shared_subscription_strategy() ->
-    emqx:get_config([broker, shared_subscription_strategy]).
+    emqx:get_config([mqtt, shared_subscription_strategy]).
