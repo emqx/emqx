@@ -21,6 +21,7 @@
 -include_lib("emqx/include/emqx_mqtt.hrl").
 -include_lib("emqx/include/types.hrl").
 -include_lib("emqx/include/logger.hrl").
+-include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
 -export([
     info/1,
@@ -121,11 +122,11 @@ info(ctx, #channel{ctx = Ctx}) ->
 stats(#channel{subscriptions = Subs}) ->
     [
         {subscriptions_cnt, maps:size(Subs)},
-        {subscriptions_max, 0},
+        {subscriptions_max, infinity},
         {inflight_cnt, 0},
-        {inflight_max, 0},
+        {inflight_max, infinity},
         {mqueue_len, 0},
-        {mqueue_max, 0},
+        {mqueue_max, infinity},
         {mqueue_dropped, 0},
         {next_pkt_id, 0},
         {awaiting_rel_cnt, 0},
@@ -164,7 +165,8 @@ init(
     DefaultClientInfo = default_clientinfo(NConnInfo),
     ClientInfo = DefaultClientInfo#{
         listener => ListenerId,
-        enable_authn => EnableAuthn
+        enable_authn => EnableAuthn,
+        mountpoint => maps:get(mountpoint, Options, undefined)
     },
     Channel = #channel{
         ctx = Ctx,
@@ -758,7 +760,23 @@ enrich_conninfo(InClientInfo, ConnInfo) ->
     maps:merge(ConnInfo, maps:with(Ks, InClientInfo)).
 
 enrich_clientinfo(InClientInfo = #{proto_name := ProtoName}, ClientInfo) ->
-    Ks = [clientid, username, mountpoint],
+    Ks = [clientid, username],
+    case maps:get(mountpoint, InClientInfo, <<>>) of
+        <<>> ->
+            ok;
+        Mp ->
+            ?tp(
+                warning,
+                failed_to_override_mountpoint,
+                #{
+                    reason =>
+                        "The mountpoint in AuthenticateRequest has been deprecated. "
+                        "Please use the `gateway.exproto.mountpoint` configuration.",
+                    requested_mountpoint => Mp,
+                    configured_mountpoint => maps:get(mountpoint, ClientInfo)
+                }
+            )
+    end,
     NClientInfo = maps:merge(ClientInfo, maps:with(Ks, InClientInfo)),
     NClientInfo#{protocol => proto_name_to_protocol(ProtoName)}.
 
