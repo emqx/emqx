@@ -101,15 +101,15 @@ usage_conf() ->
         {"conf reload", "reload etc/emqx.conf on local node"},
         {"conf show_keys", "print all the currently used configuration keys."},
         {"conf show [<key>]",
-            "Print in-use configs (including default values) under the given key. "
-            "Print ALL keys if key is not provided"},
-        {"conf load --replace|--merge <path>",
-            "Load a HOCON format config file."
-            "The new configuration values will be overlaid on the existing values by default."
-            "use the --replace flag to replace existing values with the new ones instead."
-            "The current node will initiate a cluster wide config change "
-            "transaction to sync the changes to other nodes in the cluster. "
-            "NOTE: do not make runtime config changes during rolling upgrade."}
+            "Print in-use configs (including default values) under the given key."},
+        {"", "Print ALL keys if key is not provided"},
+        {"conf load --replace|--merge <path>", "Load a HOCON format config file."},
+        {"", "The new configuration values will be overlaid on the existing values by default."},
+        {"", "use the --replace flag to replace existing values with the new ones instead."},
+        {"", "The current node will initiate a cluster wide config change"},
+        {"", "transaction to sync the changes to other nodes in the cluster. "},
+        {"", "NOTE: do not make runtime config changes during rolling upgrade."},
+        {"----------------------------------", "------------"}
     ].
 
 usage_sync() ->
@@ -163,19 +163,7 @@ drop_hidden_roots(Conf) ->
     maps:without(Hidden, Conf).
 
 hidden_roots() ->
-    SchemaModule = emqx_conf:schema_module(),
-    Roots = hocon_schema:roots(SchemaModule),
-    lists:filtermap(
-        fun({BinName, {_RefName, Schema}}) ->
-            case hocon_schema:field_schema(Schema, importance) =/= ?IMPORTANCE_HIDDEN of
-                true ->
-                    false;
-                false ->
-                    {true, BinName}
-            end
-        end,
-        Roots
-    ).
+    [trace, stats, broker].
 
 get_config(Key) ->
     case emqx:get_raw_config([Key], undefined) of
@@ -331,21 +319,6 @@ reload_config(AllConf) ->
         end
     end,
     sorted_fold(Fold, AllConf).
-
-filter_changed_readonly_keys(Conf) ->
-    lists:filtermap(fun(Key) -> filter_changed(Key, Conf) end, ?READONLY_KEYS).
-
-filter_changed(Key, ChangedConf) ->
-    Prev = emqx_conf:get([Key], #{}),
-    New = maps:get(Key, ChangedConf, #{}),
-    case Prev =/= New of
-        true -> {true, {Key, changed(New, Prev)}};
-        false -> false
-    end.
-
-changed(New, Prev) ->
-    Diff = emqx_utils_maps:diff_maps(New, Prev),
-    maps:filter(fun(_Key, Value) -> Value =/= #{} end, maps:remove(identical, Diff)).
 
 sorted_fold(Func, Conf) ->
     case lists:foldl(Func, [], to_sorted_list(Conf)) of
