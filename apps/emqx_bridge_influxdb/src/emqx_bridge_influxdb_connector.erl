@@ -150,7 +150,7 @@ on_batch_query_async(
     end.
 
 on_get_status(_InstId, #{client := Client}) ->
-    case influxdb:is_alive(Client) of
+    case influxdb:is_alive(Client) andalso ok =:= influxdb:check_auth(Client) of
         true ->
             connected;
         false ->
@@ -262,17 +262,32 @@ do_start_client(
         {ok, Client} ->
             case influxdb:is_alive(Client, true) of
                 true ->
-                    State = #{
-                        client => Client,
-                        write_syntax => to_config(Lines, Precision)
-                    },
-                    ?SLOG(info, #{
-                        msg => "starting influxdb connector success",
-                        connector => InstId,
-                        client => redact_auth(Client),
-                        state => redact_auth(State)
-                    }),
-                    {ok, State};
+                    case influxdb:check_auth(Client) of
+                        ok ->
+                            State = #{
+                                client => Client,
+                                write_syntax => to_config(Lines, Precision)
+                            },
+                            ?SLOG(info, #{
+                                msg => "starting influxdb connector success",
+                                connector => InstId,
+                                client => redact_auth(Client),
+                                state => redact_auth(State)
+                            }),
+                            {ok, State};
+                        Error ->
+                            ?tp(influxdb_connector_start_failed, #{error => auth_error}),
+                            ?SLOG(warning, #{
+                                msg => "failed_to_start_influxdb_connector",
+                                error => Error,
+                                connector => InstId,
+                                client => redact_auth(Client),
+                                reason => auth_error
+                            }),
+                            %% no leak
+                            _ = influxdb:stop_client(Client),
+                            {error, influxdb_client_auth_error}
+                    end;
                 {false, Reason} ->
                     ?tp(influxdb_connector_start_failed, #{
                         error => influxdb_client_not_alive, reason => Reason
@@ -388,6 +403,14 @@ do_query(InstId, Client, Points) ->
                 connector => InstId,
                 points => Points
             });
+        {error, {401, _, _}} ->
+            ?tp(influxdb_connector_do_query_failure, #{error => <<"authorization failure">>}),
+            ?SLOG(error, #{
+                msg => "influxdb_authorization_failed",
+                client => redact_auth(Client),
+                connector => InstId
+            }),
+            {error, {unrecoverable_error, <<"authorization failure">>}};
         {error, Reason} = Err ->
             ?tp(influxdb_connector_do_query_failure, #{error => Reason}),
             ?SLOG(error, #{
@@ -421,6 +444,10 @@ reply_callback(ReplyFunAndArgs, {error, Reason} = Error) ->
             Result = {error, {recoverable_error, Reason}},
             emqx_resource:apply_reply_fun(ReplyFunAndArgs, Result)
     end;
+reply_callback(ReplyFunAndArgs, {ok, 401, _, _}) ->
+    ?tp(influxdb_connector_do_query_failure, #{error => <<"authorization failure">>}),
+    Result = {error, {unrecoverable_error, <<"authorization failure">>}},
+    emqx_resource:apply_reply_fun(ReplyFunAndArgs, Result);
 reply_callback(ReplyFunAndArgs, Result) ->
     emqx_resource:apply_reply_fun(ReplyFunAndArgs, Result).
 
