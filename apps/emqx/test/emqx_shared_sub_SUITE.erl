@@ -769,12 +769,12 @@ t_qos1_random_dispatch_if_all_members_are_down(Config) when is_list(Config) ->
 %% Expected behaviour:
 %% the messages sent to client1's inflight and mq are re-dispatched after client1 is down
 t_dispatch_qos2({init, Config}) when is_list(Config) ->
+    ok = ensure_config(round_robin, _AckEnabled = false),
     emqx_config:put_zone_conf(default, [mqtt, max_inflight], 1),
     Config;
 t_dispatch_qos2({'end', Config}) when is_list(Config) ->
     emqx_config:put_zone_conf(default, [mqtt, max_inflight], 0);
 t_dispatch_qos2(Config) when is_list(Config) ->
-    ok = ensure_config(round_robin, _AckEnabled = false),
     Topic = <<"foo/bar/1">>,
     ClientId1 = <<"ClientId1">>,
     ClientId2 = <<"ClientId2">>,
@@ -923,12 +923,12 @@ t_session_takeover(Config) when is_list(Config) ->
     ok.
 
 t_session_kicked({init, Config}) when is_list(Config) ->
+    ok = ensure_config(round_robin, _AckEnabled = false),
     emqx_config:put_zone_conf(default, [mqtt, max_inflight], 1),
     Config;
 t_session_kicked({'end', Config}) when is_list(Config) ->
     emqx_config:put_zone_conf(default, [mqtt, max_inflight], 0);
 t_session_kicked(Config) when is_list(Config) ->
-    ok = ensure_config(round_robin, _AckEnabled = false),
     Topic = <<"foo/bar/1">>,
     ClientId1 = <<"ClientId1">>,
     ClientId2 = <<"ClientId2">>,
@@ -1019,12 +1019,12 @@ ensure_config(Strategy) ->
     ensure_config(Strategy, _AckEnabled = true).
 
 ensure_config(Strategy, AckEnabled) ->
-    emqx_config:put([broker, shared_subscription_strategy], Strategy),
+    emqx_config:put([mqtt, shared_subscription_strategy], Strategy),
     emqx_config:put([broker, shared_dispatch_ack_enabled], AckEnabled),
     ok.
 
 ensure_node_config(Node, Strategy) ->
-    rpc:call(Node, emqx_config, force_put, [[broker, shared_subscription_strategy], Strategy]).
+    rpc:call(Node, emqx_config, force_put, [[mqtt, shared_subscription_strategy], Strategy]).
 
 ensure_group_config(Group2Strategy) ->
     lists:foreach(

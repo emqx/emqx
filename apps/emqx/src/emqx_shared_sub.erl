@@ -171,6 +171,10 @@ strategy(Group) ->
             get_default_shared_subscription_strategy()
     end.
 
+-spec ack_enabled() -> boolean().
+ack_enabled() ->
+    emqx:get_config([broker, shared_dispatch_ack_enabled], false).
+
 do_dispatch(SubPid, _Group, Topic, Msg, _Type) when SubPid =:= self() ->
     %% Deadlock otherwise
     SubPid ! {deliver, Topic, Msg},
@@ -182,8 +186,14 @@ do_dispatch(SubPid, _Group, Topic, #message{qos = ?QOS_0} = Msg, _Type) ->
 do_dispatch(SubPid, _Group, Topic, Msg, retry) ->
     %% Retry implies all subscribers nack:ed, send again without ack
     send(SubPid, Topic, {deliver, Topic, Msg});
-do_dispatch(SubPid, _Group, Topic, Msg, fresh) ->
-    send(SubPid, Topic, {deliver, Topic, Msg}).
+do_dispatch(SubPid, Group, Topic, Msg, fresh) ->
+    case ack_enabled() of
+        true ->
+            %% TODO: delete this case after 5.1.0
+            do_dispatch_with_ack(SubPid, Group, Topic, Msg);
+        false ->
+            send(SubPid, Topic, {deliver, Topic, Msg})
+    end.
 
 -spec do_dispatch_with_ack(pid(), emqx_types:group(), emqx_types:topic(), emqx_types:message()) ->
     ok | {error, _}.
