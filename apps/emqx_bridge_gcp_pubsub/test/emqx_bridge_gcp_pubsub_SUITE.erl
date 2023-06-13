@@ -38,13 +38,13 @@ groups() ->
         {group, sync_query},
         {group, async_query}
     ],
-    ResourceGroups = [{group, gcp_pubsub}],
+    SyncTCs = MatrixTCs,
+    AsyncTCs = MatrixTCs -- only_sync_tests(),
     [
         {with_batch, SynchronyGroups},
         {without_batch, SynchronyGroups},
-        {sync_query, ResourceGroups},
-        {async_query, ResourceGroups},
-        {gcp_pubsub, MatrixTCs}
+        {sync_query, SyncTCs},
+        {async_query, AsyncTCs}
     ].
 
 %% these should not be influenced by the batch/no
@@ -65,6 +65,9 @@ single_config_tests() ->
         t_get_status_timeout_calling_workers,
         t_on_start_ehttpc_pool_already_started
     ].
+
+only_sync_tests() ->
+    [t_query_sync].
 
 init_per_suite(Config) ->
     ok = emqx_common_test_helpers:start_apps([emqx_conf]),
@@ -1462,5 +1465,32 @@ t_on_start_ehttpc_pool_start_failure(Config) ->
             ),
             ok
         end
+    ),
+    ok.
+
+%% Usually not called, since the bridge has `async_if_possible' callback mode.
+t_query_sync(Config) ->
+    BatchSize0 = ?config(batch_size, Config),
+    ServiceAccountJSON = ?config(service_account_json, Config),
+    BatchSize = min(2, BatchSize0),
+    Topic = <<"t/topic">>,
+    Payload = <<"payload">>,
+    ?check_trace(
+        emqx_common_test_helpers:with_mock(
+            emqx_bridge_gcp_pubsub_impl_producer,
+            callback_mode,
+            fun() -> always_sync end,
+            fun() ->
+                {ok, _} = create_bridge(Config),
+                {ok, #{<<"id">> := RuleId}} = create_rule_and_action_http(Config),
+                on_exit(fun() -> ok = emqx_rule_engine:delete_rule(RuleId) end),
+                Message = emqx_message:make(Topic, Payload),
+                emqx_utils:pmap(fun(_) -> emqx:publish(Message) end, lists:seq(1, BatchSize)),
+                DecodedMessages = assert_http_request(ServiceAccountJSON),
+                ?assertEqual(BatchSize, length(DecodedMessages)),
+                ok
+            end
+        ),
+        []
     ),
     ok.

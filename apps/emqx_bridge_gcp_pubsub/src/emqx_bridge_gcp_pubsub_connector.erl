@@ -20,17 +20,16 @@
     on_stop/2,
     on_query/3,
     on_query_async/4,
-    on_batch_query/3,
-    on_batch_query_async/4,
     on_get_status/2
 ]).
 -export([reply_delegator/3]).
+
+-export([get_jwt_authorization_header/1]).
 
 -type service_account_json() :: emqx_bridge_gcp_pubsub:service_account_json().
 -type config() :: #{
     connect_timeout := emqx_schema:duration_ms(),
     max_retries := non_neg_integer(),
-    pubsub_topic := binary(),
     resource_opts := #{request_ttl := infinity | emqx_schema:duration_ms(), any() => term()},
     service_account_json := service_account_json(),
     any() => term()
@@ -39,15 +38,18 @@
     connect_timeout := timer:time(),
     jwt_config := emqx_connector_jwt:jwt_config(),
     max_retries := non_neg_integer(),
-    payload_template := emqx_placeholder:tmpl_token(),
     pool_name := binary(),
     project_id := binary(),
-    pubsub_topic := binary(),
     request_ttl := infinity | timer:time()
 }.
 -type headers() :: [{binary(), iodata()}].
 -type body() :: iodata().
 -type status_code() :: 100..599.
+-type method() :: post.
+-type path() :: binary().
+-type prepared_request() :: {method(), path(), body()}.
+
+-export_type([service_account_json/0, state/0, headers/0, body/0, status_code/0]).
 
 -define(DEFAULT_PIPELINE_SIZE, 100).
 
@@ -63,9 +65,7 @@ on_start(
     #{
         connect_timeout := ConnectTimeout,
         max_retries := MaxRetries,
-        payload_template := PayloadTemplate,
         pool_size := PoolSize,
-        pubsub_topic := PubSubTopic,
         resource_opts := #{request_ttl := RequestTTL}
     } = Config
 ) ->
@@ -101,10 +101,8 @@ on_start(
         connect_timeout => ConnectTimeout,
         jwt_config => JWTConfig,
         max_retries => MaxRetries,
-        payload_template => emqx_placeholder:preproc_tmpl(PayloadTemplate),
         pool_name => ResourceId,
         project_id => ProjectId,
-        pubsub_topic => PubSubTopic,
         request_ttl => RequestTTL
     },
     ?tp(
@@ -130,7 +128,7 @@ on_start(
             {error, Reason}
     end.
 
--spec on_stop(resource_id(), state()) -> ok | {error, term()}.
+-spec on_stop(resource_id(), state() | undefined) -> ok | {error, term()}.
 on_stop(ResourceId, _State) ->
     ?tp(gcp_pubsub_stop, #{resource_id => ResourceId}),
     ?SLOG(info, #{
@@ -149,67 +147,39 @@ on_stop(ResourceId, _State) ->
 
 -spec on_query(
     resource_id(),
-    {send_message, map()},
+    {prepared_request, prepared_request()},
     state()
 ) ->
     {ok, status_code(), headers()}
     | {ok, status_code(), headers(), body()}
     | {error, {recoverable_error, term()}}
     | {error, term()}.
-on_query(ResourceId, {send_message, Selected}, State) ->
-    Requests = [{send_message, Selected}],
+on_query(ResourceId, {prepared_request, PreparedRequest = {_Method, _Path, _Body}}, State) ->
     ?TRACE(
         "QUERY_SYNC",
         "gcp_pubsub_received",
-        #{requests => Requests, connector => ResourceId, state => State}
+        #{requests => PreparedRequest, connector => ResourceId, state => State}
     ),
-    do_send_requests_sync(State, Requests, ResourceId).
+    do_send_requests_sync(State, {prepared_request, PreparedRequest}, ResourceId).
 
 -spec on_query_async(
     resource_id(),
-    {send_message, map()},
+    {prepared_request, prepared_request()},
     {ReplyFun :: function(), Args :: list()},
     state()
 ) -> {ok, pid()}.
-on_query_async(ResourceId, {send_message, Selected}, ReplyFunAndArgs, State) ->
-    Requests = [{send_message, Selected}],
-    ?TRACE(
-        "QUERY_ASYNC",
-        "gcp_pubsub_received",
-        #{requests => Requests, connector => ResourceId, state => State}
-    ),
-    do_send_requests_async(State, Requests, ReplyFunAndArgs, ResourceId).
-
--spec on_batch_query(
-    resource_id(),
-    [{send_message, map()}],
-    state()
+on_query_async(
+    ResourceId,
+    {prepared_request, PreparedRequest = {_Method, _Path, _Body}},
+    ReplyFunAndArgs,
+    State
 ) ->
-    {ok, status_code(), headers()}
-    | {ok, status_code(), headers(), body()}
-    | {error, {recoverable_error, term()}}
-    | {error, term()}.
-on_batch_query(ResourceId, Requests, State) ->
-    ?TRACE(
-        "QUERY_SYNC",
-        "gcp_pubsub_received",
-        #{requests => Requests, connector => ResourceId, state => State}
-    ),
-    do_send_requests_sync(State, Requests, ResourceId).
-
--spec on_batch_query_async(
-    resource_id(),
-    [{send_message, map()}],
-    {ReplyFun :: function(), Args :: list()},
-    state()
-) -> {ok, pid()}.
-on_batch_query_async(ResourceId, Requests, ReplyFunAndArgs, State) ->
     ?TRACE(
         "QUERY_ASYNC",
         "gcp_pubsub_received",
-        #{requests => Requests, connector => ResourceId, state => State}
+        #{requests => PreparedRequest, connector => ResourceId, state => State}
     ),
-    do_send_requests_async(State, Requests, ReplyFunAndArgs, ResourceId).
+    do_send_requests_async(State, {prepared_request, PreparedRequest}, ReplyFunAndArgs, ResourceId).
 
 -spec on_get_status(resource_id(), state()) -> connected | disconnected.
 on_get_status(ResourceId, #{connect_timeout := Timeout} = State) ->
@@ -286,28 +256,6 @@ parse_jwt_config(ResourceId, #{
         project_id => ProjectId
     }.
 
--spec encode_payload(state(), Selected :: map()) -> #{data := binary()}.
-encode_payload(_State = #{payload_template := PayloadTemplate}, Selected) ->
-    Interpolated =
-        case PayloadTemplate of
-            [] -> emqx_utils_json:encode(Selected);
-            _ -> emqx_placeholder:proc_tmpl(PayloadTemplate, Selected)
-        end,
-    #{data => base64:encode(Interpolated)}.
-
--spec to_pubsub_request([#{data := binary()}]) -> binary().
-to_pubsub_request(Payloads) ->
-    emqx_utils_json:encode(#{messages => Payloads}).
-
--spec publish_path(state()) -> binary().
-publish_path(
-    _State = #{
-        project_id := ProjectId,
-        pubsub_topic := PubSubTopic
-    }
-) ->
-    <<"/v1/projects/", ProjectId/binary, "/topics/", PubSubTopic/binary, ":publish">>.
-
 -spec get_jwt_authorization_header(emqx_connector_jwt:jwt_config()) -> [{binary(), binary()}].
 get_jwt_authorization_header(JWTConfig) ->
     JWT = emqx_connector_jwt:ensure_jwt(JWTConfig),
@@ -315,14 +263,14 @@ get_jwt_authorization_header(JWTConfig) ->
 
 -spec do_send_requests_sync(
     state(),
-    [{send_message, map()}],
+    {prepared_request, prepared_request()},
     resource_id()
 ) ->
     {ok, status_code(), headers()}
     | {ok, status_code(), headers(), body()}
     | {error, {recoverable_error, term()}}
     | {error, term()}.
-do_send_requests_sync(State, Requests, ResourceId) ->
+do_send_requests_sync(State, {prepared_request, {Method, Path, Body}}, ResourceId) ->
     #{
         jwt_config := JWTConfig,
         pool_name := PoolName,
@@ -333,21 +281,10 @@ do_send_requests_sync(State, Requests, ResourceId) ->
         gcp_pubsub_bridge_do_send_requests,
         #{
             query_mode => sync,
-            resource_id => ResourceId,
-            requests => Requests
+            resource_id => ResourceId
         }
     ),
     Headers = get_jwt_authorization_header(JWTConfig),
-    Payloads =
-        lists:map(
-            fun({send_message, Selected}) ->
-                encode_payload(State, Selected)
-            end,
-            Requests
-        ),
-    Body = to_pubsub_request(Payloads),
-    Path = publish_path(State),
-    Method = post,
     Request = {Path, Headers, Body},
     case
         ehttpc:request(
@@ -443,11 +380,13 @@ do_send_requests_sync(State, Requests, ResourceId) ->
 
 -spec do_send_requests_async(
     state(),
-    [{send_message, map()}],
+    {prepared_request, prepared_request()},
     {ReplyFun :: function(), Args :: list()},
     resource_id()
 ) -> {ok, pid()}.
-do_send_requests_async(State, Requests, ReplyFunAndArgs, ResourceId) ->
+do_send_requests_async(
+    State, {prepared_request, {Method, Path, Body}}, ReplyFunAndArgs, ResourceId
+) ->
     #{
         jwt_config := JWTConfig,
         pool_name := PoolName,
@@ -457,21 +396,10 @@ do_send_requests_async(State, Requests, ReplyFunAndArgs, ResourceId) ->
         gcp_pubsub_bridge_do_send_requests,
         #{
             query_mode => async,
-            resource_id => ResourceId,
-            requests => Requests
+            resource_id => ResourceId
         }
     ),
     Headers = get_jwt_authorization_header(JWTConfig),
-    Payloads =
-        lists:map(
-            fun({send_message, Selected}) ->
-                encode_payload(State, Selected)
-            end,
-            Requests
-        ),
-    Body = to_pubsub_request(Payloads),
-    Path = publish_path(State),
-    Method = post,
     Request = {Path, Headers, Body},
     Worker = ehttpc_pool:pick_worker(PoolName),
     ok = ehttpc:request_async(
