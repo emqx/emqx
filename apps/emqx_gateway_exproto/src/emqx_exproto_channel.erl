@@ -21,7 +21,6 @@
 -include_lib("emqx/include/emqx_mqtt.hrl").
 -include_lib("emqx/include/types.hrl").
 -include_lib("emqx/include/logger.hrl").
--include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
 -export([
     info/1,
@@ -765,10 +764,10 @@ enrich_clientinfo(InClientInfo = #{proto_name := ProtoName}, ClientInfo) ->
         <<>> ->
             ok;
         Mp ->
-            ?tp(
+            ?SLOG(
                 warning,
-                failed_to_override_mountpoint,
                 #{
+                    msg => "failed_to_override_mountpoint",
                     reason =>
                         "The mountpoint in AuthenticateRequest has been deprecated. "
                         "Please use the `gateway.exproto.mountpoint` configuration.",
