@@ -277,6 +277,8 @@ message ClientInfo {
 
   string username = 4;
 
+  // deprecated since v5.1.0
+  // the request value of `mountpoint` will be ignored after v5.1.0
   string mountpoint = 5;
 }
 

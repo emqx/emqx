@@ -128,7 +128,7 @@ init_per_group(LisType, ServiceName, Scheme, Cfg) ->
     Svrs = emqx_exproto_echo_svr:start(Scheme),
     application:load(emqx_gateway_exproto),
     emqx_common_test_helpers:start_apps(
-        [emqx_authn, emqx_gateway],
+        [emqx_conf, emqx_authn, emqx_gateway],
         fun(App) ->
             set_special_cfg(App, LisType, ServiceName, Scheme)
         end
@@ -143,7 +143,7 @@ init_per_group(LisType, ServiceName, Scheme, Cfg) ->
 
 end_per_group(_, Cfg) ->
     emqx_config:erase(gateway),
-    emqx_common_test_helpers:stop_apps([emqx_gateway, emqx_authn]),
+    emqx_common_test_helpers:stop_apps([emqx_gateway, emqx_authn, emqx_conf]),
     emqx_exproto_echo_svr:stop(proplists:get_value(servers, Cfg)).
 
 init_per_testcase(TestCase, Cfg) when
@@ -166,6 +166,7 @@ set_special_cfg(emqx_gateway, LisType, ServiceName, Scheme) ->
         #{
             server => #{bind => 9100},
             idle_timeout => 5000,
+            mountpoint => <<"ct/">>,
             handler => #{
                 address => Addrs,
                 service_name => ServiceName,
@@ -196,7 +197,8 @@ t_mountpoint_echo(Cfg) ->
         proto_name => <<"demo">>,
         proto_ver => <<"v0.1">>,
         clientid => <<"test_client_1">>,
-        mountpoint => <<"ct/">>
+        %% deperated since v5.1.0, and this value will be ignored
+        mountpoint => <<"deperated/">>
     },
     Password = <<"123456">>,
 
@@ -239,7 +241,7 @@ t_raw_publish(Cfg) ->
         proto_name => <<"demo">>,
         proto_ver => <<"v0.1">>,
         clientid => <<"test_client_1">>,
-        mountpoint => <<"ct/">>
+        mountpoint => <<>>
     },
     Password = <<"123456">>,
 
@@ -321,7 +323,7 @@ t_acl_deny(Cfg) ->
     send(Sock, SubBin),
     {ok, SubAckBin} = recv(Sock, 5000),
 
-    emqx:publish(emqx_message:make(<<"t/dn">>, <<"echo">>)),
+    emqx:publish(emqx_message:make(<<"ct/t/dn">>, <<"echo">>)),
 
     PubBin = frame_publish(<<"t/dn">>, 0, <<"echo">>),
     PubBinFailedAck = frame_puback(1),
@@ -510,7 +512,7 @@ t_hook_message_delivered(Cfg) ->
 
     emqx_hooks:add('message.delivered', {?MODULE, hook_fun5, []}, 1000),
 
-    emqx:publish(emqx_message:make(<<"t/dn">>, <<"1">>)),
+    emqx:publish(emqx_message:make(<<"ct/t/dn">>, <<"1">>)),
     PubBin1 = frame_publish(<<"t/dn">>, 0, <<"2">>),
     {ok, PubBin1} = recv(Sock, 5000),
 
