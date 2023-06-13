@@ -47,12 +47,12 @@ conf(["show"]) ->
     print_hocon(get_config());
 conf(["show", Key]) ->
     print_hocon(get_config(Key));
-conf(["load", "--auth-chains", AuthChains, Path]) when
-    AuthChains =:= "replace"; AuthChains =:= "merge"
-->
-    load_config(Path, AuthChains);
+conf(["load", "--replace", Path]) ->
+    load_config(Path, replace);
+conf(["load", "--merge", Path]) ->
+    load_config(Path, merge);
 conf(["load", Path]) ->
-    load_config(Path, "replace");
+    load_config(Path, merge);
 conf(["cluster_sync" | Args]) ->
     admins(Args);
 conf(["reload"]) ->
@@ -99,13 +99,14 @@ admins(_) ->
 usage_conf() ->
     [
         {"conf reload", "reload etc/emqx.conf on local node"},
-        {"conf show_keys", "Print all config keys"},
+        {"conf show_keys", "print all the currently used configuration keys."},
         {"conf show [<key>]",
             "Print in-use configs (including default values) under the given key. "
             "Print ALL keys if key is not provided"},
-        {"conf load <path>",
+        {"conf load --replace|--merge <path>",
             "Load a HOCON format config file."
-            "The config is overlay on top of the existing configs. "
+            "The new configuration values will be overlaid on the existing values by default."
+            "use the --replace flag to replace existing values with the new ones instead."
             "The current node will initiate a cluster wide config change "
             "transaction to sync the changes to other nodes in the cluster. "
             "NOTE: do not make runtime config changes during rolling upgrade."}
@@ -183,7 +184,7 @@ get_config(Key) ->
     end.
 
 -define(OPTIONS, #{rawconf_with_defaults => true, override_to => cluster}).
-load_config(Path, AuthChain) ->
+load_config(Path, ReplaceOrMerge) ->
     case hocon:files([Path]) of
         {ok, RawConf} when RawConf =:= #{} ->
             emqx_ctl:warning("load ~ts is empty~n", [Path]),
@@ -192,7 +193,7 @@ load_config(Path, AuthChain) ->
             case check_config(RawConf) of
                 ok ->
                     lists:foreach(
-                        fun({K, V}) -> update_config(K, V, AuthChain) end,
+                        fun({K, V}) -> update_config(K, V, ReplaceOrMerge) end,
                         to_sorted_list(RawConf)
                     );
                 {error, ?UPDATE_READONLY_KEYS_PROHIBITED = Reason} ->
@@ -216,11 +217,14 @@ load_config(Path, AuthChain) ->
             {error, bad_hocon_file}
     end.
 
-update_config(?EMQX_AUTHORIZATION_CONFIG_ROOT_NAME = Key, Conf, "merge") ->
+update_config(?EMQX_AUTHORIZATION_CONFIG_ROOT_NAME = Key, Conf, merge) ->
     check_res(Key, emqx_authz:merge(Conf));
-update_config(?EMQX_AUTHENTICATION_CONFIG_ROOT_NAME = Key, Conf, "merge") ->
+update_config(?EMQX_AUTHENTICATION_CONFIG_ROOT_NAME = Key, Conf, merge) ->
     check_res(Key, emqx_authn:merge_config(Conf));
-update_config(Key, Value, _) ->
+update_config(Key, NewConf, merge) ->
+    Merged = merge_conf(Key, NewConf),
+    check_res(Key, emqx_conf:update([Key], Merged, ?OPTIONS));
+update_config(Key, Value, replace) ->
     check_res(Key, emqx_conf:update([Key], Value, ?OPTIONS)).
 
 check_res(Key, {ok, _}) -> emqx_ctl:print("load ~ts in cluster ok~n", [Key]);
@@ -256,11 +260,15 @@ check_config_schema(Conf) ->
 reload_etc_conf_on_local_node() ->
     case load_etc_config_file() of
         {ok, RawConf} ->
-            case check_readonly_config(RawConf) of
-                {ok, Reloaded} -> reload_config(Reloaded);
-                {error, Error} -> {error, Error}
+            case filter_readonly_config(RawConf) of
+                {ok, Reloaded} ->
+                    reload_config(Reloaded);
+                {error, Error} ->
+                    emqx_ctl:warning("check config failed~n~p~n", [Error]),
+                    {error, Error}
             end;
-        {error, _Error} ->
+        {error, Error} ->
+            emqx_ctl:warning("bad_hocon_file~n ~p~n", [Error]),
             {error, bad_hocon_file}
     end.
 
@@ -290,23 +298,13 @@ load_etc_config_file() ->
             {error, Error}
     end.
 
-check_readonly_config(Raw) ->
+filter_readonly_config(Raw) ->
     SchemaMod = emqx_conf:schema_module(),
     RawDefault = emqx_config:fill_defaults(Raw),
     case emqx_conf:check_config(SchemaMod, RawDefault) of
-        {ok, CheckedConf} ->
-            case filter_changed_readonly_keys(CheckedConf) of
-                [] ->
-                    ReadOnlyKeys = [atom_to_binary(K) || K <- ?READONLY_KEYS],
-                    {ok, maps:without(ReadOnlyKeys, Raw)};
-                Error ->
-                    ?SLOG(error, #{
-                        msg => ?UPDATE_READONLY_KEYS_PROHIBITED,
-                        read_only_keys => ?READONLY_KEYS,
-                        error => Error
-                    }),
-                    {error, Error}
-            end;
+        {ok, _CheckedConf} ->
+            ReadOnlyKeys = [atom_to_binary(K) || K <- ?READONLY_KEYS],
+            {ok, maps:without(ReadOnlyKeys, Raw)};
         {error, Error} ->
             ?SLOG(error, #{
                 msg => "bad_etc_config_schema_found",
@@ -357,3 +355,12 @@ sorted_fold(Func, Conf) ->
 
 to_sorted_list(Conf) ->
     lists:keysort(1, maps:to_list(Conf)).
+
+merge_conf(Key, NewConf) ->
+    OldConf = emqx_conf:get_raw([Key]),
+    do_merge_conf(OldConf, NewConf).
+
+do_merge_conf(OldConf = #{}, NewConf = #{}) ->
+    emqx_utils_maps:deep_merge(OldConf, NewConf);
+do_merge_conf(_OldConf, NewConf) ->
+    NewConf.
