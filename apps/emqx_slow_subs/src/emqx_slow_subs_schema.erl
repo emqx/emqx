@@ -23,7 +23,7 @@
 namespace() -> "slow_subs".
 
 roots() ->
-    [{"slow_subs", ?HOCON(?R_REF("slow_subs"), #{importance => ?IMPORTANCE_HIDDEN})}].
+    [{"slow_subs", ?HOCON(?R_REF("slow_subs"), #{importance => ?IMPORTANCE_LOW})}].
 
 fields("slow_subs") ->
     [

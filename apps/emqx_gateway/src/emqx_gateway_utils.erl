@@ -532,6 +532,7 @@ default_subopts() ->
 
 -spec find_gateway_definitions() -> list(gateway_def()).
 find_gateway_definitions() ->
+    ensure_gateway_loaded(),
     lists:flatten(
         lists:map(
             fun(App) ->
@@ -617,3 +618,16 @@ plus_max_connections(infinity, _) ->
     infinity;
 plus_max_connections(A, B) when is_integer(A) andalso is_integer(B) ->
     A + B.
+
+%% we need to load all gateway applications before generate doc from cli
+ensure_gateway_loaded() ->
+    lists:foreach(
+        fun application:load/1,
+        [
+            emqx_gateway_exproto,
+            emqx_gateway_stomp,
+            emqx_gateway_coap,
+            emqx_gateway_lwm2m,
+            emqx_gateway_mqttsn
+        ]
+    ).
