@@ -96,7 +96,7 @@ handle_event(
         complete ->
             {next_state, start_assembling, NSt, ?internal([])};
         {incomplete, _} ->
-            Nodes = mria_mnesia:running_nodes() -- [node()],
+            Nodes = emqx:running_nodes() -- [node()],
             {next_state, {list_remote_fragments, Nodes}, NSt, ?internal([])};
         % TODO: recovery?
         {error, _} = Error ->
