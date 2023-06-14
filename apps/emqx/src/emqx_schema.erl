@@ -2679,8 +2679,28 @@ validate_ciphers(Ciphers) ->
 validate_tls_versions(Collection, Versions) ->
     AvailableVersions = available_tls_vsns(Collection),
     case lists:filter(fun(V) -> not lists:member(V, AvailableVersions) end, Versions) of
-        [] -> ok;
+        [] -> validate_tls_version_gap(Versions);
         Vs -> {error, {unsupported_tls_versions, Vs}}
+    end.
+
+%% See also `validate_version_gap/1` in OTP ssl.erl,
+%% e.g: https://github.com/emqx/otp/blob/emqx-OTP-25.1.2/lib/ssl/src/ssl.erl#L2566.
+%% Do not allow configuration of TLS 1.3 with a gap where TLS 1.2 is not supported
+%% as that configuration can trigger the built in version downgrade protection
+%% mechanism and the handshake can fail with an Illegal Parameter alert.
+validate_tls_version_gap(Versions) ->
+    case lists:member('tlsv1.3', Versions) of
+        true when length(Versions) >= 2 ->
+            case lists:member('tlsv1.2', Versions) of
+                true ->
+                    ok;
+                false ->
+                    {error,
+                        "Using multiple versions that include tlsv1.3 but "
+                        "exclude tlsv1.2 is not allowed"}
+            end;
+        _ ->
+            ok
     end.
 
 validations() ->

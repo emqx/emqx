@@ -478,7 +478,7 @@ to_server_opts(Type, Opts) ->
     Versions = integral_versions(Type, maps:get(versions, Opts, undefined)),
     Ciphers = integral_ciphers(Versions, maps:get(ciphers, Opts, undefined)),
     Path = fun(Key) -> resolve_cert_path_for_read_strict(maps:get(Key, Opts, undefined)) end,
-    filter(
+    ensure_valid_options(
         maps:to_list(Opts#{
             keyfile => Path(keyfile),
             certfile => Path(certfile),
@@ -511,7 +511,7 @@ to_client_opts(Type, Opts) ->
             SNI = ensure_sni(Get(server_name_indication)),
             Versions = integral_versions(Type, Get(versions)),
             Ciphers = integral_ciphers(Versions, Get(ciphers)),
-            filter(
+            ensure_valid_options(
                 [
                     {keyfile, KeyFile},
                     {certfile, CertFile},
@@ -556,33 +556,72 @@ resolve_cert_path_for_read_strict(Path) ->
 resolve_cert_path_for_read(Path) ->
     emqx_schema:naive_env_interpolation(Path).
 
-filter([], _) ->
-    [];
-filter([{_, undefined} | T], Versions) ->
-    filter(T, Versions);
-filter([{_, ""} | T], Versions) ->
-    filter(T, Versions);
-filter([{K, V} | T], Versions) ->
+ensure_valid_options(Options, Versions) ->
+    ensure_valid_options(Options, Versions, []).
+
+ensure_valid_options([], _, Acc) ->
+    lists:reverse(Acc);
+ensure_valid_options([{_, undefined} | T], Versions, Acc) ->
+    ensure_valid_options(T, Versions, Acc);
+ensure_valid_options([{_, ""} | T], Versions, Acc) ->
+    ensure_valid_options(T, Versions, Acc);
+ensure_valid_options([{K, V} | T], Versions, Acc) ->
     case tls_option_compatible_versions(K) of
         all ->
-            [{K, V} | filter(T, Versions)];
+            ensure_valid_options(T, Versions, [{K, V} | Acc]);
         CompatibleVersions ->
-            case CompatibleVersions -- (CompatibleVersions -- Versions) of
-                [] ->
-                    filter(T, Versions);
-                _ ->
-                    [{K, V} | filter(T, Versions)]
+            Enabled = sets:from_list(Versions),
+            Compatible = sets:from_list(CompatibleVersions),
+            case sets:size(sets:intersection(Enabled, Compatible)) > 0 of
+                true ->
+                    ensure_valid_options(T, Versions, [{K, V} | Acc]);
+                false ->
+                    ?SLOG(warning, #{
+                        msg => "drop_incompatible_tls_option", option => K, versions => Versions
+                    }),
+                    ensure_valid_options(T, Versions, Acc)
             end
     end.
 
+%% see otp/lib/ssl/src/ssl.erl, `assert_option_dependency/4`
+tls_option_compatible_versions(beast_mitigation) ->
+    [dtlsv1, 'tlsv1'];
+tls_option_compatible_versions(padding_check) ->
+    [dtlsv1, 'tlsv1'];
+tls_option_compatible_versions(client_renegotiation) ->
+    [dtlsv1, 'dtlsv1.2', 'tlsv1', 'tlsv1.1', 'tlsv1.2'];
+tls_option_compatible_versions(reuse_session) ->
+    [dtlsv1, 'dtlsv1.2', 'tlsv1', 'tlsv1.1', 'tlsv1.2'];
 tls_option_compatible_versions(reuse_sessions) ->
     [dtlsv1, 'dtlsv1.2', 'tlsv1', 'tlsv1.1', 'tlsv1.2'];
 tls_option_compatible_versions(secure_renegotiate) ->
     [dtlsv1, 'dtlsv1.2', 'tlsv1', 'tlsv1.1', 'tlsv1.2'];
+tls_option_compatible_versions(next_protocol_advertised) ->
+    [dtlsv1, 'dtlsv1.2', 'tlsv1', 'tlsv1.1', 'tlsv1.2'];
+tls_option_compatible_versions(client_preferred_next_protocols) ->
+    [dtlsv1, 'dtlsv1.2', 'tlsv1', 'tlsv1.1', 'tlsv1.2'];
+tls_option_compatible_versions(psk_identity) ->
+    [dtlsv1, 'dtlsv1.2', 'tlsv1', 'tlsv1.1', 'tlsv1.2'];
+tls_option_compatible_versions(srp_identity) ->
+    [dtlsv1, 'dtlsv1.2', 'tlsv1', 'tlsv1.1', 'tlsv1.2'];
 tls_option_compatible_versions(user_lookup_fun) ->
     [dtlsv1, 'dtlsv1.2', 'tlsv1', 'tlsv1.1', 'tlsv1.2'];
-tls_option_compatible_versions(client_renegotiation) ->
-    [dtlsv1, 'dtlsv1.2', 'tlsv1', 'tlsv1.1', 'tlsv1.2'];
+tls_option_compatible_versions(early_data) ->
+    ['tlsv1.3'];
+tls_option_compatible_versions(certificate_authorities) ->
+    ['tlsv1.3'];
+tls_option_compatible_versions(cookie) ->
+    ['tlsv1.3'];
+tls_option_compatible_versions(key_update_at) ->
+    ['tlsv1.3'];
+tls_option_compatible_versions(anti_replay) ->
+    ['tlsv1.3'];
+tls_option_compatible_versions(session_tickets) ->
+    ['tlsv1.3'];
+tls_option_compatible_versions(supported_groups) ->
+    ['tlsv1.3'];
+tls_option_compatible_versions(use_ticket) ->
+    ['tlsv1.3'];
 tls_option_compatible_versions(_) ->
     all.
 
