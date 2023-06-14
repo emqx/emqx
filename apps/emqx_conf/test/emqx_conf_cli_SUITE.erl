@@ -33,24 +33,24 @@ init_per_suite(Config) ->
 end_per_suite(_Config) ->
     emqx_mgmt_api_test_util:end_suite([emqx_conf, emqx_authz]).
 
-t_load_config(Config) ->
+t_load_config_with(Config) ->
     Authz = authorization,
     Conf = emqx_conf:get_raw([Authz]),
     %% set sources to []
-    ConfBin0 = hocon_pp:do(#{<<"authorization">> => Conf#{<<"sources">> => []}}, #{}),
+    ConfBin0 = hocon_pp:do(#{<<"authorization">> => #{<<"sources">> => []}}, #{}),
     ConfFile0 = prepare_conf_file(?FUNCTION_NAME, ConfBin0, Config),
-    ok = emqx_conf_cli:conf(["load", ConfFile0]),
+    ok = emqx_conf_cli:conf(["load", "--merge", ConfFile0]),
     ?assertEqual(Conf#{<<"sources">> => []}, emqx_conf:get_raw([Authz])),
     %% remove sources, it will reset to default file source.
     ConfBin1 = hocon_pp:do(#{<<"authorization">> => maps:remove(<<"sources">>, Conf)}, #{}),
     ConfFile1 = prepare_conf_file(?FUNCTION_NAME, ConfBin1, Config),
-    ok = emqx_conf_cli:conf(["load", ConfFile1]),
+    ok = emqx_conf_cli:conf(["load", "--replace", ConfFile1]),
     Default = [emqx_authz_schema:default_authz()],
     ?assertEqual(Conf#{<<"sources">> => Default}, emqx_conf:get_raw([Authz])),
     %% reset
     ConfBin2 = hocon_pp:do(#{<<"authorization">> => Conf}, #{}),
     ConfFile2 = prepare_conf_file(?FUNCTION_NAME, ConfBin2, Config),
-    ok = emqx_conf_cli:conf(["load", ConfFile2]),
+    ok = emqx_conf_cli:conf(["load", "--replace", ConfFile2]),
     ?assertEqual(
         Conf#{<<"sources">> => [emqx_authz_schema:default_authz()]},
         emqx_conf:get_raw([Authz])
@@ -75,7 +75,9 @@ t_load_readonly(Config) ->
             ConfBin1 = hocon_pp:do(Base1#{KeyBin => changed(Key)}, #{}),
             ConfFile1 = prepare_conf_file(?FUNCTION_NAME, ConfBin1, Config),
             application:set_env(emqx, config_files, [ConfFile1]),
-            ?assertMatch({error, [{Key, #{changed := _}}]}, emqx_conf_cli:conf(["reload"]))
+            ?assertMatch(ok, emqx_conf_cli:conf(["reload"])),
+            %% Don't update readonly key
+            ?assertEqual(Conf, emqx_conf:get_raw([Key]))
         end,
         ?READONLY_KEYS
     ),
