@@ -448,7 +448,9 @@ handle_in(
     Topic = header(<<"destination">>, Headers),
     case emqx_gateway_ctx:authorize(Ctx, ClientInfo, publish, Topic) of
         deny ->
-            handle_out(error, {receipt_id(Headers), "Authorization Deny"}, Channel);
+            ErrMsg = io_lib:format("Insufficient permissions for ~s", [Topic]),
+            ErrorFrame = error_frame(receipt_id(Headers), ErrMsg),
+            shutdown(acl_denied, ErrorFrame, Channel);
         allow ->
             case header(<<"transaction">>, Headers) of
                 undefined ->
@@ -494,20 +496,25 @@ handle_in(
             ),
             case do_subscribe(NTopicFilters, NChannel) of
                 [] ->
-                    ErrMsg = "Permission denied",
-                    handle_out(error, {receipt_id(Headers), ErrMsg}, Channel);
+                    ErrMsg = io_lib:format(
+                        "The client.subscribe hook blocked the ~s subscription request",
+                        [TopicFilter]
+                    ),
+                    ErrorFrame = error_frame(receipt_id(Headers), ErrMsg),
+                    shutdown(normal, ErrorFrame, Channel);
                 [{MountedTopic, SubOpts} | _] ->
                     NSubs = [{SubId, MountedTopic, Ack, SubOpts} | Subs],
                     NChannel1 = NChannel#channel{subscriptions = NSubs},
                     handle_out_and_update(receipt, receipt_id(Headers), NChannel1)
             end;
-        {error, ErrMsg, NChannel} ->
-            ?SLOG(error, #{
-                msg => "failed_top_subscribe_topic",
-                topic => Topic,
-                reason => ErrMsg
-            }),
-            handle_out(error, {receipt_id(Headers), ErrMsg}, NChannel)
+        {error, subscription_id_inused, NChannel} ->
+            ErrMsg = io_lib:format("Subscription id ~w is in used", [SubId]),
+            ErrorFrame = error_frame(receipt_id(Headers), ErrMsg),
+            shutdown(subscription_id_inused, ErrorFrame, NChannel);
+        {error, acl_denied, NChannel} ->
+            ErrMsg = io_lib:format("Insufficient permissions for ~s", [Topic]),
+            ErrorFrame = error_frame(receipt_id(Headers), ErrMsg),
+            shutdown(acl_denied, ErrorFrame, NChannel)
     end;
 handle_in(
     ?PACKET(?CMD_UNSUBSCRIBE, Headers),
@@ -691,7 +698,7 @@ check_subscribed_status(
         {SubId, MountedTopic, _Ack, _} ->
             ok;
         {SubId, _OtherTopic, _Ack, _} ->
-            {error, "Conflict subscribe id"};
+            {error, subscription_id_inused};
         false ->
             ok
     end.
@@ -704,7 +711,7 @@ check_sub_acl(
     }
 ) ->
     case emqx_gateway_ctx:authorize(Ctx, ClientInfo, subscribe, ParsedTopic) of
-        deny -> {error, "ACL Deny"};
+        deny -> {error, acl_denied};
         allow -> ok
     end.
 
@@ -987,7 +994,7 @@ handle_deliver(
     Delivers,
     Channel = #channel{
         ctx = Ctx,
-        clientinfo = ClientInfo,
+        clientinfo = ClientInfo = #{mountpoint := Mountpoint},
         subscriptions = Subs
     }
 ) ->
@@ -998,22 +1005,21 @@ handle_deliver(
         fun({_, _, Message}, Acc) ->
             Topic0 = emqx_message:topic(Message),
             case lists:keyfind(Topic0, 2, Subs) of
-                {Id, Topic, Ack, _SubOpts} ->
-                    %% XXX: refactor later
+                {Id, _Topic, Ack, _SubOpts} ->
+                    Message1 = emqx_mountpoint:unmount(Mountpoint, Message),
                     metrics_inc('messages.delivered', Channel),
                     NMessage = run_hooks_without_metrics(
                         Ctx,
                         'message.delivered',
                         [ClientInfo],
-                        Message
+                        Message1
                     ),
-                    Topic = emqx_message:topic(NMessage),
                     Headers = emqx_message:get_headers(NMessage),
                     Payload = emqx_message:payload(NMessage),
                     Headers0 = [
                         {<<"subscription">>, Id},
                         {<<"message-id">>, next_msgid()},
-                        {<<"destination">>, Topic},
+                        {<<"destination">>, emqx_message:topic(NMessage)},
                         {<<"content-type">>, <<"text/plain">>}
                     ],
                     Headers1 =

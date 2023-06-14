@@ -185,6 +185,8 @@ parse(headers, Bin, State) ->
     parse(hdname, Bin, State);
 parse(hdname, <<?LF, _Rest/binary>>, _State) ->
     error(unexpected_linefeed);
+parse(hdname, <<?COLON, $\s, Rest/binary>>, State = #parser_state{acc = Acc}) ->
+    parse(hdvalue, Rest, State#parser_state{hdname = Acc, acc = <<>>});
 parse(hdname, <<?COLON, Rest/binary>>, State = #parser_state{acc = Acc}) ->
     parse(hdvalue, Rest, State#parser_state{hdname = Acc, acc = <<>>});
 parse(hdname, <<Ch:8, Rest/binary>>, State) ->
