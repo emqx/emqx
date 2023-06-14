@@ -75,7 +75,6 @@ listener_mqtt_tcp_conf(Port, EnableAuthn) ->
     PortS = integer_to_binary(Port),
     #{
         <<"acceptors">> => 16,
-        <<"zone">> => <<"default">>,
         <<"access_rules">> => ["allow all"],
         <<"bind">> => <<"0.0.0.0:", PortS/binary>>,
         <<"max_connections">> => 1024000,

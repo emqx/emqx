@@ -170,7 +170,7 @@ drop_hidden_roots(Conf) ->
     lists:foldl(fun(K, Acc) -> maps:remove(K, Acc) end, Conf, hidden_roots()).
 
 hidden_roots() ->
-    [<<"trace">>, <<"stats">>, <<"broker">>].
+    [<<"trace">>, <<"stats">>, <<"broker">>, <<"persistent_session_store">>].
 
 get_config(Key) ->
     case emqx:get_raw_config([Key], undefined) of
