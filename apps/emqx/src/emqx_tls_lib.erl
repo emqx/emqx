@@ -556,32 +556,8 @@ resolve_cert_path_for_read_strict(Path) ->
 resolve_cert_path_for_read(Path) ->
     emqx_schema:naive_env_interpolation(Path).
 
-ensure_valid_options(Options, Versions0) ->
-    Versions = validate_version_gap(Versions0),
+ensure_valid_options(Options, Versions) ->
     ensure_valid_options(Options, Versions, []).
-
-%% See also lib/ssl/src/ssl.erl#L2617.
-%% Do not allow configuration of TLS 1.3 with a gap where TLS 1.2 is not supported
-%% as that configuration can trigger the built in version downgrade protection
-%% mechanism and the handshake can fail with an Illegal Parameter alert.
-validate_version_gap(Versions) ->
-    case lists:member('tlsv1.3', Versions) of
-        true when length(Versions) >= 2 ->
-            case lists:member('tlsv1.2', Versions) of
-                true ->
-                    Versions;
-                false ->
-                    NewVersions = ['tlsv1.3'],
-                    ?SLOG(warning, #{
-                        msg => "tlsv13_version_gap",
-                        versions => Versions,
-                        new_versions => NewVersions
-                    }),
-                    NewVersions
-            end;
-        _ ->
-            Versions
-    end.
 
 ensure_valid_options([], _, Acc) ->
     lists:reverse(Acc);
@@ -607,7 +583,7 @@ ensure_valid_options([{K, V} | T], Versions, Acc) ->
             end
     end.
 
-%% see lib/ssl/src/ssl.erl, assert_option_dependency/4
+%% see otp/lib/ssl/src/ssl.erl, `assert_option_dependency/4`
 tls_option_compatible_versions(beast_mitigation) ->
     [dtlsv1, 'tlsv1'];
 tls_option_compatible_versions(padding_check) ->

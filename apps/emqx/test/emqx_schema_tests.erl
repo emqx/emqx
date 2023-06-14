@@ -94,6 +94,18 @@ ssl_opts_tls_psk_test() ->
     Checked = validate(Sc, #{<<"versions">> => [<<"tlsv1.2">>]}),
     ?assertMatch(#{versions := ['tlsv1.2']}, Checked).
 
+ssl_opts_version_gap_test_() ->
+    Sc = emqx_schema:server_ssl_opts_schema(#{}, false),
+    RanchSc = emqx_schema:server_ssl_opts_schema(#{}, true),
+    Reason = "Using multiple versions that include tlsv1.3 but exclude tlsv1.2 is not allowed",
+    [
+        ?_assertThrow(
+            {_, [#{kind := validation_error, reason := Reason}]},
+            validate(S, #{<<"versions">> => [<<"tlsv1.1">>, <<"tlsv1.3">>]})
+        )
+     || S <- [Sc, RanchSc]
+    ].
+
 bad_cipher_test() ->
     Sc = emqx_schema:server_ssl_opts_schema(#{}, false),
     Reason = {bad_ciphers, ["foo"]},
