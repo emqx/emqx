@@ -739,7 +739,7 @@ fields("mqtt_quic_listener") ->
             sc(
                 string(),
                 #{
-                    %% TODO: deprecated => {since, "5.1.0"}
+                    deprecated => {since, "5.1.0"},
                     desc => ?DESC(fields_mqtt_quic_listener_certfile),
                     importance => ?IMPORTANCE_HIDDEN
                 }
@@ -748,7 +748,7 @@ fields("mqtt_quic_listener") ->
             sc(
                 string(),
                 #{
-                    %% TODO: deprecated => {since, "5.1.0"}
+                    deprecated => {since, "5.1.0"},
                     desc => ?DESC(fields_mqtt_quic_listener_keyfile),
                     importance => ?IMPORTANCE_HIDDEN
                 }
@@ -827,7 +827,7 @@ fields("mqtt_quic_listener") ->
                 #{
                     default => 0,
                     desc => ?DESC(fields_mqtt_quic_listener_idle_timeout),
-                    %% TODO: deprecated => {since, "5.1.0"}
+                    deprecated => {since, "5.1.0"},
                     %% deprecated, use idle_timeout_ms instead
                     importance => ?IMPORTANCE_HIDDEN
                 }
@@ -844,7 +844,7 @@ fields("mqtt_quic_listener") ->
                 #{
                     default => <<"10s">>,
                     desc => ?DESC(fields_mqtt_quic_listener_handshake_idle_timeout),
-                    %% TODO: deprecated => {since, "5.1.0"}
+                    deprecated => {since, "5.1.0"},
                     %% use handshake_idle_timeout_ms
                     importance => ?IMPORTANCE_HIDDEN
                 }
