@@ -33,6 +33,7 @@
     move/2,
     update/2,
     merge/1,
+    merge_local/2,
     authorize/5,
     %% for telemetry information
     get_enabled_authzs/0
@@ -126,6 +127,9 @@ lookup(Type) ->
 
 merge(NewConf) ->
     emqx_authz_utils:update_config(?ROOT_KEY, {?CMD_MERGE, NewConf}).
+
+merge_local(NewConf, Opts) ->
+    emqx:update_config(?ROOT_KEY, {?CMD_MERGE, NewConf}, Opts).
 
 move(Type, ?CMD_MOVE_BEFORE(Before)) ->
     emqx_authz_utils:update_config(
