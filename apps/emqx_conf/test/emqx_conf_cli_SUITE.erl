@@ -33,14 +33,20 @@ init_per_suite(Config) ->
 end_per_suite(_Config) ->
     emqx_mgmt_api_test_util:end_suite([emqx_conf, emqx_authz]).
 
-t_load_config_with(Config) ->
+t_load_config(Config) ->
     Authz = authorization,
     Conf = emqx_conf:get_raw([Authz]),
     %% set sources to []
-    ConfBin0 = hocon_pp:do(#{<<"authorization">> => #{<<"sources">> => []}}, #{}),
+    ConfBin = hocon_pp:do(#{<<"authorization">> => #{<<"sources">> => []}}, #{}),
+    ConfFile = prepare_conf_file(?FUNCTION_NAME, ConfBin, Config),
+    ok = emqx_conf_cli:conf(["load", "--replace", ConfFile]),
+    ?assertEqual(#{<<"sources">> => []}, emqx_conf:get_raw([Authz])),
+
+    ConfBin0 = hocon_pp:do(#{<<"authorization">> => Conf#{<<"sources">> => []}}, #{}),
     ConfFile0 = prepare_conf_file(?FUNCTION_NAME, ConfBin0, Config),
-    ok = emqx_conf_cli:conf(["load", "--merge", ConfFile0]),
+    ok = emqx_conf_cli:conf(["load", "--replace", ConfFile0]),
     ?assertEqual(Conf#{<<"sources">> => []}, emqx_conf:get_raw([Authz])),
+
     %% remove sources, it will reset to default file source.
     ConfBin1 = hocon_pp:do(#{<<"authorization">> => maps:remove(<<"sources">>, Conf)}, #{}),
     ConfFile1 = prepare_conf_file(?FUNCTION_NAME, ConfBin1, Config),

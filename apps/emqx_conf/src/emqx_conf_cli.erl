@@ -151,7 +151,8 @@ status() ->
     emqx_ctl:print("-----------------------------------------------\n").
 
 print_keys(Config) ->
-    print(lists:sort(maps:keys(Config))).
+    Keys = lists:sort(maps:keys(Config)),
+    emqx_ctl:print("~1p~n", [[binary_to_existing_atom(K) || K <- Keys]]).
 
 print(Json) ->
     emqx_ctl:print("~ts~n", [emqx_logger_jsonfmt:best_effort_json(Json)]).
@@ -166,11 +167,10 @@ get_config() ->
     drop_hidden_roots(AllConf).
 
 drop_hidden_roots(Conf) ->
-    Hidden = hidden_roots(),
-    maps:without(Hidden, Conf).
+    lists:foldl(fun(K, Acc) -> maps:remove(K, Acc) end, Conf, hidden_roots()).
 
 hidden_roots() ->
-    [trace, stats, broker].
+    [<<"trace">>, <<"stats">>, <<"broker">>, <<"persistent_session_store">>].
 
 get_config(Key) ->
     case emqx:get_raw_config([Key], undefined) of
@@ -212,9 +212,9 @@ load_config(Path, ReplaceOrMerge) ->
             {error, bad_hocon_file}
     end.
 
-update_config_cluster(?EMQX_AUTHORIZATION_CONFIG_ROOT_NAME = Key, Conf, merge) ->
+update_config_cluster(?EMQX_AUTHORIZATION_CONFIG_ROOT_NAME_BINARY = Key, Conf, merge) ->
     check_res(Key, emqx_authz:merge(Conf));
-update_config_cluster(?EMQX_AUTHENTICATION_CONFIG_ROOT_NAME = Key, Conf, merge) ->
+update_config_cluster(?EMQX_AUTHENTICATION_CONFIG_ROOT_NAME_BINARY = Key, Conf, merge) ->
     check_res(Key, emqx_authn:merge_config(Conf));
 update_config_cluster(Key, NewConf, merge) ->
     Merged = merge_conf(Key, NewConf),
@@ -223,9 +223,9 @@ update_config_cluster(Key, Value, replace) ->
     check_res(Key, emqx_conf:update([Key], Value, ?OPTIONS)).
 
 -define(LOCAL_OPTIONS, #{rawconf_with_defaults => true, persistent => false}).
-update_config_local(?EMQX_AUTHORIZATION_CONFIG_ROOT_NAME = Key, Conf, merge) ->
+update_config_local(?EMQX_AUTHORIZATION_CONFIG_ROOT_NAME_BINARY = Key, Conf, merge) ->
     check_res(node(), Key, emqx_authz:merge_local(Conf, ?LOCAL_OPTIONS));
-update_config_local(?EMQX_AUTHENTICATION_CONFIG_ROOT_NAME = Key, Conf, merge) ->
+update_config_local(?EMQX_AUTHENTICATION_CONFIG_ROOT_NAME_BINARY = Key, Conf, merge) ->
     check_res(node(), Key, emqx_authn:merge_config_local(Conf, ?LOCAL_OPTIONS));
 update_config_local(Key, NewConf, merge) ->
     Merged = merge_conf(Key, NewConf),

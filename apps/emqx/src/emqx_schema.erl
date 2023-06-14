@@ -209,7 +209,7 @@ roots(high) ->
                 map("name", ref("zone")),
                 #{
                     desc => ?DESC(zones),
-                    importance => ?IMPORTANCE_LOW
+                    importance => ?IMPORTANCE_HIDDEN
                 }
             )},
         {?EMQX_AUTHENTICATION_CONFIG_ROOT_NAME, authentication(global)},
@@ -1794,7 +1794,8 @@ base_listener(Bind) ->
                 atom(),
                 #{
                     desc => ?DESC(base_listener_zone),
-                    default => 'default'
+                    default => 'default',
+                    importance => ?IMPORTANCE_HIDDEN
                 }
             )},
         {"limiter",
@@ -3409,7 +3410,7 @@ mqtt_general() ->
             )},
         {"server_keepalive",
             sc(
-                hoconsc:union([integer(), disabled]),
+                hoconsc:union([pos_integer(), disabled]),
                 #{
                     default => disabled,
                     desc => ?DESC(mqtt_server_keepalive)
@@ -3481,7 +3482,7 @@ mqtt_session() ->
             )},
         {"max_awaiting_rel",
             sc(
-                hoconsc:union([integer(), infinity]),
+                hoconsc:union([non_neg_integer(), infinity]),
                 #{
                     default => 100,
                     desc => ?DESC(mqtt_max_awaiting_rel),

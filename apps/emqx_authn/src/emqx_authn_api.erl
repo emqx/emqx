@@ -103,14 +103,15 @@ paths() ->
         "/authentication/:id/status",
         "/authentication/:id/position/:position",
         "/authentication/:id/users",
-        "/authentication/:id/users/:user_id",
+        "/authentication/:id/users/:user_id"
 
-        "/listeners/:listener_id/authentication",
-        "/listeners/:listener_id/authentication/:id",
-        "/listeners/:listener_id/authentication/:id/status",
-        "/listeners/:listener_id/authentication/:id/position/:position",
-        "/listeners/:listener_id/authentication/:id/users",
-        "/listeners/:listener_id/authentication/:id/users/:user_id"
+        %% hide listener authn api since 5.1.0
+        %% "/listeners/:listener_id/authentication",
+        %% "/listeners/:listener_id/authentication/:id",
+        %% "/listeners/:listener_id/authentication/:id/status",
+        %% "/listeners/:listener_id/authentication/:id/position/:position",
+        %% "/listeners/:listener_id/authentication/:id/users",
+        %% "/listeners/:listener_id/authentication/:id/users/:user_id"
     ].
 
 roots() ->
