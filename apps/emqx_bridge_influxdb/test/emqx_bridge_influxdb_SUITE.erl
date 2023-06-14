@@ -1058,3 +1058,131 @@ t_missing_field(Config) ->
         end
     ),
     ok.
+
+t_authentication_error(Config0) ->
+    InfluxDBType = ?config(influxdb_type, Config0),
+    InfluxConfig0 = proplists:get_value(influxdb_config, Config0),
+    InfluxConfig =
+        case InfluxDBType of
+            apiv1 -> InfluxConfig0#{<<"password">> => <<"wrong_password">>};
+            apiv2 -> InfluxConfig0#{<<"token">> => <<"wrong_token">>}
+        end,
+    Config = lists:keyreplace(influxdb_config, 1, Config0, {influxdb_config, InfluxConfig}),
+    ?check_trace(
+        begin
+            ?wait_async_action(
+                create_bridge(Config),
+                #{?snk_kind := influxdb_connector_start_failed},
+                10_000
+            )
+        end,
+        fun(Trace) ->
+            ?assertMatch(
+                [#{error := auth_error} | _],
+                ?of_kind(influxdb_connector_start_failed, Trace)
+            ),
+            ok
+        end
+    ),
+    ok.
+
+t_authentication_error_on_get_status(Config0) ->
+    ResourceId = resource_id(Config0),
+
+    % Fake initialization to simulate credential update after bridge was created.
+    emqx_common_test_helpers:with_mock(
+        influxdb,
+        check_auth,
+        fun(_) ->
+            ok
+        end,
+        fun() ->
+            InfluxDBType = ?config(influxdb_type, Config0),
+            InfluxConfig0 = proplists:get_value(influxdb_config, Config0),
+            InfluxConfig =
+                case InfluxDBType of
+                    apiv1 -> InfluxConfig0#{<<"password">> => <<"wrong_password">>};
+                    apiv2 -> InfluxConfig0#{<<"token">> => <<"wrong_token">>}
+                end,
+            Config = lists:keyreplace(influxdb_config, 1, Config0, {influxdb_config, InfluxConfig}),
+            {ok, _} = create_bridge(Config),
+            ?retry(
+                _Sleep = 1_000,
+                _Attempts = 10,
+                ?assertEqual({ok, connected}, emqx_resource_manager:health_check(ResourceId))
+            )
+        end
+    ),
+
+    % Now back to wrong credentials
+    ?assertEqual({ok, disconnected}, emqx_resource_manager:health_check(ResourceId)),
+    ok.
+
+t_authentication_error_on_send_message(Config0) ->
+    ResourceId = resource_id(Config0),
+    QueryMode = proplists:get_value(query_mode, Config0, sync),
+    InfluxDBType = ?config(influxdb_type, Config0),
+    InfluxConfig0 = proplists:get_value(influxdb_config, Config0),
+    InfluxConfig =
+        case InfluxDBType of
+            apiv1 -> InfluxConfig0#{<<"password">> => <<"wrong_password">>};
+            apiv2 -> InfluxConfig0#{<<"token">> => <<"wrong_token">>}
+        end,
+    Config = lists:keyreplace(influxdb_config, 1, Config0, {influxdb_config, InfluxConfig}),
+
+    % Fake initialization to simulate credential update after bridge was created.
+    emqx_common_test_helpers:with_mock(
+        influxdb,
+        check_auth,
+        fun(_) ->
+            ok
+        end,
+        fun() ->
+            {ok, _} = create_bridge(Config),
+            ?retry(
+                _Sleep = 1_000,
+                _Attempts = 10,
+                ?assertEqual({ok, connected}, emqx_resource_manager:health_check(ResourceId))
+            )
+        end
+    ),
+
+    % Now back to wrong credentials
+    ClientId = emqx_guid:to_hexstr(emqx_guid:gen()),
+    Payload = #{
+        int_key => -123,
+        bool => true,
+        float_key => 24.5,
+        uint_key => 123
+    },
+    SentData = #{
+        <<"clientid">> => ClientId,
+        <<"topic">> => atom_to_binary(?FUNCTION_NAME),
+        <<"timestamp">> => erlang:system_time(millisecond),
+        <<"payload">> => Payload
+    },
+    case QueryMode of
+        sync ->
+            ?assertMatch(
+                {error, {unrecoverable_error, <<"authorization failure">>}},
+                send_message(Config, SentData)
+            );
+        async ->
+            ?check_trace(
+                begin
+                    ?wait_async_action(
+                        ?assertEqual(ok, send_message(Config, SentData)),
+                        #{?snk_kind := handle_async_reply},
+                        1_000
+                    )
+                end,
+                fun(Trace) ->
+                    ?assertMatch(
+                        [#{error := <<"authorization failure">>} | _],
+                        ?of_kind(influxdb_connector_do_query_failure, Trace)
+                    ),
+                    ok
+                end
+            )
+    end,
+    ok.
