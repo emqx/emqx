@@ -668,13 +668,7 @@ format_status(Key, Node, Listener, Acc) ->
 
 max_conn(_Int1, <<"infinity">>) -> <<"infinity">>;
 max_conn(<<"infinity">>, _Int) -> <<"infinity">>;
-max_conn(Int1, Int2) -> int(Int1) + int(Int2).
-
-%% If we set max_connections = “123”,
-%% it will be converted to #{<<"max_connections">> => <<"123">>} in the raw_conf with no error.
-%% so we need to convert it to integer, we should fix this at hocon lib in the future.
-int(Bin) when is_binary(Bin) -> binary_to_integer(Bin);
-int(Int) when is_integer(Int) -> Int.
+max_conn(Int1, Int2) -> Int1 + Int2.
 
 listener_type_status_example() ->
     [
