@@ -249,7 +249,7 @@ merge_cluster_sampler_map(M1, M2) ->
             (topics, Map) ->
                 Map#{topics => maps:get(topics, M1)};
             (Key, Map) ->
-                Map#{Key => maps:get(Key, M1) + maps:get(Key, M2)}
+                Map#{Key => maps:get(Key, M1, 0) + maps:get(Key, M2, 0)}
         end,
     lists:foldl(Fun, #{}, ?SAMPLER_LIST).
 
