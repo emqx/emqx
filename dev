@@ -290,7 +290,7 @@ append_args_file() {
 +IOt 4
 +SDio 8
 -shutdown_time 30000
--pa '"$EMQX_DATA_DIR/patches"'
+-pa '$EMQX_DATA_DIR/patches'
 -mnesia dump_log_write_threshold 5000
 -mnesia dump_log_time_threshold 60000
 -os_mon start_disksup false
