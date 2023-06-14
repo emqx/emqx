@@ -356,6 +356,17 @@ t_bad_bridge_config(_Config) ->
     ),
     ok.
 
+t_start_stop(Config) ->
+    #{port := Port} = ?config(http_server, Config),
+    BridgeConfig = bridge_async_config(#{
+        type => ?BRIDGE_TYPE,
+        name => ?BRIDGE_NAME,
+        port => Port
+    }),
+    emqx_bridge_testlib:t_start_stop(
+        ?BRIDGE_TYPE, ?BRIDGE_NAME, BridgeConfig, emqx_connector_http_stopped
+    ).
+
 %% helpers
 do_t_async_retries(TestContext, Error, Fn) ->
     #{error_attempts := ErrorAttempts} = TestContext,

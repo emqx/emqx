@@ -16,11 +16,10 @@
 
 -module(emqx_connector_http).
 
--include("emqx_connector.hrl").
-
 -include_lib("typerefl/include/types.hrl").
 -include_lib("hocon/include/hoconsc.hrl").
 -include_lib("emqx/include/logger.hrl").
+-include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
 -behaviour(emqx_resource).
 
@@ -251,7 +250,9 @@ on_stop(InstId, _State) ->
         msg => "stopping_http_connector",
         connector => InstId
     }),
-    ehttpc_sup:stop_pool(InstId).
+    Res = ehttpc_sup:stop_pool(InstId),
+    ?tp(emqx_connector_http_stopped, #{instance_id => InstId}),
+    Res.
 
 on_query(InstId, {send_message, Msg}, State) ->
     case maps:get(request, State, undefined) of
