@@ -151,7 +151,8 @@ status() ->
     emqx_ctl:print("-----------------------------------------------\n").
 
 print_keys(Config) ->
-    print(lists:sort(maps:keys(Config))).
+    Keys = lists:sort(maps:keys(Config)),
+    emqx_ctl:print("~1p~n", [[binary_to_existing_atom(K) || K <- Keys]]).
 
 print(Json) ->
     emqx_ctl:print("~ts~n", [emqx_logger_jsonfmt:best_effort_json(Json)]).
@@ -166,11 +167,10 @@ get_config() ->
     drop_hidden_roots(AllConf).
 
 drop_hidden_roots(Conf) ->
-    Hidden = hidden_roots(),
-    maps:without(Hidden, Conf).
+    lists:foldl(fun(K, Acc) -> maps:remove(K, Acc) end, Conf, hidden_roots()).
 
 hidden_roots() ->
-    [trace, stats, broker].
+    [<<"trace">>, <<"stats">>, <<"broker">>].
 
 get_config(Key) ->
     case emqx:get_raw_config([Key], undefined) of
