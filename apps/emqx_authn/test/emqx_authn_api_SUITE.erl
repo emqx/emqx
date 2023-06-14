@@ -120,23 +120,23 @@ t_authenticator_position(_) ->
 t_authenticator_import_users(_) ->
     test_authenticator_import_users([]).
 
-t_listener_authenticators(_) ->
-    test_authenticators(["listeners", ?TCP_DEFAULT]).
+%t_listener_authenticators(_) ->
+%    test_authenticators(["listeners", ?TCP_DEFAULT]).
 
-t_listener_authenticator(_) ->
-    test_authenticator(["listeners", ?TCP_DEFAULT]).
+%t_listener_authenticator(_) ->
+%    test_authenticator(["listeners", ?TCP_DEFAULT]).
 
-t_listener_authenticator_users(_) ->
-    test_authenticator_users(["listeners", ?TCP_DEFAULT]).
+%t_listener_authenticator_users(_) ->
+%    test_authenticator_users(["listeners", ?TCP_DEFAULT]).
 
-t_listener_authenticator_user(_) ->
-    test_authenticator_user(["listeners", ?TCP_DEFAULT]).
+%t_listener_authenticator_user(_) ->
+%    test_authenticator_user(["listeners", ?TCP_DEFAULT]).
 
-t_listener_authenticator_position(_) ->
-    test_authenticator_position(["listeners", ?TCP_DEFAULT]).
+%t_listener_authenticator_position(_) ->
+%    test_authenticator_position(["listeners", ?TCP_DEFAULT]).
 
-t_listener_authenticator_import_users(_) ->
-    test_authenticator_import_users(["listeners", ?TCP_DEFAULT]).
+%t_listener_authenticator_import_users(_) ->
+%    test_authenticator_import_users(["listeners", ?TCP_DEFAULT]).
 
 t_aggregate_metrics(_) ->
     Metrics = #{
@@ -683,7 +683,9 @@ test_authenticator_import_users(PathPrefix) ->
         {filename, "user-credentials.csv", CSVData}
     ]).
 
-t_switch_to_global_chain(_) ->
+%% listener authn api is not supported since 5.1.0
+%% Don't support listener switch to global chain.
+ignore_switch_to_global_chain(_) ->
     {ok, 200, _} = request(
         post,
         uri([?CONF_NS]),

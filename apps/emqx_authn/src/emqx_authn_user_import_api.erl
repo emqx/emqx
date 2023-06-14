@@ -48,8 +48,9 @@ api_spec() ->
 
 paths() ->
     [
-        "/authentication/:id/import_users",
-        "/listeners/:listener_id/authentication/:id/import_users"
+        "/authentication/:id/import_users"
+        %% hide the deprecated api since 5.1.0
+        %% "/listeners/:listener_id/authentication/:id/import_users"
     ].
 
 schema("/authentication/:id/import_users") ->

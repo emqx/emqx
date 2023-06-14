@@ -825,8 +825,7 @@ tcp_schema_example() ->
             send_timeout => <<"15s">>,
             send_timeout_close => true
         },
-        type => tcp,
-        zone => default
+        type => tcp
     }.
 
 create_listener(Body) ->

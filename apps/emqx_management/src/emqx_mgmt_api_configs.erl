@@ -43,9 +43,8 @@
     <<"alarm">>,
     <<"sys_topics">>,
     <<"sysmon">>,
-    <<"log">>,
-    <<"persistent_session_store">>,
-    <<"zones">>
+    <<"log">>
+    %% <<"zones">>
 ]).
 
 api_spec() ->

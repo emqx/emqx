@@ -199,18 +199,19 @@ get_global_zone() ->
 update_global_zone(Change) ->
     update_config("global_zone", Change).
 
-t_zones(_Config) ->
-    {ok, Zones} = get_config("zones"),
-    {ok, #{<<"mqtt">> := OldMqtt} = Zone1} = get_global_zone(),
-    Mqtt1 = maps:remove(<<"max_subscriptions">>, OldMqtt),
-    {ok, #{}} = update_config("zones", Zones#{<<"new_zone">> => Zone1#{<<"mqtt">> => Mqtt1}}),
-    NewMqtt = emqx_config:get_raw([zones, new_zone, mqtt]),
-    %% we remove max_subscription from global zone, so the new zone should not have it.
-    ?assertEqual(Mqtt1, NewMqtt),
-    %% delete the new zones
-    {ok, #{}} = update_config("zones", Zones),
-    ?assertEqual(undefined, emqx_config:get_raw([zones, new_zone], undefined)),
-    ok.
+%% hide /configs/zones api in 5.1.0, so we comment this test.
+%t_zones(_Config) ->
+%    {ok, Zones} = get_config("zones"),
+%    {ok, #{<<"mqtt">> := OldMqtt} = Zone1} = get_global_zone(),
+%    Mqtt1 = maps:remove(<<"max_subscriptions">>, OldMqtt),
+%    {ok, #{}} = update_config("zones", Zones#{<<"new_zone">> => Zone1#{<<"mqtt">> => Mqtt1}}),
+%     NewMqtt = emqx_config:get_raw([zones, new_zone, mqtt]),
+%    %% we remove max_subscription from global zone, so the new zone should not have it.
+%    ?assertEqual(Mqtt1, NewMqtt),
+%    %% delete the new zones
+%    {ok, #{}} = update_config("zones", Zones),
+%    ?assertEqual(undefined, emqx_config:get_raw([zones, new_zone], undefined)),
+%    ok.
 
 t_dashboard(_Config) ->
     {ok, Dashboard = #{<<"listeners">> := Listeners}} = get_config("dashboard"),
