@@ -2044,7 +2044,7 @@ common_ssl_opts_schema(Defaults, Type) ->
             )},
         {"depth",
             sc(
-                integer(),
+                non_neg_integer(),
                 #{
                     default => Df("depth", 10),
                     desc => ?DESC(common_ssl_opts_schema_depth)
