@@ -355,7 +355,7 @@ do_send_requests_sync(State, {prepared_request, {Method, Path, Body}}, ResourceI
             ),
             ?SLOG(error, #{
                 msg => "gcp_pubsub_error_response",
-                request => Request,
+                request => emqx_connector_http:redact_request(Request),
                 connector => ResourceId,
                 status_code => StatusCode
             }),
@@ -371,9 +371,10 @@ do_send_requests_sync(State, {prepared_request, {Method, Path, Body}}, ResourceI
             ),
             ?SLOG(error, #{
                 msg => "gcp_pubsub_error_response",
-                request => Request,
+                request => emqx_connector_http:redact_request(Request),
                 connector => ResourceId,
-                status_code => StatusCode
+                status_code => StatusCode,
+                resp_body => RespBody
             }),
             {error, #{status_code => StatusCode, headers => RespHeaders, body => RespBody}}
     end.
