@@ -16,11 +16,10 @@
 
 -module(emqx_connector_http).
 
--include("emqx_connector.hrl").
-
 -include_lib("typerefl/include/types.hrl").
 -include_lib("hocon/include/hoconsc.hrl").
 -include_lib("emqx/include/logger.hrl").
+-include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
 -behaviour(emqx_resource).
 
@@ -219,10 +218,31 @@ on_start(
         base_path => BasePath,
         request => preprocess_request(maps:get(request, Config, undefined))
     },
-    case ehttpc_sup:start_pool(InstId, PoolOpts) of
-        {ok, _} -> {ok, State};
-        {error, {already_started, _}} -> {ok, State};
-        {error, Reason} -> {error, Reason}
+    case start_pool(InstId, PoolOpts) of
+        ok ->
+            case do_get_status(InstId, ConnectTimeout) of
+                ok ->
+                    {ok, State};
+                Error ->
+                    ok = ehttpc_sup:stop_pool(InstId),
+                    Error
+            end;
+        Error ->
+            Error
+    end.
+
+start_pool(PoolName, PoolOpts) ->
+    case ehttpc_sup:start_pool(PoolName, PoolOpts) of
+        {ok, _} ->
+            ok;
+        {error, {already_started, _}} ->
+            ?SLOG(warning, #{
+                msg => "emqx_connector_on_start_already_started",
+                pool_name => PoolName
+            }),
+            ok;
+        Error ->
+            Error
     end.
 
 on_stop(InstId, _State) ->
@@ -230,7 +250,9 @@ on_stop(InstId, _State) ->
         msg => "stopping_http_connector",
         connector => InstId
     }),
-    ehttpc_sup:stop_pool(InstId).
+    Res = ehttpc_sup:stop_pool(InstId),
+    ?tp(emqx_connector_http_stopped, #{instance_id => InstId}),
+    Res.
 
 on_query(InstId, {send_message, Msg}, State) ->
     case maps:get(request, State, undefined) of
