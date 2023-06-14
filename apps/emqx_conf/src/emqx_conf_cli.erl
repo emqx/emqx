@@ -212,9 +212,9 @@ load_config(Path, ReplaceOrMerge) ->
             {error, bad_hocon_file}
     end.
 
-update_config_cluster(?EMQX_AUTHORIZATION_CONFIG_ROOT_NAME = Key, Conf, merge) ->
+update_config_cluster(?EMQX_AUTHORIZATION_CONFIG_ROOT_NAME_BINARY = Key, Conf, merge) ->
     check_res(Key, emqx_authz:merge(Conf));
-update_config_cluster(?EMQX_AUTHENTICATION_CONFIG_ROOT_NAME = Key, Conf, merge) ->
+update_config_cluster(?EMQX_AUTHENTICATION_CONFIG_ROOT_NAME_BINARY = Key, Conf, merge) ->
     check_res(Key, emqx_authn:merge_config(Conf));
 update_config_cluster(Key, NewConf, merge) ->
     Merged = merge_conf(Key, NewConf),
@@ -223,9 +223,9 @@ update_config_cluster(Key, Value, replace) ->
     check_res(Key, emqx_conf:update([Key], Value, ?OPTIONS)).
 
 -define(LOCAL_OPTIONS, #{rawconf_with_defaults => true, persistent => false}).
-update_config_local(?EMQX_AUTHORIZATION_CONFIG_ROOT_NAME = Key, Conf, merge) ->
+update_config_local(?EMQX_AUTHORIZATION_CONFIG_ROOT_NAME_BINARY = Key, Conf, merge) ->
     check_res(node(), Key, emqx_authz:merge_local(Conf, ?LOCAL_OPTIONS));
-update_config_local(?EMQX_AUTHENTICATION_CONFIG_ROOT_NAME = Key, Conf, merge) ->
+update_config_local(?EMQX_AUTHENTICATION_CONFIG_ROOT_NAME_BINARY = Key, Conf, merge) ->
     check_res(node(), Key, emqx_authn:merge_config_local(Conf, ?LOCAL_OPTIONS));
 update_config_local(Key, NewConf, merge) ->
     Merged = merge_conf(Key, NewConf),
