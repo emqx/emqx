@@ -24,8 +24,6 @@
 
 -import(emqx_dashboard_api_test_helpers, [host/0, uri/1]).
 
--define(SUITE_APPS, [emqx_conf, emqx_ft]).
-
 all() ->
     [
         {group, single},
@@ -35,62 +33,76 @@ all() ->
 groups() ->
     [
         {single, [], emqx_common_test_helpers:all(?MODULE)},
-        {cluster, [], emqx_common_test_helpers:all(?MODULE)}
+        {cluster, [], emqx_common_test_helpers:all(?MODULE) -- [t_ft_disabled]}
     ].
 
 suite() ->
     [{timetrap, {seconds, 90}}].
 
 init_per_suite(Config) ->
-    ok = emqx_mgmt_api_test_util:init_suite(
-        [emqx_conf, emqx_ft], emqx_ft_test_helpers:env_handler(Config)
-    ),
-    {ok, _} = emqx:update_config([rpc, port_discovery], manual),
     Config.
+
 end_per_suite(_Config) ->
-    ok = emqx_mgmt_api_test_util:end_suite([emqx_ft, emqx_conf]),
     ok.
 
+init_per_group(Group = single, Config) ->
+    WorkDir = ?config(priv_dir, Config),
+    Apps = emqx_cth_suite:start(
+        [
+            {emqx, #{}},
+            {emqx_ft, "file_transfer { enable = true }"},
+            {emqx_management, #{}},
+            {emqx_dashboard, "dashboard.listeners.http { enable = true, bind = 18083 }"}
+        ],
+        #{work_dir => WorkDir}
+    ),
+    {ok, App} = emqx_common_test_http:create_default_app(),
+    [{group, Group}, {group_apps, Apps}, {api, App} | Config];
 init_per_group(Group = cluster, Config) ->
+    WorkDir = ?config(priv_dir, Config),
     Cluster = mk_cluster_specs(Config),
-    ct:pal("Starting ~p", [Cluster]),
-    Nodes = [emqx_common_test_helpers:start_slave(Name, Opts) || {Name, Opts} <- Cluster],
-    InitResult = erpc:multicall(Nodes, fun() -> init_node(Config) end),
-    [] = [{Node, Error} || {Node, {R, Error}} <- lists:zip(Nodes, InitResult), R /= ok],
-    [{group, Group}, {cluster_nodes, Nodes} | Config];
-init_per_group(Group, Config) ->
-    [{group, Group} | Config].
+    Nodes = [Node1 | _] = emqx_cth_cluster:start(Cluster, #{work_dir => WorkDir}),
+    {ok, App} = erpc:call(Node1, emqx_common_test_http, create_default_app, []),
+    [{group, Group}, {cluster_nodes, Nodes}, {api, App} | Config].
 
+end_per_group(single, Config) ->
+    {ok, _} = emqx_common_test_http:delete_default_app(),
+    ok = emqx_cth_suite:stop(?config(group_apps, Config));
 end_per_group(cluster, Config) ->
-    ok = lists:foreach(
-        fun emqx_ft_test_helpers:stop_additional_node/1,
-        ?config(cluster_nodes, Config)
-    );
+    ok = emqx_cth_cluster:stop(?config(cluster_nodes, Config));
 end_per_group(_Group, _Config) ->
     ok.
 
 mk_cluster_specs(_Config) ->
-    Specs = [
-        {core, emqx_ft_api_SUITE1, #{listener_ports => [{tcp, 2883}]}},
-        {core, emqx_ft_api_SUITE2, #{listener_ports => [{tcp, 3883}]}},
-        {replicant, emqx_ft_api_SUITE3, #{listener_ports => [{tcp, 4883}]}}
+    Apps = [
+        {emqx_conf, #{start => false}},
+        {emqx, #{override_env => [{boot_modules, [broker, listeners]}]}},
+        {emqx_ft, "file_transfer { enable = true }"},
+        {emqx_management, #{}}
     ],
-    CommOpts = #{
-        env => [
-            {mria, db_backend, rlog},
-            {emqx, boot_modules, [broker, listeners]}
-        ],
-        apps => [],
-        load_apps => ?SUITE_APPS,
-        conf => [{[listeners, Proto, default, enabled], false} || Proto <- [ssl, ws, wss]]
-    },
-    emqx_common_test_helpers:emqx_cluster(
-        Specs,
-        CommOpts
-    ).
-
-init_node(Config) ->
-    ok = emqx_common_test_helpers:start_apps(?SUITE_APPS, emqx_ft_test_helpers:env_handler(Config)).
+    DashboardConfig =
+        "dashboard { \n"
+        "    listeners.http { enable = true, bind = 0 } \n"
+        "    default_username = \"\" \n"
+        "    default_password = \"\" \n"
+        "}\n",
+    [
+        {emqx_ft_api_SUITE1, #{
+            role => core,
+            apps => Apps ++
+                [
+                    {emqx_dashboard, DashboardConfig ++ "dashboard.listeners.http.bind = 18083"}
+                ]
+        }},
+        {emqx_ft_api_SUITE2, #{
+            role => core,
+            apps => Apps ++ [{emqx_dashboard, DashboardConfig}]
+        }},
+        {emqx_ft_api_SUITE3, #{
+            role => replicant,
+            apps => Apps ++ [{emqx_dashboard, DashboardConfig}]
+        }}
+    ].
 
 init_per_testcase(Case, Config) ->
     [{tc, Case} | Config].
@@ -111,7 +123,7 @@ t_list_files(Config) ->
     ok = emqx_ft_test_helpers:upload_file(ClientId, FileId, "f1", <<"data">>, Node),
 
     {ok, 200, #{<<"files">> := Files}} =
-        request_json(get, uri(["file_transfer", "files"])),
+        request_json(get, uri(["file_transfer", "files"]), Config),
 
     ?assertMatch(
         [#{<<"clientid">> := ClientId, <<"fileid">> := <<"f1">>}],
@@ -119,7 +131,7 @@ t_list_files(Config) ->
     ),
 
     {ok, 200, #{<<"files">> := FilesTransfer}} =
-        request_json(get, uri(["file_transfer", "files", ClientId, FileId])),
+        request_json(get, uri(["file_transfer", "files", ClientId, FileId]), Config),
 
     ?assertMatch(
         [#{<<"clientid">> := ClientId, <<"fileid">> := <<"f1">>}],
@@ -128,21 +140,23 @@ t_list_files(Config) ->
 
     ?assertMatch(
         {ok, 404, #{<<"code">> := <<"FILES_NOT_FOUND">>}},
-        request_json(get, uri(["file_transfer", "files", ClientId, <<"no-such-file">>]))
+        request_json(get, uri(["file_transfer", "files", ClientId, <<"no-such-file">>]), Config)
     ).
 
 t_download_transfer(Config) ->
     ClientId = client_id(Config),
     FileId = <<"f1">>,
 
-    Node = lists:last(test_nodes(Config)),
-    ok = emqx_ft_test_helpers:upload_file(ClientId, FileId, "f1", <<"data">>, Node),
+    Nodes = [Node | _] = test_nodes(Config),
+    NodeUpload = lists:last(Nodes),
+    ok = emqx_ft_test_helpers:upload_file(ClientId, FileId, "f1", <<"data">>, NodeUpload),
 
     ?assertMatch(
         {ok, 400, #{<<"code">> := <<"BAD_REQUEST">>}},
         request_json(
             get,
-            uri(["file_transfer", "file"]) ++ query(#{fileref => FileId})
+            uri(["file_transfer", "file"]) ++ query(#{fileref => FileId}),
+            Config
         )
     ),
 
@@ -151,7 +165,8 @@ t_download_transfer(Config) ->
         request(
             get,
             uri(["file_transfer", "file"]) ++
-                query(#{fileref => FileId, node => <<"nonode@nohost">>})
+                query(#{fileref => FileId, node => <<"nonode@nohost">>}),
+            Config
         )
     ),
 
@@ -160,7 +175,8 @@ t_download_transfer(Config) ->
         request(
             get,
             uri(["file_transfer", "file"]) ++
-                query(#{fileref => <<"unknown_file">>, node => node()})
+                query(#{fileref => <<"unknown_file">>, node => Node}),
+            Config
         )
     ),
 
@@ -169,7 +185,8 @@ t_download_transfer(Config) ->
         request_json(
             get,
             uri(["file_transfer", "file"]) ++
-                query(#{fileref => <<>>, node => node()})
+                query(#{fileref => <<>>, node => Node}),
+            Config
         )
     ),
 
@@ -178,14 +195,15 @@ t_download_transfer(Config) ->
         request_json(
             get,
             uri(["file_transfer", "file"]) ++
-                query(#{fileref => <<"/etc/passwd">>, node => node()})
+                query(#{fileref => <<"/etc/passwd">>, node => Node}),
+            Config
         )
     ),
 
     {ok, 200, #{<<"files">> := [File]}} =
-        request_json(get, uri(["file_transfer", "files", ClientId, FileId])),
+        request_json(get, uri(["file_transfer", "files", ClientId, FileId]), Config),
 
-    {ok, 200, Response} = request(get, host() ++ maps:get(<<"uri">>, File)),
+    {ok, 200, Response} = request(get, host() ++ maps:get(<<"uri">>, File), Config),
 
     ?assertEqual(
         <<"data">>,
@@ -209,44 +227,47 @@ t_list_files_paging(Config) ->
 
     ?assertMatch(
         {ok, 200, #{<<"files">> := [_, _, _], <<"cursor">> := _}},
-        request_json(get, uri(["file_transfer", "files"]) ++ query(#{limit => 3}))
+        request_json(get, uri(["file_transfer", "files"]) ++ query(#{limit => 3}), Config)
     ),
 
     {ok, 200, #{<<"files">> := Files}} =
-        request_json(get, uri(["file_transfer", "files"]) ++ query(#{limit => 100})),
+        request_json(get, uri(["file_transfer", "files"]) ++ query(#{limit => 100}), Config),
 
     ?assert(length(Files) >= NFiles),
 
     ?assertNotMatch(
         {ok, 200, #{<<"cursor">> := _}},
-        request_json(get, uri(["file_transfer", "files"]) ++ query(#{limit => 100}))
+        request_json(get, uri(["file_transfer", "files"]) ++ query(#{limit => 100}), Config)
     ),
 
     ?assertMatch(
         {ok, 400, #{<<"code">> := <<"BAD_REQUEST">>}},
-        request_json(get, uri(["file_transfer", "files"]) ++ query(#{limit => 0}))
+        request_json(get, uri(["file_transfer", "files"]) ++ query(#{limit => 0}), Config)
     ),
 
     ?assertMatch(
         {ok, 400, #{<<"code">> := <<"BAD_REQUEST">>}},
-        request_json(get, uri(["file_transfer", "files"]) ++ query(#{following => <<>>}))
+        request_json(get, uri(["file_transfer", "files"]) ++ query(#{following => <<>>}), Config)
     ),
 
     ?assertMatch(
         {ok, 400, #{<<"code">> := <<"BAD_REQUEST">>}},
-        request_json(get, uri(["file_transfer", "files"]) ++ query(#{following => <<"{\"\":}">>}))
+        request_json(
+            get, uri(["file_transfer", "files"]) ++ query(#{following => <<"{\"\":}">>}), Config
+        )
     ),
 
     ?assertMatch(
         {ok, 400, #{<<"code">> := <<"BAD_REQUEST">>}},
         request_json(
             get,
-            uri(["file_transfer", "files"]) ++ query(#{following => <<"whatsthat!?">>})
+            uri(["file_transfer", "files"]) ++ query(#{following => <<"whatsthat!?">>}),
+            Config
         )
     ),
 
     PageThrough = fun PageThrough(Query, Acc) ->
-        case request_json(get, uri(["file_transfer", "files"]) ++ query(Query)) of
+        case request_json(get, uri(["file_transfer", "files"]) ++ query(Query), Config) of
             {ok, 200, #{<<"files">> := FilesPage, <<"cursor">> := Cursor}} ->
                 PageThrough(Query#{following => Cursor}, Acc ++ FilesPage);
             {ok, 200, #{<<"files">> := FilesPage}} ->
@@ -258,17 +279,18 @@ t_list_files_paging(Config) ->
     ?assertEqual(Files, PageThrough(#{limit => 8}, [])),
     ?assertEqual(Files, PageThrough(#{limit => NFiles}, [])).
 
-t_ft_disabled(_Config) ->
+t_ft_disabled(Config) ->
     ?assertMatch(
         {ok, 200, _},
-        request_json(get, uri(["file_transfer", "files"]))
+        request_json(get, uri(["file_transfer", "files"]), Config)
     ),
 
     ?assertMatch(
         {ok, 400, _},
         request_json(
             get,
-            uri(["file_transfer", "file"]) ++ query(#{fileref => <<"f1">>})
+            uri(["file_transfer", "file"]) ++ query(#{fileref => <<"f1">>}),
+            Config
         )
     ),
 
@@ -276,14 +298,15 @@ t_ft_disabled(_Config) ->
 
     ?assertMatch(
         {ok, 503, _},
-        request_json(get, uri(["file_transfer", "files"]))
+        request_json(get, uri(["file_transfer", "files"]), Config)
     ),
 
     ?assertMatch(
         {ok, 503, _},
         request_json(
             get,
-            uri(["file_transfer", "file"]) ++ query(#{fileref => <<"f1">>, node => node()})
+            uri(["file_transfer", "file"]) ++ query(#{fileref => <<"f1">>, node => node()}),
+            Config
         )
     ).
 
@@ -308,11 +331,12 @@ mk_file_id(Prefix, N) ->
 mk_file_name(N) ->
     "file." ++ integer_to_list(N).
 
-request(Method, Url) ->
-    emqx_mgmt_api_test_util:request(Method, Url, []).
+request(Method, Url, Config) ->
+    Opts = #{compatible_mode => true, httpc_req_opts => [{body_format, binary}]},
+    emqx_mgmt_api_test_util:request_api(Method, Url, [], auth_header(Config), [], Opts).
 
-request_json(Method, Url) ->
-    case emqx_mgmt_api_test_util:request(Method, Url, []) of
+request_json(Method, Url, Config) ->
+    case request(Method, Url, Config) of
         {ok, Code, Body} ->
             {ok, Code, json(Body)};
         Otherwise ->
@@ -325,6 +349,10 @@ json(Body) when is_binary(Body) ->
 query(Params) ->
     KVs = lists:map(fun({K, V}) -> uri_encode(K) ++ "=" ++ uri_encode(V) end, maps:to_list(Params)),
     "?" ++ string:join(KVs, "&").
+
+auth_header(Config) ->
+    #{api_key := ApiKey, api_secret := Secret} = ?config(api, Config),
+    emqx_common_test_http:auth_header(binary_to_list(ApiKey), binary_to_list(Secret)).
 
 uri_encode(T) ->
     emqx_http_lib:uri_encode(to_list(T)).

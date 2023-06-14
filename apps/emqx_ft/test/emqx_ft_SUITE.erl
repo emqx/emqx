@@ -65,30 +65,24 @@ suite() ->
     [{timetrap, {seconds, 90}}].
 
 init_per_suite(Config) ->
-    ok = emqx_common_test_helpers:start_apps([emqx_ft], set_special_configs(Config)),
-    Config.
+    % NOTE
+    % Inhibit local fs GC to simulate it isn't fast enough to collect
+    % complete transfers.
+    Storage = emqx_utils_maps:deep_merge(
+        emqx_ft_test_helpers:local_storage(Config),
+        #{<<"local">> => #{<<"segments">> => #{<<"gc">> => #{<<"interval">> => 0}}}}
+    ),
+    Apps = emqx_cth_suite:start(
+        [
+            {emqx_ft, #{config => emqx_ft_test_helpers:config(Storage)}}
+        ],
+        #{work_dir => ?config(priv_dir, Config)}
+    ),
+    [{suite_apps, Apps} | Config].
 
-end_per_suite(_Config) ->
-    ok = emqx_common_test_helpers:stop_apps([emqx_ft]),
+end_per_suite(Config) ->
+    ok = emqx_cth_suite:stop(?config(suite_apps, Config)),
     ok.
-
-set_special_configs(Config) ->
-    fun
-        (emqx_ft) ->
-            % NOTE
-            % Inhibit local fs GC to simulate it isn't fast enough to collect
-            % complete transfers.
-            Storage = emqx_utils_maps:deep_merge(
-                emqx_ft_test_helpers:local_storage(Config),
-                #{<<"local">> => #{<<"segments">> => #{<<"gc">> => #{<<"interval">> => <<"0s">>}}}}
-            ),
-            emqx_ft_test_helpers:load_config(#{
-                <<"enable">> => true,
-                <<"storage">> => Storage
-            });
-        (_) ->
-            ok
-    end.
 
 init_per_testcase(Case, Config) ->
     ClientId = atom_to_binary(Case),
@@ -105,39 +99,32 @@ end_per_testcase(_Case, Config) ->
     ok.
 
 init_per_group(Group = cluster, Config) ->
+    WorkDir = ?config(priv_dir, Config),
     Cluster = mk_cluster_specs(Config),
-    ct:pal("Starting ~p", [Cluster]),
-    Nodes = [
-        emqx_common_test_helpers:start_slave(Name, Opts#{join_to => node()})
-     || {Name, Opts} <- Cluster
-    ],
+    Nodes = emqx_cth_cluster:start(Cluster, #{work_dir => WorkDir}),
     [{group, Group}, {cluster_nodes, Nodes} | Config];
 init_per_group(Group, Config) ->
     [{group, Group} | Config].
 
 end_per_group(cluster, Config) ->
-    ok = lists:foreach(
-        fun emqx_ft_test_helpers:stop_additional_node/1,
-        ?config(cluster_nodes, Config)
-    );
+    ok = emqx_cth_cluster:stop(?config(cluster_nodes, Config));
 end_per_group(_Group, _Config) ->
     ok.
 
-mk_cluster_specs(Config) ->
-    Specs = [
-        {core, emqx_ft_SUITE1, #{listener_ports => [{tcp, 2883}]}},
-        {core, emqx_ft_SUITE2, #{listener_ports => [{tcp, 3883}]}}
-    ],
-    CommOpts = [
-        {env, [{emqx, boot_modules, [broker, listeners]}]},
-        {apps, [emqx_ft]},
-        {conf, [{[listeners, Proto, default, enabled], false} || Proto <- [ssl, ws, wss]]},
-        {env_handler, set_special_configs(Config)}
-    ],
-    emqx_common_test_helpers:emqx_cluster(
-        Specs,
-        CommOpts
-    ).
+mk_cluster_specs(_Config) ->
+    CommonOpts = #{
+        role => core,
+        join_to => node(),
+        apps => [
+            {emqx_conf, #{start => false}},
+            {emqx, #{override_env => [{boot_modules, [broker, listeners]}]}},
+            {emqx_ft, "file_transfer { enable = true }"}
+        ]
+    },
+    [
+        {emqx_ft_SUITE1, CommonOpts},
+        {emqx_ft_SUITE2, CommonOpts}
+    ].
 
 %%--------------------------------------------------------------------
 %% Tests

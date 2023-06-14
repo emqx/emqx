@@ -87,8 +87,7 @@ create_default_app() ->
     ExpiredAt = Now + timer:minutes(10),
     emqx_mgmt_auth:create(
         ?DEFAULT_APP_ID, ?DEFAULT_APP_SECRET, true, ExpiredAt, <<"default app key for test">>
-    ),
-    ok.
+    ).
 
 delete_default_app() ->
     emqx_mgmt_auth:delete(?DEFAULT_APP_ID).

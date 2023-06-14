@@ -49,6 +49,9 @@ env_handler(Config) ->
             ok
     end.
 
+config(Storage) ->
+    #{<<"file_transfer">> => #{<<"enable">> => true, <<"storage">> => Storage}}.
+
 local_storage(Config) ->
     local_storage(Config, #{exporter => local}).
 

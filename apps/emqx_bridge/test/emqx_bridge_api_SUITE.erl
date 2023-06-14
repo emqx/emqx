@@ -172,7 +172,8 @@ init_node(Type) ->
             ),
             ok = emqx_dashboard:start_listeners(),
             ready = emqx_dashboard_listener:regenerate_minirest_dispatch(),
-            emqx_common_test_http:create_default_app();
+            {ok, _App} = emqx_common_test_http:create_default_app(),
+            ok;
         regular ->
             ok
     end.

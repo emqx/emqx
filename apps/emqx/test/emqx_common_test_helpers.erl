@@ -67,6 +67,7 @@
 -export([
     emqx_cluster/1,
     emqx_cluster/2,
+    start_ekka/0,
     start_epmd/0,
     start_slave/2,
     stop_slave/1,

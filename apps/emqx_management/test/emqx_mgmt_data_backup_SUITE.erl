@@ -28,13 +28,12 @@ all() ->
     emqx_common_test_helpers:all(?MODULE).
 
 init_per_suite(Config) ->
-    [application:load(App) || App <- apps_to_start() ++ apps_to_load()],
     Config.
 
 end_per_suite(_Config) ->
     ok.
 
-init_per_testcase(t_import_on_cluster, Config) ->
+init_per_testcase(TC = t_import_on_cluster, Config0) ->
     %% Don't import listeners to avoid port conflicts
     %% when the same conf will be imported to another cluster
     meck:new(emqx_mgmt_listeners_conf, [passthrough]),
@@ -51,23 +50,25 @@ init_per_testcase(t_import_on_cluster, Config) ->
         1,
         {ok, #{changed => [], root_key => gateway}}
     ),
+    Config = [{tc_name, TC} | Config0],
     [{cluster, cluster(Config)} | setup(Config)];
-init_per_testcase(t_verify_imported_mnesia_tab_on_cluster, Config) ->
+init_per_testcase(TC = t_verify_imported_mnesia_tab_on_cluster, Config0) ->
+    Config = [{tc_name, TC} | Config0],
     [{cluster, cluster(Config)} | setup(Config)];
 init_per_testcase(t_mnesia_bad_tab_schema, Config) ->
     meck:new(emqx_mgmt_data_backup, [passthrough]),
-    meck:expect(emqx_mgmt_data_backup, mnesia_tabs_to_backup, 0, [data_backup_test]),
-    setup(Config);
-init_per_testcase(_TestCase, Config) ->
-    setup(Config).
+    meck:expect(TC = emqx_mgmt_data_backup, mnesia_tabs_to_backup, 0, [data_backup_test]),
+    setup([{tc_name, TC} | Config]);
+init_per_testcase(TC, Config) ->
+    setup([{tc_name, TC} | Config]).
 
 end_per_testcase(t_import_on_cluster, Config) ->
-    cleanup_cluster(?config(cluster, Config)),
+    emqx_cth_cluster:stop(?config(cluster, Config)),
     cleanup(Config),
     meck:unload(emqx_mgmt_listeners_conf),
     meck:unload(emqx_gateway_conf);
 end_per_testcase(t_verify_imported_mnesia_tab_on_cluster, Config) ->
-    cleanup_cluster(?config(cluster, Config)),
+    emqx_cth_cluster:stop(?config(cluster, Config)),
     cleanup(Config);
 end_per_testcase(t_mnesia_bad_tab_schema, Config) ->
     cleanup(Config),
@@ -356,8 +357,6 @@ t_mnesia_bad_tab_schema(_Config) ->
 
 t_read_files(_Config) ->
     DataDir = emqx:data_dir(),
-    %% Relative "data" path is set in init_per_testcase/2, asserting it must be safe
-    ?assertEqual("data", DataDir),
     {ok, Cwd} = file:get_cwd(),
     AbsDataDir = filename:join(Cwd, DataDir),
     FileBaseName = "t_read_files_tmp_file",
@@ -388,30 +387,12 @@ t_read_files(_Config) ->
 %%------------------------------------------------------------------------------
 
 setup(Config) ->
-    %% avoid port conflicts if the cluster is started
-    AppHandler = fun
-        (emqx_dashboard) ->
-            ok = emqx_config:put([dashboard, listeners, http, bind], 0);
-        (_) ->
-            ok
-    end,
-    ok = emqx_common_test_helpers:start_apps(apps_to_start(), AppHandler),
-    PrevDataDir = application:get_env(emqx, data_dir),
-    application:set_env(emqx, data_dir, "data"),
-    [{previous_emqx_data_dir, PrevDataDir} | Config].
+    WorkDir = filename:join(work_dir(Config), local),
+    Started = emqx_cth_suite:start(apps_to_start(), #{work_dir => WorkDir}),
+    [{suite_apps, Started} | Config].
 
 cleanup(Config) ->
-    emqx_common_test_helpers:stop_apps(apps_to_start()),
-    case ?config(previous_emqx_data_dir, Config) of
-        undefined ->
-            application:unset_env(emqx, data_dir);
-        {ok, Val} ->
-            application:set_env(emqx, data_dir, Val)
-    end.
-
-cleanup_cluster(ClusterNodes) ->
-    [rpc:call(N, ekka, leave, []) || N <- lists:reverse(ClusterNodes)],
-    [emqx_common_test_helpers:stop_slave(N) || N <- ClusterNodes].
+    emqx_cth_suite:stop(?config(suite_apps, Config)).
 
 users(Prefix) ->
     [
@@ -428,50 +409,18 @@ recompose_version(MajorInt, MinorInt, Patch) ->
     ).
 
 cluster(Config) ->
-    PrivDataDir = ?config(priv_dir, Config),
-    [{Core1, Core1Opts}, {Core2, Core2Opts}, {Replicant, ReplOpts}] =
-        emqx_common_test_helpers:emqx_cluster(
-            [
-                {core, data_backup_core1},
-                {core, data_backup_core2},
-                {replicant, data_backup_replicant}
-            ],
-            #{
-                priv_data_dir => PrivDataDir,
-                schema_mod => emqx_conf_schema,
-                apps => apps_to_start(),
-                load_apps => apps_to_start() ++ apps_to_load(),
-                env => [{mria, db_backend, rlog}],
-                load_schema => true,
-                start_autocluster => true,
-                listener_ports => [],
-                conf => [{[dashboard, listeners, http, bind], 0}],
-                env_handler =>
-                    fun(_) ->
-                        application:set_env(emqx, boot_modules, [broker, router])
-                    end
-            }
-        ),
-    Node1 = emqx_common_test_helpers:start_slave(Core1, Core1Opts),
-    Node2 = emqx_common_test_helpers:start_slave(Core2, Core2Opts),
-    #{conf := _ReplConf, env := ReplEnv} = ReplOpts,
-    ClusterDiscovery = {static, [{seeds, [Node1, Node2]}]},
-    ReplOpts1 = maps:remove(
-        join_to,
-        ReplOpts#{
-            env => [{ekka, cluster_discovery, ClusterDiscovery} | ReplEnv],
-            env_handler => fun(_) ->
-                application:set_env(emqx, boot_modules, [broker, router]),
-                application:set_env(
-                    ekka,
-                    cluster_discovery,
-                    ClusterDiscovery
-                )
-            end
-        }
+    Nodes = emqx_cth_cluster:start(
+        [
+            {data_backup_core1, #{role => core, apps => apps_to_start()}},
+            {data_backup_core2, #{role => core, apps => apps_to_start()}},
+            {data_backup_replicant, #{role => replicant, apps => apps_to_start()}}
+        ],
+        #{work_dir => work_dir(Config)}
     ),
-    ReplNode = emqx_common_test_helpers:start_slave(Replicant, ReplOpts1),
-    [Node1, Node2, ReplNode].
+    Nodes.
+
+work_dir(Config) ->
+    filename:join(?config(priv_dir, Config), ?config(tc_name, Config)).
 
 create_test_tab(Attributes) ->
     ok = mria:create_table(data_backup_test, [
@@ -491,8 +440,8 @@ create_test_tab(Attributes) ->
 
 apps_to_start() ->
     [
-        emqx,
-        emqx_conf,
+        {emqx_conf, "dashboard.listeners.http.bind = 0"},
+        {emqx, #{override_env => [{boot_modules, [broker, router]}]}},
         emqx_psk,
         emqx_management,
         emqx_dashboard,
@@ -505,11 +454,9 @@ apps_to_start() ->
         emqx_gateway,
         emqx_exhook,
         emqx_bridge,
-        emqx_auto_subscribe
-    ].
+        emqx_auto_subscribe,
 
-apps_to_load() ->
-    [
+        % loaded only
         emqx_gateway_lwm2m,
         emqx_gateway_coap,
         emqx_gateway_exproto,

@@ -36,11 +36,11 @@ all() ->
     ].
 
 init_per_suite(Config) ->
-    Apps = application:ensure_all_started(gproc),
+    {ok, Apps} = application:ensure_all_started(gproc),
     [{suite_apps, Apps} | Config].
 
-end_per_suite(_Config) ->
-    ok.
+end_per_suite(Config) ->
+    emqx_cth_suite:stop_apps(?config(suite_apps, Config)).
 
 init_per_testcase(TC, Config) ->
     ok = snabbkaffe:start_trace(),
