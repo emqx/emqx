@@ -140,6 +140,16 @@ t_list_listeners(Config) when is_list(Config) ->
     ?assertMatch(#{<<"max_connections">> := <<"infinity">>}, Create),
     ?assert(is_running(NewListenerId)),
 
+    Update2 = request(put, NewPath, [], Create#{<<"max_connections">> => 100}),
+    ?assertMatch(#{<<"max_connections">> := 100}, Update2),
+    Get2 = request(get, NewPath, [], []),
+    ?assertMatch(#{<<"max_connections">> := 100}, Get2),
+
+    Update3 = request(put, NewPath, [], Create#{<<"max_connections">> => <<"123">>}),
+    ?assertMatch(#{<<"max_connections">> := 123}, Update3),
+    Get3 = request(get, NewPath, [], []),
+    ?assertMatch(#{<<"max_connections">> := 123}, Get3),
+
     %% delete
     ?assertEqual([], delete(NewPath)),
     ?assertEqual({error, not_found}, is_running(NewListenerId)),

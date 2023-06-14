@@ -116,6 +116,7 @@ format_raw_listeners({Type0, Conf}) ->
         fun
             ({LName, LConf0}) when is_map(LConf0) ->
                 Bind = parse_bind(LConf0),
+                MaxConn = maps:get(<<"max_connections">>, LConf0, default_max_conn()),
                 Running = is_running(Type, listener_id(Type, LName), LConf0#{bind => Bind}),
                 LConf1 = maps:remove(<<"authentication">>, LConf0),
                 LConf2 = maps:put(<<"running">>, Running, LConf1),
@@ -124,7 +125,10 @@ format_raw_listeners({Type0, Conf}) ->
                         true -> current_conns(Type, LName, Bind);
                         false -> 0
                     end,
-                LConf = maps:put(<<"current_connections">>, CurrConn, LConf2),
+                LConf = maps:merge(LConf2, #{
+                    <<"current_connections">> => CurrConn,
+                    <<"max_connections">> => ensure_max_conns(MaxConn)
+                }),
                 {true, {Type0, LName, LConf}};
             ({_LName, _MarkDel}) ->
                 false
@@ -994,3 +998,7 @@ unregister_ocsp_stapling_refresh(Type, Name) ->
 
 default_max_conn() ->
     <<"infinity">>.
+
+ensure_max_conns(<<"infinity">>) -> <<"infinity">>;
+ensure_max_conns(MaxConn) when is_binary(MaxConn) -> binary_to_integer(MaxConn);
+ensure_max_conns(MaxConn) -> MaxConn.
