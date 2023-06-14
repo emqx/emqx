@@ -6,6 +6,7 @@
 
 -include_lib("emqx/include/logger.hrl").
 -include_lib("emqx_resource/include/emqx_resource.hrl").
+-include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
 -type config() :: #{
     connect_timeout := emqx_schema:duration_ms(),
@@ -36,6 +37,8 @@
     on_batch_query_async/4,
     on_get_status/2
 ]).
+
+-export([reply_delegator/2]).
 
 %%-------------------------------------------------------------------------------------------------
 %% `emqx_resource' API
@@ -163,7 +166,9 @@ do_send_requests_sync(State, Requests, InstanceId) ->
     Path = publish_path(State),
     Method = post,
     Request = {prepared_request, {Method, Path, Body}},
-    emqx_bridge_gcp_pubsub_connector:on_query(InstanceId, Request, ConnectorState).
+    Result = emqx_bridge_gcp_pubsub_connector:on_query(InstanceId, Request, ConnectorState),
+    QueryMode = sync,
+    handle_result(Result, Request, QueryMode, InstanceId).
 
 -spec do_send_requests_async(
     state(),
@@ -171,7 +176,7 @@ do_send_requests_sync(State, Requests, InstanceId) ->
     {ReplyFun :: function(), Args :: list()},
     resource_id()
 ) -> {ok, pid()}.
-do_send_requests_async(State, Requests, ReplyFunAndArgs, InstanceId) ->
+do_send_requests_async(State, Requests, ReplyFunAndArgs0, InstanceId) ->
     #{connector_state := ConnectorState} = State,
     Payloads =
         lists:map(
@@ -184,6 +189,7 @@ do_send_requests_async(State, Requests, ReplyFunAndArgs, InstanceId) ->
     Path = publish_path(State),
     Method = post,
     Request = {prepared_request, {Method, Path, Body}},
+    ReplyFunAndArgs = {fun ?MODULE:reply_delegator/2, [ReplyFunAndArgs0]},
     emqx_bridge_gcp_pubsub_connector:on_query_async(
         InstanceId, Request, ReplyFunAndArgs, ConnectorState
     ).
@@ -209,3 +215,71 @@ publish_path(
     }
 ) ->
     <<"/v1/projects/", ProjectId/binary, "/topics/", PubSubTopic/binary, ":publish">>.
+
+handle_result({error, Reason}, _Request, QueryMode, ResourceId) when
+    Reason =:= econnrefused;
+    %% this comes directly from `gun'...
+    Reason =:= {closed, "The connection was lost."};
+    Reason =:= timeout
+->
+    ?tp(
+        warning,
+        gcp_pubsub_request_failed,
+        #{
+            reason => Reason,
+            query_mode => QueryMode,
+            recoverable_error => true,
+            connector => ResourceId
+        }
+    ),
+    {error, {recoverable_error, Reason}};
+handle_result(
+    {error, #{status_code := StatusCode, body := RespBody}} = Result,
+    Request,
+    _QueryMode,
+    ResourceId
+) ->
+    ?SLOG(error, #{
+        msg => "gcp_pubsub_error_response",
+        request => emqx_connector_http:redact_request(Request),
+        connector => ResourceId,
+        status_code => StatusCode,
+        resp_body => RespBody
+    }),
+    Result;
+handle_result({error, #{status_code := StatusCode}} = Result, Request, _QueryMode, ResourceId) ->
+    ?SLOG(error, #{
+        msg => "gcp_pubsub_error_response",
+        request => emqx_connector_http:redact_request(Request),
+        connector => ResourceId,
+        status_code => StatusCode
+    }),
+    Result;
+handle_result({error, Reason} = Result, _Request, QueryMode, ResourceId) ->
+    ?tp(
+        error,
+        gcp_pubsub_request_failed,
+        #{
+            reason => Reason,
+            query_mode => QueryMode,
+            recoverable_error => false,
+            connector => ResourceId
+        }
+    ),
+    Result;
+handle_result({ok, _} = Result, _Request, _QueryMode, _ResourceId) ->
+    Result.
+
+reply_delegator(ReplyFunAndArgs, Response) ->
+    case Response of
+        {error, Reason} when
+            Reason =:= econnrefused;
+            %% this comes directly from `gun'...
+            Reason =:= {closed, "The connection was lost."};
+            Reason =:= timeout
+        ->
+            Result1 = {error, {recoverable_error, Reason}},
+            emqx_resource:apply_reply_fun(ReplyFunAndArgs, Result1);
+        _ ->
+            emqx_resource:apply_reply_fun(ReplyFunAndArgs, Response)
+    end.

@@ -286,98 +286,14 @@ do_send_requests_sync(State, {prepared_request, {Method, Path, Body}}, ResourceI
     ),
     Headers = get_jwt_authorization_header(JWTConfig),
     Request = {Path, Headers, Body},
-    case
-        ehttpc:request(
-            PoolName,
-            Method,
-            Request,
-            RequestTTL,
-            MaxRetries
-        )
-    of
-        {error, Reason} when
-            Reason =:= econnrefused;
-            %% this comes directly from `gun'...
-            Reason =:= {closed, "The connection was lost."};
-            Reason =:= timeout
-        ->
-            ?tp(
-                warning,
-                gcp_pubsub_request_failed,
-                #{
-                    reason => Reason,
-                    query_mode => sync,
-                    recoverable_error => true,
-                    connector => ResourceId
-                }
-            ),
-            {error, {recoverable_error, Reason}};
-        {error, Reason} = Result ->
-            ?tp(
-                error,
-                gcp_pubsub_request_failed,
-                #{
-                    reason => Reason,
-                    query_mode => sync,
-                    recoverable_error => false,
-                    connector => ResourceId
-                }
-            ),
-            Result;
-        {ok, StatusCode, _} = Result when StatusCode >= 200 andalso StatusCode < 300 ->
-            ?tp(
-                gcp_pubsub_response,
-                #{
-                    response => Result,
-                    query_mode => sync,
-                    connector => ResourceId
-                }
-            ),
-            Result;
-        {ok, StatusCode, _, _} = Result when StatusCode >= 200 andalso StatusCode < 300 ->
-            ?tp(
-                gcp_pubsub_response,
-                #{
-                    response => Result,
-                    query_mode => sync,
-                    connector => ResourceId
-                }
-            ),
-            Result;
-        {ok, StatusCode, RespHeaders} = _Result ->
-            ?tp(
-                gcp_pubsub_response,
-                #{
-                    response => _Result,
-                    query_mode => sync,
-                    connector => ResourceId
-                }
-            ),
-            ?SLOG(error, #{
-                msg => "gcp_pubsub_error_response",
-                request => emqx_connector_http:redact_request(Request),
-                connector => ResourceId,
-                status_code => StatusCode
-            }),
-            {error, #{status_code => StatusCode, headers => RespHeaders}};
-        {ok, StatusCode, RespHeaders, RespBody} = _Result ->
-            ?tp(
-                gcp_pubsub_response,
-                #{
-                    response => _Result,
-                    query_mode => sync,
-                    connector => ResourceId
-                }
-            ),
-            ?SLOG(error, #{
-                msg => "gcp_pubsub_error_response",
-                request => emqx_connector_http:redact_request(Request),
-                connector => ResourceId,
-                status_code => StatusCode,
-                resp_body => RespBody
-            }),
-            {error, #{status_code => StatusCode, headers => RespHeaders, body => RespBody}}
-    end.
+    Response = ehttpc:request(
+        PoolName,
+        Method,
+        Request,
+        RequestTTL,
+        MaxRetries
+    ),
+    handle_response(Response, ResourceId, _QueryMode = sync).
 
 -spec do_send_requests_async(
     state(),
@@ -412,41 +328,70 @@ do_send_requests_async(
     ),
     {ok, Worker}.
 
+handle_response(Result, ResourceId, QueryMode) ->
+    case Result of
+        {error, Reason} ->
+            ?tp(
+                gcp_pubsub_request_failed,
+                #{
+                    reason => Reason,
+                    query_mode => QueryMode,
+                    connector => ResourceId
+                }
+            ),
+            {error, Reason};
+        {ok, StatusCode, RespHeaders} when StatusCode >= 200 andalso StatusCode < 300 ->
+            ?tp(
+                gcp_pubsub_response,
+                #{
+                    response => Result,
+                    query_mode => QueryMode,
+                    connector => ResourceId
+                }
+            ),
+            {ok, #{status_code => StatusCode, headers => RespHeaders}};
+        {ok, StatusCode, RespHeaders, RespBody} when
+            StatusCode >= 200 andalso StatusCode < 300
+        ->
+            ?tp(
+                gcp_pubsub_response,
+                #{
+                    response => Result,
+                    query_mode => QueryMode,
+                    connector => ResourceId
+                }
+            ),
+            {ok, #{status_code => StatusCode, headers => RespHeaders, body => RespBody}};
+        {ok, StatusCode, RespHeaders} = _Result ->
+            ?tp(
+                gcp_pubsub_response,
+                #{
+                    response => _Result,
+                    query_mode => QueryMode,
+                    connector => ResourceId
+                }
+            ),
+            {error, #{status_code => StatusCode, headers => RespHeaders}};
+        {ok, StatusCode, RespHeaders, RespBody} = _Result ->
+            ?tp(
+                gcp_pubsub_response,
+                #{
+                    response => _Result,
+                    query_mode => QueryMode,
+                    connector => ResourceId
+                }
+            ),
+            {error, #{status_code => StatusCode, headers => RespHeaders, body => RespBody}}
+    end.
+
 -spec reply_delegator(
     resource_id(),
     {ReplyFun :: function(), Args :: list()},
     term() | {error, econnrefused | timeout | term()}
 ) -> ok.
-reply_delegator(_ResourceId, ReplyFunAndArgs, Result) ->
-    case Result of
-        {error, Reason} when
-            Reason =:= econnrefused;
-            %% this comes directly from `gun'...
-            Reason =:= {closed, "The connection was lost."};
-            Reason =:= timeout
-        ->
-            ?tp(
-                gcp_pubsub_request_failed,
-                #{
-                    reason => Reason,
-                    query_mode => async,
-                    recoverable_error => true,
-                    connector => _ResourceId
-                }
-            ),
-            Result1 = {error, {recoverable_error, Reason}},
-            emqx_resource:apply_reply_fun(ReplyFunAndArgs, Result1);
-        _ ->
-            ?tp(
-                gcp_pubsub_response,
-                #{
-                    response => Result,
-                    query_mode => async,
-                    connector => _ResourceId
-                }
-            ),
-            emqx_resource:apply_reply_fun(ReplyFunAndArgs, Result)
-    end.
+reply_delegator(ResourceId, ReplyFunAndArgs, Response) ->
+    Result = handle_response(Response, ResourceId, _QueryMode = async),
+    emqx_resource:apply_reply_fun(ReplyFunAndArgs, Result).
 
 -spec do_get_status(resource_id(), timer:time()) -> boolean().
 do_get_status(ResourceId, Timeout) ->

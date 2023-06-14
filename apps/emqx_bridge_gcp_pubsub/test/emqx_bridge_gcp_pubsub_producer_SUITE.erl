@@ -2,7 +2,7 @@
 %% Copyright (c) 2022-2023 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
 
--module(emqx_bridge_gcp_pubsub_SUITE).
+-module(emqx_bridge_gcp_pubsub_producer_SUITE).
 
 -compile(nowarn_export_all).
 -compile(export_all).
@@ -1071,7 +1071,7 @@ do_econnrefused_or_timeout_test(Config, Error) ->
                             #{
                                 ?snk_kind := gcp_pubsub_request_failed,
                                 query_mode := async,
-                                recoverable_error := true
+                                reason := econnrefused
                             },
                             15_000
                         );
@@ -1307,13 +1307,13 @@ t_unrecoverable_error(Config) ->
         {_, {ok, _}} =
             ?wait_async_action(
                 emqx:publish(Message),
-                #{?snk_kind := gcp_pubsub_response},
+                #{?snk_kind := gcp_pubsub_request_failed},
                 5_000
             ),
         fun(Trace) ->
             ?assertMatch(
-                [#{response := {error, killed}}],
-                ?of_kind(gcp_pubsub_response, Trace)
+                [#{reason := killed}],
+                ?of_kind(gcp_pubsub_request_failed, Trace)
             ),
             ok
         end
