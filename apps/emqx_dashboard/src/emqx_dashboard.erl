@@ -145,7 +145,9 @@ apps() ->
 listeners(Listeners) ->
     lists:filtermap(
         fun
-            ({Protocol, Conf = #{enable := true}}) ->
+            ({_Protocol, #{bind := 0}}) ->
+                false;
+            ({Protocol, Conf = #{}}) ->
                 {Conf1, Bind} = ip_port(Conf),
                 {true, {
                     listener_name(Protocol),
@@ -153,9 +155,7 @@ listeners(Listeners) ->
                     Bind,
                     ranch_opts(Conf1),
                     proto_opts(Conf1)
-                }};
-            ({_Protocol, #{enable := false}}) ->
-                false
+                }}
         end,
         maps:to_list(Listeners)
     ).
@@ -182,7 +182,7 @@ ranch_opts(Options) ->
     SocketOpts = maps:fold(
         fun filter_false/3,
         [],
-        maps:without([enable, inet6, ipv6_v6only, proxy_header | Keys], Options)
+        maps:without([inet6, ipv6_v6only, proxy_header | Keys], Options)
     ),
     InetOpts =
         case Options of
