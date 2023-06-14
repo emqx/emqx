@@ -48,7 +48,6 @@ set_default_config(DefaultUsername, HAProxyEnabled, Opts) ->
     Config = #{
         listeners => #{
             http => #{
-                enable => true,
                 bind => maps:get(bind, Opts, 18083),
                 inet6 => false,
                 ipv6_v6only => false,

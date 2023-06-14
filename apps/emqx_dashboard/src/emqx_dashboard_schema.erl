@@ -119,7 +119,8 @@ common_listener_fields() ->
                 integer(),
                 #{
                     default => erlang:system_info(schedulers_online),
-                    desc => ?DESC(num_acceptors)
+                    desc => ?DESC(num_acceptors),
+                    importance => ?IMPORTANCE_MEDIUM
                 }
             )},
         {"max_connections",
@@ -127,7 +128,8 @@ common_listener_fields() ->
                 integer(),
                 #{
                     default => 512,
-                    desc => ?DESC(max_connections)
+                    desc => ?DESC(max_connections),
+                    importance => ?IMPORTANCE_HIGH
                 }
             )},
         {"backlog",
@@ -135,7 +137,8 @@ common_listener_fields() ->
                 integer(),
                 #{
                     default => 1024,
-                    desc => ?DESC(backlog)
+                    desc => ?DESC(backlog),
+                    importance => ?IMPORTANCE_LOW
                 }
             )},
         {"send_timeout",
@@ -143,7 +146,8 @@ common_listener_fields() ->
                 emqx_schema:duration(),
                 #{
                     default => <<"10s">>,
-                    desc => ?DESC(send_timeout)
+                    desc => ?DESC(send_timeout),
+                    importance => ?IMPORTANCE_LOW
                 }
             )},
         {"inet6",
@@ -151,7 +155,8 @@ common_listener_fields() ->
                 boolean(),
                 #{
                     default => false,
-                    desc => ?DESC(inet6)
+                    desc => ?DESC(inet6),
+                    importance => ?IMPORTANCE_LOW
                 }
             )},
         {"ipv6_v6only",
@@ -159,7 +164,8 @@ common_listener_fields() ->
                 boolean(),
                 #{
                     default => false,
-                    desc => ?DESC(ipv6_v6only)
+                    desc => ?DESC(ipv6_v6only),
+                    importance => ?IMPORTANCE_LOW
                 }
             )},
         {"proxy_header",
@@ -167,7 +173,8 @@ common_listener_fields() ->
                 boolean(),
                 #{
                     desc => ?DESC(proxy_header),
-                    default => false
+                    default => false,
+                    importance => ?IMPORTANCE_MEDIUM
                 }
             )}
     ].
@@ -178,7 +185,9 @@ enable(Bool) ->
             boolean(),
             #{
                 default => Bool,
-                required => true,
+                required => false,
+                deprecated => {since, "5.1.0"},
+                importance => ?IMPORTANCE_HIDDEN,
                 desc => ?DESC(listener_enable)
             }
         )}.
@@ -188,9 +197,10 @@ bind(Port) ->
         ?HOCON(
             ?UNION([non_neg_integer(), emqx_schema:ip_port()]),
             #{
-                default => Port,
-                required => true,
+                default => 0,
+                required => false,
                 example => "0.0.0.0:" ++ integer_to_list(Port),
+                importance => ?IMPORTANCE_HIGH,
                 desc => ?DESC(bind)
             }
         )}.
