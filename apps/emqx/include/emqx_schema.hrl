@@ -19,5 +19,6 @@
 -define(TOMBSTONE_TYPE, marked_for_deletion).
 -define(TOMBSTONE_VALUE, <<"marked_for_deletion">>).
 -define(TOMBSTONE_CONFIG_CHANGE_REQ, mark_it_for_deletion).
+-define(CONFIG_NOT_FOUND_MAGIC, '$0tFound').
 
 -endif.

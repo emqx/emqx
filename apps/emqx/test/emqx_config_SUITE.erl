@@ -440,6 +440,7 @@ zone_global_defaults() ->
                 server_keepalive => disabled,
                 session_expiry_interval => 7200000,
                 shared_subscription => true,
+                shared_subscription_strategy => round_robin,
                 strict_mode => false,
                 upgrade_qos => false,
                 use_username_as_clientid => false,
