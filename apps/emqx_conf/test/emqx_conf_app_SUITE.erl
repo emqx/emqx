@@ -247,7 +247,6 @@ cluster(Specs, Config) ->
         {env, Env},
         {apps, [emqx_conf]},
         {load_schema, false},
-        {join_to, true},
         {priv_data_dir, PrivDataDir},
         {env_handler, fun
             (emqx) ->

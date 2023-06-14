@@ -140,7 +140,7 @@ mk_cluster_specs(Config, Opts) ->
         {core, emqx_bridge_api_SUITE1, #{}},
         {core, emqx_bridge_api_SUITE2, #{}}
     ],
-    CommonOpts = #{
+    CommonOpts = Opts#{
         env => [{emqx, boot_modules, [broker]}],
         apps => [],
         % NOTE
@@ -157,7 +157,6 @@ mk_cluster_specs(Config, Opts) ->
         load_apps => ?SUITE_APPS ++ [emqx_dashboard],
         env_handler => fun load_suite_config/1,
         load_schema => false,
-        join_to => maps:get(join_to, Opts, true),
         priv_data_dir => ?config(priv_dir, Config)
     },
     emqx_common_test_helpers:emqx_cluster(Specs, CommonOpts).
