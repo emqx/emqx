@@ -145,7 +145,10 @@ on_stop(InstanceId, _State) ->
             ok
     end.
 
--spec on_get_status(resource_id(), state()) -> connected | disconnected.
+%% Note: since Pulsar client has its own replayq that is not managed by
+%% `emqx_resource_buffer_worker', we must avoid returning `disconnected' here.  Otherwise,
+%% `emqx_resource_manager' will kill the Pulsar producers and messages might be lost.
+-spec on_get_status(resource_id(), state()) -> connected | connecting.
 on_get_status(_InstanceId, State = #{}) ->
     #{
         pulsar_client_id := ClientId,
@@ -157,15 +160,15 @@ on_get_status(_InstanceId, State = #{}) ->
                 true ->
                     get_producer_status(Producers);
                 false ->
-                    disconnected
+                    connecting
             catch
                 error:timeout ->
-                    disconnected;
+                    connecting;
                 exit:{noproc, _} ->
-                    disconnected
+                    connecting
             end;
         {error, _} ->
-            disconnected
+            connecting
     end;
 on_get_status(_InstanceId, _State) ->
     %% If a health check happens just after a concurrent request to

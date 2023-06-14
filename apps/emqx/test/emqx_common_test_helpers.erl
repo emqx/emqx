@@ -84,6 +84,8 @@
 %% Toxiproxy API
 -export([
     with_failure/5,
+    enable_failure/4,
+    heal_failure/4,
     reset_proxy/2
 ]).
 
