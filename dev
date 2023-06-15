@@ -158,7 +158,7 @@ export EMQX_LOG_DIR="$BASE_DIR/log"
 CONFIGS_DIR="$EMQX_DATA_DIR/configs"
 # Use your cookie so your IDE can connect to it.
 COOKIE="${EMQX_NODE__COOKIE:-${EMQX_NODE_COOKIE:-$(cat ~/.erlang.cookie || echo 'emqxsecretcookie')}}"
-mkdir -p "$EMQX_ETC_DIR" "$EMQX_DATA_DIR/patches" "$EMQX_LOG_DIR" "$CONFIGS_DIR"
+mkdir -p "$EMQX_ETC_DIR" "$EMQX_DATA_DIR/patches" "$EMQX_DATA_DIR/certs" "$EMQX_LOG_DIR" "$CONFIGS_DIR"
 if [ $EKKA_EPMD -eq 1 ]; then
     EPMD_ARGS='-start_epmd false -epmd_module ekka_epmd'
 else
