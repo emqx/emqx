@@ -74,6 +74,7 @@ init_per_suite(Config) ->
     ok = emqx_connector_test_helpers:start_apps([emqx_resource, emqx_bridge, emqx_rule_engine]),
     {ok, _} = application:ensure_all_started(emqx_connector),
     emqx_mgmt_api_test_util:init_suite(),
+    persistent_term:put({emqx_bridge_gcp_pubsub_connector, transport}, tls),
     Config.
 
 end_per_suite(_Config) ->
@@ -81,6 +82,7 @@ end_per_suite(_Config) ->
     ok = emqx_common_test_helpers:stop_apps([emqx_conf]),
     ok = emqx_connector_test_helpers:stop_apps([emqx_bridge, emqx_resource, emqx_rule_engine]),
     _ = application:stop(emqx_connector),
+    persistent_term:erase({emqx_bridge_gcp_pubsub_connector, transport}),
     ok.
 
 init_per_group(sync_query, Config) ->
@@ -276,7 +278,7 @@ gcp_pubsub_config(Config) ->
     PayloadTemplate = proplists:get_value(payload_template, Config, ""),
     PubSubTopic = proplists:get_value(pubsub_topic, Config, <<"mytopic">>),
     PipelineSize = proplists:get_value(pipeline_size, Config, 100),
-    ServiceAccountJSON = proplists:get_value(pubsub_topic, Config, generate_service_account_json()),
+    ServiceAccountJSON = emqx_bridge_gcp_pubsub_utils:generate_service_account_json(),
     ServiceAccountJSONStr = emqx_utils_json:encode(ServiceAccountJSON),
     GUID = emqx_guid:to_hexstr(emqx_guid:gen()),
     Name = <<(atom_to_binary(?MODULE))/binary, (GUID)/binary>>,
@@ -323,32 +325,6 @@ parse_and_check(ConfigString, Name) ->
     hocon_tconf:check_plain(emqx_bridge_schema, RawConf, #{required => false, atom_key => false}),
     #{<<"bridges">> := #{TypeBin := #{Name := Config}}} = RawConf,
     Config.
-
-generate_service_account_json() ->
-    PrivateKeyPEM = generate_private_key_pem(),
-    service_account_json(PrivateKeyPEM).
-
-generate_private_key_pem() ->
-    PublicExponent = 65537,
-    Size = 2048,
-    Key = public_key:generate_key({rsa, Size, PublicExponent}),
-    DERKey = public_key:der_encode('PrivateKeyInfo', Key),
-    public_key:pem_encode([{'PrivateKeyInfo', DERKey, not_encrypted}]).
-
-service_account_json(PrivateKeyPEM) ->
-    #{
-        <<"type">> => <<"service_account">>,
-        <<"project_id">> => <<"myproject">>,
-        <<"private_key_id">> => <<"kid">>,
-        <<"private_key">> => PrivateKeyPEM,
-        <<"client_email">> => <<"test@myproject.iam.gserviceaccount.com">>,
-        <<"client_id">> => <<"123812831923812319190">>,
-        <<"auth_uri">> => <<"https://accounts.google.com/o/oauth2/auth">>,
-        <<"token_uri">> => <<"https://oauth2.googleapis.com/token">>,
-        <<"auth_provider_x509_cert_url">> => <<"https://www.googleapis.com/oauth2/v1/certs">>,
-        <<"client_x509_cert_url">> =>
-            <<"https://www.googleapis.com/robot/v1/metadata/x509/test%40myproject.iam.gserviceaccount.com">>
-    }.
 
 metrics_mapping() ->
     #{
@@ -1019,7 +995,7 @@ t_publish_timeout(Config) ->
         <<"pipelining">> => 1,
         <<"resource_opts">> => #{
             <<"batch_size">> => 1,
-            <<"resume_interval">> => <<"15s">>
+            <<"resume_interval">> => <<"1s">>
         }
     }),
     {ok, #{<<"id">> := RuleId}} = create_rule_and_action_http(Config),
@@ -1085,8 +1061,8 @@ do_econnrefused_or_timeout_test(Config, Error) ->
                     emqx:publish(Message),
                     {ok, _} = snabbkaffe:block_until(
                         ?match_n_events(2, #{
-                            ?snk_kind := gcp_pubsub_response,
-                            query_mode := async
+                            ?snk_kind := handle_async_reply_expired,
+                            expired := [_]
                         }),
                         _Timeout1 = 15_000
                     )
@@ -1107,7 +1083,7 @@ do_econnrefused_or_timeout_test(Config, Error) ->
                 timeout ->
                     ?assertMatch(
                         [_, _ | _],
-                        ?of_kind(gcp_pubsub_response, Trace)
+                        ?of_kind(handle_async_reply_expired, Trace)
                     )
             end,
             ok

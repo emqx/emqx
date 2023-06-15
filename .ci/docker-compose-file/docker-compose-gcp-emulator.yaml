@@ -1,0 +1,23 @@
+version: '3.9'
+
+services:
+  gcp_emulator:
+    container_name: gcp_emulator
+    image: gcr.io/google.com/cloudsdktool/google-cloud-cli:435.0.1-emulators
+    restart: always
+    expose:
+      - "8085"
+    # ports:
+    #   - "8085:8085"
+    networks:
+      - emqx_bridge
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8085"]
+      interval: 30s
+      timeout: 5s
+      retries: 4
+    command:
+      - bash
+      - "-c"
+      - |
+        gcloud beta emulators pubsub start --project=emqx-pubsub --host-port=0.0.0.0:8085 --impersonate-service-account test@emqx.iam.gserviceaccount.com

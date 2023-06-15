@@ -24,9 +24,12 @@
 ]).
 -export([reply_delegator/3]).
 
+-export([get_topic/3]).
+
 -export([get_jwt_authorization_header/1]).
 
 -type service_account_json() :: emqx_bridge_gcp_pubsub:service_account_json().
+-type project_id() :: binary().
 -type config() :: #{
     connect_timeout := emqx_schema:duration_ms(),
     max_retries := non_neg_integer(),
@@ -39,17 +42,26 @@
     jwt_config := emqx_connector_jwt:jwt_config(),
     max_retries := non_neg_integer(),
     pool_name := binary(),
-    project_id := binary(),
+    project_id := project_id(),
     request_ttl := infinity | timer:time()
 }.
 -type headers() :: [{binary(), iodata()}].
 -type body() :: iodata().
 -type status_code() :: 100..599.
--type method() :: post.
+-type method() :: get | post | put | patch.
 -type path() :: binary().
 -type prepared_request() :: {method(), path(), body()}.
+-type topic() :: binary().
 
--export_type([service_account_json/0, state/0, headers/0, body/0, status_code/0]).
+-export_type([
+    service_account_json/0,
+    state/0,
+    headers/0,
+    body/0,
+    status_code/0,
+    project_id/0,
+    topic/0
+]).
 
 -define(DEFAULT_PIPELINE_SIZE, 100).
 
@@ -76,11 +88,22 @@ on_start(
     }),
     %% emulating the emulator behavior
     %% https://cloud.google.com/pubsub/docs/emulator
-    HostPort = os:getenv("PUBSUB_EMULATOR_HOST", "pubsub.googleapis.com:443"),
+    {Transport, HostPort} =
+        case os:getenv("PUBSUB_EMULATOR_HOST") of
+            false ->
+                {tls, "pubsub.googleapis.com:443"};
+            HostPort0 ->
+                %% The emulator is plain HTTP...
+                Transport0 = persistent_term:get({?MODULE, transport}, tcp),
+                {Transport0, HostPort0}
+        end,
     #{hostname := Host, port := Port} = emqx_schema:parse_server(HostPort, #{default_port => 443}),
     PoolType = random,
-    Transport = tls,
-    TransportOpts = emqx_tls_lib:to_client_opts(#{enable => true, verify => verify_none}),
+    TransportOpts =
+        case Transport of
+            tls -> emqx_tls_lib:to_client_opts(#{enable => true, verify => verify_none});
+            tcp -> []
+        end,
     NTransportOpts = emqx_utils:ipv6_probe(TransportOpts),
     PoolOpts = [
         {host, Host},
@@ -91,7 +114,7 @@ on_start(
         {pool_size, PoolSize},
         {transport, Transport},
         {transport_opts, NTransportOpts},
-        {enable_pipelining, maps:get(enable_pipelining, Config, ?DEFAULT_PIPELINE_SIZE)}
+        {enable_pipelining, maps:get(pipelining, Config, ?DEFAULT_PIPELINE_SIZE)}
     ],
     #{
         jwt_config := JWTConfig,
@@ -150,10 +173,7 @@ on_stop(ResourceId, _State) ->
     {prepared_request, prepared_request()},
     state()
 ) ->
-    {ok, status_code(), headers()}
-    | {ok, status_code(), headers(), body()}
-    | {error, {recoverable_error, term()}}
-    | {error, term()}.
+    {ok, map()} | {error, {recoverable_error, term()} | term()}.
 on_query(ResourceId, {prepared_request, PreparedRequest = {_Method, _Path, _Body}}, State) ->
     ?TRACE(
         "QUERY_SYNC",
@@ -193,6 +213,19 @@ on_get_status(ResourceId, #{connect_timeout := Timeout} = State) ->
             }),
             disconnected
     end.
+
+%%-------------------------------------------------------------------------------------------------
+%% API
+%%-------------------------------------------------------------------------------------------------
+
+-spec get_topic(resource_id(), topic(), state()) -> {ok, map()} | {error, term()}.
+get_topic(ResourceId, Topic, ConnectorState) ->
+    #{project_id := ProjectId} = ConnectorState,
+    Method = get,
+    Path = <<"/v1/projects/", ProjectId/binary, "/topics/", Topic/binary>>,
+    Body = <<>>,
+    PreparedRequest = {prepared_request, {Method, Path, Body}},
+    on_query(ResourceId, PreparedRequest, ConnectorState).
 
 %%-------------------------------------------------------------------------------------------------
 %% Helper fns
@@ -266,10 +299,7 @@ get_jwt_authorization_header(JWTConfig) ->
     {prepared_request, prepared_request()},
     resource_id()
 ) ->
-    {ok, status_code(), headers()}
-    | {ok, status_code(), headers(), body()}
-    | {error, {recoverable_error, term()}}
-    | {error, term()}.
+    {ok, map()} | {error, {recoverable_error, term()} | term()}.
 do_send_requests_sync(State, {prepared_request, {Method, Path, Body}}, ResourceId) ->
     #{
         jwt_config := JWTConfig,
@@ -280,12 +310,17 @@ do_send_requests_sync(State, {prepared_request, {Method, Path, Body}}, ResourceI
     ?tp(
         gcp_pubsub_bridge_do_send_requests,
         #{
+            request => {prepared_request, {Method, Path, Body}},
             query_mode => sync,
             resource_id => ResourceId
         }
     ),
     Headers = get_jwt_authorization_header(JWTConfig),
-    Request = {Path, Headers, Body},
+    Request =
+        case {Method, Body} of
+            {get, <<>>} -> {Path, Headers};
+            _ -> {Path, Headers, Body}
+        end,
     Response = ehttpc:request(
         PoolName,
         Method,
@@ -312,12 +347,17 @@ do_send_requests_async(
     ?tp(
         gcp_pubsub_bridge_do_send_requests,
         #{
+            request => {prepared_request, {Method, Path, Body}},
             query_mode => async,
             resource_id => ResourceId
         }
     ),
     Headers = get_jwt_authorization_header(JWTConfig),
-    Request = {Path, Headers, Body},
+    Request =
+        case {Method, Body} of
+            {get, <<>>} -> {Path, Headers};
+            _ -> {Path, Headers, Body}
+        end,
     Worker = ehttpc_pool:pick_worker(PoolName),
     ok = ehttpc:request_async(
         Worker,
@@ -328,6 +368,7 @@ do_send_requests_async(
     ),
     {ok, Worker}.
 
+-spec handle_response(term(), resource_id(), sync | async) -> {ok, map()} | {error, term()}.
 handle_response(Result, ResourceId, QueryMode) ->
     case Result of
         {error, Reason} ->

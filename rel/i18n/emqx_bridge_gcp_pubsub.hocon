@@ -71,4 +71,52 @@ When a GCP Service Account is created (as described in https://developers.google
 service_account_json.label:
 """GCP Service Account Credentials"""
 
+  consumer_opts {
+    desc: "Local MQTT publish and GCP PubSub consumer configs."
+    label: "GCP PubSub to MQTT"
+  }
+
+  consumer_pull_max_messages {
+    desc: "The maximum number of messages to retrieve from GCP PubSub in a single pull request."
+          " The actual number may be less than the specified value."
+    label: "Maximum Messages to Pull"
+  }
+
+  consumer_topic_mapping {
+    desc: "Defines the mapping between GCP PubSub topics and MQTT topics. Must contain at least one item."
+    label: "Topic Mapping"
+  }
+
+  consumer_pubsub_topic {
+    desc: "GCP PubSub topic to consume from."
+    label: "GCP PubSub"
+  }
+
+  consumer_mqtt_topic {
+    desc: "Local topic to which consumed GCP PubSub messages should be published to."
+    label: "MQTT Topic"
+  }
+
+  consumer_mqtt_qos {
+    desc: "MQTT QoS used to publish messages consumed from GCP PubSub."
+    label: "QoS"
+  }
+
+consumer_mqtt_payload.desc:
+"""The template for transforming the incoming GCP PubSub message.  By default, it will use JSON format to serialize inputs from the GCP PubSub message.  Available fields are:
+<code>message_id</code>: the message ID assigned by GCP PubSub.
+<code>publish_time</code>: message timestamp assigned by GCP PubSub.
+<code>topic</code>: GCP PubSub topic.
+<code>value</code>: the payload of the GCP PubSub message.  Omitted if there's no payload.
+<code>attributes</code>: an object containing string key-value pairs.  Omitted if there are no attributes.
+<code>ordering_key</code>: GCP PubSub message ordering key.  Omitted if there's none."""
+
+consumer_mqtt_payload.label:
+"Payload Template"
+
+  consumer {
+    desc: "GCP PubSub Consumer configuration."
+    label: "GCP PubSub Consumer"
+  }
+
 }

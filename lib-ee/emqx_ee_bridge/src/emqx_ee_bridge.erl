@@ -16,7 +16,8 @@ api_schemas(Method) ->
     [
         %% We need to map the `type' field of a request (binary) to a
         %% bridge schema module.
-        api_ref(emqx_bridge_gcp_pubsub, <<"gcp_pubsub">>, Method),
+        api_ref(emqx_bridge_gcp_pubsub, <<"gcp_pubsub">>, Method ++ "_producer"),
+        api_ref(emqx_bridge_gcp_pubsub, <<"gcp_pubsub_consumer">>, Method ++ "_consumer"),
         api_ref(emqx_bridge_kafka, <<"kafka_consumer">>, Method ++ "_consumer"),
         %% TODO: rename this to `kafka_producer' after alias support is added
         %% to hocon; keeping this as just `kafka' for backwards compatibility.
@@ -92,6 +93,7 @@ resource_type(kafka) -> emqx_bridge_kafka_impl_producer;
 resource_type(cassandra) -> emqx_bridge_cassandra_connector;
 resource_type(hstreamdb) -> emqx_ee_connector_hstreamdb;
 resource_type(gcp_pubsub) -> emqx_bridge_gcp_pubsub_impl_producer;
+resource_type(gcp_pubsub_consumer) -> emqx_bridge_gcp_pubsub_impl_consumer;
 resource_type(mongodb_rs) -> emqx_ee_connector_mongodb;
 resource_type(mongodb_sharded) -> emqx_ee_connector_mongodb;
 resource_type(mongodb_single) -> emqx_ee_connector_mongodb;
@@ -122,14 +124,6 @@ fields(bridges) ->
                 hoconsc:map(name, ref(emqx_ee_bridge_hstreamdb, "config")),
                 #{
                     desc => <<"HStreamDB Bridge Config">>,
-                    required => false
-                }
-            )},
-        {gcp_pubsub,
-            mk(
-                hoconsc:map(name, ref(emqx_bridge_gcp_pubsub, "config")),
-                #{
-                    desc => <<"EMQX Enterprise Config">>,
                     required => false
                 }
             )},
@@ -198,7 +192,8 @@ fields(bridges) ->
                     required => false
                 }
             )}
-    ] ++ kafka_structs() ++ pulsar_structs() ++ mongodb_structs() ++ influxdb_structs() ++
+    ] ++ kafka_structs() ++ pulsar_structs() ++ gcp_pubsub_structs() ++ mongodb_structs() ++
+        influxdb_structs() ++
         redis_structs() ++
         pgsql_structs() ++ clickhouse_structs() ++ sqlserver_structs() ++ rabbitmq_structs().
 
@@ -245,6 +240,26 @@ pulsar_structs() ->
                     desc => <<"Pulsar Producer Bridge Config">>,
                     required => false,
                     validator => fun emqx_bridge_pulsar:producer_strategy_key_validator/1
+                }
+            )}
+    ].
+
+gcp_pubsub_structs() ->
+    [
+        {gcp_pubsub,
+            mk(
+                hoconsc:map(name, ref(emqx_bridge_gcp_pubsub, "config_producer")),
+                #{
+                    desc => <<"EMQX Enterprise Config">>,
+                    required => false
+                }
+            )},
+        {gcp_pubsub_consumer,
+            mk(
+                hoconsc:map(name, ref(emqx_bridge_gcp_pubsub, "config_consumer")),
+                #{
+                    desc => <<"EMQX Enterprise Config">>,
+                    required => false
                 }
             )}
     ].
