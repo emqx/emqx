@@ -164,7 +164,7 @@ fields("cluster") ->
             sc(
                 emqx_schema:duration(),
                 #{
-                    mapping => "ekka.cluster_autoclean",
+                    mapping => "mria.cluster_autoclean",
                     default => <<"5m">>,
                     desc => ?DESC(cluster_autoclean),
                     'readOnly' => true
@@ -174,7 +174,7 @@ fields("cluster") ->
             sc(
                 boolean(),
                 #{
-                    mapping => "ekka.cluster_autoheal",
+                    mapping => "mria.cluster_autoheal",
                     default => true,
                     desc => ?DESC(cluster_autoheal),
                     'readOnly' => true
