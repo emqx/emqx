@@ -168,7 +168,7 @@ jobs:
           extra_labels="org.opencontainers.image.elixir.version=${{ matrix.elixir }}"
         fi
         extra_deps=
-        if [[ "$PROFILE" = *enterprise* ]]; then
+        if [[ "${{ matrix.profile }}" = *enterprise* ]]; then
           extra_deps='libsasl2-2'
         fi
 
