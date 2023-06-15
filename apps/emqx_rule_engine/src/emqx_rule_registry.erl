@@ -18,10 +18,8 @@
 
 -behaviour(gen_server).
 
--include("rule_engine.hrl").
--include_lib("emqx/include/logger.hrl").
-
 -logger_header("[RuleRegistry]").
+-include("rule_engine.hrl").
 
 -export([start_link/0]).
 
