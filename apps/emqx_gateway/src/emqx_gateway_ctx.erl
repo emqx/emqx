@@ -69,8 +69,9 @@
 authenticate(_Ctx, ClientInfo0) ->
     ClientInfo = ClientInfo0#{zone => default},
     case emqx_access_control:authenticate(ClientInfo) of
-        {ok, _} ->
-            {ok, mountpoint(ClientInfo)};
+        {ok, AuthResult} ->
+            ClientInfo1 = merge_auth_result(ClientInfo, AuthResult),
+            {ok, eval_mountpoint(ClientInfo1)};
         {error, Reason} ->
             {error, Reason}
     end.
@@ -174,8 +175,12 @@ metrics_inc(_Ctx = #{gwname := GwName}, Name, Oct) ->
 %% Internal funcs
 %%--------------------------------------------------------------------
 
-mountpoint(ClientInfo = #{mountpoint := undefined}) ->
+eval_mountpoint(ClientInfo = #{mountpoint := undefined}) ->
     ClientInfo;
-mountpoint(ClientInfo = #{mountpoint := MountPoint}) ->
+eval_mountpoint(ClientInfo = #{mountpoint := MountPoint}) ->
     MountPoint1 = emqx_mountpoint:replvar(MountPoint, ClientInfo),
     ClientInfo#{mountpoint := MountPoint1}.
+
+merge_auth_result(ClientInfo, AuthResult) when is_map(ClientInfo) andalso is_map(AuthResult) ->
+    IsSuperuser = maps:get(is_superuser, AuthResult, false),
+    maps:merge(ClientInfo, AuthResult#{is_superuser => IsSuperuser}).

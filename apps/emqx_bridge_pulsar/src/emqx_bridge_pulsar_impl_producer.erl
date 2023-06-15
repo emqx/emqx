@@ -64,6 +64,8 @@
 -define(pulsar_client_id, pulsar_client_id).
 -define(pulsar_producers, pulsar_producers).
 
+-define(HEALTH_CHECK_RETRY_TIMEOUT, 4_000).
+
 %%-------------------------------------------------------------------------------------
 %% `emqx_resource' API
 %%-------------------------------------------------------------------------------------
@@ -143,7 +145,10 @@ on_stop(InstanceId, _State) ->
             ok
     end.
 
--spec on_get_status(resource_id(), state()) -> connected | disconnected.
+%% Note: since Pulsar client has its own replayq that is not managed by
+%% `emqx_resource_buffer_worker', we must avoid returning `disconnected' here.  Otherwise,
+%% `emqx_resource_manager' will kill the Pulsar producers and messages might be lost.
+-spec on_get_status(resource_id(), state()) -> connected | connecting.
 on_get_status(_InstanceId, State = #{}) ->
     #{
         pulsar_client_id := ClientId,
@@ -155,15 +160,15 @@ on_get_status(_InstanceId, State = #{}) ->
                 true ->
                     get_producer_status(Producers);
                 false ->
-                    disconnected
+                    connecting
             catch
                 error:timeout ->
-                    disconnected;
+                    connecting;
                 exit:{noproc, _} ->
-                    disconnected
+                    connecting
             end;
         {error, _} ->
-            disconnected
+            connecting
     end;
 on_get_status(_InstanceId, _State) ->
     %% If a health check happens just after a concurrent request to
@@ -440,9 +445,18 @@ render(Message, Template) ->
     emqx_placeholder:proc_tmpl(Template, Message, Opts).
 
 get_producer_status(Producers) ->
+    do_get_producer_status(Producers, 0).
+
+do_get_producer_status(_Producers, TimeSpent) when TimeSpent > ?HEALTH_CHECK_RETRY_TIMEOUT ->
+    connecting;
+do_get_producer_status(Producers, TimeSpent) ->
     case pulsar_producers:all_connected(Producers) of
-        true -> connected;
-        false -> connecting
+        true ->
+            connected;
+        false ->
+            Sleep = 200,
+            timer:sleep(Sleep),
+            do_get_producer_status(Producers, TimeSpent + Sleep)
     end.
 
 partition_strategy(key_dispatch) -> first_key_dispatch;

@@ -52,7 +52,7 @@ defmodule EMQXUmbrella.MixProject do
       {:ehttpc, github: "emqx/ehttpc", tag: "0.4.10", override: true},
       {:gproc, github: "emqx/gproc", tag: "0.9.0.1", override: true},
       {:jiffy, github: "emqx/jiffy", tag: "1.0.5", override: true},
-      {:cowboy, github: "emqx/cowboy", tag: "2.9.0", override: true},
+      {:cowboy, github: "emqx/cowboy", tag: "2.9.2", override: true},
       {:esockd, github: "emqx/esockd", tag: "5.9.6", override: true},
       {:rocksdb, github: "emqx/erlang-rocksdb", tag: "1.7.2-emqx-11", override: true},
       {:ekka, github: "emqx/ekka", tag: "0.15.2", override: true},
@@ -72,7 +72,7 @@ defmodule EMQXUmbrella.MixProject do
       # in conflict by emqtt and hocon
       {:getopt, "1.0.2", override: true},
       {:snabbkaffe, github: "kafka4beam/snabbkaffe", tag: "1.0.8", override: true},
-      {:hocon, github: "emqx/hocon", tag: "0.39.7", override: true},
+      {:hocon, github: "emqx/hocon", tag: "0.39.8", override: true},
       {:emqx_http_lib, github: "emqx/emqx_http_lib", tag: "0.5.2", override: true},
       {:esasl, github: "emqx/esasl", tag: "0.2.0"},
       {:jose, github: "potatosalad/erlang-jose", tag: "1.11.2"},
@@ -92,7 +92,7 @@ defmodule EMQXUmbrella.MixProject do
        github: "ninenines/cowlib", ref: "c6553f8308a2ca5dcd69d845f0a7d098c40c3363", override: true},
       # in conflict by cowboy_swagger and cowboy
       {:ranch,
-       github: "ninenines/ranch", ref: "a692f44567034dacf5efcaa24a24183788594eb7", override: true},
+       github: "emqx/ranch", ref: "de8ba2a00817c0a6eb1b8f20d6fb3e44e2c9a5aa", override: true},
       # in conflict by grpc and eetcd
       {:gpb, "4.19.7", override: true, runtime: false},
       {:hackney, github: "emqx/hackney", tag: "1.18.1-1", override: true}
@@ -193,7 +193,7 @@ defmodule EMQXUmbrella.MixProject do
   defp enterprise_deps(_profile_info = %{edition_type: :enterprise}) do
     [
       {:hstreamdb_erl, github: "hstreamdb/hstreamdb_erl", tag: "0.2.5"},
-      {:influxdb, github: "emqx/influxdb-client-erl", tag: "1.1.9", override: true},
+      {:influxdb, github: "emqx/influxdb-client-erl", tag: "1.1.10", override: true},
       {:wolff, github: "kafka4beam/wolff", tag: "1.7.5"},
       {:kafka_protocol, github: "kafka4beam/kafka_protocol", tag: "4.1.3", override: true},
       {:brod_gssapi, github: "kafka4beam/brod_gssapi", tag: "v0.1.0"},

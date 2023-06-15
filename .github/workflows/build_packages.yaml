@@ -194,11 +194,13 @@ jobs:
           - 5.1-0
         elixir:
           - 1.14.5
+        with_elixir:
+          - 'no'
         exclude:
-        - arch: arm64
-          build_machine: ubuntu-22.04
-        - arch: amd64
-          build_machine: aws-arm64
+          - arch: arm64
+            build_machine: ubuntu-22.04
+          - arch: amd64
+            build_machine: aws-arm64
         include:
           - profile: emqx
             otp: 25.3.2-1
@@ -207,7 +209,7 @@ jobs:
             build_machine: ubuntu-22.04
             builder: 5.1-0
             elixir: 1.14.5
-            release_with: elixir
+            with_elixir: 'yes'
           - profile: emqx
             otp: 25.3.2-1
             arch: amd64
@@ -215,7 +217,7 @@ jobs:
             build_machine: ubuntu-22.04
             builder: 5.1-0
             elixir: 1.14.5
-            release_with: elixir
+            with_elixir: 'yes'
 
     defaults:
       run:
@@ -245,12 +247,9 @@ jobs:
         fi
         echo "pwd is $PWD"
         PKGTYPES="tgz pkg"
-        IS_ELIXIR="no"
-        WITH_ELIXIR=${{ matrix.release_with }}
-        if [ "${WITH_ELIXIR:-}" == 'elixir' ]; then
+        IS_ELIXIR=${{ matrix.with_elixir }}
+        if [ "${IS_ELIXIR:-}" == 'yes' ]; then
           PKGTYPES="tgz"
-          # set Elixir build flag
-          IS_ELIXIR="yes"
         fi
         for PKGTYPE in ${PKGTYPES};
         do

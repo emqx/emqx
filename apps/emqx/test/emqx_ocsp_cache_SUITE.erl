@@ -912,14 +912,9 @@ do_t_validations(_Config) ->
         emqx_utils_json:decode(ResRaw1, [return_maps]),
     ?assertMatch(
         #{
-            <<"mismatches">> :=
-                #{
-                    <<"listeners:ssl_not_required_bind">> :=
-                        #{
-                            <<"reason">> :=
-                                <<"The responder URL is required for OCSP stapling">>
-                        }
-                }
+            <<"kind">> := <<"validation_error">>,
+            <<"reason">> :=
+                <<"The responder URL is required for OCSP stapling">>
         },
         emqx_utils_json:decode(MsgRaw1, [return_maps])
     ),
@@ -942,14 +937,9 @@ do_t_validations(_Config) ->
         emqx_utils_json:decode(ResRaw2, [return_maps]),
     ?assertMatch(
         #{
-            <<"mismatches">> :=
-                #{
-                    <<"listeners:ssl_not_required_bind">> :=
-                        #{
-                            <<"reason">> :=
-                                <<"The issuer PEM path is required for OCSP stapling">>
-                        }
-                }
+            <<"kind">> := <<"validation_error">>,
+            <<"reason">> :=
+                <<"The issuer PEM path is required for OCSP stapling">>
         },
         emqx_utils_json:decode(MsgRaw2, [return_maps])
     ),

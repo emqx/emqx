@@ -62,7 +62,7 @@ end_per_suite(_Config) ->
 t_log_conf(_Conf) ->
     FileExpect = #{
         <<"enable">> => true,
-        <<"formatter">> => text,
+        <<"formatter">> => <<"text">>,
         <<"level">> => <<"info">>,
         <<"rotation_count">> => 10,
         <<"rotation_size">> => <<"50MB">>,
@@ -73,7 +73,7 @@ t_log_conf(_Conf) ->
         <<"console">> =>
             #{
                 <<"enable">> => true,
-                <<"formatter">> => text,
+                <<"formatter">> => <<"text">>,
                 <<"level">> => <<"debug">>,
                 <<"time_offset">> => <<"system">>
             },

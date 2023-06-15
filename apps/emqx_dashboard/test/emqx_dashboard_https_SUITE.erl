@@ -49,8 +49,8 @@ t_update_conf(_Config) ->
     Conf = #{
         dashboard => #{
             listeners => #{
-                https => #{bind => 18084, enable => true},
-                http => #{bind => 18083, enable => true}
+                https => #{bind => 18084},
+                http => #{bind => 18083}
             }
         }
     },
@@ -68,7 +68,7 @@ t_update_conf(_Config) ->
     ?check_trace(
         begin
             Raw1 = emqx_utils_maps:deep_put(
-                [<<"listeners">>, <<"https">>, <<"enable">>], Raw, false
+                [<<"listeners">>, <<"https">>, <<"bind">>], Raw, 0
             ),
             ?assertMatch({ok, _}, emqx:update_config([<<"dashboard">>], Raw1)),
             ?assertEqual(Raw1, emqx:get_raw_config([<<"dashboard">>])),
@@ -116,7 +116,7 @@ t_update_conf(_Config) ->
     emqx_mgmt_api_test_util:end_suite([emqx_management]).
 
 t_default_ssl_cert(_Config) ->
-    Conf = #{dashboard => #{listeners => #{https => #{bind => 18084, enable => true}}}},
+    Conf = #{dashboard => #{listeners => #{https => #{bind => 18084}}}},
     validate_https(Conf, 512, default_ssl_cert(), verify_none),
     ok.
 
@@ -127,7 +127,6 @@ t_normal_ssl_cert(_Config) ->
             listeners => #{
                 https => #{
                     bind => 18084,
-                    enable => true,
                     cacertfile => naive_env_interpolation(<<"${EMQX_ETC_DIR}/certs/cacert.pem">>),
                     certfile => naive_env_interpolation(<<"${EMQX_ETC_DIR}/certs/cert.pem">>),
                     keyfile => naive_env_interpolation(<<"${EMQX_ETC_DIR}/certs/key.pem">>),
@@ -149,7 +148,6 @@ t_verify_cacertfile(_Config) ->
             listeners => #{
                 https => #{
                     bind => 18084,
-                    enable => true,
                     cacertfile => <<"">>,
                     max_connections => MaxConnection
                 }
@@ -180,7 +178,6 @@ t_bad_certfile(_Config) ->
             listeners => #{
                 https => #{
                     bind => 18084,
-                    enable => true,
                     certfile => <<"${EMQX_ETC_DIR}/certs/not_found_cert.pem">>
                 }
             }

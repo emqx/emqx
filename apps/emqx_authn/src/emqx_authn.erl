@@ -26,10 +26,7 @@
     get_enabled_authns/0
 ]).
 
-%% Data backup
--export([
-    import_config/1
-]).
+-export([merge_config/1, merge_config_local/2, import_config/1]).
 
 -include("emqx_authn.hrl").
 
@@ -162,3 +159,9 @@ authn_list(Authn) when is_list(Authn) ->
     Authn;
 authn_list(Authn) when is_map(Authn) ->
     [Authn].
+
+merge_config(AuthNs) ->
+    emqx_authn_api:update_config([?CONF_NS_ATOM], {merge_authenticators, AuthNs}).
+
+merge_config_local(AuthNs, Opts) ->
+    emqx:update_config([?CONF_NS_ATOM], {merge_authenticators, AuthNs}, Opts).

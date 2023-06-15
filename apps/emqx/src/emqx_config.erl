@@ -18,6 +18,8 @@
 -compile({no_auto_import, [get/0, get/1, put/2, erase/1]}).
 -elvis([{elvis_style, god_modules, disable}]).
 -include("logger.hrl").
+-include("emqx.hrl").
+-include("emqx_schema.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
 -export([
@@ -33,7 +35,9 @@
     save_configs/5,
     save_to_app_env/1,
     save_to_config_map/2,
-    save_to_override_conf/3
+    save_to_override_conf/3,
+    config_files/0,
+    include_dirs/0
 ]).
 -export([merge_envs/2]).
 
@@ -89,6 +93,7 @@
 ]).
 
 -export([ensure_atom_conf_path/2]).
+-export([load_config_files/2]).
 
 -ifdef(TEST).
 -export([erase_all/0, backup_and_write/2]).
@@ -104,7 +109,6 @@
 -define(ZONE_CONF_PATH(ZONE, PATH), [zones, ZONE | PATH]).
 -define(LISTENER_CONF_PATH(TYPE, LISTENER, PATH), [listeners, TYPE, LISTENER | PATH]).
 
--define(CONFIG_NOT_FOUND_MAGIC, '$0tFound').
 -define(MAX_KEEP_BACKUP_CONFIGS, 10).
 
 -export_type([
@@ -311,8 +315,7 @@ put_raw(KeyPath0, Config) ->
 %% Load/Update configs From/To files
 %%============================================================================
 init_load(SchemaMod) ->
-    ConfFiles = application:get_env(emqx, config_files, []),
-    init_load(SchemaMod, ConfFiles).
+    init_load(SchemaMod, config_files()).
 
 %% @doc Initial load of the given config files.
 %% NOTE: The order of the files is significant, configs from files ordered
@@ -977,3 +980,6 @@ put_config_post_change_actions(?PERSIS_KEY(?CONF, zones), _Zones) ->
     ok;
 put_config_post_change_actions(_Key, _NewValue) ->
     ok.
+
+config_files() ->
+    application:get_env(emqx, config_files, []).

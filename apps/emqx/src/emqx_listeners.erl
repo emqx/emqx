@@ -116,15 +116,19 @@ format_raw_listeners({Type0, Conf}) ->
         fun
             ({LName, LConf0}) when is_map(LConf0) ->
                 Bind = parse_bind(LConf0),
+                MaxConn = maps:get(<<"max_connections">>, LConf0, default_max_conn()),
                 Running = is_running(Type, listener_id(Type, LName), LConf0#{bind => Bind}),
-                LConf1 = maps:remove(<<"authentication">>, LConf0),
+                LConf1 = maps:without([<<"authentication">>, <<"zone">>], LConf0),
                 LConf2 = maps:put(<<"running">>, Running, LConf1),
                 CurrConn =
                     case Running of
                         true -> current_conns(Type, LName, Bind);
                         false -> 0
                     end,
-                LConf = maps:put(<<"current_connections">>, CurrConn, LConf2),
+                LConf = maps:merge(LConf2, #{
+                    <<"current_connections">> => CurrConn,
+                    <<"max_connections">> => ensure_max_conns(MaxConn)
+                }),
                 {true, {Type0, LName, LConf}};
             ({_LName, _MarkDel}) ->
                 false
@@ -417,14 +421,11 @@ do_start_listener(quic, ListenerName, #{bind := Bind} = Opts) ->
     case [A || {quicer, _, _} = A <- application:which_applications()] of
         [_] ->
             DefAcceptors = erlang:system_info(schedulers_online) * 8,
-            SSLOpts = maps:merge(
-                maps:with([certfile, keyfile], Opts),
-                maps:get(ssl_options, Opts, #{})
-            ),
+            SSLOpts = maps:get(ssl_options, Opts, #{}),
             ListenOpts =
                 [
-                    {certfile, str(maps:get(certfile, SSLOpts))},
-                    {keyfile, str(maps:get(keyfile, SSLOpts))},
+                    {certfile, emqx_schema:naive_env_interpolation(maps:get(certfile, SSLOpts))},
+                    {keyfile, emqx_schema:naive_env_interpolation(maps:get(keyfile, SSLOpts))},
                     {alpn, ["mqtt"]},
                     {conn_acceptors, lists:max([DefAcceptors, maps:get(acceptors, Opts, 0)])},
                     {keep_alive_interval_ms, maps:get(keep_alive_interval, Opts, 0)},
@@ -434,8 +435,10 @@ do_start_listener(quic, ListenerName, #{bind := Bind} = Opts) ->
                     {verify, maps:get(verify, SSLOpts, verify_none)}
                 ] ++
                     case maps:get(cacertfile, SSLOpts, undefined) of
-                        undefined -> [];
-                        CaCertFile -> [{cacertfile, str(CaCertFile)}]
+                        undefined ->
+                            [];
+                        CaCertFile ->
+                            [{cacertfile, emqx_schema:naive_env_interpolation(CaCertFile)}]
                     end ++
                     case maps:get(password, SSLOpts, undefined) of
                         undefined -> [];
@@ -992,3 +995,7 @@ unregister_ocsp_stapling_refresh(Type, Name) ->
 
 default_max_conn() ->
     <<"infinity">>.
+
+ensure_max_conns(<<"infinity">>) -> <<"infinity">>;
+ensure_max_conns(MaxConn) when is_binary(MaxConn) -> binary_to_integer(MaxConn);
+ensure_max_conns(MaxConn) -> MaxConn.

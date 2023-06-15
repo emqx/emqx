@@ -174,7 +174,9 @@ diff_listeners(Type, Stop, Start) -> {#{Type => Stop}, #{Type => Start}}.
 
 -define(DIR, <<"dashboard">>).
 
-ensure_ssl_cert(#{<<"listeners">> := #{<<"https">> := #{<<"enable">> := true}}} = Conf) ->
+ensure_ssl_cert(#{<<"listeners">> := #{<<"https">> := #{<<"bind">> := Bind}}} = Conf) when
+    Bind =/= 0
+->
     Https = emqx_utils_maps:deep_get([<<"listeners">>, <<"https">>], Conf, undefined),
     Opts = #{required_keys => [[<<"keyfile">>], [<<"certfile">>], [<<"cacertfile">>]]},
     case emqx_tls_lib:ensure_ssl_files(?DIR, Https, Opts) of

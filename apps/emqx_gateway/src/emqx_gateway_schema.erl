@@ -61,7 +61,7 @@ tags() ->
     [<<"Gateway">>].
 
 roots() ->
-    [{gateway, sc(ref(?MODULE, gateway), #{importance => ?IMPORTANCE_HIDDEN})}].
+    [{gateway, sc(ref(?MODULE, gateway), #{importance => ?IMPORTANCE_LOW})}].
 
 fields(gateway) ->
     lists:map(

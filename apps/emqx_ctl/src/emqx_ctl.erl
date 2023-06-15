@@ -38,6 +38,8 @@
 -export([
     print/1,
     print/2,
+    warning/1,
+    warning/2,
     usage/1,
     usage/2
 ]).
@@ -179,6 +181,14 @@ print(Msg) ->
 -spec print(io:format(), [term()]) -> ok.
 print(Format, Args) ->
     io:format("~ts", [format(Format, Args)]).
+
+-spec warning(io:format()) -> ok.
+warning(Format) ->
+    warning(Format, []).
+
+-spec warning(io:format(), [term()]) -> ok.
+warning(Format, Args) ->
+    io:format("\e[31m~ts\e[0m", [format(Format, Args)]).
 
 -spec usage([cmd_usage()]) -> ok.
 usage(UsageList) ->

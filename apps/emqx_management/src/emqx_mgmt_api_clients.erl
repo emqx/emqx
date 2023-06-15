@@ -63,7 +63,6 @@
 -define(CLIENT_QSCHEMA, [
     {<<"node">>, atom},
     {<<"username">>, binary},
-    {<<"zone">>, atom},
     {<<"ip_address">>, ip},
     {<<"conn_state">>, atom},
     {<<"clean_start">>, atom},
@@ -121,11 +120,6 @@ schema("/clients") ->
                         in => query,
                         required => false,
                         desc => <<"User name">>
-                    })},
-                {zone,
-                    hoconsc:mk(binary(), #{
-                        in => query,
-                        required => false
                     })},
                 {ip_address,
                     hoconsc:mk(binary(), #{
@@ -549,12 +543,7 @@ fields(client) ->
                         " Maximum number of subscriptions allowed by this client">>
             })},
         {username, hoconsc:mk(binary(), #{desc => <<"User name of client when connecting">>})},
-        {mountpoint, hoconsc:mk(binary(), #{desc => <<"Topic mountpoint">>})},
-        {zone,
-            hoconsc:mk(binary(), #{
-                desc =>
-                    <<"Indicate the configuration group used by the client">>
-            })}
+        {mountpoint, hoconsc:mk(binary(), #{desc => <<"Topic mountpoint">>})}
     ];
 fields(authz_cache) ->
     [
@@ -848,8 +837,6 @@ ms(clientid, X) ->
     #{clientinfo => #{clientid => X}};
 ms(username, X) ->
     #{clientinfo => #{username => X}};
-ms(zone, X) ->
-    #{clientinfo => #{zone => X}};
 ms(conn_state, X) ->
     #{conn_state => X};
 ms(ip_address, X) ->
@@ -930,6 +917,7 @@ format_channel_info(WhichNode, {_, ClientInfo0, ClientStats}) ->
             sockname,
             retry_interval,
             upgrade_qos,
+            zone,
             %% sessionID, defined in emqx_session.erl
             id
         ],

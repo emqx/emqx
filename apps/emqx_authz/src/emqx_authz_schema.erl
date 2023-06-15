@@ -42,7 +42,8 @@
 
 -export([
     headers_no_content_type/1,
-    headers/1
+    headers/1,
+    default_authz/0
 ]).
 
 %%--------------------------------------------------------------------

@@ -53,13 +53,16 @@ file_transfer {
     local {
       enable = true
       exporter {
-        enable = true
         s3 {
+          enable = true
           host = "s3.us-east-1.amazonaws.com"
-          port = "443"
+          port = 443
           access_key_id = "AKIA27EZDDM9XLINWXFE"
           secret_access_key = "..."
           bucket = "my-bucket"
+          transport_options = {
+            ssl { enable = true }
+          }
         }
       }
     }
