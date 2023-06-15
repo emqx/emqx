@@ -277,12 +277,37 @@ check_and_save_configs(
     OldConf = emqx_config:get_root(ConfKeyPath),
     case do_post_config_update(ConfKeyPath, Handlers, OldConf, NewConf, AppEnvs, UpdateArgs, #{}) of
         {ok, Result0} ->
-            ok = emqx_config:save_configs(AppEnvs, NewConf, NewRawConf, OverrideConf, Opts),
-            Result1 = return_change_result(ConfKeyPath, UpdateArgs),
-            {ok, Result1#{post_config_update => Result0}};
-        Error ->
-            Error
+            post_update_ok(
+                AppEnvs,
+                NewConf,
+                NewRawConf,
+                OverrideConf,
+                Opts,
+                ConfKeyPath,
+                UpdateArgs,
+                Result0
+            );
+        {error, {post_config_update, HandlerName, Reason}} ->
+            HandlePostFailureFun =
+                fun() ->
+                    post_update_ok(
+                        AppEnvs,
+                        NewConf,
+                        NewRawConf,
+                        OverrideConf,
+                        Opts,
+                        ConfKeyPath,
+                        UpdateArgs,
+                        #{}
+                    )
+                end,
+            {error, {post_config_update, HandlerName, {Reason, HandlePostFailureFun}}}
     end.
+
+post_update_ok(AppEnvs, NewConf, NewRawConf, OverrideConf, Opts, ConfKeyPath, UpdateArgs, Result0) ->
+    ok = emqx_config:save_configs(AppEnvs, NewConf, NewRawConf, OverrideConf, Opts),
+    Result1 = return_change_result(ConfKeyPath, UpdateArgs),
+    {ok, Result1#{post_config_update => Result0}}.
 
 do_post_config_update(ConfKeyPath, Handlers, OldConf, NewConf, AppEnvs, UpdateArgs, Result) ->
     do_post_config_update(
