@@ -17,7 +17,6 @@
 -module(emqx_rule_utils).
 
 -include("rule_engine.hrl").
--include_lib("emqx/include/logger.hrl").
 
 -export([ replace_var/2
         ]).

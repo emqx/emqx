@@ -19,7 +19,6 @@
 -include("rule_engine.hrl").
 -include("rule_actions.hrl").
 -include_lib("emqx/include/emqx.hrl").
--include_lib("emqx/include/logger.hrl").
 
 -export([ apply_rule/2
         , apply_rules/2

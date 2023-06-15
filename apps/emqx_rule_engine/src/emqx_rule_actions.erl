@@ -20,7 +20,6 @@
 -include("rule_engine.hrl").
 -include("rule_actions.hrl").
 -include_lib("emqx/include/emqx.hrl").
--include_lib("emqx/include/logger.hrl").
 
 -define(BAD_TOPIC_WITH_WILDCARD, wildcard_topic_not_allowed_for_publish).
 
