@@ -35,7 +35,7 @@ init_per_testcase(t_log_path, Config) ->
     Log = emqx_conf:get_raw([log], #{}),
     File = "log/emqx-test.log",
     Log1 = emqx_utils_maps:deep_put([<<"file">>, <<"default">>, <<"enable">>], Log, true),
-    Log2 = emqx_utils_maps:deep_put([<<"file">>, <<"default">>, <<"to">>], Log1, File),
+    Log2 = emqx_utils_maps:deep_put([<<"file">>, <<"default">>, <<"path">>], Log1, File),
     {ok, #{}} = emqx_conf:update([log], Log2, #{rawconf_with_defaults => true}),
     Config;
 init_per_testcase(_, Config) ->
