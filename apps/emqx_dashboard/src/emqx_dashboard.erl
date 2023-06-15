@@ -68,19 +68,13 @@ start_listeners(Listeners) ->
             }
         }
     },
-    Dispatch = [
-        {"/", cowboy_static, {priv_file, emqx_dashboard, "www/index.html"}},
-        {"/static/[...]", cowboy_static, {priv_dir, emqx_dashboard, "www/static"}},
-        {emqx_mgmt_api_status:path(), emqx_mgmt_api_status, []},
-        {'_', emqx_dashboard_not_found, []}
-    ],
     BaseMinirest = #{
         base_path => emqx_dashboard_swagger:base_path(),
         modules => minirest_api:find_api_modules(apps()),
         authorization => Authorization,
         security => [#{'basicAuth' => []}, #{'bearerAuth' => []}],
         swagger_global_spec => GlobalSpec,
-        dispatch => Dispatch,
+        dispatch => dispatch(),
         middlewares => [?EMQX_MIDDLE, cowboy_router, cowboy_handler]
     },
     {OkListeners, ErrListeners} =
@@ -259,3 +253,20 @@ ensure_ssl_cert(Listeners = #{https := Https0}) ->
     Listeners#{https => maps:from_list(Https1)};
 ensure_ssl_cert(Listeners) ->
     Listeners.
+
+dispatch() ->
+    static_dispatch() ++ dynamic_dispatch().
+
+static_dispatch() ->
+    StaticFiles = ["/editor.worker.js", "/json.worker.js", "/version"],
+    [
+        {"/", cowboy_static, {priv_file, emqx_dashboard, "www/index.html"}},
+        {"/static/[...]", cowboy_static, {priv_dir, emqx_dashboard, "www/static"}}
+    ] ++
+        [{Path, cowboy_static, {priv_file, emqx_dashboard, "www" ++ Path}} || Path <- StaticFiles].
+
+dynamic_dispatch() ->
+    [
+        {emqx_mgmt_api_status:path(), emqx_mgmt_api_status, []},
+        {'_', emqx_dashboard_not_found, []}
+    ].
