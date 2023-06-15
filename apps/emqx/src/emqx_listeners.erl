@@ -492,7 +492,9 @@ pre_config_update([?ROOT_KEY], RawConf, RawConf) ->
 pre_config_update([?ROOT_KEY], NewConf, _RawConf) ->
     {ok, convert_certs(NewConf)}.
 
-post_config_update([?ROOT_KEY, Type, Name], {create, _Request}, NewConf, undefined, _AppEnvs) ->
+post_config_update([?ROOT_KEY, Type, Name], {create, _Request}, NewConf, OldConf, _AppEnvs) when
+    OldConf =:= undefined orelse OldConf =:= ?TOMBSTONE_TYPE
+->
     create_listener(Type, Name, NewConf);
 post_config_update([?ROOT_KEY, Type, Name], {update, _Request}, NewConf, OldConf, _AppEnvs) ->
     update_listener(Type, Name, {OldConf, NewConf});
