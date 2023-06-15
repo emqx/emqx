@@ -909,13 +909,13 @@ fields("console_handler") ->
     log_handler_common_confs(console);
 fields("log_file_handler") ->
     [
-        {"to",
+        {"path",
             sc(
                 file(),
                 #{
                     desc => ?DESC("log_file_handler_file"),
                     default => <<"${EMQX_LOG_DIR}/emqx.log">>,
-                    aliases => [file],
+                    aliases => [file, to],
                     importance => ?IMPORTANCE_HIGH,
                     converter => fun(Path, Opts) ->
                         emqx_schema:naive_env_interpolation(ensure_unicode_path(Path, Opts))

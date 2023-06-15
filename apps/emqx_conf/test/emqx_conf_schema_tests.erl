@@ -206,7 +206,7 @@ log_rotation_count_limit_test() ->
     """
     log.file {
     enable = true
-    to = \"log/emqx.log\"
+    path = \"log/emqx.log\"
     formatter = text
     level = debug
     rotation = {count = ~w}
@@ -434,7 +434,7 @@ log_path_test_() ->
         #{<<"log">> => #{<<"file_handlers">> => #{<<"name1">> => #{<<"file">> => Path}}}}
     end,
     Assert = fun(Name, Path, Conf) ->
-        ?assertMatch(#{log := #{file := #{Name := #{to := Path}}}}, Conf)
+        ?assertMatch(#{log := #{file := #{Name := #{path := Path}}}}, Conf)
     end,
 
     [
@@ -452,7 +452,7 @@ log_path_test_() ->
                                 "handler_name" :=
                                     #{
                                         kind := validation_error,
-                                        path := "log.file.name1.to",
+                                        path := "log.file.name1.path",
                                         reason := {"bad_file_path_string", _}
                                     }
                             }
@@ -471,7 +471,7 @@ log_path_test_() ->
                                 "handler_name" :=
                                     #{
                                         kind := validation_error,
-                                        path := "log.file.name1.to",
+                                        path := "log.file.name1.path",
                                         reason := {"not_string", _}
                                     }
                             }

@@ -100,7 +100,7 @@ t_log(_Config) ->
     File = "log/emqx-test.log",
     %% update handler
     Log1 = emqx_utils_maps:deep_put([<<"file">>, <<"default">>, <<"enable">>], Log, true),
-    Log2 = emqx_utils_maps:deep_put([<<"file">>, <<"default">>, <<"to">>], Log1, File),
+    Log2 = emqx_utils_maps:deep_put([<<"file">>, <<"default">>, <<"path">>], Log1, File),
     {ok, #{}} = update_config(<<"log">>, Log2),
     {ok, Log3} = logger:get_handler_config(default),
     ?assertMatch(#{config := #{file := File}}, Log3),
@@ -116,7 +116,7 @@ t_log(_Config) ->
     Handler = emqx_utils_maps:deep_get([<<"file">>, <<"default">>], Log2),
     NewLog1 = emqx_utils_maps:deep_put([<<"file">>, <<"new">>], Log2, Handler),
     NewLog2 = emqx_utils_maps:deep_put(
-        [<<"file">>, <<"new">>, <<"to">>], NewLog1, File1
+        [<<"file">>, <<"new">>, <<"path">>], NewLog1, File1
     ),
     {ok, #{}} = update_config(<<"log">>, NewLog2),
     {ok, Log4} = logger:get_handler_config(new),
