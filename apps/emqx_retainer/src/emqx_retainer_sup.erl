@@ -30,6 +30,7 @@
 start_link(Env) ->
 	supervisor:start_link({local, ?MODULE}, ?MODULE, [Env]).
 
+-dialyzer({no_match, [ensure_worker_pool_started/0]}).
 ensure_worker_pool_started() ->
     try
         case is_managed_by_modules() of
