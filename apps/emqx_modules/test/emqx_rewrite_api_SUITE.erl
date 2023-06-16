@@ -95,6 +95,52 @@ t_mqtt_topic_rewrite_limit(_) ->
         )
     ).
 
+t_mqtt_topic_rewrite_wildcard(_) ->
+    BadRules = [
+        #{
+            <<"source_topic">> => <<"test/#">>,
+            <<"re">> => <<"^test/(.+)$">>,
+            <<"dest_topic">> => <<"bad/test/#">>
+        },
+        #{
+            <<"source_topic">> => <<"test/#">>,
+            <<"re">> => <<"^test/(.+)$">>,
+            <<"dest_topic">> => <<"bad/#/test">>
+        },
+        #{
+            <<"source_topic">> => <<"test/#">>,
+            <<"re">> => <<"^test/(.+)$">>,
+            <<"dest_topic">> => <<"bad/test/+">>
+        },
+        #{
+            <<"source_topic">> => <<"test/#">>,
+            <<"re">> => <<"^test/(.+)$">>,
+            <<"dest_topic">> => <<"bad/+/test">>
+        }
+    ],
+
+    Rules = lists:flatten(
+        lists:map(
+            fun(Rule) ->
+                [Rule#{<<"action">> => <<"publish">>}, Rule#{<<"action">> => <<"all">>}]
+            end,
+            BadRules
+        )
+    ),
+    lists:foreach(
+        fun(Rule) ->
+            ?assertMatch(
+                {ok, 500, _},
+                request(
+                    put,
+                    uri(["mqtt", "topic_rewrite"]),
+                    [Rule]
+                )
+            )
+        end,
+        Rules
+    ).
+
 %%------------------------------------------------------------------------------
 %% Helpers
 %%------------------------------------------------------------------------------
