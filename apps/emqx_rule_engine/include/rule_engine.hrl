@@ -149,7 +149,8 @@
                        Op =:= '-' orelse
                        Op =:= '*' orelse
                        Op =:= '/' orelse
-                       Op =:= 'div')).
+                       Op =:= 'div' orelse
+                       Op =:= 'mod')).
 
 %% Compare operators
 -define(is_comp(Op), (Op =:= '=' orelse

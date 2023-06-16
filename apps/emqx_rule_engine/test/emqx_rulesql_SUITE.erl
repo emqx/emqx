@@ -57,6 +57,7 @@ groups() ->
       , t_sqlselect_00
       , t_sqlselect_01
       , t_sqlselect_02
+      , t_sqlselect_04
       , t_sqlselect_1
       , t_sqlselect_2
       ]},
@@ -422,6 +423,39 @@ t_sqlselect_03(_Config) ->
 
     emqtt:stop(Client),
     emqx_rule_registry:remove_rule(TopicRule1).
+
+t_sqlselect_04(_Config) ->
+    %% Verify that div and mod works as expected
+    ok = emqx_rule_engine:load_providers(),
+    SQL = ""
+        "select 2 mod 2   as mod1,\n"
+        "       mod(3, 2) as mod2,\n"
+        "       4 div 2   as div1,\n"
+        "       div(7, 2) as div2\n"
+        "from \"t2\" "
+        "",
+    TopicRule1 = create_simple_repub_rule(
+                    <<"t1">>,
+                    SQL,
+                    <<"{\"mod1\": ${mod1},\"mod2\": ${mod2},\"div1\": ${div1},\"div2\": ${div2}}">>
+        ),
+    {ok, Client} = emqtt:start_link([{username, <<"emqx">>}]),
+    {ok, _} = emqtt:connect(Client),
+    {ok, _, _} = emqtt:subscribe(Client, <<"t1">>, 0),
+    emqtt:publish(Client, <<"t2">>, <<"">>, 0),
+    receive {publish, #{payload := Payload}} ->
+        ?assertMatch(#{
+            <<"mod1">> := 0,
+            <<"mod2">> := 1,
+            <<"div1">> := 2,
+            <<"div2">> := 3
+        }, emqx_json:decode(Payload, [return_maps]))
+    after 1000 ->
+        ct:fail(wait_for_t1)
+    end,
+    emqtt:stop(Client),
+    emqx_rule_registry:remove_rule(TopicRule1).
+
 
 t_sqlselect_1(_Config) ->
     ok = emqx_rule_engine:load_providers(),
