@@ -654,10 +654,13 @@ ensure_quic_listener(Name, UdpPort, ExtraSettings) ->
     %% Extras app starting handler. It is the second arg passed to emqx_common_test_helpers:start_apps/2
     env_handler => fun((AppName :: atom()) -> term()),
     %% Application env preset before calling `emqx_common_test_helpers:start_apps/2`
-    env => {AppName :: atom(), Key :: atom(), Val :: term()},
+    env => [{AppName :: atom(), Key :: atom(), Val :: term()}],
     %% Whether to execute `emqx_config:init_load(SchemaMod)`
     %% default: true
     load_schema => boolean(),
+    %% Which node in the cluster to join to.
+    %% default: first core node
+    join_to => node(),
     %% If we want to exercise the scenario where a node joins an
     %% existing cluster where there has already been some
     %% configuration changes (via cluster rpc), then we need to enable
@@ -692,28 +695,38 @@ emqx_cluster(Specs0, CommonOpts) ->
     ]),
     %% Set the default node of the cluster:
     CoreNodes = [node_name(Name) || {{core, Name, _}, _} <- Specs],
-    JoinTo0 =
+    JoinTo =
         case CoreNodes of
             [First | _] -> First;
             _ -> undefined
         end,
-    JoinTo =
-        case maps:find(join_to, CommonOpts) of
-            {ok, true} -> JoinTo0;
-            {ok, JT} -> JT;
-            error -> JoinTo0
-        end,
-    [
-        {Name,
-            merge_opts(Opts, #{
-                base_port => base_port(Number),
+    NodeOpts = fun(Number) ->
+        #{
+            base_port => base_port(Number),
+            env => [
+                {mria, core_nodes, CoreNodes},
+                {gen_rpc, client_config_per_node, {internal, GenRpcPorts}}
+            ]
+        }
+    end,
+    RoleOpts = fun
+        (core) ->
+            #{
                 join_to => JoinTo,
                 env => [
-                    {mria, core_nodes, CoreNodes},
-                    {mria, node_role, Role},
-                    {gen_rpc, client_config_per_node, {internal, GenRpcPorts}}
+                    {mria, node_role, core}
                 ]
-            })}
+            };
+        (replicant) ->
+            #{
+                env => [
+                    {mria, node_role, replicant},
+                    {ekka, cluster_discovery, {static, [{seeds, CoreNodes}]}}
+                ]
+            }
+    end,
+    [
+        {Name, merge_opts(merge_opts(NodeOpts(Number), RoleOpts(Role)), Opts)}
      || {{Role, Name, Opts}, Number} <- Specs
     ].
 
