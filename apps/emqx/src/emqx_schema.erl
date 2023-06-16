@@ -1758,7 +1758,7 @@ base_listener(Bind) ->
             )},
         {"bind",
             sc(
-                hoconsc:union([ip_port(), integer()]),
+                ip_port(),
                 #{
                     default => Bind,
                     required => true,
@@ -2525,9 +2525,9 @@ to_ip_port(Str) ->
     case split_ip_port(Str) of
         {"", Port} ->
             %% this is a local address
-            {ok, list_to_integer(Port)};
+            {ok, parse_port(Port)};
         {MaybeIp, Port} ->
-            PortVal = list_to_integer(Port),
+            PortVal = parse_port(Port),
             case inet:parse_address(MaybeIp) of
                 {ok, IpTuple} ->
                     {ok, {IpTuple, PortVal}};
@@ -2543,18 +2543,11 @@ split_ip_port(Str0) ->
     case lists:split(string:rchr(Str, $:), Str) of
         %% no colon
         {[], Str} ->
-            try
-                %% if it's just a port number, then return as-is
-                _ = list_to_integer(Str),
-                {"", Str}
-            catch
-                _:_ ->
-                    error
-            end;
+            {"", Str};
         {IpPlusColon, PortString} ->
             IpStr0 = lists:droplast(IpPlusColon),
             case IpStr0 of
-                %% dropp head/tail brackets
+                %% drop head/tail brackets
                 [$[ | S] ->
                     case lists:last(S) of
                         $] -> {lists:droplast(S), PortString};

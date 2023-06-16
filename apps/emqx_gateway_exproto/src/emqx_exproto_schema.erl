@@ -56,7 +56,7 @@ fields(exproto_grpc_server) ->
     [
         {bind,
             sc(
-                hoconsc:union([ip_port(), integer()]),
+                ip_port(),
                 #{
                     required => true,
                     desc => ?DESC(exproto_grpc_server_bind)

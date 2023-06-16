@@ -195,7 +195,7 @@ enable(Bool) ->
 bind(Port) ->
     {"bind",
         ?HOCON(
-            ?UNION([non_neg_integer(), emqx_schema:ip_port()]),
+            emqx_schema:ip_port(),
             #{
                 default => 0,
                 required => false,
