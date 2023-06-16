@@ -20,6 +20,7 @@
 -compile(nowarn_export_all).
 
 -include_lib("eunit/include/eunit.hrl").
+-include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
 -define(SOCKOPTS, [
     binary,
@@ -208,3 +209,34 @@ t_pmap_exception(_) ->
             [{2, 3}, {3, 4}, error]
         )
     ).
+
+t_pmap_late_reply(_) ->
+    ?check_trace(
+        begin
+            ?force_ordering(
+                #{?snk_kind := pmap_middleman_sent_response},
+                #{?snk_kind := pmap_timeout}
+            ),
+            Timeout = 100,
+            Res =
+                catch emqx_utils:pmap(
+                    fun(_) ->
+                        process_flag(trap_exit, true),
+                        timer:sleep(3 * Timeout),
+                        done
+                    end,
+                    [1, 2, 3],
+                    Timeout
+                ),
+            receive
+                {Ref, LateReply} when is_reference(Ref) ->
+                    ct:fail("should not receive late reply: ~p", [LateReply])
+            after (5 * Timeout) ->
+                ok
+            end,
+            ?assertMatch([done, done, done], Res),
+            ok
+        end,
+        []
+    ),
+    ok.
