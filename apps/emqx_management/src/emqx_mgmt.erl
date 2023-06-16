@@ -118,6 +118,7 @@
 
 list_nodes() ->
     Running = emqx:cluster_nodes(running),
+    %% all stopped core nodes
     Stopped = emqx:cluster_nodes(stopped),
     DownNodes = lists:map(fun stopped_node_info/1, Stopped),
     [{Node, Info} || #{node := Node} = Info <- node_info(Running)] ++ DownNodes.
@@ -181,7 +182,7 @@ node_info(Nodes) ->
     emqx_rpc:unwrap_erpc(emqx_management_proto_v3:node_info(Nodes)).
 
 stopped_node_info(Node) ->
-    {Node, #{node => Node, node_status => 'stopped'}}.
+    {Node, #{node => Node, node_status => 'stopped', role => core}}.
 
 vm_stats() ->
     Idle =
