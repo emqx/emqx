@@ -200,6 +200,46 @@ required_acks.desc:
 required_acks.label:
 """Required Acks"""
 
+kafka_headers.desc:
+"""Please provide a placeholder to be used as Kafka Headers<br/>
+e.g. <code>${pub_props}</code><br/>
+Notice that the value of the placeholder must either be an object:
+<code>{\"foo\": \"bar\"}</code>
+or an array of key-value pairs:
+<code>[{\"key\": \"foo\", \"value\": \"bar\"}]</code>"""
+
+kafka_headers.label:
+"""Kafka Headers"""
+
+producer_kafka_ext_headers.desc:
+"""Please provide more key-value pairs for Kafka headers<br/>
+The key-value pairs here will be combined with the
+value of <code>kafka_headers</code> field before sending to Kafka."""
+
+producer_kafka_ext_headers.label:
+"""Extra Kafka headers"""
+
+producer_kafka_ext_header_key.desc:
+"""Key of the Kafka header. Placeholders in format of ${var} are supported."""
+
+producer_kafka_ext_header_key.label:
+"""Kafka extra header key."""
+
+producer_kafka_ext_header_value.desc:
+"""Value of the Kafka header. Placeholders in format of ${var} are supported."""
+
+producer_kafka_ext_header_value.label:
+"""Value"""
+
+kafka_header_value_encode_mode.desc:
+"""Kafka headers value encode mode<br/>
+ - NONE: only add binary values to Kafka headers;<br/>
+ - JSON: only add JSON values to Kafka headers,
+and encode it to JSON strings before sending."""
+
+kafka_header_value_encode_mode.label:
+"""Kafka headers value encode mode"""
+
 metadata_request_timeout.desc:
 """Maximum wait time when fetching metadata from Kafka."""
 

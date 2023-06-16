@@ -57,6 +57,9 @@ on_start(InstId, Config) ->
         socket_opts := SocketOpts,
         ssl := SSL
     } = Config,
+    KafkaHeadersTokens = preproc_kafka_headers(maps:get(kafka_headers, KafkaConfig, undefined)),
+    KafkaExtHeadersTokens = preproc_ext_headers(maps:get(kafka_ext_headers, KafkaConfig, [])),
+    KafkaHeadersValEncodeMode = maps:get(kafka_header_value_encode_mode, KafkaConfig, none),
     BridgeType = ?BRIDGE_TYPE,
     ResourceId = emqx_bridge_resource:resource_id(BridgeType, BridgeName),
     ok = emqx_resource:allocate_resource(InstId, ?kafka_resource_id, ResourceId),
@@ -116,7 +119,10 @@ on_start(InstId, Config) ->
                 resource_id => ResourceId,
                 sync_query_timeout => SyncQueryTimeout,
                 hosts => Hosts,
-                kafka_config => KafkaConfig
+                kafka_config => KafkaConfig,
+                headers_tokens => KafkaHeadersTokens,
+                ext_headers_tokens => KafkaExtHeadersTokens,
+                headers_val_encode_mode => KafkaHeadersValEncodeMode
             }};
         {error, Reason2} ->
             ?SLOG(error, #{
@@ -210,11 +216,19 @@ on_query(
     #{
         message_template := Template,
         producers := Producers,
-        sync_query_timeout := SyncTimeout
+        sync_query_timeout := SyncTimeout,
+        headers_tokens := KafkaHeadersTokens,
+        ext_headers_tokens := KafkaExtHeadersTokens,
+        headers_val_encode_mode := KafkaHeadersValEncodeMode
     }
 ) ->
-    ?tp(emqx_bridge_kafka_impl_producer_sync_query, #{}),
-    KafkaMessage = render_message(Template, Message),
+    KafkaHeaders = #{
+        headers_tokens => KafkaHeadersTokens,
+        ext_headers_tokens => KafkaExtHeadersTokens,
+        headers_val_encode_mode => KafkaHeadersValEncodeMode
+    },
+    KafkaMessage = render_message(Template, KafkaHeaders, Message),
+    ?tp(emqx_bridge_kafka_impl_producer_sync_query, KafkaHeaders),
     try
         {_Partition, _Offset} = wolff:send_sync(Producers, [KafkaMessage], SyncTimeout),
         ok
@@ -235,10 +249,21 @@ on_query_async(
     _InstId,
     {send_message, Message},
     AsyncReplyFn,
-    #{message_template := Template, producers := Producers}
+    #{
+        message_template := Template,
+        producers := Producers,
+        headers_tokens := KafkaHeadersTokens,
+        ext_headers_tokens := KafkaExtHeadersTokens,
+        headers_val_encode_mode := KafkaHeadersValEncodeMode
+    }
 ) ->
-    ?tp(emqx_bridge_kafka_impl_producer_async_query, #{}),
-    KafkaMessage = render_message(Template, Message),
+    KafkaHeaders = #{
+        headers_tokens => KafkaHeadersTokens,
+        ext_headers_tokens => KafkaExtHeadersTokens,
+        headers_val_encode_mode => KafkaHeadersValEncodeMode
+    },
+    KafkaMessage = render_message(Template, KafkaHeaders, Message),
+    ?tp(emqx_bridge_kafka_impl_producer_async_query, KafkaHeaders),
     %% * Must be a batch because wolff:send and wolff:send_sync are batch APIs
     %% * Must be a single element batch because wolff books calls, but not batch sizes
     %%   for counters and gauges.
@@ -264,11 +289,25 @@ preproc_tmpl(Tmpl) ->
     emqx_placeholder:preproc_tmpl(Tmpl).
 
 render_message(
-    #{key := KeyTemplate, value := ValueTemplate, timestamp := TimestampTemplate}, Message
+    #{key := KeyTemplate, value := ValueTemplate, timestamp := TimestampTemplate},
+    #{
+        headers_tokens := KafkaHeadersTokens,
+        ext_headers_tokens := KafkaExtHeadersTokens,
+        headers_val_encode_mode := KafkaHeadersValEncodeMode
+    },
+    Message
 ) ->
+    ExtHeaders = proc_ext_headers(KafkaExtHeadersTokens, Message),
+    KafkaHeaders =
+        case KafkaHeadersTokens of
+            undefined -> ExtHeaders;
+            HeadersTks -> merge_kafka_headers(HeadersTks, ExtHeaders, Message)
+        end,
+    Headers = formalize_kafka_headers(KafkaHeaders, KafkaHeadersValEncodeMode),
     #{
         key => render(KeyTemplate, Message),
         value => render(ValueTemplate, Message),
+        headers => Headers,
         ts => render_timestamp(TimestampTemplate, Message)
     }.
 
@@ -509,3 +548,105 @@ maybe_install_wolff_telemetry_handlers(ResourceID) ->
         %% multiplying the metric counts...
         #{bridge_id => ResourceID}
     ).
+
+preproc_kafka_headers(HeadersTmpl) when HeadersTmpl =:= <<>>; HeadersTmpl =:= undefined ->
+    undefined;
+preproc_kafka_headers(HeadersTmpl) ->
+    %% the value is already validated by schema, so we do not validate it again.
+    emqx_placeholder:preproc_tmpl(HeadersTmpl).
+
+preproc_ext_headers(Headers) ->
+    [
+        {emqx_placeholder:preproc_tmpl(K), preproc_ext_headers_value(V)}
+     || #{kafka_ext_header_key := K, kafka_ext_header_value := V} <- Headers
+    ].
+
+preproc_ext_headers_value(ValTmpl) ->
+    %% the value is already validated by schema, so we do not validate it again.
+    emqx_placeholder:preproc_tmpl(ValTmpl).
+
+proc_ext_headers(ExtHeaders, Msg) ->
+    lists:filtermap(
+        fun({KTks, VTks}) ->
+            try
+                Key = proc_ext_headers_key(KTks, Msg),
+                Val = proc_ext_headers_value(VTks, Msg),
+                {true, {Key, Val}}
+            catch
+                throw:placeholder_not_found -> false
+            end
+        end,
+        ExtHeaders
+    ).
+
+proc_ext_headers_key(KeyTks, Msg) ->
+    RawList = emqx_placeholder:proc_tmpl(KeyTks, Msg, #{return => rawlist}),
+    list_to_binary(
+        lists:map(
+            fun
+                (undefined) -> throw(placeholder_not_found);
+                (Key) -> bin(Key)
+            end,
+            RawList
+        )
+    ).
+
+proc_ext_headers_value(ValTks, Msg) ->
+    case emqx_placeholder:proc_tmpl(ValTks, Msg, #{return => rawlist}) of
+        [undefined] -> throw(placeholder_not_found);
+        [Value] -> Value
+    end.
+
+kvlist_headers([], Acc) ->
+    lists:reverse(Acc);
+kvlist_headers([#{key := K, value := V} | Headers], Acc) ->
+    kvlist_headers(Headers, [{K, V} | Acc]);
+kvlist_headers([#{<<"key">> := K, <<"value">> := V} | Headers], Acc) ->
+    kvlist_headers(Headers, [{K, V} | Acc]);
+kvlist_headers([{K, V} | Headers], Acc) ->
+    kvlist_headers(Headers, [{K, V} | Acc]);
+kvlist_headers([BadHeader | _], _) ->
+    throw({bad_kafka_header, BadHeader}).
+
+-define(IS_STR_KEY(K), (is_list(K) orelse is_atom(K) orelse is_binary(K))).
+formalize_kafka_headers(Headers, none) ->
+    %% Note that we will drop all the non-binary values in the NONE mode
+    [{bin(K), V} || {K, V} <- Headers, is_binary(V) andalso ?IS_STR_KEY(K)];
+formalize_kafka_headers(Headers, json) ->
+    lists:filtermap(
+        fun({K, V}) ->
+            try
+                {true, {bin(K), emqx_utils_json:encode(V)}}
+            catch
+                _:_ -> false
+            end
+        end,
+        Headers
+    ).
+
+merge_kafka_headers(HeadersTks, ExtHeaders, Msg) ->
+    case emqx_placeholder:proc_tmpl(HeadersTks, Msg, #{return => rawlist}) of
+        % Headers by map object.
+        [Map] when is_map(Map) ->
+            maps:to_list(Map) ++ ExtHeaders;
+        [KVList] when is_list(KVList) ->
+            kvlist_headers(KVList, []) ++ ExtHeaders;
+        %% the placeholder cannot be found in Msg
+        [undefined] ->
+            ExtHeaders;
+        [MaybeJson] when is_binary(MaybeJson) ->
+            case emqx_utils_json:safe_decode(MaybeJson) of
+                {ok, JsonTerm} when is_map(JsonTerm) ->
+                    maps:to_list(JsonTerm) ++ ExtHeaders;
+                {ok, JsonTerm} when is_list(JsonTerm) ->
+                    kvlist_headers(JsonTerm, []) ++ ExtHeaders;
+                _ ->
+                    throw({bad_kafka_headers, MaybeJson})
+            end;
+        BadHeaders ->
+            throw({bad_kafka_headers, BadHeaders})
+    end.
+
+bin(B) when is_binary(B) -> B;
+bin(L) when is_list(L) -> erlang:list_to_binary(L);
+bin(A) when is_atom(A) -> erlang:atom_to_binary(A, utf8).
