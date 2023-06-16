@@ -209,6 +209,7 @@ dropped_inc(ID) ->
 dropped_inc(_ID, 0) ->
     ok;
 dropped_inc(ID, Val) ->
+    publish_event(dropped, {ID, Val}),
     telemetry:execute([?TELEMETRY_PREFIX, dropped], #{counter_inc => Val}, #{resource_id => ID}).
 
 dropped_get(ID) ->
@@ -221,6 +222,7 @@ dropped_other_inc(ID) ->
 dropped_other_inc(_ID, 0) ->
     ok;
 dropped_other_inc(ID, Val) ->
+    publish_event(dropped_other, {ID, Val}),
     telemetry:execute([?TELEMETRY_PREFIX, dropped_other], #{counter_inc => Val}, #{
         resource_id => ID
     }).
@@ -235,6 +237,7 @@ dropped_expired_inc(ID) ->
 dropped_expired_inc(_ID, 0) ->
     ok;
 dropped_expired_inc(ID, Val) ->
+    publish_event(dropped_expired, {ID, Val}),
     telemetry:execute([?TELEMETRY_PREFIX, dropped_expired], #{counter_inc => Val}, #{
         resource_id => ID
     }).
@@ -249,6 +252,7 @@ late_reply_inc(ID) ->
 late_reply_inc(_ID, 0) ->
     ok;
 late_reply_inc(ID, Val) ->
+    publish_event(late_reply, {ID, Val}),
     telemetry:execute([?TELEMETRY_PREFIX, late_reply], #{counter_inc => Val}, #{
         resource_id => ID
     }).
@@ -263,6 +267,7 @@ dropped_queue_full_inc(ID) ->
 dropped_queue_full_inc(_ID, 0) ->
     ok;
 dropped_queue_full_inc(ID, Val) ->
+    publish_event(dropped_queue_full, {ID, Val}),
     telemetry:execute([?TELEMETRY_PREFIX, dropped_queue_full], #{counter_inc => Val}, #{
         resource_id => ID
     }).
@@ -277,6 +282,7 @@ dropped_resource_not_found_inc(ID) ->
 dropped_resource_not_found_inc(_ID, 0) ->
     ok;
 dropped_resource_not_found_inc(ID, Val) ->
+    publish_event(dropped_resource_not_found, {ID, Val}),
     telemetry:execute([?TELEMETRY_PREFIX, dropped_resource_not_found], #{counter_inc => Val}, #{
         resource_id => ID
     }).
@@ -291,6 +297,7 @@ dropped_resource_stopped_inc(ID) ->
 dropped_resource_stopped_inc(_ID, 0) ->
     ok;
 dropped_resource_stopped_inc(ID, Val) ->
+    publish_event(dropped_resource_stopped, {ID, Val}),
     telemetry:execute([?TELEMETRY_PREFIX, dropped_resource_stopped], #{counter_inc => Val}, #{
         resource_id => ID
     }).
@@ -305,6 +312,7 @@ matched_inc(ID) ->
 matched_inc(_ID, 0) ->
     ok;
 matched_inc(ID, Val) ->
+    publish_event(matched, {ID, Val}),
     telemetry:execute([?TELEMETRY_PREFIX, matched], #{counter_inc => Val}, #{resource_id => ID}).
 
 matched_get(ID) ->
@@ -317,6 +325,7 @@ received_inc(ID) ->
 received_inc(_ID, 0) ->
     ok;
 received_inc(ID, Val) ->
+    publish_event(received, {ID, Val}),
     telemetry:execute([?TELEMETRY_PREFIX, received], #{counter_inc => Val}, #{resource_id => ID}).
 
 received_get(ID) ->
@@ -329,6 +338,7 @@ retried_inc(ID) ->
 retried_inc(_ID, 0) ->
     ok;
 retried_inc(ID, Val) ->
+    publish_event(retried, {ID, Val}),
     telemetry:execute([?TELEMETRY_PREFIX, retried], #{counter_inc => Val}, #{resource_id => ID}).
 
 retried_get(ID) ->
@@ -341,6 +351,7 @@ failed_inc(ID) ->
 failed_inc(_ID, 0) ->
     ok;
 failed_inc(ID, Val) ->
+    publish_event(failed, {ID, Val}),
     telemetry:execute([?TELEMETRY_PREFIX, failed], #{counter_inc => Val}, #{resource_id => ID}).
 
 failed_get(ID) ->
@@ -353,6 +364,7 @@ retried_failed_inc(ID) ->
 retried_failed_inc(_ID, 0) ->
     ok;
 retried_failed_inc(ID, Val) ->
+    publish_event(retried_failed, {ID, Val}),
     telemetry:execute([?TELEMETRY_PREFIX, retried_failed], #{counter_inc => Val}, #{
         resource_id => ID
     }).
@@ -367,6 +379,7 @@ retried_success_inc(ID) ->
 retried_success_inc(_ID, 0) ->
     ok;
 retried_success_inc(ID, Val) ->
+    publish_event(retried_success, {ID, Val}),
     telemetry:execute([?TELEMETRY_PREFIX, retried_success], #{counter_inc => Val}, #{
         resource_id => ID
     }).
@@ -381,7 +394,11 @@ success_inc(ID) ->
 success_inc(_ID, 0) ->
     ok;
 success_inc(ID, Val) ->
+    publish_event(success, {ID, Val}),
     telemetry:execute([?TELEMETRY_PREFIX, success], #{counter_inc => Val}, #{resource_id => ID}).
 
 success_get(ID) ->
     emqx_metrics_worker:get(?RES_METRICS, ID, 'success').
+
+publish_event(Event, {ID, Val}) ->
+    gproc_ps:publish(l, {emqx_resource_metrics_counter_inc, ID}, {Event, Val}).

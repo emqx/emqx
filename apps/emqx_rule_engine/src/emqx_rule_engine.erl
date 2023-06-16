@@ -59,7 +59,7 @@
 -export([
     load_hooks_for_rule/1,
     unload_hooks_for_rule/1,
-    maybe_add_metrics_for_rule/1,
+    maybe_add_metrics_for_rule/2,
     clear_metrics_for_rule/1,
     reset_metrics_for_rule/1
 ]).
@@ -278,12 +278,34 @@ get_rule(Id) ->
 load_hooks_for_rule(#{from := Topics}) ->
     lists:foreach(fun emqx_rule_events:load/1, Topics).
 
-maybe_add_metrics_for_rule(Id) ->
-    case emqx_metrics_worker:has_metrics(rule_metrics, Id) of
+-define(METRICS_MATCH_SPEC, [
+    {{dropped, '_'}, [], ['$_']},
+    {{dropped_other, '_'}, [], ['$_']},
+    {{dropped_expired, '_'}, [], ['$_']},
+    % ???
+    {{late_reply, '_'}, [], ['$_']},
+    {{dropped_queue_full, '_'}, [], ['_']},
+    {{dropped_resource_not_found, '_'}, [], ['_']},
+    {{dropped_resource_stopped, '_'}, [], ['_']},
+    {{failed, '_'}, [], ['_']},
+    {{retried_failed, '_'}, [], ['_']},
+    {{retried_success, '_'}, [], ['_']},
+    {{success, '_'}, [], ['_']}
+]).
+
+maybe_add_metrics_for_rule(RuleId, Actions) ->
+    %% [TODO] use macro for event
+    _ = [
+        gproc_ps:subscribe_cond(
+            l, {emqx_resource_metrics_counter_inc, ResourceId}, ?METRICS_MATCH_SPEC
+        )
+     || {bridge, _, _, ResourceId} <- Actions
+    ],
+    case emqx_metrics_worker:has_metrics(rule_metrics, RuleId) of
         true ->
-            ok = reset_metrics_for_rule(Id);
+            ok = reset_metrics_for_rule(RuleId);
         false ->
-            ok = emqx_metrics_worker:create_metrics(rule_metrics, Id, ?METRICS, ?RATE_METRICS)
+            ok = emqx_metrics_worker:create_metrics(rule_metrics, RuleId, ?METRICS, ?RATE_METRICS)
     end.
 
 clear_metrics_for_rule(Id) ->
@@ -418,6 +440,16 @@ handle_cast(Msg, State) ->
     ?SLOG(error, #{msg => "unexpected_cast", request => Msg}),
     {noreply, State}.
 
+handle_info(
+    {gproc_ps_event, {emqx_resource_metrics_counter_inc, ResourceId}, {ResEvent, Val}}, State
+) ->
+    lists:foreach(
+        fun(RuleId) ->
+            emqx_metrics_worker:inc(rule_metrics, RuleId, to_rule_event(ResEvent), Val)
+        end,
+        lookup_rule_ids(ResourceId)
+    ),
+    {noreply, State};
 handle_info(Info, State) ->
     ?SLOG(error, #{msg => "unexpected_info", request => Info}),
     {noreply, State}.
@@ -431,6 +463,40 @@ code_change(_OldVsn, State, _Extra) ->
 %%----------------------------------------------------------------------------------------
 %% Internal Functions
 %%----------------------------------------------------------------------------------------
+
+lookup_rule_ids(ResourceId) ->
+    %% [FIXME] even though this is a relatively small set of data, might be
+    %% beneficial to keep a reverse lookup list in memory (State)
+    IsResourceId = fun
+        ({bridge, _, _, ResourceId0}) -> ResourceId0 == ResourceId;
+        (_) -> false
+    end,
+    ets:foldl(
+        fun({RuleId, #{actions := Actions}}, RuleIds) ->
+            case lists:any(IsResourceId, Actions) of
+                true ->
+                    [RuleId | RuleIds];
+                false ->
+                    RuleIds
+            end
+        end,
+        [],
+        ?KV_TAB
+    ).
+
+%% [FIXME] there's a case where we also need to increment 'actions.failed.unknown'
+to_rule_event(dropped) -> 'actions.failed';
+to_rule_event(dropped_other) -> 'actions.failed';
+to_rule_event(dropped_expired) -> 'actions.failed';
+% ???
+to_rule_event(late_reply) -> 'actions.failed';
+to_rule_event(dropped_queue_full) -> 'actions.failed';
+to_rule_event(dropped_resource_not_found) -> 'actions.failed.out_of_service';
+to_rule_event(dropped_resource_stopped) -> 'actions.failed.out_of_service';
+to_rule_event(retried_failed) -> 'actions.failed';
+to_rule_event(failed) -> 'actions.failed';
+to_rule_event(retried_success) -> 'actions.success';
+to_rule_event(success) -> 'actions.success'.
 
 parse_and_insert(Params = #{id := RuleId, sql := Sql, actions := Actions}, CreatedAt) ->
     case emqx_rule_sqlparser:parse(Sql) of
@@ -459,9 +525,9 @@ parse_and_insert(Params = #{id := RuleId, sql := Sql, actions := Actions}, Creat
             {error, Reason}
     end.
 
-do_insert_rule(#{id := Id} = Rule) ->
+do_insert_rule(#{id := Id, actions := Actions} = Rule) ->
     ok = load_hooks_for_rule(Rule),
-    ok = maybe_add_metrics_for_rule(Id),
+    ok = maybe_add_metrics_for_rule(Id, Actions),
     true = ets:insert(?RULE_TAB, {Id, maps:remove(id, Rule)}),
     ok.
 

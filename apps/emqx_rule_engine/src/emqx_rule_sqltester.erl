@@ -48,12 +48,13 @@ test(#{sql := Sql, context := Context}) ->
 
 test_rule(Sql, Select, Context, EventTopics) ->
     RuleId = iolist_to_binary(["sql_tester:", emqx_utils:gen_id(16)]),
-    ok = emqx_rule_engine:maybe_add_metrics_for_rule(RuleId),
+    Actions = [#{mod => ?MODULE, func => get_selected_data, args => #{}}],
+    ok = emqx_rule_engine:maybe_add_metrics_for_rule(RuleId, Actions),
     Rule = #{
         id => RuleId,
         sql => Sql,
         from => EventTopics,
-        actions => [#{mod => ?MODULE, func => get_selected_data, args => #{}}],
+        actions => Actions,
         enable => true,
         is_foreach => emqx_rule_sqlparser:select_is_foreach(Select),
         fields => emqx_rule_sqlparser:select_fields(Select),

@@ -323,9 +323,7 @@ handle_action_list(RuleId, Actions, Selected, Envs) ->
 handle_action(RuleId, ActId, Selected, Envs) ->
     ok = emqx_metrics_worker:inc(rule_metrics, RuleId, 'actions.total'),
     try
-        Result = do_handle_action(ActId, Selected, Envs),
-        inc_action_metrics(Result, RuleId),
-        Result
+        do_handle_action(ActId, Selected, Envs)
     catch
         throw:out_of_service ->
             ok = emqx_metrics_worker:inc(rule_metrics, RuleId, 'actions.failed'),
@@ -511,31 +509,6 @@ ensure_list(_NotList) -> [].
 nested_put(Alias, Val, Columns0) ->
     Columns = handle_alias(Alias, Columns0),
     emqx_rule_maps:nested_put(Alias, Val, Columns).
-
--define(IS_RES_DOWN(R), R == stopped; R == not_connected; R == not_found).
-inc_action_metrics({error, {recoverable_error, _}}, RuleId) ->
-    emqx_metrics_worker:inc(rule_metrics, RuleId, 'actions.failed.out_of_service');
-inc_action_metrics(?RESOURCE_ERROR_M(R, _), RuleId) when ?IS_RES_DOWN(R) ->
-    emqx_metrics_worker:inc(rule_metrics, RuleId, 'actions.failed.out_of_service');
-inc_action_metrics({error, {unrecoverable_error, _}}, RuleId) ->
-    emqx_metrics_worker:inc(rule_metrics, RuleId, 'actions.failed');
-inc_action_metrics(R, RuleId) ->
-    case is_ok_result(R) of
-        false ->
-            emqx_metrics_worker:inc(rule_metrics, RuleId, 'actions.failed'),
-            emqx_metrics_worker:inc(rule_metrics, RuleId, 'actions.failed.unknown');
-        true ->
-            emqx_metrics_worker:inc(rule_metrics, RuleId, 'actions.success')
-    end.
-
-is_ok_result(ok) ->
-    true;
-is_ok_result({async_return, R}) ->
-    is_ok_result(R);
-is_ok_result(R) when is_tuple(R) ->
-    ok == erlang:element(1, R);
-is_ok_result(_) ->
-    false.
 
 parse_module_name(Name) when is_binary(Name) ->
     case ?IS_VALID_SQL_FUNC_PROVIDER_MODULE_NAME(Name) of
