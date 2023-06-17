@@ -389,8 +389,13 @@ cmd() ->
 
 connector_fields(DB) ->
     connector_fields(DB, config).
+connector_fields(redis = DB, Fields) ->
+    connector_fields(DB, Fields, emqx);
 connector_fields(DB, Fields) ->
-    Mod0 = io_lib:format("~ts_~ts", [emqx_connector, DB]),
+    connector_fields(DB, Fields, emqx_connector).
+
+connector_fields(DB, Fields, Prefix) ->
+    Mod0 = io_lib:format("~ts_~ts", [Prefix, DB]),
     Mod =
         try
             list_to_existing_atom(Mod0)

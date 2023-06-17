@@ -483,6 +483,7 @@ relx_apps_per_edition(ee) ->
         emqx_bridge_timescale,
         emqx_bridge_sqlserver,
         emqx_oracle,
+        emqx_redis,
         emqx_bridge_oracle,
         emqx_bridge_rabbitmq,
         emqx_ee_schema_registry,

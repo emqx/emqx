@@ -378,7 +378,8 @@ defmodule EMQXUmbrella.MixProject do
         emqx_slow_subs: :permanent,
         emqx_mongodb: :permanent,
         emqx_plugins: :permanent,
-        emqx_mix: :none
+        emqx_mix: :none,
+        emqx_redis: :permanent
       ] ++
       if(enable_quicer?(), do: [quicer: :permanent], else: []) ++
       if(enable_bcrypt?(), do: [bcrypt: :permanent], else: []) ++

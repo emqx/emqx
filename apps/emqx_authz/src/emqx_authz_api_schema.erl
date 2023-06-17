@@ -77,13 +77,13 @@ fields(postgresql) ->
         proplists:delete(prepare_statement, emqx_connector_pgsql:fields(config));
 fields(redis_single) ->
     authz_redis_common_fields() ++
-        emqx_connector_redis:fields(single);
+        emqx_redis:fields(single);
 fields(redis_sentinel) ->
     authz_redis_common_fields() ++
-        emqx_connector_redis:fields(sentinel);
+        emqx_redis:fields(sentinel);
 fields(redis_cluster) ->
     authz_redis_common_fields() ++
-        emqx_connector_redis:fields(cluster);
+        emqx_redis:fields(cluster);
 fields(position) ->
     [
         {position,

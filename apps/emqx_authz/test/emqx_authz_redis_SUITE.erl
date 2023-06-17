@@ -45,7 +45,7 @@ init_per_suite(Config) ->
             {ok, _} = emqx_resource:create_local(
                 ?REDIS_RESOURCE,
                 ?RESOURCE_GROUP,
-                emqx_connector_redis,
+                emqx_redis,
                 redis_config(),
                 #{}
             ),

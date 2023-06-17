@@ -52,13 +52,13 @@ create(#{cmd := CmdStr} = Source) ->
     Cmd = tokens(CmdStr),
     ResourceId = emqx_authz_utils:make_resource_id(?MODULE),
     CmdTemplate = emqx_authz_utils:parse_deep(Cmd, ?PLACEHOLDERS),
-    {ok, _Data} = emqx_authz_utils:create_resource(ResourceId, emqx_connector_redis, Source),
+    {ok, _Data} = emqx_authz_utils:create_resource(ResourceId, emqx_redis, Source),
     Source#{annotations => #{id => ResourceId}, cmd_template => CmdTemplate}.
 
 update(#{cmd := CmdStr} = Source) ->
     Cmd = tokens(CmdStr),
     CmdTemplate = emqx_authz_utils:parse_deep(Cmd, ?PLACEHOLDERS),
-    case emqx_authz_utils:update_resource(emqx_connector_redis, Source) of
+    case emqx_authz_utils:update_resource(emqx_redis, Source) of
         {error, Reason} ->
             error({load_config_error, Reason});
         {ok, Id} ->

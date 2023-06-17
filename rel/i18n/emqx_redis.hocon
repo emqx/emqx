@@ -1,4 +1,4 @@
-emqx_connector_redis {
+emqx_redis {
 
 cluster.desc:
 """Cluster mode. Must be set to 'cluster' when Redis server is running in clustered mode."""

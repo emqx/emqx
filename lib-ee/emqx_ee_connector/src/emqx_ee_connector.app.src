@@ -6,7 +6,8 @@
         kernel,
         stdlib,
         ecpool,
-        hstreamdb_erl
+        hstreamdb_erl,
+        emqx_redis
     ]},
     {env, []},
     {modules, []},
