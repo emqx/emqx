@@ -380,7 +380,7 @@ make_docker() {
     ## extra_deps is a comma separated list of debian 11 package names
     local extra_deps=''
     if [[ "$PROFILE" = *enterprise* ]]; then
-        extra_deps='libsasl2-2'
+        extra_deps='libsasl2-2,libsasl2-modules-gssapi-mit'
     fi
     echo '_build' >> ./.dockerignore
     set -x
