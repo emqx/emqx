@@ -1,0 +1,19 @@
+##--------------------------------------------------------------------
+## License
+##
+## Defines the EMQX Enterprise license
+##--------------------------------------------------------------------
+## Note: This is an example of how to configure this feature
+##       you should copy and paste the below data into the emqx.conf for working
+
+## Note: This configuration only works for the EMQX Enterprise version
+
+license {
+    ## License Key
+    key = "MjIwMTExCjAKMTAKRXZhbHVhdGlvbgpjb250YWN0QGVtcXguaW8KZGVmYXVsdAoyMDIzMDEwOQoxODI1CjEwMAo=.MEUCIG62t8W15g05f1cKx3tA3YgJoR0dmyHOPCdbUxBGxgKKAiEAhHKh8dUwhU+OxNEaOn8mgRDtiT3R8RZooqy6dEsOmDI="
+    ## Low watermark limit below which license connection quota usage alarms are deactivated
+    connection_low_watermark = "75%"
+
+    ## High watermark limit above which license connection quota usage alarms are activated
+    connection_high_watermark = "80%"
+}

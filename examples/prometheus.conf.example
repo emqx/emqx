@@ -1,0 +1,28 @@
+##--------------------------------------------------------------------
+## Prometheus
+##
+## Settings for reporting metrics to Prometheus
+##--------------------------------------------------------------------
+
+prometheus {
+    ## URL of Prometheus server
+    push_gateway_server = "http://127.0.0.1:9091"
+
+    ## Data reporting interval
+    interval = 15s
+
+    ## A HTTP Headers when pushing to Push Gateway.
+    headers = {
+        Authorization = "some-authz-tokens",
+        Connection = "keep-alive"
+    }
+
+    ## Job Name that is pushed to the Push Gateway.
+    ## Available variable:
+    ## - ${name}: Name of EMQX node
+    ## - ${host}: Host name of EMQX node
+    job_name = "${name}/instance/${name}~${host}"
+
+    ## set true to enable this
+    enable = false
+}

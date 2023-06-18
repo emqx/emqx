@@ -1,0 +1,30 @@
+##--------------------------------------------------------------------
+## Auto Subscribe
+##
+## Subscribe the Topics automatically when client connected
+##--------------------------------------------------------------------
+
+auto_subscribe.topics = [
+    {
+        ## Topic name, placeholders are supported
+        ## For example: client/${clientid}/username/${username}/host/${host}/port/${port}
+        topic = "/auto/${clientid}",
+
+        ## QoS
+        qos = 0,
+
+        ## Retain Handling
+        ## Value: 0 | 1 | 2
+        rh = 0,
+
+        ## Retain As Publish
+        ## Value: 0 | 1
+        rap = 0,
+
+        ## No Local
+        ## Value: 0 | 1
+        nl = 0
+    },
+    {topic = "/foo/${username}/#", qos = 1},
+    {topic = "/boo/${ip}/+"}
+]

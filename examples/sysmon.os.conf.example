@@ -1,0 +1,30 @@
+##--------------------------------------------------------------------
+## System Monitoring For System
+##
+## System monitoring and introspection
+##--------------------------------------------------------------------
+## Note: This is an example of how to configure this feature
+##       you should copy and paste the below data into the emqx.conf for working
+
+sysmon.os {
+    ## Time interval for the periodic CPU check
+    cpu_check_interval = "60s"
+
+    ## For how much system cpu can be used before the corresponding alarm is raised
+    cpu_high_watermark = "80%"
+
+    ## For how much system cpu can be used before the corresponding alarm is cleared
+    cpu_low_watermark = "60%"
+
+    ## Time interval for the periodic memory check
+    ## Type:
+    ##   - disabled :: Never check
+    ##   - Time Duration :: The time period
+    mem_check_interval = "60s"
+
+    ## For how much system memory can be allocated before the corresponding alarm is raised
+    sysmem_high_watermark = "70%"
+
+    ## For how much system memory can be allocated by one Erlang process before the corresponding alarm is raised
+    procmem_high_watermark = "5%"
+}

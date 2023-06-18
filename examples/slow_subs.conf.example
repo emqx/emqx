@@ -1,0 +1,28 @@
+##--------------------------------------------------------------------
+## Slow Subscribers Statistics
+##
+## Count subscribers with topics whose transfer time exceeds the threshold
+##--------------------------------------------------------------------
+## Note: This is an example of how to configure this feature
+##       you should copy and paste the below data into the emqx.conf for working
+
+slow_subs {
+    ## Stats Threshold
+    threshold = 500ms
+
+    ## Expire time of the record which in Top-K record
+    expire_interval = 300ms
+
+    ## Maximum number of Top-K record
+    top_k_num = 10
+
+    ## Stats Type
+    ## Value:
+    ## - whole: from the time the message arrives at EMQX until the message transmission completes
+    ## - internal: from when the message arrives at EMQX until when EMQX starts delivering the message
+    ## - response: from the time EMQX starts delivering the message until the message transmission completes
+    stats_type = whole
+
+    ## use true to enable this
+    enable = false
+}

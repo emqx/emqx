@@ -1,0 +1,22 @@
+##--------------------------------------------------------------------
+## Alarm
+##
+## Configuring how to handle the alarms generated from sysmon.*.conf.example
+##--------------------------------------------------------------------
+## Note: This is an example of how to configure this feature
+##       you should copy and paste the below data into the emqx.conf for working
+
+alarm {
+    ## The actions triggered when the alarm is activated
+    ## Type: Array of the below enum
+    ##   - log :: write the alarm to log
+    ##   - publish :: publish the alarm as an MQTT message to the system topics
+    actions = [log]
+
+    ## Maximum total number of deactivated alarms to keep as history
+    ## Type: Range from 1 to 3000
+    size_limit = 1000
+
+    ## Retention time of deactivated alarms
+    validity_period = 24h
+}

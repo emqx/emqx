@@ -1,0 +1,76 @@
+##--------------------------------------------------------------------
+## RPC With SSL
+## See rpc-with-tcp.conf.example for RPC with TCP
+## EMQX inter-broker communication
+##--------------------------------------------------------------------
+## Note: This is an example of how to configure this feature
+##       you should copy and paste the below data into the emqx.conf for working
+
+## Note: Most of the time the default config should work
+##   you do not need to modify it unless you know what it is for
+rpc {
+    ## Communication mode
+    ## Type: async | sync
+    mode = async
+
+    ## Transport protocol used for inter-broker communication
+    ## Type: tcp | ssl
+    protocol = ssl
+
+    ## The maximum number of batch messages sent in asynchronous mode
+    ## Type: Integer
+    async_batch_size = 256
+
+    ## Port discovery strategy
+    ## Type:
+    ##   - manual :: discover ports by tcp_server_port
+    ##   - stateless :: discover ports in a stateless manner, using the following algorithm:
+    ##       If node name is emqxN@127.0.0.1, where the N is an integer, then the listening port will be 5370 + N
+    port_discovery = stateless
+
+    ## Listening port used by RPC local service
+    ssl_server_port = 5369
+
+    ## Set the maximum number of RPC communication channels initiated by this node to each remote node
+    ## Type: Range from 1 to 256
+    tcp_client_num = 10
+
+    ## Timeout for establishing an RPC connection
+    connect_timeout = 5s
+
+    ## Path to TLS certificate file used to validate identity of the cluster nodes
+    certfile = "data/cert.pem"
+
+    ## Path to the private key file
+    keyfile = "data/key.pem"
+
+    ## Path to certification authority TLS certificate file
+    cacertfile = "data/cacert.pem"
+
+    ## Timeout for sending the RPC request
+    send_timeout = 5s
+
+    ## Timeout for the remote node authentication
+    authentication_timeout = 5s
+
+    ## Timeout for the reply to a synchronous RPC
+    call_receive_timeout = 15s
+
+    ## How long the connections between the brokers should remain open after the last message is sent
+    socket_keepalive_idle = 15m
+
+    ## The interval between keepalive messages
+    socket_keepalive_interval = 75s
+
+    ## How many times the keepalive probe message can fail to receive a reply until the RPC connection is considered lost
+    socket_keepalive_count = 9
+
+    ## TCP sending buffer size
+    socket_sndbuf = 1MB
+
+    ## TCP receiving buffer size
+    socket_recbuf = 1MB
+
+    ## Socket buffer size in user mode
+    socket_buffer = 1MB
+ }
