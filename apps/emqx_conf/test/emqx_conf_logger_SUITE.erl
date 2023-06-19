@@ -43,7 +43,7 @@
                 file {
                 enable = true
                 level = info
-                to = \"log/emqx.log\"
+                path = \"log/emqx.log\"
                 }
              }
     """).
@@ -67,7 +67,7 @@ t_log_conf(_Conf) ->
         <<"rotation_count">> => 10,
         <<"rotation_size">> => <<"50MB">>,
         <<"time_offset">> => <<"system">>,
-        <<"to">> => <<"log/emqx.log">>
+        <<"path">> => <<"log/emqx.log">>
     },
     ExpectLog1 = #{
         <<"console">> =>

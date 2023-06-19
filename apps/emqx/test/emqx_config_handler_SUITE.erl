@@ -317,11 +317,19 @@ wait_for_new_pid() ->
             Pid
     end.
 
-callback_error(FailedPath, Update, Error) ->
+callback_error(FailedPath, Update, ExpectError) ->
     Opts = #{rawconf_with_defaults => true},
     ok = emqx_config_handler:add_handler(FailedPath, ?MODULE),
     Old = emqx:get_raw_config(FailedPath, undefined),
-    ?assertEqual(Error, emqx:update_config(FailedPath, Update, Opts)),
+    Error = emqx:update_config(FailedPath, Update, Opts),
+    case ExpectError of
+        {error, {post_config_update, ?MODULE, post_config_update_error}} ->
+            ?assertMatch(
+                {error, {post_config_update, ?MODULE, {post_config_update_error, _}}}, Error
+            );
+        _ ->
+            ?assertEqual(ExpectError, Error)
+    end,
     New = emqx:get_raw_config(FailedPath, undefined),
     ?assertEqual(Old, New),
     ok = emqx_config_handler:remove_handler(FailedPath),

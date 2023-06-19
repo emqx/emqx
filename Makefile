@@ -13,10 +13,10 @@ else
 	FIND=find
 endif
 
-# Dashbord version
+# Dashboard version
 # from https://github.com/emqx/emqx-dashboard5
-export EMQX_DASHBOARD_VERSION ?= v1.2.6-beta.1
-export EMQX_EE_DASHBOARD_VERSION ?= e1.1.0-beta.5
+export EMQX_DASHBOARD_VERSION ?= v1.3.0
+export EMQX_EE_DASHBOARD_VERSION ?= e1.1.0-beta.7
 
 # `:=` should be used here, otherwise the `$(shell ...)` will be executed every time when the variable is used
 # In make 4.4+, for backward-compatibility the value from the original environment is used.

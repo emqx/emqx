@@ -476,7 +476,23 @@ trans_query(TnxId) ->
 apply_mfa(TnxId, {M, F, A}, Kind) ->
     Res =
         try
-            erlang:apply(M, F, A)
+            case erlang:apply(M, F, A) of
+                {error, {post_config_update, HandlerName, {Reason0, PostFailureFun}}} when
+                    Kind =/= ?APPLY_KIND_INITIATE
+                ->
+                    ?SLOG(error, #{
+                        msg => "post_config_update_failed",
+                        handler => HandlerName,
+                        reason => Reason0
+                    }),
+                    PostFailureFun();
+                {error, {post_config_update, HandlerName, {Reason0, _Fun}}} when
+                    Kind =:= ?APPLY_KIND_INITIATE
+                ->
+                    {error, {post_config_update, HandlerName, Reason0}};
+                Result ->
+                    Result
+            end
         catch
             throw:Reason ->
                 {error, #{reason => Reason}};

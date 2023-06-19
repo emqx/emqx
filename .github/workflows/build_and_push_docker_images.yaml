@@ -167,9 +167,14 @@ jobs:
           img_suffix="-elixir"
           extra_labels="org.opencontainers.image.elixir.version=${{ matrix.elixir }}"
         fi
+        extra_deps=
+        if [[ "${{ matrix.profile }}" = *enterprise* ]]; then
+          extra_deps='libsasl2-2'
+        fi
 
         echo "img_suffix=$img_suffix" >> $GITHUB_OUTPUT
         echo "extra_labels=$extra_labels" >> $GITHUB_OUTPUT
+        echo "extra_deps=$extra_deps" >> $GITHUB_OUTPUT
 
     - uses: docker/metadata-action@v4
       id: meta
@@ -196,5 +201,6 @@ jobs:
         labels: ${{ steps.meta.outputs.labels }}
         build-args: |
           EMQX_NAME=${{ matrix.profile }}${{ steps.pre-meta.outputs.img_suffix }}
+          EXTRA_DEPS=${{ steps.pre-meta.outputs.extra_deps }}
         file: source/${{ matrix.os[2] }}
         context: source
