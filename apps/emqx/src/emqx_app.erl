@@ -44,7 +44,6 @@ start(_Type, _Args) ->
     ok = emqx_persistent_session:init_db_backend(),
     ok = maybe_start_quicer(),
     ok = emqx_bpapi:start(),
-    wait_boot_shards(),
     ok = emqx_alarm_handler:load(),
     {ok, Sup} = emqx_sup:start_link(),
     ok = maybe_start_listeners(),
@@ -59,9 +58,6 @@ prep_stop(_State) ->
         emqx_listeners:stop().
 
 stop(_State) -> ok.
-
-wait_boot_shards() ->
-    ok = mria_rlog:wait_for_shards(?BOOT_SHARDS, infinity).
 
 %% @doc Call this function to make emqx boot without loading config,
 %% in case we want to delegate the config load to a higher level app
