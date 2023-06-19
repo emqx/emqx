@@ -2418,13 +2418,13 @@ mk_duration(Desc, OverrideMeta) ->
 to_duration(Str) ->
     case hocon_postprocess:duration(Str) of
         I when is_integer(I) -> {ok, I};
-        _ -> {error, Str}
+        _ -> to_integer(Str)
     end.
 
 to_duration_s(Str) ->
     case hocon_postprocess:duration(Str) of
         I when is_number(I) -> {ok, ceiling(I / 1000)};
-        _ -> {error, Str}
+        _ -> to_integer(Str)
     end.
 
 -spec to_duration_ms(Input) -> {ok, integer()} | {error, Input} when
@@ -2432,7 +2432,7 @@ to_duration_s(Str) ->
 to_duration_ms(Str) ->
     case hocon_postprocess:duration(Str) of
         I when is_number(I) -> {ok, ceiling(I)};
-        _ -> {error, Str}
+        _ -> to_integer(Str)
     end.
 
 -spec to_timeout_duration(Input) -> {ok, timeout_duration()} | {error, Input} when
@@ -2473,7 +2473,7 @@ do_to_timeout_duration(Str, Fn, Max, Unit) ->
 to_bytesize(Str) ->
     case hocon_postprocess:bytesize(Str) of
         I when is_integer(I) -> {ok, I};
-        _ -> {error, Str}
+        _ -> to_integer(Str)
     end.
 
 to_wordsize(Str) ->
@@ -2481,6 +2481,13 @@ to_wordsize(Str) ->
     case to_bytesize(Str) of
         {ok, Bytes} -> {ok, Bytes div WordSize};
         Error -> Error
+    end.
+
+to_integer(Str) when is_list(Str) ->
+    case string:to_integer(Str) of
+        {Int, []} -> {ok, Int};
+        {Int, <<>>} -> {ok, Int};
+        _ -> {error, Str}
     end.
 
 to_percent(Str) ->

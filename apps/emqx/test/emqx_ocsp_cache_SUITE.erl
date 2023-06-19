@@ -144,8 +144,12 @@ init_per_testcase(t_ocsp_responder_error_responses, Config) ->
     },
     Conf = #{listeners => #{Type => #{Name => ListenerOpts}}},
     ConfBin = emqx_utils_maps:binary_key_map(Conf),
-    hocon_tconf:check_plain(emqx_schema, ConfBin, #{required => false, atom_keys => false}),
-    emqx_config:put_listener_conf(Type, Name, [], ListenerOpts),
+    CheckedConf = hocon_tconf:check_plain(emqx_schema, ConfBin, #{
+        required => false, atom_keys => false
+    }),
+    Conf2 = emqx_utils_maps:unsafe_atom_key_map(CheckedConf),
+    ListenerOpts2 = emqx_utils_maps:deep_get([listeners, Type, Name], Conf2),
+    emqx_config:put_listener_conf(Type, Name, [], ListenerOpts2),
     snabbkaffe:start_trace(),
     _Heir = spawn_dummy_heir(),
     {ok, CachePid} = emqx_ocsp_cache:start_link(),
@@ -186,8 +190,12 @@ init_per_testcase(_TestCase, Config) ->
     },
     Conf = #{listeners => #{Type => #{Name => ListenerOpts}}},
     ConfBin = emqx_utils_maps:binary_key_map(Conf),
-    hocon_tconf:check_plain(emqx_schema, ConfBin, #{required => false, atom_keys => false}),
-    emqx_config:put_listener_conf(Type, Name, [], ListenerOpts),
+    CheckedConf = hocon_tconf:check_plain(emqx_schema, ConfBin, #{
+        required => false, atom_keys => false
+    }),
+    Conf2 = emqx_utils_maps:unsafe_atom_key_map(CheckedConf),
+    ListenerOpts2 = emqx_utils_maps:deep_get([listeners, Type, Name], Conf2),
+    emqx_config:put_listener_conf(Type, Name, [], ListenerOpts2),
     [
         {cache_pid, CachePid}
         | Config

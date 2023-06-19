@@ -178,7 +178,7 @@ bridge_async_config(#{port := Port} = Config) ->
     Name = maps:get(name, Config, ?BRIDGE_NAME),
     PoolSize = maps:get(pool_size, Config, 1),
     QueryMode = maps:get(query_mode, Config, "async"),
-    ConnectTimeout = maps:get(connect_timeout, Config, 1),
+    ConnectTimeout = maps:get(connect_timeout, Config, "1s"),
     RequestTimeout = maps:get(request_timeout, Config, "10s"),
     ResumeInterval = maps:get(resume_interval, Config, "1s"),
     ResourceRequestTTL = maps:get(resource_request_ttl, Config, "infinity"),
