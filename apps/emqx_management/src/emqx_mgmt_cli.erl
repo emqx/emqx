@@ -616,21 +616,28 @@ listeners([]) ->
             Acceptors = maps:get(acceptors, Conf),
             ProxyProtocol = maps:get(proxy_protocol, Conf, undefined),
             Running = maps:get(running, Conf),
-            CurrentConns =
-                case emqx_listeners:current_conns(ID, Bind) of
-                    {error, _} -> [];
-                    CC -> [{current_conn, CC}]
-                end,
-            MaxConn =
-                case emqx_listeners:max_conns(ID, Bind) of
-                    {error, _} -> [];
-                    MC -> [{max_conns, MC}]
-                end,
-            ShutdownCount =
-                case emqx_listeners:shutdown_count(ID, Bind) of
-                    {error, _} -> [];
-                    SC -> [{shutdown_count, SC}]
-                end,
+            case Running of
+                true ->
+                    CurrentConns =
+                        case emqx_listeners:current_conns(ID, Bind) of
+                            {error, _} -> [];
+                            CC -> [{current_conn, CC}]
+                        end,
+                    MaxConn =
+                        case emqx_listeners:max_conns(ID, Bind) of
+                            {error, _} -> [];
+                            MC -> [{max_conns, MC}]
+                        end,
+                    ShutdownCount =
+                        case emqx_listeners:shutdown_count(ID, Bind) of
+                            {error, _} -> [];
+                            SC -> [{shutdown_count, SC}]
+                        end;
+                false ->
+                    CurrentConns = [],
+                    MaxConn = [],
+                    ShutdownCount = []
+            end,
             Info =
                 [
                     {listen_on, {string, emqx_listeners:format_bind(Bind)}},
