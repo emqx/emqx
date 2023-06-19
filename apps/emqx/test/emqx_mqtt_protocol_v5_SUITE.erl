@@ -985,3 +985,18 @@ t_shared_subscriptions_client_terminates_when_qos_eq_2(Config) ->
 
     ?assertEqual(1, counters:get(CRef, 1)),
     process_flag(trap_exit, false).
+
+t_share_subscribe_no_local(Config) ->
+    ConnFun = ?config(conn_fun, Config),
+    process_flag(trap_exit, true),
+    ShareTopic = <<"$share/sharename/TopicA">>,
+
+    {ok, Client} = emqtt:start_link([{proto_ver, v5} | Config]),
+    {ok, _} = emqtt:ConnFun(Client),
+    %% MQTT-5.0 [MQTT-3.8.3-4] and [MQTT-4.13.1-1] (Disconnect)
+    case catch emqtt:subscribe(Client, #{}, [{ShareTopic, [{nl, true}, {qos, 1}]}]) of
+        {'EXIT', {Reason, _Stk}} ->
+            ?assertEqual({disconnected, ?RC_PROTOCOL_ERROR, #{}}, Reason)
+    end,
+
+    process_flag(trap_exit, false).
