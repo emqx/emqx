@@ -184,7 +184,7 @@ clickhouse_config() ->
                     ]
                 )
             ),
-            connect_timeout => 10000
+            connect_timeout => <<"10s">>
         },
     #{<<"config">> => Config}.
 

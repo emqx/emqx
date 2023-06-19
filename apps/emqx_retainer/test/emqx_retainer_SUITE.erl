@@ -483,26 +483,25 @@ t_clear_expired(_) ->
     with_conf(ConfMod, Case).
 
 t_max_payload_size(_) ->
-    ConfMod = fun(Conf) -> Conf#{<<"max_payload_size">> := 6} end,
+    ConfMod = fun(Conf) -> Conf#{<<"max_payload_size">> := <<"1kb">>} end,
     Case = fun() ->
         emqx_retainer:clean(),
         timer:sleep(500),
         {ok, C1} = emqtt:start_link([{clean_start, true}, {proto_ver, v5}]),
         {ok, _} = emqtt:connect(C1),
-
+        Payload = iolist_to_binary(lists:duplicate(1024, <<"0">>)),
         emqtt:publish(
             C1,
             <<"retained/1">>,
             #{},
-            <<"1234">>,
+            Payload,
             [{qos, 0}, {retain, true}]
         ),
-
         emqtt:publish(
             C1,
             <<"retained/2">>,
             #{},
-            <<"1234567">>,
+            <<"1", Payload/binary>>,
             [{qos, 0}, {retain, true}]
         ),
 

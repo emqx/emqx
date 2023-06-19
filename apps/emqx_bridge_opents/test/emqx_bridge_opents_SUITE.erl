@@ -298,9 +298,9 @@ t_write_timeout(Config) ->
         Config,
         #{
             <<"resource_opts">> => #{
-                <<"request_ttl">> => 500,
-                <<"resume_interval">> => 100,
-                <<"health_check_interval">> => 100
+                <<"request_ttl">> => <<"500ms">>,
+                <<"resume_interval">> => <<"100ms">>,
+                <<"health_check_interval">> => <<"100ms">>
             }
         }
     ),

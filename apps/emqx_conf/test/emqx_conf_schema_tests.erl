@@ -55,7 +55,7 @@ log.console_handler {
   burst_limit {
     enable = true
     max_count = 10000
-    window_time = 1000
+    window_time = 1s
   }
   chars_limit = unlimited
   drop_mode_qlen = 3000
@@ -66,9 +66,9 @@ log.console_handler {
   max_depth = 100
   overload_kill {
     enable = true
-    mem_size = 31457280
+    mem_size = \"30MB\"
     qlen = 20000
-    restart_after = 5000
+    restart_after = \"5s\"
   }
   single_line = true
   supervisor_reports = error
@@ -80,7 +80,7 @@ log.file_handlers {
     burst_limit {
       enable = true
       max_count = 10000
-      window_time = 1000
+      window_time = 1s
     }
     chars_limit = unlimited
     drop_mode_qlen = 3000
@@ -93,9 +93,9 @@ log.file_handlers {
     max_size = \"1024MB\"
     overload_kill {
       enable = true
-      mem_size = 31457280
+      mem_size = \"30MB\"
       qlen = 20000
-      restart_after = 5000
+      restart_after = \"5s\"
     }
     rotation {count = 20, enable = true}
     single_line = true

@@ -137,8 +137,8 @@ init_per_testcase(t_ocsp_responder_error_responses, Config) ->
                     enable_ocsp_stapling => true,
                     responder_url => <<"http://localhost:9877/">>,
                     issuer_pem => filename:join(DataDir, "ocsp-issuer.pem"),
-                    refresh_http_timeout => 15_000,
-                    refresh_interval => 1_000
+                    refresh_http_timeout => <<"15s">>,
+                    refresh_interval => <<"1s">>
                 }
             }
     },
@@ -179,8 +179,8 @@ init_per_testcase(_TestCase, Config) ->
                     enable_ocsp_stapling => true,
                     responder_url => <<"http://localhost:9877/">>,
                     issuer_pem => filename:join(DataDir, "ocsp-issuer.pem"),
-                    refresh_http_timeout => 15_000,
-                    refresh_interval => 1_000
+                    refresh_http_timeout => <<"15s">>,
+                    refresh_interval => <<"1s">>
                 }
             }
     },

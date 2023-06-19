@@ -179,20 +179,20 @@ bridge_async_config(#{port := Port} = Config) ->
     PoolSize = maps:get(pool_size, Config, 1),
     QueryMode = maps:get(query_mode, Config, "async"),
     ConnectTimeout = maps:get(connect_timeout, Config, 1),
-    RequestTimeout = maps:get(request_timeout, Config, 10000),
+    RequestTimeout = maps:get(request_timeout, Config, "10s"),
     ResumeInterval = maps:get(resume_interval, Config, "1s"),
     ResourceRequestTTL = maps:get(resource_request_ttl, Config, "infinity"),
     ConfigString = io_lib:format(
         "bridges.~s.~s {\n"
         "  url = \"http://localhost:~p\"\n"
-        "  connect_timeout = \"~ps\"\n"
+        "  connect_timeout = \"~p\"\n"
         "  enable = true\n"
         "  enable_pipelining = 100\n"
         "  max_retries = 2\n"
         "  method = \"post\"\n"
         "  pool_size = ~p\n"
         "  pool_type = \"random\"\n"
-        "  request_timeout = \"~ps\"\n"
+        "  request_timeout = \"~s\"\n"
         "  body = \"${id}\""
         "  resource_opts {\n"
         "    inflight_window = 100\n"
@@ -257,8 +257,8 @@ t_send_async_connection_timeout(Config) ->
         port => Port,
         pool_size => 1,
         query_mode => "async",
-        connect_timeout => 10_000,
-        request_timeout => ResponseDelayMS * 2,
+        connect_timeout => integer_to_list(ResponseDelayMS * 2) ++ "s",
+        request_timeout => "10s",
         resource_request_ttl => "infinity"
     }),
     NumberOfMessagesToSend = 10,
@@ -278,8 +278,8 @@ t_async_free_retries(Config) ->
         port => Port,
         pool_size => 1,
         query_mode => "sync",
-        connect_timeout => 1_000,
-        request_timeout => 10_000,
+        connect_timeout => "1s",
+        request_timeout => "10s",
         resource_request_ttl => "10000s"
     }),
     %% Fail 5 times then succeed.
@@ -304,8 +304,8 @@ t_async_common_retries(Config) ->
         pool_size => 1,
         query_mode => "sync",
         resume_interval => "100ms",
-        connect_timeout => 1_000,
-        request_timeout => 10_000,
+        connect_timeout => "1s",
+        request_timeout => "10s",
         resource_request_ttl => "10000s"
     }),
     %% Keeps failing until connector gives up.

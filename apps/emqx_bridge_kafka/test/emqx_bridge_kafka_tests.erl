@@ -307,7 +307,7 @@ bridges.kafka_consumer.my_consumer {
   kafka {
     max_batch_bytes = 896KB
     max_rejoin_attempts = 5
-    offset_commit_interval_seconds = 3
+    offset_commit_interval_seconds = 3s
     offset_reset_policy = latest
   }
   topic_mapping = [

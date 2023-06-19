@@ -497,17 +497,24 @@ t_update_config(_Config) ->
     emqx_config_handler:start_link(),
     {ok, Pid} = emqx_crl_cache:start_link(),
     Conf = #{
-        refresh_interval => timer:minutes(5),
-        http_timeout => timer:minutes(10),
+        refresh_interval => <<"5m">>,
+        http_timeout => <<"10m">>,
         capacity => 123
     },
     ?assertMatch({ok, _}, emqx:update_config([<<"crl_cache">>], Conf)),
     State = sys:get_state(Pid),
-    ?assertEqual(Conf, #{
-        refresh_interval => element(3, State),
-        http_timeout => element(4, State),
-        capacity => element(7, State)
-    }),
+    ?assertEqual(
+        #{
+            refresh_interval => timer:minutes(5),
+            http_timeout => timer:minutes(10),
+            capacity => 123
+        },
+        #{
+            refresh_interval => element(3, State),
+            http_timeout => element(4, State),
+            capacity => element(7, State)
+        }
+    ),
     emqx_config:erase(<<"crl_cache">>),
     emqx_config_handler:stop(),
     ok.
