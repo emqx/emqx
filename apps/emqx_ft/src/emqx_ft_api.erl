@@ -19,6 +19,7 @@
 
 -include_lib("typerefl/include/types.hrl").
 -include_lib("hocon/include/hoconsc.hrl").
+-include("emqx_ft_api.hrl").
 
 %% Swagger specs from hocon schema
 -export([
@@ -61,7 +62,7 @@ schema("/file_transfer/files") ->
     #{
         'operationId' => '/file_transfer/files',
         get => #{
-            tags => [<<"file_transfer">>],
+            tags => ?TAGS,
             summary => <<"List all uploaded files">>,
             description => ?DESC("file_list"),
             parameters => [
@@ -83,7 +84,7 @@ schema("/file_transfer/files/:clientid/:fileid") ->
     #{
         'operationId' => '/file_transfer/files/:clientid/:fileid',
         get => #{
-            tags => [<<"file_transfer">>],
+            tags => ?TAGS,
             summary => <<"List files uploaded in a specific transfer">>,
             description => ?DESC("file_list_transfer"),
             parameters => [
