@@ -367,7 +367,9 @@ docker_cleanup() {
     rm -f ./.dockerignore >/dev/null
 }
 
-## This function builds the default docker image based on debian 11
+## Build the default docker image based on debian 11.
+## NOTE: docker image build in github action does not call this
+##       function, see build_and_push_docker_images.yaml
 make_docker() {
     EMQX_BUILDER="${EMQX_BUILDER:-${EMQX_DEFAULT_BUILDER}}"
     EMQX_RUNNER="${EMQX_RUNNER:-${EMQX_DEFAULT_RUNNER}}"
