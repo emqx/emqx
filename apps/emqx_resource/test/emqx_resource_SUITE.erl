@@ -40,6 +40,7 @@ groups() ->
 init_per_testcase(_, Config) ->
     ct:timetrap({seconds, 30}),
     emqx_connector_demo:set_callback_mode(always_sync),
+    snabbkaffe:start_trace(),
     Config.
 
 end_per_testcase(_, _Config) ->
@@ -1145,9 +1146,32 @@ t_auto_retry(_) ->
         ?DEFAULT_RESOURCE_GROUP,
         ?TEST_RESOURCE,
         #{name => test_resource, create_error => true},
-        #{auto_retry_interval => 100}
+        #{health_check_interval => 100}
     ),
     ?assertEqual(ok, Res).
+
+%% tests resources that have an asynchronous start: they are created
+%% without problems, but later some issue is found when calling the
+%% health check.
+t_start_throw_error(_Config) ->
+    Message = "something went wrong",
+    ?assertMatch(
+        {{ok, _}, {ok, _}},
+        ?wait_async_action(
+            emqx_resource:create_local(
+                ?ID,
+                ?DEFAULT_RESOURCE_GROUP,
+                ?TEST_RESOURCE,
+                #{name => test_resource, health_check_error => {msg, Message}},
+                #{health_check_interval => 100}
+            ),
+            #{?snk_kind := connector_demo_health_check_error},
+            1_000
+        )
+    ),
+    %% Now, if we try to "reconnect" (restart) it, we should get the error
+    ?assertMatch({error, Message}, emqx_resource:start(?ID, _Opts = #{})),
+    ok.
 
 t_health_check_disconnected(_) ->
     ?check_trace(
@@ -1157,7 +1181,7 @@ t_health_check_disconnected(_) ->
                 ?DEFAULT_RESOURCE_GROUP,
                 ?TEST_RESOURCE,
                 #{name => test_resource, create_error => true},
-                #{auto_retry_interval => 100}
+                #{health_check_interval => 100}
             ),
             ?assertEqual(
                 {ok, disconnected},
