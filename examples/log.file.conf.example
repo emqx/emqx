@@ -34,5 +34,5 @@ log.file {
     ## Type:
     ##  - infinity :: the log file will grow indefinitely
     ##  - ByteSize :: the log file will be rotated once it reaches this value in bytes
-    rotation_size = "50MB"
+    rotation_size = 50MB
 }

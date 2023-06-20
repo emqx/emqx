@@ -13,6 +13,23 @@
 listeners.ws.wsname {
     ## Port or Address to listen on, 0 means disable
     bind = "0.0.0.0:8083" # or just a port number, e.g. 8083
+    enabled = true
+    enable_authn = true
+    max_connections = infinity
+    proxy_protocol = false
+    proxy_protocol_timeout = 3s
+    mountpoint = ""
+    tcp_options {
+        active_n = 100
+        backlog = 1024
+        buffer = 4KB
+        high_watermark = 1MB
+        keepalive = none
+        nodelay = true
+        reuseaddr = true
+        send_timeout = 15s
+        send_timeout_close = true
+    }
 
     websocket {
         ## WebSocket's MQTT protocol path

@@ -8,23 +8,23 @@
 
 sysmon.os {
     ## Time interval for the periodic CPU check
-    cpu_check_interval = "60s"
+    cpu_check_interval = 60s
 
     ## For how much system cpu can be used before the corresponding alarm is raised
-    cpu_high_watermark = "80%"
+    cpu_high_watermark = 80%
 
     ## For how much system cpu can be used before the corresponding alarm is cleared
-    cpu_low_watermark = "60%"
+    cpu_low_watermark = 60%
 
     ## Time interval for the periodic memory check
     ## Type:
     ##   - disabled :: Never check
     ##   - Time Duration :: The time period
-    mem_check_interval = "60s"
+    mem_check_interval = 60s
 
     ## For how much system memory can be allocated before the corresponding alarm is raised
-    sysmem_high_watermark = "70%"
+    sysmem_high_watermark = 70%
 
     ## For how much system memory can be allocated by one Erlang process before the corresponding alarm is raised
-    procmem_high_watermark = "5%"
+    procmem_high_watermark = 5%
 }

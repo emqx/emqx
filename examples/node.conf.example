@@ -39,5 +39,5 @@ node {
     data_dir = "var/emqx/data"
 
     ## Type: Periodic garbage collection interval
-    global_gc_interval = "15m"
+    global_gc_interval = 15m
 }

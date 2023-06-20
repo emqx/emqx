@@ -11,10 +11,10 @@ sysmon.vm {
     process_check_interval = 30s
 
     ## For how many processes can simultaneously exist at the local node before the corresponding alarm is raised
-    process_high_watermark = "80%"
+    process_high_watermark = 80%
 
     ## For how many processes can simultaneously exist at the local node before the corresponding alarm is cleared
-    process_low_watermark = "60%"
+    process_low_watermark = 60%
 
     ## Generated an alarm when an Erlang process spends a long time to perform garbage collection
     ## Type:
@@ -32,7 +32,7 @@ sysmon.vm {
     ## Type:
     ##   - disabled :: Never alarm
     ##   - ByteSize :: The maximum heap size for generating an alarm
-    large_heap = 32M
+    large_heap = 32MB
 
     ## Generating an alarm when the RPC connection is overloaded
     busy_dist_port = true

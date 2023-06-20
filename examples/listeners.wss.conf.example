@@ -13,6 +13,45 @@
 listeners.wss.wssname {
     ## Port or Address to listen on, 0 means disable
     bind = 8084 ## or with an IP, e.g. "127.0.0.1:8084"
+    enabled = true
+    enable_authn = true
+    max_connections = infinity
+    proxy_protocol = false
+    proxy_protocol_timeout = 3s
+    mountpoint = ""
+    tcp_options {
+        active_n = 100
+        backlog = 1024
+        buffer = 4KB
+        high_watermark = 1MB
+        keepalive = none
+        nodelay = true
+        reuseaddr = true
+        send_timeout = 15s
+        send_timeout_close = true
+      }
+      websocket {
+        allow_origin_absence = true
+        check_origin_enable = false
+        check_origins = "http://localhost:18083, http://127.0.0.1:18083"
+        compress = false
+        deflate_opts {
+          client_context_takeover = "takeover"
+          client_max_window_bits = 15
+          mem_level = 8
+          server_context_takeover = "takeover"
+          server_max_window_bits = 15
+          strategy = "default"
+        }
+        fail_if_no_subprotocol = true
+        idle_timeout = "7200s"
+        max_frame_size = "infinity"
+        mqtt_path = "/mqtt"
+        mqtt_piggyback = "multiple"
+        proxy_address_header = "x-forwarded-for"
+        proxy_port_header = "x-forwarded-port"
+        supported_subprotocols = "mqtt, mqtt-v3, mqtt-v3.1.1, mqtt-v5"
+      }
 
     ssl_options {
         ## Trusted PEM format CA certificates bundle file
@@ -27,7 +66,7 @@ listeners.wss.wssname {
         ## Enable or disable peer verification
         verify = verify_none  ## use verify_peer to enable
 
-        ## if `verify' is ebabled, whit true, the connection fails if the client does not have a certificate to send
+        ## if `verify' is enabled, whit true, the connection fails if the client does not have a certificate to send
         fail_if_no_peer_cert = false
 
         ## Enable TLS session reuse

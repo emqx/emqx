@@ -13,7 +13,24 @@
 listeners.ssl.sslname {
     ## Port or Address to listen on, 0 means disable
     bind = 8883 ## or with an IP e.g. "127.0.0.1:8883"
-
+    enabled = true
+    acceptors = 16
+    enable_authn = true
+    max_connections = infinity
+    mountpoint = ""
+    proxy_protocol = false
+    proxy_protocol_timeout = 3s
+    tcp_options {
+        active_n = 100
+        backlog = 1024
+        buffer = 4KB
+        high_watermark = 1MB
+        keepalive = none
+        nodelay = true
+        reuseaddr = true
+        send_timeout = 15s
+        send_timeout_close = true
+    }
     ssl_options {
         ## Trusted PEM format CA certificates bundle file
         cacertfile = "data/certs/cacert.pem"
@@ -27,7 +44,7 @@ listeners.ssl.sslname {
         ## Enable or disable peer verification
         verify = verify_none  ## use verify_peer to enable
 
-        ## if `verify' is ebabled, whit true, the connection fails if the client does not have a certificate to send
+        ## if `verify' is enabled, whit true, the connection fails if the client does not have a certificate to send
         fail_if_no_peer_cert = false
 
         ## Enable TLS session reuse
@@ -61,5 +78,13 @@ listeners.ssl.sslname {
 
         ## Maximum time duration allowed for the handshake to complete
         handshake_timeout = 15s
+
+        ocsp {
+             enable_ocsp_stapling = false
+             responder_url = "http://ocsp.example.com"
+             issuer_pem = true
+             refresh_http_timeout = 15s
+             refresh_interval = 5m
+        }
     }
 }
