@@ -223,7 +223,7 @@ sync_cluster_conf4(Ready) ->
         msg => "sync_cluster_conf_success",
         synced_from_node => Node,
         has_deprecated_file => HasDeprecatedFile,
-        local_release => emqx_app:get_release(),
+        local_release => emqx_release:version_with_prefix(),
         remote_release => maps:get(release, Info, "before_v5.0.24|e5.0.3"),
         data_dir => emqx:data_dir(),
         tnx_id => TnxId

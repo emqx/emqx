@@ -132,10 +132,13 @@ parse_vsn(Vsn) ->
         Suffix =
             case Suffix0 of
                 "" ->
-                    %% For the case like "5.1.0"
+                    %% "5.1.0"
                     "";
-                [ReleaseStage, Number] ->
-                    %% For the case like "5.1.0-rc.1"
+                ["g" ++ _] ->
+                    %% "5.1.0-g53ab85b1"
+                    "";
+                [ReleaseStage, Number | _] ->
+                    %% "5.1.0-rc.1" or "5.1.0-rc.1-g53ab85b1"
                     {ReleaseStage, list_to_integer(Number)}
             end,
         {{list_to_integer(V1), list_to_integer(V2), list_to_integer(V3)}, Suffix}

@@ -47,6 +47,10 @@ vsn_compre_test_() ->
             ?assertEqual(older, emqx_release:vsn_compare("1.1.1", "1.1.1-rc.1")),
             ?assertEqual(newer, emqx_release:vsn_compare("1.1.1-rc.1", "1.1.1"))
         end},
+        {"git hash suffix is ignored", fun() ->
+            ?assertEqual(older, emqx_release:vsn_compare("1.1.1-gabcd", "1.1.1-rc.1-g1234")),
+            ?assertEqual(newer, emqx_release:vsn_compare("1.1.1-rc.1-gabcd", "1.1.1-g1234"))
+        end},
         {"invalid version string will crash", fun() ->
             ?assertError({invalid_version_string, "1.1.a"}, emqx_release:vsn_compare("v1.1.a")),
             ?assertError(
