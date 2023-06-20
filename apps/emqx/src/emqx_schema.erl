@@ -2483,7 +2483,7 @@ to_wordsize(Str) ->
         Error -> Error
     end.
 
-to_integer(Str) when is_list(Str) ->
+to_integer(Str) ->
     case string:to_integer(Str) of
         {Int, []} -> {ok, Int};
         {Int, <<>>} -> {ok, Int};
