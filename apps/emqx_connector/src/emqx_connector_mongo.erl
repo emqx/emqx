@@ -269,28 +269,46 @@ on_query(
             {ok, Result}
     end.
 
-on_get_status(InstId, #{pool_name := PoolName}) ->
+on_get_status(InstId, State = #{pool_name := PoolName}) ->
     case health_check(PoolName) of
-        true ->
+        ok ->
             ?tp(debug, emqx_connector_mongo_health_check, #{
                 instance_id => InstId,
                 status => ok
             }),
             connected;
-        false ->
+        {error, Reason} ->
             ?tp(warning, emqx_connector_mongo_health_check, #{
                 instance_id => InstId,
+                reason => Reason,
                 status => failed
             }),
-            disconnected
+            {disconnected, State, Reason}
     end.
 
 health_check(PoolName) ->
-    emqx_resource_pool:health_check_workers(
-        PoolName,
-        fun ?MODULE:check_worker_health/1,
-        ?HEALTH_CHECK_TIMEOUT + timer:seconds(1)
-    ).
+    Results =
+        emqx_resource_pool:health_check_workers(
+            PoolName,
+            fun ?MODULE:check_worker_health/1,
+            ?HEALTH_CHECK_TIMEOUT + timer:seconds(1),
+            #{return_values => true}
+        ),
+    case Results of
+        {ok, []} ->
+            {error, worker_processes_dead};
+        {ok, Values} ->
+            case lists:partition(fun(V) -> V =:= ok end, Values) of
+                {_Ok, []} ->
+                    ok;
+                {_Ok, [{error, Reason} | _Errors]} ->
+                    {error, Reason};
+                {_Ok, [Error | _Errors]} ->
+                    {error, Error}
+            end;
+        {error, Reason} ->
+            {error, Reason}
+    end.
 
 %% ===================================================================
 
@@ -302,9 +320,9 @@ check_worker_health(Conn) ->
                 msg => "mongo_connection_get_status_error",
                 reason => Reason
             }),
-            false;
+            {error, Reason};
         _ ->
-            true
+            ok
     catch
         Class:Error ->
             ?SLOG(warning, #{
@@ -312,7 +330,7 @@ check_worker_health(Conn) ->
                 class => Class,
                 error => Error
             }),
-            false
+            {error, {Class, Error}}
     end.
 
 do_test_query(Conn) ->
