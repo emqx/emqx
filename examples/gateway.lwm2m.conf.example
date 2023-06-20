@@ -1,0 +1,37 @@
+##--------------------------------------------------------------------
+## Gateway LwM2M
+##
+## Add a LwM2M gateway
+##--------------------------------------------------------------------
+## Note: This is an example of how to configure this feature
+##       you should copy and paste the below data into the emqx.conf for working
+
+gateway.lwm2m {
+    auto_observe = false
+    enable = true
+    enable_stats = true
+    idle_timeout = 30s
+    lifetime_max = 86400s
+    lifetime_min = 1s
+    mountpoint = "lwm2m2/"
+    qmode_time_window = 22s
+    translators {
+      command {
+        topic = "dn/#"
+      }
+      notify {
+        topic = "up/notify"
+      }
+      register {
+        topic = "up/resp"
+      },
+      response {
+        topic = "up/resp"
+      },
+      update {
+        topic = "up/resp"
+      }
+    }
+    update_msg_publish_condition = always
+    xml_dir = "/etc/emqx/lwm2m_xml"
+}

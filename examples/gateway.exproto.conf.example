@@ -1,0 +1,19 @@
+##--------------------------------------------------------------------
+## Gateway Exproto
+##
+## Add an Exproto gateway
+##--------------------------------------------------------------------
+## Note: This is an example of how to configure this feature
+##       you should copy and paste the below data into the emqx.conf for working
+
+gateway.exproto {
+    enable = true
+    enable_stats = true
+    frame {
+       max_body_length = 655350
+       max_headers = 100
+       max_headers_length = 10240
+    }
+    idle_timeout = 30s
+    mountpoint = "stomp2/"
+}

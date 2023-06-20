@@ -1,0 +1,23 @@
+##--------------------------------------------------------------------
+## Gateway MQTT-SN
+##
+## Add a MQTT-SN gateway
+##--------------------------------------------------------------------
+## Note: This is an example of how to configure this feature
+##       you should copy and paste the below data into the emqx.conf for working
+
+gateway.mqttsn {
+    broadcast = true
+    enable = true
+    enable_qos3 = false
+    enable_stats = true
+    gateway_id = 1
+    idle_timeout = 30s
+    mountpoint = "mqttsn2/"
+    predefined = [
+      {
+        id = 1003
+        topic = "pred/1003"
+      }
+    ]
+}
