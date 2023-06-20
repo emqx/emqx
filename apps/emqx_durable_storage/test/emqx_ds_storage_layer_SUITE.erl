@@ -255,11 +255,11 @@ parse_topic(Topic) ->
 all() -> emqx_common_test_helpers:all(?MODULE).
 
 init_per_suite(Config) ->
-    {ok, _} = application:ensure_all_started(emqx_ds),
+    {ok, _} = application:ensure_all_started(emqx_durable_storage),
     Config.
 
 end_per_suite(_Config) ->
-    ok = application:stop(emqx_ds).
+    ok = application:stop(emqx_durable_storage).
 
 init_per_testcase(TC, Config) ->
     ok = set_shard_config(shard(TC), ?DEFAULT_CONFIG),

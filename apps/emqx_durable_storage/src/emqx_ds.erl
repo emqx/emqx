@@ -73,7 +73,7 @@
     {ok, [message_id()]} | {error, _}.
 message_store(_Msg, _Opts) ->
     %% TODO
-    ok.
+    {error, not_implemented}.
 
 -spec message_store([emqx_types:message()]) -> {ok, [message_id()]} | {error, _}.
 message_store(Msg) ->
@@ -106,7 +106,7 @@ session_open(ClientID) ->
                         {false, ClientID, Iterators};
                     [] ->
                         Session = #session{id = ClientID, iterators = []},
-                        mnesia:write(?SESSION_TAB, Session),
+                        mnesia:write(?SESSION_TAB, Session, write),
                         {true, ClientID, []}
                 end
             end
@@ -117,10 +117,10 @@ session_open(ClientID) ->
 %% during session GC
 -spec session_drop(emqx_types:clientid()) -> ok.
 session_drop(ClientID) ->
-    {atomic, ok} = mnesia:transaction(
+    {atomic, ok} = mria:transaction(
         ?DS_SHARD,
         fun() ->
-            mnesia:delete(?SESSION_TAB, ClientID)
+            mnesia:delete({?SESSION_TAB, ClientID})
         end
     ),
     ok.
@@ -146,7 +146,7 @@ session_add_iterator(_SessionId, _TopicFilter) ->
     {ok, boolean()} | {error, session_not_found}.
 session_del_iterator(_SessionId, _TopicFilter) ->
     %% TODO
-    false.
+    {ok, false}.
 
 -spec session_stats() -> #{}.
 session_stats() ->
@@ -166,7 +166,7 @@ iterator_update(_IterId, _Iter) ->
 -spec iterator_next(iterator()) -> {value, emqx_types:message(), iterator()} | none | {error, _}.
 iterator_next(_Iter) ->
     %% TODO
-    ok.
+    none.
 
 -spec iterator_stats() -> #{}.
 iterator_stats() ->
