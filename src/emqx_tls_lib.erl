@@ -224,15 +224,20 @@ replace(Opts, Key, Value) -> [{Key, Value} | proplists:delete(Key, Opts)].
 %% @doc Helper, make TLS root_fun
 rootfun_trusted_ca_from_cacertfile(NumOfCerts, SslOpts) ->
     Cacertfile = proplists:get_value(cacertfile, SslOpts, undefined),
-    try do_rootfun_trusted_ca_from_cacertfile(NumOfCerts, Cacertfile)
-    catch _Error:_Info:ST ->
-            %% The cacertfile will be checked by OTP SSL as well and OTP choice to be silent on this.
-            %% We are touching security sutffs, don't leak extra info..
-            ?LOG(error, "Failed to look for trusted cacert from cacertfile. Stacktrace: ~p", [ST]),
-            throw({error, ?FUNCTION_NAME})
+    case file:read_file(Cacertfile) of
+        {ok, PemBin} ->
+            try do_rootfun_trusted_ca_from_cacertfile(NumOfCerts, PemBin)
+            catch _Error:_Info:ST ->
+                %% The cacertfile will be checked by OTP SSL as well and OTP choice to be silent on this.
+                %% We are touching security sutffs, don't leak extra info..
+                ?LOG(error, "Failed to look for trusted cacert from cacertfile. Stacktrace: ~p", [ST]),
+                throw({error, ?FUNCTION_NAME})
+            end;
+        {error, Reason} ->
+            throw({error, {read_cacertfile_error, Cacertfile, Reason}})
     end.
-do_rootfun_trusted_ca_from_cacertfile(NumOfCerts, Cacertfile) ->
-    {ok, PemBin} = file:read_file(Cacertfile),
+
+do_rootfun_trusted_ca_from_cacertfile(NumOfCerts, PemBin) ->
     %% The last one or two should be the top parent in the chain if it is a chain
     Certs = public_key:pem_decode(PemBin),
     Pos = length(Certs) - NumOfCerts + 1,
