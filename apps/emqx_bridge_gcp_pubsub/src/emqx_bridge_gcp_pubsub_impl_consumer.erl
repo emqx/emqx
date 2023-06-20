@@ -69,6 +69,8 @@ on_stop(InstanceId, undefined = _State) ->
 
 -spec on_get_status(resource_id(), state()) -> connected | disconnected.
 on_get_status(InstanceId, _State) ->
+    %% Note: do *not* alter the `connector_state' value here.  It must be immutable, since
+    %% we have handed it over to the pull workers.
     case
         emqx_resource_pool:health_check_workers(
             InstanceId,

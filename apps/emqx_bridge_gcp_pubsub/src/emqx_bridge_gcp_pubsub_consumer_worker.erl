@@ -141,6 +141,9 @@ connect(Opts0) ->
     {Topic, MQTTConfig} = lists:nth(Index, TopicMappingList),
     Config = #{
         ack_retry_interval => AckRetryInterval,
+        %% Note: the `connector_state' value here must be immutable and not changed by the
+        %% bridge during `on_get_status', since we have handed it over to the pull
+        %% workers.
         connector_state => ConnectorState,
         hookpoint => Hookpoint,
         instance_id => InstanceId,
