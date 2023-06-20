@@ -48,7 +48,7 @@ file_transfer {
 
                 ## Credentials to use to authorize with the S3 API
                 access_key_id = "AKIA27EZDDM9XLINWXFE"
-                secret_access_key = "..."
+                secret_access_key = "******"
 
                 ## Which bucket to store transferred files in?
                 bucket = "my-bucket"
@@ -57,15 +57,16 @@ file_transfer {
                 url_expire_time = 1h
 
                 ## Enable the HTTPS
-                transport_options.ssl.enable = true
+                transport_options {
+                    ssl.enable = true
 
-                ## Timeout for connection attempts
-                connect_timeout = 15s
+                    ## Timeout for connection attempts
+                    connect_timeout = 15s
 
-                ## Attempt to talk through IPv6 first
-                ipv6_probe = true
-            }
+                    ## Attempt to talk through IPv6 first
+                    ipv6_probe = true
+               }
+           }
         }
-
     }
 }

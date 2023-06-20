@@ -7,8 +7,8 @@
 ##       you should copy and paste the below data into the emqx.conf for working
 
 flapping_detect {
-    ## Feature switch
-    enable = false
+    ## use false to disabled
+    enable = true
 
     ## Time window for flapping detection
     window_time = 1m
