@@ -1,0 +1,24 @@
+##--------------------------------------------------------------------
+## Gateway CoAP
+##
+## Add a CoAP gateway
+##--------------------------------------------------------------------
+## Note: This is an example of how to configure this feature
+##       you should copy and paste the below data into the emqx.conf for working
+
+gateway.coap {
+
+    ## When publishing or subscribing, prefix all topics with a mountpoint string.
+    ## It's a way that you can use to implement isolation of message routing between different
+    ## gateway protocols
+    mountpoint = "coap/"
+
+    ## Enable or disable connection mode.
+    ## Connection mode is a feature of non-standard protocols. When connection mode is enabled,
+    ## it is necessary to maintain the creation, authentication and alive of connection resources
+    connection_required = false
+
+    listeners.udp.default {
+        bind = "0.0.0.0:5683"
+    }
+}

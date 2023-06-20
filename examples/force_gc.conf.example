@@ -1,0 +1,18 @@
+##--------------------------------------------------------------------
+## Force garbage collection
+##
+## Force garbage collection in MQTT connection process after they process certain number of messages or bytes of data
+##--------------------------------------------------------------------
+## Note: This is an example of how to configure this feature
+##       you should copy and paste the below data into the emqx.conf for working
+
+force_gc {
+    ## set to false to disable this
+    enable = true
+
+    ## GC the process after this many received messages
+    count = 16000
+
+    ## GC the process after specified number of bytes have passed through
+    bytes = 16MB
+}

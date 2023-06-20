@@ -1,0 +1,42 @@
+##--------------------------------------------------------------------
+## Cluster in service discovery via Kubernetes API server mode
+##
+## Configs to instruct how individual nodes can discover each other
+##--------------------------------------------------------------------
+## Note: This is an example of how to configure this feature
+##       you should copy and paste the below data into the emqx.conf for working
+
+cluster {
+    ## Human-friendly name of the EMQX cluster.
+    name = emqxcl
+
+    ## Service discovery method for the cluster nodes
+    discovery_strategy = k8s
+
+    ## List of core nodes that the replicant will connect to
+    core_nodes = ["emqx1@192.168.0.1", "emqx2@192.168.0.2"]
+
+    ## Remove disconnected nodes from the cluster after this interval
+    autoclean = 5m
+
+    ## If true, the node will try to heal network partitions automatically
+    autoheal = true
+
+    k8s {
+      ## Kubernetes API endpoint URL
+      apiserver = "https://kubernetes.default.svc:443"
+
+      ## EMQX broker service name
+      service_name = emqx
+
+      ## Address type used for connecting to the discovered nodes
+      ## Type: ip | dns | hostname
+      address_type = ip
+
+      ## Kubernetes namespace
+      namespace = default
+
+      ## Node name suffix
+      suffix = "pod.local"
+    }
+}
