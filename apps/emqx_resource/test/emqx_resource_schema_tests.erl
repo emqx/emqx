@@ -74,6 +74,44 @@ health_check_interval_validator_test_() ->
         )
     ].
 
+worker_pool_size_test_() ->
+    BaseConf = parse(webhook_bridge_health_check_hocon(<<"15s">>)),
+    Check = fun(WorkerPoolSize) ->
+        Conf = emqx_utils_maps:deep_put(
+            [
+                <<"bridges">>,
+                <<"webhook">>,
+                <<"simple">>,
+                <<"resource_opts">>,
+                <<"worker_pool_size">>
+            ],
+            BaseConf,
+            WorkerPoolSize
+        ),
+        #{<<"bridges">> := #{<<"webhook">> := #{<<"simple">> := CheckedConf}}} = check(Conf),
+        #{<<"resource_opts">> := #{<<"worker_pool_size">> := WPS}} = CheckedConf,
+        WPS
+    end,
+    AssertThrow = fun(WorkerPoolSize) ->
+        ?assertThrow(
+            {_, [
+                #{
+                    kind := validation_error,
+                    reason := #{expected_type := _},
+                    value := WorkerPoolSize
+                }
+            ]},
+            Check(WorkerPoolSize)
+        )
+    end,
+    [
+        ?_assertEqual(1, Check(1)),
+        ?_assertEqual(100, Check(100)),
+        ?_assertEqual(1024, Check(1024)),
+        ?_test(AssertThrow(0)),
+        ?_test(AssertThrow(1025))
+    ].
+
 %%===========================================================================
 %% Helper functions
 %%===========================================================================
