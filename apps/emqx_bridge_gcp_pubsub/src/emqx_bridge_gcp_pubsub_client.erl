@@ -2,9 +2,7 @@
 %% Copyright (c) 2022-2023 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
 
--module(emqx_bridge_gcp_pubsub_connector).
-
--behaviour(emqx_resource).
+-module(emqx_bridge_gcp_pubsub_client).
 
 -include_lib("jose/include/jose_jwk.hrl").
 -include_lib("emqx_connector/include/emqx_connector_tables.hrl").
@@ -13,18 +11,17 @@
 -include_lib("emqx/include/logger.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
-%% `emqx_resource' API
+%% API
 -export([
-    callback_mode/0,
-    on_start/2,
-    on_stop/2,
-    on_query/3,
-    on_query_async/4,
-    on_get_status/2
+    start/2,
+    stop/1,
+    query_sync/2,
+    query_async/3,
+    get_status/1
 ]).
 -export([reply_delegator/3]).
 
--export([get_topic/3]).
+-export([get_topic/2]).
 
 -export([get_jwt_authorization_header/1]).
 
@@ -37,7 +34,7 @@
     service_account_json := service_account_json(),
     any() => term()
 }.
--type state() :: #{
+-opaque state() :: #{
     connect_timeout := timer:time(),
     jwt_config := emqx_connector_jwt:jwt_config(),
     max_retries := non_neg_integer(),
@@ -66,13 +63,11 @@
 -define(DEFAULT_PIPELINE_SIZE, 100).
 
 %%-------------------------------------------------------------------------------------------------
-%% emqx_resource API
+%% API
 %%-------------------------------------------------------------------------------------------------
 
-callback_mode() -> async_if_possible.
-
--spec on_start(resource_id(), config()) -> {ok, state()} | {error, term()}.
-on_start(
+-spec start(resource_id(), config()) -> {ok, state()} | {error, term()}.
+start(
     ResourceId,
     #{
         connect_timeout := ConnectTimeout,
@@ -81,11 +76,6 @@ on_start(
         resource_opts := #{request_ttl := RequestTTL}
     } = Config
 ) ->
-    ?SLOG(info, #{
-        msg => "starting_gcp_pubsub_bridge",
-        connector => ResourceId,
-        config => Config
-    }),
     {Transport, HostPort} = get_transport(),
     #{hostname := Host, port := Port} = emqx_schema:parse_server(HostPort, #{default_port => 443}),
     PoolType = random,
@@ -141,8 +131,8 @@ on_start(
             {error, Reason}
     end.
 
--spec on_stop(resource_id(), state() | undefined) -> ok | {error, term()}.
-on_stop(ResourceId, _State) ->
+-spec stop(resource_id()) -> ok | {error, term()}.
+stop(ResourceId) ->
     ?tp(gcp_pubsub_stop, #{resource_id => ResourceId}),
     ?SLOG(info, #{
         msg => "stopping_gcp_pubsub_bridge",
@@ -158,42 +148,41 @@ on_stop(ResourceId, _State) ->
             Error
     end.
 
--spec on_query(
-    resource_id(),
+-spec query_sync(
     {prepared_request, prepared_request()},
     state()
 ) ->
     {ok, map()} | {error, {recoverable_error, term()} | term()}.
-on_query(ResourceId, {prepared_request, PreparedRequest = {_Method, _Path, _Body}}, State) ->
+query_sync({prepared_request, PreparedRequest = {_Method, _Path, _Body}}, State) ->
+    PoolName = maps:get(pool_name, State),
     ?TRACE(
         "QUERY_SYNC",
         "gcp_pubsub_received",
-        #{requests => PreparedRequest, connector => ResourceId, state => State}
+        #{requests => PreparedRequest, connector => PoolName, state => State}
     ),
-    do_send_requests_sync(State, {prepared_request, PreparedRequest}, ResourceId).
+    do_send_requests_sync(State, {prepared_request, PreparedRequest}).
 
--spec on_query_async(
-    resource_id(),
+-spec query_async(
     {prepared_request, prepared_request()},
     {ReplyFun :: function(), Args :: list()},
     state()
 ) -> {ok, pid()}.
-on_query_async(
-    ResourceId,
+query_async(
     {prepared_request, PreparedRequest = {_Method, _Path, _Body}},
     ReplyFunAndArgs,
     State
 ) ->
+    PoolName = maps:get(pool_name, State),
     ?TRACE(
         "QUERY_ASYNC",
         "gcp_pubsub_received",
-        #{requests => PreparedRequest, connector => ResourceId, state => State}
+        #{requests => PreparedRequest, connector => PoolName, state => State}
     ),
-    do_send_requests_async(State, {prepared_request, PreparedRequest}, ReplyFunAndArgs, ResourceId).
+    do_send_requests_async(State, {prepared_request, PreparedRequest}, ReplyFunAndArgs).
 
--spec on_get_status(resource_id(), state()) -> connected | disconnected.
-on_get_status(ResourceId, #{connect_timeout := Timeout} = State) ->
-    case do_get_status(ResourceId, Timeout) of
+-spec get_status(state()) -> connected | disconnected.
+get_status(#{connect_timeout := Timeout, pool_name := PoolName} = State) ->
+    case do_get_status(PoolName, Timeout) of
         true ->
             connected;
         false ->
@@ -208,14 +197,14 @@ on_get_status(ResourceId, #{connect_timeout := Timeout} = State) ->
 %% API
 %%-------------------------------------------------------------------------------------------------
 
--spec get_topic(resource_id(), topic(), state()) -> {ok, map()} | {error, term()}.
-get_topic(ResourceId, Topic, ConnectorState) ->
+-spec get_topic(topic(), state()) -> {ok, map()} | {error, term()}.
+get_topic(Topic, ConnectorState) ->
     #{project_id := ProjectId} = ConnectorState,
     Method = get,
     Path = <<"/v1/projects/", ProjectId/binary, "/topics/", Topic/binary>>,
     Body = <<>>,
     PreparedRequest = {prepared_request, {Method, Path, Body}},
-    on_query(ResourceId, PreparedRequest, ConnectorState).
+    query_sync(PreparedRequest, ConnectorState).
 
 %%-------------------------------------------------------------------------------------------------
 %% Helper fns
@@ -286,11 +275,10 @@ get_jwt_authorization_header(JWTConfig) ->
 
 -spec do_send_requests_sync(
     state(),
-    {prepared_request, prepared_request()},
-    resource_id()
+    {prepared_request, prepared_request()}
 ) ->
     {ok, map()} | {error, {recoverable_error, term()} | term()}.
-do_send_requests_sync(State, {prepared_request, {Method, Path, Body}}, ResourceId) ->
+do_send_requests_sync(State, {prepared_request, {Method, Path, Body}}) ->
     #{
         pool_name := PoolName,
         max_retries := MaxRetries,
@@ -301,7 +289,7 @@ do_send_requests_sync(State, {prepared_request, {Method, Path, Body}}, ResourceI
         #{
             request => {prepared_request, {Method, Path, Body}},
             query_mode => sync,
-            resource_id => ResourceId
+            resource_id => PoolName
         }
     ),
     Request = to_ehttpc_request(State, Method, Path, Body),
@@ -312,16 +300,15 @@ do_send_requests_sync(State, {prepared_request, {Method, Path, Body}}, ResourceI
         RequestTTL,
         MaxRetries
     ),
-    handle_response(Response, ResourceId, _QueryMode = sync).
+    handle_response(Response, PoolName, _QueryMode = sync).
 
 -spec do_send_requests_async(
     state(),
     {prepared_request, prepared_request()},
-    {ReplyFun :: function(), Args :: list()},
-    resource_id()
+    {ReplyFun :: function(), Args :: list()}
 ) -> {ok, pid()}.
 do_send_requests_async(
-    State, {prepared_request, {Method, Path, Body}}, ReplyFunAndArgs, ResourceId
+    State, {prepared_request, {Method, Path, Body}}, ReplyFunAndArgs
 ) ->
     #{
         pool_name := PoolName,
@@ -332,7 +319,7 @@ do_send_requests_async(
         #{
             request => {prepared_request, {Method, Path, Body}},
             query_mode => async,
-            resource_id => ResourceId
+            resource_id => PoolName
         }
     ),
     Request = to_ehttpc_request(State, Method, Path, Body),
@@ -342,7 +329,7 @@ do_send_requests_async(
         Method,
         Request,
         RequestTTL,
-        {fun ?MODULE:reply_delegator/3, [ResourceId, ReplyFunAndArgs]}
+        {fun ?MODULE:reply_delegator/3, [PoolName, ReplyFunAndArgs]}
     ),
     {ok, Worker}.
 

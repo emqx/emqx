@@ -31,29 +31,31 @@
 -type ack_id() :: binary().
 -type config() :: #{
     ack_retry_interval := emqx_schema:timeout_duration_ms(),
-    connector_state := emqx_bridge_gcp_pubsub_connector:state(),
+    client := emqx_bridge_gcp_pubsub_client:state(),
     ecpool_worker_id => non_neg_integer(),
     hookpoint := binary(),
     instance_id := binary(),
     mqtt_config => emqx_bridge_gcp_pubsub_impl_consumer:mqtt_config(),
+    project_id := emqx_bridge_gcp_pubsub_client:project_id(),
     pull_max_messages := non_neg_integer(),
     subscription_id => subscription_id(),
-    topic => emqx_bridge_gcp_pubsub_connector:topic()
+    topic => emqx_bridge_gcp_pubsub_client:topic()
 }.
 -type state() :: #{
     ack_retry_interval := emqx_schema:timeout_duration_ms(),
     ack_timer := undefined | reference(),
     async_workers := #{pid() => reference()},
-    connector_state := emqx_bridge_gcp_pubsub_connector:state(),
+    client := emqx_bridge_gcp_pubsub_client:state(),
     ecpool_worker_id := non_neg_integer(),
     hookpoint := binary(),
     instance_id := binary(),
     mqtt_config => emqx_bridge_gcp_pubsub_impl_consumer:mqtt_config(),
     pending_acks => [ack_id()],
+    project_id := emqx_bridge_gcp_pubsub_client:project_id(),
     pull_max_messages := non_neg_integer(),
     pull_timer := undefined | reference(),
     subscription_id => subscription_id(),
-    topic => emqx_bridge_gcp_pubsub_connector:topic()
+    topic => emqx_bridge_gcp_pubsub_client:topic()
 }.
 -type decoded_message() :: map().
 
@@ -129,10 +131,11 @@ connect(Opts0) ->
     #{
         ack_retry_interval := AckRetryInterval,
         bridge_name := BridgeName,
-        connector_state := ConnectorState,
+        client := Client,
         ecpool_worker_id := WorkerId,
         hookpoint := Hookpoint,
         instance_id := InstanceId,
+        project_id := ProjectId,
         pull_max_messages := PullMaxMessages,
         topic_mapping := TopicMapping
     } = Opts,
@@ -141,13 +144,14 @@ connect(Opts0) ->
     {Topic, MQTTConfig} = lists:nth(Index, TopicMappingList),
     Config = #{
         ack_retry_interval => AckRetryInterval,
-        %% Note: the `connector_state' value here must be immutable and not changed by the
+        %% Note: the `client' value here must be immutable and not changed by the
         %% bridge during `on_get_status', since we have handed it over to the pull
         %% workers.
-        connector_state => ConnectorState,
+        client => Client,
         hookpoint => Hookpoint,
         instance_id => InstanceId,
         mqtt_config => MQTTConfig,
+        project_id => ProjectId,
         pull_max_messages => PullMaxMessages,
         topic => Topic,
         subscription_id => subscription_id(BridgeName, Topic)
@@ -264,7 +268,7 @@ ensure_pull_timer(State) ->
 -spec ensure_subscription_exists(state()) -> ok | error.
 ensure_subscription_exists(State) ->
     #{
-        connector_state := ConnectorState,
+        client := Client,
         instance_id := InstanceId,
         subscription_id := SubscriptionId,
         topic := Topic
@@ -273,7 +277,7 @@ ensure_subscription_exists(State) ->
     Path = path(State, create),
     Body = body(State, create),
     PreparedRequest = {prepared_request, {Method, Path, Body}},
-    Res = emqx_bridge_gcp_pubsub_connector:on_query(InstanceId, PreparedRequest, ConnectorState),
+    Res = emqx_bridge_gcp_pubsub_client:query_sync(PreparedRequest, Client),
     case Res of
         {error, #{status_code := 409}} ->
             %% already exists
@@ -287,9 +291,7 @@ ensure_subscription_exists(State) ->
             Path1 = path(State, create),
             Body1 = body(State, patch_subscription),
             PreparedRequest1 = {prepared_request, {Method1, Path1, Body1}},
-            Res1 = emqx_bridge_gcp_pubsub_connector:on_query(
-                InstanceId, PreparedRequest1, ConnectorState
-            ),
+            Res1 = emqx_bridge_gcp_pubsub_client:query_sync(PreparedRequest1, Client),
             ?SLOG(debug, #{
                 msg => "gcp_pubsub_consumer_worker_subscription_patch",
                 instance_id => InstanceId,
@@ -319,7 +321,7 @@ ensure_subscription_exists(State) ->
 %% We use async requests so that this process will be more responsive to system messages.
 do_pull_async(State) ->
     #{
-        connector_state := ConnectorState,
+        client := Client,
         instance_id := InstanceId
     } = State,
     Method = post,
@@ -327,11 +329,10 @@ do_pull_async(State) ->
     Body = body(State, pull),
     PreparedRequest = {prepared_request, {Method, Path, Body}},
     ReplyFunAndArgs = {fun ?MODULE:reply_delegator/3, [self(), InstanceId]},
-    {ok, AsyncWorkerPid} = emqx_bridge_gcp_pubsub_connector:on_query_async(
-        InstanceId,
+    {ok, AsyncWorkerPid} = emqx_bridge_gcp_pubsub_client:query_async(
         PreparedRequest,
         ReplyFunAndArgs,
-        ConnectorState
+        Client
     ),
     ensure_async_worker_monitored(State, AsyncWorkerPid).
 
@@ -361,15 +362,14 @@ acknowledge(State0 = #{pending_acks := []}) ->
 acknowledge(State0) ->
     State1 = State0#{ack_timer := undefined},
     #{
-        connector_state := ConnectorState,
-        instance_id := InstanceId,
+        client := Client,
         pending_acks := AckIds
     } = State1,
     Method = post,
     Path = path(State1, ack),
     Body = body(State1, ack, #{ack_ids => AckIds}),
     PreparedRequest = {prepared_request, {Method, Path, Body}},
-    Res = emqx_bridge_gcp_pubsub_connector:on_query(InstanceId, PreparedRequest, ConnectorState),
+    Res = emqx_bridge_gcp_pubsub_client:query_sync(PreparedRequest, Client),
     case Res of
         {error, Reason} ->
             ?SLOG(warning, #{msg => "gcp_pubsub_consumer_worker_ack_error", reason => Reason}),
@@ -384,14 +384,13 @@ acknowledge(State0) ->
 
 do_get_subscription(State) ->
     #{
-        connector_state := ConnectorState,
-        instance_id := InstanceId
+        client := Client
     } = State,
     Method = get,
     Path = path(State, get_subscription),
     Body = body(State, get_subscription),
     PreparedRequest = {prepared_request, {Method, Path, Body}},
-    Res = emqx_bridge_gcp_pubsub_connector:on_query(InstanceId, PreparedRequest, ConnectorState),
+    Res = emqx_bridge_gcp_pubsub_client:query_sync(PreparedRequest, Client),
     case Res of
         {error, Reason} ->
             ?SLOG(warning, #{
@@ -410,7 +409,7 @@ do_get_subscription(State) ->
             {error, Details}
     end.
 
--spec subscription_id(bridge_name(), emqx_bridge_gcp_pubsub_connector:topic()) -> subscription_id().
+-spec subscription_id(bridge_name(), emqx_bridge_gcp_pubsub_client:topic()) -> subscription_id().
 subscription_id(BridgeName0, Topic) ->
     %% The real GCP PubSub accepts colons in subscription names, but its emulator
     %% doesn't...  We currently validate bridge names to not include that character.  The
@@ -422,7 +421,7 @@ subscription_id(BridgeName0, Topic) ->
 -spec path(state(), pull | create | ack | get_subscription) -> binary().
 path(State, Type) ->
     #{
-        connector_state := #{project_id := ProjectId},
+        client := #{project_id := ProjectId},
         subscription_id := SubscriptionId
     } = State,
     SubscriptionResource = subscription_resource(ProjectId, SubscriptionId),
@@ -444,7 +443,7 @@ body(State, pull) ->
 body(State, create) ->
     #{
         ack_retry_interval := AckRetryInterval,
-        connector_state := #{project_id := ProjectId},
+        project_id := ProjectId,
         topic := PubSubTopic
     } = State,
     TopicResource = <<"projects/", ProjectId/binary, "/topics/", PubSubTopic/binary>>,
@@ -457,7 +456,7 @@ body(State, create) ->
 body(State, patch_subscription) ->
     #{
         ack_retry_interval := AckRetryInterval,
-        connector_state := #{project_id := ProjectId},
+        project_id := ProjectId,
         topic := PubSubTopic,
         subscription_id := SubscriptionId
     } = State,
@@ -484,7 +483,7 @@ body(_State, ack, Opts) ->
     JSON = #{<<"ackIds">> => AckIds},
     emqx_utils_json:encode(JSON).
 
--spec subscription_resource(emqx_bridge_gcp_pubsub_connector:project_id(), subscription_id()) ->
+-spec subscription_resource(emqx_bridge_gcp_pubsub_client:project_id(), subscription_id()) ->
     binary().
 subscription_resource(ProjectId, SubscriptionId) ->
     <<"projects/", ProjectId/binary, "/subscriptions/", SubscriptionId/binary>>.

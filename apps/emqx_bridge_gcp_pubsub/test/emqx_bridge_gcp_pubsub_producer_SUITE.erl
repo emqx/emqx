@@ -74,7 +74,7 @@ init_per_suite(Config) ->
     ok = emqx_connector_test_helpers:start_apps([emqx_resource, emqx_bridge, emqx_rule_engine]),
     {ok, _} = application:ensure_all_started(emqx_connector),
     emqx_mgmt_api_test_util:init_suite(),
-    persistent_term:put({emqx_bridge_gcp_pubsub_connector, transport}, tls),
+    persistent_term:put({emqx_bridge_gcp_pubsub_client, transport}, tls),
     Config.
 
 end_per_suite(_Config) ->
@@ -82,7 +82,7 @@ end_per_suite(_Config) ->
     ok = emqx_common_test_helpers:stop_apps([emqx_conf]),
     ok = emqx_connector_test_helpers:stop_apps([emqx_bridge, emqx_resource, emqx_rule_engine]),
     _ = application:stop(emqx_connector),
-    persistent_term:erase({emqx_bridge_gcp_pubsub_connector, transport}),
+    persistent_term:erase({emqx_bridge_gcp_pubsub_client, transport}),
     ok.
 
 init_per_group(sync_query, Config) ->

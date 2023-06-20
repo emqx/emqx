@@ -44,14 +44,14 @@ init_per_suite(Config) ->
             emqx_mgmt_api_test_util:init_suite(),
             HostPort = GCPEmulatorHost ++ ":" ++ GCPEmulatorPortStr,
             true = os:putenv("PUBSUB_EMULATOR_HOST", HostPort),
-            ConnectorState = start_control_connector(),
+            Client = start_control_connector(),
             [
                 {proxy_name, ProxyName},
                 {proxy_host, ProxyHost},
                 {proxy_port, ProxyPort},
                 {gcp_emulator_host, GCPEmulatorHost},
                 {gcp_emulator_port, GCPEmulatorPort},
-                {connector_state, ConnectorState}
+                {client, Client}
                 | Config
             ];
         false ->
@@ -64,8 +64,8 @@ init_per_suite(Config) ->
     end.
 
 end_per_suite(Config) ->
-    ConnectorState = ?config(connector_state, Config),
-    stop_control_connector(ConnectorState),
+    Client = ?config(client, Config),
+    stop_control_connector(Client),
     emqx_mgmt_api_test_util:end_suite(),
     ok = emqx_common_test_helpers:stop_apps([emqx_conf]),
     ok = emqx_connector_test_helpers:stop_apps([emqx_bridge, emqx_resource, emqx_rule_engine]),
@@ -229,14 +229,13 @@ ensure_topics(Config) ->
 
 ensure_topic(Config, Topic) ->
     ProjectId = ?config(project_id, Config),
-    ConnectorState = #{pool_name := PoolName} = ?config(connector_state, Config),
+    Client = ?config(client, Config),
     Method = put,
     Path = <<"/v1/projects/", ProjectId/binary, "/topics/", Topic/binary>>,
     Body = <<"{}">>,
-    Res = emqx_bridge_gcp_pubsub_connector:on_query(
-        PoolName,
+    Res = emqx_bridge_gcp_pubsub_client:query_sync(
         {prepared_request, {Method, Path, Body}},
-        ConnectorState
+        Client
     ),
     case Res of
         {ok, _} ->
@@ -259,16 +258,15 @@ start_control_connector() ->
             service_account_json => ServiceAccount
         },
     PoolName = <<"control_connector">>,
-    {ok, ConnectorState} = emqx_bridge_gcp_pubsub_connector:on_start(PoolName, ConnectorConfig),
-    ConnectorState.
+    {ok, Client} = emqx_bridge_gcp_pubsub_client:start(PoolName, ConnectorConfig),
+    Client.
 
-stop_control_connector(ConnectorState) ->
-    #{pool_name := PoolName} = ConnectorState,
-    ok = emqx_bridge_gcp_pubsub_connector:on_stop(PoolName, ConnectorState),
+stop_control_connector(Client) ->
+    ok = emqx_bridge_gcp_pubsub_client:stop(Client),
     ok.
 
 pubsub_publish(Config, Topic, Messages0) ->
-    ConnectorState = #{pool_name := PoolName} = ?config(connector_state, Config),
+    Client = ?config(client, Config),
     ProjectId = ?config(project_id, Config),
     Method = post,
     Path = <<"/v1/projects/", ProjectId/binary, "/topics/", Topic/binary, ":publish">>,
@@ -287,10 +285,9 @@ pubsub_publish(Config, Topic, Messages0) ->
             Messages0
         ),
     Body = emqx_utils_json:encode(#{<<"messages">> => Messages}),
-    {ok, _} = emqx_bridge_gcp_pubsub_connector:on_query(
-        PoolName,
+    {ok, _} = emqx_bridge_gcp_pubsub_client:query_sync(
         {prepared_request, {Method, Path, Body}},
-        ConnectorState
+        Client
     ),
     ok.
 
@@ -688,3 +685,4 @@ t_bridge_rule_action_source(Config) ->
 %%   * connection down during ack
 %%   * topic deleted while consumer is running
 %%   * subscription deleted while consumer is running
+%%   * ensure client is terminated when bridge stops

@@ -29,11 +29,11 @@
     max_retries := non_neg_integer(),
     pool_size := non_neg_integer(),
     resource_opts := #{request_ttl := infinity | emqx_schema:duration_ms(), any() => term()},
-    service_account_json := emqx_bridge_gcp_pubsub_connector:service_account_json(),
+    service_account_json := emqx_bridge_gcp_pubsub_client:service_account_json(),
     any() => term()
 }.
 -type state() :: #{
-    connector_state := emqx_bridge_gcp_pubsub_connector:state()
+    client := emqx_bridge_gcp_pubsub_client:state()
 }.
 
 -export_type([mqtt_config/0]).
@@ -52,24 +52,21 @@ query_mode(_Config) -> no_queries.
 
 -spec on_start(resource_id(), config()) -> {ok, state()} | {error, term()}.
 on_start(InstanceId, Config) ->
-    case emqx_bridge_gcp_pubsub_connector:on_start(InstanceId, Config) of
-        {ok, ConnectorState} ->
-            start_consumers(InstanceId, ConnectorState, Config);
+    case emqx_bridge_gcp_pubsub_client:start(InstanceId, Config) of
+        {ok, Client} ->
+            start_consumers(InstanceId, Client, Config);
         Error ->
             Error
     end.
 
 -spec on_stop(resource_id(), state()) -> ok | {error, term()}.
-on_stop(InstanceId, #{connector_state := ConnectorState}) ->
+on_stop(InstanceId, _State) ->
     ok = stop_consumers(InstanceId),
-    emqx_bridge_gcp_pubsub_connector:on_stop(InstanceId, ConnectorState);
-on_stop(InstanceId, undefined = _State) ->
-    ok = stop_consumers(InstanceId),
-    emqx_bridge_gcp_pubsub_connector:on_stop(InstanceId, undefined).
+    emqx_bridge_gcp_pubsub_client:stop(InstanceId).
 
 -spec on_get_status(resource_id(), state()) -> connected | disconnected.
 on_get_status(InstanceId, _State) ->
-    %% Note: do *not* alter the `connector_state' value here.  It must be immutable, since
+    %% Note: do *not* alter the `client' value here.  It must be immutable, since
     %% we have handed it over to the pull workers.
     case
         emqx_resource_pool:health_check_workers(
@@ -85,11 +82,12 @@ on_get_status(InstanceId, _State) ->
 %% Internal fns
 %%-------------------------------------------------------------------------------------------------
 
-start_consumers(InstanceId, ConnectorState, Config) ->
+start_consumers(InstanceId, Client, Config) ->
     #{
         bridge_name := BridgeName,
         consumer := ConsumerConfig0,
-        hookpoint := Hookpoint
+        hookpoint := Hookpoint,
+        service_account_json := #{project_id := ProjectId}
     } = Config,
     ConsumerConfig1 = maps:update_with(topic_mapping, fun convert_topic_mapping/1, ConsumerConfig0),
     TopicMapping = maps:get(topic_mapping, ConsumerConfig1),
@@ -98,18 +96,19 @@ start_consumers(InstanceId, ConnectorState, Config) ->
     ConsumerConfig = ConsumerConfig1#{
         auto_reconnect => ?AUTO_RECONNECT_S,
         bridge_name => BridgeName,
-        connector_state => ConnectorState,
+        client => Client,
         hookpoint => Hookpoint,
         instance_id => InstanceId,
-        pool_size => PoolSize
+        pool_size => PoolSize,
+        project_id => ProjectId
     },
     ConsumerOpts = maps:to_list(ConsumerConfig),
     %% FIXME: mark as unhealthy if topics do not exist!
-    case validate_pubsub_topics(InstanceId, TopicMapping, ConnectorState) of
+    case validate_pubsub_topics(TopicMapping, Client) of
         ok ->
             ok;
         error ->
-            _ = emqx_bridge_gcp_pubsub_connector:on_stop(InstanceId, ConnectorState),
+            _ = emqx_bridge_gcp_pubsub_client:stop(InstanceId),
             throw(
                 "GCP PubSub topics are invalid.  Please check the logs, check if the "
                 "topic exists in GCP and if the service account has permissions to use them."
@@ -120,12 +119,12 @@ start_consumers(InstanceId, ConnectorState, Config) ->
     of
         ok ->
             State = #{
-                connector_state => ConnectorState,
+                client => Client,
                 pool_name => InstanceId
             },
             {ok, State};
         {error, Reason} ->
-            _ = emqx_bridge_gcp_pubsub_connector:on_stop(InstanceId, ConnectorState),
+            _ = emqx_bridge_gcp_pubsub_client:stop(InstanceId),
             {error, Reason}
     end.
 
@@ -163,23 +162,23 @@ convert_topic_mapping(TopicMappingList) ->
         TopicMappingList
     ).
 
-validate_pubsub_topics(InstanceId, TopicMapping, ConnectorState) ->
+validate_pubsub_topics(TopicMapping, Client) ->
     PubSubTopics = maps:keys(TopicMapping),
-    do_validate_pubsub_topics(InstanceId, ConnectorState, PubSubTopics).
+    do_validate_pubsub_topics(Client, PubSubTopics).
 
-do_validate_pubsub_topics(InstanceId, ConnectorState, [Topic | Rest]) ->
-    case check_for_topic_existence(InstanceId, Topic, ConnectorState) of
+do_validate_pubsub_topics(Client, [Topic | Rest]) ->
+    case check_for_topic_existence(Topic, Client) of
         ok ->
-            do_validate_pubsub_topics(InstanceId, ConnectorState, Rest);
+            do_validate_pubsub_topics(Client, Rest);
         {error, _} ->
             error
     end;
-do_validate_pubsub_topics(_InstanceId, _ConnectorState, []) ->
+do_validate_pubsub_topics(_Client, []) ->
     %% we already validate that the mapping is not empty in the config schema.
     ok.
 
-check_for_topic_existence(InstanceId, Topic, ConnectorState) ->
-    Res = emqx_bridge_gcp_pubsub_connector:get_topic(InstanceId, Topic, ConnectorState),
+check_for_topic_existence(Topic, Client) ->
+    Res = emqx_bridge_gcp_pubsub_client:get_topic(Topic, Client),
     case Res of
         {ok, _} ->
             ok;

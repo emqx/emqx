@@ -13,17 +13,18 @@
     max_retries := non_neg_integer(),
     pubsub_topic := binary(),
     resource_opts := #{request_ttl := infinity | emqx_schema:duration_ms(), any() => term()},
-    service_account_json := emqx_bridge_gcp_pubsub_connector:service_account_json(),
+    service_account_json := emqx_bridge_gcp_pubsub_client:service_account_json(),
     any() => term()
 }.
 -type state() :: #{
-    connector_state := emqx_bridge_gcp_pubsub_connector:state(),
+    client := emqx_bridge_gcp_pubsub_client:state(),
     payload_template := emqx_placeholder:tmpl_token(),
+    project_id := emqx_bridge_gcp_pubsub_client:project_id(),
     pubsub_topic := binary()
 }.
--type headers() :: emqx_bridge_gcp_pubsub_connector:headers().
--type body() :: emqx_bridge_gcp_pubsub_connector:body().
--type status_code() :: emqx_bridge_gcp_pubsub_connector:status_code().
+-type headers() :: emqx_bridge_gcp_pubsub_client:headers().
+-type body() :: emqx_bridge_gcp_pubsub_client:body().
+-type status_code() :: emqx_bridge_gcp_pubsub_client:status_code().
 
 %% `emqx_resource' API
 -export([
@@ -50,15 +51,21 @@ query_mode(_Config) -> async.
 
 -spec on_start(resource_id(), config()) -> {ok, state()} | {error, term()}.
 on_start(InstanceId, Config) ->
+    ?SLOG(info, #{
+        msg => "starting_gcp_pubsub_bridge",
+        config => Config
+    }),
     #{
         payload_template := PayloadTemplate,
-        pubsub_topic := PubSubTopic
+        pubsub_topic := PubSubTopic,
+        service_account_json := #{project_id := ProjectId}
     } = Config,
-    case emqx_bridge_gcp_pubsub_connector:on_start(InstanceId, Config) of
-        {ok, ConnectorState} ->
+    case emqx_bridge_gcp_pubsub_client:start(InstanceId, Config) of
+        {ok, Client} ->
             State = #{
-                connector_state => ConnectorState,
+                client => Client,
                 payload_template => emqx_placeholder:preproc_tmpl(PayloadTemplate),
+                project_id => ProjectId,
                 pubsub_topic => PubSubTopic
             },
             {ok, State};
@@ -67,22 +74,19 @@ on_start(InstanceId, Config) ->
     end.
 
 -spec on_stop(resource_id(), state()) -> ok | {error, term()}.
-on_stop(InstanceId, #{connector_state := ConnectorState}) ->
-    emqx_bridge_gcp_pubsub_connector:on_stop(InstanceId, ConnectorState);
-on_stop(InstanceId, undefined = _State) ->
-    emqx_bridge_gcp_pubsub_connector:on_stop(InstanceId, undefined).
+on_stop(InstanceId, _State) ->
+    emqx_bridge_gcp_pubsub_client:stop(InstanceId).
 
 -spec on_get_status(resource_id(), state()) -> connected | disconnected.
-on_get_status(InstanceId, #{connector_state := ConnectorState} = _State) ->
-    emqx_bridge_gcp_pubsub_connector:on_get_status(InstanceId, ConnectorState).
+on_get_status(_InstanceId, #{client := Client} = _State) ->
+    emqx_bridge_gcp_pubsub_client:get_status(Client).
 
 -spec on_query(
     resource_id(),
     {send_message, map()},
     state()
 ) ->
-    {ok, status_code(), headers()}
-    | {ok, status_code(), headers(), body()}
+    {ok, map()}
     | {error, {recoverable_error, term()}}
     | {error, term()}.
 on_query(ResourceId, {send_message, Selected}, State) ->
@@ -107,15 +111,14 @@ on_query_async(ResourceId, {send_message, Selected}, ReplyFunAndArgs, State) ->
         "gcp_pubsub_received",
         #{requests => Requests, connector => ResourceId, state => State}
     ),
-    do_send_requests_async(State, Requests, ReplyFunAndArgs, ResourceId).
+    do_send_requests_async(State, Requests, ReplyFunAndArgs).
 
 -spec on_batch_query(
     resource_id(),
     [{send_message, map()}],
     state()
 ) ->
-    {ok, status_code(), headers()}
-    | {ok, status_code(), headers(), body()}
+    {ok, map()}
     | {error, {recoverable_error, term()}}
     | {error, term()}.
 on_batch_query(ResourceId, Requests, State) ->
@@ -138,7 +141,7 @@ on_batch_query_async(ResourceId, Requests, ReplyFunAndArgs, State) ->
         "gcp_pubsub_received",
         #{requests => Requests, connector => ResourceId, state => State}
     ),
-    do_send_requests_async(State, Requests, ReplyFunAndArgs, ResourceId).
+    do_send_requests_async(State, Requests, ReplyFunAndArgs).
 
 %%-------------------------------------------------------------------------------------------------
 %% Helper fns
@@ -154,7 +157,7 @@ on_batch_query_async(ResourceId, Requests, ReplyFunAndArgs, State) ->
     | {error, {recoverable_error, term()}}
     | {error, term()}.
 do_send_requests_sync(State, Requests, InstanceId) ->
-    #{connector_state := ConnectorState} = State,
+    #{client := Client} = State,
     Payloads =
         lists:map(
             fun({send_message, Selected}) ->
@@ -166,18 +169,17 @@ do_send_requests_sync(State, Requests, InstanceId) ->
     Path = publish_path(State),
     Method = post,
     Request = {prepared_request, {Method, Path, Body}},
-    Result = emqx_bridge_gcp_pubsub_connector:on_query(InstanceId, Request, ConnectorState),
+    Result = emqx_bridge_gcp_pubsub_client:query_sync(Request, Client),
     QueryMode = sync,
     handle_result(Result, Request, QueryMode, InstanceId).
 
 -spec do_send_requests_async(
     state(),
     [{send_message, map()}],
-    {ReplyFun :: function(), Args :: list()},
-    resource_id()
+    {ReplyFun :: function(), Args :: list()}
 ) -> {ok, pid()}.
-do_send_requests_async(State, Requests, ReplyFunAndArgs0, InstanceId) ->
-    #{connector_state := ConnectorState} = State,
+do_send_requests_async(State, Requests, ReplyFunAndArgs0) ->
+    #{client := Client} = State,
     Payloads =
         lists:map(
             fun({send_message, Selected}) ->
@@ -190,8 +192,8 @@ do_send_requests_async(State, Requests, ReplyFunAndArgs0, InstanceId) ->
     Method = post,
     Request = {prepared_request, {Method, Path, Body}},
     ReplyFunAndArgs = {fun ?MODULE:reply_delegator/2, [ReplyFunAndArgs0]},
-    emqx_bridge_gcp_pubsub_connector:on_query_async(
-        InstanceId, Request, ReplyFunAndArgs, ConnectorState
+    emqx_bridge_gcp_pubsub_client:query_async(
+        Request, ReplyFunAndArgs, Client
     ).
 
 -spec encode_payload(state(), Selected :: map()) -> #{data := binary()}.
@@ -210,7 +212,7 @@ to_pubsub_request(Payloads) ->
 -spec publish_path(state()) -> binary().
 publish_path(
     _State = #{
-        connector_state := #{project_id := ProjectId},
+        project_id := ProjectId,
         pubsub_topic := PubSubTopic
     }
 ) ->
