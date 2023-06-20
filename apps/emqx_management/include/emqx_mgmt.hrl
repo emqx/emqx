@@ -14,6 +14,4 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
--define(MANAGEMENT_SHARD, emqx_management_shard).
-
 -define(DEFAULT_ROW_LIMIT, 100).

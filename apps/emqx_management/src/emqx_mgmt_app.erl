@@ -28,7 +28,6 @@
 -include("emqx_mgmt.hrl").
 
 start(_Type, _Args) ->
-    ok = mria_rlog:wait_for_shards([?MANAGEMENT_SHARD], infinity),
     case emqx_mgmt_auth:init_bootstrap_file() of
         ok ->
             emqx_conf:add_handler([api_key], emqx_mgmt_auth),
