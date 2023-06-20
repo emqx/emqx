@@ -246,6 +246,9 @@ batch_big_payload({async, ReplyFunAndArgs}, InstId, Batch, State = #{pid := Pid}
 on_get_status(_InstId, #{health_check_error := true}) ->
     ?tp(connector_demo_health_check_error, #{}),
     disconnected;
+on_get_status(_InstId, State = #{health_check_error := {msg, Message}}) ->
+    ?tp(connector_demo_health_check_error, #{}),
+    {disconnected, State, Message};
 on_get_status(_InstId, #{pid := Pid}) ->
     timer:sleep(300),
     case is_process_alive(Pid) of
