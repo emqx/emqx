@@ -25,6 +25,6 @@ gateway.stomp {
     }
 
     listeners.tcp.default {
-        bind = 0.0.0.0:61613
+        bind = "0.0.0.0:61613"
     }
 }
