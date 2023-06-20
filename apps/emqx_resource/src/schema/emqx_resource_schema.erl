@@ -88,7 +88,7 @@ resource_opts_meta() ->
         desc => ?DESC(<<"resource_opts">>)
     }.
 
-worker_pool_size(type) -> non_neg_integer();
+worker_pool_size(type) -> range(1, 1024);
 worker_pool_size(desc) -> ?DESC("worker_pool_size");
 worker_pool_size(default) -> ?WORKER_POOL_SIZE;
 worker_pool_size(required) -> false;
