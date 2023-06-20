@@ -30,7 +30,6 @@
 -export([reset/2, reset/3]).
 -export([dump_schema/2]).
 -export([schema_module/0]).
--export([gen_example_conf/2]).
 -export([check_config/2]).
 
 %% TODO: move to emqx_dashboard when we stop building api schema at build time
@@ -161,8 +160,7 @@ dump_schema(Dir, SchemaModule) ->
             ok = gen_schema_json(Dir, SchemaModule, Lang)
         end,
         ["en", "zh"]
-    ),
-    ok = gen_example_conf(Dir, SchemaModule).
+    ).
 
 %% for scripts/spellcheck.
 gen_schema_json(Dir, SchemaModule, Lang) ->
@@ -201,11 +199,6 @@ gen_config_md(Dir, SchemaModule, Lang) ->
     SchemaMdFile = filename:join([Dir, "config-" ++ Lang ++ ".md"]),
     io:format(user, "===< Generating: ~s~n", [SchemaMdFile]),
     ok = gen_doc(SchemaMdFile, SchemaModule, Lang).
-
-gen_example_conf(Dir, SchemaModule) ->
-    SchemaMdFile = filename:join([Dir, "emqx.conf.example"]),
-    io:format(user, "===< Generating: ~s~n", [SchemaMdFile]),
-    ok = gen_example(SchemaMdFile, SchemaModule).
 
 %% @doc return the root schema module.
 -spec schema_module() -> module().
@@ -249,17 +242,6 @@ gen_doc(File, SchemaModule, Lang) ->
     Opts = #{title => Title, body => Body, desc_resolver => Resolver},
     Doc = hocon_schema_md:gen(SchemaModule, Opts),
     file:write_file(File, Doc).
-
-gen_example(File, SchemaModule) ->
-    %% we do not generate description in example files
-    %% so there is no need for a desc_resolver
-    Opts = #{
-        title => <<"EMQX Configuration Example">>,
-        body => <<"">>,
-        include_importance_up_from => ?IMPORTANCE_MEDIUM
-    },
-    Example = hocon_schema_example:gen(SchemaModule, Opts),
-    file:write_file(File, Example).
 
 gen_api_schema_json_iodata(SchemaMod, SchemaInfo) ->
     emqx_dashboard_swagger:gen_api_schema_json_iodata(

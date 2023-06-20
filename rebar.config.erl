@@ -524,7 +524,7 @@ etc_overlay(ReleaseType, _Edition) ->
     [
         {mkdir, "etc/"},
         {copy, "{{base_dir}}/lib/emqx/etc/certs", "etc/"},
-        {copy, "_build/docgen/" ++ profile() ++ "/emqx.conf.example", "etc/emqx.conf.example"}
+        {copy, "examples", "etc/"}
     ] ++
         lists:map(
             fun
