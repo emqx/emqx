@@ -276,6 +276,9 @@ end}.
 {validator, "range:1-65535", "must be 1 to 65535",
   fun(X) -> X >= 1 andalso X =< 65535 end}.
 
+{validator, "range:23-65535", "must be 23 to 65535",
+  fun(X) -> X >= 23 andalso X =< 65535 end}.
+
 {validator, "range:1-9", "must be 1 to 9",
   fun(X) -> X >= 1 andalso X =< 9 end}.
 
@@ -955,7 +958,8 @@ end}.
 %% @doc Set the Max ClientId Length Allowed.
 {mapping, "mqtt.max_clientid_len", "emqx.max_clientid_len", [
   {default, 65535},
-  {datatype, integer}
+  {datatype, integer},
+  {validators, ["range:23-65535"]}
 ]}.
 
 %% @doc Set the Maximum topic levels.
