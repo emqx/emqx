@@ -64,4 +64,4 @@ rpc {
 
     ## Socket buffer size in user mode
     socket_buffer = 1MB
- }
+}
