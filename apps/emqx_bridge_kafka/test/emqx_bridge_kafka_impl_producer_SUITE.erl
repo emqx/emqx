@@ -132,7 +132,7 @@ t_query_mode(CtConfig) ->
         begin
             publish_with_config_template_parameters(CtConfig1, #{"query_mode" => "sync"})
         end,
-        fun(RunStageResult, Trace) ->
+        fun(Trace) ->
             %% We should have a sync Snabbkaffe trace
             ?assertMatch([_], ?of_kind(emqx_bridge_kafka_impl_producer_sync_query, Trace))
         end
@@ -141,7 +141,7 @@ t_query_mode(CtConfig) ->
         begin
             publish_with_config_template_parameters(CtConfig1, #{"query_mode" => "async"})
         end,
-        fun(RunStageResult, Trace) ->
+        fun(Trace) ->
             %% We should have a sync Snabbkaffe trace
             ?assertMatch([_], ?of_kind(emqx_bridge_kafka_impl_producer_async_query, Trace))
         end
