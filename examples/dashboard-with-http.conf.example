@@ -14,10 +14,7 @@ dashboard {
     cors = false
 
     listeners.http {
-        ## Whether to enable the listener
-        enable = true
-
-        ## Port or Address to listen on
+        ## Port or Address to listen on, 0 means disable
         bind = "0.0.0.0:18083" ## or just a port number, e.g. 18083
 
         ## Socket acceptor pool size for TCP protocols

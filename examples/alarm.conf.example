@@ -11,7 +11,7 @@ alarm {
     ## Type: Array of the below enum
     ##   - log :: write the alarm to log
     ##   - publish :: publish the alarm as an MQTT message to the system topics
-    actions = [log]
+    actions = [log, publish]
 
     ## Maximum total number of deactivated alarms to keep as history
     ## Type: Range from 1 to 3000

@@ -4,7 +4,7 @@ enable.desc:
 """Turn Prometheus data pushing on or off"""
 
 headers.desc:
-"""A HTTP Headers when pushing to Push Gateway.<br/>
+"""An HTTP Headers when pushing to Push Gateway.<br/>
 For example, <code> { Authorization = "some-authz-tokens"}</code>"""
 
 interval.desc:

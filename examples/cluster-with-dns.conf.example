@@ -14,7 +14,7 @@ cluster {
     discovery_strategy = dns
 
     ## List of core nodes that the replicant will connect to
-    core_nodes = ['emqx1@192.168.0.1', 'emqx2@192.168.0.2']
+    core_nodes = ["emqx1@192.168.0.1", "emqx2@192.168.0.2"]
 
     ## Remove disconnected nodes from the cluster after this interval
     autoclean = 5m
