@@ -652,16 +652,3 @@ list_dir(Dir) ->
         false ->
             []
     end.
-
-profile() ->
-    case os:getenv("PROFILE") of
-        Profile = "emqx-enterprise" ++ _ ->
-            Profile;
-        Profile = "emqx" ++ _ ->
-            Profile;
-        false ->
-            "emqx-enterprise";
-        Profile ->
-            io:format(standard_error, "ERROR: bad_PROFILE ~p~n", [Profile]),
-            exit(bad_PROFILE)
-    end.
