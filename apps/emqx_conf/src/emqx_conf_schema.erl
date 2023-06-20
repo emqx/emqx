@@ -165,7 +165,7 @@ fields("cluster") ->
                 emqx_schema:duration(),
                 #{
                     mapping => "mria.cluster_autoclean",
-                    default => <<"5m">>,
+                    default => <<"24h">>,
                     desc => ?DESC(cluster_autoclean),
                     'readOnly' => true
                 }
