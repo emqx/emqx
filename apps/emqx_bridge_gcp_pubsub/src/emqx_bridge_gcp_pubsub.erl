@@ -152,7 +152,7 @@ fields(consumer) ->
                 pos_integer(),
                 #{default => 100, desc => ?DESC("consumer_pull_max_messages")}
             )},
-        {pull_worker_multiplier,
+        {consumer_workers_per_topic,
             mk(
                 pos_integer(),
                 #{

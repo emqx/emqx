@@ -86,17 +86,7 @@ on_start(
         connector => ResourceId,
         config => Config
     }),
-    %% emulating the emulator behavior
-    %% https://cloud.google.com/pubsub/docs/emulator
-    {Transport, HostPort} =
-        case os:getenv("PUBSUB_EMULATOR_HOST") of
-            false ->
-                {tls, "pubsub.googleapis.com:443"};
-            HostPort0 ->
-                %% The emulator is plain HTTP...
-                Transport0 = persistent_term:get({?MODULE, transport}, tcp),
-                {Transport0, HostPort0}
-        end,
+    {Transport, HostPort} = get_transport(),
     #{hostname := Host, port := Port} = emqx_schema:parse_server(HostPort, #{default_port => 443}),
     PoolType = random,
     TransportOpts =
@@ -302,7 +292,6 @@ get_jwt_authorization_header(JWTConfig) ->
     {ok, map()} | {error, {recoverable_error, term()} | term()}.
 do_send_requests_sync(State, {prepared_request, {Method, Path, Body}}, ResourceId) ->
     #{
-        jwt_config := JWTConfig,
         pool_name := PoolName,
         max_retries := MaxRetries,
         request_ttl := RequestTTL
@@ -315,12 +304,7 @@ do_send_requests_sync(State, {prepared_request, {Method, Path, Body}}, ResourceI
             resource_id => ResourceId
         }
     ),
-    Headers = get_jwt_authorization_header(JWTConfig),
-    Request =
-        case {Method, Body} of
-            {get, <<>>} -> {Path, Headers};
-            _ -> {Path, Headers, Body}
-        end,
+    Request = to_ehttpc_request(State, Method, Path, Body),
     Response = ehttpc:request(
         PoolName,
         Method,
@@ -340,7 +324,6 @@ do_send_requests_async(
     State, {prepared_request, {Method, Path, Body}}, ReplyFunAndArgs, ResourceId
 ) ->
     #{
-        jwt_config := JWTConfig,
         pool_name := PoolName,
         request_ttl := RequestTTL
     } = State,
@@ -352,12 +335,7 @@ do_send_requests_async(
             resource_id => ResourceId
         }
     ),
-    Headers = get_jwt_authorization_header(JWTConfig),
-    Request =
-        case {Method, Body} of
-            {get, <<>>} -> {Path, Headers};
-            _ -> {Path, Headers, Body}
-        end,
+    Request = to_ehttpc_request(State, Method, Path, Body),
     Worker = ehttpc_pool:pick_worker(PoolName),
     ok = ehttpc:request_async(
         Worker,
@@ -367,6 +345,14 @@ do_send_requests_async(
         {fun ?MODULE:reply_delegator/3, [ResourceId, ReplyFunAndArgs]}
     ),
     {ok, Worker}.
+
+to_ehttpc_request(State, Method, Path, Body) ->
+    #{jwt_config := JWTConfig} = State,
+    Headers = get_jwt_authorization_header(JWTConfig),
+    case {Method, Body} of
+        {get, <<>>} -> {Path, Headers};
+        _ -> {Path, Headers, Body}
+    end.
 
 -spec handle_response(term(), resource_id(), sync | async) -> {ok, map()} | {error, term()}.
 handle_response(Result, ResourceId, QueryMode) ->
@@ -460,4 +446,17 @@ do_get_status(ResourceId, Timeout) ->
     catch
         exit:timeout ->
             false
+    end.
+
+-spec get_transport() -> {tls | tcp, string()}.
+get_transport() ->
+    %% emulating the emulator behavior
+    %% https://cloud.google.com/pubsub/docs/emulator
+    case os:getenv("PUBSUB_EMULATOR_HOST") of
+        false ->
+            {tls, "pubsub.googleapis.com:443"};
+        HostPort0 ->
+            %% The emulator is plain HTTP...
+            Transport0 = persistent_term:get({?MODULE, transport}, tcp),
+            {Transport0, HostPort0}
     end.

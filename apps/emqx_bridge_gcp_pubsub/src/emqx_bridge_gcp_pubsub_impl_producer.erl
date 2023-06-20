@@ -278,8 +278,8 @@ reply_delegator(ReplyFunAndArgs, Response) ->
             Reason =:= {closed, "The connection was lost."};
             Reason =:= timeout
         ->
-            Result1 = {error, {recoverable_error, Reason}},
-            emqx_resource:apply_reply_fun(ReplyFunAndArgs, Result1);
+            Result = {error, {recoverable_error, Reason}},
+            emqx_resource:apply_reply_fun(ReplyFunAndArgs, Result);
         _ ->
             emqx_resource:apply_reply_fun(ReplyFunAndArgs, Response)
     end.

@@ -91,8 +91,8 @@ start_consumers(InstanceId, ConnectorState, Config) ->
     } = Config,
     ConsumerConfig1 = maps:update_with(topic_mapping, fun convert_topic_mapping/1, ConsumerConfig0),
     TopicMapping = maps:get(topic_mapping, ConsumerConfig1),
-    PullWorkerMultiplier = maps:get(pull_worker_multiplier, ConsumerConfig1),
-    PoolSize = map_size(TopicMapping) * PullWorkerMultiplier,
+    ConsumerWorkersPerTopic = maps:get(consumer_workers_per_topic, ConsumerConfig1),
+    PoolSize = map_size(TopicMapping) * ConsumerWorkersPerTopic,
     ConsumerConfig = ConsumerConfig1#{
         auto_reconnect => ?AUTO_RECONNECT_S,
         bridge_name => BridgeName,

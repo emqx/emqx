@@ -145,7 +145,7 @@ consumer_config(TestCase, Config) ->
     ServiceAccountJSONStr = emqx_utils_json:encode(ServiceAccountJSON),
     MQTTTopic = proplists:get_value(mqtt_topic, Config, <<"mqtt/topic/", UniqueNum/binary>>),
     MQTTQoS = proplists:get_value(mqtt_qos, Config, 0),
-    PullWorkerMultiplier = proplists:get_value(pull_worker_multiplier, Config, 1),
+    ConsumerWorkersPerTopic = proplists:get_value(consumer_workers_per_topic, Config, 1),
     DefaultTopicMapping = [
         #{
             pubsub_topic => ConsumerTopic,
@@ -167,7 +167,7 @@ consumer_config(TestCase, Config) ->
             "  consumer {\n"
             "    ack_retry_interval = \"5s\"\n"
             "    pull_max_messages = 10\n"
-            "    pull_worker_multiplier = ~b\n"
+            "    consumer_workers_per_topic = ~b\n"
             %% topic mapping
             "~s"
             "  }\n"
@@ -182,7 +182,7 @@ consumer_config(TestCase, Config) ->
             [
                 Name,
                 ServiceAccountJSONStr,
-                PullWorkerMultiplier,
+                ConsumerWorkersPerTopic,
                 TopicMappingStr
             ]
         ),
