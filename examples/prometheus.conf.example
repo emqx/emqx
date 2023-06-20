@@ -23,6 +23,6 @@ prometheus {
     ## - ${host}: Host name of EMQX node
     job_name = "${name}/instance/${name}~${host}"
 
-    ## set true to enable this
-    enable = false
+    ## set to false to enable this
+    enable = true
 }

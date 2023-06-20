@@ -51,9 +51,6 @@ dashboard {
         ## Enable or disable peer verification
         verify = verify_none  ## use verify_peer to enable
 
-        ## if `verify' is ebabled, whit true, the connection fails if the client does not have a certificate to send
-        fail_if_no_peer_cert = false
-
         ## Enable TLS session reuse
         reuse_sessions = true
 

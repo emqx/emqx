@@ -7,8 +7,8 @@
 ##       you should copy and paste the below data into the emqx.conf for working
 
 psk_authentication {
-    ## set true to enable TLS PSK support
-    enable = false
+    ## set to false to disable
+    enable = true
 
     ## If init_file is specified, EMQX will import PSKs from the file into the built-in database at startup for use by the runtime
     init_file = "psk"
