@@ -97,7 +97,7 @@ worker_pool_size_test_() ->
             {_, [
                 #{
                     kind := validation_error,
-                    reason := #{expected_type := _},
+                    reason := #{expected := _},
                     value := WorkerPoolSize
                 }
             ]},
