@@ -134,12 +134,20 @@ sync_cluster_conf2(Nodes) ->
                 msg => "ignored_nodes_when_sync_cluster_conf"
             },
             ?SLOG(warning, Warning);
-        true ->
+        true when Failed =/= [] ->
             %% There are core nodes running but no one was able to reply.
             ?SLOG(error, #{
                 msg => "failed_to_sync_cluster_conf",
                 nodes => Nodes,
                 failed => Failed,
+                not_ready => NotReady
+            });
+        true ->
+            %% There are core nodes booting up
+            ?SLOG(info, #{
+                msg => "peer_not_ready_for_config_sync",
+                reason => "The 'not_ready' peer node(s) are loading configs",
+                nodes => Nodes,
                 not_ready => NotReady
             });
         false ->
