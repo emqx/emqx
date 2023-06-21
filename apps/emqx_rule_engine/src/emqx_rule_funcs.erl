@@ -216,6 +216,12 @@
         , mongo_date/2
         ]).
 
+%% Random Funcs
+-export([ random/0
+        , uuid_v4/0
+        , uuid_v4_nodash/0
+        ]).
+
 %% Proc Dict Func
  -export([ proc_dict_get/1
          , proc_dict_put/2
@@ -888,6 +894,18 @@ term_decode(Data) when is_binary(Data) ->
     erlang:binary_to_term(Data).
 
 %%------------------------------------------------------------------------------
+%% Random Funcs
+%%------------------------------------------------------------------------------
+random() ->
+    rand:uniform().
+
+uuid_v4() ->
+    uuid_str(uuid:get_v4(), binary_standard).
+
+uuid_v4_nodash() ->
+    uuid_str(uuid:get_v4(), binary_nodash).
+
+%%------------------------------------------------------------------------------
 %% Dict Funcs
 %%------------------------------------------------------------------------------
 
@@ -1039,3 +1057,6 @@ function_literal(Fun, [FArg | Args]) when is_atom(Fun), is_list(Args) ->
     end, WithFirstArg, Args) ++ ")";
 function_literal(Fun, Args) ->
     {invalid_func, {Fun, Args}}.
+
+uuid_str(UUID, DisplyOpt) ->
+    uuid:uuid_to_string(UUID, DisplyOpt).
