@@ -278,20 +278,22 @@ query(ResId, Request) ->
     Result :: term().
 query(ResId, Request, Opts) ->
     case emqx_resource_manager:lookup_cached(ResId) of
-        {ok, _Group, #{query_mode := QM}} ->
-            case QM of
-                simple_async ->
+        {ok, _Group, #{query_mode := QM, error := Error}} ->
+            case {QM, Error} of
+                {_, unhealthy_target} ->
+                    ?RESOURCE_ERROR(unhealthy_target, "unhealthy target");
+                {simple_async, _} ->
                     %% TODO(5.1.1): pass Resource instead of ResId to simple APIs
                     %% so the buffer worker does not need to lookup the cache again
                     Opts1 = Opts#{is_buffer_supported => true},
                     emqx_resource_buffer_worker:simple_async_query(ResId, Request, Opts1);
-                simple_sync ->
+                {simple_sync, _} ->
                     %% TODO(5.1.1): pass Resource instead of ResId to simple APIs
                     %% so the buffer worker does not need to lookup the cache again
                     emqx_resource_buffer_worker:simple_sync_query(ResId, Request);
-                sync ->
+                {sync, _} ->
                     emqx_resource_buffer_worker:sync_query(ResId, Request, Opts);
-                async ->
+                {async, _} ->
                     emqx_resource_buffer_worker:async_query(ResId, Request, Opts)
             end;
         {error, not_found} ->

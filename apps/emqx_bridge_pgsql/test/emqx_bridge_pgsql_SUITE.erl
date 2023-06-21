@@ -257,6 +257,12 @@ query_resource(Config, Request) ->
     ResourceID = emqx_bridge_resource:resource_id(BridgeType, Name),
     emqx_resource:query(ResourceID, Request, #{timeout => 1_000}).
 
+query_resource_sync(Config, Request) ->
+    Name = ?config(pgsql_name, Config),
+    BridgeType = ?config(pgsql_bridge_type, Config),
+    ResourceID = emqx_bridge_resource:resource_id(BridgeType, Name),
+    emqx_resource_buffer_worker:simple_sync_query(ResourceID, Request).
+
 query_resource_async(Config, Request) ->
     query_resource_async(Config, Request, _Opts = #{}).
 
@@ -634,3 +640,64 @@ t_nasty_sql_string(Config) ->
             1_000
         ),
     ?assertEqual(Payload, connect_and_get_payload(Config)).
+
+t_missing_table(Config) ->
+    Name = ?config(pgsql_name, Config),
+    BridgeType = ?config(pgsql_bridge_type, Config),
+    ResourceID = emqx_bridge_resource:resource_id(BridgeType, Name),
+
+    ?check_trace(
+        begin
+            connect_and_drop_table(Config),
+            ?assertMatch({ok, _}, create_bridge(Config)),
+            ?retry(
+                _Sleep = 1_000,
+                _Attempts = 20,
+                ?assertMatch(
+                    {ok, Status} when Status == connecting orelse Status == disconnected,
+                    emqx_resource_manager:health_check(ResourceID)
+                )
+            ),
+            Val = integer_to_binary(erlang:unique_integer()),
+            SentData = #{payload => Val, timestamp => 1668602148000},
+            Timeout = 1000,
+            ?assertMatch(
+                {error, {resource_error, #{reason := unhealthy_target}}},
+                query_resource(Config, {send_message, SentData, [], Timeout})
+            ),
+            ok
+        end,
+        fun(Trace) ->
+            ?assertMatch([_, _, _], ?of_kind(pgsql_undefined_table, Trace)),
+            ok
+        end
+    ),
+    connect_and_create_table(Config),
+    ok.
+
+t_table_removed(Config) ->
+    Name = ?config(pgsql_name, Config),
+    BridgeType = ?config(pgsql_bridge_type, Config),
+    ResourceID = emqx_bridge_resource:resource_id(BridgeType, Name),
+    ?check_trace(
+        begin
+            connect_and_create_table(Config),
+            ?assertMatch({ok, _}, create_bridge(Config)),
+            ?retry(
+                _Sleep = 1_000,
+                _Attempts = 20,
+                ?assertEqual({ok, connected}, emqx_resource_manager:health_check(ResourceID))
+            ),
+            connect_and_drop_table(Config),
+            Val = integer_to_binary(erlang:unique_integer()),
+            SentData = #{payload => Val, timestamp => 1668602148000},
+            ?assertMatch(
+                {error, {unrecoverable_error, {error, error, <<"42P01">>, undefined_table, _, _}}},
+                query_resource_sync(Config, {send_message, SentData, []})
+            ),
+            ok
+        end,
+        []
+    ),
+    connect_and_create_table(Config),
+    ok.

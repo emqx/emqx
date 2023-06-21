@@ -179,18 +179,39 @@ sql_drop_table() ->
 sql_check_table_exist() ->
     "SELECT COUNT(*) FROM user_tables WHERE table_name = 'MQTT_TEST'".
 
+new_jamdb_connection(Config) ->
+    JamdbOpts = [
+        {host, ?config(oracle_host, Config)},
+        {port, ?config(oracle_port, Config)},
+        {user, "system"},
+        {password, "oracle"},
+        {sid, ?SID}
+    ],
+    jamdb_oracle:start(JamdbOpts).
+
+close_jamdb_connection(Conn) ->
+    jamdb_oracle:stop(Conn).
+
 reset_table(Config) ->
-    ResourceId = resource_id(Config),
-    drop_table_if_exists(Config),
-    {ok, [{proc_result, 0, _}]} = emqx_resource:simple_sync_query(
-        ResourceId, {sql, sql_create_table()}
-    ),
+    {ok, Conn} = new_jamdb_connection(Config),
+    try
+        ok = drop_table_if_exists(Conn),
+        {ok, [{proc_result, 0, _}]} = jamdb_oracle:sql_query(Conn, sql_create_table())
+    after
+        close_jamdb_connection(Conn)
+    end,
     ok.
 
+drop_table_if_exists(Conn) when is_pid(Conn) ->
+    {ok, [{proc_result, 0, _}]} = jamdb_oracle:sql_query(Conn, sql_drop_table()),
+    ok;
 drop_table_if_exists(Config) ->
-    ResourceId = resource_id(Config),
-    {ok, [{proc_result, 0, _}]} =
-        emqx_resource:simple_sync_query(ResourceId, {query, sql_drop_table()}),
+    {ok, Conn} = new_jamdb_connection(Config),
+    try
+        ok = drop_table_if_exists(Conn)
+    after
+        close_jamdb_connection(Conn)
+    end,
     ok.
 
 oracle_config(TestCase, _ConnectionType, Config) ->
@@ -216,7 +237,7 @@ oracle_config(TestCase, _ConnectionType, Config) ->
             "  pool_size = 1\n"
             "  sql = \"~s\"\n"
             "  resource_opts = {\n"
-            "     health_check_interval = \"5s\"\n"
+            "     health_check_interval = \"15s\"\n"
             "     request_ttl = \"30s\"\n"
             "     query_mode = \"async\"\n"
             "     batch_size = 3\n"
@@ -349,13 +370,13 @@ t_sync_query(Config) ->
     ResourceId = resource_id(Config),
     ?check_trace(
         begin
+            reset_table(Config),
             ?assertMatch({ok, _}, create_bridge_api(Config)),
             ?retry(
                 _Sleep = 1_000,
                 _Attempts = 20,
                 ?assertEqual({ok, connected}, emqx_resource_manager:health_check(ResourceId))
             ),
-            reset_table(Config),
             MsgId = erlang:unique_integer(),
             Params = #{
                 topic => ?config(mqtt_topic, Config),
@@ -381,13 +402,13 @@ t_batch_sync_query(Config) ->
     BridgeId = bridge_id(Config),
     ?check_trace(
         begin
+            reset_table(Config),
             ?assertMatch({ok, _}, create_bridge_api(Config)),
             ?retry(
                 _Sleep = 1_000,
                 _Attempts = 30,
                 ?assertEqual({ok, connected}, emqx_resource_manager:health_check(ResourceId))
             ),
-            reset_table(Config),
             MsgId = erlang:unique_integer(),
             Params = #{
                 topic => ?config(mqtt_topic, Config),
@@ -464,6 +485,7 @@ t_start_stop(Config) ->
     ResourceId = resource_id(Config),
     ?check_trace(
         begin
+            reset_table(Config),
             ?assertMatch({ok, _}, create_bridge(Config)),
             %% Since the connection process is async, we give it some time to
             %% stabilize and avoid flakiness.
@@ -515,6 +537,7 @@ t_on_get_status(Config) ->
     ProxyHost = ?config(proxy_host, Config),
     ProxyName = ?config(proxy_name, Config),
     ResourceId = resource_id(Config),
+    reset_table(Config),
     ?assertMatch({ok, _}, create_bridge(Config)),
     %% Since the connection process is async, we give it some time to
     %% stabilize and avoid flakiness.
@@ -547,10 +570,45 @@ t_no_sid_nor_service_name(Config0) ->
     ),
     ok.
 
+t_missing_table(Config) ->
+    ResourceId = resource_id(Config),
+    ?check_trace(
+        begin
+            drop_table_if_exists(Config),
+            ?assertMatch({ok, _}, create_bridge_api(Config)),
+            ?retry(
+                _Sleep = 1_000,
+                _Attempts = 20,
+                ?assertMatch(
+                    {ok, Status} when Status =:= disconnected orelse Status =:= connecting,
+                    emqx_resource_manager:health_check(ResourceId)
+                )
+            ),
+            MsgId = erlang:unique_integer(),
+            Params = #{
+                topic => ?config(mqtt_topic, Config),
+                id => MsgId,
+                payload => ?config(oracle_name, Config),
+                retain => true
+            },
+            Message = {send_message, Params},
+            ?assertMatch(
+                {error, {resource_error, #{reason := not_connected}}},
+                emqx_resource:simple_sync_query(ResourceId, Message)
+            ),
+            ok
+        end,
+        fun(Trace) ->
+            ?assertNotMatch([], ?of_kind(oracle_undefined_table, Trace)),
+            ok
+        end
+    ).
+
 t_table_removed(Config) ->
     ResourceId = resource_id(Config),
     ?check_trace(
         begin
+            reset_table(Config),
             ?assertMatch({ok, _}, create_bridge_api(Config)),
             ?retry(
                 _Sleep = 1_000,
