@@ -219,7 +219,7 @@
 %% Random Funcs
 -export([ random/0
         , uuid_v4/0
-        , uuid_v4_nodash/0
+        , uuid_v4_no_hyphen/0
         ]).
 
 %% Proc Dict Func
@@ -902,7 +902,7 @@ random() ->
 uuid_v4() ->
     uuid_str(uuid:get_v4(), binary_standard).
 
-uuid_v4_nodash() ->
+uuid_v4_no_hyphen() ->
     uuid_str(uuid:get_v4(), binary_nodash).
 
 %%------------------------------------------------------------------------------
