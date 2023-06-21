@@ -18,11 +18,7 @@ else
 fi
 
 apk update && apk add git curl
-## Use 5.1.0 to bypass the newly added test cases in
-## https://github.com/emqx/paho.mqtt.testing/pull/13
-## This is a temporary solution for 5.1.0 release. After 5.1.0 release, we should use
-## the develop-5.0 branch
-git clone -b 5.1.0 https://github.com/emqx/paho.mqtt.testing.git /paho.mqtt.testing
+git clone -b develop-5.0 https://github.com/emqx/paho.mqtt.testing.git /paho.mqtt.testing
 
 pip install pytest==7.1.2 pytest-retry
 
