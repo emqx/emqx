@@ -236,7 +236,7 @@ log_rotation_count_limit_test() ->
             mismatches := #{"handler_name" :=
             #{kind := validation_error,
                 path := "log.file.default.rotation_count",
-                reason := #{expected_type := "1..128"},
+                reason := #{expected := "1..128"},
                 value := Count}
             }}]},
             hocon_tconf:generate(emqx_conf_schema, ConfMap0))
