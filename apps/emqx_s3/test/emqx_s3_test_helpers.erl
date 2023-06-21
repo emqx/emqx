@@ -64,10 +64,10 @@ base_raw_config(tcp) ->
         <<"secret_access_key">> => bin(?SECRET_ACCESS_KEY),
         <<"host">> => ?TCP_HOST,
         <<"port">> => ?TCP_PORT,
-        <<"max_part_size">> => 10 * 1024 * 1024,
+        <<"max_part_size">> => <<"10MB">>,
         <<"transport_options">> =>
             #{
-                <<"request_timeout">> => 2000
+                <<"request_timeout">> => <<"2s">>
             }
     };
 base_raw_config(tls) ->
@@ -77,10 +77,10 @@ base_raw_config(tls) ->
         <<"secret_access_key">> => bin(?SECRET_ACCESS_KEY),
         <<"host">> => ?TLS_HOST,
         <<"port">> => ?TLS_PORT,
-        <<"max_part_size">> => 10 * 1024 * 1024,
+        <<"max_part_size">> => <<"10MB">>,
         <<"transport_options">> =>
             #{
-                <<"request_timeout">> => 2000,
+                <<"request_timeout">> => <<"2s">>,
                 <<"ssl">> => #{
                     <<"enable">> => true,
                     <<"cacertfile">> => bin(cert_path("ca.crt")),

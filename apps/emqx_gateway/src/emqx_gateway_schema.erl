@@ -261,7 +261,7 @@ common_listener_opts() ->
             )},
         {bind,
             sc(
-                hoconsc:union([ip_port(), integer()]),
+                ip_port(),
                 #{desc => ?DESC(gateway_common_listener_bind)}
             )},
         {max_connections,

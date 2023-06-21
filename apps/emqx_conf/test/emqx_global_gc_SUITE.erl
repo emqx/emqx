@@ -35,7 +35,7 @@ t_run_gc(_) ->
         node => #{
             cookie => <<"cookie">>,
             data_dir => <<"data">>,
-            global_gc_interval => 1000
+            global_gc_interval => <<"1s">>
         }
     },
     emqx_common_test_helpers:load_config(emqx_conf_schema, Conf0),

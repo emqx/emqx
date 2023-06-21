@@ -77,7 +77,7 @@ set_special_configs(Config) ->
             % complete transfers.
             Storage = emqx_utils_maps:deep_merge(
                 emqx_ft_test_helpers:local_storage(Config),
-                #{<<"local">> => #{<<"segments">> => #{<<"gc">> => #{<<"interval">> => 0}}}}
+                #{<<"local">> => #{<<"segments">> => #{<<"gc">> => #{<<"interval">> => <<"0s">>}}}}
             ),
             emqx_ft_test_helpers:load_config(#{
                 <<"enable">> => true,

@@ -225,7 +225,7 @@ t_update_conf(_Config) ->
     DeletedConf = Conf#{<<"servers">> => Servers2},
     validate_servers(Path, DeletedConf, Servers2),
     [L1, L2 | Servers3] = Servers,
-    UpdateL2 = L2#{<<"pool_size">> => 1, <<"request_timeout">> => 1000},
+    UpdateL2 = L2#{<<"pool_size">> => 1, <<"request_timeout">> => <<"1s">>},
     UpdatedServers = [L1, UpdateL2 | Servers3],
     UpdatedConf = Conf#{<<"servers">> => UpdatedServers},
     validate_servers(Path, UpdatedConf, UpdatedServers),
