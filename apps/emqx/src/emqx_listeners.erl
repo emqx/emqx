@@ -17,8 +17,6 @@
 %% @doc Start/Stop MQTT listeners.
 -module(emqx_listeners).
 
--elvis([{elvis_style, dont_repeat_yourself, #{min_complexity => 10000}}]).
-
 -include("emqx_mqtt.hrl").
 -include("emqx_schema.hrl").
 -include("logger.hrl").
@@ -98,7 +96,7 @@ format_list(Listener) ->
 
 do_list_raw() ->
     %% GET /listeners from other nodes returns [] when init config is not loaded.
-    case emqx_app:get_init_config_load_done() of
+    case emqx_app:get_config_loader() =/= emqx of
         true ->
             Key = <<"listeners">>,
             Raw = emqx_config:get_raw([Key], #{}),

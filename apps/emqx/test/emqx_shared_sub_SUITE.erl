@@ -1114,7 +1114,7 @@ setup_node(Node, Port) ->
             %% We load configuration, and than set the special enviroment variable
             %% which says that emqx shouldn't load configuration at startup
             emqx_config:init_load(emqx_schema),
-            application:set_env(emqx, init_config_load_done, true),
+            emqx_app:set_config_loader(?MODULE),
 
             ok = emqx_config:put([listeners, tcp, default, bind], {{127, 0, 0, 1}, Port}),
             ok = emqx_config:put([listeners, ssl, default, bind], {{127, 0, 0, 1}, Port + 1}),

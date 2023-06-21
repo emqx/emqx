@@ -271,9 +271,11 @@ default_appspec(emqx_conf, SuiteOpts) ->
             }
         },
         % NOTE
-        % We mark config loaded before starting `emqx_conf` so that it won't
-        % overwrite evenrything with a default configuration.
-        before_start => fun emqx_app:set_init_config_load_done/0
+        % We inform `emqx` of our config loader before starting `emqx_conf` sothat it won't
+        % overwrite everything with a default configuration.
+        before_start => fun() ->
+            emqx_app:set_config_loader(?MODULE)
+        end
     };
 default_appspec(emqx_dashboard, _SuiteOpts) ->
     #{

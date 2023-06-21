@@ -200,7 +200,7 @@ t_api_listeners_list_not_ready(Config) when is_list(Config) ->
         L1 = get_tcp_listeners(Node1),
 
         %% test init_config not ready.
-        _ = rpc:call(Node1, application, set_env, [emqx, init_config_load_done, false]),
+        _ = rpc:call(Node1, emqx_app, set_config_loader, [emqx]),
         assert_config_load_not_done(Node1),
 
         L2 = get_tcp_listeners(Node1),
@@ -283,12 +283,11 @@ get_tcp_listeners(Node) ->
     NodeStatus.
 
 assert_config_load_not_done(Node) ->
-    Done = rpc:call(Node, emqx_app, get_init_config_load_done, []),
-    ?assertNot(Done, #{node => Node}).
+    Prio = rpc:call(Node, emqx_app, get_config_loader, []),
+    ?assertEqual(emqx, Prio, #{node => Node}).
 
 cluster(Specs) ->
     Env = [
-        {emqx, init_config_load_done, false},
         {emqx, boot_modules, []}
     ],
     emqx_common_test_helpers:emqx_cluster(Specs, [
@@ -299,7 +298,7 @@ cluster(Specs) ->
             (emqx) ->
                 application:set_env(emqx, boot_modules, []),
                 %% test init_config not ready.
-                application:set_env(emqx, init_config_load_done, false),
+                emqx_app:set_config_loader(emqx),
                 ok;
             (_) ->
                 ok
