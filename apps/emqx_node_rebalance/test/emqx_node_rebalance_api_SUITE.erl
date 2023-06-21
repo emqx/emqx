@@ -67,7 +67,6 @@ t_start_evacuation_validation(Config) ->
     BadOpts = [
         #{conn_evict_rate => <<"conn">>},
         #{sess_evict_rate => <<"sess">>},
-        #{redirect_to => 123},
         #{wait_takeover => <<"wait">>},
         #{wait_health_check => <<"wait">>},
         #{migrate_to => []},
@@ -83,7 +82,8 @@ t_start_evacuation_validation(Config) ->
                 api_post(
                     ["load_rebalance", atom_to_list(DonorNode), "evacuation", "start"],
                     Opts
-                )
+                ),
+                Opts
             )
         end,
         BadOpts
@@ -103,8 +103,8 @@ t_start_evacuation_validation(Config) ->
             #{
                 conn_evict_rate => 10,
                 sess_evict_rate => 10,
-                wait_takeover => 10,
-                wait_health_check => 10,
+                wait_takeover => <<"10s">>,
+                wait_health_check => <<"10s">>,
                 redirect_to => <<"srv">>,
                 migrate_to => [atom_to_binary(RecipientNode)]
             }
@@ -166,8 +166,8 @@ t_start_rebalance_validation(Config) ->
             #{
                 conn_evict_rate => 10,
                 sess_evict_rate => 10,
-                wait_takeover => 10,
-                wait_health_check => 10,
+                wait_takeover => <<"10s">>,
+                wait_health_check => <<"10s">>,
                 abs_conn_threshold => 10,
                 rel_conn_threshold => 1.001,
                 abs_sess_threshold => 10,

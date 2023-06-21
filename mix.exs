@@ -64,15 +64,15 @@ defmodule EMQXUmbrella.MixProject do
       {:pbkdf2, github: "emqx/erlang-pbkdf2", tag: "2.0.4", override: true},
       # maybe forbid to fetch quicer
       {:emqtt,
-       github: "emqx/emqtt", tag: "1.8.5", override: true, system_env: maybe_no_quic_env()},
-      {:rulesql, github: "emqx/rulesql", tag: "0.1.6"},
+       github: "emqx/emqtt", tag: "1.8.6", override: true, system_env: maybe_no_quic_env()},
+      {:rulesql, github: "emqx/rulesql", tag: "0.1.7"},
       {:observer_cli, "1.7.1"},
       {:system_monitor, github: "ieQu1/system_monitor", tag: "3.0.3"},
       {:telemetry, "1.1.0"},
       # in conflict by emqtt and hocon
       {:getopt, "1.0.2", override: true},
       {:snabbkaffe, github: "kafka4beam/snabbkaffe", tag: "1.0.8", override: true},
-      {:hocon, github: "emqx/hocon", tag: "0.39.8", override: true},
+      {:hocon, github: "emqx/hocon", tag: "0.39.9", override: true},
       {:emqx_http_lib, github: "emqx/emqx_http_lib", tag: "0.5.2", override: true},
       {:esasl, github: "emqx/esasl", tag: "0.2.0"},
       {:jose, github: "potatosalad/erlang-jose", tag: "1.11.2"},
@@ -216,14 +216,7 @@ defmodule EMQXUmbrella.MixProject do
        github: "emqx/rabbitmq-server",
        tag: "v3.11.13-emqx",
        sparse: "deps/amqp_client",
-       override: true},
-      {:erlcloud, github: "emqx/erlcloud", tag: "3.6.8-emqx-1", override: true},
-      # erlcloud's rebar.config requires rebar3 and does not support Mix,
-      # so it tries to fetch deps from git. We need to override this.
-      {:lhttpc, github: "erlcloud/lhttpc", tag: "1.6.2", override: true},
-      {:eini, "1.2.9", override: true},
-      {:base16, "1.0.0", override: true}
-      # end of erlcloud's deps
+       override: true}
     ]
   end
 

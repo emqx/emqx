@@ -137,15 +137,19 @@ init_per_testcase(t_ocsp_responder_error_responses, Config) ->
                     enable_ocsp_stapling => true,
                     responder_url => <<"http://localhost:9877/">>,
                     issuer_pem => filename:join(DataDir, "ocsp-issuer.pem"),
-                    refresh_http_timeout => 15_000,
-                    refresh_interval => 1_000
+                    refresh_http_timeout => <<"15s">>,
+                    refresh_interval => <<"1s">>
                 }
             }
     },
     Conf = #{listeners => #{Type => #{Name => ListenerOpts}}},
     ConfBin = emqx_utils_maps:binary_key_map(Conf),
-    hocon_tconf:check_plain(emqx_schema, ConfBin, #{required => false, atom_keys => false}),
-    emqx_config:put_listener_conf(Type, Name, [], ListenerOpts),
+    CheckedConf = hocon_tconf:check_plain(emqx_schema, ConfBin, #{
+        required => false, atom_keys => false
+    }),
+    Conf2 = emqx_utils_maps:unsafe_atom_key_map(CheckedConf),
+    ListenerOpts2 = emqx_utils_maps:deep_get([listeners, Type, Name], Conf2),
+    emqx_config:put_listener_conf(Type, Name, [], ListenerOpts2),
     snabbkaffe:start_trace(),
     _Heir = spawn_dummy_heir(),
     {ok, CachePid} = emqx_ocsp_cache:start_link(),
@@ -179,15 +183,19 @@ init_per_testcase(_TestCase, Config) ->
                     enable_ocsp_stapling => true,
                     responder_url => <<"http://localhost:9877/">>,
                     issuer_pem => filename:join(DataDir, "ocsp-issuer.pem"),
-                    refresh_http_timeout => 15_000,
-                    refresh_interval => 1_000
+                    refresh_http_timeout => <<"15s">>,
+                    refresh_interval => <<"1s">>
                 }
             }
     },
     Conf = #{listeners => #{Type => #{Name => ListenerOpts}}},
     ConfBin = emqx_utils_maps:binary_key_map(Conf),
-    hocon_tconf:check_plain(emqx_schema, ConfBin, #{required => false, atom_keys => false}),
-    emqx_config:put_listener_conf(Type, Name, [], ListenerOpts),
+    CheckedConf = hocon_tconf:check_plain(emqx_schema, ConfBin, #{
+        required => false, atom_keys => false
+    }),
+    Conf2 = emqx_utils_maps:unsafe_atom_key_map(CheckedConf),
+    ListenerOpts2 = emqx_utils_maps:deep_get([listeners, Type, Name], Conf2),
+    emqx_config:put_listener_conf(Type, Name, [], ListenerOpts2),
     [
         {cache_pid, CachePid}
         | Config

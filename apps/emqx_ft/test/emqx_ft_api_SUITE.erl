@@ -24,6 +24,8 @@
 
 -import(emqx_dashboard_api_test_helpers, [host/0, uri/1]).
 
+-define(SUITE_APPS, [emqx_conf, emqx_ft]).
+
 all() ->
     [
         {group, single},
@@ -49,10 +51,9 @@ end_per_suite(_Config) ->
 init_per_group(Group = cluster, Config) ->
     Cluster = mk_cluster_specs(Config),
     ct:pal("Starting ~p", [Cluster]),
-    Nodes = [
-        emqx_common_test_helpers:start_slave(Name, Opts#{join_to => node()})
-     || {Name, Opts} <- Cluster
-    ],
+    Nodes = [emqx_common_test_helpers:start_slave(Name, Opts) || {Name, Opts} <- Cluster],
+    InitResult = erpc:multicall(Nodes, fun() -> init_node(Config) end),
+    [] = [{Node, Error} || {Node, {R, Error}} <- lists:zip(Nodes, InitResult), R /= ok],
     [{group, Group}, {cluster_nodes, Nodes} | Config];
 init_per_group(Group, Config) ->
     [{group, Group} | Config].
@@ -65,21 +66,28 @@ end_per_group(cluster, Config) ->
 end_per_group(_Group, _Config) ->
     ok.
 
-mk_cluster_specs(Config) ->
+mk_cluster_specs(_Config) ->
     Specs = [
         {core, emqx_ft_api_SUITE1, #{listener_ports => [{tcp, 2883}]}},
-        {core, emqx_ft_api_SUITE2, #{listener_ports => [{tcp, 3883}]}}
+        {core, emqx_ft_api_SUITE2, #{listener_ports => [{tcp, 3883}]}},
+        {replicant, emqx_ft_api_SUITE3, #{listener_ports => [{tcp, 4883}]}}
     ],
-    CommOpts = [
-        {env, [{emqx, boot_modules, [broker, listeners]}]},
-        {apps, [emqx_ft]},
-        {conf, [{[listeners, Proto, default, enabled], false} || Proto <- [ssl, ws, wss]]},
-        {env_handler, emqx_ft_test_helpers:env_handler(Config)}
-    ],
+    CommOpts = #{
+        env => [
+            {mria, db_backend, rlog},
+            {emqx, boot_modules, [broker, listeners]}
+        ],
+        apps => [],
+        load_apps => ?SUITE_APPS,
+        conf => [{[listeners, Proto, default, enabled], false} || Proto <- [ssl, ws, wss]]
+    },
     emqx_common_test_helpers:emqx_cluster(
         Specs,
         CommOpts
     ).
+
+init_node(Config) ->
+    ok = emqx_common_test_helpers:start_apps(?SUITE_APPS, emqx_ft_test_helpers:env_handler(Config)).
 
 init_per_testcase(Case, Config) ->
     [{tc, Case} | Config].
@@ -96,7 +104,7 @@ t_list_files(Config) ->
     ClientId = client_id(Config),
     FileId = <<"f1">>,
 
-    Node = lists:last(cluster(Config)),
+    Node = lists:last(test_nodes(Config)),
     ok = emqx_ft_test_helpers:upload_file(ClientId, FileId, "f1", <<"data">>, Node),
 
     {ok, 200, #{<<"files">> := Files}} =
@@ -124,7 +132,7 @@ t_download_transfer(Config) ->
     ClientId = client_id(Config),
     FileId = <<"f1">>,
 
-    Node = lists:last(cluster(Config)),
+    Node = lists:last(test_nodes(Config)),
     ok = emqx_ft_test_helpers:upload_file(ClientId, FileId, "f1", <<"data">>, Node),
 
     ?assertMatch(
@@ -184,7 +192,7 @@ t_download_transfer(Config) ->
 t_list_files_paging(Config) ->
     ClientId = client_id(Config),
     NFiles = 20,
-    Nodes = cluster(Config),
+    Nodes = test_nodes(Config),
     Uploads = [
         {mk_file_id("file:", N), mk_file_name(N), pick(N, Nodes)}
      || N <- lists:seq(1, NFiles)
@@ -280,8 +288,13 @@ t_ft_disabled(_Config) ->
 %% Helpers
 %%--------------------------------------------------------------------
 
-cluster(Config) ->
-    [node() | proplists:get_value(cluster_nodes, Config, [])].
+test_nodes(Config) ->
+    case proplists:get_value(cluster_nodes, Config, []) of
+        [] ->
+            [node()];
+        Nodes ->
+            Nodes
+    end.
 
 client_id(Config) ->
     iolist_to_binary(io_lib:format("~s.~s", [?config(group, Config), ?config(tc, Config)])).

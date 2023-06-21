@@ -223,8 +223,7 @@ restart(ResId, Opts) when is_binary(ResId) ->
 start(ResId, Opts) ->
     case safe_call(ResId, start, ?T_OPERATION) of
         ok ->
-            _ = wait_for_ready(ResId, maps:get(start_timeout, Opts, 5000)),
-            ok;
+            wait_for_ready(ResId, maps:get(start_timeout, Opts, 5000));
         {error, _Reason} = Error ->
             Error
     end.

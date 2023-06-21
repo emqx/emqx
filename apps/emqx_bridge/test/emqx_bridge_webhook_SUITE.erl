@@ -28,6 +28,9 @@
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
 
+-define(BRIDGE_TYPE, <<"webhook">>).
+-define(BRIDGE_NAME, atom_to_binary(?MODULE)).
+
 all() ->
     emqx_common_test_helpers:all(?MODULE).
 
@@ -36,15 +39,13 @@ groups() ->
 
 init_per_suite(_Config) ->
     emqx_common_test_helpers:render_and_load_app_config(emqx_conf),
-    ok = emqx_common_test_helpers:start_apps([emqx_conf, emqx_bridge]),
+    ok = emqx_mgmt_api_test_util:init_suite([emqx_conf, emqx_bridge]),
     ok = emqx_connector_test_helpers:start_apps([emqx_resource]),
     {ok, _} = application:ensure_all_started(emqx_connector),
     [].
 
 end_per_suite(_Config) ->
-    ok = emqx_config:put([bridges], #{}),
-    ok = emqx_config:put_raw([bridges], #{}),
-    ok = emqx_common_test_helpers:stop_apps([emqx_conf, emqx_bridge]),
+    ok = emqx_mgmt_api_test_util:end_suite([emqx_conf, emqx_bridge]),
     ok = emqx_connector_test_helpers:stop_apps([emqx_resource]),
     _ = application:stop(emqx_connector),
     _ = application:stop(emqx_bridge),
@@ -53,10 +54,22 @@ end_per_suite(_Config) ->
 suite() ->
     [{timetrap, {seconds, 60}}].
 
+init_per_testcase(t_bad_bridge_config, Config) ->
+    Config;
+init_per_testcase(t_send_async_connection_timeout, Config) ->
+    ResponseDelayMS = 500,
+    Server = start_http_server(#{response_delay_ms => ResponseDelayMS}),
+    [{http_server, Server}, {response_delay_ms, ResponseDelayMS} | Config];
 init_per_testcase(_TestCase, Config) ->
-    Config.
+    Server = start_http_server(#{response_delay_ms => 0}),
+    [{http_server, Server} | Config].
 
-end_per_testcase(_TestCase, _Config) ->
+end_per_testcase(_TestCase, Config) ->
+    case ?config(http_server, Config) of
+        undefined -> ok;
+        Server -> stop_http_server(Server)
+    end,
+    emqx_bridge_testlib:delete_all_bridges(),
     emqx_common_test_helpers:call_janitor(),
     ok.
 
@@ -65,13 +78,14 @@ end_per_testcase(_TestCase, _Config) ->
 %% (Orginally copied from emqx_bridge_api_SUITE)
 %%------------------------------------------------------------------------------
 start_http_server(HTTPServerConfig) ->
-    ct:pal("Start server\n"),
     process_flag(trap_exit, true),
     Parent = self(),
+    ct:pal("Starting server for ~p", [Parent]),
     {ok, {Port, Sock}} = listen_on_random_port(),
     Acceptor = spawn(fun() ->
         accept_loop(Sock, Parent, HTTPServerConfig)
     end),
+    ct:pal("Started server on port ~p", [Port]),
     timer:sleep(100),
     #{port => Port, sock => Sock, acceptor => Acceptor}.
 
@@ -160,25 +174,25 @@ parse_http_request_assertive(ReqStr0) ->
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
 bridge_async_config(#{port := Port} = Config) ->
-    Type = maps:get(type, Config, <<"webhook">>),
-    Name = maps:get(name, Config, atom_to_binary(?MODULE)),
+    Type = maps:get(type, Config, ?BRIDGE_TYPE),
+    Name = maps:get(name, Config, ?BRIDGE_NAME),
     PoolSize = maps:get(pool_size, Config, 1),
     QueryMode = maps:get(query_mode, Config, "async"),
-    ConnectTimeout = maps:get(connect_timeout, Config, 1),
-    RequestTimeout = maps:get(request_timeout, Config, 10000),
+    ConnectTimeout = maps:get(connect_timeout, Config, "1s"),
+    RequestTimeout = maps:get(request_timeout, Config, "10s"),
     ResumeInterval = maps:get(resume_interval, Config, "1s"),
     ResourceRequestTTL = maps:get(resource_request_ttl, Config, "infinity"),
     ConfigString = io_lib:format(
         "bridges.~s.~s {\n"
         "  url = \"http://localhost:~p\"\n"
-        "  connect_timeout = \"~ps\"\n"
+        "  connect_timeout = \"~p\"\n"
         "  enable = true\n"
         "  enable_pipelining = 100\n"
         "  max_retries = 2\n"
         "  method = \"post\"\n"
         "  pool_size = ~p\n"
         "  pool_type = \"random\"\n"
-        "  request_timeout = \"~ps\"\n"
+        "  request_timeout = \"~s\"\n"
         "  body = \"${id}\""
         "  resource_opts {\n"
         "    inflight_window = 100\n"
@@ -217,8 +231,8 @@ parse_and_check(ConfigString, BridgeType, Name) ->
     RetConfig.
 
 make_bridge(Config) ->
-    Type = <<"webhook">>,
-    Name = atom_to_binary(?MODULE),
+    Type = ?BRIDGE_TYPE,
+    Name = ?BRIDGE_NAME,
     BridgeConfig = bridge_async_config(Config#{
         name => Name,
         type => Type
@@ -236,16 +250,15 @@ make_bridge(Config) ->
 
 %% This test ensures that https://emqx.atlassian.net/browse/CI-62 is fixed.
 %% When the connection time out all the queued requests where dropped in
-t_send_async_connection_timeout(_Config) ->
-    ResponseDelayMS = 90,
-    #{port := Port} = Server = start_http_server(#{response_delay_ms => 900}),
-    % Port = 9000,
+t_send_async_connection_timeout(Config) ->
+    ResponseDelayMS = ?config(response_delay_ms, Config),
+    #{port := Port} = ?config(http_server, Config),
     BridgeID = make_bridge(#{
         port => Port,
         pool_size => 1,
         query_mode => "async",
-        connect_timeout => ResponseDelayMS * 2,
-        request_timeout => 10000,
+        connect_timeout => integer_to_list(ResponseDelayMS * 2) ++ "s",
+        request_timeout => "10s",
         resource_request_ttl => "infinity"
     }),
     NumberOfMessagesToSend = 10,
@@ -257,17 +270,16 @@ t_send_async_connection_timeout(_Config) ->
     ct:pal("Sent messages\n"),
     MessageIDs = maps:from_keys(lists:seq(1, NumberOfMessagesToSend), void),
     receive_request_notifications(MessageIDs, ResponseDelayMS),
-    stop_http_server(Server),
     ok.
 
-t_async_free_retries(_Config) ->
-    #{port := Port} = start_http_server(#{response_delay_ms => 0}),
+t_async_free_retries(Config) ->
+    #{port := Port} = ?config(http_server, Config),
     BridgeID = make_bridge(#{
         port => Port,
         pool_size => 1,
         query_mode => "sync",
-        connect_timeout => 1_000,
-        request_timeout => 10_000,
+        connect_timeout => "1s",
+        request_timeout => "10s",
         resource_request_ttl => "10000s"
     }),
     %% Fail 5 times then succeed.
@@ -285,15 +297,15 @@ t_async_free_retries(_Config) ->
     do_t_async_retries(Context, {error, {shutdown, normal}}, Fn),
     ok.
 
-t_async_common_retries(_Config) ->
-    #{port := Port} = start_http_server(#{response_delay_ms => 0}),
+t_async_common_retries(Config) ->
+    #{port := Port} = ?config(http_server, Config),
     BridgeID = make_bridge(#{
         port => Port,
         pool_size => 1,
         query_mode => "sync",
         resume_interval => "100ms",
-        connect_timeout => 1_000,
-        request_timeout => 10_000,
+        connect_timeout => "1s",
+        request_timeout => "10s",
         resource_request_ttl => "10000s"
     }),
     %% Keeps failing until connector gives up.
@@ -323,6 +335,39 @@ t_async_common_retries(_Config) ->
     do_t_async_retries(Context, {error, something_else}, FnFail),
     ok.
 
+t_bad_bridge_config(_Config) ->
+    BridgeConfig = bridge_async_config(#{port => 12345}),
+    ?assertMatch(
+        {ok,
+            {{_, 201, _}, _Headers, #{
+                <<"status">> := <<"disconnected">>,
+                <<"status_reason">> := <<"Connection refused">>
+            }}},
+        emqx_bridge_testlib:create_bridge_api(
+            ?BRIDGE_TYPE,
+            ?BRIDGE_NAME,
+            BridgeConfig
+        )
+    ),
+    %% try `/start` bridge
+    ?assertMatch(
+        {error, {{_, 400, _}, _Headers, #{<<"message">> := <<"Connection refused">>}}},
+        emqx_bridge_testlib:op_bridge_api("start", ?BRIDGE_TYPE, ?BRIDGE_NAME)
+    ),
+    ok.
+
+t_start_stop(Config) ->
+    #{port := Port} = ?config(http_server, Config),
+    BridgeConfig = bridge_async_config(#{
+        type => ?BRIDGE_TYPE,
+        name => ?BRIDGE_NAME,
+        port => Port
+    }),
+    emqx_bridge_testlib:t_start_stop(
+        ?BRIDGE_TYPE, ?BRIDGE_NAME, BridgeConfig, emqx_connector_http_stopped
+    ).
+
+%% helpers
 do_t_async_retries(TestContext, Error, Fn) ->
     #{error_attempts := ErrorAttempts} = TestContext,
     persistent_term:put({?MODULE, ?FUNCTION_NAME, attempts}, 0),

@@ -80,7 +80,7 @@ listener_mqtt_tcp_conf(Port, EnableAuthn) ->
         <<"max_connections">> => 1024000,
         <<"mountpoint">> => <<>>,
         <<"proxy_protocol">> => false,
-        <<"proxy_protocol_timeout">> => 3000,
+        <<"proxy_protocol_timeout">> => <<"3s">>,
         <<"enable_authn">> => EnableAuthn
     }.
 

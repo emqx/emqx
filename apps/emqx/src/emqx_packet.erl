@@ -270,6 +270,9 @@ check(#mqtt_packet_subscribe{topic_filters = TopicFilters}) ->
     try
         validate_topic_filters(TopicFilters)
     catch
+        %% Known Specificed Reason Code
+        error:{error, RC} ->
+            {error, RC};
         error:_Error ->
             {error, ?RC_TOPIC_FILTER_INVALID}
     end;
@@ -413,6 +416,10 @@ run_checks([Check | More], Packet, Options) ->
 validate_topic_filters(TopicFilters) ->
     lists:foreach(
         fun
+            %% Protocol Error and Should Disconnect
+            %% MQTT-5.0 [MQTT-3.8.3-4] and [MQTT-4.13.1-1]
+            ({<<?SHARE, "/", _Rest/binary>>, #{nl := 1}}) ->
+                error({error, ?RC_PROTOCOL_ERROR});
             ({TopicFilter, _SubOpts}) ->
                 emqx_topic:validate(TopicFilter);
             (TopicFilter) ->

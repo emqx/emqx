@@ -361,7 +361,7 @@ list(_Options, Query) ->
     end.
 
 list(QueryIn) ->
-    {Nodes, NodeQuery} = decode_query(QueryIn, lists:sort(mria_mnesia:running_nodes())),
+    {Nodes, NodeQuery} = decode_query(QueryIn, lists:sort(emqx:running_nodes())),
     list_nodes(NodeQuery, Nodes, #{items => []}).
 
 list_nodes(Query, Nodes = [Node | Rest], Acc) ->

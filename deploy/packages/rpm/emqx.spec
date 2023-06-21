@@ -23,7 +23,11 @@ AutoReq: 0
 %if "%{_arch} %{?rhel}" == "x86_64 7"
 Requires: openssl11 libatomic procps which findutils
 %else
+%if "%{?dist}" == ".amzn2023"
+Requires: libatomic procps which findutils ncurses util-linux shadow-utils
+%else
 Requires: libatomic procps which findutils
+%endif
 %endif
 
 %description

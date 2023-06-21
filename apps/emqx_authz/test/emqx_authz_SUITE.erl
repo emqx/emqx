@@ -105,7 +105,7 @@ set_special_configs(_App) ->
     <<"headers">> => #{},
     <<"ssl">> => #{<<"enable">> => true},
     <<"method">> => <<"get">>,
-    <<"request_timeout">> => 5000
+    <<"request_timeout">> => <<"5s">>
 }).
 -define(SOURCE2, #{
     <<"type">> => <<"mongodb">>,

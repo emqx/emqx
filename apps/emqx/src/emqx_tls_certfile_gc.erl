@@ -227,8 +227,11 @@ find_managed_files(Filter, Dir) ->
                     false ->
                         Acc
                 end;
+            (AbsPath, {error, enoent}, Acc) when AbsPath == Dir ->
+                Acc;
             (AbsPath, {error, Reason}, Acc) ->
-                ?SLOG(notice, "filesystem_object_inaccessible", #{
+                ?SLOG(notice, #{
+                    msg => "filesystem_object_inaccessible",
                     abspath => AbsPath,
                     reason => Reason
                 }),

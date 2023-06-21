@@ -20,6 +20,8 @@
 %% [TODO] Cleanup so the instruction below is not necessary.
 -elvis([{elvis_style, god_modules, disable}]).
 
+-include_lib("snabbkaffe/include/snabbkaffe.hrl").
+
 -export([
     merge_opts/2,
     maybe_apply/2,
@@ -432,7 +434,7 @@ nolink_apply(Fun) -> nolink_apply(Fun, infinity).
 -spec nolink_apply(function(), timer:timeout()) -> term().
 nolink_apply(Fun, Timeout) when is_function(Fun, 0) ->
     Caller = self(),
-    ResRef = make_ref(),
+    ResRef = alias([reply]),
     Middleman = erlang:spawn(
         fun() ->
             process_flag(trap_exit, true),
@@ -446,7 +448,8 @@ nolink_apply(Fun, Timeout) when is_function(Fun, 0) ->
                             C:E:S ->
                                 {exception, {C, E, S}}
                         end,
-                    _ = erlang:send(Caller, {ResRef, Res}),
+                    _ = erlang:send(ResRef, {ResRef, Res}),
+                    ?tp(pmap_middleman_sent_response, #{}),
                     exit(normal)
                 end
             ),
@@ -460,7 +463,7 @@ nolink_apply(Fun, Timeout) when is_function(Fun, 0) ->
                     exit(normal);
                 {'EXIT', Worker, Reason} ->
                     %% worker exited with some reason other than 'normal'
-                    _ = erlang:send(Caller, {ResRef, {'EXIT', Reason}}),
+                    _ = erlang:send(ResRef, {ResRef, {'EXIT', Reason}}),
                     exit(normal)
             end
         end
@@ -473,8 +476,21 @@ nolink_apply(Fun, Timeout) when is_function(Fun, 0) ->
         {ResRef, {'EXIT', Reason}} ->
             exit(Reason)
     after Timeout ->
+        %% possible race condition: a message was received just as we enter the after
+        %% block.
+        ?tp(pmap_timeout, #{}),
+        unalias(ResRef),
         exit(Middleman, kill),
-        exit(timeout)
+        receive
+            {ResRef, {normal, Result}} ->
+                Result;
+            {ResRef, {exception, {C, E, S}}} ->
+                erlang:raise(C, E, S);
+            {ResRef, {'EXIT', Reason}} ->
+                exit(Reason)
+        after 0 ->
+            exit(timeout)
+        end
     end.
 
 safe_to_existing_atom(In) ->

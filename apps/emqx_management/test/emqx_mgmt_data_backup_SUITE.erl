@@ -444,7 +444,6 @@ cluster(Config) ->
                 env => [{mria, db_backend, rlog}],
                 load_schema => true,
                 start_autocluster => true,
-                join_to => true,
                 listener_ports => [],
                 conf => [{[dashboard, listeners, http, bind], 0}],
                 env_handler =>

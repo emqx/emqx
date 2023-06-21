@@ -295,7 +295,6 @@ cluster(Specs) ->
         {env, Env},
         {apps, [emqx_conf]},
         {load_schema, false},
-        {join_to, true},
         {env_handler, fun
             (emqx) ->
                 application:set_env(emqx, boot_modules, []),

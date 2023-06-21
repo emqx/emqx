@@ -1758,7 +1758,7 @@ base_listener(Bind) ->
             )},
         {"bind",
             sc(
-                hoconsc:union([ip_port(), integer()]),
+                ip_port(),
                 #{
                     default => Bind,
                     required => true,
@@ -2418,13 +2418,13 @@ mk_duration(Desc, OverrideMeta) ->
 to_duration(Str) ->
     case hocon_postprocess:duration(Str) of
         I when is_integer(I) -> {ok, I};
-        _ -> {error, Str}
+        _ -> to_integer(Str)
     end.
 
 to_duration_s(Str) ->
     case hocon_postprocess:duration(Str) of
         I when is_number(I) -> {ok, ceiling(I / 1000)};
-        _ -> {error, Str}
+        _ -> to_integer(Str)
     end.
 
 -spec to_duration_ms(Input) -> {ok, integer()} | {error, Input} when
@@ -2432,7 +2432,7 @@ to_duration_s(Str) ->
 to_duration_ms(Str) ->
     case hocon_postprocess:duration(Str) of
         I when is_number(I) -> {ok, ceiling(I)};
-        _ -> {error, Str}
+        _ -> to_integer(Str)
     end.
 
 -spec to_timeout_duration(Input) -> {ok, timeout_duration()} | {error, Input} when
@@ -2473,7 +2473,7 @@ do_to_timeout_duration(Str, Fn, Max, Unit) ->
 to_bytesize(Str) ->
     case hocon_postprocess:bytesize(Str) of
         I when is_integer(I) -> {ok, I};
-        _ -> {error, Str}
+        _ -> to_integer(Str)
     end.
 
 to_wordsize(Str) ->
@@ -2481,6 +2481,13 @@ to_wordsize(Str) ->
     case to_bytesize(Str) of
         {ok, Bytes} -> {ok, Bytes div WordSize};
         Error -> Error
+    end.
+
+to_integer(Str) ->
+    case string:to_integer(Str) of
+        {Int, []} -> {ok, Int};
+        {Int, <<>>} -> {ok, Int};
+        _ -> {error, Str}
     end.
 
 to_percent(Str) ->
@@ -2525,9 +2532,9 @@ to_ip_port(Str) ->
     case split_ip_port(Str) of
         {"", Port} ->
             %% this is a local address
-            {ok, list_to_integer(Port)};
+            {ok, parse_port(Port)};
         {MaybeIp, Port} ->
-            PortVal = list_to_integer(Port),
+            PortVal = parse_port(Port),
             case inet:parse_address(MaybeIp) of
                 {ok, IpTuple} ->
                     {ok, {IpTuple, PortVal}};
@@ -2543,18 +2550,11 @@ split_ip_port(Str0) ->
     case lists:split(string:rchr(Str, $:), Str) of
         %% no colon
         {[], Str} ->
-            try
-                %% if it's just a port number, then return as-is
-                _ = list_to_integer(Str),
-                {"", Str}
-            catch
-                _:_ ->
-                    error
-            end;
+            {"", Str};
         {IpPlusColon, PortString} ->
             IpStr0 = lists:droplast(IpPlusColon),
             case IpStr0 of
-                %% dropp head/tail brackets
+                %% drop head/tail brackets
                 [$[ | S] ->
                     case lists:last(S) of
                         $] -> {lists:droplast(S), PortString};

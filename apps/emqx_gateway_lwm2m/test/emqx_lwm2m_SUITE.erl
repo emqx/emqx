@@ -1,4 +1,4 @@
-%%--------------------------------------------------------------------
+%--------------------------------------------------------------------
 %% Copyright (c) 2020-2023 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
@@ -192,7 +192,7 @@ default_config(Overrides) ->
             "  xml_dir = \"~s\"\n"
             "  lifetime_min = 1s\n"
             "  lifetime_max = 86400s\n"
-            "  qmode_time_window = 22\n"
+            "  qmode_time_window = 22s\n"
             "  auto_observe = ~w\n"
             "  mountpoint = \"lwm2m/${username}\"\n"
             "  update_msg_publish_condition = contains_object_list\n"

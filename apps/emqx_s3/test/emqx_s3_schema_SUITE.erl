@@ -84,7 +84,7 @@ t_full_config(_Config) ->
             <<"min_part_size">> => <<"10mb">>,
             <<"acl">> => <<"public_read">>,
             <<"transport_options">> => #{
-                <<"connect_timeout">> => 30000,
+                <<"connect_timeout">> => <<"30s">>,
                 <<"enable_pipelining">> => 200,
                 <<"pool_size">> => 10,
                 <<"pool_type">> => <<"random">>,

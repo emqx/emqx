@@ -41,7 +41,7 @@
     "{\n"
     " enable = true\n"
     " top_k_num = 5,\n"
-    " expire_interval = 60000\n"
+    " expire_interval = 60s\n"
     " stats_type = whole\n"
     "}"
     ""
@@ -137,36 +137,33 @@ t_clear(_) ->
     ?assertEqual(0, ets:info(?TOPK_TAB, size)).
 
 t_settting(_) ->
-    Conf = emqx:get_config([slow_subs]),
-    Conf2 = Conf#{stats_type => internal},
+    RawConf = emqx:get_raw_config([slow_subs]),
+    RawConf2 = RawConf#{<<"stats_type">> => <<"internal">>},
     {ok, Data} = request_api(
         put,
         api_path(["slow_subscriptions", "settings"]),
         [],
         auth_header_(),
-        Conf2
+        RawConf2
     ),
 
     Return = decode_json(Data),
+    Expect = emqx_config:fill_defaults(RawConf2),
 
-    ?assertEqual(Conf2#{stats_type := <<"internal">>}, Return),
+    ?assertEqual(Expect, Return),
 
+    timer:sleep(800),
     {ok, GetData} = request_api(
         get,
         api_path(["slow_subscriptions", "settings"]),
         [],
         auth_header_()
     ),
-
-    timer:sleep(1000),
-
     GetReturn = decode_json(GetData),
-
-    ?assertEqual(Conf2#{stats_type := <<"internal">>}, GetReturn).
+    ?assertEqual(Expect, GetReturn).
 
 decode_json(Data) ->
-    BinJosn = emqx_utils_json:decode(Data, [return_maps]),
-    emqx_utils_maps:unsafe_atom_key_map(BinJosn).
+    emqx_utils_json:decode(Data, [return_maps]).
 
 request_api(Method, Url, Auth) ->
     request_api(Method, Url, [], Auth, []).

@@ -67,7 +67,7 @@ init_per_suite(Config) ->
     _ = emqx_exhook_demo_svr:start(),
     load_cfg(?CONF_DEFAULT),
     emqx_mgmt_api_test_util:init_suite([emqx_exhook]),
-    [Conf] = emqx:get_config([exhook, servers]),
+    [Conf] = emqx:get_raw_config([exhook, servers]),
     [{template, Conf} | Config].
 
 end_per_suite(Config) ->
@@ -157,8 +157,8 @@ t_get(_) ->
 t_add(Cfg) ->
     Template = proplists:get_value(template, Cfg),
     Instance = Template#{
-        name => <<"test1">>,
-        url => "http://127.0.0.1:9001"
+        <<"name">> => <<"test1">>,
+        <<"url">> => "http://127.0.0.1:9001"
     },
     {ok, Data} = request_api(
         post,
@@ -186,8 +186,8 @@ t_add(Cfg) ->
 t_add_duplicate(Cfg) ->
     Template = proplists:get_value(template, Cfg),
     Instance = Template#{
-        name => <<"test1">>,
-        url => "http://127.0.0.1:9001"
+        <<"name">> => <<"test1">>,
+        <<"url">> => "http://127.0.0.1:9001"
     },
 
     {error, _Reason} = request_api(
@@ -203,8 +203,8 @@ t_add_duplicate(Cfg) ->
 t_add_with_bad_name(Cfg) ->
     Template = proplists:get_value(template, Cfg),
     Instance = Template#{
-        name => <<"🤔">>,
-        url => "http://127.0.0.1:9001"
+        <<"name">> => <<"🤔">>,
+        <<"url">> => "http://127.0.0.1:9001"
     },
 
     {error, _Reason} = request_api(
@@ -298,7 +298,7 @@ t_hooks(_Cfg) ->
 
 t_update(Cfg) ->
     Template = proplists:get_value(template, Cfg),
-    Instance = Template#{enable => false},
+    Instance = Template#{<<"enable">> => false},
     {ok, <<"{\"", _/binary>>} = request_api(
         put,
         api_path(["exhooks", "default"]),
