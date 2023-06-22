@@ -23,7 +23,8 @@
 -export([
     apply_rule/3,
     apply_rules/3,
-    clear_rule_payload/0
+    clear_rule_payload/0,
+    inc_action_metrics/2
 ]).
 
 -import(
@@ -323,9 +324,7 @@ handle_action_list(RuleId, Actions, Selected, Envs) ->
 handle_action(RuleId, ActId, Selected, Envs) ->
     ok = emqx_metrics_worker:inc(rule_metrics, RuleId, 'actions.total'),
     try
-        Result = do_handle_action(ActId, Selected, Envs),
-        inc_action_metrics(Result, RuleId),
-        Result
+        do_handle_action(RuleId, ActId, Selected, Envs)
     catch
         throw:out_of_service ->
             ok = emqx_metrics_worker:inc(rule_metrics, RuleId, 'actions.failed'),
@@ -345,21 +344,24 @@ handle_action(RuleId, ActId, Selected, Envs) ->
             })
     end.
 
-do_handle_action({bridge, BridgeType, BridgeName, ResId}, Selected, _Envs) ->
+do_handle_action(RuleId, {bridge, BridgeType, BridgeName, ResId}, Selected, _Envs) ->
     ?TRACE(
         "BRIDGE",
         "bridge_action",
         #{bridge_id => emqx_bridge_resource:bridge_id(BridgeType, BridgeName)}
     ),
-    case emqx_bridge:send_message(BridgeType, BridgeName, ResId, Selected) of
+    ReplyTo = {fun ?MODULE:inc_action_metrics/2, [RuleId]},
+    case emqx_bridge:send_message(BridgeType, BridgeName, ResId, Selected, ReplyTo) of
         {error, Reason} when Reason == bridge_not_found; Reason == bridge_stopped ->
             throw(out_of_service);
         Result ->
             Result
     end;
-do_handle_action(#{mod := Mod, func := Func, args := Args}, Selected, Envs) ->
+do_handle_action(RuleId, #{mod := Mod, func := Func, args := Args}, Selected, Envs) ->
     %% the function can also throw 'out_of_service'
-    Mod:Func(Selected, Envs, Args).
+    Result = Mod:Func(Selected, Envs, Args),
+    inc_action_metrics(RuleId, Result),
+    Result.
 
 eval({path, [{key, <<"payload">>} | Path]}, #{payload := Payload}) ->
     nested_get({path, Path}, may_decode_payload(Payload));
@@ -512,14 +514,18 @@ nested_put(Alias, Val, Columns0) ->
     Columns = handle_alias(Alias, Columns0),
     emqx_rule_maps:nested_put(Alias, Val, Columns).
 
+inc_action_metrics(RuleId, Result) ->
+    _ = do_inc_action_metrics(RuleId, Result),
+    Result.
+
 -define(IS_RES_DOWN(R), R == stopped; R == not_connected; R == not_found).
-inc_action_metrics({error, {recoverable_error, _}}, RuleId) ->
+do_inc_action_metrics(RuleId, {error, {recoverable_error, _}}) ->
     emqx_metrics_worker:inc(rule_metrics, RuleId, 'actions.failed.out_of_service');
-inc_action_metrics(?RESOURCE_ERROR_M(R, _), RuleId) when ?IS_RES_DOWN(R) ->
+do_inc_action_metrics(RuleId, ?RESOURCE_ERROR_M(R, _)) when ?IS_RES_DOWN(R) ->
     emqx_metrics_worker:inc(rule_metrics, RuleId, 'actions.failed.out_of_service');
-inc_action_metrics({error, {unrecoverable_error, _}}, RuleId) ->
+do_inc_action_metrics(RuleId, {error, {unrecoverable_error, _}}) ->
     emqx_metrics_worker:inc(rule_metrics, RuleId, 'actions.failed');
-inc_action_metrics(R, RuleId) ->
+do_inc_action_metrics(RuleId, R) ->
     case is_ok_result(R) of
         false ->
             emqx_metrics_worker:inc(rule_metrics, RuleId, 'actions.failed'),

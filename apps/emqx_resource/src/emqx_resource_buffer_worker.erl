@@ -308,7 +308,7 @@ code_change(_OldVsn, State, _Extra) ->
     end
 ).
 
-pick_call(Id, Key, Query, Timeout) ->
+pick_call(Id, Key, Query = {_, _, QueryOpts}, Timeout) ->
     ?PICK(Id, Key, Pid, begin
         MRef = erlang:monitor(process, Pid, [{alias, reply_demonitor}]),
         ReplyTo = {fun ?MODULE:reply_call/2, [MRef]},
@@ -316,14 +316,14 @@ pick_call(Id, Key, Query, Timeout) ->
         receive
             {MRef, Response} ->
                 erlang:demonitor(MRef, [flush]),
-                Response;
+                maybe_apply_async_reply_fun(Response, QueryOpts);
             {'DOWN', MRef, process, Pid, Reason} ->
                 error({worker_down, Reason})
         after Timeout ->
             erlang:demonitor(MRef, [flush]),
             receive
                 {MRef, Response} ->
-                    Response
+                    maybe_apply_async_reply_fun(Response, QueryOpts)
             after 0 ->
                 error(timeout)
             end
@@ -1051,9 +1051,12 @@ do_call_query(_QM, _Id, _Index, _Ref, _Query, _QueryOpts, _Data) ->
     end
 ).
 
-apply_query_fun(sync, Mod, Id, _Index, _Ref, ?QUERY(_, Request, _, _) = _Query, ResSt, _QueryOpts) ->
+apply_query_fun(sync, Mod, Id, _Index, _Ref, ?QUERY(_, Request, _, _) = _Query, ResSt, QueryOpts) ->
     ?tp(call_query, #{id => Id, mod => Mod, query => _Query, res_st => ResSt, call_mode => sync}),
-    ?APPLY_RESOURCE(call_query, Mod:on_query(Id, Request, ResSt), Request);
+    maybe_apply_async_reply_fun(
+        ?APPLY_RESOURCE(call_query, Mod:on_query(Id, Request, ResSt), Request),
+        QueryOpts
+    );
 apply_query_fun(async, Mod, Id, Index, Ref, ?QUERY(_, Request, _, _) = Query, ResSt, QueryOpts) ->
     ?tp(call_query_async, #{
         id => Id, mod => Mod, query => Query, res_st => ResSt, call_mode => async
@@ -1081,12 +1084,15 @@ apply_query_fun(async, Mod, Id, Index, Ref, ?QUERY(_, Request, _, _) = Query, Re
         end,
         Request
     );
-apply_query_fun(sync, Mod, Id, _Index, _Ref, [?QUERY(_, _, _, _) | _] = Batch, ResSt, _QueryOpts) ->
+apply_query_fun(sync, Mod, Id, _Index, _Ref, [?QUERY(_, _, _, _) | _] = Batch, ResSt, QueryOpts) ->
     ?tp(call_batch_query, #{
         id => Id, mod => Mod, batch => Batch, res_st => ResSt, call_mode => sync
     }),
     Requests = lists:map(fun(?QUERY(_ReplyTo, Request, _, _ExpireAt)) -> Request end, Batch),
-    ?APPLY_RESOURCE(call_batch_query, Mod:on_batch_query(Id, Requests, ResSt), Batch);
+    maybe_apply_async_reply_fun(
+        ?APPLY_RESOURCE(call_batch_query, Mod:on_batch_query(Id, Requests, ResSt), Batch),
+        QueryOpts
+    );
 apply_query_fun(async, Mod, Id, Index, Ref, [?QUERY(_, _, _, _) | _] = Batch, ResSt, QueryOpts) ->
     ?tp(call_batch_query_async, #{
         id => Id, mod => Mod, batch => Batch, res_st => ResSt, call_mode => async
@@ -1117,6 +1123,14 @@ apply_query_fun(async, Mod, Id, Index, Ref, [?QUERY(_, _, _, _) | _] = Batch, Re
         end,
         Batch
     ).
+
+maybe_apply_async_reply_fun(Result, #{async_reply_fun := {ReplyFun, Args}}) when
+    is_function(ReplyFun)
+->
+    _ = erlang:apply(ReplyFun, Args ++ [Result]),
+    Result;
+maybe_apply_async_reply_fun(Result, _) ->
+    Result.
 
 handle_async_reply(
     #{
