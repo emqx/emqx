@@ -377,7 +377,7 @@ start_bare_node(Name, #{driver := ct_slave}) ->
         ]
     ),
     Node;
-start_bare_node(Name, #{driver := ct_slave}) ->
+start_bare_node(Name, #{driver := slave}) ->
     {ok, Node} = slave:start_link(host(), Name, ebin_path()),
     Node.
 
