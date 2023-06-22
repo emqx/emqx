@@ -122,6 +122,7 @@
 -export([apply_reply_fun/2]).
 
 -export_type([
+    query_mode/0,
     resource_id/0,
     resource_data/0,
     resource_status/0
@@ -174,8 +175,7 @@
     | {resource_status(), resource_state()}
     | {resource_status(), resource_state(), term()}.
 
--callback query_mode(Config :: term()) ->
-    simple_sync | simple_async | sync | async | no_queries.
+-callback query_mode(Config :: term()) -> query_mode().
 
 -spec list_types() -> [module()].
 list_types() ->
@@ -415,9 +415,7 @@ call_stop(ResId, Mod, ResourceState) ->
         Res
     end).
 
--spec query_mode(module(), term(), creation_opts()) ->
-    simple_sync | simple_async | sync | async | no_queries.
-
+-spec query_mode(module(), term(), creation_opts()) -> query_mode().
 query_mode(Mod, Config, Opts) ->
     case erlang:function_exported(Mod, query_mode, 1) of
         true ->

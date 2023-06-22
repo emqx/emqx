@@ -149,5 +149,11 @@
     "listen": "0.0.0.0:19100",
     "upstream": "minio-tls:9100",
     "enabled": true
+  },
+  {
+    "name": "gcp_emulator",
+    "listen": "0.0.0.0:8085",
+    "upstream": "gcp_emulator:8085",
+    "enabled": true
   }
 ]

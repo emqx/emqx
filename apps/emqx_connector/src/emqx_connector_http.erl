@@ -41,6 +41,9 @@
     namespace/0
 ]).
 
+%% for other webhook-like connectors.
+-export([redact_request/1]).
+
 -export([validate_method/1, join_paths/2]).
 
 -type connect_timeout() :: emqx_schema:duration() | infinity.

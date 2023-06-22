@@ -32,7 +32,8 @@
     deep_convert/3,
     diff_maps/2,
     best_effort_recursive_sum/3,
-    if_only_to_toggle_enable/2
+    if_only_to_toggle_enable/2,
+    update_if_present/3
 ]).
 
 -export_type([config_key/0, config_key_path/0]).
@@ -292,4 +293,13 @@ if_only_to_toggle_enable(OldConf, Conf) ->
             true;
         {_, _, _} ->
             false
+    end.
+
+%% Like `maps:update_with', but does nothing if key does not exist.
+update_if_present(Key, Fun, Map) ->
+    case Map of
+        #{Key := Val} ->
+            Map#{Key := Fun(Val)};
+        _ ->
+            Map
     end.
