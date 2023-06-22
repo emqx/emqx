@@ -184,7 +184,9 @@ jobs:
           path: .
       - name: unzip source code
         run: unzip -q source.zip
-      - name: run tests
+
+        # produces $PROFILE-<app-name>-<otp-vsn>-sg<suitegroup>.coverdata
+      - name: run common tests
         working-directory: source
         env:
           DOCKER_CT_RUNNER_IMAGE: "ghcr.io/emqx/emqx-builder/${{ matrix.builder }}:${{ matrix.elixir }}-${{ matrix.otp }}-ubuntu22.04"
@@ -197,7 +199,8 @@ jobs:
           OPENTS_TAG: "9aa7f88"
           MINIO_TAG: "RELEASE.2023-03-20T20-16-18Z"
           PROFILE: ${{ matrix.profile }}
-          CT_COVER_EXPORT_PREFIX: ${{ matrix.profile }}-${{ matrix.otp }}
+          SUITEGROUP: ${{ matrix.suitegroup }}
+          CT_COVER_EXPORT_PREFIX: ${{ matrix.profile }}-${{ matrix.otp }}-sg${{ matrix.suitegroup }}
         run: ./scripts/ct/run.sh --ci --app ${{ matrix.app }}
       - uses: actions/upload-artifact@v3
         with:
@@ -206,7 +209,7 @@ jobs:
       - uses: actions/upload-artifact@v3
         if: failure()
         with:
-          name: logs-${{ matrix.profile }}-${{ matrix.prefix }}-${{ matrix.otp }}
+          name: logs-${{ matrix.profile }}-${{ matrix.prefix }}-${{ matrix.otp }}-sg${{ matrix.suitegroup }}
           path: source/_build/test/logs
 
   ct:
@@ -233,12 +236,13 @@ jobs:
       - name: unzip source code
         run: unzip -q source.zip
 
-        # produces $PROFILE-<app-name>.coverdata
-      - name: run common test
+        # produces $PROFILE-<app-name>-<otp-vsn>-sg<suitegroup>.coverdata
+      - name: run common tests
         working-directory: source
         env:
           PROFILE: ${{ matrix.profile }}
-          CT_COVER_EXPORT_PREFIX: ${{ matrix.profile }}-${{ matrix.otp }}
+          SUITEGROUP: ${{ matrix.suitegroup }}
+          CT_COVER_EXPORT_PREFIX: ${{ matrix.profile }}-${{ matrix.otp }}-sg${{ matrix.suitegroup }}
         run: |
           make "${{ matrix.app }}-ct"
       - uses: actions/upload-artifact@v3
@@ -249,7 +253,7 @@ jobs:
       - uses: actions/upload-artifact@v3
         if: failure()
         with:
-          name: logs-${{ matrix.profile }}-${{ matrix.prefix }}-${{ matrix.otp }}
+          name: logs-${{ matrix.profile }}-${{ matrix.prefix }}-${{ matrix.otp }}-sg${{ matrix.suitegroup }}
           path: source/_build/test/logs
 
   make_cover:
