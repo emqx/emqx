@@ -538,7 +538,7 @@ defmodule EMQXUmbrella.MixProject do
     profile = System.get_env("MIX_ENV")
 
     File.cp_r!(
-      "examples",
+      "rel/config/examples",
       Path.join(etc, "examples"),
       force: overwrite?
     )
