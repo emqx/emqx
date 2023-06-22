@@ -389,17 +389,6 @@ cluster_mcast_ttl.desc:
 cluster_mcast_ttl.label:
 """Cluster Multicast TTL"""
 
-db_core_nodes.desc:
-"""List of core nodes that the replicant will connect to.<br/>
-Note: this parameter only takes effect when the <code>backend</code> is set
-to <code>rlog</code> and the <code>role</code> is set to <code>replicant</code>.<br/>
-This value needs to be defined for manual or static cluster discovery mechanisms.<br/>
-If an automatic cluster discovery mechanism is being used (such as <code>etcd</code>),
-there is no need to set this value."""
-
-db_core_nodes.label:
-"""Db Core Node"""
-
 log_file_handler_file.desc:
 """Name the log file."""
 
