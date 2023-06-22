@@ -32,10 +32,10 @@ jobs:
         profile:
           - ["emqx", "25.3.2-1", "el7", "erlang"]
           - ["emqx", "25.3.2-1", "ubuntu22.04", "elixir"]
-          - ["emqx-enterprise", "25.3.2-1", "amzn2", "erlang"]
+          - ["emqx-enterprise", "25.3.2-1", "amzn2023", "erlang"]
           - ["emqx-enterprise", "25.3.2-1", "ubuntu20.04", "erlang"]
         builder:
-          - 5.1-0
+          - 5.1-1
         elixir:
           - '1.14.5'
 

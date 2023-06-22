@@ -12,7 +12,7 @@ jobs:
     strategy:
       matrix:
         builder:
-          - 5.1-0
+          - 5.1-1
         otp:
           - 25.3.2-1
         # no need to use more than 1 version of Elixir, since tests
