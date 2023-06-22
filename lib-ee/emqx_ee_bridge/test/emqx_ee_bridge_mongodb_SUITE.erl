@@ -28,7 +28,8 @@ group_tests() ->
         t_setup_via_http_api_and_publish,
         t_payload_template,
         t_collection_template,
-        t_mongo_date_rule_engine_functions
+        t_mongo_date_rule_engine_functions,
+        t_get_status_server_selection_too_short
     ].
 
 groups() ->
@@ -317,6 +318,27 @@ send_message(Config, Payload) ->
     BridgeID = emqx_bridge_resource:bridge_id(Type, Name),
     emqx_bridge:send_message(BridgeID, Payload).
 
+probe_bridge_api(Config) ->
+    probe_bridge_api(Config, _Overrides = #{}).
+
+probe_bridge_api(Config, Overrides) ->
+    Name = ?config(mongo_name, Config),
+    TypeBin = mongo_type_bin(?config(mongo_type, Config)),
+    MongoConfig0 = ?config(mongo_config, Config),
+    MongoConfig = emqx_utils_maps:deep_merge(MongoConfig0, Overrides),
+    Params = MongoConfig#{<<"type">> => TypeBin, <<"name">> => Name},
+    Path = emqx_mgmt_api_test_util:api_path(["bridges_probe"]),
+    AuthHeader = emqx_mgmt_api_test_util:auth_header_(),
+    Opts = #{return_all => true},
+    ct:pal("probing bridge (via http): ~p", [Params]),
+    Res =
+        case emqx_mgmt_api_test_util:request_api(post, Path, "", AuthHeader, Params, Opts) of
+            {ok, {{_, 204, _}, _Headers, _Body0} = Res0} -> {ok, Res0};
+            Error -> Error
+        end,
+    ct:pal("bridge probe result: ~p", [Res]),
+    Res.
+
 %%------------------------------------------------------------------------------
 %% Testcases
 %%------------------------------------------------------------------------------
@@ -451,5 +473,23 @@ t_mongo_date_rule_engine_functions(Config) ->
             }
         ]},
         find_all_wait_until_non_empty(Config)
+    ),
+    ok.
+
+t_get_status_server_selection_too_short(Config) ->
+    Res = probe_bridge_api(
+        Config,
+        #{
+            <<"topology">> => #{<<"server_selection_timeout_ms">> => <<"1ms">>}
+        }
+    ),
+    ?assertMatch({error, {{_, 400, _}, _Headers, _Body}}, Res),
+    {error, {{_, 400, _}, _Headers, Body}} = Res,
+    ?assertMatch(
+        #{
+            <<"code">> := <<"TEST_FAILED">>,
+            <<"message">> := <<"timeout">>
+        },
+        emqx_utils_json:decode(Body)
     ),
     ok.

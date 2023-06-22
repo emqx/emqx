@@ -36,5 +36,14 @@ jobs:
         env:
           MIX_ENV: emqx-enterprise
           PROFILE: emqx-enterprise
+      - name: produced lock files
+        uses: actions/upload-artifact@v3
+        if: failure()
+        with:
+          name: produced_lock_files
+          path: |
+            mix.lock
+            rebar.lock
+          retention-days: 1
 
 ...
