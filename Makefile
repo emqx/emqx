@@ -107,7 +107,7 @@ define gen-app-ct-target
 $1-ct: $(REBAR) merge-config clean-test-cluster-config
 	$(eval SUITES := $(shell $(SCRIPTS)/find-suites.sh $1))
 ifneq ($(SUITES),)
-		@ENABLE_COVER_COMPILE=1 $(REBAR) ct -c -v \
+		ENABLE_COVER_COMPILE=1 $(REBAR) ct -c -v \
 			--readable=$(CT_READABLE) \
 			--name $(CT_NODE_NAME) \
 			--cover_export_name $(CT_COVER_EXPORT_PREFIX)-$(subst /,-,$1) \

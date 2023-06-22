@@ -288,9 +288,18 @@ elif [ "$CONSOLE" = 'yes' ]; then
     docker exec -e PROFILE="$PROFILE" -i $TTY "$ERLANG_CONTAINER" bash -c "make run"
 else
     if [ -z "${REBAR3CT:-}" ]; then
-        docker exec -e IS_CI="$IS_CI" -e PROFILE="$PROFILE" -i $TTY "$ERLANG_CONTAINER" bash -c "BUILD_WITHOUT_QUIC=1 make ${WHICH_APP}-ct"
+        docker exec -e IS_CI="$IS_CI" \
+                    -e PROFILE="$PROFILE" \
+                    -e SUITEGROUP="${SUITEGROUP:-}" \
+                    -e CT_COVER_EXPORT_PREFIX="${CT_COVER_EXPORT_PREFIX:-}" \
+                    -i $TTY "$ERLANG_CONTAINER" \
+                    bash -c "BUILD_WITHOUT_QUIC=1 make ${WHICH_APP}-ct"
     else
-        docker exec -e IS_CI="$IS_CI" -e PROFILE="$PROFILE" -i $TTY "$ERLANG_CONTAINER" bash -c "./rebar3 ct $REBAR3CT"
+        # this is an ad-hoc run
+        docker exec -e IS_CI="$IS_CI" \
+                    -e PROFILE="$PROFILE" \
+                    -i $TTY "$ERLANG_CONTAINER" \
+                    bash -c "./rebar3 ct $REBAR3CT"
     fi
     RESULT=$?
     if [ "$RESULT" -ne 0 ]; then

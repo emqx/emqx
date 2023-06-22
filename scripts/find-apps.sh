@@ -55,13 +55,21 @@ fi
 ##################################################
 
 format_app_description() {
-    ## prefix is for github actions (they don't like slash in variables)
-    local prefix=${1//\//_}
-    echo -n -e "$(
-cat <<END
-    {"app": "${1}", "profile": "${2}", "runner": "${3}", "prefix": "${prefix}"}
+    local groups="$2"
+    local group=0
+    while [ "$groups" -gt $group ]; do
+        if [ $group -gt 0 ]; then
+            echo ", "
+        fi
+        group=$(( group + 1 ))
+        ## prefix is for github actions (they don't like slash in variables)
+        local prefix=${1//\//_}
+        echo -n -e "$(
+    cat <<END
+        {"app": "${1}", "suitegroup": "${group}_${groups}", "profile": "${3}", "runner": "${4}", "prefix": "${prefix}"}
 END
-    )"
+        )"
+    done
 }
 
 describe_app() {
@@ -87,7 +95,12 @@ describe_app() {
             exit 1
             ;;
     esac
-    format_app_description "$app" "$profile" "$runner"
+    if [[ "$app" == "apps/emqx" ]]; then
+        suitegroups=5
+    else
+        suitegroups=1
+    fi
+    format_app_description "$app" "$suitegroups" "$profile" "$runner"
 }
 
 matrix() {
