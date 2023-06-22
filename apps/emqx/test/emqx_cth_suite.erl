@@ -260,16 +260,38 @@ default_appspec(emqx, SuiteOpts) ->
     #{
         override_env => [{data_dir, maps:get(work_dir, SuiteOpts, "data")}]
     };
-default_appspec(emqx_conf, SuiteOpts) ->
+default_appspec(emqx_authz, _SuiteOpts) ->
     #{
         config => #{
-            node => #{
-                name => node(),
-                cookie => erlang:get_cookie(),
-                % FIXME
-                data_dir => unicode:characters_to_binary(maps:get(work_dir, SuiteOpts, "data"))
-            }
-        },
+            % NOTE
+            % Disable default authorization sources (i.e. acl.conf file rules).
+            authorization => #{sources => []}
+        }
+    };
+default_appspec(emqx_conf, SuiteOpts) ->
+    Config = #{
+        node => #{
+            name => node(),
+            cookie => erlang:get_cookie(),
+            % FIXME
+            data_dir => unicode:characters_to_binary(maps:get(work_dir, SuiteOpts, "data"))
+        }
+    },
+    % NOTE
+    % Since `emqx_conf_schema` manages config for a lot of applications, it's good to include
+    % their defaults as well.
+    SharedConfig = lists:foldl(
+        fun(App, Acc) ->
+            emqx_utils_maps:deep_merge(Acc, default_config(App, SuiteOpts))
+        end,
+        Config,
+        [
+            emqx,
+            emqx_authz
+        ]
+    ),
+    #{
+        config => SharedConfig,
         % NOTE
         % We inform `emqx` of our config loader before starting `emqx_conf` sothat it won't
         % overwrite everything with a default configuration.
@@ -285,6 +307,9 @@ default_appspec(emqx_dashboard, _SuiteOpts) ->
     };
 default_appspec(_, _) ->
     #{}.
+
+default_config(App, SuiteOpts) ->
+    maps:get(config, default_appspec(App, SuiteOpts), #{}).
 
 %%
 
