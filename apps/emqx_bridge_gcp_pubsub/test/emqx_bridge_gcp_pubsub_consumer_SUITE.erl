@@ -581,15 +581,16 @@ t_consume_ok(Config) ->
                 ?assertEqual(3, emqx_resource_metrics:received_get(ResourceId))
             ),
 
-            %% Check that the bridge probe API doesn't leak atoms.
-            ProbeRes0 = probe_bridge_api(Config),
-            ?assertMatch({ok, {{_, 204, _}, _Headers, _Body}}, ProbeRes0),
-            AtomsBefore = erlang:system_info(atom_count),
-            %% Probe again; shouldn't have created more atoms.
-            ProbeRes1 = probe_bridge_api(Config),
-            ?assertMatch({ok, {{_, 204, _}, _Headers, _Body}}, ProbeRes1),
-            AtomsAfter = erlang:system_info(atom_count),
-            ?assertEqual(AtomsBefore, AtomsAfter),
+            %% FIXME: uncomment after API spec is un-hidden...
+            %% %% Check that the bridge probe API doesn't leak atoms.
+            %% ProbeRes0 = probe_bridge_api(Config),
+            %% ?assertMatch({ok, {{_, 204, _}, _Headers, _Body}}, ProbeRes0),
+            %% AtomsBefore = erlang:system_info(atom_count),
+            %% %% Probe again; shouldn't have created more atoms.
+            %% ProbeRes1 = probe_bridge_api(Config),
+            %% ?assertMatch({ok, {{_, 204, _}, _Headers, _Body}}, ProbeRes1),
+            %% AtomsAfter = erlang:system_info(atom_count),
+            %% ?assertEqual(AtomsBefore, AtomsAfter),
 
             assert_non_received_metrics(BridgeName),
 
