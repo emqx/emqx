@@ -88,6 +88,30 @@ jobs:
           name: source-${{ matrix.profile }}-${{ matrix.otp }}
           path: source.zip
 
+  check_examples:
+    needs:
+      - build-matrix
+      - prepare
+    runs-on: ${{ needs.build-matrix.outputs.runs-on }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include: ${{ fromJson(needs.build-matrix.outputs.prepare) }}
+    container: "ghcr.io/emqx/emqx-builder/${{ matrix.builder }}:${{ matrix.elixir }}-${{ matrix.otp }}-ubuntu22.04"
+    steps:
+      - uses: AutoModality/action-clean@v1
+      - uses: actions/download-artifact@v3
+        with:
+          name: source-${{ matrix.profile }}-${{ matrix.otp }}
+          path: .
+      - name: unzip source code
+        run: unzip -o -q source.zip
+      - name: check example config files
+        env:
+          PROFILE: ${{ matrix.profile }}
+        working-directory: source
+        run: ./scripts/test/check-example-configs.sh
+
   static_checks:
     needs:
       - build-matrix

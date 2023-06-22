@@ -9,7 +9,6 @@ SCHEMA_MOD='emqx_conf_schema'
 if [ "${PROFILE}" = 'emqx-enterprise' ]; then
     DIR_NAME='ee-examples'
     SCHEMA_MOD='emqx_enterprise_schema'
-    PA=""
 fi
 
 IFS=$'\n' read -r -d '' -a FILES < <(find "${PROJ_DIR}/rel/config/${DIR_NAME}" -name "*.example" 2>/dev/null | sort && printf '\0')
@@ -49,6 +48,6 @@ check_file() {
         end."
 }
 
-for file in ${FILES[@]}; do
+for file in "${FILES[@]}"; do
     check_file "$file"
 done
