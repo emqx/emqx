@@ -24,7 +24,8 @@
     compact_errors/2,
     format_error/1,
     format_error/2,
-    make_schema/1
+    make_schema/1,
+    load_and_check/2
 ]).
 
 %% @doc Format hocon config field path to dot-separated string in iolist format.
@@ -46,7 +47,8 @@ check(SchemaModule, Conf) ->
 
 check(SchemaModule, Conf, Opts) when is_map(Conf) ->
     try
-        {ok, hocon_tconf:check_plain(SchemaModule, Conf, Opts)}
+        RootNames = maps:keys(Conf),
+        {ok, hocon_tconf:check_plain(SchemaModule, Conf, Opts, RootNames)}
     catch
         throw:Errors:Stacktrace ->
             compact_errors(Errors, Stacktrace)
@@ -135,3 +137,26 @@ compact_errors(SchemaModule, Error, Stacktrace) ->
         exception => Error,
         stacktrace => Stacktrace
     }}.
+
+%% @doc This is only used in static check scripts in the CI.
+-spec load_and_check(module(), filename:filename_all()) -> {ok, term()} | {error, any()}.
+load_and_check(SchemaModule, File) ->
+    try
+        do_load_and_check(SchemaModule, File)
+    catch
+        throw:Reason ->
+            {error, Reason}
+    end.
+
+do_load_and_check(SchemaModule, File) ->
+    Conf =
+        case hocon:load(File, #{format => map}) of
+            {ok, Conf0} ->
+                Conf0;
+            {error, {parse_error, Reason}} ->
+                throw(Reason);
+            {error, Reason} ->
+                throw(Reason)
+        end,
+    Opts = #{atom_key => false, required => false},
+    check(SchemaModule, Conf, Opts).
