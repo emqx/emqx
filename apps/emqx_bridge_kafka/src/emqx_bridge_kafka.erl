@@ -92,6 +92,18 @@ values(producer) ->
             partition_strategy => <<"random">>,
             required_acks => <<"all_isr">>,
             partition_count_refresh_interval => <<"60s">>,
+            kafka_headers => <<"${pub_props}">>,
+            kafka_ext_headers => [
+                #{
+                    kafka_ext_header_key => <<"clientid">>,
+                    kafka_ext_header_value => <<"${clientid}">>
+                },
+                #{
+                    kafka_ext_header_key => <<"topic">>,
+                    kafka_ext_header_value => <<"${topic}">>
+                }
+            ],
+            kafka_header_value_encode_mode => none,
             max_inflight => 10,
             buffer => #{
                 mode => <<"hybrid">>,
@@ -281,6 +293,31 @@ fields(producer_kafka_opts) ->
                     desc => ?DESC(required_acks)
                 }
             )},
+        {kafka_headers,
+            mk(
+                binary(),
+                #{
+                    required => false,
+                    validator => fun kafka_header_validator/1,
+                    desc => ?DESC(kafka_headers)
+                }
+            )},
+        {kafka_ext_headers,
+            mk(
+                hoconsc:array(ref(producer_kafka_ext_headers)),
+                #{
+                    desc => ?DESC(producer_kafka_ext_headers),
+                    required => false
+                }
+            )},
+        {kafka_header_value_encode_mode,
+            mk(
+                enum([none, json]),
+                #{
+                    default => none,
+                    desc => ?DESC(kafka_header_value_encode_mode)
+                }
+            )},
         {partition_count_refresh_interval,
             mk(
                 emqx_schema:timeout_duration_s(),
@@ -316,6 +353,23 @@ fields(producer_kafka_opts) ->
                 #{
                     default => <<"5s">>,
                     desc => ?DESC(sync_query_timeout)
+                }
+            )}
+    ];
+fields(producer_kafka_ext_headers) ->
+    [
+        {kafka_ext_header_key,
+            mk(
+                binary(),
+                #{required => true, desc => ?DESC(producer_kafka_ext_header_key)}
+            )},
+        {kafka_ext_header_value,
+            mk(
+                binary(),
+                #{
+                    required => true,
+                    validator => fun kafka_ext_header_value_validator/1,
+                    desc => ?DESC(producer_kafka_ext_header_value)
                 }
             )}
     ];
@@ -433,7 +487,8 @@ struct_names() ->
         producer_opts,
         consumer_opts,
         consumer_kafka_opts,
-        consumer_topic_mapping
+        consumer_topic_mapping,
+        producer_kafka_ext_headers
     ].
 
 %% -------------------------------------------------------------------------------------------------
@@ -491,3 +546,27 @@ producer_strategy_key_validator(#{
     {error, "Message key cannot be empty when `key_dispatch` strategy is used"};
 producer_strategy_key_validator(_) ->
     ok.
+
+kafka_header_validator(undefined) ->
+    ok;
+kafka_header_validator(Value) ->
+    case emqx_placeholder:preproc_tmpl(Value) of
+        [{var, _}] ->
+            ok;
+        _ ->
+            {error, "The 'kafka_headers' must be a single placeholder like ${pub_props}"}
+    end.
+
+kafka_ext_header_value_validator(undefined) ->
+    ok;
+kafka_ext_header_value_validator(Value) ->
+    case emqx_placeholder:preproc_tmpl(Value) of
+        [{Type, _}] when Type =:= var orelse Type =:= str ->
+            ok;
+        _ ->
+            {
+                error,
+                "The value of 'kafka_ext_headers' must either be a single "
+                "placeholder like ${foo}, or a simple string."
+            }
+    end.
