@@ -72,7 +72,7 @@ listeners.ssl.my_ssl_listener_name {
         ocsp {
              enable_ocsp_stapling = false
              responder_url = "http://ocsp.example.com"
-             issuer_pem = true
+             issuer_pem = "${EMQX_ETC_DIR}/certs/ocsp-issuer-cert.pem"
              refresh_http_timeout = 15s
              refresh_interval = 5m
         }

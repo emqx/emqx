@@ -31,7 +31,7 @@ node {
     ## Path to the persistent data directory.
     ## This config is pre-filled when the EMQX distribution package is built.
     ## You are advised to use the default value.
-    #data_dir = "data" # when running a zip package or in docker container
+    data_dir = "data" # when running a zip package or in docker container
     #data_dir = "/var/lib/emqx" # when installed from deb/rpm packages
 
     ## Type: Periodic garbage collection interval

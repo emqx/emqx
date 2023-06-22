@@ -1,5 +1,5 @@
 ## Plugin management
-plugin {
+plugins {
     ## Plugins declaration
     ## Note: The plugins are started in the defined order
     states = [
