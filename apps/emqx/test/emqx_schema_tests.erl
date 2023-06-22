@@ -108,7 +108,7 @@ ssl_opts_version_gap_test_() ->
 
 ssl_opts_cert_depth_test() ->
     Sc = emqx_schema:server_ssl_opts_schema(#{}, false),
-    Reason = #{expected_type => "non_neg_integer()"},
+    Reason = #{expected => "non_neg_integer()"},
     ?assertThrow(
         {_Sc, [#{kind := validation_error, reason := Reason}]},
         validate(Sc, #{<<"depth">> => -1})

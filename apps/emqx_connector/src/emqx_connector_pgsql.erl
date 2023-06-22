@@ -238,6 +238,8 @@ on_sql_query(InstId, PoolName, Type, NameOrSQL, Data) ->
             case Reason of
                 ecpool_empty ->
                     {error, {recoverable_error, Reason}};
+                {error, error, _, undefined_table, _, _} ->
+                    {error, {unrecoverable_error, Reason}};
                 _ ->
                     Result
             end;
@@ -269,7 +271,10 @@ on_get_status(_InstId, #{pool_name := PoolName} = State) ->
                 {ok, NState} ->
                     %% return new state with prepared statements
                     {connected, NState};
-                false ->
+                {error, {undefined_table, NState}} ->
+                    %% return new state indicating that we are connected but the target table is not created
+                    {disconnected, NState, unhealthy_target};
+                {error, _Reason} ->
                     %% do not log error, it is logged in prepare_sql_to_conn
                     connecting
             end;
@@ -280,6 +285,34 @@ on_get_status(_InstId, #{pool_name := PoolName} = State) ->
 do_get_status(Conn) ->
     ok == element(1, epgsql:squery(Conn, "SELECT count(1) AS T")).
 
+do_check_prepares(
+    #{
+        pool_name := PoolName,
+        prepare_sql := #{<<"send_message">> := SQL}
+    } = State
+) ->
+    % it's already connected. Verify if target table still exists
+    Workers = [Worker || {_WorkerName, Worker} <- ecpool:workers(PoolName)],
+    lists:foldl(
+        fun
+            (WorkerPid, ok) ->
+                case ecpool_worker:client(WorkerPid) of
+                    {ok, Conn} ->
+                        case epgsql:parse2(Conn, "get_status", SQL, []) of
+                            {error, {_, _, _, undefined_table, _, _}} ->
+                                {error, {undefined_table, State}};
+                            _ ->
+                                ok
+                        end;
+                    _ ->
+                        ok
+                end;
+            (_, Acc) ->
+                Acc
+        end,
+        ok,
+        Workers
+    );
 do_check_prepares(#{prepare_sql := Prepares}) when is_map(Prepares) ->
     ok;
 do_check_prepares(State = #{pool_name := PoolName, prepare_sql := {error, Prepares}}) ->
@@ -288,8 +321,11 @@ do_check_prepares(State = #{pool_name := PoolName, prepare_sql := {error, Prepar
         {ok, Sts} ->
             %% remove the error
             {ok, State#{prepare_sql => Prepares, prepare_statement := Sts}};
-        _Error ->
-            false
+        {error, undefined_table} ->
+            %% indicate the error
+            {error, {undefined_table, State#{prepare_sql => {error, Prepares}}}};
+        Error ->
+            {error, Error}
     end.
 
 %% ===================================================================
@@ -373,7 +409,7 @@ init_prepare(State = #{prepare_sql := Prepares, pool_name := PoolName}) ->
                         msg => <<"PostgreSQL init prepare statement failed">>, error => Error
                     },
                     ?SLOG(error, LogMeta),
-                    %% mark the prepare_sqlas failed
+                    %% mark the prepare_sql as failed
                     State#{prepare_sql => {error, Prepares}}
             end
     end.
@@ -414,6 +450,11 @@ prepare_sql_to_conn(Conn, [{Key, SQL} | PrepareList], Statements) when is_pid(Co
     case epgsql:parse2(Conn, Key, SQL, []) of
         {ok, Statement} ->
             prepare_sql_to_conn(Conn, PrepareList, Statements#{Key => Statement});
+        {error, {error, error, _, undefined_table, _, _} = Error} ->
+            %% Target table is not created
+            ?tp(pgsql_undefined_table, #{}),
+            ?SLOG(error, LogMeta#{msg => "PostgreSQL parse failed", error => Error}),
+            {error, undefined_table};
         {error, Error} = Other ->
             ?SLOG(error, LogMeta#{msg => "PostgreSQL parse failed", error => Error}),
             Other
@@ -424,6 +465,10 @@ to_bin(Bin) when is_binary(Bin) ->
 to_bin(Atom) when is_atom(Atom) ->
     erlang:atom_to_binary(Atom).
 
+handle_result({error, {recoverable_error, _Error}} = Res) ->
+    Res;
+handle_result({error, {unrecoverable_error, _Error}} = Res) ->
+    Res;
 handle_result({error, disconnected}) ->
     {error, {recoverable_error, disconnected}};
 handle_result({error, Error}) ->

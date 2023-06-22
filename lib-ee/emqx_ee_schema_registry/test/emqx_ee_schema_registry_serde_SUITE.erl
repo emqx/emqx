@@ -109,7 +109,7 @@ t_avro_invalid_json_schema(_Config) ->
     Params = schema_params(avro),
     WrongParams = Params#{source := <<"{">>},
     ?assertMatch(
-        {error, #{reason := #{expected_type := _}}},
+        {error, #{reason := #{expected := _}}},
         emqx_ee_schema_registry:add_schema(SerdeName, WrongParams)
     ),
     ok.

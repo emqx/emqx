@@ -222,6 +222,8 @@ on_get_status(_InstId, #{pool_name := PoolName} = State) ->
                 {ok, NState} ->
                     %% return new state with prepared statements
                     {connected, NState};
+                {error, {undefined_table, NState}} ->
+                    {disconnected, NState, unhealthy_target};
                 {error, _Reason} ->
                     %% do not log error, it is logged in prepare_sql_to_conn
                     connecting
@@ -233,7 +235,37 @@ on_get_status(_InstId, #{pool_name := PoolName} = State) ->
 do_get_status(Conn) ->
     ok == element(1, mysql:query(Conn, <<"SELECT count(1) AS T">>)).
 
-do_check_prepares(#{prepare_statement := Prepares}) when is_map(Prepares) ->
+do_check_prepares(
+    #{
+        pool_name := PoolName,
+        prepare_statement := #{send_message := SQL}
+    } = State
+) ->
+    % it's already connected. Verify if target table still exists
+    Workers = [Worker || {_WorkerName, Worker} <- ecpool:workers(PoolName)],
+    lists:foldl(
+        fun
+            (WorkerPid, ok) ->
+                case ecpool_worker:client(WorkerPid) of
+                    {ok, Conn} ->
+                        case mysql:prepare(Conn, get_status, SQL) of
+                            {error, {1146, _, _}} ->
+                                {error, {undefined_table, State}};
+                            {ok, Statement} ->
+                                mysql:unprepare(Conn, Statement);
+                            _ ->
+                                ok
+                        end;
+                    _ ->
+                        ok
+                end;
+            (_, Acc) ->
+                Acc
+        end,
+        ok,
+        Workers
+    );
+do_check_prepares(#{prepare_statement := Statement}) when is_map(Statement) ->
     ok;
 do_check_prepares(State = #{pool_name := PoolName, prepare_statement := {error, Prepares}}) ->
     %% retry to prepare
@@ -241,6 +273,9 @@ do_check_prepares(State = #{pool_name := PoolName, prepare_statement := {error, 
         ok ->
             %% remove the error
             {ok, State#{prepare_statement => Prepares}};
+        {error, undefined_table} ->
+            %% indicate the error
+            {error, {undefined_table, State#{prepare_statement => {error, Prepares}}}};
         {error, Reason} ->
             {error, Reason}
     end.
@@ -320,6 +355,11 @@ prepare_sql_to_conn(Conn, [{Key, SQL} | PrepareList]) when is_pid(Conn) ->
         {ok, _Key} ->
             ?SLOG(info, LogMeta#{result => success}),
             prepare_sql_to_conn(Conn, PrepareList);
+        {error, {1146, _, _} = Reason} ->
+            %% Target table is not created
+            ?tp(mysql_undefined_table, #{}),
+            ?SLOG(error, LogMeta#{result => failed, reason => Reason}),
+            {error, undefined_table};
         {error, Reason} ->
             % FIXME: we should try to differ on transient failers and
             % syntax failures. Retrying syntax failures is not very productive.

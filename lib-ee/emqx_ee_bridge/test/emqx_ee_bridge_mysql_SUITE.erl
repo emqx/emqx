@@ -110,6 +110,7 @@ end_per_suite(_Config) ->
     ok.
 
 init_per_testcase(_Testcase, Config) ->
+    connect_and_create_table(Config),
     connect_and_clear_table(Config),
     delete_bridge(Config),
     snabbkaffe:start_trace(),
@@ -240,6 +241,12 @@ query_resource(Config, Request) ->
     BridgeType = ?config(mysql_bridge_type, Config),
     ResourceID = emqx_bridge_resource:resource_id(BridgeType, Name),
     emqx_resource:query(ResourceID, Request, #{timeout => 500}).
+
+sync_query_resource(Config, Request) ->
+    Name = ?config(mysql_name, Config),
+    BridgeType = ?config(mysql_bridge_type, Config),
+    ResourceID = emqx_bridge_resource:resource_id(BridgeType, Name),
+    emqx_resource_buffer_worker:simple_sync_query(ResourceID, Request).
 
 query_resource_async(Config, Request) ->
     Name = ?config(mysql_name, Config),
@@ -480,6 +487,7 @@ t_write_timeout(Config) ->
     ProxyHost = ?config(proxy_host, Config),
     QueryMode = ?config(query_mode, Config),
     {ok, _} = create_bridge(Config),
+    connect_and_create_table(Config),
     Val = integer_to_binary(erlang:unique_integer()),
     SentData = #{payload => Val, timestamp => 1668602148000},
     Timeout = 1000,
@@ -641,6 +649,7 @@ t_workload_fits_prepared_statement_limit(Config) ->
     ).
 
 t_unprepared_statement_query(Config) ->
+    ok = connect_and_create_table(Config),
     ?assertMatch(
         {ok, _},
         create_bridge(Config)
@@ -668,6 +677,7 @@ t_unprepared_statement_query(Config) ->
 %% Test doesn't work with batch enabled since batch doesn't use
 %% prepared statements as such; it has its own query generation process
 t_uninitialized_prepared_statement(Config) ->
+    connect_and_create_table(Config),
     ?assertMatch(
         {ok, _},
         create_bridge(Config)
@@ -703,5 +713,66 @@ t_uninitialized_prepared_statement(Config) ->
             ?assertMatch([#{result := ok}], ReturnTrace),
             ok
         end
+    ),
+    ok.
+
+t_missing_table(Config) ->
+    Name = ?config(mysql_name, Config),
+    BridgeType = ?config(mysql_bridge_type, Config),
+    ResourceID = emqx_bridge_resource:resource_id(BridgeType, Name),
+
+    ?check_trace(
+        begin
+            connect_and_drop_table(Config),
+            ?assertMatch({ok, _}, create_bridge(Config)),
+            ?retry(
+                _Sleep = 1_000,
+                _Attempts = 20,
+                ?assertMatch(
+                    {ok, Status} when Status == connecting orelse Status == disconnected,
+                    emqx_resource_manager:health_check(ResourceID)
+                )
+            ),
+            Val = integer_to_binary(erlang:unique_integer()),
+            SentData = #{payload => Val, timestamp => 1668602148000},
+            Timeout = 1000,
+            ?assertMatch(
+                {error, {resource_error, #{reason := unhealthy_target}}},
+                query_resource(Config, {send_message, SentData, [], Timeout})
+            ),
+            ok
+        end,
+        fun(Trace) ->
+            ?assertMatch([_, _, _], ?of_kind(mysql_undefined_table, Trace)),
+            ok
+        end
+    ).
+
+t_table_removed(Config) ->
+    Name = ?config(mysql_name, Config),
+    BridgeType = ?config(mysql_bridge_type, Config),
+    ResourceID = emqx_bridge_resource:resource_id(BridgeType, Name),
+    ?check_trace(
+        begin
+            connect_and_create_table(Config),
+            ?assertMatch({ok, _}, create_bridge(Config)),
+            ?retry(
+                _Sleep = 1_000,
+                _Attempts = 20,
+                ?assertEqual({ok, connected}, emqx_resource_manager:health_check(ResourceID))
+            ),
+            connect_and_drop_table(Config),
+            Val = integer_to_binary(erlang:unique_integer()),
+            SentData = #{payload => Val, timestamp => 1668602148000},
+            Timeout = 1000,
+            ?assertMatch(
+                {error,
+                    {unrecoverable_error,
+                        {1146, <<"42S02">>, <<"Table 'mqtt.mqtt_test' doesn't exist">>}}},
+                sync_query_resource(Config, {send_message, SentData, [], Timeout})
+            ),
+            ok
+        end,
+        []
     ),
     ok.
