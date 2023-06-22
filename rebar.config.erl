@@ -520,12 +520,12 @@ relx_overlay(ReleaseType, Edition) ->
         {copy, "bin/nodetool", "bin/nodetool-{{release_version}}"}
     ] ++ etc_overlay(ReleaseType, Edition).
 
-etc_overlay(ReleaseType, _Edition) ->
+etc_overlay(ReleaseType, Edition) ->
     Templates = emqx_etc_overlay(ReleaseType),
     [
         {mkdir, "etc/"},
-        {copy, "{{base_dir}}/lib/emqx/etc/certs", "etc/"},
-        {copy, "rel/config/examples", "etc/"}
+        {copy, "{{base_dir}}/lib/emqx/etc/certs", "etc/"}
+        | copy_examples(Edition)
     ] ++
         lists:map(
             fun
@@ -534,6 +534,14 @@ etc_overlay(ReleaseType, _Edition) ->
             end,
             Templates
         ).
+
+copy_examples(ce) ->
+    [{copy, "rel/config/examples", "etc/"}];
+copy_examples(ee) ->
+    [
+        {copy, "rel/config/examples", "etc/"},
+        {copy, "rel/config/ee-examples/*", "etc/examples/"}
+    ].
 
 emqx_etc_overlay(ReleaseType) ->
     emqx_etc_overlay_per_rel(ReleaseType) ++
