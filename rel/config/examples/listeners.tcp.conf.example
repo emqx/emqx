@@ -1,13 +1,6 @@
-##--------------------------------------------------------------------
-## TCP Listener
-##
-## Add a TCP Listener
-##--------------------------------------------------------------------
-## Note: This is an example of how to configure this feature
-##       you should copy and paste the below data into the emqx.conf for working
+## MQTT over TCP Listener
 
-## Note: Modifying the 'tcpname' to what you need
-listeners.tcp.tcpname {
+listeners.tcp.my_tcp_listener_name {
     ## Port or Address to listen on, 0 means disable
     bind = 1883 ## or with an IP e.g. "127.0.0.1:1883"
 

@@ -1,16 +1,6 @@
-##--------------------------------------------------------------------
-## SSL Listener
-##
-## Add a SSL Listener
-##--------------------------------------------------------------------
-## Note: This is an example of how to configure this feature
-##       you should copy and paste the below data into the emqx.conf for working
+## MQTT over TLS(SSL) Listener
 
-## The SSL listener also supports all the fields listed in listeners.tcp.conf.example
-## only the SSL-specific fields are shown here
-
-## Note: Modifying the 'sslname' to what you need
-listeners.ssl.sslname {
+listeners.ssl.my_ssl_listener_name {
     ## Port or Address to listen on, 0 means disable
     bind = 8883 ## or with an IP e.g. "127.0.0.1:8883"
     enabled = true
@@ -33,13 +23,13 @@ listeners.ssl.sslname {
     }
     ssl_options {
         ## Trusted PEM format CA certificates bundle file
-        cacertfile = "data/certs/cacert.pem"
+        cacertfile = "${EMQX_ETC_DIR}/certs/cacert.pem"
 
         ## PEM format certificates chain file
-        certfile = "data/certs/cert.pem"
+        certfile = "${EMQX_ETC_DIR}/certs/cert.pem"
 
         ## PEM format private key file
-        keyfile = "data/certs/key.pem"
+        keyfile = "${EMQX_ETC_DIR}/certs/key.pem"
 
         ## Enable or disable peer verification
         verify = verify_none  ## use verify_peer to enable
@@ -58,7 +48,7 @@ listeners.ssl.sslname {
 
         ## TLS cipher suite names
         ## Note: By default, all available suites are supported, you do not need to set this
-        ciphers = ["TLS_AES_256_GCM_SHA384","TLS_AES_128_GCM_SHA256"]
+        ciphers = "TLS_AES_256_GCM_SHA384,TLS_AES_128_GCM_SHA256,ECDHE-RSA-AES256-GCM-SHA384"
 
         ## Allows a client and a server to renegotiate the parameters of the SSL connection on the fly
         secure_renegotiate = true

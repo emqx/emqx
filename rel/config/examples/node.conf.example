@@ -1,10 +1,4 @@
-##--------------------------------------------------------------------
-## Node
-##
-## configuring for current EMQX node
-##--------------------------------------------------------------------
-## Note: This is an example of how to configure this feature
-##       you should copy and paste the below data into the emqx.conf for working
+## EMQX Node
 
 ## Note: all fields in this section are immutable after EMQX started, and most of the time you only need to modify the value for the name and cookie.
 node {
@@ -14,29 +8,31 @@ node {
     ##   Note: Make sure the IP resolve from the domain is deterministic and unique and never change
     name = "emqx@127.0.0.1"
 
-    ## Secret cookie is a random string that should be the same on all nodes in the given EMQX cluster, but unique per EMQX cluster
-    cookie = "Yzc0NGExM2RjYzYxYzM0YzQ5MWQ0NmI1NWM0MWRhMzY4NzgxYmFkMmI2MWJjZWQ5NTQzYTMxNjE1ODVmYmJmMyAgLQo="
+    ## Secret cookie is a random string that should be the same on all nodes in the cluster, but unique per EMQX cluster
+    cookie = "Yzc0NGExM2Rj"
 
     ## Select a node role
-    ## Type:
-    ##   - core :: nodes provide durability of the data, and take care of writes
-    ##   - replicant :: nodes are ephemeral worker nodes
+    ## Possible values:
+    ##   - core: This is a core node which provides durability of the client states, and takes care of writes
+    ##   - replicant: This is a stateless worker node
     role = core
 
     ## Maximum number of simultaneously existing processes for this Erlang system
-    ## Type: Range from 1024 to 134217727
     process_limit = 2097152
 
-    ## Maximum number of simultaneously existing ports for this Erlang system
-    ## Type: Range from 1024 to 134217727
+    ## Maximum number of simultaneously open files and sockets for this Erlang system
     max_ports = 1048576
 
-    ## Erlang's distribution buffer busy limit in kilobytes
-    ## Type: Range from 1 to 2097152
+    ## Erlang's distribution buffer busy limit in kilobytes.
+    ## Range from 1 to 2097152
     dist_buffer_size = 8192
 
-    ## Path to the persistent data directory
-    data_dir = "var/emqx/data"
+    ## NOTE: keep this the same for all nodes in the cluster.
+    ## Path to the persistent data directory.
+    ## This config is pre-filled when the EMQX distribution package is built.
+    ## You are advised to use the default value.
+    #data_dir = "data" # when running a zip package or in docker container
+    #data_dir = "/var/lib/emqx" # when installed from deb/rpm packages
 
     ## Type: Periodic garbage collection interval
     global_gc_interval = 15m

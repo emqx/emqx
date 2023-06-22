@@ -1,10 +1,4 @@
-##--------------------------------------------------------------------
 ## Gateway LwM2M
-##
-## Add a LwM2M gateway
-##--------------------------------------------------------------------
-## Note: This is an example of how to configure this feature
-##       you should copy and paste the below data into the emqx.conf for working
 
 gateway.lwm2m {
 

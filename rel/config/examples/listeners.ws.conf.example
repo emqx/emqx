@@ -1,16 +1,6 @@
-##--------------------------------------------------------------------
-## WebSocket Listener
-##
-## Add a WebSocket Listener
-##--------------------------------------------------------------------
-## Note: This is an example of how to configure this feature
-##       you should copy and paste the below data into the emqx.conf for working
+## MQTT over WebSocket (HTTP) Listener
 
-## The WebSocket listener supports all the fields listed in listeners.tcp.conf.example
-## only the WebSocket-specific fields are shown here
-
-## Note: Modifying the 'wsname' to what you need
-listeners.ws.wsname {
+listeners.ws.my_ws_listener_name {
     ## Port or Address to listen on, 0 means disable
     bind = "0.0.0.0:8083" # or just a port number, e.g. 8083
     enabled = true

@@ -1,10 +1,4 @@
-##--------------------------------------------------------------------
 ## System Monitoring For Erlang VM
-##
-## System monitoring and introspection
-##--------------------------------------------------------------------
-## Note: This is an example of how to configure this feature
-##       you should copy and paste the below data into the emqx.conf for working
 
 sysmon.vm {
     ## Time interval for the periodic process limit check
@@ -25,7 +19,7 @@ sysmon.vm {
     ## Generating an alarm is generated when the Erlang VM detect a task scheduled for too long
     ## Type:
     ##   - disabled :: Never alarm
-    ##   - Time During :: The maximum schedule time for generating an alarm
+    ##   - Duration:: The maximum schedule time for generating an alarm
     long_schedule = 240ms
 
     ## Generating an alarm when an Erlang process consumed a large amount of memory for its heap space

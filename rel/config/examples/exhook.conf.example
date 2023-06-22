@@ -1,8 +1,6 @@
-##--------------------------------------------------------------------
 ## gRPC Hook Extension
 ##
-## Allows users to process EMQX Hooks using other programming languages
-##--------------------------------------------------------------------
+## Allows users to provide hook callbacks over gRPC for EMQX message lifecycle events.
 
 exhook.servers = [
     {

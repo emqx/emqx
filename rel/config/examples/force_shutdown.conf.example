@@ -1,13 +1,9 @@
-##--------------------------------------------------------------------
 ## Force Shutdown
 ##
-## Forced closing of the overloaded session
-##--------------------------------------------------------------------
-## Note: This is an example of how to configure this feature
-##       you should copy and paste the below data into the emqx.conf for working
+## Forced shutdown MQTT clients for overload protection
 
 force_shutdown {
-    ## false to disable this
+    ## set 'false' to disable force shutdown feature
     enable = true
 
     ## Maximum mailbox size for each Erlang process

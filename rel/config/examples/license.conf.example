@@ -1,12 +1,6 @@
-##--------------------------------------------------------------------
-## License
-##
-## Defines the EMQX Enterprise license
-##--------------------------------------------------------------------
-## Note: This is an example of how to configure this feature
-##       you should copy and paste the below data into the emqx.conf for working
+## EMQX Enterprise License
 
-## Note: This configuration only works for the EMQX Enterprise version
+## NOTE: This configuration is only applicable for the EMQX Enterprise eidtion
 
 license {
     ## License Key

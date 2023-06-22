@@ -1,13 +1,6 @@
-##--------------------------------------------------------------------
-## QUIC Listener
-##
-## Add a QUIC Listener
-##--------------------------------------------------------------------
-## Note: This is an example of how to configure this feature
-##       you should copy and paste the below data into the emqx.conf for working
+## MQTT over QUIC Listener
 
-## Note: Modifying the 'quicname' to what you need
-listeners.quic.quicname {
+listeners.quic.my_quick_listener_name {
     ## Port or Address to listen on, 0 means disable
     bind = 14567 ## or with an IP, e.g. "127.0.0.1:14567"
 
@@ -28,8 +21,8 @@ listeners.quic.quicname {
     ## Type: infinity | Integer
     max_connections = infinity
 
-    ## TLS cipher suite names
-    ciphers = ["TLS_AES_256_GCM_SHA384", "TLS_AES_128_GCM_SHA256", "TLS_CHACHA20_POLY1305_SHA256"]
+    ## TLS v1.3 exclusive cipher suite names
+    ciphers = "TLS_AES_256_GCM_SHA384,TLS_AES_128_GCM_SHA256,TLS_CHACHA20_POLY1305_SHA256"
 
     ssl_options {
         ## Trusted PEM format CA certificates bundle file

@@ -1,11 +1,4 @@
-##--------------------------------------------------------------------
-## Plugin
-##
-## Manage EMQX plugins
-##--------------------------------------------------------------------
-## Note: This is an example of how to configure this feature
-##       you should copy and paste the below data into the emqx.conf for working
-
+## Plugin management
 plugin {
     ## Plugins declaration
     ## Note: The plugins are started in the defined order

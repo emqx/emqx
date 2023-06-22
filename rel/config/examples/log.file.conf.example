@@ -1,21 +1,14 @@
-##--------------------------------------------------------------------
-## Log
-##
-## Configure the log output location, log level, log file storage path, and parameters
-##--------------------------------------------------------------------
-## Note: This is an example of how to configure this feature
-##       you should copy and paste the below data into the emqx.conf for working
+## Log to file
 
-## The default-enabled log handler can use all the above fields listed fields
 log.file {
-    ## use false to disable this
+    ## Enable file log handler
     enable = true
 
     ## Log level
     ## Type: debug | info | notice | warning | error | critical | alert | emergency
     level = warning
 
-    ## Log formatter, text for free text, and json for structured logging
+    ## Log formatter, text for free text, and json for more structured logging
     ## Type: text | json
     formatter = text
 

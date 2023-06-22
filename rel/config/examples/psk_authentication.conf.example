@@ -1,13 +1,7 @@
-##--------------------------------------------------------------------
 ## Pre-Shared Keys authentication
-##
-## Config to enable TLS-PSK authentication
-##--------------------------------------------------------------------
-## Note: This is an example of how to configure this feature
-##       you should copy and paste the below data into the emqx.conf for working
 
 psk_authentication {
-    ## set to false to disable
+    ## Set to false to disable
     enable = true
 
     ## If init_file is specified, EMQX will import PSKs from the file into the built-in database at startup for use by the runtime

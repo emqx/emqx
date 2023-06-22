@@ -3,20 +3,12 @@
 ##
 ## Configuration related to handling PUBLISH packets with a retain flag set to 1
 ##--------------------------------------------------------------------
-## Note: This is an example of how to configure this feature
-##       you should copy and paste the below data into the emqx.conf for working
 
 retainer {
-    ## set to false to disable this
+    ## set to false to disable retainer
     enable = true
 
-    ## Message retention time. 0 means message will never be expired
-    msg_expiry_interval = 0s
-
-    ## Periodic interval for cleaning up expired messages. Never clear if the value is 0
-    msg_clear_interval = 0s
-
-    ## Maximum retained message size
+    ## Maximum message size allowed
     max_payload_size = 1MB
 
     ## When the retained flag of the PUBLISH message is set and Payload is empty, whether to continue to publish the message
@@ -27,10 +19,10 @@ retainer {
 
     ## Retained messages store backend
     backend {
-      ## Backend type
+      ## Built-in database (Mnesia)
       type = built_in_database
 
-      ## Specifies whether the messages are stored in RAM or persisted on disc
+      ## Specifies whether the messages are stored in RAM or persisted on disk
       ## Type: enum: ram | disc
       storage_type = ram
 

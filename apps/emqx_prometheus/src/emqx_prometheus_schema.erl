@@ -88,9 +88,9 @@ fields("prometheus") ->
             ?HOCON(
                 hoconsc:enum([enabled, disabled]),
                 #{
-                    default => enabled,
+                    default => disabled,
                     required => true,
-                    importance => ?IMPORTANCE_HIDDEN,
+                    importance => ?IMPORTANCE_LOW,
                     desc => ?DESC(vm_dist_collector)
                 }
             )},
@@ -100,7 +100,7 @@ fields("prometheus") ->
                 #{
                     default => enabled,
                     required => true,
-                    importance => ?IMPORTANCE_HIDDEN,
+                    importance => ?IMPORTANCE_LOW,
                     desc => ?DESC(mnesia_collector)
                 }
             )},
@@ -110,7 +110,7 @@ fields("prometheus") ->
                 #{
                     default => enabled,
                     required => true,
-                    importance => ?IMPORTANCE_HIDDEN,
+                    importance => ?IMPORTANCE_LOW,
                     desc => ?DESC(vm_statistics_collector)
                 }
             )},
@@ -120,7 +120,7 @@ fields("prometheus") ->
                 #{
                     default => enabled,
                     required => true,
-                    importance => ?IMPORTANCE_HIDDEN,
+                    importance => ?IMPORTANCE_LOW,
                     desc => ?DESC(vm_system_info_collector)
                 }
             )},
@@ -130,7 +130,7 @@ fields("prometheus") ->
                 #{
                     default => enabled,
                     required => true,
-                    importance => ?IMPORTANCE_HIDDEN,
+                    importance => ?IMPORTANCE_LOW,
                     desc => ?DESC(vm_memory_collector)
                 }
             )},
@@ -140,7 +140,7 @@ fields("prometheus") ->
                 #{
                     default => enabled,
                     required => true,
-                    importance => ?IMPORTANCE_HIDDEN,
+                    importance => ?IMPORTANCE_LOW,
                     desc => ?DESC(vm_msacc_collector)
                 }
             )}

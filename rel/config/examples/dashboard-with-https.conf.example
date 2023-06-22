@@ -1,10 +1,6 @@
-##--------------------------------------------------------------------
-## Dashboard with HTTPS Listener
+## Dashboard on HTTPS
 ##
-## Configuration for EMQX dashboard
-##--------------------------------------------------------------------
-## Note: This is an example of how to configure this feature
-##       you should copy and paste the below data into the emqx.conf for working
+## Configure HTTPS for EMQX dashboard
 
 dashboard {
     ## JWT token expiration time

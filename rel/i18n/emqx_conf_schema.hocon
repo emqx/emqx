@@ -135,7 +135,7 @@ log_overload_kill_restart_after.label:
 """Handler Restart Timer"""
 
 log_file_handler_max_size.desc:
-"""This parameter controls log file rotation. The value `infinity` means the log file will grow indefinitely, otherwise the log file will be rotated once it reaches `max_size` in bytes."""
+"""This parameter controls log file rotation. The value `infinity` means the log file will grow indefinitely, otherwise the log file will be rotated once it reaches `rotation_size` in bytes."""
 
 log_file_handler_max_size.label:
 """Rotation Size"""
@@ -514,15 +514,13 @@ cluster_autoclean.label:
 
 process_limit.desc:
 """Maximum number of simultaneously existing processes for this Erlang system.
-The actual maximum chosen may be much larger than the Number passed.
 For more information, see: https://www.erlang.org/doc/man/erl.html"""
 
 process_limit.label:
 """Erlang Process Limit"""
 
 max_ports.desc:
-"""Maximum number of simultaneously existing ports for this Erlang system.
-The actual maximum chosen may be much larger than the Number passed.
+"""Maximum number of simultaneously open files and sockets for this Erlang system.
 For more information, see: https://www.erlang.org/doc/man/erl.html"""
 
 max_ports.label:

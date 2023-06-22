@@ -1,10 +1,4 @@
-##--------------------------------------------------------------------
-## Log
-##
-## Configure the log output location, log level, log file storage path, and parameters
-##--------------------------------------------------------------------
-## Note: This is an example of how to configure this feature
-##       you should copy and paste the below data into the emqx.conf for working
+## Log to console
 
 log.console {
     ## set true to enable this

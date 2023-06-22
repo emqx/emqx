@@ -1,10 +1,4 @@
-##--------------------------------------------------------------------
 ## Alarm
-##
-## Configuring how to handle the alarms generated from sysmon.*.conf.example
-##--------------------------------------------------------------------
-## Note: This is an example of how to configure this feature
-##       you should copy and paste the below data into the emqx.conf for working
 
 alarm {
     ## The actions triggered when the alarm is activated

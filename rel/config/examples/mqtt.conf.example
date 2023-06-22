@@ -1,10 +1,5 @@
-##--------------------------------------------------------------------
-## MQTT
-##
-##  MQTT configuration
-##--------------------------------------------------------------------
-## Note: This is an example of how to configure this feature
-##       you should copy and paste the below data into the emqx.conf for working
+## MQTT protocol related settings
+## Settings in this section is applied globally to all MQTT connections/sessions in this node
 
 mqtt {
     ## After the TCP connection is established,
@@ -121,4 +116,4 @@ mqtt {
     ##   - hash_clientid :: select the subscribers by hashing the `clientIds`
     ##   - hash_topic :: select the subscribers by hashing the source topic"""
     shared_subscription_strategy = round_robin
- }
+}

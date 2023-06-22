@@ -1,10 +1,4 @@
-##--------------------------------------------------------------------
-## System Monitoring For System
-##
-## System monitoring and introspection
-##--------------------------------------------------------------------
-## Note: This is an example of how to configure this feature
-##       you should copy and paste the below data into the emqx.conf for working
+## System Monitoring of the host machine
 
 sysmon.os {
     ## Time interval for the periodic CPU check
@@ -17,9 +11,9 @@ sysmon.os {
     cpu_low_watermark = 60%
 
     ## Time interval for the periodic memory check
-    ## Type:
-    ##   - disabled :: Never check
-    ##   - Time Duration :: The time period
+    ## Possible values:
+    ##   disabled: Never check
+    ##   Duration: Check every Duration 
     mem_check_interval = 60s
 
     ## For how much system memory can be allocated before the corresponding alarm is raised

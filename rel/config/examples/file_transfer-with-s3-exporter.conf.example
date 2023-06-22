@@ -1,12 +1,7 @@
-##--------------------------------------------------------------------
-## File Transfer
+## File Transfer over MQTT
 ##
 ## Enables the File Transfer over MQTT feature
-##--------------------------------------------------------------------
-## Note: This is an example of how to configure this feature
-##       you should copy and paste the below data into the emqx.conf for working
-
-## Note: This configuration only works for the EMQX Enterprise version
+## Note: This configuration is only applicable for EMQX Enterprise edition 5.1 or later.
 
 file_transfer {
     ## Enable the File Transfer feature

@@ -1,10 +1,4 @@
-##--------------------------------------------------------------------
-## Cluster in service discovery via DNS SRV records mode
-##
-## Configs to instruct how individual nodes can discover each other
-##--------------------------------------------------------------------
-## Note: This is an example of how to configure this feature
-##       you should copy and paste the below data into the emqx.conf for working
+## Cluster discovery via DNS resolution
 
 cluster {
     ## Human-friendly name of the EMQX cluster.
@@ -12,9 +6,6 @@ cluster {
 
     ## Service discovery method for the cluster nodes
     discovery_strategy = dns
-
-    ## List of core nodes that the replicant will connect to
-    core_nodes = ["emqx1@192.168.0.1", "emqx2@192.168.0.2"]
 
     ## If true, the node will try to heal network partitions automatically
     autoheal = true

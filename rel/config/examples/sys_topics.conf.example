@@ -1,10 +1,5 @@
-##--------------------------------------------------------------------
 ## System Topic
-##
 ## Publishing client lifecycle events to "$SYS" topics
-##--------------------------------------------------------------------
-## Note: This is an example of how to configure this feature
-##       you should copy and paste the below data into the emqx.conf for working
 
 sys_topics {
     ## Time interval of publishing `$SYS` messages
