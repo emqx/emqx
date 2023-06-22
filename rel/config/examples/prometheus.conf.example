@@ -1,4 +1,4 @@
-## Prometheus push-gateway integration
+## Prometheus
 
 ## EMQX's Prometheus scraping endpoint is enabled by default without authentication.
 ## And there is no way to turn it off.

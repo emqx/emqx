@@ -1,6 +1,6 @@
 ## Connection Congestion
 ##
-## Generating alarm when MQTT connection congested
+## Emit alarms when MQTT connection congested
 
 conn_congestion {
     ## Enable or disable connection congestion alarm
