@@ -39,7 +39,10 @@
     message_store_opts/0,
     session_id/0,
     iterator_id/0,
-    iterator/0
+    iterator/0,
+    shard/0,
+    topic/0,
+    time/0
 ]).
 
 -include("emqx_ds_int.hrl").
@@ -61,6 +64,16 @@
 -type message_stats() :: #{}.
 
 -type message_id() :: binary().
+
+%% Parsed topic:
+-type topic() :: list(binary()).
+
+-type shard() :: binary().
+
+%% Timestamp
+%% Earliest possible timestamp is 0.
+%% TODO granularity?
+-type time() :: non_neg_integer().
 
 %%================================================================================
 %% API funcions

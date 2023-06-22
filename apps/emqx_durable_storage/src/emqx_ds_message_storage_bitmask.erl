@@ -38,9 +38,9 @@
 %% to map topics to fixed-length bitstrings while keeping some degree
 %% of information about the hierarchy.
 %%
-%% Next important concept is what we call "epoch". It is time
-%% interval determined by the number of least significant bits of the
-%% timestamp found at the tail of the rocksdb key.
+%% Next important concept is what we call "epoch". Duration of the
+%% epoch is determined by maximum time offset. Epoch is calculated by
+%% shifting bits of the timestamp right.
 %%
 %% The resulting index is a space-filling curve that looks like
 %% this in the topic-time 2D space:

@@ -6,28 +6,17 @@
 %% API:
 -export([]).
 
--export_type([topic/0, time/0, shard/0]).
 -export_type([replay_id/0, replay/0]).
 
 %%================================================================================
 %% Type declarations
 %%================================================================================
 
-%% parsed
--type topic() :: list(binary()).
-
--type shard() :: binary().
-
-%% Timestamp
-%% Earliest possible timestamp is 0.
-%% TODO granularity?
--type time() :: non_neg_integer().
-
 -type replay_id() :: binary().
 
 -type replay() :: {
-    _TopicFilter :: topic(),
-    _StartTime :: time()
+    _TopicFilter :: emqx_ds:topic(),
+    _StartTime :: emqx_ds:time()
 }.
 
 %%================================================================================
