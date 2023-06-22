@@ -524,7 +524,7 @@ etc_overlay(ReleaseType, _Edition) ->
     [
         {mkdir, "etc/"},
         {copy, "{{base_dir}}/lib/emqx/etc/certs", "etc/"},
-        {copy, "_build/docgen/" ++ profile() ++ "/emqx.conf.example", "etc/emqx.conf.example"}
+        {copy, "examples", "etc/"}
     ] ++
         lists:map(
             fun
@@ -651,17 +651,4 @@ list_dir(Dir) ->
             [list_to_atom(Name) || Name <- Names, filelib:is_dir(filename:join([Dir, Name]))];
         false ->
             []
-    end.
-
-profile() ->
-    case os:getenv("PROFILE") of
-        Profile = "emqx-enterprise" ++ _ ->
-            Profile;
-        Profile = "emqx" ++ _ ->
-            Profile;
-        false ->
-            "emqx-enterprise";
-        Profile ->
-            io:format(standard_error, "ERROR: bad_PROFILE ~p~n", [Profile]),
-            exit(bad_PROFILE)
     end.

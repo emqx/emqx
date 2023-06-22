@@ -134,12 +134,20 @@ sync_cluster_conf2(Nodes) ->
                 msg => "ignored_nodes_when_sync_cluster_conf"
             },
             ?SLOG(warning, Warning);
-        true ->
+        true when Failed =/= [] ->
             %% There are core nodes running but no one was able to reply.
             ?SLOG(error, #{
                 msg => "failed_to_sync_cluster_conf",
                 nodes => Nodes,
                 failed => Failed,
+                not_ready => NotReady
+            });
+        true ->
+            %% There are core nodes booting up
+            ?SLOG(info, #{
+                msg => "peer_not_ready_for_config_sync",
+                reason => "The 'not_ready' peer node(s) are loading configs",
+                nodes => Nodes,
                 not_ready => NotReady
             });
         false ->
@@ -180,17 +188,7 @@ sync_cluster_conf2(Nodes) ->
 
 %% @private Filter out the nodes which are running a newer version than this node.
 sync_cluster_conf3(Ready) ->
-    NotNewer = fun({ok, #{release := RemoteRelease}}) ->
-        try
-            emqx_release:vsn_compare(RemoteRelease) =/= newer
-        catch
-            _:_ ->
-                %% If the version is not valid (without v or e prefix),
-                %% we know it's older than v5.1.0/e5.1.0
-                true
-        end
-    end,
-    case lists:filter(NotNewer, Ready) of
+    case lists:filter(fun is_older_or_same_version/1, Ready) of
         [] ->
             %% All available core nodes are running a newer version than this node.
             %% Start this node without syncing cluster config from them.
@@ -213,6 +211,19 @@ sync_cluster_conf3(Ready) ->
             sync_cluster_conf4(Ready2)
     end.
 
+is_older_or_same_version({ok, #{release := RemoteRelease}}) ->
+    try
+        emqx_release:vsn_compare(RemoteRelease) =/= newer
+    catch
+        _:_ ->
+            %% If the version is not valid (without v or e prefix),
+            %% we know it's older than v5.1.0/e5.1.0
+            true
+    end;
+is_older_or_same_version(_) ->
+    %% older version has no 'release' field
+    true.
+
 %% @private Some core nodes are running and replied with their configs successfully.
 %% Try to sort the results and save the first one for local use.
 sync_cluster_conf4(Ready) ->
@@ -223,7 +234,7 @@ sync_cluster_conf4(Ready) ->
         msg => "sync_cluster_conf_success",
         synced_from_node => Node,
         has_deprecated_file => HasDeprecatedFile,
-        local_release => emqx_app:get_release(),
+        local_release => emqx_release:version_with_prefix(),
         remote_release => maps:get(release, Info, "before_v5.0.24|e5.0.3"),
         data_dir => emqx:data_dir(),
         tnx_id => TnxId

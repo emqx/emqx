@@ -25,13 +25,6 @@
 -define(ROUTE_SHARD, route_shard).
 -define(PERSISTENT_SESSION_SHARD, emqx_persistent_session_shard).
 
--define(BOOT_SHARDS, [
-    ?ROUTE_SHARD,
-    ?COMMON_SHARD,
-    ?SHARED_SUB_SHARD,
-    ?PERSISTENT_SESSION_SHARD
-]).
-
 %% Banner
 %%--------------------------------------------------------------------
 

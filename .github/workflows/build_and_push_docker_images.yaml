@@ -169,7 +169,7 @@ jobs:
         fi
         extra_deps=
         if [[ "${{ matrix.profile }}" = *enterprise* ]]; then
-          extra_deps='libsasl2-2'
+          extra_deps='libsasl2-2,libsasl2-modules-gssapi-mit'
         fi
 
         echo "img_suffix=$img_suffix" >> $GITHUB_OUTPUT
