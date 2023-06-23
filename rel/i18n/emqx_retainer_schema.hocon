@@ -46,6 +46,6 @@ whether to continue to publish the message.
 See:
 http://docs.oasis-open.org/mqtt/mqtt/v3.1.1/os/mqtt-v3.1.1-os.html#_Toc398718038"""
 
-deliver_rate.desc:
-"""The maximum rate of delivering retain messages"""
+delivery_rate.desc:
+"""The maximum rate of delivering retained messages"""
 }
