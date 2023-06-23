@@ -16,6 +16,7 @@
 
 -module(emqx_cth_suite).
 
+-include_lib("common_test/include/ct.hrl").
 -include_lib("emqx/include/emqx_authentication.hrl").
 
 -export([start/2]).
@@ -35,10 +36,14 @@
 -define(NOW,
     (calendar:system_time_to_rfc3339(erlang:system_time(millisecond), [{unit, millisecond}]))
 ).
--define(HERE(FMT, ARGS),
-    io:format(user, "~s [~p] ~p/~p:~p " FMT "~n", [
-        ?NOW, node(), ?FUNCTION_NAME, ?FUNCTION_ARITY, ?LINE | ARGS
-    ])
+
+-define(PAL(IMPORTANCE, FMT, ARGS),
+    case erlang:whereis(ct_logs) of
+        undefined ->
+            io:format("*** " ?MODULE_STRING " ~s @ ~p ***~n" ++ FMT ++ "~n", [?NOW, node() | ARGS]);
+        _ ->
+            ct:pal(?MODULE, IMPORTANCE, FMT, ARGS, [{heading, ?MODULE_STRING}])
+    end
 ).
 
 %%
@@ -153,44 +158,52 @@ init_spec(Config) when is_list(Config); is_binary(Config) ->
     #{config => [Config, "\n"]}.
 
 start_appspec(App, StartOpts) ->
-    ?HERE("~p StartOpts=~0p", [App, StartOpts]),
+    _ = log_appspec(App, StartOpts),
     _ = maybe_configure_app(App, StartOpts),
-    ?HERE("<- maybe_configure_app/2", []),
     _ = maybe_override_env(App, StartOpts),
-    ?HERE("<- maybe_override_env/2", []),
     _ = maybe_before_start(App, StartOpts),
-    ?HERE("<- maybe_before_start/2", []),
     case maybe_start(App, StartOpts) of
         {ok, Started} ->
-            ?HERE("<- maybe_start/1 = ~0p", [Started]),
+            ?PAL(?STD_IMPORTANCE, "Started applications: ~0p", [Started]),
             _ = maybe_after_start(App, StartOpts),
-            ?HERE("<- maybe_after_start/2", []),
             Started;
         {error, Reason} ->
             error({failed_to_start_app, App, Reason})
     end.
+
+log_appspec(App, StartOpts) when map_size(StartOpts) > 0 ->
+    Fmt = lists:flatmap(
+        fun(Opt) -> "~n * ~p: " ++ spec_fmt(fc, Opt) end,
+        maps:keys(StartOpts)
+    ),
+    Args = lists:flatmap(
+        fun({Opt, V}) -> [Opt, spec_fmt(ffun, {Opt, V})] end,
+        maps:to_list(StartOpts)
+    ),
+    ?PAL(?STD_IMPORTANCE, "Starting ~p with:" ++ Fmt, [App | Args]);
+log_appspec(App, #{}) ->
+    ?PAL(?STD_IMPORTANCE, "Starting ~p", [App]).
+
+spec_fmt(fc, config) -> "~n~ts";
+spec_fmt(fc, _) -> "~p";
+spec_fmt(ffun, {config, C}) -> render_config(C);
+spec_fmt(ffun, {_, X}) -> X.
 
 maybe_configure_app(_App, #{config := false}) ->
     ok;
 maybe_configure_app(App, #{config := Config}) ->
     case app_schema(App) of
         {ok, SchemaModule} ->
-            configure_app(App, SchemaModule, Config);
+            configure_app(SchemaModule, Config);
         {error, Reason} ->
             error({failed_to_configure_app, App, Reason})
     end;
 maybe_configure_app(_App, #{}) ->
     ok.
 
-configure_app(_App, SchemaModule, Config) ->
-    ok = load_app_config(SchemaModule, Config),
-    % ?HERE("-- roots = ~p", [
-    %     % App,
-    %     [
-    %         emqx_config:get_root([binary_to_atom(Root)])
-    %      || Root <- hocon_schema:root_names(SchemaModule)
-    %     ]
-    % ]),
+configure_app(SchemaModule, Config) ->
+    ok = emqx_config:init_load(SchemaModule, render_config(Config)),
+    % ?PAL(?LOW_IMPORTANCE, "Configured ~p roots: ~p", [SchemaModule, config_roots(SchemaModule)]),
     ok.
 
 maybe_override_env(App, #{override_env := Env = [{_, _} | _]}) ->
@@ -198,8 +211,6 @@ maybe_override_env(App, #{override_env := Env = [{_, _} | _]}) ->
 maybe_override_env(_App, #{}) ->
     ok.
 
-% maybe_before_start(_App, #{start := false}) ->
-%     ok;
 maybe_before_start(App, #{before_start := Fun}) when is_function(Fun, 1) ->
     Fun(App);
 maybe_before_start(_App, #{before_start := Fun}) when is_function(Fun, 0) ->
@@ -216,8 +227,6 @@ maybe_start(App, #{start := Fun}) when is_function(Fun, 1) ->
 maybe_start(App, #{}) ->
     application:ensure_all_started(App).
 
-% maybe_after_start(_App, #{start := false}) ->
-%     ok;
 maybe_after_start(App, #{after_start := Fun}) when is_function(Fun, 1) ->
     Fun(App);
 maybe_after_start(_App, #{after_start := Fun}) when is_function(Fun, 0) ->
@@ -346,6 +355,9 @@ clean_suite_state() ->
 
 %%
 
+% config_roots(SchemaMod) ->
+%     [emqx_config:get_root([binary_to_atom(Root)]) || Root <- hocon_schema:root_names(SchemaMod)].
+
 app_schema(App) ->
     Mod = list_to_atom(atom_to_list(App) ++ "_schema"),
     try is_list(Mod:roots()) of
@@ -355,10 +367,6 @@ app_schema(App) ->
         error:undef ->
             {error, schema_not_found}
     end.
-
-load_app_config(SchemaModule, Config) ->
-    ?HERE("~p ~ts", [SchemaModule, render_config(Config)]),
-    emqx_config:init_load(SchemaModule, render_config(Config)).
 
 render_config(Config = #{}) ->
     unicode:characters_to_binary(hocon_pp:do(Config, #{}));

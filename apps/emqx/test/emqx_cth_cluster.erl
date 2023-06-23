@@ -19,6 +19,8 @@
 -export([start/2]).
 -export([stop/1]).
 
+-export([share_load_module/2]).
+
 -define(APPS_CLUSTERING, [gen_rpc, mria, ekka]).
 
 -define(TIMEOUT_NODE_START_MS, 15000).
@@ -81,8 +83,7 @@ when
     }.
 start(Nodes, ClusterOpts) ->
     NodeSpecs = mk_nodespecs(Nodes, ClusterOpts),
-    % ct:pal("starting cluster: ~p", [NodeSpecs]),
-    io:format(user, "starting cluster: ~p~n", [NodeSpecs]),
+    ct:pal("Starting cluster: ~p", [NodeSpecs]),
     % 1. Start bare nodes with only basic applications running
     _ = emqx_utils:pmap(fun start_node_init/1, NodeSpecs, ?TIMEOUT_NODE_START_MS),
     % 2. Start applications needed to enable clustering
@@ -92,7 +93,6 @@ start(Nodes, ClusterOpts) ->
     % 3. Start applications after cluster is formed
     % Cluster-joins are complete, so they shouldn't restart in the background anymore.
     _ = emqx_utils:pmap(fun run_node_phase_apps/1, NodeSpecs, ?TIMEOUT_APPS_START_MS),
-    % _ = lists:foreach(fun run_node_phase_apps/1, NodeSpecs),
     [Node || #{name := Node} <- NodeSpecs].
 
 mk_nodespecs(Nodes, ClusterOpts) ->
@@ -256,7 +256,11 @@ start_node_init(Spec = #{name := Node}) ->
     Node = start_bare_node(Node, Spec),
     pong = net_adm:ping(Node),
     % ok = set_work_dir(Node, Opts),
+    % Preserve node spec right on the remote node
     ok = set_node_opts(Node, Spec),
+    % Make it possible to call `ct:pal` and friends (if running under rebar3)
+    _ = share_load_module(Node, cthr),
+    % Enable snabbkaffe trace forwarding
     ok = snabbkaffe:forward_trace(Node),
     ok.
 
@@ -264,7 +268,6 @@ run_node_phase_cluster(Spec = #{name := Node}) ->
     ok = load_apps(Node, Spec),
     ok = start_apps_clustering(Node, Spec),
     ok = maybe_join_cluster(Node, Spec),
-    % ?HERE("cluster view @ ~p: ~p", [Node, erpc:call(Node, mria, info, [])]),
     ok.
 
 run_node_phase_apps(Spec = #{name := Node}) ->
@@ -286,15 +289,13 @@ load_apps(Node, #{apps := Apps}) ->
 start_apps_clustering(Node, #{apps := Apps} = Spec) ->
     SuiteOpts = maps:with([work_dir], Spec),
     AppsClustering = [lists:keyfind(App, 1, Apps) || App <- ?APPS_CLUSTERING],
-    Started = erpc:call(Node, emqx_cth_suite, start, [AppsClustering, SuiteOpts]),
-    ct:pal("[start_apps_clustering] started apps on ~p: ~p", [Node, Started]),
+    _Started = erpc:call(Node, emqx_cth_suite, start, [AppsClustering, SuiteOpts]),
     ok.
 
 start_apps(Node, #{apps := Apps} = Spec) ->
     SuiteOpts = maps:with([work_dir], Spec),
     AppsRest = [AppSpec || AppSpec = {App, _} <- Apps, not lists:member(App, ?APPS_CLUSTERING)],
-    Started = erpc:call(Node, emqx_cth_suite, start_apps, [AppsRest, SuiteOpts]),
-    ct:pal("[start_apps] started apps on ~p: ~p", [Node, Started]),
+    _Started = erpc:call(Node, emqx_cth_suite, start_apps, [AppsRest, SuiteOpts]),
     ok.
 
 maybe_join_cluster(_Node, #{role := replicant}) ->
@@ -391,6 +392,15 @@ ebin_path() ->
 is_lib(Path) ->
     string:prefix(Path, code:lib_dir()) =:= nomatch andalso
         string:str(Path, "_build/default/plugins") =:= 0.
+
+share_load_module(Node, Module) ->
+    case code:get_object_code(Module) of
+        {Module, Code, Filename} ->
+            {module, Module} = erpc:call(Node, code, load_binary, [Module, Filename, Code]),
+            ok;
+        error ->
+            error
+    end.
 
 node_name(Name) ->
     case string:tokens(atom_to_list(Name), "@") of
