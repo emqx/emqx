@@ -19,6 +19,7 @@
 -export([
     start/3,
     stop/1,
+    health_check_timeout/0,
     health_check_workers/2,
     health_check_workers/3,
     health_check_workers/4
@@ -65,6 +66,9 @@ stop(Name) ->
             }),
             error({stop_pool_failed, Name, Reason})
     end.
+
+health_check_timeout() ->
+    ?HEALTH_CHECK_TIMEOUT.
 
 health_check_workers(PoolName, CheckFunc) ->
     health_check_workers(PoolName, CheckFunc, ?HEALTH_CHECK_TIMEOUT, _Opts = #{}).

@@ -103,7 +103,7 @@ on_query(ResourceId, {send_message, Selected}, State) ->
     {send_message, map()},
     {ReplyFun :: function(), Args :: list()},
     state()
-) -> {ok, pid()}.
+) -> {ok, pid()} | {error, no_pool_worker_available}.
 on_query_async(ResourceId, {send_message, Selected}, ReplyFunAndArgs, State) ->
     Requests = [{send_message, Selected}],
     ?TRACE(
@@ -134,7 +134,7 @@ on_batch_query(ResourceId, Requests, State) ->
     [{send_message, map()}],
     {ReplyFun :: function(), Args :: list()},
     state()
-) -> {ok, pid()}.
+) -> {ok, pid()} | {error, no_pool_worker_available}.
 on_batch_query_async(ResourceId, Requests, ReplyFunAndArgs, State) ->
     ?TRACE(
         "QUERY_ASYNC",
@@ -177,7 +177,7 @@ do_send_requests_sync(State, Requests, InstanceId) ->
     state(),
     [{send_message, map()}],
     {ReplyFun :: function(), Args :: list()}
-) -> {ok, pid()}.
+) -> {ok, pid()} | {error, no_pool_worker_available}.
 do_send_requests_async(State, Requests, ReplyFunAndArgs0) ->
     #{client := Client} = State,
     Payloads =

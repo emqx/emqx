@@ -417,10 +417,14 @@ t_start_stop(BridgeType, BridgeName, BridgeConfig, StopTracePoint) ->
     ok.
 
 t_on_get_status(Config) ->
+    t_on_get_status(Config, _Opts = #{}).
+
+t_on_get_status(Config, Opts) ->
     ProxyPort = ?config(proxy_port, Config),
     ProxyHost = ?config(proxy_host, Config),
     ProxyName = ?config(proxy_name, Config),
     ResourceId = resource_id(Config),
+    FailureStatus = maps:get(failure_status, Opts, disconnected),
     ?assertMatch({ok, _}, create_bridge(Config)),
     %% Since the connection process is async, we give it some time to
     %% stabilize and avoid flakiness.
@@ -431,7 +435,7 @@ t_on_get_status(Config) ->
     ),
     emqx_common_test_helpers:with_failure(down, ProxyName, ProxyHost, ProxyPort, fun() ->
         ct:sleep(500),
-        ?assertEqual({ok, disconnected}, emqx_resource_manager:health_check(ResourceId))
+        ?assertEqual({ok, FailureStatus}, emqx_resource_manager:health_check(ResourceId))
     end),
     %% Check that it recovers itself.
     ?retry(

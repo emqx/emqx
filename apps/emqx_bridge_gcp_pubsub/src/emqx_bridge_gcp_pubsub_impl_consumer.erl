@@ -15,6 +15,13 @@
     on_get_status/2
 ]).
 
+%% health check API
+-export([
+    mark_topic_as_nonexistent/1,
+    unset_nonexistent_topic/1,
+    is_nonexistent_topic/1
+]).
+
 -include_lib("emqx/include/logger.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 -include_lib("emqx_resource/include/emqx_resource.hrl").
@@ -39,6 +46,12 @@
 -export_type([mqtt_config/0]).
 
 -define(AUTO_RECONNECT_S, 2).
+-define(DEFAULT_FORGET_INTERVAL, timer:seconds(60)).
+-define(OPTVAR_TOPIC_NOT_FOUND(INSTANCE_ID), {?MODULE, topic_not_found, INSTANCE_ID}).
+-define(TOPIC_MESSAGE,
+    "GCP PubSub topics are invalid.  Please check the logs, check if the "
+    "topics exist in GCP and if the service account has permissions to use them."
+).
 
 %%-------------------------------------------------------------------------------------------------
 %% `emqx_resource' API
@@ -61,21 +74,45 @@ on_start(InstanceId, Config) ->
 
 -spec on_stop(resource_id(), state()) -> ok | {error, term()}.
 on_stop(InstanceId, _State) ->
+    ?tp(gcp_pubsub_consumer_stop_enter, #{}),
+    unset_nonexistent_topic(InstanceId),
     ok = stop_consumers(InstanceId),
     emqx_bridge_gcp_pubsub_client:stop(InstanceId).
 
--spec on_get_status(resource_id(), state()) -> connected | disconnected.
-on_get_status(InstanceId, _State) ->
-    %% Note: do *not* alter the `client' value here.  It must be immutable, since
-    %% we have handed it over to the pull workers.
-    case
-        emqx_resource_pool:health_check_workers(
-            InstanceId,
-            fun emqx_bridge_gcp_pubsub_consumer_worker:health_check/1
-        )
-    of
-        true -> connected;
-        false -> connecting
+-spec on_get_status(resource_id(), state()) -> connected | connecting | {disconnected, state(), _}.
+on_get_status(InstanceId, State) ->
+    %% We need to check this flag separately because the workers might be gone when we
+    %% check them.
+    case is_nonexistent_topic(InstanceId) of
+        true ->
+            {disconnected, State, {unhealthy_target, ?TOPIC_MESSAGE}};
+        false ->
+            #{client := Client} = State,
+            check_workers(InstanceId, Client)
+    end.
+
+%%-------------------------------------------------------------------------------------------------
+%% Health check API (signalled by consumer worker)
+%%-------------------------------------------------------------------------------------------------
+
+-spec mark_topic_as_nonexistent(resource_id()) -> ok.
+mark_topic_as_nonexistent(InstanceId) ->
+    optvar:set(?OPTVAR_TOPIC_NOT_FOUND(InstanceId), true),
+    ok.
+
+-spec unset_nonexistent_topic(resource_id()) -> ok.
+unset_nonexistent_topic(InstanceId) ->
+    optvar:unset(?OPTVAR_TOPIC_NOT_FOUND(InstanceId)),
+    ?tp(gcp_pubsub_consumer_unset_nonexistent_topic, #{}),
+    ok.
+
+-spec is_nonexistent_topic(resource_id()) -> boolean().
+is_nonexistent_topic(InstanceId) ->
+    case optvar:peek(?OPTVAR_TOPIC_NOT_FOUND(InstanceId)) of
+        {ok, true} ->
+            true;
+        _ ->
+            false
     end.
 
 %%-------------------------------------------------------------------------------------------------
@@ -87,6 +124,7 @@ start_consumers(InstanceId, Client, Config) ->
         bridge_name := BridgeName,
         consumer := ConsumerConfig0,
         hookpoint := Hookpoint,
+        resource_opts := #{request_ttl := RequestTTL},
         service_account_json := #{project_id := ProjectId}
     } = Config,
     ConsumerConfig1 = maps:update_with(topic_mapping, fun convert_topic_mapping/1, ConsumerConfig0),
@@ -97,22 +135,27 @@ start_consumers(InstanceId, Client, Config) ->
         auto_reconnect => ?AUTO_RECONNECT_S,
         bridge_name => BridgeName,
         client => Client,
+        forget_interval => forget_interval(RequestTTL),
         hookpoint => Hookpoint,
         instance_id => InstanceId,
         pool_size => PoolSize,
-        project_id => ProjectId
+        project_id => ProjectId,
+        pull_retry_interval => RequestTTL
     },
     ConsumerOpts = maps:to_list(ConsumerConfig),
-    %% FIXME: mark as unhealthy if topics do not exist!
     case validate_pubsub_topics(TopicMapping, Client) of
         ok ->
             ok;
-        error ->
+        {error, not_found} ->
             _ = emqx_bridge_gcp_pubsub_client:stop(InstanceId),
             throw(
-                "GCP PubSub topics are invalid.  Please check the logs, check if the "
-                "topic exists in GCP and if the service account has permissions to use them."
-            )
+                {unhealthy_target, ?TOPIC_MESSAGE}
+            );
+        {error, _} ->
+            %% connection might be down; we'll have to check topic existence during health
+            %% check, or the workers will kill themselves when they realized there's no
+            %% topic when upserting their subscription.
+            ok
     end,
     case
         emqx_resource_pool:start(InstanceId, emqx_bridge_gcp_pubsub_consumer_worker, ConsumerOpts)
@@ -170,8 +213,8 @@ do_validate_pubsub_topics(Client, [Topic | Rest]) ->
     case check_for_topic_existence(Topic, Client) of
         ok ->
             do_validate_pubsub_topics(Client, Rest);
-        {error, _} ->
-            error
+        {error, _} = Err ->
+            Err
     end;
 do_validate_pubsub_topics(_Client, []) ->
     %% we already validate that the mapping is not empty in the config schema.
@@ -184,9 +227,38 @@ check_for_topic_existence(Topic, Client) ->
             ok;
         {error, #{status_code := 404}} ->
             {error, not_found};
-        {error, Details} ->
-            ?tp(warning, "gcp_pubsub_consumer_check_topic_error", Details),
-            {error, Details}
+        {error, Reason} ->
+            ?tp(warning, "gcp_pubsub_consumer_check_topic_error", #{reason => Reason}),
+            {error, Reason}
+    end.
+
+-spec get_client_status(emqx_bridge_gcp_pubsub_client:state()) -> connected | connecting.
+get_client_status(Client) ->
+    case emqx_bridge_gcp_pubsub_client:get_status(Client) of
+        disconnected -> connecting;
+        connected -> connected
+    end.
+
+-spec check_workers(resource_id(), emqx_bridge_gcp_pubsub_client:state()) -> connected | connecting.
+check_workers(InstanceId, Client) ->
+    case
+        emqx_resource_pool:health_check_workers(
+            InstanceId,
+            fun emqx_bridge_gcp_pubsub_consumer_worker:health_check/1,
+            emqx_resource_pool:health_check_timeout(),
+            #{return_values => true}
+        )
+    of
+        {ok, Values} ->
+            AllOk = lists:all(fun(S) -> S =:= subscription_ok end, Values),
+            case AllOk of
+                true ->
+                    get_client_status(Client);
+                false ->
+                    connecting
+            end;
+        {error, _} ->
+            connecting
     end.
 
 log_when_error(Fun, Log) ->
@@ -199,3 +271,6 @@ log_when_error(Fun, Log) ->
                 reason => E
             })
     end.
+
+forget_interval(infinity) -> ?DEFAULT_FORGET_INTERVAL;
+forget_interval(Timeout) -> 2 * Timeout.
