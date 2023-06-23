@@ -39,32 +39,20 @@ groups() ->
     [].
 
 init_per_suite(Config) ->
-    ok = emqx_common_test_helpers:start_apps(
-        [emqx_conf, emqx_authz],
-        fun set_special_configs/1
-    ),
-    %% meck after authz started
-    meck:expect(
-        emqx_authz,
-        acl_conf_file,
-        fun() ->
-            emqx_common_test_helpers:deps_path(emqx_authz, "etc/acl.conf")
-        end
-    ),
     Config.
 
 end_per_suite(_Config) ->
-    ok = emqx_authz_test_lib:restore_authorizers(),
-    ok = emqx_common_test_helpers:stop_apps([emqx_conf, emqx_authz]).
-
-init_per_testcase(_TestCase, Config) ->
-    ok = emqx_authz_test_lib:reset_authorizers(),
-    Config.
-
-set_special_configs(emqx_authz) ->
-    ok = emqx_authz_test_lib:reset_authorizers();
-set_special_configs(_) ->
     ok.
+
+init_per_testcase(TestCase, Config) ->
+    Apps = emqx_cth_suite:start(
+        [{emqx_conf, "authorization.no_match = deny"}, emqx_authz],
+        #{work_dir => filename:join(?config(priv_dir, Config), TestCase)}
+    ),
+    [{tc_apps, Apps} | Config].
+
+end_per_testcase(_TestCase, Config) ->
+    emqx_cth_suite:stop(?config(tc_apps, Config)).
 
 %%------------------------------------------------------------------------------
 %% Testcases
