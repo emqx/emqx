@@ -616,9 +616,6 @@ try_to_existing_atom(Convert, Data, Encoding) ->
         _:Reason -> {error, Reason}
     end.
 
-is_sensitive_key(authorization) -> true;
-is_sensitive_key("authorization") -> true;
-is_sensitive_key(<<"authorization">>) -> true;
 is_sensitive_key(aws_secret_access_key) -> true;
 is_sensitive_key("aws_secret_access_key") -> true;
 is_sensitive_key(<<"aws_secret_access_key">>) -> true;
@@ -643,6 +640,12 @@ is_sensitive_key(<<"token">>) -> true;
 is_sensitive_key(jwt) -> true;
 is_sensitive_key("jwt") -> true;
 is_sensitive_key(<<"jwt">>) -> true;
+is_sensitive_key(authorization) -> true;
+is_sensitive_key("authorization") -> true;
+is_sensitive_key(<<"authorization">>) -> true;
+%% the authorization header is not case-sensitive
+is_sensitive_key("a" ++ _ = Key) -> is_authorization(Key);
+is_sensitive_key(<<"a", _/binary>> = Key) -> is_authorization(erlang:binary_to_list(Key));
 is_sensitive_key(_) -> false.
 
 redact(Term) ->
@@ -706,6 +709,9 @@ do_is_redacted(K, <<?REDACT_VAL>>, Fun) ->
     Fun(K);
 do_is_redacted(_K, _V, _Fun) ->
     false.
+
+is_authorization(Str) ->
+    "authorization" == string:to_lower(Str).
 
 -ifdef(TEST).
 -include_lib("eunit/include/eunit.hrl").
@@ -776,6 +782,23 @@ redact2_test_() ->
 
     Keys = [secret, passcode],
     [{case_name(atom, Key), fun() -> Case(Key, Checker) end} || Key <- Keys].
+
+redact_is_authorization() ->
+    Types = [string, binary],
+    Keys = ["auThorization", "Authorization", "authorizaTion"],
+
+    Case = fun(Type, Key0) ->
+        Key =
+            case Type of
+                binary ->
+                    erlang:list_to_binary(Key0);
+                _ ->
+                    Key0
+            end,
+        ?assert(is_sensitive_key(Key))
+    end,
+
+    [{case_name(Type, Key), fun() -> Case(Type, Key) end} || Key <- Keys, Type <- Types].
 
 case_name(Type, Key) ->
     lists:concat([Type, "-", Key]).
