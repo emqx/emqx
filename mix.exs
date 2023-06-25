@@ -543,6 +543,19 @@ defmodule EMQXUmbrella.MixProject do
       force: overwrite?
     )
 
+    # copy /rel/config/ee-examples if profile is enterprise
+    case profile do
+      "emqx-enterprise" ->
+        File.cp_r!(
+          "rel/config/ee-examples",
+          Path.join(etc, "examples"),
+          force: overwrite?
+        )
+
+      _ ->
+        :ok
+    end
+
     # this is required by the produced escript / nodetool
     Mix.Generator.copy_file(
       Path.join(release.version_path, "start_clean.boot"),
