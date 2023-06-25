@@ -57,9 +57,6 @@ file_transfer {
 
                     ## Timeout for connection attempts
                     connect_timeout = 15s
-
-                    ## Attempt to talk through IPv6 first
-                    ipv6_probe = true
                }
            }
         }
