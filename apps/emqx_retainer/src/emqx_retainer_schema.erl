@@ -75,10 +75,15 @@ fields("retainer") ->
                 stop_publish_clear_msg,
                 false
             )},
-        {deliver_rate,
+        {delivery_rate,
             ?HOCON(
                 emqx_limiter_schema:rate(),
-                #{required => false, desc => ?DESC(deliver_rate), example => <<"1000/s">>}
+                #{
+                    required => false,
+                    desc => ?DESC(delivery_rate),
+                    example => <<"1000/s">>,
+                    aliases => [deliver_rate]
+                }
             )},
         {backend, backend_config()}
     ];
