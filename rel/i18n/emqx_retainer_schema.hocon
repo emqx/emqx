@@ -38,7 +38,7 @@ msg_clear_interval.desc:
 
 msg_expiry_interval.desc:
 """Message retention time. This config is only applicable for messages without the Message Expiry Interval message property.
-0 means message will never expir."""
+0 means message will never expire."""
 
 stop_publish_clear_msg.desc:
 """When the retained flag of the `PUBLISH` message is set and Payload is empty,

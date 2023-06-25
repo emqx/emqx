@@ -18,7 +18,7 @@ For example, when the EMQX node name is <code>emqx@127.0.0.1</code> then the <co
 Default value is: <code>${name}/instance/${name}~${host}</code>"""
 
 mnesia_collector.desc:
-"""Enable or disable Mnesia collector, collects Mnesia metrics mainly using mnesia:system_info/1 ."""
+"""Enable or disable Mnesia metrics collector"""
 
 prometheus.desc:
 """EMQX's Prometheus scraping endpoint is enabled by default without authentication.
@@ -35,15 +35,15 @@ vm_dist_collector.desc:
 """Enable or disable VM distribution collector, collects information about the sockets and processes involved in the Erlang distribution mechanism."""
 
 vm_memory_collector.desc:
-"""Enable or disable VM memory collector, collects information about memory dynamically allocated by the Erlang emulator using erlang:memory/0 , also provides basic (D)ETS statistics ."""
+"""Enable or disable VM memory metrics collector."""
 
 vm_msacc_collector.desc:
-"""Enable or disable VM msacc collector, collects microstate accounting metrics using erlang:statistics(microstate_accounting) ."""
+"""Enable or disable VM microstate accounting metrics collector."""
 
 vm_statistics_collector.desc:
-"""Enable or disable VM statistics collector, collects Erlang VM metrics using erlang:statistics/1 ."""
+"""Enable or disable VM statistics collector."""
 
 vm_system_info_collector.desc:
-"""Enable or disable VM system info collector, collects Erlang VM metrics using erlang:system_info/1 ."""
+"""Enable or disable VM system info collector."""
 
 }
