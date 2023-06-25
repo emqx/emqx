@@ -2302,6 +2302,8 @@ ciphers_schema(Default) ->
         #{
             default => default_ciphers(Default),
             converter => fun
+                (undefined) ->
+                    [];
                 (<<>>) ->
                     [];
                 ("") ->
@@ -2649,6 +2651,8 @@ parse_ka_int(Bin, Name, Min, Max) ->
             throw(#{reason => lists:flatten(Msg), value => I})
     end.
 
+user_lookup_fun_tr(undefined, Opts) ->
+    user_lookup_fun_tr(<<"emqx_tls_psk:lookup">>, Opts);
 user_lookup_fun_tr(Lookup, #{make_serializable := true}) ->
     fmt_user_lookup_fun(Lookup);
 user_lookup_fun_tr(Lookup, _) ->
