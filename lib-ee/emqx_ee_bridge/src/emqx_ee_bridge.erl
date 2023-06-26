@@ -33,9 +33,9 @@ api_schemas(Method) ->
         api_ref(emqx_ee_bridge_hstreamdb, <<"hstreamdb">>, Method),
         api_ref(emqx_bridge_influxdb, <<"influxdb_api_v1">>, Method ++ "_api_v1"),
         api_ref(emqx_bridge_influxdb, <<"influxdb_api_v2">>, Method ++ "_api_v2"),
-        api_ref(emqx_ee_bridge_redis, <<"redis_single">>, Method ++ "_single"),
-        api_ref(emqx_ee_bridge_redis, <<"redis_sentinel">>, Method ++ "_sentinel"),
-        api_ref(emqx_ee_bridge_redis, <<"redis_cluster">>, Method ++ "_cluster"),
+        api_ref(emqx_bridge_redis, <<"redis_single">>, Method ++ "_single"),
+        api_ref(emqx_bridge_redis, <<"redis_sentinel">>, Method ++ "_sentinel"),
+        api_ref(emqx_bridge_redis, <<"redis_cluster">>, Method ++ "_cluster"),
         api_ref(emqx_bridge_timescale, <<"timescale">>, Method),
         api_ref(emqx_bridge_matrix, <<"matrix">>, Method),
         api_ref(emqx_bridge_tdengine, <<"tdengine">>, Method),
@@ -59,7 +59,7 @@ schema_modules() ->
         emqx_bridge_influxdb,
         emqx_bridge_mongodb,
         emqx_ee_bridge_mysql,
-        emqx_ee_bridge_redis,
+        emqx_bridge_redis,
         emqx_bridge_pgsql,
         emqx_bridge_timescale,
         emqx_bridge_matrix,
@@ -102,9 +102,9 @@ resource_type(mongodb_single) -> emqx_bridge_mongodb_connector;
 resource_type(mysql) -> emqx_connector_mysql;
 resource_type(influxdb_api_v1) -> emqx_bridge_influxdb_connector;
 resource_type(influxdb_api_v2) -> emqx_bridge_influxdb_connector;
-resource_type(redis_single) -> emqx_ee_connector_redis;
-resource_type(redis_sentinel) -> emqx_ee_connector_redis;
-resource_type(redis_cluster) -> emqx_ee_connector_redis;
+resource_type(redis_single) -> emqx_bridge_redis_connector;
+resource_type(redis_sentinel) -> emqx_bridge_redis_connector;
+resource_type(redis_cluster) -> emqx_bridge_redis_connector;
 resource_type(pgsql) -> emqx_connector_pgsql;
 resource_type(timescale) -> emqx_connector_pgsql;
 resource_type(matrix) -> emqx_connector_pgsql;
@@ -287,7 +287,7 @@ redis_structs() ->
     [
         {Type,
             mk(
-                hoconsc:map(name, ref(emqx_ee_bridge_redis, Type)),
+                hoconsc:map(name, ref(emqx_bridge_redis, Type)),
                 #{
                     desc => <<"Redis Bridge Config">>,
                     required => false

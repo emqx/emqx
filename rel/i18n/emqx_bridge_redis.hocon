@@ -1,4 +1,4 @@
-emqx_ee_bridge_redis {
+emqx_bridge_redis {
 
 command_template.desc:
 """Redis command template used to export messages. Each list element stands for a command name or its argument.
