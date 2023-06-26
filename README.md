@@ -32,17 +32,26 @@ The simplest way to set up EMQX is to create a managed deployment with EMQX Clou
 docker run -d --name emqx -p 1883:1883 -p 8083:8083 -p 8084:8084 -p 8883:8883 -p 18083:18083 emqx/emqx:latest
 ```
 
-Next, please follow the [getting started guide](https://www.emqx.io/docs/en/v5.0/getting-started/getting-started.html#start-emqx) to tour the EMQX features.
+Next, please follow the [Deploy with Docker](https://www.emqx.io/docs/en/v5.1/deploy/install-docker.html) guide for further instructions.
 
 #### Run EMQX cluster on kubernetes
 
-For details: [EMQX Operator](https://github.com/emqx/emqx-operator/blob/main/docs/en_US/getting-started/getting-started.md).
+Please consult official [EMQX Operator](https://github.com/emqx/emqx-operator/blob/main/docs/en_US/getting-started/getting-started.md) documentation for details.
+
+#### Run EMQX on macOS
+
+EMQX is available as core [Homebrew](https://brew.sh/) package.
+
+```
+brew install emqx
+emqx start
+```
 
 #### More installation options
 
 If you prefer to install and manage EMQX yourself, you can download the latest version from [www.emqx.io/downloads](https://www.emqx.io/downloads).
 
-For more installation options, see the [EMQX installation documentation](https://www.emqx.io/docs/en/v5.0/deploy/install.html).
+For more installation options, see the [EMQX installation documentation](https://www.emqx.io/docs/en/v5.1/deploy/install.html).
 
 ## Documentation
 
@@ -84,9 +93,9 @@ For more organised improvement proposals, you can send pull requests to [EIP](ht
 
 ## Build From Source
 
-The `master` branch is for the latest version 5 release, checkout `main-v4.4` for version 4.4.
+The `master` branch tracks the latest version 5. For version 4.4 checkout the `main-v4.4` branch.
 
-EMQX requires OTP 24 for 4.4, 5.0 can be built with OTP 24 or 25.
+EMQX 4.4 requires OTP 24. EMQX 5.0 and 5.1 can be built with OTP 24 or 25.
 
 ```bash
 git clone https://github.com/emqx/emqx.git
