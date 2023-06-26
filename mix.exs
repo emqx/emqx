@@ -378,8 +378,7 @@ defmodule EMQXUmbrella.MixProject do
         emqx_slow_subs: :permanent,
         emqx_mongodb: :permanent,
         emqx_plugins: :permanent,
-        emqx_mix: :none,
-        emqx_redis: :permanent
+        emqx_mix: :none
       ] ++
       if(enable_quicer?(), do: [quicer: :permanent], else: []) ++
       if(enable_bcrypt?(), do: [bcrypt: :permanent], else: []) ++
@@ -414,6 +413,7 @@ defmodule EMQXUmbrella.MixProject do
           emqx_bridge_timescale: :permanent,
           emqx_bridge_sqlserver: :permanent,
           emqx_oracle: :permanent,
+          emqx_redis: :permanent,
           emqx_bridge_oracle: :permanent,
           emqx_bridge_rabbitmq: :permanent,
           emqx_ee_schema_registry: :permanent,
