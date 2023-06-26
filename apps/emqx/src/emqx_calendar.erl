@@ -22,7 +22,7 @@
 -define(DAYS_PER_YEAR, 365).
 -define(DAYS_PER_LEAP_YEAR, 366).
 -define(DAYS_FROM_0_TO_1970, 719528).
--define(SECONDS_FROM_0_TO_1970, ?DAYS_FROM_0_TO_1970 * ?SECONDS_PER_DAY).
+-define(SECONDS_FROM_0_TO_1970, (?DAYS_FROM_0_TO_1970 * ?SECONDS_PER_DAY)).
 
 -export([
     formatter/1,
@@ -140,12 +140,13 @@ offset_second_("Z") ->
 offset_second_("z") ->
     0;
 offset_second_(Offset) when is_list(Offset) ->
-    Sign = hd(Offset),
-    ((Sign == $+) orelse (Sign == $-)) orelse
-        error({bad_time_offset, Offset}),
-    Signs = #{$+ => 1, $- => -1},
-    PosNeg = maps:get(Sign, Signs),
     [Sign | HM] = Offset,
+    PosNeg =
+        case Sign of
+            $+ -> 1;
+            $- -> -1;
+            _ -> error({bad_time_offset, Offset})
+        end,
     {HourStr, MinuteStr, SecondStr} =
         case string:tokens(HM, ":") of
             [H, M] ->
@@ -157,9 +158,9 @@ offset_second_(Offset) when is_list(Offset) ->
             _ ->
                 error({bad_time_offset, Offset})
         end,
-    Hour = erlang:list_to_integer(HourStr),
-    Minute = erlang:list_to_integer(MinuteStr),
-    Second = erlang:list_to_integer(SecondStr),
+    Hour = list_to_int_or_error(HourStr, {bad_time_offset_hour, HourStr}),
+    Minute = list_to_int_or_error(MinuteStr, {bad_time_offset_minute, MinuteStr}),
+    Second = list_to_int_or_error(SecondStr, {bad_time_offset_second, SecondStr}),
     (Hour =< 23) orelse error({bad_time_offset_hour, Hour}),
     (Minute =< 59) orelse error({bad_time_offset_minute, Minute}),
     (Second =< 59) orelse error({bad_time_offset_second, Second}),
@@ -454,3 +455,11 @@ dm(9) -> 243;
 dm(10) -> 273;
 dm(11) -> 304;
 dm(12) -> 334.
+
+list_to_int_or_error(Str, Error) ->
+    case string:to_integer(Str) of
+        {Int, []} ->
+            Int;
+        _ ->
+            error(Error)
+    end.
