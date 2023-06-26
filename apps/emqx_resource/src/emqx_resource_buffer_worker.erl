@@ -158,7 +158,9 @@ simple_async_query(Id, Request, QueryOpts0) ->
     Ref = make_request_ref(),
     Result = call_query(async_if_possible, Id, Index, Ref, ?SIMPLE_QUERY(Request), QueryOpts),
     _ = handle_query_result(Id, Result, _HasBeenSent = false),
-    Result.
+    maybe_apply_async_reply_fun(
+        Result, QueryOpts
+    ).
 
 simple_query_opts() ->
     ensure_expire_at(#{simple_query => true, timeout => infinity}).
