@@ -47,8 +47,7 @@ check(SchemaModule, Conf) ->
 
 check(SchemaModule, Conf, Opts) when is_map(Conf) ->
     try
-        RootNames = maps:keys(Conf),
-        {ok, hocon_tconf:check_plain(SchemaModule, Conf, Opts, RootNames)}
+        {ok, hocon_tconf:check_plain(SchemaModule, Conf, Opts)}
     catch
         throw:Errors:Stacktrace ->
             compact_errors(Errors, Stacktrace)
@@ -144,19 +143,21 @@ load_and_check(SchemaModule, File) ->
     try
         do_load_and_check(SchemaModule, File)
     catch
-        throw:Reason ->
-            {error, Reason}
+        throw:Reason:Stacktrace ->
+            compact_errors(Reason, Stacktrace)
     end.
 
 do_load_and_check(SchemaModule, File) ->
-    Conf =
-        case hocon:load(File, #{format => map}) of
-            {ok, Conf0} ->
-                Conf0;
-            {error, {parse_error, Reason}} ->
-                throw(Reason);
-            {error, Reason} ->
-                throw(Reason)
-        end,
-    Opts = #{atom_key => false, required => false},
-    check(SchemaModule, Conf, Opts).
+    case hocon:load(File, #{format => map}) of
+        {ok, Conf} ->
+            Opts = #{atom_key => false, required => false},
+            %% here we check only the provided root keys
+            %% because the examples are all provided only with one (or maybe two) roots
+            %% and some roots have required fields.
+            RootKeys = maps:keys(Conf),
+            {ok, hocon_tconf:check_plain(SchemaModule, Conf, Opts, RootKeys)};
+        {error, {parse_error, Reason}} ->
+            {error, Reason};
+        {error, Reason} ->
+            {error, Reason}
+    end.
