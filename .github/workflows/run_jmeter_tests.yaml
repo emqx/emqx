@@ -22,7 +22,15 @@ jobs:
       env:
           JMETER_VERSION: 5.4.3
       run: |
-        wget --no-verbose --no-check-certificate -O /tmp/apache-jmeter.tgz https://downloads.apache.org/jmeter/binaries/apache-jmeter-$JMETER_VERSION.tgz
+        # versions below 5.5 had been moved to the archive area
+        # latest version is 5.6, the script below should handle both scenarios
+        URL=https://downloads.apache.org/jmeter/binaries/apache-jmeter-$JMETER_VERSION.tgz
+        ARCHIVE_URL=https://archive.apache.org/dist/jmeter/binaries/apache-jmeter-$JMETER_VERSION.tgz
+        if wget -q --method HEAD $URL; then
+          wget --no-verbose --no-check-certificate -O /tmp/apache-jmeter.tgz $URL
+        else
+          wget --no-verbose --no-check-certificate -O /tmp/apache-jmeter.tgz $ARCHIVE_URL
+        fi
     - uses: actions/upload-artifact@v3
       with:
         name: apache-jmeter.tgz
