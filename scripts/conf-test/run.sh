@@ -23,7 +23,7 @@ function check_dashboard_https_ssl_options_depth() {
 start_emqx_with_conf() {
     echo "Starting $PROFILE with $1"
     "$EMQX_ROOT"/bin/emqx start
-    check_dashboard_https_ssl_options_depth $1
+    check_dashboard_https_ssl_options_depth "$1"
     "$EMQX_ROOT"/bin/emqx stop
 }
 

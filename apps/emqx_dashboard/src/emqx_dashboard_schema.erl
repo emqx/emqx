@@ -112,6 +112,7 @@ ssl_options() ->
             ?R_REF("ssl_options"),
             #{
                 required => true,
+                desc => ?DESC(ssl_options),
                 importance => ?IMPORTANCE_HIGH
             }
         )}.

@@ -222,11 +222,13 @@ t_dashboard(_Config) ->
     ),
 
     Https2 = #{
-        enable => true,
-        bind => 18084,
-        keyfile => "etc/certs/badkey.pem",
-        cacertfile => "etc/certs/badcacert.pem",
-        certfile => "etc/certs/badcert.pem"
+        <<"bind">> => 18084,
+        <<"ssl_options">> =>
+            #{
+                <<"keyfile">> => "etc/certs/badkey.pem",
+                <<"cacertfile">> => "etc/certs/badcacert.pem",
+                <<"certfile">> => "etc/certs/badcert.pem"
+            }
     },
     Dashboard2 = Dashboard#{<<"listeners">> => Listeners#{<<"https">> => Https2}},
     ?assertMatch(
@@ -240,20 +242,21 @@ t_dashboard(_Config) ->
         emqx, filename:join(["etc", "certs", "cacert.pem"])
     ),
     Https3 = #{
-        <<"enable">> => true,
         <<"bind">> => 18084,
-        <<"keyfile">> => list_to_binary(KeyFile),
-        <<"cacertfile">> => list_to_binary(CacertFile),
-        <<"certfile">> => list_to_binary(CertFile)
+        <<"ssl_options">> => #{
+            <<"keyfile">> => list_to_binary(KeyFile),
+            <<"cacertfile">> => list_to_binary(CacertFile),
+            <<"certfile">> => list_to_binary(CertFile)
+        }
     },
     Dashboard3 = Dashboard#{<<"listeners">> => Listeners#{<<"https">> => Https3}},
     ?assertMatch({ok, _}, update_config("dashboard", Dashboard3)),
 
-    Dashboard4 = Dashboard#{<<"listeners">> => Listeners#{<<"https">> => #{<<"enable">> => false}}},
+    Dashboard4 = Dashboard#{<<"listeners">> => Listeners#{<<"https">> => #{<<"bind">> => 0}}},
     ?assertMatch({ok, _}, update_config("dashboard", Dashboard4)),
     {ok, Dashboard41} = get_config("dashboard"),
     ?assertEqual(
-        Https3#{<<"enable">> => false},
+        Https3#{<<"bind">> => 0},
         read_conf([<<"dashboard">>, <<"listeners">>, <<"https">>]),
         Dashboard41
     ),

@@ -138,4 +138,10 @@ token_expired_time.desc:
 token_expired_time.label:
 """Token expired time"""
 
+ssl_options.desc:
+"""SSL/TLS options for the dashboard listener."""
+
+ssl_options.label:
+"""SSL options"""
+
 }
