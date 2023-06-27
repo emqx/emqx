@@ -25,7 +25,7 @@ api_schemas(Method) ->
         %% to hocon; keeping this as just `kafka' for backwards compatibility.
         api_ref(emqx_bridge_kafka, <<"kafka">>, Method ++ "_producer"),
         api_ref(emqx_bridge_cassandra, <<"cassandra">>, Method),
-        api_ref(emqx_ee_bridge_mysql, <<"mysql">>, Method),
+        api_ref(emqx_bridge_mysql, <<"mysql">>, Method),
         api_ref(emqx_bridge_pgsql, <<"pgsql">>, Method),
         api_ref(emqx_bridge_mongodb, <<"mongodb_rs">>, Method ++ "_rs"),
         api_ref(emqx_bridge_mongodb, <<"mongodb_sharded">>, Method ++ "_sharded"),
@@ -58,7 +58,7 @@ schema_modules() ->
         emqx_bridge_gcp_pubsub,
         emqx_bridge_influxdb,
         emqx_bridge_mongodb,
-        emqx_ee_bridge_mysql,
+        emqx_bridge_mysql,
         emqx_bridge_redis,
         emqx_bridge_pgsql,
         emqx_bridge_timescale,
@@ -131,7 +131,7 @@ fields(bridges) ->
             )},
         {mysql,
             mk(
-                hoconsc:map(name, ref(emqx_ee_bridge_mysql, "config")),
+                hoconsc:map(name, ref(emqx_bridge_mysql, "config")),
                 #{
                     desc => <<"MySQL Bridge Config">>,
                     required => false
