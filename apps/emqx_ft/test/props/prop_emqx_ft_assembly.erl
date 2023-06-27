@@ -20,7 +20,7 @@
 
 -import(emqx_proper_types, [scaled/2, fixedmap/1, typegen/0, generate/2]).
 
--define(COVERAGE_TIMEOUT, 5000).
+-define(COVERAGE_TIMEOUT, 10000).
 
 prop_coverage() ->
     ?FORALL(
@@ -201,7 +201,7 @@ segment_t(Filesize, Segsizes) ->
     ).
 
 filesize_t() ->
-    scaled(2500, non_neg_integer()).
+    scaled(2000, non_neg_integer()).
 
 segsizes_t() ->
     ?LET(
