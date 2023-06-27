@@ -27,9 +27,9 @@ api_schemas(Method) ->
         api_ref(emqx_bridge_cassandra, <<"cassandra">>, Method),
         api_ref(emqx_ee_bridge_mysql, <<"mysql">>, Method),
         api_ref(emqx_bridge_pgsql, <<"pgsql">>, Method),
-        api_ref(emqx_ee_bridge_mongodb, <<"mongodb_rs">>, Method ++ "_rs"),
-        api_ref(emqx_ee_bridge_mongodb, <<"mongodb_sharded">>, Method ++ "_sharded"),
-        api_ref(emqx_ee_bridge_mongodb, <<"mongodb_single">>, Method ++ "_single"),
+        api_ref(emqx_bridge_mongodb, <<"mongodb_rs">>, Method ++ "_rs"),
+        api_ref(emqx_bridge_mongodb, <<"mongodb_sharded">>, Method ++ "_sharded"),
+        api_ref(emqx_bridge_mongodb, <<"mongodb_single">>, Method ++ "_single"),
         api_ref(emqx_ee_bridge_hstreamdb, <<"hstreamdb">>, Method),
         api_ref(emqx_bridge_influxdb, <<"influxdb_api_v1">>, Method ++ "_api_v1"),
         api_ref(emqx_bridge_influxdb, <<"influxdb_api_v2">>, Method ++ "_api_v2"),
@@ -57,7 +57,7 @@ schema_modules() ->
         emqx_ee_bridge_hstreamdb,
         emqx_bridge_gcp_pubsub,
         emqx_bridge_influxdb,
-        emqx_ee_bridge_mongodb,
+        emqx_bridge_mongodb,
         emqx_ee_bridge_mysql,
         emqx_ee_bridge_redis,
         emqx_bridge_pgsql,
@@ -96,9 +96,9 @@ resource_type(cassandra) -> emqx_bridge_cassandra_connector;
 resource_type(hstreamdb) -> emqx_ee_connector_hstreamdb;
 resource_type(gcp_pubsub) -> emqx_bridge_gcp_pubsub_impl_producer;
 resource_type(gcp_pubsub_consumer) -> emqx_bridge_gcp_pubsub_impl_consumer;
-resource_type(mongodb_rs) -> emqx_ee_connector_mongodb;
-resource_type(mongodb_sharded) -> emqx_ee_connector_mongodb;
-resource_type(mongodb_single) -> emqx_ee_connector_mongodb;
+resource_type(mongodb_rs) -> emqx_bridge_mongodb_connector;
+resource_type(mongodb_sharded) -> emqx_bridge_mongodb_connector;
+resource_type(mongodb_single) -> emqx_bridge_mongodb_connector;
 resource_type(mysql) -> emqx_connector_mysql;
 resource_type(influxdb_api_v1) -> emqx_bridge_influxdb_connector;
 resource_type(influxdb_api_v2) -> emqx_bridge_influxdb_connector;
@@ -203,7 +203,7 @@ mongodb_structs() ->
     [
         {Type,
             mk(
-                hoconsc:map(name, ref(emqx_ee_bridge_mongodb, Type)),
+                hoconsc:map(name, ref(emqx_bridge_mongodb, Type)),
                 #{
                     desc => <<"MongoDB Bridge Config">>,
                     required => false

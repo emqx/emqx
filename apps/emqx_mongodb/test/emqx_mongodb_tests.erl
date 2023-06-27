@@ -14,7 +14,7 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
--module(emqx_connector_mongo_tests).
+-module(emqx_mongodb_tests).
 
 -include_lib("eunit/include/eunit.hrl").
 
@@ -84,12 +84,12 @@ bad_query_string_test() ->
     ).
 
 resolve(Config) ->
-    emqx_connector_mongo:maybe_resolve_srv_and_txt_records(Config).
+    emqx_mongodb:maybe_resolve_srv_and_txt_records(Config).
 
 checked_config(Hocon) ->
     {ok, Config} = hocon:binary(Hocon),
     hocon_tconf:check_plain(
-        emqx_connector_mongo,
+        emqx_mongodb,
         #{<<"config">> => Config},
         #{atom_key => true}
     ).

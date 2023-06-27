@@ -64,7 +64,7 @@ end_per_suite(_Config) ->
 %% Tests
 %%------------------------------------------------------------------------------
 
-%% emqx_connector_mongo connects asynchronously,
+%% emqx_mongodb connects asynchronously,
 %% so we check failure/success indirectly (through snabbkaffe).
 
 %% openssl s_client -tls1_2 -cipher ECDHE-RSA-AES256-GCM-SHA384 \

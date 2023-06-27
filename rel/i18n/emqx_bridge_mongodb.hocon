@@ -1,4 +1,4 @@
-emqx_ee_bridge_mongodb {
+emqx_bridge_mongodb {
 
 collection.desc:
 """The collection where data will be stored into"""

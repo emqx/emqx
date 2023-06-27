@@ -60,11 +60,11 @@ roots() ->
     ].
 
 fields(mongo_single) ->
-    common_fields() ++ emqx_connector_mongo:fields(single);
+    common_fields() ++ emqx_mongodb:fields(single);
 fields(mongo_rs) ->
-    common_fields() ++ emqx_connector_mongo:fields(rs);
+    common_fields() ++ emqx_mongodb:fields(rs);
 fields(mongo_sharded) ->
-    common_fields() ++ emqx_connector_mongo:fields(sharded).
+    common_fields() ++ emqx_mongodb:fields(sharded).
 
 desc(mongo_single) ->
     ?DESC(single);
@@ -140,14 +140,14 @@ create(Config0) ->
     {Config, State} = parse_config(Config0),
     {ok, _Data} = emqx_authn_utils:create_resource(
         ResourceId,
-        emqx_connector_mongo,
+        emqx_mongodb,
         Config
     ),
     {ok, State#{resource_id => ResourceId}}.
 
 update(Config0, #{resource_id := ResourceId} = _State) ->
     {Config, NState} = parse_config(Config0),
-    case emqx_authn_utils:update_resource(emqx_connector_mongo, Config, ResourceId) of
+    case emqx_authn_utils:update_resource(emqx_mongodb, Config, ResourceId) of
         {error, Reason} ->
             error({load_config_error, Reason});
         {ok, _} ->
