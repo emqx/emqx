@@ -66,8 +66,7 @@
 
 -boot_mnesia({mnesia, [boot]}).
 
--define(TAB, ?MODULE).
--define(PSK_SHARD, emqx_psk_shard).
+-include("emqx_psk.hrl").
 
 -define(DEFAULT_DELIMITER, <<":">>).
 

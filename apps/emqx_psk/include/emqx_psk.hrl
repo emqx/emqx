@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2020-2023 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2023 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -14,21 +14,6 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
--module(emqx_psk_app).
+-define(TAB, emqx_psk).
 
--behaviour(application).
-
--export([
-    start/2,
-    stop/1
-]).
-
--include("emqx_psk.hrl").
-
-start(_Type, _Args) ->
-    ok = mria:wait_for_tables([?TAB]),
-    {ok, Sup} = emqx_psk_sup:start_link(),
-    {ok, Sup}.
-
-stop(_State) ->
-    ok.
+-define(PSK_SHARD, emqx_psk_shard).
