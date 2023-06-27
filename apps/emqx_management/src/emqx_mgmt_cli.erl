@@ -120,6 +120,7 @@ cluster(["join", SNode]) ->
             emqx_ctl:print("Failed to join the cluster: ~0p~n", [Error])
     end;
 cluster(["leave"]) ->
+    emqx_cluster_rpc:on_leave(),
     case ekka:leave() of
         ok ->
             emqx_ctl:print("Leave the cluster successfully.~n"),
