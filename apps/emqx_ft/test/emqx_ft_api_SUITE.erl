@@ -38,6 +38,9 @@ groups() ->
         {cluster, [], emqx_common_test_helpers:all(?MODULE)}
     ].
 
+suite() ->
+    [{timetrap, {seconds, 90}}].
+
 init_per_suite(Config) ->
     ok = emqx_mgmt_api_test_util:init_suite(
         [emqx_conf, emqx_ft], emqx_ft_test_helpers:env_handler(Config)

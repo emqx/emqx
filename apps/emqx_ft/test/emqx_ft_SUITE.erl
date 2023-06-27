@@ -61,6 +61,9 @@ groups() ->
         ]}
     ].
 
+suite() ->
+    [{timetrap, {seconds, 90}}].
+
 init_per_suite(Config) ->
     ok = emqx_common_test_helpers:start_apps([emqx_ft], set_special_configs(Config)),
     Config.
