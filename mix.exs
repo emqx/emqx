@@ -377,6 +377,7 @@ defmodule EMQXUmbrella.MixProject do
         emqx_psk: :permanent,
         emqx_slow_subs: :permanent,
         emqx_mongodb: :permanent,
+        emqx_redis: :permanent,
         emqx_plugins: :permanent,
         emqx_mix: :none
       ] ++
@@ -413,7 +414,6 @@ defmodule EMQXUmbrella.MixProject do
           emqx_bridge_timescale: :permanent,
           emqx_bridge_sqlserver: :permanent,
           emqx_oracle: :permanent,
-          emqx_redis: :permanent,
           emqx_bridge_oracle: :permanent,
           emqx_bridge_rabbitmq: :permanent,
           emqx_ee_schema_registry: :permanent,

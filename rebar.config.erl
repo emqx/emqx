@@ -440,6 +440,7 @@ relx_apps(ReleaseType, Edition) ->
             emqx_psk,
             emqx_slow_subs,
             emqx_mongodb,
+            emqx_redis,
             emqx_plugins
         ] ++
         [quicer || is_quicer_supported()] ++
@@ -483,7 +484,6 @@ relx_apps_per_edition(ee) ->
         emqx_bridge_timescale,
         emqx_bridge_sqlserver,
         emqx_oracle,
-        emqx_redis,
         emqx_bridge_oracle,
         emqx_bridge_rabbitmq,
         emqx_ee_schema_registry,
