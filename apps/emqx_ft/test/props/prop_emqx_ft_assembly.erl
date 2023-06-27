@@ -18,80 +18,92 @@
 
 -include_lib("proper/include/proper.hrl").
 
--import(emqx_proper_types, [scaled/2]).
+-import(emqx_proper_types, [scaled/2, fixedmap/1, typegen/0, generate/2]).
 
--define(COVERAGE_TIMEOUT, 5000).
+-define(COVERAGE_TIMEOUT, 10000).
 
 prop_coverage() ->
     ?FORALL(
-        {Filesize, Segsizes},
-        {filesize_t(), segsizes_t()},
-        ?FORALL(
-            Fragments,
-            noshrink(segments_t(Filesize, Segsizes)),
-            ?TIMEOUT(
-                ?COVERAGE_TIMEOUT,
-                begin
-                    ASM1 = append_segments(mk_assembly(Filesize), Fragments),
-                    {Time, ASM2} = timer:tc(emqx_ft_assembly, update, [ASM1]),
-                    measure(
-                        #{"Fragments" => length(Fragments), "Time" => Time},
-                        case emqx_ft_assembly:status(ASM2) of
-                            complete ->
-                                Coverage = emqx_ft_assembly:coverage(ASM2),
-                                measure(
-                                    #{"CoverageLength" => length(Coverage)},
-                                    is_coverage_complete(Coverage)
-                                );
-                            {incomplete, {missing, {segment, _, _}}} ->
-                                measure("CoverageLength", 0, true)
-                        end
-                    )
-                end
-            )
+        #{filesize := Filesize, segsizes := Segsizes, typegen := TypeGen},
+        noshrink(
+            fixedmap(#{
+                filesize => filesize_t(),
+                segsizes => segsizes_t(),
+                typegen => typegen()
+            })
+        ),
+        ?TIMEOUT(
+            ?COVERAGE_TIMEOUT,
+            begin
+                Segments = generate(segments_t(Filesize, Segsizes), TypeGen),
+                ASM1 = append_segments(mk_assembly(Filesize), Segments),
+                {Time, ASM2} = timer:tc(emqx_ft_assembly, update, [ASM1]),
+                measure(
+                    #{"Segments" => length(Segments), "Time" => Time},
+                    case emqx_ft_assembly:status(ASM2) of
+                        complete ->
+                            Coverage = emqx_ft_assembly:coverage(ASM2),
+                            measure(
+                                #{"CoverageLength" => length(Coverage)},
+                                is_coverage_complete(Coverage)
+                            );
+                        {incomplete, {missing, {segment, _, _}}} ->
+                            measure("CoverageLength", 0, true)
+                    end
+                )
+            end
         )
     ).
 
 prop_coverage_likely_incomplete() ->
     ?FORALL(
-        {Filesize, Segsizes, Hole},
-        {filesize_t(), segsizes_t(), filesize_t()},
-        ?FORALL(
-            Fragments,
-            noshrink(segments_t(Filesize, Segsizes, (Hole rem max(Filesize, 1)))),
-            ?TIMEOUT(
-                ?COVERAGE_TIMEOUT,
-                begin
-                    ASM1 = append_segments(mk_assembly(Filesize), Fragments),
-                    {Time, ASM2} = timer:tc(emqx_ft_assembly, update, [ASM1]),
-                    measure(
-                        #{"Fragments" => length(Fragments), "Time" => Time},
-                        case emqx_ft_assembly:status(ASM2) of
-                            complete ->
-                                % NOTE: this is still possible due to the nature of `SUCHTHATMAYBE`
-                                IsComplete = emqx_ft_assembly:coverage(ASM2),
-                                collect(complete, is_coverage_complete(IsComplete));
-                            {incomplete, {missing, {segment, _, _}}} ->
-                                collect(incomplete, true)
-                        end
-                    )
+        #{filesize := Filesize, segsizes := Segsizes, hole := HoleIn, typegen := TypeGen},
+        noshrink(
+            fixedmap(#{
+                filesize => filesize_t(),
+                segsizes => segsizes_t(),
+                hole => filesize_t(),
+                typegen => typegen()
+            })
+        ),
+        ?TIMEOUT(?COVERAGE_TIMEOUT, begin
+            Hole = HoleIn rem max(Filesize, 1),
+            Segments = generate(segments_t(Filesize, Segsizes, Hole), TypeGen),
+            ASM1 = append_segments(mk_assembly(Filesize), Segments),
+            {Time, ASM2} = timer:tc(emqx_ft_assembly, update, [ASM1]),
+            measure(
+                #{"Segments" => length(Segments), "Time" => Time},
+                case emqx_ft_assembly:status(ASM2) of
+                    complete ->
+                        % NOTE: this is still possible due to the nature of `SUCHTHATMAYBE`
+                        IsComplete = emqx_ft_assembly:coverage(ASM2),
+                        collect(complete, is_coverage_complete(IsComplete));
+                    {incomplete, {missing, {segment, _, _}}} ->
+                        collect(incomplete, true)
                 end
             )
-        )
+        end)
     ).
 
 prop_coverage_complete() ->
     ?FORALL(
-        {Filesize, Segsizes},
-        {filesize_t(), ?SUCHTHAT([BaseSegsize | _], segsizes_t(), BaseSegsize > 0)},
-        ?FORALL(
-            {Fragments, RemoteNode},
-            noshrink({segments_t(Filesize, Segsizes), remote_node_t()}),
+        #{filesize := Filesize, segsizes := Segsizes, node := RemoteNode, typegen := TypeGen},
+        noshrink(
+            fixedmap(#{
+                filesize => filesize_t(),
+                segsizes => ?SUCHTHAT([BaseSegsize | _], segsizes_t(), BaseSegsize > 0),
+                node => remote_node_t(),
+                typegen => typegen()
+            })
+        ),
+        ?TIMEOUT(
+            ?COVERAGE_TIMEOUT,
             begin
                 % Ensure that we have complete coverage
+                Segments = generate(segments_t(Filesize, Segsizes), TypeGen),
                 ASM1 = mk_assembly(Filesize),
                 ASM2 = append_coverage(ASM1, RemoteNode, Filesize, Segsizes),
-                ASM3 = append_segments(ASM2, Fragments),
+                ASM3 = append_segments(ASM2, Segments),
                 {Time, ASM4} = timer:tc(emqx_ft_assembly, update, [ASM3]),
                 measure(
                     #{"CoverageMax" => nsegs(Filesize, Segsizes), "Time" => Time},
@@ -189,7 +201,7 @@ segment_t(Filesize, Segsizes) ->
     ).
 
 filesize_t() ->
-    scaled(2500, non_neg_integer()).
+    scaled(2000, non_neg_integer()).
 
 segsizes_t() ->
     ?LET(

@@ -52,11 +52,18 @@
 
 %% Generic Types
 -export([
-    scaled/2
+    scaled/2,
+    fixedmap/1
 ]).
 
 %% Iterators
 -export([nof/1]).
+
+%% Utilities
+-export([
+    generate/2,
+    typegen/0
+]).
 
 -type proptype() :: proper_types:raw_type().
 
@@ -678,6 +685,36 @@ limited_list(N, T) ->
 -spec scaled(number(), proptype()) -> proptype().
 scaled(F, T) when F > 0 ->
     ?SIZED(S, resize(round(S * F), T)).
+
+-spec fixedmap(#{_Key => proptype()}) -> proptype().
+fixedmap(M) ->
+    ?LET(PList, maps:to_list(M), maps:from_list(PList)).
+
+%%--------------------------------------------------------------------
+%% Utilities
+%%--------------------------------------------------------------------
+
+-type typegen() :: {typegen, proper_gen:size(), proper_gen:seed()}.
+
+-spec typegen() -> proptype().
+typegen() ->
+    Seed = {non_neg_integer(), non_neg_integer(), non_neg_integer()},
+    {typegen, ?SIZED(S, S), Seed}.
+
+-spec generate(proptype(), typegen()) -> _Instance.
+generate(T, {typegen, Size, Seed}) ->
+    % NOTE
+    % We need to run it in a separate process so that it won't erase
+    % any proper state in the current process allocated by the property
+    % being evaluated.
+    {Pid, MRef} = erlang:spawn_monitor(
+        fun() -> exit(proper_gen:pick(T, Size, Seed)) end
+    ),
+    receive
+        {'DOWN', MRef, process, Pid, Result} ->
+            {ok, Instance} = Result,
+            Instance
+    end.
 
 %%--------------------------------------------------------------------
 %% Internal funcs
