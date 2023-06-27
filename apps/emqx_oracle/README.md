@@ -11,4 +11,4 @@ Please see our [contributing.md](../../CONTRIBUTING.md).
 
 ## License
 
-See [BSL](../../APL.txt).
+See [BSL](./BSL.txt).

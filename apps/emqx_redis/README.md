@@ -12,4 +12,4 @@ Please see our [contributing.md](../../CONTRIBUTING.md).
 
 ## License
 
-See [APL](./APL.txt).
+See [APL](../../APL.txt).
