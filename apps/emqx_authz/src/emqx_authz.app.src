@@ -10,7 +10,8 @@
         crypto,
         emqx_resource,
         emqx_connector,
-        emqx_mongodb
+        emqx_mongodb,
+        emqx_redis
     ]},
     {env, []},
     {modules, []},

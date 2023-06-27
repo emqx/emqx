@@ -1,7 +1,7 @@
 %%--------------------------------------------------------------------
 %% Copyright (c) 2022-2023 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
--module(emqx_ee_connector_redis).
+-module(emqx_bridge_redis_connector).
 
 -include_lib("emqx/include/logger.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
@@ -25,7 +25,7 @@
 callback_mode() -> always_sync.
 
 on_start(InstId, #{command_template := CommandTemplate} = Config) ->
-    case emqx_connector_redis:on_start(InstId, Config) of
+    case emqx_redis:on_start(InstId, Config) of
         {ok, RedisConnSt} ->
             ?tp(
                 redis_ee_connector_start_success,
@@ -44,12 +44,12 @@ on_start(InstId, #{command_template := CommandTemplate} = Config) ->
     end.
 
 on_stop(InstId, #{conn_st := RedisConnSt}) ->
-    emqx_connector_redis:on_stop(InstId, RedisConnSt);
+    emqx_redis:on_stop(InstId, RedisConnSt);
 on_stop(InstId, undefined = _State) ->
-    emqx_connector_redis:on_stop(InstId, undefined).
+    emqx_redis:on_stop(InstId, undefined).
 
 on_get_status(InstId, #{conn_st := RedisConnSt}) ->
-    emqx_connector_redis:on_get_status(InstId, RedisConnSt).
+    emqx_redis:on_get_status(InstId, RedisConnSt).
 
 on_query(
     InstId,
@@ -111,7 +111,7 @@ on_batch_query(
 %% -------------------------------------------------------------------------------------------------
 
 query(InstId, Query, RedisConnSt) ->
-    case emqx_connector_redis:on_query(InstId, Query, RedisConnSt) of
+    case emqx_redis:on_query(InstId, Query, RedisConnSt) of
         {ok, _} = Ok -> Ok;
         {error, no_connection} -> {error, {recoverable_error, no_connection}};
         {error, _} = Error -> Error

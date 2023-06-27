@@ -1,7 +1,7 @@
 %%--------------------------------------------------------------------
 %% Copyright (c) 2022-2023 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
--module(emqx_ee_bridge_redis).
+-module(emqx_bridge_redis).
 
 -include_lib("typerefl/include/types.hrl").
 -include_lib("hocon/include/hoconsc.hrl").
@@ -149,7 +149,7 @@ redis_bridge_common_fields(Type) ->
 
 connector_fields(Type) ->
     RedisType = bridge_type_to_redis_conn_type(Type),
-    emqx_connector_redis:fields(RedisType).
+    emqx_redis:fields(RedisType).
 
 bridge_type_to_redis_conn_type(redis_single) ->
     single;
@@ -190,11 +190,11 @@ desc("config") ->
 desc(Method) when Method =:= "get"; Method =:= "put"; Method =:= "post" ->
     ["Configuration for Redis using `", string:to_upper(Method), "` method."];
 desc(redis_single) ->
-    ?DESC(emqx_connector_redis, "single");
+    ?DESC(emqx_redis, "single");
 desc(redis_sentinel) ->
-    ?DESC(emqx_connector_redis, "sentinel");
+    ?DESC(emqx_redis, "sentinel");
 desc(redis_cluster) ->
-    ?DESC(emqx_connector_redis, "cluster");
+    ?DESC(emqx_redis, "cluster");
 desc("creation_opts_" ++ _Type) ->
     ?DESC(emqx_resource_schema, "creation_opts");
 desc(_) ->

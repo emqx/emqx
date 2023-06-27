@@ -13,7 +13,7 @@
 % %% limitations under the License.
 % %%--------------------------------------------------------------------
 
--module(emqx_connector_redis_SUITE).
+-module(emqx_redis_SUITE).
 
 -compile(nowarn_export_all).
 -compile(export_all).
@@ -29,7 +29,7 @@
 -define(REDIS_SENTINEL_PORT, 26379).
 -define(REDIS_CLUSTER_HOST, "redis-cluster-1").
 -define(REDIS_CLUSTER_PORT, 6379).
--define(REDIS_RESOURCE_MOD, emqx_connector_redis).
+-define(REDIS_RESOURCE_MOD, emqx_redis).
 
 all() ->
     emqx_common_test_helpers:all(?MODULE).
@@ -83,21 +83,21 @@ wait_for_redis(Checks) ->
 
 t_single_lifecycle(_Config) ->
     perform_lifecycle_check(
-        <<"emqx_connector_redis_SUITE_single">>,
+        <<"emqx_redis_SUITE_single">>,
         redis_config_single(),
         [<<"PING">>]
     ).
 
 t_cluster_lifecycle(_Config) ->
     perform_lifecycle_check(
-        <<"emqx_connector_redis_SUITE_cluster">>,
+        <<"emqx_redis_SUITE_cluster">>,
         redis_config_cluster(),
         [<<"PING">>, <<"PONG">>]
     ).
 
 t_sentinel_lifecycle(_Config) ->
     perform_lifecycle_check(
-        <<"emqx_connector_redis_SUITE_sentinel">>,
+        <<"emqx_redis_SUITE_sentinel">>,
         redis_config_sentinel(),
         [<<"PING">>]
     ).

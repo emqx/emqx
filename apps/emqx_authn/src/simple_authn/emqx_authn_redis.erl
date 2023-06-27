@@ -60,11 +60,11 @@ roots() ->
     ].
 
 fields(redis_single) ->
-    common_fields() ++ emqx_connector_redis:fields(single);
+    common_fields() ++ emqx_redis:fields(single);
 fields(redis_cluster) ->
-    common_fields() ++ emqx_connector_redis:fields(cluster);
+    common_fields() ++ emqx_redis:fields(cluster);
 fields(redis_sentinel) ->
-    common_fields() ++ emqx_connector_redis:fields(sentinel).
+    common_fields() ++ emqx_redis:fields(sentinel).
 
 desc(redis_single) ->
     ?DESC(single);
@@ -127,7 +127,7 @@ create(Config0) ->
         {Config, State} ->
             {ok, _Data} = emqx_authn_utils:create_resource(
                 ResourceId,
-                emqx_connector_redis,
+                emqx_redis,
                 Config
             ),
             {ok, State#{resource_id => ResourceId}}
@@ -135,7 +135,7 @@ create(Config0) ->
 
 update(Config0, #{resource_id := ResourceId} = _State) ->
     {Config, NState} = parse_config(Config0),
-    case emqx_authn_utils:update_resource(emqx_connector_redis, Config, ResourceId) of
+    case emqx_authn_utils:update_resource(emqx_redis, Config, ResourceId) of
         {error, Reason} ->
             error({load_config_error, Reason});
         {ok, _} ->

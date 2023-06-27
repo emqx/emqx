@@ -1,7 +1,7 @@
 %%--------------------------------------------------------------------
 %% Copyright (c) 2022-2023 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
--module(emqx_ee_bridge_redis_SUITE).
+-module(emqx_bridge_redis_SUITE).
 
 -compile(nowarn_export_all).
 -compile(export_all).
@@ -233,7 +233,7 @@ t_check_values(_Config) ->
                 end,
                 lists:flatmap(
                     fun maps:to_list/1,
-                    emqx_ee_bridge_redis:conn_bridge_examples(Method)
+                    emqx_bridge_redis:conn_bridge_examples(Method)
                 )
             )
         end,
@@ -411,7 +411,7 @@ conf_schema(StructName) ->
         translations => #{},
         validations => [],
         namespace => undefined,
-        roots => [{root, hoconsc:ref(emqx_ee_bridge_redis, StructName)}]
+        roots => [{root, hoconsc:ref(emqx_bridge_redis, StructName)}]
     }.
 
 delete_all_rules() ->
