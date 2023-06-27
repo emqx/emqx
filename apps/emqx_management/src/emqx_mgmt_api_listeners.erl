@@ -521,7 +521,11 @@ err_msg_str(Reason) ->
     io_lib:format("~p", [Reason]).
 
 list_listeners() ->
-    [list_listeners(Node) || Node <- emqx:running_nodes()].
+    %% prioritize displaying the bind of the current node
+    %% when each node's same type's bind is different.
+    %% e.g: tcp bind on node1 is 1883, but node2 is 1884.
+    Self = node(),
+    lists:map(fun list_listeners/1, [Self | lists:delete(Self, emqx:running_nodes())]).
 
 list_listeners(Node) ->
     wrap_rpc(emqx_management_proto_v2:list_listeners(Node)).
