@@ -86,7 +86,7 @@ fields("prometheus") ->
             )},
         {vm_dist_collector,
             ?HOCON(
-                hoconsc:enum([enabled, disabled]),
+                hoconsc:enum([disabled, enabled]),
                 #{
                     default => disabled,
                     required => true,
