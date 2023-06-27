@@ -135,7 +135,7 @@ log_overload_kill_restart_after.label:
 """Handler Restart Timer"""
 
 log_file_handler_max_size.desc:
-"""This parameter controls log file rotation. The value `infinity` means the log file will grow indefinitely, otherwise the log file will be rotated once it reaches `max_size` in bytes."""
+"""This parameter controls log file rotation. The value `infinity` means the log file will grow indefinitely, otherwise the log file will be rotated once it reaches `rotation_size` in bytes."""
 
 log_file_handler_max_size.label:
 """Rotation Size"""
@@ -389,17 +389,6 @@ cluster_mcast_ttl.desc:
 cluster_mcast_ttl.label:
 """Cluster Multicast TTL"""
 
-db_core_nodes.desc:
-"""List of core nodes that the replicant will connect to.<br/>
-Note: this parameter only takes effect when the <code>backend</code> is set
-to <code>rlog</code> and the <code>role</code> is set to <code>replicant</code>.<br/>
-This value needs to be defined for manual or static cluster discovery mechanisms.<br/>
-If an automatic cluster discovery mechanism is being used (such as <code>etcd</code>),
-there is no need to set this value."""
-
-db_core_nodes.label:
-"""Db Core Node"""
-
 log_file_handler_file.desc:
 """Name the log file."""
 
@@ -514,15 +503,13 @@ cluster_autoclean.label:
 
 process_limit.desc:
 """Maximum number of simultaneously existing processes for this Erlang system.
-The actual maximum chosen may be much larger than the Number passed.
 For more information, see: https://www.erlang.org/doc/man/erl.html"""
 
 process_limit.label:
 """Erlang Process Limit"""
 
 max_ports.desc:
-"""Maximum number of simultaneously existing ports for this Erlang system.
-The actual maximum chosen may be much larger than the Number passed.
+"""Maximum number of simultaneously open files and sockets for this Erlang system.
 For more information, see: https://www.erlang.org/doc/man/erl.html"""
 
 max_ports.label:

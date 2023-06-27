@@ -1,0 +1,32 @@
+## Gateway MQTT-SN
+
+gateway.mqttsn {
+
+    ## When publishing or subscribing, prefix all topics with a mountpoint string.
+    ## It's a way that you can use to implement isolation of message routing between different
+    ## gateway protocols
+    mountpoint = "mqttsn/"
+
+    ## Whether to periodically broadcast ADVERTISE messages
+    broadcast = true
+
+    ## The Gateway ID.
+    ## When the broadcast option is enabled, the gateway will broadcast ADVERTISE message with this value
+    gateway_id = 1
+
+    ## Allows connectionless clients to publish messages with a Qos of -1.
+    ## This feature is defined for very simple client implementations which do not support any other
+    ## features except this one. There is no connection setup nor tear down, no registration nor
+    ## subscription. The client just sends its 'PUBLISH' messages to a GW
+    enable_qos3 = false
+
+    ## The pre-defined topic IDs and topic names
+    predefined = [
+        {id = 1, topic = "predefined/topic1"},
+        {id = 2, topic = "predefined/topic2"}
+    ]
+
+    listeners.udp.default {
+        bind = "0.0.0.0:1884"
+    }
+}

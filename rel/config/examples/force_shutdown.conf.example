@@ -1,0 +1,15 @@
+## Force Shutdown
+##
+## Forced shutdown MQTT clients for overload protection
+
+force_shutdown {
+    ## set 'false' to disable force shutdown feature
+    enable = true
+
+    ## Maximum mailbox size for each Erlang process
+    ## Note: Do not modify this unless you know what this is for
+    max_mailbox_size = 1000
+
+    ## Maximum heap size for each session process
+    max_heap_size = 32MB
+}

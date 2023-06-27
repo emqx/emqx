@@ -1,0 +1,119 @@
+## MQTT protocol related settings
+## Settings in this section is applied globally to all MQTT connections/sessions in this node
+
+mqtt {
+    ## After the TCP connection is established,
+    ## if the MQTT CONNECT packet from the client is not received within the time specified by idle_timeout, the connection will be disconnected
+    ## Type:
+    ##   - infinity :: Never disconnect
+    ##   - Time Duration :: The idle time
+    idle_timeout = 15s
+
+    ## Maximum MQTT packet size allowed
+    max_packet_size = 1MB
+
+    ## Maximum allowed length of MQTT Client ID
+    ## Type: Rnage from 23 to 65535
+    max_clientid_len = 65535
+
+    ## Maximum topic levels allowed
+    ## Type: Range from 1 to 65535
+    max_topic_levels = 128
+
+    ## Maximum QoS allowed
+    max_qos_allowed = 2
+
+    ## Maximum topic alias, 0 means no topic alias supported
+    ## Type: Range from 0 to 65535
+    max_topic_alias = 65535
+
+    ## Whether to enable support for MQTT retained message
+    retain_available = true
+
+    ## Whether to enable support for MQTT wildcard subscription
+    wildcard_subscription = true
+
+    ## Whether to enable support for MQTT shared subscription
+    shared_subscription = true
+
+    ## Whether to enable support for MQTT exclusive subscription
+    exclusive_subscription = false
+
+    ## Ignore loop delivery of messages for MQTT v3.1.1/v3.1.0, similar to No Local subscription option in MQTT 5.0
+    ignore_loop_deliver = false
+
+    ## Parse MQTT messages in strict mode.
+    ## When set to true, invalid utf8 strings in for example client ID, topic name, etc. will cause the client to be disconnected
+    strict_mode = false
+
+    ## Specify the response information returned to the client
+    response_information  = ""
+
+    ## The keep alive that EMQX requires the client to use
+    ## Type:
+    ##   - disabled :: the keep alive specified by the client will be used
+    ##   - Integer :: Keepalive time, only applicable to clients using MQTT 5.0 protocol
+    server_keepalive = disabled
+
+    ## Keep-Alive Timeout = Keep-Alive interval × Keep-Alive Multiplier
+    keepalive_multiplier = 1.5
+
+    ## Maximum number of subscriptions allowed per client
+    ## Type: infinity | Integer
+    max_subscriptions = infinity
+
+    ## Force upgrade of QoS level according to subscription
+    upgrade_qos = false
+
+    ## Maximum number of QoS 1 and QoS 2 messages that are allowed to be delivered simultaneously before completing the acknowledgment
+    ## Type: Range from 1 to 65535
+    max_inflight = 32
+
+    ## Retry interval for QoS 1/2 message delivering
+    retry_interval = 30s
+
+    ## For each publisher session, the maximum number of outstanding QoS 2 messages pending on the client to send PUBREL
+    ## Type: infinity | Integer
+    max_awaiting_rel = 100
+
+    ## For client to broker QoS 2 message, the time limit for the broker to wait before the PUBREL message is received
+    await_rel_timeout = 300s
+
+    ## Specifies how long the session will expire after the connection is disconnected, only for non-MQTT 5.0 connections
+    session_expiry_interval = 2h
+
+    ## Maximum queue length. Enqueued messages when persistent client disconnected, or inflight window is full
+    ## Type: infinity | Integer
+    max_mqueue_len = 1000
+
+    ## Specifies whether to store QoS 0 messages in the message queue while the connection is down but the session remains
+    mqueue_store_qos0 = true
+
+    ## Whether to user Client ID as Username
+    use_username_as_clientid = false
+
+    ## Use the CN, DN field in the peer certificate or the entire certificate content as Username
+    ## Type:
+    ##   - disabled
+    ##   - cn :: CN field of the certificate
+    ##   - dn :: DN field of the certificate
+    ##   - crt :: the content of the DER or PEM certificate
+    ##   - pem :: PEM format content converted from DER certificate content
+    ##   - md5 :: the MD5 value of the content of the DER or PEM certificate
+    peer_cert_as_username = disabled
+
+    ## Use the CN, DN field in the peer certificate or the entire certificate content as Client ID
+    ## Type: See the above
+    peer_cert_as_clientid = disabled
+
+    ## Dispatch strategy for shared subscription
+    ## Type:
+    ##   - random :: dispatch the message to a random selected subscriber
+    ##   - round_robin :: select the subscribers in a round-robin manner
+    ##   - round_robin_per_group :: select the subscribers in round-robin fashion within each shared subscriber group
+    ##   - local :: select random local subscriber otherwise select random cluster-wide
+    ##   - sticky :: always use the last selected subscriber to dispatch, until the subscriber disconnects.
+    ##   - hash_clientid :: select the subscribers by hashing the `clientIds`
+    ##   - hash_topic :: select the subscribers by hashing the source topic"""
+    shared_subscription_strategy = round_robin
+}

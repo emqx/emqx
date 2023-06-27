@@ -1,0 +1,37 @@
+## Dashboard on HTTP
+##
+## Configure HTTP for EMQX dashboard
+
+dashboard {
+    ## JWT token expiration time
+    token_expired_time = 60m
+
+    ## Support Cross-Origin Resource Sharing (CORS)
+    cors = false
+
+    listeners.http {
+        ## Port or Address to listen on, 0 means disable
+        bind = "0.0.0.0:18083" ## or just a port number, e.g. 18083
+
+        ## Socket acceptor pool size for TCP protocols
+        num_acceptors = 8
+
+        ## Maximum number of simultaneous connections
+        max_connections = 512
+
+        ## Defines the maximum length that the queue of pending connections can grow to
+        backlog = 1024
+
+        ## Send timeout for the socket
+        send_timeout = 10s
+
+        ## Enable IPv6 support, default is false, which means IPv4 only
+        inet6 = false
+
+        ## Disable IPv4-to-IPv6 mapping for the listener
+        ipv6_v6only = false
+
+        ## Enable support for `HAProxy` header
+        proxy_header = false
+    }
+}

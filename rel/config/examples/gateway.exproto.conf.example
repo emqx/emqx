@@ -1,0 +1,25 @@
+## Gateway Exproto
+
+gateway.exproto {
+
+    ## When publishing or subscribing, prefix all topics with a mountpoint string.
+    ## It's a way that you can use to implement isolation of message routing between different
+    ## gateway protocols
+    mountpoint = "exproto/"
+
+    ## Configurations for starting the ConnectionAdapter service
+    server {
+        bind = "0.0.0.0:9100"
+        ssl_options {verify = "verify_none"}
+    }
+
+    ## Configurations for request to ConnectionHandler service
+    handler {
+        address = "http://127.0.0.1:9001"
+        ssl_options {enable = false}
+    }
+
+    listeners.tcp.default {
+        bind = "0.0.0.0:7993"
+    }
+}

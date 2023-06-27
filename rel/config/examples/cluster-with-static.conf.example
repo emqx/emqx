@@ -1,0 +1,15 @@
+## Cluster discovery via static seed nodes
+
+cluster {
+    ## Human-friendly name of the EMQX cluster.
+    name = emqxcl
+
+    ## Service discovery method for the cluster nodes
+    discovery_strategy = static
+
+    ## If true, the node will try to heal network partitions automatically
+    autoheal = true
+
+    ## List EMQX node names in the static cluster
+    static.seeds = ["emqx1@192.168.0.1", "emqx2@192.168.0.2"]
+ }

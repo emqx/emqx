@@ -1,0 +1,25 @@
+## Cluster discovery using 'etcd' service
+## Connect to etcd over plain TCP (not TLS)
+
+cluster {
+    ## Human-friendly name of the EMQX cluster.
+    name = emqxcl
+
+    ## Service discovery method for the cluster nodes
+    discovery_strategy = etcd
+
+    ## If true, the node will try to heal network partitions automatically
+    autoheal = true
+
+    etcd {
+      ## List of endpoint URLs of the etcd cluster
+      ## Type: Comma Separated String
+      server = "http://ur1,http://ur2"
+
+      ## Key prefix used for EMQX service discovery
+      prefix = emqxcl
+
+      ## Expiration time of the etcd key associated with the node
+      node_ttl = 1m
+    }
+}

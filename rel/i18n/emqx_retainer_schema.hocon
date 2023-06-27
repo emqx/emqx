@@ -34,11 +34,11 @@ mnesia_config_type.desc:
 """Backend type."""
 
 msg_clear_interval.desc:
-"""Periodic interval for cleaning up expired messages.
-Never clear if the value is 0."""
+"""Interval for EMQX to scan expired messages and delete them. Never scan if the value is 0."""
 
 msg_expiry_interval.desc:
-"""Message retention time. 0 means message will never be expired."""
+"""Message retention time. This config is only applicable for messages without the Message Expiry Interval message property.
+0 means message will never expire."""
 
 stop_publish_clear_msg.desc:
 """When the retained flag of the `PUBLISH` message is set and Payload is empty,

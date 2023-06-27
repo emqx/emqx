@@ -1,0 +1,50 @@
+## gRPC Hook Extension
+##
+## Allows users to provide hook callbacks over gRPC for EMQX message lifecycle events.
+
+exhook.servers = [
+    {
+        ## Name of the exhook server
+        name = "server_1"
+
+        ## Feature switch
+        enable = false
+
+        ## URL of gRPC server
+        url = "http://127.0.0.1:9090"
+
+        ## The timeout of request gRPC server
+        request_timeout = 5s
+
+        ## This value will be returned when the request to the gRPC server fails for any reason
+        ## Type:
+        ## - deny :: stop to execute this hook.
+        ## - ignore :: continue to execute this hook
+        failed_action = deny
+
+        ## Interval of automatically reconnecting the gRPC server when the connection is broken
+        ## Type:
+        ## - false :: Never reconnect
+        ## - Time Duration, e.g.15s, 10m, 1h :: Reconnecting Interval
+        auto_reconnect = 60s
+
+        ## The process pool size for gRPC client
+        pool_size = 8
+
+        ## Connection socket options
+        socket_options {
+            ## Whether periodic transmission on a connected socket when no other data is exchanged
+            keepalive = true
+
+            ## TCP_NODELAY switch
+            nodelay = true
+
+            ## The minimum size of receive buffer to use for the socket
+            recbuf = "64KB"
+
+            ## The minimum size of send buffer to use for the socket
+            sndbuf = "16KB"
+        }
+    },
+    {name = "server_2", url = "http://127.0.0.1:9091"}
+]

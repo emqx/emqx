@@ -1,0 +1,70 @@
+## MQTT over TCP Listener
+
+listeners.tcp.my_tcp_listener_name {
+    ## Port or Address to listen on, 0 means disable
+    bind = 1883 ## or with an IP e.g. "127.0.0.1:1883"
+
+    ## Enable the Proxy Protocol V1/2 if the EMQX cluster is deployed behind HAProxy or Nginx
+    proxy_protocol = false
+
+    ## Timeout for proxy protocol
+    proxy_protocol_timeout = 8
+
+    ## When publishing or subscribing, prefix all topics with a mountpoint string
+    mountpoint = "mqtt" ## Do not set this unless you know what is it for
+
+    ## Client authentication
+    ## Type:
+    ##   - true :: enable
+    ##   - false :: disable
+    ##   - quick_deny_anonymous :: denied immediately without if username is not provided
+    enable_authn = true
+
+    ## The access control rules for this listener
+    ## Type: See: https://github.com/emqtt/esockd#allowdeny
+    access_rules = ["allow all"]
+
+    ## Socket acceptor pool size for TCP protocols
+    acceptors = 16
+
+    ## Maximum number of simultaneous connections
+    ## Type: infinity | Integer
+    max_connections = infinity
+
+    tcp_options {
+        ## TCP backlog defines the maximum length that the queue of pending connections can grow to
+        backlog = 1024
+
+        ## The TCP send timeout for the connections
+        send_timeout = 15s
+
+        ## Timeout for proxy protocol
+        send_timeout_close = true
+
+        ## The TCP receive buffer (OS kernel) for the connections
+        recbuf = 2KB
+
+        ## The TCP send buffer (OS kernel) for the connections
+        sndbuf = 4KB
+
+        ## The size of the user-space buffer used by the driver
+        buffer = 4KB
+
+        ## The socket is set to a busy state when the amount of data queued internally by the VM socket implementation reaches this limit
+        high_watermark = 1MB
+
+        ## The TCP_NODELAY flag for the connections
+        nodelay = true
+
+        ## The SO_REUSEADDR flag for the connections
+        reuseaddr = true
+
+        ## Enable TCP keepalive for MQTT connections over TCP or SSL
+        ## Type: three comma separated numbers in the format of 'Idle,Interval,Probes'
+        ##    - Idle: The number of seconds a connection needs to be idle before the server begins to send out keep-alive probes (Linux default 7200).
+        ##    - Interval: The number of seconds between TCP keep-alive probes (Linux default 75).
+        ##    - Probes: The maximum number of TCP keep-alive probes to send before giving up and killing the connection if no response is obtained from the other end (Linux default 9).
+        ## For example "240,30,5" means: EMQX should start sending TCP keepalive probes after the connection is in idle for 240 seconds, and the probes are sent every 30 seconds until a response is received from the MQTT client, if it misses 5 consecutive responses, EMQX should close the connection
+        keepalive = "none"
+    }
+}

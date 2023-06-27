@@ -1,0 +1,21 @@
+## Log to console
+
+log.console {
+    ## set true to enable this
+    enable = false
+
+    ## Log level
+    ## Type: debug | info | notice | warning | error | critical | alert | emergency
+    level = warning
+
+    ## Log formatter, text for free text, and json for structured logging
+    ## Type: text | json
+    formatter = text
+
+    ## Time offset for formatting the timestamp
+    ## Type:
+    ##   - system :: local system time
+    ##   - utc :: UTC time
+    ##   - +-[hh]:[mm]: user specified time offset, such as "-02:00" or "+00:00" Defaults to: system
+    time_offset = system
+}

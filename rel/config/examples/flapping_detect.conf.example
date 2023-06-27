@@ -1,0 +1,17 @@
+## Flapping Detect
+##
+## Ban the client when the times of connections exceed the limit in the configured time window
+
+flapping_detect {
+    ## use 'true' to enable this feature
+    enable = false
+
+    ## Time window for flapping detection
+    window_time = 1m
+
+    ## Maximum number of connects allowed for a MQTT Client in window_time
+    max_count = 15
+
+    ## How long the flapping clientid will be banned
+    ban_time = 5m
+}

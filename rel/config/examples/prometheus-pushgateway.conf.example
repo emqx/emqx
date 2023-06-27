@@ -1,0 +1,28 @@
+## Prometheus push-gateway integration
+
+## EMQX's Prometheus scraping endpoint is enabled by default without authentication.
+## e.g. curl -f "127.0.0.1:18083/api/v5/prometheus/stats"
+## If you want to use push-gateway
+
+prometheus {
+    ## Set to true to make EMQX send metrics to push-gateway
+    enable = false
+
+    ## URL of push-gateway server
+    push_gateway_server = "http://127.0.0.1:9091"
+
+    ## Data push interval
+    interval = 15s
+
+    ## A HTTP Headers when pushing to Push-gateway
+    headers = {
+        Authorization = "some-authz-tokens",
+        Connection = "keep-alive"
+    }
+
+    ## Job Name that is pushed to the Push-gateway
+    ## Available variable:
+    ## - ${name}: Name of EMQX node
+    ## - ${host}: Host name of EMQX node
+    job_name = "${name}/instance/${name}~${host}"
+}

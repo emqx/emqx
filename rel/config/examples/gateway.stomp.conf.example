@@ -1,0 +1,24 @@
+## Gateway STOMP
+
+gateway.stomp {
+
+    ## When publishing or subscribing, prefix all topics with a mountpoint string.
+    ## It's a way that you can use to implement isolation of message routing between different
+    ## gateway protocols
+    mountpoint = "stomp/"
+
+    frame {
+        ## The maximum number of Header
+        max_headers = 10
+
+        ## The maximum string length of the Header name and value.
+        max_headers_length = 1024
+
+        ## The Maximum number of bytes of Body allowed per Stomp packet.
+        max_body_length = 65536
+    }
+
+    listeners.tcp.default {
+        bind = "0.0.0.0:61613"
+    }
+}

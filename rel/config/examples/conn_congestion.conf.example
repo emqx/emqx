@@ -1,0 +1,11 @@
+## Connection Congestion
+##
+## Emit alarms when MQTT connection congested
+
+conn_congestion {
+    ## Enable or disable connection congestion alarm
+    enable_alarm = true
+
+    ## Minimal time before clearing the alarm
+    min_alarm_sustain_duration = 1m
+}

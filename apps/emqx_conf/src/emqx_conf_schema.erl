@@ -154,6 +154,8 @@ fields("cluster") ->
             sc(
                 node_array(),
                 #{
+                    %% This config is nerver needed (since 5.0.0)
+                    importance => ?IMPORTANCE_HIDDEN,
                     mapping => "mria.core_nodes",
                     default => [],
                     'readOnly' => true,

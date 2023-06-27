@@ -1,0 +1,56 @@
+## Gateway LwM2M
+
+gateway.lwm2m {
+
+    ## When publishing or subscribing, prefix all topics with a mountpoint string.
+    ## It's a way that you can use to implement isolation of message routing between different
+    ## gateway protocols
+    mountpoint = "lwm2m/"
+
+    ## The Directory for LwM2M Resource definition.
+    xml_dir = "etc/lwm2m_xml/"
+
+    ## Automatically observe the object list of REGISTER packet.
+    auto_observe = false
+
+    ## Minimum value of lifetime allowed to be set by the LwM2M client.
+    lifetime_min = 1s
+
+    ## Maximum value of lifetime allowed to be set by the LwM2M client.
+    lifetime_max = 86400s
+
+    ## The value of the time window during which the network link is considered valid by
+    ## the LwM2M Gateway in QMode mode.
+    qmode_time_window = 22s
+
+    ## Topic configuration for LwM2M's gateway publishing and subscription.
+    translators {
+        ## The topic for receiving downstream commands.
+        ## For each new LwM2M client that succeeds in going online, the gateway creates a
+        ## subscription relationship to receive downstream commands and send it to the LwM2M client
+        command { topic = "dn/#" }
+
+        ## The topic for gateway to publish the notify events from LwM2M client.
+        ## After succeed observe a resource of LwM2M client, Gateway will send the notify events
+        ## via this topic, if the client reports any resource changes
+        notify { topic = "up/notify" }
+
+        ## The topic for gateway to publish the register events from LwM2M client.
+        register { topic = "up/register" },
+
+        ## The topic for gateway to publish the acknowledge events from LwM2M client.
+        response { topic = "up/resp" },
+
+        ## The topic for gateway to publish the update events from LwM2M client.
+        update { topic = "up/resp" }
+    }
+
+    ## Policy for publishing UPDATE event message.<br/>
+    ##  - always: send update events as long as the UPDATE request is received.<br/>
+    ##  - contains_object_list: send update events only if the UPDATE request carries any Object List"""
+    update_msg_publish_condition = always
+
+    listeners.udp.default {
+        bind = "0.0.0.0:5784"
+    }
+}

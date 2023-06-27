@@ -1,0 +1,32 @@
+##--------------------------------------------------------------------
+## Retainer
+##
+## Configuration related to handling PUBLISH packets with a retain flag set to 1
+##--------------------------------------------------------------------
+
+retainer {
+    ## set to false to disable retainer
+    enable = true
+
+    ## Maximum message size allowed
+    max_payload_size = 1MB
+
+    ## When the retained flag of the PUBLISH message is set and Payload is empty, whether to continue to publish the message
+    stop_publish_clear_msg = false
+
+    ## Maximum retained messages delivery rate per session
+    deliver_rate = "1000/s"
+
+    ## Retained messages store backend
+    backend {
+      ## Built-in database (Mnesia)
+      type = built_in_database
+
+      ## Specifies whether the messages are stored in RAM or persisted on disk
+      ## Type: enum: ram | disc
+      storage_type = ram
+
+      ## Maximum number of retained messages. 0 means no limit
+      max_retained_messages = 0
+     }
+ }

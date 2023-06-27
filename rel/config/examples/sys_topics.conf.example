@@ -1,0 +1,20 @@
+## System Topic
+## Publishing client lifecycle events to "$SYS" topics
+
+sys_topics {
+    ## Time interval of publishing `$SYS` messages
+    sys_msg_interval = 1m
+
+    ## Time interval for publishing following heartbeat messages:
+    ##   - `$SYS/brokers/<node>/uptime`
+    ##   - `$SYS/brokers/<node>/datetime`
+    sys_heartbeat_interval = 30s
+
+    ## Client events messages toggle
+    sys_event_messages = {
+        client_connected = true
+        client_disconnected = true
+        client_subscribed = false
+        client_unsubscribed = false
+    }
+}

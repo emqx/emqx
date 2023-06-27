@@ -1,0 +1,36 @@
+## System Monitoring For Erlang VM
+
+sysmon.vm {
+    ## Time interval for the periodic process limit check
+    process_check_interval = 30s
+
+    ## For how many processes can simultaneously exist at the local node before the corresponding alarm is raised
+    process_high_watermark = 80%
+
+    ## For how many processes can simultaneously exist at the local node before the corresponding alarm is cleared
+    process_low_watermark = 60%
+
+    ## Generated an alarm when an Erlang process spends a long time to perform garbage collection
+    ## Type:
+    ##   - disabled :: Never alarm
+    ##   - Time During :: The maximum GC time for generating an alarm
+    long_gc = 100ms
+
+    ## Generating an alarm is generated when the Erlang VM detect a task scheduled for too long
+    ## Type:
+    ##   - disabled :: Never alarm
+    ##   - Duration:: The maximum schedule time for generating an alarm
+    long_schedule = 240ms
+
+    ## Generating an alarm when an Erlang process consumed a large amount of memory for its heap space
+    ## Type:
+    ##   - disabled :: Never alarm
+    ##   - ByteSize :: The maximum heap size for generating an alarm
+    large_heap = 32MB
+
+    ## Generating an alarm when the RPC connection is overloaded
+    busy_dist_port = true
+
+    ## Generating an alarm when a port (e.g. TCP socket) is overloaded
+    busy_port = true
+}

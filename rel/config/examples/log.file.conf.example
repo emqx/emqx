@@ -1,0 +1,31 @@
+## Log to file
+
+log.file {
+    ## Enable file log handler
+    enable = true
+
+    ## Log level
+    ## Type: debug | info | notice | warning | error | critical | alert | emergency
+    level = warning
+
+    ## Log formatter, text for free text, and json for more structured logging
+    ## Type: text | json
+    formatter = text
+
+    ## Time offset for formatting the timestamp
+    ## Type:
+    ##   - system :: local system time
+    ##   - utc :: UTC time
+    ##   - +-[hh]:[mm]: user specified time offset, such as "-02:00" or "+00:00" Defaults to: system
+    time_offset = system
+
+    ## Maximum number of log files
+    ## Type: Range from 1 to 128
+    rotation_count = 10
+
+    ## This parameter controls log file rotation
+    ## Type:
+    ##  - infinity :: the log file will grow indefinitely
+    ##  - ByteSize :: the log file will be rotated once it reaches this value in bytes
+    rotation_size = 50MB
+}

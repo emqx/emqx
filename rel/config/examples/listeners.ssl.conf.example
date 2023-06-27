@@ -1,0 +1,80 @@
+## MQTT over TLS(SSL) Listener
+
+listeners.ssl.my_ssl_listener_name {
+    ## Port or Address to listen on, 0 means disable
+    bind = 8883 ## or with an IP e.g. "127.0.0.1:8883"
+    enabled = true
+    acceptors = 16
+    enable_authn = true
+    max_connections = infinity
+    mountpoint = ""
+    proxy_protocol = false
+    proxy_protocol_timeout = 3s
+    tcp_options {
+        active_n = 100
+        backlog = 1024
+        buffer = 4KB
+        high_watermark = 1MB
+        keepalive = none
+        nodelay = true
+        reuseaddr = true
+        send_timeout = 15s
+        send_timeout_close = true
+    }
+    ssl_options {
+        ## Trusted PEM format CA certificates bundle file
+        cacertfile = "${EMQX_ETC_DIR}/certs/cacert.pem"
+
+        ## PEM format certificates chain file
+        certfile = "${EMQX_ETC_DIR}/certs/cert.pem"
+
+        ## PEM format private key file
+        keyfile = "${EMQX_ETC_DIR}/certs/key.pem"
+
+        ## Enable or disable peer verification
+        verify = verify_none  ## use verify_peer to enable
+
+        ## if `verify' is enabled, whit true, the connection fails if the client does not have a certificate to send
+        fail_if_no_peer_cert = false
+
+        ## Enable TLS session reuse
+        reuse_sessions = true
+
+        ## Maximum number of non-self-issued intermediate certificates that can follow the peer certificate in a valid certification path
+        depth = 10
+
+        ## Which versions are to be supported
+        versions = [tlsv1.3, tlsv1.2]
+
+        ## TLS cipher suite names
+        ## Note: By default, all available suites are supported, you do not need to set this
+        ciphers = "TLS_AES_256_GCM_SHA384,TLS_AES_128_GCM_SHA256,ECDHE-RSA-AES256-GCM-SHA384"
+
+        ## Allows a client and a server to renegotiate the parameters of the SSL connection on the fly
+        secure_renegotiate = true
+
+        ## Log level for SSL communication
+        ## Type: emergency | alert | critical | error | warning | notice | info | debug | none | all
+        log_level = notice
+
+        ## Hibernate the SSL process after idling for amount of time reducing its memory footprint
+        hibernate_after = 5s
+
+        ## Forces the cipher to be set based on the server-specified order instead of the client-specified order
+        honor_cipher_order = true
+
+        ##  Setting this to false to disable client-initiated renegotiation
+        client_renegotiation = true
+
+        ## Maximum time duration allowed for the handshake to complete
+        handshake_timeout = 15s
+
+        ocsp {
+             enable_ocsp_stapling = false
+             responder_url = "http://ocsp.example.com"
+             issuer_pem = "${EMQX_ETC_DIR}/certs/ocsp-issuer-cert.pem"
+             refresh_http_timeout = 15s
+             refresh_interval = 5m
+        }
+    }
+}

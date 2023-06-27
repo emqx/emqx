@@ -3271,7 +3271,19 @@ tombstone() ->
 tombstone_map(Name, Type) ->
     %% marked_for_deletion must be the last member of the union
     %% because we need to first union member to populate the default values
-    map(Name, ?UNION([Type, ?TOMBSTONE_TYPE])).
+    map(
+        Name,
+        hoconsc:union(
+            fun
+                (all_union_members) ->
+                    [Type, ?TOMBSTONE_TYPE];
+                ({value, V}) when is_map(V) ->
+                    [Type];
+                ({value, _}) ->
+                    [?TOMBSTONE_TYPE]
+            end
+        )
+    ).
 
 %% inverse of mark_del_map
 get_tombstone_map_value_type(Schema) ->

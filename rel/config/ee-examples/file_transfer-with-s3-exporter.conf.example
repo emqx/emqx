@@ -1,0 +1,64 @@
+## File Transfer over MQTT
+##
+## Enables the File Transfer over MQTT feature
+## Note: This configuration is only applicable for EMQX Enterprise edition 5.1 or later.
+
+file_transfer {
+    ## Enable the File Transfer feature
+    enable = true
+
+    ## Storage backend settings
+    storage {
+        ## Local file system backend setting
+        ## Currently, it's the only available storage backend.
+        local {
+            ## Enable the backend
+            enable = true
+
+            ## Segments and temporary files storage settings
+            segments {
+                ## Directory where these files are stored
+                root = "/var/lib/emqx/transfers/segments"
+
+                ## Garbage collection settings
+                gc {
+                    ## How often to run GC
+                    interval = 1h
+
+                    ## Maximum time to keep parts of incomplete transfers for
+                    maximum_segments_ttl = 24h
+                }
+            }
+
+            ## S3-compatible object storage exporter
+            exporter.s3 {
+
+                ## Disable the backend
+                ## Note: Only one backend may be enabled at a time.
+                enable = true
+
+                ## Endpoint of S3 API of the object storage service of your choice
+                host = "s3.us-east-1.amazonaws.com"
+                port = 443
+
+                ## Credentials to use to authorize with the S3 API
+                access_key_id = "AKIA27EZDDM9XLINWXFE"
+                secret_access_key = "******"
+
+                ## Which bucket to store transferred files in?
+                bucket = "my-bucket"
+
+                ## TTL of file download URLs exposed through File Transfer API
+                url_expire_time = 1h
+
+                ## Enable the HTTPS
+                transport_options {
+                    ssl.enable = true
+
+                    ## Timeout for connection attempts
+                    connect_timeout = 15s
+               }
+           }
+        }
+    }
+}

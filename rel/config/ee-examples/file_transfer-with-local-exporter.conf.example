@@ -1,0 +1,44 @@
+## File Transfer over MQTT exporting files to local file system
+##
+## NOTE: This configuration is only applicable in EMQX Enterprise edition 5.1 or later.
+
+file_transfer {
+    ## Enable the File Transfer feature
+    enable = true
+
+    ## Storage backend settings
+    storage {
+        ## Local file system backend setting
+        ## Currently, it's the only available storage backend.
+        local {
+            ## Enable the backend
+            enable = true
+
+            ## Segments and temporary files storage settings
+            segments {
+                ## Directory where these files are stored
+                root = "/var/lib/emqx/transfers/segments"
+
+                ## Garbage collection settings
+                gc {
+                    ## How often to run GC
+                    interval = 1h
+
+                    ## Maximum time to keep parts of incomplete transfers for
+                    maximum_segments_ttl = 24h
+                }
+            }
+
+            ## Local filesystem exporter
+            exporter.local {
+
+                ## Enable the backend
+                ## Note: Only one backend may be enabled at a time
+                enable = true
+
+                ## Directory in the local file system where to store transferred files
+                root = "/var/lib/emqx/transfers/exports"
+            }
+        }
+    }
+}

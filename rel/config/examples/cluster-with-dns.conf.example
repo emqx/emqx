@@ -1,0 +1,21 @@
+## Cluster discovery via DNS resolution
+
+cluster {
+    ## Human-friendly name of the EMQX cluster.
+    name = emqxcl
+
+    ## Service discovery method for the cluster nodes
+    discovery_strategy = dns
+
+    ## If true, the node will try to heal network partitions automatically
+    autoheal = true
+
+    dns {
+      ## The domain name from which to discover peer EMQX nodes' IP addresses
+      name = localhost
+
+      ## DNS record type
+      ## Type: enum: a | srv
+      record_type = a
+     }
+ }

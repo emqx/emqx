@@ -1,0 +1,94 @@
+## MQTT over Secured Websocket (HTTPS) Listener
+
+listeners.wss.my_wss_listener_name = {
+    ## Port or Address to listen on, 0 means disable
+    bind = 8084 ## or with an IP, e.g. "127.0.0.1:8084"
+    enabled = true
+    enable_authn = true
+    max_connections = infinity
+    proxy_protocol = false
+    proxy_protocol_timeout = 3s
+    mountpoint = ""
+    tcp_options {
+        active_n = 100
+        backlog = 1024
+        buffer = 4KB
+        high_watermark = 1MB
+        keepalive = none
+        nodelay = true
+        reuseaddr = true
+        send_timeout = 15s
+        send_timeout_close = true
+      }
+      websocket {
+        allow_origin_absence = true
+        check_origin_enable = false
+        check_origins = "http://localhost:18083, http://127.0.0.1:18083"
+        compress = false
+        deflate_opts {
+          client_context_takeover = "takeover"
+          client_max_window_bits = 15
+          mem_level = 8
+          server_context_takeover = "takeover"
+          server_max_window_bits = 15
+          strategy = "default"
+        }
+        fail_if_no_subprotocol = true
+        idle_timeout = "7200s"
+        max_frame_size = "infinity"
+        mqtt_path = "/mqtt"
+        mqtt_piggyback = "multiple"
+        proxy_address_header = "x-forwarded-for"
+        proxy_port_header = "x-forwarded-port"
+        supported_subprotocols = "mqtt, mqtt-v3, mqtt-v3.1.1, mqtt-v5"
+      }
+
+    ssl_options {
+        ## Trusted PEM format CA certificates bundle file
+        cacertfile = "data/certs/cacert.pem"
+
+        ## PEM format certificates chain file
+        certfile = "data/certs/cert.pem"
+
+        ## PEM format private key file
+        keyfile = "data/certs/key.pem"
+
+        ## Enable or disable peer verification
+        verify = verify_none  ## use verify_peer to enable
+
+        ## if `verify' is enabled, whit true, the connection fails if the client does not have a certificate to send
+        fail_if_no_peer_cert = false
+
+        ## Enable TLS session reuse
+        reuse_sessions = true
+
+        ## Maximum number of non-self-issued intermediate certificates that can follow the peer certificate in a valid certification path
+        depth = 10
+
+        ## Which versions are to be supported
+        versions = ["tlsv1.3", "tlsv1.2"]
+
+        ## TLS cipher suite names
+        ## Note: By default, all available suites are supported, you do not need to set this
+        ciphers = "TLS_AES_256_GCM_SHA384,TLS_AES_128_GCM_SHA256,ECDHE-RSA-AES256-GCM-SHA384"
+
+        ## Allows a client and a server to renegotiate the parameters of the SSL connection on the fly
+        secure_renegotiate = true
+
+        ## Log level for SSL communication
+        ## Type: emergency | alert | critical | error | warning | notice | info | debug | none | all
+        log_level = notice
+
+        ## Hibernate the SSL process after idling for amount of time reducing its memory footprint
+        hibernate_after = 5s
+
+        ## Forces the cipher to be set based on the server-specified order instead of the client-specified order
+        honor_cipher_order = true
+
+        ##  Setting this to false to disable client-initiated renegotiation
+        client_renegotiation = true
+
+        ## Maximum time duration allowed for the handshake to complete
+        handshake_timeout = 15s
+    }
+}

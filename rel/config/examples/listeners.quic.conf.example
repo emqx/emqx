@@ -1,0 +1,40 @@
+## MQTT over QUIC Listener
+
+listeners.quic.my_quick_listener_name {
+    ## Port or Address to listen on, 0 means disable
+    bind = 14567 ## or with an IP, e.g. "127.0.0.1:14567"
+
+    ## When publishing or subscribing, prefix all topics with a mountpoint string
+    mountpoint = "${clientid}/msg"
+
+    ## Client authentication
+    ## Type:
+    ##   - true :: enable
+    ##   - false :: disable
+    ##   - quick_deny_anonymous :: denied immediately without if username is not provided
+    enable_authn = true
+
+    ## Socket acceptor pool size for TCP protocols
+    acceptors = 16
+
+    ## Maximum number of simultaneous connections
+    ## Type: infinity | Integer
+    max_connections = infinity
+
+    ## TLS v1.3 exclusive cipher suite names
+    ciphers = "TLS_AES_256_GCM_SHA384,TLS_AES_128_GCM_SHA256,TLS_CHACHA20_POLY1305_SHA256"
+
+    ssl_options {
+        ## Trusted PEM format CA certificates bundle file
+        cacertfile = "data/certs/cacert.pem"
+
+        ## PEM format certificates chain file
+        certfile = "data/certs/cert.pem"
+
+        ## PEM format private key file
+        keyfile = "data/certs/key.pem"
+
+        ## Enable or disable peer verification
+        verify = verify_none ## to verify_peer to enable
+    }
+}

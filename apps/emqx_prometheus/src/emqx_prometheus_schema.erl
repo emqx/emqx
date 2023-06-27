@@ -86,61 +86,67 @@ fields("prometheus") ->
             )},
         {vm_dist_collector,
             ?HOCON(
-                hoconsc:enum([enabled, disabled]),
+                hoconsc:enum([disabled, enabled]),
                 #{
-                    default => enabled,
+                    default => disabled,
                     required => true,
-                    importance => ?IMPORTANCE_HIDDEN,
+                    importance => ?IMPORTANCE_LOW,
                     desc => ?DESC(vm_dist_collector)
                 }
             )},
+        %% Mnesia metrics mainly using mnesia:system_info/1
         {mnesia_collector,
             ?HOCON(
                 hoconsc:enum([enabled, disabled]),
                 #{
                     default => enabled,
                     required => true,
-                    importance => ?IMPORTANCE_HIDDEN,
+                    importance => ?IMPORTANCE_LOW,
                     desc => ?DESC(mnesia_collector)
                 }
             )},
+        %% Collects Erlang VM metrics using erlang:statistics/1.
         {vm_statistics_collector,
             ?HOCON(
                 hoconsc:enum([enabled, disabled]),
                 #{
                     default => enabled,
                     required => true,
-                    importance => ?IMPORTANCE_HIDDEN,
+                    importance => ?IMPORTANCE_LOW,
                     desc => ?DESC(vm_statistics_collector)
                 }
             )},
+        %% Collects Erlang VM metrics using erlang:system_info/1.
         {vm_system_info_collector,
             ?HOCON(
                 hoconsc:enum([enabled, disabled]),
                 #{
                     default => enabled,
                     required => true,
-                    importance => ?IMPORTANCE_HIDDEN,
+                    importance => ?IMPORTANCE_LOW,
                     desc => ?DESC(vm_system_info_collector)
                 }
             )},
+        %% Collects information about memory dynamically allocated by the Erlang VM using erlang:memory/0,
+        %% it also provides basic (D)ETS statistics.
         {vm_memory_collector,
             ?HOCON(
                 hoconsc:enum([enabled, disabled]),
                 #{
                     default => enabled,
                     required => true,
-                    importance => ?IMPORTANCE_HIDDEN,
+                    importance => ?IMPORTANCE_LOW,
                     desc => ?DESC(vm_memory_collector)
                 }
             )},
+        %% Collects microstate accounting metrics using erlang:statistics(microstate_accounting).
         {vm_msacc_collector,
             ?HOCON(
                 hoconsc:enum([enabled, disabled]),
                 #{
                     default => enabled,
                     required => true,
-                    importance => ?IMPORTANCE_HIDDEN,
+                    importance => ?IMPORTANCE_LOW,
                     desc => ?DESC(vm_msacc_collector)
                 }
             )}

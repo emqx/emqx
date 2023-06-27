@@ -1,0 +1,66 @@
+## MQTT over WebSocket (HTTP) Listener
+
+listeners.ws.my_ws_listener_name {
+    ## Port or Address to listen on, 0 means disable
+    bind = "0.0.0.0:8083" # or just a port number, e.g. 8083
+    enabled = true
+    enable_authn = true
+    max_connections = infinity
+    proxy_protocol = false
+    proxy_protocol_timeout = 3s
+    mountpoint = ""
+    tcp_options {
+        active_n = 100
+        backlog = 1024
+        buffer = 4KB
+        high_watermark = 1MB
+        keepalive = none
+        nodelay = true
+        reuseaddr = true
+        send_timeout = 15s
+        send_timeout_close = true
+    }
+
+    websocket {
+        ## WebSocket's MQTT protocol path
+        ## Type: String
+        ##   For Example:
+        ##     with the default value, the address of EMQX Broker's WebSocket is: ws://8083/mqtt
+        mqtt_path = "/mqtt"
+
+        ## Whether a WebSocket message is allowed to contain multiple MQTT packets
+        ## Type: single | multiple
+        mqtt_piggyback = multiple
+
+        ## If true, compress WebSocket messages using zlib
+        compress = false
+
+        ## Close transport-layer connections from the clients that have not sent MQTT CONNECT message within this interval
+        idle_timeout = 7200s
+
+        ## The maximum length of a single MQTT packet
+        ## Type: infinity | Integer
+        max_frame_size = infinity
+
+        ## If true, the server will return an error when the client does not carry the Sec-WebSocket-Protocol field
+        fail_if_no_subprotocol = true
+
+        ## Comma-separated list of supported subprotocols
+        supported_subprotocols = "mqtt, mqtt-v3, mqtt-v3.1.1, mqtt-v5"
+
+        ## If true, origin HTTP header will be validated against the list of allowed origins configured in check_origins parameter
+        check_origin_enable = false
+
+        ## If false and check_origin_enable is true, the server will reject requests that don't have origin HTTP header
+        allow_origin_absence = true
+
+        ## List of allowed origins
+        check_origins = "http://localhost:18083, http://127.0.0.1:18083"
+
+        ## HTTP header used to pass information about the client IP address
+        proxy_address_header = "x-forwarded-for"
+
+        ## The maximum length of a single MQTT packet
+        proxy_port_header = "x-forwarded-port"
+    }
+}

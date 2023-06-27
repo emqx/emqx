@@ -1,0 +1,16 @@
+## Alarm
+
+alarm {
+    ## The actions triggered when the alarm is activated
+    ## Type: Array of the below enum
+    ##   - log :: write the alarm to log
+    ##   - publish :: publish the alarm as an MQTT message to the system topics
+    actions = [log, publish]
+
+    ## Maximum total number of deactivated alarms to keep as history
+    ## Type: Range from 1 to 3000
+    size_limit = 1000
+
+    ## Retention time of deactivated alarms
+    validity_period = 24h
+}

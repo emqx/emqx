@@ -1,0 +1,30 @@
+## Cluster discovery via Kubernetes API server mode
+
+cluster {
+    ## Human-friendly name of the EMQX cluster.
+    name = emqxcl
+
+    ## Service discovery method for the cluster nodes
+    discovery_strategy = k8s
+
+    ## If true, the node will try to heal network partitions automatically
+    autoheal = true
+
+    k8s {
+      ## Kubernetes API endpoint URL
+      apiserver = "https://kubernetes.default.svc:443"
+
+      ## EMQX broker service name
+      service_name = emqx
+
+      ## Address type used for connecting to the discovered nodes
+      ## Type: ip | dns | hostname
+      address_type = ip
+
+      ## Kubernetes namespace
+      namespace = default
+
+      ## Node name suffix
+      suffix = "pod.local"
+    }
+}

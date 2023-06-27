@@ -1,0 +1,12 @@
+## Force Elrang VM garbage collection
+
+force_gc {
+    ## set 'false' to disable this feature
+    enable = true
+
+    ## GC the process after this many received messages
+    count = 16000
+
+    ## GC the process after specified number of bytes have passed through
+    bytes = 16MB
+}

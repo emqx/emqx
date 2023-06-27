@@ -1,0 +1,10 @@
+## Prometheus
+
+## EMQX's Prometheus scraping endpoint is enabled by default without authentication.
+## And there is no way to turn it off.
+## You can inspect it with a curl command: curl -f "127.0.0.1:18083/api/v5/prometheus/stats"
+
+prometheus {
+    # turn off this expensive collector
+    vm_dist_collector = disabled
+}

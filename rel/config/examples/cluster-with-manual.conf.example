@@ -1,0 +1,12 @@
+## Cluster discovery via `emqx ctl cluster` command
+
+cluster {
+    ## Human-friendly name of the EMQX cluster.
+    name = emqxcl
+
+    ## Service discovery method for the cluster nodes
+    discovery_strategy = manual
+
+    ## If true, the node will try to heal network partitions automatically
+    autoheal = true
+ }
