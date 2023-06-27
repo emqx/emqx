@@ -389,7 +389,7 @@ cmd() ->
 
 connector_fields(DB) ->
     connector_fields(DB, config).
-connector_fields(redis = DB, Fields) ->
+connector_fields(DB, Fields) when DB =:= redis; DB =:= mysql ->
     connector_fields(DB, Fields, emqx);
 connector_fields(DB, Fields) ->
     connector_fields(DB, Fields, emqx_connector).

@@ -70,7 +70,7 @@ fields(mongo_sharded) ->
 fields(mysql) ->
     authz_common_fields(mysql) ++
         [{query, query()}] ++
-        proplists:delete(prepare_statement, emqx_connector_mysql:fields(config));
+        proplists:delete(prepare_statement, emqx_mysql:fields(config));
 fields(postgresql) ->
     authz_common_fields(postgresql) ++
         [{query, query()}] ++

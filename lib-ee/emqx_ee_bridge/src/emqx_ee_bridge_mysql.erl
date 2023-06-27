@@ -80,7 +80,7 @@ fields("config") ->
                 #{desc => ?DESC("local_topic"), default => undefined}
             )}
     ] ++ emqx_resource_schema:fields("resource_opts") ++
-        (emqx_connector_mysql:fields(config) --
+        (emqx_mysql:fields(config) --
             emqx_connector_schema_lib:prepare_statement_fields());
 fields("post") ->
     [type_field(), name_field() | fields("config")];

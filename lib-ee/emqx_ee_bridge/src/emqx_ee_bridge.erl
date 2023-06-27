@@ -99,7 +99,7 @@ resource_type(gcp_pubsub_consumer) -> emqx_bridge_gcp_pubsub_impl_consumer;
 resource_type(mongodb_rs) -> emqx_bridge_mongodb_connector;
 resource_type(mongodb_sharded) -> emqx_bridge_mongodb_connector;
 resource_type(mongodb_single) -> emqx_bridge_mongodb_connector;
-resource_type(mysql) -> emqx_connector_mysql;
+resource_type(mysql) -> emqx_mysql;
 resource_type(influxdb_api_v1) -> emqx_bridge_influxdb_connector;
 resource_type(influxdb_api_v2) -> emqx_bridge_influxdb_connector;
 resource_type(redis_single) -> emqx_bridge_redis_connector;

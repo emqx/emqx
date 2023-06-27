@@ -11,7 +11,8 @@
         emqx_resource,
         emqx_connector,
         emqx_mongodb,
-        emqx_redis
+        emqx_redis,
+        emqx_mysql
     ]},
     {env, []},
     {modules, []},

@@ -378,6 +378,7 @@ defmodule EMQXUmbrella.MixProject do
         emqx_slow_subs: :permanent,
         emqx_mongodb: :permanent,
         emqx_redis: :permanent,
+        emqx_mysql: :permanent,
         emqx_plugins: :permanent,
         emqx_mix: :none
       ] ++
