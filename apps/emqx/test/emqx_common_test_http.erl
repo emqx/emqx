@@ -26,6 +26,7 @@
     create_default_app/0,
     delete_default_app/0,
     default_auth_header/0,
+    auth_header/1,
     auth_header/2
 ]).
 
@@ -71,6 +72,9 @@ do_request_api(Method, Request, HttpOpts) ->
 
 get_http_data(ResponseBody) ->
     emqx_utils_json:decode(ResponseBody, [return_maps]).
+
+auth_header(#{api_key := ApiKey, api_secret := Secret}) ->
+    auth_header(binary_to_list(ApiKey), binary_to_list(Secret)).
 
 auth_header(User, Pass) ->
     Encoded = base64:encode_to_string(lists:append([User, ":", Pass])),
