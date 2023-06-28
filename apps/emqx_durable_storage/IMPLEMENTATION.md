@@ -10,7 +10,7 @@ This is because shared subscription logic needs to be aware of it to some extend
 # Modus operandi
 
 1. Create a draft implementation of a milestone
-2. Performance
+2. Test performance
 3. Test consistency
 4. Goto 1
 
