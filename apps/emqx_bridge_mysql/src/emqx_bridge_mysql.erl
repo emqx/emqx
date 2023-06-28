@@ -1,7 +1,7 @@
 %%--------------------------------------------------------------------
 %% Copyright (c) 2022-2023 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
--module(emqx_ee_bridge_mysql).
+-module(emqx_bridge_mysql).
 
 -include_lib("typerefl/include/types.hrl").
 -include_lib("hocon/include/hoconsc.hrl").
@@ -80,7 +80,7 @@ fields("config") ->
                 #{desc => ?DESC("local_topic"), default => undefined}
             )}
     ] ++ emqx_resource_schema:fields("resource_opts") ++
-        (emqx_connector_mysql:fields(config) --
+        (emqx_mysql:fields(config) --
             emqx_connector_schema_lib:prepare_statement_fields());
 fields("post") ->
     [type_field(), name_field() | fields("config")];

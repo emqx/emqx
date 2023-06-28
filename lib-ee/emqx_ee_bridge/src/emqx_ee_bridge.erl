@@ -25,7 +25,7 @@ api_schemas(Method) ->
         %% to hocon; keeping this as just `kafka' for backwards compatibility.
         api_ref(emqx_bridge_kafka, <<"kafka">>, Method ++ "_producer"),
         api_ref(emqx_bridge_cassandra, <<"cassandra">>, Method),
-        api_ref(emqx_ee_bridge_mysql, <<"mysql">>, Method),
+        api_ref(emqx_bridge_mysql, <<"mysql">>, Method),
         api_ref(emqx_bridge_pgsql, <<"pgsql">>, Method),
         api_ref(emqx_bridge_mongodb, <<"mongodb_rs">>, Method ++ "_rs"),
         api_ref(emqx_bridge_mongodb, <<"mongodb_sharded">>, Method ++ "_sharded"),
@@ -58,7 +58,7 @@ schema_modules() ->
         emqx_bridge_gcp_pubsub,
         emqx_bridge_influxdb,
         emqx_bridge_mongodb,
-        emqx_ee_bridge_mysql,
+        emqx_bridge_mysql,
         emqx_bridge_redis,
         emqx_bridge_pgsql,
         emqx_bridge_timescale,
@@ -99,7 +99,7 @@ resource_type(gcp_pubsub_consumer) -> emqx_bridge_gcp_pubsub_impl_consumer;
 resource_type(mongodb_rs) -> emqx_bridge_mongodb_connector;
 resource_type(mongodb_sharded) -> emqx_bridge_mongodb_connector;
 resource_type(mongodb_single) -> emqx_bridge_mongodb_connector;
-resource_type(mysql) -> emqx_connector_mysql;
+resource_type(mysql) -> emqx_mysql;
 resource_type(influxdb_api_v1) -> emqx_bridge_influxdb_connector;
 resource_type(influxdb_api_v2) -> emqx_bridge_influxdb_connector;
 resource_type(redis_single) -> emqx_bridge_redis_connector;
@@ -131,7 +131,7 @@ fields(bridges) ->
             )},
         {mysql,
             mk(
-                hoconsc:map(name, ref(emqx_ee_bridge_mysql, "config")),
+                hoconsc:map(name, ref(emqx_bridge_mysql, "config")),
                 #{
                     desc => <<"MySQL Bridge Config">>,
                     required => false

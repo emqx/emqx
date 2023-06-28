@@ -62,7 +62,7 @@ fields(mysql) ->
         {query, fun query/1},
         {query_timeout, fun query_timeout/1}
     ] ++ emqx_authn_schema:common_fields() ++
-        proplists:delete(prepare_statement, emqx_connector_mysql:fields(config)).
+        proplists:delete(prepare_statement, emqx_mysql:fields(config)).
 
 desc(mysql) ->
     ?DESC(mysql);
@@ -92,12 +92,12 @@ create(_AuthenticatorID, Config) ->
 create(Config0) ->
     ResourceId = emqx_authn_utils:make_resource_id(?MODULE),
     {Config, State} = parse_config(Config0),
-    {ok, _Data} = emqx_authn_utils:create_resource(ResourceId, emqx_connector_mysql, Config),
+    {ok, _Data} = emqx_authn_utils:create_resource(ResourceId, emqx_mysql, Config),
     {ok, State#{resource_id => ResourceId}}.
 
 update(Config0, #{resource_id := ResourceId} = _State) ->
     {Config, NState} = parse_config(Config0),
-    case emqx_authn_utils:update_resource(emqx_connector_mysql, Config, ResourceId) of
+    case emqx_authn_utils:update_resource(emqx_mysql, Config, ResourceId) of
         {error, Reason} ->
             error({load_config_error, Reason});
         {ok, _} ->

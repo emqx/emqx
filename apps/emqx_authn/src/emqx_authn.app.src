@@ -14,7 +14,8 @@
         mysql,
         jose,
         emqx_mongodb,
-        emqx_redis
+        emqx_redis,
+        emqx_mysql
     ]},
     {mod, {emqx_authn_app, []}},
     {env, []},

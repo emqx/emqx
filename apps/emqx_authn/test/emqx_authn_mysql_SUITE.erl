@@ -62,7 +62,7 @@ init_per_suite(Config) ->
             {ok, _} = emqx_resource:create_local(
                 ?MYSQL_RESOURCE,
                 ?RESOURCE_GROUP,
-                emqx_connector_mysql,
+                emqx_mysql,
                 mysql_config(),
                 #{}
             ),

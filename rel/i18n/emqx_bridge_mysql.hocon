@@ -1,4 +1,4 @@
-emqx_ee_bridge_mysql {
+emqx_bridge_mysql {
 
 config_enable.desc:
 """Enable or disable this bridge"""

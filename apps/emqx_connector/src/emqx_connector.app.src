@@ -13,8 +13,6 @@
         eredis,
         epgsql,
         eldap2,
-        mysql,
-        mongodb,
         ehttpc,
         jose,
         emqx,

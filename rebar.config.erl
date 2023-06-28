@@ -441,6 +441,7 @@ relx_apps(ReleaseType, Edition) ->
             emqx_slow_subs,
             emqx_mongodb,
             emqx_redis,
+            emqx_mysql,
             emqx_plugins
         ] ++
         [quicer || is_quicer_supported()] ++

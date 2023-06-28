@@ -54,13 +54,13 @@ create(#{query := SQL} = Source0) ->
     {PrepareSQL, TmplToken} = emqx_authz_utils:parse_sql(SQL, '?', ?PLACEHOLDERS),
     ResourceId = emqx_authz_utils:make_resource_id(?MODULE),
     Source = Source0#{prepare_statement => #{?PREPARE_KEY => PrepareSQL}},
-    {ok, _Data} = emqx_authz_utils:create_resource(ResourceId, emqx_connector_mysql, Source),
+    {ok, _Data} = emqx_authz_utils:create_resource(ResourceId, emqx_mysql, Source),
     Source#{annotations => #{id => ResourceId, tmpl_oken => TmplToken}}.
 
 update(#{query := SQL} = Source0) ->
     {PrepareSQL, TmplToken} = emqx_authz_utils:parse_sql(SQL, '?', ?PLACEHOLDERS),
     Source = Source0#{prepare_statement => #{?PREPARE_KEY => PrepareSQL}},
-    case emqx_authz_utils:update_resource(emqx_connector_mysql, Source) of
+    case emqx_authz_utils:update_resource(emqx_mysql, Source) of
         {error, Reason} ->
             error({load_config_error, Reason});
         {ok, Id} ->
