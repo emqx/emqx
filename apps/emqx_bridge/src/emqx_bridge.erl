@@ -228,7 +228,7 @@ send_message(BridgeType, BridgeName, ResId, Message, ReplyTo) ->
             {error, bridge_not_found};
         #{enable := true} = Config ->
             QueryOpts0 = query_opts(Config),
-            QueryOpts = QueryOpts0#{async_reply_fun => ReplyTo},
+            QueryOpts = QueryOpts0#{reply_to => ReplyTo},
             emqx_resource:query(ResId, {send_message, Message}, QueryOpts);
         #{enable := false} ->
             {error, bridge_stopped}
