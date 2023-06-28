@@ -29,7 +29,7 @@
     status/0,
     skip_failed_commit/1,
     fast_forward_to_commit/2,
-    on_leave/0
+    on_mria_stop/1
 ]).
 -export([
     commit/2,
@@ -271,14 +271,18 @@ fast_forward_to_commit(Node, ToTnxId) ->
     gen_server:call({?MODULE, Node}, {fast_forward_to_commit, ToTnxId}).
 
 %% It is necessary to clean this node commit record in the cluster
-on_leave() ->
-    gen_server:call(?MODULE, on_leave).
+on_mria_stop(leave) ->
+    gen_server:call(?MODULE, on_leave);
+on_mria_stop(_) ->
+    ok.
+
 %%%===================================================================
 %%% gen_server callbacks
 %%%===================================================================
 
 %% @private
 init([Node, RetryMs]) ->
+    mria:register_callback(stop, fun ?MODULE:on_mria_stop/1),
     {ok, _} = mnesia:subscribe({table, ?CLUSTER_MFA, simple}),
     State = #{node => Node, retry_interval => RetryMs, is_leaving => false},
     %% The init transaction ID is set in emqx_conf_app after
