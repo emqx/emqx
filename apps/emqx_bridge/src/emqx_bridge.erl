@@ -220,15 +220,14 @@ send_to_matched_egress_bridges(Topic, Msg) ->
 send_message(BridgeId, Message) ->
     {BridgeType, BridgeName} = emqx_bridge_resource:parse_bridge_id(BridgeId),
     ResId = emqx_bridge_resource:resource_id(BridgeType, BridgeName),
-    send_message(BridgeType, BridgeName, ResId, Message, undefined).
+    send_message(BridgeType, BridgeName, ResId, Message, #{}).
 
-send_message(BridgeType, BridgeName, ResId, Message, ReplyTo) ->
+send_message(BridgeType, BridgeName, ResId, Message, QueryOpts0) ->
     case emqx:get_config([?ROOT_KEY, BridgeType, BridgeName], not_found) of
         not_found ->
             {error, bridge_not_found};
         #{enable := true} = Config ->
-            QueryOpts0 = query_opts(Config),
-            QueryOpts = QueryOpts0#{reply_to => ReplyTo},
+            QueryOpts = maps:merge(query_opts(Config), QueryOpts0),
             emqx_resource:query(ResId, {send_message, Message}, QueryOpts);
         #{enable := false} ->
             {error, bridge_stopped}
