@@ -189,14 +189,14 @@ init_per_group(metrics_fail, Config) ->
 init_per_group(metrics_simple, Config) ->
     meck:new(?BRIDGE_IMPL, [non_strict, no_link, passthrough]),
     meck:expect(?BRIDGE_IMPL, query_mode, fun
-        (#{mqtt := #{query_mode := sync}}) -> simple_sync;
+        (#{resource_opts := #{query_mode := sync}}) -> simple_sync;
         (_) -> simple_async
     end),
     [{mecked, [?BRIDGE_IMPL]} | Config];
 init_per_group(metrics_fail_simple, Config) ->
     meck:new(?BRIDGE_IMPL, [non_strict, no_link, passthrough]),
     meck:expect(?BRIDGE_IMPL, query_mode, fun
-        (#{mqtt := #{query_mode := sync}}) -> simple_sync;
+        (#{resource_opts := #{query_mode := sync}}) -> simple_sync;
         (_) -> simple_async
     end),
     meck:expect(?BRIDGE_IMPL, on_query, 3, {error, {unrecoverable_error, mecked_failure}}),
@@ -2960,9 +2960,6 @@ do_test_rule_metrics(QMode) ->
     MsgId = emqx_guid:gen(),
     emqx:publish(#message{id = MsgId, topic = <<"topic/test">>, payload = <<"hello">>}),
     timer:sleep(100),
-    ct:pal("bridge metrics: ~p", [
-        emqx_resource:get_metrics(emqx_bridge_resource:resource_id(BridgeId))
-    ]),
     on_exit(
         fun() ->
             emqx_rule_engine:delete_rule(RuleId),
