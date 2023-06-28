@@ -65,6 +65,8 @@
     emqx_slow_subs_schema,
     emqx_mgmt_api_key_schema
 ]).
+%% 1 million default ports counter
+-define(DEFAULT_MAX_PORTS, 1024 * 1024).
 
 %% root config should not have a namespace
 namespace() -> undefined.
@@ -83,7 +85,10 @@ roots() ->
             {"node",
                 sc(
                     ?R_REF("node"),
-                    #{translate_to => ["emqx"]}
+                    #{
+                        translate_to => ["emqx"],
+                        converter => fun node_converter/2
+                    }
                 )},
             {"cluster",
                 sc(
@@ -443,8 +448,8 @@ fields("node") ->
                 #{
                     mapping => "vm_args.+P",
                     desc => ?DESC(process_limit),
-                    default => 2097152,
-                    importance => ?IMPORTANCE_MEDIUM,
+                    default => ?DEFAULT_MAX_PORTS * 2,
+                    importance => ?IMPORTANCE_HIDDEN,
                     'readOnly' => true
                 }
             )},
@@ -454,7 +459,7 @@ fields("node") ->
                 #{
                     mapping => "vm_args.+Q",
                     desc => ?DESC(max_ports),
-                    default => 1048576,
+                    default => ?DEFAULT_MAX_PORTS,
                     importance => ?IMPORTANCE_HIGH,
                     'readOnly' => true
                 }
@@ -1390,3 +1395,10 @@ ensure_unicode_path(Path, _) when is_list(Path) ->
     Path;
 ensure_unicode_path(Path, _) ->
     throw({"not_string", Path}).
+
+node_converter(#{<<"process_limit">> := _} = Conf, _Opts) ->
+    Conf;
+node_converter(#{<<"max_ports">> := MaxPorts} = Conf, _Opts) ->
+    Conf#{<<"process_limit">> => MaxPorts * 2};
+node_converter(Conf, _Opts) ->
+    Conf.
