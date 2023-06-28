@@ -141,7 +141,9 @@ start_apps() ->
     %% we want to make sure they are loaded before
     %% ekka start in emqx_common_test_helpers:start_apps/1
     emqx_common_test_helpers:render_and_load_app_config(emqx_conf),
-    ok = emqx_common_test_helpers:start_apps([emqx_conf, emqx_rule_engine, emqx_bridge]).
+    ok = emqx_common_test_helpers:start_apps([
+        emqx_conf, emqx_rule_engine, emqx_bridge, emqx_mongodb
+    ]).
 
 ensure_loaded() ->
     _ = application:load(emqx_ee_bridge),

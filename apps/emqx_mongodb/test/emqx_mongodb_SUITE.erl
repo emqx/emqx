@@ -38,6 +38,7 @@ init_per_suite(Config) ->
             ok = emqx_common_test_helpers:start_apps([emqx_conf]),
             ok = emqx_connector_test_helpers:start_apps([emqx_resource]),
             {ok, _} = application:ensure_all_started(emqx_connector),
+            {ok, _} = application:ensure_all_started(emqx_mongodb),
             Config;
         false ->
             {skip, no_mongo}
