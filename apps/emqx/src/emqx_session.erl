@@ -242,8 +242,6 @@ info(Keys, Session) when is_list(Keys) ->
     [{Key, info(Key, Session)} || Key <- Keys];
 info(id, #session{id = Id}) ->
     Id;
-info(clientid, #session{clientid = ClientId}) ->
-    ClientId;
 info(is_persistent, #session{is_persistent = Bool}) ->
     Bool;
 info(subscriptions, #session{subscriptions = Subs}) ->
@@ -323,14 +321,13 @@ subscribe(
     ClientInfo = #{clientid := ClientId},
     TopicFilter,
     SubOpts,
-    Session = #session{subscriptions = Subs}
+    Session = #session{id = SessionID, is_persistent = IsPS, subscriptions = Subs}
 ) ->
     IsNew = not maps:is_key(TopicFilter, Subs),
     case IsNew andalso is_subscriptions_full(Session) of
         false ->
             ok = emqx_broker:subscribe(TopicFilter, ClientId, SubOpts),
-            % TODO: error handling
-            _ = emqx_persistent_session_ds:register_subscription(TopicFilter, Session),
+            ok = emqx_persistent_session:add_subscription(TopicFilter, SessionID, IsPS),
             ok = emqx_hooks:run(
                 'session.subscribed',
                 [ClientInfo, TopicFilter, SubOpts#{is_new => IsNew}]
@@ -358,13 +355,12 @@ unsubscribe(
     ClientInfo,
     TopicFilter,
     UnSubOpts,
-    Session = #session{subscriptions = Subs}
+    Session = #session{id = SessionID, subscriptions = Subs, is_persistent = IsPS}
 ) ->
     case maps:find(TopicFilter, Subs) of
         {ok, SubOpts} ->
             ok = emqx_broker:unsubscribe(TopicFilter),
-            % TODO: error handling
-            _ = emqx_persistent_session_ds:unregister_subscription(TopicFilter, Session),
+            ok = emqx_persistent_session:remove_subscription(TopicFilter, SessionID, IsPS),
             ok = emqx_hooks:run(
                 'session.unsubscribed',
                 [ClientInfo, TopicFilter, maps:merge(SubOpts, UnSubOpts)]
