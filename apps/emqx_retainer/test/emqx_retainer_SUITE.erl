@@ -758,6 +758,21 @@ t_compatibility_for_deliver_rate(_) ->
                 }
         },
         Parser(R2)
+    ),
+
+    DeliveryInf = <<"retainer.delivery_rate = \"infinity\"">>,
+    ?assertMatch(
+        #{
+            <<"retainer">> :=
+                #{
+                    <<"flow_control">> := #{
+                        <<"batch_deliver_number">> := 0,
+                        <<"batch_read_number">> := 0,
+                        <<"batch_deliver_limiter">> := #{<<"rate">> := infinity}
+                    }
+                }
+        },
+        Parser(DeliveryInf)
     ).
 
 %%--------------------------------------------------------------------

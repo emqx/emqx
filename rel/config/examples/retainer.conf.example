@@ -15,7 +15,7 @@ retainer {
     stop_publish_clear_msg = false
 
     ## Maximum retained messages delivery rate per session
-    deliver_rate = "1000/s"
+    delivery_rate = "1000/s"
 
     ## Retained messages store backend
     backend {
