@@ -643,10 +643,7 @@ is_sensitive_key(<<"jwt">>) -> true;
 is_sensitive_key(authorization) -> true;
 is_sensitive_key("authorization") -> true;
 is_sensitive_key(<<"authorization">>) -> true;
-%% the authorization header is not case-sensitive
-is_sensitive_key("a" ++ _ = Key) -> is_authorization(Key);
-is_sensitive_key(<<"a", _/binary>> = Key) -> is_authorization(erlang:binary_to_list(Key));
-is_sensitive_key(_) -> false.
+is_sensitive_key(Key) -> is_authorization(Key).
 
 redact(Term) ->
     do_redact(Term, fun is_sensitive_key/1).
@@ -710,7 +707,17 @@ do_is_redacted(K, <<?REDACT_VAL>>, Fun) ->
 do_is_redacted(_K, _V, _Fun) ->
     false.
 
-is_authorization(Str) ->
+%% This is ugly, however, the authorization is case-insensitive,
+%% the best way is to check chars one by one and quickly exit when any position is not equal,
+%% but in Erlang, this may not perform well, so here only check the first one
+is_authorization([Cap | _] = Key) when Cap == $a; Cap == $A ->
+    is_authorization2(Key);
+is_authorization(<<Cap, _/binary>> = Key) when Cap == $a; Cap == $A ->
+    is_authorization2(erlang:binary_to_list(Key));
+is_authorization(_Any) ->
+    false.
+
+is_authorization2(Str) ->
     "authorization" == string:to_lower(Str).
 
 -ifdef(TEST).
@@ -783,7 +790,7 @@ redact2_test_() ->
     Keys = [secret, passcode],
     [{case_name(atom, Key), fun() -> Case(Key, Checker) end} || Key <- Keys].
 
-redact_is_authorization() ->
+redact_is_authorization_test_() ->
     Types = [string, binary],
     Keys = ["auThorization", "Authorization", "authorizaTion"],
 
