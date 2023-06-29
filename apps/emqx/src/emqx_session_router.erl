@@ -243,8 +243,8 @@ handle_call(Req, _From, State) ->
 
 handle_cast({delete_routes, SessionID, Subscriptions}, State) ->
     %% TODO: Make a batch for deleting all routes.
-    Fun = fun({Topic, _}) -> do_delete_route(Topic, SessionID) end,
-    ok = lists:foreach(Fun, maps:to_list(Subscriptions)),
+    Fun = fun(Topic, _) -> do_delete_route(Topic, SessionID) end,
+    ok = maps:foreach(Fun, Subscriptions),
     {noreply, State};
 handle_cast({resume_end, SessionID, Pid}, State) ->
     case emqx_utils_ets:lookup_value(?SESSION_INIT_TAB, SessionID) of
