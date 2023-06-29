@@ -191,14 +191,14 @@ check_duplicate(List) ->
         true -> ok
     end.
 
-retainer_converter(#{<<"deliver_rate">> := <<"infinity">>} = Conf, _Opts) ->
+retainer_converter(#{<<"delivery_rate">> := <<"infinity">>} = Conf, _Opts) ->
     Conf#{
         <<"flow_control">> => #{
             <<"batch_read_number">> => 0,
             <<"batch_deliver_number">> => 0
         }
     };
-retainer_converter(#{<<"deliver_rate">> := RateStr} = Conf, _Opts) ->
+retainer_converter(#{<<"delivery_rate">> := RateStr} = Conf, _Opts) ->
     {ok, RateNum} = emqx_limiter_schema:to_rate(RateStr),
     RawRate = erlang:floor(RateNum * 1000 / emqx_limiter_schema:default_period()),
     Control = #{
@@ -208,5 +208,8 @@ retainer_converter(#{<<"deliver_rate">> := RateStr} = Conf, _Opts) ->
         <<"batch_deliver_limiter">> => #{<<"client">> => #{<<"rate">> => RateStr}}
     },
     Conf#{<<"flow_control">> => Control};
+retainer_converter(#{<<"deliver_rate">> := Delivery} = Conf, Opts) ->
+    Conf1 = maps:remove(<<"deliver_rate">>, Conf),
+    retainer_converter(Conf1#{<<"delivery_rate">> => Delivery}, Opts);
 retainer_converter(Conf, _Opts) ->
     Conf.
