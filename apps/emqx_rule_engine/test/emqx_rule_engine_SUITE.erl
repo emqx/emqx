@@ -200,7 +200,11 @@ init_per_group(metrics_fail_simple, Config) ->
         (_) -> simple_async
     end),
     meck:expect(?BRIDGE_IMPL, on_query, 3, {error, {unrecoverable_error, mecked_failure}}),
-    meck:expect(?BRIDGE_IMPL, on_query_async, 4, {error, {unrecoverable_error, mecked_failure}}),
+    meck:expect(?BRIDGE_IMPL, on_query_async, fun(_, _, {ReplyFun, Args}, _) ->
+        Result = {error, {unrecoverable_error, mecked_failure}},
+        erlang:apply(ReplyFun, Args ++ [Result]),
+        Result
+    end),
     [{mecked, [?BRIDGE_IMPL]} | Config];
 init_per_group(_Groupname, Config) ->
     Config.
