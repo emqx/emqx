@@ -145,6 +145,8 @@ jobs:
 
   pgsql_authn_authz:
     runs-on: ubuntu-22.04
+    env:
+      _EMQX_DOCKER_IMAGE_TAG: emqx/emqx:${{ needs.build_emqx_for_jmeter_tests.outputs.version }}
 
     strategy:
       fail-fast: false
@@ -175,7 +177,6 @@ jobs:
     - name: docker compose up
       timeout-minutes: 5
       env:
-        _EMQX_DOCKER_IMAGE_TAG: emqx/emqx:${{ needs.build_emqx_for_jmeter_tests.outputs.version }}
         PGSQL_TAG: ${{ matrix.pgsql_tag }}
       run: |
         docker-compose \
@@ -246,6 +247,10 @@ jobs:
           echo "check logs failed"
           exit 1
         fi
+    - name: dump docker compose logs
+      if: failure()
+      run: |
+        docker-compose -f .ci/docker-compose-file/docker-compose-emqx-cluster.yaml logs --no-color > ./jmeter_logs/emqx.log
     - uses: actions/upload-artifact@v3
       if: always()
       with:
