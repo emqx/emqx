@@ -129,8 +129,7 @@ do_add_route(Topic, Dest) when is_binary(Topic) ->
             ok = emqx_router_helper:monitor(Dest),
             case emqx_topic:wildcard(Topic) of
                 true ->
-                    Fun = fun emqx_router_utils:insert_trie_route/2,
-                    emqx_router_utils:maybe_trans(Fun, [?ROUTE_TAB, Route], ?ROUTE_SHARD);
+                    maybe_trans(fun emqx_router_utils:insert_trie_route/2, [?ROUTE_TAB, Route]);
                 false ->
                     emqx_router_utils:insert_direct_route(?ROUTE_TAB, Route)
             end
@@ -176,8 +175,7 @@ do_delete_route(Topic, Dest) ->
     Route = #route{topic = Topic, dest = Dest},
     case emqx_topic:wildcard(Topic) of
         true ->
-            Fun = fun emqx_router_utils:delete_trie_route/2,
-            emqx_router_utils:maybe_trans(Fun, [?ROUTE_TAB, Route], ?ROUTE_SHARD);
+            maybe_trans(fun emqx_router_utils:delete_trie_route/2, [?ROUTE_TAB, Route]);
         false ->
             emqx_router_utils:delete_direct_route(?ROUTE_TAB, Route)
     end.
@@ -201,6 +199,9 @@ call(Router, Msg) ->
 
 pick(Topic) ->
     gproc_pool:pick_worker(router_pool, Topic).
+
+maybe_trans(Fun, Args) ->
+    emqx_router_utils:maybe_trans(Fun, Args, ?ROUTE_SHARD, fun emqx_trie:lock_tables/0).
 
 %%--------------------------------------------------------------------
 %% gen_server callbacks
