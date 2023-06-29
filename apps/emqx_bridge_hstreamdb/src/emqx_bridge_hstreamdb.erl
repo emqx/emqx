@@ -1,7 +1,7 @@
 %%--------------------------------------------------------------------
 %% Copyright (c) 2022-2023 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
--module(emqx_ee_bridge_hstreamdb).
+-module(emqx_bridge_hstreamdb).
 
 -include_lib("typerefl/include/types.hrl").
 -include_lib("hocon/include/hoconsc.hrl").
@@ -66,7 +66,7 @@ fields("get") ->
 
 field(connector) ->
     mk(
-        hoconsc:union([binary(), ref(emqx_ee_connector_hstreamdb, config)]),
+        hoconsc:union([binary(), ref(emqx_bridge_hstreamdb_connector, config)]),
         #{
             required => true,
             example => <<"hstreamdb:demo">>,

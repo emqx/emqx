@@ -1,4 +1,4 @@
-emqx_ee_connector_hstreamdb {
+emqx_bridge_hstreamdb_connector {
 
 config.desc:
 """HStreamDB connection config"""

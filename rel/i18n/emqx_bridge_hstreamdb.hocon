@@ -1,4 +1,4 @@
-emqx_ee_bridge_hstreamdb {
+emqx_bridge_hstreamdb {
 
 config_direction.desc:
 """The direction of this bridge, MUST be 'egress'"""
