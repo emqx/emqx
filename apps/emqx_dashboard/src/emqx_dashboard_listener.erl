@@ -179,7 +179,6 @@ ensure_ssl_cert(#{<<"listeners">> := #{<<"https">> := #{<<"bind">> := Bind} = Ht
 ->
     Https1 = emqx_dashboard_schema:https_converter(Https0, #{}),
     Conf1 = emqx_utils_maps:deep_put([<<"listeners">>, <<"https">>], Conf0, Https1),
-    io:format("111~p~n", [Conf1]),
     Ssl = maps:get(<<"ssl_options">>, Https1, undefined),
     Opts = #{required_keys => [[<<"keyfile">>], [<<"certfile">>], [<<"cacertfile">>]]},
     case emqx_tls_lib:ensure_ssl_files(?DIR, Ssl, Opts) of

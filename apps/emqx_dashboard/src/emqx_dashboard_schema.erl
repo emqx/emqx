@@ -243,6 +243,8 @@ desc("http") ->
     ?DESC(desc_http);
 desc("https") ->
     ?DESC(desc_https);
+desc("ssl_options") ->
+    ?DESC(ssl_options);
 desc(_) ->
     undefined.
 
