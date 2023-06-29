@@ -19,6 +19,10 @@
 -include("rule_engine.hrl").
 -include_lib("emqx/include/logger.hrl").
 
+-if(?EMQX_RELEASE_EDITION == ee).
+-include_lib("emqx_ee_schema_registry/include/emqx_ee_schema_registry.hrl").
+-endif.
+
 -elvis([{elvis_style, god_modules, disable}]).
 
 %% IoT Funcs
@@ -1128,10 +1132,31 @@ timezone_to_offset_seconds(TimeZone) ->
 %% @end
 -if(?EMQX_RELEASE_EDITION == ee).
 %% EE
+
+'$handle_undefined_function'(sparkplug_decode, [Data]) ->
+    '$handle_undefined_function'(
+        schema_decode,
+        [?EMQX_SCHEMA_REGISTRY_SPARKPLUGB_SCHEMA_NAME, Data, <<"Payload">>]
+    );
+'$handle_undefined_function'(sparkplug_decode, [Data | MoreArgs]) ->
+    '$handle_undefined_function'(
+        schema_decode,
+        [?EMQX_SCHEMA_REGISTRY_SPARKPLUGB_SCHEMA_NAME, Data | MoreArgs]
+    );
 '$handle_undefined_function'(schema_decode, [SchemaId, Data | MoreArgs]) ->
     emqx_ee_schema_registry_serde:decode(SchemaId, Data, MoreArgs);
 '$handle_undefined_function'(schema_decode, Args) ->
     error({args_count_error, {schema_decode, Args}});
+'$handle_undefined_function'(sparkplug_encode, [Term]) ->
+    '$handle_undefined_function'(
+        schema_encode,
+        [?EMQX_SCHEMA_REGISTRY_SPARKPLUGB_SCHEMA_NAME, Term, <<"Payload">>]
+    );
+'$handle_undefined_function'(sparkplug_encode, [Term | MoreArgs]) ->
+    '$handle_undefined_function'(
+        schema_encode,
+        [?EMQX_SCHEMA_REGISTRY_SPARKPLUGB_SCHEMA_NAME, Term | MoreArgs]
+    );
 '$handle_undefined_function'(schema_encode, [SchemaId, Term | MoreArgs]) ->
     %% encode outputs iolists, but when the rule actions process those
     %% it might wrongly encode them as JSON lists, so we force them to

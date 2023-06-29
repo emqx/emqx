@@ -96,7 +96,7 @@ inject_avro_name(Name, Source0) ->
 -spec make_protobuf_serde_mod(schema_name(), schema_source()) -> module().
 make_protobuf_serde_mod(Name, Source) ->
     {SerdeMod0, SerdeModFileName} = protobuf_serde_mod_name(Name),
-    case lazy_generate_protobuf_code(SerdeMod0, Source) of
+    case lazy_generate_protobuf_code(Name, SerdeMod0, Source) of
         {ok, SerdeMod, ModBinary} ->
             load_code(SerdeMod, SerdeModFileName, ModBinary),
             SerdeMod;
@@ -121,30 +121,30 @@ protobuf_serde_mod_name(Name) ->
     SerdeModFileName = SerdeModName ++ ".memory",
     {SerdeMod, SerdeModFileName}.
 
--spec lazy_generate_protobuf_code(module(), schema_source()) ->
+-spec lazy_generate_protobuf_code(schema_name(), module(), schema_source()) ->
     {ok, module(), binary()} | {error, #{error := term(), warnings := [term()]}}.
-lazy_generate_protobuf_code(SerdeMod0, Source) ->
+lazy_generate_protobuf_code(Name, SerdeMod0, Source) ->
     %% We run this inside a transaction with locks to avoid running
     %% the compile on all nodes; only one will get the lock, compile
     %% the schema, and other nodes will simply read the final result.
     {atomic, Res} = mria:transaction(
         ?SCHEMA_REGISTRY_SHARD,
-        fun lazy_generate_protobuf_code_trans/2,
-        [SerdeMod0, Source]
+        fun lazy_generate_protobuf_code_trans/3,
+        [Name, SerdeMod0, Source]
     ),
     Res.
 
--spec lazy_generate_protobuf_code_trans(module(), schema_source()) ->
+-spec lazy_generate_protobuf_code_trans(schema_name(), module(), schema_source()) ->
     {ok, module(), binary()} | {error, #{error := term(), warnings := [term()]}}.
-lazy_generate_protobuf_code_trans(SerdeMod0, Source) ->
+lazy_generate_protobuf_code_trans(Name, SerdeMod0, Source) ->
     Fingerprint = erlang:md5(Source),
     _ = mnesia:lock({record, ?PROTOBUF_CACHE_TAB, Fingerprint}, write),
     case mnesia:read(?PROTOBUF_CACHE_TAB, Fingerprint) of
         [#protobuf_cache{module = SerdeMod, module_binary = ModBinary}] ->
-            ?tp(schema_registry_protobuf_cache_hit, #{}),
+            ?tp(schema_registry_protobuf_cache_hit, #{name => Name}),
             {ok, SerdeMod, ModBinary};
         [] ->
-            ?tp(schema_registry_protobuf_cache_miss, #{}),
+            ?tp(schema_registry_protobuf_cache_miss, #{name => Name}),
             case generate_protobuf_code(SerdeMod0, Source) of
                 {ok, SerdeMod, ModBinary} ->
                     CacheEntry = #protobuf_cache{
