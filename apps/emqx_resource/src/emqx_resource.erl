@@ -282,6 +282,8 @@ query(ResId, Request, Opts) ->
             case {QM, Error} of
                 {_, unhealthy_target} ->
                     ?RESOURCE_ERROR(unhealthy_target, "unhealthy target");
+                {_, {unhealthy_target, _Message}} ->
+                    ?RESOURCE_ERROR(unhealthy_target, "unhealthy target");
                 {simple_async, _} ->
                     %% TODO(5.1.1): pass Resource instead of ResId to simple APIs
                     %% so the buffer worker does not need to lookup the cache again

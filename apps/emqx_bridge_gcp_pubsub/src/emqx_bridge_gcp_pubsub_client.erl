@@ -119,6 +119,7 @@ start(
     ?tp(gcp_pubsub_starting_ehttpc_pool, #{pool_name => ResourceId}),
     case ehttpc_sup:start_pool(ResourceId, PoolOpts) of
         {ok, _} ->
+            ?tp(gcp_pubsub_ehttpc_pool_started, #{pool_name => ResourceId}),
             {ok, State};
         {error, {already_started, _}} ->
             ?tp(gcp_pubsub_ehttpc_pool_already_started, #{pool_name => ResourceId}),
@@ -166,7 +167,7 @@ query_sync({prepared_request, PreparedRequest = {_Method, _Path, _Body}}, State)
     {prepared_request, prepared_request()},
     {ReplyFun :: function(), Args :: list()},
     state()
-) -> {ok, pid()}.
+) -> {ok, pid()} | {error, no_pool_worker_available}.
 query_async(
     {prepared_request, PreparedRequest = {_Method, _Path, _Body}},
     ReplyFunAndArgs,
@@ -306,7 +307,7 @@ do_send_requests_sync(State, {prepared_request, {Method, Path, Body}}) ->
     state(),
     {prepared_request, prepared_request()},
     {ReplyFun :: function(), Args :: list()}
-) -> {ok, pid()}.
+) -> {ok, pid()} | {error, no_pool_worker_available}.
 do_send_requests_async(
     State, {prepared_request, {Method, Path, Body}}, ReplyFunAndArgs
 ) ->
@@ -323,21 +324,27 @@ do_send_requests_async(
         }
     ),
     Request = to_ehttpc_request(State, Method, Path, Body),
-    Worker = ehttpc_pool:pick_worker(PoolName),
-    ok = ehttpc:request_async(
-        Worker,
-        Method,
-        Request,
-        RequestTTL,
-        {fun ?MODULE:reply_delegator/3, [PoolName, ReplyFunAndArgs]}
-    ),
-    {ok, Worker}.
+    %% `ehttpc_pool'/`gproc_pool' might return `false' if there are no workers...
+    case ehttpc_pool:pick_worker(PoolName) of
+        false ->
+            {error, no_pool_worker_available};
+        Worker ->
+            ok = ehttpc:request_async(
+                Worker,
+                Method,
+                Request,
+                RequestTTL,
+                {fun ?MODULE:reply_delegator/3, [PoolName, ReplyFunAndArgs]}
+            ),
+            {ok, Worker}
+    end.
 
 to_ehttpc_request(State, Method, Path, Body) ->
     #{jwt_config := JWTConfig} = State,
     Headers = get_jwt_authorization_header(JWTConfig),
     case {Method, Body} of
         {get, <<>>} -> {Path, Headers};
+        {delete, <<>>} -> {Path, Headers};
         _ -> {Path, Headers, Body}
     end.
 

@@ -139,6 +139,15 @@ fields(producer) ->
     ];
 fields(consumer) ->
     [
+        %% Note: The minimum deadline pubsub does is 10 s.
+        {ack_deadline,
+            mk(
+                emqx_schema:timeout_duration_s(),
+                #{
+                    default => <<"60s">>,
+                    importance => ?IMPORTANCE_HIDDEN
+                }
+            )},
         {ack_retry_interval,
             mk(
                 emqx_schema:timeout_duration_ms(),
