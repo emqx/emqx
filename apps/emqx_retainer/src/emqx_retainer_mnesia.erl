@@ -127,6 +127,7 @@ create_table(Table, RecordName, Attributes, Type, StorageType) ->
         {storage_properties, StoreProps}
     ]),
     ok = mria_rlog:wait_for_shards([?RETAINER_SHARD], infinity),
+    ok = mria:wait_for_tables([Table]),
     case mnesia:table_info(Table, storage_type) of
         Copies ->
             ok;
