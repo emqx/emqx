@@ -119,9 +119,7 @@ start_link(Shard) ->
 create_generation(Shard, Since, Config = {_Module, _Options}) ->
     gen_server:call(?REF(Shard), {create_generation, Since, Config}).
 
--spec store(
-    emqx_ds:shard(), emqx_guid:guid(), emqx_ds:time(), emqx_ds:topic(), binary()
-) ->
+-spec store(emqx_ds:shard(), emqx_guid:guid(), emqx_ds:time(), emqx_ds:topic(), binary()) ->
     ok | {error, _}.
 store(Shard, GUID, Time, Topic, Msg) ->
     {_GenId, #{module := Mod, data := Data}} = meta_lookup_gen(Shard, Time),
@@ -495,11 +493,3 @@ is_gen_valid(Shard, GenId, Since) when GenId > 0 ->
     end;
 is_gen_valid(_Shard, 0, 0) ->
     ok.
-
-%% -spec store_cfs(rocksdb:db_handle(), [{string(), rocksdb:cf_handle()}]) -> ok.
-%% store_cfs(DBHandle, CFRefs) ->
-%%     lists:foreach(
-%%       fun({CFName, CFRef}) ->
-%%               persistent_term:put({self(), CFName}, {DBHandle, CFRef})
-%%       end,
-%%       CFRefs).

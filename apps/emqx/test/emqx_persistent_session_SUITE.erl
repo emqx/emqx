@@ -19,7 +19,7 @@
 -include_lib("stdlib/include/assert.hrl").
 -include_lib("common_test/include/ct.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
--include_lib("../include/emqx.hrl").
+-include_lib("emqx/include/emqx.hrl").
 -include("../src/persistent_session/emqx_persistent_session.hrl").
 
 -compile(export_all).
@@ -176,6 +176,7 @@ init_per_group(gc_tests, Config) ->
     [{store_owner, Pid}, {session_msg_store, SessionMsgEts}, {msg_store, MsgEts} | Config].
 
 init_per_suite(Config) ->
+    {ok, _} = application:ensure_all_started(emqx_durable_storage),
     Config.
 
 set_special_confs(_) ->

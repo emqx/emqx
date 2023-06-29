@@ -198,10 +198,10 @@ info(timers, #channel{timers = Timers}) ->
 set_conn_state(ConnState, Channel) ->
     Channel#channel{conn_state = ConnState}.
 
-set_session(Session, Channel = #channel{conninfo = ConnInfo, clientinfo = ClientInfo}) ->
+set_session(Session, Channel = #channel{}) ->
     %% Assume that this is also an updated session. Allow side effect.
-    Session1 = emqx_persistent_session:persist(ClientInfo, ConnInfo, Session),
-    Channel#channel{session = Session1}.
+    _ = emqx_persistent_session_ds:persist_session(Session),
+    Channel#channel{session = Session}.
 
 -spec stats(channel()) -> emqx_types:stats().
 stats(#channel{session = undefined}) ->
@@ -897,7 +897,7 @@ process_disconnect(ReasonCode, Properties, Channel) ->
 
 maybe_update_expiry_interval(
     #{'Session-Expiry-Interval' := Interval},
-    Channel = #channel{conninfo = ConnInfo, clientinfo = ClientInfo}
+    Channel = #channel{conninfo = ConnInfo, session = Session}
 ) ->
     EI = timer:seconds(Interval),
     OldEI = maps:get(expiry_interval, ConnInfo, 0),
@@ -906,12 +906,12 @@ maybe_update_expiry_interval(
             Channel;
         false ->
             NChannel = Channel#channel{conninfo = ConnInfo#{expiry_interval => EI}},
-            ClientID = maps:get(clientid, ClientInfo, undefined),
             %% Check if the client turns off persistence (turning it on is disallowed)
             case EI =:= 0 andalso OldEI > 0 of
                 true ->
-                    S = emqx_persistent_session:discard(ClientID, NChannel#channel.session),
-                    set_session(S, NChannel);
+                    _ = emqx_persistent_session_ds:discard_session(Session),
+                    NSession = emqx_session:set_field(is_persistent, false, Session),
+                    set_session(NSession, NChannel);
                 false ->
                     NChannel
             end
@@ -1000,8 +1000,11 @@ maybe_mark_as_delivered(Session, Delivers) ->
         false ->
             skip;
         true ->
-            SessionID = emqx_session:info(id, Session),
-            emqx_persistent_session:mark_as_delivered(SessionID, Delivers)
+            % FIXME
+            % SessionID = emqx_session:info(id, Session),
+            % emqx_persistent_session:mark_as_delivered(SessionID, Delivers)
+            _ = Delivers,
+            skip
     end.
 
 %%--------------------------------------------------------------------
@@ -1458,11 +1461,7 @@ terminate(Reason, Channel = #channel{clientinfo = ClientInfo, will_msg = WillMsg
 persist_if_session(#channel{session = Session} = Channel) ->
     case emqx_session:is_session(Session) of
         true ->
-            _ = emqx_persistent_session:persist(
-                Channel#channel.clientinfo,
-                Channel#channel.conninfo,
-                Channel#channel.session
-            ),
+            _ = emqx_persistent_session_ds:persist_session(Channel#channel.session),
             ok;
         false ->
             ok
@@ -2076,11 +2075,12 @@ maybe_resume_session(#channel{
     session = Session,
     resuming = true,
     pendings = Pendings,
-    clientinfo = #{clientid := ClientId} = ClientInfo
+    clientinfo = #{clientid := _ClientId} = ClientInfo
 }) ->
     {ok, Publishes, Session1} = emqx_session:replay(ClientInfo, Session),
     %% We consider queued/dropped messages as delivered since they are now in the session state.
-    emqx_persistent_session:mark_as_delivered(ClientId, Pendings),
+    % FIXME
+    % emqx_persistent_session:mark_as_delivered(ClientId, Pendings),
     case emqx_session:deliver(ClientInfo, Pendings, Session1) of
         {ok, Session2} ->
             {ok, Publishes, Session2};
