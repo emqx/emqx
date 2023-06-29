@@ -25,7 +25,7 @@
     insert_direct_route/2,
     insert_trie_route/2,
     insert_session_trie_route/2,
-    maybe_trans/3
+    maybe_trans/4
 ]).
 
 insert_direct_route(Tab, Route) ->
@@ -71,8 +71,8 @@ delete_trie_route(RouteTab, Route = #route{topic = Topic}, Type) ->
     end.
 
 %% @private
--spec maybe_trans(function(), list(any()), Shard :: atom()) -> ok | {error, term()}.
-maybe_trans(Fun, Args, Shard) ->
+-spec maybe_trans(function(), list(any()), Shard :: atom(), fun(() -> _)) -> ok | {error, term()}.
+maybe_trans(Fun, Args, Shard, TabLocker) ->
     case emqx:get_config([broker, perf, route_lock_type]) of
         key ->
             trans(Fun, Args, Shard);
@@ -90,7 +90,7 @@ maybe_trans(Fun, Args, Shard) ->
         tab ->
             trans(
                 fun() ->
-                    emqx_trie:lock_tables(),
+                    TabLocker(),
                     apply(Fun, Args)
                 end,
                 [],

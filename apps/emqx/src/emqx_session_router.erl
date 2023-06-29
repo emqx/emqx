@@ -121,11 +121,9 @@ do_add_route(Topic, SessionID) when is_binary(Topic) ->
         false ->
             case emqx_topic:wildcard(Topic) of
                 true ->
-                    Fun = fun emqx_router_utils:insert_session_trie_route/2,
-                    emqx_router_utils:maybe_trans(
-                        Fun,
-                        [route_tab(), Route],
-                        ?PERSISTENT_SESSION_SHARD
+                    maybe_trans(
+                        fun emqx_router_utils:insert_session_trie_route/2,
+                        [route_tab(), Route]
                     );
                 false ->
                     emqx_router_utils:insert_direct_route(route_tab(), Route)
@@ -156,8 +154,10 @@ do_delete_route(Topic, SessionID) ->
     Route = #route{topic = Topic, dest = SessionID},
     case emqx_topic:wildcard(Topic) of
         true ->
-            Fun = fun emqx_router_utils:delete_session_trie_route/2,
-            emqx_router_utils:maybe_trans(Fun, [route_tab(), Route], ?PERSISTENT_SESSION_SHARD);
+            maybe_trans(
+                fun emqx_router_utils:delete_session_trie_route/2,
+                [route_tab(), Route]
+            );
         false ->
             emqx_router_utils:delete_direct_route(route_tab(), Route)
     end.
@@ -297,6 +297,10 @@ init_resume_worker(RemotePid, SessionID, #{pmon := Pmon} = State) ->
 
 lookup_routes(Topic) ->
     ets:lookup(route_tab(), Topic).
+
+maybe_trans(Fun, Args) ->
+    TabLocker = fun emqx_trie:lock_session_tables/0,
+    emqx_router_utils:maybe_trans(Fun, Args, ?PERSISTENT_SESSION_SHARD, TabLocker).
 
 route_tab() ->
     case emqx_persistent_session:storage_type() of
