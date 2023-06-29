@@ -344,6 +344,7 @@ handle_action(RuleId, ActId, Selected, Envs) ->
             })
     end.
 
+-define(IS_RES_DOWN(R), R == stopped; R == not_connected; R == not_found; R == unhealthy_target).
 do_handle_action(RuleId, {bridge, BridgeType, BridgeName, ResId}, Selected, _Envs) ->
     ?TRACE(
         "BRIDGE",
@@ -355,6 +356,8 @@ do_handle_action(RuleId, {bridge, BridgeType, BridgeName, ResId}, Selected, _Env
         emqx_bridge:send_message(BridgeType, BridgeName, ResId, Selected, #{reply_to => ReplyTo})
     of
         {error, Reason} when Reason == bridge_not_found; Reason == bridge_stopped ->
+            throw(out_of_service);
+        ?RESOURCE_ERROR_M(R, _) when ?IS_RES_DOWN(R) ->
             throw(out_of_service);
         Result ->
             Result
@@ -520,10 +523,7 @@ inc_action_metrics(RuleId, Result) ->
     _ = do_inc_action_metrics(RuleId, Result),
     Result.
 
--define(IS_RES_DOWN(R), R == stopped; R == not_connected; R == not_found).
 do_inc_action_metrics(RuleId, {error, {recoverable_error, _}}) ->
-    emqx_metrics_worker:inc(rule_metrics, RuleId, 'actions.failed.out_of_service');
-do_inc_action_metrics(RuleId, ?RESOURCE_ERROR_M(R, _)) when ?IS_RES_DOWN(R) ->
     emqx_metrics_worker:inc(rule_metrics, RuleId, 'actions.failed.out_of_service');
 do_inc_action_metrics(RuleId, {error, {unrecoverable_error, _}}) ->
     emqx_metrics_worker:inc(rule_metrics, RuleId, 'actions.failed');
