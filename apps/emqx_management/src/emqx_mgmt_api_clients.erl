@@ -213,9 +213,9 @@ schema("/clients/kickout/bulk") ->
         post => #{
             description => ?DESC(kickout_clients),
             tags => ?TAGS,
-            'requestBody' => hoconsc:mk(
+            'requestBody' => emqx_dashboard_swagger:schema_with_example(
                 hoconsc:array(binary()),
-                #{desc => <<"The list of Client IDs that need to be kicked out">>}
+                ["emqx_clienid_985bb09d", "emqx_clientid_211cc01c"]
             ),
             responses => #{
                 204 => <<"Kick out clients successfully">>
@@ -547,10 +547,14 @@ fields(client) ->
     ];
 fields(authz_cache) ->
     [
-        {access, hoconsc:mk(binary(), #{desc => <<"Access type">>})},
-        {result, hoconsc:mk(binary(), #{desc => <<"Allow or deny">>})},
-        {topic, hoconsc:mk(binary(), #{desc => <<"Topic name">>})},
-        {updated_time, hoconsc:mk(integer(), #{desc => <<"Update time">>})}
+        {access, hoconsc:mk(binary(), #{desc => <<"Access type">>, example => <<"publish">>})},
+        {result,
+            hoconsc:mk(hoconsc:enum([allow, denny]), #{
+                desc => <<"Allow or deny">>, example => <<"allow">>
+            })},
+        {topic, hoconsc:mk(binary(), #{desc => <<"Topic name">>, example => <<"testtopic/1">>})},
+        {updated_time,
+            hoconsc:mk(integer(), #{desc => <<"Update time">>, example => 1687850712989})}
     ];
 fields(keepalive) ->
     [
@@ -559,7 +563,10 @@ fields(keepalive) ->
     ];
 fields(subscribe) ->
     [
-        {topic, hoconsc:mk(binary(), #{required => true, desc => <<"Topic">>})},
+        {topic,
+            hoconsc:mk(binary(), #{
+                required => true, desc => <<"Topic">>, example => <<"testtopic/#">>
+            })},
         {qos, hoconsc:mk(emqx_schema:qos(), #{default => 0, desc => <<"QoS">>})},
         {nl, hoconsc:mk(integer(), #{default => 0, desc => <<"No Local">>})},
         {rap, hoconsc:mk(integer(), #{default => 0, desc => <<"Retain as Published">>})},
@@ -567,7 +574,7 @@ fields(subscribe) ->
     ];
 fields(unsubscribe) ->
     [
-        {topic, hoconsc:mk(binary(), #{desc => <<"Topic">>})}
+        {topic, hoconsc:mk(binary(), #{desc => <<"Topic">>, example => <<"testtopic/#">>})}
     ].
 
 %%%==============================================================================================

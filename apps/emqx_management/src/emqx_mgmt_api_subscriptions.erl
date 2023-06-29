@@ -74,13 +74,16 @@ schema("/subscriptions") ->
 
 fields(subscription) ->
     [
-        {node, hoconsc:mk(binary(), #{desc => <<"Access type">>})},
-        {topic, hoconsc:mk(binary(), #{desc => <<"Topic name">>})},
-        {clientid, hoconsc:mk(binary(), #{desc => <<"Client identifier">>})},
-        {qos, hoconsc:mk(emqx_schema:qos(), #{desc => <<"QoS">>})},
-        {nl, hoconsc:mk(integer(), #{desc => <<"No Local">>})},
-        {rap, hoconsc:mk(integer(), #{desc => <<"Retain as Published">>})},
-        {rh, hoconsc:mk(integer(), #{desc => <<"Retain Handling">>})}
+        {node, hoconsc:mk(binary(), #{desc => <<"Access type">>, example => <<"emqx@127.0.0.1">>})},
+        {topic, hoconsc:mk(binary(), #{desc => <<"Topic name">>, example => <<"testtopic/1">>})},
+        {clientid,
+            hoconsc:mk(binary(), #{
+                desc => <<"Client identifier">>, example => <<"emqx_clientid_xx128cdhfc">>
+            })},
+        {qos, hoconsc:mk(emqx_schema:qos(), #{desc => <<"QoS">>, example => 0})},
+        {nl, hoconsc:mk(integer(), #{desc => <<"No Local">>, example => 0})},
+        {rap, hoconsc:mk(integer(), #{desc => <<"Retain as Published">>, example => 0})},
+        {rh, hoconsc:mk(integer(), #{desc => <<"Retain Handling">>, example => 0})}
     ].
 
 parameters() ->
