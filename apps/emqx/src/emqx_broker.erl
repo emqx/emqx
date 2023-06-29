@@ -285,16 +285,16 @@ aggre([#route{topic = To, dest = Node}]) when is_atom(Node) ->
 aggre([#route{topic = To, dest = {Group, _Node}}]) ->
     [{To, Group}];
 aggre(Routes) ->
-    lists:foldl(
-        fun
-            (#route{topic = To, dest = Node}, Acc) when is_atom(Node) ->
-                [{To, Node} | Acc];
-            (#route{topic = To, dest = {Group, _Node}}, Acc) ->
-                lists:usort([{To, Group} | Acc])
-        end,
-        [],
-        Routes
-    ).
+    aggre(Routes, false, []).
+
+aggre([#route{topic = To, dest = Node} | Rest], Dedup, Acc) when is_atom(Node) ->
+    aggre(Rest, Dedup, [{To, Node} | Acc]);
+aggre([#route{topic = To, dest = {Group, _Node}} | Rest], _Dedup, Acc) ->
+    aggre(Rest, true, [{To, Group} | Acc]);
+aggre([], false, Acc) ->
+    Acc;
+aggre([], true, Acc) ->
+    lists:usort(Acc).
 
 %% @doc Forward message to another node.
 -spec forward(node(), emqx_types:topic(), emqx_types:delivery(), RpcMode :: sync | async) ->
