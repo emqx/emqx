@@ -301,57 +301,23 @@ on_query(
     ),
     NRequest = formalize_request(Method, BasePath, Request),
     Worker = resolve_pool_worker(State, KeyOrNum),
-    case
-        ehttpc:request(
-            Worker,
-            Method,
-            NRequest,
-            Timeout,
-            Retry
-        )
-    of
-        {error, Reason} when
-            Reason =:= econnrefused;
-            Reason =:= timeout;
-            Reason =:= {shutdown, normal};
-            Reason =:= {shutdown, closed}
-        ->
+    Result0 = ehttpc:request(
+        Worker,
+        Method,
+        NRequest,
+        Timeout,
+        Retry
+    ),
+    Result = transform_result(Result0),
+    case Result of
+        {error, {recoverable_error, Reason}} ->
             ?SLOG(warning, #{
                 msg => "http_connector_do_request_failed",
                 reason => Reason,
                 connector => InstId
             }),
             {error, {recoverable_error, Reason}};
-        {error, {closed, _Message} = Reason} ->
-            %% _Message = "The connection was lost."
-            ?SLOG(warning, #{
-                msg => "http_connector_do_request_failed",
-                reason => Reason,
-                connector => InstId
-            }),
-            {error, {recoverable_error, Reason}};
-        {error, Reason} = Result ->
-            ?SLOG(error, #{
-                msg => "http_connector_do_request_failed",
-                request => redact(NRequest),
-                reason => Reason,
-                connector => InstId
-            }),
-            Result;
-        {ok, StatusCode, _} = Result when StatusCode >= 200 andalso StatusCode < 300 ->
-            Result;
-        {ok, StatusCode, _, _} = Result when StatusCode >= 200 andalso StatusCode < 300 ->
-            Result;
-        {ok, StatusCode, Headers} ->
-            ?SLOG(error, #{
-                msg => "http connector do request, received error response",
-                note => "the body will be redacted due to security reasons",
-                request => redact_request(NRequest),
-                connector => InstId,
-                status_code => StatusCode
-            }),
-            {error, #{status_code => StatusCode, headers => Headers}};
-        {ok, StatusCode, Headers, Body} ->
+        {error, #{status_code := StatusCode}} ->
             ?SLOG(error, #{
                 msg => "http connector do request, received error response.",
                 note => "the body will be redacted due to security reasons",
@@ -359,7 +325,17 @@ on_query(
                 connector => InstId,
                 status_code => StatusCode
             }),
-            {error, #{status_code => StatusCode, headers => Headers, body => Body}}
+            Result;
+        {error, Reason} ->
+            ?SLOG(error, #{
+                msg => "http_connector_do_request_failed",
+                request => redact(NRequest),
+                reason => Reason,
+                connector => InstId
+            }),
+            Result;
+        _Success ->
+            Result
     end.
 
 on_query_async(InstId, {send_message, Msg}, ReplyFunAndArgs, State) ->
@@ -639,8 +615,11 @@ to_bin(Str) when is_list(Str) ->
 to_bin(Atom) when is_atom(Atom) ->
     atom_to_binary(Atom, utf8).
 
-reply_delegator(Context, ReplyFunAndArgs, Result) ->
-    spawn(fun() -> maybe_retry(Result, Context, ReplyFunAndArgs) end).
+reply_delegator(Context, ReplyFunAndArgs, Result0) ->
+    spawn(fun() ->
+        Result = transform_result(Result0),
+        maybe_retry(Result, Context, ReplyFunAndArgs)
+    end).
 
 transform_result(Result) ->
     case Result of
@@ -657,14 +636,36 @@ transform_result(Result) ->
         {error, {closed, _Message} = Reason} ->
             %% _Message = "The connection was lost."
             {error, {recoverable_error, Reason}};
-        _ ->
-            Result
+        {error, _Reason} ->
+            Result;
+        {ok, StatusCode, _} when StatusCode >= 200 andalso StatusCode < 300 ->
+            Result;
+        {ok, StatusCode, _, _} when StatusCode >= 200 andalso StatusCode < 300 ->
+            Result;
+        {ok, _TooManyRequests = StatusCode = 429, Headers} ->
+            {error, {recoverable_error, #{status_code => StatusCode, headers => Headers}}};
+        {ok, StatusCode, Headers} ->
+            {error, {unrecoverable_error, #{status_code => StatusCode, headers => Headers}}};
+        {ok, _TooManyRequests = StatusCode = 429, Headers, Body} ->
+            {error,
+                {recoverable_error, #{
+                    status_code => StatusCode, headers => Headers, body => Body
+                }}};
+        {ok, StatusCode, Headers, Body} ->
+            {error,
+                {unrecoverable_error, #{
+                    status_code => StatusCode, headers => Headers, body => Body
+                }}}
     end.
 
-maybe_retry(Result0, _Context = #{attempt := N, max_attempts := Max}, ReplyFunAndArgs) when
+maybe_retry(Result, _Context = #{attempt := N, max_attempts := Max}, ReplyFunAndArgs) when
     N >= Max
 ->
-    Result = transform_result(Result0),
+    emqx_resource:apply_reply_fun(ReplyFunAndArgs, Result);
+maybe_retry(
+    {error, {unrecoverable_error, #{status_code := _}}} = Result, _Context, ReplyFunAndArgs
+) ->
+    %% request was successful, but we got an error response; no need to retry
     emqx_resource:apply_reply_fun(ReplyFunAndArgs, Result);
 maybe_retry({error, Reason}, Context, ReplyFunAndArgs) ->
     #{
@@ -676,12 +677,18 @@ maybe_retry({error, Reason}, Context, ReplyFunAndArgs) ->
         timeout := Timeout
     } = Context,
     %% TODO: reset the expiration time for free retries?
-    IsFreeRetry = Reason =:= normal orelse Reason =:= {shutdown, normal},
+    IsFreeRetry =
+        case Reason of
+            {recoverable_error, normal} -> true;
+            {recoverable_error, {shutdown, normal}} -> true;
+            _ -> false
+        end,
     NContext =
         case IsFreeRetry of
             true -> Context;
             false -> Context#{attempt := Attempt + 1}
         end,
+    ?tp(webhook_will_retry_async, #{}),
     Worker = resolve_pool_worker(State, KeyOrNum),
     ok = ehttpc:request_async(
         Worker,

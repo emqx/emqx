@@ -27,6 +27,7 @@
 
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
+-include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
 -define(BRIDGE_TYPE, <<"webhook">>).
 -define(BRIDGE_NAME, atom_to_binary(?MODULE)).
@@ -60,10 +61,35 @@ init_per_testcase(t_send_async_connection_timeout, Config) ->
     ResponseDelayMS = 500,
     Server = start_http_server(#{response_delay_ms => ResponseDelayMS}),
     [{http_server, Server}, {response_delay_ms, ResponseDelayMS} | Config];
+init_per_testcase(t_path_not_found, Config) ->
+    HTTPPath = <<"/nonexisting/path">>,
+    ServerSSLOpts = false,
+    {ok, {HTTPPort, _Pid}} = emqx_connector_web_hook_server:start_link(
+        _Port = random, HTTPPath, ServerSSLOpts
+    ),
+    ok = emqx_connector_web_hook_server:set_handler(not_found_http_handler()),
+    [{http_server, #{port => HTTPPort, path => HTTPPath}} | Config];
+init_per_testcase(t_too_many_requests, Config) ->
+    HTTPPath = <<"/path">>,
+    ServerSSLOpts = false,
+    {ok, {HTTPPort, _Pid}} = emqx_connector_web_hook_server:start_link(
+        _Port = random, HTTPPath, ServerSSLOpts
+    ),
+    ok = emqx_connector_web_hook_server:set_handler(too_many_requests_http_handler()),
+    [{http_server, #{port => HTTPPort, path => HTTPPath}} | Config];
 init_per_testcase(_TestCase, Config) ->
     Server = start_http_server(#{response_delay_ms => 0}),
     [{http_server, Server} | Config].
 
+end_per_testcase(TestCase, _Config) when
+    TestCase =:= t_path_not_found;
+    TestCase =:= t_too_many_requests
+->
+    ok = emqx_connector_web_hook_server:stop(),
+    persistent_term:erase({?MODULE, times_called}),
+    emqx_bridge_testlib:delete_all_bridges(),
+    emqx_common_test_helpers:call_janitor(),
+    ok;
 end_per_testcase(_TestCase, Config) ->
     case ?config(http_server, Config) of
         undefined -> ok;
@@ -176,27 +202,37 @@ parse_http_request_assertive(ReqStr0) ->
 bridge_async_config(#{port := Port} = Config) ->
     Type = maps:get(type, Config, ?BRIDGE_TYPE),
     Name = maps:get(name, Config, ?BRIDGE_NAME),
+    Path = maps:get(path, Config, ""),
     PoolSize = maps:get(pool_size, Config, 1),
     QueryMode = maps:get(query_mode, Config, "async"),
     ConnectTimeout = maps:get(connect_timeout, Config, "1s"),
     RequestTimeout = maps:get(request_timeout, Config, "10s"),
     ResumeInterval = maps:get(resume_interval, Config, "1s"),
     ResourceRequestTTL = maps:get(resource_request_ttl, Config, "infinity"),
+    LocalTopic =
+        case maps:find(local_topic, Config) of
+            {ok, LT} ->
+                lists:flatten(["local_topic = \"", LT, "\""]);
+            error ->
+                ""
+        end,
     ConfigString = io_lib:format(
         "bridges.~s.~s {\n"
-        "  url = \"http://localhost:~p\"\n"
+        "  url = \"http://localhost:~p~s\"\n"
         "  connect_timeout = \"~p\"\n"
         "  enable = true\n"
+        %% local_topic
+        "  ~s\n"
         "  enable_pipelining = 100\n"
         "  max_retries = 2\n"
         "  method = \"post\"\n"
         "  pool_size = ~p\n"
         "  pool_type = \"random\"\n"
         "  request_timeout = \"~s\"\n"
-        "  body = \"${id}\""
+        "  body = \"${id}\"\n"
         "  resource_opts {\n"
         "    inflight_window = 100\n"
-        "    health_check_interval = \"15s\"\n"
+        "    health_check_interval = \"200ms\"\n"
         "    max_buffer_bytes = \"1GB\"\n"
         "    query_mode = \"~s\"\n"
         "    request_ttl = \"~p\"\n"
@@ -213,7 +249,9 @@ bridge_async_config(#{port := Port} = Config) ->
             Type,
             Name,
             Port,
+            Path,
             ConnectTimeout,
+            LocalTopic,
             PoolSize,
             RequestTimeout,
             QueryMode,
@@ -243,6 +281,61 @@ make_bridge(Config) ->
         BridgeConfig
     ),
     emqx_bridge_resource:bridge_id(Type, Name).
+
+not_found_http_handler() ->
+    TestPid = self(),
+    fun(Req0, State) ->
+        {ok, Body, Req} = cowboy_req:read_body(Req0),
+        TestPid ! {http, cowboy_req:headers(Req), Body},
+        Rep = cowboy_req:reply(
+            404,
+            #{<<"content-type">> => <<"text/plain">>},
+            <<"not found">>,
+            Req
+        ),
+        {ok, Rep, State}
+    end.
+
+too_many_requests_http_handler() ->
+    GetAndBump =
+        fun() ->
+            NCalled = persistent_term:get({?MODULE, times_called}, 0),
+            persistent_term:put({?MODULE, times_called}, NCalled + 1),
+            NCalled + 1
+        end,
+    TestPid = self(),
+    fun(Req0, State) ->
+        N = GetAndBump(),
+        {ok, Body, Req} = cowboy_req:read_body(Req0),
+        TestPid ! {http, cowboy_req:headers(Req), Body},
+        Rep =
+            case N >= 2 of
+                true ->
+                    cowboy_req:reply(
+                        200,
+                        #{<<"content-type">> => <<"text/plain">>},
+                        <<"ok">>,
+                        Req
+                    );
+                false ->
+                    cowboy_req:reply(
+                        429,
+                        #{<<"content-type">> => <<"text/plain">>},
+                        <<"slow down, buddy">>,
+                        Req
+                    )
+            end,
+        {ok, Rep, State}
+    end.
+
+wait_http_request() ->
+    receive
+        {http, _Headers, _Req} ->
+            ok
+    after 1_000 ->
+        ct:pal("mailbox: ~p", [process_info(self(), messages)]),
+        ct:fail("http request not made")
+    end.
 
 %%------------------------------------------------------------------------------
 %% Testcases
@@ -366,6 +459,86 @@ t_start_stop(Config) ->
     emqx_bridge_testlib:t_start_stop(
         ?BRIDGE_TYPE, ?BRIDGE_NAME, BridgeConfig, emqx_connector_http_stopped
     ).
+
+t_path_not_found(Config) ->
+    ?check_trace(
+        begin
+            #{port := Port, path := Path} = ?config(http_server, Config),
+            MQTTTopic = <<"t/webhook">>,
+            BridgeConfig = bridge_async_config(#{
+                type => ?BRIDGE_TYPE,
+                name => ?BRIDGE_NAME,
+                local_topic => MQTTTopic,
+                port => Port,
+                path => Path
+            }),
+            {ok, _} = emqx_bridge:create(?BRIDGE_TYPE, ?BRIDGE_NAME, BridgeConfig),
+            Msg = emqx_message:make(MQTTTopic, <<"{}">>),
+            emqx:publish(Msg),
+            wait_http_request(),
+            ?retry(
+                _Interval = 500,
+                _NAttempts = 20,
+                ?assertMatch(
+                    #{
+                        counters := #{
+                            matched := 1,
+                            failed := 1,
+                            success := 0
+                        }
+                    },
+                    emqx_bridge:get_metrics(?BRIDGE_TYPE, ?BRIDGE_NAME)
+                )
+            ),
+            ok
+        end,
+        fun(Trace) ->
+            ?assertEqual([], ?of_kind(webhook_will_retry_async, Trace)),
+            ok
+        end
+    ),
+    ok.
+
+t_too_many_requests(Config) ->
+    ?check_trace(
+        begin
+            #{port := Port, path := Path} = ?config(http_server, Config),
+            MQTTTopic = <<"t/webhook">>,
+            BridgeConfig = bridge_async_config(#{
+                type => ?BRIDGE_TYPE,
+                name => ?BRIDGE_NAME,
+                local_topic => MQTTTopic,
+                port => Port,
+                path => Path
+            }),
+            {ok, _} = emqx_bridge:create(?BRIDGE_TYPE, ?BRIDGE_NAME, BridgeConfig),
+            Msg = emqx_message:make(MQTTTopic, <<"{}">>),
+            emqx:publish(Msg),
+            %% should retry
+            wait_http_request(),
+            wait_http_request(),
+            ?retry(
+                _Interval = 500,
+                _NAttempts = 20,
+                ?assertMatch(
+                    #{
+                        counters := #{
+                            matched := 1,
+                            failed := 0,
+                            success := 1
+                        }
+                    },
+                    emqx_bridge:get_metrics(?BRIDGE_TYPE, ?BRIDGE_NAME)
+                )
+            ),
+            ok
+        end,
+        fun(Trace) ->
+            ?assertMatch([_ | _], ?of_kind(webhook_will_retry_async, Trace)),
+            ok
+        end
+    ),
+    ok.
 
 %% helpers
 do_t_async_retries(TestContext, Error, Fn) ->
