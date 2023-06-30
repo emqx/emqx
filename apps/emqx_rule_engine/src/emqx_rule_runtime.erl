@@ -36,7 +36,7 @@
     ]
 ).
 
--compile({no_auto_import, [alias/1]}).
+-compile({no_auto_import, [alias/2]}).
 
 -type columns() :: map().
 -type alias() :: atom().
@@ -204,7 +204,7 @@ select_and_transform([{as, Field, Alias} | More], Columns, Action) ->
     );
 select_and_transform([Field | More], Columns, Action) ->
     Val = eval(Field, Columns),
-    Key = alias(Field),
+    Key = alias(Field, Columns),
     select_and_transform(
         More,
         nested_put(Key, Val, Columns),
@@ -228,11 +228,11 @@ select_and_collect([{as, Field, Alias} | More], Columns, {Action, LastKV}) ->
     );
 select_and_collect([Field], Columns, {Action, _}) ->
     Val = eval(Field, Columns),
-    Key = alias(Field),
+    Key = alias(Field, Columns),
     {nested_put(Key, Val, Action), {'item', ensure_list(Val)}};
 select_and_collect([Field | More], Columns, {Action, LastKV}) ->
     Val = eval(Field, Columns),
-    Key = alias(Field),
+    Key = alias(Field, Columns),
     select_and_collect(
         More,
         nested_put(Key, Val, Columns),
@@ -401,37 +401,35 @@ eval({'case', CaseOn, CaseClauses, ElseClauses}, Columns) ->
 eval({'fun', {_, Name}, Args}, Columns) ->
     apply_func(Name, [eval(Arg, Columns) || Arg <- Args], Columns).
 
-handle_alias({path, [{key, <<"payload">>} | _]}, #{payload := Payload} = Columns) ->
-    Columns#{payload => may_decode_payload(Payload)};
-handle_alias({path, [{key, <<"payload">>} | _]}, #{<<"payload">> := Payload} = Columns) ->
-    Columns#{<<"payload">> => may_decode_payload(Payload)};
-handle_alias(_, Columns) ->
-    Columns.
-
-alias({var, Var}) ->
+alias({var, Var}, _Columns) ->
     {var, Var};
-alias({const, Val}) when is_binary(Val) ->
+alias({const, Val}, _Columns) when is_binary(Val) ->
     {var, Val};
-alias({list, L}) ->
+alias({list, L}, _Columns) ->
     {var, ?ephemeral_alias(list, length(L))};
-alias({range, R}) ->
+alias({range, R}, _Columns) ->
     {var, ?ephemeral_alias(range, R)};
-alias({get_range, _, {var, Key}}) ->
+alias({get_range, _, {var, Key}}, _Columns) ->
     {var, Key};
-alias({get_range, _, {path, Path}}) ->
-    {path, Path};
-alias({path, Path}) ->
-    {path, Path};
-alias({const, Val}) ->
+alias({get_range, _, {path, _Path} = Path}, Columns) ->
+    handle_path_alias(Path, Columns);
+alias({path, _Path} = Path, Columns) ->
+    handle_path_alias(Path, Columns);
+alias({const, Val}, _Columns) ->
     {var, ?ephemeral_alias(const, Val)};
-alias({Op, _L, _R}) when ?is_arith(Op); ?is_comp(Op) ->
+alias({Op, _L, _R}, _Columns) when ?is_arith(Op); ?is_comp(Op) ->
     {var, ?ephemeral_alias(op, Op)};
-alias({'case', On, _, _}) ->
+alias({'case', On, _, _}, _Columns) ->
     {var, ?ephemeral_alias('case', On)};
-alias({'fun', Name, _}) ->
+alias({'fun', Name, _}, _Columns) ->
     {var, ?ephemeral_alias('fun', Name)};
-alias(_) ->
+alias(_, _Columns) ->
     ?ephemeral_alias(unknown, unknown).
+
+handle_path_alias({path, [{key, <<"payload">>} | Rest]}, #{payload := _Payload} = _Columns) ->
+    {path, [{key, payload} | Rest]};
+handle_path_alias(Path, _Columns) ->
+    Path.
 
 eval_case_clauses([], ElseClauses, Columns) ->
     case ElseClauses of
@@ -515,8 +513,7 @@ safe_decode_and_cache(MaybeJson) ->
 ensure_list(List) when is_list(List) -> List;
 ensure_list(_NotList) -> [].
 
-nested_put(Alias, Val, Columns0) ->
-    Columns = handle_alias(Alias, Columns0),
+nested_put(Alias, Val, Columns) ->
     emqx_rule_maps:nested_put(Alias, Val, Columns).
 
 inc_action_metrics(RuleId, Result) ->
