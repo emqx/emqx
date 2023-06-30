@@ -642,8 +642,15 @@ transform_result(Result) ->
             Result;
         {ok, StatusCode, _, _} when StatusCode >= 200 andalso StatusCode < 300 ->
             Result;
+        {ok, _TooManyRequests = StatusCode = 429, Headers} ->
+            {error, {recoverable_error, #{status_code => StatusCode, headers => Headers}}};
         {ok, StatusCode, Headers} ->
             {error, {unrecoverable_error, #{status_code => StatusCode, headers => Headers}}};
+        {ok, _TooManyRequests = StatusCode = 429, Headers, Body} ->
+            {error,
+                {recoverable_error, #{
+                    status_code => StatusCode, headers => Headers, body => Body
+                }}};
         {ok, StatusCode, Headers, Body} ->
             {error,
                 {unrecoverable_error, #{
