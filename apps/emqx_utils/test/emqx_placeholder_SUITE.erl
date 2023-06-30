@@ -39,6 +39,15 @@ t_proc_tmpl_path(_) ->
         emqx_placeholder:proc_tmpl(Tks, Selected)
     ).
 
+t_proc_tmpl_path_encoded_json(_) ->
+    %% when we receive a message from the rule engine, it is a map with an encoded payload
+    Selected = #{payload => emqx_utils_json:encode(#{d1 => #{d2 => <<"hi">>}})},
+    Tks = emqx_placeholder:preproc_tmpl(<<"payload.d1.d2:${payload.d1.d2}">>),
+    ?assertEqual(
+        <<"payload.d1.d2:hi">>,
+        emqx_placeholder:proc_tmpl(Tks, Selected)
+    ).
+
 t_proc_tmpl_custom_ph(_) ->
     Selected = #{a => <<"a">>, b => <<"b">>},
     Tks = emqx_placeholder:preproc_tmpl(<<"a:${a},b:${b}">>, #{placeholders => [<<"${a}">>]}),

@@ -257,7 +257,14 @@ quote_mysql(Str) ->
 
 lookup_var(Var, Value) when Var == ?PH_VAR_THIS orelse Var == [] ->
     Value;
-lookup_var([Prop | Rest], Data) ->
+lookup_var([Prop | Rest], Data0) ->
+    Data =
+        case emqx_utils_json:safe_decode(Data0, [return_maps]) of
+            {ok, Data1} ->
+                Data1;
+            {error, _} ->
+                Data0
+        end,
     case lookup(Prop, Data) of
         {ok, Value} ->
             lookup_var(Rest, Value);
