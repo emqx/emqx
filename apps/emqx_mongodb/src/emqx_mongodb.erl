@@ -97,7 +97,14 @@ fields(sharded) ->
     ] ++ mongo_fields();
 fields(topology) ->
     [
-        {pool_size, fun emqx_connector_schema_lib:pool_size/1},
+        {pool_size,
+            hoconsc:mk(
+                pos_integer(),
+                #{
+                    deprecated => {since, "5.1.1"},
+                    importance => ?IMPORTANCE_HIDDEN
+                }
+            )},
         {max_overflow, fun max_overflow/1},
         {overflow_ttl, duration("overflow_ttl")},
         {overflow_check_period, duration("overflow_check_period")},
@@ -174,7 +181,23 @@ on_start(
             false ->
                 [{ssl, false}]
         end,
-    Topology = maps:get(topology, NConfig, #{}),
+    Topology0 = maps:get(topology, NConfig, #{}),
+    %% we fix this at 1 because we already have ecpool
+    case maps:get(pool_size, Topology0, 1) =:= 1 of
+        true ->
+            ok;
+        false ->
+            ?SLOG(
+                info,
+                #{
+                    msg => "mongodb_overriding_topology_pool_size",
+                    connector => InstId,
+                    reason => "this option is deprecated; please set `pool_size' for the connector",
+                    value => 1
+                }
+            )
+    end,
+    Topology = Topology0#{pool_size => 1},
     Opts = [
         {mongo_type, init_type(NConfig)},
         {hosts, Hosts},
