@@ -3,6 +3,8 @@
 %%--------------------------------------------------------------------
 -module(emqx_ee_schema_registry_serde).
 
+-behaviour(emqx_rule_funcs).
+
 -include("emqx_ee_schema_registry.hrl").
 -include_lib("emqx/include/logger.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
@@ -15,12 +17,49 @@
     decode/3,
     encode/2,
     encode/3,
-    make_serde/3
+    make_serde/3,
+    handle_rule_function/2
 ]).
 
 %%------------------------------------------------------------------------------
 %% API
 %%------------------------------------------------------------------------------
+
+-spec handle_rule_function(atom(), list()) -> any() | {error, no_match_for_function}.
+handle_rule_function(sparkplug_decode, [Data]) ->
+    handle_rule_function(
+        schema_decode,
+        [?EMQX_SCHEMA_REGISTRY_SPARKPLUGB_SCHEMA_NAME, Data, <<"Payload">>]
+    );
+handle_rule_function(sparkplug_decode, [Data | MoreArgs]) ->
+    handle_rule_function(
+        schema_decode,
+        [?EMQX_SCHEMA_REGISTRY_SPARKPLUGB_SCHEMA_NAME, Data | MoreArgs]
+    );
+handle_rule_function(schema_decode, [SchemaId, Data | MoreArgs]) ->
+    decode(SchemaId, Data, MoreArgs);
+handle_rule_function(schema_decode, Args) ->
+    error({args_count_error, {schema_decode, Args}});
+handle_rule_function(sparkplug_encode, [Term]) ->
+    handle_rule_function(
+        schema_encode,
+        [?EMQX_SCHEMA_REGISTRY_SPARKPLUGB_SCHEMA_NAME, Term, <<"Payload">>]
+    );
+handle_rule_function(sparkplug_encode, [Term | MoreArgs]) ->
+    handle_rule_function(
+        schema_encode,
+        [?EMQX_SCHEMA_REGISTRY_SPARKPLUGB_SCHEMA_NAME, Term | MoreArgs]
+    );
+handle_rule_function(schema_encode, [SchemaId, Term | MoreArgs]) ->
+    %% encode outputs iolists, but when the rule actions process those
+    %% it might wrongly encode them as JSON lists, so we force them to
+    %% binaries here.
+    IOList = encode(SchemaId, Term, MoreArgs),
+    iolist_to_binary(IOList);
+handle_rule_function(schema_encode, Args) ->
+    error({args_count_error, {schema_encode, Args}});
+handle_rule_function(_, _) ->
+    {error, no_match_for_function}.
 
 -spec decode(schema_name(), encoded_data()) -> decoded_data().
 decode(SerdeName, RawData) ->

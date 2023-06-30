@@ -239,7 +239,7 @@ create_tables() ->
 do_build_serdes(Schemas) ->
     %% We build a special serde for the Sparkplug B payload. This serde is used
     %% by the rule engine functions sparkplug_decode/1 and sparkplug_encode/1.
-    maybe_build_sparkplug_b_serde(),
+    ok = maybe_build_sparkplug_b_serde(),
     %% TODO: use some kind of mutex to make each core build a
     %% different serde to avoid duplicate work.  Maybe ekka_locker?
     maps:foreach(fun do_build_serde/2, Schemas),
