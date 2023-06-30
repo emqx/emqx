@@ -221,7 +221,7 @@ import_msg(
 ) ->
     #{
         id => emqx_guid:to_hexstr(emqx_guid:gen()),
-        server => Server,
+        server => to_bin(Server),
         payload => Payload,
         topic => Topic,
         qos => QoS,
@@ -272,3 +272,6 @@ to_broker_msg(#{dup := Dup} = Msg, Local, Props) ->
             emqx_message:make(bridge, QoS, Topic, Payload)
         )
     ).
+
+to_bin(B) when is_binary(B) -> B;
+to_bin(Str) when is_list(Str) -> iolist_to_binary(Str).
