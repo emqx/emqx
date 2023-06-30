@@ -44,10 +44,10 @@
 -module(emqx_session).
 
 -include("emqx.hrl").
+-include("emqx_session.hrl").
 -include("emqx_mqtt.hrl").
 -include("logger.hrl").
 -include("types.hrl").
--include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
 -ifdef(TEST).
 -compile(export_all).
@@ -55,6 +55,11 @@
 -endif.
 
 -export([init/1]).
+
+-export([
+    lookup/1,
+    discard/1
+]).
 
 -export([
     info/1,
@@ -85,7 +90,7 @@
     filter_queue/2,
     ignore_local/4,
     retry/2,
-    terminate/3
+    terminate/4
 ]).
 
 -export([
@@ -105,42 +110,6 @@
     session/0,
     sessionID/0
 ]).
-
--record(session, {
-    %% Client's id
-    clientid :: emqx_types:clientid(),
-    id :: sessionID(),
-    %% Is this session a persistent session i.e. was it started with Session-Expiry > 0
-    is_persistent :: boolean(),
-    %% Client’s Subscriptions.
-    subscriptions :: map(),
-    %% Max subscriptions allowed
-    max_subscriptions :: non_neg_integer() | infinity,
-    %% Upgrade QoS?
-    upgrade_qos :: boolean(),
-    %% Client <- Broker: QoS1/2 messages sent to the client but
-    %% have not been unacked.
-    inflight :: emqx_inflight:inflight(),
-    %% All QoS1/2 messages published to when client is disconnected,
-    %% or QoS1/2 messages pending transmission to the Client.
-    %%
-    %% Optionally, QoS0 messages pending transmission to the Client.
-    mqueue :: emqx_mqueue:mqueue(),
-    %% Next packet id of the session
-    next_pkt_id = 1 :: emqx_types:packet_id(),
-    %% Retry interval for redelivering QoS1/2 messages (Unit: millisecond)
-    retry_interval :: timeout(),
-    %% Client -> Broker: QoS2 messages received from the client, but
-    %% have not been completely acknowledged
-    awaiting_rel :: map(),
-    %% Maximum number of awaiting QoS2 messages allowed
-    max_awaiting_rel :: non_neg_integer() | infinity,
-    %% Awaiting PUBREL Timeout (Unit: millisecond)
-    await_rel_timeout :: timeout(),
-    %% Created at
-    created_at :: pos_integer()
-    %% Message deliver latency stats
-}).
 
 -type inflight_data_phase() :: wait_ack | wait_comp.
 
@@ -192,6 +161,7 @@
     max_inflight => integer(),
     mqueue => emqx_mqueue:options(),
     is_persistent => boolean(),
+    expiry_interval => non_neg_integer(),
     clientid => emqx_types:clientid()
 }.
 
@@ -209,10 +179,13 @@ init(Opts) ->
         },
         maps:get(mqueue, Opts, #{})
     ),
-    #session{
+    ExpiryInterval = maps:get(expiry_interval, Opts),
+    IsPersistent = maps:get(is_persistent, Opts, ExpiryInterval > 0),
+    Session = #session{
         id = emqx_guid:gen(),
         clientid = maps:get(clientid, Opts, <<>>),
-        is_persistent = maps:get(is_persistent, Opts),
+        is_persistent = IsPersistent,
+        expiry_interval = ExpiryInterval,
         max_subscriptions = maps:get(max_subscriptions, Opts),
         subscriptions = #{},
         upgrade_qos = maps:get(upgrade_qos, Opts),
@@ -224,7 +197,25 @@ init(Opts) ->
         max_awaiting_rel = maps:get(max_awaiting_rel, Opts),
         await_rel_timeout = maps:get(await_rel_timeout, Opts),
         created_at = erlang:system_time(millisecond)
-    }.
+    },
+    persist_open(Session, timestamp()).
+
+-spec lookup(emqx_types:clientid()) -> {persistent, session()} | none.
+lookup(ClientId) ->
+    case emqx_persistent_session:lookup(ClientId) of
+        {persistent, Session} ->
+            {persistent, Session};
+        {expired, Session} ->
+            _ = emqx_persistent_session:discard(Session),
+            none;
+        none ->
+            none
+    end.
+
+-spec discard(session()) -> session().
+discard(Session) ->
+    ok = persist_discard(Session),
+    Session#session{is_persistent = false, expiry_interval = 0}.
 
 %%--------------------------------------------------------------------
 %% Info, Stats
@@ -242,6 +233,8 @@ info(Keys, Session) when is_list(Keys) ->
     [{Key, info(Key, Session)} || Key <- Keys];
 info(id, #session{id = Id}) ->
     Id;
+info(clientid, #session{clientid = ClientId}) ->
+    ClientId;
 info(is_persistent, #session{is_persistent = Bool}) ->
     Bool;
 info(subscriptions, #session{subscriptions = Subs}) ->
@@ -332,7 +325,8 @@ subscribe(
                 'session.subscribed',
                 [ClientInfo, TopicFilter, SubOpts#{is_new => IsNew}]
             ),
-            {ok, Session#session{subscriptions = maps:put(TopicFilter, SubOpts, Subs)}};
+            Session1 = Session#session{subscriptions = maps:put(TopicFilter, SubOpts, Subs)},
+            {ok, persist_update(Session1)};
         true ->
             {error, ?RC_QUOTA_EXCEEDED}
     end.
@@ -365,7 +359,8 @@ unsubscribe(
                 'session.unsubscribed',
                 [ClientInfo, TopicFilter, maps:merge(SubOpts, UnSubOpts)]
             ),
-            {ok, Session#session{subscriptions = maps:remove(TopicFilter, Subs)}};
+            Session1 = Session#session{subscriptions = maps:remove(TopicFilter, Subs)},
+            {ok, persist_update(Session1)};
         error ->
             {error, ?RC_NO_SUBSCRIPTION_EXISTED}
     end.
@@ -389,7 +384,8 @@ publish(
                 false ->
                     Results = emqx_broker:publish(Msg),
                     AwaitingRel1 = maps:put(PacketId, Ts, AwaitingRel),
-                    {ok, Results, Session#session{awaiting_rel = AwaitingRel1}};
+                    Session1 = Session#session{awaiting_rel = AwaitingRel1},
+                    {ok, Results, persist_update(Session1)};
                 true ->
                     drop_qos2_msg(PacketId, Msg, ?RC_PACKET_IDENTIFIER_IN_USE)
             end;
@@ -459,7 +455,8 @@ pubrec(_ClientInfo, PacketId, Session = #session{inflight = Inflight}) ->
         {value, #inflight_data{phase = wait_ack, message = Msg} = Data} ->
             Update = Data#inflight_data{phase = wait_comp},
             Inflight1 = emqx_inflight:update(PacketId, Update, Inflight),
-            {ok, Msg, Session#session{inflight = Inflight1}};
+            Session1 = Session#session{inflight = Inflight1},
+            {ok, Msg, persist_update(Session1)};
         {value, _} ->
             {error, ?RC_PACKET_IDENTIFIER_IN_USE};
         none ->
@@ -475,7 +472,8 @@ pubrec(_ClientInfo, PacketId, Session = #session{inflight = Inflight}) ->
 pubrel(_ClientInfo, PacketId, Session = #session{awaiting_rel = AwaitingRel}) ->
     case maps:take(PacketId, AwaitingRel) of
         {_Ts, AwaitingRel1} ->
-            {ok, Session#session{awaiting_rel = AwaitingRel1}};
+            Session1 = Session#session{awaiting_rel = AwaitingRel1},
+            {ok, persist_update(Session1)};
         error ->
             {error, ?RC_PACKET_IDENTIFIER_NOT_FOUND}
     end.
@@ -510,7 +508,7 @@ dequeue(ClientInfo, Session = #session{inflight = Inflight, mqueue = Q}) ->
             {ok, Session};
         false ->
             {Msgs, Q1} = dequeue(ClientInfo, batch_n(Inflight), [], Q),
-            do_deliver(ClientInfo, Msgs, [], Session#session{mqueue = Q1})
+            do_deliver(ClientInfo, Msgs, [], true, Session#session{mqueue = Q1})
     end.
 
 dequeue(_ClientInfo, 0, Msgs, Q) ->
@@ -544,26 +542,38 @@ acc_cnt(_Msg, Cnt) -> Cnt - 1.
     {ok, session()} | {ok, replies(), session()}.
 %% Optimize
 deliver(ClientInfo, [Deliver], Session) ->
+    % TODO
+    % There are 2 persistence-related side-effects, they should ideally go in a
+    % single transaction. They weren't performed in a single transaction before,
+    % the order of those side-effects is preserved, overall it supposedly affects
+    % if consistency violation would be message loss or message duplication.
+    ok = persist_delivers([Deliver], Session),
     Msg = enrich_deliver(Deliver, Session),
-    deliver_msg(ClientInfo, Msg, Session);
-deliver(ClientInfo, Delivers, Session) ->
-    Msgs = [enrich_deliver(D, Session) || D <- Delivers],
-    do_deliver(ClientInfo, Msgs, [], Session).
-
-do_deliver(_ClientInfo, [], Publishes, Session) ->
-    {ok, lists:reverse(Publishes), Session};
-do_deliver(ClientInfo, [Msg | More], Acc, Session) ->
     case deliver_msg(ClientInfo, Msg, Session) of
-        {ok, Session1} ->
-            do_deliver(ClientInfo, More, Acc, Session1);
-        {ok, [Publish], Session1} ->
-            do_deliver(ClientInfo, More, [Publish | Acc], Session1)
+        {Dirty, Session1} ->
+            {ok, persist_update_dirty(Dirty, Session1)};
+        {Dirty, [Publish], Session1} ->
+            {ok, [Publish], persist_update_dirty(Dirty, Session1)}
+    end;
+deliver(ClientInfo, Delivers, Session) ->
+    ok = persist_delivers(Delivers, Session),
+    Msgs = [enrich_deliver(D, Session) || D <- Delivers],
+    do_deliver(ClientInfo, Msgs, [], false, Session).
+
+do_deliver(_ClientInfo, [], Publishes, Dirty, Session) ->
+    {ok, lists:reverse(Publishes), persist_update_dirty(Dirty, Session)};
+do_deliver(ClientInfo, [Msg | More], Acc, DirtyAcc, Session) ->
+    case deliver_msg(ClientInfo, Msg, Session) of
+        {Dirty, Session1} ->
+            do_deliver(ClientInfo, More, Acc, DirtyAcc or Dirty, Session1);
+        {Dirty, [Publish], Session1} ->
+            do_deliver(ClientInfo, More, [Publish | Acc], DirtyAcc or Dirty, Session1)
     end.
 
 deliver_msg(_ClientInfo, Msg = #message{qos = ?QOS_0}, Session) ->
     %
     on_delivery_completed(Msg, Session),
-    {ok, [{undefined, maybe_ack(Msg)}], Session};
+    {false, [{undefined, maybe_ack(Msg)}], Session};
 deliver_msg(
     ClientInfo,
     Msg = #message{qos = QoS},
@@ -574,12 +584,10 @@ deliver_msg(
 ->
     case emqx_inflight:is_full(Inflight) of
         true ->
-            Session1 =
-                case maybe_nack(Msg) of
-                    true -> Session;
-                    false -> enqueue(ClientInfo, Msg, Session)
-                end,
-            {ok, Session1};
+            case maybe_nack(Msg) of
+                true -> {false, Session};
+                false -> {true, enqueue_msg(ClientInfo, Msg, Session)}
+            end;
         false ->
             %% Note that we publish message without shared ack header
             %% But add to inflight with ack headers
@@ -587,7 +595,7 @@ deliver_msg(
             Publish = {PacketId, maybe_ack(Msg)},
             MarkedMsg = mark_begin_deliver(Msg),
             Inflight1 = emqx_inflight:insert(PacketId, with_ts(MarkedMsg), Inflight),
-            {ok, [Publish], next_pkt_id(Session#session{inflight = Inflight1})}
+            {true, [Publish], next_pkt_id(Session#session{inflight = Inflight1})}
     end.
 
 -spec enqueue(
@@ -596,15 +604,22 @@ deliver_msg(
     session()
 ) -> session().
 enqueue(ClientInfo, Delivers, Session) when is_list(Delivers) ->
-    lists:foldl(
+    Session1 = lists:foldl(
         fun(Deliver, Session0) ->
             Msg = enrich_deliver(Deliver, Session),
-            enqueue(ClientInfo, Msg, Session0)
+            enqueue_msg(ClientInfo, Msg, Session0)
         end,
         Session,
         Delivers
-    );
-enqueue(ClientInfo, #message{} = Msg, Session = #session{mqueue = Q}) ->
+    ),
+    ok = persist_delivers(Delivers, Session1),
+    persist_update(Session1);
+enqueue(ClientInfo, Msg, Session) ->
+    % NOTE: no `persist_delivers/2` here, should be fine as long as this clause is test-only.
+    persist_update(enqueue_msg(ClientInfo, Msg, Session)).
+
+enqueue_msg(ClientInfo, #message{} = Msg, Session = #session{mqueue = Q}) ->
+    % TODO: dirtyness
     {Dropped, NewQ} = emqx_mqueue:in(Msg, Q),
     (Dropped =/= undefined) andalso handle_dropped(ClientInfo, Dropped, Session),
     Session#session{mqueue = NewQ}.
@@ -714,7 +729,7 @@ retry(ClientInfo, Session = #session{inflight = Inflight}) ->
     end.
 
 retry_delivery([], Acc, _Now, Session = #session{retry_interval = Interval}, _ClientInfo) ->
-    {ok, lists:reverse(Acc), Interval, Session};
+    {ok, lists:reverse(Acc), Interval, persist_update(Session)};
 retry_delivery(
     [{PacketId, #inflight_data{timestamp = Ts} = Data} | More],
     Acc,
@@ -727,7 +742,7 @@ retry_delivery(
             {Acc1, Inflight1} = do_retry_delivery(PacketId, Data, Now, Acc, Inflight, ClientInfo),
             retry_delivery(More, Acc1, Now, Session#session{inflight = Inflight1}, ClientInfo);
         false ->
-            {ok, lists:reverse(Acc), Interval - max(0, Age), Session}
+            {ok, lists:reverse(Acc), Interval - max(0, Age), persist_update(Session)}
     end.
 
 do_retry_delivery(
@@ -778,9 +793,10 @@ expire_awaiting_rel(
     ExpiredCnt = maps:size(AwaitingRel) - maps:size(AwaitingRel1),
     (ExpiredCnt > 0) andalso inc_await_pubrel_timeout(ExpiredCnt),
     NSession = Session#session{awaiting_rel = AwaitingRel1},
+    NSession1 = persist_update(NSession),
     case maps:size(AwaitingRel1) of
-        0 -> {ok, NSession};
-        _ -> {ok, Timeout, NSession}
+        0 -> {ok, NSession1};
+        _ -> {ok, Timeout, NSession1}
     end.
 
 %%--------------------------------------------------------------------
@@ -818,10 +834,13 @@ replay(ClientInfo, Session = #session{inflight = Inflight}) ->
         {ok, More, NSession} -> {ok, lists:append(Pubs, More), NSession}
     end.
 
--spec terminate(emqx_types:clientinfo(), Reason :: term(), session()) -> ok.
-terminate(ClientInfo, Reason, Session) ->
+-spec terminate(emqx_types:clientinfo(), emqx_types:conninfo(), Reason :: term(), session()) -> ok.
+terminate(ClientInfo, ConnInfo, Reason, Session) ->
     run_terminate_hooks(ClientInfo, Reason, Session),
     maybe_redispatch_shared_messages(Reason, Session),
+    % FIXME: unclear about the purpose of this
+    (Reason == expired) andalso
+        persist_update(Session, maps:get(disconnected_at, ConnInfo, timestamp())),
     ok.
 
 run_terminate_hooks(ClientInfo, discarded, Session) ->
@@ -857,6 +876,49 @@ redispatch_shared_messages(#session{inflight = Inflight, mqueue = Q}) ->
 run_hook(Name, Args) ->
     ok = emqx_metrics:inc(Name),
     emqx_hooks:run(Name, Args).
+
+%%--------------------------------------------------------------------
+%% Persistence
+%%--------------------------------------------------------------------
+
+-define(NEED_PERSISTENCE(SESSION),
+    (SESSION#session.is_persistent andalso (SESSION#session.clientid /= undefined))
+).
+
+persist_update_dirty(true, Session) ->
+    persist_update(Session);
+persist_update_dirty(false, Session) ->
+    Session.
+
+persist_update(Session) ->
+    persist_update(Session, timestamp()).
+
+persist_open(Session, Timestamp) when ?NEED_PERSISTENCE(Session) ->
+    emqx_persistent_session:persist(Session, Timestamp);
+persist_open(Session, _) ->
+    Session.
+
+persist_discard(Session) when ?NEED_PERSISTENCE(Session) ->
+    emqx_persistent_session:discard(Session);
+persist_discard(Session) ->
+    Session.
+
+persist_update(Session, Timestamp) when ?NEED_PERSISTENCE(Session) ->
+    emqx_persistent_session:persist(Session, Timestamp);
+persist_update(Session, _) ->
+    Session.
+
+persist_delivers(Delivers, Session) when ?NEED_PERSISTENCE(Session) ->
+    % NOTE
+    % Supposedly, this is needed to signal to the storage that messages
+    % are not needed anymore, because they are now a part of session and
+    % persisted as such. Though, transactional guarantees are missing AFAICS.
+    emqx_persistent_session:mark_as_delivered(Session#session.id, Delivers);
+persist_delivers(_Delivers, _Session) ->
+    ok.
+
+timestamp() ->
+    erlang:system_time(millisecond).
 
 %%--------------------------------------------------------------------
 %% Inc message/delivery expired counter
