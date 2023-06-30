@@ -119,7 +119,8 @@ default_plugins() ->
         {emqx_rule_engine, true},
         {emqx_schema_registry, true},
         {emqx_eviction_agent, true},
-        {emqx_node_rebalance, true}
+        {emqx_node_rebalance, true},
+        {emqx_gcp_device, false}
     ].
 
 

@@ -15,7 +15,6 @@
 -module(emqx_rule_sqltester).
 
 -include("rule_engine.hrl").
--include_lib("emqx/include/logger.hrl").
 
 -export([ test/1
         ]).

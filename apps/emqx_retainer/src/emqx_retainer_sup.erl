@@ -30,9 +30,15 @@
 start_link(Env) ->
 	supervisor:start_link({local, ?MODULE}, ?MODULE, [Env]).
 
+-dialyzer({no_match, [ensure_worker_pool_started/0]}).
 ensure_worker_pool_started() ->
     try
-        supervisor:start_child(?MODULE, worker_pool_spec())
+        case is_managed_by_modules() of
+            true ->
+                supervisor:start_child(emqx_modules_sup, worker_pool_spec());
+            false ->
+                supervisor:start_child(?MODULE, worker_pool_spec())
+        end
     catch
         _:_ -> ignore
     end.

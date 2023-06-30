@@ -14,6 +14,8 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
+-include_lib("emqx/include/logger.hrl").
+
 -define(APP, emqx_rule_engine).
 
 -define(KV_TAB, '@rule_engine_db').
@@ -187,11 +189,11 @@
             case lists:filter(fun(ResParttern) -> false; (_) -> true end, ResL) of
                 [] -> ResL;
                 ErrL ->
-                    ?LOG(error, "cluster_call error found, ResL: ~p", [ResL]),
+                    ?LOG_SENSITIVE(error, "cluster_call error found, ResL: ~p", [ResL]),
                     throw({Func, ErrL})
             end;
         {ResL, BadNodes} ->
-            ?LOG(error, "cluster_call bad nodes found: ~p, ResL: ~p", [BadNodes, ResL]),
+            ?LOG_SENSITIVE(error, "cluster_call bad nodes found: ~p, ResL: ~p", [BadNodes, ResL]),
             throw({Func, {failed_on_nodes, BadNodes}})
    end end()).
 

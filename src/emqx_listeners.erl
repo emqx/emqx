@@ -140,7 +140,8 @@ start_listener(Proto, ListenOn, Options0) when Proto == ssl; Proto == tls ->
     Options1 = proplists:delete(listener_id, Options0),
     Options2 = emqx_ocsp_cache:inject_sni_fun(ListenerID, Options1),
     Options3 = emqx_tls_lib:inject_root_fun(Options2),
-    Options = emqx_tls_lib:inject_verify_fun(Options3),
+    Options4 = emqx_tls_lib:inject_verify_fun(Options3),
+    Options = emqx_tls_lib:maybe_drop_incompatible_options(Options4),
     ok = maybe_register_crl_urls(Options),
     start_mqtt_listener('mqtt:ssl', ListenOn, Options);
 

@@ -14,7 +14,7 @@ case "${PKG_VSN}" in
     4.4*)
         # keep the above 4.3 untouched, otherwise conflicts!
         EMQX_CE_DASHBOARD_VERSION='v4.4.11'
-        EMQX_EE_DASHBOARD_VERSION='v4.4.24'
+        EMQX_EE_DASHBOARD_VERSION='v4.4.26'
         ;;
     *)
         echo "Unsupported version $PKG_VSN" >&2
@@ -49,6 +49,7 @@ if [ -d "$DASHBOARD_PATH/www" ] && [ "$(version)" = "$VERSION" ]; then
     exit 0
 fi
 
+echo "Downloading dashboard from $DIRECT_DOWNLOAD_URL"
 curl -L --silent --show-error \
      --header "Accept: application/octet-stream" \
      --output "${RELEASE_ASSET_FILE}" \

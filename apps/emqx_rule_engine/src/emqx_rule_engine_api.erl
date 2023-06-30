@@ -19,7 +19,6 @@
 -behaviour(gen_server).
 
 -include("rule_engine.hrl").
--include_lib("emqx/include/logger.hrl").
 
 -logger_header("[RuleEngineAPI]").
 
@@ -329,7 +328,7 @@ do_create_rule(Params) ->
                 error -> do_create_rule2(ParsedParams)
             end;
         {error, Reason} ->
-            ?LOG(error, "~p failed: ~0p", [?FUNCTION_NAME, Reason]),
+            ?LOG_SENSITIVE(error, "~p failed: ~0p", [?FUNCTION_NAME, Reason]),
             return({error, 400, ?ERR_BADARGS(Reason)})
     end.
 
@@ -339,7 +338,7 @@ do_create_rule2(ParsedParams) ->
         {error, {action_not_found, ActionName}} ->
             return({error, 400, ?ERR_NO_ACTION(ActionName)});
         {error, Reason} ->
-            ?LOG(error, "~p failed: ~0p", [?FUNCTION_NAME, Reason]),
+            ?LOG_SENSITIVE(error, "~p failed: ~0p", [?FUNCTION_NAME, Reason]),
             return({error, 400, ?ERR_BADARGS(Reason)})
     end.
 
@@ -352,11 +351,11 @@ delegate_update_rule(#{id := Id0}, Params) ->
                 {error, {not_found, RuleId}} ->
                     return({error, 400, ?ERR_NO_RULE(RuleId)});
                 {error, Reason} ->
-                    ?LOG(error, "~p failed: ~0p", [?FUNCTION_NAME, Reason]),
+                    ?LOG_SENSITIVE(error, "~p failed: ~0p", [?FUNCTION_NAME, Reason]),
                     return({error, 400, ?ERR_BADARGS(Reason)})
             end;
         {error, Reason} ->
-            ?LOG(error, "~p failed: ~0p", [?FUNCTION_NAME, Reason]),
+            ?LOG_SENSITIVE(error, "~p failed: ~0p", [?FUNCTION_NAME, Reason]),
             return({error, 400, ?ERR_BADARGS(Reason)})
     end.
 
@@ -409,7 +408,7 @@ delegate_create_resource(#{}, Params) ->
                     fun() -> do_create_resource(create_resource, ParsedParams) end,
                     Params);
         {error, Reason} ->
-            ?LOG(error, "~p failed: ~0p", [?FUNCTION_NAME, Reason]),
+            ?LOG_SENSITIVE(error, "~p failed: ~0p", [?FUNCTION_NAME, Reason]),
             return({error, 400, ?ERR_BADARGS(Reason)})
     end.
 
@@ -434,7 +433,7 @@ do_create_resource2(Create, ParsedParams) ->
         {error, {init_resource, _}} ->
             return({error, 500, <<"Init resource failure!">>});
         {error, Reason} ->
-            ?LOG(error, "~p failed: ~0p", [?FUNCTION_NAME, Reason]),
+            ?LOG_SENSITIVE(error, "~p failed: ~0p", [?FUNCTION_NAME, Reason]),
             return({error, 400, ?ERR_BADARGS(Reason)})
     end.
 
@@ -483,7 +482,7 @@ delegate_start_resource(#{id := Id0}, _Params) ->
         {error, {resource_not_found, ResId}} ->
             return({error, 400, ?ERR_NO_RESOURCE(ResId)});
         {error, Reason} ->
-            ?LOG(error, "~p failed: ~0p", [?FUNCTION_NAME, Reason]),
+            ?LOG_SENSITIVE(error, "~p failed: ~0p", [?FUNCTION_NAME, Reason]),
             return({error, 400, ?ERR_BADARGS(Reason)})
     end.
 
@@ -508,7 +507,7 @@ delegate_update_resource(#{id := Id0}, NewParams) ->
         {error, {dependent_rules_exists, RuleIds}} ->
             return({error, 400, ?ERR_DEP_RULES_EXISTS(RuleIds)});
         {error, Reason} ->
-            ?LOG(error, "Resource update failed: ~0p", [Reason]),
+            ?LOG_SENSITIVE(error, "Resource update failed: ~0p", [Reason]),
             return({error, 400, ?ERR_BADARGS(Reason)})
     end.
 
