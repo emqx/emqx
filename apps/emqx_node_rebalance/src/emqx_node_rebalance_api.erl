@@ -89,7 +89,7 @@ schema("/load_rebalance/global_status") ->
             summary => <<"Get global rebalance status">>,
             description => ?DESC("load_rebalance_global_status"),
             responses => #{
-                200 => response_schema()
+                200 => ref(global_status)
             }
         }
     };
