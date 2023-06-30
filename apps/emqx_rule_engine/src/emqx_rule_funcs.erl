@@ -242,6 +242,13 @@
     mongo_date/2
 ]).
 
+%% Random Funcs
+-export([
+    random/0,
+    uuid_v4/0,
+    uuid_v4_no_hyphen/0
+]).
+
 %% Proc Dict Func
 -export([
     proc_dict_get/1,
@@ -1022,6 +1029,18 @@ term_decode(Data) when is_binary(Data) ->
     erlang:binary_to_term(Data).
 
 %%------------------------------------------------------------------------------
+%% Random Funcs
+%%------------------------------------------------------------------------------
+random() ->
+    rand:uniform().
+
+uuid_v4() ->
+    uuid_str(uuid:get_v4(), binary_standard).
+
+uuid_v4_no_hyphen() ->
+    uuid_str(uuid:get_v4(), binary_nodash).
+
+%%------------------------------------------------------------------------------
 %% Dict Funcs
 %%------------------------------------------------------------------------------
 
@@ -1186,3 +1205,6 @@ convert_timestamp(MillisecondsTimestamp) ->
     Secs = MicroTimestamp div 1000_000 - MegaSecs * 1000_000,
     MicroSecs = MicroTimestamp rem 1000_000,
     {MegaSecs, Secs, MicroSecs}.
+
+uuid_str(UUID, DisplyOpt) ->
+    uuid:uuid_to_string(UUID, DisplyOpt).
