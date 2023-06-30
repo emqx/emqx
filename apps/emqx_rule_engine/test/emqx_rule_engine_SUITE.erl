@@ -19,11 +19,10 @@
 -compile(export_all).
 -compile(nowarn_export_all).
 
--include_lib("emqx_rule_engine/include/rule_engine.hrl").
--include_lib("emqx/include/emqx.hrl").
-
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
+
+-include_lib("emqx/include/emqx.hrl").
 
 -import(emqx_common_test_helpers, [on_exit/1]).
 
@@ -38,7 +37,11 @@ all() ->
         {group, runtime},
         {group, events},
         {group, telemetry},
-        {group, bugs}
+        {group, bugs},
+        {group, metrics},
+        {group, metrics_simple},
+        {group, metrics_fail},
+        {group, metrics_fail_simple}
     ].
 
 suite() ->
@@ -116,6 +119,22 @@ groups() ->
         {bugs, [], [
             t_sqlparse_payload_as,
             t_sqlparse_nested_get
+        ]},
+        {metrics, [], [
+            t_rule_metrics_sync,
+            t_rule_metrics_async
+        ]},
+        {metrics_simple, [], [
+            t_rule_metrics_sync,
+            t_rule_metrics_async
+        ]},
+        {metrics_fail, [], [
+            t_rule_metrics_sync_fail,
+            t_rule_metrics_async_fail
+        ]},
+        {metrics_fail_simple, [], [
+            t_rule_metrics_sync_fail,
+            t_rule_metrics_async_fail
         ]}
     ].
 
@@ -128,7 +147,7 @@ init_per_suite(Config) ->
     emqx_rule_funcs_demo:module_info(),
     application:load(emqx_conf),
     ok = emqx_common_test_helpers:start_apps(
-        [emqx_conf, emqx_rule_engine, emqx_authz],
+        [emqx_conf, emqx_rule_engine, emqx_authz, emqx_bridge],
         fun set_special_configs/1
     ),
     Config.
@@ -160,14 +179,41 @@ on_get_resource_status(_id, _) -> #{}.
 group(_Groupname) ->
     [].
 
+-define(BRIDGE_IMPL, emqx_bridge_mqtt_connector).
 init_per_group(registry, Config) ->
     Config;
+init_per_group(metrics_fail, Config) ->
+    meck:expect(?BRIDGE_IMPL, on_query, 3, {error, {unrecoverable_error, mecked_failure}}),
+    meck:expect(?BRIDGE_IMPL, on_query_async, 4, {error, {unrecoverable_error, mecked_failure}}),
+    [{mecked, [?BRIDGE_IMPL]} | Config];
+init_per_group(metrics_simple, Config) ->
+    meck:new(?BRIDGE_IMPL, [non_strict, no_link, passthrough]),
+    meck:expect(?BRIDGE_IMPL, query_mode, fun
+        (#{resource_opts := #{query_mode := sync}}) -> simple_sync;
+        (_) -> simple_async
+    end),
+    [{mecked, [?BRIDGE_IMPL]} | Config];
+init_per_group(metrics_fail_simple, Config) ->
+    meck:new(?BRIDGE_IMPL, [non_strict, no_link, passthrough]),
+    meck:expect(?BRIDGE_IMPL, query_mode, fun
+        (#{resource_opts := #{query_mode := sync}}) -> simple_sync;
+        (_) -> simple_async
+    end),
+    meck:expect(?BRIDGE_IMPL, on_query, 3, {error, {unrecoverable_error, mecked_failure}}),
+    meck:expect(?BRIDGE_IMPL, on_query_async, fun(_, _, {ReplyFun, Args}, _) ->
+        Result = {error, {unrecoverable_error, mecked_failure}},
+        erlang:apply(ReplyFun, Args ++ [Result]),
+        Result
+    end),
+    [{mecked, [?BRIDGE_IMPL]} | Config];
 init_per_group(_Groupname, Config) ->
     Config.
 
-end_per_group(_Groupname, _Config) ->
-    ok.
-
+end_per_group(_Groupname, Config) ->
+    case ?config(mecked, Config) of
+        undefined -> ok;
+        Mecked -> meck:unload(Mecked)
+    end.
 %%------------------------------------------------------------------------------
 %% Testcase specific setup/teardown
 %%------------------------------------------------------------------------------
@@ -2821,6 +2867,114 @@ t_get_rule_ids_by_action_reference_ingress_bridge(_Config) ->
         emqx_rule_engine:get_rule_ids_by_action(BridgeId)
     ),
     ok.
+
+%%------------------------------------------------------------------------------
+%% Test cases for rule metrics
+%%------------------------------------------------------------------------------
+
+-define(BRIDGE_TYPE, <<"mqtt">>).
+-define(BRIDGE_NAME, <<"bridge_over_troubled_water">>).
+-define(BRIDGE_CONFIG(QMODE), #{
+    <<"server">> => <<"127.0.0.1:1883">>,
+    <<"username">> => <<"user1">>,
+    <<"password">> => <<"">>,
+    <<"proto_ver">> => <<"v4">>,
+    <<"ssl">> => #{<<"enable">> => false},
+    <<"egress">> =>
+        #{
+            <<"local">> =>
+                #{
+                    <<"topic">> => <<"foo/#">>
+                },
+            <<"remote">> =>
+                #{
+                    <<"topic">> => <<"bar/${topic}">>,
+                    <<"payload">> => <<"${payload}">>,
+                    <<"qos">> => <<"${qos}">>,
+                    <<"retain">> => <<"${retain}">>
+                }
+        },
+    <<"resource_opts">> =>
+        #{
+            <<"health_check_interval">> => <<"5s">>,
+            <<"query_mode">> => QMODE,
+            <<"request_ttl">> => <<"3s">>,
+            <<"worker_pool_size">> => 1
+        }
+}).
+
+-define(SUCCESSS_METRICS, #{
+    matched := 1,
+    'actions.total' := 1,
+    'actions.failed' := 0,
+    'actions.success' := 1
+}).
+-define(FAIL_METRICS, #{
+    matched := 1,
+    'actions.total' := 1,
+    'actions.failed' := 1,
+    'actions.success' := 0
+}).
+
+t_rule_metrics_sync(_Config) ->
+    do_test_rule_metrics_success(<<"sync">>).
+
+t_rule_metrics_async(_Config) ->
+    do_test_rule_metrics_success(<<"async">>).
+
+t_rule_metrics_sync_fail(_Config) ->
+    do_test_rule_metrics_fail(<<"sync">>).
+
+t_rule_metrics_async_fail(_Config) ->
+    do_test_rule_metrics_fail(<<"async">>).
+
+do_test_rule_metrics_success(QMode) ->
+    ?assertMatch(
+        ?SUCCESSS_METRICS,
+        do_test_rule_metrics(QMode)
+    ).
+
+do_test_rule_metrics_fail(QMode) ->
+    ?assertMatch(
+        ?FAIL_METRICS,
+        do_test_rule_metrics(QMode)
+    ).
+
+do_test_rule_metrics(QMode) ->
+    BridgeId = create_bridge(?BRIDGE_TYPE, ?BRIDGE_NAME, ?BRIDGE_CONFIG(QMode)),
+    RuleId = <<"rule:test_metrics_bridge_action">>,
+    {ok, #{id := RuleId}} =
+        emqx_rule_engine:create_rule(
+            #{
+                id => RuleId,
+                sql => <<"SELECT * FROM \"topic/#\"">>,
+                actions => [BridgeId]
+            }
+        ),
+    timer:sleep(100),
+    ?assertMatch(
+        #{
+            matched := 0,
+            'actions.total' := 0,
+            'actions.failed' := 0,
+            'actions.success' := 0
+        },
+        emqx_metrics_worker:get_counters(rule_metrics, RuleId)
+    ),
+    MsgId = emqx_guid:gen(),
+    emqx:publish(#message{id = MsgId, topic = <<"topic/test">>, payload = <<"hello">>}),
+    timer:sleep(100),
+    on_exit(
+        fun() ->
+            emqx_rule_engine:delete_rule(RuleId),
+            emqx_bridge:remove(?BRIDGE_TYPE, ?BRIDGE_NAME)
+        end
+    ),
+    emqx_metrics_worker:get_counters(rule_metrics, RuleId).
+
+create_bridge(Type, Name, Config) ->
+    {ok, _Bridge} = emqx_bridge:create(Type, Name, Config),
+    emqx_bridge_resource:bridge_id(Type, Name).
 
 %%------------------------------------------------------------------------------
 %% Internal helpers

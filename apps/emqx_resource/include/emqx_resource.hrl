@@ -32,7 +32,8 @@
     expire_at => infinity | integer(),
     async_reply_fun => reply_fun(),
     simple_query => boolean(),
-    is_buffer_supported => boolean()
+    is_buffer_supported => boolean(),
+    reply_to => reply_fun()
 }.
 -type resource_data() :: #{
     id := resource_id(),

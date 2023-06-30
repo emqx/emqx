@@ -119,13 +119,14 @@ bridge_config(TestCase, _TestGroup, Config) ->
     Host = ?config(bridge_host, Config),
     Port = ?config(bridge_port, Config),
     Version = ?config(iotdb_version, Config),
+    Type = ?config(bridge_type, Config),
     Name = <<
         (atom_to_binary(TestCase))/binary, UniqueNum/binary
     >>,
     ServerURL = iotdb_server_url(Host, Port),
     ConfigString =
         io_lib:format(
-            "bridges.iotdb.~s {\n"
+            "bridges.~s.~s {\n"
             "  enable = true\n"
             "  base_url = \"~s\"\n"
             "  authentication = {\n"
@@ -142,12 +143,13 @@ bridge_config(TestCase, _TestGroup, Config) ->
             "  }\n"
             "}\n",
             [
+                Type,
                 Name,
                 ServerURL,
                 Version
             ]
         ),
-    {Name, ConfigString, emqx_bridge_testlib:parse_and_check(Config, ConfigString, Name)}.
+    {Name, ConfigString, emqx_bridge_testlib:parse_and_check(Type, Name, ConfigString)}.
 
 make_iotdb_payload(DeviceId, Measurement, Type, Value) ->
     #{

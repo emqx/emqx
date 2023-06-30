@@ -38,6 +38,7 @@
 
 -export([
     simple_sync_query/2,
+    simple_sync_query/3,
     simple_async_query/3
 ]).
 
@@ -61,7 +62,7 @@
 -define(COLLECT_REQ_LIMIT, 1000).
 -define(SEND_REQ(FROM, REQUEST), {'$send_req', FROM, REQUEST}).
 -define(QUERY(FROM, REQUEST, SENT, EXPIRE_AT), {query, FROM, REQUEST, SENT, EXPIRE_AT}).
--define(SIMPLE_QUERY(REQUEST), ?QUERY(undefined, REQUEST, false, infinity)).
+-define(SIMPLE_QUERY(FROM, REQUEST), ?QUERY(FROM, REQUEST, false, infinity)).
 -define(REPLY(FROM, SENT, RESULT), {reply, FROM, SENT, RESULT}).
 -define(INFLIGHT_ITEM(Ref, BatchOrQuery, IsRetriable, AsyncWorkerMRef),
     {Ref, BatchOrQuery, IsRetriable, AsyncWorkerMRef}
@@ -133,6 +134,10 @@ async_query(Id, Request, Opts0) ->
 %% simple query the resource without batching and queuing.
 -spec simple_sync_query(id(), request()) -> term().
 simple_sync_query(Id, Request) ->
+    simple_sync_query(Id, Request, #{}).
+
+-spec simple_sync_query(id(), request(), query_opts()) -> term().
+simple_sync_query(Id, Request, QueryOpts0) ->
     %% Note: since calling this function implies in bypassing the
     %% buffer workers, and each buffer worker index is used when
     %% collecting gauge metrics, we use this dummy index.  If this
@@ -141,10 +146,11 @@ simple_sync_query(Id, Request) ->
     %% `emqx_resource_metrics:*_shift/3'.
     ?tp(simple_sync_query, #{id => Id, request => Request}),
     Index = undefined,
-    QueryOpts = simple_query_opts(),
+    QueryOpts = maps:merge(simple_query_opts(), QueryOpts0),
     emqx_resource_metrics:matched_inc(Id),
     Ref = make_request_ref(),
-    Result = call_query(force_sync, Id, Index, Ref, ?SIMPLE_QUERY(Request), QueryOpts),
+    ReplyTo = maps:get(reply_to, QueryOpts0, undefined),
+    Result = call_query(force_sync, Id, Index, Ref, ?SIMPLE_QUERY(ReplyTo, Request), QueryOpts),
     _ = handle_query_result(Id, Result, _HasBeenSent = false),
     Result.
 
@@ -156,7 +162,10 @@ simple_async_query(Id, Request, QueryOpts0) ->
     QueryOpts = maps:merge(simple_query_opts(), QueryOpts0),
     emqx_resource_metrics:matched_inc(Id),
     Ref = make_request_ref(),
-    Result = call_query(async_if_possible, Id, Index, Ref, ?SIMPLE_QUERY(Request), QueryOpts),
+    ReplyTo = maps:get(reply_to, QueryOpts0, undefined),
+    Result = call_query(
+        async_if_possible, Id, Index, Ref, ?SIMPLE_QUERY(ReplyTo, Request), QueryOpts
+    ),
     _ = handle_query_result(Id, Result, _HasBeenSent = false),
     Result.
 
@@ -308,7 +317,7 @@ code_change(_OldVsn, State, _Extra) ->
     end
 ).
 
-pick_call(Id, Key, Query, Timeout) ->
+pick_call(Id, Key, Query = {_, _, QueryOpts}, Timeout) ->
     ?PICK(Id, Key, Pid, begin
         MRef = erlang:monitor(process, Pid, [{alias, reply_demonitor}]),
         ReplyTo = {fun ?MODULE:reply_call/2, [MRef]},
@@ -316,23 +325,23 @@ pick_call(Id, Key, Query, Timeout) ->
         receive
             {MRef, Response} ->
                 erlang:demonitor(MRef, [flush]),
-                Response;
+                maybe_reply_to(Response, QueryOpts);
             {'DOWN', MRef, process, Pid, Reason} ->
                 error({worker_down, Reason})
         after Timeout ->
             erlang:demonitor(MRef, [flush]),
             receive
                 {MRef, Response} ->
-                    Response
+                    maybe_reply_to(Response, QueryOpts)
             after 0 ->
                 error(timeout)
             end
         end
     end).
 
-pick_cast(Id, Key, Query) ->
+pick_cast(Id, Key, Query = {query, _Request, QueryOpts}) ->
     ?PICK(Id, Key, Pid, begin
-        ReplyTo = undefined,
+        ReplyTo = maps:get(reply_to, QueryOpts, undefined),
         erlang:send(Pid, ?SEND_REQ(ReplyTo, Query)),
         ok
     end).
@@ -1051,9 +1060,14 @@ do_call_query(_QM, _Id, _Index, _Ref, _Query, _QueryOpts, _Data) ->
     end
 ).
 
-apply_query_fun(sync, Mod, Id, _Index, _Ref, ?QUERY(_, Request, _, _) = _Query, ResSt, _QueryOpts) ->
+apply_query_fun(
+    sync, Mod, Id, _Index, _Ref, ?QUERY(_, Request, _, _) = _Query, ResSt, QueryOpts
+) ->
     ?tp(call_query, #{id => Id, mod => Mod, query => _Query, res_st => ResSt, call_mode => sync}),
-    ?APPLY_RESOURCE(call_query, Mod:on_query(Id, Request, ResSt), Request);
+    maybe_reply_to(
+        ?APPLY_RESOURCE(call_query, Mod:on_query(Id, Request, ResSt), Request),
+        QueryOpts
+    );
 apply_query_fun(async, Mod, Id, Index, Ref, ?QUERY(_, Request, _, _) = Query, ResSt, QueryOpts) ->
     ?tp(call_query_async, #{
         id => Id, mod => Mod, query => Query, res_st => ResSt, call_mode => async
@@ -1081,12 +1095,17 @@ apply_query_fun(async, Mod, Id, Index, Ref, ?QUERY(_, Request, _, _) = Query, Re
         end,
         Request
     );
-apply_query_fun(sync, Mod, Id, _Index, _Ref, [?QUERY(_, _, _, _) | _] = Batch, ResSt, _QueryOpts) ->
+apply_query_fun(
+    sync, Mod, Id, _Index, _Ref, [?QUERY(_, _, _, _) | _] = Batch, ResSt, QueryOpts
+) ->
     ?tp(call_batch_query, #{
         id => Id, mod => Mod, batch => Batch, res_st => ResSt, call_mode => sync
     }),
     Requests = lists:map(fun(?QUERY(_ReplyTo, Request, _, _ExpireAt)) -> Request end, Batch),
-    ?APPLY_RESOURCE(call_batch_query, Mod:on_batch_query(Id, Requests, ResSt), Batch);
+    maybe_reply_to(
+        ?APPLY_RESOURCE(call_batch_query, Mod:on_batch_query(Id, Requests, ResSt), Batch),
+        QueryOpts
+    );
 apply_query_fun(async, Mod, Id, Index, Ref, [?QUERY(_, _, _, _) | _] = Batch, ResSt, QueryOpts) ->
     ?tp(call_batch_query_async, #{
         id => Id, mod => Mod, batch => Batch, res_st => ResSt, call_mode => async
@@ -1117,6 +1136,12 @@ apply_query_fun(async, Mod, Id, Index, Ref, [?QUERY(_, _, _, _) | _] = Batch, Re
         end,
         Batch
     ).
+
+maybe_reply_to(Result, #{reply_to := ReplyTo}) ->
+    do_reply_caller(ReplyTo, Result),
+    Result;
+maybe_reply_to(Result, _) ->
+    Result.
 
 handle_async_reply(
     #{
