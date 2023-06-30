@@ -7,7 +7,9 @@ backlog.label:
 """Backlog"""
 
 bind.desc:
-"""Port without IP(18083) or port with specified IP(127.0.0.1:18083)."""
+"""Port without IP(18083) or port with specified IP(127.0.0.1:18083).
+Disabled when setting bind to `0`.
+"""
 
 bind.label:
 """Bind"""
@@ -135,5 +137,11 @@ token_expired_time.desc:
 
 token_expired_time.label:
 """Token expired time"""
+
+ssl_options.desc:
+"""SSL/TLS options for the dashboard listener."""
+
+ssl_options.label:
+"""SSL options"""
 
 }

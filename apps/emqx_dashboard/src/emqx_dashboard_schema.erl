@@ -21,7 +21,8 @@
     roots/0,
     fields/1,
     namespace/0,
-    desc/1
+    desc/1,
+    https_converter/2
 ]).
 
 namespace() -> dashboard.
@@ -63,7 +64,8 @@ fields("dashboard") ->
                     desc => ?DESC(bootstrap_users_file),
                     required => false,
                     default => <<>>,
-                    deprecated => {since, "5.1.0"}
+                    deprecated => {since, "5.1.0"},
+                    importance => ?IMPORTANCE_HIDDEN
                 }
             )}
     ];
@@ -82,7 +84,8 @@ fields("listeners") ->
                 ?R_REF("https"),
                 #{
                     desc => "SSL listeners",
-                    required => {false, recursively}
+                    required => {false, recursively},
+                    converter => fun ?MODULE:https_converter/2
                 }
             )}
     ];
@@ -95,11 +98,38 @@ fields("http") ->
 fields("https") ->
     [
         enable(false),
-        bind(18084)
-        | common_listener_fields() ++ server_ssl_opts()
-    ].
+        bind(18084),
+        ssl_options()
+        | common_listener_fields() ++
+            hidden_server_ssl_options()
+    ];
+fields("ssl_options") ->
+    server_ssl_options().
 
-server_ssl_opts() ->
+ssl_options() ->
+    {"ssl_options",
+        ?HOCON(
+            ?R_REF("ssl_options"),
+            #{
+                required => true,
+                desc => ?DESC(ssl_options),
+                importance => ?IMPORTANCE_HIGH
+            }
+        )}.
+
+hidden_server_ssl_options() ->
+    lists:map(
+        fun({K, V}) ->
+            {K, V#{
+                importance => ?IMPORTANCE_HIDDEN,
+                default => undefined,
+                required => false
+            }}
+        end,
+        server_ssl_options()
+    ).
+
+server_ssl_options() ->
     Opts0 = emqx_schema:server_ssl_opts_schema(#{}, true),
     exclude_fields(["fail_if_no_peer_cert"], Opts0).
 
@@ -213,6 +243,8 @@ desc("http") ->
     ?DESC(desc_http);
 desc("https") ->
     ?DESC(desc_https);
+desc("ssl_options") ->
+    ?DESC(ssl_options);
 desc(_) ->
     undefined.
 
@@ -241,7 +273,7 @@ cors(desc) -> ?DESC(cors);
 cors(_) -> undefined.
 
 %% TODO: change it to string type
-%% It will be up to the dashboard package which languagues to support
+%% It will be up to the dashboard package which languages to support
 i18n_lang(type) -> ?ENUM([en, zh]);
 i18n_lang(default) -> en;
 i18n_lang('readOnly') -> true;
@@ -257,3 +289,13 @@ validate_sample_interval(Second) ->
             Msg = "must be between 1 and 60 and be a divisor of 60.",
             {error, Msg}
     end.
+
+https_converter(Conf = #{<<"ssl_options">> := _}, _Opts) ->
+    Conf;
+https_converter(Conf = #{}, _Opts) ->
+    Keys = lists:map(fun({K, _}) -> list_to_binary(K) end, server_ssl_options()),
+    SslOpts = maps:with(Keys, Conf),
+    Conf1 = maps:without(Keys, Conf),
+    Conf1#{<<"ssl_options">> => SslOpts};
+https_converter(Conf, _Opts) ->
+    Conf.

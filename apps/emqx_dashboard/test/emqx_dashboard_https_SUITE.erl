@@ -49,7 +49,7 @@ t_update_conf(_Config) ->
     Conf = #{
         dashboard => #{
             listeners => #{
-                https => #{bind => 18084},
+                https => #{bind => 18084, ssl_options => #{depth => 5}},
                 http => #{bind => 18083}
             }
         }
@@ -64,6 +64,12 @@ t_update_conf(_Config) ->
         get, http_api_path(["clients"]), Headers
     ),
     Raw = emqx:get_raw_config([<<"dashboard">>]),
+    ?assertEqual(
+        5,
+        emqx_utils_maps:deep_get(
+            [<<"listeners">>, <<"https">>, <<"ssl_options">>, <<"depth">>], Raw
+        )
+    ),
     ?assertEqual(Client1, Client2),
     ?check_trace(
         begin
@@ -120,7 +126,7 @@ t_default_ssl_cert(_Config) ->
     validate_https(Conf, 512, default_ssl_cert(), verify_none),
     ok.
 
-t_normal_ssl_cert(_Config) ->
+t_compatibility_ssl_cert(_Config) ->
     MaxConnection = 1000,
     Conf = #{
         dashboard => #{
@@ -130,6 +136,29 @@ t_normal_ssl_cert(_Config) ->
                     cacertfile => naive_env_interpolation(<<"${EMQX_ETC_DIR}/certs/cacert.pem">>),
                     certfile => naive_env_interpolation(<<"${EMQX_ETC_DIR}/certs/cert.pem">>),
                     keyfile => naive_env_interpolation(<<"${EMQX_ETC_DIR}/certs/key.pem">>),
+                    max_connections => MaxConnection
+                }
+            }
+        }
+    },
+    validate_https(Conf, MaxConnection, default_ssl_cert(), verify_none),
+    ok.
+
+t_normal_ssl_cert(_Config) ->
+    MaxConnection = 1024,
+    Conf = #{
+        dashboard => #{
+            listeners => #{
+                https => #{
+                    bind => 18084,
+                    ssl_options => #{
+                        cacertfile => naive_env_interpolation(
+                            <<"${EMQX_ETC_DIR}/certs/cacert.pem">>
+                        ),
+                        certfile => naive_env_interpolation(<<"${EMQX_ETC_DIR}/certs/cert.pem">>),
+                        keyfile => naive_env_interpolation(<<"${EMQX_ETC_DIR}/certs/key.pem">>),
+                        depth => 5
+                    },
                     max_connections => MaxConnection
                 }
             }

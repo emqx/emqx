@@ -174,17 +174,19 @@ diff_listeners(Type, Stop, Start) -> {#{Type => Stop}, #{Type => Start}}.
 
 -define(DIR, <<"dashboard">>).
 
-ensure_ssl_cert(#{<<"listeners">> := #{<<"https">> := #{<<"bind">> := Bind}}} = Conf) when
+ensure_ssl_cert(#{<<"listeners">> := #{<<"https">> := #{<<"bind">> := Bind} = Https0}} = Conf0) when
     Bind =/= 0
 ->
-    Https = emqx_utils_maps:deep_get([<<"listeners">>, <<"https">>], Conf, undefined),
+    Https1 = emqx_dashboard_schema:https_converter(Https0, #{}),
+    Conf1 = emqx_utils_maps:deep_put([<<"listeners">>, <<"https">>], Conf0, Https1),
+    Ssl = maps:get(<<"ssl_options">>, Https1, undefined),
     Opts = #{required_keys => [[<<"keyfile">>], [<<"certfile">>], [<<"cacertfile">>]]},
-    case emqx_tls_lib:ensure_ssl_files(?DIR, Https, Opts) of
+    case emqx_tls_lib:ensure_ssl_files(?DIR, Ssl, Opts) of
         {ok, undefined} ->
             {error, <<"ssl_cert_not_found">>};
-        {ok, NewHttps} ->
-            {ok,
-                emqx_utils_maps:deep_merge(Conf, #{<<"listeners">> => #{<<"https">> => NewHttps}})};
+        {ok, NewSsl} ->
+            Keys = [<<"listeners">>, <<"https">>, <<"ssl_options">>],
+            {ok, emqx_utils_maps:deep_put(Keys, Conf1, NewSsl)};
         {error, Reason} ->
             ?SLOG(error, Reason#{msg => "bad_ssl_config"}),
             {error, Reason}
