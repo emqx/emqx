@@ -135,6 +135,8 @@ sessioninfo() ->
             sessionid(),
             % is_persistent
             boolean(),
+            % expiry_interval
+            non_neg_integer(),
             % subscriptions
             subscriptions(),
             % max_subscriptions

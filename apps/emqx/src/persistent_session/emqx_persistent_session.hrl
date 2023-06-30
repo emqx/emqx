@@ -16,7 +16,6 @@
 
 -record(session_store, {
     client_id :: binary(),
-    expiry_interval :: non_neg_integer(),
     ts :: non_neg_integer(),
     session :: emqx_session:session()
 }).

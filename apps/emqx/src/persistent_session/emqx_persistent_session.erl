@@ -24,14 +24,13 @@
 ]).
 
 -export([
-    discard/2,
-    discard_if_present/1,
+    discard/1,
     lookup/1,
-    persist/3,
+    persist/2,
     persist_message/1,
     pending/1,
     pending/2,
-    resume/3
+    resume/2
 ]).
 
 -export([
@@ -61,6 +60,7 @@
 
 -include("emqx.hrl").
 -include("emqx_channel.hrl").
+-include("emqx_session.hrl").
 -include("emqx_persistent_session.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
@@ -170,37 +170,25 @@ pending_messages_in_db(SessionID, MarkerIds) ->
 %% The timestamp (TS) is the last time a client interacted with the session,
 %% or when the client disconnected.
 -spec persist(
-    emqx_types:clientinfo(),
-    emqx_types:conninfo(),
-    emqx_session:session()
+    emqx_session:session(),
+    non_neg_integer()
 ) -> emqx_session:session().
 
-persist(#{clientid := ClientID}, ConnInfo, Session) ->
-    case ClientID == undefined orelse not emqx_session:info(is_persistent, Session) of
-        true ->
+persist(Session = #session{clientid = ClientID}, Timestamp) ->
+    SS = #session_store{
+        client_id = ClientID,
+        ts = Timestamp,
+        session = Session
+    },
+    case persistent_session_status(Session, Timestamp) of
+        not_persistent ->
             Session;
-        false ->
-            SS = #session_store{
-                client_id = ClientID,
-                expiry_interval = maps:get(expiry_interval, ConnInfo),
-                ts = timestamp_from_conninfo(ConnInfo),
-                session = Session
-            },
-            case persistent_session_status(SS) of
-                not_persistent ->
-                    Session;
-                expired ->
-                    discard(ClientID, Session);
-                persistent ->
-                    put_session_store(SS),
-                    Session
-            end
-    end.
-
-timestamp_from_conninfo(ConnInfo) ->
-    case maps:get(disconnected_at, ConnInfo, undefined) of
-        undefined -> erlang:system_time(millisecond);
-        Disconnect -> Disconnect
+        expired ->
+            discard(Session),
+            Session#session{is_persistent = false};
+        persistent ->
+            put_session_store(SS),
+            Session
     end.
 
 lookup(ClientID) when is_binary(ClientID) ->
@@ -211,37 +199,32 @@ lookup(ClientID) when is_binary(ClientID) ->
             case lookup_session_store(ClientID) of
                 none ->
                     none;
-                {value, #session_store{session = S} = SS} ->
-                    case persistent_session_status(SS) of
-                        expired -> {expired, S};
-                        persistent -> {persistent, S}
+                {value, #session_store{session = Session, ts = TS}} ->
+                    case persistent_session_status(Session, TS) of
+                        expired -> {expired, Session};
+                        persistent -> {persistent, Session}
                     end
             end
     end.
 
--spec discard_if_present(binary()) -> 'ok'.
-discard_if_present(ClientID) ->
+-spec discard(emqx_session:session() | emqx_types:clientid()) -> ok.
+discard(ClientID) when is_binary(ClientID) ->
     case lookup(ClientID) of
         none ->
             ok;
         {Tag, Session} when Tag =:= persistent; Tag =:= expired ->
-            _ = discard(ClientID, Session),
-            ok
-    end.
+            discard(Session)
+    end;
+discard(Session) ->
+    discard_opt(is_store_enabled(), Session).
 
--spec discard(binary(), emqx_session:session()) -> emqx_session:session().
-discard(ClientID, Session) ->
-    discard_opt(is_store_enabled(), ClientID, Session).
-
-discard_opt(false, _ClientID, Session) ->
-    emqx_session:set_field(is_persistent, false, Session);
-discard_opt(true, ClientID, Session) ->
+discard_opt(false, _Session) ->
+    ok;
+discard_opt(true, #session{id = SessionID, clientid = ClientID, subscriptions = Subscriptions}) ->
     delete_session_store(ClientID),
-    SessionID = emqx_session:info(id, Session),
     put_session_message({SessionID, <<>>, <<(erlang:system_time(microsecond)):64>>, ?ABANDONED}),
-    Subscriptions = emqx_session:info(subscriptions, Session),
     emqx_session_router:delete_routes(SessionID, Subscriptions),
-    emqx_session:set_field(is_persistent, false, Session).
+    ok.
 
 -spec mark_resume_begin(emqx_session:sessionID()) -> emqx_guid:guid().
 mark_resume_begin(SessionID) ->
@@ -270,9 +253,9 @@ remove_subscription(_TopicFilter, _SessionID, false = _IsPersistent) ->
 %%--------------------------------------------------------------------
 
 %% Must be called inside a emqx_cm_locker transaction.
--spec resume(emqx_types:clientinfo(), emqx_types:conninfo(), emqx_session:session()) ->
+-spec resume(emqx_types:clientinfo(), emqx_session:session()) ->
     {emqx_session:session(), [emqx_types:deliver()]}.
-resume(ClientInfo = #{clientid := ClientID}, ConnInfo, Session) ->
+resume(ClientInfo = #{clientid := ClientID}, Session) ->
     SessionID = emqx_session:info(id, Session),
     ?tp(ps_resuming, #{from => db, sid => SessionID}),
 
@@ -291,8 +274,6 @@ resume(ClientInfo = #{clientid := ClientID}, ConnInfo, Session) ->
     %%    when the messages were delivered.
     ?tp(ps_persist_pendings, #{sid => SessionID}),
     Session1 = emqx_session:enqueue(ClientInfo, Pendings2, Session),
-    Session2 = persist(ClientInfo, ConnInfo, Session1),
-    mark_as_delivered(SessionID, Pendings2),
     ?tp(ps_persist_pendings_msgs, #{
         msgs => Pendings2,
         sid => SessionID
@@ -307,7 +288,7 @@ resume(ClientInfo = #{clientid := ClientID}, ConnInfo, Session) ->
 
     %% 4. Subscribe to topics.
     ?tp(ps_resume_session, #{sid => SessionID}),
-    ok = emqx_session:resume(ClientInfo, Session2),
+    ok = emqx_session:resume(ClientInfo, Session1),
 
     %% 5. Get pending messages from DB until we find all markers.
     ?tp(ps_marker_pendings, #{sid => SessionID}),
@@ -329,7 +310,7 @@ resume(ClientInfo = #{clientid := ClientID}, ConnInfo, Session) ->
 
     %% 7. Drain the inbox and usort the messages
     %%    with the pending messages. (Should be done by caller.)
-    {Session2, Pendings4 ++ WriterPendings}.
+    {Session1, Pendings4 ++ WriterPendings}.
 
 resume_begin(Nodes, SessionID) ->
     Res = emqx_persistent_session_proto_v1:resume_begin(Nodes, self(), SessionID),
@@ -420,11 +401,11 @@ pending(SessionID, MarkerIds) ->
 %%--------------------------------------------------------------------
 
 %% @private [MQTT-3.1.2-23]
-persistent_session_status(#session_store{expiry_interval = 0}) ->
+persistent_session_status(#session{expiry_interval = 0}, _) ->
     not_persistent;
-persistent_session_status(#session_store{expiry_interval = ?EXPIRE_INTERVAL_INFINITE}) ->
+persistent_session_status(#session{expiry_interval = ?EXPIRE_INTERVAL_INFINITE}, _) ->
     persistent;
-persistent_session_status(#session_store{expiry_interval = E, ts = TS}) ->
+persistent_session_status(#session{expiry_interval = E}, TS) ->
     case E + TS > erlang:system_time(millisecond) of
         true -> persistent;
         false -> expired
