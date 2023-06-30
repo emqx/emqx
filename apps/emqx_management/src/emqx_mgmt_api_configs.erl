@@ -145,6 +145,7 @@ schema("/configs/limiter") ->
         'operationId' => limiter,
         get => #{
             tags => ?TAGS,
+            hidden => true,
             description => ?DESC(get_node_level_limiter_configs),
             responses => #{
                 200 => hoconsc:mk(hoconsc:ref(emqx_limiter_schema, limiter)),
@@ -153,6 +154,7 @@ schema("/configs/limiter") ->
         },
         put => #{
             tags => ?TAGS,
+            hidden => true,
             description => ?DESC(update_node_level_limiter_configs),
             'requestBody' => hoconsc:mk(hoconsc:ref(emqx_limiter_schema, limiter)),
             responses => #{
