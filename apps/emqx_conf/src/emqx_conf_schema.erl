@@ -375,7 +375,7 @@ fields(cluster_k8s) ->
             sc(
                 string(),
                 #{
-                    default => <<"http://10.110.111.204:8080">>,
+                    default => <<"https://kubernetes.default.svc:443">>,
                     desc => ?DESC(cluster_k8s_apiserver),
                     'readOnly' => true
                 }

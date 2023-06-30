@@ -46,7 +46,7 @@ conf(["show_keys" | _]) ->
 conf(["show"]) ->
     print_hocon(get_config());
 conf(["show", Key]) ->
-    print_hocon(get_config(Key));
+    print_hocon(get_config(list_to_binary(Key)));
 conf(["load", "--replace", Path]) ->
     load_config(Path, replace);
 conf(["load", "--merge", Path]) ->
@@ -163,19 +163,26 @@ print_hocon({error, Error}) ->
     emqx_ctl:warning("~ts~n", [Error]).
 
 get_config() ->
-    AllConf = emqx_config:fill_defaults(emqx:get_raw_config([])),
+    AllConf = fill_defaults(emqx:get_raw_config([])),
     drop_hidden_roots(AllConf).
 
 drop_hidden_roots(Conf) ->
     lists:foldl(fun(K, Acc) -> maps:remove(K, Acc) end, Conf, hidden_roots()).
 
 hidden_roots() ->
-    [<<"trace">>, <<"stats">>, <<"broker">>, <<"persistent_session_store">>, <<"plugins">>].
+    [
+        <<"trace">>,
+        <<"stats">>,
+        <<"broker">>,
+        <<"persistent_session_store">>,
+        <<"plugins">>,
+        <<"zones">>
+    ].
 
 get_config(Key) ->
     case emqx:get_raw_config([Key], undefined) of
         undefined -> {error, "key_not_found"};
-        Value -> emqx_config:fill_defaults(#{Key => Value})
+        Value -> fill_defaults(#{Key => Value})
     end.
 
 -define(OPTIONS, #{rawconf_with_defaults => true, override_to => cluster}).
@@ -311,7 +318,7 @@ load_etc_config_file() ->
 
 filter_readonly_config(Raw) ->
     SchemaMod = emqx_conf:schema_module(),
-    RawDefault = emqx_config:fill_defaults(Raw),
+    RawDefault = fill_defaults(Raw),
     case emqx_conf:check_config(SchemaMod, RawDefault) of
         {ok, _CheckedConf} ->
             ReadOnlyKeys = [atom_to_binary(K) || K <- ?READONLY_KEYS],
@@ -358,3 +365,15 @@ do_merge_conf(OldConf = #{}, NewConf = #{}) ->
     emqx_utils_maps:deep_merge(OldConf, NewConf);
 do_merge_conf(_OldConf, NewConf) ->
     NewConf.
+
+fill_defaults(Conf) ->
+    Conf1 = emqx_config:fill_defaults(Conf),
+    filter_cluster_conf(Conf1).
+
+-define(ALL_STRATEGY, [<<"manual">>, <<"static">>, <<"dns">>, <<"etcd">>, <<"k8s">>, <<"mcast">>]).
+
+filter_cluster_conf(#{<<"cluster">> := #{<<"discovery_strategy">> := Strategy} = Cluster} = Conf) ->
+    Cluster1 = maps:without(lists:delete(Strategy, ?ALL_STRATEGY), Cluster),
+    Conf#{<<"cluster">> => Cluster1};
+filter_cluster_conf(Conf) ->
+    Conf.
