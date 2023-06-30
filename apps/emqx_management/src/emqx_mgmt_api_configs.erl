@@ -44,8 +44,33 @@
     <<"sys_topics">>,
     <<"sysmon">>,
     <<"log">>
-    %% <<"zones">>
 ]).
+
+%% erlfmt-ignore
+-define(SYSMON_EXAMPLE,
+    <<"""
+    sysmon {
+      os {
+        cpu_check_interval = 60s
+        cpu_high_watermark = 80%
+        cpu_low_watermark = 60%
+        mem_check_interval = 60s
+        procmem_high_watermark = 5%
+        sysmem_high_watermark = 70%
+        }
+        vm {
+        busy_dist_port = true
+        busy_port = true
+        large_heap = 32MB
+        long_gc = disabled
+        long_schedule = 240ms
+        process_check_interval = 30s
+        process_high_watermark = 80%
+        process_low_watermark = 60%
+        }
+    }
+    """>>
+).
 
 api_spec() ->
     emqx_dashboard_swagger:spec(?MODULE, #{check_schema => true}).
@@ -66,23 +91,61 @@ schema("/configs") ->
         'operationId' => configs,
         get => #{
             tags => ?TAGS,
-            description => ?DESC(get_conf_node),
+            description => ?DESC(get_configs),
             parameters => [
+                {key,
+                    hoconsc:mk(
+                        hoconsc:enum([binary_to_atom(K) || K <- emqx_conf_cli:keys()]),
+                        #{in => query, example => <<"sysmon">>, required => false}
+                    )},
                 {node,
                     hoconsc:mk(
                         typerefl:atom(),
                         #{
                             in => query,
                             required => false,
-                            example => <<"emqx@127.0.0.1">>,
-                            description => ?DESC(node_name)
+                            description => ?DESC(node_name),
+                            hidden => true
                         }
                     )}
             ],
             responses => #{
-                200 => lists:map(fun({_, Schema}) -> Schema end, config_list()),
+                200 => #{
+                    content =>
+                        %% use proplists( not map) to make user text/plain is default in swagger
+                        [
+                            {'text/plain', #{
+                                schema => #{type => string, example => ?SYSMON_EXAMPLE}
+                            }},
+                            {'application/json', #{
+                                schema => #{type => object, example => #{<<"deprecated">> => true}}
+                            }}
+                        ]
+                },
                 404 => emqx_dashboard_swagger:error_codes(['NOT_FOUND']),
                 500 => emqx_dashboard_swagger:error_codes(['BAD_NODE'])
+            }
+        },
+        put => #{
+            tags => ?TAGS,
+            description => ?DESC(update_configs),
+            parameters => [
+                {mode,
+                    hoconsc:mk(
+                        hoconsc:enum([replace, merge]),
+                        #{in => query, default => merge, required => false}
+                    )}
+            ],
+            'requestBody' => #{
+                content =>
+                    #{
+                        'text/plain' =>
+                            #{schema => #{type => string, example => ?SYSMON_EXAMPLE}}
+                    }
+            },
+            responses => #{
+                200 => <<"Configurations updated">>,
+                400 => emqx_dashboard_swagger:error_codes(['UPDATE_FAILED'])
             }
         }
     };
@@ -272,9 +335,21 @@ config_reset(post, _Params, Req) ->
             {400, #{code => 'REST_FAILED', message => ?ERR_MSG(Reason)}}
     end.
 
-configs(get, Params, _Req) ->
-    QS = maps:get(query_string, Params, #{}),
-    Node = maps:get(<<"node">>, QS, node()),
+configs(get, #{query_string := QueryStr, headers := Headers}, _Req) ->
+    %% Should deprecated json v1 since 5.2.0
+    case maps:get(<<"accept">>, Headers, <<"text/plain">>) of
+        <<"application/json">> -> get_configs_v1(QueryStr);
+        <<"text/plain">> -> get_configs_v2(QueryStr)
+    end;
+configs(put, #{body := Conf, query_string := #{<<"mode">> := Mode}}, _Req) ->
+    case emqx_conf_cli:load_config(Conf, Mode) of
+        ok -> {200};
+        {error, [{_, Reason}]} -> {400, #{code => 'UPDATE_FAILED', message => ?ERR_MSG(Reason)}};
+        {error, Errors} -> {400, #{code => 'UPDATE_FAILED', message => ?ERR_MSG(Errors)}}
+    end.
+
+get_configs_v1(QueryStr) ->
+    Node = maps:get(<<"node">>, QueryStr, node()),
     case
         lists:member(Node, emqx:running_nodes()) andalso
             emqx_management_proto_v2:get_full_config(Node)
@@ -288,6 +363,18 @@ configs(get, Params, _Req) ->
         Res ->
             {200, Res}
     end.
+
+get_configs_v2(QueryStr) ->
+    Conf =
+        case maps:find(<<"key">>, QueryStr) of
+            error -> emqx_conf_cli:get_config();
+            {ok, Key} -> emqx_conf_cli:get_config(atom_to_binary(Key))
+        end,
+    {
+        200,
+        #{<<"content-type">> => <<"text/plain">>},
+        iolist_to_binary(hocon_pp:do(Conf, #{}))
+    }.
 
 limiter(get, _Params, _Req) ->
     {200, format_limiter_config(get_raw_config(limiter))};

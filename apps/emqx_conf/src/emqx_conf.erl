@@ -30,7 +30,6 @@
 -export([reset/2, reset/3]).
 -export([dump_schema/2]).
 -export([schema_module/0]).
--export([check_config/2]).
 
 %% TODO: move to emqx_dashboard when we stop building api schema at build time
 -export([
@@ -206,15 +205,6 @@ schema_module() ->
     case os:getenv("SCHEMA_MOD") of
         false -> emqx_conf_schema;
         Value -> list_to_existing_atom(Value)
-    end.
-
-check_config(Mod, Raw) ->
-    try
-        {_AppEnvs, CheckedConf} = emqx_config:check_config(Mod, Raw),
-        {ok, CheckedConf}
-    catch
-        throw:Error ->
-            {error, Error}
     end.
 
 %%--------------------------------------------------------------------

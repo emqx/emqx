@@ -26,6 +26,8 @@
     unload/0
 ]).
 
+-export([keys/0, get_config/0, get_config/1, load_config/2]).
+
 -include_lib("hocon/include/hoconsc.hrl").
 
 %% kept cluster_call for compatibility
@@ -42,7 +44,7 @@ unload() ->
     emqx_ctl:unregister_command(?CONF).
 
 conf(["show_keys" | _]) ->
-    print_keys(get_config());
+    print_keys(keys());
 conf(["show"]) ->
     print_hocon(get_config());
 conf(["show", Key]) ->
@@ -150,9 +152,9 @@ status() ->
     ),
     emqx_ctl:print("-----------------------------------------------\n").
 
-print_keys(Config) ->
-    Keys = lists:sort(maps:keys(Config)),
-    emqx_ctl:print("~1p~n", [[binary_to_existing_atom(K) || K <- Keys]]).
+print_keys(Keys) ->
+    SortKeys = lists:sort(Keys),
+    emqx_ctl:print("~1p~n", [[binary_to_existing_atom(K) || K <- SortKeys]]).
 
 print(Json) ->
     emqx_ctl:print("~ts~n", [emqx_logger_jsonfmt:best_effort_json(Json)]).
@@ -165,6 +167,9 @@ print_hocon({error, Error}) ->
 get_config() ->
     AllConf = fill_defaults(emqx:get_raw_config([])),
     drop_hidden_roots(AllConf).
+
+keys() ->
+    emqx_config:get_root_names() -- hidden_roots().
 
 drop_hidden_roots(Conf) ->
     lists:foldl(fun(K, Acc) -> maps:remove(K, Acc) end, Conf, hidden_roots()).
@@ -186,37 +191,47 @@ get_config(Key) ->
     end.
 
 -define(OPTIONS, #{rawconf_with_defaults => true, override_to => cluster}).
-load_config(Path, ReplaceOrMerge) ->
+load_config(Path, ReplaceOrMerge) when is_list(Path) ->
     case hocon:files([Path]) of
         {ok, RawConf} when RawConf =:= #{} ->
             emqx_ctl:warning("load ~ts is empty~n", [Path]),
             {error, empty_hocon_file};
         {ok, RawConf} ->
-            case check_config(RawConf) of
-                ok ->
-                    lists:foreach(
-                        fun({K, V}) -> update_config_cluster(K, V, ReplaceOrMerge) end,
-                        to_sorted_list(RawConf)
-                    );
-                {error, ?UPDATE_READONLY_KEYS_PROHIBITED = Reason} ->
-                    emqx_ctl:warning("load ~ts failed~n~ts~n", [Path, Reason]),
-                    emqx_ctl:warning(
-                        "Maybe try `emqx_ctl conf reload` to reload etc/emqx.conf on local node~n"
-                    ),
-                    {error, Reason};
-                {error, Errors} ->
-                    emqx_ctl:warning("load ~ts schema check failed~n", [Path]),
-                    lists:foreach(
-                        fun({Key, Error}) ->
-                            emqx_ctl:warning("~ts: ~p~n", [Key, Error])
-                        end,
-                        Errors
-                    ),
-                    {error, Errors}
-            end;
+            load_config_from_raw(RawConf, ReplaceOrMerge);
         {error, Reason} ->
             emqx_ctl:warning("load ~ts failed~n~p~n", [Path, Reason]),
             {error, bad_hocon_file}
+    end;
+load_config(Bin, ReplaceOrMerge) when is_binary(Bin) ->
+    case hocon:binary(Bin) of
+        {ok, RawConf} ->
+            load_config_from_raw(RawConf, ReplaceOrMerge);
+        {error, Reason} ->
+            {error, Reason}
+    end.
+
+load_config_from_raw(RawConf, ReplaceOrMerge) ->
+    case check_config(RawConf) of
+        ok ->
+            lists:foreach(
+                fun({K, V}) -> update_config_cluster(K, V, ReplaceOrMerge) end,
+                to_sorted_list(RawConf)
+            );
+        {error, ?UPDATE_READONLY_KEYS_PROHIBITED = Reason} ->
+            emqx_ctl:warning("load config failed~n~ts~n", [Reason]),
+            emqx_ctl:warning(
+                "Maybe try `emqx_ctl conf reload` to reload etc/emqx.conf on local node~n"
+            ),
+            {error, Reason};
+        {error, Errors} ->
+            emqx_ctl:warning("load schema check failed~n"),
+            lists:foreach(
+                fun({Key, Error}) ->
+                    emqx_ctl:warning("~ts: ~p~n", [Key, Error])
+                end,
+                Errors
+            ),
+            {error, Errors}
     end.
 
 update_config_cluster(?EMQX_AUTHORIZATION_CONFIG_ROOT_NAME_BINARY = Key, Conf, merge) ->
@@ -265,8 +280,7 @@ check_keys_is_not_readonly(Conf) ->
 check_config_schema(Conf) ->
     SchemaMod = emqx_conf:schema_module(),
     Fold = fun({Key, Value}, Acc) ->
-        Schema = emqx_config_handler:schema(SchemaMod, [Key]),
-        case emqx_conf:check_config(Schema, #{Key => Value}) of
+        case check_config(SchemaMod, Key, Value) of
             {ok, _} -> Acc;
             {error, Reason} -> [{Key, Reason} | Acc]
         end
@@ -319,11 +333,12 @@ load_etc_config_file() ->
 filter_readonly_config(Raw) ->
     SchemaMod = emqx_conf:schema_module(),
     RawDefault = fill_defaults(Raw),
-    case emqx_conf:check_config(SchemaMod, RawDefault) of
-        {ok, _CheckedConf} ->
-            ReadOnlyKeys = [atom_to_binary(K) || K <- ?READONLY_KEYS],
-            {ok, maps:without(ReadOnlyKeys, Raw)};
-        {error, Error} ->
+    try
+        _ = emqx_config:check_config(SchemaMod, RawDefault),
+        ReadOnlyKeys = [atom_to_binary(K) || K <- ?READONLY_KEYS],
+        {ok, maps:without(ReadOnlyKeys, Raw)}
+    catch
+        throw:Error ->
             ?SLOG(error, #{
                 msg => "bad_etc_config_schema_found",
                 error => Error
@@ -377,3 +392,13 @@ filter_cluster_conf(#{<<"cluster">> := #{<<"discovery_strategy">> := Strategy} =
     Conf#{<<"cluster">> => Cluster1};
 filter_cluster_conf(Conf) ->
     Conf.
+
+check_config(SchemaMod, Key, Value) ->
+    try
+        Schema = emqx_config_handler:schema(SchemaMod, [Key]),
+        {_AppEnvs, CheckedConf} = emqx_config:check_config(Schema, #{Key => Value}),
+        {ok, CheckedConf}
+    catch
+        throw:Error ->
+            {error, Error}
+    end.
