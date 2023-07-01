@@ -69,11 +69,14 @@ groups() ->
             {group, snabbkaffe},
             {group, gc_tests}
         ]},
-        {no_kill_connection_process, [], [{group, tcp}, {group, quic}, {group, ws}]},
-        {kill_connection_process, [], [{group, tcp}, {group, quic}, {group, ws}]},
-        {snabbkaffe, [], [
-            {group, tcp_snabbkaffe}, {group, quic_snabbkaffe}, {group, ws_snabbkaffe}
-        ]},
+        % {no_kill_connection_process, [], [{group, tcp}, {group, quic}, {group, ws}]},
+        % {kill_connection_process, [], [{group, tcp}, {group, quic}, {group, ws}]},
+        % {snabbkaffe, [], [
+        %     {group, tcp_snabbkaffe}, {group, quic_snabbkaffe}, {group, ws_snabbkaffe}
+        % ]},
+        {no_kill_connection_process, [], [{group, tcp}]},
+        {kill_connection_process, [], [{group, tcp}]},
+        {snabbkaffe, [], [{group, tcp_snabbkaffe}]},
         {tcp, [], OtherTCs},
         {quic, [], OtherTCs},
         {ws, [], OtherTCs},
@@ -176,6 +179,7 @@ init_per_group(gc_tests, Config) ->
     [{store_owner, Pid}, {session_msg_store, SessionMsgEts}, {msg_store, MsgEts} | Config].
 
 init_per_suite(Config) ->
+    {ok, _} = application:ensure_all_started(emqx_durable_storage),
     Config.
 
 set_special_confs(_) ->

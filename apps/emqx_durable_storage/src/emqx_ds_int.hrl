@@ -21,7 +21,7 @@
 
 -record(session, {
     id :: emqx_ds:session_id(),
-    iterators :: [{emqx_topic:words(), emqx_ds:iterator_id()}]
+    iterators :: #{emqx_topic:words() => emqx_ds:iterator_id()}
 }).
 
 -endif.

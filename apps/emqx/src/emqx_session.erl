@@ -201,16 +201,17 @@ init(Opts) ->
     persist_open(Session, timestamp()).
 
 -spec lookup(emqx_types:clientid()) -> {persistent, session()} | none.
-lookup(ClientId) ->
-    case emqx_persistent_session:lookup(ClientId) of
-        {persistent, Session} ->
-            {persistent, Session};
-        {expired, Session} ->
-            _ = emqx_persistent_session:discard(Session),
-            none;
-        none ->
-            none
-    end.
+lookup(_ClientId) ->
+    % case emqx_persistent_session:lookup(ClientId) of
+    %     {persistent, Session} ->
+    %         {persistent, Session};
+    %     {expired, Session} ->
+    %         _ = emqx_persistent_session:discard(Session),
+    %         none;
+    %     none ->
+    %         none
+    % end.
+    none.
 
 -spec discard(session()) -> session().
 discard(Session) ->
@@ -314,13 +315,13 @@ subscribe(
     ClientInfo = #{clientid := ClientId},
     TopicFilter,
     SubOpts,
-    Session = #session{id = SessionID, is_persistent = IsPS, subscriptions = Subs}
+    Session = #session{subscriptions = Subs}
 ) ->
     IsNew = not maps:is_key(TopicFilter, Subs),
     case IsNew andalso is_subscriptions_full(Session) of
         false ->
             ok = emqx_broker:subscribe(TopicFilter, ClientId, SubOpts),
-            ok = emqx_persistent_session:add_subscription(TopicFilter, SessionID, IsPS),
+            _ = emqx_persistent_session_ds:register_subscription(TopicFilter, Session),
             ok = emqx_hooks:run(
                 'session.subscribed',
                 [ClientInfo, TopicFilter, SubOpts#{is_new => IsNew}]
@@ -349,12 +350,12 @@ unsubscribe(
     ClientInfo,
     TopicFilter,
     UnSubOpts,
-    Session = #session{id = SessionID, subscriptions = Subs, is_persistent = IsPS}
+    Session = #session{subscriptions = Subs}
 ) ->
     case maps:find(TopicFilter, Subs) of
         {ok, SubOpts} ->
             ok = emqx_broker:unsubscribe(TopicFilter),
-            ok = emqx_persistent_session:remove_subscription(TopicFilter, SessionID, IsPS),
+            _ = emqx_persistent_session_ds:unregister_subscription(TopicFilter, Session),
             ok = emqx_hooks:run(
                 'session.unsubscribed',
                 [ClientInfo, TopicFilter, maps:merge(SubOpts, UnSubOpts)]
@@ -893,27 +894,34 @@ persist_update_dirty(false, Session) ->
 persist_update(Session) ->
     persist_update(Session, timestamp()).
 
-persist_open(Session, Timestamp) when ?NEED_PERSISTENCE(Session) ->
-    emqx_persistent_session:persist(Session, Timestamp);
+persist_open(Session, _Timestamp) when ?NEED_PERSISTENCE(Session) ->
+    % TODO: error handling
+    _ = emqx_persistent_session_ds:persist_session(Session),
+    Session;
 persist_open(Session, _) ->
     Session.
 
 persist_discard(Session) when ?NEED_PERSISTENCE(Session) ->
-    emqx_persistent_session:discard(Session);
+    _ = emqx_persistent_session_ds:discard_session(Session),
+    Session;
 persist_discard(Session) ->
     Session.
 
-persist_update(Session, Timestamp) when ?NEED_PERSISTENCE(Session) ->
-    emqx_persistent_session:persist(Session, Timestamp);
+persist_update(Session, _Timestamp) when ?NEED_PERSISTENCE(Session) ->
+    % FIXME
+    % Supposedly with ds-based impl we wouldn't update session so often, instead we
+    % need more fine-grained DB activities, mostly working on iterators.
+    Session;
 persist_update(Session, _) ->
     Session.
 
-persist_delivers(Delivers, Session) when ?NEED_PERSISTENCE(Session) ->
+persist_delivers(_Delivers, Session) when ?NEED_PERSISTENCE(Session) ->
     % NOTE
     % Supposedly, this is needed to signal to the storage that messages
     % are not needed anymore, because they are now a part of session and
     % persisted as such. Though, transactional guarantees are missing AFAICS.
-    emqx_persistent_session:mark_as_delivered(Session#session.id, Delivers);
+    % emqx_persistent_session:mark_as_delivered(Session#session.id, Delivers);
+    ok;
 persist_delivers(_Delivers, _Session) ->
     ok.
 

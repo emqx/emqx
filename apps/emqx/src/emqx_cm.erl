@@ -277,7 +277,7 @@ open_session(true, ClientInfo = #{clientid := ClientId}, ConnInfo) ->
     Self = self(),
     CleanStart = fun(_) ->
         ok = discard_session(ClientId),
-        ok = emqx_persistent_session:discard(ClientId),
+        _ = emqx_persistent_session_ds:discard_session(ClientId),
         create_register_session(ClientInfo, ConnInfo, Self)
     end,
     emqx_cm_locker:trans(ClientId, CleanStart);
@@ -286,6 +286,7 @@ open_session(false, ClientInfo = #{clientid := ClientId}, ConnInfo) ->
     ResumeStart = fun(_) ->
         case takeover_session(ClientId) of
             {persistent, Session} ->
+                % FIXME: currently unreachable
                 %% This is a persistent session without a managing process.
                 {Session1, Pendings} =
                     emqx_persistent_session:resume(ClientInfo, Session),
