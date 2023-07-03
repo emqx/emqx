@@ -219,6 +219,9 @@ for dep in ${CT_DEPS}; do
         hstreamdb)
             FILES+=( '.ci/docker-compose-file/docker-compose-hstreamdb.yaml' )
             ;;
+        kinesis)
+            FILES+=( '.ci/docker-compose-file/docker-compose-kinesis.yaml' )
+            ;;
         *)
             echo "unknown_ct_dependency $dep"
             exit 1
