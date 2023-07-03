@@ -5,11 +5,19 @@ on:
     branches:
       - 'perf/**'
   schedule:
-    - cron:  '0 1 * * *'
+    - cron:  '0 1 * * MON-FRI'
   workflow_dispatch:
     inputs:
       ref:
         required: false
+
+env:
+  TF_AWS_REGION: eu-west-1
+  TF_VAR_s3_bucket_name: tf-emqx-performance-test2
+  TF_VAR_test_duration: 1800
+  TF_VAR_prometheus_remote_write_region: eu-west-1
+  TF_VAR_prometheus_remote_write_url: ${{ secrets.TF_EMQX_PERF_TEST_PROMETHEUS_REMOTE_WRITE_URL }}
+  SLACK_WEBHOOK_URL: ${{ secrets.TF_EMQX_PERF_TEST_SLACK_URL }}
 
 jobs:
   prepare:
@@ -52,10 +60,6 @@ jobs:
       - prepare
     env:
       TF_VAR_package_file: ${{ needs.prepare.outputs.PACKAGE_FILE }}
-      TF_AWS_REGION: eu-west-1
-      TF_VAR_test_duration: 1800
-      TF_VAR_prometheus_remote_write_url: ${{ secrets.TF_EMQX_PERF_TEST_PROMETHEUS_REMOTE_WRITE_URL }}
-      TF_VAR_prometheus_remote_write_region: eu-west-1
 
     steps:
     - name: Configure AWS Credentials
@@ -69,7 +73,7 @@ jobs:
       with:
         repository: emqx/tf-emqx-performance-test
         path: tf-emqx-performance-test
-        ref: v0.2.2
+        ref: v0.2.3
     - uses: actions/download-artifact@v3
       with:
         name: emqx-ubuntu20.04
@@ -78,8 +82,7 @@ jobs:
       uses: hashicorp/setup-terraform@v2
       with:
         terraform_wrapper: false
-    - name: 1on1 scenario
-      id: scenario_1on1
+    - name: run scenario
       working-directory: ./tf-emqx-performance-test
       timeout-minutes: 60
       env:
@@ -87,28 +90,21 @@ jobs:
         TF_VAR_use_emqttb: 1
         TF_VAR_use_emqtt_bench: 0
         TF_VAR_emqttb_instance_count: 1
-        TF_VAR_emqttb_instance_type: "c5.2xlarge"
-        TF_VAR_emqttb_scenario: "@pubsub_fwd -n 50_000 --pub-qos 1 --sub-qos 1"
-        TF_VAR_emqx_instance_type: "c5.xlarge"
+        TF_VAR_emqttb_instance_type: c5.2xlarge
+        TF_VAR_emqttb_scenario: '@pubsub_fwd -n 50_000 --pub-qos 1 --sub-qos 1'
+        TF_VAR_emqx_instance_type: c5.2xlarge
         TF_VAR_emqx_instance_count: 3
       run: |
         terraform init
         terraform apply -auto-approve
         ./wait-emqttb.sh
         ./fetch-metrics.sh
-        MESSAGES_RECEIVED=$(cat metrics.json | jq '[.[]."messages.received"] | add')
-        MESSAGES_SENT=$(cat metrics.json | jq '[.[]."messages.sent"] | add')
-        echo MESSAGES_DROPPED=$(cat metrics.json | jq '[.[]."messages.dropped"] | add') >> $GITHUB_OUTPUT
-        echo PUB_MSG_RATE=$(($MESSAGES_RECEIVED / $TF_VAR_test_duration)) >> $GITHUB_OUTPUT
-        echo SUB_MSG_RATE=$(($MESSAGES_SENT / $TF_VAR_test_duration)) >> $GITHUB_OUTPUT
         terraform destroy -auto-approve
+        aws s3 sync --exclude '*' --include '*.tar.gz' s3://$TF_VAR_s3_bucket_name/$TF_VAR_bench_id .
     - name: Send notification to Slack
-      uses: slackapi/slack-github-action@v1.23.0
-      env:
-        SLACK_WEBHOOK_URL: ${{ secrets.TF_EMQX_PERF_TEST_SLACK_URL }}
+      uses: slackapi/slack-github-action@v1.24.0
       with:
-        payload: |
-          {"text": "Performance test result for 1on1 scenario (50k pub, 50k sub): ${{ job.status }}\nhttps://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}\n*Pub message rate*: `${{ steps.scenario_1on1.outputs.PUB_MSG_RATE }}`\n*Sub message rate*: `${{ steps.scenario_1on1.outputs.SUB_MSG_RATE }}`\nDropped messages: `${{ steps.scenario_1on1.outputs.MESSAGES_DROPPED }}`"}
+        payload-file-path: "./tf-emqx-performance-test/slack-payload.json"
     - name: terraform destroy
       if: always()
       working-directory: ./tf-emqx-performance-test
@@ -118,7 +114,152 @@ jobs:
       if: success()
       with:
         name: metrics
-        path: "./tf-emqx-performance-test/*.json"
+        path: |
+          "./tf-emqx-performance-test/*.tar.gz"
+    - uses: actions/upload-artifact@v3
+      if: failure()
+      with:
+        name: terraform
+        path: |
+          ./tf-emqx-performance-test/.terraform
+          ./tf-emqx-performance-test/*.tfstate
+
+  scenario_fanout:
+    runs-on: ubuntu-latest
+    needs:
+      - prepare
+      - scenario_1on1
+    env:
+      TF_VAR_package_file: ${{ needs.prepare.outputs.PACKAGE_FILE }}
+
+    steps:
+    - name: Configure AWS Credentials
+      uses: aws-actions/configure-aws-credentials@v2
+      with:
+        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_PERF_TEST }}
+        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY_PERF_TEST }}
+        aws-region: eu-west-1
+    - name: Checkout tf-emqx-performance-test
+      uses: actions/checkout@v3
+      with:
+        repository: emqx/tf-emqx-performance-test
+        path: tf-emqx-performance-test
+        ref: v0.2.3
+    - uses: actions/download-artifact@v3
+      with:
+        name: emqx-ubuntu20.04
+        path: tf-emqx-performance-test/
+    - name: Setup Terraform
+      uses: hashicorp/setup-terraform@v2
+      with:
+        terraform_wrapper: false
+    - name: run scenario
+      working-directory: ./tf-emqx-performance-test
+      timeout-minutes: 60
+      env:
+        TF_VAR_bench_id: "${{ needs.prepare.outputs.BENCH_ID }}/fan-out"
+        TF_VAR_use_emqttb: 1
+        TF_VAR_use_emqtt_bench: 0
+        TF_VAR_emqttb_instance_count: 1
+        TF_VAR_emqttb_instance_type: c5.2xlarge
+        TF_VAR_emqttb_scenario: '@pub --topic "t/%n" --conninterval 10ms --pubinterval 20ms --num-clients 5 --size 16 @sub --topic "t/#" --conninterval 10ms --num-clients 1000'
+        TF_VAR_emqx_instance_type: c5.large
+        TF_VAR_emqx_instance_count: 3
+      run: |
+        terraform init
+        terraform apply -auto-approve
+        ./wait-emqttb.sh
+        ./fetch-metrics.sh
+        terraform destroy -auto-approve
+        aws s3 sync --exclude '*' --include '*.tar.gz' s3://$TF_VAR_s3_bucket_name/$TF_VAR_bench_id .
+    - name: Send notification to Slack
+      uses: slackapi/slack-github-action@v1.24.0
+      with:
+        payload-file-path: "./tf-emqx-performance-test/slack-payload.json"
+    - name: terraform destroy
+      if: always()
+      working-directory: ./tf-emqx-performance-test
+      run: |
+        terraform destroy -auto-approve
+    - uses: actions/upload-artifact@v3
+      if: success()
+      with:
+        name: metrics
+        path: |
+          "./tf-emqx-performance-test/*.tar.gz"
+    - uses: actions/upload-artifact@v3
+      if: failure()
+      with:
+        name: terraform
+        path: |
+          ./tf-emqx-performance-test/.terraform
+          ./tf-emqx-performance-test/*.tfstate
+
+  scenario_fanin:
+    runs-on: ubuntu-latest
+    needs:
+      - prepare
+      - scenario_1on1
+      - scenario_fanout
+    env:
+      TF_VAR_package_file: ${{ needs.prepare.outputs.PACKAGE_FILE }}
+
+    steps:
+    - name: Configure AWS Credentials
+      uses: aws-actions/configure-aws-credentials@v2
+      with:
+        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_PERF_TEST }}
+        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY_PERF_TEST }}
+        aws-region: eu-west-1
+    - name: Checkout tf-emqx-performance-test
+      uses: actions/checkout@v3
+      with:
+        repository: emqx/tf-emqx-performance-test
+        path: tf-emqx-performance-test
+        ref: v0.2.3
+    - uses: actions/download-artifact@v3
+      with:
+        name: emqx-ubuntu20.04
+        path: tf-emqx-performance-test/
+    - name: Setup Terraform
+      uses: hashicorp/setup-terraform@v2
+      with:
+        terraform_wrapper: false
+    - name: run scenario
+      working-directory: ./tf-emqx-performance-test
+      timeout-minutes: 60
+      env:
+        TF_VAR_bench_id: "${{ needs.prepare.outputs.BENCH_ID }}/fan-in"
+        TF_VAR_use_emqttb: 1
+        TF_VAR_use_emqtt_bench: 0
+        TF_VAR_emqttb_instance_count: 2
+        TF_VAR_emqttb_start_n_multiplier: 25000
+        TF_VAR_emqttb_instance_type: c5.xlarge
+        TF_VAR_emqttb_scenario: '@pub --topic t/%n --conninterval 10ms --pubinterval 1s --num-clients 25_000 --start-n $START_N --size 16 @sub --topic \$share/perf/t/# --conninterval 10ms --num-clients 250'
+        TF_VAR_emqx_instance_type: c5.2xlarge
+        TF_VAR_emqx_instance_count: 3
+      run: |
+        terraform init
+        terraform apply -auto-approve
+        ./wait-emqttb.sh
+        ./fetch-metrics.sh
+        terraform destroy -auto-approve
+        aws s3 sync --exclude '*' --include '*.tar.gz' s3://$TF_VAR_s3_bucket_name/$TF_VAR_bench_id .
+    - name: Send notification to Slack
+      uses: slackapi/slack-github-action@v1.24.0
+      with:
+        payload-file-path: "./tf-emqx-performance-test/slack-payload.json"
+    - name: terraform destroy
+      if: always()
+      working-directory: ./tf-emqx-performance-test
+      run: |
+        terraform destroy -auto-approve
+    - uses: actions/upload-artifact@v3
+      if: success()
+      with:
+        name: metrics
+        path: |
+          "./tf-emqx-performance-test/*.tar.gz"
     - uses: actions/upload-artifact@v3
       if: failure()
       with:
@@ -131,13 +272,11 @@ jobs:
     runs-on: ubuntu-latest
     needs:
       - prepare
+      - scenario_fanin
+      - scenario_fanout
       - scenario_1on1
     env:
       TF_VAR_package_file: ${{ needs.prepare.outputs.PACKAGE_FILE }}
-      TF_AWS_REGION: eu-west-1
-      TF_VAR_test_duration: 1800
-      TF_VAR_prometheus_remote_write_url: ${{ secrets.TF_EMQX_PERF_TEST_PROMETHEUS_REMOTE_WRITE_URL }}
-      TF_VAR_prometheus_remote_write_region: eu-west-1
 
     steps:
     - name: Configure AWS Credentials
@@ -151,7 +290,7 @@ jobs:
       with:
         repository: emqx/tf-emqx-performance-test
         path: tf-emqx-performance-test
-        ref: v0.2.2
+        ref: v0.2.3
     - uses: actions/download-artifact@v3
       with:
         name: emqx-ubuntu20.04
@@ -160,33 +299,29 @@ jobs:
       uses: hashicorp/setup-terraform@v2
       with:
         terraform_wrapper: false
-    - name: 1m conns scenario
-      id: scenario_1m_conns
+    - name: run scenario
       working-directory: ./tf-emqx-performance-test
       timeout-minutes: 60
       env:
-        TF_VAR_bench_id: "${{ needs.prepare.outputs.BENCH_ID }}/scenario_1m_conns"
+        TF_VAR_bench_id: "${{ needs.prepare.outputs.BENCH_ID }}/1m-connections"
         TF_VAR_use_emqttb: 1
         TF_VAR_use_emqtt_bench: 0
         TF_VAR_emqttb_instance_count: 5
-        TF_VAR_emqttb_instance_type: "c5.xlarge"
-        TF_VAR_emqttb_scenario: "@conn -N 200_000 --conninterval 1ms"
-        TF_VAR_emqx_instance_type: "c5.xlarge"
-        TF_VAR_emqx_instance_count: 5
+        TF_VAR_emqttb_instance_type: c5.2xlarge
+        TF_VAR_emqttb_scenario: '@conn -N 200_000 --conninterval 1ms'
+        TF_VAR_emqx_instance_type: c5.2xlarge
+        TF_VAR_emqx_instance_count: 3
       run: |
         terraform init
         terraform apply -auto-approve
         ./wait-emqttb.sh
         ./fetch-metrics.sh
-        echo CLIENT_CONNECT=$(cat metrics.json | jq '[.[]."client.connect"] | add') >> $GITHUB_OUTPUT
         terraform destroy -auto-approve
+        aws s3 sync --exclude '*' --include '*.tar.gz' s3://$TF_VAR_s3_bucket_name/$TF_VAR_bench_id .
     - name: Send notification to Slack
-      uses: slackapi/slack-github-action@v1.23.0
-      env:
-        SLACK_WEBHOOK_URL: ${{ secrets.TF_EMQX_PERF_TEST_SLACK_URL }}
+      uses: slackapi/slack-github-action@v1.24.0
       with:
-        payload: |
-          {"text": "Performance test result for 1m conns: ${{ job.status }}\nhttps://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}\n*client.connect*: `${{ steps.scenario_1m_conns.outputs.CLIENT_CONNECT }}`"}
+        payload-file-path: "./tf-emqx-performance-test/slack-payload.json"
     - name: terraform destroy
       if: always()
       working-directory: ./tf-emqx-performance-test
@@ -196,7 +331,8 @@ jobs:
       if: success()
       with:
         name: metrics
-        path: "./tf-emqx-performance-test/*.json"
+        path: |
+          "./tf-emqx-performance-test/*.tar.gz"
     - uses: actions/upload-artifact@v3
       if: failure()
       with:
