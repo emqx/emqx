@@ -528,15 +528,7 @@ read_acl_file(#{<<"path">> := Path} = Source) ->
 %% Extednded Features
 %%------------------------------------------------------------------------------
 
--if(?EMQX_RELEASE_EDITION == ee).
-
 -define(DEFAULT_RICH_ACTIONS, true).
-
--else.
-
--define(DEFAULT_RICH_ACTIONS, false).
-
--endif.
 
 -define(FEATURE_KEY(_NAME_), {?MODULE, _NAME_}).
 
