@@ -32,16 +32,31 @@ conn_bridge_examples(Method) ->
         }
     ].
 
-values(_Method) ->
+values(get) ->
+    values(post);
+values(put) ->
+    values(post);
+values(post) ->
     #{
-        type => hstreamdb,
+        type => <<"hstreamdb">>,
         name => <<"demo">>,
-        connector => <<"hstreamdb:connector">>,
-        enable => true,
-        direction => egress,
-        local_topic => <<"local/topic/#">>,
-        payload => <<"${payload}">>
-    }.
+        direction => <<"egress">>,
+        url => <<"http://127.0.0.1:6570">>,
+        stream => <<"stream">>,
+        %% raw HRecord
+        record_template =>
+            <<"{ \"temperature\": ${payload.temperature}, \"humidity\": ${payload.humidity} }">>,
+        pool_size => 8,
+        %% grpc_timeout => <<"1m">>
+        resource_opts => #{
+            query_mode => sync,
+            batch_size => 100,
+            batch_time => <<"20ms">>
+        },
+        ssl => #{enable => false}
+    };
+values(_) ->
+    #{}.
 
 %% -------------------------------------------------------------------------------------------------
 %% Hocon Schema Definitions
@@ -50,41 +65,45 @@ namespace() -> "bridge_hstreamdb".
 roots() -> [].
 
 fields("config") ->
-    [
-        {enable, mk(boolean(), #{desc => ?DESC("config_enable"), default => true})},
-        {direction, mk(egress, #{desc => ?DESC("config_direction"), default => egress})},
-        {local_topic, mk(binary(), #{desc => ?DESC("local_topic")})},
-        {payload, mk(binary(), #{default => <<"${payload}">>, desc => ?DESC("payload")})},
-        {connector, field(connector)}
-    ];
+    hstream_bridge_common_fields() ++
+        connector_fields();
 fields("post") ->
-    [type_field(), name_field() | fields("config")];
-fields("put") ->
-    fields("config");
+    hstream_bridge_common_fields() ++
+        connector_fields() ++
+        type_name_fields();
 fields("get") ->
-    emqx_bridge_schema:status_fields() ++ fields("post").
+    hstream_bridge_common_fields() ++
+        connector_fields() ++
+        type_name_fields() ++
+        emqx_bridge_schema:status_fields();
+fields("put") ->
+    hstream_bridge_common_fields() ++
+        connector_fields().
 
-field(connector) ->
-    mk(
-        hoconsc:union([binary(), ref(emqx_bridge_hstreamdb_connector, config)]),
-        #{
-            required => true,
-            example => <<"hstreamdb:demo">>,
-            desc => ?DESC("desc_connector")
-        }
-    ).
+hstream_bridge_common_fields() ->
+    emqx_bridge_schema:common_bridge_fields() ++
+        [
+            {direction, mk(egress, #{desc => ?DESC("config_direction"), default => egress})},
+            {local_topic, mk(binary(), #{desc => ?DESC("local_topic")})},
+            {record_template,
+                mk(binary(), #{default => <<"${payload}">>, desc => ?DESC("record_template")})}
+        ] ++
+        emqx_resource_schema:fields("resource_opts").
+
+connector_fields() ->
+    emqx_bridge_hstreamdb_connector:fields(config).
 
 desc("config") ->
     ?DESC("desc_config");
 desc(Method) when Method =:= "get"; Method =:= "put"; Method =:= "post" ->
-    ["Configuration for HStream using `", string:to_upper(Method), "` method."];
+    ["Configuration for HStreamDB bridge using `", string:to_upper(Method), "` method."];
 desc(_) ->
     undefined.
 
 %% -------------------------------------------------------------------------------------------------
 %% internal
-type_field() ->
-    {type, mk(enum([hstreamdb]), #{required => true, desc => ?DESC("desc_type")})}.
-
-name_field() ->
-    {name, mk(binary(), #{required => true, desc => ?DESC("desc_name")})}.
+type_name_fields() ->
+    [
+        {type, mk(enum([hstreamdb]), #{required => true, desc => ?DESC("desc_type")})},
+        {name, mk(binary(), #{required => true, desc => ?DESC("desc_name")})}
+    ].

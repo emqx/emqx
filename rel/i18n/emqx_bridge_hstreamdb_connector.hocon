@@ -6,16 +6,34 @@ config.desc:
 config.label:
 """Connection config"""
 
+type.desc:
+"""The Connector Type."""
+
+type.label:
+"""Connector Type"""
+
 name.desc:
 """Connector name, used as a human-readable description of the connector."""
 
 name.label:
 """Connector Name"""
 
-ordering_key.desc:
+url.desc:
+"""HStreamDB Server URL"""
+
+url.label:
+"""HStreamDB Server URL"""
+
+stream_name.desc:
+"""HStreamDB Stream Name"""
+
+stream_name.label:
+"""HStreamDB Stream Name"""
+
+partition_key.desc:
 """HStreamDB Ordering Key"""
 
-ordering_key.label:
+partition_key.label:
 """HStreamDB Ordering Key"""
 
 pool_size.desc:
@@ -24,22 +42,10 @@ pool_size.desc:
 pool_size.label:
 """HStreamDB Pool Size"""
 
-stream_name.desc:
-"""HStreamDB Stream Name"""
+grpc_timeout.desc:
+"""HStreamDB gRPC Timeout"""
 
-stream_name.label:
-"""HStreamDB Stream Name"""
-
-type.desc:
-"""The Connector Type."""
-
-type.label:
-"""Connector Type"""
-
-url.desc:
-"""HStreamDB Server URL"""
-
-url.label:
-"""HStreamDB Server URL"""
+grpc_timeout.label:
+"""HStreamDB gRPC Timeout"""
 
 }

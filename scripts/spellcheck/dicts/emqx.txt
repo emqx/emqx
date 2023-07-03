@@ -270,6 +270,10 @@ hstream
 hstreamDB
 hstream
 hstreamdb
+hrecord
+hRecord
+Hrecord
+HRecord
 SASL
 GSSAPI
 keytab
