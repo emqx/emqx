@@ -62,6 +62,7 @@ The following table lists the configurable parameters of the emqx chart and thei
 | `nodeSelector` | Node labels for pod assignment | `{}` |
 | `tolerations` | Toleration labels for pod assignment | `[]` |
 | `affinity` | Map of node/pod affinities | `{}` |
+| `topologySpreadConstraints` | List of topology spread constraints without labelSelector | `[]` |
 | `service.type` | Kubernetes Service type. | ClusterIP |
 | `service.mqtt` | Port for MQTT. | 1883 |
 | `service.mqttssl` | Port for MQTT(SSL). | 8883 |
