@@ -1580,6 +1580,73 @@ t_sqlparse_foreach_1(_Config) ->
                 }
             }
         ),
+
+    Sql5 =
+        "foreach payload.sensors "
+        "from \"t/#\" ",
+    {ok, [
+        #{payload := #{<<"sensors">> := _}},
+        #{payload := #{<<"sensors">> := _}}
+    ]} =
+        emqx_rule_sqltester:test(
+            #{
+                sql => Sql5,
+                context => #{
+                    payload => <<"{\"sensors\": [1, 2]}">>,
+                    topic => <<"t/a">>
+                }
+            }
+        ),
+
+    try
+        meck:new(emqx_rule_runtime, [non_strict, passthrough]),
+        meck:expect(
+            emqx_rule_runtime,
+            apply_rule,
+            fun(Rule, #{payload := Payload} = Columns, Env) ->
+                Columns2 = maps:put(<<"payload">>, Payload, maps:without([payload], Columns)),
+                meck:passthrough([Rule, Columns2, Env])
+            end
+        ),
+
+        Sql6 =
+            "foreach payload.sensors "
+            "from \"t/#\" ",
+        {ok, [
+            #{<<"payload">> := #{<<"sensors">> := _}},
+            #{<<"payload">> := #{<<"sensors">> := _}}
+        ]} =
+            emqx_rule_sqltester:test(
+                #{
+                    sql => Sql6,
+                    context => #{
+                        <<"payload">> => <<"{\"sensors\": [1, 2]}">>,
+                        topic => <<"t/a">>
+                    }
+                }
+            ),
+
+        Sql7 =
+            "foreach payload.sensors "
+            "from \"t/#\" ",
+        ?assertNotMatch(
+            {ok, [
+                #{<<"payload">> := _, payload := _},
+                #{<<"payload">> := _, payload := _}
+            ]},
+            emqx_rule_sqltester:test(
+                #{
+                    sql => Sql7,
+                    context => #{
+                        <<"payload">> => <<"{\"sensors\": [1, 2]}">>,
+                        topic => <<"t/a">>
+                    }
+                }
+            )
+        )
+    after
+        meck:unload(emqx_rule_runtime)
+    end,
     ?assert(is_binary(TRuleId)).
 
 t_sqlparse_foreach_2(_Config) ->
@@ -2168,7 +2235,7 @@ t_sqlparse_array_index_1(_Config) ->
         "  payload.x[2] "
         "from \"t/#\" ",
     ?assertMatch(
-        {ok, #{<<"payload">> := #{<<"x">> := [3]}}},
+        {ok, #{payload := #{<<"x">> := [3]}}},
         emqx_rule_sqltester:test(
             #{
                 sql => Sql2,
@@ -2185,7 +2252,7 @@ t_sqlparse_array_index_1(_Config) ->
         "  payload.x[2].y "
         "from \"t/#\" ",
     ?assertMatch(
-        {ok, #{<<"payload">> := #{<<"x">> := [#{<<"y">> := 3}]}}},
+        {ok, #{payload := #{<<"x">> := [#{<<"y">> := 3}]}}},
         emqx_rule_sqltester:test(
             #{
                 sql => Sql3,
@@ -2373,7 +2440,7 @@ t_sqlparse_array_index_4(_Config) ->
         "0 as payload.x[2].y "
         "from \"t/#\" ",
     ?assertMatch(
-        {ok, #{<<"payload">> := #{<<"x">> := [1, #{<<"y">> := 0}, 3]}}},
+        {ok, #{payload := #{<<"x">> := [1, #{<<"y">> := 0}, 3]}}},
         emqx_rule_sqltester:test(
             #{
                 sql => Sql1,
@@ -2548,7 +2615,7 @@ t_sqlparse_array_range_2(_Config) ->
         "  payload.a[1..4] "
         "from \"t/#\" ",
     ?assertMatch(
-        {ok, #{<<"payload">> := #{<<"a">> := [0, 1, 2, 3]}}},
+        {ok, #{payload := #{<<"a">> := [0, 1, 2, 3]}}},
         emqx_rule_sqltester:test(
             #{
                 sql => Sql02,
