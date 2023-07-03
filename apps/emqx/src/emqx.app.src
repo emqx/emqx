@@ -16,7 +16,8 @@
         sasl,
         os_mon,
         lc,
-        hocon
+        hocon,
+        emqx_durable_storage
     ]},
     {mod, {emqx_app, []}},
     {env, []},

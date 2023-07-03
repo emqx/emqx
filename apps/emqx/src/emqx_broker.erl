@@ -225,6 +225,7 @@ publish(Msg) when is_record(Msg, message) ->
             [];
         Msg1 = #message{topic = Topic} ->
             emqx_persistent_session:persist_message(Msg1),
+            _ = emqx_persistent_session_ds:persist_message(Msg1),
             route(aggre(emqx_router:match_routes(Topic)), delivery(Msg1))
     end.
 
