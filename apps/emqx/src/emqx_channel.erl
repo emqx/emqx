@@ -1137,15 +1137,13 @@ handle_call(
     kick,
     Channel = #channel{
         conn_state = ConnState,
-        will_msg = WillMsg,
-        clientinfo = ClientInfo,
         conninfo = #{proto_ver := ProtoVer}
     }
 ) ->
-    (WillMsg =/= undefined) andalso publish_will_msg(ClientInfo, WillMsg),
+    Channel0 = maybe_publish_will_msg(Channel),
     Channel1 =
         case ConnState of
-            connected -> ensure_disconnected(kicked, Channel);
+            connected -> ensure_disconnected(kicked, Channel0);
             _ -> Channel
         end,
     case ProtoVer == ?MQTT_PROTO_V5 andalso ConnState == connected of
@@ -1160,7 +1158,8 @@ handle_call(
             shutdown(kicked, ok, Channel1)
     end;
 handle_call(discard, Channel) ->
-    disconnect_and_shutdown(discarded, ok, Channel);
+    Channel0 = maybe_publish_will_msg(Channel),
+    disconnect_and_shutdown(discarded, ok, Channel0);
 %% Session Takeover
 handle_call({takeover, 'begin'}, Channel = #channel{session = Session}) ->
     reply(Session, Channel#channel{takeover = true});
@@ -1178,12 +1177,13 @@ handle_call(
     %% TODO: Should not drain deliver here (side effect)
     Delivers = emqx_utils:drain_deliver(),
     AllPendings = lists:append(Pendings, maybe_nack(Delivers)),
+    Channel0 = maybe_publish_will_msg(Channel),
     ?tp(
         debug,
         emqx_channel_takeover_end,
         #{clientid => ClientId}
     ),
-    disconnect_and_shutdown(takenover, AllPendings, Channel);
+    disconnect_and_shutdown(takenover, AllPendings, Channel0);
 handle_call(list_authz_cache, Channel) ->
     {reply, emqx_authz_cache:list_authz_cache(), Channel};
 handle_call(
@@ -2112,6 +2112,11 @@ ensure_disconnected(
 
 maybe_publish_will_msg(Channel = #channel{will_msg = undefined}) ->
     Channel;
+maybe_publish_will_msg(
+    Channel = #channel{conninfo = #{proto_ver := ?MQTT_PROTO_V3}, will_msg = WillMsg}
+) ->
+    ok = publish_will_msg(Channel#channel.clientinfo, WillMsg),
+    Channel#channel{will_msg = undefined};
 maybe_publish_will_msg(Channel = #channel{clientinfo = ClientInfo, will_msg = WillMsg}) ->
     case will_delay_interval(WillMsg) of
         0 ->
