@@ -361,7 +361,7 @@ prepare_sql_to_conn(Conn, [{Key, SQL} | PrepareList]) when is_pid(Conn) ->
             ?SLOG(error, LogMeta#{result => failed, reason => Reason}),
             {error, undefined_table};
         {error, Reason} ->
-            % FIXME: we should try to differ on transient failers and
+            % FIXME: we should try to differ on transient failures and
             % syntax failures. Retrying syntax failures is not very productive.
             ?SLOG(error, LogMeta#{result => failed, reason => Reason}),
             {error, Reason}

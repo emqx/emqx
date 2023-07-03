@@ -352,6 +352,19 @@ cases() ->
             checks => [
                 {deny, ?AUTHZ_PUBLISH, <<"t">>}
             ]
+        },
+        #{
+            name => invalid_rule,
+            setup => [
+                "CREATE TABLE acl(username VARCHAR(255), topic VARCHAR(255), "
+                "permission VARCHAR(255), action VARCHAR(255))",
+                %% 'permit' is invalid value for action
+                "INSERT INTO acl(username, topic, permission, action) VALUES('username', 'a', 'permit', 'publish')"
+            ],
+            query => "SELECT permission, action, topic FROM acl WHERE username = ${username}",
+            checks => [
+                {deny, ?AUTHZ_PUBLISH, <<"a">>}
+            ]
         }
         %% TODO: add case for unknown variables after fixing EMQX-10400
     ].

@@ -80,8 +80,6 @@ authorize(
     Vars = emqx_authz_utils:vars_for_rule_query(Client, Action),
     Cmd = emqx_authz_utils:render_deep(CmdTemplate, Vars),
     case emqx_resource:simple_sync_query(ResourceID, {cmd, Cmd}) of
-        {ok, []} ->
-            nomatch;
         {ok, Rows} ->
             do_authorize(Client, Action, Topic, Rows);
         {error, Reason} ->
@@ -108,12 +106,13 @@ do_authorize(Client, Action, Topic, [TopicFilterRaw, RuleEncoded | Tail]) ->
         {matched, Permission} -> {matched, Permission};
         nomatch -> do_authorize(Client, Action, Topic, Tail)
     catch
-        error:Reason ->
+        error:Reason:Stack ->
             ?SLOG(error, #{
                 msg => "match_rule_error",
                 reason => Reason,
                 rule_encoded => RuleEncoded,
-                topic_filter_raw => TopicFilterRaw
+                topic_filter_raw => TopicFilterRaw,
+                stacktrace => Stack
             }),
             do_authorize(Client, Action, Topic, Tail)
     end.
@@ -148,6 +147,8 @@ parse_rule(Bin) when is_binary(Bin) ->
     case emqx_utils_json:safe_decode(Bin, [return_maps]) of
         {ok, Map} when is_map(Map) ->
             maps:with([<<"qos">>, <<"action">>, <<"retain">>], Map);
+        {ok, _} ->
+            error({invalid_topic_rule, Bin, notamap});
         {error, Error} ->
             error({invalid_topic_rule, Bin, Error})
     end.

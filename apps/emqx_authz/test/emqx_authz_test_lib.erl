@@ -107,6 +107,8 @@ run_checks(#{checks := Checks} = Case) ->
         Checks
     ).
 
+run_check(ClientInfo, Fun) when is_function(Fun, 0) ->
+    run_check(ClientInfo, Fun());
 run_check(ClientInfo, {ExpectedPermission, Action, Topic}) ->
     ?assertEqual(
         ExpectedPermission,

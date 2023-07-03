@@ -130,14 +130,14 @@ $(foreach app,$(APPS),$(eval $(call gen-app-prop-target,$(app))))
 ct-suite: $(REBAR) merge-config clean-test-cluster-config
 ifneq ($(TESTCASE),)
 ifneq ($(GROUP),)
-	$(REBAR) ct -v --readable=$(CT_READABLE) --name $(CT_NODE_NAME) --suite $(SUITE)  --case $(TESTCASE) --group $(GROUP)
+	$(REBAR) ct -c -v --readable=$(CT_READABLE) --name $(CT_NODE_NAME) --suite $(SUITE)  --case $(TESTCASE) --group $(GROUP)
 else
-	$(REBAR) ct -v --readable=$(CT_READABLE) --name $(CT_NODE_NAME) --suite $(SUITE)  --case $(TESTCASE)
+	$(REBAR) ct -c -v --readable=$(CT_READABLE) --name $(CT_NODE_NAME) --suite $(SUITE)  --case $(TESTCASE)
 endif
 else ifneq ($(GROUP),)
-	$(REBAR) ct -v --readable=$(CT_READABLE) --name $(CT_NODE_NAME) --suite $(SUITE)  --group $(GROUP)
+	$(REBAR) ct -c -v --readable=$(CT_READABLE) --name $(CT_NODE_NAME) --suite $(SUITE)  --group $(GROUP)
 else
-	$(REBAR) ct -v --readable=$(CT_READABLE) --name $(CT_NODE_NAME) --suite $(SUITE)
+	$(REBAR) ct -c -v --readable=$(CT_READABLE) --name $(CT_NODE_NAME) --suite $(SUITE)
 endif
 
 .PHONY: cover

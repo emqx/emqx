@@ -38,21 +38,19 @@ all() ->
 groups() ->
     [].
 
-init_per_suite(Config) ->
-    Config.
-
-end_per_suite(_Config) ->
-    ok = emqx_authz_test_lib:restore_authorizers().
-
 init_per_testcase(TestCase, Config) ->
     Apps = emqx_cth_suite:start(
-        [{emqx_conf, "authorization.no_match = deny, authorization.cache.enable = false"}, emqx_authz],
+        [
+            {emqx_conf, "authorization.no_match = deny, authorization.cache.enable = false"},
+            emqx_authz
+        ],
         #{work_dir => filename:join(?config(priv_dir, Config), TestCase)}
     ),
     [{tc_apps, Apps} | Config].
 
 end_per_testcase(_TestCase, Config) ->
-    emqx_cth_suite:stop(?config(tc_apps, Config)).
+    emqx_cth_suite:stop(?config(tc_apps, Config)),
+    _ = emqx_authz:set_feature_available(rich_actions, true).
 
 %%------------------------------------------------------------------------------
 %% Testcases

@@ -181,6 +181,14 @@ ok_cases() ->
             expected_rule_with_qos_retain([0, 1, 2], all),
             rule_with_raw_qos_retain(#{})
         },
+        {
+            expected_rule_with_qos_retain([0, 1, 2], true),
+            rule_with_raw_qos_retain(#{<<"retain">> => <<"1">>})
+        },
+        {
+            expected_rule_with_qos_retain([0, 1, 2], false),
+            rule_with_raw_qos_retain(#{<<"retain">> => <<"0">>})
+        },
         %% Qos
         {
             expected_rule_with_qos_retain([2], all),
@@ -254,6 +262,12 @@ error_rich_action_cases() ->
             <<"topics">> => [],
             <<"action">> => <<"publish">>,
             <<"retain">> => 3
+        },
+        #{
+            <<"permission">> => <<"allow">>,
+            <<"topics">> => [],
+            <<"action">> => <<"publish">>,
+            <<"qos">> => [<<"3">>]
         }
     ].
 

@@ -77,14 +77,7 @@ authorize(
     }
 ) ->
     RenderedFilter = emqx_authz_utils:render_deep(FilterTemplate, Client),
-    Result =
-        try
-            emqx_resource:simple_sync_query(ResourceID, {find, Collection, RenderedFilter, #{}})
-        catch
-            error:Error -> {error, Error}
-        end,
-
-    case Result of
+    case emqx_resource:simple_sync_query(ResourceID, {find, Collection, RenderedFilter, #{}}) of
         {error, Reason} ->
             ?SLOG(error, #{
                 msg => "query_mongo_error",
@@ -93,8 +86,6 @@ authorize(
                 filter => RenderedFilter,
                 resource_id => ResourceID
             }),
-            nomatch;
-        {ok, []} ->
             nomatch;
         {ok, Rows} ->
             Rules = lists:flatmap(fun parse_rule/1, Rows),

@@ -333,19 +333,41 @@ cases() ->
         },
         #{
             name => invalid_query,
-            setup => [],
-            query => "SELECT permission, action, topic FROM acl WHER",
+            setup => [
+                "CREATE TABLE acl(username VARCHAR(255), topic VARCHAR(255), "
+                "permission VARCHAR(255), action VARCHAR(255))"
+            ],
+            query => "SELECT permission, action, topic FRO",
             checks => [
                 {deny, ?AUTHZ_PUBLISH, <<"a">>}
             ]
         },
         #{
-            name => pgsql_error,
-            setup => [],
+            name => runtime_error,
+            setup => [
+                "CREATE TABLE acl(username VARCHAR(255), topic VARCHAR(255), "
+                "permission VARCHAR(255), action VARCHAR(255))"
+            ],
             query =>
-                "SELECT permission, action, topic FROM table_not_exists WHERE username = ${username}",
+                "SELECT permission, action, topic FROM acl WHERE username = ${username}",
             checks => [
-                {deny, ?AUTHZ_PUBLISH, <<"t">>}
+                fun() ->
+                    _ = q("DROP TABLE IF EXISTS acl"),
+                    {deny, ?AUTHZ_PUBLISH, <<"t">>}
+                end
+            ]
+        },
+        #{
+            name => invalid_rule,
+            setup => [
+                "CREATE TABLE acl(username VARCHAR(255), topic VARCHAR(255), "
+                "permission VARCHAR(255), action VARCHAR(255))",
+                %% 'permit' is invalid value for action
+                "INSERT INTO acl(username, topic, permission, action) VALUES('username', 'a', 'permit', 'publish')"
+            ],
+            query => "SELECT permission, action, topic FROM acl WHERE username = ${username}",
+            checks => [
+                {deny, ?AUTHZ_PUBLISH, <<"a">>}
             ]
         }
     ].

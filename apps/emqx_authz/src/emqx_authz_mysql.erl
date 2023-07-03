@@ -86,8 +86,6 @@ authorize(
     case
         emqx_resource:simple_sync_query(ResourceID, {prepared_query, ?PREPARE_KEY, RenderParams})
     of
-        {ok, _ColumnNames, []} ->
-            nomatch;
         {ok, ColumnNames, Rows} ->
             do_authorize(Client, Action, Topic, ColumnNames, Rows);
         {error, Reason} ->
