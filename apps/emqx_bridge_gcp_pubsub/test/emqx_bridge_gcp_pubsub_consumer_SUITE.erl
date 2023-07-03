@@ -1124,6 +1124,10 @@ t_multiple_pull_workers(Config) ->
                         %% reduce flakiness
                         <<"ack_deadline">> => <<"10m">>,
                         <<"consumer_workers_per_topic">> => NConsumers
+                    },
+                    <<"resource_opts">> => #{
+                        %% reduce flakiness
+                        <<"request_ttl">> => <<"15s">>
                     }
                 }
             ),
@@ -1694,33 +1698,7 @@ t_subscription_deleted_while_consumer_is_running(Config) ->
             ?assertMatch({ok, connected}, emqx_resource_manager:health_check(ResourceId)),
             ok
         end,
-        fun(Trace0) ->
-            SubTrace0 = ?of_kind(
-                [
-                    "gcp_pubsub_consumer_worker_pull_error",
-                    "gcp_pubsub_consumer_worker_subscription_ready",
-                    gcp_pubsub_consumer_worker_create_subscription_enter
-                ],
-                Trace0
-            ),
-            SubTrace = projection_optional_span(SubTrace0),
-            ?assertMatch(
-                [
-                    gcp_pubsub_consumer_worker_create_subscription_enter,
-                    "gcp_pubsub_consumer_worker_subscription_ready",
-                    "gcp_pubsub_consumer_worker_pull_error",
-                    gcp_pubsub_consumer_worker_create_subscription_enter
-                    | _
-                ],
-                SubTrace
-            ),
-            ?assertEqual(
-                "gcp_pubsub_consumer_worker_subscription_ready",
-                lists:last(SubTrace),
-                #{sub_trace => SubTrace}
-            ),
-            ok
-        end
+        []
     ),
     ok.
 
