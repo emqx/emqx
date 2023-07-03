@@ -790,18 +790,11 @@ sparkplug_example_data() ->
     }.
 
 wait_for_sparkplug_schema_registered() ->
-    wait_for_sparkplug_schema_registered(100).
-
-wait_for_sparkplug_schema_registered(0) ->
-    ct:fail("Timed out waiting for sparkplug schema to be registered");
-wait_for_sparkplug_schema_registered(AttemptsLeft) ->
-    case ets:info(?SERDE_TAB, size) of
-        0 ->
-            timer:sleep(100),
-            wait_for_sparkplug_schema_registered(AttemptsLeft - 1);
-        _ ->
-            ok
-    end.
+    ?retry(
+        100,
+        100,
+        [_] = ets:lookup(?SERDE_TAB, ?EMQX_SCHEMA_REGISTRY_SPARKPLUGB_SCHEMA_NAME)
+    ).
 
 t_sparkplug_decode(_Config) ->
     SQL =

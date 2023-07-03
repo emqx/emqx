@@ -38,11 +38,6 @@
     import_config/1
 ]).
 
-%% For testing
--export([
-    ensure_serde_absent/1
-]).
-
 -type schema() :: #{
     type := serde_type(),
     source := binary(),
@@ -248,7 +243,7 @@ do_build_serdes(Schemas) ->
 maybe_build_sparkplug_b_serde() ->
     case get_schema(?EMQX_SCHEMA_REGISTRY_SPARKPLUGB_SCHEMA_NAME) of
         {error, not_found} ->
-            do_build_serde_no_check(
+            do_build_serde(
                 ?EMQX_SCHEMA_REGISTRY_SPARKPLUGB_SCHEMA_NAME,
                 #{
                     type => protobuf,
@@ -293,15 +288,7 @@ build_serdes([], _Acc) ->
 
 do_build_serde(Name, Serde) when not is_binary(Name) ->
     do_build_serde(to_bin(Name), Serde);
-do_build_serde(?EMQX_SCHEMA_REGISTRY_SPARKPLUGB_SCHEMA_NAME, _Serde) ->
-    {error,
-        erlang:iolist_to_binary(
-            io_lib:format("Illigal schema name ~s", [?EMQX_SCHEMA_REGISTRY_SPARKPLUGB_SCHEMA_NAME])
-        )};
-do_build_serde(Name, Serde) ->
-    do_build_serde_no_check(Name, Serde).
-
-do_build_serde_no_check(Name, #{type := Type, source := Source}) ->
+do_build_serde(Name, #{type := Type, source := Source}) ->
     try
         {Serializer, Deserializer, Destructor} =
             emqx_ee_schema_registry_serde:make_serde(Type, Name, Source),
@@ -331,8 +318,6 @@ do_build_serde_no_check(Name, #{type := Type, source := Source}) ->
 
 ensure_serde_absent(Name) when not is_binary(Name) ->
     ensure_serde_absent(to_bin(Name));
-% ensure_serde_absent(?EMQX_SCHEMA_REGISTRY_SPARKPLUGB_SCHEMA_NAME) ->
-%     {error, <<"Cannot delete serde for Sparkplug B schema">>};
 ensure_serde_absent(Name) ->
     case get_serde(Name) of
         {ok, #{destructor := Destructor}} ->

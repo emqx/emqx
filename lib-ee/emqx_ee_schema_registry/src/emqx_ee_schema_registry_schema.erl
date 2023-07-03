@@ -42,7 +42,8 @@ fields(?CONF_KEY_ROOT) ->
                 ),
                 #{
                     default => #{},
-                    desc => ?DESC("schema_registry_schemas")
+                    desc => ?DESC("schema_registry_schemas"),
+                    validator => fun validate_name/1
                 }
             )}
     ];
@@ -88,6 +89,15 @@ union_member_selector_get_api(all_union_members) ->
     refs_get_api();
 union_member_selector_get_api({value, V}) ->
     refs_get_api(V).
+
+validate_name(NameSchemaMap) ->
+    case maps:is_key(?EMQX_SCHEMA_REGISTRY_SPARKPLUGB_SCHEMA_NAME, NameSchemaMap) of
+        true ->
+            {error,
+                <<"Illegal schema name ", ?EMQX_SCHEMA_REGISTRY_SPARKPLUGB_SCHEMA_NAME/binary>>};
+        false ->
+            ok
+    end.
 
 %%------------------------------------------------------------------------------
 %% `minirest_trails' "APIs"
