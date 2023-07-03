@@ -282,7 +282,7 @@ on_mria_stop(_) ->
 
 %% @private
 init([Node, RetryMs]) ->
-    mria:register_callback(stop, fun ?MODULE:on_mria_stop/1),
+    register_mria_stop_cb(fun ?MODULE:on_mria_stop/1),
     {ok, _} = mnesia:subscribe({table, ?CLUSTER_MFA, simple}),
     State = #{node => Node, retry_interval => RetryMs, is_leaving => false},
     %% The init transaction ID is set in emqx_conf_app after
@@ -642,4 +642,23 @@ do_wait_for_emqx_ready2(N) ->
         false ->
             timer:sleep(100),
             do_wait_for_emqx_ready2(N - 1)
+    end.
+
+register_mria_stop_cb(Callback) ->
+    case mria_config:callback(stop) of
+        undefined ->
+            mria:register_callback(stop, Callback);
+        {ok, Previous} ->
+            mria:register_callback(
+                stop,
+                fun(Arg) ->
+                    Callback(Arg),
+                    case erlang:fun_info(Previous, arity) of
+                        {arity, 0} ->
+                            Previous();
+                        {arity, 1} ->
+                            Previous(Arg)
+                    end
+                end
+            )
     end.
