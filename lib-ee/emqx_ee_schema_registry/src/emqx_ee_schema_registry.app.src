@@ -3,12 +3,14 @@
     {vsn, "0.1.5"},
     {registered, [emqx_ee_schema_registry_sup]},
     {mod, {emqx_ee_schema_registry_app, []}},
+    {included_applications, [
+        emqx_rule_engine
+    ]},
     {applications, [
         kernel,
         stdlib,
         erlavro,
-        gpb,
-        emqx_rule_engine
+        gpb
     ]},
     {env, []},
     {modules, []},

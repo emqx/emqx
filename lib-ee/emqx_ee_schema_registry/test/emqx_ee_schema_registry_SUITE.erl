@@ -814,7 +814,7 @@ t_sparkplug_decode(_Config) ->
     ?assertMatch(#{data := ExpectedRuleOutput}, Res),
     ok.
 
-t_sparkplug_encode(Config) ->
+t_sparkplug_encode(_Config) ->
     %% Default message name field is 'Payload'
     SQL =
         <<
