@@ -12,6 +12,8 @@
 -include_lib("common_test/include/ct.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
+-include("emqx_ee_schema_registry.hrl").
+
 -define(APPS, [emqx_conf, emqx_ee_schema_registry]).
 
 %%------------------------------------------------------------------------------
@@ -182,7 +184,6 @@ t_crud(Config) ->
         }},
         request({delete, SchemaName})
     ),
-
     %% create a schema
     ?assertMatch(
         {ok, 201, #{
@@ -192,6 +193,18 @@ t_crud(Config) ->
             <<"description">> := <<"My schema">>
         }},
         request({post, Params})
+    ),
+    %% Test that we can't create a schema with the special Sparkplug B name
+    %% (the special Sparkplug B name contains a random sequence of chars so
+    %% should be very unlikely that users try to do this)
+    ParmsWithForbiddenName = maps:put(
+        <<"name">>, ?EMQX_SCHEMA_REGISTRY_SPARKPLUGB_SCHEMA_NAME, Params
+    ),
+    ?assertMatch(
+        {ok, 400, #{
+            <<"code">> := <<"BAD_REQUEST">>
+        }},
+        request({post, ParmsWithForbiddenName})
     ),
     ?assertMatch(
         {ok, 200, #{
