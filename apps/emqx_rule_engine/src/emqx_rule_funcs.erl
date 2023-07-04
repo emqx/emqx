@@ -232,6 +232,10 @@
     timezone_to_offset_seconds/1
 ]).
 
+%% See extra_functions_module/0 and set_extra_functions_module/1 in the
+%% emqx_rule_engine module
+-callback handle_rule_function(atom(), list()) -> any() | {error, no_match_for_function}.
+
 %% MongoDB specific date functions. These functions return a date tuple. The
 %% MongoDB bridge converts such date tuples to a MongoDB date type. The
 %% following functions are therefore only useful for rules with at least one
@@ -1141,35 +1145,27 @@ timezone_to_second(TimeZone) ->
 timezone_to_offset_seconds(TimeZone) ->
     emqx_calendar:offset_second(TimeZone).
 
-%% @doc This is for sql funcs that should be handled in the specific modules.
-%% Here the emqx_rule_funcs module acts as a proxy, forwarding
-%% the function handling to the worker module.
-%% @end
--if(?EMQX_RELEASE_EDITION == ee).
-%% EE
-'$handle_undefined_function'(schema_decode, [SchemaId, Data | MoreArgs]) ->
-    emqx_ee_schema_registry_serde:decode(SchemaId, Data, MoreArgs);
-'$handle_undefined_function'(schema_decode, Args) ->
-    error({args_count_error, {schema_decode, Args}});
-'$handle_undefined_function'(schema_encode, [SchemaId, Term | MoreArgs]) ->
-    %% encode outputs iolists, but when the rule actions process those
-    %% it might wrongly encode them as JSON lists, so we force them to
-    %% binaries here.
-    IOList = emqx_ee_schema_registry_serde:encode(SchemaId, Term, MoreArgs),
-    iolist_to_binary(IOList);
-'$handle_undefined_function'(schema_encode, Args) ->
-    error({args_count_error, {schema_encode, Args}});
 '$handle_undefined_function'(sprintf, [Format | Args]) ->
     erlang:apply(fun sprintf_s/2, [Format, Args]);
-'$handle_undefined_function'(Fun, Args) ->
-    error({sql_function_not_supported, function_literal(Fun, Args)}).
--else.
-%% CE
-'$handle_undefined_function'(sprintf, [Format | Args]) ->
-    erlang:apply(fun sprintf_s/2, [Format, Args]);
-'$handle_undefined_function'(Fun, Args) ->
-    error({sql_function_not_supported, function_literal(Fun, Args)}).
--endif.
+%% This is for functions that should be handled in another module
+%% (currently this module is emqx_ee_schema_registry_serde in the case of EE but
+%% could be changed to another module in the future).
+'$handle_undefined_function'(FunctionName, Args) ->
+    case emqx_rule_engine:extra_functions_module() of
+        undefined ->
+            throw_sql_function_not_supported(FunctionName, Args);
+        Mod ->
+            case Mod:handle_rule_function(FunctionName, Args) of
+                {error, no_match_for_function} ->
+                    throw_sql_function_not_supported(FunctionName, Args);
+                Result ->
+                    Result
+            end
+    end.
+
+-spec throw_sql_function_not_supported(atom(), list()) -> no_return().
+throw_sql_function_not_supported(FunctionName, Args) ->
+    error({sql_function_not_supported, function_literal(FunctionName, Args)}).
 
 map_path(Key) ->
     {path, [{key, P} || P <- string:split(Key, ".", all)]}.

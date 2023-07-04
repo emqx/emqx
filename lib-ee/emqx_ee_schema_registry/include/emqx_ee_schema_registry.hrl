@@ -12,6 +12,9 @@
 -define(SERDE_TAB, emqx_ee_schema_registry_serde_tab).
 -define(PROTOBUF_CACHE_TAB, emqx_ee_schema_registry_protobuf_cache_tab).
 
+-define(EMQX_SCHEMA_REGISTRY_SPARKPLUGB_SCHEMA_NAME,
+    <<"__CiYAWBja87PleCyKZ58h__SparkPlug_B_BUILT-IN">>
+).
 -type schema_name() :: binary().
 -type schema_source() :: binary().
 

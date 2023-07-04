@@ -232,10 +232,45 @@ create_tables() ->
     ok.
 
 do_build_serdes(Schemas) ->
+    %% We build a special serde for the Sparkplug B payload. This serde is used
+    %% by the rule engine functions sparkplug_decode/1 and sparkplug_encode/1.
+    ok = maybe_build_sparkplug_b_serde(),
     %% TODO: use some kind of mutex to make each core build a
     %% different serde to avoid duplicate work.  Maybe ekka_locker?
     maps:foreach(fun do_build_serde/2, Schemas),
     ?tp(schema_registry_serdes_built, #{}).
+
+maybe_build_sparkplug_b_serde() ->
+    case get_schema(?EMQX_SCHEMA_REGISTRY_SPARKPLUGB_SCHEMA_NAME) of
+        {error, not_found} ->
+            do_build_serde(
+                ?EMQX_SCHEMA_REGISTRY_SPARKPLUGB_SCHEMA_NAME,
+                #{
+                    type => protobuf,
+                    source => get_schema_source(<<"sparkplug_b.proto">>)
+                }
+            );
+        {ok, _} ->
+            ok
+    end.
+
+get_schema_source(Filename) ->
+    {ok, App} = application:get_application(),
+    FilePath =
+        case code:priv_dir(App) of
+            {error, bad_name} ->
+                erlang:error(
+                    {error, <<"Could not find data directory (priv) for Schema Registry">>}
+                );
+            Dir ->
+                filename:join(Dir, Filename)
+        end,
+    case file:read_file(FilePath) of
+        {ok, Content} ->
+            Content;
+        {error, Reason} ->
+            erlang:error({error, Reason})
+    end.
 
 build_serdes(Serdes) ->
     build_serdes(Serdes, []).
@@ -251,9 +286,10 @@ build_serdes([{Name, Params} | Rest], Acc0) ->
 build_serdes([], _Acc) ->
     ok.
 
-do_build_serde(Name0, #{type := Type, source := Source}) ->
+do_build_serde(Name, Serde) when not is_binary(Name) ->
+    do_build_serde(to_bin(Name), Serde);
+do_build_serde(Name, #{type := Type, source := Source}) ->
     try
-        Name = to_bin(Name0),
         {Serializer, Deserializer, Destructor} =
             emqx_ee_schema_registry_serde:make_serde(Type, Name, Source),
         Serde = #serde{
@@ -270,7 +306,7 @@ do_build_serde(Name0, #{type := Type, source := Source}) ->
                 error,
                 #{
                     msg => "error_building_serde",
-                    name => Name0,
+                    name => Name,
                     type => Type,
                     kind => Kind,
                     error => Error,
@@ -280,11 +316,13 @@ do_build_serde(Name0, #{type := Type, source := Source}) ->
             {error, Error}
     end.
 
+ensure_serde_absent(Name) when not is_binary(Name) ->
+    ensure_serde_absent(to_bin(Name));
 ensure_serde_absent(Name) ->
     case get_serde(Name) of
         {ok, #{destructor := Destructor}} ->
             Destructor(),
-            ok = mria:dirty_delete(?SERDE_TAB, to_bin(Name));
+            ok = mria:dirty_delete(?SERDE_TAB, Name);
         {error, not_found} ->
             ok
     end.

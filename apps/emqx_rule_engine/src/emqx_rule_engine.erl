@@ -84,6 +84,12 @@
     import_config/1
 ]).
 
+%% For setting and getting extra rule engine SQL functions module
+-export([
+    extra_functions_module/0,
+    set_extra_functions_module/1
+]).
+
 -define(RULE_ENGINE, ?MODULE).
 
 -define(T_CALL, infinity).
@@ -542,3 +548,21 @@ get_egress_bridges(Actions) ->
         emqx_bridge_resource:bridge_id(BridgeType, BridgeName)
      || {bridge, BridgeType, BridgeName, _ResId} <- Actions
     ].
+
+%% For allowing an external application to add extra "built-in" functions to the
+%% rule engine SQL like language. The module set by
+%% set_extra_functions_module/1 should export a function called
+%% handle_rule_function with two parameters (the first being an atom for the
+%% the function name and the second a list of arguments). The function should
+%% should return the result or {error, no_match_for_function} if it cannot
+%% handle the function. See '$handle_undefined_function' in the emqx_rule_funcs
+%% module. See also callback function declaration in emqx_rule_funcs.erl.
+
+-spec extra_functions_module() -> module() | undefined.
+extra_functions_module() ->
+    persistent_term:get({?MODULE, extra_functions}, undefined).
+
+-spec set_extra_functions_module(module()) -> ok.
+set_extra_functions_module(Mod) ->
+    persistent_term:put({?MODULE, extra_functions}, Mod),
+    ok.
