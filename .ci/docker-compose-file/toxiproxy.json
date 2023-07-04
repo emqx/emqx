@@ -155,5 +155,11 @@
     "listen": "0.0.0.0:8085",
     "upstream": "gcp_emulator:8085",
     "enabled": true
+  },
+  {
+    "name": "hstreamdb",
+    "listen": "0.0.0.0:6570",
+    "upstream": "hstreamdb:6570",
+    "enabled": true
   }
 ]

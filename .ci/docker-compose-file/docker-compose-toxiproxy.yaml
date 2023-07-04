@@ -43,10 +43,12 @@ services:
       - 19000:19000
       # S3 TLS
       - 19100:19100
-      # IOTDB
+      # IOTDB (3 total)
       - 14242:4242
       - 28080:18080
       - 38080:38080
+      # HStreamDB
+      - 15670:5670
     command:
       - "-host=0.0.0.0"
       - "-config=/config/toxiproxy.json"
