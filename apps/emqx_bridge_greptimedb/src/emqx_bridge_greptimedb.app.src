@@ -1,14 +1,14 @@
 {application, emqx_bridge_greptimedb, [
-    {description, "An OTP library"},
+    {description, "EMQX GreptimeDB Bridge"},
     {vsn, "0.1.0"},
     {registered, []},
     {applications, [
         kernel,
-        stdlib
+        stdlib,
+        greptimedb
     ]},
     {env, []},
     {modules, []},
-
     {licenses, ["Apache-2.0"]},
     {links, []}
 ]}.
