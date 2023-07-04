@@ -532,7 +532,8 @@ schema(SchemaModule, [RootKey | _]) ->
     {Field, Translations} =
         case lists:keyfind(bin(RootKey), 1, Roots) of
             {_, {Ref, ?REF(Ref)}} -> {Ref, ?R_REF(SchemaModule, Ref)};
-            {_, {Name, Field0}} -> parse_translations(Field0, Name, SchemaModule)
+            {_, {Name, Field0}} -> parse_translations(Field0, Name, SchemaModule);
+            false -> throw({root_key_not_found, RootKey})
         end,
     #{
         roots => [Field],

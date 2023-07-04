@@ -1,14 +1,19 @@
 emqx_mgmt_api_configs {
 
-get_conf_node.desc:
-"""Get all the configurations of the specified node, including hot and non-hot updatable items."""
-get_conf_node.label:
-"""Get all the configurations for node."""
+get_configs.desc:
+"""Get all the configurations of the specified keys, including hot and non-hot updatable items."""
+get_configs.label:
+"""Get all the configurations."""
+
+update_configs.desc:
+"""Update the configurations of the specified keys."""
+update_configs.label:
+"""Update Configurations."""
 
 node_name.desc:
-"""Node's name. If not specified, the configs on the node which receives the HTTP request will be returned."""
+"""Node's name. Will deprecated in 5.2.0."""
 node_name.label:
-"""Node's name"""
+"""Node's name (deprecated)."""
 
 rest_conf_query.desc:
 """Reset the config entry specified by the query string parameter `conf_path`.<br/>

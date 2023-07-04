@@ -40,8 +40,8 @@ end_per_testcase(TestCase = t_configs_node, Config) ->
 end_per_testcase(_TestCase, Config) ->
     Config.
 
-t_get(_Config) ->
-    {ok, Configs} = get_configs(),
+t_get_with_json(_Config) ->
+    {ok, Configs} = get_configs_with_json(),
     maps:map(
         fun(Name, Value) ->
             {ok, Config} = get_config(Name),
@@ -268,6 +268,7 @@ t_dashboard(_Config) ->
     timer:sleep(1500),
     ok.
 
+%% v1 version json
 t_configs_node({'init', Config}) ->
     Node = node(),
     meck:expect(emqx, running_nodes, fun() -> [Node, bad_node, other_node] end),
@@ -286,16 +287,41 @@ t_configs_node({'end', _}) ->
 t_configs_node(_) ->
     Node = atom_to_list(node()),
 
-    ?assertEqual({ok, <<"self">>}, get_configs(Node, #{return_all => true})),
-    ?assertEqual({ok, <<"other">>}, get_configs("other_node", #{return_all => true})),
+    ?assertEqual({ok, <<"self">>}, get_configs_with_json(Node, #{return_all => true})),
+    ?assertEqual({ok, <<"other">>}, get_configs_with_json("other_node", #{return_all => true})),
 
-    {ExpType, ExpRes} = get_configs("unknown_node", #{return_all => true}),
+    {ExpType, ExpRes} = get_configs_with_json("unknown_node", #{return_all => true}),
     ?assertEqual(error, ExpType),
     ?assertMatch({{_, 404, _}, _, _}, ExpRes),
     {_, _, Body} = ExpRes,
     ?assertMatch(#{<<"code">> := <<"NOT_FOUND">>}, emqx_utils_json:decode(Body, [return_maps])),
 
-    ?assertMatch({error, {_, 500, _}}, get_configs("bad_node")).
+    ?assertMatch({error, {_, 500, _}}, get_configs_with_json("bad_node")).
+
+%% v2 version binary
+t_configs_key(_Config) ->
+    Keys = lists:sort(emqx_conf_cli:keys()),
+    {ok, Hocon} = get_configs_with_binary(undefined),
+    ?assertEqual(Keys, lists:sort(maps:keys(Hocon))),
+    {ok, Log} = get_configs_with_binary("log"),
+    ?assertMatch(
+        #{
+            <<"log">> := #{
+                <<"console">> := #{
+                    <<"enable">> := _,
+                    <<"formatter">> := <<"text">>,
+                    <<"level">> := <<"warning">>,
+                    <<"time_offset">> := <<"system">>
+                },
+                <<"file">> := _
+            }
+        },
+        Log
+    ),
+    Log1 = emqx_utils_maps:deep_put([<<"log">>, <<"console">>, <<"level">>], Log, <<"error">>),
+    ?assertEqual([], update_configs_with_binary(iolist_to_binary(hocon_pp:do(Log1, #{})))),
+    ?assertEqual(<<"error">>, read_conf([<<"log">>, <<"console">>, <<"level">>])),
+    ok.
 
 %% Helpers
 
@@ -308,22 +334,49 @@ get_config(Name) ->
             Error
     end.
 
-get_configs() ->
-    get_configs([], #{}).
+get_configs_with_json() ->
+    get_configs_with_json([], #{}).
 
-get_configs(Node) ->
-    get_configs(Node, #{}).
+get_configs_with_json(Node) ->
+    get_configs_with_json(Node, #{}).
 
-get_configs(Node, Opts) ->
+get_configs_with_json(Node, Opts) ->
     Path =
         case Node of
             [] -> ["configs"];
             _ -> ["configs?node=" ++ Node]
         end,
     URI = emqx_mgmt_api_test_util:api_path(Path),
-    case emqx_mgmt_api_test_util:request_api(get, URI, [], [], [], Opts) of
+    Auth = emqx_mgmt_api_test_util:auth_header_(),
+    Headers = [{"accept", "application/json"}, Auth],
+    case emqx_mgmt_api_test_util:request_api(get, URI, [], Headers, [], Opts) of
         {ok, {_, _, Res}} -> {ok, emqx_utils_json:decode(Res, [return_maps])};
         {ok, Res} -> {ok, emqx_utils_json:decode(Res, [return_maps])};
+        Error -> Error
+    end.
+
+get_configs_with_binary(Key) ->
+    Path =
+        case Key of
+            undefined -> ["configs"];
+            _ -> ["configs?key=" ++ Key]
+        end,
+    URI = emqx_mgmt_api_test_util:api_path(Path),
+    Auth = emqx_mgmt_api_test_util:auth_header_(),
+    Headers = [{"accept", "text/plain"}, Auth],
+    case emqx_mgmt_api_test_util:request_api(get, URI, [], Headers, [], #{return_all => true}) of
+        {ok, {_, _, Res}} -> hocon:binary(Res);
+        {ok, Res} -> hocon:binary(Res);
+        Error -> Error
+    end.
+
+update_configs_with_binary(Bin) ->
+    Path = emqx_mgmt_api_test_util:api_path(["configs"]),
+    Auth = emqx_mgmt_api_test_util:auth_header_(),
+    Headers = [{"accept", "text/plain"}, Auth],
+    case httpc:request(put, {Path, Headers, "text/plain", Bin}, [], []) of
+        {ok, {_, _, Res}} -> Res;
+        {ok, Res} -> Res;
         Error -> Error
     end.
 
