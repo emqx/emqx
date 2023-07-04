@@ -19,6 +19,7 @@
 -module(emqx_ft_conf).
 
 -behaviour(emqx_config_handler).
+-behaviour(emqx_config_backup).
 
 -include_lib("emqx/include/logger.hrl").
 
@@ -43,6 +44,11 @@
 -export([
     pre_config_update/3,
     post_config_update/5
+]).
+
+%% callbacks for emqx_config_backup
+-export([
+    import_config/1
 ]).
 
 -type update_request() :: emqx_config:config().
@@ -110,6 +116,24 @@ get() ->
 update(Config) ->
     emqx_conf:update([file_transfer], Config, #{override_to => cluster}).
 
+%%----------------------------------------------------------------------------------------
+%% Data backup
+%%----------------------------------------------------------------------------------------
+
+import_config(#{<<"file_transfer">> := FTConf}) ->
+    OldFTConf = emqx:get_raw_config([file_transfer], #{}),
+    NewFTConf = maps:merge(OldFTConf, FTConf),
+    case emqx_conf:update([file_transfer], NewFTConf, #{override_to => cluster}) of
+        {ok, #{raw_config := NewRawConf}} ->
+            Changed = maps:get(changed, emqx_utils_maps:diff_maps(NewRawConf, FTConf)),
+            ChangedPaths = [[file_transfer, K] || K <- maps:keys(Changed)],
+            {ok, #{root_key => file_transfer, changed => ChangedPaths}};
+        Error ->
+            {error, #{root_key => file_transfer, reason => Error}}
+    end;
+import_config(_) ->
+    {ok, #{root_key => file_transfer, changed => []}}.
+
 %%--------------------------------------------------------------------
 %% emqx_config_handler callbacks
 %%--------------------------------------------------------------------
@@ -145,6 +169,10 @@ post_config_update([file_transfer | _], _Req, NewConfig, OldConfig, _AppEnvs) ->
         {error, Reason} ->
             {error, Reason}
     end.
+
+%%--------------------------------------------------------------------
+%% Internal functions
+%%--------------------------------------------------------------------
 
 propagate_config_update(Fun, ConfKey, NewConfig, OldConfig) ->
     NewSubConf = emqx_utils_maps:deep_get(ConfKey, NewConfig, undefined),

@@ -238,23 +238,18 @@ t_persist_ssl_certfiles(Config) ->
         [],
         list_ssl_certfiles(Config)
     ),
-    S3Config = #{
-        <<"bucket">> => <<"emqx">>,
-        <<"host">> => <<"https://localhost">>,
-        <<"port">> => 9000
-    },
     ?assertMatch(
         {error, {pre_config_update, _, {bad_ssl_config, #{}}}},
         emqx_ft_conf:update(
             mk_storage(true, #{
-                <<"s3">> => S3Config#{
+                <<"s3">> => mk_s3_config(#{
                     <<"transport_options">> => #{
                         <<"ssl">> => #{
                             <<"certfile">> => <<"cert.pem">>,
                             <<"keyfile">> => <<"key.pem">>
                         }
                     }
-                }
+                })
             })
         )
     ),
@@ -262,14 +257,14 @@ t_persist_ssl_certfiles(Config) ->
         {ok, _},
         emqx_ft_conf:update(
             mk_storage(false, #{
-                <<"s3">> => S3Config#{
+                <<"s3">> => mk_s3_config(#{
                     <<"transport_options">> => #{
                         <<"ssl">> => #{
                             <<"certfile">> => emqx_ft_test_helpers:pem_privkey(),
                             <<"keyfile">> => emqx_ft_test_helpers:pem_privkey()
                         }
                     }
-                }
+                })
             })
         )
     ),
@@ -299,6 +294,48 @@ t_persist_ssl_certfiles(Config) ->
         emqx_ft_conf:update(mk_storage(true))
     ).
 
+t_import(_Config) ->
+    {ok, _} =
+        emqx_ft_conf:update(
+            mk_storage(true, #{
+                <<"s3">> => mk_s3_config(#{
+                    <<"transport_options">> => #{
+                        <<"ssl">> => #{
+                            <<"certfile">> => emqx_ft_test_helpers:pem_privkey(),
+                            <<"keyfile">> => emqx_ft_test_helpers:pem_privkey()
+                        }
+                    }
+                })
+            })
+        ),
+
+    {ok, #{filename := BackupFile}} = emqx_mgmt_data_backup:export(),
+    {ok, FileNames} = erl_tar:table(BackupFile, [compressed]),
+    [HoconFileName] = lists:filter(
+        fun(N) -> filename:basename(N) =:= "cluster.hocon" end, FileNames
+    ),
+    {ok, [{_, HoconConfig}]} = erl_tar:extract(BackupFile, [
+        memory, compressed, {files, [HoconFileName]}
+    ]),
+    {ok, BackupConfig} = hocon:binary(HoconConfig),
+    FTBackupConfig = maps:with([<<"file_transfer">>], BackupConfig),
+
+    {ok, _} = emqx_ft_conf:update(mk_storage(true)),
+
+    ?assertMatch(
+        {ok, _},
+        emqx_ft_conf:import_config(FTBackupConfig)
+    ),
+
+    ?assertMatch(
+        #{local := #{exporter := #{s3 := #{enable := true}}}},
+        emqx_ft_conf:storage()
+    ).
+
+%%--------------------------------------------------------------------
+%% Helper functions
+%%--------------------------------------------------------------------
+
 mk_storage(Enabled) ->
     mk_storage(Enabled, #{<<"local">> => #{}}).
 
@@ -311,6 +348,14 @@ mk_storage(Enabled, Exporter) ->
             }
         }
     }.
+
+mk_s3_config(S3Config) ->
+    BaseS3Config = #{
+        <<"bucket">> => <<"emqx">>,
+        <<"host">> => <<"https://localhost">>,
+        <<"port">> => 9000
+    },
+    maps:merge(BaseS3Config, S3Config).
 
 gen_clientid() ->
     emqx_base62:encode(emqx_guid:gen()).
