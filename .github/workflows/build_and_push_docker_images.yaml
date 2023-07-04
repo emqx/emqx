@@ -184,6 +184,8 @@ jobs:
         flavor: |
           suffix=${{ steps.pre-meta.outputs.img_suffix }}
         tags: |
+          type=semver,pattern={{major}}.{{minor}},value=${{ needs.prepare.outputs.VERSION }}
+          type=semver,pattern={{version}},value=${{ needs.prepare.outputs.VERSION }}
           type=raw,value=${{ needs.prepare.outputs.VERSION }}
           type=raw,value=latest,enable=${{ needs.prepare.outputs.IS_LATEST }}
         labels: |
