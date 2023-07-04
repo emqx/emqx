@@ -24,23 +24,6 @@
 -define(S3_HOST, <<"minio">>).
 -define(S3_PORT, 9000).
 
-start_additional_node(Config, Name) ->
-    emqx_common_test_helpers:start_slave(
-        Name,
-        [
-            {apps, [emqx_ft]},
-            {join_to, node()},
-            {configure_gen_rpc, true},
-            {env_handler, env_handler(Config)}
-        ]
-    ).
-
-stop_additional_node(Node) ->
-    _ = rpc:call(Node, ekka, leave, []),
-    ok = rpc:call(Node, emqx_common_test_helpers, stop_apps, [[emqx_ft]]),
-    ok = emqx_common_test_helpers:stop_slave(Node),
-    ok.
-
 env_handler(Config) ->
     fun
         (emqx_ft) ->
