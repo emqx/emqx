@@ -207,7 +207,6 @@ maybe_configure_app(_App, #{}) ->
 
 configure_app(SchemaModule, Config) ->
     ok = emqx_config:init_load(SchemaModule, render_config(Config)),
-    % ?PAL(?LOW_IMPORTANCE, "Configured ~p roots: ~p", [SchemaModule, config_roots(SchemaModule)]),
     ok.
 
 maybe_override_env(App, #{override_env := Env = [{_, _} | _]}) ->
@@ -358,9 +357,6 @@ clean_suite_state() ->
     ok.
 
 %%
-
-% config_roots(SchemaMod) ->
-%     [emqx_config:get_root([binary_to_atom(Root)]) || Root <- hocon_schema:root_names(SchemaMod)].
 
 app_schema(App) ->
     Mod = list_to_atom(atom_to_list(App) ++ "_schema"),

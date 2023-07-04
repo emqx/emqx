@@ -255,7 +255,6 @@ get_cluster_seeds(#{core_nodes := CoreNodes}) ->
 start_node_init(Spec = #{name := Node}) ->
     Node = start_bare_node(Node, Spec),
     pong = net_adm:ping(Node),
-    % ok = set_work_dir(Node, Opts),
     % Preserve node spec right on the remote node
     ok = set_node_opts(Node, Spec),
     % Make it possible to call `ct:pal` and friends (if running under rebar3)
@@ -273,9 +272,6 @@ run_node_phase_cluster(Spec = #{name := Node}) ->
 run_node_phase_apps(Spec = #{name := Node}) ->
     ok = start_apps(Node, Spec),
     ok.
-
-% set_work_dir(Node, #{work_dir := WorkDir}) ->
-%     erpc:call(Node, file, set_cwd, [WorkDir]).
 
 set_node_opts(Node, Spec) ->
     erpc:call(Node, persistent_term, put, [{?MODULE, opts}, Spec]).
