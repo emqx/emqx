@@ -51,12 +51,16 @@
 -type appname() :: atom().
 -type appspec() :: {appname(), appspec_opts()}.
 
+%% Config structure serializable into HOCON document.
+-type config() :: #{atom() => scalar() | [scalar()] | config() | [config()]}.
+-type scalar() :: atom() | number() | string() | binary().
+
 -type appspec_opts() :: #{
     %% 1. Enable loading application config
     %% If not defined or set to `false`, this step will be skipped.
     %% If application is missing a schema module, this step will fail.
     %% Merging amounts to appending, unless `false` is used, then merge result is also `false`.
-    config => iodata() | emqx_config:config() | emqx_config:raw_config() | false,
+    config => iodata() | config() | emqx_config:raw_config() | false,
 
     %% 2. Override the application environment
     %% If not defined or set to `false`, this step will be skipped.
