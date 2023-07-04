@@ -24,58 +24,24 @@
 
 -import(emqx_dashboard_api_test_helpers, [host/0, uri/1]).
 
-all() ->
-    [
-        {group, single},
-        {group, cluster}
-    ].
-
-groups() ->
-    [
-        {single, [], emqx_common_test_helpers:all(?MODULE)},
-        {cluster, [], emqx_common_test_helpers:all(?MODULE) -- [t_ft_disabled]}
-    ].
+all() -> emqx_common_test_helpers:all(?MODULE).
 
 suite() ->
     [{timetrap, {seconds, 90}}].
 
 init_per_suite(Config) ->
-    Config.
-
-end_per_suite(_Config) ->
-    ok.
-
-init_per_group(Group = single, Config) ->
-    WorkDir = ?config(priv_dir, Config),
-    Apps = emqx_cth_suite:start(
-        [
-            {emqx, #{}},
-            {emqx_ft, "file_transfer { enable = true }"},
-            {emqx_management, #{}},
-            {emqx_dashboard, "dashboard.listeners.http { enable = true, bind = 18083 }"}
-        ],
-        #{work_dir => WorkDir}
-    ),
-    {ok, App} = emqx_common_test_http:create_default_app(),
-    [{group, Group}, {group_apps, Apps}, {api, App} | Config];
-init_per_group(Group = cluster, Config) ->
     WorkDir = ?config(priv_dir, Config),
     Cluster = mk_cluster_specs(Config),
     Nodes = [Node1 | _] = emqx_cth_cluster:start(Cluster, #{work_dir => WorkDir}),
     {ok, App} = erpc:call(Node1, emqx_common_test_http, create_default_app, []),
-    [{group, Group}, {cluster_nodes, Nodes}, {api, App} | Config].
+    [{cluster_nodes, Nodes}, {api, App} | Config].
 
-end_per_group(single, Config) ->
-    {ok, _} = emqx_common_test_http:delete_default_app(),
-    ok = emqx_cth_suite:stop(?config(group_apps, Config));
-end_per_group(cluster, Config) ->
-    ok = emqx_cth_cluster:stop(?config(cluster_nodes, Config));
-end_per_group(_Group, _Config) ->
-    ok.
+end_per_suite(Config) ->
+    ok = emqx_cth_cluster:stop(?config(cluster_nodes, Config)).
 
 mk_cluster_specs(_Config) ->
     Apps = [
-        {emqx_conf, #{start => false}},
+        emqx_conf,
         {emqx, #{override_env => [{boot_modules, [broker, listeners]}]}},
         {emqx_ft, "file_transfer { enable = true }"},
         {emqx_management, #{}}
@@ -106,14 +72,8 @@ mk_cluster_specs(_Config) ->
 
 init_per_testcase(Case, Config) ->
     [{tc, Case} | Config].
-end_per_testcase(t_ft_disabled, _Config) ->
-    emqx_config:put([file_transfer, enable], true);
-end_per_testcase(t_configure, Config) ->
-    {ok, 200, _} = request(put, uri(["file_transfer"]), #{
-        <<"enable">> => true,
-        <<"storage">> => emqx_ft_test_helpers:local_storage(Config)
-    });
-end_per_testcase(_Case, _Config) ->
+end_per_testcase(_Case, Config) ->
+    ok = reset_ft_config(Config, true),
     ok.
 
 %%--------------------------------------------------------------------
@@ -299,7 +259,7 @@ t_ft_disabled(Config) ->
         )
     ),
 
-    ok = emqx_config:put([file_transfer, enable], false),
+    ok = reset_ft_config(Config, false),
 
     ?assertMatch(
         {ok, 503, _},
@@ -469,12 +429,7 @@ t_configure(Config) ->
 %%--------------------------------------------------------------------
 
 test_nodes(Config) ->
-    case proplists:get_value(cluster_nodes, Config, []) of
-        [] ->
-            [node()];
-        Nodes ->
-            Nodes
-    end.
+    ?config(cluster_nodes, Config).
 
 client_id(Config) ->
     iolist_to_binary(io_lib:format("~s.~s", [?config(group, Config), ?config(tc, Config)])).
@@ -493,12 +448,12 @@ request(Method, Url, Body, Config) ->
     request(Method, Url, Body, Opts, Config).
 
 request(Method, Url, Body, Opts, Config) ->
-    emqx_mgmt_api_test_util:request_api(Method, Url, Body, auth_header(Config), [], Opts).
+    emqx_mgmt_api_test_util:request_api(Method, Url, [], auth_header(Config), Body, Opts).
 
 request_json(Method, Url, Body, Config) ->
-    case request(Method, Url, Body, [], Config) of
-        {ok, Code, Body} ->
-            {ok, Code, json(Body)};
+    case request(Method, Url, Body, Config) of
+        {ok, Code, RespBody} ->
+            {ok, Code, json(RespBody)};
         Otherwise ->
             Otherwise
     end.
@@ -531,3 +486,17 @@ to_list(L) when is_list(L) ->
 
 pick(N, List) ->
     lists:nth(1 + (N rem length(List)), List).
+
+reset_ft_config(Config, Enable) ->
+    [Node | _] = test_nodes(Config),
+    LocalConfig =
+        #{
+            <<"enable">> => Enable,
+            <<"storage">> => #{
+                <<"local">> => #{
+                    <<"enable">> => true
+                }
+            }
+        },
+    {ok, _} = rpc:call(Node, emqx_ft_conf, update, [LocalConfig]),
+    ok.

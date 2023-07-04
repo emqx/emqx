@@ -114,10 +114,7 @@ schema("/file_transfer") ->
             summary => <<"Get current File Transfer configuration">>,
             description => ?DESC("file_transfer_get_config"),
             responses => #{
-                200 => ?SCHEMA_CONFIG,
-                503 => emqx_dashboard_swagger:error_codes(
-                    ['SERVICE_UNAVAILABLE'], error_desc('SERVICE_UNAVAILABLE')
-                )
+                200 => ?SCHEMA_CONFIG
             }
         },
         put => #{
@@ -129,9 +126,6 @@ schema("/file_transfer") ->
                 200 => ?SCHEMA_CONFIG,
                 400 => emqx_dashboard_swagger:error_codes(
                     ['INVALID_CONFIG'], error_desc('INVALID_CONFIG')
-                ),
-                503 => emqx_dashboard_swagger:error_codes(
-                    ['SERVICE_UNAVAILABLE'], error_desc('SERVICE_UNAVAILABLE')
                 )
             }
         }
