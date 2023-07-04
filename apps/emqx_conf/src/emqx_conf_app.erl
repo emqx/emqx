@@ -22,6 +22,9 @@
 -export([get_override_config_file/0]).
 -export([sync_data_from_node/0]).
 
+%% Test purposes
+-export([init_load_done/0]).
+
 -include_lib("emqx/include/logger.hrl").
 -include("emqx_conf.hrl").
 
@@ -46,7 +49,7 @@ stop(_State) ->
 %% This function is named 'override' due to historical reasons.
 get_override_config_file() ->
     Node = node(),
-    case emqx_app:get_init_config_load_done() of
+    case init_load_done() of
         false ->
             {error, #{node => Node, msg => "init_conf_load_not_done"}};
         true ->
@@ -91,7 +94,22 @@ sync_data_from_node() ->
 %% ------------------------------------------------------------------------------
 
 init_load() ->
-    emqx_config:init_load(emqx_conf:schema_module()).
+    case emqx_app:get_config_loader() of
+        Module when Module == emqx; Module == emqx_conf ->
+            ok = emqx_config:init_load(emqx_conf:schema_module()),
+            ok = emqx_app:set_config_loader(emqx_conf),
+            ok;
+        Module ->
+            ?SLOG(debug, #{
+                msg => "skip_init_config_load",
+                reason => "Some application has set another config loader",
+                loader => Module
+            })
+    end.
+
+init_load_done() ->
+    % NOTE: Either us or some higher level (i.e. tests) code loaded config.
+    emqx_app:get_config_loader() =/= emqx.
 
 init_conf() ->
     %% Workaround for https://github.com/emqx/mria/issues/94:
@@ -99,8 +117,7 @@ init_conf() ->
     _ = mria:wait_for_tables([?CLUSTER_MFA, ?CLUSTER_COMMIT]),
     {ok, TnxId} = sync_cluster_conf(),
     _ = emqx_app:set_init_tnx_id(TnxId),
-    ok = init_load(),
-    ok = emqx_app:set_init_config_load_done().
+    ok = init_load().
 
 cluster_nodes() ->
     mria:cluster_nodes(cores) -- [node()].

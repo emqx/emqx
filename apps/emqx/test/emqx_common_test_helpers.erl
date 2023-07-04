@@ -67,6 +67,7 @@
 -export([
     emqx_cluster/1,
     emqx_cluster/2,
+    start_ekka/0,
     start_epmd/0,
     start_slave/2,
     stop_slave/1,
@@ -348,7 +349,7 @@ stop_apps(Apps, Opts) ->
     [application:stop(App) || App <- Apps ++ [emqx, ekka, mria, mnesia]],
     ok = mria_mnesia:delete_schema(),
     %% to avoid inter-suite flakiness
-    application:unset_env(emqx, init_config_load_done),
+    application:unset_env(emqx, config_loader),
     application:unset_env(emqx, boot_modules),
     persistent_term:erase(?EMQX_AUTHENTICATION_SCHEMA_MODULE_PT_KEY),
     case Opts of
@@ -910,7 +911,7 @@ setup_node(Node, Opts) when is_map(Opts) ->
                     set_env_once("EMQX_NODE__DATA_DIR", NodeDataDir),
                     set_env_once("EMQX_NODE__COOKIE", Cookie),
                     emqx_config:init_load(SchemaMod),
-                    application:set_env(emqx, init_config_load_done, true)
+                    emqx_app:set_config_loader(emqx_conf)
                 end,
 
             %% Need to set this otherwise listeners will conflict between each other

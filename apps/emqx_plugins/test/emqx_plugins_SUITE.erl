@@ -523,7 +523,6 @@ group_t_copy_plugin_to_a_new_node({init, Config}) ->
             #{
                 apps => [emqx_conf, emqx_plugins],
                 env => [
-                    {emqx, init_config_load_done, false},
                     {emqx, boot_modules, []}
                 ],
                 load_schema => false
@@ -621,7 +620,6 @@ group_t_copy_plugin_to_a_new_node_single_node({init, Config}) ->
             #{
                 apps => [emqx_conf, emqx_plugins],
                 env => [
-                    {emqx, init_config_load_done, false},
                     {emqx, boot_modules, []}
                 ],
                 env_handler => fun
@@ -690,7 +688,6 @@ group_t_cluster_leave({init, Config}) ->
             #{
                 apps => [emqx_conf, emqx_plugins],
                 env => [
-                    {emqx, init_config_load_done, false},
                     {emqx, boot_modules, []}
                 ],
                 env_handler => fun

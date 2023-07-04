@@ -24,8 +24,6 @@
 -include_lib("common_test/include/ct.hrl").
 -include_lib("snabbkaffe/include/test_macros.hrl").
 
--define(SUITE_APPS, [emqx_conf, emqx_authn, emqx_management, emqx_rule_engine, emqx_bridge]).
-
 -define(BRIDGE_TYPE_HTTP, <<"webhook">>).
 -define(BRIDGE_NAME, (atom_to_binary(?FUNCTION_NAME))).
 -define(URL(PORT, PATH),
@@ -74,6 +72,19 @@
 }).
 -define(HTTP_BRIDGE(URL), ?HTTP_BRIDGE(URL, ?BRIDGE_NAME)).
 
+-define(APPSPECS, [
+    emqx_conf,
+    emqx,
+    emqx_authn,
+    emqx_management,
+    {emqx_rule_engine, "rule_engine { rules {} }"},
+    {emqx_bridge, "bridges {}"}
+]).
+
+-define(APPSPEC_DASHBOARD,
+    {emqx_dashboard, "dashboard.listeners.http { enable = true, bind = 18083 }"}
+).
+
 all() ->
     [
         {group, single},
@@ -104,105 +115,43 @@ init_per_suite(Config) ->
 end_per_suite(_Config) ->
     ok.
 
-init_per_group(cluster, Config) ->
-    Cluster = mk_cluster_specs(Config),
-    ct:pal("Starting ~p", [Cluster]),
-    Nodes = [
-        emqx_common_test_helpers:start_slave(Name, Opts)
-     || {Name, Opts} <- Cluster
-    ],
-    [NodePrimary | NodesRest] = Nodes,
-    ok = erpc:call(NodePrimary, fun() -> init_node(primary) end),
-    _ = [ok = erpc:call(Node, fun() -> init_node(regular) end) || Node <- NodesRest],
-    [{group, cluster}, {cluster_nodes, Nodes}, {api_node, NodePrimary} | Config];
-init_per_group(cluster_later_join, Config) ->
-    Cluster = mk_cluster_specs(Config, #{join_to => undefined}),
-    ct:pal("Starting ~p", [Cluster]),
-    Nodes = [
-        emqx_common_test_helpers:start_slave(Name, Opts)
-     || {Name, Opts} <- Cluster
-    ],
-    [NodePrimary | NodesRest] = Nodes,
-    ok = erpc:call(NodePrimary, fun() -> init_node(primary) end),
-    _ = [ok = erpc:call(Node, fun() -> init_node(regular) end) || Node <- NodesRest],
-    [{group, cluster_later_join}, {cluster_nodes, Nodes}, {api_node, NodePrimary} | Config];
-init_per_group(_, Config) ->
-    ok = emqx_mgmt_api_test_util:init_suite(?SUITE_APPS),
-    ok = load_suite_config(emqx_rule_engine),
-    ok = load_suite_config(emqx_bridge),
-    [{group, single}, {api_node, node()} | Config].
+init_per_group(cluster = Name, Config) ->
+    Nodes = [NodePrimary | _] = mk_cluster(Name, Config),
+    init_api([{group, Name}, {cluster_nodes, Nodes}, {node, NodePrimary} | Config]);
+init_per_group(cluster_later_join = Name, Config) ->
+    Nodes = [NodePrimary | _] = mk_cluster(Name, Config, #{join_to => undefined}),
+    init_api([{group, Name}, {cluster_nodes, Nodes}, {node, NodePrimary} | Config]);
+init_per_group(Name, Config) ->
+    WorkDir = filename:join(?config(priv_dir, Config), Name),
+    Apps = emqx_cth_suite:start(?APPSPECS ++ [?APPSPEC_DASHBOARD], #{work_dir => WorkDir}),
+    init_api([{group, single}, {group_apps, Apps}, {node, node()} | Config]).
 
-mk_cluster_specs(Config) ->
-    mk_cluster_specs(Config, #{}).
+init_api(Config) ->
+    APINode = ?config(node, Config),
+    {ok, App} = erpc:call(APINode, emqx_common_test_http, create_default_app, []),
+    [{api, App} | Config].
 
-mk_cluster_specs(Config, Opts) ->
-    Specs = [
-        {core, emqx_bridge_api_SUITE1, #{}},
-        {core, emqx_bridge_api_SUITE2, #{}}
-    ],
-    CommonOpts = Opts#{
-        env => [{emqx, boot_modules, [broker]}],
-        apps => [],
-        % NOTE
-        % We need to start all those apps _after_ the cluster becomes stable, in the
-        % `init_node/1`. This is because usual order is broken in very subtle way:
-        % 1. Node starts apps including `mria` and `emqx_conf` which starts `emqx_cluster_rpc`.
-        % 2. The `emqx_cluster_rpc` sets up a mnesia table subscription during initialization.
-        % 3. In the meantime `mria` joins the cluster and notices it should restart.
-        % 4. Mnesia subscription becomes lost during restarts (god knows why).
-        % Yet we need to load them before, so that mria / mnesia will know which tables
-        % should be created in the cluster.
-        % TODO
-        % We probably should hide these intricacies behind the `emqx_common_test_helpers`.
-        load_apps => ?SUITE_APPS ++ [emqx_dashboard],
-        env_handler => fun load_suite_config/1,
-        load_schema => false,
-        priv_data_dir => ?config(priv_dir, Config)
-    },
-    emqx_common_test_helpers:emqx_cluster(Specs, CommonOpts).
+mk_cluster(Name, Config) ->
+    mk_cluster(Name, Config, #{}).
 
-init_node(Type) ->
-    ok = emqx_common_test_helpers:start_apps(?SUITE_APPS, fun load_suite_config/1),
-    case Type of
-        primary ->
-            ok = emqx_dashboard_desc_cache:init(),
-            ok = emqx_config:put(
-                [dashboard, listeners],
-                #{http => #{bind => 18083, proxy_header => false}}
-            ),
-            ok = emqx_dashboard:start_listeners(),
-            ready = emqx_dashboard_listener:regenerate_minirest_dispatch(),
-            emqx_common_test_http:create_default_app();
-        regular ->
-            ok
-    end.
-
-load_suite_config(emqx_rule_engine) ->
-    ok = emqx_common_test_helpers:load_config(
-        emqx_rule_engine_schema,
-        <<"rule_engine { rules {} }">>
-    );
-load_suite_config(emqx_bridge) ->
-    ok = emqx_common_test_helpers:load_config(
-        emqx_bridge_schema,
-        <<"bridges {}">>
-    );
-load_suite_config(_) ->
-    ok.
+mk_cluster(Name, Config, Opts) ->
+    Node1Apps = ?APPSPECS ++ [?APPSPEC_DASHBOARD],
+    Node2Apps = ?APPSPECS,
+    emqx_cth_cluster:start(
+        [
+            {emqx_bridge_api_SUITE1, Opts#{role => core, apps => Node1Apps}},
+            {emqx_bridge_api_SUITE2, Opts#{role => core, apps => Node2Apps}}
+        ],
+        #{work_dir => filename:join(?config(priv_dir, Config), Name)}
+    ).
 
 end_per_group(Group, Config) when
     Group =:= cluster;
     Group =:= cluster_later_join
 ->
-    ok = lists:foreach(
-        fun(Node) ->
-            _ = erpc:call(Node, emqx_common_test_helpers, stop_apps, [?SUITE_APPS]),
-            emqx_common_test_helpers:stop_slave(Node)
-        end,
-        ?config(cluster_nodes, Config)
-    );
-end_per_group(_, _Config) ->
-    emqx_mgmt_api_test_util:end_suite(?SUITE_APPS),
+    ok = emqx_cth_cluster:stop(?config(cluster_nodes, Config));
+end_per_group(_, Config) ->
+    emqx_cth_suite:stop(?config(group_apps, Config)),
     ok.
 
 init_per_testcase(t_broken_bpapi_vsn, Config) ->
@@ -228,7 +177,7 @@ end_per_testcase(t_old_bpapi_vsn, Config) ->
 end_per_testcase(_, Config) ->
     Sock = ?config(sock, Config),
     Acceptor = ?config(acceptor, Config),
-    Node = ?config(api_node, Config),
+    Node = ?config(node, Config),
     ok = emqx_common_test_helpers:call_janitor(),
     ok = stop_http_server(Sock, Acceptor),
     ok = erpc:call(Node, fun clear_resources/0),
@@ -900,7 +849,7 @@ t_start_stop_inconsistent_bridge_cluster(Config) ->
 start_stop_inconsistent_bridge(Type, Config) ->
     Port = ?config(port, Config),
     URL = ?URL(Port, "abc"),
-    Node = ?config(api_node, Config),
+    Node = ?config(node, Config),
 
     erpc:call(Node, fun() ->
         meck:new(emqx_bridge_resource, [passthrough, no_link]),
@@ -1351,9 +1300,7 @@ t_inconsistent_webhook_request_timeouts(Config) ->
 
 t_cluster_later_join_metrics(Config) ->
     Port = ?config(port, Config),
-    APINode = ?config(api_node, Config),
-    ClusterNodes = ?config(cluster_nodes, Config),
-    [OtherNode | _] = ClusterNodes -- [APINode],
+    [PrimaryNode, OtherNode | _] = ?config(cluster_nodes, Config),
     URL1 = ?URL(Port, "path1"),
     Name = ?BRIDGE_NAME,
     BridgeParams = ?HTTP_BRIDGE(URL1, Name),
@@ -1371,7 +1318,7 @@ t_cluster_later_join_metrics(Config) ->
                 request_json(get, uri(["bridges", BridgeID, "metrics"]), Config)
             ),
             %% Now join the other node join with the api node.
-            ok = erpc:call(OtherNode, ekka, join, [APINode]),
+            ok = erpc:call(OtherNode, ekka, join, [PrimaryNode]),
             %% Check metrics; shouldn't crash even if the bridge is not
             %% ready on the node that just joined the cluster.
             ?assertMatch(
@@ -1419,8 +1366,9 @@ request(Method, {operation, Type, Op, BridgeID}, Body, Config) ->
     URL = operation_path(Type, Op, BridgeID, Config),
     request(Method, URL, Body, Config);
 request(Method, URL, Body, Config) ->
+    AuthHeader = emqx_common_test_http:auth_header(?config(api, Config)),
     Opts = #{compatible_mode => true, httpc_req_opts => [{body_format, binary}]},
-    emqx_mgmt_api_test_util:request_api(Method, URL, [], auth_header(Config), Body, Opts).
+    emqx_mgmt_api_test_util:request_api(Method, URL, [], AuthHeader, Body, Opts).
 
 request(Method, URL, Body, Decoder, Config) ->
     case request(Method, URL, Body, Config) of
@@ -1436,11 +1384,8 @@ request_json(Method, URLLike, Config) ->
 request_json(Method, URLLike, Body, Config) ->
     request(Method, URLLike, Body, fun json/1, Config).
 
-auth_header(Config) ->
-    erpc:call(?config(api_node, Config), emqx_common_test_http, default_auth_header, []).
-
 operation_path(node, Oper, BridgeID, Config) ->
-    uri(["nodes", ?config(api_node, Config), "bridges", BridgeID, Oper]);
+    uri(["nodes", ?config(node, Config), "bridges", BridgeID, Oper]);
 operation_path(cluster, Oper, BridgeID, _Config) ->
     uri(["bridges", BridgeID, Oper]).
 
@@ -1448,23 +1393,23 @@ enable_path(Enable, BridgeID) ->
     uri(["bridges", BridgeID, "enable", Enable]).
 
 publish_message(Topic, Body, Config) ->
-    Node = ?config(api_node, Config),
+    Node = ?config(node, Config),
     erpc:call(Node, emqx, publish, [emqx_message:make(Topic, Body)]).
 
 update_config(Path, Value, Config) ->
-    Node = ?config(api_node, Config),
+    Node = ?config(node, Config),
     erpc:call(Node, emqx, update_config, [Path, Value]).
 
 get_raw_config(Path, Config) ->
-    Node = ?config(api_node, Config),
+    Node = ?config(node, Config),
     erpc:call(Node, emqx, get_raw_config, [Path]).
 
 add_user_auth(Chain, AuthenticatorID, User, Config) ->
-    Node = ?config(api_node, Config),
+    Node = ?config(node, Config),
     erpc:call(Node, emqx_authentication, add_user, [Chain, AuthenticatorID, User]).
 
 delete_user_auth(Chain, AuthenticatorID, User, Config) ->
-    Node = ?config(api_node, Config),
+    Node = ?config(node, Config),
     erpc:call(Node, emqx_authentication, delete_user, [Chain, AuthenticatorID, User]).
 
 str(S) when is_list(S) -> S;

@@ -24,16 +24,13 @@
     stop/1,
     get_description/0,
     get_release/0,
-    set_init_config_load_done/0,
-    get_init_config_load_done/0,
+    set_config_loader/1,
+    get_config_loader/0,
     set_init_tnx_id/1,
     get_init_tnx_id/0
 ]).
 
--include("emqx.hrl").
 -include("logger.hrl").
-
--define(APP, emqx).
 
 %%--------------------------------------------------------------------
 %% Application callbacks
@@ -62,11 +59,11 @@ stop(_State) -> ok.
 %% @doc Call this function to make emqx boot without loading config,
 %% in case we want to delegate the config load to a higher level app
 %% which manages emqx app.
-set_init_config_load_done() ->
-    application:set_env(emqx, init_config_load_done, true).
+set_config_loader(Module) when is_atom(Module) ->
+    application:set_env(emqx, config_loader, Module).
 
-get_init_config_load_done() ->
-    application:get_env(emqx, init_config_load_done, false).
+get_config_loader() ->
+    application:get_env(emqx, config_loader, emqx).
 
 %% @doc Set the transaction id from which this node should start applying after boot.
 %% The transaction ID is received from the core node which we just copied the latest
@@ -79,9 +76,15 @@ get_init_tnx_id() ->
     application:get_env(emqx, cluster_rpc_init_tnx_id, -1).
 
 maybe_load_config() ->
-    case get_init_config_load_done() of
-        true -> ok;
-        false -> emqx_config:init_load(emqx_schema)
+    case get_config_loader() of
+        emqx ->
+            emqx_config:init_load(emqx_schema);
+        Module ->
+            ?SLOG(debug, #{
+                msg => "skip_init_config_load",
+                reason => "Some application has set another config loader",
+                loader => Module
+            })
     end.
 
 maybe_start_listeners() ->

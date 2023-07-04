@@ -72,7 +72,7 @@ defmodule EMQXUmbrella.MixProject do
       # in conflict by emqtt and hocon
       {:getopt, "1.0.2", override: true},
       {:snabbkaffe, github: "kafka4beam/snabbkaffe", tag: "1.0.8", override: true},
-      {:hocon, github: "emqx/hocon", tag: "0.39.10", override: true},
+      {:hocon, github: "emqx/hocon", tag: "0.39.11", override: true},
       {:emqx_http_lib, github: "emqx/emqx_http_lib", tag: "0.5.2", override: true},
       {:esasl, github: "emqx/esasl", tag: "0.2.0"},
       {:jose, github: "potatosalad/erlang-jose", tag: "1.11.2"},
@@ -314,7 +314,8 @@ defmodule EMQXUmbrella.MixProject do
             :emqx_prometheus,
             :emqx_auto_subscribe,
             :emqx_slow_subs,
-            :emqx_plugins
+            :emqx_plugins,
+            :emqx_ft
           ],
           steps: steps,
           strip_beams: false

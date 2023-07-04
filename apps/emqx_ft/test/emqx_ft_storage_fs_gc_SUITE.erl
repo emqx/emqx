@@ -22,45 +22,42 @@
 -include_lib("emqx_ft/include/emqx_ft_storage_fs.hrl").
 -include_lib("stdlib/include/assert.hrl").
 -include_lib("snabbkaffe/include/test_macros.hrl").
+-include_lib("common_test/include/ct.hrl").
 
 all() ->
     emqx_common_test_helpers:all(?MODULE).
 
 init_per_suite(Config) ->
-    _ = application:load(emqx_ft),
-    ok = emqx_common_test_helpers:start_apps([]),
-    Config.
+    Apps = emqx_cth_suite:start([emqx], #{work_dir => ?config(priv_dir, Config)}),
+    [{suite_apps, Apps} | Config].
 
-end_per_suite(_Config) ->
-    ok = emqx_common_test_helpers:stop_apps([]),
+end_per_suite(Config) ->
+    ok = emqx_cth_suite:stop(?config(suite_apps, Config)),
     ok.
 
 init_per_testcase(TC, Config) ->
     SegmentsRoot = emqx_ft_test_helpers:root(Config, node(), [TC, segments]),
     ExportsRoot = emqx_ft_test_helpers:root(Config, node(), [TC, exports]),
-    ok = emqx_common_test_helpers:start_app(
+    Started = emqx_cth_suite:start_app(
         emqx_ft,
-        fun(emqx_ft) ->
-            emqx_ft_test_helpers:load_config(#{
-                <<"enable">> => true,
-                <<"storage">> => #{
-                    <<"local">> => #{
-                        <<"enable">> => true,
-                        <<"segments">> => #{<<"root">> => SegmentsRoot},
-                        <<"exporter">> => #{
-                            <<"local">> => #{<<"enable">> => true, <<"root">> => ExportsRoot}
-                        }
+        #{
+            config => emqx_ft_test_helpers:config(#{
+                <<"local">> => #{
+                    <<"enable">> => true,
+                    <<"segments">> => #{<<"root">> => SegmentsRoot},
+                    <<"exporter">> => #{
+                        <<"local">> => #{<<"enable">> => true, <<"root">> => ExportsRoot}
                     }
                 }
             })
-        end
+        }
     ),
     ok = snabbkaffe:start_trace(),
-    Config.
+    [{tc_apps, Started} | Config].
 
-end_per_testcase(_TC, _Config) ->
+end_per_testcase(_TC, Config) ->
     ok = snabbkaffe:stop(),
-    ok = application:stop(emqx_ft),
+    ok = emqx_cth_suite:stop_apps(?config(tc_apps, Config)),
     ok.
 
 %%

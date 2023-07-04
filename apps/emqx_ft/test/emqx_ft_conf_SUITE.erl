@@ -31,22 +31,20 @@ init_per_suite(Config) ->
 end_per_suite(_Config) ->
     ok.
 
-init_per_testcase(_Case, Config) ->
-    _ = emqx_config:save_schema_mod_and_names(emqx_ft_schema),
-    ok = emqx_common_test_helpers:start_apps(
-        [emqx_conf, emqx_ft], fun
-            (emqx_ft) ->
-                emqx_ft_test_helpers:load_config(#{});
-            (_) ->
-                ok
-        end
+init_per_testcase(Case, Config) ->
+    WorkDir = filename:join(?config(priv_dir, Config), Case),
+    Apps = emqx_cth_suite:start(
+        [
+            {emqx_conf, #{}},
+            {emqx_ft, #{config => "file_transfer {}"}}
+        ],
+        #{work_dir => WorkDir}
     ),
-    {ok, _} = emqx:update_config([rpc, port_discovery], manual),
-    Config.
+    [{suite_apps, Apps} | Config].
 
-end_per_testcase(_Case, _Config) ->
-    ok = emqx_common_test_helpers:stop_apps([emqx_ft, emqx_conf]),
-    ok = emqx_config:erase(file_transfer).
+end_per_testcase(_Case, Config) ->
+    ok = emqx_cth_suite:stop(?config(suite_apps, Config)),
+    ok.
 
 %%--------------------------------------------------------------------
 %% Tests

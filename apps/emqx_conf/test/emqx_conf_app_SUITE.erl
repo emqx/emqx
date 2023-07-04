@@ -215,7 +215,7 @@ assert_no_cluster_conf_copied([Node | Nodes], File) ->
 assert_config_load_done(Nodes) ->
     lists:foreach(
         fun(Node) ->
-            Done = rpc:call(Node, emqx_app, get_init_config_load_done, []),
+            Done = rpc:call(Node, emqx_conf_app, init_load_done, []),
             ?assert(Done, #{node => Node})
         end,
         Nodes
@@ -240,7 +240,6 @@ start_cluster_async(Specs) ->
 cluster(Specs, Config) ->
     PrivDataDir = ?config(priv_dir, Config),
     Env = [
-        {emqx, init_config_load_done, false},
         {emqx, boot_modules, []}
     ],
     emqx_common_test_helpers:emqx_cluster(Specs, [
