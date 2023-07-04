@@ -294,7 +294,7 @@ redis_fields() ->
         {pool_size, fun emqx_connector_schema_lib:pool_size/1},
         {password, fun emqx_connector_schema_lib:password/1},
         {database, #{
-            type => integer(),
+            type => non_neg_integer(),
             default => 0,
             desc => ?DESC("database")
         }},

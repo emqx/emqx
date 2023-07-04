@@ -157,22 +157,32 @@ t_create_with_config_values_wont_work(_Config) ->
     ).
 
 t_create_invalid_config(_Config) ->
-    Config0 = raw_redis_auth_config(),
-    Config = maps:without([<<"server">>], Config0),
+    BaseAuthConfig = raw_redis_auth_config(),
+
+    test_create_invalid_config(
+        maps:without([<<"server">>], BaseAuthConfig),
+        "authentication.1.server"
+    ),
+    test_create_invalid_config(
+        BaseAuthConfig#{<<"database">> => <<"-1">>},
+        "authentication.1.database"
+    ).
+
+test_create_invalid_config(InvalidAuthConfig, Path) ->
     ?assertMatch(
         {error, #{
             kind := validation_error,
             matched_type := "authn:redis_single",
-            path := "authentication.1.server",
-            reason := required_field
+            path := Path
         }},
-        emqx:update_config(?PATH, {create_authenticator, ?GLOBAL, Config})
+        emqx:update_config(?PATH, {create_authenticator, ?GLOBAL, InvalidAuthConfig})
     ),
     ?assertMatch([], emqx_config:get_raw([authentication])),
     ?assertEqual(
         {error, {not_found, {chain, ?GLOBAL}}},
         emqx_authentication:list_authenticators(?GLOBAL)
-    ).
+    ),
+    ok.
 
 t_authenticate(_Config) ->
     ok = lists:foreach(
