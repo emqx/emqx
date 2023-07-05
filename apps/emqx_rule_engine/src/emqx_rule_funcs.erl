@@ -1202,5 +1202,5 @@ convert_timestamp(MillisecondsTimestamp) ->
     MicroSecs = MicroTimestamp rem 1000_000,
     {MegaSecs, Secs, MicroSecs}.
 
-uuid_str(UUID, DisplyOpt) ->
-    uuid:uuid_to_string(UUID, DisplyOpt).
+uuid_str(UUID, DisplayOpt) ->
+    uuid:uuid_to_string(UUID, DisplayOpt).
