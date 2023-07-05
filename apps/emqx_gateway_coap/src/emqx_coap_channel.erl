@@ -486,46 +486,35 @@ enrich_conninfo(
         conninfo = ConnInfo
     }
 ) ->
-    %% FIXME: generate a random clientid if absent
-    case Queries of
-        #{<<"clientid">> := ClientId} ->
-            Interval = maps:get(interval, emqx_keepalive:info(KeepAlive)),
-            NConnInfo = ConnInfo#{
-                clientid => ClientId,
-                proto_name => <<"CoAP">>,
-                proto_ver => <<"1">>,
-                clean_start => true,
-                keepalive => Interval,
-                expiry_interval => 0
-            },
-            {ok, Channel#channel{conninfo = NConnInfo}};
-        _ ->
-            {error, "invalid queries", Channel}
-    end.
+    ClientId =
+        case maps:get(<<"clientid">>, Queries, undefined) of
+            undefined ->
+                emqx_gateway_utils:random_clientid(coap);
+            ClientId0 ->
+                ClientId0
+        end,
+    Interval = maps:get(interval, emqx_keepalive:info(KeepAlive)),
+    NConnInfo = ConnInfo#{
+        clientid => ClientId,
+        proto_name => <<"CoAP">>,
+        proto_ver => <<"1">>,
+        clean_start => true,
+        keepalive => Interval,
+        expiry_interval => 0
+    },
+    {ok, Channel#channel{conninfo = NConnInfo}}.
 
 enrich_clientinfo(
     {Queries, Msg},
-    Channel = #channel{clientinfo = ClientInfo0}
+    Channel = #channel{conninfo = ConnInfo, clientinfo = ClientInfo0}
 ) ->
-    %% FIXME:
-    %% 1. generate a random clientid if absent;
-    %% 2. assgin username, password to `undefined` if absent
-    case Queries of
-        #{
-            <<"username">> := UserName,
-            <<"password">> := Password,
-            <<"clientid">> := ClientId
-        } ->
-            ClientInfo = ClientInfo0#{
-                username => UserName,
-                password => Password,
-                clientid => ClientId
-            },
-            {ok, NClientInfo} = fix_mountpoint(Msg, ClientInfo),
-            {ok, Channel#channel{clientinfo = NClientInfo}};
-        _ ->
-            {error, "invalid queries", Channel}
-    end.
+    ClientInfo = ClientInfo0#{
+        clientid => maps:get(clientid, ConnInfo),
+        username => maps:get(<<"username">>, Queries, undefined),
+        password => maps:get(<<"password">>, Queries, undefined)
+    },
+    {ok, NClientInfo} = fix_mountpoint(Msg, ClientInfo),
+    {ok, Channel#channel{clientinfo = NClientInfo}}.
 
 set_log_meta(_Input, #channel{clientinfo = #{clientid := ClientId}}) ->
     emqx_logger:set_metadata_clientid(ClientId),
