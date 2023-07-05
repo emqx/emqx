@@ -709,25 +709,30 @@ fields(global_status) ->
 
 rebalance_example() ->
     #{
-        wait_health_check => <<"10s">>,
-        conn_evict_rate => 10,
-        sess_evict_rate => 20,
-        abs_conn_threshold => 10,
-        rel_conn_threshold => 1.5,
-        abs_sess_threshold => 10,
-        rel_sess_threshold => 1.5,
-        wait_takeover => <<"10s">>,
-        nodes => [<<"othernode@127.0.0.1">>]
+        rebalance =>
+            #{
+                wait_health_check => <<"10s">>,
+                conn_evict_rate => 10,
+                sess_evict_rate => 20,
+                abs_conn_threshold => 10,
+                rel_conn_threshold => 1.5,
+                abs_sess_threshold => 10,
+                rel_sess_threshold => 1.5,
+                wait_takeover => <<"10s">>,
+                nodes => [<<"othernode@127.0.0.1">>]
+            }
     }.
 
 rebalance_evacuation_example() ->
     #{
-        wait_health_check => <<"10s">>,
-        conn_evict_rate => 100,
-        sess_evict_rate => 100,
-        redirect_to => <<"othernode:1883">>,
-        wait_takeover => <<"10s">>,
-        migrate_to => [<<"othernode@127.0.0.1">>]
+        evacuation => #{
+            wait_health_check => <<"10s">>,
+            conn_evict_rate => 100,
+            sess_evict_rate => 100,
+            redirect_to => <<"othernode:1883">>,
+            wait_takeover => <<"10s">>,
+            migrate_to => [<<"othernode@127.0.0.1">>]
+        }
     }.
 
 local_status_response_schema() ->

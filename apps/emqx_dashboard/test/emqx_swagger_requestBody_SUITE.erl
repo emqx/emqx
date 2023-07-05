@@ -105,6 +105,20 @@ t_deprecated(_Config) ->
         emqx_dashboard_swagger:components([{?MODULE, deprecated_ref}], #{})
     ).
 
+t_nonempty_list(_Config) ->
+    ?assertMatch(
+        [
+            #{
+                <<"emqx_swagger_requestBody_SUITE.nonempty_list_ref">> :=
+                    #{
+                        <<"properties">> :=
+                            [{<<"list">>, #{items := #{type := string}, type := array}}]
+                    }
+            }
+        ],
+        emqx_dashboard_swagger:components([{?MODULE, nonempty_list_ref}], #{})
+    ).
+
 t_nest_object(_Config) ->
     GoodRef = <<"#/components/schemas/emqx_swagger_requestBody_SUITE.good_ref">>,
     Spec = #{
@@ -829,6 +843,10 @@ fields(deprecated_ref) ->
         {tag1, mk(binary(), #{desc => <<"tag1">>, deprecated => {since, "4.3.0"}})},
         {tag2, mk(binary(), #{desc => <<"tag2">>, deprecated => true})},
         {tag3, mk(binary(), #{desc => <<"tag3">>, deprecated => false})}
+    ];
+fields(nonempty_list_ref) ->
+    [
+        {list, mk(nonempty_list(binary()), #{})}
     ].
 
 enable(type) -> boolean();

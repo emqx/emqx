@@ -897,15 +897,25 @@ typename_to_spec("json_binary()", _Mod) ->
 typename_to_spec("port_number()", _Mod) ->
     range("1..65535");
 typename_to_spec(Name, Mod) ->
-    Spec = range(Name),
-    Spec1 = remote_module_type(Spec, Name, Mod),
-    Spec2 = typerefl_array(Spec1, Name, Mod),
-    Spec3 = integer(Spec2, Name),
-    Spec3 =:= nomatch andalso
-        throw({error, #{msg => <<"Unsupported Type">>, type => Name, module => Mod}}),
-    Spec3.
+    try_convert_to_spec(Name, Mod, [
+        fun try_remote_module_type/2,
+        fun try_typerefl_array/2,
+        fun try_range/2,
+        fun try_integer/2
+    ]).
 
 range(Name) ->
+    #{} = try_range(Name, undefined).
+
+try_convert_to_spec(Name, Mod, []) ->
+    throw({error, #{msg => <<"Unsupported Type">>, type => Name, module => Mod}});
+try_convert_to_spec(Name, Mod, [Converter | Rest]) ->
+    case Converter(Name, Mod) of
+        nomatch -> try_convert_to_spec(Name, Mod, Rest);
+        Spec -> Spec
+    end.
+
+try_range(Name, _Mod) ->
     case string:split(Name, "..") of
         %% 1..10 1..inf -inf..10
         [MinStr, MaxStr] ->
@@ -917,39 +927,33 @@ range(Name) ->
     end.
 
 %% Module:Type
-remote_module_type(nomatch, Name, Mod) ->
+try_remote_module_type(Name, Mod) ->
     case string:split(Name, ":") of
         [_Module, Type] -> typename_to_spec(Type, Mod);
         _ -> nomatch
-    end;
-remote_module_type(Spec, _Name, _Mod) ->
-    Spec.
+    end.
 
-%% [string()] or [integer()] or [xxx].
-typerefl_array(nomatch, Name, Mod) ->
+%% [string()] or [integer()] or [xxx] or [xxx,...]
+try_typerefl_array(Name, Mod) ->
     case string:trim(Name, leading, "[") of
         Name ->
             nomatch;
         Name1 ->
-            case string:trim(Name1, trailing, "]") of
+            case string:trim(Name1, trailing, ",.]") of
                 Name1 ->
                     notmatch;
                 Name2 ->
                     Schema = typename_to_spec(Name2, Mod),
                     #{type => array, items => Schema}
             end
-    end;
-typerefl_array(Spec, _Name, _Mod) ->
-    Spec.
+    end.
 
 %% integer(1)
-integer(nomatch, Name) ->
+try_integer(Name, _Mod) ->
     case string:to_integer(Name) of
         {Int, []} -> #{type => integer, enum => [Int], default => Int};
         _ -> nomatch
-    end;
-integer(Spec, _Name) ->
-    Spec.
+    end.
 
 add_integer_prop(Schema, Key, Value) ->
     case string:to_integer(Value) of
