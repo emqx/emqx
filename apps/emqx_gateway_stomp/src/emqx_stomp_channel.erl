@@ -695,12 +695,15 @@ check_subscribed_status(
 ) ->
     MountedTopic = emqx_mountpoint:mount(Mountpoint, ParsedTopic),
     case lists:keyfind(SubId, 1, Subs) of
-        {SubId, MountedTopic, _Ack, _} ->
-            ok;
-        {SubId, _OtherTopic, _Ack, _} ->
+        {SubId, _MountedTopic, _Ack, _} ->
             {error, subscription_id_inused};
         false ->
-            ok
+            case lists:keyfind(MountedTopic, 2, Subs) of
+                {_OtherSubId, MountedTopic, _Ack, _} ->
+                    {error, subscription_inused};
+                false ->
+                    ok
+            end
     end.
 
 check_sub_acl(
