@@ -508,9 +508,13 @@ handle_in(
                     handle_out_and_update(receipt, receipt_id(Headers), NChannel1)
             end;
         {error, subscription_id_inused, NChannel} ->
-            ErrMsg = io_lib:format("Subscription id ~w is in used", [SubId]),
+            ErrMsg = io_lib:format("Subscription id ~s is in used", [SubId]),
             ErrorFrame = error_frame(receipt_id(Headers), ErrMsg),
             shutdown(subscription_id_inused, ErrorFrame, NChannel);
+        {error, topic_already_subscribed, NChannel} ->
+            ErrMsg = io_lib:format("Topic ~s already in subscribed", [Topic]),
+            ErrorFrame = error_frame(receipt_id(Headers), ErrMsg),
+            shutdown(topic_already_subscribed, ErrorFrame, NChannel);
         {error, acl_denied, NChannel} ->
             ErrMsg = io_lib:format("Insufficient permissions for ~s", [Topic]),
             ErrorFrame = error_frame(receipt_id(Headers), ErrMsg),
@@ -700,7 +704,7 @@ check_subscribed_status(
         false ->
             case lists:keyfind(MountedTopic, 2, Subs) of
                 {_OtherSubId, MountedTopic, _Ack, _} ->
-                    {error, subscription_inused};
+                    {error, topic_already_subscribed};
                 false ->
                     ok
             end
@@ -829,13 +833,20 @@ handle_call(
                     NSubs = [{SubId, MountedTopic, <<"auto">>, NSubOpts} | Subs],
                     NChannel1 = NChannel#channel{subscriptions = NSubs},
                     reply({ok, {MountedTopic, NSubOpts}}, [{event, updated}], NChannel1);
-                {error, ErrMsg, NChannel} ->
+                {error, ErrCode, NChannel} ->
                     ?SLOG(error, #{
                         msg => "failed_to_subscribe_topic",
                         topic => Topic,
-                        reason => ErrMsg
+                        reason => ErrCode
                     }),
-                    reply({error, ErrMsg}, NChannel)
+                    ErrMsg =
+                        case ErrCode of
+                            subscription_id_inused ->
+                                io_lib:format("Subscription id ~s is in used", [SubId]);
+                            topic_already_subscribed ->
+                                io_lib:format("Topic ~s already in subscribed", [Topic])
+                        end,
+                    reply({error, lists:flatten(ErrMsg)}, NChannel)
             end
     end;
 handle_call(
