@@ -9,6 +9,9 @@ spec:
   issuerRef:
     name: {{ default "letsencrypt-staging" .Values.ssl.issuer.name }}
     kind: {{ default "ClusterIssuer" .Values.ssl.issuer.kind }}
+  {{- if .Values.ssl.commonName }}
+  commonName: {{ .Values.ssl.commonName }}
+  {{- end }}
   dnsNames:
     {{- range .Values.ssl.dnsnames }}
     - {{ . }}
