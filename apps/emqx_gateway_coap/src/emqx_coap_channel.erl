@@ -486,23 +486,21 @@ enrich_conninfo(
         conninfo = ConnInfo
     }
 ) ->
-    ClientId =
-        case maps:get(<<"clientid">>, Queries, undefined) of
-            undefined ->
-                emqx_gateway_utils:random_clientid(coap);
-            ClientId0 ->
-                ClientId0
-        end,
-    Interval = maps:get(interval, emqx_keepalive:info(KeepAlive)),
-    NConnInfo = ConnInfo#{
-        clientid => ClientId,
-        proto_name => <<"CoAP">>,
-        proto_ver => <<"1">>,
-        clean_start => true,
-        keepalive => Interval,
-        expiry_interval => 0
-    },
-    {ok, Channel#channel{conninfo = NConnInfo}}.
+    case Queries of
+        #{<<"clientid">> := ClientId} ->
+            Interval = maps:get(interval, emqx_keepalive:info(KeepAlive)),
+            NConnInfo = ConnInfo#{
+                clientid => ClientId,
+                proto_name => <<"CoAP">>,
+                proto_ver => <<"1">>,
+                clean_start => true,
+                keepalive => Interval,
+                expiry_interval => 0
+            },
+            {ok, Channel#channel{conninfo = NConnInfo}};
+        _ ->
+            {error, "clientid is required", Channel}
+    end.
 
 enrich_clientinfo(
     {Queries, Msg},
