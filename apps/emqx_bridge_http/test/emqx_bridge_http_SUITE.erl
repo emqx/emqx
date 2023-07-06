@@ -13,7 +13,7 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
--module(emqx_bridge_webhook_SUITE).
+-module(emqx_bridge_http_SUITE).
 
 %% This suite should contains testcases that are specific for the webhook
 %% bridge. There are also some test cases that implicitly tests the webhook
