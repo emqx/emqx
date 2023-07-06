@@ -6,7 +6,7 @@
         kernel,
         stdlib,
         emqx_resource,
-        emqx_bridge,
+        emqx_bridge_http,
         ehttpc
     ]},
     {env, []},

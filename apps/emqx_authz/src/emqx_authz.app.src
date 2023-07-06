@@ -12,7 +12,8 @@
         emqx_connector,
         emqx_mongodb,
         emqx_redis,
-        emqx_mysql
+        emqx_mysql,
+        emqx_bridge_http
     ]},
     {env, []},
     {modules, []},

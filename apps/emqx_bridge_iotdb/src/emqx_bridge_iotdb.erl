@@ -118,7 +118,7 @@ basic_config() ->
     ] ++ resource_creation_opts() ++
         proplists_without(
             [max_retries, base_url, request],
-            emqx_connector_http:fields(config)
+            emqx_bridge_http_connector:fields(config)
         ).
 
 proplists_without(Keys, List) ->

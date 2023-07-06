@@ -68,7 +68,7 @@ basic_config() ->
             )}
     ] ++ webhook_creation_opts() ++
         proplists:delete(
-            max_retries, emqx_connector_http:fields(config)
+            max_retries, emqx_bridge_http_connector:fields(config)
         ).
 
 request_config() ->

@@ -11,7 +11,7 @@
         kernel,
         stdlib,
         emqx_resource,
-        emqx_bridge,
+        emqx_bridge_http,
         %% for module emqx_connector_http
         emqx_connector
     ]},
