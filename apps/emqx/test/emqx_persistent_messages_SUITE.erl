@@ -25,14 +25,6 @@
     (calendar:system_time_to_rfc3339(erlang:system_time(millisecond), [{unit, millisecond}]))
 ).
 
--define(HERE(FMT, ARGS),
-    io:format(
-        user,
-        "*** " ?MODULE_STRING ":~p/~p ~s @ ~p *** " ++ FMT ++ "~n",
-        [?FUNCTION_NAME, ?FUNCTION_ARITY, ?NOW, node() | ARGS]
-    )
-).
-
 all() ->
     [t_messages_persisted].
 
@@ -81,11 +73,11 @@ t_messages_persisted(_Config) ->
 
     Results = [emqtt:publish(CP, Topic, Payload, 1) || {Topic, Payload} <- Messages],
 
-    ?HERE("Results = ~p", [Results]),
+    ct:pal("Results = ~p", [Results]),
 
     Persisted = consume(<<"local">>, {['#'], 0}),
 
-    ?HERE("Persisted = ~p", [Persisted]),
+    ct:pal("Persisted = ~p", [Persisted]),
 
     ?assertEqual(
         % [M1, M2, M5, M7, M9, M10],
