@@ -337,15 +337,38 @@ config_reset(post, _Params, Req) ->
 
 configs(get, #{query_string := QueryStr, headers := Headers}, _Req) ->
     %% Should deprecated json v1 since 5.2.0
-    case maps:get(<<"accept">>, Headers, <<"text/plain">>) of
-        <<"application/json">> -> get_configs_v1(QueryStr);
-        <<"text/plain">> -> get_configs_v2(QueryStr)
+    case find_suitable_accept(Headers, [<<"text/plain">>, <<"application/json">>]) of
+        {ok, <<"application/json">>} -> get_configs_v1(QueryStr);
+        {ok, <<"text/plain">>} -> get_configs_v2(QueryStr);
+        {error, _} = Error -> {400, #{code => 'INVALID_ACCEPT', message => ?ERR_MSG(Error)}}
     end;
 configs(put, #{body := Conf, query_string := #{<<"mode">> := Mode}}, _Req) ->
     case emqx_conf_cli:load_config(Conf, Mode) of
         ok -> {200};
         {error, [{_, Reason}]} -> {400, #{code => 'UPDATE_FAILED', message => ?ERR_MSG(Reason)}};
         {error, Errors} -> {400, #{code => 'UPDATE_FAILED', message => ?ERR_MSG(Errors)}}
+    end.
+
+find_suitable_accept(Headers, Perferences) ->
+    AcceptVal = maps:get(<<"accept">>, Headers, <<"*/*">>),
+    %% Multiple types, weighted with the quality value syntax:
+    %% Accept: text/html, application/xhtml+xml, application/xml;q=0.9, image/webp, */*;q=0.8
+    Accepts = lists:map(
+        fun(S) ->
+            [T | _] = binary:split(string:trim(S), <<";">>),
+            T
+        end,
+        re:split(AcceptVal, ",")
+    ),
+    case lists:member(<<"*/*">>, Accepts) of
+        true ->
+            {ok, lists:first(Perferences)};
+        fales ->
+            Found = lists:filter(fun(Accept) -> lists:member(Accept, Accepts) end, Perferences),
+            case Found of
+                [] -> {error, no_suitalbe_accept};
+                _ -> lists:first(Found)
+            end
     end.
 
 get_configs_v1(QueryStr) ->
