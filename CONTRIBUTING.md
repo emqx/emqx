@@ -2,7 +2,6 @@
 
 You are welcome to submit any bugs, issues and feature requests on this repository.
 
-
 ## Commit Message Guidelines
 
 We have very precise rules over how our git commit messages can be formatted. This leads to **more readable messages** that are easy to follow when looking through the **project history**.
@@ -80,3 +79,13 @@ Just as in the **subject**, use the imperative, present tense: "change" not "cha
 The footer should contain any information about **Breaking Changes** and is also the place to reference GitHub issues that this commit **Closes**.
 
 **Breaking Changes** should start with the word `BREAKING CHANGE:` with a space or two newlines. The rest of the commit message is then used for this.
+
+## Changelog
+
+Changes affecting EMQX functionality shall be described in a separate markdown file under `changes` directory.
+
+File name pattern: `changes/{ce,ee}/(feat|perf|fix)-<PR-id>.en.md`, where:
+
+- `ce,ee`: Indicates whether given change affects community and enterprise edition (`ce`), or enterprise edition only (`ee`); for any change only one file is needed as enterprise edition absorbs all changes from the community edition automatically. When in doubts, one could consult [documentation](https://www.emqx.io/docs/en/latest/). Enterprise features have a corresponding "Tip" banner, see for example [here](https://www.emqx.io/docs/en/v5.1/data-integration/data-bridge-influxdb.html).
+- `feat|perf|fix`: Whether the change is a new functionality (`feat`), performance improvement (`perf`), or a bug fix (`fix`).
+- `PR-id`: Github pull request id. Since pull request id cannot be known before the PR is actually created, it's common to add change log entry in a separate commit.
