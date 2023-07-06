@@ -175,7 +175,7 @@
     cf :: rocksdb:cf_handle(),
     keymapper :: keymapper(),
     write_options = [{sync, true}] :: emqx_ds_storage_layer:db_write_options(),
-    read_options = [] :: emqx_ds_storage_layer:db_write_options()
+    read_options = [] :: emqx_ds_storage_layer:db_read_options()
 }).
 
 -record(it, {
