@@ -47,7 +47,7 @@ values("greptimedb_grpc_v1", post) ->
         bucket => <<"example_bucket">>,
         org => <<"examlpe_org">>,
         token => <<"example_token">>,
-        server => <<"127.0.0.1:4000">>
+        server => <<"127.0.0.1:4001">>
     },
     values(common, "greptimedb_grpc_v1", SupportUint, TypeOpts);
 values(Protocol, put) ->
@@ -68,7 +68,7 @@ values(common, Protocol, SupportUint, TypeOpts) ->
             batch_size => 100,
             batch_time => <<"20ms">>
         },
-        server => <<"127.0.0.1:4000">>,
+        server => <<"127.0.0.1:4001">>,
         ssl => #{enable => false}
     },
     maps:merge(TypeOpts, CommonConfigs).
