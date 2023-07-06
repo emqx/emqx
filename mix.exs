@@ -91,8 +91,7 @@ defmodule EMQXUmbrella.MixProject do
       {:cowlib,
        github: "ninenines/cowlib", ref: "c6553f8308a2ca5dcd69d845f0a7d098c40c3363", override: true},
       # in conflict by cowboy_swagger and cowboy
-      {:ranch,
-       github: "emqx/ranch", ref: "de8ba2a00817c0a6eb1b8f20d6fb3e44e2c9a5aa", override: true},
+      {:ranch, github: "emqx/ranch", tag: "1.8.1-emqx", override: true},
       # in conflict by grpc and eetcd
       {:gpb, "4.19.7", override: true, runtime: false},
       {:hackney, github: "emqx/hackney", tag: "1.18.1-1", override: true},
