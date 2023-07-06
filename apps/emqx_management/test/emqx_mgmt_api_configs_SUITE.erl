@@ -323,6 +323,36 @@ t_configs_key(_Config) ->
     ?assertEqual(<<"error">>, read_conf([<<"log">>, <<"console">>, <<"level">>])),
     ok.
 
+t_get_configs_in_different_accept(_Config) ->
+    [Key | _] = lists:sort(emqx_conf_cli:keys()),
+    URI = emqx_mgmt_api_test_util:api_path(["configs?key=" ++ Key]),
+    Auth = emqx_mgmt_api_test_util:auth_header_(),
+    Request = fun(Accept) ->
+        Headers = [{"accept", Accept}, Auth],
+        case
+            emqx_mgmt_api_test_util:request_api(get, URI, [], Headers, [], #{return_all => true})
+        of
+            {ok, {{_, Code, _}, RespHeaders, Body}} ->
+                Type = proplists:get_value("content-type", RespHeaders),
+                {Code, Type, Body};
+            {error, {{_, Code, _}, RespHeaders, Body}} ->
+                Type = proplists:get_value("content-type", RespHeaders),
+                {Code, Type, Body}
+        end
+    end,
+
+    %% returns text/palin if text/plain is acceptable
+    ?assertMatch({200, "text/plain", _}, Request(<<"text/plain">>)),
+    ?assertMatch({200, "text/plain", _}, Request(<<"*/*">>)),
+    ?assertMatch(
+        {200, "text/plain", _},
+        Request(<<"application/json, application/xml;q=0.9, image/webp, */*;q=0.8">>)
+    ),
+    %% returns application/json if it only support it
+    ?assertMatch({200, "application/json", _}, Request(<<"application/json">>)),
+    %% returns error if it set to other type
+    ?assertMatch({400, "application/json", _}, Request(<<"application/xml">>)).
+
 %% Helpers
 
 get_config(Name) ->

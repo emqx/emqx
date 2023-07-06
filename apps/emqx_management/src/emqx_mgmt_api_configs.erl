@@ -122,6 +122,7 @@ schema("/configs") ->
                             }}
                         ]
                 },
+                400 => emqx_dashboard_swagger:error_codes(['INVALID_ACCEPT']),
                 404 => emqx_dashboard_swagger:error_codes(['NOT_FOUND']),
                 500 => emqx_dashboard_swagger:error_codes(['BAD_NODE'])
             }
@@ -349,7 +350,7 @@ configs(put, #{body := Conf, query_string := #{<<"mode">> := Mode}}, _Req) ->
         {error, Errors} -> {400, #{code => 'UPDATE_FAILED', message => ?ERR_MSG(Errors)}}
     end.
 
-find_suitable_accept(Headers, Perferences) ->
+find_suitable_accept(Headers, Perferences) when is_list(Perferences), length(Perferences) > 0 ->
     AcceptVal = maps:get(<<"accept">>, Headers, <<"*/*">>),
     %% Multiple types, weighted with the quality value syntax:
     %% Accept: text/html, application/xhtml+xml, application/xml;q=0.9, image/webp, */*;q=0.8
@@ -362,12 +363,12 @@ find_suitable_accept(Headers, Perferences) ->
     ),
     case lists:member(<<"*/*">>, Accepts) of
         true ->
-            {ok, lists:first(Perferences)};
-        fales ->
+            {ok, lists:nth(1, Perferences)};
+        false ->
             Found = lists:filter(fun(Accept) -> lists:member(Accept, Accepts) end, Perferences),
             case Found of
                 [] -> {error, no_suitalbe_accept};
-                _ -> lists:first(Found)
+                _ -> {ok, lists:nth(1, Found)}
             end
     end.
 
