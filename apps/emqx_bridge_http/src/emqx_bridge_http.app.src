@@ -1,0 +1,9 @@
+{application, emqx_bridge_http, [
+    {description, "EMQX HTTP Bridge and Connector Application"},
+    {vsn, "0.1.1"},
+    {registered, []},
+    {applications, [kernel, stdlib, emqx_connector, emqx_resource, emqx_bridge]},
+    {env, []},
+    {modules, []},
+    {links, []}
+]}.

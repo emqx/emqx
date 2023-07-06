@@ -64,18 +64,18 @@ init_per_testcase(t_send_async_connection_timeout, Config) ->
 init_per_testcase(t_path_not_found, Config) ->
     HTTPPath = <<"/nonexisting/path">>,
     ServerSSLOpts = false,
-    {ok, {HTTPPort, _Pid}} = emqx_connector_web_hook_server:start_link(
+    {ok, {HTTPPort, _Pid}} = emqx_bridge_http_connector_test_server:start_link(
         _Port = random, HTTPPath, ServerSSLOpts
     ),
-    ok = emqx_connector_web_hook_server:set_handler(not_found_http_handler()),
+    ok = emqx_bridge_http_connector_test_server:set_handler(not_found_http_handler()),
     [{http_server, #{port => HTTPPort, path => HTTPPath}} | Config];
 init_per_testcase(t_too_many_requests, Config) ->
     HTTPPath = <<"/path">>,
     ServerSSLOpts = false,
-    {ok, {HTTPPort, _Pid}} = emqx_connector_web_hook_server:start_link(
+    {ok, {HTTPPort, _Pid}} = emqx_bridge_http_connector_test_server:start_link(
         _Port = random, HTTPPath, ServerSSLOpts
     ),
-    ok = emqx_connector_web_hook_server:set_handler(too_many_requests_http_handler()),
+    ok = emqx_bridge_http_connector_test_server:set_handler(too_many_requests_http_handler()),
     [{http_server, #{port => HTTPPort, path => HTTPPath}} | Config];
 init_per_testcase(_TestCase, Config) ->
     Server = start_http_server(#{response_delay_ms => 0}),
@@ -85,7 +85,7 @@ end_per_testcase(TestCase, _Config) when
     TestCase =:= t_path_not_found;
     TestCase =:= t_too_many_requests
 ->
-    ok = emqx_connector_web_hook_server:stop(),
+    ok = emqx_bridge_http_connector_test_server:stop(),
     persistent_term:erase({?MODULE, times_called}),
     emqx_bridge_testlib:delete_all_bridges(),
     emqx_common_test_helpers:call_janitor(),
@@ -552,7 +552,7 @@ do_t_async_retries(TestContext, Error, Fn) ->
         Attempts + 1
     end,
     emqx_common_test_helpers:with_mock(
-        emqx_connector_http,
+        emqx_bridge_http_connector,
         reply_delegator,
         fun(Context, ReplyFunAndArgs, Result) ->
             Attempts = GetAndBump(),

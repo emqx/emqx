@@ -1,11 +1,12 @@
 {application, emqx_bridge_gcp_pubsub, [
     {description, "EMQX Enterprise GCP Pub/Sub Bridge"},
-    {vsn, "0.1.3"},
+    {vsn, "0.1.4"},
     {registered, []},
     {applications, [
         kernel,
         stdlib,
-        ehttpc
+        ehttpc,
+        emqx_bridge_http
     ]},
     {env, []},
     {modules, []},

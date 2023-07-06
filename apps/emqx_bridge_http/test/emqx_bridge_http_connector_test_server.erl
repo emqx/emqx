@@ -14,7 +14,7 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
--module(emqx_connector_web_hook_server).
+-module(emqx_bridge_http_connector_test_server).
 
 -compile([nowarn_export_all, export_all]).
 

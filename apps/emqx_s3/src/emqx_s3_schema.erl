@@ -133,10 +133,11 @@ fields(transport_options) ->
             )}
     ] ++
         props_without(
-            [base_url, max_retries, retry_interval, request], emqx_connector_http:fields(config)
+            [base_url, max_retries, retry_interval, request],
+            emqx_bridge_http_connector:fields(config)
         ) ++
         props_with(
-            [headers, max_retries, request_timeout], emqx_connector_http:fields("request")
+            [headers, max_retries, request_timeout], emqx_bridge_http_connector:fields("request")
         ).
 
 desc(s3) ->

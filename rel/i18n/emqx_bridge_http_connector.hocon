@@ -1,4 +1,4 @@
-emqx_connector_http {
+emqx_bridge_http_connector {
 
 body.desc:
 """HTTP request body."""

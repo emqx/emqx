@@ -13,7 +13,7 @@
 %% See the License for the specific language governing permissions and
 %% limitations under the License.
 %%--------------------------------------------------------------------
--module(emqx_connector_http_tests).
+-module(emqx_bridge_http_connector_tests).
 
 -include_lib("eunit/include/eunit.hrl").
 
@@ -47,10 +47,10 @@ wrap_auth_headers_test_() ->
                     headers => auth_headers()
                 }
             },
-            {ok, #{request := #{headers := Headers}} = State} = emqx_connector_http:on_start(
+            {ok, #{request := #{headers := Headers}} = State} = emqx_bridge_http_connector:on_start(
                 <<"test">>, Config
             ),
-            {ok, 200, Req} = emqx_connector_http:on_query(foo, {send_message, #{}}, State),
+            {ok, 200, Req} = emqx_bridge_http_connector:on_query(foo, {send_message, #{}}, State),
             Tests =
                 [
                     ?_assert(is_wrapped(V))
