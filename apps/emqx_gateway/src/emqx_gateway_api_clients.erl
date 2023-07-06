@@ -57,7 +57,8 @@
     qs2ms/2,
     run_fuzzy_filter/2,
     format_channel_info/1,
-    format_channel_info/2
+    format_channel_info/2,
+    client_info_mountpoint/1
 ]).
 
 -define(TAGS, [<<"Gateway Clients">>]).
@@ -177,8 +178,12 @@ clients_insta(delete, #{
     }
 }) ->
     with_gateway(Name0, fun(GwName, _) ->
-        _ = emqx_gateway_http:kickout_client(GwName, ClientId),
-        {204}
+        case emqx_gateway_http:kickout_client(GwName, ClientId) of
+            {error, not_found} ->
+                return_http_error(404, "Client not found");
+            _ ->
+                {204}
+        end
     end).
 
 %% List the established subscriptions with mountpoint
@@ -234,8 +239,13 @@ subscriptions(delete, #{
     }
 }) ->
     with_gateway(Name0, fun(GwName, _) ->
-        _ = emqx_gateway_http:client_unsubscribe(GwName, ClientId, Topic),
-        {204}
+        case lookup_topic(GwName, ClientId, Topic) of
+            {ok, _} ->
+                _ = emqx_gateway_http:client_unsubscribe(GwName, ClientId, Topic),
+                {204};
+            {error, not_found} ->
+                return_http_error(404, "Resource not found")
+        end
     end).
 
 %%--------------------------------------------------------------------
@@ -259,6 +269,34 @@ extra_sub_props(Props) ->
         fun(_, V) -> V =/= undefined end,
         #{subid => maps:get(<<"subid">>, Props, undefined)}
     ).
+
+lookup_topic(GwName, ClientId, Topic) ->
+    Mountpoints = emqx_gateway_http:lookup_client(
+        GwName,
+        ClientId,
+        {?MODULE, client_info_mountpoint}
+    ),
+    case emqx_gateway_http:list_client_subscriptions(GwName, ClientId) of
+        {ok, Subscriptions} ->
+            case
+                [
+                    S
+                 || S = #{topic := Topic0} <- Subscriptions,
+                    Mountpoint <- Mountpoints,
+                    Topic0 == emqx_mountpoint:mount(Mountpoint, Topic)
+                ]
+            of
+                [] ->
+                    {error, not_found};
+                Filtered ->
+                    {ok, Filtered}
+            end;
+        Error ->
+            Error
+    end.
+
+client_info_mountpoint({_, #{clientinfo := #{mountpoint := Mountpoint}}, _}) ->
+    Mountpoint.
 
 %%--------------------------------------------------------------------
 %% QueryString to MatchSpec

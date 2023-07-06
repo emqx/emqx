@@ -54,6 +54,8 @@ end).
     "}\n"
 ).
 
+-import(emqx_gateway_test_utils, [sn_client_connect/1, sn_client_disconnect/1]).
+
 %%--------------------------------------------------------------------
 %% Setup
 %%--------------------------------------------------------------------
@@ -303,17 +305,3 @@ acc_print(Acc) ->
     after 200 ->
         Acc
     end.
-
-sn_client_connect(ClientId) ->
-    {ok, Socket} = gen_udp:open(0, [binary]),
-    _ = emqx_sn_protocol_SUITE:send_connect_msg(Socket, ClientId),
-    ?assertEqual(
-        <<3, 16#05, 0>>,
-        emqx_sn_protocol_SUITE:receive_response(Socket)
-    ),
-    Socket.
-
-sn_client_disconnect(Socket) ->
-    _ = emqx_sn_protocol_SUITE:send_disconnect_msg(Socket, undefined),
-    gen_udp:close(Socket),
-    ok.

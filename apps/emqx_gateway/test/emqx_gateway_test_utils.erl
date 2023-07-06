@@ -19,6 +19,8 @@
 -compile(export_all).
 -compile(nowarn_export_all).
 
+-include_lib("eunit/include/eunit.hrl").
+
 assert_confs(Expected0, Effected) ->
     Expected = maybe_unconvert_listeners(Expected0),
     case do_assert_confs(root, Expected, Effected) of
@@ -181,3 +183,17 @@ url(Path, Qs) ->
 
 auth(Headers) ->
     [emqx_mgmt_api_test_util:auth_header_() | Headers].
+
+sn_client_connect(ClientId) ->
+    {ok, Socket} = gen_udp:open(0, [binary]),
+    _ = emqx_sn_protocol_SUITE:send_connect_msg(Socket, ClientId),
+    ?assertEqual(
+        <<3, 16#05, 0>>,
+        emqx_sn_protocol_SUITE:receive_response(Socket)
+    ),
+    Socket.
+
+sn_client_disconnect(Socket) ->
+    _ = emqx_sn_protocol_SUITE:send_disconnect_msg(Socket, undefined),
+    gen_udp:close(Socket),
+    ok.
