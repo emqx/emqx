@@ -118,8 +118,8 @@ info(ctx, #channel{ctx = Ctx}) ->
     Ctx.
 
 -spec stats(channel()) -> emqx_types:stats().
-stats(_) ->
-    [].
+stats(#channel{session = Session}) ->
+    emqx_coap_session:stats(Session).
 
 -spec init(map(), map()) -> channel().
 init(
@@ -273,7 +273,7 @@ handle_call(
         SubReq, TempMsg, #{}, Session
     ),
     NSession = maps:get(session, Result),
-    {reply, {ok, {MountedTopic, NSubOpts}}, Channel#channel{session = NSession}};
+    {reply, {ok, {MountedTopic, NSubOpts}}, [{event, updated}], Channel#channel{session = NSession}};
 handle_call(
     {unsubscribe, Topic},
     _From,
@@ -300,7 +300,7 @@ handle_call(
         UnSubReq, TempMsg, #{}, Session
     ),
     NSession = maps:get(session, Result),
-    {reply, ok, Channel#channel{session = NSession}};
+    {reply, ok, [{event, updated}], Channel#channel{session = NSession}};
 handle_call(subscriptions, _From, Channel = #channel{session = Session}) ->
     Subs = emqx_coap_session:info(subscriptions, Session),
     {reply, {ok, maps:to_list(Subs)}, Channel};

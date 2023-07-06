@@ -363,6 +363,9 @@ t_clients_subscription_api(_) ->
             maps:get(topic, SubsResp2)
         ),
 
+        %% check subscription_cnt
+        {200, #{subscriptions_cnt := 1}} = request(get, "/gateways/coap/clients/client1"),
+
         {204, _} = request(delete, Path ++ "/tx"),
 
         {200, []} = request(get, Path)
