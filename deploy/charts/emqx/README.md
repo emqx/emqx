@@ -99,7 +99,7 @@ The following table lists the configurable parameters of the emqx chart and thei
 | `ssl.enabled` | Enable SSL support | false |
 | `ssl.useExisting` | Use existing certificate or let cert-manager generate one | false |
 | `ssl.existingName` | Name of existing certificate | emqx-tls |
-| `ssl.commonName` | Common name for or certificate to be generated | {} |
+| `ssl.commonName` | Common name for or certificate to be generated | |
 | `ssl.dnsnames` | DNS name(s) for certificate to be generated | {} |
 | `ssl.issuer.name` | Issuer name for certificate generation | letsencrypt-dns |
 | `ssl.issuer.kind` | Issuer kind for certificate generation | ClusterIssuer |
