@@ -2486,6 +2486,12 @@ case100_subscription_api(Config) ->
     },
     {201, _} = request(post, Path, SubReq),
     {200, _} = request(get, Path),
+
+    %% check subscription_cnt
+    {200, #{subscriptions_cnt := 2}} = request(
+        get, "/gateways/lwm2m/clients/" ++ binary_to_list(ClientId)
+    ),
+
     {204, _} = request(delete, Path ++ "/tx"),
     {200, [InitSub]} = request(get, Path).
 

@@ -248,11 +248,11 @@ stats(subscriptions_max, _) ->
 stats(inflight_cnt, _) ->
     0;
 stats(inflight_max, _) ->
-    0;
+    infinity;
 stats(mqueue_len, _) ->
     0;
 stats(mqueue_max, _) ->
-    0;
+    infinity;
 stats(mqueue_dropped, _) ->
     0;
 stats(next_pkt_id, _) ->
