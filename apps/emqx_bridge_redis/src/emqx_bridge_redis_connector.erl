@@ -28,7 +28,7 @@ on_start(InstId, #{command_template := CommandTemplate} = Config) ->
     case emqx_redis:on_start(InstId, Config) of
         {ok, RedisConnSt} ->
             ?tp(
-                redis_ee_connector_start_success,
+                redis_bridge_connector_start_success,
                 #{}
             ),
             {ok, #{
@@ -37,7 +37,7 @@ on_start(InstId, #{command_template := CommandTemplate} = Config) ->
             }};
         {error, _} = Error ->
             ?tp(
-                redis_ee_connector_start_error,
+                redis_bridge_connector_start_error,
                 #{error => Error}
             ),
             Error
@@ -60,12 +60,12 @@ on_query(
 ) ->
     Cmd = proc_command_template(CommandTemplate, Data),
     ?tp(
-        redis_ee_connector_cmd,
+        redis_bridge_connector_cmd,
         #{cmd => Cmd, batch => false, mode => sync}
     ),
     Result = query(InstId, {cmd, Cmd}, RedisConnSt),
     ?tp(
-        redis_ee_connector_send_done,
+        redis_bridge_connector_send_done,
         #{cmd => Cmd, batch => false, mode => sync, result => Result}
     ),
     Result;
@@ -75,12 +75,12 @@ on_query(
     _State = #{conn_st := RedisConnSt}
 ) ->
     ?tp(
-        redis_ee_connector_query,
+        redis_bridge_connector_query,
         #{query => Query, batch => false, mode => sync}
     ),
     Result = query(InstId, Query, RedisConnSt),
     ?tp(
-        redis_ee_connector_send_done,
+        redis_bridge_connector_send_done,
         #{query => Query, batch => false, mode => sync, result => Result}
     ),
     Result.
@@ -90,12 +90,12 @@ on_batch_query(
 ) ->
     Cmds = process_batch_data(BatchData, CommandTemplate),
     ?tp(
-        redis_ee_connector_send,
+        redis_bridge_connector_send,
         #{batch_data => BatchData, batch => true, mode => sync}
     ),
     Result = query(InstId, {cmds, Cmds}, RedisConnSt),
     ?tp(
-        redis_ee_connector_send_done,
+        redis_bridge_connector_send_done,
         #{
             batch_data => BatchData,
             batch_size => length(BatchData),

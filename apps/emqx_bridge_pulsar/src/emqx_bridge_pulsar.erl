@@ -15,7 +15,7 @@
     fields/1,
     desc/1
 ]).
-%% emqx_ee_bridge "unofficial" API
+%% emqx_bridge_enterprise "unofficial" API
 -export([conn_bridge_examples/1]).
 
 -export([producer_strategy_key_validator/1]).

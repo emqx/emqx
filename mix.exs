@@ -395,8 +395,6 @@ defmodule EMQXUmbrella.MixProject do
         do: [
           emqx_license: :permanent,
           emqx_enterprise: :load,
-          emqx_ee_connector: :permanent,
-          emqx_ee_bridge: :permanent,
           emqx_bridge_kafka: :permanent,
           emqx_bridge_pulsar: :permanent,
           emqx_bridge_gcp_pubsub: :permanent,

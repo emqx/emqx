@@ -40,7 +40,7 @@ query_mode(_) ->
 
 callback_mode() -> async_if_possible.
 
-%% @doc Config schema is defined in emqx_ee_bridge_kafka.
+%% @doc Config schema is defined in emqx_bridge_kafka.
 on_start(InstId, Config) ->
     #{
         authentication := Auth,

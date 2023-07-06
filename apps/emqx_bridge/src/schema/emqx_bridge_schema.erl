@@ -57,7 +57,7 @@ api_schema(Method) ->
             {<<"mqtt">>, emqx_bridge_mqtt_schema}
         ]
     ],
-    EE = ee_api_schemas(Method),
+    EE = enterprise_api_schemas(Method),
     hoconsc:union(bridge_api_union(Broker ++ EE)).
 
 bridge_api_union(Refs) ->
@@ -86,36 +86,23 @@ bridge_api_union(Refs) ->
     end.
 
 -if(?EMQX_RELEASE_EDITION == ee).
-ee_api_schemas(Method) ->
-    ensure_loaded(emqx_ee_bridge, emqx_ee_bridge),
-    case erlang:function_exported(emqx_ee_bridge, api_schemas, 1) of
-        true -> emqx_ee_bridge:api_schemas(Method);
+enterprise_api_schemas(Method) ->
+    case erlang:function_exported(emqx_bridge_enterprise, api_schemas, 1) of
+        true -> emqx_bridge_enterprise:api_schemas(Method);
         false -> []
     end.
 
-ee_fields_bridges() ->
-    ensure_loaded(emqx_ee_bridge, emqx_ee_bridge),
-    case erlang:function_exported(emqx_ee_bridge, fields, 1) of
-        true -> emqx_ee_bridge:fields(bridges);
+enterprise_fields_bridges() ->
+    case erlang:function_exported(emqx_bridge_enterprise, fields, 1) of
+        true -> emqx_bridge_enterprise:fields(bridges);
         false -> []
-    end.
-
-%% must ensure the app is loaded before checking if fn is defined.
-ensure_loaded(App, Mod) ->
-    try
-        _ = application:load(App),
-        _ = Mod:module_info(),
-        ok
-    catch
-        _:_ ->
-            ok
     end.
 
 -else.
 
-ee_api_schemas(_) -> [].
+enterprise_api_schemas(_) -> [].
 
-ee_fields_bridges() -> [].
+enterprise_fields_bridges() -> [].
 
 -endif.
 
@@ -191,7 +178,7 @@ fields(bridges) ->
                     end
                 }
             )}
-    ] ++ ee_fields_bridges();
+    ] ++ enterprise_fields_bridges();
 fields("metrics") ->
     [
         {"dropped", mk(integer(), #{desc => ?DESC("metric_dropped")})},

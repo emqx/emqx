@@ -463,8 +463,6 @@ relx_apps_per_edition(ee) ->
     [
         emqx_license,
         {emqx_enterprise, load},
-        emqx_ee_connector,
-        emqx_ee_bridge,
         emqx_bridge_kafka,
         emqx_bridge_pulsar,
         emqx_bridge_gcp_pubsub,

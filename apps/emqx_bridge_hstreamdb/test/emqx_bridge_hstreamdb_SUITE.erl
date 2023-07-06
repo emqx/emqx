@@ -108,7 +108,7 @@ init_per_suite(Config) ->
 
 end_per_suite(_Config) ->
     emqx_mgmt_api_test_util:end_suite(),
-    ok = emqx_common_test_helpers:stop_apps([emqx_bridge, emqx_conf]),
+    ok = emqx_common_test_helpers:stop_apps([emqx_bridge, emqx_resource, emqx_conf, hstreamdb_erl]),
     ok.
 
 init_per_testcase(t_to_hrecord_failed, Config) ->
@@ -344,10 +344,9 @@ common_init(ConfigT) ->
             ProxyPort = list_to_integer(os:getenv("PROXY_PORT", "8474")),
             emqx_common_test_helpers:reset_proxy(ProxyHost, ProxyPort),
             % Ensure EE bridge module is loaded
-            _ = application:load(emqx_ee_bridge),
+            ok = emqx_common_test_helpers:start_apps([emqx_conf, emqx_resource, emqx_bridge]),
             _ = application:ensure_all_started(hstreamdb_erl),
-            _ = emqx_ee_bridge:module_info(),
-            ok = emqx_common_test_helpers:start_apps([emqx_conf, emqx_bridge]),
+            _ = emqx_bridge_enterprise:module_info(),
             emqx_mgmt_api_test_util:init_suite(),
             % Connect to hstreamdb directly
             % drop old stream and then create new one

@@ -12,7 +12,7 @@
 -include_lib("emqx_connector/include/emqx_connector.hrl").
 
 %% See comment in
-%% lib-ee/emqx_ee_connector/test/ee_bridge_clickhouse_connector_SUITE.erl for how to
+%% apps/emqx_bridge_clickhouse/test/emqx_bridge_clickhouse_connector_SUITE.erl for how to
 %% run this without bringing up the whole CI infrastucture
 
 %%------------------------------------------------------------------------------

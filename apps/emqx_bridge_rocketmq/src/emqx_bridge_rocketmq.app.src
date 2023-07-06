@@ -1,8 +1,8 @@
 {application, emqx_bridge_rocketmq, [
     {description, "EMQX Enterprise RocketMQ Bridge"},
-    {vsn, "0.1.2"},
+    {vsn, "0.1.3"},
     {registered, []},
-    {applications, [kernel, stdlib, rocketmq]},
+    {applications, [kernel, stdlib, emqx_resource, emqx_bridge, rocketmq]},
     {env, []},
     {modules, []},
     {links, []}

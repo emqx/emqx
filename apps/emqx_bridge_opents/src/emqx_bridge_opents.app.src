@@ -1,10 +1,12 @@
 {application, emqx_bridge_opents, [
     {description, "EMQX Enterprise OpenTSDB Bridge"},
-    {vsn, "0.1.1"},
+    {vsn, "0.1.2"},
     {registered, []},
     {applications, [
         kernel,
         stdlib,
+        emqx_resource,
+        emqx_bridge,
         opentsdb
     ]},
     {env, []},

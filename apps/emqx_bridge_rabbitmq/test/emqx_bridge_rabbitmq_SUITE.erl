@@ -13,7 +13,7 @@
 -include_lib("amqp_client/include/amqp_client.hrl").
 
 %% See comment in
-%% lib-ee/emqx_ee_connector/test/ee_connector_rabbitmq_SUITE.erl for how to
+%% apps/emqx_bridge_rabbitmq/test/emqx_bridge_rabbitmq_connector_SUITE.erl for how to
 %% run this without bringing up the whole CI infrastucture
 
 rabbit_mq_host() ->
@@ -50,8 +50,6 @@ init_per_suite(Config) ->
             ok = emqx_common_test_helpers:start_apps([emqx_conf, emqx_bridge]),
             ok = emqx_connector_test_helpers:start_apps([emqx_resource]),
             {ok, _} = application:ensure_all_started(emqx_connector),
-            {ok, _} = application:ensure_all_started(emqx_ee_connector),
-            {ok, _} = application:ensure_all_started(emqx_ee_bridge),
             {ok, _} = application:ensure_all_started(amqp_client),
             emqx_mgmt_api_test_util:init_suite(),
             ChannelConnection = setup_rabbit_mq_exchange_and_queue(),
@@ -112,7 +110,6 @@ end_per_suite(Config) ->
     ok = emqx_common_test_helpers:stop_apps([emqx_conf]),
     ok = emqx_connector_test_helpers:stop_apps([emqx_resource]),
     _ = application:stop(emqx_connector),
-    _ = application:stop(emqx_ee_connector),
     _ = application:stop(emqx_bridge),
     %% Close the channel
     ok = amqp_channel:close(Channel),

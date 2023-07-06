@@ -122,8 +122,10 @@ common_init_per_group() ->
     ProxyHost = os:getenv("PROXY_HOST", "toxiproxy"),
     ProxyPort = list_to_integer(os:getenv("PROXY_PORT", "8474")),
     emqx_common_test_helpers:reset_proxy(ProxyHost, ProxyPort),
-    application:load(emqx_bridge),
-    ok = emqx_common_test_helpers:start_apps([emqx_conf]),
+    %% Ensure enterprise bridge module is loaded
+    ok = emqx_common_test_helpers:start_apps([emqx_conf, emqx_resource, emqx_bridge]),
+    _ = application:ensure_all_started(pulsar),
+    _ = emqx_bridge_enterprise:module_info(),
     ok = emqx_connector_test_helpers:start_apps(?APPS),
     {ok, _} = application:ensure_all_started(emqx_connector),
     emqx_mgmt_api_test_util:init_suite(),

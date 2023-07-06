@@ -2,7 +2,12 @@
     {description, "EMQX Enterprise HStreamDB Bridge"},
     {vsn, "0.1.1"},
     {registered, []},
-    {applications, [kernel, stdlib]},
+    {applications, [
+        kernel,
+        stdlib,
+        emqx_resource,
+        emqx_bridge
+    ]},
     {env, []},
     {modules, []},
     {links, []}
