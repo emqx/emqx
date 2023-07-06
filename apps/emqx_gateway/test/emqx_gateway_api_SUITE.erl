@@ -409,6 +409,7 @@ t_listeners_tcp(_) ->
 
     {204, _} = request(delete, "/gateways/stomp/listeners/stomp:tcp:def"),
     {404, _} = request(get, "/gateways/stomp/listeners/stomp:tcp:def"),
+    {404, _} = request(delete, "/gateways/stomp/listeners/stomp:tcp:def"),
     ok.
 
 t_listeners_max_conns(_) ->
@@ -480,9 +481,19 @@ t_listeners_authn(_) ->
     {200, ConfResp3} = request(get, Path),
     assert_confs(AuthConf2, ConfResp3),
 
+    {404, _} = request(get, Path ++ "/users/not_exists"),
+    {404, _} = request(delete, Path ++ "/users/not_exists"),
+
     {204, _} = request(delete, Path),
     %% FIXME: 204?
     {204, _} = request(get, Path),
+
+    BadPath = "/gateways/stomp/listeners/stomp:tcp:not_exists/authentication/users/foo",
+    {404, _} = request(get, BadPath),
+    {404, _} = request(delete, BadPath),
+
+    {404, _} = request(get, "/gateways/stomp/listeners/not_exists"),
+    {404, _} = request(delete, "/gateways/stomp/listeners/not_exists"),
     ok.
 
 t_listeners_authn_data_mgmt(_) ->
