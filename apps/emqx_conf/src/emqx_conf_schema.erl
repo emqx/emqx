@@ -684,10 +684,10 @@ fields("cluster_call") ->
             )},
         {"max_history",
             sc(
-                range(1, 500),
+                range(100, 10240),
                 #{
                     desc => ?DESC(cluster_call_max_history),
-                    default => 100
+                    default => 1024
                 }
             )},
         {"cleanup_interval",
@@ -695,7 +695,7 @@ fields("cluster_call") ->
                 emqx_schema:duration(),
                 #{
                     desc => ?DESC(cluster_call_cleanup_interval),
-                    default => <<"5m">>
+                    default => <<"24h">>
                 }
             )}
     ];

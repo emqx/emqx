@@ -31,16 +31,17 @@
 -define(DEFAULT_INIT_TXN_ID, -1).
 
 start(_StartType, _StartArgs) ->
-    try
-        ok = init_conf()
-    catch
-        C:E:St ->
-            %% logger is not quite ready.
-            io:format(standard_error, "Failed to load config~n~p~n~p~n~p~n", [C, E, St]),
-            init:stop(1)
-    end,
+    {ok, TnxId} =
+        try
+            {ok, _} = init_conf()
+        catch
+            C:E:St ->
+                %% logger is not quite ready.
+                io:format(standard_error, "Failed to load config~n~p~n~p~n~p~n", [C, E, St]),
+                init:stop(1)
+        end,
     ok = emqx_config_logger:refresh_config(),
-    emqx_conf_sup:start_link().
+    emqx_conf_sup:start_link(TnxId).
 
 stop(_State) ->
     ok.
@@ -112,12 +113,10 @@ init_load_done() ->
     emqx_app:get_config_loader() =/= emqx.
 
 init_conf() ->
-    %% Workaround for https://github.com/emqx/mria/issues/94:
-    _ = mria_rlog:wait_for_shards([?CLUSTER_RPC_SHARD], 1000),
-    _ = mria:wait_for_tables([?CLUSTER_MFA, ?CLUSTER_COMMIT]),
+    emqx_cluster_rpc:wait_for_cluster_rpc(),
     {ok, TnxId} = sync_cluster_conf(),
-    _ = emqx_app:set_init_tnx_id(TnxId),
-    ok = init_load().
+    ok = init_load(),
+    {ok, TnxId}.
 
 cluster_nodes() ->
     mria:cluster_nodes(cores) -- [node()].
