@@ -852,6 +852,8 @@ typename_to_spec("timeout()", _Mod) ->
     };
 typename_to_spec("bytesize()", _Mod) ->
     #{type => string, example => <<"32MB">>};
+typename_to_spec("mqtt_max_packet_size()", _Mod) ->
+    #{type => string, example => <<"32MB">>};
 typename_to_spec("wordsize()", _Mod) ->
     #{type => string, example => <<"1024KB">>};
 typename_to_spec("map()", _Mod) ->
