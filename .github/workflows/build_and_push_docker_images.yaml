@@ -182,6 +182,7 @@ jobs:
         images: |
           ${{ matrix.registry }}/${{ github.repository_owner }}/${{ matrix.profile }}
         flavor: |
+          latest=${{ matrix.elixir == 'no_elixir'  }}
           suffix=${{ steps.pre-meta.outputs.img_suffix }}
         tags: |
           type=semver,pattern={{major}}.{{minor}},value=${{ needs.prepare.outputs.VERSION }}

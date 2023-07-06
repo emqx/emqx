@@ -33,7 +33,6 @@ runs:
         HOMEBREW_NO_INSTALL_UPGRADE: 1
         HOMEBREW_NO_INSTALLED_DEPENDENTS_CHECK: 1
       run: |
-        brew update
         brew install curl zip unzip coreutils openssl@1.1
         echo "/usr/local/opt/bison/bin" >> $GITHUB_PATH
         echo "/usr/local/bin" >> $GITHUB_PATH
