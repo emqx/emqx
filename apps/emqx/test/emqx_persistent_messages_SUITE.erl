@@ -26,7 +26,7 @@
 ).
 
 all() ->
-    [t_messages_persisted].
+    emqx_common_test_helpers:all(?MODULE).
 
 init_per_suite(Config) ->
     {ok, _} = application:ensure_all_started(emqx_durable_storage),
@@ -42,6 +42,7 @@ init_per_suite(Config) ->
 
 end_per_suite(_Config) ->
     emqx_common_test_helpers:stop_apps([]),
+    application:stop(emqx_durable_storage),
     ok.
 
 t_messages_persisted(_Config) ->
