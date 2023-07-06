@@ -39,7 +39,7 @@
 %% Allocatable resources
 -define(greptime_client, greptime_client).
 
--define(GREPTIMEDB_DEFAULT_PORT, 4000).
+-define(GREPTIMEDB_DEFAULT_PORT, 4001).
 
 -define(DEFAULT_DB, <<"public">>).
 
@@ -81,7 +81,7 @@ on_query(InstId, {send_message, Data}, _State = #{write_syntax := SyntaxLines, c
                 #{batch => false, mode => sync, error => ErrorPoints}
             ),
             log_error_points(InstId, ErrorPoints),
-            {error, {unrecoverable_error, ErrorPoints}}
+            ErrorPoints
     end.
 
 %% Once a Batched Data trans to points failed.
@@ -140,13 +140,21 @@ fields(common) ->
 fields(greptimedb_grpc_v1) ->
     fields(common) ++
         [
-            {dbname, mk(binary(), #{required => true, desc => ?DESC("dbname")})}
+            {dbname, mk(binary(), #{required => true, desc => ?DESC("dbname")})},
+            {username, mk(binary(), #{desc => ?DESC("username")})},
+            {password,
+                mk(binary(), #{
+                    desc => ?DESC("password"),
+                    format => <<"password">>,
+                    sensitive => true,
+                    converter => fun emqx_schema:password_converter/2
+                })}
         ] ++ emqx_connector_schema_lib:ssl_fields().
 
 server() ->
     Meta = #{
         required => false,
-        default => <<"127.0.0.1:4000">>,
+        default => <<"127.0.0.1:4001">>,
         desc => ?DESC("server"),
         converter => fun convert_server/2
     },
@@ -477,7 +485,7 @@ line_to_point(
     {_, EncodedFields} = maps:fold(fun maps_config_to_data/3, {Data, #{}}, Fields),
     TableName = emqx_placeholder:proc_tmpl(Measurement, Data),
     {TableName, [
-        maps:without([precision], Item#{
+        maps:without([precision, measurement], Item#{
             tags => EncodedTags,
             fields => EncodedFields,
             timestamp => maybe_convert_time_unit(Ts, Precision)
@@ -539,7 +547,7 @@ value_type([<<"FALSE">>]) ->
 value_type([<<"False">>]) ->
     greptimedb_values:boolean_value(false);
 value_type(Val) ->
-    #{values => #{string_values => Val, datatype => 'STRING'}}.
+    #{values => #{string_values => Val}, datatype => 'STRING'}.
 
 key_filter(undefined) -> undefined;
 key_filter(Value) -> emqx_utils_conv:bin(Value).
