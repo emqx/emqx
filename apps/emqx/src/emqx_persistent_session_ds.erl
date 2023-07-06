@@ -39,10 +39,9 @@
 
 init() ->
     ?WHEN_ENABLED(
-        begin
-            _ = emqx_ds_storage_layer_sup:start_shard(?DS_SHARD),
-            ok
-        end
+        ok = emqx_ds:ensure_shard(?DS_SHARD, #{
+            dir => filename:join([emqx:data_dir(), ds, messages, ?DS_SHARD])
+        })
     ).
 
 %%
