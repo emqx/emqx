@@ -4,9 +4,10 @@ set -euo pipefail
 # ensure dir
 cd -P -- "$(dirname -- "${BASH_SOURCE[0]}")/.."
 
+# if compare base is not given as script argument, use previous release tag
 # match any official release tag 'e*' and 'v*'
-latest_release="$(env PREV_TAG_MATCH_PATTERN='*' ./scripts/find-prev-rel-tag.sh)"
-echo "Version check compare base: $latest_release"
+compare_base="${1:-$(env PREV_TAG_MATCH_PATTERN='*' ./scripts/find-prev-rel-tag.sh)}"
+echo "Version check compare base: $compare_base"
 
 bad_app_count=0
 
@@ -25,8 +26,8 @@ for app in ${APPS}; do
         app_path="."
     fi
     src_file="$app_path/src/$(basename "$app").app.src"
-    if git show "$latest_release":"$src_file" >/dev/null 2>&1; then
-        old_app_version="$(git show "$latest_release":"$src_file" | grep vsn | grep -oE '"[0-9]+\.[0-9]+\.[0-9]+"' | tr -d '"')"
+    if git show "$compare_base":"$src_file" >/dev/null 2>&1; then
+        old_app_version="$(git show "$compare_base":"$src_file" | grep vsn | grep -oE '"[0-9]+\.[0-9]+\.[0-9]+"' | tr -d '"')"
     else
         old_app_version='not_found'
     fi
@@ -40,7 +41,7 @@ for app in ${APPS}; do
         echo "IGNORE: $src_file is newly added"
         true
     elif [ "$old_app_version" = "$now_app_version" ]; then
-        changed_lines="$(git diff "$latest_release" --ignore-blank-lines -G "$no_comment_re" \
+        changed_lines="$(git diff "$compare_base" --ignore-blank-lines -G "$no_comment_re" \
                              -- "$app_path/src" \
                              -- "$app_path/include" \
                              -- ":(exclude)"$app_path/src/*.appup.src"" \

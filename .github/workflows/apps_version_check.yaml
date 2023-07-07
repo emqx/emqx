@@ -11,4 +11,4 @@ jobs:
         with:
           fetch-depth: 0
       - name: Check apps version
-        run: ./scripts/apps-version-check.sh
+        run: ./scripts/apps-version-check.sh $GITHUB_BASE_REF
