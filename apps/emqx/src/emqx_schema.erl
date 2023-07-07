@@ -1750,13 +1750,12 @@ mqtt_listener(Bind) ->
 
 base_listener(Bind) ->
     [
-        {"enabled",
+        {"enable",
             sc(
                 boolean(),
                 #{
                     default => true,
-                    %% TODO(5.2): change field name to 'enable' and keep 'enabled' as an alias
-                    aliases => [enable],
+                    aliases => [enabled],
                     desc => ?DESC(fields_listener_enabled)
                 }
             )},
