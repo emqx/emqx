@@ -117,15 +117,15 @@ info(inflight, _) ->
 info(inflight_cnt, _) ->
     0;
 info(inflight_max, _) ->
-    0;
+    infinity;
 info(retry_interval, _) ->
     infinity;
 info(mqueue, _) ->
     emqx_mqueue:init(#{max_len => 0, store_qos0 => false});
-info(mqueue_len, #session{transport_manager = TM}) ->
-    maps:size(TM);
-info(mqueue_max, _) ->
+info(mqueue_len, _) ->
     0;
+info(mqueue_max, _) ->
+    infinity;
 info(mqueue_dropped, _) ->
     0;
 info(next_pkt_id, _) ->

@@ -782,7 +782,7 @@ enrich_clientinfo(InClientInfo = #{proto_name := ProtoName}, ClientInfo) ->
 default_conninfo(ConnInfo) ->
     ConnInfo#{
         clean_start => true,
-        clientid => anonymous_clientid(),
+        clientid => emqx_gateway_utils:random_clientid(exproto),
         username => undefined,
         conn_props => #{},
         connected => true,
@@ -822,6 +822,3 @@ proto_name_to_protocol(<<>>) ->
     exproto;
 proto_name_to_protocol(ProtoName) when is_binary(ProtoName) ->
     binary_to_atom(ProtoName).
-
-anonymous_clientid() ->
-    iolist_to_binary(["exproto-", emqx_utils:gen_id()]).

@@ -46,7 +46,8 @@
     global_chain/1,
     listener_chain/3,
     find_gateway_definitions/0,
-    plus_max_connections/2
+    plus_max_connections/2,
+    random_clientid/1
 ]).
 
 -export([stringfy/1]).
@@ -631,3 +632,6 @@ ensure_gateway_loaded() ->
             emqx_gateway_mqttsn
         ]
     ).
+
+random_clientid(GwName) when is_atom(GwName) ->
+    iolist_to_binary([atom_to_list(GwName), "-", emqx_utils:gen_id()]).

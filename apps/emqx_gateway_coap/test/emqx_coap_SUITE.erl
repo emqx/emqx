@@ -133,6 +133,42 @@ t_connection(_) ->
     end,
     do(Action).
 
+t_connection_optional_params(_) ->
+    UsernamePasswordAreOptional =
+        fun(Channel) ->
+            URI =
+                ?MQTT_PREFIX ++
+                    "/connection?clientid=client1",
+            Req = make_req(post),
+            {ok, created, Data} = do_request(Channel, URI, Req),
+            #coap_content{payload = Token0} = Data,
+            Token = binary_to_list(Token0),
+
+            timer:sleep(100),
+            ?assertNotEqual(
+                [],
+                emqx_gateway_cm_registry:lookup_channels(coap, <<"client1">>)
+            ),
+
+            disconnection(Channel, Token),
+
+            timer:sleep(100),
+            ?assertEqual(
+                [],
+                emqx_gateway_cm_registry:lookup_channels(coap, <<"client1">>)
+            )
+        end,
+    ClientIdIsRequired =
+        fun(Channel) ->
+            URI =
+                ?MQTT_PREFIX ++
+                    "/connection",
+            Req = make_req(post),
+            {error, bad_request, _} = do_request(Channel, URI, Req)
+        end,
+    do(UsernamePasswordAreOptional),
+    do(ClientIdIsRequired).
+
 t_connection_with_authn_failed(_) ->
     ChId = {{127, 0, 0, 1}, 5683},
     {ok, Sock} = er_coap_udp_socket:start_link(),
@@ -326,6 +362,9 @@ t_clients_subscription_api(_) ->
             maps:get(topic, SubsResp),
             maps:get(topic, SubsResp2)
         ),
+
+        %% check subscription_cnt
+        {200, #{subscriptions_cnt := 1}} = request(get, "/gateways/coap/clients/client1"),
 
         {204, _} = request(delete, Path ++ "/tx"),
 
