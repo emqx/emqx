@@ -206,9 +206,9 @@ cluster_specs() ->
             {env, [{emqx, boot_modules, all}]},
             {apps, []},
             {conf, [
-                {[listeners, ssl, default, enabled], false},
-                {[listeners, ws, default, enabled], false},
-                {[listeners, wss, default, enabled], false}
+                {[listeners, ssl, default, enable], false},
+                {[listeners, ws, default, enable], false},
+                {[listeners, wss, default, enable], false}
             ]}
         ],
     emqx_common_test_helpers:emqx_cluster(
