@@ -1,0 +1,47 @@
+emqx_bridge_greptimedb_connector {
+
+dbname.desc:
+"""GreptimeDB database."""
+
+dbname.label:
+"""Database"""
+
+greptimedb_grpc_v1.desc:
+"""GreptimeDB's protocol. Support GreptimeDB v1.8 and before."""
+
+greptimedb_grpc_v1.label:
+"""HTTP API Protocol"""
+
+password.desc:
+"""GreptimeDB password."""
+
+password.label:
+"""Password"""
+
+precision.desc:
+"""GreptimeDB time precision."""
+
+precision.label:
+"""Time Precision"""
+
+protocol.desc:
+"""GreptimeDB's protocol. gRPC API."""
+
+protocol.label:
+"""Protocol"""
+
+server.desc:
+"""The IPv4 or IPv6 address or the hostname to connect to.</br>
+A host entry has the following form: `Host[:Port]`.</br>
+The GreptimeDB default port 8086 is used if `[:Port]` is not specified."""
+
+server.label:
+"""Server Host"""
+
+username.desc:
+"""GreptimeDB username."""
+
+username.label:
+"""Username"""
+
+}

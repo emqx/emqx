@@ -1,0 +1,15 @@
+version: '3.9'
+
+services:
+  greptimedb:
+    container_name: greptimedb
+    image: greptime/greptimedb:0.3.2
+    expose:
+      - "4000"
+      - "4001"
+    restart: always
+    networks:
+      - emqx_bridge
+    command:
+      standalone start
+      --user-provider=static_user_provider:cmd:greptime_user=greptime_pwd
