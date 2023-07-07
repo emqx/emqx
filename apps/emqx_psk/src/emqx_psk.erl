@@ -27,7 +27,8 @@
     load/0,
     unload/0,
     on_psk_lookup/2,
-    import/1
+    import/1,
+    post_config_update/5
 ]).
 
 -export([
@@ -68,13 +69,11 @@
 
 -include("emqx_psk.hrl").
 
--define(DEFAULT_DELIMITER, <<":">>).
-
 -define(CR, 13).
 -define(LF, 10).
 
 -ifdef(TEST).
--export([call/1, trim_crlf/1]).
+-export([call/1, trim_crlf/1, import_psks/3]).
 -endif.
 
 %%------------------------------------------------------------------------------
@@ -135,16 +134,22 @@ stop() ->
 import_config(#{<<"psk_authentication">> := PskConf}) ->
     case emqx_conf:update([psk_authentication], PskConf, #{override_to => cluster}) of
         {ok, _} ->
-            case get_config(enable) of
-                true -> load();
-                false -> ok
-            end,
             {ok, #{root_key => psk_authentication, changed => []}};
         Error ->
             {error, #{root_key => psk_authentication, reason => Error}}
     end;
 import_config(_RawConf) ->
     {ok, #{root_key => psk_authentication, changed => []}}.
+
+post_config_update([?PSK_KEY], _Req, #{enable := Enable} = NewConf, _OldConf, _AppEnvs) ->
+    case Enable of
+        true ->
+            load(),
+            _ = gen_server:cast(?MODULE, {import_from_conf, NewConf});
+        false ->
+            unload()
+    end,
+    ok.
 
 %%------------------------------------------------------------------------------
 %% gen_server callbacks
@@ -169,6 +174,15 @@ handle_call(Req, _From, State) ->
     ?SLOG(info, #{msg => "unexpected_call_discarded", req => Req}),
     {reply, {error, unexpected}, State}.
 
+handle_cast({import_from_conf, Conf}, State) ->
+    Separator = maps:get(separator, Conf, ?DEFAULT_DELIMITER),
+    ChunkSize = maps:get(chunk_size, Conf),
+    _ =
+        case maps:get(init_file, Conf, undefined) of
+            undefined -> ok;
+            InitFile -> import_psks(InitFile, Separator, ChunkSize)
+        end,
+    {noreply, State};
 handle_cast(Req, State) ->
     ?SLOG(info, #{msg => "unexpected_cast_discarded", req => Req}),
     {noreply, State}.
@@ -198,6 +212,11 @@ get_config(chunk_size) ->
     emqx_conf:get([psk_authentication, chunk_size]).
 
 import_psks(SrcFile) ->
+    Separator = get_config(separator),
+    ChunkSize = get_config(chunk_size),
+    import_psks(SrcFile, Separator, ChunkSize).
+
+import_psks(SrcFile, Separator, ChunkSize) ->
     case file:open(SrcFile, [read, raw, binary, read_ahead]) of
         {error, Reason} ->
             ?SLOG(error, #{
@@ -207,7 +226,7 @@ import_psks(SrcFile) ->
             }),
             {error, Reason};
         {ok, Io} ->
-            try import_psks(Io, get_config(separator), get_config(chunk_size), 0) of
+            try import_psks(Io, Separator, ChunkSize, 0) of
                 ok ->
                     ok;
                 {error, Reason} ->
