@@ -6,7 +6,8 @@
         kernel,
         stdlib,
         emqx_resource,
-        emqx_bridge
+        emqx_bridge,
+        hstreamdb_erl
     ]},
     {env, []},
     {modules, []},
