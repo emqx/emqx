@@ -69,13 +69,29 @@ roots() ->
 
 fields(config) ->
     [{server, server()}] ++
-        emqx_connector_schema_lib:relational_db_fields() ++
+        adjust_fields(emqx_connector_schema_lib:relational_db_fields()) ++
         emqx_connector_schema_lib:ssl_fields() ++
         emqx_connector_schema_lib:prepare_statement_fields().
 
 server() ->
     Meta = #{desc => ?DESC("server")},
     emqx_schema:servers_sc(Meta, ?PGSQL_HOST_OPTIONS).
+
+adjust_fields(Fields) ->
+    lists:map(
+        fun
+            ({username, OrigUsernameFn}) ->
+                {username, fun
+                    (required) ->
+                        true;
+                    (Any) ->
+                        OrigUsernameFn(Any)
+                end};
+            (Field) ->
+                Field
+        end,
+        Fields
+    ).
 
 %% ===================================================================
 callback_mode() -> always_sync.
