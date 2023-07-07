@@ -25,9 +25,7 @@
     get_description/0,
     get_release/0,
     set_config_loader/1,
-    get_config_loader/0,
-    set_init_tnx_id/1,
-    get_init_tnx_id/0
+    get_config_loader/0
 ]).
 
 -include("logger.hrl").
@@ -64,16 +62,6 @@ set_config_loader(Module) when is_atom(Module) ->
 
 get_config_loader() ->
     application:get_env(emqx, config_loader, emqx).
-
-%% @doc Set the transaction id from which this node should start applying after boot.
-%% The transaction ID is received from the core node which we just copied the latest
-%% config from.
-set_init_tnx_id(TnxId) ->
-    application:set_env(emqx, cluster_rpc_init_tnx_id, TnxId).
-
-%% @doc Get the transaction id from which this node should start applying after boot.
-get_init_tnx_id() ->
-    application:get_env(emqx, cluster_rpc_init_tnx_id, -1).
 
 maybe_load_config() ->
     case get_config_loader() of

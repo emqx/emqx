@@ -93,10 +93,12 @@ sync_data_from_node() ->
 %% Internal functions
 %% ------------------------------------------------------------------------------
 
-init_load() ->
+init_load(TnxId) ->
     case emqx_app:get_config_loader() of
         Module when Module == emqx; Module == emqx_conf ->
             ok = emqx_config:init_load(emqx_conf:schema_module()),
+            %% Set load config done after update(init) tnx_id.
+            ok = emqx_cluster_rpc:maybe_init_tnx_id(node(), TnxId),
             ok = emqx_app:set_config_loader(emqx_conf),
             ok;
         Module ->
@@ -112,12 +114,10 @@ init_load_done() ->
     emqx_app:get_config_loader() =/= emqx.
 
 init_conf() ->
-    %% Workaround for https://github.com/emqx/mria/issues/94:
-    _ = mria_rlog:wait_for_shards([?CLUSTER_RPC_SHARD], 1000),
-    _ = mria:wait_for_tables([?CLUSTER_MFA, ?CLUSTER_COMMIT]),
+    emqx_cluster_rpc:wait_for_cluster_rpc(),
     {ok, TnxId} = sync_cluster_conf(),
-    _ = emqx_app:set_init_tnx_id(TnxId),
-    ok = init_load().
+    ok = init_load(TnxId),
+    ok.
 
 cluster_nodes() ->
     mria:cluster_nodes(cores) -- [node()].
