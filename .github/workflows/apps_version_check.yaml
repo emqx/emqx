@@ -1,6 +1,9 @@
 name: Check Apps Version
 
-on: [pull_request]
+on:
+  pull_request: {}
+  repository_dispatch:
+    types: [new_release_published]
 
 jobs:
   check_apps_version:

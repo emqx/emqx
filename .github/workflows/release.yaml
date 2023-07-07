@@ -101,3 +101,9 @@ jobs:
           push "el/8" "packages/$PROFILE-$VERSION-el8-arm64.rpm"
           push "el/9" "packages/$PROFILE-$VERSION-el9-amd64.rpm"
           push "el/9" "packages/$PROFILE-$VERSION-el9-arm64.rpm"
+      - name: trigger re-run of app versions check
+        if: startsWith(github.ref_name, 'v') && (github.event_name == 'release' || inputs.publish_release_artefacts)
+        uses: peter-evans/repository-dispatch@v2.1.1
+        with:
+          event-type: new_release_published
+          client-payload: '{"version": "${{ steps.profile.outputs.version }}"}'
