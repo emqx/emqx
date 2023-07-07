@@ -31,17 +31,16 @@
 -define(DEFAULT_INIT_TXN_ID, -1).
 
 start(_StartType, _StartArgs) ->
-    {ok, TnxId} =
-        try
-            {ok, _} = init_conf()
-        catch
-            C:E:St ->
-                %% logger is not quite ready.
-                io:format(standard_error, "Failed to load config~n~p~n~p~n~p~n", [C, E, St]),
-                init:stop(1)
-        end,
+    try
+        ok = init_conf()
+    catch
+        C:E:St ->
+            %% logger is not quite ready.
+            io:format(standard_error, "Failed to load config~n~p~n~p~n~p~n", [C, E, St]),
+            init:stop(1)
+    end,
     ok = emqx_config_logger:refresh_config(),
-    emqx_conf_sup:start_link(TnxId).
+    emqx_conf_sup:start_link().
 
 stop(_State) ->
     ok.
@@ -94,10 +93,12 @@ sync_data_from_node() ->
 %% Internal functions
 %% ------------------------------------------------------------------------------
 
-init_load() ->
+init_load(TnxId) ->
     case emqx_app:get_config_loader() of
         Module when Module == emqx; Module == emqx_conf ->
             ok = emqx_config:init_load(emqx_conf:schema_module()),
+            %% Set load config done after update(init) tnx_id.
+            ok = emqx_cluster_rpc:maybe_init_tnx_id(node(), TnxId),
             ok = emqx_app:set_config_loader(emqx_conf),
             ok;
         Module ->
@@ -115,8 +116,8 @@ init_load_done() ->
 init_conf() ->
     emqx_cluster_rpc:wait_for_cluster_rpc(),
     {ok, TnxId} = sync_cluster_conf(),
-    ok = init_load(),
-    {ok, TnxId}.
+    ok = init_load(TnxId),
+    ok.
 
 cluster_nodes() ->
     mria:cluster_nodes(cores) -- [node()].

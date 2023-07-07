@@ -18,16 +18,16 @@
 
 -behaviour(supervisor).
 
--export([start_link/1]).
+-export([start_link/0]).
 
 -export([init/1]).
 
 -define(SERVER, ?MODULE).
 
-start_link(TnxId) ->
-    supervisor:start_link({local, ?SERVER}, ?MODULE, [TnxId]).
+start_link() ->
+    supervisor:start_link({local, ?SERVER}, ?MODULE, []).
 
-init([TnxId]) ->
+init([]) ->
     SupFlags = #{
         strategy => one_for_all,
         intensity => 10,
@@ -35,7 +35,7 @@ init([TnxId]) ->
     },
     ChildSpecs =
         [
-            child_spec(emqx_cluster_rpc, [TnxId]),
+            child_spec(emqx_cluster_rpc, []),
             child_spec(emqx_cluster_rpc_cleaner, [])
         ],
     {ok, {SupFlags, ChildSpecs}}.

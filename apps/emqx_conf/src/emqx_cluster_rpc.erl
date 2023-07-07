@@ -17,7 +17,7 @@
 -behaviour(gen_server).
 
 %% API
--export([start_link/1, mnesia/1]).
+-export([start_link/0, mnesia/1]).
 
 %% Note: multicall functions are statically checked by
 %% `emqx_bapi_trans' and `emqx_bpapi_static_checks' modules. Don't
@@ -30,7 +30,8 @@
     skip_failed_commit/1,
     fast_forward_to_commit/2,
     on_mria_stop/1,
-    wait_for_cluster_rpc/0
+    wait_for_cluster_rpc/0,
+    maybe_init_tnx_id/2
 ]).
 -export([
     commit/2,
@@ -68,12 +69,6 @@
 -ifdef(TEST).
 -compile(export_all).
 -compile(nowarn_export_all).
-
-start_link() ->
-    start_link(-1).
-
-start_link(Node, Name, RetryMs) ->
-    start_link(-1, Node, Name, RetryMs).
 
 -endif.
 
@@ -115,11 +110,11 @@ mnesia(boot) ->
         {attributes, record_info(fields, cluster_rpc_commit)}
     ]).
 
-start_link(TnxId) ->
-    start_link(TnxId, node(), ?MODULE, get_retry_ms()).
+start_link() ->
+    start_link(node(), ?MODULE, get_retry_ms()).
 
-start_link(TnxId, Node, Name, RetryMs) ->
-    case gen_server:start_link({local, Name}, ?MODULE, [TnxId, Node, RetryMs], []) of
+start_link(Node, Name, RetryMs) ->
+    case gen_server:start_link({local, Name}, ?MODULE, [Node, RetryMs], []) of
         {ok, Pid} ->
             {ok, Pid};
         {error, {already_started, Pid}} ->
@@ -303,26 +298,22 @@ wait_for_cluster_rpc() ->
 %%%===================================================================
 
 %% @private
-init([TnxId, Node, RetryMs]) ->
+init([Node, RetryMs]) ->
     register_mria_stop_cb(fun ?MODULE:on_mria_stop/1),
     {ok, _} = mnesia:subscribe({table, ?CLUSTER_MFA, simple}),
     State = #{node => Node, retry_interval => RetryMs, is_leaving => false},
     %% Now continue with the normal catch-up process
     %% That is: apply the missing transactions after the config
     %% was copied until now.
-    {ok, State, {continue, {?CATCH_UP, TnxId}}}.
+    {ok, State, {continue, {?CATCH_UP, init}}}.
 
 %% @private
-handle_continue({?CATCH_UP, TnxId}, State = #{node := Node}) ->
+handle_continue({?CATCH_UP, init}, State) ->
     %% emqx app must be started before
     %% trying to catch up the rpc commit logs
     ok = wait_for_emqx_ready(),
     ok = wait_for_cluster_rpc(),
-    %% The init transaction ID is set in emqx_conf_app after
-    %% it has fetched the latest config from one of the core nodes
-    ok = maybe_init_tnx_id(Node, TnxId),
     {noreply, State, catch_up(State)};
-%% @private
 handle_continue(?CATCH_UP, State) ->
     {noreply, State, catch_up(State)}.
 
