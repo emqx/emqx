@@ -20,6 +20,7 @@
 
 -include_lib("typerefl/include/types.hrl").
 -include_lib("hocon/include/hoconsc.hrl").
+-include("emqx_psk.hrl").
 
 -export([
     namespace/0,
@@ -52,7 +53,7 @@ fields() ->
             })},
         {separator,
             ?HOCON(binary(), #{
-                default => <<":">>,
+                default => ?DEFAULT_DELIMITER,
                 desc => ?DESC(separator)
             })},
         {chunk_size,
