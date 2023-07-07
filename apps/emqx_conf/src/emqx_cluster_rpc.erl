@@ -60,6 +60,11 @@
 
 -export_type([tnx_id/0, succeed_num/0]).
 
+-boot_mnesia({mnesia, [boot]}).
+
+-include_lib("emqx/include/logger.hrl").
+-include("emqx_conf.hrl").
+
 -ifdef(TEST).
 -compile(export_all).
 -compile(nowarn_export_all).
@@ -67,12 +72,10 @@
 start_link() ->
     start_link(-1).
 
+start_link(Node, Name, RetryMs) ->
+    start_link(-1, Node, Name, RetryMs).
+
 -endif.
-
--boot_mnesia({mnesia, [boot]}).
-
--include_lib("emqx/include/logger.hrl").
--include("emqx_conf.hrl").
 
 -define(INITIATE(MFA), {initiate, MFA}).
 -define(CATCH_UP, catch_up).
