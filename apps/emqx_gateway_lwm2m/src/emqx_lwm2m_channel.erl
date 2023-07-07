@@ -111,8 +111,8 @@ info(clientid, #channel{clientinfo = #{clientid := ClientId}}) ->
 info(ctx, #channel{ctx = Ctx}) ->
     Ctx.
 
-stats(_) ->
-    [].
+stats(#channel{session = Session}) ->
+    emqx_lwm2m_session:stats(Session).
 
 init(
     ConnInfo = #{
@@ -246,7 +246,7 @@ handle_call(
     Subs = emqx_lwm2m_session:info(subscriptions, Session),
     NSubs = maps:put(MountedTopic, NSubOpts, Subs),
     NSession = emqx_lwm2m_session:set_subscriptions(NSubs, Session),
-    {reply, {ok, {MountedTopic, NSubOpts}}, Channel#channel{session = NSession}};
+    {reply, {ok, {MountedTopic, NSubOpts}}, [{event, updated}], Channel#channel{session = NSession}};
 handle_call(
     {unsubscribe, Topic},
     _From,
@@ -269,7 +269,7 @@ handle_call(
     Subs = emqx_lwm2m_session:info(subscriptions, Session),
     NSubs = maps:remove(MountedTopic, Subs),
     NSession = emqx_lwm2m_session:set_subscriptions(NSubs, Session),
-    {reply, ok, Channel#channel{session = NSession}};
+    {reply, ok, [{event, updated}], Channel#channel{session = NSession}};
 handle_call(subscriptions, _From, Channel = #channel{session = Session}) ->
     Subs = maps:to_list(emqx_lwm2m_session:info(subscriptions, Session)),
     {reply, {ok, Subs}, Channel};
