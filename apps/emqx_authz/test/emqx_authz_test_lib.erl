@@ -35,7 +35,7 @@ reset_authorizers(Nomatch, CacheEnabled, Source) ->
         [authorization],
         #{
             <<"no_match">> => atom_to_binary(Nomatch),
-            <<"cache">> => #{<<"enable">> => atom_to_binary(CacheEnabled)},
+            <<"cache">> => #{<<"enable">> => CacheEnabled},
             <<"sources">> => Source
         }
     ),

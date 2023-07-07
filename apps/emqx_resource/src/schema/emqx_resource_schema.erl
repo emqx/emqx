@@ -129,7 +129,7 @@ health_check_interval_range(HealthCheckInterval) ->
 
 start_after_created(type) -> boolean();
 start_after_created(desc) -> ?DESC("start_after_created");
-start_after_created(default) -> ?START_AFTER_CREATED_RAW;
+start_after_created(default) -> ?START_AFTER_CREATED;
 start_after_created(required) -> false;
 start_after_created(_) -> undefined.
 
