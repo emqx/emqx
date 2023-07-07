@@ -60,7 +60,7 @@
 
 -type rule() :: {permission(), who_condition(), action_condition(), topic_condition()}.
 
--type qos() :: 0..2.
+-type qos() :: emqx_types:qos().
 -type retain() :: boolean().
 -type action() ::
     #{action_type := subscribe, qos := qos()}

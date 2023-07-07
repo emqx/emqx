@@ -49,12 +49,12 @@
     username => user1,
     rules => [
         #{
-            topic => <<"test/toopic/1">>,
+            topic => <<"test/topic/1">>,
             permission => <<"allow">>,
             action => <<"publish">>
         },
         #{
-            topic => <<"test/toopic/2">>,
+            topic => <<"test/topic/2">>,
             permission => <<"allow">>,
             action => <<"subscribe">>
         },
@@ -64,14 +64,14 @@
             action => <<"all">>
         },
         #{
-            topic => <<"test/toopic/3">>,
+            topic => <<"test/topic/3">>,
             permission => <<"allow">>,
             action => <<"publish">>,
             qos => [<<"1">>],
             retain => <<"true">>
         },
         #{
-            topic => <<"test/toopic/4">>,
+            topic => <<"test/topic/4">>,
             permission => <<"allow">>,
             action => <<"publish">>,
             qos => [<<"0">>, <<"1">>, <<"2">>],
@@ -83,12 +83,12 @@
     clientid => client1,
     rules => [
         #{
-            topic => <<"test/toopic/1">>,
+            topic => <<"test/topic/1">>,
             permission => <<"allow">>,
             action => <<"publish">>
         },
         #{
-            topic => <<"test/toopic/2">>,
+            topic => <<"test/topic/2">>,
             permission => <<"allow">>,
             action => <<"subscribe">>
         },
@@ -98,14 +98,14 @@
             action => <<"all">>
         },
         #{
-            topic => <<"test/toopic/3">>,
+            topic => <<"test/topic/3">>,
             permission => <<"allow">>,
             action => <<"publish">>,
             qos => [<<"1">>],
             retain => <<"true">>
         },
         #{
-            topic => <<"test/toopic/4">>,
+            topic => <<"test/topic/4">>,
             permission => <<"allow">>,
             action => <<"publish">>,
             qos => [<<"0">>, <<"1">>, <<"2">>],
@@ -116,12 +116,12 @@
 -define(ALL_RULES_EXAMPLE, #{
     rules => [
         #{
-            topic => <<"test/toopic/1">>,
+            topic => <<"test/topic/1">>,
             permission => <<"allow">>,
             action => <<"publish">>
         },
         #{
-            topic => <<"test/toopic/2">>,
+            topic => <<"test/topic/2">>,
             permission => <<"allow">>,
             action => <<"subscribe">>
         },
@@ -131,14 +131,14 @@
             action => <<"all">>
         },
         #{
-            topic => <<"test/toopic/3">>,
+            topic => <<"test/topic/3">>,
             permission => <<"allow">>,
             action => <<"publish">>,
             qos => [<<"1">>],
             retain => <<"true">>
         },
         #{
-            topic => <<"test/toopic/4">>,
+            topic => <<"test/topic/4">>,
             permission => <<"allow">>,
             action => <<"publish">>,
             qos => [<<"0">>, <<"1">>, <<"2">>],

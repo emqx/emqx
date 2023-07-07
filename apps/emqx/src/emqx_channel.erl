@@ -1840,7 +1840,7 @@ check_pub_alias(_Packet, _Channel) ->
     ok.
 
 %%--------------------------------------------------------------------
-%% Athorization action
+%% Authorization action
 
 authz_action(#mqtt_packet{
     header = #mqtt_packet_header{qos = QoS, retain = Retain}, variable = #mqtt_packet_publish{}

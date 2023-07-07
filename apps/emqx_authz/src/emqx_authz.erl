@@ -525,7 +525,7 @@ read_acl_file(#{<<"path">> := Path} = Source) ->
     maps:remove(<<"path">>, Source#{<<"rules">> => Rules}).
 
 %%------------------------------------------------------------------------------
-%% Extednded Features
+%% Extended Features
 %%------------------------------------------------------------------------------
 
 -define(DEFAULT_RICH_ACTIONS, true).
