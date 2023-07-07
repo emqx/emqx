@@ -114,7 +114,6 @@
 
 %% boolean
 -define(START_AFTER_CREATED, true).
--define(START_AFTER_CREATED_RAW, <<"true">>).
 
 -define(TEST_ID_PREFIX, "_probe_:").
 -define(RES_METRICS, resource_metrics).
