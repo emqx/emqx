@@ -200,14 +200,6 @@ fields(bridges) ->
                     desc => <<"Apache IoTDB Bridge Config">>,
                     required => false
                 }
-            )},
-        {greptimedb,
-            mk(
-                hoconsc:map(name, ref(emqx_bridge_greptimedb, "config")),
-                #{
-                    desc => <<"GreptimeDB Bridge Config">>,
-                    required => false
-                }
             )}
     ] ++ kafka_structs() ++ pulsar_structs() ++ gcp_pubsub_structs() ++ mongodb_structs() ++
         influxdb_structs() ++

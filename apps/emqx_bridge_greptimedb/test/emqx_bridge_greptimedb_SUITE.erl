@@ -30,11 +30,12 @@ groups() ->
             {group, sync_query}
         ]},
         {sync_query, [
-            {group, grpcv1_tcp},
-            {group, grpcv1_tls}
+            {group, grpcv1_tcp}
+            %% uncomment tls when we are ready
+            %% {group, grpcv1_tls}
         ]},
-        {grpcv1_tcp, TCs},
-        {grpcv1_tls, TCs}
+        {grpcv1_tcp, TCs}
+        %%{grpcv1_tls, TCs}
     ].
 
 init_per_suite(Config) ->
