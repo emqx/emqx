@@ -58,7 +58,7 @@ on_query(InstanceId, {send_message, Message0}, State) ->
     },
     Message = render_message(PayloadTemplate, Message0),
     Res = emqx_mongodb:on_query(InstanceId, {send_message, Message}, NewConnectorState),
-    ?tp(mongo_ee_connector_on_query_return, #{result => Res}),
+    ?tp(mongo_bridge_connector_on_query_return, #{result => Res}),
     Res;
 on_query(InstanceId, Request, _State = #{connector_state := ConnectorState}) ->
     emqx_mongodb:on_query(InstanceId, Request, ConnectorState).

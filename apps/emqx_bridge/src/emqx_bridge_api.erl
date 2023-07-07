@@ -175,14 +175,14 @@ bridge_info_examples(Method) ->
                 value => info_example(mqtt, Method)
             }
         },
-        ee_bridge_examples(Method)
+        emqx_enterprise_bridge_examples(Method)
     ).
 
 -if(?EMQX_RELEASE_EDITION == ee).
-ee_bridge_examples(Method) ->
-    emqx_ee_bridge:examples(Method).
+emqx_enterprise_bridge_examples(Method) ->
+    emqx_bridge_enterprise:examples(Method).
 -else.
-ee_bridge_examples(_Method) -> #{}.
+emqx_enterprise_bridge_examples(_Method) -> #{}.
 -endif.
 
 info_example(Type, Method) ->

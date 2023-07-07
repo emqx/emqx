@@ -73,11 +73,9 @@ wait_until_kafka_is_up(Attempts) ->
     end.
 
 init_per_suite(Config) ->
-    %% ensure loaded
-    _ = application:load(emqx_ee_bridge),
-    _ = emqx_ee_bridge:module_info(),
-    application:load(emqx_bridge),
-    ok = emqx_common_test_helpers:start_apps([emqx_conf]),
+    %% Ensure enterprise bridge module is loaded
+    ok = emqx_common_test_helpers:start_apps([emqx_conf, emqx_bridge]),
+    _ = emqx_bridge_enterprise:module_info(),
     ok = emqx_connector_test_helpers:start_apps(?APPS),
     {ok, _} = application:ensure_all_started(emqx_connector),
     emqx_mgmt_api_test_util:init_suite(),

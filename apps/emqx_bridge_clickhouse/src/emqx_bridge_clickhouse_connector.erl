@@ -469,7 +469,7 @@ transform_and_log_clickhouse_result(ClickhouseErrorResult, ResourceID, SQL) ->
         reason => ClickhouseErrorResult
     }),
     case is_recoverable_error(ClickhouseErrorResult) of
-        %% TODO: The hackeny errors that the clickhouse library forwards are
+        %% TODO: The hackney errors that the clickhouse library forwards are
         %% very loosely defined. We should try to make sure that the following
         %% handles all error cases that we need to handle as recoverable_error
         true ->

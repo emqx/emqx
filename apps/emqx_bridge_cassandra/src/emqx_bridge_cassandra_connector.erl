@@ -396,7 +396,7 @@ conn_opts([Opt | Opts], Acc) ->
 %% prepare
 
 %% XXX: hardcode
-%% note: the `cql` param is passed by emqx_ee_bridge_cassa
+%% note: the `cql` param is passed by emqx_bridge_cassandra
 parse_prepare_cql(#{cql := SQL}) ->
     parse_prepare_cql([{send_message, SQL}], #{}, #{});
 parse_prepare_cql(_) ->

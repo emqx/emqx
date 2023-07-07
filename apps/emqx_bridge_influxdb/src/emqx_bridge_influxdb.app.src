@@ -1,8 +1,14 @@
 {application, emqx_bridge_influxdb, [
     {description, "EMQX Enterprise InfluxDB Bridge"},
-    {vsn, "0.1.2"},
+    {vsn, "0.1.3"},
     {registered, []},
-    {applications, [kernel, stdlib, influxdb]},
+    {applications, [
+        kernel,
+        stdlib,
+        emqx_resource,
+        emqx_bridge,
+        influxdb
+    ]},
     {env, []},
     {modules, []},
     {links, []}
