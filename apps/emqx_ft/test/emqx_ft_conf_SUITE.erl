@@ -309,15 +309,7 @@ t_import(_Config) ->
             })
         ),
 
-    {ok, #{filename := BackupFile}} = emqx_mgmt_data_backup:export(),
-    {ok, FileNames} = erl_tar:table(BackupFile, [compressed]),
-    [HoconFileName] = lists:filter(
-        fun(N) -> filename:basename(N) =:= "cluster.hocon" end, FileNames
-    ),
-    {ok, [{_, HoconConfig}]} = erl_tar:extract(BackupFile, [
-        memory, compressed, {files, [HoconFileName]}
-    ]),
-    {ok, BackupConfig} = hocon:binary(HoconConfig),
+    BackupConfig = emqx_config:get_raw([]),
     FTBackupConfig = maps:with([<<"file_transfer">>], BackupConfig),
 
     {ok, _} = emqx_ft_conf:update(mk_storage(true)),
