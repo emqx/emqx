@@ -638,8 +638,10 @@ value_type([UInt, <<"u">>]) when
     is_integer(UInt)
 ->
     {uint, UInt};
-value_type([Float]) when is_float(Float) ->
-    Float;
+%% write `1`, `1.0`, `-1.0` all as float
+%% see also: https://docs.influxdata.com/influxdb/v2.7/reference/syntax/line-protocol/#float
+value_type([Number]) when is_number(Number) ->
+    Number;
 value_type([<<"t">>]) ->
     't';
 value_type([<<"T">>]) ->
