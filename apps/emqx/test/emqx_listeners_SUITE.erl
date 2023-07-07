@@ -229,7 +229,7 @@ t_ssl_password_cert(Config) ->
         keyfile => filename:join(DataDir, "server-password.key")
     },
     LConf = #{
-        enabled => true,
+        enable => true,
         bind => {{127, 0, 0, 1}, Port},
         mountpoint => <<>>,
         zone => default,
