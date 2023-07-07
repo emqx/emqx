@@ -18,6 +18,8 @@
 
 -behaviour(application).
 
+-include("emqx_plugins.hrl").
+
 -export([
     start/2,
     stop/1
@@ -27,7 +29,9 @@ start(_Type, _Args) ->
     %% load all pre-configured
     ok = emqx_plugins:ensure_started(),
     {ok, Sup} = emqx_plugins_sup:start_link(),
+    ok = emqx_config_handler:add_handler([?CONF_ROOT], emqx_plugins),
     {ok, Sup}.
 
 stop(_State) ->
+    ok = emqx_config_handler:remove_handler([?CONF_ROOT]),
     ok.
