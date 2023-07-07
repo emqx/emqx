@@ -192,7 +192,7 @@ t_start_stop_evacuation(Config) ->
     [{DonorNode, _}, {RecipientNode, _}] = ?config(cluster_nodes, Config),
 
     StartOpts = maps:merge(
-        emqx_node_rebalance_api:rebalance_evacuation_example(),
+        maps:get(evacuation, emqx_node_rebalance_api:rebalance_evacuation_example()),
         #{migrate_to => [atom_to_binary(RecipientNode)]}
     ),
 
@@ -295,7 +295,7 @@ t_start_stop_rebalance(Config) ->
 
     StartOpts = maps:without(
         [nodes],
-        emqx_node_rebalance_api:rebalance_example()
+        maps:get(rebalance, emqx_node_rebalance_api:rebalance_example())
     ),
 
     ?assertMatch(
