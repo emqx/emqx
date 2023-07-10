@@ -68,7 +68,7 @@
     %% multiple schemas of data, i.e: Built-in Authorization
     %%
     %% Default: false
-    fast_total_counting := boolean()
+    fast_total_counting => boolean()
 }.
 
 -type query_return() :: #{meta := map(), data := [term()]}.
