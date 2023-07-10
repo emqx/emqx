@@ -158,7 +158,7 @@ basic_reboot_apps_edition(ee) ->
         emqx_ft,
         emqx_eviction_agent,
         emqx_node_rebalance,
-        emqx_ee_schema_registry
+        emqx_schema_registry
     ];
 %% unexcepted edition, should not happen
 basic_reboot_apps_edition(_) ->

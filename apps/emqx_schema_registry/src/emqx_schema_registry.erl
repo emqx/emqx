@@ -1,13 +1,13 @@
 %%--------------------------------------------------------------------
 %% Copyright (c) 2023 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
--module(emqx_ee_schema_registry).
+-module(emqx_schema_registry).
 
 -behaviour(gen_server).
 -behaviour(emqx_config_handler).
 -behaviour(emqx_config_backup).
 
--include("emqx_ee_schema_registry.hrl").
+-include("emqx_schema_registry.hrl").
 -include_lib("emqx/include/logger.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
@@ -291,7 +291,7 @@ do_build_serde(Name, Serde) when not is_binary(Name) ->
 do_build_serde(Name, #{type := Type, source := Source}) ->
     try
         {Serializer, Deserializer, Destructor} =
-            emqx_ee_schema_registry_serde:make_serde(Type, Name, Source),
+            emqx_schema_registry_serde:make_serde(Type, Name, Source),
         Serde = #serde{
             name = Name,
             serializer = Serializer,

@@ -10,7 +10,7 @@
 
 -define(EE_SCHEMA_MODULES, [
     emqx_license_schema,
-    emqx_ee_schema_registry_schema,
+    emqx_schema_registry_schema,
     emqx_ft_schema
 ]).
 

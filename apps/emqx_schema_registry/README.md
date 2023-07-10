@@ -71,3 +71,18 @@ WHERE
 - Register schema instance: adds a new instance of a schema of a
   certain type.  For example, when the user may have several Avro or
   Protobuf schemas that they wish to use with different data flows.
+
+# Documentation
+
+- Refer to [Introduction to Schema Registry](https://docs.emqx.com/en/enterprise/v5.1/data-integration/schema-registry.html) for how to use the EMQX dashboard for configuring schemas.
+
+- Refer to [EMQX Rules](https://docs.emqx.com/en/enterprise/v5.0/data-integration/rules.html)
+  for the EMQX rules engine introduction.
+
+# Contributing
+
+Please see our [contributing.md](../../CONTRIBUTING.md).
+
+# License
+
+EMQ Business Source License 1.1, refer to [LICENSE](BSL.txt).

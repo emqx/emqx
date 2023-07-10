@@ -1,11 +1,11 @@
 %%--------------------------------------------------------------------
 %% Copyright (c) 2023 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
--module(emqx_ee_schema_registry_http_api).
+-module(emqx_schema_registry_http_api).
 
 -behaviour(minirest_api).
 
--include("emqx_ee_schema_registry.hrl").
+-include("emqx_schema_registry.hrl").
 -include_lib("hocon/include/hoconsc.hrl").
 -include_lib("emqx/include/logger.hrl").
 -include_lib("emqx_utils/include/emqx_utils_api.hrl").
@@ -48,7 +48,7 @@ schema("/schema_registry") ->
                 #{
                     200 =>
                         emqx_dashboard_swagger:schema_with_examples(
-                            hoconsc:array(emqx_ee_schema_registry_schema:api_schema("get")),
+                            hoconsc:array(emqx_schema_registry_schema:api_schema("get")),
                             #{
                                 sample =>
                                     #{value => sample_list_schemas_response()}
@@ -61,14 +61,14 @@ schema("/schema_registry") ->
             summary => <<"Register a new schema">>,
             description => ?DESC("desc_schema_registry_api_post"),
             'requestBody' => emqx_dashboard_swagger:schema_with_examples(
-                emqx_ee_schema_registry_schema:api_schema("post"),
+                emqx_schema_registry_schema:api_schema("post"),
                 post_examples()
             ),
             responses =>
                 #{
                     201 =>
                         emqx_dashboard_swagger:schema_with_examples(
-                            emqx_ee_schema_registry_schema:api_schema("post"),
+                            emqx_schema_registry_schema:api_schema("post"),
                             post_examples()
                         ),
                     400 => error_schema('ALREADY_EXISTS', "Schema already exists")
@@ -87,7 +87,7 @@ schema("/schema_registry/:name") ->
                 #{
                     200 =>
                         emqx_dashboard_swagger:schema_with_examples(
-                            emqx_ee_schema_registry_schema:api_schema("get"),
+                            emqx_schema_registry_schema:api_schema("get"),
                             get_examples()
                         ),
                     404 => error_schema('NOT_FOUND', "Schema not found")
@@ -99,14 +99,14 @@ schema("/schema_registry/:name") ->
             description => ?DESC("desc_schema_registry_api_put"),
             parameters => [param_path_schema_name()],
             'requestBody' => emqx_dashboard_swagger:schema_with_examples(
-                emqx_ee_schema_registry_schema:api_schema("put"),
+                emqx_schema_registry_schema:api_schema("put"),
                 post_examples()
             ),
             responses =>
                 #{
                     200 =>
                         emqx_dashboard_swagger:schema_with_examples(
-                            emqx_ee_schema_registry_schema:api_schema("put"),
+                            emqx_schema_registry_schema:api_schema("put"),
                             put_examples()
                         ),
                     404 => error_schema('NOT_FOUND', "Schema not found")
@@ -130,7 +130,7 @@ schema("/schema_registry/:name") ->
 %%-------------------------------------------------------------------------------------------------
 
 '/schema_registry'(get, _Params) ->
-    Schemas = emqx_ee_schema_registry:list_schemas(),
+    Schemas = emqx_schema_registry:list_schemas(),
     Response =
         lists:map(
             fun({Name, Params}) ->
@@ -141,11 +141,11 @@ schema("/schema_registry/:name") ->
     ?OK(Response);
 '/schema_registry'(post, #{body := Params0 = #{<<"name">> := Name}}) ->
     Params = maps:without([<<"name">>], Params0),
-    case emqx_ee_schema_registry:get_schema(Name) of
+    case emqx_schema_registry:get_schema(Name) of
         {error, not_found} ->
-            case emqx_ee_schema_registry:add_schema(Name, Params) of
+            case emqx_schema_registry:add_schema(Name, Params) of
                 ok ->
-                    {ok, Res} = emqx_ee_schema_registry:get_schema(Name),
+                    {ok, Res} = emqx_schema_registry:get_schema(Name),
                     {201, Res#{name => Name}};
                 {error, Error} ->
                     ?BAD_REQUEST(Error)
@@ -155,31 +155,31 @@ schema("/schema_registry/:name") ->
     end.
 
 '/schema_registry/:name'(get, #{bindings := #{name := Name}}) ->
-    case emqx_ee_schema_registry:get_schema(Name) of
+    case emqx_schema_registry:get_schema(Name) of
         {error, not_found} ->
             ?NOT_FOUND(<<"Schema not found">>);
         {ok, Schema} ->
             ?OK(Schema#{name => Name})
     end;
 '/schema_registry/:name'(put, #{bindings := #{name := Name}, body := Params}) ->
-    case emqx_ee_schema_registry:get_schema(Name) of
+    case emqx_schema_registry:get_schema(Name) of
         {error, not_found} ->
             ?NOT_FOUND(<<"Schema not found">>);
         {ok, _} ->
-            case emqx_ee_schema_registry:add_schema(Name, Params) of
+            case emqx_schema_registry:add_schema(Name, Params) of
                 ok ->
-                    {ok, Res} = emqx_ee_schema_registry:get_schema(Name),
+                    {ok, Res} = emqx_schema_registry:get_schema(Name),
                     ?OK(Res#{name => Name});
                 {error, Error} ->
                     ?BAD_REQUEST(Error)
             end
     end;
 '/schema_registry/:name'(delete, #{bindings := #{name := Name}}) ->
-    case emqx_ee_schema_registry:get_schema(Name) of
+    case emqx_schema_registry:get_schema(Name) of
         {error, not_found} ->
             ?NOT_FOUND(<<"Schema not found">>);
         {ok, _} ->
-            case emqx_ee_schema_registry:delete_schema(Name) of
+            case emqx_schema_registry:delete_schema(Name) of
                 ok ->
                     ?NO_CONTENT;
                 {error, Error} ->

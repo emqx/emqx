@@ -1,15 +1,15 @@
 %%--------------------------------------------------------------------
 %% Copyright (c) 2023 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
--module(emqx_ee_schema_registry_serde).
+-module(emqx_schema_registry_serde).
 
 -behaviour(emqx_rule_funcs).
 
--include("emqx_ee_schema_registry.hrl").
+-include("emqx_schema_registry.hrl").
 -include_lib("emqx/include/logger.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
--elvis([{elvis_style, invalid_dynamic_call, #{ignore => [emqx_ee_schema_registry_serde]}}]).
+-elvis([{elvis_style, invalid_dynamic_call, #{ignore => [emqx_schema_registry_serde]}}]).
 
 %% API
 -export([
@@ -67,7 +67,7 @@ decode(SerdeName, RawData) ->
 
 -spec decode(schema_name(), encoded_data(), [term()]) -> decoded_data().
 decode(SerdeName, RawData, VarArgs) when is_list(VarArgs) ->
-    case emqx_ee_schema_registry:get_serde(SerdeName) of
+    case emqx_schema_registry:get_serde(SerdeName) of
         {error, not_found} ->
             error({serde_not_found, SerdeName});
         {ok, #{deserializer := Deserializer}} ->
@@ -80,7 +80,7 @@ encode(SerdeName, RawData) ->
 
 -spec encode(schema_name(), decoded_data(), [term()]) -> encoded_data().
 encode(SerdeName, EncodedData, VarArgs) when is_list(VarArgs) ->
-    case emqx_ee_schema_registry:get_serde(SerdeName) of
+    case emqx_schema_registry:get_serde(SerdeName) of
         {error, not_found} ->
             error({serde_not_found, SerdeName});
         {ok, #{serializer := Serializer}} ->

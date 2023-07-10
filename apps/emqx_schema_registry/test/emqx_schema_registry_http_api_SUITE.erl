@@ -1,7 +1,7 @@
 %%--------------------------------------------------------------------
 %% Copyright (c) 2023 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
--module(emqx_ee_schema_registry_http_api_SUITE).
+-module(emqx_schema_registry_http_api_SUITE).
 
 -compile(nowarn_export_all).
 -compile(export_all).
@@ -12,9 +12,9 @@
 -include_lib("common_test/include/ct.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
--include("emqx_ee_schema_registry.hrl").
+-include("emqx_schema_registry.hrl").
 
--define(APPS, [emqx_conf, emqx_ee_schema_registry]).
+-define(APPS, [emqx_conf, emqx_schema_registry]).
 
 %%------------------------------------------------------------------------------
 %% CT boilerplate
@@ -34,7 +34,7 @@ groups() ->
     ].
 
 init_per_suite(Config) ->
-    emqx_config:save_schema_mod_and_names(emqx_ee_schema_registry_schema),
+    emqx_config:save_schema_mod_and_names(emqx_schema_registry_schema),
     emqx_mgmt_api_test_util:init_suite(?APPS),
     Config.
 
@@ -138,9 +138,9 @@ try_decode_error_message(Res) ->
 clear_schemas() ->
     maps:foreach(
         fun(Name, _Schema) ->
-            ok = emqx_ee_schema_registry:delete_schema(Name)
+            ok = emqx_schema_registry:delete_schema(Name)
         end,
-        emqx_ee_schema_registry:list_schemas()
+        emqx_schema_registry:list_schemas()
     ).
 
 %%------------------------------------------------------------------------------
@@ -249,7 +249,7 @@ t_crud(Config) ->
         {ok, 400, #{
             <<"code">> := <<"BAD_REQUEST">>,
             <<"message">> :=
-                <<"{post_config_update,emqx_ee_schema_registry,", _/binary>>
+                <<"{post_config_update,emqx_schema_registry,", _/binary>>
         }},
         request({put, SchemaName, UpdateParams#{<<"source">> := InvalidSourceBin}})
     ),
@@ -290,7 +290,7 @@ t_crud(Config) ->
         {ok, 400, #{
             <<"code">> := <<"BAD_REQUEST">>,
             <<"message">> :=
-                <<"{post_config_update,emqx_ee_schema_registry,", _/binary>>
+                <<"{post_config_update,emqx_schema_registry,", _/binary>>
         }},
         request({post, Params#{<<"source">> := InvalidSourceBin}})
     ),
