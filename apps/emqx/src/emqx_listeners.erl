@@ -96,7 +96,7 @@ format_list(Listener) ->
 
 do_list_raw() ->
     %% GET /listeners from other nodes returns [] when init config is not loaded.
-    case emqx_app:get_config_loader() =/= emqx of
+    case emqx_app:init_load_done() of
         true ->
             Key = <<"listeners">>,
             Raw = emqx_config:get_raw([Key], #{}),
