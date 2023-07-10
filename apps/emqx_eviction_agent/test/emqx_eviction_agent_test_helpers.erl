@@ -84,7 +84,7 @@ start_cluster(NamesWithPorts, Apps, Env) ->
         {env, [{emqx, boot_modules, [broker, listeners]}] ++ Env},
         {apps, Apps},
         {conf,
-            [{[listeners, Proto, default, enabled], false} || Proto <- [ssl, ws, wss]] ++
+            [{[listeners, Proto, default, enable], false} || Proto <- [ssl, ws, wss]] ++
                 [{[rpc, mode], async}]}
     ],
     Cluster = emqx_common_test_helpers:emqx_cluster(
