@@ -29,7 +29,9 @@
 %% first_next query APIs
 -export([
     node_query/6,
+    node_query/7,
     cluster_query/5,
+    cluster_query/6,
     b2i/1
 ]).
 
@@ -56,6 +58,18 @@
 -type format_result_fun() ::
     fun((node(), term()) -> term())
     | fun((term()) -> term()).
+
+-type query_options() :: #{
+    %% Whether to use `ets:info/2` to get the total number of rows when the query conditions are
+    %% empty. It can significantly improves the speed of the query when the table stored large
+    %% amounts of data.
+    %%
+    %% However, it may cause the total number of rows to be inaccurate when the table stored in
+    %% multiple schemas of data, i.e: Built-in Authorization
+    %%
+    %% Default: false
+    fast_total_counting := boolean()
+}.
 
 -type query_return() :: #{meta := map(), data := [term()]}.
 
@@ -114,13 +128,25 @@ limit(Params) when is_map(Params) ->
     format_result_fun()
 ) -> {error, page_limit_invalid} | {error, atom(), term()} | query_return().
 node_query(Node, Tab, QString, QSchema, MsFun, FmtFun) ->
+    node_query(Node, Tab, QString, QSchema, MsFun, FmtFun, #{}).
+
+-spec node_query(
+    node(),
+    atom(),
+    query_params(),
+    query_schema(),
+    query_to_match_spec_fun(),
+    format_result_fun(),
+    query_options()
+) -> {error, page_limit_invalid} | {error, atom(), term()} | query_return().
+node_query(Node, Tab, QString, QSchema, MsFun, FmtFun, Options) ->
     case parse_pager_params(QString) of
         false ->
             {error, page_limit_invalid};
         Meta ->
             {_CodCnt, NQString} = parse_qstring(QString, QSchema),
             ResultAcc = init_query_result(),
-            QueryState = init_query_state(Tab, NQString, MsFun, Meta),
+            QueryState = init_query_state(Tab, NQString, MsFun, Meta, Options),
             NResultAcc = do_node_query(
                 Node, QueryState, ResultAcc
             ),
@@ -158,6 +184,17 @@ do_node_query(
     format_result_fun()
 ) -> {error, page_limit_invalid} | {error, atom(), term()} | query_return().
 cluster_query(Tab, QString, QSchema, MsFun, FmtFun) ->
+    cluster_query(Tab, QString, QSchema, MsFun, FmtFun, #{}).
+
+-spec cluster_query(
+    atom(),
+    query_params(),
+    query_schema(),
+    query_to_match_spec_fun(),
+    format_result_fun(),
+    query_options()
+) -> {error, page_limit_invalid} | {error, atom(), term()} | query_return().
+cluster_query(Tab, QString, QSchema, MsFun, FmtFun, Options) ->
     case parse_pager_params(QString) of
         false ->
             {error, page_limit_invalid};
@@ -165,7 +202,7 @@ cluster_query(Tab, QString, QSchema, MsFun, FmtFun) ->
             {_CodCnt, NQString} = parse_qstring(QString, QSchema),
             Nodes = emqx:running_nodes(),
             ResultAcc = init_query_result(),
-            QueryState = init_query_state(Tab, NQString, MsFun, Meta),
+            QueryState = init_query_state(Tab, NQString, MsFun, Meta, Options),
             NResultAcc = do_cluster_query(
                 Nodes, QueryState, ResultAcc
             ),
@@ -231,9 +268,10 @@ collect_total_from_tail_nodes(Nodes, QueryState = #{total := TotalAcc}) ->
 %%    table := atom(),
 %%    qs := {Qs, Fuzzy},  %% parsed query params
 %%    msfun := query_to_match_spec_fun(),
-%%    complete := boolean()
+%%    complete := boolean(),
+%%    options := query_options()
 %%    }
-init_query_state(Tab, QString, MsFun, _Meta = #{page := Page, limit := Limit}) ->
+init_query_state(Tab, QString, MsFun, _Meta = #{page := Page, limit := Limit}, Options) ->
     #{match_spec := Ms, fuzzy_fun := FuzzyFun} = erlang:apply(MsFun, [Tab, QString]),
     %% assert FuzzyFun type
     _ =
@@ -252,7 +290,8 @@ init_query_state(Tab, QString, MsFun, _Meta = #{page := Page, limit := Limit}) -
         msfun => MsFun,
         match_spec => Ms,
         fuzzy_fun => FuzzyFun,
-        complete => false
+        complete => false,
+        options => Options
     },
     case counting_total_fun(QueryState) of
         false ->
@@ -355,6 +394,8 @@ apply_total_query(QueryState = #{table := Tab}) ->
             Fun(Tab)
     end.
 
+counting_total_fun(_QueryState = #{qs := {[], []}, options := #{fast_total_counting := true}}) ->
+    fun(Tab) -> ets:info(Tab, size) end;
 counting_total_fun(_QueryState = #{match_spec := Ms, fuzzy_fun := undefined}) ->
     %% XXX: Calculating the total number of data that match a certain
     %% condition under a large table is very expensive because the
@@ -373,9 +414,7 @@ counting_total_fun(_QueryState = #{match_spec := Ms, fuzzy_fun := undefined}) ->
 counting_total_fun(_QueryState = #{fuzzy_fun := FuzzyFun}) when FuzzyFun =/= undefined ->
     %% XXX: Calculating the total number for a fuzzy searching is very very expensive
     %% so it is not supported now
-    false;
-counting_total_fun(_QueryState = #{qs := {[], []}}) ->
-    fun(Tab) -> ets:info(Tab, size) end.
+    false.
 
 %% ResultAcc :: #{count := integer(),
 %%                cursor := integer(),
