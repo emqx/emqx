@@ -319,6 +319,14 @@ fields("persistent_session_store") ->
                     desc => ?DESC(persistent_session_store_enabled)
                 }
             )},
+        {"ds",
+            sc(
+                boolean(),
+                #{
+                    default => false,
+                    importance => ?IMPORTANCE_HIDDEN
+                }
+            )},
         {"on_disc",
             sc(
                 boolean(),
