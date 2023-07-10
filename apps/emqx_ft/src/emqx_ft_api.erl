@@ -40,27 +40,30 @@
 %% API callbacks
 -export([
     '/file_transfer/files'/2,
-    '/file_transfer/files/:clientid/:fileid'/2
+    '/file_transfer/files/:clientid/:fileid'/2,
+    '/file_transfer'/2
 ]).
 
 -import(hoconsc, [mk/2, ref/1, ref/2]).
 
+-define(SCHEMA_CONFIG, ref(emqx_ft_schema, file_transfer)).
+
 namespace() -> "file_transfer".
 
 api_spec() ->
-    emqx_dashboard_swagger:spec(?MODULE, #{
-        check_schema => true, filter => fun ?MODULE:check_ft_enabled/2
-    }).
+    emqx_dashboard_swagger:spec(?MODULE, #{check_schema => true}).
 
 paths() ->
     [
         "/file_transfer/files",
-        "/file_transfer/files/:clientid/:fileid"
+        "/file_transfer/files/:clientid/:fileid",
+        "/file_transfer"
     ].
 
 schema("/file_transfer/files") ->
     #{
         'operationId' => '/file_transfer/files',
+        filter => fun ?MODULE:check_ft_enabled/2,
         get => #{
             tags => ?TAGS,
             summary => <<"List all uploaded files">>,
@@ -83,6 +86,7 @@ schema("/file_transfer/files") ->
 schema("/file_transfer/files/:clientid/:fileid") ->
     #{
         'operationId' => '/file_transfer/files/:clientid/:fileid',
+        filter => fun ?MODULE:check_ft_enabled/2,
         get => #{
             tags => ?TAGS,
             summary => <<"List files uploaded in a specific transfer">>,
@@ -101,6 +105,30 @@ schema("/file_transfer/files/:clientid/:fileid") ->
                 )
             }
         }
+    };
+schema("/file_transfer") ->
+    #{
+        'operationId' => '/file_transfer',
+        get => #{
+            tags => [<<"file_transfer">>],
+            summary => <<"Get current File Transfer configuration">>,
+            description => ?DESC("file_transfer_get_config"),
+            responses => #{
+                200 => ?SCHEMA_CONFIG
+            }
+        },
+        put => #{
+            tags => [<<"file_transfer">>],
+            summary => <<"Update File Transfer configuration">>,
+            description => ?DESC("file_transfer_update_config"),
+            'requestBody' => ?SCHEMA_CONFIG,
+            responses => #{
+                200 => ?SCHEMA_CONFIG,
+                400 => emqx_dashboard_swagger:error_codes(
+                    ['INVALID_CONFIG'], error_desc('INVALID_CONFIG')
+                )
+            }
+        }
     }.
 
 check_ft_enabled(Params, _Meta) ->
@@ -108,7 +136,7 @@ check_ft_enabled(Params, _Meta) ->
         true ->
             {ok, Params};
         false ->
-            {503, error_msg('SERVICE_UNAVAILABLE', <<"Service unavailable">>)}
+            {503, error_msg('SERVICE_UNAVAILABLE')}
     end.
 
 '/file_transfer/files'(get, #{
@@ -147,6 +175,18 @@ check_ft_enabled(Params, _Meta) ->
             {503, error_msg('SERVICE_UNAVAILABLE')}
     end.
 
+'/file_transfer'(get, _Meta) ->
+    {200, format_config(emqx_ft_conf:get())};
+'/file_transfer'(put, #{body := ConfigIn}) ->
+    case emqx_ft_conf:update(ConfigIn) of
+        {ok, #{config := Config}} ->
+            {200, format_config(Config)};
+        {error, Error = #{kind := validation_error}} ->
+            {400, error_msg('INVALID_CONFIG', format_validation_error(Error))};
+        {error, Error} ->
+            {400, error_msg('INVALID_CONFIG', emqx_utils:format(Error))}
+    end.
+
 format_page(#{items := Files, cursor := Cursor}) ->
     #{
         <<"files">> => lists:map(fun format_file_info/1, Files),
@@ -157,14 +197,23 @@ format_page(#{items := Files}) ->
         <<"files">> => lists:map(fun format_file_info/1, Files)
     }.
 
+format_config(Config) ->
+    Schema = emqx_hocon:make_schema(emqx_ft_schema:fields(file_transfer)),
+    hocon_tconf:make_serializable(Schema, emqx_utils_maps:binary_key_map(Config), #{}).
+
+format_validation_error(Error) ->
+    emqx_logger_jsonfmt:best_effort_json(Error).
+
 error_msg(Code) ->
     #{code => Code, message => error_desc(Code)}.
 
 error_msg(Code, Msg) ->
-    #{code => Code, message => emqx_utils:readable_error_msg(Msg)}.
+    #{code => Code, message => Msg}.
 
 error_desc('FILES_NOT_FOUND') ->
     <<"Files requested for this transfer could not be found">>;
+error_desc('INVALID_CONFIG') ->
+    <<"Provided configuration is invalid">>;
 error_desc('SERVICE_UNAVAILABLE') ->
     <<"Service unavailable">>.
 

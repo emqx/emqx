@@ -424,7 +424,7 @@ init_worker_options([{auth_source, V} | R], Acc) ->
 init_worker_options([{username, V} | R], Acc) ->
     init_worker_options(R, [{login, V} | Acc]);
 init_worker_options([{password, V} | R], Acc) ->
-    init_worker_options(R, [{password, V} | Acc]);
+    init_worker_options(R, [{password, emqx_secret:wrap(V)} | Acc]);
 init_worker_options([{w_mode, V} | R], Acc) ->
     init_worker_options(R, [{w_mode, V} | Acc]);
 init_worker_options([{r_mode, V} | R], Acc) ->

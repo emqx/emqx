@@ -175,14 +175,14 @@ bridge_info_examples(Method) ->
                 value => info_example(mqtt, Method)
             }
         },
-        ee_bridge_examples(Method)
+        emqx_enterprise_bridge_examples(Method)
     ).
 
 -if(?EMQX_RELEASE_EDITION == ee).
-ee_bridge_examples(Method) ->
-    emqx_ee_bridge:examples(Method).
+emqx_enterprise_bridge_examples(Method) ->
+    emqx_bridge_enterprise:examples(Method).
 -else.
-ee_bridge_examples(_Method) -> #{}.
+emqx_enterprise_bridge_examples(_Method) -> #{}.
 -endif.
 
 info_example(Type, Method) ->
@@ -985,9 +985,13 @@ call_operation(NodeOrAll, OperFunc, Args = [_Nodes, BridgeType, BridgeName]) ->
         {error, timeout} ->
             ?SERVICE_UNAVAILABLE(<<"Request timeout">>);
         {error, {start_pool_failed, Name, Reason}} ->
-            ?SERVICE_UNAVAILABLE(
-                bin(io_lib:format("Failed to start ~p pool for reason ~p", [Name, Reason]))
-            );
+            Msg = bin(io_lib:format("Failed to start ~p pool for reason ~p", [Name, Reason])),
+            case Reason of
+                nxdomain ->
+                    ?BAD_REQUEST(Msg);
+                _ ->
+                    ?SERVICE_UNAVAILABLE(Msg)
+            end;
         {error, not_found} ->
             BridgeId = emqx_bridge_resource:bridge_id(BridgeType, BridgeName),
             ?SLOG(warning, #{

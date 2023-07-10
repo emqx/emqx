@@ -116,7 +116,7 @@ init_per_suite(Config) ->
 
 end_per_suite(_Config) ->
     emqx_mgmt_api_test_util:end_suite(),
-    ok = emqx_common_test_helpers:stop_apps([emqx_bridge, emqx_conf, emqx_rule_engine]),
+    ok = emqx_common_test_helpers:stop_apps([emqx_mongodb, emqx_bridge, emqx_rule_engine, emqx_conf]),
     ok.
 
 init_per_testcase(_Testcase, Config) ->
@@ -146,9 +146,8 @@ start_apps() ->
     ]).
 
 ensure_loaded() ->
-    _ = application:load(emqx_ee_bridge),
     _ = application:load(emqtt),
-    _ = emqx_ee_bridge:module_info(),
+    _ = emqx_bridge_enterprise:module_info(),
     ok.
 
 mongo_type(Config) ->
@@ -354,7 +353,7 @@ t_setup_via_config_and_publish(Config) ->
     {ok, {ok, _}} =
         ?wait_async_action(
             send_message(Config, #{key => Val}),
-            #{?snk_kind := mongo_ee_connector_on_query_return},
+            #{?snk_kind := mongo_bridge_connector_on_query_return},
             5_000
         ),
     ?assertMatch(
@@ -379,7 +378,7 @@ t_setup_via_http_api_and_publish(Config) ->
     {ok, {ok, _}} =
         ?wait_async_action(
             send_message(Config, #{key => Val}),
-            #{?snk_kind := mongo_ee_connector_on_query_return},
+            #{?snk_kind := mongo_bridge_connector_on_query_return},
             5_000
         ),
     ?assertMatch(
@@ -395,7 +394,7 @@ t_payload_template(Config) ->
     {ok, {ok, _}} =
         ?wait_async_action(
             send_message(Config, #{key => Val, clientid => ClientId}),
-            #{?snk_kind := mongo_ee_connector_on_query_return},
+            #{?snk_kind := mongo_bridge_connector_on_query_return},
             5_000
         ),
     ?assertMatch(
@@ -421,7 +420,7 @@ t_collection_template(Config) ->
                 clientid => ClientId,
                 mycollectionvar => <<"mycol">>
             }),
-            #{?snk_kind := mongo_ee_connector_on_query_return},
+            #{?snk_kind := mongo_bridge_connector_on_query_return},
             5_000
         ),
     ?assertMatch(

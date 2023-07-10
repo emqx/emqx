@@ -16,9 +16,9 @@
 
 -module(emqx_authz_rule).
 
--include("emqx_authz.hrl").
 -include_lib("emqx/include/logger.hrl").
 -include_lib("emqx/include/emqx_placeholder.hrl").
+-include("emqx_authz.hrl").
 
 -ifdef(TEST).
 -compile(export_all).
@@ -32,49 +32,122 @@
     compile/1
 ]).
 
--type ipaddress() ::
-    {ipaddr, esockd_cidr:cidr_string()}
-    | {ipaddrs, list(esockd_cidr:cidr_string())}.
+-type permission() :: allow | deny.
 
--type username() :: {username, binary()}.
-
--type clientid() :: {clientid, binary()}.
-
--type who() ::
+-type who_condition() ::
     ipaddress()
     | username()
     | clientid()
     | {'and', [ipaddress() | username() | clientid()]}
     | {'or', [ipaddress() | username() | clientid()]}
     | all.
+-type ipaddress() ::
+    {ipaddr, esockd_cidr:cidr_string()}
+    | {ipaddrs, list(esockd_cidr:cidr_string())}.
+-type username() :: {username, binary()}.
+-type clientid() :: {clientid, binary()}.
 
--type action() :: subscribe | publish | all.
--type permission() :: allow | deny.
+-type action_condition() ::
+    subscribe
+    | publish
+    | #{action_type := subscribe, qos := qos_condition()}
+    | #{action_type := publish | all, qos := qos_condition(), retain := retain_condition()}
+    | all.
+-type qos_condition() :: [qos()].
+-type retain_condition() :: retain() | all.
 
--type rule() :: {permission(), who(), action(), list(emqx_types:topic())}.
+-type topic_condition() :: list(emqx_types:topic() | {eq, emqx_types:topic()}).
+
+-type rule() :: {permission(), who_condition(), action_condition(), topic_condition()}.
+
+-type qos() :: emqx_types:qos().
+-type retain() :: boolean().
+-type action() ::
+    #{action_type := subscribe, qos := qos()}
+    | #{action_type := publish, qos := qos(), retain := retain()}.
 
 -export_type([
-    action/0,
-    permission/0
+    permission/0,
+    who_condition/0,
+    action_condition/0,
+    topic_condition/0
 ]).
 
+-define(IS_PERMISSION(Permission), (Permission =:= allow orelse Permission =:= deny)).
+
 compile({Permission, all}) when
-    ?ALLOW_DENY(Permission)
+    ?IS_PERMISSION(Permission)
 ->
     {Permission, all, all, [compile_topic(<<"#">>)]};
 compile({Permission, Who, Action, TopicFilters}) when
-    ?ALLOW_DENY(Permission), ?PUBSUB(Action), is_list(TopicFilters)
+    ?IS_PERMISSION(Permission) andalso is_list(TopicFilters)
 ->
-    {atom(Permission), compile_who(Who), atom(Action), [
+    {Permission, compile_who(Who), compile_action(Action), [
         compile_topic(Topic)
      || Topic <- TopicFilters
     ]};
-compile({Permission, _Who, _Action, _TopicFilter}) when not ?ALLOW_DENY(Permission) ->
+compile({Permission, _Who, _Action, _TopicFilter}) when not ?IS_PERMISSION(Permission) ->
     throw({invalid_authorization_permission, Permission});
-compile({_Permission, _Who, Action, _TopicFilter}) when not ?PUBSUB(Action) ->
-    throw({invalid_authorization_action, Action});
 compile(BadRule) ->
     throw({invalid_authorization_rule, BadRule}).
+
+compile_action(Action) ->
+    compile_action(emqx_authz:feature_available(rich_actions), Action).
+
+-define(IS_ACTION_WITH_RETAIN(Action), (Action =:= publish orelse Action =:= all)).
+
+compile_action(_RichActionsOn, subscribe) ->
+    subscribe;
+compile_action(_RichActionsOn, Action) when ?IS_ACTION_WITH_RETAIN(Action) ->
+    Action;
+compile_action(true = _RichActionsOn, {subscribe, Opts}) when is_list(Opts) ->
+    #{
+        action_type => subscribe,
+        qos => qos_from_opts(Opts)
+    };
+compile_action(true = _RichActionsOn, {Action, Opts}) when
+    ?IS_ACTION_WITH_RETAIN(Action) andalso is_list(Opts)
+->
+    #{
+        action_type => Action,
+        qos => qos_from_opts(Opts),
+        retain => retain_from_opts(Opts)
+    };
+compile_action(_RichActionsOn, Action) ->
+    throw({invalid_authorization_action, Action}).
+
+qos_from_opts(Opts) ->
+    try
+        case proplists:get_all_values(qos, Opts) of
+            [] ->
+                ?DEFAULT_RULE_QOS;
+            QoSs ->
+                lists:flatmap(
+                    fun
+                        (QoS) when is_integer(QoS) ->
+                            [validate_qos(QoS)];
+                        (QoS) when is_list(QoS) ->
+                            lists:map(fun validate_qos/1, QoS)
+                    end,
+                    QoSs
+                )
+        end
+    catch
+        bad_qos ->
+            throw({invalid_authorization_qos, Opts})
+    end.
+
+validate_qos(QoS) when is_integer(QoS), QoS >= 0, QoS =< 2 ->
+    QoS;
+validate_qos(_) ->
+    throw(bad_qos).
+
+retain_from_opts(Opts) ->
+    case proplists:get_value(retain, Opts, ?DEFAULT_RULE_RETAIN) of
+        all -> all;
+        Retain when is_boolean(Retain) -> Retain;
+        _ -> throw({invalid_authorization_retain, Opts})
+    end.
 
 compile_who(all) ->
     all;
@@ -99,8 +172,12 @@ compile_who({ipaddrs, CIDRs}) ->
 compile_who({'and', L}) when is_list(L) ->
     {'and', [compile_who(Who) || Who <- L]};
 compile_who({'or', L}) when is_list(L) ->
-    {'or', [compile_who(Who) || Who <- L]}.
+    {'or', [compile_who(Who) || Who <- L]};
+compile_who(Who) ->
+    throw({invalid_who, Who}).
 
+compile_topic("eq " ++ Topic) ->
+    {eq, emqx_topic:words(bin(Topic))};
 compile_topic(<<"eq ", Topic/binary>>) ->
     {eq, emqx_topic:words(Topic)};
 compile_topic({eq, Topic}) ->
@@ -117,45 +194,65 @@ compile_topic(Topic) ->
         Tokens -> {pattern, Tokens}
     end.
 
-atom(B) when is_binary(B) ->
-    try
-        binary_to_existing_atom(B, utf8)
-    catch
-        _E:_S -> binary_to_atom(B)
-    end;
-atom(A) when is_atom(A) -> A.
-
 bin(L) when is_list(L) ->
     list_to_binary(L);
 bin(B) when is_binary(B) ->
     B.
 
--spec matches(emqx_types:clientinfo(), emqx_types:pubsub(), emqx_types:topic(), [rule()]) ->
+-spec matches(emqx_types:clientinfo(), action(), emqx_types:topic(), [rule()]) ->
     {matched, allow} | {matched, deny} | nomatch.
-matches(_Client, _PubSub, _Topic, []) ->
+matches(_Client, _Action, _Topic, []) ->
     nomatch;
-matches(Client, PubSub, Topic, [{Permission, Who, Action, TopicFilters} | Tail]) ->
-    case match(Client, PubSub, Topic, {Permission, Who, Action, TopicFilters}) of
-        nomatch -> matches(Client, PubSub, Topic, Tail);
+matches(Client, Action, Topic, [{Permission, WhoCond, ActionCond, TopicCond} | Tail]) ->
+    case match(Client, Action, Topic, {Permission, WhoCond, ActionCond, TopicCond}) of
+        nomatch -> matches(Client, Action, Topic, Tail);
         Matched -> Matched
     end.
 
--spec match(emqx_types:clientinfo(), emqx_types:pubsub(), emqx_types:topic(), rule()) ->
+-spec match(emqx_types:clientinfo(), action(), emqx_types:topic(), rule()) ->
     {matched, allow} | {matched, deny} | nomatch.
-match(Client, PubSub, Topic, {Permission, Who, Action, TopicFilters}) ->
+match(Client, Action, Topic, {Permission, WhoCond, ActionCond, TopicCond}) ->
     case
-        match_action(PubSub, Action) andalso
-            match_who(Client, Who) andalso
-            match_topics(Client, Topic, TopicFilters)
+        match_action(Action, ActionCond) andalso
+            match_who(Client, WhoCond) andalso
+            match_topics(Client, Topic, TopicCond)
     of
         true -> {matched, Permission};
         _ -> nomatch
     end.
 
-match_action(publish, publish) -> true;
-match_action(subscribe, subscribe) -> true;
-match_action(_, all) -> true;
-match_action(_, _) -> false.
+-spec match_action(action(), action_condition()) -> boolean().
+match_action(#{action_type := publish}, PubSubCond) when is_atom(PubSubCond) ->
+    match_pubsub(publish, PubSubCond);
+match_action(
+    #{action_type := publish, qos := QoS, retain := Retain}, #{
+        action_type := publish, qos := QoSCond, retain := RetainCond
+    }
+) ->
+    match_qos(QoS, QoSCond) andalso match_retain(Retain, RetainCond);
+match_action(#{action_type := publish, qos := QoS, retain := Retain}, #{
+    action_type := all, qos := QoSCond, retain := RetainCond
+}) ->
+    match_qos(QoS, QoSCond) andalso match_retain(Retain, RetainCond);
+match_action(#{action_type := subscribe}, PubSubCond) when is_atom(PubSubCond) ->
+    match_pubsub(subscribe, PubSubCond);
+match_action(#{action_type := subscribe, qos := QoS}, #{action_type := subscribe, qos := QoSCond}) ->
+    match_qos(QoS, QoSCond);
+match_action(#{action_type := subscribe, qos := QoS}, #{action_type := all, qos := QoSCond}) ->
+    match_qos(QoS, QoSCond);
+match_action(_, _) ->
+    false.
+
+match_pubsub(publish, publish) -> true;
+match_pubsub(subscribe, subscribe) -> true;
+match_pubsub(_, all) -> true;
+match_pubsub(_, _) -> false.
+
+match_qos(QoS, QoSs) -> lists:member(QoS, QoSs).
+
+match_retain(_, all) -> true;
+match_retain(Retain, Retain) when is_boolean(Retain) -> true;
+match_retain(_, _) -> false.
 
 match_who(_, all) ->
     true;

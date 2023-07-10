@@ -101,3 +101,21 @@ jobs:
           push "el/8" "packages/$PROFILE-$VERSION-el8-arm64.rpm"
           push "el/9" "packages/$PROFILE-$VERSION-el9-amd64.rpm"
           push "el/9" "packages/$PROFILE-$VERSION-el9-arm64.rpm"
+
+  rerun-apps-version-check:
+    runs-on: ubuntu-22.04
+    if: github.repository_owner == 'emqx' && github.event_name == 'release'
+    needs:
+      - upload
+    permissions:
+      pull-requests: read
+      checks: read
+      actions: write
+    steps:
+      - uses: actions/checkout@v3
+      - name: trigger re-run of app versions check on open PRs
+        shell: bash
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          python3 scripts/rerun-apps-version-check.py

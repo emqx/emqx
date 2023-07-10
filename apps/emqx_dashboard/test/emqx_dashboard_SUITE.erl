@@ -149,6 +149,15 @@ t_swagger_json(_Config) ->
     {ok, {{"HTTP/1.1", 200, "OK"}, _Headers, Body2}} =
         httpc:request(get, {Url, []}, [], [{body_format, binary}]),
     ?assertEqual(Body1, Body2),
+    ?assertMatch(
+        #{
+            <<"info">> := #{
+                <<"title">> := _,
+                <<"version">> := _
+            }
+        },
+        emqx_utils_json:decode(Body1)
+    ),
     ok.
 
 t_cli(_Config) ->

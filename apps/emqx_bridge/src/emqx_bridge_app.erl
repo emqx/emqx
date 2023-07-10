@@ -31,7 +31,7 @@
 
 start(_StartType, _StartArgs) ->
     {ok, Sup} = emqx_bridge_sup:start_link(),
-    ok = start_ee_apps(),
+    ok = ensure_enterprise_schema_loaded(),
     ok = emqx_bridge:load(),
     ok = emqx_bridge:load_hook(),
     ok = emqx_config_handler:add_handler(?LEAF_NODE_HDLR_PATH, ?MODULE),
@@ -46,11 +46,11 @@ stop(_State) ->
     ok.
 
 -if(?EMQX_RELEASE_EDITION == ee).
-start_ee_apps() ->
-    {ok, _} = application:ensure_all_started(emqx_ee_bridge),
+ensure_enterprise_schema_loaded() ->
+    _ = emqx_bridge_enterprise:module_info(),
     ok.
 -else.
-start_ee_apps() ->
+ensure_enterprise_schema_loaded() ->
     ok.
 -endif.
 

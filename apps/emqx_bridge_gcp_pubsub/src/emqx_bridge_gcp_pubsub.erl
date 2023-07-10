@@ -21,7 +21,7 @@
     service_account_json_converter/1
 ]).
 
-%% emqx_ee_bridge "unofficial" API
+%% emqx_bridge_enterprise "unofficial" API
 -export([conn_bridge_examples/1]).
 
 -type service_account_json() :: map().

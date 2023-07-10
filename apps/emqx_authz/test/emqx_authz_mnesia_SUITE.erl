@@ -18,6 +18,8 @@
 -compile(nowarn_export_all).
 -compile(export_all).
 
+-include_lib("emqx_authz.hrl").
+
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
 
@@ -44,6 +46,7 @@ init_per_testcase(_TestCase, Config) ->
     Config.
 
 end_per_testcase(_TestCase, _Config) ->
+    _ = emqx_authz:set_feature_available(rich_actions, true),
     ok = emqx_authz_mnesia:purge_rules().
 
 set_special_configs(emqx_authz) ->
@@ -54,51 +57,135 @@ set_special_configs(_) ->
 %%------------------------------------------------------------------------------
 %% Testcases
 %%------------------------------------------------------------------------------
-t_username_topic_rules(_Config) ->
-    ok = test_topic_rules(username).
 
-t_clientid_topic_rules(_Config) ->
-    ok = test_topic_rules(clientid).
+t_authz(_Config) ->
+    ClientInfo = emqx_authz_test_lib:base_client_info(),
 
-t_all_topic_rules(_Config) ->
-    ok = test_topic_rules(all).
+    test_authz(
+        allow,
+        allow,
+        {all, #{
+            <<"permission">> => <<"allow">>, <<"action">> => <<"subscribe">>, <<"topic">> => <<"t">>
+        }},
+        {ClientInfo, ?AUTHZ_SUBSCRIBE, <<"t">>}
+    ),
+    test_authz(
+        allow,
+        allow,
+        {{username, <<"username">>}, #{
+            <<"permission">> => <<"allow">>,
+            <<"action">> => <<"subscribe">>,
+            <<"topic">> => <<"t/${username}">>
+        }},
+        {ClientInfo, ?AUTHZ_SUBSCRIBE, <<"t/username">>}
+    ),
+    test_authz(
+        allow,
+        allow,
+        {{username, <<"username">>}, #{
+            <<"permission">> => <<"allow">>,
+            <<"action">> => <<"subscribe">>,
+            <<"topic">> => <<"eq t/${username}">>
+        }},
+        {ClientInfo, ?AUTHZ_SUBSCRIBE, <<"t/${username}">>}
+    ),
+    test_authz(
+        deny,
+        deny,
+        {{username, <<"username">>}, #{
+            <<"permission">> => <<"allow">>,
+            <<"action">> => <<"subscribe">>,
+            <<"topic">> => <<"eq t/${username}">>
+        }},
+        {ClientInfo, ?AUTHZ_SUBSCRIBE, <<"t/username">>}
+    ),
+    test_authz(
+        allow,
+        allow,
+        {{clientid, <<"clientid">>}, #{
+            <<"permission">> => <<"allow">>,
+            <<"action">> => <<"subscribe">>,
+            <<"topic">> => <<"eq t/${username}">>
+        }},
+        {ClientInfo, ?AUTHZ_SUBSCRIBE, <<"t/${username}">>}
+    ),
+    test_authz(
+        allow,
+        allow,
+        {
+            {clientid, <<"clientid">>},
+            #{
+                <<"permission">> => <<"allow">>,
+                <<"action">> => <<"publish">>,
+                <<"topic">> => <<"t">>,
+                <<"qos">> => <<"1,2">>,
+                <<"retain">> => <<"true">>
+            }
+        },
+        {ClientInfo, ?AUTHZ_PUBLISH(1, true), <<"t">>}
+    ),
+    test_authz(
+        deny,
+        allow,
+        {
+            {clientid, <<"clientid">>},
+            #{
+                <<"permission">> => <<"allow">>,
+                <<"action">> => <<"publish">>,
+                <<"topic">> => <<"t">>,
+                <<"qos">> => <<"1,2">>,
+                <<"retain">> => <<"true">>
+            }
+        },
+        {ClientInfo, ?AUTHZ_PUBLISH(0, true), <<"t">>}
+    ),
+    test_authz(
+        deny,
+        allow,
+        {
+            {clientid, <<"clientid">>},
+            #{
+                <<"permission">> => <<"allow">>,
+                <<"action">> => <<"publish">>,
+                <<"topic">> => <<"t">>,
+                <<"qos">> => <<"1,2">>,
+                <<"retain">> => <<"true">>
+            }
+        },
+        {ClientInfo, ?AUTHZ_PUBLISH(1, false), <<"t">>}
+    ).
 
-test_topic_rules(Key) ->
-    ClientInfo = #{
-        clientid => <<"clientid">>,
-        username => <<"username">>,
-        peerhost => {127, 0, 0, 1},
-        zone => default,
-        listener => {tcp, default}
-    },
+test_authz(Expected, ExpectedNoRichActions, {Who, Rule}, {ClientInfo, Action, Topic}) ->
+    test_authz_with_rich_actions(true, Expected, {Who, Rule}, {ClientInfo, Action, Topic}),
+    test_authz_with_rich_actions(
+        false, ExpectedNoRichActions, {Who, Rule}, {ClientInfo, Action, Topic}
+    ).
 
-    SetupSamples = fun(CInfo, Samples) ->
-        setup_client_samples(CInfo, Samples, Key)
-    end,
-
-    ok = emqx_authz_test_lib:test_no_topic_rules(ClientInfo, SetupSamples),
-
-    ok = emqx_authz_test_lib:test_allow_topic_rules(ClientInfo, SetupSamples),
-
-    ok = emqx_authz_test_lib:test_deny_topic_rules(ClientInfo, SetupSamples).
+test_authz_with_rich_actions(
+    RichActionsEnabled, Expected, {Who, Rule}, {ClientInfo, Action, Topic}
+) ->
+    ct:pal("Test authz rich_actions:~p~nwho:~p~nrule:~p~nattempt:~p~nexpected ~p", [
+        RichActionsEnabled, Who, Rule, {ClientInfo, Action, Topic}, Expected
+    ]),
+    try
+        _ = emqx_authz:set_feature_available(rich_actions, RichActionsEnabled),
+        ok = emqx_authz_mnesia:store_rules(Who, [Rule]),
+        ?assertEqual(Expected, emqx_access_control:authorize(ClientInfo, Action, Topic))
+    after
+        ok = emqx_authz_mnesia:purge_rules()
+    end.
 
 t_normalize_rules(_Config) ->
-    ClientInfo = #{
-        clientid => <<"clientid">>,
-        username => <<"username">>,
-        peerhost => {127, 0, 0, 1},
-        zone => default,
-        listener => {tcp, default}
-    },
+    ClientInfo = emqx_authz_test_lib:base_client_info(),
 
     ok = emqx_authz_mnesia:store_rules(
         {username, <<"username">>},
-        [{allow, publish, "t"}]
+        [#{<<"permission">> => <<"allow">>, <<"action">> => <<"publish">>, <<"topic">> => <<"t">>}]
     ),
 
     ?assertEqual(
         allow,
-        emqx_access_control:authorize(ClientInfo, publish, <<"t">>)
+        emqx_access_control:authorize(ClientInfo, ?AUTHZ_PUBLISH, <<"t">>)
     ),
 
     ?assertException(
@@ -106,25 +193,31 @@ t_normalize_rules(_Config) ->
         {invalid_rule, _},
         emqx_authz_mnesia:store_rules(
             {username, <<"username">>},
-            [[allow, publish, <<"t">>]]
+            [[<<"allow">>, <<"publish">>, <<"t">>]]
         )
     ),
 
     ?assertException(
         error,
-        {invalid_rule_action, _},
+        {invalid_action, _},
         emqx_authz_mnesia:store_rules(
             {username, <<"username">>},
-            [{allow, pub, <<"t">>}]
+            [#{<<"permission">> => <<"allow">>, <<"action">> => <<"pub">>, <<"topic">> => <<"t">>}]
         )
     ),
 
     ?assertException(
         error,
-        {invalid_rule_permission, _},
+        {invalid_permission, _},
         emqx_authz_mnesia:store_rules(
             {username, <<"username">>},
-            [{accept, publish, <<"t">>}]
+            [
+                #{
+                    <<"permission">> => <<"accept">>,
+                    <<"action">> => <<"publish">>,
+                    <<"topic">> => <<"t">>
+                }
+            ]
         )
     ).
 
@@ -137,28 +230,6 @@ raw_mnesia_authz_config() ->
         <<"enable">> => <<"true">>,
         <<"type">> => <<"built_in_database">>
     }.
-
-setup_client_samples(ClientInfo, Samples, Key) ->
-    ok = emqx_authz_mnesia:purge_rules(),
-    Rules = lists:flatmap(
-        fun(#{topics := Topics, permission := Permission, action := Action}) ->
-            lists:map(
-                fun(Topic) ->
-                    {binary_to_atom(Permission), binary_to_atom(Action), Topic}
-                end,
-                Topics
-            )
-        end,
-        Samples
-    ),
-    #{username := Username, clientid := ClientId} = ClientInfo,
-    Who =
-        case Key of
-            username -> {username, Username};
-            clientid -> {clientid, ClientId};
-            all -> all
-        end,
-    ok = emqx_authz_mnesia:store_rules(Who, Rules).
 
 setup_config() ->
     emqx_authz_test_lib:setup_config(raw_mnesia_authz_config(), #{}).

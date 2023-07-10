@@ -19,7 +19,7 @@
 -compile(export_all).
 -compile(nowarn_export_all).
 
--include("emqx_exhook.hrl").
+-include_lib("emqx/include/emqx_access_control.hrl").
 
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
@@ -126,7 +126,7 @@ t_access_failed_if_no_server_running(Config) ->
         allow,
         emqx_access_control:authorize(
             ClientInfo#{username => <<"gooduser">>},
-            publish,
+            ?AUTHZ_PUBLISH,
             <<"acl/1">>
         )
     ),
@@ -135,7 +135,7 @@ t_access_failed_if_no_server_running(Config) ->
         deny,
         emqx_access_control:authorize(
             ClientInfo#{username => <<"baduser">>},
-            publish,
+            ?AUTHZ_PUBLISH,
             <<"acl/2">>
         )
     ),
@@ -148,7 +148,7 @@ t_access_failed_if_no_server_running(Config) ->
 
     ?assertMatch(
         {stop, #{result := deny, from := exhook}},
-        emqx_exhook_handler:on_client_authorize(ClientInfo, publish, <<"t/1">>, #{
+        emqx_exhook_handler:on_client_authorize(ClientInfo, ?AUTHZ_PUBLISH, <<"t/1">>, #{
             result => allow, from => exhook
         })
     ),

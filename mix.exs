@@ -72,7 +72,7 @@ defmodule EMQXUmbrella.MixProject do
       # in conflict by emqtt and hocon
       {:getopt, "1.0.2", override: true},
       {:snabbkaffe, github: "kafka4beam/snabbkaffe", tag: "1.0.8", override: true},
-      {:hocon, github: "emqx/hocon", tag: "0.39.11", override: true},
+      {:hocon, github: "emqx/hocon", tag: "0.39.13", override: true},
       {:emqx_http_lib, github: "emqx/emqx_http_lib", tag: "0.5.2", override: true},
       {:esasl, github: "emqx/esasl", tag: "0.2.0"},
       {:jose, github: "potatosalad/erlang-jose", tag: "1.11.2"},
@@ -91,8 +91,7 @@ defmodule EMQXUmbrella.MixProject do
       {:cowlib,
        github: "ninenines/cowlib", ref: "c6553f8308a2ca5dcd69d845f0a7d098c40c3363", override: true},
       # in conflict by cowboy_swagger and cowboy
-      {:ranch,
-       github: "emqx/ranch", ref: "de8ba2a00817c0a6eb1b8f20d6fb3e44e2c9a5aa", override: true},
+      {:ranch, github: "emqx/ranch", tag: "1.8.1-emqx", override: true},
       # in conflict by grpc and eetcd
       {:gpb, "4.19.7", override: true, runtime: false},
       {:hackney, github: "emqx/hackney", tag: "1.18.1-1", override: true},
@@ -196,7 +195,7 @@ defmodule EMQXUmbrella.MixProject do
 
   defp enterprise_deps(_profile_info = %{edition_type: :enterprise}) do
     [
-      {:hstreamdb_erl, github: "hstreamdb/hstreamdb_erl", tag: "0.2.5"},
+      {:hstreamdb_erl, github: "hstreamdb/hstreamdb_erl", tag: "0.3.1+v0.12.0"},
       {:influxdb, github: "emqx/influxdb-client-erl", tag: "1.1.11", override: true},
       {:wolff, github: "kafka4beam/wolff", tag: "1.7.6"},
       {:kafka_protocol, github: "kafka4beam/kafka_protocol", tag: "4.1.3", override: true},
@@ -396,8 +395,6 @@ defmodule EMQXUmbrella.MixProject do
         do: [
           emqx_license: :permanent,
           emqx_enterprise: :load,
-          emqx_ee_connector: :permanent,
-          emqx_ee_bridge: :permanent,
           emqx_bridge_kafka: :permanent,
           emqx_bridge_pulsar: :permanent,
           emqx_bridge_gcp_pubsub: :permanent,

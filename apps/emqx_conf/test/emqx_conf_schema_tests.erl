@@ -363,14 +363,14 @@ listeners_test() ->
     ?assertMatch(
         #{
             <<"bind">> := {{0, 0, 0, 0}, 1883},
-            <<"enabled">> := true
+            <<"enable">> := true
         },
         Tcp
     ),
     ?assertMatch(
         #{
             <<"bind">> := {{0, 0, 0, 0}, 8083},
-            <<"enabled">> := true,
+            <<"enable">> := true,
             <<"websocket">> := #{<<"mqtt_path">> := "/mqtt"}
         },
         Ws

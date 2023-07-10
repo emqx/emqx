@@ -64,7 +64,7 @@ bridge_to_resource_type(<<"mqtt">>) -> emqx_bridge_mqtt_connector;
 bridge_to_resource_type(mqtt) -> emqx_bridge_mqtt_connector;
 bridge_to_resource_type(<<"webhook">>) -> emqx_connector_http;
 bridge_to_resource_type(webhook) -> emqx_connector_http;
-bridge_to_resource_type(BridgeType) -> emqx_ee_bridge:resource_type(BridgeType).
+bridge_to_resource_type(BridgeType) -> emqx_bridge_enterprise:resource_type(BridgeType).
 -else.
 bridge_to_resource_type(<<"mqtt">>) -> emqx_bridge_mqtt_connector;
 bridge_to_resource_type(mqtt) -> emqx_bridge_mqtt_connector;

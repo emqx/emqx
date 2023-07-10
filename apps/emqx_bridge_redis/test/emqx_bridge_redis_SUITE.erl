@@ -117,11 +117,9 @@ wait_for_ci_redis(Checks, Config) ->
             ProxyHost = os:getenv("PROXY_HOST", ?PROXY_HOST),
             ProxyPort = list_to_integer(os:getenv("PROXY_PORT", ?PROXY_PORT)),
             emqx_common_test_helpers:reset_proxy(ProxyHost, ProxyPort),
-            ok = emqx_common_test_helpers:start_apps([emqx_conf]),
-            ok = emqx_connector_test_helpers:start_apps([
-                emqx_resource, emqx_bridge, emqx_rule_engine
+            ok = emqx_common_test_helpers:start_apps([
+                emqx_conf, emqx_resource, emqx_connector, emqx_bridge, emqx_rule_engine
             ]),
-            {ok, _} = application:ensure_all_started(emqx_connector),
             [
                 {proxy_host, ProxyHost},
                 {proxy_port, ProxyPort}
@@ -271,21 +269,21 @@ t_check_replay(Config) ->
                             lists:seq(1, ?BATCH_SIZE)
                         ),
                         #{
-                            ?snk_kind := redis_ee_connector_send_done,
+                            ?snk_kind := redis_bridge_connector_send_done,
                             batch := true,
                             result := {error, _}
                         },
                         10_000
                     )
             end),
-            #{?snk_kind := redis_ee_connector_send_done, batch := true, result := {ok, _}},
+            #{?snk_kind := redis_bridge_connector_send_done, batch := true, result := {ok, _}},
             10_000
         ),
         fun(Trace) ->
             ?assert(
                 ?strict_causality(
-                    #{?snk_kind := redis_ee_connector_send_done, result := {error, _}},
-                    #{?snk_kind := redis_ee_connector_send_done, result := {ok, _}},
+                    #{?snk_kind := redis_bridge_connector_send_done, result := {error, _}},
+                    #{?snk_kind := redis_bridge_connector_send_done, result := {ok, _}},
                     Trace
                 )
             )
@@ -308,14 +306,14 @@ t_permanent_error(_Config) ->
         begin
             ?wait_async_action(
                 publish_message(Topic, Payload),
-                #{?snk_kind := redis_ee_connector_send_done},
+                #{?snk_kind := redis_bridge_connector_send_done},
                 10_000
             )
         end,
         fun(Trace) ->
             ?assertMatch(
                 [#{result := {error, _}} | _],
-                ?of_kind(redis_ee_connector_send_done, Trace)
+                ?of_kind(redis_bridge_connector_send_done, Trace)
             )
         end
     ),
@@ -334,7 +332,7 @@ t_create_disconnected(Config) ->
         fun(Trace) ->
             ?assertMatch(
                 [#{error := _} | _],
-                ?of_kind(redis_ee_connector_start_error, Trace)
+                ?of_kind(redis_bridge_connector_start_error, Trace)
             ),
             ok
         end
@@ -365,7 +363,7 @@ check_resource_queries(ResourceId, BaseTopic, IsBatch) ->
                 end,
                 lists:seq(1, N)
             ),
-            #{?snk_kind := redis_ee_connector_send_done, batch := IsBatch},
+            #{?snk_kind := redis_bridge_connector_send_done, batch := IsBatch},
             5000
         ),
         fun(Trace) ->
@@ -374,13 +372,13 @@ check_resource_queries(ResourceId, BaseTopic, IsBatch) ->
                 true ->
                     ?assertMatch(
                         [#{result := {ok, _}, batch := true, batch_size := ?BATCH_SIZE} | _],
-                        ?of_kind(redis_ee_connector_send_done, Trace)
+                        ?of_kind(redis_bridge_connector_send_done, Trace)
                     ),
                     ?assertEqual(?BATCH_SIZE, AddedMsgCount);
                 false ->
                     ?assertMatch(
                         [#{result := {ok, _}, batch := false} | _],
-                        ?of_kind(redis_ee_connector_send_done, Trace)
+                        ?of_kind(redis_bridge_connector_send_done, Trace)
                     ),
                     ?assertEqual(1, AddedMsgCount)
             end

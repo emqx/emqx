@@ -1,8 +1,14 @@
 {application, emqx_bridge_tdengine, [
     {description, "EMQX Enterprise TDEngine Bridge"},
-    {vsn, "0.1.3"},
+    {vsn, "0.1.4"},
     {registered, []},
-    {applications, [kernel, stdlib, tdengine]},
+    {applications, [
+        kernel,
+        stdlib,
+        emqx_resource,
+        emqx_bridge,
+        tdengine
+    ]},
     {env, []},
     {modules, []},
     {links, []}

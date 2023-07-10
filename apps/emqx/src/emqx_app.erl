@@ -26,8 +26,8 @@
     get_release/0,
     set_config_loader/1,
     get_config_loader/0,
-    set_init_tnx_id/1,
-    get_init_tnx_id/0
+    unset_config_loaded/0,
+    init_load_done/0
 ]).
 
 -include("logger.hrl").
@@ -56,24 +56,22 @@ prep_stop(_State) ->
 
 stop(_State) -> ok.
 
+-define(CONFIG_LOADER, config_loader).
+-define(DEFAULT_LOADER, emqx).
 %% @doc Call this function to make emqx boot without loading config,
 %% in case we want to delegate the config load to a higher level app
 %% which manages emqx app.
 set_config_loader(Module) when is_atom(Module) ->
-    application:set_env(emqx, config_loader, Module).
+    application:set_env(emqx, ?CONFIG_LOADER, Module).
 
 get_config_loader() ->
-    application:get_env(emqx, config_loader, emqx).
+    application:get_env(emqx, ?CONFIG_LOADER, ?DEFAULT_LOADER).
 
-%% @doc Set the transaction id from which this node should start applying after boot.
-%% The transaction ID is received from the core node which we just copied the latest
-%% config from.
-set_init_tnx_id(TnxId) ->
-    application:set_env(emqx, cluster_rpc_init_tnx_id, TnxId).
+unset_config_loaded() ->
+    application:unset_env(emqx, ?CONFIG_LOADER).
 
-%% @doc Get the transaction id from which this node should start applying after boot.
-get_init_tnx_id() ->
-    application:get_env(emqx, cluster_rpc_init_tnx_id, -1).
+init_load_done() ->
+    get_config_loader() =/= ?DEFAULT_LOADER.
 
 maybe_load_config() ->
     case get_config_loader() of

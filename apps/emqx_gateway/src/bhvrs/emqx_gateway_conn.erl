@@ -715,13 +715,13 @@ parse_incoming(
             NState = State#state{parse_state = NParseState},
             parse_incoming(Rest, [Packet | Packets], NState)
     catch
-        error:Reason:Stk ->
+        error:Reason:Stack ->
             ?SLOG(error, #{
                 msg => "parse_frame_failed",
                 at_state => ParseState,
                 input_bytes => Data,
                 reason => Reason,
-                stacktrace => Stk
+                stacktrace => Stack
             }),
             {[{frame_error, Reason} | Packets], State}
     end.

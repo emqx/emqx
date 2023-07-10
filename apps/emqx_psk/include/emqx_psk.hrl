@@ -17,3 +17,7 @@
 -define(TAB, emqx_psk).
 
 -define(PSK_SHARD, emqx_psk_shard).
+
+-define(PSK_KEY, psk_authentication).
+
+-define(DEFAULT_DELIMITER, <<":">>).

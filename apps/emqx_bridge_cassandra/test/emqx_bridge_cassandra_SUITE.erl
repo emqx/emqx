@@ -170,9 +170,8 @@ common_init(Config0) ->
             ProxyPort = list_to_integer(os:getenv("PROXY_PORT", "8474")),
             emqx_common_test_helpers:reset_proxy(ProxyHost, ProxyPort),
             % Ensure EE bridge module is loaded
-            _ = application:load(emqx_ee_bridge),
-            _ = emqx_ee_bridge:module_info(),
             ok = emqx_common_test_helpers:start_apps([emqx_conf, emqx_bridge]),
+            _ = emqx_bridge_enterprise:module_info(),
             emqx_mgmt_api_test_util:init_suite(),
             % Connect to cassnadra directly and create the table
             catch connect_and_drop_table(Config0),

@@ -24,23 +24,6 @@
 -define(S3_HOST, <<"minio">>).
 -define(S3_PORT, 9000).
 
-start_additional_node(Config, Name) ->
-    emqx_common_test_helpers:start_slave(
-        Name,
-        [
-            {apps, [emqx_ft]},
-            {join_to, node()},
-            {configure_gen_rpc, true},
-            {env_handler, env_handler(Config)}
-        ]
-    ).
-
-stop_additional_node(Node) ->
-    _ = rpc:call(Node, ekka, leave, []),
-    ok = rpc:call(Node, emqx_common_test_helpers, stop_apps, [[emqx_ft]]),
-    ok = emqx_common_test_helpers:stop_slave(Node),
-    ok.
-
 env_handler(Config) ->
     fun
         (emqx_ft) ->
@@ -136,3 +119,13 @@ upload_file(ClientId, FileId, Name, Data, Node) ->
 
 aws_config() ->
     emqx_s3_test_helpers:aws_config(tcp, binary_to_list(?S3_HOST), ?S3_PORT).
+
+pem_privkey() ->
+    <<
+        "\n"
+        "-----BEGIN EC PRIVATE KEY-----\n"
+        "MHQCAQEEICKTbbathzvD8zvgjL7qRHhW4alS0+j0Loo7WeYX9AxaoAcGBSuBBAAK\n"
+        "oUQDQgAEJBdF7MIdam5T4YF3JkEyaPKdG64TVWCHwr/plC0QzNVJ67efXwxlVGTo\n"
+        "ju0VBj6tOX1y6C0U+85VOM0UU5xqvw==\n"
+        "-----END EC PRIVATE KEY-----\n"
+    >>.

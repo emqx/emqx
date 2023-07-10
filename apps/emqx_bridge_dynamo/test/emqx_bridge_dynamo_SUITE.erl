@@ -88,7 +88,7 @@ init_per_suite(Config) ->
 
 end_per_suite(_Config) ->
     emqx_mgmt_api_test_util:end_suite(),
-    ok = emqx_common_test_helpers:stop_apps([emqx_bridge, emqx_conf]),
+    ok = emqx_common_test_helpers:stop_apps([emqx_bridge, emqx_resource, emqx_conf, erlcloud]),
     ok.
 
 init_per_testcase(TestCase, Config) ->
@@ -128,10 +128,12 @@ common_init(ConfigT) ->
             ProxyHost = os:getenv("PROXY_HOST", "toxiproxy"),
             ProxyPort = list_to_integer(os:getenv("PROXY_PORT", "8474")),
             emqx_common_test_helpers:reset_proxy(ProxyHost, ProxyPort),
-            % Ensure EE bridge module is loaded
-            _ = application:load(emqx_ee_bridge),
-            _ = emqx_ee_bridge:module_info(),
-            ok = emqx_common_test_helpers:start_apps([emqx_conf, emqx_bridge]),
+            % Ensure enterprise bridge module is loaded
+            ok = emqx_common_test_helpers:start_apps([
+                emqx_conf, emqx_resource, emqx_bridge
+            ]),
+            _ = application:ensure_all_started(erlcloud),
+            _ = emqx_bridge_enterprise:module_info(),
             emqx_mgmt_api_test_util:init_suite(),
             % setup dynamo
             setup_dynamo(Config0),

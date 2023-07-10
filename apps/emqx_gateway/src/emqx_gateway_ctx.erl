@@ -162,8 +162,8 @@ connection_closed(_Ctx = #{gwname := GwName}, ClientId) ->
     emqx_types:topic()
 ) ->
     allow | deny.
-authorize(_Ctx, ClientInfo, PubSub, Topic) ->
-    emqx_access_control:authorize(ClientInfo, PubSub, Topic).
+authorize(_Ctx, ClientInfo, Action, Topic) ->
+    emqx_access_control:authorize(ClientInfo, Action, Topic).
 
 metrics_inc(_Ctx = #{gwname := GwName}, Name) ->
     emqx_gateway_metrics:inc(GwName, Name).

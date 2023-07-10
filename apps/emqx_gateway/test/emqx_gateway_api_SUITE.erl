@@ -409,6 +409,7 @@ t_listeners_tcp(_) ->
 
     {204, _} = request(delete, "/gateways/stomp/listeners/stomp:tcp:def"),
     {404, _} = request(get, "/gateways/stomp/listeners/stomp:tcp:def"),
+    {404, _} = request(delete, "/gateways/stomp/listeners/stomp:tcp:def"),
     ok.
 
 t_listeners_max_conns(_) ->
@@ -480,9 +481,19 @@ t_listeners_authn(_) ->
     {200, ConfResp3} = request(get, Path),
     assert_confs(AuthConf2, ConfResp3),
 
+    {404, _} = request(get, Path ++ "/users/not_exists"),
+    {404, _} = request(delete, Path ++ "/users/not_exists"),
+
     {204, _} = request(delete, Path),
     %% FIXME: 204?
     {204, _} = request(get, Path),
+
+    BadPath = "/gateways/stomp/listeners/stomp:tcp:not_exists/authentication/users/foo",
+    {404, _} = request(get, BadPath),
+    {404, _} = request(delete, BadPath),
+
+    {404, _} = request(get, "/gateways/stomp/listeners/not_exists"),
+    {404, _} = request(delete, "/gateways/stomp/listeners/not_exists"),
     ok.
 
 t_listeners_authn_data_mgmt(_) ->
@@ -573,6 +584,47 @@ t_listeners_authn_data_mgmt(_) ->
         {filename, "user-credentials.csv", CSVData}
     ]),
 
+    ok.
+
+t_clients(_) ->
+    GwConf = #{
+        name => <<"mqttsn">>,
+        gateway_id => 1,
+        broadcast => true,
+        predefined => [#{id => 1, topic => <<"t/a">>}],
+        enable_qos3 => true,
+        listeners => [
+            #{name => <<"def">>, type => <<"udp">>, bind => <<"1884">>}
+        ]
+    },
+    init_gw("mqttsn", GwConf),
+    Path = "/gateways/mqttsn/clients",
+    MyClient = Path ++ "/my_client",
+    MyClientSubscriptions = MyClient ++ "/subscriptions",
+    {200, NoClients} = request(get, Path),
+    ?assertMatch(#{data := []}, NoClients),
+
+    ClientSocket = emqx_gateway_test_utils:sn_client_connect(<<"my_client">>),
+    {200, _} = request(get, MyClient),
+    {200, Clients} = request(get, Path),
+    ?assertMatch(#{data := [#{clientid := <<"my_client">>}]}, Clients),
+
+    {201, _} = request(post, MyClientSubscriptions, #{topic => <<"test/topic">>}),
+    {200, Subscriptions} = request(get, MyClientSubscriptions),
+    ?assertMatch([#{topic := <<"test/topic">>}], Subscriptions),
+    {204, _} = request(delete, MyClientSubscriptions ++ "/test%2Ftopic"),
+    {200, []} = request(get, MyClientSubscriptions),
+    {404, _} = request(delete, MyClientSubscriptions ++ "/test%2Ftopic"),
+
+    {204, _} = request(delete, MyClient),
+    {404, _} = request(delete, MyClient),
+    {404, _} = request(get, MyClient),
+    {404, _} = request(get, MyClientSubscriptions),
+    {404, _} = request(post, MyClientSubscriptions, #{topic => <<"foo">>}),
+    {404, _} = request(delete, MyClientSubscriptions ++ "/topic"),
+    {200, NoClients2} = request(get, Path),
+    ?assertMatch(#{data := []}, NoClients2),
+    emqx_gateway_test_utils:sn_client_disconnect(ClientSocket),
     ok.
 
 t_authn_fuzzy_search(_) ->

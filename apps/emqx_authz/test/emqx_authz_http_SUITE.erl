@@ -65,6 +65,7 @@ init_per_testcase(_Case, Config) ->
     Config.
 
 end_per_testcase(_Case, _Config) ->
+    _ = emqx_authz:set_feature_available(rich_actions, true),
     try
         ok = emqx_authz_http_test_server:stop()
     catch
@@ -97,7 +98,7 @@ t_response_handling(_Config) ->
 
     ?assertEqual(
         allow,
-        emqx_access_control:authorize(ClientInfo, publish, <<"t">>)
+        emqx_access_control:authorize(ClientInfo, ?AUTHZ_PUBLISH, <<"t">>)
     ),
 
     %% Not OK, get, no body
@@ -109,7 +110,7 @@ t_response_handling(_Config) ->
         #{}
     ),
 
-    deny = emqx_access_control:authorize(ClientInfo, publish, <<"t">>),
+    deny = emqx_access_control:authorize(ClientInfo, ?AUTHZ_PUBLISH, <<"t">>),
 
     %% OK, get, 204
     ok = setup_handler_and_config(
@@ -122,7 +123,7 @@ t_response_handling(_Config) ->
 
     ?assertEqual(
         allow,
-        emqx_access_control:authorize(ClientInfo, publish, <<"t">>)
+        emqx_access_control:authorize(ClientInfo, ?AUTHZ_PUBLISH, <<"t">>)
     ),
 
     %% Not OK, get, 400
@@ -136,7 +137,7 @@ t_response_handling(_Config) ->
 
     ?assertEqual(
         deny,
-        emqx_access_control:authorize(ClientInfo, publish, <<"t">>)
+        emqx_access_control:authorize(ClientInfo, ?AUTHZ_PUBLISH, <<"t">>)
     ),
 
     %% Not OK, get, 400 + body & headers
@@ -155,7 +156,7 @@ t_response_handling(_Config) ->
 
     ?assertEqual(
         deny,
-        emqx_access_control:authorize(ClientInfo, publish, <<"t">>)
+        emqx_access_control:authorize(ClientInfo, ?AUTHZ_PUBLISH, <<"t">>)
     ),
 
     %% the server cannot be reached; should skip to the next
@@ -165,7 +166,7 @@ t_response_handling(_Config) ->
     ?check_trace(
         ?assertEqual(
             deny,
-            emqx_access_control:authorize(ClientInfo, publish, <<"t">>)
+            emqx_access_control:authorize(ClientInfo, ?AUTHZ_PUBLISH, <<"t">>)
         ),
         fun(Trace) ->
             ?assertMatch(
@@ -200,7 +201,9 @@ t_query_params(_Config) ->
                 proto_name := <<"MQTT">>,
                 mountpoint := <<"MOUNTPOINT">>,
                 topic := <<"t/1">>,
-                action := <<"publish">>
+                action := <<"publish">>,
+                qos := <<"1">>,
+                retain := <<"false">>
             } = cowboy_req:match_qs(
                 [
                     username,
@@ -209,7 +212,9 @@ t_query_params(_Config) ->
                     proto_name,
                     mountpoint,
                     topic,
-                    action
+                    action,
+                    qos,
+                    retain
                 ],
                 Req0
             ),
@@ -224,7 +229,9 @@ t_query_params(_Config) ->
                 "proto_name=${proto_name}&"
                 "mountpoint=${mountpoint}&"
                 "topic=${topic}&"
-                "action=${action}"
+                "action=${action}&"
+                "qos=${qos}&"
+                "retain=${retain}"
             >>
         }
     ),
@@ -241,7 +248,7 @@ t_query_params(_Config) ->
 
     ?assertEqual(
         allow,
-        emqx_access_control:authorize(ClientInfo, publish, <<"t/1">>)
+        emqx_access_control:authorize(ClientInfo, ?AUTHZ_PUBLISH(1, false), <<"t/1">>)
     ).
 
 t_path(_Config) ->
@@ -256,7 +263,9 @@ t_path(_Config) ->
                     "MQTT/"
                     "MOUNTPOINT/"
                     "t%2F1/"
-                    "publish"
+                    "publish/"
+                    "1/"
+                    "false"
                 >>,
                 cowboy_req:path(Req0)
             ),
@@ -271,7 +280,9 @@ t_path(_Config) ->
                 "${proto_name}/"
                 "${mountpoint}/"
                 "${topic}/"
-                "${action}"
+                "${action}/"
+                "${qos}/"
+                "${retain}"
             >>
         }
     ),
@@ -288,7 +299,7 @@ t_path(_Config) ->
 
     ?assertEqual(
         allow,
-        emqx_access_control:authorize(ClientInfo, publish, <<"t/1">>)
+        emqx_access_control:authorize(ClientInfo, ?AUTHZ_PUBLISH(1, false), <<"t/1">>)
     ).
 
 t_json_body(_Config) ->
@@ -309,7 +320,9 @@ t_json_body(_Config) ->
                     <<"proto_name">> := <<"MQTT">>,
                     <<"mountpoint">> := <<"MOUNTPOINT">>,
                     <<"topic">> := <<"t">>,
-                    <<"action">> := <<"publish">>
+                    <<"action">> := <<"publish">>,
+                    <<"qos">> := <<"1">>,
+                    <<"retain">> := <<"false">>
                 },
                 emqx_utils_json:decode(RawBody, [return_maps])
             ),
@@ -324,7 +337,9 @@ t_json_body(_Config) ->
                 <<"proto_name">> => <<"${proto_name}">>,
                 <<"mountpoint">> => <<"${mountpoint}">>,
                 <<"topic">> => <<"${topic}">>,
-                <<"action">> => <<"${action}">>
+                <<"action">> => <<"${action}">>,
+                <<"qos">> => <<"${qos}">>,
+                <<"retain">> => <<"${retain}">>
             }
         }
     ),
@@ -341,7 +356,45 @@ t_json_body(_Config) ->
 
     ?assertEqual(
         allow,
-        emqx_access_control:authorize(ClientInfo, publish, <<"t">>)
+        emqx_access_control:authorize(ClientInfo, ?AUTHZ_PUBLISH(1, false), <<"t">>)
+    ).
+
+t_no_rich_actions(_Config) ->
+    _ = emqx_authz:set_feature_available(rich_actions, false),
+
+    ok = setup_handler_and_config(
+        fun(Req0, State) ->
+            ?assertEqual(
+                <<"/authz/users/">>,
+                cowboy_req:path(Req0)
+            ),
+
+            {ok, RawBody, Req1} = cowboy_req:read_body(Req0),
+
+            %% No interpolation if rich_actions is disabled
+            ?assertMatch(
+                #{
+                    <<"qos">> := <<"${qos}">>,
+                    <<"retain">> := <<"${retain}">>
+                },
+                emqx_utils_json:decode(RawBody, [return_maps])
+            ),
+            {ok, ?AUTHZ_HTTP_RESP(allow, Req1), State}
+        end,
+        #{
+            <<"method">> => <<"post">>,
+            <<"body">> => #{
+                <<"qos">> => <<"${qos}">>,
+                <<"retain">> => <<"${retain}">>
+            }
+        }
+    ),
+
+    ClientInfo = emqx_authz_test_lib:base_client_info(),
+
+    ?assertEqual(
+        allow,
+        emqx_access_control:authorize(ClientInfo, ?AUTHZ_PUBLISH(1, false), <<"t">>)
     ).
 
 t_placeholder_and_body(_Config) ->
@@ -401,7 +454,7 @@ t_placeholder_and_body(_Config) ->
 
     ?assertEqual(
         allow,
-        emqx_access_control:authorize(ClientInfo, publish, <<"t">>)
+        emqx_access_control:authorize(ClientInfo, ?AUTHZ_PUBLISH, <<"t">>)
     ).
 
 t_no_value_for_placeholder(_Config) ->
@@ -441,7 +494,7 @@ t_no_value_for_placeholder(_Config) ->
 
     ?assertEqual(
         allow,
-        emqx_access_control:authorize(ClientInfo, publish, <<"t">>)
+        emqx_access_control:authorize(ClientInfo, ?AUTHZ_PUBLISH, <<"t">>)
     ).
 
 t_create_replace(_Config) ->
@@ -466,7 +519,7 @@ t_create_replace(_Config) ->
 
     ?assertEqual(
         allow,
-        emqx_access_control:authorize(ClientInfo, publish, <<"t">>)
+        emqx_access_control:authorize(ClientInfo, ?AUTHZ_PUBLISH, <<"t">>)
     ),
 
     %% Changing to valid config
@@ -485,7 +538,7 @@ t_create_replace(_Config) ->
 
     ?assertEqual(
         allow,
-        emqx_access_control:authorize(ClientInfo, publish, <<"t">>)
+        emqx_access_control:authorize(ClientInfo, ?AUTHZ_PUBLISH, <<"t">>)
     ).
 
 %%------------------------------------------------------------------------------

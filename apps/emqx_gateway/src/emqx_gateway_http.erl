@@ -550,7 +550,7 @@ with_gateway(GwName0, Fun) ->
             return_http_error(400, [K, " is required"]);
         %% Exceptions from emqx_gateway_utils:parse_listener_id/1
         error:{invalid_listener_id, Id} ->
-            return_http_error(400, ["Invalid listener id: ", Id]);
+            return_http_error(404, ["Listener not found: ", Id]);
         %% Exceptions from emqx:get_config/1
         error:{config_not_found, Path0} ->
             Path = lists:concat(

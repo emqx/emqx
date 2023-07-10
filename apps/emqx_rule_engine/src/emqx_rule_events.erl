@@ -20,6 +20,7 @@
 -include_lib("emqx/include/emqx.hrl").
 -include_lib("emqx/include/logger.hrl").
 -include_lib("emqx/include/emqx_hooks.hrl").
+-include_lib("emqx/include/emqx_access_control.hrl").
 -include_lib("emqx_bridge/include/emqx_bridge_resource.hrl").
 
 -export([
@@ -160,7 +161,10 @@ on_client_connack(ConnInfo, Reason, _, Conf) ->
         Conf
     ).
 
-on_client_check_authz_complete(ClientInfo, PubSub, Topic, Result, AuthzSource, Conf) ->
+%% TODO: support full action in major release
+on_client_check_authz_complete(
+    ClientInfo, ?authz_action(PubSub), Topic, Result, AuthzSource, Conf
+) ->
     apply_event(
         'client.check_authz_complete',
         fun() ->

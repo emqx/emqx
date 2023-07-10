@@ -21,9 +21,7 @@
 -export([start/2, stop/1]).
 -export([get_override_config_file/0]).
 -export([sync_data_from_node/0]).
-
-%% Test purposes
--export([init_load_done/0]).
+-export([unset_config_loaded/0]).
 
 -include_lib("emqx/include/logger.hrl").
 -include("emqx_conf.hrl").
@@ -45,11 +43,16 @@ start(_StartType, _StartArgs) ->
 stop(_State) ->
     ok.
 
+%% @doc emqx_conf relies on this flag to synchronize configuration between nodes.
+%% Therefore, we must clean up this flag when emqx application is restarted by mria.
+unset_config_loaded() ->
+    emqx_app:unset_config_loaded().
+
 %% Read the cluster config from the local node.
 %% This function is named 'override' due to historical reasons.
 get_override_config_file() ->
     Node = node(),
-    case init_load_done() of
+    case emqx_app:init_load_done() of
         false ->
             {error, #{node => Node, msg => "init_conf_load_not_done"}};
         true ->
@@ -93,10 +96,12 @@ sync_data_from_node() ->
 %% Internal functions
 %% ------------------------------------------------------------------------------
 
-init_load() ->
+init_load(TnxId) ->
     case emqx_app:get_config_loader() of
         Module when Module == emqx; Module == emqx_conf ->
             ok = emqx_config:init_load(emqx_conf:schema_module()),
+            %% Set load config done after update(init) tnx_id.
+            ok = emqx_cluster_rpc:maybe_init_tnx_id(node(), TnxId),
             ok = emqx_app:set_config_loader(emqx_conf),
             ok;
         Module ->
@@ -107,17 +112,11 @@ init_load() ->
             })
     end.
 
-init_load_done() ->
-    % NOTE: Either us or some higher level (i.e. tests) code loaded config.
-    emqx_app:get_config_loader() =/= emqx.
-
 init_conf() ->
-    %% Workaround for https://github.com/emqx/mria/issues/94:
-    _ = mria_rlog:wait_for_shards([?CLUSTER_RPC_SHARD], 1000),
-    _ = mria:wait_for_tables([?CLUSTER_MFA, ?CLUSTER_COMMIT]),
+    emqx_cluster_rpc:wait_for_cluster_rpc(),
     {ok, TnxId} = sync_cluster_conf(),
-    _ = emqx_app:set_init_tnx_id(TnxId),
-    ok = init_load().
+    ok = init_load(TnxId),
+    ok.
 
 cluster_nodes() ->
     mria:cluster_nodes(cores) -- [node()].

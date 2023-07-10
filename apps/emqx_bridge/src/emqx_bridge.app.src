@@ -1,13 +1,14 @@
 %% -*- mode: erlang -*-
 {application, emqx_bridge, [
     {description, "EMQX bridges"},
-    {vsn, "0.1.22"},
+    {vsn, "0.1.23"},
     {registered, [emqx_bridge_sup]},
     {mod, {emqx_bridge_app, []}},
     {applications, [
         kernel,
         stdlib,
         emqx,
+        emqx_resource,
         emqx_connector
     ]},
     {env, []},

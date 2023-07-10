@@ -206,11 +206,6 @@ default_appspec(emqx_conf, Spec, _NodeSpecs) ->
         base_port := BasePort,
         work_dir := WorkDir
     } = Spec,
-    Listeners = [
-        #{Type => #{default => #{bind => format("127.0.0.1:~p", [Port])}}}
-     || Type <- [tcp, ssl, ws, wss],
-        Port <- [listener_port(BasePort, Type)]
-    ],
     Cluster =
         case get_cluster_seeds(Spec) of
             [_ | _] = Seeds ->
@@ -239,7 +234,7 @@ default_appspec(emqx_conf, Spec, _NodeSpecs) ->
                 tcp_server_port => gen_rpc_port(BasePort),
                 port_discovery => manual
             },
-            listeners => lists:foldl(fun maps:merge/2, #{}, Listeners)
+            listeners => allocate_listener_ports([tcp, ssl, ws, wss], Spec)
         }
     };
 default_appspec(_App, _, _) ->
@@ -251,6 +246,13 @@ get_cluster_seeds(#{join_to := Node}) ->
     [Node];
 get_cluster_seeds(#{core_nodes := CoreNodes}) ->
     CoreNodes.
+
+allocate_listener_port(Type, #{base_port := BasePort}) ->
+    Port = listener_port(BasePort, Type),
+    #{Type => #{default => #{bind => format("127.0.0.1:~p", [Port])}}}.
+
+allocate_listener_ports(Types, Spec) ->
+    lists:foldl(fun maps:merge/2, #{}, [allocate_listener_port(Type, Spec) || Type <- Types]).
 
 start_node_init(Spec = #{name := Node}) ->
     Node = start_bare_node(Node, Spec),

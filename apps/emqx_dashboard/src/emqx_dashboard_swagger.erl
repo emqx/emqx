@@ -118,7 +118,7 @@
 -type route_path() :: string() | binary().
 -type route_methods() :: map().
 -type route_handler() :: atom().
--type route_options() :: #{filter => filter() | undefined}.
+-type route_options() :: #{filter => filter()}.
 
 -type api_spec_entry() :: {route_path(), route_methods(), route_handler(), route_options()}.
 -type api_spec_component() :: map().
@@ -137,10 +137,9 @@ spec(Module, Options) ->
     {ApiSpec, AllRefs} =
         lists:foldl(
             fun(Path, {AllAcc, AllRefsAcc}) ->
-                {OperationId, Specs, Refs} = parse_spec_ref(Module, Path, Options),
-                Opts = #{filter => filter(Options)},
+                {OperationId, Specs, Refs, RouteOpts} = parse_spec_ref(Module, Path, Options),
                 {
-                    [{filename:join("/", Path), Specs, OperationId, Opts} | AllAcc],
+                    [{filename:join("/", Path), Specs, OperationId, RouteOpts} | AllAcc],
                     Refs ++ AllRefsAcc
                 }
             end,
@@ -350,6 +349,7 @@ parse_spec_ref(Module, Path, Options) ->
                 ),
                 error({failed_to_generate_swagger_spec, Module, Path})
         end,
+    OperationId = maps:get('operationId', Schema),
     {Specs, Refs} = maps:fold(
         fun(Method, Meta, {Acc, RefsAcc}) ->
             (not lists:member(Method, ?METHODS)) andalso
@@ -358,9 +358,13 @@ parse_spec_ref(Module, Path, Options) ->
             {Acc#{Method => Spec}, SubRefs ++ RefsAcc}
         end,
         {#{}, []},
-        maps:without(['operationId'], Schema)
+        maps:without(['operationId', 'filter'], Schema)
     ),
-    {maps:get('operationId', Schema), Specs, Refs}.
+    RouteOpts = generate_route_opts(Schema, Options),
+    {OperationId, Specs, Refs, RouteOpts}.
+
+generate_route_opts(Schema, Options) ->
+    #{filter => compose_filters(filter(Options), custom_filter(Schema))}.
 
 check_parameters(Request, Spec, Module) ->
     #{bindings := Bindings, query_string := QueryStr} = Request,
@@ -852,6 +856,8 @@ typename_to_spec("timeout()", _Mod) ->
     };
 typename_to_spec("bytesize()", _Mod) ->
     #{type => string, example => <<"32MB">>};
+typename_to_spec("mqtt_max_packet_size()", _Mod) ->
+    #{type => string, example => <<"32MB">>};
 typename_to_spec("wordsize()", _Mod) ->
     #{type => string, example => <<"1024KB">>};
 typename_to_spec("map()", _Mod) ->
@@ -896,16 +902,28 @@ typename_to_spec("json_binary()", _Mod) ->
     #{type => string, example => <<"{\"a\": [1,true]}">>};
 typename_to_spec("port_number()", _Mod) ->
     range("1..65535");
+typename_to_spec("secret_access_key()", _Mod) ->
+    #{type => string, example => <<"TW8dPwmjpjJJuLW....">>};
 typename_to_spec(Name, Mod) ->
-    Spec = range(Name),
-    Spec1 = remote_module_type(Spec, Name, Mod),
-    Spec2 = typerefl_array(Spec1, Name, Mod),
-    Spec3 = integer(Spec2, Name),
-    Spec3 =:= nomatch andalso
-        throw({error, #{msg => <<"Unsupported Type">>, type => Name, module => Mod}}),
-    Spec3.
+    try_convert_to_spec(Name, Mod, [
+        fun try_remote_module_type/2,
+        fun try_typerefl_array/2,
+        fun try_range/2,
+        fun try_integer/2
+    ]).
 
 range(Name) ->
+    #{} = try_range(Name, undefined).
+
+try_convert_to_spec(Name, Mod, []) ->
+    throw({error, #{msg => <<"Unsupported Type">>, type => Name, module => Mod}});
+try_convert_to_spec(Name, Mod, [Converter | Rest]) ->
+    case Converter(Name, Mod) of
+        nomatch -> try_convert_to_spec(Name, Mod, Rest);
+        Spec -> Spec
+    end.
+
+try_range(Name, _Mod) ->
     case string:split(Name, "..") of
         %% 1..10 1..inf -inf..10
         [MinStr, MaxStr] ->
@@ -917,39 +935,33 @@ range(Name) ->
     end.
 
 %% Module:Type
-remote_module_type(nomatch, Name, Mod) ->
+try_remote_module_type(Name, Mod) ->
     case string:split(Name, ":") of
         [_Module, Type] -> typename_to_spec(Type, Mod);
         _ -> nomatch
-    end;
-remote_module_type(Spec, _Name, _Mod) ->
-    Spec.
+    end.
 
-%% [string()] or [integer()] or [xxx].
-typerefl_array(nomatch, Name, Mod) ->
+%% [string()] or [integer()] or [xxx] or [xxx,...]
+try_typerefl_array(Name, Mod) ->
     case string:trim(Name, leading, "[") of
         Name ->
             nomatch;
         Name1 ->
-            case string:trim(Name1, trailing, "]") of
+            case string:trim(Name1, trailing, ",.]") of
                 Name1 ->
                     notmatch;
                 Name2 ->
                     Schema = typename_to_spec(Name2, Mod),
                     #{type => array, items => Schema}
             end
-    end;
-typerefl_array(Spec, _Name, _Mod) ->
-    Spec.
+    end.
 
 %% integer(1)
-integer(nomatch, Name) ->
+try_integer(Name, _Mod) ->
     case string:to_integer(Name) of
         {Int, []} -> #{type => integer, enum => [Int], default => Int};
         _ -> nomatch
-    end;
-integer(Spec, _Name) ->
-    Spec.
+    end.
 
 add_integer_prop(Schema, Key, Value) ->
     case string:to_integer(Value) of

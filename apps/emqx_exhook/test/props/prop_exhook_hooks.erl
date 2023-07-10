@@ -18,6 +18,7 @@
 
 -include_lib("proper/include/proper.hrl").
 -include_lib("eunit/include/eunit.hrl").
+-include_lib("emqx/include/emqx_access_control.hrl").
 
 -import(
     emqx_proper_types,
@@ -29,7 +30,8 @@
         connack_return_code/0,
         topictab/0,
         topic/0,
-        subopts/0
+        subopts/0,
+        pubsub/0
     ]
 ).
 
@@ -138,7 +140,7 @@ prop_client_authorize() ->
         {ClientInfo0, PubSub, Topic, Result, Meta},
         {
             clientinfo(),
-            oneof([publish, subscribe]),
+            pubsub(),
             topic(),
             oneof([MkResult(allow), MkResult(deny)]),
             request_meta()
@@ -554,8 +556,8 @@ authresult_to_bool(AuthResult) ->
 aclresult_to_bool(#{result := Result}) ->
     Result == allow.
 
-pubsub_to_enum(publish) -> 'PUBLISH';
-pubsub_to_enum(subscribe) -> 'SUBSCRIBE'.
+pubsub_to_enum(?authz_action(publish)) -> 'PUBLISH';
+pubsub_to_enum(?authz_action(subscribe)) -> 'SUBSCRIBE'.
 
 from_conninfo(ConnInfo) ->
     #{

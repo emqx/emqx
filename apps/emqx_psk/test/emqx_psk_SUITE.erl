@@ -20,6 +20,7 @@
 
 -include_lib("common_test/include/ct.hrl").
 -include_lib("eunit/include/eunit.hrl").
+-include("emqx_psk.hrl").
 
 -define(CR, 13).
 -define(LF, 10).
@@ -124,7 +125,15 @@ t_load_unload(_) ->
 
 t_import(_) ->
     Init = emqx_conf:get([psk_authentication, init_file], undefined),
+    Separator = emqx_conf:get([psk_authentication, separator], ?DEFAULT_DELIMITER),
+    ChunkSize = emqx_conf:get([psk_authentication, chunk_size], 50),
     ?assertEqual(ok, emqx_psk:import(Init)),
+    Keys0 = lists:sort(mnesia:dirty_all_keys(emqx_psk)),
+    ?assert(length(Keys0) > 0),
+    {atomic, ok} = mnesia:clear_table(emqx_psk),
+    ok = emqx_psk:import_psks(Init, Separator, ChunkSize),
+    Keys1 = lists:sort(mnesia:dirty_all_keys(emqx_psk)),
+    ?assertEqual(Keys0, Keys1),
     ?assertMatch({error, _}, emqx_psk:import("~/_none_")),
     ok.
 

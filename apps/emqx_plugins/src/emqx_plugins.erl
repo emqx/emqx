@@ -51,6 +51,11 @@
     get_tar/1
 ]).
 
+%% `emqx_config_handler' API
+-export([
+    post_config_update/5
+]).
+
 %% internal
 -export([do_ensure_started/1]).
 -export([
@@ -857,3 +862,27 @@ running_apps() ->
         end,
         application:which_applications(infinity)
     ).
+
+%%--------------------------------------------------------------------
+%% `emqx_config_handler' API
+%%--------------------------------------------------------------------
+
+post_config_update([?CONF_ROOT], _Req, #{states := NewStates}, #{states := OldStates}, _Envs) ->
+    NewStatesIndex = maps:from_list([{NV, S} || S = #{name_vsn := NV} <- NewStates]),
+    OldStatesIndex = maps:from_list([{NV, S} || S = #{name_vsn := NV} <- OldStates]),
+    #{changed := Changed} = emqx_utils_maps:diff_maps(NewStatesIndex, OldStatesIndex),
+    maps:foreach(fun enable_disable_plugin/2, Changed),
+    ok;
+post_config_update(_Path, _Req, _NewConf, _OldConf, _Envs) ->
+    ok.
+
+enable_disable_plugin(NameVsn, {#{enable := true}, #{enable := false}}) ->
+    %% errors are already logged in this fn
+    _ = ensure_stopped(NameVsn),
+    ok;
+enable_disable_plugin(NameVsn, {#{enable := false}, #{enable := true}}) ->
+    %% errors are already logged in this fn
+    _ = ensure_started(NameVsn),
+    ok;
+enable_disable_plugin(_NameVsn, _Diff) ->
+    ok.

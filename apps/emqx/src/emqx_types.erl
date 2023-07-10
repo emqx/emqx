@@ -29,6 +29,7 @@
 -export_type([
     zone/0,
     pubsub/0,
+    pubsub_action/0,
     subid/0
 ]).
 
@@ -127,7 +128,12 @@
     | exactly_once.
 
 -type zone() :: atom().
--type pubsub() :: publish | subscribe.
+-type pubsub_action() :: publish | subscribe.
+
+-type pubsub() ::
+    #{action_type := subscribe, qos := qos()}
+    | #{action_type := publish, qos := qos(), retain := boolean()}.
+
 -type subid() :: binary() | atom().
 
 -type group() :: binary() | undefined.

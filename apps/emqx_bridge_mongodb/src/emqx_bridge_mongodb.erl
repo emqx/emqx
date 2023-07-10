@@ -10,7 +10,7 @@
 
 -behaviour(hocon_schema).
 
-%% emqx_ee_bridge "callbacks"
+%% emqx_bridge_enterprise "callbacks"
 -export([
     conn_bridge_examples/1
 ]).

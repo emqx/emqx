@@ -1,10 +1,13 @@
+%% -*- mode: erlang -*-
 {application, emqx_bridge_kafka, [
     {description, "EMQX Enterprise Kafka Bridge"},
-    {vsn, "0.1.4"},
+    {vsn, "0.1.5"},
     {registered, [emqx_bridge_kafka_consumer_sup]},
     {applications, [
         kernel,
         stdlib,
+        emqx_resource,
+        emqx_bridge,
         telemetry,
         wolff,
         brod,

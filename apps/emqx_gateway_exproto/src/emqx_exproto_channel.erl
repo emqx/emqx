@@ -19,6 +19,7 @@
 -include("emqx_exproto.hrl").
 -include_lib("emqx/include/emqx.hrl").
 -include_lib("emqx/include/emqx_mqtt.hrl").
+-include_lib("emqx/include/emqx_access_control.hrl").
 -include_lib("emqx/include/types.hrl").
 -include_lib("emqx/include/logger.hrl").
 
@@ -428,7 +429,8 @@ handle_call(
         clientinfo = ClientInfo
     }
 ) ->
-    case emqx_gateway_ctx:authorize(Ctx, ClientInfo, subscribe, TopicFilter) of
+    Action = ?AUTHZ_SUBSCRIBE(Qos),
+    case emqx_gateway_ctx:authorize(Ctx, ClientInfo, Action, TopicFilter) of
         deny ->
             {reply, {error, ?RESP_PERMISSION_DENY, <<"Authorization deny">>}, Channel};
         _ ->
@@ -464,7 +466,8 @@ handle_call(
                 }
     }
 ) ->
-    case emqx_gateway_ctx:authorize(Ctx, ClientInfo, publish, Topic) of
+    Action = ?AUTHZ_PUBLISH(Qos),
+    case emqx_gateway_ctx:authorize(Ctx, ClientInfo, Action, Topic) of
         deny ->
             {reply, {error, ?RESP_PERMISSION_DENY, <<"Authorization deny">>}, Channel};
         _ ->
@@ -782,7 +785,7 @@ enrich_clientinfo(InClientInfo = #{proto_name := ProtoName}, ClientInfo) ->
 default_conninfo(ConnInfo) ->
     ConnInfo#{
         clean_start => true,
-        clientid => anonymous_clientid(),
+        clientid => emqx_gateway_utils:random_clientid(exproto),
         username => undefined,
         conn_props => #{},
         connected => true,
@@ -822,6 +825,3 @@ proto_name_to_protocol(<<>>) ->
     exproto;
 proto_name_to_protocol(ProtoName) when is_binary(ProtoName) ->
     binary_to_atom(ProtoName).
-
-anonymous_clientid() ->
-    iolist_to_binary(["exproto-", emqx_utils:gen_id()]).

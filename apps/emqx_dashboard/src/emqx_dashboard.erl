@@ -49,7 +49,7 @@ start_listeners(Listeners) ->
     Authorization = {?MODULE, authorize},
     GlobalSpec = #{
         openapi => "3.0.0",
-        info => #{title => "EMQX API", version => ?EMQX_API_VERSION},
+        info => #{title => emqx_api_name(), version => emqx_release_version()},
         servers => [#{url => emqx_dashboard_swagger:base_path()}],
         components => #{
             schemas => #{},
@@ -271,3 +271,9 @@ dynamic_dispatch() ->
         {emqx_mgmt_api_status:path(), emqx_mgmt_api_status, []},
         {'_', emqx_dashboard_not_found, []}
     ].
+
+emqx_api_name() ->
+    emqx_release:description() ++ " API".
+
+emqx_release_version() ->
+    emqx_release:version().

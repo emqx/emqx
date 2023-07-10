@@ -31,7 +31,7 @@
 -export([
     start/1,
     stop/1,
-    update/2
+    update_config/2
 ]).
 
 %% Internal API for RPC
@@ -161,8 +161,8 @@ start(_Options) -> ok.
 -spec stop(options()) -> ok.
 stop(_Options) -> ok.
 
--spec update(options(), options()) -> ok.
-update(_OldOptions, _NewOptions) -> ok.
+-spec update_config(options(), options()) -> ok.
+update_config(_OldOptions, _NewOptions) -> ok.
 
 %%--------------------------------------------------------------------
 %% Internal API

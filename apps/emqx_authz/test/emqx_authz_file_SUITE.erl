@@ -38,34 +38,26 @@ all() ->
 groups() ->
     [].
 
-init_per_suite(Config) ->
-    Config.
-
-end_per_suite(_Config) ->
-    ok.
-
 init_per_testcase(TestCase, Config) ->
     Apps = emqx_cth_suite:start(
-        [{emqx_conf, "authorization.no_match = deny"}, emqx_authz],
+        [
+            {emqx_conf, "authorization.no_match = deny, authorization.cache.enable = false"},
+            emqx_authz
+        ],
         #{work_dir => filename:join(?config(priv_dir, Config), TestCase)}
     ),
     [{tc_apps, Apps} | Config].
 
 end_per_testcase(_TestCase, Config) ->
-    emqx_cth_suite:stop(?config(tc_apps, Config)).
+    emqx_cth_suite:stop(?config(tc_apps, Config)),
+    _ = emqx_authz:set_feature_available(rich_actions, true).
 
 %%------------------------------------------------------------------------------
 %% Testcases
 %%------------------------------------------------------------------------------
 
 t_ok(_Config) ->
-    ClientInfo = #{
-        clientid => <<"clientid">>,
-        username => <<"username">>,
-        peerhost => {127, 0, 0, 1},
-        zone => default,
-        listener => {tcp, default}
-    },
+    ClientInfo = emqx_authz_test_lib:base_client_info(),
 
     ok = setup_config(?RAW_SOURCE#{
         <<"rules">> => <<"{allow, {user, \"username\"}, publish, [\"t\"]}.">>
@@ -73,23 +65,52 @@ t_ok(_Config) ->
 
     ?assertEqual(
         allow,
-        emqx_access_control:authorize(ClientInfo, publish, <<"t">>)
+        emqx_access_control:authorize(ClientInfo, ?AUTHZ_PUBLISH, <<"t">>)
     ),
 
     ?assertEqual(
         deny,
-        emqx_access_control:authorize(ClientInfo, subscribe, <<"t">>)
+        emqx_access_control:authorize(ClientInfo, ?AUTHZ_SUBSCRIBE, <<"t">>)
+    ).
+
+t_rich_actions(_Config) ->
+    ClientInfo = emqx_authz_test_lib:base_client_info(),
+
+    ok = setup_config(?RAW_SOURCE#{
+        <<"rules">> =>
+            <<"{allow, {user, \"username\"}, {publish, [{qos, 1}, {retain, false}]}, [\"t\"]}.">>
+    }),
+
+    ?assertEqual(
+        allow,
+        emqx_access_control:authorize(ClientInfo, ?AUTHZ_PUBLISH(1, false), <<"t">>)
+    ),
+
+    ?assertEqual(
+        deny,
+        emqx_access_control:authorize(ClientInfo, ?AUTHZ_PUBLISH(0, false), <<"t">>)
+    ),
+
+    ?assertEqual(
+        deny,
+        emqx_access_control:authorize(ClientInfo, ?AUTHZ_SUBSCRIBE, <<"t">>)
+    ).
+
+t_no_rich_actions(_Config) ->
+    _ = emqx_authz:set_feature_available(rich_actions, false),
+    ?assertMatch(
+        {error, {pre_config_update, emqx_authz, {invalid_authorization_action, _}}},
+        emqx_authz:update(?CMD_REPLACE, [
+            ?RAW_SOURCE#{
+                <<"rules">> =>
+                    <<"{allow, {user, \"username\"}, {publish, [{qos, 1}, {retain, false}]}, [\"t\"]}.">>
+            }
+        ])
     ).
 
 t_superuser(_Config) ->
-    ClientInfo = #{
-        clientid => <<"clientid">>,
-        username => <<"username">>,
-        is_superuser => true,
-        peerhost => {127, 0, 0, 1},
-        zone => default,
-        listener => {tcp, default}
-    },
+    ClientInfo =
+        emqx_authz_test_lib:client_info(#{is_superuser => true}),
 
     %% no rules apply to superuser
     ok = setup_config(?RAW_SOURCE#{
@@ -98,12 +119,12 @@ t_superuser(_Config) ->
 
     ?assertEqual(
         allow,
-        emqx_access_control:authorize(ClientInfo, publish, <<"t">>)
+        emqx_access_control:authorize(ClientInfo, ?AUTHZ_PUBLISH, <<"t">>)
     ),
 
     ?assertEqual(
         allow,
-        emqx_access_control:authorize(ClientInfo, subscribe, <<"t">>)
+        emqx_access_control:authorize(ClientInfo, ?AUTHZ_SUBSCRIBE, <<"t">>)
     ).
 
 t_invalid_file(_Config) ->

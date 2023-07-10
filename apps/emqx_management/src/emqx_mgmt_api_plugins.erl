@@ -132,6 +132,7 @@ schema("/plugins/:name") ->
             parameters => [hoconsc:ref(name)],
             responses => #{
                 204 => <<"Uninstall successfully">>,
+                400 => emqx_dashboard_swagger:error_codes(['PARAM_ERROR'], <<"Bad parameter">>),
                 404 => emqx_dashboard_swagger:error_codes(['NOT_FOUND'], <<"Plugin Not Found">>)
             }
         }
@@ -484,6 +485,8 @@ ensure_action(Name, restart) ->
 
 return(Code, ok) ->
     {Code};
+return(_, {error, #{error := "bad_info_file", return := {enoent, _} = Reason}}) ->
+    {404, #{code => 'NOT_FOUND', message => iolist_to_binary(io_lib:format("~p", [Reason]))}};
 return(_, {error, Reason}) ->
     {400, #{code => 'PARAM_ERROR', message => iolist_to_binary(io_lib:format("~p", [Reason]))}}.
 

@@ -51,7 +51,7 @@ format_local_status(Status) ->
 
 -spec global_status() -> #{rebalances := [{node(), map()}], evacuations := [{node(), map()}]}.
 global_status() ->
-    Nodes = mria_mnesia:running_nodes(),
+    Nodes = emqx:running_nodes(),
     {RebalanceResults, _} = emqx_node_rebalance_status_proto_v1:rebalance_status(Nodes),
     Rebalances = [
         {Node, coordinator_rebalance(Status)}

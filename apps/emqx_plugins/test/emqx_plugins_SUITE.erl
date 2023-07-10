@@ -65,7 +65,7 @@ init_per_suite(Config) ->
     WorkDir = proplists:get_value(data_dir, Config),
     filelib:ensure_path(WorkDir),
     OrigInstallDir = emqx_plugins:get_config(install_dir, undefined),
-    emqx_common_test_helpers:start_apps([emqx_conf]),
+    emqx_common_test_helpers:start_apps([emqx_conf, emqx_plugins]),
     emqx_plugins:put_config(install_dir, WorkDir),
     [{orig_install_dir, OrigInstallDir} | Config].
 
@@ -77,7 +77,7 @@ end_per_suite(Config) ->
         undefined -> ok;
         OrigInstallDir -> emqx_plugins:put_config(install_dir, OrigInstallDir)
     end,
-    emqx_common_test_helpers:stop_apps([emqx_conf]),
+    emqx_common_test_helpers:stop_apps([emqx_plugins, emqx_conf]),
     ok.
 
 init_per_testcase(TestCase, Config) ->
@@ -503,6 +503,65 @@ t_elixir_plugin(Config) ->
     ),
     ok = emqx_plugins:ensure_uninstalled(NameVsn),
     ?assertEqual([], emqx_plugins:list()),
+    ok.
+
+t_load_config_from_cli({init, Config}) ->
+    #{package := Package} = get_demo_plugin_package(),
+    NameVsn = filename:basename(Package, ?PACKAGE_SUFFIX),
+    [{name_vsn, NameVsn} | Config];
+t_load_config_from_cli({'end', Config}) ->
+    NameVsn = ?config(name_vsn, Config),
+    ok = emqx_plugins:ensure_stopped(NameVsn),
+    ok = emqx_plugins:ensure_uninstalled(NameVsn),
+    ok;
+t_load_config_from_cli(Config) when is_list(Config) ->
+    NameVsn = ?config(name_vsn, Config),
+    ok = emqx_plugins:ensure_installed(NameVsn),
+    ?assertEqual([], emqx_plugins:configured()),
+    ok = emqx_plugins:ensure_enabled(NameVsn),
+    ok = emqx_plugins:ensure_started(NameVsn),
+    Params0 = unused,
+    ?assertMatch(
+        {200, [#{running_status := [#{status := running}]}]},
+        emqx_mgmt_api_plugins:list_plugins(get, Params0)
+    ),
+
+    %% Now we disable it via CLI loading
+    Conf0 = emqx_config:get([plugins]),
+    ?assertMatch(
+        #{states := [#{enable := true}]},
+        Conf0
+    ),
+    #{states := [Plugin0]} = Conf0,
+    Conf1 = Conf0#{states := [Plugin0#{enable := false}]},
+    Filename = filename:join(["/tmp", [?FUNCTION_NAME, ".hocon"]]),
+    ok = file:write_file(Filename, hocon_pp:do(#{plugins => Conf1}, #{})),
+    ok = emqx_conf_cli:conf(["load", Filename]),
+
+    Conf2 = emqx_config:get([plugins]),
+    ?assertMatch(
+        #{states := [#{enable := false}]},
+        Conf2
+    ),
+    ?assertMatch(
+        {200, [#{running_status := [#{status := stopped}]}]},
+        emqx_mgmt_api_plugins:list_plugins(get, Params0)
+    ),
+
+    %% Re-enable it via CLI loading
+    ok = file:write_file(Filename, hocon_pp:do(#{plugins => Conf0}, #{})),
+    ok = emqx_conf_cli:conf(["load", Filename]),
+
+    Conf3 = emqx_config:get([plugins]),
+    ?assertMatch(
+        #{states := [#{enable := true}]},
+        Conf3
+    ),
+    ?assertMatch(
+        {200, [#{running_status := [#{status := running}]}]},
+        emqx_mgmt_api_plugins:list_plugins(get, Params0)
+    ),
+
     ok.
 
 group_t_copy_plugin_to_a_new_node({init, Config}) ->

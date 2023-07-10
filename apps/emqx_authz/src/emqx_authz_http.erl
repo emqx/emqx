@@ -51,6 +51,11 @@
     ?PH_CERT_CN_NAME
 ]).
 
+-define(PLACEHOLDERS_FOR_RICH_ACTIONS, [
+    ?PH_QOS,
+    ?PH_RETAIN
+]).
+
 description() ->
     "AuthZ with http".
 
@@ -72,7 +77,7 @@ destroy(#{annotations := #{id := Id}}) ->
 
 authorize(
     Client,
-    PubSub,
+    Action,
     Topic,
     #{
         type := http,
@@ -81,7 +86,7 @@ authorize(
         request_timeout := RequestTimeout
     } = Config
 ) ->
-    Request = generate_request(PubSub, Topic, Client, Config),
+    Request = generate_request(Action, Topic, Client, Config),
     case emqx_resource:simple_sync_query(ResourceID, {Method, Request, RequestTimeout}) of
         {ok, 204, _Headers} ->
             {matched, allow};
@@ -139,14 +144,14 @@ parse_config(
         method => Method,
         base_url => BaseUrl,
         headers => Headers,
-        base_path_templete => emqx_authz_utils:parse_str(Path, ?PLACEHOLDERS),
+        base_path_templete => emqx_authz_utils:parse_str(Path, placeholders()),
         base_query_template => emqx_authz_utils:parse_deep(
             cow_qs:parse_qs(to_bin(Query)),
-            ?PLACEHOLDERS
+            placeholders()
         ),
         body_template => emqx_authz_utils:parse_deep(
             maps:to_list(maps:get(body, Conf, #{})),
-            ?PLACEHOLDERS
+            placeholders()
         ),
         request_timeout => ReqTimeout,
         %% pool_type default value `random`
@@ -173,7 +178,7 @@ parse_url(Url) ->
     end.
 
 generate_request(
-    PubSub,
+    Action,
     Topic,
     Client,
     #{
@@ -184,7 +189,7 @@ generate_request(
         body_template := BodyTemplate
     }
 ) ->
-    Values = client_vars(Client, PubSub, Topic),
+    Values = client_vars(Client, Action, Topic),
     Path = emqx_authz_utils:render_urlencoded_str(BasePathTemplate, Values),
     Query = emqx_authz_utils:render_deep(BaseQueryTemplate, Values),
     Body = emqx_authz_utils:render_deep(BodyTemplate, Values),
@@ -227,11 +232,9 @@ serialize_body(<<"application/json">>, Body) ->
 serialize_body(<<"application/x-www-form-urlencoded">>, Body) ->
     query_string(Body).
 
-client_vars(Client, PubSub, Topic) ->
-    Client#{
-        action => PubSub,
-        topic => Topic
-    }.
+client_vars(Client, Action, Topic) ->
+    Vars = emqx_authz_utils:vars_for_rule_query(Client, Action),
+    Vars#{topic => Topic}.
 
 to_list(A) when is_atom(A) ->
     atom_to_list(A);
@@ -243,3 +246,11 @@ to_list(L) when is_list(L) ->
 to_bin(B) when is_binary(B) -> B;
 to_bin(L) when is_list(L) -> list_to_binary(L);
 to_bin(X) -> X.
+
+placeholders() ->
+    placeholders(emqx_authz:feature_available(rich_actions)).
+
+placeholders(true) ->
+    ?PLACEHOLDERS ++ ?PLACEHOLDERS_FOR_RICH_ACTIONS;
+placeholders(false) ->
+    ?PLACEHOLDERS.

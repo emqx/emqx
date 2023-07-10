@@ -59,15 +59,14 @@ init_per_suite(Config) ->
     application:load(emqx_gateway_coap),
     ok = emqx_common_test_helpers:load_config(emqx_gateway_schema, ?CONF_DEFAULT),
     emqx_mgmt_api_test_util:init_suite([emqx_conf, emqx_authn, emqx_gateway]),
-    ok = meck:new(emqx_access_control, [passthrough, no_history, no_link]),
     Config.
 
 end_per_suite(_) ->
-    meck:unload(emqx_access_control),
     {ok, _} = emqx:remove_config([<<"gateway">>, <<"coap">>]),
     emqx_mgmt_api_test_util:end_suite([emqx_gateway, emqx_authn, emqx_conf]).
 
 init_per_testcase(t_connection_with_authn_failed, Config) ->
+    ok = meck:new(emqx_access_control, [passthrough]),
     ok = meck:expect(
         emqx_access_control,
         authenticate,
@@ -75,12 +74,11 @@ init_per_testcase(t_connection_with_authn_failed, Config) ->
     ),
     Config;
 init_per_testcase(_, Config) ->
+    ok = meck:new(emqx_access_control, [passthrough]),
     Config.
 
-end_per_testcase(t_connection_with_authn_failed, Config) ->
-    ok = meck:delete(emqx_access_control, authenticate, 1),
-    Config;
 end_per_testcase(_, Config) ->
+    ok = meck:unload(emqx_access_control),
     Config.
 
 default_config() ->
@@ -133,6 +131,42 @@ t_connection(_) ->
     end,
     do(Action).
 
+t_connection_optional_params(_) ->
+    UsernamePasswordAreOptional =
+        fun(Channel) ->
+            URI =
+                ?MQTT_PREFIX ++
+                    "/connection?clientid=client1",
+            Req = make_req(post),
+            {ok, created, Data} = do_request(Channel, URI, Req),
+            #coap_content{payload = Token0} = Data,
+            Token = binary_to_list(Token0),
+
+            timer:sleep(100),
+            ?assertNotEqual(
+                [],
+                emqx_gateway_cm_registry:lookup_channels(coap, <<"client1">>)
+            ),
+
+            disconnection(Channel, Token),
+
+            timer:sleep(100),
+            ?assertEqual(
+                [],
+                emqx_gateway_cm_registry:lookup_channels(coap, <<"client1">>)
+            )
+        end,
+    ClientIdIsRequired =
+        fun(Channel) ->
+            URI =
+                ?MQTT_PREFIX ++
+                    "/connection",
+            Req = make_req(post),
+            {error, bad_request, _} = do_request(Channel, URI, Req)
+        end,
+    do(UsernamePasswordAreOptional),
+    do(ClientIdIsRequired).
+
 t_connection_with_authn_failed(_) ->
     ChId = {{127, 0, 0, 1}, 5683},
     {ok, Sock} = er_coap_udp_socket:start_link(),
@@ -176,6 +210,38 @@ t_publish(_) ->
         end
     end,
     with_connection(Topics, Action).
+
+t_publish_with_retain_qos_expiry(_) ->
+    _ = meck:expect(
+        emqx_access_control,
+        authorize,
+        fun(_, #{action_type := publish, qos := 1, retain := true}, _) ->
+            allow
+        end
+    ),
+
+    Topics = [<<"abc">>],
+    Action = fun(Topic, Channel, Token) ->
+        Payload = <<"123">>,
+        URI = pubsub_uri(binary_to_list(Topic), Token) ++ "&retain=true&qos=1&expiry=60",
+
+        %% Sub topic first
+        emqx:subscribe(Topic),
+
+        Req = make_req(post, Payload),
+        {ok, changed, _} = do_request(Channel, URI, Req),
+
+        receive
+            {deliver, Topic, Msg} ->
+                ?assertEqual(Topic, Msg#message.topic),
+                ?assertEqual(Payload, Msg#message.payload)
+        after 500 ->
+            ?assert(false)
+        end
+    end,
+    with_connection(Topics, Action),
+
+    _ = meck:validate(emqx_access_control).
 
 t_subscribe(_) ->
     %% can subscribe to a normal topic
@@ -326,6 +392,9 @@ t_clients_subscription_api(_) ->
             maps:get(topic, SubsResp),
             maps:get(topic, SubsResp2)
         ),
+
+        %% check subscription_cnt
+        {200, #{subscriptions_cnt := 1}} = request(get, "/gateways/coap/clients/client1"),
 
         {204, _} = request(delete, Path ++ "/tx"),
 

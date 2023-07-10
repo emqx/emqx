@@ -1,16 +1,10 @@
-emqx_ee_bridge_hstreamdb {
+emqx_bridge_hstreamdb {
 
 config_direction.desc:
 """The direction of this bridge, MUST be 'egress'"""
 
 config_direction.label:
 """Bridge Direction"""
-
-config_enable.desc:
-"""Enable or disable this bridge"""
-
-config_enable.label:
-"""Enable Or Disable Bridge"""
 
 desc_config.desc:
 """Configuration for an HStreamDB bridge."""
@@ -46,10 +40,10 @@ will be forwarded."""
 local_topic.label:
 """Local Topic"""
 
-payload.desc:
-"""The payload to be forwarded to the HStreamDB. Placeholders supported."""
+record_template.desc:
+"""The HStream Record template to be forwarded to the HStreamDB. Placeholders supported."""
 
-payload.label:
-"""Payload"""
+record_template.label:
+"""HStream Record"""
 
 }

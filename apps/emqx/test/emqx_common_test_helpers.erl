@@ -618,7 +618,7 @@ ensure_quic_listener(Name, UdpPort, ExtraSettings) ->
                 "TLS_AES_128_GCM_SHA256",
                 "TLS_CHACHA20_POLY1305_SHA256"
             ],
-        enabled => true,
+        enable => true,
         idle_timeout => 15000,
         ssl_options => #{
             certfile => filename:join(code:lib_dir(emqx), "etc/certs/cert.pem"),

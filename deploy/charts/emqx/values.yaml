@@ -240,6 +240,7 @@ ssl:
   useExisting: false
   existingName: emqx-tls
   dnsnames: []
+  commonName: 
   issuer:
     name: letsencrypt-dns
     kind: ClusterIssuer

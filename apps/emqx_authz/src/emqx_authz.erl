@@ -39,6 +39,11 @@
     get_enabled_authzs/0
 ]).
 
+-export([
+    feature_available/1,
+    set_feature_available/2
+]).
+
 -export([post_config_update/5, pre_config_update/3]).
 
 -export([acl_conf_file/0]).
@@ -518,6 +523,20 @@ maybe_convert_acl_file(RawConf, _Fun) ->
 read_acl_file(#{<<"path">> := Path} = Source) ->
     {ok, Rules} = emqx_authz_file:read_file(Path),
     maps:remove(<<"path">>, Source#{<<"rules">> => Rules}).
+
+%%------------------------------------------------------------------------------
+%% Extended Features
+%%------------------------------------------------------------------------------
+
+-define(DEFAULT_RICH_ACTIONS, true).
+
+-define(FEATURE_KEY(_NAME_), {?MODULE, _NAME_}).
+
+feature_available(rich_actions) ->
+    persistent_term:get(?FEATURE_KEY(rich_actions), ?DEFAULT_RICH_ACTIONS).
+
+set_feature_available(Feature, Enable) when is_boolean(Enable) ->
+    persistent_term:put(?FEATURE_KEY(Feature), Enable).
 
 %%------------------------------------------------------------------------------
 %% Internal function

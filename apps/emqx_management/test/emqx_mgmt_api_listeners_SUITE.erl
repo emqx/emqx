@@ -399,12 +399,15 @@ crud_listeners_by_id(ListenerId, NewListenerId, MinListenerId, BadId, Type, Port
     ?assertEqual([], delete(MinPath)),
     ?assertEqual({error, not_found}, is_running(NewListenerId)),
     ?assertMatch({error, {"HTTP/1.1", 404, _}}, request(get, NewPath, [], [])),
-    ?assertEqual([], delete(NewPath)),
+    ?assertMatch({error, {"HTTP/1.1", 404, _}}, request(delete, NewPath, [], [])),
     ok.
 
 t_delete_nonexistent_listener(Config) when is_list(Config) ->
     NonExist = emqx_mgmt_api_test_util:api_path(["listeners", "tcp:nonexistent"]),
-    ?assertEqual([], delete(NonExist)),
+    ?assertMatch(
+        {error, {_, 404, _}},
+        request(delete, NonExist, [], [])
+    ),
     ok.
 
 t_action_listeners(Config) when is_list(Config) ->

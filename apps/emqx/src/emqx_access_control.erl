@@ -77,10 +77,10 @@ authenticate(Credential) ->
 %% @doc Check Authorization
 -spec authorize(emqx_types:clientinfo(), emqx_types:pubsub(), emqx_types:topic()) ->
     allow | deny.
-authorize(ClientInfo, PubSub, <<"$delayed/", Data/binary>> = RawTopic) ->
+authorize(ClientInfo, Action, <<"$delayed/", Data/binary>> = RawTopic) ->
     case binary:split(Data, <<"/">>) of
         [_, Topic] ->
-            authorize(ClientInfo, PubSub, Topic);
+            authorize(ClientInfo, Action, Topic);
         _ ->
             ?SLOG(warning, #{
                 msg => "invalid_delayed_topic_format",
@@ -90,39 +90,39 @@ authorize(ClientInfo, PubSub, <<"$delayed/", Data/binary>> = RawTopic) ->
             inc_authz_metrics(deny),
             deny
     end;
-authorize(ClientInfo, PubSub, Topic) ->
+authorize(ClientInfo, Action, Topic) ->
     Result =
         case emqx_authz_cache:is_enabled() of
-            true -> check_authorization_cache(ClientInfo, PubSub, Topic);
-            false -> do_authorize(ClientInfo, PubSub, Topic)
+            true -> check_authorization_cache(ClientInfo, Action, Topic);
+            false -> do_authorize(ClientInfo, Action, Topic)
         end,
     inc_authz_metrics(Result),
     Result.
 
-check_authorization_cache(ClientInfo, PubSub, Topic) ->
-    case emqx_authz_cache:get_authz_cache(PubSub, Topic) of
+check_authorization_cache(ClientInfo, Action, Topic) ->
+    case emqx_authz_cache:get_authz_cache(Action, Topic) of
         not_found ->
-            AuthzResult = do_authorize(ClientInfo, PubSub, Topic),
-            emqx_authz_cache:put_authz_cache(PubSub, Topic, AuthzResult),
+            AuthzResult = do_authorize(ClientInfo, Action, Topic),
+            emqx_authz_cache:put_authz_cache(Action, Topic, AuthzResult),
             AuthzResult;
         AuthzResult ->
             emqx:run_hook(
                 'client.check_authz_complete',
-                [ClientInfo, PubSub, Topic, AuthzResult, cache]
+                [ClientInfo, Action, Topic, AuthzResult, cache]
             ),
             inc_authz_metrics(cache_hit),
             AuthzResult
     end.
 
-do_authorize(ClientInfo, PubSub, Topic) ->
+do_authorize(ClientInfo, Action, Topic) ->
     NoMatch = emqx:get_config([authorization, no_match], allow),
     Default = #{result => NoMatch, from => default},
-    case run_hooks('client.authorize', [ClientInfo, PubSub, Topic], Default) of
+    case run_hooks('client.authorize', [ClientInfo, Action, Topic], Default) of
         AuthzResult = #{result := Result} when Result == allow; Result == deny ->
             From = maps:get(from, AuthzResult, unknown),
             emqx:run_hook(
                 'client.check_authz_complete',
-                [ClientInfo, PubSub, Topic, Result, From]
+                [ClientInfo, Action, Topic, Result, From]
             ),
             Result;
         Other ->
@@ -133,7 +133,7 @@ do_authorize(ClientInfo, PubSub, Topic) ->
             }),
             emqx:run_hook(
                 'client.check_authz_complete',
-                [ClientInfo, PubSub, Topic, deny, unknown_return_format]
+                [ClientInfo, Action, Topic, deny, unknown_return_format]
             ),
             deny
     end.
