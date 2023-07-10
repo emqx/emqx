@@ -21,6 +21,7 @@
 -export([start/2, stop/1]).
 -export([get_override_config_file/0]).
 -export([sync_data_from_node/0]).
+-export([unset_config_loaded/0]).
 
 -include_lib("emqx/include/logger.hrl").
 -include("emqx_conf.hrl").
@@ -41,6 +42,11 @@ start(_StartType, _StartArgs) ->
 
 stop(_State) ->
     ok.
+
+%% @doc emqx_conf relies on this flag to synchronize configuration between nodes.
+%% Therefore, we must clean up this flag when emqx application is restarted by mria.
+unset_config_loaded() ->
+    emqx_app:unset_config_loaded().
 
 %% Read the cluster config from the local node.
 %% This function is named 'override' due to historical reasons.

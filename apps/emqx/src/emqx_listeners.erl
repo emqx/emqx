@@ -96,6 +96,8 @@ format_list(Listener) ->
 
 do_list_raw() ->
     %% GET /listeners from other nodes returns [] when init config is not loaded.
+    %% FIXME This is a workaround for the issue:
+    %% mria:running_nodes() sometime return node which not ready to accept rpc call.
     case emqx_app:init_load_done() of
         true ->
             Key = <<"listeners">>,
