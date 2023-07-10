@@ -21,7 +21,7 @@ on:
 jobs:
   prepare:
     runs-on: ubuntu-22.04
-    container: ghcr.io/emqx/emqx-builder/5.1-0:1.14.5-25.3.2-1-ubuntu22.04
+    container: ghcr.io/emqx/emqx-builder/5.1-1:1.14.5-25.3.2-1-ubuntu22.04
     outputs:
       BUILD_PROFILE: ${{ steps.get_profile.outputs.BUILD_PROFILE }}
       IS_EXACT_TAG: ${{ steps.get_profile.outputs.IS_EXACT_TAG }}
@@ -187,11 +187,12 @@ jobs:
           - el8
           - el7
           - amzn2
+          - amzn2023
         build_machine:
           - aws-arm64
           - ubuntu-22.04
         builder:
-          - 5.1-0
+          - 5.1-1
         elixir:
           - 1.14.5
         with_elixir:
@@ -207,7 +208,7 @@ jobs:
             arch: amd64
             os: ubuntu22.04
             build_machine: ubuntu-22.04
-            builder: 5.1-0
+            builder: 5.1-1
             elixir: 1.14.5
             with_elixir: 'yes'
           - profile: emqx
@@ -215,7 +216,7 @@ jobs:
             arch: amd64
             os: amzn2
             build_machine: ubuntu-22.04
-            builder: 5.1-0
+            builder: 5.1-1
             elixir: 1.14.5
             with_elixir: 'yes'
 

@@ -30,9 +30,9 @@ jobs:
           - amd64
         os:
           - debian10
-          - amzn2
+          - amzn2023
         builder:
-          - 5.1-0
+          - 5.1-1
         elixir:
           - 1.14.5
 
