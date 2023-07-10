@@ -21,9 +21,7 @@
 -export([start/2, stop/1]).
 -export([get_override_config_file/0]).
 -export([sync_data_from_node/0]).
-
-%% Test purposes
--export([init_load_done/0]).
+-export([unset_config_loaded/0]).
 
 -include_lib("emqx/include/logger.hrl").
 -include("emqx_conf.hrl").
@@ -45,11 +43,16 @@ start(_StartType, _StartArgs) ->
 stop(_State) ->
     ok.
 
+%% @doc emqx_conf relies on this flag to synchronize configuration between nodes.
+%% Therefore, we must clean up this flag when emqx application is restarted by mria.
+unset_config_loaded() ->
+    emqx_app:unset_config_loaded().
+
 %% Read the cluster config from the local node.
 %% This function is named 'override' due to historical reasons.
 get_override_config_file() ->
     Node = node(),
-    case init_load_done() of
+    case emqx_app:init_load_done() of
         false ->
             {error, #{node => Node, msg => "init_conf_load_not_done"}};
         true ->
@@ -108,10 +111,6 @@ init_load(TnxId) ->
                 loader => Module
             })
     end.
-
-init_load_done() ->
-    % NOTE: Either us or some higher level (i.e. tests) code loaded config.
-    emqx_app:get_config_loader() =/= emqx.
 
 init_conf() ->
     emqx_cluster_rpc:wait_for_cluster_rpc(),

@@ -215,7 +215,7 @@ assert_no_cluster_conf_copied([Node | Nodes], File) ->
 assert_config_load_done(Nodes) ->
     lists:foreach(
         fun(Node) ->
-            Done = rpc:call(Node, emqx_conf_app, init_load_done, []),
+            Done = rpc:call(Node, emqx_app, init_load_done, []),
             ?assert(Done, #{node => Node})
         end,
         Nodes
