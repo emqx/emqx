@@ -130,10 +130,8 @@ prometheus_data_schema() ->
         description =>
             <<"Get Prometheus Data. Note that support for JSON output is deprecated and will be removed in v5.2.">>,
         content =>
-            #{
-                'application/json' =>
-                    #{schema => #{type => object}},
-                'text/plain' =>
-                    #{schema => #{type => string}}
-            }
+            [
+                {'text/plain', #{schema => #{type => string}}},
+                {'application/json', #{schema => #{type => object}}}
+            ]
     }.

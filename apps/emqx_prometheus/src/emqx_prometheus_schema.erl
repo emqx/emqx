@@ -59,7 +59,7 @@ fields("prometheus") ->
             ?HOCON(
                 list({string(), string()}),
                 #{
-                    default => [],
+                    default => #{},
                     required => false,
                     converter => fun ?MODULE:convert_headers/1,
                     desc => ?DESC(headers)
