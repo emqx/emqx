@@ -108,8 +108,12 @@ t_ref(_Config) ->
     LocalPath = "/test/in/ref/local",
     Path = "/test/in/ref",
     Expect = [#{<<"$ref">> => <<"#/components/parameters/emqx_swagger_parameter_SUITE.page">>}],
-    {OperationId, Spec, Refs} = emqx_dashboard_swagger:parse_spec_ref(?MODULE, Path, #{}),
-    {OperationId, Spec, Refs} = emqx_dashboard_swagger:parse_spec_ref(?MODULE, LocalPath, #{}),
+    {OperationId, Spec, Refs, RouteOpts} = emqx_dashboard_swagger:parse_spec_ref(
+        ?MODULE, Path, #{}
+    ),
+    {OperationId, Spec, Refs, RouteOpts} = emqx_dashboard_swagger:parse_spec_ref(
+        ?MODULE, LocalPath, #{}
+    ),
     ?assertEqual(test, OperationId),
     Params = maps:get(parameters, maps:get(post, Spec)),
     ?assertEqual(Expect, Params),
@@ -122,7 +126,7 @@ t_public_ref(_Config) ->
         #{<<"$ref">> => <<"#/components/parameters/public.page">>},
         #{<<"$ref">> => <<"#/components/parameters/public.limit">>}
     ],
-    {OperationId, Spec, Refs} = emqx_dashboard_swagger:parse_spec_ref(?MODULE, Path, #{}),
+    {OperationId, Spec, Refs, #{}} = emqx_dashboard_swagger:parse_spec_ref(?MODULE, Path, #{}),
     ?assertEqual(test, OperationId),
     Params = maps:get(parameters, maps:get(post, Spec)),
     ?assertEqual(Expect, Params),
@@ -264,7 +268,7 @@ t_nullable(_Config) ->
 t_method(_Config) ->
     PathOk = "/method/ok",
     PathError = "/method/error",
-    {test, Spec, []} = emqx_dashboard_swagger:parse_spec_ref(?MODULE, PathOk, #{}),
+    {test, Spec, [], #{}} = emqx_dashboard_swagger:parse_spec_ref(?MODULE, PathOk, #{}),
     ?assertEqual(lists:sort(?METHODS), lists:sort(maps:keys(Spec))),
     ?assertThrow(
         {error, #{module := ?MODULE, path := PathError, method := bar}},
@@ -393,7 +397,7 @@ assert_all_filters_equal(Spec, Filter) ->
     ).
 
 validate(Path, ExpectParams) ->
-    {OperationId, Spec, Refs} = emqx_dashboard_swagger:parse_spec_ref(?MODULE, Path, #{}),
+    {OperationId, Spec, Refs, #{}} = emqx_dashboard_swagger:parse_spec_ref(?MODULE, Path, #{}),
     ?assertEqual(test, OperationId),
     Params = maps:get(parameters, maps:get(post, Spec)),
     ?assertEqual(ExpectParams, Params),

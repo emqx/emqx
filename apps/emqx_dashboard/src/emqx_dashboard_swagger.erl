@@ -118,7 +118,7 @@
 -type route_path() :: string() | binary().
 -type route_methods() :: map().
 -type route_handler() :: atom().
--type route_options() :: #{filter => filter() | undefined}.
+-type route_options() :: #{filter => filter()}.
 
 -type api_spec_entry() :: {route_path(), route_methods(), route_handler(), route_options()}.
 -type api_spec_component() :: map().
@@ -137,10 +137,9 @@ spec(Module, Options) ->
     {ApiSpec, AllRefs} =
         lists:foldl(
             fun(Path, {AllAcc, AllRefsAcc}) ->
-                {OperationId, Specs, Refs} = parse_spec_ref(Module, Path, Options),
-                Opts = #{filter => filter(Options)},
+                {OperationId, Specs, Refs, RouteOpts} = parse_spec_ref(Module, Path, Options),
                 {
-                    [{filename:join("/", Path), Specs, OperationId, Opts} | AllAcc],
+                    [{filename:join("/", Path), Specs, OperationId, RouteOpts} | AllAcc],
                     Refs ++ AllRefsAcc
                 }
             end,
@@ -350,6 +349,7 @@ parse_spec_ref(Module, Path, Options) ->
                 ),
                 error({failed_to_generate_swagger_spec, Module, Path})
         end,
+    OperationId = maps:get('operationId', Schema),
     {Specs, Refs} = maps:fold(
         fun(Method, Meta, {Acc, RefsAcc}) ->
             (not lists:member(Method, ?METHODS)) andalso
@@ -358,9 +358,13 @@ parse_spec_ref(Module, Path, Options) ->
             {Acc#{Method => Spec}, SubRefs ++ RefsAcc}
         end,
         {#{}, []},
-        maps:without(['operationId'], Schema)
+        maps:without(['operationId', 'filter'], Schema)
     ),
-    {maps:get('operationId', Schema), Specs, Refs}.
+    RouteOpts = generate_route_opts(Schema, Options),
+    {OperationId, Specs, Refs, RouteOpts}.
+
+generate_route_opts(Schema, Options) ->
+    #{filter => compose_filters(filter(Options), custom_filter(Schema))}.
 
 check_parameters(Request, Spec, Module) ->
     #{bindings := Bindings, query_string := QueryStr} = Request,
@@ -898,6 +902,8 @@ typename_to_spec("json_binary()", _Mod) ->
     #{type => string, example => <<"{\"a\": [1,true]}">>};
 typename_to_spec("port_number()", _Mod) ->
     range("1..65535");
+typename_to_spec("secret_access_key()", _Mod) ->
+    #{type => string, example => <<"TW8dPwmjpjJJuLW....">>};
 typename_to_spec(Name, Mod) ->
     try_convert_to_spec(Name, Mod, [
         fun try_remote_module_type/2,

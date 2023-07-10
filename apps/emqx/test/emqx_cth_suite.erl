@@ -305,7 +305,7 @@ default_appspec(emqx_conf, SuiteOpts) ->
     #{
         config => SharedConfig,
         % NOTE
-        % We inform `emqx` of our config loader before starting `emqx_conf` sothat it won't
+        % We inform `emqx` of our config loader before starting `emqx_conf` so that it won't
         % overwrite everything with a default configuration.
         before_start => fun() ->
             emqx_app:set_config_loader(?MODULE)

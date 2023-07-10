@@ -28,7 +28,12 @@
 -export([
     start/1,
     stop/1,
-    update/2
+    update_config/2
+]).
+
+-export([
+    pre_config_update/3,
+    post_config_update/3
 ]).
 
 -type options() :: emqx_s3:profile_config().
@@ -112,11 +117,21 @@ start(Options) ->
 
 -spec stop(options()) -> ok.
 stop(_Options) ->
-    ok = emqx_s3:stop_profile(?S3_PROFILE_ID).
+    emqx_s3:stop_profile(?S3_PROFILE_ID).
 
--spec update(options(), options()) -> ok.
-update(_OldOptions, NewOptions) ->
+-spec update_config(options(), options()) -> ok.
+update_config(_OldOptions, NewOptions) ->
     emqx_s3:update_profile(?S3_PROFILE_ID, NewOptions).
+
+%%--------------------------------------------------------------------
+%% Config update hooks
+%%--------------------------------------------------------------------
+
+pre_config_update(_ConfKey, NewOptions, OldOptions) ->
+    emqx_s3:pre_config_update(?S3_PROFILE_ID, NewOptions, OldOptions).
+
+post_config_update(_ConfKey, NewOptions, OldOptions) ->
+    emqx_s3:post_config_update(?S3_PROFILE_ID, NewOptions, OldOptions).
 
 %%--------------------------------------------------------------------
 %% Internal functions

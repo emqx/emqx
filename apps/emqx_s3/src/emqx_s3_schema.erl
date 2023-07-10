@@ -14,6 +14,9 @@
 -export([translate/1]).
 -export([translate/2]).
 
+-type secret_access_key() :: string() | function().
+-reflect_type([secret_access_key/0]).
+
 roots() ->
     [s3].
 
@@ -34,7 +37,7 @@ fields(s3) ->
             )},
         {secret_access_key,
             mk(
-                hoconsc:union([string(), function()]),
+                secret_access_key(),
                 #{
                     desc => ?DESC("secret_access_key"),
                     required => false,

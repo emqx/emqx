@@ -60,7 +60,8 @@
     safe_filename/1,
     diff_lists/3,
     merge_lists/3,
-    tcp_keepalive_opts/4
+    tcp_keepalive_opts/4,
+    format/1
 ]).
 
 -export([
@@ -525,6 +526,9 @@ tcp_keepalive_opts({unix, darwin}, Idle, Interval, Probes) ->
 tcp_keepalive_opts(OS, _Idle, _Interval, _Probes) ->
     {error, {unsupported_os, OS}}.
 
+format(Term) ->
+    iolist_to_binary(io_lib:format("~0p", [Term])).
+
 %%------------------------------------------------------------------------------
 %% Internal Functions
 %%------------------------------------------------------------------------------
@@ -606,7 +610,7 @@ to_hr_error({not_authorized, _}) ->
 to_hr_error({malformed_username_or_password, _}) ->
     <<"Bad username or password">>;
 to_hr_error(Error) ->
-    iolist_to_binary(io_lib:format("~0p", [Error])).
+    format(Error).
 
 try_to_existing_atom(Convert, Data, Encoding) ->
     try Convert(Data, Encoding) of
