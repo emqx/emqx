@@ -146,7 +146,8 @@ basic_reboot_apps() ->
             emqx_slow_subs,
             emqx_auto_subscribe,
             emqx_plugins,
-            emqx_psk
+            emqx_psk,
+            emqx_durable_storage
         ] ++ basic_reboot_apps_edition(emqx_release:edition()).
 
 basic_reboot_apps_edition(ce) ->
