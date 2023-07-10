@@ -11,7 +11,6 @@
     {licenses, ["Apache-2.0"]},
     {maintainers, ["EMQX Team <contact@emqx.io>"]},
     {links, [
-        {"Homepage", "https://emqx.io/"},
-        {"Github", "https://github.com/emqx/emqx-prometheus"}
+        {"Homepage", "https://emqx.io/"}
     ]}
 ]}.
