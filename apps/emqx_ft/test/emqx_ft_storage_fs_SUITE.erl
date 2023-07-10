@@ -35,10 +35,18 @@ groups() ->
     ].
 
 init_per_suite(Config) ->
-    ok = emqx_common_test_helpers:start_apps([emqx_ft], emqx_ft_test_helpers:env_handler(Config)),
-    Config.
-end_per_suite(_Config) ->
-    ok = emqx_common_test_helpers:stop_apps([emqx_ft]),
+    Storage = emqx_ft_test_helpers:local_storage(Config),
+    WorkDir = ?config(priv_dir, Config),
+    Apps = emqx_cth_suite:start(
+        [
+            {emqx_ft, #{config => emqx_ft_test_helpers:config(Storage)}}
+        ],
+        #{work_dir => WorkDir}
+    ),
+    [{suite_apps, Apps} | Config].
+
+end_per_suite(Config) ->
+    ok = emqx_cth_suite:stop(?config(suite_apps, Config)),
     ok.
 
 init_per_testcase(Case, Config) ->
@@ -46,14 +54,25 @@ init_per_testcase(Case, Config) ->
 end_per_testcase(_Case, _Config) ->
     ok.
 
-init_per_group(cluster, Config) ->
-    Node = emqx_ft_test_helpers:start_additional_node(Config, emqx_ft_storage_fs1),
-    [{additional_node, Node} | Config];
+init_per_group(Group = cluster, Config) ->
+    WorkDir = filename:join(?config(priv_dir, Config), Group),
+    Apps = [
+        {emqx_conf, #{start => false}},
+        {emqx_ft, "file_transfer { enable = true, storage.local { enable = true } }"}
+    ],
+    Nodes = emqx_cth_cluster:start(
+        [
+            {emqx_ft_storage_fs1, #{apps => Apps, join_to => node()}},
+            {emqx_ft_storage_fs2, #{apps => Apps, join_to => node()}}
+        ],
+        #{work_dir => WorkDir}
+    ),
+    [{cluster, Nodes} | Config];
 init_per_group(_Group, Config) ->
     Config.
 
 end_per_group(cluster, Config) ->
-    ok = emqx_ft_test_helpers:stop_additional_node(?config(additional_node, Config));
+    ok = emqx_cth_suite:stop(?config(cluster, Config));
 end_per_group(_Group, _Config) ->
     ok.
 
@@ -62,12 +81,9 @@ end_per_group(_Group, _Config) ->
 %%--------------------------------------------------------------------
 
 t_multinode_exports(Config) ->
-    Node1 = ?config(additional_node, Config),
+    [Node1, Node2 | _] = ?config(cluster, Config),
     ok = emqx_ft_test_helpers:upload_file(<<"c/1">>, <<"f:1">>, "fn1", <<"data">>, Node1),
-
-    Node2 = node(),
     ok = emqx_ft_test_helpers:upload_file(<<"c/2">>, <<"f:2">>, "fn2", <<"data">>, Node2),
-
     ?assertMatch(
         [
             #{transfer := {<<"c/1">>, <<"f:1">>}, name := "fn1"},
