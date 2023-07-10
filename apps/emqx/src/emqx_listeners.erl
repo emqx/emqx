@@ -370,7 +370,7 @@ console_print(_Fmt, _Args) -> ok.
 %% Start MQTT/TCP listener
 -spec do_start_listener(atom(), atom(), map()) ->
     {ok, pid() | {skipped, atom()}} | {error, term()}.
-do_start_listener(_Type, _ListenerName, #{enabled := false}) ->
+do_start_listener(_Type, _ListenerName, #{enable := false}) ->
     {ok, {skipped, listener_disabled}};
 do_start_listener(Type, ListenerName, #{bind := ListenOn} = Opts) when
     Type == tcp; Type == ssl
@@ -501,8 +501,8 @@ post_config_update([?ROOT_KEY, Type, Name], {update, _Request}, NewConf, OldConf
 post_config_update([?ROOT_KEY, Type, Name], ?MARK_DEL, _, OldConf = #{}, _AppEnvs) ->
     remove_listener(Type, Name, OldConf);
 post_config_update([?ROOT_KEY, Type, Name], {action, _Action, _}, NewConf, OldConf, _AppEnvs) ->
-    #{enabled := NewEnabled} = NewConf,
-    #{enabled := OldEnabled} = OldConf,
+    #{enable := NewEnabled} = NewConf,
+    #{enable := OldEnabled} = OldConf,
     case {NewEnabled, OldEnabled} of
         {true, true} ->
             ok = maybe_unregister_ocsp_stapling_refresh(Type, Name, NewConf),
@@ -812,7 +812,7 @@ has_enabled_listener_conf_by_type(Type) ->
     lists:any(
         fun({Id, LConf}) when is_map(LConf) ->
             {ok, #{type := Type0}} = parse_listener_id(Id),
-            Type =:= Type0 andalso maps:get(enabled, LConf, true)
+            Type =:= Type0 andalso maps:get(enable, LConf, true)
         end,
         list()
     ).

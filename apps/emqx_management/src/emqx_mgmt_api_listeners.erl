@@ -510,9 +510,9 @@ action_listeners_by_id(post, #{bindings := #{id := Id, action := Action}}) ->
 
 %%%==============================================================================================
 
-enabled(start) -> #{<<"enabled">> => true};
-enabled(stop) -> #{<<"enabled">> => false};
-enabled(restart) -> #{<<"enabled">> => true}.
+enabled(start) -> #{<<"enable">> => true};
+enabled(stop) -> #{<<"enable">> => false};
+enabled(restart) -> #{<<"enable">> => true}.
 
 err_msg(Atom) when is_atom(Atom) -> atom_to_binary(Atom);
 err_msg(Reason) -> list_to_binary(err_msg_str(Reason)).
@@ -594,7 +594,7 @@ format_status(Key, Node, Listener, Acc) ->
     #{
         <<"id">> := Id,
         <<"type">> := Type,
-        <<"enabled">> := Enabled,
+        <<"enable">> := Enable,
         <<"running">> := Running,
         <<"max_connections">> := MaxConnections,
         <<"current_connections">> := CurrentConnections,
@@ -609,7 +609,7 @@ format_status(Key, Node, Listener, Acc) ->
                 GroupKey => #{
                     name => Name,
                     type => Type,
-                    enable => Enabled,
+                    enable => Enable,
                     ids => [Id],
                     acceptors => Acceptors,
                     bind => iolist_to_binary(emqx_listeners:format_bind(Bind)),
