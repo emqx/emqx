@@ -65,6 +65,7 @@ for f in \
         crc32cer_nif.so \
         crypto.so \
         crypto_callback.so \
+        ezstd_nif.so \
         jiffy.so \
         liberocksdb.so \
         libquicer_nif.so \
