@@ -86,14 +86,15 @@ start_cmd() {
     local id="$2"
     local ip="127.0.0.$id"
     local nodename="$role$id"
-    local nodehome="$(pwd)/tmp/$nodename"
+    local nodehome
+    nodehome="$(pwd)/tmp/$nodename"
     mkdir -p "${nodehome}/data" "${nodehome}/log"
     cat <<-EOF
 env DEBUG="${DEBUG:-0}" \
 EMQX_NODE_NAME="$nodename@$ip" \
 EMQX_CLUSTER__STATIC__SEEDS="$SEEDS" \
 EMQX_CLUSTER__DISCOVERY_STRATEGY=static \
-EMQX_NODE__DB_ROLE="$role" \
+EMQX_NODE__ROLE="$role" \
 EMQX_LOG__FILE_HANDLERS__DEFAULT__LEVEL="${EMQX_LOG__FILE_HANDLERS__DEFAULT__LEVEL:-debug}" \
 EMQX_LOG__FILE_HANDLERS__DEFAULT__FILE="${nodehome}/log/emqx.log" \
 EMQX_LOG_DIR="${nodehome}/log" \
@@ -115,11 +116,11 @@ start_node() {
 }
 
 for id in "${CORE_IDS[@]}"; do
-    sudo ifconfig lo0 alias 127.0.0.$id up
+    sudo ifconfig lo0 alias "127.0.0.$id" up
     start_node core "$id" &
 done
 
 for id in "${REPLICANT_IDS[@]}"; do
-    sudo ifconfig lo0 alias 127.0.0.$id up
+    sudo ifconfig lo0 alias "127.0.0.$id" up
     start_node replicant "$id" &
 done
