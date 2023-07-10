@@ -18,7 +18,7 @@
 /apps/emqx_rule_engine/    @emqx/emqx-review-board @kjellwinblad
 /apps/emqx_slow_subs/      @emqx/emqx-review-board @lafirest
 /apps/emqx_statsd/         @emqx/emqx-review-board @JimMoen
-/apps/emqx_durable_storage/ @ieQu1
+/apps/emqx_durable_storage/ @emqx/emqx-review-board @ieQu1 @keynslug 
 
 ## CI
 /deploy/  @emqx/emqx-review-board @Rory-Z
