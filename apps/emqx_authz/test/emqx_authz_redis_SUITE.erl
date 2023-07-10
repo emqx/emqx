@@ -28,10 +28,10 @@
 -define(REDIS_RESOURCE, <<"emqx_authz_redis_SUITE">>).
 
 all() ->
-    emqx_common_test_helpers:all(?MODULE).
+    emqx_authz_test_lib:all_with_table_case(?MODULE, t_run_case, cases()).
 
 groups() ->
-    [].
+    emqx_authz_test_lib:table_groups(t_run_case, cases()).
 
 init_per_suite(Config) ->
     ok = stop_apps([emqx_resource]),
@@ -42,13 +42,7 @@ init_per_suite(Config) ->
                 fun set_special_configs/1
             ),
             ok = start_apps([emqx_resource]),
-            {ok, _} = emqx_resource:create_local(
-                ?REDIS_RESOURCE,
-                ?RESOURCE_GROUP,
-                emqx_redis,
-                redis_config(),
-                #{}
-            ),
+            ok = create_redis_resource(),
             Config;
         false ->
             {skip, no_redis}
@@ -60,9 +54,18 @@ end_per_suite(_Config) ->
     ok = stop_apps([emqx_resource]),
     ok = emqx_common_test_helpers:stop_apps([emqx_conf, emqx_authz]).
 
+init_per_group(Group, Config) ->
+    [{test_case, emqx_authz_test_lib:get_case(Group, cases())} | Config].
+end_per_group(_Group, _Config) ->
+    ok.
+
 init_per_testcase(_TestCase, Config) ->
     ok = emqx_authz_test_lib:reset_authorizers(),
     Config.
+end_per_testcase(_TestCase, _Config) ->
+    _ = emqx_authz:set_feature_available(rich_actions, true),
+    _ = cleanup_redis(),
+    ok.
 
 set_special_configs(emqx_authz) ->
     ok = emqx_authz_test_lib:reset_authorizers();
@@ -73,93 +76,11 @@ set_special_configs(_) ->
 %% Tests
 %%------------------------------------------------------------------------------
 
-t_topic_rules(_Config) ->
-    ClientInfo = #{
-        clientid => <<"clientid">>,
-        username => <<"username">>,
-        peerhost => {127, 0, 0, 1},
-        zone => default,
-        listener => {tcp, default}
-    },
-
-    ok = emqx_authz_test_lib:test_no_topic_rules(ClientInfo, fun setup_client_samples/2),
-
-    ok = emqx_authz_test_lib:test_allow_topic_rules(ClientInfo, fun setup_client_samples/2).
-
-t_lookups(_Config) ->
-    ClientInfo = #{
-        clientid => <<"client id">>,
-        cn => <<"cn">>,
-        dn => <<"dn">>,
-        username => <<"username">>,
-        peerhost => {127, 0, 0, 1},
-        zone => default,
-        listener => {tcp, default}
-    },
-
-    ByClientid = #{
-        <<"mqtt_user:client id">> =>
-            #{<<"a">> => <<"all">>}
-    },
-
-    ok = setup_sample(ByClientid),
-    ok = setup_config(#{<<"cmd">> => <<"HGETALL mqtt_user:${clientid}">>}),
-
-    ok = emqx_authz_test_lib:test_samples(
-        ClientInfo,
-        [
-            {allow, subscribe, <<"a">>},
-            {deny, subscribe, <<"b">>}
-        ]
-    ),
-
-    ByPeerhost = #{
-        <<"mqtt_user:127.0.0.1">> =>
-            #{<<"a">> => <<"all">>}
-    },
-
-    ok = setup_sample(ByPeerhost),
-    ok = setup_config(#{<<"cmd">> => <<"HGETALL mqtt_user:${peerhost}">>}),
-
-    ok = emqx_authz_test_lib:test_samples(
-        ClientInfo,
-        [
-            {allow, subscribe, <<"a">>},
-            {deny, subscribe, <<"b">>}
-        ]
-    ),
-
-    ByCN = #{
-        <<"mqtt_user:cn">> =>
-            #{<<"a">> => <<"all">>}
-    },
-
-    ok = setup_sample(ByCN),
-    ok = setup_config(#{<<"cmd">> => <<"HGETALL mqtt_user:${cert_common_name}">>}),
-
-    ok = emqx_authz_test_lib:test_samples(
-        ClientInfo,
-        [
-            {allow, subscribe, <<"a">>},
-            {deny, subscribe, <<"b">>}
-        ]
-    ),
-
-    ByDN = #{
-        <<"mqtt_user:dn">> =>
-            #{<<"a">> => <<"all">>}
-    },
-
-    ok = setup_sample(ByDN),
-    ok = setup_config(#{<<"cmd">> => <<"HGETALL mqtt_user:${cert_subject}">>}),
-
-    ok = emqx_authz_test_lib:test_samples(
-        ClientInfo,
-        [
-            {allow, subscribe, <<"a">>},
-            {deny, subscribe, <<"b">>}
-        ]
-    ).
+t_run_case(Config) ->
+    Case = ?config(test_case, Config),
+    ok = setup_source_data(Case),
+    ok = setup_authz_source(Case),
+    ok = emqx_authz_test_lib:run_checks(Case).
 
 %% should still succeed to create even if the config will not work,
 %% because it's not a part of the schema check
@@ -181,7 +102,7 @@ t_create_with_config_values_wont_work(_Config) ->
         InvalidConfigs
     ).
 
-%% creating without a require field should return error
+%% creating without a required field should return error
 t_create_invalid_config(_Config) ->
     AuthzConfig = raw_redis_authz_config(),
     C = maps:without([<<"server">>], AuthzConfig),
@@ -196,54 +117,211 @@ t_create_invalid_config(_Config) ->
 t_redis_error(_Config) ->
     ok = setup_config(#{<<"cmd">> => <<"INVALID COMMAND">>}),
 
-    ClientInfo = #{
-        clientid => <<"clientid">>,
-        username => <<"username">>,
-        peerhost => {127, 0, 0, 1},
-        zone => default,
-        listener => {tcp, default}
-    },
+    ClientInfo = emqx_authz_test_lib:base_client_info(),
 
-    deny = emqx_access_control:authorize(ClientInfo, subscribe, <<"a">>).
+    ?assertEqual(
+        deny,
+        emqx_access_control:authorize(ClientInfo, ?AUTHZ_SUBSCRIBE, <<"a">>)
+    ).
+
+%%------------------------------------------------------------------------------
+%% Cases
+%%------------------------------------------------------------------------------
+
+cases() ->
+    [
+        #{
+            name => base_publish,
+            setup => [
+                [
+                    "HMSET",
+                    "acl:username",
+                    "a",
+                    "publish",
+                    "b",
+                    "subscribe",
+                    "d",
+                    "all"
+                ]
+            ],
+            cmd => "HGETALL acl:${username}",
+            checks => [
+                {allow, ?AUTHZ_PUBLISH, <<"a">>},
+                {deny, ?AUTHZ_SUBSCRIBE, <<"a">>},
+
+                {deny, ?AUTHZ_PUBLISH, <<"b">>},
+                {allow, ?AUTHZ_SUBSCRIBE, <<"b">>},
+
+                {allow, ?AUTHZ_PUBLISH, <<"d">>},
+                {allow, ?AUTHZ_SUBSCRIBE, <<"d">>}
+            ]
+        },
+        #{
+            name => invalid_rule,
+            setup => [
+                [
+                    "HMSET",
+                    "acl:username",
+                    "a",
+                    "[]",
+                    "b",
+                    "{invalid:json}",
+                    "c",
+                    "pub",
+                    "d",
+                    emqx_utils_json:encode(#{qos => 1, retain => true})
+                ]
+            ],
+            cmd => "HGETALL acl:${username}",
+            checks => [
+                {deny, ?AUTHZ_PUBLISH, <<"a">>},
+                {deny, ?AUTHZ_PUBLISH, <<"b">>},
+                {deny, ?AUTHZ_PUBLISH, <<"c">>},
+                {deny, ?AUTHZ_PUBLISH(1, true), <<"d">>}
+            ]
+        },
+        #{
+            name => rule_by_clientid_cn_dn_peerhost,
+            setup => [
+                ["HMSET", "acl:clientid:cn:dn:127.0.0.1", "a", "publish"]
+            ],
+            cmd => "HGETALL acl:${clientid}:${cert_common_name}:${cert_subject}:${peerhost}",
+            client_info => #{
+                cn => <<"cn">>,
+                dn => <<"dn">>
+            },
+            checks => [
+                {allow, ?AUTHZ_PUBLISH, <<"a">>}
+            ]
+        },
+        #{
+            name => topics_literal_wildcard_variable,
+            setup => [
+                [
+                    "HMSET",
+                    "acl:username",
+                    "t/${username}",
+                    "publish",
+                    "t/${clientid}",
+                    "publish",
+                    "t1/#",
+                    "publish",
+                    "t2/+",
+                    "publish",
+                    "eq t3/${username}",
+                    "publish"
+                ]
+            ],
+            cmd => "HGETALL acl:${username}",
+            checks => [
+                {allow, ?AUTHZ_PUBLISH, <<"t/username">>},
+                {allow, ?AUTHZ_PUBLISH, <<"t/clientid">>},
+                {allow, ?AUTHZ_PUBLISH, <<"t1/a/b">>},
+                {allow, ?AUTHZ_PUBLISH, <<"t2/a">>},
+                {allow, ?AUTHZ_PUBLISH, <<"t3/${username}">>},
+                {deny, ?AUTHZ_PUBLISH, <<"t3/username">>}
+            ]
+        },
+        #{
+            name => qos_retain_in_query_result,
+            features => [rich_actions],
+            setup => [
+                [
+                    "HMSET",
+                    "acl:username",
+                    "a",
+                    emqx_utils_json:encode(#{action => <<"publish">>, qos => 1, retain => true}),
+                    "b",
+                    emqx_utils_json:encode(#{
+                        action => <<"publish">>, qos => <<"1">>, retain => <<"true">>
+                    }),
+                    "c",
+                    emqx_utils_json:encode(#{action => <<"publish">>, qos => <<"1,2">>, retain => 1}),
+                    "d",
+                    emqx_utils_json:encode(#{
+                        action => <<"publish">>, qos => [1, 2], retain => <<"1">>
+                    }),
+                    "e",
+                    emqx_utils_json:encode(#{
+                        action => <<"publish">>, qos => [1, 2], retain => <<"all">>
+                    }),
+                    "f",
+                    emqx_utils_json:encode(#{action => <<"publish">>, qos => null, retain => null})
+                ]
+            ],
+            cmd => "HGETALL acl:${username}",
+            checks => [
+                {allow, ?AUTHZ_PUBLISH(1, true), <<"a">>},
+                {deny, ?AUTHZ_PUBLISH(1, false), <<"a">>},
+
+                {allow, ?AUTHZ_PUBLISH(1, true), <<"b">>},
+                {deny, ?AUTHZ_PUBLISH(1, false), <<"b">>},
+                {deny, ?AUTHZ_PUBLISH(2, false), <<"b">>},
+
+                {allow, ?AUTHZ_PUBLISH(2, true), <<"c">>},
+                {deny, ?AUTHZ_PUBLISH(2, false), <<"c">>},
+                {deny, ?AUTHZ_PUBLISH(0, true), <<"c">>},
+
+                {allow, ?AUTHZ_PUBLISH(2, true), <<"d">>},
+                {deny, ?AUTHZ_PUBLISH(0, true), <<"d">>},
+
+                {allow, ?AUTHZ_PUBLISH(1, false), <<"e">>},
+                {allow, ?AUTHZ_PUBLISH(1, true), <<"e">>},
+                {deny, ?AUTHZ_PUBLISH(0, false), <<"e">>},
+
+                {allow, ?AUTHZ_PUBLISH, <<"f">>},
+                {deny, ?AUTHZ_SUBSCRIBE, <<"f">>}
+            ]
+        },
+        #{
+            name => nonbin_values_in_client_info,
+            setup => [
+                [
+                    "HMSET",
+                    "acl:username:clientid",
+                    "a",
+                    "publish"
+                ]
+            ],
+            client_info => #{
+                username => "username",
+                clientid => clientid
+            },
+            cmd => "HGETALL acl:${username}:${clientid}",
+            checks => [
+                {allow, ?AUTHZ_PUBLISH, <<"a">>}
+            ]
+        },
+        #{
+            name => invalid_query,
+            setup => [
+                ["SET", "acl:username", 1]
+            ],
+            cmd => "HGETALL acl:${username}",
+            checks => [
+                {deny, ?AUTHZ_PUBLISH, <<"a">>}
+            ]
+        }
+    ].
 
 %%------------------------------------------------------------------------------
 %% Helpers
 %%------------------------------------------------------------------------------
 
-setup_sample(AuthzData) ->
-    {ok, _} = q(["FLUSHDB"]),
-    ok = lists:foreach(
-        fun({Key, Values}) ->
-            lists:foreach(
-                fun({TopicFilter, Action}) ->
-                    q(["HSET", Key, TopicFilter, Action])
-                end,
-                maps:to_list(Values)
-            )
+setup_source_data(#{setup := Queries}) ->
+    lists:foreach(
+        fun(Query) ->
+            _ = q(Query)
         end,
-        maps:to_list(AuthzData)
+        Queries
     ).
 
-setup_client_samples(ClientInfo, Samples) ->
-    #{username := Username} = ClientInfo,
-    Key = <<"mqtt_user:", Username/binary>>,
-    lists:foreach(
-        fun(Sample) ->
-            #{
-                topics := Topics,
-                permission := <<"allow">>,
-                action := Action
-            } = Sample,
-            lists:foreach(
-                fun(Topic) ->
-                    q(["HSET", Key, Topic, Action])
-                end,
-                Topics
-            )
-        end,
-        Samples
-    ),
-    setup_config(#{}).
+setup_authz_source(#{cmd := Cmd}) ->
+    setup_config(
+        #{
+            <<"cmd">> => Cmd
+        }
+    ).
 
 setup_config(SpecialParams) ->
     Config = maps:merge(raw_redis_authz_config(), SpecialParams),
@@ -260,6 +338,9 @@ raw_redis_authz_config() ->
         <<"password">> => <<"public">>,
         <<"server">> => <<?REDIS_HOST>>
     }.
+
+cleanup_redis() ->
+    q([<<"FLUSHALL">>]).
 
 q(Command) ->
     emqx_resource:simple_sync_query(
@@ -283,3 +364,13 @@ start_apps(Apps) ->
 
 stop_apps(Apps) ->
     lists:foreach(fun application:stop/1, Apps).
+
+create_redis_resource() ->
+    {ok, _} = emqx_resource:create_local(
+        ?REDIS_RESOURCE,
+        ?RESOURCE_GROUP,
+        emqx_redis,
+        redis_config(),
+        #{}
+    ),
+    ok.

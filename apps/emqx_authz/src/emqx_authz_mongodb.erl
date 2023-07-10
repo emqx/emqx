@@ -68,7 +68,7 @@ destroy(#{annotations := #{id := Id}}) ->
 
 authorize(
     Client,
-    PubSub,
+    Action,
     Topic,
     #{
         collection := Collection,
@@ -77,14 +77,7 @@ authorize(
     }
 ) ->
     RenderedFilter = emqx_authz_utils:render_deep(FilterTemplate, Client),
-    Result =
-        try
-            emqx_resource:simple_sync_query(ResourceID, {find, Collection, RenderedFilter, #{}})
-        catch
-            error:Error -> {error, Error}
-        end,
-
-    case Result of
+    case emqx_resource:simple_sync_query(ResourceID, {find, Collection, RenderedFilter, #{}}) of
         {error, Reason} ->
             ?SLOG(error, #{
                 msg => "query_mongo_error",
@@ -94,18 +87,22 @@ authorize(
                 resource_id => ResourceID
             }),
             nomatch;
-        {ok, []} ->
-            nomatch;
         {ok, Rows} ->
-            Rules = [
-                emqx_authz_rule:compile({Permission, all, Action, Topics})
-             || #{
-                    <<"topics">> := Topics,
-                    <<"permission">> := Permission,
-                    <<"action">> := Action
-                } <- Rows
-            ],
-            do_authorize(Client, PubSub, Topic, Rules)
+            Rules = lists:flatmap(fun parse_rule/1, Rows),
+            do_authorize(Client, Action, Topic, Rules)
+    end.
+
+parse_rule(Row) ->
+    case emqx_authz_rule_raw:parse_rule(Row) of
+        {ok, {Permission, Action, Topics}} ->
+            [emqx_authz_rule:compile({Permission, all, Action, Topics})];
+        {error, Reason} ->
+            ?SLOG(error, #{
+                msg => "parse_rule_error",
+                reason => Reason,
+                row => Row
+            }),
+            []
     end.
 
 do_authorize(_Client, _PubSub, _Topic, []) ->

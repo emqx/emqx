@@ -16,7 +16,6 @@
 
 -module(emqx_authz_mnesia).
 
--include_lib("emqx/include/emqx.hrl").
 -include_lib("stdlib/include/ms_transform.hrl").
 -include_lib("emqx/include/logger.hrl").
 
@@ -202,25 +201,16 @@ record_count() ->
 %%--------------------------------------------------------------------
 
 normalize_rules(Rules) ->
-    lists:map(fun normalize_rule/1, Rules).
+    lists:flatmap(fun normalize_rule/1, Rules).
 
-normalize_rule({Permission, Action, Topic}) ->
-    {normalize_permission(Permission), normalize_action(Action), normalize_topic(Topic)};
-normalize_rule(Rule) ->
-    error({invalid_rule, Rule}).
-
-normalize_topic(Topic) when is_list(Topic) -> list_to_binary(Topic);
-normalize_topic(Topic) when is_binary(Topic) -> Topic;
-normalize_topic(Topic) -> error({invalid_rule_topic, Topic}).
-
-normalize_action(publish) -> publish;
-normalize_action(subscribe) -> subscribe;
-normalize_action(all) -> all;
-normalize_action(Action) -> error({invalid_rule_action, Action}).
-
-normalize_permission(allow) -> allow;
-normalize_permission(deny) -> deny;
-normalize_permission(Permission) -> error({invalid_rule_permission, Permission}).
+normalize_rule(RuleRaw) ->
+    case emqx_authz_rule_raw:parse_rule(RuleRaw) of
+        %% For backward compatibility
+        {ok, {Permission, Action, TopicFilters}} ->
+            [{Permission, Action, TopicFilter} || TopicFilter <- TopicFilters];
+        {error, Reason} ->
+            error(Reason)
+    end.
 
 do_get_rules(Key) ->
     case mnesia:dirty_read(?ACL_TABLE, Key) of

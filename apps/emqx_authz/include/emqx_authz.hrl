@@ -18,16 +18,6 @@
 
 -define(APP, emqx_authz).
 
--define(ALLOW_DENY(A),
-    ((A =:= allow) orelse (A =:= <<"allow">>) orelse
-        (A =:= deny) orelse (A =:= <<"deny">>))
-).
--define(PUBSUB(A),
-    ((A =:= subscribe) orelse (A =:= <<"subscribe">>) orelse
-        (A =:= publish) orelse (A =:= <<"publish">>) orelse
-        (A =:= all) orelse (A =:= <<"all">>))
-).
-
 %% authz_mnesia
 -define(ACL_TABLE, emqx_acl).
 
@@ -59,12 +49,12 @@
     username => user1,
     rules => [
         #{
-            topic => <<"test/toopic/1">>,
+            topic => <<"test/topic/1">>,
             permission => <<"allow">>,
             action => <<"publish">>
         },
         #{
-            topic => <<"test/toopic/2">>,
+            topic => <<"test/topic/2">>,
             permission => <<"allow">>,
             action => <<"subscribe">>
         },
@@ -72,6 +62,20 @@
             topic => <<"eq test/#">>,
             permission => <<"deny">>,
             action => <<"all">>
+        },
+        #{
+            topic => <<"test/topic/3">>,
+            permission => <<"allow">>,
+            action => <<"publish">>,
+            qos => [<<"1">>],
+            retain => <<"true">>
+        },
+        #{
+            topic => <<"test/topic/4">>,
+            permission => <<"allow">>,
+            action => <<"publish">>,
+            qos => [<<"0">>, <<"1">>, <<"2">>],
+            retain => <<"all">>
         }
     ]
 }).
@@ -79,12 +83,12 @@
     clientid => client1,
     rules => [
         #{
-            topic => <<"test/toopic/1">>,
+            topic => <<"test/topic/1">>,
             permission => <<"allow">>,
             action => <<"publish">>
         },
         #{
-            topic => <<"test/toopic/2">>,
+            topic => <<"test/topic/2">>,
             permission => <<"allow">>,
             action => <<"subscribe">>
         },
@@ -92,18 +96,32 @@
             topic => <<"eq test/#">>,
             permission => <<"deny">>,
             action => <<"all">>
+        },
+        #{
+            topic => <<"test/topic/3">>,
+            permission => <<"allow">>,
+            action => <<"publish">>,
+            qos => [<<"1">>],
+            retain => <<"true">>
+        },
+        #{
+            topic => <<"test/topic/4">>,
+            permission => <<"allow">>,
+            action => <<"publish">>,
+            qos => [<<"0">>, <<"1">>, <<"2">>],
+            retain => <<"all">>
         }
     ]
 }).
 -define(ALL_RULES_EXAMPLE, #{
     rules => [
         #{
-            topic => <<"test/toopic/1">>,
+            topic => <<"test/topic/1">>,
             permission => <<"allow">>,
             action => <<"publish">>
         },
         #{
-            topic => <<"test/toopic/2">>,
+            topic => <<"test/topic/2">>,
             permission => <<"allow">>,
             action => <<"subscribe">>
         },
@@ -111,9 +129,28 @@
             topic => <<"eq test/#">>,
             permission => <<"deny">>,
             action => <<"all">>
+        },
+        #{
+            topic => <<"test/topic/3">>,
+            permission => <<"allow">>,
+            action => <<"publish">>,
+            qos => [<<"1">>],
+            retain => <<"true">>
+        },
+        #{
+            topic => <<"test/topic/4">>,
+            permission => <<"allow">>,
+            action => <<"publish">>,
+            qos => [<<"0">>, <<"1">>, <<"2">>],
+            retain => <<"all">>
         }
     ]
 }).
+
+-define(USERNAME_RULES_EXAMPLE_COUNT, length(maps:get(rules, ?USERNAME_RULES_EXAMPLE))).
+-define(CLIENTID_RULES_EXAMPLE_COUNT, length(maps:get(rules, ?CLIENTID_RULES_EXAMPLE))).
+-define(ALL_RULES_EXAMPLE_COUNT, length(maps:get(rules, ?ALL_RULES_EXAMPLE))).
+
 -define(META_EXAMPLE, #{
     page => 1,
     limit => 100,
@@ -121,3 +158,8 @@
 }).
 
 -define(RESOURCE_GROUP, <<"emqx_authz">>).
+
+-define(AUTHZ_FEATURES, [rich_actions]).
+
+-define(DEFAULT_RULE_QOS, [0, 1, 2]).
+-define(DEFAULT_RULE_RETAIN, all).

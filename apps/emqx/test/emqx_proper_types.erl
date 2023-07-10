@@ -20,6 +20,7 @@
 
 -include_lib("proper/include/proper.hrl").
 -include("emqx.hrl").
+-include("emqx_access_control.hrl").
 
 %% High level Types
 -export([
@@ -34,7 +35,8 @@
     subopts/0,
     nodename/0,
     normal_topic/0,
-    normal_topic_filter/0
+    normal_topic_filter/0,
+    pubsub/0
 ]).
 
 %% Basic Types
@@ -481,6 +483,23 @@ normal_topic_filter() ->
             end
         end
     ).
+
+subscribe_action() ->
+    ?LET(
+        Qos,
+        qos(),
+        ?AUTHZ_SUBSCRIBE(Qos)
+    ).
+
+publish_action() ->
+    ?LET(
+        {Qos, Retain},
+        {qos(), boolean()},
+        ?AUTHZ_PUBLISH(Qos, Retain)
+    ).
+
+pubsub() ->
+    oneof([publish_action(), subscribe_action()]).
 
 %%--------------------------------------------------------------------
 %% Basic Types

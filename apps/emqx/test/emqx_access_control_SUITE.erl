@@ -19,8 +19,8 @@
 -compile(export_all).
 -compile(nowarn_export_all).
 
--include_lib("emqx/include/emqx_mqtt.hrl").
 -include_lib("emqx/include/emqx_hooks.hrl").
+-include_lib("emqx/include/emqx_access_control.hrl").
 -include_lib("eunit/include/eunit.hrl").
 
 all() -> emqx_common_test_helpers:all(?MODULE).
@@ -44,8 +44,7 @@ t_authenticate(_) ->
     ?assertMatch({ok, _}, emqx_access_control:authenticate(clientinfo())).
 
 t_authorize(_) ->
-    Publish = ?PUBLISH_PACKET(?QOS_0, <<"t">>, 1, <<"payload">>),
-    ?assertEqual(allow, emqx_access_control:authorize(clientinfo(), Publish, <<"t">>)).
+    ?assertEqual(allow, emqx_access_control:authorize(clientinfo(), ?AUTHZ_PUBLISH, <<"t">>)).
 
 t_delayed_authorize(_) ->
     RawTopic = <<"$delayed/1/foo/2">>,
@@ -54,11 +53,11 @@ t_delayed_authorize(_) ->
 
     ok = emqx_hooks:put('client.authorize', {?MODULE, authz_stub, [Topic]}, ?HP_AUTHZ),
 
-    Publish1 = ?PUBLISH_PACKET(?QOS_0, RawTopic, 1, <<"payload">>),
-    ?assertEqual(allow, emqx_access_control:authorize(clientinfo(), Publish1, RawTopic)),
+    ?assertEqual(allow, emqx_access_control:authorize(clientinfo(), ?AUTHZ_PUBLISH, RawTopic)),
 
-    Publish2 = ?PUBLISH_PACKET(?QOS_0, InvalidTopic, 1, <<"payload">>),
-    ?assertEqual(deny, emqx_access_control:authorize(clientinfo(), Publish2, InvalidTopic)),
+    ?assertEqual(
+        deny, emqx_access_control:authorize(clientinfo(), ?AUTHZ_PUBLISH, InvalidTopic)
+    ),
     ok.
 
 t_quick_deny_anonymous(_) ->
@@ -96,8 +95,8 @@ t_quick_deny_anonymous(_) ->
 %% Helper functions
 %%--------------------------------------------------------------------
 
-authz_stub(_Client, _PubSub, ValidTopic, _DefaultResult, ValidTopic) -> {stop, #{result => allow}};
-authz_stub(_Client, _PubSub, _Topic, _DefaultResult, _ValidTopic) -> {stop, #{result => deny}}.
+authz_stub(_Client, _Action, ValidTopic, _DefaultResult, ValidTopic) -> {stop, #{result => allow}};
+authz_stub(_Client, _Action, _Topic, _DefaultResult, _ValidTopic) -> {stop, #{result => deny}}.
 
 quick_deny_anonymous_authn(#{username := <<"badname">>}, _AuthResult) ->
     {stop, {error, not_authorized}};

@@ -70,19 +70,18 @@ destroy(#{annotations := #{id := Id}}) ->
 
 authorize(
     Client,
-    PubSub,
+    Action,
     Topic,
     #{
         cmd_template := CmdTemplate,
         annotations := #{id := ResourceID}
     }
 ) ->
-    Cmd = emqx_authz_utils:render_deep(CmdTemplate, Client),
+    Vars = emqx_authz_utils:vars_for_rule_query(Client, Action),
+    Cmd = emqx_authz_utils:render_deep(CmdTemplate, Vars),
     case emqx_resource:simple_sync_query(ResourceID, {cmd, Cmd}) of
-        {ok, []} ->
-            nomatch;
         {ok, Rows} ->
-            do_authorize(Client, PubSub, Topic, Rows);
+            do_authorize(Client, Action, Topic, Rows);
         {error, Reason} ->
             ?SLOG(error, #{
                 msg => "query_redis_error",
@@ -93,21 +92,63 @@ authorize(
             nomatch
     end.
 
-do_authorize(_Client, _PubSub, _Topic, []) ->
+do_authorize(_Client, _Action, _Topic, []) ->
     nomatch;
-do_authorize(Client, PubSub, Topic, [TopicFilter, Action | Tail]) ->
-    case
+do_authorize(Client, Action, Topic, [TopicFilterRaw, RuleEncoded | Tail]) ->
+    try
         emqx_authz_rule:match(
             Client,
-            PubSub,
+            Action,
             Topic,
-            emqx_authz_rule:compile({allow, all, Action, [TopicFilter]})
+            compile_rule(RuleEncoded, TopicFilterRaw)
         )
     of
         {matched, Permission} -> {matched, Permission};
-        nomatch -> do_authorize(Client, PubSub, Topic, Tail)
+        nomatch -> do_authorize(Client, Action, Topic, Tail)
+    catch
+        error:Reason:Stack ->
+            ?SLOG(error, #{
+                msg => "match_rule_error",
+                reason => Reason,
+                rule_encoded => RuleEncoded,
+                topic_filter_raw => TopicFilterRaw,
+                stacktrace => Stack
+            }),
+            do_authorize(Client, Action, Topic, Tail)
+    end.
+
+compile_rule(RuleBin, TopicFilterRaw) ->
+    RuleRaw =
+        maps:merge(
+            #{
+                <<"permission">> => <<"allow">>,
+                <<"topic">> => TopicFilterRaw
+            },
+            parse_rule(RuleBin)
+        ),
+    case emqx_authz_rule_raw:parse_rule(RuleRaw) of
+        {ok, {Permission, Action, Topics}} ->
+            emqx_authz_rule:compile({Permission, all, Action, Topics});
+        {error, Reason} ->
+            error(Reason)
     end.
 
 tokens(Query) ->
     Tokens = binary:split(Query, <<" ">>, [global]),
     [Token || Token <- Tokens, size(Token) > 0].
+
+parse_rule(<<"publish">>) ->
+    #{<<"action">> => <<"publish">>};
+parse_rule(<<"subscribe">>) ->
+    #{<<"action">> => <<"subscribe">>};
+parse_rule(<<"all">>) ->
+    #{<<"action">> => <<"all">>};
+parse_rule(Bin) when is_binary(Bin) ->
+    case emqx_utils_json:safe_decode(Bin, [return_maps]) of
+        {ok, Map} when is_map(Map) ->
+            maps:with([<<"qos">>, <<"action">>, <<"retain">>], Map);
+        {ok, _} ->
+            error({invalid_topic_rule, Bin, notamap});
+        {error, Error} ->
+            error({invalid_topic_rule, Bin, Error})
+    end.

@@ -1,9 +1,19 @@
 emqx_authz_api_mnesia {
 
 action.desc:
-"""Authorized action (pub/sub/all)"""
+"""Authorized action (publish/subscribe/all)"""
 action.label:
 """action"""
+
+qos.desc:
+"""QoS of authorized action"""
+qos.label:
+"""QoS"""
+
+retain.desc:
+"""Retain flag of authorized action"""
+retain.label:
+"""retain"""
 
 clientid.desc:
 """ClientID"""

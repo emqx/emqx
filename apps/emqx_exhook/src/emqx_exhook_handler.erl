@@ -16,9 +16,9 @@
 
 -module(emqx_exhook_handler).
 
--include("emqx_exhook.hrl").
 -include_lib("emqx/include/emqx.hrl").
 -include_lib("emqx/include/logger.hrl").
+-include_lib("emqx/include/emqx_access_control.hrl").
 
 -export([
     on_client_connect/2,
@@ -132,12 +132,13 @@ on_client_authenticate(ClientInfo, AuthResult) ->
             {ok, AuthResult}
     end.
 
-on_client_authorize(ClientInfo, PubSub, Topic, Result) ->
+on_client_authorize(ClientInfo, Action, Topic, Result) ->
     Bool = maps:get(result, Result, deny) == allow,
+    %% TODO: Support full action in major release
     Type =
-        case PubSub of
-            publish -> 'PUBLISH';
-            subscribe -> 'SUBSCRIBE'
+        case Action of
+            ?authz_action(publish) -> 'PUBLISH';
+            ?authz_action(subscribe) -> 'SUBSCRIBE'
         end,
     Req = #{
         clientinfo => clientinfo(ClientInfo),

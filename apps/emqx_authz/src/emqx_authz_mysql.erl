@@ -55,7 +55,7 @@ create(#{query := SQL} = Source0) ->
     ResourceId = emqx_authz_utils:make_resource_id(?MODULE),
     Source = Source0#{prepare_statement => #{?PREPARE_KEY => PrepareSQL}},
     {ok, _Data} = emqx_authz_utils:create_resource(ResourceId, emqx_mysql, Source),
-    Source#{annotations => #{id => ResourceId, tmpl_oken => TmplToken}}.
+    Source#{annotations => #{id => ResourceId, tmpl_token => TmplToken}}.
 
 update(#{query := SQL} = Source0) ->
     {PrepareSQL, TmplToken} = emqx_authz_utils:parse_sql(SQL, '?', ?PLACEHOLDERS),
@@ -64,7 +64,7 @@ update(#{query := SQL} = Source0) ->
         {error, Reason} ->
             error({load_config_error, Reason});
         {ok, Id} ->
-            Source#{annotations => #{id => Id, tmpl_oken => TmplToken}}
+            Source#{annotations => #{id => Id, tmpl_token => TmplToken}}
     end.
 
 destroy(#{annotations := #{id := Id}}) ->
@@ -72,57 +72,49 @@ destroy(#{annotations := #{id := Id}}) ->
 
 authorize(
     Client,
-    PubSub,
+    Action,
     Topic,
     #{
         annotations := #{
             id := ResourceID,
-            tmpl_oken := TmplToken
+            tmpl_token := TmplToken
         }
     }
 ) ->
-    RenderParams = emqx_authz_utils:render_sql_params(TmplToken, Client),
+    Vars = emqx_authz_utils:vars_for_rule_query(Client, Action),
+    RenderParams = emqx_authz_utils:render_sql_params(TmplToken, Vars),
     case
         emqx_resource:simple_sync_query(ResourceID, {prepared_query, ?PREPARE_KEY, RenderParams})
     of
-        {ok, _Columns, []} ->
-            nomatch;
-        {ok, Columns, Rows} ->
-            do_authorize(Client, PubSub, Topic, Columns, Rows);
+        {ok, ColumnNames, Rows} ->
+            do_authorize(Client, Action, Topic, ColumnNames, Rows);
         {error, Reason} ->
             ?SLOG(error, #{
                 msg => "query_mysql_error",
                 reason => Reason,
-                tmpl_oken => TmplToken,
+                tmpl_token => TmplToken,
                 params => RenderParams,
                 resource_id => ResourceID
             }),
             nomatch
     end.
 
-do_authorize(_Client, _PubSub, _Topic, _Columns, []) ->
+do_authorize(_Client, _Action, _Topic, _ColumnNames, []) ->
     nomatch;
-do_authorize(Client, PubSub, Topic, Columns, [Row | Tail]) ->
-    case
+do_authorize(Client, Action, Topic, ColumnNames, [Row | Tail]) ->
+    try
         emqx_authz_rule:match(
-            Client,
-            PubSub,
-            Topic,
-            emqx_authz_rule:compile(format_result(Columns, Row))
+            Client, Action, Topic, emqx_authz_utils:parse_rule_from_row(ColumnNames, Row)
         )
     of
         {matched, Permission} -> {matched, Permission};
-        nomatch -> do_authorize(Client, PubSub, Topic, Columns, Tail)
+        nomatch -> do_authorize(Client, Action, Topic, ColumnNames, Tail)
+    catch
+        error:Reason ->
+            ?SLOG(error, #{
+                msg => "match_rule_error",
+                reason => Reason,
+                rule => Row
+            }),
+            do_authorize(Client, Action, Topic, ColumnNames, Tail)
     end.
-
-format_result(Columns, Row) ->
-    Permission = lists:nth(index(<<"permission">>, Columns), Row),
-    Action = lists:nth(index(<<"action">>, Columns), Row),
-    Topic = lists:nth(index(<<"topic">>, Columns), Row),
-    {Permission, all, Action, [Topic]}.
-
-index(Elem, List) ->
-    index(Elem, List, 1).
-index(_Elem, [], _Index) -> {error, not_found};
-index(Elem, [Elem | _List], Index) -> Index;
-index(Elem, [_ | List], Index) -> index(Elem, List, Index + 1).

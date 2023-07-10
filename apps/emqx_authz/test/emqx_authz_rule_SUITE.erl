@@ -18,24 +18,17 @@
 -compile(nowarn_export_all).
 -compile(export_all).
 
--include("emqx_authz.hrl").
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
 -include_lib("emqx/include/emqx_placeholder.hrl").
 
--define(SOURCE1, {deny, all}).
--define(SOURCE2, {allow, {ipaddr, "127.0.0.1"}, all, [{eq, "#"}, {eq, "+"}]}).
--define(SOURCE3, {allow, {ipaddrs, ["127.0.0.1", "192.168.1.0/24"]}, subscribe, [?PH_S_CLIENTID]}).
--define(SOURCE4, {allow, {'and', [{client, "test"}, {user, "test"}]}, publish, ["topic/test"]}).
--define(SOURCE5,
-    {allow,
-        {'or', [
-            {username, {re, "^test"}},
-            {clientid, {re, "test?"}}
-        ]},
-        publish, [?PH_S_USERNAME, ?PH_S_CLIENTID]}
-).
--define(SOURCE6, {allow, {username, "test"}, publish, ["t/foo${username}boo"]}).
+-define(CLIENT_INFO_BASE, #{
+    clientid => <<"test">>,
+    username => <<"test">>,
+    peerhost => {127, 0, 0, 1},
+    zone => default,
+    listener => {tcp, default}
+}).
 
 all() ->
     emqx_common_test_helpers:all(?MODULE).
@@ -59,6 +52,12 @@ end_per_suite(_Config) ->
     emqx_common_test_helpers:stop_apps([emqx_authz, emqx_conf]),
     ok.
 
+init_per_testcase(_TestCase, Config) ->
+    Config.
+end_per_testcase(_TestCase, _Config) ->
+    _ = emqx_authz:set_feature_available(rich_actions, true),
+    ok.
+
 set_special_configs(emqx_authz) ->
     {ok, _} = emqx:update_config([authorization, cache, enable], false),
     {ok, _} = emqx:update_config([authorization, no_match], deny),
@@ -68,11 +67,11 @@ set_special_configs(_App) ->
     ok.
 
 t_compile(_) ->
-    ?assertEqual({deny, all, all, [['#']]}, emqx_authz_rule:compile(?SOURCE1)),
+    ?assertEqual({deny, all, all, [['#']]}, emqx_authz_rule:compile({deny, all})),
 
     ?assertEqual(
         {allow, {ipaddr, {{127, 0, 0, 1}, {127, 0, 0, 1}, 32}}, all, [{eq, ['#']}, {eq, ['+']}]},
-        emqx_authz_rule:compile(?SOURCE2)
+        emqx_authz_rule:compile({allow, {ipaddr, "127.0.0.1"}, all, [{eq, "#"}, {eq, "+"}]})
     ),
 
     ?assertEqual(
@@ -82,14 +81,18 @@ t_compile(_) ->
                 {{192, 168, 1, 0}, {192, 168, 1, 255}, 24}
             ]},
             subscribe, [{pattern, [{var, [<<"clientid">>]}]}]},
-        emqx_authz_rule:compile(?SOURCE3)
+        emqx_authz_rule:compile(
+            {allow, {ipaddrs, ["127.0.0.1", "192.168.1.0/24"]}, subscribe, [?PH_S_CLIENTID]}
+        )
     ),
 
-    ?assertMatch(
+    ?assertEqual(
         {allow, {'and', [{clientid, {eq, <<"test">>}}, {username, {eq, <<"test">>}}]}, publish, [
             [<<"topic">>, <<"test">>]
         ]},
-        emqx_authz_rule:compile(?SOURCE4)
+        emqx_authz_rule:compile(
+            {allow, {'and', [{client, "test"}, {user, "test"}]}, publish, ["topic/test"]}
+        )
     ),
 
     ?assertMatch(
@@ -101,240 +104,643 @@ t_compile(_) ->
             publish, [
                 {pattern, [{var, [<<"username">>]}]}, {pattern, [{var, [<<"clientid">>]}]}
             ]},
-        emqx_authz_rule:compile(?SOURCE5)
+        emqx_authz_rule:compile(
+            {allow,
+                {'or', [
+                    {username, {re, "^test"}},
+                    {clientid, {re, "test?"}}
+                ]},
+                publish, [?PH_S_USERNAME, ?PH_S_CLIENTID]}
+        )
     ),
 
     ?assertEqual(
         {allow, {username, {eq, <<"test">>}}, publish, [
             {pattern, [{str, <<"t/foo">>}, {var, [<<"username">>]}, {str, <<"boo">>}]}
         ]},
-        emqx_authz_rule:compile(?SOURCE6)
+        emqx_authz_rule:compile({allow, {username, "test"}, publish, ["t/foo${username}boo"]})
     ),
+
+    ?assertEqual(
+        {allow, {username, {eq, <<"test">>}},
+            #{action_type => publish, qos => [0, 1, 2], retain => all}, [[<<"topic">>, <<"test">>]]},
+        emqx_authz_rule:compile(
+            {allow, {username, "test"}, {publish, [{retain, all}]}, ["topic/test"]}
+        )
+    ),
+
+    ?assertEqual(
+        {allow, {username, {eq, <<"test">>}}, #{action_type => publish, qos => [1], retain => true},
+            [
+                [<<"topic">>, <<"test">>]
+            ]},
+        emqx_authz_rule:compile(
+            {allow, {username, "test"}, {publish, [{qos, 1}, {retain, true}]}, ["topic/test"]}
+        )
+    ),
+
+    ?assertEqual(
+        {allow, {username, {eq, <<"test">>}}, #{action_type => subscribe, qos => [1, 2]}, [
+            [<<"topic">>, <<"test">>]
+        ]},
+        emqx_authz_rule:compile(
+            {allow, {username, "test"}, {subscribe, [{qos, 1}, {qos, 2}]}, ["topic/test"]}
+        )
+    ),
+
+    ?assertEqual(
+        {allow, {username, {eq, <<"test">>}}, #{action_type => subscribe, qos => [1]}, [
+            [<<"topic">>, <<"test">>]
+        ]},
+        emqx_authz_rule:compile(
+            {allow, {username, "test"}, {subscribe, [{qos, 1}]}, ["topic/test"]}
+        )
+    ),
+
+    ?assertEqual(
+        {allow, {username, {eq, <<"test">>}}, #{action_type => all, qos => [2], retain => true}, [
+            [<<"topic">>, <<"test">>]
+        ]},
+        emqx_authz_rule:compile(
+            {allow, {username, "test"}, {all, [{qos, 2}, {retain, true}]}, ["topic/test"]}
+        )
+    ),
+
     ok.
+
+t_compile_ce(_Config) ->
+    _ = emqx_authz:set_feature_available(rich_actions, false),
+
+    ?assertThrow(
+        {invalid_authorization_action, _},
+        emqx_authz_rule:compile(
+            {allow, {username, "test"}, {all, [{qos, 2}, {retain, true}]}, ["topic/test"]}
+        )
+    ),
+
+    ?assertEqual(
+        {allow, {username, {eq, <<"test">>}}, all, [[<<"topic">>, <<"test">>]]},
+        emqx_authz_rule:compile(
+            {allow, {username, "test"}, all, ["topic/test"]}
+        )
+    ).
 
 t_match(_) ->
-    ClientInfo1 = #{
-        clientid => <<"test">>,
-        username => <<"test">>,
-        peerhost => {127, 0, 0, 1},
-        zone => default,
-        listener => {tcp, default}
-    },
-    ClientInfo2 = #{
-        clientid => <<"test">>,
-        username => <<"test">>,
-        peerhost => {192, 168, 1, 10},
-        zone => default,
-        listener => {tcp, default}
-    },
-    ClientInfo3 = #{
-        clientid => <<"test">>,
-        username => <<"fake">>,
-        peerhost => {127, 0, 0, 1},
-        zone => default,
-        listener => {tcp, default}
-    },
-    ClientInfo4 = #{
-        clientid => <<"fake">>,
-        username => <<"test">>,
-        peerhost => {127, 0, 0, 1},
-        zone => default,
-        listener => {tcp, default}
-    },
+    ?assertEqual(
+        {matched, deny},
+        emqx_authz_rule:match(
+            client_info(),
+            #{action_type => subscribe, qos => 0},
+            <<"#">>,
+            emqx_authz_rule:compile({deny, all})
+        )
+    ),
 
     ?assertEqual(
         {matched, deny},
         emqx_authz_rule:match(
-            ClientInfo1,
-            subscribe,
-            <<"#">>,
-            emqx_authz_rule:compile(?SOURCE1)
-        )
-    ),
-    ?assertEqual(
-        {matched, deny},
-        emqx_authz_rule:match(
-            ClientInfo2,
-            subscribe,
+            client_info(#{peerhost => {192, 168, 1, 10}}),
+            #{action_type => subscribe, qos => 0},
             <<"+">>,
-            emqx_authz_rule:compile(?SOURCE1)
+            emqx_authz_rule:compile({deny, all})
         )
     ),
+
     ?assertEqual(
         {matched, deny},
         emqx_authz_rule:match(
-            ClientInfo3,
-            subscribe,
+            client_info(#{username => <<"fake">>}),
+            #{action_type => subscribe, qos => 0},
             <<"topic/test">>,
-            emqx_authz_rule:compile(?SOURCE1)
+            emqx_authz_rule:compile({deny, all})
         )
     ),
 
     ?assertEqual(
         {matched, allow},
         emqx_authz_rule:match(
-            ClientInfo1,
-            subscribe,
+            client_info(),
+            #{action_type => subscribe, qos => 0},
             <<"#">>,
-            emqx_authz_rule:compile(?SOURCE2)
+            emqx_authz_rule:compile({allow, {ipaddr, "127.0.0.1"}, all, [{eq, "#"}, {eq, "+"}]})
         )
     ),
+
     ?assertEqual(
         nomatch,
         emqx_authz_rule:match(
-            ClientInfo1,
-            subscribe,
+            client_info(),
+            #{action_type => subscribe, qos => 0},
             <<"topic/test">>,
-            emqx_authz_rule:compile(?SOURCE2)
+            emqx_authz_rule:compile({allow, {ipaddr, "127.0.0.1"}, all, [{eq, "#"}, {eq, "+"}]})
         )
     ),
+
     ?assertEqual(
         nomatch,
         emqx_authz_rule:match(
-            ClientInfo2,
-            subscribe,
+            client_info(#{peerhost => {192, 168, 1, 10}}),
+            #{action_type => subscribe, qos => 0},
             <<"#">>,
-            emqx_authz_rule:compile(?SOURCE2)
+            emqx_authz_rule:compile({allow, {ipaddr, "127.0.0.1"}, all, [{eq, "#"}, {eq, "+"}]})
         )
     ),
 
     ?assertEqual(
         {matched, allow},
         emqx_authz_rule:match(
-            ClientInfo1,
-            subscribe,
+            client_info(),
+            #{action_type => subscribe, qos => 0},
             <<"test">>,
-            emqx_authz_rule:compile(?SOURCE3)
-        )
-    ),
-    ?assertEqual(
-        {matched, allow},
-        emqx_authz_rule:match(
-            ClientInfo2,
-            subscribe,
-            <<"test">>,
-            emqx_authz_rule:compile(?SOURCE3)
-        )
-    ),
-    ?assertEqual(
-        nomatch,
-        emqx_authz_rule:match(
-            ClientInfo2,
-            subscribe,
-            <<"topic/test">>,
-            emqx_authz_rule:compile(?SOURCE3)
+            emqx_authz_rule:compile(
+                {allow, {ipaddrs, ["127.0.0.1", "192.168.1.0/24"]}, subscribe, [?PH_S_CLIENTID]}
+            )
         )
     ),
 
     ?assertEqual(
         {matched, allow},
         emqx_authz_rule:match(
-            ClientInfo1,
-            publish,
-            <<"topic/test">>,
-            emqx_authz_rule:compile(?SOURCE4)
+            client_info(#{peerhost => {192, 168, 1, 10}}),
+            #{action_type => subscribe, qos => 0},
+            <<"test">>,
+            emqx_authz_rule:compile(
+                {allow, {ipaddrs, ["127.0.0.1", "192.168.1.0/24"]}, subscribe, [?PH_S_CLIENTID]}
+            )
         )
     ),
-    ?assertEqual(
-        {matched, allow},
-        emqx_authz_rule:match(
-            ClientInfo2,
-            publish,
-            <<"topic/test">>,
-            emqx_authz_rule:compile(?SOURCE4)
-        )
-    ),
+
     ?assertEqual(
         nomatch,
         emqx_authz_rule:match(
-            ClientInfo3,
-            publish,
+            client_info(#{peerhost => {192, 168, 1, 10}}),
+            #{action_type => subscribe, qos => 0},
             <<"topic/test">>,
-            emqx_authz_rule:compile(?SOURCE4)
-        )
-    ),
-    ?assertEqual(
-        nomatch,
-        emqx_authz_rule:match(
-            ClientInfo4,
-            publish,
-            <<"topic/test">>,
-            emqx_authz_rule:compile(?SOURCE4)
+            emqx_authz_rule:compile(
+                {allow, {ipaddrs, ["127.0.0.1", "192.168.1.0/24"]}, subscribe, [?PH_S_CLIENTID]}
+            )
         )
     ),
 
     ?assertEqual(
         {matched, allow},
         emqx_authz_rule:match(
-            ClientInfo1,
-            publish,
-            <<"test">>,
-            emqx_authz_rule:compile(?SOURCE5)
+            client_info(),
+            #{action_type => publish, qos => 0, retain => false},
+            <<"topic/test">>,
+            emqx_authz_rule:compile(
+                {allow, {'and', [{client, "test"}, {user, "test"}]}, publish, ["topic/test"]}
+            )
         )
     ),
+
     ?assertEqual(
         {matched, allow},
         emqx_authz_rule:match(
-            ClientInfo2,
-            publish,
-            <<"test">>,
-            emqx_authz_rule:compile(?SOURCE5)
+            client_info(#{peerhost => {192, 168, 1, 10}}),
+            #{action_type => publish, qos => 0, retain => false},
+            <<"topic/test">>,
+            emqx_authz_rule:compile(
+                {allow, {'and', [{client, "test"}, {user, "test"}]}, publish, ["topic/test"]}
+            )
         )
     ),
+
+    ?assertEqual(
+        nomatch,
+        emqx_authz_rule:match(
+            client_info(#{username => <<"fake">>}),
+            #{action_type => publish, qos => 0, retain => false},
+            <<"topic/test">>,
+            emqx_authz_rule:compile(
+                {allow, {'and', [{client, "test"}, {user, "test"}]}, publish, ["topic/test"]}
+            )
+        )
+    ),
+
+    ?assertEqual(
+        nomatch,
+        emqx_authz_rule:match(
+            client_info(#{clientid => <<"fake">>}),
+            #{action_type => publish, qos => 0, retain => false},
+            <<"topic/test">>,
+            emqx_authz_rule:compile(
+                {allow, {'and', [{client, "test"}, {user, "test"}]}, publish, ["topic/test"]}
+            )
+        )
+    ),
+
     ?assertEqual(
         {matched, allow},
         emqx_authz_rule:match(
-            ClientInfo3,
-            publish,
+            client_info(),
+            #{action_type => publish, qos => 0, retain => false},
             <<"test">>,
-            emqx_authz_rule:compile(?SOURCE5)
+            emqx_authz_rule:compile(
+                {allow,
+                    {'or', [
+                        {username, {re, "^test"}},
+                        {clientid, {re, "test?"}}
+                    ]},
+                    publish, [?PH_S_USERNAME, ?PH_S_CLIENTID]}
+            )
         )
     ),
+
     ?assertEqual(
         {matched, allow},
         emqx_authz_rule:match(
-            ClientInfo3,
-            publish,
+            client_info(#{peerhost => {192, 168, 1, 10}}),
+            #{action_type => publish, qos => 0, retain => false},
+            <<"test">>,
+            emqx_authz_rule:compile(
+                {allow,
+                    {'or', [
+                        {username, {re, "^test"}},
+                        {clientid, {re, "test?"}}
+                    ]},
+                    publish, [?PH_S_USERNAME, ?PH_S_CLIENTID]}
+            )
+        )
+    ),
+
+    ?assertEqual(
+        {matched, allow},
+        emqx_authz_rule:match(
+            client_info(#{username => <<"fake">>}),
+            #{action_type => publish, qos => 0, retain => false},
+            <<"test">>,
+            emqx_authz_rule:compile(
+                {allow,
+                    {'or', [
+                        {username, {re, "^test"}},
+                        {clientid, {re, "test?"}}
+                    ]},
+                    publish, [?PH_S_USERNAME, ?PH_S_CLIENTID]}
+            )
+        )
+    ),
+
+    ?assertEqual(
+        {matched, allow},
+        emqx_authz_rule:match(
+            client_info(#{username => <<"fake">>}),
+            #{action_type => publish, qos => 0, retain => false},
             <<"fake">>,
-            emqx_authz_rule:compile(?SOURCE5)
+            emqx_authz_rule:compile(
+                {allow,
+                    {'or', [
+                        {username, {re, "^test"}},
+                        {clientid, {re, "test?"}}
+                    ]},
+                    publish, [?PH_S_USERNAME, ?PH_S_CLIENTID]}
+            )
         )
     ),
+
     ?assertEqual(
         {matched, allow},
         emqx_authz_rule:match(
-            ClientInfo4,
-            publish,
+            client_info(#{clientid => <<"fake">>}),
+            #{action_type => publish, qos => 0, retain => false},
             <<"test">>,
-            emqx_authz_rule:compile(?SOURCE5)
+            emqx_authz_rule:compile(
+                {allow,
+                    {'or', [
+                        {username, {re, "^test"}},
+                        {clientid, {re, "test?"}}
+                    ]},
+                    publish, [?PH_S_USERNAME, ?PH_S_CLIENTID]}
+            )
         )
     ),
+
     ?assertEqual(
         {matched, allow},
         emqx_authz_rule:match(
-            ClientInfo4,
-            publish,
+            client_info(#{clientid => <<"fake">>}),
+            #{action_type => publish, qos => 0, retain => false},
             <<"fake">>,
-            emqx_authz_rule:compile(?SOURCE5)
+            emqx_authz_rule:compile(
+                {allow,
+                    {'or', [
+                        {username, {re, "^test"}},
+                        {clientid, {re, "test?"}}
+                    ]},
+                    publish, [?PH_S_USERNAME, ?PH_S_CLIENTID]}
+            )
         )
     ),
 
     ?assertEqual(
         nomatch,
         emqx_authz_rule:match(
-            ClientInfo1,
-            publish,
+            client_info(),
+            #{action_type => publish, qos => 0, retain => false},
             <<"t/foo${username}boo">>,
-            emqx_authz_rule:compile(?SOURCE6)
+            emqx_authz_rule:compile({allow, {username, "test"}, publish, ["t/foo${username}boo"]})
         )
     ),
 
     ?assertEqual(
         {matched, allow},
         emqx_authz_rule:match(
-            ClientInfo4,
-            publish,
+            client_info(#{clientid => <<"fake">>}),
+            #{action_type => publish, qos => 0, retain => false},
             <<"t/footestboo">>,
-            emqx_authz_rule:compile(?SOURCE6)
+            emqx_authz_rule:compile({allow, {username, "test"}, publish, ["t/foo${username}boo"]})
         )
     ),
+
+    ?assertEqual(
+        {matched, allow},
+        emqx_authz_rule:match(
+            client_info(#{clientid => <<"fake">>}),
+            #{action_type => publish, qos => 1, retain => false},
+            <<"topic/test">>,
+            emqx_authz_rule:compile(
+                {allow, {username, "test"}, {publish, [{retain, all}]}, ["topic/test"]}
+            )
+        )
+    ),
+
+    ?assertEqual(
+        {matched, allow},
+        emqx_authz_rule:match(
+            client_info(#{clientid => <<"fake">>}),
+            #{action_type => publish, qos => 0, retain => true},
+            <<"topic/test">>,
+            emqx_authz_rule:compile(
+                {allow, {username, "test"}, {publish, [{retain, all}]}, ["topic/test"]}
+            )
+        )
+    ),
+
+    ?assertEqual(
+        {matched, allow},
+        emqx_authz_rule:match(
+            client_info(#{clientid => <<"fake">>}),
+            #{action_type => publish, qos => 1, retain => true},
+            <<"topic/test">>,
+            emqx_authz_rule:compile(
+                {allow, {username, "test"}, {publish, [{qos, 1}, {retain, true}]}, ["topic/test"]}
+            )
+        )
+    ),
+
+    ?assertEqual(
+        nomatch,
+        emqx_authz_rule:match(
+            client_info(#{clientid => <<"fake">>}),
+            #{action_type => publish, qos => 0, retain => true},
+            <<"topic/test">>,
+            emqx_authz_rule:compile(
+                {allow, {username, "test"}, {publish, [{qos, 1}, {retain, true}]}, ["topic/test"]}
+            )
+        )
+    ),
+
+    ?assertEqual(
+        nomatch,
+        emqx_authz_rule:match(
+            client_info(#{clientid => <<"fake">>}),
+            #{action_type => publish, qos => 1, retain => false},
+            <<"topic/test">>,
+            emqx_authz_rule:compile(
+                {allow, {username, "test"}, {publish, [{qos, 1}, {retain, true}]}, ["topic/test"]}
+            )
+        )
+    ),
+
+    ?assertEqual(
+        {matched, allow},
+        emqx_authz_rule:match(
+            client_info(#{clientid => <<"fake">>}),
+            #{action_type => subscribe, qos => 0},
+            <<"topic/test">>,
+            emqx_authz_rule:compile(
+                {allow, {username, "test"}, {subscribe, []}, ["topic/test"]}
+            )
+        )
+    ),
+
+    ?assertEqual(
+        {matched, allow},
+        emqx_authz_rule:match(
+            client_info(#{clientid => <<"fake">>}),
+            #{action_type => subscribe, qos => 2},
+            <<"topic/test">>,
+            emqx_authz_rule:compile(
+                {allow, {username, "test"}, {subscribe, []}, ["topic/test"]}
+            )
+        )
+    ),
+
+    ?assertEqual(
+        {matched, allow},
+        emqx_authz_rule:match(
+            client_info(#{clientid => <<"fake">>}),
+            #{action_type => subscribe, qos => 1},
+            <<"topic/test">>,
+            emqx_authz_rule:compile(
+                {allow, {username, "test"}, {subscribe, [{qos, 1}]}, ["topic/test"]}
+            )
+        )
+    ),
+
+    ?assertEqual(
+        nomatch,
+        emqx_authz_rule:match(
+            client_info(#{clientid => <<"fake">>}),
+            #{action_type => subscribe, qos => 0},
+            <<"topic/test">>,
+            emqx_authz_rule:compile(
+                {allow, {username, "test"}, {subscribe, [{qos, 1}]}, ["topic/test"]}
+            )
+        )
+    ),
+
+    ?assertEqual(
+        {matched, allow},
+        emqx_authz_rule:match(
+            client_info(#{clientid => <<"fake">>}),
+            #{action_type => subscribe, qos => 2},
+            <<"topic/test">>,
+            emqx_authz_rule:compile(
+                {allow, {username, "test"}, {all, [{qos, 2}, {retain, true}]}, ["topic/test"]}
+            )
+        )
+    ),
+
+    ?assertEqual(
+        nomatch,
+        emqx_authz_rule:match(
+            client_info(#{clientid => <<"fake">>}),
+            #{action_type => subscribe, qos => 0},
+            <<"topic/test">>,
+            emqx_authz_rule:compile(
+                {allow, {username, "test"}, {all, [{qos, 2}, {retain, true}]}, ["topic/test"]}
+            )
+        )
+    ),
+
+    ?assertEqual(
+        nomatch,
+        emqx_authz_rule:match(
+            client_info(#{clientid => <<"fake">>}),
+            #{action_type => publish, qos => 1, retain => true},
+            <<"topic/test">>,
+            emqx_authz_rule:compile(
+                {allow, {username, "test"}, {all, [{qos, 2}, {retain, true}]}, ["topic/test"]}
+            )
+        )
+    ),
+
+    ?assertEqual(
+        {matched, allow},
+        emqx_authz_rule:match(
+            client_info(#{clientid => <<"fake">>}),
+            #{action_type => publish, qos => 2, retain => true},
+            <<"topic/test">>,
+            emqx_authz_rule:compile(
+                {allow, {username, "test"}, {all, [{qos, 2}, {retain, true}]}, ["topic/test"]}
+            )
+        )
+    ),
+
+    ?assertEqual(
+        {matched, allow},
+        emqx_authz_rule:match(
+            client_info(#{clientid => <<"fake">>}),
+            #{action_type => publish, qos => 2, retain => true},
+            <<"topic/test">>,
+            emqx_authz_rule:compile({allow, all, publish, ["#"]})
+        )
+    ),
+
+    ?assertEqual(
+        nomatch,
+        emqx_authz_rule:match(
+            client_info(#{clientid => <<"fake">>}),
+            #{action_type => subscribe, qos => 2},
+            <<"topic/test">>,
+            emqx_authz_rule:compile({allow, all, publish, ["#"]})
+        )
+    ),
+
+    ?assertEqual(
+        nomatch,
+        emqx_authz_rule:match(
+            client_info(#{username => undefined, peerhost => undefined}),
+            #{action_type => subscribe, qos => 2},
+            <<"topic/test">>,
+            emqx_authz_rule:compile({allow, {username, "user"}, all, ["#"]})
+        )
+    ),
+
+    ?assertEqual(
+        nomatch,
+        emqx_authz_rule:match(
+            client_info(#{username => undefined, peerhost => undefined}),
+            #{action_type => subscribe, qos => 2},
+            <<"topic/test">>,
+            emqx_authz_rule:compile({allow, {ipaddr, "127.0.0.1"}, all, ["#"]})
+        )
+    ),
+
+    ?assertEqual(
+        nomatch,
+        emqx_authz_rule:match(
+            client_info(#{username => undefined, peerhost => undefined}),
+            #{action_type => subscribe, qos => 2},
+            <<"topic/test">>,
+            emqx_authz_rule:compile({allow, {ipaddrs, []}, all, ["#"]})
+        )
+    ),
+
+    ?assertEqual(
+        nomatch,
+        emqx_authz_rule:match(
+            client_info(#{clientid => <<"fake">>}),
+            #{action_type => subscribe, qos => 2},
+            <<"topic/test">>,
+            emqx_authz_rule:compile({allow, {clientid, {re, "^test"}}, all, ["#"]})
+        )
+    ),
+
     ok.
+
+t_invalid_rule(_) ->
+    ?assertThrow(
+        {invalid_authorization_permission, _},
+        emqx_authz_rule:compile({allawww, all, all, ["topic/test"]})
+    ),
+
+    ?assertThrow(
+        {invalid_authorization_rule, _},
+        emqx_authz_rule:compile(ooops)
+    ),
+
+    ?assertThrow(
+        {invalid_authorization_qos, _},
+        emqx_authz_rule:compile({allow, {username, "test"}, {publish, [{qos, 3}]}, ["topic/test"]})
+    ),
+
+    ?assertThrow(
+        {invalid_authorization_retain, _},
+        emqx_authz_rule:compile(
+            {allow, {username, "test"}, {publish, [{retain, 'FALSE'}]}, ["topic/test"]}
+        )
+    ),
+
+    ?assertThrow(
+        {invalid_authorization_action, _},
+        emqx_authz_rule:compile({allow, all, unsubscribe, ["topic/test"]})
+    ),
+
+    ?assertThrow(
+        {invalid_who, _},
+        emqx_authz_rule:compile({allow, who, all, ["topic/test"]})
+    ).
+
+t_matches(_) ->
+    ?assertEqual(
+        {matched, allow},
+        emqx_authz_rule:matches(
+            client_info(#{clientid => <<"fake">>}),
+            #{action_type => publish, qos => 2, retain => true},
+            <<"topic/test">>,
+            [
+                emqx_authz_rule:compile(
+                    {allow, {username, "test"}, {subscribe, [{qos, 1}]}, ["topic/test"]}
+                ),
+                emqx_authz_rule:compile(
+                    {allow, {username, "test"}, {all, [{qos, 2}, {retain, true}]}, ["topic/test"]}
+                )
+            ]
+        )
+    ),
+
+    Rule = emqx_authz_rule:compile(
+        {allow, {username, "test"}, {all, [{qos, 2}, {retain, true}]}, ["topic/test"]}
+    ),
+
+    ?assertEqual(
+        nomatch,
+        emqx_authz_rule:matches(
+            client_info(#{clientid => <<"fake">>}),
+            #{action_type => publish, qos => 1, retain => true},
+            <<"topic/test">>,
+            [Rule, Rule, Rule]
+        )
+    ).
+
+%%--------------------------------------------------------------------
+%% Internal functions
+%%--------------------------------------------------------------------
+
+client_info() ->
+    ?CLIENT_INFO_BASE.
+
+client_info(Overrides) ->
+    maps:merge(?CLIENT_INFO_BASE, Overrides).

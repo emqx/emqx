@@ -20,6 +20,7 @@
 
 -include("emqx_stomp.hrl").
 -include_lib("emqx/include/emqx.hrl").
+-include_lib("emqx/include/emqx_access_control.hrl").
 -include_lib("emqx/include/logger.hrl").
 
 -import(proplists, [get_value/2, get_value/3]).
@@ -446,7 +447,10 @@ handle_in(
     }
 ) ->
     Topic = header(<<"destination">>, Headers),
-    case emqx_gateway_ctx:authorize(Ctx, ClientInfo, publish, Topic) of
+    %% Flags and QoS are not supported in STOMP anyway,
+    %% no need to look into the frame
+    Action = ?AUTHZ_PUBLISH,
+    case emqx_gateway_ctx:authorize(Ctx, ClientInfo, Action, Topic) of
         deny ->
             ErrMsg = io_lib:format("Insufficient permissions for ~s", [Topic]),
             ErrorFrame = error_frame(receipt_id(Headers), ErrMsg),
@@ -717,7 +721,9 @@ check_sub_acl(
         clientinfo = ClientInfo
     }
 ) ->
-    case emqx_gateway_ctx:authorize(Ctx, ClientInfo, subscribe, ParsedTopic) of
+    %% QoS is not supported in stomp
+    Action = ?AUTHZ_SUBSCRIBE,
+    case emqx_gateway_ctx:authorize(Ctx, ClientInfo, Action, ParsedTopic) of
         deny -> {error, acl_denied};
         allow -> ok
     end.

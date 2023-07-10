@@ -359,6 +359,22 @@ fields(rule_item) ->
                     required => true,
                     example => publish
                 }
+            )},
+        {qos,
+            mk(
+                array(emqx_schema:qos()),
+                #{
+                    desc => ?DESC(qos),
+                    default => ?DEFAULT_RULE_QOS
+                }
+            )},
+        {retain,
+            mk(
+                hoconsc:union([all, boolean()]),
+                #{
+                    desc => ?DESC(retain),
+                    default => ?DEFAULT_RULE_RETAIN
+                }
             )}
     ];
 fields(clientid) ->
@@ -434,7 +450,7 @@ users(post, #{body := Body}) when is_list(Body) ->
         [] ->
             lists:foreach(
                 fun(#{<<"username">> := Username, <<"rules">> := Rules}) ->
-                    emqx_authz_mnesia:store_rules({username, Username}, format_rules(Rules))
+                    emqx_authz_mnesia:store_rules({username, Username}, Rules)
                 end,
                 Body
             ),
@@ -470,7 +486,7 @@ clients(post, #{body := Body}) when is_list(Body) ->
         [] ->
             lists:foreach(
                 fun(#{<<"clientid">> := ClientID, <<"rules">> := Rules}) ->
-                    emqx_authz_mnesia:store_rules({clientid, ClientID}, format_rules(Rules))
+                    emqx_authz_mnesia:store_rules({clientid, ClientID}, Rules)
                 end,
                 Body
             ),
@@ -489,21 +505,14 @@ user(get, #{bindings := #{username := Username}}) ->
         {ok, Rules} ->
             {200, #{
                 username => Username,
-                rules => [
-                    #{
-                        topic => Topic,
-                        action => Action,
-                        permission => Permission
-                    }
-                 || {Permission, Action, Topic} <- Rules
-                ]
+                rules => format_rules(Rules)
             }}
     end;
 user(put, #{
     bindings := #{username := Username},
     body := #{<<"username">> := Username, <<"rules">> := Rules}
 }) ->
-    emqx_authz_mnesia:store_rules({username, Username}, format_rules(Rules)),
+    emqx_authz_mnesia:store_rules({username, Username}, Rules),
     {204};
 user(delete, #{bindings := #{username := Username}}) ->
     case emqx_authz_mnesia:get_rules({username, Username}) of
@@ -521,21 +530,14 @@ client(get, #{bindings := #{clientid := ClientID}}) ->
         {ok, Rules} ->
             {200, #{
                 clientid => ClientID,
-                rules => [
-                    #{
-                        topic => Topic,
-                        action => Action,
-                        permission => Permission
-                    }
-                 || {Permission, Action, Topic} <- Rules
-                ]
+                rules => format_rules(Rules)
             }}
     end;
 client(put, #{
     bindings := #{clientid := ClientID},
     body := #{<<"clientid">> := ClientID, <<"rules">> := Rules}
 }) ->
-    emqx_authz_mnesia:store_rules({clientid, ClientID}, format_rules(Rules)),
+    emqx_authz_mnesia:store_rules({clientid, ClientID}, Rules),
     {204};
 client(delete, #{bindings := #{clientid := ClientID}}) ->
     case emqx_authz_mnesia:get_rules({clientid, ClientID}) of
@@ -552,18 +554,11 @@ all(get, _) ->
             {200, #{rules => []}};
         {ok, Rules} ->
             {200, #{
-                rules => [
-                    #{
-                        topic => Topic,
-                        action => Action,
-                        permission => Permission
-                    }
-                 || {Permission, Action, Topic} <- Rules
-                ]
+                rules => format_rules(Rules)
             }}
     end;
 all(post, #{body := #{<<"rules">> := Rules}}) ->
-    emqx_authz_mnesia:store_rules(all, format_rules(Rules)),
+    emqx_authz_mnesia:store_rules(all, Rules),
     {204};
 all(delete, _) ->
     emqx_authz_mnesia:store_rules(all, []),
@@ -626,58 +621,20 @@ run_fuzzy_filter(
 %%--------------------------------------------------------------------
 %% format funcs
 
-%% format rule from api
-format_rules(Rules) when is_list(Rules) ->
-    lists:foldl(
-        fun(
-            #{
-                <<"topic">> := Topic,
-                <<"action">> := Action,
-                <<"permission">> := Permission
-            },
-            AccIn
-        ) when
-            ?PUBSUB(Action) andalso
-                ?ALLOW_DENY(Permission)
-        ->
-            AccIn ++ [{atom(Permission), atom(Action), Topic}]
-        end,
-        [],
-        Rules
-    ).
-
 %% format result from mnesia tab
 format_result([{username, Username}, {rules, Rules}]) ->
     #{
         username => Username,
-        rules => [
-            #{
-                topic => Topic,
-                action => Action,
-                permission => Permission
-            }
-         || {Permission, Action, Topic} <- Rules
-        ]
+        rules => format_rules(Rules)
     };
 format_result([{clientid, ClientID}, {rules, Rules}]) ->
     #{
         clientid => ClientID,
-        rules => [
-            #{
-                topic => Topic,
-                action => Action,
-                permission => Permission
-            }
-         || {Permission, Action, Topic} <- Rules
-        ]
+        rules => format_rules(Rules)
     }.
-atom(B) when is_binary(B) ->
-    try
-        binary_to_existing_atom(B, utf8)
-    catch
-        _Error:_Expection -> binary_to_atom(B)
-    end;
-atom(A) when is_atom(A) -> A.
+
+format_rules(Rules) ->
+    [emqx_authz_rule_raw:format_rule(Rule) || Rule <- Rules].
 
 %%--------------------------------------------------------------------
 %% Internal functions

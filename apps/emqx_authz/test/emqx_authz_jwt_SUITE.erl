@@ -22,6 +22,7 @@
 -include_lib("emqx/include/emqx_placeholder.hrl").
 -include_lib("emqx_authn/include/emqx_authn.hrl").
 -include_lib("emqx/include/emqx_mqtt.hrl").
+-include_lib("emqx/include/emqx_access_control.hrl").
 
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
@@ -341,12 +342,12 @@ t_check_undefined_expire(_Config) ->
 
     ?assertMatch(
         {matched, allow},
-        emqx_authz_client_info:authorize(Client, subscribe, <<"a/b">>, undefined)
+        emqx_authz_client_info:authorize(Client, ?AUTHZ_SUBSCRIBE, <<"a/b">>, undefined)
     ),
 
     ?assertMatch(
         {matched, deny},
-        emqx_authz_client_info:authorize(Client, subscribe, <<"a/bar">>, undefined)
+        emqx_authz_client_info:authorize(Client, ?AUTHZ_SUBSCRIBE, <<"a/bar">>, undefined)
     ).
 
 %%------------------------------------------------------------------------------

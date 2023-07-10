@@ -16,7 +16,6 @@
 
 -module(emqx_authz_file).
 
--include("emqx_authz.hrl").
 -include_lib("emqx/include/logger.hrl").
 
 -behaviour(emqx_authz).

@@ -47,9 +47,6 @@
 
 -include("emqx_coap.hrl").
 -include_lib("emqx/include/logger.hrl").
--include_lib("emqx/include/emqx_authentication.hrl").
-
--define(AUTHN, ?EMQX_AUTHENTICATION_CONFIG_ROOT_NAME_ATOM).
 
 -record(channel, {
     %% Context
@@ -166,8 +163,8 @@ init(
         conn_state = idle
     }.
 
-validator(Type, Topic, Ctx, ClientInfo) ->
-    emqx_gateway_ctx:authorize(Ctx, ClientInfo, Type, Topic).
+validator(Action, Topic, Ctx, ClientInfo) ->
+    emqx_gateway_ctx:authorize(Ctx, ClientInfo, Action, Topic).
 
 -spec send_request(pid(), coap_message()) -> any().
 send_request(Channel, Request) ->
