@@ -102,6 +102,7 @@ schema(?PREFIX ++ "/message/:topic") ->
             parameters => parameters(),
             responses => #{
                 204 => <<>>,
+                404 => error_codes(['NOT_FOUND'], ?DESC(message_not_exist)),
                 400 => error_codes(
                     ['BAD_REQUEST'],
                     ?DESC(unsupported_backend)
@@ -187,8 +188,16 @@ with_topic(get, #{bindings := Bindings}) ->
     end;
 with_topic(delete, #{bindings := Bindings}) ->
     Topic = maps:get(topic, Bindings),
-    emqx_retainer_mnesia:delete_message(undefined, Topic),
-    {204}.
+    case emqx_retainer_mnesia:page_read(undefined, Topic, 1, 1) of
+        {ok, []} ->
+            {404, #{
+                code => <<"NOT_FOUND">>,
+                message => <<"Viewed message doesn't exist">>
+            }};
+        {ok, _} ->
+            emqx_retainer_mnesia:delete_message(undefined, Topic),
+            {204}
+    end.
 
 format_message(#message{
     id = ID,

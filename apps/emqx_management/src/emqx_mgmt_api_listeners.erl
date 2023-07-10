@@ -45,14 +45,10 @@
     update/3
 ]).
 
--include_lib("emqx/include/emqx.hrl").
 -include_lib("hocon/include/hoconsc.hrl").
 
--define(NODE_LISTENER_NOT_FOUND, <<"Node name or listener id not found">>).
--define(NODE_NOT_FOUND_OR_DOWN, <<"Node not found or Down">>).
 -define(LISTENER_NOT_FOUND, <<"Listener id not found">>).
 -define(LISTENER_ID_INCONSISTENT, <<"Path and body's listener id not match">>).
--define(ADDR_PORT_INUSE, <<"Addr port in use">>).
 
 namespace() -> "listeners".
 
@@ -156,7 +152,7 @@ schema("/listeners/:id") ->
             parameters => [?R_REF(listener_id)],
             responses => #{
                 204 => <<"Listener deleted">>,
-                400 => error_codes(['BAD_REQUEST'])
+                404 => error_codes(['BAD_LISTENER_ID'])
             }
         }
     };
@@ -405,20 +401,8 @@ list_listeners(get, #{query_string := Query}) ->
 list_listeners(post, #{body := Body}) ->
     create_listener(Body).
 
-crud_listeners_by_id(get, #{bindings := #{id := Id0}}) ->
-    Listeners =
-        [
-            Conf#{
-                <<"id">> => Id,
-                <<"type">> => Type,
-                <<"bind">> := iolist_to_binary(
-                    emqx_listeners:format_bind(maps:get(<<"bind">>, Conf))
-                )
-            }
-         || {Id, Type, Conf} <- emqx_listeners:list_raw(),
-            Id =:= Id0
-        ],
-    case Listeners of
+crud_listeners_by_id(get, #{bindings := #{id := Id}}) ->
+    case find_listeners_by_id(Id) of
         [] -> {404, #{code => 'BAD_LISTENER_ID', message => ?LISTENER_NOT_FOUND}};
         [L] -> {200, L}
     end;
@@ -449,9 +433,12 @@ crud_listeners_by_id(post, #{body := Body}) ->
     create_listener(Body);
 crud_listeners_by_id(delete, #{bindings := #{id := Id}}) ->
     {ok, #{type := Type, name := Name}} = emqx_listeners:parse_listener_id(Id),
-    case ensure_remove(Type, Name) of
-        {ok, _} -> {204};
-        {error, Reason} -> {400, #{code => 'BAD_REQUEST', message => err_msg(Reason)}}
+    case find_listeners_by_id(Id) of
+        [_L] ->
+            {ok, _Res} = ensure_remove(Type, Name),
+            {204};
+        [] ->
+            {404, #{code => 'BAD_LISTENER_ID', message => ?LISTENER_NOT_FOUND}}
     end.
 
 parse_listener_conf(Conf0) ->
@@ -584,6 +571,19 @@ do_list_listeners() ->
         <<"node">> => node(),
         <<"listeners">> => Listeners
     }.
+
+find_listeners_by_id(Id) ->
+    [
+        Conf#{
+            <<"id">> => Id0,
+            <<"type">> => Type,
+            <<"bind">> := iolist_to_binary(
+                emqx_listeners:format_bind(maps:get(<<"bind">>, Conf))
+            )
+        }
+     || {Id0, Type, Conf} <- emqx_listeners:list_raw(),
+        Id0 =:= Id
+    ].
 
 wrap_rpc({badrpc, Reason}) ->
     {error, Reason};

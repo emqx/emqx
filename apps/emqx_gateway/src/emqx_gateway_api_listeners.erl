@@ -112,8 +112,13 @@ listeners(post, #{bindings := #{name := Name0}, body := LConf}) ->
 
 listeners_insta(delete, #{bindings := #{name := Name0, id := ListenerId}}) ->
     with_gateway(Name0, fun(_GwName, _) ->
-        ok = emqx_gateway_http:remove_listener(ListenerId),
-        {204}
+        case emqx_gateway_conf:listener(ListenerId) of
+            {ok, _Listener} ->
+                ok = emqx_gateway_http:remove_listener(ListenerId),
+                {204};
+            {error, not_found} ->
+                return_http_error(404, "Listener not found")
+        end
     end);
 listeners_insta(get, #{bindings := #{name := Name0, id := ListenerId}}) ->
     with_gateway(Name0, fun(_GwName, _) ->

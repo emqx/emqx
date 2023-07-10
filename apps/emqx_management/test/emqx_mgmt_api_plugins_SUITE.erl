@@ -133,6 +133,14 @@ t_bad_plugin(Config) ->
         )
     ).
 
+t_delete_non_existing(_Config) ->
+    Path = emqx_mgmt_api_test_util:api_path(["plugins", "non_exists"]),
+    ?assertMatch(
+        {error, {_, 404, _}},
+        emqx_mgmt_api_test_util:request_api(delete, Path)
+    ),
+    ok.
+
 list_plugins() ->
     Path = emqx_mgmt_api_test_util:api_path(["plugins"]),
     case emqx_mgmt_api_test_util:request_api(get, Path) of

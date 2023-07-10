@@ -218,6 +218,7 @@ t_lookup_and_delete(_) ->
     {ok, []} = request_api(delete, API),
 
     {error, {"HTTP/1.1", 404, "Not Found"}} = request_api(get, API),
+    {error, {"HTTP/1.1", 404, "Not Found"}} = request_api(delete, API),
 
     ok = emqtt:disconnect(C1).
 
