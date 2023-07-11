@@ -99,7 +99,7 @@ static_checks:
 	@$(REBAR) as check do xref, dialyzer
 	@if [ "$${PROFILE}" = 'emqx-enterprise' ]; then $(REBAR) ct --suite apps/emqx/test/emqx_static_checks --readable $(CT_READABLE); fi
 	./scripts/check-i18n-style.sh
-	./scripts/check_missing_reboot_apps.exs --profile $(PROFILE)
+	./scripts/check_missing_reboot_apps.exs
 
 APPS=$(shell $(SCRIPTS)/find-apps.sh)
 

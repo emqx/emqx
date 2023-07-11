@@ -1,19 +1,33 @@
 #!/usr/bin/env elixir
 
-{parsed, _argv, _errors = []} =
-  OptionParser.parse(
-    System.argv(),
-    strict: [profile: :string]
-  )
+alias EMQXUmbrella.MixProject
 
-profile = Keyword.fetch!(parsed, :profile)
+{:ok, _} = Application.ensure_all_started(:mix)
+# note: run from the project root
+File.cwd!()
+|> Path.join("mix.exs")
+|> Code.compile_file()
+
+inputs = MixProject.check_profile!()
+profile = Mix.env()
+
+# need to use this information because we might have compiled all
+# applications in the test profile, and thus filter what's in the
+# release lib directory.
+rel_apps = MixProject.applications(inputs.edition_type)
+
+apps =
+  rel_apps
+  |> Keyword.keys()
+  |> Enum.filter(&(to_string(&1) =~ "emqx"))
+  |> Enum.reject(&(&1 in [:emqx_mix]))
 
 :xref.start(:xref)
 :xref.set_default(:xref, warnings: false)
 rel_dir = '_build/#{profile}/lib/'
 :xref.add_release(:xref, rel_dir)
 
-{:ok, calls} = :xref.q(:xref, '(App) (XC || "mria":"create_table"/".*")')
+{:ok, calls} = :xref.q(:xref, '(App) (XC | [#{Enum.join(apps, ",")}] || mria:create_table/_)')
 
 emqx_calls =
   calls
@@ -59,4 +73,6 @@ if MapSet.size(missing_reboot_apps) != 0 do
       " otherwise, when a node joins a cluster, it might lose tables.\n"
     ])
   )
+
+  System.halt(1)
 end
