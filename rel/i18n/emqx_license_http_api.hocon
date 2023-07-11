@@ -12,4 +12,10 @@ desc_license_key_api.desc:
 desc_license_key_api.label:
 """Update license"""
 
+desc_license_setting_api.desc:
+"""Update license setting"""
+
+desc_license_setting_api.label:
+"""Update license setting"""
+
 }

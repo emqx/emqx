@@ -16,15 +16,14 @@
 -export([roots/0, fields/1, validations/0, desc/1, tags/0]).
 
 -export([
-    default_license/0,
-    key_license/0
+    default_license/0
 ]).
 
 roots() ->
     [
         {license,
             hoconsc:mk(
-                key_license(),
+                hoconsc:ref(?MODULE, key_license),
                 #{
                     desc => ?DESC(license_root)
                 }
@@ -63,9 +62,6 @@ desc(_) ->
 
 validations() ->
     [{check_license_watermark, fun check_license_watermark/1}].
-
-key_license() ->
-    hoconsc:ref(?MODULE, key_license).
 
 check_license_watermark(Conf) ->
     case hocon_maps:get("license.connection_low_watermark", Conf) of
