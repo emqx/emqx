@@ -58,7 +58,7 @@ jobs:
         arch:
           - amd64
     steps:
-    - uses: erlef/setup-beam@v1.15.2
+    - uses: erlef/setup-beam@v1.16.0
       with:
         otp-version: 24.3.4.6
     - uses: actions/download-artifact@v3
@@ -133,7 +133,7 @@ jobs:
       # - emqx-enterprise # TODO test enterprise
 
     steps:
-    - uses: erlef/setup-beam@v1.15.2
+    - uses: erlef/setup-beam@v1.16.0
       with:
         otp-version: 24.3.4.6
     - uses: actions/download-artifact@v3

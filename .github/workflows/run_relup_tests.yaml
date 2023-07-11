@@ -71,7 +71,7 @@ jobs:
         shell: bash
     steps:
       # setup Erlang to run lux
-    - uses: erlef/setup-beam@v1.15.2
+    - uses: erlef/setup-beam@v1.16.0
       with:
         otp-version: 24.3.4.6
     - uses: actions/checkout@v3

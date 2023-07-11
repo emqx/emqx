@@ -14,7 +14,7 @@ jobs:
     outputs:
       version: ${{ steps.build_docker.outputs.version}}
     steps:
-    - uses: erlef/setup-beam@v1.15.2
+    - uses: erlef/setup-beam@v1.16.0
       with:
         otp-version: 24.3.4.6
     - name: download jmeter
@@ -57,7 +57,7 @@ jobs:
 
     needs: build_emqx_for_jmeter_tests
     steps:
-    - uses: erlef/setup-beam@v1.15.2
+    - uses: erlef/setup-beam@v1.16.0
       with:
         otp-version: 24.3.4.6
     - uses: actions/checkout@v3
@@ -153,7 +153,7 @@ jobs:
 
     needs: build_emqx_for_jmeter_tests
     steps:
-    - uses: erlef/setup-beam@v1.15.2
+    - uses: erlef/setup-beam@v1.16.0
       with:
         otp-version: 24.3.4.6
     - uses: actions/checkout@v3
@@ -259,7 +259,7 @@ jobs:
 
     needs: build_emqx_for_jmeter_tests
     steps:
-    - uses: erlef/setup-beam@v1.15.2
+    - uses: erlef/setup-beam@v1.16.0
       with:
         otp-version: 24.3.4.6
     - uses: actions/checkout@v3
@@ -361,7 +361,7 @@ jobs:
 
     needs: build_emqx_for_jmeter_tests
     steps:
-    - uses: erlef/setup-beam@v1.15.2
+    - uses: erlef/setup-beam@v1.16.0
       with:
         otp-version: 24.3.4.6
     - uses: actions/checkout@v3
@@ -460,7 +460,7 @@ jobs:
 
     needs: build_emqx_for_jmeter_tests
     steps:
-    - uses: erlef/setup-beam@v1.15.2
+    - uses: erlef/setup-beam@v1.16.0
       with:
         otp-version: 24.3.4.6
     - uses: actions/checkout@v3
