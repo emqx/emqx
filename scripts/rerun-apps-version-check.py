@@ -22,13 +22,13 @@ def query(owner, repo):
     return """
 query {
   repository(owner: "%s", name: "%s") {
-    pullRequests(last: 25, states: OPEN) {
+    pullRequests(first: 25, states: OPEN, orderBy: {field:CREATED_AT, direction:DESC}) {
       nodes {
         url
         commits(last: 1) {
           nodes {
             commit {
-              checkSuites(first: 17) {
+              checkSuites(first: 25) {
                 nodes {
                   url
                   checkRuns(first: 1, filterBy: {checkName: "check_apps_version"}) {
@@ -77,7 +77,7 @@ def get_check_suite_ids(token: str, repo: str):
         if not 'data' in resp:
             print(f'Failed to fetch check runs: {r.status_code}\n{r.json()}')
             sys.exit(1)
-        ids = []
+        result = []
         for pr in resp['data']['repository']['pullRequests']['nodes']:
             if not pr['commits']['nodes']:
                 continue
@@ -85,12 +85,11 @@ def get_check_suite_ids(token: str, repo: str):
                 continue
             for node in pr['commits']['nodes'][0]['commit']['checkSuites']['nodes']:
                 if node['checkRuns']['nodes']:
-                    id = node['checkRuns']['nodes'][0]['url'].rsplit('/', 1)[-1]
                     url_parsed = urlparse(node['url'])
                     params = parse_qs(url_parsed.query)
                     check_suite_id = params['check_suite_id'][0] 
-                    ids.extend([check_suite_id])
-        return ids
+                    result.extend([(check_suite_id, pr['url'], node['checkRuns']['nodes'][0]['url'])])
+        return result
     else:
         print(f'Failed to fetch check runs: {r.status_code}\n{r.text}')
         sys.exit(1)
@@ -100,9 +99,9 @@ def rerequest_check_suite(token: str, repo: str, check_suite_id: str):
     url = f'https://api.github.com/repos/{repo}/check-suites/{check_suite_id}/rerequest'
     r = session.post(url, headers=get_headers(token))
     if r.status_code == 201:
-        print(f'Successfully triggered rerequest for check suite {check_suite_id}')
+        print(f'Successfully triggered {url}')
     else:
-        print(f'Failed to trigger rerequest for check suite {check_suite_id}: {r.status_code}\n{r.text}')
+        print(f'Failed to trigger {url}: {r.status_code}\n{r.text}')
 
 def main():
     parser = OptionParser()
@@ -115,7 +114,8 @@ def main():
     # Get github token from env var if provided, else use the one from command line.
     # The token must be exported in the env from ${{ secrets.GITHUB_TOKEN }} in the workflow.
     token = os.environ['GITHUB_TOKEN'] if 'GITHUB_TOKEN' in os.environ else options.gh_token
-    for id in get_check_suite_ids(token, options.repo):
+    for id, pr_url, check_run_url in get_check_suite_ids(token, options.repo):
+        print(f'Attempting to re-request {check_run_url} for {pr_url}')
         rerequest_check_suite(token, options.repo, id)
 
 if __name__ == '__main__':
