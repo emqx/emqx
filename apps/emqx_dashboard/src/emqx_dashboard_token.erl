@@ -27,9 +27,7 @@
     destroy_by_username/1
 ]).
 
--boot_mnesia({mnesia, [boot]}).
-
--export([mnesia/1]).
+-export([ensure_mria_tables/0]).
 
 -ifdef(TEST).
 -export([lookup_by_username/1, clean_expired_jwt/1]).
@@ -84,7 +82,7 @@ salt() ->
     <<X:16/big-unsigned-integer>> = crypto:strong_rand_bytes(2),
     iolist_to_binary(io_lib:format("~4.16.0b", [X])).
 
-mnesia(boot) ->
+ensure_mria_tables() ->
     ok = mria:create_table(?TAB, [
         {type, set},
         {rlog_shard, ?DASHBOARD_SHARD},
