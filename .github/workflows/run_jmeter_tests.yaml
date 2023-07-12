@@ -1,22 +1,27 @@
 name: JMeter integration tests
 
 on:
-  push:
-    tags:
-      - "v5.*"
-  pull_request:
-    branches:
-      - "master"
+  workflow_call:
+    inputs:
+      runner:
+        required: true
+        type: string
+      version-emqx:
+        required: true
+        type: string
+# on:
+#   push:
+#     tags:
+#       - "v5.*"
+#   pull_request:
+#     branches:
+#       - "master"
 
 jobs:
-  build_emqx_for_jmeter_tests:
-    runs-on: ubuntu-22.04
-    outputs:
-      version: ${{ steps.build_docker.outputs.version}}
+  jmeter_artifact:
+    runs-on: ${{ inputs.runner }}
     steps:
-    - uses: erlef/setup-beam@v1.15.4
-      with:
-        otp-version: 25.3.2
+    - uses: AutoModality/action-clean@v1
     - name: Cache Jmeter
       id: cache-jmeter
       uses: actions/cache@v3
@@ -42,24 +47,9 @@ jobs:
       with:
         name: apache-jmeter.tgz
         path: /tmp/apache-jmeter.tgz
-    - uses: actions/checkout@v3
-    - name: zip emqx docker image
-      id: build_docker
-      if: endsWith(github.repository, 'emqx')
-      run: |
-        ## TODO: make profile a matrix dimension
-        PROFILE='emqx'
-        make "${PROFILE}-docker"
-        VSN="$(./pkg-vsn.sh $PROFILE)"
-        echo "version=${VSN}" >> $GITHUB_OUTPUT
-        docker save -o emqx.tar emqx/emqx:${VSN}
-    - uses: actions/upload-artifact@v3
-      with:
-        name: emqx.tar
-        path: ./emqx.tar
 
   advanced_feat:
-    runs-on: ubuntu-22.04
+    runs-on: ${{ inputs.runner }}
 
     strategy:
       fail-fast: false
@@ -70,23 +60,15 @@ jobs:
         - mqtt_topic_rewrite
 #        - mqtt_retainer
 
-    needs: build_emqx_for_jmeter_tests
+    needs: jmeter_artifact
     steps:
-    - uses: erlef/setup-beam@v1.15.4
-      with:
-        otp-version: 25.3.2
+    - uses: AutoModality/action-clean@v1
     - uses: actions/checkout@v3
-    - uses: actions/download-artifact@v3
+    - uses: ./.github/actions/prepare-jmeter
       with:
-        name: emqx.tar
-        path: /tmp
-    - name: load docker image
-      run: |
-        docker load < /tmp/emqx.tar
+        version-emqx: ${{ inputs.version-emqx }}
     - name: docker compose up
       timeout-minutes: 5
-      env:
-        _EMQX_DOCKER_IMAGE_TAG: emqx/emqx:${{ needs.build_emqx_for_jmeter_tests.outputs.version }}
       run: |
         docker-compose \
           -f .ci/docker-compose-file/docker-compose-emqx-cluster.yaml \
@@ -104,35 +86,9 @@ jobs:
         done
         docker ps -a
         echo HAPROXY_IP=$(docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' haproxy) >> $GITHUB_ENV
-    - uses: actions/checkout@v3
-      with:
-        repository: emqx/emqx-fvt
-        ref: broker-autotest-v5
-        path: scripts
-    - uses: actions/setup-java@v3
-      with:
-        java-version: '8.0.282' # The JDK version to make available on the path.
-        java-package: jdk # (jre, jdk, or jdk+fx) - defaults to jdk
-        architecture: x64 # (x64 or x86) - defaults to x64
-        # https://github.com/actions/setup-java/blob/main/docs/switching-to-v2.md
-        distribution: 'zulu'
-    - uses: actions/download-artifact@v3
-      with:
-        name: apache-jmeter.tgz
-        path: /tmp
-    - name: install jmeter
-      timeout-minutes: 10
-      env:
-          JMETER_VERSION: 5.4.3
-      run: |
-        cd /tmp && tar -xvf apache-jmeter.tgz
-        echo "jmeter.save.saveservice.output_format=xml" >> /tmp/apache-jmeter-$JMETER_VERSION/user.properties
-        echo "jmeter.save.saveservice.response_data.on_error=true" >> /tmp/apache-jmeter-$JMETER_VERSION/user.properties
-        wget --no-verbose -O /tmp/apache-jmeter-$JMETER_VERSION/lib/ext/mqtt-xmeter-fuse-2.0.2-jar-with-dependencies.jar https://raw.githubusercontent.com/xmeter-net/mqtt-jmeter/master/Download/v2.0.2/mqtt-xmeter-fuse-2.0.2-jar-with-dependencies.jar
-        ln -s /tmp/apache-jmeter-$JMETER_VERSION /opt/jmeter
     - name: run jmeter
       run: |
-        /opt/jmeter/bin/jmeter.sh \
+        jmeter/bin/jmeter.sh \
           -Jjmeter.save.saveservice.output_format=xml -n \
           -t scripts/broker-autotest-suite/${{ matrix.scripts_type }}.jmx \
           -Demqx_ip=$HAPROXY_IP \
@@ -151,9 +107,7 @@ jobs:
         path: ./jmeter_logs
 
   pgsql_authn_authz:
-    runs-on: ubuntu-22.04
-    env:
-      _EMQX_DOCKER_IMAGE_TAG: emqx/emqx:${{ needs.build_emqx_for_jmeter_tests.outputs.version }}
+    runs-on: ${{ inputs.runner }}
 
     strategy:
       fail-fast: false
@@ -168,19 +122,13 @@ jobs:
         - pgsql_authn
         - pgsql_authz
 
-    needs: build_emqx_for_jmeter_tests
+    needs: jmeter_artifact
     steps:
-    - uses: erlef/setup-beam@v1.15.4
-      with:
-        otp-version: 25.3.2
+    - uses: AutoModality/action-clean@v1
     - uses: actions/checkout@v3
-    - uses: actions/download-artifact@v3
+    - uses: ./.github/actions/prepare-jmeter
       with:
-        name: emqx.tar
-        path: /tmp
-    - name: load docker image
-      run: |
-        docker load < /tmp/emqx.tar
+        version-emqx: ${{ inputs.version-emqx }}
     - name: docker compose up
       timeout-minutes: 5
       env:
@@ -204,36 +152,9 @@ jobs:
         docker ps -a
         echo HAPROXY_IP=$(docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' haproxy) >> $GITHUB_ENV
         echo PGSQL_IP=$(docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' pgsql-tls) >> $GITHUB_ENV
-    - uses: actions/checkout@v3
-      with:
-        repository: emqx/emqx-fvt
-        ref: broker-autotest-v5
-        path: scripts
-    - uses: actions/setup-java@v3
-      with:
-        java-version: '8.0.282' # The JDK version to make available on the path.
-        java-package: jdk # (jre, jdk, or jdk+fx) - defaults to jdk
-        architecture: x64 # (x64 or x86) - defaults to x64
-        # https://github.com/actions/setup-java/blob/main/docs/switching-to-v2.md
-        distribution: 'zulu'
-    - uses: actions/download-artifact@v3
-      with:
-        name: apache-jmeter.tgz
-        path: /tmp
-    - name: install jmeter
-      timeout-minutes: 10
-      env:
-          JMETER_VERSION: 5.4.3
-      run: |
-        cd /tmp && tar -xvf apache-jmeter.tgz
-        echo "jmeter.save.saveservice.output_format=xml" >> /tmp/apache-jmeter-$JMETER_VERSION/user.properties
-        echo "jmeter.save.saveservice.response_data.on_error=true" >> /tmp/apache-jmeter-$JMETER_VERSION/user.properties
-        wget --no-verbose -O /tmp/apache-jmeter-$JMETER_VERSION/lib/ext/mqtt-xmeter-fuse-2.0.2-jar-with-dependencies.jar https://raw.githubusercontent.com/xmeter-net/mqtt-jmeter/master/Download/v2.0.2/mqtt-xmeter-fuse-2.0.2-jar-with-dependencies.jar
-        wget --no-verbose -O /tmp/apache-jmeter-$JMETER_VERSION/lib/postgresql-42.2.18.jar https://repo1.maven.org/maven2/org/postgresql/postgresql/42.2.18/postgresql-42.2.18.jar
-        ln -s /tmp/apache-jmeter-$JMETER_VERSION /opt/jmeter
     - name: run jmeter
       run: |
-        /opt/jmeter/bin/jmeter.sh \
+        jmeter/bin/jmeter.sh \
           -Jjmeter.save.saveservice.output_format=xml -n \
           -t scripts/broker-autotest-suite/${{ matrix.scripts_type }}.jmx \
           -Demqx_ip=$HAPROXY_IP \
@@ -265,7 +186,7 @@ jobs:
         path: ./jmeter_logs
 
   mysql_authn_authz:
-    runs-on: ubuntu-22.04
+    runs-on: ${{ inputs.runner }}
 
     strategy:
       fail-fast: false
@@ -277,23 +198,16 @@ jobs:
         - mysql_authn
         - mysql_authz
 
-    needs: build_emqx_for_jmeter_tests
+    needs: jmeter_artifact
     steps:
-    - uses: erlef/setup-beam@v1.15.4
-      with:
-        otp-version: 25.3.2
+    - uses: AutoModality/action-clean@v1
     - uses: actions/checkout@v3
-    - uses: actions/download-artifact@v3
+    - uses: ./.github/actions/prepare-jmeter
       with:
-        name: emqx.tar
-        path: /tmp
-    - name: load docker image
-      run: |
-        docker load < /tmp/emqx.tar
+        version-emqx: ${{ inputs.version-emqx }}
     - name: docker compose up
       timeout-minutes: 5
       env:
-        _EMQX_DOCKER_IMAGE_TAG: emqx/emqx:${{ needs.build_emqx_for_jmeter_tests.outputs.version }}
         PGSQL_TAG: ${{ matrix.mysql_tag }}
       run: |
         docker-compose \
@@ -314,36 +228,9 @@ jobs:
         docker ps -a
         echo HAPROXY_IP=$(docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' haproxy) >> $GITHUB_ENV
         echo MYSQL_IP=$(docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' mysql-tls) >> $GITHUB_ENV
-    - uses: actions/checkout@v3
-      with:
-        repository: emqx/emqx-fvt
-        ref: broker-autotest-v5
-        path: scripts
-    - uses: actions/setup-java@v3
-      with:
-        java-version: '8.0.282' # The JDK version to make available on the path.
-        java-package: jdk # (jre, jdk, or jdk+fx) - defaults to jdk
-        architecture: x64 # (x64 or x86) - defaults to x64
-        # https://github.com/actions/setup-java/blob/main/docs/switching-to-v2.md
-        distribution: 'zulu'
-    - uses: actions/download-artifact@v3
-      with:
-        name: apache-jmeter.tgz
-        path: /tmp
-    - name: install jmeter
-      timeout-minutes: 10
-      env:
-          JMETER_VERSION: 5.4.3
-      run: |
-        cd /tmp && tar -xvf apache-jmeter.tgz
-        echo "jmeter.save.saveservice.output_format=xml" >> /tmp/apache-jmeter-$JMETER_VERSION/user.properties
-        echo "jmeter.save.saveservice.response_data.on_error=true" >> /tmp/apache-jmeter-$JMETER_VERSION/user.properties
-        wget --no-verbose -O /tmp/apache-jmeter-$JMETER_VERSION/lib/ext/mqtt-xmeter-fuse-2.0.2-jar-with-dependencies.jar https://raw.githubusercontent.com/xmeter-net/mqtt-jmeter/master/Download/v2.0.2/mqtt-xmeter-fuse-2.0.2-jar-with-dependencies.jar
-        wget --no-verbose -O /tmp/apache-jmeter-$JMETER_VERSION/lib/mysql-connector-java-8.0.16.jar https://repo1.maven.org/maven2/mysql/mysql-connector-java/8.0.16/mysql-connector-java-8.0.16.jar
-        ln -s /tmp/apache-jmeter-$JMETER_VERSION /opt/jmeter
     - name: run jmeter
       run: |
-        /opt/jmeter/bin/jmeter.sh \
+        jmeter/bin/jmeter.sh \
           -Jjmeter.save.saveservice.output_format=xml -n \
           -t scripts/broker-autotest-suite/${{ matrix.scripts_type }}.jmx \
           -Demqx_ip=$HAPROXY_IP \
@@ -371,7 +258,7 @@ jobs:
         path: ./jmeter_logs
 
   JWT_authn:
-    runs-on: ubuntu-22.04
+    runs-on: ${{ inputs.runner }}
 
     strategy:
       fail-fast: false
@@ -379,23 +266,15 @@ jobs:
         scripts_type:
         - jwt_authn
 
-    needs: build_emqx_for_jmeter_tests
+    needs: jmeter_artifact
     steps:
-    - uses: erlef/setup-beam@v1.15.4
-      with:
-        otp-version: 25.3.2
+    - uses: AutoModality/action-clean@v1
     - uses: actions/checkout@v3
-    - uses: actions/download-artifact@v3
+    - uses: ./.github/actions/prepare-jmeter
       with:
-        name: emqx.tar
-        path: /tmp
-    - name: load docker image
-      run: |
-        docker load < /tmp/emqx.tar
+        version-emqx: ${{ inputs.version-emqx }}
     - name: docker compose up
       timeout-minutes: 5
-      env:
-        _EMQX_DOCKER_IMAGE_TAG: emqx/emqx:${{ needs.build_emqx_for_jmeter_tests.outputs.version }}
       run: |
         docker-compose \
           -f .ci/docker-compose-file/docker-compose-emqx-cluster.yaml \
@@ -413,11 +292,6 @@ jobs:
         done
         docker ps -a
         echo HAPROXY_IP=$(docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' haproxy) >> $GITHUB_ENV
-    - uses: actions/checkout@v3
-      with:
-        repository: emqx/emqx-fvt
-        ref: broker-autotest-v5
-        path: scripts
     - name: run jwks_server
       timeout-minutes: 10
       run: |
@@ -426,30 +300,9 @@ jobs:
         cd target
         docker run --name jwks_server --network emqx_bridge --ip 172.100.239.88 -d -v $(pwd)/jwkserver-0.0.1.jar:/jwks_server/jwkserver-0.0.1.jar --workdir /jwks_server openjdk:8-jdk bash \
         -c "java -jar jwkserver-0.0.1.jar"
-    - uses: actions/setup-java@v3
-      with:
-        java-version: '8.0.282' # The JDK version to make available on the path.
-        java-package: jdk # (jre, jdk, or jdk+fx) - defaults to jdk
-        architecture: x64 # (x64 or x86) - defaults to x64
-        # https://github.com/actions/setup-java/blob/main/docs/switching-to-v2.md
-        distribution: 'zulu'
-    - uses: actions/download-artifact@v3
-      with:
-        name: apache-jmeter.tgz
-        path: /tmp
-    - name: install jmeter
-      timeout-minutes: 10
-      env:
-          JMETER_VERSION: 5.4.3
-      run: |
-        cd /tmp && tar -xvf apache-jmeter.tgz
-        echo "jmeter.save.saveservice.output_format=xml" >> /tmp/apache-jmeter-$JMETER_VERSION/user.properties
-        echo "jmeter.save.saveservice.response_data.on_error=true" >> /tmp/apache-jmeter-$JMETER_VERSION/user.properties
-        wget --no-verbose -O /tmp/apache-jmeter-$JMETER_VERSION/lib/ext/mqtt-xmeter-fuse-2.0.2-jar-with-dependencies.jar https://raw.githubusercontent.com/xmeter-net/mqtt-jmeter/master/Download/v2.0.2/mqtt-xmeter-fuse-2.0.2-jar-with-dependencies.jar
-        ln -s /tmp/apache-jmeter-$JMETER_VERSION /opt/jmeter
     - name: run jmeter
       run: |
-        /opt/jmeter/bin/jmeter.sh \
+        jmeter/bin/jmeter.sh \
           -Jjmeter.save.saveservice.output_format=xml -n \
           -t scripts/broker-autotest-suite/${{ matrix.scripts_type }}.jmx \
           -Demqx_ip=$HAPROXY_IP \
@@ -469,7 +322,7 @@ jobs:
         path: ./jmeter_logs
 
   built_in_database_authn_authz:
-    runs-on: ubuntu-22.04
+    runs-on: ${{ inputs.runner }}
 
     strategy:
       fail-fast: false
@@ -478,24 +331,15 @@ jobs:
         - built_in_database_authn
         - built_in_database_authz
 
-    needs: build_emqx_for_jmeter_tests
+    needs: jmeter_artifact
     steps:
-    - uses: erlef/setup-beam@v1.15.4
-      with:
-        otp-version: 25.3.2
+    - uses: AutoModality/action-clean@v1
     - uses: actions/checkout@v3
-    - uses: actions/download-artifact@v3
+    - uses: ./.github/actions/prepare-jmeter
       with:
-        name: emqx.tar
-        path: /tmp
-    - name: load docker image
-      run: |
-        docker load < /tmp/emqx.tar
+        version-emqx: ${{ inputs.version-emqx }}
     - name: docker compose up
       timeout-minutes: 5
-      env:
-        _EMQX_DOCKER_IMAGE_TAG: emqx/emqx:${{ needs.build_emqx_for_jmeter_tests.outputs.version }}
-        PGSQL_TAG: ${{ matrix.mysql_tag }}
       run: |
         docker-compose \
           -f .ci/docker-compose-file/docker-compose-emqx-cluster.yaml \
@@ -513,44 +357,17 @@ jobs:
         done
         docker ps -a
         echo HAPROXY_IP=$(docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' haproxy) >> $GITHUB_ENV
-    - uses: actions/checkout@v3
-      with:
-        repository: emqx/emqx-fvt
-        ref: broker-autotest-v5
-        path: scripts
-    - uses: actions/setup-java@v3
-      with:
-        java-version: '8.0.282' # The JDK version to make available on the path.
-        java-package: jdk # (jre, jdk, or jdk+fx) - defaults to jdk
-        architecture: x64 # (x64 or x86) - defaults to x64
-        # https://github.com/actions/setup-java/blob/main/docs/switching-to-v2.md
-        distribution: 'zulu'
-    - uses: actions/download-artifact@v3
-      with:
-        name: apache-jmeter.tgz
-        path: /tmp
-    - name: install jmeter
-      timeout-minutes: 10
-      env:
-          JMETER_VERSION: 5.4.3
-      run: |
-        cd /tmp && tar -xvf apache-jmeter.tgz
-        echo "jmeter.save.saveservice.output_format=xml" >> /tmp/apache-jmeter-$JMETER_VERSION/user.properties
-        echo "jmeter.save.saveservice.response_data.on_error=true" >> /tmp/apache-jmeter-$JMETER_VERSION/user.properties
-        wget --no-verbose -O /tmp/apache-jmeter-$JMETER_VERSION/lib/ext/mqtt-xmeter-fuse-2.0.2-jar-with-dependencies.jar https://raw.githubusercontent.com/xmeter-net/mqtt-jmeter/master/Download/v2.0.2/mqtt-xmeter-fuse-2.0.2-jar-with-dependencies.jar
-        wget --no-verbose -O /tmp/apache-jmeter-$JMETER_VERSION/lib/mysql-connector-java-8.0.16.jar https://repo1.maven.org/maven2/mysql/mysql-connector-java/8.0.16/mysql-connector-java-8.0.16.jar
-        ln -s /tmp/apache-jmeter-$JMETER_VERSION /opt/jmeter
     - name: run jmeter
       run: |
         /opt/jmeter/bin/jmeter.sh \
           -Jjmeter.save.saveservice.output_format=xml -n \
           -t scripts/broker-autotest-suite/${{ matrix.scripts_type }}.jmx \
           -Demqx_ip=$HAPROXY_IP \
-          -l jmeter_logs/${{ matrix.scripts_type }}_${{ matrix.mysql_tag }}.jtl \
-          -j jmeter_logs/logs/${{ matrix.scripts_type }}_${{ matrix.mysql_tag }}.log
+          -l jmeter_logs/${{ matrix.scripts_type }}.jtl \
+          -j jmeter_logs/logs/${{ matrix.scripts_type }}.log
     - name: check logs
       run: |
-        if cat jmeter_logs/${{ matrix.scripts_type }}_${{ matrix.mysql_tag }}.jtl | grep -e '<failure>true</failure>' > /dev/null 2>&1; then
+        if cat jmeter_logs/${{ matrix.scripts_type }}.jtl | grep -e '<failure>true</failure>' > /dev/null 2>&1; then
           echo "check logs failed"
           exit 1
         fi
@@ -559,11 +376,3 @@ jobs:
       with:
         name: jmeter_logs
         path: ./jmeter_logs
-
-  delete-artifact:
-    runs-on: ubuntu-22.04
-    needs: [advanced_feat,pgsql_authn_authz,JWT_authn,mysql_authn_authz,built_in_database_authn_authz]
-    steps:
-    - uses: geekyeggo/delete-artifact@v2
-      with:
-        name: emqx.tar

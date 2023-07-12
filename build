@@ -361,10 +361,10 @@ make_tgz() {
     log "Archive sha256sum: $(cat "${target}.sha256")"
 }
 
-trap docker_cleanup EXIT
-
 docker_cleanup() {
     rm -f ./.dockerignore >/dev/null
+    # shellcheck disable=SC2015
+    [ -f ./.dockerignore.bak ] && mv ./.dockerignore.bak ./.dockerignore >/dev/null || true
 }
 
 ## Build the default docker image based on debian 11.
@@ -384,7 +384,14 @@ make_docker() {
     if [[ "$PROFILE" = *enterprise* ]]; then
         extra_deps='libsasl2-2,libsasl2-modules-gssapi-mit'
     fi
-    echo '_build' >> ./.dockerignore
+    # shellcheck disable=SC2015
+    [ -f ./.dockerignore ] && mv ./.dockerignore ./.dockerignore.bak || true
+    trap docker_cleanup EXIT
+    {
+        echo '/_build'
+        echo '/deps'
+        echo '/*.lock'
+    } >> ./.dockerignore
     set -x
     docker build --no-cache --pull \
        --build-arg BUILD_FROM="${EMQX_BUILDER}" \
@@ -394,6 +401,7 @@ make_docker() {
        --tag "${EMQX_IMAGE_TAG}" \
        -f "${EMQX_DOCKERFILE}" .
     [[ "${DEBUG:-}" -eq 1 ]] || set +x
+    echo "${EMQX_IMAGE_TAG}" > ./.docker_image_tag
 }
 
 function join {

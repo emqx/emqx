@@ -1,0 +1,46 @@
+name: Build slim packages
+
+concurrency:
+  group: spellcheck-${{ github.event_name }}-${{ github.sha }}
+  cancel-in-progress: true
+
+on:
+  workflow_call:
+    inputs:
+      runner:
+        required: true
+        type: string
+# on:
+#   push:
+#     branches:
+#       - master
+#       - release-51
+#   pull_request:
+#     # GitHub pull_request action is by default triggered when
+#     # opened reopened or synchronize,
+#     # we add labeled and unlabeled to the list because
+#     # the mac job dpends on the PR having a 'Mac' label
+#     types:
+#       - labeled
+#       - unlabeled
+#       - opened
+#       - reopened
+#       - synchronize
+#   workflow_dispatch:
+
+jobs:
+  spellcheck:
+    strategy:
+      matrix:
+        profile:
+        - emqx
+        - emqx-enterprise
+    runs-on: ${{ inputs.runner }}
+    steps:
+      - uses: actions/download-artifact@v3
+        with:
+          name: "${{ matrix.profile }}_schema_dump"
+          path: /tmp/
+      - name: Run spellcheck
+        run: |
+          bash /tmp/scripts/spellcheck/spellcheck.sh /tmp/_build/docgen/${{ matrix.profile }}/schema-en.json

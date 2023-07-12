@@ -5,11 +5,13 @@ concurrency:
   cancel-in-progress: true
 
 on:
-  push:
-    tags:
-    - v*
-    - e*
-    - docker-latest-*
+  workflow_call:
+# on:
+#   push:
+#     tags:
+#     - v*
+#     - e*
+#     - docker-latest-*
   workflow_dispatch:
     inputs:
       branch_or_tag:

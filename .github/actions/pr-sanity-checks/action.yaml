@@ -1,0 +1,68 @@
+name: 'Pull request sanity checks'
+
+defaults:
+  run:
+    shell: 'bash -Eeuo pipefail {0}'
+
+runs:
+  using: composite
+  steps:
+    - name: Work around https://github.com/actions/checkout/issues/766
+      shell: bash
+      run: |
+        git config --global --add safe.directory "$GITHUB_WORKSPACE"
+    - name: Run gitlint
+      shell: bash
+      env:
+        BEFORE_REF: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.event.before }}
+        AFTER_REF: ${{ github.sha }}
+      run: |
+        pip install gitlint
+        gitlint --commits $BEFORE_REF..$AFTER_REF --config .github/workflows/.gitlint
+    - name: Run shellcheck
+      shell: bash
+      run: |
+        apt-get update -y && apt-get install -y shellcheck
+        ./scripts/shellcheck.sh
+      # https://github.com/rhysd/actionlint/blob/main/docs/usage.md#use-actionlint-on-github-actions
+    - name: Check workflow files
+      shell: bash
+      run: |
+        bash <(curl https://raw.githubusercontent.com/rhysd/actionlint/main/scripts/download-actionlint.bash)
+        # TODO: enable shellcheck when all the current issues are fixed
+        ./actionlint -color \
+          -shellcheck= \
+          -ignore 'label ".+" is unknown' \
+          -ignore 'value "emqx-enterprise" in "exclude"'
+    - name: Check line-break at EOF
+      shell: bash
+      run: |
+        ./scripts/check-nl-at-eof.sh
+    - name: Check apps version
+      shell: bash
+      run: |
+        ./scripts/apps-version-check.sh
+    - name: Check Erlang code formatting
+      shell: bash
+      run: |
+        echo "==> ./scripts/check-format.sh"
+        ./scripts/check-format.sh
+        echo "==> check-format ok"
+    - name: Run elvis check
+      shell: bash
+      run: |
+        ./scripts/elvis-check.sh $GITHUB_BASE_REF
+    - name: Setup mix
+      env:
+        MIX_ENV: emqx-enterprise
+        PROFILE: emqx-enterprise
+      shell: bash
+      run: |
+        mix local.hex --force && mix local.rebar --force
+    - name: Check Elixir code formatting
+      env:
+        MIX_ENV: emqx-enterprise
+        PROFILE: emqx-enterprise
+      shell: bash
+      run: |
+        mix format --check-formatted

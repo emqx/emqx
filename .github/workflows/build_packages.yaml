@@ -5,12 +5,14 @@ concurrency:
   cancel-in-progress: true
 
 on:
-  push:
-    branches:
-    - 'ci/**'
-    tags:
-    - v*
-    - e*
+  workflow_call:
+# on:
+#   push:
+#     branches:
+#     - 'ci/**'
+#     tags:
+#     - v*
+#     - e*
   workflow_dispatch:
     inputs:
       branch_or_tag:
@@ -88,7 +90,7 @@ jobs:
         fetch-depth: 0
 
     - uses: ilammy/msvc-dev-cmd@v1.12.0
-    - uses: erlef/setup-beam@v1.15.4
+    - uses: erlef/setup-beam@v1.16.0
       with:
         otp-version: 25.3.2
     - name: build

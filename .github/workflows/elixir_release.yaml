@@ -1,0 +1,47 @@
+# FIXME: temporary workflow for testing; remove later
+name: Elixir Build (temporary)
+
+concurrency:
+  group: elixir-release-${{ github.event_name }}-${{ github.ref }}
+  cancel-in-progress: true
+
+on:
+  workflow_call:
+    inputs:
+      runner:
+        required: true
+        type: string
+      builder:
+        required: true
+        type: string
+
+jobs:
+  elixir_release_build:
+    runs-on: ${{ inputs.runner }}
+    container: ${{ inputs.builder }}
+    strategy:
+      matrix:
+        profile:
+          - emqx
+
+    steps:
+      - uses: actions/download-artifact@v3
+        with:
+          name: ${{ matrix.profile }}
+      - name: extract artifact
+        run: |
+          unzip -o -q ${{ matrix.profile }}.zip
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+      - name: elixir release
+        run: make ${{ matrix.profile }}-elixir
+      - name: start release
+        run: |
+          _build/${{ matrix.profile }}/rel/emqx/bin/emqx start
+      - name: check if started
+        run: |
+          set -e
+          sleep 10
+          timeout 1 bash -c '</dev/tcp/localhost/1883'
+          _build/${{ matrix.profile }}/rel/emqx/bin/emqx ping
+          _build/${{ matrix.profile }}/rel/emqx/bin/emqx ctl status
+          ./scripts/test/emqx-smoke-test.sh localhost 18083
