@@ -38,9 +38,15 @@ set_special_configs(emqx_dashboard) ->
     emqx_dashboard_api_test_helpers:set_default_config(<<"license_admin">>);
 set_special_configs(emqx_license) ->
     LicenseKey = emqx_license_test_lib:make_license(#{max_connections => "100"}),
-    Config = #{key => LicenseKey},
+    Config = #{
+        key => LicenseKey, connection_low_watermark => 0.75, connection_high_watermark => 0.8
+    },
     emqx_config:put([license], Config),
-    RawConfig = #{<<"key">> => LicenseKey},
+    RawConfig = #{
+        <<"key">> => LicenseKey,
+        <<"connection_low_watermark">> => <<"75%">>,
+        <<"connection_high_watermark">> => <<"80%">>
+    },
     emqx_config:put_raw([<<"license">>], RawConfig),
     ok = persistent_term:put(
         emqx_license_test_pubkey,
@@ -172,3 +178,30 @@ t_license_upload_key_not_json(_Config) ->
     ),
     assert_untouched_license(),
     ok.
+
+t_license_setting(_Config) ->
+    %% get
+    GetRes = request(get, uri(["license", "setting"]), []),
+    validate_setting(GetRes, <<"75%">>, <<"80%">>),
+    %% update
+    Low = <<"50%">>,
+    High = <<"55%">>,
+    UpdateRes = request(post, uri(["license", "setting"]), #{
+        <<"connection_low_watermark">> => Low,
+        <<"connection_high_watermark">> => High
+    }),
+    validate_setting(UpdateRes, Low, High),
+    ?assertEqual(0.5, emqx_config:get([license, connection_low_watermark])),
+    ?assertEqual(0.55, emqx_config:get([license, connection_high_watermark])),
+    ok.
+
+validate_setting(Res, ExpectLow, ExpectHigh) ->
+    ?assertMatch({ok, 200, _}, Res),
+    {ok, 200, Payload} = Res,
+    ?assertEqual(
+        #{
+            <<"connection_low_watermark">> => ExpectLow,
+            <<"connection_high_watermark">> => ExpectHigh
+        },
+        emqx_utils_json:decode(Payload, [return_maps])
+    ).

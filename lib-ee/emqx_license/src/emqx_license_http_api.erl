@@ -164,11 +164,13 @@ fields(key_license) ->
         %% FIXME: remove when 5.2.0
         {connection_low_watermark, #{
             type => emqx_schema:percent(),
+            example => <<"75%">>,
             deprecated => true,
             desc => ?DESC(connection_low_watermark_field_deprecated)
         }},
         {connection_high_watermark, #{
             type => emqx_schema:percent(),
+            example => <<"80%">>,
             deprecated => true,
             desc => ?DESC(connection_high_watermark_field_deprecated)
         }}
