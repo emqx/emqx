@@ -14,7 +14,7 @@ all() ->
     emqx_common_test_helpers:all(?MODULE).
 
 init_per_suite(Config) ->
-    {ok, _} = application:ensure_all_started(emqx_s3),
+    emqx_common_test_helpers:start_apps([emqx_s3]),
     Config.
 
 end_per_suite(_Config) ->

@@ -101,7 +101,7 @@ init_per_testcase(t_get_telemetry, Config) ->
         "test/emqx_gateway_SUITE_data"
     ),
     ok = emqx_gateway_SUITE:setup_fake_usage_data(Lwm2mDataDir),
-    {ok, _} = application:ensure_all_started(emqx_gateway),
+    emqx_common_test_helpers:start_apps([emqx_gateway]),
     Config;
 init_per_testcase(t_advanced_mqtt_features, Config) ->
     {ok, _} = emqx_cluster_rpc:start_link(node(), emqx_cluster_rpc, 1000),
@@ -129,8 +129,7 @@ init_per_testcase(t_send_after_enable, Config) ->
 init_per_testcase(t_rule_engine_and_data_bridge_info, Config) ->
     mock_httpc(),
     {ok, _} = emqx_cluster_rpc:start_link(node(), emqx_cluster_rpc, 1000),
-    {ok, _} = application:ensure_all_started(emqx_rule_engine),
-    ok = application:start(emqx_bridge),
+    emqx_common_test_helpers:start_apps([emqx_rule_engine, emqx_bridge]),
     ok = emqx_bridge_SUITE:setup_fake_telemetry_data(),
     ok = setup_fake_rule_engine_data(),
     Config;
@@ -154,7 +153,7 @@ init_per_testcase(t_exhook_info, Config) ->
     {ok, Sock} = gen_tcp:connect("localhost", 9000, [], 3000),
     _ = gen_tcp:close(Sock),
     ok = emqx_common_test_helpers:load_config(emqx_exhook_schema, ExhookConf),
-    {ok, _} = application:ensure_all_started(emqx_exhook),
+    emqx_common_test_helpers:start_apps([emqx_exhook]),
     Config;
 init_per_testcase(t_cluster_uuid, Config) ->
     Node = start_slave(n1),
@@ -630,11 +629,23 @@ bin(B) when is_binary(B) ->
 mock_httpc() ->
     TestPID = self(),
     ok = meck:new(httpc, [non_strict, passthrough, no_history, no_link]),
-    ok = meck:expect(httpc, request, fun(
-        Method, {URL, Headers, _ContentType, Body}, _HTTPOpts, _Opts
-    ) ->
-        TestPID ! {request, Method, URL, Headers, Body}
-    end).
+    ok = meck:expect(
+        httpc,
+        request,
+        fun
+            (Method, {URL, Headers, _ContentType, Body}, _HTTPOpts, _Opts) ->
+                TestPID ! {request, Method, URL, Headers, Body};
+            (Method, {URL, Headers}, _HTTPOpts, _Opts) ->
+                TestPID ! {request, Method, URL, Headers, undefined}
+        end
+    ),
+    ok = meck:expect(
+        httpc,
+        request,
+        fun(Method, {URL, Headers}, _Opts) ->
+            TestPID ! {request, Method, URL, Headers, undefined}
+        end
+    ).
 
 mock_advanced_mqtt_features() ->
     Context = undefined,
