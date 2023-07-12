@@ -71,7 +71,25 @@ t_nested_put_map(_) ->
     ?assertEqual(
         #{k => #{<<"t">> => #{<<"a">> => v1}}},
         nested_put(?path([k, t, <<"a">>]), v1, #{k => #{<<"t">> => v0}})
-    ).
+    ),
+    %% since we currently support passing a binary-encoded json as input...
+    ?assertEqual(
+        #{payload => #{<<"a">> => v1, <<"b">> => <<"v2">>}},
+        nested_put(
+            ?path([payload, <<"a">>]),
+            v1,
+            #{payload => emqx_utils_json:encode(#{b => <<"v2">>})}
+        )
+    ),
+    ?assertEqual(
+        #{payload => #{<<"a">> => #{<<"old">> => <<"v2">>, <<"new">> => v1}}},
+        nested_put(
+            ?path([payload, <<"a">>, <<"new">>]),
+            v1,
+            #{payload => emqx_utils_json:encode(#{a => #{old => <<"v2">>}})}
+        )
+    ),
+    ok.
 
 t_nested_put_index(_) ->
     ?assertEqual([1, a, 3], nested_put(?path([{ic, 2}]), a, [1, 2, 3])),
