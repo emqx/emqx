@@ -54,8 +54,7 @@
 
 %% Management API
 -export([
-    mnesia/1,
-    init_tables/0,
+    ensure_mria_tables/0,
     store_rules/2,
     purge_rules/0,
     get_rules/1,
@@ -72,17 +71,16 @@
 -compile(nowarn_export_all).
 -endif.
 
--boot_mnesia({mnesia, [boot]}).
-
--spec mnesia(boot | copy) -> ok.
-mnesia(boot) ->
+-spec ensure_mria_tables() -> ok.
+ensure_mria_tables() ->
     ok = mria:create_table(?ACL_TABLE, [
         {type, ordered_set},
         {rlog_shard, ?ACL_SHARDED},
         {storage, disc_copies},
         {attributes, record_info(fields, ?ACL_TABLE)},
         {storage_properties, [{ets, [{read_concurrency, true}]}]}
-    ]).
+    ]),
+    ok = mria:wait_for_tables([?ACL_TABLE]).
 
 %%--------------------------------------------------------------------
 %% emqx_authz callbacks
@@ -130,11 +128,6 @@ backup_tables() -> [?ACL_TABLE].
 %%--------------------------------------------------------------------
 %% Management API
 %%--------------------------------------------------------------------
-
-%% Init
--spec init_tables() -> ok.
-init_tables() ->
-    ok = mria_rlog:wait_for_shards([?ACL_SHARDED], infinity).
 
 %% @doc Update authz rules
 -spec store_rules(who(), rules()) -> ok.
