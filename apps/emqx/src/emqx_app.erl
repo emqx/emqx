@@ -37,6 +37,7 @@
 %%--------------------------------------------------------------------
 
 start(_Type, _Args) ->
+    emqx_utils:ensure_mria_tables(emqx),
     ok = maybe_load_config(),
     ok = emqx_persistent_session:init_db_backend(),
     _ = emqx_persistent_session_ds:init(),

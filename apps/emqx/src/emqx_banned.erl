@@ -25,9 +25,7 @@
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
 %% Mnesia bootstrap
--export([mnesia/1]).
-
--boot_mnesia({mnesia, [boot]}).
+-export([ensure_mria_tables/0]).
 
 -export([start_link/0, stop/0]).
 
@@ -75,7 +73,7 @@
 %% Mnesia bootstrap
 %%--------------------------------------------------------------------
 
-mnesia(boot) ->
+ensure_mria_tables() ->
     ok = mria:create_table(?BANNED_TAB, [
         {type, set},
         {rlog_shard, ?COMMON_SHARD},

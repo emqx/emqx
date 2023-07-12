@@ -61,7 +61,8 @@
     diff_lists/3,
     merge_lists/3,
     tcp_keepalive_opts/4,
-    format/1
+    format/1,
+    ensure_mria_tables/1
 ]).
 
 -export([
@@ -528,6 +529,20 @@ tcp_keepalive_opts(OS, _Idle, _Interval, _Probes) ->
 
 format(Term) ->
     iolist_to_binary(io_lib:format("~0p", [Term])).
+
+ensure_mria_tables(App) ->
+    {ok, Modules} = application:get_key(App, modules),
+    lists:foreach(
+        fun(Module) ->
+            case erlang:function_exported(Module, ensure_mria_tables, 0) of
+                true ->
+                    ok = apply(Module, ensure_mria_tables, []);
+                false ->
+                    ok
+            end
+        end,
+        Modules
+    ).
 
 %%------------------------------------------------------------------------------
 %% Internal Functions

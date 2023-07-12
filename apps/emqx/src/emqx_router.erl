@@ -25,9 +25,7 @@
 -include_lib("emqx/include/emqx_router.hrl").
 
 %% Mnesia bootstrap
--export([mnesia/1]).
-
--boot_mnesia({mnesia, [boot]}).
+-export([ensure_mria_tables/0]).
 
 -export([start_link/2]).
 
@@ -74,7 +72,7 @@
 %% Mnesia bootstrap
 %%--------------------------------------------------------------------
 
-mnesia(boot) ->
+ensure_mria_tables() ->
     mria_config:set_dirty_shard(?ROUTE_SHARD, true),
     ok = mria:create_table(?ROUTE_TAB, [
         {type, bag},
