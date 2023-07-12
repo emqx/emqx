@@ -834,7 +834,8 @@ do_start_stop_bridges(Type, Config) ->
     ),
     BadBridgeID = emqx_bridge_resource:bridge_id(?BRIDGE_TYPE_MQTT, BadName),
     ?assertMatch(
-        {ok, SC, _} when SC == 500 orelse SC == 503,
+        %% request from product: return 400 on such errors
+        {ok, SC, _} when SC == 500 orelse SC == 400,
         request(post, {operation, Type, start, BadBridgeID}, Config)
     ),
     ok = gen_tcp:close(Sock),
