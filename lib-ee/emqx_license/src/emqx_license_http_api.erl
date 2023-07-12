@@ -54,7 +54,7 @@ schema("/license") ->
                 )
             }
         },
-        %% FIXME: It's a update action, should use put instead of post in 5.2.0
+        %% TODO(5.x): It's a update action, should use PUT instead
         post => #{
             tags => ?LICENSE_TAGS,
             summary => <<"Update license key">>,
@@ -159,23 +159,7 @@ error_msg(Code, Msg) ->
     end.
 
 fields(key_license) ->
-    Key = lists:keyfind(key, 1, emqx_license_schema:fields(key_license)),
-    [
-        Key,
-        %% FIXME: remove when 5.2.0
-        {connection_low_watermark, #{
-            type => emqx_schema:percent(),
-            example => <<"75%">>,
-            deprecated => true,
-            desc => ?DESC(connection_low_watermark_field_deprecated)
-        }},
-        {connection_high_watermark, #{
-            type => emqx_schema:percent(),
-            example => <<"80%">>,
-            deprecated => true,
-            desc => ?DESC(connection_high_watermark_field_deprecated)
-        }}
-    ].
+    [lists:keyfind(key, 1, emqx_license_schema:fields(key_license))].
 
 setting() ->
     lists:keydelete(key, 1, emqx_license_schema:fields(key_license)).
