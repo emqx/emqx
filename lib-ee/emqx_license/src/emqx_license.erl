@@ -22,7 +22,8 @@
     unload/0,
     read_license/0,
     read_license/1,
-    update_key/1
+    update_key/1,
+    update_setting/1
 ]).
 
 -define(CONF_KEY_PATH, [license]).
@@ -64,6 +65,14 @@ update_key(Value) when is_binary(Value); is_list(Value) ->
     ),
     handle_config_update_result(Result).
 
+update_setting(Setting) when is_map(Setting) ->
+    Result = emqx_conf:update(
+        ?CONF_KEY_PATH,
+        {setting, Setting},
+        #{rawconf_with_defaults => true, override_to => cluster}
+    ),
+    handle_config_update_result(Result).
+
 %%------------------------------------------------------------------------------
 %% emqx_hooks
 %%------------------------------------------------------------------------------
@@ -96,6 +105,8 @@ check(_ConnInfo, AckProps) ->
 pre_config_update(_, Cmd, Conf) ->
     {ok, do_update(Cmd, Conf)}.
 
+post_config_update(_Path, {setting, _}, NewConf, _Old, _AppEnvs) ->
+    {ok, NewConf};
 post_config_update(_Path, _Cmd, NewConf, _Old, _AppEnvs) ->
     case read_license(NewConf) of
         {ok, License} ->
@@ -122,6 +133,8 @@ do_update({key, Content}, Conf) when is_binary(Content); is_list(Content) ->
         {error, Reason} ->
             erlang:throw(Reason)
     end;
+do_update({setting, Setting}, Conf) ->
+    maps:merge(Conf, Setting);
 do_update(NewConf, _PrevConf) ->
     #{<<"key">> := NewKey} = NewConf,
     do_update({key, NewKey}, NewConf).

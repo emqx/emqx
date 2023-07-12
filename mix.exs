@@ -189,7 +189,8 @@ defmodule EMQXUmbrella.MixProject do
       :emqx_bridge_rabbitmq,
       :emqx_bridge_clickhouse,
       :emqx_ft,
-      :emqx_s3
+      :emqx_s3,
+      :emqx_enterprise
     ])
   end
 
