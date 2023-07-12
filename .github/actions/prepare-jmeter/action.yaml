@@ -1,0 +1,49 @@
+name: 'Run jmeter'
+
+inputs:
+  version-emqx:
+    required: true
+    type: string
+
+runs:
+  using: composite
+  steps:
+    - uses: actions/download-artifact@v3
+      with:
+        name: emqx-docker
+        path: /tmp
+    - name: load docker image
+      shell: bash
+      env:
+        PKG_VSN: ${{ inputs.version-emqx }}
+      run: |
+        EMQX_DOCKER_IMAGE_TAG=$(docker load < /tmp/emqx-docker-${PKG_VSN}.tar.gz | sed 's/Loaded image: //g')
+        echo "_EMQX_DOCKER_IMAGE_TAG=$EMQX_DOCKER_IMAGE_TAG" >> $GITHUB_ENV
+    - uses: actions/checkout@v3
+      with:
+        repository: emqx/emqx-fvt
+        ref: broker-autotest-v5
+        path: scripts
+    - uses: actions/setup-java@v3
+      with:
+        java-version: '8.0.282' # The JDK version to make available on the path.
+        java-package: jdk # (jre, jdk, or jdk+fx) - defaults to jdk
+        architecture: x64 # (x64 or x86) - defaults to x64
+        # https://github.com/actions/setup-java/blob/main/docs/switching-to-v2.md
+        distribution: 'zulu'
+    - uses: actions/download-artifact@v3
+      with:
+        name: apache-jmeter.tgz
+    - name: install jmeter
+      shell: bash
+      env:
+        JMETER_VERSION: 5.4.3
+      run: |
+        tar -xf apache-jmeter.tgz
+        ln -s apache-jmeter-$JMETER_VERSION jmeter
+        echo "jmeter.save.saveservice.output_format=xml" >> jmeter/user.properties
+        echo "jmeter.save.saveservice.response_data.on_error=true" >> jmeter/user.properties
+        cd jmeter/lib/ext
+        wget --no-verbose https://raw.githubusercontent.com/xmeter-net/mqtt-jmeter/master/Download/v2.0.2/mqtt-xmeter-fuse-2.0.2-jar-with-dependencies.jar
+        wget --no-verbose https://repo1.maven.org/maven2/mysql/mysql-connector-java/8.0.16/mysql-connector-java-8.0.16.jar
+        wget --no-verbose https://repo1.maven.org/maven2/org/postgresql/postgresql/42.2.18/postgresql-42.2.18.jar

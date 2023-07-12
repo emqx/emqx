@@ -1,53 +1,59 @@
 name: Run Configuration tests
 
 concurrency:
-  group: conftest-${{ github.event_name }}-${{ github.ref }}
+  group: conftest-${{ github.event_name }}-${{ github.sha }}
   cancel-in-progress: true
 
 on:
-  push:
-    branches:
-      - master
-      - 'ci/**'
-    tags:
-      - v*
-      - e*
-  pull_request:
+  workflow_call:
+    inputs:
+      runner:
+        required: true
+        type: string
+      builder:
+        required: true
+        type: string
 
-env:
-  IS_CI: "yes"
+# on:
+#   push:
+#     branches:
+#       - master
+#       - 'ci/**'
+#     tags:
+#       - v*
+#       - e*
+#   pull_request:
 
 jobs:
   run_conf_tests:
-    runs-on: ubuntu-22.04
+    runs-on: ${{ inputs.runner }}
+    container: ${{ inputs.builder }}
+    env:
+      PROFILE: ${{ matrix.profile }}
     strategy:
       fail-fast: false
       matrix:
         profile:
           - emqx
           - emqx-enterprise
-    container: "ghcr.io/emqx/emqx-builder/5.1-3:1.14.5-25.3.2-1-ubuntu22.04"
     steps:
       - uses: AutoModality/action-clean@v1
-      - uses: actions/checkout@v3
+      - uses: actions/download-artifact@v3
         with:
-          path: source
-      - name: build_package
-        working-directory: source
+          name: ${{ matrix.profile }}
+      - name: extract artifact
         run: |
-          make ${{ matrix.profile }}
-      - name: run_tests
-        working-directory: source
-        env:
-          PROFILE: ${{ matrix.profile }}
-        run: |
-          ./scripts/conf-test/run.sh
-      - name: print_erlang_log
+          unzip -o -q ${{ matrix.profile }}.zip
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+      - run: ./scripts/test/check-example-configs.sh
+      - run: ./scripts/conf-test/run.sh
+      - name: print erlang log
         if: failure()
         run: |
-          cat source/_build/${{ matrix.profile }}/rel/emqx/logs/erlang.log.*
+          cat _build/${{ matrix.profile }}/rel/emqx/logs/erlang.log.*
       - uses: actions/upload-artifact@v3
         if: failure()
         with:
           name: logs-${{ matrix.profile }}
-          path: source/_build/${{ matrix.profile }}/rel/emqx/logs
+          path: _build/${{ matrix.profile }}/rel/emqx/logs
+
