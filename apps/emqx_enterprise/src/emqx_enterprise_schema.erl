@@ -35,7 +35,7 @@ desc(Name) ->
     ee_delegate(desc, ?EE_SCHEMA_MODULES, Name).
 
 validations() ->
-    emqx_conf_schema:validations().
+    emqx_conf_schema:validations() ++ emqx_license_schema:validations().
 
 %%------------------------------------------------------------------------------
 %% helpers
