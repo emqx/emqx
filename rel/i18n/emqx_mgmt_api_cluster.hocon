@@ -5,6 +5,11 @@ get_cluster_info.desc:
 get_cluster_info.label:
 """Get cluster info"""
 
+get_cluster_topology.desc:
+"""Get RLOG cluster topology: connections between core and replicant nodes."""
+get_cluster_topology.label:
+"""Get cluster topology"""
+
 invite_node.desc:
 """Invite node to cluster"""
 invite_node.label:

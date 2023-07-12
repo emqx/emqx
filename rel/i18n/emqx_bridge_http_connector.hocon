@@ -1,0 +1,69 @@
+emqx_bridge_http_connector {
+
+body.desc:
+"""HTTP request body."""
+
+body.label:
+"""HTTP Body"""
+
+connect_timeout.desc:
+"""The timeout when connecting to the HTTP server."""
+
+connect_timeout.label:
+"""Connect Timeout"""
+
+enable_pipelining.desc:
+"""A positive integer. Whether to send HTTP requests continuously, when set to 1, it means that after each HTTP request is sent, you need to wait for the server to return and then continue to send the next request."""
+
+enable_pipelining.label:
+"""HTTP Pipelineing"""
+
+headers.desc:
+"""List of HTTP headers."""
+
+headers.label:
+"""HTTP Headers"""
+
+max_retries.desc:
+"""Max retry times if error on sending request."""
+
+max_retries.label:
+"""Max Retries"""
+
+method.desc:
+"""HTTP method."""
+
+method.label:
+"""HTTP Method"""
+
+path.desc:
+"""URL path."""
+
+path.label:
+"""URL Path"""
+
+pool_size.desc:
+"""The pool size."""
+
+pool_size.label:
+"""Pool Size"""
+
+pool_type.desc:
+"""The type of the pool. Can be one of `random`, `hash`."""
+
+pool_type.label:
+"""Pool Type"""
+
+request.desc:
+"""Configure HTTP request parameters."""
+
+request.label:
+"""Request"""
+
+request_timeout.desc:
+"""HTTP request timeout."""
+
+request_timeout.label:
+"""Request Timeout"""
+
+}

@@ -243,7 +243,7 @@ handle_result(
 ) ->
     ?SLOG(error, #{
         msg => "gcp_pubsub_error_response",
-        request => emqx_connector_http:redact_request(Request),
+        request => emqx_bridge_http_connector:redact_request(Request),
         connector => ResourceId,
         status_code => StatusCode,
         resp_body => RespBody
@@ -252,7 +252,7 @@ handle_result(
 handle_result({error, #{status_code := StatusCode}} = Result, Request, _QueryMode, ResourceId) ->
     ?SLOG(error, #{
         msg => "gcp_pubsub_error_response",
-        request => emqx_connector_http:redact_request(Request),
+        request => emqx_bridge_http_connector:redact_request(Request),
         connector => ResourceId,
         status_code => StatusCode
     }),

@@ -1,0 +1,39 @@
+emqx_schema_registry_http_api {
+
+desc_param_path_schema_name.desc:
+"""The schema name"""
+
+desc_param_path_schema_name.label:
+"""Schema name"""
+
+desc_schema_registry_api_delete.desc:
+"""Delete a schema"""
+
+desc_schema_registry_api_delete.label:
+"""Delete schema"""
+
+desc_schema_registry_api_get.desc:
+"""Get a schema by its name"""
+
+desc_schema_registry_api_get.label:
+"""Get schema"""
+
+desc_schema_registry_api_list.desc:
+"""List all registered schemas"""
+
+desc_schema_registry_api_list.label:
+"""List schemas"""
+
+desc_schema_registry_api_post.desc:
+"""Register a new schema"""
+
+desc_schema_registry_api_post.label:
+"""Register schema"""
+
+desc_schema_registry_api_put.desc:
+"""Update an existing schema"""
+
+desc_schema_registry_api_put.label:
+"""Update schema"""
+
+}

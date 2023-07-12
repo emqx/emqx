@@ -118,7 +118,7 @@ authz_http_common_fields() ->
                 [
                     pool_type
                 ],
-                maps:from_list(emqx_connector_http:fields(config))
+                maps:from_list(emqx_bridge_http_connector:fields(config))
             )
         ).
 

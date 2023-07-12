@@ -189,7 +189,9 @@ defmodule EMQXUmbrella.MixProject do
       :emqx_bridge_rabbitmq,
       :emqx_bridge_clickhouse,
       :emqx_ft,
-      :emqx_s3
+      :emqx_s3,
+      :emqx_schema_registry,
+      :emqx_enterprise
     ])
   end
 
@@ -370,6 +372,7 @@ defmodule EMQXUmbrella.MixProject do
         emqx_exhook: :permanent,
         emqx_bridge: :permanent,
         emqx_bridge_mqtt: :permanent,
+        emqx_bridge_http: :permanent,
         emqx_rule_engine: :permanent,
         emqx_modules: :permanent,
         emqx_management: :permanent,
@@ -417,7 +420,7 @@ defmodule EMQXUmbrella.MixProject do
           emqx_oracle: :permanent,
           emqx_bridge_oracle: :permanent,
           emqx_bridge_rabbitmq: :permanent,
-          emqx_ee_schema_registry: :permanent,
+          emqx_schema_registry: :permanent,
           emqx_eviction_agent: :permanent,
           emqx_node_rebalance: :permanent,
           emqx_ft: :permanent

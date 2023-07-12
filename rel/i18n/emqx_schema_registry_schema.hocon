@@ -1,0 +1,51 @@
+emqx_schema_registry_schema {
+
+avro_type.desc:
+"""[Apache Avro](https://avro.apache.org/) serialization format."""
+
+avro_type.label:
+"""Apache Avro"""
+
+protobuf_type.desc:
+"""[Protocol Buffers](https://protobuf.dev/) serialization format."""
+
+protobuf_type.label:
+"""Protocol Buffers"""
+
+schema_description.desc:
+"""A description for this schema."""
+
+schema_description.label:
+"""Schema description"""
+
+schema_name.desc:
+"""A name for the schema that will serve as its identifier."""
+
+schema_name.label:
+"""Schema name"""
+
+schema_registry_root.desc:
+"""Schema registry configurations."""
+
+schema_registry_root.label:
+"""Schema registry"""
+
+schema_registry_schemas.desc:
+"""Registered schemas."""
+
+schema_registry_schemas.label:
+"""Registered schemas"""
+
+schema_source.desc:
+"""Source text for the schema."""
+
+schema_source.label:
+"""Schema source"""
+
+schema_type.desc:
+"""Schema type."""
+
+schema_type.label:
+"""Schema type"""
+
+}
