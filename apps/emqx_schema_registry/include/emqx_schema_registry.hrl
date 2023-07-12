@@ -2,12 +2,13 @@
 %% Copyright (c) 2023 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
 
--ifndef(EMQX_EE_SCHEMA_REGISTRY_HRL).
--define(EMQX_EE_SCHEMA_REGISTRY_HRL, true).
+-ifndef(EMQX_SCHEMA_REGISTRY_HRL).
+-define(EMQX_SCHEMA_REGISTRY_HRL, true).
 
 -define(CONF_KEY_ROOT, schema_registry).
 -define(CONF_KEY_PATH, [?CONF_KEY_ROOT]).
 
+%% Note: this has the `_ee_' segment for backwards compatibility.
 -define(SCHEMA_REGISTRY_SHARD, emqx_ee_schema_registry_shard).
 -define(SERDE_TAB, emqx_ee_schema_registry_serde_tab).
 -define(PROTOBUF_CACHE_TAB, emqx_ee_schema_registry_protobuf_cache_tab).

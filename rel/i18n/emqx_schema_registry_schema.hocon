@@ -1,4 +1,4 @@
-emqx_ee_schema_registry_schema {
+emqx_schema_registry_schema {
 
 avro_type.desc:
 """[Apache Avro](https://avro.apache.org/) serialization format."""

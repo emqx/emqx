@@ -2,11 +2,11 @@
 %% Copyright (c) 2023 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
 
--module(emqx_ee_schema_registry_schema).
+-module(emqx_schema_registry_schema).
 
 -include_lib("typerefl/include/types.hrl").
 -include_lib("hocon/include/hoconsc.hrl").
--include("emqx_ee_schema_registry.hrl").
+-include("emqx_schema_registry.hrl").
 
 %% `hocon_schema' API
 -export([

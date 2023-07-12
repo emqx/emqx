@@ -1,7 +1,7 @@
 %%--------------------------------------------------------------------
 %% Copyright (c) 2023 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
--module(emqx_ee_schema_registry_sup).
+-module(emqx_schema_registry_sup).
 
 -behaviour(supervisor).
 
@@ -29,7 +29,7 @@ init([]) ->
         intensity => 10,
         period => 100
     },
-    ChildSpecs = [child_spec(emqx_ee_schema_registry)],
+    ChildSpecs = [child_spec(emqx_schema_registry)],
     {ok, {SupFlags, ChildSpecs}}.
 
 child_spec(Mod) ->
@@ -38,6 +38,5 @@ child_spec(Mod) ->
         start => {Mod, start_link, []},
         restart => permanent,
         shutdown => 5_000,
-        type => worker,
-        modules => [Mod]
+        type => worker
     }.

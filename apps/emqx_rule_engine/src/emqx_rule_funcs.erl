@@ -1148,7 +1148,7 @@ timezone_to_offset_seconds(TimeZone) ->
 '$handle_undefined_function'(sprintf, [Format | Args]) ->
     erlang:apply(fun sprintf_s/2, [Format, Args]);
 %% This is for functions that should be handled in another module
-%% (currently this module is emqx_ee_schema_registry_serde in the case of EE but
+%% (currently this module is emqx_schema_registry_serde in the case of EE but
 %% could be changed to another module in the future).
 '$handle_undefined_function'(FunctionName, Args) ->
     case emqx_rule_engine:extra_functions_module() of

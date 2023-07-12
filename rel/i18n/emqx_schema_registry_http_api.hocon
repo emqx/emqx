@@ -1,4 +1,4 @@
-emqx_ee_schema_registry_http_api {
+emqx_schema_registry_http_api {
 
 desc_param_path_schema_name.desc:
 """The schema name"""
