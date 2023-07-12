@@ -63,9 +63,7 @@
     extra :: term()
 }).
 
--export([mnesia/1]).
-
--boot_mnesia({mnesia, [boot]}).
+-export([ensure_mria_tables/0]).
 
 -include("emqx_psk.hrl").
 
@@ -81,8 +79,7 @@
 %%------------------------------------------------------------------------------
 
 %% @doc Create or replicate tables.
--spec mnesia(boot | copy) -> ok.
-mnesia(boot) ->
+ensure_mria_tables() ->
     ok = mria:create_table(?TAB, [
         {rlog_shard, ?PSK_SHARD},
         {type, ordered_set},
@@ -90,7 +87,8 @@ mnesia(boot) ->
         {record_name, psk_entry},
         {attributes, record_info(fields, psk_entry)},
         {storage_properties, [{ets, [{read_concurrency, true}]}]}
-    ]).
+    ]),
+    ok = mria:wait_for_tables([?TAB]).
 
 %%------------------------------------------------------------------------------
 %% Data backup

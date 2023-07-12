@@ -26,7 +26,7 @@
 -include("emqx_psk.hrl").
 
 start(_Type, _Args) ->
-    ok = mria:wait_for_tables([?TAB]),
+    emqx_utils:ensure_mria_tables(emqx_psk),
     emqx_conf:add_handler([?PSK_KEY], emqx_psk),
     {ok, Sup} = emqx_psk_sup:start_link(),
     {ok, Sup}.
