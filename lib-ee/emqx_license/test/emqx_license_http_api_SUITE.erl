@@ -186,7 +186,7 @@ t_license_setting(_Config) ->
     %% update
     Low = <<"50%">>,
     High = <<"55%">>,
-    UpdateRes = request(post, uri(["license", "setting"]), #{
+    UpdateRes = request(put, uri(["license", "setting"]), #{
         <<"connection_low_watermark">> => Low,
         <<"connection_high_watermark">> => High
     }),
@@ -197,14 +197,14 @@ t_license_setting(_Config) ->
     %% update bad setting low >= high
     ?assertMatch(
         {ok, 400, _},
-        request(post, uri(["license", "setting"]), #{
+        request(put, uri(["license", "setting"]), #{
             <<"connection_low_watermark">> => <<"50%">>,
             <<"connection_high_watermark">> => <<"50%">>
         })
     ),
     ?assertMatch(
         {ok, 400, _},
-        request(post, uri(["license", "setting"]), #{
+        request(put, uri(["license", "setting"]), #{
             <<"connection_low_watermark">> => <<"51%">>,
             <<"connection_high_watermark">> => <<"50%">>
         })

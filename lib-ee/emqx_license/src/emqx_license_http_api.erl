@@ -54,6 +54,7 @@ schema("/license") ->
                 )
             }
         },
+        %% FIXME: It's a update action, should use put instead of post in 5.2.0
         post => #{
             tags => ?LICENSE_TAGS,
             summary => <<"Update license key">>,
@@ -93,7 +94,7 @@ schema("/license/setting") ->
                 200 => setting()
             }
         },
-        post => #{
+        put => #{
             tags => ?LICENSE_TAGS,
             summary => <<"Update license setting">>,
             description => ?DESC("desc_license_setting_api"),
@@ -144,7 +145,7 @@ error_msg(Code, Msg) ->
 
 '/license/setting'(get, _Params) ->
     {200, maps:remove(<<"key">>, emqx_config:get_raw([license]))};
-'/license/setting'(post, #{body := Setting}) ->
+'/license/setting'(put, #{body := Setting}) ->
     case emqx_license:update_setting(Setting) of
         {error, Error} ->
             ?SLOG(error, #{
