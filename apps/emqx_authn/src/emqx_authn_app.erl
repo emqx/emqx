@@ -35,6 +35,7 @@
 %%------------------------------------------------------------------------------
 
 start(_StartType, _StartArgs) ->
+    emqx_utils:ensure_mria_tables(emqx_authn),
     %% required by test cases, ensure the injection of
     %% EMQX_AUTHENTICATION_SCHEMA_MODULE_PT_KEY
     _ = emqx_conf_schema:roots(),

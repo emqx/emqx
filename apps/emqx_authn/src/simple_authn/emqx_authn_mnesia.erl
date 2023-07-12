@@ -67,7 +67,7 @@
     import_csv/3
 ]).
 
--export([mnesia/1]).
+-export([ensure_mria_tables/0]).
 
 -export([backup_tables/0]).
 
@@ -81,8 +81,6 @@
     is_superuser :: boolean()
 }).
 
--boot_mnesia({mnesia, [boot]}).
-
 -define(TAB, ?MODULE).
 -define(AUTHN_QSCHEMA, [
     {<<"like_user_id">>, binary},
@@ -95,8 +93,7 @@
 %%------------------------------------------------------------------------------
 
 %% @doc Create or replicate tables.
--spec mnesia(boot | copy) -> ok.
-mnesia(boot) ->
+ensure_mria_tables() ->
     ok = mria:create_table(?TAB, [
         {rlog_shard, ?AUTH_SHARD},
         {type, ordered_set},
