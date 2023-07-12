@@ -26,9 +26,7 @@
 -include_lib("emqx/include/emqx_hooks.hrl").
 
 %% Mnesia bootstrap
--export([mnesia/1]).
-
--boot_mnesia({mnesia, [boot]}).
+-export([ensure_mria_tables/0]).
 
 -export([
     start_link/0,
@@ -101,7 +99,7 @@
 %%------------------------------------------------------------------------------
 %% Mnesia bootstrap
 %%------------------------------------------------------------------------------
-mnesia(boot) ->
+ensure_mria_tables() ->
     ok = mria:create_table(?TAB, [
         {type, ordered_set},
         {storage, disc_copies},
