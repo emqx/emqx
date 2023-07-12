@@ -102,7 +102,7 @@ common_fields() ->
                 [
                     pool_type
                 ],
-                maps:from_list(emqx_connector_http:fields(config))
+                maps:from_list(emqx_bridge_http_connector:fields(config))
             )
         ).
 
@@ -185,14 +185,14 @@ create(Config0) ->
     {Config, State} = parse_config(Config0),
     {ok, _Data} = emqx_authn_utils:create_resource(
         ResourceId,
-        emqx_connector_http,
+        emqx_bridge_http_connector,
         Config
     ),
     {ok, State#{resource_id => ResourceId}}.
 
 update(Config0, #{resource_id := ResourceId} = _State) ->
     {Config, NState} = parse_config(Config0),
-    case emqx_authn_utils:update_resource(emqx_connector_http, Config, ResourceId) of
+    case emqx_authn_utils:update_resource(emqx_bridge_http_connector, Config, ResourceId) of
         {error, Reason} ->
             error({load_config_error, Reason});
         {ok, _} ->

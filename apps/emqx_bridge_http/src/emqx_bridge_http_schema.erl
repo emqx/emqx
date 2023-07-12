@@ -13,7 +13,7 @@
 %% See the License for the specific language governing permissions and
 %% limitations under the License.
 %%--------------------------------------------------------------------
--module(emqx_bridge_webhook_schema).
+-module(emqx_bridge_http_schema).
 
 -include_lib("typerefl/include/types.hrl").
 -include_lib("hocon/include/hoconsc.hrl").
@@ -68,7 +68,7 @@ basic_config() ->
             )}
     ] ++ webhook_creation_opts() ++
         proplists:delete(
-            max_retries, emqx_connector_http:fields(config)
+            max_retries, emqx_bridge_http_connector:fields(config)
         ).
 
 request_config() ->

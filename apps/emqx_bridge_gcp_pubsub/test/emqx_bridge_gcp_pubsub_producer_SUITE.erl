@@ -246,10 +246,10 @@ start_echo_http_server() ->
             {versions, ['tlsv1.2', 'tlsv1.3']},
             {ciphers, ["ECDHE-RSA-AES256-GCM-SHA384", "TLS_CHACHA20_POLY1305_SHA256"]}
         ] ++ certs(),
-    {ok, {HTTPPort, _Pid}} = emqx_connector_web_hook_server:start_link(
+    {ok, {HTTPPort, _Pid}} = emqx_bridge_http_connector_test_server:start_link(
         random, HTTPPath, ServerSSLOpts
     ),
-    ok = emqx_connector_web_hook_server:set_handler(success_http_handler()),
+    ok = emqx_bridge_http_connector_test_server:set_handler(success_http_handler()),
     HTTPHost = "localhost",
     HostPort = HTTPHost ++ ":" ++ integer_to_list(HTTPPort),
     true = os:putenv("PUBSUB_EMULATOR_HOST", HostPort),
@@ -261,7 +261,7 @@ start_echo_http_server() ->
 
 stop_echo_http_server() ->
     os:unsetenv("PUBSUB_EMULATOR_HOST"),
-    ok = emqx_connector_web_hook_server:stop().
+    ok = emqx_bridge_http_connector_test_server:stop().
 
 certs() ->
     CertsPath = emqx_common_test_helpers:deps_path(emqx, "etc/certs"),
@@ -983,7 +983,7 @@ t_publish_econnrefused(Config) ->
     {ok, #{<<"id">> := RuleId}} = create_rule_and_action_http(Config),
     on_exit(fun() -> ok = emqx_rule_engine:delete_rule(RuleId) end),
     assert_empty_metrics(ResourceId),
-    ok = emqx_connector_web_hook_server:stop(),
+    ok = emqx_bridge_http_connector_test_server:stop(),
     do_econnrefused_or_timeout_test(Config, econnrefused).
 
 t_publish_timeout(Config) ->
@@ -1019,7 +1019,7 @@ t_publish_timeout(Config) ->
             ),
             {ok, Rep, State}
         end,
-    ok = emqx_connector_web_hook_server:set_handler(TimeoutHandler),
+    ok = emqx_bridge_http_connector_test_server:set_handler(TimeoutHandler),
     do_econnrefused_or_timeout_test(Config, timeout).
 
 do_econnrefused_or_timeout_test(Config, Error) ->
@@ -1149,7 +1149,7 @@ t_success_no_body(Config) ->
             ),
             {ok, Rep, State}
         end,
-    ok = emqx_connector_web_hook_server:set_handler(SuccessNoBodyHandler),
+    ok = emqx_bridge_http_connector_test_server:set_handler(SuccessNoBodyHandler),
     Topic = <<"t/topic">>,
     {ok, _} = create_bridge(Config),
     {ok, #{<<"id">> := RuleId}} = create_rule_and_action_http(Config),
@@ -1187,7 +1187,7 @@ t_failure_with_body(Config) ->
             ),
             {ok, Rep, State}
         end,
-    ok = emqx_connector_web_hook_server:set_handler(FailureWithBodyHandler),
+    ok = emqx_bridge_http_connector_test_server:set_handler(FailureWithBodyHandler),
     Topic = <<"t/topic">>,
     {ok, _} = create_bridge(Config),
     {ok, #{<<"id">> := RuleId}} = create_rule_and_action_http(Config),
@@ -1225,7 +1225,7 @@ t_failure_no_body(Config) ->
             ),
             {ok, Rep, State}
         end,
-    ok = emqx_connector_web_hook_server:set_handler(FailureNoBodyHandler),
+    ok = emqx_bridge_http_connector_test_server:set_handler(FailureNoBodyHandler),
     Topic = <<"t/topic">>,
     {ok, _} = create_bridge(Config),
     {ok, #{<<"id">> := RuleId}} = create_rule_and_action_http(Config),
@@ -1271,7 +1271,7 @@ t_unrecoverable_error(Config) ->
             ),
             {ok, Rep, State}
         end,
-    ok = emqx_connector_web_hook_server:set_handler(FailureNoBodyHandler),
+    ok = emqx_bridge_http_connector_test_server:set_handler(FailureNoBodyHandler),
     Topic = <<"t/topic">>,
     {ok, _} = create_bridge(Config),
     assert_empty_metrics(ResourceId),

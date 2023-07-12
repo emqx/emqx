@@ -1,4 +1,4 @@
-emqx_bridge_webhook_schema {
+emqx_bridge_http_schema {
 
 config_body.desc:
 """The body of the HTTP request.<br/>
