@@ -148,6 +148,7 @@ basic_reboot_apps() ->
             emqx_plugins
         ] ++ basic_reboot_apps_enterprise(emqx_release:edition()).
 
+-dialyzer({nowarn_function, basic_reboot_apps_enterprise/1}).
 basic_reboot_apps_enterprise(ee) ->
     [emqx_license];
 basic_reboot_apps_enterprise(_) ->
