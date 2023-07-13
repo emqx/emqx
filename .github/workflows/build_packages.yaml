@@ -181,6 +181,7 @@ jobs:
           - ubuntu22.04
           - ubuntu20.04
           - ubuntu18.04
+          - debian12
           - debian11
           - debian10
           - el9
@@ -192,7 +193,7 @@ jobs:
           - aws-arm64
           - ubuntu-22.04
         builder:
-          - 5.1-1
+          - 5.1-3
         elixir:
           - 1.14.5
         with_elixir:
@@ -208,7 +209,7 @@ jobs:
             arch: amd64
             os: ubuntu22.04
             build_machine: ubuntu-22.04
-            builder: 5.1-1
+            builder: 5.1-3
             elixir: 1.14.5
             with_elixir: 'yes'
           - profile: emqx
@@ -216,7 +217,7 @@ jobs:
             arch: amd64
             os: amzn2
             build_machine: ubuntu-22.04
-            builder: 5.1-1
+            builder: 5.1-3
             elixir: 1.14.5
             with_elixir: 'yes'
 
