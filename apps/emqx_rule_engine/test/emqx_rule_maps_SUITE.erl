@@ -72,15 +72,10 @@ t_nested_put_map(_) ->
         #{k => #{<<"t">> => #{<<"a">> => v1}}},
         nested_put(?path([k, t, <<"a">>]), v1, #{k => #{<<"t">> => v0}})
     ),
-    %% since we currently support passing a binary-encoded json as input...
-    %% will always decode as json, even if non-intentional...
-
     %% note: since we handle json-encoded binaries when evaluating the
     %% rule rather than baking the decoding in `nested_put`, we test
     %% this corner case that _would_ otherwise lose data to
     %% demonstrate this behavior.
-
-    %% loses `b' !
     ?assertEqual(
         #{payload => #{<<"a">> => v1}},
         nested_put(
@@ -89,17 +84,21 @@ t_nested_put_map(_) ->
             #{payload => emqx_utils_json:encode(#{b => <<"v2">>})}
         )
     ),
+    %% We have an asymmetry in the behavior here because `nested_put'
+    %% currently, at each key, will use `general_find' to get the
+    %% current value of the eky, and that attempts JSON decoding the
+    %% such value...  So, the cases below, `old' gets preserved
+    %% because it's in this direct path.
     ?assertEqual(
-        #{payload => #{<<"a">> => #{<<"old">> => <<"v2">>, <<"new">> => v1}}},
+        #{payload => #{<<"a">> => #{<<"new">> => v1, <<"old">> => <<"v2">>}}},
         nested_put(
             ?path([payload, <<"a">>, <<"new">>]),
             v1,
             #{payload => emqx_utils_json:encode(#{a => #{old => <<"v2">>}})}
         )
     ),
-    %% loses `b' !
     ?assertEqual(
-        #{payload => #{<<"a">> => #{<<"old">> => <<"{}">>, <<"new">> => v1}}},
+        #{payload => #{<<"a">> => #{<<"new">> => v1, <<"old">> => <<"{}">>}}},
         nested_put(
             ?path([payload, <<"a">>, <<"new">>]),
             v1,
