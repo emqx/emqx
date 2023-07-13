@@ -17,8 +17,15 @@ jobs:
     - uses: erlef/setup-beam@v1.15.4
       with:
         otp-version: 25.3.2
+    - name: Cache Jmeter
+      id: cache-jmeter
+      uses: actions/cache@v3
+      with:
+        path: /tmp/apache-jmeter.tgz
+        key: apache-jmeter-5.4.3.tgz
     - name: download jmeter
-      timeout-minutes: 3
+      if: steps.cache-jmeter.outputs.cache-hit != 'true'
+      timeout-minutes: 15
       env:
           JMETER_VERSION: 5.4.3
       run: |
