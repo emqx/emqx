@@ -249,6 +249,8 @@ check_workers(InstanceId, Client) ->
             #{return_values => true}
         )
     of
+        {ok, []} ->
+            connecting;
         {ok, Values} ->
             AllOk = lists:all(fun(S) -> S =:= subscription_ok end, Values),
             case AllOk of
