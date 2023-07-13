@@ -1211,7 +1211,7 @@ t_nonexistent_topic(Config) ->
                 emqx_resource_manager:health_check(ResourceId)
             ),
             ?assertMatch(
-                {ok, _Group, #{error := "GCP PubSub topics are invalid" ++ _}},
+                {ok, _Group, #{error := {unhealthy_target, "GCP PubSub topics are invalid" ++ _}}},
                 emqx_resource_manager:lookup_cached(ResourceId)
             ),
             %% now create the topic and restart the bridge
