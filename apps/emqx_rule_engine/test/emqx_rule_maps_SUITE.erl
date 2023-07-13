@@ -73,8 +73,16 @@ t_nested_put_map(_) ->
         nested_put(?path([k, t, <<"a">>]), v1, #{k => #{<<"t">> => v0}})
     ),
     %% since we currently support passing a binary-encoded json as input...
+    %% will always decode as json, even if non-intentional...
+
+    %% note: since we handle json-encoded binaries when evaluating the
+    %% rule rather than baking the decoding in `nested_put`, we test
+    %% this corner case that _would_ otherwise lose data to
+    %% demonstrate this behavior.
+
+    %% loses `b' !
     ?assertEqual(
-        #{payload => #{<<"a">> => v1, <<"b">> => <<"v2">>}},
+        #{payload => #{<<"a">> => v1}},
         nested_put(
             ?path([payload, <<"a">>]),
             v1,
@@ -87,6 +95,23 @@ t_nested_put_map(_) ->
             ?path([payload, <<"a">>, <<"new">>]),
             v1,
             #{payload => emqx_utils_json:encode(#{a => #{old => <<"v2">>}})}
+        )
+    ),
+    %% loses `b' !
+    ?assertEqual(
+        #{payload => #{<<"a">> => #{<<"old">> => <<"{}">>, <<"new">> => v1}}},
+        nested_put(
+            ?path([payload, <<"a">>, <<"new">>]),
+            v1,
+            #{payload => emqx_utils_json:encode(#{a => #{old => <<"{}">>}, b => <<"{}">>})}
+        )
+    ),
+    ?assertEqual(
+        #{payload => #{<<"a">> => #{<<"new">> => v1}}},
+        nested_put(
+            ?path([payload, <<"a">>, <<"new">>]),
+            v1,
+            #{payload => <<"{}">>}
         )
     ),
     ok.

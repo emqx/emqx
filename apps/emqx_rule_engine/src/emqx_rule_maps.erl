@@ -129,15 +129,6 @@ general_find({index, _}, List, _OrgData, Handler) when not is_list(List) ->
 
 do_put({key, Key}, Val, Map, _OrgData) when is_map(Map) ->
     maps:put(Key, Val, Map);
-do_put({key, Key}, Val, Data, _OrgData) when is_binary(Data) ->
-    case emqx_utils_json:safe_decode(Data, [return_maps]) of
-        {ok, Map = #{}} ->
-            %% Avoid losing other keys when the data is an encoded map...
-            Map#{Key => Val};
-        _ ->
-            %% Fallback to the general case otherwise.
-            #{Key => Val}
-    end;
 do_put({key, Key}, Val, Data, _OrgData) when not is_map(Data) ->
     #{Key => Val};
 do_put({index, {const, Index}}, Val, List, _OrgData) ->

@@ -23,7 +23,6 @@
 -export([
     apply_rule/3,
     apply_rules/3,
-    clear_rule_payload/0,
     inc_action_metrics/2
 ]).
 
@@ -196,18 +195,18 @@ select_and_transform([], _Columns, Action) ->
 select_and_transform(['*' | More], Columns, Action) ->
     select_and_transform(More, Columns, maps:merge(Action, Columns));
 select_and_transform([{as, Field, Alias} | More], Columns, Action) ->
-    Val = eval(Field, Columns),
+    Val = eval(Field, [Action, Columns]),
     select_and_transform(
         More,
-        nested_put(Alias, Val, Columns),
+        Columns,
         nested_put(Alias, Val, Action)
     );
 select_and_transform([Field | More], Columns, Action) ->
-    Val = eval(Field, Columns),
+    Val = eval(Field, [Action, Columns]),
     Key = alias(Field, Columns),
     select_and_transform(
         More,
-        nested_put(Key, Val, Columns),
+        Columns,
         nested_put(Key, Val, Action)
     ).
 
@@ -217,25 +216,25 @@ select_and_collect(Fields, Columns) ->
     select_and_collect(Fields, Columns, {#{}, {'item', []}}).
 
 select_and_collect([{as, Field, {_, A} = Alias}], Columns, {Action, _}) ->
-    Val = eval(Field, Columns),
+    Val = eval(Field, [Action, Columns]),
     {nested_put(Alias, Val, Action), {A, ensure_list(Val)}};
 select_and_collect([{as, Field, Alias} | More], Columns, {Action, LastKV}) ->
-    Val = eval(Field, Columns),
+    Val = eval(Field, [Action, Columns]),
     select_and_collect(
         More,
         nested_put(Alias, Val, Columns),
         {nested_put(Alias, Val, Action), LastKV}
     );
 select_and_collect([Field], Columns, {Action, _}) ->
-    Val = eval(Field, Columns),
+    Val = eval(Field, [Action, Columns]),
     Key = alias(Field, Columns),
     {nested_put(Key, Val, Action), {'item', ensure_list(Val)}};
 select_and_collect([Field | More], Columns, {Action, LastKV}) ->
-    Val = eval(Field, Columns),
+    Val = eval(Field, [Action, Columns]),
     Key = alias(Field, Columns),
     select_and_collect(
         More,
-        nested_put(Key, Val, Columns),
+        Columns,
         {nested_put(Key, Val, Action), LastKV}
     ).
 
@@ -368,6 +367,16 @@ do_handle_action(RuleId, #{mod := Mod, func := Func, args := Args}, Selected, En
     inc_action_metrics(RuleId, Result),
     Result.
 
+eval({Op, _} = Exp, Context) when is_list(Context) andalso (Op == path orelse Op == var) ->
+    case Context of
+        [Columns] ->
+            eval(Exp, Columns);
+        [Columns | Rest] ->
+            case eval(Exp, Columns) of
+                undefined -> eval(Exp, Rest);
+                Val -> Val
+            end
+    end;
 eval({path, [{key, <<"payload">>} | Path]}, #{payload := Payload}) ->
     nested_get({path, Path}, may_decode_payload(Payload));
 eval({path, [{key, <<"payload">>} | Path]}, #{<<"payload">> := Payload}) ->
