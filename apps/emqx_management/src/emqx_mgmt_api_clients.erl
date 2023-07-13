@@ -661,12 +661,14 @@ list_clients(QString) ->
     Result =
         case maps:get(<<"node">>, QString, undefined) of
             undefined ->
+                Options = #{fast_total_counting => true},
                 emqx_mgmt_api:cluster_query(
                     ?CHAN_INFO_TAB,
                     QString,
                     ?CLIENT_QSCHEMA,
                     fun ?MODULE:qs2ms/2,
-                    fun ?MODULE:format_channel_info/2
+                    fun ?MODULE:format_channel_info/2,
+                    Options
                 );
             Node0 ->
                 case emqx_utils:safe_to_existing_atom(Node0) of

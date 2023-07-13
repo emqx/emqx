@@ -320,7 +320,7 @@ make_tgz() {
             if [ "${APPLE_SIGN_BINARIES:-0}" = 1 ]; then
                 # notarize the package
                 # if fails, check what went wrong with this command:
-                    # xcrun notarytool log --apple-id <apple id> \
+                    # xcrun notarytool log \
                     #   --apple-id <apple id> \
                     #   --password <apple id password>
                     #   --team-id <apple team id> <submission-id>

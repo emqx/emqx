@@ -530,6 +530,14 @@ t_parse_incoming(_) ->
     Packet = ?PUBLISH_PACKET(?QOS_0, <<"t">>, undefined, <<>>),
     ?assertMatch([{incoming, Packet}], Packets1).
 
+t_parse_incoming_order(_) ->
+    Packet1 = ?PUBLISH_PACKET(?QOS_0, <<"t1">>, undefined, <<>>),
+    Packet2 = ?PUBLISH_PACKET(?QOS_0, <<"t2">>, undefined, <<>>),
+    Bin1 = emqx_frame:serialize(Packet1),
+    Bin2 = emqx_frame:serialize(Packet2),
+    {Packets1, _} = ?ws_conn:parse_incoming(erlang:iolist_to_binary([Bin1, Bin2]), [], st()),
+    ?assertMatch([{incoming, Packet1}, {incoming, Packet2}], Packets1).
+
 t_parse_incoming_frame_error(_) ->
     {Packets, _St} = ?ws_conn:parse_incoming(<<3, 2, 1, 0>>, [], st()),
     FrameError = {frame_error, malformed_packet},

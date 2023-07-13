@@ -65,7 +65,7 @@ callback_mode() -> async_if_possible.
 on_start(InstanceId, Config) ->
     %% [FIXME] The configuration passed in here is pre-processed and transformed
     %% in emqx_bridge_resource:parse_confs/2.
-    case emqx_connector_http:on_start(InstanceId, Config) of
+    case emqx_bridge_http_connector:on_start(InstanceId, Config) of
         {ok, State} ->
             ?SLOG(info, #{
                 msg => "iotdb_bridge_started",
@@ -90,14 +90,14 @@ on_stop(InstanceId, State) ->
         msg => "stopping_iotdb_bridge",
         connector => InstanceId
     }),
-    Res = emqx_connector_http:on_stop(InstanceId, State),
+    Res = emqx_bridge_http_connector:on_stop(InstanceId, State),
     ?tp(iotdb_bridge_stopped, #{instance_id => InstanceId}),
     Res.
 
 -spec on_get_status(manager_id(), state()) ->
     {connected, state()} | {disconnected, state(), term()}.
 on_get_status(InstanceId, State) ->
-    emqx_connector_http:on_get_status(InstanceId, State).
+    emqx_bridge_http_connector:on_get_status(InstanceId, State).
 
 -spec on_query(manager_id(), {send_message, map()}, state()) ->
     {ok, pos_integer(), [term()], term()}
@@ -114,7 +114,7 @@ on_query(InstanceId, {send_message, Message}, State) ->
     case make_iotdb_insert_request(Message, State) of
         {ok, IoTDBPayload} ->
             handle_response(
-                emqx_connector_http:on_query(
+                emqx_bridge_http_connector:on_query(
                     InstanceId, {send_message, IoTDBPayload}, State
                 )
             );
@@ -142,7 +142,7 @@ on_query_async(InstanceId, {send_message, Message}, ReplyFunAndArgs0, State) ->
                     end,
                     []
                 },
-            emqx_connector_http:on_query_async(
+            emqx_bridge_http_connector:on_query_async(
                 InstanceId, {send_message, IoTDBPayload}, ReplyFunAndArgs, State
             );
         Error ->

@@ -53,7 +53,7 @@ api_schema(Method) ->
     Broker = [
         {Type, ref(Mod, Method)}
      || {Type, Mod} <- [
-            {<<"webhook">>, emqx_bridge_webhook_schema},
+            {<<"webhook">>, emqx_bridge_http_schema},
             {<<"mqtt">>, emqx_bridge_mqtt_schema}
         ]
     ],
@@ -158,7 +158,7 @@ fields(bridges) ->
     [
         {webhook,
             mk(
-                hoconsc:map(name, ref(emqx_bridge_webhook_schema, "config")),
+                hoconsc:map(name, ref(emqx_bridge_http_schema, "config")),
                 #{
                     desc => ?DESC("bridges_webhook"),
                     required => false,

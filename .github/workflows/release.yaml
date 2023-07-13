@@ -111,7 +111,7 @@ jobs:
       - upload
     permissions:
       pull-requests: read
-      checks: read
+      checks: write
       actions: write
     steps:
       - uses: actions/checkout@v3

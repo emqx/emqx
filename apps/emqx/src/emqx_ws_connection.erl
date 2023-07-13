@@ -699,7 +699,7 @@ check_oom(State = #state{channel = Channel}) ->
 %%--------------------------------------------------------------------
 
 parse_incoming(<<>>, Packets, State) ->
-    {Packets, State};
+    {lists:reverse(Packets), State};
 parse_incoming(Data, Packets, State = #state{parse_state = ParseState}) ->
     try emqx_frame:parse(Data, ParseState) of
         {more, NParseState} ->
