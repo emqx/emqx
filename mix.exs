@@ -446,12 +446,31 @@ defmodule EMQXUmbrella.MixProject do
 
   def check_profile!() do
     valid_envs = [
-      :dev,
       :emqx,
       :"emqx-pkg",
       :"emqx-enterprise",
       :"emqx-enterprise-pkg"
     ]
+
+    if Mix.env() == :dev do
+      env_profile = System.get_env("PROFILE")
+
+      if env_profile do
+        # copy from PROFILE env var
+        System.get_env("PROFILE")
+        |> String.to_atom()
+        |> Mix.env()
+      else
+        IO.puts(
+          IO.ANSI.format([
+            :yellow,
+            "Warning: env var PROFILE is unset; defaulting to emqx"
+          ])
+        )
+
+        Mix.env(:emqx)
+      end
+    end
 
     if Mix.env() not in valid_envs do
       formatted_envs =
