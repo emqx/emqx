@@ -13,7 +13,8 @@
 
 % SQL definitions
 -define(SQL_BRIDGE,
-    "insert into mqtt.t_mqtt_msg(ts, payload) values (${timestamp}, ${payload})"
+    "insert into t_mqtt_msg(ts, payload) values (${timestamp}, '${payload}')"
+    "t_mqtt_msg(ts, payload) values (${second_ts}, '${payload}')"
 ).
 
 -define(SQL_CREATE_DATABASE, "CREATE DATABASE IF NOT EXISTS mqtt; USE mqtt;").
@@ -29,7 +30,8 @@
 -define(SQL_SELECT, "SELECT payload FROM t_mqtt_msg").
 
 -define(AUTO_CREATE_BRIDGE,
-    "insert into ${clientid} USING s_tab TAGS (${clientid}) values (${timestamp}, ${payload})"
+    "insert into ${clientid} USING s_tab TAGS ('${clientid}') values (${timestamp}, '${payload}')"
+    "test_${clientid} USING s_tab TAGS ('${clientid}') values (${second_ts}, '${payload}')"
 ).
 
 -define(SQL_CREATE_STABLE,
@@ -301,7 +303,7 @@ connect_and_clear_table(Config) ->
 
 connect_and_get_payload(Config) ->
     ?WITH_CON(
-        {ok, #{<<"code">> := 0, <<"data">> := [[Result]]}} = directly_query(Con, ?SQL_SELECT)
+        {ok, #{<<"code">> := 0, <<"data">> := Result}} = directly_query(Con, ?SQL_SELECT)
     ),
     Result.
 
@@ -329,7 +331,7 @@ t_setup_via_config_and_publish(Config) ->
         {ok, _},
         create_bridge(Config)
     ),
-    SentData = #{payload => ?PAYLOAD, timestamp => 1668602148000},
+    SentData = #{payload => ?PAYLOAD, timestamp => 1668602148000, second_ts => 1668602148010},
     ?check_trace(
         begin
             {_, {ok, #{result := Result}}} =
@@ -342,7 +344,7 @@ t_setup_via_config_and_publish(Config) ->
                 {ok, #{<<"code">> := 0, <<"rows">> := 1}}, Result
             ),
             ?assertMatch(
-                ?PAYLOAD,
+                [[?PAYLOAD], [?PAYLOAD]],
                 connect_and_get_payload(Config)
             ),
             ok
@@ -368,7 +370,8 @@ t_setup_via_http_api_and_publish(Config) ->
         {ok, _},
         create_bridge_http(TDengineConfig)
     ),
-    SentData = #{payload => ?PAYLOAD, timestamp => 1668602148000},
+
+    SentData = #{payload => ?PAYLOAD, timestamp => 1668602148000, second_ts => 1668602148010},
     ?check_trace(
         begin
             Request = {send_message, SentData},
@@ -386,7 +389,7 @@ t_setup_via_http_api_and_publish(Config) ->
                 {ok, #{<<"code">> := 0, <<"rows">> := 1}}, Res0
             ),
             ?assertMatch(
-                ?PAYLOAD,
+                [[?PAYLOAD], [?PAYLOAD]],
                 connect_and_get_payload(Config)
             ),
             ok
@@ -426,7 +429,7 @@ t_write_failure(Config) ->
     ProxyPort = ?config(proxy_port, Config),
     ProxyHost = ?config(proxy_host, Config),
     {ok, _} = create_bridge(Config),
-    SentData = #{payload => ?PAYLOAD, timestamp => 1668602148000},
+    SentData = #{payload => ?PAYLOAD, timestamp => 1668602148000, second_ts => 1668602148010},
     emqx_common_test_helpers:with_failure(down, ProxyName, ProxyHost, ProxyPort, fun() ->
         {_, {ok, #{result := Result}}} =
             ?wait_async_action(
@@ -461,7 +464,7 @@ t_write_timeout(Config) ->
             }
         }
     ),
-    SentData = #{payload => ?PAYLOAD, timestamp => 1668602148000},
+    SentData = #{payload => ?PAYLOAD, timestamp => 1668602148000, second_ts => 1668602148010},
     %% FIXME: TDengine connector hangs indefinetily during
     %% `call_query' while the connection is unresponsive.  Should add
     %% a timeout to `APPLY_RESOURCE' in buffer worker??
@@ -486,7 +489,7 @@ t_simple_sql_query(Config) ->
         {ok, _},
         create_bridge(Config)
     ),
-    Request = {query, <<"SELECT count(1) AS T">>},
+    Request = {query, <<"SELECT 1 AS T">>},
     {_, {ok, #{result := Result}}} =
         ?wait_async_action(
             query_resource(Config, Request),
@@ -537,37 +540,41 @@ t_bad_sql_parameter(Config) ->
     ?assertMatch({error, {unrecoverable_error, invalid_request}}, Result),
     ok.
 
-t_nasty_sql_string(Config) ->
-    ?assertMatch(
-        {ok, _},
-        create_bridge(Config)
-    ),
-    % NOTE
-    % Column `payload` has BINARY type, so we would certainly like to test it
-    % with `lists:seq(1, 127)`, but:
-    % 1. There's no way to insert zero byte in an SQL string, seems that TDengine's
-    %    parser[1] has no escaping sequence for it so a zero byte probably confuses
-    %    interpreter somewhere down the line.
-    % 2. Bytes > 127 come back as U+FFFDs (i.e. replacement characters) in UTF-8 for
-    %    some reason.
-    %
-    % [1]: https://github.com/taosdata/TDengine/blob/066cb34a/source/libs/parser/src/parUtil.c#L279-L301
-    Payload = list_to_binary(lists:seq(1, 127)),
-    Message = #{payload => Payload, timestamp => erlang:system_time(millisecond)},
-    {_, {ok, #{result := Result}}} =
-        ?wait_async_action(
-            send_message(Config, Message),
-            #{?snk_kind := buffer_worker_flush_ack},
-            2_000
-        ),
-    ?assertMatch(
-        {ok, #{<<"code">> := 0, <<"rows">> := 1}},
-        Result
-    ),
-    ?assertEqual(
-        Payload,
-        connect_and_get_payload(Config)
-    ).
+%% TODO
+%% For supporting to generate a subtable name by mixing prefixes/suffixes with placeholders,
+%% the SQL quote(escape) is removed now,
+%% we should introduce a new syntax for placeholders to allow some vars to keep unquote.
+%% t_nasty_sql_string(Config) ->
+%%     ?assertMatch(
+%%         {ok, _},
+%%         create_bridge(Config)
+%%     ),
+%%     % NOTE
+%%     % Column `payload` has BINARY type, so we would certainly like to test it
+%%     % with `lists:seq(1, 127)`, but:
+%%     % 1. There's no way to insert zero byte in an SQL string, seems that TDengine's
+%%     %    parser[1] has no escaping sequence for it so a zero byte probably confuses
+%%     %    interpreter somewhere down the line.
+%%     % 2. Bytes > 127 come back as U+FFFDs (i.e. replacement characters) in UTF-8 for
+%%     %    some reason.
+%%     %
+%%     % [1]: https://github.com/taosdata/TDengine/blob/066cb34a/source/libs/parser/src/parUtil.c#L279-L301
+%%     Payload = list_to_binary(lists:seq(1, 127)),
+%%     Message = #{payload => Payload, timestamp => erlang:system_time(millisecond)},
+%%     {_, {ok, #{result := Result}}} =
+%%         ?wait_async_action(
+%%             send_message(Config, Message),
+%%             #{?snk_kind := buffer_worker_flush_ack},
+%%             2_000
+%%         ),
+%%     ?assertMatch(
+%%         {ok, #{<<"code">> := 0, <<"rows">> := 1}},
+%%         Result
+%%     ),
+%%     ?assertEqual(
+%%         Payload,
+%%         connect_and_get_payload(Config)
+%%     ).
 
 t_simple_insert(Config) ->
     connect_and_clear_table(Config),
@@ -576,7 +583,7 @@ t_simple_insert(Config) ->
         create_bridge(Config)
     ),
 
-    SentData = #{payload => ?PAYLOAD, timestamp => 1668602148000},
+    SentData = #{payload => ?PAYLOAD, timestamp => 1668602148000, second_ts => 1668602148010},
     Request = {send_message, SentData},
     {_, {ok, #{result := _Result}}} =
         ?wait_async_action(
@@ -585,7 +592,7 @@ t_simple_insert(Config) ->
             2_000
         ),
     ?assertMatch(
-        ?PAYLOAD,
+        [[?PAYLOAD], [?PAYLOAD]],
         connect_and_get_payload(Config)
     ).
 
@@ -602,7 +609,9 @@ t_batch_insert(Config) ->
         ?wait_async_action(
             lists:foreach(
                 fun(Idx) ->
-                    SentData = #{payload => ?PAYLOAD, timestamp => Ts + Idx},
+                    SentData = #{
+                        payload => ?PAYLOAD, timestamp => Ts + Idx, second_ts => Ts + Idx + 5000
+                    },
                     Request = {send_message, SentData},
                     query_resource(Config, Request)
                 end,
@@ -613,11 +622,12 @@ t_batch_insert(Config) ->
             2_000
         ),
 
+    DoubleSize = Size * 2,
     ?retry(
         _Sleep = 50,
         _Attempts = 30,
         ?assertMatch(
-            [[Size]],
+            [[DoubleSize]],
             connect_and_query(Config, "SELECT COUNT(1) FROM t_mqtt_msg")
         )
     ).
@@ -633,6 +643,7 @@ t_auto_create_simple_insert(Config0) ->
     SentData = #{
         payload => ?PAYLOAD,
         timestamp => 1668602148000,
+        second_ts => 1668602148000 + 100,
         clientid => ClientId
     },
     Request = {send_message, SentData},
@@ -648,8 +659,18 @@ t_auto_create_simple_insert(Config0) ->
     ),
 
     ?assertMatch(
+        [[?PAYLOAD]],
+        connect_and_query(Config, "SELECT payload FROM test_" ++ ClientId)
+    ),
+
+    ?assertMatch(
         [[0]],
         connect_and_query(Config, "DROP TABLE " ++ ClientId)
+    ),
+
+    ?assertMatch(
+        [[0]],
+        connect_and_query(Config, "DROP TABLE test_" ++ ClientId)
     ).
 
 t_auto_create_batch_insert(Config0) ->
@@ -675,6 +696,7 @@ t_auto_create_batch_insert(Config0) ->
                             SentData = #{
                                 payload => ?PAYLOAD,
                                 timestamp => Ts + Idx + Offset,
+                                second_ts => Ts + Idx + Offset + 5000,
                                 clientid => ClientId
                             },
                             Request = {send_message, SentData},
@@ -693,29 +715,28 @@ t_auto_create_batch_insert(Config0) ->
         _Sleep = 50,
         _Attempts = 30,
 
-        ?assertMatch(
-            [[Size1]],
-            connect_and_query(Config, "SELECT COUNT(1) FROM " ++ ClientId1)
+        lists:foreach(
+            fun({Table, Size}) ->
+                ?assertMatch(
+                    [[Size]],
+                    connect_and_query(Config, "SELECT COUNT(1) FROM " ++ Table)
+                )
+            end,
+            lists:zip(
+                [ClientId1, "test_" ++ ClientId1, ClientId2, "test_" ++ ClientId2],
+                [Size1, Size1, Size2, Size2]
+            )
         )
     ),
 
-    ?retry(
-        50,
-        30,
-        ?assertMatch(
-            [[Size2]],
-            connect_and_query(Config, "SELECT COUNT(1) FROM " ++ ClientId2)
-        )
-    ),
-
-    ?assertMatch(
-        [[0]],
-        connect_and_query(Config, "DROP TABLE " ++ ClientId1)
-    ),
-
-    ?assertMatch(
-        [[0]],
-        connect_and_query(Config, "DROP TABLE " ++ ClientId2)
+    lists:foreach(
+        fun(E) ->
+            ?assertMatch(
+                [[0]],
+                connect_and_query(Config, "DROP TABLE " ++ E)
+            )
+        end,
+        [ClientId1, ClientId2, "test_" ++ ClientId1, "test_" ++ ClientId2]
     ).
 
 to_bin(List) when is_list(List) ->
