@@ -263,7 +263,6 @@ jobs:
             --builder "force_host"
         done
     - uses: actions/upload-artifact@v3
-      if: success()
       with:
         name: ${{ matrix.profile }}
         path: _packages/${{ matrix.profile }}/
