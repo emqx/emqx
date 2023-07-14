@@ -86,8 +86,7 @@ roots() ->
                 sc(
                     ?R_REF("node"),
                     #{
-                        translate_to => ["emqx"],
-                        converter => fun node_converter/2
+                        translate_to => ["emqx"]
                     }
                 )},
             {"cluster",
@@ -446,9 +445,11 @@ fields("node") ->
             sc(
                 range(1024, 134217727),
                 #{
-                    mapping => "vm_args.+P",
+                    %% deprecated make sure it's disappeared in raw_conf user(HTTP API)
+                    %% but still in vm.args via translation/1
+                    %% ProcessLimit is always equal to MaxPort * 2 when translation/1.
+                    deprecated => true,
                     desc => ?DESC(process_limit),
-                    default => ?DEFAULT_MAX_PORTS * 2,
                     importance => ?IMPORTANCE_HIDDEN,
                     'readOnly' => true
                 }
@@ -1052,7 +1053,7 @@ desc("authorization") ->
 desc(_) ->
     undefined.
 
-translations() -> ["ekka", "kernel", "emqx", "gen_rpc", "prometheus"].
+translations() -> ["ekka", "kernel", "emqx", "gen_rpc", "prometheus", "vm_args"].
 
 translation("ekka") ->
     [{"cluster_discovery", fun tr_cluster_discovery/1}];
@@ -1079,7 +1080,14 @@ translation("prometheus") ->
         {"vm_system_info_collector_metrics", fun tr_vm_system_info_collector/1},
         {"vm_memory_collector_metrics", fun tr_vm_memory_collector/1},
         {"vm_msacc_collector_metrics", fun tr_vm_msacc_collector/1}
+    ];
+translation("vm_args") ->
+    [
+        {"+P", fun tr_vm_args_process_limit/1}
     ].
+
+tr_vm_args_process_limit(Conf) ->
+    2 * conf_get("node.max_ports", Conf, ?DEFAULT_MAX_PORTS).
 
 tr_vm_dist_collector(Conf) ->
     metrics_enabled(conf_get("prometheus.vm_dist_collector", Conf, enabled)).
@@ -1395,10 +1403,3 @@ ensure_unicode_path(Path, _) when is_list(Path) ->
     Path;
 ensure_unicode_path(Path, _) ->
     throw({"not_string", Path}).
-
-node_converter(#{<<"process_limit">> := _} = Conf, _Opts) ->
-    Conf;
-node_converter(#{<<"max_ports">> := MaxPorts} = Conf, _Opts) ->
-    Conf#{<<"process_limit">> => MaxPorts * 2};
-node_converter(Conf, _Opts) ->
-    Conf.
