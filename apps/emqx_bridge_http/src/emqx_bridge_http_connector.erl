@@ -535,7 +535,7 @@ maybe_parse_template(Key, Conf) ->
     end.
 
 parse_template(String) ->
-    emqx_connector_template:parse(String).
+    emqx_template:parse(String).
 
 process_request(
     #{
@@ -573,7 +573,7 @@ render_headers(HeaderTks, Msg) ->
 
 render_template(Template, Msg) ->
     % NOTE: ignoring errors here, missing variables will be rendered as `"undefined"`.
-    {String, _Errors} = emqx_connector_template:render(Template, Msg),
+    {String, _Errors} = emqx_template:render(Template, Msg),
     String.
 
 render_template_string(Template, Msg) ->

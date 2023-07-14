@@ -46,7 +46,7 @@
     default_port => ?MYSQL_DEFAULT_PORT
 }).
 
--type template() :: {unicode:chardata(), emqx_connector_template:str()}.
+-type template() :: {unicode:chardata(), emqx_template:str()}.
 -type state() ::
     #{
         pool_name := binary(),
@@ -387,16 +387,16 @@ parse_prepare_sql(Config) ->
     #{query_templates => Templates}.
 
 parse_prepare_sql(Key, Query, Acc) ->
-    Template = emqx_connector_template_sql:parse_prepstmt(Query, #{parameters => '?'}),
+    Template = emqx_template_sql:parse_prepstmt(Query, #{parameters => '?'}),
     AccNext = Acc#{{Key, prepstmt} => Template},
     parse_batch_sql(Key, Query, AccNext).
 
 parse_batch_sql(Key, Query, Acc) ->
-    case emqx_connector_sql:get_statement_type(Query) of
+    case emqx_utils_sql:get_statement_type(Query) of
         insert ->
-            case emqx_connector_sql:parse_insert(Query) of
+            case emqx_utils_sql:parse_insert(Query) of
                 {ok, {Insert, Params}} ->
-                    RowTemplate = emqx_connector_template_sql:parse(Params),
+                    RowTemplate = emqx_template_sql:parse(Params),
                     Acc#{{Key, batch} => {Insert, RowTemplate}};
                 {error, Reason} ->
                     ?SLOG(error, #{
@@ -427,7 +427,7 @@ proc_sql_params(TypeOrKey, SQLOrData, Params, #{query_templates := Templates}) -
             {SQLOrData, Params};
         {_InsertPart, RowTemplate} ->
             % NOTE: ignoring errors here, missing variables are set to `null`.
-            {Row, _Errors} = emqx_connector_template_sql:render_prepstmt(RowTemplate, SQLOrData),
+            {Row, _Errors} = emqx_template_sql:render_prepstmt(RowTemplate, SQLOrData),
             {TypeOrKey, Row}
     end.
 
@@ -438,7 +438,7 @@ on_batch_insert(InstId, BatchReqs, {InsertPart, RowTemplate}, State) ->
 
 render_row(RowTemplate, Data) ->
     % NOTE: ignoring errors here, missing variables are set to "NULL".
-    {Row, _Errors} = emqx_connector_template_sql:render(RowTemplate, Data, #{escaping => mysql}),
+    {Row, _Errors} = emqx_template_sql:render(RowTemplate, Data, #{escaping => mysql}),
     Row.
 
 on_sql_query(

@@ -110,15 +110,15 @@ update_config(Path, ConfigRequest) ->
     }).
 
 parse_deep(Template, PlaceHolders) ->
-    Result = emqx_connector_template:parse_deep(Template),
+    Result = emqx_template:parse_deep(Template),
     handle_disallowed_placeholders(Result, {deep, Template}, PlaceHolders).
 
 parse_str(Template, PlaceHolders) ->
-    Result = emqx_connector_template:parse(Template),
+    Result = emqx_template:parse(Template),
     handle_disallowed_placeholders(Result, {string, Template}, PlaceHolders).
 
 parse_sql(Template, ReplaceWith, PlaceHolders) ->
-    {Statement, Result} = emqx_connector_template_sql:parse_prepstmt(
+    {Statement, Result} = emqx_template_sql:parse_prepstmt(
         Template,
         #{parameters => ReplaceWith, strip_double_quote => true}
     ),
@@ -126,7 +126,7 @@ parse_sql(Template, ReplaceWith, PlaceHolders) ->
     {Statement, FResult}.
 
 handle_disallowed_placeholders(Template, Source, Allowed) ->
-    case emqx_connector_template:validate(Allowed, Template) of
+    case emqx_template:validate(Allowed, Template) of
         ok ->
             Template;
         {error, Disallowed} ->
@@ -142,14 +142,14 @@ handle_disallowed_placeholders(Template, Source, Allowed) ->
             Result = prerender_disallowed_placeholders(Template, Allowed),
             case Source of
                 {string, _} ->
-                    emqx_connector_template:parse(Result);
+                    emqx_template:parse(Result);
                 {deep, _} ->
-                    emqx_connector_template:parse_deep(Result)
+                    emqx_template:parse_deep(Result)
             end
     end.
 
 prerender_disallowed_placeholders(Template, Allowed) ->
-    {Result, _} = emqx_connector_template:render(Template, #{}, #{
+    {Result, _} = emqx_template:render(Template, #{}, #{
         var_trans => fun(Name, _) ->
             % NOTE
             % Rendering disallowed placeholders in escaped form, which will then
@@ -165,7 +165,7 @@ prerender_disallowed_placeholders(Template, Allowed) ->
 render_deep(Template, Values) ->
     % NOTE
     % Ignoring errors here, undefined bindings will be replaced with empty string.
-    {Term, _Errors} = emqx_connector_template:render(
+    {Term, _Errors} = emqx_template:render(
         Template,
         client_vars(Values),
         #{var_trans => fun to_string/2}
@@ -175,7 +175,7 @@ render_deep(Template, Values) ->
 render_str(Template, Values) ->
     % NOTE
     % Ignoring errors here, undefined bindings will be replaced with empty string.
-    {String, _Errors} = emqx_connector_template:render(
+    {String, _Errors} = emqx_template:render(
         Template,
         client_vars(Values),
         #{var_trans => fun to_string/2}
@@ -185,7 +185,7 @@ render_str(Template, Values) ->
 render_urlencoded_str(Template, Values) ->
     % NOTE
     % Ignoring errors here, undefined bindings will be replaced with empty string.
-    {String, _Errors} = emqx_connector_template:render(
+    {String, _Errors} = emqx_template:render(
         Template,
         client_vars(Values),
         #{var_trans => fun to_urlencoded_string/2}
@@ -195,7 +195,7 @@ render_urlencoded_str(Template, Values) ->
 render_sql_params(ParamList, Values) ->
     % NOTE
     % Ignoring errors here, undefined bindings will be replaced with empty string.
-    {Row, _Errors} = emqx_connector_template:render(
+    {Row, _Errors} = emqx_template:render(
         ParamList,
         client_vars(Values),
         #{var_trans => fun to_sql_value/2}
@@ -270,10 +270,10 @@ to_urlencoded_string(Name, Value) ->
     emqx_http_lib:uri_encode(to_string(Name, Value)).
 
 to_string(Name, Value) ->
-    emqx_connector_template:to_string(render_var(Name, Value)).
+    emqx_template:to_string(render_var(Name, Value)).
 
 to_sql_value(Name, Value) ->
-    emqx_connector_sql:to_sql_value(render_var(Name, Value)).
+    emqx_utils_sql:to_sql_value(render_var(Name, Value)).
 
 render_var(_, undefined) ->
     % NOTE

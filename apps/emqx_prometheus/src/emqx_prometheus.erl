@@ -114,8 +114,8 @@ handle_info(_Msg, State) ->
 push_to_push_gateway(Uri, Headers, JobName) when is_list(Headers) ->
     [Name, Ip] = string:tokens(atom_to_list(node()), "@"),
     % NOTE: allowing errors here to keep rough backward compatibility
-    {JobName1, Errors} = emqx_connector_template:render(
-        emqx_connector_template:parse(JobName),
+    {JobName1, Errors} = emqx_template:render(
+        emqx_template:parse(JobName),
         #{<<"name">> => Name, <<"host">> => Ip}
     ),
     _ =

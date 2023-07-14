@@ -71,7 +71,7 @@ pre_process_action_args(
 ) ->
     Args#{
         preprocessed_tmpl => #{
-            topic => emqx_connector_template:parse(Topic),
+            topic => emqx_template:parse(Topic),
             qos => parse_vars(QoS),
             retain => parse_vars(Retain),
             payload => parse_payload(Payload),
@@ -119,8 +119,8 @@ republish(
     }
 ) ->
     % NOTE: rendering missing bindings as string "undefined"
-    {TopicString, _Errors1} = emqx_connector_template:render(TopicTemplate, Selected),
-    {PayloadString, _Errors2} = emqx_connector_template:render(PayloadTemplate, Selected),
+    {TopicString, _Errors1} = emqx_template:render(TopicTemplate, Selected),
+    {PayloadString, _Errors2} = emqx_template:render(PayloadTemplate, Selected),
     Topic = iolist_to_binary(TopicString),
     Payload = iolist_to_binary(PayloadString),
     QoS = render_simple_var(QoSTemplate, Selected, 0),
@@ -202,13 +202,13 @@ safe_publish(RuleId, Topic, QoS, Flags, Payload, PubProps) ->
     emqx_metrics:inc_msg(Msg).
 
 parse_vars(Data) when is_binary(Data) ->
-    emqx_connector_template:parse(Data);
+    emqx_template:parse(Data);
 parse_vars(Data) ->
     {const, Data}.
 
 parse_mqtt_properties(MQTTPropertiesTemplate) ->
     maps:map(
-        fun(_Key, V) -> emqx_connector_template:parse(V) end,
+        fun(_Key, V) -> emqx_template:parse(V) end,
         MQTTPropertiesTemplate
     ).
 
@@ -220,13 +220,13 @@ parse_user_properties(<<"${pub_props.'User-Property'}">>) ->
     ?ORIGINAL_USER_PROPERTIES;
 parse_user_properties(<<"${", _/binary>> = V) ->
     %% use a variable
-    emqx_connector_template:parse(V);
+    emqx_template:parse(V);
 parse_user_properties(_) ->
     %% invalid, discard
     undefined.
 
 render_simple_var([{var, _Name, Accessor}], Data, Default) ->
-    case emqx_connector_template:lookup_var(Accessor, Data) of
+    case emqx_template:lookup_var(Accessor, Data) of
         {ok, Var} -> Var;
         %% cannot find the variable from Data
         {error, _} -> Default
@@ -236,8 +236,8 @@ render_simple_var({const, Val}, _Data, _Default) ->
 
 parse_payload(Payload) ->
     case string:is_empty(Payload) of
-        false -> emqx_connector_template:parse(Payload);
-        true -> emqx_connector_template:parse("${.}")
+        false -> emqx_template:parse(Payload);
+        true -> emqx_template:parse("${.}")
     end.
 
 render_pub_props(UserPropertiesTemplate, Selected, Env) ->
@@ -259,7 +259,7 @@ render_mqtt_properties(MQTTPropertiesTemplate, Selected, Env) ->
             fun(K, Template, Acc) ->
                 try
                     V = unicode:characters_to_binary(
-                        emqx_connector_template:render_strict(Template, Selected)
+                        emqx_template:render_strict(Template, Selected)
                     ),
                     Acc#{K => V}
                 catch

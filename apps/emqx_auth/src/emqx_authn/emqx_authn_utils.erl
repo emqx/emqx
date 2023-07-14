@@ -108,22 +108,22 @@ check_password_from_selected_map(Algorithm, Selected, Password) ->
     end.
 
 parse_deep(Template) ->
-    Result = emqx_connector_template:parse_deep(Template),
+    Result = emqx_template:parse_deep(Template),
     handle_disallowed_placeholders(Result, {deep, Template}).
 
 parse_str(Template) ->
-    Result = emqx_connector_template:parse(Template),
+    Result = emqx_template:parse(Template),
     handle_disallowed_placeholders(Result, {string, Template}).
 
 parse_sql(Template, ReplaceWith) ->
-    {Statement, Result} = emqx_connector_template_sql:parse_prepstmt(
+    {Statement, Result} = emqx_template_sql:parse_prepstmt(
         Template,
         #{parameters => ReplaceWith, strip_double_quote => true}
     ),
     {Statement, handle_disallowed_placeholders(Result, {string, Template})}.
 
 handle_disallowed_placeholders(Template, Source) ->
-    case emqx_connector_template:validate(?ALLOWED_VARS, Template) of
+    case emqx_template:validate(?ALLOWED_VARS, Template) of
         ok ->
             Template;
         {error, Disallowed} ->
@@ -139,14 +139,14 @@ handle_disallowed_placeholders(Template, Source) ->
             Result = prerender_disallowed_placeholders(Template),
             case Source of
                 {string, _} ->
-                    emqx_connector_template:parse(Result);
+                    emqx_template:parse(Result);
                 {deep, _} ->
-                    emqx_connector_template:parse_deep(Result)
+                    emqx_template:parse_deep(Result)
             end
     end.
 
 prerender_disallowed_placeholders(Template) ->
-    {Result, _} = emqx_connector_template:render(Template, #{}, #{
+    {Result, _} = emqx_template:render(Template, #{}, #{
         var_trans => fun(Name, _) ->
             % NOTE
             % Rendering disallowed placeholders in escaped form, which will then
@@ -162,7 +162,7 @@ prerender_disallowed_placeholders(Template) ->
 render_deep(Template, Credential) ->
     % NOTE
     % Ignoring errors here, undefined bindings will be replaced with empty string.
-    {Term, _Errors} = emqx_connector_template:render(
+    {Term, _Errors} = emqx_template:render(
         Template,
         mapping_credential(Credential),
         #{var_trans => fun to_string/2}
@@ -172,7 +172,7 @@ render_deep(Template, Credential) ->
 render_str(Template, Credential) ->
     % NOTE
     % Ignoring errors here, undefined bindings will be replaced with empty string.
-    {String, _Errors} = emqx_connector_template:render(
+    {String, _Errors} = emqx_template:render(
         Template,
         mapping_credential(Credential),
         #{var_trans => fun to_string/2}
@@ -182,7 +182,7 @@ render_str(Template, Credential) ->
 render_urlencoded_str(Template, Credential) ->
     % NOTE
     % Ignoring errors here, undefined bindings will be replaced with empty string.
-    {String, _Errors} = emqx_connector_template:render(
+    {String, _Errors} = emqx_template:render(
         Template,
         mapping_credential(Credential),
         #{var_trans => fun to_urlencoded_string/2}
@@ -192,7 +192,7 @@ render_urlencoded_str(Template, Credential) ->
 render_sql_params(ParamList, Credential) ->
     % NOTE
     % Ignoring errors here, undefined bindings will be replaced with empty string.
-    {Row, _Errors} = emqx_connector_template:render(
+    {Row, _Errors} = emqx_template:render(
         ParamList,
         mapping_credential(Credential),
         #{var_trans => fun to_sql_valaue/2}
@@ -322,10 +322,10 @@ to_urlencoded_string(Name, Value) ->
     emqx_http_lib:uri_encode(to_string(Name, Value)).
 
 to_string(Name, Value) ->
-    emqx_connector_template:to_string(render_var(Name, Value)).
+    emqx_template:to_string(render_var(Name, Value)).
 
 to_sql_valaue(Name, Value) ->
-    emqx_connector_sql:to_sql_value(render_var(Name, Value)).
+    emqx_utils_sql:to_sql_value(render_var(Name, Value)).
 
 render_var(_, undefined) ->
     % NOTE

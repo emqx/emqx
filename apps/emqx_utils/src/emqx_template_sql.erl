@@ -14,7 +14,7 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
--module(emqx_connector_template_sql).
+-module(emqx_template_sql).
 
 -export([parse/1]).
 -export([parse/2]).
@@ -27,15 +27,15 @@
 
 -export_type([row_template/0]).
 
--type template() :: emqx_connector_template:t().
--type row_template() :: [emqx_connector_template:placeholder()].
--type bindings() :: emqx_connector_template:bindings().
+-type template() :: emqx_template:t().
+-type row_template() :: [emqx_template:placeholder()].
+-type bindings() :: emqx_template:bindings().
 
--type values() :: [emqx_connector_sql:value()].
+-type values() :: [emqx_utils_sql:value()].
 
 -type parse_opts() :: #{
     parameters => '$n' | ':n' | '?',
-    % Inherited from `emqx_connector_template:parse_opts()`
+    % Inherited from `emqx_template:parse_opts()`
     strip_double_quote => boolean()
 }.
 
@@ -57,7 +57,7 @@ parse(String) ->
 -spec parse(unicode:chardata(), parse_opts()) ->
     template().
 parse(String, Opts) ->
-    emqx_connector_template:parse(String, Opts).
+    emqx_template:parse(String, Opts).
 
 %% @doc Render an SQL statement template given a set of bindings.
 %% Interpolation generally follows the SQL syntax, strings are escaped according to the
@@ -65,8 +65,8 @@ parse(String, Opts) ->
 -spec render(template(), bindings(), render_opts()) ->
     {unicode:chardata(), [_Error]}.
 render(Template, Bindings, Opts) ->
-    emqx_connector_template:render(Template, Bindings, #{
-        var_trans => fun(Value) -> emqx_connector_sql:to_sql_string(Value, Opts) end
+    emqx_template:render(Template, Bindings, #{
+        var_trans => fun(Value) -> emqx_utils_sql:to_sql_string(Value, Opts) end
     }).
 
 %% @doc Render an SQL statement template given a set of bindings.
@@ -74,8 +74,8 @@ render(Template, Bindings, Opts) ->
 -spec render_strict(template(), bindings(), render_opts()) ->
     unicode:chardata().
 render_strict(Template, Bindings, Opts) ->
-    emqx_connector_template:render_strict(Template, Bindings, #{
-        var_trans => fun(Value) -> emqx_connector_sql:to_sql_string(Value, Opts) end
+    emqx_template:render_strict(Template, Bindings, #{
+        var_trans => fun(Value) -> emqx_utils_sql:to_sql_string(Value, Opts) end
     }).
 
 %% @doc Parse an SQL statement string into a prepared statement and a row template.
@@ -83,7 +83,7 @@ render_strict(Template, Bindings, Opts) ->
 %% during the execution of the prepared statement.
 %% Example:
 %% ```
-%% {Statement, RowTemplate} = emqx_connector_template_sql:parse_prepstmt(
+%% {Statement, RowTemplate} = emqx_template_sql:parse_prepstmt(
 %%     "INSERT INTO table (id, name, age) VALUES (${id}, ${name}, 42)",
 %%     #{parameters => '$n'}
 %% ),
@@ -93,7 +93,7 @@ render_strict(Template, Bindings, Opts) ->
 -spec parse_prepstmt(unicode:chardata(), parse_opts()) ->
     {unicode:chardata(), row_template()}.
 parse_prepstmt(String, Opts) ->
-    Template = emqx_connector_template:parse(String, maps:with(?TEMPLATE_PARSE_OPTS, Opts)),
+    Template = emqx_template:parse(String, maps:with(?TEMPLATE_PARSE_OPTS, Opts)),
     Statement = mk_prepared_statement(Template, Opts),
     Placeholders = [Placeholder || Placeholder <- Template, element(1, Placeholder) == var],
     {Statement, Placeholders}.
@@ -123,15 +123,15 @@ mk_replace(':n', N) ->
 %% @doc Render a row template into a list of SQL values.
 %% An _SQL value_ is a vaguely defined concept here, it is something that's considered
 %% compatible with the protocol of the database being used. See the definition of
-%% `emqx_connector_sql:value()` for more details.
+%% `emqx_utils_sql:value()` for more details.
 -spec render_prepstmt(template(), bindings()) ->
     {values(), [_Error]}.
 render_prepstmt(Template, Bindings) ->
-    Opts = #{var_trans => fun emqx_connector_sql:to_sql_value/1},
-    emqx_connector_template:render(Template, Bindings, Opts).
+    Opts = #{var_trans => fun emqx_utils_sql:to_sql_value/1},
+    emqx_template:render(Template, Bindings, Opts).
 
 -spec render_prepstmt_strict(template(), bindings()) ->
     values().
 render_prepstmt_strict(Template, Bindings) ->
-    Opts = #{var_trans => fun emqx_connector_sql:to_sql_value/1},
-    emqx_connector_template:render_strict(Template, Bindings, Opts).
+    Opts = #{var_trans => fun emqx_utils_sql:to_sql_value/1},
+    emqx_template:render_strict(Template, Bindings, Opts).

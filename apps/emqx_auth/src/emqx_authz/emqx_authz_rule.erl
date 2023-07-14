@@ -184,7 +184,7 @@ compile_topic({eq, Topic}) ->
     {eq, emqx_topic:words(bin(Topic))};
 compile_topic(Topic) ->
     Template = emqx_authz_utils:parse_str(Topic, [?VAR_USERNAME, ?VAR_CLIENTID]),
-    case emqx_connector_template:is_const(Template) of
+    case emqx_template:is_const(Template) of
         true -> emqx_topic:words(bin(Topic));
         false -> {pattern, Template}
     end.
@@ -302,7 +302,7 @@ match_who(_, _) ->
 match_topics(_ClientInfo, _Topic, []) ->
     false;
 match_topics(ClientInfo, Topic, [{pattern, PatternFilter} | Filters]) ->
-    TopicFilter = bin(emqx_connector_template:render_strict(PatternFilter, ClientInfo)),
+    TopicFilter = bin(emqx_template:render_strict(PatternFilter, ClientInfo)),
     match_topic(emqx_topic:words(Topic), emqx_topic:words(TopicFilter)) orelse
         match_topics(ClientInfo, Topic, Filters);
 match_topics(ClientInfo, Topic, [TopicFilter | Filters]) ->

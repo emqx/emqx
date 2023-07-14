@@ -69,8 +69,8 @@ set_special_configs(_App) ->
 t_compile(_) ->
     % NOTE
     % Some of the following testcase are relying on the internal representation of
-    % `emqx_connector_template:t()`. If the internal representation is changed, these
-    % testcases may fail.
+    % `emqx_template:t()`. If the internal representation is changed, these testcases
+    % may fail.
     ?assertEqual({deny, all, all, [['#']]}, emqx_authz_rule:compile({deny, all})),
 
     ?assertEqual(

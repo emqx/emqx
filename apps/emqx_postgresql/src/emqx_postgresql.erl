@@ -52,7 +52,7 @@
     default_port => ?PGSQL_DEFAULT_PORT
 }).
 
--type template() :: {unicode:chardata(), emqx_connector_template_sql:row_template()}.
+-type template() :: {unicode:chardata(), emqx_template_sql:row_template()}.
 -type state() ::
     #{
         pool_name := binary(),
@@ -428,12 +428,12 @@ parse_prepare_sql(Config) ->
     #{query_templates => Templates}.
 
 parse_prepare_sql(Key, Query, Acc) ->
-    Template = emqx_connector_template_sql:parse_prepstmt(Query, #{parameters => '$n'}),
+    Template = emqx_template_sql:parse_prepstmt(Query, #{parameters => '$n'}),
     Acc#{Key => Template}.
 
 render_prepare_sql_row(RowTemplate, Data) ->
     % NOTE: ignoring errors here, missing variables will be replaced with `null`.
-    {Row, _Errors} = emqx_connector_template_sql:render_prepstmt(RowTemplate, Data),
+    {Row, _Errors} = emqx_template_sql:render_prepstmt(RowTemplate, Data),
     Row.
 
 init_prepare(State = #{query_templates := Templates}) when map_size(Templates) == 0 ->

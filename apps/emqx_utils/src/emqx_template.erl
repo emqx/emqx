@@ -14,9 +14,7 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
--module(emqx_connector_template).
-
--include_lib("emqx/include/emqx_placeholder.hrl").
+-module(emqx_template).
 
 -export([parse/1]).
 -export([parse/2]).
@@ -75,6 +73,8 @@
 -type render_opts() :: #{
     var_trans => var_trans()
 }.
+
+-define(PH_VAR_THIS, '$this').
 
 -define(RE_PLACEHOLDER, "\\$\\{[.]?([a-zA-Z0-9._]*)\\}").
 -define(RE_ESCAPE, "\\$\\{(\\$)\\}").
