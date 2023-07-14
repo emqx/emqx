@@ -273,7 +273,7 @@ t_configs_node({'init', Config}) ->
     Node = node(),
     meck:expect(emqx, running_nodes, fun() -> [Node, bad_node, other_node] end),
     meck:expect(
-        emqx_management_proto_v2,
+        emqx_management_proto_v5,
         get_full_config,
         fun
             (Node0) when Node0 =:= Node -> <<"\"self\"">>;
@@ -283,7 +283,7 @@ t_configs_node({'init', Config}) ->
     ),
     Config;
 t_configs_node({'end', _}) ->
-    meck:unload([emqx, emqx_management_proto_v2]);
+    meck:unload([emqx, emqx_management_proto_v5]);
 t_configs_node(_) ->
     Node = atom_to_list(node()),
 

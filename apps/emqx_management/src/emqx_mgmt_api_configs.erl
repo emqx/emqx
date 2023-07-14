@@ -350,7 +350,7 @@ configs(put, #{body := Conf, query_string := #{<<"mode">> := Mode}}, _Req) ->
         {error, Errors} -> {400, #{code => 'UPDATE_FAILED', message => ?ERR_MSG(Errors)}}
     end.
 
-find_suitable_accept(Headers, Perferences) when is_list(Perferences), length(Perferences) > 0 ->
+find_suitable_accept(Headers, Preferences) when is_list(Preferences), length(Preferences) > 0 ->
     AcceptVal = maps:get(<<"accept">>, Headers, <<"*/*">>),
     %% Multiple types, weighted with the quality value syntax:
     %% Accept: text/html, application/xhtml+xml, application/xml;q=0.9, image/webp, */*;q=0.8
@@ -363,11 +363,11 @@ find_suitable_accept(Headers, Perferences) when is_list(Perferences), length(Per
     ),
     case lists:member(<<"*/*">>, Accepts) of
         true ->
-            {ok, lists:nth(1, Perferences)};
+            {ok, lists:nth(1, Preferences)};
         false ->
-            Found = lists:filter(fun(Accept) -> lists:member(Accept, Accepts) end, Perferences),
+            Found = lists:filter(fun(Accept) -> lists:member(Accept, Accepts) end, Preferences),
             case Found of
-                [] -> {error, no_suitalbe_accept};
+                [] -> {error, no_suitable_accept};
                 _ -> {ok, lists:nth(1, Found)}
             end
     end.
@@ -376,7 +376,7 @@ get_configs_v1(QueryStr) ->
     Node = maps:get(<<"node">>, QueryStr, node()),
     case
         lists:member(Node, emqx:running_nodes()) andalso
-            emqx_management_proto_v2:get_full_config(Node)
+            emqx_management_proto_v5:get_full_config(Node)
     of
         false ->
             Message = list_to_binary(io_lib:format("Bad node ~p, reason not found", [Node])),
@@ -389,10 +389,13 @@ get_configs_v1(QueryStr) ->
     end.
 
 get_configs_v2(QueryStr) ->
+    Node = maps:get(<<"node">>, QueryStr, node()),
     Conf =
         case maps:find(<<"key">>, QueryStr) of
-            error -> emqx_conf_cli:get_config();
-            {ok, Key} -> emqx_conf_cli:get_config(atom_to_binary(Key))
+            error ->
+                emqx_management_proto_v5:get_full_config_v2(Node);
+            {ok, Key} ->
+                emqx_management_proto_v5:get_config_v2(Node, atom_to_binary(Key))
         end,
     {
         200,
