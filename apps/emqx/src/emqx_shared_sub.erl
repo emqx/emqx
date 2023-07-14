@@ -25,9 +25,7 @@
 -include("types.hrl").
 
 %% Mnesia bootstrap
--export([mnesia/1]).
-
--boot_mnesia({mnesia, [boot]}).
+-export([ensure_mria_tables/0]).
 
 %% APIs
 -export([start_link/0]).
@@ -108,7 +106,7 @@
 %% Mnesia bootstrap
 %%--------------------------------------------------------------------
 
-mnesia(boot) ->
+ensure_mria_tables() ->
     ok = mria:create_table(?TAB, [
         {type, bag},
         {rlog_shard, ?SHARED_SUB_SHARD},

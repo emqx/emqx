@@ -24,6 +24,7 @@
 ]).
 
 start(_Type, _Args) ->
+    emqx_utils:ensure_mria_tables(emqx_modules),
     {ok, Sup} = emqx_modules_sup:start_link(),
     maybe_enable_modules(),
     {ok, Sup}.

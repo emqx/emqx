@@ -29,6 +29,7 @@
 -define(DEFAULT_INIT_TXN_ID, -1).
 
 start(_StartType, _StartArgs) ->
+    emqx_utils:ensure_mria_tables(emqx_conf),
     try
         ok = init_conf()
     catch

@@ -20,8 +20,8 @@
 -behaviour(emqx_db_backup).
 
 %% API
--export([mnesia/1]).
--boot_mnesia({mnesia, [boot]}).
+-export([ensure_mria_tables/0]).
+
 -behaviour(emqx_config_handler).
 
 -export([
@@ -63,7 +63,7 @@
     created_at = 0 :: integer() | '_'
 }).
 
-mnesia(boot) ->
+ensure_mria_tables() ->
     ok = mria:create_table(?APP, [
         {type, set},
         {rlog_shard, ?COMMON_SHARD},
