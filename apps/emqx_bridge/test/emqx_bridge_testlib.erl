@@ -10,6 +10,8 @@
 -include_lib("common_test/include/ct.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
+-import(emqx_common_test_helpers, [on_exit/1]).
+
 %% ct setup helpers
 
 init_per_suite(Config, Apps) ->
@@ -211,19 +213,27 @@ probe_bridge_api(BridgeType, BridgeName, BridgeConfig) ->
     Res.
 
 create_rule_and_action_http(BridgeType, RuleTopic, Config) ->
+    create_rule_and_action_http(BridgeType, RuleTopic, Config, _Opts = #{}).
+
+create_rule_and_action_http(BridgeType, RuleTopic, Config, Opts) ->
     BridgeName = ?config(bridge_name, Config),
     BridgeId = emqx_bridge_resource:bridge_id(BridgeType, BridgeName),
+    SQL = maps:get(sql, Opts, <<"SELECT * FROM \"", RuleTopic/binary, "\"">>),
     Params = #{
         enable => true,
-        sql => <<"SELECT * FROM \"", RuleTopic/binary, "\"">>,
+        sql => SQL,
         actions => [BridgeId]
     },
     Path = emqx_mgmt_api_test_util:api_path(["rules"]),
     AuthHeader = emqx_mgmt_api_test_util:auth_header_(),
     ct:pal("rule action params: ~p", [Params]),
     case emqx_mgmt_api_test_util:request_api(post, Path, "", AuthHeader, Params) of
-        {ok, Res} -> {ok, emqx_utils_json:decode(Res, [return_maps])};
-        Error -> Error
+        {ok, Res0} ->
+            Res = #{<<"id">> := RuleId} = emqx_utils_json:decode(Res0, [return_maps]),
+            on_exit(fun() -> ok = emqx_rule_engine:delete_rule(RuleId) end),
+            {ok, Res};
+        Error ->
+            Error
     end.
 
 %%------------------------------------------------------------------------------
