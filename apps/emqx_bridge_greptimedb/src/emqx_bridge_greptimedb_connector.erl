@@ -312,7 +312,7 @@ do_query(InstId, Client, Points) ->
                 connector => InstId,
                 points => Points
             });
-        {error, {401, _, _}} ->
+        {error, {unauth, _, _}} ->
             ?tp(greptimedb_connector_do_query_failure, #{error => <<"authorization failure">>}),
             ?SLOG(error, #{
                 msg => "greptimedb_authorization_failed",
