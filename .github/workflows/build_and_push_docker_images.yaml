@@ -25,7 +25,7 @@ jobs:
   prepare:
     runs-on: ubuntu-22.04
     # prepare source with any OTP version, no need for a matrix
-    container: "ghcr.io/emqx/emqx-builder/5.1-1:1.14.5-25.3.2-1-ubuntu22.04"
+    container: "ghcr.io/emqx/emqx-builder/5.1-3:1.14.5-25.3.2-1-ubuntu22.04"
 
     outputs:
       PROFILE: ${{ steps.get_profile.outputs.PROFILE }}
