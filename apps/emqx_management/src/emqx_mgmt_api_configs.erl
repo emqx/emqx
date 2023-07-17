@@ -372,11 +372,12 @@ find_suitable_accept(Headers, Preferences) when is_list(Preferences), length(Pre
             end
     end.
 
+%% Should deprecated json v1 since 5.2.0
 get_configs_v1(QueryStr) ->
     Node = maps:get(<<"node">>, QueryStr, node()),
     case
         lists:member(Node, emqx:running_nodes()) andalso
-            emqx_management_proto_v5:get_full_config(Node)
+            emqx_management_proto_v4:get_full_config(Node)
     of
         false ->
             Message = list_to_binary(io_lib:format("Bad node ~p, reason not found", [Node])),
@@ -393,9 +394,9 @@ get_configs_v2(QueryStr) ->
     Conf =
         case maps:find(<<"key">>, QueryStr) of
             error ->
-                emqx_management_proto_v5:get_full_config_v2(Node);
+                emqx_conf_proto_v3:get_hocon_config(Node);
             {ok, Key} ->
-                emqx_management_proto_v5:get_config_v2(Node, atom_to_binary(Key))
+                emqx_conf_proto_v3:get_hocon_config(Node, atom_to_binary(Key))
         end,
     {
         200,
