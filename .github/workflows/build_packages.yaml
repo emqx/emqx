@@ -191,7 +191,7 @@ jobs:
           - amzn2023
         build_machine:
           - aws-arm64
-          - ubuntu-22.04
+          - aws-amd64
         builder:
           - 5.1-3
         elixir:
@@ -200,7 +200,7 @@ jobs:
           - 'no'
         exclude:
           - arch: arm64
-            build_machine: ubuntu-22.04
+            build_machine: aws-amd64
           - arch: amd64
             build_machine: aws-arm64
         include:
@@ -208,15 +208,7 @@ jobs:
             otp: 25.3.2-1
             arch: amd64
             os: ubuntu22.04
-            build_machine: ubuntu-22.04
-            builder: 5.1-3
-            elixir: 1.14.5
-            with_elixir: 'yes'
-          - profile: emqx
-            otp: 25.3.2-1
-            arch: amd64
-            os: amzn2
-            build_machine: ubuntu-22.04
+            build_machine: aws-amd64
             builder: 5.1-3
             elixir: 1.14.5
             with_elixir: 'yes'
@@ -227,7 +219,6 @@ jobs:
 
     steps:
     - uses: AutoModality/action-clean@v1
-      if: matrix.build_machine == 'aws-arm64'
 
     - uses: actions/checkout@v3
       with:
