@@ -269,7 +269,6 @@ create_trace(Name, ClientId, Start) ->
     ).
 
 t_stream_log(_Config) ->
-    application:set_env(emqx, allow_anonymous, true),
     emqx_trace:clear(),
     load(),
     ClientId = <<"client-stream">>,
