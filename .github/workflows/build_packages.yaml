@@ -234,11 +234,7 @@ jobs:
         ref: ${{ github.event.inputs.branch_or_tag }}
         fetch-depth: 0
 
-    - name: build emqx packages
-      env:
-        ELIXIR: ${{ matrix.elixir }}
-        PROFILE: ${{ matrix.profile }}
-        ARCH: ${{ matrix.arch }}
+    - name: fix workdir
       run: |
         set -eu
         git config --global --add safe.directory "$GITHUB_WORKSPACE"
@@ -248,20 +244,32 @@ jobs:
           cd /emqx
         fi
         echo "pwd is $PWD"
-        PKGTYPES="tgz pkg"
-        IS_ELIXIR=${{ matrix.with_elixir }}
+
+    - name: build emqx packages
+      env:
+        PROFILE: ${{ matrix.profile }}
+        IS_ELIXIR: ${{ matrix.with_elixir }}
+        ACLOCAL_PATH: "/usr/share/aclocal:/usr/local/share/aclocal"
+      run: |
+        set -eu
         if [ "${IS_ELIXIR:-}" == 'yes' ]; then
-          PKGTYPES="tgz"
+          make "${PROFILE}-elixir-tgz"
+        else
+          make "${PROFILE}-tgz"
+          make "${PROFILE}-pkg"
         fi
-        for PKGTYPE in ${PKGTYPES};
-        do
-          ./scripts/buildx.sh \
-            --profile "${PROFILE}" \
-            --pkgtype "${PKGTYPE}" \
-            --arch "${ARCH}" \
-            --elixir "${IS_ELIXIR}" \
-            --builder "force_host"
-        done
+    - name: test emqx packages
+      env:
+        PROFILE: ${{ matrix.profile }}
+        IS_ELIXIR: ${{ matrix.with_elixir }}
+      run: |
+        set -eu
+        if [ "${IS_ELIXIR:-}" == 'yes' ]; then
+          ./scripts/pkg-tests.sh "${PROFILE}-elixir-tgz"
+        else
+          ./scripts/pkg-tests.sh "${PROFILE}-tgz"
+          ./scripts/pkg-tests.sh "${PROFILE}-pkg"
+        fi
     - uses: actions/upload-artifact@v3
       with:
         name: ${{ matrix.profile }}
