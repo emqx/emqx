@@ -36,9 +36,6 @@ init_per_testcase(_TestCase, Config) ->
     Config.
 
 end_per_testcase(t_persistence, Config) ->
-    emqx_config:put([persistent_session_store, enabled], false),
-    emqx_persistent_session:init_db_backend(),
-    ?assertNot(emqx_persistent_session:is_store_enabled()),
     Config;
 end_per_testcase(_TestCase, _Config) ->
     ok.
