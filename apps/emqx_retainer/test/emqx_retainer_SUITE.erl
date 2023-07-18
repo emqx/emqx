@@ -135,9 +135,17 @@ t_store_and_clean(_) ->
 
     {ok, List} = emqx_retainer:page_read(<<"retained">>, 1, 10),
     ?assertEqual(1, length(List)),
+    ?assertMatch(
+        {ok, [#message{payload = <<"this is a retained message">>}]},
+        emqx_retainer:read_message(<<"retained">>)
+    ),
 
     {ok, #{}, [0]} = emqtt:subscribe(C1, <<"retained">>, [{qos, 0}, {rh, 0}]),
     ?assertEqual(1, length(receive_messages(1))),
+    ?assertMatch(
+        {ok, [#message{payload = <<"this is a retained message">>}]},
+        emqx_retainer:read_message(<<"retained">>)
+    ),
 
     {ok, #{}, [0]} = emqtt:unsubscribe(C1, <<"retained">>),
 
@@ -145,10 +153,18 @@ t_store_and_clean(_) ->
     timer:sleep(100),
     {ok, #{}, [0]} = emqtt:subscribe(C1, <<"retained">>, [{qos, 0}, {rh, 0}]),
     ?assertEqual(0, length(receive_messages(1))),
+    ?assertMatch(
+        {ok, []},
+        emqx_retainer:read_message(<<"retained">>)
+    ),
 
     ok = emqx_retainer:clean(),
     {ok, List2} = emqx_retainer:page_read(<<"retained">>, 1, 10),
     ?assertEqual(0, length(List2)),
+    ?assertMatch(
+        {ok, []},
+        emqx_retainer:read_message(<<"retained">>)
+    ),
 
     ok = emqtt:disconnect(C1).
 

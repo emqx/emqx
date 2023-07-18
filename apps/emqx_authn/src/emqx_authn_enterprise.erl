@@ -9,7 +9,10 @@
 -if(?EMQX_RELEASE_EDITION == ee).
 
 providers() ->
-    [{{password_based, ldap}, emqx_ldap_authn}].
+    [
+        {{password_based, ldap}, emqx_ldap_authn},
+        {gcp_device, emqx_gcp_device_authn}
+    ].
 
 resource_provider() ->
     [emqx_ldap_authn].

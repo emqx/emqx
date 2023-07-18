@@ -107,7 +107,8 @@
             emqx_eviction_agent,
             emqx_node_rebalance,
             emqx_ft,
-            emqx_ldap
+            emqx_ldap,
+            emqx_gcp_device
         ],
     %% must always be of type `load'
     ce_business_apps =>
