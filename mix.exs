@@ -191,7 +191,8 @@ defmodule EMQXUmbrella.MixProject do
       :emqx_ft,
       :emqx_s3,
       :emqx_schema_registry,
-      :emqx_enterprise
+      :emqx_enterprise,
+      :emqx_bridge_kinesis
     ])
   end
 
@@ -423,7 +424,8 @@ defmodule EMQXUmbrella.MixProject do
           emqx_schema_registry: :permanent,
           emqx_eviction_agent: :permanent,
           emqx_node_rebalance: :permanent,
-          emqx_ft: :permanent
+          emqx_ft: :permanent,
+          emqx_bridge_kinesis: :permanent
         ],
         else: [
           emqx_telemetry: :permanent

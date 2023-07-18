@@ -88,7 +88,8 @@
     T == sqlserver;
     T == pulsar_producer;
     T == oracle;
-    T == iotdb
+    T == iotdb;
+    T == kinesis_producer
 ).
 
 -define(ROOT_KEY, bridges).

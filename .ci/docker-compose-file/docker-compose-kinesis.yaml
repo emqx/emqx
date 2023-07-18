@@ -1,0 +1,12 @@
+version: '3.9'
+
+services:
+  kinesis:
+    container_name: kinesis
+    image: localstack/localstack:2.1
+    environment:
+      - KINESIS_ERROR_PROBABILITY=0.0
+      - KINESIS_LATENCY=0
+    restart: always
+    networks:
+      - emqx_bridge
