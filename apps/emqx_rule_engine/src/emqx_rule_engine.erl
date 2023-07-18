@@ -18,7 +18,7 @@
 
 -behaviour(gen_server).
 -behaviour(emqx_config_handler).
--behaiour(emqx_config_backup).
+-behaviour(emqx_config_backup).
 
 -include("rule_engine.hrl").
 -include_lib("emqx/include/logger.hrl").
