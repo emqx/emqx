@@ -47,12 +47,17 @@
 -include("emqx_mqtt.hrl").
 -include("logger.hrl").
 -include("types.hrl").
--include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
 -ifdef(TEST).
 -compile(export_all).
 -compile(nowarn_export_all).
 -endif.
+
+-export([
+    lookup/1,
+    destroy/1,
+    unpersist/1
+]).
 
 -export([init/1]).
 
@@ -226,6 +231,23 @@ init(Opts) ->
         created_at = erlang:system_time(millisecond)
     }.
 
+-spec lookup(emqx_types:clientid()) -> none.
+lookup(_ClientId) ->
+    % NOTE
+    % This is a stub. This session impl has no backing store, thus always `none`.
+    none.
+
+-spec destroy(emqx_types:clientid()) -> ok.
+destroy(_ClientId) ->
+    % NOTE
+    % This is a stub. This session impl has no backing store, thus always `ok`.
+    ok.
+
+-spec unpersist(session()) -> session().
+unpersist(Session) ->
+    ok = destroy(Session#session.clientid),
+    Session#session{is_persistent = false}.
+
 %%--------------------------------------------------------------------
 %% Info, Stats
 %%--------------------------------------------------------------------
@@ -242,6 +264,8 @@ info(Keys, Session) when is_list(Keys) ->
     [{Key, info(Key, Session)} || Key <- Keys];
 info(id, #session{id = Id}) ->
     Id;
+info(clientid, #session{clientid = ClientId}) ->
+    ClientId;
 info(is_persistent, #session{is_persistent = Bool}) ->
     Bool;
 info(subscriptions, #session{subscriptions = Subs}) ->
@@ -321,13 +345,12 @@ subscribe(
     ClientInfo = #{clientid := ClientId},
     TopicFilter,
     SubOpts,
-    Session = #session{id = SessionID, is_persistent = IsPS, subscriptions = Subs}
+    Session = #session{subscriptions = Subs}
 ) ->
     IsNew = not maps:is_key(TopicFilter, Subs),
     case IsNew andalso is_subscriptions_full(Session) of
         false ->
             ok = emqx_broker:subscribe(TopicFilter, ClientId, SubOpts),
-            ok = emqx_persistent_session:add_subscription(TopicFilter, SessionID, IsPS),
             ok = emqx_hooks:run(
                 'session.subscribed',
                 [ClientInfo, TopicFilter, SubOpts#{is_new => IsNew}]
@@ -355,12 +378,11 @@ unsubscribe(
     ClientInfo,
     TopicFilter,
     UnSubOpts,
-    Session = #session{id = SessionID, subscriptions = Subs, is_persistent = IsPS}
+    Session = #session{subscriptions = Subs}
 ) ->
     case maps:find(TopicFilter, Subs) of
         {ok, SubOpts} ->
             ok = emqx_broker:unsubscribe(TopicFilter),
-            ok = emqx_persistent_session:remove_subscription(TopicFilter, SessionID, IsPS),
             ok = emqx_hooks:run(
                 'session.unsubscribed',
                 [ClientInfo, TopicFilter, maps:merge(SubOpts, UnSubOpts)]

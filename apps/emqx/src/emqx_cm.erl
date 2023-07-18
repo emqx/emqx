@@ -277,65 +277,24 @@ open_session(true, ClientInfo = #{clientid := ClientId}, ConnInfo) ->
     Self = self(),
     CleanStart = fun(_) ->
         ok = discard_session(ClientId),
-        ok = emqx_persistent_session:discard_if_present(ClientId),
-        Session = create_session(ClientInfo, ConnInfo),
-        Session1 = emqx_persistent_session:persist(ClientInfo, ConnInfo, Session),
-        register_channel(ClientId, Self, ConnInfo),
-        {ok, #{session => Session1, present => false}}
+        ok = emqx_session:destroy(ClientId),
+        create_register_session(ClientInfo, ConnInfo, Self)
     end,
     emqx_cm_locker:trans(ClientId, CleanStart);
 open_session(false, ClientInfo = #{clientid := ClientId}, ConnInfo) ->
     Self = self(),
     ResumeStart = fun(_) ->
-        CreateSess =
-            fun() ->
-                Session = create_session(ClientInfo, ConnInfo),
-                Session1 = emqx_persistent_session:persist(
-                    ClientInfo, ConnInfo, Session
-                ),
-                register_channel(ClientId, Self, ConnInfo),
-                {ok, #{session => Session1, present => false}}
-            end,
         case takeover_session(ClientId) of
-            {persistent, Session} ->
-                %% This is a persistent session without a managing process.
-                {Session1, Pendings} =
-                    emqx_persistent_session:resume(ClientInfo, ConnInfo, Session),
-                register_channel(ClientId, Self, ConnInfo),
-
-                {ok, #{
-                    session => clean_session(Session1),
-                    present => true,
-                    pendings => clean_pendings(Pendings)
-                }};
             {living, ConnMod, ChanPid, Session} ->
                 ok = emqx_session:resume(ClientInfo, Session),
                 case wrap_rpc(emqx_cm_proto_v2:takeover_finish(ConnMod, ChanPid)) of
                     {ok, Pendings} ->
-                        Session1 = emqx_persistent_session:persist(
-                            ClientInfo, ConnInfo, Session
-                        ),
-                        register_channel(ClientId, Self, ConnInfo),
-                        {ok, #{
-                            session => clean_session(Session1),
-                            present => true,
-                            pendings => clean_pendings(Pendings)
-                        }};
+                        clean_register_session(Session, Pendings, ClientInfo, ConnInfo, Self);
                     {error, _} ->
-                        CreateSess()
+                        create_register_session(ClientInfo, ConnInfo, Self)
                 end;
-            {expired, OldSession} ->
-                _ = emqx_persistent_session:discard(ClientId, OldSession),
-                Session = create_session(ClientInfo, ConnInfo),
-                Session1 = emqx_persistent_session:persist(
-                    ClientInfo,
-                    ConnInfo,
-                    Session
-                ),
-                register_channel(ClientId, Self, ConnInfo),
-                {ok, #{session => Session1, present => false}};
             none ->
-                CreateSess()
+                create_register_session(ClientInfo, ConnInfo, Self)
         end
     end,
     emqx_cm_locker:trans(ClientId, ResumeStart).
@@ -346,6 +305,19 @@ create_session(ClientInfo, ConnInfo) ->
     ok = emqx_metrics:inc('session.created'),
     ok = emqx_hooks:run('session.created', [ClientInfo, emqx_session:info(Session)]),
     Session.
+
+create_register_session(ClientInfo = #{clientid := ClientId}, ConnInfo, ChanPid) ->
+    Session = create_session(ClientInfo, ConnInfo),
+    ok = register_channel(ClientId, ChanPid, ConnInfo),
+    {ok, #{session => Session, present => false}}.
+
+clean_register_session(Session, Pendings, #{clientid := ClientId}, ConnInfo, ChanPid) ->
+    ok = register_channel(ClientId, ChanPid, ConnInfo),
+    {ok, #{
+        session => clean_session(Session),
+        present => true,
+        pendings => clean_pendings(Pendings)
+    }}.
 
 get_session_confs(#{zone := Zone, clientid := ClientId}, #{
     receive_maximum := MaxInflight, expiry_interval := EI
@@ -385,7 +357,7 @@ get_mqtt_conf(Zone, Key) ->
 takeover_session(ClientId) ->
     case lookup_channels(ClientId) of
         [] ->
-            emqx_persistent_session:lookup(ClientId);
+            emqx_session:lookup(ClientId);
         [ChanPid] ->
             takeover_session(ClientId, ChanPid);
         ChanPids ->
@@ -417,16 +389,16 @@ takeover_session(ClientId, Pid) ->
             %% request_stepdown/3
             R == unexpected_exception
         ->
-            emqx_persistent_session:lookup(ClientId);
+            emqx_session:lookup(ClientId);
         % rpc_call/3
         _:{'EXIT', {noproc, _}} ->
-            emqx_persistent_session:lookup(ClientId)
+            emqx_session:lookup(ClientId)
     end.
 
 do_takeover_session(ClientId, ChanPid) when node(ChanPid) == node() ->
     case get_chann_conn_mod(ClientId, ChanPid) of
         undefined ->
-            emqx_persistent_session:lookup(ClientId);
+            emqx_session:lookup(ClientId);
         ConnMod when is_atom(ConnMod) ->
             case request_stepdown({takeover, 'begin'}, ConnMod, ChanPid) of
                 {ok, Session} ->
