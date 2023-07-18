@@ -113,7 +113,11 @@ cluster(["join", SNode]) ->
     case mria:join(ekka_node:parse_name(SNode)) of
         ok ->
             emqx_ctl:print("Join the cluster successfully.~n"),
-            cluster(["status"]);
+            %% FIXME: running status on the replicant immediately
+            %% after join produces stale output
+            mria_rlog:role() =:= core andalso
+                cluster(["status"]),
+            ok;
         ignore ->
             emqx_ctl:print("Ignore.~n");
         {error, Error} ->
@@ -158,9 +162,7 @@ sort_map_list_fields(Map) when is_map(Map) ->
         end,
         Map,
         maps:keys(Map)
-    );
-sort_map_list_fields(NotMap) ->
-    NotMap.
+    ).
 
 sort_map_list_field(Field, Map) ->
     case maps:get(Field, Map) of
