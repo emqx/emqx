@@ -927,6 +927,24 @@ with_log(Fun, Msg) ->
     end.
 
 cluster_info() ->
-    #{ running_nodes => mria:running_nodes()
-     , stopped_nodes => mria:cluster_nodes(stopped)
-     }.
+    RunningNodes = safe_call_mria(running_nodes, [], []),
+    StoppedNodes = safe_call_mria(cluster_nodes, [stopped], []),
+    #{
+        running_nodes => RunningNodes,
+        stopped_nodes => StoppedNodes
+    }.
+
+%% CLI starts before mria, so we should handle errors gracefully:
+safe_call_mria(Fun, Args, OnFail) ->
+    try
+        apply(mria, Fun, Args)
+    catch
+        EC:Err:Stack ->
+            ?SLOG(warning, #{
+                msg => "Call to mria failed",
+                call => {mria, Fun, Args},
+                EC => Err,
+                stacktrace => Stack
+            }),
+            OnFail
+    end.
