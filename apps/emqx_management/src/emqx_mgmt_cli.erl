@@ -110,7 +110,7 @@ broker(_) ->
 %% @doc Cluster with other nodes
 
 cluster(["join", SNode]) ->
-    case ekka:join(ekka_node:parse_name(SNode)) of
+    case mria:join(ekka_node:parse_name(SNode)) of
         ok ->
             emqx_ctl:print("Join the cluster successfully.~n"),
             cluster(["status"]);
@@ -120,7 +120,7 @@ cluster(["join", SNode]) ->
             emqx_ctl:print("Failed to join the cluster: ~0p~n", [Error])
     end;
 cluster(["leave"]) ->
-    case ekka:leave() of
+    case mria:leave() of
         ok ->
             emqx_ctl:print("Leave the cluster successfully.~n"),
             cluster(["status"]);
@@ -128,7 +128,7 @@ cluster(["leave"]) ->
             emqx_ctl:print("Failed to leave the cluster: ~0p~n", [Error])
     end;
 cluster(["force-leave", SNode]) ->
-    case ekka:force_leave(ekka_node:parse_name(SNode)) of
+    case mria:force_leave(ekka_node:parse_name(SNode)) of
         ok ->
             emqx_ctl:print("Remove the node from cluster successfully.~n"),
             cluster(["status"]);
@@ -138,9 +138,9 @@ cluster(["force-leave", SNode]) ->
             emqx_ctl:print("Failed to remove the node from cluster: ~0p~n", [Error])
     end;
 cluster(["status"]) ->
-    emqx_ctl:print("Cluster status: ~p~n", [ekka_cluster:info()]);
+    emqx_ctl:print("Cluster status: ~p~n", [cluster_info()]);
 cluster(["status", "--json"]) ->
-    Info = sort_map_list_fields(ekka_cluster:info()),
+    Info = sort_map_list_fields(cluster_info()),
     emqx_ctl:print("~ts~n", [emqx_logger_jsonfmt:best_effort_json(Info)]);
 cluster(_) ->
     emqx_ctl:usage([
@@ -925,3 +925,8 @@ with_log(Fun, Msg) ->
         {error, Reason} ->
             emqx_ctl:print("~s FAILED~n~p~n", [Msg, Reason])
     end.
+
+cluster_info() ->
+    #{ running_nodes => mria:running_nodes()
+     , stopped_nodes => mria:cluster_nodes(stopped)
+     }.
