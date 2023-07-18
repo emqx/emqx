@@ -120,7 +120,7 @@ jobs:
         # NOTE: 'otp' and 'elixir' are to configure emqx-builder image
         #       only support latest otp and elixir, not a matrix
         builder:
-          - 5.1-1 # update to latest
+          - 5.1-3 # update to latest
         otp:
           - 25.3.2-1
         elixir:

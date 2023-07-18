@@ -811,8 +811,8 @@ is_down() {
     PID="$1"
     if ps -p "$PID" >/dev/null; then
         # still around
-        # shellcheck disable=SC2009 # this grep pattern is not a part of the progra names
-        if ps -p "$PID" | $GREP -q 'defunct'; then
+        # shellcheck disable=SC2009 # this grep pattern is not a part of the program names
+        if ps -efp "$PID" | $GREP -q 'defunct'; then
             # zombie state, print parent pid
             parent="$(ps -o ppid= -p "$PID" | tr -d ' ')"
             logwarn "$PID is marked <defunct>, parent: $(ps -p "$parent")"
