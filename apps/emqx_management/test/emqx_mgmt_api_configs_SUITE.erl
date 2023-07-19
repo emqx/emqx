@@ -393,7 +393,7 @@ get_configs_with_json(Node, Opts) ->
     end.
 
 get_configs_with_binary(Key) ->
-    get_configs_with_binary(Key, node()).
+    get_configs_with_binary(Key, atom_to_list(node())).
 
 get_configs_with_binary(Key, Node) ->
     Path0 = "configs?node=" ++ Node,
