@@ -272,18 +272,22 @@ t_dashboard(_Config) ->
 t_configs_node({'init', Config}) ->
     Node = node(),
     meck:expect(emqx, running_nodes, fun() -> [Node, bad_node, other_node] end),
-    meck:expect(
-        emqx_management_proto_v4,
-        get_full_config,
-        fun
-            (Node0) when Node0 =:= Node -> <<"\"self\"">>;
-            (other_node) -> <<"\"other\"">>;
-            (bad_node) -> {badrpc, bad}
-        end
-    ),
+    F = fun
+        (Node0) when Node0 =:= Node -> <<"\"self\"">>;
+        (other_node) -> <<"\"other\"">>;
+        (bad_node) -> {badrpc, bad}
+    end,
+    F2 = fun
+        (Node0, _) when Node0 =:= Node -> <<"log=1">>;
+        (other_node, _) -> <<"log=2">>;
+        (bad_node, _) -> {badrpc, bad}
+    end,
+    meck:expect(emqx_management_proto_v4, get_full_config, F),
+    meck:expect(emqx_conf_proto_v3, get_hocon_config, F2),
+    meck:expect(hocon_pp, do, fun(Conf, _) -> Conf end),
     Config;
 t_configs_node({'end', _}) ->
-    meck:unload([emqx, emqx_management_proto_v4]);
+    meck:unload([emqx, emqx_management_proto_v4, emqx_conf_proto_v3, hocon_pp]);
 t_configs_node(_) ->
     Node = atom_to_list(node()),
 
@@ -296,7 +300,10 @@ t_configs_node(_) ->
     {_, _, Body} = ExpRes,
     ?assertMatch(#{<<"code">> := <<"NOT_FOUND">>}, emqx_utils_json:decode(Body, [return_maps])),
 
-    ?assertMatch({error, {_, 500, _}}, get_configs_with_json("bad_node")).
+    ?assertMatch({error, {_, 500, _}}, get_configs_with_json("bad_node")),
+
+    ?assertEqual({ok, #{<<"log">> => 1}}, get_configs_with_binary("log", Node)),
+    ?assertEqual({ok, #{<<"log">> => 2}}, get_configs_with_binary("log", "other_node")).
 
 %% v2 version binary
 t_configs_key(_Config) ->
@@ -386,12 +393,16 @@ get_configs_with_json(Node, Opts) ->
     end.
 
 get_configs_with_binary(Key) ->
+    get_configs_with_binary(Key, node()).
+
+get_configs_with_binary(Key, Node) ->
+    Path0 = "configs?node=" ++ Node,
     Path =
         case Key of
-            undefined -> ["configs"];
-            _ -> ["configs?key=" ++ Key]
+            undefined -> Path0;
+            _ -> Path0 ++ "&key=" ++ Key
         end,
-    URI = emqx_mgmt_api_test_util:api_path(Path),
+    URI = emqx_mgmt_api_test_util:api_path([Path]),
     Auth = emqx_mgmt_api_test_util:auth_header_(),
     Headers = [{"accept", "text/plain"}, Auth],
     case emqx_mgmt_api_test_util:request_api(get, URI, [], Headers, [], #{return_all => true}) of
