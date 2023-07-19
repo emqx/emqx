@@ -386,84 +386,47 @@ overlay_vars_pkg(pkg) ->
     ].
 
 relx_apps(ReleaseType, Edition) ->
-    SystemApps =
-        [
-            kernel,
-            sasl,
-            crypto,
-            public_key,
-            asn1,
-            syntax_tools,
-            ssl,
-            os_mon,
-            inets,
-            compiler,
-            runtime_tools,
-            redbug,
-            xmerl,
-            {hocon, load},
-            telemetry
-        ],
-    DBApps =
-        [mnesia_rocksdb || is_rocksdb_supported()] ++
-            [
-                mnesia,
-                mria,
-                ekka
-            ],
-    BusinessApps =
-        [
-            emqx,
-            emqx_conf,
-
-            esasl,
-            observer_cli,
-            tools,
-            covertool,
-            % started by emqx_machine
-            system_monitor,
-            emqx_utils,
-            emqx_http_lib,
-            emqx_resource,
-            emqx_connector,
-            emqx_authn,
-            emqx_authz,
-            emqx_auto_subscribe,
-            emqx_gateway,
-            emqx_gateway_stomp,
-            emqx_gateway_mqttsn,
-            emqx_gateway_coap,
-            emqx_gateway_lwm2m,
-            emqx_gateway_exproto,
-            emqx_exhook,
-            emqx_bridge,
-            emqx_bridge_mqtt,
-            emqx_bridge_http,
-            emqx_rule_engine,
-            emqx_modules,
-            emqx_management,
-            emqx_dashboard,
-            emqx_retainer,
-            emqx_prometheus,
-            emqx_psk,
-            emqx_slow_subs,
-            emqx_mongodb,
-            emqx_redis,
-            emqx_mysql,
-            emqx_plugins
-        ] ++
-            [quicer || is_quicer_supported()] ++
-            [bcrypt || provide_bcrypt_release(ReleaseType)] ++
-            %% Started automatically when needed (only needs to be started when the
-            %% port implementation is used)
-            [jq || is_jq_supported()] ++
-            [observer || is_app(observer)] ++
-            relx_apps_per_edition(Edition),
+    {ok, [
+        #{
+            db_apps := DBApps0,
+            system_apps := SystemApps,
+            common_business_apps := CommonBusinessApps0,
+            ee_business_apps := EEBusinessApps,
+            ce_business_apps := CEBusinessApps
+        }
+    ]} = file:consult("apps/emqx_machine/priv/reboot_lists.eterm"),
+    DBApps = filter(DBApps0, #{mnesia_rocksdb => is_rocksdb_supported()}),
+    CommonBusinessApps =
+        filter(CommonBusinessApps0, #{
+            quicer => is_quicer_supported(),
+            bcrypt => provide_bcrypt_release(ReleaseType),
+            jq => is_jq_supported(),
+            observer => is_app(observer)
+        }),
+    EditionSpecificApps =
+        case Edition of
+            ee -> EEBusinessApps;
+            ce -> CEBusinessApps
+        end,
+    BusinessApps = CommonBusinessApps ++ EditionSpecificApps,
     SystemApps ++
         %% EMQX starts the DB and the business applications:
         [{App, load} || App <- DBApps] ++
         [emqx_machine] ++
         [{App, load} || App <- BusinessApps].
+
+filter(AppList, Filters) ->
+    lists:filter(
+        fun(App) ->
+            AppName =
+                case App of
+                    {Name, _Type} -> Name;
+                    Name when is_atom(Name) -> Name
+                end,
+            maps:get(AppName, Filters, true)
+        end,
+        AppList
+    ).
 
 is_app(Name) ->
     case application:load(Name) of
@@ -471,40 +434,6 @@ is_app(Name) ->
         {error, {already_loaded, _}} -> true;
         _ -> false
     end.
-
-relx_apps_per_edition(ee) ->
-    [
-        emqx_license,
-        emqx_enterprise,
-        emqx_bridge_kafka,
-        emqx_bridge_pulsar,
-        emqx_bridge_gcp_pubsub,
-        emqx_bridge_cassandra,
-        emqx_bridge_opents,
-        emqx_bridge_clickhouse,
-        emqx_bridge_dynamo,
-        emqx_bridge_hstreamdb,
-        emqx_bridge_influxdb,
-        emqx_bridge_iotdb,
-        emqx_bridge_matrix,
-        emqx_bridge_mongodb,
-        emqx_bridge_mysql,
-        emqx_bridge_pgsql,
-        emqx_bridge_redis,
-        emqx_bridge_rocketmq,
-        emqx_bridge_tdengine,
-        emqx_bridge_timescale,
-        emqx_bridge_sqlserver,
-        emqx_oracle,
-        emqx_bridge_oracle,
-        emqx_bridge_rabbitmq,
-        emqx_schema_registry,
-        emqx_eviction_agent,
-        emqx_node_rebalance,
-        emqx_ft
-    ];
-relx_apps_per_edition(ce) ->
-    [emqx_telemetry].
 
 relx_overlay(ReleaseType, Edition) ->
     [
