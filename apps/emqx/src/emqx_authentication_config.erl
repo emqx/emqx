@@ -342,8 +342,10 @@ merge_authenticators(OriginConf0, NewConf0) ->
                     {error, _} ->
                         {[Origin | OriginAcc], NewAcc};
                     {ok, BeforeFound, [Found | AfterFound]} ->
-                        Merged = emqx_utils_maps:deep_merge(Origin, Found),
-                        {[Merged | OriginAcc], BeforeFound ++ AfterFound}
+                        %% Don't merge the new one in the origin.
+                        %% The keys maybe different even authentication_id is the same.
+                        %% Replace the origin with the new one.
+                        {[Found | OriginAcc], BeforeFound ++ AfterFound}
                 end
             end,
             {[], NewConf0},
@@ -366,7 +368,8 @@ merge_authenticators_test() ->
     BuildIn = #{
         <<"mechanism">> => <<"password_based">>,
         <<"backend">> => <<"built_in_database">>,
-        <<"enable">> => true
+        <<"enable">> => true,
+        <<"pool_size">> => 10
     },
     Mongodb = #{
         <<"mechanism">> => <<"password_based">>,
@@ -376,7 +379,7 @@ merge_authenticators_test() ->
     Redis = #{
         <<"mechanism">> => <<"password_based">>, <<"backend">> => <<"redis">>, <<"enable">> => true
     },
-    BuildInDisable = BuildIn#{<<"enable">> => false},
+    BuildInDisable = maps:remove(<<"pool_size">>, BuildIn#{<<"enable">> => false}),
     MongodbDisable = Mongodb#{<<"enable">> => false},
     RedisDisable = Redis#{<<"enable">> => false},
 
@@ -384,7 +387,7 @@ merge_authenticators_test() ->
     ?assertEqual([Http], merge_authenticators([], [Http])),
     ?assertEqual([Http, Jwt, BuildIn], merge_authenticators([Http], [Jwt, BuildIn])),
 
-    %% merge
+    %% merge (BuildIn's pool_size is removed after merged).
     ?assertEqual(
         [BuildInDisable, MongodbDisable],
         merge_authenticators([BuildIn, Mongodb], [BuildInDisable, MongodbDisable])

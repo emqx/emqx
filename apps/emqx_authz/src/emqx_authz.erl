@@ -666,8 +666,10 @@ merge_sources(OriginConf, NewConf) ->
                     not_found ->
                         {[Old | OriginAcc], NewAcc};
                     {New, NewAcc1} ->
-                        MergeSource = emqx_utils_maps:deep_merge(Old, New),
-                        {[MergeSource | OriginAcc], NewAcc1}
+                        %% Don't merge the new one in the old.
+                        %% The keys maybe different even type is the same.
+                        %% Replace the old with the new one.
+                        {[New | OriginAcc], NewAcc1}
                 end
             end,
             {[], get_sources(NewConf)},
@@ -693,7 +695,7 @@ type_take(Type, Sources) ->
 
 merge_sources_test() ->
     Default = [emqx_authz_schema:default_authz()],
-    Http = #{<<"type">> => <<"http">>, <<"enable">> => true},
+    Http = #{<<"type">> => <<"http">>, <<"enable">> => true, <<"pool_size">> => 8},
     Mysql = #{<<"type">> => <<"mysql">>, <<"enable">> => true},
     Mongo = #{<<"type">> => <<"mongodb">>, <<"enable">> => true},
     Redis = #{<<"type">> => <<"redis">>, <<"enable">> => true},
@@ -715,7 +717,7 @@ merge_sources_test() ->
             #{<<"sources">> => [Mongo, Redis, Postgresql]}
         )
     ),
-    %% replace
+    %% replace (The http's pool_size is removed after merged)
     ?assertEqual(
         [HttpDisable, MysqlDisable],
         merge_sources(
