@@ -42,7 +42,7 @@ quicer() ->
     {quicer, {git, "https://github.com/emqx/quic.git", {tag, "0.0.114"}}}.
 
 jq() ->
-    {jq, {git, "https://github.com/emqx/jq", {tag, "v0.3.9"}}}.
+    {jq, {git, "https://github.com/emqx/jq", {tag, "v0.3.10"}}}.
 
 deps(Config) ->
     {deps, OldDeps} = lists:keyfind(deps, 1, Config),
@@ -104,6 +104,7 @@ is_community_umbrella_app("apps/emqx_ft") -> false;
 is_community_umbrella_app("apps/emqx_s3") -> false;
 is_community_umbrella_app("apps/emqx_schema_registry") -> false;
 is_community_umbrella_app("apps/emqx_enterprise") -> false;
+is_community_umbrella_app("apps/emqx_bridge_kinesis") -> false;
 is_community_umbrella_app(_) -> true.
 
 is_jq_supported() ->
@@ -491,7 +492,8 @@ relx_apps_per_edition(ee) ->
         emqx_schema_registry,
         emqx_eviction_agent,
         emqx_node_rebalance,
-        emqx_ft
+        emqx_ft,
+        emqx_bridge_kinesis
     ];
 relx_apps_per_edition(ce) ->
     [emqx_telemetry].

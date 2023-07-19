@@ -1004,7 +1004,27 @@ t_bridge_rule_action_source(Config) ->
     ok.
 
 t_on_get_status(Config) ->
+    ResourceId = resource_id(Config),
     emqx_bridge_testlib:t_on_get_status(Config, #{failure_status => connecting}),
+    %% no workers alive
+    ?retry(
+        _Interval0 = 200,
+        _NAttempts0 = 20,
+        ?assertMatch({ok, connected}, emqx_resource_manager:health_check(ResourceId))
+    ),
+    WorkerPids = get_pull_worker_pids(Config),
+    emqx_utils:pmap(
+        fun(Pid) ->
+            Ref = monitor(process, Pid),
+            exit(Pid, kill),
+            receive
+                {'DOWN', Ref, process, Pid, killed} ->
+                    ok
+            end
+        end,
+        WorkerPids
+    ),
+    ?assertMatch({ok, connecting}, emqx_resource_manager:health_check(ResourceId)),
     ok.
 
 t_create_via_http_api(_Config) ->
@@ -1191,7 +1211,7 @@ t_nonexistent_topic(Config) ->
                 emqx_resource_manager:health_check(ResourceId)
             ),
             ?assertMatch(
-                {ok, _Group, #{error := "GCP PubSub topics are invalid" ++ _}},
+                {ok, _Group, #{error := {unhealthy_target, "GCP PubSub topics are invalid" ++ _}}},
                 emqx_resource_manager:lookup_cached(ResourceId)
             ),
             %% now create the topic and restart the bridge

@@ -546,7 +546,12 @@ schema("/bridges_probe") ->
                     ?NO_CONTENT;
                 {error, #{kind := validation_error} = Reason} ->
                     ?BAD_REQUEST('TEST_FAILED', map_to_json(Reason));
-                {error, Reason} when not is_tuple(Reason); element(1, Reason) =/= 'exit' ->
+                {error, Reason0} when not is_tuple(Reason0); element(1, Reason0) =/= 'exit' ->
+                    Reason =
+                        case Reason0 of
+                            {unhealthy_target, Message} -> Message;
+                            _ -> Reason0
+                        end,
                     ?BAD_REQUEST('TEST_FAILED', Reason)
             end;
         BadRequest ->

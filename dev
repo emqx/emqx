@@ -373,15 +373,15 @@ boot() {
           {:ok, _} = Application.ensure_all_started(:emqx_machine)
         '
         if [ -n "${EPMD_ARGS:-}" ]; then
-            EPMD_ARGS_ELIXIR="--erl $EPMD_ARGS"
+            EPMD_ARGS_ELIXIR="$EPMD_ARGS"
         else
-            EPMD_ARGS_ELIXIR=""
+            EPMD_ARGS_ELIXIR="-no_op true"
         fi
 
         # shellcheck disable=SC2086
         env APPS="$APPS" iex \
           --name "$EMQX_NODE_NAME" \
-          $EPMD_ARGS_ELIXIR \
+          --erl "$EPMD_ARGS_ELIXIR" \
           --erl '-user Elixir.IEx.CLI' \
           --erl '-proto_dist ekka' \
           --vm-args "$ARGS_FILE" \

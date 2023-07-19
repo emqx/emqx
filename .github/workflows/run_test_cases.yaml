@@ -34,12 +34,12 @@ jobs:
           MATRIX="$(echo "${APPS}" | jq -c '
             [
               (.[] | select(.profile == "emqx") | . + {
-                builder: "5.1-0",
+                builder: "5.1-3",
                 otp: "25.3.2-1",
                 elixir: "1.14.5"
               }),
               (.[] | select(.profile == "emqx-enterprise") | . + {
-                builder: "5.1-0",
+                builder: "5.1-3",
                 otp: ["25.3.2-1"][],
                 elixir: "1.14.5"
               })
@@ -286,7 +286,7 @@ jobs:
       - ct
       - ct_docker
     runs-on: ubuntu-22.04
-    container: "ghcr.io/emqx/emqx-builder/5.1-0:1.14.5-25.3.2-1-ubuntu22.04"
+    container: "ghcr.io/emqx/emqx-builder/5.1-3:1.14.5-25.3.2-1-ubuntu22.04"
     steps:
       - uses: AutoModality/action-clean@v1
       - uses: actions/download-artifact@v3
