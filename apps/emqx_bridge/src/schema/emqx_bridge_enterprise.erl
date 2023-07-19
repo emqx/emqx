@@ -20,8 +20,7 @@ api_schemas(Method) ->
         %% We need to map the `type' field of a request (binary) to a
         %% bridge schema module.
         api_ref(emqx_bridge_gcp_pubsub, <<"gcp_pubsub">>, Method ++ "_producer"),
-        %% TODO: un-hide for e5.2.0...
-        %% api_ref(emqx_bridge_gcp_pubsub, <<"gcp_pubsub_consumer">>, Method ++ "_consumer"),
+        api_ref(emqx_bridge_gcp_pubsub, <<"gcp_pubsub_consumer">>, Method ++ "_consumer"),
         api_ref(emqx_bridge_kafka, <<"kafka_consumer">>, Method ++ "_consumer"),
         %% TODO: rename this to `kafka_producer' after alias support is added
         %% to hocon; keeping this as just `kafka' for backwards compatibility.
@@ -267,7 +266,6 @@ gcp_pubsub_structs() ->
                 hoconsc:map(name, ref(emqx_bridge_gcp_pubsub, "config_consumer")),
                 #{
                     desc => <<"EMQX Enterprise Config">>,
-                    importance => ?IMPORTANCE_HIDDEN,
                     required => false
                 }
             )}
