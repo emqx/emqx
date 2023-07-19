@@ -184,6 +184,7 @@ defmodule EMQXUmbrella.MixProject do
       :emqx_bridge_timescale,
       :emqx_bridge_sqlserver,
       :emqx_bridge_pulsar,
+      :emqx_bridge_kinesis,
       :emqx_oracle,
       :emqx_bridge_oracle,
       :emqx_bridge_rabbitmq,
@@ -191,8 +192,7 @@ defmodule EMQXUmbrella.MixProject do
       :emqx_ft,
       :emqx_s3,
       :emqx_schema_registry,
-      :emqx_enterprise,
-      :emqx_bridge_kinesis
+      :emqx_enterprise
     ])
   end
 
@@ -444,7 +444,8 @@ defmodule EMQXUmbrella.MixProject do
               :emqx_schema_registry,
               :emqx_eviction_agent,
               :emqx_node_rebalance,
-              :emqx_ft
+              :emqx_ft,
+              :emqx_bridge_kinesis
             ]
 
           _ ->
