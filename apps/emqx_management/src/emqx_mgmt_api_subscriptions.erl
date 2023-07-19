@@ -187,6 +187,8 @@ format(WhichNode, {{Topic, _Subscriber}, Options}) ->
         maps:with([qos, nl, rap, rh], Options)
     ).
 
+get_topic(Topic, #{share := <<"$queue">> = Group}) ->
+    emqx_topic:join([Group, Topic]);
 get_topic(Topic, #{share := Group}) ->
     emqx_topic:join([<<"$share">>, Group, Topic]);
 get_topic(Topic, _) ->

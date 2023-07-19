@@ -19,31 +19,31 @@ name.label:
 """Connector Name"""
 
 url.desc:
-"""HStreamDB Server URL"""
+"""HStreamDB Server URL. Using gRPC http server address."""
 
 url.label:
 """HStreamDB Server URL"""
 
 stream_name.desc:
-"""HStreamDB Stream Name"""
+"""HStreamDB Stream Name."""
 
 stream_name.label:
 """HStreamDB Stream Name"""
 
 partition_key.desc:
-"""HStreamDB Ordering Key"""
+"""HStreamDB Partition Key. Placeholders supported."""
 
 partition_key.label:
-"""HStreamDB Ordering Key"""
+"""HStreamDB Partition Key"""
 
 pool_size.desc:
-"""HStreamDB Pool Size"""
+"""HStreamDB Pool Size."""
 
 pool_size.label:
 """HStreamDB Pool Size"""
 
 grpc_timeout.desc:
-"""HStreamDB gRPC Timeout"""
+"""HStreamDB gRPC Timeout."""
 
 grpc_timeout.label:
 """HStreamDB gRPC Timeout"""

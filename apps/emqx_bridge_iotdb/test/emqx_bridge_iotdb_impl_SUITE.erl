@@ -379,6 +379,41 @@ t_sync_device_id_missing(Config) ->
         iotdb_bridge_on_query
     ).
 
+t_extract_device_id_from_rule_engine_message(Config) ->
+    BridgeType = ?config(bridge_type, Config),
+    RuleTopic = <<"t/iotdb">>,
+    DeviceId = iotdb_device(Config),
+    Payload = make_iotdb_payload(DeviceId, "temp", "INT32", "12"),
+    Message = emqx_message:make(RuleTopic, emqx_utils_json:encode(Payload)),
+    ?check_trace(
+        begin
+            {ok, _} = emqx_bridge_testlib:create_bridge(Config),
+            SQL = <<
+                "SELECT\n"
+                "  payload.measurement, payload.data_type, payload.value, payload.device_id\n"
+                "FROM\n"
+                "  \"",
+                RuleTopic/binary,
+                "\""
+            >>,
+            Opts = #{sql => SQL},
+            {ok, _} = emqx_bridge_testlib:create_rule_and_action_http(
+                BridgeType, RuleTopic, Config, Opts
+            ),
+            emqx:publish(Message),
+            ?block_until(handle_async_reply, 5_000),
+            ok
+        end,
+        fun(Trace) ->
+            ?assertMatch(
+                [#{action := ack, result := {ok, 200, _, _}}],
+                ?of_kind(handle_async_reply, Trace)
+            ),
+            ok
+        end
+    ),
+    ok.
+
 t_sync_invalid_data(Config) ->
     emqx_bridge_testlib:t_sync_query(
         Config,

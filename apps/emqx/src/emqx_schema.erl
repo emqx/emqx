@@ -2504,7 +2504,11 @@ to_integer(Str) ->
     end.
 
 to_percent(Str) ->
-    {ok, hocon_postprocess:percent(Str)}.
+    Percent = hocon_postprocess:percent(Str),
+    case is_number(Percent) andalso Percent >= 0.0 andalso Percent =< 1.0 of
+        true -> {ok, Percent};
+        false -> {error, Str}
+    end.
 
 to_comma_separated_list(Str) ->
     {ok, string:tokens(Str, ", ")}.
@@ -2732,15 +2736,17 @@ check_cpu_watermark(Conf) ->
     check_watermark("sysmon.os.cpu_low_watermark", "sysmon.os.cpu_high_watermark", Conf).
 
 check_watermark(LowKey, HighKey, Conf) ->
-    case hocon_maps:get(LowKey, Conf) of
-        undefined ->
+    case to_percent(hocon_maps:get(LowKey, Conf)) of
+        {error, undefined} ->
             true;
-        Low ->
-            High = hocon_maps:get(HighKey, Conf),
-            case Low < High of
-                true -> true;
-                false -> {bad_watermark, #{LowKey => Low, HighKey => High}}
-            end
+        {ok, Low} ->
+            case to_percent(hocon_maps:get(HighKey, Conf)) of
+                {ok, High} when High > Low -> true;
+                {ok, High} -> {bad_watermark, #{LowKey => Low, HighKey => High}};
+                {error, HighVal} -> {bad_watermark, #{HighKey => HighVal}}
+            end;
+        {error, Low} ->
+            {bad_watermark, #{LowKey => Low}}
     end.
 
 str(A) when is_atom(A) ->

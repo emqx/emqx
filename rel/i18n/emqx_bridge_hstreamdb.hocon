@@ -41,7 +41,8 @@ local_topic.label:
 """Local Topic"""
 
 record_template.desc:
-"""The HStream Record template to be forwarded to the HStreamDB. Placeholders supported."""
+"""The HStream Record template to be forwarded to the HStreamDB. Placeholders supported.<br>
+NOTE: When you use `raw record` template (which means the data is not a valid JSON), you should use `read` or `subscription` in HStream to get the data."""
 
 record_template.label:
 """HStream Record"""

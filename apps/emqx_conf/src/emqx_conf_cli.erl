@@ -332,8 +332,8 @@ load_etc_config_file() ->
 
 filter_readonly_config(Raw) ->
     SchemaMod = emqx_conf:schema_module(),
-    RawDefault = fill_defaults(Raw),
     try
+        RawDefault = fill_defaults(Raw),
         _ = emqx_config:check_config(SchemaMod, RawDefault),
         ReadOnlyKeys = [atom_to_binary(K) || K <- ?READONLY_KEYS],
         {ok, maps:without(ReadOnlyKeys, Raw)}

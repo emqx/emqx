@@ -455,7 +455,7 @@ handle_in(
             NChannel = Channel#channel{session = NSession},
             handle_out(pubcomp, {PacketId, ?RC_SUCCESS}, NChannel);
         {error, RC = ?RC_PACKET_IDENTIFIER_NOT_FOUND} ->
-            ?SLOG(warning, #{msg => "pubrec_packetId_not_found", packetId => PacketId}),
+            ?SLOG(warning, #{msg => "pubrel_packetId_not_found", packetId => PacketId}),
             ok = emqx_metrics:inc('packets.pubrel.missed'),
             handle_out(pubcomp, {PacketId, RC}, Channel)
     end;

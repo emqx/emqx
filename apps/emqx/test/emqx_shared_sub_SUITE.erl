@@ -20,8 +20,10 @@
 -compile(nowarn_export_all).
 
 -include_lib("emqx/include/emqx.hrl").
+-include_lib("emqx/include/emqx_mqtt.hrl").
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
+-include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
 -define(SUITE, ?MODULE).
 
@@ -984,6 +986,112 @@ t_session_kicked(Config) when is_list(Config) ->
     ?assertEqual([], collect_msgs(1000)),
     emqtt:stop(ConnPid2),
     ?assertEqual([], collect_msgs(0)),
+    ok.
+
+%% FIXME: currently doesn't work
+%% t_different_groups_same_topic({init, Config}) ->
+%%     TestName = atom_to_binary(?FUNCTION_NAME),
+%%     ClientId = <<TestName/binary, (integer_to_binary(erlang:unique_integer()))/binary>>,
+%%     {ok, C} = emqtt:start_link([{clientid, ClientId}, {proto_ver, v5}]),
+%%     {ok, _} = emqtt:connect(C),
+%%     [{client, C}, {clientid, ClientId} | Config];
+%% t_different_groups_same_topic({'end', Config}) ->
+%%     C = ?config(client, Config),
+%%     emqtt:stop(C),
+%%     ok;
+%% t_different_groups_same_topic(Config) when is_list(Config) ->
+%%     C = ?config(client, Config),
+%%     ClientId = ?config(clientid, Config),
+%%     %% Subscribe and unsubscribe to both $queue and $shared topics
+%%     Topic = <<"t/1">>,
+%%     SharedTopic0 = <<"$share/aa/", Topic/binary>>,
+%%     SharedTopic1 = <<"$share/bb/", Topic/binary>>,
+%%     {ok, _, [2]} = emqtt:subscribe(C, {SharedTopic0, 2}),
+%%     {ok, _, [2]} = emqtt:subscribe(C, {SharedTopic1, 2}),
+
+%%     Message0 = emqx_message:make(ClientId, _QoS = 2, Topic, <<"hi">>),
+%%     emqx:publish(Message0),
+%%     ?assertMatch([ {publish, #{payload := <<"hi">>}}
+%%                  , {publish, #{payload := <<"hi">>}}
+%%                  ], collect_msgs(5_000), #{routes => ets:tab2list(emqx_route)}),
+
+%%     {ok, _, [0]} = emqtt:unsubscribe(C, SharedTopic0),
+%%     {ok, _, [0]} = emqtt:unsubscribe(C, SharedTopic1),
+
+%%     ok.
+
+t_queue_subscription({init, Config}) ->
+    TestName = atom_to_binary(?FUNCTION_NAME),
+    ClientId = <<TestName/binary, (integer_to_binary(erlang:unique_integer()))/binary>>,
+
+    {ok, C} = emqtt:start_link([{clientid, ClientId}, {proto_ver, v5}]),
+    {ok, _} = emqtt:connect(C),
+
+    [{client, C}, {clientid, ClientId} | Config];
+t_queue_subscription({'end', Config}) ->
+    C = ?config(client, Config),
+    emqtt:stop(C),
+    ok;
+t_queue_subscription(Config) when is_list(Config) ->
+    C = ?config(client, Config),
+    ClientId = ?config(clientid, Config),
+    %% Subscribe and unsubscribe to both $queue and $shared topics
+    Topic = <<"t/1">>,
+    QueueTopic = <<"$queue/", Topic/binary>>,
+    SharedTopic = <<"$share/aa/", Topic/binary>>,
+    {ok, _, [?RC_GRANTED_QOS_2]} = emqtt:subscribe(C, {QueueTopic, 2}),
+    {ok, _, [?RC_GRANTED_QOS_2]} = emqtt:subscribe(C, {SharedTopic, 2}),
+
+    %% FIXME: we should actually see 2 routes, one for each group
+    %% ($queue and aa), but currently the latest subscription
+    %% overwrites the existing one.
+    ?retry(
+        _Sleep0 = 100,
+        _Attempts0 = 50,
+        begin
+            ct:pal("routes: ~p", [ets:tab2list(emqx_route)]),
+            %% FIXME: should ensure we have 2 subscriptions
+            true = emqx_router:has_routes(Topic)
+        end
+    ),
+
+    %% now publish to the underlying topic
+    Message0 = emqx_message:make(ClientId, _QoS = 2, Topic, <<"hi">>),
+    emqx:publish(Message0),
+    ?assertMatch(
+        [
+            {publish, #{payload := <<"hi">>}}
+            %% FIXME: should receive one message from each group
+            %% , {publish, #{payload := <<"hi">>}}
+        ],
+        collect_msgs(5_000)
+    ),
+
+    {ok, _, [?RC_SUCCESS]} = emqtt:unsubscribe(C, QueueTopic),
+    %% FIXME: return code should be success instead of 17 ("no_subscription_existed")
+    {ok, _, [?RC_NO_SUBSCRIPTION_EXISTED]} = emqtt:unsubscribe(C, SharedTopic),
+
+    %% FIXME: this should eventually be true, but currently we leak
+    %% the previous group subscription...
+    %% ?retry(
+    %%     _Sleep0 = 100,
+    %%     _Attempts0 = 50,
+    %%    begin
+    %%     ct:pal("routes: ~p", [ets:tab2list(emqx_route)]),
+    %%     false = emqx_router:has_routes(Topic)
+    %%    end
+    %%   ),
+    ct:sleep(500),
+
+    Message1 = emqx_message:make(ClientId, _QoS = 2, Topic, <<"hello">>),
+    emqx:publish(Message1),
+    %% FIXME: we should *not* receive any messages...
+    %% ?assertEqual([], collect_msgs(1_000), #{routes => ets:tab2list(emqx_route)}),
+    %% This is from the leaked group...
+    ?assertMatch([{publish, #{topic := Topic}}], collect_msgs(1_000), #{
+        routes => ets:tab2list(emqx_route)
+    }),
+
     ok.
 
 %%--------------------------------------------------------------------

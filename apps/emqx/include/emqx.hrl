@@ -33,11 +33,14 @@
 -define(ERTS_MINIMUM_REQUIRED, "10.0").
 
 %%--------------------------------------------------------------------
-%% Topics' prefix: $SYS | $share
+%% Topics' prefix: $SYS | $queue | $share
 %%--------------------------------------------------------------------
 
 %% System topic
 -define(SYSTOP, <<"$SYS/">>).
+
+%% Queue topic
+-define(QUEUE, <<"$queue/">>).
 
 %%--------------------------------------------------------------------
 %% alarms

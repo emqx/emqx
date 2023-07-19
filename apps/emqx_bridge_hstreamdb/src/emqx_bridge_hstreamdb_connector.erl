@@ -119,10 +119,13 @@ roots() ->
 
 fields(config) ->
     [
-        {url, mk(binary(), #{required => true, desc => ?DESC("url")})},
+        {url,
+            mk(binary(), #{
+                required => true, desc => ?DESC("url"), default => <<"http://127.0.0.1:6570">>
+            })},
         {stream, mk(binary(), #{required => true, desc => ?DESC("stream_name")})},
         {partition_key, mk(binary(), #{required => false, desc => ?DESC("partition_key")})},
-        {pool_size, mk(pos_integer(), #{required => true, desc => ?DESC("pool_size")})},
+        {pool_size, fun emqx_connector_schema_lib:pool_size/1},
         {grpc_timeout, fun grpc_timeout/1}
     ] ++ emqx_connector_schema_lib:ssl_fields().
 

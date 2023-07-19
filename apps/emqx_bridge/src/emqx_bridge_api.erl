@@ -988,15 +988,10 @@ call_operation(NodeOrAll, OperFunc, Args = [_Nodes, BridgeType, BridgeName]) ->
             %% still on an older bpapi version that doesn't support it.
             maybe_try_restart(NodeOrAll, OperFunc, Args);
         {error, timeout} ->
-            ?SERVICE_UNAVAILABLE(<<"Request timeout">>);
+            ?BAD_REQUEST(<<"Request timeout">>);
         {error, {start_pool_failed, Name, Reason}} ->
             Msg = bin(io_lib:format("Failed to start ~p pool for reason ~p", [Name, Reason])),
-            case Reason of
-                nxdomain ->
-                    ?BAD_REQUEST(Msg);
-                _ ->
-                    ?SERVICE_UNAVAILABLE(Msg)
-            end;
+            ?BAD_REQUEST(Msg);
         {error, not_found} ->
             BridgeId = emqx_bridge_resource:bridge_id(BridgeType, BridgeName),
             ?SLOG(warning, #{
