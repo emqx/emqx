@@ -64,7 +64,6 @@
 -export([
     info/1,
     info/2,
-    is_session/1,
     stats/1,
     obtain_next_pkt_id/1,
     get_mqueue/1
@@ -88,7 +87,6 @@
     enqueue/3,
     dequeue/2,
     filter_queue/2,
-    ignore_local/4,
     retry/2,
     terminate/3
 ]).
@@ -251,9 +249,6 @@ unpersist(Session) ->
 %%--------------------------------------------------------------------
 %% Info, Stats
 %%--------------------------------------------------------------------
-
-is_session(#session{}) -> true;
-is_session(_) -> false.
 
 %% @doc Get infos of the session.
 -spec info(session()) -> emqx_types:infos().
