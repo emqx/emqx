@@ -479,6 +479,8 @@ t_create_via_http(Config) ->
         end,
         []
     ),
+    ResourceId = resource_id(Config),
+    ?assertMatch(1, length(ecpool:workers(ResourceId))),
     ok.
 
 t_start_stop(Config) ->
