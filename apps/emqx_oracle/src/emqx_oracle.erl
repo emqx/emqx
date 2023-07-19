@@ -9,6 +9,10 @@
 -include_lib("emqx/include/logger.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
+-define(UNHEALTHY_TARGET_MSG,
+    "Oracle table is invalid. Please check if the table exists in Oracle Database."
+).
+
 %%====================================================================
 %% Exports
 %%====================================================================
@@ -239,7 +243,7 @@ on_get_status(_InstId, #{pool_name := Pool} = State) ->
                     {connected, NState};
                 {error, {undefined_table, NState}} ->
                     %% return new state indicating that we are connected but the target table is not created
-                    {disconnected, NState, unhealthy_target};
+                    {disconnected, NState, {unhealthy_target, ?UNHEALTHY_TARGET_MSG}};
                 {error, _Reason} ->
                     %% do not log error, it is logged in prepare_sql_to_conn
                     connecting
@@ -408,7 +412,19 @@ prepare_sql_to_conn(Conn, [{Key, SQL} | PrepareList], TokensMap, Statements) whe
             Error
     end.
 
-check_if_table_exists(Conn, SQL, Tokens) ->
+check_if_table_exists(Conn, SQL, Tokens0) ->
+    % Discard nested tokens for checking if table exist. As payload here is defined as
+    % a single string, it would fail if Token is, for instance, ${payload.msg}, causing
+    % bridge probe to fail.
+    Tokens = lists:map(
+        fun
+            ({var, [Token | _DiscardedDeepTokens]}) ->
+                {var, [Token]};
+            (Token) ->
+                Token
+        end,
+        Tokens0
+    ),
     {Event, _Headers} = emqx_rule_events:eventmsg_publish(
         emqx_message:make(<<"t/opic">>, "test query")
     ),
