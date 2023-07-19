@@ -387,38 +387,43 @@ overlay_vars_pkg(pkg) ->
     ].
 
 relx_apps(ReleaseType, Edition) ->
-    [
-        kernel,
-        sasl,
-        crypto,
-        public_key,
-        asn1,
-        syntax_tools,
-        ssl,
-        os_mon,
-        inets,
-        compiler,
-        runtime_tools,
-        redbug,
-        xmerl,
-        {hocon, load},
-        telemetry,
-        % started by emqx_machine
-        {emqx, load},
-        {emqx_conf, load},
-        emqx_machine
-    ] ++
-        [{mnesia_rocksdb, load} || is_rocksdb_supported()] ++
+    SystemApps =
         [
-            {mnesia, load},
-            {ekka, load},
-            {esasl, load},
+            kernel,
+            sasl,
+            crypto,
+            public_key,
+            asn1,
+            syntax_tools,
+            ssl,
+            os_mon,
+            inets,
+            compiler,
+            runtime_tools,
+            redbug,
+            xmerl,
+            {hocon, load},
+            telemetry
+        ],
+    DBApps =
+        [mnesia_rocksdb || is_rocksdb_supported()] ++
+            [
+                mnesia,
+                mria,
+                ekka
+            ],
+    BusinessApps =
+        [
+            emqx,
+            emqx_conf,
+
+            esasl,
             observer_cli,
             tools,
-            {covertool, load},
+            covertool,
             % started by emqx_machine
-            {system_monitor, load},
-            {emqx_utils, load},
+            system_monitor,
+            emqx_utils,
             emqx_http_lib,
             emqx_resource,
             emqx_connector,
@@ -448,13 +453,18 @@ relx_apps(ReleaseType, Edition) ->
             emqx_mysql,
             emqx_plugins
         ] ++
-        [quicer || is_quicer_supported()] ++
-        [bcrypt || provide_bcrypt_release(ReleaseType)] ++
-        %% Started automatically when needed (only needs to be started when the
-        %% port implementation is used)
-        [{jq, load} || is_jq_supported()] ++
-        [{observer, load} || is_app(observer)] ++
-        relx_apps_per_edition(Edition).
+            [quicer || is_quicer_supported()] ++
+            [bcrypt || provide_bcrypt_release(ReleaseType)] ++
+            %% Started automatically when needed (only needs to be started when the
+            %% port implementation is used)
+            [jq || is_jq_supported()] ++
+            [observer || is_app(observer)] ++
+            relx_apps_per_edition(Edition),
+    SystemApps ++
+        %% EMQX starts the DB and the business applications:
+        [{App, load} || App <- DBApps] ++
+        [emqx_machine] ++
+        [{App, load} || App <- BusinessApps].
 
 is_app(Name) ->
     case application:load(Name) of
@@ -466,7 +476,7 @@ is_app(Name) ->
 relx_apps_per_edition(ee) ->
     [
         emqx_license,
-        {emqx_enterprise, load},
+        emqx_enterprise,
         emqx_bridge_kafka,
         emqx_bridge_pulsar,
         emqx_bridge_gcp_pubsub,
