@@ -924,18 +924,13 @@ handle_deliver(
     Delivers,
     Channel = #channel{
         takeover = true,
-        pendings = Pendings,
-        session = Session,
-        clientinfo = #{clientid := ClientId} = ClientInfo
+        pendings = Pendings
     }
 ) ->
     %% NOTE: Order is important here. While the takeover is in
     %% progress, the session cannot enqueue messages, since it already
     %% passed on the queue to the new connection in the session state.
-    NPendings = lists:append(
-        Pendings,
-        emqx_session:ignore_local(ClientInfo, maybe_nack(Delivers), ClientId, Session)
-    ),
+    NPendings = lists:append(Pendings, maybe_nack(Delivers)),
     {ok, Channel#channel{pendings = NPendings}};
 handle_deliver(
     Delivers,
@@ -943,12 +938,11 @@ handle_deliver(
         conn_state = disconnected,
         takeover = false,
         session = Session,
-        clientinfo = #{clientid := ClientId} = ClientInfo
+        clientinfo = ClientInfo
     }
 ) ->
     Delivers1 = maybe_nack(Delivers),
-    Delivers2 = emqx_session:ignore_local(ClientInfo, Delivers1, ClientId, Session),
-    NSession = emqx_session:enqueue(ClientInfo, Delivers2, Session),
+    NSession = emqx_session:enqueue(ClientInfo, Delivers1, Session),
     NChannel = Channel#channel{session = NSession},
     {ok, NChannel};
 handle_deliver(
@@ -956,16 +950,10 @@ handle_deliver(
     Channel = #channel{
         session = Session,
         takeover = false,
-        clientinfo = #{clientid := ClientId} = ClientInfo
+        clientinfo = ClientInfo
     }
 ) ->
-    case
-        emqx_session:deliver(
-            ClientInfo,
-            emqx_session:ignore_local(ClientInfo, Delivers, ClientId, Session),
-            Session
-        )
-    of
+    case emqx_session:deliver(ClientInfo, Delivers, Session) of
         {ok, Publishes, NSession} ->
             NChannel = Channel#channel{session = NSession},
             handle_out(publish, Publishes, ensure_timer(retry_timer, NChannel));

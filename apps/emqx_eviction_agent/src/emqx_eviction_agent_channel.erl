@@ -180,30 +180,24 @@ handle_deliver(
     Delivers,
     #{
         takeover := true,
-        pendings := Pendings,
-        session := Session,
-        clientinfo := #{clientid := ClientId} = ClientInfo
+        pendings := Pendings
     } = Channel
 ) ->
     %% NOTE: Order is important here. While the takeover is in
     %% progress, the session cannot enqueue messages, since it already
     %% passed on the queue to the new connection in the session state.
-    NPendings = lists:append(
-        Pendings,
-        emqx_session:ignore_local(ClientInfo, emqx_channel:maybe_nack(Delivers), ClientId, Session)
-    ),
+    NPendings = lists:append(Pendings, emqx_channel:maybe_nack(Delivers)),
     Channel#{pendings => NPendings};
 handle_deliver(
     Delivers,
     #{
         takeover := false,
         session := Session,
-        clientinfo := #{clientid := ClientId} = ClientInfo
+        clientinfo := ClientInfo
     } = Channel
 ) ->
     Delivers1 = emqx_channel:maybe_nack(Delivers),
-    Delivers2 = emqx_session:ignore_local(ClientInfo, Delivers1, ClientId, Session),
-    NSession = emqx_session:enqueue(ClientInfo, Delivers2, Session),
+    NSession = emqx_session:enqueue(ClientInfo, Delivers1, Session),
     Channel#{session := NSession}.
 
 cancel_expiry_timer(#{expiry_timer := TRef}) when is_reference(TRef) ->
@@ -248,12 +242,7 @@ open_session(ConnInfo, #{clientid := ClientId} = ClientInfo) ->
             Pendings1 = lists:usort(lists:append(Pendings0, emqx_utils:drain_deliver())),
             NSession = emqx_session:enqueue(
                 ClientInfo,
-                emqx_session:ignore_local(
-                    ClientInfo,
-                    emqx_channel:maybe_nack(Pendings1),
-                    ClientId,
-                    Session
-                ),
+                emqx_channel:maybe_nack(Pendings1),
                 Session
             ),
             NChannel = Channel#{session => NSession},

@@ -310,27 +310,6 @@ info(created_at, #session{created_at = CreatedAt}) ->
 stats(Session) -> info(?STATS_KEYS, Session).
 
 %%--------------------------------------------------------------------
-%% Ignore local messages
-%%--------------------------------------------------------------------
-
-ignore_local(ClientInfo, Delivers, Subscriber, Session) ->
-    Subs = info(subscriptions, Session),
-    lists:filter(
-        fun({deliver, Topic, #message{from = Publisher} = Msg}) ->
-            case maps:find(Topic, Subs) of
-                {ok, #{nl := 1}} when Subscriber =:= Publisher ->
-                    ok = emqx_hooks:run('delivery.dropped', [ClientInfo, Msg, no_local]),
-                    ok = emqx_metrics:inc('delivery.dropped'),
-                    ok = emqx_metrics:inc('delivery.dropped.no_local'),
-                    false;
-                _ ->
-                    true
-            end
-        end,
-        Delivers
-    ).
-
-%%--------------------------------------------------------------------
 %% Client -> Broker: SUBSCRIBE
 %%--------------------------------------------------------------------
 
@@ -610,7 +589,10 @@ deliver_msg(
             MarkedMsg = mark_begin_deliver(Msg),
             Inflight1 = emqx_inflight:insert(PacketId, with_ts(MarkedMsg), Inflight),
             {ok, [Publish], next_pkt_id(Session#session{inflight = Inflight1})}
-    end.
+    end;
+deliver_msg(ClientInfo, {drop, Msg, Reason}, Session) ->
+    handle_dropped(ClientInfo, Msg, Reason, Session),
+    {ok, Session}.
 
 -spec enqueue(
     emqx_types:clientinfo(),
@@ -629,7 +611,10 @@ enqueue(ClientInfo, Delivers, Session) when is_list(Delivers) ->
 enqueue(ClientInfo, #message{} = Msg, Session = #session{mqueue = Q}) ->
     {Dropped, NewQ} = emqx_mqueue:in(Msg, Q),
     (Dropped =/= undefined) andalso handle_dropped(ClientInfo, Dropped, Session),
-    Session#session{mqueue = NewQ}.
+    Session#session{mqueue = NewQ};
+enqueue(ClientInfo, {drop, Msg, Reason}, Session) ->
+    handle_dropped(ClientInfo, Msg, Reason, Session),
+    Session.
 
 handle_dropped(ClientInfo, Msg = #message{qos = QoS, topic = Topic}, #session{mqueue = Q}) ->
     Payload = emqx_message:to_log_map(Msg),
@@ -666,8 +651,18 @@ handle_dropped(ClientInfo, Msg = #message{qos = QoS, topic = Topic}, #session{mq
             )
     end.
 
+handle_dropped(ClientInfo, Msg, Reason, _Session) ->
+    ok = emqx_hooks:run('delivery.dropped', [ClientInfo, Msg, Reason]),
+    ok = emqx_metrics:inc('delivery.dropped'),
+    ok = emqx_metrics:inc('delivery.dropped.no_local').
+
 enrich_deliver({deliver, Topic, Msg}, Session = #session{subscriptions = Subs}) ->
-    enrich_subopts(get_subopts(Topic, Subs), Msg, Session).
+    enrich_deliver(Msg, maps:find(Topic, Subs), Session).
+
+enrich_deliver(Msg = #message{from = ClientId}, {ok, #{nl := 1}}, #session{clientid = ClientId}) ->
+    {drop, Msg, no_local};
+enrich_deliver(Msg, SubOpts, Session) ->
+    enrich_subopts(mk_subopts(SubOpts), Msg, Session).
 
 maybe_ack(Msg) ->
     emqx_shared_sub:maybe_ack(Msg).
@@ -675,8 +670,8 @@ maybe_ack(Msg) ->
 maybe_nack(Msg) ->
     emqx_shared_sub:maybe_nack_dropped(Msg).
 
-get_subopts(Topic, SubMap) ->
-    case maps:find(Topic, SubMap) of
+mk_subopts(SubOpts) ->
+    case SubOpts of
         {ok, #{nl := Nl, qos := QoS, rap := Rap, subid := SubId}} ->
             [{nl, Nl}, {qos, QoS}, {rap, Rap}, {subid, SubId}];
         {ok, #{nl := Nl, qos := QoS, rap := Rap}} ->
