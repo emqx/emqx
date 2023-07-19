@@ -246,12 +246,8 @@ generate_changelog () {
     # fi
     ./scripts/rel/format-changelog.sh -b "${from_tag}" -l 'en' -v "$TAG" > "changes/${TAG}.en.md"
     # ./scripts/rel/format-changelog.sh -b "${from_tag}" -l 'zh' -v "$TAG" > "changes/${TAG}.zh.md"
-    git add changes/"${TAG}".*.md
-    if [ -n "$(git diff --staged --stat)" ]; then
-        git commit -m "docs: Generate changelog for ${TAG}"
-    else
-        logmsg "No changelog update."
-    fi
+    logwarn "Changelog generated. Please review the changes and commit them with the following commands:"
+    logwarn "git add changes/${TAG}.en.md; git commit -m \"docs: Generate changelog for ${TAG}\""
 }
 
 if [ "$DRYRUN" = 'yes' ]; then
@@ -259,21 +255,8 @@ if [ "$DRYRUN" = 'yes' ]; then
     if [ "$DOCKER_LATEST" = 'yes' ]; then
         logmsg "Docker latest tag is ready to be created with command: git tag --force $DOCKER_LATEST_TAG"
     fi
+    generate_changelog
 else
-    case "$TAG" in
-        *rc*)
-            true
-            ;;
-        *alpha*)
-            true
-            ;;
-        *beta*)
-            true
-            ;;
-        *)
-            generate_changelog
-            ;;
-    esac
     git tag "$TAG"
     logmsg "$TAG is created OK."
     if [ "$DOCKER_LATEST" = 'yes' ]; then
@@ -282,8 +265,8 @@ else
     fi
     logwarn "Don't forget to push the tags!"
     if [ "$DOCKER_LATEST" = 'yes' ]; then
-        echo "git push --atomic --force origin $TAG $DOCKER_LATEST_TAG"
+        logmsg "git push --atomic --force origin $TAG $DOCKER_LATEST_TAG"
     else
-        echo "git push origin $TAG"
+        logmsg "git push origin $TAG"
     fi
 fi
