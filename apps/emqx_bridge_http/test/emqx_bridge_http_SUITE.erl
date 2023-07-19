@@ -40,13 +40,13 @@ groups() ->
 
 init_per_suite(_Config) ->
     emqx_common_test_helpers:render_and_load_app_config(emqx_conf),
-    ok = emqx_mgmt_api_test_util:init_suite([emqx_conf, emqx_bridge]),
+    ok = emqx_mgmt_api_test_util:init_suite([emqx_conf, emqx_bridge, emqx_rule_engine]),
     ok = emqx_connector_test_helpers:start_apps([emqx_resource]),
     {ok, _} = application:ensure_all_started(emqx_connector),
     [].
 
 end_per_suite(_Config) ->
-    ok = emqx_mgmt_api_test_util:end_suite([emqx_conf, emqx_bridge]),
+    ok = emqx_mgmt_api_test_util:end_suite([emqx_rule_engine, emqx_bridge, emqx_conf]),
     ok = emqx_connector_test_helpers:stop_apps([emqx_resource]),
     _ = application:stop(emqx_connector),
     _ = application:stop(emqx_bridge),
@@ -77,13 +77,19 @@ init_per_testcase(t_too_many_requests, Config) ->
     ),
     ok = emqx_bridge_http_connector_test_server:set_handler(too_many_requests_http_handler()),
     [{http_server, #{port => HTTPPort, path => HTTPPath}} | Config];
+init_per_testcase(t_rule_action_expired, Config) ->
+    [
+        {bridge_name, ?BRIDGE_NAME}
+        | Config
+    ];
 init_per_testcase(_TestCase, Config) ->
     Server = start_http_server(#{response_delay_ms => 0}),
     [{http_server, Server} | Config].
 
 end_per_testcase(TestCase, _Config) when
     TestCase =:= t_path_not_found;
-    TestCase =:= t_too_many_requests
+    TestCase =:= t_too_many_requests;
+    TestCase =:= t_rule_action_expired
 ->
     ok = emqx_bridge_http_connector_test_server:stop(),
     persistent_term:erase({?MODULE, times_called}),
@@ -202,6 +208,7 @@ parse_http_request_assertive(ReqStr0) ->
 bridge_async_config(#{port := Port} = Config) ->
     Type = maps:get(type, Config, ?BRIDGE_TYPE),
     Name = maps:get(name, Config, ?BRIDGE_NAME),
+    Host = maps:get(host, Config, "localhost"),
     Path = maps:get(path, Config, ""),
     PoolSize = maps:get(pool_size, Config, 1),
     QueryMode = maps:get(query_mode, Config, "async"),
@@ -218,7 +225,7 @@ bridge_async_config(#{port := Port} = Config) ->
         end,
     ConfigString = io_lib:format(
         "bridges.~s.~s {\n"
-        "  url = \"http://localhost:~p~s\"\n"
+        "  url = \"http://~s:~p~s\"\n"
         "  connect_timeout = \"~p\"\n"
         "  enable = true\n"
         %% local_topic
@@ -248,6 +255,7 @@ bridge_async_config(#{port := Port} = Config) ->
         [
             Type,
             Name,
+            Host,
             Port,
             Path,
             ConnectTimeout,
@@ -537,6 +545,61 @@ t_too_many_requests(Config) ->
             ?assertMatch([_ | _], ?of_kind(webhook_will_retry_async, Trace)),
             ok
         end
+    ),
+    ok.
+
+t_rule_action_expired(Config) ->
+    ?check_trace(
+        begin
+            RuleTopic = <<"t/webhook/rule">>,
+            BridgeConfig = bridge_async_config(#{
+                type => ?BRIDGE_TYPE,
+                name => ?BRIDGE_NAME,
+                host => "non.existent.host",
+                port => 9999,
+                path => <<"/some/path">>,
+                resume_interval => "100ms",
+                connect_timeout => "1s",
+                request_timeout => "100ms",
+                resource_request_ttl => "100ms"
+            }),
+            {ok, _} = emqx_bridge:create(?BRIDGE_TYPE, ?BRIDGE_NAME, BridgeConfig),
+            {ok, #{<<"id">> := RuleId}} =
+                emqx_bridge_testlib:create_rule_and_action_http(?BRIDGE_TYPE, RuleTopic, Config),
+            Msg = emqx_message:make(RuleTopic, <<"timeout">>),
+            emqx:publish(Msg),
+            ?retry(
+                _Interval = 500,
+                _NAttempts = 20,
+                ?assertMatch(
+                    #{
+                        counters := #{
+                            matched := 1,
+                            failed := 0,
+                            dropped := 1
+                        }
+                    },
+                    emqx_bridge:get_metrics(?BRIDGE_TYPE, ?BRIDGE_NAME)
+                )
+            ),
+            ?retry(
+                _Interval = 500,
+                _NAttempts = 20,
+                ?assertMatch(
+                    #{
+                        counters := #{
+                            matched := 1,
+                            'actions.failed' := 1,
+                            'actions.failed.unknown' := 1,
+                            'actions.total' := 1
+                        }
+                    },
+                    emqx_metrics_worker:get_metrics(rule_metrics, RuleId)
+                )
+            ),
+            ok
+        end,
+        []
     ),
     ok.
 
