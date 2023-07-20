@@ -22,8 +22,7 @@
     init/1,
     info/1,
     info/2,
-    stats/1,
-    resume/2
+    stats/1
 ]).
 
 -export([
@@ -39,11 +38,11 @@
 -export([
     replay/2,
     deliver/3,
+    handle_timeout/3,
     obtain_next_pkt_id/1,
     takeover/1,
-    enqueue/3,
-    retry/2,
-    expire/3
+    resume/2,
+    enqueue/3
 ]).
 
 -type session() :: #{
@@ -54,12 +53,11 @@
 -export_type([session/0]).
 
 init(ClientInfo) ->
-    Conf = emqx_cm:get_session_confs(
-        ClientInfo, #{receive_maximum => 1, expiry_interval => 0}
-    ),
+    ConnInfo = #{receive_maximum => 1, expiry_interval => 0},
+    SessionConf = emqx_session:get_session_conf(ClientInfo, ConnInfo),
     #{
         registry => emqx_mqttsn_registry:init(),
-        session => emqx_session:init(Conf)
+        session => emqx_session_mem:create(ClientInfo, ConnInfo, SessionConf)
     }.
 
 registry(#{registry := Registry}) ->
@@ -98,47 +96,45 @@ subscribe(ClientInfo, Topic, SubOpts, Session) ->
 unsubscribe(ClientInfo, Topic, SubOpts, Session) ->
     with_sess(?FUNCTION_NAME, [ClientInfo, Topic, SubOpts], Session).
 
-replay(ClientInfo, Session) ->
-    with_sess(?FUNCTION_NAME, [ClientInfo], Session).
+deliver(ClientInfo, Delivers, Session) ->
+    with_sess(?FUNCTION_NAME, [ClientInfo, Delivers], Session).
 
-deliver(ClientInfo, Delivers, Session1) ->
-    with_sess(?FUNCTION_NAME, [ClientInfo, Delivers], Session1).
+handle_timeout(ClientInfo, Name, Session) ->
+    with_sess(?FUNCTION_NAME, [ClientInfo, Name], Session).
 
 obtain_next_pkt_id(Session = #{session := Sess}) ->
-    {Id, Sess1} = emqx_session:obtain_next_pkt_id(Sess),
+    {Id, Sess1} = emqx_session_mem:obtain_next_pkt_id(Sess),
     {Id, Session#{session := Sess1}}.
 
 takeover(_Session = #{session := Sess}) ->
-    emqx_session:takeover(Sess).
+    emqx_session_mem:takeover(Sess).
+
+resume(ClientInfo, Session = #{session := Sess}) ->
+    Session#{session := emqx_session_mem:resume(ClientInfo, Sess)}.
+
+replay(ClientInfo, Session = #{session := Sess}) ->
+    {ok, Replies, NSess} = emqx_session_mem:replay(ClientInfo, Sess),
+    {ok, Replies, Session#{session := NSess}}.
 
 enqueue(ClientInfo, Delivers, Session = #{session := Sess}) ->
-    Sess1 = emqx_session:enqueue(ClientInfo, Delivers, Sess),
-    Session#{session := Sess1}.
-
-retry(ClientInfo, Session) ->
-    with_sess(?FUNCTION_NAME, [ClientInfo], Session).
-
-expire(ClientInfo, awaiting_rel, Session) ->
-    with_sess(?FUNCTION_NAME, [ClientInfo, awaiting_rel], Session).
-
-resume(ClientInfo, #{session := Sess}) ->
-    emqx_session:resume(ClientInfo, Sess).
+    Msgs = emqx_session:enrich_delivers(ClientInfo, Delivers, Sess),
+    Session#{session := emqx_session_mem:enqueue(ClientInfo, Msgs, Sess)}.
 
 %%--------------------------------------------------------------------
 %% internal funcs
 
 with_sess(Fun, Args, Session = #{session := Sess}) ->
     case apply(emqx_session, Fun, Args ++ [Sess]) of
-        %% for subscribe
-        {error, Reason} ->
-            {error, Reason};
-        %% for pubrel
+        %% for subscribe / unsubscribe / pubrel
         {ok, Sess1} ->
             {ok, Session#{session := Sess1}};
-        %% for publish and puback
-        {ok, Result, Sess1} ->
-            {ok, Result, Session#{session := Sess1}};
+        %% for publish / pubrec / pubcomp / deliver
+        {ok, ResultReplies, Sess1} ->
+            {ok, ResultReplies, Session#{session := Sess1}};
         %% for puback
         {ok, Msgs, Replies, Sess1} ->
-            {ok, Msgs, Replies, Session#{session := Sess1}}
+            {ok, Msgs, Replies, Session#{session := Sess1}};
+        %% for any errors
+        {error, Reason} ->
+            {error, Reason}
     end.

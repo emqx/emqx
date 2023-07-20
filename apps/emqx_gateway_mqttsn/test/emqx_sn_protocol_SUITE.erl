@@ -40,11 +40,6 @@
 -define(HOST, {127, 0, 0, 1}).
 -define(PORT, 1884).
 
--define(FLAG_DUP(X), X).
--define(FLAG_QOS(X), X).
--define(FLAG_RETAIN(X), X).
--define(FLAG_SESSION(X), X).
-
 -define(LOG(Format, Args), ct:log("TEST: " ++ Format, Args)).
 
 -define(MAX_PRED_TOPIC_ID, ?SN_MAX_PREDEF_TOPIC_ID).
@@ -1381,14 +1376,14 @@ t_asleep_test01_timeout(_) ->
 
 t_asleep_test02_to_awake_and_back(_) ->
     QoS = 1,
-    Keepalive_Duration = 1,
+    KeepaliveDuration = 1,
     SleepDuration = 5,
     WillTopic = <<"dead">>,
     WillPayload = <<10, 11, 12, 13, 14>>,
     {ok, Socket} = gen_udp:open(0, [binary]),
 
     ClientId = ?CLIENTID,
-    send_connect_msg_with_will(Socket, Keepalive_Duration, ClientId),
+    send_connect_msg_with_will(Socket, KeepaliveDuration, ClientId),
     ?assertEqual(<<2, ?SN_WILLTOPICREQ>>, receive_response(Socket)),
     send_willtopic_msg(Socket, WillTopic, QoS),
     ?assertEqual(<<2, ?SN_WILLMSGREQ>>, receive_response(Socket)),

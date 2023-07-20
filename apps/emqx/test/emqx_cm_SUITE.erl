@@ -321,7 +321,7 @@ test_stepdown_session(Action, Reason) ->
             discard ->
                 emqx_cm:discard_session(ClientId);
             {takeover, _} ->
-                none = emqx_cm:takeover_session(ClientId),
+                none = emqx_cm:takeover_channel_session(ClientId, fun ident/1),
                 ok
         end,
     case Reason =:= timeout orelse Reason =:= noproc of
@@ -381,21 +381,24 @@ t_discard_session_race(_) ->
 
 t_takeover_session(_) ->
     #{conninfo := ConnInfo} = ?ChanInfo,
-    none = emqx_cm:takeover_session(<<"clientid">>),
+    none = emqx_cm:takeover_channel_session(<<"clientid">>, fun ident/1),
     Parent = self(),
     erlang:spawn_link(fun() ->
         ok = emqx_cm:register_channel(<<"clientid">>, self(), ConnInfo),
         Parent ! registered,
         receive
-            {'$gen_call', From, {takeover, 'begin'}} ->
-                gen_server:reply(From, test),
-                ok
+            {'$gen_call', From1, {takeover, 'begin'}} ->
+                gen_server:reply(From1, test),
+                receive
+                    {'$gen_call', From2, {takeover, 'end'}} ->
+                        gen_server:reply(From2, [])
+                end
         end
     end),
     receive
         registered -> ok
     end,
-    {living, emqx_connection, _, test} = emqx_cm:takeover_session(<<"clientid">>),
+    {ok, test, []} = emqx_cm:takeover_channel_session(<<"clientid">>, fun ident/1),
     emqx_cm:unregister_channel(<<"clientid">>).
 
 t_takeover_session_process_gone(_) ->
@@ -403,8 +406,8 @@ t_takeover_session_process_gone(_) ->
     ClientIDTcp = <<"clientidTCP">>,
     ClientIDWs = <<"clientidWs">>,
     ClientIDRpc = <<"clientidRPC">>,
-    none = emqx_cm:takeover_session(ClientIDTcp),
-    none = emqx_cm:takeover_session(ClientIDWs),
+    none = emqx_cm:takeover_channel_session(ClientIDTcp, fun ident/1),
+    none = emqx_cm:takeover_channel_session(ClientIDWs, fun ident/1),
     meck:new(emqx_connection, [passthrough, no_history]),
     meck:expect(
         emqx_connection,
@@ -417,7 +420,7 @@ t_takeover_session_process_gone(_) ->
         end
     ),
     ok = emqx_cm:register_channel(ClientIDTcp, self(), ConnInfo),
-    none = emqx_cm:takeover_session(ClientIDTcp),
+    none = emqx_cm:takeover_channel_session(ClientIDTcp, fun ident/1),
     meck:expect(
         emqx_connection,
         call,
@@ -429,7 +432,7 @@ t_takeover_session_process_gone(_) ->
         end
     ),
     ok = emqx_cm:register_channel(ClientIDWs, self(), ConnInfo),
-    none = emqx_cm:takeover_session(ClientIDWs),
+    none = emqx_cm:takeover_channel_session(ClientIDWs, fun ident/1),
     meck:expect(
         emqx_connection,
         call,
@@ -441,7 +444,7 @@ t_takeover_session_process_gone(_) ->
         end
     ),
     ok = emqx_cm:register_channel(ClientIDRpc, self(), ConnInfo),
-    none = emqx_cm:takeover_session(ClientIDRpc),
+    none = emqx_cm:takeover_channel_session(ClientIDRpc, fun ident/1),
     emqx_cm:unregister_channel(ClientIDTcp),
     emqx_cm:unregister_channel(ClientIDWs),
     emqx_cm:unregister_channel(ClientIDRpc),
@@ -460,3 +463,8 @@ t_message(_) ->
     ?CM ! testing,
     gen_server:cast(?CM, testing),
     gen_server:call(?CM, testing).
+
+%%
+
+ident(V) ->
+    V.

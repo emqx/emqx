@@ -38,47 +38,29 @@ init_per_suite(Config) ->
     ok = meck:expect(emqx_cm, mark_channel_disconnected, fun(_) -> ok end),
     %% Broker Meck
     ok = meck:new(emqx_broker, [passthrough, no_history, no_link]),
-    %% Hooks Meck
-    ok = meck:new(emqx_hooks, [passthrough, no_history, no_link]),
-    ok = meck:expect(emqx_hooks, run, fun(_Hook, _Args) -> ok end),
-    ok = meck:expect(emqx_hooks, run_fold, fun(_Hook, _Args, Acc) -> Acc end),
     %% Session Meck
     ok = meck:new(emqx_session, [passthrough, no_history, no_link]),
-    %% Metrics
-    ok = meck:new(emqx_metrics, [passthrough, no_history, no_link]),
-    ok = meck:expect(emqx_metrics, inc, fun(_) -> ok end),
-    ok = meck:expect(emqx_metrics, inc, fun(_, _) -> ok end),
     %% Ban
     meck:new(emqx_banned, [passthrough, no_history, no_link]),
     ok = meck:expect(emqx_banned, check, fun(_ConnInfo) -> false end),
-    Config.
+    Apps = emqx_cth_suite:start(
+        [
+            {emqx, #{
+                override_env => [{boot_modules, [broker]}]
+            }}
+        ],
+        #{work_dir => emqx_cth_suite:work_dir(Config)}
+    ),
+    [{suite_apps, Apps} | Config].
 
-end_per_suite(_Config) ->
+end_per_suite(Config) ->
+    ok = emqx_cth_suite:stop(?config(suite_apps, Config)),
     meck:unload([
-        emqx_metrics,
         emqx_session,
         emqx_broker,
-        emqx_hooks,
         emqx_cm,
         emqx_banned
     ]).
-
-init_per_testcase(_TestCase, Config) ->
-    %% Access Control Meck
-    ok = meck:new(emqx_access_control, [passthrough, no_history, no_link]),
-    ok = meck:expect(
-        emqx_access_control,
-        authenticate,
-        fun(_) -> {ok, #{is_superuser => false}} end
-    ),
-    ok = meck:expect(emqx_access_control, authorize, fun(_, _, _) -> allow end),
-    emqx_common_test_helpers:start_apps([]),
-    Config.
-
-end_per_testcase(_TestCase, Config) ->
-    meck:unload([emqx_access_control]),
-    emqx_common_test_helpers:stop_apps([]),
-    Config.
 
 %%--------------------------------------------------------------------
 %% Test cases for channel info/stats/caps
@@ -111,14 +93,7 @@ t_chan_caps(_) ->
 %% Test cases for channel handle_in
 %%--------------------------------------------------------------------
 
-t_handle_in_connect_packet_sucess(_) ->
-    ok = meck:expect(
-        emqx_cm,
-        open_session,
-        fun(true, _ClientInfo, _ConnInfo) ->
-            {ok, #{session => session(), present => false}}
-        end
-    ),
+t_handle_in_connect_packet_success(_) ->
     IdleChannel = channel(#{conn_state => idle}),
     {ok, [{event, connected}, {connack, ?CONNACK_PACKET(?RC_SUCCESS, 0, _)}], Channel} =
         emqx_channel:handle_in(?CONNECT_PACKET(connpkt()), IdleChannel),
@@ -242,7 +217,6 @@ t_handle_in_qos2_publish(_) ->
     ?assertEqual(2, proplists:get_value(awaiting_rel_cnt, emqx_channel:stats(Channel2))).
 
 t_handle_in_qos2_publish_with_error_return(_) ->
-    ok = meck:expect(emqx_metrics, inc, fun(_) -> ok end),
     ok = meck:expect(emqx_broker, publish, fun(_) -> [] end),
     Session = session(#{max_awaiting_rel => 2, awaiting_rel => #{1 => 1}}),
     Channel = channel(#{conn_state => connected, session => Session}),
@@ -268,7 +242,7 @@ t_handle_in_puback_ok(_) ->
     ok = meck:expect(
         emqx_session,
         puback,
-        fun(_, _PacketId, Session) -> {ok, Msg, Session} end
+        fun(_, _PacketId, Session) -> {ok, Msg, [], Session} end
     ),
     Channel = channel(#{conn_state => connected}),
     {ok, _NChannel} = emqx_channel:handle_in(?PUBACK_PACKET(1, ?RC_SUCCESS), Channel).
@@ -379,7 +353,7 @@ t_handle_in_pubrel_not_found_error(_) ->
         emqx_channel:handle_in(?PUBREL_PACKET(1, ?RC_SUCCESS), channel()).
 
 t_handle_in_pubcomp_ok(_) ->
-    ok = meck:expect(emqx_session, pubcomp, fun(_, _, Session) -> {ok, Session} end),
+    ok = meck:expect(emqx_session, pubcomp, fun(_, _, Session) -> {ok, [], Session} end),
     {ok, _Channel} = emqx_channel:handle_in(?PUBCOMP_PACKET(1, ?RC_SUCCESS), channel()).
 % ?assertEqual(#{pubcomp_in => 1}, emqx_channel:info(pub_stats, Channel)).
 
@@ -491,18 +465,7 @@ t_process_unsubscribe(_) ->
 t_quota_qos0(_) ->
     esockd_limiter:start_link(),
     add_bucket(),
-    Cnter = counters:new(1, []),
     ok = meck:expect(emqx_broker, publish, fun(_) -> [{node(), <<"topic">>, {ok, 4}}] end),
-    ok = meck:expect(
-        emqx_metrics,
-        inc,
-        fun('packets.publish.dropped') -> counters:add(Cnter, 1, 1) end
-    ),
-    ok = meck:expect(
-        emqx_metrics,
-        val,
-        fun('packets.publish.dropped') -> counters:get(Cnter, 1) end
-    ),
     Chann = channel(#{conn_state => connected, quota => quota()}),
     Pub = ?PUBLISH_PACKET(?QOS_0, <<"topic">>, undefined, <<"payload">>),
 
@@ -515,8 +478,6 @@ t_quota_qos0(_) ->
     {ok, _} = emqx_channel:handle_in(Pub, Chann3),
     M1 = emqx_metrics:val('packets.publish.dropped') - 1,
 
-    ok = meck:expect(emqx_metrics, inc, fun(_) -> ok end),
-    ok = meck:expect(emqx_metrics, inc, fun(_, _) -> ok end),
     del_bucket(),
     esockd_limiter:stop().
 
@@ -741,7 +702,7 @@ t_handle_call_takeover_begin(_) ->
     {reply, _Session, _Chan} = emqx_channel:handle_call({takeover, 'begin'}, channel()).
 
 t_handle_call_takeover_end(_) ->
-    ok = meck:expect(emqx_session, takeover, fun(_) -> ok end),
+    ok = meck:expect(emqx_broker, unsubscribe, fun(_) -> ok end),
     {shutdown, takenover, [], _, _Chan} =
         emqx_channel:handle_call({takeover, 'end'}, channel()).
 
@@ -775,13 +736,11 @@ t_handle_timeout_keepalive(_) ->
 
 t_handle_timeout_retry_delivery(_) ->
     TRef = make_ref(),
-    ok = meck:expect(emqx_session, retry, fun(_, Session) -> {ok, Session} end),
     Channel = emqx_channel:set_field(timers, #{retry_delivery => TRef}, channel()),
     {ok, _Chan} = emqx_channel:handle_timeout(TRef, retry_delivery, Channel).
 
 t_handle_timeout_expire_awaiting_rel(_) ->
     TRef = make_ref(),
-    ok = meck:expect(emqx_session, expire, fun(_, _, Session) -> {ok, Session} end),
     Channel = emqx_channel:set_field(timers, #{expire_awaiting_rel => TRef}, channel()),
     {ok, _Chan} = emqx_channel:handle_timeout(TRef, expire_awaiting_rel, Channel).
 
@@ -977,9 +936,14 @@ t_flapping_detect(_) ->
             {ok, #{session => session(), present => false}}
         end
     ),
-    ok = meck:expect(emqx_access_control, authenticate, fun(_) -> {error, not_authorized} end),
     ok = meck:expect(emqx_flapping, detect, fun(_) -> Parent ! flapping_detect end),
-    IdleChannel = channel(#{conn_state => idle}),
+    IdleChannel = channel(
+        clientinfo(#{
+            username => <<>>,
+            enable_authn => quick_deny_anonymous
+        }),
+        #{conn_state => idle}
+    ),
     {shutdown, not_authorized, _ConnAck, _Channel} =
         emqx_channel:handle_in(?CONNECT_PACKET(connpkt()), IdleChannel),
     receive
@@ -994,7 +958,8 @@ t_flapping_detect(_) ->
 %%--------------------------------------------------------------------
 
 channel() -> channel(#{}).
-channel(InitFields) ->
+channel(InitFields) -> channel(clientinfo(), InitFields).
+channel(ClientInfo, InitFields) ->
     ConnInfo = #{
         peername => {{127, 0, 0, 1}, 3456},
         sockname => {{127, 0, 0, 1}, 1883},
@@ -1004,7 +969,7 @@ channel(InitFields) ->
         clean_start => true,
         keepalive => 30,
         clientid => <<"clientid">>,
-        username => <<"username">>,
+        username => maps:get(username, ClientInfo, <<"username">>),
         conn_props => #{},
         receive_maximum => 100,
         expiry_interval => 0
@@ -1023,8 +988,8 @@ channel(InitFields) ->
         ),
         maps:merge(
             #{
-                clientinfo => clientinfo(),
-                session => session(),
+                clientinfo => ClientInfo,
+                session => session(ClientInfo, #{}),
                 conn_state => connected
             },
             InitFields
@@ -1039,6 +1004,7 @@ clientinfo(InitProps) ->
             listener => {tcp, default},
             protocol => mqtt,
             peerhost => {127, 0, 0, 1},
+            sockport => 3456,
             clientid => <<"clientid">>,
             username => <<"username">>,
             is_superuser => false,
@@ -1067,17 +1033,17 @@ connpkt(Props) ->
 session() -> session(#{zone => default, clientid => <<"fake-test">>}, #{}).
 session(InitFields) -> session(#{zone => default, clientid => <<"fake-test">>}, InitFields).
 session(ClientInfo, InitFields) when is_map(InitFields) ->
-    Conf = emqx_cm:get_session_confs(
+    Session = emqx_session:create(
         ClientInfo,
         #{
             receive_maximum => 0,
             expiry_interval => 0
         }
     ),
-    Session = emqx_session:init(Conf),
     maps:fold(
         fun(Field, Value, SessionAcc) ->
-            emqx_session:set_field(Field, Value, SessionAcc)
+            % TODO: assuming specific session implementation
+            emqx_session_mem:set_field(Field, Value, SessionAcc)
         end,
         Session,
         InitFields

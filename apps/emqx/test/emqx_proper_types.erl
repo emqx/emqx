@@ -20,7 +20,7 @@
 
 -include_lib("proper/include/proper.hrl").
 -include("emqx.hrl").
--include("emqx_session.hrl").
+-include("emqx_session_mem.hrl").
 -include("emqx_access_control.hrl").
 
 %% High level Types
@@ -147,7 +147,8 @@ sessioninfo() ->
             awaiting_rel = awaiting_rel(),
             max_awaiting_rel = non_neg_integer(),
             await_rel_timeout = safty_timeout(),
-            created_at = timestamp()
+            created_at = timestamp(),
+            timers = #{}
         },
         emqx_session:info(Session)
     ).

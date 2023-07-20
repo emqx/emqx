@@ -19,18 +19,43 @@
 -include("emqx.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
--export([init/0]).
+-include("emqx_mqtt.hrl").
 
+%% Session API
 -export([
-    persist_message/1,
-    open_session/1,
-    add_subscription/2,
-    del_subscription/2
+    lookup/1,
+    destroy/1
 ]).
 
 -export([
-    serialize_message/1,
-    deserialize_message/1
+    create/3,
+    open/2
+]).
+
+-export([
+    info/2,
+    stats/1
+]).
+
+-export([
+    subscribe/3,
+    unsubscribe/2,
+    get_subscription/2
+]).
+
+-export([
+    publish/3,
+    puback/3,
+    pubrec/2,
+    pubrel/2,
+    pubcomp/3
+]).
+
+-export([
+    deliver/3,
+    % handle_timeout/3,
+    disconnect/1,
+    terminate/2
 ]).
 
 %% RPC
@@ -49,106 +74,265 @@
 -define(DEFAULT_KEYSPACE, default).
 -define(DS_SHARD, {?DEFAULT_KEYSPACE, ?DS_SHARD_ID}).
 
--define(WHEN_ENABLED(DO),
-    case is_store_enabled() of
-        true -> DO;
-        false -> {skipped, disabled}
-    end
-).
+-record(sessionds, {
+    %% Client ID
+    id :: binary(),
+    %% Client’s Subscriptions.
+    subscriptions :: map(),
+    iterators :: map(),
+    %%
+    conf
+}).
+
+-type session() :: #sessionds{}.
+
+-type clientinfo() :: emqx_types:clientinfo().
+-type conninfo() :: emqx_types:conninfo().
+-type replies() :: emqx_session:replies().
 
 %%
 
-init() ->
-    ?WHEN_ENABLED(begin
-        ok = emqx_ds:ensure_shard(
-            ?DS_SHARD,
-            #{
-                dir => filename:join([
-                    emqx:data_dir(),
-                    ds,
-                    messages,
-                    ?DEFAULT_KEYSPACE,
-                    ?DS_SHARD_ID
-                ])
-            }
-        ),
-        ok = emqx_persistent_session_ds_router:init_tables(),
-        ok
-    end).
+-spec create(clientinfo(), conninfo(), emqx_session:conf()) ->
+    session().
+create(#{clientid := ClientID}, _ConnInfo, Conf) ->
+    #sessionds{
+        id = ClientID,
+        subscriptions = #{},
+        conf = Conf
+    }.
 
-%%
+-spec open(clientinfo(), conninfo()) ->
+    {true, session()} | false.
+open(#{clientid := ClientID}, _ConnInfo) ->
+    open_session(ClientID).
 
--spec persist_message(emqx_types:message()) ->
-    ok | {skipped, _Reason} | {error, _TODO}.
-persist_message(Msg) ->
-    ?WHEN_ENABLED(
-        case needs_persistence(Msg) andalso has_subscribers(Msg) of
-            true ->
-                store_message(Msg);
-            false ->
-                {skipped, needs_no_persistence}
-        end
-    ).
+-spec lookup(emqx_types:clientinfo()) -> none.
+lookup(_ClientInfo) ->
+    'TODO'.
 
-needs_persistence(Msg) ->
-    not (emqx_message:get_flag(dup, Msg) orelse emqx_message:is_sys(Msg)).
+-spec destroy(session() | clientinfo()) -> ok.
+destroy(#{clientid := ClientID}) ->
+    emqx_ds:session_drop(ClientID).
 
-store_message(Msg) ->
-    ID = emqx_message:id(Msg),
-    Timestamp = emqx_guid:timestamp(ID),
-    Topic = emqx_topic:words(emqx_message:topic(Msg)),
-    emqx_ds_storage_layer:store(
-        ?DS_SHARD, ID, Timestamp, Topic, serialize_message(Msg)
-    ).
+%%--------------------------------------------------------------------
+%% Info, Stats
+%%--------------------------------------------------------------------
 
-has_subscribers(#message{topic = Topic}) ->
-    emqx_persistent_session_ds_router:has_any_route(Topic).
+info(Keys, Session) when is_list(Keys) ->
+    [{Key, info(Key, Session)} || Key <- Keys];
+info(id, #sessionds{id = ClientID}) ->
+    ClientID;
+info(clientid, #sessionds{id = ClientID}) ->
+    ClientID;
+% info(created_at, #sessionds{created_at = CreatedAt}) ->
+%     CreatedAt;
+info(is_persistent, #sessionds{}) ->
+    true;
+info(subscriptions, #sessionds{subscriptions = Subs}) ->
+    Subs;
+info(subscriptions_cnt, #sessionds{subscriptions = Subs}) ->
+    maps:size(Subs);
+info(subscriptions_max, #sessionds{conf = Conf}) ->
+    maps:get(max_subscriptions, Conf);
+info(upgrade_qos, #sessionds{conf = Conf}) ->
+    maps:get(upgrade_qos, Conf);
+% info(inflight, #sessmem{inflight = Inflight}) ->
+%     Inflight;
+% info(inflight_cnt, #sessmem{inflight = Inflight}) ->
+%     emqx_inflight:size(Inflight);
+% info(inflight_max, #sessmem{inflight = Inflight}) ->
+%     emqx_inflight:max_size(Inflight);
+info(retry_interval, #sessionds{conf = Conf}) ->
+    maps:get(retry_interval, Conf);
+% info(mqueue, #sessmem{mqueue = MQueue}) ->
+%     MQueue;
+% info(mqueue_len, #sessmem{mqueue = MQueue}) ->
+%     emqx_mqueue:len(MQueue);
+% info(mqueue_max, #sessmem{mqueue = MQueue}) ->
+%     emqx_mqueue:max_len(MQueue);
+% info(mqueue_dropped, #sessmem{mqueue = MQueue}) ->
+%     emqx_mqueue:dropped(MQueue);
+info(next_pkt_id, #sessionds{}) ->
+    _PacketId = 'TODO';
+% info(awaiting_rel, #sessmem{awaiting_rel = AwaitingRel}) ->
+%     AwaitingRel;
+% info(awaiting_rel_cnt, #sessmem{awaiting_rel = AwaitingRel}) ->
+%     maps:size(AwaitingRel);
+info(awaiting_rel_max, #sessionds{conf = Conf}) ->
+    maps:get(max_awaiting_rel, Conf);
+info(await_rel_timeout, #sessionds{conf = Conf}) ->
+    maps:get(await_rel_timeout, Conf).
+
+-spec stats(session()) -> emqx_types:stats().
+stats(Session) ->
+    % TODO: stub
+    info([], Session).
+
+%%--------------------------------------------------------------------
+%% Client -> Broker: SUBSCRIBE / UNSUBSCRIBE
+%%--------------------------------------------------------------------
+
+-spec subscribe(emqx_types:topic(), emqx_types:subopts(), session()) ->
+    {ok, session()} | {error, emqx_types:reason_code()}.
+subscribe(
+    TopicFilter,
+    SubOpts,
+    Session = #sessionds{subscriptions = Subs}
+) when is_map_key(TopicFilter, Subs) ->
+    {ok, Session#sessionds{
+        subscriptions = Subs#{TopicFilter => SubOpts}
+    }};
+subscribe(
+    TopicFilter,
+    SubOpts,
+    Session = #sessionds{id = ClientID, subscriptions = Subs, iterators = Iters}
+) ->
+    % TODO: max_subscriptions
+    IteratorID = add_subscription(TopicFilter, ClientID),
+    {ok, Session#sessionds{
+        subscriptions = Subs#{TopicFilter => SubOpts},
+        iterators = Iters#{TopicFilter => IteratorID}
+    }}.
+
+-spec unsubscribe(emqx_types:topic(), session()) ->
+    {ok, session(), emqx_types:subopts()} | {error, emqx_types:reason_code()}.
+unsubscribe(
+    TopicFilter,
+    Session = #sessionds{id = ClientID, subscriptions = Subs, iterators = Iters}
+) when is_map_key(TopicFilter, Subs) ->
+    IteratorID = maps:get(TopicFilter, Iters),
+    ok = del_subscription(IteratorID, TopicFilter, ClientID),
+    {ok, Session#sessionds{
+        subscriptions = maps:remove(TopicFilter, Subs),
+        iterators = maps:remove(TopicFilter, Iters)
+    }};
+unsubscribe(
+    _TopicFilter,
+    _Session = #sessionds{}
+) ->
+    {error, ?RC_NO_SUBSCRIPTION_EXISTED}.
+
+-spec get_subscription(emqx_types:topic(), session()) ->
+    emqx_types:subopts() | undefined.
+get_subscription(TopicFilter, #sessionds{subscriptions = Subs}) ->
+    maps:get(TopicFilter, Subs, undefined).
+
+%%--------------------------------------------------------------------
+%% Client -> Broker: PUBLISH
+%%--------------------------------------------------------------------
+
+-spec publish(emqx_types:packet_id(), emqx_types:message(), session()) ->
+    {ok, emqx_types:publish_result(), replies(), session()}
+    | {error, emqx_types:reason_code()}.
+publish(_PacketId, Msg, Session) ->
+    % TODO: stub
+    {ok, emqx_broker:publish(Msg), [], Session}.
+
+%%--------------------------------------------------------------------
+%% Client -> Broker: PUBACK
+%%--------------------------------------------------------------------
+
+-spec puback(clientinfo(), emqx_types:packet_id(), session()) ->
+    {ok, emqx_types:message(), replies(), session()}
+    | {error, emqx_types:reason_code()}.
+puback(_ClientInfo, _PacketId, _Session = #sessionds{}) ->
+    % TODO: stub
+    {error, ?RC_PACKET_IDENTIFIER_NOT_FOUND}.
+
+%%--------------------------------------------------------------------
+%% Client -> Broker: PUBREC
+%%--------------------------------------------------------------------
+
+-spec pubrec(emqx_types:packet_id(), session()) ->
+    {ok, emqx_types:message(), session()}
+    | {error, emqx_types:reason_code()}.
+pubrec(_PacketId, _Session = #sessionds{}) ->
+    % TODO: stub
+    {error, ?RC_PACKET_IDENTIFIER_NOT_FOUND}.
+
+%%--------------------------------------------------------------------
+%% Client -> Broker: PUBREL
+%%--------------------------------------------------------------------
+
+-spec pubrel(emqx_types:packet_id(), session()) ->
+    {ok, session()} | {error, emqx_types:reason_code()}.
+pubrel(_PacketId, Session = #sessionds{}) ->
+    % TODO: stub
+    {ok, Session}.
+
+%%--------------------------------------------------------------------
+%% Client -> Broker: PUBCOMP
+%%--------------------------------------------------------------------
+
+-spec pubcomp(clientinfo(), emqx_types:packet_id(), session()) ->
+    {ok, emqx_types:message(), replies(), session()}
+    | {error, emqx_types:reason_code()}.
+pubcomp(_ClientInfo, _PacketId, _Session = #sessionds{}) ->
+    % TODO: stub
+    {error, ?RC_PACKET_IDENTIFIER_NOT_FOUND}.
+
+%%--------------------------------------------------------------------
+
+-spec deliver(clientinfo(), [emqx_types:deliver()], session()) ->
+    {ok, replies(), session()}.
+deliver(_ClientInfo, _Delivers, _Session = #sessionds{}) ->
+    % TODO: ensure it's unreachable somehow
+    error(unexpected).
+
+%%--------------------------------------------------------------------
+
+-spec disconnect(session()) -> {shutdown, session()}.
+disconnect(Session = #sessionds{}) ->
+    {shutdown, Session}.
+
+-spec terminate(Reason :: term(), session()) -> ok.
+terminate(_Reason, _Session = #sessionds{}) ->
+    % TODO: close iterators
+    ok.
+
+%%--------------------------------------------------------------------
 
 open_session(ClientID) ->
-    ?WHEN_ENABLED(emqx_ds:session_open(ClientID)).
+    emqx_ds:session_open(ClientID).
 
 -spec add_subscription(emqx_types:topic(), emqx_ds:session_id()) ->
-    {ok, emqx_ds:iterator_id(), IsNew :: boolean()} | {skipped, disabled}.
+    emqx_ds:iterator_id().
 add_subscription(TopicFilterBin, DSSessionID) ->
-    ?WHEN_ENABLED(
-        begin
-            %% N.B.: we chose to update the router before adding the subscription to the
-            %% session/iterator table.  The reasoning for this is as follows:
-            %%
-            %% Messages matching this topic filter should start to be persisted as soon as
-            %% possible to avoid missing messages.  If this is the first such persistent
-            %% session subscription, it's important to do so early on.
-            %%
-            %% This could, in turn, lead to some inconsistency: if such a route gets
-            %% created but the session/iterator data fails to be updated accordingly, we
-            %% have a dangling route.  To remove such dangling routes, we may have a
-            %% periodic GC process that removes routes that do not have a matching
-            %% persistent subscription.  Also, route operations use dirty mnesia
-            %% operations, which inherently have room for inconsistencies.
-            %%
-            %% In practice, we use the iterator reference table as a source of truth,
-            %% since it is guarded by a transaction context: we consider a subscription
-            %% operation to be successful if it ended up changing this table.  Both router
-            %% and iterator information can be reconstructed from this table, if needed.
-            ok = emqx_persistent_session_ds_router:do_add_route(TopicFilterBin, DSSessionID),
-            TopicFilter = emqx_topic:words(TopicFilterBin),
-            {ok, IteratorID, StartMS, IsNew} = emqx_ds:session_add_iterator(
-                DSSessionID, TopicFilter
-            ),
-            Ctx = #{
-                iterator_id => IteratorID,
-                start_time => StartMS,
-                is_new => IsNew
-            },
-            ?tp(persistent_session_ds_iterator_added, Ctx),
-            ?tp_span(
-                persistent_session_ds_open_iterators,
-                Ctx,
-                ok = open_iterator_on_all_shards(TopicFilter, StartMS, IteratorID)
-            ),
-            {ok, IteratorID, IsNew}
-        end
-    ).
+    % N.B.: we chose to update the router before adding the subscription to the
+    % session/iterator table.  The reasoning for this is as follows:
+    %
+    % Messages matching this topic filter should start to be persisted as soon as
+    % possible to avoid missing messages.  If this is the first such persistent
+    % session subscription, it's important to do so early on.
+    %
+    % This could, in turn, lead to some inconsistency: if such a route gets
+    % created but the session/iterator data fails to be updated accordingly, we
+    % have a dangling route.  To remove such dangling routes, we may have a
+    % periodic GC process that removes routes that do not have a matching
+    % persistent subscription.  Also, route operations use dirty mnesia
+    % operations, which inherently have room for inconsistencies.
+    %
+    % In practice, we use the iterator reference table as a source of truth,
+    % since it is guarded by a transaction context: we consider a subscription
+    % operation to be successful if it ended up changing this table.  Both router
+    % and iterator information can be reconstructed from this table, if needed.
+    ok = emqx_persistent_session_ds_router:do_add_route(TopicFilterBin, DSSessionID),
+    TopicFilter = emqx_topic:words(TopicFilterBin),
+    {ok, IteratorID, StartMS, IsNew} = emqx_ds:session_add_iterator(
+        DSSessionID, TopicFilter
+    ),
+    Ctx = #{
+        iterator_id => IteratorID,
+        start_time => StartMS,
+        is_new => IsNew
+    },
+    ?tp(persistent_session_ds_iterator_added, Ctx),
+    ?tp_span(
+        persistent_session_ds_open_iterators,
+        Ctx,
+        ok = open_iterator_on_all_shards(TopicFilter, StartMS, IteratorID)
+    ),
+    IteratorID.
 
 -spec open_iterator_on_all_shards(emqx_topic:words(), emqx_ds:time(), emqx_ds:iterator_id()) -> ok.
 open_iterator_on_all_shards(TopicFilter, StartMS, IteratorID) ->
@@ -161,45 +345,38 @@ open_iterator_on_all_shards(TopicFilter, StartMS, IteratorID) ->
     Results = emqx_persistent_session_ds_proto_v1:open_iterator(
         Nodes, TopicFilter, StartMS, IteratorID
     ),
-    %% TODO: handle errors
-    true = lists:all(fun(Res) -> Res =:= {ok, ok} end, Results),
+    %% TODO
+    %% 1. Handle errors.
+    %% 2. Iterator handles are rocksdb resources, it's doubtful they survive RPC.
+    %%    Even if they do, we throw them away here anyway. All in all, we probably should
+    %%    hold each of them in a process on the respective node.
+    true = lists:all(fun(Res) -> element(1, Res) =:= ok end, Results),
     ok.
 
 %% RPC target.
 -spec do_open_iterator(emqx_topic:words(), emqx_ds:time(), emqx_ds:iterator_id()) -> ok.
 do_open_iterator(TopicFilter, StartMS, IteratorID) ->
     Replay = {TopicFilter, StartMS},
-    {ok, _It} = emqx_ds_storage_layer:ensure_iterator(?DS_SHARD, IteratorID, Replay),
-    ok.
+    emqx_ds_storage_layer:ensure_iterator(?DS_SHARD, IteratorID, Replay).
 
--spec del_subscription(emqx_types:topic(), emqx_ds:session_id()) ->
-    ok | {skipped, disabled}.
-del_subscription(TopicFilterBin, DSSessionID) ->
-    ?WHEN_ENABLED(
-        begin
-            %% N.B.: see comments in `?MODULE:add_subscription' for a discussion about the
-            %% order of operations here.
-            TopicFilter = emqx_topic:words(TopicFilterBin),
-            case emqx_ds:session_get_iterator_id(DSSessionID, TopicFilter) of
-                {error, not_found} ->
-                    %% already gone
-                    ok;
-                {ok, IteratorID} ->
-                    ?tp_span(
-                        persistent_session_ds_close_iterators,
-                        #{iterator_id => IteratorID},
-                        ok = ensure_iterator_closed_on_all_shards(IteratorID)
-                    )
-            end,
-            ?tp_span(
-                persistent_session_ds_iterator_delete,
-                #{},
-                emqx_ds:session_del_iterator(DSSessionID, TopicFilter)
-            ),
-            ok = emqx_persistent_session_ds_router:do_delete_route(TopicFilterBin, DSSessionID),
-            ok
-        end
-    ).
+-spec del_subscription(emqx_ds:iterator_id() | undefined, emqx_types:topic(), emqx_ds:session_id()) ->
+    ok.
+del_subscription(IteratorID, TopicFilterBin, DSSessionID) ->
+    % N.B.: see comments in `?MODULE:add_subscription' for a discussion about the
+    % order of operations here.
+    TopicFilter = emqx_topic:words(TopicFilterBin),
+    Ctx = #{iterator_id => IteratorID},
+    ?tp_span(
+        persistent_session_ds_close_iterators,
+        Ctx,
+        ok = ensure_iterator_closed_on_all_shards(IteratorID)
+    ),
+    ?tp_span(
+        persistent_session_ds_iterator_delete,
+        Ctx,
+        emqx_ds:session_del_iterator(DSSessionID, TopicFilter)
+    ),
+    ok = emqx_persistent_session_ds_router:do_delete_route(TopicFilterBin, DSSessionID).
 
 -spec ensure_iterator_closed_on_all_shards(emqx_ds:iterator_id()) -> ok.
 ensure_iterator_closed_on_all_shards(IteratorID) ->
@@ -230,16 +407,3 @@ ensure_all_iterators_closed(DSSessionID) ->
 do_ensure_all_iterators_closed(DSSessionID) ->
     ok = emqx_ds_storage_layer:discard_iterator_prefix(?DS_SHARD, DSSessionID),
     ok.
-
-%%
-
-serialize_message(Msg) ->
-    term_to_binary(emqx_message:to_map(Msg)).
-
-deserialize_message(Bin) ->
-    emqx_message:from_map(binary_to_term(Bin)).
-
-%%
-
-is_store_enabled() ->
-    emqx_config:get([persistent_session_store, ds]).
