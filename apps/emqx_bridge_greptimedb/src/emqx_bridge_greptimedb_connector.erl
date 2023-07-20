@@ -129,10 +129,7 @@ fields(common) ->
     [
         {server, server()},
         {precision,
-            %% The greptimedb only supports these 4 precision:
-            %% See "https://github.com/influxdata/greptimedb/blob/
-            %% 6b607288439a991261307518913eb6d4e280e0a7/models/points.go#L487" for
-            %% more information.
+            %% The greptimedb only supports these 4 precision
             mk(enum([ns, us, ms, s]), #{
                 required => false, default => ms, desc => ?DESC("precision")
             })}
@@ -306,12 +303,13 @@ is_auth_key(_) ->
 %% Query
 do_query(InstId, Client, Points) ->
     case greptimedb:write_batch(Client, Points) of
-        {ok, _} ->
+        {ok, #{response := {affected_rows, #{value := Rows}}}} ->
             ?SLOG(debug, #{
                 msg => "greptimedb write point success",
                 connector => InstId,
                 points => Points
-            });
+            }),
+            {ok, {affected_rows, Rows}};
         {error, {unauth, _, _}} ->
             ?tp(greptimedb_connector_do_query_failure, #{error => <<"authorization failure">>}),
             ?SLOG(error, #{
