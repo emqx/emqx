@@ -6,8 +6,6 @@
         kernel,
         stdlib,
         emqx_resource,
-        emqx_bridge,
-        ecql,
         rabbit_common,
         amqp_client
     ]},

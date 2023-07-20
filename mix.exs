@@ -297,6 +297,7 @@ defmodule EMQXUmbrella.MixProject do
         [
           applications: applications(edition_type),
           skip_mode_validation_for: [
+            :emqx_mix,
             :emqx_gateway,
             :emqx_gateway_stomp,
             :emqx_gateway_mqttsn,
@@ -316,7 +317,10 @@ defmodule EMQXUmbrella.MixProject do
             :emqx_auto_subscribe,
             :emqx_slow_subs,
             :emqx_plugins,
-            :emqx_ft
+            :emqx_ft,
+            :emqx_s3,
+            :emqx_durable_storage,
+            :rabbit_common
           ],
           steps: steps,
           strip_beams: false
@@ -326,137 +330,54 @@ defmodule EMQXUmbrella.MixProject do
   end
 
   def applications(edition_type) do
-    system_apps = [
-      crypto: :permanent,
-      public_key: :permanent,
-      asn1: :permanent,
-      syntax_tools: :permanent,
-      ssl: :permanent,
-      os_mon: :permanent,
-      inets: :permanent,
-      compiler: :permanent,
-      runtime_tools: :permanent,
-      redbug: :permanent,
-      xmerl: :permanent,
-      hocon: :load,
-      telemetry: :permanent
-    ]
+    {:ok,
+     [
+       %{
+         db_apps: db_apps,
+         system_apps: system_apps,
+         common_business_apps: common_business_apps,
+         ee_business_apps: ee_business_apps,
+         ce_business_apps: ce_business_apps
+       }
+     ]} = :file.consult("apps/emqx_machine/priv/reboot_lists.eterm")
 
-    db_apps =
-      if enable_rocksdb?() do
-        [:mnesia_rocksdb]
+    edition_specific_apps =
+      if edition_type == :enterprise do
+        ee_business_apps
       else
-        []
-      end ++
-        [
-          :mnesia,
-          :mria,
-          :ekka
-        ]
+        ce_business_apps
+      end
 
-    business_apps =
-      [
-        :emqx,
-        :emqx_conf,
-        :esasl,
-        :observer_cli,
-        :tools,
-        :covertool,
-        :system_monitor,
-        :emqx_utils,
-        :emqx_http_lib,
-        :emqx_resource,
-        :emqx_connector,
-        :emqx_authn,
-        :emqx_authz,
-        :emqx_auto_subscribe,
-        :emqx_gateway,
-        :emqx_gateway_stomp,
-        :emqx_gateway_mqttsn,
-        :emqx_gateway_coap,
-        :emqx_gateway_lwm2m,
-        :emqx_gateway_exproto,
-        :emqx_exhook,
-        :emqx_bridge,
-        :emqx_bridge_mqtt,
-        :emqx_bridge_http,
-        :emqx_rule_engine,
-        :emqx_modules,
-        :emqx_management,
-        :emqx_dashboard,
-        :emqx_retainer,
-        :emqx_prometheus,
-        :emqx_psk,
-        :emqx_slow_subs,
-        :emqx_mongodb,
-        :emqx_redis,
-        :emqx_mysql,
-        :emqx_plugins,
-        :emqx_mix
-      ] ++
-        if enable_quicer?() do
-          [:quicer]
-        else
-          []
-        end ++
-        if enable_bcrypt?() do
-          [:bcrypt]
-        else
-          []
-        end ++
-        if enable_jq?() do
-          [:jq]
-        else
-          []
-        end ++
-        if(is_app(:observer),
-          do: [:observer],
-          else: []
-        ) ++
-        case edition_type do
-          :enterprise ->
-            [
-              :emqx_license,
-              :emqx_enterprise,
-              :emqx_bridge_kafka,
-              :emqx_bridge_pulsar,
-              :emqx_bridge_gcp_pubsub,
-              :emqx_bridge_cassandra,
-              :emqx_bridge_opents,
-              :emqx_bridge_clickhouse,
-              :emqx_bridge_dynamo,
-              :emqx_bridge_hstreamdb,
-              :emqx_bridge_influxdb,
-              :emqx_bridge_iotdb,
-              :emqx_bridge_matrix,
-              :emqx_bridge_mongodb,
-              :emqx_bridge_mysql,
-              :emqx_bridge_pgsql,
-              :emqx_bridge_redis,
-              :emqx_bridge_rocketmq,
-              :emqx_bridge_tdengine,
-              :emqx_bridge_timescale,
-              :emqx_bridge_sqlserver,
-              :emqx_oracle,
-              :emqx_bridge_oracle,
-              :emqx_bridge_rabbitmq,
-              :emqx_schema_registry,
-              :emqx_eviction_agent,
-              :emqx_node_rebalance,
-              :emqx_ft
-            ]
+    business_apps = common_business_apps ++ edition_specific_apps
 
-          _ ->
-            [:emqx_telemetry]
-        end
+    excluded_apps = excluded_apps()
 
-    system_apps ++
-      Enum.map(db_apps, &{&1, :load}) ++
-      [emqx_machine: :permanent] ++
-      Enum.map(business_apps, &{&1, :load})
+    system_apps =
+      Enum.map(system_apps, fn app ->
+        if is_atom(app), do: {app, :permanent}, else: app
+      end)
+
+    db_apps = Enum.map(db_apps, &{&1, :load})
+    business_apps = Enum.map(business_apps, &{&1, :load})
+
+    [system_apps, db_apps, [emqx_machine: :permanent], business_apps]
+    |> List.flatten()
+    |> Keyword.reject(fn {app, _type} -> app in excluded_apps end)
   end
 
-  defp is_app(name) do
+  defp excluded_apps() do
+    %{
+      mnesia_rocksdb: enable_rocksdb?(),
+      quicer: enable_quicer?(),
+      bcrypt: enable_bcrypt?(),
+      jq: enable_jq?(),
+      observer: is_app?(:observer)
+    }
+    |> Enum.reject(&elem(&1, 1))
+    |> Enum.map(&elem(&1, 0))
+  end
+
+  defp is_app?(name) do
     case Application.load(name) do
       :ok ->
         true

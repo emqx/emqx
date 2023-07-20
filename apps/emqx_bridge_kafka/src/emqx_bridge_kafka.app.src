@@ -7,7 +7,6 @@
         kernel,
         stdlib,
         emqx_resource,
-        emqx_bridge,
         telemetry,
         wolff,
         brod,

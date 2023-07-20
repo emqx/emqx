@@ -598,6 +598,7 @@ start_cluster(Cluster) ->
         end,
         Cluster
     ),
+    NumNodes = length(Nodes),
     on_exit(fun() ->
         emqx_utils:pmap(
             fun(N) ->
@@ -607,6 +608,11 @@ start_cluster(Cluster) ->
             Nodes
         )
     end),
+    {ok, _} = snabbkaffe:block_until(
+        %% -1 because only those that join the first node will emit the event.
+        ?match_n_events(NumNodes - 1, #{?snk_kind := emqx_machine_boot_apps_started}),
+        30_000
+    ),
     Nodes.
 
 wait_for_cluster_rpc(Node) ->

@@ -7,7 +7,6 @@
         stdlib,
         emqx_connector,
         emqx_resource,
-        emqx_bridge,
         emqx_mysql
     ]},
     {env, []},
