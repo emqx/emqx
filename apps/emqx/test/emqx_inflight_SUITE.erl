@@ -76,6 +76,17 @@ t_values(_) ->
     ?assertEqual([1, 2], emqx_inflight:values(Inflight)),
     ?assertEqual([{a, 1}, {b, 2}], emqx_inflight:to_list(Inflight)).
 
+t_fold(_) ->
+    Inflight = maps:fold(
+        fun emqx_inflight:insert/3,
+        emqx_inflight:new(),
+        #{a => 1, b => 2, c => 42}
+    ),
+    ?assertEqual(
+        emqx_inflight:fold(fun(_, V, S) -> S + V end, 0, Inflight),
+        lists:foldl(fun({_, V}, S) -> S + V end, 0, emqx_inflight:to_list(Inflight))
+    ).
+
 t_is_full(_) ->
     Inflight = emqx_inflight:insert(k, v, emqx_inflight:new()),
     ?assertNot(emqx_inflight:is_full(Inflight)),
