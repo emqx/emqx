@@ -346,8 +346,7 @@ configs(get, #{query_string := QueryStr, headers := Headers}, _Req) ->
 configs(put, #{body := Conf, query_string := #{<<"mode">> := Mode}}, _Req) ->
     case emqx_conf_cli:load_config(Conf, Mode) of
         ok -> {200};
-        {error, [{_, Reason}]} -> {400, #{code => 'UPDATE_FAILED', message => ?ERR_MSG(Reason)}};
-        {error, Errors} -> {400, #{code => 'UPDATE_FAILED', message => ?ERR_MSG(Errors)}}
+        {error, Msg} -> {400, #{<<"content-type">> => <<"text/plain">>}, Msg}
     end.
 
 find_suitable_accept(Headers, Preferences) when is_list(Preferences), length(Preferences) > 0 ->

@@ -506,7 +506,7 @@ fields(local_status_enabled) ->
             )},
         {"process",
             mk(
-                hoconsc:union([rebalance, evacuation]),
+                hoconsc:enum([rebalance, evacuation]),
                 #{
                     desc => ?DESC(local_status_process),
                     required => true
