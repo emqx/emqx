@@ -706,7 +706,11 @@ code_change(_OldVsn, State, _Extra) ->
 %%--------------------------------------------------------------------
 
 clean_down({ChanPid, ClientId}) ->
-    do_unregister_channel({ClientId, ChanPid}),
+    try
+        do_unregister_channel({ClientId, ChanPid})
+    catch
+        error:badarg -> ok
+    end,
     ok = ?tp(debug, emqx_cm_clean_down, #{client_id => ClientId}).
 
 stats_fun() ->

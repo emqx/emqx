@@ -153,13 +153,17 @@ code_change(_OldVsn, State, _Extra) ->
 %%--------------------------------------------------------------------
 
 clean_down(SubPid) ->
-    case ets:lookup(?SUBMON, SubPid) of
-        [{_, SubId}] ->
-            true = ets:delete(?SUBMON, SubPid),
-            true =
-                (SubId =:= undefined) orelse
-                    ets:delete_object(?SUBID, {SubId, SubPid}),
-            emqx_broker:subscriber_down(SubPid);
-        [] ->
-            ok
+    try
+        case ets:lookup(?SUBMON, SubPid) of
+            [{_, SubId}] ->
+                true = ets:delete(?SUBMON, SubPid),
+                true =
+                    (SubId =:= undefined) orelse
+                        ets:delete_object(?SUBID, {SubId, SubPid}),
+                emqx_broker:subscriber_down(SubPid);
+            [] ->
+                ok
+        end
+    catch
+        error:badarg -> ok
     end.
