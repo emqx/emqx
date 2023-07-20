@@ -87,7 +87,6 @@ init_per_group(GreptimedbType, Config0) when
             emqx_common_test_helpers:reset_proxy(ProxyHost, ProxyPort),
             ok = start_apps(),
             {ok, _} = application:ensure_all_started(emqx_connector),
-            application:ensure_all_started(greptimedb),
             emqx_mgmt_api_test_util:init_suite(),
             Config = [{use_tls, UseTLS} | Config0],
             {Name, ConfigString, GreptimedbConfig} = greptimedb_config(
@@ -416,7 +415,7 @@ t_start_ok(Config) ->
         begin
             case QueryMode of
                 sync ->
-                    ?assertMatch(ok, send_message(Config, SentData))
+                    ?assertMatch({ok, _}, send_message(Config, SentData))
             end,
             PersistedData = query_by_clientid(atom_to_binary(?FUNCTION_NAME), ClientId, Config),
             Expected = #{
@@ -571,7 +570,7 @@ t_const_timestamp(Config) ->
     },
     case QueryMode of
         sync ->
-            ?assertMatch(ok, send_message(Config, SentData))
+            ?assertMatch({ok, _}, send_message(Config, SentData))
     end,
     PersistedData = query_by_clientid(<<"mqtt">>, ClientId, Config),
     Expected = #{foo => 123},
@@ -613,7 +612,7 @@ t_boolean_variants(Config) ->
             },
             case QueryMode of
                 sync ->
-                    ?assertMatch(ok, send_message(Config, SentData))
+                    ?assertMatch({ok, _}, send_message(Config, SentData))
             end,
             case QueryMode of
                 sync -> ok
