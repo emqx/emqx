@@ -162,6 +162,9 @@ delete_all_bridges() ->
 sql_insert_template_for_bridge() ->
     "INSERT INTO mqtt_test(topic, msgid, payload, retain) VALUES (${topic}, ${id}, ${payload}, ${retain})".
 
+sql_insert_template_with_nested_token_for_bridge() ->
+    "INSERT INTO mqtt_test(topic, msgid, payload, retain) VALUES (${topic}, ${id}, ${payload.msg}, ${retain})".
+
 sql_create_table() ->
     "CREATE TABLE mqtt_test (topic VARCHAR2(255), msgid VARCHAR2(64), payload NCLOB, retain NUMBER(1))".
 
@@ -532,6 +535,23 @@ t_start_stop(Config) ->
         end
     ),
     ok.
+
+t_probe_with_nested_tokens(Config) ->
+    ResourceId = resource_id(Config),
+    reset_table(Config),
+    ?assertMatch(
+        {ok, _},
+        create_bridge(Config, #{
+            <<"sql">> => sql_insert_template_with_nested_token_for_bridge()
+        })
+    ),
+    %% Since the connection process is async, we give it some time to
+    %% stabilize and avoid flakiness.
+    ?retry(
+        _Sleep = 1_000,
+        _Attempts = 20,
+        ?assertEqual({ok, connected}, emqx_resource_manager:health_check(ResourceId))
+    ).
 
 t_on_get_status(Config) ->
     ProxyPort = ?config(proxy_port, Config),
