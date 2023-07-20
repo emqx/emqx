@@ -49,6 +49,7 @@ end_per_suite(_Config) ->
         emqx_conf, emqx_bridge, emqx_resource, emqx_rule_engine
     ]),
     _ = application:stop(emqx_connector),
+    _ = application:stop(greptimedb),
     ok.
 
 init_per_group(GreptimedbType, Config0) when
@@ -87,6 +88,7 @@ init_per_group(GreptimedbType, Config0) when
             emqx_common_test_helpers:reset_proxy(ProxyHost, ProxyPort),
             ok = start_apps(),
             {ok, _} = application:ensure_all_started(emqx_connector),
+            {ok, _} = application:ensure_all_started(greptimedb),
             emqx_mgmt_api_test_util:init_suite(),
             Config = [{use_tls, UseTLS} | Config0],
             {Name, ConfigString, GreptimedbConfig} = greptimedb_config(
