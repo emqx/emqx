@@ -160,7 +160,8 @@ is_app(Name) ->
     end.
 
 sorted_reboot_apps() ->
-    Apps = [{App, app_deps(App)} || App <- reboot_apps()],
+    Apps0 = [{App, app_deps(App)} || App <- reboot_apps()],
+    Apps = inject_bridge_deps(Apps0),
     sorted_reboot_apps(Apps).
 
 app_deps(App) ->
@@ -168,6 +169,25 @@ app_deps(App) ->
         undefined -> undefined;
         {ok, List} -> lists:filter(fun(A) -> lists:member(A, reboot_apps()) end, List)
     end.
+
+%% `emqx_bridge' is special in that it needs all the bridges apps to
+%% be started before it, so that, when it loads the bridges from
+%% configuration, the bridge app and its dependencies need to be up.
+inject_bridge_deps(RebootAppDeps) ->
+    BridgeApps = [
+        App
+     || {App, _Deps} <- RebootAppDeps,
+        lists:prefix("emqx_bridge_", atom_to_list(App))
+    ],
+    lists:map(
+        fun
+            ({emqx_bridge, Deps0}) when is_list(Deps0) ->
+                {emqx_bridge, Deps0 ++ BridgeApps};
+            (App) ->
+                App
+        end,
+        RebootAppDeps
+    ).
 
 sorted_reboot_apps(Apps) ->
     G = digraph:new(),
