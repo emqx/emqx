@@ -272,7 +272,7 @@ remove_subscription(_TopicFilter, _SessionID, false = _IsPersistent) ->
 %% Must be called inside a emqx_cm_locker transaction.
 -spec resume(emqx_types:clientinfo(), emqx_types:conninfo(), emqx_session:session()) ->
     {emqx_session:session(), [emqx_types:deliver()]}.
-resume(ClientInfo = #{clientid := ClientID}, ConnInfo, Session) ->
+resume(ClientInfo, ConnInfo, Session) ->
     SessionID = emqx_session:info(id, Session),
     ?tp(ps_resuming, #{from => db, sid => SessionID}),
 
@@ -281,7 +281,6 @@ resume(ClientInfo = #{clientid := ClientID}, ConnInfo, Session) ->
     %% 1. Get pending messages from DB.
     ?tp(ps_initial_pendings, #{sid => SessionID}),
     Pendings1 = pending(SessionID),
-    Pendings2 = emqx_session:ignore_local(ClientInfo, Pendings1, ClientID, Session),
     ?tp(ps_got_initial_pendings, #{
         sid => SessionID,
         msgs => Pendings1
@@ -290,11 +289,11 @@ resume(ClientInfo = #{clientid := ClientID}, ConnInfo, Session) ->
     %% 2. Enqueue messages to mimic that the process was alive
     %%    when the messages were delivered.
     ?tp(ps_persist_pendings, #{sid => SessionID}),
-    Session1 = emqx_session:enqueue(ClientInfo, Pendings2, Session),
+    Session1 = emqx_session:enqueue(ClientInfo, Pendings1, Session),
     Session2 = persist(ClientInfo, ConnInfo, Session1),
-    mark_as_delivered(SessionID, Pendings2),
+    mark_as_delivered(SessionID, Pendings1),
     ?tp(ps_persist_pendings_msgs, #{
-        msgs => Pendings2,
+        msgs => Pendings1,
         sid => SessionID
     }),
 
@@ -312,11 +311,10 @@ resume(ClientInfo = #{clientid := ClientID}, ConnInfo, Session) ->
     %% 5. Get pending messages from DB until we find all markers.
     ?tp(ps_marker_pendings, #{sid => SessionID}),
     MarkerIDs = [Marker || {_, Marker} <- NodeMarkers],
-    Pendings3 = pending(SessionID, MarkerIDs),
-    Pendings4 = emqx_session:ignore_local(ClientInfo, Pendings3, ClientID, Session),
+    Pendings2 = pending(SessionID, MarkerIDs),
     ?tp(ps_marker_pendings_msgs, #{
         sid => SessionID,
-        msgs => Pendings4
+        msgs => Pendings2
     }),
 
     %% 6. Get pending messages from writers.
@@ -329,7 +327,7 @@ resume(ClientInfo = #{clientid := ClientID}, ConnInfo, Session) ->
 
     %% 7. Drain the inbox and usort the messages
     %%    with the pending messages. (Should be done by caller.)
-    {Session2, Pendings4 ++ WriterPendings}.
+    {Session2, Pendings2 ++ WriterPendings}.
 
 resume_begin(Nodes, SessionID) ->
     Res = emqx_persistent_session_proto_v1:resume_begin(Nodes, self(), SessionID),
