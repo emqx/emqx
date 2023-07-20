@@ -341,16 +341,6 @@ defmodule EMQXUmbrella.MixProject do
        }
      ]} = :file.consult("apps/emqx_machine/priv/reboot_lists.eterm")
 
-    db_apps = filter(db_apps, %{mnesia_rocksdb: enable_rocksdb?()})
-
-    common_business_apps =
-      filter(common_business_apps, %{
-        quicer: enable_quicer?(),
-        bcrypt: enable_bcrypt?(),
-        jq: enable_jq?(),
-        observer: is_app?(:observer)
-      })
-
     edition_specific_apps =
       if edition_type == :enterprise do
         ee_business_apps
@@ -360,24 +350,31 @@ defmodule EMQXUmbrella.MixProject do
 
     business_apps = common_business_apps ++ edition_specific_apps
 
-    Enum.map(system_apps, fn app ->
-      if is_atom(app), do: {app, :permanent}, else: app
-    end) ++
-      Enum.map(db_apps, &{&1, :load}) ++
-      [emqx_machine: :permanent] ++
-      Enum.map(business_apps, &{&1, :load})
+    excluded_apps = excluded_apps()
+
+    system_apps =
+      Enum.map(system_apps, fn app ->
+        if is_atom(app), do: {app, :permanent}, else: app
+      end)
+
+    db_apps = Enum.map(db_apps, &{&1, :load})
+    business_apps = Enum.map(business_apps, &{&1, :load})
+
+    [system_apps, db_apps, [emqx_machine: :permanent], business_apps]
+    |> List.flatten()
+    |> Keyword.reject(fn {app, _type} -> app in excluded_apps end)
   end
 
-  defp filter(apps, filters) do
-    Enum.filter(apps, fn app ->
-      app_name =
-        case app do
-          {app_name, _type} -> app_name
-          app_name when is_atom(app_name) -> app_name
-        end
-
-      Map.get(filters, app_name, true)
-    end)
+  defp excluded_apps() do
+    %{
+      mnesia_rocksdb: enable_rocksdb?(),
+      quicer: enable_quicer?(),
+      bcrypt: enable_bcrypt?(),
+      jq: enable_jq?(),
+      observer: is_app?(:observer)
+    }
+    |> Enum.reject(&elem(&1, 1))
+    |> Enum.map(&elem(&1, 0))
   end
 
   defp is_app?(name) do

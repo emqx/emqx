@@ -388,45 +388,35 @@ overlay_vars_pkg(pkg) ->
 relx_apps(ReleaseType, Edition) ->
     {ok, [
         #{
-            db_apps := DBApps0,
+            db_apps := DBApps,
             system_apps := SystemApps,
-            common_business_apps := CommonBusinessApps0,
+            common_business_apps := CommonBusinessApps,
             ee_business_apps := EEBusinessApps,
             ce_business_apps := CEBusinessApps
         }
     ]} = file:consult("apps/emqx_machine/priv/reboot_lists.eterm"),
-    DBApps = filter(DBApps0, #{mnesia_rocksdb => is_rocksdb_supported()}),
-    CommonBusinessApps =
-        filter(CommonBusinessApps0, #{
-            quicer => is_quicer_supported(),
-            bcrypt => provide_bcrypt_release(ReleaseType),
-            jq => is_jq_supported(),
-            observer => is_app(observer)
-        }),
     EditionSpecificApps =
         case Edition of
             ee -> EEBusinessApps;
             ce -> CEBusinessApps
         end,
     BusinessApps = CommonBusinessApps ++ EditionSpecificApps,
+    ExcludedApps = excluded_apps(ReleaseType),
     SystemApps ++
         %% EMQX starts the DB and the business applications:
-        [{App, load} || App <- DBApps] ++
+        [{App, load} || App <- (DBApps -- ExcludedApps)] ++
         [emqx_machine] ++
-        [{App, load} || App <- BusinessApps].
+        [{App, load} || App <- (BusinessApps -- ExcludedApps)].
 
-filter(AppList, Filters) ->
-    lists:filter(
-        fun(App) ->
-            AppName =
-                case App of
-                    {Name, _Type} -> Name;
-                    Name when is_atom(Name) -> Name
-                end,
-            maps:get(AppName, Filters, true)
-        end,
-        AppList
-    ).
+excluded_apps(ReleaseType) ->
+    OptionalApps = [
+        {quicer, is_quicer_supported()},
+        {bcrypt, provide_bcrypt_release(ReleaseType)},
+        {jq, is_jq_supported()},
+        {observer, is_app(observer)},
+        {mnesia_rocksdb, is_rocksdb_supported()}
+    ],
+    [App || {App, false} <- OptionalApps].
 
 is_app(Name) ->
     case application:load(Name) of

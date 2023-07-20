@@ -133,25 +133,11 @@ basic_reboot_apps() ->
     RebootListPath = filename:join([PrivDir, "reboot_lists.eterm"]),
     {ok, [
         #{
-            common_business_apps := CommonBusinessApps0,
+            common_business_apps := CommonBusinessApps,
             ee_business_apps := EEBusinessApps,
             ce_business_apps := CEBusinessApps
         }
     ]} = file:consult(RebootListPath),
-    Filters0 = maps:from_list([
-        {App, is_app(App)}
-     || App <- [quicer, bcrypt, jq, observer]
-    ]),
-    CommonBusinessApps =
-        filter(
-            CommonBusinessApps0,
-            %% We don't need to restart these
-            Filters0#{
-                system_monitor => false,
-                observer => false,
-                quicer => false
-            }
-        ),
     EditionSpecificApps =
         case emqx_release:edition() of
             ee -> EEBusinessApps;
@@ -159,25 +145,12 @@ basic_reboot_apps() ->
             _ -> []
         end,
     BusinessApps = CommonBusinessApps ++ EditionSpecificApps,
-    ?BASIC_REBOOT_APPS ++ BusinessApps.
+    ?BASIC_REBOOT_APPS ++ (BusinessApps -- excluded_apps()).
 
-filter(AppList, Filters) ->
-    lists:foldr(
-        fun(App, Acc) ->
-            AppName =
-                case App of
-                    {Name, _Type} -> Name;
-                    Name when is_atom(Name) -> Name
-                end,
-            ShouldKeep = maps:get(AppName, Filters, true),
-            case ShouldKeep of
-                true -> [App | Acc];
-                false -> Acc
-            end
-        end,
-        [],
-        AppList
-    ).
+excluded_apps() ->
+    OptionalApps = [bcrypt, jq, observer],
+    [system_monitor, observer_cli] ++
+        [App || App <- OptionalApps, not is_app(App)].
 
 is_app(Name) ->
     case application:load(Name) of
