@@ -824,7 +824,7 @@ reply_dropped(_ReplyTo = {Fn, Args, #{reply_dropped := true}}, Result) when
     is_function(Fn), is_list(Args)
 ->
     %% We want to avoid bumping metrics inside the buffer worker, since it's costly.
-    spawn(fun() -> erlang:apply(Fn, Args ++ [Result]) end),
+    emqx_pool:async_submit(Fn, Args ++ [Result]),
     ok;
 reply_dropped(_ReplyTo, _Result) ->
     ok.
