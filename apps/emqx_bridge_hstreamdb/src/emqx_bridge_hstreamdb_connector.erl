@@ -309,6 +309,13 @@ do_append_records(false, Producer, Record) ->
                 msg => "HStreamDB producer sync append success",
                 record => Record
             });
+        %% the HStream is warming up or buzy, something are not ready yet, retry after a while
+        {error, {unavailable, _} = Reason} ->
+            {error,
+                {recoverable_error, #{
+                    msg => "HStreamDB is warming up or buzy, will retry after a moment",
+                    reason => Reason
+                }}};
         {error, Reason} = Err ->
             ?tp(
                 hstreamdb_connector_query_return,

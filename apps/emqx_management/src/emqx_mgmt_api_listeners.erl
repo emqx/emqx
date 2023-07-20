@@ -515,7 +515,7 @@ list_listeners() ->
     lists:map(fun list_listeners/1, [Self | lists:delete(Self, emqx:running_nodes())]).
 
 list_listeners(Node) ->
-    wrap_rpc(emqx_management_proto_v2:list_listeners(Node)).
+    wrap_rpc(emqx_management_proto_v4:list_listeners(Node)).
 
 listener_status_by_id(NodeL) ->
     Listeners = maps:to_list(listener_status_by_id(NodeL, #{})),

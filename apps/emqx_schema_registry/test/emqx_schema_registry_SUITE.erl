@@ -364,11 +364,7 @@ cluster(Config) ->
             {load_schema, true},
             {start_autocluster, true},
             {schema_mod, emqx_enterprise_schema},
-            %% need to restart schema registry app in the tests so
-            %% that it re-registers the config handler that is lost
-            %% when emqx_conf restarts during join.
-            {env, [{emqx_machine, applications, [emqx_schema_registry]}]},
-            {load_apps, [emqx_machine | ?APPS]},
+            {load_apps, [emqx_machine]},
             {env_handler, fun
                 (emqx) ->
                     application:set_env(emqx, boot_modules, [broker, router]),
@@ -388,6 +384,7 @@ start_cluster(Cluster) ->
         emqx_common_test_helpers:start_slave(Name, Opts)
      || {Name, Opts} <- Cluster
     ],
+    NumNodes = length(Nodes),
     on_exit(fun() ->
         emqx_utils:pmap(
             fun(N) ->
@@ -397,7 +394,11 @@ start_cluster(Cluster) ->
             Nodes
         )
     end),
-    erpc:multicall(Nodes, mria_rlog, wait_for_shards, [[?SCHEMA_REGISTRY_SHARD], 30_000]),
+    {ok, _} = snabbkaffe:block_until(
+        %% -1 because only those that join the first node will emit the event.
+        ?match_n_events(NumNodes - 1, #{?snk_kind := emqx_machine_boot_apps_started}),
+        30_000
+    ),
     Nodes.
 
 wait_for_cluster_rpc(Node) ->
@@ -658,7 +659,7 @@ t_cluster_serde_build(Config) ->
             Nodes = [N1, N2 | _] = start_cluster(Cluster),
             NumNodes = length(Nodes),
             wait_for_cluster_rpc(N2),
-            ?assertEqual(
+            ?assertMatch(
                 ok,
                 erpc:call(N2, emqx_schema_registry, add_schema, [SerdeName, Schema])
             ),
@@ -687,7 +688,7 @@ t_cluster_serde_build(Config) ->
             {ok, SRef1} = snabbkaffe:subscribe(
                 ?match_event(#{?snk_kind := schema_registry_serdes_deleted}),
                 NumNodes,
-                5_000
+                10_000
             ),
             ?assertEqual(
                 ok,

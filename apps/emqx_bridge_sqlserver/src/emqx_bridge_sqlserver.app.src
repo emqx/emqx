@@ -2,7 +2,7 @@
     {description, "EMQX Enterprise SQL Server Bridge"},
     {vsn, "0.1.2"},
     {registered, []},
-    {applications, [kernel, stdlib, emqx_resource, emqx_bridge, odbc]},
+    {applications, [kernel, stdlib, emqx_resource, odbc]},
     {env, []},
     {modules, []},
     {links, []}

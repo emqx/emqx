@@ -5,8 +5,7 @@
     {applications, [
         kernel,
         stdlib,
-        emqx_resource,
-        emqx_bridge
+        emqx_resource
     ]},
     {env, []},
     {modules, []},

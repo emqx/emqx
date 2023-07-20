@@ -346,11 +346,10 @@ configs(get, #{query_string := QueryStr, headers := Headers}, _Req) ->
 configs(put, #{body := Conf, query_string := #{<<"mode">> := Mode}}, _Req) ->
     case emqx_conf_cli:load_config(Conf, Mode) of
         ok -> {200};
-        {error, [{_, Reason}]} -> {400, #{code => 'UPDATE_FAILED', message => ?ERR_MSG(Reason)}};
-        {error, Errors} -> {400, #{code => 'UPDATE_FAILED', message => ?ERR_MSG(Errors)}}
+        {error, Msg} -> {400, #{<<"content-type">> => <<"text/plain">>}, Msg}
     end.
 
-find_suitable_accept(Headers, Perferences) when is_list(Perferences), length(Perferences) > 0 ->
+find_suitable_accept(Headers, Preferences) when is_list(Preferences), length(Preferences) > 0 ->
     AcceptVal = maps:get(<<"accept">>, Headers, <<"*/*">>),
     %% Multiple types, weighted with the quality value syntax:
     %% Accept: text/html, application/xhtml+xml, application/xml;q=0.9, image/webp, */*;q=0.8
@@ -363,20 +362,27 @@ find_suitable_accept(Headers, Perferences) when is_list(Perferences), length(Per
     ),
     case lists:member(<<"*/*">>, Accepts) of
         true ->
-            {ok, lists:nth(1, Perferences)};
+            {ok, lists:nth(1, Preferences)};
         false ->
-            Found = lists:filter(fun(Accept) -> lists:member(Accept, Accepts) end, Perferences),
+            Found = lists:filter(fun(Accept) -> lists:member(Accept, Accepts) end, Preferences),
             case Found of
-                [] -> {error, no_suitalbe_accept};
+                [] -> {error, no_suitable_accept};
                 _ -> {ok, lists:nth(1, Found)}
             end
     end.
 
+%% To return a JSON formatted configuration file, which is used to be compatible with the already
+%% implemented `GET /configs` in the old versions 5.0 and 5.1.
+%%
+%% In e5.1.1, we support to return a hocon configuration file by `get_configs_v2/1`. It's more
+%% useful for the user to read or reload the configuration file via HTTP API.
+%%
+%% The `get_configs_v1/1` should be deprecated since 5.2.0.
 get_configs_v1(QueryStr) ->
     Node = maps:get(<<"node">>, QueryStr, node()),
     case
         lists:member(Node, emqx:running_nodes()) andalso
-            emqx_management_proto_v2:get_full_config(Node)
+            emqx_management_proto_v4:get_full_config(Node)
     of
         false ->
             Message = list_to_binary(io_lib:format("Bad node ~p, reason not found", [Node])),
@@ -389,10 +395,13 @@ get_configs_v1(QueryStr) ->
     end.
 
 get_configs_v2(QueryStr) ->
+    Node = maps:get(<<"node">>, QueryStr, node()),
     Conf =
         case maps:find(<<"key">>, QueryStr) of
-            error -> emqx_conf_cli:get_config();
-            {ok, Key} -> emqx_conf_cli:get_config(atom_to_binary(Key))
+            error ->
+                emqx_conf_proto_v3:get_hocon_config(Node);
+            {ok, Key} ->
+                emqx_conf_proto_v3:get_hocon_config(Node, atom_to_binary(Key))
         end,
     {
         200,
