@@ -270,25 +270,37 @@ check_res(Node, Key, {ok, _}, _Conf, _Mode) ->
     emqx_ctl:print("load ~ts on ~p ok~n", [Key, Node]),
     ok;
 check_res(_Node, Key, {error, Reason}, Conf, Mode) ->
-    Warning = io_lib:format("~ts ~ts failed~n~p~n", [Mode, Key, Reason]),
-    emqx_ctl:warning(Warning, []),
-    ActiveMsg = "--------active configuration--------\n",
-    Active = hocon_pp:do(#{Key => emqx_conf:get_raw([Key])}, #{}),
-    FailedMsg = io_lib:format("--------failed to ~ts with----------~n", [Mode]),
-    New = hocon_pp:do(#{Key => Conf}, #{}),
+    Warning =
+        "Can't ~ts the new configurations!~n"
+        "Root key: ~ts~n"
+        "Reason: ~p~n",
+    emqx_ctl:warning(Warning, [Mode, Key, Reason]),
+    ActiveMsg0 =
+        "The effective configurations:~n"
+        "```~n"
+        "~ts```~n~n",
+    ActiveMsg = io_lib:format(ActiveMsg0, [hocon_pp:do(#{Key => emqx_conf:get_raw([Key])}, #{})]),
+    FailedMsg0 =
+        "Try to ~ts with:~n"
+        "```~n"
+        "~ts```~n",
+    FailedMsg = io_lib:format(FailedMsg0, [Mode, hocon_pp:do(#{Key => Conf}, #{})]),
     SuggestMsg = suggest_msg(Mode),
-    Msg = iolist_to_binary([ActiveMsg, Active, FailedMsg, New, SuggestMsg]),
+    Msg = iolist_to_binary([ActiveMsg, FailedMsg, SuggestMsg]),
     emqx_ctl:print("~ts", [Msg]),
     {error, iolist_to_binary([Warning, Msg])}.
 
-suggest_msg(merge) ->
-    "Merge conflict with the active Key.\n"
-    "Suggest to use the replace option to completely replace the configuration,\n"
-    "instead of merging conflict.\n\n";
-suggest_msg(replace) ->
-    "Replace failed with an incomplete configuration.\n"
-    "Suggest to use the merge option to only update sub configuration,\n"
-    "instead of replacing with an incomplete configuration.\n\n".
+suggest_msg(Mode) when Mode == merge orelse Mode == replace ->
+    RetryMode =
+        case Mode of
+            merge -> "replace";
+            replace -> "merge"
+        end,
+    io_lib:format(
+        "Tips: There may be some conflicts in the new configuration under `~ts` mode,~n"
+        "Please retry with the `~ts` mode.~n",
+        [Mode, RetryMode]
+    ).
 
 check_config(Conf) ->
     case check_keys_is_not_readonly(Conf) of
