@@ -81,7 +81,7 @@ on_query(InstId, {send_message, Data}, _State = #{write_syntax := SyntaxLines, c
                 #{batch => false, mode => sync, error => ErrorPoints}
             ),
             log_error_points(InstId, ErrorPoints),
-            ErrorPoints
+            {error, ErrorPoints}
     end.
 
 %% Once a Batched Data trans to points failed.
@@ -463,7 +463,7 @@ parse_timestamp([TsBin]) ->
 
 continue_lines_to_points(Data, Item, Rest, ResultPointsAcc, ErrorPointsAcc) ->
     case line_to_point(Data, Item) of
-        #{fields := Fields} when map_size(Fields) =:= 0 ->
+        {_, [#{fields := Fields}]} when map_size(Fields) =:= 0 ->
             %% greptimedb client doesn't like empty field maps...
             ErrorPointsAcc1 = [{error, no_fields} | ErrorPointsAcc],
             lines_to_points(Data, Rest, ResultPointsAcc, ErrorPointsAcc1);
