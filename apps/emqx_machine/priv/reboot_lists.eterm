@@ -39,6 +39,7 @@
             %% started by emqx_machine
             system_monitor,
             emqx_utils,
+            emqx_durable_storage,
             emqx_http_lib,
             emqx_resource,
             emqx_connector,
