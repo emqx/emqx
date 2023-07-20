@@ -151,7 +151,7 @@
 info(Channel) ->
     maps:from_list(info(?INFO_KEYS, Channel)).
 
--spec info(list(atom()) | atom(), channel()) -> term().
+-spec info(list(atom()) | atom() | tuple(), channel()) -> term().
 info(Keys, Channel) when is_list(Keys) ->
     [{Key, info(Key, Channel)} || Key <- Keys];
 info(conninfo, #channel{conninfo = ConnInfo}) ->
@@ -180,6 +180,8 @@ info(username, #channel{clientinfo = ClientInfo}) ->
     maps:get(username, ClientInfo, undefined);
 info(session, #channel{session = Session}) ->
     maybe_apply(fun emqx_session:info/1, Session);
+info({session, Info}, #channel{session = Session}) ->
+    maybe_apply(fun(S) -> emqx_session:info(Info, S) end, Session);
 info(conn_state, #channel{conn_state = ConnState}) ->
     ConnState;
 info(keepalive, #channel{keepalive = Keepalive}) ->
@@ -1195,8 +1197,6 @@ handle_call(
     ChanInfo1 = info(NChannel),
     emqx_cm:set_chan_info(ClientId, ChanInfo1#{sockinfo => SockInfo}),
     reply(ok, reset_timer(alive_timer, NChannel));
-handle_call(get_mqueue, Channel) ->
-    reply({ok, get_mqueue(Channel)}, Channel);
 handle_call(Req, Channel) ->
     ?SLOG(error, #{msg => "unexpected_call", call => Req}),
     reply(ignored, Channel).
@@ -2240,6 +2240,3 @@ get_mqtt_conf(Zone, Key, Default) ->
 set_field(Name, Value, Channel) ->
     Pos = emqx_utils:index_of(Name, record_info(fields, channel)),
     setelement(Pos + 1, Channel, Value).
-
-get_mqueue(#channel{session = Session}) ->
-    emqx_session:get_mqueue(Session).
