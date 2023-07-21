@@ -271,7 +271,7 @@ protocol_config(
     } = Config
 ) ->
     [
-        {dbname, DbName}
+        {dbname, str(DbName)}
     ] ++ auth(Config) ++
         ssl_config(SSL).
 
@@ -288,7 +288,7 @@ ssl_config(SSL = #{enable := true}) ->
 
 auth(#{username := Username, password := Password}) ->
     [
-        {auth, {basic, #{username => Username, password => Password}}}
+        {auth, {basic, #{username => str(Username), password => str(Password)}}}
     ];
 auth(_) ->
     [].
@@ -397,8 +397,6 @@ parse_batch_data(InstId, BatchData, SyntaxLines) ->
                     {[Points | ListOfPoints], ErrAccIn};
                 {error, ErrorPoints} ->
                     log_error_points(InstId, ErrorPoints),
-                    {ListOfPoints, ErrAccIn + 1};
-                _ ->
                     {ListOfPoints, ErrAccIn + 1}
             end
         end,
