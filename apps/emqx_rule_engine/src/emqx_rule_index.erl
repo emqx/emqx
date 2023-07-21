@@ -29,25 +29,24 @@
 %% 1. Which topic filters match given topic?
 %% 2. Which record IDs are associated with topic filters matching given topic?
 
--module(emqx_topic_index).
+-module(emqx_rule_index).
 
--export([new/0]).
 -export([insert/4]).
 -export([delete/3]).
 -export([match/2]).
 -export([matches/2]).
 
--export([get_id/1]).
--export([get_topic/1]).
 -export([get_record/2]).
 
 -type key(ID) :: [binary() | '+' | '#' | {ID}].
 -type match(ID) :: key(ID).
 
-new() ->
-    ets:new(?MODULE, [public, ordered_set, {write_concurrency, true}]).
+-ifdef(TEST).
+-export_type([match/1]).
+-endif.
 
 insert(Filter, ID, Record, Tab) ->
+    %% TODO: topic compact. see also in emqx_trie.erl
     ets:insert(Tab, {emqx_topic:words(Filter) ++ [{ID}], Record}).
 
 delete(Filter, ID, Tab) ->
@@ -135,21 +134,6 @@ match_init(Topic) ->
         Words ->
             {Words, []}
     end.
-
--spec get_id(match(ID)) -> ID.
-get_id([{ID}]) ->
-    ID;
-get_id([_ | Rest]) ->
-    get_id(Rest).
-
--spec get_topic(match(_ID)) -> emqx_types:topic().
-get_topic(K) ->
-    emqx_topic:join(cut_topic(K)).
-
-cut_topic([{_ID}]) ->
-    [];
-cut_topic([W | Rest]) ->
-    [W | cut_topic(Rest)].
 
 -spec get_record(match(_ID), ets:table()) -> _Record.
 get_record(K, Tab) ->

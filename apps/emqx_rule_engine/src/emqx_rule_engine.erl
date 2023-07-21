@@ -225,12 +225,13 @@ get_rules_ordered_by_ts() ->
 -spec get_rules_for_topic(Topic :: binary()) -> [rule()].
 get_rules_for_topic(Topic) ->
     [
-        emqx_topic_index:get_record(M, ?RULE_TOPIC_INDEX)
-     || M <- emqx_topic_index:matches(Topic, ?RULE_TOPIC_INDEX)
+        emqx_rule_index:get_record(M, ?RULE_TOPIC_INDEX)
+     || M <- emqx_rule_index:matches(Topic, ?RULE_TOPIC_INDEX)
     ].
 
 -spec get_rules_with_same_event(Topic :: binary()) -> [rule()].
 get_rules_with_same_event(Topic) ->
+    %% TODO: event matching index not implemented yet
     EventName = emqx_rule_events:event_name(Topic),
     [
         Rule
@@ -240,6 +241,7 @@ get_rules_with_same_event(Topic) ->
 
 -spec get_rule_ids_by_action(action_name()) -> [rule_id()].
 get_rule_ids_by_action(BridgeId) when is_binary(BridgeId) ->
+    %% TODO: bridge matching index not implemented yet
     [
         Id
      || #{actions := Acts, id := Id, from := Froms} <- get_rules(),
@@ -247,6 +249,7 @@ get_rule_ids_by_action(BridgeId) when is_binary(BridgeId) ->
             references_ingress_bridge(Froms, BridgeId)
     ];
 get_rule_ids_by_action(#{function := FuncName}) when is_binary(FuncName) ->
+    %% TODO: action id matching index not implemented yet
     {Mod, Fun} =
         case string:split(FuncName, ":", leading) of
             [M, F] -> {binary_to_module(M), F};
@@ -495,7 +498,7 @@ do_delete_rule(#{id := Id} = Rule) ->
 do_update_rule_index(#{id := Id, from := From} = Rule) ->
     ok = lists:foreach(
         fun(Topic) ->
-            true = emqx_topic_index:insert(Topic, Id, Rule, ?RULE_TOPIC_INDEX)
+            true = emqx_rule_index:insert(Topic, Id, Rule, ?RULE_TOPIC_INDEX)
         end,
         From
     ).
@@ -503,7 +506,7 @@ do_update_rule_index(#{id := Id, from := From} = Rule) ->
 do_delete_rule_index(#{id := Id, from := From}) ->
     ok = lists:foreach(
         fun(Topic) ->
-            true = emqx_topic_index:delete(Topic, Id, ?RULE_TOPIC_INDEX)
+            true = emqx_rule_index:delete(Topic, Id, ?RULE_TOPIC_INDEX)
         end,
         From
     ).
