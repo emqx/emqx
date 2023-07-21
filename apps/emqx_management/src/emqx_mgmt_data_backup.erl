@@ -57,7 +57,8 @@
     <<"flapping_detect">>,
     <<"broker">>,
     <<"force_gc">>,
-    <<"zones">>
+    <<"zones">>,
+    <<"slow_subs">>
 ]).
 
 -define(DEFAULT_OPTS, #{}).
