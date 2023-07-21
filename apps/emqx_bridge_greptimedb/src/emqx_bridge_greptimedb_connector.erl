@@ -32,7 +32,9 @@
 ]).
 
 %% only for test
+-ifdef(TEST).
 -export([is_unrecoverable_error/1]).
+-endif.
 
 -type ts_precision() :: ns | us | ms | s.
 
@@ -186,8 +188,8 @@ start_client(InstId, Config) ->
                 msg => "start greptimedb connector error",
                 connector => InstId,
                 error => E,
-                reason => R,
-                stack => S
+                reason => emqx_utils:redact(R),
+                stack => emqx_utils:redact(S)
             }),
             {error, R}
     end.
@@ -342,7 +344,7 @@ to_config(Lines, Precision) ->
 to_config([], Acc, _Precision) ->
     lists:reverse(Acc);
 to_config([Item0 | Rest], Acc, Precision) ->
-    Ts0 = maps:get(timestamp, Item0, undefined),
+    Ts0 = maps:get(timestamp, Item0, ?DEFAULT_TIMESTAMP_TMPL),
     {Ts, FromPrecision, ToPrecision} = preproc_tmpl_timestamp(Ts0, Precision),
     Item = #{
         measurement => emqx_placeholder:preproc_tmpl(maps:get(measurement, Item0)),
@@ -374,7 +376,11 @@ preproc_tmpl_timestamp(Ts, Precision) when is_binary(Ts) ->
     {emqx_placeholder:preproc_tmpl(Ts), Precision, Precision}.
 
 to_kv_config(KVfields) ->
-    maps:fold(fun to_maps_config/3, #{}, proplists:to_map(KVfields)).
+    lists:foldl(
+        fun({K, V}, Acc) -> to_maps_config(K, V, Acc) end,
+        #{},
+        KVfields
+    ).
 
 to_maps_config(K, V, Res) ->
     NK = emqx_placeholder:preproc_tmpl(bin(K)),
@@ -391,6 +397,8 @@ parse_batch_data(InstId, BatchData, SyntaxLines) ->
                     {[Points | ListOfPoints], ErrAccIn};
                 {error, ErrorPoints} ->
                     log_error_points(InstId, ErrorPoints),
+                    {ListOfPoints, ErrAccIn + 1};
+                _ ->
                     {ListOfPoints, ErrAccIn + 1}
             end
         end,
@@ -522,8 +530,6 @@ value_type([UInt, <<"u">>]) when
     is_integer(UInt)
 ->
     greptimedb_values:uint64_value(UInt);
-value_type([Float]) when is_float(Float) ->
-    Float;
 value_type([<<"t">>]) ->
     greptimedb_values:boolean_value(true);
 value_type([<<"T">>]) ->
@@ -544,6 +550,8 @@ value_type([<<"FALSE">>]) ->
     greptimedb_values:boolean_value(false);
 value_type([<<"False">>]) ->
     greptimedb_values:boolean_value(false);
+value_type([Float]) when is_float(Float) ->
+    Float;
 value_type(Val) ->
     #{values => #{string_values => Val}, datatype => 'STRING'}.
 
