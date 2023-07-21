@@ -1836,9 +1836,7 @@ desc("stats") ->
 desc("authorization") ->
     "Settings for client authorization.";
 desc("mqtt") ->
-    "Global MQTT configuration.<br/>"
-    "The configs here work as default values which can be overridden\n"
-    "in <code>zone</code> configs";
+    "Global MQTT configuration.";
 desc("authz_cache") ->
     "Settings for the authorization cache.";
 desc("zone") ->
