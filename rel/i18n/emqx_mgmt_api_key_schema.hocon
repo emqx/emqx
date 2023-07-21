@@ -7,12 +7,11 @@ api_key.label:
 """API Key"""
 
 bootstrap_file.desc:
-"""Bootstrap file is used to add an api_key when emqx is launched,
-      the format is:
-       ```
-       7e729ae70d23144b:2QILI9AcQ9BYlVqLDHQNWN2saIjBV4egr1CZneTNKr9CpK
-       ec3907f865805db0:Ee3taYltUKtoBVD9C3XjQl9C6NXheip8Z9B69BpUv5JxVHL
-       ```"""
+"""The bootstrap file provides API keys for EMQX.
+EMQX will load these keys on startup to authorize API requests.
+It contains key-value pairs in the format:`api_key:api_secret`.
+Each line specifies an API key and its associated secret.
+"""
 
 bootstrap_file.label:
 """Initialize api_key file."""
