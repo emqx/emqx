@@ -98,7 +98,7 @@ on_start(
         {password, jamdb_secret:wrap(maps:get(password, Config, ""))},
         {sid, emqx_utils_conv:str(Sid)},
         {service_name, ServiceName},
-        {pool_size, maps:get(<<"pool_size">>, Config, ?DEFAULT_POOL_SIZE)},
+        {pool_size, maps:get(pool_size, Config, ?DEFAULT_POOL_SIZE)},
         {timeout, ?OPT_TIMEOUT},
         {app_name, "EMQX Data To Oracle Database Action"}
     ],
