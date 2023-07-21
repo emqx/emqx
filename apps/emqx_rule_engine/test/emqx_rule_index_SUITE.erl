@@ -29,8 +29,8 @@ t_insert(_) ->
     true = emqx_rule_index:insert(<<"sensor/1/metric/2">>, t_insert_1, <<>>, Tab),
     true = emqx_rule_index:insert(<<"sensor/+/#">>, t_insert_2, <<>>, Tab),
     true = emqx_rule_index:insert(<<"sensor/#">>, t_insert_3, <<>>, Tab),
-    ?assertEqual(<<"sensor/#">>, get_topic(match(<<"sensor">>, Tab))),
-    ?assertEqual(t_insert_3, get_id(match(<<"sensor">>, Tab))),
+    ?assertEqual(<<"sensor/#">>, topic(match(<<"sensor">>, Tab))),
+    ?assertEqual(t_insert_3, id(match(<<"sensor">>, Tab))),
     true = ets:delete(Tab).
 
 t_match(_) ->
@@ -40,7 +40,7 @@ t_match(_) ->
     true = emqx_rule_index:insert(<<"sensor/#">>, t_match_3, <<>>, Tab),
     ?assertMatch(
         [<<"sensor/#">>, <<"sensor/+/#">>],
-        [get_topic(M) || M <- matches(<<"sensor/1">>, Tab)]
+        [topic(M) || M <- matches(<<"sensor/1">>, Tab)]
     ),
     true = ets:delete(Tab).
 
@@ -51,7 +51,7 @@ t_match2(_) ->
     true = emqx_rule_index:insert(<<"+/+/#">>, t_match2_3, <<>>, Tab),
     ?assertEqual(
         [<<"#">>, <<"+/#">>, <<"+/+/#">>],
-        [get_topic(M) || M <- matches(<<"a/b/c">>, Tab)]
+        [topic(M) || M <- matches(<<"a/b/c">>, Tab)]
     ),
     ?assertEqual(
         false,
@@ -79,7 +79,7 @@ t_match3(_) ->
     end,
     ?assertEqual(
         t_match3_sys,
-        get_id(match(<<"$SYS/a/b/c">>, Tab))
+        id(match(<<"$SYS/a/b/c">>, Tab))
     ),
     true = ets:delete(Tab).
 
@@ -92,11 +92,11 @@ t_match4(_) ->
     ),
     ?assertEqual(
         [<<"/#">>, <<"/+">>],
-        [get_topic(M) || M <- matches(<<"/">>, Tab)]
+        [topic(M) || M <- matches(<<"/">>, Tab)]
     ),
     ?assertEqual(
         [<<"/#">>, <<"/+/a/b/c">>],
-        [get_topic(M) || M <- matches(<<"/0/a/b/c">>, Tab)]
+        [topic(M) || M <- matches(<<"/0/a/b/c">>, Tab)]
     ),
     true = ets:delete(Tab).
 
@@ -114,11 +114,11 @@ t_match5(_) ->
     ),
     ?assertEqual(
         [<<"#">>, <<T/binary, "/#">>],
-        [get_topic(M) || M <- matches(T, Tab)]
+        [topic(M) || M <- matches(T, Tab)]
     ),
     ?assertEqual(
         [<<"#">>, <<T/binary, "/#">>, <<T/binary, "/+">>],
-        [get_topic(M) || M <- matches(<<T/binary, "/1">>, Tab)]
+        [topic(M) || M <- matches(<<T/binary, "/1">>, Tab)]
     ),
     true = ets:delete(Tab).
 
@@ -127,7 +127,7 @@ t_match6(_) ->
     T = <<"a/b/c/d/e/f/g/h/i/j/k/l/m/n/o/p/q/r/s/t/u/v/w/x/y/z">>,
     W = <<"+/+/+/+/+/+/+/+/+/+/+/+/+/+/+/+/+/+/+/+/+/+/+/+/+/+/#">>,
     emqx_rule_index:insert(W, ID = t_match6, <<>>, Tab),
-    ?assertEqual(ID, get_id(match(T, Tab))),
+    ?assertEqual(ID, id(match(T, Tab))),
     true = ets:delete(Tab).
 
 t_match7(_) ->
@@ -135,8 +135,22 @@ t_match7(_) ->
     T = <<"a/b/c/d/e/f/g/h/i/j/k/l/m/n/o/p/q/r/s/t/u/v/w/x/y/z">>,
     W = <<"a/+/c/+/e/+/g/+/i/+/k/+/m/+/o/+/q/+/s/+/u/+/w/+/y/+/#">>,
     emqx_rule_index:insert(W, t_match7, <<>>, Tab),
-    ?assertEqual(W, get_topic(match(T, Tab))),
+    ?assertEqual(W, topic(match(T, Tab))),
     true = ets:delete(Tab).
+
+t_match_unique(_) ->
+    Tab = new(),
+    emqx_rule_index:insert(<<"a/b/c">>, t_match_id1, <<>>, Tab),
+    emqx_rule_index:insert(<<"a/b/+">>, t_match_id1, <<>>, Tab),
+    emqx_rule_index:insert(<<"a/b/c/+">>, t_match_id2, <<>>, Tab),
+    ?assertEqual(
+        [t_match_id1, t_match_id1],
+        [id(M) || M <- emqx_rule_index:matches(<<"a/b/c">>, Tab, [])]
+    ),
+    ?assertEqual(
+        [t_match_id1],
+        [id(M) || M <- emqx_rule_index:matches(<<"a/b/c">>, Tab, [unique])]
+    ).
 
 new() ->
     ets:new(?MODULE, [public, ordered_set, {write_concurrency, true}]).
@@ -145,22 +159,10 @@ match(T, Tab) ->
     emqx_rule_index:match(T, Tab).
 
 matches(T, Tab) ->
-    lists:sort(emqx_rule_index:matches(T, Tab)).
+    lists:sort(emqx_rule_index:matches(T, Tab, [])).
 
--spec get_id(emqx_rule_index:match(ID)) -> ID.
-get_id([{ID}]) ->
-    ID;
-get_id([_ | Rest]) ->
-    get_id(Rest).
+id(Match) ->
+    emqx_rule_index:get_id(Match).
 
--spec get_topic(emqx_rule_index:match(_ID)) -> emqx_types:topic().
-get_topic(K) ->
-    emqx_topic:join(cut_topic(K)).
-
-cut_topic(K) ->
-    cut_topic(K, []).
-
-cut_topic([{_ID}], Acc) ->
-    lists:reverse(Acc);
-cut_topic([W | Rest], Acc) ->
-    cut_topic(Rest, [W | Acc]).
+topic(Match) ->
+    emqx_rule_index:get_topic(Match).
