@@ -350,7 +350,7 @@ do_handle_action(RuleId, {bridge, BridgeType, BridgeName, ResId}, Selected, _Env
         "bridge_action",
         #{bridge_id => emqx_bridge_resource:bridge_id(BridgeType, BridgeName)}
     ),
-    ReplyTo = {fun ?MODULE:inc_action_metrics/2, [RuleId]},
+    ReplyTo = {fun ?MODULE:inc_action_metrics/2, [RuleId], #{reply_dropped => true}},
     case
         emqx_bridge:send_message(BridgeType, BridgeName, ResId, Selected, #{reply_to => ReplyTo})
     of
