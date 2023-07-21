@@ -51,6 +51,8 @@
 
 -define(DEFAULT_TIMESTAMP_TMPL, "${timestamp}").
 
+-define(AUTO_RECONNECT_S, 1).
+
 %% -------------------------------------------------------------------------------------------------
 %% resource callback
 callback_mode() -> always_sync.
@@ -261,6 +263,7 @@ client_config(
         {pool_size, erlang:system_info(schedulers)},
         {pool, InstId},
         {pool_type, random},
+        {auto_reconnect, ?AUTO_RECONNECT_S},
         {timeunit, maps:get(precision, Config, ms)}
     ] ++ protocol_config(Config).
 
