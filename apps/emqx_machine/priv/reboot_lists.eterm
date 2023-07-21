@@ -97,6 +97,7 @@
             emqx_bridge_tdengine,
             emqx_bridge_timescale,
             emqx_bridge_sqlserver,
+            emqx_bridge_kinesis,
             emqx_oracle,
             emqx_bridge_oracle,
             emqx_bridge_rabbitmq,
