@@ -55,7 +55,7 @@ defmodule EMQXUmbrella.MixProject do
       {:cowboy, github: "emqx/cowboy", tag: "2.9.2", override: true},
       {:esockd, github: "emqx/esockd", tag: "5.9.6", override: true},
       {:rocksdb, github: "emqx/erlang-rocksdb", tag: "1.8.0-emqx-1", override: true},
-      {:ekka, github: "emqx/ekka", tag: "0.15.6", override: true},
+      {:ekka, github: "emqx/ekka", tag: "0.15.7", override: true},
       {:gen_rpc, github: "emqx/gen_rpc", tag: "2.8.1", override: true},
       {:grpc, github: "emqx/grpc-erl", tag: "0.6.8", override: true},
       {:minirest, github: "emqx/minirest", tag: "1.3.11", override: true},
@@ -72,7 +72,7 @@ defmodule EMQXUmbrella.MixProject do
       # in conflict by emqtt and hocon
       {:getopt, "1.0.2", override: true},
       {:snabbkaffe, github: "kafka4beam/snabbkaffe", tag: "1.0.8", override: true},
-      {:hocon, github: "emqx/hocon", tag: "0.39.13", override: true},
+      {:hocon, github: "emqx/hocon", tag: "0.39.14", override: true},
       {:emqx_http_lib, github: "emqx/emqx_http_lib", tag: "0.5.2", override: true},
       {:esasl, github: "emqx/esasl", tag: "0.2.0"},
       {:jose, github: "potatosalad/erlang-jose", tag: "1.11.2"},
@@ -298,6 +298,7 @@ defmodule EMQXUmbrella.MixProject do
         [
           applications: applications(edition_type),
           skip_mode_validation_for: [
+            :emqx_mix,
             :emqx_gateway,
             :emqx_gateway_stomp,
             :emqx_gateway_mqttsn,
@@ -317,7 +318,10 @@ defmodule EMQXUmbrella.MixProject do
             :emqx_auto_subscribe,
             :emqx_slow_subs,
             :emqx_plugins,
-            :emqx_ft
+            :emqx_ft,
+            :emqx_s3,
+            :emqx_durable_storage,
+            :rabbit_common
           ],
           steps: steps,
           strip_beams: false
@@ -327,113 +331,54 @@ defmodule EMQXUmbrella.MixProject do
   end
 
   def applications(edition_type) do
-    [
-      crypto: :permanent,
-      public_key: :permanent,
-      asn1: :permanent,
-      syntax_tools: :permanent,
-      ssl: :permanent,
-      os_mon: :permanent,
-      inets: :permanent,
-      compiler: :permanent,
-      runtime_tools: :permanent,
-      redbug: :permanent,
-      xmerl: :permanent,
-      hocon: :load,
-      telemetry: :permanent,
-      emqx: :load,
-      emqx_conf: :load,
-      emqx_machine: :permanent
-    ] ++
-      if(enable_rocksdb?(),
-        do: [mnesia_rocksdb: :load],
-        else: []
-      ) ++
-      [
-        mnesia: :load,
-        ekka: :load,
-        esasl: :load,
-        observer_cli: :permanent,
-        tools: :permanent,
-        covertool: :load,
-        system_monitor: :load,
-        emqx_utils: :load,
-        emqx_http_lib: :permanent,
-        emqx_resource: :permanent,
-        emqx_connector: :permanent,
-        emqx_authn: :permanent,
-        emqx_authz: :permanent,
-        emqx_auto_subscribe: :permanent,
-        emqx_gateway: :permanent,
-        emqx_gateway_stomp: :permanent,
-        emqx_gateway_mqttsn: :permanent,
-        emqx_gateway_coap: :permanent,
-        emqx_gateway_lwm2m: :permanent,
-        emqx_gateway_exproto: :permanent,
-        emqx_exhook: :permanent,
-        emqx_bridge: :permanent,
-        emqx_bridge_mqtt: :permanent,
-        emqx_bridge_http: :permanent,
-        emqx_rule_engine: :permanent,
-        emqx_modules: :permanent,
-        emqx_management: :permanent,
-        emqx_dashboard: :permanent,
-        emqx_retainer: :permanent,
-        emqx_prometheus: :permanent,
-        emqx_psk: :permanent,
-        emqx_slow_subs: :permanent,
-        emqx_mongodb: :permanent,
-        emqx_redis: :permanent,
-        emqx_mysql: :permanent,
-        emqx_plugins: :permanent,
-        emqx_mix: :none
-      ] ++
-      if(enable_quicer?(), do: [quicer: :permanent], else: []) ++
-      if(enable_bcrypt?(), do: [bcrypt: :permanent], else: []) ++
-      if(enable_jq?(), do: [jq: :load], else: []) ++
-      if(is_app(:observer),
-        do: [observer: :load],
-        else: []
-      ) ++
-      if(edition_type == :enterprise,
-        do: [
-          emqx_license: :permanent,
-          emqx_enterprise: :load,
-          emqx_bridge_kafka: :permanent,
-          emqx_bridge_pulsar: :permanent,
-          emqx_bridge_gcp_pubsub: :permanent,
-          emqx_bridge_cassandra: :permanent,
-          emqx_bridge_opents: :permanent,
-          emqx_bridge_clickhouse: :permanent,
-          emqx_bridge_dynamo: :permanent,
-          emqx_bridge_hstreamdb: :permanent,
-          emqx_bridge_influxdb: :permanent,
-          emqx_bridge_iotdb: :permanent,
-          emqx_bridge_matrix: :permanent,
-          emqx_bridge_mongodb: :permanent,
-          emqx_bridge_mysql: :permanent,
-          emqx_bridge_pgsql: :permanent,
-          emqx_bridge_redis: :permanent,
-          emqx_bridge_rocketmq: :permanent,
-          emqx_bridge_tdengine: :permanent,
-          emqx_bridge_timescale: :permanent,
-          emqx_bridge_sqlserver: :permanent,
-          emqx_oracle: :permanent,
-          emqx_bridge_oracle: :permanent,
-          emqx_bridge_rabbitmq: :permanent,
-          emqx_schema_registry: :permanent,
-          emqx_eviction_agent: :permanent,
-          emqx_node_rebalance: :permanent,
-          emqx_ft: :permanent,
-          emqx_bridge_kinesis: :permanent
-        ],
-        else: [
-          emqx_telemetry: :permanent
-        ]
-      )
+    {:ok,
+     [
+       %{
+         db_apps: db_apps,
+         system_apps: system_apps,
+         common_business_apps: common_business_apps,
+         ee_business_apps: ee_business_apps,
+         ce_business_apps: ce_business_apps
+       }
+     ]} = :file.consult("apps/emqx_machine/priv/reboot_lists.eterm")
+
+    edition_specific_apps =
+      if edition_type == :enterprise do
+        ee_business_apps
+      else
+        ce_business_apps
+      end
+
+    business_apps = common_business_apps ++ edition_specific_apps
+
+    excluded_apps = excluded_apps()
+
+    system_apps =
+      Enum.map(system_apps, fn app ->
+        if is_atom(app), do: {app, :permanent}, else: app
+      end)
+
+    db_apps = Enum.map(db_apps, &{&1, :load})
+    business_apps = Enum.map(business_apps, &{&1, :load})
+
+    [system_apps, db_apps, [emqx_machine: :permanent], business_apps]
+    |> List.flatten()
+    |> Keyword.reject(fn {app, _type} -> app in excluded_apps end)
   end
 
-  defp is_app(name) do
+  defp excluded_apps() do
+    %{
+      mnesia_rocksdb: enable_rocksdb?(),
+      quicer: enable_quicer?(),
+      bcrypt: enable_bcrypt?(),
+      jq: enable_jq?(),
+      observer: is_app?(:observer)
+    }
+    |> Enum.reject(&elem(&1, 1))
+    |> Enum.map(&elem(&1, 0))
+  end
+
+  defp is_app?(name) do
     case Application.load(name) do
       :ok ->
         true

@@ -1071,13 +1071,14 @@ cluster(Config) ->
     Cluster = emqx_common_test_helpers:emqx_cluster(
         [core, core],
         [
-            {apps, [emqx_conf, emqx_bridge, emqx_rule_engine, emqx_bridge_kafka]},
+            {apps, [emqx_conf, emqx_rule_engine, emqx_bridge_kafka, emqx_bridge]},
             {listener_ports, []},
             {peer_mod, PeerModule},
             {priv_data_dir, PrivDataDir},
             {load_schema, true},
             {start_autocluster, true},
             {schema_mod, emqx_enterprise_schema},
+            {load_apps, [emqx_machine]},
             {env_handler, fun
                 (emqx) ->
                     application:set_env(emqx, boot_modules, [broker, router]),
@@ -1901,6 +1902,7 @@ t_cluster_node_down(Config) ->
     ?check_trace(
         begin
             {_N2, Opts2} = lists:nth(2, Cluster),
+            NumNodes = length(Cluster),
             Nodes =
                 [N1, N2 | _] =
                 lists:map(
@@ -1925,6 +1927,11 @@ t_cluster_node_down(Config) ->
                 15_000
             ),
             wait_for_cluster_rpc(N2),
+            {ok, _} = snabbkaffe:block_until(
+                %% -1 because only those that join the first node will emit the event.
+                ?match_n_events(NumNodes - 1, #{?snk_kind := emqx_machine_boot_apps_started}),
+                30_000
+            ),
             erpc:call(N2, fun() -> {ok, _} = create_bridge(Config) end),
             {ok, _} = snabbkaffe:receive_events(SRef0),
             lists:foreach(
@@ -1980,7 +1987,7 @@ t_cluster_node_down(Config) ->
             ?assertEqual(NPartitions, map_size(Assignments)),
             NumPublished = ets:info(TId, size),
             %% All published messages are eventually received.
-            Published = receive_published(#{n => NumPublished, timeout => 3_000}),
+            Published = receive_published(#{n => NumPublished, timeout => 10_000}),
             ct:pal("published:\n  ~p", [Published]),
             ok
         end

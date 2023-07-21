@@ -168,10 +168,11 @@ post_config_update(_, _UpdateReq, NewConfig, OldConfig, _AppEnvs) ->
     } = emqx_utils:diff_lists(NewConfig, OldConfig, fun(#{topic := T}) -> T end),
     Deregistered = [emqx_topic_metrics:deregister(T) || #{topic := T} <- Removed],
     Registered = [emqx_topic_metrics:register(T) || #{topic := T} <- Added],
-    Errs = [Res || Res <- Registered ++ Deregistered, Res =/= ok],
-    case Errs of
+    DeregisteredErrs = [Res || Res <- Deregistered, Res =/= ok, Res =/= {error, topic_not_found}],
+    RegisteredErrs = [Res || Res <- Registered, Res =/= ok, Res =/= {error, already_existed}],
+    case DeregisteredErrs ++ RegisteredErrs of
         [] -> ok;
-        _ -> {error, Errs}
+        Errs -> {error, Errs}
     end.
 
 %%--------------------------------------------------------------------
