@@ -32,16 +32,16 @@
 conn_bridge_examples(Method) ->
     [
         #{
-            <<"greptimedb_grpc_v1">> => #{
+            <<"greptimedb">> => #{
                 summary => <<"Greptimedb HTTP API V2 Bridge">>,
-                value => values("greptimedb_grpc_v1", Method)
+                value => values("greptimedb", Method)
             }
         }
     ].
 
 values(Protocol, get) ->
     values(Protocol, post);
-values("greptimedb_grpc_v1", post) ->
+values("greptimedb", post) ->
     SupportUint = <<"uint_value=${payload.uint_key}u,">>,
     TypeOpts = #{
         bucket => <<"example_bucket">>,
@@ -49,7 +49,7 @@ values("greptimedb_grpc_v1", post) ->
         token => <<"example_token">>,
         server => <<"127.0.0.1:4001">>
     },
-    values(common, "greptimedb_grpc_v1", SupportUint, TypeOpts);
+    values(common, "greptimedb", SupportUint, TypeOpts);
 values(Protocol, put) ->
     values(Protocol, post).
 
@@ -80,13 +80,13 @@ namespace() -> "bridge_greptimedb".
 roots() -> [].
 
 fields("post_grpc_v1") ->
-    method_fields(post, greptimedb_grpc_v1);
+    method_fields(post, greptimedb);
 fields("put_grpc_v1") ->
-    method_fields(put, greptimedb_grpc_v1);
+    method_fields(put, greptimedb);
 fields("get_grpc_v1") ->
-    method_fields(get, greptimedb_grpc_v1);
+    method_fields(get, greptimedb);
 fields(Type) when
-    Type == greptimedb_grpc_v1
+    Type == greptimedb
 ->
     greptimedb_bridge_common_fields() ++
         connector_fields(Type).
@@ -125,8 +125,8 @@ desc("config") ->
     ?DESC("desc_config");
 desc(Method) when Method =:= "get"; Method =:= "put"; Method =:= "post" ->
     ["Configuration for Greptimedb using `", string:to_upper(Method), "` method."];
-desc(greptimedb_grpc_v1) ->
-    ?DESC(emqx_bridge_greptimedb_connector, "greptimedb_grpc_v1");
+desc(greptimedb) ->
+    ?DESC(emqx_bridge_greptimedb_connector, "greptimedb");
 desc(_) ->
     undefined.
 

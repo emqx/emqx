@@ -119,7 +119,7 @@ roots() ->
         {config, #{
             type => hoconsc:union(
                 [
-                    hoconsc:ref(?MODULE, greptimedb_grpc_v1)
+                    hoconsc:ref(?MODULE, greptimedb)
                 ]
             )
         }}
@@ -134,7 +134,7 @@ fields(common) ->
                 required => false, default => ms, desc => ?DESC("precision")
             })}
     ];
-fields(greptimedb_grpc_v1) ->
+fields(greptimedb) ->
     fields(common) ++
         [
             {dbname, mk(binary(), #{required => true, desc => ?DESC("dbname")})},
@@ -159,8 +159,8 @@ server() ->
 
 desc(common) ->
     ?DESC("common");
-desc(greptimedb_grpc_v1) ->
-    ?DESC("greptimedb_grpc_v1").
+desc(greptimedb) ->
+    ?DESC("greptimedb").
 
 %% -------------------------------------------------------------------------------------------------
 %% internal functions
@@ -613,7 +613,7 @@ desc_test_() ->
         ),
         ?_assertMatch(
             {desc, _, _},
-            desc(greptimedb_grpc_v1)
+            desc(greptimedb)
         ),
         ?_assertMatch(
             {desc, _, _},

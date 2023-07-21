@@ -50,7 +50,7 @@ api_schemas(Method) ->
         api_ref(emqx_bridge_iotdb, <<"iotdb">>, Method),
         api_ref(emqx_bridge_rabbitmq, <<"rabbitmq">>, Method),
         api_ref(emqx_bridge_kinesis, <<"kinesis_producer">>, Method ++ "_producer"),
-        api_ref(emqx_bridge_greptimedb, <<"greptimedb_grpc_v1">>, Method ++ "_grpc_v1")
+        api_ref(emqx_bridge_greptimedb, <<"greptimedb">>, Method ++ "_grpc_v1")
     ].
 
 schema_modules() ->
@@ -124,7 +124,7 @@ resource_type(oracle) -> emqx_oracle;
 resource_type(iotdb) -> emqx_bridge_iotdb_impl;
 resource_type(rabbitmq) -> emqx_bridge_rabbitmq_connector;
 resource_type(kinesis_producer) -> emqx_bridge_kinesis_impl_producer;
-resource_type(greptimedb_grpc_v1) -> emqx_bridge_greptimedb_connector.
+resource_type(greptimedb) -> emqx_bridge_greptimedb_connector.
 
 fields(bridges) ->
     [
@@ -302,7 +302,7 @@ greptimedb_structs() ->
                 }
             )}
      || Protocol <- [
-            greptimedb_grpc_v1
+            greptimedb
         ]
     ].
 

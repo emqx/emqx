@@ -90,7 +90,7 @@
     T == oracle;
     T == iotdb;
     T == kinesis_producer;
-    T == greptimedb_grpc_v1
+    T == greptimedb
 ).
 
 -define(ROOT_KEY, bridges).
