@@ -1,0 +1,85 @@
+emqx_bridge_kinesis {
+
+config_enable.desc:
+"""Enable or disable this bridge"""
+
+config_enable.label:
+"""Enable Or Disable Bridge"""
+
+desc_config.desc:
+"""Configuration for an Amazon Kinesis bridge."""
+
+desc_config.label:
+"""Amazon Kinesis Bridge Configuration"""
+
+desc_name.desc:
+"""Bridge name."""
+
+desc_name.label:
+"""Bridge Name"""
+
+desc_type.desc:
+"""The Bridge Type"""
+
+desc_type.label:
+"""Bridge Type"""
+
+pool_size.desc:
+"""The pool size."""
+
+pool_size.label:
+"""Pool Size"""
+
+local_topic.desc:
+"""The MQTT topic filter to be forwarded to Amazon Kinesis. All MQTT `PUBLISH` messages with the topic
+matching the `local_topic` will be forwarded.</br>
+NOTE: if this bridge is used as the action of a rule (EMQX rule engine), and also `local_topic` is
+configured, then both the data got from the rule and the MQTT messages that match `local_topic`
+will be forwarded."""
+
+local_topic.label:
+"""Local Topic"""
+
+payload_template.desc:
+"""The template for formatting the outgoing messages.  If undefined, will send all the available context in JSON format."""
+
+payload_template.label:
+"""Payload template"""
+
+aws_access_key_id.desc:
+"""Access Key ID for connecting to Amazon Kinesis."""
+
+aws_access_key_id.label:
+"""AWS Access Key ID"""
+
+aws_secret_access_key.desc:
+"""AWS Secret Access Key for connecting to Amazon Kinesis."""
+
+aws_secret_access_key.label:
+"""AWS Secret Access Key"""
+
+endpoint.desc:
+"""The url of Amazon Kinesis endpoint."""
+
+endpoint.label:
+"""Amazon Kinesis Endpoint"""
+
+stream_name.desc:
+"""The Amazon Kinesis Stream to publish messages to."""
+
+stream_name.label:
+"""Amazon Kinesis Stream"""
+
+partition_key.desc:
+"""The Amazon Kinesis Partition Key associated to published message. Placeholders in format of ${var} are supported."""
+
+partition_key.label:
+"""Partition key"""
+
+max_retries.desc:
+"""Max retry times if an error occurs when sending a request."""
+
+max_retries.label:
+"""Max Retries"""
+
+}

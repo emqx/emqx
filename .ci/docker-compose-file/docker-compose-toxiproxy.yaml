@@ -49,6 +49,8 @@ services:
       - 38080:38080
       # HStreamDB
       - 15670:5670
+      # Kinesis
+      - 4566:4566
     command:
       - "-host=0.0.0.0"
       - "-config=/config/toxiproxy.json"

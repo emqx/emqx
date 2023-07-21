@@ -54,7 +54,7 @@ defmodule EMQXUmbrella.MixProject do
       {:jiffy, github: "emqx/jiffy", tag: "1.0.5", override: true},
       {:cowboy, github: "emqx/cowboy", tag: "2.9.2", override: true},
       {:esockd, github: "emqx/esockd", tag: "5.9.6", override: true},
-      {:rocksdb, github: "emqx/erlang-rocksdb", tag: "1.7.2-emqx-11", override: true},
+      {:rocksdb, github: "emqx/erlang-rocksdb", tag: "1.8.0-emqx-1", override: true},
       {:ekka, github: "emqx/ekka", tag: "0.15.7", override: true},
       {:gen_rpc, github: "emqx/gen_rpc", tag: "2.8.1", override: true},
       {:grpc, github: "emqx/grpc-erl", tag: "0.6.8", override: true},
@@ -191,7 +191,8 @@ defmodule EMQXUmbrella.MixProject do
       :emqx_ft,
       :emqx_s3,
       :emqx_schema_registry,
-      :emqx_enterprise
+      :emqx_enterprise,
+      :emqx_bridge_kinesis
     ])
   end
 
@@ -392,12 +393,31 @@ defmodule EMQXUmbrella.MixProject do
 
   def check_profile!() do
     valid_envs = [
-      :dev,
       :emqx,
       :"emqx-pkg",
       :"emqx-enterprise",
       :"emqx-enterprise-pkg"
     ]
+
+    if Mix.env() == :dev do
+      env_profile = System.get_env("PROFILE")
+
+      if env_profile do
+        # copy from PROFILE env var
+        System.get_env("PROFILE")
+        |> String.to_atom()
+        |> Mix.env()
+      else
+        IO.puts(
+          IO.ANSI.format([
+            :yellow,
+            "Warning: env var PROFILE is unset; defaulting to emqx"
+          ])
+        )
+
+        Mix.env(:emqx)
+      end
+    end
 
     if Mix.env() not in valid_envs do
       formatted_envs =
@@ -769,7 +789,7 @@ defmodule EMQXUmbrella.MixProject do
 
   defp jq_dep() do
     if enable_jq?(),
-      do: [{:jq, github: "emqx/jq", tag: "v0.3.9", override: true}],
+      do: [{:jq, github: "emqx/jq", tag: "v0.3.10", override: true}],
       else: []
   end
 

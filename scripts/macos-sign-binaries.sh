@@ -57,7 +57,7 @@ codesign -s "${APPLE_DEVELOPER_IDENTITY}" -f --verbose=4 --timestamp --options=r
 codesign -s "${APPLE_DEVELOPER_IDENTITY}" -f --verbose=4 --timestamp --options=runtime \
          "${REL_DIR}"/lib/os_mon-*/priv/bin/{cpu_sup,memsup}
 codesign -s "${APPLE_DEVELOPER_IDENTITY}" -f --verbose=4 --timestamp --options=runtime \
-         "${REL_DIR}"/lib/jq-*/priv/{jq_nif1.so,libjq.1.dylib,libonig.4.dylib,erlang_jq_port}
+         "${REL_DIR}"/lib/jq-*/priv/{jq_nif1.so,libjq.1.dylib,libonig.5.dylib,erlang_jq_port}
 # other files from runtime and dependencies
 for f in \
         asn1rt_nif.so \

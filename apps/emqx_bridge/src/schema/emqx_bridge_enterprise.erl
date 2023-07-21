@@ -20,8 +20,7 @@ api_schemas(Method) ->
         %% We need to map the `type' field of a request (binary) to a
         %% bridge schema module.
         api_ref(emqx_bridge_gcp_pubsub, <<"gcp_pubsub">>, Method ++ "_producer"),
-        %% TODO: un-hide for e5.2.0...
-        %% api_ref(emqx_bridge_gcp_pubsub, <<"gcp_pubsub_consumer">>, Method ++ "_consumer"),
+        api_ref(emqx_bridge_gcp_pubsub, <<"gcp_pubsub_consumer">>, Method ++ "_consumer"),
         api_ref(emqx_bridge_kafka, <<"kafka_consumer">>, Method ++ "_consumer"),
         %% TODO: rename this to `kafka_producer' after alias support is added
         %% to hocon; keeping this as just `kafka' for backwards compatibility.
@@ -49,7 +48,8 @@ api_schemas(Method) ->
         api_ref(emqx_bridge_pulsar, <<"pulsar_producer">>, Method ++ "_producer"),
         api_ref(emqx_bridge_oracle, <<"oracle">>, Method),
         api_ref(emqx_bridge_iotdb, <<"iotdb">>, Method),
-        api_ref(emqx_bridge_rabbitmq, <<"rabbitmq">>, Method)
+        api_ref(emqx_bridge_rabbitmq, <<"rabbitmq">>, Method),
+        api_ref(emqx_bridge_kinesis, <<"kinesis_producer">>, Method ++ "_producer")
     ].
 
 schema_modules() ->
@@ -74,7 +74,8 @@ schema_modules() ->
         emqx_bridge_pulsar,
         emqx_bridge_oracle,
         emqx_bridge_iotdb,
-        emqx_bridge_rabbitmq
+        emqx_bridge_rabbitmq,
+        emqx_bridge_kinesis
     ].
 
 examples(Method) ->
@@ -119,7 +120,8 @@ resource_type(opents) -> emqx_bridge_opents_connector;
 resource_type(pulsar_producer) -> emqx_bridge_pulsar_impl_producer;
 resource_type(oracle) -> emqx_oracle;
 resource_type(iotdb) -> emqx_bridge_iotdb_impl;
-resource_type(rabbitmq) -> emqx_bridge_rabbitmq_connector.
+resource_type(rabbitmq) -> emqx_bridge_rabbitmq_connector;
+resource_type(kinesis_producer) -> emqx_bridge_kinesis_impl_producer.
 
 fields(bridges) ->
     [
@@ -199,7 +201,8 @@ fields(bridges) ->
     ] ++ kafka_structs() ++ pulsar_structs() ++ gcp_pubsub_structs() ++ mongodb_structs() ++
         influxdb_structs() ++
         redis_structs() ++
-        pgsql_structs() ++ clickhouse_structs() ++ sqlserver_structs() ++ rabbitmq_structs().
+        pgsql_structs() ++ clickhouse_structs() ++ sqlserver_structs() ++ rabbitmq_structs() ++
+        kinesis_structs().
 
 mongodb_structs() ->
     [
@@ -263,7 +266,6 @@ gcp_pubsub_structs() ->
                 hoconsc:map(name, ref(emqx_bridge_gcp_pubsub, "config_consumer")),
                 #{
                     desc => <<"EMQX Enterprise Config">>,
-                    importance => ?IMPORTANCE_HIDDEN,
                     required => false
                 }
             )}
@@ -360,6 +362,18 @@ rabbitmq_structs() ->
                 hoconsc:map(name, ref(emqx_bridge_rabbitmq, "config")),
                 #{
                     desc => <<"RabbitMQ Bridge Config">>,
+                    required => false
+                }
+            )}
+    ].
+
+kinesis_structs() ->
+    [
+        {kinesis_producer,
+            mk(
+                hoconsc:map(name, ref(emqx_bridge_kinesis, "config_producer")),
+                #{
+                    desc => <<"Amazon Kinesis Producer Bridge Config">>,
                     required => false
                 }
             )}

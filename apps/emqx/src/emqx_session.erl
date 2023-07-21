@@ -47,19 +47,23 @@
 -include("emqx_mqtt.hrl").
 -include("logger.hrl").
 -include("types.hrl").
--include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
 -ifdef(TEST).
 -compile(export_all).
 -compile(nowarn_export_all).
 -endif.
 
+-export([
+    lookup/1,
+    destroy/1,
+    unpersist/1
+]).
+
 -export([init/1]).
 
 -export([
     info/1,
     info/2,
-    is_session/1,
     stats/1,
     obtain_next_pkt_id/1,
     get_mqueue/1
@@ -83,7 +87,6 @@
     enqueue/3,
     dequeue/2,
     filter_queue/2,
-    ignore_local/4,
     retry/2,
     terminate/3
 ]).
@@ -226,12 +229,26 @@ init(Opts) ->
         created_at = erlang:system_time(millisecond)
     }.
 
+-spec lookup(emqx_types:clientid()) -> none.
+lookup(_ClientId) ->
+    % NOTE
+    % This is a stub. This session impl has no backing store, thus always `none`.
+    none.
+
+-spec destroy(emqx_types:clientid()) -> ok.
+destroy(_ClientId) ->
+    % NOTE
+    % This is a stub. This session impl has no backing store, thus always `ok`.
+    ok.
+
+-spec unpersist(session()) -> session().
+unpersist(Session) ->
+    ok = destroy(Session#session.clientid),
+    Session#session{is_persistent = false}.
+
 %%--------------------------------------------------------------------
 %% Info, Stats
 %%--------------------------------------------------------------------
-
-is_session(#session{}) -> true;
-is_session(_) -> false.
 
 %% @doc Get infos of the session.
 -spec info(session()) -> emqx_types:infos().
@@ -242,6 +259,8 @@ info(Keys, Session) when is_list(Keys) ->
     [{Key, info(Key, Session)} || Key <- Keys];
 info(id, #session{id = Id}) ->
     Id;
+info(clientid, #session{clientid = ClientId}) ->
+    ClientId;
 info(is_persistent, #session{is_persistent = Bool}) ->
     Bool;
 info(subscriptions, #session{subscriptions = Subs}) ->
@@ -286,27 +305,6 @@ info(created_at, #session{created_at = CreatedAt}) ->
 stats(Session) -> info(?STATS_KEYS, Session).
 
 %%--------------------------------------------------------------------
-%% Ignore local messages
-%%--------------------------------------------------------------------
-
-ignore_local(ClientInfo, Delivers, Subscriber, Session) ->
-    Subs = info(subscriptions, Session),
-    lists:filter(
-        fun({deliver, Topic, #message{from = Publisher} = Msg}) ->
-            case maps:find(Topic, Subs) of
-                {ok, #{nl := 1}} when Subscriber =:= Publisher ->
-                    ok = emqx_hooks:run('delivery.dropped', [ClientInfo, Msg, no_local]),
-                    ok = emqx_metrics:inc('delivery.dropped'),
-                    ok = emqx_metrics:inc('delivery.dropped.no_local'),
-                    false;
-                _ ->
-                    true
-            end
-        end,
-        Delivers
-    ).
-
-%%--------------------------------------------------------------------
 %% Client -> Broker: SUBSCRIBE
 %%--------------------------------------------------------------------
 
@@ -321,13 +319,12 @@ subscribe(
     ClientInfo = #{clientid := ClientId},
     TopicFilter,
     SubOpts,
-    Session = #session{id = SessionID, is_persistent = IsPS, subscriptions = Subs}
+    Session = #session{subscriptions = Subs}
 ) ->
     IsNew = not maps:is_key(TopicFilter, Subs),
     case IsNew andalso is_subscriptions_full(Session) of
         false ->
             ok = emqx_broker:subscribe(TopicFilter, ClientId, SubOpts),
-            ok = emqx_persistent_session:add_subscription(TopicFilter, SessionID, IsPS),
             ok = emqx_hooks:run(
                 'session.subscribed',
                 [ClientInfo, TopicFilter, SubOpts#{is_new => IsNew}]
@@ -355,12 +352,11 @@ unsubscribe(
     ClientInfo,
     TopicFilter,
     UnSubOpts,
-    Session = #session{id = SessionID, subscriptions = Subs, is_persistent = IsPS}
+    Session = #session{subscriptions = Subs}
 ) ->
     case maps:find(TopicFilter, Subs) of
         {ok, SubOpts} ->
             ok = emqx_broker:unsubscribe(TopicFilter),
-            ok = emqx_persistent_session:remove_subscription(TopicFilter, SessionID, IsPS),
             ok = emqx_hooks:run(
                 'session.unsubscribed',
                 [ClientInfo, TopicFilter, maps:merge(SubOpts, UnSubOpts)]
@@ -588,7 +584,10 @@ deliver_msg(
             MarkedMsg = mark_begin_deliver(Msg),
             Inflight1 = emqx_inflight:insert(PacketId, with_ts(MarkedMsg), Inflight),
             {ok, [Publish], next_pkt_id(Session#session{inflight = Inflight1})}
-    end.
+    end;
+deliver_msg(ClientInfo, {drop, Msg, Reason}, Session) ->
+    handle_dropped(ClientInfo, Msg, Reason, Session),
+    {ok, Session}.
 
 -spec enqueue(
     emqx_types:clientinfo(),
@@ -607,7 +606,10 @@ enqueue(ClientInfo, Delivers, Session) when is_list(Delivers) ->
 enqueue(ClientInfo, #message{} = Msg, Session = #session{mqueue = Q}) ->
     {Dropped, NewQ} = emqx_mqueue:in(Msg, Q),
     (Dropped =/= undefined) andalso handle_dropped(ClientInfo, Dropped, Session),
-    Session#session{mqueue = NewQ}.
+    Session#session{mqueue = NewQ};
+enqueue(ClientInfo, {drop, Msg, Reason}, Session) ->
+    handle_dropped(ClientInfo, Msg, Reason, Session),
+    Session.
 
 handle_dropped(ClientInfo, Msg = #message{qos = QoS, topic = Topic}, #session{mqueue = Q}) ->
     Payload = emqx_message:to_log_map(Msg),
@@ -644,8 +646,18 @@ handle_dropped(ClientInfo, Msg = #message{qos = QoS, topic = Topic}, #session{mq
             )
     end.
 
+handle_dropped(ClientInfo, Msg, Reason, _Session) ->
+    ok = emqx_hooks:run('delivery.dropped', [ClientInfo, Msg, Reason]),
+    ok = emqx_metrics:inc('delivery.dropped'),
+    ok = emqx_metrics:inc('delivery.dropped.no_local').
+
 enrich_deliver({deliver, Topic, Msg}, Session = #session{subscriptions = Subs}) ->
-    enrich_subopts(get_subopts(Topic, Subs), Msg, Session).
+    enrich_deliver(Msg, maps:find(Topic, Subs), Session).
+
+enrich_deliver(Msg = #message{from = ClientId}, {ok, #{nl := 1}}, #session{clientid = ClientId}) ->
+    {drop, Msg, no_local};
+enrich_deliver(Msg, SubOpts, Session) ->
+    enrich_subopts(mk_subopts(SubOpts), Msg, Session).
 
 maybe_ack(Msg) ->
     emqx_shared_sub:maybe_ack(Msg).
@@ -653,8 +665,8 @@ maybe_ack(Msg) ->
 maybe_nack(Msg) ->
     emqx_shared_sub:maybe_nack_dropped(Msg).
 
-get_subopts(Topic, SubMap) ->
-    case maps:find(Topic, SubMap) of
+mk_subopts(SubOpts) ->
+    case SubOpts of
         {ok, #{nl := Nl, qos := QoS, rap := Rap, subid := SubId}} ->
             [{nl, Nl}, {qos, QoS}, {rap, Rap}, {subid, SubId}];
         {ok, #{nl := Nl, qos := QoS, rap := Rap}} ->

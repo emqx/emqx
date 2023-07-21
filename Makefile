@@ -2,7 +2,7 @@ REBAR = $(CURDIR)/rebar3
 BUILD = $(CURDIR)/build
 SCRIPTS = $(CURDIR)/scripts
 export EMQX_RELUP ?= true
-export EMQX_DEFAULT_BUILDER = ghcr.io/emqx/emqx-builder/5.1-0:1.14.5-25.3.2-1-debian11
+export EMQX_DEFAULT_BUILDER = ghcr.io/emqx/emqx-builder/5.1-3:1.14.5-25.3.2-1-debian11
 export EMQX_DEFAULT_RUNNER = debian:11-slim
 export EMQX_REL_FORM ?= tgz
 export QUICER_DOWNLOAD_FROM_RELEASE = 1
@@ -15,7 +15,7 @@ endif
 
 # Dashboard version
 # from https://github.com/emqx/emqx-dashboard5
-export EMQX_DASHBOARD_VERSION ?= v1.3.1
+export EMQX_DASHBOARD_VERSION ?= v1.3.2
 export EMQX_EE_DASHBOARD_VERSION ?= e1.1.1-beta.4
 
 # `:=` should be used here, otherwise the `$(shell ...)` will be executed every time when the variable is used
@@ -99,6 +99,7 @@ static_checks:
 	@$(REBAR) as check do xref, dialyzer
 	@if [ "$${PROFILE}" = 'emqx-enterprise' ]; then $(REBAR) ct --suite apps/emqx/test/emqx_static_checks --readable $(CT_READABLE); fi
 	./scripts/check-i18n-style.sh
+	./scripts/check_missing_reboot_apps.exs
 
 APPS=$(shell $(SCRIPTS)/find-apps.sh)
 

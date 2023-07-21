@@ -642,7 +642,6 @@ status_to_error(_) ->
     {error, undefined}.
 
 %% Compatibility
-external_error({error, {unhealthy_target, Message}}) -> Message;
 external_error({error, Reason}) -> Reason;
 external_error(Other) -> Other.
 

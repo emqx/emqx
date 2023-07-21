@@ -6,7 +6,7 @@
 -behaviour(gen_server).
 
 %% API:
--export([start_link/1]).
+-export([start_link/2]).
 -export([create_generation/3]).
 
 -export([store/5]).
@@ -18,7 +18,8 @@
 %% behaviour callbacks:
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2]).
 
--export_type([cf_refs/0, gen_id/0, db_write_options/0, state/0, iterator/0]).
+-export_type([cf_refs/0, gen_id/0, options/0, state/0, iterator/0]).
+-export_type([db_options/0, db_write_options/0, db_read_options/0]).
 
 -compile({inline, [meta_lookup/2]}).
 
@@ -26,10 +27,16 @@
 %% Type declarations
 %%================================================================================
 
-%% see rocksdb:db_options()
-% -type options() :: proplists:proplist().
+-type options() :: #{
+    dir => file:filename()
+}.
 
+%% see rocksdb:db_options()
+-type db_options() :: proplists:proplist().
+%% see rocksdb:write_options()
 -type db_write_options() :: proplists:proplist().
+%% see rocksdb:read_options()
+-type db_read_options() :: proplists:proplist().
 
 -type cf_refs() :: [{string(), rocksdb:cf_handle()}].
 
@@ -110,18 +117,16 @@
 %% API funcions
 %%================================================================================
 
--spec start_link(emqx_ds:shard()) -> {ok, pid()}.
-start_link(Shard) ->
-    gen_server:start_link(?REF(Shard), ?MODULE, [Shard], []).
+-spec start_link(emqx_ds:shard(), emqx_ds_storage_layer:options()) -> {ok, pid()}.
+start_link(Shard, Options) ->
+    gen_server:start_link(?REF(Shard), ?MODULE, {Shard, Options}, []).
 
 -spec create_generation(emqx_ds:shard(), emqx_ds:time(), emqx_ds_conf:backend_config()) ->
     {ok, gen_id()} | {error, nonmonotonic}.
 create_generation(Shard, Since, Config = {_Module, _Options}) ->
     gen_server:call(?REF(Shard), {create_generation, Since, Config}).
 
--spec store(
-    emqx_ds:shard(), emqx_guid:guid(), emqx_ds:time(), emqx_ds:topic(), binary()
-) ->
+-spec store(emqx_ds:shard(), emqx_guid:guid(), emqx_ds:time(), emqx_ds:topic(), binary()) ->
     ok | {error, _}.
 store(Shard, GUID, Time, Topic, Msg) ->
     {_GenId, #{module := Mod, data := Data}} = meta_lookup_gen(Shard, Time),
@@ -181,9 +186,9 @@ discard_iterator(Shard, ReplayID) ->
 %% behaviour callbacks
 %%================================================================================
 
-init([Shard]) ->
+init({Shard, Options}) ->
     process_flag(trap_exit, true),
-    {ok, S0} = open_db(Shard),
+    {ok, S0} = open_db(Shard, Options),
     S = ensure_current_generation(S0),
     ok = populate_metadata(S),
     {ok, S}.
@@ -265,16 +270,17 @@ create_gen(GenId, Since, {Module, Options}, S = #s{db = DBHandle, cf_generations
     },
     {ok, Gen, S#s{cf_generations = NewCFs ++ CFs}}.
 
--spec open_db(emqx_ds:shard()) -> {ok, state()} | {error, _TODO}.
-open_db(Shard) ->
-    Filename = binary_to_list(Shard),
+-spec open_db(emqx_ds:shard(), options()) -> {ok, state()} | {error, _TODO}.
+open_db(Shard, Options) ->
+    DBDir = unicode:characters_to_list(maps:get(dir, Options, Shard)),
     DBOptions = [
         {create_if_missing, true},
         {create_missing_column_families, true}
         | emqx_ds_conf:db_options()
     ],
+    _ = filelib:ensure_dir(DBDir),
     ExistingCFs =
-        case rocksdb:list_column_families(Filename, DBOptions) of
+        case rocksdb:list_column_families(DBDir, DBOptions) of
             {ok, CFs} ->
                 [{Name, []} || Name <- CFs, Name /= ?DEFAULT_CF, Name /= ?ITERATOR_CF];
             % DB is not present. First start
@@ -286,7 +292,7 @@ open_db(Shard) ->
         {?ITERATOR_CF, ?ITERATOR_CF_OPTS}
         | ExistingCFs
     ],
-    case rocksdb:open(Filename, DBOptions, ColumnFamilies) of
+    case rocksdb:open(DBDir, DBOptions, ColumnFamilies) of
         {ok, DBHandle, [_CFDefault, CFIterator | CFRefs]} ->
             {CFNames, _} = lists:unzip(ExistingCFs),
             {ok, #s{

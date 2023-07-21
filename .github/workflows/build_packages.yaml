@@ -21,7 +21,7 @@ on:
 jobs:
   prepare:
     runs-on: ubuntu-22.04
-    container: ghcr.io/emqx/emqx-builder/5.1-0:1.14.5-25.3.2-1-ubuntu22.04
+    container: ghcr.io/emqx/emqx-builder/5.1-3:1.14.5-25.3.2-1-ubuntu22.04
     outputs:
       BUILD_PROFILE: ${{ steps.get_profile.outputs.BUILD_PROFILE }}
       IS_EXACT_TAG: ${{ steps.get_profile.outputs.IS_EXACT_TAG }}
@@ -181,24 +181,26 @@ jobs:
           - ubuntu22.04
           - ubuntu20.04
           - ubuntu18.04
+          - debian12
           - debian11
           - debian10
           - el9
           - el8
           - el7
           - amzn2
+          - amzn2023
         build_machine:
           - aws-arm64
-          - ubuntu-22.04
+          - aws-amd64
         builder:
-          - 5.1-0
+          - 5.1-3
         elixir:
           - 1.14.5
         with_elixir:
           - 'no'
         exclude:
           - arch: arm64
-            build_machine: ubuntu-22.04
+            build_machine: aws-amd64
           - arch: amd64
             build_machine: aws-arm64
         include:
@@ -206,16 +208,8 @@ jobs:
             otp: 25.3.2-1
             arch: amd64
             os: ubuntu22.04
-            build_machine: ubuntu-22.04
-            builder: 5.1-0
-            elixir: 1.14.5
-            with_elixir: 'yes'
-          - profile: emqx
-            otp: 25.3.2-1
-            arch: amd64
-            os: amzn2
-            build_machine: ubuntu-22.04
-            builder: 5.1-0
+            build_machine: aws-amd64
+            builder: 5.1-3
             elixir: 1.14.5
             with_elixir: 'yes'
 
@@ -225,18 +219,13 @@ jobs:
 
     steps:
     - uses: AutoModality/action-clean@v1
-      if: matrix.build_machine == 'aws-arm64'
 
     - uses: actions/checkout@v3
       with:
         ref: ${{ github.event.inputs.branch_or_tag }}
         fetch-depth: 0
 
-    - name: build emqx packages
-      env:
-        ELIXIR: ${{ matrix.elixir }}
-        PROFILE: ${{ matrix.profile }}
-        ARCH: ${{ matrix.arch }}
+    - name: fix workdir
       run: |
         set -eu
         git config --global --add safe.directory "$GITHUB_WORKSPACE"
@@ -246,22 +235,33 @@ jobs:
           cd /emqx
         fi
         echo "pwd is $PWD"
-        PKGTYPES="tgz pkg"
-        IS_ELIXIR=${{ matrix.with_elixir }}
+
+    - name: build emqx packages
+      env:
+        PROFILE: ${{ matrix.profile }}
+        IS_ELIXIR: ${{ matrix.with_elixir }}
+        ACLOCAL_PATH: "/usr/share/aclocal:/usr/local/share/aclocal"
+      run: |
+        set -eu
         if [ "${IS_ELIXIR:-}" == 'yes' ]; then
-          PKGTYPES="tgz"
+          make "${PROFILE}-elixir-tgz"
+        else
+          make "${PROFILE}-tgz"
+          make "${PROFILE}-pkg"
         fi
-        for PKGTYPE in ${PKGTYPES};
-        do
-          ./scripts/buildx.sh \
-            --profile "${PROFILE}" \
-            --pkgtype "${PKGTYPE}" \
-            --arch "${ARCH}" \
-            --elixir "${IS_ELIXIR}" \
-            --builder "force_host"
-        done
+    - name: test emqx packages
+      env:
+        PROFILE: ${{ matrix.profile }}
+        IS_ELIXIR: ${{ matrix.with_elixir }}
+      run: |
+        set -eu
+        if [ "${IS_ELIXIR:-}" == 'yes' ]; then
+          ./scripts/pkg-tests.sh "${PROFILE}-elixir-tgz"
+        else
+          ./scripts/pkg-tests.sh "${PROFILE}-tgz"
+          ./scripts/pkg-tests.sh "${PROFILE}-pkg"
+        fi
     - uses: actions/upload-artifact@v3
-      if: success()
       with:
         name: ${{ matrix.profile }}
         path: _packages/${{ matrix.profile }}/
