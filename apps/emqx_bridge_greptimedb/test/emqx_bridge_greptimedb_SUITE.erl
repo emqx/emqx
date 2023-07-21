@@ -191,7 +191,7 @@ greptimedb_config(grpcv1 = Type, GreptimedbHost, GreptimedbPort, Config) ->
     WriteSyntax = example_write_syntax(),
     ConfigString =
         io_lib:format(
-            "bridges.greptimedb_grpc_v1.~s {\n"
+            "bridges.greptimedb.~s {\n"
             "  enable = true\n"
             "  server = \"~p:~b\"\n"
             "  dbname = public\n"
@@ -229,7 +229,7 @@ parse_and_check(ConfigString, Type, Name) ->
     Config.
 
 greptimedb_type_bin(grpcv1) ->
-    <<"greptimedb_grpc_v1">>.
+    <<"greptimedb">>.
 
 create_bridge(Config) ->
     create_bridge(Config, _Overrides = #{}).
@@ -487,7 +487,7 @@ t_start_ok_timestamp_write_syntax(Config) ->
     GreptimedbConfigString0 = ?config(greptimedb_config_string, Config),
     GreptimedbTypeCfg =
         case GreptimedbType of
-            grpcv1 -> "greptimedb_grpc_v1"
+            grpcv1 -> "greptimedb"
         end,
     WriteSyntax =
         %% N.B.: this single space characters are relevant
@@ -521,7 +521,7 @@ t_start_ok_no_subject_tags_write_syntax(Config) ->
     GreptimedbConfigString0 = ?config(greptimedb_config_string, Config),
     GreptimedbTypeCfg =
         case GreptimedbType of
-            grpcv1 -> "greptimedb_grpc_v1"
+            grpcv1 -> "greptimedb"
         end,
     WriteSyntax =
         %% N.B.: this single space characters are relevant
@@ -641,7 +641,7 @@ t_bad_timestamp(Config) ->
     GreptimedbConfigString0 = ?config(greptimedb_config_string, Config),
     GreptimedbTypeCfg =
         case GreptimedbType of
-            grpcv1 -> "greptimedb_grpc_v1"
+            grpcv1 -> "greptimedb"
         end,
     WriteSyntax =
         %% N.B.: this single space characters are relevant

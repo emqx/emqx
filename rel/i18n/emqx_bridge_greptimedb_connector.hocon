@@ -6,10 +6,10 @@ dbname.desc:
 dbname.label:
 """Database"""
 
-greptimedb_grpc_v1.desc:
+greptimedb.desc:
 """GreptimeDB's protocol. Support GreptimeDB v1.8 and before."""
 
-greptimedb_grpc_v1.label:
+greptimedb.label:
 """HTTP API Protocol"""
 
 password.desc:
