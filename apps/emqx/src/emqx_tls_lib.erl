@@ -478,11 +478,13 @@ to_server_opts(Type, Opts) ->
     Versions = integral_versions(Type, maps:get(versions, Opts, undefined)),
     Ciphers = integral_ciphers(Versions, maps:get(ciphers, Opts, undefined)),
     Path = fun(Key) -> resolve_cert_path_for_read_strict(maps:get(Key, Opts, undefined)) end,
+    CACerts = get_cacerts(maps:get(cacerts, Opts, false)),
     ensure_valid_options(
         maps:to_list(Opts#{
             keyfile => Path(keyfile),
             certfile => Path(certfile),
             cacertfile => Path(cacertfile),
+            cacerts => CACerts,
             ciphers => Ciphers,
             versions => Versions
         }),
@@ -511,11 +513,13 @@ to_client_opts(Type, Opts) ->
             SNI = ensure_sni(Get(server_name_indication)),
             Versions = integral_versions(Type, Get(versions)),
             Ciphers = integral_ciphers(Versions, Get(ciphers)),
+            CACerts = get_cacerts(GetD(cacerts, false)),
             ensure_valid_options(
                 [
                     {keyfile, KeyFile},
                     {certfile, CertFile},
                     {cacertfile, CAFile},
+                    {cacerts, CACerts},
                     {verify, Verify},
                     {server_name_indication, SNI},
                     {versions, Versions},
@@ -661,3 +665,13 @@ ensure_ssl_file_key(SSL, RequiredKeyPaths) ->
         [] -> ok;
         Miss -> {error, #{reason => ssl_file_option_not_found, which_options => Miss}}
     end.
+
+get_cacerts(true = _UseSystemCACerts) ->
+    try
+        public_key:cacerts_get()
+    catch
+        _:_ ->
+            undefined
+    end;
+get_cacerts(false = _UseSystemCACerts) ->
+    undefined.
