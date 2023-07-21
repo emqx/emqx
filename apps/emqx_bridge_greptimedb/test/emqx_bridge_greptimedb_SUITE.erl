@@ -49,7 +49,6 @@ end_per_suite(_Config) ->
         emqx_conf, emqx_bridge, emqx_resource, emqx_rule_engine
     ]),
     _ = application:stop(emqx_connector),
-    _ = application:stop(greptimedb),
     ok.
 
 init_per_group(GreptimedbType, Config0) when
@@ -145,6 +144,7 @@ end_per_group(Group, Config) when
     emqx_common_test_helpers:reset_proxy(ProxyHost, ProxyPort),
     ehttpc_sup:stop_pool(EHttpcPoolName),
     delete_bridge(Config),
+    _ = application:stop(greptimedb),
     ok;
 end_per_group(_Group, _Config) ->
     ok.
