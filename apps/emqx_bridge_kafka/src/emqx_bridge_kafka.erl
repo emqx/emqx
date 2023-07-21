@@ -29,7 +29,7 @@
     host_opts/0
 ]).
 
--export([kafka_producer_converter/2]).
+-export([kafka_producer_converter/2, producer_strategy_key_validator/1]).
 
 %% -------------------------------------------------------------------------------------------------
 %% api

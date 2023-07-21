@@ -336,7 +336,7 @@ t_start_stop(BridgeType, BridgeName, BridgeConfig, StopTracePoint) ->
             ProbeRes0 = probe_bridge_api(
                 BridgeType,
                 BridgeName,
-                BridgeConfig#{<<"resource_opts">> => #{<<"health_check_interval">> => <<"1s">>}}
+                BridgeConfig
             ),
             ?assertMatch({ok, {{_, 204, _}, _Headers, _Body}}, ProbeRes0),
             AtomsBefore = erlang:system_info(atom_count),
@@ -344,7 +344,7 @@ t_start_stop(BridgeType, BridgeName, BridgeConfig, StopTracePoint) ->
             ProbeRes1 = probe_bridge_api(
                 BridgeType,
                 BridgeName,
-                BridgeConfig#{<<"resource_opts">> => #{<<"health_check_interval">> => <<"1s">>}}
+                BridgeConfig
             ),
 
             ?assertMatch({ok, {{_, 204, _}, _Headers, _Body}}, ProbeRes1),
@@ -444,7 +444,11 @@ t_on_get_status(Config, Opts) ->
     ),
     emqx_common_test_helpers:with_failure(down, ProxyName, ProxyHost, ProxyPort, fun() ->
         ct:sleep(500),
-        ?assertEqual({ok, FailureStatus}, emqx_resource_manager:health_check(ResourceId))
+        ?retry(
+            _Interval0 = 200,
+            _Attempts0 = 10,
+            ?assertEqual({ok, FailureStatus}, emqx_resource_manager:health_check(ResourceId))
+        )
     end),
     %% Check that it recovers itself.
     ?retry(

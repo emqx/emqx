@@ -12,6 +12,7 @@
     api_schemas/1,
     examples/1,
     resource_type/1,
+    bridge_impl_module/1,
     fields/1
 ]).
 
@@ -50,7 +51,8 @@ api_schemas(Method) ->
         api_ref(emqx_bridge_iotdb, <<"iotdb">>, Method),
         api_ref(emqx_bridge_rabbitmq, <<"rabbitmq">>, Method),
         api_ref(emqx_bridge_kinesis, <<"kinesis_producer">>, Method ++ "_producer"),
-        api_ref(emqx_bridge_greptimedb, <<"greptimedb">>, Method ++ "_grpc_v1")
+        api_ref(emqx_bridge_greptimedb, <<"greptimedb">>, Method ++ "_grpc_v1"),
+        api_ref(emqx_bridge_azure_event_hub, <<"azure_event_hub_producer">>, Method ++ "_producer")
     ].
 
 schema_modules() ->
@@ -77,7 +79,8 @@ schema_modules() ->
         emqx_bridge_iotdb,
         emqx_bridge_rabbitmq,
         emqx_bridge_kinesis,
-        emqx_bridge_greptimedb
+        emqx_bridge_greptimedb,
+        emqx_bridge_azure_event_hub
     ].
 
 examples(Method) ->
@@ -124,7 +127,17 @@ resource_type(oracle) -> emqx_oracle;
 resource_type(iotdb) -> emqx_bridge_iotdb_impl;
 resource_type(rabbitmq) -> emqx_bridge_rabbitmq_connector;
 resource_type(kinesis_producer) -> emqx_bridge_kinesis_impl_producer;
-resource_type(greptimedb) -> emqx_bridge_greptimedb_connector.
+resource_type(greptimedb) -> emqx_bridge_greptimedb_connector;
+%% We use AEH's Kafka interface.
+resource_type(azure_event_hub_producer) -> emqx_bridge_kafka_impl_producer.
+
+%% For bridges that need to override connector configurations.
+bridge_impl_module(BridgeType) when is_binary(BridgeType) ->
+    bridge_impl_module(binary_to_atom(BridgeType, utf8));
+bridge_impl_module(azure_event_hub_producer) ->
+    emqx_bridge_azure_event_hub;
+bridge_impl_module(_BridgeType) ->
+    undefined.
 
 fields(bridges) ->
     [
@@ -205,8 +218,7 @@ fields(bridges) ->
         influxdb_structs() ++
         redis_structs() ++
         pgsql_structs() ++ clickhouse_structs() ++ sqlserver_structs() ++ rabbitmq_structs() ++
-        kinesis_structs() ++
-        greptimedb_structs().
+        kinesis_structs() ++ greptimedb_structs() ++ azure_event_hub_structs().
 
 mongodb_structs() ->
     [
@@ -374,6 +386,16 @@ kafka_producer_converter(Map, Opts) ->
         Map
     ).
 
+azure_event_hub_producer_converter(undefined, _) ->
+    undefined;
+azure_event_hub_producer_converter(Map, Opts) ->
+    maps:map(
+        fun(_Name, Config) ->
+            emqx_bridge_azure_event_hub:producer_converter(Config, Opts)
+        end,
+        Map
+    ).
+
 rabbitmq_structs() ->
     [
         {rabbitmq,
@@ -393,6 +415,19 @@ kinesis_structs() ->
                 hoconsc:map(name, ref(emqx_bridge_kinesis, "config_producer")),
                 #{
                     desc => <<"Amazon Kinesis Producer Bridge Config">>,
+                    required => false
+                }
+            )}
+    ].
+
+azure_event_hub_structs() ->
+    [
+        {azure_event_hub_producer,
+            mk(
+                hoconsc:map(name, ref(emqx_bridge_azure_event_hub, "config_producer")),
+                #{
+                    desc => <<"EMQX Enterprise Config">>,
+                    converter => fun azure_event_hub_producer_converter/2,
                     required => false
                 }
             )}

@@ -1,0 +1,287 @@
+emqx_bridge_azure_event_hub {
+
+connect_timeout.desc:
+"""Maximum wait time for TCP connection establishment (including authentication time if enabled)."""
+
+connect_timeout.label:
+"""Connect Timeout"""
+
+producer_opts.desc:
+"""Local MQTT data source and Azure Event Hub bridge configs."""
+
+producer_opts.label:
+"""MQTT to Azure Event Hub"""
+
+min_metadata_refresh_interval.desc:
+"""Minimum time interval the client has to wait before refreshing Azure Event Hub Kafka broker and topic metadata. Setting too small value may add extra load on Azure Event Hub."""
+
+min_metadata_refresh_interval.label:
+"""Min Metadata Refresh Interval"""
+
+kafka_producer.desc:
+"""Azure Event Hub Producer configuration."""
+
+kafka_producer.label:
+"""Azure Event Hub Producer"""
+
+producer_buffer.desc:
+"""Configure producer message buffer.
+
+Tell Azure Event Hub producer how to buffer messages when EMQX has more messages to send than Azure Event Hub can keep up, or when Azure Event Hub is down."""
+
+producer_buffer.label:
+"""Message Buffer"""
+
+socket_send_buffer.desc:
+"""Fine tune the socket send buffer. The default value is tuned for high throughput."""
+
+socket_send_buffer.label:
+"""Socket Send Buffer Size"""
+
+socket_receive_buffer.desc:
+"""Fine tune the socket receive buffer. The default value is tuned for high throughput."""
+
+socket_receive_buffer.label:
+"""Socket Receive Buffer Size"""
+
+socket_tcp_keepalive.desc:
+"""Enable TCP keepalive for Azure Event Hub bridge connections.
+The value is three comma separated numbers in the format of 'Idle,Interval,Probes'
+ - Idle: The number of seconds a connection needs to be idle before the server begins to send out keep-alive probes (Linux default 7200).
+ - Interval: The number of seconds between TCP keep-alive probes (Linux default 75).
+ - Probes: The maximum number of TCP keep-alive probes to send before giving up and killing the connection if no response is obtained from the other end (Linux default 9).
+For example "240,30,5" means: TCP keepalive probes are sent after the connection is idle for 240 seconds, and the probes are sent every 30 seconds until a response is received, if it misses 5 consecutive responses, the connection should be closed.
+Default: 'none'"""
+
+socket_tcp_keepalive.label:
+"""TCP keepalive options"""
+
+desc_name.desc:
+"""Bridge name, used as a human-readable description of the bridge."""
+
+desc_name.label:
+"""Bridge Name"""
+
+producer_kafka_opts.desc:
+"""Azure Event Hub producer configs."""
+
+producer_kafka_opts.label:
+"""Azure Event Hub Producer"""
+
+kafka_topic.desc:
+"""Event Hub name"""
+
+kafka_topic.label:
+"""Event Hub Name"""
+
+kafka_message_timestamp.desc:
+"""Which timestamp to use. The timestamp is expected to be a millisecond precision Unix epoch which can be in string format, e.g. <code>1661326462115</code> or <code>'1661326462115'</code>. When the desired data field for this template is not found, or if the found data is not a valid integer, the current system timestamp will be used."""
+
+kafka_message_timestamp.label:
+"""Message Timestamp"""
+
+buffer_mode.desc:
+"""Message buffer mode.
+
+<code>memory</code>: Buffer all messages in memory. The messages will be lost in case of EMQX node restart
+<code>disk</code>: Buffer all messages on disk. The messages on disk are able to survive EMQX node restart.
+<code>hybrid</code>: Buffer message in memory first, when up to certain limit (see <code>segment_bytes</code> config for more information), then start offloading messages to disk, Like <code>memory</code> mode, the messages will be lost in case of EMQX node restart."""
+
+buffer_mode.label:
+"""Buffer Mode"""
+
+socket_opts.desc:
+"""Extra socket options."""
+
+socket_opts.label:
+"""Socket Options"""
+
+partition_count_refresh_interval.desc:
+"""The time interval for Azure Event Hub producer to discover increased number of partitions.
+After the number of partitions is increased in Azure Event Hub, EMQX will start taking the
+discovered partitions into account when dispatching messages per <code>partition_strategy</code>."""
+
+partition_count_refresh_interval.label:
+"""Partition Count Refresh Interval"""
+
+max_batch_bytes.desc:
+"""Maximum bytes to collect in a Azure Event Hub message batch. Most of the Kafka brokers default to a limit of 1 MB batch size. EMQX's default value is less than 1 MB in order to compensate Kafka message encoding overheads (especially when each individual message is very small). When a single message is over the limit, it is still sent (as a single element batch)."""
+
+max_batch_bytes.label:
+"""Max Batch Bytes"""
+
+required_acks.desc:
+"""Required acknowledgements for Azure Event Hub partition leader to wait for its followers before it sends back the acknowledgement to EMQX Azure Event Hub producer
+
+<code>all_isr</code>: Require all in-sync replicas to acknowledge.
+<code>leader_only</code>: Require only the partition-leader's acknowledgement."""
+
+required_acks.label:
+"""Required Acks"""
+
+kafka_headers.desc:
+"""Please provide a placeholder to be used as Azure Event Hub Headers<br/>
+e.g. <code>${pub_props}</code><br/>
+Notice that the value of the placeholder must either be an object:
+<code>{\"foo\": \"bar\"}</code>
+or an array of key-value pairs:
+<code>[{\"key\": \"foo\", \"value\": \"bar\"}]</code>"""
+
+kafka_headers.label:
+"""Azure Event Hub Headers"""
+
+producer_kafka_ext_headers.desc:
+"""Please provide more key-value pairs for Azure Event Hub headers<br/>
+The key-value pairs here will be combined with the
+value of <code>kafka_headers</code> field before sending to Azure Event Hub."""
+
+producer_kafka_ext_headers.label:
+"""Extra Azure Event Hub headers"""
+
+producer_kafka_ext_header_key.desc:
+"""Key of the Azure Event Hub header. Placeholders in format of ${var} are supported."""
+
+producer_kafka_ext_header_key.label:
+"""Azure Event Hub extra header key."""
+
+producer_kafka_ext_header_value.desc:
+"""Value of the Azure Event Hub header. Placeholders in format of ${var} are supported."""
+
+producer_kafka_ext_header_value.label:
+"""Value"""
+
+kafka_header_value_encode_mode.desc:
+"""Azure Event Hub headers value encode mode<br/>
+ - NONE: only add binary values to Azure Event Hub headers;<br/>
+ - JSON: only add JSON values to Azure Event Hub headers,
+and encode it to JSON strings before sending."""
+
+kafka_header_value_encode_mode.label:
+"""Azure Event Hub headers value encode mode"""
+
+metadata_request_timeout.desc:
+"""Maximum wait time when fetching metadata from Azure Event Hub."""
+
+metadata_request_timeout.label:
+"""Metadata Request Timeout"""
+
+desc_type.desc:
+"""The Bridge Type"""
+
+desc_type.label:
+"""Bridge Type"""
+
+socket_nodelay.desc:
+"""When set to 'true', TCP buffer is sent as soon as possible. Otherwise, the OS kernel may buffer small TCP packets for a while (40 ms by default)."""
+
+socket_nodelay.label:
+"""No Delay"""
+
+authentication.desc:
+"""Authentication configs."""
+
+authentication.label:
+"""Authentication"""
+
+buffer_memory_overload_protection.desc:
+"""Applicable when buffer mode is set to <code>memory</code>
+EMQX will drop old buffered messages under high memory pressure. The high memory threshold is defined in config <code>sysmon.os.sysmem_high_watermark</code>. NOTE: This config only works on Linux."""
+
+buffer_memory_overload_protection.label:
+"""Memory Overload Protection"""
+
+auth_sasl_mechanism.desc:
+"""SASL authentication mechanism."""
+
+auth_sasl_mechanism.label:
+"""Mechanism"""
+
+config_enable.desc:
+"""Enable (true) or disable (false) this bridge."""
+
+config_enable.label:
+"""Enable or Disable"""
+
+desc_config.desc:
+"""Configuration for an Azure Event Hub bridge."""
+
+desc_config.label:
+"""Azure Event Hub Bridge Configuration"""
+
+buffer_per_partition_limit.desc:
+"""Number of bytes allowed to buffer for each Azure Event Hub partition. When this limit is exceeded, old messages will be dropped in a trade for credits for new messages to be buffered."""
+
+buffer_per_partition_limit.label:
+"""Per-partition Buffer Limit"""
+
+bootstrap_hosts.desc:
+"""A comma separated list of Azure Event Hub Kafka <code>host[:port]</code> namespace endpoints to bootstrap the client.  Default port number is 9093."""
+
+bootstrap_hosts.label:
+"""Bootstrap Hosts"""
+
+kafka_message_key.desc:
+"""Template to render Azure Event Hub message key. If the template is rendered into a NULL value (i.e. there is no such data field in Rule Engine context) then Azure Event Hub's <code>NULL</code> (but not empty string) is used."""
+
+kafka_message_key.label:
+"""Message Key"""
+
+kafka_message.desc:
+"""Template to render an Azure Event Hub message."""
+
+kafka_message.label:
+"""Azure Event Hub Message Template"""
+
+mqtt_topic.desc:
+"""MQTT topic or topic filter as data source (bridge input).  If rule action is used as data source, this config should be left empty, otherwise messages will be duplicated in Azure Event Hub."""
+
+mqtt_topic.label:
+"""Source MQTT Topic"""
+
+kafka_message_value.desc:
+"""Template to render Azure Event Hub message value. If the template is rendered into a NULL value (i.e. there is no such data field in Rule Engine context) then Azure Event Hub's <code>NULL</code> (but not empty string) is used."""
+
+kafka_message_value.label:
+"""Message Value"""
+
+partition_strategy.desc:
+"""Partition strategy is to tell the producer how to dispatch messages to Azure Event Hub partitions.
+
+<code>random</code>: Randomly pick a partition for each message
+<code>key_dispatch</code>: Hash Azure Event Hub message key to a partition number"""
+
+partition_strategy.label:
+"""Partition Strategy"""
+
+buffer_segment_bytes.desc:
+"""Applicable when buffer mode is set to <code>disk</code> or <code>hybrid</code>.
+This value is to specify the size of each on-disk buffer file."""
+
+buffer_segment_bytes.label:
+"""Segment File Bytes"""
+
+max_inflight.desc:
+"""Maximum number of batches allowed for Azure Event Hub producer (per-partition) to send before receiving acknowledgement from Azure Event Hub. Greater value typically means better throughput. However, there can be a risk of message reordering when this value is greater than 1."""
+
+max_inflight.label:
+"""Max Inflight"""
+
+compression.desc:
+"""Compression method."""
+
+compression.label:
+"""Compression"""
+
+query_mode.desc:
+"""Query mode. Optional 'sync/async', default 'async'."""
+
+query_mode.label:
+"""Query mode"""
+
+sync_query_timeout.desc:
+"""This parameter defines the timeout limit for synchronous queries. It applies only when the bridge query mode is configured to 'sync'."""
+
+sync_query_timeout.label:
+"""Synchronous Query Timeout"""
+
+}

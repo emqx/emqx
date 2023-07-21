@@ -565,18 +565,20 @@ t_send_message_with_headers(Config) ->
             ?assertMatch(
                 [
                     #{
-                        ext_headers_tokens := [
-                            {
-                                [{str, <<"clientid">>}],
-                                [{var, [<<"clientid">>]}]
-                            },
-                            {
-                                [{str, <<"payload">>}],
-                                [{var, [<<"payload">>]}]
-                            }
-                        ],
-                        headers_tokens := [{var, [<<"pub_props">>]}],
-                        headers_val_encode_mode := json
+                        headers_config := #{
+                            ext_headers_tokens := [
+                                {
+                                    [{str, <<"clientid">>}],
+                                    [{var, [<<"clientid">>]}]
+                                },
+                                {
+                                    [{str, <<"payload">>}],
+                                    [{var, [<<"payload">>]}]
+                                }
+                            ],
+                            headers_tokens := [{var, [<<"pub_props">>]}],
+                            headers_val_encode_mode := json
+                        }
                     }
                 ],
                 ?of_kind(Kind, Trace)
