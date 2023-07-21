@@ -329,7 +329,7 @@ replace_dtypes(Rows0, IotDBVsn) ->
     Rows#{iotdb_field_key(data_types, IotDBVsn) => Types}.
 
 aggregate_rows(DataList, InitAcc) ->
-    lists:foldr(
+    lists:foldl(
         fun(
             #{
                 timestamp := Timestamp,

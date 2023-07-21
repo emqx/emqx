@@ -220,7 +220,7 @@ do_init(ChannName, ReqOpts) ->
 resolve_hookspec(HookSpecs) when is_list(HookSpecs) ->
     MessageHooks = message_hooks(),
     AvailableHooks = available_hooks(),
-    lists:foldr(
+    lists:foldl(
         fun(HookSpec, Acc) ->
             case maps:get(name, HookSpec, undefined) of
                 undefined ->

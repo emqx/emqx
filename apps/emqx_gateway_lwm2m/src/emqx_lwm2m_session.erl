@@ -356,7 +356,7 @@ parse_object_list(FullObjLinkList) ->
     end.
 
 drop_attr(LinkList) ->
-    lists:foldr(
+    lists:foldl(
         fun(Link, {AlternatePath, LinkAcc}) ->
             case parse_link(Link) of
                 {false, MainLink} -> {AlternatePath, [MainLink | LinkAcc]};

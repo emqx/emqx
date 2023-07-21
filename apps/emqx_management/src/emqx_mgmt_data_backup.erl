@@ -363,7 +363,7 @@ do_import(BackupFileName, Opts) ->
 import_mnesia_tabs(BackupDir, Opts) ->
     maybe_print("Importing built-in database...~n", [], Opts),
     filter_errors(
-        lists:foldr(
+        lists:foldl(
             fun(Tab, Acc) -> Acc#{Tab => import_mnesia_tab(BackupDir, Tab, Opts)} end,
             #{},
             tabs_to_backup()
@@ -523,7 +523,7 @@ do_import_conf(RawConf, Opts) ->
     GenConfErrs = filter_errors(maps:from_list(import_generic_conf(RawConf))),
     maybe_print_errors(GenConfErrs, Opts),
     Errors =
-        lists:foldr(
+        lists:foldl(
             fun(Module, ErrorsAcc) ->
                 Module:import_config(RawConf),
                 case Module:import_config(RawConf) of

@@ -670,7 +670,7 @@ esockd_access_rules(StrRules) ->
                 Acc
         end
     end,
-    lists:foldr(Access, [], StrRules).
+    lists:foldl(Access, [], StrRules).
 
 merge_default(Options) ->
     case lists:keytake(tcp_options, 1, Options) of

@@ -552,7 +552,7 @@ do_parallel_map(Fun, List) ->
         end,
         List
     ),
-    lists:foldr(
+    lists:foldl(
         fun(Pid, Acc) ->
             receive
                 {Pid, {normal, Result}} ->

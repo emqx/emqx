@@ -388,7 +388,7 @@ import_config(RawConf) ->
 
 merge_confs(OldConf, NewConf) ->
     AllTypes = maps:keys(maps:merge(OldConf, NewConf)),
-    lists:foldr(
+    lists:foldl(
         fun(Type, Acc) ->
             NewBridges = maps:get(Type, NewConf, #{}),
             OldBridges = maps:get(Type, OldConf, #{}),

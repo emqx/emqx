@@ -205,7 +205,7 @@ do_ensure_all_patch_versions(App, CurrVsn, OldActions) ->
 %% For external dependencies, show only the changes that are missing
 %% in their current appup.
 diff_appup_instructions(ComputedChanges, PresentChanges) ->
-    lists:foldr(
+    lists:foldl(
       fun({VsnOrRegex, ComputedActions}, Acc) ->
               case find_matching_version(VsnOrRegex, PresentChanges) of
                   undefined ->

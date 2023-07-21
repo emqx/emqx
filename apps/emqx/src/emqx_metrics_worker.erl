@@ -325,7 +325,7 @@ get_gauges(Name, Id) ->
             end
         ),
     try
-        lists:foldr(
+        lists:foldl(
             fun({Metric, Val}, Acc) ->
                 maps:update_with(Metric, fun(X) -> X + Val end, Val, Acc)
             end,

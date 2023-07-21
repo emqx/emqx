@@ -74,7 +74,7 @@ import_config(RawConf) ->
 
 merge_confs(OldConf, NewConf) ->
     AllTypes = maps:keys(maps:merge(OldConf, NewConf)),
-    lists:foldr(
+    lists:foldl(
         fun(Type, Acc) ->
             NewListeners = maps:get(Type, NewConf, #{}),
             OldListeners = maps:get(Type, OldConf, #{}),

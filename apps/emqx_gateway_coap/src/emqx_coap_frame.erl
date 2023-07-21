@@ -155,7 +155,7 @@ try_encode_repeatable(uri_query, Val) when is_map(Val) ->
         Val
     );
 try_encode_repeatable(K, Val) ->
-    lists:foldr(
+    lists:foldl(
         fun
             (undefined, Acc) ->
                 Acc;
