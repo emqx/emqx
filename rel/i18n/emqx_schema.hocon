@@ -697,7 +697,12 @@ fields_mqtt_quic_listener_minimum_mtu.label:
 """Minimum MTU"""
 
 sys_msg_interval.desc:
-"""Time interval of publishing `$SYS` messages."""
+"""Time interval for publishing following system messages:
+  - `$SYS/brokers`
+  - `$SYS/brokers/<node>/version`
+  - `$SYS/brokers/<node>/sysdescr`
+  - `$SYS/brokers/<node>/stats/<name>`
+  - `$SYS/brokers/<node>/metrics/<name>`"""
 
 mqtt_await_rel_timeout.desc:
 """For client to broker QoS 2 message, the time limit for the broker to wait before the `PUBREL` message is received. The wait is aborted after timed out, meaning the packet ID is freed for new `PUBLISH` requests. Receiving a stale `PUBREL` causes a warning level log. Note, the message is delivered to subscribers before entering the wait for PUBREL."""
