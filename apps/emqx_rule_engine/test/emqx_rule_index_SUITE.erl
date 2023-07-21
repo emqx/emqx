@@ -30,7 +30,8 @@ t_insert(_) ->
     true = emqx_rule_index:insert(<<"sensor/+/#">>, t_insert_2, <<>>, Tab),
     true = emqx_rule_index:insert(<<"sensor/#">>, t_insert_3, <<>>, Tab),
     ?assertEqual(<<"sensor/#">>, get_topic(match(<<"sensor">>, Tab))),
-    ?assertEqual(t_insert_3, get_id(match(<<"sensor">>, Tab))).
+    ?assertEqual(t_insert_3, get_id(match(<<"sensor">>, Tab))),
+    true = ets:delete(Tab).
 
 t_match(_) ->
     Tab = new(),
@@ -40,7 +41,8 @@ t_match(_) ->
     ?assertMatch(
         [<<"sensor/#">>, <<"sensor/+/#">>],
         [get_topic(M) || M <- matches(<<"sensor/1">>, Tab)]
-    ).
+    ),
+    true = ets:delete(Tab).
 
 t_match2(_) ->
     Tab = new(),
@@ -54,7 +56,8 @@ t_match2(_) ->
     ?assertEqual(
         false,
         emqx_rule_index:match(<<"$SYS/broker/zenmq">>, Tab)
-    ).
+    ),
+    true = ets:delete(Tab).
 
 t_match3(_) ->
     Tab = new(),
@@ -77,7 +80,8 @@ t_match3(_) ->
     ?assertEqual(
         t_match3_sys,
         get_id(match(<<"$SYS/a/b/c">>, Tab))
-    ).
+    ),
+    true = ets:delete(Tab).
 
 t_match4(_) ->
     Tab = new(),
@@ -93,7 +97,8 @@ t_match4(_) ->
     ?assertEqual(
         [<<"/#">>, <<"/+/a/b/c">>],
         [get_topic(M) || M <- matches(<<"/0/a/b/c">>, Tab)]
-    ).
+    ),
+    true = ets:delete(Tab).
 
 t_match5(_) ->
     Tab = new(),
@@ -114,21 +119,24 @@ t_match5(_) ->
     ?assertEqual(
         [<<"#">>, <<T/binary, "/#">>, <<T/binary, "/+">>],
         [get_topic(M) || M <- matches(<<T/binary, "/1">>, Tab)]
-    ).
+    ),
+    true = ets:delete(Tab).
 
 t_match6(_) ->
     Tab = new(),
     T = <<"a/b/c/d/e/f/g/h/i/j/k/l/m/n/o/p/q/r/s/t/u/v/w/x/y/z">>,
     W = <<"+/+/+/+/+/+/+/+/+/+/+/+/+/+/+/+/+/+/+/+/+/+/+/+/+/+/#">>,
     emqx_rule_index:insert(W, ID = t_match6, <<>>, Tab),
-    ?assertEqual(ID, get_id(match(T, Tab))).
+    ?assertEqual(ID, get_id(match(T, Tab))),
+    true = ets:delete(Tab).
 
 t_match7(_) ->
     Tab = new(),
     T = <<"a/b/c/d/e/f/g/h/i/j/k/l/m/n/o/p/q/r/s/t/u/v/w/x/y/z">>,
     W = <<"a/+/c/+/e/+/g/+/i/+/k/+/m/+/o/+/q/+/s/+/u/+/w/+/y/+/#">>,
     emqx_rule_index:insert(W, t_match7, <<>>, Tab),
-    ?assertEqual(W, get_topic(match(T, Tab))).
+    ?assertEqual(W, get_topic(match(T, Tab))),
+    true = ets:delete(Tab).
 
 new() ->
     ets:new(?MODULE, [public, ordered_set, {write_concurrency, true}]).
