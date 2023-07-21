@@ -130,11 +130,25 @@ t_match7(_) ->
     emqx_topic_index:insert(W, t_match7, <<>>, Tab),
     ?assertEqual(W, topic(match(T, Tab))).
 
+t_match_unique(_) ->
+    Tab = emqx_topic_index:new(),
+    emqx_topic_index:insert(<<"a/b/c">>, t_match_id1, <<>>, Tab),
+    emqx_topic_index:insert(<<"a/b/+">>, t_match_id1, <<>>, Tab),
+    emqx_topic_index:insert(<<"a/b/c/+">>, t_match_id2, <<>>, Tab),
+    ?assertEqual(
+        [t_match_id1, t_match_id1],
+        [id(M) || M <- emqx_topic_index:matches(<<"a/b/c">>, Tab, [])]
+    ),
+    ?assertEqual(
+        [t_match_id1],
+        [id(M) || M <- emqx_topic_index:matches(<<"a/b/c">>, Tab, [unique])]
+    ).
+
 match(T, Tab) ->
     emqx_topic_index:match(T, Tab).
 
 matches(T, Tab) ->
-    lists:sort(emqx_topic_index:matches(T, Tab)).
+    lists:sort(emqx_topic_index:matches(T, Tab, [])).
 
 id(Match) ->
     emqx_topic_index:get_id(Match).
