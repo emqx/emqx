@@ -35,7 +35,7 @@
     preproc_tmpl_deep/2,
     proc_tmpl_deep/2,
     proc_tmpl_deep/3,
-
+    proc_json/2,
     bin/1,
     sql_data/1
 ]).
@@ -43,7 +43,8 @@
 -export([
     quote_sql/1,
     quote_cql/1,
-    quote_mysql/1
+    quote_mysql/1,
+    json_bin/1
 ]).
 
 -define(PH_VAR_THIS, '$this').
@@ -231,6 +232,10 @@ proc_tmpl_deep({tmpl, Tokens}, Data, Opts) ->
 proc_tmpl_deep({tuple, Elements}, Data, Opts) ->
     list_to_tuple([proc_tmpl_deep(El, Data, Opts) || El <- Elements]).
 
+-spec proc_json(tmpl_token(), map()) -> binary().
+proc_json(Tokens, Data) ->
+    proc_tmpl(Tokens, Data, #{return => full_binary, var_trans => fun json_bin/1}).
+
 -spec sql_data(term()) -> term().
 sql_data(undefined) -> null;
 sql_data(List) when is_list(List) -> List;
@@ -254,6 +259,15 @@ quote_cql(Str) ->
 -spec quote_mysql(_Value) -> iolist().
 quote_mysql(Str) ->
     emqx_utils_sql:to_sql_string(Str, #{escaping => mysql}).
+
+json_bin(Bin) when is_binary(Bin) -> emqx_utils_json:escape_string(Bin);
+json_bin(List) when is_list(List) ->
+    case io_lib:printable_list(List) of
+        true -> emqx_utils_json:escape_string(list_to_binary(List));
+        false -> emqx_utils_json:encode(List)
+    end;
+json_bin(Data) ->
+    emqx_utils_conv:bin(Data).
 
 lookup_var(Var, Value) when Var == ?PH_VAR_THIS orelse Var == [] ->
     Value;

@@ -46,7 +46,7 @@
     ]}
 ).
 
--export([is_json/1]).
+-export([is_json/1, escape_string/1]).
 
 -compile({inline, [is_json/1]}).
 
@@ -108,6 +108,10 @@ safe_decode(Json, Opts) ->
 is_json(Json) ->
     element(1, safe_decode(Json)) =:= ok.
 
+-spec escape_string(binary()) -> binary().
+escape_string(Bin) ->
+    escape_string(Bin, <<>>).
+
 %%--------------------------------------------------------------------
 %% Helpers
 %%--------------------------------------------------------------------
@@ -142,3 +146,24 @@ from_ejson(T) ->
 to_binary(B) when is_binary(B) -> B;
 to_binary(L) when is_list(L) ->
     iolist_to_binary(L).
+
+escape_string(<<$", Bin/binary>>, Acc) ->
+    escape_string(Bin, <<Acc/binary, $\\, $">>);
+escape_string(<<$\\, Bin/binary>>, Acc) ->
+    escape_string(Bin, <<Acc/binary, $\\, $\\>>);
+escape_string(<<$\/, Bin/binary>>, Acc) ->
+    escape_string(Bin, <<Acc/binary, $\\, $\/>>);
+escape_string(<<$\b, Bin/binary>>, Acc) ->
+    escape_string(Bin, <<Acc/binary, $\\, $b>>);
+escape_string(<<$\f, Bin/binary>>, Acc) ->
+    escape_string(Bin, <<Acc/binary, $\\, $f>>);
+escape_string(<<$\n, Bin/binary>>, Acc) ->
+    escape_string(Bin, <<Acc/binary, $\\, $n>>);
+escape_string(<<$\r, Bin/binary>>, Acc) ->
+    escape_string(Bin, <<Acc/binary, $\\, $r>>);
+escape_string(<<$\t, Bin/binary>>, Acc) ->
+    escape_string(Bin, <<Acc/binary, $\\, $t>>);
+escape_string(<<C/utf8, Bin/binary>>, Acc) ->
+    escape_string(Bin, <<Acc/binary, C/utf8>>);
+escape_string(<<"">>, Acc) ->
+    Acc.
