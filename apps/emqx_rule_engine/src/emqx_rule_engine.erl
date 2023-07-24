@@ -176,7 +176,7 @@ create_rule(Params) ->
 
 create_rule(Params = #{id := RuleId}, CreatedAt) when is_binary(RuleId) ->
     case get_rule(RuleId) of
-        not_found -> parse_and_insert(Params, CreatedAt);
+        not_found -> with_parsed_rule(Params, CreatedAt, fun insert_rule/1);
         {ok, _} -> {error, already_exists}
     end.
 
@@ -185,17 +185,26 @@ update_rule(Params = #{id := RuleId}) when is_binary(RuleId) ->
     case get_rule(RuleId) of
         not_found ->
             {error, not_found};
-        {ok, #{created_at := CreatedAt}} ->
-            parse_and_insert(Params, CreatedAt)
+        {ok, RulePrev = #{created_at := CreatedAt}} ->
+            with_parsed_rule(Params, CreatedAt, fun(Rule) -> update_rule(Rule, RulePrev) end)
     end.
 
 -spec delete_rule(RuleId :: rule_id()) -> ok.
 delete_rule(RuleId) when is_binary(RuleId) ->
-    gen_server:call(?RULE_ENGINE, {delete_rule, RuleId}, ?T_CALL).
+    case get_rule(RuleId) of
+        not_found ->
+            ok;
+        {ok, Rule} ->
+            gen_server:call(?RULE_ENGINE, {delete_rule, Rule}, ?T_CALL)
+    end.
 
 -spec insert_rule(Rule :: rule()) -> ok.
 insert_rule(Rule) ->
     gen_server:call(?RULE_ENGINE, {insert_rule, Rule}, ?T_CALL).
+
+-spec update_rule(Rule :: rule(), RulePrev :: rule()) -> ok.
+update_rule(Rule, RulePrev) ->
+    gen_server:call(?RULE_ENGINE, {update_rule, Rule, RulePrev}, ?T_CALL).
 
 %%----------------------------------------------------------------------------------------
 %% Rule Management
@@ -216,13 +225,13 @@ get_rules_ordered_by_ts() ->
 -spec get_rules_for_topic(Topic :: binary()) -> [rule()].
 get_rules_for_topic(Topic) ->
     [
-        Rule
-     || Rule = #{from := From} <- get_rules(),
-        emqx_topic:match_any(Topic, From)
+        emqx_rule_index:get_record(M, ?RULE_TOPIC_INDEX)
+     || M <- emqx_rule_index:matches(Topic, ?RULE_TOPIC_INDEX)
     ].
 
 -spec get_rules_with_same_event(Topic :: binary()) -> [rule()].
 get_rules_with_same_event(Topic) ->
+    %% TODO: event matching index not implemented yet
     EventName = emqx_rule_events:event_name(Topic),
     [
         Rule
@@ -232,6 +241,7 @@ get_rules_with_same_event(Topic) ->
 
 -spec get_rule_ids_by_action(action_name()) -> [rule_id()].
 get_rule_ids_by_action(BridgeId) when is_binary(BridgeId) ->
+    %% TODO: bridge matching index not implemented yet
     [
         Id
      || #{actions := Acts, id := Id, from := Froms} <- get_rules(),
@@ -239,6 +249,7 @@ get_rule_ids_by_action(BridgeId) when is_binary(BridgeId) ->
             references_ingress_bridge(Froms, BridgeId)
     ];
 get_rule_ids_by_action(#{function := FuncName}) when is_binary(FuncName) ->
+    %% TODO: action id matching index not implemented yet
     {Mod, Fun} =
         case string:split(FuncName, ":", leading) of
             [M, F] -> {binary_to_module(M), F};
@@ -411,10 +422,17 @@ init([]) ->
     {ok, #{}}.
 
 handle_call({insert_rule, Rule}, _From, State) ->
-    do_insert_rule(Rule),
+    ok = do_insert_rule(Rule),
+    ok = do_update_rule_index(Rule),
+    {reply, ok, State};
+handle_call({update_rule, Rule, RulePrev}, _From, State) ->
+    ok = do_delete_rule_index(RulePrev),
+    ok = do_insert_rule(Rule),
+    ok = do_update_rule_index(Rule),
     {reply, ok, State};
 handle_call({delete_rule, Rule}, _From, State) ->
-    do_delete_rule(Rule),
+    ok = do_delete_rule_index(Rule),
+    ok = do_delete_rule(Rule),
     {reply, ok, State};
 handle_call(Req, _From, State) ->
     ?SLOG(error, #{msg => "unexpected_call", request => Req}),
@@ -438,7 +456,7 @@ code_change(_OldVsn, State, _Extra) ->
 %% Internal Functions
 %%----------------------------------------------------------------------------------------
 
-parse_and_insert(Params = #{id := RuleId, sql := Sql, actions := Actions}, CreatedAt) ->
+with_parsed_rule(Params = #{id := RuleId, sql := Sql, actions := Actions}, CreatedAt, Fun) ->
     case emqx_rule_sqlparser:parse(Sql) of
         {ok, Select} ->
             Rule = #{
@@ -459,7 +477,7 @@ parse_and_insert(Params = #{id := RuleId, sql := Sql, actions := Actions}, Creat
                 conditions => emqx_rule_sqlparser:select_where(Select)
                 %% -- calculated fields end
             },
-            ok = insert_rule(Rule),
+            ok = Fun(Rule),
             {ok, Rule};
         {error, Reason} ->
             {error, Reason}
@@ -471,16 +489,27 @@ do_insert_rule(#{id := Id} = Rule) ->
     true = ets:insert(?RULE_TAB, {Id, maps:remove(id, Rule)}),
     ok.
 
-do_delete_rule(RuleId) ->
-    case get_rule(RuleId) of
-        {ok, Rule} ->
-            ok = unload_hooks_for_rule(Rule),
-            ok = clear_metrics_for_rule(RuleId),
-            true = ets:delete(?RULE_TAB, RuleId),
-            ok;
-        not_found ->
-            ok
-    end.
+do_delete_rule(#{id := Id} = Rule) ->
+    ok = unload_hooks_for_rule(Rule),
+    ok = clear_metrics_for_rule(Id),
+    true = ets:delete(?RULE_TAB, Id),
+    ok.
+
+do_update_rule_index(#{id := Id, from := From} = Rule) ->
+    ok = lists:foreach(
+        fun(Topic) ->
+            true = emqx_rule_index:insert(Topic, Id, Rule, ?RULE_TOPIC_INDEX)
+        end,
+        From
+    ).
+
+do_delete_rule_index(#{id := Id, from := From}) ->
+    ok = lists:foreach(
+        fun(Topic) ->
+            true = emqx_rule_index:delete(Topic, Id, ?RULE_TOPIC_INDEX)
+        end,
+        From
+    ).
 
 parse_actions(Actions) ->
     [do_parse_action(Act) || Act <- Actions].
