@@ -104,7 +104,8 @@ groups() ->
             t_sqlparse_true_false,
             t_sqlparse_undefined_variable,
             t_sqlparse_new_map,
-            t_sqlparse_invalid_json
+            t_sqlparse_invalid_json,
+            t_sqlselect_as_put
         ]},
         {events, [], [
             t_events,
@@ -1586,6 +1587,45 @@ t_sqlselect_message_publish_event_keep_original_props_2(_Config) ->
     emqtt:stop(Client2),
     emqtt:stop(Client1),
     delete_rule(TopicRule).
+
+t_sqlselect_as_put(_Config) ->
+    %% Verify SELECT with 'AS' to update the payload
+    Sql =
+        "select payload, "
+        "'STEVE' as payload.data[1].name "
+        "from \"t/#\" ",
+    PayloadMap = #{
+        <<"f1">> => <<"f1">>,
+        <<"f2">> => <<"f2">>,
+        <<"data">> => [
+            #{<<"name">> => <<"n1">>, <<"idx">> => 1},
+            #{<<"name">> => <<"n2">>, <<"idx">> => 2}
+        ]
+    },
+    PayloadBin = emqx_utils_json:encode(PayloadMap),
+    SqlResult = emqx_rule_sqltester:test(
+        #{
+            sql => Sql,
+            context =>
+                #{
+                    payload => PayloadBin,
+                    topic => <<"t/a">>
+                }
+        }
+    ),
+    ?assertMatch({ok, #{<<"payload">> := _}}, SqlResult),
+    {ok, #{<<"payload">> := PayloadMap2}} = SqlResult,
+    ?assertMatch(
+        #{
+            <<"f1">> := <<"f1">>,
+            <<"f2">> := <<"f2">>,
+            <<"data">> := [
+                #{<<"name">> := <<"STEVE">>, <<"idx">> := 1},
+                #{<<"name">> := <<"n2">>, <<"idx">> := 2}
+            ]
+        },
+        PayloadMap2
+    ).
 
 t_sqlparse_event_1(_Config) ->
     Sql =
