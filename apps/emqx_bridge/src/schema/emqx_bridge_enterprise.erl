@@ -128,7 +128,8 @@ fields(bridges) ->
                 hoconsc:map(name, ref(emqx_bridge_hstreamdb, "config")),
                 #{
                     desc => <<"HStreamDB Bridge Config">>,
-                    required => false
+                    required => false,
+                    importance => ?IMPORTANCE_HIDDEN
                 }
             )},
         {mysql,
