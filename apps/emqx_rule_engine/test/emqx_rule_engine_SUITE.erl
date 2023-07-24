@@ -427,8 +427,7 @@ t_get_rules_for_topic_3(_Config) ->
         <<"rule-debug-2">>,
         <<"rule-debug-3">>,
         <<"rule-debug-4">>,
-        <<"rule-debug-5">>,
-        <<"rule-debug-6">>
+        <<"rule-debug-5">>
     ]),
     ok.
 
