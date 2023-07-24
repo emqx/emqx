@@ -89,9 +89,13 @@ matches(Topic, Tab, Opts) ->
             [] -> []
         end,
     Matches = matches(Words, RPrefix, AccIn, Tab),
+    %% return rules ordered by Rule ID
     case Matches of
-        #{} -> maps:values(Matches);
-        _ -> Matches
+        #{} ->
+            maps:values(Matches);
+        _ ->
+            F = fun({_, {ID1}}, {_, {ID2}}) -> ID1 < ID2 end,
+            lists:sort(F, Matches)
     end.
 
 matches(Words, RPrefix, Acc, Tab) ->

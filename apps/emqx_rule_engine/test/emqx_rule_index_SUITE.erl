@@ -152,6 +152,16 @@ t_match_unique(_) ->
         [id(M) || M <- emqx_rule_index:matches(<<"a/b/c">>, Tab, [unique])]
     ).
 
+t_match_ordering(_) ->
+    Tab = new(),
+    emqx_rule_index:insert(<<"a/b/+">>, t_match_id2, <<>>, Tab),
+    emqx_rule_index:insert(<<"a/b/c">>, t_match_id1, <<>>, Tab),
+    emqx_rule_index:insert(<<"a/b/#">>, t_match_id3, <<>>, Tab),
+    Ids1 = [id(M) || M <- emqx_rule_index:matches(<<"a/b/c">>, Tab, [])],
+    Ids2 = [id(M) || M <- emqx_rule_index:matches(<<"a/b/c">>, Tab, [unique])],
+    ?assertEqual(Ids1, Ids2),
+    ?assertEqual([t_match_id1, t_match_id2, t_match_id3], Ids1).
+
 new() ->
     ets:new(?MODULE, [public, ordered_set, {write_concurrency, true}]).
 
