@@ -114,9 +114,13 @@ lookup(#{clientid := ClientId}, _Params) ->
 format(Items) when is_list(Items) ->
     [format(Item) || Item <- Items];
 
+format({{Subscriber, Topic}, #{flag := _} = Options}) ->
+    format({{Subscriber, Topic}, emqx_broker:decompress(Options)});
 format({{Subscriber, Topic}, Options}) ->
     format({Subscriber, Topic, Options});
 
+format({_Subscriber, Topic, Options = #{flag := _} = Options}) ->
+    format({_Subscriber, Topic, emqx_broker:decompress(Options)});
 format({_Subscriber, Topic, Options = #{share := Group}}) ->
     QoS = maps:get(qos, Options),
     #{node => node(), topic => filename:join([<<"$share">>, Group, Topic]), clientid => maps:get(subid, Options), qos => QoS};

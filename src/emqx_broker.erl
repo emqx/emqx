@@ -58,6 +58,10 @@
 %% Stats fun
 -export([stats_fun/0]).
 
+%% Compress/Decompress subopts
+-export([ compress/1
+        , decompress/1]).
+
 %% gen_server callbacks
 -export([ init/1
         , handle_call/3
@@ -152,16 +156,16 @@ do_subscribe(Topic, SubPid, SubOpts) ->
 do_subscribe(undefined, Topic, SubPid, SubOpts) ->
     case emqx_broker_helper:get_sub_shard(SubPid, Topic) of
         0 -> true = ets:insert(?SUBSCRIBER, {Topic, SubPid}),
-             true = ets:insert(?SUBOPTION, {{SubPid, Topic}, SubOpts}),
+             true = ets:insert(?SUBOPTION, {{SubPid, Topic}, compress(SubOpts)}),
              call(pick(Topic), {subscribe, Topic});
         I -> true = ets:insert(?SUBSCRIBER, {{shard, Topic, I}, SubPid}),
-             true = ets:insert(?SUBOPTION, {{SubPid, Topic}, maps:put(shard, I, SubOpts)}),
+             true = ets:insert(?SUBOPTION, {{SubPid, Topic}, compress(maps:put(shard, I, SubOpts))}),
              call(pick({Topic, I}), {subscribe, Topic, I})
     end;
 
 %% Shared subscription
 do_subscribe(Group, Topic, SubPid, SubOpts) ->
-    true = ets:insert(?SUBOPTION, {{SubPid, Topic}, SubOpts}),
+    true = ets:insert(?SUBOPTION, {{SubPid, Topic}, compress(SubOpts)}),
     emqx_shared_sub:subscribe(Group, Topic, SubPid).
 
 %%--------------------------------------------------------------------
@@ -172,7 +176,8 @@ do_subscribe(Group, Topic, SubPid, SubOpts) ->
 unsubscribe(Topic) when is_binary(Topic) ->
     SubPid = self(),
     case ets:lookup(?SUBOPTION, {SubPid, Topic}) of
-        [{_, SubOpts}] ->
+        [{_, SubOpts0}] ->
+            SubOpts = decompress(SubOpts0),
             emqx_trace:unsubscribe(Topic, SubOpts),
             _ = emqx_broker_helper:reclaim_seq(Topic),
             do_unsubscribe(Topic, SubPid, SubOpts);
@@ -332,7 +337,8 @@ subscriber_down(SubPid) ->
     lists:foreach(
       fun(Topic) ->
           case lookup_value(?SUBOPTION, {SubPid, Topic}) of
-              SubOpts when is_map(SubOpts) ->
+              SubOpts0 when is_map(SubOpts0) ->
+                  SubOpts = decompress(SubOpts0),
                   _ = emqx_broker_helper:reclaim_seq(Topic),
                   true = ets:delete(?SUBOPTION, {SubPid, Topic}),
                   clean_subscribe(SubOpts, Topic, SubPid);
@@ -359,7 +365,7 @@ clean_subscribe(SubOpts, Topic, SubPid) ->
 -spec(subscriptions(pid() | emqx_types:subid())
       -> [{emqx_topic:topic(), emqx_types:subopts()}]).
 subscriptions(SubPid) when is_pid(SubPid) ->
-    [{Topic, lookup_value(?SUBOPTION, {SubPid, Topic}, #{})}
+    [{Topic, decompress(lookup_value(?SUBOPTION, {SubPid, Topic}, #{}))}
       || Topic <- lookup_value(?SUBSCRIPTION, SubPid, [])];
 subscriptions(SubId) ->
     case emqx_broker_helper:lookup_subpid(SubId) of
@@ -377,7 +383,7 @@ subscribed(SubId, Topic) when ?IS_SUBID(SubId) ->
 
 -spec(get_subopts(pid(), emqx_topic:topic()) -> maybe(emqx_types:subopts())).
 get_subopts(SubPid, Topic) when is_pid(SubPid), is_binary(Topic) ->
-    lookup_value(?SUBOPTION, {SubPid, Topic});
+    decompress(lookup_value(?SUBOPTION, {SubPid, Topic}));
 get_subopts(SubId, Topic) when ?IS_SUBID(SubId) ->
     case emqx_broker_helper:lookup_subpid(SubId) of
         SubPid when is_pid(SubPid) ->
@@ -394,7 +400,7 @@ set_subopts(SubPid, Topic, NewOpts) ->
     Sub = {SubPid, Topic},
     case ets:lookup(?SUBOPTION, Sub) of
         [{_, OldOpts}] ->
-            ets:insert(?SUBOPTION, {Sub, maps:merge(OldOpts, NewOpts)});
+            ets:insert(?SUBOPTION, {Sub, compress(maps:merge(decompress(OldOpts), NewOpts))});
         [] -> false
     end.
 
@@ -503,3 +509,78 @@ code_change(_OldVsn, State, _Extra) ->
 %%--------------------------------------------------------------------
 %% Internal functions
 %%--------------------------------------------------------------------
+
+%% @doc compress emqx_types:subopts()
+%%  1. mandatory fields: qos, rap, rh, nl are converted to one bit masked integer
+%%  2. subscribe properties are converted to undefined if it's empty.
+%% @end
+compress(M) when map_size(M) == 0 ->
+    undefined;
+compress(#{sub_props := SubProps} = M)
+  when map_size(SubProps) == 0 ->
+    compress(M#{sub_props => undefined});
+compress(#{ nl := NL
+          , qos := QoS
+          , rap := Rap
+          , rh := RH
+          } = M) ->
+    Shard = case maps:get(shard, M, '__undefined__') of
+                '__undefined__' -> 0;
+                I when is_integer(I) ->
+                    I bsl 1 bor 1
+            end,
+    Flag = Shard
+        bsl 2 bor QoS
+        bsl 2 bor RH
+        bsl 1 bor NL
+        bsl 1 bor Rap,
+    M1 = maps:without([shard, qos, rh, nl, rap], M),
+    M1#{ flag => Flag }.
+
+decompress(undefined) ->
+    undefined;
+%% new struct sub_props := undefined since 4.4.20
+decompress(#{ sub_props := undefined } = M) ->
+    decompress(M#{ sub_props => #{}});
+%% new struct with `flag' since 4.4.20
+decompress(#{ flag := Flags } = M) ->
+    Rap = Flags band 1,
+    NL = (Flags bsr 1) band 1,
+    RH = (Flags bsr 2) band 3,
+    QoS = (Flags bsr 4) band 3,
+    M1 = maps:remove(flag, M),
+    M2 = case Flags bsr 6 of
+                0 -> M1;
+                I when is_integer(I) ->
+                    M1#{ shard => I bsr 1 }
+            end,
+    M2#{ nl => NL
+       , qos => QoS
+       , rap => Rap
+       , rh => RH
+       };
+%% old struct
+decompress(Old) ->
+    Old.
+
+-ifdef(TEST).
+-include_lib("eunit/include/eunit.hrl").
+subopt_compress_test_() ->
+    SubOpt = #{  nl => 1
+               , qos => 2
+               , rap => 1
+               , rh => 1
+               , sub_props => #{}
+               , subid => <<"random_subid">>
+              },
+    fun() ->
+            [ ?assertEqual(#{flag => 39,sub_props => undefined,
+                             subid => <<"random_subid">>}, compress(SubOpt))
+            , ?assertEqual(SubOpt,
+                           decompress(#{ flag => 39
+                                       , sub_props => undefined
+                                       , subid => <<"random_subid">>}))
+            , ?assertEqual(undefined, decompress(undefined))
+            ]
+    end.
+-endif. %% TEST
