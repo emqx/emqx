@@ -60,6 +60,28 @@
     end)()
 ).
 
+-define(assertNotReceive(PATTERN),
+    ?assertNotReceive(PATTERN, 300)
+).
+
+-define(assertNotReceive(PATTERN, TIMEOUT),
+    (fun() ->
+        receive
+            X__V = PATTERN ->
+                erlang:error(
+                    {assertNotReceive, [
+                        {module, ?MODULE},
+                        {line, ?LINE},
+                        {expression, (??PATTERN)},
+                        {message, X__V}
+                    ]}
+                )
+        after TIMEOUT ->
+            ok
+        end
+    end)()
+).
+
 -define(retrying(CONFIG, NUM_RETRIES, TEST_BODY_FN), begin
     __TEST_CASE = ?FUNCTION_NAME,
     (fun
