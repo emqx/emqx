@@ -433,9 +433,32 @@ check_if_table_exists(Conn, SQL, Tokens0) ->
     case jamdb_oracle:sql_query(Conn, {SqlQuery, Params}) of
         {ok, [{proc_result, 0, _Description}]} ->
             ok;
-        {ok, [{proc_result, 6550, _Description}]} ->
+        {ok, [{proc_result, 942, _Description}]} ->
             %% Target table is not created
             {error, undefined_table};
+        {ok, [{proc_result, _, Description}]} ->
+            % only the last result is returned, so we need to check on description if it
+            % contains the "Table doesn't exist" error as it can not be the last one.
+            % (for instance, the ORA-06550 can be the result value when table does not exist)
+            ErrorCodes =
+                case re:run(Description, <<"(ORA-[0-9]+)">>, [global, {capture, first, binary}]) of
+                    {match, OraCodes} -> OraCodes;
+                    _ -> []
+                end,
+            OraMap = maps:from_keys([ErrorCode || [ErrorCode] <- ErrorCodes], true),
+            case OraMap of
+                _ when is_map_key(<<"ORA-00942">>, OraMap) ->
+                    % ORA-00942: table or view does not exist
+                    {error, undefined_table};
+                _ when is_map_key(<<"ORA-00932">>, OraMap) ->
+                    % ORA-00932: inconsistent datatypes
+                    % There is a some type inconsistency with table definition but
+                    % table does exist. Probably this inconsistency was caused by
+                    % token discarding in this test query.
+                    ok;
+                _ ->
+                    {error, Description}
+            end;
         Reason ->
             {error, Reason}
     end.
