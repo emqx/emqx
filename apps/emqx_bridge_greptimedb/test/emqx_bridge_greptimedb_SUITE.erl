@@ -80,7 +80,7 @@ init_per_group(GreptimedbType, Config0) when
                     proxy_name => "greptimedb_tls"
                 }
         end,
-    case emqx_common_test_helpers:is_tcp_server_available(GreptimedbHost, GreptimedbPort) of
+    case emqx_common_test_helpers:is_tcp_server_available(GreptimedbHost, GreptimedbHttpPort) of
         true ->
             ProxyHost = os:getenv("PROXY_HOST", "toxiproxy"),
             ProxyPort = list_to_integer(os:getenv("PROXY_PORT", "8474")),
@@ -93,7 +93,7 @@ init_per_group(GreptimedbType, Config0) when
             {Name, ConfigString, GreptimedbConfig} = greptimedb_config(
                 grpcv1, GreptimedbHost, GreptimedbPort, Config
             ),
-            EHttpcPoolNameBin = <<(atom_to_binary(?MODULE))/binary, "_grpcv1">>,
+            EHttpcPoolNameBin = <<(atom_to_binary(?MODULE))/binary, "_http">>,
             EHttpcPoolName = binary_to_atom(EHttpcPoolNameBin),
             {EHttpcTransport, EHttpcTransportOpts} =
                 case UseTLS of
