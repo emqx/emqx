@@ -114,6 +114,10 @@ matches(K, Prefix, Words, RPrefix, Acc, Tab) ->
 
 matches_rest(false, [W | Rest], RPrefix, Acc, Tab) ->
     matches(Rest, [W | RPrefix], Acc, Tab);
+matches_rest({false, exact}, [W | Rest], RPrefix, Acc, Tab) ->
+    NAcc1 = matches(Rest, ['#' | RPrefix], Acc, Tab),
+    NAcc2 = matches(Rest, ['+' | RPrefix], NAcc1, Tab),
+    matches(Rest, [W | RPrefix], NAcc2, Tab);
 matches_rest(plus, [W | Rest], RPrefix, Acc, Tab) ->
     NAcc = matches(Rest, ['+' | RPrefix], Acc, Tab),
     matches(Rest, [W | RPrefix], NAcc, Tab);
@@ -129,7 +133,12 @@ match_filter(Prefix, {Filter, _ID}, NotPrefix) ->
     case match_filter(Prefix, Filter) of
         exact ->
             % NOTE: exact match is `true` only if we match whole topic, not prefix
-            NotPrefix;
+            case NotPrefix of
+                true ->
+                    true;
+                false ->
+                    {false, exact}
+            end;
         Match ->
             Match
     end;
