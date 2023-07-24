@@ -65,8 +65,7 @@
     info/1,
     info/2,
     stats/1,
-    obtain_next_pkt_id/1,
-    get_mqueue/1
+    obtain_next_pkt_id/1
 ]).
 
 -export([
@@ -955,6 +954,3 @@ age(Now, Ts) -> Now - Ts.
 set_field(Name, Value, Session) ->
     Pos = emqx_utils:index_of(Name, record_info(fields, session)),
     setelement(Pos + 1, Session, Value).
-
-get_mqueue(#session{mqueue = Q}) ->
-    emqx_mqueue:to_list(Q).
