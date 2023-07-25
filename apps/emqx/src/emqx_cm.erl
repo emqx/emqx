@@ -21,6 +21,7 @@
 
 -include("emqx.hrl").
 -include("emqx_cm.hrl").
+-include("emqx_session.hrl").
 -include("logger.hrl").
 -include("types.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
@@ -301,7 +302,16 @@ open_session(false, ClientInfo = #{clientid := ClientId}, ConnInfo) ->
 
 create_session(ClientInfo, ConnInfo) ->
     Options = get_session_confs(ClientInfo, ConnInfo),
-    Session = emqx_session:init(Options),
+    #{clientid := ClientID} = ClientInfo,
+    Session0 = emqx_session:init(Options),
+    IteratorIDs =
+        case emqx_persistent_session_ds:open_session(ClientID) of
+            {skipped, disabled} ->
+                [];
+            {_IsNew, _DSSessionID, Iterators0} ->
+                Iterators0
+        end,
+    Session = Session0#session{iterators = IteratorIDs},
     ok = emqx_metrics:inc('session.created'),
     ok = emqx_hooks:run('session.created', [ClientInfo, emqx_session:info(Session)]),
     Session.

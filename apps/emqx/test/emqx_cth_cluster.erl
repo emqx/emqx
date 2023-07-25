@@ -20,6 +20,7 @@
 -export([stop/1]).
 
 -export([share_load_module/2]).
+-export([node_name/1]).
 
 -define(APPS_CLUSTERING, [gen_rpc, mria, ekka]).
 
@@ -83,7 +84,7 @@ when
     }.
 start(Nodes, ClusterOpts) ->
     NodeSpecs = mk_nodespecs(Nodes, ClusterOpts),
-    ct:pal("Starting cluster: ~p", [NodeSpecs]),
+    ct:pal("Starting cluster:\n  ~p", [NodeSpecs]),
     % 1. Start bare nodes with only basic applications running
     _ = emqx_utils:pmap(fun start_node_init/1, NodeSpecs, ?TIMEOUT_NODE_START_MS),
     % 2. Start applications needed to enable clustering
@@ -237,6 +238,8 @@ default_appspec(emqx_conf, Spec, _NodeSpecs) ->
             listeners => allocate_listener_ports([tcp, ssl, ws, wss], Spec)
         }
     };
+default_appspec(emqx, Spec = #{listeners := true}, _NodeSpecs) ->
+    #{config => #{listeners => allocate_listener_ports([tcp, ssl, ws, wss], Spec)}};
 default_appspec(_App, _, _) ->
     #{}.
 

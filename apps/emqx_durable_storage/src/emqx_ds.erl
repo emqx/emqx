@@ -15,6 +15,8 @@
 %%--------------------------------------------------------------------
 -module(emqx_ds).
 
+-include_lib("snabbkaffe/include/snabbkaffe.hrl").
+
 %% API:
 -export([ensure_shard/2]).
 %%   Messages:
@@ -56,7 +58,7 @@
 
 -type iterator() :: term().
 
--opaque iterator_id() :: binary().
+-type iterator_id() :: binary().
 
 %%-type session() :: #session{}.
 
@@ -73,7 +75,8 @@
 
 %% Timestamp
 %% Earliest possible timestamp is 0.
-%% TODO granularity?
+%% TODO granularity?  Currently, we should always use micro second, as that's the unit we
+%% use in emqx_guid.  Otherwise, the iterators won't match the message timestamps.
 -type time() :: non_neg_integer().
 
 %%================================================================================
@@ -129,11 +132,13 @@ session_open(ClientID) ->
             fun() ->
                 case mnesia:read(?SESSION_TAB, ClientID) of
                     [#session{iterators = Iterators}] ->
-                        {false, ClientID, Iterators};
+                        IteratorIDs = maps:values(Iterators),
+                        {false, ClientID, IteratorIDs};
                     [] ->
-                        Session = #session{id = ClientID, iterators = []},
+                        Iterators = #{},
+                        Session = #session{id = ClientID, iterators = Iterators},
                         mnesia:write(?SESSION_TAB, Session, write),
-                        {true, ClientID, []}
+                        {true, ClientID, _IteratorIDs = []}
                 end
             end
         ),
@@ -160,10 +165,38 @@ session_suspend(_SessionId) ->
 
 %% @doc Called when a client subscribes to a topic. Idempotent.
 -spec session_add_iterator(session_id(), emqx_topic:words()) ->
-    {ok, iterator_id()} | {error, session_not_found}.
-session_add_iterator(_SessionId, _TopicFilter) ->
-    %% TODO
-    {ok, <<"">>}.
+    {ok, iterator_id(), time(), _IsNew :: boolean()} | {error, session_not_found}.
+session_add_iterator(DSSessionId, TopicFilter) ->
+    {atomic, Ret} =
+        mria:transaction(
+            ?DS_SHARD,
+            fun() ->
+                case mnesia:wread({?SESSION_TAB, DSSessionId}) of
+                    [] ->
+                        {error, session_not_found};
+                    [#session{iterators = #{TopicFilter := IteratorId}}] ->
+                        StartMS = get_start_ms(IteratorId, DSSessionId),
+                        ?tp(
+                            ds_session_subscription_present,
+                            #{iterator_id => IteratorId, session_id => DSSessionId}
+                        ),
+                        IsNew = false,
+                        {ok, IteratorId, StartMS, IsNew};
+                    [#session{iterators = Iterators0} = Session0] ->
+                        {IteratorId, StartMS} = new_iterator_id(DSSessionId),
+                        Iterators = Iterators0#{TopicFilter => IteratorId},
+                        Session = Session0#session{iterators = Iterators},
+                        mnesia:write(?SESSION_TAB, Session, write),
+                        ?tp(
+                            ds_session_subscription_added,
+                            #{iterator_id => IteratorId, session_id => DSSessionId}
+                        ),
+                        IsNew = true,
+                        {ok, IteratorId, StartMS, IsNew}
+                end
+            end
+        ),
+    Ret.
 
 %% @doc Called when a client unsubscribes from a topic. Returns `true'
 %% if the session contained the subscription or `false' if it wasn't
@@ -201,3 +234,14 @@ iterator_stats() ->
 %%================================================================================
 %% Internal functions
 %%================================================================================
+
+-spec new_iterator_id(session_id()) -> {iterator_id(), time()}.
+new_iterator_id(DSSessionId) ->
+    NowMS = erlang:system_time(microsecond),
+    NowMSBin = integer_to_binary(NowMS),
+    {<<DSSessionId/binary, NowMSBin/binary>>, NowMS}.
+
+-spec get_start_ms(iterator_id(), emqx_session:session_id()) -> time().
+get_start_ms(IteratorId, SessionId) ->
+    <<SessionId:(size(SessionId))/binary, StartMSBin/binary>> = IteratorId,
+    binary_to_integer(StartMSBin).

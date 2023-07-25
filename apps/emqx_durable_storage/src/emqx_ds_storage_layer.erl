@@ -13,7 +13,13 @@
 
 -export([make_iterator/2, next/1]).
 
--export([preserve_iterator/2, restore_iterator/2, discard_iterator/2]).
+-export([
+    preserve_iterator/2,
+    restore_iterator/2,
+    discard_iterator/2,
+    is_iterator_present/2,
+    discard_iterator_prefix/2
+]).
 
 %% behaviour callbacks:
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2]).
@@ -160,10 +166,10 @@ next(It = #it{module = Mod, data = ItData}) ->
             end
     end.
 
--spec preserve_iterator(iterator(), emqx_ds_replay:replay_id()) ->
+-spec preserve_iterator(iterator(), emqx_ds:iterator_id()) ->
     ok | {error, _TODO}.
-preserve_iterator(It = #it{}, ReplayID) ->
-    iterator_put_state(ReplayID, It).
+preserve_iterator(It = #it{}, IteratorID) ->
+    iterator_put_state(IteratorID, It).
 
 -spec restore_iterator(emqx_ds:shard(), emqx_ds_replay:replay_id()) ->
     {ok, iterator()} | {error, _TODO}.
@@ -177,10 +183,26 @@ restore_iterator(Shard, ReplayID) ->
             Error
     end.
 
--spec discard_iterator(emqx_ds:shard(), emqx_ds:replay_id()) ->
+-spec is_iterator_present(emqx_ds:shard(), emqx_ds_replay:replay_id()) ->
+    boolean().
+is_iterator_present(Shard, ReplayID) ->
+    %% TODO: use keyMayExist after added to wrapper?
+    case iterator_get_state(Shard, ReplayID) of
+        {ok, _} ->
+            true;
+        _ ->
+            false
+    end.
+
+-spec discard_iterator(emqx_ds:shard(), emqx_ds_replay:replay_id()) ->
     ok | {error, _TODO}.
 discard_iterator(Shard, ReplayID) ->
     iterator_delete(Shard, ReplayID).
+
+-spec discard_iterator_prefix(emqx_ds:shard(), binary()) ->
+    ok | {error, _TODO}.
+discard_iterator_prefix(Shard, KeyPrefix) ->
+    do_discard_iterator_prefix(Shard, KeyPrefix).
 
 %%================================================================================
 %% behaviour callbacks
@@ -390,6 +412,32 @@ restore_iterator_state(
 ) ->
     It = #it{shard = Shard, gen = Gen, replay = {TopicFilter, StartTime}},
     open_restore_iterator(meta_get_gen(Shard, Gen), It, State).
+
+do_discard_iterator_prefix(Shard, KeyPrefix) ->
+    #db{handle = Handle, cf_iterator = CF} = meta_lookup(Shard, db),
+    case rocksdb:iterator(Handle, CF, ?ITERATION_READ_OPTS) of
+        {ok, It} ->
+            NextAction = {seek, KeyPrefix},
+            do_discard_iterator_prefix(Handle, CF, It, KeyPrefix, NextAction);
+        Error ->
+            Error
+    end.
+
+do_discard_iterator_prefix(DBHandle, CF, It, KeyPrefix, NextAction) ->
+    case rocksdb:iterator_move(It, NextAction) of
+        {ok, K = <<KeyPrefix:(size(KeyPrefix))/binary, _/binary>>, _V} ->
+            ok = rocksdb:delete(DBHandle, CF, K, ?ITERATION_WRITE_OPTS),
+            do_discard_iterator_prefix(DBHandle, CF, It, KeyPrefix, next);
+        {ok, _K, _V} ->
+            ok = rocksdb:iterator_close(It),
+            ok;
+        {error, invalid_iterator} ->
+            ok = rocksdb:iterator_close(It),
+            ok;
+        Error ->
+            ok = rocksdb:iterator_close(It),
+            Error
+    end.
 
 %% Functions for dealing with the metadata stored persistently in rocksdb
 

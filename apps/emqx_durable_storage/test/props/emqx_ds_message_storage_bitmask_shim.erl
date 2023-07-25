@@ -14,6 +14,8 @@
 
 -opaque t() :: ets:tid().
 
+-export_type([t/0]).
+
 -spec open() -> t().
 open() ->
     ets:new(?MODULE, [ordered_set, {keypos, 1}]).

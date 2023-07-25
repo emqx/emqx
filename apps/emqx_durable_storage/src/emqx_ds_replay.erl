@@ -15,7 +15,7 @@
 -type replay_id() :: binary().
 
 -type replay() :: {
-    _TopicFilter :: emqx_ds:topic(),
+    _TopicFilter :: emqx_ds:words(),
     _StartTime :: emqx_ds:time()
 }.
 

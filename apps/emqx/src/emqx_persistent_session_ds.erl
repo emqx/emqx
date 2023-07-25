@@ -16,14 +16,23 @@
 
 -module(emqx_persistent_session_ds).
 
+-include_lib("snabbkaffe/include/snabbkaffe.hrl").
+
 -export([init/0]).
 
--export([persist_message/1]).
+-export([
+    persist_message/1,
+    open_session/1,
+    add_subscription/2
+]).
 
 -export([
     serialize_message/1,
     deserialize_message/1
 ]).
+
+%% RPC
+-export([do_open_iterator/3]).
 
 %% FIXME
 -define(DS_SHARD, <<"local">>).
@@ -71,6 +80,44 @@ store_message(Msg) ->
 
 find_subscribers(_Msg) ->
     [node()].
+
+open_session(ClientID) ->
+    ?WHEN_ENABLED(emqx_ds:session_open(ClientID)).
+
+-spec add_subscription(emqx_types:topic(), emqx_ds:session_id()) ->
+    {ok, emqx_ds:iterator_id(), _IsNew :: boolean()} | {skipped, disabled}.
+add_subscription(TopicFilterBin, DSSessionID) ->
+    ?WHEN_ENABLED(
+        begin
+            TopicFilter = emqx_topic:words(TopicFilterBin),
+            {ok, IteratorID, StartMS, IsNew} = emqx_ds:session_add_iterator(
+                DSSessionID, TopicFilter
+            ),
+            case IsNew of
+                true ->
+                    ok = open_iterator_on_all_nodes(TopicFilter, StartMS, IteratorID);
+                false ->
+                    ok
+            end,
+            {ok, IteratorID, IsNew}
+        end
+    ).
+
+-spec open_iterator_on_all_nodes(emqx_topic:words(), emqx_ds:time(), emqx_ds:iterator_id()) -> ok.
+open_iterator_on_all_nodes(TopicFilter, StartMS, IteratorID) ->
+    Nodes = emqx:running_nodes(),
+    Results = emqx_ds_proto_v1:open_iterator(Nodes, TopicFilter, StartMS, IteratorID),
+    %% TODO: handle errors
+    true = lists:all(fun(Res) -> Res =:= {ok, ok} end, Results),
+    ok.
+
+-spec do_open_iterator(emqx_topic:words(), emqx_ds:time(), emqx_ds:iterator_id()) -> ok.
+do_open_iterator(TopicFilter, StartMS, IteratorID) ->
+    Replay = {TopicFilter, StartMS},
+    %% FIXME: choose DS shard based on ...?
+    {ok, It} = emqx_ds_storage_layer:make_iterator(?DS_SHARD, Replay),
+    ok = emqx_ds_storage_layer:preserve_iterator(It, IteratorID),
+    ok.
 
 %%
 

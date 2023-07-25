@@ -21,6 +21,7 @@
 -include("emqx.hrl").
 -include("logger.hrl").
 -include("types.hrl").
+-include("persistent_session/emqx_persistent_session.hrl").
 
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
