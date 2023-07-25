@@ -58,6 +58,7 @@ groups() ->
             t_create_existing_rule,
             t_get_rules_for_topic,
             t_get_rules_for_topic_2,
+            t_get_rules_for_topic_3,
             t_get_rules_with_same_event,
             t_get_rule_ids_by_action,
             t_ensure_action_removed
@@ -399,6 +400,44 @@ t_get_rules_for_topic_2(_Config) ->
         <<"rule-debug-6">>
     ]),
     ok.
+
+t_get_rules_for_topic_3(_Config) ->
+    ok = create_rules(
+        [
+            make_simple_rule(<<"rule-debug-5">>, <<"select * from \"simple/#\"">>),
+            make_simple_rule(<<"rule-debug-4">>, <<"select * from \"simple/+\"">>),
+            make_simple_rule(<<"rule-debug-3">>, <<"select * from \"simple/+/1\"">>),
+            make_simple_rule(<<"rule-debug-2">>, <<"select * from \"simple/1\"">>),
+            make_simple_rule(
+                <<"rule-debug-1">>,
+                <<"select * from \"simple/2\", \"simple/+\", \"simple/3\"">>
+            )
+        ]
+    ),
+    Rules1 = get_rules_for_topic_in_e510_impl(<<"simple/1">>),
+    Rules2 = emqx_rule_engine:get_rules_for_topic(<<"simple/1">>),
+    %% assert, ensure the order of rules is the same as e5.1.0
+    ?assertEqual(Rules1, Rules2),
+    ?assertEqual(
+        [<<"rule-debug-1">>, <<"rule-debug-2">>, <<"rule-debug-4">>, <<"rule-debug-5">>],
+        [Id || #{id := Id} <- Rules1]
+    ),
+
+    ok = delete_rules_by_ids([
+        <<"rule-debug-1">>,
+        <<"rule-debug-2">>,
+        <<"rule-debug-3">>,
+        <<"rule-debug-4">>,
+        <<"rule-debug-5">>
+    ]),
+    ok.
+
+get_rules_for_topic_in_e510_impl(Topic) ->
+    [
+        Rule
+     || Rule = #{from := From} <- emqx_rule_engine:get_rules(),
+        emqx_topic:match_any(Topic, From)
+    ].
 
 t_get_rules_with_same_event(_Config) ->
     PubT = <<"simple/1">>,
