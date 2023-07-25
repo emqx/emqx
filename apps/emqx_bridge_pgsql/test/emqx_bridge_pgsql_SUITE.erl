@@ -700,3 +700,31 @@ t_table_removed(Config) ->
     ),
     connect_and_create_table(Config),
     ok.
+
+t_concurrent_health_checks(Config) ->
+    Name = ?config(pgsql_name, Config),
+    BridgeType = ?config(pgsql_bridge_type, Config),
+    ResourceID = emqx_bridge_resource:resource_id(BridgeType, Name),
+    ?check_trace(
+        begin
+            connect_and_create_table(Config),
+            ?assertMatch({ok, _}, create_bridge(Config)),
+            ?retry(
+                _Sleep = 1_000,
+                _Attempts = 20,
+                ?assertEqual({ok, connected}, emqx_resource_manager:health_check(ResourceID))
+            ),
+            emqx_utils:pmap(
+                fun(_) ->
+                    ?assertEqual({ok, connected}, emqx_resource_manager:health_check(ResourceID))
+                end,
+                lists:seq(1, 20)
+            ),
+            ok
+        end,
+        fun(Trace) ->
+            ?assertEqual([], ?of_kind(postgres_connector_bad_parse2, Trace)),
+            ok
+        end
+    ),
+    ok.
