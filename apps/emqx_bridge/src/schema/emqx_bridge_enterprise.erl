@@ -49,7 +49,8 @@ api_schemas(Method) ->
         api_ref(emqx_bridge_oracle, <<"oracle">>, Method),
         api_ref(emqx_bridge_iotdb, <<"iotdb">>, Method),
         api_ref(emqx_bridge_rabbitmq, <<"rabbitmq">>, Method),
-        api_ref(emqx_bridge_kinesis, <<"kinesis_producer">>, Method ++ "_producer")
+        api_ref(emqx_bridge_kinesis, <<"kinesis_producer">>, Method ++ "_producer"),
+        api_ref(emqx_bridge_greptimedb, <<"greptimedb">>, Method ++ "_grpc_v1")
     ].
 
 schema_modules() ->
@@ -75,7 +76,8 @@ schema_modules() ->
         emqx_bridge_oracle,
         emqx_bridge_iotdb,
         emqx_bridge_rabbitmq,
-        emqx_bridge_kinesis
+        emqx_bridge_kinesis,
+        emqx_bridge_greptimedb
     ].
 
 examples(Method) ->
@@ -121,7 +123,8 @@ resource_type(pulsar_producer) -> emqx_bridge_pulsar_impl_producer;
 resource_type(oracle) -> emqx_oracle;
 resource_type(iotdb) -> emqx_bridge_iotdb_impl;
 resource_type(rabbitmq) -> emqx_bridge_rabbitmq_connector;
-resource_type(kinesis_producer) -> emqx_bridge_kinesis_impl_producer.
+resource_type(kinesis_producer) -> emqx_bridge_kinesis_impl_producer;
+resource_type(greptimedb) -> emqx_bridge_greptimedb_connector.
 
 fields(bridges) ->
     [
@@ -202,7 +205,8 @@ fields(bridges) ->
         influxdb_structs() ++
         redis_structs() ++
         pgsql_structs() ++ clickhouse_structs() ++ sqlserver_structs() ++ rabbitmq_structs() ++
-        kinesis_structs().
+        kinesis_structs() ++
+        greptimedb_structs().
 
 mongodb_structs() ->
     [
@@ -284,6 +288,21 @@ influxdb_structs() ->
      || Protocol <- [
             influxdb_api_v1,
             influxdb_api_v2
+        ]
+    ].
+
+greptimedb_structs() ->
+    [
+        {Protocol,
+            mk(
+                hoconsc:map(name, ref(emqx_bridge_greptimedb, Protocol)),
+                #{
+                    desc => <<"GreptimeDB Bridge Config">>,
+                    required => false
+                }
+            )}
+     || Protocol <- [
+            greptimedb
         ]
     ].
 
