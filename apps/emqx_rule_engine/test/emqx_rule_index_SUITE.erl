@@ -19,6 +19,7 @@
 -compile(export_all).
 -compile(nowarn_export_all).
 
+-include_lib("proper/include/proper.hrl").
 -include_lib("eunit/include/eunit.hrl").
 
 all() ->
@@ -162,23 +163,106 @@ t_match_ordering(_) ->
     ?assertEqual(Ids1, Ids2),
     ?assertEqual([t_match_id1, t_match_id2, t_match_id3], Ids1).
 
-t_match_wildcards(_) ->
-    Tab = new(),
-    emqx_rule_index:insert(<<"a/b">>, id1, <<>>, Tab),
-    emqx_rule_index:insert(<<"a/b/#">>, id2, <<>>, Tab),
-    emqx_rule_index:insert(<<"a/b/#">>, id3, <<>>, Tab),
-    emqx_rule_index:insert(<<"a/b/c">>, id4, <<>>, Tab),
-    emqx_rule_index:insert(<<"a/b/+">>, id5, <<>>, Tab),
-    emqx_rule_index:insert(<<"a/b/d">>, id6, <<>>, Tab),
-    emqx_rule_index:insert(<<"a/+/+">>, id7, <<>>, Tab),
-    emqx_rule_index:insert(<<"a/+/#">>, id8, <<>>, Tab),
+t_match_wildcard_edge_cases(_) ->
+    CommonTopics = [
+        <<"a/b">>,
+        <<"a/b/#">>,
+        <<"a/b/#">>,
+        <<"a/b/c">>,
+        <<"a/b/+">>,
+        <<"a/b/d">>,
+        <<"a/+/+">>,
+        <<"a/+/#">>
+    ],
+    Datasets =
+        [
+            %% Topics, TopicName, Results
+            {CommonTopics, <<"a/b/c">>, [2, 3, 4, 5, 7, 8]},
+            {CommonTopics, <<"a/b">>, [1, 2, 3, 8]},
+            {[<<"+/b/c">>, <<"/">>], <<"a/b/c">>, [1]},
+            {[<<"#">>, <<"/">>], <<"a">>, [1]},
+            {[<<"/">>, <<"+">>], <<"a">>, [2]}
+        ],
+    F = fun({Topics, TopicName, Expected}) ->
+        Tab = new(),
+        _ = lists:foldl(
+            fun(T, N) ->
+                emqx_rule_index:insert(T, N, <<>>, Tab),
+                N + 1
+            end,
+            1,
+            Topics
+        ),
+        Results = [id(M) || M <- emqx_rule_index:matches(TopicName, Tab, [unique])],
+        case Results == Expected of
+            true ->
+                ets:delete(Tab);
+            false ->
+                ct:pal(
+                    "Base topics: ~p~n"
+                    "Topic name: ~p~n"
+                    "Index results: ~p~n"
+                    "Expected results:: ~p~n",
+                    [Topics, TopicName, Results, Expected]
+                ),
+                error(bad_matches)
+        end
+    end,
+    lists:foreach(F, Datasets).
 
-    Rules = [id(M) || M <- emqx_rule_index:matches(<<"a/b/c">>, Tab, [])],
-    ?assertEqual([id2, id3, id4, id5, id7, id8], Rules),
+t_prop_matches(_) ->
+    ?assert(
+        proper:quickcheck(
+            topic_matches_prop(),
+            [{max_size, 100}, {numtests, 100}]
+        )
+    ).
 
-    Rules1 = [id(M) || M <- emqx_rule_index:matches(<<"a/b">>, Tab, [])],
-    ?assertEqual([id1, id2, id3, id8], Rules1),
-    ok.
+topic_matches_prop() ->
+    ?FORALL(
+        Topics0,
+        list(emqx_proper_types:topic()),
+        begin
+            Tab = new(),
+            Topics = lists:filter(fun(Topic) -> Topic =/= <<>> end, Topics0),
+            lists:foldl(
+                fun(Topic, N) ->
+                    true = emqx_rule_index:insert(Topic, N, <<>>, Tab),
+                    N + 1
+                end,
+                1,
+                Topics
+            ),
+            lists:foreach(
+                fun(Topic0) ->
+                    Topic = topic_filter_to_topic_name(Topic0),
+                    Ids1 = [
+                        emqx_rule_index:get_id(R)
+                     || R <- emqx_rule_index:matches(Topic, Tab, [unique])
+                    ],
+                    Ids2 = topic_matches(Topic, Topics),
+                    case Ids2 == Ids1 of
+                        true ->
+                            ok;
+                        false ->
+                            ct:pal(
+                                "Base topics: ~p~n"
+                                "Topic name: ~p~n"
+                                "Index results: ~p~n"
+                                "Topic match results:: ~p~n",
+                                [Topics, Topic, Ids1, Ids2]
+                            ),
+                            error(bad_matches)
+                    end
+                end,
+                Topics
+            ),
+            true
+        end
+    ).
+
+%%--------------------------------------------------------------------
+%% helpers
 
 new() ->
     ets:new(?MODULE, [public, ordered_set, {read_concurrency, true}]).
@@ -194,3 +278,31 @@ id(Match) ->
 
 topic(Match) ->
     emqx_rule_index:get_topic(Match).
+
+topic_filter_to_topic_name(Topic) when is_binary(Topic) ->
+    topic_filter_to_topic_name(emqx_topic:words(Topic));
+topic_filter_to_topic_name(Words) when is_list(Words) ->
+    topic_filter_to_topic_name(Words, []).
+
+topic_filter_to_topic_name([], Acc) ->
+    emqx_topic:join(lists:reverse(Acc));
+topic_filter_to_topic_name(['#' | _Rest], Acc) ->
+    case rand:uniform(2) of
+        1 -> emqx_topic:join(lists:reverse(Acc));
+        _ -> emqx_topic:join(lists:reverse([<<"_sharp">> | Acc]))
+    end;
+topic_filter_to_topic_name(['+' | Rest], Acc) ->
+    topic_filter_to_topic_name(Rest, [<<"_plus">> | Acc]);
+topic_filter_to_topic_name([H | Rest], Acc) ->
+    topic_filter_to_topic_name(Rest, [H | Acc]).
+
+topic_matches(Topic, Topics0) ->
+    Topics = lists:zip(lists:seq(1, length(Topics0)), Topics0),
+    lists:sort(
+        lists:filtermap(
+            fun({Id, Topic0}) ->
+                emqx_topic:match(Topic, Topic0) andalso {true, Id}
+            end,
+            Topics
+        )
+    ).
