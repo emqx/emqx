@@ -542,7 +542,8 @@ build_ocsp_request(IssuerPem, ServerCert) ->
             }
     },
     ReqDer = public_key:der_encode('OCSPRequest', Req),
-    base64:encode_to_string(ReqDer).
+    B64Encoded = base64:encode_to_string(ReqDer),
+    uri_string:quote(B64Encoded).
 
 to_bin(Str) when is_list(Str) -> list_to_binary(Str);
 to_bin(Bin) when is_binary(Bin) -> Bin.
