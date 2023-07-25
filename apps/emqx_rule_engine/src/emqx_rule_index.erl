@@ -114,8 +114,8 @@ matches(K, Prefix, Words, RPrefix, Acc, Tab) ->
 
 matches_rest(false, [W | Rest], RPrefix, Acc, Tab) ->
     matches(Rest, [W | RPrefix], Acc, Tab);
-matches_rest({false, exact}, [W | Rest], RPrefix, Acc, Tab) ->
-    NAcc1 = matches(Rest, ['#' | RPrefix], Acc, Tab),
+matches_rest(sharp, [W | Rest], RPrefix, Acc, Tab) ->
+    NAcc1 = matches([], ['#' | RPrefix], Acc, Tab),
     NAcc2 = matches(Rest, ['+' | RPrefix], NAcc1, Tab),
     matches(Rest, [W | RPrefix], NAcc2, Tab);
 matches_rest(plus, [W | Rest], RPrefix, Acc, Tab) ->
@@ -137,7 +137,7 @@ match_filter(Prefix, {Filter, _ID}, NotPrefix) ->
                 true ->
                     true;
                 false ->
-                    {false, exact}
+                    sharp
             end;
         Match ->
             Match
@@ -147,6 +147,8 @@ match_filter(_, '$end_of_table', _) ->
 
 match_filter([], []) ->
     exact;
+match_filter([], ['' | _]) ->
+    sharp;
 match_filter([], ['#']) ->
     % NOTE: naturally, '#' < '+', so this is already optimal for `match/2`
     true;
