@@ -172,7 +172,7 @@ t_authz_cache(_) ->
 
     {ok, C} = emqtt:start_link(#{clientid => ClientId}),
     {ok, _} = emqtt:connect(C),
-    {ok, _, _} = emqtt:subscribe(C, <<"topic/1">>, 0),
+    {ok, _, _} = emqtt:subscribe(C, <<"topic/1">>, 1),
 
     ClientAuthzCachePath = emqx_mgmt_api_test_util:api_path([
         "clients",
