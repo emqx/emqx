@@ -143,8 +143,9 @@ init_per_testcase(_TestCase, Config) ->
                 end),
     {ok, CachePid} = emqx_ocsp_cache:start_link(),
     DataDir = ?config(data_dir, Config),
+    ResponderURL = "http://localhost:9877",
     OCSPOpts = [ {ocsp_stapling_enabled, true}
-               , {ocsp_responder_url, "http://localhost:9877"}
+               , {ocsp_responder_url, ResponderURL}
                , {ocsp_issuer_pem,
                   filename:join(DataDir, "ocsp-issuer.pem")}
                , {ocsp_refresh_http_timeout, 15_000}
@@ -161,6 +162,7 @@ init_per_testcase(_TestCase, Config) ->
         }]),
     snabbkaffe:start_trace(),
     [ {cache_pid, CachePid}
+    , {responder_url, ResponderURL}
     | Config].
 
 end_per_testcase(t_openssl_client, Config) ->
@@ -485,6 +487,39 @@ t_sni_fun_http_error(_Config) ->
     ?assertEqual(
       [],
       emqx_ocsp_cache:sni_fun(ServerName, ListenerID)),
+    ok.
+
+t_path_encoding(Config) ->
+    ResponderURL = ?config(responder_url, Config) ++ "/",
+    ListenerID = <<"mqtt:ssl:test_ocsp">>,
+    TestPid = self(),
+    ok = meck:expect(
+        emqx_ocsp_cache,
+        http_get,
+        fun(RequestURI, _HTTPTimeout) ->
+            TestPid ! {request_uri, RequestURI},
+            {ok, {{"HTTP/1.0", 200, 'OK'}, [], <<"ocsp response">>}}
+        end
+    ),
+    ?check_trace(
+        begin
+            ?assertMatch({ok, _}, emqx_ocsp_cache:fetch_response(ListenerID)),
+            receive
+                {request_uri, RequestURI} ->
+                    Path = string:prefix(RequestURI, ResponderURL),
+                    ?assertEqual(nomatch, string:find(Path, "/"), #{path => Path}),
+                    ok
+            after 100 ->
+                ct:pal(
+                    "responder url: ~p\nmailbox: ~p",
+                    [ResponderURL, process_info(self(), messages)]
+                ),
+                ct:fail("request not made")
+            end,
+            ok
+        end,
+        []
+    ),
     ok.
 
 t_openssl_client(Config) ->
