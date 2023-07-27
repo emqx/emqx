@@ -29,7 +29,7 @@ store(Tab, MessageID, PublishedAt, Topic, Payload) ->
     true = ets:insert(Tab, {{PublishedAt, MessageID}, Topic, Payload}),
     ok.
 
--spec iterate(t(), emqx_ds:replay()) ->
+-spec iterate(t(), emqx_ds_replay:replay()) ->
     [binary()].
 iterate(Tab, {TopicFilter, StartTime}) ->
     ets:foldr(
