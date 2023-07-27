@@ -15,4 +15,9 @@ update_topic_rewrite_api_response413.desc:
 update_topic_rewrite_api_response413.label:
 """Rules count exceed limit"""
 
+update_topic_rewrite_api_response400.desc:
+"""Bad request"""
+update_topic_rewrite_api_response400.label:
+"""Bad request"""
+
 }

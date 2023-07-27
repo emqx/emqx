@@ -908,8 +908,7 @@ t_check_pub_alias(_) ->
 t_check_sub_authzs(_) ->
     emqx_config:put_zone_conf(default, [authorization, enable], true),
     TopicFilter = {<<"t">>, ?DEFAULT_SUBOPTS},
-    Subscribe = ?SUBSCRIBE_PACKET(1, [TopicFilter]),
-    [{TopicFilter, 0}] = emqx_channel:check_sub_authzs(Subscribe, [TopicFilter], channel()).
+    [{TopicFilter, 0}] = emqx_channel:check_sub_authzs([TopicFilter], channel()).
 
 t_enrich_connack_caps(_) ->
     ok = meck:new(emqx_mqtt_caps, [passthrough, no_history]),

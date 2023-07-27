@@ -130,7 +130,7 @@ t_mqtt_topic_rewrite_wildcard(_) ->
     lists:foreach(
         fun(Rule) ->
             ?assertMatch(
-                {ok, 500, _},
+                {ok, 400, _},
                 request(
                     put,
                     uri(["mqtt", "topic_rewrite"]),

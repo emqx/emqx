@@ -32,7 +32,8 @@ api_schemas(Method) ->
         api_ref(emqx_bridge_mongodb, <<"mongodb_rs">>, Method ++ "_rs"),
         api_ref(emqx_bridge_mongodb, <<"mongodb_sharded">>, Method ++ "_sharded"),
         api_ref(emqx_bridge_mongodb, <<"mongodb_single">>, Method ++ "_single"),
-        api_ref(emqx_bridge_hstreamdb, <<"hstreamdb">>, Method),
+        %% TODO: un-hide for e5.2.0...
+        %%api_ref(emqx_bridge_hstreamdb, <<"hstreamdb">>, Method),
         api_ref(emqx_bridge_influxdb, <<"influxdb_api_v1">>, Method ++ "_api_v1"),
         api_ref(emqx_bridge_influxdb, <<"influxdb_api_v2">>, Method ++ "_api_v2"),
         api_ref(emqx_bridge_redis, <<"redis_single">>, Method ++ "_single"),
@@ -146,7 +147,8 @@ fields(bridges) ->
                 hoconsc:map(name, ref(emqx_bridge_hstreamdb, "config")),
                 #{
                     desc => <<"HStreamDB Bridge Config">>,
-                    required => false
+                    required => false,
+                    importance => ?IMPORTANCE_HIDDEN
                 }
             )},
         {mysql,

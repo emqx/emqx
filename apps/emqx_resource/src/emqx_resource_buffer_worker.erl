@@ -366,6 +366,7 @@ resume_from_blocked(Data) ->
                     true -> #{dropped_expired => length(Batch)};
                     false -> #{}
                 end,
+            batch_reply_dropped(Batch, {error, request_expired}),
             NData = aggregate_counters(Data, Counters),
             ?tp(buffer_worker_retry_expired, #{expired => Batch}),
             resume_from_blocked(NData);
@@ -378,6 +379,7 @@ resume_from_blocked(Data) ->
         {batch, Ref, NotExpired, Expired} ->
             NumExpired = length(Expired),
             ok = update_inflight_item(InflightTID, Ref, NotExpired, NumExpired),
+            batch_reply_dropped(Expired, {error, request_expired}),
             NData = aggregate_counters(Data, #{dropped_expired => NumExpired}),
             ?tp(buffer_worker_retry_expired, #{expired => Expired}),
             %% We retry msgs in inflight window sync, as if we send them
@@ -485,6 +487,9 @@ do_reply_caller({F, Args}, {async_return, Result}) ->
     do_reply_caller({F, Args}, Result);
 do_reply_caller({F, Args}, Result) when is_function(F) ->
     _ = erlang:apply(F, Args ++ [Result]),
+    ok;
+do_reply_caller({F, Args, _Context}, Result) when is_function(F) ->
+    _ = erlang:apply(F, Args ++ [Result]),
     ok.
 
 maybe_flush(Data0) ->
@@ -537,11 +542,13 @@ flush(Data0) ->
                 {[], _AllExpired} ->
                     ok = replayq:ack(Q1, QAckRef),
                     NumExpired = length(Batch),
+                    batch_reply_dropped(Batch, {error, request_expired}),
                     Data3 = aggregate_counters(Data2, #{dropped_expired => NumExpired}),
                     ?tp(buffer_worker_flush_all_expired, #{batch => Batch}),
                     flush(Data3);
                 {NotExpired, Expired} ->
                     NumExpired = length(Expired),
+                    batch_reply_dropped(Expired, {error, request_expired}),
                     Data3 = aggregate_counters(Data2, #{dropped_expired => NumExpired}),
                     IsBatch = (BatchSize > 1),
                     %% We *must* use the new queue, because we currently can't
@@ -808,6 +815,28 @@ reply_caller_defer_metrics(Id, ?REPLY(ReplyTo, HasBeenSent, Result), QueryOpts) 
             ok = do_reply_caller(ReplyTo, Result)
     end,
     {ShouldAck, PostFn, DeltaCounters}.
+
+%% This is basically used only by rule actions.  To avoid rule action metrics from
+%% becoming inconsistent when we drop messages, we need a way to signal rule engine that
+%% this action has reached a conclusion.
+-spec reply_dropped(reply_fun(), {error, late_reply | request_expired}) -> ok.
+reply_dropped(_ReplyTo = {Fn, Args, #{reply_dropped := true}}, Result) when
+    is_function(Fn), is_list(Args)
+->
+    %% We want to avoid bumping metrics inside the buffer worker, since it's costly.
+    emqx_pool:async_submit(Fn, Args ++ [Result]),
+    ok;
+reply_dropped(_ReplyTo, _Result) ->
+    ok.
+
+-spec batch_reply_dropped([queue_query()], {error, late_reply | request_expired}) -> ok.
+batch_reply_dropped(Batch, Result) ->
+    lists:foreach(
+        fun(?QUERY(ReplyTo, _CoreReq, _HasBeenSent, _ExpireAt)) ->
+            reply_dropped(ReplyTo, Result)
+        end,
+        Batch
+    ).
 
 %% This is only called by `simple_{,a}sync_query', so we can bump the
 %% counters here.
@@ -1164,7 +1193,7 @@ handle_async_reply1(
         inflight_tid := InflightTID,
         resource_id := Id,
         buffer_worker := BufferWorkerPid,
-        min_query := ?QUERY(_, _, _, ExpireAt) = _Query
+        min_query := ?QUERY(ReplyTo, _, _, ExpireAt) = _Query
     } = ReplyContext,
     Result
 ) ->
@@ -1178,7 +1207,11 @@ handle_async_reply1(
             IsAcked = ack_inflight(InflightTID, Ref, BufferWorkerPid),
             %% evalutate metrics call here since we're not inside
             %% buffer worker
-            IsAcked andalso emqx_resource_metrics:late_reply_inc(Id),
+            IsAcked andalso
+                begin
+                    emqx_resource_metrics:late_reply_inc(Id),
+                    reply_dropped(ReplyTo, {error, late_reply})
+                end,
             ?tp(handle_async_reply_expired, #{expired => [_Query]}),
             ok;
         false ->
@@ -1292,6 +1325,7 @@ handle_async_batch_reply2([Inflight], ReplyContext, Result, Now) ->
     %% evalutate metrics call here since we're not inside buffer
     %% worker
     emqx_resource_metrics:late_reply_inc(Id, NumExpired),
+    batch_reply_dropped(RealExpired, {error, late_reply}),
     case RealNotExpired of
         [] ->
             %% all expired, no need to update back the inflight batch

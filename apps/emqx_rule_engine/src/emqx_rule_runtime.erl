@@ -350,7 +350,7 @@ do_handle_action(RuleId, {bridge, BridgeType, BridgeName, ResId}, Selected, _Env
         "bridge_action",
         #{bridge_id => emqx_bridge_resource:bridge_id(BridgeType, BridgeName)}
     ),
-    ReplyTo = {fun ?MODULE:inc_action_metrics/2, [RuleId]},
+    ReplyTo = {fun ?MODULE:inc_action_metrics/2, [RuleId], #{reply_dropped => true}},
     case
         emqx_bridge:send_message(BridgeType, BridgeName, ResId, Selected, #{reply_to => ReplyTo})
     of
@@ -378,9 +378,9 @@ eval({Op, _} = Exp, Context) when is_list(Context) andalso (Op == path orelse Op
             end
     end;
 eval({path, [{key, <<"payload">>} | Path]}, #{payload := Payload}) ->
-    nested_get({path, Path}, may_decode_payload(Payload));
+    nested_get({path, Path}, maybe_decode_payload(Payload));
 eval({path, [{key, <<"payload">>} | Path]}, #{<<"payload">> := Payload}) ->
-    nested_get({path, Path}, may_decode_payload(Payload));
+    nested_get({path, Path}, maybe_decode_payload(Payload));
 eval({path, _} = Path, Columns) ->
     nested_get(Path, Columns);
 eval({range, {Begin, End}}, _Columns) ->
@@ -409,6 +409,16 @@ eval({'case', CaseOn, CaseClauses, ElseClauses}, Columns) ->
     eval_switch_clauses(CaseOn, CaseClauses, ElseClauses, Columns);
 eval({'fun', {_, Name}, Args}, Columns) ->
     apply_func(Name, [eval(Arg, Columns) || Arg <- Args], Columns).
+
+%% the payload maybe is JSON data, decode it to a `map` first for nested put
+ensure_decoded_payload({path, [{key, payload} | _]}, #{payload := Payload} = Columns) ->
+    Columns#{payload => maybe_decode_payload(Payload)};
+ensure_decoded_payload(
+    {path, [{key, <<"payload">>} | _]}, #{<<"payload">> := Payload} = Columns
+) ->
+    Columns#{<<"payload">> => maybe_decode_payload(Payload)};
+ensure_decoded_payload(_, Columns) ->
+    Columns.
 
 alias({var, Var}, _Columns) ->
     {var, Var};
@@ -497,12 +507,12 @@ add_metadata(Columns, Metadata) when is_map(Columns), is_map(Metadata) ->
 %%------------------------------------------------------------------------------
 %% Internal Functions
 %%------------------------------------------------------------------------------
-may_decode_payload(Payload) when is_binary(Payload) ->
+maybe_decode_payload(Payload) when is_binary(Payload) ->
     case get_cached_payload() of
         undefined -> safe_decode_and_cache(Payload);
         DecodedP -> DecodedP
     end;
-may_decode_payload(Payload) ->
+maybe_decode_payload(Payload) ->
     Payload.
 
 get_cached_payload() ->
@@ -522,7 +532,8 @@ safe_decode_and_cache(MaybeJson) ->
 ensure_list(List) when is_list(List) -> List;
 ensure_list(_NotList) -> [].
 
-nested_put(Alias, Val, Columns) ->
+nested_put(Alias, Val, Columns0) ->
+    Columns = ensure_decoded_payload(Alias, Columns0),
     emqx_rule_maps:nested_put(Alias, Val, Columns).
 
 inc_action_metrics(RuleId, Result) ->

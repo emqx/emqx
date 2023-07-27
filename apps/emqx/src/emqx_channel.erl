@@ -488,7 +488,7 @@ handle_in(
         ok ->
             TopicFilters0 = parse_topic_filters(TopicFilters),
             TopicFilters1 = enrich_subopts_subid(Properties, TopicFilters0),
-            TupleTopicFilters0 = check_sub_authzs(SubPkt, TopicFilters1, Channel),
+            TupleTopicFilters0 = check_sub_authzs(TopicFilters1, Channel),
             HasAuthzDeny = lists:any(
                 fun({_TopicFilter, ReasonCode}) ->
                     ReasonCode =:= ?RC_NOT_AUTHORIZED
@@ -1804,9 +1804,7 @@ authz_action(#mqtt_packet{
     header = #mqtt_packet_header{qos = QoS, retain = Retain}, variable = #mqtt_packet_publish{}
 }) ->
     ?AUTHZ_PUBLISH(QoS, Retain);
-authz_action(#mqtt_packet{
-    header = #mqtt_packet_header{qos = QoS}, variable = #mqtt_packet_subscribe{}
-}) ->
+authz_action({_Topic, #{qos := QoS} = _SubOpts} = _TopicFilter) ->
     ?AUTHZ_SUBSCRIBE(QoS);
 %% Will message
 authz_action(#message{qos = QoS, flags = #{retain := Retain}}) ->
@@ -1847,23 +1845,22 @@ check_pub_caps(
 %%--------------------------------------------------------------------
 %% Check Sub Authorization
 
-check_sub_authzs(Packet, TopicFilters, Channel) ->
-    Action = authz_action(Packet),
-    check_sub_authzs(Action, TopicFilters, Channel, []).
+check_sub_authzs(TopicFilters, Channel) ->
+    check_sub_authzs(TopicFilters, Channel, []).
 
 check_sub_authzs(
-    Action,
     [TopicFilter = {Topic, _} | More],
     Channel = #channel{clientinfo = ClientInfo},
     Acc
 ) ->
+    Action = authz_action(TopicFilter),
     case emqx_access_control:authorize(ClientInfo, Action, Topic) of
         allow ->
-            check_sub_authzs(Action, More, Channel, [{TopicFilter, ?RC_SUCCESS} | Acc]);
+            check_sub_authzs(More, Channel, [{TopicFilter, ?RC_SUCCESS} | Acc]);
         deny ->
-            check_sub_authzs(Action, More, Channel, [{TopicFilter, ?RC_NOT_AUTHORIZED} | Acc])
+            check_sub_authzs(More, Channel, [{TopicFilter, ?RC_NOT_AUTHORIZED} | Acc])
     end;
-check_sub_authzs(_Action, [], _Channel, Acc) ->
+check_sub_authzs([], _Channel, Acc) ->
     lists:reverse(Acc).
 
 %%--------------------------------------------------------------------
