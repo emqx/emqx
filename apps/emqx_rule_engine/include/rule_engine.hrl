@@ -109,7 +109,6 @@
 
 %% Tables
 -define(RULE_TAB, emqx_rule_engine).
--define(RULE_TOPIC_INDEX, emqx_rule_engine_topic_index).
 
 %% Allowed sql function provider modules
 -define(DEFAULT_SQL_FUNC_PROVIDER, emqx_rule_funcs).
