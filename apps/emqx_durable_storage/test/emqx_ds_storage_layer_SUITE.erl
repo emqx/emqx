@@ -33,7 +33,7 @@
 %% Smoke test for opening and reopening the database
 t_open(_Config) ->
     ok = emqx_ds_storage_layer_sup:stop_shard(?SHARD),
-    {ok, _} = emqx_ds_storage_layer_sup:start_shard(?SHARD).
+    {ok, _} = emqx_ds_storage_layer_sup:start_shard(?SHARD, #{}).
 
 %% Smoke test of store function
 t_store(_Config) ->
@@ -263,7 +263,7 @@ end_per_suite(_Config) ->
 
 init_per_testcase(TC, Config) ->
     ok = set_shard_config(shard(TC), ?DEFAULT_CONFIG),
-    {ok, _} = emqx_ds_storage_layer_sup:start_shard(shard(TC)),
+    {ok, _} = emqx_ds_storage_layer_sup:start_shard(shard(TC), #{}),
     Config.
 
 end_per_testcase(TC, _Config) ->

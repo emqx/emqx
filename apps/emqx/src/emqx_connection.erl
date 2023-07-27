@@ -44,6 +44,7 @@
 
 -export([
     info/1,
+    info/2,
     stats/1
 ]).
 
@@ -221,11 +222,10 @@ info(CPid) when is_pid(CPid) ->
     call(CPid, info);
 info(State = #state{channel = Channel}) ->
     ChanInfo = emqx_channel:info(Channel),
-    SockInfo = maps:from_list(
-        info(?INFO_KEYS, State)
-    ),
+    SockInfo = maps:from_list(info(?INFO_KEYS, State)),
     ChanInfo#{sockinfo => SockInfo}.
 
+-spec info([atom()] | atom() | tuple(), pid() | state()) -> term().
 info(Keys, State) when is_list(Keys) ->
     [{Key, info(Key, State)} || Key <- Keys];
 info(socktype, #state{transport = Transport, socket = Socket}) ->
@@ -241,7 +241,9 @@ info(stats_timer, #state{stats_timer = StatsTimer}) ->
 info(limiter, #state{limiter = Limiter}) ->
     Limiter;
 info(limiter_timer, #state{limiter_timer = Timer}) ->
-    Timer.
+    Timer;
+info({channel, Info}, #state{channel = Channel}) ->
+    emqx_channel:info(Info, Channel).
 
 %% @doc Get stats of the connection/channel.
 -spec stats(pid() | state()) -> emqx_types:stats().

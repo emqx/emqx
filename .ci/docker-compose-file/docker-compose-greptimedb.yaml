@@ -1,0 +1,22 @@
+version: '3.9'
+
+services:
+  greptimedb:
+    container_name: greptimedb
+    hostname: greptimedb
+    image: greptime/greptimedb:0.3.2
+    expose:
+      - "4000"
+      - "4001"
+    # uncomment for local testing
+    # ports:
+    #   - "4000:4000"
+    #   - "4001:4001"
+    restart: always
+    networks:
+      - emqx_bridge
+    command:
+      standalone start
+      --user-provider=static_user_provider:cmd:greptime_user=greptime_pwd
+      --http-addr="0.0.0.0:4000"
+      --rpc-addr="0.0.0.0:4001"

@@ -54,8 +54,8 @@ defmodule EMQXUmbrella.MixProject do
       {:jiffy, github: "emqx/jiffy", tag: "1.0.5", override: true},
       {:cowboy, github: "emqx/cowboy", tag: "2.9.2", override: true},
       {:esockd, github: "emqx/esockd", tag: "5.9.6", override: true},
-      {:rocksdb, github: "emqx/erlang-rocksdb", tag: "1.7.2-emqx-11", override: true},
-      {:ekka, github: "emqx/ekka", tag: "0.15.7", override: true},
+      {:rocksdb, github: "emqx/erlang-rocksdb", tag: "1.8.0-emqx-1", override: true},
+      {:ekka, github: "emqx/ekka", tag: "0.15.9", override: true},
       {:gen_rpc, github: "emqx/gen_rpc", tag: "2.8.1", override: true},
       {:grpc, github: "emqx/grpc-erl", tag: "0.6.8", override: true},
       {:minirest, github: "emqx/minirest", tag: "1.3.11", override: true},
@@ -171,6 +171,7 @@ defmodule EMQXUmbrella.MixProject do
       :emqx_bridge_cassandra,
       :emqx_bridge_opents,
       :emqx_bridge_dynamo,
+      :emqx_bridge_greptimedb,
       :emqx_bridge_hstreamdb,
       :emqx_bridge_influxdb,
       :emqx_bridge_iotdb,
@@ -191,7 +192,8 @@ defmodule EMQXUmbrella.MixProject do
       :emqx_ft,
       :emqx_s3,
       :emqx_schema_registry,
-      :emqx_enterprise
+      :emqx_enterprise,
+      :emqx_bridge_kinesis
     ])
   end
 
@@ -207,6 +209,7 @@ defmodule EMQXUmbrella.MixProject do
       {:crc32cer, "0.1.8", override: true},
       {:supervisor3, "1.1.12", override: true},
       {:opentsdb, github: "emqx/opentsdb-client-erl", tag: "v0.5.1", override: true},
+      {:greptimedb, github: "GreptimeTeam/greptimedb-client-erl", tag: "v0.1.2", override: true},
       # The following two are dependencies of rabbit_common. They are needed here to
       # make mix not complain about conflicting versions
       {:thoas, github: "emqx/thoas", tag: "v1.0.0", override: true},
@@ -392,12 +395,31 @@ defmodule EMQXUmbrella.MixProject do
 
   def check_profile!() do
     valid_envs = [
-      :dev,
       :emqx,
       :"emqx-pkg",
       :"emqx-enterprise",
       :"emqx-enterprise-pkg"
     ]
+
+    if Mix.env() == :dev do
+      env_profile = System.get_env("PROFILE")
+
+      if env_profile do
+        # copy from PROFILE env var
+        System.get_env("PROFILE")
+        |> String.to_atom()
+        |> Mix.env()
+      else
+        IO.puts(
+          IO.ANSI.format([
+            :yellow,
+            "Warning: env var PROFILE is unset; defaulting to emqx"
+          ])
+        )
+
+        Mix.env(:emqx)
+      end
+    end
 
     if Mix.env() not in valid_envs do
       formatted_envs =
@@ -769,7 +791,7 @@ defmodule EMQXUmbrella.MixProject do
 
   defp jq_dep() do
     if enable_jq?(),
-      do: [{:jq, github: "emqx/jq", tag: "v0.3.9", override: true}],
+      do: [{:jq, github: "emqx/jq", tag: "v0.3.10", override: true}],
       else: []
   end
 

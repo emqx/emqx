@@ -584,7 +584,7 @@ t_handle_deliver(_) ->
 
 t_handle_deliver_nl(_) ->
     ClientInfo = clientinfo(#{clientid => <<"clientid">>}),
-    Session = session(#{subscriptions => #{<<"t1">> => #{nl => 1}}}),
+    Session = session(ClientInfo, #{subscriptions => #{<<"t1">> => #{nl => 1}}}),
     Channel = channel(#{clientinfo => ClientInfo, session => Session}),
     Msg = emqx_message:make(<<"clientid">>, ?QOS_1, <<"t1">>, <<"qos1">>),
     NMsg = emqx_message:set_flag(nl, Msg),
@@ -1070,11 +1070,14 @@ connpkt(Props) ->
         password = <<"passwd">>
     }.
 
-session() -> session(#{}).
-session(InitFields) when is_map(InitFields) ->
+session() -> session(#{zone => default, clientid => <<"fake-test">>}, #{}).
+session(InitFields) -> session(#{zone => default, clientid => <<"fake-test">>}, InitFields).
+session(ClientInfo, InitFields) when is_map(InitFields) ->
     Conf = emqx_cm:get_session_confs(
-        #{zone => default, clientid => <<"fake-test">>}, #{
-            receive_maximum => 0, expiry_interval => 0
+        ClientInfo,
+        #{
+            receive_maximum => 0,
+            expiry_interval => 0
         }
     ),
     Session = emqx_session:init(Conf),

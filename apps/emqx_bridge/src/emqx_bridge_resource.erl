@@ -374,6 +374,8 @@ parse_confs(<<"kafka">> = _Type, Name, Conf) ->
     Conf#{bridge_name => Name};
 parse_confs(<<"pulsar_producer">> = _Type, Name, Conf) ->
     Conf#{bridge_name => Name};
+parse_confs(<<"kinesis_producer">> = _Type, Name, Conf) ->
+    Conf#{bridge_name => Name};
 parse_confs(_Type, _Name, Conf) ->
     Conf.
 

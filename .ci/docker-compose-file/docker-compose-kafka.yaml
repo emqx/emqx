@@ -18,7 +18,7 @@ services:
       - /tmp/emqx-ci/emqx-shared-secret:/var/lib/secret
   kdc:
     hostname: kdc.emqx.net
-    image:  ghcr.io/emqx/emqx-builder/5.1-0:1.14.5-25.3.2-1-ubuntu20.04
+    image:  ghcr.io/emqx/emqx-builder/5.1-3:1.14.5-25.3.2-1-ubuntu20.04
     container_name: kdc.emqx.net
     expose:
       - 88 # kdc

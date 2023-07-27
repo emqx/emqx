@@ -823,7 +823,11 @@ code_change(_OldVsn, State, _Extra) ->
 do_unregister_channel_task(Items, GwName, CmTabs) ->
     lists:foreach(
         fun({ChanPid, ClientId}) ->
-            do_unregister_channel(GwName, {ClientId, ChanPid}, CmTabs)
+            try
+                do_unregister_channel(GwName, {ClientId, ChanPid}, CmTabs)
+            catch
+                error:badarg -> ok
+            end
         end,
         Items
     ).

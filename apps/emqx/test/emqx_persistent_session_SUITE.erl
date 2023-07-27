@@ -31,7 +31,10 @@
 
 all() ->
     [
-        {group, persistent_store_enabled},
+        % NOTE
+        % Tests are disabled while existing session persistence impl is being
+        % phased out.
+        % {group, persistent_store_enabled},
         {group, persistent_store_disabled}
     ].
 

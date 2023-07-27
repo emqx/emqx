@@ -16,6 +16,7 @@
 -module(emqx_ds).
 
 %% API:
+-export([ensure_shard/2]).
 %%   Messages:
 -export([message_store/2, message_store/1, message_stats/0]).
 %%   Iterator:
@@ -78,6 +79,18 @@
 %%================================================================================
 %% API funcions
 %%================================================================================
+
+-spec ensure_shard(shard(), emqx_ds_storage_layer:options()) ->
+    ok | {error, _Reason}.
+ensure_shard(Shard, Options) ->
+    case emqx_ds_storage_layer_sup:start_shard(Shard, Options) of
+        {ok, _Pid} ->
+            ok;
+        {error, {already_started, _Pid}} ->
+            ok;
+        {error, Reason} ->
+            {error, Reason}
+    end.
 
 %%--------------------------------------------------------------------------------
 %% Message

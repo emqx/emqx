@@ -30,19 +30,12 @@ init_per_suite(Config) ->
 end_per_suite(_Config) ->
     emqx_common_test_helpers:stop_apps([emqx_eviction_agent, emqx_conf]).
 
-init_per_testcase(t_persistence, Config) ->
-    emqx_config:put([persistent_session_store, enabled], true),
-    {ok, _} = emqx_persistent_session_sup:start_link(),
-    emqx_persistent_session:init_db_backend(),
-    ?assert(emqx_persistent_session:is_store_enabled()),
-    Config;
+init_per_testcase(t_persistence, _Config) ->
+    {skip, "Existing session persistence implementation is being phased out"};
 init_per_testcase(_TestCase, Config) ->
     Config.
 
 end_per_testcase(t_persistence, Config) ->
-    emqx_config:put([persistent_session_store, enabled], false),
-    emqx_persistent_session:init_db_backend(),
-    ?assertNot(emqx_persistent_session:is_store_enabled()),
     Config;
 end_per_testcase(_TestCase, _Config) ->
     ok.

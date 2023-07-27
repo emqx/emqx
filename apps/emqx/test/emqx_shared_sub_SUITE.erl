@@ -758,12 +758,15 @@ t_qos1_random_dispatch_if_all_members_are_down(Config) when is_list(Config) ->
 
     {ok, _} = emqtt:publish(ConnPub, Topic, <<"hello11">>, 1),
     ct:sleep(100),
-    {ok, Msgs1} = gen_server:call(Pid1, get_mqueue),
-    {ok, Msgs2} = gen_server:call(Pid2, get_mqueue),
+    Msgs1 = emqx_mqueue:to_list(get_mqueue(Pid1)),
+    Msgs2 = emqx_mqueue:to_list(get_mqueue(Pid2)),
     %% assert the message is in mqueue (because socket is closed)
     ?assertMatch([#message{payload = <<"hello11">>}], Msgs1 ++ Msgs2),
     emqtt:stop(ConnPub),
     ok.
+
+get_mqueue(ConnPid) ->
+    emqx_connection:info({channel, {session, mqueue}}, sys:get_state(ConnPid)).
 
 %% No ack, QoS 2 subscriptions,
 %% client1 receives one message, send pubrec, then suspend

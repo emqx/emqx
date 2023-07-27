@@ -46,6 +46,7 @@ export SCRIPTS="${CODE_PATH}/scripts"
 export EMQX_NAME
 export PACKAGE_PATH="${CODE_PATH}/_packages/${EMQX_NAME}"
 export RELUP_PACKAGE_PATH="${CODE_PATH}/_upgrade_base"
+export PAHO_MQTT_TESTING_PATH="${PAHO_MQTT_TESTING_PATH:-/paho-mqtt-testing}"
 
 SYSTEM="$("$SCRIPTS"/get-distro.sh)"
 
@@ -64,7 +65,7 @@ fi
 PACKAGE_VERSION="$("$CODE_PATH"/pkg-vsn.sh "${EMQX_NAME}")"
 PACKAGE_VERSION_LONG="$("$CODE_PATH"/pkg-vsn.sh "${EMQX_NAME}" --long --elixir "${IS_ELIXIR}")"
 PACKAGE_NAME="${EMQX_NAME}-${PACKAGE_VERSION_LONG}"
-PACKAGE_FILE_NAME="${PACKAGE_NAME}.${PKG_SUFFIX}"
+PACKAGE_FILE_NAME="${PACKAGE_FILE_NAME:-${PACKAGE_NAME}.${PKG_SUFFIX}}"
 
 PACKAGE_FILE="${PACKAGE_PATH}/${PACKAGE_FILE_NAME}"
 if ! [ -f "$PACKAGE_FILE" ]; then
@@ -75,9 +76,21 @@ fi
 emqx_prepare(){
     mkdir -p "${PACKAGE_PATH}"
 
-    if [ ! -d "/paho-mqtt-testing" ]; then
-        git clone -b develop-4.0 https://github.com/emqx/paho.mqtt.testing.git /paho-mqtt-testing
+    if [ ! -d "${PAHO_MQTT_TESTING_PATH}" ]; then
+        git clone -b develop-4.0 https://github.com/emqx/paho.mqtt.testing.git "${PAHO_MQTT_TESTING_PATH}"
     fi
+    # Debian 12 complains if we don't use venv
+    case "${SYSTEM:-}" in
+        debian12)
+            apt-get update -y && apt-get install -y virtualenv
+            virtualenv venv
+            # https://www.shellcheck.net/wiki/SC1091
+            # shellcheck source=/dev/null
+            source ./venv/bin/activate
+            ;;
+        *)
+            ;;
+    esac
     pip3 install pytest
 }
 
@@ -97,36 +110,22 @@ emqx_test(){
             # fi
             # sed -i '/emqx_telemetry/d' "${PACKAGE_PATH}"/emqx/data/loaded_plugins
 
-            echo "running ${packagename} start"
-            if ! "${PACKAGE_PATH}"/emqx/bin/emqx start; then
-                cat "${PACKAGE_PATH}"/emqx/log/erlang.log.1 || true
-                cat "${PACKAGE_PATH}"/emqx/log/emqx.log.1 || true
-                exit 1
-            fi
-            "$SCRIPTS/test/emqx-smoke-test.sh" 127.0.0.1 18083
-            pytest -v /paho-mqtt-testing/interoperability/test_client/V5/test_connect.py::test_basic
-            if ! "${PACKAGE_PATH}"/emqx/bin/emqx stop; then
-                cat "${PACKAGE_PATH}"/emqx/log/erlang.log.1 || true
-                cat "${PACKAGE_PATH}"/emqx/log/emqx.log.1 || true
-                exit 1
-            fi
-            echo "running ${packagename} stop"
+            run_test "${PACKAGE_PATH}/emqx/bin" "${PACKAGE_PATH}/emqx/log" "${PACKAGE_PATH}/emqx/releases/emqx_vars"
+
             rm -rf "${PACKAGE_PATH}"/emqx
         ;;
         "deb")
             dpkg -i "${PACKAGE_PATH}/${packagename}"
-            if [ "$(dpkg -l |grep emqx |awk '{print $1}')" != "ii" ]
+            if [ "$(dpkg -l | grep ${EMQX_NAME} | awk '{print $1}')" != "ii" ]
             then
                 echo "package install error"
                 exit 1
             fi
 
-            echo "running ${packagename} start"
-            run_test
-            echo "running ${packagename} stop"
+            run_test "/usr/bin" "/var/log/emqx" "$(dpkg -L ${EMQX_NAME} | grep emqx_vars)"
 
             dpkg -r "${EMQX_NAME}"
-            if [ "$(dpkg -l |grep emqx |awk '{print $1}')" != "rc" ]
+            if [ "$(dpkg -l | grep ${EMQX_NAME} | awk '{print $1}')" != "rc" ]
             then
                 echo "package remove error"
                 exit 1
@@ -146,6 +145,10 @@ emqx_test(){
                     # el8 is fine with python3
                     true
                     ;;
+                "el9")
+                    # el9 is fine with python3
+                    true
+                    ;;
                 *)
                     alternatives --list | grep python && alternatives --set python /usr/bin/python2
                     ;;
@@ -161,12 +164,10 @@ emqx_test(){
                 exit 1
             fi
 
-            echo "running ${packagename} start"
-            run_test
-            echo "running ${packagename} stop"
+            run_test "/usr/bin" "/var/log/emqx" "$(rpm -ql ${EMQX_NAME} | grep emqx_vars)"
 
             rpm -e "${EMQX_NAME}"
-            if [ "$(rpm -q emqx)" != "package emqx is not installed" ];then
+            if [ "$(rpm -q ${EMQX_NAME})" != "package ${EMQX_NAME} is not installed" ];then
                 echo "package uninstall error"
                 exit 1
             fi
@@ -175,8 +176,10 @@ emqx_test(){
 }
 
 run_test(){
+    local bin_dir="$1"
+    local log_dir="$2"
+    local emqx_env_vars="$3"
     # sed -i '/emqx_telemetry/d' /var/lib/emqx/loaded_plugins
-    emqx_env_vars=$(dirname "$(readlink "$(command -v emqx)")")/../releases/emqx_vars
 
     if [ -f "$emqx_env_vars" ];
     then
@@ -194,21 +197,21 @@ EOF
         echo "Error: cannot locate emqx_vars"
         exit 1
     fi
-    if ! emqx 'start'; then
-        cat /var/log/emqx/erlang.log.1 || true
-        cat /var/log/emqx/emqx.log.1 || true
+    echo "running ${packagename} start"
+    if ! "${bin_dir}/emqx" 'start'; then
+        echo "ERROR: failed_to_start_emqx"
+        cat "${log_dir}/erlang.log.1" || true
+        cat "${log_dir}/emqx.log.1" || true
         exit 1
     fi
     "$SCRIPTS/test/emqx-smoke-test.sh" 127.0.0.1 18083
-    pytest -v /paho-mqtt-testing/interoperability/test_client/V5/test_connect.py::test_basic
-    # shellcheck disable=SC2009 # pgrep does not support Extended Regular Expressions
-    ps -ef | grep -E '\-progname\s.+emqx\s'
-    if ! emqx 'stop'; then
-        # shellcheck disable=SC2009 # pgrep does not support Extended Regular Expressions
-        ps -ef | grep -E '\-progname\s.+emqx\s'
+    pytest -v "${PAHO_MQTT_TESTING_PATH}"/interoperability/test_client/V5/test_connect.py::test_basic
+    "${bin_dir}/emqx" ping
+    echo "running ${packagename} stop"
+    if ! "${bin_dir}/emqx" 'stop'; then
         echo "ERROR: failed_to_stop_emqx_with_the_stop_command"
-        cat /var/log/emqx/erlang.log.1 || true
-        cat /var/log/emqx/emqx.log.1 || true
+        cat "${log_dir}/erlang.log.1" || true
+        cat "${log_dir}/emqx.log.1" || true
         exit 1
     fi
 }

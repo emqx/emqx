@@ -641,7 +641,7 @@ backup_and_write(Path, Content) ->
             ?SLOG(error, #{
                 msg => "failed_to_save_conf_file",
                 hint =>
-                    "The updated cluster config is note saved on this node, please check the file system.",
+                    "The updated cluster config is not saved on this node, please check the file system.",
                 filename => TmpFile,
                 reason => Reason
             }),
