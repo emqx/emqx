@@ -229,6 +229,7 @@ to_client_opts_test() ->
     Versions13Only = ['tlsv1.3'],
     Options = #{
         enable => true,
+        cacerts => true,
         verify => "Verify",
         server_name_indication => "SNI",
         ciphers => "Ciphers",
@@ -263,6 +264,28 @@ to_client_opts_test() ->
                 emqx_tls_lib:to_client_opts(tls, Options#{depth := undefined, password := ""})
             )
         )
+    ),
+    Expected4 = lists:usort(maps:keys(Options) -- [enable, cacerts]),
+    ?assertEqual(
+        Expected4,
+        lists:usort(
+            proplists:get_keys(
+                emqx_tls_lib:to_client_opts(tls, Options#{cacerts := false})
+            )
+        )
+    ),
+    emqx_common_test_helpers:with_mock(
+        public_key,
+        cacerts_get,
+        fun() -> ok = {error, enoent} end,
+        fun() ->
+            ?assertNot(
+                lists:member(
+                    cacerts,
+                    proplists:get_keys(emqx_tls_lib:to_client_opts(tls, Options))
+                )
+            )
+        end
     ).
 
 to_server_opts_test() ->

@@ -193,7 +193,8 @@ defmodule EMQXUmbrella.MixProject do
       :emqx_s3,
       :emqx_schema_registry,
       :emqx_enterprise,
-      :emqx_bridge_kinesis
+      :emqx_bridge_kinesis,
+      :emqx_bridge_azure_event_hub
     ])
   end
 

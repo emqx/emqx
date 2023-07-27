@@ -136,7 +136,7 @@ bridge_config(TestCase, _TestGroup, Config) ->
             "  iotdb_version = \"~s\"\n"
             "  pool_size = 1\n"
             "  resource_opts = {\n"
-            "     health_check_interval = \"5s\"\n"
+            "     health_check_interval = \"1s\"\n"
             "     request_ttl = 30s\n"
             "     query_mode = \"async\"\n"
             "     worker_pool_size = 1\n"

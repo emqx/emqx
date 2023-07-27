@@ -90,7 +90,8 @@
     T == oracle;
     T == iotdb;
     T == kinesis_producer;
-    T == greptimedb
+    T == greptimedb;
+    T == azure_event_hub_producer
 ).
 
 -define(ROOT_KEY, bridges).

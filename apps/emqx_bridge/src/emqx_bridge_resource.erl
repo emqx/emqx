@@ -49,6 +49,12 @@
     update/4
 ]).
 
+-callback connector_config(ParsedConfig, BridgeName :: atom() | binary()) ->
+    ParsedConfig
+when
+    ParsedConfig :: #{atom() => any()}.
+-optional_callbacks([connector_config/2]).
+
 %% bi-directional bridge with producer/consumer or ingress/egress configs
 -define(IS_BI_DIR_BRIDGE(TYPE),
     (TYPE) =:= <<"mqtt">>
@@ -65,11 +71,15 @@ bridge_to_resource_type(mqtt) -> emqx_bridge_mqtt_connector;
 bridge_to_resource_type(<<"webhook">>) -> emqx_bridge_http_connector;
 bridge_to_resource_type(webhook) -> emqx_bridge_http_connector;
 bridge_to_resource_type(BridgeType) -> emqx_bridge_enterprise:resource_type(BridgeType).
+
+bridge_impl_module(BridgeType) -> emqx_bridge_enterprise:bridge_impl_module(BridgeType).
 -else.
 bridge_to_resource_type(<<"mqtt">>) -> emqx_bridge_mqtt_connector;
 bridge_to_resource_type(mqtt) -> emqx_bridge_mqtt_connector;
 bridge_to_resource_type(<<"webhook">>) -> emqx_bridge_http_connector;
 bridge_to_resource_type(webhook) -> emqx_bridge_http_connector.
+
+bridge_impl_module(_BridgeType) -> undefined.
 -endif.
 
 resource_id(BridgeId) when is_binary(BridgeId) ->
@@ -376,8 +386,17 @@ parse_confs(<<"pulsar_producer">> = _Type, Name, Conf) ->
     Conf#{bridge_name => Name};
 parse_confs(<<"kinesis_producer">> = _Type, Name, Conf) ->
     Conf#{bridge_name => Name};
-parse_confs(_Type, _Name, Conf) ->
-    Conf.
+parse_confs(BridgeType, BridgeName, Config) ->
+    connector_config(BridgeType, BridgeName, Config).
+
+connector_config(BridgeType, BridgeName, Config) ->
+    Mod = bridge_impl_module(BridgeType),
+    case erlang:function_exported(Mod, connector_config, 2) of
+        true ->
+            Mod:connector_config(Config, BridgeName);
+        false ->
+            Config
+    end.
 
 parse_url(Url) ->
     case string:split(Url, "//", leading) of

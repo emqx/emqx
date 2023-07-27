@@ -208,7 +208,9 @@ on_stop(InstanceId, _State) ->
             ok;
         _ ->
             ok
-    end.
+    end,
+    ?tp(kafka_producer_stopped, #{instance_id => InstanceId}),
+    ok.
 
 on_query(
     _InstId,
@@ -228,7 +230,10 @@ on_query(
         headers_val_encode_mode => KafkaHeadersValEncodeMode
     },
     KafkaMessage = render_message(Template, KafkaHeaders, Message),
-    ?tp(emqx_bridge_kafka_impl_producer_sync_query, KafkaHeaders),
+    ?tp(
+        emqx_bridge_kafka_impl_producer_sync_query,
+        #{headers_config => KafkaHeaders, instance_id => _InstId}
+    ),
     try
         {_Partition, _Offset} = wolff:send_sync(Producers, [KafkaMessage], SyncTimeout),
         ok
@@ -263,7 +268,10 @@ on_query_async(
         headers_val_encode_mode => KafkaHeadersValEncodeMode
     },
     KafkaMessage = render_message(Template, KafkaHeaders, Message),
-    ?tp(emqx_bridge_kafka_impl_producer_async_query, KafkaHeaders),
+    ?tp(
+        emqx_bridge_kafka_impl_producer_async_query,
+        #{headers_config => KafkaHeaders, instance_id => _InstId}
+    ),
     %% * Must be a batch because wolff:send and wolff:send_sync are batch APIs
     %% * Must be a single element batch because wolff books calls, but not batch sizes
     %%   for counters and gauges.

@@ -17,6 +17,9 @@
 %% Parse comma separated host:port list into a [{Host,Port}] list
 hosts(Hosts) when is_binary(Hosts) ->
     hosts(binary_to_list(Hosts));
+hosts([#{hostname := _, port := _} | _] = Servers) ->
+    %% already parsed
+    [{Hostname, Port} || #{hostname := Hostname, port := Port} <- Servers];
 hosts(Hosts) when is_list(Hosts) ->
     kpro:parse_endpoints(Hosts).
 
