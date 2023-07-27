@@ -16,29 +16,29 @@
 
 %% @doc Topic index for matching topics to topic filters.
 %%
-%% Works on top of ETS ordered_set table. Keys are tuples constructed from
-%% parsed topic filters and record IDs, wrapped in a tuple to order them
-%% strictly greater than unit tuple (`{}`). Existing table may be used if
-%% existing keys will not collide with index keys.
+%% Works on top of ETS ordered_set table. Keys are parsed topic filters
+%% with record ID appended to the end, wrapped in a tuple to disambiguate from
+%% topic filter words. Existing table may be used if existing keys will not
+%% collide with index keys.
 %%
 %% Designed to effectively answer questions like:
 %% 1. Does any topic filter match given topic?
 %% 2. Which records are associated with topic filters matching given topic?
-%% 3. Which topic filters match given topic?
-%% 4. Which record IDs are associated with topic filters matching given topic?
+%%
+%% Questions like these are _only slightly_ less effective:
+%% 1. Which topic filters match given topic?
+%% 2. Which record IDs are associated with topic filters matching given topic?
 
 -module(emqx_rule_index).
 
 -export([insert/4]).
 -export([delete/3]).
 -export([match/2]).
--export([matches/3]).
+-export([matches/2]).
 
--export([get_id/1]).
--export([get_topic/1]).
 -export([get_record/2]).
 
--type key(ID) :: {[binary() | '+' | '#'], {ID}}.
+-type key(ID) :: [binary() | '+' | '#' | {ID}].
 -type match(ID) :: key(ID).
 
 -ifdef(TEST).
@@ -46,10 +46,11 @@
 -endif.
 
 insert(Filter, ID, Record, Tab) ->
-    ets:insert(Tab, {{emqx_topic:words(Filter), {ID}}, Record}).
+    %% TODO: topic compact. see also in emqx_trie.erl
+    ets:insert(Tab, {emqx_topic:words(Filter) ++ [{ID}], Record}).
 
 delete(Filter, ID, Tab) ->
-    ets:delete(Tab, {emqx_topic:words(Filter), {ID}}).
+    ets:delete(Tab, emqx_topic:words(Filter) ++ [{ID}]).
 
 -spec match(emqx_types:topic(), ets:table()) -> match(_ID) | false.
 match(Topic, Tab) ->
@@ -58,8 +59,8 @@ match(Topic, Tab) ->
 
 match(Words, RPrefix, Tab) ->
     Prefix = lists:reverse(RPrefix),
-    K = ets:next(Tab, {Prefix, {}}),
-    case match_filter(Prefix, K, Words == []) of
+    K = ets:next(Tab, Prefix),
+    case match_filter(Prefix, K, Words =/= []) of
         true ->
             K;
         stop ->
@@ -72,7 +73,7 @@ match_rest(false, [W | Rest], RPrefix, Tab) ->
     match(Rest, [W | RPrefix], Tab);
 match_rest(plus, [W | Rest], RPrefix, Tab) ->
     case match(Rest, ['+' | RPrefix], Tab) of
-        Match = {_, _} ->
+        Match when is_list(Match) ->
             Match;
         false ->
             match(Rest, [W | RPrefix], Tab)
@@ -80,86 +81,48 @@ match_rest(plus, [W | Rest], RPrefix, Tab) ->
 match_rest(_, [], _RPrefix, _Tab) ->
     false.
 
--spec matches(emqx_types:topic(), ets:table(), _Opts :: [unique]) -> [match(_ID)].
-matches(Topic, Tab, Opts) ->
+-spec matches(emqx_types:topic(), ets:table()) -> [match(_ID)].
+matches(Topic, Tab) ->
     {Words, RPrefix} = match_init(Topic),
-    AccIn =
-        case Opts of
-            [unique | _] -> #{};
-            [] -> []
-        end,
-    Matches = matches(Words, RPrefix, AccIn, Tab),
-    %% return rules ordered by Rule ID
-    case Matches of
-        #{} ->
-            maps:values(Matches);
-        _ ->
-            F = fun({_, {ID1}}, {_, {ID2}}) -> ID1 < ID2 end,
-            lists:sort(F, Matches)
-    end.
+    matches(Words, RPrefix, Tab).
 
-matches(Words, RPrefix, Acc, Tab) ->
+matches(Words, RPrefix, Tab) ->
     Prefix = lists:reverse(RPrefix),
-    matches(ets:next(Tab, {Prefix, {}}), Prefix, Words, RPrefix, Acc, Tab).
+    matches(ets:next(Tab, Prefix), Prefix, Words, RPrefix, Tab).
 
-matches(K, Prefix, Words, RPrefix, Acc, Tab) ->
-    case match_filter(Prefix, K, Words == []) of
+matches(K, Prefix, Words, RPrefix, Tab) ->
+    case match_filter(Prefix, K, Words =/= []) of
         true ->
-            matches(ets:next(Tab, K), Prefix, Words, RPrefix, match_add(K, Acc), Tab);
+            [K | matches(ets:next(Tab, K), Prefix, Words, RPrefix, Tab)];
         stop ->
-            Acc;
+            [];
         Matched ->
-            matches_rest(Matched, Words, RPrefix, Acc, Tab)
+            matches_rest(Matched, Words, RPrefix, Tab)
     end.
 
-matches_rest(false, [W | Rest], RPrefix, Acc, Tab) ->
-    matches(Rest, [W | RPrefix], Acc, Tab);
-matches_rest(sharp, [W | Rest], RPrefix, Acc, Tab) ->
-    NAcc1 = matches([], ['#' | RPrefix], Acc, Tab),
-    NAcc2 = matches(Rest, ['+' | RPrefix], NAcc1, Tab),
-    matches(Rest, [W | RPrefix], NAcc2, Tab);
-matches_rest(plus, [W | Rest], RPrefix, Acc, Tab) ->
-    NAcc = matches(Rest, ['+' | RPrefix], Acc, Tab),
-    matches(Rest, [W | RPrefix], NAcc, Tab);
-matches_rest(_, [], _RPrefix, Acc, _Tab) ->
-    Acc.
+matches_rest(false, [W | Rest], RPrefix, Tab) ->
+    matches(Rest, [W | RPrefix], Tab);
+matches_rest(plus, [W | Rest], RPrefix, Tab) ->
+    matches(Rest, ['+' | RPrefix], Tab) ++ matches(Rest, [W | RPrefix], Tab);
+matches_rest(_, [], _RPrefix, _Tab) ->
+    [].
 
-match_add(K = {_Filter, ID}, Acc = #{}) ->
-    Acc#{ID => K};
-match_add(K, Acc) ->
-    [K | Acc].
-
-match_filter(Prefix, {Filter, _ID}, NotPrefix) ->
-    case match_filter(Prefix, Filter) of
-        exact ->
-            % NOTE: exact match is `true` only if we match whole topic, not prefix
-            case NotPrefix of
-                true ->
-                    true;
-                false ->
-                    sharp
-            end;
-        Match ->
-            Match
-    end;
-match_filter(_, '$end_of_table', _) ->
-    stop.
-
-match_filter([], []) ->
-    exact;
-match_filter([], ['' | _]) ->
-    sharp;
-match_filter([], ['#']) ->
+match_filter([], [{_ID}], _IsPrefix = false) ->
+    % NOTE: exact match is `true` only if we match whole topic, not prefix
+    true;
+match_filter([], ['#', {_ID}], _IsPrefix) ->
     % NOTE: naturally, '#' < '+', so this is already optimal for `match/2`
     true;
-match_filter([], ['+' | _]) ->
+match_filter([], ['+' | _], _) ->
     plus;
-match_filter([], [_H | _]) ->
+match_filter([], [_H | _], _) ->
     false;
-match_filter([H | T1], [H | T2]) ->
-    match_filter(T1, T2);
-match_filter([H1 | _], [H2 | _]) when H2 > H1 ->
+match_filter([H | T1], [H | T2], IsPrefix) ->
+    match_filter(T1, T2, IsPrefix);
+match_filter([H1 | _], [H2 | _], _) when H2 > H1 ->
     % NOTE: we're strictly past the prefix, no need to continue
+    stop;
+match_filter(_, '$end_of_table', _) ->
     stop.
 
 match_init(Topic) ->
@@ -171,14 +134,6 @@ match_init(Topic) ->
         Words ->
             {Words, []}
     end.
-
--spec get_id(match(ID)) -> ID.
-get_id({_Filter, {ID}}) ->
-    ID.
-
--spec get_topic(match(_ID)) -> emqx_types:topic().
-get_topic({Filter, _ID}) ->
-    emqx_topic:join(Filter).
 
 -spec get_record(match(_ID), ets:table()) -> _Record.
 get_record(K, Tab) ->
