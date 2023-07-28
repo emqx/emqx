@@ -155,7 +155,7 @@ fields(config) ->
                     desc => ?DESC("payload_template")
                 }
             )}
-    ].
+    ] ++ emqx_connector_schema_lib:ssl_fields().
 
 values(post) ->
     maps:merge(values(put), #{name => <<"connector">>});
@@ -320,10 +320,18 @@ create_rabbitmq_connection_and_channel(Config) ->
         wait_for_publish_confirmations := WaitForPublishConfirmations
     } = Config,
     Password = emqx_secret:unwrap(WrappedPassword),
+    SSLOptions =
+        case maps:get(ssl, Config, #{}) of
+            #{enable := true} = SSLOpts ->
+                emqx_tls_lib:to_client_opts(SSLOpts);
+            _ ->
+                none
+        end,
     RabbitMQConnectionOptions =
         #amqp_params_network{
             host = erlang:binary_to_list(Host),
             port = Port,
+            ssl_options = SSLOptions,
             username = Username,
             password = Password,
             connection_timeout = Timeout,

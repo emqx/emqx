@@ -38,22 +38,34 @@ get_channel_connection(Config) ->
 %% Common Test Setup, Teardown and Testcase List
 %%------------------------------------------------------------------------------
 
+all() ->
+    [
+        {group, tcp},
+        {group, tls}
+    ].
+
+groups() ->
+    AllTCs = emqx_common_test_helpers:all(?MODULE),
+    [
+        {tcp, AllTCs},
+        {tls, AllTCs}
+    ].
+
 init_per_suite(Config) ->
-    % snabbkaffe:fix_ct_logging(),
-    case
-        emqx_common_test_helpers:is_tcp_server_available(
-            erlang:binary_to_list(rabbit_mq_host()), rabbit_mq_port()
-        )
-    of
+    Config.
+
+end_per_suite(_Config) ->
+    ok.
+
+init_per_group(tcp, Config) ->
+    RabbitMQHost = os:getenv("RABBITMQ_PLAIN_HOST", "rabbitmq"),
+    RabbitMQPort = list_to_integer(os:getenv("RABBITMQ_PLAIN_PORT", "5672")),
+    case emqx_common_test_helpers:is_tcp_server_available(RabbitMQHost, RabbitMQPort) of
         true ->
-            emqx_common_test_helpers:render_and_load_app_config(emqx_conf),
-            ok = emqx_common_test_helpers:start_apps([emqx_conf, emqx_bridge]),
-            ok = emqx_connector_test_helpers:start_apps([emqx_resource]),
-            {ok, _} = application:ensure_all_started(emqx_connector),
-            {ok, _} = application:ensure_all_started(amqp_client),
-            emqx_mgmt_api_test_util:init_suite(),
-            ChannelConnection = setup_rabbit_mq_exchange_and_queue(),
-            [{channel_connection, ChannelConnection} | Config];
+            Config1 = common_init_per_group(#{
+                host => RabbitMQHost, port => RabbitMQPort, tls => false
+            }),
+            Config1 ++ Config;
         false ->
             case os:getenv("IS_CI") of
                 "yes" ->
@@ -61,14 +73,64 @@ init_per_suite(Config) ->
                 _ ->
                     {skip, no_rabbitmq}
             end
-    end.
+    end;
+init_per_group(tls, Config) ->
+    RabbitMQHost = os:getenv("RABBITMQ_TLS_HOST", "rabbitmq"),
+    RabbitMQPort = list_to_integer(os:getenv("RABBITMQ_TLS_PORT", "5671")),
+    case emqx_common_test_helpers:is_tcp_server_available(RabbitMQHost, RabbitMQPort) of
+        true ->
+            Config1 = common_init_per_group(#{
+                host => RabbitMQHost, port => RabbitMQPort, tls => true
+            }),
+            Config1 ++ Config;
+        false ->
+            case os:getenv("IS_CI") of
+                "yes" ->
+                    throw(no_rabbitmq);
+                _ ->
+                    {skip, no_rabbitmq}
+            end
+    end;
+init_per_group(_Group, Config) ->
+    Config.
 
-setup_rabbit_mq_exchange_and_queue() ->
+common_init_per_group(Opts) ->
+    emqx_common_test_helpers:render_and_load_app_config(emqx_conf),
+    ok = emqx_common_test_helpers:start_apps([emqx_conf, emqx_bridge]),
+    ok = emqx_connector_test_helpers:start_apps([emqx_resource]),
+    {ok, _} = application:ensure_all_started(emqx_connector),
+    {ok, _} = application:ensure_all_started(amqp_client),
+    emqx_mgmt_api_test_util:init_suite(),
+    ChannelConnection = setup_rabbit_mq_exchange_and_queue(Opts),
+    [{channel_connection, ChannelConnection}].
+
+setup_rabbit_mq_exchange_and_queue(#{host := RabbitMQHost, port := RabbitMQPort, tls := UseTLS}) ->
+    SSLOptions =
+        case UseTLS of
+            false ->
+                none;
+            true ->
+                CertsDir = filename:join([
+                    emqx_common_test_helpers:proj_root(),
+                    ".ci",
+                    "docker-compose-file",
+                    "certs"
+                ]),
+                emqx_tls_lib:to_client_opts(
+                    #{
+                        enable => true,
+                        cacertfile => filename:join([CertsDir, "ca.crt"]),
+                        certfile => filename:join([CertsDir, "client.pem"]),
+                        keyfile => filename:join([CertsDir, "client.key"])
+                    }
+                )
+        end,
     %% Create an exachange and a queue
     {ok, Connection} =
         amqp_connection:start(#amqp_params_network{
-            host = erlang:binary_to_list(rabbit_mq_host()),
-            port = rabbit_mq_port()
+            host = RabbitMQHost,
+            port = RabbitMQPort,
+            ssl_options = SSLOptions
         }),
     {ok, Channel} = amqp_connection:open_channel(Connection),
     %% Create an exchange
@@ -101,7 +163,7 @@ setup_rabbit_mq_exchange_and_queue() ->
         channel => Channel
     }.
 
-end_per_suite(Config) ->
+end_per_group(_Group, Config) ->
     #{
         connection := Connection,
         channel := Channel
@@ -121,9 +183,6 @@ init_per_testcase(_, Config) ->
 
 end_per_testcase(_, _Config) ->
     ok.
-
-all() ->
-    emqx_common_test_helpers:all(?MODULE).
 
 rabbitmq_config(Config) ->
     %%SQL = maps:get(sql, Config, sql_insert_template_for_bridge()),

@@ -13,5 +13,10 @@ services:
     # ports:
     #   - "15672:15672"
     #   - "5672:5672"
+    volumes:
+      - ./certs/ca.crt:/opt/certs/ca.crt
+      - ./certs/server.crt:/opt/certs/server.crt
+      - ./certs/server.key:/opt/certs/server.key
+      - ./rabbitmq/20-tls.conf:/etc/rabbitmq/conf.d/20-tls.conf
     networks:
       - emqx_bridge
