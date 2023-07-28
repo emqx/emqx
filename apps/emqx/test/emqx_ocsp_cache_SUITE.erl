@@ -175,13 +175,14 @@ init_per_testcase(_TestCase, Config) ->
     DataDir = ?config(data_dir, Config),
     Type = ssl,
     Name = test_ocsp,
+    ResponderURL = <<"http://localhost:9877/">>,
     ListenerOpts = #{
         ssl_options =>
             #{
                 certfile => filename:join(DataDir, "server.pem"),
                 ocsp => #{
                     enable_ocsp_stapling => true,
-                    responder_url => <<"http://localhost:9877/">>,
+                    responder_url => ResponderURL,
                     issuer_pem => filename:join(DataDir, "ocsp-issuer.pem"),
                     refresh_http_timeout => <<"15s">>,
                     refresh_interval => <<"1s">>
@@ -197,7 +198,8 @@ init_per_testcase(_TestCase, Config) ->
     ListenerOpts2 = emqx_utils_maps:deep_get([listeners, Type, Name], Conf2),
     emqx_config:put_listener_conf(Type, Name, [], ListenerOpts2),
     [
-        {cache_pid, CachePid}
+        {cache_pid, CachePid},
+        {responder_url, ResponderURL}
         | Config
     ].
 
@@ -995,6 +997,39 @@ t_unknown_error_fetching_ocsp_response(_Config) ->
         error_raised -> ok
     after 200 -> ct:fail("should have tried to fetch ocsp response")
     end,
+    ok.
+
+t_path_encoding(Config) ->
+    ResponderURL = ?config(responder_url, Config),
+    ListenerID = <<"ssl:test_ocsp">>,
+    TestPid = self(),
+    ok = meck:expect(
+        emqx_ocsp_cache,
+        http_get,
+        fun(RequestURI, _HTTPTimeout) ->
+            TestPid ! {request_uri, RequestURI},
+            {ok, {{"HTTP/1.0", 200, 'OK'}, [], <<"ocsp response">>}}
+        end
+    ),
+    ?check_trace(
+        begin
+            ?assertMatch({ok, _}, emqx_ocsp_cache:fetch_response(ListenerID)),
+            receive
+                {request_uri, <<RequestURI/binary>>} ->
+                    <<ResponderURL:(size(ResponderURL))/binary, Path/binary>> = RequestURI,
+                    ?assertEqual(nomatch, binary:match(Path, <<"/">>), #{path => Path}),
+                    ok
+            after 100 ->
+                ct:pal(
+                    "responder url: ~p\nmailbox: ~p",
+                    [ResponderURL, process_info(self(), messages)]
+                ),
+                ct:fail("request not made")
+            end,
+            ok
+        end,
+        []
+    ),
     ok.
 
 t_openssl_client(Config) ->
