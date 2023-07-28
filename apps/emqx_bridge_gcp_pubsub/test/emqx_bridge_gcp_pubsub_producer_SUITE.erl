@@ -63,7 +63,8 @@ single_config_tests() ->
         t_get_status_down,
         t_get_status_no_worker,
         t_get_status_timeout_calling_workers,
-        t_on_start_ehttpc_pool_already_started
+        t_on_start_ehttpc_pool_already_started,
+        t_attributes
     ].
 
 only_sync_tests() ->
@@ -212,7 +213,9 @@ create_bridge_http(Config, GCPPubSubConfigOverrides) ->
                 Error
         end,
     ct:pal("bridge creation result: ~p", [Res]),
-    ?assertEqual(element(1, ProbeResult), element(1, Res)),
+    ?assertEqual(element(1, ProbeResult), element(1, Res), #{
+        creation_result => Res, probe_result => ProbeResult
+    }),
     case ProbeResult of
         {error, {{_, 500, _}, _, _}} -> error({bad_probe_result, ProbeResult});
         _ -> ok
@@ -456,6 +459,7 @@ assert_valid_request_headers(Headers, ServiceAccountJSON) ->
 assert_valid_request_body(Body) ->
     BodyMap = emqx_utils_json:decode(Body, [return_maps]),
     ?assertMatch(#{<<"messages">> := [_ | _]}, BodyMap),
+    ct:pal("request: ~p", [BodyMap]),
     #{<<"messages">> := Messages} = BodyMap,
     lists:map(
         fun(Msg) ->
@@ -475,6 +479,25 @@ assert_http_request(ServiceAccountJSON) ->
         {http, Headers, Body} ->
             assert_valid_request_headers(Headers, ServiceAccountJSON),
             assert_valid_request_body(Body)
+    after 5_000 ->
+        {messages, Mailbox} = process_info(self(), messages),
+        error({timeout, #{mailbox => Mailbox}})
+    end.
+
+receive_http_request(ServiceAccountJSON) ->
+    receive
+        {http, Headers, Body} ->
+            assert_valid_request_headers(Headers, ServiceAccountJSON),
+            #{<<"messages">> := Msgs} = emqx_utils_json:decode(Body, [return_maps]),
+            lists:map(
+                fun(Msg) ->
+                    #{<<"data">> := Content64} = Msg,
+                    Content = base64:decode(Content64),
+                    Decoded = emqx_utils_json:decode(Content, [return_maps]),
+                    Msg#{<<"data">> := Decoded}
+                end,
+                Msgs
+            )
     after 5_000 ->
         {messages, Mailbox} = process_info(self(), messages),
         error({timeout, #{mailbox => Mailbox}})
@@ -585,8 +608,8 @@ t_publish_success(Config) ->
                 <<"topic">> := Topic,
                 <<"payload">> := Payload,
                 <<"metadata">> := #{<<"rule_id">> := RuleId}
-            }
-        ],
+            } = Msg
+        ] when not (is_map_key(<<"attributes">>, Msg) orelse is_map_key(<<"orderingKey">>, Msg)),
         DecodedMessages
     ),
     %% to avoid test flakiness
@@ -1521,6 +1544,148 @@ t_query_sync(Config) ->
                 ok
             end
         ),
+        []
+    ),
+    ok.
+
+t_attributes(Config) ->
+    Name = ?config(gcp_pubsub_name, Config),
+    ServiceAccountJSON = ?config(service_account_json, Config),
+    LocalTopic = <<"t/topic">>,
+    ?check_trace(
+        begin
+            {ok, _} = create_bridge_http(
+                Config,
+                #{
+                    <<"local_topic">> => LocalTopic,
+                    <<"attributes_template">> =>
+                        [
+                            #{
+                                <<"key">> => <<"${.payload.key}">>,
+                                <<"value">> => <<"fixed_value">>
+                            },
+                            #{
+                                <<"key">> => <<"${.payload.key}2">>,
+                                <<"value">> => <<"${.payload.value}">>
+                            },
+                            #{
+                                <<"key">> => <<"fixed_key">>,
+                                <<"value">> => <<"fixed_value">>
+                            },
+                            #{
+                                <<"key">> => <<"fixed_key2">>,
+                                <<"value">> => <<"${.payload.value}">>
+                            }
+                        ],
+                    <<"ordering_key_template">> => <<"${.payload.ok}">>
+                }
+            ),
+            %% without ordering key
+            Payload0 =
+                emqx_utils_json:encode(
+                    #{
+                        <<"value">> => <<"payload_value">>,
+                        <<"key">> => <<"payload_key">>
+                    }
+                ),
+            Message0 = emqx_message:make(LocalTopic, Payload0),
+            emqx:publish(Message0),
+            DecodedMessages0 = receive_http_request(ServiceAccountJSON),
+            ?assertMatch(
+                [
+                    #{
+                        <<"attributes">> :=
+                            #{
+                                <<"fixed_key">> := <<"fixed_value">>,
+                                <<"fixed_key2">> := <<"payload_value">>,
+                                <<"payload_key">> := <<"fixed_value">>,
+                                <<"payload_key2">> := <<"payload_value">>
+                            },
+                        <<"data">> := #{
+                            <<"topic">> := _,
+                            <<"payload">> := _
+                        }
+                    } = Msg
+                ] when not is_map_key(<<"orderingKey">>, Msg),
+                DecodedMessages0
+            ),
+            %% with ordering key
+            Payload1 =
+                emqx_utils_json:encode(
+                    #{
+                        <<"value">> => <<"payload_value">>,
+                        <<"key">> => <<"payload_key">>,
+                        <<"ok">> => <<"ordering_key">>
+                    }
+                ),
+            Message1 = emqx_message:make(LocalTopic, Payload1),
+            emqx:publish(Message1),
+            DecodedMessages1 = receive_http_request(ServiceAccountJSON),
+            ?assertMatch(
+                [
+                    #{
+                        <<"attributes">> :=
+                            #{
+                                <<"fixed_key">> := <<"fixed_value">>,
+                                <<"fixed_key2">> := <<"payload_value">>,
+                                <<"payload_key">> := <<"fixed_value">>,
+                                <<"payload_key2">> := <<"payload_value">>
+                            },
+                        <<"orderingKey">> := <<"ordering_key">>,
+                        <<"data">> := #{
+                            <<"topic">> := _,
+                            <<"payload">> := _
+                        }
+                    }
+                ],
+                DecodedMessages1
+            ),
+            %% will result in empty key
+            Payload2 =
+                emqx_utils_json:encode(
+                    #{
+                        <<"value">> => <<"payload_value">>,
+                        <<"ok">> => <<"ordering_key">>
+                    }
+                ),
+            Message2 = emqx_message:make(LocalTopic, Payload2),
+            emqx:publish(Message2),
+            [DecodedMessage2] = receive_http_request(ServiceAccountJSON),
+            ?assertEqual(
+                #{
+                    <<"fixed_key">> => <<"fixed_value">>,
+                    <<"fixed_key2">> => <<"payload_value">>,
+                    <<"2">> => <<"payload_value">>
+                },
+                maps:get(<<"attributes">>, DecodedMessage2)
+            ),
+            %% ensure loading cluster override file doesn't mangle the attribute
+            %% placeholders...
+            #{<<"bridges">> := #{?BRIDGE_TYPE_BIN := #{Name := RawConf}}} =
+                emqx_config:read_override_conf(#{override_to => cluster}),
+            ?assertEqual(
+                [
+                    #{
+                        <<"key">> => <<"${.payload.key}">>,
+                        <<"value">> => <<"fixed_value">>
+                    },
+                    #{
+                        <<"key">> => <<"${.payload.key}2">>,
+                        <<"value">> => <<"${.payload.value}">>
+                    },
+                    #{
+                        <<"key">> => <<"fixed_key">>,
+                        <<"value">> => <<"fixed_value">>
+                    },
+                    #{
+                        <<"key">> => <<"fixed_key2">>,
+                        <<"value">> => <<"${.payload.value}">>
+                    }
+                ],
+                maps:get(<<"attributes_template">>, RawConf)
+            ),
+            ok
+        end,
         []
     ),
     ok.
