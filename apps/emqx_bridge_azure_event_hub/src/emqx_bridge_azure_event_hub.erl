@@ -200,7 +200,8 @@ auth_overrides() ->
 
 ssl_overrides() ->
     #{
-        "cacerts" => mk(boolean(), #{default => true}),
+        %% FIXME: change this once the config option is defined
+        %% "cacerts" => mk(boolean(), #{default => true}),
         "enable" => mk(true, #{default => true}),
         "server_name_indication" =>
             mk(
