@@ -17,8 +17,16 @@ if ! [ -f "$SCHEMA" ]; then
   exit 1
 fi
 
+if [[ -t 1 ]];
+then
+  DOCKER_TERMINAL_OPT="-t"
+else
+  DOCKER_TERMINAL_OPT=""
+fi
+
 set +e
-docker run --rm -i --name spellcheck \
+# shellcheck disable=SC2086
+docker run --rm -i ${DOCKER_TERMINAL_OPT} --name spellcheck \
     -v "${PROJ_ROOT}"/scripts/spellcheck/dicts:/dicts \
     -v "$SCHEMA":/schema.json \
     ghcr.io/emqx/emqx-schema-validate:0.4.0 /schema.json

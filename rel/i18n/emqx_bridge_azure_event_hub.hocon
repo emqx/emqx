@@ -105,7 +105,7 @@ partition_count_refresh_interval.label:
 """Partition Count Refresh Interval"""
 
 max_batch_bytes.desc:
-"""Maximum bytes to collect in a Azure Event Hub message batch. Most of the Kafka brokers default to a limit of 1 MB batch size. EMQX's default value is less than 1 MB in order to compensate Kafka message encoding overheads (especially when each individual message is very small). When a single message is over the limit, it is still sent (as a single element batch)."""
+"""Maximum bytes to collect in an Azure Event Hub message batch. Most of the Kafka brokers default to a limit of 1 MB batch size. EMQX's default value is less than 1 MB in order to compensate Kafka message encoding overheads (especially when each individual message is very small). When a single message is over the limit, it is still sent (as a single element batch)."""
 
 max_batch_bytes.label:
 """Max Batch Bytes"""
@@ -283,5 +283,29 @@ sync_query_timeout.desc:
 
 sync_query_timeout.label:
 """Synchronous Query Timeout"""
+
+auth_username_password.desc:
+"""Username/password based authentication."""
+
+auth_username_password.label:
+"""Username/password Auth"""
+
+auth_sasl_password.desc:
+"""The password for connecting to Azure Event Hub.  Should be the "connection string-primary key" of a Namespace shared access policy."""
+
+auth_sasl_password.label:
+"""Password"""
+
+producer_kafka_opts.desc:
+"""Azure Event Hub producer configs."""
+
+producer_kafka_opts.label:
+"""Azure Event Hub Producer"""
+
+desc_config.desc:
+"""Configuration for an Azure Event Hub bridge."""
+
+desc_config.label:
+"""Azure Event Hub Bridge Configuration"""
 
 }

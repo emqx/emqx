@@ -68,8 +68,25 @@ fields(Method) ->
     Fields = emqx_bridge_kafka:fields(Method),
     override_documentations(Fields).
 
-desc(_) ->
-    undefined.
+desc("config_producer") ->
+    ?DESC("desc_config");
+desc("ssl_client_opts") ->
+    emqx_schema:desc("ssl_client_opts");
+desc("get_producer") ->
+    ["Configuration for Azure Event Hub using `GET` method."];
+desc("put_producer") ->
+    ["Configuration for Azure Event Hub using `PUT` method."];
+desc("post_producer") ->
+    ["Configuration for Azure Event Hub using `POST` method."];
+desc(Name) ->
+    lists:member(Name, struct_names()) orelse throw({missing_desc, Name}),
+    ?DESC(Name).
+
+struct_names() ->
+    [
+        auth_username_password,
+        producer_kafka_opts
+    ].
 
 conn_bridge_examples(Method) ->
     [
@@ -162,7 +179,15 @@ ref(Name) ->
 
 producer_overrides() ->
     #{
-        authentication => mk(ref(auth_username_password), #{default => #{}, required => true}),
+        authentication =>
+            mk(
+                ref(auth_username_password),
+                #{
+                    default => #{},
+                    required => true,
+                    desc => ?DESC("authentication")
+                }
+            ),
         bootstrap_hosts =>
             mk(
                 binary(),
