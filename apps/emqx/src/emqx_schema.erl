@@ -2019,9 +2019,9 @@ common_ssl_opts_schema(Defaults, Type) ->
             )},
         {"cacerts",
             sc(
-                boolean(),
+                hoconsc:array(binary()),
                 #{
-                    default => false,
+                    required => false,
                     desc => ?DESC(common_ssl_opts_schema_cacerts)
                 }
             )},
