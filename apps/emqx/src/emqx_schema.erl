@@ -2017,14 +2017,6 @@ common_ssl_opts_schema(Defaults, Type) ->
                     desc => ?DESC(common_ssl_opts_schema_cacertfile)
                 }
             )},
-        {"cacerts",
-            sc(
-                boolean(),
-                #{
-                    default => false,
-                    desc => ?DESC(common_ssl_opts_schema_cacerts)
-                }
-            )},
         {"certfile",
             sc(
                 binary(),
