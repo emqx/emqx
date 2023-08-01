@@ -531,41 +531,18 @@ post_config_update(_Path, _Request, _NewConf, _OldConf, _AppEnvs) ->
     ok.
 
 create_listener(Type, Name, NewConf) ->
-    Res = start_listener(Type, Name, NewConf),
-    recreate_authenticators(Res, Type, Name, NewConf).
-
-recreate_authenticators(ok, Type, Name, Conf) ->
-    Chain = listener_id(Type, Name),
-    _ = emqx_authentication:delete_chain(Chain),
-    do_create_authneticators(Chain, maps:get(authentication, Conf, []));
-recreate_authenticators(Error, _Type, _Name, _NewConf) ->
-    Error.
-
-do_create_authneticators(Chain, [AuthN | T]) ->
-    case emqx_authentication:create_authenticator(Chain, AuthN) of
-        {ok, _} ->
-            do_create_authneticators(Chain, T);
-        Error ->
-            _ = emqx_authentication:delete_chain(Chain),
-            Error
-    end;
-do_create_authneticators(_Chain, []) ->
-    ok.
+    StartRes = start_listener(Type, Name, NewConf),
+    emqx_hooks:run_fold('listener.started', [Type, Name, NewConf], StartRes).
 
 remove_listener(Type, Name, OldConf) ->
     ok = unregister_ocsp_stapling_refresh(Type, Name),
-    case stop_listener(Type, Name, OldConf) of
-        ok ->
-            _ = emqx_authentication:delete_chain(listener_id(Type, Name)),
-            ok;
-        Err ->
-            Err
-    end.
+    StopRes = stop_listener(Type, Name, OldConf),
+    emqx_hooks:run_fold('listener.stopped', [Type, Name, OldConf], StopRes).
 
 update_listener(Type, Name, {OldConf, NewConf}) ->
     ok = maybe_unregister_ocsp_stapling_refresh(Type, Name, NewConf),
-    Res = restart_listener(Type, Name, {OldConf, NewConf}),
-    recreate_authenticators(Res, Type, Name, NewConf).
+    RestartRes = restart_listener(Type, Name, {OldConf, NewConf}),
+    emqx_hooks:run_fold('listener.restarted', [Type, Name, {OldConf, NewConf}], RestartRes).
 
 perform_listener_changes([]) ->
     ok;

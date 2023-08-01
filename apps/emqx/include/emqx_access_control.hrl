@@ -14,6 +14,9 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
+-ifndef(EMQX_ACCESS_CONTROL_HRL).
+-define(EMQX_ACCESS_CONTROL_HRL, true).
+
 %% config root name all auth providers have to agree on.
 -define(EMQX_AUTHORIZATION_CONFIG_ROOT_NAME, "authorization").
 -define(EMQX_AUTHORIZATION_CONFIG_ROOT_NAME_ATOM, authorization).
@@ -35,3 +38,4 @@
 
 -define(AUTHN_TRACE_TAG, "AUTHN").
 
+-endif.
