@@ -1,5 +1,6 @@
 Definitions.
 
+Control = [()&|!=~><:*]
 NonControl = [^()&|!=~><:*]
 String = {NonControl}*
 White = [\s\t\n\r]+
@@ -20,5 +21,7 @@ Rules.
 dn : {token, {dn, TokenLine}}.
 {White} : skip_token.
 {String} : {token, {string, TokenLine, TokenChars}}.
+%% Leex will hang if a composite operation is missing a character
+{Control} : {error, lists:flatten(io_lib:format("Unexpected Tokens:~ts", [TokenChars]))}.
 
 Erlang code.

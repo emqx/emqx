@@ -94,6 +94,8 @@ matchingrule ->
     colon value: {matchingRule, '$2'}.
 
 Erlang code.
+-export([scan_and_parse/1]).
+-ignore_xref({return_error, 2}).
 
 'and'(Value) ->
     eldap:'and'(Value).
@@ -131,3 +133,13 @@ flatten(List) -> lists:flatten(List).
 
 get_value({_Token, _Line, Value}) ->
     Value.
+
+scan_and_parse(Bin) when is_binary(Bin) ->
+    scan_and_parse(erlang:binary_to_list(Bin));
+scan_and_parse(String) ->
+    case emqx_ldap_filter_lexer:string(String) of
+        {ok, Tokens, _} ->
+            parse(Tokens);
+        {error, Reason, _} ->
+            {error, Reason}
+    end.

@@ -167,14 +167,22 @@ on_query(
         [] ->
             do_ldap_query(InstId, [{base, Base} | SearchOptions], State);
         _ ->
-            FilterBin = emqx_placeholder:proc_tmpl(FilterTks, Data),
-            %% TODO
-            Filter = FilterBin,
-            do_ldap_query(
-                InstId,
-                [{base, Base}, {filter, Filter} | SearchOptions],
-                State
-            )
+            FilterBin = emqx_placeholder:proc_tmpl(FilterTks, Data, #{return => rawlist}),
+            case emqx_ldap_filter_parser:scan_and_parse(FilterBin) of
+                {ok, Filter} ->
+                    do_ldap_query(
+                        InstId,
+                        [{base, Base}, {filter, Filter} | SearchOptions],
+                        State
+                    );
+                {error, Reason} = Error ->
+                    ?SLOG(error, #{
+                        msg => "filter_parse_failed",
+                        filter => FilterBin,
+                        reason => Reason
+                    }),
+                    Error
+            end
     end.
 
 do_ldap_query(
