@@ -6,6 +6,9 @@ It implements the data bridge APIs for interacting with an Oracle Database Bridg
 
 # Documentation
 
+- Refer to [Ingest data into Oracle DB](https://docs.emqx.com/en/enterprise/v5.0/data-integration/data-bridge-oracle.html)
+  for how to use EMQX dashboard to ingest IoT data into Oracle Database.
+
 - Refer to [EMQX Rules](https://docs.emqx.com/en/enterprise/v5.0/data-integration/rules.html)
   for the EMQX rules engine introduction.
 
