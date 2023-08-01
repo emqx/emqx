@@ -108,6 +108,8 @@ type_field(Type) ->
 name_field() ->
     {name, hoconsc:mk(binary(), #{required => true, desc => ?DESC("desc_name")})}.
 
+config_validator(#{server := _} = Config) ->
+    config_validator(emqx_utils_maps:binary_key_map(Config));
 config_validator(#{<<"server">> := Server} = Config) when
     not is_map(Server) andalso
         not is_map_key(<<"sid">>, Config) andalso

@@ -155,7 +155,16 @@ desc("request") ->
 desc(_) ->
     undefined.
 
-validate_method(M) when M =:= <<"post">>; M =:= <<"put">>; M =:= <<"get">>; M =:= <<"delete">> ->
+validate_method(M) when
+    M =:= <<"post">>;
+    M =:= <<"put">>;
+    M =:= <<"get">>;
+    M =:= <<"delete">>;
+    M =:= post;
+    M =:= put;
+    M =:= get;
+    M =:= delete
+->
     ok;
 validate_method(M) ->
     case string:find(M, "${") of

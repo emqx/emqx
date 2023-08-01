@@ -212,6 +212,19 @@ probe_bridge_api(BridgeType, BridgeName, BridgeConfig) ->
     ct:pal("bridge probe result: ~p", [Res]),
     Res.
 
+try_decode_error(Body0) ->
+    case emqx_utils_json:safe_decode(Body0, [return_maps]) of
+        {ok, #{<<"message">> := Msg0} = Body1} ->
+            case emqx_utils_json:safe_decode(Msg0, [return_maps]) of
+                {ok, Msg1} -> Body1#{<<"message">> := Msg1};
+                {error, _} -> Body1
+            end;
+        {ok, Body1} ->
+            Body1;
+        {error, _} ->
+            Body0
+    end.
+
 create_rule_and_action_http(BridgeType, RuleTopic, Config) ->
     create_rule_and_action_http(BridgeType, RuleTopic, Config, _Opts = #{}).
 

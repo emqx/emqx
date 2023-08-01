@@ -363,9 +363,9 @@ service_account_json_validator(Map) ->
         {[], <<"service_account">>} ->
             ok;
         {[], Type} ->
-            {error, {wrong_type, Type}};
+            {error, #{wrong_type => Type}};
         {_, _} ->
-            {error, {missing_keys, MissingKeys}}
+            {error, #{missing_keys => MissingKeys}}
     end.
 
 service_account_json_converter(Map) when is_map(Map) ->
@@ -382,7 +382,8 @@ service_account_json_converter(Val) ->
 
 consumer_topic_mapping_validator(_TopicMapping = []) ->
     {error, "There must be at least one GCP PubSub-MQTT topic mapping"};
-consumer_topic_mapping_validator(TopicMapping = [_ | _]) ->
+consumer_topic_mapping_validator(TopicMapping0 = [_ | _]) ->
+    TopicMapping = [emqx_utils_maps:binary_key_map(TM) || TM <- TopicMapping0],
     NumEntries = length(TopicMapping),
     PubSubTopics = [KT || #{<<"pubsub_topic">> := KT} <- TopicMapping],
     DistinctPubSubTopics = length(lists:usort(PubSubTopics)),

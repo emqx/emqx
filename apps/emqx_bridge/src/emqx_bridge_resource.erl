@@ -261,7 +261,17 @@ recreate(Type, Name, Conf, Opts) ->
 create_dry_run(Type, Conf0) ->
     TmpName = iolist_to_binary([?TEST_ID_PREFIX, emqx_utils:gen_id(8)]),
     TmpPath = emqx_utils:safe_filename(TmpName),
-    Conf = emqx_utils_maps:safe_atom_key_map(Conf0),
+    %% Already typechecked, no need to catch errors
+    TypeBin = bin(Type),
+    TypeAtom = safe_atom(Type),
+    Conf1 = maps:without([<<"name">>], Conf0),
+    RawConf = #{<<"bridges">> => #{TypeBin => #{<<"a">> => Conf1}}},
+    #{bridges := #{TypeAtom := #{a := Conf}}} =
+        hocon_tconf:check_plain(
+            emqx_bridge_schema,
+            RawConf,
+            #{atom_key => true, required => false}
+        ),
     case emqx_connector_ssl:convert_certs(TmpPath, Conf) of
         {error, Reason} ->
             {error, Reason};
@@ -414,6 +424,9 @@ parse_url(Url) ->
 bin(Bin) when is_binary(Bin) -> Bin;
 bin(Str) when is_list(Str) -> list_to_binary(Str);
 bin(Atom) when is_atom(Atom) -> atom_to_binary(Atom, utf8).
+
+safe_atom(Bin) when is_binary(Bin) -> binary_to_existing_atom(Bin, utf8);
+safe_atom(Atom) when is_atom(Atom) -> Atom.
 
 parse_opts(Conf, Opts0) ->
     override_start_after_created(Conf, Opts0).

@@ -305,6 +305,8 @@ create_bridge_api(Config, Overrides) ->
         case emqx_mgmt_api_test_util:request_api(post, Path, "", AuthHeader, Params, Opts) of
             {ok, {Status, Headers, Body0}} ->
                 {ok, {Status, Headers, emqx_utils_json:decode(Body0, [return_maps])}};
+            {error, {Status, Headers, Body0}} ->
+                {error, {Status, Headers, emqx_bridge_testlib:try_decode_error(Body0)}};
             Error ->
                 Error
         end,
@@ -348,8 +350,12 @@ probe_bridge_api(Config, Overrides) ->
     ct:pal("probing bridge (via http): ~p", [Params]),
     Res =
         case emqx_mgmt_api_test_util:request_api(post, Path, "", AuthHeader, Params, Opts) of
-            {ok, {{_, 204, _}, _Headers, _Body0} = Res0} -> {ok, Res0};
-            Error -> Error
+            {ok, {{_, 204, _}, _Headers, _Body0} = Res0} ->
+                {ok, Res0};
+            {error, {Status, Headers, Body0}} ->
+                {error, {Status, Headers, emqx_bridge_testlib:try_decode_error(Body0)}};
+            Error ->
+                Error
         end,
     ct:pal("bridge probe result: ~p", [Res]),
     Res.
@@ -629,6 +635,30 @@ t_no_sid_nor_service_name(Config0) ->
     ?assertMatch(
         {error, #{kind := validation_error, reason := "neither SID nor Service Name was set"}},
         create_bridge(Config)
+    ),
+    ?assertMatch(
+        {error,
+            {{_, 400, _}, _, #{
+                <<"message">> := #{
+                    <<"kind">> := <<"validation_error">>,
+                    <<"reason">> := <<"neither SID nor Service Name was set">>,
+                    %% should be censored as it contains secrets
+                    <<"value">> := #{<<"password">> := <<"******">>}
+                }
+            }}},
+        create_bridge_api(Config)
+    ),
+    ?assertMatch(
+        {error,
+            {{_, 400, _}, _, #{
+                <<"message">> := #{
+                    <<"kind">> := <<"validation_error">>,
+                    <<"reason">> := <<"neither SID nor Service Name was set">>,
+                    %% should be censored as it contains secrets
+                    <<"value">> := #{<<"password">> := <<"******">>}
+                }
+            }}},
+        probe_bridge_api(Config)
     ),
     ok.
 

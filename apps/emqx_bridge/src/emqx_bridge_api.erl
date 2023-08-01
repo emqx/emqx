@@ -541,7 +541,7 @@ schema("/bridges_probe") ->
     case emqx_dashboard_swagger:filter_check_request_and_translate_body(Request, RequestMeta) of
         {ok, #{body := #{<<"type">> := ConnType} = Params}} ->
             Params1 = maybe_deobfuscate_bridge_probe(Params),
-            case emqx_bridge_resource:create_dry_run(ConnType, maps:remove(<<"type">>, Params1)) of
+            try emqx_bridge_resource:create_dry_run(ConnType, maps:remove(<<"type">>, Params1)) of
                 ok ->
                     ?NO_CONTENT;
                 {error, #{kind := validation_error} = Reason} ->
@@ -553,6 +553,15 @@ schema("/bridges_probe") ->
                             _ -> Reason0
                         end,
                     ?BAD_REQUEST('TEST_FAILED', Reason)
+            catch
+                %% We need to catch hocon validation errors here as well because,
+                %% currently, when defining the API union member selector, we can only use
+                %% references to fields, and they don't share whole-bridge validators if
+                %% they exist.  Such validators will only be triggered by
+                %% `create_dry_run'...
+                throw:{_Schema, [#{kind := validation_error} = Reason0]} ->
+                    Reason = redact(Reason0),
+                    ?BAD_REQUEST('TEST_FAILED', map_to_json(Reason))
             end;
         BadRequest ->
             BadRequest
@@ -608,7 +617,7 @@ create_or_update_bridge(BridgeType, BridgeName, Conf, HttpStatusCode) ->
         {ok, _} ->
             lookup_from_all_nodes(BridgeType, BridgeName, HttpStatusCode);
         {error, Reason} when is_map(Reason) ->
-            ?BAD_REQUEST(map_to_json(emqx_utils:redact(Reason)))
+            ?BAD_REQUEST(map_to_json(redact(Reason)))
     end.
 
 get_metrics_from_local_node(BridgeType, BridgeName) ->
@@ -1071,7 +1080,15 @@ deobfuscate(NewConf, OldConf) ->
         NewConf
     ).
 
-map_to_json(M) ->
-    emqx_utils_json:encode(
-        emqx_utils_maps:jsonable_map(M, fun(K, V) -> {K, emqx_utils_maps:binary_string(V)} end)
-    ).
+map_to_json(M0) ->
+    %% When dealing with Hocon validation errors, `value' might contain non-serializable
+    %% values (e.g.: user_lookup_fun), so we try again without that key if serialization
+    %% fails as a best effort.
+    M1 = emqx_utils_maps:jsonable_map(M0, fun(K, V) -> {K, emqx_utils_maps:binary_string(V)} end),
+    try
+        emqx_utils_json:encode(M1)
+    catch
+        error:_ ->
+            M2 = maps:without([value], M1),
+            emqx_utils_json:encode(M2)
+    end.
