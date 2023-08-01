@@ -16,8 +16,8 @@
 
 -module(emqx_conf_cli).
 -include("emqx_conf.hrl").
--include_lib("emqx/include/emqx_access_control.hrl").
--include_lib("emqx/include/emqx_authentication.hrl").
+-include_lib("emqx_authn/include/emqx_authentication.hrl").
+-include_lib("emqx/include/logger.hrl").
 
 -export([
     load/0,

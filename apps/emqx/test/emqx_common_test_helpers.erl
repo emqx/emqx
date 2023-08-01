@@ -16,7 +16,7 @@
 
 -module(emqx_common_test_helpers).
 
--include_lib("emqx/include/emqx_authentication.hrl").
+-include_lib("emqx_authn/include/emqx_authentication.hrl").
 
 -type special_config_handler() :: fun().
 

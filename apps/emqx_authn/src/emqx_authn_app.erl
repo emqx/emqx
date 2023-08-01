@@ -26,7 +26,7 @@
     stop/1
 ]).
 
--include_lib("emqx/include/emqx_authentication.hrl").
+-include_lib("emqx_authentication.hrl").
 
 -dialyzer({nowarn_function, [start/2]}).
 

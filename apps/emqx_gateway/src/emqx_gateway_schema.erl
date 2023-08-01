@@ -24,9 +24,9 @@
 -dialyzer(no_unused).
 -dialyzer(no_fail_call).
 
--include_lib("emqx/include/emqx_authentication.hrl").
 -include_lib("hocon/include/hoconsc.hrl").
 -include_lib("typerefl/include/types.hrl").
+-include_lib("emqx_authn/include/emqx_authentication.hrl").
 
 -type ip_port() :: tuple() | integer().
 -type duration() :: non_neg_integer().

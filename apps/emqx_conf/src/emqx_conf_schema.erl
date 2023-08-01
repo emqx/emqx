@@ -22,9 +22,9 @@
 -dialyzer(no_unused).
 -dialyzer(no_fail_call).
 
+-include_lib("emqx/include/emqx_access_control.hrl").
 -include_lib("typerefl/include/types.hrl").
 -include_lib("hocon/include/hoconsc.hrl").
--include_lib("emqx/include/emqx_authentication.hrl").
 
 -type log_level() :: debug | info | notice | warning | error | critical | alert | emergency | all.
 -type file() :: string().
@@ -66,6 +66,10 @@
     emqx_otel_schema,
     emqx_mgmt_api_key_schema
 ]).
+-define(INJECTING_CONFIGS, [
+    emqx_authn_schema
+]).
+
 %% 1 million default ports counter
 -define(DEFAULT_MAX_PORTS, 1024 * 1024).
 
@@ -76,11 +80,7 @@ tags() ->
     [<<"EMQX">>].
 
 roots() ->
-    PtKey = ?EMQX_AUTHENTICATION_SCHEMA_MODULE_PT_KEY,
-    case persistent_term:get(PtKey, undefined) of
-        undefined -> persistent_term:put(PtKey, emqx_authn_schema);
-        _ -> ok
-    end,
+    ok = ensure_fields_injected(),
     emqx_schema_high_prio_roots() ++
         [
             {"node",
@@ -1434,3 +1434,9 @@ ensure_unicode_path(Path, _) when is_list(Path) ->
     Path;
 ensure_unicode_path(Path, _) ->
     throw({"not_string", Path}).
+
+ensure_fields_injected() ->
+    lists:foreach(
+        fun(Module) -> emqx_schema_hooks:inject_fields_from_mod(Module) end,
+        ?INJECTING_CONFIGS
+    ).

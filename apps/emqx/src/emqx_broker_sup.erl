@@ -49,16 +49,6 @@ init([]) ->
         modules => [emqx_shared_sub]
     },
 
-    %% Authentication
-    AuthNSup = #{
-        id => emqx_authentication_sup,
-        start => {emqx_authentication_sup, start_link, []},
-        restart => permanent,
-        shutdown => infinity,
-        type => supervisor,
-        modules => [emqx_authentication_sup]
-    },
-
     %% Broker helper
     Helper = #{
         id => helper,
@@ -69,4 +59,4 @@ init([]) ->
         modules => [emqx_broker_helper]
     },
 
-    {ok, {{one_for_all, 0, 1}, [BrokerPool, SharedSub, AuthNSup, Helper]}}.
+    {ok, {{one_for_all, 0, 1}, [BrokerPool, SharedSub, Helper]}}.

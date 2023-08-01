@@ -37,8 +37,8 @@
 
 -export_type([config/0]).
 
--include("logger.hrl").
 -include("emqx_authentication.hrl").
+-include_lib("emqx/include/logger.hrl").
 
 -type parsed_config() :: #{
     mechanism := atom(),

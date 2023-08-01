@@ -22,13 +22,24 @@
 
 -behaviour(gen_server).
 
--include("emqx.hrl").
--include("logger.hrl").
 -include("emqx_authentication.hrl").
+-include_lib("emqx/include/logger.hrl").
 -include_lib("emqx/include/emqx_hooks.hrl").
 -include_lib("stdlib/include/ms_transform.hrl").
 
 -define(CONF_ROOT, ?EMQX_AUTHENTICATION_CONFIG_ROOT_NAME_ATOM).
+
+-record(authenticator, {
+    id :: binary(),
+    provider :: module(),
+    enable :: boolean(),
+    state :: map()
+}).
+
+-record(chain, {
+    name :: atom(),
+    authenticators :: [#authenticator{}]
+}).
 
 %% The authentication entrypoint.
 -export([
