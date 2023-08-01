@@ -1,9 +1,9 @@
 Definitions.
 
 Control = [()&|!=~><:*]
-NonControl = [^()&|!=~><:*]
-String = {NonControl}*
 White = [\s\t\n\r]+
+NonString = [^()&|!=~><:*\s\t\n\r]
+String = {NonString}+
 
 Rules.
 

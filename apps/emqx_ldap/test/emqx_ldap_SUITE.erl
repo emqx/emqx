@@ -22,18 +22,33 @@
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("emqx/include/emqx.hrl").
 -include_lib("stdlib/include/assert.hrl").
+-include_lib("eldap/include/eldap.hrl").
 
--define(MYSQL_HOST, "ldap").
--define(MYSQL_RESOURCE_MOD, emqx_ldap).
+-define(LDAP_HOST, "ldap").
+-define(LDAP_RESOURCE_MOD, emqx_ldap).
 
 all() ->
-    emqx_common_test_helpers:all(?MODULE).
+    [
+        {group, tcp},
+        {group, ssl}
+    ].
 
 groups() ->
-    [].
+    Cases = emqx_common_test_helpers:all(?MODULE),
+    [
+        {tcp, Cases},
+        {ssl, Cases}
+    ].
+
+init_per_group(Group, Config) ->
+    [{group, Group} | Config].
+
+end_per_group(_, Config) ->
+    proplists:delete(group, Config).
 
 init_per_suite(Config) ->
-    case emqx_common_test_helpers:is_tcp_server_available(?MYSQL_HOST, ?MYSQL_DEFAULT_PORT) of
+    Port = port(tcp),
+    case emqx_common_test_helpers:is_tcp_server_available(?LDAP_HOST, Port) of
         true ->
             ok = emqx_common_test_helpers:start_apps([emqx_conf]),
             ok = emqx_connector_test_helpers:start_apps([emqx_resource]),
@@ -58,22 +73,22 @@ end_per_testcase(_, _Config) ->
 % %% Testcases
 % %%------------------------------------------------------------------------------
 
-t_lifecycle(_Config) ->
+t_lifecycle(Config) ->
     perform_lifecycle_check(
         <<"emqx_ldap_SUITE">>,
-        ldap_config()
+        ldap_config(Config)
     ).
 
 perform_lifecycle_check(ResourceId, InitialConfig) ->
     {ok, #{config := CheckedConfig}} =
-        emqx_resource:check_config(?MYSQL_RESOURCE_MOD, InitialConfig),
+        emqx_resource:check_config(?LDAP_RESOURCE_MOD, InitialConfig),
     {ok, #{
         state := #{pool_name := PoolName} = State,
         status := InitialStatus
     }} = emqx_resource:create_local(
         ResourceId,
         ?CONNECTOR_RESOURCE_GROUP,
-        ?MYSQL_RESOURCE_MOD,
+        ?LDAP_RESOURCE_MOD,
         CheckedConfig,
         #{}
     ),
@@ -86,15 +101,22 @@ perform_lifecycle_check(ResourceId, InitialConfig) ->
         emqx_resource:get_instance(ResourceId),
     ?assertEqual({ok, connected}, emqx_resource:health_check(ResourceId)),
     % % Perform query as further check that the resource is working as expected
-    ?assertMatch({ok, _, [[1]]}, emqx_resource:query(ResourceId, test_query_no_params())),
-    ?assertMatch({ok, _, [[1]]}, emqx_resource:query(ResourceId, test_query_with_params())),
     ?assertMatch(
-        {ok, _, [[1]]},
+        {ok, [#eldap_entry{attributes = [_, _ | _]}]},
+        emqx_resource:query(ResourceId, test_query_no_attr())
+    ),
+    ?assertMatch(
+        {ok, [#eldap_entry{attributes = [{"mqttAccountName", _}]}]},
+        emqx_resource:query(ResourceId, test_query_with_attr())
+    ),
+    ?assertMatch(
+        {ok, _},
         emqx_resource:query(
             ResourceId,
-            test_query_with_params_and_timeout()
+            test_query_with_attr_and_timeout()
         )
     ),
+    ?assertMatch({ok, []}, emqx_resource:query(ResourceId, test_query_not_exists())),
     ?assertEqual(ok, emqx_resource:stop(ResourceId)),
     % Resource will be listed still, but state will be changed and healthcheck will fail
     % as the worker no longer exists.
@@ -116,13 +138,13 @@ perform_lifecycle_check(ResourceId, InitialConfig) ->
     {ok, ?CONNECTOR_RESOURCE_GROUP, #{status := InitialStatus}} =
         emqx_resource:get_instance(ResourceId),
     ?assertEqual({ok, connected}, emqx_resource:health_check(ResourceId)),
-    ?assertMatch({ok, _, [[1]]}, emqx_resource:query(ResourceId, test_query_no_params())),
-    ?assertMatch({ok, _, [[1]]}, emqx_resource:query(ResourceId, test_query_with_params())),
+    ?assertMatch({ok, _}, emqx_resource:query(ResourceId, test_query_no_attr())),
+    ?assertMatch({ok, _}, emqx_resource:query(ResourceId, test_query_with_attr())),
     ?assertMatch(
-        {ok, _, [[1]]},
+        {ok, _},
         emqx_resource:query(
             ResourceId,
-            test_query_with_params_and_timeout()
+            test_query_with_attr_and_timeout()
         )
     ),
     % Stop and remove the resource in one go.
@@ -134,32 +156,51 @@ perform_lifecycle_check(ResourceId, InitialConfig) ->
 % %%------------------------------------------------------------------------------
 % %% Helpers
 % %%------------------------------------------------------------------------------
-
-ldap_config() ->
+ldap_config(Config) ->
     RawConfig = list_to_binary(
         io_lib:format(
             ""
             "\n"
             "    auto_reconnect = true\n"
-            "    database = mqtt\n"
-            "    username= root\n"
+            "    username= \"cn=root,dc=emqx,dc=io\"\n"
             "    password = public\n"
             "    pool_size = 8\n"
             "    server = \"~s:~b\"\n"
-            "    "
+            "    base_object=\"uid=${username},ou=testdevice,dc=emqx,dc=io\"\n"
+            "    filter =\"(objectClass=mqttUser)\"\n"
+            "    ~ts\n"
             "",
-            [?MYSQL_HOST, ?MYSQL_DEFAULT_PORT]
+            [?LDAP_HOST, port(Config), ssl(Config)]
         )
     ),
 
-    {ok, Config} = hocon:binary(RawConfig),
-    #{<<"config">> => Config}.
+    {ok, LDConfig} = hocon:binary(RawConfig),
+    #{<<"config">> => LDConfig}.
 
-test_query_no_params() ->
-    {sql, <<"SELECT 1">>}.
+test_query_no_attr() ->
+    {query, data()}.
 
-test_query_with_params() ->
-    {sql, <<"SELECT ?">>, [1]}.
+test_query_with_attr() ->
+    {query, data(), ["mqttAccountName"]}.
 
-test_query_with_params_and_timeout() ->
-    {sql, <<"SELECT ?">>, [1], 1000}.
+test_query_with_attr_and_timeout() ->
+    {query, data(), ["mqttAccountName"], 5000}.
+
+test_query_not_exists() ->
+    {query, #{username => <<"not_exists">>}}.
+
+data() ->
+    #{username => <<"mqttuser0001">>}.
+
+port(tcp) -> 389;
+port(ssl) -> 636;
+port(Config) -> port(proplists:get_value(group, Config)).
+
+ssl(Config) ->
+    case proplists:get_value(group, Config) of
+        tcp ->
+            "ssl.enable=false";
+        ssl ->
+            "ssl.enable=true\n"
+            "ssl.cacertfile=\"etc/openldap/cacert.pem\""
+    end.

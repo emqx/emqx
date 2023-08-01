@@ -58,7 +58,8 @@ fields(config) ->
                 desc => ?DESC(base_object),
                 required => true
             })},
-        {filter, ?HOCON(binary(), #{desc => ?DESC(filter), default => ""})},
+        {filter,
+            ?HOCON(binary(), #{desc => ?DESC(filter), default => <<"(objectClass=mqttUser)">>})},
         {auto_reconnect, fun ?ECS:auto_reconnect/1}
     ] ++ emqx_connector_schema_lib:ssl_fields().
 
@@ -143,10 +144,10 @@ do_get_status(Conn) ->
 %% ===================================================================
 
 connect(Options) ->
-    #{host := Host, username := Username, password := Password} =
+    #{hostname := Host, username := Username, password := Password} =
         Conf = proplists:get_value(options, Options),
     OpenOpts = maps:to_list(maps:with([port, sslopts], Conf)),
-    case eldap:open([Host], [{log, fun log/3}, OpenOpts]) of
+    case eldap:open([Host], [{log, fun log/3} | OpenOpts]) of
         {ok, Handle} = Ret ->
             case eldap:simple_bind(Handle, Username, Password) of
                 ok -> Ret;
@@ -167,7 +168,7 @@ on_query(
         [] ->
             do_ldap_query(InstId, [{base, Base} | SearchOptions], State);
         _ ->
-            FilterBin = emqx_placeholder:proc_tmpl(FilterTks, Data, #{return => rawlist}),
+            FilterBin = emqx_placeholder:proc_tmpl(FilterTks, Data),
             case emqx_ldap_filter_parser:scan_and_parse(FilterBin) of
                 {ok, Filter} ->
                     do_ldap_query(
@@ -195,7 +196,7 @@ do_ldap_query(
     case
         ecpool:pick_and_do(
             PoolName,
-            {eldap, search, SearchOptions},
+            {eldap, search, [SearchOptions]},
             handover
         )
     of
@@ -204,14 +205,9 @@ do_ldap_query(
                 ldap_connector_query_return,
                 #{result => Result}
             ),
-            {ok,
-                case Result#eldap_search_result.entries of
-                    [First | _] ->
-                        %% TODO Support multi entries?
-                        First;
-                    _ ->
-                        undefined
-                end};
+            {ok, Result#eldap_search_result.entries};
+        {error, noSuchObject} ->
+            {ok, []};
         {error, Reason} ->
             ?SLOG(
                 error,
@@ -235,4 +231,6 @@ prepare_template(Config, State) ->
 do_prepare_template([{base_object, V} | T], State) ->
     do_prepare_template(T, State#{base_tokens => emqx_placeholder:preproc_tmpl(V)});
 do_prepare_template([{filter, V} | T], State) ->
-    do_prepare_template(T, State#{filter_tokens => emqx_placeholder:preproc_tmpl(V)}).
+    do_prepare_template(T, State#{filter_tokens => emqx_placeholder:preproc_tmpl(V)});
+do_prepare_template([], State) ->
+    State.

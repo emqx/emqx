@@ -16,12 +16,12 @@ filtercomp ->
 filtercomp ->
     'or' filterlist: 'or'('$2').
 filtercomp ->
-    'not' filterlist: 'not'('$2').
+    'not' filter: 'not'('$2').
 filtercomp ->
     item: '$1'.
 
 filterlist ->
-    filter: '$1'.
+    filter: ['$1'].
 filterlist ->
     filter filterlist: ['$1' | '$2'].
 
@@ -71,7 +71,7 @@ extensible ->
 extensible ->
     type matchingrule colon equal value: extensible('$5', ['$1', '$2']).
 extensible ->
-    type colon equal value: extensible('$4', []).
+    type colon equal value: extensible('$4', ['$1']).
 
 extensible ->
     dnattrs matchingrule colon equal value: extensible('$5', ['$1', '$2']).
@@ -125,7 +125,7 @@ substrings(Attr, List) ->
     eldap:substrings(Attr, flatten(List)).
 
 'any'(List, Item) ->
-    [{any, Item} | List].
+    [List, {any, Item}].
 
 extensible(Value, Opts) -> eldap:extensibleMatch(Value, Opts).
 
