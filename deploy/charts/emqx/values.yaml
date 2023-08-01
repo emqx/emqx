@@ -190,6 +190,8 @@ tolerations: []
 
 affinity: {}
 
+topologySpreadConstraints: []
+
 ingress:
   ## ingress for EMQX Dashboard
   dashboard:
