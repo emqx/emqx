@@ -18,8 +18,8 @@
 -define(EMQX_AUTHENTICATION_HRL, true).
 
 -include_lib("emqx/include/logger.hrl").
+-include_lib("emqx/include/emqx_access_control.hrl").
 
--define(AUTHN_TRACE_TAG, "AUTHN").
 -define(GLOBAL, 'mqtt:global').
 
 -define(TRACE_AUTHN_PROVIDER(Msg), ?TRACE_AUTHN_PROVIDER(Msg, #{})).

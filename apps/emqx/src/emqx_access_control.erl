@@ -17,6 +17,7 @@
 -module(emqx_access_control).
 
 -include("emqx.hrl").
+-include("emqx_access_control.hrl").
 -include("logger.hrl").
 
 -export([
@@ -28,6 +29,14 @@
 -compile(export_all).
 -compile(nowarn_export_all).
 -endif.
+
+-define(TRACE_RESULT(Label, Tag, Result, Reason), begin
+    ?TRACE(Label, Tag, #{
+        result => (Result),
+        reason => (Reason)
+    }),
+    Result
+end).
 
 %%--------------------------------------------------------------------
 %% APIs
@@ -44,7 +53,7 @@ authenticate(Credential) ->
     %% if auth backend returning nothing but just 'ok'
     %% it means it's not a superuser, or there is no way to tell.
     NotSuperUser = #{is_superuser => false},
-    case emqx_authentication:pre_hook_authenticate(Credential) of
+    case pre_hook_authenticate(Credential) of
         ok ->
             inc_authn_metrics(anonymous),
             {ok, NotSuperUser};
@@ -98,6 +107,34 @@ authorize(ClientInfo, Action, Topic) ->
         end,
     inc_authz_metrics(Result),
     Result.
+
+%%--------------------------------------------------------------------
+%% Internal Functions
+%%--------------------------------------------------------------------
+
+-spec pre_hook_authenticate(emqx_types:clientinfo()) ->
+    ok | continue | {error, not_authorized}.
+pre_hook_authenticate(#{enable_authn := false}) ->
+    ?TRACE_RESULT("pre_hook_authenticate", ?AUTHN_TRACE_TAG, ok, enable_authn_false);
+pre_hook_authenticate(#{enable_authn := quick_deny_anonymous} = Credential) ->
+    case is_username_defined(Credential) of
+        true ->
+            continue;
+        false ->
+            ?TRACE_RESULT(
+                "pre_hook_authenticate",
+                ?AUTHN_TRACE_TAG,
+                {error, not_authorized},
+                enable_authn_false
+            )
+    end;
+pre_hook_authenticate(_) ->
+    continue.
+
+is_username_defined(#{username := undefined}) -> false;
+is_username_defined(#{username := <<>>}) -> false;
+is_username_defined(#{username := _Username}) -> true;
+is_username_defined(_) -> false.
 
 check_authorization_cache(ClientInfo, Action, Topic) ->
     case emqx_authz_cache:get_authz_cache(Action, Topic) of
