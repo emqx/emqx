@@ -221,7 +221,7 @@ routes(_) ->
 
 subscriptions(["list"]) ->
     lists:foreach(fun(Suboption) ->
-                        print({emqx_suboption, Suboption})
+                        print({emqx_suboption, decompress(Suboption)})
                   end, ets:tab2list(emqx_suboption));
 
 subscriptions(["show", ClientId]) ->
@@ -232,7 +232,7 @@ subscriptions(["show", ClientId]) ->
             case ets:match_object(emqx_suboption, {{Pid, '_'}, '_'}) of
                 [] -> emqx_ctl:print("Not Found.~n");
                 Suboption ->
-                    [print({emqx_suboption, Sub}) || Sub <- Suboption]
+                    [print({emqx_suboption, decompress(Sub)}) || Sub <- Suboption]
             end
     end;
 
@@ -786,6 +786,9 @@ print(#plugin{name = Name, descr = Descr, active = Active}) ->
 
 print({emqx_suboption, {{Pid, Topic}, Options}}) when is_pid(Pid) ->
     emqx_ctl:print("~s -> ~s~n", [maps:get(subid, Options), Topic]).
+
+decompress({Sub, Subopt}) ->
+    {Sub, emqx_broker:decompress(Subopt)}.
 
 format(_, undefined) ->
     undefined;

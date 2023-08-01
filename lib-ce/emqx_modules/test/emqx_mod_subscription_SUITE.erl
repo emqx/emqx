@@ -65,8 +65,9 @@ t_suboption(_) ->
     timer:sleep(200),
     [CPid1] = emqx_cm:lookup_channels(Client_info(clientid, C1)),
     [ Sub1 | _ ] =  ets:lookup(emqx_subscription,CPid1),
-    [ Suboption1 | _ ] = ets:lookup(emqx_suboption,Sub1),
-    ?assertMatch({Sub1, #{qos := 2, nl := 1, rap := 1, rh := 2, subid := _}}, Suboption1),
+    {Sub1Pid, Sub1Topic} = Sub1,
+    Suboption1 = emqx_broker:get_subopts(Sub1Pid, Sub1Topic),
+    ?assertMatch(#{qos := 2, nl := 1, rap := 1, rh := 2, subid := _}, Suboption1),
     ok = emqtt:disconnect(C1),
     %% The subscription option is not valid for MQTT V3.1.1
     {ok, C2} = emqtt:start_link([{proto_ver, v4}, {username, "admin"}]),
@@ -74,9 +75,10 @@ t_suboption(_) ->
     timer:sleep(200),
     [CPid2] = emqx_cm:lookup_channels(Client_info(clientid, C2)),
     [ Sub2 | _ ] =  ets:lookup(emqx_subscription,CPid2),
-    [ Suboption2 | _ ] = ets:lookup(emqx_suboption,Sub2),
+    {Sub2Pid, Sub2Topic} = Sub2,
+    Suboption2 = emqx_broker:get_subopts(Sub2Pid, Sub2Topic),
     ok = emqtt:disconnect(C2),
-    ?assertMatch({Sub2, #{qos := 2, nl := 0, rap := 0, rh := 0, subid := _}}, Suboption2),
+    ?assertMatch(#{qos := 2, nl := 0, rap := 0, rh := 0, subid := _}, Suboption2),
 
     ?assertEqual(ok, emqx_mod_subscription:unload([{<<"connected/undefined">>, Suboption}])).
 
