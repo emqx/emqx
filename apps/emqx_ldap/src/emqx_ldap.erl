@@ -1,6 +1,7 @@
 %%--------------------------------------------------------------------
 %% Copyright (c) 2023 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
+
 -module(emqx_ldap).
 
 -include_lib("emqx_connector/include/emqx_connector.hrl").

@@ -25,3 +25,7 @@ dn : {token, {dn, TokenLine}}.
 {Control} : {error, lists:flatten(io_lib:format("Unexpected Tokens:~ts", [TokenChars]))}.
 
 Erlang code.
+
+%%--------------------------------------------------------------------
+%% Copyright (c) 2022-2023 EMQ Technologies Co., Ltd. All Rights Reserved.
+%%--------------------------------------------------------------------

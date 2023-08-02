@@ -1,3 +1,7 @@
+Header "%%--------------------------------------------------------------------
+%% Copyright (c) 2022-2023 EMQ Technologies Co., Ltd. All Rights Reserved.
+%%--------------------------------------------------------------------".
+
 Nonterminals
 filter filtercomp filterlist item simple present substring initial any final extensible attr value type dnattrs matchingrule.
 
