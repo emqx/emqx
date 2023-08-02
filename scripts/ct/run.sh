@@ -225,6 +225,9 @@ for dep in ${CT_DEPS}; do
         greptimedb)
             FILES+=( '.ci/docker-compose-file/docker-compose-greptimedb.yaml' )
             ;;
+        ldap)
+            FILES+=( '.ci/docker-compose-file/docker-compose-ldap.yaml' )
+            ;;
         *)
             echo "unknown_ct_dependency $dep"
             exit 1
