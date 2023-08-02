@@ -207,7 +207,7 @@ do_ldap_query(
                 #{result => Result}
             ),
             {ok, Result#eldap_search_result.entries};
-        {error, noSuchObject} ->
+        {error, 'noSuchObject'} ->
             {ok, []};
         {error, Reason} ->
             ?SLOG(
