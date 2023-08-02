@@ -678,10 +678,15 @@ t_table_removed(Config) ->
     Name = ?config(pgsql_name, Config),
     BridgeType = ?config(pgsql_bridge_type, Config),
     ResourceID = emqx_bridge_resource:resource_id(BridgeType, Name),
+    Overrides = #{
+        <<"resource_opts">> => #{
+            <<"health_check_interval">> => <<"60s">>
+        }
+    },
     ?check_trace(
         begin
             connect_and_create_table(Config),
-            ?assertMatch({ok, _}, create_bridge(Config)),
+            ?assertMatch({ok, _}, create_bridge(Config, Overrides)),
             ?retry(
                 _Sleep = 1_000,
                 _Attempts = 20,
