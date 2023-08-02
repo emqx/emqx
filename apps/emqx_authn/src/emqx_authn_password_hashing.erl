@@ -53,7 +53,8 @@
 
 -export([
     type_ro/1,
-    type_rw/1
+    type_rw/1,
+    salt_position/1
 ]).
 
 -export([

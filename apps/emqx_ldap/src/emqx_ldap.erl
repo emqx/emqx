@@ -57,11 +57,18 @@ fields(config) ->
         {base_object,
             ?HOCON(binary(), #{
                 desc => ?DESC(base_object),
-                required => true
+                required => true,
+                validator => fun emqx_schema:non_empty_string/1
             })},
         {filter,
-            ?HOCON(binary(), #{desc => ?DESC(filter), default => <<"(objectClass=mqttUser)">>})},
-        {auto_reconnect, fun ?ECS:auto_reconnect/1}
+            ?HOCON(
+                binary(),
+                #{
+                    desc => ?DESC(filter),
+                    default => <<"(objectClass=mqttUser)">>,
+                    validator => fun emqx_schema:non_empty_string/1
+                }
+            )}
     ] ++ emqx_connector_schema_lib:ssl_fields().
 
 server() ->
@@ -165,26 +172,21 @@ on_query(
     #{base_tokens := BaseTks, filter_tokens := FilterTks} = State
 ) ->
     Base = emqx_placeholder:proc_tmpl(BaseTks, Data),
-    case FilterTks of
-        [] ->
-            do_ldap_query(InstId, [{base, Base} | SearchOptions], State);
-        _ ->
-            FilterBin = emqx_placeholder:proc_tmpl(FilterTks, Data),
-            case emqx_ldap_filter_parser:scan_and_parse(FilterBin) of
-                {ok, Filter} ->
-                    do_ldap_query(
-                        InstId,
-                        [{base, Base}, {filter, Filter} | SearchOptions],
-                        State
-                    );
-                {error, Reason} = Error ->
-                    ?SLOG(error, #{
-                        msg => "filter_parse_failed",
-                        filter => FilterBin,
-                        reason => Reason
-                    }),
-                    Error
-            end
+    FilterBin = emqx_placeholder:proc_tmpl(FilterTks, Data),
+    case emqx_ldap_filter_parser:scan_and_parse(FilterBin) of
+        {ok, Filter} ->
+            do_ldap_query(
+                InstId,
+                [{base, Base}, {filter, Filter} | SearchOptions],
+                State
+            );
+        {error, Reason} = Error ->
+            ?SLOG(error, #{
+                msg => "filter_parse_failed",
+                filter => FilterBin,
+                reason => Reason
+            }),
+            Error
     end.
 
 do_ldap_query(
