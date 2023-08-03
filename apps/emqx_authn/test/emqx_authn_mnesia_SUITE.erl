@@ -20,8 +20,7 @@
 -compile(nowarn_export_all).
 
 -include_lib("eunit/include/eunit.hrl").
-
--include("emqx_authn.hrl").
+-include_lib("common_test/include/ct.hrl").
 
 -define(AUTHN_ID, <<"mechanism:backend">>).
 
@@ -29,16 +28,16 @@ all() ->
     emqx_common_test_helpers:all(?MODULE).
 
 init_per_suite(Config) ->
-    _ = application:load(emqx_conf),
-    emqx_common_test_helpers:start_apps([emqx_authn]),
-    Config.
+    Apps = emqx_cth_suite:start([emqx, emqx_conf, emqx_authn], #{
+        work_dir => ?config(priv_dir, Config)
+    }),
+    [{apps, Apps} | Config].
 
-end_per_suite(_) ->
-    emqx_common_test_helpers:stop_apps([emqx_authn]),
+end_per_suite(Config) ->
+    ok = emqx_cth_suite:stop(?config(apps, Config)),
     ok.
 
 init_per_testcase(_Case, Config) ->
-    {ok, _} = emqx_cluster_rpc:start_link(node(), emqx_cluster_rpc, 1000),
     mria:clear_table(emqx_authn_mnesia),
     Config.
 

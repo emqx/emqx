@@ -359,7 +359,8 @@ dir(ChainName, Config) when is_map(Config) ->
 chain_name([authentication]) ->
     ?GLOBAL;
 chain_name([listeners, Type, Name, authentication]) ->
-    binary_to_existing_atom(<<(atom_to_binary(Type))/binary, ":", (atom_to_binary(Name))/binary>>).
+    %% Type, Name atoms exist, so let 'Type:Name' exist too.
+    binary_to_atom(<<(atom_to_binary(Type))/binary, ":", (atom_to_binary(Name))/binary>>).
 
 merge_authenticators(OriginConf0, NewConf0) ->
     {OriginConf1, NewConf1} =

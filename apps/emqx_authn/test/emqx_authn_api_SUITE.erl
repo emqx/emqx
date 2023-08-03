@@ -23,6 +23,7 @@
 
 -include("emqx_authn.hrl").
 -include_lib("eunit/include/eunit.hrl").
+-include_lib("common_test/include/ct.hrl").
 
 -define(TCP_DEFAULT, 'tcp:default').
 
@@ -43,7 +44,6 @@ init_per_testcase(t_authenticator_fail, Config) ->
     meck:expect(emqx_authn_proto_v1, lookup_from_all_nodes, 3, [{error, {exception, badarg}}]),
     init_per_testcase(default, Config);
 init_per_testcase(_Case, Config) ->
-    {ok, _} = emqx_cluster_rpc:start_link(node(), emqx_cluster_rpc, 1000),
     emqx_authn_test_lib:delete_authenticators(
         [?CONF_NS_ATOM],
         ?GLOBAL
@@ -64,19 +64,27 @@ end_per_testcase(_, Config) ->
     Config.
 
 init_per_suite(Config) ->
-    emqx_config:erase(?EMQX_AUTHENTICATION_CONFIG_ROOT_NAME_BINARY),
-    _ = application:load(emqx_conf),
-    ok = emqx_mgmt_api_test_util:init_suite(
-        [emqx_conf, emqx_authn]
+    Apps = emqx_cth_suite:start(
+        [
+            emqx,
+            emqx_conf,
+            emqx_authn,
+            emqx_management,
+            {emqx_dashboard, "dashboard.listeners.http { enable = true, bind = 18083 }"}
+        ],
+        #{
+            work_dir => ?config(priv_dir, Config)
+        }
     ),
-
+    _ = emqx_common_test_http:create_default_app(),
     ?AUTHN:delete_chain(?GLOBAL),
     {ok, Chains} = ?AUTHN:list_chains(),
     ?assertEqual(length(Chains), 0),
-    Config.
+    [{apps, Apps} | Config].
 
-end_per_suite(_Config) ->
-    emqx_mgmt_api_test_util:end_suite([emqx_authn]),
+end_per_suite(Config) ->
+    _ = emqx_common_test_http:delete_default_app(),
+    ok = emqx_cth_suite:stop(?config(apps, Config)),
     ok.
 
 %%------------------------------------------------------------------------------

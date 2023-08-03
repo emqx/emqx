@@ -31,21 +31,14 @@
 all() ->
     emqx_common_test_helpers:all(?MODULE).
 
-init_per_testcase(_, Config) ->
-    {ok, _} = emqx_cluster_rpc:start_link(node(), emqx_cluster_rpc, 1000),
-    Config.
-
 init_per_suite(Config) ->
-    _ = application:load(emqx_conf),
-    emqx_common_test_helpers:start_apps([emqx_conf, emqx_authn]),
-    application:ensure_all_started(emqx_resource),
-    application:ensure_all_started(emqx_connector),
-    Config.
+    Apps = emqx_cth_suite:start([emqx, emqx_conf, emqx_authn], #{
+        work_dir => ?config(priv_dir, Config)
+    }),
+    [{apps, Apps} | Config].
 
-end_per_suite(_) ->
-    application:stop(emqx_connector),
-    application:stop(emqx_resource),
-    emqx_common_test_helpers:stop_apps([emqx_authn]),
+end_per_suite(Config) ->
+    ok = emqx_cth_suite:stop(?config(apps, Config)),
     ok.
 
 %%------------------------------------------------------------------------------
