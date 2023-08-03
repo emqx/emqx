@@ -97,53 +97,6 @@ jobs:
           _build/docgen/${{ matrix.profile[0] }}/schema-en.json
         retention-days: 7
 
-  windows:
-    runs-on: windows-2019
-    strategy:
-      fail-fast: false
-      matrix:
-        profile:
-          - emqx
-        otp:
-          - 25.3.2
-    steps:
-    - uses: actions/checkout@v3
-    - uses: ilammy/msvc-dev-cmd@v1.12.0
-    - uses: erlef/setup-beam@v1.16.0
-      with:
-        otp-version: ${{ matrix.otp }}
-    - name: build
-      env:
-        PYTHON: python
-        DIAGNOSTIC: 1
-      run: |
-        # ensure crypto app (openssl)
-        erl -eval "erlang:display(crypto:info_lib())" -s init stop
-        make ${{ matrix.profile }}-tgz
-    - name: run emqx
-      timeout-minutes: 5
-      run: |
-        ./_build/${{ matrix.profile }}/rel/emqx/bin/emqx start
-        Start-Sleep -s 10
-        $pingOutput = ./_build/${{ matrix.profile }}/rel/emqx/bin/emqx ping
-        if ($pingOutput = 'pong') {
-          echo "EMQX started OK"
-        } else {
-          echo "Failed to ping EMQX $pingOutput"
-          Exit 1
-        }
-        ./_build/${{ matrix.profile }}/rel/emqx/bin/emqx stop
-        echo "EMQX stopped"
-        ./_build/${{ matrix.profile }}/rel/emqx/bin/emqx install
-        echo "EMQX installed"
-        ./_build/${{ matrix.profile }}/rel/emqx/bin/emqx uninstall
-        echo "EMQX uninstalled"
-    - uses: actions/upload-artifact@v3
-      with:
-        name: windows
-        path: _packages/${{ matrix.profile }}/*
-        retention-days: 7
-
   mac:
     strategy:
       fail-fast: false
