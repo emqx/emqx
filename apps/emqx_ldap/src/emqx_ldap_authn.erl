@@ -50,8 +50,6 @@ fields(ldap) ->
         {mechanism, emqx_authn_schema:mechanism(password_based)},
         {backend, emqx_authn_schema:backend(ldap)},
         {password_attribute, fun password_attribute/1},
-        {salt_attribute, fun salt_attribute/1},
-        {salt_position, fun emqx_authn_password_hashing:salt_position/1},
         {is_superuser_attribute, fun is_superuser_attribute/1},
         {query_timeout, fun query_timeout/1}
     ] ++ emqx_authn_schema:common_fields() ++ emqx_ldap:fields(config).
@@ -65,11 +63,6 @@ password_attribute(type) -> string();
 password_attribute(desc) -> ?DESC(?FUNCTION_NAME);
 password_attribute(default) -> <<"userPassword">>;
 password_attribute(_) -> undefined.
-
-salt_attribute(type) -> string();
-salt_attribute(desc) -> ?DESC(?FUNCTION_NAME);
-salt_attribute(default) -> <<"passwordSalt">>;
-salt_attribute(_) -> undefined.
 
 is_superuser_attribute(type) -> string();
 is_superuser_attribute(desc) -> ?DESC(?FUNCTION_NAME);
@@ -116,7 +109,6 @@ authenticate(
     #{password := Password} = Credential,
     #{
         password_attribute := PasswordAttr,
-        salt_attribute := SaltAttr,
         is_superuser_attribute := IsSuperuserAttr,
         query_timeout := Timeout,
         resource_id := ResourceId
@@ -125,7 +117,7 @@ authenticate(
     case
         emqx_resource:simple_sync_query(
             ResourceId,
-            {query, Credential, [PasswordAttr, SaltAttr, IsSuperuserAttr, ?ISENABLED_ATTR], Timeout}
+            {query, Credential, [PasswordAttr, IsSuperuserAttr, ?ISENABLED_ATTR], Timeout}
         )
     of
         {ok, []} ->
@@ -154,7 +146,7 @@ parse_config(Config) ->
             Acc#{Key => Value}
         end,
         #{},
-        [password_attribute, salt_attribute, salt_position, is_superuser_attribute, query_timeout]
+        [password_attribute, is_superuser_attribute, query_timeout]
     ),
     {Config, State}.
 
@@ -200,6 +192,7 @@ extract_hash_algorithm(LDAPPassword, Password, OnFail, Entry, State) ->
             OnFail(LDAPPassword, Password, Entry, State)
     end.
 
+%% this password is in LDIF format which is base64 encoding
 try_decode_passowrd(LDAPPassword, Password, Entry, State) ->
     case safe_base64_decode(LDAPPassword) of
         {ok, Decode} ->
@@ -218,7 +211,7 @@ try_decode_passowrd(LDAPPassword, Password, Entry, State) ->
 
 verify_password(ssha, PasswordData, Password, Entry, State) ->
     case safe_base64_decode(PasswordData) of
-        {ok, <<PasswordHash:20, Salt/binary>>} ->
+        {ok, <<PasswordHash:20/binary, Salt/binary>>} ->
             verify_password(sha, PasswordHash, Salt, suffix, Password, Entry, State);
         {ok, _} ->
             {error, invalid_ssha_password};
@@ -230,10 +223,9 @@ verify_password(
     PasswordHash,
     Password,
     Entry,
-    #{salt_attribute := Attr, salt_position := Position} = State
+    State
 ) ->
-    Salt = get_bin_value(Attr, Entry#eldap_entry.attributes, <<>>),
-    verify_password(Algorithm, PasswordHash, Salt, Position, Password, Entry, State).
+    verify_password(Algorithm, PasswordHash, <<>>, disable, Password, Entry, State).
 
 verify_password(Algorithm, PasswordHash, Salt, Position, Password, Entry, State) ->
     Result = emqx_passwd:check_pass(
@@ -264,10 +256,6 @@ safe_base64_decode(Data) ->
 get_lower_bin_value(Key, Proplists, Default) ->
     [Value | _] = get_value(Key, Proplists, [Default]),
     to_binary(string:to_lower(Value)).
-
-get_bin_value(Key, Proplists, Default) ->
-    [Value | _] = get_value(Key, Proplists, [Default]),
-    to_binary(Value).
 
 to_binary(Value) ->
     erlang:list_to_binary(Value).
