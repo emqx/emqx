@@ -24,6 +24,7 @@
 
 -export([
     start_link/0,
+    start_link/1,
     start_link/3,
     start_link/4
 ]).
@@ -50,6 +51,9 @@ spec(ChildId, Args) ->
 %% @doc Start the default pool supervisor.
 start_link() ->
     start_link(?POOL, random, {?POOL, start_link, []}).
+
+start_link(PoolSize) ->
+    start_link(?POOL, random, PoolSize, {?POOL, start_link, []}).
 
 -spec start_link(atom() | tuple(), atom(), mfargs()) ->
     {ok, pid()} | {error, term()}.
