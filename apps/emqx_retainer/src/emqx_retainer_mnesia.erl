@@ -153,6 +153,14 @@ store_retained(_, Msg = #message{topic = Topic}) ->
     end.
 
 clear_expired(_) ->
+    case mria_rlog:role() of
+        core ->
+            clear_expired();
+        _ ->
+            ok
+    end.
+
+clear_expired() ->
     NowMs = erlang:system_time(millisecond),
     QH = qlc:q([
         RetainedMsg
