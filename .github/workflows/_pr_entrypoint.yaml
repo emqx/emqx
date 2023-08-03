@@ -157,15 +157,6 @@ jobs:
       runner: ${{ needs.sanity-checks.outputs.runner }}
       builder: ${{ needs.sanity-checks.outputs.builder }}
 
-  elixir_release:
-    needs:
-      - sanity-checks
-      - compile
-    uses: ./.github/workflows/elixir_release.yaml
-    with:
-      runner: ${{ needs.sanity-checks.outputs.runner }}
-      builder: ${{ needs.sanity-checks.outputs.builder }}
-
   run_jmeter_tests:
     needs:
       - sanity-checks
