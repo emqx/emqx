@@ -35,8 +35,7 @@
 %%------------------------------------------------------------------------------
 
 start(_StartType, _StartArgs) ->
-    %% required by test cases, ensure the injection of
-    %% EMQX_AUTHENTICATION_SCHEMA_MODULE_PT_KEY
+    %% required by test cases, ensure the injection of schema
     _ = emqx_conf_schema:roots(),
     ok = mria_rlog:wait_for_shards([?AUTH_SHARD], infinity),
     {ok, Sup} = emqx_authn_sup:start_link(),

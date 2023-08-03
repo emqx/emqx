@@ -26,7 +26,8 @@
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
 
-all() -> emqx_common_test_helpers:all(?MODULE).
+all() ->
+    emqx_common_test_helpers:all(?MODULE).
 
 init_per_suite(Config) ->
     emqx_common_test_helpers:boot_modules(all),
@@ -239,6 +240,62 @@ t_post_update_error(_Config) ->
     ),
     ok.
 
+t_post_update_propagate_error_wkey(_Config) ->
+    Conf0 = emqx_config:get_raw([sysmon]),
+    Conf1 = emqx_utils_maps:deep_put([<<"os">>, <<"sysmem_high_watermark">>], Conf0, <<"60%">>),
+    callback_error(
+        [
+            [sysmon, '?', sysmem_high_watermark],
+            [sysmon]
+        ],
+        [sysmon],
+        Conf1,
+        {error, {post_config_update, ?MODULE, post_config_update_error}}
+    ),
+    ok.
+
+t_post_update_propagate_error_key(_Config) ->
+    Conf0 = emqx_config:get_raw([sysmon]),
+    Conf1 = emqx_utils_maps:deep_put([<<"os">>, <<"sysmem_high_watermark">>], Conf0, <<"60%">>),
+    callback_error(
+        [
+            [sysmon, os, sysmem_high_watermark],
+            [sysmon]
+        ],
+        [sysmon],
+        Conf1,
+        {error, {post_config_update, ?MODULE, post_config_update_error}}
+    ),
+    ok.
+
+t_pre_update_propagate_error_wkey(_Config) ->
+    Conf0 = emqx_config:get_raw([sysmon]),
+    Conf1 = emqx_utils_maps:deep_put([<<"os">>, <<"mem_check_interval">>], Conf0, <<"70s">>),
+    callback_error(
+        [
+            [sysmon, '?', mem_check_interval],
+            [sysmon]
+        ],
+        [sysmon],
+        Conf1,
+        {error, {pre_config_update, ?MODULE, pre_config_update_error}}
+    ),
+    ok.
+
+t_pre_update_propagate_error_key(_Config) ->
+    Conf0 = emqx_config:get_raw([sysmon]),
+    Conf1 = emqx_utils_maps:deep_put([<<"os">>, <<"mem_check_interval">>], Conf0, <<"70s">>),
+    callback_error(
+        [
+            [sysmon, os, mem_check_interval],
+            [sysmon]
+        ],
+        [sysmon],
+        Conf1,
+        {error, {pre_config_update, ?MODULE, pre_config_update_error}}
+    ),
+    ok.
+
 t_handler_root() ->
     %% Don't rely on default emqx_config_handler's merge behaviour.
     RootKey = [],
@@ -295,6 +352,11 @@ pre_config_update([sysmon, os, sysmem_high_watermark], UpdateReq, _RawConf) ->
 pre_config_update([sysmon, os, mem_check_interval], _UpdateReq, _RawConf) ->
     {error, pre_config_update_error}.
 
+propagated_pre_config_update([sysmon, os, mem_check_interval], _UpdateReq, _RawConf) ->
+    {error, pre_config_update_error};
+propagated_pre_config_update(_ConfKeyPath, _UpdateReq, _RawConf) ->
+    ok.
+
 post_config_update([sysmon], _UpdateReq, _NewConf, _OldConf, _AppEnvs) ->
     {ok, ok};
 post_config_update([sysmon, os], _UpdateReq, _NewConf, _OldConf, _AppEnvs) ->
@@ -308,6 +370,13 @@ post_config_update([sysmon, os, cpu_high_watermark], _UpdateReq, _NewConf, _OldC
 post_config_update([sysmon, os, sysmem_high_watermark], _UpdateReq, _NewConf, _OldConf, _AppEnvs) ->
     {error, post_config_update_error}.
 
+propagated_post_config_update(
+    [sysmon, os, sysmem_high_watermark], _UpdateReq, _NewConf, _OldConf, _AppEnvs
+) ->
+    {error, post_config_update_error};
+propagated_post_config_update(_ConfKeyPath, _UpdateReq, _NewConf, _OldConf, _AppEnvs) ->
+    ok.
+
 wait_for_new_pid() ->
     case erlang:whereis(emqx_config_handler) of
         undefined ->
@@ -318,10 +387,16 @@ wait_for_new_pid() ->
     end.
 
 callback_error(FailedPath, Update, ExpectError) ->
+    callback_error([FailedPath], FailedPath, Update, ExpectError).
+
+callback_error(Paths, UpdatePath, Update, ExpectError) ->
+    ok = lists:foreach(
+        fun(Path) -> emqx_config_handler:add_handler(Path, ?MODULE) end,
+        Paths
+    ),
     Opts = #{rawconf_with_defaults => true},
-    ok = emqx_config_handler:add_handler(FailedPath, ?MODULE),
-    Old = emqx:get_raw_config(FailedPath, undefined),
-    Error = emqx:update_config(FailedPath, Update, Opts),
+    Old = emqx:get_raw_config(UpdatePath, undefined),
+    Error = emqx:update_config(UpdatePath, Update, Opts),
     case ExpectError of
         {error, {post_config_update, ?MODULE, post_config_update_error}} ->
             ?assertMatch(
@@ -330,7 +405,10 @@ callback_error(FailedPath, Update, ExpectError) ->
         _ ->
             ?assertEqual(ExpectError, Error)
     end,
-    New = emqx:get_raw_config(FailedPath, undefined),
+    New = emqx:get_raw_config(UpdatePath, undefined),
     ?assertEqual(Old, New),
-    ok = emqx_config_handler:remove_handler(FailedPath),
+    ok = lists:foreach(
+        fun(Path) -> emqx_config_handler:remove_handler(Path) end,
+        Paths
+    ),
     ok.

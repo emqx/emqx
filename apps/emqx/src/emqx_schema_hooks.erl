@@ -34,6 +34,12 @@
     inject_fields_from_mod/1
 ]).
 
+%% for tests
+-export([
+    erase_injections/0,
+    any_injections/0
+]).
+
 %%--------------------------------------------------------------------
 %% API
 %%--------------------------------------------------------------------
@@ -59,6 +65,36 @@ inject_fields_from_mod(Module) ->
         true ->
             ok
     end.
+
+erase_injections() ->
+    lists:foreach(
+        fun
+            ({?HOOKPOINT_PT_KEY(_) = Key, _}) ->
+                persistent_term:erase(Key);
+            ({?MODULE_PT_KEY(_) = Key, _}) ->
+                persistent_term:erase(Key);
+            (_) ->
+                ok
+        end,
+        persistent_term:get()
+    ).
+
+any_injections() ->
+    lists:any(
+        fun
+            ({?HOOKPOINT_PT_KEY(_), _}) ->
+                true;
+            ({?MODULE_PT_KEY(_), _}) ->
+                true;
+            (_) ->
+                false
+        end,
+        persistent_term:get()
+    ).
+
+%%--------------------------------------------------------------------
+%% Internal functions
+%%--------------------------------------------------------------------
 
 do_inject_fields_from_mod(Module) ->
     _ = Module:module_info(),

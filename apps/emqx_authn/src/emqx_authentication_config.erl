@@ -21,7 +21,9 @@
 
 -export([
     pre_config_update/3,
-    post_config_update/5
+    post_config_update/5,
+    propagated_pre_config_update/3,
+    propagated_post_config_update/5
 ]).
 
 -export([
@@ -37,8 +39,8 @@
 
 -export_type([config/0]).
 
+-include("logger.hrl").
 -include("emqx_authentication.hrl").
--include_lib("emqx/include/logger.hrl").
 
 -type parsed_config() :: #{
     mechanism := atom(),
@@ -145,6 +147,12 @@ do_pre_config_update(Paths, NewConfig, _OldConfig) ->
      || New <- to_list(NewConfig)
     ]}.
 
+-spec propagated_pre_config_update(list(atom()), update_request(), emqx_config:raw_config()) ->
+    ok | {error, term()}.
+propagated_pre_config_update(Paths, NewConfig, OldConfig) ->
+    {ok, _} = do_pre_config_update(Paths, NewConfig, OldConfig),
+    ok.
+
 -spec post_config_update(
     list(atom()),
     update_request(),
@@ -201,6 +209,26 @@ do_post_config_update(Paths, _UpdateReq, NewConfig0, OldConfig0, _AppEnvs) ->
     ok = delete_authenticators(NewIds, ChainName, OldConfig),
     ok = create_or_update_authenticators(OldIds, ChainName, NewConfig),
     ok = emqx_authentication:reorder_authenticator(ChainName, NewIds),
+    ok.
+
+-spec propagated_post_config_update(
+    list(atom()),
+    update_request(),
+    map() | list() | undefined,
+    emqx_config:raw_config(),
+    emqx_config:app_envs()
+) ->
+    ok | {ok, map()} | {error, term()}.
+
+propagated_post_config_update(Paths, UpdateReq, NewConfig, OldConfig, AppEnvs) ->
+    ok = post_config_update(Paths, UpdateReq, NewConfig, OldConfig, AppEnvs),
+    ChainName = chain_name(Paths),
+    ok = maybe_delete_chain(ChainName, NewConfig),
+    ok.
+
+maybe_delete_chain(ChainName, undefined) ->
+    ok = emqx_authentication:delete_chain(ChainName);
+maybe_delete_chain(_ChainName, _NewConfig) ->
     ok.
 
 %% create new authenticators and update existing ones

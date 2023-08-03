@@ -16,8 +16,6 @@
 
 -module(emqx_common_test_helpers).
 
--include_lib("emqx_authn/include/emqx_authentication.hrl").
-
 -type special_config_handler() :: fun().
 
 -type apps() :: list(atom()).
@@ -351,7 +349,7 @@ stop_apps(Apps, Opts) ->
     %% to avoid inter-suite flakiness
     application:unset_env(emqx, config_loader),
     application:unset_env(emqx, boot_modules),
-    persistent_term:erase(?EMQX_AUTHENTICATION_SCHEMA_MODULE_PT_KEY),
+    emqx_schema_hooks:erase_injections(),
     case Opts of
         #{erase_all_configs := false} ->
             %% FIXME: this means inter-suite or inter-test dependencies

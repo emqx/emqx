@@ -60,6 +60,7 @@
     register_providers/1,
     deregister_provider/1,
     deregister_providers/1,
+    providers/0,
     delete_chain/1,
     lookup_chain/1,
     list_chains/0,
@@ -331,6 +332,10 @@ deregister_providers(AuthNTypes) when is_list(AuthNTypes) ->
 deregister_provider(AuthNType) ->
     deregister_providers([AuthNType]).
 
+-spec providers() -> [{authn_type(), module()}].
+providers() ->
+    call(providers).
+
 -spec delete_chain(chain_name()) -> ok | {error, term()}.
 delete_chain(Name) ->
     call({delete_chain, Name}).
@@ -463,6 +468,8 @@ handle_call(
     end;
 handle_call({deregister_providers, AuthNTypes}, _From, #{providers := Providers} = State) ->
     reply(ok, State#{providers := maps:without(AuthNTypes, Providers)});
+handle_call(providers, _From, #{providers := Providers} = State) ->
+    reply(maps:to_list(Providers), State);
 handle_call({delete_chain, ChainName}, _From, State) ->
     UpdateFun = fun(Chain) ->
         {_MatchedIDs, NewChain} = do_delete_authenticators(fun(_) -> true end, Chain),

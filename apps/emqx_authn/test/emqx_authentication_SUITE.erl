@@ -94,19 +94,19 @@ all() ->
     emqx_common_test_helpers:all(?MODULE).
 
 init_per_suite(Config) ->
-    LogLevel = emqx_logger:get_primary_log_level(),
-    ok = emqx_logger:set_log_level(debug),
-    application:set_env(ekka, strict_mode, true),
-    emqx_config:erase_all(),
-    emqx_common_test_helpers:stop_apps([]),
-    emqx_common_test_helpers:boot_modules(all),
-    emqx_common_test_helpers:start_apps([]),
-    [{log_level, LogLevel} | Config].
+    Apps = emqx_cth_suite:start(
+        [
+            emqx,
+            emqx_conf,
+            emqx_authn
+        ],
+        #{work_dir => ?config(priv_dir)}
+    ),
+    ok = deregister_providers(),
+    [{apps, Apps} | Config].
 
 end_per_suite(Config) ->
-    emqx_common_test_helpers:stop_apps([]),
-    LogLevel = ?config(log_level),
-    emqx_logger:set_log_level(LogLevel),
+    emqx_cth_suite:stop(?config(apps)),
     ok.
 
 init_per_testcase(Case, Config) ->
@@ -302,15 +302,20 @@ t_update_config(Config) when is_list(Config) ->
     ok = register_provider(?config("auth1"), ?MODULE),
     ok = register_provider(?config("auth2"), ?MODULE),
     Global = ?config(global),
+    %% We mocked provider implementation, but did't mock the schema
+    %% so we should provide full config
     AuthenticatorConfig1 = #{
-        mechanism => password_based,
-        backend => built_in_database,
-        enable => true
+        <<"mechanism">> => <<"password_based">>,
+        <<"backend">> => <<"built_in_database">>,
+        <<"enable">> => true
     },
     AuthenticatorConfig2 = #{
-        mechanism => password_based,
-        backend => mysql,
-        enable => true
+        <<"mechanism">> => <<"password_based">>,
+        <<"backend">> => <<"mysql">>,
+        <<"query">> => <<"SELECT password_hash, salt FROM users WHERE username = ?">>,
+        <<"server">> => <<"127.0.0.1:5432">>,
+        <<"database">> => <<"emqx">>,
+        <<"enable">> => true
     },
     ID1 = <<"password_based:built_in_database">>,
     ID2 = <<"password_based:mysql">>,
@@ -580,3 +585,11 @@ certs(Certs) ->
 
 register_provider(Type, Module) ->
     ok = ?AUTHN:register_providers([{Type, Module}]).
+
+deregister_providers() ->
+    lists:foreach(
+        fun({Type, _Module}) ->
+            ok = ?AUTHN:deregister_provider(Type)
+        end,
+        lists:flatten([?AUTHN:providers()])
+    ).
