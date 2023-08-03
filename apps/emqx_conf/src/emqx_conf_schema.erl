@@ -648,6 +648,7 @@ fields("node") ->
                     mapping => "mria.tlog_push_mode",
                     default => async,
                     'readOnly' => true,
+                    deprecated => {since, "5.2.0"},
                     importance => ?IMPORTANCE_HIDDEN,
                     desc => ?DESC(db_tlog_push_mode)
                 }
