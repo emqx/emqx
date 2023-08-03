@@ -150,7 +150,6 @@ ldap_config(Config) ->
         io_lib:format(
             ""
             "\n"
-            "    auto_reconnect = true\n"
             "    username= \"cn=root,dc=emqx,dc=io\"\n"
             "    password = public\n"
             "    pool_size = 8\n"
@@ -183,10 +182,10 @@ data() ->
 
 port(tcp) -> 389;
 port(ssl) -> 636;
-port(Config) -> port(proplists:get_value(group, Config)).
+port(Config) -> port(proplists:get_value(group, Config, tcp)).
 
 ssl(Config) ->
-    case proplists:get_value(group, Config) of
+    case proplists:get_value(group, Config, tcp) of
         tcp ->
             "ssl.enable=false";
         ssl ->

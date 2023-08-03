@@ -9,12 +9,6 @@ password_attribute.desc:
 password_attribute.label:
 """Password Attribute"""
 
-salt_attribute.desc:
-"""Indicates which attribute is used to represent the salt of the password."""
-
-salt_attribute.label:
-"""Salt Attribute"""
-
 is_superuser_attribute.desc:
 """Indicates which attribute is used to represent whether the user is a super user."""
 

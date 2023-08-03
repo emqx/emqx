@@ -14,6 +14,10 @@
 
 %% a compatible attribute for version 4.x
 -define(ISENABLED_ATTR, "isEnabled").
+-define(VALID_ALGORITHMS, [md5, ssha, sha, sha256, sha384, sha512]).
+%% TODO
+%% 1. Supports more salt algorithms, SMD5 SSHA 256/384/512
+%% 2. Supports https://datatracker.ietf.org/doc/html/rfc3112
 
 -export([
     namespace/0,
@@ -152,7 +156,7 @@ parse_config(Config) ->
 
 %% To compatible v4.x
 is_enabled(Password, #eldap_entry{attributes = Attributes} = Entry, State) ->
-    IsEnabled = get_lower_bin_value(?ISENABLED_ATTR, Attributes, <<"true">>),
+    IsEnabled = get_lower_bin_value(?ISENABLED_ATTR, Attributes, "true"),
     case emqx_authn_utils:to_bool(IsEnabled) of
         true ->
             ensure_password(Password, Entry, State);
@@ -172,6 +176,8 @@ ensure_password(
             extract_hash_algorithm(LDAPPassword, Password, fun try_decode_passowrd/4, Entry, State)
     end.
 
+%% RFC 2307 format password
+%% https://datatracker.ietf.org/doc/html/rfc2307
 extract_hash_algorithm(LDAPPassword, Password, OnFail, Entry, State) ->
     case
         re:run(
@@ -184,12 +190,20 @@ extract_hash_algorithm(LDAPPassword, Password, OnFail, Entry, State) ->
             case emqx_utils:safe_to_existing_atom(string:to_lower(HashTypeStr)) of
                 {ok, HashType} ->
                     PasswordHash = to_binary(PasswordHashStr),
-                    verify_password(HashType, PasswordHash, Password, Entry, State);
+                    is_valid_algorithm(HashType, PasswordHash, Password, Entry, State);
                 _Error ->
                     {error, invalid_hash_type}
             end;
         _ ->
             OnFail(LDAPPassword, Password, Entry, State)
+    end.
+
+is_valid_algorithm(HashType, PasswordHash, Password, Entry, State) ->
+    case lists:member(HashType, ?VALID_ALGORITHMS) of
+        true ->
+            verify_password(HashType, PasswordHash, Password, Entry, State);
+        _ ->
+            {error, {invalid_hash_type, HashType}}
     end.
 
 %% this password is in LDIF format which is base64 encoding
@@ -209,10 +223,12 @@ try_decode_passowrd(LDAPPassword, Password, Entry, State) ->
             {error, {invalid_password, Reason}}
     end.
 
+%% sha with salt
+%% https://www.openldap.org/faq/data/cache/347.html
 verify_password(ssha, PasswordData, Password, Entry, State) ->
     case safe_base64_decode(PasswordData) of
         {ok, <<PasswordHash:20/binary, Salt/binary>>} ->
-            verify_password(sha, PasswordHash, Salt, suffix, Password, Entry, State);
+            verify_password(sha, hash, PasswordHash, Salt, suffix, Password, Entry, State);
         {ok, _} ->
             {error, invalid_ssha_password};
         {error, Reason} ->
@@ -220,29 +236,24 @@ verify_password(ssha, PasswordData, Password, Entry, State) ->
     end;
 verify_password(
     Algorithm,
-    PasswordHash,
+    Base64HashData,
     Password,
     Entry,
     State
 ) ->
-    verify_password(Algorithm, PasswordHash, <<>>, disable, Password, Entry, State).
+    verify_password(Algorithm, base64, Base64HashData, <<>>, disable, Password, Entry, State).
 
-verify_password(Algorithm, PasswordHash, Salt, Position, Password, Entry, State) ->
-    Result = emqx_passwd:check_pass(
-        #{name => Algorithm, salt_position => Position},
-        Salt,
-        PasswordHash,
-        Password
-    ),
-    case Result of
-        ok ->
+verify_password(Algorithm, LDAPPasswordType, LDAPPassword, Salt, Position, Password, Entry, State) ->
+    PasswordHash = hash_password(Algorithm, Salt, Position, Password),
+    case compare_password(LDAPPasswordType, LDAPPassword, PasswordHash) of
+        true ->
             {ok, is_superuser(Entry, State)};
-        Error ->
-            Error
+        _ ->
+            {error, invalid_password}
     end.
 
 is_superuser(Entry, #{is_superuser_attribute := Attr} = _State) ->
-    Value = get_lower_bin_value(Attr, Entry#eldap_entry.attributes, <<"false">>),
+    Value = get_lower_bin_value(Attr, Entry#eldap_entry.attributes, "false"),
     #{is_superuser => emqx_authn_utils:to_bool(Value)}.
 
 safe_base64_decode(Data) ->
@@ -259,3 +270,18 @@ get_lower_bin_value(Key, Proplists, Default) ->
 
 to_binary(Value) ->
     erlang:list_to_binary(Value).
+
+hash_password(Algorithm, _Salt, disable, Password) ->
+    hash_password(Algorithm, Password);
+hash_password(Algorithm, Salt, suffix, Password) ->
+    hash_password(Algorithm, <<Password/binary, Salt/binary>>).
+
+hash_password(Algorithm, Data) ->
+    crypto:hash(Algorithm, Data).
+
+compare_password(hash, PasswordHash, PasswordHash) ->
+    true;
+compare_password(base64, Base64HashData, PasswordHash) ->
+    Base64HashData =:= base64:encode(PasswordHash);
+compare_password(_, _, _) ->
+    false.

@@ -194,7 +194,8 @@ defmodule EMQXUmbrella.MixProject do
       :emqx_schema_registry,
       :emqx_enterprise,
       :emqx_bridge_kinesis,
-      :emqx_bridge_azure_event_hub
+      :emqx_bridge_azure_event_hub,
+      :emqx_ldap
     ])
   end
 
