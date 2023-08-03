@@ -41,4 +41,9 @@ init([]) ->
         hash,
         {emqx_router, start_link, []}
     ]),
-    {ok, {{one_for_all, 0, 1}, [Helper, RouterPool]}}.
+    SupFlags = #{
+        strategy => one_for_one,
+        intensity => 10,
+        period => 100
+    },
+    {ok, {SupFlags, [Helper, RouterPool]}}.
