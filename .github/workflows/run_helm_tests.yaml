@@ -14,15 +14,6 @@ on:
         required: true
         type: string
 
-# on:
-#   push:
-#     branches:
-#       - master
-#       - 'ci/**'
-#     tags:
-#       - v*
-#   pull_request:
-
 jobs:
   helm_test:
     runs-on: ubuntu-22.04

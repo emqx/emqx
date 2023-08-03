@@ -7,10 +7,6 @@ defaults:
 runs:
   using: composite
   steps:
-    - name: Work around https://github.com/actions/checkout/issues/766
-      shell: bash
-      run: |
-        git config --global --add safe.directory "$GITHUB_WORKSPACE"
     - name: Run gitlint
       shell: bash
       env:
@@ -22,7 +18,7 @@ runs:
     - name: Run shellcheck
       shell: bash
       run: |
-        apt-get update -y && apt-get install -y shellcheck
+        DEBIAN_FRONTEND=noninteractive apt-get update -qy && apt-get install -qy shellcheck
         ./scripts/shellcheck.sh
       # https://github.com/rhysd/actionlint/blob/main/docs/usage.md#use-actionlint-on-github-actions
     - name: Check workflow files
@@ -45,9 +41,7 @@ runs:
     - name: Check Erlang code formatting
       shell: bash
       run: |
-        echo "==> ./scripts/check-format.sh"
         ./scripts/check-format.sh
-        echo "==> check-format ok"
     - name: Run elvis check
       shell: bash
       run: |

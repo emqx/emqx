@@ -10,23 +10,6 @@ on:
       runner:
         required: true
         type: string
-# on:
-#   push:
-#     branches:
-#       - master
-#       - release-51
-#   pull_request:
-#     # GitHub pull_request action is by default triggered when
-#     # opened reopened or synchronize,
-#     # we add labeled and unlabeled to the list because
-#     # the mac job dpends on the PR having a 'Mac' label
-#     types:
-#       - labeled
-#       - unlabeled
-#       - opened
-#       - reopened
-#       - synchronize
-#   workflow_dispatch:
 
 jobs:
   spellcheck:

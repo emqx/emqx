@@ -6,13 +6,6 @@ on:
       version-emqx:
         required: true
         type: string
-# on:
-#   push:
-#     tags:
-#       - "v5.*"
-#   pull_request:
-#     branches:
-#       - "master"
 
 jobs:
   jmeter_artifact:

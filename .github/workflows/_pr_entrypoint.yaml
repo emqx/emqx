@@ -1,13 +1,18 @@
 name: PR Entrypoint
 
+concurrency:
+  group: pr-entrypoint-${{ github.event_name }}-${{ github.ref }}
+  cancel-in-progress: true
+
 on:
   pull_request:
+  workflow_dispatch:
+    inputs:
+      ref:
+        required: false
 
 env:
   IS_CI: "yes"
-  OTP_VSN: "25.3.2-1"
-  ELIXIR_VSN: "1.14.5"
-  BUILDER_VSN: "25.3.2-1"
 
 jobs:
   sanity-checks:
@@ -28,7 +33,11 @@ jobs:
     steps:
       - uses: actions/checkout@v3
         with:
+          ref: ${{ github.event.inputs.ref }}
           fetch-depth: 0
+      - name: Work around https://github.com/actions/checkout/issues/766
+        run: |
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
       - uses: ./.github/actions/pr-sanity-checks
       - name: Build matrix
         id: matrix
@@ -50,10 +59,10 @@ jobs:
           ')"
           echo "${MATRIX}" | jq
           CT_MATRIX="$(echo "${MATRIX}" | jq -c 'map({profile, builder, otp, elixir}) | unique')"
-          CT_HOST="$(echo "${MATRIX}" | jq -c 'map(select(.runner == "host"))')"
+          CT_HOST="$(echo "${MATRIX}"   | jq -c 'map(select(.runner == "host"))')"
           CT_DOCKER="$(echo "${MATRIX}" | jq -c 'map(select(.runner == "docker"))')"
           echo "ct-matrix=${CT_MATRIX}" | tee -a $GITHUB_OUTPUT
-          echo "ct-host=${CT_HOST}" | tee -a $GITHUB_OUTPUT
+          echo "ct-host=${CT_HOST}"     | tee -a $GITHUB_OUTPUT
           echo "ct-docker=${CT_DOCKER}" | tee -a $GITHUB_OUTPUT
           echo "version-emqx=$(./pkg-vsn.sh emqx)" | tee -a $GITHUB_OUTPUT
           echo "version-emqx-enterprise=$(./pkg-vsn.sh emqx-enterprise)" | tee -a $GITHUB_OUTPUT

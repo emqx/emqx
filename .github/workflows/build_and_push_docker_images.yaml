@@ -1,144 +1,106 @@
 name: Build and push docker images
 
 concurrency:
-  group: docker-build-${{ github.event_name }}-${{ github.ref }}
+  group: docker-build-${{ github.event_name }}-${{ github.sha }}
   cancel-in-progress: true
 
 on:
   workflow_call:
-# on:
-#   push:
-#     tags:
-#     - v*
-#     - e*
-#     - docker-latest-*
+    inputs:
+      profile:
+        required: true
+        type: string
+      edition:
+        required: true
+        type: string
+      version:
+        required: true
+        type: string
+      latest:
+        required: true
+        type: string
+      publish:
+        required: true
+        type: string
+      otp_vsn:
+        required: true
+        type: string
+      elixir_vsn:
+        required: true
+        type: string
+      runner:
+        required: true
+        type: string
+      builder_vsn:
+        required: true
+        type: string
   workflow_dispatch:
     inputs:
-      branch_or_tag:
+      ref:
         required: false
+      version:
+        required: true
+        type: string
       profile:
         required: false
+        type: string
         default: 'emqx'
-      is_latest:
+      edition:
         required: false
+        type: string
+        default: 'Opensource'
+      latest:
+        required: false
+        type: boolean
         default: false
+      publish:
+        required: false
+        type: boolean
+        default: false
+      otp_vsn:
+        required: false
+        type: string
+        default: '25.3.2-1'
+      elixir_vsn:
+        required: false
+        type: string
+        default: '1.14.5'
+      runner:
+        required: false
+        type: string
+        default: 'ubuntu-22.04'
+      builder_vsn:
+        required: false
+        type: string
+        default: '5.1-3'
 
 jobs:
-  prepare:
-    runs-on: ubuntu-22.04
-    # prepare source with any OTP version, no need for a matrix
-    container: "ghcr.io/emqx/emqx-builder/5.1-3:1.14.5-25.3.2-1-ubuntu22.04"
-
-    outputs:
-      PROFILE: ${{ steps.get_profile.outputs.PROFILE }}
-      EDITION: ${{ steps.get_profile.outputs.EDITION }}
-      IS_LATEST: ${{ steps.get_profile.outputs.IS_LATEST }}
-      IS_EXACT_TAG: ${{ steps.get_profile.outputs.IS_EXACT_TAG }}
-      VERSION: ${{ steps.get_profile.outputs.VERSION }}
-
-    steps:
-      - uses: actions/checkout@v3
-        with:
-          ref: ${{ github.event.inputs.branch_or_tag }} # when input is not given, the event tag is used
-          path: source
-          fetch-depth: 0
-
-      - name: Get profiles to build
-        id: get_profile
-        env:
-          INPUTS_PROFILE: ${{ github.event.inputs.profile }}
-        run: |
-          cd source
-          # tag docker-latest-ce or docker-latest-ee
-          if git describe --tags --exact --match 'docker-latest-*' 2>/dev/null; then
-            echo 'is_latest=true due to docker-latest-* tag'
-            is_latest=true
-          elif [ "${{ inputs.is_latest }}" = "true" ]; then
-            echo 'is_latest=true due to manual input from workflow_dispatch'
-            is_latest=true
-          else
-            echo 'is_latest=false'
-            is_latest=false
-          fi
-          # resolve profile
-          if git describe --tags --match "v*" --exact; then
-            echo "This is an exact git tag, will publish images"
-            is_exact='true'
-            PROFILE=emqx
-          elif git describe --tags --match "e*" --exact; then
-            echo "This is an exact git tag, will publish images"
-            is_exact='true'
-            PROFILE=emqx-enterprise
-          else
-            echo "This is NOT an exact git tag, will not publish images"
-            is_exact='false'
-          fi
-
-          case "${PROFILE:-$INPUTS_PROFILE}" in
-            emqx)
-              EDITION='Opensource'
-              ;;
-            emqx-enterprise)
-              EDITION='Enterprise'
-              ;;
-            *)
-              echo "ERROR: Failed to resolve build profile"
-              exit 1
-              ;;
-          esac
-
-          VSN="$(./pkg-vsn.sh "$PROFILE")"
-          echo "Building emqx/$PROFILE:$VSN image (latest=$is_latest)"
-          echo "Push = $is_exact"
-          echo "IS_LATEST=$is_latest" >> $GITHUB_OUTPUT
-          echo "IS_EXACT_TAG=$is_exact" >> $GITHUB_OUTPUT
-          echo "PROFILE=$PROFILE" >> $GITHUB_OUTPUT
-          echo "EDITION=$EDITION" >> $GITHUB_OUTPUT
-          echo "VERSION=$VSN" >> $GITHUB_OUTPUT
-      - name: get_all_deps
-        env:
-          PROFILE: ${{ steps.get_profile.outputs.PROFILE }}
-        run: |
-          zip -ryq source.zip source/* source/.[^.]*
-      - uses: actions/upload-artifact@v3
-        with:
-          name: source
-          path: source.zip
-
   docker:
-    runs-on: ubuntu-22.04
-    needs: prepare
+    runs-on: ${{ inputs.runner }}
 
     strategy:
       fail-fast: false
       matrix:
         profile:
-          - "${{ needs.prepare.outputs.PROFILE }}"
+          - ${{ inputs.profile }}
         registry:
           - 'docker.io'
           - 'public.ecr.aws'
         os:
           - [debian11, "debian:11-slim", "deploy/docker/Dockerfile"]
-        # NOTE: 'otp' and 'elixir' are to configure emqx-builder image
-        #       only support latest otp and elixir, not a matrix
         builder:
-          - 5.1-3 # update to latest
+          - ${{ inputs.builder_vsn }}
         otp:
-          - 25.3.2-1
+          - ${{ inputs.otp_vsn }}
         elixir:
           - 'no_elixir'
-          - '1.14.5' # update to latest
-        exclude: # TODO: publish enterprise to ecr too?
-          - registry: 'public.ecr.aws'
-            profile: emqx-enterprise
+          - ${{ inputs.elixir_vsn }}
 
     steps:
-    - uses: actions/download-artifact@v3
+    - uses: actions/checkout@v3
       with:
-        name: source
-        path: .
-    - name: unzip source code
-      run: unzip -q source.zip
+        ref: ${{ github.event.inputs.ref }}
+        fetch-depth: 0
 
     - uses: docker/setup-qemu-action@v2
     - uses: docker/setup-buildx-action@v2
@@ -187,18 +149,18 @@ jobs:
           latest=${{ matrix.elixir == 'no_elixir'  }}
           suffix=${{ steps.pre-meta.outputs.img_suffix }}
         tags: |
-          type=semver,pattern={{major}}.{{minor}},value=${{ needs.prepare.outputs.VERSION }}
-          type=semver,pattern={{version}},value=${{ needs.prepare.outputs.VERSION }}
-          type=raw,value=${{ needs.prepare.outputs.VERSION }}
-          type=raw,value=latest,enable=${{ needs.prepare.outputs.IS_LATEST }}
+          type=semver,pattern={{major}}.{{minor}},value=${{ inputs.version }}
+          type=semver,pattern={{version}},value=${{ inputs.version }}
+          type=raw,value=${{ inputs.version }}
+          type=raw,value=latest,enable=${{ inputs.latest }}
         labels: |
           org.opencontainers.image.otp.version=${{ matrix.otp }}
-          org.opencontainers.image.edition=${{ needs.prepare.outputs.EDITION }}
+          org.opencontainers.image.edition=${{ inputs.edition }}
           ${{ steps.pre-meta.outputs.extra_labels }}
 
     - uses: docker/build-push-action@v3
       with:
-        push: ${{ needs.prepare.outputs.IS_EXACT_TAG == 'true' || github.repository_owner != 'emqx' }}
+        push: ${{ inputs.publish == 'true' || github.repository_owner != 'emqx' }}
         pull: true
         no-cache: true
         platforms: linux/amd64,linux/arm64
@@ -208,4 +170,4 @@ jobs:
           EMQX_NAME=${{ matrix.profile }}${{ steps.pre-meta.outputs.img_suffix }}
           EXTRA_DEPS=${{ steps.pre-meta.outputs.extra_deps }}
         file: source/${{ matrix.os[2] }}
-        context: source
+

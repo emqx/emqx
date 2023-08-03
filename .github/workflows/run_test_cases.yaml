@@ -23,16 +23,6 @@ on:
         required: true
         type: string
 
-# on:
-#   push:
-#     branches:
-#       - master
-#       - 'ci/**'
-#     tags:
-#       - v*
-#       - e*
-#   pull_request:
-
 env:
   IS_CI: "yes"
 

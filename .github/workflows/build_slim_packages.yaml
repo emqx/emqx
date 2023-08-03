@@ -22,23 +22,31 @@ on:
       elixir_vsn:
         required: true
         type: string
-# on:
-#   push:
-#     branches:
-#       - master
-#       - release-51
-#   pull_request:
-#     # GitHub pull_request action is by default triggered when
-#     # opened reopened or synchronize,
-#     # we add labeled and unlabeled to the list because
-#     # the mac job dpends on the PR having a 'Mac' label
-#     types:
-#       - labeled
-#       - unlabeled
-#       - opened
-#       - reopened
-#       - synchronize
+
   workflow_dispatch:
+    inputs:
+      ref:
+        required: false
+      runner:
+        required: false
+        type: string
+        default: 'ubuntu-22.04'
+      builder:
+        required: false
+        type: string
+        default: 'ghcr.io/emqx/emqx-builder/5.1-3:1.14.5-25.3.2-1-ubuntu22.04'
+      builder_vsn:
+        required: false
+        type: string
+        default: '5.1-3'
+      otp_vsn:
+        required: false
+        type: string
+        default: '25.3.2-1'
+      elixir_vsn:
+        required: false
+        type: string
+        default: '1.14.5'
 
 jobs:
   linux:

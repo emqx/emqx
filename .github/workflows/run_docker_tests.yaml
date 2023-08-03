@@ -17,15 +17,6 @@ on:
         required: true
         type: string
 
-# on:
-#   push:
-#     branches:
-#       - master
-#       - 'ci/**'
-#     tags:
-#       - v*
-#   pull_request:
-
 jobs:
   basic-tests:
     runs-on: ${{ inputs.runner }}

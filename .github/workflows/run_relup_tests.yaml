@@ -13,13 +13,6 @@ on:
       builder:
         required: true
         type: string
-# on:
-#   push:
-#     branches:
-#       - '**'
-#     tags:
-#       - e*
-#   pull_request:
 
 jobs:
   relup_test_plan:
