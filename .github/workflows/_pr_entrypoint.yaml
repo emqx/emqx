@@ -90,7 +90,9 @@ jobs:
           PROFILE: ${{ matrix.profile }}
           ENABLE_COVER_COMPILE: 1
         run: |
-          make $PROFILE
+          make ensure-rebar3
+          make ${PROFILE}-compile
+          make test-compile
           zip -ryq $PROFILE.zip .
       - uses: actions/upload-artifact@v3
         with:
