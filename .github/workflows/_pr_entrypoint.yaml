@@ -91,7 +91,7 @@ jobs:
           ENABLE_COVER_COMPILE: 1
         run: |
           make ensure-rebar3
-          make ${PROFILE}-compile
+          make ${PROFILE}
           make test-compile
           zip -ryq $PROFILE.zip .
       - uses: actions/upload-artifact@v3
