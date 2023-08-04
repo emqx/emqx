@@ -59,10 +59,14 @@ match(Topic, Tab) ->
 
 match(Words, RPrefix, Tab) ->
     Prefix = lists:reverse(RPrefix),
-    K = ets:next(Tab, {Prefix, {}}),
-    case match_filter(Prefix, K, Words == []) of
+    match(ets:next(Tab, {Prefix, {}}), Prefix, Words, RPrefix, Tab).
+
+match(K, Prefix, Words, RPrefix, Tab) ->
+    case match_next(Prefix, K, Words) of
         true ->
             K;
+        skip ->
+            match(ets:next(Tab, K), Prefix, Words, RPrefix, Tab);
         stop ->
             false;
         Matched ->
@@ -100,9 +104,11 @@ matches(Words, RPrefix, Acc, Tab) ->
     matches(ets:next(Tab, {Prefix, {}}), Prefix, Words, RPrefix, Acc, Tab).
 
 matches(K, Prefix, Words, RPrefix, Acc, Tab) ->
-    case match_filter(Prefix, K, Words == []) of
+    case match_next(Prefix, K, Words) of
         true ->
             matches(ets:next(Tab, K), Prefix, Words, RPrefix, match_add(K, Acc), Tab);
+        skip ->
+            matches(ets:next(Tab, K), Prefix, Words, RPrefix, Acc, Tab);
         stop ->
             Acc;
         Matched ->
@@ -122,29 +128,26 @@ match_add(K = {_Filter, ID}, Acc = #{}) ->
 match_add(K, Acc) ->
     [K | Acc].
 
-match_filter(Prefix, {Filter, _ID}, NotPrefix) ->
-    case match_filter(Prefix, Filter) of
-        exact ->
-            % NOTE: exact match is `true` only if we match whole topic, not prefix
-            NotPrefix;
-        Match ->
-            Match
-    end;
-match_filter(_, '$end_of_table', _) ->
+match_next(Prefix, {Filter, _ID}, Suffix) ->
+    match_filter(Prefix, Filter, Suffix);
+match_next(_, '$end_of_table', _) ->
     stop.
 
-match_filter([], []) ->
-    exact;
-match_filter([], ['#']) ->
+match_filter([], [], []) ->
+    true;
+match_filter([], [], _Suffix) ->
+    % NOTE: we matched the prefix, but there may be more matches next
+    skip;
+match_filter([], ['#'], _Suffix) ->
     % NOTE: naturally, '#' < '+', so this is already optimal for `match/2`
     true;
-match_filter([], ['+' | _]) ->
+match_filter([], ['+' | _], _Suffix) ->
     plus;
-match_filter([], [_H | _]) ->
+match_filter([], [_H | _], _Suffix) ->
     false;
-match_filter([H | T1], [H | T2]) ->
-    match_filter(T1, T2);
-match_filter([H1 | _], [H2 | _]) when H2 > H1 ->
+match_filter([H | T1], [H | T2], Suffix) ->
+    match_filter(T1, T2, Suffix);
+match_filter([H1 | _], [H2 | _], _Suffix) when H2 > H1 ->
     % NOTE: we're strictly past the prefix, no need to continue
     stop.
 

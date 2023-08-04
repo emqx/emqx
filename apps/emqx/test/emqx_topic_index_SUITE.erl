@@ -144,6 +144,24 @@ t_match_unique(_) ->
         [id(M) || M <- emqx_topic_index:matches(<<"a/b/c">>, Tab, [unique])]
     ).
 
+t_match_wildcards(_) ->
+    Tab = emqx_topic_index:new(),
+    emqx_topic_index:insert(<<"a/b">>, id1, <<>>, Tab),
+    emqx_topic_index:insert(<<"a/b/#">>, id2, <<>>, Tab),
+    emqx_topic_index:insert(<<"a/b/#">>, id3, <<>>, Tab),
+    emqx_topic_index:insert(<<"a/b/c">>, id4, <<>>, Tab),
+    emqx_topic_index:insert(<<"a/b/+">>, id5, <<>>, Tab),
+    emqx_topic_index:insert(<<"a/b/d">>, id6, <<>>, Tab),
+    emqx_topic_index:insert(<<"a/+/+">>, id7, <<>>, Tab),
+    emqx_topic_index:insert(<<"a/+/#">>, id8, <<>>, Tab),
+
+    Records = [id(M) || M <- matches(<<"a/b/c">>, Tab)],
+    ?assertEqual([id2, id3, id4, id5, id7, id8], lists:sort(Records)),
+
+    Records1 = [id(M) || M <- matches(<<"a/b">>, Tab)],
+    ?assertEqual([id1, id2, id3, id8], lists:sort(Records1)),
+    ok.
+
 match(T, Tab) ->
     emqx_topic_index:match(T, Tab).
 
