@@ -39,17 +39,18 @@
 -export([get_topic/1]).
 -export([get_record/2]).
 
--type key(ID) :: {[binary() | '+' | '#'], {ID}}.
+-type word() :: binary() | '+' | '#'.
+-type key(ID) :: {[word()], {ID}}.
 -type match(ID) :: key(ID).
 
 new() ->
-    ets:new(?MODULE, [public, ordered_set, {write_concurrency, true}]).
+    ets:new(?MODULE, [public, ordered_set, {read_concurrency, true}]).
 
 insert(Filter, ID, Record, Tab) ->
-    ets:insert(Tab, {{emqx_topic:words(Filter), {ID}}, Record}).
+    ets:insert(Tab, {{words(Filter), {ID}}, Record}).
 
 delete(Filter, ID, Tab) ->
-    ets:delete(Tab, {emqx_topic:words(Filter), {ID}}).
+    ets:delete(Tab, {words(Filter), {ID}}).
 
 -spec match(emqx_types:topic(), ets:table()) -> match(_ID) | false.
 match(Topic, Tab) ->
@@ -148,7 +149,7 @@ match_filter([H1 | _], [H2 | _]) when H2 > H1 ->
     stop.
 
 match_init(Topic) ->
-    case emqx_topic:words(Topic) of
+    case words(Topic) of
         [W = <<"$", _/bytes>> | Rest] ->
             % NOTE
             % This will effectively skip attempts to match special topics to `#` or `+/...`.
@@ -168,3 +169,14 @@ get_topic({Filter, _ID}) ->
 -spec get_record(match(_ID), ets:table()) -> _Record.
 get_record(K, Tab) ->
     ets:lookup_element(Tab, K, 2).
+
+%%
+
+-spec words(emqx_types:topic()) -> [word()].
+words(Topic) when is_binary(Topic) ->
+    [word(W) || W <- emqx_topic:tokens(Topic)].
+
+-spec word(binary()) -> word().
+word(<<"+">>) -> '+';
+word(<<"#">>) -> '#';
+word(Bin) -> Bin.
