@@ -20,14 +20,13 @@ runs:
       run: |
         DEBIAN_FRONTEND=noninteractive apt-get update -qy && apt-get install -qy shellcheck
         ./scripts/shellcheck.sh
-      # https://github.com/rhysd/actionlint/blob/main/docs/usage.md#use-actionlint-on-github-actions
     - name: Check workflow files
       shell: bash
       env:
         ACTIONLINT_VSN: 1.6.25
       run: |
         wget https://github.com/rhysd/actionlint/releases/download/v${ACTIONLINT_VSN}/actionlint_${ACTIONLINT_VSN}_linux_amd64.tar.gz
-        tar xfz actionlint_${ACTIONLINT_VSN}_linux_amd64.tar.gz
+        tar zxf actionlint_${ACTIONLINT_VSN}_linux_amd64.tar.gz actionlint
         # TODO: enable shellcheck when all the current issues are fixed
         ./actionlint -color \
           -shellcheck= \
@@ -41,14 +40,6 @@ runs:
       shell: bash
       run: |
         ./scripts/apps-version-check.sh
-    - name: Check Erlang code formatting
-      shell: bash
-      run: |
-        ./scripts/check-format.sh
-    - name: Run elvis check
-      shell: bash
-      run: |
-        ./scripts/elvis-check.sh $GITHUB_BASE_REF
     - name: Setup mix
       env:
         MIX_ENV: emqx-enterprise
@@ -56,10 +47,14 @@ runs:
       shell: bash
       run: |
         mix local.hex --force && mix local.rebar --force
-    - name: Check Elixir code formatting
+    - name: Check formatting
       env:
         MIX_ENV: emqx-enterprise
         PROFILE: emqx-enterprise
       shell: bash
       run: |
-        mix format --check-formatted
+        ./scripts/check-format.sh
+    - name: Run elvis check
+      shell: bash
+      run: |
+        ./scripts/elvis-check.sh $GITHUB_BASE_REF
