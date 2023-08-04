@@ -559,7 +559,7 @@ schema("/bridges_probe") ->
                 %% references to fields, and they don't share whole-bridge validators if
                 %% they exist.  Such validators will only be triggered by
                 %% `create_dry_run'...
-                throw:{_Schema, [#{kind := validation_error} = Reason0]} ->
+                throw:{_Schema, [#{kind := _} = Reason0 | _]} ->
                     Reason = redact(Reason0),
                     ?BAD_REQUEST('TEST_FAILED', map_to_json(Reason))
             end;
