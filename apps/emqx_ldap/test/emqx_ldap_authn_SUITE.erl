@@ -1,7 +1,6 @@
 %%--------------------------------------------------------------------
 %% Copyright (c) 2023 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
-
 -module(emqx_ldap_authn_SUITE).
 
 -compile(nowarn_export_all).
