@@ -1,7 +1,7 @@
 name: Build and push docker images
 
 concurrency:
-  group: docker-build-${{ github.event_name }}-${{ github.sha }}
+  group: docker-build-${{ github.event_name }}-${{ github.ref }}
   cancel-in-progress: true
 
 on:

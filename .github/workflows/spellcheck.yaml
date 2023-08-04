@@ -1,7 +1,7 @@
-name: Build slim packages
+name: Spellcheck
 
 concurrency:
-  group: spellcheck-${{ github.event_name }}-${{ github.sha }}
+  group: spellcheck-${{ github.event_name }}-${{ github.ref }}
   cancel-in-progress: true
 
 on:

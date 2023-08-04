@@ -1,7 +1,7 @@
 name: Build docker image for test
 
 concurrency:
-  group: docker-test-build-${{ github.event_name }}-${{ github.sha }}
+  group: docker-test-build-${{ github.event_name }}-${{ github.ref }}
   cancel-in-progress: true
 
 on:

@@ -1,7 +1,7 @@
 name: Static checks
 
 concurrency:
-  group: static-checks-${{ github.event_name }}-${{ github.sha }}
+  group: static-checks-${{ github.event_name }}-${{ github.ref }}
   cancel-in-progress: true
 
 on:

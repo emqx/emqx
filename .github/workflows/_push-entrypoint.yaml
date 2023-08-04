@@ -1,7 +1,7 @@
 name: Push Entrypoint
 
 concurrency:
-  group: push-entrypoint-${{ github.event_name }}-${{ github.sha }}
+  group: push-entrypoint-${{ github.event_name }}-${{ github.ref }}
   cancel-in-progress: true
 
 on:
