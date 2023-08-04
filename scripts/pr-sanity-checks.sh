@@ -29,4 +29,5 @@ docker run --rm -it -v "$(pwd):/emqx" -w /emqx \
        -e GITHUB_BASE_REF="$BEFORE_REF" \
        -e MIX_ENV=emqx-enterprise \
        -e PROFILE=emqx-enterprise \
-       "${EMQX_BUILDER}" /bin/bash -c "${commands}"
+       -e ACTIONLINT_VSN=1.6.25 \
+       "${EMQX_BUILDER}" /bin/bash -c "git config --global --add safe.directory /emqx; ${commands}"

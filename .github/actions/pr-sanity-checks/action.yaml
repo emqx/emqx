@@ -23,8 +23,11 @@ runs:
       # https://github.com/rhysd/actionlint/blob/main/docs/usage.md#use-actionlint-on-github-actions
     - name: Check workflow files
       shell: bash
+      env:
+        ACTIONLINT_VSN: 1.6.25
       run: |
-        bash <(curl https://raw.githubusercontent.com/rhysd/actionlint/main/scripts/download-actionlint.bash)
+        wget https://github.com/rhysd/actionlint/releases/download/v${ACTIONLINT_VSN}/actionlint_${ACTIONLINT_VSN}_linux_amd64.tar.gz
+        tar xfz actionlint_${ACTIONLINT_VSN}_linux_amd64.tar.gz
         # TODO: enable shellcheck when all the current issues are fixed
         ./actionlint -color \
           -shellcheck= \
