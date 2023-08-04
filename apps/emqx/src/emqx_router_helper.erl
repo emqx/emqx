@@ -146,13 +146,18 @@ handle_info({mnesia_table_event, Event}, State) ->
     ?SLOG(debug, #{msg => "unexpected_mnesia_table_event", event => Event}),
     {noreply, State};
 handle_info({nodedown, Node}, State = #{nodes := Nodes}) ->
-    global:trans(
-        {?LOCK, self()},
-        fun() ->
-            mria:transaction(?ROUTE_SHARD, fun ?MODULE:cleanup_routes/1, [Node])
-        end
-    ),
-    ok = mria:dirty_delete(?ROUTING_NODE, Node),
+    case mria_rlog:role() of
+        core ->
+            global:trans(
+                {?LOCK, self()},
+                fun() ->
+                    mria:transaction(?ROUTE_SHARD, fun ?MODULE:cleanup_routes/1, [Node])
+                end
+            ),
+            ok = mria:dirty_delete(?ROUTING_NODE, Node);
+        replicant ->
+            ok
+    end,
     ?tp(emqx_router_helper_cleanup_done, #{node => Node}),
     {noreply, State#{nodes := lists:delete(Node, Nodes)}, hibernate};
 handle_info({membership, {mnesia, down, Node}}, State) ->
