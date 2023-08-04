@@ -1,4 +1,4 @@
-name: 'Run jmeter'
+name: 'Prepare jmeter'
 
 inputs:
   version-emqx:

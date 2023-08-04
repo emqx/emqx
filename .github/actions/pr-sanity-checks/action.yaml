@@ -46,7 +46,7 @@ runs:
         PROFILE: emqx-enterprise
       shell: bash
       run: |
-        mix local.hex --force && mix local.rebar --force
+        mix local.hex --force --if-missing && mix local.rebar --force --if-missing
     - name: Check formatting
       env:
         MIX_ENV: emqx-enterprise
