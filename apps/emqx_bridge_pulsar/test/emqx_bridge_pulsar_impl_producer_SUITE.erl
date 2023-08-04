@@ -1090,7 +1090,7 @@ t_strategy_key_validation(Config) ->
                         <<"kind">> := <<"validation_error">>,
                         <<"reason">> := <<"Message key cannot be empty", _/binary>>
                     } = Msg
-            }}} when not is_map_key(<<"value">>, Msg),
+            }}},
         probe_bridge_api(
             Config,
             #{<<"strategy">> => <<"key_dispatch">>, <<"message">> => #{<<"key">> => <<>>}}
@@ -1104,7 +1104,7 @@ t_strategy_key_validation(Config) ->
                         <<"kind">> := <<"validation_error">>,
                         <<"reason">> := <<"Message key cannot be empty", _/binary>>
                     } = Msg
-            }}} when not is_map_key(<<"value">>, Msg),
+            }}},
         create_bridge_api(
             Config,
             #{<<"strategy">> => <<"key_dispatch">>, <<"message">> => #{<<"key">> => <<>>}}

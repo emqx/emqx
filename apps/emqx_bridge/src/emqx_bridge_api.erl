@@ -541,30 +541,23 @@ schema("/bridges_probe") ->
     case emqx_dashboard_swagger:filter_check_request_and_translate_body(Request, RequestMeta) of
         {ok, #{body := #{<<"type">> := ConnType} = Params}} ->
             Params1 = maybe_deobfuscate_bridge_probe(Params),
-            try emqx_bridge_resource:create_dry_run(ConnType, maps:remove(<<"type">>, Params1)) of
+            case emqx_bridge_resource:create_dry_run(ConnType, maps:remove(<<"type">>, Params1)) of
                 ok ->
                     ?NO_CONTENT;
-                {error, #{kind := validation_error} = Reason} ->
+                {error, #{kind := validation_error} = Reason0} ->
+                    Reason = redact(Reason0),
                     ?BAD_REQUEST('TEST_FAILED', map_to_json(Reason));
                 {error, Reason0} when not is_tuple(Reason0); element(1, Reason0) =/= 'exit' ->
-                    Reason =
+                    Reason1 =
                         case Reason0 of
                             {unhealthy_target, Message} -> Message;
                             _ -> Reason0
                         end,
+                    Reason = redact(Reason1),
                     ?BAD_REQUEST('TEST_FAILED', Reason)
-            catch
-                %% We need to catch hocon validation errors here as well because,
-                %% currently, when defining the API union member selector, we can only use
-                %% references to fields, and they don't share whole-bridge validators if
-                %% they exist.  Such validators will only be triggered by
-                %% `create_dry_run'...
-                throw:{_Schema, [#{kind := _} = Reason0 | _]} ->
-                    Reason = redact(Reason0),
-                    ?BAD_REQUEST('TEST_FAILED', map_to_json(Reason))
             end;
         BadRequest ->
-            BadRequest
+            redact(BadRequest)
     end.
 
 maybe_deobfuscate_bridge_probe(#{<<"type">> := BridgeType, <<"name">> := BridgeName} = Params) ->
@@ -999,7 +992,9 @@ call_operation(NodeOrAll, OperFunc, Args = [_Nodes, BridgeType, BridgeName]) ->
         {error, timeout} ->
             ?BAD_REQUEST(<<"Request timeout">>);
         {error, {start_pool_failed, Name, Reason}} ->
-            Msg = bin(io_lib:format("Failed to start ~p pool for reason ~p", [Name, Reason])),
+            Msg = bin(
+                io_lib:format("Failed to start ~p pool for reason ~p", [Name, redact(Reason)])
+            ),
             ?BAD_REQUEST(Msg);
         {error, not_found} ->
             BridgeId = emqx_bridge_resource:bridge_id(BridgeType, BridgeName),
@@ -1016,7 +1011,7 @@ call_operation(NodeOrAll, OperFunc, Args = [_Nodes, BridgeType, BridgeName]) ->
         {error, {unhealthy_target, Message}} ->
             ?BAD_REQUEST(Message);
         {error, Reason} when not is_tuple(Reason); element(1, Reason) =/= 'exit' ->
-            ?BAD_REQUEST(Reason)
+            ?BAD_REQUEST(redact(Reason))
     end.
 
 maybe_try_restart(all, start_bridges_to_all_nodes, Args) ->
@@ -1089,6 +1084,6 @@ map_to_json(M0) ->
         emqx_utils_json:encode(M1)
     catch
         error:_ ->
-            M2 = maps:without([value], M1),
+            M2 = maps:without([value, <<"value">>], M1),
             emqx_utils_json:encode(M2)
     end.

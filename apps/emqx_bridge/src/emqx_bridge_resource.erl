@@ -266,26 +266,26 @@ create_dry_run(Type, Conf0) ->
     TypeAtom = safe_atom(Type),
     Conf1 = maps:without([<<"name">>], Conf0),
     RawConf = #{<<"bridges">> => #{TypeBin => #{<<"temp_name">> => Conf1}}},
-    #{bridges := #{TypeAtom := #{temp_name := Conf}}} =
-        hocon_tconf:check_plain(
-            emqx_bridge_schema,
-            RawConf,
-            #{atom_key => true, required => false}
-        ),
-    case emqx_connector_ssl:convert_certs(TmpPath, Conf) of
-        {error, Reason} ->
-            {error, Reason};
-        {ok, ConfNew} ->
-            try
+    try
+        #{bridges := #{TypeAtom := #{temp_name := Conf}}} =
+            hocon_tconf:check_plain(
+                emqx_bridge_schema,
+                RawConf,
+                #{atom_key => true, required => false}
+            ),
+        case emqx_connector_ssl:convert_certs(TmpPath, Conf) of
+            {error, Reason} ->
+                {error, Reason};
+            {ok, ConfNew} ->
                 ParseConf = parse_confs(bin(Type), TmpName, ConfNew),
                 emqx_resource:create_dry_run_local(bridge_to_resource_type(Type), ParseConf)
-            catch
-                %% validation errors
-                throw:Reason ->
-                    {error, Reason}
-            after
-                _ = file:del_dir_r(emqx_tls_lib:pem_dir(TmpPath))
-            end
+        end
+    catch
+        %% validation errors
+        throw:Reason1 ->
+            {error, Reason1}
+    after
+        _ = file:del_dir_r(emqx_tls_lib:pem_dir(TmpPath))
     end.
 
 remove(BridgeId) ->
