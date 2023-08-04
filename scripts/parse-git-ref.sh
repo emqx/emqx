@@ -37,6 +37,11 @@ elif [[ $1 =~ ^refs/heads/release-[5-9][0-9]+$ ]]; then
     EDITION=Enterprise
     RELEASE=false
     LATEST=false
+elif [[ $1 =~ ^refs/heads/ci/.* ]]; then
+    PROFILE=emqx
+    EDITION=Opensource
+    RELEASE=false
+    LATEST=false
 else
     echo "Unrecognized git ref: $1"
     exit 1
