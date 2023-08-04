@@ -143,7 +143,7 @@ endif
 
 .PHONY: cover
 cover: $(REBAR)
-	@ENABLE_COVER_COMPILE=1 $(REBAR) cover
+	@ENABLE_COVER_COMPILE=1 $(REBAR) as test cover
 
 .PHONY: coveralls
 coveralls: $(REBAR)
