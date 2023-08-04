@@ -150,13 +150,12 @@ do_pre_config_update(Paths, NewConfig, _OldConfig) ->
 -spec propagated_pre_config_update(list(atom()), update_request(), emqx_config:raw_config()) ->
     ok | {error, term()}.
 propagated_pre_config_update(Paths, NewConfig, OldConfig) ->
-    {ok, _} = do_pre_config_update(Paths, NewConfig, OldConfig),
-    ok.
+    do_pre_config_update(Paths, NewConfig, OldConfig).
 
 -spec post_config_update(
     list(atom()),
     update_request(),
-    map() | list(),
+    map() | list() | undefined,
     emqx_config:raw_config(),
     emqx_config:app_envs()
 ) ->
@@ -222,13 +221,6 @@ do_post_config_update(Paths, _UpdateReq, NewConfig0, OldConfig0, _AppEnvs) ->
 
 propagated_post_config_update(Paths, UpdateReq, NewConfig, OldConfig, AppEnvs) ->
     ok = post_config_update(Paths, UpdateReq, NewConfig, OldConfig, AppEnvs),
-    ChainName = chain_name(Paths),
-    ok = maybe_delete_chain(ChainName, NewConfig),
-    ok.
-
-maybe_delete_chain(ChainName, undefined) ->
-    ok = emqx_authentication:delete_chain(ChainName);
-maybe_delete_chain(_ChainName, _NewConfig) ->
     ok.
 
 %% create new authenticators and update existing ones

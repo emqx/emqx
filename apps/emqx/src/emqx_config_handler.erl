@@ -63,7 +63,7 @@
 -callback propagated_pre_config_update(
     [atom()], emqx_config:update_request(), emqx_config:raw_config()
 ) ->
-    ok | {error, term()}.
+    ok | {ok, emqx_config:update_request()} | {error, term()}.
 
 -callback post_config_update(
     [atom()],
@@ -401,14 +401,14 @@ get_sub_config(_, _Conf) ->
 
 call_pre_config_update(Ctx) ->
     case call_proper_pre_config_update(Ctx) of
-        {ok, NewUpdateReq} ->
+        {ok, NewUpdateReq0} ->
             case
                 propagate_pre_config_updates_to_subconf(Ctx#{
-                    update_req => NewUpdateReq
+                    update_req => NewUpdateReq0
                 })
             of
-                {ok, _} ->
-                    {ok, NewUpdateReq};
+                {ok, #{update_req := NewUpdateReq1}} ->
+                    {ok, NewUpdateReq1};
                 {error, _} = Error ->
                     Error
             end;
@@ -471,12 +471,12 @@ propagate_pre_config_updates_to_subconf_wkey(
     Keys = propagate_keys(UpdateReq, OldRawConf),
     propagate_pre_config_updates_to_subconf_keys(Keys, Ctx).
 
-propagate_pre_config_updates_to_subconf_keys([], #{update_req := UpdateReq}) ->
-    {ok, UpdateReq};
-propagate_pre_config_updates_to_subconf_keys([Key | Keys], Ctx) ->
-    case propagate_pre_config_updates_to_subconf_key(Key, Ctx) of
-        ok ->
-            propagate_pre_config_updates_to_subconf_keys(Keys, Ctx);
+propagate_pre_config_updates_to_subconf_keys([], Ctx) ->
+    {ok, Ctx};
+propagate_pre_config_updates_to_subconf_keys([Key | Keys], Ctx0) ->
+    case propagate_pre_config_updates_to_subconf_key(Key, Ctx0) of
+        {ok, Ctx1} ->
+            propagate_pre_config_updates_to_subconf_keys(Keys, Ctx1);
         {error, _} = Error ->
             Error
     end.
@@ -497,8 +497,10 @@ propagate_pre_config_updates_to_subconf_key(
     SubOldConf = get_sub_config(BinKey, OldRawConf),
     SubConfKeyPath = ConfKeyPath ++ [AtomKey],
     case {SubOldConf, SubUpdateReq} of
+        %% we have handler, but no relevant keys in both configs (new and old),
+        %% so we don't need to go further
         {undefined, undefined} ->
-            ok;
+            {ok, Ctx};
         {_, _} ->
             case
                 call_pre_config_update(Ctx#{
@@ -509,8 +511,17 @@ propagate_pre_config_updates_to_subconf_key(
                     callback := propagated_pre_config_update
                 })
             of
-                {ok, _SubNewConf1} ->
-                    ok;
+                {ok, SubNewConf1} ->
+                    %% we update only if the new config is not to be removed
+                    %% i.e. SubUpdateReq is not undefined
+                    case SubUpdateReq of
+                        undefined ->
+                            {ok, Ctx};
+                        _ ->
+                            {ok, Ctx#{
+                                update_req := maps:put(BinKey, SubNewConf1, UpdateReq)
+                            }}
+                    end;
                 {error, _} = Error ->
                     Error
             end
