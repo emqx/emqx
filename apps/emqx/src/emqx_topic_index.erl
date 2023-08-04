@@ -73,7 +73,13 @@ match(K, Prefix, Words, RPrefix, Tab) ->
             match_rest(Matched, Words, RPrefix, Tab)
     end.
 
-match_rest(false, [W | Rest], RPrefix, Tab) ->
+match_rest([W1 | [W2 | _] = SLast], [W1 | [W2 | _] = Rest], RPrefix, Tab) ->
+    % NOTE
+    % Fast-forward through identical words in the topic and the last key suffixes.
+    % This should save us a few redundant `ets:next` calls at the cost of slightly
+    % more complex match patterns.
+    match_rest(SLast, Rest, [W1 | RPrefix], Tab);
+match_rest(SLast, [W | Rest], RPrefix, Tab) when is_list(SLast) ->
     match(Rest, [W | RPrefix], Tab);
 match_rest(plus, [W | Rest], RPrefix, Tab) ->
     case match(Rest, ['+' | RPrefix], Tab) of
@@ -115,7 +121,13 @@ matches(K, Prefix, Words, RPrefix, Acc, Tab) ->
             matches_rest(Matched, Words, RPrefix, Acc, Tab)
     end.
 
-matches_rest(false, [W | Rest], RPrefix, Acc, Tab) ->
+matches_rest([W1 | [W2 | _] = SLast], [W1 | [W2 | _] = Rest], RPrefix, Acc, Tab) ->
+    % NOTE
+    % Fast-forward through identical words in the topic and the last key suffixes.
+    % This should save us a few redundant `ets:next` calls at the cost of slightly
+    % more complex match patterns.
+    matches_rest(SLast, Rest, [W1 | RPrefix], Acc, Tab);
+matches_rest(SLast, [W | Rest], RPrefix, Acc, Tab) when is_list(SLast) ->
     matches(Rest, [W | RPrefix], Acc, Tab);
 matches_rest(plus, [W | Rest], RPrefix, Acc, Tab) ->
     NAcc = matches(Rest, ['+' | RPrefix], Acc, Tab),
@@ -143,8 +155,8 @@ match_filter([], ['#'], _Suffix) ->
     true;
 match_filter([], ['+' | _], _Suffix) ->
     plus;
-match_filter([], [_H | _], _Suffix) ->
-    false;
+match_filter([], [_H | _] = Rest, _Suffix) ->
+    Rest;
 match_filter([H | T1], [H | T2], Suffix) ->
     match_filter(T1, T2, Suffix);
 match_filter([H1 | _], [H2 | _], _Suffix) when H2 > H1 ->

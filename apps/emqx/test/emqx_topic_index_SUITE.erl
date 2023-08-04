@@ -133,6 +133,16 @@ t_match7(_) ->
     emqx_topic_index:insert(W, t_match7, <<>>, Tab),
     ?assertEqual(W, topic(match(T, Tab))).
 
+t_match_fast_forward(_) ->
+    Tab = emqx_topic_index:new(),
+    emqx_topic_index:insert(<<"a/b/1/2/3/4/5/6/7/8/9/#">>, id1, <<>>, Tab),
+    emqx_topic_index:insert(<<"z/y/x/+/+">>, id2, <<>>, Tab),
+    emqx_topic_index:insert(<<"a/b/c/+">>, id3, <<>>, Tab),
+    % dbg:tracer(),
+    % dbg:p(all, c),
+    % dbg:tpl({ets, next, '_'}, x),
+    ?assertEqual([id1], [id(M) || M <- matches(<<"a/b/1/2/3/4/5/6/7/8/9/0">>, Tab)]).
+
 t_match_unique(_) ->
     Tab = emqx_topic_index:new(),
     emqx_topic_index:insert(<<"a/b/c">>, t_match_id1, <<>>, Tab),
