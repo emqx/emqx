@@ -39,7 +39,7 @@
 
 -export_type([config/0]).
 
--include("logger.hrl").
+-include_lib("emqx/include/logger.hrl").
 -include("emqx_authentication.hrl").
 
 -type parsed_config() :: #{
