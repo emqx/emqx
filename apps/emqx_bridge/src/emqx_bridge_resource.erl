@@ -265,8 +265,8 @@ create_dry_run(Type, Conf0) ->
     TypeBin = bin(Type),
     TypeAtom = safe_atom(Type),
     Conf1 = maps:without([<<"name">>], Conf0),
-    RawConf = #{<<"bridges">> => #{TypeBin => #{<<"a">> => Conf1}}},
-    #{bridges := #{TypeAtom := #{a := Conf}}} =
+    RawConf = #{<<"bridges">> => #{TypeBin => #{<<"temp_name">> => Conf1}}},
+    #{bridges := #{TypeAtom := #{temp_name := Conf}}} =
         hocon_tconf:check_plain(
             emqx_bridge_schema,
             RawConf,
