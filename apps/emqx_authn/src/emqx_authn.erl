@@ -40,7 +40,8 @@ providers() ->
         {{password_based, http}, emqx_authn_http},
         {jwt, emqx_authn_jwt},
         {{scram, built_in_database}, emqx_enhanced_authn_scram_mnesia}
-    ].
+    ] ++
+        emqx_authn_enterprise:providers().
 
 check_config(Config) ->
     check_config(Config, #{}).

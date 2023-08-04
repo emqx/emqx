@@ -876,7 +876,8 @@ resource_provider() ->
         emqx_authn_mongodb,
         emqx_authn_redis,
         emqx_authn_http
-    ].
+    ] ++
+        emqx_authn_enterprise:resource_provider().
 
 lookup_from_local_node(ChainName, AuthenticatorID) ->
     NodeId = node(self()),

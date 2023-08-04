@@ -4,7 +4,8 @@
     {registered, []},
     {applications, [
         kernel,
-        stdlib
+        stdlib,
+        emqx_authn
     ]},
     {env, []},
     {modules, []},
