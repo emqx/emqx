@@ -648,6 +648,7 @@ fields("node") ->
                     mapping => "mria.tlog_push_mode",
                     default => async,
                     'readOnly' => true,
+                    deprecated => {since, "5.2.0"},
                     importance => ?IMPORTANCE_HIDDEN,
                     desc => ?DESC(db_tlog_push_mode)
                 }
@@ -670,6 +671,35 @@ fields("node") ->
                     importance => ?IMPORTANCE_HIDDEN,
                     mapping => "emqx_machine.custom_shard_transports",
                     default => #{}
+                }
+            )},
+        {"broker_pool_size",
+            sc(
+                pos_integer(),
+                #{
+                    importance => ?IMPORTANCE_HIDDEN,
+                    default => emqx_vm:schedulers() * 2,
+                    'readOnly' => true,
+                    desc => ?DESC(node_broker_pool_size)
+                }
+            )},
+        {"generic_pool_size",
+            sc(
+                pos_integer(),
+                #{
+                    importance => ?IMPORTANCE_HIDDEN,
+                    default => emqx_vm:schedulers(),
+                    'readOnly' => true,
+                    desc => ?DESC(node_generic_pool_size)
+                }
+            )},
+        {"channel_cleanup_batch_size",
+            sc(
+                pos_integer(),
+                #{
+                    importance => ?IMPORTANCE_HIDDEN,
+                    default => 100_000,
+                    desc => ?DESC(node_channel_cleanup_batch_size)
                 }
             )}
     ];
