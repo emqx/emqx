@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2022-2023 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2023 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
 
 -module(emqx_ldap_authn).
@@ -47,7 +47,7 @@ tags() ->
 
 %% used for config check when the schema module is resolved
 roots() ->
-    [{?CONF_NS, hoconsc:mk(hoconsc:ref(?MODULE, mysql))}].
+    [{?CONF_NS, hoconsc:mk(hoconsc:ref(?MODULE, ldap))}].
 
 fields(ldap) ->
     [
@@ -73,7 +73,7 @@ is_superuser_attribute(desc) -> ?DESC(?FUNCTION_NAME);
 is_superuser_attribute(default) -> <<"isSuperuser">>;
 is_superuser_attribute(_) -> undefined.
 
-query_timeout(type) -> emqx_schema:duration_ms();
+query_timeout(type) -> emqx_schema:timeout_duration_ms();
 query_timeout(desc) -> ?DESC(?FUNCTION_NAME);
 query_timeout(default) -> <<"5s">>;
 query_timeout(_) -> undefined.
@@ -173,7 +173,7 @@ ensure_password(
         undefined ->
             {error, no_password};
         [LDAPPassword | _] ->
-            extract_hash_algorithm(LDAPPassword, Password, fun try_decode_passowrd/4, Entry, State)
+            extract_hash_algorithm(LDAPPassword, Password, fun try_decode_password/4, Entry, State)
     end.
 
 %% RFC 2307 format password
@@ -207,7 +207,7 @@ is_valid_algorithm(HashType, PasswordHash, Password, Entry, State) ->
     end.
 
 %% this password is in LDIF format which is base64 encoding
-try_decode_passowrd(LDAPPassword, Password, Entry, State) ->
+try_decode_password(LDAPPassword, Password, Entry, State) ->
     case safe_base64_decode(LDAPPassword) of
         {ok, Decode} ->
             extract_hash_algorithm(
@@ -279,9 +279,7 @@ hash_password(Algorithm, Salt, suffix, Password) ->
 hash_password(Algorithm, Data) ->
     crypto:hash(Algorithm, Data).
 
-compare_password(hash, PasswordHash, PasswordHash) ->
-    true;
+compare_password(hash, LDAPPasswordHash, PasswordHash) ->
+    emqx_passwd:compare_secure(LDAPPasswordHash, PasswordHash);
 compare_password(base64, Base64HashData, PasswordHash) ->
-    Base64HashData =:= base64:encode(PasswordHash);
-compare_password(_, _, _) ->
-    false.
+    emqx_passwd:compare_secure(Base64HashData, base64:encode(PasswordHash)).
