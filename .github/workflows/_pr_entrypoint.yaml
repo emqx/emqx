@@ -38,8 +38,54 @@ jobs:
       - name: Work around https://github.com/actions/checkout/issues/766
         run: |
           git config --global --add safe.directory "$GITHUB_WORKSPACE"
-      - uses: ./.github/actions/pr-sanity-checks
-      - name: Build matrix
+      - name: Run gitlint
+        env:
+          BEFORE_REF: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.event.before }}
+          AFTER_REF: ${{ github.sha }}
+        run: |
+          pip install gitlint
+          gitlint --commits $BEFORE_REF..$AFTER_REF --config .github/workflows/.gitlint
+      - name: Run shellcheck
+        run: |
+          DEBIAN_FRONTEND=noninteractive apt-get update -qy && apt-get install -qy shellcheck
+          ./scripts/shellcheck.sh
+      - name: Run shell tests
+        run: |
+          DEBIAN_FRONTEND=noninteractive apt-get update -qy && apt-get install -qy shelltestrunner
+          scripts/shelltest/run_tests.sh
+      - name: Check workflow files
+        env:
+          ACTIONLINT_VSN: 1.6.25
+        run: |
+          wget https://github.com/rhysd/actionlint/releases/download/v${ACTIONLINT_VSN}/actionlint_${ACTIONLINT_VSN}_linux_amd64.tar.gz
+          tar zxf actionlint_${ACTIONLINT_VSN}_linux_amd64.tar.gz actionlint
+          # TODO: enable shellcheck when all the current issues are fixed
+          ./actionlint -color \
+            -shellcheck= \
+            -ignore 'label ".+" is unknown' \
+            -ignore 'value "emqx-enterprise" in "exclude"'
+      - name: Check line-break at EOF
+        run: |
+          ./scripts/check-nl-at-eof.sh
+      - name: Check apps version
+        run: |
+          ./scripts/apps-version-check.sh
+      - name: Setup mix
+        env:
+          MIX_ENV: emqx-enterprise
+          PROFILE: emqx-enterprise
+        run: |
+          mix local.hex --force --if-missing && mix local.rebar --force --if-missing
+      - name: Check formatting
+        env:
+          MIX_ENV: emqx-enterprise
+          PROFILE: emqx-enterprise
+        run: |
+          ./scripts/check-format.sh
+      - name: Run elvis check
+        run: |
+          ./scripts/elvis-check.sh $GITHUB_BASE_REF
+      - name: Generate CT Matrix
         id: matrix
         run: |
           APPS="$(./scripts/find-apps.sh --ci)"

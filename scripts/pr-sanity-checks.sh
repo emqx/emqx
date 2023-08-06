@@ -18,7 +18,7 @@ EMQX_BUILDER_ELIXIR=${EMQX_BUILDER_ELIXIR:-1.14.5}
 EMQX_BUILDER_PLATFORM=${EMQX_BUILDER_PLATFORM:-ubuntu22.04}
 EMQX_BUILDER=${EMQX_BUILDER:-ghcr.io/emqx/emqx-builder/${EMQX_BUILDER_VERSION}:${EMQX_BUILDER_ELIXIR}-${EMQX_BUILDER_OTP}-${EMQX_BUILDER_PLATFORM}}
 
-commands=$(yq ".runs.steps[].run" .github/actions/pr-sanity-checks/action.yaml | grep -v null)
+commands=$(yq ".jobs.sanity-checks.steps[].run" .github/workflows/_pr_entrypoint.yaml | grep -v null)
 
 BEFORE_REF=${BEFORE_REF:-$(git rev-parse master)}
 AFTER_REF=${AFTER_REF:-$(git rev-parse HEAD)}
