@@ -20,6 +20,11 @@ runs:
       run: |
         DEBIAN_FRONTEND=noninteractive apt-get update -qy && apt-get install -qy shellcheck
         ./scripts/shellcheck.sh
+    - name: Run shell tests
+      shell: bash
+      run: |
+        DEBIAN_FRONTEND=noninteractive apt-get update -qy && apt-get install -qy shelltestrunner
+        scripts/shelltest/run_tests.sh
     - name: Check workflow files
       shell: bash
       env:

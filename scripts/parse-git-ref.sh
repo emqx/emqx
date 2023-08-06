@@ -6,12 +6,14 @@ set -euo pipefail
 
 is_latest() {
     ref_name=$(basename "$1")
-    latest_ref_name=$(git describe --tags "$(git rev-list --tags --max-count=1)")
-    if [[ "$ref_name" == "$latest_ref_name" ]]; then
-        echo true;
-    else
-        echo false;
-    fi
+    # shellcheck disable=SC2046
+    for t in $(git tag --points-at $(git rev-list --tags --max-count=1)); do
+        if [[ "$t" == "$ref_name" ]]; then
+            echo true;
+            return;
+        fi
+    done
+    echo false
 }
 
 if [[ $1 =~ ^refs/tags/v[5-9]+\.[0-9]+\.[0-9]+$ ]]; then
@@ -45,7 +47,7 @@ elif [[ $1 =~ ^refs/tags/e[5-9]+\.[0-9]+\.[0-9]+-(alpha|beta|rc)\.[0-9]+$ ]]; th
     RELEASE=true
     LATEST=false
 elif [[ $1 =~ ^refs/tags/.+ ]]; then
-    echo "Unrecognized tag: $1"
+    echo "Unrecognized tag: $1" 1>&2
     exit 1
 elif [[ $1 =~ ^refs/heads/master$ ]]; then
     PROFILE=emqx
@@ -63,7 +65,7 @@ elif [[ $1 =~ ^refs/heads/ci/.* ]]; then
     RELEASE=false
     LATEST=false
 else
-    echo "Unrecognized git ref: $1"
+    echo "Unrecognized git ref: $1" 1>&2
     exit 1
 fi
 
