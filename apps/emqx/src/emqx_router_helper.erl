@@ -197,11 +197,4 @@ stats_fun() ->
     end.
 
 cleanup_routes(Node) ->
-    Patterns = [
-        #route{_ = '_', dest = Node},
-        #route{_ = '_', dest = {'_', Node}}
-    ],
-    [
-        mnesia:delete_object(?ROUTE_TAB, Route, write)
-     || Pat <- Patterns, Route <- mnesia:match_object(?ROUTE_TAB, Pat, write)
-    ].
+    emqx_router:cleanup_routes(Node).

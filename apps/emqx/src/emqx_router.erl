@@ -45,6 +45,8 @@
     do_delete_route/2
 ]).
 
+-export([cleanup_routes/1]).
+
 -export([
     match_routes/1,
     lookup_routes/1,
@@ -68,6 +70,8 @@
 -type group() :: binary().
 
 -type dest() :: node() | {group(), node()}.
+
+-dialyzer({nowarn_function, [cleanup_routes/1]}).
 
 %%--------------------------------------------------------------------
 %% Mnesia bootstrap
@@ -202,6 +206,18 @@ print_routes(Topic) ->
         end,
         match_routes(Topic)
     ).
+
+-spec cleanup_routes(node()) -> ok.
+cleanup_routes(Node) ->
+    Patterns = [
+        #route{_ = '_', dest = Node},
+        #route{_ = '_', dest = {'_', Node}}
+    ],
+    [
+        mnesia:delete_object(?ROUTE_TAB, Route, write)
+     || Pat <- Patterns,
+        Route <- mnesia:match_object(?ROUTE_TAB, Pat, write)
+    ].
 
 call(Router, Msg) ->
     gen_server:call(Router, Msg, infinity).
