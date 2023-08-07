@@ -10,7 +10,7 @@ password_attribute.label:
 """Password Attribute"""
 
 is_superuser_attribute.desc:
-"""Indicates which attribute is used to represent whether the user is a super user."""
+"""Indicates which attribute is used to represent whether the user is a superuser."""
 
 is_superuser_attribute.label:
 """IsSuperuser Attribute"""

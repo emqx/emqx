@@ -19,6 +19,8 @@
 -behaviour(emqx_config_handler).
 -behaviour(emqx_config_backup).
 
+-dialyzer({nowarn_function, [authz_module/1]}).
+
 -include("emqx_authz.hrl").
 -include_lib("emqx/include/logger.hrl").
 -include_lib("emqx/include/emqx_hooks.hrl").
@@ -571,7 +573,12 @@ find_action_in_hooks() ->
 authz_module(built_in_database) ->
     emqx_authz_mnesia;
 authz_module(Type) ->
-    list_to_existing_atom("emqx_authz_" ++ atom_to_list(Type)).
+    case emqx_authz_enterprise:is_enterprise_module(Type) of
+        {ok, Module} ->
+            Module;
+        _ ->
+            list_to_existing_atom("emqx_authz_" ++ atom_to_list(Type))
+    end.
 
 type(#{type := Type}) -> type(Type);
 type(#{<<"type">> := Type}) -> type(Type);
@@ -591,8 +598,7 @@ type(built_in_database) -> built_in_database;
 type(<<"built_in_database">>) -> built_in_database;
 type(client_info) -> client_info;
 type(<<"client_info">>) -> client_info;
-%% should never happen if the input is type-checked by hocon schema
-type(Unknown) -> throw({unknown_authz_source_type, Unknown}).
+type(MaybeEnterprise) -> emqx_authz_enterprise:type(MaybeEnterprise).
 
 maybe_write_files(#{<<"type">> := <<"file">>} = Source) ->
     write_acl_file(Source);

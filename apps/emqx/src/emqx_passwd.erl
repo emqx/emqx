@@ -19,7 +19,8 @@
 -export([
     hash/2,
     hash_data/2,
-    check_pass/3
+    check_pass/3,
+    compare_secure/2
 ]).
 
 -export_type([

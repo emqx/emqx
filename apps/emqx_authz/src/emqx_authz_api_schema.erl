@@ -95,7 +95,9 @@ fields(position) ->
                     in => body
                 }
             )}
-    ].
+    ];
+fields(MaybeEnterprise) ->
+    emqx_authz_enterprise:fields(MaybeEnterprise).
 
 %%------------------------------------------------------------------------------
 %% http type funcs
@@ -283,7 +285,7 @@ authz_sources_types(Type) ->
             mysql,
             postgresql,
             file
-        ].
+        ] ++ emqx_authz_enterprise:authz_sources_types().
 
 to_list(A) when is_atom(A) ->
     atom_to_list(A);
