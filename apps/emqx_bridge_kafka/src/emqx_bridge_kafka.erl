@@ -125,7 +125,7 @@ values(consumer) ->
         topic_mapping => [
             #{
                 kafka_topic => <<"kafka-topic-1">>,
-                mqtt_topic => <<"mqtt/topic/1">>,
+                mqtt_topic => <<"mqtt/topic/${.offset}">>,
                 qos => 1,
                 payload_template => <<"${.}">>
             },

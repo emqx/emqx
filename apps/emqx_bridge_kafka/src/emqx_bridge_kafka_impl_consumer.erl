@@ -69,7 +69,7 @@
     topic_mapping := #{
         kafka_topic() := #{
             payload_template := emqx_placeholder:tmpl_token(),
-            mqtt_topic => emqx_types:topic(),
+            mqtt_topic_template => emqx_placeholder:tmpl_token(),
             qos => emqx_types:qos()
         }
     },
@@ -83,7 +83,7 @@
     topic_mapping := #{
         kafka_topic() := #{
             payload_template := emqx_placeholder:tmpl_token(),
-            mqtt_topic => emqx_types:topic(),
+            mqtt_topic_template => emqx_placeholder:tmpl_token(),
             qos => emqx_types:qos()
         }
     },
@@ -235,7 +235,7 @@ do_handle_message(Message, State) ->
         value_encoding_mode := ValueEncodingMode
     } = State,
     #{
-        mqtt_topic := MQTTTopic,
+        mqtt_topic_template := MQTTTopicTemplate,
         qos := MQTTQoS,
         payload_template := PayloadTemplate
     } = maps:get(KafkaTopic, TopicMapping),
@@ -249,6 +249,7 @@ do_handle_message(Message, State) ->
         value => encode(Message#kafka_message.value, ValueEncodingMode)
     },
     Payload = render(FullMessage, PayloadTemplate),
+    MQTTTopic = render(FullMessage, MQTTTopicTemplate),
     MQTTMessage = emqx_message:make(ResourceId, MQTTQoS, MQTTTopic, Payload),
     _ = emqx:publish(MQTTMessage),
     emqx:run_hook(Hookpoint, [FullMessage]),
@@ -533,15 +534,16 @@ convert_topic_mapping(TopicMappingList) ->
         fun(Fields, Acc) ->
             #{
                 kafka_topic := KafkaTopic,
-                mqtt_topic := MQTTTopic,
+                mqtt_topic := MQTTTopicTemplate0,
                 qos := QoS,
                 payload_template := PayloadTemplate0
             } = Fields,
             PayloadTemplate = emqx_placeholder:preproc_tmpl(PayloadTemplate0),
+            MQTTTopicTemplate = emqx_placeholder:preproc_tmpl(MQTTTopicTemplate0),
             Acc#{
                 KafkaTopic => #{
                     payload_template => PayloadTemplate,
-                    mqtt_topic => MQTTTopic,
+                    mqtt_topic_template => MQTTTopicTemplate,
                     qos => QoS
                 }
             }
