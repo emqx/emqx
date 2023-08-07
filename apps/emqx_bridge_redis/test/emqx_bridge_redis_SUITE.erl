@@ -30,6 +30,11 @@
     <<"local_topic">> => <<"local_topic/#">>
 }).
 
+-define(USERNAME_PASSWORD_AUTH_OPTS, #{
+    <<"username">> => <<"test_user">>,
+    <<"password">> => <<"test_passwd">>
+}).
+
 -define(BATCH_SIZE, 5).
 
 -define(PROXY_HOST, "toxiproxy").
@@ -319,6 +324,22 @@ t_permanent_error(_Config) ->
     ),
     {ok, _} = emqx_bridge:remove(Type, Name).
 
+t_auth_username_password(_Config) ->
+    Name = <<"mybridge">>,
+    Type = <<"redis_single">>,
+    ResourceId = emqx_bridge_resource:resource_id(Type, Name),
+    BridgeConfig = username_password_redis_bridge_config(),
+    ?assertMatch(
+        {ok, _},
+        emqx_bridge:create(Type, Name, BridgeConfig)
+    ),
+    ?WAIT(
+        {ok, connected},
+        emqx_resource:health_check(ResourceId),
+        5
+    ),
+    {ok, _} = emqx_bridge:remove(Type, Name).
+
 t_create_disconnected(Config) ->
     Name = <<"toxic_bridge">>,
     Type = <<"redis_single">>,
@@ -527,6 +548,19 @@ toxiproxy_redis_bridge_config() ->
         }
     },
     maps:merge(Conf0, ?COMMON_REDIS_OPTS).
+
+username_password_redis_bridge_config() ->
+    Conf0 = ?REDIS_TOXYPROXY_CONNECT_CONFIG#{
+        <<"resource_opts">> => #{
+            <<"query_mode">> => <<"sync">>,
+            <<"worker_pool_size">> => <<"1">>,
+            <<"batch_size">> => integer_to_binary(?BATCH_SIZE),
+            <<"health_check_interval">> => <<"1s">>,
+            <<"start_timeout">> => <<"15s">>
+        }
+    },
+    Conf1 = maps:merge(Conf0, ?COMMON_REDIS_OPTS),
+    maps:merge(Conf1, ?USERNAME_PASSWORD_AUTH_OPTS).
 
 invalid_command_bridge_config() ->
     #{redis_single := #{tcp := Conf0}} = redis_connect_configs(),

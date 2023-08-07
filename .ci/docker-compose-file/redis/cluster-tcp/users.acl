@@ -1,0 +1,2 @@
+user default on >public ~* &* +@all
+user test_user on >test_passwd ~* &* +@all

@@ -146,6 +146,7 @@ on_start(
     Opts =
         [
             {pool_size, PoolSize},
+            {username, maps:get(username, Config, undefined)},
             {password, maps:get(password, Config, "")},
             {auto_reconnect, ?AUTO_RECONNECT_INTERVAL}
         ] ++ Database ++ Servers,
@@ -292,6 +293,7 @@ connect(Opts) ->
 redis_fields() ->
     [
         {pool_size, fun emqx_connector_schema_lib:pool_size/1},
+        {username, fun emqx_connector_schema_lib:username/1},
         {password, fun emqx_connector_schema_lib:password/1},
         {database, #{
             type => non_neg_integer(),
