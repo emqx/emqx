@@ -85,6 +85,18 @@ jobs:
           echo "ct-host=${CT_HOST}"     | tee -a $GITHUB_OUTPUT
           echo "ct-docker=${CT_DOCKER}" | tee -a $GITHUB_OUTPUT
 
+  build_slim_packages:
+    if: ${{ needs.prepare.outputs.release != 'true' }}
+    needs:
+      - prepare
+    uses: ./.github/workflows/build_slim_packages.yaml
+    with:
+      runner: ${{ needs.prepare.outputs.runner }}
+      builder: ${{ needs.prepare.outputs.builder }}
+      builder_vsn: ${{ needs.prepare.outputs.builder_vsn }}
+      otp_vsn: ${{ needs.prepare.outputs.otp_vsn }}
+      elixir_vsn: ${{ needs.prepare.outputs.elixir_vsn }}
+
   build_packages:
     if: ${{ needs.prepare.outputs.release == 'true' }}
     needs:
