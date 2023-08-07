@@ -16,9 +16,9 @@ main([Files0]) ->
     ok = lists:foreach(fun check/1, Files),
     case get(errors) of
         1 ->
-            logerr("1 error found~n", []);
+            die("1 error found~n", []);
         N when is_integer(N) andalso N > 1 ->
-            logerr("~p errors found~n", [N]);
+            die("~p errors found~n", [N]);
         _ ->
             io:format(user, "~nOK~n", [])
     end.

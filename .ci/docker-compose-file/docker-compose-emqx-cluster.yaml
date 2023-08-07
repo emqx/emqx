@@ -19,7 +19,9 @@ services:
       - emqx2
     volumes:
       - ./haproxy/haproxy.cfg:/usr/local/etc/haproxy/haproxy.cfg
-      - ../../apps/emqx/etc/certs:/usr/local/etc/haproxy/certs
+      - ../../apps/emqx/etc/certs/cert.pem:/usr/local/etc/haproxy/certs/cert.pem
+      - ../../apps/emqx/etc/certs/key.pem:/usr/local/etc/haproxy/certs/key.pem
+      - ../../apps/emqx/etc/certs/cacert.pem:/usr/local/etc/haproxy/certs/cacert.pem
     ports:
       - "18083:18083"
 #     - "1883:1883"
@@ -34,7 +36,7 @@ services:
       - -c
       - |
         set -x
-        cat /usr/local/etc/haproxy/certs/cert.pem /usr/local/etc/haproxy/certs/key.pem > /tmp/emqx.pem
+        cat /usr/local/etc/haproxy/certs/cert.pem /usr/local/etc/haproxy/certs/key.pem > /var/lib/haproxy/emqx.pem
         haproxy -f /usr/local/etc/haproxy/haproxy.cfg
 
   emqx1:

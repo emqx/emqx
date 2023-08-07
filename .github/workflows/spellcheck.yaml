@@ -1,0 +1,29 @@
+name: Spellcheck
+
+concurrency:
+  group: spellcheck-${{ github.event_name }}-${{ github.ref }}
+  cancel-in-progress: true
+
+on:
+  workflow_call:
+    inputs:
+      runner:
+        required: true
+        type: string
+
+jobs:
+  spellcheck:
+    strategy:
+      matrix:
+        profile:
+        - emqx
+        - emqx-enterprise
+    runs-on: ${{ inputs.runner }}
+    steps:
+      - uses: actions/download-artifact@v3
+        with:
+          name: "${{ matrix.profile }}_schema_dump"
+          path: /tmp/
+      - name: Run spellcheck
+        run: |
+          bash /tmp/scripts/spellcheck/spellcheck.sh /tmp/_build/docgen/${{ matrix.profile }}/schema-en.json

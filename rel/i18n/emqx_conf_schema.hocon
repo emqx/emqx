@@ -779,8 +779,7 @@ db_shard_transports.label:
 node_broker_pool_size.desc:
 """The number of workers in emqx_broker pool. Increasing this value may improve performance
 by enhancing parallelism, especially when EMQX cluster interconnect network latency is high.
-Defaults to the number of Erlang schedulers (CPU cores) * 2.
-"""
+Defaults to the number of Erlang schedulers (CPU cores) * 2."""
 
 node_broker_pool_size.label:
 """Node Broker Pool Size"""
@@ -788,8 +787,7 @@ node_broker_pool_size.label:
 node_generic_pool_size.desc:
 """The number of workers in emqx_pool. Increasing this value may improve performance
 by enhancing parallelism, especially when EMQX cluster interconnect network latency is high.
-Defaults to the number of Erlang schedulers (CPU cores).
-"""
+Defaults to the number of Erlang schedulers (CPU cores)."""
 
 node_generic_pool_size.label:
 """Node Generic Pool Size"""
@@ -798,8 +796,7 @@ node_channel_cleanup_batch_size.desc:
 """The size of the channel cleanup batch. if EMQX cluster interconnect network latency is high,
 reducing this value together with increasing node.generic_pool_size may improve performance
 during an abrupt disconnect of a large numbers of clients.
-Defaults to 100000.
-"""
+Defaults to 100000."""
 
 node_channel_cleanup_batch_size.label:
 """Node Channel Cleanup Batch Size"""

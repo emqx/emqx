@@ -5,152 +5,34 @@ concurrency:
   cancel-in-progress: true
 
 on:
-  push:
-    branches:
-      - master
-      - 'ci/**'
-    tags:
-      - v*
-      - e*
-  pull_request:
+  workflow_call:
+    inputs:
+      runner:
+        required: true
+        type: string
+      builder:
+        required: true
+        type: string
+      ct-matrix:
+        required: true
+        type: string
+      ct-host:
+        required: true
+        type: string
+      ct-docker:
+        required: true
+        type: string
 
 env:
   IS_CI: "yes"
 
 jobs:
-  build-matrix:
-    runs-on: ubuntu-22.04
-    outputs:
-      prepare: ${{ steps.matrix.outputs.prepare }}
-      host: ${{ steps.matrix.outputs.host }}
-      docker: ${{ steps.matrix.outputs.docker }}
-      runs-on: ${{ steps.runner.outputs.runs-on }}
-    steps:
-      - uses: actions/checkout@v3
-      - name: Build matrix
-        id: matrix
-        run: |
-          APPS="$(./scripts/find-apps.sh --ci)"
-          MATRIX="$(echo "${APPS}" | jq -c '
-            [
-              (.[] | select(.profile == "emqx") | . + {
-                builder: "5.1-3",
-                otp: "25.3.2-1",
-                elixir: "1.14.5"
-              }),
-              (.[] | select(.profile == "emqx-enterprise") | . + {
-                builder: "5.1-3",
-                otp: ["25.3.2-1"][],
-                elixir: "1.14.5"
-              })
-            ]
-          ')"
-          echo "${MATRIX}" | jq
-          MATRIX_PREPARE="$(echo "${MATRIX}" | jq -c 'map({profile, builder, otp, elixir}) | unique')"
-          MATRIX_HOST="$(echo "${MATRIX}" | jq -c 'map(select(.runner == "host"))')"
-          MATRIX_DOCKER="$(echo "${MATRIX}" | jq -c 'map(select(.runner == "docker"))')"
-          echo "prepare=${MATRIX_PREPARE}" | tee -a $GITHUB_OUTPUT
-          echo "host=${MATRIX_HOST}" | tee -a $GITHUB_OUTPUT
-          echo "docker=${MATRIX_DOCKER}" | tee -a $GITHUB_OUTPUT
-      - name: Choose runner host
-        id: runner
-        run: |
-          RUNS_ON="ubuntu-22.04"
-          ${{ github.repository_owner == 'emqx' }} && RUNS_ON="aws-amd64"
-          echo "runs-on=${RUNS_ON}" | tee -a $GITHUB_OUTPUT
-
-  prepare:
-    runs-on: ${{ needs.build-matrix.outputs.runs-on }}
-    needs: [build-matrix]
-    strategy:
-      fail-fast: false
-      matrix:
-        include: ${{ fromJson(needs.build-matrix.outputs.prepare) }}
-    container: "ghcr.io/emqx/emqx-builder/${{ matrix.builder }}:${{ matrix.elixir }}-${{ matrix.otp }}-ubuntu22.04"
-    steps:
-      - uses: AutoModality/action-clean@v1
-      - uses: actions/checkout@v3
-        with:
-          path: source
-      - name: get_all_deps
-        working-directory: source
-        env:
-          PROFILE: ${{ matrix.profile }}
-        run: |
-          make ensure-rebar3
-          # fetch all deps and compile
-          make ${{ matrix.profile }}-compile
-          make test-compile
-          cd ..
-          zip -ryq source.zip source/* source/.[^.]*
-      - uses: actions/upload-artifact@v3
-        with:
-          name: source-${{ matrix.profile }}-${{ matrix.otp }}
-          path: source.zip
-
-  check_examples:
-    needs:
-      - build-matrix
-      - prepare
-    runs-on: ${{ needs.build-matrix.outputs.runs-on }}
-    strategy:
-      fail-fast: false
-      matrix:
-        include: ${{ fromJson(needs.build-matrix.outputs.prepare) }}
-    container: "ghcr.io/emqx/emqx-builder/${{ matrix.builder }}:${{ matrix.elixir }}-${{ matrix.otp }}-ubuntu22.04"
-    steps:
-      - uses: AutoModality/action-clean@v1
-      - uses: actions/download-artifact@v3
-        with:
-          name: source-${{ matrix.profile }}-${{ matrix.otp }}
-          path: .
-      - name: unzip source code
-        run: unzip -o -q source.zip
-      - name: check example config files
-        env:
-          PROFILE: ${{ matrix.profile }}
-        working-directory: source
-        run: ./scripts/test/check-example-configs.sh
-
-  static_checks:
-    needs:
-      - build-matrix
-      - prepare
-    runs-on: ${{ needs.build-matrix.outputs.runs-on }}
-    strategy:
-      fail-fast: false
-      matrix:
-        include: ${{ fromJson(needs.build-matrix.outputs.prepare) }}
-    container: "ghcr.io/emqx/emqx-builder/${{ matrix.builder }}:${{ matrix.elixir }}-${{ matrix.otp }}-ubuntu22.04"
-    steps:
-      - uses: AutoModality/action-clean@v1
-      - uses: actions/download-artifact@v3
-        with:
-          name: source-${{ matrix.profile }}-${{ matrix.otp }}
-          path: .
-      - name: unzip source code
-        run: unzip -o -q source.zip
-      - uses: actions/cache@v3
-        with:
-          path: "source/emqx_dialyzer_${{ matrix.otp }}_plt"
-          key: rebar3-dialyzer-plt-${{ matrix.profile }}-${{ matrix.otp }}-${{ hashFiles('source/rebar.*', 'source/apps/*/rebar.*', 'source/lib-ee/*/rebar.*') }}
-          restore-keys: |
-            rebar3-dialyzer-plt-${{ matrix.profile }}-${{ matrix.otp }}-
-      - name: run static checks
-        env:
-          PROFILE: ${{ matrix.profile }}
-        working-directory: source
-        run: make static_checks
-
   eunit_and_proper:
-    needs:
-      - build-matrix
-      - prepare
-    runs-on: ${{ needs.build-matrix.outputs.runs-on }}
+    runs-on: ${{ inputs.runner }}
     strategy:
       fail-fast: false
       matrix:
-        include: ${{ fromJson(needs.build-matrix.outputs.prepare) }}
+        include: ${{ fromJson(inputs.ct-matrix) }}
 
     defaults:
       run:
@@ -161,16 +43,16 @@ jobs:
       - uses: AutoModality/action-clean@v1
       - uses: actions/download-artifact@v3
         with:
-          name: source-${{ matrix.profile }}-${{ matrix.otp }}
-          path: .
-      - name: unzip source code
-        run: unzip -o -q source.zip
+          name: ${{ matrix.profile }}
+      - name: extract artifact
+        run: |
+          unzip -o -q ${{ matrix.profile }}.zip
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
         # produces eunit.coverdata
       - name: eunit
         env:
           PROFILE: ${{ matrix.profile }}
           CT_COVER_EXPORT_PREFIX: ${{ matrix.profile }}-${{ matrix.otp }}
-        working-directory: source
         run: make eunit
 
         # produces proper.coverdata
@@ -178,23 +60,19 @@ jobs:
         env:
           PROFILE: ${{ matrix.profile }}
           CT_COVER_EXPORT_PREFIX: ${{ matrix.profile }}-${{ matrix.otp }}
-        working-directory: source
         run: make proper
 
       - uses: actions/upload-artifact@v3
         with:
           name: coverdata
-          path: source/_build/test/cover
+          path: _build/test/cover
 
   ct_docker:
-    needs:
-      - build-matrix
-      - prepare
-    runs-on: ${{ needs.build-matrix.outputs.runs-on }}
+    runs-on: ${{ inputs.runner }}
     strategy:
       fail-fast: false
       matrix:
-        include: ${{ fromJson(needs.build-matrix.outputs.docker) }}
+        include: ${{ fromJson(inputs.ct-docker) }}
 
     defaults:
       run:
@@ -204,14 +82,14 @@ jobs:
       - uses: AutoModality/action-clean@v1
       - uses: actions/download-artifact@v3
         with:
-          name: source-${{ matrix.profile }}-${{ matrix.otp }}
-          path: .
-      - name: unzip source code
-        run: unzip -q source.zip
+          name: ${{ matrix.profile }}
+      - name: extract artifact
+        run: |
+          unzip -o -q ${{ matrix.profile }}.zip
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
 
         # produces $PROFILE-<app-name>-<otp-vsn>-sg<suitegroup>.coverdata
       - name: run common tests
-        working-directory: source
         env:
           DOCKER_CT_RUNNER_IMAGE: "ghcr.io/emqx/emqx-builder/${{ matrix.builder }}:${{ matrix.elixir }}-${{ matrix.otp }}-ubuntu22.04"
           MONGO_TAG: "5"
@@ -229,22 +107,19 @@ jobs:
       - uses: actions/upload-artifact@v3
         with:
           name: coverdata
-          path: source/_build/test/cover
+          path: _build/test/cover
       - uses: actions/upload-artifact@v3
         if: failure()
         with:
           name: logs-${{ matrix.profile }}-${{ matrix.prefix }}-${{ matrix.otp }}-sg${{ matrix.suitegroup }}
-          path: source/_build/test/logs
+          path: _build/test/logs
 
   ct:
-    needs:
-      - build-matrix
-      - prepare
-    runs-on: ${{ needs.build-matrix.outputs.runs-on }}
+    runs-on: ${{ inputs.runner }}
     strategy:
       fail-fast: false
       matrix:
-        include: ${{ fromJson(needs.build-matrix.outputs.host) }}
+        include: ${{ fromJson(inputs.ct-host) }}
 
     container: "ghcr.io/emqx/emqx-builder/${{ matrix.builder }}:${{ matrix.elixir }}-${{ matrix.otp }}-ubuntu22.04"
     defaults:
@@ -255,14 +130,14 @@ jobs:
       - uses: AutoModality/action-clean@v1
       - uses: actions/download-artifact@v3
         with:
-          name: source-${{ matrix.profile }}-${{ matrix.otp }}
-          path: .
-      - name: unzip source code
-        run: unzip -q source.zip
+          name: ${{ matrix.profile }}
+      - name: extract artifact
+        run: |
+          unzip -o -q ${{ matrix.profile }}.zip
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
 
         # produces $PROFILE-<app-name>-<otp-vsn>-sg<suitegroup>.coverdata
       - name: run common tests
-        working-directory: source
         env:
           PROFILE: ${{ matrix.profile }}
           SUITEGROUP: ${{ matrix.suitegroup }}
@@ -272,58 +147,61 @@ jobs:
       - uses: actions/upload-artifact@v3
         with:
           name: coverdata
-          path: source/_build/test/cover
+          path: _build/test/cover
           if-no-files-found: warn # do not fail if no coverdata found
       - uses: actions/upload-artifact@v3
         if: failure()
         with:
           name: logs-${{ matrix.profile }}-${{ matrix.prefix }}-${{ matrix.otp }}-sg${{ matrix.suitegroup }}
-          path: source/_build/test/logs
+          path: _build/test/logs
 
   make_cover:
     needs:
       - eunit_and_proper
       - ct
       - ct_docker
-    runs-on: ubuntu-22.04
-    container: "ghcr.io/emqx/emqx-builder/5.1-3:1.14.5-25.3.2-1-ubuntu22.04"
+    runs-on: ${{ inputs.runner }}
+    container: ${{ inputs.builder }}
+    strategy:
+      fail-fast: false
+      matrix:
+        profile:
+          - emqx-enterprise
     steps:
       - uses: AutoModality/action-clean@v1
       - uses: actions/download-artifact@v3
         with:
-          name: source-emqx-enterprise-25.3.2-1
-          path: .
-      - name: unzip source code
-        run: unzip -q source.zip
+          name: ${{ matrix.profile }}
+      - name: extract artifact
+        run: |
+          unzip -o -q ${{ matrix.profile }}.zip
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
 
       - uses: actions/download-artifact@v3
         name: download coverdata
         with:
           name: coverdata
-          path: source/_build/test/cover
+          path: _build/test/cover
 
       - name: make cover
-        working-directory: source
         env:
           PROFILE: emqx-enterprise
         run: make cover
 
       - name: send to coveralls
-        working-directory: source
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           PROFILE: emqx-enterprise
         run: make coveralls
 
       - name: get coveralls logs
-        working-directory: source
         if: failure()
         run: cat rebar3.crashdump
 
   # do this in a separate job
   upload_coverdata:
     needs: make_cover
-    runs-on: ubuntu-22.04
+    runs-on: ${{ inputs.runner }}
     steps:
       - name: Coveralls Finished
         env:
