@@ -80,7 +80,7 @@ tags() ->
     [<<"EMQX">>].
 
 roots() ->
-    ok = ensure_fields_injected(),
+    ok = emqx_schema_hooks:inject_from_modules(?INJECTING_CONFIGS),
     emqx_schema_high_prio_roots() ++
         [
             {"node",
@@ -1434,9 +1434,3 @@ ensure_unicode_path(Path, _) when is_list(Path) ->
     Path;
 ensure_unicode_path(Path, _) ->
     throw({"not_string", Path}).
-
-ensure_fields_injected() ->
-    lists:foreach(
-        fun(Module) -> emqx_schema_hooks:inject_fields_from_mod(Module) end,
-        ?INJECTING_CONFIGS
-    ).

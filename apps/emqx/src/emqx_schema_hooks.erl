@@ -25,11 +25,12 @@
 -optional_callbacks([injected_fields/0]).
 
 -define(HOOKPOINT_PT_KEY(POINT_NAME), {?MODULE, fields, POINT_NAME}).
--define(MODULE_PT_KEY(MOD_NAME), {?MODULE, mod, MOD_NAME}).
 
 -export([
     injection_point/1,
-    inject_fields_from_mod/1
+    any_injections/1,
+    inject_fields/2,
+    inject_from_modules/1
 ]).
 
 %% for tests
@@ -45,21 +46,14 @@
 injection_point(PointName) ->
     persistent_term:get(?HOOKPOINT_PT_KEY(PointName), []).
 
-inject_fields_from_mod(Module) ->
-    case persistent_term:get(?MODULE_PT_KEY(Module), false) of
-        false ->
-            persistent_term:put(?MODULE_PT_KEY(Module), true),
-            do_inject_fields_from_mod(Module);
-        true ->
-            ok
-    end.
+inject_fields(PointName, Fields) ->
+    Key = ?HOOKPOINT_PT_KEY(PointName),
+    persistent_term:put(Key, Fields).
 
 erase_injections() ->
     lists:foreach(
         fun
             ({?HOOKPOINT_PT_KEY(_) = Key, _}) ->
-                persistent_term:erase(Key);
-            ({?MODULE_PT_KEY(_) = Key, _}) ->
                 persistent_term:erase(Key);
             (_) ->
                 ok
@@ -72,35 +66,53 @@ any_injections() ->
         fun
             ({?HOOKPOINT_PT_KEY(_), _}) ->
                 true;
-            ({?MODULE_PT_KEY(_), _}) ->
-                true;
             (_) ->
                 false
         end,
         persistent_term:get()
     ).
 
+any_injections(PointName) ->
+    persistent_term:get(?HOOKPOINT_PT_KEY(PointName), undefined) =/= undefined.
+
+inject_from_modules(Modules) ->
+    Injections =
+        lists:foldl(
+            fun append_module_injections/2,
+            #{},
+            Modules
+        ),
+    ok = inject_fields(maps:to_list(Injections)).
+
 %%--------------------------------------------------------------------
 %% Internal functions
 %%--------------------------------------------------------------------
 
-do_inject_fields_from_mod(Module) ->
-    _ = Module:module_info(),
-    case erlang:function_exported(Module, injected_fields, 0) of
-        true ->
-            do_inject_fields_from_mod(Module, Module:injected_fields());
-        false ->
-            ok
-    end.
-
-do_inject_fields_from_mod(_Module, HookFields) ->
-    maps:foreach(
-        fun(PointName, Fields) ->
-            inject_fields(PointName, Fields)
+append_module_injections(Module, AllInjections) when is_atom(Module) ->
+    append_module_injections(Module:injected_fields(), AllInjections);
+append_module_injections(ModuleInjections, AllInjections) when is_map(ModuleInjections) ->
+    maps:fold(
+        fun(PointName, Fields, Acc) ->
+            maps:update_with(
+                PointName,
+                fun(Fields0) ->
+                    Fields0 ++ Fields
+                end,
+                Fields,
+                Acc
+            )
         end,
-        HookFields
+        AllInjections,
+        ModuleInjections
     ).
 
-inject_fields(PointName, Fields) ->
-    Key = ?HOOKPOINT_PT_KEY(PointName),
-    persistent_term:put(Key, Fields).
+inject_fields([]) ->
+    ok;
+inject_fields([{PointName, Fields} | Rest]) ->
+    case emqx_schema_hooks:any_injections(PointName) of
+        true ->
+            inject_fields(Rest);
+        false ->
+            ok = emqx_schema_hooks:inject_fields(PointName, Fields),
+            inject_fields(Rest)
+    end.
