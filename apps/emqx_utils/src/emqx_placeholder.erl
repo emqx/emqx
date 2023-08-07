@@ -48,9 +48,13 @@
 
 -define(PH_VAR_THIS, '$this').
 
--define(EX_PLACE_HOLDER, "(\\$\\{[a-zA-Z0-9\\._]+\\})").
+%% To match any pattern starts with '$' and followed by '{', and closed by a '}' char:
+%% e.g. for string "a${abc}bb", "${abc}" will be matched.
+%% Note this is non-greedy matching
+%% e.g. if "${{abc}}" is given, the "${{abc}" should be matched, NOT "${{abc}}".
+-define(EX_PLACE_HOLDER, "(\\$\\{[^}]+\\})").
 
--define(EX_PLACE_HOLDER_DOUBLE_QUOTE, "(\\$\\{[a-zA-Z0-9\\._]+\\}|\"\\$\\{[a-zA-Z0-9\\._]+\\}\")").
+-define(EX_PLACE_HOLDER_DOUBLE_QUOTE, "(\\$\\{[^}]+\\}|\"\\$\\{[^}]+\\}\")").
 
 %% Space and CRLF
 -define(EX_WITHE_CHARS, "\\s").
