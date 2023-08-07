@@ -62,6 +62,7 @@
 -include("emqx.hrl").
 -include("emqx_channel.hrl").
 -include("emqx_persistent_session.hrl").
+-include("emqx_router.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
 -compile({inline, [is_store_enabled/0]}).
@@ -91,7 +92,7 @@ init_db_backend() ->
     case is_store_enabled() of
         true ->
             StorageType = storage_type(),
-            ok = emqx_trie:create_session_trie(StorageType),
+            ok = emqx_trie:create_trie(StorageType, ?SESSION_TRIE),
             ok = emqx_session_router:create_router_tab(StorageType),
             case storage_backend() of
                 builtin ->

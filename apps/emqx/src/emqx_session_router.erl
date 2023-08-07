@@ -21,6 +21,7 @@
 -include("emqx.hrl").
 -include("logger.hrl").
 -include("types.hrl").
+-include("emqx_router.hrl").
 
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
@@ -114,6 +115,7 @@ start_link(Pool, Id) ->
 
 -spec do_add_route(emqx_types:topic(), dest()) -> ok | {error, term()}.
 do_add_route(Topic, SessionID) when is_binary(Topic) ->
+    Tab = route_tab(),
     Route = #route{topic = Topic, dest = SessionID},
     case lists:member(Route, lookup_routes(Topic)) of
         true ->
@@ -121,14 +123,14 @@ do_add_route(Topic, SessionID) when is_binary(Topic) ->
         false ->
             case emqx_topic:wildcard(Topic) of
                 true ->
-                    Fun = fun emqx_router_utils:insert_session_trie_route/2,
                     emqx_router_utils:maybe_trans(
-                        Fun,
-                        [route_tab(), Route],
+                        Tab,
+                        fun emqx_router_utils:insert_session_trie_route/2,
+                        [Tab, Route],
                         ?PERSISTENT_SESSION_SHARD
                     );
                 false ->
-                    emqx_router_utils:insert_direct_route(route_tab(), Route)
+                    emqx_router_utils:insert_direct_route(Tab, Route)
             end
     end.
 
@@ -142,9 +144,9 @@ match_routes(Topic) when is_binary(Topic) ->
 
 %% Optimize: routing table will be replicated to all router nodes.
 match_trie(Topic) ->
-    case emqx_trie:empty_session() of
+    case emqx_trie:empty(?SESSION_TRIE) of
         true -> [];
-        false -> emqx_trie:match_session(Topic)
+        false -> emqx_trie:match(Topic, ?SESSION_TRIE)
     end.
 
 %% Async
@@ -153,13 +155,18 @@ delete_routes(SessionID, Subscriptions) ->
 
 -spec do_delete_route(emqx_types:topic(), dest()) -> ok | {error, term()}.
 do_delete_route(Topic, SessionID) ->
+    Tab = route_tab(),
     Route = #route{topic = Topic, dest = SessionID},
     case emqx_topic:wildcard(Topic) of
         true ->
-            Fun = fun emqx_router_utils:delete_session_trie_route/2,
-            emqx_router_utils:maybe_trans(Fun, [route_tab(), Route], ?PERSISTENT_SESSION_SHARD);
+            emqx_router_utils:maybe_trans(
+                Tab,
+                fun emqx_router_utils:delete_session_trie_route/2,
+                [Tab, Route],
+                ?PERSISTENT_SESSION_SHARD
+            );
         false ->
-            emqx_router_utils:delete_direct_route(route_tab(), Route)
+            emqx_router_utils:delete_direct_route(Tab, Route)
     end.
 
 %% @doc Print routes to a topic

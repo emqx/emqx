@@ -17,6 +17,7 @@
 -module(emqx_router_utils).
 
 -include("emqx.hrl").
+-include("emqx_router.hrl").
 
 -export([
     delete_direct_route/2,
@@ -25,7 +26,7 @@
     insert_direct_route/2,
     insert_trie_route/2,
     insert_session_trie_route/2,
-    maybe_trans/3
+    maybe_trans/4
 ]).
 
 insert_direct_route(Tab, Route) ->
@@ -40,7 +41,7 @@ insert_trie_route(RouteTab, Route = #route{topic = Topic}) ->
 
 insert_session_trie_route(RouteTab, Route = #route{topic = Topic}) ->
     case mnesia:wread({RouteTab, Topic}) of
-        [] -> emqx_trie:insert_session(Topic);
+        [] -> emqx_trie:insert(Topic, ?SESSION_TRIE);
         _ -> ok
     end,
     mnesia:write(RouteTab, Route, sticky_write).
@@ -61,7 +62,7 @@ delete_trie_route(RouteTab, Route = #route{topic = Topic}, Type) ->
             ok = mnesia:delete_object(RouteTab, Route, sticky_write),
             case Type of
                 normal -> emqx_trie:delete(Topic);
-                session -> emqx_trie:delete_session(Topic)
+                session -> emqx_trie:delete(Topic, ?SESSION_TRIE)
             end;
         [_ | _] ->
             %% Remove route only
@@ -71,8 +72,8 @@ delete_trie_route(RouteTab, Route = #route{topic = Topic}, Type) ->
     end.
 
 %% @private
--spec maybe_trans(function(), list(any()), Shard :: atom()) -> ok | {error, term()}.
-maybe_trans(Fun, Args, Shard) ->
+-spec maybe_trans(mnesia:table(), function(), list(any()), Shard :: atom()) -> ok | {error, term()}.
+maybe_trans(Tab, Fun, Args, Shard) ->
     case emqx:get_config([broker, perf, route_lock_type]) of
         key ->
             trans(Fun, Args, Shard);
@@ -90,7 +91,7 @@ maybe_trans(Fun, Args, Shard) ->
         tab ->
             trans(
                 fun() ->
-                    emqx_trie:lock_tables(),
+                    mnesia:write_lock_table(Tab),
                     apply(Fun, Args)
                 end,
                 [],

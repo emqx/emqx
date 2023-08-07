@@ -21,7 +21,6 @@
 -include("emqx.hrl").
 -include("logger.hrl").
 -include("types.hrl").
--include_lib("mria/include/mria.hrl").
 -include_lib("emqx/include/emqx_router.hrl").
 
 %% Mnesia bootstrap
@@ -129,8 +128,12 @@ do_add_route(Topic, Dest) when is_binary(Topic) ->
             ok = emqx_router_helper:monitor(Dest),
             case emqx_topic:wildcard(Topic) of
                 true ->
-                    Fun = fun emqx_router_utils:insert_trie_route/2,
-                    emqx_router_utils:maybe_trans(Fun, [?ROUTE_TAB, Route], ?ROUTE_SHARD);
+                    emqx_router_utils:maybe_trans(
+                        ?ROUTE_TAB,
+                        fun emqx_router_utils:insert_trie_route/2,
+                        [?ROUTE_TAB, Route],
+                        ?ROUTE_SHARD
+                    );
                 false ->
                     emqx_router_utils:insert_direct_route(?ROUTE_TAB, Route)
             end
@@ -176,8 +179,12 @@ do_delete_route(Topic, Dest) ->
     Route = #route{topic = Topic, dest = Dest},
     case emqx_topic:wildcard(Topic) of
         true ->
-            Fun = fun emqx_router_utils:delete_trie_route/2,
-            emqx_router_utils:maybe_trans(Fun, [?ROUTE_TAB, Route], ?ROUTE_SHARD);
+            emqx_router_utils:maybe_trans(
+                ?ROUTE_TAB,
+                fun emqx_router_utils:delete_trie_route/2,
+                [?ROUTE_TAB, Route],
+                ?ROUTE_SHARD
+            );
         false ->
             emqx_router_utils:delete_direct_route(?ROUTE_TAB, Route)
     end.

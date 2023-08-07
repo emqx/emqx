@@ -20,6 +20,9 @@
 %% ETS table for message routing
 -define(ROUTE_TAB, emqx_route).
 
+%% Mnesia table for persistent session routing
+-define(SESSION_TRIE, emqx_session_trie).
+
 %% Mnesia table for message routing
 -define(ROUTING_NODE, emqx_routing_node).
 
