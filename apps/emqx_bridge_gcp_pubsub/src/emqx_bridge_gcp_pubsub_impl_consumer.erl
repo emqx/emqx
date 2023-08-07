@@ -64,7 +64,9 @@ callback_mode() -> async_if_possible.
 query_mode(_Config) -> no_queries.
 
 -spec on_start(resource_id(), config()) -> {ok, state()} | {error, term()}.
-on_start(InstanceId, Config) ->
+on_start(InstanceId, Config0) ->
+    %% ensure it's a binary key map
+    Config = maps:update_with(service_account_json, fun emqx_utils_maps:binary_key_map/1, Config0),
     case emqx_bridge_gcp_pubsub_client:start(InstanceId, Config) of
         {ok, Client} ->
             start_consumers(InstanceId, Client, Config);
@@ -125,7 +127,7 @@ start_consumers(InstanceId, Client, Config) ->
         consumer := ConsumerConfig0,
         hookpoint := Hookpoint,
         resource_opts := #{request_ttl := RequestTTL},
-        service_account_json := #{project_id := ProjectId}
+        service_account_json := #{<<"project_id">> := ProjectId}
     } = Config,
     ConsumerConfig1 = maps:update_with(topic_mapping, fun convert_topic_mapping/1, ConsumerConfig0),
     TopicMapping = maps:get(topic_mapping, ConsumerConfig1),

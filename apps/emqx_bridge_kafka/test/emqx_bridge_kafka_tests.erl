@@ -166,11 +166,24 @@ message_key_dispatch_validations_test() ->
         ]},
         check(Conf)
     ),
+    %% ensure atoms exist
+    _ = [myproducer],
+    ?assertThrow(
+        {_, [
+            #{
+                path := "bridges.kafka.myproducer.kafka",
+                reason := "Message key cannot be empty when `key_dispatch` strategy is used"
+            }
+        ]},
+        check_atom_key(Conf)
+    ),
     ok.
 
 tcp_keepalive_validation_test_() ->
     ProducerConf = parse(kafka_producer_new_hocon()),
     ConsumerConf = parse(kafka_consumer_hocon()),
+    %% ensure atoms exist
+    _ = [my_producer, my_consumer],
     test_keepalive_validation([<<"kafka">>, <<"myproducer">>], ProducerConf) ++
         test_keepalive_validation([<<"kafka_consumer">>, <<"my_consumer">>], ConsumerConf).
 
@@ -184,7 +197,9 @@ test_keepalive_validation(Name, Conf) ->
     InvalidConf2 = emqx_utils_maps:deep_force_put(Path, Conf, <<"5,6,1000">>),
     InvalidConfs = [InvalidConf, InvalidConf1, InvalidConf2],
     [?_assertMatch(#{<<"bridges">> := _}, check(C)) || C <- ValidConfs] ++
-        [?_assertThrow(_, check(C)) || C <- InvalidConfs].
+        [?_assertMatch(#{bridges := _}, check_atom_key(C)) || C <- ValidConfs] ++
+        [?_assertThrow(_, check(C)) || C <- InvalidConfs] ++
+        [?_assertThrow(_, check_atom_key(C)) || C <- InvalidConfs].
 
 %%===========================================================================
 %% Helper functions
@@ -194,8 +209,13 @@ parse(Hocon) ->
     {ok, Conf} = hocon:binary(Hocon),
     Conf.
 
+%% what bridge creation does
 check(Conf) when is_map(Conf) ->
     hocon_tconf:check_plain(emqx_bridge_schema, Conf).
+
+%% what bridge probe does
+check_atom_key(Conf) when is_map(Conf) ->
+    hocon_tconf:check_plain(emqx_bridge_schema, Conf, #{atom_key => true, required => false}).
 
 %%===========================================================================
 %% Data section

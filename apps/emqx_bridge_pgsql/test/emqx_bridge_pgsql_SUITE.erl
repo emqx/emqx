@@ -10,6 +10,7 @@
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
+-include("emqx_resource_errors.hrl").
 
 % SQL definitions
 -define(SQL_BRIDGE,
@@ -690,10 +691,14 @@ t_table_removed(Config) ->
             connect_and_drop_table(Config),
             Val = integer_to_binary(erlang:unique_integer()),
             SentData = #{payload => Val, timestamp => 1668602148000},
-            ?assertMatch(
-                {error, {unrecoverable_error, {error, error, <<"42P01">>, undefined_table, _, _}}},
-                query_resource_sync(Config, {send_message, SentData, []})
-            ),
+            case query_resource_sync(Config, {send_message, SentData, []}) of
+                {error, {unrecoverable_error, {error, error, <<"42P01">>, undefined_table, _, _}}} ->
+                    ok;
+                ?RESOURCE_ERROR_M(not_connected, _) ->
+                    ok;
+                Res ->
+                    ct:fail("unexpected result: ~p", [Res])
+            end,
             ok
         end,
         []

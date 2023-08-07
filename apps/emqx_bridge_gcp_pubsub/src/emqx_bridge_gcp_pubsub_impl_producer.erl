@@ -50,15 +50,16 @@ callback_mode() -> async_if_possible.
 query_mode(_Config) -> async.
 
 -spec on_start(resource_id(), config()) -> {ok, state()} | {error, term()}.
-on_start(InstanceId, Config) ->
+on_start(InstanceId, Config0) ->
     ?SLOG(info, #{
         msg => "starting_gcp_pubsub_bridge",
-        config => Config
+        config => Config0
     }),
+    Config = maps:update_with(service_account_json, fun emqx_utils_maps:binary_key_map/1, Config0),
     #{
         payload_template := PayloadTemplate,
         pubsub_topic := PubSubTopic,
-        service_account_json := #{project_id := ProjectId}
+        service_account_json := #{<<"project_id">> := ProjectId}
     } = Config,
     case emqx_bridge_gcp_pubsub_client:start(InstanceId, Config) of
         {ok, Client} ->

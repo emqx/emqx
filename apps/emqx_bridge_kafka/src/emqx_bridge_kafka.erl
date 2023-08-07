@@ -528,7 +528,8 @@ kafka_producer_converter(Config, _HoconOpts) ->
 
 consumer_topic_mapping_validator(_TopicMapping = []) ->
     {error, "There must be at least one Kafka-MQTT topic mapping"};
-consumer_topic_mapping_validator(TopicMapping = [_ | _]) ->
+consumer_topic_mapping_validator(TopicMapping0 = [_ | _]) ->
+    TopicMapping = [emqx_utils_maps:binary_key_map(TM) || TM <- TopicMapping0],
     NumEntries = length(TopicMapping),
     KafkaTopics = [KT || #{<<"kafka_topic">> := KT} <- TopicMapping],
     DistinctKafkaTopics = length(lists:usort(KafkaTopics)),
@@ -539,6 +540,13 @@ consumer_topic_mapping_validator(TopicMapping = [_ | _]) ->
             {error, "Kafka topics must not be repeated in a bridge"}
     end.
 
+producer_strategy_key_validator(
+    #{
+        partition_strategy := _,
+        message := #{key := _}
+    } = Conf
+) ->
+    producer_strategy_key_validator(emqx_utils_maps:binary_key_map(Conf));
 producer_strategy_key_validator(#{
     <<"partition_strategy">> := key_dispatch,
     <<"message">> := #{<<"key">> := ""}

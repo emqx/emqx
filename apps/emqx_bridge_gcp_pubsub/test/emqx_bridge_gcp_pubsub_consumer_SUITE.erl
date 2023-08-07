@@ -275,14 +275,13 @@ ensure_topic(Config, Topic) ->
 
 start_control_client() ->
     RawServiceAccount = emqx_bridge_gcp_pubsub_utils:generate_service_account_json(),
-    ServiceAccount = emqx_utils_maps:unsafe_atom_key_map(RawServiceAccount),
     ConnectorConfig =
         #{
             connect_timeout => 5_000,
             max_retries => 0,
             pool_size => 1,
             resource_opts => #{request_ttl => 5_000},
-            service_account_json => ServiceAccount
+            service_account_json => RawServiceAccount
         },
     PoolName = <<"control_connector">>,
     {ok, Client} = emqx_bridge_gcp_pubsub_client:start(PoolName, ConnectorConfig),

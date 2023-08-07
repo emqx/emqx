@@ -35,6 +35,17 @@ pulsar_producer_validations_test() ->
         ]},
         check(Conf)
     ),
+    %% ensure atoms exist
+    _ = [my_producer],
+    ?assertThrow(
+        {_, [
+            #{
+                path := "bridges.pulsar_producer.my_producer",
+                reason := "Message key cannot be empty when `key_dispatch` strategy is used"
+            }
+        ]},
+        check_atom_key(Conf)
+    ),
 
     ok.
 
@@ -46,8 +57,13 @@ parse(Hocon) ->
     {ok, Conf} = hocon:binary(Hocon),
     Conf.
 
+%% what bridge creation does
 check(Conf) when is_map(Conf) ->
     hocon_tconf:check_plain(emqx_bridge_schema, Conf).
+
+%% what bridge probe does
+check_atom_key(Conf) when is_map(Conf) ->
+    hocon_tconf:check_plain(emqx_bridge_schema, Conf, #{atom_key => true, required => false}).
 
 %%===========================================================================
 %% Data section

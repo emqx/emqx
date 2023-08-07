@@ -220,10 +220,10 @@ parse_jwt_config(ResourceId, #{
     service_account_json := ServiceAccountJSON
 }) ->
     #{
-        project_id := ProjectId,
-        private_key_id := KId,
-        private_key := PrivateKeyPEM,
-        client_email := ServiceAccountEmail
+        <<"project_id">> := ProjectId,
+        <<"private_key_id">> := KId,
+        <<"private_key">> := PrivateKeyPEM,
+        <<"client_email">> := ServiceAccountEmail
     } = ServiceAccountJSON,
     %% fixed for pubsub; trailing slash is important.
     Aud = <<"https://pubsub.googleapis.com/">>,
