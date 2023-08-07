@@ -28,9 +28,7 @@
 -define(MODULE_PT_KEY(MOD_NAME), {?MODULE, mod, MOD_NAME}).
 
 -export([
-    inject_fields/3,
     injection_point/1,
-
     inject_fields_from_mod/1
 ]).
 
@@ -45,17 +43,7 @@
 %%--------------------------------------------------------------------
 
 injection_point(PointName) ->
-    InjectedFields = persistent_term:get(?HOOKPOINT_PT_KEY(PointName), #{}),
-    lists:concat(maps:values(InjectedFields)).
-
-inject_fields(PointName, Name, Fields) ->
-    Key = ?HOOKPOINT_PT_KEY(PointName),
-    InjectedFields = persistent_term:get(Key, #{}),
-    persistent_term:put(Key, InjectedFields#{Name => Fields}).
-
-%%--------------------------------------------------------------------
-%% Internal API
-%%--------------------------------------------------------------------
+    persistent_term:get(?HOOKPOINT_PT_KEY(PointName), []).
 
 inject_fields_from_mod(Module) ->
     case persistent_term:get(?MODULE_PT_KEY(Module), false) of
@@ -105,10 +93,14 @@ do_inject_fields_from_mod(Module) ->
             ok
     end.
 
-do_inject_fields_from_mod(Module, HookFields) ->
+do_inject_fields_from_mod(_Module, HookFields) ->
     maps:foreach(
         fun(PointName, Fields) ->
-            inject_fields(PointName, Module, Fields)
+            inject_fields(PointName, Fields)
         end,
         HookFields
     ).
+
+inject_fields(PointName, Fields) ->
+    Key = ?HOOKPOINT_PT_KEY(PointName),
+    persistent_term:put(Key, Fields).

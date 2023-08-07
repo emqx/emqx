@@ -222,7 +222,7 @@ roots(high) ->
                 ref(?EMQX_AUTHORIZATION_CONFIG_ROOT_NAME),
                 #{importance => ?IMPORTANCE_HIDDEN}
             )}
-    ] ++ emqx_schema_hooks:injection_point('roots.high');
+    ] ++ emqx_schema_hooks:injection_point('authentication');
 roots(medium) ->
     [
         {"broker",
@@ -1749,7 +1749,7 @@ mqtt_listener(Bind) ->
                         default => <<"3s">>
                     }
                 )}
-        ] ++ emqx_schema_hooks:injection_point('mqtt.listener').
+        ] ++ emqx_schema_hooks:injection_point('listeners.authentication').
 
 base_listener(Bind) ->
     [
