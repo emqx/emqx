@@ -138,7 +138,7 @@ raw_ldap_authz_config() ->
         <<"enable">> => <<"true">>,
         <<"type">> => <<"ldap">>,
         <<"server">> => ldap_server(),
-        <<"base_object">> => <<"uid=${username},ou=testdevice,dc=emqx,dc=io">>,
+        <<"base_dn">> => <<"uid=${username},ou=testdevice,dc=emqx,dc=io">>,
         <<"username">> => <<"cn=root,dc=emqx,dc=io">>,
         <<"password">> => <<"public">>,
         <<"pool_size">> => 8
