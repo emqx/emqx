@@ -278,13 +278,14 @@ t_session_serialization(_Config) ->
         emqx_eviction_agent:session_count()
     ),
 
+    [ChanPid0] = emqx_cm:lookup_channels(<<"client_with_session">>),
+    MRef0 = erlang:monitor(process, ChanPid0),
+
     %% Evacuate to the same node
 
-    ?assertWaitEvent(
-        emqx_eviction_agent:evict_sessions(1, node()),
-        #{?snk_kind := emqx_channel_takeover_end, clientid := <<"client_with_session">>},
-        1000
-    ),
+    _ = emqx_eviction_agent:evict_sessions(1, node()),
+
+    ?assertReceive({'DOWN', MRef0, process, ChanPid0, _}),
 
     ok = emqx_eviction_agent:disable(test_eviction),
 
