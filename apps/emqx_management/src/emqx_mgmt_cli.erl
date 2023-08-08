@@ -22,9 +22,6 @@
 -include_lib("emqx/include/emqx_mqtt.hrl").
 -include_lib("emqx/include/logger.hrl").
 
--include("emqx_mgmt.hrl").
-
--define(PRINT_CMD(Cmd, Descr), io:format("~-48s# ~ts~n", [Cmd, Descr])).
 -define(DATA_BACKUP_OPTS, #{print_fun => fun emqx_ctl:print/2}).
 
 -export([load/0]).
@@ -48,20 +45,6 @@
     olp/1,
     data/1
 ]).
-
--define(PROC_INFOKEYS, [
-    status,
-    memory,
-    message_queue_len,
-    total_heap_size,
-    heap_size,
-    stack_size,
-    reductions
-]).
-
--define(MAX_LIMIT, 10000).
-
--define(APP, emqx).
 
 -spec load() -> ok.
 load() ->
@@ -197,9 +180,12 @@ if_client(ClientId, Fun) ->
 %% @doc Topics Command
 
 topics(["list"]) ->
-    dump(?ROUTE_TAB, emqx_topic);
+    emqx_router:foldr_routes(
+        fun(Route, Acc) -> [print({emqx_topic, Route}) | Acc] end,
+        []
+    );
 topics(["show", Topic]) ->
-    Routes = ets:lookup(?ROUTE_TAB, bin(Topic)),
+    Routes = emqx_router:lookup_routes(Topic),
     [print({emqx_topic, Route}) || Route <- Routes];
 topics(_) ->
     emqx_ctl:usage([

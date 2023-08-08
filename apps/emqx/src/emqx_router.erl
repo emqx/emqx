@@ -56,6 +56,11 @@
 
 -export([print_routes/1]).
 
+-export([
+    foldl_routes/2,
+    foldr_routes/2
+]).
+
 -export([topics/0]).
 
 %% gen_server callbacks
@@ -211,6 +216,14 @@ cleanup_routes(Node) ->
      || Pat <- Patterns,
         Route <- mnesia:match_object(?ROUTE_TAB, Pat, write)
     ].
+
+-spec foldl_routes(fun((emqx_types:route(), Acc) -> Acc), Acc) -> Acc.
+foldl_routes(FoldFun, AccIn) ->
+    ets:foldl(FoldFun, AccIn, ?ROUTE_TAB).
+
+-spec foldr_routes(fun((emqx_types:route(), Acc) -> Acc), Acc) -> Acc.
+foldr_routes(FoldFun, AccIn) ->
+    ets:foldr(FoldFun, AccIn, ?ROUTE_TAB).
 
 call(Router, Msg) ->
     gen_server:call(Router, Msg, infinity).
