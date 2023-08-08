@@ -31,7 +31,7 @@ start_link() ->
 
 init([]) ->
     %% Broker pool
-    PoolSize = emqx_vm:schedulers() * 2,
+    PoolSize = emqx:get_config([node, broker_pool_size], emqx_vm:schedulers() * 2),
     BrokerPool = emqx_pool_sup:spec([
         broker_pool,
         hash,

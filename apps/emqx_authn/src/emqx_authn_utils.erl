@@ -35,7 +35,8 @@
     ensure_apps_started/1,
     cleanup_resources/0,
     make_resource_id/1,
-    without_password/1
+    without_password/1,
+    to_bool/1
 ]).
 
 -define(AUTHN_PLACEHOLDERS, [
@@ -144,47 +145,8 @@ render_sql_params(ParamList, Credential) ->
         #{return => rawlist, var_trans => fun handle_sql_var/2}
     ).
 
-%% true
-is_superuser(#{<<"is_superuser">> := <<"true">>}) ->
-    #{is_superuser => true};
-is_superuser(#{<<"is_superuser">> := true}) ->
-    #{is_superuser => true};
-is_superuser(#{<<"is_superuser">> := <<"1">>}) ->
-    #{is_superuser => true};
-is_superuser(#{<<"is_superuser">> := I}) when
-    is_integer(I) andalso I >= 1
-->
-    #{is_superuser => true};
-%% false
-is_superuser(#{<<"is_superuser">> := <<"">>}) ->
-    #{is_superuser => false};
-is_superuser(#{<<"is_superuser">> := <<"0">>}) ->
-    #{is_superuser => false};
-is_superuser(#{<<"is_superuser">> := 0}) ->
-    #{is_superuser => false};
-is_superuser(#{<<"is_superuser">> := null}) ->
-    #{is_superuser => false};
-is_superuser(#{<<"is_superuser">> := undefined}) ->
-    #{is_superuser => false};
-is_superuser(#{<<"is_superuser">> := <<"false">>}) ->
-    #{is_superuser => false};
-is_superuser(#{<<"is_superuser">> := false}) ->
-    #{is_superuser => false};
-is_superuser(#{<<"is_superuser">> := MaybeBinInt}) when
-    is_binary(MaybeBinInt)
-->
-    try binary_to_integer(MaybeBinInt) of
-        Int when Int >= 1 ->
-            #{is_superuser => true};
-        Int when Int =< 0 ->
-            #{is_superuser => false}
-    catch
-        error:badarg ->
-            #{is_superuser => false}
-    end;
-%% fallback to default
-is_superuser(#{<<"is_superuser">> := _}) ->
-    #{is_superuser => false};
+is_superuser(#{<<"is_superuser">> := Value}) ->
+    #{is_superuser => to_bool(Value)};
 is_superuser(#{}) ->
     #{is_superuser => false}.
 
@@ -210,6 +172,40 @@ make_resource_id(Name) ->
 
 without_password(Credential) ->
     without_password(Credential, [password, <<"password">>]).
+
+to_bool(<<"true">>) ->
+    true;
+to_bool(true) ->
+    true;
+to_bool(<<"1">>) ->
+    true;
+to_bool(I) when is_integer(I) andalso I >= 1 ->
+    true;
+%% false
+to_bool(<<"">>) ->
+    false;
+to_bool(<<"0">>) ->
+    false;
+to_bool(0) ->
+    false;
+to_bool(null) ->
+    false;
+to_bool(undefined) ->
+    false;
+to_bool(<<"false">>) ->
+    false;
+to_bool(false) ->
+    false;
+to_bool(MaybeBinInt) when is_binary(MaybeBinInt) ->
+    try
+        binary_to_integer(MaybeBinInt) >= 1
+    catch
+        error:badarg ->
+            false
+    end;
+%% fallback to default
+to_bool(_) ->
+    false.
 
 %%--------------------------------------------------------------------
 %% Internal functions

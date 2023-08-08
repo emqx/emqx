@@ -1,0 +1,25 @@
+emqx_ldap {
+
+server.desc:
+"""The IPv4 or IPv6 address or the hostname to connect to.<br/>
+A host entry has the following form: `Host[:Port]`.<br/>
+The LDAP default port 389 is used if `[:Port]` is not specified."""
+
+server.label:
+"""Server Host"""
+
+base_object.desc:
+"""The name of the base object entry (or possibly the root) relative to
+which the Search is to be performed."""
+
+base_object.label:
+"""Base Object"""
+
+filter.desc:
+"""The filter that defines the conditions that must be fulfilled in order
+for the Search to match a given entry."""
+
+filter.label:
+"""Filter"""
+
+}

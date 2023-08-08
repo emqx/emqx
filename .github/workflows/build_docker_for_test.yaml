@@ -1,0 +1,61 @@
+name: Build docker image for test
+
+concurrency:
+  group: docker-test-build-${{ github.event_name }}-${{ github.ref }}
+  cancel-in-progress: true
+
+on:
+  workflow_call:
+    inputs:
+      otp_vsn:
+        required: true
+        type: string
+      elixir_vsn:
+        required: true
+        type: string
+      version-emqx:
+        required: true
+        type: string
+      version-emqx-enterprise:
+        required: true
+        type: string
+
+jobs:
+  docker:
+    runs-on: ubuntu-latest
+    env:
+      EMQX_NAME: ${{ matrix.profile }}
+      PKG_VSN: ${{ matrix.profile == 'emqx-enterprise' && inputs.version-emqx-enterprise || inputs.version-emqx }}
+      OTP_VSN: ${{ inputs.otp_vsn }}
+      ELIXIR_VSN: ${{ inputs.elixir_vsn }}
+
+    strategy:
+      fail-fast: false
+      matrix:
+        profile:
+          - emqx
+          - emqx-enterprise
+          - emqx-elixir
+
+    steps:
+      - uses: actions/checkout@v3
+      - name: build and export to Docker
+        id: build
+        run: |
+          make ${EMQX_NAME}-docker
+          echo "EMQX_IMAGE_TAG=$(cat .docker_image_tag)" >> $GITHUB_ENV
+      - name: smoke test
+        run: |
+          CID=$(docker run -d --rm -P $EMQX_IMAGE_TAG)
+          HTTP_PORT=$(docker inspect --format='{{(index (index .NetworkSettings.Ports "18083/tcp") 0).HostPort}}' $CID)
+          ./scripts/test/emqx-smoke-test.sh localhost $HTTP_PORT
+          docker stop $CID
+      - name: export docker image
+        run: |
+          docker save $EMQX_IMAGE_TAG | gzip > $EMQX_NAME-docker-$PKG_VSN.tar.gz
+      - uses: actions/upload-artifact@v3
+        with:
+          name: "${{ env.EMQX_NAME }}-docker"
+          path: "${{ env.EMQX_NAME }}-docker-${{ env.PKG_VSN }}.tar.gz"
+          retention-days: 3
+

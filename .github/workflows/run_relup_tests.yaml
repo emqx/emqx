@@ -4,18 +4,20 @@ concurrency:
   group: relup-${{ github.event_name }}-${{ github.ref }}
   cancel-in-progress: true
 
-# on:
-#   push:
-#     branches:
-#       - '**'
-#     tags:
-#       - e*
-#   pull_request:
+on:
+  workflow_call:
+    inputs:
+      runner:
+        required: true
+        type: string
+      builder:
+        required: true
+        type: string
 
 jobs:
   relup_test_plan:
-    runs-on: ubuntu-22.04
-    container: "ghcr.io/emqx/emqx-builder/5.1-3:1.14.5-25.3.2-1-ubuntu22.04"
+    runs-on: ${{ inputs.runner }}
+    container: ${{ inputs.builder }}
     outputs:
       CUR_EE_VSN: ${{ steps.find-versions.outputs.CUR_EE_VSN }}
       OLD_VERSIONS: ${{ steps.find-versions.outputs.OLD_VERSIONS }}
@@ -23,16 +25,18 @@ jobs:
       run:
         shell: bash
     steps:
-    - uses: actions/checkout@v3
-      name: Checkout
+    - uses: AutoModality/action-clean@v1
+    - uses: actions/download-artifact@v3
       with:
-        path: emqx
-        fetch-depth: 0
+        name: emqx-enterprise
+    - name: extract artifact
+      run: |
+        unzip -o -q emqx-enterprise.zip
+        git config --global --add safe.directory "$GITHUB_WORKSPACE"
     - name: Find versions
       id: find-versions
       run: |
         set -x
-        cd emqx
         ee_vsn="$(./pkg-vsn.sh enterprise)"
         old_ee_vsns="$(./scripts/relup-build/base-vsns.sh enterprise | xargs)"
         old_vsns=$(echo -n "${old_ee_vsns}" | sed 's/ $//g' | jq -R -s -c 'split(" ")')
@@ -40,8 +44,6 @@ jobs:
         echo "OLD_VERSIONS=$old_vsns" >> $GITHUB_OUTPUT
     - name: build emqx
       run: |
-        set -x
-        cd emqx
         export PROFILE='emqx-enterprise'
         make emqx-enterprise-tgz
     - uses: actions/upload-artifact@v3
@@ -49,10 +51,10 @@ jobs:
       with:
         name: emqx_built
         path: |
-          emqx/_upgrade_base
-          emqx/_packages
-          emqx/scripts
-          emqx/.ci
+          _upgrade_base
+          _packages
+          scripts
+          .ci
 
   relup_test_run:
     needs:
@@ -70,8 +72,7 @@ jobs:
       run:
         shell: bash
     steps:
-      # setup Erlang to run lux
-    - uses: erlef/setup-beam@v1.15.4
+    - uses: erlef/setup-beam@v1.16.0
       with:
         otp-version: 25.3.2
     - uses: actions/checkout@v3
@@ -81,7 +82,7 @@ jobs:
         path: lux
     - name: Install lux
       run: |
-        set -e -u -x
+        set -eu
         cd lux
         autoconf
         ./configure
@@ -94,10 +95,7 @@ jobs:
         path: .
     - name: run relup test
       run: |
-        set -e -x -u
-        chmod a+x scripts/**/*.sh
-        ls -l scripts
-        ls -l scripts/relup-test
+        set -eux
         case "$OLD_VSN" in
           e*)
             export CUR_VSN="$CUR_EE_VSN"

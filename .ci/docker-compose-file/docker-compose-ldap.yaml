@@ -6,11 +6,11 @@ services:
     build:
       context: ../..
       dockerfile: .ci/docker-compose-file/openldap/Dockerfile
-      args: 
+      args:
         LDAP_TAG: ${LDAP_TAG}
-    image: openldap 
-    ports:
-      - 389:389
+    image: openldap
+    #ports:
+    #  - 389:389
     restart: always
     networks:
       - emqx_bridge

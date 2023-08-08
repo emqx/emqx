@@ -82,6 +82,14 @@ init_per_testcase(t_rule_action_expired, Config) ->
         {bridge_name, ?BRIDGE_NAME}
         | Config
     ];
+init_per_testcase(t_bridge_probes_header_atoms, Config) ->
+    HTTPPath = <<"/path">>,
+    ServerSSLOpts = false,
+    {ok, {HTTPPort, _Pid}} = emqx_bridge_http_connector_test_server:start_link(
+        _Port = random, HTTPPath, ServerSSLOpts
+    ),
+    ok = emqx_bridge_http_connector_test_server:set_handler(success_http_handler()),
+    [{http_server, #{port => HTTPPort, path => HTTPPath}} | Config];
 init_per_testcase(_TestCase, Config) ->
     Server = start_http_server(#{response_delay_ms => 0}),
     [{http_server, Server} | Config].
@@ -89,7 +97,8 @@ init_per_testcase(_TestCase, Config) ->
 end_per_testcase(TestCase, _Config) when
     TestCase =:= t_path_not_found;
     TestCase =:= t_too_many_requests;
-    TestCase =:= t_rule_action_expired
+    TestCase =:= t_rule_action_expired;
+    TestCase =:= t_bridge_probes_header_atoms
 ->
     ok = emqx_bridge_http_connector_test_server:stop(),
     persistent_term:erase({?MODULE, times_called}),
@@ -291,6 +300,22 @@ make_bridge(Config) ->
         BridgeConfig
     ),
     emqx_bridge_resource:bridge_id(Type, Name).
+
+success_http_handler() ->
+    TestPid = self(),
+    fun(Req0, State) ->
+        {ok, Body, Req} = cowboy_req:read_body(Req0),
+        Headers = cowboy_req:headers(Req),
+        ct:pal("http request received: ~p", [#{body => Body, headers => Headers}]),
+        TestPid ! {http, Headers, Body},
+        Rep = cowboy_req:reply(
+            200,
+            #{<<"content-type">> => <<"text/plain">>},
+            <<"hello">>,
+            Req
+        ),
+        {ok, Rep, State}
+    end.
 
 not_found_http_handler() ->
     TestPid = self(),
@@ -613,6 +638,55 @@ t_rule_action_expired(Config) ->
     ),
     ok.
 
+t_bridge_probes_header_atoms(Config) ->
+    #{port := Port, path := Path} = ?config(http_server, Config),
+    ?check_trace(
+        begin
+            LocalTopic = <<"t/local/topic">>,
+            BridgeConfig0 = bridge_async_config(#{
+                type => ?BRIDGE_TYPE,
+                name => ?BRIDGE_NAME,
+                port => Port,
+                path => Path,
+                resume_interval => "100ms",
+                connect_timeout => "1s",
+                request_timeout => "100ms",
+                resource_request_ttl => "100ms",
+                local_topic => LocalTopic
+            }),
+            BridgeConfig = BridgeConfig0#{
+                <<"headers">> => #{
+                    <<"some-non-existent-atom">> => <<"x">>
+                }
+            },
+            ?assertMatch(
+                {ok, {{_, 204, _}, _Headers, _Body}},
+                probe_bridge_api(BridgeConfig)
+            ),
+            ?assertMatch(
+                {ok, {{_, 201, _}, _Headers, _Body}},
+                emqx_bridge_testlib:create_bridge_api(
+                    ?BRIDGE_TYPE,
+                    ?BRIDGE_NAME,
+                    BridgeConfig
+                )
+            ),
+            Msg = emqx_message:make(LocalTopic, <<"hi">>),
+            emqx:publish(Msg),
+            receive
+                {http, Headers, _Body} ->
+                    ?assertMatch(#{<<"some-non-existent-atom">> := <<"x">>}, Headers),
+                    ok
+            after 5_000 ->
+                ct:pal("mailbox: ~p", [process_info(self(), messages)]),
+                ct:fail("request not made")
+            end,
+            ok
+        end,
+        []
+    ),
+    ok.
+
 %% helpers
 do_t_async_retries(TestContext, Error, Fn) ->
     #{error_attempts := ErrorAttempts} = TestContext,
@@ -659,3 +733,17 @@ remove_message_id(MessageIDs, #{body := IDBin}) ->
     ID = erlang:binary_to_integer(IDBin),
     %% It is acceptable to get the same message more than once
     maps:without([ID], MessageIDs).
+
+probe_bridge_api(BridgeConfig) ->
+    Params = BridgeConfig#{<<"type">> => ?BRIDGE_TYPE, <<"name">> => ?BRIDGE_NAME},
+    Path = emqx_mgmt_api_test_util:api_path(["bridges_probe"]),
+    AuthHeader = emqx_mgmt_api_test_util:auth_header_(),
+    Opts = #{return_all => true},
+    ct:pal("probing bridge (via http): ~p", [Params]),
+    Res =
+        case emqx_mgmt_api_test_util:request_api(post, Path, "", AuthHeader, Params, Opts) of
+            {ok, {{_, 204, _}, _Headers, _Body0} = Res0} -> {ok, Res0};
+            Error -> Error
+        end,
+    ct:pal("bridge probe result: ~p", [Res]),
+    Res.

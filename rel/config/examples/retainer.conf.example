@@ -8,6 +8,9 @@ retainer {
     ## set to false to disable retainer
     enable = true
 
+    ## Message retention time, default is 0 means the message will never expire
+    msg_expiry_interval = 5s
+
     ## Maximum message size allowed
     max_payload_size = 1MB
 

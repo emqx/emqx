@@ -220,6 +220,13 @@ conn_bridge_examples(_Method) ->
         }
     ].
 
+producer_strategy_key_validator(
+    #{
+        strategy := _,
+        message := #{key := _}
+    } = Conf
+) ->
+    producer_strategy_key_validator(emqx_utils_maps:binary_key_map(Conf));
 producer_strategy_key_validator(#{
     <<"strategy">> := key_dispatch,
     <<"message">> := #{<<"key">> := ""}
@@ -257,13 +264,20 @@ override_default(OriginalFn, NewDefault) ->
 
 auth_union_member_selector(all_union_members) ->
     [none, ref(auth_basic), ref(auth_token)];
-auth_union_member_selector({value, V}) ->
+auth_union_member_selector({value, V0}) ->
+    V =
+        case is_map(V0) of
+            true -> emqx_utils_maps:binary_key_map(V0);
+            false -> V0
+        end,
     case V of
         #{<<"password">> := _} ->
             [ref(auth_basic)];
         #{<<"jwt">> := _} ->
             [ref(auth_token)];
         <<"none">> ->
+            [none];
+        none ->
             [none];
         _ ->
             Expected = "none | basic | token",

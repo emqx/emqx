@@ -43,7 +43,8 @@
 -export([
     headers_no_content_type/1,
     headers/1,
-    default_authz/0
+    default_authz/0,
+    authz_common_fields/1
 ]).
 
 %%--------------------------------------------------------------------
@@ -64,7 +65,8 @@ type_names() ->
         redis_single,
         redis_sentinel,
         redis_cluster
-    ].
+    ] ++
+        emqx_authz_enterprise:type_names().
 
 namespace() -> authz.
 
@@ -176,7 +178,9 @@ fields("node_error") ->
     [
         node_name(),
         {"error", ?HOCON(string(), #{desc => ?DESC("node_error")})}
-    ].
+    ];
+fields(MaybeEnterprise) ->
+    emqx_authz_enterprise:fields(MaybeEnterprise).
 
 common_field() ->
     [
@@ -220,8 +224,8 @@ desc(redis_sentinel) ->
     ?DESC(redis_sentinel);
 desc(redis_cluster) ->
     ?DESC(redis_cluster);
-desc(_) ->
-    undefined.
+desc(MaybeEnterprise) ->
+    emqx_authz_enterprise:desc(MaybeEnterprise).
 
 authz_common_fields(Type) ->
     [

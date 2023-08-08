@@ -196,16 +196,27 @@ create_bridge_http(Config, GCPPubSubConfigOverrides) ->
     Path = emqx_mgmt_api_test_util:api_path(["bridges"]),
     AuthHeader = emqx_mgmt_api_test_util:auth_header_(),
     ProbePath = emqx_mgmt_api_test_util:api_path(["bridges_probe"]),
-    ProbeResult = emqx_mgmt_api_test_util:request_api(post, ProbePath, "", AuthHeader, Params),
+    Opts = #{return_all => true},
+    ProbeResult = emqx_mgmt_api_test_util:request_api(
+        post, ProbePath, "", AuthHeader, Params, Opts
+    ),
     ct:pal("creating bridge (via http): ~p", [Params]),
     ct:pal("probe result: ~p", [ProbeResult]),
     Res =
-        case emqx_mgmt_api_test_util:request_api(post, Path, "", AuthHeader, Params) of
-            {ok, Res0} -> {ok, emqx_utils_json:decode(Res0, [return_maps])};
-            Error -> Error
+        case emqx_mgmt_api_test_util:request_api(post, Path, "", AuthHeader, Params, Opts) of
+            {ok, {Status, Headhers, Res0}} ->
+                {ok, {Status, Headhers, emqx_utils_json:decode(Res0, [return_maps])}};
+            {error, {Status, Headers, Body0}} ->
+                {error, {Status, Headers, emqx_bridge_testlib:try_decode_error(Body0)}};
+            Error ->
+                Error
         end,
     ct:pal("bridge creation result: ~p", [Res]),
     ?assertEqual(element(1, ProbeResult), element(1, Res)),
+    case ProbeResult of
+        {error, {{_, 500, _}, _, _}} -> error({bad_probe_result, ProbeResult});
+        _ -> ok
+    end,
     Res.
 
 create_rule_and_action_http(Config) ->
@@ -821,11 +832,28 @@ t_not_of_service_account_type(Config) ->
     ?assertMatch(
         {error, #{
             kind := validation_error,
-            reason := {wrong_type, <<"not a service account">>},
+            reason := #{wrong_type := <<"not a service account">>},
             %% should be censored as it contains secrets
             value := <<"******">>
         }},
         create_bridge(
+            Config,
+            #{
+                <<"service_account_json">> => #{<<"type">> => <<"not a service account">>}
+            }
+        )
+    ),
+    ?assertMatch(
+        {error,
+            {{_, 400, _}, _, #{
+                <<"message">> := #{
+                    <<"kind">> := <<"validation_error">>,
+                    <<"reason">> := #{<<"wrong_type">> := <<"not a service account">>},
+                    %% should be censored as it contains secrets
+                    <<"value">> := <<"******">>
+                }
+            }}},
+        create_bridge_http(
             Config,
             #{
                 <<"service_account_json">> => #{<<"type">> => <<"not a service account">>}
@@ -840,17 +868,43 @@ t_json_missing_fields(Config) ->
         {error, #{
             kind := validation_error,
             reason :=
-                {missing_keys, [
-                    <<"client_email">>,
-                    <<"private_key">>,
-                    <<"private_key_id">>,
-                    <<"project_id">>,
-                    <<"type">>
-                ]},
+                #{
+                    missing_keys := [
+                        <<"client_email">>,
+                        <<"private_key">>,
+                        <<"private_key_id">>,
+                        <<"project_id">>,
+                        <<"type">>
+                    ]
+                },
             %% should be censored as it contains secrets
             value := <<"******">>
         }},
         create_bridge([
+            {gcp_pubsub_config, GCPPubSubConfig0#{<<"service_account_json">> := #{}}}
+            | Config
+        ])
+    ),
+    ?assertMatch(
+        {error,
+            {{_, 400, _}, _, #{
+                <<"message">> := #{
+                    <<"kind">> := <<"validation_error">>,
+                    <<"reason">> :=
+                        #{
+                            <<"missing_keys">> := [
+                                <<"client_email">>,
+                                <<"private_key">>,
+                                <<"private_key_id">>,
+                                <<"project_id">>,
+                                <<"type">>
+                            ]
+                        },
+                    %% should be censored as it contains secrets
+                    <<"value">> := <<"******">>
+                }
+            }}},
+        create_bridge_http([
             {gcp_pubsub_config, GCPPubSubConfig0#{<<"service_account_json">> := #{}}}
             | Config
         ])

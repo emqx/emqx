@@ -544,18 +544,20 @@ schema("/bridges_probe") ->
             case emqx_bridge_resource:create_dry_run(ConnType, maps:remove(<<"type">>, Params1)) of
                 ok ->
                     ?NO_CONTENT;
-                {error, #{kind := validation_error} = Reason} ->
+                {error, #{kind := validation_error} = Reason0} ->
+                    Reason = redact(Reason0),
                     ?BAD_REQUEST('TEST_FAILED', map_to_json(Reason));
                 {error, Reason0} when not is_tuple(Reason0); element(1, Reason0) =/= 'exit' ->
-                    Reason =
+                    Reason1 =
                         case Reason0 of
                             {unhealthy_target, Message} -> Message;
                             _ -> Reason0
                         end,
+                    Reason = redact(Reason1),
                     ?BAD_REQUEST('TEST_FAILED', Reason)
             end;
         BadRequest ->
-            BadRequest
+            redact(BadRequest)
     end.
 
 maybe_deobfuscate_bridge_probe(#{<<"type">> := BridgeType, <<"name">> := BridgeName} = Params) ->
@@ -608,7 +610,7 @@ create_or_update_bridge(BridgeType, BridgeName, Conf, HttpStatusCode) ->
         {ok, _} ->
             lookup_from_all_nodes(BridgeType, BridgeName, HttpStatusCode);
         {error, Reason} when is_map(Reason) ->
-            ?BAD_REQUEST(map_to_json(emqx_utils:redact(Reason)))
+            ?BAD_REQUEST(map_to_json(redact(Reason)))
     end.
 
 get_metrics_from_local_node(BridgeType, BridgeName) ->
@@ -990,7 +992,9 @@ call_operation(NodeOrAll, OperFunc, Args = [_Nodes, BridgeType, BridgeName]) ->
         {error, timeout} ->
             ?BAD_REQUEST(<<"Request timeout">>);
         {error, {start_pool_failed, Name, Reason}} ->
-            Msg = bin(io_lib:format("Failed to start ~p pool for reason ~p", [Name, Reason])),
+            Msg = bin(
+                io_lib:format("Failed to start ~p pool for reason ~p", [Name, redact(Reason)])
+            ),
             ?BAD_REQUEST(Msg);
         {error, not_found} ->
             BridgeId = emqx_bridge_resource:bridge_id(BridgeType, BridgeName),
@@ -1007,7 +1011,7 @@ call_operation(NodeOrAll, OperFunc, Args = [_Nodes, BridgeType, BridgeName]) ->
         {error, {unhealthy_target, Message}} ->
             ?BAD_REQUEST(Message);
         {error, Reason} when not is_tuple(Reason); element(1, Reason) =/= 'exit' ->
-            ?BAD_REQUEST(Reason)
+            ?BAD_REQUEST(redact(Reason))
     end.
 
 maybe_try_restart(all, start_bridges_to_all_nodes, Args) ->
@@ -1071,7 +1075,15 @@ deobfuscate(NewConf, OldConf) ->
         NewConf
     ).
 
-map_to_json(M) ->
-    emqx_utils_json:encode(
-        emqx_utils_maps:jsonable_map(M, fun(K, V) -> {K, emqx_utils_maps:binary_string(V)} end)
-    ).
+map_to_json(M0) ->
+    %% When dealing with Hocon validation errors, `value' might contain non-serializable
+    %% values (e.g.: user_lookup_fun), so we try again without that key if serialization
+    %% fails as a best effort.
+    M1 = emqx_utils_maps:jsonable_map(M0, fun(K, V) -> {K, emqx_utils_maps:binary_string(V)} end),
+    try
+        emqx_utils_json:encode(M1)
+    catch
+        error:_ ->
+            M2 = maps:without([value, <<"value">>], M1),
+            emqx_utils_json:encode(M2)
+    end.

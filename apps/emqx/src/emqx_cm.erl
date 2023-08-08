@@ -685,7 +685,8 @@ handle_cast(Msg, State) ->
 
 handle_info({'DOWN', _MRef, process, Pid, _Reason}, State = #{chan_pmon := PMon}) ->
     ?tp(emqx_cm_process_down, #{stale_pid => Pid, reason => _Reason}),
-    ChanPids = [Pid | emqx_utils:drain_down(?BATCH_SIZE)],
+    BatchSize = emqx:get_config([node, channel_cleanup_batch_size], ?BATCH_SIZE),
+    ChanPids = [Pid | emqx_utils:drain_down(BatchSize)],
     {Items, PMon1} = emqx_pmon:erase_all(ChanPids, PMon),
     lists:foreach(fun mark_channel_disconnected/1, ChanPids),
     ok = emqx_pool:async_submit(fun lists:foreach/2, [fun ?MODULE:clean_down/1, Items]),

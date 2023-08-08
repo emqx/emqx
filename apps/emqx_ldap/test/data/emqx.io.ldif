@@ -132,3 +132,21 @@ mqttPubSubTopic: mqttuser0005/pubsub/1
 mqttPubSubTopic: mqttuser0005/pubsub/+
 mqttPubSubTopic: mqttuser0005/pubsub/#
 userPassword: {SHA}jKnxeEDGR14kE8AR7yuVFOelhz4=
+
+objectClass: top
+dn:uid=mqttuser0006,ou=testdevice,dc=emqx,dc=io
+objectClass: mqttUser
+objectClass: mqttDevice
+objectClass: mqttSecurity
+uid: mqttuser0006
+isEnabled: FALSE
+userPassword: {SHA}AlNm2FUO8G5BK5pCggfrPauRqN0=
+
+objectClass: top
+dn:uid=mqttuser0007,ou=testdevice,dc=emqx,dc=io
+objectClass: mqttUser
+objectClass: mqttDevice
+objectClass: mqttSecurity
+uid: mqttuser0007
+isSuperuser: TRUE
+userPassword: {SHA}axpQGbl00j3jvOG058y313ocnBk=

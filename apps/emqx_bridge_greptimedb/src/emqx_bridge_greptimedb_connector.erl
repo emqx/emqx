@@ -53,6 +53,8 @@
 
 -define(AUTO_RECONNECT_S, 1).
 
+-define(CONNECT_TIMEOUT, 5_000).
+
 %% -------------------------------------------------------------------------------------------------
 %% resource callback
 callback_mode() -> always_sync.
@@ -251,6 +253,12 @@ do_start_client(
             {error, Reason}
     end.
 
+grpc_config() ->
+    #{
+        sync_start => true,
+        connect_timeout => ?CONNECT_TIMEOUT
+    }.
+
 client_config(
     InstId,
     Config = #{
@@ -264,6 +272,7 @@ client_config(
         {pool, InstId},
         {pool_type, random},
         {auto_reconnect, ?AUTO_RECONNECT_S},
+        {gprc_options, grpc_config()},
         {timeunit, maps:get(precision, Config, ms)}
     ] ++ protocol_config(Config).
 

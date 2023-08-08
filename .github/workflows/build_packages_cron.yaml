@@ -29,7 +29,7 @@ jobs:
         arch:
           - amd64
         os:
-          - debian10
+          - ubuntu22.04
           - amzn2023
         builder:
           - 5.1-3
@@ -94,7 +94,7 @@ jobs:
         otp:
           - 25.3.2-1
         os:
-          - macos-12
+          - macos-13
           - macos-12-arm64
 
     steps:
@@ -117,6 +117,7 @@ jobs:
         with:
           name: ${{ matrix.profile }}
           path: _packages/${{ matrix.profile }}/
+          retention-days: 7
       - name: Send notification to Slack
         uses: slackapi/slack-github-action@v1.23.0
         if: failure()
@@ -125,3 +126,59 @@ jobs:
         with:
           payload: |
             {"text": "Scheduled build of ${{ matrix.profile }} package for ${{ matrix.os }} failed: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"}
+
+  windows:
+    if: github.repository_owner == 'emqx'
+    runs-on: windows-2019
+    strategy:
+      fail-fast: false
+      matrix:
+        profile:
+          - emqx
+        otp:
+          - 25.3.2
+    steps:
+      - uses: actions/checkout@v3
+      - uses: ilammy/msvc-dev-cmd@v1.12.0
+      - uses: erlef/setup-beam@v1.16.0
+        with:
+          otp-version: ${{ matrix.otp }}
+      - name: build
+        env:
+          PYTHON: python
+          DIAGNOSTIC: 1
+        run: |
+          # ensure crypto app (openssl)
+          erl -eval "erlang:display(crypto:info_lib())" -s init stop
+          make ${{ matrix.profile }}-tgz
+      - name: run emqx
+        timeout-minutes: 5
+        run: |
+          ./_build/${{ matrix.profile }}/rel/emqx/bin/emqx start
+          Start-Sleep -s 10
+          $pingOutput = ./_build/${{ matrix.profile }}/rel/emqx/bin/emqx ping
+          if ($pingOutput = 'pong') {
+            echo "EMQX started OK"
+          } else {
+            echo "Failed to ping EMQX $pingOutput"
+            Exit 1
+          }
+          ./_build/${{ matrix.profile }}/rel/emqx/bin/emqx stop
+          echo "EMQX stopped"
+          ./_build/${{ matrix.profile }}/rel/emqx/bin/emqx install
+          echo "EMQX installed"
+          ./_build/${{ matrix.profile }}/rel/emqx/bin/emqx uninstall
+          echo "EMQX uninstalled"
+      - uses: actions/upload-artifact@v3
+        with:
+          name: windows
+          path: _packages/${{ matrix.profile }}/*
+          retention-days: 7
+      - name: Send notification to Slack
+        uses: slackapi/slack-github-action@v1.23.0
+        if: failure()
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+        with:
+          payload: |
+            {"text": "Scheduled build of ${{ matrix.profile }} package for Windows failed: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"}
