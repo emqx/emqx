@@ -170,4 +170,3 @@ jobs:
           EMQX_NAME=${{ matrix.profile }}${{ steps.pre-meta.outputs.img_suffix }}
           EXTRA_DEPS=${{ steps.pre-meta.outputs.extra_deps }}
         file: source/${{ matrix.os[2] }}
-
