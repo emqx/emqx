@@ -1193,7 +1193,7 @@ mongo_date(MillisecondsTimestamp) ->
 mongo_date(Timestamp, Unit) ->
     InsertedTimeUnit = time_unit(Unit),
     ScaledEpoch = erlang:convert_time_unit(Timestamp, InsertedTimeUnit, millisecond),
-    convert_timestamp(ScaledEpoch).
+    mongo_date(ScaledEpoch).
 
 maybe_isodate_format(ErlTimestamp) ->
     case emqx_rule_sqltester:is_test_runtime_env() of
