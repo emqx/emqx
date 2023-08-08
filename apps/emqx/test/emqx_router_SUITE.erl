@@ -26,6 +26,15 @@
 
 -define(R, emqx_router).
 
+-define(WAIT_INDEX_SYNC(UPDATE),
+    snabbkaffe:retry(100, 10, fun() ->
+        case emqx_router_index:peek_last_update() of
+            UPDATE = __U -> __U;
+            _ -> throw(missing_update)
+        end
+    end)
+).
+
 all() -> emqx_common_test_helpers:all(?MODULE).
 
 init_per_suite(Config) ->
@@ -71,29 +80,31 @@ end_per_testcase(_TestCase, _Config) ->
 %     error('TODO').
 
 t_add_delete(_) ->
-    ?R:add_route(<<"a/b/c">>),
-    ?R:add_route(<<"a/b/c">>, node()),
-    ?R:add_route(<<"a/+/b">>, node()),
+    add_route(<<"a/b/c">>),
+    add_route(<<"a/b/c">>, node()),
+    add_route(<<"a/+/b">>, node()),
     ?assertEqual([<<"a/+/b">>, <<"a/b/c">>], lists:sort(?R:topics())),
-    ?R:delete_route(<<"a/b/c">>),
-    ?R:delete_route(<<"a/+/b">>, node()),
+    delete_route(<<"a/b/c">>),
+    delete_route(<<"a/+/b">>, node()),
     ?assertEqual([], ?R:topics()).
 
 t_do_add_delete(_) ->
     ?R:do_add_route(<<"a/b/c">>),
     ?R:do_add_route(<<"a/b/c">>, node()),
     ?R:do_add_route(<<"a/+/b">>, node()),
+    ?WAIT_INDEX_SYNC({write, <<"a/+/b">>, _}),
     ?assertEqual([<<"a/+/b">>, <<"a/b/c">>], lists:sort(?R:topics())),
 
     ?R:do_delete_route(<<"a/b/c">>, node()),
     ?R:do_delete_route(<<"a/+/b">>),
+    ?WAIT_INDEX_SYNC({delete, <<"a/+/b">>, _}),
     ?assertEqual([], ?R:topics()).
 
 t_match_routes(_) ->
-    ?R:add_route(<<"a/b/c">>),
-    ?R:add_route(<<"a/+/c">>, node()),
-    ?R:add_route(<<"a/b/#">>, node()),
-    ?R:add_route(<<"#">>, node()),
+    add_route(<<"a/b/c">>),
+    add_route(<<"a/+/c">>, node()),
+    add_route(<<"a/b/#">>, node()),
+    add_route(<<"#">>, node()),
     ?assertEqual(
         [
             #route{topic = <<"#">>, dest = node()},
@@ -103,27 +114,43 @@ t_match_routes(_) ->
         ],
         lists:sort(?R:match_routes(<<"a/b/c">>))
     ),
-    ?R:delete_route(<<"a/b/c">>, node()),
-    ?R:delete_route(<<"a/+/c">>, node()),
-    ?R:delete_route(<<"a/b/#">>, node()),
-    ?R:delete_route(<<"#">>, node()),
+    delete_route(<<"a/b/c">>, node()),
+    delete_route(<<"a/+/c">>, node()),
+    delete_route(<<"a/b/#">>, node()),
+    delete_route(<<"#">>, node()),
     ?assertEqual([], lists:sort(?R:match_routes(<<"a/b/c">>))).
 
 t_print_routes(_) ->
-    ?R:add_route(<<"+/#">>),
-    ?R:add_route(<<"+/+">>),
+    add_route(<<"+/#">>),
+    add_route(<<"+/+">>),
     ?R:print_routes(<<"a/b">>).
 
 t_has_routes(_) ->
-    ?R:add_route(<<"devices/+/messages">>, node()),
+    add_route(<<"devices/+/messages">>, node()),
     ?assert(?R:has_routes(<<"devices/+/messages">>)),
-    ?R:delete_route(<<"devices/+/messages">>).
+    delete_route(<<"devices/+/messages">>).
 
 t_unexpected(_) ->
     Router = emqx_utils:proc_name(?R, 1),
     ?assertEqual(ignored, gen_server:call(Router, bad_request)),
     ?assertEqual(ok, gen_server:cast(Router, bad_message)),
     Router ! bad_info.
+
+add_route(Topic) ->
+    ok = emqx_router:add_route(Topic),
+    ?WAIT_INDEX_SYNC({write, Topic, _}).
+
+add_route(Topic, Dest) ->
+    ok = emqx_router:add_route(Topic, Dest),
+    ?WAIT_INDEX_SYNC({write, Topic, Dest}).
+
+delete_route(Topic) ->
+    ok = emqx_router:delete_route(Topic),
+    ?WAIT_INDEX_SYNC({delete, Topic, _}).
+
+delete_route(Topic, Dest) ->
+    ok = emqx_router:delete_route(Topic, Dest),
+    ?WAIT_INDEX_SYNC({delete, Topic, Dest}).
 
 clear_tables() ->
     lists:foreach(

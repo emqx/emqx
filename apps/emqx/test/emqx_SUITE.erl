@@ -47,7 +47,7 @@ t_emqx_pubsub_api(_) ->
     emqx:subscribe(Topic1, ClientId, #{qos => 1}),
     emqx:subscribe(Topic2, ClientId, #{qos => 2}),
     ct:sleep(100),
-    ?assertEqual([Topic2, Topic1, Topic], emqx:topics()),
+    ?assertEqual([Topic, Topic1, Topic2], lists:sort(emqx:topics())),
     ?assertEqual([self()], emqx:subscribers(Topic)),
     ?assertEqual([self()], emqx:subscribers(Topic1)),
     ?assertEqual([self()], emqx:subscribers(Topic2)),

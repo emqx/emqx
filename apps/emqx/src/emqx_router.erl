@@ -55,6 +55,11 @@
 
 -export([print_routes/1]).
 
+-export([
+    foldl_routes/2,
+    foldr_routes/2
+]).
+
 -export([topics/0]).
 
 %% gen_server callbacks
@@ -66,6 +71,8 @@
     terminate/2,
     code_change/3
 ]).
+
+-export_type([dest/0]).
 
 -type group() :: binary().
 
@@ -130,33 +137,16 @@ do_add_route(Topic, Dest) when is_binary(Topic) ->
             ok;
         false ->
             ok = emqx_router_helper:monitor(Dest),
-            case emqx_topic:wildcard(Topic) of
-                true ->
-                    emqx_router_utils:maybe_trans(
-                        ?ROUTE_TAB,
-                        fun emqx_router_utils:insert_trie_route/2,
-                        [?ROUTE_TAB, Route],
-                        ?ROUTE_SHARD
-                    );
-                false ->
-                    emqx_router_utils:insert_direct_route(?ROUTE_TAB, Route)
-            end
+            mria:dirty_write(?ROUTE_TAB, Route)
     end.
 
 %% @doc Match routes
 -spec match_routes(emqx_types:topic()) -> [emqx_types:route()].
 match_routes(Topic) when is_binary(Topic) ->
-    case match_trie(Topic) of
-        [] -> lookup_routes(Topic);
-        Matched -> lists:append([lookup_routes(To) || To <- [Topic | Matched]])
-    end.
+    lookup_routes(Topic) ++ match_index(Topic).
 
-%% Optimize: routing table will be replicated to all router nodes.
-match_trie(Topic) ->
-    case emqx_trie:empty() of
-        true -> [];
-        false -> emqx_trie:match(Topic)
-    end.
+match_index(Topic) ->
+    emqx_router_index:match(Topic).
 
 -spec lookup_routes(emqx_types:topic()) -> [emqx_types:route()].
 lookup_routes(Topic) ->
@@ -181,17 +171,7 @@ do_delete_route(Topic) when is_binary(Topic) ->
 -spec do_delete_route(emqx_types:topic(), dest()) -> ok | {error, term()}.
 do_delete_route(Topic, Dest) ->
     Route = #route{topic = Topic, dest = Dest},
-    case emqx_topic:wildcard(Topic) of
-        true ->
-            emqx_router_utils:maybe_trans(
-                ?ROUTE_TAB,
-                fun emqx_router_utils:delete_trie_route/2,
-                [?ROUTE_TAB, Route],
-                ?ROUTE_SHARD
-            );
-        false ->
-            emqx_router_utils:delete_direct_route(?ROUTE_TAB, Route)
-    end.
+    mria:dirty_delete_object(?ROUTE_TAB, Route).
 
 -spec topics() -> list(emqx_types:topic()).
 topics() ->
@@ -218,6 +198,14 @@ cleanup_routes(Node) ->
      || Pat <- Patterns,
         Route <- mnesia:match_object(?ROUTE_TAB, Pat, write)
     ].
+
+-spec foldl_routes(fun((emqx_types:route(), Acc) -> Acc), Acc) -> Acc.
+foldl_routes(FoldFun, AccIn) ->
+    ets:foldl(FoldFun, AccIn, ?ROUTE_TAB).
+
+-spec foldr_routes(fun((emqx_types:route(), Acc) -> Acc), Acc) -> Acc.
+foldr_routes(FoldFun, AccIn) ->
+    ets:foldr(FoldFun, AccIn, ?ROUTE_TAB).
 
 call(Router, Msg) ->
     gen_server:call(Router, Msg, infinity).

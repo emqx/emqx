@@ -35,6 +35,15 @@ init([]) ->
         type => worker,
         modules => [emqx_router_helper]
     },
+    %% Router index
+    Index = #{
+        id => index,
+        start => {emqx_router_index, start_link, []},
+        restart => permanent,
+        shutdown => 5000,
+        type => worker,
+        modules => [emqx_router_index]
+    },
     %% Router pool
     RouterPool = emqx_pool_sup:spec([
         router_pool,
@@ -46,4 +55,4 @@ init([]) ->
         intensity => 10,
         period => 100
     },
-    {ok, {SupFlags, [Helper, RouterPool]}}.
+    {ok, {SupFlags, [Helper, Index, RouterPool]}}.
