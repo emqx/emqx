@@ -24,12 +24,12 @@
     }.
 -optional_callbacks([injected_fields/0]).
 
+-export_type([hookpoint/0]).
+
 -define(HOOKPOINT_PT_KEY(POINT_NAME), {?MODULE, fields, POINT_NAME}).
 
 -export([
     injection_point/1,
-    any_injections/1,
-    inject_fields/2,
     inject_from_modules/1
 ]).
 
@@ -45,10 +45,6 @@
 
 injection_point(PointName) ->
     persistent_term:get(?HOOKPOINT_PT_KEY(PointName), []).
-
-inject_fields(PointName, Fields) ->
-    Key = ?HOOKPOINT_PT_KEY(PointName),
-    persistent_term:put(Key, Fields).
 
 erase_injections() ->
     lists:foreach(
@@ -71,9 +67,6 @@ any_injections() ->
         end,
         persistent_term:get()
     ).
-
-any_injections(PointName) ->
-    persistent_term:get(?HOOKPOINT_PT_KEY(PointName), undefined) =/= undefined.
 
 inject_from_modules(Modules) ->
     Injections =
@@ -109,10 +102,17 @@ append_module_injections(ModuleInjections, AllInjections) when is_map(ModuleInje
 inject_fields([]) ->
     ok;
 inject_fields([{PointName, Fields} | Rest]) ->
-    case emqx_schema_hooks:any_injections(PointName) of
+    case any_injections(PointName) of
         true ->
             inject_fields(Rest);
         false ->
-            ok = emqx_schema_hooks:inject_fields(PointName, Fields),
+            ok = inject_fields(PointName, Fields),
             inject_fields(Rest)
     end.
+
+inject_fields(PointName, Fields) ->
+    Key = ?HOOKPOINT_PT_KEY(PointName),
+    persistent_term:put(Key, Fields).
+
+any_injections(PointName) ->
+    persistent_term:get(?HOOKPOINT_PT_KEY(PointName), undefined) =/= undefined.

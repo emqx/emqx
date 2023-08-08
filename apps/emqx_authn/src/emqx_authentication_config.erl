@@ -148,7 +148,7 @@ do_pre_config_update(Paths, NewConfig, _OldConfig) ->
     ]}.
 
 -spec propagated_pre_config_update(list(atom()), update_request(), emqx_config:raw_config()) ->
-    ok | {error, term()}.
+    {ok, map() | list()} | {error, term()}.
 propagated_pre_config_update(Paths, NewConfig, OldConfig) ->
     do_pre_config_update(Paths, NewConfig, OldConfig).
 
@@ -217,8 +217,7 @@ do_post_config_update(Paths, _UpdateReq, NewConfig0, OldConfig0, _AppEnvs) ->
     emqx_config:raw_config(),
     emqx_config:app_envs()
 ) ->
-    ok | {ok, map()} | {error, term()}.
-
+    ok.
 propagated_post_config_update(Paths, UpdateReq, NewConfig, OldConfig, AppEnvs) ->
     ok = post_config_update(Paths, UpdateReq, NewConfig, OldConfig, AppEnvs),
     ok.

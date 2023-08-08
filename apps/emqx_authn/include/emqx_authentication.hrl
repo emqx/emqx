@@ -20,11 +20,6 @@
 -include_lib("emqx/include/logger.hrl").
 -include_lib("emqx/include/emqx_access_control.hrl").
 
-%% config root name all auth providers have to agree on.
--define(EMQX_AUTHENTICATION_CONFIG_ROOT_NAME, "authentication").
--define(EMQX_AUTHENTICATION_CONFIG_ROOT_NAME_ATOM, authentication).
--define(EMQX_AUTHENTICATION_CONFIG_ROOT_NAME_BINARY, <<"authentication">>).
-
 -define(GLOBAL, 'mqtt:global').
 
 -define(TRACE_AUTHN_PROVIDER(Msg), ?TRACE_AUTHN_PROVIDER(Msg, #{})).
@@ -35,6 +30,11 @@
 
 -define(TRACE_AUTHN(Msg, Meta), ?TRACE_AUTHN(debug, Msg, Meta)).
 -define(TRACE_AUTHN(Level, Msg, Meta), ?TRACE(Level, ?AUTHN_TRACE_TAG, Msg, Meta)).
+
+%% config root name all auth providers have to agree on.
+-define(EMQX_AUTHENTICATION_CONFIG_ROOT_NAME, "authentication").
+-define(EMQX_AUTHENTICATION_CONFIG_ROOT_NAME_ATOM, authentication).
+-define(EMQX_AUTHENTICATION_CONFIG_ROOT_NAME_BINARY, <<"authentication">>).
 
 %% authentication move cmd
 -define(CMD_MOVE_FRONT, front).

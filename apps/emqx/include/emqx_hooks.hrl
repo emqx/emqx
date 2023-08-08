@@ -29,7 +29,6 @@
 -define(HP_RETAINER, 930).
 -define(HP_AUTO_SUB, 920).
 -define(HP_RULE_ENGINE, 900).
-
 %% apps that can work with the republish action
 -define(HP_SLOW_SUB, 880).
 -define(HP_BRIDGE, 870).

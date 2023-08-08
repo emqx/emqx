@@ -591,5 +591,5 @@ deregister_providers() ->
         fun({Type, _Module}) ->
             ok = ?AUTHN:deregister_provider(Type)
         end,
-        lists:flatten([?AUTHN:providers()])
+        maps:to_list(?AUTHN:get_providers())
     ).

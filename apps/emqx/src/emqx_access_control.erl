@@ -30,8 +30,8 @@
 -compile(nowarn_export_all).
 -endif.
 
--define(TRACE_RESULT(Label, Tag, Result, Reason), begin
-    ?TRACE(Label, Tag, #{
+-define(TRACE_RESULT(Label, Result, Reason), begin
+    ?TRACE(Label, ?AUTHN_TRACE_TAG, #{
         result => (Result),
         reason => (Reason)
     }),
@@ -115,18 +115,13 @@ authorize(ClientInfo, Action, Topic) ->
 -spec pre_hook_authenticate(emqx_types:clientinfo()) ->
     ok | continue | {error, not_authorized}.
 pre_hook_authenticate(#{enable_authn := false}) ->
-    ?TRACE_RESULT("pre_hook_authenticate", ?AUTHN_TRACE_TAG, ok, enable_authn_false);
+    ?TRACE_RESULT("pre_hook_authenticate", ok, enable_authn_false);
 pre_hook_authenticate(#{enable_authn := quick_deny_anonymous} = Credential) ->
     case is_username_defined(Credential) of
         true ->
             continue;
         false ->
-            ?TRACE_RESULT(
-                "pre_hook_authenticate",
-                ?AUTHN_TRACE_TAG,
-                {error, not_authorized},
-                enable_authn_false
-            )
+            ?TRACE_RESULT("pre_hook_authenticate", {error, not_authorized}, enable_authn_false)
     end;
 pre_hook_authenticate(_) ->
     continue.
