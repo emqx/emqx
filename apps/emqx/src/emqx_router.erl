@@ -137,7 +137,10 @@ do_add_route(Topic, Dest) when is_binary(Topic) ->
             ok;
         false ->
             ok = emqx_router_helper:monitor(Dest),
-            mria:dirty_write(?ROUTE_TAB, Route)
+            % TODO
+            % Actually, `dirty_write` on replicant may end with rpc error, but
+            % the spec don't mention it. Thus, make dialyzer happy with this hack.
+            apply(mria, dirty_write, [?ROUTE_TAB, Route])
     end.
 
 %% @doc Match routes
