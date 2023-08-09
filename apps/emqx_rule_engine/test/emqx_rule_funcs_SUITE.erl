@@ -1031,6 +1031,35 @@ timezone_to_offset_seconds_helper(FunctionName) ->
     apply_func(FunctionName, [local]),
     ok.
 
+t_parse_date_errors(_) ->
+    ?assertError(
+        bad_formatter_or_date,
+        emqx_rule_funcs:date_to_unix_ts(
+            second, <<"%Y-%m-%d %H:%M:%S">>, <<"2022-059999-26 10:40:12">>
+        )
+    ),
+    ?assertError(
+        bad_formatter_or_date,
+        emqx_rule_funcs:date_to_unix_ts(second, <<"%y-%m-%d %H:%M:%S">>, <<"2022-05-26 10:40:12">>)
+    ),
+
+    %% Compatibility test
+    UnixTs = 1653561612,
+    ?assertEqual(
+        UnixTs,
+        emqx_rule_funcs:date_to_unix_ts(second, <<"%Y-%m-%d %H:%M:%S">>, <<"2022-05-26 10:40:12">>)
+    ),
+
+    ?assertEqual(
+        UnixTs,
+        emqx_rule_funcs:date_to_unix_ts(second, <<"%Y-%m-%d %H-%M-%S">>, <<"2022-05-26 10:40:12">>)
+    ),
+
+    ?assertEqual(
+        UnixTs,
+        emqx_rule_funcs:date_to_unix_ts(second, <<"%Y-%m-%d %H:%M:%S">>, <<"2022-05-26 10-40-12">>)
+    ).
+
 %%------------------------------------------------------------------------------
 %% Utility functions
 %%------------------------------------------------------------------------------
