@@ -109,6 +109,7 @@ jobs:
       elixir_vsn: ${{ needs.prepare.outputs.elixir_vsn }}
       runner: ${{ needs.prepare.outputs.runner }}
       builder_vsn: ${{ needs.prepare.outputs.builder_vsn }}
+    secrets: inherit
 
   build_and_push_docker_images:
     if: ${{ needs.prepare.outputs.release == 'true' }}
@@ -126,6 +127,7 @@ jobs:
       # workaround: self-hosted runners do not have access to org-level secrets?
       runner: ubuntu-22.04
       builder_vsn: ${{ needs.prepare.outputs.builder_vsn }}
+    secrets: inherit
 
   compile:
     runs-on: ${{ needs.prepare.outputs.runner }}

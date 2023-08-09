@@ -34,6 +34,15 @@ on:
       builder_vsn:
         required: true
         type: string
+    secrets:
+      DOCKER_HUB_USER:
+        required: true
+      DOCKER_HUB_TOKEN:
+        required: true
+      AWS_ACCESS_KEY_ID:
+        required: true
+      AWS_SECRET_ACCESS_KEY:
+        required: true
   workflow_dispatch:
     inputs:
       ref:

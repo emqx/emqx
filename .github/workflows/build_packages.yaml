@@ -25,6 +25,25 @@ on:
       builder_vsn:
         required: true
         type: string
+    secrets:
+      AWS_ACCESS_KEY_ID:
+        required: true
+      AWS_SECRET_ACCESS_KEY:
+        required: true
+      AWS_DEFAULT_REGION:
+        required: true
+      AWS_S3_BUCKET:
+        required: true
+      AWS_CLOUDFRONT_ID:
+        required: true
+      APPLE_ID_PASSWORD:
+        required: true
+      APPLE_DEVELOPER_IDENTITY:
+        required: true
+      APPLE_DEVELOPER_ID_BUNDLE:
+        required: true
+      APPLE_DEVELOPER_ID_BUNDLE_PASSWORD:
+        required: true
   workflow_dispatch:
     inputs:
       ref:
