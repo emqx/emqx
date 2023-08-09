@@ -167,7 +167,7 @@ t_update(_Config) ->
     CorrectConfig = raw_ldap_auth_config(),
     IncorrectConfig =
         CorrectConfig#{
-            <<"base_object">> => <<"ou=testdevice,dc=emqx,dc=io">>
+            <<"base_dn">> => <<"ou=testdevice,dc=emqx,dc=io">>
         },
 
     {ok, _} = emqx:update_config(
@@ -208,7 +208,7 @@ raw_ldap_auth_config() ->
         <<"mechanism">> => <<"password_based">>,
         <<"backend">> => <<"ldap">>,
         <<"server">> => ldap_server(),
-        <<"base_object">> => <<"uid=${username},ou=testdevice,dc=emqx,dc=io">>,
+        <<"base_dn">> => <<"uid=${username},ou=testdevice,dc=emqx,dc=io">>,
         <<"username">> => <<"cn=root,dc=emqx,dc=io">>,
         <<"password">> => <<"public">>,
         <<"pool_size">> => 8
