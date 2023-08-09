@@ -5,6 +5,7 @@ FROM ${BUILD_FROM} AS builder
 COPY . /emqx
 
 ARG EMQX_NAME=emqx
+ARG PKG_VSN
 ENV EMQX_RELUP=false
 
 RUN export PROFILE=${EMQX_NAME%%-elixir} \
