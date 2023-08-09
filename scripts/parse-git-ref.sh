@@ -18,32 +18,26 @@ is_latest() {
 
 if [[ $1 =~ ^refs/tags/v[5-9]+\.[0-9]+\.[0-9]+$ ]]; then
     PROFILE=emqx
-    EDITION=Opensource
     RELEASE=true
     LATEST=$(is_latest "$1")
 elif [[ $1 =~ ^refs/tags/v[5-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
     PROFILE=emqx
-    EDITION=Opensource
     RELEASE=true
     LATEST=$(is_latest "$1")
 elif [[ $1 =~ ^refs/tags/e[5-9]+\.[0-9]+\.[0-9]+$ ]]; then
     PROFILE=emqx-enterprise
-    EDITION=Enterprise
     RELEASE=true
     LATEST=$(is_latest "$1")
 elif [[ $1 =~ ^refs/tags/e[5-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
     PROFILE=emqx-enterprise
-    EDITION=Enterprise
     RELEASE=true
     LATEST=$(is_latest "$1")
 elif [[ $1 =~ ^refs/tags/v[5-9]+\.[0-9]+\.[0-9]+-(alpha|beta|rc)\.[0-9]+$ ]]; then
     PROFILE=emqx
-    EDITION=Opensource
     RELEASE=true
     LATEST=false
 elif [[ $1 =~ ^refs/tags/e[5-9]+\.[0-9]+\.[0-9]+-(alpha|beta|rc)\.[0-9]+$ ]]; then
     PROFILE=emqx-enterprise
-    EDITION=Enterprise
     RELEASE=true
     LATEST=false
 elif [[ $1 =~ ^refs/tags/.+ ]]; then
@@ -51,17 +45,14 @@ elif [[ $1 =~ ^refs/tags/.+ ]]; then
     exit 1
 elif [[ $1 =~ ^refs/heads/master$ ]]; then
     PROFILE=emqx
-    EDITION=Opensource
     RELEASE=false
     LATEST=false
 elif [[ $1 =~ ^refs/heads/release-[5-9][0-9]+$ ]]; then
     PROFILE=emqx-enterprise
-    EDITION=Enterprise
     RELEASE=false
     LATEST=false
 elif [[ $1 =~ ^refs/heads/ci/.* ]]; then
     PROFILE=emqx
-    EDITION=Opensource
     RELEASE=false
     LATEST=false
 else
@@ -70,5 +61,5 @@ else
 fi
 
 cat <<EOF
-{"profile": "$PROFILE", "edition": "$EDITION", "release": $RELEASE, "latest": $LATEST}
+{"profile": "$PROFILE", "release": $RELEASE, "latest": $LATEST}
 EOF

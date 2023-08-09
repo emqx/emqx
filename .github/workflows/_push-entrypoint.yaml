@@ -23,7 +23,6 @@ jobs:
     container: 'ghcr.io/emqx/emqx-builder/5.1-3:1.14.5-25.3.2-1-ubuntu22.04'
     outputs:
       profile: ${{ steps.parse-git-ref.outputs.profile }}
-      edition: ${{ steps.parse-git-ref.outputs.edition }}
       release: ${{ steps.parse-git-ref.outputs.release }}
       latest: ${{ steps.parse-git-ref.outputs.latest }}
       version: ${{ steps.parse-git-ref.outputs.version }}
@@ -50,12 +49,10 @@ jobs:
         run: |
           JSON="$(./scripts/parse-git-ref.sh $GITHUB_REF)"
           PROFILE=$(echo "$JSON" | jq -cr '.profile')
-          EDITION=$(echo "$JSON" | jq -cr '.edition')
           RELEASE=$(echo "$JSON" | jq -cr '.release')
           LATEST=$(echo "$JSON"  | jq -cr '.latest')
           VERSION="$(./pkg-vsn.sh "$PROFILE")"
           echo "profile=$PROFILE" | tee -a $GITHUB_OUTPUT
-          echo "edition=$EDITION" | tee -a $GITHUB_OUTPUT
           echo "release=$RELEASE" | tee -a $GITHUB_OUTPUT
           echo "latest=$LATEST"   | tee -a $GITHUB_OUTPUT
           echo "version=$VERSION" | tee -a $GITHUB_OUTPUT
@@ -107,8 +104,8 @@ jobs:
       publish: ${{ needs.prepare.outputs.release }}
       otp_vsn: ${{ needs.prepare.outputs.otp_vsn }}
       elixir_vsn: ${{ needs.prepare.outputs.elixir_vsn }}
-      runner: ${{ needs.prepare.outputs.runner }}
       builder_vsn: ${{ needs.prepare.outputs.builder_vsn }}
+      runner: ${{ needs.prepare.outputs.runner }}
     secrets: inherit
 
   build_and_push_docker_images:
@@ -118,15 +115,13 @@ jobs:
     uses: ./.github/workflows/build_and_push_docker_images.yaml
     with:
       profile: ${{ needs.prepare.outputs.profile }}
-      edition: ${{ needs.prepare.outputs.edition }}
       version: ${{ needs.prepare.outputs.version }}
-      latest: ${{ needs.prepare.outputs.latest }}
       publish: ${{ needs.prepare.outputs.release }}
+      latest: ${{ needs.prepare.outputs.latest }}
       otp_vsn: ${{ needs.prepare.outputs.otp_vsn }}
       elixir_vsn: ${{ needs.prepare.outputs.elixir_vsn }}
-      # workaround: self-hosted runners do not have access to org-level secrets?
-      runner: ubuntu-22.04
       builder_vsn: ${{ needs.prepare.outputs.builder_vsn }}
+      runner: ${{ needs.prepare.outputs.runner }}
     secrets: inherit
 
   compile:

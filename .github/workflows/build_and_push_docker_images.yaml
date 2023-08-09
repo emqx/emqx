@@ -10,9 +10,6 @@ on:
       profile:
         required: true
         type: string
-      edition:
-        required: true
-        type: string
       version:
         required: true
         type: string
@@ -28,10 +25,10 @@ on:
       elixir_vsn:
         required: true
         type: string
-      runner:
+      builder_vsn:
         required: true
         type: string
-      builder_vsn:
+      runner:
         required: true
         type: string
     secrets:
@@ -47,17 +44,12 @@ on:
     inputs:
       ref:
         required: false
-      version:
-        required: true
-        type: string
       profile:
         required: false
         type: string
         default: 'emqx'
-      edition:
-        required: false
-        type: string
-        default: 'Opensource'
+      version:
+        required: true
       latest:
         required: false
         type: boolean
@@ -74,14 +66,14 @@ on:
         required: false
         type: string
         default: '1.14.5'
-      runner:
-        required: false
-        type: string
-        default: 'ubuntu-22.04'
       builder_vsn:
         required: false
         type: string
         default: '5.1-3'
+      runner:
+        required: false
+        type: string
+        default: 'ubuntu-22.04'
 
 jobs:
   docker:
@@ -92,18 +84,10 @@ jobs:
       matrix:
         profile:
           - ${{ inputs.profile }}
+          - ${{ inputs.profile }}-elixir
         registry:
           - 'docker.io'
           - 'public.ecr.aws'
-        os:
-          - [debian11, "debian:11-slim", "deploy/docker/Dockerfile"]
-        builder:
-          - ${{ inputs.builder_vsn }}
-        otp:
-          - ${{ inputs.otp_vsn }}
-        elixir:
-          - 'no_elixir'
-          - ${{ inputs.elixir_vsn }}
 
     steps:
     - uses: actions/checkout@v3
@@ -130,53 +114,20 @@ jobs:
         password: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
         ecr: true
 
-    - name: prepare for docker/metadata-action
-      id: pre-meta
-      shell: bash
+    - name: Build docker image
+      env:
+        PROFILE: ${{ matrix.profile }}
+        DOCKER_REGISTRY: ${{ matrix.registry }}
+        DOCKER_ORG: ${{ github.repository_owner }}
+        DOCKER_LATEST: ${{ inputs.latest }}
+        DOCKER_PUSH: ${{ inputs.publish == 'true' || inputs.publish || github.repository_owner != 'emqx' }}
+        DOCKER_BUILD_NOCACHE: true
+        DOCKER_PLATFORMS: linux/amd64,linux/arm64
+        EMQX_RUNNER: 'debian:11-slim'
+        EMQX_DOCKERFILE: 'deploy/docker/Dockerfile'
+        PKG_VSN: ${{ inputs.version }}
+        EMQX_BUILDER_VSN: ${{ inputs.builder_vsn }}
+        EMQX_OTP_VSN: ${{ inputs.otp_vsn }}
+        EMQX_ELIXIR_VSN: ${{ inputs.elixir_vsn }}
       run: |
-        extra_labels=
-        img_suffix=
-        if [ "${{ matrix.elixir }}" != 'no_elixir' ]; then
-          img_suffix="-elixir"
-          extra_labels="org.opencontainers.image.elixir.version=${{ matrix.elixir }}"
-        fi
-        extra_deps=
-        if [[ "${{ matrix.profile }}" = *enterprise* ]]; then
-          extra_deps='libsasl2-2,libsasl2-modules-gssapi-mit'
-        fi
-
-        echo "img_suffix=$img_suffix" >> $GITHUB_OUTPUT
-        echo "extra_labels=$extra_labels" >> $GITHUB_OUTPUT
-        echo "extra_deps=$extra_deps" >> $GITHUB_OUTPUT
-
-    - uses: docker/metadata-action@v4
-      id: meta
-      with:
-        images: |
-          ${{ matrix.registry }}/${{ github.repository_owner }}/${{ matrix.profile }}
-        flavor: |
-          latest=${{ matrix.elixir == 'no_elixir'  }}
-          suffix=${{ steps.pre-meta.outputs.img_suffix }}
-        tags: |
-          type=semver,pattern={{major}}.{{minor}},value=${{ inputs.version }}
-          type=semver,pattern={{version}},value=${{ inputs.version }}
-          type=raw,value=${{ inputs.version }}
-          type=raw,value=latest,enable=${{ inputs.latest }}
-        labels: |
-          org.opencontainers.image.otp.version=${{ matrix.otp }}
-          org.opencontainers.image.edition=${{ inputs.edition }}
-          ${{ steps.pre-meta.outputs.extra_labels }}
-
-    - uses: docker/build-push-action@v3
-      with:
-        push: ${{ inputs.publish == 'true' || inputs.publish || github.repository_owner != 'emqx' }}
-        pull: true
-        no-cache: true
-        platforms: linux/amd64,linux/arm64
-        tags: ${{ steps.meta.outputs.tags }}
-        labels: ${{ steps.meta.outputs.labels }}
-        build-args: |
-          EMQX_NAME=${{ matrix.profile }}${{ steps.pre-meta.outputs.img_suffix }}
-          EXTRA_DEPS=${{ steps.pre-meta.outputs.extra_deps }}
-          PKG_VSN=${{ inputs.version }}
-        file: ${{ matrix.os[2] }}
+        ./build ${PROFILE} docker
