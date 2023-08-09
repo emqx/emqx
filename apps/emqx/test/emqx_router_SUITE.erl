@@ -27,32 +27,46 @@
 -define(R, emqx_router).
 
 -define(WAIT_INDEX_SYNC(UPDATE),
-    snabbkaffe:retry(100, 10, fun() ->
-        case emqx_router_index:peek_last_update() of
-            UPDATE = __U -> __U;
-            _ -> throw(missing_update)
-        end
-    end)
+    emqx_router_index:enabled() andalso
+        snabbkaffe:retry(100, 10, fun() ->
+            case emqx_router_index:peek_last_update() of
+                UPDATE = __U -> __U;
+                _ -> throw(missing_update)
+            end
+        end)
 ).
 
-all() -> emqx_common_test_helpers:all(?MODULE).
-
-init_per_suite(Config) ->
-    PrevBootModules = application:get_env(emqx, boot_modules),
-    emqx_common_test_helpers:boot_modules([router]),
-    emqx_common_test_helpers:start_apps([]),
+all() ->
     [
-        {prev_boot_modules, PrevBootModules}
-        | Config
+        {group, trie_global},
+        {group, trie_local_async}
     ].
 
-end_per_suite(Config) ->
-    PrevBootModules = ?config(prev_boot_modules, Config),
-    case PrevBootModules of
-        undefined -> ok;
-        {ok, Mods} -> emqx_common_test_helpers:boot_modules(Mods)
-    end,
-    emqx_common_test_helpers:stop_apps([]).
+groups() ->
+    TCs = emqx_common_test_helpers:all(?MODULE),
+    [
+        {trie_global, [], TCs},
+        {trie_local_async, [], TCs}
+    ].
+
+init_per_group(GroupName, Config) ->
+    WorkDir = filename:join([?config(priv_dir, Config), GroupName]),
+    AppSpecs = [
+        {emqx, #{
+            config => mk_config(GroupName),
+            override_env => [{boot_modules, [router]}]
+        }}
+    ],
+    Apps = emqx_cth_suite:start(AppSpecs, #{work_dir => WorkDir}),
+    [{group_apps, Apps} | Config].
+
+end_per_group(_GroupName, Config) ->
+    ok = emqx_cth_suite:stop(?config(group_apps, Config)).
+
+mk_config(trie_global) ->
+    "broker.perf.trie_local_async = false";
+mk_config(trie_local_async) ->
+    "broker.perf.trie_local_async = true".
 
 init_per_testcase(_TestCase, Config) ->
     clear_tables(),

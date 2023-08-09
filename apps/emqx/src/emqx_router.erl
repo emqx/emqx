@@ -137,19 +137,48 @@ do_add_route(Topic, Dest) when is_binary(Topic) ->
             ok;
         false ->
             ok = emqx_router_helper:monitor(Dest),
-            % TODO
-            % Actually, `dirty_write` on replicant may end with rpc error, but
-            % the spec don't mention it. Thus, make dialyzer happy with this hack.
-            apply(mria, dirty_write, [?ROUTE_TAB, Route])
+            mria_insert_route(emqx_router_index:enabled(), Route)
     end.
+
+mria_insert_route(_AsyncIndex = true, Route) ->
+    mria_insert_route(Route);
+mria_insert_route(_AsyncIndex = false, Route = #route{topic = Topic}) ->
+    case emqx_topic:wildcard(Topic) of
+        true ->
+            mria_insert_route_update_trie(Route);
+        false ->
+            mria_insert_route(Route)
+    end.
+
+mria_insert_route_update_trie(Route) ->
+    emqx_router_utils:maybe_trans(
+        ?ROUTE_TAB,
+        fun emqx_router_utils:insert_trie_route/2,
+        [?ROUTE_TAB, Route],
+        ?ROUTE_SHARD
+    ).
+
+mria_insert_route(Route) ->
+    mria:dirty_write(?ROUTE_TAB, Route).
 
 %% @doc Match routes
 -spec match_routes(emqx_types:topic()) -> [emqx_types:route()].
 match_routes(Topic) when is_binary(Topic) ->
-    lookup_routes(Topic) ++ match_index(Topic).
+    lookup_routes(Topic) ++ match_index(emqx_router_index:enabled(), Topic).
 
-match_index(Topic) ->
+match_index(true, Topic) ->
+    match_local_index(Topic);
+match_index(false, Topic) ->
+    lists:flatmap(fun lookup_routes/1, match_global_trie(Topic)).
+
+match_local_index(Topic) ->
     emqx_router_index:match(Topic).
+
+match_global_trie(Topic) ->
+    case emqx_trie:empty() of
+        true -> [];
+        false -> emqx_trie:match(Topic)
+    end.
 
 -spec lookup_routes(emqx_types:topic()) -> [emqx_types:route()].
 lookup_routes(Topic) ->
@@ -174,7 +203,28 @@ do_delete_route(Topic) when is_binary(Topic) ->
 -spec do_delete_route(emqx_types:topic(), dest()) -> ok | {error, term()}.
 do_delete_route(Topic, Dest) ->
     Route = #route{topic = Topic, dest = Dest},
+    mria_delete_route(emqx_router_index:enabled(), Route).
+
+mria_delete_route(_AsyncIndex = true, Route) ->
+    mria_delete_route(Route);
+mria_delete_route(_AsyncIndex = false, Route = #route{topic = Topic}) ->
+    case emqx_topic:wildcard(Topic) of
+        true ->
+            mria_delete_route_update_trie(Route);
+        false ->
+            mria_delete_route(Route)
+    end.
+
+mria_delete_route(Route) ->
     mria:dirty_delete_object(?ROUTE_TAB, Route).
+
+mria_delete_route_update_trie(Route) ->
+    emqx_router_utils:maybe_trans(
+        ?ROUTE_TAB,
+        fun emqx_router_utils:delete_trie_route/2,
+        [?ROUTE_TAB, Route],
+        ?ROUTE_SHARD
+    ).
 
 -spec topics() -> list(emqx_types:topic()).
 topics() ->

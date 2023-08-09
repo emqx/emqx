@@ -1405,6 +1405,14 @@ fields("broker_perf") ->
                     default => true,
                     desc => ?DESC(broker_perf_trie_compaction)
                 }
+            )},
+        {"trie_local_async",
+            sc(
+                boolean(),
+                #{
+                    default => false,
+                    desc => ?DESC(broker_perf_trie_local_async)
+                }
             )}
     ];
 fields("sys_topics") ->

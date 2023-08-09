@@ -25,10 +25,15 @@
 
 -define(ROUTE_INDEX_TRIE, emqx_route_index_trie).
 
+-define(INDEXER, ?MODULE).
+
 -type update() :: {write | delete, emqx_types:topic(), emqx_router:dest()}.
 -type state() :: #{last_update := maybe(update())}.
 
--export([start_link/0]).
+-export([
+    start_link/0,
+    enabled/0
+]).
 
 -export([match/1]).
 
@@ -45,7 +50,16 @@
 
 -spec start_link() -> startlink_ret().
 start_link() ->
-    gen_server:start_link({local, ?MODULE}, ?MODULE, [], []).
+    case emqx_config:get([broker, perf, trie_local_async]) of
+        true ->
+            gen_server:start_link({local, ?INDEXER}, ?MODULE, [], []);
+        false ->
+            ignore
+    end.
+
+-spec enabled() -> boolean().
+enabled() ->
+    erlang:whereis(?INDEXER) =/= undefined.
 
 -spec match(emqx_types:topic()) -> [emqx_types:route()].
 match(Topic) ->
@@ -53,7 +67,7 @@ match(Topic) ->
 
 -spec peek_last_update() -> maybe(update()).
 peek_last_update() ->
-    gen_server:call(?MODULE, peek_last_update).
+    gen_server:call(?INDEXER, peek_last_update).
 
 %%--------------------------------------------------------------------
 %% gen_server callbacks

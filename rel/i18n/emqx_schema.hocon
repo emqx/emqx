@@ -1554,7 +1554,12 @@ broker_perf_trie_compaction.desc:
 Enabling it significantly improves wildcard topic subscribe rate, if wildcard topics have unique prefixes like: 'sensor/{{id}}/+/', where ID is unique per subscriber.
 Topic match performance (when publishing) may degrade if messages are mostly published to topics with large number of levels.
 
-NOTE: This is a cluster-wide configuration. It requires all nodes to be stopped before changing it."""
+Unless <code>trie_local_async = true</code>, this is a cluster-wide configuration. It requires all nodes to be stopped before changing it."""
+
+broker_perf_trie_local_async.desc:
+"""Enable node-local async trie index, instead of a global one.
+Enabling node-local index should noticeably improve wildcard topic subscription throughput and latency,
+at the cost of slightly less clear consistency guarantees carried by a successful subscription acknowledgement."""
 
 sysmon_vm_large_heap.desc:
 """When an Erlang process consumed a large amount of memory for its heap space,
