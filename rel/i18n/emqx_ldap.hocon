@@ -8,16 +8,17 @@ The LDAP default port 389 is used if `[:Port]` is not specified."""
 server.label:
 """Server Host"""
 
-base_object.desc:
+base_dn.desc:
 """The name of the base object entry (or possibly the root) relative to
 which the Search is to be performed."""
 
-base_object.label:
-"""Base Object"""
+base_dn.label:
+"""Base DN"""
 
 filter.desc:
 """The filter that defines the conditions that must be fulfilled in order
-for the Search to match a given entry."""
+for the Search to match a given entry.<br>
+The syntax of the filter follows RFC 4515 and also supports placeholders."""
 
 filter.label:
 """Filter"""

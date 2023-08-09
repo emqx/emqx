@@ -158,9 +158,9 @@ offset_second_(Offset) when is_list(Offset) ->
             _ ->
                 error({bad_time_offset, Offset})
         end,
-    Hour = list_to_int_or_error(HourStr, {bad_time_offset_hour, HourStr}),
-    Minute = list_to_int_or_error(MinuteStr, {bad_time_offset_minute, MinuteStr}),
-    Second = list_to_int_or_error(SecondStr, {bad_time_offset_second, SecondStr}),
+    Hour = str_to_int_or_error(HourStr, {bad_time_offset_hour, HourStr}),
+    Minute = str_to_int_or_error(MinuteStr, {bad_time_offset_minute, MinuteStr}),
+    Second = str_to_int_or_error(SecondStr, {bad_time_offset_second, SecondStr}),
     (Hour =< 23) orelse error({bad_time_offset_hour, Hour}),
     (Minute =< 59) orelse error({bad_time_offset_minute, Minute}),
     (Second =< 59) orelse error({bad_time_offset_second, Second}),
@@ -417,7 +417,11 @@ do_parse_date_str(Date, [Key | Formatter], Result) ->
     <<DatePart:Size/binary-unit:8, Tail/binary>> = Date,
     case lists:member(Key, ?DATE_PART) of
         true ->
-            do_parse_date_str(Tail, Formatter, Result#{Key => erlang:binary_to_integer(DatePart)});
+            %% Note: Here is a fix to make the error reason more sense
+            %% when the format or date can't be matched,
+            %% but the root reason comment underneath at <ROOT>
+            PartValue = str_to_int_or_error(DatePart, bad_formatter_or_date),
+            do_parse_date_str(Tail, Formatter, Result#{Key => PartValue});
         false ->
             case lists:member(Key, ?DATE_ZONE_NAME) of
                 true ->
@@ -425,6 +429,13 @@ do_parse_date_str(Date, [Key | Formatter], Result) ->
                         parsed_offset => offset_second(DatePart)
                     });
                 false ->
+                    %% <ROOT>
+                    %% Here should have compared the date part with the key,
+                    %% but for compatibility, we can't fix it here
+                    %% e.g.
+                    %% date_to_unix_ts('second','%Y-%m-%d %H-%M-%S', '2022-05-26 10:40:12')
+                    %% this is valid in 4.x, but actually '%H-%M-%S' can't match with '10:40:12'
+                    %% We cannot ensure whether there are more exceptions in the user's rule
                     do_parse_date_str(Tail, Formatter, Result)
             end
     end.
@@ -456,9 +467,11 @@ dm(10) -> 273;
 dm(11) -> 304;
 dm(12) -> 334.
 
-list_to_int_or_error(Str, Error) ->
+str_to_int_or_error(Str, Error) ->
     case string:to_integer(Str) of
         {Int, []} ->
+            Int;
+        {Int, <<>>} ->
             Int;
         _ ->
             error(Error)

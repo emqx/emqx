@@ -54,10 +54,11 @@ fields(config) ->
         {pool_size, fun ?ECS:pool_size/1},
         {username, fun ensure_username/1},
         {password, fun ?ECS:password/1},
-        {base_object,
+        {base_dn,
             ?HOCON(binary(), #{
-                desc => ?DESC(base_object),
+                desc => ?DESC(base_dn),
                 required => true,
+                example => <<"uid=${username},ou=testdevice,dc=emqx,dc=io">>,
                 validator => fun emqx_schema:non_empty_string/1
             })},
         {filter,
@@ -66,6 +67,7 @@ fields(config) ->
                 #{
                     desc => ?DESC(filter),
                     default => <<"(objectClass=mqttUser)">>,
+                    example => <<"(& (objectClass=mqttUser) (uid=${username}))">>,
                     validator => fun emqx_schema:non_empty_string/1
                 }
             )}
@@ -229,9 +231,9 @@ log(Level, Format, Args) ->
     ).
 
 prepare_template(Config, State) ->
-    do_prepare_template(maps:to_list(maps:with([base_object, filter], Config)), State).
+    do_prepare_template(maps:to_list(maps:with([base_dn, filter], Config)), State).
 
-do_prepare_template([{base_object, V} | T], State) ->
+do_prepare_template([{base_dn, V} | T], State) ->
     do_prepare_template(T, State#{base_tokens => emqx_placeholder:preproc_tmpl(V)});
 do_prepare_template([{filter, V} | T], State) ->
     do_prepare_template(T, State#{filter_tokens => emqx_placeholder:preproc_tmpl(V)});

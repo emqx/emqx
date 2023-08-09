@@ -154,7 +154,7 @@ ldap_config(Config) ->
             "    password = public\n"
             "    pool_size = 8\n"
             "    server = \"~s:~b\"\n"
-            "    base_object=\"uid=${username},ou=testdevice,dc=emqx,dc=io\"\n"
+            "    base_dn=\"uid=${username},ou=testdevice,dc=emqx,dc=io\"\n"
             "    filter =\"(objectClass=mqttUser)\"\n"
             "    ~ts\n"
             "",
