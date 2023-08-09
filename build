@@ -442,7 +442,7 @@ make_docker() {
         DOCKER_BUILDX_ARGS+=(--label org.opencontainers.image.elixir.version="${EMQX_BUILDER_ELIXIR}")
     fi
     if [ "${DOCKER_LATEST:-false}" = true ]; then
-        DOCKER_BUILDX_ARGS+=(--tag "${DOCKER_REGISTRY}/${DOCKER_ORG}/${PROFILE}:latest${SUFFIX}")
+        DOCKER_BUILDX_ARGS+=(--tag "${EMQX_BASE_DOCKER_TAG}:latest${SUFFIX}")
     fi
     if [ "${DOCKER_PLATFORMS:-default}" != 'default' ]; then
         DOCKER_BUILDX_ARGS+=(--platform "${DOCKER_PLATFORMS}")
