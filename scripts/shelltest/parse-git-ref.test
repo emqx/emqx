@@ -13,7 +13,7 @@ Unrecognized git ref: v5.2.0
 {"profile": "emqx", "release": true, "latest": false}
 >>>= 0
 
-./parse-git-ref.sh refs/tags/v5.1.5.1
+./parse-git-ref.sh refs/tags/v5.1.5-1
 >>>
 {"profile": "emqx", "release": true, "latest": false}
 >>>= 0
@@ -43,7 +43,7 @@ Unrecognized tag: refs/tags/v5.2.0-alpha-1
 {"profile": "emqx-enterprise", "release": true, "latest": false}
 >>>= 0
 
-./parse-git-ref.sh refs/tags/e5.1.5.1
+./parse-git-ref.sh refs/tags/e5.1.5-1
 >>>
 {"profile": "emqx-enterprise", "release": true, "latest": false}
 >>>= 0
