@@ -387,7 +387,7 @@ make_docker() {
     if [[ "$PROFILE" = *-elixir ]]; then
         SUFFIX="-elixir"
     fi
-    local DOCKER_REGISTRY="${REGISTRY:-docker.io}"
+    local DOCKER_REGISTRY="${DOCKER_REGISTRY:-docker.io}"
     local DOCKER_ORG="${DOCKER_ORG:-emqx}"
     local EMQX_BASE_DOCKER_TAG="${DOCKER_REGISTRY}/${DOCKER_ORG}/${PROFILE%%-elixir}"
     local default_tag="${EMQX_BASE_DOCKER_TAG}:${PKG_VSN}${SUFFIX}"
