@@ -55,6 +55,11 @@
 -type config() :: #{atom() => scalar() | [scalar()] | config() | [config()]}.
 -type scalar() :: atom() | number() | string() | binary().
 
+-type hookfun(R) ::
+    fun(() -> R)
+    | fun((appname()) -> R)
+    | fun((appname(), appspec_opts()) -> R).
+
 -type appspec_opts() :: #{
     %% 1. Enable loading application config
     %% If not defined or set to `false`, this step will be skipped.
@@ -70,19 +75,19 @@
     %% 3. Perform anything right before starting the application
     %% If not defined or set to `false`, this step will be skipped.
     %% Merging amounts to redefining.
-    before_start => fun(() -> _) | fun((appname()) -> _) | false,
+    before_start => hookfun(_) | false,
 
     %% 4. Starting the application
     %% If not defined or set to `true`, `application:ensure_all_started/1` is used.
     %% If custom function is used, it should return list of all applications that were started.
     %% If set to `false`, application will not be started.
     %% Merging amounts to redefining.
-    start => fun(() -> {ok, [appname()]}) | fun((appname()) -> {ok, [appname()]}) | boolean(),
+    start => hookfun({ok, [appname()]}) | boolean(),
 
     %% 5. Perform anything right after starting the application
     %% If not defined or set to `false`, this step will be skipped.
     %% Merging amounts to redefining.
-    after_start => fun(() -> _) | fun((appname()) -> _) | false
+    after_start => hookfun(_) | false
 }.
 
 %% @doc Start applications with a clean slate.
@@ -214,28 +219,29 @@ maybe_override_env(App, #{override_env := Env = [{_, _} | _]}) ->
 maybe_override_env(_App, #{}) ->
     ok.
 
-maybe_before_start(App, #{before_start := Fun}) when is_function(Fun, 1) ->
-    Fun(App);
-maybe_before_start(_App, #{before_start := Fun}) when is_function(Fun, 0) ->
-    Fun();
+maybe_before_start(App, #{before_start := Fun} = Opts) when is_function(Fun) ->
+    apply_hookfun(Fun, App, Opts);
 maybe_before_start(_App, #{}) ->
     ok.
 
 maybe_start(_App, #{start := false}) ->
     {ok, []};
-maybe_start(_App, #{start := Fun}) when is_function(Fun, 0) ->
-    Fun();
-maybe_start(App, #{start := Fun}) when is_function(Fun, 1) ->
-    Fun(App);
+maybe_start(App, #{start := Fun} = Opts) when is_function(Fun) ->
+    apply_hookfun(Fun, App, Opts);
 maybe_start(App, #{}) ->
     application:ensure_all_started(App).
 
-maybe_after_start(App, #{after_start := Fun}) when is_function(Fun, 1) ->
-    Fun(App);
-maybe_after_start(_App, #{after_start := Fun}) when is_function(Fun, 0) ->
-    Fun();
+maybe_after_start(App, #{after_start := Fun} = Opts) when is_function(Fun) ->
+    apply_hookfun(Fun, App, Opts);
 maybe_after_start(_App, #{}) ->
     ok.
+
+apply_hookfun(Fun, _App, _Opts) when is_function(Fun, 0) ->
+    Fun();
+apply_hookfun(Fun, App, _Opts) when is_function(Fun, 1) ->
+    Fun(App);
+apply_hookfun(Fun, App, Opts) when is_function(Fun, 2) ->
+    Fun(App, Opts).
 
 -spec merge_appspec(appspec_opts(), appspec_opts()) ->
     appspec_opts().
@@ -270,7 +276,11 @@ default_appspec(ekka, _SuiteOpts) ->
     };
 default_appspec(emqx, SuiteOpts) ->
     #{
-        override_env => [{data_dir, maps:get(work_dir, SuiteOpts, "data")}]
+        override_env => [{data_dir, maps:get(work_dir, SuiteOpts, "data")}],
+        % NOTE
+        % We inform `emqx` of our config loader before starting it so that it won't
+        % overwrite everything with a default configuration.
+        before_start => fun inhibit_config_loader/2
     };
 default_appspec(emqx_authz, _SuiteOpts) ->
     #{
@@ -307,9 +317,7 @@ default_appspec(emqx_conf, SuiteOpts) ->
         % NOTE
         % We inform `emqx` of our config loader before starting `emqx_conf` so that it won't
         % overwrite everything with a default configuration.
-        before_start => fun() ->
-            emqx_app:set_config_loader(?MODULE)
-        end
+        before_start => fun inhibit_config_loader/2
     };
 default_appspec(emqx_dashboard, _SuiteOpts) ->
     #{
@@ -328,6 +336,11 @@ default_config(App, SuiteOpts) ->
 start_ekka() ->
     ok = emqx_common_test_helpers:start_ekka(),
     {ok, [mnesia, ekka]}.
+
+inhibit_config_loader(_App, #{config := Config}) when Config /= false ->
+    ok = emqx_app:set_config_loader(?MODULE);
+inhibit_config_loader(_App, #{}) ->
+    ok.
 
 %%
 
