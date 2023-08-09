@@ -169,7 +169,7 @@ jobs:
 
     - uses: docker/build-push-action@v3
       with:
-        push: ${{ inputs.publish == 'true' || github.repository_owner != 'emqx' }}
+        push: ${{ inputs.publish == 'true' || inputs.publish || github.repository_owner != 'emqx' }}
         pull: true
         no-cache: true
         platforms: linux/amd64,linux/arm64

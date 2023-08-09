@@ -268,7 +268,7 @@ jobs:
     needs:
       - mac
       - linux
-    if: ${{ inputs.publish == 'true' }}
+    if: inputs.publish == 'true' || inputs.publish
     strategy:
       fail-fast: false
       matrix:
