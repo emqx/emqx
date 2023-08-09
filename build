@@ -394,12 +394,18 @@ make_docker() {
     local EMQX_IMAGE_TAG="${EMQX_IMAGE_TAG:-$default_tag}"
     local EDITION=Opensource
     local LICENSE='Apache-2.0'
+    local PRODUCT_URL='https://www.emqx.io'
+    local PRODUCT_DESCRIPTION='Official docker image for EMQX, the most scalable open-source MQTT broker for IoT, IIoT, and connected vehicles.'
+    local DOCUMENTATION_URL='https://www.emqx.io/docs/en/latest/'
     ## extra_deps is a comma separated list of debian 11 package names
     local EXTRA_DEPS=''
     if [[ "$PROFILE" = *enterprise* ]]; then
         EXTRA_DEPS='libsasl2-2,libsasl2-modules-gssapi-mit'
         EDITION=Enterprise
         LICENSE='(Apache-2.0 AND BSL-1.1)'
+        PRODUCT_URL='https://www.emqx.com/en/products/emqx'
+        PRODUCT_DESCRIPTION='Official docker image for EMQX Enterprise, an enterprise MQTT platform at scale. '
+        DOCUMENTATION_URL='https://docs.emqx.com/en/enterprise/latest/'
     fi
     # shellcheck disable=SC2155
     local ISO_8601_DATE="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
@@ -418,9 +424,9 @@ make_docker() {
        --label org.opencontainers.image.revision="${GIT_REVISION}" \
        --label org.opencontainers.image.created="${ISO_8601_DATE}" \
        --label org.opencontainers.image.source='https://github.com/emqx/emqx' \
-       --label org.opencontainers.image.url='https://github.com/emqx/emqx' \
-       --label org.opencontainers.image.documentation='https://www.emqx.io/docs/en/latest/' \
-       --label org.opencontainers.image.description='The most scalable open-source MQTT broker for IoT, IIoT, and connected vehicles' \
+       --label org.opencontainers.image.url="${PRODUCT_URL}" \
+       --label org.opencontainers.image.description="${PRODUCT_DESCRIPTION}" \
+       --label org.opencontainers.image.documentation="${DOCUMENTATION_URL}" \
        --label org.opencontainers.image.licenses="${LICENSE}" \
        --label org.opencontainers.image.otp.version="${EMQX_BUILDER_OTP}" \
        --tag "${EMQX_IMAGE_TAG}" \
@@ -436,12 +442,12 @@ make_docker() {
         DOCKER_BUILDX_ARGS+=(--label org.opencontainers.image.elixir.version="${EMQX_BUILDER_ELIXIR}")
     fi
     if [ "${DOCKER_LATEST:-false}" = true ]; then
-        DOCKER_BUILDX_ARGS+=(--tag "${DOCKER_REGISTRY}/${DOCKER_ORG}/${PROFILE}:latest")
+        DOCKER_BUILDX_ARGS+=(--tag "${DOCKER_REGISTRY}/${DOCKER_ORG}/${PROFILE}:latest${SUFFIX}")
     fi
     if [ "${DOCKER_PLATFORMS:-default}" != 'default' ]; then
         DOCKER_BUILDX_ARGS+=(--platform "${DOCKER_PLATFORMS}")
     fi
-    if [ "${DOCKER_PUSH-false}" = true ]; then
+    if [ "${DOCKER_PUSH:-false}" = true ]; then
         DOCKER_BUILDX_ARGS+=(--push)
     fi
     # shellcheck disable=SC2015
