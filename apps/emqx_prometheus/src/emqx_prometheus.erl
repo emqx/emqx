@@ -160,7 +160,7 @@ collect_mf(_Registry, Callback) ->
     Stats = emqx_stats:getstats(),
     VMData = emqx_vm_data(),
     ClusterData = emqx_cluster_data(),
-    _ = [add_collect_family(Name, Stats, Callback, gauge) || Name <- emqx_stats()],
+    _ = [add_collect_family(Name, Stats, Callback, gauge) || Name <- emqx_stats:names()],
     _ = [add_collect_family(Name, VMData, Callback, gauge) || Name <- emqx_vm()],
     _ = [add_collect_family(Name, ClusterData, Callback, gauge) || Name <- emqx_cluster()],
     _ = [add_collect_family(Name, Metrics, Callback, counter) || Name <- emqx_metrics_packets()],
@@ -176,7 +176,7 @@ collect(<<"json">>) ->
     Stats = emqx_stats:getstats(),
     VMData = emqx_vm_data(),
     #{
-        stats => maps:from_list([collect_stats(Name, Stats) || Name <- emqx_stats()]),
+        stats => maps:from_list([collect_stats(Name, Stats) || Name <- emqx_stats:names()]),
         metrics => maps:from_list([collect_stats(Name, VMData) || Name <- emqx_vm()]),
         packets => maps:from_list([collect_stats(Name, Metrics) || Name <- emqx_metrics_packets()]),
         messages => maps:from_list([collect_stats(Name, Metrics) || Name <- emqx_metrics_messages()]),
@@ -459,28 +459,6 @@ emqx_collect(emqx_cluster_nodes_stopped, ClusterData) ->
 %%--------------------------------------------------------------------
 %% Indicators
 %%--------------------------------------------------------------------
-
-emqx_stats() ->
-    [
-        emqx_connections_count,
-        emqx_connections_max,
-        emqx_live_connections_count,
-        emqx_live_connections_max,
-        emqx_sessions_count,
-        emqx_sessions_max,
-        emqx_topics_count,
-        emqx_topics_max,
-        emqx_suboptions_count,
-        emqx_suboptions_max,
-        emqx_subscribers_count,
-        emqx_subscribers_max,
-        emqx_subscriptions_count,
-        emqx_subscriptions_max,
-        emqx_subscriptions_shared_count,
-        emqx_subscriptions_shared_max,
-        emqx_retained_count,
-        emqx_retained_max
-    ].
 
 emqx_metrics_packets() ->
     [
