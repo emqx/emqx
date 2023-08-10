@@ -2,7 +2,7 @@
 {application, emqx, [
     {id, "emqx"},
     {description, "EMQX Core"},
-    {vsn, "5.1.6"},
+    {vsn, "5.1.7"},
     {modules, []},
     {registered, []},
     {applications, [
