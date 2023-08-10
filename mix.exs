@@ -98,7 +98,32 @@ defmodule EMQXUmbrella.MixProject do
       # set by hackney (dependency)
       {:ssl_verify_fun, "1.1.6", override: true},
       {:uuid, github: "okeuday/uuid", tag: "v2.0.6", override: true},
-      {:quickrand, github: "okeuday/quickrand", tag: "v2.0.6", override: true}
+      {:quickrand, github: "okeuday/quickrand", tag: "v2.0.6", override: true},
+      {:opentelemetry_api,
+       github: "emqx/opentelemetry-erlang",
+       sparse: "apps/opentelemetry_api",
+       override: true,
+       runtime: false},
+      {:opentelemetry,
+       github: "emqx/opentelemetry-erlang",
+       sparse: "apps/opentelemetry",
+       override: true,
+       runtime: false},
+      {:opentelemetry_api_experimental,
+       github: "emqx/opentelemetry-erlang",
+       sparse: "apps/opentelemetry_api_experimental",
+       override: true,
+       runtime: false},
+      {:opentelemetry_experimental,
+       github: "emqx/opentelemetry-erlang",
+       sparse: "apps/opentelemetry_experimental",
+       override: true,
+       runtime: false},
+      {:opentelemetry_exporter,
+       github: "emqx/opentelemetry-erlang",
+       sparse: "apps/opentelemetry_exporter",
+       override: true,
+       runtime: false}
     ] ++
       emqx_apps(profile_info, version) ++
       enterprise_deps(profile_info) ++ bcrypt_dep() ++ jq_dep() ++ quicer_dep()
@@ -324,6 +349,7 @@ defmodule EMQXUmbrella.MixProject do
             :emqx_plugins,
             :emqx_ft,
             :emqx_s3,
+            :emqx_opentelemetry,
             :emqx_durable_storage,
             :rabbit_common
           ],
