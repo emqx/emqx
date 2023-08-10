@@ -107,7 +107,8 @@
 %% Common Table API
 -export([
     default_row_limit/0,
-    vm_stats/0
+    vm_stats/0,
+    vm_stats/1
 ]).
 
 -elvis([{elvis_style, god_modules, disable}]).
@@ -185,21 +186,32 @@ stopped_node_info(Node) ->
     {Node, #{node => Node, node_status => 'stopped', role => core}}.
 
 vm_stats() ->
-    Idle =
-        case cpu_sup:util([detailed]) of
-            %% Not support for Windows
-            {_, 0, 0, _} -> 0;
-            {_Num, _Use, IdleList, _} -> proplists:get_value(idle, IdleList, 0)
-        end,
-    RunQueue = erlang:statistics(run_queue),
+    Idle = vm_stats('cpu.idle'),
     {MemUsedRatio, MemTotal} = get_sys_memory(),
     [
-        {run_queue, RunQueue},
+        {run_queue, vm_stats('run.queue')},
         {cpu_idle, Idle},
         {cpu_use, 100 - Idle},
         {total_memory, MemTotal},
         {used_memory, erlang:round(MemTotal * MemUsedRatio)}
     ].
+
+vm_stats('cpu.idle') ->
+    case cpu_sup:util([detailed]) of
+        %% Not support for Windows
+        {_, 0, 0, _} -> 0;
+        {_Num, _Use, IdleList, _} -> proplists:get_value(idle, IdleList, 0)
+    end;
+vm_stats('cpu.use') ->
+    100 - vm_stats('cpu.idle');
+vm_stats('total.memory') ->
+    {_, MemTotal} = get_sys_memory(),
+    MemTotal;
+vm_stats('used.memory') ->
+    {MemUsedRatio, MemTotal} = get_sys_memory(),
+    erlang:round(MemTotal * MemUsedRatio);
+vm_stats('run.queue') ->
+    erlang:statistics(run_queue).
 
 %%--------------------------------------------------------------------
 %% Brokers
