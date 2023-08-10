@@ -378,11 +378,11 @@ make_docker() {
     local EMQX_DOCKERFILE="${EMQX_DOCKERFILE:-deploy/docker/Dockerfile}"
     local PKG_VSN="${PKG_VSN:-$(./pkg-vsn.sh)}"
     # shellcheck disable=SC2155
-    local VSN_MAJOR="$(echo "$PKG_VSN" | cut -d . -f 1)"
+    local VSN_MAJOR="$(scripts/semver.sh "$PKG_VSN" --major)"
     # shellcheck disable=SC2155
-    local VSN_MINOR="$(echo "$PKG_VSN" | cut -d . -f 2)"
+    local VSN_MINOR="$(scripts/semver.sh "$PKG_VSN" --minor)"
     # shellcheck disable=SC2155
-    local VSN_PATCH="$(echo "$PKG_VSN" | cut -d . -f 3)"
+    local VSN_MINOR="$(scripts/semver.sh "$PKG_VSN" --patch)"
     local SUFFIX=''
     if [[ "$PROFILE" = *-elixir ]]; then
         SUFFIX="-elixir"
@@ -430,8 +430,6 @@ make_docker() {
        --label org.opencontainers.image.licenses="${LICENSE}" \
        --label org.opencontainers.image.otp.version="${EMQX_BUILDER_OTP}" \
        --tag "${EMQX_IMAGE_TAG}" \
-       --tag "${EMQX_BASE_DOCKER_TAG}:${VSN_MAJOR}.${VSN_MINOR}${SUFFIX}" \
-       --tag "${EMQX_BASE_DOCKER_TAG}:${VSN_MAJOR}.${VSN_MINOR}.${VSN_PATCH}${SUFFIX}" \
        --provenance false \
        --pull
     )
@@ -442,7 +440,9 @@ make_docker() {
         DOCKER_BUILDX_ARGS+=(--label org.opencontainers.image.elixir.version="${EMQX_BUILDER_ELIXIR}")
     fi
     if [ "${DOCKER_LATEST:-false}" = true ]; then
-        DOCKER_BUILDX_ARGS+=(--tag "${DOCKER_REGISTRY}/${DOCKER_ORG}/${PROFILE}:latest${SUFFIX}")
+        DOCKER_BUILDX_ARGS+=(--tag "${EMQX_BASE_DOCKER_TAG}:latest${SUFFIX}")
+        DOCKER_BUILDX_ARGS+=(--tag "${EMQX_BASE_DOCKER_TAG}:${VSN_MAJOR}.${VSN_MINOR}${SUFFIX}")
+        DOCKER_BUILDX_ARGS+=(--tag "${EMQX_BASE_DOCKER_TAG}:${VSN_MAJOR}.${VSN_MINOR}.${VSN_PATCH}${SUFFIX}")
     fi
     if [ "${DOCKER_PLATFORMS:-default}" != 'default' ]; then
         DOCKER_BUILDX_ARGS+=(--platform "${DOCKER_PLATFORMS}")
