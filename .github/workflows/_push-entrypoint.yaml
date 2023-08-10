@@ -82,20 +82,8 @@ jobs:
           echo "ct-host=${CT_HOST}"     | tee -a $GITHUB_OUTPUT
           echo "ct-docker=${CT_DOCKER}" | tee -a $GITHUB_OUTPUT
 
-  build_slim_packages:
-    if: ${{ needs.prepare.outputs.release != 'true' }}
-    needs:
-      - prepare
-    uses: ./.github/workflows/build_slim_packages.yaml
-    with:
-      runner: ${{ needs.prepare.outputs.runner }}
-      builder: ${{ needs.prepare.outputs.builder }}
-      builder_vsn: ${{ needs.prepare.outputs.builder_vsn }}
-      otp_vsn: ${{ needs.prepare.outputs.otp_vsn }}
-      elixir_vsn: ${{ needs.prepare.outputs.elixir_vsn }}
-
   build_packages:
-    if: ${{ needs.prepare.outputs.release == 'true' }}
+    if: needs.prepare.outputs.release == 'true'
     needs:
       - prepare
     uses: ./.github/workflows/build_packages.yaml
@@ -109,7 +97,7 @@ jobs:
     secrets: inherit
 
   build_and_push_docker_images:
-    if: ${{ needs.prepare.outputs.release == 'true' }}
+    if: needs.prepare.outputs.release == 'true'
     needs:
       - prepare
     uses: ./.github/workflows/build_and_push_docker_images.yaml
@@ -124,7 +112,20 @@ jobs:
       runner: ${{ needs.prepare.outputs.runner }}
     secrets: inherit
 
+  build_slim_packages:
+    if: needs.prepare.outputs.release != 'true'
+    needs:
+      - prepare
+    uses: ./.github/workflows/build_slim_packages.yaml
+    with:
+      runner: ${{ needs.prepare.outputs.runner }}
+      builder: ${{ needs.prepare.outputs.builder }}
+      builder_vsn: ${{ needs.prepare.outputs.builder_vsn }}
+      otp_vsn: ${{ needs.prepare.outputs.otp_vsn }}
+      elixir_vsn: ${{ needs.prepare.outputs.elixir_vsn }}
+
   compile:
+    if: needs.prepare.outputs.release != 'true'
     runs-on: ${{ needs.prepare.outputs.runner }}
     container: ${{ needs.prepare.outputs.builder }}
     needs:
@@ -157,6 +158,7 @@ jobs:
           retention-days: 1
 
   run_test_cases:
+    if: needs.prepare.outputs.release != 'true'
     needs:
       - prepare
       - compile
@@ -169,6 +171,7 @@ jobs:
       ct-docker: ${{ needs.prepare.outputs.ct-docker }}
 
   run_conf_tests:
+    if: needs.prepare.outputs.release != 'true'
     needs:
       - prepare
       - compile
@@ -178,6 +181,7 @@ jobs:
       builder: ${{ needs.prepare.outputs.builder }}
 
   static_checks:
+    if: needs.prepare.outputs.release != 'true'
     needs:
       - prepare
       - compile
