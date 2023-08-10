@@ -24,7 +24,12 @@
             redbug,
             xmerl,
             {hocon, load},
-            telemetry
+            telemetry,
+            {opentelemetry, load},
+            {opentelemetry_api, load},
+            {opentelemetry_experimental, load},
+            {opentelemetry_api_experimental, load},
+            {opentelemetry_exporter, load}
         ],
     %% must always be of type `load'
     common_business_apps =>
@@ -68,6 +73,7 @@
             emqx_redis,
             emqx_mysql,
             emqx_plugins,
+            emqx_opentelemetry,
             quicer,
             bcrypt,
             jq,

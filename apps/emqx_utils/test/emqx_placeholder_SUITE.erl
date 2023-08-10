@@ -206,3 +206,53 @@ t_preproc_tmpl_deep(_) ->
         #{<<"${a}">> => [<<"1">>, "c", 2, 3.0, '${d}', {[<<"1.0">>], 0}]},
         emqx_placeholder:proc_tmpl_deep(Tmpl1, Selected)
     ).
+
+t_proc_tmpl_arbitrary_var_name(_) ->
+    Selected = #{
+        <<"中"/utf8>> => <<"1">>,
+        <<"中-1"/utf8>> => <<"1-1">>,
+        <<"-_+=<>,/?:;\"'\\[]|">> => 1,
+        <<"-_+=<>,">> => #{<<"/?:;\"'\\[]|">> => 2},
+        <<"!@#$%^&*()">> => 1.0,
+        <<"d">> => #{
+            <<"$ff">> => <<"oo">>,
+            <<"${f">> => <<"hi">>,
+            <<"${f}">> => <<"qq">>
+        }
+    },
+    Tks = emqx_placeholder:preproc_tmpl(
+        <<
+            "a:${中},a:${中-1},b:${-_+=<>,/?:;\"'\\[]|},"
+            "b:${-_+=<>,./?:;\"'\\[]|},c:${!@#$%^&*()},d:${d.$ff},d1:${d.${f}}"/utf8
+        >>
+    ),
+    ?assertEqual(
+        <<"a:1,a:1-1,b:1,b:2,c:1.0,d:oo,d1:hi}">>,
+        emqx_placeholder:proc_tmpl(Tks, Selected)
+    ).
+
+t_proc_tmpl_arbitrary_var_name_double_quote(_) ->
+    Selected = #{
+        <<"中"/utf8>> => <<"1">>,
+        <<"中-1"/utf8>> => <<"1-1">>,
+        <<"-_+=<>,/?:;\"'\\[]|">> => 1,
+        <<"-_+=<>,">> => #{<<"/?:;\"'\\[]|">> => 2},
+        <<"!@#$%^&*()">> => 1.0,
+        <<"d">> => #{
+            <<"$ff">> => <<"oo">>,
+            <<"${f">> => <<"hi">>,
+            <<"${f}">> => <<"qq">>
+        }
+    },
+    Tks = emqx_placeholder:preproc_tmpl(
+        <<
+            "a:\"${中}\",a:\"${中-1}\",b:\"${-_+=<>,/?:;\"'\\[]|}\","
+            "b:\"${-_+=<>,./?:;\"'\\[]|}\",c:\"${!@#$%^&*()}\",d:\"${d.$ff}\",d1:\"${d.${f}\"}"/utf8
+        >>,
+        #{strip_double_quote => true}
+    ),
+    ct:print("TKs:~p~n", [Tks]),
+    ?assertEqual(
+        <<"a:1,a:1-1,b:1,b:2,c:1.0,d:oo,d1:hi}">>,
+        emqx_placeholder:proc_tmpl(Tks, Selected)
+    ).
