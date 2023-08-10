@@ -1,0 +1,95 @@
+emqx_gcp_device_api {
+
+gcp_device.desc:
+"""Configuration of authenticator using GCP Device as authentication data source."""
+
+gcp_devices_get.desc:
+"""List all devices imported from GCP IoT Core"""
+gcp_devices_get.label:
+"""List all GCP devices"""
+
+gcp_devices_post.desc:
+"""Import authentication and config data for devices from GCP IoT Core"""
+gcp_devices_post.label:
+"""Import GCP devices"""
+
+gcp_device_get.desc:
+"""Get a device imported from GCP IoT Core"""
+gcp_device_get.label:
+"""Get GCP device"""
+
+gcp_device_put.desc:
+"""Update a device imported from GCP IoT Core"""
+gcp_device_put.label:
+"""Update GCP device"""
+
+gcp_device_delete.desc:
+"""Remove a device imported from GCP IoT Core"""
+gcp_device_delete.label:
+"""Remove GCP device"""
+
+project.desc:
+"""Cloud project identifier"""
+project.label:
+"""Project"""
+
+location.desc:
+"""Cloud region"""
+location.label:
+"""Region"""
+
+registry.desc:
+"""Device registry identifier"""
+registry.label:
+"""Registry"""
+
+deviceid.label:
+"""Device identifier"""
+deviceid.desc:
+"""Device identifier"""
+
+keys.desc:
+"""Public keys associated to GCP device"""
+keys.label:
+"""Public keys"""
+
+key.desc:
+"""Public key"""
+key.label:
+"""Public key"""
+
+key_type.desc:
+"""Public key type"""
+key_type.label:
+"""Public key type"""
+
+expires_at.desc:
+"""Public key expiration time"""
+expires_at.label:
+"""Expiration time"""
+
+created_at.desc:
+"""Time when GCP device was imported"""
+created_at.label:
+"""Creation time"""
+
+config.label:
+"""Device configuration"""
+config.desc:
+"""Configuration"""
+
+blocked.label:
+"""If device is blocked from communicating to GCP IoT Core"""
+blocked.desc:
+"""Blocked"""
+
+gcp_device_response404.desc:
+"""The GCP device was not found"""
+
+imported_counter.desc:
+"""Number of successfully imported GCP devices"""
+
+imported_counter_errors.desc:
+"""Number of GCP devices not imported due to some error"""
+
+}

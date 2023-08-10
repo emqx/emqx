@@ -1,0 +1,210 @@
+[
+  {
+    "deviceid": "c1-c3-two-keys",
+    "project": "iot-export",
+    "location": "europe-west1",
+    "registry": "my-registry",
+    "keys": [
+      {
+        "key": "-----BEGIN PUBLIC KEY-----\nMFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAE4tqkxsDZ1tZPhtLcCi5BdhT0idF5\nwqP9I2ITa7trw+n6YRsrqnbr+sklCPN6tySLRrGT8IpFlLo0xJFRmuAyLw==\n-----END PUBLIC KEY-----\n",
+        "key_type": "ES256_PEM",
+        "expires_at": 0
+      },
+      {
+        "key": "-----BEGIN PUBLIC KEY-----\nMIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAzc27HX3t3tBA31VE+kHV\nhPloAVBpvCSHR+HfEOI++qCUiO+nU1dAIKsSWu4ipbwCl57oetQwmeBnR49Ra0B6\ns5UyOssNw9aiRVUFZdVKOifoaXIZy1NTfG6tgp2Wq8fL5KyA5Sq+PzFkfyD9axYQ\nC5jbF+nJ78OHg0/3EYQhN7NvCipTgxCcW/oIGG6v0N6V5W7x+7ixJWbLPyZYM0vE\nTIN0BIxbx1R+fGkyUWAqvNfveTyN5wq7MY9915BSLyGUprsq9n5DJmiC44RJVau2\nMfH3mKQxkn8c/2L0hZzqK6swj1EdE/BAiA+t+67mOVMLoGrOqfO16Y3f7Sv5D7Xc\njwIDAQAB\n-----END PUBLIC KEY-----\n",
+        "key_type": "RSA_PEM",
+        "expires_at": 0
+      }
+    ],
+    "blocked": false,
+    "config": ""
+  },
+  {
+    "deviceid": "2852899269094682",
+    "project": "iot-export",
+    "location": "europe-west1",
+    "registry": "my-registry",
+    "keys": [
+      {
+        "key": "-----BEGIN PUBLIC KEY-----\nMFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAE4tqkxsDZ1tZPhtLcCi5BdhT0idF5\nwqP9I2ITa7trw+n6YRsrqnbr+sklCPN6tySLRrGT8IpFlLo0xJFRmuAyLw==\n-----END PUBLIC KEY-----\n",
+        "key_type": "ES256_PEM",
+        "expires_at": 0
+      },
+      {
+        "key": "-----BEGIN PUBLIC KEY-----\nMIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAzc27HX3t3tBA31VE+kHV\nhPloAVBpvCSHR+HfEOI++qCUiO+nU1dAIKsSWu4ipbwCl57oetQwmeBnR49Ra0B6\ns5UyOssNw9aiRVUFZdVKOifoaXIZy1NTfG6tgp2Wq8fL5KyA5Sq+PzFkfyD9axYQ\nC5jbF+nJ78OHg0/3EYQhN7NvCipTgxCcW/oIGG6v0N6V5W7x+7ixJWbLPyZYM0vE\nTIN0BIxbx1R+fGkyUWAqvNfveTyN5wq7MY9915BSLyGUprsq9n5DJmiC44RJVau2\nMfH3mKQxkn8c/2L0hZzqK6swj1EdE/BAiA+t+67mOVMLoGrOqfO16Y3f7Sv5D7Xc\njwIDAQAB\n-----END PUBLIC KEY-----\n",
+        "key_type": "RSA_PEM",
+        "expires_at": 0
+      }
+    ],
+    "blocked": false,
+    "config": ""
+  },
+  {
+    "deviceid": "c1-ec",
+    "project": "iot-export",
+    "location": "europe-west1",
+    "registry": "my-registry",
+    "keys": [
+      {
+        "key": "-----BEGIN PUBLIC KEY-----\nMFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAE4tqkxsDZ1tZPhtLcCi5BdhT0idF5\nwqP9I2ITa7trw+n6YRsrqnbr+sklCPN6tySLRrGT8IpFlLo0xJFRmuAyLw==\n-----END PUBLIC KEY-----\n",
+        "key_type": "ES256_PEM",
+        "expires_at": 0
+      }
+    ],
+    "blocked": false,
+    "config": "eyJteSI6IFsianNvbiIsICJjb25maWciXX0="
+  },
+  {
+    "deviceid": "3058444082630640",
+    "project": "iot-export",
+    "location": "europe-west1",
+    "registry": "my-registry",
+    "keys": [
+      {
+        "key": "-----BEGIN PUBLIC KEY-----\nMFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAE4tqkxsDZ1tZPhtLcCi5BdhT0idF5\nwqP9I2ITa7trw+n6YRsrqnbr+sklCPN6tySLRrGT8IpFlLo0xJFRmuAyLw==\n-----END PUBLIC KEY-----\n",
+        "key_type": "ES256_PEM",
+        "expires_at": 0
+      }
+    ],
+    "blocked": false,
+    "config": "eyJteSI6IFsianNvbiIsICJjb25maWciXX0="
+  },
+  {
+    "deviceid": "c2-ec-x509",
+    "project": "iot-export",
+    "location": "europe-west1",
+    "registry": "my-registry",
+    "keys": [
+      {
+        "key": "-----BEGIN CERTIFICATE-----\nMIIBEjCBuAIJAPKVZoroXatKMAoGCCqGSM49BAMCMBExDzANBgNVBAMMBnVudXNl\nZDAeFw0yMzA0MTIxMzQ2NTJaFw0yMzA1MTIxMzQ2NTJaMBExDzANBgNVBAMMBnVu\ndXNlZDBZMBMGByqGSM49AgEGCCqGSM49AwEHA0IABAugsuay/y2SpGEVDKfiVw9q\nVHGdZHvLXDqxj9XndUi6LEpA209ZfaC1eJ+mZiW3zBC94AdqVu+QLzS7rPT72jkw\nCgYIKoZIzj0EAwIDSQAwRgIhAMBp+1S5w0UJDuylI1TJS8vXjWOhgluUdZfFtxES\nE85SAiEAvKIAhjRhuIxanhqyv3HwOAL/zRAcv6iHsPMKYBt1dOs=\n-----END CERTIFICATE-----\n",
+        "key_type": "ES256_X509_PEM",
+        "expires_at": 0
+      }
+    ],
+    "blocked": false,
+    "config": "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8gISIjJCUmJygpKissLS4vMDEyMzQ1Njc4OTo7PD0+P0BBQkNERUZHSElKS0xNTk9QUVJTVFVWV1hZWltcXV5fYGFiY2RlZmdoaWprbG1ub3BxcnN0dXZ3eHl6e3x9fn+AgYKDhIWGh4iJiouMjY6PkJGSk5SVlpeYmZqbnJ2en6ChoqOkpaanqKmqq6ytrq+wsbKztLW2t7i5uru8vb6/wMHCw8TFxsfIycrLzM3Oz9DR0tPU1dbX2Nna29zd3t/g4eLj5OXm5+jp6uvs7e7v8PHy8/T19vf4+fr7/P3+/w=="
+  },
+  {
+    "deviceid": "2928540609735937",
+    "project": "iot-export",
+    "location": "europe-west1",
+    "registry": "my-registry",
+    "keys": [
+      {
+        "key": "-----BEGIN CERTIFICATE-----\nMIIBEjCBuAIJAPKVZoroXatKMAoGCCqGSM49BAMCMBExDzANBgNVBAMMBnVudXNl\nZDAeFw0yMzA0MTIxMzQ2NTJaFw0yMzA1MTIxMzQ2NTJaMBExDzANBgNVBAMMBnVu\ndXNlZDBZMBMGByqGSM49AgEGCCqGSM49AwEHA0IABAugsuay/y2SpGEVDKfiVw9q\nVHGdZHvLXDqxj9XndUi6LEpA209ZfaC1eJ+mZiW3zBC94AdqVu+QLzS7rPT72jkw\nCgYIKoZIzj0EAwIDSQAwRgIhAMBp+1S5w0UJDuylI1TJS8vXjWOhgluUdZfFtxES\nE85SAiEAvKIAhjRhuIxanhqyv3HwOAL/zRAcv6iHsPMKYBt1dOs=\n-----END CERTIFICATE-----\n",
+        "key_type": "ES256_X509_PEM",
+        "expires_at": 0
+      }
+    ],
+    "blocked": false,
+    "config": "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8gISIjJCUmJygpKissLS4vMDEyMzQ1Njc4OTo7PD0+P0BBQkNERUZHSElKS0xNTk9QUVJTVFVWV1hZWltcXV5fYGFiY2RlZmdoaWprbG1ub3BxcnN0dXZ3eHl6e3x9fn+AgYKDhIWGh4iJiouMjY6PkJGSk5SVlpeYmZqbnJ2en6ChoqOkpaanqKmqq6ytrq+wsbKztLW2t7i5uru8vb6/wMHCw8TFxsfIycrLzM3Oz9DR0tPU1dbX2Nna29zd3t/g4eLj5OXm5+jp6uvs7e7v8PHy8/T19vf4+fr7/P3+/w=="
+  },
+  {
+    "deviceid": "c3-rsa",
+    "project": "iot-export",
+    "location": "europe-west1",
+    "registry": "my-registry",
+    "keys": [
+      {
+        "key": "-----BEGIN PUBLIC KEY-----\nMIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAzc27HX3t3tBA31VE+kHV\nhPloAVBpvCSHR+HfEOI++qCUiO+nU1dAIKsSWu4ipbwCl57oetQwmeBnR49Ra0B6\ns5UyOssNw9aiRVUFZdVKOifoaXIZy1NTfG6tgp2Wq8fL5KyA5Sq+PzFkfyD9axYQ\nC5jbF+nJ78OHg0/3EYQhN7NvCipTgxCcW/oIGG6v0N6V5W7x+7ixJWbLPyZYM0vE\nTIN0BIxbx1R+fGkyUWAqvNfveTyN5wq7MY9915BSLyGUprsq9n5DJmiC44RJVau2\nMfH3mKQxkn8c/2L0hZzqK6swj1EdE/BAiA+t+67mOVMLoGrOqfO16Y3f7Sv5D7Xc\njwIDAQAB\n-----END PUBLIC KEY-----\n",
+        "key_type": "RSA_PEM",
+        "expires_at": 0
+      }
+    ],
+    "blocked": false,
+    "config": ""
+  },
+  {
+    "deviceid": "2956940137919694",
+    "project": "iot-export",
+    "location": "europe-west1",
+    "registry": "my-registry",
+    "keys": [
+      {
+        "key": "-----BEGIN PUBLIC KEY-----\nMIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAzc27HX3t3tBA31VE+kHV\nhPloAVBpvCSHR+HfEOI++qCUiO+nU1dAIKsSWu4ipbwCl57oetQwmeBnR49Ra0B6\ns5UyOssNw9aiRVUFZdVKOifoaXIZy1NTfG6tgp2Wq8fL5KyA5Sq+PzFkfyD9axYQ\nC5jbF+nJ78OHg0/3EYQhN7NvCipTgxCcW/oIGG6v0N6V5W7x+7ixJWbLPyZYM0vE\nTIN0BIxbx1R+fGkyUWAqvNfveTyN5wq7MY9915BSLyGUprsq9n5DJmiC44RJVau2\nMfH3mKQxkn8c/2L0hZzqK6swj1EdE/BAiA+t+67mOVMLoGrOqfO16Y3f7Sv5D7Xc\njwIDAQAB\n-----END PUBLIC KEY-----\n",
+        "key_type": "RSA_PEM",
+        "expires_at": 0
+      }
+    ],
+    "blocked": false,
+    "config": ""
+  },
+  {
+    "deviceid": "c4-rsa-x509",
+    "project": "iot-export",
+    "location": "europe-west1",
+    "registry": "my-registry",
+    "keys": [
+      {
+        "key": "-----BEGIN CERTIFICATE-----\nMIICnjCCAYYCCQCh+b8WxXjihDANBgkqhkiG9w0BAQsFADARMQ8wDQYDVQQDDAZ1\nbnVzZWQwHhcNMjMwNDEyMTM0NjUyWhcNMjMwNTEyMTM0NjUyWjARMQ8wDQYDVQQD\nDAZ1bnVzZWQwggEiMA0GCSqGSIb3DQEBAQUAA4IBDwAwggEKAoIBAQDOtvDuketC\n56nvrZw61UyP+MJikYbqqxIqIqwyih2KDCzlF6gTBI6vbFNwZx1b366VOfDhuj6j\n44+cN44AoVKtqSzpsDjdlIRClcBIv4k2ndXjr6yV1cJ9lrMB9vPbr8fiQOxr31Cf\nZUk0OZPppdsC5iqYpUeOdrSttOgBRIaTohBUXMatICxhc+9gC5yj9mQJuwckx6fE\nb+gJ9JrZ1/0wSW1EZNfS9hlOhA0nRUnty5wyqrpxdX4UL/G86SFl7njW9S1PBuPe\nHK7AdHZ6C3FAMfqpnETiWV149k/DR4UQQ7a23QsbgVJOM/7R9IAyln9LARhF9Bpp\ny/W2HPpBn8JHAgMBAAEwDQYJKoZIhvcNAQELBQADggEBAGFl+G3yk/BfELjX1mT6\n4mrGlJq3I6vXLN4ICSTmI4YZQgMmudIHEd6o/cZHJq8HOOqQ5SfFhQI7tBXZpXSG\ndybOStl+GnfyIQFjsNzFXJEiaHoBPP1ccpZyCW/IBkXX39h9N/Pq0XB+xDurXpOD\nVE8nICTATe1Th11rs8j6qwFCkaoQwrzg+JWOKvFnRTPPDNg21fNRRTS+SE27asF2\nPhBWZOD4G2g6WD73SHUs+prR/q4foSVXt63Ih8uQIQJllRtpI4ZkpwSXDH9DUZSY\nWyFtYkD0EAV/FaRuALZQzxX7wda4xwBhvDL8Wua1WENTGZq7ssRHldAdFrz8NENC\nHqk=\n-----END CERTIFICATE-----\n",
+        "key_type": "RSA_X509_PEM",
+        "expires_at": 0
+      }
+    ],
+    "blocked": false,
+    "config": ""
+  },
+  {
+    "deviceid": "2820826361193805",
+    "project": "iot-export",
+    "location": "europe-west1",
+    "registry": "my-registry",
+    "keys": [
+      {
+        "key": "-----BEGIN CERTIFICATE-----\nMIICnjCCAYYCCQCh+b8WxXjihDANBgkqhkiG9w0BAQsFADARMQ8wDQYDVQQDDAZ1\nbnVzZWQwHhcNMjMwNDEyMTM0NjUyWhcNMjMwNTEyMTM0NjUyWjARMQ8wDQYDVQQD\nDAZ1bnVzZWQwggEiMA0GCSqGSIb3DQEBAQUAA4IBDwAwggEKAoIBAQDOtvDuketC\n56nvrZw61UyP+MJikYbqqxIqIqwyih2KDCzlF6gTBI6vbFNwZx1b366VOfDhuj6j\n44+cN44AoVKtqSzpsDjdlIRClcBIv4k2ndXjr6yV1cJ9lrMB9vPbr8fiQOxr31Cf\nZUk0OZPppdsC5iqYpUeOdrSttOgBRIaTohBUXMatICxhc+9gC5yj9mQJuwckx6fE\nb+gJ9JrZ1/0wSW1EZNfS9hlOhA0nRUnty5wyqrpxdX4UL/G86SFl7njW9S1PBuPe\nHK7AdHZ6C3FAMfqpnETiWV149k/DR4UQQ7a23QsbgVJOM/7R9IAyln9LARhF9Bpp\ny/W2HPpBn8JHAgMBAAEwDQYJKoZIhvcNAQELBQADggEBAGFl+G3yk/BfELjX1mT6\n4mrGlJq3I6vXLN4ICSTmI4YZQgMmudIHEd6o/cZHJq8HOOqQ5SfFhQI7tBXZpXSG\ndybOStl+GnfyIQFjsNzFXJEiaHoBPP1ccpZyCW/IBkXX39h9N/Pq0XB+xDurXpOD\nVE8nICTATe1Th11rs8j6qwFCkaoQwrzg+JWOKvFnRTPPDNg21fNRRTS+SE27asF2\nPhBWZOD4G2g6WD73SHUs+prR/q4foSVXt63Ih8uQIQJllRtpI4ZkpwSXDH9DUZSY\nWyFtYkD0EAV/FaRuALZQzxX7wda4xwBhvDL8Wua1WENTGZq7ssRHldAdFrz8NENC\nHqk=\n-----END CERTIFICATE-----\n",
+        "key_type": "RSA_X509_PEM",
+        "expires_at": 0
+      }
+    ],
+    "blocked": false,
+    "config": ""
+  },
+  {
+    "deviceid": "c5-rsa-expire",
+    "project": "iot-export",
+    "location": "europe-west1",
+    "registry": "my-registry",
+    "keys": [
+      {
+        "key": "-----BEGIN PUBLIC KEY-----\nMIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA0D86zcmGLdWjV2S1wLqu\n4tajeUxH/qSnd556Z4PKR9yXnl2YcQBZZh6gf9Y5RuLzsi+EN08NuyrWjscON16Y\nRmJYOJaH4vEOjts0EbWl/ekl/uaH2VaMByTCOXZH9oaI1hoYrr9YFyAxJlrSPc36\nD+Js3WTyjF6mr+VCZPM1MrZT97Hic/vJ12U/YSDqk6AYPdZG7dbalWR4NLWim7l7\nEnwHi2KwDLUewoGX8O/WDpkePD8ydixzqgMMgje5EMlotdeMSE5aKbSSWQWJIPyp\nNtm0FicpSMahksMG3GzZzGCe9CGvDWW82+6iP2A2/mpsaCe4PIA1sgDXqG3UoIVO\nMwIDAQAB\n-----END PUBLIC KEY-----\n",
+        "key_type": "RSA_PEM",
+        "expires_at": 1706738400
+      }
+    ],
+    "blocked": false,
+    "config": ""
+  },
+  {
+    "deviceid": "3036091876233443",
+    "project": "iot-export",
+    "location": "europe-west1",
+    "registry": "my-registry",
+    "keys": [
+      {
+        "key": "-----BEGIN PUBLIC KEY-----\nMIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA0D86zcmGLdWjV2S1wLqu\n4tajeUxH/qSnd556Z4PKR9yXnl2YcQBZZh6gf9Y5RuLzsi+EN08NuyrWjscON16Y\nRmJYOJaH4vEOjts0EbWl/ekl/uaH2VaMByTCOXZH9oaI1hoYrr9YFyAxJlrSPc36\nD+Js3WTyjF6mr+VCZPM1MrZT97Hic/vJ12U/YSDqk6AYPdZG7dbalWR4NLWim7l7\nEnwHi2KwDLUewoGX8O/WDpkePD8ydixzqgMMgje5EMlotdeMSE5aKbSSWQWJIPyp\nNtm0FicpSMahksMG3GzZzGCe9CGvDWW82+6iP2A2/mpsaCe4PIA1sgDXqG3UoIVO\nMwIDAQAB\n-----END PUBLIC KEY-----\n",
+        "key_type": "RSA_PEM",
+        "expires_at": 1706738400
+      }
+    ],
+    "blocked": false,
+    "config": ""
+  },
+  {
+    "deviceid": "c6-nokey",
+    "project": "iot-export",
+    "location": "europe-west1",
+    "registry": "my-registry",
+    "keys": [],
+    "blocked": false,
+    "config": ""
+  },
+  {
+    "deviceid": "3005440763942212",
+    "project": "iot-export",
+    "location": "europe-west1",
+    "registry": "my-registry",
+    "keys": [],
+    "blocked": false,
+    "config": ""
+  }
+]

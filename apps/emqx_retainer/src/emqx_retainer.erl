@@ -40,6 +40,7 @@
     update_config/1,
     clean/0,
     delete/1,
+    read_message/1,
     page_read/3,
     post_config_update/5,
     stats_fun/0,
@@ -157,6 +158,9 @@ delete(Topic) ->
 retained_count() ->
     call(?FUNCTION_NAME).
 
+read_message(Topic) ->
+    call({?FUNCTION_NAME, Topic}).
+
 page_read(Topic, Page, Limit) ->
     call({?FUNCTION_NAME, Topic, Page, Limit}).
 
@@ -210,6 +214,10 @@ handle_call(clean, _, #{context := Context} = State) ->
 handle_call({delete, Topic}, _, #{context := Context} = State) ->
     delete_message(Context, Topic),
     {reply, ok, State};
+handle_call({read_message, Topic}, _, #{context := Context} = State) ->
+    Mod = get_backend_module(),
+    Result = Mod:read_message(Context, Topic),
+    {reply, Result, State};
 handle_call({page_read, Topic, Page, Limit}, _, #{context := Context} = State) ->
     Mod = get_backend_module(),
     Result = Mod:page_read(Context, Topic, Page, Limit),
