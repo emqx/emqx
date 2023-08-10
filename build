@@ -382,7 +382,7 @@ make_docker() {
     # shellcheck disable=SC2155
     local VSN_MINOR="$(scripts/semver.sh "$PKG_VSN" --minor)"
     # shellcheck disable=SC2155
-    local VSN_MINOR="$(scripts/semver.sh "$PKG_VSN" --patch)"
+    local VSN_PATCH="$(scripts/semver.sh "$PKG_VSN" --patch)"
     local SUFFIX=''
     if [[ "$PROFILE" = *-elixir ]]; then
         SUFFIX="-elixir"

@@ -3,30 +3,30 @@
 
 ./semver.sh 5.1.0
 >>>
-{"major": 5, "minor": 1, "patch": 0, "special": ""}
+{"major": 5, "minor": 1, "patch": 0, "build": ""}
 >>>= 0
 
-./semver.sh 5.1.0-patch.3
+./semver.sh 5.1.0-build.3
 >>>
-{"major": 5, "minor": 1, "patch": 0, "special": "patch.3"}
+{"major": 5, "minor": 1, "patch": 0, "build": "build.3"}
 >>>= 0
 
-./semver.sh 5.1.0-patch.3 --major
+./semver.sh 5.1.0-build.3 --major
 >>>
 5
 >>>= 0
 
-./semver.sh 5.1.0-patch.3 --minor
+./semver.sh 5.1.0-build.3 --minor
 >>>
 1
 >>>= 0
 
-./semver.sh 5.1.0-patch.3 --patch
+./semver.sh 5.1.0-build.3 --patch
 >>>
 0
 >>>= 0
 
-./semver.sh 5.1.0-patch.3 --special
+./semver.sh 5.1.0-build.3 --build
 >>>
-patch.3
+build.3
 >>>= 0
