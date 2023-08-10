@@ -274,7 +274,6 @@ t_load_state(_Config) ->
     ok.
 
 t_client_event(_Config) ->
-    application:set_env(emqx, allow_anonymous, true),
     ClientId = <<"client-test">>,
     Now = erlang:system_time(second),
     Name = <<"test_client_id_event">>,

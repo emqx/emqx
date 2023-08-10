@@ -14,6 +14,7 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 -module(emqx_trace_formatter).
+-include("emqx_mqtt.hrl").
 
 -export([format/2]).
 -export([format_meta_map/1]).
@@ -68,10 +69,20 @@ weight({K, _}) -> {1, K}.
 format_packet(undefined, _) -> "";
 format_packet(Packet, Encode) -> emqx_packet:format(Packet, Encode).
 
-format_payload(undefined, _) -> "";
-format_payload(Payload, text) -> io_lib:format("~ts", [Payload]);
-format_payload(Payload, hex) -> emqx_packet:encode_hex(Payload);
-format_payload(_, hidden) -> "******".
+format_payload(undefined, _) ->
+    "";
+format_payload(_, hidden) ->
+    "******";
+format_payload(Payload, text) when ?MAX_PAYLOAD_FORMAT_LIMIT(Payload) ->
+    unicode:characters_to_list(Payload);
+format_payload(Payload, hex) when ?MAX_PAYLOAD_FORMAT_LIMIT(Payload) -> binary:encode_hex(Payload);
+format_payload(<<Part:100, _/binary>> = Payload, _) ->
+    [
+        Part,
+        "... The ",
+        integer_to_list(byte_size(Payload) - 100),
+        " bytes of this log are truncated"
+    ].
 
 to_iolist(Atom) when is_atom(Atom) -> atom_to_list(Atom);
 to_iolist(Int) when is_integer(Int) -> integer_to_list(Int);
