@@ -620,13 +620,13 @@ format_payload(Payload, hex) when ?MAX_PAYLOAD_FORMAT_LIMIT(Payload) ->
     ["Payload(hex)=", binary:encode_hex(Payload)];
 format_payload(_, hidden) ->
     "Payload=******";
-format_payload(<<Part:?MAX_PAYLOAD_FORMAT_SIZE, _/binary>> = Payload, _) ->
+format_payload(<<Part:100, _/binary>> = Payload, _) ->
     [
         "Payload=",
         Part,
-        "...The ",
-        integer_to_list(byte_size(Payload) - ?MAX_PAYLOAD_FORMAT_SIZE),
-        "bytes of this log are truncated"
+        "... The ",
+        integer_to_list(byte_size(Payload) - 100),
+        " bytes of this log are truncated"
     ].
 
 i(true) -> 1;
