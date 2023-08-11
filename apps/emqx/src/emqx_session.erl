@@ -60,7 +60,7 @@
     unpersist/1
 ]).
 
--export([init/1]).
+-export([init/1, init_and_open/2]).
 
 -export([
     info/1,
@@ -165,6 +165,18 @@
 %%--------------------------------------------------------------------
 %% Init a Session
 %%--------------------------------------------------------------------
+
+-spec init_and_open(emqx_types:clientid(), options()) -> session().
+init_and_open(ClientID, Options) ->
+    Session0 = emqx_session:init(Options),
+    IteratorIDs =
+        case emqx_persistent_session_ds:open_session(ClientID) of
+            {skipped, disabled} ->
+                [];
+            {_IsNew, _DSSessionID, Iterators0} ->
+                Iterators0
+        end,
+    Session0#session{iterators = IteratorIDs}.
 
 -spec init(options()) -> session().
 init(Opts) ->

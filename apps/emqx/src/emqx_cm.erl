@@ -301,17 +301,9 @@ open_session(false, ClientInfo = #{clientid := ClientId}, ConnInfo) ->
     emqx_cm_locker:trans(ClientId, ResumeStart).
 
 create_session(ClientInfo, ConnInfo) ->
+    #{clientid := ClientId} = ClientInfo,
     Options = get_session_confs(ClientInfo, ConnInfo),
-    #{clientid := ClientID} = ClientInfo,
-    Session0 = emqx_session:init(Options),
-    IteratorIDs =
-        case emqx_persistent_session_ds:open_session(ClientID) of
-            {skipped, disabled} ->
-                [];
-            {_IsNew, _DSSessionID, Iterators0} ->
-                Iterators0
-        end,
-    Session = Session0#session{iterators = IteratorIDs},
+    Session = emqx_session:init_and_open(ClientId, Options),
     ok = emqx_metrics:inc('session.created'),
     ok = emqx_hooks:run('session.created', [ClientInfo, emqx_session:info(Session)]),
     Session.
