@@ -25,11 +25,11 @@ if [ "$CHART_VSN" != "$APP_VSN" ]; then
     exit 2
 fi
 
-PKG_VSN="$(./pkg-vsn.sh "$PROFILE" | cut -d '-' -f 1)"
+RELEASE_VSN="$(./pkg-vsn.sh "$PROFILE" --release)"
 
-if [ "$CHART_VSN" != "$PKG_VSN" ]; then
+if [ "$CHART_VSN" != "$RELEASE_VSN" ]; then
     echo "Chart version in $CHART_FILE is not in sync with release version."
     echo "Chart version: $CHART_VSN"
-    echo "Release version: $PKG_VSN"
+    echo "Release version: $RELEASE_VSN"
     exit 3
 fi
