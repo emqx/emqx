@@ -182,15 +182,13 @@ assert_tag_absent() {
 }
 assert_tag_absent "$TAG"
 
-PKG_VSN=$(./pkg-vsn.sh "$PROFILE")
+RELEASE_VSN=$(./pkg-vsn.sh "$PROFILE" --release)
 
 ## Assert package version is updated to the tag which is being created
 assert_release_version() {
     local tag="$1"
-    # shellcheck disable=SC2001
-    pkg_vsn="$(echo "$PKG_VSN" | sed 's/-g[0-9a-f]\{8\}$//g')"
-    if [ "${TAG_PREFIX}${pkg_vsn}" != "${tag}" ]; then
-        logerr "The release version ($pkg_vsn) is different from the desired git tag."
+    if [ "${TAG_PREFIX}${RELEASE_VSN}" != "${tag}" ]; then
+        logerr "The release version ($RELEASE_VSN) is different from the desired git tag."
         logerr "Update the release version in emqx_release.hrl"
         exit 1
     fi
@@ -220,7 +218,7 @@ fi
 
 ## Ensure relup paths are updated
 ## TODO: add relup path db
-#./scripts/relup-base-vsns.escript check-vsn-db "$PKG_VSN" "$RELUP_PATHS"
+#./scripts/relup-base-vsns.escript check-vsn-db "$RELEASE_VSN" "$RELUP_PATHS"
 
 ## Run some additional checks (e.g. some for enterprise edition only)
 CHECKS_DIR="./scripts/rel/checks"
