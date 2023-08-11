@@ -126,23 +126,16 @@ message_stats() ->
 %% the broker.
 -spec session_open(emqx_types:clientid()) -> {_New :: boolean(), session_id(), [iterator_id()]}.
 session_open(ClientID) ->
-    {atomic, Ret} =
-        mria:transaction(
-            ?DS_SHARD,
-            fun() ->
-                case mnesia:read(?SESSION_TAB, ClientID) of
-                    [#session{iterators = Iterators}] ->
-                        IteratorIDs = maps:values(Iterators),
-                        {false, ClientID, IteratorIDs};
-                    [] ->
-                        Iterators = #{},
-                        Session = #session{id = ClientID, iterators = Iterators},
-                        mnesia:write(?SESSION_TAB, Session, write),
-                        {true, ClientID, _IteratorIDs = []}
-                end
-            end
-        ),
-    Ret.
+    case mnesia:dirty_read(?SESSION_TAB, ClientID) of
+        [#session{iterators = Iterators}] ->
+            IteratorIDs = maps:values(Iterators),
+            {false, ClientID, IteratorIDs};
+        [] ->
+            Iterators = #{},
+            Session = #session{id = ClientID, iterators = Iterators},
+            mria:dirty_write(?SESSION_TAB, Session),
+            {true, ClientID, _IteratorIDs = []}
+    end.
 
 %% @doc Called when a client reconnects with `clean session=true' or
 %% during session GC
