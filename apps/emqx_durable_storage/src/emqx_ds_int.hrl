@@ -21,8 +21,10 @@
 -define(DS_SHARD, emqx_ds_shard).
 
 -record(session, {
+    %% same as clientid
     id :: emqx_ds:session_id(),
-    iterators :: #{emqx_topic:words() => emqx_ds:iterator_id()}
+    %% for future usage
+    props = #{} :: map()
 }).
 
 -record(iterator_ref, {

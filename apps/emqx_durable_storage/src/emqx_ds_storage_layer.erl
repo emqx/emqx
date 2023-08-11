@@ -19,6 +19,7 @@
     discard_iterator/2,
     is_iterator_present/2,
     discard_iterator_prefix/2,
+    list_iterator_prefix/2,
     foldl_iterator_prefix/4
 ]).
 
@@ -203,7 +204,17 @@ discard_iterator(Shard, ReplayID) ->
 -spec discard_iterator_prefix(emqx_ds:shard(), binary()) ->
     ok | {error, _TODO}.
 discard_iterator_prefix(Shard, KeyPrefix) ->
-    do_discard_iterator_prefix(Shard, KeyPrefix).
+    case do_discard_iterator_prefix(Shard, KeyPrefix) of
+        {ok, _} -> ok;
+        Error -> Error
+    end.
+
+-spec list_iterator_prefix(
+    emqx_ds:shard(),
+    binary()
+) -> {ok, [emqx_ds:iterator_id()]} | {error, _TODO}.
+list_iterator_prefix(Shard, KeyPrefix) ->
+    do_list_iterator_prefix(Shard, KeyPrefix).
 
 -spec foldl_iterator_prefix(
     emqx_ds:shard(),
@@ -377,7 +388,11 @@ open_restore_iterator(#{module := Mod, data := Data}, It = #it{replay = Replay},
 
 %%
 
--define(KEY_REPLAY_STATE(ReplayID), <<(ReplayID)/binary, "rs">>).
+-define(KEY_REPLAY_STATE(IteratorId), <<(IteratorId)/binary, "rs">>).
+-define(KEY_REPLAY_STATE_PAT(KeyReplayState), begin
+    <<IteratorId:(size(KeyReplayState) - 2)/binary, "rs">> = (KeyReplayState),
+    IteratorId
+end).
 
 -define(ITERATION_WRITE_OPTS, []).
 -define(ITERATION_READ_OPTS, []).
@@ -423,6 +438,13 @@ restore_iterator_state(
 ) ->
     It = #it{shard = Shard, gen = Gen, replay = {TopicFilter, StartTime}},
     open_restore_iterator(meta_get_gen(Shard, Gen), It, State).
+
+do_list_iterator_prefix(Shard, KeyPrefix) ->
+    Fn = fun(K0, _V, Acc) ->
+        K = ?KEY_REPLAY_STATE_PAT(K0),
+        [K | Acc]
+    end,
+    do_foldl_iterator_prefix(Shard, KeyPrefix, Fn, []).
 
 do_discard_iterator_prefix(Shard, KeyPrefix) ->
     #db{handle = DBHandle, cf_iterator = CF} = meta_lookup(Shard, db),

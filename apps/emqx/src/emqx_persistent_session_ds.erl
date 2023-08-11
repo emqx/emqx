@@ -85,7 +85,7 @@ open_session(ClientID) ->
     ?WHEN_ENABLED(emqx_ds:session_open(ClientID)).
 
 -spec add_subscription(emqx_types:topic(), emqx_ds:session_id()) ->
-    {ok, emqx_ds:iterator_id(), _IsNew :: boolean()} | {skipped, disabled}.
+    {ok, emqx_ds:iterator_id(), IsNew :: boolean()} | {skipped, disabled}.
 add_subscription(TopicFilterBin, DSSessionID) ->
     ?WHEN_ENABLED(
         begin

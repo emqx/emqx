@@ -49,9 +49,7 @@
     %% Awaiting PUBREL Timeout (Unit: millisecond)
     await_rel_timeout :: timeout(),
     %% Created at
-    created_at :: pos_integer(),
-    %% Durable storage iterators for existing subscriptions
-    iterators = [] :: [emqx_ds_replay:replay_id()]
+    created_at :: pos_integer()
 }).
 
 -endif.

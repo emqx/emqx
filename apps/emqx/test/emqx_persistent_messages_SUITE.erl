@@ -148,18 +148,15 @@ t_session_subscription_iterators(Config) ->
             ct:pal("publishing 4"),
             Message4 = emqx_message:make(AnotherTopic, Payload4),
             publish(Node1, Message4),
-            IteratorIds = get_iterator_ids(Node1, ClientId),
             emqtt:stop(Client),
             #{
-                messages => [Message1, Message2, Message3, Message4],
-                iterator_ids => IteratorIds
+                messages => [Message1, Message2, Message3, Message4]
             }
         end,
         fun(Results, Trace) ->
             ct:pal("trace:\n  ~p", [Trace]),
             #{
-                messages := [_Message1, Message2, Message3 | _],
-                iterator_ids := IteratorIds
+                messages := [_Message1, Message2, Message3 | _]
             } = Results,
             case ?of_kind(ds_session_subscription_added, Trace) of
                 [] ->
@@ -182,10 +179,9 @@ t_session_subscription_iterators(Config) ->
                     ),
                     ok
             end,
-            ?assertMatch([_], IteratorIds),
             ?assertMatch({ok, [_]}, get_all_iterator_ids(Node1)),
-            ?assertMatch({ok, [_]}, get_all_iterator_ids(Node2)),
-            [IteratorId] = IteratorIds,
+            {ok, [IteratorId]} = get_all_iterator_ids(Node1),
+            ?assertMatch({ok, [IteratorId]}, get_all_iterator_ids(Node2)),
             ReplayMessages1 = erpc:call(Node1, fun() -> consume(?DS_SHARD, IteratorId) end),
             ExpectedMessages = [Message2, Message3],
             ?assertEqual(ExpectedMessages, ReplayMessages1),
@@ -284,7 +280,4 @@ get_mqtt_port(Node, Type) ->
     Port.
 
 get_all_iterator_ids(Node) ->
-    Fn = fun(K, _V, Acc) -> [K | Acc] end,
-    erpc:call(Node, fun() ->
-        emqx_ds_storage_layer:foldl_iterator_prefix(?DS_SHARD, <<>>, Fn, [])
-    end).
+    erpc:call(Node, emqx_ds_storage_layer, list_iterator_prefix, [?DS_SHARD, <<>>]).

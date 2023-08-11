@@ -15,6 +15,7 @@
 %%--------------------------------------------------------------------
 -module(emqx_ds).
 
+-include_lib("stdlib/include/ms_transform.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
 %% API:
@@ -124,17 +125,15 @@ message_stats() ->
 %%
 %% Note: session API doesn't handle session takeovers, it's the job of
 %% the broker.
--spec session_open(emqx_types:clientid()) -> {_New :: boolean(), session_id(), [iterator_id()]}.
+-spec session_open(emqx_types:clientid()) -> {_New :: boolean(), session_id()}.
 session_open(ClientID) ->
     case mnesia:dirty_read(?SESSION_TAB, ClientID) of
-        [#session{iterators = Iterators}] ->
-            IteratorIDs = maps:values(Iterators),
-            {false, ClientID, IteratorIDs};
+        [#session{}] ->
+            {false, ClientID};
         [] ->
-            Iterators = #{},
-            Session = #session{id = ClientID, iterators = Iterators},
+            Session = #session{id = ClientID},
             mria:dirty_write(?SESSION_TAB, Session),
-            {true, ClientID, _IteratorIDs = []}
+            {true, ClientID}
     end.
 
 %% @doc Called when a client reconnects with `clean session=true' or

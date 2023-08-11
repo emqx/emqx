@@ -169,7 +169,7 @@ t_session_subscription_idempotency(Config) ->
             %% Exactly one iterator should have been opened.
             ?assertMatch({ok, [_]}, get_all_iterator_ids(Node1)),
             ?assertMatch(
-                {_IsNew = false, ClientId, _},
+                {_IsNew = false, ClientId},
                 erpc:call(Node1, emqx_ds, session_open, [ClientId])
             ),
             ok

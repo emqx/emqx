@@ -169,14 +169,8 @@
 -spec init_and_open(emqx_types:clientid(), options()) -> session().
 init_and_open(ClientID, Options) ->
     Session0 = emqx_session:init(Options),
-    IteratorIDs =
-        case emqx_persistent_session_ds:open_session(ClientID) of
-            {skipped, disabled} ->
-                [];
-            {_IsNew, _DSSessionID, Iterators0} ->
-                Iterators0
-        end,
-    Session0#session{iterators = IteratorIDs}.
+    _ = emqx_persistent_session_ds:open_session(ClientID),
+    Session0.
 
 -spec init(options()) -> session().
 init(Opts) ->
@@ -274,9 +268,7 @@ info(awaiting_rel_max, #session{max_awaiting_rel = Max}) ->
 info(await_rel_timeout, #session{await_rel_timeout = Timeout}) ->
     Timeout;
 info(created_at, #session{created_at = CreatedAt}) ->
-    CreatedAt;
-info(iterators, #session{iterators = IteratorIds}) ->
-    IteratorIds.
+    CreatedAt.
 
 %% @doc Get stats of the session.
 -spec stats(session()) -> emqx_types:stats().
@@ -325,15 +317,8 @@ is_subscriptions_full(#session{
 -spec add_persistent_subscription(emqx_types:topic(), emqx_types:clientid(), session()) ->
     session().
 add_persistent_subscription(TopicFilterBin, ClientId, Session) ->
-    case emqx_persistent_session_ds:add_subscription(TopicFilterBin, ClientId) of
-        {skipped, disabled} ->
-            Session;
-        {ok, IteratorID, _IsNew = true} ->
-            Iterators = Session#session.iterators,
-            Session#session{iterators = [IteratorID | Iterators]};
-        {ok, _IteratorID, _IsNew = false} ->
-            Session
-    end.
+    _ = emqx_persistent_session_ds:add_subscription(TopicFilterBin, ClientId),
+    Session.
 
 %%--------------------------------------------------------------------
 %% Client -> Broker: UNSUBSCRIBE
