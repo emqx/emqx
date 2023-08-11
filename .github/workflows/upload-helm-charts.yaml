@@ -42,7 +42,7 @@ jobs:
               echo "version=$(./pkg-vsn.sh emqx-enterprise)" >> $GITHUB_OUTPUT
               ;;
           esac
-      - uses: emqx/push-helm-action@v1
+      - uses: emqx/push-helm-action@v1.1
         with:
           charts_dir: "${{ github.workspace }}/deploy/charts/${{ steps.profile.outputs.profile }}"
           version: ${{ steps.profile.outputs.version }}
