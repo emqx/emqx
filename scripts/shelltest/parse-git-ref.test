@@ -93,6 +93,11 @@ Unrecognized tag: refs/tags/v5.2.0-alpha-1
 {"profile": "emqx-enterprise", "release": false, "latest": false}
 >>>= 0
 
+./parse-git-ref.sh refs/heads/release-52
+>>>
+{"profile": "emqx-enterprise", "release": false, "latest": false}
+>>>= 0
+
 ./parse-git-ref.sh refs/heads/ci/foobar
 >>>
 {"profile": "emqx", "release": false, "latest": false}

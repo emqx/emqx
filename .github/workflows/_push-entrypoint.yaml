@@ -12,6 +12,7 @@ on:
     branches:
       - 'master'
       - 'release-51'
+      - 'release-52'
       - 'ci/**'
 
 env:
