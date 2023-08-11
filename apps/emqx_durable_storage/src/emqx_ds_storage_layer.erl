@@ -18,7 +18,8 @@
     restore_iterator/2,
     discard_iterator/2,
     is_iterator_present/2,
-    discard_iterator_prefix/2
+    discard_iterator_prefix/2,
+    foldl_iterator_prefix/4
 ]).
 
 %% behaviour callbacks:
@@ -203,6 +204,16 @@ discard_iterator(Shard, ReplayID) ->
     ok | {error, _TODO}.
 discard_iterator_prefix(Shard, KeyPrefix) ->
     do_discard_iterator_prefix(Shard, KeyPrefix).
+
+-spec foldl_iterator_prefix(
+    emqx_ds:shard(),
+    binary(),
+    fun((_Key :: binary(), _Value :: binary(), Acc) -> Acc),
+    Acc
+) -> {ok, Acc} | {error, _TODO} when
+    Acc :: term().
+foldl_iterator_prefix(Shard, KeyPrefix, Fn, Acc) ->
+    do_foldl_iterator_prefix(Shard, KeyPrefix, Fn, Acc).
 
 %%================================================================================
 %% behaviour callbacks
@@ -414,26 +425,31 @@ restore_iterator_state(
     open_restore_iterator(meta_get_gen(Shard, Gen), It, State).
 
 do_discard_iterator_prefix(Shard, KeyPrefix) ->
+    #db{handle = DBHandle, cf_iterator = CF} = meta_lookup(Shard, db),
+    Fn = fun(K, _V, _Acc) -> ok = rocksdb:delete(DBHandle, CF, K, ?ITERATION_WRITE_OPTS) end,
+    do_foldl_iterator_prefix(Shard, KeyPrefix, Fn, ok).
+
+do_foldl_iterator_prefix(Shard, KeyPrefix, Fn, Acc) ->
     #db{handle = Handle, cf_iterator = CF} = meta_lookup(Shard, db),
     case rocksdb:iterator(Handle, CF, ?ITERATION_READ_OPTS) of
         {ok, It} ->
             NextAction = {seek, KeyPrefix},
-            do_discard_iterator_prefix(Handle, CF, It, KeyPrefix, NextAction);
+            do_foldl_iterator_prefix(Handle, CF, It, KeyPrefix, NextAction, Fn, Acc);
         Error ->
             Error
     end.
 
-do_discard_iterator_prefix(DBHandle, CF, It, KeyPrefix, NextAction) ->
+do_foldl_iterator_prefix(DBHandle, CF, It, KeyPrefix, NextAction, Fn, Acc) ->
     case rocksdb:iterator_move(It, NextAction) of
-        {ok, K = <<KeyPrefix:(size(KeyPrefix))/binary, _/binary>>, _V} ->
-            ok = rocksdb:delete(DBHandle, CF, K, ?ITERATION_WRITE_OPTS),
-            do_discard_iterator_prefix(DBHandle, CF, It, KeyPrefix, next);
+        {ok, K = <<KeyPrefix:(size(KeyPrefix))/binary, _/binary>>, V} ->
+            NewAcc = Fn(K, V, Acc),
+            do_foldl_iterator_prefix(DBHandle, CF, It, KeyPrefix, next, Fn, NewAcc);
         {ok, _K, _V} ->
             ok = rocksdb:iterator_close(It),
-            ok;
+            {ok, Acc};
         {error, invalid_iterator} ->
             ok = rocksdb:iterator_close(It),
-            ok;
+            {ok, Acc};
         Error ->
             ok = rocksdb:iterator_close(It),
             Error

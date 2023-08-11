@@ -93,13 +93,27 @@ add_subscription(TopicFilterBin, DSSessionID) ->
             {ok, IteratorID, StartMS, IsNew} = emqx_ds:session_add_iterator(
                 DSSessionID, TopicFilter
             ),
-            ok = open_iterator_on_all_nodes(TopicFilter, StartMS, IteratorID),
+            Ctx = #{
+                iterator_id => IteratorID,
+                start_time => StartMS,
+                is_new => IsNew
+            },
+            ?tp(persistent_session_ds_iterator_added, Ctx),
+            ?tp_span(
+                persistent_session_ds_open_iterators,
+                Ctx,
+                ok = open_iterator_on_all_nodes(TopicFilter, StartMS, IteratorID)
+            ),
             {ok, IteratorID, IsNew}
         end
     ).
 
 -spec open_iterator_on_all_nodes(emqx_topic:words(), emqx_ds:time(), emqx_ds:iterator_id()) -> ok.
 open_iterator_on_all_nodes(TopicFilter, StartMS, IteratorID) ->
+    ?tp(persistent_session_ds_will_open_iterators, #{
+        iterator_id => IteratorID,
+        start_time => StartMS
+    }),
     Nodes = emqx:running_nodes(),
     Results = emqx_persistent_session_ds_proto_v1:open_iterator(
         Nodes, TopicFilter, StartMS, IteratorID

@@ -183,6 +183,8 @@ t_session_subscription_iterators(Config) ->
                     ok
             end,
             ?assertMatch([_], IteratorIds),
+            ?assertMatch({ok, [_]}, get_all_iterator_ids(Node1)),
+            ?assertMatch({ok, [_]}, get_all_iterator_ids(Node2)),
             [IteratorId] = IteratorIds,
             ReplayMessages1 = erpc:call(Node1, fun() -> consume(?DS_SHARD, IteratorId) end),
             ExpectedMessages = [Message2, Message3],
@@ -280,3 +282,9 @@ cluster() ->
 get_mqtt_port(Node, Type) ->
     {_IP, Port} = erpc:call(Node, emqx_config, get, [[listeners, Type, default, bind]]),
     Port.
+
+get_all_iterator_ids(Node) ->
+    Fn = fun(K, _V, Acc) -> [K | Acc] end,
+    erpc:call(Node, fun() ->
+        emqx_ds_storage_layer:foldl_iterator_prefix(?DS_SHARD, <<>>, Fn, [])
+    end).
