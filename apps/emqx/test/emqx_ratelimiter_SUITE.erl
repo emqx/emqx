@@ -589,11 +589,11 @@ t_extract_with_type(_) ->
         (Type, Cfg) ->
             IsOnly(Type, Cfg)
     end,
-    ?assertEqual(undefined, emqx_limiter_schema:extract_with_type(messages, undefined)),
+    ?assertEqual(undefined, emqx_limiter_utils:extract_with_type(messages, undefined)),
     ?assert(
         Checker(
             messages,
-            emqx_limiter_schema:extract_with_type(messages, #{
+            emqx_limiter_utils:extract_with_type(messages, #{
                 messages => #{rate => 1}, bytes => #{rate => 1}
             })
         )
@@ -601,7 +601,7 @@ t_extract_with_type(_) ->
     ?assert(
         Checker(
             messages,
-            emqx_limiter_schema:extract_with_type(messages, #{
+            emqx_limiter_utils:extract_with_type(messages, #{
                 messages => #{rate => 1},
                 bytes => #{rate => 1},
                 client => #{messages => #{rate => 2}}
@@ -611,7 +611,7 @@ t_extract_with_type(_) ->
     ?assert(
         Checker(
             messages,
-            emqx_limiter_schema:extract_with_type(messages, #{
+            emqx_limiter_utils:extract_with_type(messages, #{
                 client => #{messages => #{rate => 2}, bytes => #{rate => 1}}
             })
         )
@@ -622,7 +622,7 @@ t_add_bucket(_) ->
         #{buckets := Buckets} = sys:get_state(emqx_limiter_server:whereis(bytes)),
         ?assertEqual(Size, maps:size(Buckets), Buckets)
     end,
-    DefBucket = emqx_limiter_schema:default_bucket_config(),
+    DefBucket = emqx_limiter_utils:default_bucket_config(),
     ?assertEqual(ok, emqx_limiter_server:add_bucket(?FUNCTION_NAME, bytes, undefined)),
     Checker(0),
     ?assertEqual(ok, emqx_limiter_server:add_bucket(?FUNCTION_NAME, bytes, DefBucket)),
@@ -765,7 +765,7 @@ t_esockd_htb_consume(_) ->
 t_node_short_paths(_) ->
     CfgStr = <<"limiter {max_conn_rate = \"1000\", messages_rate = \"100\", bytes_rate = \"10\"}">>,
     ok = emqx_common_test_helpers:load_config(emqx_limiter_schema, CfgStr),
-    Accessor = fun emqx_limiter_schema:get_node_opts/1,
+    Accessor = fun emqx_limiter_utils:get_node_opts/1,
     ?assertMatch(#{rate := 100.0}, Accessor(connection)),
     ?assertMatch(#{rate := 10.0}, Accessor(messages)),
     ?assertMatch(#{rate := 1.0}, Accessor(bytes)),
@@ -776,7 +776,7 @@ t_compatibility_for_node_short_paths(_) ->
     CfgStr =
         <<"limiter {max_conn_rate = \"1000\", connection.rate = \"500\", bytes.rate = \"200\"}">>,
     ok = emqx_common_test_helpers:load_config(emqx_limiter_schema, CfgStr),
-    Accessor = fun emqx_limiter_schema:get_node_opts/1,
+    Accessor = fun emqx_limiter_utils:get_node_opts/1,
     ?assertMatch(#{rate := 100.0}, Accessor(connection)),
     ?assertMatch(#{rate := 20.0}, Accessor(bytes)).
 
@@ -796,7 +796,7 @@ t_listener_short_paths(_) ->
             },
             connection := #{rate := 100.0}
         },
-        emqx_limiter_schema:get_listener_opts(ListenerOpt)
+        emqx_limiter_utils:get_listener_opts(ListenerOpt)
     ).
 
 t_compatibility_for_listener_short_paths(_) ->
@@ -809,7 +809,7 @@ t_compatibility_for_listener_short_paths(_) ->
         #{
             connection := #{rate := 100.0}
         },
-        emqx_limiter_schema:get_listener_opts(ListenerOpt)
+        emqx_limiter_utils:get_listener_opts(ListenerOpt)
     ).
 
 t_no_limiter_for_listener(_) ->
@@ -818,7 +818,7 @@ t_no_limiter_for_listener(_) ->
     ListenerOpt = emqx:get_config([listeners, tcp, default]),
     ?assertEqual(
         undefined,
-        emqx_limiter_schema:get_listener_opts(ListenerOpt)
+        emqx_limiter_utils:get_listener_opts(ListenerOpt)
     ).
 
 %%--------------------------------------------------------------------
@@ -1135,5 +1135,5 @@ parse_schema(ConfigString) ->
     ).
 
 default_client_config() ->
-    Conf = emqx_limiter_schema:default_client_config(),
+    Conf = emqx_limiter_utils:default_client_config(),
     Conf#{divisible := false, max_retry_time := timer:seconds(10)}.

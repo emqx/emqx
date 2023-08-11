@@ -24,12 +24,18 @@
     sub/2,
     mul/2,
     put_to_counter/3,
-    floor_div/2
+    floor_div/2,
+    precisely_add/2
 ]).
--export_type([decimal/0, zero_or_float/0]).
+-export_type([decimal/0, zero_or_float/0, correction_value/0]).
 
 -type decimal() :: infinity | number().
 -type zero_or_float() :: 0 | float().
+
+-type correction_value() :: #{
+    correction := emqx_limiter_decimal:zero_or_float(),
+    any() => any()
+}.
 
 %%--------------------------------------------------------------------
 %%% API
@@ -42,6 +48,12 @@ add(A, B) when
     infinity;
 add(A, B) ->
     A + B.
+
+-spec precisely_add(number(), correction_value()) -> {integer(), correction_value()}.
+precisely_add(Inc, #{correction := Correction} = Data) ->
+    FixedInc = Inc + Correction,
+    IntInc = erlang:floor(FixedInc),
+    {IntInc, Data#{correction := FixedInc - IntInc}}.
 
 -spec sub(decimal(), decimal()) -> decimal().
 sub(A, B) when
