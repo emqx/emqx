@@ -106,7 +106,7 @@ add_subscription(TopicFilterBin, DSSessionID) ->
 -spec open_iterator_on_all_nodes(emqx_topic:words(), emqx_ds:time(), emqx_ds:iterator_id()) -> ok.
 open_iterator_on_all_nodes(TopicFilter, StartMS, IteratorID) ->
     Nodes = emqx:running_nodes(),
-    Results = emqx_ds_proto_v1:open_iterator(Nodes, TopicFilter, StartMS, IteratorID),
+    Results = emqx_persistent_session_ds_proto_v1:open_iterator(Nodes, TopicFilter, StartMS, IteratorID),
     %% TODO: handle errors
     true = lists:all(fun(Res) -> Res =:= {ok, ok} end, Results),
     ok.

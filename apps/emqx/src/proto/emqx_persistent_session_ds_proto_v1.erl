@@ -14,7 +14,7 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
--module(emqx_ds_proto_v1).
+-module(emqx_persistent_session_ds_proto_v1).
 
 -behaviour(emqx_bpapi).
 
