@@ -1,0 +1,14 @@
+## Rate Limit
+
+## Rate limiting is applied on the listener
+listeners.tcp.my_tcp_listener_name {
+
+    ## Connections per second per listener
+    max_conn_rate = "1000/s"
+
+    ## Incoming messages per second per client
+    messages_rate = "1000/s"
+
+    ## Incoming message size in bytes per second per client
+    bytes_rate = "1MB/s"
+}
