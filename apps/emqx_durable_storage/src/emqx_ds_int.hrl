@@ -17,11 +17,18 @@
 -define(EMQX_DS_HRL, true).
 
 -define(SESSION_TAB, emqx_ds_session).
+-define(ITERATOR_REF_TAB, emqx_ds_iterator_ref).
 -define(DS_SHARD, emqx_ds_shard).
 
 -record(session, {
     id :: emqx_ds:session_id(),
     iterators :: #{emqx_topic:words() => emqx_ds:iterator_id()}
+}).
+
+-record(iterator_ref, {
+    ref_id :: {emqx_ds:session_id(), emqx_topic:words()},
+    it_id :: emqx_ds:iterator_id(),
+    start_time :: emqx_ds:time()
 }).
 
 -endif.
