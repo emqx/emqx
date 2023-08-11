@@ -77,9 +77,23 @@ peek_last_update() ->
 init([]) ->
     _ = emqx_trie:create_local(?ROUTE_INDEX_TRIE, [public, named_table]),
     ok = mria:wait_for_tables([?ROUTE_TAB]),
-    % NOTE: it's unclear if we have guarantees that we won't miss any updates
+    % NOTE
+    % Must subscribe to the events before indexing the routes to make no record is missed.
     {ok, _} = mnesia:subscribe({table, ?ROUTE_TAB, simple}),
-    ok = emqx_router:foldl_routes(fun(Route, _) -> insert_entry(Route) end, ok),
+    NRoutes = emqx_router:info(size),
+    ?SLOG(info, #{
+        msg => "started_route_index_building",
+        num_routes => NRoutes
+    }),
+    TS1 = erlang:monotonic_time(millisecond),
+    ok = build_index(),
+    TS2 = erlang:monotonic_time(millisecond),
+    ?SLOG(info, #{
+        msg => "finished_route_index_building",
+        num_routes => NRoutes,
+        num_entries => ets:info(?ROUTE_INDEX_TRIE, size),
+        time_spent_ms => TS2 - TS1
+    }),
     {ok, #{last_update => undefined}}.
 
 -spec handle_call(_Call, _From, state()) -> {reply, _Reply, state()}.
@@ -119,6 +133,9 @@ handle_table_event(delete, {schema, ?ROUTE_TAB}, State) ->
 
 match_entries(Topic) ->
     emqx_trie:match(Topic, ?ROUTE_INDEX_TRIE).
+
+build_index() ->
+    ok = emqx_router:foldl_routes(fun(Route, _) -> insert_entry(Route) end, ok).
 
 insert_entry(#route{topic = Topic, dest = Dest}) ->
     insert_entry(Topic, Dest).

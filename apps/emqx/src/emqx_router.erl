@@ -60,6 +60,8 @@
     foldr_routes/2
 ]).
 
+-export([info/1]).
+
 -export([topics/0]).
 
 %% gen_server callbacks
@@ -259,6 +261,10 @@ foldl_routes(FoldFun, AccIn) ->
 -spec foldr_routes(fun((emqx_types:route(), Acc) -> Acc), Acc) -> Acc.
 foldr_routes(FoldFun, AccIn) ->
     ets:foldr(FoldFun, AccIn, ?ROUTE_TAB).
+
+-spec info(atom()) -> _Info.
+info(What) ->
+    ets:info(?ROUTE_TAB, What).
 
 call(Router, Msg) ->
     gen_server:call(Router, Msg, infinity).
