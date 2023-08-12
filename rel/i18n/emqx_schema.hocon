@@ -1369,7 +1369,7 @@ sysmon_vm_process_low_watermark.label:
 """Process low watermark"""
 
 mqtt_max_packet_size.desc:
-"""Maximum MQTT packet size allowed."""
+"""Maximum MQTT packet size allowed. Default: 1MB, Maximum: 256MB"""
 
 mqtt_max_packet_size.label:
 """Max Packet Size"""
