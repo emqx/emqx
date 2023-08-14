@@ -219,7 +219,7 @@ encode_payload(State, Selected) ->
         payload_template := PayloadTemplate
     } = State,
     Data = render_payload(PayloadTemplate, Selected),
-    OrderingKey = render(OrderingKeyTemplate, Selected),
+    OrderingKey = render_key(OrderingKeyTemplate, Selected),
     Attributes = proc_attributes(AttributesTemplate, Selected),
     Payload0 = #{data => base64:encode(Data)},
     Payload1 = put_if(Payload0, attributes, Attributes, map_size(Attributes) > 0),
@@ -234,9 +234,40 @@ put_if(Acc, _K, _V, false) ->
 render_payload([] = _Template, Selected) ->
     emqx_utils_json:encode(Selected);
 render_payload(Template, Selected) ->
-    render(Template, Selected).
+    render_value(Template, Selected).
 
-render(Template, Selected) ->
+render_key(Template, Selected) ->
+    Opts = #{
+        return => full_binary,
+        var_trans => fun
+            (_Var, undefined) ->
+                <<>>;
+            (Var, X) when is_boolean(X) ->
+                throw({bad_value_for_key, Var, X});
+            (_Var, X) when is_binary(X); is_number(X); is_atom(X) ->
+                emqx_utils_conv:bin(X);
+            (Var, X) ->
+                throw({bad_value_for_key, Var, X})
+        end
+    },
+    try
+        emqx_placeholder:proc_tmpl(Template, Selected, Opts)
+    catch
+        throw:{bad_value_for_key, Var, X} ->
+            ?tp(
+                warning,
+                "gcp_pubsub_producer_bad_value_for_key",
+                #{
+                    placeholder => Var,
+                    value => X,
+                    action => "key ignored",
+                    hint => "only plain values like strings and numbers can be used in keys"
+                }
+            ),
+            <<>>
+    end.
+
+render_value(Template, Selected) ->
     Opts = #{
         return => full_binary,
         var_trans => fun
@@ -264,12 +295,12 @@ preproc_attributes(AttributesTemplate) ->
 proc_attributes(AttributesTemplate, Selected) ->
     maps:fold(
         fun(KT, VT, Acc) ->
-            K = render(KT, Selected),
+            K = render_key(KT, Selected),
             case K =:= <<>> of
                 true ->
                     Acc;
                 false ->
-                    V = render(VT, Selected),
+                    V = render_value(VT, Selected),
                     Acc#{K => V}
             end
         end,
