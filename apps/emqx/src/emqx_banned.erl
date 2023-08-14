@@ -38,7 +38,8 @@
     delete/1,
     info/1,
     format/1,
-    parse/1
+    parse/1,
+    clear/0
 ]).
 
 %% gen_server callbacks
@@ -225,6 +226,10 @@ delete(Who) ->
 
 info(InfoKey) ->
     mnesia:table_info(?BANNED_TAB, InfoKey).
+
+clear() ->
+    _ = mria:clear_table(?BANNED_TAB),
+    ok.
 
 %%--------------------------------------------------------------------
 %% gen_server callbacks
