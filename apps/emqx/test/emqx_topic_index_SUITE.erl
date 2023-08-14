@@ -141,6 +141,7 @@ t_match_fast_forward(_) ->
     % dbg:tracer(),
     % dbg:p(all, c),
     % dbg:tpl({ets, next, '_'}, x),
+    ?assertEqual(id1, id(match(<<"a/b/1/2/3/4/5/6/7/8/9/0">>, Tab))),
     ?assertEqual([id1], [id(M) || M <- matches(<<"a/b/1/2/3/4/5/6/7/8/9/0">>, Tab)]).
 
 t_match_unique(_) ->
@@ -180,14 +181,15 @@ t_match_wildcard_edge_cases(_) ->
     F = fun({Topics, TopicName, Expected}) ->
         Tab = emqx_topic_index:new(),
         _ = [emqx_topic_index:insert(T, N, <<>>, Tab) || {N, T} <- lists:enumerate(Topics)],
-        Results = [id(M) || M <- emqx_topic_index:matches(TopicName, Tab, [unique])],
+        ?assertEqual(
+            lists:last(Expected),
+            id(emqx_topic_index:match(TopicName, Tab)),
+            #{"Base topics" => Topics, "Topic name" => TopicName}
+        ),
         ?assertEqual(
             Expected,
-            Results,
-            #{
-                "Base topics" => Topics,
-                "Topic name" => TopicName
-            }
+            [id(M) || M <- emqx_topic_index:matches(TopicName, Tab, [unique])],
+            #{"Base topics" => Topics, "Topic name" => TopicName}
         )
     end,
     lists:foreach(F, Datasets).
