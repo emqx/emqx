@@ -38,6 +38,12 @@
 -typerefl_from_string({epoch_second/0, ?MODULE, to_epoch_second}).
 -typerefl_from_string({epoch_millisecond/0, ?MODULE, to_epoch_millisecond}).
 
+%% the maximum value is the SECONDS_FROM_0_TO_10000 in the calendar.erl,
+%% here minus SECONDS_PER_DAY to tolerate timezone time offset,
+%% so the maximum date can reach 9999-12-31 which is ample.
+-define(MAXIMUM_EPOCH, 253402214400).
+-define(MAXIMUM_EPOCH_MILLI, 253402214400_000).
+
 to_epoch_second(DateTime) ->
     to_epoch(DateTime, second).
 
@@ -47,8 +53,7 @@ to_epoch_millisecond(DateTime) ->
 to_epoch(DateTime, Unit) ->
     try
         case string:to_integer(DateTime) of
-            {Epoch, []} when Epoch >= 0 -> {ok, Epoch};
-            {_Epoch, []} -> {error, bad_epoch};
+            {Epoch, []} -> validate_epoch(Epoch, Unit);
             _ -> {ok, calendar:rfc3339_to_system_time(DateTime, [{unit, Unit}])}
         end
     catch
@@ -71,6 +76,15 @@ human_readable_duration_string(Milliseconds) ->
     L2 = lists:map(fun({Time, Unit}) -> [integer_to_list(Time), Unit] end, L1),
     lists:flatten(lists:join(", ", L2)).
 
+validate_epoch(Epoch, _Unit) when Epoch < 0 ->
+    {error, bad_epoch};
+validate_epoch(Epoch, second) when Epoch =< ?MAXIMUM_EPOCH ->
+    {ok, Epoch};
+validate_epoch(Epoch, millisecond) when Epoch =< ?MAXIMUM_EPOCH_MILLI ->
+    {ok, Epoch};
+validate_epoch(_Epoch, _Unit) ->
+    {error, bad_epoch}.
+
 -ifdef(TEST).
 -include_lib("eunit/include/eunit.hrl").
 -compile(nowarn_export_all).
@@ -90,9 +104,11 @@ fields(bar) ->
 ).
 
 epoch_ok_test() ->
+    BigStamp = 1 bsl 37,
     Args = [
         {0, 0, 0, 0},
         {1, 1, 1, 1},
+        {BigStamp, BigStamp * 1000, BigStamp, BigStamp * 1000},
         {"2022-01-01T08:00:00+08:00", "2022-01-01T08:00:00+08:00", 1640995200, 1640995200000}
     ],
     lists:foreach(
@@ -112,9 +128,12 @@ check_ok(Input, Sec, Ms) ->
     ok.
 
 epoch_failed_test() ->
+    BigStamp = 1 bsl 38,
     Args = [
         {-1, -1},
         {"1s", "1s"},
+        {BigStamp, 0},
+        {0, BigStamp * 1000},
         {"2022-13-13T08:00:00+08:00", "2022-13-13T08:00:00+08:00"}
     ],
     lists:foreach(
