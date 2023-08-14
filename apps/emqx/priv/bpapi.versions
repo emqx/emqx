@@ -37,9 +37,13 @@
 {emqx_mgmt_trace,1}.
 {emqx_mgmt_trace,2}.
 {emqx_node_rebalance,1}.
+{emqx_node_rebalance,2}.
 {emqx_node_rebalance_api,1}.
+{emqx_node_rebalance_api,2}.
 {emqx_node_rebalance_evacuation,1}.
+{emqx_node_rebalance_purge,1}.
 {emqx_node_rebalance_status,1}.
+{emqx_node_rebalance_status,2}.
 {emqx_persistent_session,1}.
 {emqx_persistent_session_ds,1}.
 {emqx_plugins,1}.

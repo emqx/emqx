@@ -156,6 +156,80 @@ t_evacuation(_Config) ->
         emqx_node_rebalance_evacuation:status()
     ).
 
+t_purge(_Config) ->
+    %% start with invalid args
+    ?assertNot(
+        emqx_node_rebalance_cli:cli(["start", "--purge", "--foo-bar"])
+    ),
+
+    ?assertNot(
+        emqx_node_rebalance_cli:cli(["start", "--purge", "--purge-rate", "foobar"])
+    ),
+
+    %% not used by this scenario
+    ?assertNot(
+        emqx_node_rebalance_cli:cli(["start", "--purge", "--conn-evict-rate", "1"])
+    ),
+
+    ?assertNot(
+        emqx_node_rebalance_cli:cli(["start", "--purge", "--sess-evict-rate", "1"])
+    ),
+
+    ?assertNot(
+        emqx_node_rebalance_cli:cli(["start", "--purge", "--wait-takeover", "1"])
+    ),
+
+    ?assertNot(
+        emqx_node_rebalance_cli:cli([
+            "start",
+            "--purge",
+            "--migrate-to",
+            atom_to_list(node())
+        ])
+    ),
+    with_some_sessions(fun() ->
+        ?assert(
+            emqx_node_rebalance_cli:cli([
+                "start",
+                "--purge",
+                "--purge-rate",
+                "10"
+            ])
+        ),
+
+        %% status
+        ok = emqx_node_rebalance_cli:cli(["status"]),
+        ok = emqx_node_rebalance_cli:cli(["node-status"]),
+        ok = emqx_node_rebalance_cli:cli(["node-status", atom_to_list(node())]),
+
+        ?assertMatch(
+            {enabled, #{}},
+            emqx_node_rebalance_purge:status()
+        ),
+
+        %% already enabled
+        ?assertNot(
+            emqx_node_rebalance_cli:cli([
+                "start",
+                "--purge",
+                "--purge-rate",
+                "10"
+            ])
+        ),
+        true = emqx_node_rebalance_cli:cli(["stop"]),
+        ok
+    end),
+    %% stop
+
+    false = emqx_node_rebalance_cli:cli(["stop"]),
+
+    ?assertEqual(
+        disabled,
+        emqx_node_rebalance_purge:status()
+    ),
+
+    ok.
+
 t_rebalance(Config) ->
     process_flag(trap_exit, true),
 
@@ -289,3 +363,19 @@ emqx_node_rebalance_cli(Node, Args) ->
         Result ->
             Result
     end.
+
+%% to avoid it finishing too fast
+with_some_sessions(Fn) ->
+    emqx_common_test_helpers:with_mock(
+        emqx_eviction_agent,
+        status,
+        fun() ->
+            case meck:passthrough([]) of
+                {enabled, Status = #{sessions := _}} ->
+                    {enabled, Status#{sessions := 100}};
+                Res ->
+                    Res
+            end
+        end,
+        Fn
+    ).

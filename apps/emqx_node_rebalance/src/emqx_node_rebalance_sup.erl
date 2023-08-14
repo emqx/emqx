@@ -15,6 +15,7 @@ start_link() ->
 
 init([]) ->
     Childs = [
+        child_spec(emqx_node_rebalance_purge, []),
         child_spec(emqx_node_rebalance_evacuation, []),
         child_spec(emqx_node_rebalance_agent, []),
         child_spec(emqx_node_rebalance, [])

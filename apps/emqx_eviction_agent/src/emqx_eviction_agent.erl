@@ -23,6 +23,7 @@
     evict_connections/1,
     evict_sessions/2,
     evict_sessions/3,
+    purge_sessions/1,
     evict_session_channel/3
 ]).
 
@@ -109,6 +110,14 @@ evict_sessions(N, Nodes, ConnState) when
     case enable_status() of
         {enabled, _Kind, _ServerReference} ->
             ok = do_evict_sessions(N, Nodes, ConnState);
+        disabled ->
+            {error, disabled}
+    end.
+
+purge_sessions(N) ->
+    case enable_status() of
+        {enabled, _Kind, _ServerReference} ->
+            ok = do_purge_sessions(N);
         disabled ->
             {error, disabled}
     end.
@@ -247,6 +256,17 @@ take_connections(N) ->
     ok = qlc:delete_cursor(ChanPidCursor),
     ChanPids.
 
+take_channels(N) ->
+    QH = qlc:q([
+        {ClientId, ConnInfo, ClientInfo}
+     || {ClientId, _, ConnInfo, ClientInfo} <-
+            emqx_cm:all_channels_table(?CONN_MODULES)
+    ]),
+    ChanPidCursor = qlc:cursor(QH),
+    Channels = qlc:next_answers(ChanPidCursor, N),
+    ok = qlc:delete_cursor(ChanPidCursor),
+    Channels.
+
 take_channel_with_sessions(N, ConnState) ->
     ChanPidCursor = qlc:cursor(channel_with_session_table(ConnState)),
     Channels = qlc:next_answers(ChanPidCursor, N),
@@ -343,6 +363,15 @@ disconnect_channel(ChanPid, ServerReference) ->
         {disconnect, ?RC_USE_ANOTHER_SERVER, use_another_server, #{
             'Server-Reference' => ServerReference
         }}.
+
+do_purge_sessions(N) when N > 0 ->
+    Channels = take_channels(N),
+    ok = lists:foreach(
+        fun({ClientId, _ConnInfo, _ClientInfo}) ->
+            emqx_cm:discard_session(ClientId)
+        end,
+        Channels
+    ).
 
 select_random(List) when length(List) > 0 ->
     lists:nth(rand:uniform(length(List)), List).
