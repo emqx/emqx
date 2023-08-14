@@ -2617,10 +2617,10 @@ validate_heap_size(_SizStr) ->
     {error, invalid_heap_size}.
 
 validate_packet_size(Siz) when is_integer(Siz) andalso Siz < 1 ->
-    {error, #{reason => max_heap_size_too_small, minimum => 1}};
+    {error, #{reason => max_mqtt_packet_size_too_small, minimum => 1}};
 validate_packet_size(Siz) when is_integer(Siz) andalso Siz > ?MAX_INT_MQTT_PACKET_SIZE ->
     Max = integer_to_list(round(?MAX_INT_MQTT_PACKET_SIZE / 1024 / 1024)) ++ "M",
-    {error, #{reason => max_heap_size_too_large, maximum => Max}};
+    {error, #{reason => max_mqtt_packet_size_too_large, maximum => Max}};
 validate_packet_size(Siz) when is_integer(Siz) ->
     ok;
 validate_packet_size(_SizStr) ->
