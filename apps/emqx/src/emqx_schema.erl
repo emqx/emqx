@@ -46,7 +46,6 @@
 -type timeout_duration_s() :: 0..?MAX_INT_TIMEOUT_S.
 -type timeout_duration_ms() :: 0..?MAX_INT_TIMEOUT_MS.
 -type bytesize() :: integer().
--type mqtt_max_packet_size() :: 1..?MAX_INT_MQTT_PACKET_SIZE.
 -type wordsize() :: bytesize().
 -type percent() :: float().
 -type file() :: string().
@@ -73,7 +72,6 @@
 -typerefl_from_string({timeout_duration_s/0, emqx_schema, to_timeout_duration_s}).
 -typerefl_from_string({timeout_duration_ms/0, emqx_schema, to_timeout_duration_ms}).
 -typerefl_from_string({bytesize/0, emqx_schema, to_bytesize}).
--typerefl_from_string({mqtt_max_packet_size/0, emqx_schema, to_bytesize}).
 -typerefl_from_string({wordsize/0, emqx_schema, to_wordsize}).
 -typerefl_from_string({percent/0, emqx_schema, to_percent}).
 -typerefl_from_string({comma_separated_list/0, emqx_schema, to_comma_separated_list}).
@@ -93,6 +91,7 @@
 
 -export([
     validate_heap_size/1,
+    validate_packet_size/1,
     user_lookup_fun_tr/2,
     validate_alarm_actions/1,
     validate_keepalive_multiplier/1,
@@ -154,7 +153,6 @@
     timeout_duration_s/0,
     timeout_duration_ms/0,
     bytesize/0,
-    mqtt_max_packet_size/0,
     wordsize/0,
     percent/0,
     file/0,
@@ -2618,6 +2616,16 @@ validate_heap_size(Siz) when is_integer(Siz) ->
 validate_heap_size(_SizStr) ->
     {error, invalid_heap_size}.
 
+validate_packet_size(Siz) when is_integer(Siz) andalso Siz < 1 ->
+    {error, #{reason => max_mqtt_packet_size_too_small, minimum => 1}};
+validate_packet_size(Siz) when is_integer(Siz) andalso Siz > ?MAX_INT_MQTT_PACKET_SIZE ->
+    Max = integer_to_list(round(?MAX_INT_MQTT_PACKET_SIZE / 1024 / 1024)) ++ "M",
+    {error, #{reason => max_mqtt_packet_size_too_large, maximum => Max}};
+validate_packet_size(Siz) when is_integer(Siz) ->
+    ok;
+validate_packet_size(_SizStr) ->
+    {error, invalid_packet_size}.
+
 validate_keepalive_multiplier(Multiplier) when
     is_number(Multiplier) andalso Multiplier >= 1.0 andalso Multiplier =< 65535.0
 ->
@@ -3380,9 +3388,10 @@ mqtt_general() ->
             )},
         {"max_packet_size",
             sc(
-                mqtt_max_packet_size(),
+                bytesize(),
                 #{
                     default => <<"1MB">>,
+                    validator => fun ?MODULE:validate_packet_size/1,
                     desc => ?DESC(mqtt_max_packet_size)
                 }
             )},
