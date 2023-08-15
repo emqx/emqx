@@ -214,7 +214,6 @@
     rap := 0 | 1,
     nl := 0 | 1,
     qos := qos(),
-    share => binary(),
     atom() => term()
 }.
 -type reason_code() :: 0..16#FF.

@@ -546,9 +546,7 @@ subopts(SubOpts) ->
         qos => maps:get(qos, SubOpts, 0),
         rh => maps:get(rh, SubOpts, 0),
         rap => maps:get(rap, SubOpts, 0),
-        nl => maps:get(nl, SubOpts, 0),
-        %% TOOD: FIXME for share-sub refactored
-        share => maps:get(share, SubOpts, <<>>)
+        nl => maps:get(nl, SubOpts, 0)
     }.
 
 authresult_to_bool(AuthResult) ->

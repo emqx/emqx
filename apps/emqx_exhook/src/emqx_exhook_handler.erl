@@ -192,7 +192,7 @@ on_session_subscribed(ClientInfo, Topic, SubOpts) ->
     Req = #{
         clientinfo => clientinfo(ClientInfo),
         topic => emqx_topic:maybe_format_share(Topic),
-        subopts => maps:with([qos, share, rh, rap, nl], SubOpts)
+        subopts => maps:with([qos, rh, rap, nl], SubOpts)
     },
     cast('session.subscribed', Req).
 
