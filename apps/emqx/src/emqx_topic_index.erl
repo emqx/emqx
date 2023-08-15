@@ -43,15 +43,27 @@
 -type key(ID) :: {[word()], {ID}}.
 -type match(ID) :: key(ID).
 
+%% @doc Create a new ETS table suitable for topic index.
+%% Usable mostly for testing purposes.
+-spec new() -> ets:table().
 new() ->
     ets:new(?MODULE, [public, ordered_set, {read_concurrency, true}]).
 
+%% @doc Insert a new entry into the index that associates given topic filter to given
+%% record ID, and attaches arbitrary record to the entry. This allows users to choose
+%% between regular and "materialized" indexes, for example.
+-spec insert(emqx_types:topic(), _ID, _Record, ets:table()) -> true.
 insert(Filter, ID, Record, Tab) ->
     ets:insert(Tab, {{words(Filter), {ID}}, Record}).
 
+%% @doc Delete an entry from the index that associates given topic filter to given
+%% record ID. Deleting non-existing entry is not an error.
+-spec delete(emqx_types:topic(), _ID, ets:table()) -> true.
 delete(Filter, ID, Tab) ->
     ets:delete(Tab, {words(Filter), {ID}}).
 
+%% @doc Match given topic against the index and return the first match, or `false` if
+%% no match is found.
 -spec match(emqx_types:topic(), ets:table()) -> match(_ID) | false.
 match(Topic, Tab) ->
     {Words, RPrefix} = match_init(Topic),
@@ -82,6 +94,10 @@ match_rest([W1 | [W2 | _] = SLast], [W1 | [W2 | _] = Rest], RPrefix, Tab) ->
 match_rest(SLast, [W | Rest], RPrefix, Tab) when is_list(SLast) ->
     match(Rest, [W | RPrefix], Tab);
 match_rest(plus, [W | Rest], RPrefix, Tab) ->
+    % NOTE
+    % There's '+' in the key suffix, meaning we should consider 2 alternatives:
+    % 1. Match the rest of the topic as if there was '+' in the current position.
+    % 2. Skip this key and try to match the topic as it is.
     case match(Rest, ['+' | RPrefix], Tab) of
         Match = {_, _} ->
             Match;
@@ -91,6 +107,8 @@ match_rest(plus, [W | Rest], RPrefix, Tab) ->
 match_rest(_, [], _RPrefix, _Tab) ->
     false.
 
+%% @doc Match given topic against the index and return _all_ matches.
+%% If `unique` option is given, return only unique matches by record ID.
 -spec matches(emqx_types:topic(), ets:table(), _Opts :: [unique]) -> [match(_ID)].
 matches(Topic, Tab, Opts) ->
     {Words, RPrefix} = match_init(Topic),
@@ -130,12 +148,18 @@ matches_rest([W1 | [W2 | _] = SLast], [W1 | [W2 | _] = Rest], RPrefix, Acc, Tab)
 matches_rest(SLast, [W | Rest], RPrefix, Acc, Tab) when is_list(SLast) ->
     matches(Rest, [W | RPrefix], Acc, Tab);
 matches_rest(plus, [W | Rest], RPrefix, Acc, Tab) ->
+    % NOTE
+    % There's '+' in the key suffix, meaning we should accumulate all matches from
+    % each of 2 branches:
+    % 1. Match the rest of the topic as if there was '+' in the current position.
+    % 2. Skip this key and try to match the topic as it is.
     NAcc = matches(Rest, ['+' | RPrefix], Acc, Tab),
     matches(Rest, [W | RPrefix], NAcc, Tab);
 matches_rest(_, [], _RPrefix, Acc, _Tab) ->
     Acc.
 
 match_add(K = {_Filter, ID}, Acc = #{}) ->
+    % NOTE: ensuring uniqueness by record ID
     Acc#{ID => K};
 match_add(K, Acc) ->
     [K | Acc].
@@ -146,6 +170,7 @@ match_next(_, '$end_of_table', _) ->
     stop.
 
 match_filter([], [], []) ->
+    % NOTE: we matched the topic exactly
     true;
 match_filter([], [], _Suffix) ->
     % NOTE: we matched the prefix, but there may be more matches next
@@ -173,14 +198,18 @@ match_init(Topic) ->
             {Words, []}
     end.
 
+%% @doc Extract record ID from the match.
 -spec get_id(match(ID)) -> ID.
 get_id({_Filter, {ID}}) ->
     ID.
 
+%% @doc Extract topic (or topic filter) from the match.
 -spec get_topic(match(_ID)) -> emqx_types:topic().
 get_topic({Filter, _ID}) ->
     emqx_topic:join(Filter).
 
+%% @doc Fetch the record associated with the match.
+%% NOTE: Only really useful for ETS tables where the record ID is the first element.
 -spec get_record(match(_ID), ets:table()) -> _Record.
 get_record(K, Tab) ->
     ets:lookup_element(Tab, K, 2).
@@ -189,6 +218,10 @@ get_record(K, Tab) ->
 
 -spec words(emqx_types:topic()) -> [word()].
 words(Topic) when is_binary(Topic) ->
+    % NOTE
+    % This is almost identical to `emqx_topic:words/1`, but it doesn't convert empty
+    % tokens to ''. This is needed to keep ordering of words consistent with what
+    % `match_filter/3` expects.
     [word(W) || W <- emqx_topic:tokens(Topic)].
 
 -spec word(binary()) -> word().
