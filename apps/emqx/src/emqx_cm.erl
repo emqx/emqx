@@ -301,9 +301,8 @@ open_session(false, ClientInfo = #{clientid := ClientId}, ConnInfo) ->
     emqx_cm_locker:trans(ClientId, ResumeStart).
 
 create_session(ClientInfo, ConnInfo) ->
-    #{clientid := ClientId} = ClientInfo,
     Options = get_session_confs(ClientInfo, ConnInfo),
-    Session = emqx_session:init_and_open(ClientId, Options),
+    Session = emqx_session:init_and_open(Options),
     ok = emqx_metrics:inc('session.created'),
     ok = emqx_hooks:run('session.created', [ClientInfo, emqx_session:info(Session)]),
     Session.

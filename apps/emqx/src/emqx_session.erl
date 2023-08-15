@@ -60,7 +60,7 @@
     unpersist/1
 ]).
 
--export([init/1, init_and_open/2]).
+-export([init/1, init_and_open/1]).
 
 -export([
     info/1,
@@ -166,8 +166,9 @@
 %% Init a Session
 %%--------------------------------------------------------------------
 
--spec init_and_open(emqx_types:clientid(), options()) -> session().
-init_and_open(ClientID, Options) ->
+-spec init_and_open(options()) -> session().
+init_and_open(Options) ->
+    #{clientid := ClientID} = Options,
     Session0 = emqx_session:init(Options),
     _ = emqx_persistent_session_ds:open_session(ClientID),
     Session0.
