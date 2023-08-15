@@ -154,6 +154,8 @@ jobs:
     with:
       runner: ${{ needs.sanity-checks.outputs.runner }}
       builder: ${{ needs.sanity-checks.outputs.builder }}
+      before_ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.event.before }}
+      after_ref: ${{ github.sha }}
 
   run_test_cases:
     needs:
