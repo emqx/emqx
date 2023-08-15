@@ -23,7 +23,7 @@ env:
 jobs:
   run_emqx_app_tests:
     runs-on: ${{ inputs.runner }}
-    container: "ghcr.io/emqx/emqx-builder/${{ matrix.builder }}:${{ matrix.elixir}}-${{ matrix.otp }}-ubuntu22.04"
+    container: ${{ inputs.builder }}
 
     defaults:
       run:
@@ -63,5 +63,5 @@ jobs:
     - uses: actions/upload-artifact@v3
       if: failure()
       with:
-        name: logs-${{ matrix.runs-on }}
+        name: logs-${{ inputs.runner }}
         path: apps/emqx/_build/test/logs

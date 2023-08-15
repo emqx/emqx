@@ -160,7 +160,7 @@ jobs:
 
   run_emqx_app_tests:
     needs:
-      - sanity-checks
+      - prepare
       - compile
     uses: ./.github/workflows/run_emqx_app_tests.yaml
     with:
