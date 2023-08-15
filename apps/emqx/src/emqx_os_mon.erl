@@ -38,15 +38,14 @@
 %% gen_server callbacks
 -export([
     init/1,
+    handle_continue/2,
     handle_call/3,
     handle_cast/2,
     handle_info/2,
     terminate/2,
     code_change/3
 ]).
--ifdef(TEST).
--export([is_sysmem_check_supported/0]).
--endif.
+-export([is_os_check_supported/0]).
 
 -include("emqx.hrl").
 
@@ -83,12 +82,17 @@ current_sysmem_percent() ->
 %%--------------------------------------------------------------------
 
 init([]) ->
+    %% start os_mon temporarily
+    {ok, _} = application:ensure_all_started(os_mon),
+    {ok, undefined, {continue, setup}}.
+
+handle_continue(setup, undefined) ->
     %% memsup is not reliable, ignore
     memsup:set_sysmem_high_watermark(1.0),
     SysHW = init_os_monitor(),
     MemRef = start_mem_check_timer(),
     CpuRef = start_cpu_check_timer(),
-    {ok, #{sysmem_high_watermark => SysHW, mem_time_ref => MemRef, cpu_time_ref => CpuRef}}.
+    {noreply, #{sysmem_high_watermark => SysHW, mem_time_ref => MemRef, cpu_time_ref => CpuRef}}.
 
 init_os_monitor() ->
     init_os_monitor(emqx:get_config([sysmon, os])).
@@ -182,12 +186,12 @@ start_cpu_check_timer() ->
         _ -> start_timer(Interval, cpu_check)
     end.
 
-is_sysmem_check_supported() ->
+is_os_check_supported() ->
     {unix, linux} =:= os:type().
 
 start_mem_check_timer() ->
     Interval = emqx:get_config([sysmon, os, mem_check_interval]),
-    case is_integer(Interval) andalso is_sysmem_check_supported() of
+    case is_integer(Interval) andalso is_os_check_supported() of
         true ->
             start_timer(Interval, mem_check);
         false ->
@@ -205,7 +209,7 @@ update_mem_alarm_status(HWM) when HWM > 1.0 orelse HWM < 0.0 ->
         <<"Deactivated mem usage alarm due to out of range threshold">>
     );
 update_mem_alarm_status(HWM) ->
-    is_sysmem_check_supported() andalso
+    is_os_check_supported() andalso
         do_update_mem_alarm_status(HWM),
     ok.
 

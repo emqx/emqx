@@ -19,8 +19,6 @@
 -behaviour(supervisor).
 
 -export([start_link/0]).
--export([is_os_mon_supported/0]).
-
 -export([init/1]).
 
 start_link() ->
@@ -28,7 +26,7 @@ start_link() ->
 
 init([]) ->
     OsMon =
-        case is_os_mon_supported() of
+        case emqx_os_mon:is_os_check_supported() of
             true -> [child_spec(emqx_os_mon)];
             false -> []
         end,
@@ -44,9 +42,6 @@ init([]) ->
 %%--------------------------------------------------------------------
 %% Internal functions
 %%--------------------------------------------------------------------
-
-is_os_mon_supported() ->
-    erlang:function_exported(memsup, get_procmem_high_watermark, 0).
 
 child_spec(Mod) ->
     child_spec(Mod, []).

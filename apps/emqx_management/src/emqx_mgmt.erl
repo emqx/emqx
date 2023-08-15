@@ -197,13 +197,16 @@ vm_stats() ->
     ].
 
 vm_stats('cpu.idle') ->
-    case cpu_sup:util([detailed]) of
-        %% Not support for Windows
-        {_, 0, 0, _} -> 0;
-        {_Num, _Use, IdleList, _} -> proplists:get_value(idle, IdleList, 0)
+    case emqx_vm:cpu_util([detailed]) of
+        {_Num, _Use, List, _} when is_list(List) -> proplists:get_value(idle, List, 0);
+        %% return {all, 0, 0, []} when cpu_sup is not started
+        _ -> 0
     end;
 vm_stats('cpu.use') ->
-    100 - vm_stats('cpu.idle');
+    case vm_stats('cpu.idle') of
+        0 -> 0;
+        Idle -> 100 - Idle
+    end;
 vm_stats('total.memory') ->
     {_, MemTotal} = get_sys_memory(),
     MemTotal;

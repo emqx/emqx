@@ -29,6 +29,7 @@
 %% gen_server callbacks
 -export([
     init/1,
+    handle_continue/2,
     handle_call/3,
     handle_cast/2,
     handle_info/2,
@@ -70,11 +71,14 @@ update(VM) ->
 
 init([]) ->
     emqx_logger:set_proc_metadata(#{sysmon => true}),
-    init_system_monitor(),
+    {ok, undefined, {continue, setup}}.
 
+handle_continue(setup, undefined) ->
+    init_system_monitor(),
     %% Monitor cluster partition event
     ekka:monitor(partition, fun handle_partition_event/1),
-    {ok, start_timer(#{timer => undefined, events => []})}.
+    NewState = start_timer(#{timer => undefined, events => []}),
+    {noreply, NewState, hibernate}.
 
 start_timer(State) ->
     State#{timer := emqx_utils:start_timer(timer:seconds(2), reset)}.

@@ -44,7 +44,7 @@
     get_otp_version/0
 ]).
 
--export([cpu_util/0]).
+-export([cpu_util/0, cpu_util/1]).
 
 -ifdef(TEST).
 -compile(export_all).
@@ -378,17 +378,29 @@ avg15() ->
 cpu_util() ->
     compat_windows(fun cpu_sup:util/0).
 
+cpu_util(Args) ->
+    compat_windows(fun cpu_sup:util/1, Args).
+
 compat_windows(Fun) ->
-    case os:type() of
-        {win32, nt} ->
-            0.0;
-        _Type ->
-            case catch Fun() of
-                Val when is_float(Val) -> floor(Val * 100) / 100;
-                Val when is_number(Val) -> Val;
-                _Error -> 0.0
-            end
+    case compat_windows(Fun, []) of
+        Val when is_float(Val) -> floor(Val * 100) / 100;
+        Val when is_number(Val) -> Val;
+        _ -> 0.0
     end.
+
+compat_windows(Fun, Args) ->
+    try
+        case is_windows() of
+            true -> 0.0;
+            false when Args =:= [] -> Fun();
+            false -> Fun(Args)
+        end
+    catch
+        _:_ -> 0.0
+    end.
+
+is_windows() ->
+    os:type() =:= {win32, nt}.
 
 load(Avg) ->
     floor((Avg / 256) * 100) / 100.

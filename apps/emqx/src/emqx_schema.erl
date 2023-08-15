@@ -3659,7 +3659,7 @@ shared_subscription_strategy() ->
         )}.
 
 default_mem_check_interval() ->
-    case emqx_sys_sup:is_os_mon_supported() of
+    case emqx_os_mon:is_os_check_supported() of
         true -> <<"60s">>;
         false -> disabled
     end.
