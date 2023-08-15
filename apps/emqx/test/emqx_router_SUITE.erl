@@ -102,6 +102,55 @@ t_add_delete(_) ->
     delete_route(<<"a/+/b">>, node()),
     ?assertEqual([], ?R:topics()).
 
+t_add_delete_incremental(_) ->
+    add_route(<<"a/b/c">>),
+    add_route(<<"a/+/c">>, node()),
+    add_route(<<"a/+/+">>, node()),
+    add_route(<<"a/b/#">>, node()),
+    add_route(<<"#">>, node()),
+    ?assertEqual(
+        [
+            #route{topic = <<"#">>, dest = node()},
+            #route{topic = <<"a/+/+">>, dest = node()},
+            #route{topic = <<"a/+/c">>, dest = node()},
+            #route{topic = <<"a/b/#">>, dest = node()},
+            #route{topic = <<"a/b/c">>, dest = node()}
+        ],
+        lists:sort(?R:match_routes(<<"a/b/c">>))
+    ),
+    delete_route(<<"a/+/c">>, node()),
+    ?assertEqual(
+        [
+            #route{topic = <<"#">>, dest = node()},
+            #route{topic = <<"a/+/+">>, dest = node()},
+            #route{topic = <<"a/b/#">>, dest = node()},
+            #route{topic = <<"a/b/c">>, dest = node()}
+        ],
+        lists:sort(?R:match_routes(<<"a/b/c">>))
+    ),
+    delete_route(<<"a/+/+">>, node()),
+    ?assertEqual(
+        [
+            #route{topic = <<"#">>, dest = node()},
+            #route{topic = <<"a/b/#">>, dest = node()},
+            #route{topic = <<"a/b/c">>, dest = node()}
+        ],
+        lists:sort(?R:match_routes(<<"a/b/c">>))
+    ),
+    delete_route(<<"a/b/#">>, node()),
+    ?assertEqual(
+        [
+            #route{topic = <<"#">>, dest = node()},
+            #route{topic = <<"a/b/c">>, dest = node()}
+        ],
+        lists:sort(?R:match_routes(<<"a/b/c">>))
+    ),
+    delete_route(<<"a/b/c">>, node()),
+    ?assertEqual(
+        [#route{topic = <<"#">>, dest = node()}],
+        lists:sort(?R:match_routes(<<"a/b/c">>))
+    ).
+
 t_do_add_delete(_) ->
     ?R:do_add_route(<<"a/b/c">>),
     ?R:do_add_route(<<"a/b/c">>, node()),
