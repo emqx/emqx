@@ -230,7 +230,7 @@ broker_info() ->
     Info#{node => node(), otp_release => otp_rel(), node_status => 'running'}.
 
 convert_broker_info({uptime, Uptime}, M) ->
-    M#{uptime => emqx_datetime:human_readable_duration_string(Uptime)};
+    M#{uptime => emqx_utils_calendar:human_readable_duration_string(Uptime)};
 convert_broker_info({K, V}, M) ->
     M#{K => iolist_to_binary(V)}.
 

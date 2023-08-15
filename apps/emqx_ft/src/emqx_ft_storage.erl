@@ -68,7 +68,7 @@
     transfer := emqx_ft:transfer(),
     name := file:name(),
     size := _Bytes :: non_neg_integer(),
-    timestamp := emqx_datetime:epoch_second(),
+    timestamp := emqx_utils_calendar:epoch_second(),
     uri => uri_string:uri_string(),
     meta => emqx_ft:filemeta()
 }.

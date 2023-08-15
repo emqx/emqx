@@ -28,7 +28,7 @@ format(
     #{level := debug, meta := Meta = #{trace_tag := Tag}, msg := Msg},
     #{payload_encode := PEncode}
 ) ->
-    Time = calendar:system_time_to_rfc3339(erlang:system_time(microsecond), [{unit, microsecond}]),
+    Time = emqx_utils_calendar:now_to_rfc3339(microsecond),
     ClientId = to_iolist(maps:get(clientid, Meta, "")),
     Peername = maps:get(peername, Meta, ""),
     MetaBin = format_meta(Meta, PEncode),

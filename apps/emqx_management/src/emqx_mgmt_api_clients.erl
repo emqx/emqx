@@ -161,7 +161,7 @@ schema("/clients") ->
                         desc => <<"Fuzzy search `username` as substring">>
                     })},
                 {gte_created_at,
-                    hoconsc:mk(emqx_datetime:epoch_millisecond(), #{
+                    hoconsc:mk(emqx_utils_calendar:epoch_millisecond(), #{
                         in => query,
                         required => false,
                         desc =>
@@ -169,7 +169,7 @@ schema("/clients") ->
                                 " than or equal method, rfc3339 or timestamp(millisecond)">>
                     })},
                 {lte_created_at,
-                    hoconsc:mk(emqx_datetime:epoch_millisecond(), #{
+                    hoconsc:mk(emqx_utils_calendar:epoch_millisecond(), #{
                         in => query,
                         required => false,
                         desc =>
@@ -177,7 +177,7 @@ schema("/clients") ->
                                 " than or equal method, rfc3339 or timestamp(millisecond)">>
                     })},
                 {gte_connected_at,
-                    hoconsc:mk(emqx_datetime:epoch_millisecond(), #{
+                    hoconsc:mk(emqx_utils_calendar:epoch_millisecond(), #{
                         in => query,
                         required => false,
                         desc => <<
@@ -186,7 +186,7 @@ schema("/clients") ->
                         >>
                     })},
                 {lte_connected_at,
-                    hoconsc:mk(emqx_datetime:epoch_millisecond(), #{
+                    hoconsc:mk(emqx_utils_calendar:epoch_millisecond(), #{
                         in => query,
                         required => false,
                         desc => <<
@@ -399,16 +399,16 @@ fields(client) ->
         {connected, hoconsc:mk(boolean(), #{desc => <<"Whether the client is connected">>})},
         {connected_at,
             hoconsc:mk(
-                emqx_datetime:epoch_millisecond(),
+                emqx_utils_calendar:epoch_millisecond(),
                 #{desc => <<"Client connection time, rfc3339 or timestamp(millisecond)">>}
             )},
         {created_at,
             hoconsc:mk(
-                emqx_datetime:epoch_millisecond(),
+                emqx_utils_calendar:epoch_millisecond(),
                 #{desc => <<"Session creation time, rfc3339 or timestamp(millisecond)">>}
             )},
         {disconnected_at,
-            hoconsc:mk(emqx_datetime:epoch_millisecond(), #{
+            hoconsc:mk(emqx_utils_calendar:epoch_millisecond(), #{
                 desc =>
                     <<
                         "Client offline time."
@@ -950,7 +950,7 @@ result_format_time_fun(Key, NClientInfoMap) ->
     case NClientInfoMap of
         #{Key := TimeStamp} ->
             NClientInfoMap#{
-                Key => emqx_datetime:epoch_to_rfc3339(TimeStamp)
+                Key => emqx_utils_calendar:epoch_to_rfc3339(TimeStamp)
             };
         #{} ->
             NClientInfoMap

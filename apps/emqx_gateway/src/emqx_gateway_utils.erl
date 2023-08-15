@@ -38,7 +38,6 @@
 -export([
     apply/2,
     parse_listenon/1,
-    unix_ts_to_rfc3339/1,
     unix_ts_to_rfc3339/2,
     listener_id/3,
     parse_listener_id/1,
@@ -364,13 +363,9 @@ unix_ts_to_rfc3339(Key, Map) ->
             Map;
         Ts ->
             Map#{
-                Key =>
-                    emqx_rule_funcs:unix_ts_to_rfc3339(Ts, <<"millisecond">>)
+                Key => emqx_utils_calendar:epoch_to_rfc3339(Ts)
             }
     end.
-
-unix_ts_to_rfc3339(Ts) ->
-    emqx_rule_funcs:unix_ts_to_rfc3339(Ts, <<"millisecond">>).
 
 -spec stringfy(term()) -> binary().
 stringfy(T) when is_list(T); is_binary(T) ->

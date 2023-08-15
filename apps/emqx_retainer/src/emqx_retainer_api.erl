@@ -211,11 +211,8 @@ format_message(#message{
         msgid => emqx_guid:to_hexstr(ID),
         qos => Qos,
         topic => Topic,
-        publish_at => list_to_binary(
-            calendar:system_time_to_rfc3339(
-                Timestamp, [{unit, millisecond}]
-            )
-        ),
+        publish_at =>
+            emqx_utils_calendar:epoch_to_rfc3339(Timestamp),
         from_clientid => to_bin_string(From),
         from_username => maps:get(username, Headers, <<>>)
     }.

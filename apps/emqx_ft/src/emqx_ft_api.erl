@@ -278,7 +278,7 @@ format_file_info(
     end.
 
 format_timestamp(Timestamp) ->
-    iolist_to_binary(calendar:system_time_to_rfc3339(Timestamp, [{unit, second}])).
+    emqx_utils_calendar:epoch_to_rfc3339(Timestamp, second).
 
 format_name(NameBin) when is_binary(NameBin) ->
     NameBin;
