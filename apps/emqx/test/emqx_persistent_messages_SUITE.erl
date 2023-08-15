@@ -183,6 +183,8 @@ t_session_subscription_iterators(Config) ->
             ?assertMatch({ok, [IteratorId]}, get_all_iterator_ids(Node2)),
             ReplayMessages1 = erpc:call(Node1, fun() -> consume(?DS_SHARD, IteratorId) end),
             ExpectedMessages = [Message2, Message3],
+            %% Note: it is expected that this will break after replayers are in place.
+            %% They might have consumed all the messages by this time.
             ?assertEqual(ExpectedMessages, ReplayMessages1),
             %% Different DS shard
             ReplayMessages2 = erpc:call(Node2, fun() -> consume(?DS_SHARD, IteratorId) end),
