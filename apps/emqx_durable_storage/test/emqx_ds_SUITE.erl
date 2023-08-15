@@ -57,7 +57,6 @@ cluster(#{n := N}) ->
     Spec = #{
         role => core,
         join_to => emqx_cth_cluster:node_name(Node1),
-        listeners => true,
         apps => app_specs()
     },
     [
