@@ -1,6 +1,6 @@
 Fixes <issue-or-jira-number>
 
-<!-- Make sure to target release-51 branch if this PR is intended to fix the issues for the release candidate. -->
+<!-- Make sure to target release-52 branch if this PR is intended to fix the issues for the release candidate. -->
 
 ## Summary
 copilot:summary
