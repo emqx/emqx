@@ -88,6 +88,11 @@ jobs:
         registry:
           - 'docker.io'
           - 'public.ecr.aws'
+        exclude:
+          - profile: emqx-enterprise
+            registry: 'public.ecr.aws'
+          - profile: emqx-enterprise-elixir
+            registry: 'public.ecr.aws'
 
     steps:
     - uses: actions/checkout@v3
