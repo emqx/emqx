@@ -760,6 +760,64 @@ prop_acked_ids_eventually_forgotten(Trace) ->
     ),
     ok.
 
+permission_denied_response() ->
+    Link =
+        <<"https://console.developers.google.com/project/9999/apiui/credential">>,
+    {error, #{
+        status_code => 403,
+        headers =>
+            [
+                {<<"vary">>, <<"X-Origin">>},
+                {<<"vary">>, <<"Referer">>},
+                {<<"content-type">>, <<"application/json; charset=UTF-8">>},
+                {<<"date">>, <<"Tue, 15 Aug 2023 13:59:09 GMT">>},
+                {<<"server">>, <<"ESF">>},
+                {<<"cache-control">>, <<"private">>},
+                {<<"x-xss-protection">>, <<"0">>},
+                {<<"x-frame-options">>, <<"SAMEORIGIN">>},
+                {<<"x-content-type-options">>, <<"nosniff">>},
+                {<<"alt-svc">>, <<"h3=\":443\"; ma=2592000,h3-29=\":443\"; ma=2592000">>},
+                {<<"accept-ranges">>, <<"none">>},
+                {<<"vary">>, <<"Origin,Accept-Encoding">>},
+                {<<"transfer-encoding">>, <<"chunked">>}
+            ],
+        body => emqx_utils_json:encode(
+            #{
+                <<"error">> =>
+                    #{
+                        <<"code">> => 403,
+                        <<"details">> =>
+                            [
+                                #{
+                                    <<"@type">> => <<"type.googleapis.com/google.rpc.Help">>,
+                                    <<"links">> =>
+                                        [
+                                            #{
+                                                <<"description">> =>
+                                                    <<"Google developer console API key">>,
+                                                <<"url">> =>
+                                                    Link
+                                            }
+                                        ]
+                                },
+                                #{
+                                    <<"@type">> => <<"type.googleapis.com/google.rpc.ErrorInfo">>,
+                                    <<"domain">> => <<"googleapis.com">>,
+                                    <<"metadata">> =>
+                                        #{
+                                            <<"consumer">> => <<"projects/9999">>,
+                                            <<"service">> => <<"pubsub.googleapis.com">>
+                                        },
+                                    <<"reason">> => <<"CONSUMER_INVALID">>
+                                }
+                            ],
+                        <<"message">> => <<"Project #9999 has been deleted.">>,
+                        <<"status">> => <<"PERMISSION_DENIED">>
+                    }
+            }
+        )
+    }}.
+
 %%------------------------------------------------------------------------------
 %% Testcases
 %%------------------------------------------------------------------------------
@@ -785,7 +843,7 @@ t_start_stop(Config) ->
             prop_client_stopped(),
             prop_workers_stopped(PubSubTopic),
             fun(Trace) ->
-                ?assertMatch([_], ?of_kind(gcp_pubsub_consumer_unset_nonexistent_topic, Trace)),
+                ?assertMatch([_], ?of_kind(gcp_pubsub_consumer_clear_unhealthy, Trace)),
                 ok
             end
         ]
@@ -1986,6 +2044,81 @@ t_get_subscription(Config) ->
                 )
             ),
 
+            ok
+        end,
+        []
+    ),
+    ok.
+
+t_permission_denied_topic_check(Config) ->
+    [#{pubsub_topic := PubSubTopic}] = ?config(topic_mapping, Config),
+    ResourceId = resource_id(Config),
+    ?check_trace(
+        begin
+            %% the emulator does not check any credentials
+            emqx_common_test_helpers:with_mock(
+                emqx_bridge_gcp_pubsub_client,
+                query_sync,
+                fun(PreparedRequest = {prepared_request, {Method, Path, _Body}}, Client) ->
+                    RE = iolist_to_binary(["/topics/", PubSubTopic, "$"]),
+                    case {Method =:= get, re:run(Path, RE)} of
+                        {true, {match, _}} ->
+                            permission_denied_response();
+                        _ ->
+                            meck:passthrough([PreparedRequest, Client])
+                    end
+                end,
+                fun() ->
+                    {{ok, _}, {ok, _}} =
+                        ?wait_async_action(
+                            create_bridge(Config),
+                            #{?snk_kind := gcp_pubsub_stop},
+                            5_000
+                        ),
+                    ?assertMatch(
+                        {ok, disconnected},
+                        emqx_resource_manager:health_check(ResourceId)
+                    ),
+                    ?assertMatch(
+                        {ok, _Group, #{error := {unhealthy_target, "Permission denied" ++ _}}},
+                        emqx_resource_manager:lookup_cached(ResourceId)
+                    ),
+                    ok
+                end
+            ),
+            ok
+        end,
+        []
+    ),
+    ok.
+
+t_permission_denied_worker(Config) ->
+    ?check_trace(
+        begin
+            emqx_common_test_helpers:with_mock(
+                emqx_bridge_gcp_pubsub_client,
+                query_sync,
+                fun(PreparedRequest = {prepared_request, {Method, _Path, _Body}}, Client) ->
+                    case Method =:= put of
+                        true ->
+                            permission_denied_response();
+                        false ->
+                            meck:passthrough([PreparedRequest, Client])
+                    end
+                end,
+                fun() ->
+                    {{ok, _}, {ok, _}} =
+                        ?wait_async_action(
+                            create_bridge(
+                                Config
+                            ),
+                            #{?snk_kind := gcp_pubsub_consumer_worker_terminate},
+                            10_000
+                        ),
+
+                    ok
+                end
+            ),
             ok
         end,
         []

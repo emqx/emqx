@@ -205,7 +205,7 @@ get_topic(Topic, ConnectorState) ->
     Path = <<"/v1/projects/", ProjectId/binary, "/topics/", Topic/binary>>,
     Body = <<>>,
     PreparedRequest = {prepared_request, {Method, Path, Body}},
-    query_sync(PreparedRequest, ConnectorState).
+    ?MODULE:query_sync(PreparedRequest, ConnectorState).
 
 %%-------------------------------------------------------------------------------------------------
 %% Helper fns

@@ -217,7 +217,9 @@ handle_continue(?ensure_subscription, State0) ->
             {noreply, State0, {continue, ?ensure_subscription}};
         not_found ->
             %% there's nothing much to do if the topic suddenly doesn't exist anymore.
-            {stop, {error, topic_not_found}, State0}
+            {stop, {error, topic_not_found}, State0};
+        permission_denied ->
+            {stop, {error, permission_denied}, State0}
     end;
 handle_continue(?patch_subscription, State0) ->
     ?tp(gcp_pubsub_consumer_worker_patch_subscription_enter, #{}),
@@ -291,14 +293,17 @@ handle_info(Msg, State0) ->
     }),
     {noreply, State0}.
 
-terminate({error, topic_not_found} = _Reason, State) ->
+terminate({error, Reason}, State) when
+    Reason =:= topic_not_found;
+    Reason =:= permission_denied
+->
     #{
         instance_id := InstanceId,
         topic := _Topic
     } = State,
     optvar:unset(?OPTVAR_SUB_OK(self())),
-    emqx_bridge_gcp_pubsub_impl_consumer:mark_topic_as_nonexistent(InstanceId),
-    ?tp(gcp_pubsub_consumer_worker_terminate, #{reason => _Reason, topic => _Topic}),
+    emqx_bridge_gcp_pubsub_impl_consumer:mark_as_unhealthy(InstanceId, Reason),
+    ?tp(gcp_pubsub_consumer_worker_terminate, #{reason => {error, Reason}, topic => _Topic}),
     ok;
 terminate(_Reason, _State) ->
     optvar:unset(?OPTVAR_SUB_OK(self())),
@@ -329,7 +334,8 @@ ensure_pull_timer(State = #{pull_timer := TRef}) when is_reference(TRef) ->
 ensure_pull_timer(State = #{pull_retry_interval := PullRetryInterval}) ->
     State#{pull_timer := emqx_utils:start_timer(PullRetryInterval, pull)}.
 
--spec ensure_subscription_exists(state()) -> continue | retry | not_found | already_exists.
+-spec ensure_subscription_exists(state()) ->
+    continue | retry | not_found | permission_denied | already_exists.
 ensure_subscription_exists(State) ->
     ?tp(gcp_pubsub_consumer_worker_create_subscription_enter, #{}),
     #{
@@ -367,6 +373,17 @@ ensure_subscription_exists(State) ->
                 }
             ),
             not_found;
+        {error, #{status_code := 403}} ->
+            %% permission denied
+            ?tp(
+                warning,
+                "gcp_pubsub_consumer_worker_permission_denied",
+                #{
+                    instance_id => InstanceId,
+                    topic => Topic
+                }
+            ),
+            permission_denied;
         {ok, #{status_code := 200}} ->
             ?tp(
                 debug,
