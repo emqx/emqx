@@ -147,7 +147,7 @@ on_start(
         [
             {pool_size, PoolSize},
             {username, maps:get(username, Config, undefined)},
-            {password, maps:get(password, Config, "")},
+            {password, eredis_secret:wrap(maps:get(password, Config, ""))},
             {auto_reconnect, ?AUTO_RECONNECT_INTERVAL}
         ] ++ Database ++ Servers,
     Options =
