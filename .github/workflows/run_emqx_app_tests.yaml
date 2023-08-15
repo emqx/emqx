@@ -1,0 +1,65 @@
+name: Check emqx app standalone
+
+# These tests are needed because we provide the `emqx` application as a standalone
+# dependency for plugins.
+
+concurrency:
+  group: test-standalone-${{ github.event_name }}-${{ github.ref }}
+  cancel-in-progress: true
+
+on:
+  workflow_call:
+    inputs:
+      runner:
+        required: true
+        type: string
+      builder:
+        required: true
+        type: string
+      before_ref:
+        required: true
+        type: string
+      after_ref:
+        required: true
+        type: string
+
+env:
+  IS_CI: "yes"
+
+jobs:
+  run_emqx_app_tests:
+    runs-on: ${{ inputs.runner }}
+    container: ${{ inputs.builder }}
+
+    defaults:
+      run:
+        shell: bash
+
+    steps:
+    - uses: actions/checkout@v3
+      with:
+        fetch-depth: 0
+    - name: run
+      env:
+        BEFORE_REF: ${{ inputs.before_ref }}
+        AFTER_REF: ${{ inputs.after_ref }}
+      run: |
+        git config --global --add safe.directory "$GITHUB_WORKSPACE"
+        changed_files="$(git diff --name-only ${BEFORE_REF} ${AFTER_REF} apps/emqx)"
+        if [ "$changed_files" = '' ]; then
+          echo "nothing changed in apps/emqx, ignored."
+          exit 0
+        fi
+        make ensure-rebar3
+        cp rebar3 apps/emqx/
+        cd apps/emqx
+        ./rebar3 xref
+        ./rebar3 dialyzer
+        ./rebar3 eunit -v
+        ./rebar3 ct --name 'test@127.0.0.1' -v --readable=true
+        ./rebar3 proper -d test/props
+    - uses: actions/upload-artifact@v3
+      if: failure()
+      with:
+        name: logs-${{ inputs.runner }}
+        path: apps/emqx/_build/test/logs
