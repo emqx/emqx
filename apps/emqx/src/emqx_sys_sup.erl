@@ -19,6 +19,7 @@
 -behaviour(supervisor).
 
 -export([start_link/0]).
+-export([is_os_mon_supported/0]).
 
 -export([init/1]).
 
@@ -26,18 +27,26 @@ start_link() ->
     supervisor:start_link({local, ?MODULE}, ?MODULE, []).
 
 init([]) ->
-    Childs = [
-        child_spec(emqx_sys),
-        child_spec(emqx_alarm),
-        child_spec(emqx_sys_mon),
-        child_spec(emqx_os_mon),
-        child_spec(emqx_vm_mon)
-    ],
-    {ok, {{one_for_one, 10, 100}, Childs}}.
+    OsMon =
+        case is_os_mon_supported() of
+            true -> [child_spec(emqx_os_mon)];
+            false -> []
+        end,
+    Children =
+        [
+            child_spec(emqx_sys),
+            child_spec(emqx_alarm),
+            child_spec(emqx_sys_mon),
+            child_spec(emqx_vm_mon)
+        ] ++ OsMon,
+    {ok, {{one_for_one, 10, 100}, Children}}.
 
 %%--------------------------------------------------------------------
 %% Internal functions
 %%--------------------------------------------------------------------
+
+is_os_mon_supported() ->
+    erlang:function_exported(memsup, get_procmem_high_watermark, 0).
 
 child_spec(Mod) ->
     child_spec(Mod, []).

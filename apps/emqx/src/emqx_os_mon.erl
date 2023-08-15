@@ -56,7 +56,7 @@ start_link() ->
     gen_server:start_link({local, ?OS_MON}, ?MODULE, [], []).
 
 update(OS) ->
-    erlang:send(?MODULE, {monitor_conf_update, OS}).
+    gen_server:cast(?MODULE, {monitor_conf_update, OS}).
 
 %%--------------------------------------------------------------------
 %% API
@@ -110,6 +110,12 @@ handle_call({set_sysmem_high_watermark, New}, _From, #{sysmem_high_watermark := 
 handle_call(Req, _From, State) ->
     {reply, {error, {unexpected_call, Req}}, State}.
 
+handle_cast({monitor_conf_update, OS}, State) ->
+    cancel_outdated_timer(State),
+    SysHW = init_os_monitor(OS),
+    MemRef = start_mem_check_timer(),
+    CpuRef = start_cpu_check_timer(),
+    {noreply, #{sysmem_high_watermark => SysHW, mem_time_ref => MemRef, cpu_time_ref => CpuRef}};
 handle_cast(Msg, State) ->
     ?SLOG(error, #{msg => "unexpected_cast", cast => Msg}),
     {noreply, State}.
@@ -151,12 +157,6 @@ handle_info({timeout, _Timer, cpu_check}, State) ->
     end,
     Ref = start_cpu_check_timer(),
     {noreply, State#{cpu_time_ref => Ref}};
-handle_info({monitor_conf_update, OS}, State) ->
-    cancel_outdated_timer(State),
-    SysHW = init_os_monitor(OS),
-    MemRef = start_mem_check_timer(),
-    CpuRef = start_cpu_check_timer(),
-    {noreply, #{sysmem_high_watermark => SysHW, mem_time_ref => MemRef, cpu_time_ref => CpuRef}};
 handle_info(Info, State) ->
     ?SLOG(error, #{msg => "unexpected_info", info => Info}),
     {noreply, State}.
