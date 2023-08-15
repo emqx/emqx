@@ -432,7 +432,7 @@ client(Name, Config, N) ->
     try
         _ = hstreamdb:stop_client(Name),
         {ok, Client} = hstreamdb:start_client(Name, default_options(Config)),
-        {ok, echo} = hstreamdb:echo(Client),
+        ok = hstreamdb_client:echo(Client),
         Client
     catch
         Class:Error ->
@@ -509,7 +509,7 @@ health_check_resource_down(Config) ->
 % These funs start and then stop the hstreamdb connection
 connect_and_create_stream(Config) ->
     ?WITH_CLIENT(
-        _ = hstreamdb:create_stream(
+        _ = hstreamdb_client:create_stream(
             Client, ?STREAM, ?REPLICATION_FACTOR, ?BACKLOG_RETENTION_SECOND, ?SHARD_COUNT
         )
     ),
@@ -531,7 +531,7 @@ connect_and_create_stream(Config) ->
 
 connect_and_delete_stream(Config) ->
     ?WITH_CLIENT(
-        _ = hstreamdb:delete_stream(Client, ?STREAM)
+        _ = hstreamdb_client:delete_stream(Client, ?STREAM)
     ).
 
 %%--------------------------------------------------------------------
