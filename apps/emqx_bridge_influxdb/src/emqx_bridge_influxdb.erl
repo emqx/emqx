@@ -168,6 +168,9 @@ write_syntax(format) ->
 write_syntax(_) ->
     undefined.
 
+to_influx_lines(Lines = [#{} | _]) ->
+    %% already parsed/converted (e.g.: bridge_probe, after hocon_tconf:check_plain)
+    Lines;
 to_influx_lines(RawLines) ->
     try
         influx_lines(str(RawLines), [])

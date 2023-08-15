@@ -66,7 +66,9 @@ on_start(InstId, Config) ->
 on_stop(InstId, _State) ->
     case emqx_resource:get_allocated_resources(InstId) of
         #{?influx_client := Client} ->
-            influxdb:stop_client(Client);
+            Res = influxdb:stop_client(Client),
+            ?tp(influxdb_client_stopped, #{instance_id => InstId}),
+            Res;
         _ ->
             ok
     end.

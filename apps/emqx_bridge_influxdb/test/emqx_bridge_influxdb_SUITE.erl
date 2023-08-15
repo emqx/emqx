@@ -124,6 +124,9 @@ init_per_group(InfluxDBType, Config0) when
                 {influxdb_config, InfluxDBConfig},
                 {influxdb_config_string, ConfigString},
                 {ehttpc_pool_name, EHttpcPoolName},
+                {bridge_type, influxdb_api_v1},
+                {bridge_name, Name},
+                {bridge_config, InfluxDBConfig},
                 {influxdb_name, Name}
                 | Config
             ];
@@ -193,6 +196,9 @@ init_per_group(InfluxDBType, Config0) when
                 {influxdb_config, InfluxDBConfig},
                 {influxdb_config_string, ConfigString},
                 {ehttpc_pool_name, EHttpcPoolName},
+                {bridge_type, influxdb_api_v2},
+                {bridge_name, Name},
+                {bridge_config, InfluxDBConfig},
                 {influxdb_name, Name}
                 | Config
             ];
@@ -568,6 +574,10 @@ t_start_ok(Config) ->
             ok
         end
     ),
+    ok.
+
+t_start_stop(Config) ->
+    ok = emqx_bridge_testlib:t_start_stop(Config, influxdb_client_stopped),
     ok.
 
 t_start_already_started(Config) ->
