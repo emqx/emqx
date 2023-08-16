@@ -225,8 +225,9 @@ get_rules_ordered_by_ts() ->
 -spec get_rules_for_topic(Topic :: binary()) -> [rule()].
 get_rules_for_topic(Topic) ->
     [
-        emqx_topic_index:get_record(M, ?RULE_TOPIC_INDEX)
-     || M <- emqx_topic_index:matches(Topic, ?RULE_TOPIC_INDEX, [unique])
+        Rule
+     || M <- emqx_topic_index:matches(Topic, ?RULE_TOPIC_INDEX, [unique]),
+        Rule <- emqx_topic_index:get_record(M, ?RULE_TOPIC_INDEX)
     ].
 
 -spec get_rules_with_same_event(Topic :: binary()) -> [rule()].
