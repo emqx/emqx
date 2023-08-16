@@ -2001,8 +2001,8 @@ filter(Opts) ->
 %% SSL listener and client.
 -spec common_ssl_opts_schema(map(), server | client) -> hocon_schema:field_schema().
 common_ssl_opts_schema(Defaults, Type) ->
-    D = fun(Field) -> maps:get(to_atom(Field), Defaults, undefined) end,
-    Df = fun(Field, Default) -> maps:get(to_atom(Field), Defaults, Default) end,
+    D = fun(Field) -> maps:get(Field, Defaults, undefined) end,
+    Df = fun(Field, Default) -> maps:get(Field, Defaults, Default) end,
     Collection = maps:get(versions, Defaults, tls_all_available),
     DefaultVersions = default_tls_vsns(Collection),
     [
@@ -2045,7 +2045,7 @@ common_ssl_opts_schema(Defaults, Type) ->
             sc(
                 hoconsc:enum([verify_peer, verify_none]),
                 #{
-                    default => Df("verify", verify_none),
+                    default => Df(verify, verify_none),
                     desc => ?DESC(common_ssl_opts_schema_verify)
                 }
             )},
@@ -2053,7 +2053,7 @@ common_ssl_opts_schema(Defaults, Type) ->
             sc(
                 boolean(),
                 #{
-                    default => Df("reuse_sessions", true),
+                    default => Df(reuse_sessions, true),
                     desc => ?DESC(common_ssl_opts_schema_reuse_sessions)
                 }
             )},
@@ -2061,7 +2061,7 @@ common_ssl_opts_schema(Defaults, Type) ->
             sc(
                 non_neg_integer(),
                 #{
-                    default => Df("depth", 10),
+                    default => Df(depth, 10),
                     desc => ?DESC(common_ssl_opts_schema_depth)
                 }
             )},
@@ -2088,7 +2088,7 @@ common_ssl_opts_schema(Defaults, Type) ->
                     validator => fun(Input) -> validate_tls_versions(Collection, Input) end
                 }
             )},
-        {"ciphers", ciphers_schema(D("ciphers"))},
+        {"ciphers", ciphers_schema(D(ciphers))},
         {"user_lookup_fun",
             sc(
                 typerefl:alias("string", any()),
@@ -2103,7 +2103,7 @@ common_ssl_opts_schema(Defaults, Type) ->
             sc(
                 boolean(),
                 #{
-                    default => Df("secure_renegotiate", true),
+                    default => Df(secure_renegotiate, true),
                     desc => ?DESC(common_ssl_opts_schema_secure_renegotiate)
                 }
             )},
@@ -2123,7 +2123,7 @@ common_ssl_opts_schema(Defaults, Type) ->
             sc(
                 duration(),
                 #{
-                    default => Df("hibernate_after", <<"5s">>),
+                    default => Df(hibernate_after, <<"5s">>),
                     desc => ?DESC(common_ssl_opts_schema_hibernate_after)
                 }
             )}
@@ -2132,15 +2132,15 @@ common_ssl_opts_schema(Defaults, Type) ->
 %% @doc Make schema for SSL listener options.
 -spec server_ssl_opts_schema(map(), boolean()) -> hocon_schema:field_schema().
 server_ssl_opts_schema(Defaults, IsRanchListener) ->
-    D = fun(Field) -> maps:get(to_atom(Field), Defaults, undefined) end,
-    Df = fun(Field, Default) -> maps:get(to_atom(Field), Defaults, Default) end,
+    D = fun(Field) -> maps:get(Field, Defaults, undefined) end,
+    Df = fun(Field, Default) -> maps:get(Field, Defaults, Default) end,
     common_ssl_opts_schema(Defaults, server) ++
         [
             {"dhfile",
                 sc(
                     string(),
                     #{
-                        default => D("dhfile"),
+                        default => D(dhfile),
                         required => false,
                         desc => ?DESC(server_ssl_opts_schema_dhfile)
                     }
@@ -2149,7 +2149,7 @@ server_ssl_opts_schema(Defaults, IsRanchListener) ->
                 sc(
                     boolean(),
                     #{
-                        default => Df("fail_if_no_peer_cert", false),
+                        default => Df(fail_if_no_peer_cert, false),
                         desc => ?DESC(server_ssl_opts_schema_fail_if_no_peer_cert)
                     }
                 )},
@@ -2157,7 +2157,7 @@ server_ssl_opts_schema(Defaults, IsRanchListener) ->
                 sc(
                     boolean(),
                     #{
-                        default => Df("honor_cipher_order", true),
+                        default => Df(honor_cipher_order, true),
                         desc => ?DESC(server_ssl_opts_schema_honor_cipher_order)
                     }
                 )},
@@ -2165,7 +2165,7 @@ server_ssl_opts_schema(Defaults, IsRanchListener) ->
                 sc(
                     boolean(),
                     #{
-                        default => Df("client_renegotiation", true),
+                        default => Df(client_renegotiation, true),
                         desc => ?DESC(server_ssl_opts_schema_client_renegotiation)
                     }
                 )},
@@ -2173,7 +2173,7 @@ server_ssl_opts_schema(Defaults, IsRanchListener) ->
                 sc(
                     duration(),
                     #{
-                        default => Df("handshake_timeout", <<"15s">>),
+                        default => Df(handshake_timeout, <<"15s">>),
                         desc => ?DESC(server_ssl_opts_schema_handshake_timeout)
                     }
                 )}
