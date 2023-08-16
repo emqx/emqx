@@ -35,6 +35,20 @@ t_insert(_) ->
     ?assertEqual(<<"sensor/#">>, topic(match(<<"sensor">>, Tab))),
     ?assertEqual(t_insert_3, id(match(<<"sensor">>, Tab))).
 
+t_words(_) ->
+    Tab = emqx_topic_index:new(),
+    Topic = <<"sensor/+/metric//#">>,
+    ?assertEqual(
+        [<<"sensor">>, '+', <<"metric">>, <<>>, '#'],
+        emqx_topic_index:words(Topic)
+    ),
+    true = emqx_topic_index:insert(Topic, 1, <<>>, Tab),
+    true = emqx_topic_index:insert(emqx_topic_index:words(Topic), 2, <<>>, Tab),
+    ?assertEqual(
+        [Topic, Topic],
+        [topic(M) || M <- matches(<<"sensor/1/metric//2">>, Tab)]
+    ).
+
 t_match(_) ->
     Tab = emqx_topic_index:new(),
     true = emqx_topic_index:insert(<<"sensor/1/metric/2">>, t_match_1, <<>>, Tab),

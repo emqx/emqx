@@ -35,10 +35,14 @@
 -export([match/2]).
 -export([matches/3]).
 
+-export([words/1]).
+
 -export([get_id/1]).
 -export([get_topic/1]).
 -export([get_record/2]).
 
+-type topic() :: emqx_types:topic().
+-type words() :: [word()].
 -type word() :: binary() | '+' | '#'.
 -type key(ID) :: {[word()], {ID}}.
 -type match(ID) :: key(ID).
@@ -52,19 +56,22 @@ new() ->
 %% @doc Insert a new entry into the index that associates given topic filter to given
 %% record ID, and attaches arbitrary record to the entry. This allows users to choose
 %% between regular and "materialized" indexes, for example.
--spec insert(emqx_types:topic(), _ID, _Record, ets:table()) -> true.
+-spec insert(topic() | words(), _ID, _Record, ets:table()) -> true.
 insert(Filter, ID, Record, Tab) ->
-    ets:insert(Tab, {{words(Filter), {ID}}, Record}).
+    ets:insert(Tab, {mk_key(Filter, ID), Record}).
 
 %% @doc Delete an entry from the index that associates given topic filter to given
 %% record ID. Deleting non-existing entry is not an error.
--spec delete(emqx_types:topic(), _ID, ets:table()) -> true.
+-spec delete(topic() | words(), _ID, ets:table()) -> true.
 delete(Filter, ID, Tab) ->
-    ets:delete(Tab, {words(Filter), {ID}}).
+    ets:delete(Tab, mk_key(Filter, ID)).
+
+mk_key(Filter, ID) ->
+    {words(Filter), {ID}}.
 
 %% @doc Match given topic against the index and return the first match, or `false` if
 %% no match is found.
--spec match(emqx_types:topic(), ets:table()) -> match(_ID) | false.
+-spec match(topic() | words(), ets:table()) -> match(_ID) | false.
 match(Topic, Tab) ->
     {Words, RPrefix} = match_init(Topic),
     match(Words, RPrefix, Tab).
@@ -109,7 +116,7 @@ match_rest(_, [], _RPrefix, _Tab) ->
 
 %% @doc Match given topic against the index and return _all_ matches.
 %% If `unique` option is given, return only unique matches by record ID.
--spec matches(emqx_types:topic(), ets:table(), _Opts :: [unique]) -> [match(_ID)].
+-spec matches(topic() | words(), ets:table(), _Opts :: [unique]) -> [match(_ID)].
 matches(Topic, Tab, Opts) ->
     {Words, RPrefix} = match_init(Topic),
     AccIn =
@@ -234,13 +241,18 @@ get_record(K, Tab) ->
 
 %%
 
--spec words(emqx_types:topic()) -> [word()].
+-spec words(topic() | words()) -> words().
 words(Topic) when is_binary(Topic) ->
     % NOTE
     % This is almost identical to `emqx_topic:words/1`, but it doesn't convert empty
     % tokens to ''. This is needed to keep ordering of words consistent with what
     % `match_filter/3` expects.
-    [word(W) || W <- emqx_topic:tokens(Topic)].
+    [word(W) || W <- emqx_topic:tokens(Topic)];
+words(Words) when is_list(Words) ->
+    % NOTE
+    % Assuming this was the result of `emqx_topic_index:words/1` call, otherwise things
+    % will break.
+    Words.
 
 -spec word(binary()) -> word().
 word(<<"+">>) -> '+';
