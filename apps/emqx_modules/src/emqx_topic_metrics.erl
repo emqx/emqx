@@ -295,7 +295,7 @@ terminate(_Reason, _State) ->
 reset_topic({Topic, Data}, Speeds) ->
     CRef = maps:get(counter_ref, Data),
     ok = reset_counter(CRef),
-    ResetTime = emqx_rule_funcs:now_rfc3339(),
+    ResetTime = emqx_utils_calendar:now_to_rfc3339(),
     true = ets:insert(?TAB, {Topic, Data#{reset_time => ResetTime}}),
     Fun =
         fun(Metric, CurrentSpeeds) ->

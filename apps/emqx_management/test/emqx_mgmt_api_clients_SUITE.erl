@@ -260,7 +260,7 @@ t_query_clients_with_time(_) ->
     %% Do not uri_encode `=` to `%3D`
     Rfc3339String = emqx_http_lib:uri_encode(
         binary:bin_to_list(
-            emqx_datetime:epoch_to_rfc3339(NowTimeStampInt)
+            emqx_utils_calendar:epoch_to_rfc3339(NowTimeStampInt)
         )
     ),
     TimeStampString = emqx_http_lib:uri_encode(integer_to_list(NowTimeStampInt)),

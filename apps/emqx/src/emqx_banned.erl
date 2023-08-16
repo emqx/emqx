@@ -172,7 +172,7 @@ maybe_format_host({As, Who}) ->
     {As, Who}.
 
 to_rfc3339(Timestamp) ->
-    list_to_binary(calendar:system_time_to_rfc3339(Timestamp, [{unit, second}])).
+    emqx_utils_calendar:epoch_to_rfc3339(Timestamp, second).
 
 -spec create(emqx_types:banned() | map()) ->
     {ok, emqx_types:banned()} | {error, {already_exist, emqx_types:banned()}}.

@@ -397,13 +397,13 @@ format_channel_info(WhichNode, {_, Infos, Stats} = R) ->
         {ip_address, {peername, ConnInfo, fun peer_to_binary_addr/1}},
         {port, {peername, ConnInfo, fun peer_to_port/1}},
         {is_bridge, ClientInfo, false},
-        {connected_at, {connected_at, ConnInfo, fun emqx_gateway_utils:unix_ts_to_rfc3339/1}},
-        {disconnected_at, {disconnected_at, ConnInfo, fun emqx_gateway_utils:unix_ts_to_rfc3339/1}},
+        {connected_at, {connected_at, ConnInfo, fun emqx_utils_calendar:epoch_to_rfc3339/1}},
+        {disconnected_at, {disconnected_at, ConnInfo, fun emqx_utils_calendar:epoch_to_rfc3339/1}},
         {connected, {conn_state, Infos, fun conn_state_to_connected/1}},
         {keepalive, ClientInfo, 0},
         {clean_start, ConnInfo, true},
         {expiry_interval, ConnInfo, 0},
-        {created_at, {created_at, SessInfo, fun emqx_gateway_utils:unix_ts_to_rfc3339/1}},
+        {created_at, {created_at, SessInfo, fun emqx_utils_calendar:epoch_to_rfc3339/1}},
         {subscriptions_cnt, Stats, 0},
         {subscriptions_max, Stats, infinity},
         {inflight_cnt, Stats, 0},
@@ -640,28 +640,28 @@ params_client_searching_in_qs() ->
             )},
         {gte_created_at,
             mk(
-                emqx_datetime:epoch_millisecond(),
+                emqx_utils_calendar:epoch_millisecond(),
                 M#{
                     desc => ?DESC(param_gte_created_at)
                 }
             )},
         {lte_created_at,
             mk(
-                emqx_datetime:epoch_millisecond(),
+                emqx_utils_calendar:epoch_millisecond(),
                 M#{
                     desc => ?DESC(param_lte_created_at)
                 }
             )},
         {gte_connected_at,
             mk(
-                emqx_datetime:epoch_millisecond(),
+                emqx_utils_calendar:epoch_millisecond(),
                 M#{
                     desc => ?DESC(param_gte_connected_at)
                 }
             )},
         {lte_connected_at,
             mk(
-                emqx_datetime:epoch_millisecond(),
+                emqx_utils_calendar:epoch_millisecond(),
                 M#{
                     desc => ?DESC(param_lte_connected_at)
                 }
@@ -888,12 +888,12 @@ common_client_props() ->
             )},
         {connected_at,
             mk(
-                emqx_datetime:epoch_millisecond(),
+                emqx_utils_calendar:epoch_millisecond(),
                 #{desc => ?DESC(connected_at)}
             )},
         {disconnected_at,
             mk(
-                emqx_datetime:epoch_millisecond(),
+                emqx_utils_calendar:epoch_millisecond(),
                 #{
                     desc => ?DESC(disconnected_at)
                 }
@@ -931,7 +931,7 @@ common_client_props() ->
             )},
         {created_at,
             mk(
-                emqx_datetime:epoch_millisecond(),
+                emqx_utils_calendar:epoch_millisecond(),
                 #{desc => ?DESC(created_at)}
             )},
         {subscriptions_cnt,

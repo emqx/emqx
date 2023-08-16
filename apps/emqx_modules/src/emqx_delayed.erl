@@ -208,8 +208,8 @@ format_delayed(
     },
     WithPayload
 ) ->
-    PublishTime = to_rfc3339(PublishTimeStamp div 1000),
-    ExpectTime = to_rfc3339(ExpectTimeStamp div 1000),
+    PublishTime = emqx_utils_calendar:epoch_to_rfc3339(PublishTimeStamp),
+    ExpectTime = emqx_utils_calendar:epoch_to_rfc3339(ExpectTimeStamp),
     RemainingTime = ExpectTimeStamp - ?NOW,
     Result = #{
         msgid => emqx_guid:to_hexstr(Id),
@@ -229,9 +229,6 @@ format_delayed(
         _ ->
             Result
     end.
-
-to_rfc3339(Timestamp) ->
-    list_to_binary(calendar:system_time_to_rfc3339(Timestamp, [{unit, second}])).
 
 -spec get_delayed_message(binary()) -> with_id_return(map()).
 get_delayed_message(Id) ->

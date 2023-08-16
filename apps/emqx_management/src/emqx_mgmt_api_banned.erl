@@ -147,13 +147,13 @@ fields(ban) ->
                 example => <<"Too many requests">>
             })},
         {at,
-            hoconsc:mk(emqx_datetime:epoch_second(), #{
+            hoconsc:mk(emqx_utils_calendar:epoch_second(), #{
                 desc => ?DESC(at),
                 required => false,
                 example => <<"2021-10-25T21:48:47+08:00">>
             })},
         {until,
-            hoconsc:mk(emqx_datetime:epoch_second(), #{
+            hoconsc:mk(emqx_utils_calendar:epoch_second(), #{
                 desc => ?DESC(until),
                 required => false,
                 example => <<"2021-10-25T21:53:47+08:00">>
