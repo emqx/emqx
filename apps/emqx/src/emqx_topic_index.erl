@@ -32,6 +32,9 @@
 -export([new/0]).
 -export([insert/4]).
 -export([delete/3]).
+-export([lookup/3]).
+-export([clean/1]).
+
 -export([match/2]).
 -export([matches/3]).
 
@@ -65,6 +68,14 @@ insert(Filter, ID, Record, Tab) ->
 -spec delete(topic() | words(), _ID, ets:table()) -> true.
 delete(Filter, ID, Tab) ->
     ets:delete(Tab, mk_key(Filter, ID)).
+
+-spec lookup(topic() | words(), _ID, ets:table()) -> [_Record].
+lookup(Filter, ID, Tab) ->
+    get_record(mk_key(Filter, ID), Tab).
+
+-spec clean(ets:table()) -> true.
+clean(Tab) ->
+    ets:delete_all_objects(Tab).
 
 mk_key(Filter, ID) ->
     {words(Filter), {ID}}.
