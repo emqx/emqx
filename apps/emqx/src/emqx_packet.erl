@@ -55,6 +55,8 @@
     format/2
 ]).
 
+-export([format_truncated_payload/3]).
+
 -define(TYPE_NAMES,
     {'CONNECT', 'CONNACK', 'PUBLISH', 'PUBACK', 'PUBREC', 'PUBREL', 'PUBCOMP', 'SUBSCRIBE',
         'SUBACK', 'UNSUBSCRIBE', 'UNSUBACK', 'PINGREQ', 'PINGRESP', 'DISCONNECT', 'AUTH'}
@@ -614,20 +616,32 @@ format_password(undefined) -> "";
 format_password(<<>>) -> "";
 format_password(_Password) -> "******".
 
+format_payload(_, hidden) ->
+    "Payload=******";
 format_payload(Payload, text) when ?MAX_PAYLOAD_FORMAT_LIMIT(Payload) ->
     ["Payload=", unicode:characters_to_list(Payload)];
 format_payload(Payload, hex) when ?MAX_PAYLOAD_FORMAT_LIMIT(Payload) ->
     ["Payload(hex)=", binary:encode_hex(Payload)];
-format_payload(_, hidden) ->
-    "Payload=******";
-format_payload(<<Part:100, _/binary>> = Payload, _) ->
+format_payload(<<Part:?TRUNCATED_PAYLOAD_SIZE/binary, _/binary>> = Payload, Type) ->
     [
         "Payload=",
-        Part,
-        "... The ",
-        integer_to_list(byte_size(Payload) - 100),
-        " bytes of this log are truncated"
+        format_truncated_payload(Part, byte_size(Payload), Type)
     ].
+
+format_truncated_payload(Bin, Size, Type) ->
+    Bin2 =
+        case Type of
+            text -> Bin;
+            hex -> binary:encode_hex(Bin)
+        end,
+    unicode:characters_to_list(
+        [
+            Bin2,
+            "... The ",
+            integer_to_list(Size - ?TRUNCATED_PAYLOAD_SIZE),
+            " bytes of this log are truncated"
+        ]
+    ).
 
 i(true) -> 1;
 i(false) -> 0;

@@ -76,13 +76,8 @@ format_payload(_, hidden) ->
 format_payload(Payload, text) when ?MAX_PAYLOAD_FORMAT_LIMIT(Payload) ->
     unicode:characters_to_list(Payload);
 format_payload(Payload, hex) when ?MAX_PAYLOAD_FORMAT_LIMIT(Payload) -> binary:encode_hex(Payload);
-format_payload(<<Part:100, _/binary>> = Payload, _) ->
-    [
-        Part,
-        "... The ",
-        integer_to_list(byte_size(Payload) - 100),
-        " bytes of this log are truncated"
-    ].
+format_payload(<<Part:?TRUNCATED_PAYLOAD_SIZE/binary, _/binary>> = Payload, Type) ->
+    emqx_packet:format_truncated_payload(Part, byte_size(Payload), Type).
 
 to_iolist(Atom) when is_atom(Atom) -> atom_to_list(Atom);
 to_iolist(Int) when is_integer(Int) -> integer_to_list(Int);
