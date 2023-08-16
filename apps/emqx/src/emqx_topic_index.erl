@@ -127,6 +127,17 @@ matches(Words, RPrefix, Acc, Tab) ->
     Prefix = lists:reverse(RPrefix),
     matches(ets:next(Tab, {Prefix, {}}), Prefix, Words, RPrefix, Acc, Tab).
 
+matches(Words, RPrefix, K = {Filter, _}, Acc, Tab) ->
+    Prefix = lists:reverse(RPrefix),
+    case Prefix > Filter of
+        true ->
+            % NOTE: Prefix already greater than the last key seen, need to `ets:next/2`.
+            matches(ets:next(Tab, {Prefix, {}}), Prefix, Words, RPrefix, Acc, Tab);
+        false ->
+            % NOTE: Prefix is still less than or equal to the last key seen, reuse it.
+            matches(K, Prefix, Words, RPrefix, Acc, Tab)
+    end.
+
 matches(K, Prefix, Words, RPrefix, Acc, Tab) ->
     case match_next(Prefix, K, Words) of
         true ->
@@ -136,26 +147,27 @@ matches(K, Prefix, Words, RPrefix, Acc, Tab) ->
         stop ->
             Acc;
         Matched ->
-            matches_rest(Matched, Words, RPrefix, Acc, Tab)
+            % NOTE: Prserve next key on the stack to save on `ets:next/2` calls.
+            matches_rest(Matched, Words, RPrefix, K, Acc, Tab)
     end.
 
-matches_rest([W1 | [W2 | _] = SLast], [W1 | [W2 | _] = Rest], RPrefix, Acc, Tab) ->
+matches_rest([W1 | [W2 | _] = SLast], [W1 | [W2 | _] = Rest], RPrefix, K, Acc, Tab) ->
     % NOTE
     % Fast-forward through identical words in the topic and the last key suffixes.
     % This should save us a few redundant `ets:next` calls at the cost of slightly
     % more complex match patterns.
-    matches_rest(SLast, Rest, [W1 | RPrefix], Acc, Tab);
-matches_rest(SLast, [W | Rest], RPrefix, Acc, Tab) when is_list(SLast) ->
-    matches(Rest, [W | RPrefix], Acc, Tab);
-matches_rest(plus, [W | Rest], RPrefix, Acc, Tab) ->
+    matches_rest(SLast, Rest, [W1 | RPrefix], K, Acc, Tab);
+matches_rest(SLast, [W | Rest], RPrefix, K, Acc, Tab) when is_list(SLast) ->
+    matches(Rest, [W | RPrefix], K, Acc, Tab);
+matches_rest(plus, [W | Rest], RPrefix, K, Acc, Tab) ->
     % NOTE
     % There's '+' in the key suffix, meaning we should accumulate all matches from
     % each of 2 branches:
     % 1. Match the rest of the topic as if there was '+' in the current position.
     % 2. Skip this key and try to match the topic as it is.
-    NAcc = matches(Rest, ['+' | RPrefix], Acc, Tab),
-    matches(Rest, [W | RPrefix], NAcc, Tab);
-matches_rest(_, [], _RPrefix, Acc, _Tab) ->
+    NAcc = matches(Rest, ['+' | RPrefix], K, Acc, Tab),
+    matches(Rest, [W | RPrefix], K, NAcc, Tab);
+matches_rest(_, [], _RPrefix, _K, Acc, _Tab) ->
     Acc.
 
 match_add(K = {_Filter, ID}, Acc = #{}) ->
