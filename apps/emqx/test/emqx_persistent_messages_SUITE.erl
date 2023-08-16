@@ -23,18 +23,12 @@
 -compile(export_all).
 -compile(nowarn_export_all).
 
--define(NOW,
-    (calendar:system_time_to_rfc3339(erlang:system_time(millisecond), [{unit, millisecond}]))
-).
 -define(DS_SHARD, <<"local">>).
 
 all() ->
     emqx_common_test_helpers:all(?MODULE).
 
 init_per_suite(Config) ->
-    %% avoid inter-suite flakiness...
-    application:stop(emqx),
-    application:stop(emqx_durable_storage),
     TCApps = emqx_cth_suite:start(
         app_specs(),
         #{work_dir => ?config(priv_dir, Config)}
@@ -232,12 +226,8 @@ receive_messages(0, Msgs) ->
 receive_messages(Count, Msgs) ->
     receive
         {publish, Msg} ->
-            receive_messages(Count - 1, [Msg | Msgs]);
-        {deliver, _Topic, Msg} ->
-            receive_messages(Count - 1, [Msg | Msgs]);
-        _Other ->
-            receive_messages(Count, Msgs)
-    after 5000 ->
+            receive_messages(Count - 1, [Msg | Msgs])
+    after 5_000 ->
         Msgs
     end.
 
