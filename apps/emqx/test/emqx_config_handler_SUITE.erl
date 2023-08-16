@@ -371,9 +371,13 @@ pre_config_update([sysmon, os, sysmem_high_watermark], UpdateReq, _RawConf) ->
 pre_config_update([sysmon, os, mem_check_interval], _UpdateReq, _RawConf) ->
     {error, pre_config_update_error}.
 
-propagated_pre_config_update([sysmon, os, cpu_check_interval], <<"333s">>, _RawConf) ->
+propagated_pre_config_update(
+    [<<"sysmon">>, <<"os">>, <<"cpu_check_interval">>], <<"333s">>, _RawConf
+) ->
     {ok, <<"444s">>};
-propagated_pre_config_update([sysmon, os, mem_check_interval], _UpdateReq, _RawConf) ->
+propagated_pre_config_update(
+    [<<"sysmon">>, <<"os">>, <<"mem_check_interval">>], _UpdateReq, _RawConf
+) ->
     {error, pre_config_update_error};
 propagated_pre_config_update(_ConfKeyPath, _UpdateReq, _RawConf) ->
     ok.

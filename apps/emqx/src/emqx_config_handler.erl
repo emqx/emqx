@@ -61,7 +61,7 @@
 -callback pre_config_update([atom()], emqx_config:update_request(), emqx_config:raw_config()) ->
     ok | {ok, emqx_config:update_request()} | {error, term()}.
 -callback propagated_pre_config_update(
-    [atom()], emqx_config:update_request(), emqx_config:raw_config()
+    [binary()], emqx_config:update_request(), emqx_config:raw_config()
 ) ->
     ok | {ok, emqx_config:update_request()} | {error, term()}.
 
@@ -264,7 +264,8 @@ do_update_config([], Handlers, OldRawConf, UpdateReq, ConfKeyPath) ->
         old_raw_conf => OldRawConf,
         update_req => UpdateReq,
         conf_key_path => ConfKeyPath,
-        callback => pre_config_update
+        callback => pre_config_update,
+        is_propagated => false
     });
 do_update_config(
     [ConfKey | SubConfKeyPath],
@@ -391,6 +392,12 @@ get_sub_handlers(ConfKey, Handlers) when is_atom(ConfKey) ->
     case maps:find(ConfKey, Handlers) of
         error -> maps:get(?WKEY, Handlers, #{});
         {ok, SubHandlers} -> SubHandlers
+    end;
+get_sub_handlers(ConfKey, Handlers) when is_binary(ConfKey) ->
+    ConcreteHandlerKeys = maps:keys(Handlers) -- [?MOD, ?WKEY],
+    case lists:search(fun(K) -> bin(K) =:= ConfKey end, ConcreteHandlerKeys) of
+        {value, Key} -> maps:get(Key, Handlers);
+        false -> maps:get(?WKEY, Handlers, #{})
     end.
 
 get_sub_config(ConfKey, Conf) when is_map(Conf) ->
@@ -487,15 +494,19 @@ propagate_pre_config_updates_to_subconf_key(
         handlers := Handlers,
         old_raw_conf := OldRawConf,
         update_req := UpdateReq,
-        conf_key_path := ConfKeyPath
+        conf_key_path := ConfKeyPath,
+        is_propagated := IsPropagated
     } = Ctx
 ) ->
-    AtomKey = atom(Key),
-    SubHandlers = get_sub_handlers(AtomKey, Handlers),
     BinKey = bin(Key),
+    SubHandlers = get_sub_handlers(BinKey, Handlers),
     SubUpdateReq = get_sub_config(BinKey, UpdateReq),
     SubOldConf = get_sub_config(BinKey, OldRawConf),
-    SubConfKeyPath = ConfKeyPath ++ [AtomKey],
+    SubConfKeyPath =
+        case IsPropagated of
+            true -> ConfKeyPath ++ [BinKey];
+            false -> bin_path(ConfKeyPath) ++ [BinKey]
+        end,
     case {SubOldConf, SubUpdateReq} of
         %% we have handler, but no relevant keys in both configs (new and old),
         %% so we don't need to go further
@@ -508,6 +519,7 @@ propagate_pre_config_updates_to_subconf_key(
                     old_raw_conf := SubOldConf,
                     update_req := SubUpdateReq,
                     conf_key_path := SubConfKeyPath,
+                    is_propagated := true,
                     callback := propagated_pre_config_update
                 })
             of

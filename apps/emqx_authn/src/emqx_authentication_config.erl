@@ -67,8 +67,8 @@
 
 -spec pre_config_update(list(atom()), update_request(), emqx_config:raw_config()) ->
     {ok, map() | list()} | {error, term()}.
-pre_config_update(Paths, UpdateReq, OldConfig) ->
-    try do_pre_config_update(Paths, UpdateReq, to_list(OldConfig)) of
+pre_config_update(ConfPath, UpdateReq, OldConfig) ->
+    try do_pre_config_update(ConfPath, UpdateReq, to_list(OldConfig)) of
         {error, Reason} -> {error, Reason};
         {ok, NewConfig} -> {ok, NewConfig}
     catch
@@ -132,25 +132,22 @@ do_pre_config_update(_, {move_authenticator, _ChainName, AuthenticatorID, Positi
                     end
             end
     end;
-do_pre_config_update(Paths, {merge_authenticators, NewConfig}, OldConfig) ->
+do_pre_config_update(ConfPath, {merge_authenticators, NewConfig}, OldConfig) ->
     MergeConfig = merge_authenticators(OldConfig, NewConfig),
-    do_pre_config_update(Paths, MergeConfig, OldConfig);
+    do_pre_config_update(ConfPath, MergeConfig, OldConfig);
 do_pre_config_update(_, OldConfig, OldConfig) ->
     {ok, OldConfig};
-do_pre_config_update(Paths, NewConfig, _OldConfig) ->
-    ChainName = chain_name(Paths),
-    {ok, [
-        begin
-            CertsDir = certs_dir(ChainName, New),
-            convert_certs(CertsDir, New)
-        end
-     || New <- to_list(NewConfig)
-    ]}.
+do_pre_config_update(ConfPath, NewConfig, _OldConfig) ->
+    convert_certs_for_conf_path(ConfPath, NewConfig).
 
--spec propagated_pre_config_update(list(atom()), update_request(), emqx_config:raw_config()) ->
+%% @doc Handle listener config changes made at higher level.
+
+-spec propagated_pre_config_update(list(binary()), update_request(), emqx_config:raw_config()) ->
     {ok, map() | list()} | {error, term()}.
-propagated_pre_config_update(Paths, NewConfig, OldConfig) ->
-    do_pre_config_update(Paths, NewConfig, OldConfig).
+propagated_pre_config_update(_, OldConfig, OldConfig) ->
+    {ok, OldConfig};
+propagated_pre_config_update(ConfPath, NewConfig, _OldConfig) ->
+    convert_certs_for_conf_path(ConfPath, NewConfig).
 
 -spec post_config_update(
     list(atom()),
@@ -160,8 +157,8 @@ propagated_pre_config_update(Paths, NewConfig, OldConfig) ->
     emqx_config:app_envs()
 ) ->
     ok | {ok, map()} | {error, term()}.
-post_config_update(Paths, UpdateReq, NewConfig, OldConfig, AppEnvs) ->
-    do_post_config_update(Paths, UpdateReq, to_list(NewConfig), OldConfig, AppEnvs).
+post_config_update(ConfPath, UpdateReq, NewConfig, OldConfig, AppEnvs) ->
+    do_post_config_update(ConfPath, UpdateReq, to_list(NewConfig), OldConfig, AppEnvs).
 
 do_post_config_update(
     _, {create_authenticator, ChainName, Config}, NewConfig, _OldConfig, _AppEnvs
@@ -199,8 +196,8 @@ do_post_config_update(
     emqx_authentication:move_authenticator(ChainName, AuthenticatorID, Position);
 do_post_config_update(_, _UpdateReq, OldConfig, OldConfig, _AppEnvs) ->
     ok;
-do_post_config_update(Paths, _UpdateReq, NewConfig0, OldConfig0, _AppEnvs) ->
-    ChainName = chain_name(Paths),
+do_post_config_update(ConfPath, _UpdateReq, NewConfig0, OldConfig0, _AppEnvs) ->
+    ChainName = chain_name(ConfPath),
     OldConfig = to_list(OldConfig0),
     NewConfig = to_list(NewConfig0),
     OldIds = lists:map(fun authenticator_id/1, OldConfig),
@@ -210,6 +207,8 @@ do_post_config_update(Paths, _UpdateReq, NewConfig0, OldConfig0, _AppEnvs) ->
     ok = emqx_authentication:reorder_authenticator(ChainName, NewIds),
     ok.
 
+%% @doc Handle listener config changes made at higher level.
+
 -spec propagated_post_config_update(
     list(atom()),
     update_request(),
@@ -218,8 +217,8 @@ do_post_config_update(Paths, _UpdateReq, NewConfig0, OldConfig0, _AppEnvs) ->
     emqx_config:app_envs()
 ) ->
     ok.
-propagated_post_config_update(Paths, UpdateReq, NewConfig, OldConfig, AppEnvs) ->
-    ok = post_config_update(Paths, UpdateReq, NewConfig, OldConfig, AppEnvs),
+propagated_post_config_update(ConfPath, UpdateReq, NewConfig, OldConfig, AppEnvs) ->
+    ok = post_config_update(ConfPath, UpdateReq, NewConfig, OldConfig, AppEnvs),
     ok.
 
 %% create new authenticators and update existing ones
@@ -256,6 +255,17 @@ to_list(undefined) -> [];
 to_list(M) when M =:= #{} -> [];
 to_list(M) when is_map(M) -> [M];
 to_list(L) when is_list(L) -> L.
+
+convert_certs_for_conf_path(ConfPath, NewConfig) ->
+    ChainName = chain_name_for_filepath(ConfPath),
+    CovertedConfs = lists:map(
+        fun(Conf) ->
+            CertsDir = certs_dir(ChainName, Conf),
+            convert_certs(CertsDir, Conf)
+        end,
+        to_list(NewConfig)
+    ),
+    {ok, CovertedConfs}.
 
 convert_certs(CertsDir, NewConfig) ->
     NewSSL = maps:get(<<"ssl">>, NewConfig, undefined),
@@ -352,6 +362,14 @@ chain_name([authentication]) ->
 chain_name([listeners, Type, Name, authentication]) ->
     %% Type, Name atoms exist, so let 'Type:Name' exist too.
     binary_to_atom(<<(atom_to_binary(Type))/binary, ":", (atom_to_binary(Name))/binary>>).
+
+chain_name_for_filepath(Path) ->
+    do_chain_name_for_filepath([to_bin(Key) || Key <- Path]).
+
+do_chain_name_for_filepath([<<"authentication">>]) ->
+    to_bin(?GLOBAL);
+do_chain_name_for_filepath([<<"listeners">>, Type, Name, <<"authentication">>]) ->
+    <<(to_bin(Type))/binary, ":", (to_bin(Name))/binary>>.
 
 merge_authenticators(OriginConf0, NewConf0) ->
     {OriginConf1, NewConf1} =
