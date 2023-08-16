@@ -74,8 +74,8 @@ pretty_print_rule(ID) ->
               "Updated at:\n  ~ts\n"
               "Actions:\n  ~s\n"
              ,[Id, Name, left_pad(Descr), Enable, left_pad(SQL),
-               emqx_utils_calendar:epoch_to_rfc3339(CreatedAt, second),
-               emqx_utils_calendar:epoch_to_rfc3339(UpdatedAt, second),
+               emqx_utils_calendar:epoch_to_rfc3339(CreatedAt, millisecond),
+               emqx_utils_calendar:epoch_to_rfc3339(UpdatedAt, millisecond),
                [left_pad(format_action(A)) || A <- Actions]
               ]
              );
