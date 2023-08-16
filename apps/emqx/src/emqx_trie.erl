@@ -41,13 +41,6 @@
     empty/1
 ]).
 
--export([
-    create_local/2,
-    clear_local/1,
-    insert_local/3,
-    delete_local/3
-]).
-
 -export([is_compact/0, set_compact/1]).
 
 -ifdef(TEST).
@@ -60,14 +53,8 @@
 
 -record(?TRIE, {
     key :: ?TOPIC(binary()) | ?PREFIX(binary()),
-    count = 0 ::
-        % in case of global mnesia table
-        non_neg_integer()
-        % in case of local ets table
-        | #{_Dest => nil()}
+    count = 0 :: non_neg_integer()
 }).
-
--define(ROUTE(Topic, Dest), #route{topic = Topic, dest = Dest}).
 
 %%--------------------------------------------------------------------
 %% Mnesia bootstrap
@@ -150,7 +137,7 @@ delete(Topic, Trie) when is_binary(Topic) ->
 match(Topic) when is_binary(Topic) ->
     match(Topic, ?TRIE).
 
--spec match(emqx_types:topic(), ets:table()) -> [emqx_types:topic()] | [emqx_types:route()].
+-spec match(emqx_types:topic(), ets:table()) -> [emqx_types:topic()].
 match(Topic, Trie) when is_binary(Topic) ->
     Words = emqx_topic:words(Topic),
     case emqx_topic:wildcard(Words) of
@@ -175,45 +162,6 @@ empty() ->
 -spec empty(ets:table()) -> boolean().
 empty(Trie) ->
     ets:first(Trie) =:= '$end_of_table'.
-
-%%--------------------------------------------------------------------
-%% Node-local APIs
-%%--------------------------------------------------------------------
-
-%% @doc Create a local ETS-based trie.
-%% Local trie is used as an async index for the global routing table.
-%% Anync means that to keep index consistent it needs to be "materialized",
-%% i.e. contain roughly the same amount of information, including route
-%% destinations.
-create_local(Name, ExtraOpts) ->
-    ets:new(
-        Name,
-        ExtraOpts ++
-            [
-                ordered_set,
-                {keypos, #?TRIE.key},
-                {read_concurrency, true}
-            ]
-    ).
-
--spec clear_local(ets:table()) -> ok.
-clear_local(Trie) ->
-    _ = ets:delete_all_objects(Trie),
-    ok.
-
-%% @doc Insert an entry into the local ETS-based trie.
-%% Important: concurrent inserts and deletes may cause inconsistency.
--spec insert_local(emqx_types:topic(), _Dest, ets:table()) -> ok.
-insert_local(Topic, Dest, Trie) when is_binary(Topic) ->
-    {TopicKey, PrefixKeys} = make_keys(Topic),
-    lists:foreach(fun(Key) -> insert_key_local(Key, Dest, Trie) end, [TopicKey | PrefixKeys]).
-
-%% @doc Delete an entry from the local ETS-based trie.
-%% Important: concurrent inserts and deletes may cause inconsistency.
--spec delete_local(emqx_types:topic(), _Dest, ets:table()) -> ok.
-delete_local(Topic, Dest, Trie) when is_binary(Topic) ->
-    {TopicKey, PrefixKeys} = make_keys(Topic),
-    lists:foreach(fun(Key) -> delete_key_local(Key, Dest, Trie) end, [TopicKey | PrefixKeys]).
 
 %%--------------------------------------------------------------------
 %% Internal functions
@@ -276,35 +224,12 @@ insert_key(Key, Trie) ->
         end,
     ok = mnesia:write(Trie, T, write).
 
-insert_key_local(Key, Dest, Trie) ->
-    T =
-        case ets:lookup(Trie, Key) of
-            [#?TRIE{count = Ds} = T1] ->
-                T1#?TRIE{count = Ds#{Dest => []}};
-            [] ->
-                #?TRIE{key = Key, count = #{Dest => []}}
-        end,
-    true = ets:insert(Trie, T),
-    ok.
-
 delete_key(Key, Trie) ->
     case mnesia:wread({Trie, Key}) of
         [#?TRIE{count = C} = T] when C > 1 ->
             ok = mnesia:write(Trie, T#?TRIE{count = C - 1}, write);
         [_] ->
             ok = mnesia:delete(Trie, Key, write);
-        [] ->
-            ok
-    end.
-
-delete_key_local(Key, Dest, Trie) ->
-    case ets:lookup(Trie, Key) of
-        [#?TRIE{count = Ds = #{Dest := []}}] when map_size(Ds) =:= 1 ->
-            true = ets:delete(Trie, Key);
-        [#?TRIE{count = Ds = #{Dest := []}} = T] ->
-            true = ets:insert(Trie, T#?TRIE{count = maps:remove(Dest, Ds)});
-        [#?TRIE{}] ->
-            ok;
         [] ->
             ok
     end.
@@ -316,13 +241,8 @@ lookup_topic(Topic, Trie, true) -> lookup_topic(Topic, Trie).
 
 lookup_topic(Topic, Trie) when is_binary(Topic) ->
     case ets:lookup(Trie, ?TOPIC(Topic)) of
-        [#?TRIE{count = Ds = #{}}] ->
-            % NOTE: returning whole routes from "materialized" local trie index
-            maps:fold(fun(Dest, _, L) -> [?ROUTE(Topic, Dest) | L] end, [], Ds);
-        [#?TRIE{count = C}] ->
-            [Topic || C > 0];
-        [] ->
-            []
+        [#?TRIE{count = C}] -> [Topic || C > 0];
+        [] -> []
     end.
 
 %% this is the virtual tree root
@@ -330,7 +250,6 @@ has_prefix(empty, _Trie) ->
     true;
 has_prefix(Prefix, Trie) ->
     case ets:lookup(Trie, ?PREFIX(Prefix)) of
-        % NOTE: compatible with local trie, since non-empty mapset is always > 0
         [#?TRIE{count = C}] -> C > 0;
         [] -> false
     end.
