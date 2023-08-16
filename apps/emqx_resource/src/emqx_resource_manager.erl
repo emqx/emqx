@@ -179,7 +179,9 @@ create_dry_run(ResourceType, Config) ->
             false -> #{}
         end,
     ok = emqx_resource_manager_sup:ensure_child(ResId, <<"dry_run">>, ResourceType, Config, Opts),
-    case wait_for_ready(ResId, 5000) of
+    HealthCheckInterval = maps:get(health_check_interval, Opts, ?HEALTHCHECK_INTERVAL),
+    Timeout = emqx_utils:clamp(HealthCheckInterval, 5_000, 60_000),
+    case wait_for_ready(ResId, Timeout) of
         ok ->
             remove(ResId);
         {error, Reason} ->
