@@ -311,6 +311,60 @@ t_client_event(_Config) ->
     ?assert(erlang:byte_size(Bin3) > 0),
     ok.
 
+t_client_huge_payload_truncated(_Config) ->
+    ClientId = <<"client-truncated1">>,
+    Now = erlang:system_time(second),
+    Name = <<"test_client_id_truncated1">>,
+    {ok, _} = emqx_trace:create([
+        {<<"name">>, Name},
+        {<<"type">>, clientid},
+        {<<"clientid">>, ClientId},
+        {<<"start_at">>, Now}
+    ]),
+    ok = emqx_trace_handler_SUITE:filesync(Name, clientid),
+    {ok, Client} = emqtt:start_link([{clean_start, true}, {clientid, ClientId}]),
+    {ok, _} = emqtt:connect(Client),
+    emqtt:ping(Client),
+    NormalPayload = iolist_to_binary(lists:duplicate(1024, "x")),
+    ok = emqtt:publish(Client, <<"/test">>, #{}, NormalPayload, [{qos, 0}]),
+    HugePayload1 = iolist_to_binary(lists:duplicate(1025, "y")),
+    ok = emqtt:publish(Client, <<"/test">>, #{}, HugePayload1, [{qos, 0}]),
+    HugePayload2 = iolist_to_binary(lists:duplicate(1024 * 10, "y")),
+    ok = emqtt:publish(Client, <<"/test">>, #{}, HugePayload2, [{qos, 0}]),
+    ok = emqx_trace_handler_SUITE:filesync(Name, clientid),
+    {ok, _} = emqx_trace:create([
+        {<<"name">>, <<"test_topic">>},
+        {<<"type">>, topic},
+        {<<"topic">>, <<"/test">>},
+        {<<"start_at">>, Now}
+    ]),
+    ok = emqx_trace_handler_SUITE:filesync(<<"test_topic">>, topic),
+    {ok, Bin} = file:read_file(emqx_trace:log_file(Name, Now)),
+    ok = emqtt:publish(Client, <<"/test">>, #{}, NormalPayload, [{qos, 0}]),
+    ok = emqtt:publish(Client, <<"/test">>, #{}, HugePayload1, [{qos, 0}]),
+    ok = emqtt:publish(Client, <<"/test">>, #{}, HugePayload2, [{qos, 0}]),
+    ok = emqtt:disconnect(Client),
+    ok = emqx_trace_handler_SUITE:filesync(Name, clientid),
+    ok = emqx_trace_handler_SUITE:filesync(<<"test_topic">>, topic),
+    {ok, Bin2} = file:read_file(emqx_trace:log_file(Name, Now)),
+    {ok, Bin3} = file:read_file(emqx_trace:log_file(<<"test_topic">>, Now)),
+    ct:pal("Bin ~p Bin2 ~p Bin3 ~p", [byte_size(Bin), byte_size(Bin2), byte_size(Bin3)]),
+    ?assert(erlang:byte_size(Bin) > 1024),
+    ?assert(erlang:byte_size(Bin) < erlang:byte_size(Bin2)),
+    ?assert(erlang:byte_size(Bin3) > 1024),
+
+    %% Don't have format crash
+    CrashBin = <<"CRASH">>,
+    ?assertEqual(nomatch, binary:match(Bin, [CrashBin])),
+    ?assertEqual(nomatch, binary:match(Bin2, [CrashBin])),
+    ?assertEqual(nomatch, binary:match(Bin3, [CrashBin])),
+    %% have "this log are truncated" for huge payload
+    TruncatedLog = <<"this log are truncated">>,
+    ?assertNotEqual(nomatch, binary:match(Bin, [TruncatedLog])),
+    ?assertNotEqual(nomatch, binary:match(Bin2, [TruncatedLog])),
+    ?assertNotEqual(nomatch, binary:match(Bin3, [TruncatedLog])),
+    ok.
+
 t_get_log_filename(_Config) ->
     Now = erlang:system_time(second),
     Name = <<"name1">>,
