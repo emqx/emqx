@@ -358,8 +358,6 @@ stop_apps(Apps) ->
 
 %%
 
-verify_clean_suite_state(#{skip_clean_suite_state_check := true}) ->
-    ok;
 verify_clean_suite_state(#{work_dir := WorkDir}) ->
     {ok, []} = file:list_dir(WorkDir),
     none = persistent_term:get(?EMQX_AUTHENTICATION_SCHEMA_MODULE_PT_KEY, none),

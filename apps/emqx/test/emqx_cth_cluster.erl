@@ -20,7 +20,8 @@
 -export([stop/1, stop_node/1]).
 
 -export([share_load_module/2]).
--export([node_name/1]).
+-export([node_name/1, mk_nodespecs/2]).
+-export([start_apps/2, set_node_opts/2]).
 
 -define(APPS_CLUSTERING, [gen_rpc, mria, ekka]).
 
@@ -80,12 +81,7 @@ when
         %% Working directory
         %% Everything a test produces should go here. Each node's stuff should go in its
         %% own directory.
-        work_dir := file:name(),
-        %% Usually, we want to ensure the node / test suite starts from a clean slate.
-        %% However, sometimes, we may want to test restarting a node.  For such
-        %% situations, we need to disable this check to allow resuming from an existing
-        %% state.
-        skip_clean_suite_state_check => boolean()
+        work_dir := file:name()
     }.
 start(Nodes, ClusterOpts) ->
     NodeSpecs = mk_nodespecs(Nodes, ClusterOpts),
@@ -129,14 +125,12 @@ mk_init_nodespec(N, Name, NodeOpts, ClusterOpts) ->
     Node = node_name(Name),
     BasePort = base_port(N),
     WorkDir = maps:get(work_dir, ClusterOpts),
-    SkipCleanSuiteStateCheck = maps:get(skip_clean_suite_state_check, ClusterOpts, false),
     Defaults = #{
         name => Node,
         role => core,
         apps => [],
         base_port => BasePort,
         work_dir => filename:join([WorkDir, Node]),
-        skip_clean_suite_state_check => SkipCleanSuiteStateCheck,
         driver => ct_slave
     },
     maps:merge(Defaults, NodeOpts).
@@ -307,7 +301,7 @@ start_apps(Node, #{apps := Apps} = Spec) ->
     ok.
 
 suite_opts(Spec) ->
-    maps:with([work_dir, skip_clean_suite_state_check], Spec).
+    maps:with([work_dir], Spec).
 
 maybe_join_cluster(_Node, #{role := replicant}) ->
     ok;
