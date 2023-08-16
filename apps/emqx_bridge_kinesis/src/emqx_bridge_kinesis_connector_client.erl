@@ -111,7 +111,14 @@ init(#{
     erlcloud_config:configure(
         to_str(AwsAccessKey), to_str(AwsSecretAccessKey), Host, Port, Scheme, New
     ),
-    {ok, State}.
+    % check the connection
+    case erlcloud_kinesis:list_streams() of
+        {ok, _} ->
+            {ok, State};
+        {error, Reason} ->
+            ?tp(kinesis_init_failed, #{instance_id => InstanceId, reason => Reason}),
+            {stop, Reason}
+    end.
 
 handle_call(connection_status, _From, #{stream_name := StreamName} = State) ->
     Status =
