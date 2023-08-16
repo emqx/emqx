@@ -101,7 +101,13 @@ when
         %% function will raise an error.
         work_dir := file:name()
     }.
-start(Apps, SuiteOpts = #{work_dir := WorkDir}) ->
+start(Apps, SuiteOpts0 = #{work_dir := WorkDir0}) ->
+    %% when running CT on the whole app, it seems like `priv_dir` is the same on all
+    %% suites and leads to the "clean slate" verificatin to fail.
+    WorkDir = binary_to_list(
+        filename:join([WorkDir0, emqx_guid:to_hexstr(emqx_guid:gen())])
+    ),
+    SuiteOpts = SuiteOpts0#{work_dir := WorkDir},
     % 1. Prepare appspec instructions
     AppSpecs = [mk_appspec(App, SuiteOpts) || App <- Apps],
     % 2. Load every app so that stuff scanning attributes of loaded modules works
