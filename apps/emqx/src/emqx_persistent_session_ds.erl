@@ -102,18 +102,19 @@ add_subscription(TopicFilterBin, DSSessionID) ->
             ?tp_span(
                 persistent_session_ds_open_iterators,
                 Ctx,
-                ok = open_iterator_on_all_nodes(TopicFilter, StartMS, IteratorID)
+                ok = open_iterator_on_all_shards(TopicFilter, StartMS, IteratorID)
             ),
             {ok, IteratorID, IsNew}
         end
     ).
 
--spec open_iterator_on_all_nodes(emqx_topic:words(), emqx_ds:time(), emqx_ds:iterator_id()) -> ok.
-open_iterator_on_all_nodes(TopicFilter, StartMS, IteratorID) ->
+-spec open_iterator_on_all_shards(emqx_topic:words(), emqx_ds:time(), emqx_ds:iterator_id()) -> ok.
+open_iterator_on_all_shards(TopicFilter, StartMS, IteratorID) ->
     ?tp(persistent_session_ds_will_open_iterators, #{
         iterator_id => IteratorID,
         start_time => StartMS
     }),
+    %% Note: currently, shards map 1:1 to nodes, but this will change in the future.
     Nodes = emqx:running_nodes(),
     Results = emqx_persistent_session_ds_proto_v1:open_iterator(
         Nodes, TopicFilter, StartMS, IteratorID
