@@ -82,11 +82,11 @@ current_sysmem_percent() ->
 %%--------------------------------------------------------------------
 
 init([]) ->
-    %% start os_mon temporarily
-    {ok, _} = application:ensure_all_started(os_mon),
     {ok, undefined, {continue, setup}}.
 
 handle_continue(setup, undefined) ->
+    %% start os_mon temporarily
+    {ok, _} = application:ensure_all_started(os_mon),
     %% memsup is not reliable, ignore
     memsup:set_sysmem_high_watermark(1.0),
     SysHW = init_os_monitor(),
