@@ -73,10 +73,16 @@ get_topic(Key) ->
     emqx_trie_search:get_topic(Key).
 
 %% @doc Fetch the record associated with the match.
-%% NOTE: Only really useful for ETS tables where the record ID is the first element.
--spec get_record(match(_ID), ets:table()) -> _Record.
+%% May return empty list if the index entry was deleted in the meantime.
+%% NOTE: Only really useful for ETS tables where the record data is the last element.
+-spec get_record(match(_ID), ets:table()) -> [_Record].
 get_record(K, Tab) ->
-    ets:lookup_element(Tab, K, 2).
+    case ets:lookup(Tab, K) of
+        [Entry] ->
+            [erlang:element(tuple_size(Entry), Entry)];
+        [] ->
+            []
+    end.
 
 key(TopicOrFilter, ID) ->
     emqx_trie_search:make_key(TopicOrFilter, ID).
