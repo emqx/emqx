@@ -113,11 +113,22 @@ ssl_files_failure_test_() ->
                 })
             )
         end},
+        {"empty_cacertfile", fun() ->
+            ?assertMatch(
+                {ok, _},
+                emqx_tls_lib:ensure_ssl_files("/tmp", #{
+                    <<"keyfile">> => test_key(),
+                    <<"certfile">> => test_key(),
+                    <<"cacertfile">> => <<"">>
+                })
+            )
+        end},
         {"bad_pem_string", fun() ->
             %% empty string
             ?assertMatch(
                 {error, #{
-                    reason := invalid_file_path_or_pem_string, which_options := [[<<"keyfile">>]]
+                    reason := pem_file_path_or_string_is_required,
+                    which_options := [[<<"keyfile">>]]
                 }},
                 emqx_tls_lib:ensure_ssl_files("/tmp", #{
                     <<"keyfile">> => <<>>,
