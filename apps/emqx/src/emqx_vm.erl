@@ -390,17 +390,14 @@ compat_windows(Fun) ->
 
 compat_windows(Fun, Args) ->
     try
-        case is_windows() of
-            true -> 0.0;
-            false when Args =:= [] -> Fun();
-            false -> Fun(Args)
+        case emqx_os_mon:is_os_check_supported() of
+            false -> 0.0;
+            true when Args =:= [] -> Fun();
+            true -> Fun(Args)
         end
     catch
         _:_ -> 0.0
     end.
-
-is_windows() ->
-    os:type() =:= {win32, nt}.
 
 load(Avg) ->
     floor((Avg / 256) * 100) / 100.

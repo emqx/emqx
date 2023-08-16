@@ -185,16 +185,27 @@ node_info(Nodes) ->
 stopped_node_info(Node) ->
     {Node, #{node => Node, node_status => 'stopped', role => core}}.
 
+%% Hide cpu stats if os_check is not supported.
 vm_stats() ->
-    Idle = vm_stats('cpu.idle'),
     {MemUsedRatio, MemTotal} = get_sys_memory(),
-    [
-        {run_queue, vm_stats('run.queue')},
-        {cpu_idle, Idle},
-        {cpu_use, 100 - Idle},
-        {total_memory, MemTotal},
-        {used_memory, erlang:round(MemTotal * MemUsedRatio)}
-    ].
+    cpu_stats() ++
+        [
+            {run_queue, vm_stats('run.queue')},
+            {total_memory, MemTotal},
+            {used_memory, erlang:round(MemTotal * MemUsedRatio)}
+        ].
+
+cpu_stats() ->
+    case emqx_os_mon:is_os_check_supported() of
+        false ->
+            [];
+        true ->
+            Idle = vm_stats('cpu.idle'),
+            [
+                {cpu_idle, Idle},
+                {cpu_use, 100 - Idle}
+            ]
+    end.
 
 vm_stats('cpu.idle') ->
     case emqx_vm:cpu_util([detailed]) of
