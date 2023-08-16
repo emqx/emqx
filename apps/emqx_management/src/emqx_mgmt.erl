@@ -185,25 +185,39 @@ node_info(Nodes) ->
 stopped_node_info(Node) ->
     {Node, #{node => Node, node_status => 'stopped', role => core}}.
 
+%% Hide cpu stats if os_check is not supported.
 vm_stats() ->
-    Idle = vm_stats('cpu.idle'),
     {MemUsedRatio, MemTotal} = get_sys_memory(),
-    [
-        {run_queue, vm_stats('run.queue')},
-        {cpu_idle, Idle},
-        {cpu_use, 100 - Idle},
-        {total_memory, MemTotal},
-        {used_memory, erlang:round(MemTotal * MemUsedRatio)}
-    ].
+    cpu_stats() ++
+        [
+            {run_queue, vm_stats('run.queue')},
+            {total_memory, MemTotal},
+            {used_memory, erlang:round(MemTotal * MemUsedRatio)}
+        ].
+
+cpu_stats() ->
+    case emqx_os_mon:is_os_check_supported() of
+        false ->
+            [];
+        true ->
+            Idle = vm_stats('cpu.idle'),
+            [
+                {cpu_idle, Idle},
+                {cpu_use, 100 - Idle}
+            ]
+    end.
 
 vm_stats('cpu.idle') ->
-    case cpu_sup:util([detailed]) of
-        %% Not support for Windows
-        {_, 0, 0, _} -> 0;
-        {_Num, _Use, IdleList, _} -> proplists:get_value(idle, IdleList, 0)
+    case emqx_vm:cpu_util([detailed]) of
+        {_Num, _Use, List, _} when is_list(List) -> proplists:get_value(idle, List, 0);
+        %% return {all, 0, 0, []} when cpu_sup is not started
+        _ -> 0
     end;
 vm_stats('cpu.use') ->
-    100 - vm_stats('cpu.idle');
+    case vm_stats('cpu.idle') of
+        0 -> 0;
+        Idle -> 100 - Idle
+    end;
 vm_stats('total.memory') ->
     {_, MemTotal} = get_sys_memory(),
     MemTotal;

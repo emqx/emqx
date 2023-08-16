@@ -1582,7 +1582,7 @@ fields("sysmon_os") ->
             sc(
                 hoconsc:union([disabled, duration()]),
                 #{
-                    default => <<"60s">>,
+                    default => default_mem_check_interval(),
                     desc => ?DESC(sysmon_os_mem_check_interval)
                 }
             )},
@@ -3657,3 +3657,9 @@ shared_subscription_strategy() ->
                 desc => ?DESC(broker_shared_subscription_strategy)
             }
         )}.
+
+default_mem_check_interval() ->
+    case emqx_os_mon:is_os_check_supported() of
+        true -> <<"60s">>;
+        false -> disabled
+    end.
