@@ -403,7 +403,8 @@ defmodule EMQXUmbrella.MixProject do
       quicer: enable_quicer?(),
       bcrypt: enable_bcrypt?(),
       jq: enable_jq?(),
-      observer: is_app?(:observer)
+      observer: is_app?(:observer),
+      os_mon: enable_os_mon?()
     }
     |> Enum.reject(&elem(&1, 1))
     |> Enum.map(&elem(&1, 0))
@@ -832,6 +833,10 @@ defmodule EMQXUmbrella.MixProject do
   end
 
   defp enable_bcrypt?() do
+    not win32?()
+  end
+
+  defp enable_os_mon?() do
     not win32?()
   end
 
