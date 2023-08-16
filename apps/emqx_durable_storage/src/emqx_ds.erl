@@ -42,6 +42,8 @@
     message_stats/0,
     message_store_opts/0,
     session_id/0,
+    replay/0,
+    replay_id/0,
     iterator_id/0,
     iterator/0,
     shard/0,
@@ -79,6 +81,13 @@
 %% TODO granularity?  Currently, we should always use micro second, as that's the unit we
 %% use in emqx_guid.  Otherwise, the iterators won't match the message timestamps.
 -type time() :: non_neg_integer().
+
+-type replay_id() :: binary().
+
+-type replay() :: {
+    _TopicFilter :: emqx_topic:words(),
+    _StartTime :: time()
+}.
 
 %%================================================================================
 %% API funcions

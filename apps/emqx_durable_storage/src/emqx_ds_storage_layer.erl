@@ -71,7 +71,7 @@
 -record(it, {
     shard :: emqx_ds:shard(),
     gen :: gen_id(),
-    replay :: emqx_ds_replay:replay(),
+    replay :: emqx_ds:replay(),
     module :: module(),
     data :: term()
 }).
@@ -112,10 +112,10 @@
 -callback store(_Schema, binary(), emqx_ds:time(), emqx_ds:topic(), binary()) ->
     ok | {error, _}.
 
--callback make_iterator(_Schema, emqx_ds_replay:replay()) ->
+-callback make_iterator(_Schema, emqx_ds:replay()) ->
     {ok, _It} | {error, _}.
 
--callback restore_iterator(_Schema, emqx_ds_replay:replay(), binary()) -> {ok, _It} | {error, _}.
+-callback restore_iterator(_Schema, emqx_ds:replay(), binary()) -> {ok, _It} | {error, _}.
 
 -callback preserve_iterator(_Schema, _It) -> term().
 
@@ -140,7 +140,7 @@ store(Shard, GUID, Time, Topic, Msg) ->
     {_GenId, #{module := Mod, data := Data}} = meta_lookup_gen(Shard, Time),
     Mod:store(Data, GUID, Time, Topic, Msg).
 
--spec make_iterator(emqx_ds:shard(), emqx_ds_replay:replay()) ->
+-spec make_iterator(emqx_ds:shard(), emqx_ds:replay()) ->
     {ok, iterator()} | {error, _TODO}.
 make_iterator(Shard, Replay = {_, StartTime}) ->
     {GenId, Gen} = meta_lookup_gen(Shard, StartTime),
@@ -173,7 +173,7 @@ next(It = #it{module = Mod, data = ItData}) ->
 preserve_iterator(It = #it{}, IteratorID) ->
     iterator_put_state(IteratorID, It).
 
--spec restore_iterator(emqx_ds:shard(), emqx_ds_replay:replay_id()) ->
+-spec restore_iterator(emqx_ds:shard(), emqx_ds:replay_id()) ->
     {ok, iterator()} | {error, _TODO}.
 restore_iterator(Shard, ReplayID) ->
     case iterator_get_state(Shard, ReplayID) of
@@ -185,7 +185,7 @@ restore_iterator(Shard, ReplayID) ->
             Error
     end.
 
--spec is_iterator_present(emqx_ds:shard(), emqx_ds_replay:replay_id()) ->
+-spec is_iterator_present(emqx_ds:shard(), emqx_ds:replay_id()) ->
     boolean().
 is_iterator_present(Shard, ReplayID) ->
     %% TODO: use keyMayExist after added to wrapper?
@@ -196,7 +196,7 @@ is_iterator_present(Shard, ReplayID) ->
             false
     end.
 
--spec discard_iterator(emqx_ds:shard(), emqx_ds_replay:replay_id()) ->
+-spec discard_iterator(emqx_ds:shard(), emqx_ds:replay_id()) ->
     ok | {error, _TODO}.
 discard_iterator(Shard, ReplayID) ->
     iterator_delete(Shard, ReplayID).
