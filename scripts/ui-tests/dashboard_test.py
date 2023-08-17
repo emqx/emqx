@@ -62,12 +62,13 @@ def test_log(driver, login, dashboard_url):
     ensure_current_url(driver, dest_url)
     title = wait_title(driver)
     assert "Logging" == title.text
-    label = driver.find_element(By.XPATH, "//div[@id='app']//form//label[./label/span[text()='Enable Log Handler']]")
+
+    label = driver.find_element(By.XPATH, "//div[@id='app']//form//label[contains(., 'Enable Log Handler')]")
     assert driver.find_elements(By.ID, label.get_attribute("for"))
-    label = driver.find_element(By.XPATH, "//div[@id='app']//form//label[./label/span[text()='Log Level']]")
+    label = driver.find_element(By.XPATH, "//div[@id='app']//form//label[contains(., 'Log Level')]")
     assert driver.find_elements(By.ID, label.get_attribute("for"))
-    label = driver.find_element(By.XPATH, "//div[@id='app']//form//label[./label/span[text()='Log Formatter']]")
+    label = driver.find_element(By.XPATH, "//div[@id='app']//form//label[contains(., 'Log Formatter')]")
     assert driver.find_elements(By.ID, label.get_attribute("for"))
-    label = driver.find_element(By.XPATH, "//div[@id='app']//form//label[./label/span[text()='Time Offset']]")
+    label = driver.find_element(By.XPATH, "//div[@id='app']//form//label[contains(., 'Time Offset')]")
     assert driver.find_elements(By.ID, label.get_attribute("for"))
 
