@@ -62,6 +62,8 @@
     [ocsp, issuer_pem]
 ]).
 
+-define(ALLOW_EMPTY_PEM, [[<<"cacertfile">>], [cacertfile]]).
+
 %% non-empty string
 -define(IS_STRING(L), (is_list(L) andalso L =/= [] andalso is_integer(hd(L)))).
 %% non-empty list of strings
@@ -330,6 +332,13 @@ ensure_ssl_files_per_key(Dir, SSL, [KeyPath | KeyPaths], Opts) ->
 
 ensure_ssl_file(_Dir, _KeyPath, SSL, undefined, _Opts) ->
     {ok, SSL};
+ensure_ssl_file(_Dir, KeyPath, SSL, MaybePem, _Opts) when
+    MaybePem =:= "" orelse MaybePem =:= <<"">>
+->
+    case lists:member(KeyPath, ?ALLOW_EMPTY_PEM) of
+        true -> {ok, SSL};
+        false -> {error, #{reason => pem_file_path_or_string_is_required}}
+    end;
 ensure_ssl_file(Dir, KeyPath, SSL, MaybePem, Opts) ->
     case is_valid_string(MaybePem) of
         true ->

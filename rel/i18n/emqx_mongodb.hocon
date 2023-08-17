@@ -149,4 +149,10 @@ wait_queue_timeout.desc:
 wait_queue_timeout.label:
 """Wait Queue Timeout"""
 
+use_legacy_protocol.desc:
+"""Whether to use MongoDB's legacy protocol for communicating with the database.  The default is to attempt to automatically determine if the newer protocol is supported."""
+
+use_legacy_protocol.label:
+"""Use legacy protocol"""
+
 }

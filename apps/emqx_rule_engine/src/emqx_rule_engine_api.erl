@@ -514,7 +514,7 @@ format_rule_engine_resp(Config) ->
     maps:remove(rules, Config).
 
 format_datetime(Timestamp, Unit) ->
-    list_to_binary(calendar:system_time_to_rfc3339(Timestamp, [{unit, Unit}])).
+    emqx_utils_calendar:epoch_to_rfc3339(Timestamp, Unit).
 
 format_action(Actions) ->
     [do_format_action(Act) || Act <- Actions].

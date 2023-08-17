@@ -156,7 +156,7 @@ persistent_session_builtin_messages_table.label:
 
 sysmon_os_cpu_low_watermark.desc:
 """The threshold, as percentage of system CPU load,
- for how much system cpu can be used before the corresponding alarm is cleared."""
+ for how much system cpu can be used before the corresponding alarm is cleared. Disabled on Windows platform"""
 
 sysmon_os_cpu_low_watermark.label:
 """CPU low watermark"""
@@ -278,7 +278,7 @@ fields_ws_opts_mqtt_path.label:
 sysmon_os_procmem_high_watermark.desc:
 """The threshold, as percentage of system memory,
  for how much system memory can be allocated by one Erlang process before
- the corresponding alarm is raised."""
+ the corresponding alarm is raised. Disabled on Windows platform."""
 
 sysmon_os_procmem_high_watermark.label:
 """ProcMem high wartermark"""
@@ -389,7 +389,7 @@ fields_tcp_opts_sndbuf.label:
 """TCP send buffer"""
 
 sysmon_os_mem_check_interval.desc:
-"""The time interval for the periodic memory check."""
+"""The time interval for the periodic memory check. Disabled on Windows platform."""
 
 sysmon_os_mem_check_interval.label:
 """Mem check interval"""
@@ -742,7 +742,7 @@ common_ssl_opts_schema_keyfile.label:
 
 sysmon_os_cpu_high_watermark.desc:
 """The threshold, as percentage of system CPU load,
- for how much system cpu can be used before the corresponding alarm is raised."""
+ for how much system cpu can be used before the corresponding alarm is raised. Disabled on Windows platform"""
 
 sysmon_os_cpu_high_watermark.label:
 """CPU high watermark"""
@@ -798,7 +798,7 @@ fields_ws_opts_proxy_address_header.label:
 
 sysmon_os_sysmem_high_watermark.desc:
 """The threshold, as percentage of system memory,
- for how much system memory can be allocated before the corresponding alarm is raised."""
+ for how much system memory can be allocated before the corresponding alarm is raised. Disabled on Windows platform"""
 
 sysmon_os_sysmem_high_watermark.label:
 """SysMem high wartermark"""
@@ -1369,7 +1369,7 @@ sysmon_vm_process_low_watermark.label:
 """Process low watermark"""
 
 mqtt_max_packet_size.desc:
-"""Maximum MQTT packet size allowed."""
+"""Maximum MQTT packet size allowed. Default: 1 MB, Maximum: 256 MB"""
 
 mqtt_max_packet_size.label:
 """Max Packet Size"""
@@ -1521,7 +1521,7 @@ fields_tcp_opts_send_timeout_close.label:
 """TCP send timeout close"""
 
 sysmon_os_cpu_check_interval.desc:
-"""The time interval for the periodic CPU check."""
+"""The time interval for the periodic CPU check. Disabled on Windows platform."""
 
 sysmon_os_cpu_check_interval.label:
 """The time interval for the periodic CPU check."""

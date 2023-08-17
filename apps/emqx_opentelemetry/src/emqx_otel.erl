@@ -150,9 +150,9 @@ get_vm_gauge(Name) ->
     [{emqx_mgmt:vm_stats(Name), #{}}].
 
 get_cluster_gauge('node.running') ->
-    length(emqx:cluster_nodes(running));
+    [{length(emqx:cluster_nodes(running)), #{}}];
 get_cluster_gauge('node.stopped') ->
-    length(emqx:cluster_nodes(stopped)).
+    [{length(emqx:cluster_nodes(stopped)), #{}}].
 
 get_metric_counter(Name) ->
     [{emqx_metrics:val(Name), #{}}].

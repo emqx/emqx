@@ -2312,9 +2312,7 @@ t_socket_passvice(_) ->
     ok.
 
 t_clients_api(_) ->
-    TsNow = emqx_gateway_utils:unix_ts_to_rfc3339(
-        erlang:system_time(millisecond)
-    ),
+    TsNow = emqx_utils_calendar:now_to_rfc3339(millisecond),
     ClientId = <<"client_id_test1">>,
     {ok, Socket} = gen_udp:open(0, [binary]),
     send_connect_msg(Socket, ClientId),

@@ -13,8 +13,6 @@ jobs:
   linux:
     if: github.repository_owner == 'emqx'
     runs-on: aws-${{ matrix.arch }}
-    # always run in builder container because the host might have the wrong OTP version etc.
-    # otherwise buildx.sh does not run docker if arch and os matches the target arch and os.
     container:
       image: "ghcr.io/emqx/emqx-builder/${{ matrix.builder }}:${{ matrix.elixir }}-${{ matrix.otp }}-${{ matrix.os }}"
 
@@ -30,6 +28,7 @@ jobs:
         arch:
           - amd64
         os:
+          - debian10
           - ubuntu22.04
           - amzn2023
         builder:
@@ -48,25 +47,32 @@ jobs:
           ref: ${{ matrix.profile[1] }}
           fetch-depth: 0
 
-      - name: build emqx packages
-        env:
-          ELIXIR: ${{ matrix.elixir }}
-          PROFILE: ${{ matrix.profile[0] }}
-          ARCH: ${{ matrix.arch }}
+      - name: fix workdir
         run: |
           set -eu
           git config --global --add safe.directory "$GITHUB_WORKSPACE"
-          PKGTYPES="tgz pkg"
-          IS_ELIXIR="no"
-          for PKGTYPE in ${PKGTYPES};
-          do
-            ./scripts/buildx.sh \
-              --profile "${PROFILE}" \
-              --pkgtype "${PKGTYPE}" \
-              --arch "${ARCH}" \
-              --elixir "${IS_ELIXIR}" \
-              --builder "force_host"
-          done
+          # Align path for CMake caches
+          if [ ! "$PWD" = "/emqx" ]; then
+            ln -s $PWD /emqx
+            cd /emqx
+          fi
+          echo "pwd is $PWD"
+
+      - name: build emqx packages
+        env:
+          PROFILE: ${{ matrix.profile[0] }}
+          ACLOCAL_PATH: "/usr/share/aclocal:/usr/local/share/aclocal"
+        run: |
+          set -eu
+          make "${PROFILE}-tgz"
+          make "${PROFILE}-pkg"
+      - name: test emqx packages
+        env:
+          PROFILE: ${{ matrix.profile[0] }}
+        run: |
+          set -eu
+          ./scripts/pkg-tests.sh "${PROFILE}-tgz"
+          ./scripts/pkg-tests.sh "${PROFILE}-pkg"
       - uses: actions/upload-artifact@v3
         if: success()
         with:

@@ -46,6 +46,18 @@ payload_template.desc:
 payload_template.label:
 """Payload template"""
 
+attributes_template.desc:
+"""The template for formatting the outgoing message attributes.  Undefined values will be rendered as empty string values.  Empty keys are removed from the attribute map."""
+
+attributes_template.label:
+"""Attributes template"""
+
+ordering_key_template.desc:
+"""The template for formatting the outgoing message ordering key.  Undefined values will be rendered as empty string values.  This value will not be added to the message if it's empty."""
+
+ordering_key_template.label:
+"""Ordering Key template"""
+
 pipelining.desc:
 """A positive integer. Whether to send HTTP requests continuously, when set to 1, it means that after each HTTP request is sent, you need to wait for the server to return and then continue to send the next request."""
 
@@ -63,6 +75,36 @@ pubsub_topic.desc:
 
 pubsub_topic.label:
 """GCP PubSub Topic"""
+
+producer_attributes.desc:
+"""List of key-value pairs representing templates to construct the attributes for a given GCP PubSub message.  Both keys and values support the placeholder `${var_name}` notation.  Keys that are undefined or resolve to an empty string are omitted from the attribute map."""
+
+producer_attributes.label:
+"""Attributes Template"""
+
+producer_ordering_key.desc:
+"""Template for the Ordering Key of a given GCP PubSub message.  If the resolved value is undefined or an empty string, the ordering key property is omitted from the message."""
+
+producer_ordering_key.label:
+"""Ordering Key Template"""
+
+kv_pair_desc.desc:
+"""Key-value pair."""
+
+kv_pair_desc.label:
+"""Key-value pair"""
+
+kv_pair_key.desc:
+"""Key"""
+
+kv_pair_key.label:
+"""Key"""
+
+kv_pair_value.desc:
+"""Value"""
+
+kv_pair_value.label:
+"""Value"""
 
 service_account_json.desc:
 """JSON containing the GCP Service Account credentials to be used with PubSub.

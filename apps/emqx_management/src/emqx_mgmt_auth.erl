@@ -142,11 +142,11 @@ format(App = #{expired_at := ExpiredAt0, created_at := CreateAt}) ->
     ExpiredAt =
         case ExpiredAt0 of
             infinity -> <<"infinity">>;
-            _ -> list_to_binary(calendar:system_time_to_rfc3339(ExpiredAt0))
+            _ -> emqx_utils_calendar:epoch_to_rfc3339(ExpiredAt0, second)
         end,
     App#{
         expired_at => ExpiredAt,
-        created_at => list_to_binary(calendar:system_time_to_rfc3339(CreateAt))
+        created_at => emqx_utils_calendar:epoch_to_rfc3339(CreateAt, second)
     }.
 
 list() ->

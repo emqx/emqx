@@ -79,6 +79,13 @@ schema("/banned") ->
                     ?DESC(create_banned_api_response400)
                 )
             }
+        },
+        delete => #{
+            description => ?DESC(clear_banned_api),
+            tags => ?TAGS,
+            parameters => [],
+            'requestBody' => [],
+            responses => #{204 => <<"No Content">>}
         }
     };
 schema("/banned/:as/:who") ->
@@ -140,13 +147,13 @@ fields(ban) ->
                 example => <<"Too many requests">>
             })},
         {at,
-            hoconsc:mk(emqx_datetime:epoch_second(), #{
+            hoconsc:mk(emqx_utils_calendar:epoch_second(), #{
                 desc => ?DESC(at),
                 required => false,
                 example => <<"2021-10-25T21:48:47+08:00">>
             })},
         {until,
-            hoconsc:mk(emqx_datetime:epoch_second(), #{
+            hoconsc:mk(emqx_utils_calendar:epoch_second(), #{
                 desc => ?DESC(until),
                 required => false,
                 example => <<"2021-10-25T21:53:47+08:00">>
@@ -168,7 +175,10 @@ banned(post, #{body := Body}) ->
                     OldBannedFormat = emqx_utils_json:encode(format(Old)),
                     {400, 'ALREADY_EXISTS', OldBannedFormat}
             end
-    end.
+    end;
+banned(delete, _) ->
+    emqx_banned:clear(),
+    {204}.
 
 delete_banned(delete, #{bindings := Params}) ->
     case emqx_banned:look_up(Params) of

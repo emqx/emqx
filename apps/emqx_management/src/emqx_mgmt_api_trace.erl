@@ -281,7 +281,7 @@ fields(trace) ->
             })},
         {start_at,
             hoconsc:mk(
-                emqx_datetime:epoch_second(),
+                emqx_utils_calendar:epoch_second(),
                 #{
                     description => ?DESC(time_format),
                     required => false,
@@ -290,7 +290,7 @@ fields(trace) ->
             )},
         {end_at,
             hoconsc:mk(
-                emqx_datetime:epoch_second(),
+                emqx_utils_calendar:epoch_second(),
                 #{
                     description => ?DESC(time_format),
                     required => false,
@@ -410,8 +410,8 @@ trace(get, _Params) ->
                         Trace0#{
                             log_size => LogSize,
                             Type => iolist_to_binary(Filter),
-                            start_at => list_to_binary(calendar:system_time_to_rfc3339(Start)),
-                            end_at => list_to_binary(calendar:system_time_to_rfc3339(End)),
+                            start_at => emqx_utils_calendar:epoch_to_rfc3339(Start, second),
+                            end_at => emqx_utils_calendar:epoch_to_rfc3339(End, second),
                             status => status(Enable, Start, End, Now)
                         }
                     end,
@@ -468,8 +468,8 @@ format_trace(Trace0) ->
     Trace2#{
         log_size => LogSize,
         Type => iolist_to_binary(Filter),
-        start_at => list_to_binary(calendar:system_time_to_rfc3339(Start)),
-        end_at => list_to_binary(calendar:system_time_to_rfc3339(End)),
+        start_at => emqx_utils_calendar:epoch_to_rfc3339(Start, second),
+        end_at => emqx_utils_calendar:epoch_to_rfc3339(Start, second),
         status => status(Enable, Start, End, Now)
     }.
 

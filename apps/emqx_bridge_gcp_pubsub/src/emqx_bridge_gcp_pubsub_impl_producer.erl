@@ -9,15 +9,20 @@
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
 -type config() :: #{
+    attributes_template := [#{key := binary(), value := binary()}],
     connect_timeout := emqx_schema:duration_ms(),
     max_retries := non_neg_integer(),
+    ordering_key_template := binary(),
+    payload_template := binary(),
     pubsub_topic := binary(),
     resource_opts := #{request_ttl := infinity | emqx_schema:duration_ms(), any() => term()},
     service_account_json := emqx_bridge_gcp_pubsub_client:service_account_json(),
     any() => term()
 }.
 -type state() :: #{
+    attributes_template := #{emqx_placeholder:tmpl_token() => emqx_placeholder:tmpl_token()},
     client := emqx_bridge_gcp_pubsub_client:state(),
+    ordering_key_template := emqx_placeholder:tmpl_token(),
     payload_template := emqx_placeholder:tmpl_token(),
     project_id := emqx_bridge_gcp_pubsub_client:project_id(),
     pubsub_topic := binary()
@@ -57,6 +62,8 @@ on_start(InstanceId, Config0) ->
     }),
     Config = maps:update_with(service_account_json, fun emqx_utils_maps:binary_key_map/1, Config0),
     #{
+        attributes_template := AttributesTemplate,
+        ordering_key_template := OrderingKeyTemplate,
         payload_template := PayloadTemplate,
         pubsub_topic := PubSubTopic,
         service_account_json := #{<<"project_id">> := ProjectId}
@@ -65,6 +72,8 @@ on_start(InstanceId, Config0) ->
         {ok, Client} ->
             State = #{
                 client => Client,
+                attributes_template => preproc_attributes(AttributesTemplate),
+                ordering_key_template => emqx_placeholder:preproc_tmpl(OrderingKeyTemplate),
                 payload_template => emqx_placeholder:preproc_tmpl(PayloadTemplate),
                 project_id => ProjectId,
                 pubsub_topic => PubSubTopic
@@ -197,14 +206,107 @@ do_send_requests_async(State, Requests, ReplyFunAndArgs0) ->
         Request, ReplyFunAndArgs, Client
     ).
 
--spec encode_payload(state(), Selected :: map()) -> #{data := binary()}.
-encode_payload(_State = #{payload_template := PayloadTemplate}, Selected) ->
-    Interpolated =
-        case PayloadTemplate of
-            [] -> emqx_utils_json:encode(Selected);
-            _ -> emqx_placeholder:proc_tmpl(PayloadTemplate, Selected)
+-spec encode_payload(state(), Selected :: map()) ->
+    #{
+        data := binary(),
+        attributes => #{binary() => binary()},
+        'orderingKey' => binary()
+    }.
+encode_payload(State, Selected) ->
+    #{
+        attributes_template := AttributesTemplate,
+        ordering_key_template := OrderingKeyTemplate,
+        payload_template := PayloadTemplate
+    } = State,
+    Data = render_payload(PayloadTemplate, Selected),
+    OrderingKey = render_key(OrderingKeyTemplate, Selected),
+    Attributes = proc_attributes(AttributesTemplate, Selected),
+    Payload0 = #{data => base64:encode(Data)},
+    Payload1 = put_if(Payload0, attributes, Attributes, map_size(Attributes) > 0),
+    put_if(Payload1, 'orderingKey', OrderingKey, OrderingKey =/= <<>>).
+
+put_if(Acc, K, V, true) ->
+    Acc#{K => V};
+put_if(Acc, _K, _V, false) ->
+    Acc.
+
+-spec render_payload(emqx_placeholder:tmpl_token(), map()) -> binary().
+render_payload([] = _Template, Selected) ->
+    emqx_utils_json:encode(Selected);
+render_payload(Template, Selected) ->
+    render_value(Template, Selected).
+
+render_key(Template, Selected) ->
+    Opts = #{
+        return => full_binary,
+        var_trans => fun
+            (_Var, undefined) ->
+                <<>>;
+            (Var, X) when is_boolean(X) ->
+                throw({bad_value_for_key, Var, X});
+            (_Var, X) when is_binary(X); is_number(X); is_atom(X) ->
+                emqx_utils_conv:bin(X);
+            (Var, X) ->
+                throw({bad_value_for_key, Var, X})
+        end
+    },
+    try
+        emqx_placeholder:proc_tmpl(Template, Selected, Opts)
+    catch
+        throw:{bad_value_for_key, Var, X} ->
+            ?tp(
+                warning,
+                "gcp_pubsub_producer_bad_value_for_key",
+                #{
+                    placeholder => Var,
+                    value => X,
+                    action => "key ignored",
+                    hint => "only plain values like strings and numbers can be used in keys"
+                }
+            ),
+            <<>>
+    end.
+
+render_value(Template, Selected) ->
+    Opts = #{
+        return => full_binary,
+        var_trans => fun
+            (undefined) -> <<>>;
+            (X) -> emqx_utils_conv:bin(X)
+        end
+    },
+    emqx_placeholder:proc_tmpl(Template, Selected, Opts).
+
+-spec preproc_attributes([#{key := binary(), value := binary()}]) ->
+    #{emqx_placeholder:tmpl_token() => emqx_placeholder:tmpl_token()}.
+preproc_attributes(AttributesTemplate) ->
+    lists:foldl(
+        fun(#{key := K, value := V}, Acc) ->
+            KT = emqx_placeholder:preproc_tmpl(K),
+            VT = emqx_placeholder:preproc_tmpl(V),
+            Acc#{KT => VT}
         end,
-    #{data => base64:encode(Interpolated)}.
+        #{},
+        AttributesTemplate
+    ).
+
+-spec proc_attributes(#{emqx_placeholder:tmpl_token() => emqx_placeholder:tmpl_token()}, map()) ->
+    #{binary() => binary()}.
+proc_attributes(AttributesTemplate, Selected) ->
+    maps:fold(
+        fun(KT, VT, Acc) ->
+            K = render_key(KT, Selected),
+            case K =:= <<>> of
+                true ->
+                    Acc;
+                false ->
+                    V = render_value(VT, Selected),
+                    Acc#{K => V}
+            end
+        end,
+        #{},
+        AttributesTemplate
+    ).
 
 -spec to_pubsub_request([#{data := binary()}]) -> binary().
 to_pubsub_request(Payloads) ->

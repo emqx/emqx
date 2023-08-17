@@ -46,7 +46,6 @@
 -type timeout_duration_s() :: 0..?MAX_INT_TIMEOUT_S.
 -type timeout_duration_ms() :: 0..?MAX_INT_TIMEOUT_MS.
 -type bytesize() :: integer().
--type mqtt_max_packet_size() :: 1..?MAX_INT_MQTT_PACKET_SIZE.
 -type wordsize() :: bytesize().
 -type percent() :: float().
 -type file() :: string().
@@ -73,7 +72,6 @@
 -typerefl_from_string({timeout_duration_s/0, emqx_schema, to_timeout_duration_s}).
 -typerefl_from_string({timeout_duration_ms/0, emqx_schema, to_timeout_duration_ms}).
 -typerefl_from_string({bytesize/0, emqx_schema, to_bytesize}).
--typerefl_from_string({mqtt_max_packet_size/0, emqx_schema, to_bytesize}).
 -typerefl_from_string({wordsize/0, emqx_schema, to_wordsize}).
 -typerefl_from_string({percent/0, emqx_schema, to_percent}).
 -typerefl_from_string({comma_separated_list/0, emqx_schema, to_comma_separated_list}).
@@ -93,6 +91,7 @@
 
 -export([
     validate_heap_size/1,
+    validate_packet_size/1,
     user_lookup_fun_tr/2,
     validate_alarm_actions/1,
     validate_keepalive_multiplier/1,
@@ -154,7 +153,6 @@
     timeout_duration_s/0,
     timeout_duration_ms/0,
     bytesize/0,
-    mqtt_max_packet_size/0,
     wordsize/0,
     percent/0,
     file/0,
@@ -1584,7 +1582,7 @@ fields("sysmon_os") ->
             sc(
                 hoconsc:union([disabled, duration()]),
                 #{
-                    default => <<"60s">>,
+                    default => default_mem_check_interval(),
                     desc => ?DESC(sysmon_os_mem_check_interval)
                 }
             )},
@@ -2003,8 +2001,8 @@ filter(Opts) ->
 %% SSL listener and client.
 -spec common_ssl_opts_schema(map(), server | client) -> hocon_schema:field_schema().
 common_ssl_opts_schema(Defaults, Type) ->
-    D = fun(Field) -> maps:get(to_atom(Field), Defaults, undefined) end,
-    Df = fun(Field, Default) -> maps:get(to_atom(Field), Defaults, Default) end,
+    D = fun(Field) -> maps:get(Field, Defaults, undefined) end,
+    Df = fun(Field, Default) -> maps:get(Field, Defaults, Default) end,
     Collection = maps:get(versions, Defaults, tls_all_available),
     DefaultVersions = default_tls_vsns(Collection),
     [
@@ -2047,7 +2045,7 @@ common_ssl_opts_schema(Defaults, Type) ->
             sc(
                 hoconsc:enum([verify_peer, verify_none]),
                 #{
-                    default => Df("verify", verify_none),
+                    default => Df(verify, verify_none),
                     desc => ?DESC(common_ssl_opts_schema_verify)
                 }
             )},
@@ -2055,7 +2053,7 @@ common_ssl_opts_schema(Defaults, Type) ->
             sc(
                 boolean(),
                 #{
-                    default => Df("reuse_sessions", true),
+                    default => Df(reuse_sessions, true),
                     desc => ?DESC(common_ssl_opts_schema_reuse_sessions)
                 }
             )},
@@ -2063,7 +2061,7 @@ common_ssl_opts_schema(Defaults, Type) ->
             sc(
                 non_neg_integer(),
                 #{
-                    default => Df("depth", 10),
+                    default => Df(depth, 10),
                     desc => ?DESC(common_ssl_opts_schema_depth)
                 }
             )},
@@ -2090,7 +2088,7 @@ common_ssl_opts_schema(Defaults, Type) ->
                     validator => fun(Input) -> validate_tls_versions(Collection, Input) end
                 }
             )},
-        {"ciphers", ciphers_schema(D("ciphers"))},
+        {"ciphers", ciphers_schema(D(ciphers))},
         {"user_lookup_fun",
             sc(
                 typerefl:alias("string", any()),
@@ -2105,7 +2103,7 @@ common_ssl_opts_schema(Defaults, Type) ->
             sc(
                 boolean(),
                 #{
-                    default => Df("secure_renegotiate", true),
+                    default => Df(secure_renegotiate, true),
                     desc => ?DESC(common_ssl_opts_schema_secure_renegotiate)
                 }
             )},
@@ -2125,7 +2123,7 @@ common_ssl_opts_schema(Defaults, Type) ->
             sc(
                 duration(),
                 #{
-                    default => Df("hibernate_after", <<"5s">>),
+                    default => Df(hibernate_after, <<"5s">>),
                     desc => ?DESC(common_ssl_opts_schema_hibernate_after)
                 }
             )}
@@ -2134,15 +2132,15 @@ common_ssl_opts_schema(Defaults, Type) ->
 %% @doc Make schema for SSL listener options.
 -spec server_ssl_opts_schema(map(), boolean()) -> hocon_schema:field_schema().
 server_ssl_opts_schema(Defaults, IsRanchListener) ->
-    D = fun(Field) -> maps:get(to_atom(Field), Defaults, undefined) end,
-    Df = fun(Field, Default) -> maps:get(to_atom(Field), Defaults, Default) end,
+    D = fun(Field) -> maps:get(Field, Defaults, undefined) end,
+    Df = fun(Field, Default) -> maps:get(Field, Defaults, Default) end,
     common_ssl_opts_schema(Defaults, server) ++
         [
             {"dhfile",
                 sc(
                     string(),
                     #{
-                        default => D("dhfile"),
+                        default => D(dhfile),
                         required => false,
                         desc => ?DESC(server_ssl_opts_schema_dhfile)
                     }
@@ -2151,7 +2149,7 @@ server_ssl_opts_schema(Defaults, IsRanchListener) ->
                 sc(
                     boolean(),
                     #{
-                        default => Df("fail_if_no_peer_cert", false),
+                        default => Df(fail_if_no_peer_cert, false),
                         desc => ?DESC(server_ssl_opts_schema_fail_if_no_peer_cert)
                     }
                 )},
@@ -2159,7 +2157,7 @@ server_ssl_opts_schema(Defaults, IsRanchListener) ->
                 sc(
                     boolean(),
                     #{
-                        default => Df("honor_cipher_order", true),
+                        default => Df(honor_cipher_order, true),
                         desc => ?DESC(server_ssl_opts_schema_honor_cipher_order)
                     }
                 )},
@@ -2167,7 +2165,7 @@ server_ssl_opts_schema(Defaults, IsRanchListener) ->
                 sc(
                     boolean(),
                     #{
-                        default => Df("client_renegotiation", true),
+                        default => Df(client_renegotiation, true),
                         desc => ?DESC(server_ssl_opts_schema_client_renegotiation)
                     }
                 )},
@@ -2175,7 +2173,7 @@ server_ssl_opts_schema(Defaults, IsRanchListener) ->
                 sc(
                     duration(),
                     #{
-                        default => Df("handshake_timeout", <<"15s">>),
+                        default => Df(handshake_timeout, <<"15s">>),
                         desc => ?DESC(server_ssl_opts_schema_handshake_timeout)
                     }
                 )}
@@ -2617,6 +2615,16 @@ validate_heap_size(Siz) when is_integer(Siz) ->
     end;
 validate_heap_size(_SizStr) ->
     {error, invalid_heap_size}.
+
+validate_packet_size(Siz) when is_integer(Siz) andalso Siz < 1 ->
+    {error, #{reason => max_mqtt_packet_size_too_small, minimum => 1}};
+validate_packet_size(Siz) when is_integer(Siz) andalso Siz > ?MAX_INT_MQTT_PACKET_SIZE ->
+    Max = integer_to_list(round(?MAX_INT_MQTT_PACKET_SIZE / 1024 / 1024)) ++ "M",
+    {error, #{reason => max_mqtt_packet_size_too_large, maximum => Max}};
+validate_packet_size(Siz) when is_integer(Siz) ->
+    ok;
+validate_packet_size(_SizStr) ->
+    {error, invalid_packet_size}.
 
 validate_keepalive_multiplier(Multiplier) when
     is_number(Multiplier) andalso Multiplier >= 1.0 andalso Multiplier =< 65535.0
@@ -3380,9 +3388,10 @@ mqtt_general() ->
             )},
         {"max_packet_size",
             sc(
-                mqtt_max_packet_size(),
+                bytesize(),
                 #{
                     default => <<"1MB">>,
+                    validator => fun ?MODULE:validate_packet_size/1,
                     desc => ?DESC(mqtt_max_packet_size)
                 }
             )},
@@ -3648,3 +3657,9 @@ shared_subscription_strategy() ->
                 desc => ?DESC(broker_shared_subscription_strategy)
             }
         )}.
+
+default_mem_check_interval() ->
+    case emqx_os_mon:is_os_check_supported() of
+        true -> <<"60s">>;
+        false -> disabled
+    end.
