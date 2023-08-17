@@ -268,7 +268,8 @@ fields(producer_opts) ->
                 required => true,
                 desc => ?DESC(producer_kafka_opts),
                 validator => fun producer_strategy_key_validator/1
-            })}
+            })},
+        {resource_opts, mk(ref(resource_opts), #{default => #{}})}
     ];
 fields(producer_kafka_opts) ->
     [
@@ -425,7 +426,8 @@ fields(consumer_opts) ->
         {value_encoding_mode,
             mk(enum([none, base64]), #{
                 default => none, desc => ?DESC(consumer_value_encoding_mode)
-            })}
+            })},
+        {resource_opts, mk(ref(resource_opts), #{default => #{}})}
     ];
 fields(consumer_topic_mapping) ->
     [
@@ -460,10 +462,16 @@ fields(consumer_kafka_opts) ->
                 emqx_schema:timeout_duration_s(),
                 #{default => <<"5s">>, desc => ?DESC(consumer_offset_commit_interval_seconds)}
             )}
-    ].
+    ];
+fields(resource_opts) ->
+    SupportedFields = [health_check_interval],
+    CreationOpts = emqx_resource_schema:create_opts(_Overrides = []),
+    lists:filter(fun({Field, _}) -> lists:member(Field, SupportedFields) end, CreationOpts).
 
 desc("config") ->
     ?DESC("desc_config");
+desc(resource_opts) ->
+    ?DESC(emqx_resource_schema, "resource_opts");
 desc("get_" ++ Type) when Type =:= "consumer"; Type =:= "producer" ->
     ["Configuration for Kafka using `GET` method."];
 desc("put_" ++ Type) when Type =:= "consumer"; Type =:= "producer" ->
