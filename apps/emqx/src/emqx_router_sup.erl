@@ -38,11 +38,11 @@ init([]) ->
     %% Router index
     Index = #{
         id => index,
-        start => {emqx_router_index, start_link, []},
+        start => {emqx_router_indexer, start_link, []},
         restart => permanent,
         shutdown => 5000,
         type => worker,
-        modules => [emqx_router_index]
+        modules => [emqx_router_indexer]
     },
     %% Router pool
     RouterPool = emqx_pool_sup:spec([

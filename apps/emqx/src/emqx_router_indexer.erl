@@ -14,7 +14,7 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
--module(emqx_router_index).
+-module(emqx_router_indexer).
 
 -behaviour(gen_server).
 

@@ -27,9 +27,9 @@
 -define(R, emqx_router).
 
 -define(WAIT_INDEX_SYNC(UPDATE),
-    emqx_router_index:enabled() andalso
+    emqx_router_indexer:enabled() andalso
         snabbkaffe:retry(100, 10, fun() ->
-            case emqx_router_index:peek_last_update() of
+            case emqx_router_indexer:peek_last_update() of
                 UPDATE = __U -> __U;
                 _ -> throw(missing_update)
             end
