@@ -26,7 +26,7 @@
     fields/1,
     desc/1,
     translation/1,
-    convert_headers/1,
+    convert_headers/2,
     validate_push_gateway_server/1
 ]).
 
@@ -61,7 +61,7 @@ fields("prometheus") ->
                 #{
                     default => #{},
                     required => false,
-                    converter => fun ?MODULE:convert_headers/1,
+                    converter => fun ?MODULE:convert_headers/2,
                     desc => ?DESC(headers)
                 }
             )},
@@ -155,9 +155,11 @@ fields("prometheus") ->
 desc("prometheus") -> ?DESC(prometheus);
 desc(_) -> undefined.
 
-convert_headers(<<>>) ->
+convert_headers(Headers, #{make_serializable := true}) ->
+    Headers;
+convert_headers(<<>>, _Opts) ->
     [];
-convert_headers(Headers) when is_map(Headers) ->
+convert_headers(Headers, _Opts) when is_map(Headers) ->
     maps:fold(
         fun(K, V, Acc) ->
             [{binary_to_list(K), binary_to_list(V)} | Acc]
@@ -165,7 +167,7 @@ convert_headers(Headers) when is_map(Headers) ->
         [],
         Headers
     );
-convert_headers(Headers) when is_list(Headers) ->
+convert_headers(Headers, _Opts) when is_list(Headers) ->
     Headers.
 
 validate_push_gateway_server(Url) ->

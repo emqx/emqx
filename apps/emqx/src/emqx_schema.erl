@@ -2314,18 +2314,7 @@ ciphers_schema(Default) ->
         hoconsc:array(string()),
         #{
             default => default_ciphers(Default),
-            converter => fun
-                (undefined) ->
-                    [];
-                (<<>>) ->
-                    [];
-                ("") ->
-                    [];
-                (Ciphers) when is_binary(Ciphers) ->
-                    binary:split(Ciphers, <<",">>, [global]);
-                (Ciphers) when is_list(Ciphers) ->
-                    Ciphers
-            end,
+            converter => fun converter_ciphers/2,
             validator =>
                 case Default =:= quic of
                     %% quic has openssl statically linked
@@ -2335,6 +2324,14 @@ ciphers_schema(Default) ->
             desc => Desc
         }
     ).
+
+converter_ciphers(undefined, _Opts) ->
+    [];
+converter_ciphers(<<>>, _Opts) ->
+    [];
+converter_ciphers(Ciphers, _Opts) when is_list(Ciphers) -> Ciphers;
+converter_ciphers(Ciphers, _Opts) when is_binary(Ciphers) ->
+    binary:split(Ciphers, <<",">>, [global]).
 
 default_ciphers(Which) ->
     lists:map(
@@ -3125,9 +3122,10 @@ quic_feature_toggle(Desc) ->
             importance => ?IMPORTANCE_HIDDEN,
             required => false,
             converter => fun
-                (true) -> 1;
-                (false) -> 0;
-                (Other) -> Other
+                (Val, #{make_serializable := true}) -> Val;
+                (true, _Opts) -> 1;
+                (false, _Opts) -> 0;
+                (Other, _Opts) -> Other
             end
         }
     ).
