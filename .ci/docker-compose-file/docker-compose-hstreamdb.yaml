@@ -2,7 +2,7 @@ version: "3.5"
 
 services:
   hserver:
-    image: hstreamdb/hstream:v0.15.0
+    image: hstreamdb/hstream:${HSTREAMDB_TAG}
     container_name: hstreamdb
     depends_on:
       zookeeper:
@@ -39,7 +39,7 @@ services:
         --io-tasks-network emqx_bridge
 
   hstore:
-    image: hstreamdb/hstream:v0.15.0
+    image: hstreamdb/hstream:${HSTREAMDB_TAG}
     networks:
       - emqx_bridge
     volumes:
@@ -65,7 +65,7 @@ services:
       start_period: 60s
 
   zookeeper:
-    image: zookeeper
+    image: zookeeper:${HSTREAMDB_ZK_TAG}
     expose:
       - 2181
     networks:
