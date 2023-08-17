@@ -5,8 +5,10 @@ services:
     image: hstreamdb/hstream:v0.15.0
     container_name: hstreamdb
     depends_on:
-      - zookeeper
-      - hstore
+      zookeeper:
+        condition: service_started
+      hstore:
+        condition: service_healthy
     # ports:
     #   - "127.0.0.1:6570:6570"
     expose:
@@ -53,7 +55,14 @@ services:
         --use-tcp --tcp-host $$(hostname -I | awk '{print $$1}') \
         --user-admin-port 6440 \
         --param enable-dscp-reflection=false \
-        --no-interactive
+        --no-interactive \
+        > /data/store/hstore.log 2>&1
+    healthcheck:
+      test: ["CMD", "grep", "LogDevice Cluster running", "/data/store/hstore.log"]
+      interval: 10s
+      timeout: 10s
+      retries: 60
+      start_period: 60s
 
   zookeeper:
     image: zookeeper
