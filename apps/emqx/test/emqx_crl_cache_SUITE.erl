@@ -41,6 +41,7 @@ init_per_suite(Config) ->
     Config.
 
 end_per_suite(_Config) ->
+    emqx_config:erase_all(),
     ok.
 
 init_per_testcase(TestCase, Config) when
