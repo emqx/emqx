@@ -141,6 +141,11 @@ mongo_fields() ->
         {pool_size, fun emqx_connector_schema_lib:pool_size/1},
         {username, fun emqx_connector_schema_lib:username/1},
         {password, fun emqx_connector_schema_lib:password/1},
+        {use_legacy_protocol,
+            hoconsc:mk(hoconsc:enum([auto, true, false]), #{
+                default => auto,
+                desc => ?DESC("use_legacy_protocol")
+            })},
         {auth_source, #{
             type => binary(),
             required => false,
@@ -429,6 +434,8 @@ init_worker_options([{w_mode, V} | R], Acc) ->
     init_worker_options(R, [{w_mode, V} | Acc]);
 init_worker_options([{r_mode, V} | R], Acc) ->
     init_worker_options(R, [{r_mode, V} | Acc]);
+init_worker_options([{use_legacy_protocol, V} | R], Acc) ->
+    init_worker_options(R, [{use_legacy_protocol, V} | Acc]);
 init_worker_options([_ | R], Acc) ->
     init_worker_options(R, Acc);
 init_worker_options([], Acc) ->

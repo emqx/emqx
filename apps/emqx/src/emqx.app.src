@@ -14,7 +14,6 @@
         esockd,
         cowboy,
         sasl,
-        os_mon,
         lc,
         hocon,
         emqx_durable_storage

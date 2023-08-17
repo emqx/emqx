@@ -276,6 +276,8 @@
     ]}
 ).
 
+-import(emqx_utils_calendar, [time_unit/1, now_to_rfc3339/0, now_to_rfc3339/1, epoch_to_rfc3339/2]).
+
 %% @doc "msgid()" Func
 msgid() ->
     fun
@@ -1077,23 +1079,19 @@ kv_store_del(Key) ->
 %%--------------------------------------------------------------------
 
 now_rfc3339() ->
-    now_rfc3339(<<"second">>).
+    now_to_rfc3339().
 
 now_rfc3339(Unit) ->
-    unix_ts_to_rfc3339(now_timestamp(Unit), Unit).
+    now_to_rfc3339(time_unit(Unit)).
 
 unix_ts_to_rfc3339(Epoch) ->
-    unix_ts_to_rfc3339(Epoch, <<"second">>).
+    epoch_to_rfc3339(Epoch, second).
 
 unix_ts_to_rfc3339(Epoch, Unit) when is_integer(Epoch) ->
-    emqx_utils_conv:bin(
-        calendar:system_time_to_rfc3339(
-            Epoch, [{unit, time_unit(Unit)}]
-        )
-    ).
+    epoch_to_rfc3339(Epoch, time_unit(Unit)).
 
 rfc3339_to_unix_ts(DateTime) ->
-    rfc3339_to_unix_ts(DateTime, <<"second">>).
+    rfc3339_to_unix_ts(DateTime, second).
 
 rfc3339_to_unix_ts(DateTime, Unit) when is_binary(DateTime) ->
     calendar:rfc3339_to_system_time(
@@ -1107,15 +1105,6 @@ now_timestamp() ->
 now_timestamp(Unit) ->
     erlang:system_time(time_unit(Unit)).
 
-time_unit(<<"second">>) -> second;
-time_unit(<<"millisecond">>) -> millisecond;
-time_unit(<<"microsecond">>) -> microsecond;
-time_unit(<<"nanosecond">>) -> nanosecond;
-time_unit(second) -> second;
-time_unit(millisecond) -> millisecond;
-time_unit(microsecond) -> microsecond;
-time_unit(nanosecond) -> nanosecond.
-
 format_date(TimeUnit, Offset, FormatString) ->
     Unit = time_unit(TimeUnit),
     TimeEpoch = erlang:system_time(Unit),
@@ -1125,17 +1114,17 @@ format_date(TimeUnit, Offset, FormatString, TimeEpoch) ->
     Unit = time_unit(TimeUnit),
     emqx_utils_conv:bin(
         lists:concat(
-            emqx_calendar:format(TimeEpoch, Unit, Offset, FormatString)
+            emqx_utils_calendar:format(TimeEpoch, Unit, Offset, FormatString)
         )
     ).
 
 date_to_unix_ts(TimeUnit, FormatString, InputString) ->
     Unit = time_unit(TimeUnit),
-    emqx_calendar:parse(InputString, Unit, FormatString).
+    emqx_utils_calendar:parse(InputString, Unit, FormatString).
 
 date_to_unix_ts(TimeUnit, Offset, FormatString, InputString) ->
     Unit = time_unit(TimeUnit),
-    OffsetSecond = emqx_calendar:offset_second(Offset),
+    OffsetSecond = emqx_utils_calendar:offset_second(Offset),
     OffsetDelta = erlang:convert_time_unit(OffsetSecond, second, Unit),
     date_to_unix_ts(Unit, FormatString, InputString) - OffsetDelta.
 
@@ -1143,7 +1132,7 @@ timezone_to_second(TimeZone) ->
     timezone_to_offset_seconds(TimeZone).
 
 timezone_to_offset_seconds(TimeZone) ->
-    emqx_calendar:offset_second(TimeZone).
+    emqx_utils_calendar:offset_second(TimeZone).
 
 '$handle_undefined_function'(sprintf, [Format | Args]) ->
     erlang:apply(fun sprintf_s/2, [Format, Args]);

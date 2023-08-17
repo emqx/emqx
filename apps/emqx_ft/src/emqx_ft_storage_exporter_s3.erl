@@ -43,7 +43,7 @@
     transfer := transfer(),
     name := file:name(),
     uri := uri_string:uri_string(),
-    timestamp := emqx_datetime:epoch_second(),
+    timestamp := emqx_utils_calendar:epoch_second(),
     size := _Bytes :: non_neg_integer(),
     filemeta => filemeta()
 }.

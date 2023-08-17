@@ -127,7 +127,7 @@ fields(app) ->
             )},
         {expired_at,
             hoconsc:mk(
-                hoconsc:union([infinity, emqx_datetime:epoch_second()]),
+                hoconsc:union([infinity, emqx_utils_calendar:epoch_second()]),
                 #{
                     desc => "No longer valid datetime",
                     example => <<"2021-12-05T02:01:34.186Z">>,
@@ -137,7 +137,7 @@ fields(app) ->
             )},
         {created_at,
             hoconsc:mk(
-                emqx_datetime:epoch_second(),
+                emqx_utils_calendar:epoch_second(),
                 #{
                     desc => "ApiKey create datetime",
                     example => <<"2021-12-01T00:00:00.000Z">>

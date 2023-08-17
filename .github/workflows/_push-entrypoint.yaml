@@ -158,6 +158,17 @@ jobs:
           path: ${{ matrix.profile }}.zip
           retention-days: 1
 
+  run_emqx_app_tests:
+    needs:
+      - prepare
+      - compile
+    uses: ./.github/workflows/run_emqx_app_tests.yaml
+    with:
+      runner: ${{ needs.prepare.outputs.runner }}
+      builder: ${{ needs.prepare.outputs.builder }}
+      before_ref: ${{ github.event.before }}
+      after_ref: ${{ github.sha }}
+
   run_test_cases:
     if: needs.prepare.outputs.release != 'true'
     needs:

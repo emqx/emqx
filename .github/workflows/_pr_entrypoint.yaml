@@ -63,7 +63,8 @@ jobs:
           ./actionlint -color \
             -shellcheck= \
             -ignore 'label ".+" is unknown' \
-            -ignore 'value "emqx-enterprise" in "exclude"'
+            -ignore 'value "emqx-enterprise" in "exclude"' \
+            -ignore 'value "emqx-enterprise-elixir" in "exclude"'
       - name: Check line-break at EOF
         run: |
           ./scripts/check-nl-at-eof.sh
@@ -145,6 +146,17 @@ jobs:
           name: ${{ matrix.profile }}
           path: ${{ matrix.profile }}.zip
           retention-days: 1
+
+  run_emqx_app_tests:
+    needs:
+      - sanity-checks
+      - compile
+    uses: ./.github/workflows/run_emqx_app_tests.yaml
+    with:
+      runner: ${{ needs.sanity-checks.outputs.runner }}
+      builder: ${{ needs.sanity-checks.outputs.builder }}
+      before_ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.event.before }}
+      after_ref: ${{ github.sha }}
 
   run_test_cases:
     needs:

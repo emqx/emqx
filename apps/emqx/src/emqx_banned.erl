@@ -38,7 +38,8 @@
     delete/1,
     info/1,
     format/1,
-    parse/1
+    parse/1,
+    clear/0
 ]).
 
 %% gen_server callbacks
@@ -171,7 +172,7 @@ maybe_format_host({As, Who}) ->
     {As, Who}.
 
 to_rfc3339(Timestamp) ->
-    list_to_binary(calendar:system_time_to_rfc3339(Timestamp, [{unit, second}])).
+    emqx_utils_calendar:epoch_to_rfc3339(Timestamp, second).
 
 -spec create(emqx_types:banned() | map()) ->
     {ok, emqx_types:banned()} | {error, {already_exist, emqx_types:banned()}}.
@@ -225,6 +226,10 @@ delete(Who) ->
 
 info(InfoKey) ->
     mnesia:table_info(?BANNED_TAB, InfoKey).
+
+clear() ->
+    _ = mria:clear_table(?BANNED_TAB),
+    ok.
 
 %%--------------------------------------------------------------------
 %% gen_server callbacks

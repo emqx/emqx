@@ -17,7 +17,8 @@
             asn1,
             syntax_tools,
             ssl,
-            os_mon,
+            %% started temporary in emqx to prevent crash vm when permanent.
+            {os_mon, load},
             inets,
             compiler,
             runtime_tools,
@@ -36,7 +37,6 @@
         [
             emqx,
             emqx_conf,
-
             esasl,
             observer_cli,
             tools,

@@ -213,7 +213,7 @@ format(Node, #deactivated_alarm{
 
 to_rfc3339(Timestamp) ->
     %% rfc3339 accuracy to millisecond
-    list_to_binary(calendar:system_time_to_rfc3339(Timestamp div 1000, [{unit, millisecond}])).
+    emqx_utils_calendar:epoch_to_rfc3339(Timestamp div 1000).
 
 %%--------------------------------------------------------------------
 %% gen_server callbacks

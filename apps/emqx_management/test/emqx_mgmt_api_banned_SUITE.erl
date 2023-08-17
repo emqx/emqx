@@ -157,6 +157,30 @@ t_delete(_Config) ->
     ),
     ok.
 
+t_clear(_Config) ->
+    Now = erlang:system_time(second),
+    At = emqx_banned:to_rfc3339(Now),
+    Until = emqx_banned:to_rfc3339(Now + 3),
+    Who = <<"TestClient-"/utf8>>,
+    By = <<"banned suite 中"/utf8>>,
+    Reason = <<"test测试"/utf8>>,
+    As = <<"clientid">>,
+    Banned = #{
+        as => clientid,
+        who => Who,
+        by => By,
+        reason => Reason,
+        at => At,
+        until => Until
+    },
+    {ok, _} = create_banned(Banned),
+    ?assertMatch({ok, _}, clear_banned()),
+    ?assertMatch(
+        {error, {"HTTP/1.1", 404, "Not Found"}},
+        delete_banned(binary_to_list(As), binary_to_list(Who))
+    ),
+    ok.
+
 list_banned() ->
     Path = emqx_mgmt_api_test_util:api_path(["banned"]),
     case emqx_mgmt_api_test_util:request_api(get, Path) of
@@ -175,6 +199,10 @@ create_banned(Banned) ->
 delete_banned(As, Who) ->
     DeletePath = emqx_mgmt_api_test_util:api_path(["banned", As, Who]),
     emqx_mgmt_api_test_util:request_api(delete, DeletePath).
+
+clear_banned() ->
+    ClearPath = emqx_mgmt_api_test_util:api_path(["banned"]),
+    emqx_mgmt_api_test_util:request_api(delete, ClearPath).
 
 to_rfc3339(Sec) ->
     list_to_binary(calendar:system_time_to_rfc3339(Sec)).

@@ -76,7 +76,7 @@
 % TODO naming
 -type filefrag(T) :: #{
     path := file:name(),
-    timestamp := emqx_datetime:epoch_second(),
+    timestamp := emqx_utils_calendar:epoch_second(),
     size := _Bytes :: non_neg_integer(),
     fragment := T
 }.

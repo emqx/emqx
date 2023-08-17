@@ -72,7 +72,7 @@ defmodule EMQXUmbrella.MixProject do
       # in conflict by emqtt and hocon
       {:getopt, "1.0.2", override: true},
       {:snabbkaffe, github: "kafka4beam/snabbkaffe", tag: "1.0.8", override: true},
-      {:hocon, github: "emqx/hocon", tag: "0.39.14", override: true},
+      {:hocon, github: "emqx/hocon", tag: "0.39.16", override: true},
       {:emqx_http_lib, github: "emqx/emqx_http_lib", tag: "0.5.2", override: true},
       {:esasl, github: "emqx/esasl", tag: "0.2.0"},
       {:jose, github: "potatosalad/erlang-jose", tag: "1.11.2"},
@@ -403,7 +403,8 @@ defmodule EMQXUmbrella.MixProject do
       quicer: enable_quicer?(),
       bcrypt: enable_bcrypt?(),
       jq: enable_jq?(),
-      observer: is_app?(:observer)
+      observer: is_app?(:observer),
+      os_mon: enable_os_mon?()
     }
     |> Enum.reject(&elem(&1, 1))
     |> Enum.map(&elem(&1, 0))
@@ -832,6 +833,10 @@ defmodule EMQXUmbrella.MixProject do
   end
 
   defp enable_bcrypt?() do
+    not win32?()
+  end
+
+  defp enable_os_mon?() do
     not win32?()
   end
 

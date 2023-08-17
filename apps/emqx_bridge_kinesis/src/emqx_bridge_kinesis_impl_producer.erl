@@ -114,7 +114,12 @@ on_get_status(_InstanceId, #{pool_name := Pool} = State) ->
                         false -> disconnected
                     end
             end;
-        {error, _} ->
+        {error, Reason} ->
+            ?SLOG(error, #{
+                msg => "kinesis_producer_get_status_failed",
+                state => State,
+                reason => Reason
+            }),
             disconnected
     end.
 

@@ -20,31 +20,27 @@
 -compile(nowarn_export_all).
 
 -include_lib("eunit/include/eunit.hrl").
+-include_lib("common_test/include/ct.hrl").
 
 all() -> emqx_common_test_helpers:all(?MODULE).
 
 init_per_suite(Config) ->
-    emqx_common_test_helpers:boot_modules(all),
-    emqx_common_test_helpers:start_apps([]),
-    %% update global default config
-    {ok, _} = emqx:update_config(
-        [flapping_detect],
-        #{
-            <<"enable">> => true,
-            <<"max_count">> => 3,
-            % 0.1s
-            <<"window_time">> => <<"100ms">>,
-            %% 2s
-            <<"ban_time">> => <<"2s">>
-        }
+    Apps = emqx_cth_suite:start(
+        [
+            {emqx,
+                "flapping_detect {"
+                "\n enable = true"
+                "\n max_count = 3"
+                "\n window_time = 100ms"
+                "\n ban_time = 2s"
+                "\n }"}
+        ],
+        #{work_dir => ?config(priv_dir, Config)}
     ),
-    Config.
+    [{suite_apps, Apps} | Config].
 
-end_per_suite(_Config) ->
-    emqx_common_test_helpers:stop_apps([]),
-    %% Clean emqx_banned table
-    mria_mnesia:delete_schema(),
-    ok.
+end_per_suite(Config) ->
+    emqx_cth_suite:stop(?config(suite_apps, Config)).
 
 t_detect_check(_) ->
     ClientInfo = #{
