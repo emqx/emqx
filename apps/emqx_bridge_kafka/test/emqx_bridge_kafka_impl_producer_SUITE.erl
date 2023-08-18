@@ -596,7 +596,6 @@ t_send_message_with_headers(Config) ->
         },
         KafkaMsg
     ),
-    ?assertMatch(#kafka_message{key = BinTime}, KafkaMsg),
     %% TODO: refactor those into init/end per testcase
     ok = ?PRODUCER:on_stop(ResourceId, State),
     ?assertEqual([], supervisor:which_children(wolff_client_sup)),

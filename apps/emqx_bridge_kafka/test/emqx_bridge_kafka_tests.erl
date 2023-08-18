@@ -306,6 +306,9 @@ kafka_producer_new_hocon() ->
     "      sndbuf = \"1024KB\"\n"
     "    }\n"
     "    ssl {enable = false, verify = \"verify_peer\"}\n"
+    "    resource_opts {\n"
+    "      health_check_interval = 10s\n"
+    "    }\n"
     "  }\n"
     "}\n"
     "".
@@ -350,6 +353,9 @@ bridges.kafka_consumer.my_consumer {
     enable = false
     verify = verify_none
     server_name_indication = \"auto\"
+  }
+  resource_opts {
+    health_check_interval = 10s
   }
 }
 """.

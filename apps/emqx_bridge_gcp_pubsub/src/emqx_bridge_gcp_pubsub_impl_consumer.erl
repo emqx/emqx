@@ -17,9 +17,9 @@
 
 %% health check API
 -export([
-    mark_topic_as_nonexistent/1,
-    unset_nonexistent_topic/1,
-    is_nonexistent_topic/1
+    mark_as_unhealthy/2,
+    clear_unhealthy/1,
+    check_if_unhealthy/1
 ]).
 
 -include_lib("emqx/include/logger.hrl").
@@ -47,10 +47,14 @@
 
 -define(AUTO_RECONNECT_S, 2).
 -define(DEFAULT_FORGET_INTERVAL, timer:seconds(60)).
--define(OPTVAR_TOPIC_NOT_FOUND(INSTANCE_ID), {?MODULE, topic_not_found, INSTANCE_ID}).
+-define(OPTVAR_UNHEALTHY(INSTANCE_ID), {?MODULE, topic_not_found, INSTANCE_ID}).
 -define(TOPIC_MESSAGE,
     "GCP PubSub topics are invalid.  Please check the logs, check if the "
     "topics exist in GCP and if the service account has permissions to use them."
+).
+-define(PERMISSION_MESSAGE,
+    "Permission denied while verifying topic existence.  Please check that the "
+    "provided service account has the correct permissions configured."
 ).
 
 %%-------------------------------------------------------------------------------------------------
@@ -77,7 +81,7 @@ on_start(InstanceId, Config0) ->
 -spec on_stop(resource_id(), state()) -> ok | {error, term()}.
 on_stop(InstanceId, _State) ->
     ?tp(gcp_pubsub_consumer_stop_enter, #{}),
-    unset_nonexistent_topic(InstanceId),
+    clear_unhealthy(InstanceId),
     ok = stop_consumers(InstanceId),
     emqx_bridge_gcp_pubsub_client:stop(InstanceId).
 
@@ -85,10 +89,12 @@ on_stop(InstanceId, _State) ->
 on_get_status(InstanceId, State) ->
     %% We need to check this flag separately because the workers might be gone when we
     %% check them.
-    case is_nonexistent_topic(InstanceId) of
-        true ->
+    case check_if_unhealthy(InstanceId) of
+        {error, topic_not_found} ->
             {disconnected, State, {unhealthy_target, ?TOPIC_MESSAGE}};
-        false ->
+        {error, permission_denied} ->
+            {disconnected, State, {unhealthy_target, ?PERMISSION_MESSAGE}};
+        ok ->
             #{client := Client} = State,
             check_workers(InstanceId, Client)
     end.
@@ -97,24 +103,24 @@ on_get_status(InstanceId, State) ->
 %% Health check API (signalled by consumer worker)
 %%-------------------------------------------------------------------------------------------------
 
--spec mark_topic_as_nonexistent(resource_id()) -> ok.
-mark_topic_as_nonexistent(InstanceId) ->
-    optvar:set(?OPTVAR_TOPIC_NOT_FOUND(InstanceId), true),
+-spec mark_as_unhealthy(resource_id(), topic_not_found | permission_denied) -> ok.
+mark_as_unhealthy(InstanceId, Reason) ->
+    optvar:set(?OPTVAR_UNHEALTHY(InstanceId), Reason),
     ok.
 
--spec unset_nonexistent_topic(resource_id()) -> ok.
-unset_nonexistent_topic(InstanceId) ->
-    optvar:unset(?OPTVAR_TOPIC_NOT_FOUND(InstanceId)),
-    ?tp(gcp_pubsub_consumer_unset_nonexistent_topic, #{}),
+-spec clear_unhealthy(resource_id()) -> ok.
+clear_unhealthy(InstanceId) ->
+    optvar:unset(?OPTVAR_UNHEALTHY(InstanceId)),
+    ?tp(gcp_pubsub_consumer_clear_unhealthy, #{}),
     ok.
 
--spec is_nonexistent_topic(resource_id()) -> boolean().
-is_nonexistent_topic(InstanceId) ->
-    case optvar:peek(?OPTVAR_TOPIC_NOT_FOUND(InstanceId)) of
-        {ok, true} ->
-            true;
-        _ ->
-            false
+-spec check_if_unhealthy(resource_id()) -> ok | {error, topic_not_found | permission_denied}.
+check_if_unhealthy(InstanceId) ->
+    case optvar:peek(?OPTVAR_UNHEALTHY(InstanceId)) of
+        {ok, Reason} ->
+            {error, Reason};
+        undefined ->
+            ok
     end.
 
 %%-------------------------------------------------------------------------------------------------
@@ -152,6 +158,11 @@ start_consumers(InstanceId, Client, Config) ->
             _ = emqx_bridge_gcp_pubsub_client:stop(InstanceId),
             throw(
                 {unhealthy_target, ?TOPIC_MESSAGE}
+            );
+        {error, permission_denied} ->
+            _ = emqx_bridge_gcp_pubsub_client:stop(InstanceId),
+            throw(
+                {unhealthy_target, ?PERMISSION_MESSAGE}
             );
         {error, _} ->
             %% connection might be down; we'll have to check topic existence during health
@@ -229,6 +240,8 @@ check_for_topic_existence(Topic, Client) ->
             ok;
         {error, #{status_code := 404}} ->
             {error, not_found};
+        {error, #{status_code := 403}} ->
+            {error, permission_denied};
         {error, Reason} ->
             ?tp(warning, "gcp_pubsub_consumer_check_topic_error", #{reason => Reason}),
             {error, Reason}
