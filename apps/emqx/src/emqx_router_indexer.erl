@@ -18,7 +18,6 @@
 
 -behaviour(gen_server).
 
--include("emqx.hrl").
 -include("emqx_router.hrl").
 -include("types.hrl").
 -include("logger.hrl").
@@ -63,7 +62,7 @@ enabled() ->
 
 -spec match(emqx_types:topic()) -> [emqx_types:route()].
 match(Topic) ->
-    match_entries(Topic).
+    emqx_route_index:match(Topic, ?ROUTE_INDEX).
 
 -spec peek_last_update() -> maybe(update()).
 peek_last_update() ->
@@ -86,7 +85,7 @@ init([]) ->
         num_routes => NRoutes
     }),
     TS1 = erlang:monotonic_time(millisecond),
-    ok = build_index(),
+    _ = build_index(),
     TS2 = erlang:monotonic_time(millisecond),
     ?SLOG(info, #{
         msg => "finished_route_index_building",
@@ -116,83 +115,29 @@ handle_info(Info, State) ->
     {noreply, State}.
 
 handle_table_event(write, {?ROUTE_TAB, Topic, Dest}, State) ->
-    ok = insert_entry(Topic, Dest),
+    _ = insert_entry(Topic, Dest),
     State#{last_update => {write, Topic, Dest}};
 handle_table_event(delete_object, {?ROUTE_TAB, Topic, Dest}, State) ->
-    ok = delete_entry(Topic, Dest),
+    _ = delete_entry(Topic, Dest),
     State#{last_update => {delete, Topic, Dest}};
 %% TODO
 %% handle_table_event(delete, {?ROUTE_TAB, Topic}, State) ->
-%%     ok = delete_topic(Topic),
+%%     _ = delete_topic(Topic),
 %%     State;
 handle_table_event(write, {schema, ?ROUTE_TAB, _}, State) ->
     State;
 handle_table_event(delete, {schema, ?ROUTE_TAB}, State) ->
-    ok = clean_index(),
+    true = emqx_topic_index:clean(?ROUTE_INDEX),
     State.
 
 build_index() ->
-    ok = emqx_router:foldl_routes(fun(Route, _) -> insert_entry(Route) end, ok).
-
-%% Route topic index
-%%
-%% We maintain "compacted" index here, this is why index entries has no relevant IDs
-%% associated with them. Records are mapsets of route destinations. Basically:
-%% ```
-%% {<<"t/route/topic/#">>, _ID = []} => #{'node1@emqx' => [], 'node2@emqx' => [], ...}
-%% ```
-%%
-%% This layout implies that we cannot make changes concurrently, since inserting and
-%% deleting entries are not atomic operations.
-
-match_entries(Topic) ->
-    Matches = emqx_topic_index:matches(Topic, ?ROUTE_INDEX, []),
-    lists:flatmap(fun expand_match/1, Matches).
-
-expand_match(Match) ->
-    Topic = emqx_topic_index:get_topic(Match),
-    [
-        #route{topic = Topic, dest = Dest}
-     || Ds <- emqx_topic_index:get_record(Match, ?ROUTE_INDEX),
-        Dest <- maps:keys(Ds)
-    ].
-
-insert_entry(#route{topic = Topic, dest = Dest}) ->
-    insert_entry(Topic, Dest).
+    emqx_router:foldl_routes(
+        fun(Route, _) -> emqx_route_index:insert(Route, ?ROUTE_INDEX) end,
+        false
+    ).
 
 insert_entry(Topic, Dest) ->
-    Words = emqx_topic_index:words(Topic),
-    case emqx_topic:wildcard(Words) of
-        true ->
-            case emqx_topic_index:lookup(Words, ID = [], ?ROUTE_INDEX) of
-                [Ds = #{}] ->
-                    true = emqx_topic_index:insert(Words, ID, Ds#{Dest => []}, ?ROUTE_INDEX);
-                [] ->
-                    true = emqx_topic_index:insert(Words, ID, #{Dest => []}, ?ROUTE_INDEX)
-            end,
-            ok;
-        false ->
-            ok
-    end.
+    emqx_route_index:insert(Topic, Dest, ?ROUTE_INDEX).
 
 delete_entry(Topic, Dest) ->
-    Words = emqx_topic_index:words(Topic),
-    case emqx_topic:wildcard(Words) of
-        true ->
-            case emqx_topic_index:lookup(Words, ID = [], ?ROUTE_INDEX) of
-                [Ds = #{Dest := _}] when map_size(Ds) =:= 1 ->
-                    true = emqx_topic_index:delete(Words, ID, ?ROUTE_INDEX);
-                [Ds = #{Dest := _}] ->
-                    NDs = maps:remove(Dest, Ds),
-                    true = emqx_topic_index:insert(Words, ID, NDs, ?ROUTE_INDEX);
-                [] ->
-                    true
-            end,
-            ok;
-        false ->
-            ok
-    end.
-
-clean_index() ->
-    true = emqx_topic_index:clean(?ROUTE_INDEX),
-    ok.
+    emqx_route_index:delete(Topic, Dest, ?ROUTE_INDEX).
