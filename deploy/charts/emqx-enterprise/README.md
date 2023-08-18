@@ -73,6 +73,7 @@ The following table lists the configurable parameters of the emqx chart and thei
 | `service.nodePorts.ws` | Kubernetes node port for WebSocket/HTTP. | nil |
 | `service.nodePorts.wss` | Kubernetes node port for WSS/HTTPS. | nil |
 | `service.nodePorts.dashboard` | Kubernetes node port for dashboard. | nil |
+| `service.loadBalancerClass` | The load balancer implementation this Service belongs to | |
 | `service.loadBalancerIP` | loadBalancerIP for Service | nil |
 | `service.loadBalancerSourceRanges` | Address(es) that are allowed when service is LoadBalancer | [] |
 | `service.externalIPs` | ExternalIPs for the service | [] |

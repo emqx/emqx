@@ -18,6 +18,9 @@ spec:
   externalTrafficPolicy: {{ .Values.service.externalTrafficPolicy | default "Cluster" }}
   {{- end }}
   {{- if eq .Values.service.type "LoadBalancer" }}
+  {{- if .Values.service.loadBalancerClass }}
+  loadBalancerClass: {{ .Values.service.loadBalancerClass }}
+  {{- end }}
   {{- if .Values.service.loadBalancerIP }}
   loadBalancerIP: {{ .Values.service.loadBalancerIP }}
   {{- end }}
