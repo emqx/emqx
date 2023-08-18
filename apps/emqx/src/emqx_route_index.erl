@@ -41,6 +41,8 @@
     clean/1
 ]).
 
+-export([all/1]).
+
 -spec match(emqx_types:topic(), ets:table()) -> [emqx_types:route()].
 match(Topic, Tab) ->
     Matches = emqx_topic_index:matches(Topic, Tab, []),
@@ -100,3 +102,12 @@ delete(Topic, Dest, Tab) ->
 -spec clean(ets:table()) -> true.
 clean(Tab) ->
     emqx_topic_index:clean(Tab).
+
+-spec all(ets:table()) -> [emqx_types:route()].
+all(Tab) ->
+    % NOTE: Useful for testing, assumes particular record layout
+    [
+        #route{topic = emqx_topic_index:get_topic(M), dest = Dest}
+     || {M, Ds} <- ets:tab2list(Tab),
+        Dest <- maps:keys(Ds)
+    ].
