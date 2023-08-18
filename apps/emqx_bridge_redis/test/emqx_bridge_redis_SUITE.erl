@@ -340,6 +340,47 @@ t_auth_username_password(_Config) ->
     ),
     {ok, _} = emqx_bridge:remove(Type, Name).
 
+t_auth_error_username_password(_Config) ->
+    Name = <<"mybridge">>,
+    Type = <<"redis_single">>,
+    ResourceId = emqx_bridge_resource:resource_id(Type, Name),
+    BridgeConfig0 = username_password_redis_bridge_config(),
+    BridgeConfig = maps:merge(BridgeConfig0, #{<<"password">> => <<"wrong_password">>}),
+    ?assertMatch(
+        {ok, _},
+        emqx_bridge:create(Type, Name, BridgeConfig)
+    ),
+    ?WAIT(
+        {ok, disconnected},
+        emqx_resource:health_check(ResourceId),
+        5
+    ),
+    ?assertMatch(
+        {ok, _, #{error := {unhealthy_target, _Msg}}},
+        emqx_resource_manager:lookup(ResourceId)
+    ),
+    {ok, _} = emqx_bridge:remove(Type, Name).
+
+t_auth_error_password_only(_Config) ->
+    Name = <<"mybridge">>,
+    Type = <<"redis_single">>,
+    ResourceId = emqx_bridge_resource:resource_id(Type, Name),
+    BridgeConfig0 = toxiproxy_redis_bridge_config(),
+    BridgeConfig = maps:merge(BridgeConfig0, #{<<"password">> => <<"wrong_password">>}),
+    ?assertMatch(
+        {ok, _},
+        emqx_bridge:create(Type, Name, BridgeConfig)
+    ),
+    ?assertEqual(
+        {ok, disconnected},
+        emqx_resource:health_check(ResourceId)
+    ),
+    ?assertMatch(
+        {ok, _, #{error := {unhealthy_target, _Msg}}},
+        emqx_resource_manager:lookup(ResourceId)
+    ),
+    {ok, _} = emqx_bridge:remove(Type, Name).
+
 t_create_disconnected(Config) ->
     Name = <<"toxic_bridge">>,
     Type = <<"redis_single">>,
