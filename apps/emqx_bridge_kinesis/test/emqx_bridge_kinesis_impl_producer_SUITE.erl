@@ -228,13 +228,17 @@ create_bridge_http(Config, KinesisConfigOverrides) ->
     Res.
 
 create_bridge(Config) ->
-    create_bridge(Config, _KinesisConfigOverrides = #{}).
+    create_bridge(Config, #{}, []).
 
 create_bridge(Config, KinesisConfigOverrides) ->
+    create_bridge(Config, KinesisConfigOverrides, []).
+
+create_bridge(Config, KinesisConfigOverrides, Removes) ->
     TypeBin = ?BRIDGE_TYPE_BIN,
     Name = ?config(kinesis_name, Config),
     KinesisConfig0 = ?config(kinesis_config, Config),
-    KinesisConfig = emqx_utils_maps:deep_merge(KinesisConfig0, KinesisConfigOverrides),
+    KinesisConfig1 = emqx_utils_maps:deep_merge(KinesisConfig0, KinesisConfigOverrides),
+    KinesisConfig = emqx_utils_maps:deep_remove(Removes, KinesisConfig1),
     ct:pal("creating bridge: ~p", [KinesisConfig]),
     Res = emqx_bridge:create(TypeBin, Name, KinesisConfig),
     ct:pal("bridge creation result: ~p", [Res]),
@@ -860,5 +864,41 @@ t_access_denied(Config) ->
             ),
             ok
         end
+    ),
+    ok.
+
+t_empty_payload_template(Config) ->
+    ResourceId = ?config(resource_id, Config),
+    TelemetryTable = ?config(telemetry_table, Config),
+    Removes = [<<"payload_template">>],
+    ?assertMatch({ok, _}, create_bridge(Config, #{}, Removes)),
+    {ok, #{<<"id">> := RuleId}} = create_rule_and_action_http(Config),
+    emqx_common_test_helpers:on_exit(fun() -> ok = emqx_rule_engine:delete_rule(RuleId) end),
+    assert_empty_metrics(ResourceId),
+    ShardIt = get_shard_iterator(Config),
+    Payload = <<"payload">>,
+    Message = emqx_message:make(?TOPIC, Payload),
+    emqx:publish(Message),
+    %% to avoid test flakiness
+    wait_telemetry_event(TelemetryTable, success, ResourceId),
+    wait_until_gauge_is(queuing, 0, 500),
+    wait_until_gauge_is(inflight, 0, 500),
+    assert_metrics(
+        #{
+            dropped => 0,
+            failed => 0,
+            inflight => 0,
+            matched => 1,
+            queuing => 0,
+            retried => 0,
+            success => 1
+        },
+        ResourceId
+    ),
+    Record = wait_record(Config, ShardIt, 100, 10),
+    Data = proplists:get_value(<<"Data">>, Record),
+    ?assertMatch(
+        #{<<"payload">> := <<"payload">>, <<"topic">> := ?TOPIC},
+        emqx_utils_json:decode(Data, [return_maps])
     ),
     ok.

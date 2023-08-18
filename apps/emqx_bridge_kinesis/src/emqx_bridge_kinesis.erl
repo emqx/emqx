@@ -83,7 +83,7 @@ fields(producer) ->
             sc(
                 binary(),
                 #{
-                    default => <<>>,
+                    default => <<"${.}">>,
                     desc => ?DESC("payload_template")
                 }
             )},
