@@ -22,6 +22,7 @@
 
 start(_StartType, _StartArgs) ->
     {ok, Sup} = emqx_ft_sup:start_link(),
+    ok = emqx_ft_async_reply:create_table(),
     ok = emqx_ft_conf:load(),
     {ok, Sup}.
 

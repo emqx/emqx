@@ -1252,6 +1252,11 @@ handle_info({disconnect, ReasonCode, ReasonName, Props}, Channel) ->
     handle_out(disconnect, {ReasonCode, ReasonName, Props}, Channel);
 handle_info({puback, PacketId, PubRes, RC}, Channel) ->
     do_finish_publish(PacketId, PubRes, RC, Channel);
+handle_info({'DOWN', Ref, process, Pid, Reason}, Channel) ->
+    case emqx_hooks:run_fold('client.monitored_process_down', [Ref, Pid, Reason], []) of
+        [] -> {ok, Channel};
+        Msgs -> {ok, Msgs, Channel}
+    end;
 handle_info(Info, Channel) ->
     ?SLOG(error, #{msg => "unexpected_info", info => Info}),
     {ok, Channel}.
@@ -1358,9 +1363,13 @@ handle_timeout(
         {_, Quota2} ->
             {ok, clean_timer(quota_timer, Channel#channel{quota = Quota2})}
     end;
-handle_timeout(_TRef, Msg, Channel) ->
-    ?SLOG(error, #{msg => "unexpected_timeout", timeout_msg => Msg}),
-    {ok, Channel}.
+handle_timeout(TRef, Msg, Channel) ->
+    case emqx_hooks:run_fold('client.timeout', [TRef, Msg], []) of
+        [] ->
+            {ok, Channel};
+        Msgs ->
+            {ok, Msgs, Channel}
+    end.
 
 %%--------------------------------------------------------------------
 %% Ensure timers

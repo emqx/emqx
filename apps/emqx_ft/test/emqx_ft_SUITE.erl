@@ -37,7 +37,7 @@ all() ->
 
 groups() ->
     [
-        {single_node, [parallel], [
+        {single_node, [], [
             t_assemble_crash,
             t_corrupted_segment_retry,
             t_invalid_checksum,
