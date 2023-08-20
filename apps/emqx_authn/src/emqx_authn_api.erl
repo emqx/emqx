@@ -21,7 +21,6 @@
 -include("emqx_authn.hrl").
 -include_lib("emqx/include/logger.hrl").
 -include_lib("emqx/include/emqx_placeholder.hrl").
--include_lib("emqx/include/emqx_authentication.hrl").
 -include_lib("hocon/include/hoconsc.hrl").
 
 -import(hoconsc, [mk/2, ref/1, ref/2]).

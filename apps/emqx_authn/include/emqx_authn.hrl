@@ -17,7 +17,7 @@
 -ifndef(EMQX_AUTHN_HRL).
 -define(EMQX_AUTHN_HRL, true).
 
--include_lib("emqx/include/emqx_authentication.hrl").
+-include_lib("emqx_authentication.hrl").
 
 -define(APP, emqx_authn).
 

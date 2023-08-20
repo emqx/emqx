@@ -18,8 +18,8 @@
 -define(EMQX_AUTHENTICATION_HRL, true).
 
 -include_lib("emqx/include/logger.hrl").
+-include_lib("emqx/include/emqx_access_control.hrl").
 
--define(AUTHN_TRACE_TAG, "AUTHN").
 -define(GLOBAL, 'mqtt:global').
 
 -define(TRACE_AUTHN_PROVIDER(Msg), ?TRACE_AUTHN_PROVIDER(Msg, #{})).
@@ -35,12 +35,6 @@
 -define(EMQX_AUTHENTICATION_CONFIG_ROOT_NAME, "authentication").
 -define(EMQX_AUTHENTICATION_CONFIG_ROOT_NAME_ATOM, authentication).
 -define(EMQX_AUTHENTICATION_CONFIG_ROOT_NAME_BINARY, <<"authentication">>).
-
-%% key to a persistent term which stores a module name in order to inject
-%% schema module at run-time to keep emqx app's compile time purity.
-%% see emqx_schema.erl for more details
-%% and emqx_conf_schema for an examples
--define(EMQX_AUTHENTICATION_SCHEMA_MODULE_PT_KEY, emqx_authentication_schema_module).
 
 %% authentication move cmd
 -define(CMD_MOVE_FRONT, front).

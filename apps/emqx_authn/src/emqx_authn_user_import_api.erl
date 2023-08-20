@@ -20,7 +20,6 @@
 
 -include("emqx_authn.hrl").
 -include_lib("emqx/include/logger.hrl").
--include_lib("emqx/include/emqx_authentication.hrl").
 -include_lib("hocon/include/hoconsc.hrl").
 
 -import(emqx_dashboard_swagger, [error_codes/2]).

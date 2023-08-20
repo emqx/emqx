@@ -37,7 +37,6 @@ groups() ->
     [{require_seeds, [], [t_authenticate, t_update, t_destroy]}].
 
 init_per_testcase(_, Config) ->
-    {ok, _} = emqx_cluster_rpc:start_link(node(), emqx_cluster_rpc, 1000),
     emqx_authentication:initialize_authentication(?GLOBAL, []),
     emqx_authn_test_lib:delete_authenticators(
         [authentication],
@@ -54,11 +53,11 @@ end_per_group(require_seeds, Config) ->
     Config.
 
 init_per_suite(Config) ->
-    _ = application:load(emqx_conf),
     case emqx_common_test_helpers:is_tcp_server_available(?MYSQL_HOST, ?MYSQL_DEFAULT_PORT) of
         true ->
-            ok = emqx_common_test_helpers:start_apps([emqx_authn]),
-            ok = start_apps([emqx_resource]),
+            Apps = emqx_cth_suite:start([emqx, emqx_conf, emqx_authn], #{
+                work_dir => ?config(priv_dir, Config)
+            }),
             {ok, _} = emqx_resource:create_local(
                 ?MYSQL_RESOURCE,
                 ?RESOURCE_GROUP,
@@ -66,19 +65,19 @@ init_per_suite(Config) ->
                 mysql_config(),
                 #{}
             ),
-            Config;
+            [{apps, Apps} | Config];
         false ->
             {skip, no_mysql}
     end.
 
-end_per_suite(_Config) ->
+end_per_suite(Config) ->
     emqx_authn_test_lib:delete_authenticators(
         [authentication],
         ?GLOBAL
     ),
     ok = emqx_resource:remove_local(?MYSQL_RESOURCE),
-    ok = stop_apps([emqx_resource]),
-    ok = emqx_common_test_helpers:stop_apps([emqx_authn]).
+    ok = emqx_cth_suite:stop(?config(apps, Config)),
+    ok.
 
 %%------------------------------------------------------------------------------
 %% Tests

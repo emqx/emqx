@@ -22,18 +22,27 @@
 
 -behaviour(gen_server).
 
--include("emqx.hrl").
--include("logger.hrl").
 -include("emqx_authentication.hrl").
+-include_lib("emqx/include/logger.hrl").
 -include_lib("emqx/include/emqx_hooks.hrl").
 -include_lib("stdlib/include/ms_transform.hrl").
 
 -define(CONF_ROOT, ?EMQX_AUTHENTICATION_CONFIG_ROOT_NAME_ATOM).
--define(IS_UNDEFINED(X), (X =:= undefined orelse X =:= <<>>)).
+
+-record(authenticator, {
+    id :: binary(),
+    provider :: module(),
+    enable :: boolean(),
+    state :: map()
+}).
+
+-record(chain, {
+    name :: atom(),
+    authenticators :: [#authenticator{}]
+}).
 
 %% The authentication entrypoint.
 -export([
-    pre_hook_authenticate/1,
     authenticate/2
 ]).
 
@@ -220,21 +229,6 @@ when
 %%------------------------------------------------------------------------------
 %% Authenticate
 %%------------------------------------------------------------------------------
--spec pre_hook_authenticate(emqx_types:clientinfo()) ->
-    ok | continue | {error, not_authorized}.
-pre_hook_authenticate(#{enable_authn := false}) ->
-    ?TRACE_RESULT("authentication_result", ok, enable_authn_false);
-pre_hook_authenticate(#{enable_authn := quick_deny_anonymous} = Credential) ->
-    case maps:get(username, Credential, undefined) of
-        U when ?IS_UNDEFINED(U) ->
-            ?TRACE_RESULT(
-                "authentication_result", {error, not_authorized}, enable_authn_false
-            );
-        _ ->
-            continue
-    end;
-pre_hook_authenticate(_) ->
-    continue.
 
 authenticate(#{listener := Listener, protocol := Protocol} = Credential, AuthResult) ->
     case get_authenticators(Listener, global_chain(Protocol)) of
@@ -271,6 +265,7 @@ get_enabled(Authenticators) ->
 %%------------------------------------------------------------------------------
 
 %% @doc Get all registered authentication providers.
+-spec get_providers() -> #{authn_type() => module()}.
 get_providers() ->
     call(get_providers).
 

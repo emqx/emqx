@@ -24,7 +24,6 @@
 -elvis([{elvis_style, invalid_dynamic_call, disable}]).
 
 -include("emqx_schema.hrl").
--include("emqx_authentication.hrl").
 -include("emqx_access_control.hrl").
 -include_lib("typerefl/include/types.hrl").
 -include_lib("hocon/include/hoconsc.hrl").
@@ -213,16 +212,18 @@ roots(high) ->
                     desc => ?DESC(zones),
                     importance => ?IMPORTANCE_HIDDEN
                 }
-            )},
-        {?EMQX_AUTHENTICATION_CONFIG_ROOT_NAME, authentication(global)},
-        %% NOTE: authorization schema here is only to keep emqx app pure
-        %% the full schema for EMQX node is injected in emqx_conf_schema.
-        {?EMQX_AUTHORIZATION_CONFIG_ROOT_NAME,
-            sc(
-                ref(?EMQX_AUTHORIZATION_CONFIG_ROOT_NAME),
-                #{importance => ?IMPORTANCE_HIDDEN}
             )}
-    ];
+    ] ++
+        emqx_schema_hooks:injection_point('roots.high') ++
+        [
+            %% NOTE: authorization schema here is only to keep emqx app pure
+            %% the full schema for EMQX node is injected in emqx_conf_schema.
+            {?EMQX_AUTHORIZATION_CONFIG_ROOT_NAME,
+                sc(
+                    ref(?EMQX_AUTHORIZATION_CONFIG_ROOT_NAME),
+                    #{importance => ?IMPORTANCE_HIDDEN}
+                )}
+        ];
 roots(medium) ->
     [
         {"broker",
@@ -1748,11 +1749,8 @@ mqtt_listener(Bind) ->
                         desc => ?DESC(mqtt_listener_proxy_protocol_timeout),
                         default => <<"3s">>
                     }
-                )},
-            {?EMQX_AUTHENTICATION_CONFIG_ROOT_NAME, (authentication(listener))#{
-                importance => ?IMPORTANCE_HIDDEN
-            }}
-        ].
+                )}
+        ] ++ emqx_schema_hooks:injection_point('mqtt.listener').
 
 base_listener(Bind) ->
     [
@@ -2769,41 +2767,6 @@ str(B) when is_binary(B) ->
     binary_to_list(B);
 str(S) when is_list(S) ->
     S.
-
-authentication(Which) ->
-    {Importance, Desc} =
-        case Which of
-            global ->
-                %% For root level authentication, it is recommended to configure
-                %% from the dashboard or API.
-                %% Hence it's considered a low-importance when it comes to
-                %% configuration importance.
-                {?IMPORTANCE_LOW, ?DESC(global_authentication)};
-            listener ->
-                {?IMPORTANCE_HIDDEN, ?DESC(listener_authentication)}
-        end,
-    %% poor man's dependency injection
-    %% this is due to the fact that authn is implemented outside of 'emqx' app.
-    %% so it can not be a part of emqx_schema since 'emqx' app is supposed to
-    %% work standalone.
-    Type =
-        case persistent_term:get(?EMQX_AUTHENTICATION_SCHEMA_MODULE_PT_KEY, undefined) of
-            undefined ->
-                hoconsc:array(typerefl:map());
-            Module ->
-                Module:root_type()
-        end,
-    hoconsc:mk(Type, #{
-        desc => Desc,
-        converter => fun ensure_array/2,
-        default => [],
-        importance => Importance
-    }).
-
-%% the older version schema allows individual element (instead of a chain) in config
-ensure_array(undefined, _) -> undefined;
-ensure_array(L, _) when is_list(L) -> L;
-ensure_array(M, _) -> [M].
 
 -spec qos() -> typerefl:type().
 qos() ->
