@@ -252,8 +252,9 @@ topic_matches_prop() ->
                             ct:pal(
                                 "Topic name: ~p~n"
                                 "Index results: ~p~n"
-                                "Topic match results:: ~p~n",
-                                [Topic, Ids1, Ids2]
+                                "Topic match results: ~p~n"
+                                "Filters: ~p~n",
+                                [Topic, Ids1, Ids2, Filters]
                             ),
                             false
                     end
