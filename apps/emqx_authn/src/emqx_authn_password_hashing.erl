@@ -63,6 +63,9 @@
     check_password/4
 ]).
 
+-define(SALT_ROUNDS_MIN, 5).
+-define(SALT_ROUNDS_MAX, 10).
+
 namespace() -> "authn-hash".
 roots() -> [pbkdf2, bcrypt, bcrypt_rw, simple].
 
@@ -71,11 +74,12 @@ fields(bcrypt_rw) ->
         [
             {salt_rounds,
                 sc(
-                    integer(),
+                    range(?SALT_ROUNDS_MIN, ?SALT_ROUNDS_MAX),
                     #{
-                        default => 10,
-                        example => 10,
-                        desc => "Salt rounds for BCRYPT password generation."
+                        default => ?SALT_ROUNDS_MAX,
+                        example => ?SALT_ROUNDS_MAX,
+                        desc => "Work factor for BCRYPT password generation.",
+                        converter => fun salt_rounds_converter/2
                     }
                 )}
         ];
@@ -105,6 +109,13 @@ fields(simple) ->
             )},
         {salt_position, fun salt_position/1}
     ].
+
+salt_rounds_converter(undefined, _) ->
+    undefined;
+salt_rounds_converter(I, _) when is_integer(I) ->
+    emqx_utils:clamp(I, ?SALT_ROUNDS_MIN, ?SALT_ROUNDS_MAX);
+salt_rounds_converter(X, _) ->
+    X.
 
 desc(bcrypt_rw) ->
     "Settings for bcrypt password hashing algorithm (for DB backends with write capability).";
