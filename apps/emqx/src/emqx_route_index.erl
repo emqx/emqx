@@ -22,8 +22,8 @@
 %% {<<"t/route/topic/#">>, _ID = []} => #{'node1@emqx' => [], 'node2@emqx' => [], ...}
 %% ```
 %%
-%% This layout implies that we cannot in general make changes concurrently, so there's
-%% transactional operation mode for that, employing mria transaction mechanism.
+%% This layout implies that we cannot make changes concurrently, since insert and delete
+%% are not atomic operations.
 
 -module(emqx_route_index).
 
@@ -31,40 +31,17 @@
 -include("types.hrl").
 -include("logger.hrl").
 
--export([init/1]).
-
 -export([match/2]).
 
 -export([
+    insert/2,
     insert/3,
-    insert/4,
+    delete/2,
     delete/3,
-    delete/4,
     clean/1
 ]).
 
 -export([all/1]).
-
--record(routeidx, {
-    key :: emqx_topic_index:key(nil()),
-    dests :: #{emqx_router:dest() => nil()}
-}).
-
-%%
-
--spec init(atom()) -> ok.
-init(TabName) ->
-    mria:create_table(
-        TabName,
-        [
-            {type, ordered_set},
-            {storage, ram_copies},
-            {local_content, true},
-            {record_name, routeidx},
-            {attributes, record_info(fields, routeidx)},
-            {storage_properties, [{ets, [{read_concurrency, true}]}]}
-        ]
-    ).
 
 -spec match(emqx_types:topic(), ets:table()) -> [emqx_types:route()].
 match(Topic, Tab) ->
@@ -79,75 +56,58 @@ expand_match(Match, Tab) ->
         Dest <- maps:keys(Ds)
     ].
 
--spec insert(emqx_types:route(), ets:table(), _TODO) -> boolean().
-insert(#route{topic = Topic, dest = Dest}, Tab, Mode) ->
-    insert(Topic, Dest, Tab, Mode).
+-spec insert(emqx_types:route(), ets:table()) -> boolean().
+insert(#route{topic = Topic, dest = Dest}, Tab) ->
+    insert(Topic, Dest, Tab).
 
--spec insert(emqx_types:topic(), _Dest, ets:table(), _TODO) -> boolean().
-insert(Topic, Dest, Tab, Mode) ->
+-spec insert(emqx_types:topic(), _Dest, ets:table()) -> boolean().
+insert(Topic, Dest, Tab) ->
     Words = emqx_topic_index:words(Topic),
     case emqx_topic:wildcard(Words) of
-        true when Mode == unsafe ->
-            mria:async_dirty(mria:local_content_shard(), fun do_insert/3, [Words, Dest, Tab]);
-        true when Mode == transactional ->
-            mria:transaction(mria:local_content_shard(), fun do_insert/3, [Words, Dest, Tab]);
+        true ->
+            case emqx_topic_index:lookup(Words, ID = [], Tab) of
+                [Ds = #{}] ->
+                    emqx_topic_index:insert(Words, ID, Ds#{Dest => []}, Tab);
+                [] ->
+                    emqx_topic_index:insert(Words, ID, #{Dest => []}, Tab)
+            end;
         false ->
             false
     end.
 
-do_insert(Words, Dest, Tab) ->
-    K = emqx_topic_index:mk_key(Words, []),
-    case mnesia:wread({Tab, K}) of
-        [#routeidx{dests = Ds} = Entry] ->
-            NEntry = Entry#routeidx{dests = Ds#{Dest => []}},
-            ok = mnesia:write(Tab, NEntry, write),
-            true;
-        [] ->
-            Entry = #routeidx{key = K, dests = #{Dest => []}},
-            ok = mnesia:write(Tab, Entry, write),
-            true
-    end.
+-spec delete(emqx_types:route(), ets:table()) -> boolean().
+delete(#route{topic = Topic, dest = Dest}, Tab) ->
+    delete(Topic, Dest, Tab).
 
--spec delete(emqx_types:route(), ets:table(), _TODO) -> boolean().
-delete(#route{topic = Topic, dest = Dest}, Tab, Mode) ->
-    delete(Topic, Dest, Tab, Mode).
-
--spec delete(emqx_types:topic(), _Dest, ets:table(), _TODO) -> boolean().
-delete(Topic, Dest, Tab, Mode) ->
+-spec delete(emqx_types:topic(), _Dest, ets:table()) -> boolean().
+delete(Topic, Dest, Tab) ->
     Words = emqx_topic_index:words(Topic),
     case emqx_topic:wildcard(Words) of
-        true when Mode == unsafe ->
-            mria:async_dirty(mria:local_content_shard(), fun do_delete/3, [Words, Dest, Tab]);
-        true when Mode == transactional ->
-            mria:transaction(mria:local_content_shard(), fun do_delete/3, [Words, Dest, Tab]);
+        true ->
+            case emqx_topic_index:lookup(Words, ID = [], Tab) of
+                [Ds = #{Dest := _}] when map_size(Ds) =:= 1 ->
+                    emqx_topic_index:delete(Words, ID, Tab);
+                [Ds = #{Dest := _}] ->
+                    NDs = maps:remove(Dest, Ds),
+                    emqx_topic_index:insert(Words, ID, NDs, Tab);
+                [_] ->
+                    true;
+                [] ->
+                    true
+            end;
         false ->
             false
-    end.
-
-do_delete(Words, Dest, Tab) ->
-    K = emqx_topic_index:mk_key(Words, []),
-    case mnesia:wread({Tab, K}) of
-        [#routeidx{dests = Ds = #{Dest := _}}] when map_size(Ds) =:= 1 ->
-            ok = mnesia:delete(Tab, K, write),
-            true;
-        [#routeidx{dests = Ds = #{Dest := _}} = Entry] ->
-            NEntry = Entry#routeidx{dests = maps:remove(Dest, Ds)},
-            ok = mnesia:write(Tab, NEntry, write),
-            true;
-        [_] ->
-            true;
-        [] ->
-            true
     end.
 
 -spec clean(ets:table()) -> true.
 clean(Tab) ->
-    mria:clear_table(Tab).
+    emqx_topic_index:clean(Tab).
 
 -spec all(ets:table()) -> [emqx_types:route()].
 all(Tab) ->
+    % NOTE: Useful for testing, assumes particular record layout
     [
-        #route{topic = emqx_topic_index:get_topic(K), dest = Dest}
-     || #routeidx{key = K, dests = Ds} <- ets:tab2list(Tab),
+        #route{topic = emqx_topic_index:get_topic(M), dest = Dest}
+     || {M, Ds} <- ets:tab2list(Tab),
         Dest <- maps:keys(Ds)
     ].

@@ -16,8 +16,6 @@
 
 -module(prop_emqx_route_index).
 
--compile(export_all).
-
 -include_lib("stdlib/include/assert.hrl").
 -include_lib("proper/include/proper.hrl").
 -include_lib("emqx/include/asserts.hrl").
@@ -83,10 +81,9 @@ run_stream(Stream) ->
     %  {delete,#route{topic = <<"t/#">>,dest = 1}},
     %  eos]
     % ```
-    ok = mria:start(),
     RouteTab = mk_route_tab(),
-    ok = emqx_route_index:init(?MODULE),
-    run_stream(Stream, #{route_tab => RouteTab, index_tab => ?MODULE}).
+    IndexTab = emqx_topic_index:new(),
+    run_stream(Stream, #{route_tab => RouteTab, index_tab => IndexTab}).
 
 run_stream(Stream, CtxIn) ->
     lists:foldl(fun run_command/2, CtxIn, Stream).
@@ -151,7 +148,7 @@ run_fold_iter(0, Route, Idx) ->
     end;
 run_fold_iter(Next, Route, Idx) ->
     ?TRACE("-- ~p | Route = ~0p", [Next, Route]),
-    true = emqx_route_index:insert(Route, Idx, unsafe),
+    true = emqx_route_index:insert(Route, Idx),
     case Next of
         finish -> finish;
         N -> N - 1
@@ -162,11 +159,11 @@ run_updater(Idx) ->
     receive
         {insert, Route} ->
             ?TRACE("-- {insert, ~0p}", [Route]),
-            true = emqx_route_index:insert(Route, Idx, unsafe),
+            true = emqx_route_index:insert(Route, Idx),
             run_updater(Idx);
         {delete, Route} ->
             ?TRACE("-- {delete, ~0p}", [Route]),
-            true = emqx_route_index:delete(Route, Idx, unsafe),
+            true = emqx_route_index:delete(Route, Idx),
             run_updater(Idx);
         {eos, Caller} ->
             ?TRACE("-- eos", []),
@@ -253,5 +250,5 @@ mk_route_tab() ->
 
 cleanup(#{route_tab := RouteTab, index_tab := IndexTab}) ->
     _ = ets:delete(RouteTab),
-    _ = mnesia:delete_table(IndexTab),
+    _ = ets:delete(IndexTab),
     ok.
