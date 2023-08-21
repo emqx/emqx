@@ -237,7 +237,7 @@ user_seeds() ->
         %% Not exists
         New(<<"notexists">>, <<"notexists">>, {error, not_authorized}),
         %% Wrong Password
-        New(<<"mqttuser0001">>, <<"wrongpassword">>, {error, invalid_password}),
+        New(<<"mqttuser0001">>, <<"wrongpassword">>, {error, bad_username_or_password}),
         %% Disabled
         New(<<"mqttuser0006">>, <<"mqttuser0006">>, {error, user_disabled}),
         %% IsSuperuser
