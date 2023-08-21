@@ -212,11 +212,8 @@ fields("consumer_resource_opts") ->
             [{health_check_interval, #{default => <<"30s">>}}]
         ),
     SupportedFields = [
-        auto_restart_interval,
         health_check_interval,
-        request_ttl,
-        resume_interval,
-        worker_pool_size
+        request_ttl
     ],
     lists:filter(
         fun({Field, _Sc}) -> lists:member(Field, SupportedFields) end,
