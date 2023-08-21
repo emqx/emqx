@@ -35,6 +35,12 @@ on_start(InstId, #{command_template := CommandTemplate} = Config) ->
                 conn_st => RedisConnSt,
                 command_template => preproc_command_template(CommandTemplate)
             }};
+        {error, {start_pool_failed, _, #{type := authentication_error, reason := Reason}}} = Error ->
+            ?tp(
+                redis_bridge_connector_start_error,
+                #{error => Error}
+            ),
+            throw({unhealthy_target, Reason});
         {error, _} = Error ->
             ?tp(
                 redis_bridge_connector_start_error,

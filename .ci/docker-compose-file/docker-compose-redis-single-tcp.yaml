@@ -4,12 +4,11 @@ services:
   redis_server:
     container_name: redis
     image: redis:${REDIS_TAG}
+    volumes:
+      - ./redis/single-tcp:/usr/local/etc/redis/
     ports:
       - "6379:6379"
-    command:
-      - redis-server
-      - "--bind 0.0.0.0 ::"
-      - --requirepass public
+    command: redis-server /usr/local/etc/redis/redis.conf
     restart: always
     networks:
       - emqx_bridge
