@@ -207,7 +207,10 @@ fields(consumer_topic_mapping) ->
             )}
     ];
 fields("consumer_resource_opts") ->
-    ResourceFields = emqx_resource_schema:fields("creation_opts"),
+    ResourceFields =
+        emqx_resource_schema:create_opts(
+            [{health_check_interval, #{default => <<"30s">>}}]
+        ),
     SupportedFields = [
         auto_restart_interval,
         health_check_interval,
