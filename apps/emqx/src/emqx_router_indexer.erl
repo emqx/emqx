@@ -74,7 +74,7 @@ peek_last_update() ->
 
 -spec init(_) -> {ok, state()}.
 init([]) ->
-    _ = ets:new(?ROUTE_INDEX, [public, named_table, ordered_set, {read_concurrency, true}]),
+    ok = emqx_route_index:init(?ROUTE_INDEX),
     ok = mria:wait_for_tables([?ROUTE_TAB]),
     % NOTE
     % Must subscribe to the events before indexing the routes to make no record is missed.
@@ -115,10 +115,10 @@ handle_info(Info, State) ->
     {noreply, State}.
 
 handle_table_event(write, {?ROUTE_TAB, Topic, Dest}, State) ->
-    _ = insert_entry(Topic, Dest),
+    _ = insert_unsafe(Topic, Dest),
     State#{last_update => {write, Topic, Dest}};
 handle_table_event(delete_object, {?ROUTE_TAB, Topic, Dest}, State) ->
-    _ = delete_entry(Topic, Dest),
+    _ = delete_unsafe(Topic, Dest),
     State#{last_update => {delete, Topic, Dest}};
 %% TODO
 %% handle_table_event(delete, {?ROUTE_TAB, Topic}, State) ->
@@ -130,14 +130,45 @@ handle_table_event(delete, {schema, ?ROUTE_TAB}, State) ->
     true = emqx_topic_index:clean(?ROUTE_INDEX),
     State.
 
+-define(BATCH_SIZE, 1000).
+
 build_index() ->
-    emqx_router:foldl_routes(
-        fun(Route, _) -> emqx_route_index:insert(Route, ?ROUTE_INDEX) end,
-        false
-    ).
+    AccIn = #{n => 1, count => 0, batch => [], refs => []},
+    AccOut = submit_batch(emqx_router:foldl_routes(fun submit_batches/2, AccIn)),
+    wait_batch_completions(maps:get(refs, AccOut)).
 
-insert_entry(Topic, Dest) ->
-    emqx_route_index:insert(Topic, Dest, ?ROUTE_INDEX).
+submit_batches(Route, Acc = #{count := ?BATCH_SIZE}) ->
+    submit_batches(Route, submit_batch(Acc));
+submit_batches(Route, #{count := Count, batch := Batch} = Acc) ->
+    Acc#{count => Count + 1, batch => [Route | Batch]}.
 
-delete_entry(Topic, Dest) ->
-    emqx_route_index:delete(Topic, Dest, ?ROUTE_INDEX).
+submit_batch(#{n := N, count := Count, batch := Batch, refs := Refs}) when Count > 0 ->
+    Ref = {batch, N},
+    ok = emqx_pool:async_submit(fun insert_batch/3, [Ref, Batch, self()]),
+    #{n => N + 1, count => 0, batch => [], refs => [Ref | Refs]};
+submit_batch(Acc) ->
+    Acc.
+
+insert_batch(Ref, Batch, ReplyTo) ->
+    ok = lists:foreach(fun insert_transactional/1, Batch),
+    ReplyTo ! {Ref, ok}.
+
+wait_batch_completions([Ref | Rest]) ->
+    receive
+        {Ref, ok} ->
+            wait_batch_completions(Rest);
+        {Ref, Error} ->
+            ?SLOG(error, #{msg => "batch_insert_failed", error => Error}),
+            wait_batch_completions(Rest)
+    end;
+wait_batch_completions([]) ->
+    ok.
+
+insert_transactional(Route) ->
+    emqx_route_index:insert(Route, ?ROUTE_INDEX, transactional).
+
+insert_unsafe(Topic, Dest) ->
+    emqx_route_index:insert(Topic, Dest, ?ROUTE_INDEX, unsafe).
+
+delete_unsafe(Topic, Dest) ->
+    emqx_route_index:delete(Topic, Dest, ?ROUTE_INDEX, unsafe).

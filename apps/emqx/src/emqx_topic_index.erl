@@ -35,6 +35,8 @@
 -export([lookup/3]).
 -export([clean/1]).
 
+-export([mk_key/2]).
+
 -export([match/2]).
 -export([matches/3]).
 
@@ -43,6 +45,8 @@
 -export([get_id/1]).
 -export([get_topic/1]).
 -export([get_record/2]).
+
+-export_type([key/1]).
 
 -type topic() :: emqx_types:topic().
 -type words() :: [word()].
@@ -77,6 +81,7 @@ lookup(Filter, ID, Tab) ->
 clean(Tab) ->
     ets:delete_all_objects(Tab).
 
+-spec mk_key(topic() | words(), ID) -> key(ID).
 mk_key(Filter, ID) ->
     {words(Filter), {ID}}.
 
