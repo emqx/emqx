@@ -291,10 +291,10 @@ auth_username_password.label:
 """Username/password Auth"""
 
 auth_sasl_password.desc:
-"""The password for connecting to Azure Event Hub.  Should be the "connection string-primary key" of a Namespace shared access policy."""
+"""The Connection String for connecting to Azure Event Hub.  Should be the "connection string-primary key" of a Namespace shared access policy."""
 
 auth_sasl_password.label:
-"""Password"""
+"""Connection String"""
 
 producer_kafka_opts.desc:
 """Azure Event Hub producer configs."""
