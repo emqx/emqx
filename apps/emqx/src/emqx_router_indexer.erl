@@ -130,11 +130,41 @@ handle_table_event(delete, {schema, ?ROUTE_TAB}, State) ->
     true = emqx_topic_index:clean(?ROUTE_INDEX),
     State.
 
+-include_lib("emqx/include/emqx.hrl").
+
 build_index() ->
-    emqx_router:foldl_routes(
-        fun(Route, _) -> emqx_route_index:insert(Route, ?ROUTE_INDEX) end,
-        false
-    ).
+    NWorkers = 8,
+    Workers = [proc_lib:spawn_link(fun run_index_builder/0) || _ <- lists:seq(1, NWorkers)],
+    TWorkers = list_to_tuple(Workers),
+    _ = emqx_router:foldl_routes(
+        fun(Route, _) ->
+            IWorker = 1 + erlang:phash2(Route#route.topic, NWorkers),
+            element(IWorker, TWorkers) ! Route
+        end,
+        ok
+    ),
+    ok = lists:foldl(fun(Pid, ok) -> stop_index_builder(Pid) end, ok, Workers),
+    ok.
+
+run_index_builder() ->
+    receive
+        Route = #route{} ->
+            _ = emqx_route_index:insert(Route, ?ROUTE_INDEX),
+            run_index_builder();
+        {stop, Caller} ->
+            Caller ! {stopped, self()}
+    after 30000 ->
+        exit(dangling)
+    end.
+
+stop_index_builder(Pid) ->
+    Pid ! {stop, self()},
+    receive
+        {stopped, Pid} ->
+            ok
+    after 30000 ->
+        exit(timeout)
+    end.
 
 insert_entry(Topic, Dest) ->
     emqx_route_index:insert(Topic, Dest, ?ROUTE_INDEX).
