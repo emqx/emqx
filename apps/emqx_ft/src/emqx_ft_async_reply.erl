@@ -21,7 +21,8 @@
 -include_lib("stdlib/include/ms_transform.hrl").
 
 -export([
-    create_tables/0
+    create_tables/0,
+    info/0
 ]).
 
 -export([
@@ -38,9 +39,9 @@
 
 %% packets waiting for async workers
 
--define(WORKER_TAB, emqx_ft_async_mons).
--define(WORKER_KEY(MRef), ?WORKER_KEY(self(), MRef)).
--define(WORKER_KEY(ChannelPid, MRef), {ChannelPid, MRef}).
+-define(MON_TAB, emqx_ft_async_mons).
+-define(MON_KEY(MRef), ?MON_KEY(self(), MRef)).
+-define(MON_KEY(ChannelPid, MRef), {ChannelPid, MRef}).
 
 %% async worker monitors by packet ids
 
@@ -54,14 +55,14 @@
 
 -spec create_tables() -> ok.
 create_tables() ->
-    _ = ets:new(?WORKER_TAB, [named_table, public, ordered_set]),
+    _ = ets:new(?MON_TAB, [named_table, public, ordered_set]),
     _ = ets:new(?PACKET_TAB, [named_table, public, ordered_set]),
     ok.
 
 -spec register(packet_id(), mon_ref(), timer_ref()) -> ok.
 register(PacketId, MRef, TRef) ->
     _ = ets:insert(?PACKET_TAB, {?PACKET_KEY(PacketId), MRef}),
-    _ = ets:insert(?WORKER_TAB, {?WORKER_KEY(MRef), PacketId, TRef}),
+    _ = ets:insert(?MON_TAB, {?MON_KEY(MRef), PacketId, TRef}),
     ok.
 
 -spec with_new_packet(packet_id(), fun(() -> any()), any()) -> any().
@@ -73,7 +74,7 @@ with_new_packet(PacketId, Fun, Default) ->
 
 -spec take_by_mref(mon_ref()) -> {ok, packet_id(), timer_ref()} | not_found.
 take_by_mref(MRef) ->
-    case ets:take(?WORKER_TAB, ?WORKER_KEY(MRef)) of
+    case ets:take(?MON_TAB, ?MON_KEY(MRef)) of
         [{_, PacketId, TRef}] ->
             _ = ets:delete(?PACKET_TAB, ?PACKET_KEY(PacketId)),
             {ok, PacketId, TRef};
