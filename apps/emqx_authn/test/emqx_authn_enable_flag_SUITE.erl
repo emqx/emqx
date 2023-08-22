@@ -102,7 +102,7 @@ t_enable_authn(_Config) ->
     %% enable_authn set to true, we go to the set up authn and fail
     {ok, ConnPid1} = emqtt:start_link([{port, 18830}, {clientid, <<"clientid">>}]),
     ?assertMatch(
-        {error, {unauthorized_client, _}},
+        {error, {malformed_username_or_password, _}},
         emqtt:connect(ConnPid1)
     ),
     ok.

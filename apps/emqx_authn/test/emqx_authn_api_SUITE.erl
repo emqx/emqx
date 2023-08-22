@@ -359,7 +359,7 @@ test_authenticator_users(PathPrefix) ->
                 <<"metrics">> := #{
                     <<"total">> := 1,
                     <<"success">> := 0,
-                    <<"nomatch">> := 1
+                    <<"failed">> := 1
                 }
             } = emqx_utils_json:decode(PageData0, [return_maps]);
         ["listeners", 'tcp:default'] ->
@@ -417,7 +417,7 @@ test_authenticator_users(PathPrefix) ->
                 <<"metrics">> := #{
                     <<"total">> := 2,
                     <<"success">> := 1,
-                    <<"nomatch">> := 1
+                    <<"failed">> := 1
                 }
             } = emqx_utils_json:decode(PageData01, [return_maps]);
         ["listeners", 'tcp:default'] ->
