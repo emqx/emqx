@@ -43,7 +43,7 @@
 %% gen_statem states
 -define(disabled, disabled).
 -define(purging, purging).
--define(cleaning_retained_messages, cleaning_retained_messages).
+-define(cleaning_data, cleaning_data).
 
 -type start_opts() :: #{
     purge_rate => pos_integer()
@@ -80,7 +80,7 @@ start_link() ->
 
 callback_mode() -> handle_event_function.
 
-%% states: disabled, purging, cleaning_retained_messages
+%% states: disabled, purging, cleaning_data
 
 init([]) ->
     {ok, disabled, #{}}.
@@ -130,35 +130,35 @@ handle_event(
         purge_rate := PurgeRate
     } = Data
 ) ->
-    case emqx_eviction_agent:status() of
-        {enabled, #{sessions := Sessions}} when Sessions > 0 ->
+    case emqx_eviction_agent:all_channels_count() of
+        Sessions when Sessions > 0 ->
             ok = purge_sessions(PurgeRate),
-            ?tp(debug, cluster_purge_evict_session, #{purge_rate => PurgeRate}),
-            ?SLOG(
+            ?tp(
                 warning,
+                "cluster_purge_evict_sessions",
                 #{
-                    msg => "cluster_purge_evict_sessions",
                     count => Sessions,
                     purge_rate => PurgeRate
                 }
             ),
             NewData = Data#{current_sessions => Sessions},
             {keep_state, NewData, [{state_timeout, ?EVICT_INTERVAL, purge}]};
-        {enabled, #{sessions := 0}} ->
+        _Sessions = 0 ->
             NewData = Data#{current_conns => 0},
             ?SLOG(warning, #{msg => "cluster_purge_evict_sessions_done"}),
-            {next_state, ?cleaning_retained_messages, NewData, [
+            {next_state, ?cleaning_data, NewData, [
                 {state_timeout, 0, clean_retained_messages}
             ]}
     end;
 handle_event(
     state_timeout,
     clean_retained_messages,
-    ?cleaning_retained_messages,
+    ?cleaning_data,
     Data
 ) ->
-    ?SLOG(warning, #{msg => "cluster_purge_cleaning_retained_messages"}),
+    ?SLOG(warning, #{msg => "cluster_purge_cleaning_data"}),
     ok = emqx_retainer:clean(),
+    ok = emqx_delayed:clear_all(),
     ?tp(warning, "cluster_purge_done", #{}),
     ok = disable_purge(),
     ?tp(warning, "cluster_purge_finished_successfully", #{}),

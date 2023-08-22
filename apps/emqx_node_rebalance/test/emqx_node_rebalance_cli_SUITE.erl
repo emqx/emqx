@@ -368,14 +368,7 @@ emqx_node_rebalance_cli(Node, Args) ->
 with_some_sessions(Fn) ->
     emqx_common_test_helpers:with_mock(
         emqx_eviction_agent,
-        status,
-        fun() ->
-            case meck:passthrough([]) of
-                {enabled, Status = #{sessions := _}} ->
-                    {enabled, Status#{sessions := 100}};
-                Res ->
-                    Res
-            end
-        end,
+        all_channels_count,
+        fun() -> 100 end,
         Fn
     ).

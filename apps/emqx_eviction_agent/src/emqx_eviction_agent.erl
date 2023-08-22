@@ -18,6 +18,7 @@
     disable/1,
     status/0,
     connection_count/0,
+    all_channels_count/0,
     session_count/0,
     session_count/1,
     evict_connections/1,
@@ -26,6 +27,9 @@
     purge_sessions/1,
     evict_session_channel/3
 ]).
+
+%% RPC targets
+-export([all_local_channels_count/0]).
 
 -behaviour(gen_server).
 
@@ -240,6 +244,33 @@ channel_with_session_table(RequiredConnState) ->
         RequiredConnState =:= ConnState
     ]).
 
+-spec all_channels_count() -> non_neg_integer().
+all_channels_count() ->
+    Nodes = emqx:running_nodes(),
+    Timeout = 15_000,
+    Results = emqx_eviction_agent_proto_v2:all_channels_count(Nodes, Timeout),
+    NodeResults = lists:zip(Nodes, Results),
+    Errors = lists:filter(
+        fun
+            ({_Node, {ok, _}}) -> false;
+            ({_Node, _Err}) -> true
+        end,
+        NodeResults
+    ),
+    Errors =/= [] andalso
+        ?SLOG(
+            warning,
+            #{
+                msg => "error_collecting_all_channels_count",
+                errors => maps:from_list(Errors)
+            }
+        ),
+    lists:sum([N || {ok, N} <- Results]).
+
+-spec all_local_channels_count() -> non_neg_integer().
+all_local_channels_count() ->
+    table_count(emqx_cm:all_channels_table(?CONN_MODULES)).
+
 session_count() ->
     session_count(any).
 
@@ -303,7 +334,7 @@ evict_session_channel(Nodes, ClientId, ConnInfo, ClientInfo) ->
             client_info => ClientInfo
         }
     ),
-    case emqx_eviction_agent_proto_v1:evict_session_channel(Node, ClientId, ConnInfo, ClientInfo) of
+    case emqx_eviction_agent_proto_v2:evict_session_channel(Node, ClientId, ConnInfo, ClientInfo) of
         {badrpc, Reason} ->
             ?SLOG(
                 error,

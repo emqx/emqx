@@ -109,6 +109,10 @@ app_specs() ->
                         #{enable => true}
                 }
         }},
+        {emqx_modules, #{
+            config =>
+                #{delayed => #{enable => true}}
+        }},
         emqx_eviction_agent,
         emqx_node_rebalance
     ].
@@ -133,15 +137,8 @@ with_some_sessions(Node, Fn) ->
     erpc:call(Node, fun() ->
         emqx_common_test_helpers:with_mock(
             emqx_eviction_agent,
-            status,
-            fun() ->
-                case meck:passthrough([]) of
-                    {enabled, Status = #{sessions := _}} ->
-                        {enabled, Status#{sessions := 100}};
-                    Res ->
-                        Res
-                end
-            end,
+            all_channels_count,
+            fun() -> 100 end,
             Fn
         )
     end).
@@ -317,8 +314,13 @@ t_session_purged(Config) ->
     Port1 = get_mqtt_port(Node1, tcp),
     Port2 = get_mqtt_port(Node2, tcp),
 
-    Node1Clients = emqtt_connect_many(Port1, 20, _StartN1 = 1),
-    Node2Clients = emqtt_connect_many(Port2, 20, _StartN2 = 21),
+    %% N.B.: it's important to have an asymmetric number of clients for this test, as
+    %% otherwise the scenario might happen to finish successfully due to the wrong
+    %% reasons!
+    NumClientsNode1 = 5,
+    NumClientsNode2 = 35,
+    Node1Clients = emqtt_connect_many(Port1, NumClientsNode1, _StartN1 = 1),
+    Node2Clients = emqtt_connect_many(Port2, NumClientsNode2, _StartN2 = 21),
     lists:foreach(
         fun(C) ->
             ClientId = proplists:get_value(clientid, emqtt:info(C)),
@@ -327,6 +329,8 @@ t_session_purged(Config) ->
             Payload = ClientId,
             Opts = [{retain, true}],
             ok = emqtt:publish(C, Topic, Props, Payload, Opts),
+            DelayedTopic = emqx_topic:join([<<"$delayed/120">>, Topic]),
+            ok = emqtt:publish(C, DelayedTopic, Payload),
             {ok, _, [?RC_GRANTED_QOS_0]} = emqtt:subscribe(C, Topic),
             ok
         end,
@@ -334,12 +338,13 @@ t_session_purged(Config) ->
     ),
 
     ?assertEqual(40, erpc:call(Node2, emqx_retainer, retained_count, [])),
+    ?assertEqual(NumClientsNode1, erpc:call(Node1, emqx_delayed, delayed_count, [])),
+    ?assertEqual(NumClientsNode2, erpc:call(Node2, emqx_delayed, delayed_count, [])),
 
     {ok, SRef0} = snabbkaffe:subscribe(
         ?match_event(#{?snk_kind := "cluster_purge_done"}),
         15_000
     ),
-    %% ok = rpc:call(Node1, emqx_node_rebalance_purge, start_global, [Nodes, opts(Config)]),
     ok = rpc:call(Node1, emqx_node_rebalance_purge, start, [opts(Config)]),
     {ok, _} = snabbkaffe:receive_events(SRef0),
 
@@ -347,6 +352,8 @@ t_session_purged(Config) ->
     ?assertEqual([], erpc:call(Node2, emqx_cm, all_channels, [])),
     ?assertEqual(0, erpc:call(Node1, emqx_retainer, retained_count, [])),
     ?assertEqual(0, erpc:call(Node2, emqx_retainer, retained_count, [])),
+    ?assertEqual(0, erpc:call(Node1, emqx_delayed, delayed_count, [])),
+    ?assertEqual(0, erpc:call(Node2, emqx_delayed, delayed_count, [])),
 
     ok = drain_exits(Node1Clients ++ Node2Clients),
 
