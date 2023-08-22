@@ -145,11 +145,18 @@ on_get_status(_InstId, #{pool_name := PoolName} = _State) ->
         true ->
             connected;
         false ->
-            connecting
+            %% Note: here can only return `disconnected` not `connecting`
+            %% because the LDAP socket/connection can't be reused
+            %% searching on a died socket will never return until timeout
+            disconnected
     end.
 
 do_get_status(Conn) ->
-    erlang:is_process_alive(Conn).
+    %% search with an invalid base object
+    %% if the server is down, the result is {error, ldap_closed}
+    %% otherwise is {error, invalidDNSyntax/timeout}
+    {error, ldap_closed} =/=
+        eldap:search(Conn, [{base, "checkalive"}, {filter, eldap:'approxMatch'("", "")}]).
 
 %% ===================================================================
 

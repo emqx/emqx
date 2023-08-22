@@ -9,12 +9,13 @@
 
 -include_lib("emqx_connector/include/emqx_connector.hrl").
 -include_lib("eunit/include/eunit.hrl").
--include_lib("emqx/include/emqx.hrl").
 -include_lib("stdlib/include/assert.hrl").
 -include_lib("eldap/include/eldap.hrl").
 
--define(LDAP_HOST, "ldap").
 -define(LDAP_RESOURCE_MOD, emqx_ldap).
+-define(PROXY_HOST, "toxiproxy").
+-define(PROXY_PORT, 8474).
+-define(LDAP_HOST, ?PROXY_HOST).
 
 all() ->
     [
@@ -53,9 +54,11 @@ end_per_suite(_Config) ->
     _ = application:stop(emqx_connector).
 
 init_per_testcase(_, Config) ->
+    emqx_common_test_helpers:reset_proxy(?PROXY_HOST, ?PROXY_PORT),
     Config.
 
 end_per_testcase(_, _Config) ->
+    emqx_common_test_helpers:reset_proxy(?PROXY_HOST, ?PROXY_PORT),
     ok.
 
 % %%------------------------------------------------------------------------------
@@ -142,6 +145,31 @@ perform_lifecycle_check(ResourceId, InitialConfig) ->
     % Should not even be able to get the resource data out of ets now unlike just stopping.
     ?assertEqual({error, not_found}, emqx_resource:get_instance(ResourceId)).
 
+t_get_status(Config) ->
+    ResourceId = <<"emqx_ldap_status">>,
+    ProxyName = proxy_name(Config),
+
+    {ok, #{config := CheckedConfig}} = emqx_resource:check_config(
+        ?LDAP_RESOURCE_MOD, ldap_config(Config)
+    ),
+    {ok, _} = emqx_resource:create_local(
+        ResourceId,
+        ?CONNECTOR_RESOURCE_GROUP,
+        ?LDAP_RESOURCE_MOD,
+        CheckedConfig,
+        #{}
+    ),
+
+    ?assertEqual({ok, connected}, emqx_resource:health_check(ResourceId)),
+    emqx_common_test_helpers:with_failure(down, ProxyName, ?PROXY_HOST, ?PROXY_PORT, fun() ->
+        ?assertMatch(
+            {ok, Status} when Status =:= disconnected,
+            emqx_resource:health_check(ResourceId)
+        )
+    end),
+    ?assertEqual(ok, emqx_resource:remove_local(ResourceId)),
+    ok.
+
 % %%------------------------------------------------------------------------------
 % %% Helpers
 % %%------------------------------------------------------------------------------
@@ -190,5 +218,12 @@ ssl(Config) ->
             "ssl.enable=false";
         ssl ->
             "ssl.enable=true\n"
-            "ssl.cacertfile=\"etc/openldap/cacert.pem\""
+            "ssl.cacertfile=\"/etc/certs/ca.crt\""
     end.
+
+proxy_name(tcp) ->
+    "ldap_tcp";
+proxy_name(ssl) ->
+    "ldap_ssl";
+proxy_name(Config) ->
+    proxy_name(proplists:get_value(group, Config, tcp)).
