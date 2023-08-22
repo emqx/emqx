@@ -55,7 +55,8 @@ fields(connector_config) ->
             mk(
                 binary(),
                 #{
-                    default => <<"https://kinesis.us-east-1.amazonaws.com">>,
+                    required => true,
+                    example => <<"https://kinesis.us-east-1.amazonaws.com">>,
                     desc => ?DESC("endpoint")
                 }
             )},
