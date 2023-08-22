@@ -68,9 +68,10 @@ paths() ->
         "/load_rebalance/:node/start",
         "/load_rebalance/:node/stop",
         "/load_rebalance/:node/evacuation/start",
-        "/load_rebalance/:node/evacuation/stop",
-        "/load_rebalance/:node/purge/start",
-        "/load_rebalance/:node/purge/stop"
+        "/load_rebalance/:node/evacuation/stop"
+        %% TODO: uncomment after we officially release the feature.
+        %% "/load_rebalance/:node/purge/start",
+        %% "/load_rebalance/:node/purge/stop"
     ].
 
 schema("/load_rebalance/status") ->
@@ -179,42 +180,43 @@ schema("/load_rebalance/:node/evacuation/stop") ->
                 404 => error_codes([?NOT_FOUND], <<"Not Found">>)
             }
         }
-    };
-schema("/load_rebalance/:node/purge/start") ->
-    #{
-        'operationId' => '/load_rebalance/:node/purge/start',
-        post => #{
-            tags => [<<"load_rebalance">>],
-            summary => <<"Start purge on the whole cluster">>,
-            description => ?DESC("cluster_purge_start"),
-            parameters => [param_node()],
-            'requestBody' =>
-                emqx_dashboard_swagger:schema_with_examples(
-                    ref(purge_start),
-                    purge_example()
-                ),
-            responses => #{
-                200 => response_schema(),
-                400 => error_codes([?BAD_REQUEST], <<"Bad Request">>),
-                404 => error_codes([?NOT_FOUND], <<"Not Found">>)
-            }
-        }
-    };
-schema("/load_rebalance/:node/purge/stop") ->
-    #{
-        'operationId' => '/load_rebalance/:node/purge/stop',
-        post => #{
-            tags => [<<"load_rebalance">>],
-            summary => <<"Stop purge on the whole cluster">>,
-            description => ?DESC("cluster_purge_stop"),
-            parameters => [param_node()],
-            responses => #{
-                200 => response_schema(),
-                400 => error_codes([?BAD_REQUEST], <<"Bad Request">>),
-                404 => error_codes([?NOT_FOUND], <<"Not Found">>)
-            }
-        }
     }.
+%% TODO: uncomment after we officially release the feature.
+%% schema("/load_rebalance/:node/purge/start") ->
+%%     #{
+%%         'operationId' => '/load_rebalance/:node/purge/start',
+%%         post => #{
+%%             tags => [<<"load_rebalance">>],
+%%             summary => <<"Start purge on the whole cluster">>,
+%%             description => ?DESC("cluster_purge_start"),
+%%             parameters => [param_node()],
+%%             'requestBody' =>
+%%                 emqx_dashboard_swagger:schema_with_examples(
+%%                     ref(purge_start),
+%%                     purge_example()
+%%                 ),
+%%             responses => #{
+%%                 200 => response_schema(),
+%%                 400 => error_codes([?BAD_REQUEST], <<"Bad Request">>),
+%%                 404 => error_codes([?NOT_FOUND], <<"Not Found">>)
+%%             }
+%%         }
+%%     };
+%% schema("/load_rebalance/:node/purge/stop") ->
+%%     #{
+%%         'operationId' => '/load_rebalance/:node/purge/stop',
+%%         post => #{
+%%             tags => [<<"load_rebalance">>],
+%%             summary => <<"Stop purge on the whole cluster">>,
+%%             description => ?DESC("cluster_purge_stop"),
+%%             parameters => [param_node()],
+%%             responses => #{
+%%                 200 => response_schema(),
+%%                 400 => error_codes([?BAD_REQUEST], <<"Bad Request">>),
+%%                 404 => error_codes([?NOT_FOUND], <<"Not Found">>)
+%%             }
+%%         }
+%%     }.
 
 %%--------------------------------------------------------------------
 %% Handlers
@@ -849,8 +851,9 @@ rebalance_evacuation_example() ->
         }
     }.
 
-purge_example() ->
-    #{purge => #{purge_rate => 100}}.
+%% TODO: uncomment after we officially release the feature.
+%% purge_example() ->
+%%     #{purge => #{purge_rate => 100}}.
 
 local_status_response_schema() ->
     hoconsc:union([ref(local_status_disabled), ref(local_status_enabled)]).

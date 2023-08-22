@@ -138,11 +138,12 @@ cli(_) ->
                 "Start current node evacuation with optional server redirect to the specified servers"
             },
 
-            {
-                "rebalance start --purge \\\n"
-                "    [--purge-rate CountPerSec]",
-                "Start purge on all running nodes in the cluster"
-            },
+            %% TODO: uncomment after we officially release the feature.
+            %% {
+            %%     "rebalance start --purge \\\n"
+            %%     "    [--purge-rate CountPerSec]",
+            %%     "Start purge on all running nodes in the cluster"
+            %% },
 
             {
                 "rebalance start \\\n"

@@ -120,7 +120,8 @@ t_start_evacuation_validation(Config) ->
         api_get(["load_rebalance", "global_status"])
     ).
 
-t_start_purge_validation(Config) ->
+%% TODO: uncomment after we officially release the feature.
+skipped_t_start_purge_validation(Config) ->
     [Node1 | _] = ?config(cluster_nodes, Config),
     Port1 = get_mqtt_port(Node1, tcp),
     BadOpts = [
