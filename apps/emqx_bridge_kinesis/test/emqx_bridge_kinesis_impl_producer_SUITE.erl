@@ -902,3 +902,17 @@ t_empty_payload_template(Config) ->
         emqx_utils_json:decode(Data, [return_maps])
     ),
     ok.
+
+t_validate_static_constraints(Config) ->
+    % From <https://docs.aws.amazon.com/kinesis/latest/APIReference/API_PutRecords.html>:
+    % "Each PutRecords request can support up to 500 records.
+    %  Each record in the request can be as large as 1 MiB,
+    %  up to a limit of 5 MiB for the entire request, including partition keys."
+    %
+    % Message size and request size shall be controlled by user, so there is no validators
+    % for them - if exceeded, it will fail like on `t_publish_big_msg` test.
+    ?assertThrow(
+        {emqx_bridge_schema, [#{kind := validation_error, value := 501}]},
+        generate_config([{batch_size, 501} | Config])
+    ),
+    ok.

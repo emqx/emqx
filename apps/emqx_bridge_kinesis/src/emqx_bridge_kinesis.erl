@@ -30,8 +30,27 @@ roots() ->
 
 fields("config_producer") ->
     emqx_bridge_schema:common_bridge_fields() ++
-        emqx_resource_schema:fields("resource_opts") ++
-        fields(connector_config) ++ fields(producer);
+        fields("resource_opts") ++
+        fields(connector_config) ++
+        fields(producer);
+fields("resource_opts") ->
+    [
+        {resource_opts,
+            mk(
+                ref(?MODULE, "creation_opts"),
+                #{
+                    required => false,
+                    default => #{},
+                    desc => ?DESC(emqx_resource_schema, "creation_opts")
+                }
+            )}
+    ];
+fields("creation_opts") ->
+    emqx_resource_schema:create_opts([
+        {batch_size, #{
+            validator => emqx_resource_validator:max(int, 500)
+        }}
+    ]);
 fields(connector_config) ->
     [
         {aws_access_key_id,
@@ -121,6 +140,8 @@ fields("put_producer") ->
 
 desc("config_producer") ->
     ?DESC("desc_config");
+desc("creation_opts") ->
+    ?DESC(emqx_resource_schema, "creation_opts");
 desc(_) ->
     undefined.
 
@@ -160,6 +181,8 @@ sc(Type, Meta) -> hoconsc:mk(Type, Meta).
 mk(Type, Meta) -> hoconsc:mk(Type, Meta).
 
 enum(OfSymbols) -> hoconsc:enum(OfSymbols).
+
+ref(Module, Name) -> hoconsc:ref(Module, Name).
 
 type_field_producer() ->
     {type, mk(enum([kinesis_producer]), #{required => true, desc => ?DESC("desc_type")})}.
