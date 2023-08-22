@@ -251,7 +251,7 @@ verify_password(Algorithm, LDAPPasswordType, LDAPPassword, Salt, Position, Passw
         true ->
             {ok, is_superuser(Entry, State)};
         _ ->
-            {error, invalid_password}
+            {error, bad_username_or_password}
     end.
 
 is_superuser(Entry, #{is_superuser_attribute := Attr} = _State) ->
