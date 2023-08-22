@@ -102,7 +102,7 @@ t_will_message_connection_denied(Config) when is_list(Config) ->
     {error, _} = emqtt:connect(Publisher),
     receive
         {'DOWN', Ref, process, Publisher, Reason} ->
-            ?assertEqual({shutdown, unauthorized_client}, Reason)
+            ?assertEqual({shutdown, malformed_username_or_password}, Reason)
     after 2000 ->
         error(timeout)
     end,
@@ -151,7 +151,7 @@ t_password_undefined(Config) when is_list(Config) ->
                     header = #mqtt_packet_header{type = ?CONNACK},
                     variable = #mqtt_packet_connack{
                         ack_flags = 0,
-                        reason_code = ?CONNACK_AUTH
+                        reason_code = ?CONNACK_CREDENTIALS
                     },
                     payload = undefined
                 },

@@ -109,6 +109,8 @@ destroy(#{resource_id := ResourceId}) ->
 
 authenticate(#{auth_method := _}, _) ->
     ignore;
+authenticate(#{password := undefined}, _) ->
+    {error, bad_username_or_password};
 authenticate(
     #{password := Password} = Credential,
     #{
