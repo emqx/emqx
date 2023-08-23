@@ -1,0 +1,27 @@
+emqx_authz_ldap_schema {
+
+publish_attribute.desc:
+"""Indicates which attribute is used to represent the allowed topics list of the `publish`."""
+
+publish_attribute.label:
+"""Publish Attribute"""
+
+subscribe_attribute.desc:
+"""Indicates which attribute is used to represent the allowed topics list of the `subscribe`."""
+
+subscribe_attribute.label:
+"""Subscribe Attribute"""
+
+all_attribute.desc:
+"""Indicates which attribute is used to represent the both allowed topics list of  `publish` and `subscribe`."""
+
+all_attribute.label:
+"""All Attribute"""
+
+query_timeout.desc:
+"""Timeout for the LDAP query."""
+
+query_timeout.label:
+"""Query Timeout"""
+
+}

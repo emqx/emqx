@@ -334,7 +334,7 @@ is_running(ListenerId, ListenOn0) ->
             false
     end.
 
-%% same with emqx_authentication:global_chain/1
+%% same with emqx_authn_chains:global_chain/1
 -spec global_chain(GatewayName :: atom()) -> atom().
 global_chain('mqttsn') ->
     'mqtt-sn:global';

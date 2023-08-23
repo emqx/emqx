@@ -27,22 +27,6 @@
 all() -> emqx_common_test_helpers:all(?MODULE).
 
 init_per_suite(Config) ->
-    %% CASE-SIDE-EFFICT:
-    %%
-    %% Running-Seq:
-    %%   emqx_authz_api_mnesia_SUITE.erl
-    %%   emqx_gateway_api_SUITE.erl
-    %%   emqx_machine_SUITE.erl
-    %%
-    %% Reason:
-    %%   the `emqx_machine_boot:ensure_apps_started()` will crash
-    %%   on starting `emqx_authz` with dirty confs, which caused the file
-    %%   `.._build/test/lib/emqx_conf/etc/acl.conf` could not be found
-    %%
-    %% Workaround:
-    %%   Unload emqx_authz to avoid reboot this application
-    %%
-    application:unload(emqx_authz),
     emqx_common_test_helpers:start_apps([emqx_conf, emqx_opentelemetry]),
     application:set_env(emqx_machine, applications, [
         emqx_prometheus,
@@ -55,8 +39,7 @@ init_per_suite(Config) ->
         emqx_management,
         emqx_retainer,
         emqx_exhook,
-        emqx_authn,
-        emqx_authz,
+        emqx_auth,
         emqx_plugin,
         emqx_opentelemetry
     ]),

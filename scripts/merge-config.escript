@@ -9,7 +9,7 @@
 %% edition due to backward-compatibility reasons.
 
 -mode(compile).
--define(APPS, ["emqx", "emqx_dashboard", "emqx_authz"]).
+-define(APPS, ["emqx", "emqx_dashboard", "emqx_auth"]).
 
 main(_) ->
     {ok, BaseConf} = file:read_file("apps/emqx_conf/etc/emqx_conf.conf"),

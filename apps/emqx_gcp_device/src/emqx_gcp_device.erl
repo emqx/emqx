@@ -4,10 +4,11 @@
 
 -module(emqx_gcp_device).
 
--include_lib("emqx_authn/include/emqx_authn.hrl").
 -include_lib("emqx/include/emqx.hrl").
 -include_lib("emqx/include/logger.hrl").
 -include_lib("stdlib/include/ms_transform.hrl").
+
+-define(AUTHN_SHARD, ?MODULE).
 
 %% Management
 -export([put_device/1, get_device/1, remove_device/1]).
@@ -126,7 +127,7 @@ import_devices(FormattedDevices) when is_list(FormattedDevices) ->
 -spec create_table() -> ok.
 create_table() ->
     ok = mria:create_table(?TAB, [
-        {rlog_shard, ?AUTH_SHARD},
+        {rlog_shard, ?AUTHN_SHARD},
         {type, ordered_set},
         {storage, disc_copies},
         {record_name, emqx_gcp_device},
@@ -150,9 +151,9 @@ perform_dirty(Fun) ->
 
 -spec perform_dirty(async_dirty | sync_dirty, function()) -> term().
 perform_dirty(async_dirty, Fun) ->
-    mria:async_dirty(?AUTH_SHARD, Fun);
+    mria:async_dirty(?AUTHN_SHARD, Fun);
 perform_dirty(sync_dirty, Fun) ->
-    mria:sync_dirty(?AUTH_SHARD, Fun).
+    mria:sync_dirty(?AUTHN_SHARD, Fun).
 
 -spec put_device_no_transaction(formatted_device()) -> ok.
 put_device_no_transaction(

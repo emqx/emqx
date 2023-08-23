@@ -35,11 +35,11 @@ init_per_suite(Conf) ->
     emqx_config:erase(gateway),
     emqx_gateway_test_utils:load_all_gateway_apps(),
     emqx_common_test_helpers:load_config(emqx_gateway_schema, ?CONF_DEFAULT),
-    emqx_common_test_helpers:start_apps([emqx_authn, emqx_gateway]),
+    emqx_common_test_helpers:start_apps([emqx_auth, emqx_auth_redis, emqx_auth_mnesia, emqx_gateway]),
     Conf.
 
 end_per_suite(_Conf) ->
-    emqx_common_test_helpers:stop_apps([emqx_gateway, emqx_authn]),
+    emqx_common_test_helpers:stop_apps([emqx_gateway, emqx_auth_mnesia, emqx_auth_redis, emqx_auth]),
     emqx_config:delete_override_conf_files(),
     ok.
 

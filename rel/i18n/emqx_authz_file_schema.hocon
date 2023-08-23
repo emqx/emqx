@@ -1,0 +1,22 @@
+emqx_authz_file_schema {
+
+path.desc:
+"""Path to the file which contains the ACL rules.
+If the file provisioned before starting EMQX node,
+it can be placed anywhere as long as EMQX has read access to it.
+That is, EMQX will treat it as read only.
+
+In case the rule-set is created or updated from EMQX Dashboard or HTTP API,
+a new file will be created and placed in `authz` subdirectory inside EMQX's `data_dir`,
+and the old file will not be used anymore."""
+
+path.label:
+"""path"""
+
+file.desc:
+"""Authorization using a static file."""
+
+file.label:
+"""file"""
+
+}

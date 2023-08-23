@@ -99,12 +99,12 @@ all() ->
 init_per_suite(Config) ->
     application:load(emqx_gateway_mqttsn),
     ok = emqx_common_test_helpers:load_config(emqx_gateway_schema, ?CONF_DEFAULT),
-    emqx_mgmt_api_test_util:init_suite([emqx_conf, emqx_authn, emqx_gateway]),
+    emqx_mgmt_api_test_util:init_suite([emqx_conf, emqx_auth, emqx_gateway]),
     Config.
 
 end_per_suite(_) ->
     {ok, _} = emqx:remove_config([gateway, mqttsn]),
-    emqx_mgmt_api_test_util:end_suite([emqx_gateway, emqx_authn, emqx_conf]).
+    emqx_mgmt_api_test_util:end_suite([emqx_gateway, emqx_auth, emqx_conf]).
 
 restart_mqttsn_with_subs_resume_on() ->
     Conf = emqx:get_raw_config([gateway, mqttsn]),

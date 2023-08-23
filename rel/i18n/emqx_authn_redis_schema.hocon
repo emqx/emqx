@@ -1,0 +1,18 @@
+emqx_authn_redis_schema {
+
+cluster.desc:
+"""Configuration of authenticator using Redis (Cluster) as authentication data source."""
+
+cmd.desc:
+"""The Redis Command used to query data for authentication such as password hash, currently only supports <code>HGET</code> and <code>HMGET</code>."""
+
+cmd.label:
+"""Command"""
+
+sentinel.desc:
+"""Configuration of authenticator using Redis (Sentinel) as authentication data source."""
+
+single.desc:
+"""Configuration of authenticator using Redis (Standalone) as authentication data source."""
+
+}

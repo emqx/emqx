@@ -330,7 +330,7 @@ default_appspec(emqx, SuiteOpts) ->
         % overwrite everything with a default configuration.
         before_start => fun inhibit_config_loader/2
     };
-default_appspec(emqx_authz, _SuiteOpts) ->
+default_appspec(emqx_auth, _SuiteOpts) ->
     #{
         config => #{
             % NOTE
@@ -356,7 +356,7 @@ default_appspec(emqx_conf, SuiteOpts) ->
         Config,
         [
             emqx,
-            emqx_authz
+            emqx_auth
         ]
     ),
     #{

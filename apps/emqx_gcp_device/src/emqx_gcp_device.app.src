@@ -6,7 +6,7 @@
     {applications, [
         kernel,
         stdlib,
-        emqx_authn
+        emqx_auth
     ]},
     {env, []},
     {modules, []},

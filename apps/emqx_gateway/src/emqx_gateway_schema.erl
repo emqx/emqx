@@ -26,7 +26,7 @@
 
 -include_lib("hocon/include/hoconsc.hrl").
 -include_lib("typerefl/include/types.hrl").
--include_lib("emqx_authn/include/emqx_authentication.hrl").
+-include_lib("emqx_auth/include/emqx_authn_chains.hrl").
 
 -type ip_port() :: tuple() | integer().
 -type duration() :: non_neg_integer().

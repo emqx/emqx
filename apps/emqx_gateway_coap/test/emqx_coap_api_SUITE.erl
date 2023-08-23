@@ -58,12 +58,12 @@ all() ->
 init_per_suite(Config) ->
     application:load(emqx_gateway_coap),
     ok = emqx_common_test_helpers:load_config(emqx_gateway_schema, ?CONF_DEFAULT),
-    emqx_mgmt_api_test_util:init_suite([emqx_authn, emqx_gateway]),
+    emqx_mgmt_api_test_util:init_suite([emqx_auth, emqx_gateway]),
     Config.
 
 end_per_suite(Config) ->
     {ok, _} = emqx:remove_config([<<"gateway">>, <<"coap">>]),
-    emqx_mgmt_api_test_util:end_suite([emqx_gateway, emqx_authn]),
+    emqx_mgmt_api_test_util:end_suite([emqx_gateway, emqx_auth]),
     Config.
 
 %%--------------------------------------------------------------------

@@ -19,7 +19,7 @@
 
 -include("include/emqx_gateway.hrl").
 -include_lib("emqx/include/logger.hrl").
--include_lib("emqx_authn/include/emqx_authentication.hrl").
+-include_lib("emqx_auth/include/emqx_authn_chains.hrl").
 
 -define(AUTHN, ?EMQX_AUTHENTICATION_CONFIG_ROOT_NAME_ATOM).
 
@@ -257,7 +257,7 @@ authn(GwName, ListenerId) ->
     ).
 
 wrap_chain_name(ChainName, Conf) ->
-    case emqx_authentication:list_authenticators(ChainName) of
+    case emqx_authn_chains:list_authenticators(ChainName) of
         {ok, [#{id := Id} | _]} ->
             Conf#{chain_name => ChainName, id => Id};
         _ ->

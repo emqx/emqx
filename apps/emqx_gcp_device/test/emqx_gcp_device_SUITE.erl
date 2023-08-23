@@ -10,7 +10,7 @@
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
--include_lib("emqx_authn/include/emqx_authn.hrl").
+-include_lib("emqx_auth/include/emqx_authn.hrl").
 -include_lib("emqx/include/emqx.hrl").
 
 all() ->
@@ -18,7 +18,7 @@ all() ->
 
 init_per_suite(Config) ->
     Apps = emqx_cth_suite:start(
-        [emqx, emqx_conf, emqx_authn, emqx_gcp_device, {emqx_retainer, "retainer {enable = true}"}],
+        [emqx, emqx_conf, emqx_auth, emqx_gcp_device, {emqx_retainer, "retainer {enable = true}"}],
         #{
             work_dir => ?config(priv_dir, Config)
         }

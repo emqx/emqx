@@ -1,0 +1,19 @@
+%% -*- mode: erlang -*-
+{application, emqx_auth_mysql, [
+    {description, "EMQX MySQL Authentication and Authorization"},
+    {vsn, "0.1.0"},
+    {registered, []},
+    {mod, {emqx_auth_mysql_app, []}},
+    {applications, [
+        kernel,
+        stdlib,
+        emqx,
+        emqx_auth,
+        emqx_mysql
+    ]},
+    {env, []},
+    {modules, []},
+
+    {licenses, ["Apache 2.0"]},
+    {links, []}
+]}.

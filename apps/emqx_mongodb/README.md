@@ -1,7 +1,7 @@
 # MongoDB Connector
 
 This application houses the MongoDB connector. The MongoDB connector is used by
-emqx_authz, emqx_authn and emqx_bridge_mongodb applications to connect to
+emqx_auth and emqx_bridge_mongodb applications to connect to
 MongoDB.
 
 ## Contributing

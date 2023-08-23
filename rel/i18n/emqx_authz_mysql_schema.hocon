@@ -1,0 +1,15 @@
+emqx_authz_mysql_schema {
+
+query.desc:
+"""Database query used to retrieve authorization data."""
+
+query.label:
+"""query"""
+
+mysql.desc:
+"""Authorization using a MySQL database."""
+
+mysql.label:
+"""mysql"""
+
+}

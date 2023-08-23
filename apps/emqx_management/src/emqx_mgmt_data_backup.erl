@@ -480,7 +480,7 @@ read_data_files(RawConf) ->
     DataDir = bin(emqx:data_dir()),
     {ok, Cwd} = file:get_cwd(),
     AbsDataDir = bin(filename:join(Cwd, DataDir)),
-    RawConf1 = emqx_authz:maybe_read_acl_file(RawConf),
+    RawConf1 = emqx_authz:maybe_read_files(RawConf),
     emqx_utils_maps:deep_convert(RawConf1, fun read_data_file/4, [DataDir, AbsDataDir]).
 
 -define(dir_pattern(_Dir_), <<_Dir_:(byte_size(_Dir_))/binary, _/binary>>).
@@ -512,7 +512,7 @@ do_read_file(FileName) ->
 
 validate_cluster_hocon(RawConf) ->
     %% write ACL file to comply with the schema...
-    RawConf1 = emqx_authz:maybe_write_acl_file(RawConf),
+    RawConf1 = emqx_authz:maybe_write_files(RawConf),
     emqx_hocon:check(
         emqx_conf:schema_module(),
         maps:merge(emqx:get_raw_config([]), RawConf1),

@@ -1,0 +1,51 @@
+emqx_authz_http_schema {
+
+method.desc:
+"""HTTP method."""
+
+method.label:
+"""method"""
+
+body.desc:
+"""HTTP request body."""
+
+body.label:
+"""Request Body"""
+
+url.desc:
+"""URL of the auth server."""
+
+url.label:
+"""URL"""
+
+headers.desc:
+"""List of HTTP Headers."""
+
+headers.label:
+"""Headers"""
+
+headers_no_content_type.desc:
+"""List of HTTP headers (without <code>content-type</code>)."""
+
+headers_no_content_type.label:
+"""headers_no_content_type"""
+
+http_post.desc:
+"""Authorization using an external HTTP server (via POST requests)."""
+
+http_post.label:
+"""http_post"""
+
+request_timeout.desc:
+"""HTTP request timeout."""
+
+request_timeout.label:
+"""Request Timeout"""
+
+http_get.desc:
+"""Authorization using an external HTTP server (via GET requests)."""
+
+http_get.label:
+"""http_get"""
+
+}

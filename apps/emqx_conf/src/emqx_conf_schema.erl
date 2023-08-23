@@ -70,7 +70,8 @@
     emqx_mgmt_api_key_schema
 ]).
 -define(INJECTING_CONFIGS, [
-    emqx_authn_schema
+    emqx_authn_schema,
+    emqx_authz_schema
 ]).
 
 %% 1 million default ports counter

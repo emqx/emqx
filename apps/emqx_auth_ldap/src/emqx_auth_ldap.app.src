@@ -1,0 +1,17 @@
+%% -*- mode: erlang -*-
+{application, emqx_auth_ldap, [
+    {description, "EMQX LDAP Authentication and Authorization"},
+    {vsn, "0.1.0"},
+    {registered, []},
+    {mod, {emqx_auth_ldap_app, []}},
+    {applications, [
+        kernel,
+        stdlib,
+        emqx_auth
+    ]},
+    {env, []},
+    {modules, []},
+
+    {licenses, ["Apache 2.0"]},
+    {links, []}
+]}.

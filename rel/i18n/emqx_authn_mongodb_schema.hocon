@@ -1,0 +1,45 @@
+emqx_authn_mongodb_schema {
+
+collection.desc:
+"""Collection used to store authentication data."""
+
+collection.label:
+"""Collection"""
+
+filter.desc:
+"""Conditional expression that defines the filter condition in the query.
+Filter supports the following placeholders:
+- <code>${username}</code>: Will be replaced at runtime with <code>Username</code> used by the client when connecting
+- <code>${clientid}</code>: Will be replaced at runtime with <code>Client ID</code> used by the client when connecting"""
+
+filter.label:
+"""Filter"""
+
+is_superuser_field.desc:
+"""Document field that defines if the user has superuser privileges."""
+
+is_superuser_field.label:
+"""Is Superuser Field"""
+
+password_hash_field.desc:
+"""Document field that contains password hash."""
+
+password_hash_field.label:
+"""Password Hash Field"""
+
+replica-set.desc:
+"""Configuration of authenticator using MongoDB (Replica Set) as authentication data source."""
+
+salt_field.desc:
+"""Document field that contains the password salt."""
+
+salt_field.label:
+"""Salt Field"""
+
+sharded-cluster.desc:
+"""Configuration of authenticator using MongoDB (Sharded Cluster) as authentication data source."""
+
+single.desc:
+"""Configuration of authenticator using MongoDB (Standalone) as authentication data source."""
+
+}

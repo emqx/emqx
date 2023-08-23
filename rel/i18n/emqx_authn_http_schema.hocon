@@ -1,0 +1,45 @@
+emqx_authn_http_schema {
+
+body.desc:
+"""HTTP request body."""
+
+body.label:
+"""Request Body"""
+
+get.desc:
+"""Configuration of authenticator using HTTP Server as authentication service (Using GET request)."""
+
+headers.desc:
+"""List of HTTP Headers."""
+
+headers.label:
+"""Headers"""
+
+headers_no_content_type.desc:
+"""List of HTTP headers (without <code>content-type</code>)."""
+
+headers_no_content_type.label:
+"""headers_no_content_type"""
+
+method.desc:
+"""HTTP request method."""
+
+method.label:
+"""Request Method"""
+
+post.desc:
+"""Configuration of authenticator using HTTP Server as authentication service (Using POST request)."""
+
+request_timeout.desc:
+"""HTTP request timeout."""
+
+request_timeout.label:
+"""Request Timeout"""
+
+url.desc:
+"""URL of the HTTP server."""
+
+url.label:
+"""URL"""
+
+}

@@ -60,11 +60,11 @@ all() -> emqx_common_test_helpers:all(?MODULE).
 init_per_suite(Cfg) ->
     application:load(emqx_gateway_stomp),
     ok = emqx_common_test_helpers:load_config(emqx_gateway_schema, ?CONF_DEFAULT),
-    emqx_mgmt_api_test_util:init_suite([emqx_conf, emqx_authn, emqx_gateway]),
+    emqx_mgmt_api_test_util:init_suite([emqx_conf, emqx_auth, emqx_gateway]),
     Cfg.
 
 end_per_suite(_Cfg) ->
-    emqx_mgmt_api_test_util:end_suite([emqx_gateway, emqx_authn, emqx_conf]),
+    emqx_mgmt_api_test_util:end_suite([emqx_gateway, emqx_auth, emqx_conf]),
     ok.
 
 default_config() ->

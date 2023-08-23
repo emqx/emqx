@@ -5,7 +5,9 @@
     {applications, [
         kernel,
         stdlib,
-        mysql
+        mysql,
+        emqx_connector,
+        emqx_resource
     ]},
     {env, []},
     {modules, []},

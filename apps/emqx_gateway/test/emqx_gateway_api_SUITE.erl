@@ -50,11 +50,11 @@ init_per_suite(Conf) ->
     emqx_config:delete_override_conf_files(),
     emqx_config:erase(gateway),
     emqx_common_test_helpers:load_config(emqx_gateway_schema, ?CONF_DEFAULT),
-    emqx_mgmt_api_test_util:init_suite([emqx_conf, emqx_authn, emqx_gateway]),
+    emqx_mgmt_api_test_util:init_suite([emqx_conf, emqx_auth, emqx_auth_mnesia, emqx_gateway]),
     Conf.
 
 end_per_suite(Conf) ->
-    emqx_mgmt_api_test_util:end_suite([emqx_gateway, emqx_authn, emqx_conf]),
+    emqx_mgmt_api_test_util:end_suite([emqx_gateway, emqx_auth_mnesia, emqx_auth, emqx_conf]),
     Conf.
 
 init_per_testcase(t_gateway_fail, Config) ->
@@ -366,7 +366,7 @@ t_authn_data_mgmt(_) ->
         ["gateways", "stomp", "authentication", "import_users"]
     ),
 
-    Dir = code:lib_dir(emqx_authn, test),
+    Dir = code:lib_dir(emqx_auth, test),
     JSONFileName = filename:join([Dir, <<"data/user-credentials.json">>]),
     {ok, JSONData} = file:read_file(JSONFileName),
     {ok, 204, _} = emqx_dashboard_api_test_helpers:multipart_formdata_request(ImportUri, [], [
@@ -571,7 +571,7 @@ t_listeners_authn_data_mgmt(_) ->
         ["gateways", "stomp", "listeners", "stomp:tcp:def", "authentication", "import_users"]
     ),
 
-    Dir = code:lib_dir(emqx_authn, test),
+    Dir = code:lib_dir(emqx_auth, test),
     JSONFileName = filename:join([Dir, <<"data/user-credentials.json">>]),
     {ok, JSONData} = file:read_file(JSONFileName),
     {ok, 204, _} = emqx_dashboard_api_test_helpers:multipart_formdata_request(ImportUri, [], [

@@ -1,0 +1,12 @@
+emqx_authn_mnesia_schema {
+
+builtin_db.desc:
+"""Configuration of authenticator using built-in database as data source."""
+
+user_id_type.desc:
+"""Specify whether to use `clientid` or `username` for authentication."""
+
+user_id_type.label:
+"""Authentication ID Type"""
+
+}

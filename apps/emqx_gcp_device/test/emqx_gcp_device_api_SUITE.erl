@@ -10,7 +10,7 @@
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
--include_lib("emqx_authn/include/emqx_authn.hrl").
+-include_lib("emqx_auth/include/emqx_authn.hrl").
 -include_lib("emqx/include/emqx.hrl").
 
 -define(PATH, [authentication]).
@@ -23,7 +23,7 @@ init_per_suite(Config) ->
         [
             emqx,
             emqx_conf,
-            emqx_authn,
+            emqx_auth,
             {emqx_retainer, "retainer {enable = true}"},
             emqx_management,
             {emqx_dashboard, "dashboard.listeners.http { enable = true, bind = 18083 }"},

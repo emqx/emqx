@@ -1,0 +1,18 @@
+%% -*- mode: erlang -*-
+{application, emqx_auth_file, [
+    {description, "EMQX File-based Authentication and Authorization"},
+    {vsn, "0.1.0"},
+    {registered, []},
+    {mod, {emqx_auth_file_app, []}},
+    {applications, [
+        kernel,
+        stdlib,
+        emqx,
+        emqx_auth
+    ]},
+    {env, []},
+    {modules, []},
+
+    {licenses, ["Apache 2.0"]},
+    {links, []}
+]}.

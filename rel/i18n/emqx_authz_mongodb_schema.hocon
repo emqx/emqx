@@ -1,0 +1,36 @@
+emqx_authz_mongodb_schema {
+
+mongo_rs.desc:
+"""Authorization using a MongoDB replica set."""
+
+mongo_rs.label:
+"""mongo_rs"""
+
+mongo_sharded.desc:
+"""Authorization using a sharded MongoDB cluster."""
+
+mongo_sharded.label:
+"""mongo_sharded"""
+
+mongo_single.desc:
+"""Authorization using a single MongoDB instance."""
+
+mongo_single.label:
+"""mongo_single"""
+
+filter.desc:
+"""Conditional expression that defines the filter condition in the query.
+Filter supports the following placeholders<br/>
+ - <code>${username}</code>: Will be replaced at runtime with <code>Username</code> used by the client when connecting<br/>
+ - <code>${clientid}</code>: Will be replaced at runtime with <code>Client ID</code> used by the client when connecting"""
+
+filter.label:
+"""Filter"""
+
+collection.desc:
+"""`MongoDB` collection containing the authorization data."""
+
+collection.label:
+"""collection"""
+
+}

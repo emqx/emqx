@@ -69,7 +69,7 @@ init_per_suite(Config) ->
     emqx_gateway_test_utils:load_all_gateway_apps(),
     emqx_config:erase(gateway),
     init_gateway_conf(),
-    emqx_mgmt_api_test_util:init_suite([emqx_conf, emqx_authn, emqx_gateway]),
+    emqx_mgmt_api_test_util:init_suite([emqx_conf, emqx_auth, emqx_auth_http, emqx_gateway]),
     application:ensure_all_started(cowboy),
     emqx_gateway_auth_ct:start(),
     timer:sleep(500),
@@ -78,7 +78,7 @@ init_per_suite(Config) ->
 end_per_suite(Config) ->
     emqx_gateway_auth_ct:stop(),
     emqx_config:erase(gateway),
-    emqx_mgmt_api_test_util:end_suite([cowboy, emqx_conf, emqx_authn, emqx_gateway]),
+    emqx_mgmt_api_test_util:end_suite([cowboy, emqx_conf, emqx_auth, emqx_auth_http, emqx_gateway]),
     Config.
 
 init_per_testcase(_Case, Config) ->
