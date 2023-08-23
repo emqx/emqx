@@ -130,10 +130,7 @@
 -record(acc, {
     %% The current searching target topic/filter
     target,
-    %% The number of moves.
-    %% This is used to check if the target has been moved
-    %% after attempting to append '+' to the searching prefix
-    moves = 0,
+    cont = [],
     %% Search result accumulation
     matches = []
 }).
@@ -176,8 +173,8 @@ base(Prefix) ->
     {Prefix, {}}.
 
 %% Move the search target to the key next to the given Base.
-move_up(#ctx{nextf = NextF}, #acc{moves = Moves} = Acc, Base) ->
-    Acc#acc{target = NextF(Base), moves = Moves + 1}.
+move_up(#ctx{nextf = NextF}, #acc{} = Acc, Base) ->
+    Acc#acc{target = NextF(Base), cont = []}.
 
 %% The current target key is a match, add it to the accumulation.
 add(C, #acc{target = Key} = Acc) ->
@@ -247,14 +244,19 @@ search_new(#ctx{prefix0 = Prefix, words0 = Words0} = C, NewBase, Acc0) ->
     end.
 
 %% Search to the bigger end of ordered collection of topics and topic-filters.
-search_up(C, Word, Words, Filter, RPrefix, #acc{target = Base} = Acc) ->
+search_up(C, Word, Words, Filter, RPrefix, #acc{target = Base, cont = Cont} = Acc) ->
     case compare(Word, Filter, Words) of
         {match, full} ->
             search_new(C, Base, add(C, Acc));
         {match, prefix} ->
             search_new(C, Base, Acc);
         lower ->
-            Acc;
+            case Cont of
+                [] ->
+                    Acc;
+                [F | More] ->
+                    F(Acc#acc{cont = More})
+            end;
         higher ->
             BaseFilter = join(lists:reverse([Word | RPrefix])),
             NewBase = base(BaseFilter),
@@ -265,16 +267,10 @@ search_up(C, Word, Words, Filter, RPrefix, #acc{target = Base} = Acc) ->
     end.
 
 %% Try to use '+' as the next word in the prefix.
-search_plus(C, [W | Words], <<?PLUS, _/binary>> = Filter, RPrefix, Acc) ->
-    M = Acc#acc.moves,
-    case search_up(C, <<?PLUS>>, Words, Filter, RPrefix, Acc) of
-        #acc{moves = M1} = Acc1 when M1 =:= M ->
-            %% Keep searching for one which has W as the next word
-            search_up(C, W, Words, Filter, RPrefix, Acc1);
-        Acc1 ->
-            %% Already searched
-            Acc1
-    end;
+search_plus(C, [W | Words], <<?PLUS, _/binary>> = Filter, RPrefix,
+            #acc{cont = Cont} = Acc) ->
+    F = fun(AccIn) -> search_up(C, W, Words, Filter, RPrefix, AccIn) end,
+    search_up(C, <<?PLUS>>, Words, Filter, RPrefix, Acc#acc{cont = [F | Cont]});
 search_plus(C, [W | Words], Filter, RPrefix, Acc) ->
     search_up(C, W, Words, Filter, RPrefix, Acc).
 
