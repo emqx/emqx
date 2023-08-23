@@ -42,6 +42,7 @@ start_otel(Conf) ->
 
 -spec stop_otel() -> ok | {error, term()}.
 stop_otel() ->
+    ok = emqx_otel:cleanup(),
     case supervisor:terminate_child(?MODULE, ?WORKER) of
         ok -> supervisor:delete_child(?MODULE, ?WORKER);
         {error, not_found} -> ok;
