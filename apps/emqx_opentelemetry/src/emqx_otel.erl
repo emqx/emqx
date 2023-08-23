@@ -17,7 +17,7 @@
 -module(emqx_otel).
 -include_lib("emqx/include/logger.hrl").
 
--export([start_link/1]).
+-export([start_link/1, cleanup/0]).
 -export([get_cluster_gauge/1, get_stats_gauge/1, get_vm_gauge/1, get_metric_counter/1]).
 -export([init/1, handle_continue/2, handle_call/3, handle_cast/2, handle_info/2, terminate/2]).
 
@@ -25,7 +25,6 @@ start_link(Conf) ->
     gen_server:start_link({local, ?MODULE}, ?MODULE, Conf, []).
 
 init(Conf) ->
-    erlang:process_flag(trap_exit, true),
     {ok, #{}, {continue, {setup, Conf}}}.
 
 handle_continue({setup, Conf}, State) ->
@@ -42,7 +41,6 @@ handle_info(_Msg, State) ->
     {noreply, State}.
 
 terminate(_Reason, _State) ->
-    cleanup(),
     ok.
 
 setup(Conf = #{enable := true}) ->
