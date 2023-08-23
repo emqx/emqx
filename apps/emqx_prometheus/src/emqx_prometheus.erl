@@ -169,6 +169,7 @@ collect_mf(_Registry, Callback) ->
     _ = [add_collect_family(Name, Metrics, Callback, counter) || Name <- emqx_metrics_client()],
     _ = [add_collect_family(Name, Metrics, Callback, counter) || Name <- emqx_metrics_session()],
     _ = [add_collect_family(Name, Metrics, Callback, counter) || Name <- emqx_metrics_olp()],
+    _ = [add_collect_family(Name, Metrics, Callback, counter) || Name <- emqx_metrics_acl()],
     ok.
 
 %% @private
@@ -451,6 +452,14 @@ emqx_collect(emqx_overload_protection_gc, Stats) ->
 emqx_collect(emqx_overload_protection_new_conn, Stats) ->
     counter_metric(?C('olp.new_conn', Stats));
 %%--------------------------------------------------------------------
+%% Metrics - acl
+emqx_collect(emqx_authorization_allow, Stats) ->
+    counter_metric(?C('authorization.allow', Stats));
+emqx_collect(emqx_authorization_deny, Stats) ->
+    counter_metric(?C('authorization.deny', Stats));
+emqx_collect(emqx_authorization_cache_hit, Stats) ->
+    counter_metric(?C('authorization.cache_hit', Stats));
+%%--------------------------------------------------------------------
 %% VM
 
 emqx_collect(emqx_vm_cpu_use, VMData) ->
@@ -543,6 +552,13 @@ is_olp_enabled() ->
         false,
         emqx_conf:get([zones], #{})
     ).
+
+emqx_metrics_acl() ->
+    [
+        emqx_authorization_allow,
+        emqx_authorization_deny,
+        emqx_authorization_cache_hit
+    ].
 
 emqx_metrics_messages() ->
     [
