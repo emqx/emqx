@@ -122,6 +122,7 @@
 -type reply() ::
     {outgoing, emqx_types:packet()}
     | {outgoing, [emqx_types:packet()]}
+    | {connack, emqx_types:packet()}
     | {event, conn_state() | updated}
     | {close, Reason :: atom()}.
 
@@ -1023,7 +1024,7 @@ handle_out(publish, [], Channel) ->
     {ok, Channel};
 handle_out(publish, Publishes, Channel) ->
     {Packets, NChannel} = do_deliver(Publishes, Channel),
-    {ok, {outgoing, Packets}, NChannel};
+    {ok, ?REPLY_OUTGOING(Packets), NChannel};
 handle_out(puback, {PacketId, ReasonCode}, Channel) ->
     {ok, ?PUBACK_PACKET(PacketId, ReasonCode), Channel};
 handle_out(pubrec, {PacketId, ReasonCode}, Channel) ->
@@ -1048,7 +1049,7 @@ handle_out(disconnect, {ReasonCode, ReasonName}, Channel) ->
     handle_out(disconnect, {ReasonCode, ReasonName, #{}}, Channel);
 handle_out(disconnect, {ReasonCode, ReasonName, Props}, Channel = ?IS_MQTT_V5) ->
     Packet = ?DISCONNECT_PACKET(ReasonCode, Props),
-    {ok, [{outgoing, Packet}, {close, ReasonName}], Channel};
+    {ok, [?REPLY_OUTGOING(Packet), {close, ReasonName}], Channel};
 handle_out(disconnect, {_ReasonCode, ReasonName, _Props}, Channel) ->
     {ok, {close, ReasonName}, Channel};
 handle_out(auth, {ReasonCode, Properties}, Channel) ->
@@ -1062,7 +1063,7 @@ handle_out(Type, Data, Channel) ->
 %%--------------------------------------------------------------------
 
 return_connack(AckPacket, Channel) ->
-    Replies = [{event, connected}, {connack, AckPacket}],
+    Replies = [?REPLY_EVENT(connected), ?REPLY_CONNACK(AckPacket)],
     case maybe_resume_session(Channel) of
         ignore ->
             {ok, Replies, Channel};
@@ -1073,7 +1074,7 @@ return_connack(AckPacket, Channel) ->
                 session = NSession
             },
             {Packets, NChannel2} = do_deliver(Publishes, NChannel1),
-            Outgoing = [{outgoing, Packets} || length(Packets) > 0],
+            Outgoing = [?REPLY_OUTGOING(Packets) || length(Packets) > 0],
             {ok, Replies ++ Outgoing, NChannel2}
     end.
 
@@ -1121,7 +1122,7 @@ do_deliver(Publishes, Channel) when is_list(Publishes) ->
 %%--------------------------------------------------------------------
 
 return_sub_unsub_ack(Packet, Channel) ->
-    {ok, [{outgoing, Packet}, {event, updated}], Channel}.
+    {ok, [?REPLY_OUTGOING(Packet), ?REPLY_EVENT(updated)], Channel}.
 
 %%--------------------------------------------------------------------
 %% Handle call
@@ -1235,7 +1236,7 @@ handle_info(
 ->
     Channel1 = ensure_disconnected(Reason, maybe_publish_will_msg(Channel)),
     case maybe_shutdown(Reason, Channel1) of
-        {ok, Channel2} -> {ok, {event, disconnected}, Channel2};
+        {ok, Channel2} -> {ok, ?REPLY_EVENT(disconnected), Channel2};
         Shutdown -> Shutdown
     end;
 handle_info({sock_closed, Reason}, Channel = #channel{conn_state = disconnected}) ->

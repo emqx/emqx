@@ -18,7 +18,9 @@
 
 -include_lib("emqx/include/emqx.hrl").
 -include_lib("emqx/include/emqx_mqtt.hrl").
+-include_lib("emqx/include/emqx_channel.hrl").
 -include_lib("emqx/include/emqx_hooks.hrl").
+
 -include_lib("snabbkaffe/include/trace.hrl").
 
 -export([
@@ -164,7 +166,7 @@ on_channel_unregistered(ChannelPid) ->
 on_client_timeout(_TRef, ?FT_EVENT({MRef, PacketId}), Acc) ->
     _ = erlang:demonitor(MRef, [flush]),
     _ = emqx_ft_async_reply:take_by_mref(MRef),
-    {ok, [{outgoing, ?PUBACK_PACKET(PacketId, ?RC_UNSPECIFIED_ERROR)} | Acc]};
+    {ok, [?REPLY_OUTGOING(?PUBACK_PACKET(PacketId, ?RC_UNSPECIFIED_ERROR)) | Acc]};
 on_client_timeout(_TRef, _Event, Acc) ->
     {ok, Acc}.
 
@@ -172,7 +174,7 @@ on_process_down(MRef, _Pid, Reason, Acc) ->
     case emqx_ft_async_reply:take_by_mref(MRef) of
         {ok, PacketId, TRef} ->
             _ = emqx_utils:cancel_timer(TRef),
-            {ok, [{outgoing, ?PUBACK_PACKET(PacketId, reason_to_rc(Reason))} | Acc]};
+            {ok, [?REPLY_OUTGOING(?PUBACK_PACKET(PacketId, reason_to_rc(Reason))) | Acc]};
         not_found ->
             {ok, Acc}
     end.
