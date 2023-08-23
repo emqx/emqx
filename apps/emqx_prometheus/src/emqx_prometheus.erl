@@ -170,6 +170,7 @@ collect_mf(_Registry, Callback) ->
     _ = [add_collect_family(Name, Metrics, Callback, counter) || Name <- emqx_metrics_session()],
     _ = [add_collect_family(Name, Metrics, Callback, counter) || Name <- emqx_metrics_olp()],
     _ = [add_collect_family(Name, Metrics, Callback, counter) || Name <- emqx_metrics_acl()],
+    _ = [add_collect_family(Name, Metrics, Callback, counter) || Name <- emqx_metrics_authn()],
     ok.
 
 %% @private
@@ -460,6 +461,14 @@ emqx_collect(emqx_authorization_deny, Stats) ->
 emqx_collect(emqx_authorization_cache_hit, Stats) ->
     counter_metric(?C('authorization.cache_hit', Stats));
 %%--------------------------------------------------------------------
+%% Metrics - authn
+emqx_collect(emqx_authentication_success, Stats) ->
+    counter_metric(?C('authentication.success', Stats));
+emqx_collect(emqx_authentication_success_anonymous, Stats) ->
+    counter_metric(?C('authentication.success.anonymous', Stats));
+emqx_collect(emqx_authentication_failure, Stats) ->
+    counter_metric(?C('authentication.failure', Stats));
+%%--------------------------------------------------------------------
 %% VM
 
 emqx_collect(emqx_vm_cpu_use, VMData) ->
@@ -558,6 +567,13 @@ emqx_metrics_acl() ->
         emqx_authorization_allow,
         emqx_authorization_deny,
         emqx_authorization_cache_hit
+    ].
+
+emqx_metrics_authn() ->
+    [
+        emqx_authentication_success,
+        emqx_authentication_success_anonymous,
+        emqx_authentication_failure
     ].
 
 emqx_metrics_messages() ->
