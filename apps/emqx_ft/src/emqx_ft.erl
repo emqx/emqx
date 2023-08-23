@@ -166,7 +166,7 @@ on_channel_unregistered(ChannelPid) ->
 on_client_timeout(_TRef, ?FT_EVENT({MRef, PacketId}), Acc) ->
     _ = erlang:demonitor(MRef, [flush]),
     _ = emqx_ft_async_reply:take_by_mref(MRef),
-    {ok, [?REPLY_OUTGOING(?PUBACK_PACKET(PacketId, ?RC_UNSPECIFIED_ERROR)) | Acc]};
+    {stop, [?REPLY_OUTGOING(?PUBACK_PACKET(PacketId, ?RC_UNSPECIFIED_ERROR)) | Acc]};
 on_client_timeout(_TRef, _Event, Acc) ->
     {ok, Acc}.
 
@@ -174,7 +174,7 @@ on_process_down(MRef, _Pid, Reason, Acc) ->
     case emqx_ft_async_reply:take_by_mref(MRef) of
         {ok, PacketId, TRef} ->
             _ = emqx_utils:cancel_timer(TRef),
-            {ok, [?REPLY_OUTGOING(?PUBACK_PACKET(PacketId, reason_to_rc(Reason))) | Acc]};
+            {stop, [?REPLY_OUTGOING(?PUBACK_PACKET(PacketId, reason_to_rc(Reason))) | Acc]};
         not_found ->
             {ok, Acc}
     end.
