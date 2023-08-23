@@ -29,8 +29,7 @@
 -export([get_topic/1]).
 -export([get_record/2]).
 
--type word() :: binary() | '+' | '#'.
--type key(ID) :: {[word()], {ID}}.
+-type key(ID) :: emqx_trie_search:key(ID).
 -type match(ID) :: key(ID).
 -type name() :: any().
 
@@ -78,12 +77,12 @@ matches(Topic, Name, Opts) ->
     emqx_trie_search:matches(Topic, make_nextf(Name), Opts).
 
 %% @doc Extract record ID from the match.
--spec get_id(match(ID)) -> ID.
+-spec get_id(match(_)) -> any().
 get_id(Key) ->
     emqx_trie_search:get_id(Key).
 
 %% @doc Extract topic (or topic filter) from the match.
--spec get_topic(match(_ID)) -> emqx_types:topic().
+-spec get_topic(match(_)) -> emqx_types:topic().
 get_topic(Key) ->
     emqx_trie_search:get_topic(Key).
 

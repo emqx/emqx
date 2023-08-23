@@ -347,7 +347,11 @@ topic_level_fixed_t() ->
         <<"foo">>,
         <<"bar">>,
         <<"baz">>,
-        <<"xyzzy">>
+        <<"xyzzy">>,
+        <<"foo.bar">>,
+        <<0>>,
+        <<9>>,
+        <<255>>
     ]).
 
 topic_filter_pattern_t() ->

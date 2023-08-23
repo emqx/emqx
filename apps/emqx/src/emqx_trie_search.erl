@@ -100,11 +100,15 @@
 
 -export([make_key/2]).
 -export([match/2, matches/3, get_id/1, get_topic/1]).
+%% test
+-export([words/1, join/1, unescape/1]).
+
 -export_type([key/1, word/0, nextf/0, opts/0]).
 
--type word() :: binary() | '+' | '#'.
--type base_key() :: {binary() | [word()], {}}.
--type key(ID) :: {binary() | [word()], {ID}}.
+-type topic() :: emqx_types:topic().
+-type word() :: binary().
+-type base_key() :: {topic(), {}}.
+-type key(ID) :: {topic(), {ID}}.
 -type nextf() :: fun((key(_) | base_key()) -> '$end_of_table' | key(_)).
 -type opts() :: [unique | return_first].
 
@@ -113,9 +117,9 @@
     %% A function which can quickly find the immediate-next record of the given prefix
     nextf :: nextf(),
     %% The initial prefix to start searching from
-    %% if the input topic starts with a dollar-word, it's the first word like [<<"$SYS">>]
-    %% otherwise it's a []
-    prefix0 :: [word()],
+    %% if the input topic starts with a dollar-word, it's the first word like <<"$SYS">>
+    %% otherwise it's a <<"">>
+    prefix0 :: word(),
     %% The initial words of a topic
     words0 :: [word()],
     %% Return as soon as there is one match found
@@ -134,20 +138,28 @@
     matches = []
 }).
 
+%% Escapes UTF-8 encoded topic string to ensure the same lexicographic order
+%% as split words.
+%%
+%% <<0>> for <<"/">>
+%% <<1>> for <<"#">>
+%% <<2>> for <<"+">>
+%% <<3>> for <<"">>
+%% <<9, N>> for <<N>> when N < 10
+%%
+%% NOTE: Although 0~9 are very much unlikely to be used in topics,
+%% but they are valid UTF-8 characters so we have to escape them.
+-define(SLASH, 0).
+-define(HASH, 1).
+-define(PLUS, 2).
+-define(EMPTY, 3).
+-define(ESC, 9).
+
 %% @doc Make a search-key for the given topic.
--spec make_key(emqx_types:topic(), ID) -> key(ID).
+-spec make_key(topic(), ID) -> key(ID).
 make_key(Topic, ID) when is_binary(Topic) ->
     Words = words(Topic),
-    case lists:any(fun erlang:is_atom/1, Words) of
-        true ->
-            %% it's a wildcard
-            {Words, {ID}};
-        false ->
-            %% Not a wildcard. We do not split the topic
-            %% because they can be found with direct lookups.
-            %% it is also more compact in memory.
-            {Topic, {ID}}
-    end.
+    {join(Words), {ID}}.
 
 %% @doc Extract record ID from the match.
 -spec get_id(key(ID)) -> ID.
@@ -155,11 +167,9 @@ get_id({_Filter, {ID}}) ->
     ID.
 
 %% @doc Extract topic (or topic filter) from the match.
--spec get_topic(key(_ID)) -> emqx_types:topic().
-get_topic({Filter, _ID}) when is_list(Filter) ->
-    emqx_topic:join(Filter);
-get_topic({Topic, _ID}) ->
-    Topic.
+-spec get_topic(key(_ID)) -> topic().
+get_topic({Filter, _ID}) ->
+    unescape(Filter).
 
 %% Make the base-key which can be used to locate the desired search target.
 base(Prefix) ->
@@ -181,7 +191,7 @@ add(_C, #acc{matches = Matches} = Acc, Key) ->
 
 %% @doc Match given topic against the index and return the first match, or `false` if
 %% no match is found.
--spec match(emqx_types:topic(), nextf()) -> false | key(_).
+-spec match(topic(), nextf()) -> false | key(_).
 match(Topic, NextF) ->
     try search(Topic, NextF, [return_first]) of
         [] ->
@@ -193,7 +203,7 @@ match(Topic, NextF) ->
 
 %% @doc Match given topic against the index and return _all_ matches.
 %% If `unique` option is given, return only unique matches by record ID.
--spec matches(emqx_types:topic(), nextf(), opts()) -> [key(_)].
+-spec matches(topic(), nextf(), opts()) -> [key(_)].
 matches(Topic, NextF, Opts) ->
     search(Topic, NextF, Opts).
 
@@ -214,7 +224,7 @@ search(Topic, NextF, Opts) ->
                 []
         end,
     Acc = search_new(Context, base(Prefix), #acc{matches = Matches0}),
-    #acc{matches = Matches} = match_non_wildcards(Context, base(Topic), Acc),
+    #acc{matches = Matches} = Acc,
     case is_map(Matches) of
         true ->
             maps:values(Matches);
@@ -228,13 +238,12 @@ search_new(#ctx{prefix0 = Prefix, words0 = Words0} = C, NewBase, Acc0) ->
     case move_up(C, Acc0, NewBase) of
         #acc{target = '$end_of_table'} = Acc ->
             Acc;
-        #acc{target = {Filter, _}} = Acc when Prefix =:= [] ->
+        #acc{target = {Filter, _}} = Acc when Prefix =:= <<>> ->
             %% This is not a '$' topic, start from '+'
             search_plus(C, Words0, Filter, [], Acc);
         #acc{target = {Filter, _}} = Acc ->
-            [DollarWord] = Prefix,
             %% Start from the '$' word
-            search_up(C, DollarWord, Words0, Filter, [], Acc)
+            search_up(C, Prefix, Words0, Filter, [], Acc)
     end.
 
 %% Search to the bigger end of ordered collection of topics and topic-filters.
@@ -247,52 +256,52 @@ search_up(C, Word, Words, Filter, RPrefix, #acc{target = Base} = Acc) ->
         lower ->
             Acc;
         higher ->
-            NewBase = base(lists:reverse([Word | RPrefix])),
+            BaseFilter = join(lists:reverse([Word | RPrefix])),
+            NewBase = base(BaseFilter),
             search_new(C, NewBase, Acc);
         shorter ->
-            search_plus(C, Words, tl(Filter), [Word | RPrefix], Acc)
+            <<Word:(size(Word))/binary, ?SLASH, Filter1/binary>> = Filter,
+            search_plus(C, Words, Filter1, [Word | RPrefix], Acc)
     end.
 
 %% Try to use '+' as the next word in the prefix.
-search_plus(C, [W, X | Words], [W, X | Filter], RPrefix, Acc) ->
-    %% Directly append the current word to the matching prefix (RPrefix).
-    %% Micro optimization: try not to call the next clause because
-    %% it is not a continuation.
-    search_plus(C, [X | Words], [X | Filter], [W | RPrefix], Acc);
-search_plus(C, [W | Words], Filter, RPrefix, Acc) ->
+search_plus(C, [W | Words], <<?PLUS, _/binary>> = Filter, RPrefix, Acc) ->
     M = Acc#acc.moves,
-    case search_up(C, '+', Words, Filter, RPrefix, Acc) of
+    case search_up(C, <<?PLUS>>, Words, Filter, RPrefix, Acc) of
         #acc{moves = M1} = Acc1 when M1 =:= M ->
             %% Keep searching for one which has W as the next word
             search_up(C, W, Words, Filter, RPrefix, Acc1);
         Acc1 ->
             %% Already searched
             Acc1
-    end.
+    end;
+search_plus(C, [W | Words], Filter, RPrefix, Acc) ->
+    search_up(C, W, Words, Filter, RPrefix, Acc).
 
 %% Compare prefix word then the next words in suffix against the search-target
 %% topic or topic-filter.
-compare(_, NotFilter, _) when is_binary(NotFilter) ->
-    lower;
-compare(H, [H | Filter], Words) ->
-    compare(Filter, Words);
-compare(_, ['#'], _Words) ->
+compare(_Word, <<?HASH>>, _Words) ->
     {match, full};
-compare(H1, [H2 | _T2], _Words) when H1 < H2 ->
-    lower;
-compare(_H, [_ | _], _Words) ->
-    higher.
+compare(Word, Word, []) ->
+    {match, full};
+compare(Word, Word, _) ->
+    {match, prefix};
+compare(Word, Filter, Words) ->
+    case Filter of
+        <<Word:(size(Word))/binary, ?SLASH, Filter1/binary>> ->
+            compare(Filter1, Words);
+        _ when Word < Filter ->
+            lower;
+        _ ->
+            higher
+    end.
 
 %% Now compare the filter suffix and the topic suffix.
-compare([], []) ->
+compare(<<?HASH>>, _Words) ->
     {match, full};
-compare([], _Words) ->
-    {match, prefix};
-compare(['#'], _Words) ->
-    {match, full};
-compare([_ | _], []) ->
+compare(<<_, _/binary>>, []) ->
     lower;
-compare([_ | _], _Words) ->
+compare(<<_, _/binary>>, _Words) ->
     %% cannot know if it's a match, lower, or higher,
     %% must search with a longer prefix.
     shorter.
@@ -308,28 +317,64 @@ match_init(Topic) ->
         [W = <<"$", _/bytes>> | Rest] ->
             % NOTE
             % This will effectively skip attempts to match special topics to `#` or `+/...`.
-            {Rest, [W]};
+            {Rest, W};
         Words ->
-            {Words, []}
+            {Words, <<>>}
     end.
 
--spec words(emqx_types:topic()) -> [word()].
+%% Split the given topic or topic-filter and return the escaped words list.
+-spec words(topic()) -> [word()].
 words(Topic) when is_binary(Topic) ->
-    % NOTE
-    % This is almost identical to `emqx_topic:words/1`, but it doesn't convert empty
-    % tokens to ''. This is needed to keep ordering of words consistent with what
-    % `match_filter/3` expects.
-    [word(W) || W <- emqx_topic:tokens(Topic)].
+    lists:map(fun esc/1, emqx_topic:tokens(Topic)).
 
--spec word(binary()) -> word().
-word(<<"+">>) -> '+';
-word(<<"#">>) -> '#';
-word(Bin) -> Bin.
+%% Use \0 to join the escaped-words.
+join([H | EscapedWords]) ->
+    join_loop(EscapedWords, H).
 
-match_non_wildcards(#ctx{nextf = NextF} = C, {Topic, _} = Base, Acc) ->
-    case NextF(Base) of
-        {Topic, _ID} = Key ->
-            match_non_wildcards(C, Key, add(C, Acc, Key));
-        _Other ->
-            Acc
+join_loop([], Filter) ->
+    Filter;
+join_loop([NextWord | Words], Filter) ->
+    join_loop(Words, <<Filter/binary, ?SLASH, NextWord/binary>>).
+
+esc(<<"#">>) ->
+    <<?HASH>>;
+esc(<<"+">>) ->
+    <<?PLUS>>;
+esc(<<>>) ->
+    <<?EMPTY>>;
+esc(Word) ->
+    %% check before calling esc_w because 99.999% of the time
+    %% it makes a copy of Word.
+    case (<<<<C>> || <<C>> <= Word, C < 10>>) of
+        <<>> ->
+            Word;
+        _ ->
+            esc_w(Word, <<>>)
     end.
+
+esc_w(<<C, Rest/binary>>, Acc) when C < 10 ->
+    esc_w(Rest, <<Acc/binary, 9, C>>);
+esc_w(<<C, Rest/binary>>, Acc) ->
+    esc_w(Rest, <<Acc/binary, C>>);
+esc_w(<<>>, Result) ->
+    Result.
+
+%% Convert escaped topic or topic-filter back to the original format.
+unescape(Filter) ->
+    unesc(Filter, <<>>).
+
+unesc(<<>>, Filter) ->
+    Filter;
+unesc(<<?SLASH, Rest/binary>>, Filter) ->
+    unesc(Rest, <<Filter/binary, $/>>);
+unesc(<<?HASH, Rest/binary>>, Filter) ->
+    unesc(Rest, <<Filter/binary, $#>>);
+unesc(<<?PLUS, Rest/binary>>, Filter) ->
+    unesc(Rest, <<Filter/binary, $+>>);
+unesc(<<?EMPTY, Rest/binary>>, Filter) ->
+    unesc(Rest, Filter);
+unesc(<<?ESC, C, Rest/binary>>, Filter) ->
+    true = (C < 10),
+    unesc(Rest, <<Filter/binary, C>>);
+unesc(<<C, Rest/binary>>, Filter) ->
+    unesc(Rest, <<Filter/binary, C>>).
