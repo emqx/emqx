@@ -455,15 +455,15 @@ emqx_collect(emqx_session_terminated, Stats) ->
 
 %% Metrics - overload protection
 emqx_collect(emqx_overload_protection_delay_ok, Stats) ->
-    counter_metric(?C('olp.delay.ok', Stats));
+    counter_metric(?C('overload_protection.delay.ok', Stats));
 emqx_collect(emqx_overload_protection_delay_timeout, Stats) ->
-    counter_metric(?C('olp.delay.timeout', Stats));
+    counter_metric(?C('overload_protection.delay.timeout', Stats));
 emqx_collect(emqx_overload_protection_hibernation, Stats) ->
-    counter_metric(?C('olp.hbn', Stats));
+    counter_metric(?C('overload_protection.hibernation', Stats));
 emqx_collect(emqx_overload_protection_gc, Stats) ->
-    counter_metric(?C('olp.gc', Stats));
+    counter_metric(?C('overload_protection.gc', Stats));
 emqx_collect(emqx_overload_protection_new_conn, Stats) ->
-    counter_metric(?C('olp.new_conn', Stats));
+    counter_metric(?C('overload_protection.new_conn', Stats));
 %%--------------------------------------------------------------------
 %% Metrics - acl
 emqx_collect(emqx_authorization_allow, Stats) ->
@@ -559,7 +559,7 @@ emqx_metrics_packets() ->
     ].
 
 emqx_metrics_olp() ->
-    case is_olp_enabled() of
+    case emqx_config_zones:is_olp_enabled() of
         true ->
             [
                 emqx_overload_protection_delay_ok,
@@ -571,16 +571,6 @@ emqx_metrics_olp() ->
         false ->
             []
     end.
-
-is_olp_enabled() ->
-    maps:fold(
-        fun
-            (_, #{overload_protection := #{enable := true}}, _Acc) -> true;
-            (_, _, Acc) -> Acc
-        end,
-        false,
-        emqx_conf:get([zones], #{})
-    ).
 
 emqx_metrics_acl() ->
     [
