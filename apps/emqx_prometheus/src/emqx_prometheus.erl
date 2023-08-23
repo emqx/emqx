@@ -168,6 +168,7 @@ collect_mf(_Registry, Callback) ->
     _ = [add_collect_family(Name, Metrics, Callback, counter) || Name <- emqx_metrics_delivery()],
     _ = [add_collect_family(Name, Metrics, Callback, counter) || Name <- emqx_metrics_client()],
     _ = [add_collect_family(Name, Metrics, Callback, counter) || Name <- emqx_metrics_session()],
+    _ = [add_collect_family(Name, Metrics, Callback, counter) || Name <- emqx_metrics_olp()],
     ok.
 
 %% @private
@@ -437,6 +438,19 @@ emqx_collect(emqx_session_discarded, Stats) ->
 emqx_collect(emqx_session_terminated, Stats) ->
     counter_metric(?C('session.terminated', Stats));
 %%--------------------------------------------------------------------
+
+%% Metrics - overload protection
+emqx_collect(emqx_overload_protection_delay_ok, Stats) ->
+    counter_metric(?C('olp.delay.ok', Stats));
+emqx_collect(emqx_overload_protection_delay_timeout, Stats) ->
+    counter_metric(?C('olp.delay.timeout', Stats));
+emqx_collect(emqx_overload_protection_hibernation, Stats) ->
+    counter_metric(?C('olp.hbn', Stats));
+emqx_collect(emqx_overload_protection_gc, Stats) ->
+    counter_metric(?C('olp.gc', Stats));
+emqx_collect(emqx_overload_protection_new_conn, Stats) ->
+    counter_metric(?C('olp.new_conn', Stats));
+%%--------------------------------------------------------------------
 %% VM
 
 emqx_collect(emqx_vm_cpu_use, VMData) ->
@@ -505,6 +519,30 @@ emqx_metrics_packets() ->
         emqx_packets_auth_received,
         emqx_packets_auth_sent
     ].
+
+emqx_metrics_olp() ->
+    case is_olp_enabled() of
+        true ->
+            [
+                emqx_overload_protection_delay_ok,
+                emqx_overload_protection_delay_timeout,
+                emqx_overload_protection_hibernation,
+                emqx_overload_protection_gc,
+                emqx_overload_protection_new_conn
+            ];
+        false ->
+            []
+    end.
+
+is_olp_enabled() ->
+    maps:fold(
+        fun
+            (_, #{overload_protection := #{enable := true}}, _Acc) -> true;
+            (_, _, Acc) -> Acc
+        end,
+        false,
+        emqx_conf:get([zones], #{})
+    ).
 
 emqx_metrics_messages() ->
     [
