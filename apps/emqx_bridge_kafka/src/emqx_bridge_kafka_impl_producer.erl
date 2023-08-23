@@ -213,7 +213,7 @@ on_stop(InstanceId, _State) ->
     ok.
 
 on_query(
-    _InstId,
+    InstId,
     {send_message, Message},
     #{
         message_template := Template,
@@ -229,19 +229,34 @@ on_query(
         ext_headers_tokens => KafkaExtHeadersTokens,
         headers_val_encode_mode => KafkaHeadersValEncodeMode
     },
-    KafkaMessage = render_message(Template, KafkaHeaders, Message),
-    ?tp(
-        emqx_bridge_kafka_impl_producer_sync_query,
-        #{headers_config => KafkaHeaders, instance_id => _InstId}
-    ),
     try
-        {_Partition, _Offset} = wolff:send_sync(Producers, [KafkaMessage], SyncTimeout),
-        ok
+        KafkaMessage = render_message(Template, KafkaHeaders, Message),
+        ?tp(
+            emqx_bridge_kafka_impl_producer_sync_query,
+            #{headers_config => KafkaHeaders, instance_id => InstId}
+        ),
+        do_send_msg(sync, KafkaMessage, Producers, SyncTimeout)
     catch
-        error:{producer_down, _} = Reason ->
-            {error, Reason};
-        error:timeout ->
-            {error, timeout}
+        throw:{bad_kafka_header, _} = Error ->
+            ?tp(
+                emqx_bridge_kafka_impl_producer_sync_query_failed,
+                #{
+                    headers_config => KafkaHeaders,
+                    instance_id => InstId,
+                    reason => Error
+                }
+            ),
+            {error, {unrecoverable_error, Error}};
+        throw:{bad_kafka_headers, _} = Error ->
+            ?tp(
+                emqx_bridge_kafka_impl_producer_sync_query_failed,
+                #{
+                    headers_config => KafkaHeaders,
+                    instance_id => InstId,
+                    reason => Error
+                }
+            ),
+            {error, {unrecoverable_error, Error}}
     end.
 
 %% @doc The callback API for rule-engine (or bridge without rules)
@@ -251,7 +266,7 @@ on_query(
 %% E.g. the output of rule-engine process chain
 %% or the direct mapping from an MQTT message.
 on_query_async(
-    _InstId,
+    InstId,
     {send_message, Message},
     AsyncReplyFn,
     #{
@@ -267,21 +282,35 @@ on_query_async(
         ext_headers_tokens => KafkaExtHeadersTokens,
         headers_val_encode_mode => KafkaHeadersValEncodeMode
     },
-    KafkaMessage = render_message(Template, KafkaHeaders, Message),
-    ?tp(
-        emqx_bridge_kafka_impl_producer_async_query,
-        #{headers_config => KafkaHeaders, instance_id => _InstId}
-    ),
-    %% * Must be a batch because wolff:send and wolff:send_sync are batch APIs
-    %% * Must be a single element batch because wolff books calls, but not batch sizes
-    %%   for counters and gauges.
-    Batch = [KafkaMessage],
-    %% The retuned information is discarded here.
-    %% If the producer process is down when sending, this function would
-    %% raise an error exception which is to be caught by the caller of this callback
-    {_Partition, Pid} = wolff:send(Producers, Batch, {fun ?MODULE:on_kafka_ack/3, [AsyncReplyFn]}),
-    %% this Pid is so far never used because Kafka producer is by-passing the buffer worker
-    {ok, Pid}.
+    try
+        KafkaMessage = render_message(Template, KafkaHeaders, Message),
+        ?tp(
+            emqx_bridge_kafka_impl_producer_async_query,
+            #{headers_config => KafkaHeaders, instance_id => InstId}
+        ),
+        do_send_msg(async, KafkaMessage, Producers, AsyncReplyFn)
+    catch
+        throw:{bad_kafka_header, _} = Error ->
+            ?tp(
+                emqx_bridge_kafka_impl_producer_async_query_failed,
+                #{
+                    headers_config => KafkaHeaders,
+                    instance_id => InstId,
+                    reason => Error
+                }
+            ),
+            {error, {unrecoverable_error, Error}};
+        throw:{bad_kafka_headers, _} = Error ->
+            ?tp(
+                emqx_bridge_kafka_impl_producer_async_query_failed,
+                #{
+                    headers_config => KafkaHeaders,
+                    instance_id => InstId,
+                    reason => Error
+                }
+            ),
+            {error, {unrecoverable_error, Error}}
+    end.
 
 compile_message_template(T) ->
     KeyTemplate = maps:get(key, T, <<"${.clientid}">>),
@@ -336,6 +365,28 @@ render_timestamp(Template, Message) ->
         _:_ ->
             erlang:system_time(millisecond)
     end.
+
+do_send_msg(sync, KafkaMessage, Producers, SyncTimeout) ->
+    try
+        {_Partition, _Offset} = wolff:send_sync(Producers, [KafkaMessage], SyncTimeout),
+        ok
+    catch
+        error:{producer_down, _} = Reason ->
+            {error, Reason};
+        error:timeout ->
+            {error, timeout}
+    end;
+do_send_msg(async, KafkaMessage, Producers, AsyncReplyFn) ->
+    %% * Must be a batch because wolff:send and wolff:send_sync are batch APIs
+    %% * Must be a single element batch because wolff books calls, but not batch sizes
+    %%   for counters and gauges.
+    Batch = [KafkaMessage],
+    %% The retuned information is discarded here.
+    %% If the producer process is down when sending, this function would
+    %% raise an error exception which is to be caught by the caller of this callback
+    {_Partition, Pid} = wolff:send(Producers, Batch, {fun ?MODULE:on_kafka_ack/3, [AsyncReplyFn]}),
+    %% this Pid is so far never used because Kafka producer is by-passing the buffer worker
+    {ok, Pid}.
 
 %% Wolff producer never gives up retrying
 %% so there can only be 'ok' results.
