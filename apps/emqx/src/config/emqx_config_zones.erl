@@ -42,5 +42,5 @@ is_olp_enabled() ->
             (_, _, Acc) -> Acc
         end,
         false,
-        emqx_conf:get([zones], #{})
+        emqx_config:get([zones], #{})
     ).
