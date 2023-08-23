@@ -46,12 +46,25 @@ remove_handler() ->
     ok.
 
 post_config_update(?PROMETHEUS, _Req, New, _Old, AppEnvs) ->
-    application:set_env(AppEnvs),
-    update_prometheus(New);
+    update_prometheus(AppEnvs),
+    update_push_gateway(New);
 post_config_update(_ConfPath, _Req, _NewConf, _OldConf, _AppEnvs) ->
     ok.
 
-update_prometheus(#{enable := true}) ->
+update_prometheus(AppEnvs) ->
+    {ok, PrevCollectors} = application:get_env(prometheus, collectors),
+    CurCollectors = proplists:get_value(collectors, proplists:get_value(prometheus, AppEnvs)),
+    lists:foreach(
+        fun prometheus_registry:deregister_collector/1,
+        PrevCollectors -- CurCollectors
+    ),
+    lists:foreach(
+        fun prometheus_registry:register_collector/1,
+        CurCollectors -- PrevCollectors
+    ),
+    application:set_env(AppEnvs).
+
+update_push_gateway(#{enable := true}) ->
     emqx_prometheus_sup:start_child(?APP);
-update_prometheus(#{enable := false}) ->
+update_push_gateway(#{enable := false}) ->
     emqx_prometheus_sup:stop_child(?APP).

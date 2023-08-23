@@ -267,7 +267,7 @@
     {counter, 'authentication.failure'}
 ]).
 
-%% Overload protetion counters
+%% Overload protection counters
 -define(OLP_METRICS, [
     {counter, 'olp.delay.ok'},
     {counter, 'olp.delay.timeout'},

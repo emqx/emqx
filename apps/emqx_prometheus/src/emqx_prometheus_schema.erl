@@ -99,7 +99,7 @@ fields("prometheus") ->
             ?HOCON(
                 hoconsc:enum([enabled, disabled]),
                 #{
-                    default => enabled,
+                    default => disabled,
                     required => true,
                     importance => ?IMPORTANCE_LOW,
                     desc => ?DESC(mnesia_collector)
@@ -110,7 +110,7 @@ fields("prometheus") ->
             ?HOCON(
                 hoconsc:enum([enabled, disabled]),
                 #{
-                    default => enabled,
+                    default => disabled,
                     required => true,
                     importance => ?IMPORTANCE_LOW,
                     desc => ?DESC(vm_statistics_collector)
@@ -121,7 +121,7 @@ fields("prometheus") ->
             ?HOCON(
                 hoconsc:enum([enabled, disabled]),
                 #{
-                    default => enabled,
+                    default => disabled,
                     required => true,
                     importance => ?IMPORTANCE_LOW,
                     desc => ?DESC(vm_system_info_collector)
@@ -133,7 +133,7 @@ fields("prometheus") ->
             ?HOCON(
                 hoconsc:enum([enabled, disabled]),
                 #{
-                    default => enabled,
+                    default => disabled,
                     required => true,
                     importance => ?IMPORTANCE_LOW,
                     desc => ?DESC(vm_memory_collector)
@@ -144,7 +144,7 @@ fields("prometheus") ->
             ?HOCON(
                 hoconsc:enum([enabled, disabled]),
                 #{
-                    default => enabled,
+                    default => disabled,
                     required => true,
                     importance => ?IMPORTANCE_LOW,
                     desc => ?DESC(vm_msacc_collector)
@@ -178,5 +178,5 @@ validate_push_gateway_server(Url) ->
 translation(Name) ->
     %% translate 'vm_dist_collector', 'mnesia_collector', 'vm_statistics_collector',
     %% 'vm_system_info_collector', 'vm_memory_collector', 'vm_msacc_collector'
-    %% to prometheus envrionments
+    %% to prometheus environments
     emqx_conf_schema:translation(Name).
