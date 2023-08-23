@@ -87,9 +87,16 @@ create_metric_views() ->
     create_gauge(Meter, VmGauge, fun ?MODULE:get_vm_gauge/1),
     ClusterGauge = [{'node.running', 0}, {'node.stopped', 0}],
     create_gauge(Meter, ClusterGauge, fun ?MODULE:get_cluster_gauge/1),
-    Metrics = lists:map(fun({K, V}) -> {K, V, unit(K)} end, emqx_metrics:all()),
+    Metrics = lists:map(fun({K, V}) -> {to_metric_name(K), V, unit(K)} end, emqx_metrics:all()),
     create_counter(Meter, Metrics, fun ?MODULE:get_metric_counter/1),
     ok.
+
+to_metric_name('messages.dropped.await_pubrel_timeout') ->
+    'messages.dropped.expired';
+to_metric_name('packets.connect.received') ->
+    'packets.connect';
+to_metric_name(Name) ->
+    Name.
 
 unit(K) ->
     case lists:member(K, bytes_metrics()) of

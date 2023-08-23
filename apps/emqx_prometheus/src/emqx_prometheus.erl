@@ -231,6 +231,10 @@ emqx_collect(emqx_sessions_count, Stats) ->
     gauge_metric(?C('sessions.count', Stats));
 emqx_collect(emqx_sessions_max, Stats) ->
     gauge_metric(?C('sessions.max', Stats));
+emqx_collect(emqx_channels_count, Stats) ->
+    gauge_metric(?C('channels.count', Stats));
+emqx_collect(emqx_channels_max, Stats) ->
+    gauge_metric(?C('channels.max', Stats));
 %% pub/sub stats
 emqx_collect(emqx_topics_count, Stats) ->
     gauge_metric(?C('topics.count', Stats));
@@ -257,6 +261,11 @@ emqx_collect(emqx_retained_count, Stats) ->
     gauge_metric(?C('retained.count', Stats));
 emqx_collect(emqx_retained_max, Stats) ->
     gauge_metric(?C('retained.max', Stats));
+%% delayed
+emqx_collect(emqx_delayed_count, Stats) ->
+    gauge_metric(?C('delayed.count', Stats));
+emqx_collect(emqx_delayed_max, Stats) ->
+    gauge_metric(?C('delayed.max', Stats));
 %%--------------------------------------------------------------------
 %% Metrics - packets & bytes
 
@@ -411,7 +420,10 @@ emqx_collect(emqx_delivery_dropped_expired, Stats) ->
     counter_metric(?C('delivery.dropped.expired', Stats));
 %%--------------------------------------------------------------------
 %% Metrics - client
-
+emqx_collect(emqx_client_connect, Stats) ->
+    counter_metric(?C('client.connect', Stats));
+emqx_collect(emqx_client_connack, Stats) ->
+    counter_metric(?C('client.connack', Stats));
 emqx_collect(emqx_client_connected, Stats) ->
     counter_metric(?C('client.connected', Stats));
 emqx_collect(emqx_client_authenticate, Stats) ->
@@ -460,6 +472,14 @@ emqx_collect(emqx_authorization_deny, Stats) ->
     counter_metric(?C('authorization.deny', Stats));
 emqx_collect(emqx_authorization_cache_hit, Stats) ->
     counter_metric(?C('authorization.cache_hit', Stats));
+emqx_collect(emqx_authorization_superuser, Stats) ->
+    counter_metric(?C('authorization.superuser', Stats));
+emqx_collect(emqx_authorization_nomatch, Stats) ->
+    counter_metric(?C('authorization.nomatch', Stats));
+emqx_collect(emqx_authorization_matched_allow, Stats) ->
+    counter_metric(?C('authorization.matched_allow', Stats));
+emqx_collect(emqx_authorization_matched_deny, Stats) ->
+    counter_metric(?C('authorization.matched_deny', Stats));
 %%--------------------------------------------------------------------
 %% Metrics - authn
 emqx_collect(emqx_authentication_success, Stats) ->
@@ -566,7 +586,11 @@ emqx_metrics_acl() ->
     [
         emqx_authorization_allow,
         emqx_authorization_deny,
-        emqx_authorization_cache_hit
+        emqx_authorization_cache_hit,
+        emqx_authorization_superuser,
+        emqx_authorization_nomatch,
+        emqx_authorization_matched_allow,
+        emqx_authorization_matched_deny
     ].
 
 emqx_metrics_authn() ->
@@ -609,6 +633,8 @@ emqx_metrics_delivery() ->
 
 emqx_metrics_client() ->
     [
+        emqx_client_connect,
+        emqx_client_connack,
         emqx_client_connected,
         emqx_client_authenticate,
         emqx_client_auth_anonymous,
