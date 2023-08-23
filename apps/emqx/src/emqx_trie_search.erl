@@ -98,14 +98,14 @@
 
 -module(emqx_trie_search).
 
--export([ceiling/0, make_key/2]).
+-export([make_key/2]).
 -export([match/2, matches/3, get_id/1, get_topic/1]).
 -export_type([key/1, word/0, nextf/0, opts/0]).
 
 -type word() :: binary() | '+' | '#'.
 -type base_key() :: {binary() | [word()], {}}.
 -type key(ID) :: {binary() | [word()], {ID}}.
--type nextf() :: fun((key(_) | base_key()) -> key(_)).
+-type nextf() :: fun((key(_) | base_key()) -> '$end_of_table' | key(_)).
 -type opts() :: [unique | return_first].
 
 %% Holds the constant values of each search.
@@ -134,31 +134,20 @@
     matches = []
 }).
 
-%% All valid utf8 bytes are less than 255.
--define(CEILING_TOPIC, <<255>>).
--define(CEILING, {?CEILING_TOPIC, {1}}).
-
-%% @doc Return a key which is greater than all other valid keys.
-ceiling() ->
-    ?CEILING.
-
 %% @doc Make a search-key for the given topic.
 -spec make_key(emqx_types:topic(), ID) -> key(ID).
 make_key(Topic, ID) when is_binary(Topic) ->
     Words = words(Topic),
-    Key =
-        case lists:any(fun erlang:is_atom/1, Words) of
-            true ->
-                %% it's a wildcard
-                {Words, {ID}};
-            false ->
-                %% Not a wildcard. We do not split the topic
-                %% because they can be found with direct lookups.
-                %% it is also more compact in memory.
-                {Topic, {ID}}
-        end,
-    Key > ceiling() andalso throw({invalid_topic, Topic}),
-    Key.
+    case lists:any(fun erlang:is_atom/1, Words) of
+        true ->
+            %% it's a wildcard
+            {Words, {ID}};
+        false ->
+            %% Not a wildcard. We do not split the topic
+            %% because they can be found with direct lookups.
+            %% it is also more compact in memory.
+            {Topic, {ID}}
+    end.
 
 %% @doc Extract record ID from the match.
 -spec get_id(key(ID)) -> ID.
@@ -236,12 +225,14 @@ search(Topic, NextF, Opts) ->
 %% The recursive entrypoint of the trie-search algorithm.
 %% Always start from the initial prefix and words.
 search_new(#ctx{prefix0 = Prefix, words0 = Words0} = C, NewBase, Acc0) ->
-    #acc{target = {Filter, _}} = Acc = move_up(C, Acc0, NewBase),
-    case Prefix of
-        [] ->
+    case move_up(C, Acc0, NewBase) of
+        #acc{target = '$end_of_table'} = Acc ->
+            Acc;
+        #acc{target = {Filter, _}} = Acc when Prefix =:= [] ->
             %% This is not a '$' topic, start from '+'
             search_plus(C, Words0, Filter, [], Acc);
-        [DollarWord] ->
+        #acc{target = {Filter, _}} = Acc ->
+            [DollarWord] = Prefix,
             %% Start from the '$' word
             search_up(C, DollarWord, Words0, Filter, [], Acc)
     end.

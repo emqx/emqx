@@ -35,9 +35,7 @@
 %% Usable mostly for testing purposes.
 -spec new() -> ets:table().
 new() ->
-    T = ets:new(?MODULE, [public, ordered_set, {read_concurrency, true}]),
-    ets:insert(T, {emqx_trie_search:ceiling(), []}),
-    T.
+    ets:new(?MODULE, [public, ordered_set, {read_concurrency, true}]).
 
 %% @doc Insert a new entry into the index that associates given topic filter to given
 %% record ID, and attaches arbitrary record to the entry. This allows users to choose

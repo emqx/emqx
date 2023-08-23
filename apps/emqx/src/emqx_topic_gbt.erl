@@ -104,12 +104,16 @@ gbt_update(Name, Tree) ->
     true.
 
 gbt_next(nil, _Input) ->
-    emqx_trie_search:ceiling();
+    '$end_of_table';
 gbt_next({P, _V, _Smaller, Bigger}, K) when K >= P ->
     gbt_next(Bigger, K);
 gbt_next({P, _V, Smaller, _Bigger}, K) ->
-    NextKey = gbt_next(Smaller, K),
-    min(P, NextKey).
+    case gbt_next(Smaller, K) of
+        '$end_of_table' ->
+            P;
+        NextKey ->
+            NextKey
+    end.
 
 make_nextf(Name) ->
     {_SizeWeDontCare, TheTree} = gbt(Name),
