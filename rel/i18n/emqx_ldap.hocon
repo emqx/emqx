@@ -23,4 +23,10 @@ The syntax of the filter follows RFC 4515 and also supports placeholders."""
 filter.label:
 """Filter"""
 
+request_timeout.desc:
+"""Sets the maximum time in milliseconds that is used for each individual request."""
+
+request_timeout.label:
+"""Request Timeout"""
+
 }

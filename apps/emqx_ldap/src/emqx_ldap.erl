@@ -70,7 +70,12 @@ fields(config) ->
                     example => <<"(& (objectClass=mqttUser) (uid=${username}))">>,
                     validator => fun emqx_schema:non_empty_string/1
                 }
-            )}
+            )},
+        {request_timeout,
+            ?HOCON(emqx_schema:timeout_duration_ms(), #{
+                desc => ?DESC(request_timeout),
+                default => <<"5s">>
+            })}
     ] ++ emqx_connector_schema_lib:ssl_fields().
 
 server() ->
@@ -161,10 +166,15 @@ do_get_status(Conn) ->
 %% ===================================================================
 
 connect(Options) ->
-    #{hostname := Host, username := Username, password := Password} =
+    #{
+        hostname := Host,
+        username := Username,
+        password := Password,
+        request_timeout := RequestTimeout
+    } =
         Conf = proplists:get_value(options, Options),
     OpenOpts = maps:to_list(maps:with([port, sslopts], Conf)),
-    case eldap:open([Host], [{log, fun log/3} | OpenOpts]) of
+    case eldap:open([Host], [{log, fun log/3}, {timeout, RequestTimeout} | OpenOpts]) of
         {ok, Handle} = Ret ->
             case eldap:simple_bind(Handle, Username, Password) of
                 ok -> Ret;
