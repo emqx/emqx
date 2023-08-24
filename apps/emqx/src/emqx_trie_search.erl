@@ -102,11 +102,14 @@
 -export([match/2, matches/3, get_id/1, get_topic/1]).
 -export_type([key/1, word/0, nextf/0, opts/0]).
 
+-define(END, '$end_of_table').
+
 -type word() :: binary() | '+' | '#'.
 -type base_key() :: {binary() | [word()], {}}.
 -type key(ID) :: {binary() | [word()], {ID}}.
--type nextf() :: fun((key(_) | base_key()) -> '$end_of_table' | key(_)).
+-type nextf() :: fun((key(_) | base_key()) -> ?END | key(_)).
 -type opts() :: [unique | return_first].
+
 
 %% Holds the constant values of each search.
 -record(ctx, {
@@ -120,18 +123,6 @@
     words0 :: [word()],
     %% Return as soon as there is one match found
     return_first :: boolean()
-}).
-
-%% Holds the variable parts of each search.
--record(acc, {
-    %% The current searching target topic/filter
-    target,
-    %% The number of moves.
-    %% This is used to check if the target has been moved
-    %% after attempting to append '+' to the searching prefix
-    moves = 0,
-    %% Search result accumulation
-    matches = []
 }).
 
 %% @doc Make a search-key for the given topic.
@@ -166,18 +157,14 @@ base(Prefix) ->
     {Prefix, {}}.
 
 %% Move the search target to the key next to the given Base.
-move_up(#ctx{nextf = NextF}, #acc{moves = Moves} = Acc, Base) ->
-    Acc#acc{target = NextF(Base), moves = Moves + 1}.
-
-%% The current target key is a match, add it to the accumulation.
-add(C, #acc{target = Key} = Acc) ->
-    add(C, Acc, Key).
+move_up(#ctx{nextf = NextF}, Base) ->
+    NextF(Base).
 
 %% Add the given key to the accumulation.
 add(#ctx{return_first = true}, _Acc, Key) ->
     throw({return_first, Key});
-add(_C, #acc{matches = Matches} = Acc, Key) ->
-    Acc#acc{matches = match_add(Key, Matches)}.
+add(_C, Acc, Key) ->
+    match_add(Key, Acc).
 
 %% @doc Match given topic against the index and return the first match, or `false` if
 %% no match is found.
@@ -206,69 +193,69 @@ search(Topic, NextF, Opts) ->
         words0 = Words,
         return_first = proplists:get_bool(return_first, Opts)
     },
-    Matches0 =
+    Acc0 =
         case proplists:get_bool(unique, Opts) of
             true ->
                 #{};
             false ->
                 []
         end,
-    Acc = search_new(Context, base(Prefix), #acc{matches = Matches0}),
-    #acc{matches = Matches} = match_non_wildcards(Context, base(Topic), Acc),
-    case is_map(Matches) of
+    {MaybeEnd, Acc1} = search_new(Context, base(Prefix), Acc0),
+    Acc = match_topics(Context, Topic, MaybeEnd, Acc1),
+    case is_map(Acc) of
         true ->
-            maps:values(Matches);
+            maps:values(Acc);
         false ->
-            Matches
+            Acc
     end.
 
 %% The recursive entrypoint of the trie-search algorithm.
 %% Always start from the initial prefix and words.
-search_new(#ctx{prefix0 = Prefix, words0 = Words0} = C, NewBase, Acc0) ->
-    case move_up(C, Acc0, NewBase) of
-        #acc{target = '$end_of_table'} = Acc ->
-            Acc;
-        #acc{target = {Filter, _}} = Acc when Prefix =:= [] ->
-            %% This is not a '$' topic, start from '+'
-            search_plus(C, Words0, Filter, [], Acc);
-        #acc{target = {Filter, _}} = Acc ->
-            [DollarWord] = Prefix,
-            %% Start from the '$' word
-            search_up(C, DollarWord, Words0, Filter, [], Acc)
-    end.
+search_new(C, NewBase, Acc) ->
+    search_moved(C, move_up(C, NewBase), Acc).
+
+search_moved(_, ?END, Acc) ->
+    {?END, Acc};
+search_moved(#ctx{prefix0 = [], words0 = Words0} = C, {Filter, _} = T, Acc) ->
+    %% This is not a '$' topic, start from '+'
+    search_plus(C, Words0, Filter, [], T, Acc);
+search_moved(#ctx{prefix0 = Prefix, words0 = Words0} = C, {Filter, _} = T, Acc) ->
+    [DollarWord] = Prefix,
+    %% Start from the '$' word
+    search_up(C, DollarWord, Words0, Filter, [], T, Acc).
 
 %% Search to the bigger end of ordered collection of topics and topic-filters.
-search_up(C, Word, Words, Filter, RPrefix, #acc{target = Base} = Acc) ->
+search_up(C, Word, Words, Filter, RPrefix, T, Acc) ->
     case compare(Word, Filter, Words) of
         {match, full} ->
-            search_new(C, Base, add(C, Acc));
+            search_new(C, T, add(C, Acc, T));
         {match, prefix} ->
-            search_new(C, Base, Acc);
+            search_new(C, T, Acc);
         lower ->
-            Acc;
+            {T, Acc};
         higher ->
             NewBase = base(lists:reverse([Word | RPrefix])),
             search_new(C, NewBase, Acc);
         shorter ->
-            search_plus(C, Words, tl(Filter), [Word | RPrefix], Acc)
+            search_plus(C, Words, tl(Filter), [Word | RPrefix], T, Acc)
     end.
 
 %% Try to use '+' as the next word in the prefix.
-search_plus(C, [W, X | Words], [W, X | Filter], RPrefix, Acc) ->
+search_plus(C, [W, X | Words], [W, X | Filter], RPrefix, T, Acc) ->
     %% Directly append the current word to the matching prefix (RPrefix).
     %% Micro optimization: try not to call the next clause because
     %% it is not a continuation.
-    search_plus(C, [X | Words], [X | Filter], [W | RPrefix], Acc);
-search_plus(C, [W | Words], Filter, RPrefix, Acc) ->
-    M = Acc#acc.moves,
-    case search_up(C, '+', Words, Filter, RPrefix, Acc) of
-        #acc{moves = M1} = Acc1 when M1 =:= M ->
-            %% Keep searching for one which has W as the next word
-            search_up(C, W, Words, Filter, RPrefix, Acc1);
-        Acc1 ->
-            %% Already searched
-            Acc1
-    end.
+    search_plus(C, [X | Words], [X | Filter], [W | RPrefix], T, Acc);
+search_plus(C, [W | Words], ['+' | _] = Filter, RPrefix, T, Acc) ->
+    case search_up(C, '+', Words, Filter, RPrefix, T, Acc) of
+        {T, Acc} ->
+            search_up(C, W, Words, Filter, RPrefix, T, Acc);
+        TargetMoved ->
+            TargetMoved
+    end;
+search_plus(C, [W | Words], Filter, RPrefix, T, Acc) ->
+    %% not a plus
+    search_up(C, W, Words, Filter, RPrefix, T, Acc).
 
 %% Compare prefix word then the next words in suffix against the search-target
 %% topic or topic-filter.
@@ -326,10 +313,16 @@ word(<<"+">>) -> '+';
 word(<<"#">>) -> '#';
 word(Bin) -> Bin.
 
-match_non_wildcards(#ctx{nextf = NextF} = C, {Topic, _} = Base, Acc) ->
-    case NextF(Base) of
-        {Topic, _ID} = Key ->
-            match_non_wildcards(C, Key, add(C, Acc, Key));
-        _Other ->
-            Acc
-    end.
+%% match non-wildcard topics
+match_topics(#ctx{nextf = NextF} = C, Topic, {Topic, _} = Key, Acc) ->
+    %% found a topic match
+    match_topics(C, Topic, NextF(Key), add(C, Acc, Key));
+match_topics(#ctx{nextf = NextF} = C, Topic, {F, _}, Acc) when F < Topic ->
+    %% the last key is a filter, try jump to the topic
+    match_topics(C, Topic, NextF(base(Topic)), Acc);
+match_topics(#ctx{nextf = NextF} = C, Topic, continue, Acc) ->
+    %% the last key is a '+/...' wildcard
+    match_topics(C, Topic, NextF(base(Topic)), Acc);
+match_topics(_C, _Topic, _Key, Acc) ->
+    %% gone pass the topic
+    Acc.
