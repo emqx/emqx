@@ -183,7 +183,7 @@ fields(topic_metrics) ->
             )},
         {create_time,
             mk(
-                emqx_datetime:epoch_second(),
+                emqx_utils_calendar:epoch_second(),
                 #{
                     desc => ?DESC(create_time),
                     required => true,
@@ -192,7 +192,7 @@ fields(topic_metrics) ->
             )},
         {reset_time,
             mk(
-                emqx_datetime:epoch_second(),
+                emqx_utils_calendar:epoch_second(),
                 #{
                     desc => ?DESC(reset_time),
                     required => false,

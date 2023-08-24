@@ -2,7 +2,7 @@ REBAR = $(CURDIR)/rebar3
 BUILD = $(CURDIR)/build
 SCRIPTS = $(CURDIR)/scripts
 export EMQX_RELUP ?= true
-export EMQX_DEFAULT_BUILDER = ghcr.io/emqx/emqx-builder/5.1-3:1.14.5-25.3.2-1-debian11
+export EMQX_DEFAULT_BUILDER = ghcr.io/emqx/emqx-builder/5.1-4:1.14.5-25.3.2-2-debian11
 export EMQX_DEFAULT_RUNNER = debian:11-slim
 export EMQX_REL_FORM ?= tgz
 export QUICER_DOWNLOAD_FROM_RELEASE = 1
@@ -16,7 +16,7 @@ endif
 # Dashboard version
 # from https://github.com/emqx/emqx-dashboard5
 export EMQX_DASHBOARD_VERSION ?= v1.3.2
-export EMQX_EE_DASHBOARD_VERSION ?= e1.1.1
+export EMQX_EE_DASHBOARD_VERSION ?= e1.2.0-beta.4
 
 # `:=` should be used here, otherwise the `$(shell ...)` will be executed every time when the variable is used
 # In make 4.4+, for backward-compatibility the value from the original environment is used.

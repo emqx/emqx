@@ -17,21 +17,26 @@
             asn1,
             syntax_tools,
             ssl,
-            os_mon,
+            %% started temporary in emqx to prevent crash vm when permanent.
+            {os_mon, load},
             inets,
             compiler,
             runtime_tools,
             redbug,
             xmerl,
             {hocon, load},
-            telemetry
+            telemetry,
+            {opentelemetry, load},
+            {opentelemetry_api, load},
+            {opentelemetry_experimental, load},
+            {opentelemetry_api_experimental, load},
+            {opentelemetry_exporter, load}
         ],
     %% must always be of type `load'
     common_business_apps =>
         [
             emqx,
             emqx_conf,
-
             esasl,
             observer_cli,
             tools,
@@ -68,6 +73,7 @@
             emqx_redis,
             emqx_mysql,
             emqx_plugins,
+            emqx_opentelemetry,
             quicer,
             bcrypt,
             jq,
@@ -107,7 +113,8 @@
             emqx_eviction_agent,
             emqx_node_rebalance,
             emqx_ft,
-            emqx_ldap
+            emqx_ldap,
+            emqx_gcp_device
         ],
     %% must always be of type `load'
     ce_business_apps =>

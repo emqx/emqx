@@ -1,0 +1,15 @@
+emqx_otel_schema {
+
+opentelemetry.desc: "Open Telemetry Toolkit configuration"
+
+exporter.desc: "Open Telemetry Exporter"
+
+enable.desc: "Enable or disable open telemetry metrics"
+
+protocol.desc: "Open Telemetry Exporter Protocol"
+
+endpoint.desc: "Open Telemetry Exporter Endpoint"
+
+interval.desc: "The interval of sending metrics to Open Telemetry Endpoint"
+
+}

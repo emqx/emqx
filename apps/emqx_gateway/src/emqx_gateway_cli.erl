@@ -313,9 +313,9 @@ format_gateway(
         [
             Name,
             Status,
-            emqx_gateway_utils:unix_ts_to_rfc3339(CreatedAt),
+            emqx_utils_calendar:epoch_to_rfc3339(CreatedAt),
             StopOrStart,
-            emqx_gateway_utils:unix_ts_to_rfc3339(Timestamp),
+            emqx_utils_calendar:epoch_to_rfc3339(Timestamp),
             Config
         ]
     ).

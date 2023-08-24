@@ -12,6 +12,7 @@ on:
     branches:
       - 'master'
       - 'release-51'
+      - 'release-52'
       - 'ci/**'
 
 env:
@@ -20,7 +21,7 @@ env:
 jobs:
   prepare:
     runs-on: ${{ github.repository_owner == 'emqx' && 'aws-amd64' || 'ubuntu-22.04' }}
-    container: 'ghcr.io/emqx/emqx-builder/5.1-3:1.14.5-25.3.2-1-ubuntu22.04'
+    container: 'ghcr.io/emqx/emqx-builder/5.1-4:1.14.5-25.3.2-2-ubuntu22.04'
     outputs:
       profile: ${{ steps.parse-git-ref.outputs.profile }}
       release: ${{ steps.parse-git-ref.outputs.release }}
@@ -30,9 +31,9 @@ jobs:
       ct-host: ${{ steps.matrix.outputs.ct-host }}
       ct-docker: ${{ steps.matrix.outputs.ct-docker }}
       runner: ${{ github.repository_owner == 'emqx' && 'aws-amd64' || 'ubuntu-22.04' }}
-      builder: 'ghcr.io/emqx/emqx-builder/5.1-3:1.14.5-25.3.2-1-ubuntu22.04'
-      builder_vsn: '5.1-3'
-      otp_vsn: '25.3.2-1'
+      builder: 'ghcr.io/emqx/emqx-builder/5.1-4:1.14.5-25.3.2-2-ubuntu22.04'
+      builder_vsn: '5.1-4'
+      otp_vsn: '25.3.2-2'
       elixir_vsn: '1.14.5'
 
     steps:
@@ -63,13 +64,13 @@ jobs:
           MATRIX="$(echo "${APPS}" | jq -c '
             [
               (.[] | select(.profile == "emqx") | . + {
-                builder: "5.1-3",
-                otp: "25.3.2-1",
+                builder: "5.1-4",
+                otp: "25.3.2-2",
                 elixir: "1.14.5"
               }),
               (.[] | select(.profile == "emqx-enterprise") | . + {
-                builder: "5.1-3",
-                otp: ["25.3.2-1"][],
+                builder: "5.1-4",
+                otp: ["25.3.2-2"][],
                 elixir: "1.14.5"
               })
             ]
@@ -82,20 +83,8 @@ jobs:
           echo "ct-host=${CT_HOST}"     | tee -a $GITHUB_OUTPUT
           echo "ct-docker=${CT_DOCKER}" | tee -a $GITHUB_OUTPUT
 
-  build_slim_packages:
-    if: ${{ needs.prepare.outputs.release != 'true' }}
-    needs:
-      - prepare
-    uses: ./.github/workflows/build_slim_packages.yaml
-    with:
-      runner: ${{ needs.prepare.outputs.runner }}
-      builder: ${{ needs.prepare.outputs.builder }}
-      builder_vsn: ${{ needs.prepare.outputs.builder_vsn }}
-      otp_vsn: ${{ needs.prepare.outputs.otp_vsn }}
-      elixir_vsn: ${{ needs.prepare.outputs.elixir_vsn }}
-
   build_packages:
-    if: ${{ needs.prepare.outputs.release == 'true' }}
+    if: needs.prepare.outputs.release == 'true'
     needs:
       - prepare
     uses: ./.github/workflows/build_packages.yaml
@@ -109,7 +98,7 @@ jobs:
     secrets: inherit
 
   build_and_push_docker_images:
-    if: ${{ needs.prepare.outputs.release == 'true' }}
+    if: needs.prepare.outputs.release == 'true'
     needs:
       - prepare
     uses: ./.github/workflows/build_and_push_docker_images.yaml
@@ -124,7 +113,20 @@ jobs:
       runner: ${{ needs.prepare.outputs.runner }}
     secrets: inherit
 
+  build_slim_packages:
+    if: needs.prepare.outputs.release != 'true'
+    needs:
+      - prepare
+    uses: ./.github/workflows/build_slim_packages.yaml
+    with:
+      runner: ${{ needs.prepare.outputs.runner }}
+      builder: ${{ needs.prepare.outputs.builder }}
+      builder_vsn: ${{ needs.prepare.outputs.builder_vsn }}
+      otp_vsn: ${{ needs.prepare.outputs.otp_vsn }}
+      elixir_vsn: ${{ needs.prepare.outputs.elixir_vsn }}
+
   compile:
+    if: needs.prepare.outputs.release != 'true'
     runs-on: ${{ needs.prepare.outputs.runner }}
     container: ${{ needs.prepare.outputs.builder }}
     needs:
@@ -156,7 +158,19 @@ jobs:
           path: ${{ matrix.profile }}.zip
           retention-days: 1
 
+  run_emqx_app_tests:
+    needs:
+      - prepare
+      - compile
+    uses: ./.github/workflows/run_emqx_app_tests.yaml
+    with:
+      runner: ${{ needs.prepare.outputs.runner }}
+      builder: ${{ needs.prepare.outputs.builder }}
+      before_ref: ${{ github.event.before }}
+      after_ref: ${{ github.sha }}
+
   run_test_cases:
+    if: needs.prepare.outputs.release != 'true'
     needs:
       - prepare
       - compile
@@ -169,6 +183,7 @@ jobs:
       ct-docker: ${{ needs.prepare.outputs.ct-docker }}
 
   run_conf_tests:
+    if: needs.prepare.outputs.release != 'true'
     needs:
       - prepare
       - compile
@@ -178,6 +193,7 @@ jobs:
       builder: ${{ needs.prepare.outputs.builder }}
 
   static_checks:
+    if: needs.prepare.outputs.release != 'true'
     needs:
       - prepare
       - compile

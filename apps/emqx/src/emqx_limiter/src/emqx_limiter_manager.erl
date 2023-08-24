@@ -131,7 +131,7 @@ delete_root(Type) ->
     delete_bucket(?ROOT_ID, Type).
 
 post_config_update([limiter], _Config, NewConf, _OldConf, _AppEnvs) ->
-    Conf = emqx_limiter_schema:convert_node_opts(NewConf),
+    Conf = emqx_limiter_utils:convert_node_opts(NewConf),
     _ = [on_post_config_update(Type, Cfg) || {Type, Cfg} <- maps:to_list(Conf)],
     ok.
 

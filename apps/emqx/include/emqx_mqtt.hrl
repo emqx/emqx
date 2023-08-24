@@ -679,4 +679,8 @@ end).
 -define(THROW_FRAME_ERROR(Reason), erlang:throw({?FRAME_PARSE_ERROR, Reason})).
 -define(THROW_SERIALIZE_ERROR(Reason), erlang:throw({?FRAME_SERIALIZE_ERROR, Reason})).
 
+-define(MAX_PAYLOAD_FORMAT_SIZE, 1024).
+-define(TRUNCATED_PAYLOAD_SIZE, 100).
+-define(MAX_PAYLOAD_FORMAT_LIMIT(Bin), (byte_size(Bin) =< ?MAX_PAYLOAD_FORMAT_SIZE)).
+
 -endif.

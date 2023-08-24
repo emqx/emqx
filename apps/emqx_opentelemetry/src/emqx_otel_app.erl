@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2019-2023 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2020-2023 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -14,23 +14,16 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
--module(emqx_limiter_correction).
+-module(emqx_otel_app).
 
-%% API
--export([add/2]).
+-behaviour(application).
 
--type correction_value() :: #{
-    correction := emqx_limiter_decimal:zero_or_float(),
-    any() => any()
-}.
+-export([start/2, stop/1]).
 
--export_type([correction_value/0]).
+start(_StartType, _StartArgs) ->
+    emqx_otel_config:add_handler(),
+    emqx_otel_sup:start_link().
 
-%%--------------------------------------------------------------------
-%%% API
-%%--------------------------------------------------------------------
--spec add(number(), correction_value()) -> {integer(), correction_value()}.
-add(Inc, #{correction := Correction} = Data) ->
-    FixedInc = Inc + Correction,
-    IntInc = erlang:floor(FixedInc),
-    {IntInc, Data#{correction := FixedInc - IntInc}}.
+stop(_State) ->
+    emqx_otel_config:remove_handler(),
+    ok.

@@ -55,7 +55,7 @@
     format/2
 ]).
 
--export([encode_hex/1]).
+-export([format_truncated_payload/3]).
 
 -define(TYPE_NAMES,
     {'CONNECT', 'CONNACK', 'PUBLISH', 'PUBACK', 'PUBREC', 'PUBREL', 'PUBCOMP', 'SUBSCRIBE',
@@ -616,9 +616,32 @@ format_password(undefined) -> "";
 format_password(<<>>) -> "";
 format_password(_Password) -> "******".
 
-format_payload(Payload, text) -> ["Payload=", io_lib:format("~ts", [Payload])];
-format_payload(Payload, hex) -> ["Payload(hex)=", encode_hex(Payload)];
-format_payload(_, hidden) -> "Payload=******".
+format_payload(_, hidden) ->
+    "Payload=******";
+format_payload(Payload, text) when ?MAX_PAYLOAD_FORMAT_LIMIT(Payload) ->
+    ["Payload=", unicode:characters_to_list(Payload)];
+format_payload(Payload, hex) when ?MAX_PAYLOAD_FORMAT_LIMIT(Payload) ->
+    ["Payload(hex)=", binary:encode_hex(Payload)];
+format_payload(<<Part:?TRUNCATED_PAYLOAD_SIZE/binary, _/binary>> = Payload, Type) ->
+    [
+        "Payload=",
+        format_truncated_payload(Part, byte_size(Payload), Type)
+    ].
+
+format_truncated_payload(Bin, Size, Type) ->
+    Bin2 =
+        case Type of
+            text -> Bin;
+            hex -> binary:encode_hex(Bin)
+        end,
+    unicode:characters_to_list(
+        [
+            Bin2,
+            "... The ",
+            integer_to_list(Size - ?TRUNCATED_PAYLOAD_SIZE),
+            " bytes of this log are truncated"
+        ]
+    ).
 
 i(true) -> 1;
 i(false) -> 0;
@@ -641,71 +664,3 @@ format_topic_filters(Filters) ->
         ),
         "]"
     ].
-
-%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-%% Hex encoding functions
-%% Copy from binary:encode_hex/1 (was only introduced in OTP24).
-%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
--define(HEX(X), (hex(X)):16).
--compile({inline, [hex/1]}).
--spec encode_hex(Bin) -> Bin2 when
-    Bin :: binary(),
-    Bin2 :: <<_:_*16>>.
-encode_hex(Data) when byte_size(Data) rem 8 =:= 0 ->
-    <<
-        <<?HEX(A), ?HEX(B), ?HEX(C), ?HEX(D), ?HEX(E), ?HEX(F), ?HEX(G), ?HEX(H)>>
-     || <<A, B, C, D, E, F, G, H>> <= Data
-    >>;
-encode_hex(Data) when byte_size(Data) rem 7 =:= 0 ->
-    <<
-        <<?HEX(A), ?HEX(B), ?HEX(C), ?HEX(D), ?HEX(E), ?HEX(F), ?HEX(G)>>
-     || <<A, B, C, D, E, F, G>> <= Data
-    >>;
-encode_hex(Data) when byte_size(Data) rem 6 =:= 0 ->
-    <<<<?HEX(A), ?HEX(B), ?HEX(C), ?HEX(D), ?HEX(E), ?HEX(F)>> || <<A, B, C, D, E, F>> <= Data>>;
-encode_hex(Data) when byte_size(Data) rem 5 =:= 0 ->
-    <<<<?HEX(A), ?HEX(B), ?HEX(C), ?HEX(D), ?HEX(E)>> || <<A, B, C, D, E>> <= Data>>;
-encode_hex(Data) when byte_size(Data) rem 4 =:= 0 ->
-    <<<<?HEX(A), ?HEX(B), ?HEX(C), ?HEX(D)>> || <<A, B, C, D>> <= Data>>;
-encode_hex(Data) when byte_size(Data) rem 3 =:= 0 ->
-    <<<<?HEX(A), ?HEX(B), ?HEX(C)>> || <<A, B, C>> <= Data>>;
-encode_hex(Data) when byte_size(Data) rem 2 =:= 0 ->
-    <<<<?HEX(A), ?HEX(B)>> || <<A, B>> <= Data>>;
-encode_hex(Data) when is_binary(Data) ->
-    <<<<?HEX(N)>> || <<N>> <= Data>>;
-encode_hex(Bin) ->
-    erlang:error(badarg, [Bin]).
-
-hex(X) ->
-    element(
-        X + 1,
-        {16#3030, 16#3031, 16#3032, 16#3033, 16#3034, 16#3035, 16#3036, 16#3037, 16#3038, 16#3039,
-            16#3041, 16#3042, 16#3043, 16#3044, 16#3045, 16#3046, 16#3130, 16#3131, 16#3132,
-            16#3133, 16#3134, 16#3135, 16#3136, 16#3137, 16#3138, 16#3139, 16#3141, 16#3142,
-            16#3143, 16#3144, 16#3145, 16#3146, 16#3230, 16#3231, 16#3232, 16#3233, 16#3234,
-            16#3235, 16#3236, 16#3237, 16#3238, 16#3239, 16#3241, 16#3242, 16#3243, 16#3244,
-            16#3245, 16#3246, 16#3330, 16#3331, 16#3332, 16#3333, 16#3334, 16#3335, 16#3336,
-            16#3337, 16#3338, 16#3339, 16#3341, 16#3342, 16#3343, 16#3344, 16#3345, 16#3346,
-            16#3430, 16#3431, 16#3432, 16#3433, 16#3434, 16#3435, 16#3436, 16#3437, 16#3438,
-            16#3439, 16#3441, 16#3442, 16#3443, 16#3444, 16#3445, 16#3446, 16#3530, 16#3531,
-            16#3532, 16#3533, 16#3534, 16#3535, 16#3536, 16#3537, 16#3538, 16#3539, 16#3541,
-            16#3542, 16#3543, 16#3544, 16#3545, 16#3546, 16#3630, 16#3631, 16#3632, 16#3633,
-            16#3634, 16#3635, 16#3636, 16#3637, 16#3638, 16#3639, 16#3641, 16#3642, 16#3643,
-            16#3644, 16#3645, 16#3646, 16#3730, 16#3731, 16#3732, 16#3733, 16#3734, 16#3735,
-            16#3736, 16#3737, 16#3738, 16#3739, 16#3741, 16#3742, 16#3743, 16#3744, 16#3745,
-            16#3746, 16#3830, 16#3831, 16#3832, 16#3833, 16#3834, 16#3835, 16#3836, 16#3837,
-            16#3838, 16#3839, 16#3841, 16#3842, 16#3843, 16#3844, 16#3845, 16#3846, 16#3930,
-            16#3931, 16#3932, 16#3933, 16#3934, 16#3935, 16#3936, 16#3937, 16#3938, 16#3939,
-            16#3941, 16#3942, 16#3943, 16#3944, 16#3945, 16#3946, 16#4130, 16#4131, 16#4132,
-            16#4133, 16#4134, 16#4135, 16#4136, 16#4137, 16#4138, 16#4139, 16#4141, 16#4142,
-            16#4143, 16#4144, 16#4145, 16#4146, 16#4230, 16#4231, 16#4232, 16#4233, 16#4234,
-            16#4235, 16#4236, 16#4237, 16#4238, 16#4239, 16#4241, 16#4242, 16#4243, 16#4244,
-            16#4245, 16#4246, 16#4330, 16#4331, 16#4332, 16#4333, 16#4334, 16#4335, 16#4336,
-            16#4337, 16#4338, 16#4339, 16#4341, 16#4342, 16#4343, 16#4344, 16#4345, 16#4346,
-            16#4430, 16#4431, 16#4432, 16#4433, 16#4434, 16#4435, 16#4436, 16#4437, 16#4438,
-            16#4439, 16#4441, 16#4442, 16#4443, 16#4444, 16#4445, 16#4446, 16#4530, 16#4531,
-            16#4532, 16#4533, 16#4534, 16#4535, 16#4536, 16#4537, 16#4538, 16#4539, 16#4541,
-            16#4542, 16#4543, 16#4544, 16#4545, 16#4546, 16#4630, 16#4631, 16#4632, 16#4633,
-            16#4634, 16#4635, 16#4636, 16#4637, 16#4638, 16#4639, 16#4641, 16#4642, 16#4643,
-            16#4644, 16#4645, 16#4646}
-    ).

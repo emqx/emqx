@@ -21,6 +21,7 @@ options:
 
   -b|--base:         Specify the current release base branch, can be one of
                      release-51
+                     release-52
                      NOTE: this option should be used when --dryrun.
 
   --dryrun:          Do not actually create the git tag.
@@ -31,14 +32,16 @@ options:
   --prev-tag <tag>:  Provide the prev tag to automatically generate changelogs
                      If this option is absent, the tag found by git describe will be used
 
-  --docker-latest:   Set this option to assign :latest tag on the corresponding docker image
-                     in addition to regular :<version> one
 
-
-NOTE: For 5.1 series the current working branch must be 'release-51'
+For 5.1 series the current working branch must be 'release-51'
       --.--[  master  ]---------------------------.-----------.---
          \\                                      /
           \`---[release-51]----(v5.1.1 | e5.1.1)
+
+For 5.2 series the current working branch must be 'release-52'
+      --.--[  master  ]---------------------------.-----------.---
+         \\                                      /
+          \`---[release-52]----(v5.2.1 | e5.2.1)
 EOF
 }
 
@@ -55,21 +58,18 @@ logmsg() {
 }
 
 TAG="${1:-}"
-DOCKER_LATEST_TAG=
 
 case "$TAG" in
     v*)
         TAG_PREFIX='v'
         PROFILE='emqx'
         SKIP_APPUP='yes'
-        DOCKER_LATEST_TAG='docker-latest-ce'
         ;;
     e*)
         TAG_PREFIX='e'
         PROFILE='emqx-enterprise'
         #TODO change to no when we are ready to support hot-upgrade
         SKIP_APPUP='yes'
-        DOCKER_LATEST_TAG='docker-latest-ee'
         ;;
     -h|--help)
         usage
@@ -85,7 +85,6 @@ esac
 shift 1
 
 DRYRUN='no'
-DOCKER_LATEST='no'
 while [ "$#" -gt 0 ]; do
     case $1 in
         -h|--help)
@@ -113,10 +112,6 @@ while [ "$#" -gt 0 ]; do
             PREV_TAG="$1"
             shift
             ;;
-        --docker-latest)
-            DOCKER_LATEST='yes'
-            shift
-            ;;
         *)
             logerr "Unknown option $1"
             exit 1
@@ -132,6 +127,12 @@ rel_branch() {
             ;;
         e5.1.*)
             echo 'release-51'
+            ;;
+        v5.2.*)
+            echo 'release-52'
+            ;;
+        e5.2.*)
+            echo 'release-52'
             ;;
         *)
             logerr "Unsupported version tag $TAG"
@@ -182,15 +183,13 @@ assert_tag_absent() {
 }
 assert_tag_absent "$TAG"
 
-PKG_VSN=$(./pkg-vsn.sh "$PROFILE")
+RELEASE_VSN=$(./pkg-vsn.sh "$PROFILE" --release)
 
 ## Assert package version is updated to the tag which is being created
 assert_release_version() {
     local tag="$1"
-    # shellcheck disable=SC2001
-    pkg_vsn="$(echo "$PKG_VSN" | sed 's/-g[0-9a-f]\{8\}$//g')"
-    if [ "${TAG_PREFIX}${pkg_vsn}" != "${tag}" ]; then
-        logerr "The release version ($pkg_vsn) is different from the desired git tag."
+    if [ "${TAG_PREFIX}${RELEASE_VSN}" != "${tag}" ]; then
+        logerr "The release version ($RELEASE_VSN) is different from the desired git tag."
         logerr "Update the release version in emqx_release.hrl"
         exit 1
     fi
@@ -220,7 +219,7 @@ fi
 
 ## Ensure relup paths are updated
 ## TODO: add relup path db
-#./scripts/relup-base-vsns.escript check-vsn-db "$PKG_VSN" "$RELUP_PATHS"
+#./scripts/relup-base-vsns.escript check-vsn-db "$RELEASE_VSN" "$RELUP_PATHS"
 
 ## Run some additional checks (e.g. some for enterprise edition only)
 CHECKS_DIR="./scripts/rel/checks"
@@ -256,9 +255,6 @@ generate_changelog () {
 
 if [ "$DRYRUN" = 'yes' ]; then
     logmsg "Release tag is ready to be created with command: git tag $TAG"
-    if [ "$DOCKER_LATEST" = 'yes' ]; then
-        logmsg "Docker latest tag is ready to be created with command: git tag --force $DOCKER_LATEST_TAG"
-    fi
 else
     case "$TAG" in
         *rc*)
@@ -276,14 +272,6 @@ else
     esac
     git tag "$TAG"
     logmsg "$TAG is created OK."
-    if [ "$DOCKER_LATEST" = 'yes' ]; then
-        git tag --force "$DOCKER_LATEST_TAG"
-        logmsg "$DOCKER_LATEST_TAG is created OK."
-    fi
-    logwarn "Don't forget to push the tags!"
-    if [ "$DOCKER_LATEST" = 'yes' ]; then
-        echo "git push --atomic --force origin $TAG $DOCKER_LATEST_TAG"
-    else
-        echo "git push origin $TAG"
-    fi
+    logwarn "Don't forget to push the tag!"
+    echo "git push origin $TAG"
 fi

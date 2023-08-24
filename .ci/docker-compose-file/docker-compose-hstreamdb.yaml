@@ -2,11 +2,13 @@ version: "3.5"
 
 services:
   hserver:
-    image: hstreamdb/hstream:v0.15.0
+    image: hstreamdb/hstream:${HSTREAMDB_TAG}
     container_name: hstreamdb
     depends_on:
-      - zookeeper
-      - hstore
+      zookeeper:
+        condition: service_started
+      hstore:
+        condition: service_healthy
     # ports:
     #   - "127.0.0.1:6570:6570"
     expose:
@@ -37,7 +39,7 @@ services:
         --io-tasks-network emqx_bridge
 
   hstore:
-    image: hstreamdb/hstream:v0.15.0
+    image: hstreamdb/hstream:${HSTREAMDB_TAG}
     networks:
       - emqx_bridge
     volumes:
@@ -53,10 +55,17 @@ services:
         --use-tcp --tcp-host $$(hostname -I | awk '{print $$1}') \
         --user-admin-port 6440 \
         --param enable-dscp-reflection=false \
-        --no-interactive
+        --no-interactive \
+        > /data/store/hstore.log 2>&1
+    healthcheck:
+      test: ["CMD", "grep", "LogDevice Cluster running", "/data/store/hstore.log"]
+      interval: 10s
+      timeout: 10s
+      retries: 60
+      start_period: 60s
 
   zookeeper:
-    image: zookeeper
+    image: zookeeper:${HSTREAMDB_ZK_TAG}
     expose:
       - 2181
     networks:

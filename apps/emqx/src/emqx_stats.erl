@@ -37,7 +37,8 @@
     setstat/2,
     setstat/3,
     statsfun/1,
-    statsfun/2
+    statsfun/2,
+    names/0
 ]).
 
 -export([
@@ -156,6 +157,28 @@ getstats() ->
         undefined -> [];
         _ -> ets:tab2list(?TAB)
     end.
+
+names() ->
+    [
+        emqx_connections_count,
+        emqx_connections_max,
+        emqx_live_connections_count,
+        emqx_live_connections_max,
+        emqx_sessions_count,
+        emqx_sessions_max,
+        emqx_topics_count,
+        emqx_topics_max,
+        emqx_suboptions_count,
+        emqx_suboptions_max,
+        emqx_subscribers_count,
+        emqx_subscribers_max,
+        emqx_subscriptions_count,
+        emqx_subscriptions_max,
+        emqx_subscriptions_shared_count,
+        emqx_subscriptions_shared_max,
+        emqx_retained_count,
+        emqx_retained_max
+    ].
 
 %% @doc Get stats by name.
 -spec getstat(atom()) -> non_neg_integer().

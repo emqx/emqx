@@ -460,7 +460,11 @@ finalize_query(Result = #{overflow := Overflow}, QueryState = #{complete := Comp
     maybe_accumulate_totals(Result#{hasnext => HasNext}, QueryState).
 
 maybe_accumulate_totals(Result, #{total := TotalAcc}) ->
-    QueryTotal = maps:fold(fun(_Node, T, N) -> N + T end, 0, TotalAcc),
+    AccFun = fun
+        (_Node, NodeTotal, AccIn) when is_number(NodeTotal) -> AccIn + NodeTotal;
+        (_Node, _, AccIn) -> AccIn
+    end,
+    QueryTotal = maps:fold(AccFun, 0, TotalAcc),
     Result#{total => QueryTotal};
 maybe_accumulate_totals(Result, _QueryState) ->
     Result.

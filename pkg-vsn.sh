@@ -11,6 +11,8 @@ help() {
     echo "$0 PROFILE [options]"
     echo
     echo "-h|--help:       To display this usage information"
+    echo "--release:       Print release version from emqx_release.hrl"
+    echo
     echo "--long:          Print long vsn number. e.g. 5.0.0-ubuntu20.04-amd64"
     echo "                 Otherwise short e.g. 5.0.0"
     echo "--elixir:        Include elixir version in the long version string"
@@ -32,6 +34,10 @@ while [ "$#" -gt 0 ]; do
     -h|--help)
         help
         exit 0
+        ;;
+    --release)
+        RELEASE_VERSION='yes'
+        shift 1
         ;;
     --long)
         LONG_VERSION='yes'
@@ -87,6 +93,11 @@ esac
 
 ## emqx_release.hrl is the single source of truth for release version
 RELEASE="$(grep -E "define.+${RELEASE_EDITION}" apps/emqx/include/emqx_release.hrl | cut -d '"' -f2)"
+
+if [ "${RELEASE_VERSION:-}" = 'yes' ]; then
+    echo "$RELEASE"
+    exit 0
+fi
 
 git_exact_vsn() {
     local tag

@@ -107,6 +107,7 @@ is_community_umbrella_app("apps/emqx_enterprise") -> false;
 is_community_umbrella_app("apps/emqx_bridge_kinesis") -> false;
 is_community_umbrella_app("apps/emqx_bridge_azure_event_hub") -> false;
 is_community_umbrella_app("apps/emqx_ldap") -> false;
+is_community_umbrella_app("apps/emqx_gcp_device") -> false;
 is_community_umbrella_app(_) -> true.
 
 is_jq_supported() ->
@@ -404,12 +405,13 @@ relx_apps(ReleaseType, Edition) ->
             ce -> CEBusinessApps
         end,
     BusinessApps = CommonBusinessApps ++ EditionSpecificApps,
-    ExcludedApps = excluded_apps(ReleaseType),
-    SystemApps ++
-        %% EMQX starts the DB and the business applications:
-        [{App, load} || App <- (DBApps -- ExcludedApps)] ++
-        [emqx_machine] ++
-        [{App, load} || App <- (BusinessApps -- ExcludedApps)].
+    Apps =
+        (SystemApps ++
+            %% EMQX starts the DB and the business applications:
+            [{App, load} || App <- DBApps] ++
+            [emqx_machine] ++
+            [{App, load} || App <- BusinessApps]),
+    lists:foldl(fun proplists:delete/2, Apps, excluded_apps(ReleaseType)).
 
 excluded_apps(ReleaseType) ->
     OptionalApps = [
@@ -417,7 +419,8 @@ excluded_apps(ReleaseType) ->
         {bcrypt, provide_bcrypt_release(ReleaseType)},
         {jq, is_jq_supported()},
         {observer, is_app(observer)},
-        {mnesia_rocksdb, is_rocksdb_supported()}
+        {mnesia_rocksdb, is_rocksdb_supported()},
+        {os_mon, provide_os_mon_release()}
     ],
     [App || {App, false} <- OptionalApps].
 
@@ -521,6 +524,9 @@ is_debug(VarName) ->
     end.
 
 provide_bcrypt_dep() ->
+    not is_win32().
+
+provide_os_mon_release() ->
     not is_win32().
 
 provide_bcrypt_release(ReleaseType) ->

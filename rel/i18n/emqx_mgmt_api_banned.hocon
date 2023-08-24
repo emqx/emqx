@@ -57,4 +57,9 @@ who.desc:
 who.label:
 """Ban Object"""
 
+clear_banned_api.desc:
+"""Clear all banned data."""
+clear_banned_api.label:
+"""Clear"""
+
 }

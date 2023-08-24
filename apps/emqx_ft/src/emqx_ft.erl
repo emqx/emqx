@@ -71,7 +71,7 @@
     %% the resulting file is corrupted during transmission).
     size => _Bytes :: non_neg_integer(),
     checksum => checksum(),
-    expire_at := emqx_datetime:epoch_second(),
+    expire_at := emqx_utils_calendar:epoch_second(),
     %% TTL of individual segments
     %% Somewhat confusing that we won't know it on the nodes where the filemeta
     %% is missing.

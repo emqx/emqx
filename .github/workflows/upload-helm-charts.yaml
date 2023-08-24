@@ -42,7 +42,8 @@ jobs:
               echo "version=$(./pkg-vsn.sh emqx-enterprise)" >> $GITHUB_OUTPUT
               ;;
           esac
-      - uses: emqx/push-helm-action@v1
+      - uses: emqx/push-helm-action@v1.1
+        if: github.event_name == 'release' && !github.event.prerelease
         with:
           charts_dir: "${{ github.workspace }}/deploy/charts/${{ steps.profile.outputs.profile }}"
           version: ${{ steps.profile.outputs.version }}

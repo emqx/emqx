@@ -72,7 +72,7 @@ defmodule EMQXUmbrella.MixProject do
       # in conflict by emqtt and hocon
       {:getopt, "1.0.2", override: true},
       {:snabbkaffe, github: "kafka4beam/snabbkaffe", tag: "1.0.8", override: true},
-      {:hocon, github: "emqx/hocon", tag: "0.39.14", override: true},
+      {:hocon, github: "emqx/hocon", tag: "0.39.16", override: true},
       {:emqx_http_lib, github: "emqx/emqx_http_lib", tag: "0.5.2", override: true},
       {:esasl, github: "emqx/esasl", tag: "0.2.0"},
       {:jose, github: "potatosalad/erlang-jose", tag: "1.11.2"},
@@ -98,7 +98,32 @@ defmodule EMQXUmbrella.MixProject do
       # set by hackney (dependency)
       {:ssl_verify_fun, "1.1.6", override: true},
       {:uuid, github: "okeuday/uuid", tag: "v2.0.6", override: true},
-      {:quickrand, github: "okeuday/quickrand", tag: "v2.0.6", override: true}
+      {:quickrand, github: "okeuday/quickrand", tag: "v2.0.6", override: true},
+      {:opentelemetry_api,
+       github: "emqx/opentelemetry-erlang",
+       sparse: "apps/opentelemetry_api",
+       override: true,
+       runtime: false},
+      {:opentelemetry,
+       github: "emqx/opentelemetry-erlang",
+       sparse: "apps/opentelemetry",
+       override: true,
+       runtime: false},
+      {:opentelemetry_api_experimental,
+       github: "emqx/opentelemetry-erlang",
+       sparse: "apps/opentelemetry_api_experimental",
+       override: true,
+       runtime: false},
+      {:opentelemetry_experimental,
+       github: "emqx/opentelemetry-erlang",
+       sparse: "apps/opentelemetry_experimental",
+       override: true,
+       runtime: false},
+      {:opentelemetry_exporter,
+       github: "emqx/opentelemetry-erlang",
+       sparse: "apps/opentelemetry_exporter",
+       override: true,
+       runtime: false}
     ] ++
       emqx_apps(profile_info, version) ++
       enterprise_deps(profile_info) ++ bcrypt_dep() ++ jq_dep() ++ quicer_dep()
@@ -195,7 +220,8 @@ defmodule EMQXUmbrella.MixProject do
       :emqx_enterprise,
       :emqx_bridge_kinesis,
       :emqx_bridge_azure_event_hub,
-      :emqx_ldap
+      :emqx_ldap,
+      :emqx_gcp_device
     ])
   end
 
@@ -203,7 +229,7 @@ defmodule EMQXUmbrella.MixProject do
     [
       {:hstreamdb_erl, github: "hstreamdb/hstreamdb_erl", tag: "0.3.1+v0.12.0"},
       {:influxdb, github: "emqx/influxdb-client-erl", tag: "1.1.11", override: true},
-      {:wolff, github: "kafka4beam/wolff", tag: "1.7.6"},
+      {:wolff, github: "kafka4beam/wolff", tag: "1.7.7"},
       {:kafka_protocol, github: "kafka4beam/kafka_protocol", tag: "4.1.3", override: true},
       {:brod_gssapi, github: "kafka4beam/brod_gssapi", tag: "v0.1.0"},
       {:brod, github: "kafka4beam/brod", tag: "3.16.8"},
@@ -324,6 +350,7 @@ defmodule EMQXUmbrella.MixProject do
             :emqx_plugins,
             :emqx_ft,
             :emqx_s3,
+            :emqx_opentelemetry,
             :emqx_durable_storage,
             :rabbit_common
           ],
@@ -376,7 +403,8 @@ defmodule EMQXUmbrella.MixProject do
       quicer: enable_quicer?(),
       bcrypt: enable_bcrypt?(),
       jq: enable_jq?(),
-      observer: is_app?(:observer)
+      observer: is_app?(:observer),
+      os_mon: enable_os_mon?()
     }
     |> Enum.reject(&elem(&1, 1))
     |> Enum.map(&elem(&1, 0))
@@ -805,6 +833,10 @@ defmodule EMQXUmbrella.MixProject do
   end
 
   defp enable_bcrypt?() do
+    not win32?()
+  end
+
+  defp enable_os_mon?() do
     not win32?()
   end
 

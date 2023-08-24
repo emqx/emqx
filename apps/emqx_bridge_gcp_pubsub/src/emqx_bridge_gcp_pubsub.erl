@@ -113,6 +113,22 @@ fields(connector_config) ->
     ];
 fields(producer) ->
     [
+        {attributes_template,
+            sc(
+                hoconsc:array(ref(key_value_pair)),
+                #{
+                    default => [],
+                    desc => ?DESC("attributes_template")
+                }
+            )},
+        {ordering_key_template,
+            sc(
+                binary(),
+                #{
+                    default => <<>>,
+                    desc => ?DESC("ordering_key_template")
+                }
+            )},
         {payload_template,
             sc(
                 binary(),
@@ -203,6 +219,18 @@ fields("consumer_resource_opts") ->
         fun({Field, _Sc}) -> lists:member(Field, SupportedFields) end,
         ResourceFields
     );
+fields(key_value_pair) ->
+    [
+        {key,
+            mk(binary(), #{
+                required => true,
+                validator => [
+                    emqx_resource_validator:not_empty("Key templates must not be empty")
+                ],
+                desc => ?DESC(kv_pair_key)
+            })},
+        {value, mk(binary(), #{required => true, desc => ?DESC(kv_pair_value)})}
+    ];
 fields("get_producer") ->
     emqx_bridge_schema:status_fields() ++ fields("post_producer");
 fields("post_producer") ->
@@ -218,6 +246,8 @@ fields("put_consumer") ->
 
 desc("config_producer") ->
     ?DESC("desc_config");
+desc(key_value_pair) ->
+    ?DESC("kv_pair_desc");
 desc("config_consumer") ->
     ?DESC("desc_config");
 desc("consumer_resource_opts") ->
