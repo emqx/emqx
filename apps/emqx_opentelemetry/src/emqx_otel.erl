@@ -30,10 +30,15 @@ start_otel(Conf) ->
 
 stop_otel() ->
     ok = cleanup(),
-    case supervisor:terminate_child(?SUPERVISOR, ?MODULE) of
-        ok -> supervisor:delete_child(?SUPERVISOR, ?MODULE);
-        {error, not_found} -> ok;
-        Error -> Error
+    case erlang:whereis(?SUPERVISOR) of
+        undefined ->
+            ok;
+        Pid ->
+            case supervisor:terminate_child(Pid, ?MODULE) of
+                ok -> supervisor:delete_child(Pid, ?MODULE);
+                {error, not_found} -> ok;
+                Error -> Error
+            end
     end.
 
 start_link(Conf) ->
