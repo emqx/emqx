@@ -190,7 +190,8 @@ test_deps() ->
         {meck, "0.9.2"},
         {proper, "1.4.0"},
         {er_coap_client, {git, "https://github.com/emqx/er_coap_client", {tag, "v1.0.5"}}},
-        {erl_csv, "0.2.0"}
+        {erl_csv, "0.2.0"},
+        {eministat, "0.10.1"}
     ].
 
 common_compile_opts() ->

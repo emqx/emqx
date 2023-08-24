@@ -256,6 +256,19 @@ t_match_wildcard_edge_cases(Config) ->
     end,
     lists:foreach(F, Datasets).
 
+t_prop_edgecase(Config) ->
+    M = get_module(Config),
+    Tab = M:new(),
+    Topic = <<"01/01">>,
+    Filters = [
+        {1, <<>>},
+        {2, <<"+/01">>},
+        {3, <<>>},
+        {4, <<"+/+/01">>}
+    ],
+    _ = [M:insert(F, N, <<>>, Tab) || {N, F} <- Filters],
+    ?assertMatch([2], [id(X) || X <- matches(M, Topic, Tab, [unique])]).
+
 t_prop_matches(Config) ->
     M = get_module(Config),
     ?assert(
