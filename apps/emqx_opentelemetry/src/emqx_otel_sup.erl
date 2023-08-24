@@ -19,35 +19,20 @@
 
 -export([start_link/0]).
 -export([init/1]).
--export([start_otel/1]).
--export([stop_otel/0]).
+-export([worker_spec/2]).
 
--define(CHILD(Mod, Opts), #{
-    id => Mod,
-    start => {Mod, start_link, [Opts]},
-    restart => permanent,
-    shutdown => 5000,
-    type => worker,
-    modules => [Mod]
-}).
-
--define(WORKER, emqx_otel).
+worker_spec(Mod, Opts) ->
+    #{
+        id => Mod,
+        start => {Mod, start_link, [Opts]},
+        restart => permanent,
+        shutdown => 5000,
+        type => worker,
+        modules => [Mod]
+    }.
 
 start_link() ->
     supervisor:start_link({local, ?MODULE}, ?MODULE, []).
-
--spec start_otel(map()) -> ok.
-start_otel(Conf) ->
-    assert_started(supervisor:start_child(?MODULE, ?CHILD(?WORKER, Conf))).
-
--spec stop_otel() -> ok | {error, term()}.
-stop_otel() ->
-    ok = emqx_otel:cleanup(),
-    case supervisor:terminate_child(?MODULE, ?WORKER) of
-        ok -> supervisor:delete_child(?MODULE, ?WORKER);
-        {error, not_found} -> ok;
-        Error -> Error
-    end.
 
 init([]) ->
     SupFlags = #{
@@ -58,11 +43,6 @@ init([]) ->
     Children =
         case emqx_conf:get([opentelemetry]) of
             #{enable := false} -> [];
-            #{enable := true} = Conf -> [?CHILD(?WORKER, Conf)]
+            #{enable := true} = Conf -> [worker_spec(emqx_otel, Conf)]
         end,
     {ok, {SupFlags, Children}}.
-
-assert_started({ok, _Pid}) -> ok;
-assert_started({ok, _Pid, _Info}) -> ok;
-assert_started({error, {already_started, _Pid}}) -> ok;
-assert_started({error, Reason}) -> {error, Reason}.
