@@ -664,6 +664,9 @@ kvlist_headers([#{<<"key">> := K, <<"value">> := V} | Headers], Acc) ->
     kvlist_headers(Headers, [{K, V} | Acc]);
 kvlist_headers([{K, V} | Headers], Acc) ->
     kvlist_headers(Headers, [{K, V} | Acc]);
+kvlist_headers([KVList | Headers], Acc) when is_list(KVList) ->
+    %% for instance, when user sets a json list as headers like '[{"foo":"bar"}, {"foo2":"bar2"}]'.
+    kvlist_headers(KVList ++ Headers, Acc);
 kvlist_headers([BadHeader | _], _) ->
     throw({bad_kafka_header, BadHeader}).
 
@@ -694,7 +697,7 @@ merge_kafka_headers(HeadersTks, ExtHeaders, Msg) ->
         [undefined] ->
             ExtHeaders;
         [MaybeJson] when is_binary(MaybeJson) ->
-            case emqx_utils_json:safe_decode(MaybeJson) of
+            case emqx_utils_json:safe_decode(MaybeJson, [return_maps]) of
                 {ok, JsonTerm} when is_map(JsonTerm) ->
                     maps:to_list(JsonTerm) ++ ExtHeaders;
                 {ok, JsonTerm} when is_list(JsonTerm) ->
