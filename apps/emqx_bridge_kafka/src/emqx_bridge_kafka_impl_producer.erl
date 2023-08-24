@@ -286,7 +286,7 @@ on_query_async(
 compile_message_template(T) ->
     KeyTemplate = maps:get(key, T, <<"${.clientid}">>),
     ValueTemplate = maps:get(value, T, <<"${.}">>),
-    TimestampTemplate = maps:get(value, T, <<"${.timestamp}">>),
+    TimestampTemplate = maps:get(timestamp, T, <<"${.timestamp}">>),
     #{
         key => preproc_tmpl(KeyTemplate),
         value => preproc_tmpl(ValueTemplate),
