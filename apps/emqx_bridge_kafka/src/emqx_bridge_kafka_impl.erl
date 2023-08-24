@@ -7,7 +7,7 @@
 
 -export([
     hosts/1,
-    make_client_id/2,
+    make_client_id/1,
     sasl/1,
     socket_opts/1
 ]).
@@ -24,10 +24,11 @@ hosts(Hosts) when is_list(Hosts) ->
     kpro:parse_endpoints(Hosts).
 
 %% Client ID is better to be unique to make it easier for Kafka side trouble shooting.
-make_client_id(KafkaType0, BridgeName0) ->
-    KafkaType = to_bin(KafkaType0),
-    BridgeName = to_bin(BridgeName0),
-    iolist_to_binary([KafkaType, ":", BridgeName, ":", atom_to_list(node())]).
+make_client_id(InstanceId) ->
+    InstanceIdBin0 = to_bin(InstanceId),
+    % Removing the <<"bridge:">> from beginning for backward compatibility
+    InstanceIdBin = binary:replace(InstanceIdBin0, <<"bridge:">>, <<>>),
+    iolist_to_binary([InstanceIdBin, ":", atom_to_list(node())]).
 
 sasl(none) ->
     undefined;

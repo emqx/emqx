@@ -898,8 +898,8 @@ ensure_connected(Config) ->
     ok.
 
 consumer_clientid(Config) ->
-    KafkaName = ?config(kafka_name, Config),
-    binary_to_atom(emqx_bridge_kafka_impl:make_client_id(kafka_consumer, KafkaName)).
+    ResourceId = resource_id(Config),
+    binary_to_atom(emqx_bridge_kafka_impl:make_client_id(ResourceId)).
 
 get_client_connection(Config) ->
     KafkaHost = ?config(kafka_host, Config),
