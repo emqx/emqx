@@ -65,10 +65,6 @@ init_per_suite(Config) ->
     end.
 
 end_per_suite(Config) ->
-    %% emqx_mgmt_api_test_util:end_suite(),
-    %% ok = emqx_common_test_helpers:stop_apps([emqx_conf]),
-    %% ok = emqx_connector_test_helpers:stop_apps([emqx_bridge, emqx_resource, emqx_rule_engine]),
-    %% _ = application:stop(emqx_connector),
     Apps = ?config(tc_apps, Config),
     emqx_cth_suite:stop(Apps),
     ok.
@@ -145,7 +141,6 @@ bridge_config(TestCase, Config) ->
                     <<"message">> =>
                         #{
                             <<"key">> => <<"${.clientid}">>,
-                            <<"timestamp">> => <<"${.timestamp}">>,
                             <<"value">> => <<"${.}">>
                         },
                     <<"partition_count_refresh_interval">> => <<"60s">>,
