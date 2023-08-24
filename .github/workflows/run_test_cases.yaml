@@ -29,6 +29,7 @@ env:
 jobs:
   eunit_and_proper:
     runs-on: ${{ inputs.runner }}
+    name: "eunit_and_proper (${{ matrix.profile }})"
     strategy:
       fail-fast: false
       matrix:
@@ -69,6 +70,7 @@ jobs:
 
   ct_docker:
     runs-on: ${{ inputs.runner }}
+    name: "ct_docker (${{ matrix.app }}-${{ matrix.suitegroup }})"
     strategy:
       fail-fast: false
       matrix:
@@ -116,6 +118,7 @@ jobs:
 
   ct:
     runs-on: ${{ inputs.runner }}
+    name: "ct (${{ matrix.app }}-${{ matrix.suitegroup }})"
     strategy:
       fail-fast: false
       matrix:
@@ -154,6 +157,17 @@ jobs:
         with:
           name: logs-${{ matrix.profile }}-${{ matrix.prefix }}-${{ matrix.otp }}-sg${{ matrix.suitegroup }}
           path: _build/test/logs
+
+  tests_passed:
+    needs:
+      - eunit_and_proper
+      - ct
+      - ct_docker
+    runs-on: ${{ inputs.runner }}
+    strategy:
+      fail-fast: false
+    steps:
+      - run: echo "All tests passed"
 
   make_cover:
     needs:
