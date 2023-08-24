@@ -25,7 +25,7 @@ jobs:
     runs-on: ubuntu-latest
     env:
       EMQX_NAME: ${{ matrix.profile }}
-      PKG_VSN: ${{ matrix.profile == 'emqx-enterprise' && inputs.version-emqx-enterprise || inputs.version-emqx }}
+      PKG_VSN: ${{ startsWith(matrix.profile, 'emqx-enterprise') && inputs.version-emqx-enterprise || inputs.version-emqx }}
       OTP_VSN: ${{ inputs.otp_vsn }}
       ELIXIR_VSN: ${{ inputs.elixir_vsn }}
 
@@ -36,6 +36,7 @@ jobs:
           - emqx
           - emqx-enterprise
           - emqx-elixir
+          - emqx-enterprise-elixir
 
     steps:
       - uses: actions/checkout@v3
@@ -58,4 +59,3 @@ jobs:
           name: "${{ env.EMQX_NAME }}-docker"
           path: "${{ env.EMQX_NAME }}-docker-${{ env.PKG_VSN }}.tar.gz"
           retention-days: 3
-
