@@ -57,7 +57,7 @@ schema("/publish") ->
             responses => #{
                 ?ALL_IS_WELL => hoconsc:mk(hoconsc:ref(?MODULE, publish_ok)),
                 ?PARTIALLY_OK => hoconsc:mk(hoconsc:ref(?MODULE, publish_error)),
-                ?BAD_REQUEST => bad_request_schema(),
+                ?BAD_REQUEST => hoconsc:mk(hoconsc:ref(?MODULE, bad_request)),
                 ?DISPATCH_ERROR => hoconsc:mk(hoconsc:ref(?MODULE, publish_error))
             }
         }
@@ -196,11 +196,13 @@ fields(bad_request) ->
     [
         {code,
             hoconsc:mk(string(), #{
-                desc => <<"BAD_REQUEST">>
+                desc => <<"BAD_REQUEST">>,
+                example => ?RC_TOPIC_NAME_INVALID
             })},
         {message,
             hoconsc:mk(binary(), #{
-                desc => ?DESC(error_message)
+                desc => ?DESC(error_message),
+                example => to_binary(emqx_reason_codes:name(?RC_TOPIC_NAME_INVALID))
             })}
     ].
 
