@@ -198,7 +198,7 @@ connection_closed(ClientId) ->
 
 -spec connection_closed(emqx_types:clientid(), chan_pid()) -> true.
 connection_closed(ClientId, ChanPid) ->
-    ets:delete_object(?CHAN_CONN_TAB, {ClientId, ChanPid}).
+    ets:delete(?CHAN_CONN_TAB, {ClientId, ChanPid}).
 
 %% @doc Get info of a channel.
 -spec get_chan_info(emqx_types:clientid()) -> maybe(emqx_types:infos()).
