@@ -170,16 +170,27 @@ t_match8(Config) ->
     M = get_module(Config),
     Tab = M:new(),
     Filters = [<<"+">>, <<"dev/global/sensor">>, <<"dev/+/sensor/#">>],
-    IDs = [1,2,3],
+    IDs = [1, 2, 3],
     Keys = [{F, ID} || F <- Filters, ID <- IDs],
-    lists:foreach(fun({F, ID}) ->
-                          M:insert(F, ID, <<>>, Tab)
-                  end, Keys),
+    lists:foreach(
+        fun({F, ID}) ->
+            M:insert(F, ID, <<>>, Tab)
+        end,
+        Keys
+    ),
     Topic = <<"dev/global/sensor">>,
     Matches = lists:sort(matches(M, Topic, Tab)),
-    ?assertEqual([<<"dev/+/sensor/#">>, <<"dev/+/sensor/#">>, <<"dev/+/sensor/#">>,
-                  <<"dev/global/sensor">>, <<"dev/global/sensor">>, <<"dev/global/sensor">>],
-                 [emqx_topic_index:get_topic(Match) || Match <- Matches]).
+    ?assertEqual(
+        [
+            <<"dev/+/sensor/#">>,
+            <<"dev/+/sensor/#">>,
+            <<"dev/+/sensor/#">>,
+            <<"dev/global/sensor">>,
+            <<"dev/global/sensor">>,
+            <<"dev/global/sensor">>
+        ],
+        [emqx_topic_index:get_topic(Match) || Match <- Matches]
+    ).
 
 t_match_fast_forward(Config) ->
     M = get_module(Config),
