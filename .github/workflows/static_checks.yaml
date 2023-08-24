@@ -23,6 +23,7 @@ env:
 jobs:
   static_checks:
     runs-on: ${{ inputs.runner }}
+    name: "static_checks (${{ matrix.profile }})"
     strategy:
       fail-fast: false
       matrix:
