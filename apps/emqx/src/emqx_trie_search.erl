@@ -199,7 +199,7 @@ search(Topic, NextF, Opts) ->
     end.
 
 %% The recursive entrypoint of the trie-search algorithm.
-%% Always start from the initial prefix and words.
+%% Always start from the initial words.
 search_new(Words0, NewBase, NextF, Acc) ->
     case move_up(NextF, NewBase) of
         ?END ->
@@ -208,7 +208,7 @@ search_new(Words0, NewBase, NextF, Acc) ->
             search_up(Words0, Cursor, NextF, Acc)
     end.
 
-%% Search to the bigger end of ordered collection of topics and topic-filters.
+%% Search to the 'higher' end of ordered collection of topics and topic-filters.
 search_up(Words, {Filter, _} = Cursor, NextF, Acc) ->
     case compare(Filter, Words, []) of
         match_full ->
@@ -226,6 +226,29 @@ search_up(Words, {Filter, _} = Cursor, NextF, Acc) ->
             search_new(Words, base(UpFromPrefix), NextF, Acc)
     end.
 
+%% Compare the topic words against the current topic-filter.
+%%
+%% Return values:
+%%
+%% * match_full:
+%%   The curosr is a full-match of the topic.
+%%   Collect this record and move the cursor up and match again.
+%%
+%% * match_prefix:
+%%   The cursor is not a full-match of the topic, but only its prefix.
+%%
+%% * lower:
+%%   it's an impossible match to the cursor.
+%%   e.g. a/b/c vs +/z
+%%   i.e. all possible filters would have sorted *lower* than the curosr
+%%   hence should give up searching.
+%%
+%% * UpFromPrefix:
+%%   it's an impossible match to the current cursor.
+%%   e.g. a/b/z vs +/+/c
+%%   i.e. some filters might be *higher* than the cursor
+%%   and the next potential matche should be immediately above UpFromPrefix
+%%
 compare(NotFilter, _, _) when is_binary(NotFilter) ->
     % All non-wildcards (topics) are sorted higher than wildcards
     lower;
@@ -233,6 +256,8 @@ compare(['#'], _Words, _RPrefix) ->
     % NOTE
     %  Topic: a/b/c/d
     % Filter: a/+/+/d/#
+    %  or
+    % Filter: a/#
     % We matched the topic to a topic filter with wildcard (possibly with pluses).
     % We include it in the result set, and now need to try next entry in the table.
     % Closest possible next entries that we must not miss:
@@ -274,7 +299,7 @@ compare(['+' | Filter], [W | Words], RPrefix) ->
         lower ->
             % NOTE
             %  Topic: a/b/c
-            % Filter: +/+/b
+            % Filter: +/+/x
             %   Seek: +/b
             lists:reverse([W | RPrefix]);
         Other ->
@@ -286,10 +311,9 @@ compare([F | _Filter], [W | _Words], _RPrefix) when W < F ->
     lower;
 compare([F | _Filter], [W | _Words], RPrefix) ->
     % NOTE
-    %  Topic: a/b/c
-    % Filter: +/+/b
-    %   Seek: +/+/c
-    true = (W > F),
+    %  Topic: a/b/z
+    % Filter: +/+/x
+    %   Seek: +/+/z
     lists:reverse([W | RPrefix]).
 
 match_add(K = {_Filter, ID}, Acc = #{}) ->
