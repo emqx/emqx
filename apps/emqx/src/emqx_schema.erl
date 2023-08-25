@@ -1358,6 +1358,15 @@ fields("broker") ->
                 ref("broker_perf"),
                 #{importance => ?IMPORTANCE_HIDDEN}
             )},
+        {"unified_routing_table",
+            sc(
+                boolean(),
+                #{
+                    default => false,
+                    importance => ?IMPORTANCE_HIDDEN,
+                    desc => ?DESC(broker_unified_routing_table)
+                }
+            )},
         %% FIXME: Need new design for shared subscription group
         {"shared_subscription_group",
             sc(
