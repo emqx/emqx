@@ -149,11 +149,6 @@ service:
   ## Port for dashboard and API
   ##
   dashboard: 18083
-  ## Port for dashboard and API over HTTPS
-  ##
-  # dashboardtls: 18084
-  ## Specify the nodePort(s) value for the LoadBalancer and NodePort service types.
-  ## ref: https://kubernetes.io/docs/concepts/services-networking/service/#type-nodeport
   ##
   nodePorts:
     mqtt:
@@ -162,7 +157,6 @@ service:
     ws:
     wss:
     dashboard:
-    dashboardtls:
   ## Set the LoadBalancer service type to internal only.
   ## ref: https://kubernetes.io/docs/concepts/services-networking/service/#internal-load-balancer
   ##
