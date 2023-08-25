@@ -113,7 +113,7 @@
 %% @doc Make a search-key for the given topic.
 -spec make_key(emqx_types:topic(), ID) -> key(ID).
 make_key(Topic, ID) when is_binary(Topic) ->
-    Words = words(Topic),
+    Words = filter_words(Topic),
     case emqx_topic:wildcard(Words) of
         true ->
             %% it's a wildcard
@@ -171,7 +171,7 @@ matches(Topic, NextF, Opts) ->
 
 %% @doc Entrypoint of the search for a given topic.
 search(Topic, NextF, Opts) ->
-    Words = words(Topic),
+    Words = topic_words(Topic),
     Base = base_init(Words),
     ORetFirst = proplists:get_bool(return_first, Opts),
     OUnique = proplists:get_bool(unique, Opts),
@@ -309,7 +309,7 @@ compare([W | Filter], [W | Words], RPrefix) ->
     compare(Filter, Words, [W | RPrefix]);
 compare([F | _Filter], [W | _Words], _RPrefix) when W < F ->
     lower;
-compare([F | _Filter], [W | _Words], RPrefix) ->
+compare([_F | _Filter], [W | _Words], RPrefix) ->
     % NOTE
     %  Topic: a/b/z
     % Filter: +/+/x
@@ -324,18 +324,22 @@ match_add(K, Acc) when is_list(Acc) ->
 match_add(K, first) ->
     throw({first, K}).
 
--spec words(emqx_types:topic()) -> [word()].
-words(Topic) when is_binary(Topic) ->
+-spec filter_words(emqx_types:topic()) -> [word()].
+filter_words(Topic) when is_binary(Topic) ->
     % NOTE
     % This is almost identical to `emqx_topic:words/1`, but it doesn't convert empty
     % tokens to ''. This is needed to keep ordering of words consistent with what
     % `match_filter/3` expects.
-    [word(W) || W <- emqx_topic:tokens(Topic)].
+    [word(W, filter) || W <- emqx_topic:tokens(Topic)].
 
--spec word(binary()) -> word().
-word(<<"+">>) -> '+';
-word(<<"#">>) -> '#';
-word(Bin) -> Bin.
+topic_words(Topic) when is_binary(Topic) ->
+    [word(W, topic) || W <- emqx_topic:tokens(Topic)].
+
+word(<<"+">>, topic) -> error(badarg);
+word(<<"#">>, topic) -> error(badarg);
+word(<<"+">>, filter) -> '+';
+word(<<"#">>, filter) -> '#';
+word(Bin, _) -> Bin.
 
 %% match non-wildcard topics
 match_topics(Topic, {Topic, _} = Key, NextF, Acc) ->
