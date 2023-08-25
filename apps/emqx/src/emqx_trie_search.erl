@@ -210,31 +210,35 @@ search_new(Words0, NewBase, NextF, Acc) ->
 
 %% Search to the bigger end of ordered collection of topics and topic-filters.
 search_up(Words, {Filter, _} = Cursor, NextF, Acc) ->
-    case compare(Filter, Words, false) of
+    case compare(Filter, Words, []) of
         match_full ->
             search_new(Words, Cursor, NextF, match_add(Cursor, Acc));
         match_prefix ->
             search_new(Words, Cursor, NextF, Acc);
         lower ->
             {Cursor, Acc};
-        [SeekWord | FilterTail] ->
+        UpFromPrefix ->
             % NOTE
             % This is a seek instruction.
             % If we visualize the `Filter` as `FilterHead ++ [_] ++ FilterTail`, we need to
             % seek to `FilterHead ++ [SeekWord]`. It carries the `FilterTail` because it's
             % much cheaper to return it from `compare/3` than anything more usable.
-            NewBase = base(seek(SeekWord, Filter, FilterTail)),
-            search_new(Words, NewBase, NextF, Acc)
+            search_new(Words, base(UpFromPrefix), NextF, Acc)
     end.
 
-seek(SeekWord, [_ | FilterTail], FilterTail) ->
-    [SeekWord];
-seek(SeekWord, [FilterWord | Rest], FilterTail) ->
-    [FilterWord | seek(SeekWord, Rest, FilterTail)].
-
 compare(NotFilter, _, _) when is_binary(NotFilter) ->
+    % All non-wildcards (topics) are sorted higher than wildcards
     lower;
-compare([], [], _) ->
+compare(['#'], _Words, _RPrefix) ->
+    % NOTE
+    %  Topic: a/b/c/d
+    % Filter: a/+/+/d/#
+    % We matched the topic to a topic filter with wildcard (possibly with pluses).
+    % We include it in the result set, and now need to try next entry in the table.
+    % Closest possible next entries that we must not miss:
+    % * a/+/+/d/# (same topic but a different ID)
+    match_full;
+compare([], [], _RPrefix) ->
     % NOTE
     %  Topic: a/b/c/d
     % Filter: a/+/+/d
@@ -244,7 +248,7 @@ compare([], [], _) ->
     % * a/+/+/d (same topic but a different ID)
     % * a/+/+/d/# (also a match)
     match_full;
-compare([], _Words, _) ->
+compare([], _Words, _RPrefix) ->
     % NOTE
     %  Topic: a/b/c/d
     % Filter: a/+/c
@@ -254,69 +258,39 @@ compare([], _Words, _) ->
     % * a/+/c/# (which is a match)
     % * a/+/c/+ (also a match)
     %
-    % TODO
-    % We might probably instead seek to a/+/c/# right away.
+    % The immediate next of 'a/+/c' should be 'a/+/c/#' (if there is one)
     match_prefix;
-compare(['#'], _Words, _) ->
+compare(_Filter, [], _RPrefix) ->
     % NOTE
-    %  Topic: a/b/c/d
-    % Filter: a/+/+/d/#
-    % We matched the topic to a topic filter with wildcard (possibly with pluses).
-    % We include it in the result set, and now need to try next entry in the table.
-    % Closest possible next entries that we must not miss:
-    % * a/+/+/d/# (same topic but a different ID)
+    %  Topic: a/b/c
+    % Filter: a/+/c/d
+    lower;
+compare(['+'], [_], _RPrefix) ->
+    % NOTE
+    % Matched the last '+'
     match_full;
-compare(['+' | TF], [HW | TW], _PrevBacktrack) ->
-    % NOTE
-    % We need to keep backtrack point each time we encounter a plus. To safely skip over
-    % parts of the search space, we may need last backtrack point when recursion terminates.
-    % See next clauses for examples.
-    compare(TF, TW, [HW | TF]);
-compare([HW | TF], [HW | TW], Backtrack) ->
-    % NOTE
-    % Skip over the same word in both topic and filter, keeping the last backtrack point.
-    compare(TF, TW, Backtrack);
-compare([HF | _], [HW | _], false) when HF > HW ->
-    % NOTE
-    %  Topic: a/b/c/d
-    % Filter: a/b/c/e/1
-    % The topic is lower than a topic filter. There's nowhere to backtrackto, we're out of
-    % the search space. We should stop the search.
+compare(['+' | Filter], [W | Words], RPrefix) ->
+    case compare(Filter, Words, ['+' | RPrefix]) of
+        lower ->
+            % NOTE
+            %  Topic: a/b/c
+            % Filter: +/+/b
+            %   Seek: +/b
+            lists:reverse([W | RPrefix]);
+        Other ->
+            Other
+    end;
+compare([W | Filter], [W | Words], RPrefix) ->
+    compare(Filter, Words, [W | RPrefix]);
+compare([F | _Filter], [W | _Words], _RPrefix) when W < F ->
     lower;
-compare([HF | _], [HW | _], Backtrack) when HF > HW ->
+compare([F | _Filter], [W | _Words], RPrefix) ->
     % NOTE
-    %  Topic: a/b/c/d
-    % Filter: a/+/+/e/1
-    % The topic is lower than a topic filter. There was a plus, last time at the 3rd level,
-    % we have a backtrack point to seek to:
-    % Seek: [c | e/1]
-    % We need to skip over part of search space, and seek to the next possible match:
-    % Next: a/+/c
-    Backtrack;
-compare([_ | _], [], false) ->
-    % NOTE
-    %  Topic: a/b/c/d
-    % Filter: a/b/c/d/1
-    % The topic is lower than a topic filter. (since it's shorter). There's nowhere to
-    % backtrack to, we're out of the search space. We should stop the search.
-    lower;
-compare([_ | _], [], Backtrack) ->
-    % NOTE
-    %  Topic: a/b/c/d
-    % Filter: a/+/c/d/1
-    % The topic is lower than a topic filter. There was a plus, last and only time at the
-    % 3rd level, we have a backtrack point:
-    % Seek: [b | c/d/1]
-    % Next: a/b
-    Backtrack;
-compare([_HF | TF], [HW | _], _) ->
-    % NOTE
-    %  Topic: a/b/c/d
-    % Filter: a/+/+/0/1/2
-    % Topic is higher than the filter, we need to skip over to the next possible filter.
-    % Seek: [d | 0/1/2]
-    % Next: a/+/+/d
-    [HW | TF].
+    %  Topic: a/b/c
+    % Filter: +/+/b
+    %   Seek: +/+/c
+    true = (W > F),
+    lists:reverse([W | RPrefix]).
 
 match_add(K = {_Filter, ID}, Acc = #{}) ->
     % NOTE: ensuring uniqueness by record ID
