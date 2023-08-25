@@ -250,9 +250,6 @@ app_specs() ->
     [
         emqx_durable_storage,
         {emqx, #{
-            before_start => fun() ->
-                emqx_app:set_config_loader(?MODULE)
-            end,
             config => #{persistent_session_store => #{ds => true}},
             override_env => [{boot_modules, [broker, listeners]}]
         }}
