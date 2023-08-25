@@ -251,9 +251,6 @@ compare([], _Words, _) ->
     % Closest possible next entries that we must not miss:
     % * a/+/c/# (which is a match)
     % * a/+/c/+ (also a match)
-    %
-    % TODO
-    % We might probably instead seek to a/+/c/# right away.
     match_prefix;
 compare(['#'], _Words, _) ->
     % NOTE
