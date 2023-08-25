@@ -258,7 +258,7 @@ compare([], _Words, _) ->
 compare(['#'], _Words, _) ->
     % NOTE
     %  Topic: a/b/c/d
-    % Filter: a/+/+/d/#
+    % Filter: a/+/+/d/# or just a/#
     % We matched the topic to a topic filter with wildcard (possibly with pluses).
     % We include it in the result set, and now need to try next entry in the table.
     % Closest possible next entries that we must not miss:
