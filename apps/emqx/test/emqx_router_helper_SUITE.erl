@@ -50,12 +50,12 @@ end_per_group(_GroupName, Config) ->
 
 mk_config(routing_table_regular) ->
     #{
-        config => "broker.unified_routing_table = false",
+        config => "broker.routing_table_type = regular",
         override_env => [{boot_modules, [router]}]
     };
 mk_config(routing_table_unified) ->
     #{
-        config => "broker.unified_routing_table = true",
+        config => "broker.routing_table_type = unified",
         override_env => [{boot_modules, [router]}]
     }.
 

@@ -1358,13 +1358,13 @@ fields("broker") ->
                 ref("broker_perf"),
                 #{importance => ?IMPORTANCE_HIDDEN}
             )},
-        {"unified_routing_table",
+        {"routing_table_type",
             sc(
-                boolean(),
+                hoconsc:enum([regular, unified]),
                 #{
-                    default => false,
+                    default => regular,
                     importance => ?IMPORTANCE_HIDDEN,
-                    desc => ?DESC(broker_unified_routing_table)
+                    desc => ?DESC(broker_routing_table_type)
                 }
             )},
         %% FIXME: Need new design for shared subscription group

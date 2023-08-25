@@ -55,7 +55,9 @@ prep_stop(_State) ->
     emqx_boot:is_enabled(listeners) andalso
         emqx_listeners:stop().
 
-stop(_State) -> ok.
+stop(_State) ->
+    ok = emqx_router:deinit_table_type(),
+    ok.
 
 -define(CONFIG_LOADER, config_loader).
 -define(DEFAULT_LOADER, emqx).

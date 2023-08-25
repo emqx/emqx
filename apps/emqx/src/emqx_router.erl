@@ -72,8 +72,11 @@
     code_change/3
 ]).
 
-%% test / debugging purposes
--export([is_unified_table_active/0]).
+-export([
+    get_table_type/0,
+    init_table_type/0,
+    deinit_table_type/0
+]).
 
 -type group() :: binary().
 
@@ -155,12 +158,12 @@ do_add_route(Topic, Dest) when is_binary(Topic) ->
             ok;
         false ->
             ok = emqx_router_helper:monitor(Dest),
-            mria_insert_route(is_unified_table_active(), Topic, Dest)
+            mria_insert_route(get_table_type(), Topic, Dest)
     end.
 
-mria_insert_route(_Unified = true, Topic, Dest) ->
+mria_insert_route(unified, Topic, Dest) ->
     mria_insert_route_unified(Topic, Dest);
-mria_insert_route(_Unified = false, Topic, Dest) ->
+mria_insert_route(regular, Topic, Dest) ->
     Route = #route{topic = Topic, dest = Dest},
     case emqx_topic:wildcard(Topic) of
         true ->
@@ -186,11 +189,11 @@ mria_insert_route(Route) ->
 %% @doc Match routes
 -spec match_routes(emqx_types:topic()) -> [emqx_types:route()].
 match_routes(Topic) when is_binary(Topic) ->
-    match_routes(is_unified_table_active(), Topic).
+    match_routes(get_table_type(), Topic).
 
-match_routes(_Unified = true, Topic) ->
+match_routes(unified, Topic) ->
     [match_to_route(M) || M <- match_unified(Topic)];
-match_routes(_Unified = false, Topic) ->
+match_routes(regular, Topic) ->
     lookup_routes_regular(Topic) ++
         lists:flatmap(fun lookup_routes_regular/1, match_global_trie(Topic)).
 
@@ -205,10 +208,10 @@ match_global_trie(Topic) ->
 
 -spec lookup_routes(emqx_types:topic()) -> [emqx_types:route()].
 lookup_routes(Topic) ->
-    case is_unified_table_active() of
-        true ->
+    case get_table_type() of
+        unified ->
             lookup_routes_unified(Topic);
-        false ->
+        regular ->
             lookup_routes_regular(Topic)
     end.
 
@@ -224,10 +227,10 @@ match_to_route(M) ->
 
 -spec has_route(emqx_types:topic(), dest()) -> boolean().
 has_route(Topic, Dest) ->
-    case is_unified_table_active() of
-        true ->
+    case get_table_type() of
+        unified ->
             has_route_unified(Topic, Dest);
-        false ->
+        regular ->
             has_route_regular(Topic, Dest)
     end.
 
@@ -251,11 +254,11 @@ do_delete_route(Topic) when is_binary(Topic) ->
 
 -spec do_delete_route(emqx_types:topic(), dest()) -> ok | {error, term()}.
 do_delete_route(Topic, Dest) ->
-    mria_delete_route(is_unified_table_active(), Topic, Dest).
+    mria_delete_route(get_table_type(), Topic, Dest).
 
-mria_delete_route(_Unified = true, Topic, Dest) ->
+mria_delete_route(unified, Topic, Dest) ->
     mria_delete_route_unified(Topic, Dest);
-mria_delete_route(_Unified = false, Topic, Dest) ->
+mria_delete_route(regular, Topic, Dest) ->
     Route = #route{topic = Topic, dest = Dest},
     case emqx_topic:wildcard(Topic) of
         true ->
@@ -278,27 +281,14 @@ mria_delete_route_update_trie(Route) ->
 mria_delete_route(Route) ->
     mria:dirty_delete_object(?ROUTE_TAB, Route).
 
--spec is_unified_table_active() -> boolean().
-is_unified_table_active() ->
-    is_empty(?ROUTE_TAB) andalso
-        ((not is_empty(?ROUTE_TAB_UNIFIED)) orelse
-            emqx_config:get([broker, unified_routing_table])).
-
-is_empty(Tab) ->
-    % NOTE
-    % Supposedly, should be better than `ets:info(Tab, size)` because the latter suffers
-    % from `{decentralized_counters, true}` which is default when `write_concurrency` is
-    % either `auto` or `true`.
-    ets:first(Tab) =:= '$end_of_table'.
-
 -spec topics() -> list(emqx_types:topic()).
 topics() ->
-    topics(is_unified_table_active()).
+    topics(get_table_type()).
 
-topics(_Unified = true) ->
+topics(unified) ->
     Pat = #routeidx{entry = '$1'},
     [emqx_topic_index:get_topic(K) || [K] <- ets:match(?ROUTE_TAB_UNIFIED, Pat)];
-topics(_Unified = false) ->
+topics(regular) ->
     mnesia:dirty_all_keys(?ROUTE_TAB).
 
 %% @doc Print routes to a topic
@@ -313,10 +303,10 @@ print_routes(Topic) ->
 
 -spec cleanup_routes(node()) -> ok.
 cleanup_routes(Node) ->
-    case is_unified_table_active() of
-        true ->
+    case get_table_type() of
+        unified ->
             cleanup_routes_unified(Node);
-        false ->
+        regular ->
             cleanup_routes_regular(Node)
     end.
 
@@ -352,19 +342,19 @@ cleanup_routes_regular(Node) ->
 
 -spec foldl_routes(fun((emqx_types:route(), Acc) -> Acc), Acc) -> Acc.
 foldl_routes(FoldFun, AccIn) ->
-    case is_unified_table_active() of
-        true ->
+    case get_table_type() of
+        unified ->
             ets:foldl(mk_fold_fun_unified(FoldFun), AccIn, ?ROUTE_TAB_UNIFIED);
-        false ->
+        regular ->
             ets:foldl(FoldFun, AccIn, ?ROUTE_TAB)
     end.
 
 -spec foldr_routes(fun((emqx_types:route(), Acc) -> Acc), Acc) -> Acc.
 foldr_routes(FoldFun, AccIn) ->
-    case is_unified_table_active() of
-        true ->
+    case get_table_type() of
+        unified ->
             ets:foldr(mk_fold_fun_unified(FoldFun), AccIn, ?ROUTE_TAB_UNIFIED);
-        false ->
+        regular ->
             ets:foldr(FoldFun, AccIn, ?ROUTE_TAB)
     end.
 
@@ -376,6 +366,61 @@ call(Router, Msg) ->
 
 pick(Topic) ->
     gproc_pool:pick_worker(router_pool, Topic).
+
+%%--------------------------------------------------------------------
+%% Routing table type
+%% --------------------------------------------------------------------
+
+-define(PT_TABLE_TYPE, {?MODULE, tabtype}).
+
+-type tabtype() :: regular | unified.
+
+-spec get_table_type() -> tabtype().
+get_table_type() ->
+    persistent_term:get(?PT_TABLE_TYPE).
+
+-spec init_table_type() -> ok.
+init_table_type() ->
+    ConfType = emqx_config:get([broker, routing_table_type]),
+    Type = choose_table_type(ConfType),
+    ok = persistent_term:put(?PT_TABLE_TYPE, Type),
+    case Type of
+        ConfType ->
+            ?SLOG(info, #{
+                msg => "routing_table_type_used",
+                type => Type
+            });
+        _ ->
+            ?SLOG(notice, #{
+                msg => "configured_routing_table_type_unacceptable",
+                type => Type,
+                configured => ConfType,
+                reason =>
+                    "Could not use configured routing table type because "
+                    "there's already non-empty routing table of another type."
+            })
+    end.
+
+-spec deinit_table_type() -> ok.
+deinit_table_type() ->
+    _ = persistent_term:erase(?PT_TABLE_TYPE),
+    ok.
+
+-spec choose_table_type(tabtype()) -> tabtype().
+choose_table_type(ConfType) ->
+    IsEmptyRegular = is_empty(?ROUTE_TAB),
+    IsEmptyUnified = is_empty(?ROUTE_TAB_UNIFIED),
+    case {IsEmptyRegular, IsEmptyUnified} of
+        {true, true} ->
+            ConfType;
+        {false, true} ->
+            regular;
+        {true, false} ->
+            unified
+    end.
+
+is_empty(Tab) ->
+    ets:first(Tab) =:= '$end_of_table'.
 
 %%--------------------------------------------------------------------
 %% gen_server callbacks

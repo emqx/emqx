@@ -48,15 +48,15 @@ init_per_group(GroupName, Config) ->
         }}
     ],
     Apps = emqx_cth_suite:start(AppSpecs, #{work_dir => WorkDir}),
-    [{group_apps, Apps} | Config].
+    [{group_apps, Apps}, {group_name, GroupName} | Config].
 
 end_per_group(_GroupName, Config) ->
     ok = emqx_cth_suite:stop(?config(group_apps, Config)).
 
 mk_config(routing_table_regular) ->
-    "broker.unified_routing_table = false";
+    "broker.routing_table_type = regular";
 mk_config(routing_table_unified) ->
-    "broker.unified_routing_table = true".
+    "broker.routing_table_type = unified".
 
 init_per_testcase(_TestCase, Config) ->
     clear_tables(),
@@ -82,6 +82,14 @@ end_per_testcase(_TestCase, _Config) ->
 
 % t_topics(_) ->
 %     error('TODO').
+
+t_verify_type(Config) ->
+    case ?config(group_name, Config) of
+        routing_table_regular ->
+            ?assertEqual(regular, ?R:get_table_type());
+        routing_table_unified ->
+            ?assertEqual(unified, ?R:get_table_type())
+    end.
 
 t_add_delete(_) ->
     ?R:add_route(<<"a/b/c">>),
