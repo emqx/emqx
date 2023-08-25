@@ -123,18 +123,12 @@ open_iterator_on_all_shards(TopicFilter, StartMS, IteratorID) ->
     true = lists:all(fun(Res) -> Res =:= {ok, ok} end, Results),
     ok.
 
+%% RPC target.
 -spec do_open_iterator(emqx_topic:words(), emqx_ds:time(), emqx_ds:iterator_id()) -> ok.
 do_open_iterator(TopicFilter, StartMS, IteratorID) ->
     Replay = {TopicFilter, StartMS},
-    case emqx_ds_storage_layer:is_iterator_present(?DS_SHARD, IteratorID) of
-        true ->
-            {ok, _It} = emqx_ds_storage_layer:restore_iterator(?DS_SHARD, IteratorID),
-            ok;
-        false ->
-            {ok, It} = emqx_ds_storage_layer:make_iterator(?DS_SHARD, Replay),
-            ok = emqx_ds_storage_layer:preserve_iterator(It, IteratorID),
-            ok
-    end.
+    {ok, _It} = emqx_ds_storage_layer:ensure_iterator(?DS_SHARD, IteratorID, Replay),
+    ok.
 
 %%
 

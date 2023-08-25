@@ -17,7 +17,7 @@
     preserve_iterator/2,
     restore_iterator/2,
     discard_iterator/2,
-    is_iterator_present/2,
+    ensure_iterator/3,
     discard_iterator_prefix/2,
     list_iterator_prefix/2,
     foldl_iterator_prefix/4
@@ -185,15 +185,18 @@ restore_iterator(Shard, ReplayID) ->
             Error
     end.
 
--spec is_iterator_present(emqx_ds:shard(), emqx_ds:replay_id()) ->
-    boolean().
-is_iterator_present(Shard, ReplayID) ->
-    %% TODO: use keyMayExist after added to wrapper?
-    case iterator_get_state(Shard, ReplayID) of
-        {ok, _} ->
-            true;
-        _ ->
-            false
+-spec ensure_iterator(emqx_ds:shard(), emqx_ds:iterator_id(), emqx_ds:replay()) ->
+    {ok, iterator()} | {error, _TODO}.
+ensure_iterator(Shard, IteratorID, Replay = {_TopicFilter, _StartMS}) ->
+    case restore_iterator(Shard, IteratorID) of
+        {ok, It} ->
+            {ok, It};
+        {error, not_found} ->
+            {ok, It} = make_iterator(Shard, Replay),
+            ok = emqx_ds_storage_layer:preserve_iterator(It, IteratorID),
+            {ok, It};
+        Error ->
+            Error
     end.
 
 -spec discard_iterator(emqx_ds:shard(), emqx_ds:replay_id()) ->
