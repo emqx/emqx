@@ -24,6 +24,8 @@
 -export([match/2]).
 -export([matches/3]).
 
+-export([make_key/2]).
+
 -export([get_id/1]).
 -export([get_topic/1]).
 -export([get_record/2]).
@@ -42,14 +44,18 @@ new() ->
 %% between regular and "materialized" indexes, for example.
 -spec insert(emqx_types:topic(), _ID, _Record, ets:table()) -> true.
 insert(Filter, ID, Record, Tab) ->
-    Key = key(Filter, ID),
+    Key = make_key(Filter, ID),
     true = ets:insert(Tab, {Key, Record}).
 
 %% @doc Delete an entry from the index that associates given topic filter to given
 %% record ID. Deleting non-existing entry is not an error.
 -spec delete(emqx_types:topic(), _ID, ets:table()) -> true.
 delete(Filter, ID, Tab) ->
-    true = ets:delete(Tab, key(Filter, ID)).
+    ets:delete(Tab, make_key(Filter, ID)).
+
+-spec make_key(emqx_types:topic(), ID) -> key(ID).
+make_key(TopicOrFilter, ID) ->
+    emqx_trie_search:make_key(TopicOrFilter, ID).
 
 %% @doc Match given topic against the index and return the first match, or `false` if
 %% no match is found.
@@ -83,9 +89,6 @@ get_record(K, Tab) ->
         [] ->
             []
     end.
-
-key(TopicOrFilter, ID) ->
-    emqx_trie_search:make_key(TopicOrFilter, ID).
 
 make_nextf(Tab) ->
     fun(Key) -> ets:next(Tab, Key) end.

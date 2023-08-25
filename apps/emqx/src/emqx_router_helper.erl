@@ -148,11 +148,13 @@ handle_info({mnesia_table_event, Event}, State) ->
 handle_info({nodedown, Node}, State = #{nodes := Nodes}) ->
     case mria_rlog:role() of
         core ->
+            % TODO
+            % Node may flap, do we need to wait for any pending cleanups in `init/1`
+            % on the flapping node?
+            % This also implies changing lock id to `{?LOCK, Node}`.
             global:trans(
                 {?LOCK, self()},
-                fun() ->
-                    mria:transaction(?ROUTE_SHARD, fun ?MODULE:cleanup_routes/1, [Node])
-                end
+                fun() -> cleanup_routes(Node) end
             ),
             ok = mria:dirty_delete(?ROUTING_NODE, Node);
         replicant ->

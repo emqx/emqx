@@ -26,32 +26,38 @@
 
 -define(ROUTER_HELPER, emqx_router_helper).
 
-all() -> emqx_common_test_helpers:all(?MODULE).
+all() ->
+    [
+        {group, routing_table_regular},
+        {group, routing_table_unified}
+    ].
 
-init_per_suite(Config) ->
-    DistPid =
-        case net_kernel:nodename() of
-            ignored ->
-                %% calling `net_kernel:start' without `epmd'
-                %% running will result in a failure.
-                emqx_common_test_helpers:start_epmd(),
-                {ok, Pid} = net_kernel:start(['test@127.0.0.1', longnames]),
-                Pid;
-            _ ->
-                undefined
-        end,
-    emqx_common_test_helpers:start_apps([]),
-    [{dist_pid, DistPid} | Config].
+groups() ->
+    TCs = emqx_common_test_helpers:all(?MODULE),
+    [
+        {routing_table_regular, [], TCs},
+        {routing_table_unified, [], TCs}
+    ].
 
-end_per_suite(Config) ->
-    DistPid = ?config(dist_pid, Config),
-    case DistPid of
-        Pid when is_pid(Pid) ->
-            net_kernel:stop();
-        _ ->
-            ok
-    end,
-    emqx_common_test_helpers:stop_apps([]).
+init_per_group(GroupName, Config) ->
+    WorkDir = filename:join([?config(priv_dir, Config), GroupName]),
+    AppSpecs = [{emqx, mk_config(GroupName)}],
+    Apps = emqx_cth_suite:start(AppSpecs, #{work_dir => WorkDir}),
+    [{group_name, GroupName}, {group_apps, Apps} | Config].
+
+end_per_group(_GroupName, Config) ->
+    ok = emqx_cth_suite:stop(?config(group_apps, Config)).
+
+mk_config(routing_table_regular) ->
+    #{
+        config => "broker.unified_routing_table = false",
+        override_env => [{boot_modules, [router]}]
+    };
+mk_config(routing_table_unified) ->
+    #{
+        config => "broker.unified_routing_table = true",
+        override_env => [{boot_modules, [router]}]
+    }.
 
 init_per_testcase(TestCase, Config) when
     TestCase =:= t_cleanup_membership_mnesia_down;
@@ -59,7 +65,16 @@ init_per_testcase(TestCase, Config) when
     TestCase =:= t_cleanup_monitor_node_down
 ->
     ok = snabbkaffe:start_trace(),
-    Slave = emqx_common_test_helpers:start_slave(some_node, []),
+    WorkDir = filename:join([?config(priv_dir, Config), ?config(group_name, Config), TestCase]),
+    [Slave] = emqx_cth_cluster:start(
+        [
+            {?MODULE, #{
+                apps => [{emqx, mk_config(?config(group_name, Config))}],
+                join_to => node()
+            }}
+        ],
+        #{work_dir => WorkDir}
+    ),
     [{slave, Slave} | Config];
 init_per_testcase(_TestCase, Config) ->
     Config.
@@ -70,9 +85,8 @@ end_per_testcase(TestCase, Config) when
     TestCase =:= t_cleanup_monitor_node_down
 ->
     Slave = ?config(slave, Config),
-    emqx_common_test_helpers:stop_slave(Slave),
-    mria:clear_table(?ROUTE_TAB),
-    snabbkaffe:stop(),
+    ok = emqx_cth_cluster:stop([Slave]),
+    ok = snabbkaffe:stop(),
     ok;
 end_per_testcase(_TestCase, _Config) ->
     ok.

@@ -26,24 +26,37 @@
 
 -define(R, emqx_router).
 
-all() -> emqx_common_test_helpers:all(?MODULE).
-
-init_per_suite(Config) ->
-    PrevBootModules = application:get_env(emqx, boot_modules),
-    emqx_common_test_helpers:boot_modules([router]),
-    emqx_common_test_helpers:start_apps([]),
+all() ->
     [
-        {prev_boot_modules, PrevBootModules}
-        | Config
+        {group, routing_table_regular},
+        {group, routing_table_unified}
     ].
 
-end_per_suite(Config) ->
-    PrevBootModules = ?config(prev_boot_modules, Config),
-    case PrevBootModules of
-        undefined -> ok;
-        {ok, Mods} -> emqx_common_test_helpers:boot_modules(Mods)
-    end,
-    emqx_common_test_helpers:stop_apps([]).
+groups() ->
+    TCs = emqx_common_test_helpers:all(?MODULE),
+    [
+        {routing_table_regular, [], TCs},
+        {routing_table_unified, [], TCs}
+    ].
+
+init_per_group(GroupName, Config) ->
+    WorkDir = filename:join([?config(priv_dir, Config), GroupName]),
+    AppSpecs = [
+        {emqx, #{
+            config => mk_config(GroupName),
+            override_env => [{boot_modules, [router]}]
+        }}
+    ],
+    Apps = emqx_cth_suite:start(AppSpecs, #{work_dir => WorkDir}),
+    [{group_apps, Apps} | Config].
+
+end_per_group(_GroupName, Config) ->
+    ok = emqx_cth_suite:stop(?config(group_apps, Config)).
+
+mk_config(routing_table_regular) ->
+    "broker.unified_routing_table = false";
+mk_config(routing_table_unified) ->
+    "broker.unified_routing_table = true".
 
 init_per_testcase(_TestCase, Config) ->
     clear_tables(),
@@ -177,5 +190,5 @@ t_unexpected(_) ->
 clear_tables() ->
     lists:foreach(
         fun mnesia:clear_table/1,
-        [?ROUTE_TAB, ?TRIE, emqx_trie_node]
+        [?ROUTE_TAB, ?ROUTE_TAB_UNIFIED, ?TRIE]
     ).
