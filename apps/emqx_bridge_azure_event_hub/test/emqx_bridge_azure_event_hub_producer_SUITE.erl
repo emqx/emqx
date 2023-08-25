@@ -12,6 +12,7 @@
 
 -define(BRIDGE_TYPE, azure_event_hub_producer).
 -define(BRIDGE_TYPE_BIN, <<"azure_event_hub_producer">>).
+-define(KAFKA_BRIDGE_TYPE, kafka).
 -define(APPS, [emqx_resource, emqx_bridge, emqx_rule_engine]).
 
 -import(emqx_common_test_helpers, [on_exit/1]).
@@ -274,5 +275,40 @@ t_sync_query(Config) ->
         fun make_message/0,
         fun(Res) -> ?assertEqual(ok, Res) end,
         emqx_bridge_kafka_impl_producer_sync_query
+    ),
+    ok.
+
+t_same_name_azure_kafka_bridges(AehConfig) ->
+    ConfigKafka = lists:keyreplace(bridge_type, 1, AehConfig, {bridge_type, ?KAFKA_BRIDGE_TYPE}),
+    BridgeName = ?config(bridge_name, AehConfig),
+    AehResourceId = emqx_bridge_testlib:resource_id(AehConfig),
+    TracePoint = emqx_bridge_kafka_impl_producer_sync_query,
+    %% creates the AEH bridge and check it's working
+    ok = emqx_bridge_testlib:t_sync_query(
+        AehConfig,
+        fun make_message/0,
+        fun(Res) -> ?assertEqual(ok, Res) end,
+        TracePoint
+    ),
+    %% than creates a Kafka bridge with same name and delete it after creation
+    ok = emqx_bridge_testlib:t_create_via_http(ConfigKafka),
+    ?assertMatch(
+        {{ok, _}, {ok, _}},
+        ?wait_async_action(
+            emqx_bridge:disable_enable(disable, ?KAFKA_BRIDGE_TYPE, BridgeName),
+            #{?snk_kind := kafka_producer_stopped},
+            5_000
+        )
+    ),
+    % check that AEH bridge is still working
+    ?check_trace(
+        begin
+            Message = {send_message, make_message()},
+            ?assertEqual(ok, emqx_resource:simple_sync_query(AehResourceId, Message)),
+            ok
+        end,
+        fun(Trace) ->
+            ?assertMatch([#{instance_id := AehResourceId}], ?of_kind(TracePoint, Trace))
+        end
     ),
     ok.

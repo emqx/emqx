@@ -65,7 +65,7 @@ on_start(InstId, Config) ->
     ok = emqx_resource:allocate_resource(InstId, ?kafka_resource_id, ResourceId),
     _ = maybe_install_wolff_telemetry_handlers(ResourceId),
     Hosts = emqx_bridge_kafka_impl:hosts(Hosts0),
-    ClientId = emqx_bridge_kafka_impl:make_client_id(BridgeType, BridgeName),
+    ClientId = emqx_bridge_kafka_impl:make_client_id(InstId),
     ok = emqx_resource:allocate_resource(InstId, ?kafka_client_id, ClientId),
     ClientConfig = #{
         min_metadata_refresh_interval => MinMetaRefreshInterval,
