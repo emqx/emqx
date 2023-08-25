@@ -721,6 +721,90 @@ t_wrong_headers(_Config) ->
     ),
     ok.
 
+t_wrong_headers_from_message(Config) ->
+    HostsString = kafka_hosts_string_sasl(),
+    AuthSettings = valid_sasl_plain_settings(),
+    Hash = erlang:phash2([HostsString, ?FUNCTION_NAME]),
+    Type = ?BRIDGE_TYPE,
+    Name = "kafka_bridge_name_" ++ erlang:integer_to_list(Hash),
+    ResourceId = emqx_bridge_resource:resource_id(Type, Name),
+    BridgeId = emqx_bridge_resource:bridge_id(Type, Name),
+    KafkaTopic = "test-topic-one-partition",
+    Conf = config_with_headers(#{
+        "authentication" => AuthSettings,
+        "kafka_hosts_string" => HostsString,
+        "kafka_topic" => KafkaTopic,
+        "instance_id" => ResourceId,
+        "kafka_headers" => <<"${payload}">>,
+        "producer" => #{
+            "kafka" => #{
+                "buffer" => #{
+                    "memory_overload_protection" => false
+                }
+            }
+        },
+        "ssl" => #{}
+    }),
+    {ok, #{config := ConfigAtom1}} = emqx_bridge:create(
+        Type, erlang:list_to_atom(Name), Conf
+    ),
+    ConfigAtom = ConfigAtom1#{bridge_name => Name},
+    {ok, State} = ?PRODUCER:on_start(ResourceId, ConfigAtom),
+    Time1 = erlang:unique_integer(),
+    Payload1 = <<"wrong_header">>,
+    Msg1 = #{
+        clientid => integer_to_binary(Time1),
+        payload => Payload1,
+        timestamp => Time1
+    },
+    ?assertError(
+        {badmatch, {error, {unrecoverable_error, {bad_kafka_headers, Payload1}}}},
+        send(Config, ResourceId, Msg1, State)
+    ),
+    Time2 = erlang:unique_integer(),
+    Payload2 = <<"[{\"foo\":\"bar\"}, {\"foo2\":\"bar2\"}]">>,
+    Msg2 = #{
+        clientid => integer_to_binary(Time2),
+        payload => Payload2,
+        timestamp => Time2
+    },
+    ?assertError(
+        {badmatch, {error, {unrecoverable_error, {bad_kafka_header, [{<<"foo">>, <<"bar">>}]}}}},
+        send(Config, ResourceId, Msg2, State)
+    ),
+    Time3 = erlang:unique_integer(),
+    Payload3 = <<"[{\"key\":\"foo\"}, {\"value\":\"bar\"}]">>,
+    Msg3 = #{
+        clientid => integer_to_binary(Time3),
+        payload => Payload3,
+        timestamp => Time3
+    },
+    ?assertError(
+        {badmatch, {error, {unrecoverable_error, {bad_kafka_header, [{<<"key">>, <<"foo">>}]}}}},
+        send(Config, ResourceId, Msg3, State)
+    ),
+    Time4 = erlang:unique_integer(),
+    Payload4 = <<"[{\"key\":\"foo\", \"value\":\"bar\"}]">>,
+    Msg4 = #{
+        clientid => integer_to_binary(Time4),
+        payload => Payload4,
+        timestamp => Time4
+    },
+    ?assertError(
+        {badmatch,
+            {error,
+                {unrecoverable_error,
+                    {bad_kafka_header, [{<<"key">>, <<"foo">>}, {<<"value">>, <<"bar">>}]}}}},
+        send(Config, ResourceId, Msg4, State)
+    ),
+    %% TODO: refactor those into init/end per testcase
+    ok = ?PRODUCER:on_stop(ResourceId, State),
+    ?assertEqual([], supervisor:which_children(wolff_client_sup)),
+    ?assertEqual([], supervisor:which_children(wolff_producers_sup)),
+    ok = emqx_bridge_resource:remove(BridgeId),
+    delete_all_bridges(),
+    ok.
+
 %%------------------------------------------------------------------------------
 %% Helper functions
 %%------------------------------------------------------------------------------
