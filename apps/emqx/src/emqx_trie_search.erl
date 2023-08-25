@@ -137,7 +137,7 @@ get_topic({Filter, _ID}) when is_list(Filter) ->
 get_topic({Topic, _ID}) ->
     Topic.
 
--compile({inline, [base/1, move_up/2, match_add/2, compare/4]}).
+-compile({inline, [base/1, move_up/2, match_add/2, compare/3]}).
 
 %% Make the base-key which can be used to locate the desired search target.
 base(Prefix) ->
@@ -210,7 +210,7 @@ search_new(Words0, NewBase, NextF, Acc) ->
 
 %% Search to the bigger end of ordered collection of topics and topic-filters.
 search_up(Words, {Filter, _} = Cursor, NextF, Acc) ->
-    case compare(Filter, Words, 0, false) of
+    case compare(Filter, Words, 0) of
         match_full ->
             search_new(Words, Cursor, NextF, match_add(Cursor, Acc));
         match_prefix ->
@@ -230,9 +230,9 @@ seek(_Pos = 0, SeekWord, _FilterTail) ->
 seek(Pos, SeekWord, [FilterWord | Rest]) ->
     [FilterWord | seek(Pos - 1, SeekWord, Rest)].
 
-compare(NotFilter, _, _, _) when is_binary(NotFilter) ->
+compare(NotFilter, _, _) when is_binary(NotFilter) ->
     lower;
-compare([], [], _, _) ->
+compare([], [], _) ->
     % NOTE
     %  Topic: a/b/c/d
     % Filter: a/+/+/d
@@ -242,7 +242,7 @@ compare([], [], _, _) ->
     % * a/+/+/d (same topic but a different ID)
     % * a/+/+/d/# (also a match)
     match_full;
-compare([], _Words, _, _) ->
+compare([], _Words, _) ->
     % NOTE
     %  Topic: a/b/c/d
     % Filter: a/+/c
@@ -255,7 +255,7 @@ compare([], _Words, _, _) ->
     % TODO
     % We might probably instead seek to a/+/c/# right away.
     match_prefix;
-compare(['#'], _Words, _, _) ->
+compare(['#'], _Words, _) ->
     % NOTE
     %  Topic: a/b/c/d
     % Filter: a/+/+/d/#
@@ -264,50 +264,46 @@ compare(['#'], _Words, _, _) ->
     % Closest possible next entries that we must not miss:
     % * a/+/+/d/# (same topic but a different ID)
     match_full;
-compare(['+' | TF], [HW | TW], Pos, _PrevBacktrack) ->
-    % NOTE
-    % We need to keep backtrack point each time we encounter a plus. To safely skip over
-    % parts of the search space, we may need last backtrack point when recursion terminates.
-    % See next clauses for examples.
-    compare(TF, TW, Pos + 1, {Pos, HW});
-compare([HW | TF], [HW | TW], Pos, Backtrack) ->
+compare(['+' | TF], [HW | TW], Pos) ->
+    case compare(TF, TW, Pos + 1) of
+        lower ->
+            % NOTE
+            %  Topic: a/b/c/d
+            % Filter: a/+/+/e/1 or a/b/+/d/1
+            % The topic is lower than a topic filter. But we're at the `+` position,
+            % so we emit a backtrack point to seek to:
+            % Seek: {2, c}
+            % We skip over part of search space, and seek to the next possible match:
+            % Next: a/+/c
+            {Pos, HW};
+        Other ->
+            % NOTE
+            % It's either already a backtrack point, emitted from the last `+`
+            % position or just a seek / match. In both cases we just pass it
+            % through.
+            Other
+    end;
+compare([HW | TF], [HW | TW], Pos) ->
     % NOTE
     % Skip over the same word in both topic and filter, keeping the last backtrack point.
-    compare(TF, TW, Pos + 1, Backtrack);
-compare([HF | _], [HW | _], _, false) when HF > HW ->
+    compare(TF, TW, Pos + 1);
+compare([HF | _], [HW | _], _) when HF > HW ->
     % NOTE
     %  Topic: a/b/c/d
-    % Filter: a/b/c/e/1
-    % The topic is lower than a topic filter. There's nowhere to backtrackto, we're out of
-    % the search space. We should stop the search.
+    % Filter: a/b/c/e/1 or a/b/+/e
+    % The topic is lower than a topic filter. In the first case there's nowhere to
+    % backtrack to, we're out of the search space. In the second case there's a `+`
+    % on 3rd level, we'll seek up from there.
     lower;
-compare([HF | _], [HW | _], _, Backtrack) when HF > HW ->
+compare([_ | _], [], _) ->
     % NOTE
     %  Topic: a/b/c/d
-    % Filter: a/+/+/e/1
-    % The topic is lower than a topic filter. There was a plus, last time at the 3rd level,
-    % we have a backtrack point to seek to:
-    % Seek: {2, c}
-    % We need to skip over part of search space, and seek to the next possible match:
-    % Next: a/+/c
-    Backtrack;
-compare([_ | _], [], _, false) ->
-    % NOTE
-    %  Topic: a/b/c/d
-    % Filter: a/b/c/d/1
-    % The topic is lower than a topic filter (since it's shorter). There's nowhere to
-    % backtrack to, we're out of the search space. We should stop the search.
+    % Filter: a/b/c/d/1 or a/+/c/d/1
+    % The topic is lower than a topic filter (since it's shorter). In the first case
+    % there's nowhere to backtrack to, we're out of the search space. In the second case
+    % there's a `+` on 2nd level, we'll seek up from there.
     lower;
-compare([_ | _], [], _, Backtrack) ->
-    % NOTE
-    %  Topic: a/b/c/d
-    % Filter: a/+/c/d/1
-    % The topic is lower than a topic filter. There was a plus, last and only time at the
-    % 3rd level, we have a backtrack point:
-    % Seek: {1, b}
-    % Next: a/b
-    Backtrack;
-compare([_ | _], [HW | _], Pos, _) ->
+compare([_ | _], [HW | _], Pos) ->
     % NOTE
     %  Topic: a/b/c/d
     % Filter: a/+/+/0/1/2
