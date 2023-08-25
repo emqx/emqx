@@ -1928,7 +1928,7 @@ t_node_joins_existing_cluster(Config) ->
             ?retry(
                 _Sleep2 = 100,
                 _Attempts2 = 50,
-                true = erpc:call(N2, emqx_router, has_routes, [MQTTTopic])
+                [] =/= erpc:call(N2, emqx_router, lookup_routes, [MQTTTopic])
             ),
             {ok, SRef1} =
                 snabbkaffe:subscribe(

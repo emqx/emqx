@@ -176,9 +176,9 @@ t_print_routes(_) ->
     ?R:add_route(<<"+/+">>),
     ?R:print_routes(<<"a/b">>).
 
-t_has_routes(_) ->
+t_has_route(_) ->
     ?R:add_route(<<"devices/+/messages">>, node()),
-    ?assert(?R:has_routes(<<"devices/+/messages">>)),
+    ?assert(?R:has_route(<<"devices/+/messages">>, node())),
     ?R:delete_route(<<"devices/+/messages">>).
 
 t_unexpected(_) ->

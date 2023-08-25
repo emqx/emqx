@@ -50,7 +50,7 @@
 -export([
     match_routes/1,
     lookup_routes/1,
-    has_routes/1
+    has_route/2
 ]).
 
 -export([print_routes/1]).
@@ -221,27 +221,6 @@ lookup_routes_regular(Topic) ->
 
 match_to_route(M) ->
     #route{topic = emqx_topic_index:get_topic(M), dest = emqx_topic_index:get_id(M)}.
-
--spec has_routes(emqx_types:topic()) -> boolean().
-has_routes(Topic) when is_binary(Topic) ->
-    case is_unified_table_active() of
-        true ->
-            has_routes_unified(Topic);
-        false ->
-            has_routes_regular(Topic)
-    end.
-
-has_routes_unified(Topic) ->
-    Pat = #routeidx{entry = emqx_topic_index:mk_key(Topic, '$1'), _ = '_'},
-    case ets:match(?ROUTE_TAB_UNIFIED, Pat, 1) of
-        {[_], _} ->
-            true;
-        _ ->
-            false
-    end.
-
-has_routes_regular(Topic) ->
-    ets:member(?ROUTE_TAB, Topic).
 
 -spec has_route(emqx_types:topic(), dest()) -> boolean().
 has_route(Topic, Dest) ->

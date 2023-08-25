@@ -1054,7 +1054,7 @@ t_queue_subscription(Config) when is_list(Config) ->
         begin
             ct:pal("routes: ~p", [ets:tab2list(emqx_route)]),
             %% FIXME: should ensure we have 2 subscriptions
-            true = emqx_router:has_routes(Topic)
+            [_] = emqx_router:lookup_routes(Topic)
         end
     ),
 
@@ -1081,7 +1081,7 @@ t_queue_subscription(Config) when is_list(Config) ->
     %%     _Attempts0 = 50,
     %%    begin
     %%     ct:pal("routes: ~p", [ets:tab2list(emqx_route)]),
-    %%     false = emqx_router:has_routes(Topic)
+    %%     [] = emqx_router:lookup_routes(Topic)
     %%    end
     %%   ),
     ct:sleep(500),
