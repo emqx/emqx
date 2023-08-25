@@ -493,7 +493,7 @@ inc_sent(Packet) ->
     inc('packets.sent'),
     do_inc_sent(Packet).
 
-do_inc_sent(?CONNACK_PACKET(ReasonCode)) ->
+do_inc_sent(?CONNACK_PACKET(ReasonCode, _SessPresent)) ->
     (ReasonCode == ?RC_SUCCESS) orelse inc('packets.connack.error'),
     ((ReasonCode == ?RC_NOT_AUTHORIZED) orelse
         (ReasonCode == ?CONNACK_AUTH)) andalso

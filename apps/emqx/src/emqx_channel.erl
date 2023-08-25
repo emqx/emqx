@@ -2218,6 +2218,7 @@ disconnect_and_shutdown(Reason, Reply, Channel) ->
     NChannel = ensure_disconnected(Reason, Channel),
     shutdown(Reason, Reply, NChannel).
 
+-compile({inline, [sp/1, flag/1]}).
 sp(true) -> 1;
 sp(false) -> 0.
 
