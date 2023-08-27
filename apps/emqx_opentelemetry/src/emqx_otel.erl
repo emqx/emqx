@@ -17,9 +17,29 @@
 -module(emqx_otel).
 -include_lib("emqx/include/logger.hrl").
 
--export([start_link/1, cleanup/0]).
+-export([start_otel/1, stop_otel/0]).
 -export([get_cluster_gauge/1, get_stats_gauge/1, get_vm_gauge/1, get_metric_counter/1]).
+-export([start_link/1]).
 -export([init/1, handle_continue/2, handle_call/3, handle_cast/2, handle_info/2, terminate/2]).
+
+-define(SUPERVISOR, emqx_otel_sup).
+
+start_otel(Conf) ->
+    Spec = emqx_otel_sup:worker_spec(?MODULE, Conf),
+    assert_started(supervisor:start_child(?SUPERVISOR, Spec)).
+
+stop_otel() ->
+    ok = cleanup(),
+    case erlang:whereis(?SUPERVISOR) of
+        undefined ->
+            ok;
+        Pid ->
+            case supervisor:terminate_child(Pid, ?MODULE) of
+                ok -> supervisor:delete_child(Pid, ?MODULE);
+                {error, not_found} -> ok;
+                Error -> Error
+            end
+    end.
 
 start_link(Conf) ->
     gen_server:start_link({local, ?MODULE}, ?MODULE, Conf, []).
@@ -47,7 +67,7 @@ setup(Conf = #{enable := true}) ->
     ensure_apps(Conf),
     create_metric_views();
 setup(_Conf) ->
-    cleanup(),
+    ok = cleanup(),
     ok.
 
 ensure_apps(Conf) ->
@@ -225,3 +245,8 @@ create_counter(Meter, Counters, CallBack) ->
 
 normalize_name(Name) ->
     list_to_existing_atom(lists:flatten(string:replace(atom_to_list(Name), "_", ".", all))).
+
+assert_started({ok, _Pid}) -> ok;
+assert_started({ok, _Pid, _Info}) -> ok;
+assert_started({error, {already_started, _Pid}}) -> ok;
+assert_started({error, Reason}) -> {error, Reason}.
