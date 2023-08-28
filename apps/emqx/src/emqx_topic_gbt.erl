@@ -14,11 +14,12 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
-%% @doc Topic index implemetation with ETS table as ordered-set storage.
+%% @doc Topic index implemetation with gb_trees stored in persistent_term.
+%% This is only suitable for a static set of topic or topic-filters.
 
--module(emqx_topic_index).
+-module(emqx_topic_gbt).
 
--export([new/0]).
+-export([new/0, new/1]).
 -export([insert/4]).
 -export([delete/3]).
 -export([match/2]).
@@ -28,39 +29,53 @@
 -export([get_topic/1]).
 -export([get_record/2]).
 
--type key(ID) :: emqx_trie_search:key(ID).
+-type word() :: binary() | '+' | '#'.
+-type key(ID) :: {[word()], {ID}}.
 -type match(ID) :: key(ID).
+-type name() :: any().
 
-%% @doc Create a new ETS table suitable for topic index.
-%% Usable mostly for testing purposes.
--spec new() -> ets:table().
+%% @private Only for testing.
+-spec new() -> name().
 new() ->
-    ets:new(?MODULE, [public, ordered_set, {read_concurrency, true}]).
+    new(test).
+
+%% @doc Create a new gb_tree and store it in the persitent_term with the
+%% given name.
+-spec new(name()) -> name().
+new(Name) ->
+    T = gb_trees:from_orddict([]),
+    true = gbt_update(Name, T),
+    Name.
 
 %% @doc Insert a new entry into the index that associates given topic filter to given
 %% record ID, and attaches arbitrary record to the entry. This allows users to choose
 %% between regular and "materialized" indexes, for example.
--spec insert(emqx_types:topic(), _ID, _Record, ets:table()) -> true.
-insert(Filter, ID, Record, Tab) ->
+-spec insert(emqx_types:topic(), _ID, _Record, name()) -> true.
+insert(Filter, ID, Record, Name) ->
+    Tree = gbt(Name),
     Key = key(Filter, ID),
-    true = ets:insert(Tab, {Key, Record}).
+    NewTree = gb_trees:enter(Key, Record, Tree),
+    true = gbt_update(Name, NewTree).
 
 %% @doc Delete an entry from the index that associates given topic filter to given
 %% record ID. Deleting non-existing entry is not an error.
--spec delete(emqx_types:topic(), _ID, ets:table()) -> true.
-delete(Filter, ID, Tab) ->
-    true = ets:delete(Tab, key(Filter, ID)).
+-spec delete(emqx_types:topic(), _ID, name()) -> true.
+delete(Filter, ID, Name) ->
+    Tree = gbt(Name),
+    Key = key(Filter, ID),
+    NewTree = gb_trees:delete_any(Key, Tree),
+    true = gbt_update(Name, NewTree).
 
 %% @doc Match given topic against the index and return the first match, or `false` if
 %% no match is found.
--spec match(emqx_types:topic(), ets:table()) -> match(_ID) | false.
-match(Topic, Tab) ->
-    emqx_trie_search:match(Topic, make_nextf(Tab)).
+-spec match(emqx_types:topic(), name()) -> match(_ID) | false.
+match(Topic, Name) ->
+    emqx_trie_search:match(Topic, make_nextf(Name)).
 
 %% @doc Match given topic against the index and return _all_ matches.
 %% If `unique` option is given, return only unique matches by record ID.
-matches(Topic, Tab, Opts) ->
-    emqx_trie_search:matches(Topic, make_nextf(Tab), Opts).
+matches(Topic, Name, Opts) ->
+    emqx_trie_search:matches(Topic, make_nextf(Name), Opts).
 
 %% @doc Extract record ID from the match.
 -spec get_id(match(ID)) -> ID.
@@ -73,13 +88,33 @@ get_topic(Key) ->
     emqx_trie_search:get_topic(Key).
 
 %% @doc Fetch the record associated with the match.
-%% NOTE: Only really useful for ETS tables where the record ID is the first element.
--spec get_record(match(_ID), ets:table()) -> _Record.
-get_record(K, Tab) ->
-    ets:lookup_element(Tab, K, 2).
+-spec get_record(match(_ID), name()) -> _Record.
+get_record(Key, Name) ->
+    Gbt = gbt(Name),
+    gb_trees:get(Key, Gbt).
 
 key(TopicOrFilter, ID) ->
     emqx_trie_search:make_key(TopicOrFilter, ID).
 
-make_nextf(Tab) ->
-    fun(Key) -> ets:next(Tab, Key) end.
+gbt(Name) ->
+    persistent_term:get({?MODULE, Name}).
+
+gbt_update(Name, Tree) ->
+    persistent_term:put({?MODULE, Name}, Tree),
+    true.
+
+gbt_next(nil, _Input) ->
+    '$end_of_table';
+gbt_next({P, _V, _Smaller, Bigger}, K) when K >= P ->
+    gbt_next(Bigger, K);
+gbt_next({P, _V, Smaller, _Bigger}, K) ->
+    case gbt_next(Smaller, K) of
+        '$end_of_table' ->
+            P;
+        NextKey ->
+            NextKey
+    end.
+
+make_nextf(Name) ->
+    {_SizeWeDontCare, TheTree} = gbt(Name),
+    fun(Key) -> gbt_next(TheTree, Key) end.
