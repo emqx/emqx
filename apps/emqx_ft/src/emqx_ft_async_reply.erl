@@ -55,8 +55,15 @@
 
 -spec create_tables() -> ok.
 create_tables() ->
-    _ = ets:new(?MON_TAB, [named_table, public, ordered_set]),
-    _ = ets:new(?PACKET_TAB, [named_table, public, ordered_set]),
+    EtsOptions = [
+        named_table,
+        public,
+        ordered_set,
+        {read_concurrency, true},
+        {write_concurrency, true}
+    ],
+    _ = ets:new(?MON_TAB, EtsOptions),
+    _ = ets:new(?PACKET_TAB, EtsOptions),
     ok.
 
 -spec register(packet_id(), mon_ref(), timer_ref()) -> ok.
