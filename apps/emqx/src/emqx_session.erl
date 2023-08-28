@@ -44,6 +44,7 @@
 -module(emqx_session).
 
 -include("emqx.hrl").
+-include("emqx_session.hrl").
 -include("emqx_mqtt.hrl").
 -include("logger.hrl").
 -include("types.hrl").
@@ -59,7 +60,7 @@
     unpersist/1
 ]).
 
--export([init/1]).
+-export([init/1, init_and_open/1]).
 
 -export([
     info/1,
@@ -101,48 +102,12 @@
 %% Export for CT
 -export([set_field/3]).
 
--type sessionID() :: emqx_guid:guid().
+-type session_id() :: emqx_guid:guid().
 
 -export_type([
     session/0,
-    sessionID/0
+    session_id/0
 ]).
-
--record(session, {
-    %% Client's id
-    clientid :: emqx_types:clientid(),
-    id :: sessionID(),
-    %% Is this session a persistent session i.e. was it started with Session-Expiry > 0
-    is_persistent :: boolean(),
-    %% Client’s Subscriptions.
-    subscriptions :: map(),
-    %% Max subscriptions allowed
-    max_subscriptions :: non_neg_integer() | infinity,
-    %% Upgrade QoS?
-    upgrade_qos :: boolean(),
-    %% Client <- Broker: QoS1/2 messages sent to the client but
-    %% have not been unacked.
-    inflight :: emqx_inflight:inflight(),
-    %% All QoS1/2 messages published to when client is disconnected,
-    %% or QoS1/2 messages pending transmission to the Client.
-    %%
-    %% Optionally, QoS0 messages pending transmission to the Client.
-    mqueue :: emqx_mqueue:mqueue(),
-    %% Next packet id of the session
-    next_pkt_id = 1 :: emqx_types:packet_id(),
-    %% Retry interval for redelivering QoS1/2 messages (Unit: millisecond)
-    retry_interval :: timeout(),
-    %% Client -> Broker: QoS2 messages received from the client, but
-    %% have not been completely acknowledged
-    awaiting_rel :: map(),
-    %% Maximum number of awaiting QoS2 messages allowed
-    max_awaiting_rel :: non_neg_integer() | infinity,
-    %% Awaiting PUBREL Timeout (Unit: millisecond)
-    await_rel_timeout :: timeout(),
-    %% Created at
-    created_at :: pos_integer()
-    %% Message deliver latency stats
-}).
 
 -type inflight_data_phase() :: wait_ack | wait_comp.
 
@@ -200,6 +165,13 @@
 %%--------------------------------------------------------------------
 %% Init a Session
 %%--------------------------------------------------------------------
+
+-spec init_and_open(options()) -> session().
+init_and_open(Options) ->
+    #{clientid := ClientID} = Options,
+    Session0 = emqx_session:init(Options),
+    _ = emqx_persistent_session_ds:open_session(ClientID),
+    Session0.
 
 -spec init(options()) -> session().
 init(Opts) ->
@@ -324,11 +296,13 @@ subscribe(
     case IsNew andalso is_subscriptions_full(Session) of
         false ->
             ok = emqx_broker:subscribe(TopicFilter, ClientId, SubOpts),
+            Session1 = Session#session{subscriptions = maps:put(TopicFilter, SubOpts, Subs)},
+            Session2 = add_persistent_subscription(TopicFilter, ClientId, Session1),
             ok = emqx_hooks:run(
                 'session.subscribed',
                 [ClientInfo, TopicFilter, SubOpts#{is_new => IsNew}]
             ),
-            {ok, Session#session{subscriptions = maps:put(TopicFilter, SubOpts, Subs)}};
+            {ok, Session2};
         true ->
             {error, ?RC_QUOTA_EXCEEDED}
     end.
@@ -340,6 +314,12 @@ is_subscriptions_full(#session{
     max_subscriptions = MaxLimit
 }) ->
     maps:size(Subs) >= MaxLimit.
+
+-spec add_persistent_subscription(emqx_types:topic(), emqx_types:clientid(), session()) ->
+    session().
+add_persistent_subscription(TopicFilterBin, ClientId, Session) ->
+    _ = emqx_persistent_session_ds:add_subscription(TopicFilterBin, ClientId),
+    Session.
 
 %%--------------------------------------------------------------------
 %% Client -> Broker: UNSUBSCRIBE

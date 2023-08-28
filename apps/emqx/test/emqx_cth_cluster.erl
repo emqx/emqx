@@ -17,9 +17,11 @@
 -module(emqx_cth_cluster).
 
 -export([start/2]).
--export([stop/1]).
+-export([stop/1, stop_node/1]).
 
 -export([share_load_module/2]).
+-export([node_name/1, mk_nodespecs/2]).
+-export([start_apps/2, set_node_opts/2]).
 
 -define(APPS_CLUSTERING, [gen_rpc, mria, ekka]).
 
@@ -83,7 +85,7 @@ when
     }.
 start(Nodes, ClusterOpts) ->
     NodeSpecs = mk_nodespecs(Nodes, ClusterOpts),
-    ct:pal("Starting cluster: ~p", [NodeSpecs]),
+    ct:pal("Starting cluster:\n  ~p", [NodeSpecs]),
     % 1. Start bare nodes with only basic applications running
     _ = emqx_utils:pmap(fun start_node_init/1, NodeSpecs, ?TIMEOUT_NODE_START_MS),
     % 2. Start applications needed to enable clustering
@@ -237,6 +239,8 @@ default_appspec(emqx_conf, Spec, _NodeSpecs) ->
             listeners => allocate_listener_ports([tcp, ssl, ws, wss], Spec)
         }
     };
+default_appspec(emqx, Spec, _NodeSpecs) ->
+    #{config => #{listeners => allocate_listener_ports([tcp, ssl, ws, wss], Spec)}};
 default_appspec(_App, _, _) ->
     #{}.
 
@@ -285,16 +289,19 @@ load_apps(Node, #{apps := Apps}) ->
     erpc:call(Node, emqx_cth_suite, load_apps, [Apps]).
 
 start_apps_clustering(Node, #{apps := Apps} = Spec) ->
-    SuiteOpts = maps:with([work_dir], Spec),
+    SuiteOpts = suite_opts(Spec),
     AppsClustering = [lists:keyfind(App, 1, Apps) || App <- ?APPS_CLUSTERING],
     _Started = erpc:call(Node, emqx_cth_suite, start, [AppsClustering, SuiteOpts]),
     ok.
 
 start_apps(Node, #{apps := Apps} = Spec) ->
-    SuiteOpts = maps:with([work_dir], Spec),
+    SuiteOpts = suite_opts(Spec),
     AppsRest = [AppSpec || AppSpec = {App, _} <- Apps, not lists:member(App, ?APPS_CLUSTERING)],
     _Started = erpc:call(Node, emqx_cth_suite, start_apps, [AppsRest, SuiteOpts]),
     ok.
+
+suite_opts(Spec) ->
+    maps:with([work_dir], Spec).
 
 maybe_join_cluster(_Node, #{role := replicant}) ->
     ok;

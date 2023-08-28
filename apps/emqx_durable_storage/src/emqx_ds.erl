@@ -15,6 +15,9 @@
 %%--------------------------------------------------------------------
 -module(emqx_ds).
 
+-include_lib("stdlib/include/ms_transform.hrl").
+-include_lib("snabbkaffe/include/snabbkaffe.hrl").
+
 %% API:
 -export([ensure_shard/2]).
 %%   Messages:
@@ -39,6 +42,8 @@
     message_stats/0,
     message_store_opts/0,
     session_id/0,
+    replay/0,
+    replay_id/0,
     iterator_id/0,
     iterator/0,
     shard/0,
@@ -56,7 +61,7 @@
 
 -type iterator() :: term().
 
--opaque iterator_id() :: binary().
+-type iterator_id() :: binary().
 
 %%-type session() :: #session{}.
 
@@ -73,8 +78,16 @@
 
 %% Timestamp
 %% Earliest possible timestamp is 0.
-%% TODO granularity?
+%% TODO granularity?  Currently, we should always use micro second, as that's the unit we
+%% use in emqx_guid.  Otherwise, the iterators won't match the message timestamps.
 -type time() :: non_neg_integer().
+
+-type replay_id() :: binary().
+
+-type replay() :: {
+    _TopicFilter :: emqx_topic:words(),
+    _StartTime :: time()
+}.
 
 %%================================================================================
 %% API funcions
@@ -121,23 +134,20 @@ message_stats() ->
 %%
 %% Note: session API doesn't handle session takeovers, it's the job of
 %% the broker.
--spec session_open(emqx_types:clientid()) -> {_New :: boolean(), session_id(), [iterator_id()]}.
+-spec session_open(emqx_types:clientid()) -> {_New :: boolean(), session_id()}.
 session_open(ClientID) ->
-    {atomic, Ret} =
-        mria:transaction(
-            ?DS_SHARD,
-            fun() ->
-                case mnesia:read(?SESSION_TAB, ClientID) of
-                    [#session{iterators = Iterators}] ->
-                        {false, ClientID, Iterators};
-                    [] ->
-                        Session = #session{id = ClientID, iterators = []},
-                        mnesia:write(?SESSION_TAB, Session, write),
-                        {true, ClientID, []}
-                end
+    {atomic, Res} =
+        mria:transaction(?DS_SHARD, fun() ->
+            case mnesia:read(?SESSION_TAB, ClientID, write) of
+                [#session{}] ->
+                    {false, ClientID};
+                [] ->
+                    Session = #session{id = ClientID},
+                    mnesia:write(?SESSION_TAB, Session, write),
+                    {true, ClientID}
             end
-        ),
-    Ret.
+        end),
+    Res.
 
 %% @doc Called when a client reconnects with `clean session=true' or
 %% during session GC
@@ -160,10 +170,36 @@ session_suspend(_SessionId) ->
 
 %% @doc Called when a client subscribes to a topic. Idempotent.
 -spec session_add_iterator(session_id(), emqx_topic:words()) ->
-    {ok, iterator_id()} | {error, session_not_found}.
-session_add_iterator(_SessionId, _TopicFilter) ->
-    %% TODO
-    {ok, <<"">>}.
+    {ok, iterator_id(), time(), _IsNew :: boolean()}.
+session_add_iterator(DSSessionId, TopicFilter) ->
+    IteratorRefId = {DSSessionId, TopicFilter},
+    {atomic, Res} =
+        mria:transaction(?DS_SHARD, fun() ->
+            case mnesia:read(?ITERATOR_REF_TAB, IteratorRefId, write) of
+                [] ->
+                    {IteratorId, StartMS} = new_iterator_id(DSSessionId),
+                    IteratorRef = #iterator_ref{
+                        ref_id = IteratorRefId,
+                        it_id = IteratorId,
+                        start_time = StartMS
+                    },
+                    ok = mnesia:write(?ITERATOR_REF_TAB, IteratorRef, write),
+                    ?tp(
+                        ds_session_subscription_added,
+                        #{iterator_id => IteratorId, session_id => DSSessionId}
+                    ),
+                    IsNew = true,
+                    {ok, IteratorId, StartMS, IsNew};
+                [#iterator_ref{it_id = IteratorId, start_time = StartMS}] ->
+                    ?tp(
+                        ds_session_subscription_present,
+                        #{iterator_id => IteratorId, session_id => DSSessionId}
+                    ),
+                    IsNew = false,
+                    {ok, IteratorId, StartMS, IsNew}
+            end
+        end),
+    Res.
 
 %% @doc Called when a client unsubscribes from a topic. Returns `true'
 %% if the session contained the subscription or `false' if it wasn't
@@ -201,3 +237,9 @@ iterator_stats() ->
 %%================================================================================
 %% Internal functions
 %%================================================================================
+
+-spec new_iterator_id(session_id()) -> {iterator_id(), time()}.
+new_iterator_id(DSSessionId) ->
+    NowMS = erlang:system_time(microsecond),
+    IteratorId = <<DSSessionId/binary, (emqx_guid:gen())/binary>>,
+    {IteratorId, NowMS}.

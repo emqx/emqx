@@ -13,7 +13,15 @@
 
 -export([make_iterator/2, next/1]).
 
--export([preserve_iterator/2, restore_iterator/2, discard_iterator/2]).
+-export([
+    preserve_iterator/2,
+    restore_iterator/2,
+    discard_iterator/2,
+    ensure_iterator/3,
+    discard_iterator_prefix/2,
+    list_iterator_prefix/2,
+    foldl_iterator_prefix/4
+]).
 
 %% behaviour callbacks:
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2]).
@@ -160,10 +168,10 @@ next(It = #it{module = Mod, data = ItData}) ->
             end
     end.
 
--spec preserve_iterator(iterator(), emqx_ds:replay_id()) ->
+-spec preserve_iterator(iterator(), emqx_ds:iterator_id()) ->
     ok | {error, _TODO}.
-preserve_iterator(It = #it{}, ReplayID) ->
-    iterator_put_state(ReplayID, It).
+preserve_iterator(It = #it{}, IteratorID) ->
+    iterator_put_state(IteratorID, It).
 
 -spec restore_iterator(emqx_ds:shard(), emqx_ds:replay_id()) ->
     {ok, iterator()} | {error, _TODO}.
@@ -177,10 +185,49 @@ restore_iterator(Shard, ReplayID) ->
             Error
     end.
 
+-spec ensure_iterator(emqx_ds:shard(), emqx_ds:iterator_id(), emqx_ds:replay()) ->
+    {ok, iterator()} | {error, _TODO}.
+ensure_iterator(Shard, IteratorID, Replay = {_TopicFilter, _StartMS}) ->
+    case restore_iterator(Shard, IteratorID) of
+        {ok, It} ->
+            {ok, It};
+        {error, not_found} ->
+            {ok, It} = make_iterator(Shard, Replay),
+            ok = emqx_ds_storage_layer:preserve_iterator(It, IteratorID),
+            {ok, It};
+        Error ->
+            Error
+    end.
+
 -spec discard_iterator(emqx_ds:shard(), emqx_ds:replay_id()) ->
     ok | {error, _TODO}.
 discard_iterator(Shard, ReplayID) ->
     iterator_delete(Shard, ReplayID).
+
+-spec discard_iterator_prefix(emqx_ds:shard(), binary()) ->
+    ok | {error, _TODO}.
+discard_iterator_prefix(Shard, KeyPrefix) ->
+    case do_discard_iterator_prefix(Shard, KeyPrefix) of
+        {ok, _} -> ok;
+        Error -> Error
+    end.
+
+-spec list_iterator_prefix(
+    emqx_ds:shard(),
+    binary()
+) -> {ok, [emqx_ds:iterator_id()]} | {error, _TODO}.
+list_iterator_prefix(Shard, KeyPrefix) ->
+    do_list_iterator_prefix(Shard, KeyPrefix).
+
+-spec foldl_iterator_prefix(
+    emqx_ds:shard(),
+    binary(),
+    fun((_Key :: binary(), _Value :: binary(), Acc) -> Acc),
+    Acc
+) -> {ok, Acc} | {error, _TODO} when
+    Acc :: term().
+foldl_iterator_prefix(Shard, KeyPrefix, Fn, Acc) ->
+    do_foldl_iterator_prefix(Shard, KeyPrefix, Fn, Acc).
 
 %%================================================================================
 %% behaviour callbacks
@@ -344,7 +391,11 @@ open_restore_iterator(#{module := Mod, data := Data}, It = #it{replay = Replay},
 
 %%
 
--define(KEY_REPLAY_STATE(ReplayID), <<(ReplayID)/binary, "rs">>).
+-define(KEY_REPLAY_STATE(IteratorId), <<(IteratorId)/binary, "rs">>).
+-define(KEY_REPLAY_STATE_PAT(KeyReplayState), begin
+    <<IteratorId:(size(KeyReplayState) - 2)/binary, "rs">> = (KeyReplayState),
+    IteratorId
+end).
 
 -define(ITERATION_WRITE_OPTS, []).
 -define(ITERATION_READ_OPTS, []).
@@ -390,6 +441,44 @@ restore_iterator_state(
 ) ->
     It = #it{shard = Shard, gen = Gen, replay = {TopicFilter, StartTime}},
     open_restore_iterator(meta_get_gen(Shard, Gen), It, State).
+
+do_list_iterator_prefix(Shard, KeyPrefix) ->
+    Fn = fun(K0, _V, Acc) ->
+        K = ?KEY_REPLAY_STATE_PAT(K0),
+        [K | Acc]
+    end,
+    do_foldl_iterator_prefix(Shard, KeyPrefix, Fn, []).
+
+do_discard_iterator_prefix(Shard, KeyPrefix) ->
+    #db{handle = DBHandle, cf_iterator = CF} = meta_lookup(Shard, db),
+    Fn = fun(K, _V, _Acc) -> ok = rocksdb:delete(DBHandle, CF, K, ?ITERATION_WRITE_OPTS) end,
+    do_foldl_iterator_prefix(Shard, KeyPrefix, Fn, ok).
+
+do_foldl_iterator_prefix(Shard, KeyPrefix, Fn, Acc) ->
+    #db{handle = Handle, cf_iterator = CF} = meta_lookup(Shard, db),
+    case rocksdb:iterator(Handle, CF, ?ITERATION_READ_OPTS) of
+        {ok, It} ->
+            NextAction = {seek, KeyPrefix},
+            do_foldl_iterator_prefix(Handle, CF, It, KeyPrefix, NextAction, Fn, Acc);
+        Error ->
+            Error
+    end.
+
+do_foldl_iterator_prefix(DBHandle, CF, It, KeyPrefix, NextAction, Fn, Acc) ->
+    case rocksdb:iterator_move(It, NextAction) of
+        {ok, K = <<KeyPrefix:(size(KeyPrefix))/binary, _/binary>>, V} ->
+            NewAcc = Fn(K, V, Acc),
+            do_foldl_iterator_prefix(DBHandle, CF, It, KeyPrefix, next, Fn, NewAcc);
+        {ok, _K, _V} ->
+            ok = rocksdb:iterator_close(It),
+            {ok, Acc};
+        {error, invalid_iterator} ->
+            ok = rocksdb:iterator_close(It),
+            {ok, Acc};
+        Error ->
+            ok = rocksdb:iterator_close(It),
+            Error
+    end.
 
 %% Functions for dealing with the metadata stored persistently in rocksdb
 

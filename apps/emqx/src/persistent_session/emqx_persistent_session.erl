@@ -115,10 +115,10 @@ storage_backend() ->
 %% Session message ADT API
 %%--------------------------------------------------------------------
 
--spec session_message_info('timestamp' | 'sessionID', sess_msg_key()) -> term().
+-spec session_message_info('timestamp' | 'session_id', sess_msg_key()) -> term().
 session_message_info(timestamp, {_, <<>>, <<TS:64>>, ?ABANDONED}) -> TS;
 session_message_info(timestamp, {_, GUID, _, _}) -> emqx_guid:timestamp(GUID);
-session_message_info(sessionID, {SessionID, _, _, _}) -> SessionID.
+session_message_info(session_id, {SessionID, _, _, _}) -> SessionID.
 
 %%--------------------------------------------------------------------
 %% DB API
@@ -243,7 +243,7 @@ discard_opt(true, ClientID, Session) ->
     emqx_session_router:delete_routes(SessionID, Subscriptions),
     emqx_session:set_field(is_persistent, false, Session).
 
--spec mark_resume_begin(emqx_session:sessionID()) -> emqx_guid:guid().
+-spec mark_resume_begin(emqx_session:session_id()) -> emqx_guid:guid().
 mark_resume_begin(SessionID) ->
     MarkerID = emqx_guid:gen(),
     put_session_message({SessionID, MarkerID, <<>>, ?MARKER}),
@@ -396,12 +396,12 @@ do_mark_as_delivered(SessionID, [{deliver, STopic, Msg} | Left]) ->
 do_mark_as_delivered(_SessionID, []) ->
     ok.
 
--spec pending(emqx_session:sessionID()) ->
+-spec pending(emqx_session:session_id()) ->
     [{emqx_types:message(), STopic :: binary()}].
 pending(SessionID) ->
     pending_messages_in_db(SessionID, []).
 
--spec pending(emqx_session:sessionID(), MarkerIDs :: [emqx_guid:guid()]) ->
+-spec pending(emqx_session:session_id(), MarkerIDs :: [emqx_guid:guid()]) ->
     [{emqx_types:message(), STopic :: binary()}].
 pending(SessionID, MarkerIds) ->
     %% TODO: Handle lost MarkerIDs
@@ -460,8 +460,8 @@ read_pending_msgs([], Acc) ->
     lists:reverse(Acc).
 
 %% The keys are ordered by
-%%     {sessionID(), <<>>, bin_timestamp(), ?ABANDONED} For abandoned sessions (clean started or expired).
-%%     {sessionID(), emqx_guid:guid(), STopic :: binary(), ?DELIVERED | ?UNDELIVERED | ?MARKER}
+%%     {session_id(), <<>>, bin_timestamp(), ?ABANDONED} For abandoned sessions (clean started or expired).
+%%     {session_id(), emqx_guid:guid(), STopic :: binary(), ?DELIVERED | ?UNDELIVERED | ?MARKER}
 %%  where
 %%     <<>> < emqx_guid:guid()
 %%     <<>> < bin_timestamp()
@@ -491,7 +491,7 @@ pending_messages({SessionID, PrevMsgId, PrevSTopic, PrevTag} = PrevKey, Acc, Mar
                 false -> pending_messages(Key, Acc, MarkerIds);
                 true -> pending_messages(Key, [{PrevMsgId, PrevSTopic} | Acc], MarkerIds)
             end;
-        %% Next sessionID or '$end_of_table'
+        %% Next session_id or '$end_of_table'
         _What ->
             case PrevTag =:= ?UNDELIVERED of
                 false -> {lists:reverse(Acc), MarkerIds};

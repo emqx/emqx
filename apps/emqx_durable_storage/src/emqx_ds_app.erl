@@ -25,7 +25,18 @@ init_mnesia() ->
             {record_name, session},
             {attributes, record_info(fields, session)}
         ]
-    ).
+    ),
+    ok = mria:create_table(
+        ?ITERATOR_REF_TAB,
+        [
+            {rlog_shard, ?DS_SHARD},
+            {type, ordered_set},
+            {storage, storage()},
+            {record_name, iterator_ref},
+            {attributes, record_info(fields, iterator_ref)}
+        ]
+    ),
+    ok.
 
 storage() ->
     case mria:rocksdb_backend_available() of

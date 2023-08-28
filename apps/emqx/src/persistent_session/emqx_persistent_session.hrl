@@ -14,6 +14,8 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
+-define(PERSISTENT_SESSION_SHARD, emqx_persistent_session_shard).
+
 -record(session_store, {
     client_id :: binary(),
     expiry_interval :: non_neg_integer(),

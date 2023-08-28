@@ -41,6 +41,7 @@
 {emqx_node_rebalance_evacuation,1}.
 {emqx_node_rebalance_status,1}.
 {emqx_persistent_session,1}.
+{emqx_persistent_session_ds,1}.
 {emqx_plugins,1}.
 {emqx_prometheus,1}.
 {emqx_resource,1}.
