@@ -25,6 +25,7 @@ all() ->
 
 init_per_suite(Config) ->
     emqx_mgmt_api_test_util:init_suite([emqx_conf, emqx_management]),
+    ok = emqx_mgmt_cli:load(),
     Config.
 
 end_per_suite(_) ->
@@ -183,9 +184,25 @@ t_listeners(_Config) ->
 
 t_authz(_Config) ->
     %% authz cache-clean all         # Clears authorization cache on all nodes
-    emqx_ctl:run_command(["authz", "cache-clean", "all"]),
-    %% authz cache-clean node <Node> # Clears authorization cache on given node
+    ?assertMatch(ok, emqx_ctl:run_command(["authz", "cache-clean", "all"])),
+    ClientId = "authz_clean_test",
+    ClientIdBin = list_to_binary(ClientId),
     %% authz cache-clean <ClientId>  # Clears authorization cache for given client
+    ?assertMatch({error, not_found}, emqx_ctl:run_command(["authz", "cache-clean", ClientId])),
+    {ok, C} = emqtt:start_link([{clean_start, true}, {clientid, ClientId}]),
+    {ok, _} = emqtt:connect(C),
+    {ok, _, _} = emqtt:subscribe(C, <<"topic/1">>, 1),
+    [Pid] = emqx_cm:lookup_channels(ClientIdBin),
+    ?assertMatch([_], gen_server:call(Pid, list_authz_cache)),
+
+    ?assertMatch(ok, emqx_ctl:run_command(["authz", "cache-clean", ClientId])),
+    ?assertMatch([], gen_server:call(Pid, list_authz_cache)),
+    %% authz cache-clean node <Node> # Clears authorization cache on given node
+    {ok, _, _} = emqtt:subscribe(C, <<"topic/2">>, 1),
+    ?assertMatch([_], gen_server:call(Pid, list_authz_cache)),
+    ?assertMatch(ok, emqx_ctl:run_command(["authz", "cache-clean", "node", atom_to_list(node())])),
+    ?assertMatch([], gen_server:call(Pid, list_authz_cache)),
+    ok = emqtt:disconnect(C),
     ok.
 
 t_olp(_Config) ->

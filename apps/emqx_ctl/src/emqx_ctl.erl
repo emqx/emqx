@@ -119,8 +119,7 @@ run_command(Cmd, Args) when is_atom(Cmd) ->
     case lookup_command(Cmd) of
         [{Mod, Fun}] ->
             try
-                _ = apply(Mod, Fun, [Args]),
-                ok
+                apply(Mod, Fun, [Args])
             catch
                 _:Reason:Stacktrace ->
                     ?LOG_ERROR(#{
