@@ -292,7 +292,6 @@ check_res(_Node, Key, {error, Reason}, Conf, Opts = #{mode := Mode}) ->
         "Can't ~ts the new configurations!~n"
         "Root key: ~ts~n"
         "Reason: ~p~n",
-    warning(Opts, Warning, [Mode, Key, Reason]),
     ActiveMsg0 =
         "The effective configurations:~n"
         "```~n"
@@ -305,8 +304,9 @@ check_res(_Node, Key, {error, Reason}, Conf, Opts = #{mode := Mode}) ->
     FailedMsg = io_lib:format(FailedMsg0, [Mode, hocon_pp:do(#{Key => Conf}, #{})]),
     SuggestMsg = suggest_msg(Reason, Mode),
     Msg = iolist_to_binary([ActiveMsg, FailedMsg, SuggestMsg]),
-    print(Opts, "~ts", [Msg]),
-    {error, iolist_to_binary([Warning, Msg])}.
+    print(Opts, "~ts~n", [Msg]),
+    warning(Opts, Warning, [Mode, Key, Reason]),
+    {error, iolist_to_binary([Msg, "\n", io_lib:format(Warning, [Mode, Key, Reason])])}.
 
 %% The mix data failed validation, suggest the user to retry with another mode.
 suggest_msg(#{kind := validation_error, reason := unknown_fields}, Mode) ->
@@ -317,7 +317,7 @@ suggest_msg(#{kind := validation_error, reason := unknown_fields}, Mode) ->
         end,
     io_lib:format(
         "Tips: There may be some conflicts in the new configuration under `~ts` mode,~n"
-        "Please retry with the `~ts` mode.~n",
+        "Please retry with the `~ts` mode.",
         [Mode, RetryMode]
     );
 suggest_msg(_, _) ->
