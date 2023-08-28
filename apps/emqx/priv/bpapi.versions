@@ -15,7 +15,9 @@
 {emqx_conf,3}.
 {emqx_dashboard,1}.
 {emqx_delayed,1}.
+{emqx_delayed,2}.
 {emqx_eviction_agent,1}.
+{emqx_eviction_agent,2}.
 {emqx_exhook,1}.
 {emqx_ft_storage_exporter_fs,1}.
 {emqx_ft_storage_fs,1}.
@@ -37,9 +39,13 @@
 {emqx_mgmt_trace,1}.
 {emqx_mgmt_trace,2}.
 {emqx_node_rebalance,1}.
+{emqx_node_rebalance,2}.
 {emqx_node_rebalance_api,1}.
+{emqx_node_rebalance_api,2}.
 {emqx_node_rebalance_evacuation,1}.
+{emqx_node_rebalance_purge,1}.
 {emqx_node_rebalance_status,1}.
+{emqx_node_rebalance_status,2}.
 {emqx_persistent_session,1}.
 {emqx_plugins,1}.
 {emqx_prometheus,1}.

@@ -9,6 +9,7 @@
     emqtt_connect/1,
     emqtt_connect/2,
     emqtt_connect_many/2,
+    emqtt_connect_many/3,
     stop_many/1,
 
     emqtt_try_connect/1,
@@ -42,6 +43,9 @@ emqtt_connect(Opts) ->
     end.
 
 emqtt_connect_many(Port, Count) ->
+    emqtt_connect_many(Port, Count, _StartN = 1).
+
+emqtt_connect_many(Port, Count, StartN) ->
     lists:map(
         fun(N) ->
             NBin = integer_to_binary(N),
@@ -49,7 +53,7 @@ emqtt_connect_many(Port, Count) ->
             {ok, C} = emqtt_connect([{clientid, ClientId}, {clean_start, false}, {port, Port}]),
             C
         end,
-        lists:seq(1, Count)
+        lists:seq(StartN, StartN + Count - 1)
     ).
 
 stop_many(Clients) ->
