@@ -540,8 +540,17 @@ t_parse_incoming_order(_) ->
 
 t_parse_incoming_frame_error(_) ->
     {Packets, _St} = ?ws_conn:parse_incoming(<<3, 2, 1, 0>>, [], st()),
-    FrameError = {frame_error, malformed_packet},
-    [{incoming, FrameError}] = Packets.
+
+    ?assertMatch(
+        [
+            {incoming,
+                {frame_error, #{
+                    header_type := _,
+                    hit := malformed_packet
+                }}}
+        ],
+        Packets
+    ).
 
 t_handle_incomming_frame_error(_) ->
     FrameError = {frame_error, bad_qos},

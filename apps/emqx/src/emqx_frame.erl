@@ -472,8 +472,8 @@ parse_packet(
 ) ->
     {Properties, <<>>} = parse_properties(Rest, ?MQTT_PROTO_V5, StrictMode),
     #mqtt_packet_auth{reason_code = ReasonCode, properties = Properties};
-parse_packet(_Header, _FrameBin, _Options) ->
-    ?PARSE_ERR(malformed_packet).
+parse_packet(Header, _FrameBin, _Options) ->
+    ?PARSE_ERR(#{hit => malformed_packet, header_type => Header#mqtt_packet_header.type}).
 
 parse_will_message(
     Packet = #mqtt_packet_connect{
@@ -512,8 +512,16 @@ parse_properties(<<0, Rest/binary>>, ?MQTT_PROTO_V5, _StrictMode) ->
     {#{}, Rest};
 parse_properties(Bin, ?MQTT_PROTO_V5, StrictMode) ->
     {Len, Rest} = parse_variable_byte_integer(Bin),
-    <<PropsBin:Len/binary, Rest1/binary>> = Rest,
-    {parse_property(PropsBin, #{}, StrictMode), Rest1}.
+    case Rest of
+        <<PropsBin:Len/binary, Rest1/binary>> ->
+            {parse_property(PropsBin, #{}, StrictMode), Rest1};
+        _ ->
+            ?PARSE_ERR(#{
+                hint => user_property_not_enough_bytes,
+                parsed_key_length => Len,
+                remaining_bytes_length => byte_size(Rest)
+            })
+    end.
 
 parse_property(<<>>, Props, _StrictMode) ->
     Props;
