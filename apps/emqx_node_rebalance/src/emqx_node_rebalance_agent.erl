@@ -14,7 +14,9 @@
 -export([
     start_link/0,
     enable/1,
+    enable/2,
     disable/1,
+    disable/2,
     status/0
 ]).
 
@@ -40,11 +42,21 @@ start_link() ->
 
 -spec enable(pid()) -> ok_or_error(already_enabled | eviction_agent_busy).
 enable(CoordinatorPid) ->
-    gen_server:call(?MODULE, {enable, CoordinatorPid}).
+    enable(CoordinatorPid, ?ENABLE_KIND).
+
+-spec enable(pid(), emqx_eviction_agent:kind()) ->
+    ok_or_error(already_enabled | eviction_agent_busy).
+enable(CoordinatorPid, Kind) ->
+    gen_server:call(?MODULE, {enable, CoordinatorPid, Kind}).
 
 -spec disable(pid()) -> ok_or_error(already_disabled | invalid_coordinator).
 disable(CoordinatorPid) ->
-    gen_server:call(?MODULE, {disable, CoordinatorPid}).
+    disable(CoordinatorPid, ?ENABLE_KIND).
+
+-spec disable(pid(), emqx_eviction_agent:kind()) ->
+    ok_or_error(already_disabled | invalid_coordinator).
+disable(CoordinatorPid, Kind) ->
+    gen_server:call(?MODULE, {disable, CoordinatorPid, Kind}).
 
 -spec status() -> status().
 status() ->
@@ -57,7 +69,7 @@ status() ->
 init([]) ->
     {ok, #{}}.
 
-handle_call({enable, CoordinatorPid}, _From, St) ->
+handle_call({enable, CoordinatorPid, Kind}, _From, St) ->
     case St of
         #{coordinator_pid := _Pid} ->
             {reply, {error, already_enabled}, St};
@@ -65,7 +77,7 @@ handle_call({enable, CoordinatorPid}, _From, St) ->
             true = link(CoordinatorPid),
             EvictionAgentPid = whereis(emqx_eviction_agent),
             true = link(EvictionAgentPid),
-            case emqx_eviction_agent:enable(?ENABLE_KIND, undefined) of
+            case emqx_eviction_agent:enable(Kind, undefined) of
                 ok ->
                     {reply, ok, #{
                         coordinator_pid => CoordinatorPid,
@@ -77,13 +89,13 @@ handle_call({enable, CoordinatorPid}, _From, St) ->
                     {reply, {error, eviction_agent_busy}, St}
             end
     end;
-handle_call({disable, CoordinatorPid}, _From, St) ->
+handle_call({disable, CoordinatorPid, Kind}, _From, St) ->
     case St of
         #{
             coordinator_pid := CoordinatorPid,
             eviction_agent_pid := EvictionAgentPid
         } ->
-            _ = emqx_eviction_agent:disable(?ENABLE_KIND),
+            _ = emqx_eviction_agent:disable(Kind),
             true = unlink(EvictionAgentPid),
             true = unlink(CoordinatorPid),
             NewSt = maps:without(

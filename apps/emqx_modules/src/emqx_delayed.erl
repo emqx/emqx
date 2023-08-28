@@ -45,18 +45,22 @@
     code_change/3
 ]).
 
-%% gen_server callbacks
+%% API
 -export([
     load/0,
     unload/0,
     load_or_unload/1,
     get_conf/1,
     update_config/1,
+    delayed_count/0,
     list/1,
     get_delayed_message/1,
     get_delayed_message/2,
     delete_delayed_message/1,
     delete_delayed_message/2,
+    clear_all/0,
+    %% rpc target
+    clear_all_local/0,
     cluster_list/1
 ]).
 
@@ -167,6 +171,9 @@ unload() ->
 load_or_unload(Bool) ->
     gen_server:call(?SERVER, {do_load_or_unload, Bool}).
 
+-spec delayed_count() -> non_neg_integer().
+delayed_count() -> mnesia:table_info(?TAB, size).
+
 list(Params) ->
     emqx_mgmt_api:paginate(?TAB, Params, ?FORMAT_FUN).
 
@@ -243,7 +250,7 @@ get_delayed_message(Id) ->
 get_delayed_message(Node, Id) when Node =:= node() ->
     get_delayed_message(Id);
 get_delayed_message(Node, Id) ->
-    emqx_delayed_proto_v1:get_delayed_message(Node, Id).
+    emqx_delayed_proto_v2:get_delayed_message(Node, Id).
 
 -spec delete_delayed_message(binary()) -> with_id_return().
 delete_delayed_message(Id) ->
@@ -258,7 +265,19 @@ delete_delayed_message(Id) ->
 delete_delayed_message(Node, Id) when Node =:= node() ->
     delete_delayed_message(Id);
 delete_delayed_message(Node, Id) ->
-    emqx_delayed_proto_v1:delete_delayed_message(Node, Id).
+    emqx_delayed_proto_v2:delete_delayed_message(Node, Id).
+
+-spec clear_all() -> ok.
+clear_all() ->
+    Nodes = emqx:running_nodes(),
+    _ = emqx_delayed_proto_v2:clear_all(Nodes),
+    ok.
+
+%% rpc target
+-spec clear_all_local() -> ok.
+clear_all_local() ->
+    _ = mria:clear_table(?TAB),
+    ok.
 
 update_config(Config) ->
     emqx_conf:update([delayed], Config, #{rawconf_with_defaults => true, override_to => cluster}).
@@ -407,9 +426,6 @@ do_publish(Key = {Ts, _Id}, Now, Acc) when Ts =< Now ->
             end
     end,
     do_publish(mnesia:dirty_next(?TAB, Key), Now, [Key | Acc]).
-
--spec delayed_count() -> non_neg_integer().
-delayed_count() -> mnesia:table_info(?TAB, size).
 
 do_load_or_unload(true, State) ->
     emqx_hooks:put('message.publish', {?MODULE, on_message_publish, []}, ?HP_DELAY_PUB),

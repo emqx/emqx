@@ -15,6 +15,7 @@
 %% For RPC
 -export([
     evacuation_status/0,
+    purge_status/0,
     rebalance_status/0
 ]).
 
@@ -22,11 +23,13 @@
 %% APIs
 %%--------------------------------------------------------------------
 
--spec local_status() -> disabled | {evacuation, map()} | {rebalance, map()}.
+-spec local_status() -> disabled | {evacuation, map()} | {purge, map()} | {rebalance, map()}.
 local_status() ->
-    case emqx_node_rebalance_evacuation:status() of
-        {enabled, Status} ->
-            {evacuation, evacuation(Status)};
+    Checks = [
+        {evacuation, fun emqx_node_rebalance_evacuation:status/0, fun evacuation/1},
+        {purge, fun emqx_node_rebalance_purge:status/0, fun purge/1}
+    ],
+    case do_local_status(Checks) of
         disabled ->
             case emqx_node_rebalance_agent:status() of
                 {enabled, CoordinatorPid} ->
@@ -38,28 +41,37 @@ local_status() ->
                     end;
                 disabled ->
                     disabled
-            end
+            end;
+        Res ->
+            Res
     end.
 
--spec local_status(node()) -> disabled | {evacuation, map()} | {rebalance, map()}.
+-spec local_status(node()) -> disabled | {evacuation, map()} | {purge, map()} | {rebalance, map()}.
 local_status(Node) ->
-    emqx_node_rebalance_status_proto_v1:local_status(Node).
+    emqx_node_rebalance_status_proto_v2:local_status(Node).
 
 -spec format_local_status(map()) -> iodata().
 format_local_status(Status) ->
     format_status(Status, local_status_field_format_order()).
 
--spec global_status() -> #{rebalances := [{node(), map()}], evacuations := [{node(), map()}]}.
+-spec global_status() ->
+    #{
+        rebalances := [{node(), map()}],
+        evacuations := [{node(), map()}],
+        purges := [{node(), map()}]
+    }.
 global_status() ->
     Nodes = emqx:running_nodes(),
-    {RebalanceResults, _} = emqx_node_rebalance_status_proto_v1:rebalance_status(Nodes),
+    {RebalanceResults, _} = emqx_node_rebalance_status_proto_v2:rebalance_status(Nodes),
     Rebalances = [
         {Node, coordinator_rebalance(Status)}
      || {Node, {enabled, Status}} <- RebalanceResults
     ],
-    {EvacuatioResults, _} = emqx_node_rebalance_status_proto_v1:evacuation_status(Nodes),
-    Evacuations = [{Node, evacuation(Status)} || {Node, {enabled, Status}} <- EvacuatioResults],
-    #{rebalances => Rebalances, evacuations => Evacuations}.
+    {EvacuationResults, _} = emqx_node_rebalance_status_proto_v2:evacuation_status(Nodes),
+    Evacuations = [{Node, evacuation(Status)} || {Node, {enabled, Status}} <- EvacuationResults],
+    {PurgeResults, _} = emqx_node_rebalance_status_proto_v2:purge_status(Nodes),
+    Purges = [{Node, purge(Status)} || {Node, {enabled, Status}} <- PurgeResults],
+    #{rebalances => Rebalances, evacuations => Evacuations, purges => Purges}.
 
 -spec format_coordinator_status(map()) -> iodata().
 format_coordinator_status(Status) ->
@@ -80,6 +92,17 @@ evacuation(Status) ->
         stats => #{
             initial_connected => maps:get(initial_conns, Status),
             current_connected => maps:get(current_conns, Status),
+            initial_sessions => maps:get(initial_sessions, Status),
+            current_sessions => maps:get(current_sessions, Status)
+        }
+    }.
+
+purge(Status) ->
+    #{
+        state => maps:get(state, Status),
+        purge_rate => maps:get(purge_rate, Status),
+        session_goal => 0,
+        stats => #{
             initial_sessions => maps:get(initial_sessions, Status),
             current_sessions => maps:get(current_sessions, Status)
         }
@@ -159,6 +182,7 @@ local_status_field_format_order() ->
         coordinator_node,
         connection_eviction_rate,
         session_eviction_rate,
+        purge_rate,
         connection_goal,
         session_goal,
         disconnected_session_goal,
@@ -201,6 +225,8 @@ format_local_status_field({connection_eviction_rate, ConnEvictRate}) ->
     io_lib:format("Connection eviction rate: ~p connections/second~n", [ConnEvictRate]);
 format_local_status_field({session_eviction_rate, SessEvictRate}) ->
     io_lib:format("Session eviction rate: ~p sessions/second~n", [SessEvictRate]);
+format_local_status_field({purge_rate, PurgeRate}) ->
+    io_lib:format("Purge rate: ~p sessions/second~n", [PurgeRate]);
 format_local_status_field({connection_goal, ConnGoal}) ->
     io_lib:format("Connection goal: ~p~n", [ConnGoal]);
 format_local_status_field({session_goal, SessGoal}) ->
@@ -231,8 +257,21 @@ format_local_stats(Stats) ->
         )
     ].
 
+do_local_status([{Type, Get, Cont} | Rest]) ->
+    case Get() of
+        disabled ->
+            do_local_status(Rest);
+        {enabled, Status} ->
+            {Type, Cont(Status)}
+    end;
+do_local_status([]) ->
+    disabled.
+
 evacuation_status() ->
     {node(), emqx_node_rebalance_evacuation:status()}.
+
+purge_status() ->
+    {node(), emqx_node_rebalance_purge:status()}.
 
 rebalance_status() ->
     {node(), emqx_node_rebalance:status()}.

@@ -81,7 +81,7 @@ start_link() ->
 
 -spec available_nodes(list(node())) -> list(node()).
 available_nodes(Nodes) when is_list(Nodes) ->
-    {Available, _} = emqx_node_rebalance_proto_v1:available_nodes(Nodes),
+    {Available, _} = emqx_node_rebalance_proto_v2:available_nodes(Nodes),
     lists:filter(fun is_atom/1, Available).
 
 %%--------------------------------------------------------------------
@@ -370,7 +370,7 @@ avg(List) when length(List) >= 1 ->
     lists:sum(List) / length(List).
 
 multicall(Nodes, F, A) ->
-    case apply(emqx_node_rebalance_proto_v1, F, [Nodes | A]) of
+    case apply(emqx_node_rebalance_proto_v2, F, [Nodes | A]) of
         {Results, []} ->
             case lists:partition(fun is_ok/1, lists:zip(Nodes, Results)) of
                 {OkResults, []} ->

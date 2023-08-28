@@ -42,6 +42,18 @@ load_rebalance_evacuation_stop.desc:
 load_rebalance_evacuation_stop.label:
 """Stop evacuation"""
 
+cluster_purge_start.desc:
+"""Start purge process"""
+
+cluster_purge_start.label:
+"""Start purge"""
+
+cluster_purge_stop.desc:
+"""Stop purge process"""
+
+cluster_purge_stop.label:
+"""Stop purge"""
+
 param_node.desc:
 """Node name"""
 
@@ -149,6 +161,12 @@ local_status_session_eviction_rate.desc:
 
 local_status_session_eviction_rate.label:
 """Session eviction rate"""
+
+local_status_purge_rate.desc:
+"""The rate of purging sessions, in sessions per second"""
+
+local_status_purge_rate.label:
+"""Session purge rate"""
 
 local_status_connection_goal.desc:
 """The number of connections that the node should have after the rebalance/evacuation process"""
