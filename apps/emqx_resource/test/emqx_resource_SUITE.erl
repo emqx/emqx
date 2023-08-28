@@ -899,6 +899,29 @@ t_healthy(_) ->
         end
     ).
 
+t_unhealthy_target(_) ->
+    HealthCheckError = {unhealthy_target, "some message"},
+    ?assertMatch(
+        {ok, _},
+        emqx_resource:create_local(
+            ?ID,
+            ?DEFAULT_RESOURCE_GROUP,
+            ?TEST_RESOURCE,
+            #{name => test_resource, health_check_error => {msg, HealthCheckError}}
+        )
+    ),
+    ?assertEqual(
+        {ok, disconnected},
+        emqx_resource:health_check(?ID)
+    ),
+    ?assertMatch(
+        {ok, _Group, #{error := HealthCheckError}},
+        emqx_resource_manager:lookup(?ID)
+    ),
+    %% messages are dropped when bridge is unhealthy
+    emqx_resource:query(?ID, message),
+    ?assertEqual(1, emqx_resource_metrics:dropped_resource_stopped_get(?ID)).
+
 t_stop_start(_) ->
     ?check_trace(
         begin
