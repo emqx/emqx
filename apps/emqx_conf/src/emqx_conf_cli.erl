@@ -50,17 +50,17 @@ conf(["show"]) ->
 conf(["show", Key]) ->
     print_hocon(get_config(list_to_binary(Key)));
 conf(["load", "--replace", Path]) ->
-    load_config(Path, replace);
+    load_config(Path, #{mode => replace});
 conf(["load", "--merge", Path]) ->
-    load_config(Path, merge);
+    load_config(Path, #{mode => merge});
 conf(["load", Path]) ->
-    load_config(Path, merge);
+    load_config(Path, #{mode => merge});
 conf(["cluster_sync" | Args]) ->
     admins(Args);
 conf(["reload", "--merge"]) ->
-    reload_etc_conf_on_local_node(merge);
+    reload_etc_conf_on_local_node(#{mode => merge});
 conf(["reload", "--replace"]) ->
-    reload_etc_conf_on_local_node(replace);
+    reload_etc_conf_on_local_node(#{mode => replace});
 conf(["reload"]) ->
     conf(["reload", "--merge"]);
 conf(_) ->
@@ -191,32 +191,32 @@ get_config(Key) ->
     end.
 
 -define(OPTIONS, #{rawconf_with_defaults => true, override_to => cluster}).
-load_config(Path, ReplaceOrMerge) when is_list(Path) ->
+load_config(Path, Opts) when is_list(Path) ->
     case hocon:files([Path]) of
         {ok, RawConf} when RawConf =:= #{} ->
             emqx_ctl:warning("load ~ts is empty~n", [Path]),
             {error, empty_hocon_file};
         {ok, RawConf} ->
-            load_config_from_raw(RawConf, ReplaceOrMerge);
+            load_config_from_raw(RawConf, Opts);
         {error, Reason} ->
             emqx_ctl:warning("load ~ts failed~n~p~n", [Path, Reason]),
             {error, bad_hocon_file}
     end;
-load_config(Bin, ReplaceOrMerge) when is_binary(Bin) ->
+load_config(Bin, Opts) when is_binary(Bin) ->
     case hocon:binary(Bin) of
         {ok, RawConf} ->
-            load_config_from_raw(RawConf, ReplaceOrMerge);
+            load_config_from_raw(RawConf, Opts);
         {error, Reason} ->
             {error, Reason}
     end.
 
-load_config_from_raw(RawConf, ReplaceOrMerge) ->
+load_config_from_raw(RawConf, Opts) ->
     case check_config(RawConf) of
         ok ->
             Error =
                 lists:filtermap(
                     fun({K, V}) ->
-                        case update_config_cluster(K, V, ReplaceOrMerge) of
+                        case update_config_cluster(K, V, Opts) of
                             ok -> false;
                             {error, Msg} -> {true, Msg}
                         end
@@ -228,53 +228,70 @@ load_config_from_raw(RawConf, ReplaceOrMerge) ->
                 ErrorBin -> {error, ErrorBin}
             end;
         {error, ?UPDATE_READONLY_KEYS_PROHIBITED = Reason} ->
-            emqx_ctl:warning("load config failed~n~ts~n", [Reason]),
-            emqx_ctl:warning(
-                "Maybe try `emqx_ctl conf reload` to reload etc/emqx.conf on local node~n"
+            warning(Opts, "load config failed~n~ts~n", [Reason]),
+            warning(
+                Opts,
+                "Maybe try `emqx_ctl conf reload` to reload etc/emqx.conf on local node~n",
+                []
             ),
             {error, Reason};
         {error, Errors} ->
-            emqx_ctl:warning("load schema check failed~n"),
+            warning(Opts, "load schema check failed~n", []),
             lists:foreach(
                 fun({Key, Error}) ->
-                    emqx_ctl:warning("~ts: ~p~n", [Key, Error])
+                    warning(Opts, "~ts: ~p~n", [Key, Error])
                 end,
                 Errors
             ),
             {error, Errors}
     end.
 
-update_config_cluster(?EMQX_AUTHORIZATION_CONFIG_ROOT_NAME_BINARY = Key, Conf, merge = Mode) ->
-    check_res(Key, emqx_authz:merge(Conf), Conf, Mode);
-update_config_cluster(?EMQX_AUTHENTICATION_CONFIG_ROOT_NAME_BINARY = Key, Conf, merge = Mode) ->
-    check_res(Key, emqx_authn:merge_config(Conf), Conf, Mode);
-update_config_cluster(Key, NewConf, merge = Mode) ->
+update_config_cluster(
+    ?EMQX_AUTHORIZATION_CONFIG_ROOT_NAME_BINARY = Key,
+    Conf,
+    #{mode := merge} = Opts
+) ->
+    check_res(Key, emqx_authz:merge(Conf), Conf, Opts);
+update_config_cluster(
+    ?EMQX_AUTHENTICATION_CONFIG_ROOT_NAME_BINARY = Key,
+    Conf,
+    #{mode := merge} = Opts
+) ->
+    check_res(Key, emqx_authn:merge_config(Conf), Conf, Opts);
+update_config_cluster(Key, NewConf, #{mode := merge} = Opts) ->
     Merged = merge_conf(Key, NewConf),
-    check_res(Key, emqx_conf:update([Key], Merged, ?OPTIONS), NewConf, Mode);
-update_config_cluster(Key, Value, replace = Mode) ->
-    check_res(Key, emqx_conf:update([Key], Value, ?OPTIONS), Value, Mode).
+    check_res(Key, emqx_conf:update([Key], Merged, ?OPTIONS), NewConf, Opts);
+update_config_cluster(Key, Value, #{mode := replace} = Opts) ->
+    check_res(Key, emqx_conf:update([Key], Value, ?OPTIONS), Value, Opts).
 
 -define(LOCAL_OPTIONS, #{rawconf_with_defaults => true, persistent => false}).
-update_config_local(?EMQX_AUTHORIZATION_CONFIG_ROOT_NAME_BINARY = Key, Conf, merge = Mode) ->
-    check_res(node(), Key, emqx_authz:merge_local(Conf, ?LOCAL_OPTIONS), Conf, Mode);
-update_config_local(?EMQX_AUTHENTICATION_CONFIG_ROOT_NAME_BINARY = Key, Conf, merge = Mode) ->
-    check_res(node(), Key, emqx_authn:merge_config_local(Conf, ?LOCAL_OPTIONS), Conf, Mode);
-update_config_local(Key, NewConf, merge = Mode) ->
+update_config_local(
+    ?EMQX_AUTHORIZATION_CONFIG_ROOT_NAME_BINARY = Key,
+    Conf,
+    #{mode := merge} = Opts
+) ->
+    check_res(node(), Key, emqx_authz:merge_local(Conf, ?LOCAL_OPTIONS), Conf, Opts);
+update_config_local(
+    ?EMQX_AUTHENTICATION_CONFIG_ROOT_NAME_BINARY = Key,
+    Conf,
+    #{mode := merge} = Opts
+) ->
+    check_res(node(), Key, emqx_authn:merge_config_local(Conf, ?LOCAL_OPTIONS), Conf, Opts);
+update_config_local(Key, NewConf, #{mode := merge} = Opts) ->
     Merged = merge_conf(Key, NewConf),
-    check_res(node(), Key, emqx:update_config([Key], Merged, ?LOCAL_OPTIONS), NewConf, Mode);
-update_config_local(Key, Value, replace = Mode) ->
-    check_res(node(), Key, emqx:update_config([Key], Value, ?LOCAL_OPTIONS), Value, Mode).
+    check_res(node(), Key, emqx:update_config([Key], Merged, ?LOCAL_OPTIONS), NewConf, Opts);
+update_config_local(Key, Value, #{mode := replace} = Opts) ->
+    check_res(node(), Key, emqx:update_config([Key], Value, ?LOCAL_OPTIONS), Value, Opts).
 
-check_res(Key, Res, Conf, Mode) -> check_res(cluster, Key, Res, Conf, Mode).
-check_res(Node, Key, {ok, _}, _Conf, _Mode) ->
-    emqx_ctl:print("load ~ts on ~p ok~n", [Key, Node]),
+check_res(Key, Res, Conf, Opts) -> check_res(cluster, Key, Res, Conf, Opts).
+check_res(Node, Key, {ok, _}, _Conf, Opts) ->
+    print(Opts, "load ~ts on ~p ok~n", [Key, Node]),
     ok;
-check_res(_Node, Key, {error, Reason}, Conf, Mode) ->
+check_res(_Node, Key, {error, Reason}, Conf, Opts = #{mode := Mode}) ->
     Warning =
         "Can't ~ts the new configurations!~n"
         "Root key: ~ts~n"
         "Reason: ~p~n",
-    emqx_ctl:warning(Warning, [Mode, Key, Reason]),
     ActiveMsg0 =
         "The effective configurations:~n"
         "```~n"
@@ -285,12 +302,14 @@ check_res(_Node, Key, {error, Reason}, Conf, Mode) ->
         "```~n"
         "~ts```~n",
     FailedMsg = io_lib:format(FailedMsg0, [Mode, hocon_pp:do(#{Key => Conf}, #{})]),
-    SuggestMsg = suggest_msg(Mode),
+    SuggestMsg = suggest_msg(Reason, Mode),
     Msg = iolist_to_binary([ActiveMsg, FailedMsg, SuggestMsg]),
-    emqx_ctl:print("~ts", [Msg]),
-    {error, iolist_to_binary([Warning, Msg])}.
+    print(Opts, "~ts~n", [Msg]),
+    warning(Opts, Warning, [Mode, Key, Reason]),
+    {error, iolist_to_binary([Msg, "\n", io_lib:format(Warning, [Mode, Key, Reason])])}.
 
-suggest_msg(Mode) when Mode == merge orelse Mode == replace ->
+%% The mix data failed validation, suggest the user to retry with another mode.
+suggest_msg(#{kind := validation_error, reason := unknown_fields}, Mode) ->
     RetryMode =
         case Mode of
             merge -> "replace";
@@ -298,9 +317,11 @@ suggest_msg(Mode) when Mode == merge orelse Mode == replace ->
         end,
     io_lib:format(
         "Tips: There may be some conflicts in the new configuration under `~ts` mode,~n"
-        "Please retry with the `~ts` mode.~n",
+        "Please retry with the `~ts` mode.",
         [Mode, RetryMode]
-    ).
+    );
+suggest_msg(_, _) ->
+    <<"">>.
 
 check_config(Conf) ->
     case check_keys_is_not_readonly(Conf) of
@@ -327,19 +348,19 @@ check_config_schema(Conf) ->
     sorted_fold(Fold, Conf).
 
 %% @doc Reload etc/emqx.conf to runtime config except for the readonly config
--spec reload_etc_conf_on_local_node(replace | merge) -> ok | {error, term()}.
-reload_etc_conf_on_local_node(ReplaceOrMerge) ->
+-spec reload_etc_conf_on_local_node(#{mode => replace | merge}) -> ok | {error, term()}.
+reload_etc_conf_on_local_node(Opts) ->
     case load_etc_config_file() of
         {ok, RawConf} ->
             case filter_readonly_config(RawConf) of
                 {ok, Reloaded} ->
-                    reload_config(Reloaded, ReplaceOrMerge);
+                    reload_config(Reloaded, Opts);
                 {error, Error} ->
-                    emqx_ctl:warning("check config failed~n~p~n", [Error]),
+                    warning(Opts, "check config failed~n~p~n", [Error]),
                     {error, Error}
             end;
         {error, Error} ->
-            emqx_ctl:warning("bad_hocon_file~n ~p~n", [Error]),
+            warning(Opts, "bad_hocon_file~n ~p~n", [Error]),
             {error, bad_hocon_file}
     end.
 
@@ -385,9 +406,9 @@ filter_readonly_config(Raw) ->
             {error, Error}
     end.
 
-reload_config(AllConf, ReplaceOrMerge) ->
+reload_config(AllConf, Opts) ->
     Fold = fun({Key, Conf}, Acc) ->
-        case update_config_local(Key, Conf, ReplaceOrMerge) of
+        case update_config_local(Key, Conf, Opts) of
             ok ->
                 Acc;
             Error ->
@@ -441,3 +462,9 @@ check_config(SchemaMod, Key, Value) ->
         throw:Error ->
             {error, Error}
     end.
+
+warning(#{log := none}, _, _) -> ok;
+warning(_, Format, Args) -> emqx_ctl:warning(Format, Args).
+
+print(#{log := none}, _, _) -> ok;
+print(_, Format, Args) -> emqx_ctl:print(Format, Args).
