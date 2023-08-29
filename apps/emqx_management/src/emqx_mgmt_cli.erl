@@ -707,7 +707,7 @@ authz(["cache-clean", "all"]) ->
     with_log(fun emqx_mgmt:clean_authz_cache_all/0, Msg);
 authz(["cache-clean", ClientId]) ->
     Msg = io_lib:format("Drain ~ts authz cache", [ClientId]),
-    with_log(fun() -> emqx_mgmt:clean_authz_cache(ClientId) end, Msg);
+    with_log(fun() -> emqx_mgmt:clean_authz_cache(iolist_to_binary(ClientId)) end, Msg);
 authz(_) ->
     emqx_ctl:usage(
         [
@@ -921,12 +921,14 @@ for_node(Fun, Node) ->
     end.
 
 with_log(Fun, Msg) ->
-    case Fun() of
+    Res = Fun(),
+    case Res of
         ok ->
             emqx_ctl:print("~s OK~n", [Msg]);
         {error, Reason} ->
             emqx_ctl:print("~s FAILED~n~p~n", [Msg, Reason])
-    end.
+    end,
+    Res.
 
 cluster_info() ->
     RunningNodes = safe_call_mria(running_nodes, [], []),
