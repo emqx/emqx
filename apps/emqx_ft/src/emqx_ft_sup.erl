@@ -28,6 +28,8 @@ start_link() ->
     supervisor:start_link({local, ?SERVER}, ?MODULE, []).
 
 init([]) ->
+    ok = emqx_ft_async_reply:create_tables(),
+
     SupFlags = #{
         strategy => one_for_one,
         intensity => 100,

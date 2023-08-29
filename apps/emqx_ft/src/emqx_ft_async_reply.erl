@@ -62,8 +62,8 @@ create_tables() ->
         {read_concurrency, true},
         {write_concurrency, true}
     ],
-    _ = ets:new(?MON_TAB, EtsOptions),
-    _ = ets:new(?PACKET_TAB, EtsOptions),
+    ok = emqx_utils_ets:new(?MON_TAB, EtsOptions),
+    ok = emqx_utils_ets:new(?PACKET_TAB, EtsOptions),
     ok.
 
 -spec register(packet_id(), mon_ref(), timer_ref()) -> ok.

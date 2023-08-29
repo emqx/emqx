@@ -1049,7 +1049,7 @@ handle_out(disconnect, {ReasonCode, ReasonName}, Channel) ->
     handle_out(disconnect, {ReasonCode, ReasonName, #{}}, Channel);
 handle_out(disconnect, {ReasonCode, ReasonName, Props}, Channel = ?IS_MQTT_V5) ->
     Packet = ?DISCONNECT_PACKET(ReasonCode, Props),
-    {ok, [?REPLY_OUTGOING(Packet), {close, ReasonName}], Channel};
+    {ok, [?REPLY_OUTGOING(Packet), ?REPLY_CLOSE(ReasonName)], Channel};
 handle_out(disconnect, {_ReasonCode, ReasonName, _Props}, Channel) ->
     {ok, {close, ReasonName}, Channel};
 handle_out(auth, {ReasonCode, Properties}, Channel) ->
