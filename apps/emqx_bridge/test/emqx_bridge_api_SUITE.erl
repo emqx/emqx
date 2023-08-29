@@ -116,13 +116,13 @@ end_per_suite(_Config) ->
     ok.
 
 init_per_group(cluster = Name, Config) ->
-    Nodes = [NodePrimary | _] = mk_cluster(Name, Config),
+    Nodes = [NodePrimary | _] = mk_cluster(Config),
     init_api([{group, Name}, {cluster_nodes, Nodes}, {node, NodePrimary} | Config]);
 init_per_group(cluster_later_join = Name, Config) ->
-    Nodes = [NodePrimary | _] = mk_cluster(Name, Config, #{join_to => undefined}),
+    Nodes = [NodePrimary | _] = mk_cluster(Config, #{join_to => undefined}),
     init_api([{group, Name}, {cluster_nodes, Nodes}, {node, NodePrimary} | Config]);
-init_per_group(Name, Config) ->
-    WorkDir = filename:join(?config(priv_dir, Config), Name),
+init_per_group(_Name, Config) ->
+    WorkDir = emqx_cth_suite:work_dir(Config),
     Apps = emqx_cth_suite:start(?APPSPECS ++ [?APPSPEC_DASHBOARD], #{work_dir => WorkDir}),
     init_api([{group, single}, {group_apps, Apps}, {node, node()} | Config]).
 
@@ -131,10 +131,10 @@ init_api(Config) ->
     {ok, App} = erpc:call(APINode, emqx_common_test_http, create_default_app, []),
     [{api, App} | Config].
 
-mk_cluster(Name, Config) ->
-    mk_cluster(Name, Config, #{}).
+mk_cluster(Config) ->
+    mk_cluster(Config, #{}).
 
-mk_cluster(Name, Config, Opts) ->
+mk_cluster(Config, Opts) ->
     Node1Apps = ?APPSPECS ++ [?APPSPEC_DASHBOARD],
     Node2Apps = ?APPSPECS,
     emqx_cth_cluster:start(
@@ -142,7 +142,7 @@ mk_cluster(Name, Config, Opts) ->
             {emqx_bridge_api_SUITE1, Opts#{role => core, apps => Node1Apps}},
             {emqx_bridge_api_SUITE2, Opts#{role => core, apps => Node2Apps}}
         ],
-        #{work_dir => filename:join(?config(priv_dir, Config), Name)}
+        #{work_dir => emqx_cth_suite:work_dir(Config)}
     ).
 
 end_per_group(Group, Config) when

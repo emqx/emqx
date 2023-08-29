@@ -22,6 +22,9 @@
 -export([start/2]).
 -export([stop/1]).
 
+-export([work_dir/1]).
+-export([work_dir/2]).
+
 -export([load_apps/1]).
 -export([start_apps/2]).
 -export([start_app/2]).
@@ -98,16 +101,11 @@ when
     SuiteOpts :: #{
         %% Working directory
         %% Everything a test produces should go here. If this directory is not empty,
-        %% function will raise an error.
+        %% function will raise an error. Most of the time, the result of `work_dir/1`
+        %% or `work_dir/2` (if used in a testcase) should be fine here.
         work_dir := file:name()
     }.
-start(Apps, SuiteOpts0 = #{work_dir := WorkDir0}) ->
-    %% when running CT on the whole app, it seems like `priv_dir` is the same on all
-    %% suites and leads to the "clean slate" verificatin to fail.
-    WorkDir = binary_to_list(
-        filename:join([WorkDir0, emqx_guid:to_hexstr(emqx_guid:gen())])
-    ),
-    SuiteOpts = SuiteOpts0#{work_dir := WorkDir},
+start(Apps, SuiteOpts = #{work_dir := WorkDir}) ->
     % 1. Prepare appspec instructions
     AppSpecs = [mk_appspec(App, SuiteOpts) || App <- Apps],
     % 2. Load every app so that stuff scanning attributes of loaded modules works
@@ -336,6 +334,45 @@ default_appspec(_, _) ->
 
 default_config(App, SuiteOpts) ->
     maps:get(config, default_appspec(App, SuiteOpts), #{}).
+
+%%
+
+%% @doc Determine the unique work directory for the current test run.
+%% Takes into account name of the test suite, and all test groups the current run
+%% is part of.
+-spec work_dir(CTConfig :: proplists:proplist()) ->
+    file:filename_all().
+work_dir(CTConfig) ->
+    % Directory specific to the current test run.
+    [PrivDir] = proplists:get_all_values(priv_dir, CTConfig),
+    % Directory specific to the currently executing test suite.
+    [DataDir] = proplists:get_all_values(data_dir, CTConfig),
+    % NOTE: Contains the name of the current test group, if executed as part of a group.
+    GroupProps = proplists:get_value(tc_group_properties, CTConfig, []),
+    % NOTE: Contains names of outer test groups, if any.
+    GroupPathOuter = proplists:get_value(tc_group_path, CTConfig, []),
+    SuiteDir = filename:basename(DataDir),
+    GroupPath = lists:append([GroupProps | GroupPathOuter]),
+    GroupLevels = [atom_to_list(Name) || {name, Name} <- GroupPath],
+    WorkDir1 = filename:join(PrivDir, SuiteDir),
+    WorkDir2 =
+        case GroupLevels of
+            [] ->
+                WorkDir1;
+            [_ | _] ->
+                GroupDir = string:join(lists:reverse(GroupLevels), "."),
+                filename:join(WorkDir1, GroupDir)
+        end,
+    WorkDir2.
+
+%% @doc Determine the unique work directory for the current testcase run.
+%% Be careful when testcase runs under no groups, and its name matches the name of a
+%% previously executed test group, it's best to avoid such naming.
+-spec work_dir(TestCaseName :: atom(), CTConfig :: proplists:proplist()) ->
+    file:filename_all().
+work_dir(TCName, CTConfig) ->
+    WorkDir = work_dir(CTConfig),
+    filename:join(WorkDir, TCName).
 
 %%
 
