@@ -191,7 +191,7 @@ do_unregister_channel({_ClientId, ChanPid} = Chan) ->
     true = ets:delete(?CHAN_CONN_TAB, Chan),
     true = ets:delete(?CHAN_INFO_TAB, Chan),
     ets:delete_object(?CHAN_TAB, Chan),
-    ok = emqx_hooks:run('channel.unregistered', [ChanPid]),
+    ok = emqx_hooks:run('cm.channel.unregistered', [ChanPid]),
     true.
 
 -spec connection_closed(emqx_types:clientid()) -> true.

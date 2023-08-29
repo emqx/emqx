@@ -41,4 +41,9 @@
     will_msg
 ]).
 
+-define(REPLY_OUTGOING(Packets), {outgoing, Packets}).
+-define(REPLY_CONNACK(Packet), {connack, Packet}).
+-define(REPLY_EVENT(StateOrEvent), {event, StateOrEvent}).
+-define(REPLY_CLOSE(Reason), {close, Reason}).
+
 -define(EXPIRE_INTERVAL_INFINITE, 4294967295000).
