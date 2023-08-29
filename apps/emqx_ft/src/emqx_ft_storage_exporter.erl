@@ -195,7 +195,7 @@ verify_checksum(Ctx, {Algo, Digest} = Checksum) ->
         Digest ->
             {ok, Checksum};
         Mismatch ->
-            {error, {checksum, Algo, binary:encode_hex(Mismatch)}}
+            {error, {checksum_mismatch, Algo, binary:encode_hex(Mismatch)}}
     end;
 verify_checksum(Ctx, undefined) ->
     Digest = crypto:hash_final(Ctx),

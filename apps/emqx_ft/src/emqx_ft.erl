@@ -90,6 +90,10 @@
 
 -define(FT_EVENT(EVENT), {?MODULE, EVENT}).
 
+-define(ACK_AND_PUBLISH(Result), {true, Result}).
+-define(ACK(Result), {false, Result}).
+-define(DELAY_ACK, delay).
+
 %%--------------------------------------------------------------------
 %% API for app
 %%--------------------------------------------------------------------
@@ -116,46 +120,34 @@ unhook() ->
 %% API
 %%--------------------------------------------------------------------
 
-decode_filemeta(Payload) when is_binary(Payload) ->
-    case emqx_utils_json:safe_decode(Payload, [return_maps]) of
-        {ok, Map} ->
-            decode_filemeta(Map);
-        {error, Error} ->
-            {error, {invalid_filemeta_json, Error}}
-    end;
-decode_filemeta(Map) when is_map(Map) ->
-    Schema = emqx_ft_schema:schema(filemeta),
-    try
-        Meta = hocon_tconf:check_plain(Schema, Map, #{atom_key => true, required => false}),
-        {ok, Meta}
-    catch
-        throw:{_Schema, Errors} ->
-            {error, {invalid_filemeta, Errors}}
-    end.
+decode_filemeta(Payload) ->
+    emqx_ft_schema:decode(filemeta, Payload).
 
 encode_filemeta(Meta = #{}) ->
-    Schema = emqx_ft_schema:schema(filemeta),
-    hocon_tconf:make_serializable(Schema, emqx_utils_maps:binary_key_map(Meta), #{}).
+    emqx_ft_schema:encode(filemeta, Meta).
+
+encode_response(Response) ->
+    emqx_ft_schema:encode(command_response, Response).
 
 %%--------------------------------------------------------------------
 %% Hooks
 %%--------------------------------------------------------------------
 
-on_message_publish(
-    Msg = #message{
-        id = _Id,
-        topic = <<"$file/", _/binary>>
-    }
-) ->
+on_message_publish(Msg = #message{topic = <<"$file-async/", _/binary>>}) ->
+    Headers = Msg#message.headers,
+    {stop, Msg#message{headers = Headers#{allow_publish => false}}};
+on_message_publish(Msg = #message{topic = <<"$file/", _/binary>>}) ->
     Headers = Msg#message.headers,
     {stop, Msg#message{headers = Headers#{allow_publish => false}}};
 on_message_publish(Msg) ->
     {ok, Msg}.
 
-on_message_puback(PacketId, #message{topic = Topic} = Msg, _PubRes, _RC) ->
+on_message_puback(PacketId, #message{from = From, topic = Topic} = Msg, _PubRes, _RC) ->
     case Topic of
-        <<"$file/", FileCommand/binary>> ->
-            {stop, on_file_command(PacketId, Msg, FileCommand)};
+        <<"$file/", _/binary>> ->
+            {stop, on_file_command(sync, From, PacketId, Msg, Topic)};
+        <<"$file-async/", _/binary>> ->
+            {stop, on_file_command(async, From, PacketId, Msg, Topic)};
         _ ->
             ignore
     end.
@@ -163,18 +155,33 @@ on_message_puback(PacketId, #message{topic = Topic} = Msg, _PubRes, _RC) ->
 on_channel_unregistered(ChannelPid) ->
     ok = emqx_ft_async_reply:deregister_all(ChannelPid).
 
-on_client_timeout(_TRef, ?FT_EVENT({MRef, PacketId}), Acc) ->
+on_client_timeout(_TRef0, ?FT_EVENT({MRef, TopicReplyData}), Acc) ->
     _ = erlang:demonitor(MRef, [flush]),
-    _ = emqx_ft_async_reply:take_by_mref(MRef),
-    {stop, [?REPLY_OUTGOING(?PUBACK_PACKET(PacketId, ?RC_UNSPECIFIED_ERROR)) | Acc]};
+    Result = {error, timeout},
+    _ = publish_response(Result, TopicReplyData),
+    case emqx_ft_async_reply:take_by_mref(MRef) of
+        {ok, undefined, _TRef1, _TopicReplyData} ->
+            {stop, Acc};
+        {ok, PacketId, _TRef1, _TopicReplyData} ->
+            {stop, [?REPLY_OUTGOING(?PUBACK_PACKET(PacketId, result_to_rc(Result))) | Acc]};
+        not_found ->
+            {ok, Acc}
+    end;
 on_client_timeout(_TRef, _Event, Acc) ->
     {ok, Acc}.
 
-on_process_down(MRef, _Pid, Reason, Acc) ->
+on_process_down(MRef, _Pid, DownReason, Acc) ->
     case emqx_ft_async_reply:take_by_mref(MRef) of
-        {ok, PacketId, TRef} ->
+        {ok, PacketId, TRef, TopicReplyData} ->
             _ = emqx_utils:cancel_timer(TRef),
-            {stop, [?REPLY_OUTGOING(?PUBACK_PACKET(PacketId, reason_to_rc(Reason))) | Acc]};
+            Result = down_reason_to_result(DownReason),
+            _ = publish_response(Result, TopicReplyData),
+            case PacketId of
+                undefined ->
+                    {stop, Acc};
+                _ ->
+                    {stop, [?REPLY_OUTGOING(?PUBACK_PACKET(PacketId, result_to_rc(Result))) | Acc]}
+            end;
         not_found ->
             {ok, Acc}
     end.
@@ -185,24 +192,27 @@ on_process_down(MRef, _Pid, Reason, Acc) ->
 
 %% TODO Move to emqx_ft_mqtt?
 
-on_file_command(PacketId, Msg, FileCommand) ->
-    case emqx_topic:tokens(FileCommand) of
-        [FileIdIn | Rest] ->
-            validate([{fileid, FileIdIn}], fun([FileId]) ->
-                on_file_command(PacketId, FileId, Msg, Rest)
-            end);
-        [] ->
-            ?RC_UNSPECIFIED_ERROR
-    end.
+on_file_command(Mode, From, PacketId, Msg, Topic) ->
+    TopicReplyData = topic_reply_data(Mode, From, PacketId, Msg),
+    Result =
+        case emqx_topic:tokens(Topic) of
+            [_FTPrefix, FileIdIn | Rest] ->
+                validate([{fileid, FileIdIn}], fun([FileId]) ->
+                    do_on_file_command(TopicReplyData, FileId, Msg, Rest)
+                end);
+            [] ->
+                ?ACK_AND_PUBLISH({error, {invalid_topic, Topic}})
+        end,
+    maybe_publish_response(Result, TopicReplyData).
 
-on_file_command(PacketId, FileId, Msg, FileCommand) ->
+do_on_file_command(TopicReplyData, FileId, Msg, FileCommand) ->
     Transfer = transfer(Msg, FileId),
     case FileCommand of
         [<<"init">>] ->
             validate(
                 [{filemeta, Msg#message.payload}],
                 fun([Meta]) ->
-                    on_init(PacketId, Msg, Transfer, Meta)
+                    on_init(TopicReplyData, Msg, Transfer, Meta)
                 end
             );
         [<<"fin">>, FinalSizeBin | MaybeChecksum] when length(MaybeChecksum) =< 1 ->
@@ -210,14 +220,14 @@ on_file_command(PacketId, FileId, Msg, FileCommand) ->
             validate(
                 [{size, FinalSizeBin}, {{maybe, checksum}, ChecksumBin}],
                 fun([FinalSize, FinalChecksum]) ->
-                    on_fin(PacketId, Msg, Transfer, FinalSize, FinalChecksum)
+                    on_fin(TopicReplyData, Msg, Transfer, FinalSize, FinalChecksum)
                 end
             );
         [<<"abort">>] ->
-            on_abort(Msg, Transfer);
+            on_abort(TopicReplyData, Msg, Transfer);
         [OffsetBin] ->
             validate([{offset, OffsetBin}], fun([Offset]) ->
-                on_segment(PacketId, Msg, Transfer, Offset, undefined)
+                on_segment(TopicReplyData, Msg, Transfer, Offset, undefined)
             end);
         [OffsetBin, ChecksumBin] ->
             validate(
@@ -226,16 +236,16 @@ on_file_command(PacketId, FileId, Msg, FileCommand) ->
                     validate(
                         [{integrity, Msg#message.payload, Checksum}],
                         fun(_) ->
-                            on_segment(PacketId, Msg, Transfer, Offset, Checksum)
+                            on_segment(TopicReplyData, Msg, Transfer, Offset, Checksum)
                         end
                     )
                 end
             );
         _ ->
-            ?RC_UNSPECIFIED_ERROR
+            ?ACK_AND_PUBLISH({error, {invalid_file_command, FileCommand}})
     end.
 
-on_init(PacketId, Msg, Transfer, Meta) ->
+on_init(#{packet_id := PacketId}, Msg, Transfer, Meta) ->
     ?tp(info, "file_transfer_init", #{
         mqtt_msg => Msg,
         packet_id => PacketId,
@@ -245,16 +255,13 @@ on_init(PacketId, Msg, Transfer, Meta) ->
     %% Currently synchronous.
     %% If we want to make it async, we need to use `emqx_ft_async_reply`,
     %% like in `on_fin`.
-    case store_filemeta(Transfer, Meta) of
-        ok -> ?RC_SUCCESS;
-        {error, _} -> ?RC_UNSPECIFIED_ERROR
-    end.
+    ?ACK_AND_PUBLISH(store_filemeta(Transfer, Meta)).
 
-on_abort(_Msg, _FileId) ->
+on_abort(_TopicReplyData, _Msg, _FileId) ->
     %% TODO
-    ?RC_SUCCESS.
+    ?ACK_AND_PUBLISH(ok).
 
-on_segment(PacketId, Msg, Transfer, Offset, Checksum) ->
+on_segment(#{packet_id := PacketId}, Msg, Transfer, Offset, Checksum) ->
     ?tp(info, "file_transfer_segment", #{
         mqtt_msg => Msg,
         packet_id => PacketId,
@@ -266,12 +273,9 @@ on_segment(PacketId, Msg, Transfer, Offset, Checksum) ->
     %% Currently synchronous.
     %% If we want to make it async, we need to use `emqx_ft_async_reply`,
     %% like in `on_fin`.
-    case store_segment(Transfer, Segment) of
-        ok -> ?RC_SUCCESS;
-        {error, _} -> ?RC_UNSPECIFIED_ERROR
-    end.
+    ?ACK_AND_PUBLISH(store_segment(Transfer, Segment)).
 
-on_fin(PacketId, Msg, Transfer, FinalSize, FinalChecksum) ->
+on_fin(#{packet_id := PacketId} = TopicReplyData, Msg, Transfer, FinalSize, FinalChecksum) ->
     ?tp(info, "file_transfer_fin", #{
         mqtt_msg => Msg,
         packet_id => PacketId,
@@ -280,30 +284,94 @@ on_fin(PacketId, Msg, Transfer, FinalSize, FinalChecksum) ->
         checksum => FinalChecksum
     }),
     %% TODO: handle checksum? Do we need it?
-    emqx_ft_async_reply:with_new_packet(
+    with_new_packet(
+        TopicReplyData,
         PacketId,
         fun() ->
             case assemble(Transfer, FinalSize, FinalChecksum) of
                 ok ->
-                    ?RC_SUCCESS;
-                %% Assembling started, packet will be acked by monitor or timeout
+                    ?ACK_AND_PUBLISH(ok);
+                %% Assembling started, packet will be acked/replied by monitor or timeout
                 {async, Pid} ->
-                    ok = register_async_reply(Pid, PacketId),
-                    ok = emqx_ft_storage:kickoff(Pid),
-                    undefined;
-                {error, _} ->
-                    ?RC_UNSPECIFIED_ERROR
+                    register_async_worker(Pid, TopicReplyData);
+                {error, _} = Error ->
+                    ?ACK_AND_PUBLISH(Error)
             end
-        end,
-        undefined
+        end
     ).
 
-register_async_reply(Pid, PacketId) ->
+register_async_worker(Pid, #{mode := Mode, packet_id := PacketId} = TopicReplyData) ->
     MRef = erlang:monitor(process, Pid),
     TRef = erlang:start_timer(
-        emqx_ft_conf:assemble_timeout(), self(), ?FT_EVENT({MRef, PacketId})
+        emqx_ft_conf:assemble_timeout(), self(), ?FT_EVENT({MRef, TopicReplyData})
     ),
-    ok = emqx_ft_async_reply:register(PacketId, MRef, TRef).
+    case Mode of
+        async ->
+            ok = emqx_ft_async_reply:register(MRef, TRef, TopicReplyData),
+            ok = emqx_ft_storage:kickoff(Pid),
+            ?ACK(ok);
+        sync ->
+            ok = emqx_ft_async_reply:register(PacketId, MRef, TRef, TopicReplyData),
+            ok = emqx_ft_storage:kickoff(Pid),
+            ?DELAY_ACK
+    end.
+
+topic_reply_data(Mode, From, PacketId, #message{topic = Topic, headers = Headers}) ->
+    Props = maps:get(properties, Headers, #{}),
+    #{
+        mode => Mode,
+        clientid => From,
+        command_topic => Topic,
+        correlation_data => maps:get('Correlation-Data', Props, undefined),
+        response_topic => maps:get('Response-Topic', Props, undefined),
+        packet_id => PacketId
+    }.
+
+maybe_publish_response(?DELAY_ACK, _TopicReplyData) ->
+    undefined;
+maybe_publish_response(?ACK(Result), _TopicReplyData) ->
+    result_to_rc(Result);
+maybe_publish_response(?ACK_AND_PUBLISH(Result), TopicReplyData) ->
+    publish_response(Result, TopicReplyData).
+
+publish_response(Result, #{
+    clientid := ClientId,
+    command_topic := CommandTopic,
+    correlation_data := CorrelationData,
+    response_topic := ResponseTopic,
+    packet_id := PacketId
+}) ->
+    ResultCode = result_to_rc(Result),
+    Response = encode_response(#{
+        topic => CommandTopic,
+        packet_id => PacketId,
+        reason_code => ResultCode,
+        reason_description => emqx_ft_error:format(Result)
+    }),
+    Payload = emqx_utils_json:encode(Response),
+    Topic = emqx_maybe:define(ResponseTopic, response_topic(ClientId)),
+    Msg = emqx_message:make(
+        emqx_guid:gen(),
+        undefined,
+        ?QOS_1,
+        Topic,
+        Payload,
+        #{},
+        #{properties => response_properties(CorrelationData)}
+    ),
+    _ = emqx_broker:publish(Msg),
+    ResultCode.
+
+response_properties(undefined) -> #{};
+response_properties(CorrelationData) -> #{'Correlation-Data' => CorrelationData}.
+
+response_topic(ClientId) ->
+    <<"$file-response/", (clientid_to_binary(ClientId))/binary>>.
+
+result_to_rc(ok) ->
+    ?RC_SUCCESS;
+result_to_rc({error, _}) ->
+    ?RC_UNSPECIFIED_ERROR.
 
 store_filemeta(Transfer, Segment) ->
     try
@@ -347,9 +415,9 @@ validate(Validations, Fun) ->
     case do_validate(Validations, []) of
         {ok, Parsed} ->
             Fun(Parsed);
-        {error, Reason} ->
+        {error, Reason} = Error ->
             ?tp(info, "client_violated_protocol", #{reason => Reason}),
-            ?RC_UNSPECIFIED_ERROR
+            ?ACK_AND_PUBLISH(Error)
     end.
 
 do_validate([], Parsed) ->
@@ -416,19 +484,18 @@ clientid_to_binary(A) when is_atom(A) ->
 clientid_to_binary(B) when is_binary(B) ->
     B.
 
-reason_to_rc(Reason) ->
-    case map_down_reason(Reason) of
-        ok -> ?RC_SUCCESS;
-        {error, _} -> ?RC_UNSPECIFIED_ERROR
-    end.
-
-map_down_reason(normal) ->
+down_reason_to_result(normal) ->
     ok;
-map_down_reason(shutdown) ->
+down_reason_to_result(shutdown) ->
     ok;
-map_down_reason({shutdown, Result}) ->
+down_reason_to_result({shutdown, Result}) ->
     Result;
-map_down_reason(noproc) ->
+down_reason_to_result(noproc) ->
     {error, noproc};
-map_down_reason(Error) ->
+down_reason_to_result(Error) ->
     {error, {internal_error, Error}}.
+
+with_new_packet(#{mode := async}, _PacketId, Fun) ->
+    Fun();
+with_new_packet(#{mode := sync}, PacketId, Fun) ->
+    emqx_ft_async_reply:with_new_packet(PacketId, Fun, undefined).

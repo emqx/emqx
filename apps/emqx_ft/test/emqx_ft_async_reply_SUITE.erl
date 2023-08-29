@@ -55,7 +55,7 @@ t_register(_Config) ->
     PacketId = 1,
     MRef = make_ref(),
     TRef = make_ref(),
-    ok = emqx_ft_async_reply:register(PacketId, MRef, TRef),
+    ok = emqx_ft_async_reply:register(PacketId, MRef, TRef, somedata),
 
     ?assertEqual(
         undefined,
@@ -68,7 +68,7 @@ t_register(_Config) ->
     ),
 
     ?assertEqual(
-        {ok, PacketId, TRef},
+        {ok, PacketId, TRef, somedata},
         emqx_ft_async_reply:take_by_mref(MRef)
     ).
 
@@ -76,7 +76,7 @@ t_process_independence(_Config) ->
     PacketId = 1,
     MRef = make_ref(),
     TRef = make_ref(),
-    ok = emqx_ft_async_reply:register(PacketId, MRef, TRef),
+    ok = emqx_ft_async_reply:register(PacketId, MRef, TRef, somedata),
 
     Self = self(),
 
@@ -112,10 +112,10 @@ t_take(_Config) ->
     PacketId = 1,
     MRef = make_ref(),
     TRef = make_ref(),
-    ok = emqx_ft_async_reply:register(PacketId, MRef, TRef),
+    ok = emqx_ft_async_reply:register(PacketId, MRef, TRef, somedata),
 
     ?assertEqual(
-        {ok, PacketId, TRef},
+        {ok, PacketId, TRef, somedata},
         emqx_ft_async_reply:take_by_mref(MRef)
     ),
 
@@ -135,12 +135,12 @@ t_cleanup(_Config) ->
     TRef0 = make_ref(),
     MRef1 = make_ref(),
     TRef1 = make_ref(),
-    ok = emqx_ft_async_reply:register(PacketId, MRef0, TRef0),
+    ok = emqx_ft_async_reply:register(PacketId, MRef0, TRef0, somedata0),
 
     Self = self(),
 
     Pid = spawn_link(fun() ->
-        ok = emqx_ft_async_reply:register(PacketId, MRef1, TRef1),
+        ok = emqx_ft_async_reply:register(PacketId, MRef1, TRef1, somedata1),
         receive
             kickoff ->
                 ?assertEqual(
@@ -149,7 +149,7 @@ t_cleanup(_Config) ->
                 ),
 
                 ?assertEqual(
-                    {ok, PacketId, TRef1},
+                    {ok, PacketId, TRef1, somedata1},
                     emqx_ft_async_reply:take_by_mref(MRef1)
                 ),
 
