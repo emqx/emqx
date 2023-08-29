@@ -707,7 +707,7 @@ authz(["cache-clean", "all"]) ->
     with_log(fun emqx_mgmt:clean_authz_cache_all/0, Msg);
 authz(["cache-clean", ClientId]) ->
     Msg = io_lib:format("Drain ~ts authz cache", [ClientId]),
-    with_log(fun() -> emqx_mgmt:clean_authz_cache(list_to_binary(ClientId)) end, Msg);
+    with_log(fun() -> emqx_mgmt:clean_authz_cache(iolist_to_binary(ClientId)) end, Msg);
 authz(_) ->
     emqx_ctl:usage(
         [
