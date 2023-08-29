@@ -1216,9 +1216,9 @@ inc_counter(Key, Inc) ->
 set_tcp_keepalive({quic, _Listener}) ->
     ok;
 set_tcp_keepalive({Type, Id}) ->
-    Conf = emqx_config:get_listener_conf(Type, Id, [tcp_options, keepalive], <<"none">>),
-    case iolist_to_binary(Conf) of
-        <<"none">> ->
+    Conf = emqx_config:get_listener_conf(Type, Id, [tcp_options, keepalive], "none"),
+    case Conf of
+        "none" ->
             ok;
         Value ->
             %% the value is already validated by schema, so we do not validate it again.

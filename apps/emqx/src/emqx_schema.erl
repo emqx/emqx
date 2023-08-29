@@ -2331,7 +2331,8 @@ converter_ciphers(<<>>, _Opts) ->
     [];
 converter_ciphers(Ciphers, _Opts) when is_list(Ciphers) -> Ciphers;
 converter_ciphers(Ciphers, _Opts) when is_binary(Ciphers) ->
-    binary:split(Ciphers, <<",">>, [global]).
+    {ok, List} = to_comma_separated_binary(binary_to_list(Ciphers)),
+    List.
 
 default_ciphers(Which) ->
     lists:map(
@@ -2649,7 +2650,7 @@ validate_tcp_keepalive(Value) ->
 %% @doc This function is used as value validator and also run-time parser.
 parse_tcp_keepalive(Str) ->
     try
-        [Idle, Interval, Probes] = binary:split(iolist_to_binary(Str), <<",">>, [global]),
+        {ok, [Idle, Interval, Probes]} = to_comma_separated_binary(Str),
         %% use 10 times the Linux defaults as range limit
         IdleInt = parse_ka_int(Idle, "Idle", 1, 7200_0),
         IntervalInt = parse_ka_int(Interval, "Interval", 1, 75_0),
