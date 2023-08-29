@@ -29,10 +29,6 @@
 -define(kafka_client_id, kafka_client_id).
 -define(kafka_producers, kafka_producers).
 
-%% TODO: rename this to `kafka_producer' after alias support is added
-%% to hocon; keeping this as just `kafka' for backwards compatibility.
--define(BRIDGE_TYPE, kafka).
-
 query_mode(#{kafka := #{query_mode := sync}}) ->
     simple_sync;
 query_mode(_) ->
@@ -46,6 +42,7 @@ on_start(InstId, Config) ->
         authentication := Auth,
         bootstrap_hosts := Hosts0,
         bridge_name := BridgeName,
+        bridge_type := BridgeType,
         connect_timeout := ConnTimeout,
         kafka := KafkaConfig = #{
             message := MessageTemplate,
@@ -60,12 +57,11 @@ on_start(InstId, Config) ->
     KafkaHeadersTokens = preproc_kafka_headers(maps:get(kafka_headers, KafkaConfig, undefined)),
     KafkaExtHeadersTokens = preproc_ext_headers(maps:get(kafka_ext_headers, KafkaConfig, [])),
     KafkaHeadersValEncodeMode = maps:get(kafka_header_value_encode_mode, KafkaConfig, none),
-    BridgeType = ?BRIDGE_TYPE,
     ResourceId = emqx_bridge_resource:resource_id(BridgeType, BridgeName),
     ok = emqx_resource:allocate_resource(InstId, ?kafka_resource_id, ResourceId),
     _ = maybe_install_wolff_telemetry_handlers(ResourceId),
     Hosts = emqx_bridge_kafka_impl:hosts(Hosts0),
-    ClientId = emqx_bridge_kafka_impl:make_client_id(InstId),
+    ClientId = emqx_bridge_kafka_impl:make_client_id(BridgeType, BridgeName),
     ok = emqx_resource:allocate_resource(InstId, ?kafka_client_id, ClientId),
     ClientConfig = #{
         min_metadata_refresh_interval => MinMetaRefreshInterval,
@@ -107,7 +103,7 @@ on_start(InstId, Config) ->
             _ ->
                 string:equal(TestIdStart, InstId)
         end,
-    WolffProducerConfig = producers_config(BridgeName, ClientId, KafkaConfig, IsDryRun),
+    WolffProducerConfig = producers_config(BridgeType, BridgeName, ClientId, KafkaConfig, IsDryRun),
     case wolff:ensure_supervised_producers(ClientId, KafkaTopic, WolffProducerConfig) of
         {ok, Producers} ->
             ok = emqx_resource:allocate_resource(InstId, ?kafka_producers, Producers),
@@ -462,7 +458,7 @@ ssl(#{enable := true} = SSL) ->
 ssl(_) ->
     [].
 
-producers_config(BridgeName, ClientId, Input, IsDryRun) ->
+producers_config(BridgeType, BridgeName, ClientId, Input, IsDryRun) ->
     #{
         max_batch_bytes := MaxBatchBytes,
         compression := Compression,
@@ -488,10 +484,9 @@ producers_config(BridgeName, ClientId, Input, IsDryRun) ->
             disk -> {false, replayq_dir(ClientId)};
             hybrid -> {true, replayq_dir(ClientId)}
         end,
-    BridgeType = ?BRIDGE_TYPE,
     ResourceID = emqx_bridge_resource:resource_id(BridgeType, BridgeName),
     #{
-        name => make_producer_name(BridgeName, IsDryRun),
+        name => make_producer_name(BridgeType, BridgeName, IsDryRun),
         partitioner => partitioner(PartitionStrategy),
         partition_count_refresh_interval_seconds => PCntRefreshInterval,
         replayq_dir => ReplayqDir,
@@ -516,20 +511,15 @@ replayq_dir(ClientId) ->
 
 %% Producer name must be an atom which will be used as a ETS table name for
 %% partition worker lookup.
-make_producer_name(BridgeName, IsDryRun) when is_atom(BridgeName) ->
-    make_producer_name(atom_to_list(BridgeName), IsDryRun);
-make_producer_name(BridgeName, IsDryRun) ->
+make_producer_name(_BridgeType, _BridgeName, true = _IsDryRun) ->
+    %% It is a dry run and we don't want to leak too many atoms
+    %% so we use the default producer name instead of creating
+    %% an unique name.
+    probing_wolff_producers;
+make_producer_name(BridgeType, BridgeName, _IsDryRun) ->
     %% Woff needs an atom for ets table name registration. The assumption here is
     %% that bridges with new names are not often created.
-    case IsDryRun of
-        true ->
-            %% It is a dry run and we don't want to leak too many atoms
-            %% so we use the default producer name instead of creating
-            %% an unique name.
-            probing_wolff_producers;
-        false ->
-            binary_to_atom(iolist_to_binary(["kafka_producer_", BridgeName]))
-    end.
+    binary_to_atom(iolist_to_binary([BridgeType, "_", bin(BridgeName)])).
 
 with_log_at_error(Fun, Log) ->
     try

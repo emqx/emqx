@@ -175,14 +175,15 @@ create(BridgeId, Conf) ->
 create(Type, Name, Conf) ->
     create(Type, Name, Conf, #{}).
 
-create(Type, Name, Conf, Opts) ->
+create(Type, Name, Conf0, Opts) ->
     ?SLOG(info, #{
         msg => "create bridge",
         type => Type,
         name => Name,
-        config => emqx_utils:redact(Conf)
+        config => emqx_utils:redact(Conf0)
     }),
     TypeBin = bin(Type),
+    Conf = Conf0#{bridge_type => TypeBin, bridge_name => Name},
     {ok, _Data} = emqx_resource:create_local(
         resource_id(Type, Name),
         <<"emqx_bridge">>,
@@ -249,8 +250,9 @@ recreate(Type, Name) ->
 recreate(Type, Name, Conf) ->
     recreate(Type, Name, Conf, #{}).
 
-recreate(Type, Name, Conf, Opts) ->
+recreate(Type, Name, Conf0, Opts) ->
     TypeBin = bin(Type),
+    Conf = Conf0#{bridge_type => TypeBin, bridge_name => Name},
     emqx_resource:recreate_local(
         resource_id(Type, Name),
         bridge_to_resource_type(Type),
@@ -267,17 +269,18 @@ create_dry_run(Type, Conf0) ->
     Conf1 = maps:without([<<"name">>], Conf0),
     RawConf = #{<<"bridges">> => #{TypeBin => #{<<"temp_name">> => Conf1}}},
     try
-        #{bridges := #{TypeAtom := #{temp_name := Conf}}} =
+        #{bridges := #{TypeAtom := #{temp_name := Conf2}}} =
             hocon_tconf:check_plain(
                 emqx_bridge_schema,
                 RawConf,
                 #{atom_key => true, required => false}
             ),
+        Conf = Conf2#{bridge_type => TypeBin, bridge_name => TmpName},
         case emqx_connector_ssl:convert_certs(TmpPath, Conf) of
             {error, Reason} ->
                 {error, Reason};
             {ok, ConfNew} ->
-                ParseConf = parse_confs(bin(Type), TmpName, ConfNew),
+                ParseConf = parse_confs(TypeBin, TmpName, ConfNew),
                 emqx_resource:create_dry_run_local(bridge_to_resource_type(Type), ParseConf)
         end
     catch
@@ -387,15 +390,7 @@ parse_confs(Type, Name, Conf) when ?IS_INGRESS_BRIDGE(Type) ->
     %% receives a message from the external database.
     BId = bridge_id(Type, Name),
     BridgeHookpoint = bridge_hookpoint(BId),
-    Conf#{hookpoint => BridgeHookpoint, bridge_name => Name};
-%% TODO: rename this to `kafka_producer' after alias support is added
-%% to hocon; keeping this as just `kafka' for backwards compatibility.
-parse_confs(<<"kafka">> = _Type, Name, Conf) ->
-    Conf#{bridge_name => Name};
-parse_confs(<<"pulsar_producer">> = _Type, Name, Conf) ->
-    Conf#{bridge_name => Name};
-parse_confs(<<"kinesis_producer">> = _Type, Name, Conf) ->
-    Conf#{bridge_name => Name};
+    Conf#{hookpoint => BridgeHookpoint};
 parse_confs(BridgeType, BridgeName, Config) ->
     connector_config(BridgeType, BridgeName, Config).
 
