@@ -28,15 +28,15 @@
 
 all() ->
     [
-        {group, routing_table_regular},
-        {group, routing_table_unified}
+        {group, routing_schema_v1},
+        {group, routing_schema_v2}
     ].
 
 groups() ->
     TCs = emqx_common_test_helpers:all(?MODULE),
     [
-        {routing_table_regular, [], TCs},
-        {routing_table_unified, [], TCs}
+        {routing_schema_v1, [], TCs},
+        {routing_schema_v2, [], TCs}
     ].
 
 init_per_group(GroupName, Config) ->
@@ -48,14 +48,14 @@ init_per_group(GroupName, Config) ->
 end_per_group(_GroupName, Config) ->
     ok = emqx_cth_suite:stop(?config(group_apps, Config)).
 
-mk_config(routing_table_regular) ->
+mk_config(routing_schema_v1) ->
     #{
-        config => "broker.routing_table_type = regular",
+        config => "broker.routing.storage_schema = v1",
         override_env => [{boot_modules, [router]}]
     };
-mk_config(routing_table_unified) ->
+mk_config(routing_schema_v2) ->
     #{
-        config => "broker.routing_table_type = unified",
+        config => "broker.routing.storage_schema = v2",
         override_env => [{boot_modules, [router]}]
     }.
 

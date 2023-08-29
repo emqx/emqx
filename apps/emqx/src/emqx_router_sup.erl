@@ -24,7 +24,7 @@
 
 start_link() ->
     %% Init and log routing table type
-    ok = emqx_router:init_table_type(),
+    ok = emqx_router:init_schema(),
     supervisor:start_link({local, ?MODULE}, ?MODULE, []).
 
 init([]) ->

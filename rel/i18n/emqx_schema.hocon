@@ -1549,11 +1549,12 @@ fields_ws_opts_max_frame_size.label:
 sys_event_messages.desc:
 """Client events messages."""
 
-broker_routing_table_type.desc:
-"""Routing table type.
-Unified routing table should increase both subscription and routing performance at the cost of slight increase in memory consumption per subscription.
-NOTE: This is an experimental feature.
-NOTE: Full non-rolling cluster restart is needed after enabling or disabling this option for it to take any effect."""
+broker_routing_storage_schema.desc:
+"""Routing storage schema.
+Set <code>v1</code> to leave the default.
+Set <code>v2</code> to enable routing through 2 separate tables, one for topic filter and one for regular topic subscriptions. This schema should increase both subscription and routing performance at the cost of slight increase in memory consumption per subscription.
+NOTE: Schema <code>v2</code> is still experimental.
+NOTE: Full non-rolling cluster restart is needed after altering this option for it to take any effect."""
 
 broker_perf_trie_compaction.desc:
 """Enable trie path compaction.

@@ -19,7 +19,7 @@
 
 %% ETS tables for message routing
 -define(ROUTE_TAB, emqx_route).
--define(ROUTE_TAB_UNIFIED, emqx_route_unified).
+-define(ROUTE_TAB_FILTERS, emqx_route_filters).
 
 %% Mnesia table for message routing
 -define(ROUTING_NODE, emqx_routing_node).

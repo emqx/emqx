@@ -28,15 +28,15 @@
 
 all() ->
     [
-        {group, routing_table_regular},
-        {group, routing_table_unified}
+        {group, routing_schema_v1},
+        {group, routing_schema_v2}
     ].
 
 groups() ->
     TCs = emqx_common_test_helpers:all(?MODULE),
     [
-        {routing_table_regular, [], TCs},
-        {routing_table_unified, [], TCs}
+        {routing_schema_v1, [], TCs},
+        {routing_schema_v2, [], TCs}
     ].
 
 init_per_group(GroupName, Config) ->
@@ -53,10 +53,10 @@ init_per_group(GroupName, Config) ->
 end_per_group(_GroupName, Config) ->
     ok = emqx_cth_suite:stop(?config(group_apps, Config)).
 
-mk_config(routing_table_regular) ->
-    "broker.routing_table_type = regular";
-mk_config(routing_table_unified) ->
-    "broker.routing_table_type = unified".
+mk_config(routing_schema_v1) ->
+    "broker.routing.storage_schema = v1";
+mk_config(routing_schema_v2) ->
+    "broker.routing.storage_schema = v2".
 
 init_per_testcase(_TestCase, Config) ->
     clear_tables(),
@@ -85,10 +85,10 @@ end_per_testcase(_TestCase, _Config) ->
 
 t_verify_type(Config) ->
     case ?config(group_name, Config) of
-        routing_table_regular ->
-            ?assertEqual(regular, ?R:get_table_type());
-        routing_table_unified ->
-            ?assertEqual(unified, ?R:get_table_type())
+        routing_schema_v1 ->
+            ?assertEqual(v1, ?R:get_schema_vsn());
+        routing_schema_v2 ->
+            ?assertEqual(v2, ?R:get_schema_vsn())
     end.
 
 t_add_delete(_) ->
@@ -198,5 +198,5 @@ t_unexpected(_) ->
 clear_tables() ->
     lists:foreach(
         fun mnesia:clear_table/1,
-        [?ROUTE_TAB, ?ROUTE_TAB_UNIFIED, ?TRIE]
+        [?ROUTE_TAB, ?ROUTE_TAB_FILTERS, ?TRIE]
     ).
