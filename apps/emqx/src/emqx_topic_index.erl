@@ -32,6 +32,7 @@
 
 -type key(ID) :: emqx_trie_search:key(ID).
 -type match(ID) :: key(ID).
+-type words() :: emqx_trie_search:words().
 
 %% @doc Create a new ETS table suitable for topic index.
 %% Usable mostly for testing purposes.
@@ -42,18 +43,18 @@ new() ->
 %% @doc Insert a new entry into the index that associates given topic filter to given
 %% record ID, and attaches arbitrary record to the entry. This allows users to choose
 %% between regular and "materialized" indexes, for example.
--spec insert(emqx_types:topic(), _ID, _Record, ets:table()) -> true.
+-spec insert(emqx_types:topic() | words(), _ID, _Record, ets:table()) -> true.
 insert(Filter, ID, Record, Tab) ->
     Key = make_key(Filter, ID),
     true = ets:insert(Tab, {Key, Record}).
 
 %% @doc Delete an entry from the index that associates given topic filter to given
 %% record ID. Deleting non-existing entry is not an error.
--spec delete(emqx_types:topic(), _ID, ets:table()) -> true.
+-spec delete(emqx_types:topic() | words(), _ID, ets:table()) -> true.
 delete(Filter, ID, Tab) ->
     ets:delete(Tab, make_key(Filter, ID)).
 
--spec make_key(emqx_types:topic(), ID) -> key(ID).
+-spec make_key(emqx_types:topic() | words(), ID) -> key(ID).
 make_key(TopicOrFilter, ID) ->
     emqx_trie_search:make_key(TopicOrFilter, ID).
 
