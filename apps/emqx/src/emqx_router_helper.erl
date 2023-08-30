@@ -151,7 +151,6 @@ handle_info({nodedown, Node}, State = #{nodes := Nodes}) ->
             % TODO
             % Node may flap, do we need to wait for any pending cleanups in `init/1`
             % on the flapping node?
-            % This also implies changing lock id to `{?LOCK, Node}`.
             global:trans(
                 {?LOCK, self()},
                 fun() -> cleanup_routes(Node) end

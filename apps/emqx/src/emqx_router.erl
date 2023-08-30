@@ -164,7 +164,8 @@ mria_insert_route(v2, Topic, Dest) ->
 mria_insert_route(v1, Topic, Dest) ->
     mria_insert_route_v1(Topic, Dest).
 
-%% @doc Match routes
+%% @doc Take a real topic (not filter) as input, return the matching topics and topic
+%% filters associated with route destination.
 -spec match_routes(emqx_types:topic()) -> [emqx_types:route()].
 match_routes(Topic) when is_binary(Topic) ->
     match_routes(get_schema_vsn(), Topic).
@@ -174,6 +175,8 @@ match_routes(v2, Topic) ->
 match_routes(v1, Topic) ->
     match_routes_v1(Topic).
 
+%% @doc Take a topic or filter as input, and return the existing routes with exactly
+%% this topic or filter.
 -spec lookup_routes(emqx_types:topic()) -> [emqx_types:route()].
 lookup_routes(Topic) ->
     lookup_routes(get_schema_vsn(), Topic).
@@ -399,8 +402,7 @@ has_route_v2(Topic, Dest) ->
 
 cleanup_routes_v2(Node) ->
     % NOTE
-    % No point in transaction here because all the operations on unified routing table
-    % are dirty.
+    % No point in transaction here because all the operations on filters table are dirty.
     ok = ets:foldl(
         fun(#routeidx{entry = K}, ok) ->
             case get_dest_node(emqx_topic_index:get_id(K)) of
@@ -472,8 +474,8 @@ init_schema() ->
             });
         _ ->
             ?SLOG(notice, #{
-                msg => "configured_routing_schema_unacceptable",
-                schema => Schema,
+                msg => "configured_routing_schema_ignored",
+                schema_in_use => Schema,
                 configured => ConfSchema,
                 reason =>
                     "Could not use configured routing storage schema because "
