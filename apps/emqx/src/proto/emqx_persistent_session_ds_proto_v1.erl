@@ -21,7 +21,9 @@
 -export([
     introduced_in/0,
 
-    open_iterator/4
+    open_iterator/4,
+    close_iterator/2,
+    close_all_iterators/2
 ]).
 
 -include_lib("emqx/include/bpapi.hrl").
@@ -45,5 +47,33 @@ open_iterator(Nodes, TopicFilter, StartMS, IteratorID) ->
         emqx_persistent_session_ds,
         do_open_iterator,
         [TopicFilter, StartMS, IteratorID],
+        ?TIMEOUT
+    ).
+
+-spec close_iterator(
+    [node()],
+    emqx_ds:iterator_id()
+) ->
+    emqx_rpc:erpc_multicall(ok).
+close_iterator(Nodes, IteratorID) ->
+    erpc:multicall(
+        Nodes,
+        emqx_persistent_session_ds,
+        do_ensure_iterator_closed,
+        [IteratorID],
+        ?TIMEOUT
+    ).
+
+-spec close_all_iterators(
+    [node()],
+    emqx_ds:session_id()
+) ->
+    emqx_rpc:erpc_multicall(ok).
+close_all_iterators(Nodes, DSSessionID) ->
+    erpc:multicall(
+        Nodes,
+        emqx_persistent_session_ds,
+        do_ensure_all_iterators_closed,
+        [DSSessionID],
         ?TIMEOUT
     ).

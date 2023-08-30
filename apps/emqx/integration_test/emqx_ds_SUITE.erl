@@ -9,8 +9,10 @@
 -include_lib("stdlib/include/assert.hrl").
 -include_lib("common_test/include/ct.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
+-include_lib("emqx/include/emqx_mqtt.hrl").
 
 -define(DS_SHARD, <<"local">>).
+-define(ITERATOR_REF_TAB, emqx_ds_iterator_ref).
 
 %%------------------------------------------------------------------------------
 %% CT boilerplate
@@ -31,9 +33,12 @@ end_per_suite(Config) ->
     emqx_cth_suite:stop(TCApps),
     ok.
 
-init_per_testcase(t_session_subscription_idempotency = TC, Config) ->
+init_per_testcase(TestCase, Config) when
+    TestCase =:= t_session_subscription_idempotency;
+    TestCase =:= t_session_unsubscription_idempotency
+->
     Cluster = cluster(#{n => 1}),
-    ClusterOpts = #{work_dir => emqx_cth_suite:work_dir(TC, Config)},
+    ClusterOpts = #{work_dir => emqx_cth_suite:work_dir(TestCase, Config)},
     NodeSpecs = emqx_cth_cluster:mk_nodespecs(Cluster, ClusterOpts),
     Nodes = emqx_cth_cluster:start(Cluster, ClusterOpts),
     [
@@ -46,7 +51,10 @@ init_per_testcase(t_session_subscription_idempotency = TC, Config) ->
 init_per_testcase(_TestCase, Config) ->
     Config.
 
-end_per_testcase(t_session_subscription_idempotency, Config) ->
+end_per_testcase(TestCase, Config) when
+    TestCase =:= t_session_subscription_idempotency;
+    TestCase =:= t_session_unsubscription_idempotency
+->
     Nodes = ?config(nodes, Config),
     ok = emqx_cth_cluster:stop(Nodes),
     ok;
@@ -90,6 +98,9 @@ app_specs() ->
 get_mqtt_port(Node, Type) ->
     {_IP, Port} = erpc:call(Node, emqx_config, get, [[listeners, Type, default, bind]]),
     Port.
+
+get_all_iterator_refs(Node) ->
+    erpc:call(Node, mnesia, dirty_all_keys, [?ITERATOR_REF_TAB]).
 
 get_all_iterator_ids(Node) ->
     Fn = fun(K, _V, Acc) -> [K | Acc] end,
@@ -165,6 +176,7 @@ t_session_subscription_idempotency(Config) ->
                 %% have to re-inject this so that we may stop the node succesfully at the
                 %% end....
                 ok = emqx_cth_cluster:set_node_opts(Node1, Node1Spec),
+                ok = snabbkaffe:forward_trace(Node1),
                 ct:pal("node ~p restarted", [Node1]),
                 ?tp(restarted_node, #{}),
                 ok
@@ -209,11 +221,119 @@ t_session_subscription_idempotency(Config) ->
             %% Exactly one iterator should have been opened.
             ?assertEqual(1, map_size(SessionIterators), #{iterators => SessionIterators}),
             ?assertMatch(#{SubTopicFilter := _}, SessionIterators),
+            SubTopicFilterWords = emqx_topic:words(SubTopicFilter),
+            ?assertEqual([{ClientId, SubTopicFilterWords}], get_all_iterator_refs(Node1)),
             ?assertMatch({ok, [_]}, get_all_iterator_ids(Node1)),
             ?assertMatch(
                 {_IsNew = false, ClientId},
                 erpc:call(Node1, emqx_ds, session_open, [ClientId])
             ),
+            ok
+        end
+    ),
+    ok.
+
+%% Check that we close the iterators before deleting the iterator id entry.
+t_session_unsubscription_idempotency(Config) ->
+    [Node1Spec | _] = ?config(node_specs, Config),
+    [Node1] = ?config(nodes, Config),
+    Port = get_mqtt_port(Node1, tcp),
+    SubTopicFilter = <<"t/+">>,
+    ClientId = <<"myclientid">>,
+    ?check_trace(
+        begin
+            ?force_ordering(
+                #{?snk_kind := persistent_session_ds_close_iterators, ?snk_span := {complete, _}},
+                _NEvents0 = 1,
+                #{?snk_kind := will_restart_node},
+                _Guard0 = true
+            ),
+            ?force_ordering(
+                #{?snk_kind := restarted_node},
+                _NEvents1 = 1,
+                #{?snk_kind := persistent_session_ds_iterator_delete, ?snk_span := start},
+                _Guard1 = true
+            ),
+
+            spawn_link(fun() ->
+                ?tp(will_restart_node, #{}),
+                ct:pal("restarting node ~p", [Node1]),
+                true = monitor_node(Node1, true),
+                ok = erpc:call(Node1, init, restart, []),
+                receive
+                    {nodedown, Node1} ->
+                        ok
+                after 10_000 ->
+                    ct:fail("node ~p didn't stop", [Node1])
+                end,
+                ct:pal("waiting for nodeup ~p", [Node1]),
+                wait_nodeup(Node1),
+                wait_gen_rpc_down(Node1Spec),
+                ct:pal("restarting apps on ~p", [Node1]),
+                Apps = maps:get(apps, Node1Spec),
+                ok = erpc:call(Node1, emqx_cth_suite, load_apps, [Apps]),
+                _ = erpc:call(Node1, emqx_cth_suite, start_apps, [Apps, Node1Spec]),
+                %% have to re-inject this so that we may stop the node succesfully at the
+                %% end....
+                ok = emqx_cth_cluster:set_node_opts(Node1, Node1Spec),
+                ok = snabbkaffe:forward_trace(Node1),
+                ct:pal("node ~p restarted", [Node1]),
+                ?tp(restarted_node, #{}),
+                ok
+            end),
+
+            ct:pal("starting 1"),
+            {ok, Client0} = emqtt:start_link([
+                {port, Port},
+                {clientid, ClientId},
+                {proto_ver, v5}
+            ]),
+            {ok, _} = emqtt:connect(Client0),
+            ct:pal("subscribing 1"),
+            {ok, _, [?RC_GRANTED_QOS_2]} = emqtt:subscribe(Client0, SubTopicFilter, qos2),
+            ct:pal("unsubscribing 1"),
+            process_flag(trap_exit, true),
+            catch emqtt:unsubscribe(Client0, SubTopicFilter),
+            receive
+                {'EXIT', {shutdown, _}} ->
+                    ok
+            after 0 -> ok
+            end,
+            process_flag(trap_exit, false),
+
+            {ok, _} = ?block_until(#{?snk_kind := restarted_node}, 15_000),
+            ct:pal("starting 2"),
+            {ok, Client1} = emqtt:start_link([
+                {port, Port},
+                {clientid, ClientId},
+                {proto_ver, v5}
+            ]),
+            {ok, _} = emqtt:connect(Client1),
+            ct:pal("subscribing 2"),
+            {ok, _, [?RC_GRANTED_QOS_2]} = emqtt:subscribe(Client1, SubTopicFilter, qos2),
+            ct:pal("unsubscribing 2"),
+            {{ok, _, [?RC_SUCCESS]}, {ok, _}} =
+                ?wait_async_action(
+                    emqtt:unsubscribe(Client1, SubTopicFilter),
+                    #{
+                        ?snk_kind := persistent_session_ds_iterator_delete,
+                        ?snk_span := {complete, _}
+                    },
+                    15_000
+                ),
+            SessionIterators = get_session_iterators(Node1, ClientId),
+
+            ok = emqtt:stop(Client1),
+
+            #{session_iterators => SessionIterators}
+        end,
+        fun(Res, Trace) ->
+            ct:pal("trace:\n  ~p", [Trace]),
+            #{session_iterators := SessionIterators} = Res,
+            %% No iterators remaining
+            ?assertEqual(#{}, SessionIterators),
+            ?assertEqual([], get_all_iterator_refs(Node1)),
+            ?assertEqual({ok, []}, get_all_iterator_ids(Node1)),
             ok
         end
     ),
