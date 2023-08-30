@@ -33,10 +33,9 @@ init_per_suite(Config) ->
     %% TODO: remove after other suites start to use `emx_cth_suite'
     application:stop(emqx),
     application:stop(emqx_durable_storage),
-    WorkDir = ?config(priv_dir, Config),
     TCApps = emqx_cth_suite:start(
         app_specs(),
-        #{work_dir => WorkDir}
+        #{work_dir => emqx_cth_suite:work_dir(Config)}
     ),
     [{tc_apps, TCApps} | Config].
 

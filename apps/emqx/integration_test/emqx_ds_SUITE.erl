@@ -22,7 +22,7 @@ all() ->
 init_per_suite(Config) ->
     TCApps = emqx_cth_suite:start(
         app_specs(),
-        #{work_dir => ?config(priv_dir, Config)}
+        #{work_dir => emqx_cth_suite:work_dir(Config)}
     ),
     [{tc_apps, TCApps} | Config].
 
@@ -31,9 +31,9 @@ end_per_suite(Config) ->
     emqx_cth_suite:stop(TCApps),
     ok.
 
-init_per_testcase(t_session_subscription_idempotency, Config) ->
+init_per_testcase(t_session_subscription_idempotency = TC, Config) ->
     Cluster = cluster(#{n => 1}),
-    ClusterOpts = #{work_dir => ?config(priv_dir, Config)},
+    ClusterOpts = #{work_dir => emqx_cth_suite:work_dir(TC, Config)},
     NodeSpecs = emqx_cth_cluster:mk_nodespecs(Cluster, ClusterOpts),
     Nodes = emqx_cth_cluster:start(Cluster, ClusterOpts),
     [

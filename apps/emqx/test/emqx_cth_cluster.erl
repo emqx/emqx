@@ -14,6 +14,28 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
+%% @doc Common Test Helper / Running tests in a cluster
+%%
+%% This module allows setting up and tearing down clusters of EMQX nodes with
+%% the purpose of running integration tests in a distributed environment, but
+%% with the same isolation measures that `emqx_cth_suite` provides.
+%%
+%% Additionally to what `emqx_cth_suite` does with respect to isolation, each
+%% node in the cluster is started with a separate, unique working directory.
+%%
+%% What should be started on each node is defined by the same appspecs that are
+%% used by `emqx_cth_suite` to start applications on the CT node. However, there
+%% are additional set of defaults applied to appspecs to make sure that the
+%% cluster is started in a consistent, interconnected state, with no conflicts
+%% between applications.
+%%
+%% Most of the time, you just need to:
+%% 1. Describe the cluster with one or more _nodespecs_.
+%% 2. Call `emqx_cth_cluster:start/2` before the testrun (e.g. in `init_per_suite/1`
+%%    or `init_per_group/2`), providing unique work dir (e.g.
+%%    `emqx_cth_suite:work_dir/1`). Save the result in a context.
+%% 3. Call `emqx_cth_cluster:stop/1` after the testrun concludes (e.g.
+%%    in `end_per_suite/1` or `end_per_group/2`) with the result from step 2.
 -module(emqx_cth_cluster).
 
 -export([start/2]).
