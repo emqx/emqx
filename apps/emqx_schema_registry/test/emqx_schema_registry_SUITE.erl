@@ -42,7 +42,8 @@ sparkplug_tests() ->
     [
         t_sparkplug_decode,
         t_sparkplug_encode,
-        t_sparkplug_decode_encode_with_message_name
+        t_sparkplug_decode_encode_with_message_name,
+        t_sparkplug_encode_float_to_uint64_key
     ].
 
 init_per_suite(Config) ->
@@ -846,6 +847,18 @@ t_sparkplug_encode(_Config) ->
     Res = receive_action_results(),
     ?assertMatch(#{data := ExpectedRuleOutput}, Res),
     ok.
+
+t_sparkplug_encode_float_to_uint64_key(_Config) ->
+    %% Test that the following bug is fixed:
+    %% https://emqx.atlassian.net/browse/EMQX-10775
+    %% When one assign a float value to a uint64 key, one should get a
+    %% gpb_type_error and not a badarith error
+    wait_for_sparkplug_schema_registered(),
+    ?assertException(
+        error,
+        {gpb_type_error, _},
+        emqx_rule_funcs:sparkplug_encode(#{<<"seq">> => 1.5})
+    ).
 
 t_sparkplug_decode_encode_with_message_name(_Config) ->
     SQL =
