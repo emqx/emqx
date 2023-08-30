@@ -546,7 +546,7 @@ t_parse_incoming_frame_error(_) ->
             {incoming,
                 {frame_error, #{
                     header_type := _,
-                    hit := malformed_packet
+                    hint := malformed_packet
                 }}}
         ],
         Packets

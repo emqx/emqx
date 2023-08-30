@@ -473,7 +473,7 @@ parse_packet(
     {Properties, <<>>} = parse_properties(Rest, ?MQTT_PROTO_V5, StrictMode),
     #mqtt_packet_auth{reason_code = ReasonCode, properties = Properties};
 parse_packet(Header, _FrameBin, _Options) ->
-    ?PARSE_ERR(#{hit => malformed_packet, header_type => Header#mqtt_packet_header.type}).
+    ?PARSE_ERR(#{hint => malformed_packet, header_type => Header#mqtt_packet_header.type}).
 
 parse_will_message(
     Packet = #mqtt_packet_connect{
