@@ -166,14 +166,14 @@ values(producer) ->
 %% `emqx_bridge_resource' API
 %%-------------------------------------------------------------------------------------------------
 
-connector_config(Config, BridgeName) ->
+connector_config(Config, _BridgeName) ->
     %% Default port for AEH is 9093
     BootstrapHosts0 = maps:get(bootstrap_hosts, Config),
     BootstrapHosts = emqx_schema:parse_servers(
         BootstrapHosts0,
         emqx_bridge_azure_event_hub:host_opts()
     ),
-    Config#{bridge_name => BridgeName, bootstrap_hosts := BootstrapHosts}.
+    Config#{bootstrap_hosts := BootstrapHosts}.
 
 %%-------------------------------------------------------------------------------------------------
 %% Internal fns

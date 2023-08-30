@@ -282,6 +282,7 @@ t_same_name_azure_kafka_bridges(AehConfig) ->
     ConfigKafka = lists:keyreplace(bridge_type, 1, AehConfig, {bridge_type, ?KAFKA_BRIDGE_TYPE}),
     BridgeName = ?config(bridge_name, AehConfig),
     AehResourceId = emqx_bridge_testlib:resource_id(AehConfig),
+    KafkaResourceId = emqx_bridge_testlib:resource_id(ConfigKafka),
     TracePoint = emqx_bridge_kafka_impl_producer_sync_query,
     %% creates the AEH bridge and check it's working
     ok = emqx_bridge_testlib:t_sync_query(
@@ -292,6 +293,9 @@ t_same_name_azure_kafka_bridges(AehConfig) ->
     ),
     %% than creates a Kafka bridge with same name and delete it after creation
     ok = emqx_bridge_testlib:t_create_via_http(ConfigKafka),
+    %% check that both bridges are healthy
+    ?assertEqual({ok, connected}, emqx_resource_manager:health_check(AehResourceId)),
+    ?assertEqual({ok, connected}, emqx_resource_manager:health_check(KafkaResourceId)),
     ?assertMatch(
         {{ok, _}, {ok, _}},
         ?wait_async_action(

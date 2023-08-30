@@ -40,6 +40,7 @@
 %% TODO: rename this to `kafka_producer' after alias support is added
 %% to hocon; keeping this as just `kafka' for backwards compatibility.
 -define(BRIDGE_TYPE, "kafka").
+-define(BRIDGE_TYPE_BIN, <<"kafka">>).
 
 -define(APPS, [emqx_resource, emqx_bridge, emqx_rule_engine, emqx_bridge_kafka]).
 
@@ -438,7 +439,7 @@ t_failed_creation_then_fix(Config) ->
     {ok, #{config := WrongConfigAtom1}} = emqx_bridge:create(
         Type, erlang:list_to_atom(Name), WrongConf
     ),
-    WrongConfigAtom = WrongConfigAtom1#{bridge_name => Name},
+    WrongConfigAtom = WrongConfigAtom1#{bridge_name => Name, bridge_type => ?BRIDGE_TYPE_BIN},
     ?assertThrow(Reason when is_list(Reason), ?PRODUCER:on_start(ResourceId, WrongConfigAtom)),
     %% before throwing, it should cleanup the client process.  we
     %% retry because the supervisor might need some time to really
@@ -448,7 +449,7 @@ t_failed_creation_then_fix(Config) ->
     {ok, #{config := ValidConfigAtom1}} = emqx_bridge:create(
         Type, erlang:list_to_atom(Name), ValidConf
     ),
-    ValidConfigAtom = ValidConfigAtom1#{bridge_name => Name},
+    ValidConfigAtom = ValidConfigAtom1#{bridge_name => Name, bridge_type => ?BRIDGE_TYPE_BIN},
     {ok, State} = ?PRODUCER:on_start(ResourceId, ValidConfigAtom),
     Time = erlang:unique_integer(),
     BinTime = integer_to_binary(Time),
@@ -540,7 +541,7 @@ t_nonexistent_topic(_Config) ->
     {ok, #{config := ValidConfigAtom1}} = emqx_bridge:create(
         Type, erlang:list_to_atom(Name), Conf
     ),
-    ValidConfigAtom = ValidConfigAtom1#{bridge_name => Name},
+    ValidConfigAtom = ValidConfigAtom1#{bridge_name => Name, bridge_type => ?BRIDGE_TYPE_BIN},
     ?assertThrow(_, ?PRODUCER:on_start(ResourceId, ValidConfigAtom)),
     ok = emqx_bridge_resource:remove(BridgeId),
     delete_all_bridges(),
@@ -585,7 +586,7 @@ t_send_message_with_headers(Config) ->
     {ok, #{config := ConfigAtom1}} = emqx_bridge:create(
         Type, erlang:list_to_atom(Name), Conf
     ),
-    ConfigAtom = ConfigAtom1#{bridge_name => Name},
+    ConfigAtom = ConfigAtom1#{bridge_name => Name, bridge_type => ?BRIDGE_TYPE_BIN},
     {ok, State} = ?PRODUCER:on_start(ResourceId, ConfigAtom),
     Time1 = erlang:unique_integer(),
     BinTime1 = integer_to_binary(Time1),
@@ -807,7 +808,7 @@ t_wrong_headers_from_message(Config) ->
     {ok, #{config := ConfigAtom1}} = emqx_bridge:create(
         Type, erlang:list_to_atom(Name), Conf
     ),
-    ConfigAtom = ConfigAtom1#{bridge_name => Name},
+    ConfigAtom = ConfigAtom1#{bridge_name => Name, bridge_type => ?BRIDGE_TYPE_BIN},
     {ok, State} = ?PRODUCER:on_start(ResourceId, ConfigAtom),
     Time1 = erlang:unique_integer(),
     Payload1 = <<"wrong_header">>,
