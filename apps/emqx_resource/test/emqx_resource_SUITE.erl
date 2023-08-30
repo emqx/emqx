@@ -919,8 +919,17 @@ t_unhealthy_target(_) ->
         emqx_resource_manager:lookup(?ID)
     ),
     %% messages are dropped when bridge is unhealthy
-    emqx_resource:query(?ID, message),
-    ?assertEqual(1, emqx_resource_metrics:dropped_resource_stopped_get(?ID)).
+    lists:foreach(
+        fun(_) ->
+            ?assertMatch(
+                {error, {resource_error, #{reason := unhealthy_target}}},
+                emqx_resource:query(?ID, message)
+            )
+        end,
+        lists:seq(1, 3)
+    ),
+    ?assertEqual(3, emqx_resource_metrics:matched_get(?ID)),
+    ?assertEqual(3, emqx_resource_metrics:dropped_resource_stopped_get(?ID)).
 
 t_stop_start(_) ->
     ?check_trace(
