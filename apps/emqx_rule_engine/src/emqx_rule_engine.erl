@@ -227,7 +227,7 @@ get_rules_for_topic(Topic) ->
     [
         Rule
      || M <- emqx_topic_index:matches(Topic, ?RULE_TOPIC_INDEX, [unique]),
-        Rule <- emqx_topic_index:get_record(M, ?RULE_TOPIC_INDEX)
+        Rule <- lookup_rule(emqx_topic_index:get_id(M))
     ].
 
 -spec get_rules_with_same_event(Topic :: binary()) -> [rule()].
@@ -285,10 +285,13 @@ is_of_event_name(EventName, Topic) ->
 
 -spec get_rule(Id :: rule_id()) -> {ok, rule()} | not_found.
 get_rule(Id) ->
-    case ets:lookup(?RULE_TAB, Id) of
-        [{Id, Rule}] -> {ok, Rule#{id => Id}};
+    case lookup_rule(Id) of
+        [Rule] -> {ok, Rule};
         [] -> not_found
     end.
+
+lookup_rule(Id) ->
+    [Rule || {_Id, Rule} <- ets:lookup(?RULE_TAB, Id)].
 
 load_hooks_for_rule(#{from := Topics}) ->
     lists:foreach(fun emqx_rule_events:load/1, Topics).
@@ -484,7 +487,7 @@ with_parsed_rule(Params = #{id := RuleId, sql := Sql, actions := Actions}, Creat
 do_insert_rule(#{id := Id} = Rule) ->
     ok = load_hooks_for_rule(Rule),
     ok = maybe_add_metrics_for_rule(Id),
-    true = ets:insert(?RULE_TAB, {Id, maps:remove(id, Rule)}),
+    true = ets:insert(?RULE_TAB, {Id, Rule}),
     ok.
 
 do_delete_rule(#{id := Id} = Rule) ->
@@ -493,10 +496,10 @@ do_delete_rule(#{id := Id} = Rule) ->
     true = ets:delete(?RULE_TAB, Id),
     ok.
 
-do_update_rule_index(#{id := Id, from := From} = Rule) ->
+do_update_rule_index(#{id := Id, from := From}) ->
     ok = lists:foreach(
         fun(Topic) ->
-            true = emqx_topic_index:insert(Topic, Id, Rule, ?RULE_TOPIC_INDEX)
+            true = emqx_topic_index:insert(Topic, Id, [], ?RULE_TOPIC_INDEX)
         end,
         From
     ).
