@@ -269,7 +269,9 @@ info(awaiting_rel_max, #session{max_awaiting_rel = Max}) ->
 info(await_rel_timeout, #session{await_rel_timeout = Timeout}) ->
     Timeout;
 info(created_at, #session{created_at = CreatedAt}) ->
-    CreatedAt.
+    CreatedAt;
+info(iterators, #session{iterators = Iterators}) ->
+    Iterators.
 
 %% @doc Get stats of the session.
 -spec stats(session()) -> emqx_types:stats().
@@ -318,8 +320,13 @@ is_subscriptions_full(#session{
 -spec add_persistent_subscription(emqx_types:topic(), emqx_types:clientid(), session()) ->
     session().
 add_persistent_subscription(TopicFilterBin, ClientId, Session) ->
-    _ = emqx_persistent_session_ds:add_subscription(TopicFilterBin, ClientId),
-    Session.
+    case emqx_persistent_session_ds:add_subscription(TopicFilterBin, ClientId) of
+        {ok, IteratorId, _IsNew} ->
+            Iterators = Session#session.iterators,
+            Session#session{iterators = Iterators#{TopicFilterBin => IteratorId}};
+        _ ->
+            Session
+    end.
 
 %%--------------------------------------------------------------------
 %% Client -> Broker: UNSUBSCRIBE
