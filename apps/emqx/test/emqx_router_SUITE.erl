@@ -40,7 +40,7 @@ groups() ->
     ].
 
 init_per_group(GroupName, Config) ->
-    WorkDir = filename:join([?config(priv_dir, Config), GroupName]),
+    WorkDir = filename:join([?config(priv_dir, Config), ?MODULE, GroupName]),
     AppSpecs = [
         {emqx, #{
             config => mk_config(GroupName),

@@ -40,7 +40,7 @@ groups() ->
     ].
 
 init_per_group(GroupName, Config) ->
-    WorkDir = filename:join([?config(priv_dir, Config), GroupName]),
+    WorkDir = filename:join([?config(priv_dir, Config), ?MODULE, GroupName]),
     AppSpecs = [{emqx, mk_config(GroupName)}],
     Apps = emqx_cth_suite:start(AppSpecs, #{work_dir => WorkDir}),
     [{group_name, GroupName}, {group_apps, Apps} | Config].
@@ -60,16 +60,15 @@ mk_config(routing_schema_v2) ->
     }.
 
 init_per_testcase(TestCase, Config) when
-    TestCase =:= t_cleanup_membership_mnesia_down;
-    TestCase =:= t_cleanup_membership_node_down;
     TestCase =:= t_cleanup_monitor_node_down
 ->
     ok = snabbkaffe:start_trace(),
-    WorkDir = filename:join([?config(priv_dir, Config), ?config(group_name, Config), TestCase]),
+    GroupName = ?config(group_name, Config),
+    WorkDir = filename:join([?config(priv_dir, Config), ?MODULE, GroupName, TestCase]),
     [Slave] = emqx_cth_cluster:start(
         [
             {?MODULE, #{
-                apps => [{emqx, mk_config(?config(group_name, Config))}],
+                apps => [{emqx, mk_config(GroupName)}],
                 join_to => node()
             }}
         ],
@@ -77,11 +76,10 @@ init_per_testcase(TestCase, Config) when
     ),
     [{slave, Slave} | Config];
 init_per_testcase(_TestCase, Config) ->
+    ok = snabbkaffe:start_trace(),
     Config.
 
 end_per_testcase(TestCase, Config) when
-    TestCase =:= t_cleanup_membership_mnesia_down;
-    TestCase =:= t_cleanup_membership_node_down;
     TestCase =:= t_cleanup_monitor_node_down
 ->
     Slave = ?config(slave, Config),
@@ -89,6 +87,7 @@ end_per_testcase(TestCase, Config) when
     ok = snabbkaffe:stop(),
     ok;
 end_per_testcase(_TestCase, _Config) ->
+    ok = snabbkaffe:stop(),
     ok.
 
 t_monitor(_) ->
