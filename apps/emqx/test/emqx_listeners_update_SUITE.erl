@@ -116,6 +116,55 @@ t_update_conf(_Conf) ->
     ?assert(is_running('wss:default')),
     ok.
 
+t_update_tcp_keepalive_conf(_Conf) ->
+    Keepalive = <<"240,30,5">>,
+    KeepaliveStr = binary_to_list(Keepalive),
+    Raw = emqx:get_raw_config(?LISTENERS),
+    Raw1 = emqx_utils_maps:deep_put(
+        [<<"tcp">>, <<"default">>, <<"bind">>], Raw, <<"127.0.0.1:1883">>
+    ),
+    Raw2 = emqx_utils_maps:deep_put(
+        [<<"tcp">>, <<"default">>, <<"tcp_options">>, <<"keepalive">>], Raw1, Keepalive
+    ),
+    ?assertMatch({ok, _}, emqx:update_config(?LISTENERS, Raw2)),
+    ?assertMatch(
+        #{
+            <<"tcp">> := #{
+                <<"default">> := #{
+                    <<"bind">> := <<"127.0.0.1:1883">>,
+                    <<"tcp_options">> := #{<<"keepalive">> := Keepalive}
+                }
+            }
+        },
+        emqx:get_raw_config(?LISTENERS)
+    ),
+    ?assertMatch(
+        #{tcp := #{default := #{tcp_options := #{keepalive := KeepaliveStr}}}},
+        emqx:get_config(?LISTENERS)
+    ),
+    Keepalive2 = <<" 241, 31, 6 ">>,
+    KeepaliveStr2 = binary_to_list(Keepalive2),
+    Raw3 = emqx_utils_maps:deep_put(
+        [<<"tcp">>, <<"default">>, <<"tcp_options">>, <<"keepalive">>], Raw1, Keepalive2
+    ),
+    ?assertMatch({ok, _}, emqx:update_config(?LISTENERS, Raw3)),
+    ?assertMatch(
+        #{
+            <<"tcp">> := #{
+                <<"default">> := #{
+                    <<"bind">> := <<"127.0.0.1:1883">>,
+                    <<"tcp_options">> := #{<<"keepalive">> := Keepalive2}
+                }
+            }
+        },
+        emqx:get_raw_config(?LISTENERS)
+    ),
+    ?assertMatch(
+        #{tcp := #{default := #{tcp_options := #{keepalive := KeepaliveStr2}}}},
+        emqx:get_config(?LISTENERS)
+    ),
+    ok.
+
 t_update_empty_ssl_options_conf(_Conf) ->
     Raw = emqx:get_raw_config(?LISTENERS),
     Raw1 = emqx_utils_maps:deep_put(
@@ -139,10 +188,11 @@ t_update_empty_ssl_options_conf(_Conf) ->
     Raw7 = emqx_utils_maps:deep_put(
         [<<"wss">>, <<"default">>, <<"ssl_options">>, <<"ciphers">>], Raw6, <<"">>
     ),
+    Ciphers = <<"TLS_AES_256_GCM_SHA384, TLS_AES_128_GCM_SHA256 ">>,
     Raw8 = emqx_utils_maps:deep_put(
         [<<"ssl">>, <<"default">>, <<"ssl_options">>, <<"ciphers">>],
         Raw7,
-        <<"TLS_AES_256_GCM_SHA384,TLS_AES_128_GCM_SHA256">>
+        Ciphers
     ),
     ?assertMatch({ok, _}, emqx:update_config(?LISTENERS, Raw8)),
     ?assertMatch(
@@ -153,7 +203,7 @@ t_update_empty_ssl_options_conf(_Conf) ->
                     <<"bind">> := <<"127.0.0.1:8883">>,
                     <<"ssl_options">> := #{
                         <<"cacertfile">> := <<"">>,
-                        <<"ciphers">> := <<"TLS_AES_256_GCM_SHA384,TLS_AES_128_GCM_SHA256">>
+                        <<"ciphers">> := Ciphers
                     }
                 }
             },
