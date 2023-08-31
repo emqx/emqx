@@ -20,7 +20,7 @@
 %% emqx_bridge_enterprise "unofficial" API
 -export([conn_bridge_examples/1]).
 
--export([connector_config/2]).
+-export([connector_config/1]).
 
 -export([producer_converter/2, host_opts/0]).
 
@@ -166,7 +166,7 @@ values(producer) ->
 %% `emqx_bridge_resource' API
 %%-------------------------------------------------------------------------------------------------
 
-connector_config(Config, _BridgeName) ->
+connector_config(Config) ->
     %% Default port for AEH is 9093
     BootstrapHosts0 = maps:get(bootstrap_hosts, Config),
     BootstrapHosts = emqx_schema:parse_servers(
