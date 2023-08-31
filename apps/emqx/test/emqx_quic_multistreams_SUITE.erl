@@ -1094,7 +1094,7 @@ t_multi_streams_unsub(Config) ->
     ?retry(
         _Sleep2 = 100,
         _Attempts2 = 50,
-        false = emqx_router:has_routes(Topic)
+        [] = emqx_router:lookup_routes(Topic)
     ),
 
     case emqtt:publish_via(C, PubVia, Topic, #{}, <<6, 7, 8, 9>>, [{qos, PubQos}]) of

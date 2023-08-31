@@ -29,8 +29,8 @@
 -export([get_topic/1]).
 -export([get_record/2]).
 
--type word() :: binary() | '+' | '#'.
--type key(ID) :: {[word()], {ID}}.
+-type key(ID) :: emqx_trie_search:key(ID).
+-type words() :: emqx_trie_search:words().
 -type match(ID) :: key(ID).
 -type name() :: any().
 
@@ -50,7 +50,7 @@ new(Name) ->
 %% @doc Insert a new entry into the index that associates given topic filter to given
 %% record ID, and attaches arbitrary record to the entry. This allows users to choose
 %% between regular and "materialized" indexes, for example.
--spec insert(emqx_types:topic(), _ID, _Record, name()) -> true.
+-spec insert(emqx_types:topic() | words(), _ID, _Record, name()) -> true.
 insert(Filter, ID, Record, Name) ->
     Tree = gbt(Name),
     Key = key(Filter, ID),
@@ -59,7 +59,7 @@ insert(Filter, ID, Record, Name) ->
 
 %% @doc Delete an entry from the index that associates given topic filter to given
 %% record ID. Deleting non-existing entry is not an error.
--spec delete(emqx_types:topic(), _ID, name()) -> true.
+-spec delete(emqx_types:topic() | words(), _ID, name()) -> true.
 delete(Filter, ID, Name) ->
     Tree = gbt(Name),
     Key = key(Filter, ID),

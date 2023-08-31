@@ -1358,6 +1358,11 @@ fields("broker") ->
                 ref("broker_perf"),
                 #{importance => ?IMPORTANCE_HIDDEN}
             )},
+        {"routing",
+            sc(
+                ref("broker_routing"),
+                #{importance => ?IMPORTANCE_HIDDEN}
+            )},
         %% FIXME: Need new design for shared subscription group
         {"shared_subscription_group",
             sc(
@@ -1366,6 +1371,17 @@ fields("broker") ->
                     example => #{<<"example_group">> => #{<<"strategy">> => <<"random">>}},
                     desc => ?DESC(shared_subscription_group_strategy),
                     importance => ?IMPORTANCE_HIDDEN
+                }
+            )}
+    ];
+fields("broker_routing") ->
+    [
+        {"storage_schema",
+            sc(
+                hoconsc:enum([v1, v2]),
+                #{
+                    default => v1,
+                    desc => ?DESC(broker_routing_storage_schema)
                 }
             )}
     ];

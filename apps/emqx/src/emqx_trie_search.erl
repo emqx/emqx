@@ -98,24 +98,24 @@
 
 -module(emqx_trie_search).
 
--export([make_key/2]).
+-export([make_key/2, filter/1]).
 -export([match/2, matches/3, get_id/1, get_topic/1]).
--export_type([key/1, word/0, nextf/0, opts/0]).
+-export_type([key/1, word/0, words/0, nextf/0, opts/0]).
 
 -define(END, '$end_of_table').
 
 -type word() :: binary() | '+' | '#'.
+-type words() :: [word()].
 -type base_key() :: {binary() | [word()], {}}.
 -type key(ID) :: {binary() | [word()], {ID}}.
 -type nextf() :: fun((key(_) | base_key()) -> ?END | key(_)).
 -type opts() :: [unique | return_first].
 
 %% @doc Make a search-key for the given topic.
--spec make_key(emqx_types:topic(), ID) -> key(ID).
+-spec make_key(emqx_types:topic() | words(), ID) -> key(ID).
 make_key(Topic, ID) when is_binary(Topic) ->
-    Words = filter_words(Topic),
-    case emqx_topic:wildcard(Words) of
-        true ->
+    case filter(Topic) of
+        Words when is_list(Words) ->
             %% it's a wildcard
             {Words, {ID}};
         false ->
@@ -123,7 +123,15 @@ make_key(Topic, ID) when is_binary(Topic) ->
             %% because they can be found with direct lookups.
             %% it is also more compact in memory.
             {Topic, {ID}}
-    end.
+    end;
+make_key(Words, ID) when is_list(Words) ->
+    {Words, {ID}}.
+
+%% @doc Parse a topic filter into a list of words. Returns `false` if it's not a filter.
+-spec filter(emqx_types:topic()) -> words() | false.
+filter(Topic) ->
+    Words = filter_words(Topic),
+    emqx_topic:wildcard(Words) andalso Words.
 
 %% @doc Extract record ID from the match.
 -spec get_id(key(ID)) -> ID.
@@ -325,6 +333,7 @@ filter_words(Topic) when is_binary(Topic) ->
     % `match_filter/3` expects.
     [word(W, filter) || W <- emqx_topic:tokens(Topic)].
 
+-spec topic_words(emqx_types:topic()) -> [binary()].
 topic_words(Topic) when is_binary(Topic) ->
     [word(W, topic) || W <- emqx_topic:tokens(Topic)].
 

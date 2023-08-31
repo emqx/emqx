@@ -57,6 +57,17 @@ t_insert(Config) ->
     ?assertEqual(<<"sensor/#">>, topic(match(M, <<"sensor">>, Tab))),
     ?assertEqual(t_insert_3, id(match(M, <<"sensor">>, Tab))).
 
+t_insert_filter(Config) ->
+    M = get_module(Config),
+    Tab = M:new(),
+    Topic = <<"sensor/+/metric//#">>,
+    true = M:insert(Topic, 1, <<>>, Tab),
+    true = M:insert(emqx_trie_search:filter(Topic), 2, <<>>, Tab),
+    ?assertEqual(
+        [Topic, Topic],
+        [topic(X) || X <- matches(M, <<"sensor/1/metric//2">>, Tab)]
+    ).
+
 t_match(Config) ->
     M = get_module(Config),
     Tab = M:new(),

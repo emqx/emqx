@@ -26,24 +26,37 @@
 
 -define(R, emqx_router).
 
-all() -> emqx_common_test_helpers:all(?MODULE).
-
-init_per_suite(Config) ->
-    PrevBootModules = application:get_env(emqx, boot_modules),
-    emqx_common_test_helpers:boot_modules([router]),
-    emqx_common_test_helpers:start_apps([]),
+all() ->
     [
-        {prev_boot_modules, PrevBootModules}
-        | Config
+        {group, routing_schema_v1},
+        {group, routing_schema_v2}
     ].
 
-end_per_suite(Config) ->
-    PrevBootModules = ?config(prev_boot_modules, Config),
-    case PrevBootModules of
-        undefined -> ok;
-        {ok, Mods} -> emqx_common_test_helpers:boot_modules(Mods)
-    end,
-    emqx_common_test_helpers:stop_apps([]).
+groups() ->
+    TCs = emqx_common_test_helpers:all(?MODULE),
+    [
+        {routing_schema_v1, [], TCs},
+        {routing_schema_v2, [], TCs}
+    ].
+
+init_per_group(GroupName, Config) ->
+    WorkDir = filename:join([?config(priv_dir, Config), ?MODULE, GroupName]),
+    AppSpecs = [
+        {emqx, #{
+            config => mk_config(GroupName),
+            override_env => [{boot_modules, [router]}]
+        }}
+    ],
+    Apps = emqx_cth_suite:start(AppSpecs, #{work_dir => WorkDir}),
+    [{group_apps, Apps}, {group_name, GroupName} | Config].
+
+end_per_group(_GroupName, Config) ->
+    ok = emqx_cth_suite:stop(?config(group_apps, Config)).
+
+mk_config(routing_schema_v1) ->
+    "broker.routing.storage_schema = v1";
+mk_config(routing_schema_v2) ->
+    "broker.routing.storage_schema = v2".
 
 init_per_testcase(_TestCase, Config) ->
     clear_tables(),
@@ -70,6 +83,14 @@ end_per_testcase(_TestCase, _Config) ->
 % t_topics(_) ->
 %     error('TODO').
 
+t_verify_type(Config) ->
+    case ?config(group_name, Config) of
+        routing_schema_v1 ->
+            ?assertEqual(v1, ?R:get_schema_vsn());
+        routing_schema_v2 ->
+            ?assertEqual(v2, ?R:get_schema_vsn())
+    end.
+
 t_add_delete(_) ->
     ?R:add_route(<<"a/b/c">>),
     ?R:add_route(<<"a/b/c">>, node()),
@@ -78,6 +99,55 @@ t_add_delete(_) ->
     ?R:delete_route(<<"a/b/c">>),
     ?R:delete_route(<<"a/+/b">>, node()),
     ?assertEqual([], ?R:topics()).
+
+t_add_delete_incremental(_) ->
+    ?R:add_route(<<"a/b/c">>),
+    ?R:add_route(<<"a/+/c">>, node()),
+    ?R:add_route(<<"a/+/+">>, node()),
+    ?R:add_route(<<"a/b/#">>, node()),
+    ?R:add_route(<<"#">>, node()),
+    ?assertEqual(
+        [
+            #route{topic = <<"#">>, dest = node()},
+            #route{topic = <<"a/+/+">>, dest = node()},
+            #route{topic = <<"a/+/c">>, dest = node()},
+            #route{topic = <<"a/b/#">>, dest = node()},
+            #route{topic = <<"a/b/c">>, dest = node()}
+        ],
+        lists:sort(?R:match_routes(<<"a/b/c">>))
+    ),
+    ?R:delete_route(<<"a/+/c">>, node()),
+    ?assertEqual(
+        [
+            #route{topic = <<"#">>, dest = node()},
+            #route{topic = <<"a/+/+">>, dest = node()},
+            #route{topic = <<"a/b/#">>, dest = node()},
+            #route{topic = <<"a/b/c">>, dest = node()}
+        ],
+        lists:sort(?R:match_routes(<<"a/b/c">>))
+    ),
+    ?R:delete_route(<<"a/+/+">>, node()),
+    ?assertEqual(
+        [
+            #route{topic = <<"#">>, dest = node()},
+            #route{topic = <<"a/b/#">>, dest = node()},
+            #route{topic = <<"a/b/c">>, dest = node()}
+        ],
+        lists:sort(?R:match_routes(<<"a/b/c">>))
+    ),
+    ?R:delete_route(<<"a/b/#">>, node()),
+    ?assertEqual(
+        [
+            #route{topic = <<"#">>, dest = node()},
+            #route{topic = <<"a/b/c">>, dest = node()}
+        ],
+        lists:sort(?R:match_routes(<<"a/b/c">>))
+    ),
+    ?R:delete_route(<<"a/b/c">>, node()),
+    ?assertEqual(
+        [#route{topic = <<"#">>, dest = node()}],
+        lists:sort(?R:match_routes(<<"a/b/c">>))
+    ).
 
 t_do_add_delete(_) ->
     ?R:do_add_route(<<"a/b/c">>),
@@ -114,9 +184,9 @@ t_print_routes(_) ->
     ?R:add_route(<<"+/+">>),
     ?R:print_routes(<<"a/b">>).
 
-t_has_routes(_) ->
+t_has_route(_) ->
     ?R:add_route(<<"devices/+/messages">>, node()),
-    ?assert(?R:has_routes(<<"devices/+/messages">>)),
+    ?assert(?R:has_route(<<"devices/+/messages">>, node())),
     ?R:delete_route(<<"devices/+/messages">>).
 
 t_unexpected(_) ->
@@ -128,5 +198,5 @@ t_unexpected(_) ->
 clear_tables() ->
     lists:foreach(
         fun mnesia:clear_table/1,
-        [?ROUTE_TAB, ?TRIE, emqx_trie_node]
+        [?ROUTE_TAB, ?ROUTE_TAB_FILTERS, ?TRIE]
     ).
