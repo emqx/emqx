@@ -420,7 +420,7 @@ update_boot_order(post, #{bindings := #{name := Name}, body := Body}) ->
         {error, Reason} ->
             {400, #{code => 'BAD_POSITION', message => Reason}};
         Position ->
-            case emqx_plugins:ensure_enabled(Name, Position) of
+            case emqx_plugins:ensure_enabled(Name, Position, _ConfLocation = global) of
                 ok ->
                     {200};
                 {error, Reason} ->

@@ -20,6 +20,7 @@
 -export([stop/1]).
 
 -export([share_load_module/2]).
+-export([node_name/1]).
 
 -define(APPS_CLUSTERING, [gen_rpc, mria, ekka]).
 

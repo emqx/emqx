@@ -28,7 +28,8 @@
     multipart_formdata_request/4,
     host/0,
     uri/0,
-    uri/1
+    uri/1,
+    uri/2
 ]).
 
 -define(HOST, "http://127.0.0.1:18083").
@@ -96,10 +97,15 @@ request(Username, Method, Url, Body) ->
 host() ->
     ?HOST.
 
-uri() -> uri([]).
+uri() ->
+    uri([]).
+
 uri(Parts) when is_list(Parts) ->
+    uri(host(), Parts).
+
+uri(Host, Parts) when is_list(Host), is_list(Parts) ->
     NParts = [E || E <- Parts],
-    host() ++ "/" ++ to_list(filename:join([?BASE_PATH, ?API_VERSION | NParts])).
+    Host ++ "/" ++ to_list(filename:join([?BASE_PATH, ?API_VERSION | NParts])).
 
 auth_header(Username) ->
     Password = <<"public">>,
