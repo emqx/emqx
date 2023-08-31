@@ -40,6 +40,7 @@ EMQX, a distributed, massively scalable, highly extensible MQTT message broker.
 %install
 mkdir -p %{buildroot}%{_lib_home}
 mkdir -p %{buildroot}%{_lib_home}/plugins
+mkdir -p %{buildroot}%{_lib_home}/data/patches
 mkdir -p %{buildroot}%{_log_dir}
 mkdir -p %{buildroot}%{_unitdir}
 mkdir -p %{buildroot}%{_conf_dir}
@@ -48,6 +49,7 @@ mkdir -p %{buildroot}%{_var_home}
 
 cp -R %{_reldir}/lib %{buildroot}%{_lib_home}/
 touch %{buildroot}%{_lib_home}/plugins/.keep
+touch %{buildroot}%{_lib_home}/data/patches/.keep
 cp -R %{_reldir}/erts-* %{buildroot}%{_lib_home}/
 cp -R %{_reldir}/releases %{buildroot}%{_lib_home}/
 cp -R %{_reldir}/bin %{buildroot}%{_lib_home}/
