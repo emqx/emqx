@@ -49,11 +49,8 @@
     update/4
 ]).
 
--callback connector_config(ParsedConfig, BridgeName :: atom() | binary()) ->
-    ParsedConfig
-when
-    ParsedConfig :: #{atom() => any()}.
--optional_callbacks([connector_config/2]).
+-callback connector_config(ParsedConfig) -> ParsedConfig when ParsedConfig :: #{atom() => any()}.
+-optional_callbacks([connector_config/1]).
 
 %% bi-directional bridge with producer/consumer or ingress/egress configs
 -define(IS_BI_DIR_BRIDGE(TYPE),
@@ -391,14 +388,14 @@ parse_confs(Type, Name, Conf) when ?IS_INGRESS_BRIDGE(Type) ->
     BId = bridge_id(Type, Name),
     BridgeHookpoint = bridge_hookpoint(BId),
     Conf#{hookpoint => BridgeHookpoint};
-parse_confs(BridgeType, BridgeName, Config) ->
-    connector_config(BridgeType, BridgeName, Config).
+parse_confs(BridgeType, _BridgeName, Config) ->
+    connector_config(BridgeType, Config).
 
-connector_config(BridgeType, BridgeName, Config) ->
+connector_config(BridgeType, Config) ->
     Mod = bridge_impl_module(BridgeType),
-    case erlang:function_exported(Mod, connector_config, 2) of
+    case erlang:function_exported(Mod, connector_config, 1) of
         true ->
-            Mod:connector_config(Config, BridgeName);
+            Mod:connector_config(Config);
         false ->
             Config
     end.
