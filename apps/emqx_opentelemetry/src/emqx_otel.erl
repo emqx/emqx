@@ -73,6 +73,7 @@ setup(_Conf) ->
 ensure_apps(Conf) ->
     #{exporter := #{interval := ExporterInterval}} = Conf,
     {ok, _} = application:ensure_all_started(opentelemetry_exporter),
+    {ok, _} = application:ensure_all_started(opentelemetry),
     _ = application:stop(opentelemetry_experimental),
     ok = application:set_env(
         opentelemetry_experimental,
@@ -92,6 +93,7 @@ ensure_apps(Conf) ->
     ok.
 
 cleanup() ->
+    _ = application:stop(opentelemetry),
     _ = application:stop(opentelemetry_experimental),
     _ = application:stop(opentelemetry_experimental_api),
     _ = application:stop(opentelemetry_exporter),
