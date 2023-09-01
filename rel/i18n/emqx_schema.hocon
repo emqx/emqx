@@ -1552,7 +1552,7 @@ sys_event_messages.desc:
 broker_routing_storage_schema.desc:
 """Routing storage schema.
 Set <code>v1</code> to leave the default.
-Set <code>v2</code> to enable routing through 2 separate tables, one for topic filter and one for regular topic subscriptions. This schema should increase both subscription and routing performance at the cost of slight increase in memory consumption per subscription.
+<code>v2</code> is introduced in 5.2. It enables routing through 2 separate tables, one for topic filter and one for regular topic subscriptions. This schema should increase both subscription and routing performance at the cost of slight increase in memory consumption per subscription.
 NOTE: Schema <code>v2</code> is still experimental.
 NOTE: Full non-rolling cluster restart is needed after altering this option for it to take any effect."""
 
