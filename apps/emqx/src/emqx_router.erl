@@ -49,8 +49,7 @@
 
 -export([
     match_routes/1,
-    lookup_routes/1,
-    has_route/2
+    lookup_routes/1
 ]).
 
 -export([print_routes/1]).
@@ -61,6 +60,9 @@
 ]).
 
 -export([topics/0]).
+
+%% Exported for tests
+-export([has_route/2]).
 
 %% gen_server callbacks
 -export([
