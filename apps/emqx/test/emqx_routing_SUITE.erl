@@ -131,7 +131,12 @@ t_cluster_routing(Config) ->
             {pub, C3, #{topic := <<"a/b/d">>, payload := <<"07">>}},
             {pub, C3, #{topic := <<"a/b/d">>, payload := <<"10">>}}
         ],
-        lists:sort(Deliveries)
+        lists:sort(
+            fun({pub, CL, #{payload := PL}}, {pub, CR, #{payload := PR}}) ->
+                {CL, PL} < {CR, PR}
+            end,
+            Deliveries
+        )
     ).
 
 start_client(Node) ->
