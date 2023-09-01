@@ -38,23 +38,10 @@ groups() ->
 
 init_per_group(GroupName, Config) ->
     WorkDir = filename:join([?config(priv_dir, Config), ?MODULE, GroupName]),
-    NodeSpec = #{
-        apps => [
-            {emqx, #{
-                config => mk_config(GroupName),
-                after_start => fun() ->
-                    % NOTE
-                    % This one is actually defined on `emqx_conf_schema` level, but used
-                    % in `emqx_broker`. Thus we have to resort to this ugly hack.
-                    emqx_config:force_put([rpc, mode], async)
-                end
-            }}
-        ]
-    },
     NodeSpecs = [
-        {emqx_routing_SUITE1, NodeSpec#{role => core}},
-        {emqx_routing_SUITE2, NodeSpec#{role => core}},
-        {emqx_routing_SUITE3, NodeSpec#{role => replicant}}
+        {emqx_routing_SUITE1, #{apps => mk_appspecs(GroupName, 1), role => core}},
+        {emqx_routing_SUITE2, #{apps => mk_appspecs(GroupName, 2), role => core}},
+        {emqx_routing_SUITE3, #{apps => mk_appspecs(GroupName, 3), role => replicant}}
     ],
     Nodes = emqx_cth_cluster:start(NodeSpecs, #{work_dir => WorkDir}),
     [{cluster, Nodes}, Config].
@@ -62,10 +49,38 @@ init_per_group(GroupName, Config) ->
 end_per_group(_GroupName, Config) ->
     emqx_cth_cluster:stop(?config(cluster, Config)).
 
-mk_config(routing_schema_v1) ->
-    "broker.routing.storage_schema = v1";
-mk_config(routing_schema_v2) ->
-    "broker.routing.storage_schema = v2".
+mk_appspecs(GroupName, N) ->
+    [
+        {emqx, #{
+            config => mk_config(GroupName, N),
+            after_start => fun() ->
+                % NOTE
+                % This one is actually defined on `emqx_conf_schema` level, but used
+                % in `emqx_broker`. Thus we have to resort to this ugly hack.
+                emqx_config:force_put([rpc, mode], async)
+            end
+        }}
+    ].
+
+mk_config(GroupName, N) ->
+    #{
+        broker => mk_config_broker(GroupName),
+        listeners => mk_config_listeners(N)
+    }.
+
+mk_config_broker(routing_schema_v1) ->
+    #{routing => #{storage_schema => v1}};
+mk_config_broker(routing_schema_v2) ->
+    #{routing => #{storage_schema => v2}}.
+
+mk_config_listeners(N) ->
+    Port = 1883 + N,
+    #{
+        tcp => #{default => #{bind => "127.0.0.1:" ++ integer_to_list(Port)}},
+        ssl => #{default => #{enable => false}},
+        ws => #{default => #{enable => false}},
+        wss => #{default => #{enable => false}}
+    }.
 
 t_cluster_routing(Config) ->
     Cluster = ?config(cluster, Config),
