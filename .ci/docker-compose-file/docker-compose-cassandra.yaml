@@ -1,32 +1,38 @@
 version: '3.9'
 
+x-cassandra: &cassandra
+  restart: always
+  image: cassandra:${CASSANDRA_TAG:-3.11.6}
+  environment:
+    CASSANDRA_BROADCAST_ADDRESS: "1.2.3.4"
+    CASSANDRA_RPC_ADDRESS: "0.0.0.0"
+    HEAP_NEWSIZE: "128M"
+    MAX_HEAP_SIZE: "2048M"
+  #ports:
+  #  - "9042:9042"
+  #  - "9142:9142"
+  command:
+    - /bin/bash
+    - -c
+    - |
+      /opt/cassandra/bin/cassandra -f -R > /cassandra.log &
+      /opt/cassandra/bin/cqlsh -u cassandra -p cassandra -e "CREATE KEYSPACE mqtt WITH REPLICATION = { 'class':'SimpleStrategy','replication_factor':1};"
+      while [[ $$? -ne 0 ]];do sleep 5; /opt/cassandra/bin/cqlsh -u cassandra -p cassandra -e "CREATE KEYSPACE mqtt WITH REPLICATION = { 'class':'SimpleStrategy','replication_factor':1};"; done
+      /opt/cassandra/bin/cqlsh -u cassandra -p cassandra -e "describe keyspaces;"
+      tail -f /cassandra.log
+  networks:
+    - emqx_bridge
+
 services:
   cassandra_server:
+    <<: *cassandra
     container_name: cassandra
-    build:
-      context: ./cassandra
-      args:
-        CASSANDRA_TAG: ${CASSANDRA_TAG}
-    image: emqx-cassandra
-    restart: always
-    environment:
-      CASSANDRA_BROADCAST_ADDRESS: "1.2.3.4"
-      CASSANDRA_RPC_ADDRESS: "0.0.0.0"
-      HEAP_NEWSIZE: "128M"
-      MAX_HEAP_SIZE: "2048M"
     volumes:
       - ./certs:/certs
-    #ports:
-    #  - "9042:9042"
-    #  - "9142:9142"
-    command:
-      - /bin/bash
-      - -c
-      - |
-        /opt/cassandra/bin/cassandra -f -R > /cassandra.log &
-        /opt/cassandra/bin/cqlsh -u cassandra -p cassandra -e "CREATE KEYSPACE mqtt WITH REPLICATION = { 'class':'SimpleStrategy','replication_factor':1};"
-        while [[ $$? -ne 0 ]];do sleep 5; /opt/cassandra/bin/cqlsh -u cassandra -p cassandra -e "CREATE KEYSPACE mqtt WITH REPLICATION = { 'class':'SimpleStrategy','replication_factor':1};"; done
-        /opt/cassandra/bin/cqlsh -u cassandra -p cassandra -e "describe keyspaces;"
-        tail -f /cassandra.log
-    networks:
-      - emqx_bridge
+      - ./cassandra/cassandra.yaml:/etc/cassandra/cassandra.yaml
+  cassandra_noauth_server:
+    <<: *cassandra
+    container_name: cassandra_noauth
+    volumes:
+      - ./certs:/certs
+      - ./cassandra/cassandra_noauth.yaml:/etc/cassandra/cassandra.yaml
