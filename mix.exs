@@ -93,7 +93,7 @@ defmodule EMQXUmbrella.MixProject do
       # in conflict by cowboy_swagger and cowboy
       {:ranch, github: "emqx/ranch", tag: "1.8.1-emqx", override: true},
       # in conflict by grpc and eetcd
-      {:gpb, "4.19.7", override: true, runtime: false},
+      {:gpb, "4.19.9", override: true, runtime: false},
       {:hackney, github: "emqx/hackney", tag: "1.18.1-1", override: true},
       # set by hackney (dependency)
       {:ssl_verify_fun, "1.1.6", override: true},
