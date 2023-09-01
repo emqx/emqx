@@ -11,7 +11,7 @@ listeners.tcp.my_tcp_listener_name {
     proxy_protocol_timeout = 8
 
     ## When publishing or subscribing, prefix all topics with a mountpoint string
-    mountpoint = "mqtt" ## Do not set this unless you know what is it for
+    ## mountpoint = "mqtt" ## Do not set this unless you know what is it for
 
     ## Client authentication
     ## Type:
