@@ -642,7 +642,7 @@ unsub_properties() ->
     #{}.
 
 shutdown_reason() ->
-    oneof([utf8(), {shutdown, emqx_proper_types:limited_atom()}]).
+    oneof([utf8(), {shutdown, emqx_proper_types:limited_latin_atom()}]).
 
 authresult() ->
     ?LET(
