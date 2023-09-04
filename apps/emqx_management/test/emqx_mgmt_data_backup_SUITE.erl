@@ -440,8 +440,8 @@ create_test_tab(Attributes) ->
 
 apps_to_start() ->
     [
-        {emqx_conf, "dashboard.listeners.http.bind = 0"},
         {emqx, #{override_env => [{boot_modules, [broker, router]}]}},
+        {emqx_conf, "dashboard.listeners.http.bind = 0"},
         emqx_psk,
         emqx_management,
         emqx_dashboard,
