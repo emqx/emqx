@@ -465,6 +465,8 @@ get_schema_vsn() ->
 
 -spec init_schema() -> ok.
 init_schema() ->
+    ok = mria:wait_for_tables([?ROUTE_TAB, ?ROUTE_TAB_FILTERS]),
+    ok = emqx_trie:wait_for_tables(),
     ConfSchema = emqx_config:get([broker, routing, storage_schema]),
     Schema = choose_schema_vsn(ConfSchema),
     ok = persistent_term:put(?PT_SCHEMA_VSN, Schema),
