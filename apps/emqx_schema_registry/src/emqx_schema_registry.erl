@@ -64,7 +64,7 @@ get_serde(SchemaName) ->
 get_schema(SchemaName) ->
     case
         emqx_config:get(
-            [?CONF_KEY_ROOT, schemas, binary_to_atom(SchemaName)], undefined
+            [?CONF_KEY_ROOT, schemas, schema_name_bin_to_atom(SchemaName)], undefined
         )
     of
         undefined ->
@@ -332,6 +332,20 @@ async_delete_serdes(Names) ->
 
 to_bin(A) when is_atom(A) -> atom_to_binary(A);
 to_bin(B) when is_binary(B) -> B.
+
+schema_name_bin_to_atom(Bin) when size(Bin) > 255 ->
+    erlang:throw(
+        iolist_to_binary(
+            io_lib:format(
+                "Name is is too long."
+                " Please provide a shorter name (<= 255 bytes)."
+                " The name that is too long: \"~s\"",
+                [Bin]
+            )
+        )
+    );
+schema_name_bin_to_atom(Bin) ->
+    binary_to_atom(Bin, utf8).
 
 -spec serde_to_map(serde()) -> serde_map().
 serde_to_map(#serde{} = Serde) ->
