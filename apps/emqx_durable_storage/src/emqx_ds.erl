@@ -58,7 +58,9 @@
 %% Type declarations
 %%================================================================================
 
--type session_id() :: emqx_types:clientid().
+%% Currently, this is the clientid.  We avoid `emqx_types:clientid()' because that can be
+%% an atom, in theory (?).
+-type session_id() :: binary().
 
 -type iterator() :: term().
 

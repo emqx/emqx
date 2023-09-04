@@ -185,8 +185,7 @@ ensure_all_iterators_closed(DSSessionID) ->
 
 %% RPC target.
 -spec do_ensure_all_iterators_closed(emqx_ds:session_id()) -> ok.
-do_ensure_all_iterators_closed(DSSessionID0) ->
-    DSSessionID = bin(DSSessionID0),
+do_ensure_all_iterators_closed(DSSessionID) ->
     ok = emqx_ds_storage_layer:discard_iterator_prefix(?DS_SHARD, DSSessionID),
     ok.
 
@@ -202,6 +201,3 @@ deserialize_message(Bin) ->
 
 is_store_enabled() ->
     emqx_config:get([persistent_session_store, ds]).
-
-bin(B) when is_binary(B) -> B;
-bin(A) when is_atom(A) -> atom_to_binary(A, utf8).
