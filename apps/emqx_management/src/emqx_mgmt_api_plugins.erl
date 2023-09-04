@@ -166,7 +166,10 @@ schema("/plugins/:name/move") ->
             tags => ?TAGS,
             parameters => [hoconsc:ref(name)],
             'requestBody' => move_request_body(),
-            responses => #{200 => <<"OK">>}
+            responses => #{
+                200 => <<"OK">>,
+                400 => emqx_dashboard_swagger:error_codes(['MOVE_FAILED'], <<"Move failed">>)
+            }
         }
     }.
 

@@ -297,7 +297,8 @@ update_plugin(Config, Name, Action) when is_list(Config) ->
 update_boot_order(Name, MoveBody, Config) ->
     #{host := Host, auth := Auth} = get_host_and_auth(Config),
     Path = emqx_mgmt_api_test_util:api_path(Host, ["plugins", Name, "move"]),
-    case emqx_mgmt_api_test_util:request_api(post, Path, "", Auth, MoveBody) of
+    Opts = #{return_all => true},
+    case emqx_mgmt_api_test_util:request_api(post, Path, "", Auth, MoveBody, Opts) of
         {ok, Res} ->
             Resp =
                 case emqx_utils_json:safe_decode(Res, [return_maps]) of
@@ -362,8 +363,8 @@ cluster(TestCase, Config) ->
 
 app_specs(_Config) ->
     [
-        emqx_conf,
         emqx,
+        emqx_conf,
         emqx_management,
         emqx_plugins
     ].
