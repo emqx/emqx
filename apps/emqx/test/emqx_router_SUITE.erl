@@ -65,22 +65,7 @@ init_per_testcase(_TestCase, Config) ->
 end_per_testcase(_TestCase, _Config) ->
     clear_tables().
 
-% t_add_route(_) ->
-%     error('TODO').
-
-% t_do_add_route(_) ->
-%     error('TODO').
-
 % t_lookup_routes(_) ->
-%     error('TODO').
-
-% t_delete_route(_) ->
-%     error('TODO').
-
-% t_do_delete_route(_) ->
-%     error('TODO').
-
-% t_topics(_) ->
 %     error('TODO').
 
 t_verify_type(Config) ->
