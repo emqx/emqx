@@ -416,22 +416,25 @@ relx_apps(ReleaseType, Edition) ->
     lists:foldl(fun proplists:delete/2, Apps, excluded_apps(ReleaseType)).
 
 excluded_apps(ReleaseType) ->
+    WxSupport = provide_wx_release(),
     OptionalApps = [
         {quicer, is_quicer_supported()},
         {bcrypt, provide_bcrypt_release(ReleaseType)},
         {jq, is_jq_supported()},
-        {observer, is_app(observer)},
+        {wx, WxSupport},
+        {observer, WxSupport},
         {mnesia_rocksdb, is_rocksdb_supported()},
         {os_mon, provide_os_mon_release()}
     ],
     [App || {App, false} <- OptionalApps].
 
-is_app(Name) ->
-    case application:load(Name) of
-        ok -> true;
-        {error, {already_loaded, _}} -> true;
-        _ -> false
-    end.
+provide_wx_release() ->
+    %% Set BUILD_WITHOUT_WX Env to any value will exclude wx
+    not (false =/= os:getenv("BUILD_WITHOUT_WX")) orelse
+        "1" == os:getenv("BUILD_WITH_WX") orelse
+        %% windows depend on werl which is available only with wx,
+        %% so we include wx and observer together.
+        is_win32().
 
 relx_overlay(ReleaseType, Edition) ->
     [

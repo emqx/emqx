@@ -30,7 +30,9 @@
             {opentelemetry_api, load},
             {opentelemetry_experimental, load},
             {opentelemetry_api_experimental, load},
-            {opentelemetry_exporter, load}
+            {opentelemetry_exporter, load},
+            {observer, load},
+            {wx, load}
         ],
     %% must always be of type `load'
     common_business_apps =>
@@ -76,8 +78,7 @@
             emqx_opentelemetry,
             quicer,
             bcrypt,
-            jq,
-            observer
+            jq
         ],
     %% must always be of type `load'
     ee_business_apps =>

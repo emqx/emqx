@@ -408,24 +408,13 @@ defmodule EMQXUmbrella.MixProject do
       quicer: enable_quicer?(),
       bcrypt: enable_bcrypt?(),
       jq: enable_jq?(),
-      observer: is_app?(:observer),
-      os_mon: enable_os_mon?()
+      os_mon: enable_os_mon?(),
+      # iex start with `--werl`, so we always need wx app.
+      observer: false,
+      wx: false
     }
     |> Enum.reject(&elem(&1, 1))
     |> Enum.map(&elem(&1, 0))
-  end
-
-  defp is_app?(name) do
-    case Application.load(name) do
-      :ok ->
-        true
-
-      {:error, {:already_loaded, _}} ->
-        true
-
-      _ ->
-        false
-    end
   end
 
   def check_profile!() do
