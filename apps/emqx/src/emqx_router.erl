@@ -503,7 +503,19 @@ choose_schema_vsn(ConfType) ->
         {false, true} ->
             v1;
         {true, false} ->
-            v2
+            v2;
+        {false, false} ->
+            ?SLOG(critical, #{
+                msg => "conflicting_routing_schemas_detected_in_cluster",
+                configured => ConfType,
+                reason =>
+                    "There are records in the routing tables related to both v1 "
+                    "and v2 storage schemas. This probably means that some nodes "
+                    "in the cluster use v1 schema and some use v2, independently "
+                    "of each other. The routing is likely broken. Manual intervention "
+                    "and full cluster restart is required. This node will shut down."
+            }),
+            error(conflicting_routing_schemas_detected_in_cluster)
     end.
 
 is_empty(Tab) ->
