@@ -815,7 +815,7 @@ defmodule EMQXUmbrella.MixProject do
 
   defp bcrypt_dep() do
     if enable_bcrypt?(),
-      do: [{:bcrypt, github: "emqx/erlang-bcrypt", tag: "0.6.0", override: true}],
+      do: [{:bcrypt, github: "emqx/erlang-bcrypt", tag: "0.6.1", override: true}],
       else: []
   end
 
