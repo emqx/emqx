@@ -358,7 +358,10 @@ add_libs_dir() ->
             %% rel file was been deleted by release handler
             error({failed_to_read_RELEASES_file, RelFile, Reason})
     end,
-    PatchesDir = filename:join([RootDir, "data", "patches"]),
+    ok = add_patches_dir(filename:join([RootDir, "data", "patches"])),
+    ok = add_patches_dir("/var/lib/emqx/patches").
+
+add_patches_dir(PatchesDir) ->
     case filelib:is_dir(PatchesDir) of
         true ->
             true = code:add_patha(PatchesDir),
