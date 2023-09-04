@@ -357,8 +357,13 @@ unsubscribe(
     session().
 remove_persistent_subscription(Session, TopicFilterBin, ClientId) ->
     Iterators = Session#session.iterators,
-    IteratorId = maps:get(TopicFilterBin, Iterators, undefined),
-    _ = emqx_persistent_session_ds:del_subscription(IteratorId, TopicFilterBin, ClientId),
+    case maps:get(TopicFilterBin, Iterators, undefined) of
+        undefined ->
+            ok;
+        IteratorId ->
+            _ = emqx_persistent_session_ds:del_subscription(IteratorId, TopicFilterBin, ClientId),
+            ok
+    end,
     Session#session{iterators = maps:remove(TopicFilterBin, Iterators)}.
 
 %%--------------------------------------------------------------------

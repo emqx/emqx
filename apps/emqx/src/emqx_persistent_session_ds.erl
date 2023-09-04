@@ -146,16 +146,11 @@ del_subscription(IteratorID, TopicFilterBin, DSSessionID) ->
         begin
             TopicFilter = emqx_topic:words(TopicFilterBin),
             Ctx = #{iterator_id => IteratorID},
-            case IteratorID of
-                undefined ->
-                    ok;
-                _ ->
-                    ?tp_span(
-                        persistent_session_ds_close_iterators,
-                        Ctx,
-                        ok = ensure_iterator_closed_on_all_shards(IteratorID)
-                    )
-            end,
+            ?tp_span(
+                persistent_session_ds_close_iterators,
+                Ctx,
+                ok = ensure_iterator_closed_on_all_shards(IteratorID)
+            ),
             ?tp_span(
                 persistent_session_ds_iterator_delete,
                 Ctx,
