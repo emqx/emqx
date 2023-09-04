@@ -19,7 +19,11 @@
 -export([start/2]).
 -export([stop/1]).
 
+-export([start_bare_node/2]).
+
 -export([share_load_module/2]).
+
+-export([node_name/1]).
 
 -define(APPS_CLUSTERING, [gen_rpc, mria, ekka]).
 
@@ -256,9 +260,6 @@ allocate_listener_ports(Types, Spec) ->
 
 start_node_init(Spec = #{name := Node}) ->
     Node = start_bare_node(Node, Spec),
-    pong = net_adm:ping(Node),
-    % Preserve node spec right on the remote node
-    ok = set_node_opts(Node, Spec),
     % Make it possible to call `ct:pal` and friends (if running under rebar3)
     _ = share_load_module(Node, cthr),
     % Enable snabbkaffe trace forwarding
@@ -363,7 +364,8 @@ listener_port(BasePort, wss) ->
 
 %%
 
-start_bare_node(Name, #{driver := ct_slave}) ->
+-spec start_bare_node(atom(), map()) -> node().
+start_bare_node(Name, Spec = #{driver := ct_slave}) ->
     {ok, Node} = ct_slave:start(
         node_name(Name),
         [
@@ -375,9 +377,15 @@ start_bare_node(Name, #{driver := ct_slave}) ->
             {env, []}
         ]
     ),
-    Node;
-start_bare_node(Name, #{driver := slave}) ->
+    init_bare_node(Node, Spec);
+start_bare_node(Name, Spec = #{driver := slave}) ->
     {ok, Node} = slave:start_link(host(), Name, ebin_path()),
+    init_bare_node(Node, Spec).
+
+init_bare_node(Node, Spec) ->
+    pong = net_adm:ping(Node),
+    % Preserve node spec right on the remote node
+    ok = set_node_opts(Node, Spec),
     Node.
 
 erl_flags() ->
@@ -400,6 +408,7 @@ share_load_module(Node, Module) ->
             error
     end.
 
+-spec node_name(atom()) -> node().
 node_name(Name) ->
     case string:tokens(atom_to_list(Name), "@") of
         [_Name, _Host] ->

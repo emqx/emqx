@@ -59,33 +59,10 @@ mk_config(routing_schema_v2) ->
         override_env => [{boot_modules, [router]}]
     }.
 
-init_per_testcase(TestCase, Config) when
-    TestCase =:= t_cleanup_monitor_node_down
-->
-    ok = snabbkaffe:start_trace(),
-    GroupName = ?config(group_name, Config),
-    WorkDir = filename:join([?config(priv_dir, Config), ?MODULE, GroupName, TestCase]),
-    [Slave] = emqx_cth_cluster:start(
-        [
-            {?MODULE, #{
-                apps => [{emqx, mk_config(GroupName)}],
-                join_to => node()
-            }}
-        ],
-        #{work_dir => WorkDir}
-    ),
-    [{slave, Slave} | Config];
 init_per_testcase(_TestCase, Config) ->
     ok = snabbkaffe:start_trace(),
     Config.
 
-end_per_testcase(TestCase, Config) when
-    TestCase =:= t_cleanup_monitor_node_down
-->
-    Slave = ?config(slave, Config),
-    ok = emqx_cth_cluster:stop([Slave]),
-    ok = snabbkaffe:stop(),
-    ok;
 end_per_testcase(_TestCase, _Config) ->
     ok = snabbkaffe:stop(),
     ok.
@@ -102,8 +79,8 @@ t_mnesia(_) ->
     ?ROUTER_HELPER ! {membership, {mnesia, down, node()}},
     ct:sleep(200).
 
-t_cleanup_membership_mnesia_down(Config) ->
-    Slave = ?config(slave, Config),
+t_cleanup_membership_mnesia_down(_Config) ->
+    Slave = emqx_cth_cluster:node_name(?FUNCTION_NAME),
     emqx_router:add_route(<<"a/b/c">>, Slave),
     emqx_router:add_route(<<"d/e/f">>, node()),
     ?assertMatch([_, _], emqx_router:topics()),
@@ -114,8 +91,8 @@ t_cleanup_membership_mnesia_down(Config) ->
     ),
     ?assertEqual([<<"d/e/f">>], emqx_router:topics()).
 
-t_cleanup_membership_node_down(Config) ->
-    Slave = ?config(slave, Config),
+t_cleanup_membership_node_down(_Config) ->
+    Slave = emqx_cth_cluster:node_name(?FUNCTION_NAME),
     emqx_router:add_route(<<"a/b/c">>, Slave),
     emqx_router:add_route(<<"d/e/f">>, node()),
     ?assertMatch([_, _], emqx_router:topics()),
@@ -126,13 +103,13 @@ t_cleanup_membership_node_down(Config) ->
     ),
     ?assertEqual([<<"d/e/f">>], emqx_router:topics()).
 
-t_cleanup_monitor_node_down(Config) ->
-    Slave = ?config(slave, Config),
+t_cleanup_monitor_node_down(_Config) ->
+    Slave = emqx_cth_cluster:start_bare_node(?FUNCTION_NAME, #{driver => ct_slave}),
     emqx_router:add_route(<<"a/b/c">>, Slave),
     emqx_router:add_route(<<"d/e/f">>, node()),
     ?assertMatch([_, _], emqx_router:topics()),
     ?wait_async_action(
-        emqx_common_test_helpers:stop_slave(Slave),
+        emqx_cth_cluster:stop([Slave]),
         #{?snk_kind := emqx_router_helper_cleanup_done, node := Slave},
         1_000
     ),
