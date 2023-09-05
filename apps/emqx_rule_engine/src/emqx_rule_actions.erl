@@ -20,6 +20,7 @@
 -include("rule_engine.hrl").
 -include_lib("emqx/include/logger.hrl").
 -include_lib("emqx/include/emqx.hrl").
+-include_lib("emqtt/include/emqtt.hrl").
 
 %% APIs
 -export([parse_action/1]).
@@ -60,16 +61,23 @@ pre_process_action_args(
         qos := QoS,
         retain := Retain,
         payload := Payload,
-        user_properties := UserProperties
+        mqtt_properties := MQTTPropertiesTemplate0,
+        user_properties := UserPropertiesTemplate
     } = Args
 ) ->
+    MQTTPropertiesTemplate =
+        maps:map(
+            fun(_Key, V) -> emqx_placeholder:preproc_tmpl(V) end,
+            MQTTPropertiesTemplate0
+        ),
     Args#{
         preprocessed_tmpl => #{
             topic => emqx_placeholder:preproc_tmpl(Topic),
             qos => preproc_vars(QoS),
             retain => preproc_vars(Retain),
             payload => emqx_placeholder:preproc_tmpl(Payload),
-            user_properties => preproc_user_properties(UserProperties)
+            mqtt_properties => MQTTPropertiesTemplate,
+            user_properties => preproc_user_properties(UserPropertiesTemplate)
         }
     };
 pre_process_action_args(_, Args) ->
@@ -106,6 +114,7 @@ republish(
             retain := RetainTks,
             topic := TopicTks,
             payload := PayloadTks,
+            mqtt_properties := MQTTPropertiesTemplate,
             user_properties := UserPropertiesTks
         }
     }
@@ -118,7 +127,9 @@ republish(
     %% events such as message.acked and message.dropped
     Flags0 = maps:get(flags, Env, #{}),
     Flags = Flags0#{retain => Retain},
-    PubProps = format_pub_props(UserPropertiesTks, Selected, Env),
+    PubProps0 = format_pub_props(UserPropertiesTks, Selected, Env),
+    MQTTProps = format_mqtt_properties(MQTTPropertiesTemplate, Selected, Env),
+    PubProps = maps:merge(PubProps0, MQTTProps),
     ?TRACE(
         "RULE",
         "republish_message",
@@ -232,3 +243,70 @@ format_pub_props(UserPropertiesTks, Selected, Env) ->
                 replace_simple_var(UserPropertiesTks, Selected, #{})
         end,
     #{'User-Property' => UserProperties}.
+
+format_mqtt_properties(MQTTPropertiesTemplate, Selected, Env) ->
+    #{metadata := #{rule_id := RuleId}} = Env,
+    MQTTProperties0 =
+        maps:fold(
+            fun(K, Template, Acc) ->
+                try
+                    V = emqx_placeholder:proc_tmpl(Template, Selected),
+                    Acc#{K => V}
+                catch
+                    Kind:Error ->
+                        ?SLOG(
+                            error,
+                            #{
+                                msg => "bad_mqtt_prop_value",
+                                rule_id => RuleId,
+                                reason => {Kind, Error},
+                                property => K,
+                                selected => Selected
+                            }
+                        ),
+                        Acc
+                end
+            end,
+            #{},
+            MQTTPropertiesTemplate
+        ),
+    coerce_properties_values(MQTTProperties0, Env).
+
+ensure_int(B) when is_binary(B) -> binary_to_integer(B);
+ensure_int(I) when is_integer(I) -> I.
+
+coerce_properties_values(MQTTProperties, #{metadata := #{rule_id := RuleId}}) ->
+    PublishProperties =
+        maps:from_list([
+            {K, T}
+         || {_Id, {K, T, Tags}} <- maps:to_list(emqtt_props:all()),
+            is_list(Tags) andalso lists:member(?PUBLISH, Tags)
+        ]),
+    maps:fold(
+        fun(K, V, Acc) ->
+            try
+                case maps:get(K, PublishProperties) of
+                    'Byte' -> Acc#{K => ensure_int(V)};
+                    'Two-Byte-Integer' -> Acc#{K => ensure_int(V)};
+                    'Four-Byte-Integer' -> Acc#{K => ensure_int(V)};
+                    'Variable-Byte-Integer' -> Acc#{K => ensure_int(V)};
+                    _ -> Acc#{K => V}
+                end
+            catch
+                Kind:Error ->
+                    ?SLOG(
+                        error,
+                        #{
+                            msg => "bad_mqtt_prop_value",
+                            rule_id => RuleId,
+                            reason => {Kind, Error},
+                            property => K,
+                            value => V
+                        }
+                    ),
+                    Acc
+            end
+        end,
+        #{},
+        MQTTProperties
+    ).

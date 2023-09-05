@@ -63,7 +63,7 @@ fields("rules") ->
             )},
         {"actions",
             ?HOCON(
-                ?ARRAY(?UNION(actions())),
+                ?ARRAY(hoconsc:union(actions())),
                 #{
                     desc => ?DESC("rules_actions"),
                     default => [],
@@ -161,6 +161,14 @@ fields("republish_args") ->
                     example => <<"${payload}">>
                 }
             )},
+        {mqtt_properties,
+            ?HOCON(
+                ?R_REF("republish_mqtt_properties"),
+                #{
+                    desc => ?DESC("republish_args_mqtt_properties"),
+                    default => #{}
+                }
+            )},
         {user_properties,
             ?HOCON(
                 binary(),
@@ -170,6 +178,19 @@ fields("republish_args") ->
                     example => <<"${pub_props.'User-Property'}">>
                 }
             )}
+    ];
+fields("republish_mqtt_properties") ->
+    [
+        {'Payload-Format-Indicator',
+            ?HOCON(binary(), #{required => false, desc => ?DESC('Payload-Format-Indicator')})},
+        {'Message-Expiry-Interval',
+            ?HOCON(binary(), #{required => false, desc => ?DESC('Message-Expiry-Interval')})},
+        {'Content-Type', ?HOCON(binary(), #{required => false, desc => ?DESC('Content-Type')})},
+        {'Response-Topic', ?HOCON(binary(), #{required => false, desc => ?DESC('Response-Topic')})},
+        {'Correlation-Data',
+            ?HOCON(binary(), #{required => false, desc => ?DESC('Correlation-Data')})},
+        {'Subscription-Identifier',
+            ?HOCON(binary(), #{required => false, desc => ?DESC('Subscription-Identifier')})}
     ].
 
 desc("rule_engine") ->
@@ -200,12 +221,31 @@ rule_name() ->
         )}.
 
 actions() ->
-    [
-        binary(),
-        ?R_REF("builtin_action_republish"),
-        ?R_REF("builtin_action_console"),
-        ?R_REF("user_provided_function")
-    ].
+    fun
+        (all_union_members) ->
+            [
+                binary(),
+                ?R_REF("builtin_action_republish"),
+                ?R_REF("builtin_action_console"),
+                ?R_REF("user_provided_function")
+            ];
+        ({value, V}) ->
+            case V of
+                #{<<"function">> := <<"console">>} ->
+                    [?R_REF("builtin_action_console")];
+                #{<<"function">> := <<"republish">>} ->
+                    [?R_REF("builtin_action_republish")];
+                #{<<"function">> := <<_/binary>>} ->
+                    [?R_REF("user_provided_function")];
+                <<_/binary>> ->
+                    [binary()];
+                _ ->
+                    throw(#{
+                        field_name => actions,
+                        reason => <<"unknown action type">>
+                    })
+            end
+    end.
 
 qos() ->
     ?UNION([emqx_schema:qos(), binary()]).

@@ -103,6 +103,16 @@ You may also call <code>map_put</code> function like
 to inject user properties.
 NOTE: MQTT spec allows duplicated user property names, but EMQX Rule-Engine does not."""
 
+republish_args_user_properties.label:
+"""User Properties"""
+
+republish_args_mqtt_properties.desc:
+"""From which variable should the MQTT Publish Properties of the message be taken from.
+Placeholders like <code>${.payload.content_type}</code> may be used."""
+
+republish_args_mqtt_properties.label:
+"""MQTT Properties"""
+
 republish_function.desc:
 """Republish the message as a new MQTT message"""
 
