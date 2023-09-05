@@ -8,6 +8,8 @@
 %% -------------------------------------------------------------------
 -mode(compile).
 
+-define(SHUTDOWN_TIMEOUT_MS, 120_000).
+
 main(Args) ->
     case os:type() of
         {win32, nt} -> ok;
@@ -85,9 +87,14 @@ do(Args) ->
             %% a "pong"
             io:format("pong\n");
         ["stop"] ->
-            case rpc:call(TargetNode, emqx_machine, graceful_shutdown, [], 60000) of
+            case rpc:call(TargetNode, emqx_machine, graceful_shutdown, [], ?SHUTDOWN_TIMEOUT_MS) of
                 ok ->
                     ok;
+                {badrpc, timeout} ->
+                    io:format("EMQX is still shutting down, it failed to stop gracefully "
+                              "within the configured timeout of: ~ps\n",
+                              [erlang:convert_time_unit(?SHUTDOWN_TIMEOUT_MS, millisecond, second)]),
+                    halt(1);
                 {badrpc, nodedown} ->
                     %% nodetool commands are always executed after a ping
                     %% which if the code gets here, it's because the target node
