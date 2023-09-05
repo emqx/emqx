@@ -30,6 +30,7 @@
     session_drop/1,
     session_suspend/1,
     session_add_iterator/2,
+    session_get_iterator_id/2,
     session_del_iterator/2,
     session_stats/0
 ]).
@@ -57,7 +58,9 @@
 %% Type declarations
 %%================================================================================
 
--type session_id() :: emqx_types:clientid().
+%% Currently, this is the clientid.  We avoid `emqx_types:clientid()' because that can be
+%% an atom, in theory (?).
+-type session_id() :: binary().
 
 -type iterator() :: term().
 
@@ -156,6 +159,7 @@ session_drop(ClientID) ->
     {atomic, ok} = mria:transaction(
         ?DS_SHARD,
         fun() ->
+            %% TODO: ensure all iterators from this clientid are closed?
             mnesia:delete({?SESSION_TAB, ClientID})
         end
     ),
@@ -201,14 +205,26 @@ session_add_iterator(DSSessionId, TopicFilter) ->
         end),
     Res.
 
-%% @doc Called when a client unsubscribes from a topic. Returns `true'
-%% if the session contained the subscription or `false' if it wasn't
-%% subscribed.
--spec session_del_iterator(session_id(), emqx_topic:words()) ->
-    {ok, boolean()} | {error, session_not_found}.
-session_del_iterator(_SessionId, _TopicFilter) ->
-    %% TODO
-    {ok, false}.
+-spec session_get_iterator_id(session_id(), emqx_topic:words()) ->
+    {ok, iterator_id()} | {error, not_found}.
+session_get_iterator_id(DSSessionId, TopicFilter) ->
+    IteratorRefId = {DSSessionId, TopicFilter},
+    case mnesia:dirty_read(?ITERATOR_REF_TAB, IteratorRefId) of
+        [] ->
+            {error, not_found};
+        [#iterator_ref{it_id = IteratorId}] ->
+            {ok, IteratorId}
+    end.
+
+%% @doc Called when a client unsubscribes from a topic.
+-spec session_del_iterator(session_id(), emqx_topic:words()) -> ok.
+session_del_iterator(DSSessionId, TopicFilter) ->
+    IteratorRefId = {DSSessionId, TopicFilter},
+    {atomic, ok} =
+        mria:transaction(?DS_SHARD, fun() ->
+            mnesia:delete(?ITERATOR_REF_TAB, IteratorRefId, write)
+        end),
+    ok.
 
 -spec session_stats() -> #{}.
 session_stats() ->

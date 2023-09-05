@@ -269,7 +269,9 @@ info(awaiting_rel_max, #session{max_awaiting_rel = Max}) ->
 info(await_rel_timeout, #session{await_rel_timeout = Timeout}) ->
     Timeout;
 info(created_at, #session{created_at = CreatedAt}) ->
-    CreatedAt.
+    CreatedAt;
+info(iterators, #session{iterators = Iterators}) ->
+    Iterators.
 
 %% @doc Get stats of the session.
 -spec stats(session()) -> emqx_types:stats().
@@ -318,8 +320,13 @@ is_subscriptions_full(#session{
 -spec add_persistent_subscription(emqx_types:topic(), emqx_types:clientid(), session()) ->
     session().
 add_persistent_subscription(TopicFilterBin, ClientId, Session) ->
-    _ = emqx_persistent_session_ds:add_subscription(TopicFilterBin, ClientId),
-    Session.
+    case emqx_persistent_session_ds:add_subscription(TopicFilterBin, ClientId) of
+        {ok, IteratorId, _IsNew} ->
+            Iterators = Session#session.iterators,
+            Session#session{iterators = Iterators#{TopicFilterBin => IteratorId}};
+        _ ->
+            Session
+    end.
 
 %%--------------------------------------------------------------------
 %% Client -> Broker: UNSUBSCRIBE
@@ -328,22 +335,36 @@ add_persistent_subscription(TopicFilterBin, ClientId, Session) ->
 -spec unsubscribe(emqx_types:clientinfo(), emqx_types:topic(), emqx_types:subopts(), session()) ->
     {ok, session()} | {error, emqx_types:reason_code()}.
 unsubscribe(
-    ClientInfo,
+    ClientInfo = #{clientid := ClientId},
     TopicFilter,
     UnSubOpts,
-    Session = #session{subscriptions = Subs}
+    Session0 = #session{subscriptions = Subs}
 ) ->
     case maps:find(TopicFilter, Subs) of
         {ok, SubOpts} ->
             ok = emqx_broker:unsubscribe(TopicFilter),
+            Session1 = remove_persistent_subscription(Session0, TopicFilter, ClientId),
             ok = emqx_hooks:run(
                 'session.unsubscribed',
                 [ClientInfo, TopicFilter, maps:merge(SubOpts, UnSubOpts)]
             ),
-            {ok, Session#session{subscriptions = maps:remove(TopicFilter, Subs)}};
+            {ok, Session1#session{subscriptions = maps:remove(TopicFilter, Subs)}};
         error ->
             {error, ?RC_NO_SUBSCRIPTION_EXISTED}
     end.
+
+-spec remove_persistent_subscription(session(), emqx_types:topic(), emqx_types:clientid()) ->
+    session().
+remove_persistent_subscription(Session, TopicFilterBin, ClientId) ->
+    Iterators = Session#session.iterators,
+    case maps:get(TopicFilterBin, Iterators, undefined) of
+        undefined ->
+            ok;
+        IteratorId ->
+            _ = emqx_persistent_session_ds:del_subscription(IteratorId, TopicFilterBin, ClientId),
+            ok
+    end,
+    Session#session{iterators = maps:remove(TopicFilterBin, Iterators)}.
 
 %%--------------------------------------------------------------------
 %% Client -> Broker: PUBLISH

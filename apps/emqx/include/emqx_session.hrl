@@ -49,7 +49,11 @@
     %% Awaiting PUBREL Timeout (Unit: millisecond)
     await_rel_timeout :: timeout(),
     %% Created at
-    created_at :: pos_integer()
+    created_at :: pos_integer(),
+    %% Topic filter to iterator ID mapping.
+    %% Note: we shouldn't serialize this when persisting sessions, as this information
+    %% also exists in the `?ITERATOR_REF_TAB' table.
+    iterators = #{} :: #{emqx_topic:topic() => emqx_ds:iterator_id()}
 }).
 
 -endif.
