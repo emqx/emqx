@@ -261,7 +261,7 @@ merge_envs(false, E2) ->
 merge_envs(_E, false) ->
     [];
 merge_envs(E1, E2) ->
-    E1 ++ E2.
+    lists:foldl(fun({K, _} = Opt, EAcc) -> lists:keystore(K, 1, EAcc, Opt) end, E1, E2).
 
 merge_config(false, C2) ->
     C2;

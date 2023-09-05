@@ -148,11 +148,12 @@ handle_info({mnesia_table_event, Event}, State) ->
 handle_info({nodedown, Node}, State = #{nodes := Nodes}) ->
     case mria_rlog:role() of
         core ->
+            % TODO
+            % Node may flap, do we need to wait for any pending cleanups in `init/1`
+            % on the flapping node?
             global:trans(
                 {?LOCK, self()},
-                fun() ->
-                    mria:transaction(?ROUTE_SHARD, fun ?MODULE:cleanup_routes/1, [Node])
-                end
+                fun() -> cleanup_routes(Node) end
             ),
             ok = mria:dirty_delete(?ROUTING_NODE, Node);
         replicant ->
@@ -197,11 +198,4 @@ stats_fun() ->
     end.
 
 cleanup_routes(Node) ->
-    Patterns = [
-        #route{_ = '_', dest = Node},
-        #route{_ = '_', dest = {'_', Node}}
-    ],
-    [
-        mnesia:delete_object(?ROUTE_TAB, Route, write)
-     || Pat <- Patterns, Route <- mnesia:match_object(?ROUTE_TAB, Pat, write)
-    ].
+    emqx_router:cleanup_routes(Node).

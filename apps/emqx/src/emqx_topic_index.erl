@@ -24,12 +24,15 @@
 -export([match/2]).
 -export([matches/3]).
 
+-export([make_key/2]).
+
 -export([get_id/1]).
 -export([get_topic/1]).
 -export([get_record/2]).
 
 -type key(ID) :: emqx_trie_search:key(ID).
 -type match(ID) :: key(ID).
+-type words() :: emqx_trie_search:words().
 
 %% @doc Create a new ETS table suitable for topic index.
 %% Usable mostly for testing purposes.
@@ -40,16 +43,20 @@ new() ->
 %% @doc Insert a new entry into the index that associates given topic filter to given
 %% record ID, and attaches arbitrary record to the entry. This allows users to choose
 %% between regular and "materialized" indexes, for example.
--spec insert(emqx_types:topic(), _ID, _Record, ets:table()) -> true.
+-spec insert(emqx_types:topic() | words(), _ID, _Record, ets:table()) -> true.
 insert(Filter, ID, Record, Tab) ->
-    Key = key(Filter, ID),
+    Key = make_key(Filter, ID),
     true = ets:insert(Tab, {Key, Record}).
 
 %% @doc Delete an entry from the index that associates given topic filter to given
 %% record ID. Deleting non-existing entry is not an error.
--spec delete(emqx_types:topic(), _ID, ets:table()) -> true.
+-spec delete(emqx_types:topic() | words(), _ID, ets:table()) -> true.
 delete(Filter, ID, Tab) ->
-    true = ets:delete(Tab, key(Filter, ID)).
+    ets:delete(Tab, make_key(Filter, ID)).
+
+-spec make_key(emqx_types:topic() | words(), ID) -> key(ID).
+make_key(TopicOrFilter, ID) ->
+    emqx_trie_search:make_key(TopicOrFilter, ID).
 
 %% @doc Match given topic against the index and return the first match, or `false` if
 %% no match is found.
@@ -73,13 +80,16 @@ get_topic(Key) ->
     emqx_trie_search:get_topic(Key).
 
 %% @doc Fetch the record associated with the match.
-%% NOTE: Only really useful for ETS tables where the record ID is the first element.
--spec get_record(match(_ID), ets:table()) -> _Record.
+%% May return empty list if the index entry was deleted in the meantime.
+%% NOTE: Only really useful for ETS tables where the record data is the last element.
+-spec get_record(match(_ID), ets:table()) -> [_Record].
 get_record(K, Tab) ->
-    ets:lookup_element(Tab, K, 2).
-
-key(TopicOrFilter, ID) ->
-    emqx_trie_search:make_key(TopicOrFilter, ID).
+    case ets:lookup(Tab, K) of
+        [Entry] ->
+            [erlang:element(tuple_size(Entry), Entry)];
+        [] ->
+            []
+    end.
 
 make_nextf(Tab) ->
     fun(Key) -> ets:next(Tab, Key) end.

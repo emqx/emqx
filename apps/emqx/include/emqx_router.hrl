@@ -17,8 +17,9 @@
 -ifndef(EMQX_ROUTER_HRL).
 -define(EMQX_ROUTER_HRL, true).
 
-%% ETS table for message routing
+%% ETS tables for message routing
 -define(ROUTE_TAB, emqx_route).
+-define(ROUTE_TAB_FILTERS, emqx_route_filters).
 
 %% Mnesia table for message routing
 -define(ROUTING_NODE, emqx_routing_node).

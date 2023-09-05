@@ -18,15 +18,30 @@
 
 -include_lib("eunit/include/eunit.hrl").
 
-topic_validation_test() ->
+-import(emqx_trie_search, [filter/1]).
+
+filter_test_() ->
+    [
+        ?_assertEqual(
+            [<<"sensor">>, '+', <<"metric">>, <<>>, '#'],
+            filter(<<"sensor/+/metric//#">>)
+        ),
+        ?_assertEqual(
+            false,
+            filter(<<"sensor/1/metric//42">>)
+        )
+    ].
+
+topic_validation_test_() ->
     NextF = fun(_) -> '$end_of_table' end,
     Call = fun(Topic) ->
         emqx_trie_search:match(Topic, NextF)
     end,
-    ?assertError(badarg, Call(<<"+">>)),
-    ?assertError(badarg, Call(<<"#">>)),
-    ?assertError(badarg, Call(<<"a/+/b">>)),
-    ?assertError(badarg, Call(<<"a/b/#">>)),
-    ?assertEqual(false, Call(<<"a/b/b+">>)),
-    ?assertEqual(false, Call(<<"a/b/c#">>)),
-    ok.
+    [
+        ?_assertError(badarg, Call(<<"+">>)),
+        ?_assertError(badarg, Call(<<"#">>)),
+        ?_assertError(badarg, Call(<<"a/+/b">>)),
+        ?_assertError(badarg, Call(<<"a/b/#">>)),
+        ?_assertEqual(false, Call(<<"a/b/b+">>)),
+        ?_assertEqual(false, Call(<<"a/b/c#">>))
+    ].

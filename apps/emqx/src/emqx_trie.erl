@@ -21,6 +21,7 @@
 %% Mnesia bootstrap
 -export([
     mnesia/1,
+    wait_for_tables/0,
     create_session_trie/1
 ]).
 
@@ -104,6 +105,10 @@ create_session_trie(Type) ->
             {storage_properties, StoreProps}
         ]
     ).
+
+-spec wait_for_tables() -> ok | {error, _Reason}.
+wait_for_tables() ->
+    mria:wait_for_tables([?TRIE]).
 
 %%--------------------------------------------------------------------
 %% Topics APIs

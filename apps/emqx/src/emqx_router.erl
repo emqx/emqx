@@ -21,7 +21,6 @@
 -include("emqx.hrl").
 -include("logger.hrl").
 -include("types.hrl").
--include_lib("mria/include/mria.hrl").
 -include_lib("emqx/include/emqx_router.hrl").
 
 %% Mnesia bootstrap
@@ -46,15 +45,24 @@
     do_delete_route/2
 ]).
 
+-export([cleanup_routes/1]).
+
 -export([
     match_routes/1,
-    lookup_routes/1,
-    has_routes/1
+    lookup_routes/1
 ]).
 
 -export([print_routes/1]).
 
+-export([
+    foldl_routes/2,
+    foldr_routes/2
+]).
+
 -export([topics/0]).
+
+%% Exported for tests
+-export([has_route/2]).
 
 %% gen_server callbacks
 -export([
@@ -66,9 +74,20 @@
     code_change/3
 ]).
 
+-export([
+    get_schema_vsn/0,
+    init_schema/0,
+    deinit_schema/0
+]).
+
 -type group() :: binary().
 
 -type dest() :: node() | {group(), node()}.
+
+-record(routeidx, {
+    entry :: emqx_topic_index:key(dest()),
+    unused = [] :: nil()
+}).
 
 %%--------------------------------------------------------------------
 %% Mnesia bootstrap
@@ -86,6 +105,19 @@ mnesia(boot) ->
             {ets, [
                 {read_concurrency, true},
                 {write_concurrency, true}
+            ]}
+        ]}
+    ]),
+    ok = mria:create_table(?ROUTE_TAB_FILTERS, [
+        {type, ordered_set},
+        {rlog_shard, ?ROUTE_SHARD},
+        {storage, ram_copies},
+        {record_name, routeidx},
+        {attributes, record_info(fields, routeidx)},
+        {storage_properties, [
+            {ets, [
+                {read_concurrency, true},
+                {write_concurrency, auto}
             ]}
         ]}
     ]).
@@ -121,43 +153,49 @@ do_add_route(Topic) when is_binary(Topic) ->
 
 -spec do_add_route(emqx_types:topic(), dest()) -> ok | {error, term()}.
 do_add_route(Topic, Dest) when is_binary(Topic) ->
-    Route = #route{topic = Topic, dest = Dest},
-    case lists:member(Route, lookup_routes(Topic)) of
+    case has_route(Topic, Dest) of
         true ->
             ok;
         false ->
             ok = emqx_router_helper:monitor(Dest),
-            case emqx_topic:wildcard(Topic) of
-                true ->
-                    Fun = fun emqx_router_utils:insert_trie_route/2,
-                    emqx_router_utils:maybe_trans(Fun, [?ROUTE_TAB, Route], ?ROUTE_SHARD);
-                false ->
-                    emqx_router_utils:insert_direct_route(?ROUTE_TAB, Route)
-            end
+            mria_insert_route(get_schema_vsn(), Topic, Dest)
     end.
 
-%% @doc Match routes
+mria_insert_route(v2, Topic, Dest) ->
+    mria_insert_route_v2(Topic, Dest);
+mria_insert_route(v1, Topic, Dest) ->
+    mria_insert_route_v1(Topic, Dest).
+
+%% @doc Take a real topic (not filter) as input, return the matching topics and topic
+%% filters associated with route destination.
 -spec match_routes(emqx_types:topic()) -> [emqx_types:route()].
 match_routes(Topic) when is_binary(Topic) ->
-    case match_trie(Topic) of
-        [] -> lookup_routes(Topic);
-        Matched -> lists:append([lookup_routes(To) || To <- [Topic | Matched]])
-    end.
+    match_routes(get_schema_vsn(), Topic).
 
-%% Optimize: routing table will be replicated to all router nodes.
-match_trie(Topic) ->
-    case emqx_trie:empty() of
-        true -> [];
-        false -> emqx_trie:match(Topic)
-    end.
+match_routes(v2, Topic) ->
+    match_routes_v2(Topic);
+match_routes(v1, Topic) ->
+    match_routes_v1(Topic).
 
+%% @doc Take a topic or filter as input, and return the existing routes with exactly
+%% this topic or filter.
 -spec lookup_routes(emqx_types:topic()) -> [emqx_types:route()].
 lookup_routes(Topic) ->
-    ets:lookup(?ROUTE_TAB, Topic).
+    lookup_routes(get_schema_vsn(), Topic).
 
--spec has_routes(emqx_types:topic()) -> boolean().
-has_routes(Topic) when is_binary(Topic) ->
-    ets:member(?ROUTE_TAB, Topic).
+lookup_routes(v2, Topic) ->
+    lookup_routes_v2(Topic);
+lookup_routes(v1, Topic) ->
+    lookup_routes_v1(Topic).
+
+-spec has_route(emqx_types:topic(), dest()) -> boolean().
+has_route(Topic, Dest) ->
+    has_route(get_schema_vsn(), Topic, Dest).
+
+has_route(v2, Topic, Dest) ->
+    has_route_v2(Topic, Dest);
+has_route(v1, Topic, Dest) ->
+    has_route_v1(Topic, Dest).
 
 -spec delete_route(emqx_types:topic()) -> ok | {error, term()}.
 delete_route(Topic) when is_binary(Topic) ->
@@ -173,18 +211,21 @@ do_delete_route(Topic) when is_binary(Topic) ->
 
 -spec do_delete_route(emqx_types:topic(), dest()) -> ok | {error, term()}.
 do_delete_route(Topic, Dest) ->
-    Route = #route{topic = Topic, dest = Dest},
-    case emqx_topic:wildcard(Topic) of
-        true ->
-            Fun = fun emqx_router_utils:delete_trie_route/2,
-            emqx_router_utils:maybe_trans(Fun, [?ROUTE_TAB, Route], ?ROUTE_SHARD);
-        false ->
-            emqx_router_utils:delete_direct_route(?ROUTE_TAB, Route)
-    end.
+    mria_delete_route(get_schema_vsn(), Topic, Dest).
+
+mria_delete_route(v2, Topic, Dest) ->
+    mria_delete_route_v2(Topic, Dest);
+mria_delete_route(v1, Topic, Dest) ->
+    mria_delete_route_v1(Topic, Dest).
 
 -spec topics() -> list(emqx_types:topic()).
 topics() ->
-    mnesia:dirty_all_keys(?ROUTE_TAB).
+    topics(get_schema_vsn()).
+
+topics(v2) ->
+    list_topics_v2();
+topics(v1) ->
+    list_topics_v1().
 
 %% @doc Print routes to a topic
 -spec print_routes(emqx_types:topic()) -> ok.
@@ -196,11 +237,289 @@ print_routes(Topic) ->
         match_routes(Topic)
     ).
 
+-spec cleanup_routes(node()) -> ok.
+cleanup_routes(Node) ->
+    cleanup_routes(get_schema_vsn(), Node).
+
+cleanup_routes(v2, Node) ->
+    cleanup_routes_v2(Node);
+cleanup_routes(v1, Node) ->
+    cleanup_routes_v1(Node).
+
+-spec foldl_routes(fun((emqx_types:route(), Acc) -> Acc), Acc) -> Acc.
+foldl_routes(FoldFun, AccIn) ->
+    fold_routes(get_schema_vsn(), foldl, FoldFun, AccIn).
+
+-spec foldr_routes(fun((emqx_types:route(), Acc) -> Acc), Acc) -> Acc.
+foldr_routes(FoldFun, AccIn) ->
+    fold_routes(get_schema_vsn(), foldr, FoldFun, AccIn).
+
+fold_routes(v2, FunName, FoldFun, AccIn) ->
+    fold_routes_v2(FunName, FoldFun, AccIn);
+fold_routes(v1, FunName, FoldFun, AccIn) ->
+    fold_routes_v1(FunName, FoldFun, AccIn).
+
 call(Router, Msg) ->
     gen_server:call(Router, Msg, infinity).
 
 pick(Topic) ->
     gproc_pool:pick_worker(router_pool, Topic).
+
+%%--------------------------------------------------------------------
+%% Schema v1
+%% --------------------------------------------------------------------
+
+-dialyzer({nowarn_function, [cleanup_routes_v1/1]}).
+
+mria_insert_route_v1(Topic, Dest) ->
+    Route = #route{topic = Topic, dest = Dest},
+    case emqx_topic:wildcard(Topic) of
+        true ->
+            mria_route_tab_insert_update_trie(Route);
+        false ->
+            mria_route_tab_insert(Route)
+    end.
+
+mria_route_tab_insert_update_trie(Route) ->
+    emqx_router_utils:maybe_trans(
+        fun emqx_router_utils:insert_trie_route/2,
+        [?ROUTE_TAB, Route],
+        ?ROUTE_SHARD
+    ).
+
+mria_route_tab_insert(Route) ->
+    mria:dirty_write(?ROUTE_TAB, Route).
+
+mria_delete_route_v1(Topic, Dest) ->
+    Route = #route{topic = Topic, dest = Dest},
+    case emqx_topic:wildcard(Topic) of
+        true ->
+            mria_route_tab_delete_update_trie(Route);
+        false ->
+            mria_route_tab_delete(Route)
+    end.
+
+mria_route_tab_delete_update_trie(Route) ->
+    emqx_router_utils:maybe_trans(
+        fun emqx_router_utils:delete_trie_route/2,
+        [?ROUTE_TAB, Route],
+        ?ROUTE_SHARD
+    ).
+
+mria_route_tab_delete(Route) ->
+    mria:dirty_delete_object(?ROUTE_TAB, Route).
+
+match_routes_v1(Topic) ->
+    lookup_route_tab(Topic) ++
+        lists:flatmap(fun lookup_route_tab/1, match_global_trie(Topic)).
+
+match_global_trie(Topic) ->
+    case emqx_trie:empty() of
+        true -> [];
+        false -> emqx_trie:match(Topic)
+    end.
+
+lookup_routes_v1(Topic) ->
+    lookup_route_tab(Topic).
+
+lookup_route_tab(Topic) ->
+    ets:lookup(?ROUTE_TAB, Topic).
+
+has_route_v1(Topic, Dest) ->
+    has_route_tab_entry(Topic, Dest).
+
+has_route_tab_entry(Topic, Dest) ->
+    [] =/= ets:match(?ROUTE_TAB, #route{topic = Topic, dest = Dest}).
+
+cleanup_routes_v1(Node) ->
+    Patterns = [
+        #route{_ = '_', dest = Node},
+        #route{_ = '_', dest = {'_', Node}}
+    ],
+    mria:transaction(?ROUTE_SHARD, fun() ->
+        [
+            mnesia:delete_object(?ROUTE_TAB, Route, write)
+         || Pat <- Patterns,
+            Route <- mnesia:match_object(?ROUTE_TAB, Pat, write)
+        ]
+    end).
+
+list_topics_v1() ->
+    list_route_tab_topics().
+
+list_route_tab_topics() ->
+    mnesia:dirty_all_keys(?ROUTE_TAB).
+
+fold_routes_v1(FunName, FoldFun, AccIn) ->
+    ets:FunName(FoldFun, AccIn, ?ROUTE_TAB).
+
+%%--------------------------------------------------------------------
+%% Schema v2
+%% One bag table exclusively for regular, non-filter subscription
+%% topics, and one `emqx_topic_index` table exclusively for wildcard
+%% topics. Writes go to only one of the two tables at a time.
+%% --------------------------------------------------------------------
+
+mria_insert_route_v2(Topic, Dest) ->
+    case emqx_trie_search:filter(Topic) of
+        Words when is_list(Words) ->
+            K = emqx_topic_index:make_key(Words, Dest),
+            mria:dirty_write(?ROUTE_TAB_FILTERS, #routeidx{entry = K});
+        false ->
+            mria_route_tab_insert(#route{topic = Topic, dest = Dest})
+    end.
+
+mria_delete_route_v2(Topic, Dest) ->
+    case emqx_trie_search:filter(Topic) of
+        Words when is_list(Words) ->
+            K = emqx_topic_index:make_key(Words, Dest),
+            mria:dirty_delete(?ROUTE_TAB_FILTERS, K);
+        false ->
+            mria_route_tab_delete(#route{topic = Topic, dest = Dest})
+    end.
+
+match_routes_v2(Topic) ->
+    lookup_route_tab(Topic) ++
+        [match_to_route(M) || M <- match_filters(Topic)].
+
+match_filters(Topic) ->
+    emqx_topic_index:matches(Topic, ?ROUTE_TAB_FILTERS, []).
+
+lookup_routes_v2(Topic) ->
+    case emqx_topic:wildcard(Topic) of
+        true ->
+            Pat = #routeidx{entry = emqx_topic_index:make_key(Topic, '$1')},
+            [Dest || [Dest] <- ets:match(?ROUTE_TAB_FILTERS, Pat)];
+        false ->
+            lookup_route_tab(Topic)
+    end.
+
+has_route_v2(Topic, Dest) ->
+    case emqx_topic:wildcard(Topic) of
+        true ->
+            ets:member(?ROUTE_TAB_FILTERS, emqx_topic_index:make_key(Topic, Dest));
+        false ->
+            has_route_tab_entry(Topic, Dest)
+    end.
+
+cleanup_routes_v2(Node) ->
+    % NOTE
+    % No point in transaction here because all the operations on filters table are dirty.
+    ok = ets:foldl(
+        fun(#routeidx{entry = K}, ok) ->
+            case get_dest_node(emqx_topic_index:get_id(K)) of
+                Node ->
+                    mria:dirty_delete(?ROUTE_TAB_FILTERS, K);
+                _ ->
+                    ok
+            end
+        end,
+        ok,
+        ?ROUTE_TAB_FILTERS
+    ),
+    ok = ets:foldl(
+        fun(#route{dest = Dest} = Route, ok) ->
+            case get_dest_node(Dest) of
+                Node ->
+                    mria:dirty_delete_object(?ROUTE_TAB, Route);
+                _ ->
+                    ok
+            end
+        end,
+        ok,
+        ?ROUTE_TAB
+    ).
+
+get_dest_node({_, Node}) ->
+    Node;
+get_dest_node(Node) ->
+    Node.
+
+list_topics_v2() ->
+    Pat = #routeidx{entry = '$1'},
+    Filters = [emqx_topic_index:get_topic(K) || [K] <- ets:match(?ROUTE_TAB_FILTERS, Pat)],
+    list_route_tab_topics() ++ Filters.
+
+fold_routes_v2(FunName, FoldFun, AccIn) ->
+    FilterFoldFun = mk_filtertab_fold_fun(FoldFun),
+    Acc = ets:FunName(FoldFun, AccIn, ?ROUTE_TAB),
+    ets:FunName(FilterFoldFun, Acc, ?ROUTE_TAB_FILTERS).
+
+mk_filtertab_fold_fun(FoldFun) ->
+    fun(#routeidx{entry = K}, Acc) -> FoldFun(match_to_route(K), Acc) end.
+
+match_to_route(M) ->
+    #route{topic = emqx_topic_index:get_topic(M), dest = emqx_topic_index:get_id(M)}.
+
+%%--------------------------------------------------------------------
+%% Routing table type
+%% --------------------------------------------------------------------
+
+-define(PT_SCHEMA_VSN, {?MODULE, schemavsn}).
+
+-type schemavsn() :: v1 | v2.
+
+-spec get_schema_vsn() -> schemavsn().
+get_schema_vsn() ->
+    persistent_term:get(?PT_SCHEMA_VSN).
+
+-spec init_schema() -> ok.
+init_schema() ->
+    ok = mria:wait_for_tables([?ROUTE_TAB, ?ROUTE_TAB_FILTERS]),
+    ok = emqx_trie:wait_for_tables(),
+    ConfSchema = emqx_config:get([broker, routing, storage_schema]),
+    Schema = choose_schema_vsn(ConfSchema),
+    ok = persistent_term:put(?PT_SCHEMA_VSN, Schema),
+    case Schema of
+        ConfSchema ->
+            ?SLOG(info, #{
+                msg => "routing_schema_used",
+                schema => Schema
+            });
+        _ ->
+            ?SLOG(notice, #{
+                msg => "configured_routing_schema_ignored",
+                schema_in_use => Schema,
+                configured => ConfSchema,
+                reason =>
+                    "Could not use configured routing storage schema because "
+                    "there are already non-empty routing tables pertaining to "
+                    "another schema."
+            })
+    end.
+
+-spec deinit_schema() -> ok.
+deinit_schema() ->
+    _ = persistent_term:erase(?PT_SCHEMA_VSN),
+    ok.
+
+-spec choose_schema_vsn(schemavsn()) -> schemavsn().
+choose_schema_vsn(ConfType) ->
+    IsEmptyIndex = emqx_trie:empty(),
+    IsEmptyFilters = is_empty(?ROUTE_TAB_FILTERS),
+    case {IsEmptyIndex, IsEmptyFilters} of
+        {true, true} ->
+            ConfType;
+        {false, true} ->
+            v1;
+        {true, false} ->
+            v2;
+        {false, false} ->
+            ?SLOG(critical, #{
+                msg => "conflicting_routing_schemas_detected_in_cluster",
+                configured => ConfType,
+                reason =>
+                    "There are records in the routing tables related to both v1 "
+                    "and v2 storage schemas. This probably means that some nodes "
+                    "in the cluster use v1 schema and some use v2, independently "
+                    "of each other. The routing is likely broken. Manual intervention "
+                    "and full cluster restart is required. This node will shut down."
+            }),
+            error(conflicting_routing_schemas_detected_in_cluster)
+    end.
+
+is_empty(Tab) ->
+    ets:first(Tab) =:= '$end_of_table'.
 
 %%--------------------------------------------------------------------
 %% gen_server callbacks
