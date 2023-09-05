@@ -525,7 +525,6 @@ do_import_conf(RawConf, Opts) ->
     Errors =
         lists:foldr(
             fun(Module, ErrorsAcc) ->
-                Module:import_config(RawConf),
                 case Module:import_config(RawConf) of
                     {ok, #{changed := Changed}} ->
                         maybe_print_changed(Changed, Opts),

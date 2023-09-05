@@ -57,7 +57,7 @@ end_per_suite(Config) ->
 
 t_cluster_status(Config) ->
     [CoreNode, ReplicantNode] = ?config(cluster_nodes, Config),
-    ok = emqx_node_rebalance_api_proto_v1:node_rebalance_evacuation_start(CoreNode, #{}),
+    ok = emqx_node_rebalance_api_proto_v2:node_rebalance_evacuation_start(CoreNode, #{}),
 
     ?assertMatch(
         #{evacuations := [_], rebalances := []},
