@@ -327,4 +327,5 @@ coerce_properties_values(MQTTProperties, #{metadata := #{rule_id := RuleId}}) ->
 encode_mqtt_property('Payload-Format-Indicator', V) -> ensure_int(V);
 encode_mqtt_property('Message-Expiry-Interval', V) -> ensure_int(V);
 encode_mqtt_property('Subscription-Identifier', V) -> ensure_int(V);
-encode_mqtt_property(_Prop, V) -> V.
+%% note: `emqx_placeholder:proc_tmpl/2' currently always return a binary.
+encode_mqtt_property(_Prop, V) when is_binary(V) -> V.
