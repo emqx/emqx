@@ -26,19 +26,20 @@ all() ->
     emqx_common_test_helpers:all(?MODULE).
 
 init_per_suite(Config) ->
-    _ = application:load(emqx_conf),
-    %% to avoid inter-suite dependencies
-    application:stop(emqx_connector),
-    ok = emqx_common_test_helpers:start_apps([emqx, emqx_bridge]),
-    Config.
+    Apps = emqx_cth_suite:start(
+        [
+            emqx,
+            emqx_conf,
+            emqx_bridge
+        ],
+        #{work_dir => ?config(priv_dir, Config)}
+    ),
+    [{apps, Apps} | Config].
 
-end_per_suite(_Config) ->
-    emqx_common_test_helpers:stop_apps([
-        emqx,
-        emqx_bridge,
-        emqx_resource,
-        emqx_connector
-    ]).
+end_per_suite(Config) ->
+    Apps = ?config(apps, Config),
+    ok = emqx_cth_suite:stop(Apps),
+    ok.
 
 init_per_testcase(t_get_basic_usage_info_1, Config) ->
     {ok, _} = emqx_cluster_rpc:start_link(node(), emqx_cluster_rpc, 1000),
@@ -178,6 +179,31 @@ t_update_ssl_conf(Config) ->
     {ok, _} = emqx:update_config(Path, NoSSLConf),
     {ok, _} = emqx_tls_certfile_gc:force(),
     ?assertMatch({error, enoent}, file:list_dir(CertDir)),
+    ok.
+
+t_create_with_bad_name(_Config) ->
+    Path = [bridges, mqtt, 'test_哈哈'],
+    Conf = #{
+        <<"bridge_mode">> => false,
+        <<"clean_start">> => true,
+        <<"keepalive">> => <<"60s">>,
+        <<"proto_ver">> => <<"v4">>,
+        <<"server">> => <<"127.0.0.1:1883">>,
+        <<"ssl">> =>
+            #{
+                %% needed to trigger pre_config_update
+                <<"certfile">> => cert_file("certfile"),
+                <<"enable">> => true
+            }
+    },
+    ?assertMatch(
+        {error,
+            {pre_config_update, emqx_bridge_app, #{
+                reason := bad_bridge_name,
+                kind := validation_error
+            }}},
+        emqx:update_config(Path, Conf)
+    ),
     ok.
 
 data_file(Name) ->

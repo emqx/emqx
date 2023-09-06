@@ -8,18 +8,10 @@ services:
       - ./certs/server.crt:/etc/certs/redis.crt
       - ./certs/server.key:/etc/certs/redis.key
       - ./certs/ca.crt:/etc/certs/ca.crt
+      - ./redis/single-tls:/usr/local/etc/redis
     ports:
       - "6380:6380"
-    command:
-      - redis-server
-      - "--bind 0.0.0.0 ::"
-      - --requirepass public
-      - --tls-port 6380
-      - --tls-cert-file /etc/certs/redis.crt
-      - --tls-key-file /etc/certs/redis.key
-      - --tls-ca-cert-file /etc/certs/ca.crt
-      - --tls-protocols "TLSv1.3"
-      - --tls-ciphersuites "TLS_CHACHA20_POLY1305_SHA256"
+    command: redis-server /usr/local/etc/redis/redis.conf
     restart: always
     networks:
       emqx_bridge:

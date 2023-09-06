@@ -11,6 +11,8 @@ services:
     image: openldap
     #ports:
     #  - 389:389
+    volumes:
+      - ./certs/ca.crt:/etc/certs/ca.crt
     restart: always
     networks:
       - emqx_bridge

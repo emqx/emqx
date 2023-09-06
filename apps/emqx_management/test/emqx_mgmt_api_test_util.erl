@@ -61,6 +61,9 @@ request(Method, Url, Body) ->
 uri(Parts) ->
     emqx_dashboard_api_test_helpers:uri(Parts).
 
+uri(Host, Parts) ->
+    emqx_dashboard_api_test_helpers:uri(Host, Parts).
+
 %% compatible_mode will return as same as 'emqx_dashboard_api_test_helpers:request'
 request_api_with_body(Method, Url, Body) ->
     Opts = #{compatible_mode => true, httpc_req_opts => [{body_format, binary}]},
@@ -144,8 +147,14 @@ build_http_header(X) when is_list(X) ->
 build_http_header(X) ->
     [X].
 
+default_server() ->
+    ?SERVER.
+
 api_path(Parts) ->
     join_http_path([?SERVER, ?BASE_PATH | Parts]).
+
+api_path(Host, Parts) ->
+    join_http_path([Host, ?BASE_PATH | Parts]).
 
 api_path_without_base_path(Parts) ->
     join_http_path([?SERVER | Parts]).
@@ -193,9 +202,13 @@ upload_request(URL, FilePath, Name, MimeType, RequestData, AuthorizationToken) -
     ContentLength = integer_to_list(length(binary_to_list(RequestBody))),
     Headers = [
         {"Content-Length", ContentLength},
-        case AuthorizationToken =/= undefined of
-            true -> {"Authorization", "Bearer " ++ binary_to_list(AuthorizationToken)};
-            false -> {}
+        case AuthorizationToken of
+            _ when is_tuple(AuthorizationToken) ->
+                AuthorizationToken;
+            _ when is_binary(AuthorizationToken) ->
+                {"Authorization", "Bearer " ++ binary_to_list(AuthorizationToken)};
+            _ ->
+                {}
         end
     ],
     HTTPOptions = [],

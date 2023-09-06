@@ -137,6 +137,31 @@ perform_lifecycle_check(ResourceId, InitialConfig, RedisCommand) ->
             #{timeout => 500}
         )
     ),
+    % check authentication methods
+    ?assertEqual(
+        {ok, <<"OK">>},
+        emqx_resource:query(ResourceId, {cmd, ["AUTH", "public"]})
+    ),
+    ?assertEqual(
+        {error, <<"WRONGPASS invalid username-password pair or user is disabled.">>},
+        emqx_resource:query(ResourceId, {cmd, ["AUTH", "test_passwd"]})
+    ),
+    ?assertEqual(
+        {ok, <<"OK">>},
+        emqx_resource:query(ResourceId, {cmd, ["AUTH", "test_user", "test_passwd"]})
+    ),
+    ?assertEqual(
+        {error, <<"WRONGPASS invalid username-password pair or user is disabled.">>},
+        emqx_resource:query(ResourceId, {cmd, ["AUTH", "test_user", "public"]})
+    ),
+    ?assertEqual(
+        {error, <<"WRONGPASS invalid username-password pair or user is disabled.">>},
+        emqx_resource:query(ResourceId, {cmd, ["AUTH", "wrong_user", "test_passwd"]})
+    ),
+    ?assertEqual(
+        {error, <<"WRONGPASS invalid username-password pair or user is disabled.">>},
+        emqx_resource:query(ResourceId, {cmd, ["AUTH", "wrong_user", "public"]})
+    ),
     ?assertEqual(ok, emqx_resource:stop(ResourceId)),
     % Resource will be listed still, but state will be changed and healthcheck will fail
     % as the worker no longer exists.
@@ -186,7 +211,8 @@ redis_config_sentinel() ->
         "    redis_type = ~s\n" ++
         MaybeSentinel ++
         MaybeDatabase ++
-        "    password = public\n" ++
+        "    username = test_user\n" ++
+        "    password = test_passwd\n" ++
         "    ~s = \"~s:~b\"\n" ++
         "    " ++
         ""

@@ -66,7 +66,7 @@ only_once_tests() ->
     ].
 
 init_per_suite(Config) ->
-    Config.
+    [{bridge_type, <<"kafka_consumer">>} | Config].
 
 end_per_suite(_Config) ->
     emqx_mgmt_api_test_util:end_suite(),
@@ -898,8 +898,9 @@ ensure_connected(Config) ->
     ok.
 
 consumer_clientid(Config) ->
+    BridgeType = ?config(bridge_type, Config),
     KafkaName = ?config(kafka_name, Config),
-    binary_to_atom(emqx_bridge_kafka_impl:make_client_id(kafka_consumer, KafkaName)).
+    binary_to_atom(emqx_bridge_kafka_impl:make_client_id(BridgeType, KafkaName)).
 
 get_client_connection(Config) ->
     KafkaHost = ?config(kafka_host, Config),
@@ -1928,7 +1929,7 @@ t_node_joins_existing_cluster(Config) ->
             ?retry(
                 _Sleep2 = 100,
                 _Attempts2 = 50,
-                true = erpc:call(N2, emqx_router, has_routes, [MQTTTopic])
+                [] =/= erpc:call(N2, emqx_router, lookup_routes, [MQTTTopic])
             ),
             {ok, SRef1} =
                 snabbkaffe:subscribe(

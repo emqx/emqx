@@ -166,7 +166,10 @@ schema("/plugins/:name/move") ->
             tags => ?TAGS,
             parameters => [hoconsc:ref(name)],
             'requestBody' => move_request_body(),
-            responses => #{200 => <<"OK">>}
+            responses => #{
+                200 => <<"OK">>,
+                400 => emqx_dashboard_swagger:error_codes(['MOVE_FAILED'], <<"Move failed">>)
+            }
         }
     }.
 
@@ -420,7 +423,7 @@ update_boot_order(post, #{bindings := #{name := Name}, body := Body}) ->
         {error, Reason} ->
             {400, #{code => 'BAD_POSITION', message => Reason}};
         Position ->
-            case emqx_plugins:ensure_enabled(Name, Position) of
+            case emqx_plugins:ensure_enabled(Name, Position, _ConfLocation = global) of
                 ok ->
                     {200};
                 {error, Reason} ->

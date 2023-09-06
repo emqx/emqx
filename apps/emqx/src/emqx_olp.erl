@@ -38,11 +38,11 @@
     | backoff_new_conn.
 
 -type cnt_name() ::
-    'olp.delay.ok'
-    | 'olp.delay.timeout'
-    | 'olp.hbn'
-    | 'olp.gc'
-    | 'olp.new_conn'.
+    'overload_protection.delay.ok'
+    | 'overload_protection.delay.timeout'
+    | 'overload_protection.hibernation'
+    | 'overload_protection.gc'
+    | 'overload_protection.new_conn'.
 
 -define(overload_protection, overload_protection).
 
@@ -63,10 +63,10 @@ backoff(Zone) ->
                 false ->
                     false;
                 ok ->
-                    emqx_metrics:inc('olp.delay.ok'),
+                    emqx_metrics:inc('overload_protection.delay.ok'),
                     ok;
                 timeout ->
-                    emqx_metrics:inc('olp.delay.timeout'),
+                    emqx_metrics:inc('overload_protection.delay.timeout'),
                     timeout
             end;
         _ ->
@@ -76,18 +76,18 @@ backoff(Zone) ->
 %% @doc If forceful GC should be skipped when the system is overloaded.
 -spec backoff_gc(Zone :: atom()) -> boolean().
 backoff_gc(Zone) ->
-    do_check(Zone, ?FUNCTION_NAME, 'olp.gc').
+    do_check(Zone, ?FUNCTION_NAME, 'overload_protection.gc').
 
 %% @doc If hibernation should be skipped when the system is overloaded.
 -spec backoff_hibernation(Zone :: atom()) -> boolean().
 backoff_hibernation(Zone) ->
-    do_check(Zone, ?FUNCTION_NAME, 'olp.hbn').
+    do_check(Zone, ?FUNCTION_NAME, 'overload_protection.hibernation').
 
 %% @doc Returns {error, overloaded} if new connection should be
 %%      closed when system is overloaded.
 -spec backoff_new_conn(Zone :: atom()) -> ok | {error, overloaded}.
 backoff_new_conn(Zone) ->
-    case do_check(Zone, ?FUNCTION_NAME, 'olp.new_conn') of
+    case do_check(Zone, ?FUNCTION_NAME, 'overload_protection.new_conn') of
         true ->
             {error, overloaded};
         false ->

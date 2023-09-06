@@ -27,11 +27,11 @@ all() ->
     emqx_common_test_helpers:all(?MODULE).
 
 init_per_suite(Config) ->
-    emqx_mgmt_api_test_util:init_suite([emqx_conf, emqx_authz]),
+    emqx_mgmt_api_test_util:init_suite([emqx_conf, emqx_authz, emqx_authn]),
     Config.
 
 end_per_suite(_Config) ->
-    emqx_mgmt_api_test_util:end_suite([emqx_conf, emqx_authz]).
+    emqx_mgmt_api_test_util:end_suite([emqx_conf, emqx_authz, emqx_authn]).
 
 t_load_config(Config) ->
     Authz = authorization,
@@ -62,6 +62,88 @@ t_load_config(Config) ->
         emqx_conf:get_raw([Authz])
     ),
     ?assertEqual({error, empty_hocon_file}, emqx_conf_cli:conf(["load", "non-exist-file"])),
+    ok.
+
+t_conflict_mix_conf(Config) ->
+    case emqx_release:edition() of
+        ce ->
+            %% Don't fail if the test is run with emqx profile
+            ok;
+        ee ->
+            AuthNInit = emqx_conf:get_raw([authentication]),
+            Redis = #{
+                <<"backend">> => <<"redis">>,
+                <<"cmd">> => <<"HMGET mqtt_user:${username} password_hash salt">>,
+                <<"enable">> => false,
+                <<"mechanism">> => <<"password_based">>,
+                %% password_hash_algorithm {name = sha256, salt_position = suffix}
+                <<"redis_type">> => <<"single">>,
+                <<"server">> => <<"127.0.0.1:6379">>
+            },
+            AuthN = #{<<"authentication">> => [Redis]},
+            ConfBin = hocon_pp:do(AuthN, #{}),
+            ConfFile = prepare_conf_file(?FUNCTION_NAME, ConfBin, Config),
+            %% init with redis sources
+            ok = emqx_conf_cli:conf(["load", "--replace", ConfFile]),
+            ?assertMatch([Redis], emqx_conf:get_raw([authentication])),
+            %% change redis type from single to cluster
+            %% the server field will become servers field
+            RedisCluster = maps:remove(<<"server">>, Redis#{
+                <<"redis_type">> => cluster,
+                <<"servers">> => [<<"127.0.0.1:6379">>]
+            }),
+            AuthN1 = AuthN#{<<"authentication">> => [RedisCluster]},
+            ConfBin1 = hocon_pp:do(AuthN1, #{}),
+            ConfFile1 = prepare_conf_file(?FUNCTION_NAME, ConfBin1, Config),
+            {error, Reason} = emqx_conf_cli:conf(["load", "--merge", ConfFile1]),
+            ?assertNotEqual(
+                nomatch,
+                binary:match(
+                    Reason,
+                    [<<"Tips: There may be some conflicts in the new configuration under">>]
+                ),
+                Reason
+            ),
+            %% use replace to change redis type from single to cluster
+            ?assertMatch(ok, emqx_conf_cli:conf(["load", "--replace", ConfFile1])),
+            %% clean up
+            ConfBinInit = hocon_pp:do(#{<<"authentication">> => AuthNInit}, #{}),
+            ConfFileInit = prepare_conf_file(?FUNCTION_NAME, ConfBinInit, Config),
+            ok = emqx_conf_cli:conf(["load", "--replace", ConfFileInit]),
+            ok
+    end.
+
+t_config_handler_hook_failed(Config) ->
+    Listeners =
+        #{
+            <<"listeners">> => #{
+                <<"ssl">> => #{
+                    <<"default">> => #{
+                        <<"ssl_options">> => #{
+                            <<"keyfile">> => <<"">>
+                        }
+                    }
+                }
+            }
+        },
+    ConfBin = hocon_pp:do(Listeners, #{}),
+    ConfFile = prepare_conf_file(?FUNCTION_NAME, ConfBin, Config),
+    {error, Reason} = emqx_conf_cli:conf(["load", "--merge", ConfFile]),
+    %% the hook failed with empty keyfile
+    ?assertEqual(
+        nomatch,
+        binary:match(Reason, [
+            <<"Tips: There may be some conflicts in the new configuration under">>
+        ]),
+        Reason
+    ),
+    ?assertNotEqual(
+        nomatch,
+        binary:match(Reason, [
+            <<"{bad_ssl_config,#{reason => pem_file_path_or_string_is_required">>
+        ]),
+        Reason
+    ),
     ok.
 
 t_load_readonly(Config) ->

@@ -23,7 +23,6 @@
 -include_lib("emqx_authn/include/emqx_authn.hrl").
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
--include_lib("emqx/include/emqx_placeholder.hrl").
 
 -define(PGSQL_HOST, "pgsql").
 -define(PGSQL_RESOURCE, <<"emqx_authn_pgsql_SUITE">>).
@@ -42,7 +41,6 @@ groups() ->
     [{require_seeds, [], [t_create, t_authenticate, t_update, t_destroy, t_is_superuser]}].
 
 init_per_testcase(_, Config) ->
-    {ok, _} = emqx_cluster_rpc:start_link(node(), emqx_cluster_rpc, 1000),
     emqx_authentication:initialize_authentication(?GLOBAL, []),
     emqx_authn_test_lib:delete_authenticators(
         [authentication],
@@ -59,11 +57,11 @@ end_per_group(require_seeds, Config) ->
     Config.
 
 init_per_suite(Config) ->
-    _ = application:load(emqx_conf),
     case emqx_common_test_helpers:is_tcp_server_available(?PGSQL_HOST, ?PGSQL_DEFAULT_PORT) of
         true ->
-            ok = emqx_common_test_helpers:start_apps([emqx_authn]),
-            ok = start_apps([emqx_resource]),
+            Apps = emqx_cth_suite:start([emqx, emqx_conf, emqx_authn], #{
+                work_dir => ?config(priv_dir, Config)
+            }),
             {ok, _} = emqx_resource:create_local(
                 ?PGSQL_RESOURCE,
                 ?RESOURCE_GROUP,
@@ -71,19 +69,19 @@ init_per_suite(Config) ->
                 pgsql_config(),
                 #{}
             ),
-            Config;
+            [{apps, Apps} | Config];
         false ->
             {skip, no_pgsql}
     end.
 
-end_per_suite(_Config) ->
+end_per_suite(Config) ->
     emqx_authn_test_lib:delete_authenticators(
         [authentication],
         ?GLOBAL
     ),
     ok = emqx_resource:remove_local(?PGSQL_RESOURCE),
-    ok = stop_apps([emqx_resource]),
-    ok = emqx_common_test_helpers:stop_apps([emqx_authn]).
+    ok = emqx_cth_suite:stop(?config(apps, Config)),
+    ok.
 
 %%------------------------------------------------------------------------------
 %% Tests

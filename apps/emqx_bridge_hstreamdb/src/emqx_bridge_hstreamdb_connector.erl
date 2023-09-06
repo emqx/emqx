@@ -75,7 +75,7 @@ on_query(
     }
 ) ->
     try to_record(PartitionKey, HRecordTemplate, Data) of
-        Record -> append_record(Producer, Record)
+        Record -> append_record(Producer, Record, false)
     catch
         _:_ -> ?FAILED_TO_APPLY_HRECORD_TEMPLATE
     end.
@@ -88,7 +88,7 @@ on_batch_query(
     }
 ) ->
     try to_multi_part_records(PartitionKey, HRecordTemplate, BatchList) of
-        Records -> append_record(Producer, Records)
+        Records -> append_record(Producer, Records, true)
     catch
         _:_ -> ?FAILED_TO_APPLY_HRECORD_TEMPLATE
     end.
@@ -156,16 +156,29 @@ start_client(InstId, Config) ->
             {error, Error}
     end.
 
-do_start_client(InstId, Config = #{url := Server, pool_size := PoolSize}) ->
+do_start_client(InstId, Config = #{url := Server, pool_size := PoolSize, ssl := SSL}) ->
     ?SLOG(info, #{
         msg => "starting hstreamdb connector: client",
         connector => InstId,
         config => Config
     }),
     ClientName = client_name(InstId),
+    RpcOpts =
+        case maps:get(enable, SSL) of
+            false ->
+                #{pool_size => PoolSize};
+            true ->
+                #{
+                    pool_size => PoolSize,
+                    gun_opts => #{
+                        transport => tls,
+                        transport_opts => emqx_tls_lib:to_client_opts(SSL)
+                    }
+                }
+        end,
     ClientOptions = [
         {url, binary_to_list(Server)},
-        {rpc_options, #{pool_size => PoolSize}}
+        {rpc_options, RpcOpts}
     ],
     case hstreamdb:start_client(ClientName, ClientOptions) of
         {ok, Client} ->
@@ -206,12 +219,7 @@ do_start_client(InstId, Config = #{url := Server, pool_size := PoolSize}) ->
     end.
 
 is_alive(Client) ->
-    case hstreamdb:echo(Client) of
-        {ok, _Echo} ->
-            true;
-        _ErrorEcho ->
-            false
-    end.
+    hstreamdb_client:echo(Client) =:= ok.
 
 start_producer(
     InstId,
@@ -280,54 +288,52 @@ to_record(PartitionKey, RawRecord) ->
     hstreamdb:to_record(PartitionKey, raw, RawRecord).
 
 to_multi_part_records(PartitionKeyTmpl, HRecordTmpl, BatchList) ->
-    Records0 = lists:map(
+    lists:map(
         fun({send_message, Data}) ->
             to_record(PartitionKeyTmpl, HRecordTmpl, Data)
         end,
         BatchList
-    ),
-    PartitionKeys = proplists:get_keys(Records0),
-    [
-        {PartitionKey, proplists:get_all_values(PartitionKey, Records0)}
-     || PartitionKey <- PartitionKeys
-    ].
+    ).
 
-append_record(Producer, MultiPartsRecords) when is_list(MultiPartsRecords) ->
-    lists:foreach(fun(Record) -> append_record(Producer, Record) end, MultiPartsRecords);
-append_record(Producer, Record) when is_tuple(Record) ->
-    do_append_records(false, Producer, Record).
+append_record(Producer, MultiPartsRecords, MaybeBatch) when is_list(MultiPartsRecords) ->
+    lists:foreach(
+        fun(Record) -> append_record(Producer, Record, MaybeBatch) end, MultiPartsRecords
+    );
+append_record(Producer, Record, MaybeBatch) when is_tuple(Record) ->
+    do_append_records(Producer, Record, MaybeBatch).
 
 %% TODO: only sync request supported. implement async request later.
-do_append_records(false, Producer, Record) ->
-    case hstreamdb:append_flush(Producer, Record) of
-        {ok, _Result} ->
-            ?tp(
-                hstreamdb_connector_query_return,
-                #{result => _Result}
-            ),
-            ?SLOG(debug, #{
-                msg => "HStreamDB producer sync append success",
-                record => Record
-            });
-        %% the HStream is warming up or buzy, something are not ready yet, retry after a while
-        {error, {unavailable, _} = Reason} ->
-            {error,
-                {recoverable_error, #{
-                    msg => "HStreamDB is warming up or buzy, will retry after a moment",
-                    reason => Reason
-                }}};
-        {error, Reason} = Err ->
-            ?tp(
-                hstreamdb_connector_query_return,
-                #{error => Reason}
-            ),
-            ?SLOG(error, #{
-                msg => "HStreamDB producer sync append failed",
-                reason => Reason,
-                record => Record
-            }),
-            Err
-    end.
+do_append_records(Producer, Record, true = IsBatch) ->
+    Result = hstreamdb:append(Producer, Record),
+    handle_result(Result, Record, IsBatch);
+do_append_records(Producer, Record, false = IsBatch) ->
+    Result = hstreamdb:append_flush(Producer, Record),
+    handle_result(Result, Record, IsBatch).
+
+handle_result(ok = Result, Record, IsBatch) ->
+    handle_result({ok, Result}, Record, IsBatch);
+handle_result({ok, Result}, Record, IsBatch) ->
+    ?tp(
+        hstreamdb_connector_query_append_return,
+        #{result => Result, is_batch => IsBatch}
+    ),
+    ?SLOG(debug, #{
+        msg => "HStreamDB producer sync append success",
+        record => Record,
+        is_batch => IsBatch
+    });
+handle_result({error, Reason} = Err, Record, IsBatch) ->
+    ?tp(
+        hstreamdb_connector_query_append_return,
+        #{error => Reason, is_batch => IsBatch}
+    ),
+    ?SLOG(error, #{
+        msg => "HStreamDB producer sync append failed",
+        reason => Reason,
+        record => Record,
+        is_batch => IsBatch
+    }),
+    Err.
 
 client_name(InstId) ->
     "client:" ++ to_string(InstId).

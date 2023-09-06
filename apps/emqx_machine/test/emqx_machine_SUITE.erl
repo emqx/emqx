@@ -42,7 +42,7 @@ init_per_suite(Config) ->
     %%   Unload emqx_authz to avoid reboot this application
     %%
     application:unload(emqx_authz),
-    emqx_common_test_helpers:start_apps([emqx_conf]),
+    emqx_common_test_helpers:start_apps([emqx_conf, emqx_opentelemetry]),
     application:set_env(emqx_machine, applications, [
         emqx_prometheus,
         emqx_modules,
@@ -56,12 +56,13 @@ init_per_suite(Config) ->
         emqx_exhook,
         emqx_authn,
         emqx_authz,
-        emqx_plugin
+        emqx_plugin,
+        emqx_opentelemetry
     ]),
     Config.
 
 end_per_suite(_Config) ->
-    emqx_common_test_helpers:stop_apps([]).
+    emqx_common_test_helpers:stop_apps([emqx_opentelemetry, emqx_conf]).
 
 init_per_testcase(t_custom_shard_transports, Config) ->
     OldConfig = application:get_env(emqx_machine, custom_shard_transports),

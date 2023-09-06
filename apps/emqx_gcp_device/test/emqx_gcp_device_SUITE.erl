@@ -17,15 +17,19 @@ all() ->
     emqx_common_test_helpers:all(?MODULE).
 
 init_per_suite(Config) ->
-    ok = emqx_common_test_helpers:start_apps([emqx_conf, emqx_authn, emqx_retainer, emqx_gcp_device]),
-    Config.
+    Apps = emqx_cth_suite:start(
+        [emqx, emqx_conf, emqx_authn, emqx_gcp_device, {emqx_retainer, "retainer {enable = true}"}],
+        #{
+            work_dir => ?config(priv_dir, Config)
+        }
+    ),
+    [{apps, Apps} | Config].
 
 end_per_suite(Config) ->
-    _ = emqx_common_test_helpers:stop_apps([emqx_authn, emqx_retainer, emqx_gcp_device]),
-    Config.
+    ok = emqx_cth_suite:stop(?config(apps, Config)),
+    ok.
 
 init_per_testcase(_TestCase, Config) ->
-    {ok, _} = emqx_cluster_rpc:start_link(node(), emqx_cluster_rpc, 1000),
     emqx_authn_test_lib:delete_authenticators(
         [authentication],
         ?GLOBAL

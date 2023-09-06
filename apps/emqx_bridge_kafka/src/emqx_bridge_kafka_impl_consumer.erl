@@ -121,6 +121,7 @@ on_start(ResourceId, Config) ->
     #{
         authentication := Auth,
         bootstrap_hosts := BootstrapHosts0,
+        bridge_type := BridgeType,
         bridge_name := BridgeName,
         hookpoint := _,
         kafka := #{
@@ -134,9 +135,8 @@ on_start(ResourceId, Config) ->
         topic_mapping := _
     } = Config,
     BootstrapHosts = emqx_bridge_kafka_impl:hosts(BootstrapHosts0),
-    KafkaType = kafka_consumer,
     %% Note: this is distinct per node.
-    ClientID = make_client_id(ResourceId, KafkaType, BridgeName),
+    ClientID = make_client_id(ResourceId, BridgeType, BridgeName),
     ClientOpts0 =
         case Auth of
             none -> [];
@@ -517,11 +517,11 @@ is_dry_run(ResourceId) ->
             string:equal(TestIdStart, ResourceId)
     end.
 
--spec make_client_id(resource_id(), kafka_consumer, atom() | binary()) -> atom().
-make_client_id(ResourceId, KafkaType, KafkaName) ->
+-spec make_client_id(resource_id(), binary(), atom() | binary()) -> atom().
+make_client_id(ResourceId, BridgeType, BridgeName) ->
     case is_dry_run(ResourceId) of
         false ->
-            ClientID0 = emqx_bridge_kafka_impl:make_client_id(KafkaType, KafkaName),
+            ClientID0 = emqx_bridge_kafka_impl:make_client_id(BridgeType, BridgeName),
             binary_to_atom(ClientID0);
         true ->
             %% It is a dry run and we don't want to leak too many

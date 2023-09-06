@@ -24,16 +24,19 @@
 -define(PATH, [?CONF_NS_ATOM]).
 
 -include_lib("eunit/include/eunit.hrl").
+-include_lib("common_test/include/ct.hrl").
 
 all() ->
     emqx_common_test_helpers:all(?MODULE).
 
 init_per_suite(Config) ->
-    emqx_common_test_helpers:start_apps([emqx_conf, emqx_authn]),
-    Config.
+    Apps = emqx_cth_suite:start([emqx, emqx_conf, emqx_authn], #{
+        work_dir => ?config(priv_dir, Config)
+    }),
+    [{apps, Apps} | Config].
 
-end_per_suite(_) ->
-    emqx_common_test_helpers:stop_apps([emqx_authn, emqx_conf]),
+end_per_suite(Config) ->
+    ok = emqx_cth_suite:stop(?config(apps, Config)),
     ok.
 
 init_per_testcase(_Case, Config) ->
@@ -42,9 +45,10 @@ init_per_testcase(_Case, Config) ->
         <<"backend">> => <<"built_in_database">>,
         <<"user_id_type">> => <<"clientid">>
     },
-    {ok, _} = emqx:update_config(
+    {ok, _} = emqx_conf:update(
         ?PATH,
-        {create_authenticator, ?GLOBAL, AuthnConfig}
+        {create_authenticator, ?GLOBAL, AuthnConfig},
+        #{}
     ),
     {ok, _} = emqx_conf:update(
         [listeners, tcp, listener_authn_enabled],
@@ -98,7 +102,7 @@ t_enable_authn(_Config) ->
     %% enable_authn set to true, we go to the set up authn and fail
     {ok, ConnPid1} = emqtt:start_link([{port, 18830}, {clientid, <<"clientid">>}]),
     ?assertMatch(
-        {error, {unauthorized_client, _}},
+        {error, {malformed_username_or_password, _}},
         emqtt:connect(ConnPid1)
     ),
     ok.

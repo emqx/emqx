@@ -14,32 +14,34 @@
 -include_lib("emqx/include/emqx.hrl").
 
 -define(PATH, [authentication]).
--define(BASE_CONF, <<
-    ""
-    "\n"
-    "retainer {\n"
-    "    enable = true\n"
-    "}"
-    ""
->>).
 
 all() ->
     emqx_common_test_helpers:all(?MODULE).
 
 init_per_suite(Config) ->
-    ok = emqx_config:init_load(emqx_retainer_schema, ?BASE_CONF),
-    ok = emqx_common_test_helpers:start_apps([emqx_gcp_device, emqx_authn, emqx_conf, emqx_retainer]),
-    emqx_dashboard_api_test_helpers:set_default_config(),
-    emqx_mgmt_api_test_util:init_suite(),
-    Config.
+    Apps = emqx_cth_suite:start(
+        [
+            emqx,
+            emqx_conf,
+            emqx_authn,
+            {emqx_retainer, "retainer {enable = true}"},
+            emqx_management,
+            {emqx_dashboard, "dashboard.listeners.http { enable = true, bind = 18083 }"},
+            emqx_gcp_device
+        ],
+        #{
+            work_dir => ?config(priv_dir, Config)
+        }
+    ),
+    _ = emqx_common_test_http:create_default_app(),
+    [{apps, Apps} | Config].
 
 end_per_suite(Config) ->
-    emqx_mgmt_api_test_util:end_suite(),
-    _ = emqx_common_test_helpers:stop_apps([emqx_authn, emqx_retainer, emqx_gcp_device]),
+    _ = emqx_common_test_http:delete_default_app(),
+    ok = emqx_cth_suite:stop(?config(apps, Config)),
     Config.
 
 init_per_testcase(_TestCase, Config) ->
-    {ok, _} = emqx_cluster_rpc:start_link(node(), emqx_cluster_rpc, 1000),
     emqx_authn_test_lib:delete_authenticators(
         [authentication],
         ?GLOBAL

@@ -67,6 +67,7 @@
     terminate/2,
     code_change/3
 ]).
+-export([olp_metrics/0]).
 
 %% BACKW: v4.3.0
 -export([upgrade_retained_delayed_counter_type/0]).
@@ -267,14 +268,17 @@
     {counter, 'authentication.failure'}
 ]).
 
-%% Overload protetion counters
+%% Overload protection counters
 -define(OLP_METRICS, [
-    {counter, 'olp.delay.ok'},
-    {counter, 'olp.delay.timeout'},
-    {counter, 'olp.hbn'},
-    {counter, 'olp.gc'},
-    {counter, 'olp.new_conn'}
+    {counter, 'overload_protection.delay.ok'},
+    {counter, 'overload_protection.delay.timeout'},
+    {counter, 'overload_protection.hibernation'},
+    {counter, 'overload_protection.gc'},
+    {counter, 'overload_protection.new_conn'}
 ]).
+
+olp_metrics() ->
+    lists:map(fun({_, Metric}) -> Metric end, ?OLP_METRICS).
 
 -record(state, {next_idx = 1}).
 
@@ -489,7 +493,7 @@ inc_sent(Packet) ->
     inc('packets.sent'),
     do_inc_sent(Packet).
 
-do_inc_sent(?CONNACK_PACKET(ReasonCode)) ->
+do_inc_sent(?CONNACK_PACKET(ReasonCode, _SessPresent)) ->
     (ReasonCode == ?RC_SUCCESS) orelse inc('packets.connack.error'),
     ((ReasonCode == ?RC_NOT_AUTHORIZED) orelse
         (ReasonCode == ?CONNACK_AUTH)) andalso
@@ -701,9 +705,9 @@ reserved_idx('authorization.cache_hit') -> 302;
 reserved_idx('authentication.success') -> 310;
 reserved_idx('authentication.success.anonymous') -> 311;
 reserved_idx('authentication.failure') -> 312;
-reserved_idx('olp.delay.ok') -> 400;
-reserved_idx('olp.delay.timeout') -> 401;
-reserved_idx('olp.hbn') -> 402;
-reserved_idx('olp.gc') -> 403;
-reserved_idx('olp.new_conn') -> 404;
+reserved_idx('overload_protection.delay.ok') -> 400;
+reserved_idx('overload_protection.delay.timeout') -> 401;
+reserved_idx('overload_protection.hibernation') -> 402;
+reserved_idx('overload_protection.gc') -> 403;
+reserved_idx('overload_protection.new_conn') -> 404;
 reserved_idx(_) -> undefined.

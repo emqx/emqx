@@ -29,6 +29,7 @@
     ensure_uninstalled/1,
     ensure_enabled/1,
     ensure_enabled/2,
+    ensure_enabled/3,
     ensure_disabled/1,
     purge/1,
     delete_package/1
@@ -240,28 +241,34 @@ ensure_enabled(NameVsn) ->
 %% @doc Ensure a plugin is enabled at the given position of the plugin list.
 -spec ensure_enabled(name_vsn(), position()) -> ok | {error, any()}.
 ensure_enabled(NameVsn, Position) ->
-    ensure_state(NameVsn, Position, true).
+    ensure_state(NameVsn, Position, _Enabled = true, _ConfLocation = local).
+
+-spec ensure_enabled(name_vsn(), position(), local | global) -> ok | {error, any()}.
+ensure_enabled(NameVsn, Position, ConfLocation) when
+    ConfLocation =:= local; ConfLocation =:= global
+->
+    ensure_state(NameVsn, Position, _Enabled = true, ConfLocation).
 
 %% @doc Ensure a plugin is disabled.
 -spec ensure_disabled(name_vsn()) -> ok | {error, any()}.
 ensure_disabled(NameVsn) ->
-    ensure_state(NameVsn, no_move, false).
+    ensure_state(NameVsn, no_move, false, _ConfLocation = local).
 
-ensure_state(NameVsn, Position, State) when is_binary(NameVsn) ->
-    ensure_state(binary_to_list(NameVsn), Position, State);
-ensure_state(NameVsn, Position, State) ->
+ensure_state(NameVsn, Position, State, ConfLocation) when is_binary(NameVsn) ->
+    ensure_state(binary_to_list(NameVsn), Position, State, ConfLocation);
+ensure_state(NameVsn, Position, State, ConfLocation) ->
     case read_plugin(NameVsn, #{}) of
         {ok, _} ->
             Item = #{
                 name_vsn => NameVsn,
                 enable => State
             },
-            tryit("ensure_state", fun() -> ensure_configured(Item, Position) end);
+            tryit("ensure_state", fun() -> ensure_configured(Item, Position, ConfLocation) end);
         {error, Reason} ->
             {error, Reason}
     end.
 
-ensure_configured(#{name_vsn := NameVsn} = Item, Position) ->
+ensure_configured(#{name_vsn := NameVsn} = Item, Position, ConfLocation) ->
     Configured = configured(),
     SplitFun = fun(#{name_vsn := Nv}) -> bin(Nv) =/= bin(NameVsn) end,
     {Front, Rear} = lists:splitwith(SplitFun, Configured),
@@ -274,7 +281,7 @@ ensure_configured(#{name_vsn := NameVsn} = Item, Position) ->
             [] ->
                 add_new_configured(Configured, Position, Item)
         end,
-    ok = put_configured(NewConfigured).
+    ok = put_configured(NewConfigured, ConfLocation).
 
 add_new_configured(Configured, no_move, Item) ->
     %% default to rear
@@ -787,12 +794,21 @@ is_needed_by(AppToStop, RunningApp) ->
         undefined -> false
     end.
 
-put_config(Key, Value) when is_atom(Key) ->
-    put_config([Key], Value);
-put_config(Path, Values) when is_list(Path) ->
+put_config(Key, Value) ->
+    put_config(Key, Value, _ConfLocation = local).
+
+put_config(Key, Value, ConfLocation) when is_atom(Key) ->
+    put_config([Key], Value, ConfLocation);
+put_config(Path, Values, _ConfLocation = local) when is_list(Path) ->
     Opts = #{rawconf_with_defaults => true, override_to => cluster},
     %% Already in cluster_rpc, don't use emqx_conf:update, dead calls
     case emqx:update_config([?CONF_ROOT | Path], bin_key(Values), Opts) of
+        {ok, _} -> ok;
+        Error -> Error
+    end;
+put_config(Path, Values, _ConfLocation = global) when is_list(Path) ->
+    Opts = #{rawconf_with_defaults => true, override_to => cluster},
+    case emqx_conf:update([?CONF_ROOT | Path], bin_key(Values), Opts) of
         {ok, _} -> ok;
         Error -> Error
     end.
@@ -812,7 +828,10 @@ get_config(Path, Default) ->
 install_dir() -> get_config(install_dir, "").
 
 put_configured(Configured) ->
-    ok = put_config(states, bin_key(Configured)).
+    put_configured(Configured, _ConfLocation = local).
+
+put_configured(Configured, ConfLocation) ->
+    ok = put_config(states, bin_key(Configured), ConfLocation).
 
 configured() ->
     get_config(states, []).

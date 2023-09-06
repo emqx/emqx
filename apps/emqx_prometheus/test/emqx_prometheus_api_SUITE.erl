@@ -75,19 +75,64 @@ t_prometheus_api(_) ->
             <<"vm_statistics_collector">> := _,
             <<"vm_system_info_collector">> := _,
             <<"vm_memory_collector">> := _,
-            <<"vm_msacc_collector">> := _
+            <<"vm_msacc_collector">> := _,
+            <<"headers">> := _
         },
         Conf
     ),
     #{<<"enable">> := Enable} = Conf,
     ?assertEqual(Enable, undefined =/= erlang:whereis(emqx_prometheus)),
-    NewConf = Conf#{<<"interval">> => <<"2s">>, <<"vm_statistics_collector">> => <<"disabled">>},
+
+    NewConf = Conf#{
+        <<"interval">> => <<"2s">>,
+        <<"vm_statistics_collector">> => <<"enabled">>,
+        <<"headers">> => #{
+            <<"test-str1">> => <<"test-value">>,
+            <<"test-str2">> => <<"42">>
+        }
+    },
     {ok, Response2} = emqx_mgmt_api_test_util:request_api(put, Path, "", Auth, NewConf),
 
     Conf2 = emqx_utils_json:decode(Response2, [return_maps]),
     ?assertMatch(NewConf, Conf2),
-    ?assertEqual({ok, []}, application:get_env(prometheus, vm_statistics_collector_metrics)),
-    ?assertEqual({ok, all}, application:get_env(prometheus, vm_memory_collector_metrics)),
+
+    EnvCollectors = application:get_env(prometheus, collectors, []),
+    PromCollectors = prometheus_registry:collectors(default),
+    ?assertEqual(lists:sort(EnvCollectors), lists:sort(PromCollectors)),
+    ?assert(lists:member(prometheus_vm_statistics_collector, EnvCollectors), EnvCollectors),
+
+    lists:foreach(
+        fun({C, Enabled}) ->
+            ?assertEqual(Enabled, lists:member(C, EnvCollectors), EnvCollectors)
+        end,
+        [
+            {prometheus_vm_dist_collector, false},
+            {prometheus_vm_system_info_collector, false},
+            {prometheus_vm_memory_collector, false},
+            {prometheus_mnesia_collector, false},
+            {prometheus_vm_msacc_collector, false},
+            {prometheus_vm_statistics_collector, true}
+        ]
+    ),
+
+    ?assertMatch(
+        #{
+            <<"headers">> := #{
+                <<"test-str1">> := <<"test-value">>,
+                <<"test-str2">> := <<"42">>
+            }
+        },
+        emqx_config:get_raw([prometheus])
+    ),
+    ?assertMatch(
+        #{
+            headers := [
+                {"test-str2", "42"},
+                {"test-str1", "test-value"}
+            ]
+        },
+        emqx_config:get([prometheus])
+    ),
 
     NewConf1 = Conf#{<<"enable">> => (not Enable)},
     {ok, _Response3} = emqx_mgmt_api_test_util:request_api(put, Path, "", Auth, NewConf1),

@@ -112,6 +112,9 @@ init_per_group(GreptimedbType, Config0) when
                 {proxy_host, ProxyHost},
                 {proxy_port, ProxyPort},
                 {proxy_name, ProxyName},
+                {bridge_type, greptimedb},
+                {bridge_name, Name},
+                {bridge_config, GreptimedbConfig},
                 {greptimedb_host, GreptimedbHost},
                 {greptimedb_port, GreptimedbPort},
                 {greptimedb_http_port, GreptimedbHttpPort},
@@ -452,6 +455,97 @@ t_start_ok(Config) ->
             ?assert(lists:all(fun is_binary/1, maps:keys(Fields))),
             ?assertNot(maps:is_key(<<"undefined">>, Fields)),
             ?assertNot(maps:is_key(<<"undef_value">>, Fields)),
+            ok
+        end
+    ),
+    ok.
+
+t_start_stop(Config) ->
+    %% we can't use this test case directly because `greptimedb_worker' apparently leaks
+    %% atoms...
+    %% ok = emqx_bridge_testlib:t_start_stop(Config, greptimedb_client_stopped),
+    BridgeType = ?config(bridge_type, Config),
+    BridgeName = ?config(bridge_name, Config),
+    BridgeConfig = ?config(bridge_config, Config),
+    StopTracePoint = greptimedb_client_stopped,
+    ResourceId = emqx_bridge_resource:resource_id(BridgeType, BridgeName),
+    ?check_trace(
+        begin
+            ProbeRes0 = emqx_bridge_testlib:probe_bridge_api(
+                BridgeType,
+                BridgeName,
+                BridgeConfig
+            ),
+            ?assertMatch({ok, {{_, 204, _}, _Headers, _Body}}, ProbeRes0),
+            ?assertMatch({ok, _}, emqx_bridge:create(BridgeType, BridgeName, BridgeConfig)),
+
+            %% Since the connection process is async, we give it some time to
+            %% stabilize and avoid flakiness.
+            ?retry(
+                _Sleep = 1_000,
+                _Attempts = 20,
+                ?assertEqual({ok, connected}, emqx_resource_manager:health_check(ResourceId))
+            ),
+
+            %% `start` bridge to trigger `already_started`
+            ?assertMatch(
+                {ok, {{_, 204, _}, _Headers, []}},
+                emqx_bridge_testlib:op_bridge_api("start", BridgeType, BridgeName)
+            ),
+
+            ?assertEqual({ok, connected}, emqx_resource_manager:health_check(ResourceId)),
+
+            ?assertMatch(
+                {{ok, _}, {ok, _}},
+                ?wait_async_action(
+                    emqx_bridge_testlib:op_bridge_api("stop", BridgeType, BridgeName),
+                    #{?snk_kind := StopTracePoint},
+                    5_000
+                )
+            ),
+
+            ?assertEqual(
+                {error, resource_is_stopped}, emqx_resource_manager:health_check(ResourceId)
+            ),
+
+            ?assertMatch(
+                {ok, {{_, 204, _}, _Headers, []}},
+                emqx_bridge_testlib:op_bridge_api("stop", BridgeType, BridgeName)
+            ),
+
+            ?assertEqual(
+                {error, resource_is_stopped}, emqx_resource_manager:health_check(ResourceId)
+            ),
+
+            ?assertMatch(
+                {ok, {{_, 204, _}, _Headers, []}},
+                emqx_bridge_testlib:op_bridge_api("start", BridgeType, BridgeName)
+            ),
+
+            ?retry(
+                _Sleep = 1_000,
+                _Attempts = 20,
+                ?assertEqual({ok, connected}, emqx_resource_manager:health_check(ResourceId))
+            ),
+
+            %% Disable the bridge, which will also stop it.
+            ?assertMatch(
+                {{ok, _}, {ok, _}},
+                ?wait_async_action(
+                    emqx_bridge:disable_enable(disable, BridgeType, BridgeName),
+                    #{?snk_kind := StopTracePoint},
+                    5_000
+                )
+            ),
+
+            ok
+        end,
+        fun(Trace) ->
+            %% one for probe, two for real
+            ?assertMatch(
+                [_, #{instance_id := ResourceId}, #{instance_id := ResourceId}],
+                ?of_kind(StopTracePoint, Trace)
+            ),
             ok
         end
     ),

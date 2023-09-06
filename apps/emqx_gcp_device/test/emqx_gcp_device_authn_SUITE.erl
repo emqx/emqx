@@ -23,7 +23,9 @@ all() ->
 
 init_per_suite(Config0) ->
     ok = snabbkaffe:start_trace(),
-    emqx_common_test_helpers:start_apps([emqx_conf, emqx_authn, emqx_gcp_device]),
+    Apps = emqx_cth_suite:start([emqx, emqx_conf, emqx_authn, emqx_gcp_device], #{
+        work_dir => ?config(priv_dir, Config0)
+    }),
     ValidExpirationTime = erlang:system_time(second) + 3600,
     ValidJWT = generate_jws(ValidExpirationTime),
     ExpiredJWT = generate_jws(0),
@@ -35,16 +37,16 @@ init_per_suite(Config0) ->
         {valid_jwt, ValidJWT},
         {expired_jwt, ExpiredJWT},
         {valid_client, ValidClient},
-        {expired_client, ExpiredClient}
+        {expired_client, ExpiredClient},
+        {apps, Apps}
         | Config0
     ].
 
-end_per_suite(_) ->
-    _ = emqx_common_test_helpers:stop_apps([emqx_authn, emqx_gcp_device]),
+end_per_suite(Config) ->
+    ok = emqx_cth_suite:stop(?config(apps, Config)),
     ok.
 
 init_per_testcase(_, Config) ->
-    {ok, _} = emqx_cluster_rpc:start_link(node(), emqx_cluster_rpc, 1000),
     Config.
 
 end_per_testcase(_Case, Config) ->

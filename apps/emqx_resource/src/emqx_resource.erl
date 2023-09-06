@@ -281,8 +281,12 @@ query(ResId, Request, Opts) ->
         {ok, _Group, #{query_mode := QM, error := Error}} ->
             case {QM, Error} of
                 {_, unhealthy_target} ->
+                    emqx_resource_metrics:matched_inc(ResId),
+                    emqx_resource_metrics:dropped_resource_stopped_inc(ResId),
                     ?RESOURCE_ERROR(unhealthy_target, "unhealthy target");
                 {_, {unhealthy_target, _Message}} ->
+                    emqx_resource_metrics:matched_inc(ResId),
+                    emqx_resource_metrics:dropped_resource_stopped_inc(ResId),
                     ?RESOURCE_ERROR(unhealthy_target, "unhealthy target");
                 {simple_async, _} ->
                     %% TODO(5.1.1): pass Resource instead of ResId to simple APIs

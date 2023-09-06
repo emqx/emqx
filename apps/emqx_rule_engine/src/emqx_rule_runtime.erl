@@ -493,11 +493,20 @@ apply_func(Other, _, _) ->
     }).
 
 do_apply_func(Module, Name, Args, Columns) ->
-    case erlang:apply(Module, Name, Args) of
-        Func when is_function(Func) ->
-            erlang:apply(Func, [Columns]);
-        Result ->
-            Result
+    try
+        case erlang:apply(Module, Name, Args) of
+            Func when is_function(Func) ->
+                erlang:apply(Func, [Columns]);
+            Result ->
+                Result
+        end
+    catch
+        error:function_clause ->
+            ?RAISE_BAD_SQL(#{
+                reason => bad_sql_function_argument,
+                arguments => Args,
+                function_name => Name
+            })
     end.
 
 add_metadata(Columns, Metadata) when is_map(Columns), is_map(Metadata) ->

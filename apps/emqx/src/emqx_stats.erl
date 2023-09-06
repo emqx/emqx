@@ -177,7 +177,9 @@ names() ->
         emqx_subscriptions_shared_count,
         emqx_subscriptions_shared_max,
         emqx_retained_count,
-        emqx_retained_max
+        emqx_retained_max,
+        emqx_delayed_count,
+        emqx_delayed_max
     ].
 
 %% @doc Get stats by name.

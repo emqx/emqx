@@ -71,7 +71,7 @@
 ]).
 
 -include_lib("emqx/include/logger.hrl").
--include_lib("emqx/include/emqx_authentication.hrl").
+-include_lib("emqx_authn/include/emqx_authentication.hrl").
 -define(AUTHN_BIN, ?EMQX_AUTHENTICATION_CONFIG_ROOT_NAME_BINARY).
 
 -type atom_or_bin() :: atom() | binary().

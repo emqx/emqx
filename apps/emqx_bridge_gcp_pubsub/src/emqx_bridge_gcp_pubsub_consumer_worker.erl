@@ -218,6 +218,8 @@ handle_continue(?ensure_subscription, State0) ->
         not_found ->
             %% there's nothing much to do if the topic suddenly doesn't exist anymore.
             {stop, {error, topic_not_found}, State0};
+        bad_credentials ->
+            {stop, {error, bad_credentials}, State0};
         permission_denied ->
             {stop, {error, permission_denied}, State0}
     end;
@@ -295,6 +297,7 @@ handle_info(Msg, State0) ->
 
 terminate({error, Reason}, State) when
     Reason =:= topic_not_found;
+    Reason =:= bad_credentials;
     Reason =:= permission_denied
 ->
     #{
@@ -335,7 +338,7 @@ ensure_pull_timer(State = #{pull_retry_interval := PullRetryInterval}) ->
     State#{pull_timer := emqx_utils:start_timer(PullRetryInterval, pull)}.
 
 -spec ensure_subscription_exists(state()) ->
-    continue | retry | not_found | permission_denied | already_exists.
+    continue | retry | not_found | permission_denied | bad_credentials | already_exists.
 ensure_subscription_exists(State) ->
     ?tp(gcp_pubsub_consumer_worker_create_subscription_enter, #{}),
     #{
@@ -384,6 +387,17 @@ ensure_subscription_exists(State) ->
                 }
             ),
             permission_denied;
+        {error, #{status_code := 401}} ->
+            %% bad credentials
+            ?tp(
+                warning,
+                "gcp_pubsub_consumer_worker_bad_credentials",
+                #{
+                    instance_id => InstanceId,
+                    topic => Topic
+                }
+            ),
+            bad_credentials;
         {ok, #{status_code := 200}} ->
             ?tp(
                 debug,

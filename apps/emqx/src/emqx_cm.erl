@@ -36,8 +36,6 @@
     insert_channel_info/3
 ]).
 
--export([connection_closed/1]).
-
 -export([
     get_chan_info/1,
     get_chan_info/2,
@@ -193,14 +191,6 @@ do_unregister_channel({_ClientId, ChanPid} = Chan) ->
     ets:delete_object(?CHAN_TAB, Chan),
     ok = emqx_hooks:run('cm.channel.unregistered', [ChanPid]),
     true.
-
--spec connection_closed(emqx_types:clientid()) -> true.
-connection_closed(ClientId) ->
-    connection_closed(ClientId, self()).
-
--spec connection_closed(emqx_types:clientid(), chan_pid()) -> true.
-connection_closed(ClientId, ChanPid) ->
-    ets:delete_object(?CHAN_CONN_TAB, {ClientId, ChanPid}).
 
 %% @doc Get info of a channel.
 -spec get_chan_info(emqx_types:clientid()) -> maybe(emqx_types:infos()).

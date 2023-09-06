@@ -30,12 +30,12 @@
     "  headers = { Authorization = \"some-authz-tokens\"}\n"
     "  job_name = \"${name}~${host}\"\n"
     "  enable = true\n"
-    "  vm_dist_collector = enabled\n"
-    "  mnesia_collector = enabled\n"
+    "  vm_dist_collector = disabled\n"
+    "  mnesia_collector = disabled\n"
     "  vm_statistics_collector = disabled\n"
     "  vm_system_info_collector = disabled\n"
-    "  vm_memory_collector = enabled\n"
-    "  vm_msacc_collector = enabled\n"
+    "  vm_memory_collector = disabled\n"
+    "  vm_msacc_collector = disabled\n"
     "}\n"
 >>).
 

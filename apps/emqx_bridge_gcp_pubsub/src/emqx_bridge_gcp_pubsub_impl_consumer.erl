@@ -94,6 +94,8 @@ on_get_status(InstanceId, State) ->
             {disconnected, State, {unhealthy_target, ?TOPIC_MESSAGE}};
         {error, permission_denied} ->
             {disconnected, State, {unhealthy_target, ?PERMISSION_MESSAGE}};
+        {error, bad_credentials} ->
+            {disconnected, State, {unhealthy_target, ?PERMISSION_MESSAGE}};
         ok ->
             #{client := Client} = State,
             check_workers(InstanceId, Client)
@@ -103,7 +105,12 @@ on_get_status(InstanceId, State) ->
 %% Health check API (signalled by consumer worker)
 %%-------------------------------------------------------------------------------------------------
 
--spec mark_as_unhealthy(resource_id(), topic_not_found | permission_denied) -> ok.
+-spec mark_as_unhealthy(
+    resource_id(),
+    topic_not_found
+    | permission_denied
+    | bad_credentials
+) -> ok.
 mark_as_unhealthy(InstanceId, Reason) ->
     optvar:set(?OPTVAR_UNHEALTHY(InstanceId), Reason),
     ok.
@@ -114,7 +121,12 @@ clear_unhealthy(InstanceId) ->
     ?tp(gcp_pubsub_consumer_clear_unhealthy, #{}),
     ok.
 
--spec check_if_unhealthy(resource_id()) -> ok | {error, topic_not_found | permission_denied}.
+-spec check_if_unhealthy(resource_id()) ->
+    ok
+    | {error,
+        topic_not_found
+        | permission_denied
+        | bad_credentials}.
 check_if_unhealthy(InstanceId) ->
     case optvar:peek(?OPTVAR_UNHEALTHY(InstanceId)) of
         {ok, Reason} ->
@@ -160,6 +172,11 @@ start_consumers(InstanceId, Client, Config) ->
                 {unhealthy_target, ?TOPIC_MESSAGE}
             );
         {error, permission_denied} ->
+            _ = emqx_bridge_gcp_pubsub_client:stop(InstanceId),
+            throw(
+                {unhealthy_target, ?PERMISSION_MESSAGE}
+            );
+        {error, bad_credentials} ->
             _ = emqx_bridge_gcp_pubsub_client:stop(InstanceId),
             throw(
                 {unhealthy_target, ?PERMISSION_MESSAGE}
@@ -242,6 +259,8 @@ check_for_topic_existence(Topic, Client) ->
             {error, not_found};
         {error, #{status_code := 403}} ->
             {error, permission_denied};
+        {error, #{status_code := 401}} ->
+            {error, bad_credentials};
         {error, Reason} ->
             ?tp(warning, "gcp_pubsub_consumer_check_topic_error", #{reason => Reason}),
             {error, Reason}

@@ -70,7 +70,7 @@ restart(NameVsn, LogFun) ->
     ?PRINT(emqx_plugins:restart(NameVsn), LogFun).
 
 ensure_enabled(NameVsn, Position, LogFun) ->
-    ?PRINT(emqx_plugins:ensure_enabled(NameVsn, Position), LogFun).
+    ?PRINT(emqx_plugins:ensure_enabled(NameVsn, Position, _ConfLocation = global), LogFun).
 
 ensure_disabled(NameVsn, LogFun) ->
     ?PRINT(emqx_plugins:ensure_disabled(NameVsn), LogFun).

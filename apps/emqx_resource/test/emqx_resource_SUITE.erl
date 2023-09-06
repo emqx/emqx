@@ -899,6 +899,38 @@ t_healthy(_) ->
         end
     ).
 
+t_unhealthy_target(_) ->
+    HealthCheckError = {unhealthy_target, "some message"},
+    ?assertMatch(
+        {ok, _},
+        emqx_resource:create_local(
+            ?ID,
+            ?DEFAULT_RESOURCE_GROUP,
+            ?TEST_RESOURCE,
+            #{name => test_resource, health_check_error => {msg, HealthCheckError}}
+        )
+    ),
+    ?assertEqual(
+        {ok, disconnected},
+        emqx_resource:health_check(?ID)
+    ),
+    ?assertMatch(
+        {ok, _Group, #{error := HealthCheckError}},
+        emqx_resource_manager:lookup(?ID)
+    ),
+    %% messages are dropped when bridge is unhealthy
+    lists:foreach(
+        fun(_) ->
+            ?assertMatch(
+                {error, {resource_error, #{reason := unhealthy_target}}},
+                emqx_resource:query(?ID, message)
+            )
+        end,
+        lists:seq(1, 3)
+    ),
+    ?assertEqual(3, emqx_resource_metrics:matched_get(?ID)),
+    ?assertEqual(3, emqx_resource_metrics:dropped_resource_stopped_get(?ID)).
+
 t_stop_start(_) ->
     ?check_trace(
         begin
@@ -1121,10 +1153,58 @@ t_create_dry_run_local_failed(_) ->
     ).
 
 t_test_func(_) ->
+    IsErrorMsgPlainString = fun({error, Msg}) -> io_lib:printable_list(Msg) end,
     ?assertEqual(ok, erlang:apply(emqx_resource_validator:not_empty("not_empty"), [<<"someval">>])),
     ?assertEqual(ok, erlang:apply(emqx_resource_validator:min(int, 3), [4])),
     ?assertEqual(ok, erlang:apply(emqx_resource_validator:max(array, 10), [[a, b, c, d]])),
-    ?assertEqual(ok, erlang:apply(emqx_resource_validator:max(string, 10), ["less10"])).
+    ?assertEqual(ok, erlang:apply(emqx_resource_validator:max(string, 10), ["less10"])),
+    ?assertEqual(
+        true, IsErrorMsgPlainString(erlang:apply(emqx_resource_validator:min(int, 66), [42]))
+    ),
+    ?assertEqual(
+        true, IsErrorMsgPlainString(erlang:apply(emqx_resource_validator:max(int, 42), [66]))
+    ),
+    ?assertEqual(
+        true, IsErrorMsgPlainString(erlang:apply(emqx_resource_validator:min(array, 3), [[1, 2]]))
+    ),
+    ?assertEqual(
+        true,
+        IsErrorMsgPlainString(erlang:apply(emqx_resource_validator:max(array, 3), [[1, 2, 3, 4]]))
+    ),
+    ?assertEqual(
+        true, IsErrorMsgPlainString(erlang:apply(emqx_resource_validator:min(string, 3), ["1"]))
+    ),
+    ?assertEqual(
+        true, IsErrorMsgPlainString(erlang:apply(emqx_resource_validator:max(string, 3), ["1234"]))
+    ),
+    NestedMsg = io_lib:format("The answer: ~p", [42]),
+    ExpectedMsg = "The answer: 42",
+    BinMsg = <<"The answer: 42">>,
+    MapMsg = #{question => "The question", answer => 42},
+    ?assertEqual(
+        {error, ExpectedMsg},
+        erlang:apply(emqx_resource_validator:not_empty(NestedMsg), [""])
+    ),
+    ?assertEqual(
+        {error, ExpectedMsg},
+        erlang:apply(emqx_resource_validator:not_empty(NestedMsg), [<<>>])
+    ),
+    ?assertEqual(
+        {error, ExpectedMsg},
+        erlang:apply(emqx_resource_validator:not_empty(NestedMsg), [undefined])
+    ),
+    ?assertEqual(
+        {error, ExpectedMsg},
+        erlang:apply(emqx_resource_validator:not_empty(NestedMsg), [undefined])
+    ),
+    ?assertEqual(
+        {error, BinMsg},
+        erlang:apply(emqx_resource_validator:not_empty(BinMsg), [undefined])
+    ),
+    ?assertEqual(
+        {error, MapMsg},
+        erlang:apply(emqx_resource_validator:not_empty(MapMsg), [""])
+    ).
 
 t_reset_metrics(_) ->
     {ok, _} = emqx_resource:create(

@@ -26,6 +26,7 @@
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
 -include_lib("emqx/include/emqx.hrl").
+-include_lib("emqx/include/emqx_hooks.hrl").
 -include_lib("emqx/include/emqx_mqtt.hrl").
 
 all() ->
@@ -695,28 +696,17 @@ t_connect_client_never_negative({'end', _Config}) ->
 
 t_connack_auth_error({init, Config}) ->
     process_flag(trap_exit, true),
-    ChainName = 'mqtt:global',
-    AuthenticatorConfig = #{
-        enable => true,
-        mechanism => password_based,
-        backend => built_in_database,
-        user_id_type => username,
-        password_hash_algorithm => #{
-            name => plain,
-            salt_position => disable
-        },
-        user_group => <<"global:mqtt">>
-    },
-    ok = emqx_authentication:register_providers(
-        [{{password_based, built_in_database}, emqx_authentication_SUITE}]
+    emqx_hooks:put(
+        'client.authenticate',
+        {?MODULE, authenticate_deny, []},
+        ?HP_AUTHN
     ),
-    emqx_authentication:initialize_authentication(ChainName, AuthenticatorConfig),
     Config;
 t_connack_auth_error({'end', _Config}) ->
-    ChainName = 'mqtt:global',
-    AuthenticatorID = <<"password_based:built_in_database">>,
-    ok = emqx_authentication:deregister_provider({password_based, built_in_database}),
-    ok = emqx_authentication:delete_authenticator(ChainName, AuthenticatorID),
+    emqx_hooks:del(
+        'client.authenticate',
+        {?MODULE, authenticate_deny, []}
+    ),
     ok;
 t_connack_auth_error(Config) when is_list(Config) ->
     %% MQTT 3.1
@@ -747,6 +737,9 @@ t_handle_in_empty_client_subscribe_hook(Config) when is_list(Config) ->
     after
         emqtt:disconnect(C)
     end.
+
+authenticate_deny(_Credentials, _Default) ->
+    {stop, {error, bad_username_or_password}}.
 
 wait_for_events(Action, Kinds) ->
     wait_for_events(Action, Kinds, 500).

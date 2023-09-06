@@ -344,7 +344,7 @@ configs(get, #{query_string := QueryStr, headers := Headers}, _Req) ->
         {error, _} = Error -> {400, #{code => 'INVALID_ACCEPT', message => ?ERR_MSG(Error)}}
     end;
 configs(put, #{body := Conf, query_string := #{<<"mode">> := Mode}}, _Req) ->
-    case emqx_conf_cli:load_config(Conf, Mode) of
+    case emqx_conf_cli:load_config(Conf, #{mode => Mode, log => none}) of
         ok -> {200};
         {error, Msg} -> {400, #{<<"content-type">> => <<"text/plain">>}, Msg}
     end.
