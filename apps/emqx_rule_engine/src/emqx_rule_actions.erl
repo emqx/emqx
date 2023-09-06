@@ -255,7 +255,7 @@ format_mqtt_properties(MQTTPropertiesTemplate, Selected, Env) ->
                 catch
                     Kind:Error ->
                         ?SLOG(
-                            error,
+                            debug,
                             #{
                                 msg => "bad_mqtt_property_value_ignored",
                                 rule_id => RuleId,
@@ -292,7 +292,7 @@ coerce_properties_values(MQTTProperties, #{metadata := #{rule_id := RuleId}}) ->
             catch
                 throw:bad_integer ->
                     ?SLOG(
-                        error,
+                        debug,
                         #{
                             msg => "bad_mqtt_property_value_ignored",
                             rule_id => RuleId,
@@ -304,7 +304,7 @@ coerce_properties_values(MQTTProperties, #{metadata := #{rule_id := RuleId}}) ->
                     Acc;
                 Kind:Reason:Stacktrace ->
                     ?SLOG(
-                        error,
+                        debug,
                         #{
                             msg => "bad_mqtt_property_value_ignored",
                             rule_id => RuleId,
