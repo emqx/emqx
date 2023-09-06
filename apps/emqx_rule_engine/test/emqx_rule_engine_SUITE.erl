@@ -1589,6 +1589,81 @@ t_sqlselect_03(_Config) ->
         #{expected_props => ExpectedMQTTProps4}
     ),
 
+    ct:pal("testing a payload with a more complex placeholder"),
+    Repub1 = republish_action(
+        <<"t/republish">>,
+        <<"${.}">>,
+        <<"${pub_props.'User-Property'}">>,
+        #{
+            %% Note: `Payload-Format-Indicator' is capped at 225.
+            <<"Payload-Format-Indicator">> => <<"1${.payload.pfi}3">>,
+            <<"Message-Expiry-Interval">> => <<"9${.payload.mei}6">>
+        }
+    ),
+    RepubRaw1 = emqx_utils_maps:binary_key_map(Repub1#{function => <<"republish">>}),
+    ct:pal("republish action raw:\n  ~p", [RepubRaw1]),
+    RuleRaw1 = #{
+        <<"sql">> => SQL,
+        <<"actions">> => [RepubRaw1]
+    },
+    {ok, _} = emqx_conf:update([rule_engine, rules, ?TMP_RULEID], RuleRaw1, #{}),
+
+    Payload2 =
+        emqx_utils_json:encode(#{
+            pfi => <<"2">>,
+            mei => <<"87">>
+        }),
+    emqtt:publish(Client, <<"t/r">>, PubProps, Payload2, [{qos, 0}]),
+    ExpectedMQTTProps5 = #{
+        %% Note: PFI should be 0 or 1 according to spec, but we don't validate this when
+        %% serializing nor parsing...
+        'Payload-Format-Indicator' => 123,
+        'Message-Expiry-Interval' => 9876,
+        %% currently, `Topic-Alias' is dropped `emqx_message:filter_pub_props',
+        %% so the channel controls those aliases on its own, starting from 1.
+        'Topic-Alias' => 1,
+        'User-Property' => UserProps
+    },
+    receive
+        {publish, #{topic := T3, properties := Props4}} ->
+            ?assertEqual(ExpectedMQTTProps5, Props4),
+            %% empty this time, due to topic alias set before
+            ?assertEqual(<<>>, T3),
+            ok
+    after 2000 ->
+        ct:pal("mailbox:\n  ~p", [?drainMailbox()]),
+        ct:fail("message not republished (l. ~b)", [?LINE])
+    end,
+
+    ct:pal("testing payload-format-indicator cap"),
+    Payload3 =
+        emqx_utils_json:encode(#{
+            pfi => <<"999999">>,
+            mei => <<"87">>
+        }),
+    emqtt:publish(Client, <<"t/r">>, PubProps, Payload3, [{qos, 0}]),
+    ExpectedMQTTProps6 = #{
+        %% Note: PFI should be 0 or 1 according to spec, but we don't validate this when
+        %% serializing nor parsing...
+        %% Note: PFI is capped at 16#FF
+        'Payload-Format-Indicator' => 16#FF band 19999993,
+        'Message-Expiry-Interval' => 9876,
+        %% currently, `Topic-Alias' is dropped `emqx_message:filter_pub_props',
+        %% so the channel controls those aliases on its own, starting from 1.
+        'Topic-Alias' => 1,
+        'User-Property' => UserProps
+    },
+    receive
+        {publish, #{topic := T4, properties := Props5}} ->
+            ?assertEqual(ExpectedMQTTProps6, Props5),
+            %% empty this time, due to topic alias set before
+            ?assertEqual(<<>>, T4),
+            ok
+    after 2000 ->
+        ct:pal("mailbox:\n  ~p", [?drainMailbox()]),
+        ct:fail("message not republished (l. ~b)", [?LINE])
+    end,
+
     ok.
 
 t_sqlselect_1(_Config) ->
