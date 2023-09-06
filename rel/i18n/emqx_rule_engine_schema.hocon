@@ -107,7 +107,7 @@ republish_args_user_properties.label:
 """User Properties"""
 
 republish_args_mqtt_properties.desc:
-"""From which variable should the MQTT Publish Properties of the message be taken from.
+"""From which variable should the MQTT Publish Properties of the message be taken.
 Placeholders like <code>${.payload.content_type}</code> may be used."""
 
 republish_args_mqtt_properties.label:

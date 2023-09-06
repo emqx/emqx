@@ -257,9 +257,10 @@ format_mqtt_properties(MQTTPropertiesTemplate, Selected, Env) ->
                         ?SLOG(
                             error,
                             #{
-                                msg => "bad_mqtt_prop_value",
+                                msg => "bad_mqtt_property_value_ignored",
                                 rule_id => RuleId,
-                                reason => {Kind, Error},
+                                exception => Kind,
+                                reason => Error,
                                 property => K,
                                 selected => Selected
                             }
@@ -297,9 +298,10 @@ coerce_properties_values(MQTTProperties, #{metadata := #{rule_id := RuleId}}) ->
                     ?SLOG(
                         error,
                         #{
-                            msg => "bad_mqtt_prop_value",
+                            msg => "bad_mqtt_property_value_ignored",
                             rule_id => RuleId,
-                            reason => {Kind, Error},
+                            reason => Error,
+                            exception => Kind,
                             property => K,
                             value => V
                         }
