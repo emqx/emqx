@@ -188,9 +188,7 @@ fields("republish_mqtt_properties") ->
         {'Content-Type', ?HOCON(binary(), #{required => false, desc => ?DESC('Content-Type')})},
         {'Response-Topic', ?HOCON(binary(), #{required => false, desc => ?DESC('Response-Topic')})},
         {'Correlation-Data',
-            ?HOCON(binary(), #{required => false, desc => ?DESC('Correlation-Data')})},
-        {'Subscription-Identifier',
-            ?HOCON(binary(), #{required => false, desc => ?DESC('Subscription-Identifier')})}
+            ?HOCON(binary(), #{required => false, desc => ?DESC('Correlation-Data')})}
     ].
 
 desc("rule_engine") ->

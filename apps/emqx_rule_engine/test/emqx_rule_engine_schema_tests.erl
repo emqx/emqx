@@ -43,7 +43,6 @@ rule_engine.rules.my_rule {
           \"Content-Type\" = \"${.payload.ct}\"
           \"Response-Topic\" = \"${.payload.rt}\"
           \"Correlation-Data\" = \"${.payload.cd}\"
-          \"Subscription-Identifier\" = \"${.payload.si}\"
         }
         user_properties = \"${pub_props.'User-Property'}\"
       }
@@ -113,8 +112,7 @@ republish_test_() ->
                                                 <<"Message-Expiry-Interval">> := <<_/binary>>,
                                                 <<"Content-Type">> := <<_/binary>>,
                                                 <<"Response-Topic">> := <<_/binary>>,
-                                                <<"Correlation-Data">> := <<_/binary>>,
-                                                <<"Subscription-Identifier">> := <<_/binary>>
+                                                <<"Correlation-Data">> := <<_/binary>>
                                             }
                                     }
                             },

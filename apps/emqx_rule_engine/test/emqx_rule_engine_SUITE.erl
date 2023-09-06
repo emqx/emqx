@@ -1424,8 +1424,7 @@ t_sqlselect_03(_Config) ->
             <<"Message-Expiry-Interval">> => <<"${.payload.mei}">>,
             <<"Content-Type">> => <<"${.payload.ct}">>,
             <<"Response-Topic">> => <<"${.payload.rt}">>,
-            <<"Correlation-Data">> => <<"${.payload.cd}">>,
-            <<"Subscription-Identifier">> => <<"${.payload.si}">>
+            <<"Correlation-Data">> => <<"${.payload.cd}">>
         }
     ),
     RepubRaw = emqx_utils_maps:binary_key_map(Repub#{function => <<"republish">>}),
@@ -1462,9 +1461,7 @@ t_sqlselect_03(_Config) ->
                 mei => 2,
                 ct => <<"3">>,
                 rt => <<"4">>,
-                cd => <<"5">>,
-                si => 6,
-                ta => 7
+                cd => <<"5">>
             }
         ),
     {ok, Client} = emqtt:start_link([
@@ -1482,7 +1479,6 @@ t_sqlselect_03(_Config) ->
         'Content-Type' => <<"3">>,
         'Response-Topic' => <<"4">>,
         'Correlation-Data' => <<"5">>,
-        'Subscription-Identifier' => 6,
         %% currently, `Topic-Alias' is dropped `emqx_message:filter_pub_props',
         %% so the channel controls those aliases on its own, starting from 1.
         'Topic-Alias' => 1,
@@ -1503,7 +1499,6 @@ t_sqlselect_03(_Config) ->
         'Content-Type' => <<"3">>,
         'Response-Topic' => <<"4">>,
         'Correlation-Data' => <<"5">>,
-        'Subscription-Identifier' => 6,
         'User-Property' => maps:from_list(UserProps),
         'User-Property-Pairs' => [
             #{key => K, value => V}
@@ -1524,6 +1519,9 @@ t_sqlselect_03(_Config) ->
     ct:pal("testing payload that is not a json object"),
     emqtt:publish(Client, <<"t/r">>, PubProps, <<"not-a-map">>, [{qos, 0}]),
     ExpectedMQTTProps2 = #{
+        'Content-Type' => <<"undefined">>,
+        'Correlation-Data' => <<"undefined">>,
+        'Response-Topic' => <<"undefined">>,
         %% currently, `Topic-Alias' is dropped `emqx_message:filter_pub_props',
         %% so the channel controls those aliases on its own, starting from 1.
         'Topic-Alias' => 1,
@@ -1548,9 +1546,7 @@ t_sqlselect_03(_Config) ->
             mei => <<"bad_value2">>,
             ct => <<"some_value3">>,
             rt => <<"some_value4">>,
-            cd => <<"some_value5">>,
-            si => <<"bad_value6">>,
-            ta => <<"bad_value7">>
+            cd => <<"some_value5">>
         }),
     emqtt:publish(Client, <<"t/r">>, PubProps, Payload1, [{qos, 0}]),
     ExpectedMQTTProps3 = #{
