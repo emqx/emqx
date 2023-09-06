@@ -18,9 +18,9 @@
 
 -export([is_enabled/1]).
 
--define(BOOT_MODULES, [router, broker, listeners]).
+-define(BOOT_MODULES, [broker, listeners]).
 
--spec is_enabled(all | router | broker | listeners) -> boolean().
+-spec is_enabled(all | broker | listeners) -> boolean().
 is_enabled(Mod) ->
     (BootMods = boot_modules()) =:= all orelse lists:member(Mod, BootMods).
 
