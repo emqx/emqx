@@ -273,37 +273,46 @@ format_mqtt_properties(MQTTPropertiesTemplate, Selected, Env) ->
         ),
     coerce_properties_values(MQTTProperties0, Env).
 
-ensure_int(B) when is_binary(B) -> binary_to_integer(B);
-ensure_int(I) when is_integer(I) -> I.
+ensure_int(B) when is_binary(B) ->
+    try
+        binary_to_integer(B)
+    catch
+        error:badarg ->
+            throw(bad_integer)
+    end;
+ensure_int(I) when is_integer(I) ->
+    I.
 
 coerce_properties_values(MQTTProperties, #{metadata := #{rule_id := RuleId}}) ->
-    PublishProperties =
-        maps:from_list([
-            {K, T}
-         || {_Id, {K, T, Tags}} <- maps:to_list(emqtt_props:all()),
-            is_list(Tags) andalso lists:member(?PUBLISH, Tags)
-        ]),
     maps:fold(
-        fun(K, V, Acc) ->
+        fun(K, V0, Acc) ->
             try
-                case maps:get(K, PublishProperties) of
-                    'Byte' -> Acc#{K => ensure_int(V)};
-                    'Two-Byte-Integer' -> Acc#{K => ensure_int(V)};
-                    'Four-Byte-Integer' -> Acc#{K => ensure_int(V)};
-                    'Variable-Byte-Integer' -> Acc#{K => ensure_int(V)};
-                    _ -> Acc#{K => V}
-                end
+                V = encode_mqtt_property(K, V0),
+                Acc#{K => V}
             catch
-                Kind:Error ->
+                throw:bad_integer ->
                     ?SLOG(
                         error,
                         #{
                             msg => "bad_mqtt_property_value_ignored",
                             rule_id => RuleId,
-                            reason => Error,
-                            exception => Kind,
+                            reason => bad_integer,
                             property => K,
-                            value => V
+                            value => V0
+                        }
+                    ),
+                    Acc;
+                Kind:Reason:Stacktrace ->
+                    ?SLOG(
+                        error,
+                        #{
+                            msg => "bad_mqtt_property_value_ignored",
+                            rule_id => RuleId,
+                            exception => Kind,
+                            reason => Reason,
+                            property => K,
+                            value => V0,
+                            stacktrace => Stacktrace
                         }
                     ),
                     Acc
@@ -312,3 +321,10 @@ coerce_properties_values(MQTTProperties, #{metadata := #{rule_id := RuleId}}) ->
         #{},
         MQTTProperties
     ).
+
+%% Note: currently we do not support `Topic-Alias', which would need to be encoded as an
+%% int.
+encode_mqtt_property('Payload-Format-Indicator', V) -> ensure_int(V);
+encode_mqtt_property('Message-Expiry-Interval', V) -> ensure_int(V);
+encode_mqtt_property('Subscription-Identifier', V) -> ensure_int(V);
+encode_mqtt_property(_Prop, V) -> V.
