@@ -293,6 +293,66 @@ t_kv_store(_) ->
     emqx_rule_funcs:kv_store_del(<<"abc">>),
     undefined = emqx_rule_funcs:kv_store_get(<<"abc">>).
 
+t_function_clause_errors(_Config) ->
+    SQL0 = <<"select upper(xxxx) from \"t/a\"">>,
+    Payload = <<"{}">>,
+    ?assertMatch(
+        {error,
+            {select_and_transform_error,
+                {throw,
+                    #{
+                        arguments := [undefined],
+                        reason := bad_sql_function_argument,
+                        function_name := upper
+                    },
+                    _Stack}}},
+        emqx_rule_sqltester:test(
+            #{
+                sql => SQL0,
+                context => #{payload => Payload, topic => <<"t/a">>}
+            }
+        )
+    ),
+    SQL1 = <<"foreach xs as x do upper(xxxx) from \"t/a\"">>,
+    ?assertMatch(
+        {error, {
+            {doeach_error,
+                {throw,
+                    #{
+                        arguments := [undefined],
+                        reason := bad_sql_function_argument,
+                        function_name := upper
+                    },
+                    _Stack0}},
+            _Stack1
+        }},
+        emqx_rule_sqltester:test(
+            #{
+                sql => SQL1,
+                context => #{payload => Payload, xs => [1, 2, 3], topic => <<"t/a">>}
+            }
+        )
+    ),
+    SQL2 = <<"foreach upper(xxxx) as x from \"t/a\"">>,
+    ?assertMatch(
+        {error,
+            {select_and_collect_error,
+                {throw,
+                    #{
+                        arguments := [undefined],
+                        reason := bad_sql_function_argument,
+                        function_name := upper
+                    },
+                    _Stack}}},
+        emqx_rule_sqltester:test(
+            #{
+                sql => SQL2,
+                context => #{payload => Payload, topic => <<"t/a">>}
+            }
+        )
+    ),
+    ok.
+
 %%------------------------------------------------------------------------------
 %% Test cases for rule registry
 %%------------------------------------------------------------------------------

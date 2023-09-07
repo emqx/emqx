@@ -122,20 +122,4 @@
     until :: integer()
 }).
 
-%%--------------------------------------------------------------------
-%% Authentication
-%%--------------------------------------------------------------------
-
--record(authenticator, {
-    id :: binary(),
-    provider :: module(),
-    enable :: boolean(),
-    state :: map()
-}).
-
--record(chain, {
-    name :: atom(),
-    authenticators :: [#authenticator{}]
-}).
-
 -endif.

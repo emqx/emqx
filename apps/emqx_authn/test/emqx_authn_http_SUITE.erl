@@ -65,18 +65,17 @@ all() ->
     emqx_common_test_helpers:all(?MODULE).
 
 init_per_suite(Config) ->
-    _ = application:load(emqx_conf),
-    emqx_common_test_helpers:start_apps([emqx_authn]),
-    application:ensure_all_started(cowboy),
-    Config.
+    Apps = emqx_cth_suite:start([cowboy, emqx, emqx_conf, emqx_authn], #{
+        work_dir => ?config(priv_dir, Config)
+    }),
+    [{apps, Apps} | Config].
 
-end_per_suite(_) ->
+end_per_suite(Config) ->
     emqx_authn_test_lib:delete_authenticators(
         [authentication],
         ?GLOBAL
     ),
-    emqx_common_test_helpers:stop_apps([emqx_authn]),
-    application:stop(cowboy),
+    ok = emqx_cth_suite:stop(?config(apps, Config)),
     ok.
 
 init_per_testcase(_Case, Config) ->

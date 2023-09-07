@@ -118,7 +118,7 @@ new_conn(
                     {stop, stream_accept_error, S}
             end;
         true ->
-            emqx_metrics:inc('olp.new_conn'),
+            emqx_metrics:inc('overload_protection.new_conn'),
             _ = quicer:async_shutdown_connection(
                 Conn,
                 ?QUIC_CONNECTION_SHUTDOWN_FLAG_NONE,

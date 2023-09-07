@@ -55,6 +55,7 @@
 ]).
 
 -export([config_key_path/0]).
+-export([validate_bridge_name/1]).
 
 %% exported for `emqx_telemetry'
 -export([get_basic_usage_info/0]).
@@ -95,6 +96,9 @@
 ).
 
 -define(ROOT_KEY, bridges).
+
+%% See `hocon_tconf`
+-define(MAP_KEY_RE, <<"^[A-Za-z0-9]+[A-Za-z0-9-_]*$">>).
 
 load() ->
     Bridges = emqx:get_config([?ROOT_KEY], #{}),
@@ -580,3 +584,19 @@ get_basic_usage_info() ->
         _:_ ->
             InitialAcc
     end.
+
+validate_bridge_name(BridgeName0) ->
+    BridgeName = to_bin(BridgeName0),
+    case re:run(BridgeName, ?MAP_KEY_RE, [{capture, none}]) of
+        match ->
+            ok;
+        nomatch ->
+            {error, #{
+                kind => validation_error,
+                reason => bad_bridge_name,
+                value => BridgeName
+            }}
+    end.
+
+to_bin(A) when is_atom(A) -> atom_to_binary(A, utf8);
+to_bin(B) when is_binary(B) -> B.

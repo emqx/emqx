@@ -29,10 +29,6 @@
 -define(kafka_client_id, kafka_client_id).
 -define(kafka_producers, kafka_producers).
 
-%% TODO: rename this to `kafka_producer' after alias support is added
-%% to hocon; keeping this as just `kafka' for backwards compatibility.
--define(BRIDGE_TYPE, kafka).
-
 query_mode(#{kafka := #{query_mode := sync}}) ->
     simple_sync;
 query_mode(_) ->
@@ -46,6 +42,7 @@ on_start(InstId, Config) ->
         authentication := Auth,
         bootstrap_hosts := Hosts0,
         bridge_name := BridgeName,
+        bridge_type := BridgeType,
         connect_timeout := ConnTimeout,
         kafka := KafkaConfig = #{
             message := MessageTemplate,
@@ -60,7 +57,6 @@ on_start(InstId, Config) ->
     KafkaHeadersTokens = preproc_kafka_headers(maps:get(kafka_headers, KafkaConfig, undefined)),
     KafkaExtHeadersTokens = preproc_ext_headers(maps:get(kafka_ext_headers, KafkaConfig, [])),
     KafkaHeadersValEncodeMode = maps:get(kafka_header_value_encode_mode, KafkaConfig, none),
-    BridgeType = ?BRIDGE_TYPE,
     ResourceId = emqx_bridge_resource:resource_id(BridgeType, BridgeName),
     ok = emqx_resource:allocate_resource(InstId, ?kafka_resource_id, ResourceId),
     _ = maybe_install_wolff_telemetry_handlers(ResourceId),
@@ -107,7 +103,7 @@ on_start(InstId, Config) ->
             _ ->
                 string:equal(TestIdStart, InstId)
         end,
-    WolffProducerConfig = producers_config(BridgeName, ClientId, KafkaConfig, IsDryRun),
+    WolffProducerConfig = producers_config(BridgeType, BridgeName, ClientId, KafkaConfig, IsDryRun),
     case wolff:ensure_supervised_producers(ClientId, KafkaTopic, WolffProducerConfig) of
         {ok, Producers} ->
             ok = emqx_resource:allocate_resource(InstId, ?kafka_producers, Producers),
@@ -213,7 +209,7 @@ on_stop(InstanceId, _State) ->
     ok.
 
 on_query(
-    _InstId,
+    InstId,
     {send_message, Message},
     #{
         message_template := Template,
@@ -229,19 +225,34 @@ on_query(
         ext_headers_tokens => KafkaExtHeadersTokens,
         headers_val_encode_mode => KafkaHeadersValEncodeMode
     },
-    KafkaMessage = render_message(Template, KafkaHeaders, Message),
-    ?tp(
-        emqx_bridge_kafka_impl_producer_sync_query,
-        #{headers_config => KafkaHeaders, instance_id => _InstId}
-    ),
     try
-        {_Partition, _Offset} = wolff:send_sync(Producers, [KafkaMessage], SyncTimeout),
-        ok
+        KafkaMessage = render_message(Template, KafkaHeaders, Message),
+        ?tp(
+            emqx_bridge_kafka_impl_producer_sync_query,
+            #{headers_config => KafkaHeaders, instance_id => InstId}
+        ),
+        do_send_msg(sync, KafkaMessage, Producers, SyncTimeout)
     catch
-        error:{producer_down, _} = Reason ->
-            {error, Reason};
-        error:timeout ->
-            {error, timeout}
+        throw:{bad_kafka_header, _} = Error ->
+            ?tp(
+                emqx_bridge_kafka_impl_producer_sync_query_failed,
+                #{
+                    headers_config => KafkaHeaders,
+                    instance_id => InstId,
+                    reason => Error
+                }
+            ),
+            {error, {unrecoverable_error, Error}};
+        throw:{bad_kafka_headers, _} = Error ->
+            ?tp(
+                emqx_bridge_kafka_impl_producer_sync_query_failed,
+                #{
+                    headers_config => KafkaHeaders,
+                    instance_id => InstId,
+                    reason => Error
+                }
+            ),
+            {error, {unrecoverable_error, Error}}
     end.
 
 %% @doc The callback API for rule-engine (or bridge without rules)
@@ -251,7 +262,7 @@ on_query(
 %% E.g. the output of rule-engine process chain
 %% or the direct mapping from an MQTT message.
 on_query_async(
-    _InstId,
+    InstId,
     {send_message, Message},
     AsyncReplyFn,
     #{
@@ -267,26 +278,40 @@ on_query_async(
         ext_headers_tokens => KafkaExtHeadersTokens,
         headers_val_encode_mode => KafkaHeadersValEncodeMode
     },
-    KafkaMessage = render_message(Template, KafkaHeaders, Message),
-    ?tp(
-        emqx_bridge_kafka_impl_producer_async_query,
-        #{headers_config => KafkaHeaders, instance_id => _InstId}
-    ),
-    %% * Must be a batch because wolff:send and wolff:send_sync are batch APIs
-    %% * Must be a single element batch because wolff books calls, but not batch sizes
-    %%   for counters and gauges.
-    Batch = [KafkaMessage],
-    %% The retuned information is discarded here.
-    %% If the producer process is down when sending, this function would
-    %% raise an error exception which is to be caught by the caller of this callback
-    {_Partition, Pid} = wolff:send(Producers, Batch, {fun ?MODULE:on_kafka_ack/3, [AsyncReplyFn]}),
-    %% this Pid is so far never used because Kafka producer is by-passing the buffer worker
-    {ok, Pid}.
+    try
+        KafkaMessage = render_message(Template, KafkaHeaders, Message),
+        ?tp(
+            emqx_bridge_kafka_impl_producer_async_query,
+            #{headers_config => KafkaHeaders, instance_id => InstId}
+        ),
+        do_send_msg(async, KafkaMessage, Producers, AsyncReplyFn)
+    catch
+        throw:{bad_kafka_header, _} = Error ->
+            ?tp(
+                emqx_bridge_kafka_impl_producer_async_query_failed,
+                #{
+                    headers_config => KafkaHeaders,
+                    instance_id => InstId,
+                    reason => Error
+                }
+            ),
+            {error, {unrecoverable_error, Error}};
+        throw:{bad_kafka_headers, _} = Error ->
+            ?tp(
+                emqx_bridge_kafka_impl_producer_async_query_failed,
+                #{
+                    headers_config => KafkaHeaders,
+                    instance_id => InstId,
+                    reason => Error
+                }
+            ),
+            {error, {unrecoverable_error, Error}}
+    end.
 
 compile_message_template(T) ->
     KeyTemplate = maps:get(key, T, <<"${.clientid}">>),
     ValueTemplate = maps:get(value, T, <<"${.}">>),
-    TimestampTemplate = maps:get(value, T, <<"${.timestamp}">>),
+    TimestampTemplate = maps:get(timestamp, T, <<"${.timestamp}">>),
     #{
         key => preproc_tmpl(KeyTemplate),
         value => preproc_tmpl(ValueTemplate),
@@ -336,6 +361,28 @@ render_timestamp(Template, Message) ->
         _:_ ->
             erlang:system_time(millisecond)
     end.
+
+do_send_msg(sync, KafkaMessage, Producers, SyncTimeout) ->
+    try
+        {_Partition, _Offset} = wolff:send_sync(Producers, [KafkaMessage], SyncTimeout),
+        ok
+    catch
+        error:{producer_down, _} = Reason ->
+            {error, Reason};
+        error:timeout ->
+            {error, timeout}
+    end;
+do_send_msg(async, KafkaMessage, Producers, AsyncReplyFn) ->
+    %% * Must be a batch because wolff:send and wolff:send_sync are batch APIs
+    %% * Must be a single element batch because wolff books calls, but not batch sizes
+    %%   for counters and gauges.
+    Batch = [KafkaMessage],
+    %% The retuned information is discarded here.
+    %% If the producer process is down when sending, this function would
+    %% raise an error exception which is to be caught by the caller of this callback
+    {_Partition, Pid} = wolff:send(Producers, Batch, {fun ?MODULE:on_kafka_ack/3, [AsyncReplyFn]}),
+    %% this Pid is so far never used because Kafka producer is by-passing the buffer worker
+    {ok, Pid}.
 
 %% Wolff producer never gives up retrying
 %% so there can only be 'ok' results.
@@ -411,7 +458,7 @@ ssl(#{enable := true} = SSL) ->
 ssl(_) ->
     [].
 
-producers_config(BridgeName, ClientId, Input, IsDryRun) ->
+producers_config(BridgeType, BridgeName, ClientId, Input, IsDryRun) ->
     #{
         max_batch_bytes := MaxBatchBytes,
         compression := Compression,
@@ -437,10 +484,9 @@ producers_config(BridgeName, ClientId, Input, IsDryRun) ->
             disk -> {false, replayq_dir(ClientId)};
             hybrid -> {true, replayq_dir(ClientId)}
         end,
-    BridgeType = ?BRIDGE_TYPE,
     ResourceID = emqx_bridge_resource:resource_id(BridgeType, BridgeName),
     #{
-        name => make_producer_name(BridgeName, IsDryRun),
+        name => make_producer_name(BridgeType, BridgeName, IsDryRun),
         partitioner => partitioner(PartitionStrategy),
         partition_count_refresh_interval_seconds => PCntRefreshInterval,
         replayq_dir => ReplayqDir,
@@ -465,20 +511,15 @@ replayq_dir(ClientId) ->
 
 %% Producer name must be an atom which will be used as a ETS table name for
 %% partition worker lookup.
-make_producer_name(BridgeName, IsDryRun) when is_atom(BridgeName) ->
-    make_producer_name(atom_to_list(BridgeName), IsDryRun);
-make_producer_name(BridgeName, IsDryRun) ->
+make_producer_name(_BridgeType, _BridgeName, true = _IsDryRun) ->
+    %% It is a dry run and we don't want to leak too many atoms
+    %% so we use the default producer name instead of creating
+    %% an unique name.
+    probing_wolff_producers;
+make_producer_name(BridgeType, BridgeName, _IsDryRun) ->
     %% Woff needs an atom for ets table name registration. The assumption here is
     %% that bridges with new names are not often created.
-    case IsDryRun of
-        true ->
-            %% It is a dry run and we don't want to leak too many atoms
-            %% so we use the default producer name instead of creating
-            %% an unique name.
-            probing_wolff_producers;
-        false ->
-            binary_to_atom(iolist_to_binary(["kafka_producer_", BridgeName]))
-    end.
+    binary_to_atom(iolist_to_binary([BridgeType, "_", bin(BridgeName)])).
 
 with_log_at_error(Fun, Log) ->
     try
@@ -613,6 +654,9 @@ kvlist_headers([#{<<"key">> := K, <<"value">> := V} | Headers], Acc) ->
     kvlist_headers(Headers, [{K, V} | Acc]);
 kvlist_headers([{K, V} | Headers], Acc) ->
     kvlist_headers(Headers, [{K, V} | Acc]);
+kvlist_headers([KVList | Headers], Acc) when is_list(KVList) ->
+    %% for instance, when user sets a json list as headers like '[{"foo":"bar"}, {"foo2":"bar2"}]'.
+    kvlist_headers(KVList ++ Headers, Acc);
 kvlist_headers([BadHeader | _], _) ->
     throw({bad_kafka_header, BadHeader}).
 
@@ -643,7 +687,7 @@ merge_kafka_headers(HeadersTks, ExtHeaders, Msg) ->
         [undefined] ->
             ExtHeaders;
         [MaybeJson] when is_binary(MaybeJson) ->
-            case emqx_utils_json:safe_decode(MaybeJson) of
+            case emqx_utils_json:safe_decode(MaybeJson, [return_maps]) of
                 {ok, JsonTerm} when is_map(JsonTerm) ->
                     maps:to_list(JsonTerm) ++ ExtHeaders;
                 {ok, JsonTerm} when is_list(JsonTerm) ->

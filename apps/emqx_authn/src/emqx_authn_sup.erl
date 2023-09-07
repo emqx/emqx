@@ -27,5 +27,15 @@ start_link() ->
     supervisor:start_link({local, ?MODULE}, ?MODULE, []).
 
 init([]) ->
-    ChildSpecs = [],
+    AuthNSup = #{
+        id => emqx_authentication_sup,
+        start => {emqx_authentication_sup, start_link, []},
+        restart => permanent,
+        shutdown => infinity,
+        type => supervisor,
+        modules => [emqx_authentication_sup]
+    },
+
+    ChildSpecs = [AuthNSup],
+
     {ok, {{one_for_one, 10, 10}, ChildSpecs}}.

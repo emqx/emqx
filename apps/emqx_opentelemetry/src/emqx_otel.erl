@@ -17,15 +17,34 @@
 -module(emqx_otel).
 -include_lib("emqx/include/logger.hrl").
 
--export([start_link/1]).
+-export([start_otel/1, stop_otel/0]).
 -export([get_cluster_gauge/1, get_stats_gauge/1, get_vm_gauge/1, get_metric_counter/1]).
+-export([start_link/1]).
 -export([init/1, handle_continue/2, handle_call/3, handle_cast/2, handle_info/2, terminate/2]).
+
+-define(SUPERVISOR, emqx_otel_sup).
+
+start_otel(Conf) ->
+    Spec = emqx_otel_sup:worker_spec(?MODULE, Conf),
+    assert_started(supervisor:start_child(?SUPERVISOR, Spec)).
+
+stop_otel() ->
+    ok = cleanup(),
+    case erlang:whereis(?SUPERVISOR) of
+        undefined ->
+            ok;
+        Pid ->
+            case supervisor:terminate_child(Pid, ?MODULE) of
+                ok -> supervisor:delete_child(Pid, ?MODULE);
+                {error, not_found} -> ok;
+                Error -> Error
+            end
+    end.
 
 start_link(Conf) ->
     gen_server:start_link({local, ?MODULE}, ?MODULE, Conf, []).
 
 init(Conf) ->
-    erlang:process_flag(trap_exit, true),
     {ok, #{}, {continue, {setup, Conf}}}.
 
 handle_continue({setup, Conf}, State) ->
@@ -42,19 +61,19 @@ handle_info(_Msg, State) ->
     {noreply, State}.
 
 terminate(_Reason, _State) ->
-    cleanup(),
     ok.
 
 setup(Conf = #{enable := true}) ->
     ensure_apps(Conf),
     create_metric_views();
 setup(_Conf) ->
-    cleanup(),
+    ok = cleanup(),
     ok.
 
 ensure_apps(Conf) ->
     #{exporter := #{interval := ExporterInterval}} = Conf,
     {ok, _} = application:ensure_all_started(opentelemetry_exporter),
+    {ok, _} = application:ensure_all_started(opentelemetry),
     _ = application:stop(opentelemetry_experimental),
     ok = application:set_env(
         opentelemetry_experimental,
@@ -74,6 +93,7 @@ ensure_apps(Conf) ->
     ok.
 
 cleanup() ->
+    _ = application:stop(opentelemetry),
     _ = application:stop(opentelemetry_experimental),
     _ = application:stop(opentelemetry_experimental_api),
     _ = application:stop(opentelemetry_exporter),
@@ -87,9 +107,31 @@ create_metric_views() ->
     create_gauge(Meter, VmGauge, fun ?MODULE:get_vm_gauge/1),
     ClusterGauge = [{'node.running', 0}, {'node.stopped', 0}],
     create_gauge(Meter, ClusterGauge, fun ?MODULE:get_cluster_gauge/1),
-    Metrics = lists:map(fun({K, V}) -> {K, V, unit(K)} end, emqx_metrics:all()),
+    Metrics0 = filter_olp_metrics(emqx_metrics:all()),
+    Metrics = lists:map(fun({K, V}) -> {to_metric_name(K), V, unit(K)} end, Metrics0),
     create_counter(Meter, Metrics, fun ?MODULE:get_metric_counter/1),
     ok.
+
+filter_olp_metrics(Metrics) ->
+    case emqx_config_zones:is_olp_enabled() of
+        true ->
+            Metrics;
+        false ->
+            OlpMetrics = emqx_metrics:olp_metrics(),
+            lists:filter(
+                fun({K, _}) ->
+                    not lists:member(K, OlpMetrics)
+                end,
+                Metrics
+            )
+    end.
+
+to_metric_name('messages.dropped.await_pubrel_timeout') ->
+    'messages.dropped.expired';
+to_metric_name('packets.connect.received') ->
+    'packets.connect';
+to_metric_name(Name) ->
+    Name.
 
 unit(K) ->
     case lists:member(K, bytes_metrics()) of
@@ -205,3 +247,8 @@ create_counter(Meter, Counters, CallBack) ->
 
 normalize_name(Name) ->
     list_to_existing_atom(lists:flatten(string:replace(atom_to_list(Name), "_", ".", all))).
+
+assert_started({ok, _Pid}) -> ok;
+assert_started({ok, _Pid, _Info}) -> ok;
+assert_started({error, {already_started, _Pid}}) -> ok;
+assert_started({error, Reason}) -> {error, Reason}.

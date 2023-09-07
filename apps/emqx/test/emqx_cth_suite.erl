@@ -58,7 +58,7 @@
 -module(emqx_cth_suite).
 
 -include_lib("common_test/include/ct.hrl").
--include_lib("emqx/include/emqx_authentication.hrl").
+-include_lib("emqx/include/emqx_access_control.hrl").
 
 -export([start/2]).
 -export([stop/1]).
@@ -306,7 +306,7 @@ merge_envs(false, E2) ->
 merge_envs(_E, false) ->
     [];
 merge_envs(E1, E2) ->
-    E1 ++ E2.
+    lists:foldl(fun({K, _} = Opt, EAcc) -> lists:keystore(K, 1, EAcc, Opt) end, E1, E2).
 
 merge_config(false, C2) ->
     C2;
@@ -444,12 +444,12 @@ stop_apps(Apps) ->
 
 verify_clean_suite_state(#{work_dir := WorkDir}) ->
     {ok, []} = file:list_dir(WorkDir),
-    none = persistent_term:get(?EMQX_AUTHENTICATION_SCHEMA_MODULE_PT_KEY, none),
+    false = emqx_schema_hooks:any_injections(),
     [] = emqx_config:get_root_names(),
     ok.
 
 clean_suite_state() ->
-    _ = persistent_term:erase(?EMQX_AUTHENTICATION_SCHEMA_MODULE_PT_KEY),
+    _ = emqx_schema_hooks:erase_injections(),
     _ = emqx_config:erase_all(),
     ok.
 

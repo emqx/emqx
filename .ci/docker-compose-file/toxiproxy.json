@@ -179,5 +179,17 @@
     "listen": "0.0.0.0:4566",
     "upstream": "kinesis:4566",
     "enabled": true
+  },
+  {
+    "name": "ldap_tcp",
+    "listen": "0.0.0.0:389",
+    "upstream": "ldap:389",
+    "enabled": true
+  },
+  {
+    "name": "ldap_ssl",
+    "listen": "0.0.0.0:636",
+    "upstream": "ldap:636",
+    "enabled": true
   }
 ]

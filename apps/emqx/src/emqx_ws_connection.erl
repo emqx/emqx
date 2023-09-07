@@ -531,7 +531,6 @@ handle_info({event, connected}, State = #state{channel = Channel}) ->
 handle_info({event, disconnected}, State = #state{channel = Channel}) ->
     ClientId = emqx_channel:info(clientid, Channel),
     emqx_cm:set_chan_info(ClientId, info(State)),
-    emqx_cm:connection_closed(ClientId),
     return(State);
 handle_info({event, _Other}, State = #state{channel = Channel}) ->
     ClientId = emqx_channel:info(clientid, Channel),

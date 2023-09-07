@@ -577,7 +577,7 @@ cluster(Config) ->
             {schema_mod, emqx_enterprise_schema},
             {env_handler, fun
                 (emqx) ->
-                    application:set_env(emqx, boot_modules, [broker, router]),
+                    application:set_env(emqx, boot_modules, [broker]),
                     ok;
                 (emqx_conf) ->
                     ok;
@@ -816,6 +816,61 @@ permission_denied_response() ->
                     }
             }
         )
+    }}.
+
+unauthenticated_response() ->
+    Msg = <<
+        "Request had invalid authentication credentials. Expected OAuth 2 access token,"
+        " login cookie or other valid authentication credential. "
+        "See https://developers.google.com/identity/sign-in/web/devconsole-project."
+    >>,
+    {error, #{
+        body =>
+            #{
+                <<"error">> =>
+                    #{
+                        <<"code">> => 401,
+                        <<"details">> =>
+                            [
+                                #{
+                                    <<"@type">> =>
+                                        <<"type.googleapis.com/google.rpc.ErrorInfo">>,
+                                    <<"domain">> => <<"googleapis.com">>,
+                                    <<"metadata">> =>
+                                        #{
+                                            <<"email">> =>
+                                                <<"test-516@emqx-cloud-pubsub.iam.gserviceaccount.com">>,
+                                            <<"method">> =>
+                                                <<"google.pubsub.v1.Publisher.CreateTopic">>,
+                                            <<"service">> =>
+                                                <<"pubsub.googleapis.com">>
+                                        },
+                                    <<"reason">> => <<"ACCOUNT_STATE_INVALID">>
+                                }
+                            ],
+                        <<"message">> => Msg,
+
+                        <<"status">> => <<"UNAUTHENTICATED">>
+                    }
+            },
+        headers =>
+            [
+                {<<"www-authenticate">>, <<"Bearer realm=\"https://accounts.google.com/\"">>},
+                {<<"vary">>, <<"X-Origin">>},
+                {<<"vary">>, <<"Referer">>},
+                {<<"content-type">>, <<"application/json; charset=UTF-8">>},
+                {<<"date">>, <<"Wed, 23 Aug 2023 12:41:40 GMT">>},
+                {<<"server">>, <<"ESF">>},
+                {<<"cache-control">>, <<"private">>},
+                {<<"x-xss-protection">>, <<"0">>},
+                {<<"x-frame-options">>, <<"SAMEORIGIN">>},
+                {<<"x-content-type-options">>, <<"nosniff">>},
+                {<<"alt-svc">>, <<"h3=\":443\"; ma=2592000,h3-29=\":443\"; ma=2592000">>},
+                {<<"accept-ranges">>, <<"none">>},
+                {<<"vary">>, <<"Origin,Accept-Encoding">>},
+                {<<"transfer-encoding">>, <<"chunked">>}
+            ],
+        status_code => 401
     }}.
 
 %%------------------------------------------------------------------------------
@@ -2102,6 +2157,81 @@ t_permission_denied_worker(Config) ->
                     case Method =:= put of
                         true ->
                             permission_denied_response();
+                        false ->
+                            meck:passthrough([PreparedRequest, Client])
+                    end
+                end,
+                fun() ->
+                    {{ok, _}, {ok, _}} =
+                        ?wait_async_action(
+                            create_bridge(
+                                Config
+                            ),
+                            #{?snk_kind := gcp_pubsub_consumer_worker_terminate},
+                            10_000
+                        ),
+
+                    ok
+                end
+            ),
+            ok
+        end,
+        []
+    ),
+    ok.
+
+t_unauthenticated_topic_check(Config) ->
+    [#{pubsub_topic := PubSubTopic}] = ?config(topic_mapping, Config),
+    ResourceId = resource_id(Config),
+    ?check_trace(
+        begin
+            %% the emulator does not check any credentials
+            emqx_common_test_helpers:with_mock(
+                emqx_bridge_gcp_pubsub_client,
+                query_sync,
+                fun(PreparedRequest = {prepared_request, {Method, Path, _Body}}, Client) ->
+                    RE = iolist_to_binary(["/topics/", PubSubTopic, "$"]),
+                    case {Method =:= get, re:run(Path, RE)} of
+                        {true, {match, _}} ->
+                            unauthenticated_response();
+                        _ ->
+                            meck:passthrough([PreparedRequest, Client])
+                    end
+                end,
+                fun() ->
+                    {{ok, _}, {ok, _}} =
+                        ?wait_async_action(
+                            create_bridge(Config),
+                            #{?snk_kind := gcp_pubsub_stop},
+                            5_000
+                        ),
+                    ?assertMatch(
+                        {ok, disconnected},
+                        emqx_resource_manager:health_check(ResourceId)
+                    ),
+                    ?assertMatch(
+                        {ok, _Group, #{error := {unhealthy_target, "Permission denied" ++ _}}},
+                        emqx_resource_manager:lookup_cached(ResourceId)
+                    ),
+                    ok
+                end
+            ),
+            ok
+        end,
+        []
+    ),
+    ok.
+
+t_unauthenticated_worker(Config) ->
+    ?check_trace(
+        begin
+            emqx_common_test_helpers:with_mock(
+                emqx_bridge_gcp_pubsub_client,
+                query_sync,
+                fun(PreparedRequest = {prepared_request, {Method, _Path, _Body}}, Client) ->
+                    case Method =:= put of
+                        true ->
+                            unauthenticated_response();
                         false ->
                             meck:passthrough([PreparedRequest, Client])
                     end

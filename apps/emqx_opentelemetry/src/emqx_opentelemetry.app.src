@@ -1,6 +1,6 @@
 {application, emqx_opentelemetry, [
     {description, "OpenTelemetry for EMQX Broker"},
-    {vsn, "0.1.1"},
+    {vsn, "0.1.2"},
     {registered, []},
     {mod, {emqx_otel_app, []}},
     {applications, [kernel, stdlib, emqx]},

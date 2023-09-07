@@ -649,7 +649,7 @@ do_wait_for_emqx_ready(N) ->
         ok ->
             ok;
         timeout ->
-            ?SLOG(warning, #{msg => "stil_waiting_for_emqx_app_to_be_ready"}),
+            ?SLOG(warning, #{msg => "still_waiting_for_emqx_app_to_be_ready"}),
             do_wait_for_emqx_ready(N - 1)
     end.
 

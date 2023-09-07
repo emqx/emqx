@@ -19,6 +19,12 @@
 -elvis([{elvis_style, invalid_dynamic_call, disable}]).
 -include_lib("hocon/include/hoconsc.hrl").
 -include("emqx_authn.hrl").
+-include("emqx_authentication.hrl").
+
+-behaviour(emqx_schema_hooks).
+-export([
+    injected_fields/0
+]).
 
 -export([
     common_fields/0,
@@ -28,12 +34,17 @@
     fields/1,
     authenticator_type/0,
     authenticator_type_without_scram/0,
-    root_type/0,
     mechanism/1,
     backend/1
 ]).
 
 roots() -> [].
+
+injected_fields() ->
+    #{
+        'mqtt.listener' => global_auth_fields(),
+        'roots.high' => mqtt_listener_auth_fields()
+    }.
 
 tags() ->
     [<<"Authentication">>].
@@ -121,11 +132,35 @@ try_select_union_member(Module, Value) ->
             Module:refs()
     end.
 
-%% authn is a core functionality however implemented outside of emqx app
-%% in emqx_schema, 'authentication' is a map() type which is to allow
-%% EMQX more pluggable.
 root_type() ->
     hoconsc:array(authenticator_type()).
+
+global_auth_fields() ->
+    [
+        {?EMQX_AUTHENTICATION_CONFIG_ROOT_NAME_ATOM,
+            hoconsc:mk(root_type(), #{
+                desc => ?DESC(global_authentication),
+                converter => fun ensure_array/2,
+                default => [],
+                importance => ?IMPORTANCE_LOW
+            })}
+    ].
+
+mqtt_listener_auth_fields() ->
+    [
+        {?EMQX_AUTHENTICATION_CONFIG_ROOT_NAME_ATOM,
+            hoconsc:mk(root_type(), #{
+                desc => ?DESC(listener_authentication),
+                converter => fun ensure_array/2,
+                default => [],
+                importance => ?IMPORTANCE_HIDDEN
+            })}
+    ].
+
+%% the older version schema allows individual element (instead of a chain) in config
+ensure_array(undefined, _) -> undefined;
+ensure_array(L, _) when is_list(L) -> L;
+ensure_array(M, _) -> [M].
 
 mechanism(Name) ->
     ?HOCON(

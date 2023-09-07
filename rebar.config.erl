@@ -84,6 +84,7 @@ is_community_umbrella_app("apps/emqx_bridge_cassandra") -> false;
 is_community_umbrella_app("apps/emqx_bridge_opents") -> false;
 is_community_umbrella_app("apps/emqx_bridge_clickhouse") -> false;
 is_community_umbrella_app("apps/emqx_bridge_dynamo") -> false;
+is_community_umbrella_app("apps/emqx_bridge_greptimedb") -> false;
 is_community_umbrella_app("apps/emqx_bridge_hstreamdb") -> false;
 is_community_umbrella_app("apps/emqx_bridge_influxdb") -> false;
 is_community_umbrella_app("apps/emqx_bridge_iotdb") -> false;
@@ -189,7 +190,8 @@ test_deps() ->
         {meck, "0.9.2"},
         {proper, "1.4.0"},
         {er_coap_client, {git, "https://github.com/emqx/er_coap_client", {tag, "v1.0.5"}}},
-        {erl_csv, "0.2.0"}
+        {erl_csv, "0.2.0"},
+        {eministat, "0.10.1"}
     ].
 
 common_compile_opts() ->

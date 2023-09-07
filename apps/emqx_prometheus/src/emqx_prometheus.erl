@@ -168,6 +168,9 @@ collect_mf(_Registry, Callback) ->
     _ = [add_collect_family(Name, Metrics, Callback, counter) || Name <- emqx_metrics_delivery()],
     _ = [add_collect_family(Name, Metrics, Callback, counter) || Name <- emqx_metrics_client()],
     _ = [add_collect_family(Name, Metrics, Callback, counter) || Name <- emqx_metrics_session()],
+    _ = [add_collect_family(Name, Metrics, Callback, counter) || Name <- emqx_metrics_olp()],
+    _ = [add_collect_family(Name, Metrics, Callback, counter) || Name <- emqx_metrics_acl()],
+    _ = [add_collect_family(Name, Metrics, Callback, counter) || Name <- emqx_metrics_authn()],
     ok.
 
 %% @private
@@ -228,6 +231,10 @@ emqx_collect(emqx_sessions_count, Stats) ->
     gauge_metric(?C('sessions.count', Stats));
 emqx_collect(emqx_sessions_max, Stats) ->
     gauge_metric(?C('sessions.max', Stats));
+emqx_collect(emqx_channels_count, Stats) ->
+    gauge_metric(?C('channels.count', Stats));
+emqx_collect(emqx_channels_max, Stats) ->
+    gauge_metric(?C('channels.max', Stats));
 %% pub/sub stats
 emqx_collect(emqx_topics_count, Stats) ->
     gauge_metric(?C('topics.count', Stats));
@@ -254,6 +261,11 @@ emqx_collect(emqx_retained_count, Stats) ->
     gauge_metric(?C('retained.count', Stats));
 emqx_collect(emqx_retained_max, Stats) ->
     gauge_metric(?C('retained.max', Stats));
+%% delayed
+emqx_collect(emqx_delayed_count, Stats) ->
+    gauge_metric(?C('delayed.count', Stats));
+emqx_collect(emqx_delayed_max, Stats) ->
+    gauge_metric(?C('delayed.max', Stats));
 %%--------------------------------------------------------------------
 %% Metrics - packets & bytes
 
@@ -408,7 +420,10 @@ emqx_collect(emqx_delivery_dropped_expired, Stats) ->
     counter_metric(?C('delivery.dropped.expired', Stats));
 %%--------------------------------------------------------------------
 %% Metrics - client
-
+emqx_collect(emqx_client_connect, Stats) ->
+    counter_metric(?C('client.connect', Stats));
+emqx_collect(emqx_client_connack, Stats) ->
+    counter_metric(?C('client.connack', Stats));
 emqx_collect(emqx_client_connected, Stats) ->
     counter_metric(?C('client.connected', Stats));
 emqx_collect(emqx_client_authenticate, Stats) ->
@@ -436,6 +451,43 @@ emqx_collect(emqx_session_discarded, Stats) ->
     counter_metric(?C('session.discarded', Stats));
 emqx_collect(emqx_session_terminated, Stats) ->
     counter_metric(?C('session.terminated', Stats));
+%%--------------------------------------------------------------------
+
+%% Metrics - overload protection
+emqx_collect(emqx_overload_protection_delay_ok, Stats) ->
+    counter_metric(?C('overload_protection.delay.ok', Stats));
+emqx_collect(emqx_overload_protection_delay_timeout, Stats) ->
+    counter_metric(?C('overload_protection.delay.timeout', Stats));
+emqx_collect(emqx_overload_protection_hibernation, Stats) ->
+    counter_metric(?C('overload_protection.hibernation', Stats));
+emqx_collect(emqx_overload_protection_gc, Stats) ->
+    counter_metric(?C('overload_protection.gc', Stats));
+emqx_collect(emqx_overload_protection_new_conn, Stats) ->
+    counter_metric(?C('overload_protection.new_conn', Stats));
+%%--------------------------------------------------------------------
+%% Metrics - acl
+emqx_collect(emqx_authorization_allow, Stats) ->
+    counter_metric(?C('authorization.allow', Stats));
+emqx_collect(emqx_authorization_deny, Stats) ->
+    counter_metric(?C('authorization.deny', Stats));
+emqx_collect(emqx_authorization_cache_hit, Stats) ->
+    counter_metric(?C('authorization.cache_hit', Stats));
+emqx_collect(emqx_authorization_superuser, Stats) ->
+    counter_metric(?C('authorization.superuser', Stats));
+emqx_collect(emqx_authorization_nomatch, Stats) ->
+    counter_metric(?C('authorization.nomatch', Stats));
+emqx_collect(emqx_authorization_matched_allow, Stats) ->
+    counter_metric(?C('authorization.matched_allow', Stats));
+emqx_collect(emqx_authorization_matched_deny, Stats) ->
+    counter_metric(?C('authorization.matched_deny', Stats));
+%%--------------------------------------------------------------------
+%% Metrics - authn
+emqx_collect(emqx_authentication_success, Stats) ->
+    counter_metric(?C('authentication.success', Stats));
+emqx_collect(emqx_authentication_success_anonymous, Stats) ->
+    counter_metric(?C('authentication.success.anonymous', Stats));
+emqx_collect(emqx_authentication_failure, Stats) ->
+    counter_metric(?C('authentication.failure', Stats));
 %%--------------------------------------------------------------------
 %% VM
 
@@ -506,6 +558,38 @@ emqx_metrics_packets() ->
         emqx_packets_auth_sent
     ].
 
+emqx_metrics_olp() ->
+    case emqx_config_zones:is_olp_enabled() of
+        true ->
+            [
+                emqx_overload_protection_delay_ok,
+                emqx_overload_protection_delay_timeout,
+                emqx_overload_protection_hibernation,
+                emqx_overload_protection_gc,
+                emqx_overload_protection_new_conn
+            ];
+        false ->
+            []
+    end.
+
+emqx_metrics_acl() ->
+    [
+        emqx_authorization_allow,
+        emqx_authorization_deny,
+        emqx_authorization_cache_hit,
+        emqx_authorization_superuser,
+        emqx_authorization_nomatch,
+        emqx_authorization_matched_allow,
+        emqx_authorization_matched_deny
+    ].
+
+emqx_metrics_authn() ->
+    [
+        emqx_authentication_success,
+        emqx_authentication_success_anonymous,
+        emqx_authentication_failure
+    ].
+
 emqx_metrics_messages() ->
     [
         emqx_messages_received,
@@ -539,6 +623,8 @@ emqx_metrics_delivery() ->
 
 emqx_metrics_client() ->
     [
+        emqx_client_connect,
+        emqx_client_connack,
         emqx_client_connected,
         emqx_client_authenticate,
         emqx_client_auth_anonymous,

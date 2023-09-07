@@ -532,22 +532,6 @@ mqtt_server_keepalive.desc:
 mqtt_server_keepalive.label:
 """Server Keep Alive"""
 
-global_authentication.desc:
-"""Default authentication configs for all MQTT listeners.
-
-For per-listener overrides see <code>authentication</code> in listener configs
-
-This option can be configured with:
-<ul>
-  <li><code>[]</code>: The default value, it allows *ALL* logins</li>
-  <li>one: For example <code>{enable:true,backend:"built_in_database",mechanism="password_based"}</code></li>
-  <li>chain: An array of structs.</li>
-</ul>
-
-When a chain is configured, the login credentials are checked against the backends per the configured order, until an 'allow' or 'deny' decision can be made.
-
-If there is no decision after a full chain exhaustion, the login is rejected."""
-
 fields_mqtt_quic_listener_load_balancing_mode.desc:
 """0: Disabled, 1: SERVER_ID_IP, 2: SERVER_ID_FIXED. default: 0"""
 
@@ -1103,14 +1087,6 @@ See: https://erlang.org/doc/man/inet.html#setopts-2"""
 fields_tcp_opts_active_n.label:
 """active_n"""
 
-listener_authentication.desc:
-"""Per-listener authentication override.
-Authentication can be one single authenticator instance or a chain of authenticators as an array.
-When authenticating a login (username, client ID, etc.) the authenticators are checked in the configured order."""
-
-listener_authentication.label:
-"""Per-listener authentication override"""
-
 fields_trace_payload_encode.desc:
 """Determine the format of the payload format in the trace file.<br/>
 `text`: Text-based protocol or plain text protocol.
@@ -1572,6 +1548,13 @@ fields_ws_opts_max_frame_size.label:
 
 sys_event_messages.desc:
 """Client events messages."""
+
+broker_routing_storage_schema.desc:
+"""Routing storage schema.
+Set <code>v1</code> to leave the default.
+<code>v2</code> is introduced in 5.2. It enables routing through 2 separate tables, one for topic filter and one for regular topic subscriptions. This schema should increase both subscription and routing performance at the cost of slight increase in memory consumption per subscription.
+NOTE: Schema <code>v2</code> is still experimental.
+NOTE: Full non-rolling cluster restart is needed after altering this option for it to take any effect."""
 
 broker_perf_trie_compaction.desc:
 """Enable trie path compaction.

@@ -531,41 +531,15 @@ post_config_update(_Path, _Request, _NewConf, _OldConf, _AppEnvs) ->
     ok.
 
 create_listener(Type, Name, NewConf) ->
-    Res = start_listener(Type, Name, NewConf),
-    recreate_authenticators(Res, Type, Name, NewConf).
-
-recreate_authenticators(ok, Type, Name, Conf) ->
-    Chain = listener_id(Type, Name),
-    _ = emqx_authentication:delete_chain(Chain),
-    do_create_authneticators(Chain, maps:get(authentication, Conf, []));
-recreate_authenticators(Error, _Type, _Name, _NewConf) ->
-    Error.
-
-do_create_authneticators(Chain, [AuthN | T]) ->
-    case emqx_authentication:create_authenticator(Chain, AuthN) of
-        {ok, _} ->
-            do_create_authneticators(Chain, T);
-        Error ->
-            _ = emqx_authentication:delete_chain(Chain),
-            Error
-    end;
-do_create_authneticators(_Chain, []) ->
-    ok.
+    start_listener(Type, Name, NewConf).
 
 remove_listener(Type, Name, OldConf) ->
     ok = unregister_ocsp_stapling_refresh(Type, Name),
-    case stop_listener(Type, Name, OldConf) of
-        ok ->
-            _ = emqx_authentication:delete_chain(listener_id(Type, Name)),
-            ok;
-        Err ->
-            Err
-    end.
+    stop_listener(Type, Name, OldConf).
 
 update_listener(Type, Name, {OldConf, NewConf}) ->
     ok = maybe_unregister_ocsp_stapling_refresh(Type, Name, NewConf),
-    Res = restart_listener(Type, Name, {OldConf, NewConf}),
-    recreate_authenticators(Res, Type, Name, NewConf).
+    restart_listener(Type, Name, {OldConf, NewConf}).
 
 perform_listener_changes([]) ->
     ok;
@@ -847,10 +821,9 @@ convert_certs(ListenerConf) ->
         fun(Type, Listeners0, Acc) ->
             Listeners1 =
                 maps:fold(
-                    fun(Name, Conf, Acc1) ->
-                        Conf1 = convert_certs(Type, Name, Conf),
-                        Conf2 = convert_authn_certs(Type, Name, Conf1),
-                        Acc1#{Name => Conf2}
+                    fun(Name, Conf0, Acc1) ->
+                        Conf1 = convert_certs(Type, Name, Conf0),
+                        Acc1#{Name => Conf1}
                     end,
                     #{},
                     Listeners0
@@ -872,19 +845,6 @@ convert_certs(Type, Name, Conf) ->
             ?SLOG(error, Reason#{msg => "bad_ssl_config", type => Type, name => Name}),
             throw({bad_ssl_config, Reason})
     end.
-
-convert_authn_certs(Type, Name, #{<<"authentication">> := AuthNList} = Conf) ->
-    ChainName = listener_id(Type, Name),
-    AuthNList1 = lists:map(
-        fun(AuthN) ->
-            CertsDir = emqx_authentication_config:certs_dir(ChainName, AuthN),
-            emqx_authentication_config:convert_certs(CertsDir, AuthN)
-        end,
-        AuthNList
-    ),
-    Conf#{<<"authentication">> => AuthNList1};
-convert_authn_certs(_Type, _Name, Conf) ->
-    Conf.
 
 filter_stacktrace({Reason, _Stacktrace}) -> Reason;
 filter_stacktrace(Reason) -> Reason.

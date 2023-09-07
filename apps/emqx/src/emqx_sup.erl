@@ -74,7 +74,7 @@ init([]) ->
     Children =
         [KernelSup] ++
             [SessionSup || emqx_persistent_session:is_store_enabled()] ++
-            [RouterSup || emqx_boot:is_enabled(router)] ++
+            [RouterSup || emqx_boot:is_enabled(broker)] ++
             [BrokerSup || emqx_boot:is_enabled(broker)] ++
             [CMSup || emqx_boot:is_enabled(broker)] ++
             [SysSup, Limiter],

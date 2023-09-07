@@ -1335,6 +1335,35 @@ t_cluster_later_join_metrics(Config) ->
     ),
     ok.
 
+t_create_with_bad_name(Config) ->
+    Port = ?config(port, Config),
+    URL1 = ?URL(Port, "path1"),
+    Name = <<"test_哈哈">>,
+    BadBridgeParams =
+        emqx_utils_maps:deep_merge(
+            ?HTTP_BRIDGE(URL1, Name),
+            #{
+                <<"ssl">> =>
+                    #{
+                        <<"enable">> => true,
+                        <<"certfile">> => cert_file("certfile")
+                    }
+            }
+        ),
+    {ok, 400, #{
+        <<"code">> := <<"BAD_REQUEST">>,
+        <<"message">> := Msg0
+    }} =
+        request_json(
+            post,
+            uri(["bridges"]),
+            BadBridgeParams,
+            Config
+        ),
+    Msg = emqx_utils_json:decode(Msg0, [return_maps]),
+    ?assertMatch(#{<<"reason">> := <<"bad_bridge_name">>}, Msg),
+    ok.
+
 validate_resource_request_ttl(single, Timeout, Name) ->
     SentData = #{payload => <<"Hello EMQX">>, timestamp => 1668602148000},
     BridgeID = emqx_bridge_resource:bridge_id(?BRIDGE_TYPE_HTTP, Name),
@@ -1418,3 +1447,11 @@ str(S) when is_binary(S) -> binary_to_list(S).
 
 json(B) when is_binary(B) ->
     emqx_utils_json:decode(B, [return_maps]).
+
+data_file(Name) ->
+    Dir = code:lib_dir(emqx_bridge, test),
+    {ok, Bin} = file:read_file(filename:join([Dir, "data", Name])),
+    Bin.
+
+cert_file(Name) ->
+    data_file(filename:join(["certs", Name])).

@@ -216,7 +216,7 @@ t_position(Config) ->
     PosApp2 = <<"position-2">>,
     ok = write_info_file(Config, PosApp2, FakeInfo),
     %% fake a disabled plugin in config
-    ok = emqx_plugins:ensure_state(PosApp2, {before, NameVsn}, false),
+    ok = ensure_state(PosApp2, {before, NameVsn}, false),
     ListFun = fun() ->
         lists:map(
             fun(
@@ -255,14 +255,14 @@ t_start_restart_and_stop(Config) ->
     Bar2 = <<"bar-2">>,
     ok = write_info_file(Config, Bar2, FakeInfo),
     %% fake a disabled plugin in config
-    ok = emqx_plugins:ensure_state(Bar2, front, false),
+    ok = ensure_state(Bar2, front, false),
 
     assert_app_running(emqx_plugin_template, false),
     ok = emqx_plugins:ensure_started(),
     assert_app_running(emqx_plugin_template, true),
 
     %% fake enable bar-2
-    ok = emqx_plugins:ensure_state(Bar2, rear, true),
+    ok = ensure_state(Bar2, rear, true),
     %% should cause an error
     ?assertError(
         #{function := _, errors := [_ | _]},
@@ -274,7 +274,7 @@ t_start_restart_and_stop(Config) ->
     %% stop all
     ok = emqx_plugins:ensure_stopped(),
     assert_app_running(emqx_plugin_template, false),
-    ok = emqx_plugins:ensure_state(Bar2, rear, false),
+    ok = ensure_state(Bar2, rear, false),
 
     ok = emqx_plugins:restart(NameVsn),
     assert_app_running(emqx_plugin_template, true),
@@ -826,3 +826,7 @@ make_tar(Cwd, NameWithVsn, TarfileVsn) ->
     after
         file:set_cwd(OriginalCwd)
     end.
+
+ensure_state(NameVsn, Position, Enabled) ->
+    %% NOTE: this is an internal function that is (legacy) exported in test builds only...
+    emqx_plugins:ensure_state(NameVsn, Position, Enabled, _ConfLocation = local).

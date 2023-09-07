@@ -19,7 +19,7 @@
 
 -include("include/emqx_gateway.hrl").
 -include_lib("emqx/include/logger.hrl").
--include_lib("emqx/include/emqx_authentication.hrl").
+-include_lib("emqx_authn/include/emqx_authentication.hrl").
 
 -define(AUTHN, ?EMQX_AUTHENTICATION_CONFIG_ROOT_NAME_ATOM).
 

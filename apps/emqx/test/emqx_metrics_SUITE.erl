@@ -122,6 +122,17 @@ t_inc_sent(_) ->
     with_metrics_server(
         fun() ->
             ok = emqx_metrics:inc_sent(?CONNACK_PACKET(0)),
+            ok = emqx_metrics:inc_sent(?CONNACK_PACKET(0, 1)),
+            ok = emqx_metrics:inc_sent(
+                ?CONNACK_PACKET(0, 1, #{
+                    'Maximum-Packet-Size' => 1048576,
+                    'Retain-Available' => 1,
+                    'Shared-Subscription-Available' => 1,
+                    'Subscription-Identifier-Available' => 1,
+                    'Topic-Alias-Maximum' => 65535,
+                    'Wildcard-Subscription-Available' => 1
+                })
+            ),
             ok = emqx_metrics:inc_sent(?PUBLISH_PACKET(0, 0)),
             ok = emqx_metrics:inc_sent(?PUBLISH_PACKET(1, 0)),
             ok = emqx_metrics:inc_sent(?PUBLISH_PACKET(2, 0)),
@@ -134,8 +145,8 @@ t_inc_sent(_) ->
             ok = emqx_metrics:inc_sent(?PACKET(?PINGRESP)),
             ok = emqx_metrics:inc_sent(?PACKET(?DISCONNECT)),
             ok = emqx_metrics:inc_sent(?PACKET(?AUTH)),
-            ?assertEqual(13, emqx_metrics:val('packets.sent')),
-            ?assertEqual(1, emqx_metrics:val('packets.connack.sent')),
+            ?assertEqual(15, emqx_metrics:val('packets.sent')),
+            ?assertEqual(3, emqx_metrics:val('packets.connack.sent')),
             ?assertEqual(3, emqx_metrics:val('messages.sent')),
             ?assertEqual(1, emqx_metrics:val('messages.qos0.sent')),
             ?assertEqual(1, emqx_metrics:val('messages.qos1.sent')),

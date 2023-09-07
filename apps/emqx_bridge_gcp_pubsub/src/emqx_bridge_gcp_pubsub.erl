@@ -18,7 +18,7 @@
 ]).
 -export([
     service_account_json_validator/1,
-    service_account_json_converter/1
+    service_account_json_converter/2
 ]).
 
 %% emqx_bridge_enterprise "unofficial" API
@@ -105,7 +105,7 @@ fields(connector_config) ->
                 #{
                     required => true,
                     validator => fun ?MODULE:service_account_json_validator/1,
-                    converter => fun ?MODULE:service_account_json_converter/1,
+                    converter => fun ?MODULE:service_account_json_converter/2,
                     sensitive => true,
                     desc => ?DESC("service_account_json")
                 }
@@ -207,13 +207,13 @@ fields(consumer_topic_mapping) ->
             )}
     ];
 fields("consumer_resource_opts") ->
-    ResourceFields = emqx_resource_schema:fields("creation_opts"),
+    ResourceFields =
+        emqx_resource_schema:create_opts(
+            [{health_check_interval, #{default => <<"30s">>}}]
+        ),
     SupportedFields = [
-        auto_restart_interval,
         health_check_interval,
-        request_ttl,
-        resume_interval,
-        worker_pool_size
+        request_ttl
     ],
     lists:filter(
         fun({Field, _Sc}) -> lists:member(Field, SupportedFields) end,
@@ -398,7 +398,9 @@ service_account_json_validator(Map) ->
             {error, #{missing_keys => MissingKeys}}
     end.
 
-service_account_json_converter(Map) when is_map(Map) ->
+service_account_json_converter(Val, #{make_serializable := true}) ->
+    Val;
+service_account_json_converter(Map, _Opts) when is_map(Map) ->
     ExpectedKeys = [
         <<"type">>,
         <<"project_id">>,
@@ -407,7 +409,7 @@ service_account_json_converter(Map) when is_map(Map) ->
         <<"client_email">>
     ],
     maps:with(ExpectedKeys, Map);
-service_account_json_converter(Val) ->
+service_account_json_converter(Val, _Opts) ->
     Val.
 
 consumer_topic_mapping_validator(_TopicMapping = []) ->

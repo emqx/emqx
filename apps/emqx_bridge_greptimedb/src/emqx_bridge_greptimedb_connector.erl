@@ -68,7 +68,9 @@ on_start(InstId, Config) ->
 on_stop(InstId, _State) ->
     case emqx_resource:get_allocated_resources(InstId) of
         #{?greptime_client := Client} ->
-            greptimedb:stop_client(Client);
+            Res = greptimedb:stop_client(Client),
+            ?tp(greptimedb_client_stopped, #{instance_id => InstId}),
+            Res;
         _ ->
             ok
     end.

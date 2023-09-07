@@ -20,7 +20,7 @@
 %% emqx_bridge_enterprise "unofficial" API
 -export([conn_bridge_examples/1]).
 
--export([connector_config/2]).
+-export([connector_config/1]).
 
 -export([producer_converter/2, host_opts/0]).
 
@@ -64,6 +64,10 @@ fields(producer_kafka_opts) ->
         kafka_producer_overrides()
     ),
     override_documentations(Fields);
+fields(kafka_message) ->
+    Fields0 = emqx_bridge_kafka:fields(kafka_message),
+    Fields = proplists:delete(timestamp, Fields0),
+    override_documentations(Fields);
 fields(Method) ->
     Fields = emqx_bridge_kafka:fields(Method),
     override_documentations(Fields).
@@ -85,6 +89,7 @@ desc(Name) ->
 struct_names() ->
     [
         auth_username_password,
+        kafka_message,
         producer_kafka_opts
     ].
 
@@ -161,14 +166,14 @@ values(producer) ->
 %% `emqx_bridge_resource' API
 %%-------------------------------------------------------------------------------------------------
 
-connector_config(Config, BridgeName) ->
+connector_config(Config) ->
     %% Default port for AEH is 9093
     BootstrapHosts0 = maps:get(bootstrap_hosts, Config),
     BootstrapHosts = emqx_schema:parse_servers(
         BootstrapHosts0,
         emqx_bridge_azure_event_hub:host_opts()
     ),
-    Config#{bridge_name => BridgeName, bootstrap_hosts := BootstrapHosts}.
+    Config#{bootstrap_hosts := BootstrapHosts}.
 
 %%-------------------------------------------------------------------------------------------------
 %% Internal fns
@@ -245,6 +250,7 @@ kafka_producer_overrides() ->
                 default => no_compression,
                 importance => ?IMPORTANCE_HIDDEN
             }),
+        message => mk(ref(kafka_message), #{}),
         required_acks => mk(enum([all_isr, leader_only]), #{default => all_isr})
     }.
 

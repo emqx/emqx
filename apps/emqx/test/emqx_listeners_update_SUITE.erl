@@ -116,6 +116,172 @@ t_update_conf(_Conf) ->
     ?assert(is_running('wss:default')),
     ok.
 
+t_update_tcp_keepalive_conf(_Conf) ->
+    Keepalive = <<"240,30,5">>,
+    KeepaliveStr = binary_to_list(Keepalive),
+    Raw = emqx:get_raw_config(?LISTENERS),
+    Raw1 = emqx_utils_maps:deep_put(
+        [<<"tcp">>, <<"default">>, <<"bind">>], Raw, <<"127.0.0.1:1883">>
+    ),
+    Raw2 = emqx_utils_maps:deep_put(
+        [<<"tcp">>, <<"default">>, <<"tcp_options">>, <<"keepalive">>], Raw1, Keepalive
+    ),
+    ?assertMatch({ok, _}, emqx:update_config(?LISTENERS, Raw2)),
+    ?assertMatch(
+        #{
+            <<"tcp">> := #{
+                <<"default">> := #{
+                    <<"bind">> := <<"127.0.0.1:1883">>,
+                    <<"tcp_options">> := #{<<"keepalive">> := Keepalive}
+                }
+            }
+        },
+        emqx:get_raw_config(?LISTENERS)
+    ),
+    ?assertMatch(
+        #{tcp := #{default := #{tcp_options := #{keepalive := KeepaliveStr}}}},
+        emqx:get_config(?LISTENERS)
+    ),
+    Keepalive2 = <<" 241, 31, 6 ">>,
+    KeepaliveStr2 = binary_to_list(Keepalive2),
+    Raw3 = emqx_utils_maps:deep_put(
+        [<<"tcp">>, <<"default">>, <<"tcp_options">>, <<"keepalive">>], Raw1, Keepalive2
+    ),
+    ?assertMatch({ok, _}, emqx:update_config(?LISTENERS, Raw3)),
+    ?assertMatch(
+        #{
+            <<"tcp">> := #{
+                <<"default">> := #{
+                    <<"bind">> := <<"127.0.0.1:1883">>,
+                    <<"tcp_options">> := #{<<"keepalive">> := Keepalive2}
+                }
+            }
+        },
+        emqx:get_raw_config(?LISTENERS)
+    ),
+    ?assertMatch(
+        #{tcp := #{default := #{tcp_options := #{keepalive := KeepaliveStr2}}}},
+        emqx:get_config(?LISTENERS)
+    ),
+    ok.
+
+t_update_empty_ssl_options_conf(_Conf) ->
+    Raw = emqx:get_raw_config(?LISTENERS),
+    Raw1 = emqx_utils_maps:deep_put(
+        [<<"tcp">>, <<"default">>, <<"bind">>], Raw, <<"127.0.0.1:1883">>
+    ),
+    Raw2 = emqx_utils_maps:deep_put(
+        [<<"ssl">>, <<"default">>, <<"bind">>], Raw1, <<"127.0.0.1:8883">>
+    ),
+    Raw3 = emqx_utils_maps:deep_put(
+        [<<"ws">>, <<"default">>, <<"bind">>], Raw2, <<"0.0.0.0:8083">>
+    ),
+    Raw4 = emqx_utils_maps:deep_put(
+        [<<"wss">>, <<"default">>, <<"bind">>], Raw3, <<"127.0.0.1:8084">>
+    ),
+    Raw5 = emqx_utils_maps:deep_put(
+        [<<"ssl">>, <<"default">>, <<"ssl_options">>, <<"cacertfile">>], Raw4, <<"">>
+    ),
+    Raw6 = emqx_utils_maps:deep_put(
+        [<<"wss">>, <<"default">>, <<"ssl_options">>, <<"cacertfile">>], Raw5, <<"">>
+    ),
+    Raw7 = emqx_utils_maps:deep_put(
+        [<<"wss">>, <<"default">>, <<"ssl_options">>, <<"ciphers">>], Raw6, <<"">>
+    ),
+    Ciphers = <<"TLS_AES_256_GCM_SHA384, TLS_AES_128_GCM_SHA256 ">>,
+    Raw8 = emqx_utils_maps:deep_put(
+        [<<"ssl">>, <<"default">>, <<"ssl_options">>, <<"ciphers">>],
+        Raw7,
+        Ciphers
+    ),
+    ?assertMatch({ok, _}, emqx:update_config(?LISTENERS, Raw8)),
+    ?assertMatch(
+        #{
+            <<"tcp">> := #{<<"default">> := #{<<"bind">> := <<"127.0.0.1:1883">>}},
+            <<"ssl">> := #{
+                <<"default">> := #{
+                    <<"bind">> := <<"127.0.0.1:8883">>,
+                    <<"ssl_options">> := #{
+                        <<"cacertfile">> := <<"">>,
+                        <<"ciphers">> := Ciphers
+                    }
+                }
+            },
+            <<"ws">> := #{<<"default">> := #{<<"bind">> := <<"0.0.0.0:8083">>}},
+            <<"wss">> := #{
+                <<"default">> := #{
+                    <<"bind">> := <<"127.0.0.1:8084">>,
+                    <<"ssl_options">> := #{
+                        <<"cacertfile">> := <<"">>,
+                        <<"ciphers">> := <<"">>
+                    }
+                }
+            }
+        },
+        emqx:get_raw_config(?LISTENERS)
+    ),
+    BindTcp = {{127, 0, 0, 1}, 1883},
+    BindSsl = {{127, 0, 0, 1}, 8883},
+    BindWs = {{0, 0, 0, 0}, 8083},
+    BindWss = {{127, 0, 0, 1}, 8084},
+    ?assertMatch(
+        #{
+            tcp := #{default := #{bind := BindTcp}},
+            ssl := #{
+                default := #{
+                    bind := BindSsl,
+                    ssl_options := #{
+                        cacertfile := <<"">>,
+                        ciphers := ["TLS_AES_256_GCM_SHA384", "TLS_AES_128_GCM_SHA256"]
+                    }
+                }
+            },
+            ws := #{default := #{bind := BindWs}},
+            wss := #{
+                default := #{
+                    bind := BindWss,
+                    ssl_options := #{
+                        cacertfile := <<"">>,
+                        ciphers := []
+                    }
+                }
+            }
+        },
+        emqx:get_config(?LISTENERS)
+    ),
+    ?assertError(not_found, current_conns(<<"tcp:default">>, {{0, 0, 0, 0}, 1883})),
+    ?assertError(not_found, current_conns(<<"ssl:default">>, {{0, 0, 0, 0}, 8883})),
+
+    ?assertEqual(0, current_conns(<<"tcp:default">>, BindTcp)),
+    ?assertEqual(0, current_conns(<<"ssl:default">>, BindSsl)),
+
+    ?assertEqual({0, 0, 0, 0}, proplists:get_value(ip, ranch:info('ws:default'))),
+    ?assertEqual({127, 0, 0, 1}, proplists:get_value(ip, ranch:info('wss:default'))),
+    ?assert(is_running('ws:default')),
+    ?assert(is_running('wss:default')),
+
+    Raw9 = emqx_utils_maps:deep_put(
+        [<<"ssl">>, <<"default">>, <<"ssl_options">>, <<"ciphers">>], Raw7, [
+            "TLS_AES_256_GCM_SHA384",
+            "TLS_AES_128_GCM_SHA256",
+            "TLS_CHACHA20_POLY1305_SHA256"
+        ]
+    ),
+    ?assertMatch({ok, _}, emqx:update_config(?LISTENERS, Raw9)),
+
+    BadRaw = emqx_utils_maps:deep_put(
+        [<<"ssl">>, <<"default">>, <<"ssl_options">>, <<"keyfile">>], Raw4, <<"">>
+    ),
+    ?assertMatch(
+        {error,
+            {bad_ssl_config, #{
+                reason := pem_file_path_or_string_is_required,
+                which_options := [[<<"keyfile">>]]
+            }}},
+        emqx:update_config(?LISTENERS, BadRaw)
+    ),
+    ok.
+
 t_add_delete_conf(_Conf) ->
     Raw = emqx:get_raw_config(?LISTENERS),
     %% add

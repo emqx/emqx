@@ -36,17 +36,18 @@ all() ->
     emqx_common_test_helpers:all(?MODULE).
 
 init_per_suite(Config) ->
-    _ = application:load(emqx_conf),
-    ok = emqx_common_test_helpers:start_apps([emqx_authn]),
+    Apps = emqx_cth_suite:start([emqx, emqx_conf, emqx_authn], #{
+        work_dir => ?config(priv_dir, Config)
+    }),
     IdleTimeout = emqx_config:get([mqtt, idle_timeout]),
-    [{idle_timeout, IdleTimeout} | Config].
+    [{apps, Apps}, {idle_timeout, IdleTimeout} | Config].
 
 end_per_suite(Config) ->
     ok = emqx_config:put([mqtt, idle_timeout], ?config(idle_timeout, Config)),
-    ok = emqx_common_test_helpers:stop_apps([emqx_authn]).
+    ok = emqx_cth_suite:stop(?config(apps, Config)),
+    ok.
 
 init_per_testcase(_Case, Config) ->
-    {ok, _} = emqx_cluster_rpc:start_link(node(), emqx_cluster_rpc, 1000),
     mria:clear_table(emqx_enhanced_authn_scram_mnesia),
     emqx_authn_test_lib:delete_authenticators(
         [authentication],

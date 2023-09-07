@@ -22,9 +22,9 @@
 -dialyzer(no_unused).
 -dialyzer(no_fail_call).
 
+-include_lib("emqx/include/emqx_access_control.hrl").
 -include_lib("typerefl/include/types.hrl").
 -include_lib("hocon/include/hoconsc.hrl").
--include_lib("emqx/include/emqx_authentication.hrl").
 
 -type log_level() :: debug | info | notice | warning | error | critical | alert | emergency | all.
 -type file() :: string().
@@ -66,6 +66,10 @@
     emqx_otel_schema,
     emqx_mgmt_api_key_schema
 ]).
+-define(INJECTING_CONFIGS, [
+    emqx_authn_schema
+]).
+
 %% 1 million default ports counter
 -define(DEFAULT_MAX_PORTS, 1024 * 1024).
 
@@ -76,11 +80,7 @@ tags() ->
     [<<"EMQX">>].
 
 roots() ->
-    PtKey = ?EMQX_AUTHENTICATION_SCHEMA_MODULE_PT_KEY,
-    case persistent_term:get(PtKey, undefined) of
-        undefined -> persistent_term:put(PtKey, emqx_authn_schema);
-        _ -> ok
-    end,
+    ok = emqx_schema_hooks:inject_from_modules(?INJECTING_CONFIGS),
     emqx_schema_high_prio_roots() ++
         [
             {"node",
@@ -1105,12 +1105,7 @@ translation("gen_rpc") ->
     [{"default_client_driver", fun tr_default_config_driver/1}];
 translation("prometheus") ->
     [
-        {"vm_dist_collector_metrics", fun tr_vm_dist_collector/1},
-        {"mnesia_collector_metrics", fun tr_mnesia_collector/1},
-        {"vm_statistics_collector_metrics", fun tr_vm_statistics_collector/1},
-        {"vm_system_info_collector_metrics", fun tr_vm_system_info_collector/1},
-        {"vm_memory_collector_metrics", fun tr_vm_memory_collector/1},
-        {"vm_msacc_collector_metrics", fun tr_vm_msacc_collector/1}
+        {"collectors", fun tr_prometheus_collectors/1}
     ];
 translation("vm_args") ->
     [
@@ -1120,26 +1115,53 @@ translation("vm_args") ->
 tr_vm_args_process_limit(Conf) ->
     2 * conf_get("node.max_ports", Conf, ?DEFAULT_MAX_PORTS).
 
+tr_prometheus_collectors(Conf) ->
+    [
+        %% builtin collectors
+        prometheus_boolean,
+        prometheus_counter,
+        prometheus_gauge,
+        prometheus_histogram,
+        prometheus_quantile_summary,
+        prometheus_summary,
+        %% emqx collectors
+        emqx_prometheus,
+        emqx_prometheus_mria
+        %% builtin vm collectors
+        | tr_vm_dist_collector(Conf) ++
+            tr_mnesia_collector(Conf) ++
+            tr_vm_statistics_collector(Conf) ++
+            tr_vm_system_info_collector(Conf) ++
+            tr_vm_memory_collector(Conf) ++
+            tr_vm_msacc_collector(Conf)
+    ].
+
 tr_vm_dist_collector(Conf) ->
-    metrics_enabled(conf_get("prometheus.vm_dist_collector", Conf, enabled)).
+    Enabled = conf_get("prometheus.vm_dist_collector", Conf, disabled),
+    collector_enabled(Enabled, prometheus_vm_dist_collector).
 
 tr_mnesia_collector(Conf) ->
-    metrics_enabled(conf_get("prometheus.mnesia_collector", Conf, enabled)).
+    Enabled = conf_get("prometheus.mnesia_collector", Conf, disabled),
+    collector_enabled(Enabled, prometheus_mnesia_collector).
 
 tr_vm_statistics_collector(Conf) ->
-    metrics_enabled(conf_get("prometheus.vm_statistics_collector", Conf, enabled)).
+    Enabled = conf_get("prometheus.vm_statistics_collector", Conf, disabled),
+    collector_enabled(Enabled, prometheus_vm_statistics_collector).
 
 tr_vm_system_info_collector(Conf) ->
-    metrics_enabled(conf_get("prometheus.vm_system_info_collector", Conf, enabled)).
+    Enabled = conf_get("prometheus.vm_system_info_collector", Conf, disabled),
+    collector_enabled(Enabled, prometheus_vm_system_info_collector).
 
 tr_vm_memory_collector(Conf) ->
-    metrics_enabled(conf_get("prometheus.vm_memory_collector", Conf, enabled)).
+    Enabled = conf_get("prometheus.vm_memory_collector", Conf, disabled),
+    collector_enabled(Enabled, prometheus_vm_memory_collector).
 
 tr_vm_msacc_collector(Conf) ->
-    metrics_enabled(conf_get("prometheus.vm_msacc_collector", Conf, enabled)).
+    Enabled = conf_get("prometheus.vm_msacc_collector", Conf, disabled),
+    collector_enabled(Enabled, prometheus_vm_msacc_collector).
 
-metrics_enabled(enabled) -> all;
-metrics_enabled(disabled) -> [].
+collector_enabled(enabled, Collector) -> [Collector];
+collector_enabled(disabled, _) -> [].
 
 tr_default_config_driver(Conf) ->
     conf_get("rpc.driver", Conf).

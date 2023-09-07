@@ -85,7 +85,7 @@ start_cluster(NamesWithPorts, Apps, Env) ->
         NamesWithPorts
     ),
     Opts0 = [
-        {env, [{emqx, boot_modules, [broker, listeners]}] ++ Env},
+        {env, Env},
         {apps, Apps},
         {conf,
             [{[listeners, Proto, default, enable], false} || Proto <- [ssl, ws, wss]] ++

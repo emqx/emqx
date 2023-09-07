@@ -26,7 +26,7 @@
 all() -> emqx_common_test_helpers:all(?MODULE).
 
 init_per_suite(Config) ->
-    emqx_common_test_helpers:boot_modules([router, broker]),
+    emqx_common_test_helpers:boot_modules([broker]),
     emqx_common_test_helpers:start_apps([]),
     Config.
 

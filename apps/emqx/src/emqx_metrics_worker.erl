@@ -495,7 +495,7 @@ terminate(_Reason, #state{metric_ids = MIDs}) ->
 
 stop(Name) ->
     try
-        gen_server:stop(Name)
+        gen_server:stop(Name, normal, 10000)
     catch
         exit:noproc ->
             ok;

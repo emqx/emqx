@@ -33,7 +33,6 @@ bridges.azure_event_hub_producer.my_producer {
     max_inflight = 10
     message {
       key = \"${.clientid}\"
-      timestamp = \"${.timestamp}\"
       value = \"${.}\"
     }
     partition_count_refresh_interval = 60s

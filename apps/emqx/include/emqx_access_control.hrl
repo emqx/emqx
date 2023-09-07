@@ -14,7 +14,9 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
-%% config root name all auth providers have to agree on.
+-ifndef(EMQX_ACCESS_CONTROL_HRL).
+-define(EMQX_ACCESS_CONTROL_HRL, true).
+
 -define(EMQX_AUTHORIZATION_CONFIG_ROOT_NAME, "authorization").
 -define(EMQX_AUTHORIZATION_CONFIG_ROOT_NAME_ATOM, authorization).
 -define(EMQX_AUTHORIZATION_CONFIG_ROOT_NAME_BINARY, <<"authorization">>).
@@ -32,3 +34,7 @@
 -define(authz_action(PUBSUB, QOS), #{action_type := PUBSUB, qos := QOS}).
 -define(authz_action(PUBSUB), ?authz_action(PUBSUB, _)).
 -define(authz_action, ?authz_action(_)).
+
+-define(AUTHN_TRACE_TAG, "AUTHN").
+
+-endif.

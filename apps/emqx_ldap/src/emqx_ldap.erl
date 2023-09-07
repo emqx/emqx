@@ -70,7 +70,12 @@ fields(config) ->
                     example => <<"(& (objectClass=mqttUser) (uid=${username}))">>,
                     validator => fun emqx_schema:non_empty_string/1
                 }
-            )}
+            )},
+        {request_timeout,
+            ?HOCON(emqx_schema:timeout_duration_ms(), #{
+                desc => ?DESC(request_timeout),
+                default => <<"5s">>
+            })}
     ] ++ emqx_connector_schema_lib:ssl_fields().
 
 server() ->
@@ -145,19 +150,31 @@ on_get_status(_InstId, #{pool_name := PoolName} = _State) ->
         true ->
             connected;
         false ->
-            connecting
+            %% Note: here can only return `disconnected` not `connecting`
+            %% because the LDAP socket/connection can't be reused
+            %% searching on a died socket will never return until timeout
+            disconnected
     end.
 
 do_get_status(Conn) ->
-    erlang:is_process_alive(Conn).
+    %% search with an invalid base object
+    %% if the server is down, the result is {error, ldap_closed}
+    %% otherwise is {error, invalidDNSyntax/timeout}
+    {error, ldap_closed} =/=
+        eldap:search(Conn, [{base, "checkalive"}, {filter, eldap:'approxMatch'("", "")}]).
 
 %% ===================================================================
 
 connect(Options) ->
-    #{hostname := Host, username := Username, password := Password} =
+    #{
+        hostname := Host,
+        username := Username,
+        password := Password,
+        request_timeout := RequestTimeout
+    } =
         Conf = proplists:get_value(options, Options),
     OpenOpts = maps:to_list(maps:with([port, sslopts], Conf)),
-    case eldap:open([Host], [{log, fun log/3} | OpenOpts]) of
+    case eldap:open([Host], [{log, fun log/3}, {timeout, RequestTimeout} | OpenOpts]) of
         {ok, Handle} = Ret ->
             case eldap:simple_bind(Handle, Username, Password) of
                 ok -> Ret;

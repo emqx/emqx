@@ -19,6 +19,7 @@
 
 %% API
 -export([add_handler/0, remove_handler/0, pre_config_update/3]).
+-export([is_olp_enabled/0]).
 
 -define(ZONES, [zones]).
 
@@ -33,3 +34,13 @@ remove_handler() ->
 %% replace the old config with the new config
 pre_config_update(?ZONES, NewRaw, _OldRaw) ->
     {ok, NewRaw}.
+
+is_olp_enabled() ->
+    maps:fold(
+        fun
+            (_, #{overload_protection := #{enable := true}}, _Acc) -> true;
+            (_, _, Acc) -> Acc
+        end,
+        false,
+        emqx_config:get([zones], #{})
+    ).
