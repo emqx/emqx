@@ -19,6 +19,7 @@
 -include_lib("stdlib/include/assert.hrl").
 -include_lib("common_test/include/ct.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
+-include_lib("emqx/include/emqx_mqtt.hrl").
 
 -compile(export_all).
 -compile(nowarn_export_all).
@@ -54,8 +55,12 @@ init_per_testcase(_TestCase, Config) ->
 end_per_testcase(t_session_subscription_iterators, Config) ->
     Nodes = ?config(nodes, Config),
     ok = emqx_cth_cluster:stop(Nodes),
+    ok = emqx_ds_storage_layer:discard_iterator_prefix(?DS_SHARD, _Prefix = <<>>),
+    delete_all_messages(),
     ok;
 end_per_testcase(_TestCase, _Config) ->
+    ok = emqx_ds_storage_layer:discard_iterator_prefix(?DS_SHARD, _Prefix = <<>>),
+    delete_all_messages(),
     ok.
 
 t_messages_persisted(_Config) ->
@@ -75,12 +80,12 @@ t_messages_persisted(_Config) ->
     Messages = [
         M1 = {<<"client/1/topic">>, <<"1">>},
         M2 = {<<"client/2/topic">>, <<"2">>},
-        M3 = {<<"client/3/topic/sub">>, <<"3">>},
-        M4 = {<<"client/4">>, <<"4">>},
+        _M3 = {<<"client/3/topic/sub">>, <<"3">>},
+        _M4 = {<<"client/4">>, <<"4">>},
         M5 = {<<"random/5">>, <<"5">>},
-        M6 = {<<"random/6/topic">>, <<"6">>},
+        _M6 = {<<"random/6/topic">>, <<"6">>},
         M7 = {<<"client/7/topic">>, <<"7">>},
-        M8 = {<<"client/8/topic/sub">>, <<"8">>},
+        _M8 = {<<"client/8/topic/sub">>, <<"8">>},
         M9 = {<<"random/9">>, <<"9">>},
         M10 = {<<"random/10">>, <<"10">>}
     ],
@@ -94,8 +99,53 @@ t_messages_persisted(_Config) ->
     ct:pal("Persisted = ~p", [Persisted]),
 
     ?assertEqual(
-        % [M1, M2, M5, M7, M9, M10],
-        [M1, M2, M3, M4, M5, M6, M7, M8, M9, M10],
+        [M1, M2, M5, M7, M9, M10],
+        [{emqx_message:topic(M), emqx_message:payload(M)} || M <- Persisted]
+    ),
+
+    ok.
+
+t_messages_persisted_2(_Config) ->
+    Prefix = atom_to_binary(?FUNCTION_NAME),
+    C1 = connect(<<Prefix/binary, "1">>, _CleanStart0 = true, _EI0 = 30),
+    CP = connect(<<Prefix/binary, "-pub">>, _CleanStart1 = true, _EI1 = undefined),
+    T = fun(T0) -> <<Prefix/binary, T0/binary>> end,
+
+    %% won't be persisted
+    {ok, #{reason_code := ?RC_NO_MATCHING_SUBSCRIBERS}} =
+        emqtt:publish(CP, T(<<"random/topic">>), <<"0">>, 1),
+    {ok, #{reason_code := ?RC_NO_MATCHING_SUBSCRIBERS}} =
+        emqtt:publish(CP, T(<<"client/1/topic">>), <<"1">>, 1),
+    {ok, #{reason_code := ?RC_NO_MATCHING_SUBSCRIBERS}} =
+        emqtt:publish(CP, T(<<"client/2/topic">>), <<"2">>, 1),
+
+    {ok, _, [?RC_GRANTED_QOS_1]} = emqtt:subscribe(C1, T(<<"client/+/topic">>), qos1),
+    {ok, #{reason_code := ?RC_NO_MATCHING_SUBSCRIBERS}} =
+        emqtt:publish(CP, T(<<"random/topic">>), <<"3">>, 1),
+    %% will be persisted
+    {ok, #{reason_code := ?RC_SUCCESS}} =
+        emqtt:publish(CP, T(<<"client/1/topic">>), <<"4">>, 1),
+    {ok, #{reason_code := ?RC_SUCCESS}} =
+        emqtt:publish(CP, T(<<"client/2/topic">>), <<"5">>, 1),
+
+    {ok, _, [?RC_SUCCESS]} = emqtt:unsubscribe(C1, T(<<"client/+/topic">>)),
+    %% won't be persisted
+    {ok, #{reason_code := ?RC_NO_MATCHING_SUBSCRIBERS}} =
+        emqtt:publish(CP, T(<<"random/topic">>), <<"6">>, 1),
+    {ok, #{reason_code := ?RC_NO_MATCHING_SUBSCRIBERS}} =
+        emqtt:publish(CP, T(<<"client/1/topic">>), <<"7">>, 1),
+    {ok, #{reason_code := ?RC_NO_MATCHING_SUBSCRIBERS}} =
+        emqtt:publish(CP, T(<<"client/2/topic">>), <<"8">>, 1),
+
+    Persisted = consume(?DS_SHARD, {['#'], 0}),
+
+    ct:pal("Persisted = ~p", [Persisted]),
+
+    ?assertEqual(
+        [
+            {T(<<"client/1/topic">>), <<"4">>},
+            {T(<<"client/2/topic">>), <<"5">>}
+        ],
         [{emqx_message:topic(M), emqx_message:payload(M)} || M <- Persisted]
     ),
 
@@ -223,6 +273,18 @@ consume(It) ->
         none ->
             []
     end.
+
+delete_all_messages() ->
+    Persisted = consume(?DS_SHARD, {['#'], 0}),
+    lists:foreach(
+        fun(Msg) ->
+            GUID = emqx_message:id(Msg),
+            Topic = emqx_topic:words(emqx_message:topic(Msg)),
+            Timestamp = emqx_guid:timestamp(GUID),
+            ok = emqx_ds_storage_layer:delete(?DS_SHARD, GUID, Timestamp, Topic)
+        end,
+        Persisted
+    ).
 
 receive_messages(Count) ->
     receive_messages(Count, []).
