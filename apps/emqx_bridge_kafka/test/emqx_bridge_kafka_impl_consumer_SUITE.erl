@@ -1101,7 +1101,7 @@ cluster(Config) ->
             {load_apps, [emqx_machine]},
             {env_handler, fun
                 (emqx) ->
-                    application:set_env(emqx, boot_modules, [broker, router]),
+                    application:set_env(emqx, boot_modules, [broker]),
                     ExtraEnvHandlerHook(),
                     ok;
                 (emqx_conf) ->

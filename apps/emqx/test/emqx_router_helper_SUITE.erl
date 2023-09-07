@@ -51,12 +51,12 @@ end_per_group(_GroupName, Config) ->
 mk_config(routing_schema_v1) ->
     #{
         config => "broker.routing.storage_schema = v1",
-        override_env => [{boot_modules, [router]}]
+        override_env => [{boot_modules, [broker]}]
     };
 mk_config(routing_schema_v2) ->
     #{
         config => "broker.routing.storage_schema = v2",
-        override_env => [{boot_modules, [router]}]
+        override_env => [{boot_modules, [broker]}]
     }.
 
 init_per_testcase(_TestCase, Config) ->

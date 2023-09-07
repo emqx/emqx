@@ -19,8 +19,14 @@ if [ -n "${EMQX_CT_SUITES:-}" ]; then
 fi
 
 TESTDIR="$1/test"
+INTEGRATION_TESTDIR="$1/integration_test"
 # Get the output of the find command
 IFS=$'\n' read -r -d '' -a FILES < <(find "${TESTDIR}" -name "*_SUITE.erl" 2>/dev/null | sort && printf '\0')
+if [[ -d "${INTEGRATION_TESTDIR}" ]]; then
+  IFS=$'\n' read -r -d '' -a FILES_INTEGRATION < <(find "${INTEGRATION_TESTDIR}" -name "*_SUITE.erl" 2>/dev/null | sort && printf '\0')
+fi
+# shellcheck disable=SC2206
+FILES+=(${FILES_INTEGRATION:-})
 
 SUITEGROUP_RAW="${SUITEGROUP:-1_1}"
 SUITEGROUP="$(echo "$SUITEGROUP_RAW" | cut -d '_' -f1)"

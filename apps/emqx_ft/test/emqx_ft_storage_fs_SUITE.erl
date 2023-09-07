@@ -36,12 +36,11 @@ groups() ->
 
 init_per_suite(Config) ->
     Storage = emqx_ft_test_helpers:local_storage(Config),
-    WorkDir = ?config(priv_dir, Config),
     Apps = emqx_cth_suite:start(
         [
             {emqx_ft, #{config => emqx_ft_test_helpers:config(Storage)}}
         ],
-        #{work_dir => WorkDir}
+        #{work_dir => emqx_cth_suite:work_dir(Config)}
     ),
     [{suite_apps, Apps} | Config].
 

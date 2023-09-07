@@ -44,7 +44,7 @@ init_per_group(GroupName, Config) ->
     AppSpecs = [
         {emqx, #{
             config => mk_config(GroupName),
-            override_env => [{boot_modules, [router]}]
+            override_env => [{boot_modules, [broker]}]
         }}
     ],
     Apps = emqx_cth_suite:start(AppSpecs, #{work_dir => WorkDir}),

@@ -163,6 +163,10 @@ service:
     wss:
     dashboard:
     dashboardtls:
+  ## Specifies the load balancer implementation this Service belongs to.
+  ## Once set, it can not be changed.
+  ##
+  # loadBalancerClass:
   ## Set the LoadBalancer service type to internal only.
   ## ref: https://kubernetes.io/docs/concepts/services-networking/service/#internal-load-balancer
   ##
@@ -245,7 +249,7 @@ ssl:
   useExisting: false
   existingName: emqx-tls
   dnsnames: []
-  commonName: 
+  commonName:
   issuer:
     name: letsencrypt-dns
     kind: ClusterIssuer

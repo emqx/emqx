@@ -173,7 +173,6 @@ on_start(
     #{
         server := Server,
         username := Username,
-        password := Password,
         driver := Driver,
         database := Database,
         pool_size := PoolSize,
@@ -200,7 +199,7 @@ on_start(
     Options = [
         {server, to_bin(Server)},
         {username, Username},
-        {password, Password},
+        {password, emqx_secret:wrap(maps:get(password, Config, ""))},
         {driver, Driver},
         {database, Database},
         {pool_size, PoolSize}
@@ -320,7 +319,7 @@ conn_str([{database, Database} | Opts], Acc) ->
 conn_str([{username, Username} | Opts], Acc) ->
     conn_str(Opts, ["UID=" ++ str(Username) | Acc]);
 conn_str([{password, Password} | Opts], Acc) ->
-    conn_str(Opts, ["PWD=" ++ str(Password) | Acc]);
+    conn_str(Opts, ["PWD=" ++ str(emqx_secret:unwrap(Password)) | Acc]);
 conn_str([{_, _} | Opts], Acc) ->
     conn_str(Opts, Acc).
 

@@ -20,6 +20,7 @@
 
 -include_lib("proper/include/proper.hrl").
 -include("emqx.hrl").
+-include("emqx_session.hrl").
 -include("emqx_access_control.hrl").
 
 %% High level Types
@@ -132,33 +133,22 @@ clientinfo() ->
 sessioninfo() ->
     ?LET(
         Session,
-        {session, clientid(),
-            % id
-            sessionid(),
-            % is_persistent
-            boolean(),
-            % subscriptions
-            subscriptions(),
-            % max_subscriptions
-            non_neg_integer(),
-            % upgrade_qos
-            boolean(),
-            % emqx_inflight:inflight()
-            inflight(),
-            % emqx_mqueue:mqueue()
-            mqueue(),
-            % next_pkt_id
-            packet_id(),
-            % retry_interval
-            safty_timeout(),
-            % awaiting_rel
-            awaiting_rel(),
-            % max_awaiting_rel
-            non_neg_integer(),
-            % await_rel_timeout
-            safty_timeout(),
-            % created_at
-            timestamp()},
+        #session{
+            clientid = clientid(),
+            id = sessionid(),
+            is_persistent = boolean(),
+            subscriptions = subscriptions(),
+            max_subscriptions = non_neg_integer(),
+            upgrade_qos = boolean(),
+            inflight = inflight(),
+            mqueue = mqueue(),
+            next_pkt_id = packet_id(),
+            retry_interval = safty_timeout(),
+            awaiting_rel = awaiting_rel(),
+            max_awaiting_rel = non_neg_integer(),
+            await_rel_timeout = safty_timeout(),
+            created_at = timestamp()
+        },
         emqx_session:info(Session)
     ).
 

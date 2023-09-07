@@ -94,7 +94,6 @@ on_start(
     #{
         servers := Servers0,
         keyspace := Keyspace,
-        username := Username,
         pool_size := PoolSize,
         ssl := SSL
     } = Config
@@ -114,12 +113,12 @@ on_start(
 
     Options = [
         {nodes, Servers},
-        {username, Username},
-        {password, emqx_secret:wrap(maps:get(password, Config, ""))},
         {keyspace, Keyspace},
         {auto_reconnect, ?AUTO_RECONNECT_INTERVAL},
         {pool_size, PoolSize}
     ],
+    Options1 = maybe_add_opt(username, Config, Options),
+    Options2 = maybe_add_opt(password, Config, Options1, _IsSensitive = true),
 
     SslOpts =
         case maps:get(enable, SSL) of
@@ -132,7 +131,7 @@ on_start(
                 []
         end,
     State = parse_prepare_cql(Config),
-    case emqx_resource_pool:start(InstId, ?MODULE, Options ++ SslOpts) of
+    case emqx_resource_pool:start(InstId, ?MODULE, Options2 ++ SslOpts) of
         ok ->
             {ok, init_prepare(State#{pool_name => InstId, prepare_statement => #{}})};
         {error, Reason} ->
@@ -513,3 +512,19 @@ maybe_assign_type(V) when is_integer(V) ->
 maybe_assign_type(V) when is_float(V) -> {double, V};
 maybe_assign_type(V) ->
     V.
+
+maybe_add_opt(Key, Conf, Opts) ->
+    maybe_add_opt(Key, Conf, Opts, _IsSensitive = false).
+
+maybe_add_opt(Key, Conf, Opts, IsSensitive) ->
+    case Conf of
+        #{Key := Val} ->
+            [{Key, maybe_wrap(IsSensitive, Val)} | Opts];
+        _ ->
+            Opts
+    end.
+
+maybe_wrap(false = _IsSensitive, Val) ->
+    Val;
+maybe_wrap(true, Val) ->
+    emqx_secret:wrap(Val).

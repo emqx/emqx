@@ -32,13 +32,12 @@ end_per_suite(_Config) ->
     ok.
 
 init_per_testcase(Case, Config) ->
-    WorkDir = filename:join(?config(priv_dir, Config), Case),
     Apps = emqx_cth_suite:start(
         [
             {emqx_conf, #{}},
             {emqx_ft, #{config => "file_transfer {}"}}
         ],
-        #{work_dir => WorkDir}
+        #{work_dir => emqx_cth_suite:work_dir(Case, Config)}
     ),
     [{suite_apps, Apps} | Config].
 

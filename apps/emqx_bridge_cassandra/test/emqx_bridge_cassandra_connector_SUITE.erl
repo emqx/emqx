@@ -7,15 +7,17 @@
 -compile(nowarn_export_all).
 -compile(export_all).
 
+-include_lib("common_test/include/ct.hrl").
 -include("emqx_bridge_cassandra.hrl").
 -include("emqx_connector/include/emqx_connector.hrl").
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("emqx/include/emqx.hrl").
 -include_lib("stdlib/include/assert.hrl").
 
-%% Cassandra server defined at `.ci/docker-compose-file/docker-compose-cassandra-tcp.yaml`
+%% Cassandra servers are defined at `.ci/docker-compose-file/docker-compose-cassandra.yaml`
 %% You can change it to `127.0.0.1`, if you run this SUITE locally
 -define(CASSANDRA_HOST, "cassandra").
+-define(CASSANDRA_HOST_NOAUTH, "cassandra_noauth").
 -define(CASSANDRA_RESOURCE_MOD, emqx_bridge_cassandra_connector).
 
 %% This test SUITE requires a running cassandra instance. If you don't want to
@@ -32,40 +34,58 @@
 -define(CASSA_PASSWORD, <<"cassandra">>).
 
 all() ->
-    emqx_common_test_helpers:all(?MODULE).
+    [
+        {group, auth},
+        {group, noauth}
+    ].
 
 groups() ->
-    [].
+    TCs = emqx_common_test_helpers:all(?MODULE),
+    [
+        {auth, TCs},
+        {noauth, TCs}
+    ].
 
-cassandra_servers() ->
+cassandra_servers(CassandraHost) ->
     lists:map(
         fun(#{hostname := Host, port := Port}) ->
             {Host, Port}
         end,
         emqx_schema:parse_servers(
-            iolist_to_binary([?CASSANDRA_HOST, ":", erlang:integer_to_list(?CASSANDRA_DEFAULT_PORT)]),
+            iolist_to_binary([CassandraHost, ":", erlang:integer_to_list(?CASSANDRA_DEFAULT_PORT)]),
             #{default_port => ?CASSANDRA_DEFAULT_PORT}
         )
     ).
 
 init_per_suite(Config) ->
-    case
-        emqx_common_test_helpers:is_tcp_server_available(?CASSANDRA_HOST, ?CASSANDRA_DEFAULT_PORT)
-    of
+    ok = emqx_common_test_helpers:start_apps([emqx_conf]),
+    ok = emqx_connector_test_helpers:start_apps([emqx_resource]),
+    {ok, _} = application:ensure_all_started(emqx_connector),
+    Config.
+
+init_per_group(Group, Config) ->
+    {CassandraHost, AuthOpts} =
+        case Group of
+            auth ->
+                {?CASSANDRA_HOST, [{username, ?CASSA_USERNAME}, {password, ?CASSA_PASSWORD}]};
+            noauth ->
+                {?CASSANDRA_HOST_NOAUTH, []}
+        end,
+    case emqx_common_test_helpers:is_tcp_server_available(CassandraHost, ?CASSANDRA_DEFAULT_PORT) of
         true ->
-            ok = emqx_common_test_helpers:start_apps([emqx_conf]),
-            ok = emqx_connector_test_helpers:start_apps([emqx_resource]),
-            {ok, _} = application:ensure_all_started(emqx_connector),
             %% keyspace `mqtt` must be created in advance
             {ok, Conn} =
                 ecql:connect([
-                    {nodes, cassandra_servers()},
-                    {username, ?CASSA_USERNAME},
-                    {password, ?CASSA_PASSWORD},
+                    {nodes, cassandra_servers(CassandraHost)},
                     {keyspace, "mqtt"}
+                    | AuthOpts
                 ]),
             ecql:close(Conn),
-            Config;
+            [
+                {cassa_host, CassandraHost},
+                {cassa_auth_opts, AuthOpts}
+                | Config
+            ];
         false ->
             case os:getenv("IS_CI") of
                 "yes" ->
@@ -74,6 +94,9 @@ init_per_suite(Config) ->
                     {skip, no_cassandra}
             end
     end.
+
+end_per_group(_Group, _Config) ->
+    ok.
 
 end_per_suite(_Config) ->
     ok = emqx_common_test_helpers:stop_apps([emqx_conf]),
@@ -90,10 +113,10 @@ end_per_testcase(_, _Config) ->
 %% cases
 %%--------------------------------------------------------------------
 
-t_lifecycle(_Config) ->
+t_lifecycle(Config) ->
     perform_lifecycle_check(
         <<"emqx_connector_cassandra_SUITE">>,
-        cassandra_config()
+        cassandra_config(Config)
     ).
 
 show(X) ->
@@ -168,25 +191,25 @@ perform_lifecycle_check(ResourceId, InitialConfig) ->
 %% utils
 %%--------------------------------------------------------------------
 
-cassandra_config() ->
-    Config =
-        #{
+cassandra_config(Config) ->
+    Host = ?config(cassa_host, Config),
+    AuthOpts = maps:from_list(?config(cassa_auth_opts, Config)),
+    CassConfig =
+        AuthOpts#{
             auto_reconnect => true,
             keyspace => <<"mqtt">>,
-            username => ?CASSA_USERNAME,
-            password => ?CASSA_PASSWORD,
             pool_size => 8,
             servers => iolist_to_binary(
                 io_lib:format(
                     "~s:~b",
                     [
-                        ?CASSANDRA_HOST,
+                        Host,
                         ?CASSANDRA_DEFAULT_PORT
                     ]
                 )
             )
         },
-    #{<<"config">> => Config}.
+    #{<<"config">> => CassConfig}.
 
 test_query_no_params() ->
     {query, <<"SELECT count(1) AS T FROM system.local">>}.

@@ -536,7 +536,7 @@ cluster(Config) ->
             {schema_mod, emqx_enterprise_schema},
             {env_handler, fun
                 (emqx) ->
-                    application:set_env(emqx, boot_modules, [broker, router]),
+                    application:set_env(emqx, boot_modules, [broker]),
                     ok;
                 (emqx_conf) ->
                     ok;

@@ -18,7 +18,9 @@
 
 -include_lib("emqx/include/emqx.hrl").
 -include_lib("emqx/include/emqx_mqtt.hrl").
+-include_lib("emqx/include/emqx_channel.hrl").
 -include_lib("emqx/include/emqx_hooks.hrl").
+
 -include_lib("snabbkaffe/include/trace.hrl").
 
 -export([
@@ -28,15 +30,16 @@
 
 -export([
     on_message_publish/1,
-    on_message_puback/4
+    on_message_puback/4,
+    on_client_timeout/3,
+    on_process_down/4,
+    on_channel_unregistered/1
 ]).
 
 -export([
     decode_filemeta/1,
     encode_filemeta/1
 ]).
-
--export([on_complete/4]).
 
 -export_type([
     clientid/0,
@@ -85,17 +88,29 @@
     checksum => checksum()
 }.
 
+-define(FT_EVENT(EVENT), {?MODULE, EVENT}).
+
 %%--------------------------------------------------------------------
 %% API for app
 %%--------------------------------------------------------------------
 
 hook() ->
     ok = emqx_hooks:put('message.publish', {?MODULE, on_message_publish, []}, ?HP_LOWEST),
-    ok = emqx_hooks:put('message.puback', {?MODULE, on_message_puback, []}, ?HP_LOWEST).
+    ok = emqx_hooks:put('message.puback', {?MODULE, on_message_puback, []}, ?HP_LOWEST),
+    ok = emqx_hooks:put('client.timeout', {?MODULE, on_client_timeout, []}, ?HP_LOWEST),
+    ok = emqx_hooks:put(
+        'client.monitored_process_down', {?MODULE, on_process_down, []}, ?HP_LOWEST
+    ),
+    ok = emqx_hooks:put(
+        'cm.channel.unregistered', {?MODULE, on_channel_unregistered, []}, ?HP_LOWEST
+    ).
 
 unhook() ->
     ok = emqx_hooks:del('message.publish', {?MODULE, on_message_publish}),
-    ok = emqx_hooks:del('message.puback', {?MODULE, on_message_puback}).
+    ok = emqx_hooks:del('message.puback', {?MODULE, on_message_puback}),
+    ok = emqx_hooks:del('client.timeout', {?MODULE, on_client_timeout}),
+    ok = emqx_hooks:del('client.monitored_process_down', {?MODULE, on_process_down}),
+    ok = emqx_hooks:del('cm.channel.unregistered', {?MODULE, on_channel_unregistered}).
 
 %%--------------------------------------------------------------------
 %% API
@@ -143,6 +158,25 @@ on_message_puback(PacketId, #message{topic = Topic} = Msg, _PubRes, _RC) ->
             {stop, on_file_command(PacketId, Msg, FileCommand)};
         _ ->
             ignore
+    end.
+
+on_channel_unregistered(ChannelPid) ->
+    ok = emqx_ft_async_reply:deregister_all(ChannelPid).
+
+on_client_timeout(_TRef, ?FT_EVENT({MRef, PacketId}), Acc) ->
+    _ = erlang:demonitor(MRef, [flush]),
+    _ = emqx_ft_async_reply:take_by_mref(MRef),
+    {stop, [?REPLY_OUTGOING(?PUBACK_PACKET(PacketId, ?RC_UNSPECIFIED_ERROR)) | Acc]};
+on_client_timeout(_TRef, _Event, Acc) ->
+    {ok, Acc}.
+
+on_process_down(MRef, _Pid, Reason, Acc) ->
+    case emqx_ft_async_reply:take_by_mref(MRef) of
+        {ok, PacketId, TRef} ->
+            _ = emqx_utils:cancel_timer(TRef),
+            {stop, [?REPLY_OUTGOING(?PUBACK_PACKET(PacketId, reason_to_rc(Reason))) | Acc]};
+        not_found ->
+            {ok, Acc}
     end.
 
 %%--------------------------------------------------------------------
@@ -208,24 +242,13 @@ on_init(PacketId, Msg, Transfer, Meta) ->
         transfer => Transfer,
         filemeta => Meta
     }),
-    PacketKey = {self(), PacketId},
-    Callback = fun(Result) ->
-        ?MODULE:on_complete("store_filemeta", PacketKey, Transfer, Result)
-    end,
-    with_responder(PacketKey, Callback, emqx_ft_conf:init_timeout(), fun() ->
-        case store_filemeta(Transfer, Meta) of
-            % Stored, ack through the responder right away
-            ok ->
-                emqx_ft_responder:ack(PacketKey, ok);
-            % Storage operation started, packet will be acked by the responder
-            % {async, Pid} ->
-            %     ok = emqx_ft_responder:kickoff(PacketKey, Pid),
-            %     ok;
-            %% Storage operation failed, ack through the responder
-            {error, _} = Error ->
-                emqx_ft_responder:ack(PacketKey, Error)
-        end
-    end).
+    %% Currently synchronous.
+    %% If we want to make it async, we need to use `emqx_ft_async_reply`,
+    %% like in `on_fin`.
+    case store_filemeta(Transfer, Meta) of
+        ok -> ?RC_SUCCESS;
+        {error, _} -> ?RC_UNSPECIFIED_ERROR
+    end.
 
 on_abort(_Msg, _FileId) ->
     %% TODO
@@ -240,21 +263,13 @@ on_segment(PacketId, Msg, Transfer, Offset, Checksum) ->
         checksum => Checksum
     }),
     Segment = {Offset, Msg#message.payload},
-    PacketKey = {self(), PacketId},
-    Callback = fun(Result) ->
-        ?MODULE:on_complete("store_segment", PacketKey, Transfer, Result)
-    end,
-    with_responder(PacketKey, Callback, emqx_ft_conf:store_segment_timeout(), fun() ->
-        case store_segment(Transfer, Segment) of
-            ok ->
-                emqx_ft_responder:ack(PacketKey, ok);
-            % {async, Pid} ->
-            %     ok = emqx_ft_responder:kickoff(PacketKey, Pid),
-            %     ok;
-            {error, _} = Error ->
-                emqx_ft_responder:ack(PacketKey, Error)
-        end
-    end).
+    %% Currently synchronous.
+    %% If we want to make it async, we need to use `emqx_ft_async_reply`,
+    %% like in `on_fin`.
+    case store_segment(Transfer, Segment) of
+        ok -> ?RC_SUCCESS;
+        {error, _} -> ?RC_UNSPECIFIED_ERROR
+    end.
 
 on_fin(PacketId, Msg, Transfer, FinalSize, FinalChecksum) ->
     ?tp(info, "file_transfer_fin", #{
@@ -265,37 +280,30 @@ on_fin(PacketId, Msg, Transfer, FinalSize, FinalChecksum) ->
         checksum => FinalChecksum
     }),
     %% TODO: handle checksum? Do we need it?
-    FinPacketKey = {self(), PacketId},
-    Callback = fun(Result) ->
-        ?MODULE:on_complete("assemble", FinPacketKey, Transfer, Result)
-    end,
-    with_responder(FinPacketKey, Callback, emqx_ft_conf:assemble_timeout(), fun() ->
-        case assemble(Transfer, FinalSize, FinalChecksum) of
-            %% Assembling completed, ack through the responder right away
-            ok ->
-                emqx_ft_responder:ack(FinPacketKey, ok);
-            %% Assembling started, packet will be acked by the responder
-            {async, Pid} ->
-                ok = emqx_ft_responder:kickoff(FinPacketKey, Pid),
-                ok;
-            %% Assembling failed, ack through the responder
-            {error, _} = Error ->
-                emqx_ft_responder:ack(FinPacketKey, Error)
-        end
-    end).
+    emqx_ft_async_reply:with_new_packet(
+        PacketId,
+        fun() ->
+            case assemble(Transfer, FinalSize, FinalChecksum) of
+                ok ->
+                    ?RC_SUCCESS;
+                %% Assembling started, packet will be acked by monitor or timeout
+                {async, Pid} ->
+                    ok = register_async_reply(Pid, PacketId),
+                    ok = emqx_ft_storage:kickoff(Pid),
+                    undefined;
+                {error, _} ->
+                    ?RC_UNSPECIFIED_ERROR
+            end
+        end,
+        undefined
+    ).
 
-with_responder(Key, Callback, Timeout, CriticalSection) ->
-    case emqx_ft_responder:start(Key, Callback, Timeout) of
-        %% We have new packet
-        {ok, _} ->
-            CriticalSection();
-        %% Packet already received.
-        %% Since we are still handling the previous one,
-        %% we probably have retransmit here
-        {error, {already_started, _}} ->
-            ok
-    end,
-    undefined.
+register_async_reply(Pid, PacketId) ->
+    MRef = erlang:monitor(process, Pid),
+    TRef = erlang:start_timer(
+        emqx_ft_conf:assemble_timeout(), self(), ?FT_EVENT({MRef, PacketId})
+    ),
+    ok = emqx_ft_async_reply:register(PacketId, MRef, TRef).
 
 store_filemeta(Transfer, Segment) ->
     try
@@ -334,28 +342,6 @@ assemble(Transfer, FinalSize, FinalChecksum) ->
 transfer(Msg, FileId) ->
     ClientId = Msg#message.from,
     {clientid_to_binary(ClientId), FileId}.
-
-on_complete(Op, {ChanPid, PacketId}, Transfer, Result) ->
-    ?tp(debug, "on_complete", #{
-        operation => Op,
-        packet_id => PacketId,
-        transfer => Transfer
-    }),
-    case Result of
-        {Mode, ok} when Mode == ack orelse Mode == down ->
-            erlang:send(ChanPid, {puback, PacketId, [], ?RC_SUCCESS});
-        {Mode, {error, _} = Reason} when Mode == ack orelse Mode == down ->
-            ?tp(error, Op ++ "_failed", #{
-                transfer => Transfer,
-                reason => Reason
-            }),
-            erlang:send(ChanPid, {puback, PacketId, [], ?RC_UNSPECIFIED_ERROR});
-        timeout ->
-            ?tp(error, Op ++ "_timed_out", #{
-                transfer => Transfer
-            }),
-            erlang:send(ChanPid, {puback, PacketId, [], ?RC_UNSPECIFIED_ERROR})
-    end.
 
 validate(Validations, Fun) ->
     case do_validate(Validations, []) of
@@ -429,3 +415,20 @@ clientid_to_binary(A) when is_atom(A) ->
     atom_to_binary(A);
 clientid_to_binary(B) when is_binary(B) ->
     B.
+
+reason_to_rc(Reason) ->
+    case map_down_reason(Reason) of
+        ok -> ?RC_SUCCESS;
+        {error, _} -> ?RC_UNSPECIFIED_ERROR
+    end.
+
+map_down_reason(normal) ->
+    ok;
+map_down_reason(shutdown) ->
+    ok;
+map_down_reason({shutdown, Result}) ->
+    Result;
+map_down_reason(noproc) ->
+    {error, noproc};
+map_down_reason(Error) ->
+    {error, {internal_error, Error}}.

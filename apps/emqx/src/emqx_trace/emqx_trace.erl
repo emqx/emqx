@@ -160,7 +160,7 @@ create(Trace) ->
             end;
         false ->
             {error,
-                "The number of traces created has reache the maximum"
+                "The number of traces created has reached the maximum"
                 " please delete the useless ones first"}
     end.
 
@@ -371,10 +371,16 @@ start_trace(Trace) ->
 
 stop_trace(Finished, Started) ->
     lists:foreach(
-        fun(#{name := Name, type := Type, filter := Filter}) ->
+        fun(#{name := Name, id := HandlerID, dst := FilePath, type := Type, filter := Filter}) ->
             case lists:member(Name, Finished) of
                 true ->
-                    ?TRACE("API", "trace_stopping", #{Type => Filter}),
+                    _ = maybe_sync_logfile(HandlerID),
+                    case file:read_file_info(FilePath) of
+                        {ok, #file_info{size = Size}} when Size > 0 ->
+                            ?TRACE("API", "trace_stopping", #{Type => Filter});
+                        _ ->
+                            ok
+                    end,
                     emqx_trace_handler:uninstall(Type, Name);
                 false ->
                     ok
@@ -382,6 +388,19 @@ stop_trace(Finished, Started) ->
         end,
         Started
     ).
+
+maybe_sync_logfile(HandlerID) ->
+    case logger:get_handler_config(HandlerID) of
+        {ok, #{module := Mod}} ->
+            case erlang:function_exported(Mod, filesync, 1) of
+                true ->
+                    Mod:filesync(HandlerID);
+                false ->
+                    ok
+            end;
+        _ ->
+            ok
+    end.
 
 clean_stale_trace_files() ->
     TraceDir = trace_dir(),

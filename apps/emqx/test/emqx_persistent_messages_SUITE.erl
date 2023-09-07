@@ -17,32 +17,45 @@
 -module(emqx_persistent_messages_SUITE).
 
 -include_lib("stdlib/include/assert.hrl").
+-include_lib("common_test/include/ct.hrl").
+-include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
 -compile(export_all).
 -compile(nowarn_export_all).
 
--define(NOW,
-    (calendar:system_time_to_rfc3339(erlang:system_time(millisecond), [{unit, millisecond}]))
-).
+-define(DS_SHARD, <<"local">>).
 
 all() ->
     emqx_common_test_helpers:all(?MODULE).
 
 init_per_suite(Config) ->
-    {ok, _} = application:ensure_all_started(emqx_durable_storage),
-    ok = emqx_common_test_helpers:start_apps([], fun
-        (emqx) ->
-            emqx_common_test_helpers:boot_modules(all),
-            emqx_config:init_load(emqx_schema, <<"persistent_session_store.ds = true">>),
-            emqx_app:set_config_loader(?MODULE);
-        (_) ->
-            ok
-    end),
+    %% avoid inter-suite flakiness...
+    %% TODO: remove after other suites start to use `emx_cth_suite'
+    application:stop(emqx),
+    application:stop(emqx_durable_storage),
+    TCApps = emqx_cth_suite:start(
+        app_specs(),
+        #{work_dir => emqx_cth_suite:work_dir(Config)}
+    ),
+    [{tc_apps, TCApps} | Config].
+
+end_per_suite(Config) ->
+    TCApps = ?config(tc_apps, Config),
+    emqx_cth_suite:stop(TCApps),
+    ok.
+
+init_per_testcase(t_session_subscription_iterators, Config) ->
+    Cluster = cluster(),
+    Nodes = emqx_cth_cluster:start(Cluster, #{work_dir => ?config(priv_dir, Config)}),
+    [{nodes, Nodes} | Config];
+init_per_testcase(_TestCase, Config) ->
     Config.
 
-end_per_suite(_Config) ->
-    emqx_common_test_helpers:stop_apps([]),
-    application:stop(emqx_durable_storage),
+end_per_testcase(t_session_subscription_iterators, Config) ->
+    Nodes = ?config(nodes, Config),
+    ok = emqx_cth_cluster:stop(Nodes),
+    ok;
+end_per_testcase(_TestCase, _Config) ->
     ok.
 
 t_messages_persisted(_Config) ->
@@ -76,7 +89,7 @@ t_messages_persisted(_Config) ->
 
     ct:pal("Results = ~p", [Results]),
 
-    Persisted = consume(<<"local">>, {['#'], 0}),
+    Persisted = consume(?DS_SHARD, {['#'], 0}),
 
     ct:pal("Persisted = ~p", [Persisted]),
 
@@ -86,6 +99,97 @@ t_messages_persisted(_Config) ->
         [{emqx_message:topic(M), emqx_message:payload(M)} || M <- Persisted]
     ),
 
+    ok.
+
+%% TODO: test quic and ws too
+t_session_subscription_iterators(Config) ->
+    [Node1, Node2] = ?config(nodes, Config),
+    Port = get_mqtt_port(Node1, tcp),
+    Topic = <<"t/topic">>,
+    SubTopicFilter = <<"t/+">>,
+    AnotherTopic = <<"u/another-topic">>,
+    ClientId = <<"myclientid">>,
+    ?check_trace(
+        begin
+            [
+                Payload1,
+                Payload2,
+                Payload3,
+                Payload4
+            ] = lists:map(
+                fun(N) -> <<"hello", (integer_to_binary(N))/binary>> end,
+                lists:seq(1, 4)
+            ),
+            ct:pal("starting"),
+            {ok, Client} = emqtt:start_link([
+                {port, Port},
+                {clientid, ClientId},
+                {proto_ver, v5}
+            ]),
+            {ok, _} = emqtt:connect(Client),
+            ct:pal("publishing 1"),
+            Message1 = emqx_message:make(Topic, Payload1),
+            publish(Node1, Message1),
+            ct:pal("subscribing 1"),
+            {ok, _, [2]} = emqtt:subscribe(Client, SubTopicFilter, qos2),
+            ct:pal("publishing 2"),
+            Message2 = emqx_message:make(Topic, Payload2),
+            publish(Node1, Message2),
+            [_] = receive_messages(1),
+            ct:pal("subscribing 2"),
+            {ok, _, [1]} = emqtt:subscribe(Client, SubTopicFilter, qos1),
+            ct:pal("publishing 3"),
+            Message3 = emqx_message:make(Topic, Payload3),
+            publish(Node1, Message3),
+            [_] = receive_messages(1),
+            ct:pal("publishing 4"),
+            Message4 = emqx_message:make(AnotherTopic, Payload4),
+            publish(Node1, Message4),
+            emqtt:stop(Client),
+            #{
+                messages => [Message1, Message2, Message3, Message4]
+            }
+        end,
+        fun(Results, Trace) ->
+            ct:pal("trace:\n  ~p", [Trace]),
+            #{
+                messages := [_Message1, Message2, Message3 | _]
+            } = Results,
+            case ?of_kind(ds_session_subscription_added, Trace) of
+                [] ->
+                    %% Since `emqx_durable_storage' is a dependency of `emqx', it gets
+                    %% compiled in "prod" mode when running emqx standalone tests.
+                    ok;
+                [_ | _] ->
+                    ?assertMatch(
+                        [
+                            #{?snk_kind := ds_session_subscription_added},
+                            #{?snk_kind := ds_session_subscription_present}
+                        ],
+                        ?of_kind(
+                            [
+                                ds_session_subscription_added,
+                                ds_session_subscription_present
+                            ],
+                            Trace
+                        )
+                    ),
+                    ok
+            end,
+            ?assertMatch({ok, [_]}, get_all_iterator_ids(Node1)),
+            {ok, [IteratorId]} = get_all_iterator_ids(Node1),
+            ?assertMatch({ok, [IteratorId]}, get_all_iterator_ids(Node2)),
+            ReplayMessages1 = erpc:call(Node1, fun() -> consume(?DS_SHARD, IteratorId) end),
+            ExpectedMessages = [Message2, Message3],
+            %% Note: it is expected that this will break after replayers are in place.
+            %% They might have consumed all the messages by this time.
+            ?assertEqual(ExpectedMessages, ReplayMessages1),
+            %% Different DS shard
+            ReplayMessages2 = erpc:call(Node2, fun() -> consume(?DS_SHARD, IteratorId) end),
+            ?assertEqual([], ReplayMessages2),
+            ok
+        end
+    ),
     ok.
 
 %%
@@ -103,8 +207,11 @@ connect(ClientId, CleanStart, EI) ->
     {ok, _} = emqtt:connect(Client),
     Client.
 
-consume(Shard, Replay) ->
+consume(Shard, Replay = {_TopicFiler, _StartMS}) ->
     {ok, It} = emqx_ds_storage_layer:make_iterator(Shard, Replay),
+    consume(It);
+consume(Shard, IteratorId) when is_binary(IteratorId) ->
+    {ok, It} = emqx_ds_storage_layer:restore_iterator(Shard, IteratorId),
     consume(It).
 
 consume(It) ->
@@ -114,3 +221,54 @@ consume(It) ->
         none ->
             []
     end.
+
+receive_messages(Count) ->
+    receive_messages(Count, []).
+
+receive_messages(0, Msgs) ->
+    Msgs;
+receive_messages(Count, Msgs) ->
+    receive
+        {publish, Msg} ->
+            receive_messages(Count - 1, [Msg | Msgs])
+    after 5_000 ->
+        Msgs
+    end.
+
+publish(Node, Message) ->
+    erpc:call(Node, emqx, publish, [Message]).
+
+get_iterator_ids(Node, ClientId) ->
+    Channel = erpc:call(Node, fun() ->
+        [ConnPid] = emqx_cm:lookup_channels(ClientId),
+        sys:get_state(ConnPid)
+    end),
+    emqx_connection:info({channel, {session, iterators}}, Channel).
+
+app_specs() ->
+    [
+        emqx_durable_storage,
+        {emqx, #{
+            config => #{persistent_session_store => #{ds => true}},
+            override_env => [{boot_modules, [broker, listeners]}]
+        }}
+    ].
+
+cluster() ->
+    Node1 = persistent_messages_SUITE1,
+    Spec = #{
+        role => core,
+        join_to => emqx_cth_cluster:node_name(Node1),
+        apps => app_specs()
+    },
+    [
+        {Node1, Spec},
+        {persistent_messages_SUITE2, Spec}
+    ].
+
+get_mqtt_port(Node, Type) ->
+    {_IP, Port} = erpc:call(Node, emqx_config, get, [[listeners, Type, default, bind]]),
+    Port.
+
+get_all_iterator_ids(Node) ->
+    erpc:call(Node, emqx_ds_storage_layer, list_iterator_prefix, [?DS_SHARD, <<>>]).

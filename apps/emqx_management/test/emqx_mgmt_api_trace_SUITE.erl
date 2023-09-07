@@ -369,6 +369,28 @@ t_trace_files_are_deleted_after_download(_Config) ->
     ),
     ok.
 
+t_download_empty_trace(_Config) ->
+    ClientId = <<"client-test-empty-trace-download">>,
+    Now = erlang:system_time(second),
+    Name = <<"test_client_id_empty_trace">>,
+    load(),
+    create_trace(Name, ClientId, Now),
+    ok = emqx_trace_handler_SUITE:filesync(Name, clientid),
+    ?check_trace(
+        begin
+            ?wait_async_action(
+                ?assertMatch(
+                    {ok, _}, request_api(put, api_path(<<"trace/", Name/binary, "/stop">>), #{})
+                ),
+                #{?snk_kind := update_trace_done}
+            )
+        end,
+        []
+    ),
+    {error, {{_, 404, _}, _Headers, Body}} =
+        request_api(get, api_path(<<"trace/", Name/binary, "/download">>), [], #{return_all => true}),
+    ?assertMatch(#{<<"message">> := <<"Trace is empty">>}, emqx_utils_json:decode(Body)).
+
 to_rfc3339(Second) ->
     list_to_binary(calendar:system_time_to_rfc3339(Second)).
 
@@ -376,8 +398,11 @@ request_api(Method, Url) ->
     request_api(Method, Url, []).
 
 request_api(Method, Url, Body) ->
-    Opts = #{httpc_req_opts => [{body_format, binary}]},
-    emqx_mgmt_api_test_util:request_api(Method, Url, [], [], Body, Opts).
+    request_api(Method, Url, Body, #{}).
+
+request_api(Method, Url, Body, Opts) ->
+    Opts1 = Opts#{httpc_req_opts => [{body_format, binary}]},
+    emqx_mgmt_api_test_util:request_api(Method, Url, [], [], Body, Opts1).
 
 api_path(Path) ->
     emqx_mgmt_api_test_util:api_path([Path]).

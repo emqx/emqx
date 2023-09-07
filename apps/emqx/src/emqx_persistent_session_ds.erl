@@ -16,13 +16,31 @@
 
 -module(emqx_persistent_session_ds).
 
+-include_lib("snabbkaffe/include/snabbkaffe.hrl").
+
 -export([init/0]).
 
--export([persist_message/1]).
+-export([
+    persist_message/1,
+    open_session/1,
+    add_subscription/2,
+    del_subscription/3
+]).
 
 -export([
     serialize_message/1,
     deserialize_message/1
+]).
+
+%% RPC
+-export([
+    ensure_iterator_closed_on_all_shards/1,
+    ensure_all_iterators_closed/1
+]).
+-export([
+    do_open_iterator/3,
+    do_ensure_iterator_closed/1,
+    do_ensure_all_iterators_closed/1
 ]).
 
 %% FIXME
@@ -71,6 +89,105 @@ store_message(Msg) ->
 
 find_subscribers(_Msg) ->
     [node()].
+
+open_session(ClientID) ->
+    ?WHEN_ENABLED(emqx_ds:session_open(ClientID)).
+
+-spec add_subscription(emqx_types:topic(), emqx_ds:session_id()) ->
+    {ok, emqx_ds:iterator_id(), IsNew :: boolean()} | {skipped, disabled}.
+add_subscription(TopicFilterBin, DSSessionID) ->
+    ?WHEN_ENABLED(
+        begin
+            TopicFilter = emqx_topic:words(TopicFilterBin),
+            {ok, IteratorID, StartMS, IsNew} = emqx_ds:session_add_iterator(
+                DSSessionID, TopicFilter
+            ),
+            Ctx = #{
+                iterator_id => IteratorID,
+                start_time => StartMS,
+                is_new => IsNew
+            },
+            ?tp(persistent_session_ds_iterator_added, Ctx),
+            ?tp_span(
+                persistent_session_ds_open_iterators,
+                Ctx,
+                ok = open_iterator_on_all_shards(TopicFilter, StartMS, IteratorID)
+            ),
+            {ok, IteratorID, IsNew}
+        end
+    ).
+
+-spec open_iterator_on_all_shards(emqx_topic:words(), emqx_ds:time(), emqx_ds:iterator_id()) -> ok.
+open_iterator_on_all_shards(TopicFilter, StartMS, IteratorID) ->
+    ?tp(persistent_session_ds_will_open_iterators, #{
+        iterator_id => IteratorID,
+        start_time => StartMS
+    }),
+    %% Note: currently, shards map 1:1 to nodes, but this will change in the future.
+    Nodes = emqx:running_nodes(),
+    Results = emqx_persistent_session_ds_proto_v1:open_iterator(
+        Nodes, TopicFilter, StartMS, IteratorID
+    ),
+    %% TODO: handle errors
+    true = lists:all(fun(Res) -> Res =:= {ok, ok} end, Results),
+    ok.
+
+%% RPC target.
+-spec do_open_iterator(emqx_topic:words(), emqx_ds:time(), emqx_ds:iterator_id()) -> ok.
+do_open_iterator(TopicFilter, StartMS, IteratorID) ->
+    Replay = {TopicFilter, StartMS},
+    {ok, _It} = emqx_ds_storage_layer:ensure_iterator(?DS_SHARD, IteratorID, Replay),
+    ok.
+
+-spec del_subscription(emqx_ds:iterator_id() | undefined, emqx_types:topic(), emqx_ds:session_id()) ->
+    ok | {skipped, disabled}.
+del_subscription(IteratorID, TopicFilterBin, DSSessionID) ->
+    ?WHEN_ENABLED(
+        begin
+            TopicFilter = emqx_topic:words(TopicFilterBin),
+            Ctx = #{iterator_id => IteratorID},
+            ?tp_span(
+                persistent_session_ds_close_iterators,
+                Ctx,
+                ok = ensure_iterator_closed_on_all_shards(IteratorID)
+            ),
+            ?tp_span(
+                persistent_session_ds_iterator_delete,
+                Ctx,
+                emqx_ds:session_del_iterator(DSSessionID, TopicFilter)
+            )
+        end
+    ).
+
+-spec ensure_iterator_closed_on_all_shards(emqx_ds:iterator_id()) -> ok.
+ensure_iterator_closed_on_all_shards(IteratorID) ->
+    %% Note: currently, shards map 1:1 to nodes, but this will change in the future.
+    Nodes = emqx:running_nodes(),
+    Results = emqx_persistent_session_ds_proto_v1:close_iterator(Nodes, IteratorID),
+    %% TODO: handle errors
+    true = lists:all(fun(Res) -> Res =:= {ok, ok} end, Results),
+    ok.
+
+%% RPC target.
+-spec do_ensure_iterator_closed(emqx_ds:iterator_id()) -> ok.
+do_ensure_iterator_closed(IteratorID) ->
+    ok = emqx_ds_storage_layer:discard_iterator(?DS_SHARD, IteratorID),
+    ok.
+
+-spec ensure_all_iterators_closed(emqx_ds:session_id()) -> ok.
+ensure_all_iterators_closed(DSSessionID) ->
+    %% Note: currently, shards map 1:1 to nodes, but this will change in the future.
+    Nodes = emqx:running_nodes(),
+    Results = emqx_persistent_session_ds_proto_v1:close_all_iterators(Nodes, DSSessionID),
+    %% TODO: handle errors
+    true = lists:all(fun(Res) -> Res =:= {ok, ok} end, Results),
+    ok.
+
+%% RPC target.
+-spec do_ensure_all_iterators_closed(emqx_ds:session_id()) -> ok.
+do_ensure_all_iterators_closed(DSSessionID) ->
+    ok = emqx_ds_storage_layer:discard_iterator_prefix(?DS_SHARD, DSSessionID),
+    ok.
 
 %%
 
