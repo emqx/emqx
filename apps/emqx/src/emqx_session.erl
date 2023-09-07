@@ -317,6 +317,8 @@ is_subscriptions_full(#session{
 
 -spec add_persistent_subscription(emqx_types:topic(), emqx_types:clientid(), session()) ->
     session().
+add_persistent_subscription(_TopicFilterBin, _ClientId, Session = #session{is_persistent = false}) ->
+    Session;
 add_persistent_subscription(TopicFilterBin, ClientId, Session) ->
     _ = emqx_persistent_session_ds:add_subscription(TopicFilterBin, ClientId),
     Session.

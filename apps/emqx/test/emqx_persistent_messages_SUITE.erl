@@ -121,12 +121,11 @@ t_session_subscription_iterators(Config) ->
                 lists:seq(1, 4)
             ),
             ct:pal("starting"),
-            {ok, Client} = emqtt:start_link([
-                {port, Port},
-                {clientid, ClientId},
-                {proto_ver, v5}
-            ]),
-            {ok, _} = emqtt:connect(Client),
+            Client = connect(#{
+                clientid => ClientId,
+                port => Port,
+                properties => #{'Session-Expiry-Interval' => 300}
+            }),
             ct:pal("publishing 1"),
             Message1 = emqx_message:make(Topic, Payload1),
             publish(Node1, Message1),
@@ -195,15 +194,18 @@ t_session_subscription_iterators(Config) ->
 %%
 
 connect(ClientId, CleanStart, EI) ->
-    {ok, Client} = emqtt:start_link([
-        {clientid, ClientId},
-        {proto_ver, v5},
-        {clean_start, CleanStart},
-        {properties,
-            maps:from_list(
-                [{'Session-Expiry-Interval', EI} || is_integer(EI)]
-            )}
-    ]),
+    connect(#{
+        clientid => ClientId,
+        clean_start => CleanStart,
+        properties => maps:from_list(
+            [{'Session-Expiry-Interval', EI} || is_integer(EI)]
+        )
+    }).
+
+connect(Opts0 = #{}) ->
+    Defaults = #{proto_ver => v5},
+    Opts = maps:to_list(emqx_utils_maps:deep_merge(Defaults, Opts0)),
+    {ok, Client} = emqtt:start_link(Opts),
     {ok, _} = emqtt:connect(Client),
     Client.
 
