@@ -10,6 +10,7 @@
 -export([create_generation/3]).
 
 -export([store/5]).
+-export([delete/4]).
 
 -export([make_iterator/2, next/1]).
 
@@ -109,7 +110,16 @@
 -callback open(emqx_ds:shard(), rocksdb:db_handle(), gen_id(), cf_refs(), _Schema) ->
     term().
 
--callback store(_Schema, binary(), emqx_ds:time(), emqx_ds:topic(), binary()) ->
+-callback store(
+    _Schema,
+    _MessageID :: binary(),
+    emqx_ds:time(),
+    emqx_ds:topic(),
+    _Payload :: binary()
+) ->
+    ok | {error, _}.
+
+-callback delete(_Schema, _MessageID :: binary(), emqx_ds:time(), emqx_ds:topic()) ->
     ok | {error, _}.
 
 -callback make_iterator(_Schema, emqx_ds:replay()) ->
@@ -117,7 +127,7 @@
 
 -callback restore_iterator(_Schema, emqx_ds:replay(), binary()) -> {ok, _It} | {error, _}.
 
--callback preserve_iterator(_Schema, _It) -> term().
+-callback preserve_iterator(_It) -> term().
 
 -callback next(It) -> {value, binary(), It} | none | {error, closed}.
 
@@ -139,6 +149,12 @@ create_generation(Shard, Since, Config = {_Module, _Options}) ->
 store(Shard, GUID, Time, Topic, Msg) ->
     {_GenId, #{module := Mod, data := Data}} = meta_lookup_gen(Shard, Time),
     Mod:store(Data, GUID, Time, Topic, Msg).
+
+-spec delete(emqx_ds:shard(), emqx_guid:guid(), emqx_ds:time(), emqx_ds:topic()) ->
+    ok | {error, _}.
+delete(Shard, GUID, Time, Topic) ->
+    {_GenId, #{module := Mod, data := Data}} = meta_lookup_gen(Shard, Time),
+    Mod:delete(Data, GUID, Time, Topic).
 
 -spec make_iterator(emqx_ds:shard(), emqx_ds:replay()) ->
     {ok, iterator()} | {error, _TODO}.
