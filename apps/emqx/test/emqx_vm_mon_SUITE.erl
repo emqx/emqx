@@ -20,12 +20,15 @@
 -compile(nowarn_export_all).
 
 -include_lib("eunit/include/eunit.hrl").
+-include_lib("common_test/include/ct.hrl").
 
 all() -> emqx_common_test_helpers:all(?MODULE).
 
-init_per_testcase(t_too_many_processes_alarm, Config) ->
-    emqx_common_test_helpers:boot_modules(all),
-    emqx_common_test_helpers:start_apps([]),
+init_per_testcase(t_too_many_processes_alarm = TestCase, Config) ->
+    Apps = emqx_cth_suite:start(
+        [emqx],
+        #{work_dir => emqx_cth_suite:work_dir(TestCase, Config)}
+    ),
     emqx_config:put([sysmon, vm], #{
         process_high_watermark => 0,
         process_low_watermark => 0,
@@ -34,14 +37,18 @@ init_per_testcase(t_too_many_processes_alarm, Config) ->
     }),
     ok = supervisor:terminate_child(emqx_sys_sup, emqx_vm_mon),
     {ok, _} = supervisor:restart_child(emqx_sys_sup, emqx_vm_mon),
-    Config;
-init_per_testcase(_, Config) ->
-    emqx_common_test_helpers:boot_modules(all),
-    emqx_common_test_helpers:start_apps([]),
-    Config.
+    [{apps, Apps} | Config];
+init_per_testcase(TestCase, Config) ->
+    Apps = emqx_cth_suite:start(
+        [emqx],
+        #{work_dir => emqx_cth_suite:work_dir(TestCase, Config)}
+    ),
+    [{apps, Apps} | Config].
 
-end_per_testcase(_, _Config) ->
-    emqx_common_test_helpers:stop_apps([]).
+end_per_testcase(_, Config) ->
+    Apps = ?config(apps, Config),
+    ok = emqx_cth_suite:stop(Apps),
+    ok.
 
 t_too_many_processes_alarm(_) ->
     timer:sleep(500),
