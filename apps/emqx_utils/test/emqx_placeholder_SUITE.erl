@@ -256,3 +256,25 @@ t_proc_tmpl_arbitrary_var_name_double_quote(_) ->
         <<"a:1,a:1-1,b:1,b:2,c:1.0,d:oo,d1:hi}">>,
         emqx_placeholder:proc_tmpl(Tks, Selected)
     ).
+
+t_proc_tmpl_badmap(_Config) ->
+    ThisTks = emqx_placeholder:preproc_tmpl(<<"${.}">>),
+    Tks = emqx_placeholder:preproc_tmpl(<<"${.a.b.c}">>),
+    BadMap = <<"not-a-map">>,
+    ?assertEqual(
+        <<"not-a-map">>,
+        emqx_placeholder:proc_tmpl(ThisTks, BadMap)
+    ),
+    ?assertEqual(
+        <<"undefined">>,
+        emqx_placeholder:proc_tmpl(Tks, #{<<"a">> => #{<<"b">> => BadMap}})
+    ),
+    ?assertEqual(
+        <<"undefined">>,
+        emqx_placeholder:proc_tmpl(Tks, #{<<"a">> => BadMap})
+    ),
+    ?assertEqual(
+        <<"undefined">>,
+        emqx_placeholder:proc_tmpl(Tks, BadMap)
+    ),
+    ok.

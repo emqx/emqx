@@ -277,18 +277,27 @@ lookup_var([Prop | Rest], Data0) ->
     end.
 
 lookup(Prop, Data) when is_binary(Prop) ->
-    case maps:get(Prop, Data, undefined) of
-        undefined ->
-            try
-                {ok, maps:get(binary_to_existing_atom(Prop, utf8), Data)}
+    case do_one_lookup(Prop, Data) of
+        {error, undefined} ->
+            try binary_to_existing_atom(Prop, utf8) of
+                AtomKey ->
+                    do_one_lookup(AtomKey, Data)
             catch
-                error:{badkey, _} ->
-                    {error, undefined};
                 error:badarg ->
                     {error, undefined}
             end;
-        Value ->
+        {ok, Value} ->
             {ok, Value}
+    end.
+
+do_one_lookup(Key, Data) ->
+    try
+        {ok, maps:get(Key, Data)}
+    catch
+        error:{badkey, _} ->
+            {error, undefined};
+        error:{badmap, _} ->
+            {error, undefined}
     end.
 
 %%------------------------------------------------------------------------------

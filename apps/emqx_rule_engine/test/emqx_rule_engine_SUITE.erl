@@ -23,6 +23,7 @@
 -include_lib("common_test/include/ct.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
+-include_lib("emqx/include/asserts.hrl").
 -include_lib("emqx/include/emqx.hrl").
 
 -import(emqx_common_test_helpers, [on_exit/1]).
@@ -74,6 +75,7 @@ groups() ->
             t_sqlselect_inject_props,
             t_sqlselect_01,
             t_sqlselect_02,
+            t_sqlselect_03,
             t_sqlselect_1,
             t_sqlselect_2,
             t_sqlselect_3,
@@ -580,13 +582,16 @@ t_get_rule_ids_by_action(_) ->
 t_ensure_action_removed(_) ->
     Id = <<"t_ensure_action_removed">>,
     GetSelectedData = <<"emqx_rule_sqltester:get_selected_data">>,
-    emqx:update_config(
+    {ok, _} = emqx:update_config(
         [rule_engine, rules, Id],
         #{
             <<"actions">> => [
                 #{<<"function">> => GetSelectedData},
                 #{<<"function">> => <<"console">>},
-                #{<<"function">> => <<"republish">>},
+                #{
+                    <<"function">> => <<"republish">>,
+                    <<"args">> => #{<<"topic">> => <<"some/topic">>}
+                },
                 <<"mysql:foo">>,
                 <<"mqtt:bar">>
             ],
@@ -1466,6 +1471,260 @@ t_sqlselect_02(_Config) ->
 
     emqtt:stop(Client),
     delete_rule(TopicRule1).
+
+t_sqlselect_03(_Config) ->
+    init_events_counters(),
+    SQL = "SELECT * FROM \"t/r\" ",
+    Repub = republish_action(
+        <<"t/republish">>,
+        <<"${.}">>,
+        <<"${pub_props.'User-Property'}">>,
+        #{
+            <<"Payload-Format-Indicator">> => <<"${.payload.pfi}">>,
+            <<"Message-Expiry-Interval">> => <<"${.payload.mei}">>,
+            <<"Content-Type">> => <<"${.payload.ct}">>,
+            <<"Response-Topic">> => <<"${.payload.rt}">>,
+            <<"Correlation-Data">> => <<"${.payload.cd}">>
+        }
+    ),
+    RepubRaw = emqx_utils_maps:binary_key_map(Repub#{function => <<"republish">>}),
+    ct:pal("republish action raw:\n  ~p", [RepubRaw]),
+    RuleRaw = #{
+        <<"sql">> => SQL,
+        <<"actions">> => [RepubRaw]
+    },
+    {ok, _} = emqx_conf:update([rule_engine, rules, ?TMP_RULEID], RuleRaw, #{}),
+    on_exit(fun() -> emqx_rule_engine:delete_rule(?TMP_RULEID) end),
+    %% to check what republish is actually producing without loss of information
+    SQL1 = "select * from \"t/republish\" ",
+    RuleId0 = ?TMP_RULEID,
+    RuleId1 = <<RuleId0/binary, "2">>,
+    {ok, _} = emqx_rule_engine:create_rule(
+        #{
+            sql => SQL1,
+            id => RuleId1,
+            actions => [
+                #{
+                    function => <<"emqx_rule_engine_SUITE:action_record_triggered_events">>,
+                    args => #{}
+                }
+            ]
+        }
+    ),
+    on_exit(fun() -> emqx_rule_engine:delete_rule(RuleId1) end),
+
+    UserProps = maps:to_list(#{<<"mykey">> => <<"myval">>}),
+    Payload =
+        emqx_utils_json:encode(
+            #{
+                pfi => 1,
+                mei => 2,
+                ct => <<"3">>,
+                rt => <<"4">>,
+                cd => <<"5">>
+            }
+        ),
+    {ok, Client} = emqtt:start_link([
+        {username, <<"emqx">>},
+        {proto_ver, v5},
+        {properties, #{'Topic-Alias-Maximum' => 100}}
+    ]),
+    on_exit(fun() -> emqtt:stop(Client) end),
+    {ok, _} = emqtt:connect(Client),
+    {ok, _, _} = emqtt:subscribe(Client, <<"t/republish">>, 0),
+    PubProps = #{'User-Property' => UserProps},
+    ExpectedMQTTProps0 = #{
+        'Payload-Format-Indicator' => 1,
+        'Message-Expiry-Interval' => 2,
+        'Content-Type' => <<"3">>,
+        'Response-Topic' => <<"4">>,
+        'Correlation-Data' => <<"5">>,
+        %% currently, `Topic-Alias' is dropped `emqx_message:filter_pub_props',
+        %% so the channel controls those aliases on its own, starting from 1.
+        'Topic-Alias' => 1,
+        'User-Property' => UserProps
+    },
+    emqtt:publish(Client, <<"t/r">>, PubProps, Payload, [{qos, 0}]),
+    receive
+        {publish, #{topic := <<"t/republish">>, properties := Props1}} ->
+            ?assertEqual(ExpectedMQTTProps0, Props1),
+            ok
+    after 2000 ->
+        ct:pal("mailbox:\n  ~p", [?drainMailbox()]),
+        ct:fail("message not republished (l. ~b)", [?LINE])
+    end,
+    ExpectedMQTTProps1 = #{
+        'Payload-Format-Indicator' => 1,
+        'Message-Expiry-Interval' => 2,
+        'Content-Type' => <<"3">>,
+        'Response-Topic' => <<"4">>,
+        'Correlation-Data' => <<"5">>,
+        'User-Property' => maps:from_list(UserProps),
+        'User-Property-Pairs' => [
+            #{key => K, value => V}
+         || {K, V} <- UserProps
+        ]
+    },
+    ?assertMatch(
+        [
+            {'message.publish', #{
+                topic := <<"t/republish">>,
+                pub_props := ExpectedMQTTProps1
+            }}
+        ],
+        ets:lookup(events_record_tab, 'message.publish'),
+        #{expected_props => ExpectedMQTTProps1}
+    ),
+
+    ct:pal("testing payload that is not a json object"),
+    emqtt:publish(Client, <<"t/r">>, PubProps, <<"not-a-map">>, [{qos, 0}]),
+    ExpectedMQTTProps2 = #{
+        'Content-Type' => <<"undefined">>,
+        'Correlation-Data' => <<"undefined">>,
+        'Response-Topic' => <<"undefined">>,
+        %% currently, `Topic-Alias' is dropped `emqx_message:filter_pub_props',
+        %% so the channel controls those aliases on its own, starting from 1.
+        'Topic-Alias' => 1,
+        'User-Property' => UserProps
+    },
+    receive
+        {publish, #{topic := T1, properties := Props2}} ->
+            ?assertEqual(ExpectedMQTTProps2, Props2),
+            %% empty this time, due to topic alias set before
+            ?assertEqual(<<>>, T1),
+            ok
+    after 2000 ->
+        ct:pal("mailbox:\n  ~p", [?drainMailbox()]),
+        ct:fail("message not republished (l. ~b)", [?LINE])
+    end,
+
+    ct:pal("testing payload with some uncoercible keys"),
+    ets:delete_all_objects(events_record_tab),
+    Payload1 =
+        emqx_utils_json:encode(#{
+            pfi => <<"bad_value1">>,
+            mei => <<"bad_value2">>,
+            ct => <<"some_value3">>,
+            rt => <<"some_value4">>,
+            cd => <<"some_value5">>
+        }),
+    emqtt:publish(Client, <<"t/r">>, PubProps, Payload1, [{qos, 0}]),
+    ExpectedMQTTProps3 = #{
+        %% currently, `Topic-Alias' is dropped `emqx_message:filter_pub_props',
+        %% so the channel controls those aliases on its own, starting from 1.
+        'Topic-Alias' => 1,
+        'Content-Type' => <<"some_value3">>,
+        'Response-Topic' => <<"some_value4">>,
+        'Correlation-Data' => <<"some_value5">>,
+        'User-Property' => UserProps
+    },
+    receive
+        {publish, #{topic := T2, properties := Props3}} ->
+            ?assertEqual(ExpectedMQTTProps3, Props3),
+            %% empty this time, due to topic alias set before
+            ?assertEqual(<<>>, T2),
+            ok
+    after 2000 ->
+        ct:pal("mailbox:\n  ~p", [?drainMailbox()]),
+        ct:fail("message not republished (l. ~b)", [?LINE])
+    end,
+    ExpectedMQTTProps4 = #{
+        'Content-Type' => <<"some_value3">>,
+        'Response-Topic' => <<"some_value4">>,
+        'Correlation-Data' => <<"some_value5">>,
+        'User-Property' => maps:from_list(UserProps),
+        'User-Property-Pairs' => [
+            #{key => K, value => V}
+         || {K, V} <- UserProps
+        ]
+    },
+    ?assertMatch(
+        [
+            {'message.publish', #{
+                topic := <<"t/republish">>,
+                pub_props := ExpectedMQTTProps4
+            }}
+        ],
+        ets:lookup(events_record_tab, 'message.publish'),
+        #{expected_props => ExpectedMQTTProps4}
+    ),
+
+    ct:pal("testing a payload with a more complex placeholder"),
+    Repub1 = republish_action(
+        <<"t/republish">>,
+        <<"${.}">>,
+        <<"${pub_props.'User-Property'}">>,
+        #{
+            %% Note: `Payload-Format-Indicator' is capped at 225.
+            <<"Payload-Format-Indicator">> => <<"1${.payload.pfi}3">>,
+            <<"Message-Expiry-Interval">> => <<"9${.payload.mei}6">>
+        }
+    ),
+    RepubRaw1 = emqx_utils_maps:binary_key_map(Repub1#{function => <<"republish">>}),
+    ct:pal("republish action raw:\n  ~p", [RepubRaw1]),
+    RuleRaw1 = #{
+        <<"sql">> => SQL,
+        <<"actions">> => [RepubRaw1]
+    },
+    {ok, _} = emqx_conf:update([rule_engine, rules, ?TMP_RULEID], RuleRaw1, #{}),
+
+    Payload2 =
+        emqx_utils_json:encode(#{
+            pfi => <<"2">>,
+            mei => <<"87">>
+        }),
+    emqtt:publish(Client, <<"t/r">>, PubProps, Payload2, [{qos, 0}]),
+    ExpectedMQTTProps5 = #{
+        %% Note: PFI should be 0 or 1 according to spec, but we don't validate this when
+        %% serializing nor parsing...
+        'Payload-Format-Indicator' => 123,
+        'Message-Expiry-Interval' => 9876,
+        %% currently, `Topic-Alias' is dropped `emqx_message:filter_pub_props',
+        %% so the channel controls those aliases on its own, starting from 1.
+        'Topic-Alias' => 1,
+        'User-Property' => UserProps
+    },
+    receive
+        {publish, #{topic := T3, properties := Props4}} ->
+            ?assertEqual(ExpectedMQTTProps5, Props4),
+            %% empty this time, due to topic alias set before
+            ?assertEqual(<<>>, T3),
+            ok
+    after 2000 ->
+        ct:pal("mailbox:\n  ~p", [?drainMailbox()]),
+        ct:fail("message not republished (l. ~b)", [?LINE])
+    end,
+
+    ct:pal("testing payload-format-indicator cap"),
+    Payload3 =
+        emqx_utils_json:encode(#{
+            pfi => <<"999999">>,
+            mei => <<"87">>
+        }),
+    emqtt:publish(Client, <<"t/r">>, PubProps, Payload3, [{qos, 0}]),
+    ExpectedMQTTProps6 = #{
+        %% Note: PFI should be 0 or 1 according to spec, but we don't validate this when
+        %% serializing nor parsing...
+        %% Note: PFI is capped at 16#FF
+        'Payload-Format-Indicator' => 16#FF band 19999993,
+        'Message-Expiry-Interval' => 9876,
+        %% currently, `Topic-Alias' is dropped `emqx_message:filter_pub_props',
+        %% so the channel controls those aliases on its own, starting from 1.
+        'Topic-Alias' => 1,
+        'User-Property' => UserProps
+    },
+    receive
+        {publish, #{topic := T4, properties := Props5}} ->
+            ?assertEqual(ExpectedMQTTProps6, Props5),
+            %% empty this time, due to topic alias set before
+            ?assertEqual(<<>>, T4),
+            ok
+    after 2000 ->
+        ct:pal("mailbox:\n  ~p", [?drainMailbox()]),
+        ct:fail("message not republished (l. ~b)", [?LINE])
+    end,
+
+    ok.
 
 t_sqlselect_1(_Config) ->
     SQL =
@@ -3271,6 +3530,9 @@ republish_action(Topic, Payload) ->
     republish_action(Topic, Payload, <<"${user_properties}">>).
 
 republish_action(Topic, Payload, UserProperties) ->
+    republish_action(Topic, Payload, UserProperties, _MQTTProperties = #{}).
+
+republish_action(Topic, Payload, UserProperties, MQTTProperties) ->
     #{
         function => republish,
         args => #{
@@ -3278,6 +3540,7 @@ republish_action(Topic, Payload, UserProperties) ->
             topic => Topic,
             qos => 0,
             retain => false,
+            mqtt_properties => MQTTProperties,
             user_properties => UserProperties
         }
     }.
