@@ -117,7 +117,8 @@ mnesia(boot) ->
         {storage_properties, [
             {ets, [
                 {read_concurrency, true},
-                {write_concurrency, auto}
+                {write_concurrency, true},
+                {decentralized_counters, true}
             ]}
         ]}
     ]).
