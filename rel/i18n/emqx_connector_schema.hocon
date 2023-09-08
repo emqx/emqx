@@ -1,0 +1,9 @@
+emqx_connector_schema {
+
+connector_field.desc:
+"""Name of connector used to connect to the resource where the action is to be performed."""
+
+connector_field.label:
+"""Connector"""
+
+}

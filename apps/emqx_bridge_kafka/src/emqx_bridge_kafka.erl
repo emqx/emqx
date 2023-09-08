@@ -161,6 +161,14 @@ fields("config_consumer") ->
     fields(kafka_consumer);
 fields(kafka_producer) ->
     fields("config") ++ fields(producer_opts);
+fields(kafka_producer_action) ->
+    [
+        {enable, mk(boolean(), #{desc => ?DESC("config_enable"), default => true})},
+        {connector,
+            mk(binary(), #{
+                desc => ?DESC(emqx_connector_schema, "connector_field"), required => true
+            })}
+    ] ++ fields(producer_opts);
 fields(kafka_consumer) ->
     fields("config") ++ fields(consumer_opts);
 fields("config") ->
@@ -478,6 +486,8 @@ desc("put_" ++ Type) when Type =:= "consumer"; Type =:= "producer" ->
     ["Configuration for Kafka using `PUT` method."];
 desc("post_" ++ Type) when Type =:= "consumer"; Type =:= "producer" ->
     ["Configuration for Kafka using `POST` method."];
+desc(kafka_producer_action) ->
+    ?DESC("kafka_producer_action");
 desc(Name) ->
     lists:member(Name, struct_names()) orelse throw({missing_desc, Name}),
     ?DESC(Name).

@@ -58,13 +58,16 @@ groups() ->
     All = emqx_common_test_helpers:all(?MODULE),
     [{on_query, All}, {on_query_async, All}].
 
+test_topic_one_partition() ->
+    "test-topic-one-partition".
+
 wait_until_kafka_is_up() ->
     wait_until_kafka_is_up(0).
 
 wait_until_kafka_is_up(300) ->
     ct:fail("Kafka is not up even though we have waited for a while");
 wait_until_kafka_is_up(Attempts) ->
-    KafkaTopic = "test-topic-one-partition",
+    KafkaTopic = test_topic_one_partition(),
     case resolve_kafka_offset(kafka_hosts(), KafkaTopic, 0) of
         {ok, _} ->
             ok;
@@ -297,7 +300,7 @@ kafka_bridge_rest_api_helper(Config) ->
     end,
     false = MyKafkaBridgeExists(),
     %% Create new Kafka bridge
-    KafkaTopic = "test-topic-one-partition",
+    KafkaTopic = test_topic_one_partition(),
     CreateBodyTmp = #{
         <<"type">> => <<?BRIDGE_TYPE>>,
         <<"name">> => <<"my_kafka_bridge">>,
@@ -413,7 +416,7 @@ t_failed_creation_then_fix(Config) ->
     Name = "kafka_bridge_name_" ++ erlang:integer_to_list(Hash),
     ResourceId = emqx_bridge_resource:resource_id(Type, Name),
     BridgeId = emqx_bridge_resource:bridge_id(Type, Name),
-    KafkaTopic = "test-topic-one-partition",
+    KafkaTopic = test_topic_one_partition(),
     WrongConf = config(#{
         "authentication" => WrongAuthSettings,
         "kafka_hosts_string" => HostsString,
@@ -478,7 +481,7 @@ t_custom_timestamp(_Config) ->
     Type = ?BRIDGE_TYPE,
     Name = "kafka_bridge_name_" ++ erlang:integer_to_list(Hash),
     ResourceId = emqx_bridge_resource:resource_id(Type, Name),
-    KafkaTopic = "test-topic-one-partition",
+    KafkaTopic = test_topic_one_partition(),
     MQTTTopic = <<"t/local/kafka">>,
     emqx:subscribe(MQTTTopic),
     Conf0 = config(#{
@@ -555,7 +558,7 @@ t_send_message_with_headers(Config) ->
     Name = "kafka_bridge_name_" ++ erlang:integer_to_list(Hash),
     ResourceId = emqx_bridge_resource:resource_id(Type, Name),
     BridgeId = emqx_bridge_resource:bridge_id(Type, Name),
-    KafkaTopic = "test-topic-one-partition",
+    KafkaTopic = test_topic_one_partition(),
     Conf = config_with_headers(#{
         "authentication" => AuthSettings,
         "kafka_hosts_string" => HostsString,
@@ -715,7 +718,7 @@ t_wrong_headers(_Config) ->
     Type = ?BRIDGE_TYPE,
     Name = "kafka_bridge_name_" ++ erlang:integer_to_list(Hash),
     ResourceId = emqx_bridge_resource:resource_id(Type, Name),
-    KafkaTopic = "test-topic-one-partition",
+    KafkaTopic = test_topic_one_partition(),
     ?assertThrow(
         {
             emqx_bridge_schema,
@@ -789,7 +792,7 @@ t_wrong_headers_from_message(Config) ->
     Name = "kafka_bridge_name_" ++ erlang:integer_to_list(Hash),
     ResourceId = emqx_bridge_resource:resource_id(Type, Name),
     BridgeId = emqx_bridge_resource:bridge_id(Type, Name),
-    KafkaTopic = "test-topic-one-partition",
+    KafkaTopic = test_topic_one_partition(),
     Conf = config_with_headers(#{
         "authentication" => AuthSettings,
         "kafka_hosts_string" => HostsString,
@@ -939,7 +942,7 @@ publish_helper(
     Name = "kafka_bridge_name_" ++ erlang:integer_to_list(Hash),
     Type = ?BRIDGE_TYPE,
     InstId = emqx_bridge_resource:resource_id(Type, Name),
-    KafkaTopic = "test-topic-one-partition",
+    KafkaTopic = test_topic_one_partition(),
     Conf = config(
         #{
             "authentication" => AuthSettings,

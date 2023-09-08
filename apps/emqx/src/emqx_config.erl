@@ -325,19 +325,20 @@ init_load(SchemaMod, Conf) when is_list(Conf) orelse is_binary(Conf) ->
     ok = save_schema_mod_and_names(SchemaMod),
     HasDeprecatedFile = has_deprecated_file(),
     RawConf0 = load_config_files(HasDeprecatedFile, Conf),
-    warning_deprecated_root_key(RawConf0),
-    RawConf1 =
+    RawConf1 = emqx_connector_schema:transform_old_style_bridges_to_connector_and_actions(RawConf0),
+    warning_deprecated_root_key(RawConf1),
+    RawConf2 =
         case HasDeprecatedFile of
             true ->
-                overlay_v0(SchemaMod, RawConf0);
+                overlay_v0(SchemaMod, RawConf1);
             false ->
-                overlay_v1(SchemaMod, RawConf0)
+                overlay_v1(SchemaMod, RawConf1)
         end,
-    RawConf = fill_defaults_for_all_roots(SchemaMod, RawConf1),
+    RawConf3 = fill_defaults_for_all_roots(SchemaMod, RawConf2),
     %% check configs against the schema
-    {AppEnvs, CheckedConf} = check_config(SchemaMod, RawConf, #{}),
+    {AppEnvs, CheckedConf} = check_config(SchemaMod, RawConf3, #{}),
     save_to_app_env(AppEnvs),
-    ok = save_to_config_map(CheckedConf, RawConf),
+    ok = save_to_config_map(CheckedConf, RawConf3),
     maybe_init_default_zone(),
     ok.
 
