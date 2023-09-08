@@ -43,6 +43,14 @@
 %%--------------------------------------------------------------------
 %% APIs
 %%--------------------------------------------------------------------
+parse_action(BridgeId) when is_binary(BridgeId) ->
+    {Type, Name} = emqx_bridge_resource:parse_bridge_id(BridgeId),
+    case emqx_bridge_v2:is_bridge_v2_type(Type) of
+        true ->
+            {bridge_v2, Type, Name};
+        false ->
+            {bridge, Type, Name, emqx_bridge_resource:resource_id(Type, Name)}
+    end;
 parse_action(#{function := ActionFunc} = Action) ->
     {Mod, Func} = parse_action_func(ActionFunc),
     Res = #{mod => Mod, func => Func},

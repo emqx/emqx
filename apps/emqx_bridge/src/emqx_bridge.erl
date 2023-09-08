@@ -65,6 +65,8 @@
     import_config/1
 ]).
 
+-export([query_opts/1]).
+
 -define(EGRESS_DIR_BRIDGES(T),
     T == webhook;
     T == mysql;

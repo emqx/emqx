@@ -521,6 +521,8 @@ format_action(Actions) ->
 
 do_format_action({bridge, BridgeType, BridgeName, _ResId}) ->
     emqx_bridge_resource:bridge_id(BridgeType, BridgeName);
+do_format_action({bridge_v2, BridgeType, BridgeName}) ->
+    emqx_bridge_v2:id(BridgeType, BridgeName);
 do_format_action(#{mod := Mod, func := Func, args := Args}) ->
     #{
         function => printable_function_name(Mod, Func),

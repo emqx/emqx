@@ -29,7 +29,10 @@
     restart/2,
     start/2,
     stop/1,
-    health_check/1
+    health_check/1,
+    channel_health_check/2,
+    add_channel/3,
+    remove_channel/2
 ]).
 
 -export([
@@ -64,7 +67,8 @@
     state,
     error,
     pid,
-    extra
+    extra,
+    added_channels
 }).
 -type data() :: #data{}.
 
@@ -123,27 +127,8 @@ create_and_return_data(ResId, Group, ResourceType, Config, Opts) ->
 create(ResId, Group, ResourceType, Config, Opts) ->
     % The state machine will make the actual call to the callback/resource module after init
     ok = emqx_resource_manager_sup:ensure_child(ResId, Group, ResourceType, Config, Opts),
-    ok = emqx_metrics_worker:create_metrics(
-        ?RES_METRICS,
-        ResId,
-        [
-            'matched',
-            'retried',
-            'retried.success',
-            'retried.failed',
-            'success',
-            'late_reply',
-            'failed',
-            'dropped',
-            'dropped.expired',
-            'dropped.queue_full',
-            'dropped.resource_not_found',
-            'dropped.resource_stopped',
-            'dropped.other',
-            'received'
-        ],
-        [matched]
-    ),
+    % Create metrics for the resource
+    ok = emqx_resource:create_metrics(ResId),
     QueryMode = emqx_resource:query_mode(ResourceType, Config, Opts),
     case QueryMode of
         %% the resource has built-in buffer, so there is no need for resource workers
@@ -292,6 +277,25 @@ list_group(Group) ->
 health_check(ResId) ->
     safe_call(ResId, health_check, ?T_OPERATION).
 
+-spec channel_health_check(resource_id(), channel_id()) ->
+    {ok, resource_status()} | {error, term()}.
+channel_health_check(ResId, ChannelId) ->
+    safe_call(ResId, {channel_health_check, ChannelId}, ?T_OPERATION).
+
+add_channel(ResId, ChannelId, Config) ->
+    %% Use cache to avoid doing inter process communication on every call
+    Data = read_cache(ResId),
+    AddedChannels = Data#data.added_channels,
+    case maps:get(ChannelId, AddedChannels, false) of
+        true ->
+            ok;
+        false ->
+            safe_call(ResId, {add_channel, ChannelId, Config}, ?T_OPERATION)
+    end.
+
+remove_channel(ResId, ChannelId) ->
+    safe_call(ResId, {remove_channel, ChannelId}, ?T_OPERATION).
+
 %% Server start/stop callbacks
 
 %% @doc Function called from the supervisor to actually start the server
@@ -310,7 +314,8 @@ start_link(ResId, Group, ResourceType, Config, Opts) ->
         config = Config,
         opts = Opts,
         state = undefined,
-        error = undefined
+        error = undefined,
+        added_channels = #{}
     },
     gen_statem:start_link(?REF(ResId), ?MODULE, {Data, Opts}, []).
 
@@ -374,8 +379,13 @@ handle_event({call, From}, lookup, _State, #data{group = Group} = Data) ->
 handle_event({call, From}, health_check, stopped, _Data) ->
     Actions = [{reply, From, {error, resource_is_stopped}}],
     {keep_state_and_data, Actions};
+handle_event({call, From}, {channel_health_check, _}, stopped, _Data) ->
+    Actions = [{reply, From, {error, resource_is_stopped}}],
+    {keep_state_and_data, Actions};
 handle_event({call, From}, health_check, _State, Data) ->
     handle_manually_health_check(From, Data);
+handle_event({call, From}, {channel_health_check, ChannelId}, _State, Data) ->
+    handle_manually_channel_health_check(From, Data, ChannelId);
 % State: CONNECTING
 handle_event(enter, _OldState, connecting = State, Data) ->
     ok = log_state_consistency(State, Data),
@@ -408,6 +418,14 @@ handle_event(enter, _OldState, stopped = State, Data) ->
     ok = log_state_consistency(State, Data),
     {keep_state_and_data, []};
 % Ignore all other events
+handle_event(
+    {call, From}, {add_channel, ChannelId, Config}, _State, Data
+) ->
+    handle_add_channel(From, Data, ChannelId, Config);
+handle_event(
+    {call, From}, {remove_channel, ChannelId}, _State, Data
+) ->
+    handle_remove_channel(From, ChannelId, Data);
 handle_event(EventType, EventData, State, Data) ->
     ?SLOG(
         error,
@@ -483,10 +501,11 @@ start_resource(Data, From) ->
     %% in case the emqx_resource:call_start/2 hangs, the lookup/1 can read status from the cache
     case emqx_resource:call_start(Data#data.id, Data#data.mod, Data#data.config) of
         {ok, ResourceState} ->
-            UpdatedData = Data#data{status = connecting, state = ResourceState},
+            UpdatedData1 = Data#data{status = connecting, state = ResourceState},
             %% Perform an initial health_check immediately before transitioning into a connected state
+            UpdatedData2 = add_channels(UpdatedData1),
             Actions = maybe_reply([{state_timeout, 0, health_check}], From, ok),
-            {next_state, connecting, update_state(UpdatedData, Data), Actions};
+            {next_state, connecting, update_state(UpdatedData2, Data), Actions};
         {error, Reason} = Err ->
             ?SLOG(warning, #{
                 msg => "start_resource_failed",
@@ -501,6 +520,36 @@ start_resource(Data, From) ->
             {next_state, disconnected, update_state(UpdatedData, Data), Actions}
     end.
 
+add_channels(Data) ->
+    ChannelIDConfigTuples = emqx_resource:call_get_channels(Data#data.id, Data#data.mod),
+    add_channels_in_list(ChannelIDConfigTuples, Data).
+
+add_channels_in_list([], Data) ->
+    Data;
+add_channels_in_list([{ChannelID, ChannelConfig} | Rest], Data) ->
+    case
+        emqx_resource:call_add_channel(
+            Data#data.id, Data#data.mod, Data#data.state, ChannelID, ChannelConfig
+        )
+    of
+        {ok, NewState} ->
+            AddedChannelsMap = Data#data.added_channels,
+            NewAddedChannelsMap = maps:put(ChannelID, true, AddedChannelsMap),
+            NewData = Data#data{
+                state = NewState,
+                added_channels = NewAddedChannelsMap
+            },
+            add_channels_in_list(Rest, NewData);
+        {error, Reason} ->
+            ?SLOG(warning, #{
+                msg => add_channel_failed,
+                id => Data#data.id,
+                channel_id => ChannelID,
+                reason => Reason
+            }),
+            add_channels_in_list(Rest, Data)
+    end.
+
 maybe_stop_resource(#data{status = Status} = Data) when Status /= stopped ->
     stop_resource(Data);
 maybe_stop_resource(#data{status = stopped} = Data) ->
@@ -513,8 +562,10 @@ stop_resource(#data{state = ResState, id = ResId} = Data) ->
     HasAllocatedResources = emqx_resource:has_allocated_resources(ResId),
     case ResState =/= undefined orelse HasAllocatedResources of
         true ->
+            %% Before stop is called we remove all the channels from the resource
+            NewData = remove_channels(Data),
             %% we clear the allocated resources after stop is successful
-            emqx_resource:call_stop(Data#data.id, Data#data.mod, ResState);
+            emqx_resource:call_stop(NewData#data.id, NewData#data.mod, ResState);
         false ->
             ok
     end,
@@ -522,9 +573,121 @@ stop_resource(#data{state = ResState, id = ResId} = Data) ->
     ok = emqx_metrics_worker:reset_metrics(?RES_METRICS, ResId),
     Data#data{status = stopped}.
 
+remove_channels(Data) ->
+    Channels = maps:keys(Data#data.added_channels),
+    remove_channels_in_list(Channels, Data).
+
+remove_channels_in_list([], Data) ->
+    Data;
+remove_channels_in_list([ChannelID | Rest], Data) ->
+    case
+        emqx_resource:call_remove_channel(Data#data.id, Data#data.mod, Data#data.state, ChannelID)
+    of
+        {ok, NewState} ->
+            AddedChannelsMap = Data#data.added_channels,
+            NewAddedChannelsMap = maps:remove(ChannelID, AddedChannelsMap),
+            NewData = Data#data{
+                state = NewState,
+                added_channels = NewAddedChannelsMap
+            },
+            remove_channels_in_list(Rest, NewData);
+        {error, Reason} ->
+            ?SLOG(warning, #{
+                msg => add_channel_failed,
+                id => Data#data.id,
+                channel_id => ChannelID,
+                reason => Reason
+            }),
+            remove_channels_in_list(Rest, Data)
+    end.
+
 make_test_id() ->
     RandId = iolist_to_binary(emqx_utils:gen_id(16)),
     <<?TEST_ID_PREFIX, RandId/binary>>.
+
+handle_add_channel(From, Data, ChannelId, ChannelConfig) ->
+    Channels = Data#data.added_channels,
+    case maps:get(ChannelId, Channels, false) of
+        true ->
+            %% The channel is already installed in the connector state
+            %% We don't need to install it again
+            {keep_state_and_data, [{reply, From, ok}]};
+        false ->
+            %% The channel is not installed in the connector state
+            %% We need to install it
+            handle_add_channel_need_insert(From, Data, ChannelId, Data, ChannelConfig)
+    end.
+
+handle_add_channel_need_insert(From, Data, ChannelId, Data, ChannelConfig) ->
+    case add_channel_need_insert_update_data(Data, ChannelId, ChannelConfig) of
+        {ok, NewData} ->
+            {keep_state, NewData, [{reply, From, ok}]};
+        {error, _Reason} = Error ->
+            {keep_state_and_data, [{reply, From, Error}]}
+    end.
+
+add_channel_need_insert_update_data(Data, ChannelId, ChannelConfig) ->
+    case
+        emqx_resource:call_add_channel(
+            Data#data.id, Data#data.mod, Data#data.state, ChannelId, ChannelConfig
+        )
+    of
+        {ok, NewState} ->
+            AddedChannelsMap = Data#data.added_channels,
+            NewAddedChannelsMap = maps:put(ChannelId, true, AddedChannelsMap),
+            UpdatedData = Data#data{
+                state = NewState,
+                added_channels = NewAddedChannelsMap
+            },
+            update_state(UpdatedData, Data),
+            {ok, UpdatedData};
+        {error, Reason} = Error ->
+            %% Log the error as a warning
+            ?SLOG(warning, #{
+                msg => add_channel_failed,
+                id => Data#data.id,
+                channel_id => ChannelId,
+                reason => Reason
+            }),
+            Error
+    end.
+
+handle_remove_channel(From, ChannelId, Data) ->
+    Channels = Data#data.added_channels,
+    case maps:get(ChannelId, Channels, false) of
+        false ->
+            %% The channel is already not installed in the connector state
+            {keep_state_and_data, [{reply, From, ok}]};
+        true ->
+            %% The channel is installed in the connector state
+            handle_remove_channel_exists(From, ChannelId, Data)
+    end.
+
+handle_remove_channel_exists(From, ChannelId, Data) ->
+    case
+        emqx_resource:call_remove_channel(
+            Data#data.id, Data#data.mod, Data#data.state, ChannelId
+        )
+    of
+        {ok, NewState} ->
+            AddedChannelsMap = Data#data.added_channels,
+            NewAddedChannelsMap = maps:remove(ChannelId, AddedChannelsMap),
+            UpdatedData = Data#data{
+                state = NewState,
+                added_channels = NewAddedChannelsMap
+            },
+            update_state(UpdatedData, Data),
+            {keep_state, UpdatedData, [{reply, From, ok}]};
+        {error, Reason} = Error ->
+            %% Log the error as a warning
+            ?SLOG(warning, #{
+                msg => remove_channel_failed,
+                id => Data#data.id,
+                channel_id => ChannelId,
+                reason => Reason
+            }),
+            {keep_state_and_data, [{reply, From, Error}]}
+    end.
 
 handle_manually_health_check(From, Data) ->
     with_health_check(
@@ -534,6 +697,55 @@ handle_manually_health_check(From, Data) ->
             {next_state, Status, UpdatedData, Actions}
         end
     ).
+
+handle_manually_channel_health_check(From, #data{state = undefined}, _ChannelId) ->
+    {keep_state_and_data, [{reply, From, {ok, disconnected}}]};
+handle_manually_channel_health_check(
+    From,
+    #data{added_channels = Channels} = Data,
+    ChannelId
+) when
+    is_map_key(ChannelId, Channels)
+->
+    {keep_state_and_data, [{reply, From, get_channel_status_channel_added(Data, ChannelId)}]};
+handle_manually_channel_health_check(
+    From,
+    Data,
+    ChannelId
+) ->
+    %% add channel
+    ResId = Data#data.id,
+    Mod = Data#data.mod,
+    case emqx_resource:call_get_channel_config(ResId, ChannelId, Mod) of
+        ChannelConfig when is_map(ChannelConfig) ->
+            case add_channel_need_insert_update_data(Data, ChannelId, ChannelConfig) of
+                {ok, UpdatedData} ->
+                    {keep_state, UpdatedData, [
+                        {reply, From, get_channel_status_channel_added(UpdatedData, ChannelId)}
+                    ]};
+                {error, Reason} = Error ->
+                    %% Log the error as a warning
+                    ?SLOG(warning, #{
+                        msg => add_channel_failed_when_doing_status_check,
+                        id => ResId,
+                        channel_id => ChannelId,
+                        reason => Reason
+                    }),
+                    {keep_state_and_data, [{reply, From, Error}]}
+            end;
+        {error, Reason} = Error ->
+            %% Log the error as a warning
+            ?SLOG(warning, #{
+                msg => get_channel_config_failed_when_doing_status_check,
+                id => ResId,
+                channel_id => ChannelId,
+                reason => Reason
+            }),
+            {keep_state_and_data, [{reply, From, Error}]}
+    end.
+
+get_channel_status_channel_added(#data{id = ResId, mod = Mod, state = State}, ChannelId) ->
+    emqx_resource:call_channel_health_check(ResId, ChannelId, Mod, State).
 
 handle_connecting_health_check(Data) ->
     with_health_check(
@@ -663,7 +875,8 @@ data_record_to_external_map(Data) ->
         query_mode => Data#data.query_mode,
         config => Data#data.config,
         status => Data#data.status,
-        state => Data#data.state
+        state => Data#data.state,
+        added_channels => Data#data.added_channels
     }.
 
 -spec wait_for_ready(resource_id(), integer()) -> ok | timeout | {error, term()}.

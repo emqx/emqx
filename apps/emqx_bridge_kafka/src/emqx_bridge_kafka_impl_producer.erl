@@ -16,7 +16,11 @@
     on_stop/2,
     on_query/3,
     on_query_async/4,
-    on_get_status/2
+    on_get_status/2,
+    on_add_channel/4,
+    on_remove_channel/3,
+    on_get_channels/1,
+    on_get_channel_status/3
 ]).
 
 -export([
@@ -27,9 +31,10 @@
 -include_lib("emqx/include/logger.hrl").
 
 %% Allocatable resources
--define(kafka_resource_id, kafka_resource_id).
+-define(kafka_telementry_id, kafka_telementry_id).
 -define(kafka_client_id, kafka_client_id).
 -define(kafka_producers, kafka_producers).
+-define(CONNECTOR_TYPE, kafka).
 
 query_mode(#{kafka := #{query_mode := sync}}) ->
     simple_sync_internal_buffer;
@@ -38,32 +43,22 @@ query_mode(_) ->
 
 callback_mode() -> async_if_possible.
 
-%% @doc Config schema is defined in emqx_bridge_kafka.
-on_start(InstId, Config) ->
+%% @doc Config schema is defined in emqx_connector_kafka.
+on_start(<<"connector:", _/binary>> = InstId, Config) ->
     #{
         authentication := Auth,
         bootstrap_hosts := Hosts0,
-        bridge_name := BridgeName,
-        bridge_type := BridgeType,
+        connector_name := ConnectorName,
         connect_timeout := ConnTimeout,
-        kafka := KafkaConfig = #{
-            message := MessageTemplate,
-            topic := KafkaTopic,
-            sync_query_timeout := SyncQueryTimeout
-        },
         metadata_request_timeout := MetaReqTimeout,
         min_metadata_refresh_interval := MinMetaRefreshInterval,
         socket_opts := SocketOpts,
         ssl := SSL
     } = Config,
-    KafkaHeadersTokens = preproc_kafka_headers(maps:get(kafka_headers, KafkaConfig, undefined)),
-    KafkaExtHeadersTokens = preproc_ext_headers(maps:get(kafka_ext_headers, KafkaConfig, [])),
-    KafkaHeadersValEncodeMode = maps:get(kafka_header_value_encode_mode, KafkaConfig, none),
-    ResourceId = emqx_bridge_resource:resource_id(BridgeType, BridgeName),
-    ok = emqx_resource:allocate_resource(InstId, ?kafka_resource_id, ResourceId),
-    _ = maybe_install_wolff_telemetry_handlers(ResourceId),
+    ConnectorType = ?CONNECTOR_TYPE,
+    ResourceId = emqx_connector_resource:resource_id(ConnectorType, ConnectorName),
     Hosts = emqx_bridge_kafka_impl:hosts(Hosts0),
-    ClientId = emqx_bridge_kafka_impl:make_client_id(BridgeType, BridgeName),
+    ClientId = emqx_bridge_kafka_impl:make_client_id(?CONNECTOR_TYPE, ConnectorName),
     ok = emqx_resource:allocate_resource(InstId, ?kafka_client_id, ClientId),
     ClientConfig = #{
         min_metadata_refresh_interval => MinMetaRefreshInterval,
@@ -74,12 +69,6 @@ on_start(InstId, Config) ->
         sasl => emqx_bridge_kafka_impl:sasl(Auth),
         ssl => ssl(SSL)
     },
-    case do_get_topic_status(Hosts, KafkaConfig, KafkaTopic) of
-        unhealthy_target ->
-            throw(unhealthy_target);
-        _ ->
-            ok
-    end,
     case wolff:ensure_supervised_client(ClientId, Hosts, ClientConfig) of
         {ok, _} ->
             ?SLOG(info, #{
@@ -97,7 +86,51 @@ on_start(InstId, Config) ->
             throw(failed_to_start_kafka_client)
     end,
     %% Check if this is a dry run
-    TestIdStart = string:find(InstId, ?TEST_ID_PREFIX),
+    {ok, #{
+        client_id => ClientId,
+        resource_id => ResourceId,
+        hosts => Hosts,
+        installed_bridge_v2s => #{}
+    }}.
+
+on_add_channel(
+    InstId,
+    #{
+        client_id := ClientId,
+        hosts := Hosts,
+        installed_bridge_v2s := InstalledBridgeV2s
+    } = OldState,
+    BridgeV2Id,
+    BridgeV2Config
+) ->
+    %% The following will throw an exception if the bridge producers fails to start
+    {ok, BridgeV2State} = create_producers_for_bridge_v2(
+        InstId, BridgeV2Id, ClientId, Hosts, BridgeV2Config
+    ),
+    NewInstalledBridgeV2s = maps:put(BridgeV2Id, BridgeV2State, InstalledBridgeV2s),
+    %% Update state
+    NewState = OldState#{installed_bridge_v2s => NewInstalledBridgeV2s},
+    {ok, NewState}.
+
+create_producers_for_bridge_v2(
+    InstId,
+    BridgeV2Id,
+    ClientId,
+    Hosts,
+    #{
+        bridge_type := BridgeType,
+        kafka := #{
+            message := MessageTemplate,
+            topic := KafkaTopic,
+            sync_query_timeout := SyncQueryTimeout
+        } = KafkaConfig
+    }
+) ->
+    KafkaHeadersTokens = preproc_kafka_headers(maps:get(kafka_headers, KafkaConfig, undefined)),
+    KafkaExtHeadersTokens = preproc_ext_headers(maps:get(kafka_ext_headers, KafkaConfig, [])),
+    KafkaHeadersValEncodeMode = maps:get(kafka_header_value_encode_mode, KafkaConfig, none),
+    {_BridgeType, BridgeName} = emqx_bridge_v2:parse_id(BridgeV2Id),
+    TestIdStart = string:find(BridgeV2Id, ?TEST_ID_PREFIX),
     IsDryRun =
         case TestIdStart of
             nomatch ->
@@ -105,18 +138,24 @@ on_start(InstId, Config) ->
             _ ->
                 string:equal(TestIdStart, InstId)
         end,
-    WolffProducerConfig = producers_config(BridgeType, BridgeName, ClientId, KafkaConfig, IsDryRun),
+    ok = check_topic_status(Hosts, KafkaConfig, KafkaTopic),
+    ok = check_if_healthy_leaders(ClientId, KafkaTopic),
+    WolffProducerConfig = producers_config(BridgeType, BridgeName, ClientId, KafkaConfig, IsDryRun, BridgeV2Id),
     case wolff:ensure_supervised_producers(ClientId, KafkaTopic, WolffProducerConfig) of
         {ok, Producers} ->
-            ok = emqx_resource:allocate_resource(InstId, ?kafka_producers, Producers),
+            ok = emqx_resource:allocate_resource(InstId, {?kafka_producers, BridgeV2Id}, Producers),
+            ok = emqx_resource:allocate_resource(
+                InstId, {?kafka_telementry_id, BridgeV2Id}, BridgeV2Id
+            ),
+            _ = maybe_install_wolff_telemetry_handlers(BridgeV2Id),
             {ok, #{
                 message_template => compile_message_template(MessageTemplate),
                 client_id => ClientId,
                 kafka_topic => KafkaTopic,
                 producers => Producers,
-                resource_id => ResourceId,
+                resource_id => BridgeV2Id,
+                connector_resource_id => InstId,
                 sync_query_timeout => SyncQueryTimeout,
-                hosts => Hosts,
                 kafka_config => KafkaConfig,
                 headers_tokens => KafkaHeadersTokens,
                 ext_headers_tokens => KafkaExtHeadersTokens,
@@ -130,20 +169,6 @@ on_start(InstId, Config) ->
                 kafka_topic => KafkaTopic,
                 reason => Reason2
             }),
-            %% Need to stop the already running client; otherwise, the
-            %% next `on_start' call will try to ensure the client
-            %% exists and it will be already present and using the old
-            %% config.  This is specially bad if the original crash
-            %% was due to misconfiguration and we are trying to fix
-            %% it...
-            _ = with_log_at_error(
-                fun() -> wolff:stop_and_delete_supervised_client(ClientId) end,
-                #{
-                    msg => "failed_to_delete_kafka_client",
-                    client_id => ClientId
-                }
-            ),
-
             throw(
                 "Failed to start Kafka client. Please check the logs for errors and check"
                 " the connection parameters."
@@ -151,68 +176,94 @@ on_start(InstId, Config) ->
     end.
 
 on_stop(InstanceId, _State) ->
-    case emqx_resource:get_allocated_resources(InstanceId) of
-        #{
-            ?kafka_client_id := ClientId,
-            ?kafka_producers := Producers,
-            ?kafka_resource_id := ResourceId
-        } ->
-            _ = with_log_at_error(
-                fun() -> wolff:stop_and_delete_supervised_producers(Producers) end,
-                #{
-                    msg => "failed_to_delete_kafka_producer",
-                    client_id => ClientId
-                }
-            ),
-            _ = with_log_at_error(
-                fun() -> wolff:stop_and_delete_supervised_client(ClientId) end,
-                #{
-                    msg => "failed_to_delete_kafka_client",
-                    client_id => ClientId
-                }
-            ),
-            _ = with_log_at_error(
-                fun() -> uninstall_telemetry_handlers(ResourceId) end,
-                #{
-                    msg => "failed_to_uninstall_telemetry_handlers",
-                    resource_id => ResourceId
-                }
-            ),
+    AllocatedResources = emqx_resource:get_allocated_resources(InstanceId),
+    ClientId = maps:get(?kafka_client_id, AllocatedResources, undefined),
+    case ClientId of
+        undefined ->
             ok;
-        #{?kafka_client_id := ClientId, ?kafka_resource_id := ResourceId} ->
-            _ = with_log_at_error(
-                fun() -> wolff:stop_and_delete_supervised_client(ClientId) end,
-                #{
-                    msg => "failed_to_delete_kafka_client",
-                    client_id => ClientId
-                }
-            ),
-            _ = with_log_at_error(
-                fun() -> uninstall_telemetry_handlers(ResourceId) end,
-                #{
-                    msg => "failed_to_uninstall_telemetry_handlers",
-                    resource_id => ResourceId
-                }
-            ),
-            ok;
-        #{?kafka_resource_id := ResourceId} ->
-            _ = with_log_at_error(
-                fun() -> uninstall_telemetry_handlers(ResourceId) end,
-                #{
-                    msg => "failed_to_uninstall_telemetry_handlers",
-                    resource_id => ResourceId
-                }
-            ),
-            ok;
-        _ ->
-            ok
+        ClientId ->
+            deallocate_client(ClientId)
     end,
-    ?tp(kafka_producer_stopped, #{instance_id => InstanceId}),
+    maps:foreach(
+        fun
+            ({?kafka_producers, _BridgeV2Id}, Producers) ->
+                deallocate_producers(ClientId, Producers);
+            ({?kafka_telementry_id, _BridgeV2Id}, TelementryId) ->
+                deallocate_telementry_handlers(TelementryId);
+            (_, _) ->
+                ok
+        end,
+        AllocatedResources
+    ),
     ok.
+
+deallocate_client(ClientId) ->
+    _ = with_log_at_error(
+        fun() -> wolff:stop_and_delete_supervised_client(ClientId) end,
+        #{
+            msg => "failed_to_delete_kafka_client",
+            client_id => ClientId
+        }
+    ).
+
+deallocate_producers(ClientId, Producers) ->
+    _ = with_log_at_error(
+        fun() -> wolff:stop_and_delete_supervised_producers(Producers) end,
+        #{
+            msg => "failed_to_delete_kafka_producer",
+            client_id => ClientId
+        }
+    ).
+
+deallocate_telementry_handlers(TelementryId) ->
+    _ = with_log_at_error(
+        fun() -> uninstall_telemetry_handlers(TelementryId) end,
+        #{
+            msg => "failed_to_uninstall_telemetry_handlers",
+            resource_id => TelementryId
+        }
+    ).
+
+remove_producers_for_bridge_v2(
+    InstId, BridgeV2Id
+) ->
+    AllocatedResources = emqx_resource:get_allocated_resources(InstId),
+    ClientId = maps:get(?kafka_client_id, AllocatedResources, no_client_id),
+    maps:foreach(
+        fun
+            ({?kafka_producers, BridgeV2IdCheck}, Producers) when BridgeV2IdCheck =:= BridgeV2Id ->
+                deallocate_producers(ClientId, Producers);
+            ({?kafka_telementry_id, BridgeV2IdCheck}, TelementryId) when
+                BridgeV2IdCheck =:= BridgeV2Id
+            ->
+                deallocate_telementry_handlers(TelementryId);
+            (_, _) ->
+                ok
+        end,
+        AllocatedResources
+    ),
+    ok.
+
+on_remove_channel(
+    InstId,
+    #{
+        client_id := _ClientId,
+        hosts := _Hosts,
+        installed_bridge_v2s := InstalledBridgeV2s
+    } = OldState,
+    BridgeV2Id
+) ->
+    ok = remove_producers_for_bridge_v2(InstId, BridgeV2Id),
+    NewInstalledBridgeV2s = maps:remove(BridgeV2Id, InstalledBridgeV2s),
+    %% Update state
+    NewState = OldState#{installed_bridge_v2s => NewInstalledBridgeV2s},
+    {ok, NewState}.
 
 on_query(
     InstId,
-    {send_message, Message},
+    {MessageTag, Message},
+    #{installed_bridge_v2s := BridgeV2Configs} = _ConnectorState
+) ->
     #{
         message_template := Template,
         producers := Producers,
@@ -220,8 +271,7 @@ on_query(
         headers_tokens := KafkaHeadersTokens,
         ext_headers_tokens := KafkaExtHeadersTokens,
         headers_val_encode_mode := KafkaHeadersValEncodeMode
-    }
-) ->
+    } = maps:get(MessageTag, BridgeV2Configs),
     KafkaHeaders = #{
         headers_tokens => KafkaHeadersTokens,
         ext_headers_tokens => KafkaExtHeadersTokens,
@@ -257,6 +307,9 @@ on_query(
             {error, {unrecoverable_error, Error}}
     end.
 
+on_get_channels(ResId) ->
+    emqx_bridge_v2:get_channels_for_connector(ResId).
+
 %% @doc The callback API for rule-engine (or bridge without rules)
 %% The input argument `Message' is an enriched format (as a map())
 %% of the original #message{} record.
@@ -265,16 +318,17 @@ on_query(
 %% or the direct mapping from an MQTT message.
 on_query_async(
     InstId,
-    {send_message, Message},
+    {MessageTag, Message},
     AsyncReplyFn,
+    #{installed_bridge_v2s := BridgeV2Configs} = _ConnectorState
+) ->
     #{
         message_template := Template,
         producers := Producers,
         headers_tokens := KafkaHeadersTokens,
         ext_headers_tokens := KafkaExtHeadersTokens,
         headers_val_encode_mode := KafkaHeadersValEncodeMode
-    }
-) ->
+    } = maps:get(MessageTag, BridgeV2Configs),
     KafkaHeaders = #{
         headers_tokens => KafkaHeadersTokens,
         ext_headers_tokens => KafkaExtHeadersTokens,
@@ -399,60 +453,116 @@ on_kafka_ack(_Partition, buffer_overflow_discarded, _Callback) ->
 %% Note: since wolff client has its own replayq that is not managed by
 %% `emqx_resource_buffer_worker', we must avoid returning `disconnected' here.  Otherwise,
 %% `emqx_resource_manager' will kill the wolff producers and messages might be lost.
-on_get_status(_InstId, #{client_id := ClientId} = State) ->
+on_get_status(
+    <<"connector:", _/binary>> = _InstId,
+    #{client_id := ClientId} = _State
+) ->
     case wolff_client_sup:find_client(ClientId) of
         {ok, Pid} ->
-            case do_get_status(Pid, State) of
+            case wolff_client:check_connectivity(Pid) of
                 ok -> connected;
-                unhealthy_target -> {disconnected, State, unhealthy_target};
-                error -> connecting
+                {error, Error} -> {connecting, Error}
             end;
         {error, _Reason} ->
             connecting
     end.
 
-do_get_status(Client, #{kafka_topic := KafkaTopic, hosts := Hosts, kafka_config := KafkaConfig}) ->
-    case do_get_topic_status(Hosts, KafkaConfig, KafkaTopic) of
-        unhealthy_target ->
-            unhealthy_target;
-        _ ->
-            case do_get_healthy_leaders(Client, KafkaTopic) of
-                [] -> error;
-                _ -> ok
-            end
+on_get_channel_status(
+    _ResId,
+    ChannelId,
+    #{
+        client_id := ClientId,
+        hosts := Hosts,
+        installed_bridge_v2s := Channels
+    } = _State
+) ->
+    ChannelState = maps:get(ChannelId, Channels),
+    case wolff_client_sup:find_client(ClientId) of
+        {ok, Pid} ->
+            case wolff_client:check_connectivity(Pid) of
+                ok ->
+                    try check_leaders_and_topic(Pid, Hosts, ChannelState) of
+                        ok ->
+                            connected
+                    catch
+                        _ErrorType:Reason ->
+                            {connecting, Reason}
+                    end;
+                {error, Error} ->
+                    {connecting, Error}
+            end;
+        {error, _Reason} ->
+            connecting
     end.
 
-do_get_healthy_leaders(Client, KafkaTopic) ->
-    case wolff_client:get_leader_connections(Client, KafkaTopic) of
-        {ok, Leaders} ->
-            %% Kafka is considered healthy as long as any of the partition leader is reachable.
-            lists:filtermap(
-                fun({_Partition, Pid}) ->
-                    case is_pid(Pid) andalso erlang:is_process_alive(Pid) of
-                        true -> {true, Pid};
-                        _ -> false
-                    end
-                end,
-                Leaders
+check_leaders_and_topic(
+    Client,
+    Hosts,
+    #{
+        kafka_config := KafkaConfig,
+        kafka_topic := KafkaTopic
+    } = _ChannelState
+) ->
+    check_if_healthy_leaders(Client, KafkaTopic),
+    check_topic_status(Hosts, KafkaConfig, KafkaTopic).
+
+check_if_healthy_leaders(Client, KafkaTopic) when is_pid(Client) ->
+    Leaders =
+        case wolff_client:get_leader_connections(Client, KafkaTopic) of
+            {ok, LeadersToCheck} ->
+                %% Kafka is considered healthy as long as any of the partition leader is reachable.
+                lists:filtermap(
+                    fun({_Partition, Pid}) ->
+                        case is_pid(Pid) andalso erlang:is_process_alive(Pid) of
+                            true -> {true, Pid};
+                            _ -> false
+                        end
+                    end,
+                    LeadersToCheck
+                );
+            {error, _} ->
+                []
+        end,
+    case Leaders of
+        [] ->
+            throw(
+                iolist_to_binary(
+                    io_lib:format("Could not find any healthy partion leader for topic ~s", [
+                        KafkaTopic
+                    ])
+                )
             );
-        {error, _} ->
-            []
+        _ ->
+            ok
+    end;
+check_if_healthy_leaders(ClientId, KafkaTopic) ->
+    case wolff_client_sup:find_client(ClientId) of
+        {ok, Pid} ->
+            check_if_healthy_leaders(Pid, KafkaTopic);
+        {error, _Reason} ->
+            throw(iolist_to_binary(io_lib:format("Could not find Kafka client: ~p", [ClientId])))
     end.
 
-do_get_topic_status(Hosts, KafkaConfig, KafkaTopic) ->
+check_topic_status(Hosts, KafkaConfig, KafkaTopic) ->
     CheckTopicFun =
         fun() ->
             wolff_client:check_if_topic_exists(Hosts, KafkaConfig, KafkaTopic)
         end,
     try
         case emqx_utils:nolink_apply(CheckTopicFun, 5_000) of
-            ok -> ok;
-            {error, unknown_topic_or_partition} -> unhealthy_target;
-            _ -> error
+            ok ->
+                ok;
+            {error, unknown_topic_or_partition} ->
+                throw(
+                    iolist_to_binary(io_lib:format("Unknown topic or partition ~s", [KafkaTopic]))
+                );
+            _ ->
+                ok
         end
     catch
-        _:_ ->
-            error
+        error:_:_ ->
+            %% Some other error not related to unknown_topic_or_partition
+            ok
     end.
 
 ssl(#{enable := true} = SSL) ->
@@ -460,7 +570,7 @@ ssl(#{enable := true} = SSL) ->
 ssl(_) ->
     [].
 
-producers_config(BridgeType, BridgeName, ClientId, Input, IsDryRun) ->
+producers_config(BridgeType, BridgeName, ClientId, Input, IsDryRun, BridgeV2Id) ->
     #{
         max_batch_bytes := MaxBatchBytes,
         compression := Compression,
@@ -486,7 +596,6 @@ producers_config(BridgeType, BridgeName, ClientId, Input, IsDryRun) ->
             disk -> {false, replayq_dir(ClientId)};
             hybrid -> {true, replayq_dir(ClientId)}
         end,
-    ResourceID = emqx_bridge_resource:resource_id(BridgeType, BridgeName),
     #{
         name => make_producer_name(BridgeType, BridgeName, IsDryRun),
         partitioner => partitioner(PartitionStrategy),
@@ -500,7 +609,7 @@ producers_config(BridgeType, BridgeName, ClientId, Input, IsDryRun) ->
         max_batch_bytes => MaxBatchBytes,
         max_send_ahead => MaxInflight - 1,
         compression => Compression,
-        telemetry_meta_data => #{bridge_id => ResourceID}
+        telemetry_meta_data => #{bridge_id => BridgeV2Id}
     }.
 
 %% Wolff API is a batch API.

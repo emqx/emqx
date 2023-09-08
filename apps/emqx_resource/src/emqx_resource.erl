@@ -59,11 +59,15 @@
     remove/1,
     remove_local/1,
     reset_metrics/1,
-    reset_metrics_local/1
+    reset_metrics_local/1,
+    %% Create metrics for a resource ID
+    create_metrics/1,
+    %% Delete metrics for a resource ID
+    clear_metrics/1
 ]).
 
 %% Calls to the callback module with current resource state
-%% They also save the state after the call finished (except query/2,3).
+%% They also save the state after the call finished (except call_get_channel_config/3).
 
 -export([
     start/1,
@@ -72,6 +76,7 @@
     restart/2,
     %% verify if the resource is working normally
     health_check/1,
+    channel_health_check/2,
     %% set resource status to disconnected
     set_resource_status_connecting/1,
     %% stop the instance
@@ -87,7 +92,9 @@
     has_allocated_resources/1,
     get_allocated_resources/1,
     get_allocated_resources_list/1,
-    forget_allocated_resources/1
+    forget_allocated_resources/1,
+    %% Get channel config from resource
+    call_get_channel_config/3
 ]).
 
 %% Direct calls to the callback module
@@ -99,10 +106,18 @@
     call_start/3,
     %% verify if the resource is working normally
     call_health_check/3,
+    %% verify if the resource channel is working normally
+    call_channel_health_check/4,
     %% stop the instance
     call_stop/3,
     %% get the query mode of the resource
-    query_mode/3
+    query_mode/3,
+    %% Add channel to resource
+    call_add_channel/5,
+    %% Remove channel from resource
+    call_remove_channel/4,
+    %% Get channels from resource
+    call_get_channels/2
 ]).
 
 %% list all the instances, id only.
@@ -125,6 +140,7 @@
 -export_type([
     query_mode/0,
     resource_id/0,
+    channel_id/0,
     resource_data/0,
     resource_status/0
 ]).
@@ -135,6 +151,10 @@
     on_query_async/4,
     on_batch_query_async/4,
     on_get_status/2,
+    on_get_channel_status/3,
+    on_add_channel/4,
+    on_remove_channel/3,
+    on_get_channels/1,
     query_mode/1
 ]).
 
@@ -176,7 +196,44 @@
     | {resource_status(), resource_state()}
     | {resource_status(), resource_state(), term()}.
 
+-callback on_get_channel_status(resource_id(), channel_id(), resource_state()) ->
+    resource_status()
+    | {resource_status(), term()}.
+
 -callback query_mode(Config :: term()) -> query_mode().
+
+%% This callback handles the installation of a specified Bridge V2 resource.
+%%
+%% It's guaranteed that the provided Bridge V2 is not already installed when this
+%% function is invoked. Upon successful installation, the function should return a
+%% new state with the installed Bridge V2 encapsulated within the `installed_bridge_v2s` map.
+%%
+%% The Bridge V2 state must be stored in the `installed_bridge_v2s` map using the
+%% Bridge V2 resource ID as the key, as the caching mechanism depends on this structure.
+%%
+%% If the Bridge V2 cannot be successfully installed, the callback shall
+%% throw an exception.
+-callback on_add_channel(
+    ResId :: term(), ResourceState :: term(), BridgeV2Id :: binary(), ChannelConfig :: map()
+) -> {ok, NewState :: #{installed_bridge_v2s := map()}}.
+
+%% This callback handles the deinstallation of a specified Bridge V2 resource.
+%%
+%% It's guaranteed that the provided Bridge V2 is installed when this
+%% function is invoked. Upon successful deinstallation, the function should return
+%% a new state where the Bridge V2 id key has been removed from the `installed_bridge_v2s` map.
+%%
+%% If the Bridge V2 cannot be successfully deinstalled, the callback shall
+%% log an error.
+%%
+%% Also see the documentation for `on_add_channel/4`.
+-callback on_remove_channel(
+    ResId :: term(), ResourceState :: term(), BridgeV2Id :: binary()
+) -> {ok, NewState :: term()}.
+
+-callback on_get_channels(
+    ResId :: term()
+) -> {ok, NewState :: term()}.
 
 -spec list_types() -> [module()].
 list_types() ->
@@ -292,8 +349,11 @@ query(ResId, Request) ->
 -spec query(resource_id(), Request :: term(), query_opts()) ->
     Result :: term().
 query(ResId, Request, Opts) ->
-    case emqx_resource_manager:lookup_cached(ResId) of
-        {ok, _Group, #{query_mode := QM, error := Error}} ->
+    %% We keep this A
+    case get_query_mode_error(ResId, Opts) of
+        {error, _} = ErrorTuple ->
+            ErrorTuple;
+        {QM, Error} ->
             case {QM, Error} of
                 {_, unhealthy_target} ->
                     emqx_resource_metrics:matched_inc(ResId),
@@ -329,9 +389,25 @@ query(ResId, Request, Opts) ->
                     emqx_resource_buffer_worker:sync_query(ResId, Request, Opts);
                 {async, _} ->
                     emqx_resource_buffer_worker:async_query(ResId, Request, Opts)
+            end
+    end.
+
+get_query_mode_error(ResId, Opts) ->
+    case emqx_bridge_v2:is_bridge_v2_id(ResId) of
+        true ->
+            case Opts of
+                #{query_mode := QueryMode} ->
+                    {QueryMode, ok};
+                _ ->
+                    {async, unhealthy_target}
             end;
-        {error, not_found} ->
-            ?RESOURCE_ERROR(not_found, "resource not found")
+        false ->
+            case emqx_resource_manager:lookup_cached(ResId) of
+                {ok, _Group, #{query_mode := QM, error := Error}} ->
+                    {QM, Error};
+                {error, not_found} ->
+                    ?RESOURCE_ERROR(not_found, "resource not found")
+            end
     end.
 
 -spec simple_sync_query(resource_id(), Request :: term()) -> Result :: term().
@@ -361,6 +437,11 @@ stop(ResId) ->
 -spec health_check(resource_id()) -> {ok, resource_status()} | {error, term()}.
 health_check(ResId) ->
     emqx_resource_manager:health_check(ResId).
+
+-spec channel_health_check(resource_id(), channel_id()) ->
+    {ok, resource_status()} | {error, term()}.
+channel_health_check(ResId, ChannelId) ->
+    emqx_resource_manager:channel_health_check(ResId, ChannelId).
 
 set_resource_status_connecting(ResId) ->
     emqx_resource_manager:set_resource_status_connecting(ResId).
@@ -435,6 +516,85 @@ call_start(ResId, Mod, Config) ->
     | {error, term()}.
 call_health_check(ResId, Mod, ResourceState) ->
     ?SAFE_CALL(Mod:on_get_status(ResId, ResourceState)).
+
+-spec call_channel_health_check(resource_id(), channel_id(), module(), resource_state()) ->
+    resource_status()
+    | {resource_status()}
+    | {resource_status(), term()}
+    | {error, term()}.
+call_channel_health_check(ResId, ChannelId, Mod, ResourceState) ->
+    ?SAFE_CALL(Mod:on_get_channel_status(ResId, ChannelId, ResourceState)).
+
+call_add_channel(ResId, Mod, ResourceState, ChannelId, ChannelConfig) ->
+    %% Check if maybe_install_insert_template is exported
+    case erlang:function_exported(Mod, on_add_channel, 4) of
+        true ->
+            try
+                Mod:on_add_channel(
+                    ResId, ResourceState, ChannelId, ChannelConfig
+                )
+            catch
+                throw:Error ->
+                    {error, Error};
+                Kind:Reason:Stacktrace ->
+                    {error, #{
+                        exception => Kind,
+                        reason => Reason,
+                        stacktrace => emqx_utils:redact(Stacktrace)
+                    }}
+            end;
+        false ->
+            {error,
+                <<<<"on_add_channel callback function not available for connector with resource id ">>/binary,
+                    ResId/binary>>}
+    end.
+
+call_remove_channel(ResId, Mod, ResourceState, ChannelId) ->
+    %% Check if maybe_install_insert_template is exported
+    case erlang:function_exported(Mod, on_remove_channel, 3) of
+        true ->
+            try
+                Mod:on_remove_channel(
+                    ResId, ResourceState, ChannelId
+                )
+            catch
+                Kind:Reason:Stacktrace ->
+                    {error, #{
+                        exception => Kind,
+                        reason => Reason,
+                        stacktrace => emqx_utils:redact(Stacktrace)
+                    }}
+            end;
+        false ->
+            {error,
+                <<<<"on_remove_channel callback function not available for connector with resource id ">>/binary,
+                    ResId/binary>>}
+    end.
+
+call_get_channels(ResId, Mod) ->
+    case erlang:function_exported(Mod, on_get_channels, 1) of
+        true ->
+            Mod:on_get_channels(ResId);
+        false ->
+            []
+    end.
+
+call_get_channel_config(ResId, ChannelId, Mod) ->
+    case erlang:function_exported(Mod, on_get_channels, 1) of
+        true ->
+            ChConfigs = Mod:on_get_channels(ResId),
+            case [Conf || {ChId, Conf} <- ChConfigs, ChId =:= ChannelId] of
+                [ChannelConf] ->
+                    ChannelConf;
+                _ ->
+                    {error,
+                        <<"Channel ", ChannelId/binary,
+                            "not found. There seems to be a broken reference">>}
+            end;
+        false ->
+            {error,
+                <<"on_get_channels callback function not available for resource id", ResId/binary>>}
+    end.
 
 -spec call_stop(resource_id(), module(), resource_state()) -> term().
 call_stop(ResId, Mod, ResourceState) ->
@@ -575,6 +735,33 @@ forget_allocated_resources(InstanceId) ->
     true = ets:delete(?RESOURCE_ALLOCATION_TAB, InstanceId),
     ok.
 
+-spec create_metrics(resource_id()) -> ok.
+create_metrics(ResId) ->
+    emqx_metrics_worker:create_metrics(
+        ?RES_METRICS,
+        ResId,
+        [
+            'matched',
+            'retried',
+            'retried.success',
+            'retried.failed',
+            'success',
+            'late_reply',
+            'failed',
+            'dropped',
+            'dropped.expired',
+            'dropped.queue_full',
+            'dropped.resource_not_found',
+            'dropped.resource_stopped',
+            'dropped.other',
+            'received'
+        ],
+        [matched]
+    ).
+
+-spec clear_metrics(resource_id()) -> ok.
+clear_metrics(ResId) ->
+    emqx_metrics_worker:clear_metrics(?RES_METRICS, ResId).
 %% =================================================================================
 
 filter_instances(Filter) ->
