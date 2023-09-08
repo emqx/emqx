@@ -132,7 +132,7 @@ format(#banned{
     }.
 
 parse(Params) ->
-    case pares_who(Params) of
+    case parse_who(Params) of
         {error, Reason} ->
             {error, Reason};
         Who ->
@@ -155,14 +155,14 @@ parse(Params) ->
                     {error, ErrorReason}
             end
     end.
-pares_who(#{as := As, who := Who}) ->
-    pares_who(#{<<"as">> => As, <<"who">> => Who});
-pares_who(#{<<"as">> := peerhost, <<"who">> := Peerhost0}) ->
+parse_who(#{as := As, who := Who}) ->
+    parse_who(#{<<"as">> => As, <<"who">> => Who});
+parse_who(#{<<"as">> := peerhost, <<"who">> := Peerhost0}) ->
     case inet:parse_address(binary_to_list(Peerhost0)) of
         {ok, Peerhost} -> {peerhost, Peerhost};
         {error, einval} -> {error, "bad peerhost"}
     end;
-pares_who(#{<<"as">> := As, <<"who">> := Who}) ->
+parse_who(#{<<"as">> := As, <<"who">> := Who}) ->
     {As, Who}.
 
 maybe_format_host({peerhost, Host}) ->
@@ -210,7 +210,7 @@ create(Banned = #banned{who = Who}) ->
     end.
 
 look_up(Who) when is_map(Who) ->
-    look_up(pares_who(Who));
+    look_up(parse_who(Who));
 look_up(Who) ->
     mnesia:dirty_read(?BANNED_TAB, Who).
 
@@ -220,7 +220,7 @@ look_up(Who) ->
     | {peerhost, emqx_types:peerhost()}
 ) -> ok.
 delete(Who) when is_map(Who) ->
-    delete(pares_who(Who));
+    delete(parse_who(Who));
 delete(Who) ->
     mria:dirty_delete(?BANNED_TAB, Who).
 
