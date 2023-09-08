@@ -167,4 +167,18 @@ assert_messages_order([Msg | Ls1], [{publish, #{payload := No}} | Ls2]) ->
     end.
 
 messages(Cnt) ->
-    [emqx_message:make(ct, 1, ?TOPIC, integer_to_binary(I)) || I <- lists:seq(1, Cnt)].
+    [emqx_message:make(ct, 1, ?TOPIC, payload(I)) || I <- lists:seq(1, Cnt)].
+
+payload(I) ->
+    % NOTE
+    % Introduce randomness so that natural order is not the same as arrival order.
+    iolist_to_binary(
+        io_lib:format("~4.16.0B [~B] [~s]", [
+            rand:uniform(16#10000) - 1,
+            I,
+            calendar:system_time_to_rfc3339(erlang:system_time(millisecond), [
+                {unit, millisecond},
+                {offset, "Z"}
+            ])
+        ])
+    ).
