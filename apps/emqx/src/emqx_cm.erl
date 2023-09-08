@@ -21,6 +21,7 @@
 
 -include("emqx.hrl").
 -include("emqx_cm.hrl").
+-include("emqx_session.hrl").
 -include("logger.hrl").
 -include("types.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
@@ -188,7 +189,7 @@ do_unregister_channel({_ClientId, ChanPid} = Chan) ->
     true = ets:delete(?CHAN_CONN_TAB, Chan),
     true = ets:delete(?CHAN_INFO_TAB, Chan),
     ets:delete_object(?CHAN_TAB, Chan),
-    ok = emqx_hooks:run('channel.unregistered', [ChanPid]),
+    ok = emqx_hooks:run('cm.channel.unregistered', [ChanPid]),
     true.
 
 %% @doc Get info of a channel.
@@ -292,7 +293,7 @@ open_session(false, ClientInfo = #{clientid := ClientId}, ConnInfo) ->
 
 create_session(ClientInfo, ConnInfo) ->
     Options = get_session_confs(ClientInfo, ConnInfo),
-    Session = emqx_session:init(Options),
+    Session = emqx_session:init_and_open(Options),
     ok = emqx_metrics:inc('session.created'),
     ok = emqx_hooks:run('session.created', [ClientInfo, emqx_session:info(Session)]),
     Session.

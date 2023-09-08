@@ -33,7 +33,7 @@ init_per_suite(Config) ->
 end_per_suite(_Config) ->
     ok.
 
-init_per_testcase(TC = t_import_on_cluster, Config0) ->
+init_per_testcase(TC = t_import_on_cluster, Config) ->
     %% Don't import listeners to avoid port conflicts
     %% when the same conf will be imported to another cluster
     meck:new(emqx_mgmt_listeners_conf, [passthrough]),
@@ -50,17 +50,15 @@ init_per_testcase(TC = t_import_on_cluster, Config0) ->
         1,
         {ok, #{changed => [], root_key => gateway}}
     ),
-    Config = [{tc_name, TC} | Config0],
-    [{cluster, cluster(Config)} | setup(Config)];
-init_per_testcase(TC = t_verify_imported_mnesia_tab_on_cluster, Config0) ->
-    Config = [{tc_name, TC} | Config0],
-    [{cluster, cluster(Config)} | setup(Config)];
+    [{cluster, cluster(TC, Config)} | setup(TC, Config)];
+init_per_testcase(TC = t_verify_imported_mnesia_tab_on_cluster, Config) ->
+    [{cluster, cluster(TC, Config)} | setup(TC, Config)];
 init_per_testcase(t_mnesia_bad_tab_schema, Config) ->
     meck:new(emqx_mgmt_data_backup, [passthrough]),
     meck:expect(TC = emqx_mgmt_data_backup, mnesia_tabs_to_backup, 0, [data_backup_test]),
-    setup([{tc_name, TC} | Config]);
+    setup(TC, Config);
 init_per_testcase(TC, Config) ->
-    setup([{tc_name, TC} | Config]).
+    setup(TC, Config).
 
 end_per_testcase(t_import_on_cluster, Config) ->
     emqx_cth_cluster:stop(?config(cluster, Config)),
@@ -304,7 +302,7 @@ t_verify_imported_mnesia_tab_on_cluster(Config) ->
     {ok, Cwd} = file:get_cwd(),
     AbsFilePath = filename:join(Cwd, FileName),
 
-    [CoreNode1, CoreNode2, ReplicantNode] = NodesList = ?config(cluster, Config),
+    [CoreNode1, CoreNode2, ReplicantNode] = ?config(cluster, Config),
 
     [
         {ok, _} = rpc:call(CoreNode1, emqx_dashboard_admin, add_user, [U, U, U])
@@ -328,10 +326,7 @@ t_verify_imported_mnesia_tab_on_cluster(Config) ->
 
     %% Give some extra time to replicant to import data...
     timer:sleep(3000),
-    ?assertEqual(AllUsers, lists:sort(rpc:call(ReplicantNode, mnesia, dirty_all_keys, [Tab]))),
-
-    [rpc:call(N, ekka, leave, []) || N <- lists:reverse(NodesList)],
-    [emqx_common_test_helpers:stop_slave(N) || N <- NodesList].
+    ?assertEqual(AllUsers, lists:sort(rpc:call(ReplicantNode, mnesia, dirty_all_keys, [Tab]))).
 
 t_mnesia_bad_tab_schema(_Config) ->
     OldAttributes = [id, name, description],
@@ -386,8 +381,8 @@ t_read_files(_Config) ->
 %% Internal test helpers
 %%------------------------------------------------------------------------------
 
-setup(Config) ->
-    WorkDir = filename:join(work_dir(Config), local),
+setup(TC, Config) ->
+    WorkDir = filename:join(emqx_cth_suite:work_dir(TC, Config), local),
     Started = emqx_cth_suite:start(apps_to_start(), #{work_dir => WorkDir}),
     [{suite_apps, Started} | Config].
 
@@ -408,19 +403,16 @@ recompose_version(MajorInt, MinorInt, Patch) ->
         [integer_to_list(MajorInt + 1), $., integer_to_list(MinorInt), $. | Patch]
     ).
 
-cluster(Config) ->
+cluster(TC, Config) ->
     Nodes = emqx_cth_cluster:start(
         [
             {data_backup_core1, #{role => core, apps => apps_to_start()}},
             {data_backup_core2, #{role => core, apps => apps_to_start()}},
             {data_backup_replicant, #{role => replicant, apps => apps_to_start()}}
         ],
-        #{work_dir => work_dir(Config)}
+        #{work_dir => emqx_cth_suite:work_dir(TC, Config)}
     ),
     Nodes.
-
-work_dir(Config) ->
-    filename:join(?config(priv_dir, Config), ?config(tc_name, Config)).
 
 create_test_tab(Attributes) ->
     ok = mria:create_table(data_backup_test, [
@@ -440,8 +432,8 @@ create_test_tab(Attributes) ->
 
 apps_to_start() ->
     [
-        {emqx, #{override_env => [{boot_modules, [broker, router]}]}},
-        {emqx_conf, "dashboard.listeners.http.bind = 0"},
+        {emqx, #{override_env => [{boot_modules, [broker]}]}},
+        {emqx_conf, #{config => #{dashboard => #{listeners => #{http => #{bind => <<"0">>}}}}}},
         emqx_psk,
         emqx_management,
         emqx_dashboard,

@@ -23,6 +23,7 @@
         store_filemeta/2,
         store_segment/2,
         assemble/3,
+        kickoff/1,
 
         files/0,
         files/1,
@@ -120,6 +121,13 @@ store_segment(Transfer, Segment) ->
     ok | {async, pid()} | {error, term()}.
 assemble(Transfer, Size, FinOpts) ->
     dispatch(assemble, [Transfer, Size, FinOpts]).
+
+-spec kickoff(pid()) -> ok.
+kickoff(Pid) ->
+    _ = erlang:send(Pid, kickoff),
+    ok.
+
+%%
 
 -spec files() ->
     {ok, page(file_info(), _)} | {error, term()}.

@@ -18,7 +18,9 @@
 
 -export([
     test/1,
-    get_selected_data/3
+    get_selected_data/3,
+    %% Some SQL functions return different results in the test environment
+    is_test_runtime_env/0
 ]).
 
 -spec test(#{sql := binary(), context := map()}) -> {ok, map() | list()} | {error, term()}.
@@ -63,12 +65,14 @@ test_rule(Sql, Select, Context, EventTopics) ->
         created_at => erlang:system_time(millisecond)
     },
     FullContext = fill_default_values(hd(EventTopics), emqx_rule_maps:atom_key_map(Context)),
+    set_is_test_runtime_env(),
     try emqx_rule_runtime:apply_rule(Rule, FullContext, #{}) of
         {ok, Data} ->
             {ok, flatten(Data)};
         {error, Reason} ->
             {error, Reason}
     after
+        unset_is_test_runtime_env(),
         ok = emqx_rule_engine:clear_metrics_for_rule(RuleId)
     end.
 
@@ -97,3 +101,20 @@ envs_examp(EventTopic) ->
             emqx_rule_events:columns_with_exam(EventName)
         )
     ).
+
+is_test_runtime_env_atom() ->
+    'emqx_rule_sqltester:is_test_runtime_env'.
+
+set_is_test_runtime_env() ->
+    erlang:put(is_test_runtime_env_atom(), true),
+    ok.
+
+unset_is_test_runtime_env() ->
+    erlang:erase(is_test_runtime_env_atom()),
+    ok.
+
+is_test_runtime_env() ->
+    case erlang:get(is_test_runtime_env_atom()) of
+        true -> true;
+        _ -> false
+    end.

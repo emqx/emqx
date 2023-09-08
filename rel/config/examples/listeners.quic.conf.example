@@ -5,7 +5,7 @@ listeners.quic.my_quick_listener_name {
     bind = 14567 ## or with an IP, e.g. "127.0.0.1:14567"
 
     ## When publishing or subscribing, prefix all topics with a mountpoint string
-    mountpoint = "${clientid}/msg"
+    ## mountpoint = "${clientid}/msg"
 
     ## Client authentication
     ## Type:

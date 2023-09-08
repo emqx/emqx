@@ -14,17 +14,38 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
+%% @doc Common Test Helper / Running tests in a cluster
+%%
+%% This module allows setting up and tearing down clusters of EMQX nodes with
+%% the purpose of running integration tests in a distributed environment, but
+%% with the same isolation measures that `emqx_cth_suite` provides.
+%%
+%% Additionally to what `emqx_cth_suite` does with respect to isolation, each
+%% node in the cluster is started with a separate, unique working directory.
+%%
+%% What should be started on each node is defined by the same appspecs that are
+%% used by `emqx_cth_suite` to start applications on the CT node. However, there
+%% are additional set of defaults applied to appspecs to make sure that the
+%% cluster is started in a consistent, interconnected state, with no conflicts
+%% between applications.
+%%
+%% Most of the time, you just need to:
+%% 1. Describe the cluster with one or more _nodespecs_.
+%% 2. Call `emqx_cth_cluster:start/2` before the testrun (e.g. in `init_per_suite/1`
+%%    or `init_per_group/2`), providing unique work dir (e.g.
+%%    `emqx_cth_suite:work_dir/1`). Save the result in a context.
+%% 3. Call `emqx_cth_cluster:stop/1` after the testrun concludes (e.g.
+%%    in `end_per_suite/1` or `end_per_group/2`) with the result from step 2.
 -module(emqx_cth_cluster).
 
 -export([start/2]).
--export([stop/1]).
+-export([stop/1, stop_node/1]).
 
 -export([start_bare_node/2]).
 
 -export([share_load_module/2]).
--export([node_name/1]).
-
--export([node_name/1]).
+-export([node_name/1, mk_nodespecs/2]).
+-export([start_apps/2, set_node_opts/2]).
 
 -define(APPS_CLUSTERING, [gen_rpc, mria, ekka]).
 
@@ -88,7 +109,7 @@ when
     }.
 start(Nodes, ClusterOpts) ->
     NodeSpecs = mk_nodespecs(Nodes, ClusterOpts),
-    ct:pal("Starting cluster: ~p", [NodeSpecs]),
+    ct:pal("Starting cluster:\n  ~p", [NodeSpecs]),
     % 1. Start bare nodes with only basic applications running
     _ = emqx_utils:pmap(fun start_node_init/1, NodeSpecs, ?TIMEOUT_NODE_START_MS),
     % 2. Start applications needed to enable clustering
@@ -289,16 +310,19 @@ load_apps(Node, #{apps := Apps}) ->
     erpc:call(Node, emqx_cth_suite, load_apps, [Apps]).
 
 start_apps_clustering(Node, #{apps := Apps} = Spec) ->
-    SuiteOpts = maps:with([work_dir], Spec),
+    SuiteOpts = suite_opts(Spec),
     AppsClustering = [lists:keyfind(App, 1, Apps) || App <- ?APPS_CLUSTERING],
     _Started = erpc:call(Node, emqx_cth_suite, start, [AppsClustering, SuiteOpts]),
     ok.
 
 start_apps(Node, #{apps := Apps} = Spec) ->
-    SuiteOpts = maps:with([work_dir], Spec),
+    SuiteOpts = suite_opts(Spec),
     AppsRest = [AppSpec || AppSpec = {App, _} <- Apps, not lists:member(App, ?APPS_CLUSTERING)],
     _Started = erpc:call(Node, emqx_cth_suite, start_apps, [AppsRest, SuiteOpts]),
     ok.
+
+suite_opts(Spec) ->
+    maps:with([work_dir], Spec).
 
 maybe_join_cluster(_Node, #{role := replicant}) ->
     ok;

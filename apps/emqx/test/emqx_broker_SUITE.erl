@@ -59,39 +59,54 @@ groups() ->
 init_per_group(connected_client_count_group, Config) ->
     Config;
 init_per_group(tcp, Config) ->
-    emqx_common_test_helpers:boot_modules(all),
-    emqx_common_test_helpers:start_apps([]),
-    [{conn_fun, connect} | Config];
+    Apps = emqx_cth_suite:start(
+        [emqx],
+        #{work_dir => emqx_cth_suite:work_dir(Config)}
+    ),
+    [{conn_fun, connect}, {group_apps, Apps} | Config];
 init_per_group(ws, Config) ->
-    emqx_common_test_helpers:boot_modules(all),
-    emqx_common_test_helpers:start_apps([]),
+    Apps = emqx_cth_suite:start(
+        [emqx],
+        #{work_dir => emqx_cth_suite:work_dir(Config)}
+    ),
     [
         {ssl, false},
         {enable_websocket, true},
         {conn_fun, ws_connect},
         {port, 8083},
-        {host, "localhost"}
+        {host, "localhost"},
+        {group_apps, Apps}
         | Config
     ];
 init_per_group(quic, Config) ->
-    emqx_common_test_helpers:boot_modules(all),
-    emqx_common_test_helpers:start_apps([]),
-    UdpPort = 14567,
-    ok = emqx_common_test_helpers:ensure_quic_listener(?MODULE, UdpPort),
+    Apps = emqx_cth_suite:start(
+        [
+            {emqx,
+                "listeners.quic.test {"
+                "\n enable = true"
+                "\n max_connections = 1024000"
+                "\n idle_timeout = 15s"
+                "\n }"}
+        ],
+        #{work_dir => emqx_cth_suite:work_dir(Config)}
+    ),
     [
         {conn_fun, quic_connect},
-        {port, UdpPort}
+        {port, emqx_config:get([listeners, quic, test, bind])},
+        {group_apps, Apps}
         | Config
     ];
 init_per_group(_Group, Config) ->
-    emqx_common_test_helpers:boot_modules(all),
-    emqx_common_test_helpers:start_apps([]),
-    Config.
+    Apps = emqx_cth_suite:start(
+        [emqx],
+        #{work_dir => emqx_cth_suite:work_dir(Config)}
+    ),
+    [{group_apps, Apps} | Config].
 
 end_per_group(connected_client_count_group, _Config) ->
     ok;
-end_per_group(_Group, _Config) ->
-    emqx_common_test_helpers:stop_apps([]).
+end_per_group(_Group, Config) ->
+    emqx_cth_suite:stop(?config(group_apps, Config)).
 
 init_per_suite(Config) ->
     Config.

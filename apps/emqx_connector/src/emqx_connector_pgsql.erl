@@ -85,13 +85,10 @@ server() ->
 adjust_fields(Fields) ->
     lists:map(
         fun
-            ({username, OrigUsernameFn}) ->
-                {username, fun
-                    (required) ->
-                        true;
-                    (Any) ->
-                        OrigUsernameFn(Any)
-                end};
+            ({username, Sc}) ->
+                %% to please dialyzer...
+                Override = #{type => hocon_schema:field_schema(Sc, type), required => true},
+                {username, hocon_schema:override(Sc, Override)};
             (Field) ->
                 Field
         end,

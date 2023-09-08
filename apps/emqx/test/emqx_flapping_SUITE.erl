@@ -35,7 +35,7 @@ init_per_suite(Config) ->
                 "\n ban_time = 2s"
                 "\n }"}
         ],
-        #{work_dir => ?config(priv_dir, Config)}
+        #{work_dir => emqx_cth_suite:work_dir(Config)}
     ),
     [{suite_apps, Apps} | Config].
 

@@ -14,6 +14,47 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
+%% @doc Common Test Helper / Running test suites
+%%
+%% The purpose of this module is to run application-level, integration
+%% tests in an isolated fashion.
+%%
+%% Isolation is this context means that each testrun does not leave any
+%% persistent state accessible to following testruns. The goal is to
+%% make testruns completely independent of each other, of the order in
+%% which they are executed, and of the testrun granularity, i.e. whether
+%% they are executed individually or as part of a larger suite. This
+%% should help to increase reproducibility and reduce the risk of false
+%% positives.
+%%
+%% Isolation is achieved through the following measures:
+%% * Each testrun completely terminates and unload all applications
+%%   started during the testrun.
+%% * Each testrun is executed in a separate directory, usually under
+%%   common_test's private directory, where all persistent state should
+%%   be stored.
+%% * Additionally, each cleans out few bits of persistent state that
+%%   survives the above measures, namely persistent VM terms related
+%%   to configuration and authentication (see `clean_suite_state/0`).
+%%
+%% Integration test in this context means a test that works with applications
+%% as a whole, and needs to start and stop them as part of the test run.
+%% For this, there's an abstraction called _appspec_ that describes how to
+%% configure and start an application.
+%%
+%% The module also provides a set of default appspecs for some applications
+%% that hide details and quirks of how to start them, to make it easier to
+%% write test suites.
+%%
+%% Most of the time, you just need to:
+%% 1. Describe the appspecs for the applications you want to test.
+%% 2. Call `emqx_cth_sutie:start/2` to start the applications before the testrun
+%%    (e.g. in `init_per_suite/1` / `init_per_group/2`), providing the appspecs
+%%    and unique work dir for the testrun (e.g. `work_dir/1`). Save the result
+%%    in a context.
+%% 3. Call `emqx_cth_sutie:stop/1` to stop the applications after the testrun
+%%    finishes (e.g. in `end_per_suite/1` / `end_per_group/2`), providing the
+%%    result from step 2.
 -module(emqx_cth_suite).
 
 -include_lib("common_test/include/ct.hrl").
@@ -21,6 +62,9 @@
 
 -export([start/2]).
 -export([stop/1]).
+
+-export([work_dir/1]).
+-export([work_dir/2]).
 
 -export([load_apps/1]).
 -export([start_apps/2]).
@@ -98,7 +142,8 @@ when
     SuiteOpts :: #{
         %% Working directory
         %% Everything a test produces should go here. If this directory is not empty,
-        %% function will raise an error.
+        %% function will raise an error. Most of the time, the result of `work_dir/1`
+        %% or `work_dir/2` (if used in a testcase) should be fine here.
         work_dir := file:name()
     }.
 start(Apps, SuiteOpts = #{work_dir := WorkDir}) ->
@@ -330,6 +375,45 @@ default_appspec(_, _) ->
 
 default_config(App, SuiteOpts) ->
     maps:get(config, default_appspec(App, SuiteOpts), #{}).
+
+%%
+
+%% @doc Determine the unique work directory for the current test run.
+%% Takes into account name of the test suite, and all test groups the current run
+%% is part of.
+-spec work_dir(CTConfig :: proplists:proplist()) ->
+    file:filename_all().
+work_dir(CTConfig) ->
+    % Directory specific to the current test run.
+    [PrivDir] = proplists:get_all_values(priv_dir, CTConfig),
+    % Directory specific to the currently executing test suite.
+    [DataDir] = proplists:get_all_values(data_dir, CTConfig),
+    % NOTE: Contains the name of the current test group, if executed as part of a group.
+    GroupProps = proplists:get_value(tc_group_properties, CTConfig, []),
+    % NOTE: Contains names of outer test groups, if any.
+    GroupPathOuter = proplists:get_value(tc_group_path, CTConfig, []),
+    SuiteDir = filename:basename(DataDir),
+    GroupPath = lists:append([GroupProps | GroupPathOuter]),
+    GroupLevels = [atom_to_list(Name) || {name, Name} <- GroupPath],
+    WorkDir1 = filename:join(PrivDir, SuiteDir),
+    WorkDir2 =
+        case GroupLevels of
+            [] ->
+                WorkDir1;
+            [_ | _] ->
+                GroupDir = string:join(lists:reverse(GroupLevels), "."),
+                filename:join(WorkDir1, GroupDir)
+        end,
+    WorkDir2.
+
+%% @doc Determine the unique work directory for the current testcase run.
+%% Be careful when testcase runs under no groups, and its name matches the name of a
+%% previously executed test group, it's best to avoid such naming.
+-spec work_dir(TestCaseName :: atom(), CTConfig :: proplists:proplist()) ->
+    file:filename_all().
+work_dir(TCName, CTConfig) ->
+    WorkDir = work_dir(CTConfig),
+    filename:join(WorkDir, TCName).
 
 %%
 

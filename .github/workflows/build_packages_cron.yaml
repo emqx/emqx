@@ -24,7 +24,7 @@ jobs:
           - ['emqx-enterprise', 'release-51']
           - ['emqx-enterprise', 'release-52']
         otp:
-          - 25.3.2-1
+          - 25.3.2-2
         arch:
           - amd64
         os:
@@ -32,7 +32,7 @@ jobs:
           - ubuntu22.04
           - amzn2023
         builder:
-          - 5.1-3
+          - 5.1-4
         elixir:
           - 1.14.5
 
@@ -99,7 +99,7 @@ jobs:
         branch:
           - master
         otp:
-          - 25.3.2-1
+          - 25.3.2-2
         os:
           - macos-13
           - macos-12-arm64

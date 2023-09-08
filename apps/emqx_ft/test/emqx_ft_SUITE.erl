@@ -37,7 +37,7 @@ all() ->
 
 groups() ->
     [
-        {single_node, [parallel], [
+        {single_node, [], [
             t_assemble_crash,
             t_corrupted_segment_retry,
             t_invalid_checksum,
@@ -76,7 +76,7 @@ init_per_suite(Config) ->
         [
             {emqx_ft, #{config => emqx_ft_test_helpers:config(Storage)}}
         ],
-        #{work_dir => ?config(priv_dir, Config)}
+        #{work_dir => emqx_cth_suite:work_dir(Config)}
     ),
     [{suite_apps, Apps} | Config].
 

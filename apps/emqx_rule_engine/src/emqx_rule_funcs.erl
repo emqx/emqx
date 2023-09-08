@@ -1174,15 +1174,30 @@ function_literal(Fun, Args) ->
     {invalid_func, {Fun, Args}}.
 
 mongo_date() ->
-    erlang:timestamp().
+    maybe_isodate_format(erlang:timestamp()).
 
 mongo_date(MillisecondsTimestamp) ->
-    convert_timestamp(MillisecondsTimestamp).
+    maybe_isodate_format(convert_timestamp(MillisecondsTimestamp)).
 
 mongo_date(Timestamp, Unit) ->
     InsertedTimeUnit = time_unit(Unit),
     ScaledEpoch = erlang:convert_time_unit(Timestamp, InsertedTimeUnit, millisecond),
-    convert_timestamp(ScaledEpoch).
+    mongo_date(ScaledEpoch).
+
+maybe_isodate_format(ErlTimestamp) ->
+    case emqx_rule_sqltester:is_test_runtime_env() of
+        false ->
+            ErlTimestamp;
+        true ->
+            %% if this is called from sqltest, we need to convert it to the ISODate() format,
+            %% so that it can be correctly converted into a JSON string.
+            isodate_format(ErlTimestamp)
+    end.
+
+isodate_format({MegaSecs, Secs, MicroSecs}) ->
+    SystemTimeMs = (MegaSecs * 1000_000_000_000 + Secs * 1000_000 + MicroSecs) div 1000,
+    Ts3339Str = calendar:system_time_to_rfc3339(SystemTimeMs, [{unit, millisecond}, {offset, "Z"}]),
+    iolist_to_binary(["ISODate(", Ts3339Str, ")"]).
 
 convert_timestamp(MillisecondsTimestamp) ->
     MicroTimestamp = MillisecondsTimestamp * 1000,

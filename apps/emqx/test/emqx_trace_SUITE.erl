@@ -24,6 +24,7 @@
 -include_lib("emqx/include/emqx.hrl").
 -include_lib("emqx/include/emqx_trace.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
+-include_lib("kernel/include/file.hrl").
 
 %%--------------------------------------------------------------------
 %% Setups
@@ -52,6 +53,7 @@ init_per_testcase(_, Config) ->
     Config.
 
 end_per_testcase(_) ->
+    snabbkaffe:stop(),
     ok.
 
 t_base_create_delete(_Config) ->
@@ -453,6 +455,36 @@ t_migrate_trace(_Config) ->
         ]
     ),
     ok.
+
+%% If no relevant event occurred, the log file size must be exactly 0 after stopping the trace.
+t_empty_trace_log_file(_Config) ->
+    ?check_trace(
+        begin
+            Now = erlang:system_time(second),
+            Name = <<"empty_trace_log">>,
+            Trace = [
+                {<<"name">>, Name},
+                {<<"type">>, clientid},
+                {<<"clientid">>, <<"test_trace_no_clientid_1">>},
+                {<<"start_at">>, Now},
+                {<<"end_at">>, Now + 100}
+            ],
+            ?wait_async_action(
+                ?assertMatch({ok, _}, emqx_trace:create(Trace)),
+                #{?snk_kind := update_trace_done}
+            ),
+            ok = emqx_trace_handler_SUITE:filesync(Name, clientid),
+            {ok, Filename} = emqx_trace:get_trace_filename(Name),
+            ?assertMatch({ok, #{size := 0}}, emqx_trace:trace_file_detail(Filename)),
+            ?wait_async_action(
+                ?assertEqual(ok, emqx_trace:update(Name, false)),
+                #{?snk_kind := update_trace_done}
+            ),
+            ?assertMatch({ok, #{size := 0}}, emqx_trace:trace_file_detail(Filename)),
+            ?assertEqual(ok, emqx_trace:delete(Name))
+        end,
+        []
+    ).
 
 build_new_trace_data() ->
     Now = erlang:system_time(second),

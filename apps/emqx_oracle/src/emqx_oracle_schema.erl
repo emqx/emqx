@@ -21,7 +21,7 @@ roots() ->
 fields(config) ->
     Fields =
         [{server, server()}, {sid, fun sid/1}, {service_name, fun service_name/1}] ++
-            emqx_connector_schema_lib:relational_db_fields() ++
+            adjust_fields(emqx_connector_schema_lib:relational_db_fields()) ++
             emqx_connector_schema_lib:prepare_statement_fields(),
     proplists:delete(database, Fields).
 
@@ -38,3 +38,16 @@ service_name(type) -> binary();
 service_name(desc) -> ?DESC(?REF_MODULE, "service_name");
 service_name(required) -> false;
 service_name(_) -> undefined.
+
+adjust_fields(Fields) ->
+    lists:map(
+        fun
+            ({username, Sc}) ->
+                %% to please dialyzer...
+                Override = #{type => hocon_schema:field_schema(Sc, type), required => true},
+                {username, hocon_schema:override(Sc, Override)};
+            (Field) ->
+                Field
+        end,
+        Fields
+    ).

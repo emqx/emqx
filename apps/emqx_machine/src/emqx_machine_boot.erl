@@ -30,11 +30,18 @@
 -export([sorted_reboot_apps/1, reboot_apps/0]).
 -endif.
 
-%% these apps are always (re)started by emqx_machine
+%% These apps are always (re)started by emqx_machine:
 -define(BASIC_REBOOT_APPS, [gproc, esockd, ranch, cowboy, emqx]).
 
-%% If any of these applications crash, the entire EMQX node shuts down
+%% If any of these applications crash, the entire EMQX node shuts down:
 -define(BASIC_PERMANENT_APPS, [mria, ekka, esockd, emqx]).
+
+%% These apps should NOT be (re)started automatically:
+-define(EXCLUDED_APPS, [system_monitor, observer_cli, jq]).
+
+%% These apps are optional, they may or may not be present in the
+%% release, depending on the build flags:
+-define(OPTIONAL_APPS, [bcrypt, observer]).
 
 post_boot() ->
     ok = ensure_apps_started(),
@@ -150,9 +157,9 @@ basic_reboot_apps() ->
     ?BASIC_REBOOT_APPS ++ (BusinessApps -- excluded_apps()).
 
 excluded_apps() ->
-    OptionalApps = [bcrypt, jq, observer],
-    [system_monitor, observer_cli] ++
-        [App || App <- OptionalApps, not is_app(App)].
+    %% Optional apps _should_ be (re)started automatically, but only
+    %% when they are found in the release:
+    ?EXCLUDED_APPS ++ [App || App <- ?OPTIONAL_APPS, not is_app(App)].
 
 is_app(Name) ->
     case application:load(Name) of

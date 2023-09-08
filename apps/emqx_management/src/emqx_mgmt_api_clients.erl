@@ -927,7 +927,7 @@ format_channel_info(WhichNode, {_, ClientInfo0, ClientStats}) ->
             retry_interval,
             upgrade_qos,
             zone,
-            %% sessionID, defined in emqx_session.erl
+            %% session_id, defined in emqx_session.erl
             id
         ],
     TimesKeys = [created_at, connected_at, disconnected_at],

@@ -214,6 +214,27 @@ t_ctx_delivery_dropped(_) ->
     Expected = check_result([from_clientid, from_username, reason, qos, topic], [], Context),
     do_test(SQL, Context, Expected).
 
+t_mongo_date_function_should_return_string_in_test_env(_) ->
+    SQL =
+        <<"SELECT mongo_date() as mongo_date FROM \"t/1\"">>,
+    Context =
+        #{
+            action => <<"publish">>,
+            clientid => <<"c_emqx">>,
+            event_type => client_check_authz_complete,
+            result => <<"allow">>,
+            topic => <<"t/1">>,
+            username => <<"u_emqx">>
+        },
+    CheckFunction = fun(Result) ->
+        MongoDate = maps:get(mongo_date, Result),
+        %% Use regex to match the expected string
+        MatchResult = re:run(MongoDate, <<"ISODate\\([0-9]{4}-[0-9]{2}-[0-9]{2}T.*\\)">>),
+        ?assertMatch({match, _}, MatchResult),
+        ok
+    end,
+    do_test(SQL, Context, CheckFunction).
+
 do_test(SQL, Context, Expected0) ->
     Res = emqx_rule_engine_api:'/rule_test'(
         post,
