@@ -293,7 +293,7 @@ t_pubcomp_error_packetid_not_found(_) ->
 %%--------------------------------------------------------------------
 
 t_dequeue(_) ->
-    Q = mqueue(#{store_qos0 => true}),
+    Q = mqueue(),
     {ok, Session} = emqx_session:dequeue(clientinfo(), session(#{mqueue => Q})),
     Msgs = [
         emqx_message:make(clientid, ?QOS_0, <<"t0">>, <<"payload">>),
@@ -375,17 +375,36 @@ t_deliver_when_inflight_is_full(_) ->
     ?assertEqual(<<"t2">>, emqx_message:topic(Msg2)).
 
 t_enqueue(_) ->
-    %% store_qos0 = true
-    Session = emqx_session:enqueue(clientinfo(), [delivery(?QOS_0, <<"t0">>)], session()),
+    Session = session(#{store_qos0 => true, mqueue => mqueue(#{max_len => 3})}),
     Session1 = emqx_session:enqueue(
         clientinfo(),
         [
+            delivery(?QOS_0, <<"t0">>),
             delivery(?QOS_1, <<"t1">>),
             delivery(?QOS_2, <<"t2">>)
         ],
         Session
     ),
-    ?assertEqual(3, emqx_session:info(mqueue_len, Session1)).
+    ?assertEqual(3, emqx_session:info(mqueue_len, Session1)),
+    Session2 = emqx_session:enqueue(
+        clientinfo(),
+        [delivery(?QOS_1, <<"drop">>)],
+        Session1
+    ),
+    ?assertEqual(3, emqx_session:info(mqueue_len, Session2)).
+
+t_enqueue_qos0(_) ->
+    Session = session(#{store_qos0 => false}),
+    Session1 = emqx_session:enqueue(
+        clientinfo(),
+        [
+            delivery(?QOS_0, <<"t0">>),
+            delivery(?QOS_1, <<"t1">>),
+            delivery(?QOS_2, <<"t2">>)
+        ],
+        Session
+    ),
+    ?assertEqual(2, emqx_session:info(mqueue_len, Session1)).
 
 t_retry(_) ->
     Delivers = [delivery(?QOS_1, <<"t1">>), delivery(?QOS_2, <<"t2">>)],
@@ -460,7 +479,7 @@ t_obtain_next_pkt_id(_) ->
 
 mqueue() -> mqueue(#{}).
 mqueue(Opts) ->
-    emqx_mqueue:init(maps:merge(#{max_len => 0, store_qos0 => false}, Opts)).
+    emqx_mqueue:init(maps:merge(#{max_len => 0}, Opts)).
 
 session() -> session(#{}).
 session(InitFields) when is_map(InitFields) ->

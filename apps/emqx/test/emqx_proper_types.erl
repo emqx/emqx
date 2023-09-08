@@ -140,6 +140,7 @@ sessioninfo() ->
             subscriptions = subscriptions(),
             max_subscriptions = non_neg_integer(),
             upgrade_qos = boolean(),
+            store_qos0 = boolean(),
             inflight = inflight(),
             mqueue = mqueue(),
             next_pkt_id = packet_id(),
@@ -186,14 +187,14 @@ inflight() ->
 
 mqueue() ->
     ?LET(
-        {MaxLen, IsStoreQos0},
-        {non_neg_integer(), boolean()},
+        MaxLen,
+        non_neg_integer(),
         begin
             ?LET(
                 Msgs,
                 limited_list(MaxLen, message()),
                 begin
-                    Q = emqx_mqueue:init(#{max_len => MaxLen, store_qos0 => IsStoreQos0}),
+                    Q = emqx_mqueue:init(#{max_len => MaxLen}),
                     lists:foldl(
                         fun(Msg, Acc) ->
                             {_Dropped, NQ} = emqx_mqueue:in(Msg, Acc),

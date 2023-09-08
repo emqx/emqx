@@ -318,6 +318,7 @@ get_session_confs(#{zone := Zone, clientid := ClientId}, #{
         clientid => ClientId,
         max_subscriptions => get_mqtt_conf(Zone, max_subscriptions),
         upgrade_qos => get_mqtt_conf(Zone, upgrade_qos),
+        store_qos0 => get_mqtt_conf(Zone, mqueue_store_qos0),
         max_inflight => MaxInflight,
         retry_interval => get_mqtt_conf(Zone, retry_interval),
         await_rel_timeout => get_mqtt_conf(Zone, await_rel_timeout),
@@ -332,7 +333,6 @@ get_session_confs(#{zone := Zone, clientid := ClientId}, #{
 mqueue_confs(Zone) ->
     #{
         max_len => get_mqtt_conf(Zone, max_mqueue_len),
-        store_qos0 => get_mqtt_conf(Zone, mqueue_store_qos0),
         priorities => get_mqtt_conf(Zone, mqueue_priorities),
         default_priority => get_mqtt_conf(Zone, mqueue_default_priority)
     }.

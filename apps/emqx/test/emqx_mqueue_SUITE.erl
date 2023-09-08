@@ -30,20 +30,18 @@
 all() -> emqx_common_test_helpers:all(?MODULE).
 
 t_info(_) ->
-    Q = ?Q:init(#{max_len => 5, store_qos0 => true}),
-    true = ?Q:info(store_qos0, Q),
+    Q = ?Q:init(#{max_len => 5}),
     5 = ?Q:info(max_len, Q),
     0 = ?Q:info(len, Q),
     0 = ?Q:info(dropped, Q),
     #{
-        store_qos0 := true,
         max_len := 5,
         len := 0,
         dropped := 0
     } = ?Q:info(Q).
 
 t_in(_) ->
-    Opts = #{max_len => 5, store_qos0 => true},
+    Opts = #{max_len => 5},
     Q = ?Q:init(Opts),
     ?assert(?Q:is_empty(Q)),
     {_, Q1} = ?Q:in(#message{}, Q),
@@ -55,16 +53,8 @@ t_in(_) ->
     {_, Q5} = ?Q:in(#message{}, Q4),
     ?assertEqual(5, ?Q:len(Q5)).
 
-t_in_qos0(_) ->
-    Opts = #{max_len => 5, store_qos0 => false},
-    Q = ?Q:init(Opts),
-    {_, Q1} = ?Q:in(#message{qos = 0}, Q),
-    ?assert(?Q:is_empty(Q1)),
-    {_, Q2} = ?Q:in(#message{qos = 0}, Q1),
-    ?assert(?Q:is_empty(Q2)).
-
 t_out(_) ->
-    Opts = #{max_len => 5, store_qos0 => true},
+    Opts = #{max_len => 5},
     Q = ?Q:init(Opts),
     {empty, Q} = ?Q:out(Q),
     {_, Q1} = ?Q:in(#message{}, Q),
@@ -73,7 +63,7 @@ t_out(_) ->
     ?assertEqual({value, #message{}}, Value).
 
 t_simple_mqueue(_) ->
-    Opts = #{max_len => 3, store_qos0 => false},
+    Opts = #{max_len => 3},
     Q = ?Q:init(Opts),
     ?assertEqual(3, ?Q:max_len(Q)),
     ?assert(?Q:is_empty(Q)),
@@ -87,7 +77,7 @@ t_simple_mqueue(_) ->
     ?assertEqual([{len, 2}, {max_len, 3}, {dropped, 1}], ?Q:stats(Q5)).
 
 t_infinity_simple_mqueue(_) ->
-    Opts = #{max_len => 0, store_qos0 => false},
+    Opts = #{max_len => 0},
     Q = ?Q:init(Opts),
     ?assert(?Q:is_empty(Q)),
     ?assertEqual(0, ?Q:max_len(Q)),
@@ -112,8 +102,7 @@ t_priority_mqueue(_) ->
                 <<"t1">> => 1,
                 <<"t2">> => 2,
                 <<"t3">> => 3
-            },
-        store_qos0 => false
+            }
     },
     Q = ?Q:init(Opts),
     ?assertEqual(3, ?Q:max_len(Q)),
@@ -143,8 +132,7 @@ t_priority_order(_) ->
                 <<"t1">> => 0,
                 <<"t2">> => 1,
                 <<"t3">> => 2
-            },
-        store_qos0 => false
+            }
     },
     Messages = [
         {Topic, Message}
@@ -197,8 +185,7 @@ t_priority_order2(_) ->
             #{
                 <<"t1">> => 0,
                 <<"t2">> => 1
-            },
-        store_qos0 => false
+            }
     },
     Messages = [
         {Topic, Message}
@@ -238,8 +225,7 @@ t_infinity_priority_mqueue(_) ->
             #{
                 <<"t">> => 1,
                 <<"t1">> => 2
-            },
-        store_qos0 => false
+            }
     },
     Q = ?Q:init(Opts),
     ?assertEqual(0, ?Q:max_len(Q)),
@@ -261,10 +247,7 @@ t_infinity_priority_mqueue(_) ->
 
 %%TODO: fixme later
 t_length_priority_mqueue(_) ->
-    Opts = #{
-        max_len => 2,
-        store_qos0 => false
-    },
+    Opts = #{max_len => 2},
     Q = ?Q:init(Opts),
     2 = ?Q:max_len(Q),
     {_, Q1} = ?Q:in(#message{topic = <<"x">>, qos = 1, payload = <<1>>}, Q),
@@ -276,7 +259,7 @@ t_length_priority_mqueue(_) ->
     ?assertEqual(1, ?Q:len(Q5)).
 
 t_dropped(_) ->
-    Q = ?Q:init(#{max_len => 1, store_qos0 => true}),
+    Q = ?Q:init(#{max_len => 1}),
     Msg = emqx_message:make(<<"t">>, <<"payload">>),
     {undefined, Q1} = ?Q:in(Msg, Q),
     {Msg, Q2} = ?Q:in(Msg, Q1),
@@ -293,8 +276,7 @@ conservation_prop() ->
         try
             Opts = #{
                 max_len => 0,
-                priorities => maps:from_list(Priorities),
-                store_qos0 => false
+                priorities => maps:from_list(Priorities)
             },
             %% Put messages in
             Q1 = lists:foldl(

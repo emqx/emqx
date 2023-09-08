@@ -38,10 +38,7 @@
 %%
 %% 2. Messages are enqueued to tail when the inflight window is full.
 %%
-%% 3. QoS=0 messages are only enqueued when `store_qos0' is given `true`
-%%    in init options
-%%
-%% 4. If the queue is full, drop the oldest one
+%% 3. If the queue is full, drop the oldest one
 %%    unless `max_len' is set to `0' which implies (`infinity').
 %%
 %% @end
@@ -82,8 +79,7 @@
 -type options() :: #{
     max_len := count(),
     priorities => p_table(),
-    default_priority => highest | lowest,
-    store_qos0 => boolean()
+    default_priority => highest | lowest
 }.
 -type message() :: emqx_types:message().
 
@@ -96,7 +92,7 @@
 -define(LOWEST_PRIORITY, 0).
 -define(HIGHEST_PRIORITY, infinity).
 -define(MAX_LEN_INFINITY, 0).
--define(INFO_KEYS, [store_qos0, max_len, len, dropped]).
+-define(INFO_KEYS, [max_len, len, dropped]).
 
 -record(shift_opts, {
     multiplier :: non_neg_integer(),
@@ -104,7 +100,6 @@
 }).
 
 -record(mqueue, {
-    store_qos0 = false :: boolean(),
     max_len = ?MAX_LEN_INFINITY :: count(),
     len = 0 :: count(),
     dropped = 0 :: count(),
@@ -119,7 +114,7 @@
 -type mqueue() :: #mqueue{}.
 
 -spec init(options()) -> mqueue().
-init(Opts = #{max_len := MaxLen0, store_qos0 := Qos0}) ->
+init(Opts = #{max_len := MaxLen0}) ->
     MaxLen =
         case (is_integer(MaxLen0) andalso MaxLen0 > ?MAX_LEN_INFINITY) of
             true -> MaxLen0;
@@ -127,7 +122,6 @@ init(Opts = #{max_len := MaxLen0, store_qos0 := Qos0}) ->
         end,
     #mqueue{
         max_len = MaxLen,
-        store_qos0 = Qos0,
         p_table = p_table(get_opt(priorities, Opts, ?NO_PRIORITY_TABLE)),
         default_p = get_priority_opt(Opts),
         shift_opts = get_shift_opt(Opts)
@@ -138,8 +132,6 @@ info(MQ) ->
     maps:from_list([{Key, info(Key, MQ)} || Key <- ?INFO_KEYS]).
 
 -spec info(atom(), mqueue()) -> term().
-info(store_qos0, #mqueue{store_qos0 = True}) ->
-    True;
 info(max_len, #mqueue{max_len = MaxLen}) ->
     MaxLen;
 info(len, #mqueue{len = Len}) ->
@@ -190,8 +182,6 @@ stats(#mqueue{max_len = MaxLen, dropped = Dropped} = MQ) ->
 
 %% @doc Enqueue a message.
 -spec in(message(), mqueue()) -> {maybe(message()), mqueue()}.
-in(Msg = #message{qos = ?QOS_0}, MQ = #mqueue{store_qos0 = false}) ->
-    {_Dropped = Msg, MQ};
 in(
     Msg = #message{topic = Topic},
     MQ =

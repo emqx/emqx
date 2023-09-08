@@ -121,7 +121,7 @@ info(inflight_max, _) ->
 info(retry_interval, _) ->
     infinity;
 info(mqueue, _) ->
-    emqx_mqueue:init(#{max_len => 0, store_qos0 => false});
+    emqx_mqueue:init(#{max_len => 0});
 info(mqueue_len, _) ->
     0;
 info(mqueue_max, _) ->

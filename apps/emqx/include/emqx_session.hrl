@@ -29,6 +29,8 @@
     max_subscriptions :: non_neg_integer() | infinity,
     %% Upgrade QoS?
     upgrade_qos :: boolean(),
+    %% Store QoS0 messages in mqueue?
+    store_qos0 :: boolean(),
     %% Client <- Broker: QoS1/2 messages sent to the client but
     %% have not been unacked.
     inflight :: emqx_inflight:inflight(),

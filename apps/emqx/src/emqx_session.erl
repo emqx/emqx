@@ -153,6 +153,7 @@
 -type options() :: #{
     max_subscriptions => non_neg_integer(),
     upgrade_qos => boolean(),
+    store_qos0 => boolean(),
     retry_interval => timeout(),
     max_awaiting_rel => non_neg_integer() | infinity,
     await_rel_timeout => timeout(),
@@ -177,10 +178,7 @@ init_and_open(Options) ->
 init(Opts) ->
     MaxInflight = maps:get(max_inflight, Opts),
     QueueOpts = maps:merge(
-        #{
-            max_len => 1000,
-            store_qos0 => true
-        },
+        #{max_len => 1000},
         maps:get(mqueue, Opts, #{})
     ),
     #session{
@@ -190,6 +188,7 @@ init(Opts) ->
         max_subscriptions = maps:get(max_subscriptions, Opts),
         subscriptions = #{},
         upgrade_qos = maps:get(upgrade_qos, Opts),
+        store_qos0 = maps:get(store_qos0, Opts),
         inflight = emqx_inflight:new(MaxInflight),
         mqueue = emqx_mqueue:init(QueueOpts),
         next_pkt_id = 1,
@@ -603,49 +602,46 @@ enqueue(ClientInfo, Delivers, Session) when is_list(Delivers) ->
         Session,
         Delivers
     );
+enqueue(ClientInfo, #message{qos = ?QOS_0} = Msg, Session = #session{store_qos0 = false}) ->
+    handle_dropped(ClientInfo, Msg, qos0_msg, Session),
+    Session;
 enqueue(ClientInfo, #message{} = Msg, Session = #session{mqueue = Q}) ->
     {Dropped, NewQ} = emqx_mqueue:in(Msg, Q),
-    (Dropped =/= undefined) andalso handle_dropped(ClientInfo, Dropped, Session),
+    (Dropped =/= undefined) andalso handle_dropped(ClientInfo, Dropped, queue_full, Session),
     Session#session{mqueue = NewQ};
 enqueue(ClientInfo, {drop, Msg, Reason}, Session) ->
     handle_dropped(ClientInfo, Msg, Reason, Session),
     Session.
 
-handle_dropped(ClientInfo, Msg = #message{qos = QoS, topic = Topic}, #session{mqueue = Q}) ->
-    Payload = emqx_message:to_log_map(Msg),
-    #{store_qos0 := StoreQos0} = QueueInfo = emqx_mqueue:info(Q),
-    case (QoS == ?QOS_0) andalso (not StoreQos0) of
-        true ->
-            ok = emqx_hooks:run('delivery.dropped', [ClientInfo, Msg, qos0_msg]),
-            ok = emqx_metrics:inc('delivery.dropped'),
-            ok = emqx_metrics:inc('delivery.dropped.qos0_msg'),
-            ok = inc_pd('send_msg.dropped'),
-            ?SLOG(
-                warning,
-                #{
-                    msg => "dropped_qos0_msg",
-                    queue => QueueInfo,
-                    payload => Payload
-                },
-                #{topic => Topic}
-            );
-        false ->
-            ok = emqx_hooks:run('delivery.dropped', [ClientInfo, Msg, queue_full]),
-            ok = emqx_metrics:inc('delivery.dropped'),
-            ok = emqx_metrics:inc('delivery.dropped.queue_full'),
-            ok = inc_pd('send_msg.dropped'),
-            ok = inc_pd('send_msg.dropped.queue_full'),
-            ?SLOG(
-                warning,
-                #{
-                    msg => "dropped_msg_due_to_mqueue_is_full",
-                    queue => QueueInfo,
-                    payload => Payload
-                },
-                #{topic => Topic}
-            )
-    end.
-
+handle_dropped(ClientInfo, Msg = #message{topic = Topic}, qos0_msg, #session{mqueue = Q}) ->
+    ok = emqx_hooks:run('delivery.dropped', [ClientInfo, Msg, qos0_msg]),
+    ok = emqx_metrics:inc('delivery.dropped'),
+    ok = emqx_metrics:inc('delivery.dropped.qos0_msg'),
+    ok = inc_pd('send_msg.dropped'),
+    ?SLOG(
+        warning,
+        #{
+            msg => "dropped_qos0_msg",
+            queue => emqx_mqueue:info(Q),
+            payload => emqx_message:to_log_map(Msg)
+        },
+        #{topic => Topic}
+    );
+handle_dropped(ClientInfo, Msg = #message{topic = Topic}, queue_full, #session{mqueue = Q}) ->
+    ok = emqx_hooks:run('delivery.dropped', [ClientInfo, Msg, queue_full]),
+    ok = emqx_metrics:inc('delivery.dropped'),
+    ok = emqx_metrics:inc('delivery.dropped.queue_full'),
+    ok = inc_pd('send_msg.dropped'),
+    ok = inc_pd('send_msg.dropped.queue_full'),
+    ?SLOG(
+        warning,
+        #{
+            msg => "dropped_msg_due_to_mqueue_is_full",
+            queue => emqx_mqueue:info(Q),
+            payload => emqx_message:to_log_map(Msg)
+        },
+        #{topic => Topic}
+    );
 handle_dropped(ClientInfo, Msg, Reason, _Session) ->
     ok = emqx_hooks:run('delivery.dropped', [ClientInfo, Msg, Reason]),
     ok = emqx_metrics:inc('delivery.dropped'),
