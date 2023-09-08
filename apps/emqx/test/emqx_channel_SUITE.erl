@@ -768,32 +768,26 @@ t_handle_info_sock_closed(_) ->
 %% Test cases for handle_timeout
 %%--------------------------------------------------------------------
 
-t_handle_timeout_emit_stats(_) ->
-    TRef = make_ref(),
-    ok = meck:expect(emqx_cm, set_chan_stats, fun(_, _) -> ok end),
-    Channel = emqx_channel:set_field(timers, #{stats_timer => TRef}, channel()),
-    {ok, _Chan} = emqx_channel:handle_timeout(TRef, {emit_stats, []}, Channel).
-
 t_handle_timeout_keepalive(_) ->
     TRef = make_ref(),
-    Channel = emqx_channel:set_field(timers, #{alive_timer => TRef}, channel()),
+    Channel = emqx_channel:set_field(timers, #{keepalive => TRef}, channel()),
     {ok, _Chan} = emqx_channel:handle_timeout(make_ref(), {keepalive, 10}, Channel).
 
 t_handle_timeout_retry_delivery(_) ->
     TRef = make_ref(),
     ok = meck:expect(emqx_session, retry, fun(_, Session) -> {ok, Session} end),
-    Channel = emqx_channel:set_field(timers, #{retry_timer => TRef}, channel()),
+    Channel = emqx_channel:set_field(timers, #{retry_delivery => TRef}, channel()),
     {ok, _Chan} = emqx_channel:handle_timeout(TRef, retry_delivery, Channel).
 
 t_handle_timeout_expire_awaiting_rel(_) ->
     TRef = make_ref(),
     ok = meck:expect(emqx_session, expire, fun(_, _, Session) -> {ok, Session} end),
-    Channel = emqx_channel:set_field(timers, #{await_timer => TRef}, channel()),
+    Channel = emqx_channel:set_field(timers, #{expire_awaiting_rel => TRef}, channel()),
     {ok, _Chan} = emqx_channel:handle_timeout(TRef, expire_awaiting_rel, Channel).
 
 t_handle_timeout_expire_session(_) ->
     TRef = make_ref(),
-    Channel = emqx_channel:set_field(timers, #{expire_timer => TRef}, channel()),
+    Channel = emqx_channel:set_field(timers, #{expire_session => TRef}, channel()),
     {shutdown, expired, _Chan} = emqx_channel:handle_timeout(TRef, expire_session, Channel).
 
 t_handle_timeout_will_message(_) ->
