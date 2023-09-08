@@ -20,7 +20,6 @@
 -include_lib("common_test/include/ct.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 -include_lib("../include/emqx.hrl").
--include("../src/persistent_session/emqx_persistent_session.hrl").
 
 -compile(export_all).
 -compile(nowarn_export_all).
@@ -52,28 +51,11 @@ all() ->
 groups() ->
     TCs = emqx_common_test_helpers:all(?MODULE),
     SnabbkaffeTCs = [TC || TC <- TCs, is_snabbkaffe_tc(TC)],
-    GCTests = [TC || TC <- TCs, is_gc_tc(TC)],
+    GCTests = [],
     OtherTCs = (TCs -- SnabbkaffeTCs) -- GCTests,
     [
-        {persistent_store_enabled, [
-            {group, ram_tables},
-            {group, disc_tables}
-        ]},
         {persistent_store_disabled, [{group, no_kill_connection_process}]},
-        {ram_tables, [], [
-            {group, no_kill_connection_process},
-            {group, kill_connection_process},
-            {group, snabbkaffe},
-            {group, gc_tests}
-        ]},
-        {disc_tables, [], [
-            {group, no_kill_connection_process},
-            {group, kill_connection_process},
-            {group, snabbkaffe},
-            {group, gc_tests}
-        ]},
         {no_kill_connection_process, [], [{group, tcp}, {group, quic}, {group, ws}]},
-        {kill_connection_process, [], [{group, tcp}, {group, quic}, {group, ws}]},
         {snabbkaffe, [], [
             {group, tcp_snabbkaffe}, {group, quic_snabbkaffe}, {group, ws_snabbkaffe}
         ]},
@@ -82,45 +64,23 @@ groups() ->
         {ws, [], OtherTCs},
         {tcp_snabbkaffe, [], SnabbkaffeTCs},
         {quic_snabbkaffe, [], SnabbkaffeTCs},
-        {ws_snabbkaffe, [], SnabbkaffeTCs},
-        {gc_tests, [], GCTests}
+        {ws_snabbkaffe, [], SnabbkaffeTCs}
     ].
 
 is_snabbkaffe_tc(TC) ->
     re:run(atom_to_list(TC), "^t_snabbkaffe_") /= nomatch.
 
-is_gc_tc(TC) ->
-    re:run(atom_to_list(TC), "^t_gc_") /= nomatch.
-
 init_per_group(persistent_store_enabled, Config) ->
     [{persistent_store_enabled, true} | Config];
-init_per_group(Group, Config) when Group =:= ram_tables; Group =:= disc_tables ->
-    %% Start Apps
-    Reply =
-        case Group =:= ram_tables of
-            true -> ram;
-            false -> disc
-        end,
-    emqx_common_test_helpers:boot_modules(all),
-    meck:new(emqx_config, [non_strict, passthrough, no_history, no_link]),
-    meck:expect(emqx_config, get, fun
-        (?on_disc_key) -> Reply =:= disc;
-        (?is_enabled_key) -> true;
-        (Other) -> meck:passthrough([Other])
-    end),
-    emqx_common_test_helpers:start_apps([], fun set_special_confs/1),
-    ?assertEqual(true, emqx_persistent_session:is_store_enabled()),
-    Config;
 init_per_group(persistent_store_disabled, Config) ->
     %% Start Apps
     emqx_common_test_helpers:boot_modules(all),
     meck:new(emqx_config, [non_strict, passthrough, no_history, no_link]),
     meck:expect(emqx_config, get, fun
-        (?is_enabled_key) -> false;
+        ([persistent_session_store, enabled]) -> false;
         (Other) -> meck:passthrough([Other])
     end),
     emqx_common_test_helpers:start_apps([], fun set_special_confs/1),
-    ?assertEqual(false, emqx_persistent_session:is_store_enabled()),
     [{persistent_store_enabled, false} | Config];
 init_per_group(Group, Config) when Group == ws; Group == ws_snabbkaffe ->
     [
@@ -142,41 +102,7 @@ init_per_group(no_kill_connection_process, Config) ->
 init_per_group(kill_connection_process, Config) ->
     [{kill_connection_process, true} | Config];
 init_per_group(snabbkaffe, Config) ->
-    [{kill_connection_process, true} | Config];
-init_per_group(gc_tests, Config) ->
-    %% We need to make sure the system does not interfere with this test group.
-    lists:foreach(
-        fun(ClientId) ->
-            maybe_kill_connection_process(ClientId, [{kill_connection_process, true}])
-        end,
-        emqx_cm:all_client_ids()
-    ),
-    emqx_common_test_helpers:stop_apps([]),
-    SessionMsgEts = gc_tests_session_store,
-    MsgEts = gc_tests_msg_store,
-    Pid = spawn(fun() ->
-        ets:new(SessionMsgEts, [named_table, public, ordered_set]),
-        ets:new(MsgEts, [named_table, public, ordered_set, {keypos, 2}]),
-        receive
-            stop -> ok
-        end
-    end),
-    meck:new(mnesia, [non_strict, passthrough, no_history, no_link]),
-    meck:expect(mnesia, dirty_first, fun
-        (?SESS_MSG_TAB) -> ets:first(SessionMsgEts);
-        (?MSG_TAB) -> ets:first(MsgEts);
-        (X) -> meck:passthrough([X])
-    end),
-    meck:expect(mnesia, dirty_next, fun
-        (?SESS_MSG_TAB, X) -> ets:next(SessionMsgEts, X);
-        (?MSG_TAB, X) -> ets:next(MsgEts, X);
-        (Tab, X) -> meck:passthrough([Tab, X])
-    end),
-    meck:expect(mnesia, dirty_delete, fun
-        (?MSG_TAB, X) -> ets:delete(MsgEts, X);
-        (Tab, X) -> meck:passthrough([Tab, X])
-    end),
-    [{store_owner, Pid}, {session_msg_store, SessionMsgEts}, {msg_store, MsgEts} | Config].
+    [{kill_connection_process, true} | Config].
 
 init_per_suite(Config) ->
     Config.
@@ -205,13 +131,6 @@ end_per_group(_Group, _Config) ->
 
 init_per_testcase(TestCase, Config) ->
     Config1 = preconfig_per_testcase(TestCase, Config),
-    case is_gc_tc(TestCase) of
-        true ->
-            ets:delete_all_objects(?config(msg_store, Config)),
-            ets:delete_all_objects(?config(session_msg_store, Config));
-        false ->
-            skip
-    end,
     case erlang:function_exported(?MODULE, TestCase, 2) of
         true -> ?MODULE:TestCase(init, Config1);
         _ -> Config1
@@ -514,20 +433,6 @@ t_persist_on_disconnect(Config) ->
     ?assertEqual(0, client_info(session_present, Client2)),
     ok = emqtt:disconnect(Client2).
 
-wait_for_pending(SId) ->
-    wait_for_pending(SId, 100).
-
-wait_for_pending(_SId, 0) ->
-    error(exhausted_wait_for_pending);
-wait_for_pending(SId, N) ->
-    case emqx_persistent_session:pending(SId) of
-        [] ->
-            timer:sleep(1),
-            wait_for_pending(SId, N - 1);
-        [_ | _] = Pending ->
-            Pending
-    end.
-
 t_process_dies_session_expires(Config) ->
     %% Emulate an error in the connect process,
     %% or that the node of the process goes down.
@@ -552,35 +457,7 @@ t_process_dies_session_expires(Config) ->
 
     ok = publish(Topic, [Payload]),
 
-    SessionId =
-        case ?config(persistent_store_enabled, Config) of
-            false ->
-                undefined;
-            true ->
-                %% The session should not be marked as expired.
-                {Tag, Session} = emqx_persistent_session:lookup(ClientId),
-                ?assertEqual(persistent, Tag),
-                SId = emqx_session:info(id, Session),
-                case ?config(kill_connection_process, Config) of
-                    true ->
-                        %% The session should have a pending message
-                        ?assertMatch([_], wait_for_pending(SId));
-                    false ->
-                        skip
-                end,
-                SId
-        end,
-
     timer:sleep(1100),
-
-    %% The session should now be marked as expired.
-    case
-        (?config(kill_connection_process, Config) andalso
-            ?config(persistent_store_enabled, Config))
-    of
-        true -> ?assertMatch({expired, _}, emqx_persistent_session:lookup(ClientId));
-        false -> skip
-    end,
 
     {ok, Client2} = emqtt:start_link([
         {proto_ver, v5},
@@ -591,21 +468,6 @@ t_process_dies_session_expires(Config) ->
     ]),
     {ok, _} = emqtt:ConnFun(Client2),
     ?assertEqual(0, client_info(session_present, Client2)),
-
-    case
-        (?config(kill_connection_process, Config) andalso
-            ?config(persistent_store_enabled, Config))
-    of
-        true ->
-            %% The session should be a fresh one
-            {persistent, NewSession} = emqx_persistent_session:lookup(ClientId),
-            ?assertNotEqual(SessionId, emqx_session:info(id, NewSession)),
-            %% The old session should now either
-            %% be marked as abandoned or already be garbage collected.
-            ?assertMatch([], emqx_persistent_session:pending(SessionId));
-        false ->
-            skip
-    end,
 
     %% We should not receive the pending message
     ?assertEqual([], receive_messages(1)),
@@ -724,7 +586,6 @@ t_clean_start_drops_subscriptions(Config) ->
 
 t_unsubscribe(Config) ->
     ConnFun = ?config(conn_fun, Config),
-    Topic = ?config(topic, Config),
     STopic = ?config(stopic, Config),
     ClientId = ?config(client_id, Config),
     {ok, Client} = emqtt:start_link([
@@ -735,22 +596,9 @@ t_unsubscribe(Config) ->
     ]),
     {ok, _} = emqtt:ConnFun(Client),
     {ok, _, [2]} = emqtt:subscribe(Client, STopic, qos2),
-    case emqx_persistent_session:is_store_enabled() of
-        true ->
-            {persistent, Session} = emqx_persistent_session:lookup(ClientId),
-            SessionID = emqx_session:info(id, Session),
-            SessionIDs = [SId || #route{dest = SId} <- emqx_session_router:match_routes(Topic)],
-            ?assert(lists:member(SessionID, SessionIDs)),
-            ?assertMatch([_], [Sub || {ST, _} = Sub <- emqtt:subscriptions(Client), ST =:= STopic]),
-            {ok, _, _} = emqtt:unsubscribe(Client, STopic),
-            ?assertMatch([], [Sub || {ST, _} = Sub <- emqtt:subscriptions(Client), ST =:= STopic]),
-            SessionIDs2 = [SId || #route{dest = SId} <- emqx_session_router:match_routes(Topic)],
-            ?assert(not lists:member(SessionID, SessionIDs2));
-        false ->
-            ?assertMatch([_], [Sub || {ST, _} = Sub <- emqtt:subscriptions(Client), ST =:= STopic]),
-            {ok, _, _} = emqtt:unsubscribe(Client, STopic),
-            ?assertMatch([], [Sub || {ST, _} = Sub <- emqtt:subscriptions(Client), ST =:= STopic])
-    end,
+    ?assertMatch([_], [Sub || {ST, _} = Sub <- emqtt:subscriptions(Client), ST =:= STopic]),
+    {ok, _, _} = emqtt:unsubscribe(Client, STopic),
+    ?assertMatch([], [Sub || {ST, _} = Sub <- emqtt:subscriptions(Client), ST =:= STopic]),
     ok = emqtt:disconnect(Client).
 
 t_multiple_subscription_matches(Config) ->
@@ -794,60 +642,6 @@ t_multiple_subscription_matches(Config) ->
     ?assertEqual({ok, 2}, maps:find(qos, Msg1)),
     ?assertEqual({ok, 2}, maps:find(qos, Msg2)),
     ok = emqtt:disconnect(Client2).
-
-t_lost_messages_because_of_gc(init, Config) ->
-    case
-        (emqx_persistent_session:is_store_enabled() andalso
-            ?config(kill_connection_process, Config))
-    of
-        true ->
-            Retain = 1000,
-            OldRetain = emqx_config:get(?msg_retain, Retain),
-            emqx_config:put(?msg_retain, Retain),
-            [{retain, Retain}, {old_retain, OldRetain} | Config];
-        false ->
-            {skip, only_relevant_with_store_and_kill_process}
-    end;
-t_lost_messages_because_of_gc('end', Config) ->
-    OldRetain = ?config(old_retain, Config),
-    emqx_config:put(?msg_retain, OldRetain),
-    ok.
-
-t_lost_messages_because_of_gc(Config) ->
-    ConnFun = ?config(conn_fun, Config),
-    Topic = ?config(topic, Config),
-    STopic = ?config(stopic, Config),
-    ClientId = ?config(client_id, Config),
-    Retain = ?config(retain, Config),
-    Payload1 = <<"hello1">>,
-    Payload2 = <<"hello2">>,
-    {ok, Client1} = emqtt:start_link([
-        {clientid, ClientId},
-        {proto_ver, v5},
-        {properties, #{'Session-Expiry-Interval' => 30}}
-        | Config
-    ]),
-    {ok, _} = emqtt:ConnFun(Client1),
-    {ok, _, [2]} = emqtt:subscribe(Client1, STopic, qos2),
-    emqtt:disconnect(Client1),
-    maybe_kill_connection_process(ClientId, Config),
-    publish(Topic, Payload1),
-    timer:sleep(2 * Retain),
-    publish(Topic, Payload2),
-    emqx_persistent_session_gc:message_gc_worker(),
-    {ok, Client2} = emqtt:start_link([
-        {clientid, ClientId},
-        {clean_start, false},
-        {proto_ver, v5},
-        {properties, #{'Session-Expiry-Interval' => 30}}
-        | Config
-    ]),
-    {ok, _} = emqtt:ConnFun(Client2),
-    Msgs = receive_messages(2),
-    ?assertMatch([_], Msgs),
-    ?assertEqual({ok, iolist_to_binary(Payload2)}, maps:find(payload, hd(Msgs))),
-    emqtt:disconnect(Client2),
-    ok.
 
 %%--------------------------------------------------------------------
 %% Snabbkaffe helpers
@@ -1083,226 +877,3 @@ t_snabbkaffe_buffered_messages(Config) ->
         end
     ),
     ok.
-
-%%--------------------------------------------------------------------
-%% GC tests
-%%--------------------------------------------------------------------
-
--define(MARKER, 3).
--define(DELIVERED, 2).
--define(UNDELIVERED, 1).
--define(ABANDONED, 0).
-
-msg_id() ->
-    emqx_guid:gen().
-
-delivered_msg(MsgId, SessionID, STopic) ->
-    {SessionID, MsgId, STopic, ?DELIVERED}.
-
-undelivered_msg(MsgId, SessionID, STopic) ->
-    {SessionID, MsgId, STopic, ?UNDELIVERED}.
-
-marker_msg(MarkerID, SessionID) ->
-    {SessionID, MarkerID, <<>>, ?MARKER}.
-
-guid(MicrosecondsAgo) ->
-    %% Make a fake GUID and set a timestamp.
-    <<TS:64, Tail:64>> = emqx_guid:gen(),
-    <<(TS - MicrosecondsAgo):64, Tail:64>>.
-
-abandoned_session_msg(SessionID) ->
-    abandoned_session_msg(SessionID, 0).
-
-abandoned_session_msg(SessionID, MicrosecondsAgo) ->
-    TS = erlang:system_time(microsecond),
-    {SessionID, <<>>, <<(TS - MicrosecondsAgo):64>>, ?ABANDONED}.
-
-fresh_gc_delete_fun() ->
-    Ets = ets:new(gc_collect, [ordered_set]),
-    fun
-        (delete, Key) ->
-            ets:insert(Ets, {Key}),
-            ok;
-        (collect, <<>>) ->
-            List = ets:match(Ets, {'$1'}),
-            ets:delete(Ets),
-            lists:append(List);
-        (_, _Key) ->
-            ok
-    end.
-
-fresh_gc_callbacks_fun() ->
-    Ets = ets:new(gc_collect, [ordered_set]),
-    fun
-        (collect, <<>>) ->
-            List = ets:match(Ets, {'$1'}),
-            ets:delete(Ets),
-            lists:append(List);
-        (Tag, Key) ->
-            ets:insert(Ets, {{Key, Tag}}),
-            ok
-    end.
-
-get_gc_delete_messages() ->
-    Fun = fresh_gc_delete_fun(),
-    emqx_persistent_session:gc_session_messages(Fun),
-    Fun(collect, <<>>).
-
-get_gc_callbacks() ->
-    Fun = fresh_gc_callbacks_fun(),
-    emqx_persistent_session:gc_session_messages(Fun),
-    Fun(collect, <<>>).
-
-t_gc_all_delivered(Config) ->
-    Store = ?config(session_msg_store, Config),
-    STopic = ?config(stopic, Config),
-    SessionId = emqx_guid:gen(),
-    MsgIds = [msg_id() || _ <- lists:seq(1, 5)],
-    Delivered = [delivered_msg(X, SessionId, STopic) || X <- MsgIds],
-    Undelivered = [undelivered_msg(X, SessionId, STopic) || X <- MsgIds],
-    SortedContent = lists:usort(Delivered ++ Undelivered),
-    ets:insert(Store, [{X, <<>>} || X <- SortedContent]),
-    GCMessages = get_gc_delete_messages(),
-    ?assertEqual(SortedContent, GCMessages),
-    ok.
-
-t_gc_some_undelivered(Config) ->
-    Store = ?config(session_msg_store, Config),
-    STopic = ?config(stopic, Config),
-    SessionId = emqx_guid:gen(),
-    MsgIds = [msg_id() || _ <- lists:seq(1, 10)],
-    Delivered = [delivered_msg(X, SessionId, STopic) || X <- MsgIds],
-    {Delivered1, _Delivered2} = split(Delivered),
-    Undelivered = [undelivered_msg(X, SessionId, STopic) || X <- MsgIds],
-    {Undelivered1, Undelivered2} = split(Undelivered),
-    Content = Delivered1 ++ Undelivered1 ++ Undelivered2,
-    ets:insert(Store, [{X, <<>>} || X <- Content]),
-    Expected = lists:usort(Delivered1 ++ Undelivered1),
-    GCMessages = get_gc_delete_messages(),
-    ?assertEqual(Expected, GCMessages),
-    ok.
-
-t_gc_with_markers(Config) ->
-    Store = ?config(session_msg_store, Config),
-    STopic = ?config(stopic, Config),
-    SessionId = emqx_guid:gen(),
-    MsgIds1 = [msg_id() || _ <- lists:seq(1, 10)],
-    MarkerId = msg_id(),
-    MsgIds = [msg_id() || _ <- lists:seq(1, 4)] ++ MsgIds1,
-    Delivered = [delivered_msg(X, SessionId, STopic) || X <- MsgIds],
-    {Delivered1, _Delivered2} = split(Delivered),
-    Undelivered = [undelivered_msg(X, SessionId, STopic) || X <- MsgIds],
-    {Undelivered1, Undelivered2} = split(Undelivered),
-    Markers = [marker_msg(MarkerId, SessionId)],
-    Content = Delivered1 ++ Undelivered1 ++ Undelivered2 ++ Markers,
-    ets:insert(Store, [{X, <<>>} || X <- Content]),
-    Expected = lists:usort(Delivered1 ++ Undelivered1),
-    GCMessages = get_gc_delete_messages(),
-    ?assertEqual(Expected, GCMessages),
-    ok.
-
-t_gc_abandoned_some_undelivered(Config) ->
-    Store = ?config(session_msg_store, Config),
-    STopic = ?config(stopic, Config),
-    SessionId = emqx_guid:gen(),
-    MsgIds = [msg_id() || _ <- lists:seq(1, 10)],
-    Delivered = [delivered_msg(X, SessionId, STopic) || X <- MsgIds],
-    {Delivered1, _Delivered2} = split(Delivered),
-    Undelivered = [undelivered_msg(X, SessionId, STopic) || X <- MsgIds],
-    {Undelivered1, Undelivered2} = split(Undelivered),
-    Abandoned = abandoned_session_msg(SessionId),
-    Content = Delivered1 ++ Undelivered1 ++ Undelivered2 ++ [Abandoned],
-    ets:insert(Store, [{X, <<>>} || X <- Content]),
-    Expected = lists:usort(Delivered1 ++ Undelivered1 ++ Undelivered2),
-    GCMessages = get_gc_delete_messages(),
-    ?assertEqual(Expected, GCMessages),
-    ok.
-
-t_gc_abandoned_only_called_on_empty_session(Config) ->
-    Store = ?config(session_msg_store, Config),
-    STopic = ?config(stopic, Config),
-    SessionId = emqx_guid:gen(),
-    MsgIds = [msg_id() || _ <- lists:seq(1, 10)],
-    Delivered = [delivered_msg(X, SessionId, STopic) || X <- MsgIds],
-    Undelivered = [undelivered_msg(X, SessionId, STopic) || X <- MsgIds],
-    Abandoned = abandoned_session_msg(SessionId),
-    Content = Delivered ++ Undelivered ++ [Abandoned],
-    ets:insert(Store, [{X, <<>>} || X <- Content]),
-    GCMessages = get_gc_callbacks(),
-
-    %% Since we had messages to delete, we don't expect to get the
-    %% callback on the abandoned session
-    ?assertEqual([], [X || {X, abandoned} <- GCMessages]),
-
-    %% But if we have only the abandoned session marker for this
-    %% session, it should be called.
-    ets:delete_all_objects(Store),
-    UndeliveredOtherSession = undelivered_msg(msg_id(), emqx_guid:gen(), <<"topic">>),
-    ets:insert(Store, [{X, <<>>} || X <- [Abandoned, UndeliveredOtherSession]]),
-    GCMessages2 = get_gc_callbacks(),
-    ?assertEqual([Abandoned], [X || {X, abandoned} <- GCMessages2]),
-    ok.
-
-t_gc_session_gc_worker(init, Config) ->
-    meck:new(emqx_persistent_session, [passthrough, no_link]),
-    Config;
-t_gc_session_gc_worker('end', _Config) ->
-    meck:unload(emqx_persistent_session),
-    ok.
-
-t_gc_session_gc_worker(Config) ->
-    STopic = ?config(stopic, Config),
-    SessionID = emqx_guid:gen(),
-    MsgDeleted = delivered_msg(msg_id(), SessionID, STopic),
-    MarkerNotDeleted = marker_msg(msg_id(), SessionID),
-    MarkerDeleted = marker_msg(guid(120 * 1000 * 1000), SessionID),
-    AbandonedNotDeleted = abandoned_session_msg(SessionID),
-    AbandonedDeleted = abandoned_session_msg(SessionID, 500 * 1000 * 1000),
-    meck:expect(emqx_persistent_session, delete_session_message, fun(_Key) -> ok end),
-    emqx_persistent_session_gc:session_gc_worker(delete, MsgDeleted),
-    emqx_persistent_session_gc:session_gc_worker(marker, MarkerNotDeleted),
-    emqx_persistent_session_gc:session_gc_worker(marker, MarkerDeleted),
-    emqx_persistent_session_gc:session_gc_worker(abandoned, AbandonedDeleted),
-    emqx_persistent_session_gc:session_gc_worker(abandoned, AbandonedNotDeleted),
-    History = meck:history(emqx_persistent_session, self()),
-    DeleteCalls = [
-        Key
-     || {_Pid, {_, delete_session_message, [Key]}, _Result} <-
-            History
-    ],
-    ?assertEqual(
-        lists:sort([MsgDeleted, AbandonedDeleted, MarkerDeleted]),
-        lists:sort(DeleteCalls)
-    ),
-    ok.
-
-t_gc_message_gc(Config) ->
-    Topic = ?config(topic, Config),
-    ClientID = ?config(client_id, Config),
-    Store = ?config(msg_store, Config),
-    NewMsgs = [
-        emqx_message:make(ClientID, Topic, integer_to_binary(P))
-     || P <- lists:seq(6, 10)
-    ],
-    Retain = 60 * 1000,
-    emqx_config:put(?msg_retain, Retain),
-    Msgs1 = [
-        emqx_message:make(ClientID, Topic, integer_to_binary(P))
-     || P <- lists:seq(1, 5)
-    ],
-    OldMsgs = [M#message{id = guid(Retain * 1000)} || M <- Msgs1],
-    ets:insert(Store, NewMsgs ++ OldMsgs),
-    ?assertEqual(lists:sort(OldMsgs ++ NewMsgs), ets:tab2list(Store)),
-    ok = emqx_persistent_session_gc:message_gc_worker(),
-    ?assertEqual(lists:sort(NewMsgs), ets:tab2list(Store)),
-    ok.
-
-split(List) ->
-    split(List, [], []).
-
-split([], L1, L2) ->
-    {L1, L2};
-split([H], L1, L2) ->
-    {[H | L1], L2};
-split([H1, H2 | Left], L1, L2) ->
-    split(Left, [H1 | L1], [H2 | L2]).
