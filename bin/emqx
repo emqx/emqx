@@ -831,7 +831,7 @@ wait_for() {
     shift
     CMD="$*"
     while true; do
-        if $CMD >/dev/null 2>&1; then
+        if $CMD; then
             return 0
         fi
         if [ "$WAIT_TIME" -le 0 ]; then
