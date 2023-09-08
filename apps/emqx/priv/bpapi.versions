@@ -46,7 +46,6 @@
 {emqx_node_rebalance_purge,1}.
 {emqx_node_rebalance_status,1}.
 {emqx_node_rebalance_status,2}.
-{emqx_persistent_session,1}.
 {emqx_persistent_session_ds,1}.
 {emqx_plugins,1}.
 {emqx_prometheus,1}.
