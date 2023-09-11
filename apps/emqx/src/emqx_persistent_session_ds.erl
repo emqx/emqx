@@ -24,7 +24,7 @@
     persist_message/1,
     open_session/1,
     add_subscription/2,
-    del_subscription/3
+    del_subscription/2
 ]).
 
 -export([
@@ -139,21 +139,26 @@ do_open_iterator(TopicFilter, StartMS, IteratorID) ->
     {ok, _It} = emqx_ds_storage_layer:ensure_iterator(?DS_SHARD, IteratorID, Replay),
     ok.
 
--spec del_subscription(emqx_ds:iterator_id() | undefined, emqx_types:topic(), emqx_ds:session_id()) ->
+-spec del_subscription(emqx_types:topic(), emqx_ds:session_id()) ->
     ok | {skipped, disabled}.
-del_subscription(IteratorID, TopicFilterBin, DSSessionID) ->
+del_subscription(TopicFilterBin, DSSessionID) ->
     ?WHEN_ENABLED(
         begin
             TopicFilter = emqx_topic:words(TopicFilterBin),
-            Ctx = #{iterator_id => IteratorID},
-            ?tp_span(
-                persistent_session_ds_close_iterators,
-                Ctx,
-                ok = ensure_iterator_closed_on_all_shards(IteratorID)
-            ),
+            case emqx_ds:session_get_iterator_id(DSSessionID, TopicFilter) of
+                {error, not_found} ->
+                    %% already gone
+                    ok;
+                {ok, IteratorID} ->
+                    ?tp_span(
+                        persistent_session_ds_close_iterators,
+                        #{iterator_id => IteratorID},
+                        ok = ensure_iterator_closed_on_all_shards(IteratorID)
+                    )
+            end,
             ?tp_span(
                 persistent_session_ds_iterator_delete,
-                Ctx,
+                #{},
                 emqx_ds:session_del_iterator(DSSessionID, TopicFilter)
             )
         end

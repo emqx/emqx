@@ -2,7 +2,7 @@
 {application, emqx_utils, [
     {description, "Miscellaneous utilities for EMQX apps"},
     % strict semver, bump manually!
-    {vsn, "5.0.7"},
+    {vsn, "5.0.8"},
     {modules, [
         emqx_utils,
         emqx_utils_api,

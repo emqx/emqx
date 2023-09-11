@@ -108,12 +108,6 @@ get_all_iterator_ids(Node) ->
         emqx_ds_storage_layer:foldl_iterator_prefix(?DS_SHARD, <<>>, Fn, [])
     end).
 
-get_session_iterators(Node, ClientId) ->
-    erpc:call(Node, fun() ->
-        [ConnPid] = emqx_cm:lookup_channels(ClientId),
-        emqx_connection:info({channel, {session, iterators}}, sys:get_state(ConnPid))
-    end).
-
 wait_nodeup(Node) ->
     ?retry(
         _Sleep0 = 500,
@@ -209,18 +203,14 @@ t_session_subscription_idempotency(Config) ->
             {ok, _} = emqtt:connect(Client1),
             ct:pal("subscribing 2"),
             {ok, _, [2]} = emqtt:subscribe(Client1, SubTopicFilter, qos2),
-            SessionIterators = get_session_iterators(Node1, ClientId),
 
             ok = emqtt:stop(Client1),
 
-            #{session_iterators => SessionIterators}
+            ok
         end,
-        fun(Res, Trace) ->
+        fun(Trace) ->
             ct:pal("trace:\n  ~p", [Trace]),
-            #{session_iterators := SessionIterators} = Res,
             %% Exactly one iterator should have been opened.
-            ?assertEqual(1, map_size(SessionIterators), #{iterators => SessionIterators}),
-            ?assertMatch(#{SubTopicFilter := _}, SessionIterators),
             SubTopicFilterWords = emqx_topic:words(SubTopicFilter),
             ?assertEqual([{ClientId, SubTopicFilterWords}], get_all_iterator_refs(Node1)),
             ?assertMatch({ok, [_]}, get_all_iterator_ids(Node1)),
@@ -321,17 +311,14 @@ t_session_unsubscription_idempotency(Config) ->
                     },
                     15_000
                 ),
-            SessionIterators = get_session_iterators(Node1, ClientId),
 
             ok = emqtt:stop(Client1),
 
-            #{session_iterators => SessionIterators}
+            ok
         end,
-        fun(Res, Trace) ->
+        fun(Trace) ->
             ct:pal("trace:\n  ~p", [Trace]),
-            #{session_iterators := SessionIterators} = Res,
             %% No iterators remaining
-            ?assertEqual(#{}, SessionIterators),
             ?assertEqual([], get_all_iterator_refs(Node1)),
             ?assertEqual({ok, []}, get_all_iterator_ids(Node1)),
             ok
