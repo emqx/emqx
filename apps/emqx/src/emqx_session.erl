@@ -269,9 +269,7 @@ info(awaiting_rel_max, #session{max_awaiting_rel = Max}) ->
 info(await_rel_timeout, #session{await_rel_timeout = Timeout}) ->
     Timeout;
 info(created_at, #session{created_at = CreatedAt}) ->
-    CreatedAt;
-info(iterators, #session{iterators = Iterators}) ->
-    Iterators.
+    CreatedAt.
 
 %% @doc Get stats of the session.
 -spec stats(session()) -> emqx_types:stats().
@@ -320,13 +318,8 @@ is_subscriptions_full(#session{
 -spec add_persistent_subscription(emqx_types:topic(), emqx_types:clientid(), session()) ->
     session().
 add_persistent_subscription(TopicFilterBin, ClientId, Session) ->
-    case emqx_persistent_session_ds:add_subscription(TopicFilterBin, ClientId) of
-        {ok, IteratorId, _IsNew} ->
-            Iterators = Session#session.iterators,
-            Session#session{iterators = Iterators#{TopicFilterBin => IteratorId}};
-        _ ->
-            Session
-    end.
+    _ = emqx_persistent_session_ds:add_subscription(TopicFilterBin, ClientId),
+    Session.
 
 %%--------------------------------------------------------------------
 %% Client -> Broker: UNSUBSCRIBE
@@ -356,15 +349,8 @@ unsubscribe(
 -spec remove_persistent_subscription(session(), emqx_types:topic(), emqx_types:clientid()) ->
     session().
 remove_persistent_subscription(Session, TopicFilterBin, ClientId) ->
-    Iterators = Session#session.iterators,
-    case maps:get(TopicFilterBin, Iterators, undefined) of
-        undefined ->
-            ok;
-        IteratorId ->
-            _ = emqx_persistent_session_ds:del_subscription(IteratorId, TopicFilterBin, ClientId),
-            ok
-    end,
-    Session#session{iterators = maps:remove(TopicFilterBin, Iterators)}.
+    _ = emqx_persistent_session_ds:del_subscription(TopicFilterBin, ClientId),
+    Session.
 
 %%--------------------------------------------------------------------
 %% Client -> Broker: PUBLISH
