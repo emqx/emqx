@@ -640,7 +640,7 @@ t_ingress_mqtt_bridge_with_rules(_) ->
         #{
             <<"name">> => <<"A_rule_get_messages_from_a_source_mqtt_bridge">>,
             <<"enable">> => true,
-            <<"actions">> => [#{<<"function">> => "emqx_bridge_mqtt_SUITE:inspect"}],
+            <<"actions">> => [#{<<"function">> => <<"emqx_bridge_mqtt_SUITE:inspect">>}],
             <<"sql">> => <<"SELECT * from \"$bridges/", BridgeIDIngress/binary, "\"">>
         }
     ),
