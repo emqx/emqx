@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2022-2023 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2023 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -19,14 +19,12 @@
 -define(PS_ROUTER_TAB, emqx_ds_ps_router).
 -define(PS_FILTERS_TAB, emqx_ds_ps_filters).
 
--type dest() :: emqx_ds:session_id().
-
 -record(ps_route, {
     topic :: binary(),
     dest :: emqx_ds:session_id()
 }).
 -record(ps_routeidx, {
-    entry :: emqx_topic_index:key(dest()),
+    entry :: emqx_topic_index:key(emqx_persistent_session_ds_router:dest()),
     unused = [] :: nil()
 }).
 

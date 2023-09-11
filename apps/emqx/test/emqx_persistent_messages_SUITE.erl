@@ -24,6 +24,8 @@
 -compile(export_all).
 -compile(nowarn_export_all).
 
+-import(emqx_common_test_helpers, [on_exit/1]).
+
 -define(DS_SHARD, <<"local">>).
 
 all() ->
@@ -34,33 +36,31 @@ init_per_suite(Config) ->
     %% TODO: remove after other suites start to use `emx_cth_suite'
     application:stop(emqx),
     application:stop(emqx_durable_storage),
-    TCApps = emqx_cth_suite:start(
-        app_specs(),
-        #{work_dir => emqx_cth_suite:work_dir(Config)}
-    ),
-    [{tc_apps, TCApps} | Config].
+    Config.
 
-end_per_suite(Config) ->
-    TCApps = ?config(tc_apps, Config),
-    emqx_cth_suite:stop(TCApps),
+end_per_suite(_Config) ->
     ok.
 
-init_per_testcase(t_session_subscription_iterators, Config) ->
+init_per_testcase(t_session_subscription_iterators = TestCase, Config) ->
     Cluster = cluster(),
-    Nodes = emqx_cth_cluster:start(Cluster, #{work_dir => ?config(priv_dir, Config)}),
+    Nodes = emqx_cth_cluster:start(Cluster, #{work_dir => emqx_cth_suite:work_dir(TestCase, Config)}),
     [{nodes, Nodes} | Config];
-init_per_testcase(_TestCase, Config) ->
-    Config.
+init_per_testcase(TestCase, Config) ->
+    Apps = emqx_cth_suite:start(
+        app_specs(),
+        #{work_dir => emqx_cth_suite:work_dir(TestCase, Config)}
+    ),
+    [{apps, Apps} | Config].
 
 end_per_testcase(t_session_subscription_iterators, Config) ->
     Nodes = ?config(nodes, Config),
+    emqx_common_test_helpers:call_janitor(60_000),
     ok = emqx_cth_cluster:stop(Nodes),
-    ok = emqx_ds_storage_layer:discard_iterator_prefix(?DS_SHARD, _Prefix = <<>>),
-    delete_all_messages(),
     ok;
-end_per_testcase(_TestCase, _Config) ->
-    ok = emqx_ds_storage_layer:discard_iterator_prefix(?DS_SHARD, _Prefix = <<>>),
-    delete_all_messages(),
+end_per_testcase(_TestCase, Config) ->
+    Apps = ?config(apps, Config),
+    emqx_common_test_helpers:call_janitor(60_000),
+    emqx_cth_suite:stop(Apps),
     ok.
 
 t_messages_persisted(_Config) ->
@@ -256,6 +256,7 @@ connect(Opts0 = #{}) ->
     Defaults = #{proto_ver => v5},
     Opts = maps:to_list(emqx_utils_maps:deep_merge(Defaults, Opts0)),
     {ok, Client} = emqtt:start_link(Opts),
+    on_exit(fun() -> catch emqtt:stop(Client) end),
     {ok, _} = emqtt:connect(Client),
     Client.
 
