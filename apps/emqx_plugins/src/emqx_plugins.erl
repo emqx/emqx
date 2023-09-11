@@ -504,7 +504,7 @@ ensure_exists_and_installed(NameVsn) ->
     end.
 
 do_get_from_cluster(NameVsn) ->
-    Nodes = [N || N <- mria:running_nodes(), N /= node()],
+    Nodes = [N || N <- emqx:running_nodes(), N /= node()],
     case get_from_any_node(Nodes, NameVsn, []) of
         {ok, TarContent} ->
             ok = file:write_file(pkg_file(NameVsn), TarContent),

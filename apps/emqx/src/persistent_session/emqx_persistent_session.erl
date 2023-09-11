@@ -300,7 +300,7 @@ resume(ClientInfo, ConnInfo, Session) ->
     %% 3. Notify writers that we are resuming.
     %%    They will buffer new messages.
     ?tp(ps_notify_writers, #{sid => SessionID}),
-    Nodes = mria:running_nodes(),
+    Nodes = emqx:running_nodes(),
     NodeMarkers = resume_begin(Nodes, SessionID),
     ?tp(ps_node_markers, #{sid => SessionID, markers => NodeMarkers}),
 

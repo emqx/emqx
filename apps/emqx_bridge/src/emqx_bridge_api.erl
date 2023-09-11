@@ -465,7 +465,7 @@ schema("/bridges_probe") ->
             create_bridge(BridgeType, BridgeName, Conf)
     end;
 '/bridges'(get, _Params) ->
-    Nodes = mria:running_nodes(),
+    Nodes = emqx:running_nodes(),
     NodeReplies = emqx_bridge_proto_v4:list_bridges_on_nodes(Nodes),
     case is_ok(NodeReplies) of
         {ok, NodeBridges} ->
@@ -573,7 +573,7 @@ maybe_deobfuscate_bridge_probe(Params) ->
     Params.
 
 get_metrics_from_all_nodes(BridgeType, BridgeName) ->
-    Nodes = mria:running_nodes(),
+    Nodes = emqx:running_nodes(),
     Result = do_bpapi_call(all, get_metrics_from_all_nodes, [Nodes, BridgeType, BridgeName]),
     case Result of
         Metrics when is_list(Metrics) ->
@@ -583,7 +583,7 @@ get_metrics_from_all_nodes(BridgeType, BridgeName) ->
     end.
 
 lookup_from_all_nodes(BridgeType, BridgeName, SuccCode) ->
-    Nodes = mria:running_nodes(),
+    Nodes = emqx:running_nodes(),
     case is_ok(emqx_bridge_proto_v4:lookup_from_all_nodes(Nodes, BridgeType, BridgeName)) of
         {ok, [{ok, _} | _] = Results} ->
             {SuccCode, format_bridge_info([R || {ok, R} <- Results])};
@@ -654,7 +654,7 @@ get_metrics_from_local_node(BridgeType, BridgeName) ->
                     false ->
                         ?BRIDGE_NOT_ENABLED;
                     true ->
-                        Nodes = mria:running_nodes(),
+                        Nodes = emqx:running_nodes(),
                         call_operation(all, OperFunc, [Nodes, BridgeType, BridgeName])
                 catch
                     throw:not_found ->
@@ -1028,7 +1028,7 @@ do_bpapi_call(all, Call, Args) ->
         do_bpapi_call_vsn(emqx_bpapi:supported_version(emqx_bridge), Call, Args)
     );
 do_bpapi_call(Node, Call, Args) ->
-    case lists:member(Node, mria:running_nodes()) of
+    case lists:member(Node, emqx:running_nodes()) of
         true ->
             do_bpapi_call_vsn(emqx_bpapi:supported_version(Node, emqx_bridge), Call, Args);
         false ->

@@ -37,8 +37,6 @@ init_per_suite(Config) ->
     ok = ekka:start(),
     ok = mria_rlog:wait_for_shards([?CLUSTER_RPC_SHARD], infinity),
 
-    meck:new(mria_rlog, [non_strict, passthrough, no_link]),
-
     emqx_prometheus_SUITE:load_config(),
     emqx_mgmt_api_test_util:init_suite([emqx_prometheus]),
 
@@ -48,8 +46,6 @@ end_per_suite(Config) ->
     ekka:stop(),
     mria:stop(),
     mria_mnesia:delete_schema(),
-
-    meck:unload(mria_rlog),
 
     emqx_mgmt_api_test_util:end_suite([emqx_prometheus]),
     Config.
@@ -154,9 +150,6 @@ t_stats_api(_) ->
     Data = emqx_utils_json:decode(Response, [return_maps]),
     ?assertMatch(#{<<"client">> := _, <<"delivery">> := _}, Data),
 
-    {ok, _} = emqx_mgmt_api_test_util:request_api(get, Path, "", Auth),
-
-    ok = meck:expect(mria_rlog, backend, fun() -> rlog end),
     {ok, _} = emqx_mgmt_api_test_util:request_api(get, Path, "", Auth),
 
     ok.

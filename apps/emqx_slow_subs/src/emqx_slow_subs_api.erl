@@ -147,5 +147,5 @@ settings(put, #{body := Body}) ->
     end.
 
 rpc_call(Fun) ->
-    Nodes = mria:running_nodes(),
+    Nodes = emqx:running_nodes(),
     Fun(Nodes).

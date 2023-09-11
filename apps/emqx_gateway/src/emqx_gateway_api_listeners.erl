@@ -281,7 +281,7 @@ get_cluster_listeners_info(GwName) ->
     ).
 
 listeners_cluster_status(Listeners) ->
-    Nodes = mria:running_nodes(),
+    Nodes = emqx:running_nodes(),
     case emqx_gateway_api_listeners_proto_v1:listeners_cluster_status(Nodes, Listeners) of
         {Results, []} ->
             Results;
