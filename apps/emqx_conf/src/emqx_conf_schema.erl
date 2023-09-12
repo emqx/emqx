@@ -226,7 +226,7 @@ fields("cluster") ->
             sc(
                 boolean(),
                 #{
-                    mapping => "kernel.prevent_overlapping_partitions",
+                    mapping => "vm_args.-kernel prevent_overlapping_partitions",
                     desc => ?DESC(prevent_overlapping_partitions),
                     default => false,
                     importance => ?IMPORTANCE_HIDDEN
