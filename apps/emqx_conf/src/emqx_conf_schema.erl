@@ -674,6 +674,16 @@ fields("node") ->
                     default => #{}
                 }
             )},
+        {"default_bootstrap_batch_size",
+            sc(
+                pos_integer(),
+                #{
+                    mapping => "mria.bootstrap_batch_size",
+                    importance => ?IMPORTANCE_HIDDEN,
+                    default => 500,
+                    desc => ?DESC(db_default_bootstrap_batch_size)
+                }
+            )},
         {"broker_pool_size",
             sc(
                 pos_integer(),
