@@ -80,12 +80,21 @@ delete_route(TopicFilter) ->
 %     error('TODO').
 
 t_add_delete(_) ->
+    ?assertNot(?R:has_any_route(<<"a/b/c">>)),
     add_route(<<"a/b/c">>),
+    ?assert(?R:has_any_route(<<"a/b/c">>)),
     add_route(<<"a/b/c">>),
+    ?assert(?R:has_any_route(<<"a/b/c">>)),
     add_route(<<"a/+/b">>),
+    ?assert(?R:has_any_route(<<"a/b/c">>)),
+    ?assert(?R:has_any_route(<<"a/c/b">>)),
     ?assertEqual([<<"a/+/b">>, <<"a/b/c">>], lists:sort(?R:topics())),
     delete_route(<<"a/b/c">>),
+    ?assertNot(?R:has_any_route(<<"a/b/c">>)),
+    ?assert(?R:has_any_route(<<"a/c/b">>)),
     delete_route(<<"a/+/b">>),
+    ?assertNot(?R:has_any_route(<<"a/b/c">>)),
+    ?assertNot(?R:has_any_route(<<"a/c/b">>)),
     ?assertEqual([], ?R:topics()).
 
 t_add_delete_incremental(_) ->
@@ -94,6 +103,7 @@ t_add_delete_incremental(_) ->
     add_route(<<"a/+/+">>),
     add_route(<<"a/b/#">>),
     add_route(<<"#">>),
+    ?assert(?R:has_any_route(<<"any/topic">>)),
     ?assertEqual(
         [
             #ps_route{topic = <<"#">>, dest = ?DEF_DS_SESSION_ID},

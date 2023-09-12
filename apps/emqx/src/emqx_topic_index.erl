@@ -66,6 +66,7 @@ match(Topic, Tab) ->
 
 %% @doc Match given topic against the index and return _all_ matches.
 %% If `unique` option is given, return only unique matches by record ID.
+-spec matches(emqx_types:topic(), ets:table(), emqx_trie_search:opts()) -> [key(_ID)].
 matches(Topic, Tab, Opts) ->
     emqx_trie_search:matches(Topic, make_nextf(Tab), Opts).
 

@@ -25,6 +25,7 @@
 -export([
     do_add_route/2,
     do_delete_route/2,
+    has_any_route/1,
     match_routes/1,
     lookup_routes/1,
     foldr_routes/2,
@@ -99,6 +100,19 @@ do_delete_route(Topic, Dest) ->
             mria:dirty_delete(?PS_FILTERS_TAB, K);
         false ->
             mria_route_tab_delete(#ps_route{topic = Topic, dest = Dest})
+    end.
+
+%% @doc Takes a real topic (not filter) as input, and returns whether there is any
+%% matching filters.
+-spec has_any_route(emqx_types:topic()) -> boolean().
+has_any_route(Topic) ->
+    DirectTopicMatch = lookup_route_tab(Topic),
+    WildcardMatch = emqx_topic_index:match(Topic, ?PS_FILTERS_TAB),
+    case {DirectTopicMatch, WildcardMatch} of
+        {[], false} ->
+            false;
+        {_, _} ->
+            true
     end.
 
 %% @doc Take a real topic (not filter) as input, return the matching topics and topic
