@@ -52,7 +52,7 @@ init_tables() ->
     ok = mria:create_table(?PS_ROUTER_TAB, [
         {type, bag},
         {rlog_shard, ?PS_ROUTER_SHARD},
-        {storage, ram_copies},
+        {storage, disc_copies},
         {record_name, ps_route},
         {attributes, record_info(fields, ps_route)},
         {storage_properties, [
@@ -65,7 +65,7 @@ init_tables() ->
     ok = mria:create_table(?PS_FILTERS_TAB, [
         {type, ordered_set},
         {rlog_shard, ?PS_ROUTER_SHARD},
-        {storage, ram_copies},
+        {storage, disc_copies},
         {record_name, ps_routeidx},
         {attributes, record_info(fields, ps_routeidx)},
         {storage_properties, [
