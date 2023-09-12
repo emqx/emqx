@@ -19,9 +19,12 @@
 -include_lib("stdlib/include/assert.hrl").
 -include_lib("common_test/include/ct.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
+-include_lib("emqx/include/emqx_mqtt.hrl").
 
 -compile(export_all).
 -compile(nowarn_export_all).
+
+-import(emqx_common_test_helpers, [on_exit/1]).
 
 -define(DS_SHARD, <<"local">>).
 
@@ -33,29 +36,31 @@ init_per_suite(Config) ->
     %% TODO: remove after other suites start to use `emx_cth_suite'
     application:stop(emqx),
     application:stop(emqx_durable_storage),
-    TCApps = emqx_cth_suite:start(
-        app_specs(),
-        #{work_dir => emqx_cth_suite:work_dir(Config)}
-    ),
-    [{tc_apps, TCApps} | Config].
+    Config.
 
-end_per_suite(Config) ->
-    TCApps = ?config(tc_apps, Config),
-    emqx_cth_suite:stop(TCApps),
+end_per_suite(_Config) ->
     ok.
 
-init_per_testcase(t_session_subscription_iterators, Config) ->
+init_per_testcase(t_session_subscription_iterators = TestCase, Config) ->
     Cluster = cluster(),
-    Nodes = emqx_cth_cluster:start(Cluster, #{work_dir => ?config(priv_dir, Config)}),
+    Nodes = emqx_cth_cluster:start(Cluster, #{work_dir => emqx_cth_suite:work_dir(TestCase, Config)}),
     [{nodes, Nodes} | Config];
-init_per_testcase(_TestCase, Config) ->
-    Config.
+init_per_testcase(TestCase, Config) ->
+    Apps = emqx_cth_suite:start(
+        app_specs(),
+        #{work_dir => emqx_cth_suite:work_dir(TestCase, Config)}
+    ),
+    [{apps, Apps} | Config].
 
 end_per_testcase(t_session_subscription_iterators, Config) ->
     Nodes = ?config(nodes, Config),
+    emqx_common_test_helpers:call_janitor(60_000),
     ok = emqx_cth_cluster:stop(Nodes),
     ok;
-end_per_testcase(_TestCase, _Config) ->
+end_per_testcase(_TestCase, Config) ->
+    Apps = ?config(apps, Config),
+    emqx_common_test_helpers:call_janitor(60_000),
+    emqx_cth_suite:stop(Apps),
     ok.
 
 t_messages_persisted(_Config) ->
@@ -75,12 +80,12 @@ t_messages_persisted(_Config) ->
     Messages = [
         M1 = {<<"client/1/topic">>, <<"1">>},
         M2 = {<<"client/2/topic">>, <<"2">>},
-        M3 = {<<"client/3/topic/sub">>, <<"3">>},
-        M4 = {<<"client/4">>, <<"4">>},
+        _M3 = {<<"client/3/topic/sub">>, <<"3">>},
+        _M4 = {<<"client/4">>, <<"4">>},
         M5 = {<<"random/5">>, <<"5">>},
-        M6 = {<<"random/6/topic">>, <<"6">>},
+        _M6 = {<<"random/6/topic">>, <<"6">>},
         M7 = {<<"client/7/topic">>, <<"7">>},
-        M8 = {<<"client/8/topic/sub">>, <<"8">>},
+        _M8 = {<<"client/8/topic/sub">>, <<"8">>},
         M9 = {<<"random/9">>, <<"9">>},
         M10 = {<<"random/10">>, <<"10">>}
     ],
@@ -94,8 +99,53 @@ t_messages_persisted(_Config) ->
     ct:pal("Persisted = ~p", [Persisted]),
 
     ?assertEqual(
-        % [M1, M2, M5, M7, M9, M10],
-        [M1, M2, M3, M4, M5, M6, M7, M8, M9, M10],
+        [M1, M2, M5, M7, M9, M10],
+        [{emqx_message:topic(M), emqx_message:payload(M)} || M <- Persisted]
+    ),
+
+    ok.
+
+t_messages_persisted_2(_Config) ->
+    Prefix = atom_to_binary(?FUNCTION_NAME),
+    C1 = connect(<<Prefix/binary, "1">>, _CleanStart0 = true, _EI0 = 30),
+    CP = connect(<<Prefix/binary, "-pub">>, _CleanStart1 = true, _EI1 = undefined),
+    T = fun(T0) -> <<Prefix/binary, T0/binary>> end,
+
+    %% won't be persisted
+    {ok, #{reason_code := ?RC_NO_MATCHING_SUBSCRIBERS}} =
+        emqtt:publish(CP, T(<<"random/topic">>), <<"0">>, 1),
+    {ok, #{reason_code := ?RC_NO_MATCHING_SUBSCRIBERS}} =
+        emqtt:publish(CP, T(<<"client/1/topic">>), <<"1">>, 1),
+    {ok, #{reason_code := ?RC_NO_MATCHING_SUBSCRIBERS}} =
+        emqtt:publish(CP, T(<<"client/2/topic">>), <<"2">>, 1),
+
+    {ok, _, [?RC_GRANTED_QOS_1]} = emqtt:subscribe(C1, T(<<"client/+/topic">>), qos1),
+    {ok, #{reason_code := ?RC_NO_MATCHING_SUBSCRIBERS}} =
+        emqtt:publish(CP, T(<<"random/topic">>), <<"3">>, 1),
+    %% will be persisted
+    {ok, #{reason_code := ?RC_SUCCESS}} =
+        emqtt:publish(CP, T(<<"client/1/topic">>), <<"4">>, 1),
+    {ok, #{reason_code := ?RC_SUCCESS}} =
+        emqtt:publish(CP, T(<<"client/2/topic">>), <<"5">>, 1),
+
+    {ok, _, [?RC_SUCCESS]} = emqtt:unsubscribe(C1, T(<<"client/+/topic">>)),
+    %% won't be persisted
+    {ok, #{reason_code := ?RC_NO_MATCHING_SUBSCRIBERS}} =
+        emqtt:publish(CP, T(<<"random/topic">>), <<"6">>, 1),
+    {ok, #{reason_code := ?RC_NO_MATCHING_SUBSCRIBERS}} =
+        emqtt:publish(CP, T(<<"client/1/topic">>), <<"7">>, 1),
+    {ok, #{reason_code := ?RC_NO_MATCHING_SUBSCRIBERS}} =
+        emqtt:publish(CP, T(<<"client/2/topic">>), <<"8">>, 1),
+
+    Persisted = consume(?DS_SHARD, {['#'], 0}),
+
+    ct:pal("Persisted = ~p", [Persisted]),
+
+    ?assertEqual(
+        [
+            {T(<<"client/1/topic">>), <<"4">>},
+            {T(<<"client/2/topic">>), <<"5">>}
+        ],
         [{emqx_message:topic(M), emqx_message:payload(M)} || M <- Persisted]
     ),
 
@@ -121,12 +171,11 @@ t_session_subscription_iterators(Config) ->
                 lists:seq(1, 4)
             ),
             ct:pal("starting"),
-            {ok, Client} = emqtt:start_link([
-                {port, Port},
-                {clientid, ClientId},
-                {proto_ver, v5}
-            ]),
-            {ok, _} = emqtt:connect(Client),
+            Client = connect(#{
+                clientid => ClientId,
+                port => Port,
+                properties => #{'Session-Expiry-Interval' => 300}
+            }),
             ct:pal("publishing 1"),
             Message1 = emqx_message:make(Topic, Payload1),
             publish(Node1, Message1),
@@ -195,15 +244,19 @@ t_session_subscription_iterators(Config) ->
 %%
 
 connect(ClientId, CleanStart, EI) ->
-    {ok, Client} = emqtt:start_link([
-        {clientid, ClientId},
-        {proto_ver, v5},
-        {clean_start, CleanStart},
-        {properties,
-            maps:from_list(
-                [{'Session-Expiry-Interval', EI} || is_integer(EI)]
-            )}
-    ]),
+    connect(#{
+        clientid => ClientId,
+        clean_start => CleanStart,
+        properties => maps:from_list(
+            [{'Session-Expiry-Interval', EI} || is_integer(EI)]
+        )
+    }).
+
+connect(Opts0 = #{}) ->
+    Defaults = #{proto_ver => v5},
+    Opts = maps:to_list(emqx_utils_maps:deep_merge(Defaults, Opts0)),
+    {ok, Client} = emqtt:start_link(Opts),
+    on_exit(fun() -> catch emqtt:stop(Client) end),
     {ok, _} = emqtt:connect(Client),
     Client.
 
@@ -221,6 +274,18 @@ consume(It) ->
         none ->
             []
     end.
+
+delete_all_messages() ->
+    Persisted = consume(?DS_SHARD, {['#'], 0}),
+    lists:foreach(
+        fun(Msg) ->
+            GUID = emqx_message:id(Msg),
+            Topic = emqx_topic:words(emqx_message:topic(Msg)),
+            Timestamp = emqx_guid:timestamp(GUID),
+            ok = emqx_ds_storage_layer:delete(?DS_SHARD, GUID, Timestamp, Topic)
+        end,
+        Persisted
+    ).
 
 receive_messages(Count) ->
     receive_messages(Count, []).

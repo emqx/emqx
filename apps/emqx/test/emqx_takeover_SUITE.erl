@@ -34,22 +34,15 @@
 all() -> emqx_common_test_helpers:all(?MODULE).
 
 init_per_suite(Config) ->
-    emqx_common_test_helpers:boot_modules(all),
-    ?check_trace(
-        ?wait_async_action(
-            emqx_common_test_helpers:start_apps([]),
-            #{?snk_kind := listener_started, bind := 1883},
-            timer:seconds(10)
-        ),
-        fun(Trace) ->
-            %% more than one listener
-            ?assertMatch([_ | _], ?of_kind(listener_started, Trace))
-        end
+    Apps = emqx_cth_suite:start(
+        [emqx],
+        #{work_dir => emqx_cth_suite:work_dir(Config)}
     ),
-    Config.
+    [{apps, Apps} | Config].
 
-end_per_suite(_Config) ->
-    emqx_common_test_helpers:stop_apps([]),
+end_per_suite(Config) ->
+    Apps = ?config(apps, Config),
+    ok = emqx_cth_suite:stop(Apps),
     ok.
 %%--------------------------------------------------------------------
 %% Testcases

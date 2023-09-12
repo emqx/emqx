@@ -49,6 +49,10 @@ init_per_testcase(TestCase, Config) when
     TestCase =/= t_ws_non_check_origin
 ->
     add_bucket(),
+    Apps = emqx_cth_suite:start(
+        [emqx],
+        #{work_dir => emqx_cth_suite:work_dir(TestCase, Config)}
+    ),
     %% Meck Cm
     ok = meck:new(emqx_cm, [passthrough, no_history, no_link]),
     ok = meck:expect(emqx_cm, mark_channel_connected, fun(_) -> ok end),
@@ -80,37 +84,32 @@ init_per_testcase(TestCase, Config) when
     ok = meck:expect(emqx_metrics, inc, fun(_, _) -> ok end),
     ok = meck:expect(emqx_metrics, inc_recv, fun(_) -> ok end),
     ok = meck:expect(emqx_metrics, inc_sent, fun(_) -> ok end),
-    PrevConfig = emqx_config:get_listener_conf(ws, default, [websocket]),
-    [
-        {prev_config, PrevConfig}
-        | Config
-    ];
-init_per_testcase(t_ws_non_check_origin, Config) ->
+    [{apps, Apps} | Config];
+init_per_testcase(t_ws_non_check_origin = TestCase, Config) ->
     add_bucket(),
-    ok = emqx_common_test_helpers:start_apps([]),
-    PrevConfig = emqx_config:get_listener_conf(ws, default, [websocket]),
+    Apps = emqx_cth_suite:start(
+        [emqx],
+        #{work_dir => emqx_cth_suite:work_dir(TestCase, Config)}
+    ),
     emqx_config:put_listener_conf(ws, default, [websocket, check_origin_enable], false),
     emqx_config:put_listener_conf(ws, default, [websocket, check_origins], []),
-    [
-        {prev_config, PrevConfig}
-        | Config
-    ];
-init_per_testcase(_, Config) ->
+    [{apps, Apps} | Config];
+init_per_testcase(TestCase, Config) ->
     add_bucket(),
-    PrevConfig = emqx_config:get_listener_conf(ws, default, [websocket]),
-    ok = emqx_common_test_helpers:start_apps([]),
-    [
-        {prev_config, PrevConfig}
-        | Config
-    ].
+    Apps = emqx_cth_suite:start(
+        [emqx],
+        #{work_dir => emqx_cth_suite:work_dir(TestCase, Config)}
+    ),
+    [{apps, Apps} | Config].
 
-end_per_testcase(TestCase, _Config) when
+end_per_testcase(TestCase, Config) when
     TestCase =/= t_ws_sub_protocols_mqtt_equivalents,
     TestCase =/= t_ws_sub_protocols_mqtt,
     TestCase =/= t_ws_check_origin,
     TestCase =/= t_ws_non_check_origin,
     TestCase =/= t_ws_pingreq_before_connected
 ->
+    Apps = ?config(apps, Config),
     del_bucket(),
     lists:foreach(
         fun meck:unload/1,
@@ -122,31 +121,19 @@ end_per_testcase(TestCase, _Config) when
             emqx_hooks,
             emqx_metrics
         ]
-    );
+    ),
+    ok = emqx_cth_suite:stop(Apps),
+    ok;
 end_per_testcase(t_ws_non_check_origin, Config) ->
+    Apps = ?config(apps, Config),
     del_bucket(),
-    PrevConfig = ?config(prev_config, Config),
-    emqx_config:put_listener_conf(ws, default, [websocket], PrevConfig),
-    stop_apps(),
+    ok = emqx_cth_suite:stop(Apps),
     ok;
 end_per_testcase(_, Config) ->
+    Apps = ?config(apps, Config),
     del_bucket(),
-    PrevConfig = ?config(prev_config, Config),
-    emqx_config:put_listener_conf(ws, default, [websocket], PrevConfig),
-    stop_apps(),
+    ok = emqx_cth_suite:stop(Apps),
     Config.
-
-init_per_suite(Config) ->
-    emqx_common_test_helpers:start_apps([]),
-    Config.
-
-end_per_suite(_) ->
-    emqx_common_test_helpers:stop_apps([]),
-    ok.
-
-%% FIXME: this is a temp fix to tests share configs.
-stop_apps() ->
-    emqx_common_test_helpers:stop_apps([], #{erase_all_configs => false}).
 
 %%--------------------------------------------------------------------
 %% Test Cases

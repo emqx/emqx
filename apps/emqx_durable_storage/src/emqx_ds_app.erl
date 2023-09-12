@@ -15,7 +15,6 @@ start(_Type, _Args) ->
     emqx_ds_sup:start_link().
 
 init_mnesia() ->
-    %% FIXME: This is a temporary workaround to avoid crashes when starting on Windows
     ok = mria:create_table(
         ?SESSION_TAB,
         [
@@ -39,6 +38,7 @@ init_mnesia() ->
     ok.
 
 storage() ->
+    %% FIXME: This is a temporary workaround to avoid crashes when starting on Windows
     case mria:rocksdb_backend_available() of
         true ->
             rocksdb_copies;

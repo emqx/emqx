@@ -77,11 +77,14 @@
 %%
 %%================================================================================
 
+-behaviour(emqx_ds_storage_layer).
+
 %% API:
 -export([create_new/3, open/5]).
 -export([make_keymapper/1]).
 
 -export([store/5]).
+-export([delete/4]).
 -export([make_iterator/2]).
 -export([make_iterator/3]).
 -export([next/1]).
@@ -270,12 +273,18 @@ make_keymapper(#{
         epoch = 1 bsl TimestampLSBs
     }.
 
--spec store(db(), emqx_guid:guid(), time(), topic(), binary()) ->
+-spec store(db(), emqx_guid:guid(), emqx_ds:time(), topic(), binary()) ->
     ok | {error, _TODO}.
 store(DB = #db{handle = DBHandle, cf = CFHandle}, MessageID, PublishedAt, Topic, MessagePayload) ->
     Key = make_message_key(Topic, PublishedAt, MessageID, DB#db.keymapper),
     Value = make_message_value(Topic, MessagePayload),
     rocksdb:put(DBHandle, CFHandle, Key, Value, DB#db.write_options).
+
+-spec delete(db(), emqx_guid:guid(), emqx_ds:time(), topic()) ->
+    ok | {error, _TODO}.
+delete(DB = #db{handle = DBHandle, cf = CFHandle}, MessageID, PublishedAt, Topic) ->
+    Key = make_message_key(Topic, PublishedAt, MessageID, DB#db.keymapper),
+    rocksdb:delete(DBHandle, CFHandle, Key, DB#db.write_options).
 
 -spec make_iterator(db(), emqx_ds:replay()) ->
     {ok, iterator()} | {error, _TODO}.

@@ -14,6 +14,8 @@
 -define(DS_SHARD, <<"local">>).
 -define(ITERATOR_REF_TAB, emqx_ds_iterator_ref).
 
+-import(emqx_common_test_helpers, [on_exit/1]).
+
 %%------------------------------------------------------------------------------
 %% CT boilerplate
 %%------------------------------------------------------------------------------
@@ -56,9 +58,11 @@ end_per_testcase(TestCase, Config) when
     TestCase =:= t_session_unsubscription_idempotency
 ->
     Nodes = ?config(nodes, Config),
+    emqx_common_test_helpers:call_janitor(60_000),
     ok = emqx_cth_cluster:stop(Nodes),
     ok;
 end_per_testcase(_TestCase, _Config) ->
+    emqx_common_test_helpers:call_janitor(60_000),
     ok.
 
 %%------------------------------------------------------------------------------
@@ -87,9 +91,6 @@ app_specs() ->
     [
         emqx_durable_storage,
         {emqx, #{
-            before_start => fun() ->
-                emqx_app:set_config_loader(?MODULE)
-            end,
             config => #{persistent_session_store => #{ds => true}},
             override_env => [{boot_modules, [broker, listeners]}]
         }}
@@ -124,9 +125,55 @@ wait_gen_rpc_down(_NodeSpec = #{apps := Apps}) ->
         false = emqx_common_test_helpers:is_tcp_server_available("127.0.0.1", Port)
     ).
 
+start_client(Opts0 = #{}) ->
+    Defaults = #{
+        proto_ver => v5,
+        properties => #{'Session-Expiry-Interval' => 300}
+    },
+    Opts = maps:to_list(emqx_utils_maps:deep_merge(Defaults, Opts0)),
+    {ok, Client} = emqtt:start_link(Opts),
+    on_exit(fun() -> catch emqtt:stop(Client) end),
+    Client.
+
 %%------------------------------------------------------------------------------
 %% Testcases
 %%------------------------------------------------------------------------------
+
+t_non_persistent_session_subscription(_Config) ->
+    ClientId = atom_to_binary(?FUNCTION_NAME),
+    SubTopicFilter = <<"t/#">>,
+    ?check_trace(
+        begin
+            ?tp(notice, "starting", #{}),
+            Client = start_client(#{
+                clientid => ClientId,
+                properties => #{'Session-Expiry-Interval' => 0}
+            }),
+            {ok, _} = emqtt:connect(Client),
+            ?tp(notice, "subscribing", #{}),
+            {ok, _, [?RC_GRANTED_QOS_2]} = emqtt:subscribe(Client, SubTopicFilter, qos2),
+            IteratorRefs = get_all_iterator_refs(node()),
+            IteratorIds = get_all_iterator_ids(node()),
+
+            ok = emqtt:stop(Client),
+
+            #{
+                iterator_refs => IteratorRefs,
+                iterator_ids => IteratorIds
+            }
+        end,
+        fun(Res, Trace) ->
+            ct:pal("trace:\n  ~p", [Trace]),
+            #{
+                iterator_refs := IteratorRefs,
+                iterator_ids := IteratorIds
+            } = Res,
+            ?assertEqual([], IteratorRefs),
+            ?assertEqual({ok, []}, IteratorIds),
+            ok
+        end
+    ),
+    ok.
 
 t_session_subscription_idempotency(Config) ->
     [Node1Spec | _] = ?config(node_specs, Config),
@@ -151,7 +198,7 @@ t_session_subscription_idempotency(Config) ->
 
             spawn_link(fun() ->
                 ?tp(will_restart_node, #{}),
-                ct:pal("restarting node ~p", [Node1]),
+                ?tp(notice, "restarting node", #{node => Node1}),
                 true = monitor_node(Node1, true),
                 ok = erpc:call(Node1, init, restart, []),
                 receive
@@ -160,10 +207,10 @@ t_session_subscription_idempotency(Config) ->
                 after 10_000 ->
                     ct:fail("node ~p didn't stop", [Node1])
                 end,
-                ct:pal("waiting for nodeup ~p", [Node1]),
+                ?tp(notice, "waiting for nodeup", #{node => Node1}),
                 wait_nodeup(Node1),
                 wait_gen_rpc_down(Node1Spec),
-                ct:pal("restarting apps on ~p", [Node1]),
+                ?tp(notice, "restarting apps", #{node => Node1}),
                 Apps = maps:get(apps, Node1Spec),
                 ok = erpc:call(Node1, emqx_cth_suite, load_apps, [Apps]),
                 _ = erpc:call(Node1, emqx_cth_suite, start_apps, [Apps, Node1Spec]),
@@ -171,19 +218,15 @@ t_session_subscription_idempotency(Config) ->
                 %% end....
                 ok = emqx_cth_cluster:set_node_opts(Node1, Node1Spec),
                 ok = snabbkaffe:forward_trace(Node1),
-                ct:pal("node ~p restarted", [Node1]),
+                ?tp(notice, "node restarted", #{node => Node1}),
                 ?tp(restarted_node, #{}),
                 ok
             end),
 
-            ct:pal("starting 1"),
-            {ok, Client0} = emqtt:start_link([
-                {port, Port},
-                {clientid, ClientId},
-                {proto_ver, v5}
-            ]),
+            ?tp(notice, "starting 1", #{}),
+            Client0 = start_client(#{port => Port, clientid => ClientId}),
             {ok, _} = emqtt:connect(Client0),
-            ct:pal("subscribing 1"),
+            ?tp(notice, "subscribing 1", #{}),
             process_flag(trap_exit, true),
             catch emqtt:subscribe(Client0, SubTopicFilter, qos2),
             receive
@@ -194,14 +237,10 @@ t_session_subscription_idempotency(Config) ->
             process_flag(trap_exit, false),
 
             {ok, _} = ?block_until(#{?snk_kind := restarted_node}, 15_000),
-            ct:pal("starting 2"),
-            {ok, Client1} = emqtt:start_link([
-                {port, Port},
-                {clientid, ClientId},
-                {proto_ver, v5}
-            ]),
+            ?tp(notice, "starting 2", #{}),
+            Client1 = start_client(#{port => Port, clientid => ClientId}),
             {ok, _} = emqtt:connect(Client1),
-            ct:pal("subscribing 2"),
+            ?tp(notice, "subscribing 2", #{}),
             {ok, _, [2]} = emqtt:subscribe(Client1, SubTopicFilter, qos2),
 
             ok = emqtt:stop(Client1),
@@ -247,7 +286,7 @@ t_session_unsubscription_idempotency(Config) ->
 
             spawn_link(fun() ->
                 ?tp(will_restart_node, #{}),
-                ct:pal("restarting node ~p", [Node1]),
+                ?tp(notice, "restarting node", #{node => Node1}),
                 true = monitor_node(Node1, true),
                 ok = erpc:call(Node1, init, restart, []),
                 receive
@@ -256,10 +295,10 @@ t_session_unsubscription_idempotency(Config) ->
                 after 10_000 ->
                     ct:fail("node ~p didn't stop", [Node1])
                 end,
-                ct:pal("waiting for nodeup ~p", [Node1]),
+                ?tp(notice, "waiting for nodeup", #{node => Node1}),
                 wait_nodeup(Node1),
                 wait_gen_rpc_down(Node1Spec),
-                ct:pal("restarting apps on ~p", [Node1]),
+                ?tp(notice, "restarting apps", #{node => Node1}),
                 Apps = maps:get(apps, Node1Spec),
                 ok = erpc:call(Node1, emqx_cth_suite, load_apps, [Apps]),
                 _ = erpc:call(Node1, emqx_cth_suite, start_apps, [Apps, Node1Spec]),
@@ -267,21 +306,17 @@ t_session_unsubscription_idempotency(Config) ->
                 %% end....
                 ok = emqx_cth_cluster:set_node_opts(Node1, Node1Spec),
                 ok = snabbkaffe:forward_trace(Node1),
-                ct:pal("node ~p restarted", [Node1]),
+                ?tp(notice, "node restarted", #{node => Node1}),
                 ?tp(restarted_node, #{}),
                 ok
             end),
 
-            ct:pal("starting 1"),
-            {ok, Client0} = emqtt:start_link([
-                {port, Port},
-                {clientid, ClientId},
-                {proto_ver, v5}
-            ]),
+            ?tp(notice, "starting 1", #{}),
+            Client0 = start_client(#{port => Port, clientid => ClientId}),
             {ok, _} = emqtt:connect(Client0),
-            ct:pal("subscribing 1"),
+            ?tp(notice, "subscribing 1", #{}),
             {ok, _, [?RC_GRANTED_QOS_2]} = emqtt:subscribe(Client0, SubTopicFilter, qos2),
-            ct:pal("unsubscribing 1"),
+            ?tp(notice, "unsubscribing 1", #{}),
             process_flag(trap_exit, true),
             catch emqtt:unsubscribe(Client0, SubTopicFilter),
             receive
@@ -292,16 +327,12 @@ t_session_unsubscription_idempotency(Config) ->
             process_flag(trap_exit, false),
 
             {ok, _} = ?block_until(#{?snk_kind := restarted_node}, 15_000),
-            ct:pal("starting 2"),
-            {ok, Client1} = emqtt:start_link([
-                {port, Port},
-                {clientid, ClientId},
-                {proto_ver, v5}
-            ]),
+            ?tp(notice, "starting 2", #{}),
+            Client1 = start_client(#{port => Port, clientid => ClientId}),
             {ok, _} = emqtt:connect(Client1),
-            ct:pal("subscribing 2"),
+            ?tp(notice, "subscribing 2", #{}),
             {ok, _, [?RC_GRANTED_QOS_2]} = emqtt:subscribe(Client1, SubTopicFilter, qos2),
-            ct:pal("unsubscribing 2"),
+            ?tp(notice, "unsubscribing 2", #{}),
             {{ok, _, [?RC_SUCCESS]}, {ok, _}} =
                 ?wait_async_action(
                     emqtt:unsubscribe(Client1, SubTopicFilter),

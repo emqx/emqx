@@ -21,6 +21,7 @@
 
 -include_lib("emqx/include/emqx_mqtt.hrl").
 -include_lib("eunit/include/eunit.hrl").
+-include_lib("common_test/include/ct.hrl").
 
 -define(SYSMON, emqx_sys_mon).
 
@@ -64,60 +65,66 @@
 
 all() -> emqx_common_test_helpers:all(?MODULE).
 
-init_per_testcase(t_sys_mon, Config) ->
-    emqx_common_test_helpers:boot_modules(all),
-    emqx_common_test_helpers:start_apps(
-        [],
-        fun
-            (emqx) ->
-                application:set_env(emqx, sysmon, [
-                    {busy_dist_port, true},
-                    {busy_port, false},
-                    {large_heap, 8388608},
-                    {long_schedule, 240},
-                    {long_gc, 0}
-                ]),
-                ok;
-            (_) ->
-                ok
-        end
+init_per_testcase(t_sys_mon = TestCase, Config) ->
+    Apps = emqx_cth_suite:start(
+        [
+            {emqx, #{
+                override_env => [
+                    {sys_mon, [
+                        {busy_dist_port, true},
+                        {busy_port, false},
+                        {large_heap, 8388608},
+                        {long_schedule, 240},
+                        {long_gc, 0}
+                    ]}
+                ]
+            }}
+        ],
+        #{work_dir => emqx_cth_suite:work_dir(TestCase, Config)}
     ),
-    Config;
-init_per_testcase(t_sys_mon2, Config) ->
-    emqx_common_test_helpers:boot_modules(all),
-    emqx_common_test_helpers:start_apps(
-        [],
-        fun
-            (emqx) ->
-                application:set_env(emqx, sysmon, [
-                    {busy_dist_port, false},
-                    {busy_port, true},
-                    {large_heap, 8388608},
-                    {long_schedule, 0},
-                    {long_gc, 200},
-                    {nothing, 0}
-                ]),
-                ok;
-            (_) ->
-                ok
-        end
+    [{apps, Apps} | Config];
+init_per_testcase(t_sys_mon2 = TestCase, Config) ->
+    Apps = emqx_cth_suite:start(
+        [
+            {emqx, #{
+                override_env => [
+                    {sys_mon, [
+                        {busy_dist_port, false},
+                        {busy_port, true},
+                        {large_heap, 8388608},
+                        {long_schedule, 0},
+                        {long_gc, 200},
+                        {nothing, 0}
+                    ]}
+                ]
+            }}
+        ],
+        #{work_dir => emqx_cth_suite:work_dir(TestCase, Config)}
     ),
-    Config;
-init_per_testcase(t_procinfo, Config) ->
-    emqx_common_test_helpers:boot_modules(all),
-    emqx_common_test_helpers:start_apps([]),
+    [{apps, Apps} | Config];
+init_per_testcase(t_procinfo = TestCase, Config) ->
+    Apps = emqx_cth_suite:start(
+        [emqx],
+        #{work_dir => emqx_cth_suite:work_dir(TestCase, Config)}
+    ),
     ok = meck:new(emqx_vm, [passthrough, no_history]),
-    Config;
-init_per_testcase(_, Config) ->
-    emqx_common_test_helpers:boot_modules(all),
-    emqx_common_test_helpers:start_apps([]),
-    Config.
+    [{apps, Apps} | Config];
+init_per_testcase(TestCase, Config) ->
+    Apps = emqx_cth_suite:start(
+        [emqx],
+        #{work_dir => emqx_cth_suite:work_dir(TestCase, Config)}
+    ),
+    [{apps, Apps} | Config].
 
-end_per_testcase(t_procinfo, _Config) ->
+end_per_testcase(t_procinfo, Config) ->
+    Apps = ?config(apps, Config),
     ok = meck:unload(emqx_vm),
-    emqx_common_test_helpers:stop_apps([]);
-end_per_testcase(_, _Config) ->
-    emqx_common_test_helpers:stop_apps([]).
+    ok = emqx_cth_suite:stop(Apps),
+    ok;
+end_per_testcase(_, Config) ->
+    Apps = ?config(apps, Config),
+    ok = emqx_cth_suite:stop(Apps),
+    ok.
 
 t_procinfo(_) ->
     ok = meck:expect(emqx_vm, get_process_info, fun(_) -> [] end),

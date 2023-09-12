@@ -16,6 +16,7 @@
 
 -module(emqx_persistent_session_ds).
 
+-include("emqx.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
 -export([init/0]).
@@ -56,11 +57,13 @@
 %%
 
 init() ->
-    ?WHEN_ENABLED(
+    ?WHEN_ENABLED(begin
         ok = emqx_ds:ensure_shard(?DS_SHARD, #{
             dir => filename:join([emqx:data_dir(), ds, messages, ?DS_SHARD])
-        })
-    ).
+        }),
+        ok = emqx_persistent_session_ds_router:init_tables(),
+        ok
+    end).
 
 %%
 
@@ -71,8 +74,8 @@ persist_message(Msg) ->
         case needs_persistence(Msg) andalso find_subscribers(Msg) of
             [_ | _] ->
                 store_message(Msg);
-            % [] ->
-            %     {skipped, no_subscribers};
+            [] ->
+                {skipped, no_subscribers};
             false ->
                 {skipped, needs_no_persistence}
         end
@@ -87,8 +90,8 @@ store_message(Msg) ->
     Topic = emqx_topic:words(emqx_message:topic(Msg)),
     emqx_ds_storage_layer:store(?DS_SHARD, ID, Timestamp, Topic, serialize_message(Msg)).
 
-find_subscribers(_Msg) ->
-    [node()].
+find_subscribers(#message{topic = Topic}) ->
+    emqx_persistent_session_ds_router:match_routes(Topic).
 
 open_session(ClientID) ->
     ?WHEN_ENABLED(emqx_ds:session_open(ClientID)).
@@ -98,6 +101,7 @@ open_session(ClientID) ->
 add_subscription(TopicFilterBin, DSSessionID) ->
     ?WHEN_ENABLED(
         begin
+            ok = emqx_persistent_session_ds_router:do_add_route(TopicFilterBin, DSSessionID),
             TopicFilter = emqx_topic:words(TopicFilterBin),
             {ok, IteratorID, StartMS, IsNew} = emqx_ds:session_add_iterator(
                 DSSessionID, TopicFilter
@@ -160,7 +164,9 @@ del_subscription(TopicFilterBin, DSSessionID) ->
                 persistent_session_ds_iterator_delete,
                 #{},
                 emqx_ds:session_del_iterator(DSSessionID, TopicFilter)
-            )
+            ),
+            ok = emqx_persistent_session_ds_router:do_delete_route(TopicFilterBin, DSSessionID),
+            ok
         end
     ).
 

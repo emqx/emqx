@@ -32,13 +32,10 @@ all() ->
     emqx_common_test_helpers:all(?MODULE).
 
 init_per_suite(Config) ->
-    _ = application:load(emqx),
-    ok = application:set_env(emqx, data_dir, ?config(priv_dir, Config)),
-    ok = emqx_config:save_schema_mod_and_names(?MODULE),
     Config.
 
 end_per_suite(_Config) ->
-    emqx_config:erase_all().
+    ok.
 
 init_per_testcase(TC, Config) ->
     TCAbsDir = filename:join(?config(priv_dir, Config), TC),
@@ -46,9 +43,10 @@ init_per_testcase(TC, Config) ->
     ok = snabbkaffe:start_trace(),
     [{tc_name, atom_to_list(TC)}, {tc_absdir, TCAbsDir} | Config].
 
-end_per_testcase(_TC, Config) ->
+end_per_testcase(_TC, _Config) ->
     ok = snabbkaffe:stop(),
-    ok = application:set_env(emqx, data_dir, ?config(priv_dir, Config)),
+    _ = emqx_schema_hooks:erase_injections(),
+    _ = emqx_config:erase_all(),
     ok.
 
 t_no_orphans(Config) ->
@@ -371,16 +369,18 @@ t_gc_spares_symlinked_datadir(Config) ->
 
     ok = proc_lib:stop(Pid).
 
-t_gc_active(_Config) ->
-    ok = emqx_common_test_helpers:boot_modules([]),
-    ok = emqx_common_test_helpers:start_apps([]),
+t_gc_active(Config) ->
+    Apps = emqx_cth_suite:start(
+        [emqx],
+        #{work_dir => emqx_cth_suite:work_dir(?FUNCTION_NAME, Config)}
+    ),
     try
         ?assertEqual(
             {ok, []},
             emqx_tls_certfile_gc:run()
         )
     after
-        emqx_common_test_helpers:stop_apps([])
+        emqx_cth_suite:stop(Apps)
     end.
 
 orphans() ->
