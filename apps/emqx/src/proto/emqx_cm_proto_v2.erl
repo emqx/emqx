@@ -70,8 +70,8 @@ takeover_session(ClientId, ChanPid) ->
     rpc:call(node(ChanPid), emqx_cm, takeover_session, [ClientId, ChanPid], ?T_TAKEOVER * 2).
 
 -spec takeover_finish(module(), emqx_cm:chan_pid()) ->
-    {ok, emqx_type:takeover_data()}
-    | {ok, list(emqx_type:deliver()), emqx_type:takeover_data()}
+    {ok, emqx_types:takeover_data()}
+    | {ok, list(emqx_types:deliver())}
     | {error, term()}
     | {badrpc, _}.
 takeover_finish(ConnMod, ChanPid) ->
