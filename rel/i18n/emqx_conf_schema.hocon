@@ -801,4 +801,7 @@ Defaults to 100000."""
 node_channel_cleanup_batch_size.label:
 """Node Channel Cleanup Batch Size"""
 
+prevent_overlapping_partitions.desc:
+"""https://www.erlang.org/doc/man/global.html#description"""
+
 }
