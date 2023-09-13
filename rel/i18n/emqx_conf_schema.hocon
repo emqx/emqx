@@ -776,6 +776,16 @@ the default is to use the value set in <code>db.default_shard_transport</code>."
 db_shard_transports.label:
 """Shard Transports"""
 
+db_default_bootstrap_batch_size.desc:
+"""The number of built-in database table records to be pushed in one chunk from a core node to a replicant node during bootstrap.
+The bootstrapping occurs when a new replicant node is added to the cluster or an existing replicant node reconnects to a core one.
+Increasing this value may greatly reduce a replicant node startup time, especially when EMQX cluster interconnect network latency is high
+and EMQX built-in database holds large amount of data, e.g. when the number of subscriptions is high.
+Defaults to 500."""
+
+db_default_bootstrap_batch_size.label:
+"""Default Bootstrap Batch Size"""
+
 node_broker_pool_size.desc:
 """The number of workers in emqx_broker pool. Increasing this value may improve performance
 by enhancing parallelism, especially when EMQX cluster interconnect network latency is high.
