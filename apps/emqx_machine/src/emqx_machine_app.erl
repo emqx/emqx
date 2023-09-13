@@ -16,6 +16,8 @@
 
 -module(emqx_machine_app).
 
+-include_lib("emqx/include/logger.hrl").
+
 -export([
     start/2,
     stop/1

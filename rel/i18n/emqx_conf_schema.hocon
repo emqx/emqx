@@ -146,6 +146,12 @@ desc_log_file_handler.desc:
 desc_log_file_handler.label:
 """Files Log Handler"""
 
+desc_audit_log_handler.desc:
+"""Audit log handler that prints log events to files."""
+
+desc_audit_log_handler.label:
+"""Audit Log Handler"""
+
 rpc_socket_keepalive_count.desc:
 """How many times the keepalive probe message can fail to receive a reply
 until the RPC connection is considered lost."""
@@ -395,6 +401,12 @@ log_file_handler_file.desc:
 log_file_handler_file.label:
 """Log File Name"""
 
+audit_file_handler_path.desc:
+"""Name the audit log file."""
+
+audit_file_handler_path.label:
+"""Audit Log File Name"""
+
 node_dist_net_ticktime.desc:
 """This is the approximate time an EMQX node may be unresponsive until it is considered down and thereby disconnected."""
 
@@ -630,6 +642,12 @@ log_file_handlers.desc:
 log_file_handlers.label:
 """File Handler"""
 
+log_audit_handler.desc:
+"""Audit file-based log handler."""
+
+log_audit_handler.label:
+"""Audit log Handler"""
+
 node_global_gc_interval.desc:
 """Periodic garbage collection interval. Set to <code>disabled</code> to have it disabled."""
 
@@ -676,6 +694,18 @@ common_handler_level.desc:
 Defaults to warning."""
 
 common_handler_level.label:
+"""Log Level"""
+
+audit_handler_level.desc:
+"""The log level for the audit log handler.<br/>
+- Requests that take longer than 3 seconds to process are logged as <code>warning</code> logs.<br/>
+- GET requests with HTTP status codes between 200-300 are logged as <code>debug</code> logs.<br/>
+- Non-GET Requests with HTTP status codes between 200-300 are logged as <code>info</code> logs.<br/>
+- Requests with HTTP status codes between 300-400 are logged as <code>warning</code> logs.<br/>
+- Requests with HTTP status codes between 400-500 are logged as <code>error</code> logs.<br/>
+- Defaults to info."""
+
+audit_handler_level.label:
 """Log Level"""
 
 desc_rpc.desc:

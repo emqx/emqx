@@ -21,8 +21,10 @@
 -export([tr_handlers/1, tr_level/1]).
 -export([add_handler/0, remove_handler/0, refresh_config/0]).
 -export([post_config_update/5]).
+-export([filter_audit/2]).
 
 -define(LOG, [log]).
+-define(AUDIT_HANDLER, emqx_audit).
 
 add_handler() ->
     ok = emqx_config_handler:add_handler(?LOG, ?MODULE),
@@ -133,8 +135,8 @@ tr_console_handler(Conf) ->
                 {handler, console, logger_std_h, #{
                     level => conf_get("log.console.level", Conf),
                     config => (log_handler_conf(ConsoleConf))#{type => standard_io},
-                    formatter => log_formatter(ConsoleConf),
-                    filters => log_filter(ConsoleConf)
+                    formatter => log_formatter(console, ConsoleConf),
+                    filters => log_filter(console, ConsoleConf)
                 }}
             ];
         false ->
@@ -143,7 +145,9 @@ tr_console_handler(Conf) ->
 
 %% For the file logger
 tr_file_handlers(Conf) ->
-    Handlers = logger_file_handlers(Conf),
+    Files = logger_file_handlers(Conf),
+    Audits = logger_audit_handler(Conf),
+    Handlers = Audits ++ Files,
     lists:map(fun tr_file_handler/1, Handlers).
 
 tr_file_handler({HandlerName, SubConf}) ->
@@ -155,17 +159,25 @@ tr_file_handler({HandlerName, SubConf}) ->
             max_no_files => conf_get("rotation_count", SubConf),
             max_no_bytes => conf_get("rotation_size", SubConf)
         },
-        formatter => log_formatter(SubConf),
-        filters => log_filter(SubConf),
+        formatter => log_formatter(HandlerName, SubConf),
+        filters => log_filter(HandlerName, SubConf),
         filesync_repeat_interval => no_repeat
     }}.
 
+logger_audit_handler(Conf) ->
+    Handlers = [{?AUDIT_HANDLER, conf_get("log.audit", Conf, #{})}],
+    logger_handlers(Handlers).
+
 logger_file_handlers(Conf) ->
+    Handlers = maps:to_list(conf_get("log.file", Conf, #{})),
+    logger_handlers(Handlers).
+
+logger_handlers(Handlers) ->
     lists:filter(
         fun({_Name, Handler}) ->
             conf_get("enable", Handler, false)
         end,
-        maps:to_list(conf_get("log.file", Conf, #{}))
+        Handlers
     ).
 
 conf_get(Key, Conf) -> emqx_schema:conf_get(Key, Conf).
@@ -190,7 +202,7 @@ log_handler_conf(Conf) ->
         burst_limit_window_time => conf_get("window_time", BurstLimit)
     }.
 
-log_formatter(Conf) ->
+log_formatter(HandlerName, Conf) ->
     CharsLimit =
         case conf_get("chars_limit", Conf) of
             unlimited -> unlimited;
@@ -204,17 +216,38 @@ log_formatter(Conf) ->
         end,
     SingleLine = conf_get("single_line", Conf),
     Depth = conf_get("max_depth", Conf),
-    do_formatter(conf_get("formatter", Conf), CharsLimit, SingleLine, TimeOffSet, Depth).
+    do_formatter(
+        HandlerName, conf_get("formatter", Conf), CharsLimit, SingleLine, TimeOffSet, Depth
+    ).
 
 %% helpers
-do_formatter(json, CharsLimit, SingleLine, TimeOffSet, Depth) ->
+do_formatter(?AUDIT_HANDLER, _, CharsLimit, SingleLine, TimeOffSet, Depth) ->
+    {emqx_logger_jsonfmt, #{
+        template => [
+            time,
+            " [",
+            level,
+            "] ",
+            %% http api
+            {method, [code, " ", method, " ", operate_id, " ", username, " "], []},
+            %% cli
+            {cmd, [cmd, " "], []},
+            msg,
+            "\n"
+        ],
+        chars_limit => CharsLimit,
+        single_line => SingleLine,
+        time_offset => TimeOffSet,
+        depth => Depth
+    }};
+do_formatter(_, json, CharsLimit, SingleLine, TimeOffSet, Depth) ->
     {emqx_logger_jsonfmt, #{
         chars_limit => CharsLimit,
         single_line => SingleLine,
         time_offset => TimeOffSet,
         depth => Depth
     }};
-do_formatter(text, CharsLimit, SingleLine, TimeOffSet, Depth) ->
+do_formatter(_, text, CharsLimit, SingleLine, TimeOffSet, Depth) ->
     {emqx_logger_textfmt, #{
         template => [time, " [", level, "] ", msg, "\n"],
         chars_limit => CharsLimit,
@@ -223,11 +256,17 @@ do_formatter(text, CharsLimit, SingleLine, TimeOffSet, Depth) ->
         depth => Depth
     }}.
 
-log_filter(Conf) ->
+%% Don't record all logger message
+%% only use it for ?AUDIT/1
+log_filter(?AUDIT_HANDLER, _Conf) ->
+    [{filter_audit, {fun ?MODULE:filter_audit/2, stop}}];
+log_filter(_, Conf) ->
     case conf_get("supervisor_reports", Conf) of
         error -> [{drop_progress_reports, {fun logger_filters:progress/2, stop}}];
         progress -> []
     end.
+
+filter_audit(_, _) -> stop.
 
 tr_level(Conf) ->
     ConsoleLevel = conf_get("log.console.level", Conf, undefined),

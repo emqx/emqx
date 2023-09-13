@@ -72,6 +72,7 @@ start_listeners(Listeners) ->
         base_path => emqx_dashboard_swagger:base_path(),
         modules => minirest_api:find_api_modules(apps()),
         authorization => Authorization,
+        log => fun emqx_dashboard_audit:log/1,
         security => [#{'basicAuth' => []}, #{'bearerAuth' => []}],
         swagger_global_spec => GlobalSpec,
         dispatch => dispatch(),
@@ -189,10 +190,19 @@ ranch_opts(Options) ->
         end,
     RanchOpts#{socket_opts => InetOpts ++ SocketOpts}.
 
-proto_opts(#{proxy_header := ProxyHeader}) ->
-    #{proxy_header => ProxyHeader};
-proto_opts(_Opts) ->
-    #{}.
+init_proto_opts() ->
+    %% cowboy_stream_h is required by default
+    %% will integrate cowboy_telemetry_h when OTEL trace is ready
+    #{stream_handlers => [cowboy_stream_h]}.
+
+proto_opts(Opts) ->
+    Init = init_proto_opts(),
+    proxy_header_opt(Init, Opts).
+
+proxy_header_opt(Init, #{proxy_header := ProxyHeader}) ->
+    Init#{proxy_header => ProxyHeader};
+proxy_header_opt(Init, _Opts) ->
+    Init.
 
 filter_false(_K, false, S) -> S;
 filter_false(K, V, S) -> [{K, V} | S].
@@ -206,8 +216,8 @@ authorize(Req) ->
             api_key_authorize(Req, Username, Password);
         {bearer, Token} ->
             case emqx_dashboard_admin:verify_token(Req, Token) of
-                ok ->
-                    ok;
+                {ok, Username} ->
+                    {ok, #{auth_type => jwt_token, username => Username}};
                 {error, token_timeout} ->
                     {401, 'TOKEN_TIME_OUT', <<"Token expired, get new token by POST /login">>};
                 {error, not_found} ->
@@ -257,7 +267,7 @@ api_key_authorize(Req, Key, Secret) ->
     Path = cowboy_req:path(Req),
     case emqx_mgmt_auth:authorize(Path, Key, Secret) of
         ok ->
-            ok;
+            {ok, #{auth_type => api_key, api_key => Key}};
         {error, <<"not_allowed">>} ->
             return_unauthorized(
                 ?BAD_API_KEY_OR_SECRET,

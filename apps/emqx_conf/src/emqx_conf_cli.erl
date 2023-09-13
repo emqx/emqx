@@ -23,6 +23,7 @@
     load/0,
     admins/1,
     conf/1,
+    audit/3,
     unload/0
 ]).
 
@@ -33,15 +34,19 @@
 %% kept cluster_call for compatibility
 -define(CLUSTER_CALL, cluster_call).
 -define(CONF, conf).
+-define(AUDIT_MOD, audit).
 -define(UPDATE_READONLY_KEYS_PROHIBITED, "update_readonly_keys_prohibited").
 
 load() ->
     emqx_ctl:register_command(?CLUSTER_CALL, {?MODULE, admins}, [hidden]),
-    emqx_ctl:register_command(?CONF, {?MODULE, conf}, []).
+    emqx_ctl:register_command(?CONF, {?MODULE, conf}, []),
+    emqx_ctl:register_command(?AUDIT_MOD, {?MODULE, audit}, [hidden]),
+    ok.
 
 unload() ->
     emqx_ctl:unregister_command(?CLUSTER_CALL),
-    emqx_ctl:unregister_command(?CONF).
+    emqx_ctl:unregister_command(?CONF),
+    emqx_ctl:unregister_command(?AUDIT_MOD).
 
 conf(["show_keys" | _]) ->
     print_keys(keys());
@@ -101,6 +106,9 @@ admins(["fast_forward", Node0, ToTnxId]) ->
     status();
 admins(_) ->
     emqx_ctl:usage(usage_sync()).
+
+audit(Level, From, Log) ->
+    ?AUDIT(Level, From, Log#{time => logger:timestamp()}).
 
 usage_conf() ->
     [

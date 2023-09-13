@@ -5,7 +5,9 @@
     {vsn, "5.0.27"},
     {modules, []},
     {registered, [emqx_dashboard_sup]},
-    {applications, [kernel, stdlib, mnesia, minirest, emqx, emqx_ctl, emqx_bridge_http]},
+    {applications, [
+        kernel, stdlib, mnesia, minirest, emqx, emqx_ctl, emqx_bridge_http
+    ]},
     {mod, {emqx_dashboard_app, []}},
     {env, []},
     {licenses, ["Apache-2.0"]},

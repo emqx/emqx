@@ -137,11 +137,11 @@ t_clean_token(_) ->
     {ok, _} = emqx_dashboard_admin:add_user(Username, Password, ?ROLE_SUPERUSER, Desc),
     {ok, Token} = emqx_dashboard_admin:sign_token(Username, Password),
     FakeReq = #{method => <<"GET">>},
-    ok = emqx_dashboard_admin:verify_token(FakeReq, Token),
+    {ok, Username} = emqx_dashboard_admin:verify_token(FakeReq, Token),
     %% change description
     {ok, _} = emqx_dashboard_admin:update_user(Username, ?ROLE_SUPERUSER, NewDesc),
     timer:sleep(5),
-    ok = emqx_dashboard_admin:verify_token(FakeReq, Token),
+    {ok, Username} = emqx_dashboard_admin:verify_token(FakeReq, Token),
     %% change role
     {ok, _} = emqx_dashboard_admin:update_user(Username, ?ROLE_VIEWER, NewDesc),
     timer:sleep(5),

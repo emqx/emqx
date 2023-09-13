@@ -65,7 +65,7 @@ check_allowed(MF, NotAllowed) ->
     case {lists:member(MF, NotAllowed), is_locked()} of
         {true, false} -> exempted;
         {true, true} -> prohibited;
-        {false, _} -> ignore
+        {false, _} -> ok
     end.
 
 is_allowed(prohibited) -> false;
@@ -109,15 +109,26 @@ max_heap_size_warning(MF, Args) ->
             })
     end.
 
-log(prohibited, MF, Args) ->
+log(_, {?MODULE, prompt_func}, [[{history, _}]]) ->
+    ok;
+log(IsAllow, MF, Args) ->
+    ?AUDIT(warning, "from_remote_console", #{
+        time => logger:timestamp(),
+        function => MF,
+        args => Args,
+        permission => IsAllow
+    }),
+    to_console(IsAllow, MF, Args).
+
+to_console(prohibited, MF, Args) ->
     warning("DANGEROUS FUNCTION: FORBIDDEN IN SHELL!!!!!", []),
     ?SLOG(error, #{msg => "execute_function_in_shell_prohibited", function => MF, args => Args});
-log(exempted, MF, Args) ->
+to_console(exempted, MF, Args) ->
     limit_warning(MF, Args),
     ?SLOG(error, #{
         msg => "execute_dangerous_function_in_shell_exempted", function => MF, args => Args
     });
-log(ignore, MF, Args) ->
+to_console(ok, MF, Args) ->
     limit_warning(MF, Args).
 
 warning(Format, Args) ->

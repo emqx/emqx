@@ -74,7 +74,8 @@ format(#{level := Level, msg := Msg, meta := Meta} = Event, Config0) when is_map
     MsgBin = format(Msg, Meta#{level => Level}, Config),
     logger_formatter:format(Event#{msg => {string, MsgBin}}, Config).
 
-format(Msg, Meta, Config) ->
+format(Msg, Meta0, Config) ->
+    Meta = maps:without([time, level], Meta0),
     Data0 =
         try maybe_format_msg(Msg, Meta, Config) of
             Map when is_map(Map) ->
