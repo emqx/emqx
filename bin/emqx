@@ -812,7 +812,7 @@ is_down() {
     if ps -p "$PID" >/dev/null; then
         # still around
         # shellcheck disable=SC2009 # this grep pattern is not a part of the program names
-        if ps -efp "$PID" | $GREP -q 'defunct'; then
+        if ps -fp "$PID" | $GREP -q 'defunct'; then
             # zombie state, print parent pid
             parent="$(ps -o ppid= -p "$PID" | tr -d ' ')"
             logwarn "$PID is marked <defunct>, parent: $(ps -p "$parent")"
@@ -831,7 +831,7 @@ wait_for() {
     shift
     CMD="$*"
     while true; do
-        if $CMD >/dev/null 2>&1; then
+        if $CMD; then
             return 0
         fi
         if [ "$WAIT_TIME" -le 0 ]; then
