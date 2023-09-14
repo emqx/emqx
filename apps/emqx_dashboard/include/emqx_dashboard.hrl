@@ -15,14 +15,20 @@
 %%--------------------------------------------------------------------
 -define(ADMIN, emqx_admin).
 
+-define(ROLE_VIEWER, <<"viewer">>).
+-define(ROLE_DEFAULT, ?ROLE_VIEWER).
+-define(ROLE_SUPERUSER, <<"superuser">>).
+
 -record(?ADMIN, {
     username :: binary(),
     pwdhash :: binary(),
     description :: binary(),
-    role = undefined :: atom(),
-    %% not used so far, for future extension
-    extra = [] :: term()
+    role = ?ROLE_DEFAULT :: binary(),
+    extra = #{} :: map()
 }).
+
+-type dashboard_user_role() :: binary().
+-type dashboard_user() :: #?ADMIN{}.
 
 -define(ADMIN_JWT, emqx_admin_jwt).
 
@@ -30,8 +36,7 @@
     token :: binary(),
     username :: binary(),
     exptime :: integer(),
-    %% not used so far, fur future extension
-    extra = [] :: term()
+    extra = #{} :: map()
 }).
 
 -define(TAB_COLLECT, emqx_collect).

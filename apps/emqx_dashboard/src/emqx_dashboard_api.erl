@@ -18,6 +18,7 @@
 
 -behaviour(minirest_api).
 
+-include("emqx_dashboard.hrl").
 -include_lib("hocon/include/hoconsc.hrl").
 -include_lib("emqx/include/logger.hrl").
 -include_lib("typerefl/include/types.hrl").
@@ -111,9 +112,9 @@ schema("/users") ->
         post => #{
             tags => [<<"dashboard">>],
             desc => ?DESC(create_user_api),
-            'requestBody' => fields([username, password, description]),
+            'requestBody' => fields([username, password, role, description]),
             responses => #{
-                200 => fields([username, description])
+                200 => fields([username, role, description])
             }
         }
     };
@@ -124,9 +125,9 @@ schema("/users/:username") ->
             tags => [<<"dashboard">>],
             desc => ?DESC(update_user_api),
             parameters => fields([username_in_path]),
-            'requestBody' => fields([description]),
+            'requestBody' => fields([role, description]),
             responses => #{
-                200 => fields([username, description]),
+                200 => fields([username, role, description]),
                 404 => response_schema(404)
             }
         },
@@ -170,7 +171,7 @@ response_schema(404) ->
 fields(user) ->
     fields([username, description]);
 fields(List) ->
-    [field(Key) || Key <- List].
+    [field(Key) || Key <- List, field_filter(Key)].
 
 field(username) ->
     {username,
@@ -203,7 +204,9 @@ field(version) ->
 field(old_pwd) ->
     {old_pwd, mk(binary(), #{desc => ?DESC(old_pwd)})};
 field(new_pwd) ->
-    {new_pwd, mk(binary(), #{desc => ?DESC(new_pwd)})}.
+    {new_pwd, mk(binary(), #{desc => ?DESC(new_pwd)})};
+field(role) ->
+    {role, mk(binary(), #{desc => ?DESC(role)})}.
 
 %% -------------------------------------------------------------------------------------------------
 %% API
@@ -242,16 +245,17 @@ users(get, _Request) ->
     {200, emqx_dashboard_admin:all_users()};
 users(post, #{body := Params}) ->
     Desc = maps:get(<<"description">>, Params, <<"">>),
+    Role = maps:get(<<"role">>, Params, ?ROLE_DEFAULT),
     Username = maps:get(<<"username">>, Params),
     Password = maps:get(<<"password">>, Params),
     case ?EMPTY(Username) orelse ?EMPTY(Password) of
         true ->
             {400, ?BAD_REQUEST, <<"Username or password undefined">>};
         false ->
-            case emqx_dashboard_admin:add_user(Username, Password, Desc) of
+            case emqx_dashboard_admin:add_user(Username, Password, Role, Desc) of
                 {ok, Result} ->
                     ?SLOG(info, #{msg => "Create dashboard success", username => Username}),
-                    {200, Result};
+                    {200, filter_result(Result)};
                 {error, Reason} ->
                     ?SLOG(info, #{
                         msg => "Create dashboard failed",
@@ -263,12 +267,15 @@ users(post, #{body := Params}) ->
     end.
 
 user(put, #{bindings := #{username := Username}, body := Params}) ->
+    Role = maps:get(<<"role">>, Params, ?ROLE_DEFAULT),
     Desc = maps:get(<<"description">>, Params),
-    case emqx_dashboard_admin:update_user(Username, Desc) of
+    case emqx_dashboard_admin:update_user(Username, Role, Desc) of
         {ok, Result} ->
-            {200, Result};
+            {200, filter_result(Result)};
+        {error, <<"username_not_found">> = Reason} ->
+            {404, ?USER_NOT_FOUND, Reason};
         {error, Reason} ->
-            {404, ?USER_NOT_FOUND, Reason}
+            {400, ?BAD_REQUEST, Reason}
     end;
 user(delete, #{bindings := #{username := Username}, headers := Headers}) ->
     case Username == emqx_dashboard_admin:default_username() of
@@ -347,3 +354,22 @@ change_pwd(post, #{bindings := #{username := Username}, body := Params}) ->
                     {400, ?BAD_REQUEST, Reason}
             end
     end.
+
+-if(?EMQX_RELEASE_EDITION == ee).
+field_filter(_) ->
+    true.
+
+filter_result(Result) ->
+    Result.
+
+-else.
+
+field_filter(role) ->
+    false;
+field_filter(_) ->
+    true.
+
+filter_result(Result) ->
+    maps:without([Role], Result).
+
+-endif.
