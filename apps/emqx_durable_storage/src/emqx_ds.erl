@@ -19,7 +19,7 @@
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
 %% API:
--export([ensure_shard/2]).
+-export([ensure_shard/3]).
 %%   Messages:
 -export([message_store/2, message_store/1, message_stats/0]).
 %%   Iterator:
@@ -39,6 +39,7 @@
 -export([]).
 
 -export_type([
+    keyspace/0,
     message_id/0,
     message_stats/0,
     message_store_opts/0,
@@ -77,6 +78,7 @@
 %% Parsed topic:
 -type topic() :: list(binary()).
 
+-type keyspace() :: binary().
 -type shard() :: binary().
 
 %% Timestamp
@@ -96,10 +98,10 @@
 %% API funcions
 %%================================================================================
 
--spec ensure_shard(shard(), emqx_ds_storage_layer:options()) ->
+-spec ensure_shard(shard(), keyspace(), emqx_ds_storage_layer:options()) ->
     ok | {error, _Reason}.
-ensure_shard(Shard, Options) ->
-    case emqx_ds_storage_layer_sup:start_shard(Shard, Options) of
+ensure_shard(Shard, Keyspace, Options) ->
+    case emqx_ds_storage_layer_sup:start_shard(Shard, Keyspace, Options) of
         {ok, _Pid} ->
             ok;
         {error, {already_started, _Pid}} ->

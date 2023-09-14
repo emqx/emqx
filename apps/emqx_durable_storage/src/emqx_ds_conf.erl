@@ -6,9 +6,9 @@
 %% TODO: make a proper HOCON schema and all...
 
 %% API:
--export([shard_config/1, db_options/0]).
+-export([keyspace_config/1, db_options/1]).
 
--export([shard_iteration_options/1]).
+-export([iteration_options/1]).
 -export([default_iteration_options/0]).
 
 -type backend_config() ::
@@ -23,16 +23,20 @@
 
 -define(APP, emqx_ds).
 
--spec shard_config(emqx_ds:shard()) -> backend_config().
-shard_config(Shard) ->
-    DefaultShardConfig = application:get_env(?APP, default_shard_config, default_shard_config()),
-    Shards = application:get_env(?APP, shard_config, #{}),
-    maps:get(Shard, Shards, DefaultShardConfig).
+-spec keyspace_config(emqx_ds:keyspace()) -> backend_config().
+keyspace_config(Keyspace) ->
+    DefaultKeyspaceConfig = application:get_env(
+        ?APP,
+        default_keyspace_config,
+        default_keyspace_config()
+    ),
+    Keyspaces = application:get_env(?APP, keyspace_config, #{}),
+    maps:get(Keyspace, Keyspaces, DefaultKeyspaceConfig).
 
--spec shard_iteration_options(emqx_ds:shard()) ->
+-spec iteration_options(emqx_ds:keyspace()) ->
     emqx_ds_message_storage_bitmask:iteration_options().
-shard_iteration_options(Shard) ->
-    case shard_config(Shard) of
+iteration_options(Keyspace) ->
+    case keyspace_config(Keyspace) of
         {emqx_ds_message_storage_bitmask, Config} ->
             maps:get(iteration, Config, default_iteration_options());
         {_Module, _} ->
@@ -41,12 +45,13 @@ shard_iteration_options(Shard) ->
 
 -spec default_iteration_options() -> emqx_ds_message_storage_bitmask:iteration_options().
 default_iteration_options() ->
-    {emqx_ds_message_storage_bitmask, Config} = default_shard_config(),
+    {emqx_ds_message_storage_bitmask, Config} = default_keyspace_config(),
     maps:get(iteration, Config).
 
--spec default_shard_config() -> backend_config().
-default_shard_config() ->
+-spec default_keyspace_config() -> backend_config().
+default_keyspace_config() ->
     {emqx_ds_message_storage_bitmask, #{
+        db_options => [],
         timestamp_bits => 64,
         topic_bits_per_level => [8, 8, 8, 32, 16],
         epoch => 5,
@@ -55,6 +60,8 @@ default_shard_config() ->
         }
     }}.
 
--spec db_options() -> emqx_ds_storage_layer:db_options().
-db_options() ->
-    application:get_env(?APP, db_options, []).
+-spec db_options(emqx_ds:keyspace()) -> emqx_ds_storage_layer:db_options().
+db_options(Keyspace) ->
+    DefaultDBOptions = application:get_env(?APP, default_db_options, []),
+    Keyspaces = application:get_env(?APP, keyspace_config, #{}),
+    emqx_utils_maps:deep_get([Keyspace, db_options], Keyspaces, DefaultDBOptions).

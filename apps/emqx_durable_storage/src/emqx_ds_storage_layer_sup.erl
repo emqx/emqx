@@ -6,7 +6,7 @@
 -behaviour(supervisor).
 
 %% API:
--export([start_link/0, start_shard/2, stop_shard/1]).
+-export([start_link/0, start_shard/3, stop_shard/1]).
 
 %% behaviour callbacks:
 -export([init/1]).
@@ -25,10 +25,10 @@
 start_link() ->
     supervisor:start_link({local, ?SUP}, ?MODULE, []).
 
--spec start_shard(emqx_ds:shard(), emqx_ds_storage_layer:options()) ->
+-spec start_shard(emqx_ds:shard(), emqx_ds:keyspace(), emqx_ds_storage_layer:options()) ->
     supervisor:startchild_ret().
-start_shard(Shard, Options) ->
-    supervisor:start_child(?SUP, shard_child_spec(Shard, Options)).
+start_shard(Shard, Keyspace, Options) ->
+    supervisor:start_child(?SUP, shard_child_spec(Shard, Keyspace, Options)).
 
 -spec stop_shard(emqx_ds:shard()) -> ok | {error, _}.
 stop_shard(Shard) ->
@@ -52,12 +52,12 @@ init([]) ->
 %% Internal functions
 %%================================================================================
 
--spec shard_child_spec(emqx_ds:shard(), emqx_ds_storage_layer:options()) ->
+-spec shard_child_spec(emqx_ds:shard(), emqx_ds:keyspace(), emqx_ds_storage_layer:options()) ->
     supervisor:child_spec().
-shard_child_spec(Shard, Options) ->
+shard_child_spec(Shard, Keyspace, Options) ->
     #{
         id => Shard,
-        start => {emqx_ds_storage_layer, start_link, [Shard, Options]},
+        start => {emqx_ds_storage_layer, start_link, [Shard, Keyspace, Options]},
         shutdown => 5_000,
         restart => permanent,
         type => worker

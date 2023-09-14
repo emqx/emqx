@@ -10,6 +10,7 @@
 -include_lib("stdlib/include/assert.hrl").
 
 -define(SHARD, shard(?FUNCTION_NAME)).
+-define(KEYSPACE, keyspace(?FUNCTION_NAME)).
 
 -define(DEFAULT_CONFIG,
     {emqx_ds_message_storage_bitmask, #{
@@ -33,7 +34,7 @@
 %% Smoke test for opening and reopening the database
 t_open(_Config) ->
     ok = emqx_ds_storage_layer_sup:stop_shard(?SHARD),
-    {ok, _} = emqx_ds_storage_layer_sup:start_shard(?SHARD, #{}).
+    {ok, _} = emqx_ds_storage_layer_sup:start_shard(?SHARD, ?KEYSPACE, #{}).
 
 %% Smoke test of store function
 t_store(_Config) ->
@@ -262,15 +263,18 @@ end_per_suite(_Config) ->
     ok = application:stop(emqx_durable_storage).
 
 init_per_testcase(TC, Config) ->
-    ok = set_shard_config(shard(TC), ?DEFAULT_CONFIG),
-    {ok, _} = emqx_ds_storage_layer_sup:start_shard(shard(TC), #{}),
+    ok = set_keyspace_config(keyspace(TC), ?DEFAULT_CONFIG),
+    {ok, _} = emqx_ds_storage_layer_sup:start_shard(shard(TC), keyspace(TC), #{}),
     Config.
 
 end_per_testcase(TC, _Config) ->
     ok = emqx_ds_storage_layer_sup:stop_shard(shard(TC)).
 
-shard(TC) ->
+keyspace(TC) ->
     list_to_binary(lists:concat([?MODULE, "_", TC])).
 
-set_shard_config(Shard, Config) ->
-    ok = application:set_env(emqx_ds, shard_config, #{Shard => Config}).
+shard(TC) ->
+    <<(keyspace(TC))/binary, "_shard">>.
+
+set_keyspace_config(Keyspace, Config) ->
+    ok = application:set_env(emqx_ds, keyspace_config, #{Keyspace => Config}).
