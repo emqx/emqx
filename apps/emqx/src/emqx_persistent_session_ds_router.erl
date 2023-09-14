@@ -25,6 +25,7 @@
 -export([
     do_add_route/2,
     do_delete_route/2,
+    has_any_route/1,
     match_routes/1,
     lookup_routes/1,
     foldr_routes/2,
@@ -52,7 +53,7 @@ init_tables() ->
     ok = mria:create_table(?PS_ROUTER_TAB, [
         {type, bag},
         {rlog_shard, ?PS_ROUTER_SHARD},
-        {storage, ram_copies},
+        {storage, disc_copies},
         {record_name, ps_route},
         {attributes, record_info(fields, ps_route)},
         {storage_properties, [
@@ -65,7 +66,7 @@ init_tables() ->
     ok = mria:create_table(?PS_FILTERS_TAB, [
         {type, ordered_set},
         {rlog_shard, ?PS_ROUTER_SHARD},
-        {storage, ram_copies},
+        {storage, disc_copies},
         {record_name, ps_routeidx},
         {attributes, record_info(fields, ps_routeidx)},
         {storage_properties, [
@@ -99,6 +100,19 @@ do_delete_route(Topic, Dest) ->
             mria:dirty_delete(?PS_FILTERS_TAB, K);
         false ->
             mria_route_tab_delete(#ps_route{topic = Topic, dest = Dest})
+    end.
+
+%% @doc Takes a real topic (not filter) as input, and returns whether there is any
+%% matching filters.
+-spec has_any_route(emqx_types:topic()) -> boolean().
+has_any_route(Topic) ->
+    DirectTopicMatch = lookup_route_tab(Topic),
+    WildcardMatch = emqx_topic_index:match(Topic, ?PS_FILTERS_TAB),
+    case {DirectTopicMatch, WildcardMatch} of
+        {[], false} ->
+            false;
+        {_, _} ->
+            true
     end.
 
 %% @doc Take a real topic (not filter) as input, return the matching topics and topic

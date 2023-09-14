@@ -6,7 +6,7 @@
 
 -dialyzer({nowarn_function, storage/0}).
 
--export([start/2]).
+-export([start/2, storage/0]).
 
 -include("emqx_ds_int.hrl").
 
