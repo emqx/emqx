@@ -9,7 +9,6 @@
 
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
--include_lib("emqx/include/emqx_mqtt.hrl").
 -include_lib("emqx/include/emqx_channel.hrl").
 
 -define(CLIENT_ID, <<"client_with_session">>).

@@ -8,6 +8,7 @@
     emqtt_connect/0,
     emqtt_connect/1,
     emqtt_connect/2,
+    emqtt_connect_for_publish/1,
     emqtt_connect_many/2,
     emqtt_connect_many/3,
     stop_many/1,
@@ -37,6 +38,14 @@ emqtt_connect(Opts) ->
                 {properties, #{'Session-Expiry-Interval' => 600}}
             ]
     ),
+    case emqtt:connect(C) of
+        {ok, _} -> {ok, C};
+        {error, _} = Error -> Error
+    end.
+
+emqtt_connect_for_publish(Port) ->
+    ClientId = <<"pubclient-", (integer_to_binary(erlang:unique_integer([positive])))/binary>>,
+    {ok, C} = emqtt:start_link([{clientid, ClientId}, {port, Port}]),
     case emqtt:connect(C) of
         {ok, _} -> {ok, C};
         {error, _} = Error -> Error
