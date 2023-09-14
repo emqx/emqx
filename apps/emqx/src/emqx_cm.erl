@@ -77,7 +77,6 @@
 %% Client management
 -export([
     all_channels_table/1,
-    channel_with_session_table/1,
     live_connection_table/1
 ]).
 
@@ -564,27 +563,7 @@ all_channels() ->
     Pat = [{{'_', '$1'}, [], ['$1']}],
     ets:select(?CHAN_TAB, Pat).
 
-%% @doc Get clientinfo for all clients with sessions
-channel_with_session_table(ConnModuleList) ->
-    Ms = ets:fun2ms(
-        fun({{ClientId, _ChanPid}, Info, _Stats}) ->
-            {ClientId, Info}
-        end
-    ),
-    Table = ets:table(?CHAN_INFO_TAB, [{traverse, {select, Ms}}]),
-    ConnModules = sets:from_list(ConnModuleList, [{version, 2}]),
-    qlc:q([
-        {ClientId, ConnState, ConnInfo, ClientInfo}
-     || {ClientId, #{
-            conn_state := ConnState,
-            clientinfo := ClientInfo,
-            conninfo := #{clean_start := false, conn_mod := ConnModule} = ConnInfo
-        }} <-
-            Table,
-        sets:is_element(ConnModule, ConnModules)
-    ]).
-
-%% @doc Get clientinfo for all clients, regardless if they use clean start or not.
+%% @doc Get clientinfo for all clients
 all_channels_table(ConnModuleList) ->
     Ms = ets:fun2ms(
         fun({{ClientId, _ChanPid}, Info, _Stats}) ->

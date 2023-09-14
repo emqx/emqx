@@ -15,7 +15,7 @@
 
 -import(
     emqx_eviction_agent_test_helpers,
-    [emqtt_connect/0, emqtt_connect/1, emqtt_connect/2]
+    [emqtt_connect/0, emqtt_connect/1, emqtt_connect/2, emqtt_connect_for_publish/1]
 ).
 
 -define(assertPrinted(Printed, Code),
@@ -202,7 +202,7 @@ t_explicit_session_takeover(Config) ->
 
     ok = rpc:call(Node1, emqx_eviction_agent, disable, [test_eviction]),
 
-    {ok, C1} = emqtt_connect([{port, Port1}]),
+    {ok, C1} = emqtt_connect_for_publish(Port1),
     emqtt:publish(C1, <<"t1">>, <<"MessageToEvictedSession1">>),
     ok = emqtt:disconnect(C1),
 
@@ -229,7 +229,7 @@ t_explicit_session_takeover(Config) ->
     ok = rpc:call(Node1, emqx_eviction_agent, disable, [test_eviction]),
 
     %% Session is on Node2, but we connect to Node1
-    {ok, C2} = emqtt_connect([{port, Port1}]),
+    {ok, C2} = emqtt_connect_for_publish(Port1),
     emqtt:publish(C2, <<"t1">>, <<"MessageToEvictedSession2">>),
     ok = emqtt:disconnect(C2),
 
