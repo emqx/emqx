@@ -32,7 +32,8 @@
     create/2,
     update/2,
     authenticate/2,
-    destroy/1
+    destroy/1,
+    do_create/2
 ]).
 
 -import(proplists, [get_value/2, get_value/3]).
@@ -56,7 +57,9 @@ fields(ldap) ->
         {password_attribute, fun password_attribute/1},
         {is_superuser_attribute, fun is_superuser_attribute/1},
         {query_timeout, fun query_timeout/1}
-    ] ++ emqx_authn_schema:common_fields() ++ emqx_ldap:fields(config).
+    ] ++
+        emqx_authn_schema:common_fields() ++
+        emqx_ldap:fields(config).
 
 desc(ldap) ->
     ?DESC(ldap);
@@ -86,10 +89,10 @@ refs() ->
     [hoconsc:ref(?MODULE, ldap)].
 
 create(_AuthenticatorID, Config) ->
-    create(Config).
+    do_create(?MODULE, Config).
 
-create(Config0) ->
-    ResourceId = emqx_authn_utils:make_resource_id(?MODULE),
+do_create(Module, Config0) ->
+    ResourceId = emqx_authn_utils:make_resource_id(Module),
     {Config, State} = parse_config(Config0),
     {ok, _Data} = emqx_authn_utils:create_resource(ResourceId, emqx_ldap, Config),
     {ok, State#{resource_id => ResourceId}}.
@@ -142,16 +145,14 @@ authenticate(
 parse_config(Config) ->
     State = lists:foldl(
         fun(Key, Acc) ->
-            Value =
-                case maps:get(Key, Config) of
-                    Bin when is_binary(Bin) ->
-                        erlang:binary_to_list(Bin);
-                    Any ->
-                        Any
-                end,
-            Acc#{Key => Value}
+            case maps:find(Key, Config) of
+                {ok, Value} when is_binary(Value) ->
+                    Acc#{Key := erlang:binary_to_list(Value)};
+                _ ->
+                    Acc
+            end
         end,
-        #{},
+        Config,
         [password_attribute, is_superuser_attribute, query_timeout]
     ),
     {Config, State}.

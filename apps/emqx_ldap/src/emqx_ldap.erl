@@ -76,7 +76,20 @@ fields(config) ->
                 desc => ?DESC(request_timeout),
                 default => <<"5s">>
             })}
-    ] ++ emqx_connector_schema_lib:ssl_fields().
+    ] ++ emqx_connector_schema_lib:ssl_fields();
+fields(bind_opts) ->
+    [
+        {bind_password,
+            ?HOCON(
+                binary(),
+                #{
+                    desc => ?DESC(bind_password),
+                    default => <<"${password}">>,
+                    example => <<"${password}">>,
+                    validator => fun emqx_schema:non_empty_string/1
+                }
+            )}
+    ].
 
 server() ->
     Meta = #{desc => ?DESC("server")},
@@ -122,7 +135,12 @@ on_start(
 
     case emqx_resource_pool:start(InstId, ?MODULE, Options) of
         ok ->
-            {ok, prepare_template(Config, #{pool_name => InstId})};
+            emqx_ldap_bind_worker:on_start(
+                InstId,
+                Config,
+                Options,
+                prepare_template(Config, #{pool_name => InstId})
+            );
         {error, Reason} ->
             ?tp(
                 ldap_connector_start_failed,
@@ -131,11 +149,12 @@ on_start(
             {error, Reason}
     end.
 
-on_stop(InstId, _State) ->
+on_stop(InstId, State) ->
     ?SLOG(info, #{
         msg => "stopping_ldap_connector",
         connector => InstId
     }),
+    ok = emqx_ldap_bind_worker:on_stop(InstId, State),
     emqx_resource_pool:stop(InstId).
 
 on_query(InstId, {query, Data}, State) ->
@@ -143,7 +162,9 @@ on_query(InstId, {query, Data}, State) ->
 on_query(InstId, {query, Data, Attrs}, State) ->
     on_query(InstId, {query, Data}, [{attributes, Attrs}], State);
 on_query(InstId, {query, Data, Attrs, Timeout}, State) ->
-    on_query(InstId, {query, Data}, [{attributes, Attrs}, {timeout, Timeout}], State).
+    on_query(InstId, {query, Data}, [{attributes, Attrs}, {timeout, Timeout}], State);
+on_query(InstId, {bind, _Data} = Req, State) ->
+    emqx_ldap_bind_worker:on_query(InstId, Req, State).
 
 on_get_status(_InstId, #{pool_name := PoolName} = _State) ->
     case emqx_resource_pool:health_check_workers(PoolName, fun ?MODULE:do_get_status/1) of
@@ -233,7 +254,7 @@ do_ldap_query(
         {error, Reason} ->
             ?SLOG(
                 error,
-                LogMeta#{msg => "ldap_connector_do_sql_query_failed", reason => Reason}
+                LogMeta#{msg => "ldap_connector_do_query_failed", reason => Reason}
             ),
             {error, {unrecoverable_error, Reason}}
     end.
