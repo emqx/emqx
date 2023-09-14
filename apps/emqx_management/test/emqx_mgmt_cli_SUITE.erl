@@ -53,6 +53,35 @@ t_cluster(_Config) ->
     emqx_ctl:run_command(["cluster", "status"]),
     ok.
 
+%% Node forced out of cluster via leave command but still in seed configs,
+%% causing automatic rejoin on restart.
+%% we should prompt the user to manually remove node from seeds.
+t_cluster_info(_Config) ->
+    ?assertEqual([running_nodes, stopped_nodes], maps:keys(emqx_mgmt_cli:cluster_info())),
+    emqx_config:put([cluster, discovery_strategy], static),
+    emqx_config:put([cluster, static, seeds], [node(), 'dump@127.0.0.1']),
+    ?assertMatch(
+        #{
+            running_nodes := _,
+            stopped_nodes := _,
+            orphan_nodes_in_seeds := ['dump@127.0.0.1'],
+            msg := "node_configured_in_seeds_but_missing_in_cluster"
+        },
+        emqx_mgmt_cli:cluster_info()
+    ),
+    emqx_config:put([cluster, static, seeds], []),
+    Node = node(),
+    ?assertMatch(
+        #{
+            running_nodes := _,
+            stopped_nodes := _,
+            orphan_nodes_not_in_seeds := [Node],
+            msg := "node_in_cluster_but_not_configured_in_seeds"
+        },
+        emqx_mgmt_cli:cluster_info()
+    ),
+    ok.
+
 t_clients(_Config) ->
     %% clients list            # List all clients
     emqx_ctl:run_command(["clients", "list"]),
