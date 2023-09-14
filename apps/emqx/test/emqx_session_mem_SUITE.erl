@@ -20,7 +20,6 @@
 -compile(nowarn_export_all).
 
 -include_lib("emqx/include/emqx_mqtt.hrl").
--include_lib("emqx/include/asserts.hrl").
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
 
@@ -37,13 +36,6 @@ all() -> emqx_common_test_helpers:all(?MODULE).
 %%--------------------------------------------------------------------
 %% CT callbacks
 %%--------------------------------------------------------------------
-
--define(assertTimerSet(NAME, TIMEOUT),
-    ?assertReceive({timer, NAME, TIMEOUT} when is_integer(TIMEOUT))
-).
--define(assertTimerCancel(NAME),
-    ?assertReceive({timer, NAME, cancel})
-).
 
 init_per_suite(Config) ->
     ok = meck:new(
@@ -64,26 +56,6 @@ init_per_suite(Config) ->
 end_per_suite(Config) ->
     ok = emqx_cth_suite:stop(?config(suite_apps, Config)),
     meck:unload([emqx_broker, emqx_hooks]).
-
-init_per_testcase(_TestCase, Config) ->
-    Pid = self(),
-    ok = meck:expect(
-        emqx_session, ensure_timer, fun(Name, Timeout, Timers) ->
-            _ = Pid ! {timer, Name, Timeout},
-            meck:passthrough([Name, Timeout, Timers])
-        end
-    ),
-    ok = meck:expect(
-        emqx_session, cancel_timer, fun(Name, Timers) ->
-            _ = Pid ! {timer, Name, cancel},
-            meck:passthrough([Name, Timers])
-        end
-    ),
-    Config.
-
-end_per_testcase(_TestCase, Config) ->
-    ok = meck:delete(emqx_session, ensure_timer, 3),
-    Config.
 
 %%--------------------------------------------------------------------
 %% Test cases for session init
@@ -191,7 +163,6 @@ t_publish_qos2(_) ->
     ok = meck:expect(emqx_broker, publish, fun(_) -> [] end),
     Msg = emqx_message:make(clientid, ?QOS_2, <<"t">>, <<"payload">>),
     {ok, [], Session} = emqx_session_mem:publish(1, Msg, session()),
-    ?assertTimerSet(expire_awaiting_rel, _Timeout),
     ?assertEqual(1, emqx_session_mem:info(awaiting_rel_cnt, Session)),
     {ok, Session1} = emqx_session_mem:pubrel(1, Session),
     ?assertEqual(0, emqx_session_mem:info(awaiting_rel_cnt, Session1)),
@@ -266,7 +237,6 @@ t_puback_with_dequeue(_) ->
     {_, Q} = emqx_mqueue:in(Msg2, mqueue(#{max_len => 10})),
     Session = session(#{inflight => Inflight, mqueue => Q}),
     {ok, Msg1, [{_, Msg3}], Session1} = emqx_session_mem:puback(clientinfo(), 1, Session),
-    ?assertTimerSet(retry_delivery, _Timeout),
     ?assertEqual(1, emqx_session_mem:info(inflight_cnt, Session1)),
     ?assertEqual(0, emqx_session_mem:info(mqueue_len, Session1)),
     ?assertEqual(<<"t2">>, emqx_message:topic(Msg3)).
@@ -335,7 +305,6 @@ t_dequeue(_) ->
     Session1 = emqx_session_mem:enqueue(clientinfo(), Msgs, Session),
     {ok, [{undefined, Msg0}, {1, Msg1}, {2, Msg2}], Session2} =
         emqx_session_mem:dequeue(clientinfo(), Session1),
-    ?assertTimerSet(retry_delivery, _Timeout),
     ?assertEqual(0, emqx_session_mem:info(mqueue_len, Session2)),
     ?assertEqual(2, emqx_session_mem:info(inflight_cnt, Session2)),
     ?assertEqual(<<"t0">>, emqx_message:topic(Msg0)),
@@ -349,7 +318,6 @@ t_deliver_qos0(_) ->
     Deliveries = enrich([delivery(?QOS_0, T) || T <- [<<"t0">>, <<"t1">>]], Session1),
     {ok, [{undefined, Msg1}, {undefined, Msg2}], Session1} =
         emqx_session_mem:deliver(clientinfo(), Deliveries, Session1),
-    ?assertTimerCancel(retry_delivery),
     ?assertEqual(<<"t0">>, emqx_message:topic(Msg1)),
     ?assertEqual(<<"t1">>, emqx_message:topic(Msg2)).
 
@@ -361,7 +329,6 @@ t_deliver_qos1(_) ->
     Delivers = enrich([delivery(?QOS_1, T) || T <- [<<"t1">>, <<"t2">>]], Session),
     {ok, [{1, Msg1}, {2, Msg2}], Session1} =
         emqx_session_mem:deliver(clientinfo(), Delivers, Session),
-    ?assertTimerSet(retry_delivery, _Timeout),
     ?assertEqual(2, emqx_session_mem:info(inflight_cnt, Session1)),
     ?assertEqual(<<"t1">>, emqx_message:topic(Msg1)),
     ?assertEqual(<<"t2">>, emqx_message:topic(Msg2)),
@@ -378,7 +345,6 @@ t_deliver_qos2(_) ->
     Delivers = enrich([delivery(?QOS_2, <<"t0">>), delivery(?QOS_2, <<"t1">>)], Session),
     {ok, [{1, Msg1}, {2, Msg2}], Session1} =
         emqx_session_mem:deliver(clientinfo(), Delivers, Session),
-    ?assertTimerSet(retry_delivery, _Timeout),
     ?assertEqual(2, emqx_session_mem:info(inflight_cnt, Session1)),
     ?assertEqual(<<"t0">>, emqx_message:topic(Msg1)),
     ?assertEqual(<<"t1">>, emqx_message:topic(Msg2)).
@@ -390,7 +356,6 @@ t_deliver_one_msg(_) ->
         enrich(delivery(?QOS_1, <<"t1">>), Session),
         Session
     ),
-    ?assertTimerSet(retry_delivery, _Timeout),
     ?assertEqual(1, emqx_session_mem:info(inflight_cnt, Session1)),
     ?assertEqual(<<"t1">>, emqx_message:topic(Msg)).
 
@@ -399,13 +364,11 @@ t_deliver_when_inflight_is_full(_) ->
     Delivers = enrich([delivery(?QOS_1, <<"t1">>), delivery(?QOS_2, <<"t2">>)], Session),
     {ok, Publishes, Session1} =
         emqx_session_mem:deliver(clientinfo(), Delivers, Session),
-    {timer, _, Timeout} = ?assertTimerSet(retry_delivery, _Timeout),
     ?assertEqual(1, length(Publishes)),
     ?assertEqual(1, emqx_session_mem:info(inflight_cnt, Session1)),
     ?assertEqual(1, emqx_session_mem:info(mqueue_len, Session1)),
     {ok, Msg1, [{2, Msg2}], Session2} =
         emqx_session_mem:puback(clientinfo(), 1, Session1),
-    ?assertTimerSet(retry_delivery, Timeout),
     ?assertEqual(1, emqx_session_mem:info(inflight_cnt, Session2)),
     ?assertEqual(0, emqx_session_mem:info(mqueue_len, Session2)),
     ?assertEqual(<<"t1">>, emqx_message:topic(Msg1)),
@@ -456,14 +419,16 @@ t_retry(_) ->
     RetryIntervalMs = 100,
     Session = session(#{retry_interval => RetryIntervalMs}),
     Delivers = enrich([delivery(?QOS_1, <<"t1">>), delivery(?QOS_2, <<"t2">>)], Session),
-    {ok, Pubs, Session1} = emqx_session_mem:deliver(clientinfo(), Delivers, Session),
-    {timer, Name, _} = ?assertTimerSet(_Name, RetryIntervalMs),
+    {ok, Pubs, Session1} = emqx_session_mem:deliver(
+        clientinfo(), Delivers, Session
+    ),
     %% 0.2s
     ElapseMs = 200,
     ok = timer:sleep(ElapseMs),
     Msgs1 = [{I, with_ts(wait_ack, emqx_message:set_flag(dup, Msg))} || {I, Msg} <- Pubs],
-    {ok, Msgs1T, Session2} = emqx_session_mem:handle_timeout(clientinfo(), Name, Session1),
-    ?assertTimerSet(Name, RetryIntervalMs),
+    {ok, Msgs1T, RetryIntervalMs, Session2} = emqx_session_mem:handle_timeout(
+        clientinfo(), retry_delivery, Session1
+    ),
     ?assertEqual(inflight_data_to_msg(Msgs1), remove_deliver_flag(Msgs1T)),
     ?assertEqual(2, emqx_session_mem:info(inflight_cnt, Session2)).
 
@@ -504,17 +469,20 @@ t_replay(_) ->
     ?assertEqual(6, emqx_session_mem:info(inflight_cnt, Session3)).
 
 t_expire_awaiting_rel(_) ->
-    {ok, [], Session} = emqx_session_mem:expire(clientinfo(), session()),
-    Timeout = emqx_session_mem:info(await_rel_timeout, Session),
-    Session1 = emqx_session_mem:set_field(awaiting_rel, #{1 => Ts = ts(millisecond)}, Session),
-    {ok, [], Session2} = emqx_session_mem:expire(clientinfo(), Session1),
-    ?assertTimerSet(expire_awaiting_rel, Timeout),
-    ?assertEqual(#{1 => Ts}, emqx_session_mem:info(awaiting_rel, Session2)).
+    Now = ts(millisecond),
+    AwaitRelTimeout = 10000,
+    Session = session(#{await_rel_timeout => AwaitRelTimeout}),
+    Ts1 = Now - 1000,
+    Ts2 = Now - 20000,
+    {ok, [], Session1} = emqx_session_mem:expire(clientinfo(), Session),
+    Session2 = emqx_session_mem:set_field(awaiting_rel, #{1 => Ts1, 2 => Ts2}, Session1),
+    {ok, [], Timeout, Session3} = emqx_session_mem:expire(clientinfo(), Session2),
+    ?assertEqual(#{1 => Ts1}, emqx_session_mem:info(awaiting_rel, Session3)),
+    ?assert(Timeout =< AwaitRelTimeout).
 
 t_expire_awaiting_rel_all(_) ->
     Session = session(#{awaiting_rel => #{1 => 1, 2 => 2}}),
     {ok, [], Session1} = emqx_session_mem:expire(clientinfo(), Session),
-    ?assertTimerCancel(expire_awaiting_rel),
     ?assertEqual(#{}, emqx_session_mem:info(awaiting_rel, Session1)).
 
 %%--------------------------------------------------------------------

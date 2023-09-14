@@ -1155,7 +1155,11 @@ do_publish(
 ) ->
     case emqx_mqttsn_session:publish(ClientInfo, MsgId, Msg, Session) of
         {ok, _PubRes, NSession} ->
-            handle_out(pubrec, MsgId, Channel#channel{session = NSession});
+            NChannel1 = ensure_timer(
+                expire_awaiting_rel,
+                Channel#channel{session = NSession}
+            ),
+            handle_out(pubrec, MsgId, NChannel1);
         {error, ?RC_PACKET_IDENTIFIER_IN_USE} ->
             ok = metrics_inc(Ctx, 'packets.publish.inuse'),
             %% XXX: Use PUBACK to reply a PUBLISH Error Code
@@ -1980,7 +1984,11 @@ handle_deliver(
     of
         {ok, Publishes, NSession} ->
             NChannel = Channel#channel{session = NSession},
-            handle_out(publish, Publishes, NChannel);
+            handle_out(
+                publish,
+                Publishes,
+                ensure_timer(retry_delivery, NChannel)
+            );
         {ok, NSession} ->
             {ok, Channel#channel{session = NSession}}
     end.
@@ -2046,27 +2054,41 @@ handle_timeout(
     end;
 handle_timeout(
     _TRef,
-    {emqx_session, _Name},
+    retry_delivery,
     Channel = #channel{conn_state = disconnected}
 ) ->
     {ok, Channel};
 handle_timeout(
     _TRef,
-    {emqx_session, _Name},
+    retry_delivery,
     Channel = #channel{conn_state = asleep}
+) ->
+    {ok, reset_timer(retry_delivery, Channel)};
+handle_timeout(
+    _TRef,
+    _Name = expire_awaiting_rel,
+    Channel = #channel{conn_state = disconnected}
 ) ->
     {ok, Channel};
 handle_timeout(
     _TRef,
-    {emqx_session, Name},
-    Channel = #channel{session = Session, clientinfo = ClientInfo}
+    Name = expire_awaiting_rel,
+    Channel = #channel{conn_state = asleep}
 ) ->
+    {ok, reset_timer(Name, Channel)};
+handle_timeout(
+    _TRef,
+    Name,
+    Channel = #channel{session = Session, clientinfo = ClientInfo}
+) when Name == retry_delivery; Name == expire_awaiting_rel ->
     case emqx_mqttsn_session:handle_timeout(ClientInfo, Name, Session) of
-        {ok, [], NSession} ->
-            {ok, Channel#channel{session = NSession}};
         {ok, Publishes, NSession} ->
+            NChannel = Channel#channel{session = NSession},
+            handle_out(publish, Publishes, clean_timer(Name, NChannel));
+        {ok, Publishes, Timeout, NSession} ->
+            NChannel = Channel#channel{session = NSession},
             %% XXX: These replay messages should awaiting register acked?
-            handle_out(publish, Publishes, Channel#channel{session = NSession})
+            handle_out(publish, Publishes, reset_timer(Name, Timeout, NChannel))
     end;
 handle_timeout(
     _TRef,
@@ -2195,12 +2217,18 @@ ensure_timer(Name, Time, Channel = #channel{timers = Timers}) ->
 reset_timer(Name, Channel) ->
     ensure_timer(Name, clean_timer(Name, Channel)).
 
+reset_timer(Name, Time, Channel) ->
+    ensure_timer(Name, Time, clean_timer(Name, Channel)).
+
 clean_timer(Name, Channel = #channel{timers = Timers}) ->
     Channel#channel{timers = maps:remove(Name, Timers)}.
 
 interval(keepalive, #channel{keepalive = KeepAlive}) ->
-    emqx_keepalive:info(interval, KeepAlive).
-
+    emqx_keepalive:info(interval, KeepAlive);
+interval(retry_delivery, #channel{session = Session}) ->
+    emqx_mqttsn_session:info(retry_interval, Session);
+interval(expire_awaiting_rel, #channel{session = Session}) ->
+    emqx_mqttsn_session:info(await_rel_timeout, Session).
 %%--------------------------------------------------------------------
 %% Helper functions
 %%--------------------------------------------------------------------

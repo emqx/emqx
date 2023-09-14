@@ -164,7 +164,6 @@ create(#{zone := Zone, clientid := ClientId}, #{expiry_interval := EI}, Conf) ->
         mqueue = emqx_mqueue:init(QueueOpts),
         next_pkt_id = 1,
         awaiting_rel = #{},
-        timers = #{},
         max_subscriptions = maps:get(max_subscriptions, Conf),
         max_awaiting_rel = maps:get(max_awaiting_rel, Conf),
         upgrade_qos = maps:get(upgrade_qos, Conf),
@@ -339,7 +338,7 @@ get_subscription(Topic, #session{subscriptions = Subs}) ->
 publish(
     PacketId,
     Msg = #message{qos = ?QOS_2, timestamp = Ts},
-    Session = #session{awaiting_rel = AwaitingRel, await_rel_timeout = Timeout}
+    Session = #session{awaiting_rel = AwaitingRel}
 ) ->
     case is_awaiting_full(Session) of
         false ->
@@ -347,8 +346,7 @@ publish(
                 false ->
                     Results = emqx_broker:publish(Msg),
                     AwaitingRel1 = maps:put(PacketId, Ts, AwaitingRel),
-                    Session1 = ensure_timer(expire_awaiting_rel, Timeout, Session),
-                    {ok, Results, Session1#session{awaiting_rel = AwaitingRel1}};
+                    {ok, Results, Session#session{awaiting_rel = AwaitingRel1}};
                 true ->
                     {error, ?RC_PACKET_IDENTIFIER_IN_USE}
             end;
@@ -417,7 +415,7 @@ pubrel(PacketId, Session = #session{awaiting_rel = AwaitingRel}) ->
     case maps:take(PacketId, AwaitingRel) of
         {_Ts, AwaitingRel1} ->
             NSession = Session#session{awaiting_rel = AwaitingRel1},
-            {ok, reconcile_expire_timer(NSession)};
+            {ok, NSession};
         error ->
             {error, ?RC_PACKET_IDENTIFIER_NOT_FOUND}
     end.
@@ -449,7 +447,7 @@ pubcomp(ClientInfo, PacketId, Session = #session{inflight = Inflight}) ->
 dequeue(ClientInfo, Session = #session{inflight = Inflight, mqueue = Q}) ->
     case emqx_mqueue:is_empty(Q) of
         true ->
-            {ok, [], reconcile_retry_timer(Session)};
+            {ok, [], Session};
         false ->
             {Msgs, Q1} = dequeue(ClientInfo, batch_n(Inflight), [], Q),
             do_deliver(ClientInfo, Msgs, [], Session#session{mqueue = Q1})
@@ -484,7 +482,7 @@ deliver(ClientInfo, Msgs, Session) ->
     do_deliver(ClientInfo, Msgs, [], Session).
 
 do_deliver(_ClientInfo, [], Publishes, Session) ->
-    {ok, lists:reverse(Publishes), reconcile_retry_timer(Session)};
+    {ok, lists:reverse(Publishes), Session};
 do_deliver(ClientInfo, [Msg | More], Acc, Session) ->
     case deliver_msg(ClientInfo, Msg, Session) of
         {ok, [], Session1} ->
@@ -557,12 +555,13 @@ mark_begin_deliver(Msg) ->
 %% Timeouts
 %%--------------------------------------------------------------------
 
--spec handle_timeout(clientinfo(), atom(), session()) ->
-    {ok, replies(), session()}.
-handle_timeout(ClientInfo, retry_delivery = Name, Session) ->
-    retry(ClientInfo, clean_timer(Name, Session));
-handle_timeout(ClientInfo, expire_awaiting_rel = Name, Session) ->
-    expire(ClientInfo, clean_timer(Name, Session)).
+%% @doc Handle timeout events
+-spec handle_timeout(clientinfo(), emqx_session:common_timer_name(), session()) ->
+    {ok, replies(), session()} | {ok, replies(), timeout(), session()}.
+handle_timeout(ClientInfo, retry_delivery, Session) ->
+    retry(ClientInfo, Session);
+handle_timeout(ClientInfo, expire_awaiting_rel, Session) ->
+    expire(ClientInfo, Session).
 
 %%--------------------------------------------------------------------
 %% Retry Delivery
@@ -585,8 +584,8 @@ retry(ClientInfo, Session = #session{inflight = Inflight}) ->
             )
     end.
 
-retry_delivery(_ClientInfo, [], Acc, _Now, Session) ->
-    {ok, lists:reverse(Acc), reconcile_retry_timer(Session)};
+retry_delivery(_ClientInfo, [], Acc, _, Session = #session{retry_interval = Interval}) ->
+    {ok, lists:reverse(Acc), Interval, Session};
 retry_delivery(
     ClientInfo,
     [{PacketId, #inflight_data{timestamp = Ts} = Data} | More],
@@ -599,8 +598,7 @@ retry_delivery(
             {Acc1, Inflight1} = do_retry_delivery(ClientInfo, PacketId, Data, Now, Acc, Inflight),
             retry_delivery(ClientInfo, More, Acc1, Now, Session#session{inflight = Inflight1});
         false ->
-            NSession = ensure_timer(retry_delivery, Interval - max(0, Age), Session),
-            {ok, lists:reverse(Acc), NSession}
+            {ok, lists:reverse(Acc), Interval - max(0, Age), Session}
     end.
 
 do_retry_delivery(
@@ -638,8 +636,7 @@ expire(ClientInfo, Session = #session{awaiting_rel = AwaitingRel}) ->
             {ok, [], Session};
         _ ->
             Now = erlang:system_time(millisecond),
-            NSession = expire_awaiting_rel(ClientInfo, Now, Session),
-            {ok, [], reconcile_expire_timer(NSession)}
+            expire_awaiting_rel(ClientInfo, Now, Session)
     end.
 
 expire_awaiting_rel(
@@ -651,7 +648,11 @@ expire_awaiting_rel(
     AwaitingRel1 = maps:filter(NotExpired, AwaitingRel),
     ExpiredCnt = maps:size(AwaitingRel) - maps:size(AwaitingRel1),
     _ = emqx_session_events:handle_event(ClientInfo, {expired_rel, ExpiredCnt}),
-    Session#session{awaiting_rel = AwaitingRel1}.
+    Session1 = Session#session{awaiting_rel = AwaitingRel1},
+    case maps:size(AwaitingRel1) of
+        0 -> {ok, [], Session1};
+        _ -> {ok, [], Timeout, Session1}
+    end.
 
 %%--------------------------------------------------------------------
 %% Takeover, Resume and Replay
@@ -673,7 +674,7 @@ resume(ClientInfo = #{clientid := ClientId}, Session = #session{subscriptions = 
     ),
     ok = emqx_metrics:inc('session.resumed'),
     ok = emqx_hooks:run('session.resumed', [ClientInfo, emqx_session:info(Session)]),
-    Session#session{timers = #{}}.
+    Session.
 
 -spec replay(emqx_types:clientinfo(), [emqx_types:message()], session()) ->
     {ok, replies(), session()}.
@@ -705,7 +706,7 @@ replay(ClientInfo, Session) ->
         emqx_inflight:to_list(Session#session.inflight)
     ),
     {ok, More, Session1} = dequeue(ClientInfo, Session),
-    {ok, append(PubsResend, More), reconcile_expire_timer(Session1)}.
+    {ok, append(PubsResend, More), Session1}.
 
 append(L1, []) -> L1;
 append(L1, L2) -> L1 ++ L2.
@@ -715,7 +716,7 @@ append(L1, L2) -> L1 ++ L2.
 -spec disconnect(session()) -> {idle, session()}.
 disconnect(Session = #session{}) ->
     % TODO: isolate expiry timer / timeout handling here?
-    {idle, cancel_timers(Session)}.
+    {idle, Session}.
 
 -spec terminate(Reason :: term(), session()) -> ok.
 terminate(Reason, Session) ->
@@ -779,40 +780,6 @@ with_ts(Msg) ->
     }.
 
 age(Now, Ts) -> Now - Ts.
-
-%%--------------------------------------------------------------------
-
-reconcile_retry_timer(Session = #session{inflight = Inflight}) ->
-    case emqx_inflight:is_empty(Inflight) of
-        false ->
-            ensure_timer(retry_delivery, Session#session.retry_interval, Session);
-        true ->
-            cancel_timer(retry_delivery, Session)
-    end.
-
-reconcile_expire_timer(Session = #session{awaiting_rel = AwaitingRel}) ->
-    case maps:size(AwaitingRel) of
-        0 ->
-            cancel_timer(expire_awaiting_rel, Session);
-        _ ->
-            ensure_timer(expire_awaiting_rel, Session#session.await_rel_timeout, Session)
-    end.
-
-%%--------------------------------------------------------------------
-
-ensure_timer(Name, Timeout, Session = #session{timers = Timers}) ->
-    NTimers = emqx_session:ensure_timer(Name, Timeout, Timers),
-    Session#session{timers = NTimers}.
-
-clean_timer(Name, Session = #session{timers = Timers}) ->
-    Session#session{timers = maps:remove(Name, Timers)}.
-
-cancel_timers(Session = #session{timers = Timers}) ->
-    ok = maps:foreach(fun(_Name, TRef) -> emqx_utils:cancel_timer(TRef) end, Timers),
-    Session#session{timers = #{}}.
-
-cancel_timer(Name, Session = #session{timers = Timers}) ->
-    Session#session{timers = emqx_session:cancel_timer(Name, Timers)}.
 
 %%--------------------------------------------------------------------
 %% For CT tests

@@ -49,10 +49,7 @@
     %% Awaiting PUBREL Timeout (Unit: millisecond)
     await_rel_timeout :: timeout(),
     %% Created at
-    created_at :: pos_integer(),
-
-    %% Timers
-    timers :: #{_Name => reference()}
+    created_at :: pos_integer()
 }).
 
 -endif.

@@ -147,8 +147,7 @@ sessioninfo() ->
             awaiting_rel = awaiting_rel(),
             max_awaiting_rel = non_neg_integer(),
             await_rel_timeout = safty_timeout(),
-            created_at = timestamp(),
-            timers = #{}
+            created_at = timestamp()
         },
         emqx_session:info(Session)
     ).

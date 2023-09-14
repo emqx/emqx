@@ -131,7 +131,7 @@ with_sess(Fun, Args, Session = #{session := Sess}) ->
         %% for publish / pubrec / pubcomp / deliver
         {ok, ResultReplies, Sess1} ->
             {ok, ResultReplies, Session#{session := Sess1}};
-        %% for puback
+        %% for puback / handle_timeout
         {ok, Msgs, Replies, Sess1} ->
             {ok, Msgs, Replies, Session#{session := Sess1}};
         %% for any errors

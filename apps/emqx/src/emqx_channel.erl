@@ -130,6 +130,10 @@
 
 -define(IS_MQTT_V5, #channel{conninfo = #{proto_ver := ?MQTT_PROTO_V5}}).
 
+-define(IS_COMMON_SESSION_TIMER(N),
+    ((N == retry_delivery) orelse (N == expire_awaiting_rel))
+).
+
 -define(LIMITER_ROUTING, message_routing).
 
 -dialyzer({no_match, [shutdown/4, ensure_timer/2, interval/2]}).
@@ -723,8 +727,9 @@ do_publish(
         {ok, PubRes, NSession} ->
             RC = pubrec_reason_code(PubRes),
             NChannel0 = Channel#channel{session = NSession},
-            NChannel1 = ensure_quota(PubRes, NChannel0),
-            handle_out(pubrec, {PacketId, RC}, NChannel1);
+            NChannel1 = ensure_timer(expire_awaiting_rel, NChannel0),
+            NChannel2 = ensure_quota(PubRes, NChannel1),
+            handle_out(pubrec, {PacketId, RC}, NChannel2);
         {error, RC = ?RC_PACKET_IDENTIFIER_IN_USE} ->
             ok = emqx_metrics:inc('packets.publish.inuse'),
             handle_out(pubrec, {PacketId, RC}, Channel);
@@ -953,7 +958,7 @@ handle_deliver(
             {ok, Channel#channel{session = NSession}};
         {ok, Publishes, NSession} ->
             NChannel = Channel#channel{session = NSession},
-            handle_out(publish, Publishes, NChannel)
+            handle_out(publish, Publishes, ensure_timer(retry_delivery, NChannel))
     end.
 
 %% Nack delivers from shared subscription
@@ -1067,6 +1072,10 @@ return_connack(AckPacket, Channel) ->
             },
             {Packets, NChannel2} = do_deliver(Publishes, NChannel1),
             Outgoing = [?REPLY_OUTGOING(Packets) || length(Packets) > 0],
+            % NOTE
+            % Session timers are not restored here, so there's a tiny chance that
+            % the session becomes stuck, when it already has no place to track new
+            % messages.
             {ok, Replies ++ Outgoing, NChannel2}
     end.
 
@@ -1307,14 +1316,27 @@ handle_timeout(
     end;
 handle_timeout(
     _TRef,
-    {emqx_session, Name},
+    Name,
+    Channel = #channel{conn_state = disconnected}
+) when ?IS_COMMON_SESSION_TIMER(Name) ->
+    {ok, Channel};
+handle_timeout(
+    _TRef,
+    Name,
     Channel = #channel{session = Session, clientinfo = ClientInfo}
-) ->
+) when ?IS_COMMON_SESSION_TIMER(Name) ->
+    % NOTE
+    % Responsibility for these timers is smeared across both this module and the
+    % `emqx_session` module: the latter holds configured timer intervals, and is
+    % responsible for the actual timeout logic. Yet they are managed here, since
+    % they are kind of common to all session implementations.
     case emqx_session:handle_timeout(ClientInfo, Name, Session) of
-        {ok, [], NSession} ->
-            {ok, Channel#channel{session = NSession}};
-        {ok, Replies, NSession} ->
-            handle_out(publish, Replies, Channel#channel{session = NSession})
+        {ok, Publishes, NSession} ->
+            NChannel = Channel#channel{session = NSession},
+            handle_out(publish, Publishes, clean_timer(Name, NChannel));
+        {ok, Publishes, Timeout, NSession} ->
+            NChannel = Channel#channel{session = NSession},
+            handle_out(publish, Publishes, reset_timer(Name, Timeout, NChannel))
     end;
 handle_timeout(_TRef, expire_session, Channel) ->
     shutdown(expired, Channel);
@@ -1369,11 +1391,18 @@ ensure_timer(Name, Time, Channel = #channel{timers = Timers}) ->
 reset_timer(Name, Channel) ->
     ensure_timer(Name, clean_timer(Name, Channel)).
 
+reset_timer(Name, Time, Channel) ->
+    ensure_timer(Name, Time, clean_timer(Name, Channel)).
+
 clean_timer(Name, Channel = #channel{timers = Timers}) ->
     Channel#channel{timers = maps:remove(Name, Timers)}.
 
 interval(keepalive, #channel{keepalive = KeepAlive}) ->
     emqx_keepalive:info(interval, KeepAlive);
+interval(retry_delivery, #channel{session = Session}) ->
+    emqx_session:info(retry_interval, Session);
+interval(expire_awaiting_rel, #channel{session = Session}) ->
+    emqx_session:info(await_rel_timeout, Session);
 interval(expire_session, #channel{conninfo = ConnInfo}) ->
     maps:get(expiry_interval, ConnInfo);
 interval(will_message, #channel{will_msg = WillMsg}) ->

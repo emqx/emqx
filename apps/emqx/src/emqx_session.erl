@@ -95,13 +95,6 @@
 % Foreign session implementations
 -export([enrich_delivers/3]).
 
-% Timers
--export([
-    ensure_timer/3,
-    reset_timer/3,
-    cancel_timer/2
-]).
-
 % Utilities
 -export([should_discard/1]).
 
@@ -113,7 +106,8 @@
     conf/0,
     conninfo/0,
     reply/0,
-    replies/0
+    replies/0,
+    common_timer_name/0
 ]).
 
 -type session_id() :: _TODO.
@@ -126,6 +120,8 @@
         receive_maximum => non_neg_integer(),
         expiry_interval => non_neg_integer()
     }.
+
+-type common_timer_name() :: retry_delivery | expire_awaiting_rel.
 
 -type message() :: emqx_types:message().
 -type publish() :: {maybe(emqx_types:packet_id()), emqx_types:message()}.
@@ -415,30 +411,11 @@ enrich_subopts(_Opt, _V, Msg, _) ->
 %% Timeouts
 %%--------------------------------------------------------------------
 
--spec handle_timeout(clientinfo(), atom(), t()) ->
-    {ok, t()} | {ok, replies(), t()}.
+-spec handle_timeout(clientinfo(), common_timer_name(), t()) ->
+    {ok, replies(), t()}
+    | {ok, replies(), timeout(), t()}.
 handle_timeout(ClientInfo, Timer, Session) ->
     ?IMPL(Session):handle_timeout(ClientInfo, Timer, Session).
-
-%%--------------------------------------------------------------------
-
-ensure_timer(Name, _Time, Timers = #{}) when is_map_key(Name, Timers) ->
-    Timers;
-ensure_timer(Name, Time, Timers = #{}) when Time > 0 ->
-    TRef = emqx_utils:start_timer(Time, {?MODULE, Name}),
-    Timers#{Name => TRef}.
-
-reset_timer(Name, Time, Channel) ->
-    ensure_timer(Name, Time, cancel_timer(Name, Channel)).
-
-cancel_timer(Name, Timers) ->
-    case maps:take(Name, Timers) of
-        {TRef, NTimers} ->
-            ok = emqx_utils:cancel_timer(TRef),
-            NTimers;
-        error ->
-            Timers
-    end.
 
 %%--------------------------------------------------------------------
 
