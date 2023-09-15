@@ -243,6 +243,12 @@ open_session(ConnInfo, #{clientid := ClientId} = ClientInfo) ->
                     node => node()
                 }
             ),
+            % NOTE
+            % Here we aggregate and deduplicate remote and local pending deliveries,
+            % throwing away any local deliveries that are part of some shared
+            % subscription. Remote deliviries pertaining to shared subscriptions should
+            % already have been thrown away by `emqx_channel:handle_deliver/2`.
+            % See also: `emqx_channel:maybe_resume_session/1`, `emqx_session_mem:replay/3`.
             DeliversLocal = emqx_channel:maybe_nack(emqx_utils:drain_deliver()),
             PendingsAll = emqx_session_mem:dedup(ClientInfo, Pendings, DeliversLocal, Session),
             NSession = emqx_session_mem:enqueue(ClientInfo, PendingsAll, Session),
