@@ -119,10 +119,11 @@ t_rest_api(_Config) ->
     {ok, 200, Res0} = http_get(["users"]),
     ?assertEqual(
         [
-            #{
+            filter_req(#{
                 <<"username">> => <<"admin">>,
-                <<"description">> => <<"administrator">>
-            }
+                <<"description">> => <<"administrator">>,
+                <<"role">> => ?ROLE_SUPERUSER
+            })
         ],
         get_http_data(Res0)
     ),

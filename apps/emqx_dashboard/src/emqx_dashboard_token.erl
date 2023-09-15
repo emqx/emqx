@@ -117,7 +117,7 @@ do_sign(#?ADMIN{username = Username} = User, Password) ->
     },
     Signed = jose_jwt:sign(JWK, JWS, JWT),
     {_, Token} = jose_jws:compact(Signed),
-    Role = role(User),
+    Role = emqx_dashboard_admin:role(User),
     JWTRec = format(Token, Username, Role, ExpTime),
     _ = mria:transaction(?DASHBOARD_SHARD, fun mnesia:write/1, [JWTRec]),
     {ok, Token}.
@@ -249,9 +249,6 @@ clean_expired_jwt(Now) ->
 check_rbac(Req, Extra) ->
     emqx_dashboard_rbac:check_rbac(Req, Extra).
 
-role(Data) ->
-    emqx_dashboard_rbac:role(Data).
-
 -else.
 
 -dialyzer({nowarn_function, [check_rbac/2]}).
@@ -259,8 +256,5 @@ role(Data) ->
 
 check_rbac(_Req, _Extra) ->
     true.
-
-role(_) ->
-    ?ROLE_DEFAULT.
 
 -endif.

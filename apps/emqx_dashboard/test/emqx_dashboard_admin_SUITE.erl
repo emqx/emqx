@@ -175,7 +175,7 @@ t_clean_token(_) ->
     NewPassword = <<"public_www2">>,
     {ok, _} = emqx_dashboard_admin:add_user(Username, Password, ?ROLE_SUPERUSER, <<"desc">>),
     {ok, Token} = emqx_dashboard_admin:sign_token(Username, Password),
-    FakeReq = #{method => <<"get">>},
+    FakeReq = #{method => <<"GET">>},
     ok = emqx_dashboard_admin:verify_token(FakeReq, Token),
     %% change password
     {ok, _} = emqx_dashboard_admin:change_password(Username, Password, NewPassword),

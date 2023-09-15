@@ -56,10 +56,11 @@
     default_username/0
 ]).
 
+-export([role/1]).
+
 -export([backup_tables/0]).
 
 -type emqx_admin() :: #?ADMIN{}.
--define(BOOTSTRAP_USER_TAG, <<"bootstrap user">>).
 
 %%--------------------------------------------------------------------
 %% Mnesia bootstrap
@@ -228,7 +229,20 @@ remove_user(Username) when is_binary(Username) ->
 update_user(Username, Role, Desc) when is_binary(Username) ->
     case legal_role(Role) of
         ok ->
-            return(mria:transaction(?DASHBOARD_SHARD, fun update_user_/3, [Username, Role, Desc]));
+            case
+                return(
+                    mria:transaction(?DASHBOARD_SHARD, fun update_user_/3, [Username, Role, Desc])
+                )
+            of
+                {ok, {true, Result}} ->
+                    {ok, Result};
+                {ok, {false, Result}} ->
+                    %% role has changed, destroy the related token
+                    _ = emqx_dashboard_token:destroy_by_username(Username),
+                    {ok, Result};
+                Error ->
+                    Error
+            end;
         Error ->
             Error
     end.
@@ -258,7 +272,7 @@ update_user_(Username, Role, Desc) ->
             mnesia:abort(<<"username_not_found">>);
         [Admin] ->
             mnesia:write(Admin#?ADMIN{role = Role, description = Desc}),
-            #{username => Username, role => Role, description => Desc}
+            {role(Admin) =:= Role, #{username => Username, role => Role, description => Desc}}
     end.
 
 change_password(Username, OldPasswd, NewPasswd) when is_binary(Username) ->
@@ -381,8 +395,9 @@ add_default_user(Username, Password) ->
         _ -> {ok, default_user_exists}
     end.
 
-%% ensure the `role` is correct when it directly read from the table
+%% ensure the `role` is correct when it is directly read from the table
 %% this value in old data is `undefined`
+-dialyzer({no_match, ensure_role/1}).
 ensure_role(undefined) ->
     ?ROLE_SUPERUSER;
 ensure_role(Role) when is_binary(Role) ->
@@ -392,6 +407,9 @@ ensure_role(Role) when is_binary(Role) ->
 legal_role(Role) ->
     emqx_dashboard_rbac:legal_role(Role).
 
+role(Data) ->
+    emqx_dashboard_rbac:role(Data).
+
 -else.
 
 -dialyzer({no_match, [add_user/4, update_user/3]}).
@@ -399,6 +417,8 @@ legal_role(Role) ->
 legal_role(_) ->
     ok.
 
+role(_) ->
+    ?ROLE_DEFAULT.
 -endif.
 
 -ifdef(TEST).

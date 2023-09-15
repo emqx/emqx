@@ -24,6 +24,7 @@
     request/2,
     request/3,
     request/4,
+    request/5,
     multipart_formdata_request/3,
     multipart_formdata_request/4,
     host/0,
@@ -73,6 +74,9 @@ request(Method, Url, Body) ->
     request(<<"admin">>, Method, Url, Body).
 
 request(Username, Method, Url, Body) ->
+    request(Username, <<"public">>, Method, Url, Body).
+
+request(Username, Password, Method, Url, Body) ->
     Request =
         case Body of
             [] when
@@ -80,9 +84,10 @@ request(Username, Method, Url, Body) ->
                     Method =:= head orelse Method =:= delete orelse
                     Method =:= trace
             ->
-                {Url, [auth_header(Username)]};
+                {Url, [auth_header(Username, Password)]};
             _ ->
-                {Url, [auth_header(Username)], "application/json", emqx_utils_json:encode(Body)}
+                {Url, [auth_header(Username, Password)], "application/json",
+                    emqx_utils_json:encode(Body)}
         end,
     ct:pal("Method: ~p, Request: ~p", [Method, Request]),
     case httpc:request(Method, Request, [], [{body_format, binary}]) of
@@ -108,7 +113,9 @@ uri(Host, Parts) when is_list(Host), is_list(Parts) ->
     Host ++ "/" ++ to_list(filename:join([?BASE_PATH, ?API_VERSION | NParts])).
 
 auth_header(Username) ->
-    Password = <<"public">>,
+    auth_header(Username, <<"public">>).
+
+auth_header(Username, Password) ->
     {ok, Token} = emqx_dashboard_admin:sign_token(Username, Password),
     {"Authorization", "Bearer " ++ binary_to_list(Token)}.
 
