@@ -100,7 +100,8 @@
     resume/2,
     enqueue/3,
     dequeue/2,
-    replay/2
+    replay/2,
+    dedup/4
 ]).
 
 %% Export for CT
@@ -669,19 +670,10 @@ resume(ClientInfo = #{clientid := ClientId}, Session = #session{subscriptions = 
 -spec replay(emqx_types:clientinfo(), [emqx_types:message()], session()) ->
     {ok, replies(), session()}.
 replay(ClientInfo, Pendings, Session) ->
-    PendingsLocal = emqx_session:enrich_delivers(
-        ClientInfo,
-        emqx_utils:drain_deliver(),
-        Session
-    ),
-    PendingsLocal1 = lists:filter(
-        fun(Msg) -> not lists:keymember(Msg#message.id, #message.id, Pendings) end,
-        PendingsLocal
-    ),
+    PendingsAll = dedup(ClientInfo, Pendings, emqx_utils:drain_deliver(), Session),
     {ok, PubsResendQueued, Session1} = replay(ClientInfo, Session),
-    {ok, Pubs1, Session2} = deliver(ClientInfo, Pendings, Session1),
-    {ok, Pubs2, Session3} = deliver(ClientInfo, PendingsLocal1, Session2),
-    {ok, append(append(PubsResendQueued, Pubs1), Pubs2), Session3}.
+    {ok, PubsPending, Session2} = deliver(ClientInfo, PendingsAll, Session1),
+    {ok, append(PubsResendQueued, PubsPending), Session2}.
 
 -spec replay(emqx_types:clientinfo(), session()) ->
     {ok, replies(), session()}.
@@ -697,6 +689,16 @@ replay(ClientInfo, Session) ->
     ),
     {ok, More, Session1} = dequeue(ClientInfo, Session),
     {ok, append(PubsResend, More), Session1}.
+
+-spec dedup(clientinfo(), [emqx_types:message()], [emqx_types:deliver()], session()) ->
+    [emqx_types:message()].
+dedup(ClientInfo, Pendings, DeliversLocal, Session) ->
+    PendingsLocal1 = emqx_session:enrich_delivers(ClientInfo, DeliversLocal, Session),
+    PendingsLocal2 = lists:filter(
+        fun(Msg) -> not lists:keymember(Msg#message.id, #message.id, Pendings) end,
+        PendingsLocal1
+    ),
+    append(Pendings, PendingsLocal2).
 
 append(L1, []) -> L1;
 append(L1, L2) -> L1 ++ L2.

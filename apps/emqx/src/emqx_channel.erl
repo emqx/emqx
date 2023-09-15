@@ -1177,7 +1177,7 @@ handle_call(
     ok = emqx_session_mem:takeover(Session),
     %% TODO: Should not drain deliver here (side effect)
     Delivers = emqx_utils:drain_deliver(),
-    AllPendings = lists:append(Delivers, Pendings),
+    AllPendings = lists:append(Pendings, maybe_nack(Delivers)),
     ?tp(
         debug,
         emqx_channel_takeover_end,
