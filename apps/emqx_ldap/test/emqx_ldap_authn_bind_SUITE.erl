@@ -1,7 +1,7 @@
 %%--------------------------------------------------------------------
 %% Copyright (c) 2023 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
--module(emqx_ldap_authn_SUITE).
+-module(emqx_ldap_authn_bind_SUITE).
 
 -compile(nowarn_export_all).
 -compile(export_all).
@@ -12,10 +12,10 @@
 
 -define(LDAP_HOST, "ldap").
 -define(LDAP_DEFAULT_PORT, 389).
--define(LDAP_RESOURCE, <<"emqx_authn_ldap_SUITE">>).
+-define(LDAP_RESOURCE, <<"emqx_authn_ldap_bind_SUITE">>).
 
 -define(PATH, [authentication]).
--define(ResourceID, <<"password_based:ldap">>).
+-define(ResourceID, <<"password_based:ldap_bind">>).
 
 all() ->
     emqx_common_test_helpers:all(?MODULE).
@@ -67,7 +67,7 @@ t_create(_Config) ->
         {create_authenticator, ?GLOBAL, AuthConfig}
     ),
 
-    {ok, [#{provider := emqx_ldap_authn}]} = emqx_authentication:list_authenticators(?GLOBAL),
+    {ok, [#{provider := emqx_ldap_authn_bind}]} = emqx_authentication:list_authenticators(?GLOBAL),
     emqx_authn_test_lib:delete_config(?ResourceID).
 
 t_create_invalid(_Config) ->
@@ -135,10 +135,10 @@ t_destroy(_Config) ->
         {create_authenticator, ?GLOBAL, AuthConfig}
     ),
 
-    {ok, [#{provider := emqx_ldap_authn, state := State}]} =
+    {ok, [#{provider := emqx_ldap_authn_bind, state := State}]} =
         emqx_authentication:list_authenticators(?GLOBAL),
 
-    {ok, _} = emqx_ldap_authn:authenticate(
+    {ok, _} = emqx_ldap_authn_bind:authenticate(
         #{
             username => <<"mqttuser0001">>,
             password => <<"mqttuser0001">>
@@ -154,7 +154,7 @@ t_destroy(_Config) ->
     % Authenticator should not be usable anymore
     ?assertMatch(
         ignore,
-        emqx_ldap_authn:authenticate(
+        emqx_ldap_authn_bind:authenticate(
             #{
                 username => <<"mqttuser0001">>,
                 password => <<"mqttuser0001">>
@@ -187,7 +187,7 @@ t_update(_Config) ->
     % We update with config with correct query, provider should update and work properly
     {ok, _} = emqx:update_config(
         ?PATH,
-        {update_authenticator, ?GLOBAL, <<"password_based:ldap">>, CorrectConfig}
+        {update_authenticator, ?GLOBAL, <<"password_based:ldap_bind">>, CorrectConfig}
     ),
 
     {ok, _} = emqx_access_control:authenticate(
@@ -206,12 +206,13 @@ t_update(_Config) ->
 raw_ldap_auth_config() ->
     #{
         <<"mechanism">> => <<"password_based">>,
-        <<"backend">> => <<"ldap">>,
+        <<"backend">> => <<"ldap_bind">>,
         <<"server">> => ldap_server(),
         <<"base_dn">> => <<"uid=${username},ou=testdevice,dc=emqx,dc=io">>,
         <<"username">> => <<"cn=root,dc=emqx,dc=io">>,
         <<"password">> => <<"public">>,
-        <<"pool_size">> => 8
+        <<"pool_size">> => 8,
+        <<"bind_password">> => <<"${password}">>
     }.
 
 user_seeds() ->
@@ -237,11 +238,7 @@ user_seeds() ->
         %% Not exists
         New(<<"notexists">>, <<"notexists">>, {error, not_authorized}),
         %% Wrong Password
-        New(<<"mqttuser0001">>, <<"wrongpassword">>, {error, bad_username_or_password}),
-        %% Disabled
-        New(<<"mqttuser0006">>, <<"mqttuser0006">>, {error, user_disabled}),
-        %% IsSuperuser
-        New(<<"mqttuser0007">>, <<"mqttuser0007">>, {ok, #{is_superuser => true}})
+        New(<<"mqttuser0001">>, <<"wrongpassword">>, {error, bad_username_or_password})
         | Valid
     ].
 

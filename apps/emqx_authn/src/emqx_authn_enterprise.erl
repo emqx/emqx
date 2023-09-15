@@ -11,11 +11,12 @@
 providers() ->
     [
         {{password_based, ldap}, emqx_ldap_authn},
+        {{password_based, ldap_bind}, emqx_ldap_authn_bind},
         {gcp_device, emqx_gcp_device_authn}
     ].
 
 resource_provider() ->
-    [emqx_ldap_authn].
+    [emqx_ldap_authn, emqx_ldap_authn_bind].
 
 -else.
 
