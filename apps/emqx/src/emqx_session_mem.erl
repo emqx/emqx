@@ -211,10 +211,10 @@ open(ClientInfo = #{clientid := ClientId}, _ConnInfo) ->
     end.
 
 clean_session(ClientInfo, Session = #session{mqueue = Q}, Pendings) ->
-    Q1 = emqx_mqueue:filter(fun emqx_session:should_discard/1, Q),
+    Q1 = emqx_mqueue:filter(fun emqx_session:should_keep/1, Q),
     Session1 = Session#session{mqueue = Q1},
     Pendings1 = emqx_session:enrich_delivers(ClientInfo, Pendings, Session),
-    Pendings2 = lists:filter(fun emqx_session:should_discard/1, Pendings1),
+    Pendings2 = lists:filter(fun emqx_session:should_keep/1, Pendings1),
     {true, Session1, Pendings2}.
 
 %%--------------------------------------------------------------------

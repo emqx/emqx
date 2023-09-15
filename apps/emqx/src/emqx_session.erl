@@ -92,7 +92,7 @@
 -export([enrich_delivers/3]).
 
 % Utilities
--export([should_discard/1]).
+-export([should_keep/1]).
 
 % Tests only
 -export([get_session_conf/2]).
@@ -497,12 +497,12 @@ on_dropped_qos2_msg(PacketId, Msg, RC) ->
 
 %%--------------------------------------------------------------------
 
--spec should_discard(message() | emqx_types:deliver()) -> boolean().
-should_discard(MsgDeliver) ->
-    is_banned_msg(MsgDeliver).
+-spec should_keep(message() | emqx_types:deliver()) -> boolean().
+should_keep(MsgDeliver) ->
+    not is_banned_msg(MsgDeliver).
 
 is_banned_msg(#message{from = ClientId}) ->
-    [] =:= emqx_banned:look_up({clientid, ClientId}).
+    [] =/= emqx_banned:look_up({clientid, ClientId}).
 
 %%--------------------------------------------------------------------
 
