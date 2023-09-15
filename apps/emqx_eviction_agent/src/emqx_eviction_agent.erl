@@ -230,17 +230,17 @@ connection_table() ->
 connection_count() ->
     table_count(connection_table()).
 
-channel_with_session_table(any) ->
+channel_table(any) ->
     qlc:q([
         {ClientId, ConnInfo, ClientInfo}
      || {ClientId, _, ConnInfo, ClientInfo} <-
-            emqx_cm:channel_with_session_table(?CONN_MODULES)
+            emqx_cm:all_channels_table(?CONN_MODULES)
     ]);
-channel_with_session_table(RequiredConnState) ->
+channel_table(RequiredConnState) ->
     qlc:q([
         {ClientId, ConnInfo, ClientInfo}
      || {ClientId, ConnState, ConnInfo, ClientInfo} <-
-            emqx_cm:channel_with_session_table(?CONN_MODULES),
+            emqx_cm:all_channels_table(?CONN_MODULES),
         RequiredConnState =:= ConnState
     ]).
 
@@ -269,13 +269,13 @@ all_channels_count() ->
 
 -spec all_local_channels_count() -> non_neg_integer().
 all_local_channels_count() ->
-    table_count(emqx_cm:all_channels_table(?CONN_MODULES)).
+    table_count(channel_table(any)).
 
 session_count() ->
     session_count(any).
 
 session_count(ConnState) ->
-    table_count(channel_with_session_table(ConnState)).
+    table_count(channel_table(ConnState)).
 
 table_count(QH) ->
     qlc:fold(fun(_, Acc) -> Acc + 1 end, 0, QH).
@@ -298,8 +298,8 @@ take_channels(N) ->
     ok = qlc:delete_cursor(ChanPidCursor),
     Channels.
 
-take_channel_with_sessions(N, ConnState) ->
-    ChanPidCursor = qlc:cursor(channel_with_session_table(ConnState)),
+take_channels(N, ConnState) ->
+    ChanPidCursor = qlc:cursor(channel_table(ConnState)),
     Channels = qlc:next_answers(ChanPidCursor, N),
     ok = qlc:delete_cursor(ChanPidCursor),
     Channels.
@@ -314,7 +314,7 @@ do_evict_connections(N, ServerReference) when N > 0 ->
     ).
 
 do_evict_sessions(N, Nodes, ConnState) when N > 0 ->
-    Channels = take_channel_with_sessions(N, ConnState),
+    Channels = take_channels(N, ConnState),
     ok = lists:foreach(
         fun({ClientId, ConnInfo, ClientInfo}) ->
             evict_session_channel(Nodes, ClientId, ConnInfo, ClientInfo)
@@ -346,6 +346,16 @@ evict_session_channel(Nodes, ClientId, ConnInfo, ClientInfo) ->
                 }
             ),
             {error, Reason};
+        {error, {no_session, _}} = Error ->
+            ?SLOG(
+                warning,
+                #{
+                    msg => "evict_session_channel_no_session",
+                    client_id => ClientId,
+                    node => Node
+                }
+            ),
+            Error;
         {error, Reason} = Error ->
             ?SLOG(
                 error,
