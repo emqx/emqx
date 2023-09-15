@@ -89,6 +89,7 @@
     bitsl/2,
     bitsr/2,
     bitsize/1,
+    bytesize/1,
     subbits/2,
     subbits/3,
     subbits/6
@@ -404,6 +405,9 @@ find_topic_filter(Filter, TopicFilters, Func) ->
 
 null() ->
     undefined.
+
+bytesize(IoList) ->
+    erlang:iolist_size(IoList).
 
 %%------------------------------------------------------------------------------
 %% Arithmetic Funcs
