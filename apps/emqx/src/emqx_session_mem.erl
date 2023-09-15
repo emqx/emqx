@@ -196,17 +196,16 @@ destroy(_Session) ->
 -spec open(clientinfo(), emqx_types:conninfo()) ->
     {true, session(), replayctx()} | false.
 open(ClientInfo = #{clientid := ClientId}, _ConnInfo) ->
-    case
-        emqx_cm:takeover_channel_session(
-            ClientId,
-            fun(Session) -> resume(ClientInfo, Session) end
-        )
-    of
-        {ok, Session, Pendings} ->
-            clean_session(ClientInfo, Session, Pendings);
-        {error, _} ->
-            % TODO log error?
-            false;
+    case emqx_cm:takeover_session_begin(ClientId) of
+        {ok, SessionRemote, TakeoverState} ->
+            Session = resume(ClientInfo, SessionRemote),
+            case emqx_cm:takeover_session_end(TakeoverState) of
+                {ok, Pendings} ->
+                    clean_session(ClientInfo, Session, Pendings);
+                {error, _} ->
+                    % TODO log error?
+                    false
+            end;
         none ->
             false
     end.

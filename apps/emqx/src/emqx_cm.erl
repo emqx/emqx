@@ -52,7 +52,8 @@
     open_session/3,
     discard_session/1,
     discard_session/2,
-    takeover_channel_session/2,
+    takeover_session_begin/1,
+    takeover_session_end/1,
     kick_session/1,
     kick_session/2
 ]).
@@ -117,6 +118,8 @@
     _Info :: emqx_types:infos(),
     _Stats :: emqx_types:stats()
 }.
+
+-type takeover_state() :: {_ConnMod :: module(), _ChanPid :: pid()}.
 
 -define(CHAN_STATS, [
     {?CHAN_TAB, 'channels.count', 'channels.max'},
@@ -289,27 +292,31 @@ create_register_session(ClientInfo = #{clientid := ClientId}, ConnInfo, ChanPid)
     {ok, #{session => Session, present => false}}.
 
 %% @doc Try to takeover a session from existing channel.
-%% Naming is wierd, because `takeover_session/2` is an RPC target and cannot be renamed.
--spec takeover_channel_session(emqx_types:clientid(), _TODO) ->
-    {ok, emqx_session:session(), _ReplayContext} | none | {error, _Reason}.
-takeover_channel_session(ClientId, OnTakeover) ->
-    takeover_channel_session(ClientId, pick_channel(ClientId), OnTakeover).
+-spec takeover_session_begin(emqx_types:clientid()) ->
+    {ok, emqx_session_mem:session(), takeover_state()} | none.
+takeover_session_begin(ClientId) ->
+    takeover_session_begin(ClientId, pick_channel(ClientId)).
 
-takeover_channel_session(ClientId, ChanPid, OnTakeover) when is_pid(ChanPid) ->
+takeover_session_begin(ClientId, ChanPid) when is_pid(ChanPid) ->
     case takeover_session(ClientId, ChanPid) of
         {living, ConnMod, Session} ->
-            Session1 = OnTakeover(Session),
-            case wrap_rpc(emqx_cm_proto_v2:takeover_finish(ConnMod, ChanPid)) of
-                {ok, Pendings} ->
-                    {ok, Session1, Pendings};
-                {error, _} = Error ->
-                    Error
-            end;
+            {ok, Session, {ConnMod, ChanPid}};
         none ->
             none
     end;
-takeover_channel_session(_ClientId, undefined, _OnTakeover) ->
+takeover_session_begin(_ClientId, undefined) ->
     none.
+
+%% @doc Conclude the session takeover process.
+-spec takeover_session_end(takeover_state()) ->
+    {ok, _ReplayContext} | {error, _Reason}.
+takeover_session_end({ConnMod, ChanPid}) ->
+    case wrap_rpc(emqx_cm_proto_v2:takeover_finish(ConnMod, ChanPid)) of
+        {ok, Pendings} ->
+            {ok, Pendings};
+        {error, _} = Error ->
+            Error
+    end.
 
 -spec pick_channel(emqx_types:clientid()) ->
     maybe(pid()).
