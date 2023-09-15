@@ -104,7 +104,7 @@ mnesia(boot) ->
 
 %%--------------------------------------------------------------------
 %% jwt apply
-do_sign(#?ADMIN{username = Username, extra = Extra}, Password) ->
+do_sign(#?ADMIN{username = Username} = User, Password) ->
     ExpTime = jwt_expiration_time(),
     Salt = salt(),
     JWK = jwk(Username, Password, Salt),
@@ -117,7 +117,8 @@ do_sign(#?ADMIN{username = Username, extra = Extra}, Password) ->
     },
     Signed = jose_jwt:sign(JWK, JWS, JWT),
     {_, Token} = jose_jws:compact(Signed),
-    JWTRec = format(Token, Username, ExpTime, Extra),
+    Role = role(User),
+    JWTRec = format(Token, Username, Role, ExpTime),
     _ = mria:transaction(?DASHBOARD_SHARD, fun mnesia:write/1, [JWTRec]),
     {ok, Token}.
 
@@ -191,12 +192,12 @@ jwt_expiration_time() ->
 token_ttl() ->
     emqx_conf:get([dashboard, token_expired_time], ?EXPTIME).
 
-format(Token, Username, ExpTime, Extra) ->
+format(Token, Username, Role, ExpTime) ->
     #?ADMIN_JWT{
         token = Token,
         username = Username,
         exptime = ExpTime,
-        extra = #{role => role(Extra)}
+        extra = #{role => Role}
     }.
 
 %%--------------------------------------------------------------------
@@ -254,11 +255,12 @@ role(Data) ->
 -else.
 
 -dialyzer({nowarn_function, [check_rbac/2]}).
+-dialyzer({no_match, [do_verify/2]}).
 
 check_rbac(_Req, _Extra) ->
     true.
 
 role(_) ->
-    undefined.
+    ?ROLE_DEFAULT.
 
 -endif.

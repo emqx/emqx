@@ -196,7 +196,12 @@ force_add_user(Username, Password, Role, Desc) ->
 add_user_(Username, Password, Role, Desc) ->
     case mnesia:wread({?ADMIN, Username}) of
         [] ->
-            Admin = #?ADMIN{username = Username, pwdhash = hash(Password), description = Desc},
+            Admin = #?ADMIN{
+                username = Username,
+                pwdhash = hash(Password),
+                role = Role,
+                description = Desc
+            },
             mnesia:write(Admin),
             #{username => Username, role => Role, description => Desc};
         [_] ->
@@ -305,12 +310,14 @@ all_users() ->
         fun(
             #?ADMIN{
                 username = Username,
-                description = Desc
+                description = Desc,
+                role = Role
             }
         ) ->
             #{
                 username => Username,
-                description => Desc
+                description => Desc,
+                role => ensure_role(Role)
             }
         end,
         ets:tab2list(?ADMIN)
@@ -374,11 +381,20 @@ add_default_user(Username, Password) ->
         _ -> {ok, default_user_exists}
     end.
 
+%% ensure the `role` is correct when it directly read from the table
+%% this value in old data is `undefined`
+ensure_role(undefined) ->
+    ?ROLE_SUPERUSER;
+ensure_role(Role) when is_binary(Role) ->
+    Role.
+
 -if(?EMQX_RELEASE_EDITION == ee).
 legal_role(Role) ->
     emqx_dashboard_rbac:legal_role(Role).
 
 -else.
+
+-dialyzer({no_match, [add_user/4, update_user/3]}).
 
 legal_role(_) ->
     ok.

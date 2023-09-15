@@ -15,9 +15,19 @@
 %%--------------------------------------------------------------------
 -define(ADMIN, emqx_admin).
 
+%% TODO:
+%% The predefined roles of the preliminary RBAC implementation,
+%% these may be removed when developing the full RBAC feature.
+%% In full RBAC feature, the role may be customised created and deleted,
+%% a predefined configuration would replace these macros.
 -define(ROLE_VIEWER, <<"viewer">>).
--define(ROLE_DEFAULT, ?ROLE_VIEWER).
 -define(ROLE_SUPERUSER, <<"superuser">>).
+
+-if(?EMQX_RELEASE_EDITION == ee).
+-define(ROLE_DEFAULT, ?ROLE_VIEWER).
+-else.
+-define(ROLE_DEFAULT, ?ROLE_SUPERUSER).
+-endif.
 
 -record(?ADMIN, {
     username :: binary(),

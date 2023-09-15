@@ -206,7 +206,7 @@ field(old_pwd) ->
 field(new_pwd) ->
     {new_pwd, mk(binary(), #{desc => ?DESC(new_pwd)})};
 field(role) ->
-    {role, mk(binary(), #{desc => ?DESC(role)})}.
+    {role, mk(binary(), #{desc => ?DESC(role), example => ?ROLE_DEFAULT})}.
 
 %% -------------------------------------------------------------------------------------------------
 %% API
@@ -369,7 +369,9 @@ field_filter(role) ->
 field_filter(_) ->
     true.
 
+filter_result(Result) when is_list(Result) ->
+    lists:map(fun filter_result/1, Result);
 filter_result(Result) ->
-    maps:without([Role], Result).
+    maps:without([role], Result).
 
 -endif.

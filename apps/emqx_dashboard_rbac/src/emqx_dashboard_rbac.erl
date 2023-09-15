@@ -16,10 +16,12 @@ check_rbac(Req, Extra) ->
     Role = role(Extra),
     check_rbac_with_method(Role, Method).
 
+%% For compatibility
 role(#?ADMIN{role = undefined}) ->
     ?ROLE_SUPERUSER;
 role(#?ADMIN{role = Role}) ->
     Role;
+%% For compatibility
 role([]) ->
     ?ROLE_SUPERUSER;
 role(#{role := Role}) ->
@@ -35,7 +37,7 @@ legal_role(Role) ->
 %% ===================================================================
 check_rbac_with_method(?ROLE_SUPERUSER, _) ->
     true;
-check_rbac_with_method(?ROLE_VIEWER, <<"get">>) ->
+check_rbac_with_method(?ROLE_VIEWER, <<"GET">>) ->
     true;
 check_rbac_with_method(_, _) ->
     false.

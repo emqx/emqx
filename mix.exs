@@ -226,7 +226,8 @@ defmodule EMQXUmbrella.MixProject do
       :emqx_bridge_kinesis,
       :emqx_bridge_azure_event_hub,
       :emqx_ldap,
-      :emqx_gcp_device
+      :emqx_gcp_device,
+      :emqx_dashboard_rbac
     ])
   end
 

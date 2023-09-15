@@ -213,7 +213,8 @@ authorize(Req) ->
                 {error, not_found} ->
                     {401, 'BAD_TOKEN', <<"Get a token by POST /login">>};
                 {error, unauthorized_role} ->
-                    {401, 'UNAUTHORIZED_ROLE', <<"Unauthorized Role">>}
+                    {403, 'UNAUTHORIZED_ROLE',
+                        <<"You don't have permission to access this resource">>}
             end;
         _ ->
             return_unauthorized(
