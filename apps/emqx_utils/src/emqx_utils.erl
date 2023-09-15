@@ -647,6 +647,9 @@ is_sensitive_key(<<"jwt">>) -> true;
 is_sensitive_key(authorization) -> true;
 is_sensitive_key("authorization") -> true;
 is_sensitive_key(<<"authorization">>) -> true;
+is_sensitive_key(bind_password) -> true;
+is_sensitive_key("bind_password") -> true;
+is_sensitive_key(<<"bind_password">>) -> true;
 is_sensitive_key(Key) -> is_authorization(Key).
 
 redact(Term) ->
@@ -777,7 +780,8 @@ redact_test_() ->
         secret,
         secret_key,
         security_token,
-        token
+        token,
+        bind_password
     ],
     [{case_name(Type, Key), fun() -> Case(Type, Key) end} || Key <- Keys, Type <- Types].
 

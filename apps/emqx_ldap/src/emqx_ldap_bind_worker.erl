@@ -48,7 +48,7 @@ on_stop(InstId, _State) ->
     case emqx_resource:get_allocated_resources(InstId) of
         #{?MODULE := PoolName} ->
             ?SLOG(info, #{
-                msg => "starting_ldap_bind_worker",
+                msg => "stopping_ldap_bind_worker",
                 pool => PoolName
             }),
             emqx_resource_pool:stop(PoolName);
@@ -69,7 +69,7 @@ on_query(
     Password = emqx_placeholder:proc_tmpl(PWTks, Data),
 
     LogMeta = #{connector => InstId, state => State},
-    ?TRACE("QUERY", "ldap_connector_received", LogMeta),
+    ?TRACE("QUERY", "ldap_connector_about_to_bind", LogMeta),
     case
         ecpool:pick_and_do(
             PoolName,

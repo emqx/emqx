@@ -247,9 +247,3 @@ ldap_server() ->
 
 ldap_config() ->
     emqx_ldap_SUITE:ldap_config([]).
-
-start_apps(Apps) ->
-    lists:foreach(fun application:ensure_all_started/1, Apps).
-
-stop_apps(Apps) ->
-    lists:foreach(fun application:stop/1, Apps).

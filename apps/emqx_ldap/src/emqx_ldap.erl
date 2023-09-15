@@ -86,6 +86,7 @@ fields(bind_opts) ->
                     desc => ?DESC(bind_password),
                     default => <<"${password}">>,
                     example => <<"${password}">>,
+                    sensitive => true,
                     validator => fun emqx_schema:non_empty_string/1
                 }
             )}
