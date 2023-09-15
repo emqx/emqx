@@ -525,6 +525,10 @@ do_format_action(#{mod := Mod, func := Func, args := Args}) ->
     #{
         function => printable_function_name(Mod, Func),
         args => maps:remove(preprocessed_tmpl, Args)
+    };
+do_format_action(#{mod := Mod, func := Func}) ->
+    #{
+        function => printable_function_name(Mod, Func)
     }.
 
 printable_function_name(emqx_rule_actions, Func) ->
