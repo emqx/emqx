@@ -45,11 +45,15 @@
 %%--------------------------------------------------------------------
 parse_action(#{function := ActionFunc} = Action) ->
     {Mod, Func} = parse_action_func(ActionFunc),
-    #{
-        mod => Mod,
-        func => Func,
-        args => pre_process_args(Mod, Func, maps:get(args, Action, #{}))
-    }.
+    Res = #{mod => Mod, func => Func},
+    %% builtin_action_console don't have args field.
+    %% Attempting to save args to the console action config could cause validation issues
+    case Action of
+        #{args := Args} ->
+            Res#{args => pre_process_args(Mod, Func, Args)};
+        _ ->
+            Res
+    end.
 
 %%--------------------------------------------------------------------
 %% callbacks of emqx_rule_action
