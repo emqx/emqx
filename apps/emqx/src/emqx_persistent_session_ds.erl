@@ -23,13 +23,9 @@
 
 %% Session API
 -export([
-    lookup/1,
-    destroy/1
-]).
-
--export([
     create/3,
-    open/2
+    open/2,
+    destroy/1
 ]).
 
 -export([
@@ -105,10 +101,6 @@ create(#{clientid := ClientID}, _ConnInfo, Conf) ->
     {true, session()} | false.
 open(#{clientid := ClientID}, _ConnInfo) ->
     open_session(ClientID).
-
--spec lookup(emqx_types:clientinfo()) -> none.
-lookup(_ClientInfo) ->
-    'TODO'.
 
 -spec destroy(session() | clientinfo()) -> ok.
 destroy(#{clientid := ClientID}) ->

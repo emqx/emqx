@@ -57,11 +57,7 @@
 -export([
     create/2,
     open/2,
-    destroy/1
-]).
-
--export([
-    lookup/2,
+    destroy/1,
     destroy/2
 ]).
 
@@ -145,8 +141,8 @@
 }.
 
 -type t() ::
-    emqx_session_mem:t()
-    | emqx_session_ds:t().
+    emqx_session_mem:session()
+    | emqx_persistent_session_ds:session().
 
 -define(INFO_KEYS, [
     id,
@@ -197,10 +193,6 @@ get_mqtt_conf(Zone, Key) ->
 %%--------------------------------------------------------------------
 %% Existing sessions
 %% -------------------------------------------------------------------
-
--spec lookup(clientinfo(), conninfo()) -> t() | none.
-lookup(ClientInfo, ConnInfo) ->
-    (choose_impl_mod(ConnInfo)):lookup(ClientInfo).
 
 -spec destroy(clientinfo(), conninfo()) -> ok.
 destroy(ClientInfo, ConnInfo) ->

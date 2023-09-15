@@ -56,13 +56,9 @@
 -endif.
 
 -export([
-    lookup/1,
-    destroy/1
-]).
-
--export([
     create/3,
-    open/2
+    open/2,
+    destroy/1
 ]).
 
 -export([
@@ -184,12 +180,6 @@ get_mqtt_conf(Zone, Key) ->
 
 get_mqtt_conf(Zone, Key, Default) ->
     emqx_config:get_zone_conf(Zone, [mqtt, Key], Default).
-
--spec lookup(emqx_types:clientinfo()) -> none.
-lookup(_ClientInfo) ->
-    % NOTE
-    % This is a stub. This session impl has no backing store, thus always `none`.
-    none.
 
 -spec destroy(session() | clientinfo()) -> ok.
 destroy(_Session) ->
