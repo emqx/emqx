@@ -568,7 +568,7 @@ do_kick_session(GwName, Action, ClientId, ChanPid) ->
 %% benefits nobody.
 -spec request_stepdown(Action, module(), pid()) ->
     ok
-    | {ok, emqx_session:session() | list(emqx_type:deliver())}
+    | {ok, emqx_session:session() | list(emqx_types:deliver())}
     | {error, term()}
 when
     Action :: kick | discard | {takeover, 'begin'} | {takeover, 'end'}.
