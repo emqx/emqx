@@ -76,7 +76,7 @@
     ]
 ).
 
--export_type([channel/0, opts/0, conn_state/0]).
+-export_type([channel/0, opts/0, conn_state/0, reply/0, replies/0]).
 
 -record(channel, {
     %% MQTT ConnInfo

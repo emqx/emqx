@@ -131,6 +131,7 @@ add(HookPoint, Action, Priority, Filter) when is_integer(Priority) ->
     do_add(HookPoint, #callback{action = Action, filter = Filter, priority = Priority}).
 
 do_add(HookPoint, Callback) ->
+    ok = emqx_hookpoints:verify_hookpoint(HookPoint),
     gen_server:call(?SERVER, {add, HookPoint, Callback}, infinity).
 
 %% @doc `put/3,4` updates the existing hook, add it if not exists.
@@ -143,6 +144,7 @@ put(HookPoint, Action, Priority, Filter) when is_integer(Priority) ->
     do_put(HookPoint, #callback{action = Action, filter = Filter, priority = Priority}).
 
 do_put(HookPoint, Callback) ->
+    ok = emqx_hookpoints:verify_hookpoint(HookPoint),
     case do_add(HookPoint, Callback) of
         ok -> ok;
         {error, already_exists} -> gen_server:call(?SERVER, {put, HookPoint, Callback}, infinity)
@@ -156,11 +158,13 @@ del(HookPoint, Action) ->
 %% @doc Run hooks.
 -spec run(hookpoint(), list(Arg :: term())) -> ok.
 run(HookPoint, Args) ->
+    ok = emqx_hookpoints:verify_hookpoint(HookPoint),
     do_run(lookup(HookPoint), Args).
 
 %% @doc Run hooks with Accumulator.
 -spec run_fold(hookpoint(), list(Arg :: term()), Acc :: term()) -> Acc :: term().
 run_fold(HookPoint, Args, Acc) ->
+    ok = emqx_hookpoints:verify_hookpoint(HookPoint),
     do_run_fold(lookup(HookPoint), Args, Acc).
 
 do_run([#callback{action = Action, filter = Filter} | Callbacks], Args) ->
@@ -230,6 +234,7 @@ lookup(HookPoint) ->
 
 init([]) ->
     ok = emqx_utils_ets:new(?TAB, [{keypos, #hook.name}, {read_concurrency, true}]),
+    ok = emqx_hookpoints:register_hookpoints(),
     {ok, #{}}.
 
 handle_call({add, HookPoint, Callback = #callback{action = {M, F, _}}}, _From, State) ->

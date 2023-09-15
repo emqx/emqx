@@ -138,7 +138,7 @@ check_authorization_cache(ClientInfo, Action, Topic) ->
             emqx_authz_cache:put_authz_cache(Action, Topic, AuthzResult),
             AuthzResult;
         AuthzResult ->
-            emqx:run_hook(
+            emqx_hooks:run(
                 'client.check_authz_complete',
                 [ClientInfo, Action, Topic, AuthzResult, cache]
             ),
@@ -152,7 +152,7 @@ do_authorize(ClientInfo, Action, Topic) ->
     case run_hooks('client.authorize', [ClientInfo, Action, Topic], Default) of
         AuthzResult = #{result := Result} when Result == allow; Result == deny ->
             From = maps:get(from, AuthzResult, unknown),
-            emqx:run_hook(
+            emqx_hooks:run(
                 'client.check_authz_complete',
                 [ClientInfo, Action, Topic, Result, From]
             ),
@@ -163,7 +163,7 @@ do_authorize(ClientInfo, Action, Topic) ->
                 expected_example => "#{result => allow, from => default}",
                 got => Other
             }),
-            emqx:run_hook(
+            emqx_hooks:run(
                 'client.check_authz_complete',
                 [ClientInfo, Action, Topic, deny, unknown_return_format]
             ),

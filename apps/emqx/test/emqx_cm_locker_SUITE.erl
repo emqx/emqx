@@ -38,7 +38,7 @@ t_trans(_) ->
     ok = emqx_cm_locker:trans(undefined, fun(_) -> ok end, []),
     ok = emqx_cm_locker:trans(<<"clientid">>, fun(_) -> ok end).
 
-t_lock_unlocak(_) ->
+t_lock_unlock(_) ->
     {true, _} = emqx_cm_locker:lock(<<"clientid">>),
     {true, _} = emqx_cm_locker:lock(<<"clientid">>),
     {true, _} = emqx_cm_locker:unlock(<<"clientid">>),

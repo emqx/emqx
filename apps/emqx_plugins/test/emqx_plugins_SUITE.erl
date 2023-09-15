@@ -22,12 +22,13 @@
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
 
--define(EMQX_PLUGIN_TEMPLATE_RELEASE_NAME, "emqx_plugin_template").
+-define(EMQX_PLUGIN_APP_NAME, my_emqx_plugin).
+-define(EMQX_PLUGIN_TEMPLATE_RELEASE_NAME, atom_to_list(?EMQX_PLUGIN_APP_NAME)).
 -define(EMQX_PLUGIN_TEMPLATE_URL,
     "https://github.com/emqx/emqx-plugin-template/releases/download/"
 ).
--define(EMQX_PLUGIN_TEMPLATE_VSN, "5.0.0").
--define(EMQX_PLUGIN_TEMPLATE_TAG, "5.0.0").
+-define(EMQX_PLUGIN_TEMPLATE_VSN, "5.1.0").
+-define(EMQX_PLUGIN_TEMPLATE_TAG, "5.1.0").
 -define(EMQX_ELIXIR_PLUGIN_TEMPLATE_RELEASE_NAME, "elixir_plugin_template").
 -define(EMQX_ELIXIR_PLUGIN_TEMPLATE_URL,
     "https://github.com/emqx/emqx-elixir-plugin/releases/download/"
@@ -153,11 +154,11 @@ t_demo_install_start_stop_uninstall(Config) ->
     ?assertEqual([maps:without([readme], Info)], emqx_plugins:list()),
     %% start
     ok = emqx_plugins:ensure_started(NameVsn),
-    ok = assert_app_running(emqx_plugin_template, true),
+    ok = assert_app_running(?EMQX_PLUGIN_APP_NAME, true),
     ok = assert_app_running(map_sets, true),
     %% start (idempotent)
     ok = emqx_plugins:ensure_started(bin(NameVsn)),
-    ok = assert_app_running(emqx_plugin_template, true),
+    ok = assert_app_running(?EMQX_PLUGIN_APP_NAME, true),
     ok = assert_app_running(map_sets, true),
 
     %% running app can not be un-installed
@@ -168,11 +169,11 @@ t_demo_install_start_stop_uninstall(Config) ->
 
     %% stop
     ok = emqx_plugins:ensure_stopped(NameVsn),
-    ok = assert_app_running(emqx_plugin_template, false),
+    ok = assert_app_running(?EMQX_PLUGIN_APP_NAME, false),
     ok = assert_app_running(map_sets, false),
     %% stop (idempotent)
     ok = emqx_plugins:ensure_stopped(bin(NameVsn)),
-    ok = assert_app_running(emqx_plugin_template, false),
+    ok = assert_app_running(?EMQX_PLUGIN_APP_NAME, false),
     ok = assert_app_running(map_sets, false),
     %% still listed after stopped
     ReleaseNameBin = list_to_binary(ReleaseName),
@@ -257,9 +258,9 @@ t_start_restart_and_stop(Config) ->
     %% fake a disabled plugin in config
     ok = ensure_state(Bar2, front, false),
 
-    assert_app_running(emqx_plugin_template, false),
+    assert_app_running(?EMQX_PLUGIN_APP_NAME, false),
     ok = emqx_plugins:ensure_started(),
-    assert_app_running(emqx_plugin_template, true),
+    assert_app_running(?EMQX_PLUGIN_APP_NAME, true),
 
     %% fake enable bar-2
     ok = ensure_state(Bar2, rear, true),
@@ -269,18 +270,18 @@ t_start_restart_and_stop(Config) ->
         emqx_plugins:ensure_started()
     ),
     %% but demo plugin should still be running
-    assert_app_running(emqx_plugin_template, true),
+    assert_app_running(?EMQX_PLUGIN_APP_NAME, true),
 
     %% stop all
     ok = emqx_plugins:ensure_stopped(),
-    assert_app_running(emqx_plugin_template, false),
+    assert_app_running(?EMQX_PLUGIN_APP_NAME, false),
     ok = ensure_state(Bar2, rear, false),
 
     ok = emqx_plugins:restart(NameVsn),
-    assert_app_running(emqx_plugin_template, true),
+    assert_app_running(?EMQX_PLUGIN_APP_NAME, true),
     %% repeat
     ok = emqx_plugins:restart(NameVsn),
-    assert_app_running(emqx_plugin_template, true),
+    assert_app_running(?EMQX_PLUGIN_APP_NAME, true),
 
     ok = emqx_plugins:ensure_stopped(),
     ok = emqx_plugins:ensure_disabled(NameVsn),
