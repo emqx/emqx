@@ -759,6 +759,10 @@ t_bitsize(_) ->
     ?assertEqual(8, apply_func(bitsize, [<<"a">>])),
     ?assertEqual(4, apply_func(bitsize, [<<15:4>>])).
 
+t_bytesize(_) ->
+    ?assertEqual(1, apply_func(bytesize, [<<"a">>])),
+    ?assertEqual(0, apply_func(bytesize, [<<>>])).
+
 t_subbits(_) ->
     ?assertEqual(1, apply_func(subbits, [<<255:8>>, 1])),
     ?assertEqual(3, apply_func(subbits, [<<255:8>>, 2])),
