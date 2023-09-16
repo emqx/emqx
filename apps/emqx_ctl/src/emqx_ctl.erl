@@ -250,7 +250,7 @@ handle_call({register_command, Cmd, MF, Opts}, _From, State = #state{seq = Seq})
             ets:insert(?CMD_TAB, {{Seq, Cmd}, MF, Opts}),
             {reply, ok, next_seq(State)};
         [[OriginSeq] | _] ->
-            ?LOG_WARNING(#{msg => "CMD_overridden", cmd => Cmd, mf => MF}),
+            ?LOG_INFO(#{msg => "CMD_overridden", cmd => Cmd, mf => MF}),
             true = ets:insert(?CMD_TAB, {{OriginSeq, Cmd}, MF, Opts}),
             {reply, ok, State}
     end;
