@@ -315,21 +315,13 @@ get_iterator_ids(Node, ClientId) ->
 app_specs() ->
     [
         emqx_durable_storage,
-        {emqx, #{
-            config => #{persistent_session_store => #{ds => true}},
-            override_env => [{boot_modules, [broker, listeners]}]
-        }}
+        {emqx, "persistent_session_store {ds = true}"}
     ].
 
 cluster() ->
-    Node1 = persistent_messages_SUITE1,
-    Spec = #{
-        role => core,
-        join_to => emqx_cth_cluster:node_name(Node1),
-        apps => app_specs()
-    },
+    Spec = #{role => core, apps => app_specs()},
     [
-        {Node1, Spec},
+        {persistent_messages_SUITE1, Spec},
         {persistent_messages_SUITE2, Spec}
     ].
 
