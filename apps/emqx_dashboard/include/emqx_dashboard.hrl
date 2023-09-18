@@ -15,14 +15,26 @@
 %%--------------------------------------------------------------------
 -define(ADMIN, emqx_admin).
 
+%% TODO:
+%% The predefined roles of the preliminary RBAC implementation,
+%% these may be removed when developing the full RBAC feature.
+%% In full RBAC feature, the role may be customised created and deleted,
+%% a predefined configuration would replace these macros.
+-define(ROLE_VIEWER, <<"viewer">>).
+-define(ROLE_SUPERUSER, <<"superuser">>).
+
+-define(ROLE_DEFAULT, ?ROLE_SUPERUSER).
+
 -record(?ADMIN, {
     username :: binary(),
     pwdhash :: binary(),
     description :: binary(),
-    role = undefined :: atom(),
-    %% not used so far, for future extension
-    extra = [] :: term()
+    role = ?ROLE_DEFAULT :: binary(),
+    extra = #{} :: map()
 }).
+
+-type dashboard_user_role() :: binary().
+-type dashboard_user() :: #?ADMIN{}.
 
 -define(ADMIN_JWT, emqx_admin_jwt).
 
@@ -30,8 +42,7 @@
     token :: binary(),
     username :: binary(),
     exptime :: integer(),
-    %% not used so far, fur future extension
-    extra = [] :: term()
+    extra = #{} :: map()
 }).
 
 -define(TAB_COLLECT, emqx_collect).

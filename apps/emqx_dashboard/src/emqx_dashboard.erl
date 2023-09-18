@@ -205,13 +205,16 @@ authorize(Req) ->
         {basic, Username, Password} ->
             api_key_authorize(Req, Username, Password);
         {bearer, Token} ->
-            case emqx_dashboard_admin:verify_token(Token) of
+            case emqx_dashboard_admin:verify_token(Req, Token) of
                 ok ->
                     ok;
                 {error, token_timeout} ->
                     {401, 'TOKEN_TIME_OUT', <<"Token expired, get new token by POST /login">>};
                 {error, not_found} ->
-                    {401, 'BAD_TOKEN', <<"Get a token by POST /login">>}
+                    {401, 'BAD_TOKEN', <<"Get a token by POST /login">>};
+                {error, unauthorized_role} ->
+                    {403, 'UNAUTHORIZED_ROLE',
+                        <<"You don't have permission to access this resource">>}
             end;
         _ ->
             return_unauthorized(

@@ -20,7 +20,7 @@
 
 -export([
     sign/2,
-    verify/1,
+    verify/2,
     lookup/1,
     owner/1,
     destroy/1,
@@ -55,14 +55,17 @@
 
 %%--------------------------------------------------------------------
 %% jwt function
--spec sign(Username :: binary(), Password :: binary()) ->
+-spec sign(User :: dashboard_user(), Password :: binary()) ->
     {ok, Token :: binary()} | {error, Reason :: term()}.
-sign(Username, Password) ->
-    do_sign(Username, Password).
+sign(User, Password) ->
+    do_sign(User, Password).
 
--spec verify(Token :: binary()) -> Result :: ok | {error, token_timeout | not_found}.
-verify(Token) ->
-    do_verify(Token).
+-spec verify(_, Token :: binary()) ->
+    Result ::
+        ok
+        | {error, token_timeout | not_found | unauthorized_role}.
+verify(Req, Token) ->
+    do_verify(Req, Token).
 
 -spec destroy(KeyOrKeys :: list() | binary() | #?ADMIN_JWT{}) -> ok.
 destroy([]) ->
@@ -101,7 +104,7 @@ mnesia(boot) ->
 
 %%--------------------------------------------------------------------
 %% jwt apply
-do_sign(Username, Password) ->
+do_sign(#?ADMIN{username = Username} = User, Password) ->
     ExpTime = jwt_expiration_time(),
     Salt = salt(),
     JWK = jwk(Username, Password, Salt),
@@ -114,22 +117,28 @@ do_sign(Username, Password) ->
     },
     Signed = jose_jwt:sign(JWK, JWS, JWT),
     {_, Token} = jose_jws:compact(Signed),
-    JWTRec = format(Token, Username, ExpTime),
+    Role = emqx_dashboard_admin:role(User),
+    JWTRec = format(Token, Username, Role, ExpTime),
     _ = mria:transaction(?DASHBOARD_SHARD, fun mnesia:write/1, [JWTRec]),
     {ok, Token}.
 
-do_verify(Token) ->
+do_verify(Req, Token) ->
     case lookup(Token) of
-        {ok, JWT = #?ADMIN_JWT{exptime = ExpTime}} ->
+        {ok, JWT = #?ADMIN_JWT{exptime = ExpTime, extra = Extra}} ->
             case ExpTime > erlang:system_time(millisecond) of
                 true ->
-                    NewJWT = JWT#?ADMIN_JWT{exptime = jwt_expiration_time()},
-                    {atomic, Res} = mria:transaction(
-                        ?DASHBOARD_SHARD,
-                        fun mnesia:write/1,
-                        [NewJWT]
-                    ),
-                    Res;
+                    case check_rbac(Req, Extra) of
+                        true ->
+                            NewJWT = JWT#?ADMIN_JWT{exptime = jwt_expiration_time()},
+                            {atomic, Res} = mria:transaction(
+                                ?DASHBOARD_SHARD,
+                                fun mnesia:write/1,
+                                [NewJWT]
+                            ),
+                            Res;
+                        _ ->
+                            {error, unauthorized_role}
+                    end;
                 _ ->
                     {error, token_timeout}
             end;
@@ -183,11 +192,12 @@ jwt_expiration_time() ->
 token_ttl() ->
     emqx_conf:get([dashboard, token_expired_time], ?EXPTIME).
 
-format(Token, Username, ExpTime) ->
+format(Token, Username, Role, ExpTime) ->
     #?ADMIN_JWT{
         token = Token,
         username = Username,
-        exptime = ExpTime
+        exptime = ExpTime,
+        extra = #{role => Role}
     }.
 
 %%--------------------------------------------------------------------
@@ -234,3 +244,17 @@ clean_expired_jwt(Now) ->
         fun() -> mnesia:select(?TAB, Spec) end
     ),
     ok = destroy(JWTList).
+
+-if(?EMQX_RELEASE_EDITION == ee).
+check_rbac(Req, Extra) ->
+    emqx_dashboard_rbac:check_rbac(Req, Extra).
+
+-else.
+
+-dialyzer({nowarn_function, [check_rbac/2]}).
+-dialyzer({no_match, [do_verify/2]}).
+
+check_rbac(_Req, _Extra) ->
+    true.
+
+-endif.

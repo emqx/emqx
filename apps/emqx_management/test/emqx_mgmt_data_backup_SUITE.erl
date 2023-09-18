@@ -22,6 +22,7 @@
 -include_lib("common_test/include/ct.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
+-define(ROLE_SUPERUSER, <<"superuser">>).
 -define(BOOTSTRAP_BACKUP, "emqx-export-test-bootstrap-ce.tar.gz").
 
 all() ->
@@ -297,7 +298,7 @@ t_import_on_cluster(Config) ->
 t_verify_imported_mnesia_tab_on_cluster(Config) ->
     UsersToExport = users(<<"user_to_export_">>),
     UsersBeforeImport = users(<<"user_before_import_">>),
-    [{ok, _} = emqx_dashboard_admin:add_user(U, U, U) || U <- UsersToExport],
+    [{ok, _} = emqx_dashboard_admin:add_user(U, U, ?ROLE_SUPERUSER, U) || U <- UsersToExport],
     {ok, #{filename := FileName}} = emqx_mgmt_data_backup:export(),
     {ok, Cwd} = file:get_cwd(),
     AbsFilePath = filename:join(Cwd, FileName),
@@ -305,7 +306,7 @@ t_verify_imported_mnesia_tab_on_cluster(Config) ->
     [CoreNode1, CoreNode2, ReplicantNode] = ?config(cluster, Config),
 
     [
-        {ok, _} = rpc:call(CoreNode1, emqx_dashboard_admin, add_user, [U, U, U])
+        {ok, _} = rpc:call(CoreNode1, emqx_dashboard_admin, add_user, [U, U, ?ROLE_SUPERUSER, U])
      || U <- UsersBeforeImport
     ],
 

@@ -114,7 +114,8 @@
             emqx_node_rebalance,
             emqx_ft,
             emqx_ldap,
-            emqx_gcp_device
+            emqx_gcp_device,
+            emqx_dashboard_rbac
         ],
     %% must always be of type `load'
     ce_business_apps =>

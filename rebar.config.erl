@@ -109,6 +109,7 @@ is_community_umbrella_app("apps/emqx_bridge_kinesis") -> false;
 is_community_umbrella_app("apps/emqx_bridge_azure_event_hub") -> false;
 is_community_umbrella_app("apps/emqx_ldap") -> false;
 is_community_umbrella_app("apps/emqx_gcp_device") -> false;
+is_community_umbrella_app("apps/emqx_dashboard_rbac") -> false;
 is_community_umbrella_app(_) -> true.
 
 is_jq_supported() ->

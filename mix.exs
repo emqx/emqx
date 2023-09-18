@@ -58,7 +58,7 @@ defmodule EMQXUmbrella.MixProject do
       {:ekka, github: "emqx/ekka", tag: "0.15.13", override: true},
       {:gen_rpc, github: "emqx/gen_rpc", tag: "2.8.1", override: true},
       {:grpc, github: "emqx/grpc-erl", tag: "0.6.8", override: true},
-      {:minirest, github: "emqx/minirest", tag: "1.3.11", override: true},
+      {:minirest, github: "emqx/minirest", tag: "1.3.12", override: true},
       {:ecpool, github: "emqx/ecpool", tag: "0.5.4", override: true},
       {:replayq, github: "emqx/replayq", tag: "0.3.7", override: true},
       {:pbkdf2, github: "emqx/erlang-pbkdf2", tag: "2.0.4", override: true},
@@ -226,7 +226,8 @@ defmodule EMQXUmbrella.MixProject do
       :emqx_bridge_kinesis,
       :emqx_bridge_azure_event_hub,
       :emqx_ldap,
-      :emqx_gcp_device
+      :emqx_gcp_device,
+      :emqx_dashboard_rbac
     ])
   end
 

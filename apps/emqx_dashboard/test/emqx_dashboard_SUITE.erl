@@ -67,7 +67,9 @@ end_per_suite(_Config) ->
 
 t_overview(_) ->
     mnesia:clear_table(?ADMIN),
-    emqx_dashboard_admin:add_user(<<"admin">>, <<"public_www1">>, <<"simple_description">>),
+    emqx_dashboard_admin:add_user(
+        <<"admin">>, <<"public_www1">>, ?ROLE_SUPERUSER, <<"simple_description">>
+    ),
     Headers = auth_header_(<<"admin">>, <<"public_www1">>),
     [
         {ok, _} = request_dashboard(get, api_path([Overview]), Headers)
@@ -77,8 +79,12 @@ t_overview(_) ->
 t_admins_add_delete(_) ->
     mnesia:clear_table(?ADMIN),
     Desc = <<"simple description">>,
-    {ok, _} = emqx_dashboard_admin:add_user(<<"username">>, <<"password_0">>, Desc),
-    {ok, _} = emqx_dashboard_admin:add_user(<<"username1">>, <<"password1">>, Desc),
+    {ok, _} = emqx_dashboard_admin:add_user(
+        <<"username">>, <<"password_0">>, ?ROLE_SUPERUSER, Desc
+    ),
+    {ok, _} = emqx_dashboard_admin:add_user(
+        <<"username1">>, <<"password1">>, ?ROLE_SUPERUSER, Desc
+    ),
     Admins = emqx_dashboard_admin:all_users(),
     ?assertEqual(2, length(Admins)),
     {ok, _} = emqx_dashboard_admin:remove_user(<<"username1">>),
@@ -95,7 +101,7 @@ t_admins_add_delete(_) ->
 t_admin_delete_self_failed(_) ->
     mnesia:clear_table(?ADMIN),
     Desc = <<"simple description">>,
-    _ = emqx_dashboard_admin:add_user(<<"username1">>, <<"password_1">>, Desc),
+    _ = emqx_dashboard_admin:add_user(<<"username1">>, <<"password_1">>, ?ROLE_SUPERUSER, Desc),
     Admins = emqx_dashboard_admin:all_users(),
     ?assertEqual(1, length(Admins)),
     Header = auth_header_(<<"username1">>, <<"password_1">>),
@@ -109,23 +115,34 @@ t_rest_api(_Config) ->
     mnesia:clear_table(?ADMIN),
     Desc = <<"administrator">>,
     Password = <<"public_www1">>,
-    emqx_dashboard_admin:add_user(<<"admin">>, Password, Desc),
+    emqx_dashboard_admin:add_user(<<"admin">>, Password, ?ROLE_SUPERUSER, Desc),
     {ok, 200, Res0} = http_get(["users"]),
     ?assertEqual(
         [
-            #{
+            filter_req(#{
                 <<"username">> => <<"admin">>,
-                <<"description">> => <<"administrator">>
-            }
+                <<"description">> => <<"administrator">>,
+                <<"role">> => ?ROLE_SUPERUSER
+            })
         ],
         get_http_data(Res0)
     ),
-    {ok, 200, _} = http_put(["users", "admin"], #{<<"description">> => <<"a_new_description">>}),
-    {ok, 200, _} = http_post(["users"], #{
-        <<"username">> => <<"usera">>,
-        <<"password">> => <<"passwd_01234">>,
-        <<"description">> => Desc
-    }),
+    {ok, 200, _} = http_put(
+        ["users", "admin"],
+        filter_req(#{
+            <<"role">> => ?ROLE_SUPERUSER,
+            <<"description">> => <<"a_new_description">>
+        })
+    ),
+    {ok, 200, _} = http_post(
+        ["users"],
+        filter_req(#{
+            <<"username">> => <<"usera">>,
+            <<"password">> => <<"passwd_01234">>,
+            <<"role">> => ?ROLE_SUPERUSER,
+            <<"description">> => Desc
+        })
+    ),
     {ok, 204, _} = http_delete(["users", "usera"]),
     {ok, 404, _} = http_delete(["users", "usera"]),
     {ok, 204, _} = http_post(
@@ -136,7 +153,7 @@ t_rest_api(_Config) ->
         }
     ),
     mnesia:clear_table(?ADMIN),
-    emqx_dashboard_admin:add_user(<<"admin">>, Password, <<"administrator">>),
+    emqx_dashboard_admin:add_user(<<"admin">>, Password, ?ROLE_SUPERUSER, <<"administrator">>),
     ok.
 
 t_swagger_json(_Config) ->
@@ -180,7 +197,7 @@ t_cli(_Config) ->
 t_lookup_by_username_jwt(_Config) ->
     User = bin(["user-", integer_to_list(random_num())]),
     Pwd = bin("t_password" ++ integer_to_list(random_num())),
-    emqx_dashboard_token:sign(User, Pwd),
+    emqx_dashboard_token:sign(#?ADMIN{username = User}, Pwd),
     ?assertMatch(
         [#?ADMIN_JWT{username = User}],
         emqx_dashboard_token:lookup_by_username(User)
@@ -194,7 +211,7 @@ t_lookup_by_username_jwt(_Config) ->
 t_clean_expired_jwt(_Config) ->
     User = bin(["user-", integer_to_list(random_num())]),
     Pwd = bin("t_password" ++ integer_to_list(random_num())),
-    emqx_dashboard_token:sign(User, Pwd),
+    emqx_dashboard_token:sign(#?ADMIN{username = User}, Pwd),
     [#?ADMIN_JWT{username = User, exptime = ExpTime}] =
         emqx_dashboard_token:lookup_by_username(User),
     ok = emqx_dashboard_token:clean_expired_jwt(_Now1 = ExpTime),
@@ -261,3 +278,14 @@ api_path(Parts) ->
 json(Data) ->
     {ok, Jsx} = emqx_utils_json:safe_decode(Data, [return_maps]),
     Jsx.
+
+-if(?EMQX_RELEASE_EDITION == ee).
+filter_req(Req) ->
+    Req.
+
+-else.
+
+filter_req(Req) ->
+    maps:without([role, <<"role">>], Req).
+
+-endif.

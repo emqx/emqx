@@ -1,0 +1,14 @@
+{application, emqx_dashboard_rbac, [
+    {description, "EMQX Dashboard RBAC"},
+    {vsn, "0.1.0"},
+    {registered, []},
+    {applications, [
+        kernel,
+        stdlib,
+        emqx_dashboard
+    ]},
+    {env, []},
+    {modules, []},
+
+    {links, []}
+]}.
