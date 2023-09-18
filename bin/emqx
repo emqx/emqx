@@ -805,6 +805,12 @@ generate_config() {
     mv -f "$TMP_ARG_FILE" "$ARGS_FILE"
 }
 
+# check if a PID is defunct
+is_defunct() {
+    local PID="$1"
+    ps -fp "$PID" | $GREP -q 'defunct'
+}
+
 # check if a PID is down
 # shellcheck disable=SC2317 # call in func `nodetool_shutdown()`
 is_down() {
@@ -812,9 +818,13 @@ is_down() {
     if ps -p "$PID" >/dev/null; then
         # still around
         # shellcheck disable=SC2009 # this grep pattern is not a part of the program names
-        if ps -fp "$PID" | $GREP -q 'defunct'; then
+        if is_defunct "$PID"; then
             # zombie state, print parent pid
             parent="$(ps -o ppid= -p "$PID" | tr -d ' ')"
+            if [ -z "$parent" ] && ! is_defunct "$PID"; then
+                # process terminated in the meanwhile
+                return 0;
+            fi
             logwarn "$PID is marked <defunct>, parent: $(ps -p "$parent")"
             return 0
         fi
