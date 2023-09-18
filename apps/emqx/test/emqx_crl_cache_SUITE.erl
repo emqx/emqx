@@ -924,8 +924,8 @@ t_not_cached_and_unreachable(Config) ->
     ]),
     Ref = get_crl_cache_table(),
     ?assertEqual([], ets:tab2list(Ref)),
-    process_flag(trap_exit, true),
-    ?assertMatch({error, {{shutdown, {tls_alert, {bad_certificate, _}}}, _}}, emqtt:connect(C)),
+    unlink(C),
+    ?assertMatch({error, {ssl_error, _Sock, {tls_alert, {bad_certificate, _}}}}, emqtt:connect(C)),
     ok.
 
 t_revoked(Config) ->
@@ -940,21 +940,10 @@ t_revoked(Config) ->
         ]},
         {port, 8883}
     ]),
-    process_flag(trap_exit, true),
-    Res = emqtt:connect(C),
-    %% apparently, sometimes there's some race condition in
-    %% `emqtt_sock:ssl_upgrade' when it calls
-    %% `ssl:conetrolling_process' and a bad match happens at that
-    %% point.
-    case Res of
-        {error, {{shutdown, {tls_alert, {certificate_revoked, _}}}, _}} ->
-            ok;
-        {error, closed} ->
-            %% race condition?
-            ok;
-        _ ->
-            ct:fail("unexpected result: ~p", [Res])
-    end,
+    unlink(C),
+    ?assertMatch(
+        {error, {ssl_error, _Sock, {tls_alert, {certificate_revoked, _}}}}, emqtt:connect(C)
+    ),
     ok.
 
 t_revoke_then_refresh(Config) ->
@@ -993,9 +982,9 @@ t_revoke_then_refresh(Config) ->
         ]},
         {port, 8883}
     ]),
-    process_flag(trap_exit, true),
+    unlink(C1),
     ?assertMatch(
-        {error, {{shutdown, {tls_alert, {certificate_revoked, _}}}, _}}, emqtt:connect(C1)
+        {error, {ssl_error, _Sock, {tls_alert, {certificate_revoked, _}}}}, emqtt:connect(C1)
     ),
     ok.
 
@@ -1068,7 +1057,6 @@ do_t_update_listener(Config) ->
     ),
 
     %% Now should use CRL information to block connection
-    process_flag(trap_exit, true),
     {ok, C1} = emqtt:start_link([
         {ssl, true},
         {ssl_opts, [
@@ -1077,8 +1065,9 @@ do_t_update_listener(Config) ->
         ]},
         {port, 8883}
     ]),
+    unlink(C1),
     ?assertMatch(
-        {error, {{shutdown, {tls_alert, {certificate_revoked, _}}}, _}}, emqtt:connect(C1)
+        {error, {ssl_error, _Sock, {tls_alert, {certificate_revoked, _}}}}, emqtt:connect(C1)
     ),
     assert_http_get(<<?DEFAULT_URL>>),
 
