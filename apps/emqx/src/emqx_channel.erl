@@ -564,11 +564,13 @@ handle_in(
 handle_in(?AUTH_PACKET(), Channel) ->
     handle_out(disconnect, ?RC_IMPLEMENTATION_SPECIFIC_ERROR, Channel);
 handle_in({frame_error, Reason}, Channel = #channel{conn_state = idle}) ->
-    shutdown(Reason, Channel);
+    shutdown(shutdown_count(frame_error, Reason), Channel);
 handle_in({frame_error, frame_too_large}, Channel = #channel{conn_state = connecting}) ->
-    shutdown(frame_too_large, ?CONNACK_PACKET(?RC_PACKET_TOO_LARGE), Channel);
+    shutdown(
+        shutdown_count(frame_error, frame_too_large), ?CONNACK_PACKET(?RC_PACKET_TOO_LARGE), Channel
+    );
 handle_in({frame_error, Reason}, Channel = #channel{conn_state = connecting}) ->
-    shutdown(Reason, ?CONNACK_PACKET(?RC_MALFORMED_PACKET), Channel);
+    shutdown(shutdown_count(frame_error, Reason), ?CONNACK_PACKET(?RC_MALFORMED_PACKET), Channel);
 handle_in({frame_error, frame_too_large}, Channel = #channel{conn_state = ConnState}) when
     ConnState =:= connected orelse ConnState =:= reauthenticating
 ->
@@ -2210,6 +2212,13 @@ shutdown(success, Reply, Packet, Channel) ->
     shutdown(normal, Reply, Packet, Channel);
 shutdown(Reason, Reply, Packet, Channel) ->
     {shutdown, Reason, Reply, Packet, Channel}.
+
+%% process exits with {shutdown, #{shutdown_count := Kind}} will trigger
+%% make the connection supervisor (esockd) keep a shutdown-counter groupd by Kind
+shutdown_count(Kind, Reason) when is_map(Reason) ->
+    Reason#{shutdown_count => Kind};
+shutdown_count(Kind, Reason) ->
+    #{shutdown_count => Kind, reason => Reason}.
 
 %% mqtt v5 connected sessions
 disconnect_and_shutdown(
