@@ -30,7 +30,7 @@ rule_engine.rules.my_rule {
   metadata = {created_at = 1693918992079}
   sql = \"select * from \\\"t/topic\\\" \"
   actions = [
-    {function = console}
+    {function = console, args = {test = 1}}
     { function = republish
       args = {
         payload = \"${.}\"
