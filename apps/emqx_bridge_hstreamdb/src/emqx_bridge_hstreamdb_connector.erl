@@ -48,7 +48,7 @@ on_start(InstId, Config) ->
 
 on_stop(InstId, _State) ->
     case emqx_resource:get_allocated_resources(InstId) of
-        #{client := Client, producer := Producer} ->
+        #{?hstreamdb_client := #{client := Client, producer := Producer}} ->
             StopClientRes = hstreamdb:stop_client(Client),
             StopProducerRes = hstreamdb:stop_producer(Producer),
             ?SLOG(info, #{
