@@ -15,7 +15,7 @@ endif
 
 # Dashboard version
 # from https://github.com/emqx/emqx-dashboard5
-export EMQX_DASHBOARD_VERSION ?= v1.4.0
+export EMQX_DASHBOARD_VERSION ?= v1.4.1
 export EMQX_EE_DASHBOARD_VERSION ?= e1.2.1
 
 # `:=` should be used here, otherwise the `$(shell ...)` will be executed every time when the variable is used
