@@ -133,7 +133,9 @@ t_conf_update(_) ->
     ok.
 
 t_conf_update_timer(_Config) ->
-    _ = emqx_flapping:start_link(),
+    %% delete all zones
+    ?assertMatch({ok, _}, emqx:update_config([zones], #{})),
+    emqx_cm_sup:restart_flapping(),
     validate_timer([{default, true}]),
     %% change zones
     {ok, _} =
