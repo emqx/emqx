@@ -78,7 +78,7 @@
 %% Parsed topic:
 -type topic() :: list(binary()).
 
--type keyspace() :: binary().
+-type keyspace() :: atom().
 -type shard() :: binary().
 
 %% Timestamp
@@ -98,10 +98,10 @@
 %% API funcions
 %%================================================================================
 
--spec ensure_shard(shard(), keyspace(), emqx_ds_storage_layer:options()) ->
+-spec ensure_shard(keyspace(), shard(), emqx_ds_storage_layer:options()) ->
     ok | {error, _Reason}.
-ensure_shard(Shard, Keyspace, Options) ->
-    case emqx_ds_storage_layer_sup:start_shard(Shard, Keyspace, Options) of
+ensure_shard(Keyspace, Shard, Options) ->
+    case emqx_ds_storage_layer_sup:start_shard(Keyspace, Shard, Options) of
         {ok, _Pid} ->
             ok;
         {error, {already_started, _Pid}} ->

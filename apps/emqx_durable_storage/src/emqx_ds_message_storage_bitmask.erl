@@ -173,8 +173,8 @@
 -opaque schema() :: #schema{}.
 
 -record(db, {
-    shard :: emqx_ds:shard(),
     keyspace :: emqx_ds:keyspace(),
+    shard :: emqx_ds:shard(),
     handle :: rocksdb:db_handle(),
     cf :: rocksdb:cf_handle(),
     keymapper :: keymapper(),
@@ -236,19 +236,19 @@ create_new(DBHandle, GenId, Options) ->
 
 %% Reopen the database
 -spec open(
-    emqx_ds:shard(),
     emqx_ds:keyspace(),
+    emqx_ds:shard(),
     rocksdb:db_handle(),
     emqx_ds_storage_layer:gen_id(),
     emqx_ds_storage_layer:cf_refs(),
     schema()
 ) ->
     db().
-open(Shard, Keyspace, DBHandle, GenId, CFs, #schema{keymapper = Keymapper}) ->
+open(Keyspace, Shard, DBHandle, GenId, CFs, #schema{keymapper = Keymapper}) ->
     {value, {_, CFHandle}} = lists:keysearch(data_cf(GenId), 1, CFs),
     #db{
-        shard = Shard,
         keyspace = Keyspace,
+        shard = Shard,
         handle = DBHandle,
         cf = CFHandle,
         keymapper = Keymapper

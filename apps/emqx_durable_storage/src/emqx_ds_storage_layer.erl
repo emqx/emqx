@@ -7,7 +7,7 @@
 
 %% API:
 -export([start_link/3]).
--export([create_generation/3]).
+-export([create_generation/4]).
 
 -export([store/5]).
 -export([delete/4]).
@@ -99,7 +99,7 @@
 %% 3. `inplace_update_support`?
 -define(ITERATOR_CF_OPTS, []).
 
--define(REF(Shard), {via, gproc, {n, l, {?MODULE, Shard}}}).
+-define(REF(Keyspace, Shard), {via, gproc, {n, l, {?MODULE, Keyspace, Shard}}}).
 
 %%================================================================================
 %% Callbacks
@@ -109,8 +109,8 @@
     {_Schema, cf_refs()}.
 
 -callback open(
-    emqx_ds:shard(),
     emqx_ds:keyspace(),
+    emqx_ds:shard(),
     rocksdb:db_handle(),
     gen_id(),
     cf_refs(),
@@ -143,15 +143,17 @@
 %% API funcions
 %%================================================================================
 
--spec start_link(emqx_ds:shard(), emqx_ds:keyspace(), emqx_ds_storage_layer:options()) ->
+-spec start_link(emqx_ds:keyspace(), emqx_ds:shard(), emqx_ds_storage_layer:options()) ->
     {ok, pid()}.
-start_link(Shard, Keyspace, Options) ->
-    gen_server:start_link(?REF(Shard), ?MODULE, {Shard, Keyspace, Options}, []).
+start_link(Keyspace, Shard, Options) ->
+    gen_server:start_link(?REF(Keyspace, Shard), ?MODULE, {Keyspace, Shard, Options}, []).
 
--spec create_generation(emqx_ds:shard(), emqx_ds:time(), emqx_ds_conf:backend_config()) ->
+-spec create_generation(
+    emqx_ds:keyspace(), emqx_ds:shard(), emqx_ds:time(), emqx_ds_conf:backend_config()
+) ->
     {ok, gen_id()} | {error, nonmonotonic}.
-create_generation(Shard, Since, Config = {_Module, _Options}) ->
-    gen_server:call(?REF(Shard), {create_generation, Since, Config}).
+create_generation(Keyspace, Shard, Since, Config = {_Module, _Options}) ->
+    gen_server:call(?REF(Keyspace, Shard), {create_generation, Since, Config}).
 
 -spec store(emqx_ds:shard(), emqx_guid:guid(), emqx_ds:time(), emqx_ds:topic(), binary()) ->
     ok | {error, _}.
@@ -258,9 +260,9 @@ foldl_iterator_prefix(Shard, KeyPrefix, Fn, Acc) ->
 %% behaviour callbacks
 %%================================================================================
 
-init({Shard, Keyspace, Options}) ->
+init({Keyspace, Shard, Options}) ->
     process_flag(trap_exit, true),
-    {ok, S0} = open_db(Shard, Keyspace, Options),
+    {ok, S0} = open_db(Keyspace, Shard, Options),
     S = ensure_current_generation(S0),
     ok = populate_metadata(S),
     {ok, S}.
@@ -342,9 +344,10 @@ create_gen(GenId, Since, {Module, Options}, S = #s{db = DBHandle, cf_generations
     },
     {ok, Gen, S#s{cf_generations = NewCFs ++ CFs}}.
 
--spec open_db(emqx_ds:shard(), emqx_ds:keyspace(), options()) -> {ok, state()} | {error, _TODO}.
-open_db(Shard, Keyspace, Options) ->
-    DBDir = unicode:characters_to_list(maps:get(dir, Options, Shard)),
+-spec open_db(emqx_ds:keyspace(), emqx_ds:shard(), options()) -> {ok, state()} | {error, _TODO}.
+open_db(Keyspace, Shard, Options) ->
+    DefaultDir = filename:join([atom_to_binary(Keyspace), Shard]),
+    DBDir = unicode:characters_to_list(maps:get(dir, Options, DefaultDir)),
     DBOptions = [
         {create_if_missing, true},
         {create_missing_column_families, true}
@@ -382,9 +385,9 @@ open_db(Shard, Keyspace, Options) ->
 open_gen(
     GenId,
     Gen = #{module := Mod, data := Data},
-    #s{shard = Shard, keyspace = Keyspace, db = DBHandle, cf_generations = CFs}
+    #s{keyspace = Keyspace, shard = Shard, db = DBHandle, cf_generations = CFs}
 ) ->
-    DB = Mod:open(Shard, Keyspace, DBHandle, GenId, CFs, Data),
+    DB = Mod:open(Keyspace, Shard, DBHandle, GenId, CFs, Data),
     Gen#{data := DB}.
 
 -spec open_next_iterator(iterator()) -> {ok, iterator()} | {error, _Reason} | none.

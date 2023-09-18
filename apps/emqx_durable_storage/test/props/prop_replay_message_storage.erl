@@ -10,8 +10,8 @@
 -define(WORK_DIR, ["_build", "test"]).
 -define(RUN_ID, {?MODULE, testrun_id}).
 
--define(KEYSPACE, atom_to_binary(?MODULE)).
--define(SHARD, <<(?KEYSPACE)/binary, "_shard">>).
+-define(KEYSPACE, ?MODULE).
+-define(SHARD, <<(atom_to_binary(?KEYSPACE))/binary, "_shard">>).
 -define(GEN_ID, 42).
 
 %%--------------------------------------------------------------------

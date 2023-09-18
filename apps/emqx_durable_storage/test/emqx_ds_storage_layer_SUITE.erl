@@ -34,7 +34,7 @@
 %% Smoke test for opening and reopening the database
 t_open(_Config) ->
     ok = emqx_ds_storage_layer_sup:stop_shard(?SHARD),
-    {ok, _} = emqx_ds_storage_layer_sup:start_shard(?SHARD, ?KEYSPACE, #{}).
+    {ok, _} = emqx_ds_storage_layer_sup:start_shard(?KEYSPACE, ?SHARD, #{}).
 
 %% Smoke test of store function
 t_store(_Config) ->
@@ -137,16 +137,16 @@ t_iterate_long_tail_wildcard(_Config) ->
     ).
 
 t_create_gen(_Config) ->
-    {ok, 1} = emqx_ds_storage_layer:create_generation(?SHARD, 5, ?DEFAULT_CONFIG),
+    {ok, 1} = emqx_ds_storage_layer:create_generation(?KEYSPACE, ?SHARD, 5, ?DEFAULT_CONFIG),
     ?assertEqual(
         {error, nonmonotonic},
-        emqx_ds_storage_layer:create_generation(?SHARD, 1, ?DEFAULT_CONFIG)
+        emqx_ds_storage_layer:create_generation(?KEYSPACE, ?SHARD, 1, ?DEFAULT_CONFIG)
     ),
     ?assertEqual(
         {error, nonmonotonic},
-        emqx_ds_storage_layer:create_generation(?SHARD, 5, ?DEFAULT_CONFIG)
+        emqx_ds_storage_layer:create_generation(?KEYSPACE, ?SHARD, 5, ?DEFAULT_CONFIG)
     ),
-    {ok, 2} = emqx_ds_storage_layer:create_generation(?SHARD, 10, ?COMPACT_CONFIG),
+    {ok, 2} = emqx_ds_storage_layer:create_generation(?KEYSPACE, ?SHARD, 10, ?COMPACT_CONFIG),
     Topics = ["foo/bar", "foo/bar/baz"],
     Timestamps = lists:seq(1, 100),
     [
@@ -155,9 +155,9 @@ t_create_gen(_Config) ->
     ].
 
 t_iterate_multigen(_Config) ->
-    {ok, 1} = emqx_ds_storage_layer:create_generation(?SHARD, 10, ?COMPACT_CONFIG),
-    {ok, 2} = emqx_ds_storage_layer:create_generation(?SHARD, 50, ?DEFAULT_CONFIG),
-    {ok, 3} = emqx_ds_storage_layer:create_generation(?SHARD, 1000, ?DEFAULT_CONFIG),
+    {ok, 1} = emqx_ds_storage_layer:create_generation(?KEYSPACE, ?SHARD, 10, ?COMPACT_CONFIG),
+    {ok, 2} = emqx_ds_storage_layer:create_generation(?KEYSPACE, ?SHARD, 50, ?DEFAULT_CONFIG),
+    {ok, 3} = emqx_ds_storage_layer:create_generation(?KEYSPACE, ?SHARD, 1000, ?DEFAULT_CONFIG),
     Topics = ["foo/bar", "foo/bar/baz", "a", "a/bar"],
     Timestamps = lists:seq(1, 100),
     _ = [
@@ -181,9 +181,9 @@ t_iterate_multigen(_Config) ->
 
 t_iterate_multigen_preserve_restore(_Config) ->
     ReplayID = atom_to_binary(?FUNCTION_NAME),
-    {ok, 1} = emqx_ds_storage_layer:create_generation(?SHARD, 10, ?COMPACT_CONFIG),
-    {ok, 2} = emqx_ds_storage_layer:create_generation(?SHARD, 50, ?DEFAULT_CONFIG),
-    {ok, 3} = emqx_ds_storage_layer:create_generation(?SHARD, 100, ?DEFAULT_CONFIG),
+    {ok, 1} = emqx_ds_storage_layer:create_generation(?KEYSPACE, ?SHARD, 10, ?COMPACT_CONFIG),
+    {ok, 2} = emqx_ds_storage_layer:create_generation(?KEYSPACE, ?SHARD, 50, ?DEFAULT_CONFIG),
+    {ok, 3} = emqx_ds_storage_layer:create_generation(?KEYSPACE, ?SHARD, 100, ?DEFAULT_CONFIG),
     Topics = ["foo/bar", "foo/bar/baz", "a/bar"],
     Timestamps = lists:seq(1, 100),
     TopicFilter = "foo/#",
@@ -264,17 +264,17 @@ end_per_suite(_Config) ->
 
 init_per_testcase(TC, Config) ->
     ok = set_keyspace_config(keyspace(TC), ?DEFAULT_CONFIG),
-    {ok, _} = emqx_ds_storage_layer_sup:start_shard(shard(TC), keyspace(TC), #{}),
+    {ok, _} = emqx_ds_storage_layer_sup:start_shard(keyspace(TC), shard(TC), #{}),
     Config.
 
 end_per_testcase(TC, _Config) ->
     ok = emqx_ds_storage_layer_sup:stop_shard(shard(TC)).
 
 keyspace(TC) ->
-    list_to_binary(lists:concat([?MODULE, "_", TC])).
+    list_to_atom(lists:concat([?MODULE, "_", TC])).
 
 shard(TC) ->
-    <<(keyspace(TC))/binary, "_shard">>.
+    <<(atom_to_binary(keyspace(TC)))/binary, "_shard">>.
 
 set_keyspace_config(Keyspace, Config) ->
     ok = application:set_env(emqx_ds, keyspace_config, #{Keyspace => Config}).

@@ -46,7 +46,7 @@
 
 %% FIXME
 -define(DS_SHARD, <<"local">>).
--define(DEFAULT_KEYSPACE, <<"#">>).
+-define(DEFAULT_KEYSPACE, default).
 
 -define(WHEN_ENABLED(DO),
     case is_store_enabled() of
@@ -60,10 +60,16 @@
 init() ->
     ?WHEN_ENABLED(begin
         ok = emqx_ds:ensure_shard(
-            ?DS_SHARD,
             ?DEFAULT_KEYSPACE,
+            ?DS_SHARD,
             #{
-                dir => filename:join([emqx:data_dir(), ds, messages, ?DS_SHARD])
+                dir => filename:join([
+                    emqx:data_dir(),
+                    ds,
+                    messages,
+                    atom_to_binary(?DEFAULT_KEYSPACE),
+                    ?DS_SHARD
+                ])
             }
         ),
         ok = emqx_persistent_session_ds_router:init_tables(),
