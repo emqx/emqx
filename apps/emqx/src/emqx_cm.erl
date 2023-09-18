@@ -281,8 +281,9 @@ open_session(false, ClientInfo = #{clientid := ClientId}, ConnInfo) ->
             {true, Session, ReplayContext} ->
                 ok = register_channel(ClientId, Self, ConnInfo),
                 {ok, #{session => Session, present => true, replay => ReplayContext}};
-            false ->
-                create_register_session(ClientInfo, ConnInfo, Self)
+            {false, Session} ->
+                ok = register_channel(ClientId, Self, ConnInfo),
+                {ok, #{session => Session, present => false}}
         end
     end).
 

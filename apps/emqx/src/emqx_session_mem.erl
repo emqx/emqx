@@ -57,7 +57,7 @@
 
 -export([
     create/3,
-    open/2,
+    open/3,
     destroy/1
 ]).
 
@@ -193,9 +193,9 @@ destroy(_Session) ->
 %% Open a (possibly existing) Session
 %%--------------------------------------------------------------------
 
--spec open(clientinfo(), emqx_types:conninfo()) ->
+-spec open(clientinfo(), conninfo(), emqx_session:conf()) ->
     {true, session(), replayctx()} | false.
-open(ClientInfo = #{clientid := ClientId}, _ConnInfo) ->
+open(ClientInfo = #{clientid := ClientId}, _ConnInfo, _Conf) ->
     case emqx_cm:takeover_session_begin(ClientId) of
         {ok, SessionRemote, TakeoverState} ->
             Session = resume(ClientInfo, SessionRemote),

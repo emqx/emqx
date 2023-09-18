@@ -163,15 +163,28 @@
 -spec create(clientinfo(), conninfo()) -> t().
 create(ClientInfo, ConnInfo) ->
     Conf = get_session_conf(ClientInfo, ConnInfo),
+    create(ClientInfo, ConnInfo, Conf).
+
+create(ClientInfo, ConnInfo, Conf) ->
     % FIXME error conditions
     Session = (choose_impl_mod(ConnInfo)):create(ClientInfo, ConnInfo, Conf),
     ok = emqx_metrics:inc('session.created'),
     ok = emqx_hooks:run('session.created', [ClientInfo, info(Session)]),
     Session.
 
--spec open(clientinfo(), conninfo()) -> {true, t(), _ReplayContext} | false.
+-spec open(clientinfo(), conninfo()) -> {true, t(), _ReplayContext} | {false, t()}.
 open(ClientInfo, ConnInfo) ->
-    (choose_impl_mod(ConnInfo)):open(ClientInfo, ConnInfo).
+    Conf = get_session_conf(ClientInfo, ConnInfo),
+    case (choose_impl_mod(ConnInfo)):open(ClientInfo, ConnInfo, Conf) of
+        {true, Session, ReplayContext} ->
+            {true, Session, ReplayContext};
+        {false, Session} ->
+            ok = emqx_metrics:inc('session.created'),
+            ok = emqx_hooks:run('session.created', [ClientInfo, info(Session)]),
+            {false, Session};
+        false ->
+            {false, create(ClientInfo, ConnInfo, Conf)}
+    end.
 
 -spec get_session_conf(clientinfo(), conninfo()) -> conf().
 get_session_conf(

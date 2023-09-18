@@ -18,6 +18,6 @@
 -define(EMQX_SESSION_HRL, true).
 
 -define(IS_SESSION_IMPL_MEM(S), (is_tuple(S) andalso element(1, S) =:= session)).
--define(IS_SESSION_IMPL_DS(S), (is_tuple(S) andalso element(1, S) =:= sessionds)).
+-define(IS_SESSION_IMPL_DS(S), (is_map_key(id, S))).
 
 -endif.
