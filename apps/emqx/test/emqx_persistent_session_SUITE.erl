@@ -59,49 +59,61 @@ groups() ->
     ].
 
 init_per_group(persistent_store_disabled, Config) ->
-    %% Start Apps
-    emqx_common_test_helpers:boot_modules(all),
-    meck:new(emqx_config, [non_strict, passthrough, no_history, no_link]),
-    meck:expect(emqx_config, get, fun
-        ([persistent_session_store, enabled]) -> false;
-        (Other) -> meck:passthrough([Other])
-    end),
-    emqx_common_test_helpers:start_apps([], fun set_special_confs/1),
-    [{persistent_store_enabled, false} | Config];
-init_per_group(Group, Config) when Group == ws; Group == ws_snabbkaffe ->
+    [{emqx_config, "persistent_session_store { enabled = false }"} | Config];
+init_per_group(Group, Config) when Group == tcp ->
+    Apps = emqx_cth_suite:start(
+        [{emqx, ?config(emqx_config, Config)}],
+        #{work_dir => emqx_cth_suite:work_dir(Config)}
+    ),
+    [
+        {port, get_listener_port(tcp, default)},
+        {conn_fun, connect},
+        {group_apps, Apps}
+        | Config
+    ];
+init_per_group(Group, Config) when Group == ws ->
+    Apps = emqx_cth_suite:start(
+        [{emqx, ?config(emqx_config, Config)}],
+        #{work_dir => emqx_cth_suite:work_dir(Config)}
+    ),
     [
         {ssl, false},
         {host, "localhost"},
         {enable_websocket, true},
-        {port, 8083},
-        {conn_fun, ws_connect}
+        {port, get_listener_port(ws, default)},
+        {conn_fun, ws_connect},
+        {group_apps, Apps}
         | Config
     ];
-init_per_group(Group, Config) when Group == tcp; Group == tcp_snabbkaffe ->
-    [{port, 1883}, {conn_fun, connect} | Config];
-init_per_group(Group, Config) when Group == quic; Group == quic_snabbkaffe ->
-    UdpPort = 1883,
-    emqx_common_test_helpers:ensure_quic_listener(?MODULE, UdpPort),
-    [{port, UdpPort}, {conn_fun, quic_connect} | Config];
+init_per_group(Group, Config) when Group == quic ->
+    Apps = emqx_cth_suite:start(
+        [
+            {emqx,
+                ?config(emqx_config, Config) ++
+                    "\n listeners.quic.test { enable = true }"}
+        ],
+        #{work_dir => emqx_cth_suite:work_dir(Config)}
+    ),
+    [
+        {port, get_listener_port(quic, test)},
+        {conn_fun, quic_connect},
+        {group_apps, Apps}
+        | Config
+    ];
 init_per_group(no_kill_connection_process, Config) ->
     [{kill_connection_process, false} | Config];
 init_per_group(kill_connection_process, Config) ->
     [{kill_connection_process, true} | Config].
 
-init_per_suite(Config) ->
-    Config.
+get_listener_port(Type, Name) ->
+    case emqx_config:get([listeners, Type, Name, bind]) of
+        {_, Port} -> Port;
+        Port -> Port
+    end.
 
-set_special_confs(_) ->
-    ok.
-
-end_per_suite(_Config) ->
-    emqx_common_test_helpers:ensure_mnesia_stopped(),
-    ok.
-
-end_per_group(persistent_store_disabled, _Config) ->
-    meck:unload(emqx_config),
-    emqx_common_test_helpers:stop_apps([]);
-end_per_group(_Group, _Config) ->
+end_per_group(Group, Config) when Group == tcp; Group == ws; Group == quic ->
+    ok = emqx_cth_suite:stop(?config(group_apps, Config));
+end_per_group(_, _Config) ->
     ok.
 
 init_per_testcase(TestCase, Config) ->
