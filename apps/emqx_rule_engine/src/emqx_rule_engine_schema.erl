@@ -114,6 +114,7 @@ fields("builtin_action_console") ->
         {args,
             ?HOCON(map(), #{
                 deprecated => true,
+                importance => ?IMPORTANCE_HIDDEN,
                 desc => "The arguments of the built-in 'console' action",
                 default => #{}
             })}
