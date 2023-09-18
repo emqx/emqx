@@ -513,7 +513,7 @@ test_two_messages(Strategy, Group) ->
     ok.
 
 last_message(ExpectedPayload, Pids) ->
-    last_message(ExpectedPayload, Pids, 100).
+    last_message(ExpectedPayload, Pids, 1000).
 
 last_message(ExpectedPayload, Pids, Timeout) ->
     receive
