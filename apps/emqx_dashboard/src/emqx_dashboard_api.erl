@@ -242,7 +242,7 @@ logout(_, #{
     end.
 
 users(get, _Request) ->
-    {200, emqx_dashboard_admin:all_users()};
+    {200, filter_result(emqx_dashboard_admin:all_users())};
 users(post, #{body := Params}) ->
     Desc = maps:get(<<"description">>, Params, <<"">>),
     Role = maps:get(<<"role">>, Params, ?ROLE_DEFAULT),

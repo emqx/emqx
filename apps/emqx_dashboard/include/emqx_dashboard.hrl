@@ -23,11 +23,7 @@
 -define(ROLE_VIEWER, <<"viewer">>).
 -define(ROLE_SUPERUSER, <<"superuser">>).
 
--if(?EMQX_RELEASE_EDITION == ee).
--define(ROLE_DEFAULT, ?ROLE_VIEWER).
--else.
 -define(ROLE_DEFAULT, ?ROLE_SUPERUSER).
--endif.
 
 -record(?ADMIN, {
     username :: binary(),

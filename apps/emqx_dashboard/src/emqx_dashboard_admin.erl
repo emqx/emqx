@@ -405,7 +405,7 @@ ensure_role(Role) when is_binary(Role) ->
 
 -if(?EMQX_RELEASE_EDITION == ee).
 legal_role(Role) ->
-    emqx_dashboard_rbac:legal_role(Role).
+    emqx_dashboard_rbac:valid_role(Role).
 
 role(Data) ->
     emqx_dashboard_rbac:role(Data).

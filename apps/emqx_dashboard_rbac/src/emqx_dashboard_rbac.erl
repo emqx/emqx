@@ -6,7 +6,7 @@
 
 -include_lib("emqx_dashboard/include/emqx_dashboard.hrl").
 
--export([check_rbac/2, role/1, legal_role/1]).
+-export([check_rbac/2, role/1, valid_role/1]).
 
 -dialyzer({nowarn_function, role/1}).
 %%=====================================================================
@@ -27,7 +27,7 @@ role([]) ->
 role(#{role := Role}) ->
     Role.
 
-legal_role(Role) ->
+valid_role(Role) ->
     case lists:member(Role, role_list()) of
         true ->
             ok;
