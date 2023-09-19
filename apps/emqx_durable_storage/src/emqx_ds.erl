@@ -255,6 +255,9 @@ session_del_iterator(DSSessionId, TopicFilter) ->
         mnesia:delete(?ITERATOR_REF_TAB, IteratorRefId, write)
     end).
 
+session_del_iterator(#iterator_ref{ref_id = IteratorRefId}) ->
+    mnesia:delete(?ITERATOR_REF_TAB, IteratorRefId, write).
+
 session_read_iterators(DSSessionId) ->
     % NOTE: somewhat convoluted way to trick dialyzer
     Pat = erlang:make_tuple(record_info(size, iterator_ref), '_', [
@@ -262,9 +265,6 @@ session_read_iterators(DSSessionId) ->
         {#iterator_ref.ref_id, {DSSessionId, '_'}}
     ]),
     mnesia:match_object(?ITERATOR_REF_TAB, Pat, read).
-
-session_del_iterator(#iterator_ref{ref_id = IteratorRefId}) ->
-    mnesia:delete(?ITERATOR_REF_TAB, IteratorRefId, write).
 
 -spec session_stats() -> #{}.
 session_stats() ->
