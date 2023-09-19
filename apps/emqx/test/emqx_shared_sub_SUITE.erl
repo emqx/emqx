@@ -513,7 +513,7 @@ test_two_messages(Strategy, Group) ->
     ok.
 
 last_message(ExpectedPayload, Pids) ->
-    last_message(ExpectedPayload, Pids, 100).
+    last_message(ExpectedPayload, Pids, 1000).
 
 last_message(ExpectedPayload, Pids, Timeout) ->
     receive
@@ -1234,16 +1234,25 @@ setup_node(Node, Port) ->
             ok
         end,
 
-    %% Load env before doing anything
-    [ok = rpc:call(Node, application, load, [App]) || App <- [gen_rpc, emqx, ekka, mria]],
-
-    %% Needs to be set explicitly because ekka:start() (which calls `gen` is called without Handler
-    %% in emqx_common_test_helpers:start_apps(...)
-    ok = rpc:call(Node, application, set_env, [gen_rpc, tcp_server_port, Port - 1]),
-    ok = rpc:call(Node, application, set_env, [gen_rpc, port_discovery, manual]),
+    MyPort = Port - 1,
+    PeerPort = Port - 2,
+    ok = pair_gen_rpc(node(), MyPort, PeerPort),
+    ok = pair_gen_rpc(Node, PeerPort, MyPort),
 
     %% Here we start the node and make it join the cluster
     ok = rpc:call(Node, emqx_common_test_helpers, start_apps, [[], EnvHandler]),
-    rpc:call(Node, mria, join, [node()]),
 
+    %% warm it up, also assert the peer ndoe name
+    Node = emqx_rpc:call(Node, erlang, node, []),
+    rpc:call(Node, mria, join, [node()]),
+    ok.
+
+pair_gen_rpc(Node, LocalPort, RemotePort) ->
+    _ = rpc:call(Node, application, load, [gen_rpc]),
+    ok = rpc:call(Node, application, set_env, [gen_rpc, port_discovery, manual]),
+    ok = rpc:call(Node, application, set_env, [gen_rpc, tcp_server_port, LocalPort]),
+    ok = rpc:call(Node, application, set_env, [gen_rpc, tcp_client_port, RemotePort]),
+    ok = rpc:call(Node, application, set_env, [gen_rpc, default_client_driver, tcp]),
+    _ = rpc:call(Node, application, stop, [gen_rpc]),
+    {ok, _} = rpc:call(Node, application, ensure_all_started, [gen_rpc]),
     ok.

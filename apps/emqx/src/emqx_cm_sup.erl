@@ -22,6 +22,9 @@
 
 -export([init/1]).
 
+%% for test
+-export([restart_flapping/0]).
+
 %%--------------------------------------------------------------------
 %% API
 %%--------------------------------------------------------------------
@@ -59,3 +62,8 @@ child_spec(Mod, Shutdown, Type) ->
         type => Type,
         modules => [Mod]
     }.
+
+restart_flapping() ->
+    ok = supervisor:terminate_child(?MODULE, emqx_flapping),
+    {ok, _} = supervisor:restart_child(?MODULE, emqx_flapping),
+    ok.
