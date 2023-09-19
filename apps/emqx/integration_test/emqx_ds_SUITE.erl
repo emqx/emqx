@@ -11,7 +11,9 @@
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 -include_lib("emqx/include/emqx_mqtt.hrl").
 
--define(DS_SHARD, <<"local">>).
+-define(DEFAULT_KEYSPACE, default).
+-define(DS_SHARD_ID, <<"local">>).
+-define(DS_SHARD, {?DEFAULT_KEYSPACE, ?DS_SHARD_ID}).
 -define(ITERATOR_REF_TAB, emqx_ds_iterator_ref).
 
 -import(emqx_common_test_helpers, [on_exit/1]).

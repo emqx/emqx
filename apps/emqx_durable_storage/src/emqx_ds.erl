@@ -19,7 +19,7 @@
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
 %% API:
--export([ensure_shard/3]).
+-export([ensure_shard/2]).
 %%   Messages:
 -export([message_store/2, message_store/1, message_stats/0]).
 %%   Iterator:
@@ -49,6 +49,7 @@
     iterator_id/0,
     iterator/0,
     shard/0,
+    shard_id/0,
     topic/0,
     time/0
 ]).
@@ -79,7 +80,8 @@
 -type topic() :: list(binary()).
 
 -type keyspace() :: atom().
--type shard() :: binary().
+-type shard_id() :: binary().
+-type shard() :: {keyspace(), shard_id()}.
 
 %% Timestamp
 %% Earliest possible timestamp is 0.
@@ -98,10 +100,10 @@
 %% API funcions
 %%================================================================================
 
--spec ensure_shard(keyspace(), shard(), emqx_ds_storage_layer:options()) ->
+-spec ensure_shard(shard(), emqx_ds_storage_layer:options()) ->
     ok | {error, _Reason}.
-ensure_shard(Keyspace, Shard, Options) ->
-    case emqx_ds_storage_layer_sup:start_shard(Keyspace, Shard, Options) of
+ensure_shard(Shard, Options) ->
+    case emqx_ds_storage_layer_sup:start_shard(Shard, Options) of
         {ok, _Pid} ->
             ok;
         {error, {already_started, _Pid}} ->
@@ -142,7 +144,7 @@ message_stats() ->
 -spec session_open(emqx_types:clientid()) -> {_New :: boolean(), session_id()}.
 session_open(ClientID) ->
     {atomic, Res} =
-        mria:transaction(?DS_SHARD, fun() ->
+        mria:transaction(?DS_MRIA_SHARD, fun() ->
             case mnesia:read(?SESSION_TAB, ClientID, write) of
                 [#session{}] ->
                     {false, ClientID};
@@ -159,7 +161,7 @@ session_open(ClientID) ->
 -spec session_drop(emqx_types:clientid()) -> ok.
 session_drop(ClientID) ->
     {atomic, ok} = mria:transaction(
-        ?DS_SHARD,
+        ?DS_MRIA_SHARD,
         fun() ->
             %% TODO: ensure all iterators from this clientid are closed?
             mnesia:delete({?SESSION_TAB, ClientID})
@@ -180,7 +182,7 @@ session_suspend(_SessionId) ->
 session_add_iterator(DSSessionId, TopicFilter) ->
     IteratorRefId = {DSSessionId, TopicFilter},
     {atomic, Res} =
-        mria:transaction(?DS_SHARD, fun() ->
+        mria:transaction(?DS_MRIA_SHARD, fun() ->
             case mnesia:read(?ITERATOR_REF_TAB, IteratorRefId, write) of
                 [] ->
                     {IteratorId, StartMS} = new_iterator_id(DSSessionId),
@@ -223,7 +225,7 @@ session_get_iterator_id(DSSessionId, TopicFilter) ->
 session_del_iterator(DSSessionId, TopicFilter) ->
     IteratorRefId = {DSSessionId, TopicFilter},
     {atomic, ok} =
-        mria:transaction(?DS_SHARD, fun() ->
+        mria:transaction(?DS_MRIA_SHARD, fun() ->
             mnesia:delete(?ITERATOR_REF_TAB, IteratorRefId, write)
         end),
     ok.

@@ -80,7 +80,7 @@
 -behaviour(emqx_ds_storage_layer).
 
 %% API:
--export([create_new/3, open/6]).
+-export([create_new/3, open/5]).
 -export([make_keymapper/1]).
 
 -export([store/5]).
@@ -173,7 +173,6 @@
 -opaque schema() :: #schema{}.
 
 -record(db, {
-    keyspace :: emqx_ds:keyspace(),
     shard :: emqx_ds:shard(),
     handle :: rocksdb:db_handle(),
     cf :: rocksdb:cf_handle(),
@@ -236,7 +235,6 @@ create_new(DBHandle, GenId, Options) ->
 
 %% Reopen the database
 -spec open(
-    emqx_ds:keyspace(),
     emqx_ds:shard(),
     rocksdb:db_handle(),
     emqx_ds_storage_layer:gen_id(),
@@ -244,10 +242,9 @@ create_new(DBHandle, GenId, Options) ->
     schema()
 ) ->
     db().
-open(Keyspace, Shard, DBHandle, GenId, CFs, #schema{keymapper = Keymapper}) ->
+open(Shard, DBHandle, GenId, CFs, #schema{keymapper = Keymapper}) ->
     {value, {_, CFHandle}} = lists:keysearch(data_cf(GenId), 1, CFs),
     #db{
-        keyspace = Keyspace,
         shard = Shard,
         handle = DBHandle,
         cf = CFHandle,
@@ -292,7 +289,8 @@ delete(DB = #db{handle = DBHandle, cf = CFHandle}, MessageID, PublishedAt, Topic
 -spec make_iterator(db(), emqx_ds:replay()) ->
     {ok, iterator()} | {error, _TODO}.
 make_iterator(DB, Replay) ->
-    Options = emqx_ds_conf:iteration_options(DB#db.keyspace),
+    {Keyspace, _ShardId} = DB#db.shard,
+    Options = emqx_ds_conf:iteration_options(Keyspace),
     make_iterator(DB, Replay, Options).
 
 -spec make_iterator(db(), emqx_ds:replay(), iteration_options()) ->

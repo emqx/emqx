@@ -45,8 +45,9 @@
 ]).
 
 %% FIXME
--define(DS_SHARD, <<"local">>).
+-define(DS_SHARD_ID, <<"local">>).
 -define(DEFAULT_KEYSPACE, default).
+-define(DS_SHARD, {?DEFAULT_KEYSPACE, ?DS_SHARD_ID}).
 
 -define(WHEN_ENABLED(DO),
     case is_store_enabled() of
@@ -60,15 +61,14 @@
 init() ->
     ?WHEN_ENABLED(begin
         ok = emqx_ds:ensure_shard(
-            ?DEFAULT_KEYSPACE,
             ?DS_SHARD,
             #{
                 dir => filename:join([
                     emqx:data_dir(),
                     ds,
                     messages,
-                    atom_to_binary(?DEFAULT_KEYSPACE),
-                    ?DS_SHARD
+                    ?DEFAULT_KEYSPACE,
+                    ?DS_SHARD_ID
                 ])
             }
         ),
@@ -97,7 +97,9 @@ store_message(Msg) ->
     ID = emqx_message:id(Msg),
     Timestamp = emqx_guid:timestamp(ID),
     Topic = emqx_topic:words(emqx_message:topic(Msg)),
-    emqx_ds_storage_layer:store(?DS_SHARD, ID, Timestamp, Topic, serialize_message(Msg)).
+    emqx_ds_storage_layer:store(
+        ?DS_SHARD, ID, Timestamp, Topic, serialize_message(Msg)
+    ).
 
 has_subscribers(#message{topic = Topic}) ->
     emqx_persistent_session_ds_router:has_any_route(Topic).

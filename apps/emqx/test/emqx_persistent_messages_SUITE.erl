@@ -26,7 +26,9 @@
 
 -import(emqx_common_test_helpers, [on_exit/1]).
 
--define(DS_SHARD, <<"local">>).
+-define(DEFAULT_KEYSPACE, default).
+-define(DS_SHARD_ID, <<"local">>).
+-define(DS_SHARD, {?DEFAULT_KEYSPACE, ?DS_SHARD_ID}).
 
 all() ->
     emqx_common_test_helpers:all(?MODULE).
