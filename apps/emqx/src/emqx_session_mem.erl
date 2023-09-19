@@ -519,17 +519,21 @@ enqueue(ClientInfo, Msgs, Session) when is_list(Msgs) ->
     ).
 
 enqueue_msg(ClientInfo, #message{qos = QOS} = Msg, Session = #session{mqueue = Q}) ->
-    {Dropped, NewQ} = emqx_mqueue:in(Msg, Q),
+    {Dropped, NQ} = emqx_mqueue:in(Msg, Q),
     case Dropped of
         undefined ->
-            Session#session{mqueue = NewQ};
+            Session#session{mqueue = NQ};
         _Msg ->
+            NQInfo = emqx_mqueue:info(NQ),
             Reason =
-                case emqx_mqueue:info(store_qos0, Q) of
-                    false when QOS =:= ?QOS_0 -> qos0_msg;
+                case NQInfo of
+                    #{store_qos0 := false} when QOS =:= ?QOS_0 -> qos0_msg;
                     _ -> queue_full
                 end,
-            _ = emqx_session_events:handle_event(ClientInfo, {dropped, Dropped, Reason}),
+            _ = emqx_session_events:handle_event(
+                ClientInfo,
+                {dropped, Dropped, #{reason => Reason, logctx => #{queue => NQInfo}}}
+            ),
             Session
     end.
 

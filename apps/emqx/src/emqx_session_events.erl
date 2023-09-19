@@ -21,8 +21,10 @@
 
 -export([handle_event/2]).
 
--type event_expired() :: {expired, emqx_types:message()}.
--type event_dropped() :: {dropped, emqx_types:message(), _Reason :: atom()}.
+-type message() :: emqx_types:message().
+
+-type event_expired() :: {expired, message()}.
+-type event_dropped() :: {dropped, message(), _Reason :: atom() | #{reason := atom(), _ => _}}.
 -type event_expire_rel() :: {expired_rel, non_neg_integer()}.
 
 -type event() ::
@@ -37,22 +39,24 @@
 handle_event(ClientInfo, {expired, Msg}) ->
     ok = emqx_hooks:run('delivery.dropped', [ClientInfo, Msg, expired]),
     ok = inc_delivery_expired_cnt(1);
-handle_event(ClientInfo, {dropped, Msg, qos0_msg}) ->
+handle_event(ClientInfo, {dropped, Msg, no_local}) ->
+    ok = emqx_hooks:run('delivery.dropped', [ClientInfo, Msg, no_local]),
+    ok = emqx_metrics:inc('delivery.dropped'),
+    ok = emqx_metrics:inc('delivery.dropped.no_local');
+handle_event(ClientInfo, {dropped, Msg, #{reason := qos0_msg, logctx := Ctx}}) ->
     ok = emqx_hooks:run('delivery.dropped', [ClientInfo, Msg, qos0_msg]),
     ok = emqx_metrics:inc('delivery.dropped'),
     ok = emqx_metrics:inc('delivery.dropped.qos0_msg'),
     ok = inc_pd('send_msg.dropped', 1),
     ?SLOG(
         warning,
-        #{
+        Ctx#{
             msg => "dropped_qos0_msg",
-            % FIXME
-            % queue => QueueInfo,
             payload => Msg#message.payload
         },
         #{topic => Msg#message.topic}
     );
-handle_event(ClientInfo, {dropped, Msg, queue_full}) ->
+handle_event(ClientInfo, {dropped, Msg, #{reason := queue_full, logctx := Ctx}}) ->
     ok = emqx_hooks:run('delivery.dropped', [ClientInfo, Msg, queue_full]),
     ok = emqx_metrics:inc('delivery.dropped'),
     ok = emqx_metrics:inc('delivery.dropped.queue_full'),
@@ -60,18 +64,12 @@ handle_event(ClientInfo, {dropped, Msg, queue_full}) ->
     ok = inc_pd('send_msg.dropped.queue_full', 1),
     ?SLOG(
         warning,
-        #{
+        Ctx#{
             msg => "dropped_msg_due_to_mqueue_is_full",
-            % FIXME
-            % queue => QueueInfo,
             payload => Msg#message.payload
         },
         #{topic => Msg#message.topic}
     );
-handle_event(ClientInfo, {dropped, Msg, no_local}) ->
-    ok = emqx_hooks:run('delivery.dropped', [ClientInfo, Msg, no_local]),
-    ok = emqx_metrics:inc('delivery.dropped'),
-    ok = emqx_metrics:inc('delivery.dropped.no_local');
 handle_event(_ClientInfo, {expired_rel, 0}) ->
     ok;
 handle_event(_ClientInfo, {expired_rel, ExpiredCnt}) ->
