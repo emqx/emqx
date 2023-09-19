@@ -132,6 +132,7 @@
 %%================================================================================
 
 -type topic() :: emqx_ds:topic().
+-type topic_filter() :: emqx_ds:topic_filter().
 -type time() :: emqx_ds:time().
 
 %% Number of bits
@@ -191,7 +192,7 @@
 
 -record(filter, {
     keymapper :: keymapper(),
-    topic_filter :: emqx_topic:words(),
+    topic_filter :: topic_filter(),
     start_time :: integer(),
     hash_bitfilter :: integer(),
     hash_bitmask :: integer(),
@@ -412,11 +413,11 @@ extract(Key, #keymapper{bitsize = Size}) ->
     <<Bitstring:Size/integer, _MessageID/binary>> = Key,
     Bitstring.
 
--spec compute_bitstring(topic(), time(), keymapper()) -> integer().
-compute_bitstring(Topic, Timestamp, #keymapper{source = Source}) ->
-    compute_bitstring(Topic, Timestamp, Source, 0).
+-spec compute_bitstring(topic_filter(), time(), keymapper()) -> integer().
+compute_bitstring(TopicFilter, Timestamp, #keymapper{source = Source}) ->
+    compute_bitstring(TopicFilter, Timestamp, Source, 0).
 
--spec compute_topic_bitmask(emqx_topic:words(), keymapper()) -> integer().
+-spec compute_topic_bitmask(topic_filter(), keymapper()) -> integer().
 compute_topic_bitmask(TopicFilter, #keymapper{source = Source}) ->
     compute_topic_bitmask(TopicFilter, Source, 0).
 

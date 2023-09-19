@@ -51,6 +51,7 @@
     shard/0,
     shard_id/0,
     topic/0,
+    topic_filter/0,
     time/0
 ]).
 
@@ -69,7 +70,7 @@
     props := map()
 }.
 
--type iterators() :: #{topic() => iterator()}.
+-type iterators() :: #{topic_filter() => iterator()}.
 
 %% Currently, this is the clientid.  We avoid `emqx_types:clientid()' because that can be
 %% an atom, in theory (?).
@@ -79,16 +80,17 @@
 
 -type iterator_id() :: binary().
 
-%%-type session() :: #session{}.
-
 -type message_store_opts() :: #{}.
 
 -type message_stats() :: #{}.
 
 -type message_id() :: binary().
 
-%% Parsed topic:
+%% Parsed topic.
 -type topic() :: list(binary()).
+
+%% Parsed topic filter.
+-type topic_filter() :: list(binary() | '+' | '#' | '').
 
 -type keyspace() :: atom().
 -type shard_id() :: binary().
@@ -103,7 +105,7 @@
 -type replay_id() :: binary().
 
 -type replay() :: {
-    _TopicFilter :: topic(),
+    _TopicFilter :: topic_filter(),
     _StartTime :: time()
 }.
 
@@ -197,7 +199,7 @@ session_suspend(_SessionId) ->
     ok.
 
 %% @doc Called when a client subscribes to a topic. Idempotent.
--spec session_add_iterator(session_id(), topic(), _Props :: map()) ->
+-spec session_add_iterator(session_id(), topic_filter(), _Props :: map()) ->
     {ok, iterator(), _IsNew :: boolean()}.
 session_add_iterator(DSSessionId, TopicFilter, Props) ->
     IteratorRefId = {DSSessionId, TopicFilter},
@@ -238,7 +240,7 @@ session_update_iterator(IteratorRef, Props) ->
     ok = mnesia:write(?ITERATOR_REF_TAB, NIteratorRef, write),
     NIteratorRef.
 
--spec session_get_iterator_id(session_id(), topic()) ->
+-spec session_get_iterator_id(session_id(), topic_filter()) ->
     {ok, iterator_id()} | {error, not_found}.
 session_get_iterator_id(DSSessionId, TopicFilter) ->
     IteratorRefId = {DSSessionId, TopicFilter},
@@ -250,7 +252,7 @@ session_get_iterator_id(DSSessionId, TopicFilter) ->
     end.
 
 %% @doc Called when a client unsubscribes from a topic.
--spec session_del_iterator(session_id(), topic()) -> ok.
+-spec session_del_iterator(session_id(), topic_filter()) -> ok.
 session_del_iterator(DSSessionId, TopicFilter) ->
     IteratorRefId = {DSSessionId, TopicFilter},
     transaction(fun() ->

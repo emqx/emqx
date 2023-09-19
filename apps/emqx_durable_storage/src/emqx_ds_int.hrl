@@ -31,7 +31,7 @@
 }).
 
 -record(iterator_ref, {
-    ref_id :: {emqx_ds:session_id(), emqx_topic:words()},
+    ref_id :: {emqx_ds:session_id(), emqx_ds:topic_filter()},
     it_id :: emqx_ds:iterator_id(),
     start_time :: emqx_ds:time(),
     props = #{} :: map()
