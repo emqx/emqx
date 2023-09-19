@@ -84,7 +84,7 @@
     %% MQTT ClientInfo
     clientinfo :: emqx_types:clientinfo(),
     %% MQTT Session
-    session :: maybe(emqx_session:session()),
+    session :: maybe(emqx_session:t()),
     %% Keepalive
     keepalive :: maybe(emqx_keepalive:keepalive()),
     %% MQTT Will Msg

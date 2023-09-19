@@ -260,7 +260,7 @@ set_chan_stats(ClientId, ChanPid, Stats) ->
 %% @doc Open a session.
 -spec open_session(boolean(), emqx_types:clientinfo(), emqx_types:conninfo()) ->
     {ok, #{
-        session := emqx_session:session(),
+        session := emqx_session:t(),
         present := boolean(),
         replay => _ReplayContext
     }}
@@ -390,7 +390,7 @@ discard_session(ClientId) when is_binary(ClientId) ->
 %% benefits nobody.
 -spec request_stepdown(Action, module(), pid()) ->
     ok
-    | {ok, emqx_session:session() | list(emqx_types:deliver())}
+    | {ok, emqx_session:t() | _ReplayContext}
     | {error, term()}
 when
     Action :: kick | discard | {takeover, 'begin'} | {takeover, 'end'}.

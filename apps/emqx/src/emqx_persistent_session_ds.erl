@@ -364,7 +364,7 @@ update_subscription(TopicFilterBin, Iterator, SubOpts, DSSessionID) ->
     ok = ?tp(persistent_session_ds_iterator_updated, #{iterator => Iterator}),
     NIterator.
 
--spec open_iterator_on_all_shards(emqx_topic:words(), emqx_ds:iterator()) -> ok.
+-spec open_iterator_on_all_shards(emqx_types:words(), emqx_ds:iterator()) -> ok.
 open_iterator_on_all_shards(TopicFilter, Iterator) ->
     ?tp(persistent_session_ds_will_open_iterators, #{iterator => Iterator}),
     %% Note: currently, shards map 1:1 to nodes, but this will change in the future.
@@ -384,7 +384,7 @@ open_iterator_on_all_shards(TopicFilter, Iterator) ->
     ok.
 
 %% RPC target.
--spec do_open_iterator(emqx_topic:words(), emqx_ds:time(), emqx_ds:iterator_id()) ->
+-spec do_open_iterator(emqx_types:words(), emqx_ds:time(), emqx_ds:iterator_id()) ->
     {ok, emqx_ds_storage_layer:iterator()} | {error, _Reason}.
 do_open_iterator(TopicFilter, StartMS, IteratorID) ->
     Replay = {TopicFilter, StartMS},
