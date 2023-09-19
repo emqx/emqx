@@ -2060,35 +2060,35 @@ handle_timeout(
     {ok, Channel};
 handle_timeout(
     _TRef,
-    retry_delivery,
+    retry_delivery = TimerName,
     Channel = #channel{conn_state = asleep}
 ) ->
-    {ok, reset_timer(retry_delivery, Channel)};
+    {ok, reset_timer(TimerName, Channel)};
 handle_timeout(
     _TRef,
-    _Name = expire_awaiting_rel,
+    expire_awaiting_rel,
     Channel = #channel{conn_state = disconnected}
 ) ->
     {ok, Channel};
 handle_timeout(
     _TRef,
-    Name = expire_awaiting_rel,
+    expire_awaiting_rel = TimerName,
     Channel = #channel{conn_state = asleep}
 ) ->
-    {ok, reset_timer(Name, Channel)};
+    {ok, reset_timer(TimerName, Channel)};
 handle_timeout(
     _TRef,
-    Name,
+    TimerName,
     Channel = #channel{session = Session, clientinfo = ClientInfo}
-) when Name == retry_delivery; Name == expire_awaiting_rel ->
-    case emqx_mqttsn_session:handle_timeout(ClientInfo, Name, Session) of
+) when TimerName == retry_delivery; TimerName == expire_awaiting_rel ->
+    case emqx_mqttsn_session:handle_timeout(ClientInfo, TimerName, Session) of
         {ok, Publishes, NSession} ->
             NChannel = Channel#channel{session = NSession},
-            handle_out(publish, Publishes, clean_timer(Name, NChannel));
+            handle_out(publish, Publishes, clean_timer(TimerName, NChannel));
         {ok, Publishes, Timeout, NSession} ->
             NChannel = Channel#channel{session = NSession},
             %% XXX: These replay messages should awaiting register acked?
-            handle_out(publish, Publishes, reset_timer(Name, Timeout, NChannel))
+            handle_out(publish, Publishes, reset_timer(TimerName, Timeout, NChannel))
     end;
 handle_timeout(
     _TRef,

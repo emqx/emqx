@@ -1316,48 +1316,48 @@ handle_timeout(
     end;
 handle_timeout(
     _TRef,
-    Name,
+    TimerName,
     Channel = #channel{conn_state = disconnected}
-) when ?IS_COMMON_SESSION_TIMER(Name) ->
+) when ?IS_COMMON_SESSION_TIMER(TimerName) ->
     {ok, Channel};
 handle_timeout(
     _TRef,
-    Name,
+    TimerName,
     Channel = #channel{session = Session, clientinfo = ClientInfo}
-) when ?IS_COMMON_SESSION_TIMER(Name) ->
-    % NOTE
-    % Responsibility for these timers is smeared across both this module and the
-    % `emqx_session` module: the latter holds configured timer intervals, and is
-    % responsible for the actual timeout logic. Yet they are managed here, since
-    % they are kind of common to all session implementations.
-    case emqx_session:handle_timeout(ClientInfo, Name, Session) of
+) when ?IS_COMMON_SESSION_TIMER(TimerName) ->
+    %% NOTE
+    %% Responsibility for these timers is smeared across both this module and the
+    %% `emqx_session` module: the latter holds configured timer intervals, and is
+    %% responsible for the actual timeout logic. Yet they are managed here, since
+    %% they are kind of common to all session implementations.
+    case emqx_session:handle_timeout(ClientInfo, TimerName, Session) of
         {ok, Publishes, NSession} ->
             NChannel = Channel#channel{session = NSession},
-            handle_out(publish, Publishes, clean_timer(Name, NChannel));
+            handle_out(publish, Publishes, clean_timer(TimerName, NChannel));
         {ok, Publishes, Timeout, NSession} ->
             NChannel = Channel#channel{session = NSession},
-            handle_out(publish, Publishes, reset_timer(Name, Timeout, NChannel))
+            handle_out(publish, Publishes, reset_timer(TimerName, Timeout, NChannel))
     end;
 handle_timeout(_TRef, expire_session, Channel) ->
     shutdown(expired, Channel);
 handle_timeout(
     _TRef,
-    Name = will_message,
+    will_message = TimerName,
     Channel = #channel{clientinfo = ClientInfo, will_msg = WillMsg}
 ) ->
     (WillMsg =/= undefined) andalso publish_will_msg(ClientInfo, WillMsg),
-    {ok, clean_timer(Name, Channel#channel{will_msg = undefined})};
+    {ok, clean_timer(TimerName, Channel#channel{will_msg = undefined})};
 handle_timeout(
     _TRef,
-    expire_quota_limit = Name,
+    expire_quota_limit = TimerName,
     #channel{quota = Quota} = Channel
 ) ->
     case emqx_limiter_container:retry(?LIMITER_ROUTING, Quota) of
         {_, Intv, Quota2} ->
-            Channel2 = ensure_timer(Name, Intv, Channel#channel{quota = Quota2}),
+            Channel2 = ensure_timer(TimerName, Intv, Channel#channel{quota = Quota2}),
             {ok, Channel2};
         {_, Quota2} ->
-            {ok, clean_timer(Name, Channel#channel{quota = Quota2})}
+            {ok, clean_timer(TimerName, Channel#channel{quota = Quota2})}
     end;
 handle_timeout(TRef, Msg, Channel) ->
     case emqx_hooks:run_fold('client.timeout', [TRef, Msg], []) of
