@@ -36,7 +36,6 @@
 
 -define(BAD_USERNAME_OR_PWD, 'BAD_USERNAME_OR_PWD').
 -define(BAD_REQUEST, 'BAD_REQUEST').
-
 -define(BACKEND_NOT_FOUND, 'BACKEND_NOT_FOUND').
 -define(TAGS, <<"Dashboard Single Sign-on">>).
 
@@ -122,7 +121,7 @@ login(post, #{bindings := #{backend := Backend}, body := Sign}) ->
             {404, ?BACKEND_NOT_FOUND, <<"Backend not found">>};
         State ->
             Provider = emqx_dashboard_sso:provider(Backend),
-            case Provider:login(Sign, State) of
+            case emqx_dashboard_sso:login(Provider, Sign, State) of
                 {ok, Token} ->
                     ?SLOG(info, #{msg => "Dashboard SSO login successfully", request => Sign}),
                     Version = iolist_to_binary(proplists:get_value(version, emqx_sys:info())),
@@ -174,10 +173,10 @@ response_schema(404) ->
     emqx_dashboard_swagger:error_codes([?BACKEND_NOT_FOUND], ?DESC(backend_not_found)).
 
 backend_union() ->
-    hoconsc:union([Mod:hocon_ref() || Mod <- emqx_dashboard_sso:modules()]).
+    hoconsc:union([emqx_dashboard_sso:hocon_ref(Mod) || Mod <- emqx_dashboard_sso:modules()]).
 
 login_union() ->
-    hoconsc:union([Mod:login_ref() || Mod <- emqx_dashboard_sso:modules()]).
+    hoconsc:union([emqx_dashboard_sso:login_ref(Mod) || Mod <- emqx_dashboard_sso:modules()]).
 
 backend_name_in_path() ->
     backend_name_as_arg(path, [], <<"ldap">>).

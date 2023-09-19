@@ -157,7 +157,7 @@ start_backend_services() ->
         fun({Backend, Config}) ->
             Provider = provider(Backend),
             on_backend_updated(
-                Provider:create(Config),
+                emqx_dashboard_sso:create(Provider, Config),
                 fun(State) ->
                     ets:insert(dashboard_sso, #dashboard_sso{backend = Backend, state = State})
                 end
@@ -197,14 +197,14 @@ on_config_update({update, Backend, _Config}, NewConf, _OldConf) ->
     case lookup(Backend) of
         undefined ->
             on_backend_updated(
-                Provider:create(Config),
+                emqx_dashboard_sso:create(Provider, Config),
                 fun(State) ->
                     ets:insert(dashboard_sso, #dashboard_sso{backend = Backend, state = State})
                 end
             );
         Data ->
             on_backend_updated(
-                Provider:update(Config, Data#dashboard_sso.state),
+                emqx_dashboard_sso:update(Provider, Config, Data#dashboard_sso.state),
                 fun(State) ->
                     ets:insert(dashboard_sso, Data#dashboard_sso{state = State})
                 end
@@ -217,7 +217,7 @@ on_config_update({delete, Backend}, _NewConf, _OldConf) ->
         Data ->
             Provider = provider(Backend),
             on_backend_updated(
-                Provider:destroy(Data#dashboard_sso.state),
+                emqx_dashboard_sso:destroy(Provider, Data#dashboard_sso.state),
                 fun() ->
                     ets:delete(dashboard_sso, Backend)
                 end

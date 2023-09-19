@@ -29,7 +29,7 @@ roots() -> [dashboard_sso].
 fields(dashboard_sso) ->
     lists:map(
         fun({Type, Module}) ->
-            {Type, mk(Module:hocon_ref(), #{required => {false, recursively}})}
+            {Type, mk(emqx_dashboard_sso:hocon_ref(Module), #{required => {false, recursively}})}
         end,
         maps:to_list(emqx_dashboard_sso:backends())
     ).
