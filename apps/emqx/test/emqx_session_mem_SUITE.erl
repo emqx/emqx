@@ -178,38 +178,36 @@ t_publish_qos2_with_error_return(_) ->
             ok
     end),
 
-    Session = session(#{max_awaiting_rel => 2, awaiting_rel => #{PacketId1 = 1 => ts(millisecond)}}),
-    begin
-        Msg1 = emqx_message:make(clientid, ?QOS_2, <<"t">>, <<"payload1">>),
-        {error, RC1 = ?RC_PACKET_IDENTIFIER_IN_USE} = emqx_session:publish(
-            clientinfo(), PacketId1, Msg1, Session
-        ),
-        receive
-            {'message.dropped', Reason1, RecMsg1} ->
-                ?assertEqual(Reason1, emqx_reason_codes:name(RC1)),
-                ?assertEqual(RecMsg1, Msg1)
-        after 1000 ->
-            ct:fail(?FUNCTION_NAME)
-        end
+    PacketId1 = 1,
+    Session = session(#{max_awaiting_rel => 2, awaiting_rel => #{PacketId1 => ts(millisecond)}}),
+    Msg1 = emqx_message:make(clientid, ?QOS_2, <<"t">>, <<"payload1">>),
+    {error, RC1 = ?RC_PACKET_IDENTIFIER_IN_USE} = emqx_session:publish(
+        clientinfo(), PacketId1, Msg1, Session
+    ),
+    receive
+        {'message.dropped', Reason1, RecMsg1} ->
+            ?assertEqual(Reason1, emqx_reason_codes:name(RC1)),
+            ?assertEqual(RecMsg1, Msg1)
+    after 1000 ->
+        ct:fail(?FUNCTION_NAME)
     end,
 
-    begin
-        Msg2 = emqx_message:make(clientid, ?QOS_2, <<"t">>, <<"payload2">>),
-        {ok, [], Session1} = emqx_session:publish(
-            clientinfo(), _PacketId2 = 2, Msg2, Session
-        ),
-        ?assertEqual(2, emqx_session_mem:info(awaiting_rel_cnt, Session1)),
-        {error, RC2 = ?RC_RECEIVE_MAXIMUM_EXCEEDED} = emqx_session:publish(
-            clientinfo(), _PacketId3 = 3, Msg2, Session1
-        ),
-        receive
-            {'message.dropped', Reason2, RecMsg2} ->
-                ?assertEqual(Reason2, emqx_reason_codes:name(RC2)),
-                ?assertEqual(RecMsg2, Msg2)
-        after 1000 ->
-            ct:fail(?FUNCTION_NAME)
-        end
+    Msg2 = emqx_message:make(clientid, ?QOS_2, <<"t">>, <<"payload2">>),
+    {ok, [], Session1} = emqx_session:publish(
+        clientinfo(), _PacketId2 = 2, Msg2, Session
+    ),
+    ?assertEqual(2, emqx_session_mem:info(awaiting_rel_cnt, Session1)),
+    {error, RC2 = ?RC_RECEIVE_MAXIMUM_EXCEEDED} = emqx_session:publish(
+        clientinfo(), _PacketId3 = 3, Msg2, Session1
+    ),
+    receive
+        {'message.dropped', Reason2, RecMsg2} ->
+            ?assertEqual(Reason2, emqx_reason_codes:name(RC2)),
+            ?assertEqual(RecMsg2, Msg2)
+    after 1000 ->
+        ct:fail(?FUNCTION_NAME)
     end,
+
     ok = meck:expect(emqx_hooks, run, fun(_Hook, _Args) -> ok end).
 
 t_is_awaiting_full_false(_) ->
