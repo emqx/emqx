@@ -115,7 +115,8 @@
             emqx_ft,
             emqx_ldap,
             emqx_gcp_device,
-            emqx_dashboard_rbac
+            emqx_dashboard_rbac,
+            emqx_dashboard_sso
         ],
     %% must always be of type `load'
     ce_business_apps =>

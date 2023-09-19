@@ -60,6 +60,10 @@
 
 -export([backup_tables/0]).
 
+-if(?EMQX_RELEASE_EDITION == ee).
+-export([add_sso_user/4, lookup_user/2]).
+-endif.
+
 -type emqx_admin() :: #?ADMIN{}.
 
 %%--------------------------------------------------------------------
@@ -99,10 +103,11 @@ add_default_user() ->
 %% API
 %%--------------------------------------------------------------------
 
--spec add_user(binary(), binary(), dashboard_user_role(), binary()) -> {ok, map()} | {error, any()}.
-add_user(Username, Password, Role, Desc) when
-    is_binary(Username), is_binary(Password)
-->
+
+
+-spec add_user(dashboard_username(), binary(), dashboard_user_role(), binary()) ->
+    {ok, map()} | {error, any()}.
+add_user(Username, Password, Role, Desc) when is_binary(Password) ->
     case {legal_username(Username), legal_password(Password), legal_role(Role)} of
         {ok, ok, ok} -> do_add_user(Username, Password, Role, Desc);
         {{error, Reason}, _, _} -> {error, Reason};
@@ -115,6 +120,8 @@ do_add_user(Username, Password, Role, Desc) ->
     return(Res).
 
 %% 0-9 or A-Z or a-z or $_
+legal_username(?SSO_USERNAME(_, _)) ->
+    ok;
 legal_username(<<>>) ->
     {error, <<"Username cannot be empty">>};
 legal_username(UserName) ->
@@ -312,8 +319,8 @@ update_pwd(Username, Fun) ->
         end,
     return(mria:transaction(?DASHBOARD_SHARD, Trans)).
 
--spec lookup_user(binary()) -> [emqx_admin()].
-lookup_user(Username) when is_binary(Username) ->
+-spec lookup_user(dashboard_username()) -> [emqx_admin()].
+lookup_user(Username) ->
     Fun = fun() -> mnesia:read(?ADMIN, Username) end,
     {atomic, User} = mria:ro_transaction(?DASHBOARD_SHARD, Fun),
     User.
@@ -410,6 +417,14 @@ legal_role(Role) ->
 role(Data) ->
     emqx_dashboard_rbac:role(Data).
 
+-spec add_sso_user(atom(), binary(), dashboard_user_role(), binary()) ->
+    {ok, map()} | {error, any()}.
+add_sso_user(Backend, Username, Role, Desc) ->
+    add_user(?SSO_USERNAME(Backend, Username), <<>>, Role, Desc).
+
+-spec lookup_user(dashboard_sso_backend(), binary()) -> [emqx_admin()].
+lookup_user(Backend, Username) when is_atom(Backend) ->
+    lookup_user(?SSO_USERNAME(Backend, Username)).
 -else.
 
 -dialyzer({no_match, [add_user/4, update_user/3]}).

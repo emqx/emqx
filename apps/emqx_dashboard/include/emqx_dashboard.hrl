@@ -22,18 +22,23 @@
 %% a predefined configuration would replace these macros.
 -define(ROLE_VIEWER, <<"viewer">>).
 -define(ROLE_SUPERUSER, <<"superuser">>).
-
 -define(ROLE_DEFAULT, ?ROLE_SUPERUSER).
 
+-define(SSO_USERNAME(Backend, Name), {Backend, Name}).
+
+-type dashboard_sso_backend() :: atom().
+-type dashboard_sso_username() :: {dashboard_sso_backend(), binary()}.
+-type dashboard_username() :: binary() | dashboard_sso_username().
+-type dashboard_user_role() :: binary().
+
 -record(?ADMIN, {
-    username :: binary(),
+    username :: dashboard_username(),
     pwdhash :: binary(),
     description :: binary(),
-    role = ?ROLE_DEFAULT :: binary(),
+    role = ?ROLE_DEFAULT :: dashboard_user_role(),
     extra = #{} :: map()
 }).
 
--type dashboard_user_role() :: binary().
 -type dashboard_user() :: #?ADMIN{}.
 
 -define(ADMIN_JWT, emqx_admin_jwt).
