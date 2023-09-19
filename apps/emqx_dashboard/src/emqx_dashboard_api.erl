@@ -89,6 +89,7 @@ schema("/logout") ->
         post => #{
             tags => [<<"dashboard">>],
             desc => ?DESC(logout_api),
+            parameters => sso_parameters(),
             'requestBody' => fields([username]),
             responses => #{
                 204 => <<"Dashboard logout successfully">>,
@@ -114,7 +115,7 @@ schema("/users") ->
             desc => ?DESC(create_user_api),
             'requestBody' => fields([username, password, role, description]),
             responses => #{
-                200 => fields([username, role, description])
+                200 => fields([username, role, description, backend])
             }
         }
     };
@@ -124,17 +125,17 @@ schema("/users/:username") ->
         put => #{
             tags => [<<"dashboard">>],
             desc => ?DESC(update_user_api),
-            parameters => fields([username_in_path]),
+            parameters => sso_parameters(fields([username_in_path])),
             'requestBody' => fields([role, description]),
             responses => #{
-                200 => fields([username, role, description]),
+                200 => fields([username, role, description, backend]),
                 404 => response_schema(404)
             }
         },
         delete => #{
             tags => [<<"dashboard">>],
             desc => ?DESC(delete_user_api),
-            parameters => fields([username_in_path]),
+            parameters => sso_parameters(fields([username_in_path])),
             responses => #{
                 204 => <<"Delete User successfully">>,
                 400 => emqx_dashboard_swagger:error_codes(
@@ -169,7 +170,7 @@ response_schema(404) ->
     emqx_dashboard_swagger:error_codes([?USER_NOT_FOUND], ?DESC(users_api404)).
 
 fields(user) ->
-    fields([username, description]);
+    fields([username, role, description, backend]);
 fields(List) ->
     [field(Key) || Key <- List, field_filter(Key)].
 
@@ -206,7 +207,10 @@ field(old_pwd) ->
 field(new_pwd) ->
     {new_pwd, mk(binary(), #{desc => ?DESC(new_pwd)})};
 field(role) ->
-    {role, mk(binary(), #{desc => ?DESC(role), example => ?ROLE_DEFAULT})}.
+    {role,
+        mk(binary(), #{desc => ?DESC(role), default => ?ROLE_DEFAULT, example => ?ROLE_DEFAULT})};
+field(backend) ->
+    {backend, mk(binary(), #{desc => ?DESC(backend), example => <<"local">>})}.
 
 %% -------------------------------------------------------------------------------------------------
 %% API
@@ -229,15 +233,16 @@ login(post, #{body := Params}) ->
     end.
 
 logout(_, #{
-    body := #{<<"username">> := Username},
+    body := #{<<"username">> := Username0} = Req,
     headers := #{<<"authorization">> := <<"Bearer ", Token/binary>>}
 }) ->
+    Username = username(Req, Username0),
     case emqx_dashboard_admin:destroy_token_by_username(Username, Token) of
         ok ->
-            ?SLOG(info, #{msg => "Dashboard logout successfully", username => Username}),
+            ?SLOG(info, #{msg => "Dashboard logout successfully", username => Username0}),
             204;
         _R ->
-            ?SLOG(info, #{msg => "Dashboard logout failed.", username => Username}),
+            ?SLOG(info, #{msg => "Dashboard logout failed.", username => Username0}),
             {401, ?WRONG_TOKEN_OR_USERNAME, <<"Ensure your token & username">>}
     end.
 
@@ -266,9 +271,10 @@ users(post, #{body := Params}) ->
             end
     end.
 
-user(put, #{bindings := #{username := Username}, body := Params}) ->
+user(put, #{bindings := #{username := Username0}, body := Params} = Req) ->
     Role = maps:get(<<"role">>, Params, ?ROLE_DEFAULT),
     Desc = maps:get(<<"description">>, Params),
+    Username = username(Req, Username0),
     case emqx_dashboard_admin:update_user(Username, Role, Desc) of
         {ok, Result} ->
             {200, filter_result(Result)};
@@ -277,14 +283,15 @@ user(put, #{bindings := #{username := Username}, body := Params}) ->
         {error, Reason} ->
             {400, ?BAD_REQUEST, Reason}
     end;
-user(delete, #{bindings := #{username := Username}, headers := Headers}) ->
-    case Username == emqx_dashboard_admin:default_username() of
+user(delete, #{bindings := #{username := Username0}, headers := Headers} = Req) ->
+    case Username0 == emqx_dashboard_admin:default_username() of
         true ->
-            ?SLOG(info, #{msg => "Dashboard delete admin user failed", username => Username}),
-            Message = list_to_binary(io_lib:format("Cannot delete user ~p", [Username])),
+            ?SLOG(info, #{msg => "Dashboard delete admin user failed", username => Username0}),
+            Message = list_to_binary(io_lib:format("Cannot delete user ~p", [Username0])),
             {400, ?NOT_ALLOWED, Message};
         false ->
-            case is_self_auth(Username, Headers) of
+            Username = username(Req, Username0),
+            case is_self_auth(Username0, Headers) of
                 true ->
                     {400, ?NOT_ALLOWED, <<"Cannot delete self">>};
                 false ->
@@ -293,13 +300,15 @@ user(delete, #{bindings := #{username := Username}, headers := Headers}) ->
                             {404, ?USER_NOT_FOUND, Reason};
                         {ok, _} ->
                             ?SLOG(info, #{
-                                msg => "Dashboard delete admin user", username => Username
+                                msg => "Dashboard delete admin user", username => Username0
                             }),
                             {204}
                     end
             end
     end.
 
+is_self_auth(?SSO_USERNAME(_, _), _) ->
+    fasle;
 is_self_auth(Username, #{<<"authorization">> := Token}) ->
     is_self_auth(Username, Token);
 is_self_auth(Username, #{<<"Authorization">> := Token}) ->
@@ -362,6 +371,19 @@ field_filter(_) ->
 filter_result(Result) ->
     Result.
 
+sso_parameters() ->
+    sso_parameters([]).
+
+sso_parameters(Params) ->
+    emqx_dashboard_sso_api:sso_parameters(Params).
+
+username(#{bindings := #{backend := local}}, Username) ->
+    Username;
+username(#{bindings := #{backend := Backend}}, Username) ->
+    ?SSO_USERNAME(Backend, Username);
+username(_Req, Username) ->
+    Username.
+
 -else.
 
 field_filter(role) ->
@@ -372,6 +394,14 @@ field_filter(_) ->
 filter_result(Result) when is_list(Result) ->
     lists:map(fun filter_result/1, Result);
 filter_result(Result) ->
-    maps:without([role], Result).
+    maps:without([role, backend], Result).
 
+sso_parameters() ->
+    sso_parameters([]).
+
+sso_parameters(Any) ->
+    Any.
+
+username(_Req, Username) ->
+    Username.
 -endif.

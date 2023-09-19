@@ -103,11 +103,9 @@ add_default_user() ->
 %% API
 %%--------------------------------------------------------------------
 
-
-
 -spec add_user(dashboard_username(), binary(), dashboard_user_role(), binary()) ->
     {ok, map()} | {error, any()}.
-add_user(Username, Password, Role, Desc) when is_binary(Password) ->
+add_user(Username, Password, Role, Desc) when is_binary(Username), is_binary(Password) ->
     case {legal_username(Username), legal_password(Password), legal_role(Role)} of
         {ok, ok, ok} -> do_add_user(Username, Password, Role, Desc);
         {{error, Reason}, _, _} -> {error, Reason};
@@ -120,8 +118,6 @@ do_add_user(Username, Password, Role, Desc) ->
     return(Res).
 
 %% 0-9 or A-Z or a-z or $_
-legal_username(?SSO_USERNAME(_, _)) ->
-    ok;
 legal_username(<<>>) ->
     {error, <<"Username cannot be empty">>};
 legal_username(UserName) ->
@@ -211,7 +207,7 @@ add_user_(Username, Password, Role, Desc) ->
                 description = Desc
             },
             mnesia:write(Admin),
-            #{username => Username, role => Role, description => Desc};
+            flatten_username(#{username => Username, role => Role, description => Desc});
         [_] ->
             mnesia:abort(<<"username_already_exist">>)
     end.
@@ -232,7 +228,8 @@ remove_user(Username) when is_binary(Username) ->
             {error, Reason}
     end.
 
--spec update_user(binary(), dashboard_user_role(), binary()) -> {ok, map()} | {error, term()}.
+-spec update_user(dashboard_username(), dashboard_user_role(), binary()) ->
+    {ok, map()} | {error, term()}.
 update_user(Username, Role, Desc) when is_binary(Username) ->
     case legal_role(Role) of
         ok ->
@@ -279,7 +276,10 @@ update_user_(Username, Role, Desc) ->
             mnesia:abort(<<"username_not_found">>);
         [Admin] ->
             mnesia:write(Admin#?ADMIN{role = Role, description = Desc}),
-            {role(Admin) =:= Role, #{username => Username, role => Role, description => Desc}}
+            {
+                role(Admin) =:= Role,
+                flatten_username(#{username => Username, role => Role, description => Desc})
+            }
     end.
 
 change_password(Username, OldPasswd, NewPasswd) when is_binary(Username) ->
@@ -335,11 +335,11 @@ all_users() ->
                 role = Role
             }
         ) ->
-            #{
+            flatten_username(#{
                 username => Username,
                 description => Desc,
                 role => ensure_role(Role)
-            }
+            })
         end,
         ets:tab2list(?ADMIN)
     ).
@@ -417,10 +417,24 @@ legal_role(Role) ->
 role(Data) ->
     emqx_dashboard_rbac:role(Data).
 
--spec add_sso_user(atom(), binary(), dashboard_user_role(), binary()) ->
+flatten_username(#{username := ?SSO_USERNAME(Backend, Name)} = Data) ->
+    Data#{
+        username := Name,
+        backend => Backend
+    };
+flatten_username(#{username := Username} = Data) when is_binary(Username) ->
+    Data#{backend => local}.
+
+-spec add_sso_user(dashboard_sso_backend(), binary(), dashboard_user_role(), binary()) ->
     {ok, map()} | {error, any()}.
-add_sso_user(Backend, Username, Role, Desc) ->
-    add_user(?SSO_USERNAME(Backend, Username), <<>>, Role, Desc).
+add_sso_user(Backend, Username0, Role, Desc) when is_binary(Username0) ->
+    case legal_role(Role) of
+        ok ->
+            Username = ?SSO_USERNAME(Backend, Username0),
+            do_add_user(Username, <<>>, Role, Desc);
+        {error, _} = Error ->
+            Error
+    end.
 
 -spec lookup_user(dashboard_sso_backend(), binary()) -> [emqx_admin()].
 lookup_user(Backend, Username) when is_atom(Backend) ->
@@ -434,6 +448,9 @@ legal_role(_) ->
 
 role(_) ->
     ?ROLE_DEFAULT.
+
+flatten_username(Data) ->
+    Data.
 -endif.
 
 -ifdef(TEST).

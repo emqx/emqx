@@ -30,7 +30,6 @@
 ]).
 
 -export([
-    create/2,
     update/2,
     delete/1,
     pre_config_update/3,
@@ -68,8 +67,6 @@ running() ->
         emqx:get_config([emqx_dashboard_sso])
     ).
 
-create(Backend, Config) ->
-    update_config(Backend, {?FUNCTION_NAME, Backend, Config}).
 update(Backend, Config) ->
     update_config(Backend, {?FUNCTION_NAME, Backend, Config}).
 delete(Backend) ->
@@ -85,7 +82,7 @@ lookup_state(Backend) ->
 
 make_resource_id(Backend) ->
     BackendBin = bin(Backend),
-    emqx_resource:generate_id(BackendBin).
+    emqx_resource:generate_id(<<"sso:", BackendBin/binary>>).
 
 create_resource(ResourceId, Module, Config) ->
     Result = emqx_resource:create_local(
@@ -95,7 +92,7 @@ create_resource(ResourceId, Module, Config) ->
         Config,
         ?DEFAULT_RESOURCE_OPTS
     ),
-    start_resource_if_enabled(Result, ResourceId, Config).
+    start_resource_if_enabled(ResourceId, Result, Config).
 
 update_resource(ResourceId, Module, Config) ->
     Result = emqx_resource:recreate_local(
@@ -127,6 +124,9 @@ init([]) ->
 
 handle_call({update_config, Req, NewConf, OldConf}, _From, State) ->
     Result = on_config_update(Req, NewConf, OldConf),
+    io:format(">>> on_config_update:~p~n,Req:~p~n NewConf:~p~n OldConf:~p~n", [
+        Result, Req, NewConf, OldConf
+    ]),
     {reply, Result, State};
 handle_call(_Request, _From, State) ->
     Reply = ok,
@@ -166,60 +166,43 @@ start_backend_services() ->
         maps:to_list(Backends)
     ).
 
-update_config(Backend, UpdateReq) ->
-    case emqx_conf:update([dashboard_sso, Backend], UpdateReq, #{override_to => cluster}) of
+update_config(_Backend, UpdateReq) ->
+    case emqx_conf:update([dashboard_sso], UpdateReq, #{override_to => cluster}) of
         {ok, UpdateResult} ->
             #{post_config_update := #{?MODULE := Result}} = UpdateResult,
-            {ok, Result};
+            Result;
         Error ->
             Error
     end.
 
-pre_config_update(_Path, {create, Backend, Config}, OldConf) ->
-    case maps:find(Backend, OldConf) of
-        {ok, _} ->
-            throw(already_exists);
-        error ->
-            {ok, OldConf#{Backend => Config}}
-    end;
 pre_config_update(_Path, {update, Backend, Config}, OldConf) ->
-    case maps:find(Backend, OldConf) of
-        error ->
-            throw(not_exists);
-        {ok, _} ->
-            {ok, OldConf#{Backend => Config}}
-    end;
+    BackendBin = bin(Backend),
+    {ok, OldConf#{BackendBin => Config}};
 pre_config_update(_Path, {delete, Backend}, OldConf) ->
-    case maps:find(Backend, OldConf) of
+    BackendBin = bin(Backend),
+    case maps:find(BackendBin, OldConf) of
         error ->
             throw(not_exists);
         {ok, _} ->
-            {ok, maps:remove(Backend, OldConf)}
+            {ok, maps:remove(BackendBin, OldConf)}
     end.
 
 post_config_update(_Path, UpdateReq, NewConf, OldConf, _AppEnvs) ->
     Result = call({update_config, UpdateReq, NewConf, OldConf}),
     {ok, Result}.
 
-on_config_update({create, Backend, Config}, _NewConf, _OldConf) ->
+on_config_update({update, Backend, _Config}, NewConf, _OldConf) ->
+    Provider = provider(Backend),
+    Config = maps:get(Backend, NewConf),
     case lookup(Backend) of
         undefined ->
-            Provider = provider(Backend),
             on_backend_updated(
                 Provider:create(Config),
                 fun(State) ->
                     ets:insert(dashboard_sso, #dashboard_sso{backend = Backend, state = State})
                 end
             );
-        _Data ->
-            {error, already_exists}
-    end;
-on_config_update({update, Backend, Config}, _NewConf, _OldConf) ->
-    case lookup(Backend) of
-        undefined ->
-            {error, not_exists};
         Data ->
-            Provider = provider(Backend),
             on_backend_updated(
                 Provider:update(Config, Data#dashboard_sso.state),
                 fun(State) ->

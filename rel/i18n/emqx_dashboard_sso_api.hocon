@@ -10,20 +10,10 @@ login.desc:
 login.label:
 """Get Dashboard Auth Token."""
 
-get_running.desc:
-"""Get Running SSO backends"""
-get_running.label:
-"""Running SSO"""
-
 get_backend.desc:
 """Get details of a backend"""
 get_backend.label:
 """Backend Details"""
-
-create_backend.desc:
-"""Create a backend"""
-create_backend.label:
-"""Create Backend"""
 
 update_backend.desc:
 """Update a backend"""

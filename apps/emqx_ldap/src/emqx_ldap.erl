@@ -75,8 +75,16 @@ fields(config) ->
             ?HOCON(emqx_schema:timeout_duration_ms(), #{
                 desc => ?DESC(request_timeout),
                 default => <<"5s">>
+            })},
+        {ssl,
+            ?HOCON(?R_REF(?MODULE, ssl), #{
+                default => #{<<"enable">> => false},
+                desc => ?DESC(emqx_connector_schema_lib, "ssl")
             })}
-    ] ++ emqx_connector_schema_lib:ssl_fields();
+    ];
+fields(ssl) ->
+    Schema = emqx_schema:client_ssl_opts_schema(#{}),
+    lists:keydelete("user_lookup_fun", 1, Schema);
 fields(bind_opts) ->
     [
         {bind_password,

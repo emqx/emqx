@@ -18,7 +18,7 @@
 -export([
     hocon_ref/0,
     login_ref/0,
-    sign/2,
+    login/2,
     create/1,
     update/2,
     destroy/1
@@ -35,14 +35,14 @@ login_ref() ->
     hoconsc:ref(?MODULE, login).
 
 fields(ldap) ->
-    emqx_dashboard_sso_schema:common_backend_schema(ldap) ++
+    emqx_dashboard_sso_schema:common_backend_schema([ldap]) ++
         [
             {query_timeout, fun query_timeout/1}
         ] ++
         emqx_ldap:fields(config) ++ emqx_ldap:fields(bind_opts);
 fields(login) ->
     [
-        emqx_dashboard_sso_schema:backend_schema(ldap)
+        emqx_dashboard_sso_schema:backend_schema([ldap])
         | emqx_dashboard_sso_schema:username_password_schema()
     ].
 
@@ -61,7 +61,7 @@ create(Config0) ->
     case emqx_dashboard_sso_manager:create_resource(ResourceId, emqx_ldap, Config) of
         {ok, _} ->
             {ok, State#{resource_id => ResourceId}};
-        Error ->
+        {error, _} = Error ->
             Error
     end.
 
@@ -70,7 +70,7 @@ update(Config0, #{resource_id := ResourceId} = _State) ->
     case emqx_dashboard_sso_manager:update_resource(ResourceId, emqx_ldap, Config) of
         {ok, _} ->
             {ok, NState#{resource_id => ResourceId}};
-        Error ->
+        {error, _} = Error ->
             Error
     end.
 
@@ -78,8 +78,8 @@ destroy(#{resource_id := ResourceId}) ->
     _ = emqx_resource:remove_local(ResourceId),
     ok.
 
-sign(
-    #{username := Username} = Req,
+login(
+    #{<<"username">> := Username} = Req,
     #{
         query_timeout := Timeout,
         resource_id := ResourceId
@@ -101,8 +101,7 @@ sign(
                 )
             of
                 ok ->
-                    User = ensure_user_exists(Username),
-                    {ok, emqx_dashboard_token:sign(User, <<>>)};
+                    ensure_user_exists(Username);
                 {error, _} = Error ->
                     Error
             end;
@@ -128,7 +127,12 @@ parse_config(Config) ->
 ensure_user_exists(Username) ->
     case emqx_dashboard_admin:lookup_user(ldap, Username) of
         [User] ->
-            User;
+            {ok, emqx_dashboard_token:sign(User, <<>>)};
         [] ->
-            emqx_dashboard_admin:add_sso_user(ldap, Username, ?ROLE_VIEWER, <<>>)
+            case emqx_dashboard_admin:add_sso_user(ldap, Username, ?ROLE_VIEWER, <<>>) of
+                {ok, _} ->
+                    ensure_user_exists(Username);
+                Error ->
+                    Error
+            end
     end.

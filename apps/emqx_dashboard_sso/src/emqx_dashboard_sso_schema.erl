@@ -14,7 +14,7 @@
     backend_schema/1,
     username_password_schema/0
 ]).
--import(hoconsc, [ref/2, mk/2]).
+-import(hoconsc, [ref/2, mk/2, enum/1]).
 
 %%------------------------------------------------------------------------------
 %% Hocon Schema
@@ -39,6 +39,7 @@ desc(dashboard_sso) ->
 desc(_) ->
     undefined.
 
+-spec common_backend_schema(list(atom())) -> proplists:proplist().
 common_backend_schema(Backend) ->
     [
         {enable,
@@ -54,7 +55,7 @@ common_backend_schema(Backend) ->
 
 backend_schema(Backend) ->
     {backend,
-        mk(Backend, #{
+        mk(enum(Backend), #{
             required => true,
             desc => ?DESC(backend)
         })}.

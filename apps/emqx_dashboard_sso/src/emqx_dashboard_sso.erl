@@ -26,7 +26,7 @@
 -callback update(Config :: config(), State :: state()) ->
     {ok, NewState :: state()} | {error, Reason :: term()}.
 -callback destroy(State :: state()) -> ok.
--callback sign(request(), State :: state()) ->
+-callback login(request(), State :: state()) ->
     {ok, Token :: binary()} | {error, Reason :: term()}.
 
 %%------------------------------------------------------------------------------

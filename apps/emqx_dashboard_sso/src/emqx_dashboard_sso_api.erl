@@ -27,11 +27,12 @@
 ]).
 
 -export([
-    running/2,
     login/2,
     sso/2,
     backend/2
 ]).
+
+-export([sso_parameters/1]).
 
 -define(BAD_USERNAME_OR_PWD, 'BAD_USERNAME_OR_PWD').
 -define(BAD_REQUEST, 'BAD_REQUEST').
@@ -47,8 +48,7 @@ api_spec() ->
 paths() ->
     [
         "/sso",
-        "/sso/login",
-        "/sso/running",
+        "/sso/login/:backend",
         "/sso/:backend"
     ].
 
@@ -59,32 +59,22 @@ schema("/sso") ->
             tags => [?TAGS],
             desc => ?DESC(get_sso),
             responses => #{
-                200 => array(ref(backend_status))
+                200 => array(enum(emqx_dashboard_sso:types()))
             }
         }
     };
-schema("/sso/login") ->
+schema("/sso/login/:backend") ->
     #{
         'operationId' => login,
         post => #{
             tags => [?TAGS],
             desc => ?DESC(login),
+            parameters => backend_name_in_path(),
             'requestBody' => login_union(),
             responses => #{
                 200 => emqx_dashboard_api:fields([token, version, license]),
                 401 => response_schema(401),
                 404 => response_schema(404)
-            }
-        }
-    };
-schema("/sso/running") ->
-    #{
-        'operationId' => running,
-        get => #{
-            tags => [?TAGS],
-            desc => ?DESC(get_running),
-            responses => #{
-                200 => array(enum(emqx_dashboard_sso:types()))
             }
         }
     };
@@ -98,15 +88,6 @@ schema("/sso/:backend") ->
             responses => #{
                 200 => backend_union(),
                 404 => response_schema(404)
-            }
-        },
-        post => #{
-            tags => [?TAGS],
-            desc => ?DESC(create_backend),
-            parameters => backend_name_in_path(),
-            'requestBody' => backend_union(),
-            responses => #{
-                200 => backend_union()
             }
         },
         put => #{
@@ -131,22 +112,19 @@ schema("/sso/:backend") ->
     }.
 
 fields(backend_status) ->
-    emqx_dashboard_sso_schema:common_backend_schema(enum(emqx_dashboard_sso:types())).
+    emqx_dashboard_sso_schema:common_backend_schema(emqx_dashboard_sso:types()).
 
 %% -------------------------------------------------------------------------------------------------
 %% API
-running(get, _Request) ->
-    {200, emqx_dashboard_sso_manager:running()}.
-
-login(post, #{backend := Backend} = Request) ->
+login(post, #{bindings := #{backend := Backend}, body := Sign}) ->
     case emqx_dashboard_sso_manager:lookup_state(Backend) of
         undefined ->
-            {404, ?BACKEND_NOT_FOUND};
+            {404, ?BACKEND_NOT_FOUND, <<"Backend not found">>};
         State ->
             Provider = emqx_dashboard_sso:provider(Backend),
-            case Provider:login(Request, State) of
+            case Provider:login(Sign, State) of
                 {ok, Token} ->
-                    ?SLOG(info, #{msg => "Dashboard SSO login successfully", request => Request}),
+                    ?SLOG(info, #{msg => "Dashboard SSO login successfully", request => Sign}),
                     Version = iolist_to_binary(proplists:get_value(version, emqx_sys:info())),
                     {200, #{
                         token => Token,
@@ -155,7 +133,9 @@ login(post, #{backend := Backend} = Request) ->
                     }};
                 {error, Reason} ->
                     ?SLOG(info, #{
-                        msg => "Dashboard SSO login failed", request => Request, reason => Reason
+                        msg => "Dashboard SSO login failed",
+                        request => Sign,
+                        reason => Reason
                     }),
                     {401, ?BAD_USERNAME_OR_PWD, <<"Auth failed">>}
             end
@@ -166,7 +146,7 @@ sso(get, _Request) ->
     {200,
         lists:map(
             fun(Backend) ->
-                maps:with([backend, enabled], Backend)
+                maps:with([backend, enable], Backend)
             end,
             maps:values(SSO)
         )}.
@@ -176,14 +156,15 @@ backend(get, #{bindings := #{backend := Type}}) ->
         undefined ->
             {404, ?BACKEND_NOT_FOUND};
         Backend ->
-            {200, Backend}
+            {200, to_json(Backend)}
     end;
-backend(create, #{bindings := #{backend := Backend}, body := Config}) ->
-    on_backend_update(Backend, Config, fun emqx_dashboard_sso_manager:create/2);
 backend(put, #{bindings := #{backend := Backend}, body := Config}) ->
     on_backend_update(Backend, Config, fun emqx_dashboard_sso_manager:update/2);
-backend(delete, #{bindings := #{backend := Backend}, body := Config}) ->
-    on_backend_update(Backend, Config, fun emqx_dashboard_sso_manager:delete/2).
+backend(delete, #{bindings := #{backend := Backend}}) ->
+    handle_backend_update_result(emqx_dashboard_sso_manager:delete(Backend), undefined).
+
+sso_parameters(Params) ->
+    backend_name_as_arg(query, [local], <<"local">>) ++ Params.
 
 %% -------------------------------------------------------------------------------------------------
 %% internal
@@ -199,14 +180,18 @@ login_union() ->
     hoconsc:union([Mod:login_ref() || Mod <- emqx_dashboard_sso:modules()]).
 
 backend_name_in_path() ->
+    backend_name_as_arg(path, [], <<"ldap">>).
+
+backend_name_as_arg(In, Extra, Default) ->
     [
-        {name,
+        {backend,
             mk(
-                binary(),
+                enum(Extra ++ emqx_dashboard_sso:types()),
                 #{
-                    in => path,
+                    in => In,
                     desc => ?DESC(backend_name_in_qs),
-                    example => <<"ldap">>
+                    required => true,
+                    example => Default
                 }
             )}
     ].
@@ -216,7 +201,7 @@ on_backend_update(Backend, Config, Fun) ->
     handle_backend_update_result(Result, Config).
 
 valid_config(Backend, Config, Fun) ->
-    case maps:get(backend, Config, undefined) of
+    case maps:get(<<"backend">>, Config, undefined) of
         Backend ->
             Fun(Backend, Config);
         _ ->
@@ -224,12 +209,20 @@ valid_config(Backend, Config, Fun) ->
     end.
 
 handle_backend_update_result({ok, _}, Config) ->
-    {200, Config};
+    {200, to_json(Config)};
 handle_backend_update_result(ok, _) ->
     204;
 handle_backend_update_result({error, not_exists}, _) ->
-    {404, ?BACKEND_NOT_FOUND};
+    {404, ?BACKEND_NOT_FOUND, <<"Backend not found">>};
 handle_backend_update_result({error, already_exists}, _) ->
-    {400, ?BAD_REQUEST, <<"Backend already exists.">>};
+    {400, ?BAD_REQUEST, <<"Backend already exists">>};
 handle_backend_update_result({error, Reason}, _) ->
     {400, ?BAD_REQUEST, Reason}.
+
+to_json(Data) ->
+    emqx_utils_maps:jsonable_map(
+        Data,
+        fun(K, V) ->
+            {K, emqx_utils_maps:binary_string(V)}
+        end
+    ).
