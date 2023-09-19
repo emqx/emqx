@@ -340,7 +340,6 @@ default_appspec(emqx_conf, SuiteOpts) ->
         node => #{
             name => node(),
             cookie => erlang:get_cookie(),
-            % FIXME
             data_dir => unicode:characters_to_binary(maps:get(work_dir, SuiteOpts, "data"))
         }
     },

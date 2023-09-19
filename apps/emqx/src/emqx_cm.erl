@@ -46,8 +46,6 @@
     set_chan_stats/2
 ]).
 
-% -export([get_chann_conn_mod/2]).
-
 -export([
     open_session/3,
     discard_session/1,
