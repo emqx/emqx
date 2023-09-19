@@ -12,7 +12,8 @@
 -behaviour(emqx_dashboard_sso).
 
 -export([
-    fields/1
+    fields/1,
+    desc/1
 ]).
 
 -export([
@@ -50,6 +51,11 @@ query_timeout(type) -> emqx_schema:timeout_duration_ms();
 query_timeout(desc) -> ?DESC(?FUNCTION_NAME);
 query_timeout(default) -> <<"5s">>;
 query_timeout(_) -> undefined.
+
+desc(ldap) ->
+    "LDAP";
+desc(_) ->
+    undefined.
 
 %%------------------------------------------------------------------------------
 %% APIs

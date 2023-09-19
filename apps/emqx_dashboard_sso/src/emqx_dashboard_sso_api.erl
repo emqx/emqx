@@ -8,14 +8,12 @@
 
 -include_lib("hocon/include/hoconsc.hrl").
 -include_lib("emqx/include/logger.hrl").
--include_lib("typerefl/include/types.hrl").
 
 -import(hoconsc, [
     mk/2,
     array/1,
     enum/1,
-    ref/1,
-    union/1
+    ref/1
 ]).
 
 -export([
@@ -37,7 +35,7 @@
 -define(BAD_USERNAME_OR_PWD, 'BAD_USERNAME_OR_PWD').
 -define(BAD_REQUEST, 'BAD_REQUEST').
 -define(BACKEND_NOT_FOUND, 'BACKEND_NOT_FOUND').
--define(TAGS, <<"Dashboard Single Sign-on">>).
+-define(TAGS, <<"Dashboard Single Sign-On">>).
 
 namespace() -> "dashboard_sso".
 
@@ -58,7 +56,7 @@ schema("/sso") ->
             tags => [?TAGS],
             desc => ?DESC(get_sso),
             responses => #{
-                200 => array(enum(emqx_dashboard_sso:types()))
+                200 => array(ref(backend_status))
             }
         }
     };
@@ -189,7 +187,7 @@ backend_name_as_arg(In, Extra, Default) ->
                 #{
                     in => In,
                     desc => ?DESC(backend_name_in_qs),
-                    required => true,
+                    required => false,
                     example => Default
                 }
             )}

@@ -25,7 +25,7 @@
 %% ecpool connect & reconnect
 -export([connect/1]).
 
--export([roots/0, fields/1]).
+-export([roots/0, fields/1, desc/1]).
 
 -export([do_get_status/1]).
 
@@ -99,6 +99,11 @@ fields(bind_opts) ->
                 }
             )}
     ].
+
+desc(ssl) ->
+    ?DESC(emqx_connector_schema_lib, "ssl");
+desc(_) ->
+    undefined.
 
 server() ->
     Meta = #{desc => ?DESC("server")},
