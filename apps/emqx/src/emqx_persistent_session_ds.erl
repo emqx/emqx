@@ -98,7 +98,7 @@
     session().
 create(#{clientid := ClientID}, _ConnInfo, Conf) ->
     % TODO: expiration
-    {true, Session} = emqx_ds:session_open(ClientID, Conf),
+    {true, Session} = open_session(ClientID, Conf),
     Session.
 
 -spec open(clientinfo(), conninfo(), emqx_session:conf()) ->
@@ -111,7 +111,7 @@ open(#{clientid := ClientID}, _ConnInfo, Conf) ->
     % somehow isolate those idling not-yet-expired sessions into a separate process
     % space, and move this call back into `emqx_cm` where it belongs.
     ok = emqx_cm:discard_session(ClientID),
-    {IsNew, Session} = emqx_ds:session_open(ClientID, Conf),
+    {IsNew, Session} = open_session(ClientID, Conf),
     IsPresent = not IsNew,
     case IsPresent of
         true ->
@@ -119,6 +119,16 @@ open(#{clientid := ClientID}, _ConnInfo, Conf) ->
         false ->
             {IsPresent, Session}
     end.
+
+open_session(ClientID, Conf) ->
+    {IsNew, Session, Iterators} = emqx_ds:session_open(ClientID, Conf),
+    {IsNew, Session#{
+        iterators => maps:fold(
+            fun(Topic, Iterator, Acc) -> Acc#{emqx_topic:join(Topic) => Iterator} end,
+            #{},
+            Iterators
+        )
+    }}.
 
 -spec destroy(session() | clientinfo()) -> ok.
 destroy(#{id := ClientID}) ->
@@ -219,7 +229,7 @@ unsubscribe(
 ) ->
     {error, ?RC_NO_SUBSCRIPTION_EXISTED}.
 
--spec get_subscription(emqx_types:topic(), session()) ->
+-spec get_subscription(topic(), session()) ->
     emqx_types:subopts() | undefined.
 get_subscription(TopicFilter, #{iterators := Iters}) ->
     case maps:get(TopicFilter, Iters, undefined) of

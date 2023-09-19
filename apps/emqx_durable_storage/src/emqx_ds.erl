@@ -66,9 +66,10 @@
     id := emqx_ds:session_id(),
     created_at := _Millisecond :: non_neg_integer(),
     expires_at := _Millisecond :: non_neg_integer() | never,
-    iterators := map(),
     props := map()
 }.
+
+-type iterators() :: #{topic() => iterator()}.
 
 %% Currently, this is the clientid.  We avoid `emqx_types:clientid()' because that can be
 %% an atom, in theory (?).
@@ -102,7 +103,7 @@
 -type replay_id() :: binary().
 
 -type replay() :: {
-    _TopicFilter :: emqx_topic:words(),
+    _TopicFilter :: topic(),
     _StartTime :: time()
 }.
 
@@ -151,7 +152,8 @@ message_stats() ->
 %%
 %% Note: session API doesn't handle session takeovers, it's the job of
 %% the broker.
--spec session_open(session_id(), _Props :: map()) -> {_New :: boolean(), session()}.
+-spec session_open(session_id(), _Props :: map()) ->
+    {_New :: boolean(), session(), iterators()}.
 session_open(SessionId, Props) ->
     transaction(fun() ->
         case mnesia:read(?SESSION_TAB, SessionId, write) of
@@ -159,10 +161,10 @@ session_open(SessionId, Props) ->
                 Session = export_record(Record),
                 IteratorRefs = session_read_iterators(SessionId),
                 Iterators = export_iterators(IteratorRefs),
-                {false, Session#{iterators => Iterators}};
+                {false, Session, Iterators};
             [] ->
                 Session = export_record(session_create(SessionId, Props)),
-                {true, Session#{iterators => #{}}}
+                {true, Session, #{}}
         end
     end).
 
@@ -195,7 +197,7 @@ session_suspend(_SessionId) ->
     ok.
 
 %% @doc Called when a client subscribes to a topic. Idempotent.
--spec session_add_iterator(session_id(), emqx_topic:words(), _Props :: map()) ->
+-spec session_add_iterator(session_id(), topic(), _Props :: map()) ->
     {ok, iterator(), _IsNew :: boolean()}.
 session_add_iterator(DSSessionId, TopicFilter, Props) ->
     IteratorRefId = {DSSessionId, TopicFilter},
@@ -236,7 +238,7 @@ session_update_iterator(IteratorRef, Props) ->
     ok = mnesia:write(?ITERATOR_REF_TAB, NIteratorRef, write),
     NIteratorRef.
 
--spec session_get_iterator_id(session_id(), emqx_topic:words()) ->
+-spec session_get_iterator_id(session_id(), topic()) ->
     {ok, iterator_id()} | {error, not_found}.
 session_get_iterator_id(DSSessionId, TopicFilter) ->
     IteratorRefId = {DSSessionId, TopicFilter},
@@ -248,7 +250,7 @@ session_get_iterator_id(DSSessionId, TopicFilter) ->
     end.
 
 %% @doc Called when a client unsubscribes from a topic.
--spec session_del_iterator(session_id(), emqx_topic:words()) -> ok.
+-spec session_del_iterator(session_id(), topic()) -> ok.
 session_del_iterator(DSSessionId, TopicFilter) ->
     IteratorRefId = {DSSessionId, TopicFilter},
     transaction(fun() ->

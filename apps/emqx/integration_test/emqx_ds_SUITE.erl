@@ -245,7 +245,7 @@ t_session_subscription_idempotency(Config) ->
             ?assertEqual([{ClientId, SubTopicFilterWords}], get_all_iterator_refs(Node1)),
             ?assertMatch({ok, [_]}, get_all_iterator_ids(Node1)),
             ?assertMatch(
-                {_IsNew = false, #{}},
+                {_IsNew = false, #{}, #{SubTopicFilterWords := #{}}},
                 erpc:call(Node1, emqx_ds, session_open, [ClientId, #{}])
             )
         end
