@@ -102,7 +102,7 @@ create(#{clientid := ClientID}, _ConnInfo, Conf) ->
     Session.
 
 -spec open(clientinfo(), conninfo(), emqx_session:conf()) ->
-    {true, session(), []} | {false, session()}.
+    {_IsPresent :: true, session(), []} | {_IsPresent :: false, session()}.
 open(#{clientid := ClientID}, _ConnInfo, Conf) ->
     % NOTE
     % The fact that we need to concern about discarding all live channels here
@@ -112,11 +112,12 @@ open(#{clientid := ClientID}, _ConnInfo, Conf) ->
     % space, and move this call back into `emqx_cm` where it belongs.
     ok = emqx_cm:discard_session(ClientID),
     {IsNew, Session} = emqx_ds:session_open(ClientID, Conf),
-    case IsNew of
-        false ->
-            {true, Session, []};
+    IsPresent = not IsNew,
+    case IsPresent of
         true ->
-            {false, Session}
+            {IsPresent, Session, []};
+        false ->
+            {IsPresent, Session}
     end.
 
 -spec destroy(session() | clientinfo()) -> ok.

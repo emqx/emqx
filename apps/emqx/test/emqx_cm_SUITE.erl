@@ -392,7 +392,7 @@ t_takeover_session(_) ->
                 gen_server:reply(From1, test),
                 receive
                     {'$gen_call', From2, {takeover, 'end'}} ->
-                        gen_server:reply(From2, [])
+                        gen_server:reply(From2, _Pendings = [])
                 end
         end
     end),

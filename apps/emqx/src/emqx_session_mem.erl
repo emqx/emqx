@@ -194,7 +194,7 @@ destroy(_Session) ->
 %%--------------------------------------------------------------------
 
 -spec open(clientinfo(), conninfo(), emqx_session:conf()) ->
-    {true, session(), replayctx()} | false.
+    {_IsPresent :: true, session(), replayctx()} | _IsPresent :: false.
 open(ClientInfo = #{clientid := ClientId}, _ConnInfo, _Conf) ->
     case emqx_cm:takeover_session_begin(ClientId) of
         {ok, SessionRemote, TakeoverState} ->

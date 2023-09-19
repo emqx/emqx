@@ -172,17 +172,18 @@ create(ClientInfo, ConnInfo, Conf) ->
     ok = emqx_hooks:run('session.created', [ClientInfo, info(Session)]),
     Session.
 
--spec open(clientinfo(), conninfo()) -> {true, t(), _ReplayContext} | {false, t()}.
+-spec open(clientinfo(), conninfo()) ->
+    {_IsPresent :: true, t(), _ReplayContext} | {_IsPresent :: false, t()}.
 open(ClientInfo, ConnInfo) ->
     Conf = get_session_conf(ClientInfo, ConnInfo),
     case (choose_impl_mod(ConnInfo)):open(ClientInfo, ConnInfo, Conf) of
-        {true, Session, ReplayContext} ->
+        {_IsPresent = true, Session, ReplayContext} ->
             {true, Session, ReplayContext};
-        {false, Session} ->
+        {_IsPresent = false, NewSession} ->
             ok = emqx_metrics:inc('session.created'),
-            ok = emqx_hooks:run('session.created', [ClientInfo, info(Session)]),
-            {false, Session};
-        false ->
+            ok = emqx_hooks:run('session.created', [ClientInfo, info(NewSession)]),
+            {false, NewSession};
+        _IsPresent = false ->
             {false, create(ClientInfo, ConnInfo, Conf)}
     end.
 
