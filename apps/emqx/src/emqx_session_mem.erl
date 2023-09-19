@@ -185,8 +185,8 @@ get_mqtt_conf(Zone, Key, Default) ->
 
 -spec destroy(session() | clientinfo()) -> ok.
 destroy(_Session) ->
-    % NOTE
-    % This is a stub. This session impl has no backing store, thus always `ok`.
+    %% NOTE
+    %% This is a stub. This session impl has no backing store, thus always `ok`.
     ok.
 
 %%--------------------------------------------------------------------
@@ -674,20 +674,20 @@ resume(ClientInfo = #{clientid := ClientId}, Session = #session{subscriptions = 
 -spec replay(emqx_types:clientinfo(), replayctx(), session()) ->
     {ok, replies(), session()}.
 replay(ClientInfo, Pendings, Session) ->
-    % NOTE
-    % Here, `Pendings` is a list messages that were pending delivery in the remote
-    % session, see `clean_session/3`. It's a replay context that gets passed back
-    % here after the remote session is taken over by `open/2`. When we have a set
-    % of remote deliveries and a set of local deliveries, some publishes might actually
-    % be in both sets, because there's a tiny amount of time when both remote and local
-    % sessions were subscribed to the same set of topics simultaneously (i.e. after
-    % local session calls `resume/2` but before remote session calls `takeover/1`
-    % through `emqx_channel:handle_call({takeover, 'end'}, Channel)`).
-    % We basically need to:
-    % 1. Combine and deduplicate remote and local pending messages, so that no message
-    %    is delivered twice.
-    % 2. Replay deliveries of the inflight messages, this time to the new channel.
-    % 3. Deliver the combined pending messages, following the same logic as `deliver/3`.
+    %% NOTE
+    %% Here, `Pendings` is a list messages that were pending delivery in the remote
+    %% session, see `clean_session/3`. It's a replay context that gets passed back
+    %% here after the remote session is taken over by `open/2`. When we have a set
+    %% of remote deliveries and a set of local deliveries, some publishes might actually
+    %% be in both sets, because there's a tiny amount of time when both remote and local
+    %% sessions were subscribed to the same set of topics simultaneously (i.e. after
+    %% local session calls `resume/2` but before remote session calls `takeover/1`
+    %% through `emqx_channel:handle_call({takeover, 'end'}, Channel)`).
+    %% We basically need to:
+    %% 1. Combine and deduplicate remote and local pending messages, so that no message
+    %%    is delivered twice.
+    %% 2. Replay deliveries of the inflight messages, this time to the new channel.
+    %% 3. Deliver the combined pending messages, following the same logic as `deliver/3`.
     PendingsAll = dedup(ClientInfo, Pendings, emqx_utils:drain_deliver(), Session),
     {ok, PubsResendQueued, Session1} = replay(ClientInfo, Session),
     {ok, PubsPending, Session2} = deliver(ClientInfo, PendingsAll, Session1),

@@ -939,8 +939,8 @@ handle_deliver(
         clientinfo = ClientInfo
     }
 ) ->
-    % NOTE
-    % This is essentially part of `emqx_session_mem` logic, thus call it directly.
+    %% NOTE
+    %% This is essentially part of `emqx_session_mem` logic, thus call it directly.
     Delivers1 = maybe_nack(Delivers),
     Messages = emqx_session:enrich_delivers(ClientInfo, Delivers1, Session),
     NSession = emqx_session_mem:enqueue(ClientInfo, Messages, Session),
@@ -1072,10 +1072,10 @@ return_connack(AckPacket, Channel) ->
             },
             {Packets, NChannel2} = do_deliver(Publishes, NChannel1),
             Outgoing = [?REPLY_OUTGOING(Packets) || length(Packets) > 0],
-            % NOTE
-            % Session timers are not restored here, so there's a tiny chance that
-            % the session becomes stuck, when it already has no place to track new
-            % messages.
+            %% NOTE
+            %% Session timers are not restored here, so there's a tiny chance that
+            %% the session becomes stuck, when it already has no place to track new
+            %% messages.
             {ok, Replies ++ Outgoing, NChannel2}
     end.
 
@@ -1172,8 +1172,8 @@ handle_call(
         conninfo = #{clientid := ClientId}
     }
 ) ->
-    % NOTE
-    % This is essentially part of `emqx_session_mem` logic, thus call it directly.
+    %% NOTE
+    %% This is essentially part of `emqx_session_mem` logic, thus call it directly.
     ok = emqx_session_mem:takeover(Session),
     %% TODO: Should not drain deliver here (side effect)
     Delivers = emqx_utils:drain_deliver(),

@@ -104,12 +104,12 @@ create(#{clientid := ClientID}, _ConnInfo, Conf) ->
 -spec open(clientinfo(), conninfo(), emqx_session:conf()) ->
     {_IsPresent :: true, session(), []} | {_IsPresent :: false, session()}.
 open(#{clientid := ClientID}, _ConnInfo, Conf) ->
-    % NOTE
-    % The fact that we need to concern about discarding all live channels here
-    % is essentially a consequence of the in-memory session design, where we
-    % have disconnected channels holding onto session state. Ideally, we should
-    % somehow isolate those idling not-yet-expired sessions into a separate process
-    % space, and move this call back into `emqx_cm` where it belongs.
+    %% NOTE
+    %% The fact that we need to concern about discarding all live channels here
+    %% is essentially a consequence of the in-memory session design, where we
+    %% have disconnected channels holding onto session state. Ideally, we should
+    %% somehow isolate those idling not-yet-expired sessions into a separate process
+    %% space, and move this call back into `emqx_cm` where it belongs.
     ok = emqx_cm:discard_session(ClientID),
     {IsNew, Session} = open_session(ClientID, Conf),
     IsPresent = not IsNew,
