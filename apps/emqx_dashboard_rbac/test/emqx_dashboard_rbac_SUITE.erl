@@ -61,11 +61,11 @@ t_permission(_) ->
         }
     ),
 
-    ?assertEqual(
+    ?assertMatch(
         #{
-            <<"username">> => ViewerUser,
-            <<"role">> => ?ROLE_VIEWER,
-            <<"description">> => ?ADD_DESCRIPTION
+            <<"username">> := ViewerUser,
+            <<"role">> := ?ROLE_VIEWER,
+            <<"description">> := ?ADD_DESCRIPTION
         },
         emqx_utils_json:decode(Payload, [return_maps])
     ),
@@ -104,11 +104,11 @@ t_update_role(_) ->
         }
     ),
 
-    ?assertEqual(
+    ?assertMatch(
         #{
-            <<"username">> => ?DEFAULT_SUPERUSER,
-            <<"role">> => ?ROLE_VIEWER,
-            <<"description">> => ?ADD_DESCRIPTION
+            <<"username">> := ?DEFAULT_SUPERUSER,
+            <<"role">> := ?ROLE_VIEWER,
+            <<"description">> := ?ADD_DESCRIPTION
         },
         emqx_utils_json:decode(Payload, [return_maps])
     ),

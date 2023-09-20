@@ -179,6 +179,9 @@ owner(Token) ->
         {atomic, []} -> {error, not_found}
     end.
 
+jwk(?SSO_USERNAME(Backend, Name), Password, Salt) ->
+    BackendBin = erlang:atom_to_binary(Backend),
+    jwk(<<BackendBin/binary, "-", Name/binary>>, Password, Salt);
 jwk(Username, Password, Salt) ->
     Key = crypto:hash(md5, <<Salt/binary, Username/binary, Password/binary>>),
     #{
@@ -192,12 +195,17 @@ jwt_expiration_time() ->
 token_ttl() ->
     emqx_conf:get([dashboard, token_expired_time], ?EXPTIME).
 
+format(Token, ?SSO_USERNAME(Backend, Name), Role, ExpTime) ->
+    format(Token, Backend, Name, Role, ExpTime);
 format(Token, Username, Role, ExpTime) ->
+    format(Token, local, Username, Role, ExpTime).
+
+format(Token, Backend, Username, Role, ExpTime) ->
     #?ADMIN_JWT{
         token = Token,
         username = Username,
         exptime = ExpTime,
-        extra = #{role => Role}
+        extra = #{role => Role, backend => Backend}
     }.
 
 %%--------------------------------------------------------------------

@@ -25,7 +25,7 @@
 %% ecpool connect & reconnect
 -export([connect/1]).
 
--export([roots/0, fields/1]).
+-export([roots/0, fields/1, desc/1]).
 
 -export([do_get_status/1]).
 
@@ -75,8 +75,16 @@ fields(config) ->
             ?HOCON(emqx_schema:timeout_duration_ms(), #{
                 desc => ?DESC(request_timeout),
                 default => <<"5s">>
+            })},
+        {ssl,
+            ?HOCON(?R_REF(?MODULE, ssl), #{
+                default => #{<<"enable">> => false},
+                desc => ?DESC(emqx_connector_schema_lib, "ssl")
             })}
-    ] ++ emqx_connector_schema_lib:ssl_fields();
+    ];
+fields(ssl) ->
+    Schema = emqx_schema:client_ssl_opts_schema(#{}),
+    lists:keydelete("user_lookup_fun", 1, Schema);
 fields(bind_opts) ->
     [
         {bind_password,
@@ -91,6 +99,11 @@ fields(bind_opts) ->
                 }
             )}
     ].
+
+desc(ssl) ->
+    ?DESC(emqx_connector_schema_lib, "ssl");
+desc(_) ->
+    undefined.
 
 server() ->
     Meta = #{desc => ?DESC("server")},

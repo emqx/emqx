@@ -1,0 +1,11 @@
+emqx_dashboard_sso_schema {
+
+backend_enable.desc:
+"""Whether to enable this backend."""
+
+backend.desc:
+"""Backend type."""
+
+backend.label:
+"""Backend Type"""
+}

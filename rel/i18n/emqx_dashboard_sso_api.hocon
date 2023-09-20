@@ -1,0 +1,40 @@
+emqx_dashboard_api {
+
+get_sso.desc:
+"""List all SSO backends"""
+get_sso.label:
+"""SSO Backends"""
+
+login.desc:
+"""Get Dashboard Auth Token."""
+login.label:
+"""Get Dashboard Auth Token."""
+
+get_backend.desc:
+"""Get details of a backend"""
+get_backend.label:
+"""Backend Details"""
+
+update_backend.desc:
+"""Update a backend"""
+update_backend.label:
+"""Update Backend"""
+
+delete_backend.desc:
+"""Delete a backend"""
+delete_backend.label:
+"""Delete Backend"""
+
+login_failed401.desc:
+"""Login failed. Bad username or password"""
+
+backend_not_found.desc:
+"""Operate failed. Backend not exists"""
+
+backend_name.desc:
+"""Backend name"""
+
+backend_name.label:
+"""Backend Name"""
+
+}

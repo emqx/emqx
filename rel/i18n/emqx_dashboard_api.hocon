@@ -79,4 +79,10 @@ users_api404.desc:
 version.desc:
 """EMQX Version"""
 
+role.desc:
+"""User role"""
+
+backend.desc:
+"""User account source"""
+
 }
