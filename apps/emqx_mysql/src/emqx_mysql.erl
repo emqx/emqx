@@ -294,7 +294,7 @@ init_prepare(State = #{prepare_statement := Prepares, pool_name := PoolName}) ->
                 ok ->
                     State;
                 {error, Reason} ->
-                    LogMeta = #{msg => <<"MySQL init prepare statement failed">>, reason => Reason},
+                    LogMeta = #{msg => <<"mysql_init_prepare_statement_failed">>, reason => Reason},
                     ?SLOG(error, LogMeta),
                     %% mark the prepare_statement as failed
                     State#{prepare_statement => {error, Prepares}}
@@ -348,7 +348,7 @@ prepare_sql_to_conn_list([Conn | ConnList], PrepareList) ->
 
 prepare_sql_to_conn(Conn, []) when is_pid(Conn) -> ok;
 prepare_sql_to_conn(Conn, [{Key, SQL} | PrepareList]) when is_pid(Conn) ->
-    LogMeta = #{msg => "MySQL Prepare Statement", name => Key, prepare_sql => SQL},
+    LogMeta = #{msg => "mysql_prepare_statement", name => Key, prepare_sql => SQL},
     ?SLOG(info, LogMeta),
     _ = unprepare_sql_to_conn(Conn, Key),
     case mysql:prepare(Conn, Key, SQL) of
@@ -412,14 +412,14 @@ parse_batch_prepare_sql([{Key, H} | T], Prepares, Tokens, BatchInserts, BatchTks
                         BatchTks#{Key => ParamsTks}
                     );
                 {error, Reason} ->
-                    ?SLOG(error, #{msg => "split sql failed", sql => H, reason => Reason}),
+                    ?SLOG(error, #{msg => "split_sql_failed", sql => H, reason => Reason}),
                     parse_prepare_sql(T, Prepares, Tokens, BatchInserts, BatchTks)
             end;
         Type when is_atom(Type) ->
-            ?SLOG(error, #{msg => "detect sql type unsupported", sql => H, type => Type}),
+            ?SLOG(error, #{msg => "detect_sql_type_unsupported", sql => H, type => Type}),
             parse_prepare_sql(T, Prepares, Tokens, BatchInserts, BatchTks);
         {error, Reason} ->
-            ?SLOG(error, #{msg => "detect sql type failed", sql => H, reason => Reason}),
+            ?SLOG(error, #{msg => "detect_sql_type_failed", sql => H, reason => Reason}),
             parse_prepare_sql(T, Prepares, Tokens, BatchInserts, BatchTks)
     end.
 

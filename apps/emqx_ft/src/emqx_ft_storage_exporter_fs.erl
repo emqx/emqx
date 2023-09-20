@@ -134,7 +134,8 @@ complete(
         ok ->
             ok;
         {error, Reason} ->
-            ?SLOG(warning, "filemeta_write_failed", #{
+            ?SLOG(warning, #{
+                msg => "filemeta_write_failed",
                 path => ManifestFilepath,
                 meta => Filemeta,
                 reason => Reason
@@ -294,7 +295,8 @@ try_read_filemeta(Filepath, Info) ->
         {ok, Filemeta} ->
             Info#{meta => Filemeta};
         {error, Reason} ->
-            ?SLOG(warning, "filemeta_inaccessible", #{
+            ?SLOG(warning, #{
+                msg => "filemeta_inaccessible",
                 path => Filepath,
                 reason => Reason
             }),
@@ -305,13 +307,15 @@ mk_export_uri(RelFilepath) ->
     emqx_ft_storage_exporter_fs_api:mk_export_uri(node(), RelFilepath).
 
 log_invalid_entry(Options, {_Type, RelFilepath, Fileinfo = #file_info{}, _Stack}) ->
-    ?SLOG(notice, "filesystem_object_unexpected", #{
+    ?SLOG(notice, #{
+        msg => "filesystem_object_unexpected",
         relpath => RelFilepath,
         fileinfo => Fileinfo,
         options => Options
     });
 log_invalid_entry(Options, {_Type, RelFilepath, {error, Reason}, _Stack}) ->
-    ?SLOG(warning, "filesystem_object_inaccessible", #{
+    ?SLOG(warning, #{
+        msg => "filesystem_object_inaccessible",
         relpath => RelFilepath,
         reason => Reason,
         options => Options
@@ -346,7 +350,8 @@ list(_Options, Query) ->
     Result = list(Query),
     case Result of
         #{errors := NodeErrors} ->
-            ?SLOG(warning, "list_exports_errors", #{
+            ?SLOG(warning, #{
+                msg => "list_exports_errors",
                 query => Query,
                 errors => NodeErrors
             });

@@ -141,7 +141,7 @@ current_rate(Node) when Node == node() ->
         {ok, Rate}
     catch
         _E:R ->
-            ?SLOG(warning, #{msg => "Dashboard monitor error", reason => R}),
+            ?SLOG(warning, #{msg => "dashboard_monitor_error", reason => R}),
             %% Rate map 0, ensure api will not crash.
             %% When joining cluster, dashboard monitor restart.
             Rate0 = [

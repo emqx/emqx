@@ -456,14 +456,14 @@ parse_sql_template([{Key, H} | T], BatchInsertTks) ->
                         }
                     );
                 {error, Reason} ->
-                    ?SLOG(error, #{msg => "split sql failed", sql => H, reason => Reason}),
+                    ?SLOG(error, #{msg => "split_sql_failed", sql => H, reason => Reason}),
                     parse_sql_template(T, BatchInsertTks)
             end;
         Type when is_atom(Type) ->
-            ?SLOG(error, #{msg => "detect sql type unsupported", sql => H, type => Type}),
+            ?SLOG(error, #{msg => "detect_sql_type_unsupported", sql => H, type => Type}),
             parse_sql_template(T, BatchInsertTks);
         {error, Reason} ->
-            ?SLOG(error, #{msg => "detect sql type failed", sql => H, reason => Reason}),
+            ?SLOG(error, #{msg => "detect_sql_type_failed", sql => H, reason => Reason}),
             parse_sql_template(T, BatchInsertTks)
     end;
 parse_sql_template([], BatchInsertTks) ->
@@ -491,8 +491,8 @@ apply_template(
             {Key, SQL}
     end;
 apply_template(Query, Templates) ->
-    %% TODO: more detail infomatoin
-    ?SLOG(error, #{msg => "apply sql template failed", query => Query, templates => Templates}),
+    %% TODO: more detail information
+    ?SLOG(error, #{msg => "apply_sql_template_failed", query => Query, templates => Templates}),
     {error, failed_to_apply_sql_template}.
 
 proc_batch_sql(BatchReqs, BatchInserts, Tokens) ->

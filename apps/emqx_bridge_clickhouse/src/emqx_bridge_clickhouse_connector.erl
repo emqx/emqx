@@ -349,7 +349,7 @@ on_query(
     #{pool_name := PoolName} = State
 ) ->
     ?SLOG(debug, #{
-        msg => "clickhouse connector received sql query",
+        msg => "clickhouse_connector_received_sql_query",
         connector => ResourceID,
         type => RequestType,
         sql => DataOrSQL,
@@ -463,7 +463,7 @@ transform_and_log_clickhouse_result({ok, ResponseCode, Data}, _, _) when
     Result;
 transform_and_log_clickhouse_result(ClickhouseErrorResult, ResourceID, SQL) ->
     ?SLOG(error, #{
-        msg => "clickhouse connector do sql query failed",
+        msg => "clickhouse_connector_do_sql_query_failed",
         connector => ResourceID,
         sql => SQL,
         reason => ClickhouseErrorResult
@@ -474,7 +474,7 @@ transform_and_log_clickhouse_result(ClickhouseErrorResult, ResourceID, SQL) ->
         %% handles all error cases that we need to handle as recoverable_error
         true ->
             ?SLOG(warning, #{
-                msg => "clickhouse connector: sql query failed (recoverable)",
+                msg => "clickhouse_connector_sql_query_failed_recoverable",
                 recoverable_error => true,
                 connector => ResourceID,
                 sql => SQL,
@@ -483,7 +483,7 @@ transform_and_log_clickhouse_result(ClickhouseErrorResult, ResourceID, SQL) ->
             to_recoverable_error(ClickhouseErrorResult);
         false ->
             ?SLOG(error, #{
-                msg => "clickhouse connector: sql query failed (unrecoverable)",
+                msg => "clickhouse_connector_sql_query_failed_unrecoverable",
                 recoverable_error => false,
                 connector => ResourceID,
                 sql => SQL,

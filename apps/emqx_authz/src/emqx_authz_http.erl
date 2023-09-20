@@ -95,7 +95,7 @@ authorize(
             case emqx_authz_utils:parse_http_resp_body(ContentType, Body) of
                 error ->
                     ?SLOG(error, #{
-                        msg => authz_http_response_incorrect,
+                        msg => "authz_http_response_incorrect",
                         content_type => ContentType,
                         body => Body
                     }),
@@ -123,7 +123,7 @@ log_nomtach_msg(Status, Headers, Body) ->
     ?SLOG(
         debug,
         #{
-            msg => unexpected_authz_http_response,
+            msg => "unexpected_authz_http_response",
             status => Status,
             content_type => emqx_authz_utils:content_type(Headers),
             body => Body

@@ -220,7 +220,7 @@ login(post, #{body := Params}) ->
     Password = maps:get(<<"password">>, Params),
     case emqx_dashboard_admin:sign_token(Username, Password) of
         {ok, Token} ->
-            ?SLOG(info, #{msg => "Dashboard login successfully", username => Username}),
+            ?SLOG(info, #{msg => "dashboard_login_successful", username => Username}),
             Version = iolist_to_binary(proplists:get_value(version, emqx_sys:info())),
             {200, #{
                 token => Token,
@@ -228,7 +228,7 @@ login(post, #{body := Params}) ->
                 license => #{edition => emqx_release:edition()}
             }};
         {error, R} ->
-            ?SLOG(info, #{msg => "Dashboard login failed", username => Username, reason => R}),
+            ?SLOG(info, #{msg => "dashboard_login_failed", username => Username, reason => R}),
             {401, ?BAD_USERNAME_OR_PWD, <<"Auth failed">>}
     end.
 
@@ -239,10 +239,10 @@ logout(_, #{
     Username = username(Req, Username0),
     case emqx_dashboard_admin:destroy_token_by_username(Username, Token) of
         ok ->
-            ?SLOG(info, #{msg => "Dashboard logout successfully", username => Username0}),
+            ?SLOG(info, #{msg => "dashboard_logout_successful", username => Username0}),
             204;
         _R ->
-            ?SLOG(info, #{msg => "Dashboard logout failed.", username => Username0}),
+            ?SLOG(info, #{msg => "dashboard_logout_failed.", username => Username0}),
             {401, ?WRONG_TOKEN_OR_USERNAME, <<"Ensure your token & username">>}
     end.
 
@@ -259,11 +259,11 @@ users(post, #{body := Params}) ->
         false ->
             case emqx_dashboard_admin:add_user(Username, Password, Role, Desc) of
                 {ok, Result} ->
-                    ?SLOG(info, #{msg => "Create dashboard success", username => Username}),
+                    ?SLOG(info, #{msg => "create_dashboard_user_success", username => Username}),
                     {200, filter_result(Result)};
                 {error, Reason} ->
                     ?SLOG(info, #{
-                        msg => "Create dashboard failed",
+                        msg => "create_dashboard_user_failed",
                         username => Username,
                         reason => Reason
                     }),
@@ -286,7 +286,7 @@ user(put, #{bindings := #{username := Username0}, body := Params} = Req) ->
 user(delete, #{bindings := #{username := Username0}, headers := Headers} = Req) ->
     case Username0 == emqx_dashboard_admin:default_username() of
         true ->
-            ?SLOG(info, #{msg => "Dashboard delete admin user failed", username => Username0}),
+            ?SLOG(info, #{msg => "dashboard_delete_admin_user_failed", username => Username0}),
             Message = list_to_binary(io_lib:format("Cannot delete user ~p", [Username0])),
             {400, ?NOT_ALLOWED, Message};
         false ->
@@ -300,7 +300,7 @@ user(delete, #{bindings := #{username := Username0}, headers := Headers} = Req) 
                             {404, ?USER_NOT_FOUND, Reason};
                         {ok, _} ->
                             ?SLOG(info, #{
-                                msg => "Dashboard delete admin user", username => Username0
+                                msg => "dashboard_delete_admin_user", username => Username0
                             }),
                             {204}
                     end
@@ -340,12 +340,12 @@ is_self_auth_token(Username, Token) ->
     end.
 
 change_pwd(post, #{bindings := #{username := Username}, body := Params}) ->
-    LogMeta = #{msg => "Dashboard change password", username => binary_to_list(Username)},
+    LogMeta = #{msg => "dashboard_change_password", username => binary_to_list(Username)},
     OldPwd = maps:get(<<"old_pwd">>, Params),
     NewPwd = maps:get(<<"new_pwd">>, Params),
     case ?EMPTY(OldPwd) orelse ?EMPTY(NewPwd) of
         true ->
-            ?SLOG(error, LogMeta#{result => failed, reason => "password undefined or empty"}),
+            ?SLOG(error, LogMeta#{result => failed, reason => "password_undefined_or_empty"}),
             {400, ?BAD_REQUEST, <<"Old password or new password undefined">>};
         false ->
             case emqx_dashboard_admin:change_password(Username, OldPwd, NewPwd) of

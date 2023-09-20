@@ -230,7 +230,7 @@ desc(influxdb_api_v2) ->
 start_client(InstId, Config) ->
     ClientConfig = client_config(InstId, Config),
     ?SLOG(info, #{
-        msg => "starting influxdb connector",
+        msg => "starting_influxdb_connector",
         connector => InstId,
         config => emqx_utils:redact(Config),
         client_config => emqx_utils:redact(ClientConfig)
@@ -245,7 +245,7 @@ start_client(InstId, Config) ->
         E:R:S ->
             ?tp(influxdb_connector_start_exception, #{error => {E, R}}),
             ?SLOG(warning, #{
-                msg => "start influxdb connector error",
+                msg => "start_influxdb_connector_error",
                 connector => InstId,
                 error => E,
                 reason => R,
@@ -271,7 +271,7 @@ do_start_client(
                                 write_syntax => to_config(Lines, Precision)
                             },
                             ?SLOG(info, #{
-                                msg => "starting influxdb connector success",
+                                msg => "starting_influxdb_connector_success",
                                 connector => InstId,
                                 client => redact_auth(Client),
                                 state => redact_auth(State)
@@ -307,7 +307,7 @@ do_start_client(
         {error, {already_started, Client0}} ->
             ?tp(influxdb_connector_start_already_started, #{}),
             ?SLOG(info, #{
-                msg => "restarting influxdb connector, found already started client",
+                msg => "restarting_influxdb_connector_found_already_started_client",
                 connector => InstId,
                 old_client => redact_auth(Client0)
             }),
@@ -401,7 +401,7 @@ do_query(InstId, Client, Points) ->
     case influxdb:write(Client, Points) of
         ok ->
             ?SLOG(debug, #{
-                msg => "influxdb write point success",
+                msg => "influxdb_write_point_success",
                 connector => InstId,
                 points => Points
             });
@@ -416,7 +416,7 @@ do_query(InstId, Client, Points) ->
         {error, Reason} = Err ->
             ?tp(influxdb_connector_do_query_failure, #{error => Reason}),
             ?SLOG(error, #{
-                msg => "influxdb write point failed",
+                msg => "influxdb_write_point_failed",
                 connector => InstId,
                 reason => Reason
             }),
@@ -430,7 +430,7 @@ do_query(InstId, Client, Points) ->
 
 do_async_query(InstId, Client, Points, ReplyFunAndArgs) ->
     ?SLOG(info, #{
-        msg => "influxdb write point async",
+        msg => "influxdb_write_point_async",
         connector => InstId,
         points => Points
     }),
@@ -522,7 +522,8 @@ parse_batch_data(InstId, BatchData, SyntaxLines) ->
             {ok, lists:flatten(Points)};
         _ ->
             ?SLOG(error, #{
-                msg => io_lib:format("InfluxDB trans point failed, count: ~p", [Errors]),
+                msg => "influxdb_trans_point_failed",
+                error_count => Errors,
                 connector => InstId,
                 reason => points_trans_failed
             }),
@@ -683,7 +684,7 @@ log_error_points(InstId, Errs) ->
     lists:foreach(
         fun({error, Reason}) ->
             ?SLOG(error, #{
-                msg => "influxdb trans point failed",
+                msg => "influxdb_trans_point_failed",
                 connector => InstId,
                 reason => Reason
             })

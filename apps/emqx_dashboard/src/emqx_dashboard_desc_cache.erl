@@ -40,7 +40,7 @@ init() ->
 %% Load is incremental, so it can be called multiple times.
 %% NOTE: no garbage collection is done, because stale entries are harmless.
 load_desc(EtsTab, File) ->
-    ?SLOG(info, #{msg => "loading desc", file => File}),
+    ?SLOG(info, #{msg => "loading_desc", file => File}),
     {ok, Descs} = hocon:load(File),
     ["desc", Lang, "hocon"] = string:tokens(filename:basename(File), "."),
     Insert = fun(Namespace, Id, Tag, Text) ->

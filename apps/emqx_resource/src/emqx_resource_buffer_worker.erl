@@ -249,10 +249,10 @@ running(info, {flush_metrics, _Ref}, _Data) ->
 running(info, {'DOWN', _MRef, process, Pid, Reason}, Data0 = #{async_workers := AsyncWorkers0}) when
     is_map_key(Pid, AsyncWorkers0)
 ->
-    ?SLOG(info, #{msg => async_worker_died, state => running, reason => Reason}),
+    ?SLOG(info, #{msg => "async_worker_died", state => running, reason => Reason}),
     handle_async_worker_down(Data0, Pid);
 running(info, Info, _St) ->
-    ?SLOG(error, #{msg => unexpected_msg, state => running, info => Info}),
+    ?SLOG(error, #{msg => "unexpected_msg", state => running, info => Info}),
     keep_state_and_data.
 
 blocked(enter, _, #{resume_interval := ResumeT} = St0) ->
@@ -282,10 +282,10 @@ blocked(info, {flush_metrics, _Ref}, _Data) ->
 blocked(info, {'DOWN', _MRef, process, Pid, Reason}, Data0 = #{async_workers := AsyncWorkers0}) when
     is_map_key(Pid, AsyncWorkers0)
 ->
-    ?SLOG(info, #{msg => async_worker_died, state => blocked, reason => Reason}),
+    ?SLOG(info, #{msg => "async_worker_died", state => blocked, reason => Reason}),
     handle_async_worker_down(Data0, Pid);
 blocked(info, Info, _Data) ->
-    ?SLOG(error, #{msg => unexpected_msg, state => blocked, info => Info}),
+    ?SLOG(error, #{msg => "unexpected_msg", state => blocked, info => Info}),
     keep_state_and_data.
 
 terminate(_Reason, #{id := Id, index := Index, queue := Q}) ->
@@ -856,7 +856,7 @@ handle_query_result(Id, Result, HasBeenSent) ->
     {ack | nack, function(), counters()}.
 handle_query_result_pure(_Id, ?RESOURCE_ERROR_M(exception, Msg), _HasBeenSent) ->
     PostFn = fun() ->
-        ?SLOG(error, #{msg => resource_exception, info => Msg}),
+        ?SLOG(error, #{msg => "resource_exception", info => Msg}),
         ok
     end,
     {nack, PostFn, #{}};
@@ -866,19 +866,19 @@ handle_query_result_pure(_Id, ?RESOURCE_ERROR_M(NotWorking, _), _HasBeenSent) wh
     {nack, fun() -> ok end, #{}};
 handle_query_result_pure(Id, ?RESOURCE_ERROR_M(not_found, Msg), _HasBeenSent) ->
     PostFn = fun() ->
-        ?SLOG(error, #{id => Id, msg => resource_not_found, info => Msg}),
+        ?SLOG(error, #{id => Id, msg => "resource_not_found", info => Msg}),
         ok
     end,
     {ack, PostFn, #{dropped_resource_not_found => 1}};
 handle_query_result_pure(Id, ?RESOURCE_ERROR_M(stopped, Msg), _HasBeenSent) ->
     PostFn = fun() ->
-        ?SLOG(error, #{id => Id, msg => resource_stopped, info => Msg}),
+        ?SLOG(error, #{id => Id, msg => "resource_stopped", info => Msg}),
         ok
     end,
     {ack, PostFn, #{dropped_resource_stopped => 1}};
 handle_query_result_pure(Id, ?RESOURCE_ERROR_M(Reason, _), _HasBeenSent) ->
     PostFn = fun() ->
-        ?SLOG(error, #{id => Id, msg => other_resource_error, reason => Reason}),
+        ?SLOG(error, #{id => Id, msg => "other_resource_error", reason => Reason}),
         ok
     end,
     {nack, PostFn, #{}};
@@ -887,7 +887,7 @@ handle_query_result_pure(Id, {error, Reason} = Error, HasBeenSent) ->
         true ->
             PostFn =
                 fun() ->
-                    ?SLOG(error, #{id => Id, msg => unrecoverable_error, reason => Reason}),
+                    ?SLOG(error, #{id => Id, msg => "unrecoverable_error", reason => Reason}),
                     ok
                 end,
             Counters =
@@ -899,7 +899,7 @@ handle_query_result_pure(Id, {error, Reason} = Error, HasBeenSent) ->
         false ->
             PostFn =
                 fun() ->
-                    ?SLOG(error, #{id => Id, msg => send_error, reason => Reason}),
+                    ?SLOG(error, #{id => Id, msg => "send_error", reason => Reason}),
                     ok
                 end,
             {nack, PostFn, #{}}
@@ -925,7 +925,7 @@ handle_query_async_result_pure(Id, {error, Reason} = Error, HasBeenSent) ->
         true ->
             PostFn =
                 fun() ->
-                    ?SLOG(error, #{id => Id, msg => unrecoverable_error, reason => Reason}),
+                    ?SLOG(error, #{id => Id, msg => "unrecoverable_error", reason => Reason}),
                     ok
                 end,
             Counters =
@@ -936,7 +936,7 @@ handle_query_async_result_pure(Id, {error, Reason} = Error, HasBeenSent) ->
             {ack, PostFn, Counters};
         false ->
             PostFn = fun() ->
-                ?SLOG(error, #{id => Id, msg => async_send_error, reason => Reason}),
+                ?SLOG(error, #{id => Id, msg => "async_send_error", reason => Reason}),
                 ok
             end,
             {nack, PostFn, #{}}
@@ -1446,7 +1446,7 @@ append_queue(Id, Index, Q, Queries) ->
                 Dropped = length(Items2),
                 Counters = #{dropped_queue_full => Dropped},
                 ?SLOG(info, #{
-                    msg => buffer_worker_overflow,
+                    msg => "buffer_worker_overflow",
                     resource_id => Id,
                     worker_index => Index,
                     dropped => Dropped
@@ -1850,7 +1850,7 @@ adjust_batch_time(Id, RequestTTL, BatchTime0) ->
         false ->
             ?SLOG(info, #{
                 id => Id,
-                msg => adjusting_buffer_worker_batch_time,
+                msg => "adjusting_buffer_worker_batch_time",
                 new_batch_time => BatchTime
             });
         true ->

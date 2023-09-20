@@ -148,7 +148,7 @@ on_batch_query(
     end;
 on_batch_query(InstanceId, BatchReq, State) ->
     LogMeta = #{connector => InstanceId, request => BatchReq, state => State},
-    ?SLOG(error, LogMeta#{msg => "invalid request"}),
+    ?SLOG(error, LogMeta#{msg => "invalid_request"}),
     {error, {unrecoverable_error, invalid_request}}.
 
 on_get_status(_InstanceId, #{pool_name := PoolName}) ->
@@ -253,14 +253,14 @@ parse_batch_prepare_sql([{Key, H} | T], InsertTksMap, BatchTksMap) ->
                         BatchTksMap#{Key => BatchTks}
                     );
                 Result ->
-                    ?SLOG(error, #{msg => "split sql failed", sql => H, result => Result}),
+                    ?SLOG(error, #{msg => "split_sql_failed", sql => H, result => Result}),
                     parse_batch_prepare_sql(T, InsertTksMap, BatchTksMap)
             end;
         Type when is_atom(Type) ->
-            ?SLOG(error, #{msg => "detect sql type unsupported", sql => H, type => Type}),
+            ?SLOG(error, #{msg => "detect_sql_type_unsupported", sql => H, type => Type}),
             parse_batch_prepare_sql(T, InsertTksMap, BatchTksMap);
         {error, Reason} ->
-            ?SLOG(error, #{msg => "detect sql type failed", sql => H, reason => Reason}),
+            ?SLOG(error, #{msg => "detect_sql_type_failed", sql => H, reason => Reason}),
             parse_batch_prepare_sql(T, InsertTksMap, BatchTksMap)
     end;
 parse_batch_prepare_sql([], InsertTksMap, BatchTksMap) ->

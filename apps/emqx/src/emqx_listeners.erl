@@ -640,7 +640,7 @@ esockd_access_rules(StrRules) ->
                     | Acc
                 ];
             _ ->
-                ?SLOG(warning, #{msg => "invalid esockd access rule", rule => S}),
+                ?SLOG(warning, #{msg => "invalid_esockd_access_rule", rule => S}),
                 Acc
         end
     end,

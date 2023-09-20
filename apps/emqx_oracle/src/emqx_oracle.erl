@@ -133,7 +133,7 @@ on_query(
     #{pool_name := PoolName} = State
 ) ->
     ?SLOG(debug, #{
-        msg => "oracle database connector received sql query",
+        msg => "oracle_connector_received_sql_query",
         connector => InstId,
         type => TypeOrKey,
         sql => NameOrSQL,
@@ -158,7 +158,7 @@ on_batch_query(
                         connector => InstId,
                         first_request => Request,
                         state => State,
-                        msg => "batch prepare not implemented"
+                        msg => "batch_prepare_not_implemented"
                     },
                     ?SLOG(error, Log),
                     {error, {unrecoverable_error, batch_prepare_not_implemented}};
@@ -180,7 +180,7 @@ on_batch_query(
                 connector => InstId,
                 request => BatchReq,
                 state => State,
-                msg => "invalid request"
+                msg => "invalid_request"
             },
             ?SLOG(error, Log),
             {error, {unrecoverable_error, invalid_request}}
@@ -212,7 +212,7 @@ on_sql_query(InstId, PoolName, Type, ApplyMode, NameOrSQL, Data) ->
                 #{error => Reason}
             ),
             ?SLOG(error, #{
-                msg => "oracle database connector do sql query failed",
+                msg => "oracle_connector_do_sql_query_failed",
                 connector => InstId,
                 type => Type,
                 sql => NameOrSQL,
@@ -358,7 +358,7 @@ init_prepare(State = #{prepare_sql := Prepares, pool_name := PoolName, params_to
             State#{prepare_sql := Sts};
         Error ->
             LogMeta = #{
-                msg => <<"Oracle Database init prepare statement failed">>, error => Error
+                msg => <<"oracle_init_prepare_statement_failed">>, error => Error
             },
             ?SLOG(error, LogMeta),
             %% mark the prepare_sql as failed
@@ -396,7 +396,7 @@ prepare_sql_to_conn(Conn, Prepares, TokensMap) ->
 
 prepare_sql_to_conn(Conn, [], _TokensMap, Statements) when is_pid(Conn) -> {ok, Statements};
 prepare_sql_to_conn(Conn, [{Key, SQL} | PrepareList], TokensMap, Statements) when is_pid(Conn) ->
-    LogMeta = #{msg => "Oracle Database Prepare Statement", name => Key, prepare_sql => SQL},
+    LogMeta = #{msg => "oracle_prepare_statement", name => Key, prepare_sql => SQL},
     Tokens = maps:get(Key, TokensMap, []),
     ?SLOG(info, LogMeta),
     case check_if_table_exists(Conn, SQL, Tokens) of

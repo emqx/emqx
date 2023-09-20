@@ -204,7 +204,7 @@ remove(ResId, ClearMetrics) when is_binary(ResId) ->
         safe_call(ResId, {remove, ClearMetrics}, ?T_OPERATION)
     after
         %% Ensure the supervisor has it removed, otherwise the immediate re-add will see a stale process
-        %% If the 'remove' call babove had succeeded, this is mostly a no-op but still needed to avoid race condition.
+        %% If the 'remove' call above had succeeded, this is mostly a no-op but still needed to avoid race condition.
         %% Otherwise this is a 'infinity' shutdown, so it may take arbitrary long.
         emqx_resource_manager_sup:delete_child(ResId)
     end.
@@ -411,7 +411,7 @@ handle_event(EventType, EventData, State, Data) ->
     ?SLOG(
         error,
         #{
-            msg => ignore_all_other_events,
+            msg => "ignore_all_other_events",
             event_type => EventType,
             event_data => EventData,
             state => State,
@@ -488,7 +488,7 @@ start_resource(Data, From) ->
             {next_state, connecting, update_state(UpdatedData, Data), Actions};
         {error, Reason} = Err ->
             ?SLOG(warning, #{
-                msg => start_resource_failed,
+                msg => "start_resource_failed",
                 id => Data#data.id,
                 reason => Reason
             }),
@@ -555,7 +555,7 @@ handle_connected_health_check(Data) ->
                 {keep_state, UpdatedData, health_check_actions(UpdatedData)};
             (Status, UpdatedData) ->
                 ?SLOG(warning, #{
-                    msg => health_check_failed,
+                    msg => "health_check_failed",
                     id => Data#data.id,
                     status => Status
                 }),
@@ -631,7 +631,7 @@ parse_health_check_result({error, Error}, Data) ->
     ?SLOG(
         error,
         #{
-            msg => health_check_exception,
+            msg => "health_check_exception",
             resource_id => Data#data.id,
             reason => Error
         }

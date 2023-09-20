@@ -247,14 +247,14 @@ handle_call(check, _From, State) ->
     {_, NewState} = handle_info({mnesia_table_event, check}, State),
     {reply, ok, NewState};
 handle_call(Req, _From, State) ->
-    ?SLOG(error, #{unexpected_call => Req}),
+    ?SLOG(error, #{msg => "unexpected_call", req => Req}),
     {reply, ok, State}.
 
 handle_cast({delete_tag, Pid, Files}, State = #{monitors := Monitors}) ->
     erlang:monitor(process, Pid),
     {noreply, State#{monitors => Monitors#{Pid => Files}}};
 handle_cast(Msg, State) ->
-    ?SLOG(error, #{unexpected_cast => Msg}),
+    ?SLOG(error, #{msg => "unexpected_cast", req => Msg}),
     {noreply, State}.
 
 handle_info({'DOWN', _Ref, process, Pid, _Reason}, State = #{monitors := Monitors}) ->
@@ -275,7 +275,7 @@ handle_info({mnesia_table_event, _Events}, State = #{timer := TRef}) ->
     emqx_utils:cancel_timer(TRef),
     handle_info({timeout, TRef, update_trace}, State);
 handle_info(Info, State) ->
-    ?SLOG(error, #{unexpected_info => Info}),
+    ?SLOG(error, #{msg => "unexpected_info", req => Info}),
     {noreply, State}.
 
 terminate(_Reason, #{timer := TRef}) ->
