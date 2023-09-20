@@ -26,7 +26,8 @@
 -export([iterator_update/2, iterator_next/1, iterator_stats/0]).
 %%   Session:
 -export([
-    session_open/2,
+    session_open/1,
+    session_ensure_new/2,
     session_drop/1,
     session_suspend/1,
     session_add_iterator/3,
@@ -148,26 +149,34 @@ message_stats() ->
 %%--------------------------------------------------------------------------------
 
 %% @doc Called when a client connects. This function looks up a
-%% session or creates a new one if previous one couldn't be found.
+%% session or returns `false` if previous one couldn't be found.
 %%
 %% This function also spawns replay agents for each iterator.
 %%
 %% Note: session API doesn't handle session takeovers, it's the job of
 %% the broker.
--spec session_open(session_id(), _Props :: map()) ->
-    {_New :: boolean(), session(), iterators()}.
-session_open(SessionId, Props) ->
+-spec session_open(session_id()) ->
+    {ok, session(), iterators()} | false.
+session_open(SessionId) ->
     transaction(fun() ->
         case mnesia:read(?SESSION_TAB, SessionId, write) of
             [Record = #session{}] ->
                 Session = export_record(Record),
                 IteratorRefs = session_read_iterators(SessionId),
                 Iterators = export_iterators(IteratorRefs),
-                {false, Session, Iterators};
+                {ok, Session, Iterators};
             [] ->
-                Session = export_record(session_create(SessionId, Props)),
-                {true, Session, #{}}
+                false
         end
+    end).
+
+-spec session_ensure_new(session_id(), _Props :: map()) ->
+    {ok, session(), iterators()}.
+session_ensure_new(SessionId, Props) ->
+    transaction(fun() ->
+        ok = session_drop_iterators(SessionId),
+        Session = export_record(session_create(SessionId, Props)),
+        {ok, Session, #{}}
     end).
 
 session_create(SessionId, Props) ->
@@ -186,10 +195,13 @@ session_create(SessionId, Props) ->
 session_drop(DSSessionId) ->
     transaction(fun() ->
         %% TODO: ensure all iterators from this clientid are closed?
-        IteratorRefs = session_read_iterators(DSSessionId),
-        ok = lists:foreach(fun session_del_iterator/1, IteratorRefs),
+        ok = session_drop_iterators(DSSessionId),
         ok = mnesia:delete(?SESSION_TAB, DSSessionId, write)
     end).
+
+session_drop_iterators(DSSessionId) ->
+    IteratorRefs = session_read_iterators(DSSessionId),
+    ok = lists:foreach(fun session_del_iterator/1, IteratorRefs).
 
 %% @doc Called when a client disconnects. This function terminates all
 %% active processes related to the session.

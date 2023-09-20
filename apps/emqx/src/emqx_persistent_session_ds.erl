@@ -24,7 +24,7 @@
 %% Session API
 -export([
     create/3,
-    open/3,
+    open/2,
     destroy/1
 ]).
 
@@ -98,12 +98,11 @@
     session().
 create(#{clientid := ClientID}, _ConnInfo, Conf) ->
     % TODO: expiration
-    {true, Session} = open_session(ClientID, Conf),
-    Session.
+    ensure_session(ClientID, Conf).
 
--spec open(clientinfo(), conninfo(), emqx_session:conf()) ->
-    {_IsPresent :: true, session(), []} | {_IsPresent :: false, session()}.
-open(#{clientid := ClientID}, _ConnInfo, Conf) ->
+-spec open(clientinfo(), conninfo()) ->
+    {_IsPresent :: true, session(), []} | false.
+open(#{clientid := ClientID}, _ConnInfo) ->
     %% NOTE
     %% The fact that we need to concern about discarding all live channels here
     %% is essentially a consequence of the in-memory session design, where we
@@ -111,24 +110,31 @@ open(#{clientid := ClientID}, _ConnInfo, Conf) ->
     %% somehow isolate those idling not-yet-expired sessions into a separate process
     %% space, and move this call back into `emqx_cm` where it belongs.
     ok = emqx_cm:discard_session(ClientID),
-    {IsNew, Session} = open_session(ClientID, Conf),
-    IsPresent = not IsNew,
-    case IsPresent of
-        true ->
-            {IsPresent, Session, []};
+    case open_session(ClientID) of
+        Session = #{} ->
+            {true, Session, []};
         false ->
-            {IsPresent, Session}
+            false
     end.
 
-open_session(ClientID, Conf) ->
-    {IsNew, Session, Iterators} = emqx_ds:session_open(ClientID, Conf),
-    {IsNew, Session#{
-        iterators => maps:fold(
-            fun(Topic, Iterator, Acc) -> Acc#{emqx_topic:join(Topic) => Iterator} end,
-            #{},
-            Iterators
-        )
-    }}.
+ensure_session(ClientID, Conf) ->
+    {ok, Session, #{}} = emqx_ds:session_ensure_new(ClientID, Conf),
+    Session#{iterators => #{}}.
+
+open_session(ClientID) ->
+    case emqx_ds:session_open(ClientID) of
+        {ok, Session, Iterators} ->
+            Session#{iterators => prep_iterators(Iterators)};
+        false ->
+            false
+    end.
+
+prep_iterators(Iterators) ->
+    maps:fold(
+        fun(Topic, Iterator, Acc) -> Acc#{emqx_topic:join(Topic) => Iterator} end,
+        #{},
+        Iterators
+    ).
 
 -spec destroy(session() | clientinfo()) -> ok.
 destroy(#{id := ClientID}) ->

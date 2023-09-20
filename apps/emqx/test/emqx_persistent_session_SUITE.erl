@@ -50,13 +50,14 @@ all() ->
 
 groups() ->
     TCs = emqx_common_test_helpers:all(?MODULE),
+    TCsNonGeneric = [t_choose_impl],
     [
         {persistent_store_disabled, [{group, no_kill_connection_process}]},
         {persistent_store_ds, [{group, no_kill_connection_process}]},
         {no_kill_connection_process, [], [{group, tcp}, {group, quic}, {group, ws}]},
         {tcp, [], TCs},
-        {quic, [], TCs},
-        {ws, [], TCs}
+        {quic, [], TCs -- TCsNonGeneric},
+        {ws, [], TCs -- TCsNonGeneric}
     ].
 
 init_per_group(persistent_store_disabled, Config) ->
@@ -276,6 +277,25 @@ do_publish(Payload, PublishFun, WaitForUnregister) ->
 %% Test Cases
 %%--------------------------------------------------------------------
 
+t_choose_impl(Config) ->
+    ClientId = ?config(client_id, Config),
+    ConnFun = ?config(conn_fun, Config),
+    {ok, Client} = emqtt:start_link([
+        {clientid, ClientId},
+        {proto_ver, v5},
+        {properties, #{'Session-Expiry-Interval' => 30}}
+        | Config
+    ]),
+    {ok, _} = emqtt:ConnFun(Client),
+    [ChanPid] = emqx_cm:lookup_channels(ClientId),
+    ?assertEqual(
+        case ?config(persistent_store, Config) of
+            false -> emqx_session_mem;
+            ds -> emqx_persistent_session_ds
+        end,
+        emqx_connection:info({channel, {session, impl}}, sys:get_state(ChanPid))
+    ).
+
 t_connect_discards_existing_client(Config) ->
     ClientId = ?config(client_id, Config),
     ConnFun = ?config(conn_fun, Config),
@@ -372,7 +392,6 @@ t_assigned_clientid_persistent_session(Config) ->
     {ok, Client2} = emqtt:start_link([
         {clientid, AssignedClientId},
         {proto_ver, v5},
-        {properties, #{'Session-Expiry-Interval' => 30}},
         {clean_start, false}
         | Config
     ]),

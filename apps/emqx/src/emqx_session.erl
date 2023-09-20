@@ -157,6 +157,15 @@
 -define(IMPL(S), (get_impl_mod(S))).
 
 %%--------------------------------------------------------------------
+%% Behaviour
+%% -------------------------------------------------------------------
+
+-callback create(clientinfo(), conninfo(), conf()) ->
+    t().
+-callback open(clientinfo(), conninfo()) ->
+    {_IsPresent :: true, t(), _ReplayContext} | false.
+
+%%--------------------------------------------------------------------
 %% Create a Session
 %%--------------------------------------------------------------------
 
@@ -167,7 +176,11 @@ create(ClientInfo, ConnInfo) ->
 
 create(ClientInfo, ConnInfo, Conf) ->
     % FIXME error conditions
-    Session = (choose_impl_mod(ConnInfo)):create(ClientInfo, ConnInfo, Conf),
+    create(choose_impl_mod(ConnInfo), ClientInfo, ConnInfo, Conf).
+
+create(Mod, ClientInfo, ConnInfo, Conf) ->
+    % FIXME error conditions
+    Session = Mod:create(ClientInfo, ConnInfo, Conf),
     ok = emqx_metrics:inc('session.created'),
     ok = emqx_hooks:run('session.created', [ClientInfo, info(Session)]),
     Session.
@@ -176,16 +189,28 @@ create(ClientInfo, ConnInfo, Conf) ->
     {_IsPresent :: true, t(), _ReplayContext} | {_IsPresent :: false, t()}.
 open(ClientInfo, ConnInfo) ->
     Conf = get_session_conf(ClientInfo, ConnInfo),
-    case (choose_impl_mod(ConnInfo)):open(ClientInfo, ConnInfo, Conf) of
-        {_IsPresent = true, Session, ReplayContext} ->
-            {true, Session, ReplayContext};
-        {_IsPresent = false, NewSession} ->
-            ok = emqx_metrics:inc('session.created'),
-            ok = emqx_hooks:run('session.created', [ClientInfo, info(NewSession)]),
-            {false, NewSession};
-        _IsPresent = false ->
-            {false, create(ClientInfo, ConnInfo, Conf)}
+    Mods = [Default | _] = choose_impl_candidates(ConnInfo),
+    %% NOTE
+    %% Try to look the existing session up in session stores corresponding to the given
+    %% `Mods` in order, starting from the last one.
+    case try_open(Mods, ClientInfo, ConnInfo) of
+        {_IsPresent = true, _, _} = Present ->
+            Present;
+        false ->
+            %% NOTE
+            %% Nothing was found, create a new session with the `Default` implementation.
+            {false, create(Default, ClientInfo, ConnInfo, Conf)}
     end.
+
+try_open([Mod | Rest], ClientInfo, ConnInfo) ->
+    case try_open(Rest, ClientInfo, ConnInfo) of
+        {_IsPresent = true, _, _} = Present ->
+            Present;
+        false ->
+            Mod:open(ClientInfo, ConnInfo)
+    end;
+try_open([], _ClientInfo, _ConnInfo) ->
+    false.
 
 -spec get_session_conf(clientinfo(), conninfo()) -> conf().
 get_session_conf(
@@ -527,15 +552,24 @@ get_impl_mod(Session) when ?IS_SESSION_IMPL_DS(Session) ->
     emqx_persistent_session_ds.
 
 -spec choose_impl_mod(conninfo()) -> module().
-choose_impl_mod(#{expiry_interval := 0}) ->
-    emqx_session_mem;
-choose_impl_mod(#{expiry_interval := EI}) when EI > 0 ->
-    case emqx_persistent_message:is_store_enabled() of
-        true ->
-            emqx_persistent_session_ds;
-        false ->
-            emqx_session_mem
-    end.
+choose_impl_mod(#{expiry_interval := EI}) ->
+    hd(choose_impl_candidates(EI, emqx_persistent_message:is_store_enabled())).
+
+-spec choose_impl_candidates(conninfo()) -> [module()].
+choose_impl_candidates(#{expiry_interval := EI}) ->
+    choose_impl_candidates(EI, emqx_persistent_message:is_store_enabled()).
+
+choose_impl_candidates(_, _IsPSStoreEnabled = false) ->
+    [emqx_session_mem];
+choose_impl_candidates(0, _IsPSStoreEnabled = true) ->
+    %% NOTE
+    %% If ExpiryInterval is 0, the natural choice is `emqx_session_mem`. Yet we still
+    %% need to look the existing session up in the `emqx_persistent_session_ds` store
+    %% first, because previous connection may have set ExpiryInterval to a non-zero
+    %% value.
+    [emqx_session_mem, emqx_persistent_session_ds];
+choose_impl_candidates(EI, _IsPSStoreEnabled = true) when EI > 0 ->
+    [emqx_persistent_session_ds].
 
 -compile({inline, [run_hook/2]}).
 run_hook(Name, Args) ->
