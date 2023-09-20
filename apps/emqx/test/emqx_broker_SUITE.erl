@@ -86,6 +86,7 @@ init_per_group(quic, Config) ->
                 "\n enable = true"
                 "\n max_connections = 1024000"
                 "\n idle_timeout = 15s"
+                "\n ssl_options.verify = verify_peer"
                 "\n }"}
         ],
         #{work_dir => emqx_cth_suite:work_dir(Config)}
@@ -93,6 +94,8 @@ init_per_group(quic, Config) ->
     [
         {conn_fun, quic_connect},
         {port, emqx_config:get([listeners, quic, test, bind])},
+        {ssl_opts, emqx_common_test_helpers:client_ssl_twoway()},
+        {ssl, true},
         {group_apps, Apps}
         | Config
     ];
