@@ -335,7 +335,7 @@ do_stop_listener(Type, Id, #{bind := ListenOn}) when Type == ws; Type == wss ->
             Error
     end;
 do_stop_listener(quic, Id, _Conf) ->
-    quicer:stop_listener(Id).
+    quicer:terminate_listener(Id).
 
 wait_listener_stopped(ListenOn) ->
     % NOTE
@@ -461,7 +461,7 @@ do_start_listener(quic, ListenerName, #{bind := Bind} = Opts) ->
 
             Id = listener_id(quic, ListenerName),
             add_limiter_bucket(Id, Limiter),
-            quicer:start_listener(
+            quicer:spawn_listener(
                 Id,
                 ListenOn,
                 {maps:from_list(ListenOpts), ConnectionOpts, StreamOpts}
