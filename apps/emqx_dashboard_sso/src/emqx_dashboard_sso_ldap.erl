@@ -133,7 +133,7 @@ parse_config(Config) ->
 ensure_user_exists(Username) ->
     case emqx_dashboard_admin:lookup_user(ldap, Username) of
         [User] ->
-            {ok, emqx_dashboard_token:sign(User, <<>>)};
+            emqx_dashboard_token:sign(User, <<>>);
         [] ->
             case emqx_dashboard_admin:add_sso_user(ldap, Username, ?ROLE_VIEWER, <<>>) of
                 {ok, _} ->
