@@ -289,7 +289,8 @@ delete(DB = #db{handle = DBHandle, cf = CFHandle}, MessageID, PublishedAt, Topic
 -spec make_iterator(db(), emqx_ds:replay()) ->
     {ok, iterator()} | {error, _TODO}.
 make_iterator(DB, Replay) ->
-    Options = emqx_ds_conf:shard_iteration_options(DB#db.shard),
+    {Keyspace, _ShardId} = DB#db.shard,
+    Options = emqx_ds_conf:iteration_options(Keyspace),
     make_iterator(DB, Replay, Options).
 
 -spec make_iterator(db(), emqx_ds:replay(), iteration_options()) ->

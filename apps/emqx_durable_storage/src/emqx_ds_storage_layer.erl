@@ -98,7 +98,7 @@
 %% 3. `inplace_update_support`?
 -define(ITERATOR_CF_OPTS, []).
 
--define(REF(Shard), {via, gproc, {n, l, {?MODULE, Shard}}}).
+-define(REF(Keyspace, ShardId), {via, gproc, {n, l, {?MODULE, Keyspace, ShardId}}}).
 
 %%================================================================================
 %% Callbacks
@@ -107,7 +107,13 @@
 -callback create_new(rocksdb:db_handle(), gen_id(), _Options :: term()) ->
     {_Schema, cf_refs()}.
 
--callback open(emqx_ds:shard(), rocksdb:db_handle(), gen_id(), cf_refs(), _Schema) ->
+-callback open(
+    emqx_ds:shard(),
+    rocksdb:db_handle(),
+    gen_id(),
+    cf_refs(),
+    _Schema
+) ->
     term().
 
 -callback store(
@@ -135,14 +141,17 @@
 %% API funcions
 %%================================================================================
 
--spec start_link(emqx_ds:shard(), emqx_ds_storage_layer:options()) -> {ok, pid()}.
-start_link(Shard, Options) ->
-    gen_server:start_link(?REF(Shard), ?MODULE, {Shard, Options}, []).
+-spec start_link(emqx_ds:shard(), emqx_ds_storage_layer:options()) ->
+    {ok, pid()}.
+start_link(Shard = {Keyspace, ShardId}, Options) ->
+    gen_server:start_link(?REF(Keyspace, ShardId), ?MODULE, {Shard, Options}, []).
 
--spec create_generation(emqx_ds:shard(), emqx_ds:time(), emqx_ds_conf:backend_config()) ->
+-spec create_generation(
+    emqx_ds:shard(), emqx_ds:time(), emqx_ds_conf:backend_config()
+) ->
     {ok, gen_id()} | {error, nonmonotonic}.
-create_generation(Shard, Since, Config = {_Module, _Options}) ->
-    gen_server:call(?REF(Shard), {create_generation, Since, Config}).
+create_generation({Keyspace, ShardId}, Since, Config = {_Module, _Options}) ->
+    gen_server:call(?REF(Keyspace, ShardId), {create_generation, Since, Config}).
 
 -spec store(emqx_ds:shard(), emqx_guid:guid(), emqx_ds:time(), emqx_ds:topic(), binary()) ->
     ok | {error, _}.
@@ -294,10 +303,10 @@ populate_metadata(GenId, S = #s{shard = Shard, db = DBHandle}) ->
     meta_register_gen(Shard, GenId, Gen).
 
 -spec ensure_current_generation(state()) -> state().
-ensure_current_generation(S = #s{shard = Shard, db = DBHandle}) ->
+ensure_current_generation(S = #s{shard = {Keyspace, _ShardId}, db = DBHandle}) ->
     case schema_get_current(DBHandle) of
         undefined ->
-            Config = emqx_ds_conf:shard_config(Shard),
+            Config = emqx_ds_conf:keyspace_config(Keyspace),
             {ok, _, NS} = create_new_gen(0, Config, S),
             NS;
         _GenId ->
@@ -334,12 +343,13 @@ create_gen(GenId, Since, {Module, Options}, S = #s{db = DBHandle, cf_generations
     {ok, Gen, S#s{cf_generations = NewCFs ++ CFs}}.
 
 -spec open_db(emqx_ds:shard(), options()) -> {ok, state()} | {error, _TODO}.
-open_db(Shard, Options) ->
-    DBDir = unicode:characters_to_list(maps:get(dir, Options, Shard)),
+open_db(Shard = {Keyspace, ShardId}, Options) ->
+    DefaultDir = filename:join([atom_to_binary(Keyspace), ShardId]),
+    DBDir = unicode:characters_to_list(maps:get(dir, Options, DefaultDir)),
     DBOptions = [
         {create_if_missing, true},
         {create_missing_column_families, true}
-        | emqx_ds_conf:db_options()
+        | emqx_ds_conf:db_options(Keyspace)
     ],
     _ = filelib:ensure_dir(DBDir),
     ExistingCFs =

@@ -10,7 +10,9 @@
 -define(WORK_DIR, ["_build", "test"]).
 -define(RUN_ID, {?MODULE, testrun_id}).
 
--define(ZONE, ?MODULE).
+-define(KEYSPACE, ?MODULE).
+-define(SHARD_ID, <<"shard">>).
+-define(SHARD, {?KEYSPACE, ?SHARD_ID}).
 -define(GEN_ID, 42).
 
 %%--------------------------------------------------------------------
@@ -255,7 +257,7 @@ iterate_shim(Shim, Iteration) ->
 open_db(Filepath, Options) ->
     {ok, Handle} = rocksdb:open(Filepath, [{create_if_missing, true}]),
     {Schema, CFRefs} = emqx_ds_message_storage_bitmask:create_new(Handle, ?GEN_ID, Options),
-    DB = emqx_ds_message_storage_bitmask:open(?ZONE, Handle, ?GEN_ID, CFRefs, Schema),
+    DB = emqx_ds_message_storage_bitmask:open(?SHARD, Handle, ?GEN_ID, CFRefs, Schema),
     {DB, Handle}.
 
 close_db(Handle) ->

@@ -18,7 +18,7 @@ init_mnesia() ->
     ok = mria:create_table(
         ?SESSION_TAB,
         [
-            {rlog_shard, ?DS_SHARD},
+            {rlog_shard, ?DS_MRIA_SHARD},
             {type, set},
             {storage, storage()},
             {record_name, session},
@@ -28,7 +28,7 @@ init_mnesia() ->
     ok = mria:create_table(
         ?ITERATOR_REF_TAB,
         [
-            {rlog_shard, ?DS_SHARD},
+            {rlog_shard, ?DS_MRIA_SHARD},
             {type, ordered_set},
             {storage, storage()},
             {record_name, iterator_ref},

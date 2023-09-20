@@ -262,15 +262,21 @@ end_per_suite(_Config) ->
     ok = application:stop(emqx_durable_storage).
 
 init_per_testcase(TC, Config) ->
-    ok = set_shard_config(shard(TC), ?DEFAULT_CONFIG),
+    ok = set_keyspace_config(keyspace(TC), ?DEFAULT_CONFIG),
     {ok, _} = emqx_ds_storage_layer_sup:start_shard(shard(TC), #{}),
     Config.
 
 end_per_testcase(TC, _Config) ->
     ok = emqx_ds_storage_layer_sup:stop_shard(shard(TC)).
 
-shard(TC) ->
-    list_to_binary(lists:concat([?MODULE, "_", TC])).
+keyspace(TC) ->
+    list_to_atom(lists:concat([?MODULE, "_", TC])).
 
-set_shard_config(Shard, Config) ->
-    ok = application:set_env(emqx_ds, shard_config, #{Shard => Config}).
+shard_id(_TC) ->
+    <<"shard">>.
+
+shard(TC) ->
+    {keyspace(TC), shard_id(TC)}.
+
+set_keyspace_config(Keyspace, Config) ->
+    ok = application:set_env(emqx_ds, keyspace_config, #{Keyspace => Config}).

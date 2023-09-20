@@ -39,6 +39,7 @@
 -export([]).
 
 -export_type([
+    keyspace/0,
     message_id/0,
     message_stats/0,
     message_store_opts/0,
@@ -48,6 +49,7 @@
     iterator_id/0,
     iterator/0,
     shard/0,
+    shard_id/0,
     topic/0,
     time/0
 ]).
@@ -77,7 +79,9 @@
 %% Parsed topic:
 -type topic() :: list(binary()).
 
--type shard() :: binary().
+-type keyspace() :: atom().
+-type shard_id() :: binary().
+-type shard() :: {keyspace(), shard_id()}.
 
 %% Timestamp
 %% Earliest possible timestamp is 0.
@@ -140,7 +144,7 @@ message_stats() ->
 -spec session_open(emqx_types:clientid()) -> {_New :: boolean(), session_id()}.
 session_open(ClientID) ->
     {atomic, Res} =
-        mria:transaction(?DS_SHARD, fun() ->
+        mria:transaction(?DS_MRIA_SHARD, fun() ->
             case mnesia:read(?SESSION_TAB, ClientID, write) of
                 [#session{}] ->
                     {false, ClientID};
@@ -157,7 +161,7 @@ session_open(ClientID) ->
 -spec session_drop(emqx_types:clientid()) -> ok.
 session_drop(ClientID) ->
     {atomic, ok} = mria:transaction(
-        ?DS_SHARD,
+        ?DS_MRIA_SHARD,
         fun() ->
             %% TODO: ensure all iterators from this clientid are closed?
             mnesia:delete({?SESSION_TAB, ClientID})
@@ -178,7 +182,7 @@ session_suspend(_SessionId) ->
 session_add_iterator(DSSessionId, TopicFilter) ->
     IteratorRefId = {DSSessionId, TopicFilter},
     {atomic, Res} =
-        mria:transaction(?DS_SHARD, fun() ->
+        mria:transaction(?DS_MRIA_SHARD, fun() ->
             case mnesia:read(?ITERATOR_REF_TAB, IteratorRefId, write) of
                 [] ->
                     {IteratorId, StartMS} = new_iterator_id(DSSessionId),
@@ -221,7 +225,7 @@ session_get_iterator_id(DSSessionId, TopicFilter) ->
 session_del_iterator(DSSessionId, TopicFilter) ->
     IteratorRefId = {DSSessionId, TopicFilter},
     {atomic, ok} =
-        mria:transaction(?DS_SHARD, fun() ->
+        mria:transaction(?DS_MRIA_SHARD, fun() ->
             mnesia:delete(?ITERATOR_REF_TAB, IteratorRefId, write)
         end),
     ok.

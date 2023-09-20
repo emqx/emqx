@@ -18,7 +18,7 @@
 
 -define(SESSION_TAB, emqx_ds_session).
 -define(ITERATOR_REF_TAB, emqx_ds_iterator_ref).
--define(DS_SHARD, emqx_ds_shard).
+-define(DS_MRIA_SHARD, emqx_ds_shard).
 
 -record(session, {
     %% same as clientid
