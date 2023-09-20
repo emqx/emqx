@@ -132,8 +132,12 @@ open_session(ClientID, Conf) ->
 
 -spec destroy(session() | clientinfo()) -> ok.
 destroy(#{id := ClientID}) ->
-    emqx_ds:session_drop(ClientID);
+    destroy_session(ClientID);
 destroy(#{clientid := ClientID}) ->
+    destroy_session(ClientID).
+
+destroy_session(ClientID) ->
+    _ = ensure_all_iterators_closed(ClientID),
     emqx_ds:session_drop(ClientID).
 
 %%--------------------------------------------------------------------
