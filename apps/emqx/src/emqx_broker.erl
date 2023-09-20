@@ -224,8 +224,17 @@ publish(Msg) when is_record(Msg, message) ->
             }),
             [];
         Msg1 = #message{topic = Topic} ->
-            _ = emqx_persistent_session_ds:persist_message(Msg1),
-            route(aggre(emqx_router:match_routes(Topic)), delivery(Msg1))
+            PersistRes = persist_publish(Msg1),
+            PersistRes ++ route(aggre(emqx_router:match_routes(Topic)), delivery(Msg1))
+    end.
+
+persist_publish(Msg) ->
+    case emqx_persistent_message:persist(Msg) of
+        ok ->
+            [persisted];
+        {_SkipOrError, _Reason} ->
+            % TODO: log errors?
+            []
     end.
 
 %% Called internally

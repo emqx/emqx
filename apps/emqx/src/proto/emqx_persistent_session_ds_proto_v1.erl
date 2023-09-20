@@ -36,7 +36,7 @@ introduced_in() ->
 
 -spec open_iterator(
     [node()],
-    emqx_topic:words(),
+    emqx_types:words(),
     emqx_ds:time(),
     emqx_ds:iterator_id()
 ) ->

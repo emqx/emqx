@@ -84,7 +84,7 @@
     %% MQTT ClientInfo
     clientinfo :: emqx_types:clientinfo(),
     %% MQTT Session
-    session :: maybe(emqx_session:session()),
+    session :: maybe(emqx_session:t()),
     %% Keepalive
     keepalive :: maybe(emqx_keepalive:keepalive()),
     %% MQTT Will Msg
@@ -104,7 +104,7 @@
     %% Takeover
     takeover :: boolean(),
     %% Resume
-    resuming :: boolean(),
+    resuming :: false | _ReplayContext,
     %% Pending delivers when takeovering
     pendings :: list()
 }).
@@ -130,14 +130,9 @@
 
 -define(IS_MQTT_V5, #channel{conninfo = #{proto_ver := ?MQTT_PROTO_V5}}).
 
--define(TIMER_TABLE, #{
-    alive_timer => keepalive,
-    retry_timer => retry_delivery,
-    await_timer => expire_awaiting_rel,
-    expire_timer => expire_session,
-    will_timer => will_message,
-    quota_timer => expire_quota_limit
-}).
+-define(IS_COMMON_SESSION_TIMER(N),
+    ((N == retry_delivery) orelse (N == expire_awaiting_rel))
+).
 
 -define(LIMITER_ROUTING, message_routing).
 
@@ -412,7 +407,7 @@ handle_in(
         #channel{clientinfo = ClientInfo, session = Session}
 ) ->
     case emqx_session:puback(ClientInfo, PacketId, Session) of
-        {ok, Msg, NSession} ->
+        {ok, Msg, [], NSession} ->
             ok = after_message_acked(ClientInfo, Msg, Properties),
             {ok, Channel#channel{session = NSession}};
         {ok, Msg, Publishes, NSession} ->
@@ -469,7 +464,7 @@ handle_in(
     }
 ) ->
     case emqx_session:pubcomp(ClientInfo, PacketId, Session) of
-        {ok, NSession} ->
+        {ok, [], NSession} ->
             {ok, Channel#channel{session = NSession}};
         {ok, Publishes, NSession} ->
             handle_out(publish, Publishes, Channel#channel{session = NSession});
@@ -602,12 +597,10 @@ process_connect(
         {ok, #{session := Session, present := false}} ->
             NChannel = Channel#channel{session = Session},
             handle_out(connack, {?RC_SUCCESS, sp(false), AckProps}, ensure_connected(NChannel));
-        {ok, #{session := Session, present := true, pendings := Pendings}} ->
-            Pendings1 = lists:usort(lists:append(Pendings, emqx_utils:drain_deliver())),
+        {ok, #{session := Session, present := true, replay := ReplayContext}} ->
             NChannel = Channel#channel{
                 session = Session,
-                resuming = true,
-                pendings = Pendings1
+                resuming = ReplayContext
             },
             handle_out(connack, {?RC_SUCCESS, sp(true), AckProps}, ensure_connected(NChannel));
         {error, client_id_unavailable} ->
@@ -734,7 +727,7 @@ do_publish(
         {ok, PubRes, NSession} ->
             RC = pubrec_reason_code(PubRes),
             NChannel0 = Channel#channel{session = NSession},
-            NChannel1 = ensure_timer(await_timer, NChannel0),
+            NChannel1 = ensure_timer(expire_awaiting_rel, NChannel0),
             NChannel2 = ensure_quota(PubRes, NChannel1),
             handle_out(pubrec, {PacketId, RC}, NChannel2);
         {error, RC = ?RC_PACKET_IDENTIFIER_IN_USE} ->
@@ -765,7 +758,7 @@ ensure_quota(PubRes, Channel = #channel{quota = Limiter}) ->
         {ok, NLimiter} ->
             Channel#channel{quota = NLimiter};
         {_, Intv, NLimiter} ->
-            ensure_timer(quota_timer, Intv, Channel#channel{quota = NLimiter})
+            ensure_timer(expire_quota_limit, Intv, Channel#channel{quota = NLimiter})
     end.
 
 -compile({inline, [pubrec_reason_code/1]}).
@@ -909,8 +902,8 @@ maybe_update_expiry_interval(
             %% Check if the client turns off persistence (turning it on is disallowed)
             case EI =:= 0 andalso OldEI > 0 of
                 true ->
-                    NSession = emqx_session:unpersist(NChannel#channel.session),
-                    NChannel#channel{session = NSession};
+                    ok = emqx_session:destroy(NChannel#channel.session),
+                    NChannel#channel{session = undefined};
                 false ->
                     NChannel
             end
@@ -946,10 +939,12 @@ handle_deliver(
         clientinfo = ClientInfo
     }
 ) ->
+    %% NOTE
+    %% This is essentially part of `emqx_session_mem` logic, thus call it directly.
     Delivers1 = maybe_nack(Delivers),
-    NSession = emqx_session:enqueue(ClientInfo, Delivers1, Session),
-    NChannel = Channel#channel{session = NSession},
-    {ok, NChannel};
+    Messages = emqx_session:enrich_delivers(ClientInfo, Delivers1, Session),
+    NSession = emqx_session_mem:enqueue(ClientInfo, Messages, Session),
+    {ok, Channel#channel{session = NSession}};
 handle_deliver(
     Delivers,
     Channel = #channel{
@@ -959,11 +954,11 @@ handle_deliver(
     }
 ) ->
     case emqx_session:deliver(ClientInfo, Delivers, Session) of
+        {ok, [], NSession} ->
+            {ok, Channel#channel{session = NSession}};
         {ok, Publishes, NSession} ->
             NChannel = Channel#channel{session = NSession},
-            handle_out(publish, Publishes, ensure_timer(retry_timer, NChannel));
-        {ok, NSession} ->
-            {ok, Channel#channel{session = NSession}}
+            handle_out(publish, Publishes, ensure_timer(retry_delivery, NChannel))
     end.
 
 %% Nack delivers from shared subscription
@@ -1077,6 +1072,10 @@ return_connack(AckPacket, Channel) ->
             },
             {Packets, NChannel2} = do_deliver(Publishes, NChannel1),
             Outgoing = [?REPLY_OUTGOING(Packets) || length(Packets) > 0],
+            %% NOTE
+            %% Session timers are not restored here, so there's a tiny chance that
+            %% the session becomes stuck, when it already has no place to track new
+            %% messages.
             {ok, Replies ++ Outgoing, NChannel2}
     end.
 
@@ -1173,10 +1172,12 @@ handle_call(
         conninfo = #{clientid := ClientId}
     }
 ) ->
-    ok = emqx_session:takeover(Session),
+    %% NOTE
+    %% This is essentially part of `emqx_session_mem` logic, thus call it directly.
+    ok = emqx_session_mem:takeover(Session),
     %% TODO: Should not drain deliver here (side effect)
     Delivers = emqx_utils:drain_deliver(),
-    AllPendings = lists:append(Delivers, Pendings),
+    AllPendings = lists:append(Pendings, maybe_nack(Delivers)),
     ?tp(
         debug,
         emqx_channel_takeover_end,
@@ -1199,7 +1200,7 @@ handle_call(
     SockInfo = maps:get(sockinfo, emqx_cm:get_chan_info(ClientId), #{}),
     ChanInfo1 = info(NChannel),
     emqx_cm:set_chan_info(ClientId, ChanInfo1#{sockinfo => SockInfo}),
-    reply(ok, reset_timer(alive_timer, NChannel));
+    reply(ok, reset_timer(keepalive, NChannel));
 handle_call(Req, Channel) ->
     ?SLOG(error, #{msg => "unexpected_call", call => Req}),
     reply(ignored, Channel).
@@ -1231,14 +1232,18 @@ handle_info(
     {sock_closed, Reason},
     Channel =
         #channel{
-            conn_state = ConnState
+            conn_state = ConnState,
+            clientinfo = ClientInfo,
+            session = Session
         }
 ) when
     ConnState =:= connected orelse ConnState =:= reauthenticating
 ->
+    {Intent, Session1} = emqx_session:disconnect(ClientInfo, Session),
     Channel1 = ensure_disconnected(Reason, maybe_publish_will_msg(Channel)),
-    case maybe_shutdown(Reason, Channel1) of
-        {ok, Channel2} -> {ok, ?REPLY_EVENT(disconnected), Channel2};
+    Channel2 = Channel1#channel{session = Session1},
+    case maybe_shutdown(Reason, Intent, Channel2) of
+        {ok, Channel3} -> {ok, ?REPLY_EVENT(disconnected), Channel3};
         Shutdown -> Shutdown
     end;
 handle_info({sock_closed, Reason}, Channel = #channel{conn_state = disconnected}) ->
@@ -1305,66 +1310,54 @@ handle_timeout(
     case emqx_keepalive:check(StatVal, Keepalive) of
         {ok, NKeepalive} ->
             NChannel = Channel#channel{keepalive = NKeepalive},
-            {ok, reset_timer(alive_timer, NChannel)};
+            {ok, reset_timer(keepalive, NChannel)};
         {error, timeout} ->
             handle_out(disconnect, ?RC_KEEP_ALIVE_TIMEOUT, Channel)
     end;
 handle_timeout(
     _TRef,
-    retry_delivery,
+    TimerName,
     Channel = #channel{conn_state = disconnected}
-) ->
+) when ?IS_COMMON_SESSION_TIMER(TimerName) ->
     {ok, Channel};
 handle_timeout(
     _TRef,
-    retry_delivery,
+    TimerName,
     Channel = #channel{session = Session, clientinfo = ClientInfo}
-) ->
-    case emqx_session:retry(ClientInfo, Session) of
-        {ok, NSession} ->
+) when ?IS_COMMON_SESSION_TIMER(TimerName) ->
+    %% NOTE
+    %% Responsibility for these timers is smeared across both this module and the
+    %% `emqx_session` module: the latter holds configured timer intervals, and is
+    %% responsible for the actual timeout logic. Yet they are managed here, since
+    %% they are kind of common to all session implementations.
+    case emqx_session:handle_timeout(ClientInfo, TimerName, Session) of
+        {ok, Publishes, NSession} ->
             NChannel = Channel#channel{session = NSession},
-            {ok, clean_timer(retry_timer, NChannel)};
+            handle_out(publish, Publishes, clean_timer(TimerName, NChannel));
         {ok, Publishes, Timeout, NSession} ->
             NChannel = Channel#channel{session = NSession},
-            handle_out(publish, Publishes, reset_timer(retry_timer, Timeout, NChannel))
-    end;
-handle_timeout(
-    _TRef,
-    expire_awaiting_rel,
-    Channel = #channel{conn_state = disconnected}
-) ->
-    {ok, Channel};
-handle_timeout(
-    _TRef,
-    expire_awaiting_rel,
-    Channel = #channel{session = Session, clientinfo = ClientInfo}
-) ->
-    case emqx_session:expire(ClientInfo, awaiting_rel, Session) of
-        {ok, NSession} ->
-            NChannel = Channel#channel{session = NSession},
-            {ok, clean_timer(await_timer, NChannel)};
-        {ok, Timeout, NSession} ->
-            NChannel = Channel#channel{session = NSession},
-            {ok, reset_timer(await_timer, Timeout, NChannel)}
+            handle_out(publish, Publishes, reset_timer(TimerName, Timeout, NChannel))
     end;
 handle_timeout(_TRef, expire_session, Channel) ->
     shutdown(expired, Channel);
 handle_timeout(
-    _TRef, will_message, Channel = #channel{clientinfo = ClientInfo, will_msg = WillMsg}
+    _TRef,
+    will_message = TimerName,
+    Channel = #channel{clientinfo = ClientInfo, will_msg = WillMsg}
 ) ->
     (WillMsg =/= undefined) andalso publish_will_msg(ClientInfo, WillMsg),
-    {ok, clean_timer(will_timer, Channel#channel{will_msg = undefined})};
+    {ok, clean_timer(TimerName, Channel#channel{will_msg = undefined})};
 handle_timeout(
     _TRef,
-    expire_quota_limit,
+    expire_quota_limit = TimerName,
     #channel{quota = Quota} = Channel
 ) ->
     case emqx_limiter_container:retry(?LIMITER_ROUTING, Quota) of
         {_, Intv, Quota2} ->
-            Channel2 = ensure_timer(quota_timer, Intv, Channel#channel{quota = Quota2}),
+            Channel2 = ensure_timer(TimerName, Intv, Channel#channel{quota = Quota2}),
             {ok, Channel2};
         {_, Quota2} ->
-            {ok, clean_timer(quota_timer, Channel#channel{quota = Quota2})}
+            {ok, clean_timer(TimerName, Channel#channel{quota = Quota2})}
     end;
 handle_timeout(TRef, Msg, Channel) ->
     case emqx_hooks:run_fold('client.timeout', [TRef, Msg], []) of
@@ -1392,8 +1385,7 @@ ensure_timer(Name, Channel = #channel{timers = Timers}) ->
     end.
 
 ensure_timer(Name, Time, Channel = #channel{timers = Timers}) ->
-    Msg = maps:get(Name, ?TIMER_TABLE),
-    TRef = emqx_utils:start_timer(Time, Msg),
+    TRef = emqx_utils:start_timer(Time, Name),
     Channel#channel{timers = Timers#{Name => TRef}}.
 
 reset_timer(Name, Channel) ->
@@ -1405,15 +1397,15 @@ reset_timer(Name, Time, Channel) ->
 clean_timer(Name, Channel = #channel{timers = Timers}) ->
     Channel#channel{timers = maps:remove(Name, Timers)}.
 
-interval(alive_timer, #channel{keepalive = KeepAlive}) ->
+interval(keepalive, #channel{keepalive = KeepAlive}) ->
     emqx_keepalive:info(interval, KeepAlive);
-interval(retry_timer, #channel{session = Session}) ->
+interval(retry_delivery, #channel{session = Session}) ->
     emqx_session:info(retry_interval, Session);
-interval(await_timer, #channel{session = Session}) ->
+interval(expire_awaiting_rel, #channel{session = Session}) ->
     emqx_session:info(await_rel_timeout, Session);
-interval(expire_timer, #channel{conninfo = ConnInfo}) ->
+interval(expire_session, #channel{conninfo = ConnInfo}) ->
     maps:get(expiry_interval, ConnInfo);
-interval(will_timer, #channel{will_msg = WillMsg}) ->
+interval(will_message, #channel{will_msg = WillMsg}) ->
     timer:seconds(will_delay_interval(WillMsg)).
 
 %%--------------------------------------------------------------------
@@ -1783,7 +1775,7 @@ packing_alias(Packet, Channel) ->
 %% Check quota state
 
 check_quota_exceeded(_, #channel{timers = Timers}) ->
-    case maps:get(quota_timer, Timers, undefined) of
+    case maps:get(expire_quota_limit, Timers, undefined) of
         undefined -> ok;
         _ -> {error, ?RC_QUOTA_EXCEEDED}
     end.
@@ -2044,15 +2036,15 @@ ensure_keepalive_timer(Interval, Channel = #channel{clientinfo = #{zone := Zone}
     Multiplier = get_mqtt_conf(Zone, keepalive_multiplier),
     RecvCnt = emqx_pd:get_counter(recv_pkt),
     Keepalive = emqx_keepalive:init(RecvCnt, round(timer:seconds(Interval) * Multiplier)),
-    ensure_timer(alive_timer, Channel#channel{keepalive = Keepalive}).
+    ensure_timer(keepalive, Channel#channel{keepalive = Keepalive}).
 
 clear_keepalive(Channel = #channel{timers = Timers}) ->
-    case maps:get(alive_timer, Timers, undefined) of
+    case maps:get(keepalive, Timers, undefined) of
         undefined ->
             Channel;
         TRef ->
             emqx_utils:cancel_timer(TRef),
-            Channel#channel{timers = maps:without([alive_timer], Timers)}
+            Channel#channel{timers = maps:without([keepalive], Timers)}
     end.
 %%--------------------------------------------------------------------
 %% Maybe Resume Session
@@ -2061,30 +2053,25 @@ maybe_resume_session(#channel{resuming = false}) ->
     ignore;
 maybe_resume_session(#channel{
     session = Session,
-    resuming = true,
-    pendings = Pendings,
+    resuming = ReplayContext,
     clientinfo = ClientInfo
 }) ->
-    {ok, Publishes, Session1} = emqx_session:replay(ClientInfo, Session),
-    case emqx_session:deliver(ClientInfo, Pendings, Session1) of
-        {ok, Session2} ->
-            {ok, Publishes, Session2};
-        {ok, More, Session2} ->
-            {ok, lists:append(Publishes, More), Session2}
-    end.
+    emqx_session:replay(ClientInfo, ReplayContext, Session).
 
 %%--------------------------------------------------------------------
 %% Maybe Shutdown the Channel
 
-maybe_shutdown(Reason, Channel = #channel{conninfo = ConnInfo}) ->
+maybe_shutdown(Reason, _Intent = idle, Channel = #channel{conninfo = ConnInfo}) ->
     case maps:get(expiry_interval, ConnInfo) of
         ?EXPIRE_INTERVAL_INFINITE ->
             {ok, Channel};
         I when I > 0 ->
-            {ok, ensure_timer(expire_timer, I, Channel)};
+            {ok, ensure_timer(expire_session, I, Channel)};
         _ ->
             shutdown(Reason, Channel)
-    end.
+    end;
+maybe_shutdown(Reason, _Intent = shutdown, Channel) ->
+    shutdown(Reason, Channel).
 
 %%--------------------------------------------------------------------
 %% Parse Topic Filters
@@ -2120,7 +2107,7 @@ maybe_publish_will_msg(Channel = #channel{clientinfo = ClientInfo, will_msg = Wi
             ok = publish_will_msg(ClientInfo, WillMsg),
             Channel#channel{will_msg = undefined};
         I ->
-            ensure_timer(will_timer, timer:seconds(I), Channel)
+            ensure_timer(will_message, timer:seconds(I), Channel)
     end.
 
 will_delay_interval(WillMsg) ->

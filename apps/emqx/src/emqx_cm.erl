@@ -19,9 +19,7 @@
 
 -behaviour(gen_server).
 
--include("emqx.hrl").
 -include("emqx_cm.hrl").
--include("emqx_session.hrl").
 -include("logger.hrl").
 -include("types.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
@@ -48,14 +46,12 @@
     set_chan_stats/2
 ]).
 
--export([get_chann_conn_mod/2]).
-
 -export([
     open_session/3,
     discard_session/1,
     discard_session/2,
-    takeover_session/1,
-    takeover_session/2,
+    takeover_session_begin/1,
+    takeover_session_end/1,
     kick_session/1,
     kick_session/2
 ]).
@@ -63,15 +59,14 @@
 -export([
     lookup_channels/1,
     lookup_channels/2,
-
-    lookup_client/1
+    lookup_client/1,
+    pick_channel/1
 ]).
 
 %% Test/debug interface
 -export([
     all_channels/0,
-    all_client_ids/0,
-    get_session_confs/2
+    all_client_ids/0
 ]).
 
 %% Client management
@@ -96,12 +91,16 @@
     clean_down/1,
     mark_channel_connected/1,
     mark_channel_disconnected/1,
-    get_connected_client_count/0,
-    takeover_finish/2,
+    get_connected_client_count/0
+]).
 
+%% RPC targets
+-export([
+    takeover_session/2,
+    takeover_finish/2,
     do_kick_session/3,
-    do_get_chan_stats/2,
     do_get_chan_info/2,
+    do_get_chan_stats/2,
     do_get_chann_conn_mod/2
 ]).
 
@@ -117,6 +116,8 @@
     _Info :: emqx_types:infos(),
     _Stats :: emqx_types:stats()
 }.
+
+-type takeover_state() :: {_ConnMod :: module(), _ChanPid :: pid()}.
 
 -define(CHAN_STATS, [
     {?CHAN_TAB, 'channels.count', 'channels.max'},
@@ -259,98 +260,71 @@ set_chan_stats(ClientId, ChanPid, Stats) ->
 %% @doc Open a session.
 -spec open_session(boolean(), emqx_types:clientinfo(), emqx_types:conninfo()) ->
     {ok, #{
-        session := emqx_session:session(),
+        session := emqx_session:t(),
         present := boolean(),
-        pendings => list()
+        replay => _ReplayContext
     }}
     | {error, Reason :: term()}.
 open_session(true, ClientInfo = #{clientid := ClientId}, ConnInfo) ->
     Self = self(),
-    CleanStart = fun(_) ->
+    emqx_cm_locker:trans(ClientId, fun(_) ->
         ok = discard_session(ClientId),
-        ok = emqx_session:destroy(ClientId),
+        ok = emqx_session:destroy(ClientInfo, ConnInfo),
         create_register_session(ClientInfo, ConnInfo, Self)
-    end,
-    emqx_cm_locker:trans(ClientId, CleanStart);
+    end);
 open_session(false, ClientInfo = #{clientid := ClientId}, ConnInfo) ->
     Self = self(),
-    ResumeStart = fun(_) ->
-        case takeover_session(ClientId) of
-            {living, ConnMod, ChanPid, Session} ->
-                ok = emqx_session:resume(ClientInfo, Session),
-                case wrap_rpc(emqx_cm_proto_v2:takeover_finish(ConnMod, ChanPid)) of
-                    {ok, Pendings} ->
-                        clean_register_session(Session, Pendings, ClientInfo, ConnInfo, Self);
-                    {error, _} ->
-                        create_register_session(ClientInfo, ConnInfo, Self)
-                end;
-            none ->
-                create_register_session(ClientInfo, ConnInfo, Self)
+    emqx_cm_locker:trans(ClientId, fun(_) ->
+        case emqx_session:open(ClientInfo, ConnInfo) of
+            {true, Session, ReplayContext} ->
+                ok = register_channel(ClientId, Self, ConnInfo),
+                {ok, #{session => Session, present => true, replay => ReplayContext}};
+            {false, Session} ->
+                ok = register_channel(ClientId, Self, ConnInfo),
+                {ok, #{session => Session, present => false}}
         end
-    end,
-    emqx_cm_locker:trans(ClientId, ResumeStart).
-
-create_session(ClientInfo, ConnInfo) ->
-    Options = get_session_confs(ClientInfo, ConnInfo),
-    Session = emqx_session:init_and_open(Options),
-    ok = emqx_metrics:inc('session.created'),
-    ok = emqx_hooks:run('session.created', [ClientInfo, emqx_session:info(Session)]),
-    Session.
+    end).
 
 create_register_session(ClientInfo = #{clientid := ClientId}, ConnInfo, ChanPid) ->
-    Session = create_session(ClientInfo, ConnInfo),
+    Session = emqx_session:create(ClientInfo, ConnInfo),
     ok = register_channel(ClientId, ChanPid, ConnInfo),
     {ok, #{session => Session, present => false}}.
 
-clean_register_session(Session, Pendings, #{clientid := ClientId}, ConnInfo, ChanPid) ->
-    ok = register_channel(ClientId, ChanPid, ConnInfo),
-    {ok, #{
-        session => clean_session(Session),
-        present => true,
-        pendings => clean_pendings(Pendings)
-    }}.
+%% @doc Try to takeover a session from existing channel.
+-spec takeover_session_begin(emqx_types:clientid()) ->
+    {ok, emqx_session_mem:session(), takeover_state()} | none.
+takeover_session_begin(ClientId) ->
+    takeover_session_begin(ClientId, pick_channel(ClientId)).
 
-get_session_confs(#{zone := Zone, clientid := ClientId}, #{
-    receive_maximum := MaxInflight, expiry_interval := EI
-}) ->
-    #{
-        clientid => ClientId,
-        max_subscriptions => get_mqtt_conf(Zone, max_subscriptions),
-        upgrade_qos => get_mqtt_conf(Zone, upgrade_qos),
-        max_inflight => MaxInflight,
-        retry_interval => get_mqtt_conf(Zone, retry_interval),
-        await_rel_timeout => get_mqtt_conf(Zone, await_rel_timeout),
-        max_awaiting_rel => get_mqtt_conf(Zone, max_awaiting_rel),
-        mqueue => mqueue_confs(Zone),
-        %% TODO: Add conf for allowing/disallowing persistent sessions.
-        %% Note that the connection info is already enriched to have
-        %% default config values for session expiry.
-        is_persistent => EI > 0
-    }.
+takeover_session_begin(ClientId, ChanPid) when is_pid(ChanPid) ->
+    case takeover_session(ClientId, ChanPid) of
+        {living, ConnMod, Session} ->
+            {ok, Session, {ConnMod, ChanPid}};
+        none ->
+            none
+    end;
+takeover_session_begin(_ClientId, undefined) ->
+    none.
 
-mqueue_confs(Zone) ->
-    #{
-        max_len => get_mqtt_conf(Zone, max_mqueue_len),
-        store_qos0 => get_mqtt_conf(Zone, mqueue_store_qos0),
-        priorities => get_mqtt_conf(Zone, mqueue_priorities),
-        default_priority => get_mqtt_conf(Zone, mqueue_default_priority)
-    }.
+%% @doc Conclude the session takeover process.
+-spec takeover_session_end(takeover_state()) ->
+    {ok, _ReplayContext} | {error, _Reason}.
+takeover_session_end({ConnMod, ChanPid}) ->
+    case wrap_rpc(emqx_cm_proto_v2:takeover_finish(ConnMod, ChanPid)) of
+        {ok, Pendings} ->
+            {ok, Pendings};
+        {error, _} = Error ->
+            Error
+    end.
 
-get_mqtt_conf(Zone, Key) ->
-    emqx_config:get_zone_conf(Zone, [mqtt, Key]).
-
-%% @doc Try to takeover a session.
--spec takeover_session(emqx_types:clientid()) ->
-    none
-    | {living, atom(), pid(), emqx_session:session()}
-    | {persistent, emqx_session:session()}
-    | {expired, emqx_session:session()}.
-takeover_session(ClientId) ->
+-spec pick_channel(emqx_types:clientid()) ->
+    maybe(pid()).
+pick_channel(ClientId) ->
     case lookup_channels(ClientId) of
         [] ->
-            emqx_session:lookup(ClientId);
+            undefined;
         [ChanPid] ->
-            takeover_session(ClientId, ChanPid);
+            ChanPid;
         ChanPids ->
             [ChanPid | StalePids] = lists:reverse(ChanPids),
             ?SLOG(warning, #{msg => "more_than_one_channel_found", chan_pids => ChanPids}),
@@ -360,7 +334,7 @@ takeover_session(ClientId) ->
                 end,
                 StalePids
             ),
-            takeover_session(ClientId, ChanPid)
+            ChanPid
     end.
 
 takeover_finish(ConnMod, ChanPid) ->
@@ -370,9 +344,10 @@ takeover_finish(ConnMod, ChanPid) ->
         ChanPid
     ).
 
+%% @doc RPC Target @ emqx_cm_proto_v2:takeover_session/2
 takeover_session(ClientId, Pid) ->
     try
-        do_takeover_session(ClientId, Pid)
+        do_takeover_begin(ClientId, Pid)
     catch
         _:R when
             R == noproc;
@@ -380,25 +355,25 @@ takeover_session(ClientId, Pid) ->
             %% request_stepdown/3
             R == unexpected_exception
         ->
-            emqx_session:lookup(ClientId);
+            none;
         % rpc_call/3
         _:{'EXIT', {noproc, _}} ->
-            emqx_session:lookup(ClientId)
+            none
     end.
 
-do_takeover_session(ClientId, ChanPid) when node(ChanPid) == node() ->
-    case get_chann_conn_mod(ClientId, ChanPid) of
+do_takeover_begin(ClientId, ChanPid) when node(ChanPid) == node() ->
+    case do_get_chann_conn_mod(ClientId, ChanPid) of
         undefined ->
-            emqx_session:lookup(ClientId);
+            none;
         ConnMod when is_atom(ConnMod) ->
             case request_stepdown({takeover, 'begin'}, ConnMod, ChanPid) of
                 {ok, Session} ->
-                    {living, ConnMod, ChanPid, Session};
+                    {living, ConnMod, Session};
                 {error, Reason} ->
                     error(Reason)
             end
     end;
-do_takeover_session(ClientId, ChanPid) ->
+do_takeover_begin(ClientId, ChanPid) ->
     wrap_rpc(emqx_cm_proto_v2:takeover_session(ClientId, ChanPid)).
 
 %% @doc Discard all the sessions identified by the ClientId.
@@ -415,7 +390,7 @@ discard_session(ClientId) when is_binary(ClientId) ->
 %% benefits nobody.
 -spec request_stepdown(Action, module(), pid()) ->
     ok
-    | {ok, emqx_session:session() | list(emqx_types:deliver())}
+    | {ok, emqx_session:t() | _ReplayContext}
     | {error, term()}
 when
     Action :: kick | discard | {takeover, 'begin'} | {takeover, 'end'}.
@@ -488,9 +463,10 @@ discard_session(ClientId, ChanPid) ->
 kick_session(ClientId, ChanPid) ->
     kick_session(kick, ClientId, ChanPid).
 
+%% @doc RPC Target @ emqx_cm_proto_v2:kick_session/3
 -spec do_kick_session(kick | discard, emqx_types:clientid(), chan_pid()) -> ok.
-do_kick_session(Action, ClientId, ChanPid) ->
-    case get_chann_conn_mod(ClientId, ChanPid) of
+do_kick_session(Action, ClientId, ChanPid) when node(ChanPid) =:= node() ->
+    case do_get_chann_conn_mod(ClientId, ChanPid) of
         undefined ->
             %% already deregistered
             ok;
@@ -725,9 +701,6 @@ do_get_chann_conn_mod(ClientId, ChanPid) ->
         error:badarg -> undefined
     end.
 
-get_chann_conn_mod(ClientId, ChanPid) ->
-    wrap_rpc(emqx_cm_proto_v2:get_chann_conn_mod(ClientId, ChanPid)).
-
 mark_channel_connected(ChanPid) ->
     ?tp(emqx_cm_connected_client_count_inc, #{chan_pid => ChanPid}),
     ets:insert_new(?CHAN_LIVE_TAB, {ChanPid, true}),
@@ -744,14 +717,3 @@ get_connected_client_count() ->
         undefined -> 0;
         Size -> Size
     end.
-
-clean_session(Session) ->
-    emqx_session:filter_queue(fun is_banned_msg/1, Session).
-
-clean_pendings(Pendings) ->
-    lists:filter(fun is_banned_msg/1, Pendings).
-
-is_banned_msg(#message{from = ClientId}) ->
-    [] =:= emqx_banned:look_up({clientid, ClientId});
-is_banned_msg({deliver, _Topic, Msg}) ->
-    is_banned_msg(Msg).

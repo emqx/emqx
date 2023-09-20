@@ -7,7 +7,6 @@
 
 -include_lib("emqx/include/emqx.hrl").
 -include_lib("emqx/include/emqx_channel.hrl").
--include_lib("emqx/include/emqx_mqtt.hrl").
 -include_lib("emqx/include/logger.hrl").
 -include_lib("emqx/include/types.hrl").
 
@@ -122,7 +121,9 @@ handle_call(
         pendings := Pendings
     } = Channel
 ) ->
-    ok = emqx_session:takeover(Session),
+    % NOTE
+    % This is essentially part of `emqx_session_mem` logic, thus call it directly.
+    ok = emqx_session_mem:takeover(Session),
     %% TODO: Should not drain deliver here (side effect)
     Delivers = emqx_utils:drain_deliver(),
     AllPendings = lists:append(Delivers, Pendings),
@@ -196,8 +197,11 @@ handle_deliver(
         clientinfo := ClientInfo
     } = Channel
 ) ->
+    % NOTE
+    % This is essentially part of `emqx_session_mem` logic, thus call it directly.
     Delivers1 = emqx_channel:maybe_nack(Delivers),
-    NSession = emqx_session:enqueue(ClientInfo, Delivers1, Session),
+    Messages = emqx_session:enrich_delivers(ClientInfo, Delivers1, Session),
+    NSession = emqx_session_mem:enqueue(ClientInfo, Messages, Session),
     Channel#{session := NSession}.
 
 cancel_expiry_timer(#{expiry_timer := TRef}) when is_reference(TRef) ->
@@ -230,7 +234,7 @@ open_session(ConnInfo, #{clientid := ClientId} = ClientInfo) ->
                 }
             ),
             {error, no_session};
-        {ok, #{session := Session, present := true, pendings := Pendings0}} ->
+        {ok, #{session := Session, present := true, replay := Pendings}} ->
             ?SLOG(
                 info,
                 #{
@@ -239,12 +243,15 @@ open_session(ConnInfo, #{clientid := ClientId} = ClientInfo) ->
                     node => node()
                 }
             ),
-            Pendings1 = lists:usort(lists:append(Pendings0, emqx_utils:drain_deliver())),
-            NSession = emqx_session:enqueue(
-                ClientInfo,
-                emqx_channel:maybe_nack(Pendings1),
-                Session
-            ),
+            % NOTE
+            % Here we aggregate and deduplicate remote and local pending deliveries,
+            % throwing away any local deliveries that are part of some shared
+            % subscription. Remote deliviries pertaining to shared subscriptions should
+            % already have been thrown away by `emqx_channel:handle_deliver/2`.
+            % See also: `emqx_channel:maybe_resume_session/1`, `emqx_session_mem:replay/3`.
+            DeliversLocal = emqx_channel:maybe_nack(emqx_utils:drain_deliver()),
+            PendingsAll = emqx_session_mem:dedup(ClientInfo, Pendings, DeliversLocal, Session),
+            NSession = emqx_session_mem:enqueue(ClientInfo, PendingsAll, Session),
             NChannel = Channel#{session => NSession},
             ok = emqx_cm:insert_channel_info(ClientId, info(NChannel), stats(NChannel)),
             ?SLOG(

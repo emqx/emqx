@@ -28,6 +28,7 @@
     update/3,
     resize/2,
     delete/2,
+    fold/3,
     values/1,
     to_list/1,
     to_list/2,
@@ -76,6 +77,18 @@ delete(Key, ?INFLIGHT(MaxSize, Tree)) ->
 -spec update(key(), Val :: term(), inflight()) -> inflight().
 update(Key, Val, ?INFLIGHT(MaxSize, Tree)) ->
     ?INFLIGHT(MaxSize, gb_trees:update(Key, Val, Tree)).
+
+-spec fold(fun((key(), Val :: term(), Acc) -> Acc), Acc, inflight()) -> Acc.
+fold(FoldFun, AccIn, ?INFLIGHT(Tree)) ->
+    fold_iterator(FoldFun, AccIn, gb_trees:iterator(Tree)).
+
+fold_iterator(FoldFun, Acc, It) ->
+    case gb_trees:next(It) of
+        {Key, Val, ItNext} ->
+            fold_iterator(FoldFun, FoldFun(Key, Val, Acc), ItNext);
+        none ->
+            Acc
+    end.
 
 -spec resize(integer(), inflight()) -> inflight().
 resize(MaxSize, ?INFLIGHT(Tree)) ->

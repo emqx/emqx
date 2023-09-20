@@ -53,11 +53,13 @@
 -define(IGNORED_MODULES, "emqx_rpc").
 -define(FORCE_DELETED_MODULES, [
     emqx_statsd,
-    emqx_statsd_proto_v1
+    emqx_statsd_proto_v1,
+    emqx_persistent_session_proto_v1
 ]).
 -define(FORCE_DELETED_APIS, [
     {emqx_statsd, 1},
-    {emqx_plugin_libs, 1}
+    {emqx_plugin_libs, 1},
+    {emqx_persistent_session, 1}
 ]).
 %% List of known RPC backend modules:
 -define(RPC_MODULES, "gen_rpc, erpc, rpc, emqx_rpc").

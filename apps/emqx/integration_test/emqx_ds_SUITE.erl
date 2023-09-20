@@ -72,30 +72,19 @@ end_per_testcase(_TestCase, _Config) ->
 %%------------------------------------------------------------------------------
 
 cluster(#{n := N}) ->
-    Node1 = ds_SUITE1,
-    Spec = #{
-        role => core,
-        join_to => emqx_cth_cluster:node_name(Node1),
-        apps => app_specs()
-    },
-    [
-        {Node1, Spec}
-        | lists:map(
-            fun(M) ->
-                Name = binary_to_atom(<<"ds_SUITE", (integer_to_binary(M))/binary>>),
-                {Name, Spec}
-            end,
-            lists:seq(2, N)
-        )
-    ].
+    Spec = #{role => core, apps => app_specs()},
+    lists:map(
+        fun(M) ->
+            Name = list_to_atom("ds_SUITE" ++ integer_to_list(M)),
+            {Name, Spec}
+        end,
+        lists:seq(1, N)
+    ).
 
 app_specs() ->
     [
         emqx_durable_storage,
-        {emqx, #{
-            config => #{persistent_session_store => #{ds => true}},
-            override_env => [{boot_modules, [broker, listeners]}]
-        }}
+        {emqx, "persistent_session_store = {ds = true}"}
     ].
 
 get_mqtt_port(Node, Type) ->
@@ -256,10 +245,9 @@ t_session_subscription_idempotency(Config) ->
             ?assertEqual([{ClientId, SubTopicFilterWords}], get_all_iterator_refs(Node1)),
             ?assertMatch({ok, [_]}, get_all_iterator_ids(Node1)),
             ?assertMatch(
-                {_IsNew = false, ClientId},
+                {ok, #{}, #{SubTopicFilterWords := #{}}},
                 erpc:call(Node1, emqx_ds, session_open, [ClientId])
-            ),
-            ok
+            )
         end
     ),
     ok.

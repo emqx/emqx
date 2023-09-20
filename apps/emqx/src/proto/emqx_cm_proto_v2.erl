@@ -48,11 +48,13 @@ kickout_client(Node, ClientId) ->
 lookup_client(Node, Key) ->
     rpc:call(Node, emqx_cm, lookup_client, [Key]).
 
--spec get_chan_stats(emqx_types:clientid(), emqx_cm:chan_pid()) -> emqx_types:stats() | {badrpc, _}.
+-spec get_chan_stats(emqx_types:clientid(), emqx_cm:chan_pid()) ->
+    emqx_types:stats() | undefined | {badrpc, _}.
 get_chan_stats(ClientId, ChanPid) ->
     rpc:call(node(ChanPid), emqx_cm, do_get_chan_stats, [ClientId, ChanPid], ?T_GET_INFO * 2).
 
--spec get_chan_info(emqx_types:clientid(), emqx_cm:chan_pid()) -> emqx_types:infos() | {badrpc, _}.
+-spec get_chan_info(emqx_types:clientid(), emqx_cm:chan_pid()) ->
+    emqx_types:infos() | undefined | {badrpc, _}.
 get_chan_info(ClientId, ChanPid) ->
     rpc:call(node(ChanPid), emqx_cm, do_get_chan_info, [ClientId, ChanPid], ?T_GET_INFO * 2).
 

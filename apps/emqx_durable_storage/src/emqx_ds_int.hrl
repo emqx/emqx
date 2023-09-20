@@ -23,14 +23,18 @@
 -record(session, {
     %% same as clientid
     id :: emqx_ds:session_id(),
+    %% creation time
+    created_at :: _Millisecond :: non_neg_integer(),
+    expires_at = never :: _Millisecond :: non_neg_integer() | never,
     %% for future usage
     props = #{} :: map()
 }).
 
 -record(iterator_ref, {
-    ref_id :: {emqx_ds:session_id(), emqx_topic:words()},
+    ref_id :: {emqx_ds:session_id(), emqx_ds:topic_filter()},
     it_id :: emqx_ds:iterator_id(),
-    start_time :: emqx_ds:time()
+    start_time :: emqx_ds:time(),
+    props = #{} :: map()
 }).
 
 -endif.

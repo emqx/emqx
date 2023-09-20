@@ -20,7 +20,7 @@
 
 -include_lib("proper/include/proper.hrl").
 -include("emqx.hrl").
--include("emqx_session.hrl").
+-include("emqx_session_mem.hrl").
 -include("emqx_access_control.hrl").
 
 %% High level Types

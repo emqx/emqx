@@ -388,8 +388,8 @@ open_session(
                     {ok, #{session => Session, present => false}}
                 end,
             case takeover_session(GwName, ClientId) of
-                {ok, ConnMod, ChanPid, Session} ->
-                    ok = SessionMod:resume(ClientInfo, Session),
+                {ok, ConnMod, ChanPid, SessionIn} ->
+                    Session = SessionMod:resume(ClientInfo, SessionIn),
                     case request_stepdown({takeover, 'end'}, ConnMod, ChanPid) of
                         {ok, Pendings} ->
                             register_channel(
