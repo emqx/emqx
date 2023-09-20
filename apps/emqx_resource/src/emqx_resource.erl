@@ -19,6 +19,7 @@
 -include("emqx_resource.hrl").
 -include("emqx_resource_utils.hrl").
 -include("emqx_resource_errors.hrl").
+-include_lib("emqx/include/logger.hrl").
 
 %% APIs for resource types
 
@@ -257,9 +258,23 @@ recreate_local(ResId, ResourceType, Config, Opts) ->
 remove(ResId) ->
     emqx_resource_proto_v1:remove(ResId).
 
--spec remove_local(resource_id()) -> ok | {error, Reason :: term()}.
+-spec remove_local(resource_id()) -> ok.
 remove_local(ResId) ->
-    emqx_resource_manager:remove(ResId).
+    case emqx_resource_manager:remove(ResId) of
+        ok ->
+            ok;
+        {error, not_found} ->
+            ok;
+        Error ->
+            %% Only log, the ResId worker is always remove in manager's remove action.
+            ?SLOG(warning, #{
+                msg => "remove_local_resource_failed",
+                error => Error,
+                resource_id => ResId
+            }),
+            ok
+    end,
+    ok.
 
 -spec reset_metrics_local(resource_id()) -> ok.
 reset_metrics_local(ResId) ->

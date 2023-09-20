@@ -164,7 +164,7 @@ t_create_remove_local(_) ->
             ),
 
             ?assertEqual(ok, emqx_resource:remove_local(?ID)),
-            ?assertMatch({error, _}, emqx_resource:remove_local(?ID)),
+            ?assertMatch(ok, emqx_resource:remove_local(?ID)),
 
             ?assertMatch(
                 ?RESOURCE_ERROR(not_found),
