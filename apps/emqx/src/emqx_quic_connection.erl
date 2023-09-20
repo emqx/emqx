@@ -234,7 +234,7 @@ streams_available(_C, {BidirCnt, UnidirCnt}, S) ->
 -spec peer_needs_streams(quicer:connection_handle(), undefined, cb_state()) -> cb_ret().
 peer_needs_streams(_C, undefined, S) ->
     ?SLOG(info, #{
-        msg => "ignore_peer_need_more_streames", info => maps:with([conn_pid, ctrl_pid], S)
+        msg => "ignore_peer_needs_more_streams", info => maps:with([conn_pid, ctrl_pid], S)
     }),
     {ok, S}.
 
