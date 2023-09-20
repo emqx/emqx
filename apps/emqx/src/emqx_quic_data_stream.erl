@@ -368,7 +368,7 @@ do_handle_call(
         ok ->
             {reply, ok, NewS};
         {error, E} ->
-            ?SLOG(error, #{msg => "set stream active failed", error => E}),
+            ?SLOG(error, #{msg => "set_stream_active_failed", error => E}),
             {stop, E, NewS}
     end;
 do_handle_call(_Call, _S) ->

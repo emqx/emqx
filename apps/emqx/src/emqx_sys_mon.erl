@@ -120,7 +120,7 @@ handle_info({monitor, Pid, long_gc, Info}, State) ->
         fun() ->
             WarnMsg = io_lib:format("long_gc warning: pid = ~p", [Pid]),
             ?SLOG(warning, #{
-                msg => long_gc,
+                msg => "long_gc",
                 info => Info,
                 porcinfo => procinfo(Pid)
             }),
@@ -134,7 +134,7 @@ handle_info({monitor, Pid, long_schedule, Info}, State) when is_pid(Pid) ->
         fun() ->
             WarnMsg = io_lib:format("long_schedule warning: pid = ~p", [Pid]),
             ?SLOG(warning, #{
-                msg => long_schedule,
+                msg => "long_schedule",
                 info => Info,
                 procinfo => procinfo(Pid)
             }),
@@ -148,7 +148,7 @@ handle_info({monitor, Port, long_schedule, Info}, State) when is_port(Port) ->
         fun() ->
             WarnMsg = io_lib:format("long_schedule warning: port = ~p", [Port]),
             ?SLOG(warning, #{
-                msg => long_schedule,
+                msg => "long_schedule",
                 info => Info,
                 portinfo => portinfo(Port)
             }),
@@ -162,7 +162,7 @@ handle_info({monitor, Pid, large_heap, Info}, State) ->
         fun() ->
             WarnMsg = io_lib:format("large_heap warning: pid = ~p", [Pid]),
             ?SLOG(warning, #{
-                msg => large_heap,
+                msg => "large_heap",
                 info => Info,
                 procinfo => procinfo(Pid)
             }),
@@ -176,7 +176,7 @@ handle_info({monitor, SusPid, busy_port, Port}, State) ->
         fun() ->
             WarnMsg = io_lib:format("busy_port warning: suspid = ~p, port = ~p", [SusPid, Port]),
             ?SLOG(warning, #{
-                msg => busy_port,
+                msg => "busy_port",
                 portinfo => portinfo(Port),
                 procinfo => procinfo(SusPid)
             }),
@@ -190,7 +190,7 @@ handle_info({monitor, SusPid, busy_dist_port, Port}, State) ->
         fun() ->
             WarnMsg = io_lib:format("busy_dist_port warning: suspid = ~p, port = ~p", [SusPid, Port]),
             ?SLOG(warning, #{
-                msg => busy_dist_port,
+                msg => "busy_dist_port",
                 portinfo => portinfo(Port),
                 procinfo => procinfo(SusPid)
             }),

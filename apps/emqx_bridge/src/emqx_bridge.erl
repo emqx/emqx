@@ -336,7 +336,7 @@ disable_enable(Action, BridgeType, BridgeName) when
 
 create(BridgeType, BridgeName, RawConf) ->
     ?SLOG(debug, #{
-        brige_action => create,
+        bridge_action => create,
         bridge_type => BridgeType,
         bridge_name => BridgeName,
         bridge_raw_config => emqx_utils:redact(RawConf)
@@ -349,7 +349,7 @@ create(BridgeType, BridgeName, RawConf) ->
 
 remove(BridgeType, BridgeName) ->
     ?SLOG(debug, #{
-        brige_action => remove,
+        bridge_action => remove,
         bridge_type => BridgeType,
         bridge_name => BridgeName
     }),

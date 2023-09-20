@@ -91,7 +91,7 @@ check_subscribe(#{clientid := ClientId}, Topic) ->
             Res;
         {aborted, Reason} ->
             ?SLOG(warning, #{
-                msg => "Cannot check subscribe ~p due to ~p.", topic => Topic, reason => Reason
+                msg => "check_subscribe_aborted", topic => Topic, reason => Reason
             }),
             deny
     end.

@@ -121,7 +121,7 @@ login(post, #{bindings := #{backend := Backend}, body := Sign}) ->
             Provider = emqx_dashboard_sso:provider(Backend),
             case emqx_dashboard_sso:login(Provider, Sign, State) of
                 {ok, Token} ->
-                    ?SLOG(info, #{msg => "Dashboard SSO login successfully", request => Sign}),
+                    ?SLOG(info, #{msg => "dashboard_sso_login_successfully", request => Sign}),
                     Version = iolist_to_binary(proplists:get_value(version, emqx_sys:info())),
                     {200, #{
                         token => Token,
@@ -130,7 +130,7 @@ login(post, #{bindings := #{backend := Backend}, body := Sign}) ->
                     }};
                 {error, Reason} ->
                     ?SLOG(info, #{
-                        msg => "Dashboard SSO login failed",
+                        msg => "dashboard_sso_login_failed",
                         request => Sign,
                         reason => Reason
                     }),

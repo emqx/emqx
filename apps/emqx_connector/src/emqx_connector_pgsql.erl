@@ -152,7 +152,7 @@ on_start(
 
 on_stop(InstId, _State) ->
     ?SLOG(info, #{
-        msg => "stopping postgresql connector",
+        msg => "stopping_postgresql_connector",
         connector => InstId
     }),
     emqx_resource_pool:stop(InstId).
@@ -165,7 +165,7 @@ on_query(
     #{pool_name := PoolName} = State
 ) ->
     ?SLOG(debug, #{
-        msg => "postgresql connector received sql query",
+        msg => "postgresql_connector_received_sql_query",
         connector => InstId,
         type => TypeOrKey,
         sql => NameOrSQL,
@@ -200,7 +200,7 @@ on_batch_query(
                         connector => InstId,
                         first_request => Request,
                         state => State,
-                        msg => "batch prepare not implemented"
+                        msg => "batch_prepare_not_implemented"
                     },
                     ?SLOG(error, Log),
                     {error, {unrecoverable_error, batch_prepare_not_implemented}};
@@ -220,7 +220,7 @@ on_batch_query(
                 connector => InstId,
                 request => BatchReq,
                 state => State,
-                msg => "invalid request"
+                msg => "invalid_request"
             },
             ?SLOG(error, Log),
             {error, {unrecoverable_error, invalid_request}}
@@ -247,7 +247,7 @@ on_sql_query(InstId, PoolName, Type, NameOrSQL, Data) ->
                 #{error => Reason}
             ),
             ?SLOG(error, #{
-                msg => "postgresql connector do sql query failed",
+                msg => "postgresql_connector_do_sql_query_failed",
                 connector => InstId,
                 type => Type,
                 sql => NameOrSQL,
@@ -272,7 +272,7 @@ on_sql_query(InstId, PoolName, Type, NameOrSQL, Data) ->
     catch
         error:function_clause:Stacktrace ->
             ?SLOG(error, #{
-                msg => "postgresql connector do sql query failed",
+                msg => "postgresql_connector_do_sql_query_failed",
                 connector => InstId,
                 type => Type,
                 sql => NameOrSQL,
@@ -453,7 +453,7 @@ init_prepare(State = #{prepare_sql := Prepares, pool_name := PoolName}) ->
                     State#{prepare_statement := Sts};
                 Error ->
                     LogMeta = #{
-                        msg => <<"PostgreSQL init prepare statement failed">>, error => Error
+                        msg => <<"postgresql_init_prepare_statement_failed">>, error => Error
                     },
                     ?SLOG(error, LogMeta),
                     %% mark the prepare_sql as failed
@@ -492,7 +492,7 @@ prepare_sql_to_conn(Conn, Prepares) ->
 
 prepare_sql_to_conn(Conn, [], Statements) when is_pid(Conn) -> {ok, Statements};
 prepare_sql_to_conn(Conn, [{Key, SQL} | PrepareList], Statements) when is_pid(Conn) ->
-    LogMeta = #{msg => "PostgreSQL Prepare Statement", name => Key, prepare_sql => SQL},
+    LogMeta = #{msg => "postgresql_prepare_statement", name => Key, prepare_sql => SQL},
     ?SLOG(info, LogMeta),
     case epgsql:parse2(Conn, Key, SQL, []) of
         {ok, Statement} ->
@@ -500,10 +500,10 @@ prepare_sql_to_conn(Conn, [{Key, SQL} | PrepareList], Statements) when is_pid(Co
         {error, {error, error, _, undefined_table, _, _} = Error} ->
             %% Target table is not created
             ?tp(pgsql_undefined_table, #{}),
-            ?SLOG(error, LogMeta#{msg => "PostgreSQL parse failed", error => Error}),
+            ?SLOG(error, LogMeta#{msg => "postgresql_parse_failed", error => Error}),
             {error, undefined_table};
         {error, Error} = Other ->
-            ?SLOG(error, LogMeta#{msg => "PostgreSQL parse failed", error => Error}),
+            ?SLOG(error, LogMeta#{msg => "postgresql_parse_failed", error => Error}),
             Other
     end.
 

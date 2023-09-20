@@ -52,7 +52,7 @@ on_stop(InstId, _State) ->
             StopClientRes = hstreamdb:stop_client(Client),
             StopProducerRes = hstreamdb:stop_producer(Producer),
             ?SLOG(info, #{
-                msg => "stop hstreamdb connector",
+                msg => "stop_hstreamdb_connector",
                 connector => InstId,
                 client => Client,
                 producer => Producer,
@@ -146,7 +146,7 @@ start_client(InstId, Config) ->
     catch
         E:R:S ->
             Error = #{
-                msg => "start hstreamdb connector error",
+                msg => "start_hstreamdb_connector_error",
                 connector => InstId,
                 error => E,
                 reason => R,
@@ -158,7 +158,7 @@ start_client(InstId, Config) ->
 
 do_start_client(InstId, Config = #{url := Server, pool_size := PoolSize, ssl := SSL}) ->
     ?SLOG(info, #{
-        msg => "starting hstreamdb connector: client",
+        msg => "starting_hstreamdb_connector_client",
         connector => InstId,
         config => Config
     }),
@@ -185,7 +185,7 @@ do_start_client(InstId, Config = #{url := Server, pool_size := PoolSize, ssl := 
             case is_alive(Client) of
                 true ->
                     ?SLOG(info, #{
-                        msg => "hstreamdb connector: client started",
+                        msg => "hstreamdb_connector_client_started",
                         connector => InstId,
                         client => Client
                     }),
@@ -196,14 +196,14 @@ do_start_client(InstId, Config = #{url := Server, pool_size := PoolSize, ssl := 
                         #{error => client_not_alive}
                     ),
                     ?SLOG(error, #{
-                        msg => "hstreamdb connector: client not alive",
+                        msg => "hstreamdb_connector_client_not_alive",
                         connector => InstId
                     }),
                     {error, connect_failed}
             end;
         {error, {already_started, Pid}} ->
             ?SLOG(info, #{
-                msg => "starting hstreamdb connector: client, find old client. restart client",
+                msg => "starting_hstreamdb_connector_client_find_old_client_restart client",
                 old_client_pid => Pid,
                 old_client_name => ClientName
             }),
@@ -211,7 +211,7 @@ do_start_client(InstId, Config = #{url := Server, pool_size := PoolSize, ssl := 
             start_client(InstId, Config);
         {error, Error} ->
             ?SLOG(error, #{
-                msg => "hstreamdb connector: client failed",
+                msg => "hstreamdb_connector_client_failed",
                 connector => InstId,
                 reason => Error
             }),
@@ -239,13 +239,13 @@ start_producer(
     ],
     Name = produce_name(InstId),
     ?SLOG(info, #{
-        msg => "starting hstreamdb connector: producer",
+        msg => "starting_hstreamdb_connector_producer",
         connector => InstId
     }),
     case hstreamdb:start_producer(Client, Name, ProducerOptions) of
         {ok, Producer} ->
             ?SLOG(info, #{
-                msg => "hstreamdb connector: producer started"
+                msg => "hstreamdb_connector_producer_started"
             }),
             State = #{
                 client => Client,
@@ -263,7 +263,7 @@ start_producer(
         {error, {already_started, Pid}} ->
             ?SLOG(info, #{
                 msg =>
-                    "starting hstreamdb connector: producer, find old producer. restart producer",
+                    "starting_hstreamdb_connector_producer_find_old_producer_restart_producer",
                 old_producer_pid => Pid,
                 old_producer_name => Name
             }),
@@ -271,7 +271,7 @@ start_producer(
             start_producer(InstId, Client, Options);
         {error, Reason} ->
             ?SLOG(error, #{
-                msg => "starting hstreamdb connector: producer, failed",
+                msg => "starting_hstreamdb_connector_producer_failed",
                 reason => Reason
             }),
             {error, Reason}
@@ -318,7 +318,7 @@ handle_result({ok, Result}, Record, IsBatch) ->
         #{result => Result, is_batch => IsBatch}
     ),
     ?SLOG(debug, #{
-        msg => "HStreamDB producer sync append success",
+        msg => "hstreamdb_producer_sync_append_success",
         record => Record,
         is_batch => IsBatch
     });
@@ -328,7 +328,7 @@ handle_result({error, Reason} = Err, Record, IsBatch) ->
         #{error => Reason, is_batch => IsBatch}
     ),
     ?SLOG(error, #{
-        msg => "HStreamDB producer sync append failed",
+        msg => "hstreamdb_producer_sync_append_failed",
         reason => Reason,
         record => Record,
         is_batch => IsBatch

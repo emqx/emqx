@@ -931,7 +931,7 @@ safe_call_mria(Fun, Args, OnFail) ->
     catch
         EC:Err:Stack ->
             ?SLOG(warning, #{
-                msg => "Call to mria failed",
+                msg => "call_to_mria_failed",
                 call => {mria, Fun, Args},
                 EC => Err,
                 stacktrace => Stack

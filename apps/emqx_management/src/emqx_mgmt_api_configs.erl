@@ -305,7 +305,7 @@ global_zone_configs(put, #{body := Body}, _Req) ->
                                 Acc#{Path => RawConf};
                             {error, Reason} ->
                                 ?SLOG(error, #{
-                                    msg => "update global zone failed",
+                                    msg => "update_global_zone_failed",
                                     reason => Reason,
                                     path => Path,
                                     value => Value

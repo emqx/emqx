@@ -91,7 +91,7 @@ closed(_Conn, #{is_peer_acked := _} = Prop, S) ->
     ?SLOG(debug, Prop),
     {stop, normal, S}.
 
-%% @doc handle the new incoming connecion as the connecion acceptor.
+%% @doc handle the new incoming connection as the connection acceptor.
 -spec new_conn(quicer:connection_handle(), quicer:new_conn_props(), cb_state()) ->
     {ok, cb_state()} | {error, any(), cb_state()}.
 new_conn(
@@ -183,13 +183,13 @@ new_stream(
         ok ->
             ok;
         E ->
-            %% Only log, keep connecion alive.
-            ?SLOG(error, #{message => "new stream handoff failed", stream => Stream, error => E})
+            %% Only log, keep connection alive.
+            ?SLOG(error, #{msg => "new_stream_handoff_failed", stream => Stream, error => E})
     end,
     %% @TODO maybe keep them in `inactive_streams'
     {ok, S#{streams := [{NewStreamOwner, Stream} | Streams]}}.
 
-%% @doc callback for handling remote connecion shutdown.
+%% @doc callback for handling remote connection shutdown.
 -spec shutdown(quicer:connection_handle(), quicer:error_code(), cb_state()) -> cb_ret().
 shutdown(Conn, ErrorCode, S) ->
     ErrorCode =/= 0 andalso ?SLOG(debug, #{error_code => ErrorCode, state => S}),
@@ -234,7 +234,7 @@ streams_available(_C, {BidirCnt, UnidirCnt}, S) ->
 -spec peer_needs_streams(quicer:connection_handle(), undefined, cb_state()) -> cb_ret().
 peer_needs_streams(_C, undefined, S) ->
     ?SLOG(info, #{
-        msg => "ignore: peer need more streames", info => maps:with([conn_pid, ctrl_pid], S)
+        msg => "ignore_peer_need_more_streames", info => maps:with([conn_pid, ctrl_pid], S)
     }),
     {ok, S}.
 
@@ -281,7 +281,7 @@ handle_info({'EXIT', Pid, Reason}, #{streams := Streams} = S) ->
         ->
             {ok, S};
         true ->
-            ?SLOG(info, #{message => "Data stream unexpected exit", reason => Reason}),
+            ?SLOG(info, #{msg => "data_stream_unexpected_exit", reason => Reason}),
             {ok, S};
         false ->
             {stop, unknown_pid_down, S}

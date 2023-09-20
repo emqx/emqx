@@ -174,7 +174,7 @@ create(Type, Name, Conf) ->
 
 create(Type, Name, Conf0, Opts) ->
     ?SLOG(info, #{
-        msg => "create bridge",
+        msg => "create_bridge",
         type => Type,
         name => Name,
         config => emqx_utils:redact(Conf0)
@@ -209,7 +209,7 @@ update(Type, Name, {OldConf, Conf}, Opts) ->
     case emqx_utils_maps:if_only_to_toggle_enable(OldConf, Conf) of
         false ->
             ?SLOG(info, #{
-                msg => "update bridge",
+                msg => "update_bridge",
                 type => Type,
                 name => Name,
                 config => emqx_utils:redact(Conf)

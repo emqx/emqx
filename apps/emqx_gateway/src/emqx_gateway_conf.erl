@@ -893,6 +893,6 @@ convert_certs(Type, SubDir, Conf) ->
         {ok, NSSL = #{}} ->
             Conf#{Type => NSSL};
         {error, Reason} ->
-            ?SLOG(error, Reason#{msg => bad_ssl_config}),
+            ?SLOG(error, Reason#{msg => "bad_ssl_config", reason => Reason}),
             throw({bad_ssl_config, Reason})
     end.

@@ -258,7 +258,7 @@ on_stop(
     _State
 ) ->
     ?SLOG(info, #{
-        msg => "stopping RabbitMQ connector",
+        msg => "stopping_rabbitmq_connector",
         connector => ResourceID
     }),
     stop_clients_and_pool(ResourceID).
@@ -429,7 +429,7 @@ on_query(
     } = State
 ) ->
     ?SLOG(debug, #{
-        msg => "RabbitMQ connector received query",
+        msg => "rabbitmq_connector_received_query",
         connector => ResourceID,
         type => RequestType,
         data => Data,
@@ -453,7 +453,7 @@ on_batch_query(
     State
 ) ->
     ?SLOG(debug, #{
-        msg => "RabbitMQ connector received batch query",
+        msg => "rabbitmq_connector_received_batch_query",
         connector => ResourceID,
         data => BatchReq,
         state => emqx_utils:redact(State)

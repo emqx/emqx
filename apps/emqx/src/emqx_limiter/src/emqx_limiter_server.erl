@@ -622,7 +622,7 @@ find_referenced_bucket(Id, Type, #{rate := Rate} = Cfg) when Rate =/= infinity -
         {ok, Bucket} ->
             {ok, Bucket, Cfg};
         _ ->
-            ?SLOG(error, #{msg => "bucket not found", type => Type, id => Id}),
+            ?SLOG(error, #{msg => "bucket_not_found", type => Type, id => Id}),
             {error, invalid_bucket}
     end;
 %% this is a node-level reference

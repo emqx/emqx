@@ -346,7 +346,8 @@ query_by_clientid(Topic, ClientId, Config) ->
             BridgeId = emqx_bridge_resource:bridge_id(Type, GreptimedbName),
 
             ?SLOG(error, #{
-                msg => io_lib:format("Failed to query: ~p, ~p", [Code, Error]),
+                msg => "failed_to_query",
+                code => Code,
                 connector => BridgeId,
                 reason => Error
             }),

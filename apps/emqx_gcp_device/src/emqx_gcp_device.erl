@@ -81,7 +81,7 @@ put_device(FormattedDevice) ->
     catch
         _Error:Reason ->
             ?SLOG(error, #{
-                msg => "Failed to put device",
+                msg => "failed_to_put_device",
                 device => FormattedDevice,
                 reason => Reason
             }),
@@ -246,7 +246,7 @@ import_device(Device, {NumImported, NumError}) ->
     catch
         Error:Reason:Stacktrace ->
             ?SLOG(error, #{
-                msg => "Failed to import device",
+                msg => "failed_to_import_device",
                 exception => Error,
                 reason => Reason,
                 stacktrace => Stacktrace

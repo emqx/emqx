@@ -191,7 +191,7 @@ peer_send_shutdown(Stream, undefined, S) ->
 send_complete(_Stream, false, S) ->
     {ok, S};
 send_complete(_Stream, true = _IsCancelled, S) ->
-    ?SLOG(error, #{message => "send cancelled"}),
+    ?SLOG(error, #{msg => "send_cancelled"}),
     {ok, S}.
 
 -spec send_shutdown_complete(stream_handle(), boolean(), cb_data()) -> cb_ret().
@@ -202,7 +202,7 @@ send_shutdown_complete(_Stream, _IsGraceful, S) ->
 passive(Stream, undefined, S) ->
     case quicer:setopt(Stream, active, 10) of
         ok -> ok;
-        Error -> ?SLOG(error, #{message => "set active error", error => Error})
+        Error -> ?SLOG(error, #{msg => "set_active_error", error => Error})
     end,
     {ok, S}.
 

@@ -112,7 +112,7 @@ on_get_status(_InstanceId, #{server := Server}) ->
             ok ->
                 connected;
             {error, Reason} ->
-                ?SLOG(error, #{msg => "OpenTSDB lost connection", reason => Reason}),
+                ?SLOG(error, #{msg => "opents_lost_connection", reason => Reason}),
                 connecting
         end,
     Result.
