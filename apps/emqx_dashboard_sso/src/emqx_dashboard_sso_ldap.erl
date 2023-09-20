@@ -40,7 +40,7 @@ fields(ldap) ->
         [
             {query_timeout, fun query_timeout/1}
         ] ++
-        emqx_ldap:fields(config) ++ emqx_ldap:fields(bind_opts);
+        adjust_ldap_fields(emqx_ldap:fields(config));
 fields(login) ->
     [
         emqx_dashboard_sso_schema:backend_schema([ldap])
@@ -84,6 +84,46 @@ destroy(#{resource_id := ResourceId}) ->
     _ = emqx_resource:remove_local(ResourceId),
     ok.
 
+parse_config(Config0) ->
+    Config = ensure_bind_password(Config0),
+    State = lists:foldl(
+        fun(Key, Acc) ->
+            case maps:find(Key, Config) of
+                {ok, Value} when is_binary(Value) ->
+                    Acc#{Key := erlang:binary_to_list(Value)};
+                _ ->
+                    Acc
+            end
+        end,
+        Config,
+        [query_timeout]
+    ),
+    {Config, State}.
+
+%% In this feature, the `bind_password` is fixed, so it should conceal from the swagger,
+%% but the connector still needs it, hence we should add it back here
+ensure_bind_password(Config) ->
+    Config#{bind_password => <<"${password}">>}.
+
+adjust_ldap_fields(Fields) ->
+    adjust_ldap_fields(Fields, []).
+
+adjust_ldap_fields([{filter, Meta} | T], Acc) ->
+    adjust_ldap_fields(
+        T,
+        [
+            {filter, Meta#{
+                default => <<"(objectClass=user)">>,
+                example => <<"(objectClass=user)">>
+            }}
+            | Acc
+        ]
+    );
+adjust_ldap_fields([Any | T], Acc) ->
+    adjust_ldap_fields(T, [Any | Acc]);
+adjust_ldap_fields([], Acc) ->
+    lists:reverse(Acc).
+
 login(
     #{<<"username">> := Username} = Req,
     #{
@@ -114,21 +154,6 @@ login(
         {error, _} = Error ->
             Error
     end.
-
-parse_config(Config) ->
-    State = lists:foldl(
-        fun(Key, Acc) ->
-            case maps:find(Key, Config) of
-                {ok, Value} when is_binary(Value) ->
-                    Acc#{Key := erlang:binary_to_list(Value)};
-                _ ->
-                    Acc
-            end
-        end,
-        Config,
-        [query_timeout]
-    ),
-    {Config, State}.
 
 ensure_user_exists(Username) ->
     case emqx_dashboard_admin:lookup_user(ldap, Username) of

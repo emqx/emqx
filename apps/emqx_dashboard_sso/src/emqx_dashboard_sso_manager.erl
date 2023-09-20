@@ -6,6 +6,8 @@
 
 -behaviour(gen_server).
 
+-include_lib("emqx/include/logger.hrl").
+
 %% API
 -export([start_link/0]).
 
@@ -122,11 +124,8 @@ init([]) ->
     start_backend_services(),
     {ok, #{}}.
 
-handle_call({update_config, Req, NewConf, OldConf}, _From, State) ->
-    Result = on_config_update(Req, NewConf, OldConf),
-    io:format(">>> on_config_update:~p~n,Req:~p~n NewConf:~p~n OldConf:~p~n", [
-        Result, Req, NewConf, OldConf
-    ]),
+handle_call({update_config, Req, NewConf}, _From, State) ->
+    Result = on_config_update(Req, NewConf),
     {reply, Result, State};
 handle_call(_Request, _From, State) ->
     Reply = ok,
@@ -156,22 +155,40 @@ start_backend_services() ->
     lists:foreach(
         fun({Backend, Config}) ->
             Provider = provider(Backend),
-            on_backend_updated(
-                emqx_dashboard_sso:create(Provider, Config),
-                fun(State) ->
-                    ets:insert(dashboard_sso, #dashboard_sso{backend = Backend, state = State})
-                end
-            )
+            case emqx_dashboard_sso:create(Provider, Config) of
+                {ok, State} ->
+                    ?SLOG(info, #{
+                        msg => "Start SSO backend successfully",
+                        backend => Backend
+                    }),
+                    ets:insert(dashboard_sso, #dashboard_sso{backend = Backend, state = State});
+                {error, Reason} ->
+                    ?SLOG(error, #{
+                        msg => "Start SSO backend failed",
+                        backend => Backend,
+                        reason => Reason
+                    })
+            end
         end,
         maps:to_list(Backends)
     ).
 
-update_config(_Backend, UpdateReq) ->
+update_config(Backend, UpdateReq) ->
     case emqx_conf:update([dashboard_sso], UpdateReq, #{override_to => cluster}) of
         {ok, UpdateResult} ->
             #{post_config_update := #{?MODULE := Result}} = UpdateResult,
+            ?SLOG(info, #{
+                msg => "Update SSO configuration successfully",
+                backend => Backend,
+                result => Result
+            }),
             Result;
-        Error ->
+        {error, Reason} = Error ->
+            ?SLOG(error, #{
+                msg => "Update SSO configuration failed",
+                backend => Backend,
+                reason => Reason
+            }),
             Error
     end.
 
@@ -187,11 +204,11 @@ pre_config_update(_Path, {delete, Backend}, OldConf) ->
             {ok, maps:remove(BackendBin, OldConf)}
     end.
 
-post_config_update(_Path, UpdateReq, NewConf, OldConf, _AppEnvs) ->
-    Result = call({update_config, UpdateReq, NewConf, OldConf}),
+post_config_update(_Path, UpdateReq, NewConf, _OldConf, _AppEnvs) ->
+    Result = call({update_config, UpdateReq, NewConf}),
     {ok, Result}.
 
-on_config_update({update, Backend, _Config}, NewConf, _OldConf) ->
+on_config_update({update, Backend, _Config}, NewConf) ->
     Provider = provider(Backend),
     Config = maps:get(Backend, NewConf),
     case lookup(Backend) of
@@ -210,7 +227,7 @@ on_config_update({update, Backend, _Config}, NewConf, _OldConf) ->
                 end
             )
     end;
-on_config_update({delete, Backend}, _NewConf, _OldConf) ->
+on_config_update({delete, Backend}, _NewConf) ->
     case lookup(Backend) of
         undefined ->
             {error, not_exists};

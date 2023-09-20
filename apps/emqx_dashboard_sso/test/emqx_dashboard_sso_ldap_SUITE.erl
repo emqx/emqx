@@ -136,10 +136,10 @@ ldap_config(Override) ->
             <<"enable">> => <<"false">>,
             <<"server">> => ldap_server(),
             <<"base_dn">> => <<"uid=${username},ou=testdevice,dc=emqx,dc=io">>,
+            <<"filter">> => <<"(objectClass=mqttUser)">>,
             <<"username">> => <<"cn=root,dc=emqx,dc=io">>,
             <<"password">> => <<"public">>,
-            <<"pool_size">> => 8,
-            <<"bind_password">> => <<"${password}">>
+            <<"pool_size">> => 8
         },
         Override
     ).
