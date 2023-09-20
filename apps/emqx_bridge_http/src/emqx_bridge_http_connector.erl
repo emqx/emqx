@@ -328,7 +328,7 @@ on_query(
             {error, {recoverable_error, Reason}};
         {error, #{status_code := StatusCode}} ->
             ?SLOG(error, #{
-                msg => "http_connector_do_request_received_error_response.",
+                msg => "http_connector_do_request_received_error_response",
                 note => "the body will be redacted due to security reasons",
                 request => redact_request(NRequest),
                 connector => InstId,

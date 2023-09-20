@@ -92,7 +92,7 @@ register_hook(Rules) ->
             ok;
         _ ->
             ?SLOG(error, #{
-                msg => "rewrite_rule_re_complie_failed",
+                msg => "rewrite_rule_re_compile_failed",
                 error_rules => ErrRules
             }),
             {error, ErrRules}

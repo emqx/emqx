@@ -358,7 +358,7 @@ init_prepare(State = #{prepare_sql := Prepares, pool_name := PoolName, params_to
             State#{prepare_sql := Sts};
         Error ->
             LogMeta = #{
-                msg => <<"0racle_init_prepare_statement_failed">>, error => Error
+                msg => <<"oracle_init_prepare_statement_failed">>, error => Error
             },
             ?SLOG(error, LogMeta),
             %% mark the prepare_sql as failed

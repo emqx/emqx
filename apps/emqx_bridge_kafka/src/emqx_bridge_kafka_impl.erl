@@ -78,7 +78,7 @@ tcp_keepalive(KeepAlive) ->
             Opts;
         {error, {unsupported_os, OS}} ->
             ?SLOG(warning, #{
-                msg => "Unsupported_operation_set_TCP_keepalive",
+                msg => "unsupported_operation_set_tcp_keepalive",
                 os => OS
             }),
             []

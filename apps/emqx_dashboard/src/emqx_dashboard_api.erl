@@ -220,7 +220,7 @@ login(post, #{body := Params}) ->
     Password = maps:get(<<"password">>, Params),
     case emqx_dashboard_admin:sign_token(Username, Password) of
         {ok, Token} ->
-            ?SLOG(info, #{msg => "dashboard_login_successfully", username => Username}),
+            ?SLOG(info, #{msg => "dashboard_login_successful", username => Username}),
             Version = iolist_to_binary(proplists:get_value(version, emqx_sys:info())),
             {200, #{
                 token => Token,
@@ -239,7 +239,7 @@ logout(_, #{
     Username = username(Req, Username0),
     case emqx_dashboard_admin:destroy_token_by_username(Username, Token) of
         ok ->
-            ?SLOG(info, #{msg => "dashboard_logout_successfully", username => Username0}),
+            ?SLOG(info, #{msg => "dashboard_logout_successful", username => Username0}),
             204;
         _R ->
             ?SLOG(info, #{msg => "dashboard_logout_failed.", username => Username0}),

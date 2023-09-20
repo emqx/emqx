@@ -203,7 +203,7 @@ do_start_client(InstId, Config = #{url := Server, pool_size := PoolSize, ssl := 
             end;
         {error, {already_started, Pid}} ->
             ?SLOG(info, #{
-                msg => "starting_hstreamdb_connector_client_find_old_client_restart client",
+                msg => "starting_hstreamdb_connector_client_find_old_client_restart_client",
                 old_client_pid => Pid,
                 old_client_name => ClientName
             }),
