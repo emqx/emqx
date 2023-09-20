@@ -266,7 +266,7 @@ remove_local(ResId) ->
         {error, not_found} ->
             ok;
         Error ->
-            %% Only log, the ResId worker is always remove in manager's remove action.
+            %% Only log, the ResId worker is always removed in manager's remove action.
             ?SLOG(warning, #{
                 msg => "remove_local_resource_failed",
                 error => Error,
