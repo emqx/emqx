@@ -77,4 +77,7 @@ provider(Backend) ->
     maps:get(Backend, backends()).
 
 backends() ->
-    #{ldap => emqx_dashboard_sso_ldap}.
+    #{
+        ldap => emqx_dashboard_sso_ldap,
+        saml => emqx_dashboard_sso_saml
+    }.

@@ -6,7 +6,8 @@
         kernel,
         stdlib,
         emqx_dashboard,
-        emqx_ldap
+        emqx_ldap,
+        esaml
     ]},
     {mod, {emqx_dashboard_sso_app, []}},
     {env, []},
