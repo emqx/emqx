@@ -21,8 +21,8 @@ jobs:
       matrix:
         profile:
           - ['emqx', 'master']
-          - ['emqx-enterprise', 'release-51']
           - ['emqx-enterprise', 'release-52']
+          - ['emqx-enterprise', 'release-53']
         otp:
           - 25.3.2-2
         arch:
