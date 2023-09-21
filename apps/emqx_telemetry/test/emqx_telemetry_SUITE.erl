@@ -38,7 +38,16 @@ suite() ->
         {repeat, 1}
     ].
 
-apps() -> [emqx_conf, emqx_retainer, emqx_authn, emqx_authz, emqx_modules, emqx_telemetry].
+apps() ->
+    [
+        emqx_conf,
+        emqx_management,
+        emqx_retainer,
+        emqx_authn,
+        emqx_authz,
+        emqx_modules,
+        emqx_telemetry
+    ].
 
 init_per_suite(Config) ->
     net_kernel:start(['master@127.0.0.1', longnames]),
