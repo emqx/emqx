@@ -647,7 +647,7 @@ set_keepalive(put, #{bindings := #{clientid := ClientID}, body := Body}) ->
         error ->
             {400, 'BAD_REQUEST', "Interval Not Found"};
         {ok, Interval} ->
-            case emqx_mgmt:set_keepalive(emqx_mgmt_util:urldecode(ClientID), Interval) of
+            case emqx_mgmt:set_keepalive(ClientID, Interval) of
                 ok -> lookup(#{clientid => ClientID});
                 {error, not_found} -> {404, ?CLIENTID_NOT_FOUND};
                 {error, Reason} -> {400, #{code => 'PARAMS_ERROR', message => Reason}}
