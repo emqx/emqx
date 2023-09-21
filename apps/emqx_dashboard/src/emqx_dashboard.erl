@@ -210,6 +210,11 @@ filter_false(K, V, S) -> [{K, V} | S].
 listener_name(Protocol) ->
     list_to_atom(atom_to_list(Protocol) ++ ":dashboard").
 
+-if(?EMQX_RELEASE_EDITION =/= ee).
+%% dialyzer complains about the `unauthorized_role' clause...
+-dialyzer({no_match, [authorize/1]}).
+-endif.
+
 authorize(Req) ->
     case cowboy_req:parse_header(<<"authorization">>, Req) of
         {basic, Username, Password} ->

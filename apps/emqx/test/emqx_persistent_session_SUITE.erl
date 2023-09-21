@@ -102,13 +102,18 @@ init_per_group(Group, Config) when Group == quic ->
         [
             {emqx,
                 ?config(emqx_config, Config) ++
-                    "\n listeners.quic.test { enable = true }"}
+                    "\n listeners.quic.test {"
+                    "\n   enable = true"
+                    "\n   ssl_options.verify = verify_peer"
+                    "\n }"}
         ],
         #{work_dir => emqx_cth_suite:work_dir(Config)}
     ),
     [
         {port, get_listener_port(quic, test)},
         {conn_fun, quic_connect},
+        {ssl_opts, emqx_common_test_helpers:client_ssl_twoway()},
+        {ssl, true},
         {group_apps, Apps}
         | Config
     ];

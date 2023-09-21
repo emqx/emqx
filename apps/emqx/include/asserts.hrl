@@ -30,11 +30,12 @@
     )
 ).
 
--define(drainMailbox(),
+-define(drainMailbox(), ?drainMailbox(0)).
+-define(drainMailbox(TIMEOUT),
     (fun F__Flush_() ->
         receive
             X__Msg_ -> [X__Msg_ | F__Flush_()]
-        after 0 -> []
+        after TIMEOUT -> []
         end
     end)()
 ).
