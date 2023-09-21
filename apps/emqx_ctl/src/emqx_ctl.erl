@@ -116,25 +116,35 @@ run_command([Cmd | Args]) ->
 run_command(help, []) ->
     help();
 run_command(Cmd, Args) when is_atom(Cmd) ->
-    case lookup_command(Cmd) of
-        [{Mod, Fun}] ->
-            try
-                apply(Mod, Fun, [Args])
-            catch
-                _:Reason:Stacktrace ->
-                    ?LOG_ERROR(#{
-                        msg => "ctl_command_crashed",
-                        stacktrace => Stacktrace,
-                        reason => Reason
-                    }),
-                    {error, Reason}
-            end;
-        Error ->
-            help(),
-            Error
-    end.
+    Start = erlang:monotonic_time(),
+    Result =
+        case lookup_command(Cmd) of
+            [{Mod, Fun}] ->
+                try
+                    apply(Mod, Fun, [Args])
+                catch
+                    _:Reason:Stacktrace ->
+                        ?LOG_ERROR(#{
+                            msg => "ctl_command_crashed",
+                            stacktrace => Stacktrace,
+                            reason => Reason
+                        }),
+                        {error, Reason}
+                end;
+            Error ->
+                help(),
+                Error
+        end,
+    Duration = erlang:convert_time_unit(erlang:monotonic_time() - Start, native, millisecond),
 
--spec lookup_command(cmd()) -> [{module(), atom()}].
+    audit_log(
+        audit_level(Result, Duration),
+        "from_cli",
+        #{duration_ms => Duration, result => Result, cmd => Cmd, args => Args, node => node()}
+    ),
+    Result.
+
+-spec lookup_command(cmd()) -> [{module(), atom()}] | {error, any()}.
 lookup_command(Cmd) when is_atom(Cmd) ->
     case is_initialized() of
         true ->
@@ -304,3 +314,28 @@ safe_to_existing_atom(Str) ->
 
 is_initialized() ->
     ets:info(?CMD_TAB) =/= undefined.
+
+audit_log(Level, From, Log) ->
+    case lookup_command(audit) of
+        {error, _} ->
+            ignore;
+        [{Mod, Fun}] ->
+            try
+                apply(Mod, Fun, [Level, From, Log])
+            catch
+                _:Reason:Stacktrace ->
+                    ?LOG_ERROR(#{
+                        msg => "ctl_command_crashed",
+                        stacktrace => Stacktrace,
+                        reason => Reason
+                    })
+            end
+    end.
+
+-define(TOO_SLOW, 3000).
+
+audit_level(ok, Duration) when Duration >= ?TOO_SLOW -> warning;
+audit_level({ok, _}, Duration) when Duration >= ?TOO_SLOW -> warning;
+audit_level(ok, _Duration) -> info;
+audit_level({ok, _}, _Duration) -> info;
+audit_level(_, _) -> error.

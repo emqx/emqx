@@ -164,7 +164,8 @@ validate_log(Conf) ->
     ?assertEqual(silent, proplists:get_value(error_logger, Kernel)),
     ?assertEqual(debug, proplists:get_value(logger_level, Kernel)),
     Loggers = proplists:get_value(logger, Kernel),
-    FileHandler = lists:keyfind(logger_disk_log_h, 3, Loggers),
+    FileHandlers = lists:filter(fun(L) -> element(3, L) =:= logger_disk_log_h end, Loggers),
+    FileHandler = lists:keyfind(default, 2, FileHandlers),
     ?assertEqual(
         {handler, default, logger_disk_log_h, #{
             config => ?LOG_CONFIG#{
@@ -179,6 +180,23 @@ validate_log(Conf) ->
             level => debug
         }},
         FileHandler
+    ),
+    AuditHandler = lists:keyfind(emqx_audit, 2, FileHandlers),
+    %% default is enable and log level is info.
+    ?assertMatch(
+        {handler, emqx_audit, logger_disk_log_h, #{
+            config := #{
+                type := wrap,
+                file := "log/audit.log",
+                max_no_bytes := _,
+                max_no_files := _
+            },
+            filesync_repeat_interval := no_repeat,
+            filters := [{filter_audit, {_, stop}}],
+            formatter := _,
+            level := info
+        }},
+        AuditHandler
     ),
     ConsoleHandler = lists:keyfind(logger_std_h, 3, Loggers),
     ?assertEqual(
@@ -244,7 +262,7 @@ log_rotation_count_limit_test() ->
             {handler, default, logger_disk_log_h, #{
                 config := #{max_no_files := Count}
             }},
-            lists:keyfind(logger_disk_log_h, 3, Loggers)
+            lists:keyfind(default, 2, Loggers)
         )
                   end,
         [{to_bin(Format, [1]), 1}, {to_bin(Format, [128]), 128}]),

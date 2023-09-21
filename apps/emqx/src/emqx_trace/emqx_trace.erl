@@ -27,7 +27,8 @@
     publish/1,
     subscribe/3,
     unsubscribe/2,
-    log/3
+    log/3,
+    log/4
 ]).
 
 -export([
@@ -83,7 +84,10 @@ unsubscribe(Topic, SubOpts) ->
     ?TRACE("UNSUBSCRIBE", "unsubscribe", #{topic => Topic, sub_opts => SubOpts}).
 
 log(List, Msg, Meta) ->
-    Log = #{level => debug, meta => enrich_meta(Meta), msg => Msg},
+    log(debug, List, Msg, Meta).
+
+log(Level, List, Msg, Meta) ->
+    Log = #{level => Level, meta => enrich_meta(Meta), msg => Msg},
     log_filter(List, Log).
 
 enrich_meta(Meta) ->

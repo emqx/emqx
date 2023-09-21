@@ -962,10 +962,19 @@ fields("log") ->
                     aliases => [file_handlers],
                     importance => ?IMPORTANCE_HIGH
                 }
+            )},
+        {"audit",
+            sc(
+                ?R_REF("log_audit_handler"),
+                #{
+                    desc => ?DESC("log_audit_handler"),
+                    importance => ?IMPORTANCE_HIGH,
+                    default => #{<<"enable">> => true, <<"level">> => <<"info">>}
+                }
             )}
     ];
 fields("console_handler") ->
-    log_handler_common_confs(console);
+    log_handler_common_confs(console, #{});
 fields("log_file_handler") ->
     [
         {"path",
@@ -1002,7 +1011,50 @@ fields("log_file_handler") ->
                     importance => ?IMPORTANCE_MEDIUM
                 }
             )}
-    ] ++ log_handler_common_confs(file);
+    ] ++ log_handler_common_confs(file, #{});
+fields("log_audit_handler") ->
+    [
+        {"path",
+            sc(
+                file(),
+                #{
+                    desc => ?DESC("audit_file_handler_path"),
+                    default => <<"${EMQX_LOG_DIR}/audit.log">>,
+                    importance => ?IMPORTANCE_HIGH,
+                    converter => fun(Path, Opts) ->
+                        emqx_schema:naive_env_interpolation(ensure_unicode_path(Path, Opts))
+                    end
+                }
+            )},
+        {"rotation_count",
+            sc(
+                range(1, 128),
+                #{
+                    default => 10,
+                    converter => fun convert_rotation/2,
+                    desc => ?DESC("log_rotation_count"),
+                    importance => ?IMPORTANCE_MEDIUM
+                }
+            )},
+        {"rotation_size",
+            sc(
+                hoconsc:union([infinity, emqx_schema:bytesize()]),
+                #{
+                    default => <<"50MB">>,
+                    desc => ?DESC("log_file_handler_max_size"),
+                    importance => ?IMPORTANCE_MEDIUM
+                }
+            )}
+    ] ++
+        %% Only support json
+        lists:keydelete(
+            "formatter",
+            1,
+            log_handler_common_confs(
+                file,
+                #{level => info, level_desc => "audit_handler_level"}
+            )
+        );
 fields("log_overload_kill") ->
     [
         {"enable",
@@ -1093,6 +1145,8 @@ desc("console_handler") ->
     ?DESC("desc_console_handler");
 desc("log_file_handler") ->
     ?DESC("desc_log_file_handler");
+desc("log_audit_handler") ->
+    ?DESC("desc_audit_log_handler");
 desc("log_rotation") ->
     ?DESC("desc_log_rotation");
 desc("log_overload_kill") ->
@@ -1214,7 +1268,7 @@ tr_cluster_discovery(Conf) ->
     Strategy = conf_get("cluster.discovery_strategy", Conf),
     {Strategy, filter(cluster_options(Strategy, Conf))}.
 
-log_handler_common_confs(Handler) ->
+log_handler_common_confs(Handler, Default) ->
     %% we rarely support dynamic defaults like this
     %% for this one, we have build-time default the same as runtime default
     %% so it's less tricky
@@ -1225,13 +1279,14 @@ log_handler_common_confs(Handler) ->
         end,
     EnvValue = os:getenv("EMQX_DEFAULT_LOG_HANDLER"),
     Enable = lists:member(EnvValue, EnableValues),
+    LevelDesc = maps:get(level_desc, Default, "common_handler_level"),
     [
         {"level",
             sc(
                 log_level(),
                 #{
-                    default => warning,
-                    desc => ?DESC("common_handler_level"),
+                    default => maps:get(level, Default, warning),
+                    desc => ?DESC(LevelDesc),
                     importance => ?IMPORTANCE_HIGH
                 }
             )},
@@ -1248,7 +1303,7 @@ log_handler_common_confs(Handler) ->
             sc(
                 hoconsc:enum([text, json]),
                 #{
-                    default => text,
+                    default => maps:get(formatter, Default, text),
                     desc => ?DESC("common_handler_formatter"),
                     importance => ?IMPORTANCE_MEDIUM
                 }

@@ -48,7 +48,7 @@ end_per_suite(_Config) ->
         }
     ),
     emqx_mgmt_api_test_util:end_suite([
-        emqx_conf, emqx_authn, emqx_authz, emqx_telemetry
+        emqx_conf, emqx_authn, emqx_management, emqx_authz, emqx_telemetry
     ]),
     ok.
 
