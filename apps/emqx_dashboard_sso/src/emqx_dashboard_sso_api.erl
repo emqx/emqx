@@ -31,7 +31,7 @@
     backend/2
 ]).
 
--export([sso_parameters/1, is_authorization_free/1]).
+-export([sso_parameters/1]).
 
 -define(BAD_USERNAME_OR_PWD, 'BAD_USERNAME_OR_PWD').
 -define(BAD_REQUEST, 'BAD_REQUEST').
@@ -59,7 +59,8 @@ schema("/sso/running") ->
             desc => ?DESC(list_running),
             responses => #{
                 200 => array(enum(emqx_dashboard_sso:types()))
-            }
+            },
+            security => []
         }
     };
 schema("/sso") ->
@@ -85,7 +86,8 @@ schema("/sso/login/:backend") ->
                 200 => emqx_dashboard_api:fields([token, version, license]),
                 401 => response_schema(401),
                 404 => response_schema(404)
-            }
+            },
+            security => []
         }
     };
 schema("/sso/:backend") ->
@@ -191,10 +193,6 @@ backend(delete, #{bindings := #{backend := Backend}}) ->
 sso_parameters(Params) ->
     backend_name_as_arg(query, [local], <<"local">>) ++ Params.
 
-is_authorization_free(Req) ->
-    Path = cowboy_req:path(Req),
-    is_path_authorization_free(Path).
-
 %% -------------------------------------------------------------------------------------------------
 %% internal
 response_schema(401) ->
@@ -255,10 +253,3 @@ to_json(Data) ->
             {K, emqx_utils_maps:binary_string(V)}
         end
     ).
-
-is_path_authorization_free(<<"/api/v5/sso/running">>) ->
-    true;
-is_path_authorization_free(<<"/api/v5/sso/login", _/binary>>) ->
-    true;
-is_path_authorization_free(_) ->
-    false.
