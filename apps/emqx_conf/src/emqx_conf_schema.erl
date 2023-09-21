@@ -221,6 +221,16 @@ fields("cluster") ->
             sc(
                 ?R_REF(cluster_k8s),
                 #{}
+            )},
+        {"prevent_overlapping_partitions",
+            sc(
+                boolean(),
+                #{
+                    mapping => "vm_args.-kernel prevent_overlapping_partitions",
+                    desc => ?DESC(prevent_overlapping_partitions),
+                    default => false,
+                    importance => ?IMPORTANCE_HIDDEN
+                }
             )}
     ];
 fields(cluster_static) ->

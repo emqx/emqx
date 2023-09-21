@@ -253,6 +253,14 @@ generate_changelog () {
     fi
 }
 
+check_changelog() {
+    local file="changes/${TAG}.en.md"
+    if [ ! -f  "$file" ]; then
+        logerr "Changelog file $file is missing."
+        exit 1
+    fi
+}
+
 if [ "$DRYRUN" = 'yes' ]; then
     logmsg "Release tag is ready to be created with command: git tag $TAG"
 else
@@ -266,7 +274,10 @@ else
         *beta*)
             true
             ;;
-        *)
+        e*)
+            check_changelog
+            ;;
+        v*)
             generate_changelog
             ;;
     esac

@@ -73,5 +73,5 @@ done
 if [ $bad_app_count -gt 0 ]; then
     exit 1
 else
-    echo "apps version check successfully"
+    echo "apps version check passed successfully"
 fi

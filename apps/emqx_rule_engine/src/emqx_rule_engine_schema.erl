@@ -98,10 +98,26 @@ fields("builtin_action_republish") ->
     ];
 fields("builtin_action_console") ->
     [
-        {function, ?HOCON(console, #{desc => ?DESC("console_function")})}
+        {function, ?HOCON(console, #{desc => ?DESC("console_function")})},
         %% we may support some args for the console action in the future
-        %, {args, sc(map(), #{desc => "The arguments of the built-in 'console' action",
-        %    default => #{}})}
+
+        %% "args" needs to be a reserved/ignored field in the schema
+        %% to maintain compatibility with rule data that may contain
+        %% it due to a validation bug in previous versions.
+
+        %% The "args" field was not validated by the HOCON schema before 5.2.0,
+        %% which allowed rules to be created with invalid "args" data.
+        %% In 5.2.1 the validation was added,
+        %% so existing rules saved with invalid "args" would now fail validation
+        %% To maintain backward compatibility for existing rule data that may contain invalid "args",
+        %% the field needs to be included in the schema even though it is not a valid field.
+        {args,
+            ?HOCON(map(), #{
+                deprecated => true,
+                importance => ?IMPORTANCE_HIDDEN,
+                desc => "The arguments of the built-in 'console' action",
+                default => #{}
+            })}
     ];
 fields("user_provided_function") ->
     [
