@@ -122,23 +122,16 @@ do_sign(#?ADMIN{username = Username} = User, Password) ->
     _ = mria:transaction(?DASHBOARD_SHARD, fun mnesia:write/1, [JWTRec]),
     {ok, Token}.
 
+-spec do_verify(_, Token :: binary()) ->
+    Result ::
+        {ok, binary()}
+        | {error, token_timeout | not_found | unauthorized_role}.
 do_verify(Req, Token) ->
     case lookup(Token) of
-        {ok, JWT = #?ADMIN_JWT{exptime = ExpTime, extra = Extra, username = Username}} ->
+        {ok, JWT = #?ADMIN_JWT{exptime = ExpTime, extra = _Extra, username = _Username}} ->
             case ExpTime > erlang:system_time(millisecond) of
                 true ->
-                    case check_rbac(Req, Extra) of
-                        true ->
-                            NewJWT = JWT#?ADMIN_JWT{exptime = jwt_expiration_time()},
-                            {atomic, Res} = mria:transaction(
-                                ?DASHBOARD_SHARD,
-                                fun mnesia:write/1,
-                                [NewJWT]
-                            ),
-                            {Res, Username};
-                        _ ->
-                            {error, unauthorized_role}
-                    end;
+                    check_rbac(Req, JWT);
                 _ ->
                     {error, token_timeout}
             end;
@@ -254,15 +247,28 @@ clean_expired_jwt(Now) ->
     ok = destroy(JWTList).
 
 -if(?EMQX_RELEASE_EDITION == ee).
-check_rbac(Req, Extra) ->
-    emqx_dashboard_rbac:check_rbac(Req, Extra).
+check_rbac(Req, JWT) ->
+    #?ADMIN_JWT{exptime = _ExpTime, extra = Extra, username = _Username} = JWT,
+    case emqx_dashboard_rbac:check_rbac(Req, Extra) of
+        true ->
+            save_new_jwt(JWT);
+        _ ->
+            {error, unauthorized_role}
+    end.
 
 -else.
 
--dialyzer({nowarn_function, [check_rbac/2]}).
--dialyzer({no_match, [do_verify/2]}).
-
-check_rbac(_Req, _Extra) ->
-    true.
+check_rbac(_Req, JWT) ->
+    save_new_jwt(JWT).
 
 -endif.
+
+save_new_jwt(OldJWT) ->
+    #?ADMIN_JWT{exptime = _ExpTime, extra = _Extra, username = Username} = OldJWT,
+    NewJWT = OldJWT#?ADMIN_JWT{exptime = jwt_expiration_time()},
+    {atomic, Res} = mria:transaction(
+        ?DASHBOARD_SHARD,
+        fun mnesia:write/1,
+        [NewJWT]
+    ),
+    {Res, Username}.
