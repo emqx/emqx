@@ -1,5 +1,10 @@
 emqx_dashboard_api {
 
+list_running.desc:
+"""List all running SSO backends"""
+list_running.label:
+"""Running Backends"""
+
 get_sso.desc:
 """List all SSO backends"""
 get_sso.label:

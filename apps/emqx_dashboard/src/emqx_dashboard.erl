@@ -217,11 +217,30 @@ authorize(Req) ->
                         <<"You don't have permission to access this resource">>}
             end;
         _ ->
-            return_unauthorized(
-                <<"AUTHORIZATION_HEADER_ERROR">>,
-                <<"Support authorization: basic/bearer ">>
-            )
+            case is_authorization_free(Req) of
+                true ->
+                    ok;
+                _ ->
+                    return_unauthorized(
+                        <<"AUTHORIZATION_HEADER_ERROR">>,
+                        <<"Support authorization: basic/bearer ">>
+                    )
+            end
     end.
+
+-if(?EMQX_RELEASE_EDITION == ee).
+%% this is a temporary design to skip the authorization for some APIs,
+%% it will be removed future
+is_authorization_free(Req) ->
+    emqx_dashboard_sso_api:is_authorization_free(Req).
+
+-else.
+
+-dialyzer({no_match, [authorize/1]}).
+
+is_authorization_free(_Req) ->
+    false.
+-endif.
 
 return_unauthorized(Code, Message) ->
     {401,

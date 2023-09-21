@@ -25,12 +25,13 @@
 ]).
 
 -export([
+    running/2,
     login/2,
     sso/2,
     backend/2
 ]).
 
--export([sso_parameters/1]).
+-export([sso_parameters/1, is_authorization_free/1]).
 
 -define(BAD_USERNAME_OR_PWD, 'BAD_USERNAME_OR_PWD').
 -define(BAD_REQUEST, 'BAD_REQUEST').
@@ -45,10 +46,22 @@ api_spec() ->
 paths() ->
     [
         "/sso",
-        "/sso/login/:backend",
-        "/sso/:backend"
+        "/sso/:backend",
+        "/sso/running",
+        "/sso/login/:backend"
     ].
 
+schema("/sso/running") ->
+    #{
+        'operationId' => running,
+        get => #{
+            tags => [?TAGS],
+            desc => ?DESC(list_running),
+            responses => #{
+                200 => array(enum(emqx_dashboard_sso:types()))
+            }
+        }
+    };
 schema("/sso") ->
     #{
         'operationId' => sso,
@@ -113,6 +126,19 @@ fields(backend_status) ->
 
 %% -------------------------------------------------------------------------------------------------
 %% API
+running(get, _Request) ->
+    SSO = emqx:get_config([dashboard_sso], #{}),
+    {200,
+        lists:filtermap(
+            fun
+                (#{backend := Backend, enable := true}) ->
+                    {true, Backend};
+                (_) ->
+                    false
+            end,
+            maps:values(SSO)
+        )}.
+
 login(post, #{bindings := #{backend := Backend}, body := Sign}) ->
     case emqx_dashboard_sso_manager:lookup_state(Backend) of
         undefined ->
@@ -164,6 +190,10 @@ backend(delete, #{bindings := #{backend := Backend}}) ->
 
 sso_parameters(Params) ->
     backend_name_as_arg(query, [local], <<"local">>) ++ Params.
+
+is_authorization_free(Req) ->
+    Path = cowboy_req:path(Req),
+    is_path_authorization_free(Path).
 
 %% -------------------------------------------------------------------------------------------------
 %% internal
@@ -225,3 +255,10 @@ to_json(Data) ->
             {K, emqx_utils_maps:binary_string(V)}
         end
     ).
+
+is_path_authorization_free(<<"/api/v5/sso/running">>) ->
+    true;
+is_path_authorization_free(<<"/api/v5/sso/login", _/binary>>) ->
+    true;
+is_path_authorization_free(_) ->
+    false.
