@@ -14,7 +14,7 @@
 -define(LDAP_DEFAULT_PORT, 389).
 -define(LDAP_USER, <<"mqttuser0001">>).
 -define(LDAP_USER_PASSWORD, <<"mqttuser0001">>).
--import(emqx_mgmt_api_test_util, [request/2, request/3, uri/1]).
+-import(emqx_mgmt_api_test_util, [request/2, request/3, uri/1, request_api/3]).
 
 all() ->
     [
@@ -54,8 +54,10 @@ end_per_testcase(Case, _) ->
     ok.
 
 t_create(_) ->
+    check_running([]),
     Path = uri(["sso", "ldap"]),
     {ok, 200, Result} = request(put, Path, ldap_config()),
+    check_running([]),
     ?assertMatch(#{backend := <<"ldap">>, enable := false}, decode_json(Result)),
     ?assertMatch([#{backend := <<"ldap">>, enable := false}], get_sso()),
     ?assertNotEqual(undefined, emqx_dashboard_sso_manager:lookup_state(ldap)),
@@ -64,6 +66,7 @@ t_create(_) ->
 t_update(_) ->
     Path = uri(["sso", "ldap"]),
     {ok, 200, Result} = request(put, Path, ldap_config(#{<<"enable">> => <<"true">>})),
+    check_running([<<"ldap">>]),
     ?assertMatch(#{backend := <<"ldap">>, enable := true}, decode_json(Result)),
     ?assertMatch([#{backend := <<"ldap">>, enable := true}], get_sso()),
     ?assertNotEqual(undefined, emqx_dashboard_sso_manager:lookup_state(ldap)),
@@ -96,7 +99,8 @@ t_first_login(_) ->
         <<"username">> => ?LDAP_USER,
         <<"password">> => ?LDAP_USER_PASSWORD
     },
-    {ok, 200, Result} = request(post, Path, Req),
+    %% this API is authorization-free
+    {ok, 200, Result} = request_without_authorization(post, Path, Req),
     ?assertMatch(#{license := _, token := _}, decode_json(Result)),
     ?assertMatch(
         [#?ADMIN{username = ?SSO_USERNAME(ldap, ?LDAP_USER)}],
@@ -119,7 +123,14 @@ t_delete(_) ->
     Path = uri(["sso", "ldap"]),
     ?assertMatch({ok, 204, _}, request(delete, Path)),
     ?assertMatch({ok, 404, _}, request(delete, Path)),
+    check_running([]),
     ok.
+
+check_running(Expect) ->
+    Path = uri(["sso", "running"]),
+    %% this API is authorization-free
+    {ok, Result} = request_api(get, Path, []),
+    ?assertEqual(Expect, decode_json(Result)).
 
 get_sso() ->
     Path = uri(["sso"]),
@@ -150,3 +161,7 @@ ldap_server() ->
 decode_json(Data) ->
     BinJson = emqx_utils_json:decode(Data, [return_maps]),
     emqx_utils_maps:unsafe_atom_key_map(BinJson).
+
+request_without_authorization(Method, Url, Body) ->
+    Opts = #{compatible_mode => true, httpc_req_opts => [{body_format, binary}]},
+    emqx_mgmt_api_test_util:request_api(Method, Url, [], [], Body, Opts).
