@@ -100,9 +100,7 @@ init_per_group(Group, Config) when Group == ws ->
 init_per_group(Group, Config) when Group == quic ->
     Apps = emqx_cth_suite:start(
         [
-            {emqx,
-                ?config(emqx_config, Config) ++
-                    "\n listeners.quic.test { enable = true }"}
+            {emqx, ?config(emqx_config, Config) ++ quic_hocon()}
         ],
         #{work_dir => emqx_cth_suite:work_dir(Config)}
     ),
@@ -168,6 +166,25 @@ preconfig_per_testcase(TestCase, Config) ->
 %%--------------------------------------------------------------------
 %% Helpers
 %%--------------------------------------------------------------------
+
+quic_hocon() ->
+    EtcPath = code:lib_dir(emqx, etc),
+    CertsPath = filename:join([EtcPath, "certs"]),
+    Keyfile = filename:join([CertsPath, "client-key.pem"]),
+    Certfile = filename:join([CertsPath, "client-cert.pem"]),
+    QUICCfg =
+        #{
+            <<"enable">> => true,
+            <<"ssl_options">> =>
+                #{
+                    <<"certfile">> => Certfile,
+                    <<"keyfile">> => Keyfile
+                }
+        },
+    hocon_pp:do(
+        #{<<"listeners">> => #{<<"quic">> => #{<<"test">> => QUICCfg}}},
+        _Opts = #{}
+    ).
 
 client_info(Key, Client) ->
     maps:get(Key, maps:from_list(emqtt:info(Client)), undefined).
