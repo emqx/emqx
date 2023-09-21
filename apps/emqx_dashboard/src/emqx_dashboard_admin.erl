@@ -374,6 +374,10 @@ sign_token(Username, Password) ->
             Error
     end.
 
+-spec verify_token(_, Token :: binary()) ->
+    Result ::
+        {ok, binary()}
+        | {error, token_timeout | not_found | unauthorized_role}.
 verify_token(Req, Token) ->
     emqx_dashboard_token:verify(Req, Token).
 
