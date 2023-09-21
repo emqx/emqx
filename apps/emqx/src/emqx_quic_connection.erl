@@ -229,10 +229,9 @@ streams_available(_C, {BidirCnt, UnidirCnt}, S) ->
 
 %% @doc callback for handling request when remote wants for more streams
 %%      should cope with rate limiting
-%% @TODO this is not going to get triggered in current version
-%% ref: https://github.com/microsoft/msquic/issues/3120
--spec peer_needs_streams(quicer:connection_handle(), undefined, cb_state()) -> cb_ret().
-peer_needs_streams(_C, undefined, S) ->
+-spec peer_needs_streams(quicer:connection_handle(), atom(), cb_state()) ->
+    cb_ret().
+peer_needs_streams(_C, _StreamType, S) ->
     ?SLOG(info, #{
         msg => "ignore_peer_needs_more_streams", info => maps:with([conn_pid, ctrl_pid], S)
     }),
