@@ -7,7 +7,7 @@ concurrency:
 on:
   workflow_call:
     inputs:
-      runner:
+      runner_labels:
         required: true
         type: string
       version-emqx:
@@ -19,7 +19,7 @@ on:
 
 jobs:
   basic-tests:
-    runs-on: ${{ inputs.runner }}
+    runs-on: ${{ fromJSON(inputs.runner_labels) }}
     defaults:
       run:
         shell: bash
@@ -63,7 +63,7 @@ jobs:
           docker compose rm -fs
 
   paho-mqtt-testing:
-    runs-on: ${{ inputs.runner }}
+    runs-on: ${{ fromJSON(inputs.runner_labels) }}
     defaults:
       run:
         shell: bash
@@ -83,7 +83,6 @@ jobs:
           - mnesia
           - rlog
     steps:
-      - uses: AutoModality/action-clean@v1
       - uses: actions/checkout@v3
       - uses: actions/download-artifact@v3
         with:
@@ -110,9 +109,8 @@ jobs:
             echo "DUMP_CONTAINER_LOGS_END"
             exit 1
           fi
-      # node_dump requires netstat, which is not available in the container
       # simple smoke test for node_dump
-      # - name: test node_dump
-      #   run: |
-      #     docker exec -u root node1.emqx.io apt update && apt install -y net-tools
-      #     docker exec node1.emqx.io node_dump
+      - name: test node_dump
+        run: |
+          docker exec -u root node1.emqx.io apt update && apt install -y net-tools
+          docker exec node1.emqx.io node_dump

@@ -19,9 +19,6 @@ on:
       elixir_vsn:
         required: true
         type: string
-      runner:
-        required: true
-        type: string
       builder_vsn:
         required: true
         type: string
@@ -62,10 +59,6 @@ on:
         required: false
         type: string
         default: '1.14.5'
-      runner:
-        required: false
-        type: string
-        default: 'ubuntu-22.04'
       builder_vsn:
         required: false
         type: string
@@ -158,7 +151,7 @@ jobs:
         path: _packages/${{ matrix.profile }}/
 
   linux:
-    runs-on: ${{ matrix.build_machine }}
+    runs-on: ['self-hosted', 'linux', "${{ matrix.arch }}"]
     # always run in builder container because the host might have the wrong OTP version etc.
     # otherwise buildx.sh does not run docker if arch and os matches the target arch and os.
     container:
@@ -172,7 +165,7 @@ jobs:
         otp:
           - ${{ inputs.otp_vsn }}
         arch:
-          - amd64
+          - x64
           - arm64
         os:
           - ubuntu22.04
@@ -186,26 +179,17 @@ jobs:
           - el7
           - amzn2
           - amzn2023
-        build_machine:
-          - aws-arm64
-          - aws-amd64
         builder:
           - ${{ inputs.builder_vsn }}
         elixir:
           - ${{ inputs.elixir_vsn }}
         with_elixir:
           - 'no'
-        exclude:
-          - arch: arm64
-            build_machine: aws-amd64
-          - arch: amd64
-            build_machine: aws-arm64
         include:
           - profile: emqx
             otp: ${{ inputs.otp_vsn }}
-            arch: amd64
+            arch: x64
             os: ubuntu22.04
-            build_machine: aws-amd64
             builder: ${{ inputs.builder_vsn }}
             elixir: ${{ inputs.elixir_vsn }}
             with_elixir: 'yes'

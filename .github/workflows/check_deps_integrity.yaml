@@ -3,7 +3,7 @@ name: Check integrity of rebar and mix dependencies
 on:
   workflow_call:
     inputs:
-      runner:
+      runner_labels:
         required: true
         type: string
       builder:
@@ -12,7 +12,7 @@ on:
 
 jobs:
   check_deps_integrity:
-    runs-on: ${{ inputs.runner }}
+    runs-on: ${{ fromJSON(inputs.runner_labels) }}
     container: ${{ inputs.builder }}
     steps:
       - uses: actions/checkout@v3

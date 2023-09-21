@@ -16,7 +16,7 @@ on:
 
 jobs:
   relup_test_plan:
-    runs-on: ${{ inputs.runner }}
+    runs-on: ["${{ inputs.runner }}", 'linux', 'x64', 'ephemeral']
     container: ${{ inputs.builder }}
     outputs:
       CUR_EE_VSN: ${{ steps.find-versions.outputs.CUR_EE_VSN }}
@@ -25,7 +25,6 @@ jobs:
       run:
         shell: bash
     steps:
-    - uses: AutoModality/action-clean@v1
     - uses: actions/download-artifact@v3
       with:
         name: emqx-enterprise
@@ -60,7 +59,7 @@ jobs:
     needs:
       - relup_test_plan
     if: needs.relup_test_plan.outputs.OLD_VERSIONS != '[]'
-    runs-on: ubuntu-22.04
+    runs-on: ["${{ inputs.runner }}", 'linux', 'x64', 'ephemeral']
     strategy:
       fail-fast: false
       matrix:

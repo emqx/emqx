@@ -3,13 +3,16 @@ name: JMeter integration tests
 on:
   workflow_call:
     inputs:
+      runner_labels:
+        required: true
+        type: string
       version-emqx:
         required: true
         type: string
 
 jobs:
   jmeter_artifact:
-    runs-on: ubuntu-22.04
+    runs-on: ${{ fromJSON(inputs.runner_labels) }}
     steps:
     - name: Cache Jmeter
       id: cache-jmeter
@@ -38,7 +41,7 @@ jobs:
         path: /tmp/apache-jmeter.tgz
 
   advanced_feat:
-    runs-on: ubuntu-22.04
+    runs-on: ${{ fromJSON(inputs.runner_labels) }}
 
     strategy:
       fail-fast: false
@@ -89,7 +92,7 @@ jobs:
         path: ./jmeter_logs
 
   pgsql_authn_authz:
-    runs-on: ubuntu-22.04
+    runs-on: ${{ fromJSON(inputs.runner_labels) }}
 
     strategy:
       fail-fast: false
@@ -155,7 +158,7 @@ jobs:
         path: ./jmeter_logs
 
   mysql_authn_authz:
-    runs-on: ubuntu-22.04
+    runs-on: ${{ fromJSON(inputs.runner_labels) }}
 
     strategy:
       fail-fast: false
@@ -214,7 +217,7 @@ jobs:
         path: ./jmeter_logs
 
   JWT_authn:
-    runs-on: ubuntu-22.04
+    runs-on: ${{ fromJSON(inputs.runner_labels) }}
 
     strategy:
       fail-fast: false
@@ -265,7 +268,7 @@ jobs:
         path: ./jmeter_logs
 
   built_in_database_authn_authz:
-    runs-on: ubuntu-22.04
+    runs-on: ${{ fromJSON(inputs.runner_labels) }}
 
     strategy:
       fail-fast: false

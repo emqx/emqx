@@ -28,7 +28,7 @@ on:
       builder_vsn:
         required: true
         type: string
-      runner:
+      runner_labels:
         required: true
         type: string
     secrets:
@@ -70,14 +70,14 @@ on:
         required: false
         type: string
         default: '5.1-4'
-      runner:
+      runner_labels:
         required: false
         type: string
-        default: 'ubuntu-22.04'
+        default: '["self-hosted","ephemeral"]'
 
 jobs:
   docker:
-    runs-on: ${{ inputs.runner }}
+    runs-on: ${{ fromJSON(inputs.runner_labels) }}
 
     strategy:
       fail-fast: false

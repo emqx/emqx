@@ -7,7 +7,7 @@ concurrency:
 on:
   workflow_call:
     inputs:
-      runner:
+      runner_labels:
         required: true
         type: string
       builder:
@@ -28,7 +28,7 @@ env:
 
 jobs:
   eunit_and_proper:
-    runs-on: ${{ inputs.runner }}
+    runs-on: ${{ fromJSON(inputs.runner_labels) }}
     name: "eunit_and_proper (${{ matrix.profile }})"
     strategy:
       fail-fast: false
@@ -41,7 +41,6 @@ jobs:
     container: "ghcr.io/emqx/emqx-builder/${{ matrix.builder }}:${{ matrix.elixir }}-${{ matrix.otp }}-ubuntu22.04"
 
     steps:
-      - uses: AutoModality/action-clean@v1
       - uses: actions/download-artifact@v3
         with:
           name: ${{ matrix.profile }}
@@ -69,7 +68,7 @@ jobs:
           path: _build/test/cover
 
   ct_docker:
-    runs-on: ${{ inputs.runner }}
+    runs-on: ${{ fromJSON(inputs.runner_labels) }}
     name: "ct_docker (${{ matrix.app }}-${{ matrix.suitegroup }})"
     strategy:
       fail-fast: false
@@ -81,7 +80,6 @@ jobs:
         shell: bash
 
     steps:
-      - uses: AutoModality/action-clean@v1
       - uses: actions/download-artifact@v3
         with:
           name: ${{ matrix.profile }}
@@ -117,7 +115,7 @@ jobs:
           path: _build/test/logs
 
   ct:
-    runs-on: ${{ inputs.runner }}
+    runs-on: ${{ fromJSON(inputs.runner_labels) }}
     name: "ct (${{ matrix.app }}-${{ matrix.suitegroup }})"
     strategy:
       fail-fast: false
@@ -130,7 +128,6 @@ jobs:
         shell: bash
 
     steps:
-      - uses: AutoModality/action-clean@v1
       - uses: actions/download-artifact@v3
         with:
           name: ${{ matrix.profile }}
@@ -163,7 +160,7 @@ jobs:
       - eunit_and_proper
       - ct
       - ct_docker
-    runs-on: ${{ inputs.runner }}
+    runs-on: ${{ fromJSON(inputs.runner_labels) }}
     strategy:
       fail-fast: false
     steps:
@@ -174,7 +171,7 @@ jobs:
       - eunit_and_proper
       - ct
       - ct_docker
-    runs-on: ${{ inputs.runner }}
+    runs-on: ${{ fromJSON(inputs.runner_labels) }}
     container: ${{ inputs.builder }}
     strategy:
       fail-fast: false
@@ -182,7 +179,6 @@ jobs:
         profile:
           - emqx-enterprise
     steps:
-      - uses: AutoModality/action-clean@v1
       - uses: actions/download-artifact@v3
         with:
           name: ${{ matrix.profile }}
@@ -215,7 +211,7 @@ jobs:
   # do this in a separate job
   upload_coverdata:
     needs: make_cover
-    runs-on: ${{ inputs.runner }}
+    runs-on: ${{ fromJSON(inputs.runner_labels) }}
     steps:
       - name: Coveralls Finished
         env:
