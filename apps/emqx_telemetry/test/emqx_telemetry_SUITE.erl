@@ -70,6 +70,9 @@ end_per_suite(_Config) ->
     meck:unload(emqx_authz),
     ok.
 
+init_per_testcase(t_get_telemetry_without_memsup, Config) ->
+    ok = application:stop(os_mon),
+    init_per_testcase(t_get_telemetry, Config);
 init_per_testcase(t_get_telemetry, Config) ->
     DataDir = ?config(data_dir, Config),
     mock_httpc(),
@@ -198,6 +201,9 @@ init_per_testcase(_Testcase, Config) ->
     mock_httpc(),
     Config.
 
+end_per_testcase(t_get_telemetry_without_memsup, Config) ->
+    application:start(os_mon),
+    end_per_testcase(t_get_telemetry, Config);
 end_per_testcase(t_get_telemetry, _Config) ->
     meck:unload([httpc, emqx_telemetry]),
     application:stop(emqx_gateway),

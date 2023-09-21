@@ -32,7 +32,7 @@ init_per_suite(Config) ->
     ok = emqx_common_test_helpers:load_config(emqx_modules_schema, ?BASE_CONF),
     ok = emqx_common_test_helpers:load_config(emqx_telemetry_schema, ?BASE_CONF),
     ok = emqx_mgmt_api_test_util:init_suite(
-        [emqx_conf, emqx_authn, emqx_authz, emqx_telemetry],
+        [emqx_conf, emqx_authn, emqx_management, emqx_authz, emqx_telemetry],
         fun set_special_configs/1
     ),
 

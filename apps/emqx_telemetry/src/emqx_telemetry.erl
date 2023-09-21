@@ -416,10 +416,9 @@ read_raw_build_info() ->
     file:read_file(Filename).
 
 vm_specs() ->
-    SysMemData = memsup:get_system_memory_data(),
     [
         {num_cpus, erlang:system_info(logical_processors)},
-        {total_memory, proplists:get_value(total_memory, SysMemData)}
+        {total_memory, emqx_mgmt:vm_stats('total.memory')}
     ].
 
 -spec mqtt_runtime_insights(state()) -> {map(), state()}.
