@@ -40,7 +40,7 @@ check_api_docs() {
     local status
     status="$(curl -s -o /dev/null -w "%{http_code}" "$url")"
     if [ "$status" != "200" ]; then
-        echo "emqx is not responding on $API_DOCS_URL"
+        echo "emqx return non-200 responses($status) on $url"
         exit 1
     fi
 }
