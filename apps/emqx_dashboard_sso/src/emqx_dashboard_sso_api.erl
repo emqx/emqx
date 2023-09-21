@@ -156,8 +156,10 @@ backend(get, #{bindings := #{backend := Type}}) ->
             {200, to_json(Backend)}
     end;
 backend(put, #{bindings := #{backend := Backend}, body := Config}) ->
+    ?SLOG(info, #{msg => "Update SSO backend", backend => Backend, config => Config}),
     on_backend_update(Backend, Config, fun emqx_dashboard_sso_manager:update/2);
 backend(delete, #{bindings := #{backend := Backend}}) ->
+    ?SLOG(info, #{msg => "Delete SSO backend", backend => Backend}),
     handle_backend_update_result(emqx_dashboard_sso_manager:delete(Backend), undefined).
 
 sso_parameters(Params) ->

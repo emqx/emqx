@@ -21,7 +21,7 @@
 %% In full RBAC feature, the role may be customised created and deleted,
 %% a predefined configuration would replace these macros.
 -define(ROLE_VIEWER, <<"viewer">>).
--define(ROLE_SUPERUSER, <<"superuser">>).
+-define(ROLE_SUPERUSER, <<"administrator">>).
 -define(ROLE_DEFAULT, ?ROLE_SUPERUSER).
 
 -define(SSO_USERNAME(Backend, Name), {Backend, Name}).
