@@ -106,23 +106,19 @@ ensure_bind_password(Config) ->
     Config#{bind_password => <<"${password}">>}.
 
 adjust_ldap_fields(Fields) ->
-    adjust_ldap_fields(Fields, []).
+    lists:map(fun adjust_ldap_field/1, Fields).
 
-adjust_ldap_fields([{filter, Meta} | T], Acc) ->
-    adjust_ldap_fields(
-        T,
-        [
-            {filter, Meta#{
-                default => <<"(objectClass=user)">>,
-                example => <<"(objectClass=user)">>
-            }}
-            | Acc
-        ]
-    );
-adjust_ldap_fields([Any | T], Acc) ->
-    adjust_ldap_fields(T, [Any | Acc]);
-adjust_ldap_fields([], Acc) ->
-    lists:reverse(Acc).
+adjust_ldap_field({base_dn, Meta}) ->
+    {base_dn, maps:remove(example, Meta)};
+adjust_ldap_field({filter, Meta}) ->
+    Default = <<"(& (objectClass=person) (uid=${username}))">>,
+    {filter, Meta#{
+        desc => ?DESC(filter),
+        default => Default,
+        example => Default
+    }};
+adjust_ldap_field(Any) ->
+    Any.
 
 login(
     #{<<"username">> := Username} = Req,
