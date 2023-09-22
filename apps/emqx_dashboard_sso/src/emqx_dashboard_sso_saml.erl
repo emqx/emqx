@@ -151,17 +151,32 @@ login(_Req, #{sp := SP, idp_meta := #esaml_idp_metadata{login_location = IDP}} =
     end,
     {redirect, RedirectFun}.
 
-callback(Req, #{sp := SP} = _State) ->
-    case esaml_cowboy:validate_assertion(SP, fun esaml_util:check_dupe_ets/2, Req) of
-        {ok, Assertion, _RelayState, _Req2} ->
+callback(_Req = #{body := Body}, #{sp := SP} = _State) ->
+    case do_validate_assertion(SP, fun esaml_util:check_dupe_ets/2, Body) of
+        {ok, Assertion, _RelayState} ->
             Subject = Assertion#esaml_assertion.subject,
             Username = iolist_to_binary(Subject#esaml_subject.name),
             ensure_user_exists(Username);
-        {error, Reason0, _Req2} ->
+        {error, Reason0} ->
             Reason = [
                 "Access denied, assertion failed validation:\n", io_lib:format("~p\n", [Reason0])
             ],
-            {error, Reason}
+            {error, iolist_to_binary(Reason)}
+    end.
+
+do_validate_assertion(SP, DuplicateFun, Body) ->
+    PostVals = cow_qs:parse_qs(Body),
+    SAMLEncoding = proplists:get_value(<<"SAMLEncoding">>, PostVals),
+    SAMLResponse = proplists:get_value(<<"SAMLResponse">>, PostVals),
+    RelayState = proplists:get_value(<<"RelayState">>, PostVals),
+    case (catch esaml_binding:decode_response(SAMLEncoding, SAMLResponse)) of
+        {'EXIT', Reason} ->
+            {error, {bad_decode, Reason}};
+        Xml ->
+            case esaml_sp:validate_assertion(Xml, DuplicateFun, SP) of
+                {ok, A} -> {ok, A, RelayState};
+                {error, E} -> {error, E}
+            end
     end.
 
 %%------------------------------------------------------------------------------

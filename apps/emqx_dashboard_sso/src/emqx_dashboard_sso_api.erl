@@ -30,12 +30,10 @@
     running/2,
     login/2,
     sso/2,
-    backend/2,
-    sp_saml_metadata/2,
-    sp_saml_callback/2
+    backend/2
 ]).
 
--export([sso_parameters/1]).
+-export([sso_parameters/1, login_reply/2]).
 
 -define(REDIRECT, 'REDIRECT').
 -define(BAD_USERNAME_OR_PWD, 'BAD_USERNAME_OR_PWD').
@@ -53,10 +51,7 @@ paths() ->
         "/sso",
         "/sso/:backend",
         "/sso/running",
-        "/sso/login/:backend",
-        "/sso/saml/acs",
-        "/sso/saml/metadata"
-        %% "/sso_saml/logout"
+        "/sso/login/:backend"
     ].
 
 schema("/sso/running") ->
@@ -134,41 +129,7 @@ schema("/sso/:backend") ->
                 404 => response_schema(404)
             }
         }
-    };
-%% Handles HTTP-POST bound assertions coming back from the IDP.
-schema("/sso/saml/acs") ->
-    #{
-        'operationId' => sp_saml_callback,
-        post => #{
-            tags => [?TAGS],
-            desc => ?DESC(saml_sso_acs),
-            %% 'requestbody' => saml_response(),
-            %% SAMLResponse and RelayState
-            %% should return 302 to redirect to dashboard
-            responses => #{
-                302 => response_schema(302),
-                401 => response_schema(401),
-                404 => response_schema(404)
-            },
-            security => []
-        }
-    };
-schema("/sso/saml/metadata") ->
-    #{
-        'operationId' => sp_saml_metadata,
-        get => #{
-            tags => [?TAGS],
-            desc => ?DESC(sp_saml_metadata),
-            'requestbody' => saml_metadata_response(),
-            responses => #{
-                200 => emqx_dashboard_api:fields([token, version, license]),
-                404 => response_schema(404)
-            }
-        }
     }.
-
-%% TODO:
-%% schema("/sso_saml/logout") ->
 
 fields(backend_status) ->
     emqx_dashboard_sso_schema:common_backend_schema(emqx_dashboard_sso:types()).
@@ -237,34 +198,6 @@ backend(delete, #{bindings := #{backend := Backend}}) ->
     ?SLOG(info, #{msg => "Delete SSO backend", backend => Backend}),
     handle_backend_update_result(emqx_dashboard_sso_manager:delete(Backend), undefined).
 
-sp_saml_metadata(get, _Req) ->
-    case emqx_dashboard_sso_manager:lookup_state(saml) of
-        undefined ->
-            {404, #{code => ?BACKEND_NOT_FOUND, message => <<"Backend not found">>}};
-        #{sp := SP} = _State ->
-            SignedXml = esaml_sp:generate_metadata(SP),
-            Metadata = xmerl:export([SignedXml], xmerl_xml),
-            {200, [{<<"Content-Type">>, <<"text/xml">>}], Metadata}
-    end.
-
-sp_saml_callback(post, Req) ->
-    case emqx_dashboard_sso_manager:lookup_state(saml) of
-        undefined ->
-            {404, #{code => ?BACKEND_NOT_FOUND, message => <<"Backend not found">>}};
-        State ->
-            case (provider(saml)):callback(Req, State) of
-                {ok, Token} ->
-                    {200, [{<<"Content-Type">>, <<"text/html">>}], login_reply(Token)};
-                {error, Reason} ->
-                    ?SLOG(info, #{
-                        msg => "dashboard_saml_sso_login_failed",
-                        request => Req,
-                        reason => Reason
-                    }),
-                    {403, #{code => <<"UNAUTHORIZED">>, message => Reason}}
-            end
-    end.
-
 sso_parameters(Params) ->
     backend_name_as_arg(query, [local], <<"local">>) ++ Params.
 
@@ -284,18 +217,6 @@ backend_union() ->
 
 login_union() ->
     hoconsc:union([emqx_dashboard_sso:login_ref(Mod) || Mod <- emqx_dashboard_sso:modules()]).
-
-saml_metadata_response() ->
-    #{
-        'content' => #{
-            'application/xml' => #{
-                schema => #{
-                    type => <<"string">>,
-                    format => <<"binary">>
-                }
-            }
-        }
-    }.
 
 backend_name_in_path() ->
     backend_name_as_arg(path, [], <<"ldap">>).
