@@ -77,7 +77,7 @@ delete(Backend) ->
 lookup_state(Backend) ->
     case ets:lookup(dashboard_sso, Backend) of
         [Data] ->
-            Data;
+            Data#dashboard_sso.state;
         [] ->
             undefined
     end.
