@@ -91,31 +91,45 @@ desc(_) ->
 %% APIs
 %%------------------------------------------------------------------------------
 
-create(
+create(#{sp_sign_request := true} = Config) ->
+    try
+        do_create(ensure_cert_and_key(Config))
+    catch
+        Kind:Error ->
+            Msg = failed_to_ensure_cert_and_key,
+            ?SLOG(error, #{msg => Msg, kind => Kind, error => Error}),
+            {error, Msg}
+    end;
+create(#{sp_sign_request := false} = Config) ->
+    do_create(Config#{key => undefined, certificate => undefined}).
+
+do_create(
     #{
         dashboard_addr := DashboardAddr,
         idp_metadata_url := IDPMetadataURL,
-        sp_sign_request := SignRequest
+        key := KeyPath,
+        certificate := CertPath
     } = Config
 ) ->
+    {ok, _} = application:ensure_all_started(esaml),
     BaseURL = binary_to_list(DashboardAddr) ++ "/api/v5",
-    %% {Config, State} = parse_config(Config),
+    Key = esaml_util:load_private_key(KeyPath),
+    Cert = esaml_util:load_certificate(CertPath),
     SP = esaml_sp:setup(#esaml_sp{
-        %% TODO: save cert and key then return path
-        %% TODO: #esaml_sp.key #esaml_sp.certificate support
-        %% key = PrivKey,
-        %% certificate = Cert,
-        sp_sign_requests = SignRequest,
+        key = Key,
+        certificate = Cert,
+        sp_sign_requests = true,
         trusted_fingerprints = [],
         consume_uri = BaseURL ++ "/sso/saml/acs",
         metadata_uri = BaseURL ++ "/sso/saml/metadata",
+        %% TODO: support conf org and contact
         org = #esaml_org{
-            name = "EMQX Team",
+            name = "EMQX",
             displayname = "EMQX Dashboard",
             url = DashboardAddr
         },
         tech = #esaml_contact{
-            name = "EMQX Team",
+            name = "EMQX",
             email = "contact@emqx.io"
         }
     }),
@@ -124,14 +138,17 @@ create(
         {ok, Config#{idp_meta => IdpMeta, sp => SP}}
     catch
         Kind:Error ->
-            ?SLOG(error, #{msg => failed_to_load_metadata, kind => Kind, error => Error}),
-            {error, failed_to_load_metadata}
+            Reason = failed_to_load_metadata,
+            ?SLOG(error, #{msg => Reason, kind => Kind, error => Error}),
+            {error, Reason}
     end.
 
-update(_Config0, State) ->
-    {ok, State}.
+update(Config0, State) ->
+    destroy(State),
+    create(Config0).
 
 destroy(_State) ->
+    _ = application:stop(esaml),
     ok.
 
 login(
@@ -184,8 +201,18 @@ do_validate_assertion(SP, DuplicateFun, Body) ->
 %% Internal functions
 %%------------------------------------------------------------------------------
 
-%% -define(DIR, <<"SAML_SSO_sp_certs">>).
-%% -define(RSA_KEYS_A, [sp_public_key, sp_private_key]).
+-define(DIR, <<"SAML_SSO_sp_certs">>).
+-define(RSA_KEYS_A, [sp_public_key, sp_private_key]).
+
+ensure_cert_and_key(Config) ->
+    case
+        emqx_tls_lib:ensure_ssl_files(?DIR, Config#{enable => ture}, #{required_keys => ?RSA_KEYS_A})
+    of
+        {ok, NConfig} ->
+            NConfig;
+        {error, #{which_options := [KeyPath | _]}} ->
+            error({missing_key, KeyPath})
+    end.
 
 is_msie(Headers) ->
     UA = maps:get(<<"user-agent">>, Headers, <<"">>),
