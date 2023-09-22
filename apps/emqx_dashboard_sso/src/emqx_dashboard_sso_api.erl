@@ -54,8 +54,8 @@ paths() ->
         "/sso/:backend",
         "/sso/running",
         "/sso/login/:backend",
-        "/sso_saml/acs",
-        "/sso_saml/metadata"
+        "/sso/saml/acs",
+        "/sso/saml/metadata"
         %% "/sso_saml/logout"
     ].
 
@@ -136,7 +136,7 @@ schema("/sso/:backend") ->
         }
     };
 %% Handles HTTP-POST bound assertions coming back from the IDP.
-schema("/sso_saml/acs") ->
+schema("/sso/saml/acs") ->
     #{
         'operationId' => sp_saml_callback,
         post => #{
@@ -153,7 +153,7 @@ schema("/sso_saml/acs") ->
             security => []
         }
     };
-schema("/sso_saml/metadata") ->
+schema("/sso/saml/metadata") ->
     #{
         'operationId' => sp_saml_metadata,
         get => #{
