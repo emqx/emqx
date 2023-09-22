@@ -96,8 +96,8 @@ sp_saml_callback(post, Req) ->
             {404, #{code => ?BACKEND_NOT_FOUND, message => <<"Backend not found">>}};
         State ->
             case (provider(saml)):callback(Req, State) of
-                {ok, Token} ->
-                    {200, emqx_dashboard_sso_api:login_reply(Token)};
+                {ok, Role, Token} ->
+                    {200, emqx_dashboard_sso_api:login_reply(Role, Token)};
                 {error, Reason} ->
                     ?SLOG(info, #{
                         msg => "dashboard_saml_sso_login_failed",
