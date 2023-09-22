@@ -87,7 +87,7 @@ sp_saml_metadata(get, _Req) ->
         #{sp := SP} = _State ->
             SignedXml = esaml_sp:generate_metadata(SP),
             Metadata = xmerl:export([SignedXml], xmerl_xml),
-            {200, #{<<"Content-Type">> => <<"text/xml">>}, Metadata}
+            {200, #{<<"Content-Type">> => <<"text/xml">>}, erlang:iolist_to_binary(Metadata)}
     end.
 
 sp_saml_callback(post, Req) ->
