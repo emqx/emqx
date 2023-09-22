@@ -129,7 +129,7 @@ destroy(#{resource_id := ResourceId}) ->
     ok.
 
 login(_Req, #{sp := SP, idp_meta := #esaml_idp_metadata{login_location = IDP}} = _State) ->
-    SignedXml = SP:generate_authn_request(IDP),
+    SignedXml = esaml_sp:generate_authn_request(IDP, SP),
     Target = esaml_binding:encode_http_redirect(IDP, SignedXml, <<>>),
     %% TODO: _Req acutally is HTTP request body, not fully request
     RedirectFun = fun(Headers) ->

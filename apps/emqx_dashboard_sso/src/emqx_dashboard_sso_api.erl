@@ -239,7 +239,7 @@ sp_saml_metadata(get, _Req) ->
         undefined ->
             {404, ?BACKEND_NOT_FOUND, <<"Backend not found">>};
         #{sp := SP} = _State ->
-            SignedXml = SP:generate_metadata(),
+            SignedXml = esaml_sp:generate_metadata(SP),
             Metadata = xmerl:export([SignedXml], xmerl_xml),
             {200, [{<<"Content-Type">>, <<"text/xml">>}], Metadata}
     end.
