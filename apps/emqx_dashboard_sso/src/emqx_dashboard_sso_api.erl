@@ -151,23 +151,22 @@ running(get, _Request) ->
             maps:values(SSO)
         )}.
 
-login(post, #{bindings := #{backend := Backend}, body := Sign, headers := Headers}) ->
+login(post, #{bindings := #{backend := Backend}} = Request) ->
     case emqx_dashboard_sso_manager:lookup_state(Backend) of
         undefined ->
             {404, #{code => ?BACKEND_NOT_FOUND, message => <<"Backend not found">>}};
         State ->
-            Provider = provider(Backend),
-            case emqx_dashboard_sso:login(Provider, Sign, State) of
+            case emqx_dashboard_sso:login(provider(Backend), Request, State) of
                 {ok, Role, Token} ->
-                    ?SLOG(info, #{msg => "dashboard_sso_login_successful", request => Sign}),
+                    ?SLOG(info, #{msg => "dashboard_sso_login_successful", request => Request}),
                     {200, login_reply(Role, Token)};
-                {redirect, RedirectFun} ->
-                    ?SLOG(info, #{msg => "dashboard_sso_login_redirect", request => Sign}),
-                    RedirectFun(Headers);
+                {redirect, Redirect} ->
+                    ?SLOG(info, #{msg => "dashboard_sso_login_redirect", request => Request}),
+                    Redirect;
                 {error, Reason} ->
                     ?SLOG(info, #{
                         msg => "dashboard_sso_login_failed",
-                        request => Sign,
+                        request => Request,
                         reason => Reason
                     }),
                     {401, #{code => ?BAD_USERNAME_OR_PWD, message => <<"Auth failed">>}}

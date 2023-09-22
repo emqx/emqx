@@ -121,7 +121,7 @@ adjust_ldap_field(Any) ->
     Any.
 
 login(
-    #{<<"username">> := Username} = Req,
+    #{body := #{<<"username">> := Username} = Sign} = _Req,
     #{
         query_timeout := Timeout,
         resource_id := ResourceId
@@ -130,7 +130,7 @@ login(
     case
         emqx_resource:simple_sync_query(
             ResourceId,
-            {query, Req, [], Timeout}
+            {query, Sign, [], Timeout}
         )
     of
         {ok, []} ->
@@ -139,7 +139,7 @@ login(
             case
                 emqx_resource:simple_sync_query(
                     ResourceId,
-                    {bind, Req}
+                    {bind, Sign}
                 )
             of
                 ok ->

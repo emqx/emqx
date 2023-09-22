@@ -134,12 +134,14 @@ update(_Config0, State) ->
 destroy(_State) ->
     ok.
 
-login(_Req, #{sp := SP, idp_meta := #esaml_idp_metadata{login_location = IDP}} = _State) ->
+login(
+    #{headers := Headers} = _Req,
+    #{sp := SP, idp_meta := #esaml_idp_metadata{login_location = IDP}} = _State
+) ->
     SignedXml = esaml_sp:generate_authn_request(IDP, SP),
     Target = esaml_binding:encode_http_redirect(IDP, SignedXml, <<>>),
-    %% TODO: _Req acutally is HTTP request body, not fully request
-    RedirectFun = fun(Headers) ->
-        RespHeaders = #{<<"Cache-Control">> => <<"no-cache">>, <<"Pragma">> => <<"no-cache">>},
+    RespHeaders = #{<<"Cache-Control">> => <<"no-cache">>, <<"Pragma">> => <<"no-cache">>},
+    Redirect =
         case is_msie(Headers) of
             true ->
                 Html = esaml_binding:encode_http_post(IDP, SignedXml, <<>>),
@@ -147,9 +149,8 @@ login(_Req, #{sp := SP, idp_meta := #esaml_idp_metadata{login_location = IDP}} =
             false ->
                 RespHeaders1 = RespHeaders#{<<"Location">> => Target},
                 {302, RespHeaders1, <<"Redirecting...">>}
-        end
-    end,
-    {redirect, RedirectFun}.
+        end,
+    {redirect, Redirect}.
 
 callback(_Req = #{body := Body}, #{sp := SP} = _State) ->
     case do_validate_assertion(SP, fun esaml_util:check_dupe_ets/2, Body) of
