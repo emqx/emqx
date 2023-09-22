@@ -5,6 +5,7 @@
 -module(emqx_dashboard_sso).
 
 -include_lib("hocon/include/hoconsc.hrl").
+-include_lib("emqx_dashboard/include/emqx_dashboard.hrl").
 
 -export([
     hocon_ref/1,
@@ -38,7 +39,7 @@
     {ok, NewState :: state()} | {error, Reason :: term()}.
 -callback destroy(State :: state()) -> ok.
 -callback login(request(), State :: state()) ->
-    {ok, Token :: binary()} | {error, Reason :: term()}.
+    {ok, dashboard_user_role(), Token :: binary()} | {error, Reason :: term()}.
 
 %%------------------------------------------------------------------------------
 %% Callback Interface
