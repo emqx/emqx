@@ -22,6 +22,7 @@
 -include_lib("emqx/include/emqx.hrl").
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
+-include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
 all() -> emqx_common_test_helpers:all(?MODULE).
 
@@ -67,6 +68,15 @@ end_per_suite(_Config) ->
 init_per_testcase(t_custom_shard_transports, Config) ->
     OldConfig = application:get_env(emqx_machine, custom_shard_transports),
     [{old_config, OldConfig} | Config];
+init_per_testcase(t_open_ports_check = TestCase, Config) ->
+    AppSpecs = [emqx],
+    Cluster = [
+        {emqx_machine_SUITE1, #{role => core, apps => AppSpecs}},
+        {emqx_machine_SUITE2, #{role => core, apps => AppSpecs}},
+        {emqx_machine_SUITE3, #{role => replicant, apps => AppSpecs}}
+    ],
+    Nodes = emqx_cth_cluster:start(Cluster, #{work_dir => emqx_cth_suite:work_dir(TestCase, Config)}),
+    [{nodes, Nodes} | Config];
 init_per_testcase(_TestCase, Config) ->
     Config.
 
@@ -79,6 +89,10 @@ end_per_testcase(t_custom_shard_transports, Config) ->
         undefined ->
             application:unset_env(emqx_machine, custom_shard_transports)
     end,
+    ok;
+end_per_testcase(t_open_ports_check, Config) ->
+    Nodes = ?config(nodes, Config),
+    ok = emqx_cth_cluster:stop(Nodes),
     ok;
 end_per_testcase(_TestCase, _Config) ->
     ok.
@@ -112,3 +126,51 @@ t_node_status(_Config) ->
         },
         jsx:decode(JSON)
     ).
+
+t_open_ports_check(Config) ->
+    [Core1, Core2, Replicant] = ?config(nodes, Config),
+
+    Plan = erpc:call(Core1, emqx_machine, create_plan, []),
+    ?assertMatch(
+        [{Core2, #{ports_to_check := [_GenRPC0, _Ekka0], resolved_ips := [_]}}],
+        Plan
+    ),
+    [{Core2, #{ports_to_check := [GenRPCPort, EkkaPort], resolved_ips := [_]}}] = Plan,
+    ?assertMatch(
+        [{Core1, #{ports_to_check := [_GenRPC1, _Ekka1], resolved_ips := [_]}}],
+        erpc:call(Core2, emqx_machine, create_plan, [])
+    ),
+    ?assertMatch(
+        [],
+        erpc:call(Replicant, emqx_machine, create_plan, [])
+    ),
+
+    ?assertEqual(ok, erpc:call(Core1, emqx_machine, open_ports_check, [])),
+    ?assertEqual(ok, erpc:call(Core2, emqx_machine, open_ports_check, [])),
+    ?assertEqual(ok, erpc:call(Replicant, emqx_machine, open_ports_check, [])),
+
+    ok = emqx_cth_cluster:stop_node(Core2),
+
+    ?assertEqual(ok, erpc:call(Replicant, emqx_machine, open_ports_check, [])),
+    ?assertMatch(
+        #{
+            msg := "some ports are unreachable",
+            results :=
+                #{
+                    Core2 :=
+                        #{
+                            open_ports := #{
+                                GenRPCPort := _,
+                                EkkaPort := _
+                            },
+                            ports_to_check := [_, _],
+                            resolved_ips := [_],
+                            status := bad_ports
+                        }
+                }
+        },
+        erpc:call(Core1, emqx_machine, open_ports_check, []),
+        #{core2 => Core2}
+    ),
+
+    ok.
