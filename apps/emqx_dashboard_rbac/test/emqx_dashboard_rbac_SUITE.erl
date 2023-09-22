@@ -136,7 +136,8 @@ t_clean_token(_) ->
     NewDesc = <<"new desc">>,
     {ok, _} = emqx_dashboard_admin:add_user(Username, Password, ?ROLE_SUPERUSER, Desc),
     {ok, Token} = emqx_dashboard_admin:sign_token(Username, Password),
-    FakeReq = #{method => <<"GET">>},
+    FakePath = erlang:list_to_binary(emqx_dashboard_swagger:relative_uri("/fake")),
+    FakeReq = #{method => <<"GET">>, path => FakePath},
     {ok, Username} = emqx_dashboard_admin:verify_token(FakeReq, Token),
     %% change description
     {ok, _} = emqx_dashboard_admin:update_user(Username, ?ROLE_SUPERUSER, NewDesc),
@@ -146,6 +147,17 @@ t_clean_token(_) ->
     {ok, _} = emqx_dashboard_admin:update_user(Username, ?ROLE_VIEWER, NewDesc),
     timer:sleep(5),
     {error, not_found} = emqx_dashboard_admin:verify_token(FakeReq, Token),
+    ok.
+
+t_login_out(_) ->
+    Username = <<"admin_token">>,
+    Password = <<"public_www1">>,
+    Desc = <<"desc">>,
+    {ok, _} = emqx_dashboard_admin:add_user(Username, Password, ?ROLE_SUPERUSER, Desc),
+    {ok, Token} = emqx_dashboard_admin:sign_token(Username, Password),
+    FakePath = erlang:list_to_binary(emqx_dashboard_swagger:relative_uri("/logout")),
+    FakeReq = #{method => <<"POST">>, path => FakePath},
+    {ok, Username} = emqx_dashboard_admin:verify_token(FakeReq, Token),
     ok.
 
 add_default_superuser() ->
