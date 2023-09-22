@@ -27,7 +27,7 @@
 
 -export([login/2, callback/2]).
 
--dialyzer({nowarn_function, create/1}).
+-dialyzer({nowarn_function, do_create/1}).
 
 -define(DIR, <<"saml_sp_certs">>).
 
