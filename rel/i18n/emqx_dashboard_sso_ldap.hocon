@@ -8,4 +8,11 @@ query_timeout.desc:
 
 query_timeout.label:
 """Query Timeout"""
+
+filter.desc:
+"""The filter for matching users in LDAP is by default `(&(objectClass=person)(uid=${username}))`. For Active Directory, it should be set to `(&(objectClass=user)(sAMAccountName=${username}))` by default. Please refer to [LDAP Filters](https://ldap.com/ldap-filters/) for more details."""
+
+filter.label:
+"""Filter"""
+
 }

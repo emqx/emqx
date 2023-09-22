@@ -28,7 +28,7 @@
 -export([error_codes/1, error_codes/2]).
 -export([file_schema/1]).
 -export([base_path/0]).
--export([relative_uri/1]).
+-export([relative_uri/1, get_relative_uri/1]).
 -export([compose_filters/2]).
 
 -export([
@@ -211,6 +211,12 @@ base_path() ->
 -spec relative_uri(uri_string:uri_string()) -> uri_string:uri_string().
 relative_uri(Uri) ->
     base_path() ++ Uri.
+
+-spec get_relative_uri(uri_string:uri_string()) -> {ok, uri_string:uri_string()} | error.
+get_relative_uri(<<?BASE_PATH, Path/binary>>) ->
+    {ok, Path};
+get_relative_uri(_Path) ->
+    error.
 
 file_schema(FileName) ->
     #{

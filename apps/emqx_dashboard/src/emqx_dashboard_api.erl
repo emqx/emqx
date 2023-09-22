@@ -77,7 +77,7 @@ schema("/login") ->
             summary => <<"Dashboard authentication">>,
             'requestBody' => fields([username, password]),
             responses => #{
-                200 => fields([token, version, license]),
+                200 => fields([role, token, version, license]),
                 401 => response_schema(401)
             },
             security => []
@@ -219,14 +219,16 @@ login(post, #{body := Params}) ->
     Username = maps:get(<<"username">>, Params),
     Password = maps:get(<<"password">>, Params),
     case emqx_dashboard_admin:sign_token(Username, Password) of
-        {ok, Token} ->
+        {ok, Role, Token} ->
             ?SLOG(info, #{msg => "dashboard_login_successful", username => Username}),
             Version = iolist_to_binary(proplists:get_value(version, emqx_sys:info())),
-            {200, #{
-                token => Token,
-                version => Version,
-                license => #{edition => emqx_release:edition()}
-            }};
+            {200,
+                filter_result(#{
+                    role => Role,
+                    token => Token,
+                    version => Version,
+                    license => #{edition => emqx_release:edition()}
+                })};
         {error, R} ->
             ?SLOG(info, #{msg => "dashboard_login_failed", username => Username, reason => R}),
             {401, ?BAD_USERNAME_OR_PWD, <<"Auth failed">>}

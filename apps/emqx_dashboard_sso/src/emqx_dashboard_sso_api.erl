@@ -83,7 +83,7 @@ schema("/sso/login/:backend") ->
             parameters => backend_name_in_path(),
             'requestBody' => login_union(),
             responses => #{
-                200 => emqx_dashboard_api:fields([token, version, license]),
+                200 => emqx_dashboard_api:fields([role, token, version, license]),
                 401 => response_schema(401),
                 404 => response_schema(404)
             },
@@ -148,10 +148,11 @@ login(post, #{bindings := #{backend := Backend}, body := Sign}) ->
         State ->
             Provider = emqx_dashboard_sso:provider(Backend),
             case emqx_dashboard_sso:login(Provider, Sign, State) of
-                {ok, Token} ->
+                {ok, Role, Token} ->
                     ?SLOG(info, #{msg => "dashboard_sso_login_successful", request => Sign}),
                     Version = iolist_to_binary(proplists:get_value(version, emqx_sys:info())),
                     {200, #{
+                        role => Role,
                         token => Token,
                         version => Version,
                         license => #{edition => emqx_release:edition()}

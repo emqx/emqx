@@ -12,9 +12,15 @@
 %%=====================================================================
 %% API
 check_rbac(Req, Extra) ->
-    Method = cowboy_req:method(Req),
     Role = role(Extra),
-    check_rbac_with_method(Role, Method).
+    Method = cowboy_req:method(Req),
+    AbsPath = cowboy_req:path(Req),
+    case emqx_dashboard_swagger:get_relative_uri(AbsPath) of
+        {ok, Path} ->
+            check_rbac(Role, Method, Path);
+        _ ->
+            false
+    end.
 
 %% For compatibility
 role(#?ADMIN{role = undefined}) ->
@@ -35,11 +41,14 @@ valid_role(Role) ->
             {error, <<"Role does not exist">>}
     end.
 %% ===================================================================
-check_rbac_with_method(?ROLE_SUPERUSER, _) ->
+check_rbac(?ROLE_SUPERUSER, _, _) ->
     true;
-check_rbac_with_method(?ROLE_VIEWER, <<"GET">>) ->
+check_rbac(?ROLE_VIEWER, <<"GET">>, _) ->
     true;
-check_rbac_with_method(_, _) ->
+%% this API is a special case
+check_rbac(?ROLE_VIEWER, <<"POST">>, <<"/logout">>) ->
+    true;
+check_rbac(_, _, _) ->
     false.
 
 role_list() ->
