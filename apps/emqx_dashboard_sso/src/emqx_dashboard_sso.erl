@@ -39,7 +39,7 @@
     {ok, NewState :: state()} | {error, Reason :: term()}.
 -callback destroy(State :: state()) -> ok.
 -callback login(request(), State :: state()) ->
-    {ok, dashboard_user_role(), Token :: binary()} | {error, Reason :: term()}.
+    {ok, dashboard_user_role(), Token :: binary()} | {redirect, fun()} | {error, Reason :: term()}.
 
 %%------------------------------------------------------------------------------
 %% Callback Interface

@@ -12,20 +12,22 @@
 -behaviour(emqx_dashboard_sso).
 
 -export([
+    hocon_ref/0,
+    login_ref/0,
     fields/1,
     desc/1
 ]).
 
+%% emqx_dashboard_sso callbacks
 -export([
-    hocon_ref/0,
-    login_ref/0,
-    login/2,
     create/1,
     update/2,
     destroy/1
 ]).
 
--export([callback/2]).
+-export([login/2, callback/2]).
+
+-dialyzer({nowarn_function, create/1}).
 
 %%------------------------------------------------------------------------------
 %% Hocon Schema
@@ -156,7 +158,7 @@ callback(Req, #{sp := SP} = _State) ->
     case esaml_cowboy:validate_assertion(SP, fun esaml_util:check_dupe_ets/2, Req) of
         {ok, Assertion, _RelayState, _Req2} ->
             Subject = Assertion#esaml_assertion.subject,
-            Username = Subject#esaml_subject.name,
+            Username = iolist_to_binary(Subject#esaml_subject.name),
             ensure_user_exists(Username);
         {error, Reason0, _Req2} ->
             Reason = [
