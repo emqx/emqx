@@ -195,7 +195,8 @@ do_check({Node, #{resolved_ips := [IP | _]} = Plan}) ->
 node_to_ips(Node) ->
     NodeBin0 = atom_to_binary(Node),
     HostOrIP = re:replace(NodeBin0, <<"^.+@">>, <<"">>, [{return, list}]),
-    case inet:gethostbyname(HostOrIP, inet) of
+    AddressType = resolve_dist_address_type(),
+    case inet:gethostbyname(HostOrIP, AddressType) of
         {ok, #hostent{h_addr_list = AddrList}} ->
             AddrList;
         _ ->
@@ -209,4 +210,19 @@ is_tcp_port_open(IP, Port) ->
             true;
         _ ->
             false
+    end.
+
+resolve_dist_address_type() ->
+    ProtoDistStr = os:getenv("EKKA_PROTO_DIST_MOD", "inet_tcp"),
+    case ProtoDistStr of
+        "inet_tcp" ->
+            inet;
+        "inet6_tcp" ->
+            inet6;
+        "inet_tls" ->
+            inet;
+        "inet6_tls" ->
+            inet6;
+        _ ->
+            inet
     end.

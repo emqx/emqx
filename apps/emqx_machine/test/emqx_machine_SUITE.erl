@@ -170,7 +170,7 @@ t_open_ports_check(Config) ->
                 }
         },
         erpc:call(Core1, emqx_machine, open_ports_check, []),
-        #{core2 => Core2}
+        #{core2 => Core2, gen_rpc_port => GenRPCPort, ekka_port => EkkaPort}
     ),
 
     ok.
