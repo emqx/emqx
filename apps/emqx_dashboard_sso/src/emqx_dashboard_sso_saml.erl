@@ -107,18 +107,17 @@ do_create(
     #{
         dashboard_addr := DashboardAddr,
         idp_metadata_url := IDPMetadataURL,
-        key := KeyPath,
-        certificate := CertPath
+        sp_sign_request := SpSignRequest,
+        sp_private_key := KeyPath,
+        sp_public_key := CertPath
     } = Config
 ) ->
     {ok, _} = application:ensure_all_started(esaml),
     BaseURL = binary_to_list(DashboardAddr) ++ "/api/v5",
-    Key = esaml_util:load_private_key(KeyPath),
-    Cert = esaml_util:load_certificate(CertPath),
     SP = esaml_sp:setup(#esaml_sp{
-        key = Key,
-        certificate = Cert,
-        sp_sign_requests = true,
+        key = maybe_load_cert_or_key(KeyPath, fun esaml_util:load_private_key/1),
+        certificate = maybe_load_cert_or_key(CertPath, fun esaml_util:load_certificate/1),
+        sp_sign_requests = SpSignRequest,
         trusted_fingerprints = [],
         consume_uri = BaseURL ++ "/sso/saml/acs",
         metadata_uri = BaseURL ++ "/sso/saml/metadata",
@@ -135,7 +134,8 @@ do_create(
     }),
     try
         IdpMeta = esaml_util:load_metadata(binary_to_list(IDPMetadataURL)),
-        {ok, Config#{idp_meta => IdpMeta, sp => SP}}
+        State = Config,
+        {ok, State#{idp_meta => IdpMeta, sp => SP}}
     catch
         Kind:Error ->
             Reason = failed_to_load_metadata,
@@ -202,17 +202,23 @@ do_validate_assertion(SP, DuplicateFun, Body) ->
 %%------------------------------------------------------------------------------
 
 -define(DIR, <<"SAML_SSO_sp_certs">>).
--define(RSA_KEYS_A, [sp_public_key, sp_private_key]).
 
-ensure_cert_and_key(Config) ->
+ensure_cert_and_key(#{sp_public_key := Cert, sp_private_key := Key} = Config) ->
     case
-        emqx_tls_lib:ensure_ssl_files(?DIR, Config#{enable => ture}, #{required_keys => ?RSA_KEYS_A})
+        emqx_tls_lib:ensure_ssl_files(
+            ?DIR, #{enable => ture, certfile => Cert, keyfile => Key}, #{}
+        )
     of
-        {ok, NConfig} ->
-            NConfig;
-        {error, #{which_options := [KeyPath | _]}} ->
-            error({missing_key, KeyPath})
+        {ok, #{certfile := CertPath, keyfile := KeyPath} = _NSSL} ->
+            Config#{sp_public_key => CertPath, sp_private_key => KeyPath};
+        {error, #{which_options := KeyPath}} ->
+            error({missing_key, lists:flatten(KeyPath)})
     end.
+
+maybe_load_cert_or_key(undefined, _) ->
+    undefined;
+maybe_load_cert_or_key(Path, Func) ->
+    Func(Path).
 
 is_msie(Headers) ->
     UA = maps:get(<<"user-agent">>, Headers, <<"">>),

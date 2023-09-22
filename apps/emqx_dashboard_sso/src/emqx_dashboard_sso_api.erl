@@ -243,7 +243,9 @@ valid_config(Backend, #{<<"backend">> := Backend} = Config, Fun) ->
 valid_config(_, _, _) ->
     {error, invalid_config}.
 
-handle_backend_update_result({ok, _}, Config) ->
+handle_backend_update_result({ok, #{backend := saml} = State}, _Config) ->
+    {200, to_json(maps:without([idp_meta, sp], State))};
+handle_backend_update_result({ok, _State}, Config) ->
     {200, to_json(Config)};
 handle_backend_update_result(ok, _) ->
     204;
