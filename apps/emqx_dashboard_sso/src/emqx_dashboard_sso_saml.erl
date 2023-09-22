@@ -117,15 +117,19 @@ create(
             email = "contact@emqx.io"
         }
     }),
-    IdpMeta = esaml_util:load_metadata(binary_to_list(IDPMetadataURL)),
-
-    {ok, Config#{idp_meta => IdpMeta, sp => SP}}.
+    try
+        IdpMeta = esaml_util:load_metadata(binary_to_list(IDPMetadataURL)),
+        {ok, Config#{idp_meta => IdpMeta, sp => SP}}
+    catch
+        Kind:Error ->
+            ?SLOG(error, #{msg => failed_to_load_metadata, kind => Kind, error => Error}),
+            {error, failed_to_load_metadata}
+    end.
 
 update(_Config0, State) ->
     {ok, State}.
 
-destroy(#{resource_id := ResourceId}) ->
-    _ = emqx_resource:remove_local(ResourceId),
+destroy(_State) ->
     ok.
 
 login(_Req, #{sp := SP, idp_meta := #esaml_idp_metadata{login_location = IDP}} = _State) ->

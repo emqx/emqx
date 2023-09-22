@@ -173,8 +173,10 @@ schema("/sso/saml/metadata") ->
 fields(backend_status) ->
     emqx_dashboard_sso_schema:common_backend_schema(emqx_dashboard_sso:types()).
 
-%% -------------------------------------------------------------------------------------------------
+%%--------------------------------------------------------------------
 %% API
+%%--------------------------------------------------------------------
+
 running(get, _Request) ->
     SSO = emqx:get_config([dashboard_sso], #{}),
     {200,
@@ -191,7 +193,7 @@ running(get, _Request) ->
 login(post, #{bindings := #{backend := Backend}, body := Sign, headers := Headers}) ->
     case emqx_dashboard_sso_manager:lookup_state(Backend) of
         undefined ->
-            {404, ?BACKEND_NOT_FOUND, <<"Backend not found">>};
+            {404, #{code => ?BACKEND_NOT_FOUND, message => <<"Backend not found">>}};
         State ->
             Provider = provider(Backend),
             case emqx_dashboard_sso:login(Provider, Sign, State) of
@@ -207,7 +209,7 @@ login(post, #{bindings := #{backend := Backend}, body := Sign, headers := Header
                         request => Sign,
                         reason => Reason
                     }),
-                    {401, ?BAD_USERNAME_OR_PWD, <<"Auth failed">>}
+                    {401, #{code => ?BAD_USERNAME_OR_PWD, message => <<"Auth failed">>}}
             end
     end.
 
@@ -224,7 +226,7 @@ sso(get, _Request) ->
 backend(get, #{bindings := #{backend := Type}}) ->
     case emqx:get_config([dashboard_sso, Type], undefined) of
         undefined ->
-            {404, ?BACKEND_NOT_FOUND};
+            {404, #{code => ?BACKEND_NOT_FOUND, message => <<"Backend not found">>}};
         Backend ->
             {200, to_json(Backend)}
     end;
@@ -238,7 +240,7 @@ backend(delete, #{bindings := #{backend := Backend}}) ->
 sp_saml_metadata(get, _Req) ->
     case emqx_dashboard_sso_manager:lookup_state(saml) of
         undefined ->
-            {404, ?BACKEND_NOT_FOUND, <<"Backend not found">>};
+            {404, #{code => ?BACKEND_NOT_FOUND, message => <<"Backend not found">>}};
         #{sp := SP} = _State ->
             SignedXml = esaml_sp:generate_metadata(SP),
             Metadata = xmerl:export([SignedXml], xmerl_xml),
@@ -248,7 +250,7 @@ sp_saml_metadata(get, _Req) ->
 sp_saml_callback(post, Req) ->
     case emqx_dashboard_sso_manager:lookup_state(saml) of
         undefined ->
-            {404, ?BACKEND_NOT_FOUND, <<"Backend not found">>};
+            {404, #{code => ?BACKEND_NOT_FOUND, message => <<"Backend not found">>}};
         State ->
             case (provider(saml)):callback(Req, State) of
                 {ok, Token} ->
@@ -266,8 +268,10 @@ sp_saml_callback(post, Req) ->
 sso_parameters(Params) ->
     backend_name_as_arg(query, [local], <<"local">>) ++ Params.
 
-%% -------------------------------------------------------------------------------------------------
+%%--------------------------------------------------------------------
 %% internal
+%%--------------------------------------------------------------------
+
 response_schema(302) ->
     emqx_dashboard_swagger:error_codes([?REDIRECT], ?DESC(redirect));
 response_schema(401) ->
@@ -324,11 +328,13 @@ handle_backend_update_result({ok, _}, Config) ->
 handle_backend_update_result(ok, _) ->
     204;
 handle_backend_update_result({error, not_exists}, _) ->
-    {404, ?BACKEND_NOT_FOUND, <<"Backend not found">>};
+    {404, #{code => ?BACKEND_NOT_FOUND, message => <<"Backend not found">>}};
 handle_backend_update_result({error, already_exists}, _) ->
-    {400, ?BAD_REQUEST, <<"Backend already exists">>};
+    {400, #{code => ?BAD_REQUEST, message => <<"Backend already exists">>}};
+handle_backend_update_result({error, failed_to_load_metadata}, _) ->
+    {400, #{code => ?BAD_REQUEST, message => <<"Failed to load metadata">>}};
 handle_backend_update_result({error, Reason}, _) ->
-    {400, ?BAD_REQUEST, Reason}.
+    {400, #{code => ?BAD_REQUEST, message => Reason}}.
 
 to_json(Data) ->
     emqx_utils_maps:jsonable_map(
