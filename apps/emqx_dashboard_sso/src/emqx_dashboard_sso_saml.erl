@@ -107,8 +107,8 @@ create(
         %% certificate = Cert,
         sp_sign_requests = SignRequest,
         trusted_fingerprints = [],
-        consume_uri = BaseURL ++ "/sso_saml/acs",
-        metadata_uri = BaseURL ++ "/sso_saml/metadata",
+        consume_uri = BaseURL ++ "/sso/saml/acs",
+        metadata_uri = BaseURL ++ "/sso/saml/metadata",
         org = #esaml_org{
             name = "EMQX Team",
             displayname = "EMQX Dashboard",
@@ -139,17 +139,14 @@ login(_Req, #{sp := SP, idp_meta := #esaml_idp_metadata{login_location = IDP}} =
     Target = esaml_binding:encode_http_redirect(IDP, SignedXml, <<>>),
     %% TODO: _Req acutally is HTTP request body, not fully request
     RedirectFun = fun(Headers) ->
+        RespHeaders = #{<<"Cache-Control">> => <<"no-cache">>, <<"Pragma">> => <<"no-cache">>},
         case is_msie(Headers) of
             true ->
                 Html = esaml_binding:encode_http_post(IDP, SignedXml, <<>>),
-                {200,
-                    [
-                        {<<"Cache-Control">>, <<"no-cache">>},
-                        {<<"Pragma">>, <<"no-cache">>}
-                    ],
-                    Html};
+                {200, RespHeaders, Html};
             false ->
-                {302, redirect_header(Target), <<"Redirecting...">>}
+                RespHeaders1 = RespHeaders#{<<"Location">> => Target},
+                {302, RespHeaders1, <<"Redirecting...">>}
         end
     end,
     {redirect, RedirectFun}.
@@ -177,13 +174,6 @@ callback(Req, #{sp := SP} = _State) ->
 is_msie(Headers) ->
     UA = maps:get(<<"user-agent">>, Headers, <<"">>),
     not (binary:match(UA, <<"MSIE">>) =:= nomatch).
-
-redirect_header(TargetUrl) ->
-    [
-        {<<"Cache-Control">>, <<"no-cache">>},
-        {<<"Pragma">>, <<"no-cache">>},
-        {<<"Location">>, TargetUrl}
-    ].
 
 %% TODO: unify with emqx_dashboard_sso_manager:ensure_user_exists/1
 ensure_user_exists(Username) ->
