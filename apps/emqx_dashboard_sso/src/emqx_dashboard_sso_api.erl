@@ -149,7 +149,8 @@ schema("/sso_saml/acs") ->
                 302 => response_schema(302),
                 401 => response_schema(401),
                 404 => response_schema(404)
-            }
+            },
+            security => []
         }
     };
 schema("/sso_saml/metadata") ->
