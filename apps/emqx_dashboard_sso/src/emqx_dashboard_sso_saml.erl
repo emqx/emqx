@@ -29,6 +29,8 @@
 
 -dialyzer({nowarn_function, create/1}).
 
+-define(DIR, <<"saml_sp_certs">>).
+
 %%------------------------------------------------------------------------------
 %% Hocon Schema
 %%------------------------------------------------------------------------------
@@ -148,6 +150,7 @@ update(Config0, State) ->
     create(Config0).
 
 destroy(_State) ->
+    _ = file:del_dir_r(emqx_tls_lib:pem_dir(?DIR)),
     _ = application:stop(esaml),
     ok.
 
@@ -200,8 +203,6 @@ do_validate_assertion(SP, DuplicateFun, Body) ->
 %%------------------------------------------------------------------------------
 %% Internal functions
 %%------------------------------------------------------------------------------
-
--define(DIR, <<"SAML_SSO_sp_certs">>).
 
 ensure_cert_and_key(#{sp_public_key := Cert, sp_private_key := Key} = Config) ->
     case
