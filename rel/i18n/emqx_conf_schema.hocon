@@ -101,7 +101,7 @@ common_handler_flush_qlen.label:
 
 common_handler_chars_limit.desc:
 """Set the maximum length of a single log message. If this length is exceeded, the log message will be truncated.
-NOTE: Restrict char limiter if formatter is JSON , it will get a truncated incomplete JSON data, which is not recommended."""
+When formatter is 'json' the truncation is done on the JSON values, but not on the log message itself."""
 
 common_handler_chars_limit.label:
 """Single Log Max Length"""
@@ -660,7 +660,8 @@ Can be one of:
   - <code>system</code>: the time offset used by the local system
   - <code>utc</code>: the UTC time offset
   - <code>+-[hh]:[mm]</code>: user specified time offset, such as "-02:00" or "+00:00"
-Defaults to: <code>system</code>."""
+Defaults to: <code>system</code>.
+This config has no effect for when formatter is 'json' as the timestamp in JSON is miliseconds since epoch."""
 
 common_handler_time_offset.label:
 """Time Offset"""

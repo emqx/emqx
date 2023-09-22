@@ -51,7 +51,8 @@
 -type config() :: #{
     depth => pos_integer() | unlimited,
     report_cb => logger:report_cb(),
-    single_line => boolean()
+    single_line => boolean(),
+    chars_limit => unlimited | pos_integer()
 }.
 
 -define(IS_STRING(String), (is_list(String) orelse is_binary(String))).
@@ -64,18 +65,16 @@
 best_effort_json(Input) ->
     best_effort_json(Input, [pretty, force_utf8]).
 best_effort_json(Input, Opts) ->
-    Config = #{depth => unlimited, single_line => true},
+    Config = #{depth => unlimited, single_line => true, chars_limit => unlimited},
     JsonReady = best_effort_json_obj(Input, Config),
     emqx_utils_json:encode(JsonReady, Opts).
 
 -spec format(logger:log_event(), config()) -> iodata().
-format(#{level := Level, msg := Msg, meta := Meta} = Event, Config0) when is_map(Config0) ->
+format(#{level := Level, msg := Msg, meta := Meta}, Config0) when is_map(Config0) ->
     Config = add_default_config(Config0),
-    MsgBin = format(Msg, Meta#{level => Level}, Config),
-    logger_formatter:format(Event#{msg => {string, MsgBin}}, Config).
+    [format(Msg, Meta#{level => Level}, Config), "\n"].
 
-format(Msg, Meta0, Config) ->
-    Meta = maps:without([time, level], Meta0),
+format(Msg, Meta, Config) ->
     Data0 =
         try maybe_format_msg(Msg, Meta, Config) of
             Map when is_map(Map) ->
@@ -128,7 +127,7 @@ format_msg({report, Report}, #{report_cb := Fun} = Meta, Config) when is_functio
     end;
 format_msg({report, Report}, #{report_cb := Fun}, Config) when is_function(Fun, 2) ->
     %% a format callback function of arity 2
-    case Fun(Report, maps:with([depth, single_line], Config)) of
+    case Fun(Report, maps:with([depth, single_line, chars_limit], Config)) of
         Chardata when ?IS_STRING(Chardata) ->
             try
                 unicode:characters_to_binary(Chardata, utf8)
@@ -152,17 +151,22 @@ format_msg({Fmt, Args}, _Meta, Config) ->
 
 do_format_msg(Format0, Args, #{
     depth := Depth,
-    single_line := SingleLine
+    single_line := SingleLine,
+    chars_limit := Limit
 }) ->
+    Opts = chars_limit_to_opts(Limit),
     Format1 = io_lib:scan_format(Format0, Args),
     Format = reformat(Format1, Depth, SingleLine),
-    Text0 = io_lib:build_text(Format, []),
+    Text0 = io_lib:build_text(Format, Opts),
     Text =
         case SingleLine of
             true -> re:replace(Text0, ",?\r?\n\s*", ", ", [{return, list}, global, unicode]);
             false -> Text0
         end,
     trim(unicode:characters_to_binary(Text, utf8)).
+
+chars_limit_to_opts(unlimited) -> [];
+chars_limit_to_opts(Limit) -> [{chars_limit, Limit}].
 
 %% Get rid of the leading spaces.
 %% leave alone the trailing spaces.
@@ -373,23 +377,72 @@ p_config() ->
     proper_types:shrink_list(
         [
             {depth, p_limit()},
-            {single_line, proper_types:boolean()}
+            {single_line, proper_types:boolean()},
+            {chars_limit, p_limit()}
         ]
     ).
 
+%% NOTE: pretty-printing format is asserted in the test
+%% This affects the CLI output format, consult the team before changing
+%% the format.
 best_effort_json_test() ->
     ?assertEqual(
         <<"{\n  \n}">>,
-        emqx_logger_jsonfmt:best_effort_json([])
+        best_effort_json([])
     ),
     ?assertEqual(
         <<"{\n  \"key\" : [\n    \n  ]\n}">>,
-        emqx_logger_jsonfmt:best_effort_json(#{key => []})
+        best_effort_json(#{key => []})
     ),
     ?assertEqual(
         <<"[\n  {\n    \"key\" : [\n      \n    ]\n  }\n]">>,
-        emqx_logger_jsonfmt:best_effort_json([#{key => []}])
+        best_effort_json([#{key => []}])
     ),
+    ok.
+
+config() ->
+    #{
+        chars_limit => unlimited,
+        depth => unlimited,
+        single_line => true
+    }.
+
+make_log(Report) ->
+    #{
+        level => info,
+        msg => Report,
+        meta => #{time => 1111, report_cb => ?DEFAULT_FORMATTER}
+    }.
+
+ensure_json_output_test() ->
+    JSON = format(make_log({report, #{foo => bar}}), config()),
+    ?assert(is_map(emqx_utils_json:decode(JSON))),
+    ok.
+
+chars_limit_not_applied_on_raw_map_fields_test() ->
+    Limit = 32,
+    Len = 100,
+    LongStr = lists:duplicate(Len, $a),
+    Config0 = config(),
+    Config = Config0#{
+        chars_limit => Limit
+    },
+    JSON = format(make_log({report, #{foo => LongStr}}), Config),
+    #{<<"foo">> := LongStr1} = emqx_utils_json:decode(JSON),
+    ?assertEqual(Len, size(LongStr1)),
+    ok.
+
+chars_limit_applied_on_format_result_test() ->
+    Limit = 32,
+    Len = 100,
+    LongStr = lists:duplicate(Len, $a),
+    Config0 = config(),
+    Config = Config0#{
+        chars_limit => Limit
+    },
+    JSON = format(make_log({string, LongStr}), Config),
+    #{<<"msg">> := LongStr1} = emqx_utils_json:decode(JSON),
+    ?assertEqual(Limit, size(LongStr1)),
     ok.
 
 -endif.
