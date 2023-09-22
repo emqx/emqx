@@ -142,9 +142,9 @@ do(Args) ->
         ["eval" | ListOfArgs] ->
             Parsed = parse_eval_args(ListOfArgs),
             % and evaluate it on the remote node
-            case rpc:call(TargetNode, erl_eval, exprs, [Parsed, [] ]) of
-                {value, Value, _} ->
-                    io:format ("~p~n",[Value]);
+            case rpc:call(TargetNode, emqx_ctl, eval_erl, [Parsed]) of
+                {ok, Value} ->
+                    io:format("~p~n",[Value]);
                 {badrpc, Reason} ->
                     io:format("RPC to ~p failed: ~p~n", [TargetNode, Reason]),
                     halt(1)

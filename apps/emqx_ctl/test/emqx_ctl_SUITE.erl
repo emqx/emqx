@@ -40,8 +40,8 @@ t_reg_unreg_command(_) ->
         fun(_CtlSrv) ->
             emqx_ctl:register_command(cmd1, {?MODULE, cmd1_fun}),
             emqx_ctl:register_command(cmd2, {?MODULE, cmd2_fun}),
-            ?assertEqual([{?MODULE, cmd1_fun}], emqx_ctl:lookup_command(cmd1)),
-            ?assertEqual([{?MODULE, cmd2_fun}], emqx_ctl:lookup_command(cmd2)),
+            ?assertEqual({?MODULE, cmd1_fun}, lookup_command(cmd1)),
+            ?assertEqual({?MODULE, cmd2_fun}, lookup_command(cmd2)),
             ?assertEqual(
                 [{cmd1, ?MODULE, cmd1_fun}, {cmd2, ?MODULE, cmd2_fun}],
                 emqx_ctl:get_commands()
@@ -49,8 +49,8 @@ t_reg_unreg_command(_) ->
             emqx_ctl:unregister_command(cmd1),
             emqx_ctl:unregister_command(cmd2),
             ct:sleep(100),
-            ?assertEqual({error, cmd_not_found}, emqx_ctl:lookup_command(cmd1)),
-            ?assertEqual({error, cmd_not_found}, emqx_ctl:lookup_command(cmd2)),
+            ?assertEqual({error, cmd_not_found}, lookup_command(cmd1)),
+            ?assertEqual({error, cmd_not_found}, lookup_command(cmd2)),
             ?assertEqual([], emqx_ctl:get_commands())
         end
     ).
@@ -77,6 +77,12 @@ t_print(_) ->
     ?assertEqual("help", emqx_ctl:print("help")),
     ?assertEqual("help", emqx_ctl:print("~ts", [help])),
     ?assertEqual("~!@#$%^&*()", emqx_ctl:print("~ts", [<<"~!@#$%^&*()">>])),
+    unmock_print().
+
+t_eval_erl(_) ->
+    mock_print(),
+    Expected = atom_to_list(node()) ++ "\n",
+    ?assertEqual(Expected, emqx_ctl:run_command(["eval_erl", "node()"])),
     unmock_print().
 
 t_usage(_) ->
@@ -129,3 +135,9 @@ mock_print() ->
 
 unmock_print() ->
     meck:unload(emqx_ctl).
+
+lookup_command(Cmd) ->
+    case emqx_ctl:lookup_command(Cmd) of
+        {ok, {Mod, Fun}} -> {Mod, Fun};
+        Error -> Error
+    end.

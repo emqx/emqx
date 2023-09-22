@@ -37,6 +37,7 @@ COMMANDS:
   ctl:    Equivalent to 'emqx ctl'.
           ctl command arguments should be passed after '--'
           e.g. $0 ctl -- help
+  eval:   Evaluate an Erlang expression
 
 OPTIONS:
   -p|--profile:      emqx | emqx-enterprise, defaults to 'PROFILE' env.
@@ -81,6 +82,10 @@ case "${1:-novalue}" in
         ;;
     ctl)
         COMMAND='ctl'
+        shift
+        ;;
+    eval)
+        COMMAND='eval'
         shift
         ;;
     help)
@@ -425,14 +430,22 @@ remsh() {
         $EPMD_ARGS
 }
 
+# evaluate erlang expression in remsh node
+eval_remsh_erl() {
+    local tmpnode erl_code
+    tmpnode="$(gen_tmp_node_name)"
+    erl_code="$1"
+    # shellcheck disable=SC2086 # need to expand EMQD_ARGS
+    erl -name "$tmpnode" -setcookie "$COOKIE" -hidden -noshell $EPMD_ARGS -eval "$erl_code" 2>&1
+}
+
 ctl() {
     if [ -z "${PASSTHROUGH_ARGS:-}" ]; then
         logerr "Need at least one argument for ctl command"
         logerr "e.g. $0 ctl -- help"
         exit 1
     fi
-    local tmpnode args rpc_code output result
-    tmpnode="$(gen_tmp_node_name)"
+    local args rpc_code output result
     args="$(make_erlang_args "${PASSTHROUGH_ARGS[@]}")"
     rpc_code="
         case rpc:call('$EMQX_NODE_NAME', emqx_ctl, run_command, [[$args]]) of
@@ -443,8 +456,7 @@ ctl() {
             init:stop(1)
         end"
     set +e
-    # shellcheck disable=SC2086
-    output="$(erl -name "$tmpnode" -setcookie "$COOKIE" -hidden -noshell $EPMD_ARGS -eval "$rpc_code" 2>&1)"
+    output="$(eval_remsh_erl "$rpc_code")"
     result=$?
     if [ $result -eq 0 ]; then
         echo -e "$output"
@@ -462,6 +474,10 @@ case "$COMMAND" in
         remsh
         ;;
     ctl)
+        ctl
+        ;;
+    eval)
+        PASSTHROUGH_ARGS=('eval_erl' "${PASSTHROUGH_ARGS[@]}")
         ctl
         ;;
 esac
