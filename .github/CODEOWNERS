@@ -5,9 +5,11 @@
 /apps/emqx/                @emqx/emqx-review-board @lafirest
 /apps/emqx_authn/          @emqx/emqx-review-board @JimMoen @savonarola
 /apps/emqx_authz/          @emqx/emqx-review-board @JimMoen @savonarola
-/apps/emqx_connector/      @emqx/emqx-review-board @JimMoen
+/apps/emqx_connector/      @emqx/emqx-review-board
 /apps/emqx_dashboard/      @emqx/emqx-review-board @JimMoen @lafirest
-/apps/emqx_exhook/         @emqx/emqx-review-board @JimMoen @lafirest
+/apps/emqx_dashboard_rbac/ @emqx/emqx-review-board @lafirest
+/apps/emqx_dashboard_sso/  @emqx/emqx-review-board @JimMoen @lafirest
+/apps/emqx_exhook/         @emqx/emqx-review-board @JimMoen @HJianBo
 /apps/emqx_ft/             @emqx/emqx-review-board @savonarola @keynslug
 /apps/emqx_gateway/        @emqx/emqx-review-board @lafirest
 /apps/emqx_management/     @emqx/emqx-review-board @lafirest @sstrigler
@@ -18,7 +20,7 @@
 /apps/emqx_rule_engine/    @emqx/emqx-review-board @kjellwinblad
 /apps/emqx_slow_subs/      @emqx/emqx-review-board @lafirest
 /apps/emqx_statsd/         @emqx/emqx-review-board @JimMoen
-/apps/emqx_durable_storage/ @emqx/emqx-review-board @ieQu1 @keynslug 
+/apps/emqx_durable_storage/ @emqx/emqx-review-board @ieQu1 @keynslug
 
 ## CI
 /deploy/  @emqx/emqx-review-board @Rory-Z
