@@ -482,7 +482,7 @@ trace(_) ->
         {"trace stop  topic  <Topic> ", "Stop tracing for a topic on local node"},
         {"trace start ip_address  <IP>    <File> [<Level>] ",
             "Traces for a client ip on local node"},
-        {"trace stop  ip_addresss  <IP> ", "Stop tracing for a client ip on local node"}
+        {"trace stop  ip_address  <IP> ", "Stop tracing for a client ip on local node"}
     ]).
 
 trace_on(Name, Type, Filter, Level, LogFile) ->
