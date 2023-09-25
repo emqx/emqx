@@ -151,13 +151,22 @@ tr_file_handlers(Conf) ->
     lists:map(fun tr_file_handler/1, Handlers).
 
 tr_file_handler({HandlerName, SubConf}) ->
+    FilePath = conf_get("path", SubConf),
+    RotationCount = conf_get("rotation_count", SubConf),
+    RotationSize = conf_get("rotation_size", SubConf),
+    Type =
+        case RotationSize of
+            infinity -> halt;
+            _ -> wrap
+        end,
+    HandlerConf = log_handler_conf(SubConf),
     {handler, atom(HandlerName), logger_disk_log_h, #{
         level => conf_get("level", SubConf),
-        config => (log_handler_conf(SubConf))#{
-            type => wrap,
-            file => conf_get("path", SubConf),
-            max_no_files => conf_get("rotation_count", SubConf),
-            max_no_bytes => conf_get("rotation_size", SubConf)
+        config => HandlerConf#{
+            type => Type,
+            file => FilePath,
+            max_no_files => RotationCount,
+            max_no_bytes => RotationSize
         },
         formatter => log_formatter(HandlerName, SubConf),
         filters => log_filter(HandlerName, SubConf),
