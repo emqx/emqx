@@ -16,6 +16,8 @@
     ref/1
 ]).
 
+-import(emqx_dashboard_sso, [provider/1]).
+
 -export([
     api_spec/0,
     fields/1,
@@ -31,8 +33,9 @@
     backend/2
 ]).
 
--export([sso_parameters/1]).
+-export([sso_parameters/1, login_reply/2]).
 
+-define(REDIRECT, 'REDIRECT').
 -define(BAD_USERNAME_OR_PWD, 'BAD_USERNAME_OR_PWD').
 -define(BAD_REQUEST, 'BAD_REQUEST').
 -define(BACKEND_NOT_FOUND, 'BACKEND_NOT_FOUND').
@@ -74,6 +77,9 @@ schema("/sso") ->
             }
         }
     };
+%% Visit "/sso/login/saml" to start the saml authentication process -- first check to see if
+%% we are already logged in, otherwise we will make an AuthnRequest and send it to
+%% our IDP
 schema("/sso/login/:backend") ->
     #{
         'operationId' => login,
@@ -83,7 +89,9 @@ schema("/sso/login/:backend") ->
             parameters => backend_name_in_path(),
             'requestBody' => login_union(),
             responses => #{
-                200 => emqx_dashboard_api:fields([token, version, license]),
+                200 => emqx_dashboard_api:fields([role, token, version, license]),
+                %% Redirect to IDP for saml
+                302 => response_schema(302),
                 401 => response_schema(401),
                 404 => response_schema(404)
             },
@@ -126,8 +134,10 @@ schema("/sso/:backend") ->
 fields(backend_status) ->
     emqx_dashboard_sso_schema:common_backend_schema(emqx_dashboard_sso:types()).
 
-%% -------------------------------------------------------------------------------------------------
+%%--------------------------------------------------------------------
 %% API
+%%--------------------------------------------------------------------
+
 running(get, _Request) ->
     SSO = emqx:get_config([dashboard_sso], #{}),
     {200,
@@ -141,28 +151,25 @@ running(get, _Request) ->
             maps:values(SSO)
         )}.
 
-login(post, #{bindings := #{backend := Backend}, body := Sign}) ->
+login(post, #{bindings := #{backend := Backend}} = Request) ->
     case emqx_dashboard_sso_manager:lookup_state(Backend) of
         undefined ->
-            {404, ?BACKEND_NOT_FOUND, <<"Backend not found">>};
+            {404, #{code => ?BACKEND_NOT_FOUND, message => <<"Backend not found">>}};
         State ->
-            Provider = emqx_dashboard_sso:provider(Backend),
-            case emqx_dashboard_sso:login(Provider, Sign, State) of
-                {ok, Token} ->
-                    ?SLOG(info, #{msg => "dashboard_sso_login_successful", request => Sign}),
-                    Version = iolist_to_binary(proplists:get_value(version, emqx_sys:info())),
-                    {200, #{
-                        token => Token,
-                        version => Version,
-                        license => #{edition => emqx_release:edition()}
-                    }};
+            case emqx_dashboard_sso:login(provider(Backend), Request, State) of
+                {ok, Role, Token} ->
+                    ?SLOG(info, #{msg => "dashboard_sso_login_successful", request => Request}),
+                    {200, login_reply(Role, Token)};
+                {redirect, Redirect} ->
+                    ?SLOG(info, #{msg => "dashboard_sso_login_redirect", request => Request}),
+                    Redirect;
                 {error, Reason} ->
                     ?SLOG(info, #{
                         msg => "dashboard_sso_login_failed",
-                        request => Sign,
+                        request => Request,
                         reason => Reason
                     }),
-                    {401, ?BAD_USERNAME_OR_PWD, <<"Auth failed">>}
+                    {401, #{code => ?BAD_USERNAME_OR_PWD, message => <<"Auth failed">>}}
             end
     end.
 
@@ -179,7 +186,7 @@ sso(get, _Request) ->
 backend(get, #{bindings := #{backend := Type}}) ->
     case emqx:get_config([dashboard_sso, Type], undefined) of
         undefined ->
-            {404, ?BACKEND_NOT_FOUND};
+            {404, #{code => ?BACKEND_NOT_FOUND, message => <<"Backend not found">>}};
         Backend ->
             {200, to_json(Backend)}
     end;
@@ -193,8 +200,12 @@ backend(delete, #{bindings := #{backend := Backend}}) ->
 sso_parameters(Params) ->
     backend_name_as_arg(query, [local], <<"local">>) ++ Params.
 
-%% -------------------------------------------------------------------------------------------------
+%%--------------------------------------------------------------------
 %% internal
+%%--------------------------------------------------------------------
+
+response_schema(302) ->
+    emqx_dashboard_swagger:error_codes([?REDIRECT], ?DESC(redirect));
 response_schema(401) ->
     emqx_dashboard_swagger:error_codes([?BAD_USERNAME_OR_PWD], ?DESC(login_failed401));
 response_schema(404) ->
@@ -227,24 +238,25 @@ on_backend_update(Backend, Config, Fun) ->
     Result = valid_config(Backend, Config, Fun),
     handle_backend_update_result(Result, Config).
 
-valid_config(Backend, Config, Fun) ->
-    case maps:get(<<"backend">>, Config, undefined) of
-        Backend ->
-            Fun(Backend, Config);
-        _ ->
-            {error, invalid_config}
-    end.
+valid_config(Backend, #{<<"backend">> := Backend} = Config, Fun) ->
+    Fun(Backend, Config);
+valid_config(_, _, _) ->
+    {error, invalid_config}.
 
-handle_backend_update_result({ok, _}, Config) ->
+handle_backend_update_result({ok, #{backend := saml} = State}, _Config) ->
+    {200, to_json(maps:without([idp_meta, sp], State))};
+handle_backend_update_result({ok, _State}, Config) ->
     {200, to_json(Config)};
 handle_backend_update_result(ok, _) ->
     204;
 handle_backend_update_result({error, not_exists}, _) ->
-    {404, ?BACKEND_NOT_FOUND, <<"Backend not found">>};
+    {404, #{code => ?BACKEND_NOT_FOUND, message => <<"Backend not found">>}};
 handle_backend_update_result({error, already_exists}, _) ->
-    {400, ?BAD_REQUEST, <<"Backend already exists">>};
+    {400, #{code => ?BAD_REQUEST, message => <<"Backend already exists">>}};
+handle_backend_update_result({error, failed_to_load_metadata}, _) ->
+    {400, #{code => ?BAD_REQUEST, message => <<"Failed to load metadata">>}};
 handle_backend_update_result({error, Reason}, _) ->
-    {400, ?BAD_REQUEST, Reason}.
+    {400, #{code => ?BAD_REQUEST, message => Reason}}.
 
 to_json(Data) ->
     emqx_utils_maps:jsonable_map(
@@ -253,3 +265,11 @@ to_json(Data) ->
             {K, emqx_utils_maps:binary_string(V)}
         end
     ).
+
+login_reply(Role, Token) ->
+    #{
+        role => Role,
+        token => Token,
+        version => iolist_to_binary(proplists:get_value(version, emqx_sys:info())),
+        license => #{edition => emqx_release:edition()}
+    }.

@@ -30,6 +30,15 @@ delete_backend.desc:
 delete_backend.label:
 """Delete Backend"""
 
+saml_sso_acs.desc:
+"""SAML SSO ACS URL"""
+
+sp_saml_metadata.desc:
+"""SP SAML Metadata"""
+
+redirect.desc:
+"""Redirect to IDP SSO login page"""
+
 login_failed401.desc:
 """Login failed. Bad username or password"""
 

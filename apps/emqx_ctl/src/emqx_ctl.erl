@@ -44,6 +44,10 @@
     usage/2
 ]).
 
+-export([
+    eval_erl/1
+]).
+
 %% Exports mainly for test cases
 -export([
     format/2,
@@ -119,7 +123,7 @@ run_command(Cmd, Args) when is_atom(Cmd) ->
     Start = erlang:monotonic_time(),
     Result =
         case lookup_command(Cmd) of
-            [{Mod, Fun}] ->
+            {ok, {Mod, Fun}} ->
                 try
                     apply(Mod, Fun, [Args])
                 catch
@@ -127,13 +131,15 @@ run_command(Cmd, Args) when is_atom(Cmd) ->
                         ?LOG_ERROR(#{
                             msg => "ctl_command_crashed",
                             stacktrace => Stacktrace,
-                            reason => Reason
+                            reason => Reason,
+                            module => Mod,
+                            function => Fun
                         }),
                         {error, Reason}
                 end;
-            Error ->
+            {error, Reason} ->
                 help(),
-                Error
+                {error, Reason}
         end,
     Duration = erlang:convert_time_unit(erlang:monotonic_time() - Start, native, millisecond),
 
@@ -144,12 +150,22 @@ run_command(Cmd, Args) when is_atom(Cmd) ->
     ),
     Result.
 
--spec lookup_command(cmd()) -> [{module(), atom()}] | {error, any()}.
+-spec lookup_command(cmd()) -> {module(), atom()} | {error, any()}.
+lookup_command(eval_erl) ->
+    %% So far 'emqx ctl eval_erl Expr' is a undocumented hidden command.
+    %% For backward compatibility,
+    %% the documented command 'emqx eval Expr' has the expression parsed
+    %% in the remsh node (nodetool).
+    %%
+    %% 'eval_erl' is added for two purposes
+    %% 1. 'emqx eval Expr' can be audited
+    %% 2. 'emqx ctl eval_erl Expr' simplifies the scripting part
+    {ok, {?MODULE, eval_erl}};
 lookup_command(Cmd) when is_atom(Cmd) ->
     case is_initialized() of
         true ->
             case ets:match(?CMD_TAB, {{'_', Cmd}, '$1', '_'}) of
-                [El] -> El;
+                [[{M, F}]] -> {ok, {M, F}};
                 [] -> {error, cmd_not_found}
             end;
         false ->
@@ -319,7 +335,7 @@ audit_log(Level, From, Log) ->
     case lookup_command(audit) of
         {error, _} ->
             ignore;
-        [{Mod, Fun}] ->
+        {ok, {Mod, Fun}} ->
             try
                 apply(Mod, Fun, [Level, From, Log])
             catch
@@ -339,3 +355,23 @@ audit_level({ok, _}, Duration) when Duration >= ?TOO_SLOW -> warning;
 audit_level(ok, _Duration) -> info;
 audit_level({ok, _}, _Duration) -> info;
 audit_level(_, _) -> error.
+
+eval_erl([Parsed | _] = Expr) when is_tuple(Parsed) ->
+    eval_expr(Expr);
+eval_erl([String]) ->
+    % convenience to users, if they forgot a trailing
+    % '.' add it for them.
+    Normalized =
+        case lists:reverse(String) of
+            [$. | _] -> String;
+            R -> lists:reverse([$. | R])
+        end,
+    % then scan and parse the string
+    {ok, Scanned, _} = erl_scan:string(Normalized),
+    {ok, Parsed} = erl_parse:parse_exprs(Scanned),
+    {ok, Value} = eval_expr(Parsed),
+    print("~p~n", [Value]).
+
+eval_expr(Parsed) ->
+    {value, Value, _} = erl_eval:exprs(Parsed, []),
+    {ok, Value}.

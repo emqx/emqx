@@ -101,7 +101,7 @@ t_first_login(_) ->
     },
     %% this API is authorization-free
     {ok, 200, Result} = request_without_authorization(post, Path, Req),
-    ?assertMatch(#{license := _, token := _}, decode_json(Result)),
+    ?assertMatch(#{license := _, token := _, role := ?ROLE_VIEWER}, decode_json(Result)),
     ?assertMatch(
         [#?ADMIN{username = ?SSO_USERNAME(ldap, ?LDAP_USER)}],
         emqx_dashboard_admin:lookup_user(ldap, ?LDAP_USER)
