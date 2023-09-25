@@ -588,7 +588,18 @@ is_banned_msg(#message{from = ClientId}) ->
 get_impl_mod(Session) when ?IS_SESSION_IMPL_MEM(Session) ->
     emqx_session_mem;
 get_impl_mod(Session) when ?IS_SESSION_IMPL_DS(Session) ->
-    emqx_persistent_session_ds.
+    emqx_persistent_session_ds;
+get_impl_mod(Session) ->
+    maybe_mock_impl_mod(Session).
+
+-ifdef(TEST).
+maybe_mock_impl_mod({Mock, _State}) when is_atom(Mock) ->
+    Mock.
+-else.
+-spec maybe_mock_impl_mod(_Session) -> no_return().
+maybe_mock_impl_mod(_) ->
+    error(noimpl).
+-endif.
 
 -spec choose_impl_mod(conninfo()) -> module().
 choose_impl_mod(#{expiry_interval := EI}) ->

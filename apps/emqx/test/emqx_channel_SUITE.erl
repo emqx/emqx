@@ -22,6 +22,7 @@
 -include_lib("emqx/include/emqx.hrl").
 -include_lib("emqx/include/emqx_mqtt.hrl").
 -include_lib("eunit/include/eunit.hrl").
+-include_lib("emqx/include/asserts.hrl").
 -include_lib("common_test/include/ct.hrl").
 
 all() ->
@@ -729,6 +730,10 @@ t_handle_info_sock_closed(_) ->
 %% Test cases for handle_timeout
 %%--------------------------------------------------------------------
 
+-define(CUSTOM_TIMER1_TIMEOUT, 100).
+-define(CUSTOM_TIMER2_TIMEOUT, 20).
+-define(CUSTOM_TIMER3_TIMEOUT, 50).
+
 t_handle_timeout_keepalive(_) ->
     TRef = make_ref(),
     Channel = emqx_channel:set_field(timers, #{keepalive => TRef}, channel()),
@@ -751,6 +756,54 @@ t_handle_timeout_expire_session(_) ->
 
 t_handle_timeout_will_message(_) ->
     {ok, _Chan} = emqx_channel:handle_timeout(make_ref(), will_message, channel()).
+
+t_handle_custom_timers(_) ->
+    Channel = channel(#{
+        conn_state => connected,
+        session => {?MODULE, #{}}
+    }),
+    {ok, [{outgoing, ?SUBACK_PACKET(1, [?QOS_0])} | _], Chan1} =
+        emqx_channel:handle_in(
+            ?SUBSCRIBE_PACKET(1, #{}, [{<<"+/+">>, ?DEFAULT_SUBOPTS}]),
+            Channel
+        ),
+    {timeout, T1Ref, T1Msg} = ?assertReceive({timeout, _, _}, ?CUSTOM_TIMER1_TIMEOUT * 2),
+    {ok, {outgoing, [?PUBLISH_PACKET(0, <<"a/b">>, 1, <<"t1">>)]}, Chan2} =
+        emqx_channel:handle_timeout(T1Ref, T1Msg, Chan1),
+    {timeout, T2Ref, T2Msg} = ?assertReceive({timeout, _, _}, ?CUSTOM_TIMER2_TIMEOUT * 2),
+    {ok, {outgoing, [?PUBLISH_PACKET(0, <<"c/d">>, 2, <<"t2">>)]}, _Chan} =
+        emqx_channel:handle_timeout(T2Ref, T2Msg, Chan2),
+    ok = ?assertNotReceive({timeout, _, _}, ?CUSTOM_TIMER3_TIMEOUT * 2).
+
+%%--------------------------------------------------------------------
+%% Mocked session module
+%%--------------------------------------------------------------------
+
+subscribe(_TopicFilter, _SubOpts = #{}, {?MODULE, Session0}) ->
+    % NOTE: Only this one should be triggered
+    Session1 = emqx_session:ensure_timer(t1, ?CUSTOM_TIMER1_TIMEOUT, Session0),
+    Session = emqx_session:ensure_timer(t1, ?CUSTOM_TIMER1_TIMEOUT * 5, Session1),
+    {ok, {?MODULE, Session}}.
+
+get_subscription(_TopicFilter, {?MODULE, _Session}) ->
+    undefined.
+
+handle_timeout(_ClientInfo, t1, {?MODULE, Session0}) ->
+    Msg = emqx_message:make(<<"a/b">>, <<"t1">>),
+    Session1 = maps:remove(t1, Session0),
+    % NOTE: Only this one should be reset by the second call.
+    Session2 = emqx_session:reset_timer(t2, ?CUSTOM_TIMER2_TIMEOUT * 5, Session1),
+    Session3 = emqx_session:reset_timer(t2, ?CUSTOM_TIMER2_TIMEOUT, Session2),
+    Session = emqx_session:reset_timer(t3, ?CUSTOM_TIMER3_TIMEOUT, Session3),
+    {ok, [{1, Msg}], {?MODULE, Session}};
+handle_timeout(_ClientInfo, t2, {?MODULE, Session0}) ->
+    Msg = emqx_message:make(<<"c/d">>, <<"t2">>),
+    Session1 = maps:remove(t2, Session0),
+    Session2 = emqx_session:cancel_timer(t2, Session1),
+    % NOTE: Thus `t3` should not be triggered, see `?assertNotReceive` above.
+    Session = emqx_session:cancel_timer(t3, Session2),
+    ok = ?assertEqual(#{}, Session),
+    {ok, [{2, Msg}], {?MODULE, Session}}.
 
 %%--------------------------------------------------------------------
 %% Test cases for internal functions
