@@ -29,7 +29,7 @@ all() ->
 
 init_per_suite(Config) ->
     _ = application:load(emqx_conf),
-    emqx_config:save_schema_mod_and_names(emqx_dashboard_sso_schema),
+    emqx_config:save_schema_mod_and_names(emqx_dashboard_schema),
     emqx_mgmt_api_test_util:init_suite([emqx_dashboard, emqx_dashboard_sso]),
     Config.
 

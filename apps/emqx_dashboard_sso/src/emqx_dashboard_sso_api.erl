@@ -40,6 +40,7 @@
 -define(BAD_REQUEST, 'BAD_REQUEST').
 -define(BACKEND_NOT_FOUND, 'BACKEND_NOT_FOUND').
 -define(TAGS, <<"Dashboard Single Sign-On">>).
+-define(MOD_KEY_PATH, [dashboard, sso]).
 
 namespace() -> "dashboard_sso".
 
@@ -139,7 +140,7 @@ fields(backend_status) ->
 %%--------------------------------------------------------------------
 
 running(get, _Request) ->
-    SSO = emqx:get_config([dashboard_sso], #{}),
+    SSO = emqx:get_config(?MOD_KEY_PATH, #{}),
     {200,
         lists:filtermap(
             fun
@@ -175,7 +176,7 @@ login(post, #{bindings := #{backend := Backend}, body := Body} = Request) ->
     end.
 
 sso(get, _Request) ->
-    SSO = emqx:get_config([dashboard_sso], #{}),
+    SSO = emqx:get_config(?MOD_KEY_PATH, #{}),
     {200,
         lists:map(
             fun(Backend) ->
@@ -185,7 +186,7 @@ sso(get, _Request) ->
         )}.
 
 backend(get, #{bindings := #{backend := Type}}) ->
-    case emqx:get_config([dashboard_sso, Type], undefined) of
+    case emqx:get_config(?MOD_KEY_PATH ++ [Type], undefined) of
         undefined ->
             {404, #{code => ?BACKEND_NOT_FOUND, message => <<"Backend not found">>}};
         Backend ->

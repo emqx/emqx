@@ -35,12 +35,14 @@
     update/2,
     delete/1,
     pre_config_update/3,
-    post_config_update/5
+    post_config_update/5,
+    propagated_post_config_update/5
 ]).
 
 -import(emqx_dashboard_sso, [provider/1]).
 
--define(MOD_KEY_PATH, [dashboard_sso]).
+-define(MOD_KEY_PATH, [dashboard, sso]).
+-define(MOD_KEY_PATH(Sub), [dashboard, sso, Sub]).
 -define(RESOURCE_GROUP, <<"emqx_dashboard_sso">>).
 -define(DEFAULT_RESOURCE_OPTS, #{
     start_after_created => false
@@ -66,7 +68,7 @@ running() ->
                 Acc
         end,
         [],
-        emqx:get_config([emqx_dashboard_sso])
+        emqx:get_config(?MOD_KEY_PATH)
     ).
 
 update(Backend, Config) ->
@@ -110,7 +112,7 @@ call(Req) ->
 %%------------------------------------------------------------------------------
 init([]) ->
     process_flag(trap_exit, true),
-    emqx_conf:add_handler(?MOD_KEY_PATH, ?MODULE),
+    add_handler(),
     emqx_utils_ets:new(
         dashboard_sso,
         [
@@ -138,7 +140,7 @@ handle_info(_Info, State) ->
     {noreply, State}.
 
 terminate(_Reason, _State) ->
-    emqx_conf:remove_handler(?MOD_KEY_PATH),
+    remove_handler(),
     ok.
 
 code_change(_OldVsn, State, _Extra) ->
@@ -151,7 +153,7 @@ format_status(_Opt, Status) ->
 %% Internal functions
 %%------------------------------------------------------------------------------
 start_backend_services() ->
-    Backends = emqx_conf:get([dashboard_sso], #{}),
+    Backends = emqx_conf:get(?MOD_KEY_PATH, #{}),
     lists:foreach(
         fun({Backend, Config}) ->
             Provider = provider(Backend),
@@ -174,7 +176,7 @@ start_backend_services() ->
     ).
 
 update_config(Backend, UpdateReq) ->
-    case emqx_conf:update([dashboard_sso], UpdateReq, #{override_to => cluster}) of
+    case emqx_conf:update(?MOD_KEY_PATH(Backend), UpdateReq, #{override_to => cluster}) of
         {ok, UpdateResult} ->
             #{post_config_update := #{?MODULE := Result}} = UpdateResult,
             ?SLOG(info, #{
@@ -192,25 +194,38 @@ update_config(Backend, UpdateReq) ->
             Error
     end.
 
-pre_config_update(_Path, {update, Backend, Config}, OldConf) ->
-    BackendBin = bin(Backend),
-    {ok, OldConf#{BackendBin => Config}};
-pre_config_update(_Path, {delete, Backend}, OldConf) ->
-    BackendBin = bin(Backend),
-    case maps:find(BackendBin, OldConf) of
-        error ->
-            throw(not_exists);
-        {ok, _} ->
-            {ok, maps:remove(BackendBin, OldConf)}
-    end.
+pre_config_update(_, {update, _Backend, Config}, _OldConf) ->
+    {ok, Config};
+pre_config_update(_, {delete, _Backend}, undefined) ->
+    throw(not_exists);
+pre_config_update(_, {delete, _Backend}, _OldConf) ->
+    {ok, null}.
 
-post_config_update(_Path, UpdateReq, NewConf, _OldConf, _AppEnvs) ->
+post_config_update(_, UpdateReq, NewConf, _OldConf, _AppEnvs) ->
     Result = call({update_config, UpdateReq, NewConf}),
     {ok, Result}.
 
-on_config_update({update, Backend, _Config}, NewConf) ->
+propagated_post_config_update(
+    ?MOD_KEY_PATH(BackendBin) = Path, _UpdateReq, undefined, OldConf, AppEnvs
+) ->
+    case atom(BackendBin) of
+        {ok, Backend} ->
+            post_config_update(Path, {delete, Backend}, undefined, OldConf, AppEnvs);
+        Error ->
+            Error
+    end;
+propagated_post_config_update(
+    ?MOD_KEY_PATH(BackendBin) = Path, _UpdateReq, NewConf, OldConf, AppEnvs
+) ->
+    case atom(BackendBin) of
+        {ok, Backend} ->
+            post_config_update(Path, {update, Backend, undefined}, NewConf, OldConf, AppEnvs);
+        Error ->
+            Error
+    end.
+
+on_config_update({update, Backend, _RawConfig}, Config) ->
     Provider = provider(Backend),
-    Config = maps:get(Backend, NewConf),
     case lookup(Backend) of
         undefined ->
             on_backend_updated(
@@ -267,3 +282,12 @@ on_backend_updated(Error, _) ->
 bin(A) when is_atom(A) -> atom_to_binary(A, utf8);
 bin(L) when is_list(L) -> list_to_binary(L);
 bin(X) -> X.
+
+atom(B) ->
+    emqx_utils:safe_to_existing_atom(B).
+
+add_handler() ->
+    ok = emqx_conf:add_handler(?MOD_KEY_PATH('?'), ?MODULE).
+
+remove_handler() ->
+    ok = emqx_conf:remove_handler(?MOD_KEY_PATH('?')).
