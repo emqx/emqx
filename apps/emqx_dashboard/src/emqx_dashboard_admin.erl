@@ -212,8 +212,8 @@ add_user_(Username, Password, Role, Desc) ->
             mnesia:abort(<<"username_already_exist">>)
     end.
 
--spec remove_user(binary()) -> {ok, any()} | {error, any()}.
-remove_user(Username) when is_binary(Username) ->
+-spec remove_user(dashboard_username()) -> {ok, any()} | {error, any()}.
+remove_user(Username) ->
     Trans = fun() ->
         case lookup_user(Username) of
             [] -> mnesia:abort(<<"username_not_found">>);
