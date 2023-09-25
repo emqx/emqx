@@ -78,16 +78,7 @@ t_log_conf(_Conf) ->
                 <<"time_offset">> => <<"system">>
             },
         <<"file">> =>
-            #{<<"default">> => FileExpect},
-        <<"audit">> =>
-            #{
-                <<"enable">> => true,
-                <<"level">> => <<"info">>,
-                <<"path">> => <<"log/audit.log">>,
-                <<"rotation_count">> => 10,
-                <<"rotation_size">> => <<"50MB">>,
-                <<"time_offset">> => <<"system">>
-            }
+            #{<<"default">> => FileExpect}
     },
     ?assertEqual(ExpectLog1, emqx_conf:get_raw([<<"log">>])),
     UpdateLog0 = emqx_utils_maps:deep_remove([<<"file">>, <<"default">>], ExpectLog1),
