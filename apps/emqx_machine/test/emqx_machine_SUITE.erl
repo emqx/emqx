@@ -152,6 +152,7 @@ t_open_ports_check(Config) ->
     ok = emqx_cth_cluster:stop_node(Core2),
 
     ?assertEqual(ok, erpc:call(Replicant, emqx_machine, open_ports_check, [])),
+    Results = erpc:call(Core1, emqx_machine, open_ports_check, []),
     ?assertMatch(
         #{
             msg := "some ports are unreachable",
@@ -159,18 +160,21 @@ t_open_ports_check(Config) ->
                 #{
                     Core2 :=
                         #{
-                            open_ports := #{
-                                GenRPCPort := _,
-                                EkkaPort := _
-                            },
+                            open_ports := #{},
                             ports_to_check := [_, _],
                             resolved_ips := [_],
                             status := bad_ports
                         }
                 }
         },
-        erpc:call(Core1, emqx_machine, open_ports_check, []),
-        #{core2 => Core2}
+        Results,
+        #{core2 => Core2, gen_rpc_port => GenRPCPort, ekka_port => EkkaPort}
     ),
-
+    %% 2 ports to check; we don't assert the exact ekka port because, when running
+    %% multiple nodes on the same machine as we do in tests, the order of returned ports
+    %% might change between invocations.
+    NumPorts = 2,
+    ?assertEqual(
+        NumPorts, map_size(emqx_utils_maps:deep_get([results, Core2, open_ports], Results))
+    ),
     ok.
