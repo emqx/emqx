@@ -437,6 +437,10 @@ do_start_listener(quic, ListenerName, #{bind := Bind} = Opts) ->
                     case maps:get(cacertfile, SSLOpts, undefined) of
                         undefined ->
                             [];
+                        <<>> ->
+                            [];
+                        "" ->
+                            [];
                         CaCertFile ->
                             [{cacertfile, emqx_schema:naive_env_interpolation(CaCertFile)}]
                     end ++
