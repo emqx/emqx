@@ -75,7 +75,7 @@ format(#{level := Level, msg := Msg, meta := Meta}, Config0) when is_map(Config0
     [format(Msg, Meta#{level => Level}, Config), "\n"].
 
 format(Msg, Meta, Config) ->
-    Data0 =
+    Data =
         try maybe_format_msg(Msg, Meta, Config) of
             Map when is_map(Map) ->
                 maps:merge(Map, Meta);
@@ -91,8 +91,7 @@ format(Msg, Meta, Config) ->
                     fmt_stacktrace => S
                 }
         end,
-    Data = maps:without([report_cb], Data0),
-    emqx_utils_json:encode(json_obj(Data, Config)).
+    emqx_utils_json:encode(json_obj_root(Data, Config)).
 
 maybe_format_msg({report, Report} = Msg, #{report_cb := Cb} = Meta, Config) ->
     case is_map(Report) andalso Cb =:= ?DEFAULT_FORMATTER of
@@ -248,41 +247,74 @@ json(Map, Config) when is_map(Map) ->
 json(Term, Config) ->
     do_format_msg("~p", [Term], Config).
 
+json_obj_root(Data0, Config) ->
+    Time = maps:get(time, Data0),
+    Level = maps:get(level, Data0),
+    Msg1 =
+        case maps:get(msg, Data0, undefined) of
+            undefined ->
+                maps:get('$kind', Data0, undefined);
+            Msg0 ->
+                Msg0
+        end,
+    Msg =
+        case Msg1 of
+            undefined ->
+                undefined;
+            _ ->
+                json(Msg1, Config)
+        end,
+    Line =
+        case maps:get(line, Data0, undefined) of
+            undefined ->
+                <<"">>;
+            Num ->
+                iolist_to_binary([":", integer_to_list(Num)])
+        end,
+
+    Mfal =
+        case maps:get(mfa, Data0, undefined) of
+            {M, F, A} ->
+                <<
+                    (atom_to_binary(M, utf8))/binary,
+                    $:,
+                    (atom_to_binary(F, utf8))/binary,
+                    $/,
+                    (integer_to_binary(A))/binary,
+                    Line/binary
+                >>;
+            _ ->
+                unefined
+        end,
+    Data =
+        maps:fold(
+            fun(K, V, D) ->
+                {K1, V1} = json_kv(K, V, Config),
+                [{K1, V1} | D]
+            end,
+            [],
+            maps:without([time, gl, file, report_cb, msg, '$kind', mfa, level, line], Data0)
+        ),
+    lists:filter(
+        fun({_, V}) -> V =/= undefined end,
+        [{time, Time}, {level, Level}, {msg, Msg}, {mfa, Mfal}]
+    ) ++ Data.
+
 json_obj(Data, Config) ->
     maps:fold(
         fun(K, V, D) ->
-            json_kv(K, V, D, Config)
+            {K1, V1} = json_kv(K, V, Config),
+            maps:put(K1, V1, D)
         end,
         maps:new(),
         Data
     ).
 
-json_kv(mfa, {M, F, A}, Data, _Config) ->
-    maps:put(
-        mfa,
-        <<
-            (atom_to_binary(M, utf8))/binary,
-            $:,
-            (atom_to_binary(F, utf8))/binary,
-            $/,
-            (integer_to_binary(A))/binary
-        >>,
-        Data
-    );
-%% snabbkaffe
-json_kv('$kind', Kind, Data, Config) ->
-    maps:put(msg, json(Kind, Config), Data);
-json_kv(gl, _, Data, _Config) ->
-    %% drop gl because it's not interesting
-    Data;
-json_kv(file, _, Data, _Config) ->
-    %% drop 'file' because we have mfa
-    Data;
-json_kv(K0, V, Data, Config) ->
+json_kv(K0, V, Config) ->
     K = json_key(K0),
     case is_map(V) of
-        true -> maps:put(json(K, Config), best_effort_json_obj(V, Config), Data);
-        false -> maps:put(json(K, Config), json(V, Config), Data)
+        true -> {K, best_effort_json_obj(V, Config)};
+        false -> {K, json(V, Config)}
     end.
 
 json_key(A) when is_atom(A) -> json_key(atom_to_binary(A, utf8));
