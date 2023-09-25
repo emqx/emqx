@@ -1338,6 +1338,17 @@ handle_timeout(
             NChannel = Channel#channel{session = NSession},
             handle_out(publish, Publishes, reset_timer(TimerName, Timeout, NChannel))
     end;
+handle_timeout(
+    _TRef,
+    {emqx_session, TimerName},
+    Channel = #channel{session = Session, clientinfo = ClientInfo}
+) ->
+    case emqx_session:handle_timeout(ClientInfo, TimerName, Session) of
+        {ok, [], NSession} ->
+            {ok, Channel#channel{session = NSession}};
+        {ok, Replies, NSession} ->
+            handle_out(publish, Replies, Channel#channel{session = NSession})
+    end;
 handle_timeout(_TRef, expire_session, Channel) ->
     shutdown(expired, Channel);
 handle_timeout(

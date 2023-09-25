@@ -88,6 +88,13 @@
     terminate/3
 ]).
 
+% Timers
+-export([
+    ensure_timer/3,
+    reset_timer/3,
+    cancel_timer/2
+]).
+
 % Foreign session implementations
 -export([enrich_delivers/3]).
 
@@ -103,7 +110,9 @@
     conninfo/0,
     reply/0,
     replies/0,
-    common_timer_name/0
+    common_timer_name/0,
+    custom_timer_name/0,
+    timerset/0
 ]).
 
 -type session_id() :: _TODO.
@@ -118,6 +127,7 @@
     }.
 
 -type common_timer_name() :: retry_delivery | expire_awaiting_rel.
+-type custom_timer_name() :: atom().
 
 -type message() :: emqx_types:message().
 -type publish() :: {maybe(emqx_types:packet_id()), emqx_types:message()}.
@@ -143,6 +153,8 @@
 -type t() ::
     emqx_session_mem:session()
     | emqx_persistent_session_ds:session().
+
+-type timerset() :: #{custom_timer_name() => _TimerRef :: reference()}.
 
 -define(INFO_KEYS, [
     id,
@@ -442,11 +454,38 @@ enrich_subopts(_Opt, _V, Msg, _) ->
 %% Timeouts
 %%--------------------------------------------------------------------
 
--spec handle_timeout(clientinfo(), common_timer_name(), t()) ->
+-spec handle_timeout(clientinfo(), common_timer_name() | custom_timer_name(), t()) ->
     {ok, replies(), t()}
+    %% NOTE: only relevant for `common_timer_name()`
     | {ok, replies(), timeout(), t()}.
 handle_timeout(ClientInfo, Timer, Session) ->
     ?IMPL(Session):handle_timeout(ClientInfo, Timer, Session).
+
+%%--------------------------------------------------------------------
+
+-spec ensure_timer(custom_timer_name(), timeout(), timerset()) ->
+    timerset().
+ensure_timer(Name, _Time, Timers = #{}) when is_map_key(Name, Timers) ->
+    Timers;
+ensure_timer(Name, Time, Timers = #{}) when Time > 0 ->
+    TRef = emqx_utils:start_timer(Time, {?MODULE, Name}),
+    Timers#{Name => TRef}.
+
+-spec reset_timer(custom_timer_name(), timeout(), timerset()) ->
+    timerset().
+reset_timer(Name, Time, Channel) ->
+    ensure_timer(Name, Time, cancel_timer(Name, Channel)).
+
+-spec cancel_timer(custom_timer_name(), timerset()) ->
+    timerset().
+cancel_timer(Name, Timers) ->
+    case maps:take(Name, Timers) of
+        {TRef, NTimers} ->
+            ok = emqx_utils:cancel_timer(TRef),
+            NTimers;
+        error ->
+            Timers
+    end.
 
 %%--------------------------------------------------------------------
 
