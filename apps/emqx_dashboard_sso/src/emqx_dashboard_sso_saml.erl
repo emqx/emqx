@@ -29,6 +29,9 @@
 
 -dialyzer({nowarn_function, do_create/1}).
 
+-define(RESPHEADERS, #{<<"Cache-Control">> => <<"no-cache">>, <<"Pragma">> => <<"no-cache">>}).
+-define(REDIRECT_BODY, <<"Redirecting...">>).
+
 -define(DIR, <<"saml_sp_certs">>).
 
 %%------------------------------------------------------------------------------
@@ -103,7 +106,49 @@ create(#{sp_sign_request := true} = Config) ->
             {error, Msg}
     end;
 create(#{sp_sign_request := false} = Config) ->
-    do_create(Config#{key => undefined, certificate => undefined}).
+    do_create(Config#{sp_private_key => undefined, sp_public_key => undefined}).
+
+update(Config0, State) ->
+    destroy(State),
+    create(Config0).
+
+destroy(_State) ->
+    _ = file:del_dir_r(emqx_tls_lib:pem_dir(?DIR)),
+    _ = application:stop(esaml),
+    ok.
+
+login(
+    #{headers := Headers} = _Req,
+    #{sp := SP, idp_meta := #esaml_idp_metadata{login_location = IDP}} = _State
+) ->
+    SignedXml = esaml_sp:generate_authn_request(IDP, SP),
+    Target = esaml_binding:encode_http_redirect(IDP, SignedXml, <<>>),
+    Redirect =
+        case is_msie(Headers) of
+            true ->
+                Html = esaml_binding:encode_http_post(IDP, SignedXml, <<>>),
+                {200, ?RESPHEADERS, Html};
+            false ->
+                {302, ?RESPHEADERS#{<<"Location">> => Target}, ?REDIRECT_BODY}
+        end,
+    {redirect, Redirect}.
+
+callback(_Req = #{body := Body}, #{sp := SP, dashboard_addr := DashboardAddr} = _State) ->
+    case do_validate_assertion(SP, fun esaml_util:check_dupe_ets/2, Body) of
+        {ok, Assertion, _RelayState} ->
+            Subject = Assertion#esaml_assertion.subject,
+            Username = iolist_to_binary(Subject#esaml_subject.name),
+            gen_redirect_response(DashboardAddr, Username);
+        {error, Reason0} ->
+            Reason = [
+                "Access denied, assertion failed validation:\n", io_lib:format("~p\n", [Reason0])
+            ],
+            {error, iolist_to_binary(Reason)}
+    end.
+
+%%------------------------------------------------------------------------------
+%% Internal functions
+%%------------------------------------------------------------------------------
 
 do_create(
     #{
@@ -145,46 +190,6 @@ do_create(
             {error, Reason}
     end.
 
-update(Config0, State) ->
-    destroy(State),
-    create(Config0).
-
-destroy(_State) ->
-    _ = file:del_dir_r(emqx_tls_lib:pem_dir(?DIR)),
-    _ = application:stop(esaml),
-    ok.
-
-login(
-    #{headers := Headers} = _Req,
-    #{sp := SP, idp_meta := #esaml_idp_metadata{login_location = IDP}} = _State
-) ->
-    SignedXml = esaml_sp:generate_authn_request(IDP, SP),
-    Target = esaml_binding:encode_http_redirect(IDP, SignedXml, <<>>),
-    RespHeaders = #{<<"Cache-Control">> => <<"no-cache">>, <<"Pragma">> => <<"no-cache">>},
-    Redirect =
-        case is_msie(Headers) of
-            true ->
-                Html = esaml_binding:encode_http_post(IDP, SignedXml, <<>>),
-                {200, RespHeaders, Html};
-            false ->
-                RespHeaders1 = RespHeaders#{<<"Location">> => Target},
-                {302, RespHeaders1, <<"Redirecting...">>}
-        end,
-    {redirect, Redirect}.
-
-callback(_Req = #{body := Body}, #{sp := SP} = _State) ->
-    case do_validate_assertion(SP, fun esaml_util:check_dupe_ets/2, Body) of
-        {ok, Assertion, _RelayState} ->
-            Subject = Assertion#esaml_assertion.subject,
-            Username = iolist_to_binary(Subject#esaml_subject.name),
-            ensure_user_exists(Username);
-        {error, Reason0} ->
-            Reason = [
-                "Access denied, assertion failed validation:\n", io_lib:format("~p\n", [Reason0])
-            ],
-            {error, iolist_to_binary(Reason)}
-    end.
-
 do_validate_assertion(SP, DuplicateFun, Body) ->
     PostVals = cow_qs:parse_qs(Body),
     SAMLEncoding = proplists:get_value(<<"SAMLEncoding">>, PostVals),
@@ -200,8 +205,17 @@ do_validate_assertion(SP, DuplicateFun, Body) ->
             end
     end.
 
+gen_redirect_response(DashboardAddr, Username) ->
+    case ensure_user_exists(Username) of
+        {ok, Role, Token} ->
+            Target = login_redirect_target(DashboardAddr, Username, Role, Token),
+            {redirect, {302, ?RESPHEADERS#{<<"Location">> => Target}, ?REDIRECT_BODY}};
+        {error, Reason} ->
+            {error, Reason}
+    end.
+
 %%------------------------------------------------------------------------------
-%% Internal functions
+%% Helpers functions
 %%------------------------------------------------------------------------------
 
 ensure_cert_and_key(#{sp_public_key := Cert, sp_private_key := Key} = Config) ->
@@ -216,15 +230,6 @@ ensure_cert_and_key(#{sp_public_key := Cert, sp_private_key := Key} = Config) ->
             error({missing_key, lists:flatten(KeyPath)})
     end.
 
-maybe_load_cert_or_key(undefined, _) ->
-    undefined;
-maybe_load_cert_or_key(Path, Func) ->
-    Func(Path).
-
-is_msie(Headers) ->
-    UA = maps:get(<<"user-agent">>, Headers, <<"">>),
-    not (binary:match(UA, <<"MSIE">>) =:= nomatch).
-
 %% TODO: unify with emqx_dashboard_sso_manager:ensure_user_exists/1
 ensure_user_exists(Username) ->
     case emqx_dashboard_admin:lookup_user(saml, Username) of
@@ -238,3 +243,19 @@ ensure_user_exists(Username) ->
                     Error
             end
     end.
+
+maybe_load_cert_or_key(undefined, _) ->
+    undefined;
+maybe_load_cert_or_key(Path, Func) ->
+    Func(Path).
+
+is_msie(Headers) ->
+    UA = maps:get(<<"user-agent">>, Headers, <<"">>),
+    not (binary:match(UA, <<"MSIE">>) =:= nomatch).
+
+login_redirect_target(DashboardAddr, Username, Role, Token) ->
+    LoginMeta = emqx_dashboard_sso_api:login_meta(Username, Role, Token),
+    <<DashboardAddr/binary, "/?login_meta=", (base64_login_meta(LoginMeta))/binary>>.
+
+base64_login_meta(LoginMeta) ->
+    base64:encode(emqx_utils_json:encode(LoginMeta)).

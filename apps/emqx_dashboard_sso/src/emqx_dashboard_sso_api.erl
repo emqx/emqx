@@ -33,7 +33,7 @@
     backend/2
 ]).
 
--export([sso_parameters/1, login_reply/2]).
+-export([sso_parameters/1, login_meta/3]).
 
 -define(REDIRECT, 'REDIRECT').
 -define(BAD_USERNAME_OR_PWD, 'BAD_USERNAME_OR_PWD').
@@ -151,7 +151,7 @@ running(get, _Request) ->
             maps:values(SSO)
         )}.
 
-login(post, #{bindings := #{backend := Backend}} = Request) ->
+login(post, #{bindings := #{backend := Backend}, body := Body} = Request) ->
     case emqx_dashboard_sso_manager:lookup_state(Backend) of
         undefined ->
             {404, #{code => ?BACKEND_NOT_FOUND, message => <<"Backend not found">>}};
@@ -159,7 +159,8 @@ login(post, #{bindings := #{backend := Backend}} = Request) ->
             case emqx_dashboard_sso:login(provider(Backend), Request, State) of
                 {ok, Role, Token} ->
                     ?SLOG(info, #{msg => "dashboard_sso_login_successful", request => Request}),
-                    {200, login_reply(Role, Token)};
+                    Username = maps:get(<<"username">>, Body),
+                    {200, login_meta(Username, Role, Token)};
                 {redirect, Redirect} ->
                     ?SLOG(info, #{msg => "dashboard_sso_login_redirect", request => Request}),
                     Redirect;
@@ -266,8 +267,9 @@ to_json(Data) ->
         end
     ).
 
-login_reply(Role, Token) ->
+login_meta(Username, Role, Token) ->
     #{
+        username => Username,
         role => Role,
         token => Token,
         version => iolist_to_binary(proplists:get_value(version, emqx_sys:info())),
