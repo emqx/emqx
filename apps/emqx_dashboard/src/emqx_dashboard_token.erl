@@ -56,7 +56,7 @@
 %%--------------------------------------------------------------------
 %% jwt function
 -spec sign(User :: dashboard_user(), Password :: binary()) ->
-    {ok, Token :: binary()} | {error, Reason :: term()}.
+    {ok, dashboard_user_role(), Token :: binary()} | {error, Reason :: term()}.
 sign(User, Password) ->
     do_sign(User, Password).
 
@@ -120,7 +120,7 @@ do_sign(#?ADMIN{username = Username} = User, Password) ->
     Role = emqx_dashboard_admin:role(User),
     JWTRec = format(Token, Username, Role, ExpTime),
     _ = mria:transaction(?DASHBOARD_SHARD, fun mnesia:write/1, [JWTRec]),
-    {ok, Token}.
+    {ok, Role, Token}.
 
 -spec do_verify(_, Token :: binary()) ->
     Result ::

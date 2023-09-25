@@ -1,0 +1,28 @@
+emqx_dashboard_sso_saml {
+
+dashboard_addr.desc:
+"""The address of the EMQX Dashboard."""
+dashboard_addr.label:
+"""Dashboard Address"""
+
+idp_metadata_url.desc:
+"""The URL of the IdP metadata."""
+idp_metadata_url.label:
+"""IdP Metadata URL"""
+
+sign_request.desc:
+"""Whether to sign the SAML request."""
+sign_request.label:
+"""Sign SAML Request"""
+
+sp_public_key.desc:
+"""The public key of the SP."""
+sp_public_key.label:
+"""SP Public Key"""
+
+sp_private_key.desc:
+"""The private key of the SP."""
+sp_private_key.label:
+"""SP Private Key"""
+
+}

@@ -120,6 +120,7 @@ t_rest_api(_Config) ->
     ?assertEqual(
         [
             filter_req(#{
+                <<"backend">> => <<"local">>,
                 <<"username">> => <<"admin">>,
                 <<"description">> => <<"administrator">>,
                 <<"role">> => ?ROLE_SUPERUSER
@@ -269,7 +270,7 @@ auth_header_() ->
     auth_header_(<<"admin">>, <<"public">>).
 
 auth_header_(Username, Password) ->
-    {ok, Token} = emqx_dashboard_admin:sign_token(Username, Password),
+    {ok, _Role, Token} = emqx_dashboard_admin:sign_token(Username, Password),
     {"Authorization", "Bearer " ++ binary_to_list(Token)}.
 
 api_path(Parts) ->
@@ -286,6 +287,6 @@ filter_req(Req) ->
 -else.
 
 filter_req(Req) ->
-    maps:without([role, <<"role">>], Req).
+    maps:without([role, <<"role">>, backend, <<"backend">>], Req).
 
 -endif.
