@@ -38,6 +38,8 @@
 -export([
     print/1,
     print/2,
+    print_error/1,
+    print_error/2,
     warning/1,
     warning/2,
     usage/1,
@@ -206,6 +208,18 @@ print(Msg) ->
 -spec print(io:format(), [term()]) -> ok.
 print(Format, Args) ->
     io:format("~ts", [format(Format, Args)]).
+
+-spec print_error(io:format(), [term()]) -> {error, string()}.
+print_error(Format, Args) ->
+    Reason = format(Format, Args),
+    io:format("~ts", [Reason]),
+    {error, Reason}.
+
+-spec print_error(string()) -> {error, string()}.
+print_error(Msg) ->
+    Reason = format(Msg, []),
+    io:format("~ts", [Reason]),
+    {error, Reason}.
 
 -spec warning(io:format()) -> ok.
 warning(Format) ->

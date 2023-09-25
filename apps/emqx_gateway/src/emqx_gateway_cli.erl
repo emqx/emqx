@@ -80,14 +80,16 @@ gateway(["load", Name, Conf]) ->
         {ok, _} ->
             print("ok\n");
         {error, Reason} ->
-            print("Error: ~ts\n", [format_error(Reason)])
+            ReasonStr = format_error(Reason),
+            print_error("Error: ~ts\n", [ReasonStr])
     end;
 gateway(["unload", Name]) ->
     case emqx_gateway_conf:unload_gateway(bin(Name)) of
         ok ->
             print("ok\n");
         {error, Reason} ->
-            print("Error: ~ts\n", [format_error(Reason)])
+            ReasonStr = format_error(Reason),
+            print_error("Error: ~ts\n", [ReasonStr])
     end;
 gateway(["stop", Name]) ->
     case
@@ -99,7 +101,8 @@ gateway(["stop", Name]) ->
         {ok, _} ->
             print("ok\n");
         {error, Reason} ->
-            print("Error: ~ts\n", [format_error(Reason)])
+            ReasonStr = format_error(Reason),
+            print_error("Error: ~ts\n", [ReasonStr])
     end;
 gateway(["start", Name]) ->
     case
@@ -111,7 +114,7 @@ gateway(["start", Name]) ->
         {ok, _} ->
             print("ok\n");
         {error, Reason} ->
-            print("Error: ~ts\n", [format_error(Reason)])
+            print_error("Error: ~ts\n", [format_error(Reason)])
     end;
 gateway(_) ->
     emqx_ctl:usage(
@@ -140,7 +143,7 @@ gateway(_) ->
     InfoTab = emqx_gateway_cm:tabname(info, Name),
     case ets:info(InfoTab) of
         undefined ->
-            print("Bad Gateway Name.\n");
+            print_error("~ts", ["Bad Gateway Name.\n"]);
         _ ->
             dump(InfoTab, client)
     end;
@@ -148,11 +151,11 @@ gateway(_) ->
     ChanTab = emqx_gateway_cm:tabname(chan, Name),
     case ets:info(ChanTab) of
         undefined ->
-            print("Bad Gateway Name.\n");
+            print_error("~ts", ["Bad Gateway Name.\n"]);
         _ ->
             case ets:lookup(ChanTab, bin(ClientId)) of
                 [] ->
-                    print("Not Found.\n");
+                    print_error("~s", ["Not Found.\n"]);
                 [Chann] ->
                     InfoTab = emqx_gateway_cm:tabname(info, Name),
                     [ChannInfo] = ets:lookup(InfoTab, Chann),
@@ -162,7 +165,7 @@ gateway(_) ->
 'gateway-clients'(["kick", Name, ClientId]) ->
     case emqx_gateway_cm:kick_session(Name, bin(ClientId)) of
         ok -> print("ok\n");
-        _ -> print("Not Found.\n")
+        _ -> print_error("~s", ["Not Found.\n"])
     end;
 'gateway-clients'(_) ->
     emqx_ctl:usage([
@@ -174,7 +177,7 @@ gateway(_) ->
 'gateway-metrics'([Name]) ->
     case emqx_gateway_metrics:lookup(atom(Name)) of
         undefined ->
-            print("Bad Gateway Name.\n");
+            print_error("~s", ["Bad Gateway Name.\n"]);
         Metrics ->
             lists:foreach(
                 fun({K, V}) -> print("~-30s: ~w\n", [K, V]) end,
@@ -249,6 +252,8 @@ print_record({client, {_, Infos, Stats}}) ->
 
 print(S) -> emqx_ctl:print(S).
 print(S, A) -> emqx_ctl:print(S, A).
+
+print_error(S, A) -> emqx_ctl:print_error(S, A).
 
 format(_, undefined) ->
     undefined;

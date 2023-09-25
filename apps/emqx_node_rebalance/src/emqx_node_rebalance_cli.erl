@@ -35,7 +35,7 @@ cli(["start" | StartArgs]) ->
                     emqx_ctl:print("Rebalance(purge) started~n"),
                     true;
                 {error, Reason} ->
-                    emqx_ctl:print("Rebalance(purge) start error: ~p~n", [Reason]),
+                    emqx_ctl:print_error("Rebalance(purge) start error: ~p~n", [Reason]),
                     false
             end;
         {rebalance, Opts} ->
@@ -44,11 +44,11 @@ cli(["start" | StartArgs]) ->
                     emqx_ctl:print("Rebalance started~n"),
                     true;
                 {error, Reason} ->
-                    emqx_ctl:print("Rebalance start error: ~p~n", [Reason]),
+                    emqx_ctl:print_error("Rebalance start error: ~p~n", [Reason]),
                     false
             end;
         {error, Error} ->
-            emqx_ctl:print("Rebalance start error: ~s~n", [Error]),
+            emqx_ctl:print_error("Rebalance start error: ~s~n", [Error]),
             false
     end;
 cli(["node-status", NodeStr]) ->
@@ -56,7 +56,7 @@ cli(["node-status", NodeStr]) ->
         {ok, Node} ->
             node_status(emqx_node_rebalance_status:local_status(Node));
         {error, _} ->
-            emqx_ctl:print("Node status error: invalid node~n"),
+            emqx_ctl:print_error("Node status error: invalid node~n"),
             false
     end;
 cli(["node-status"]) ->
@@ -185,7 +185,7 @@ node_status(NodeStatus) ->
         disabled ->
             emqx_ctl:print("Rebalance disabled~n");
         Other ->
-            emqx_ctl:print("Error detecting rebalance status: ~p~n", [Other])
+            emqx_ctl:print_error("Error detecting rebalance status: ~p~n", [Other])
     end.
 
 start_args(Args) ->
