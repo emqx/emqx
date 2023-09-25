@@ -632,6 +632,9 @@ is_sensitive_key(<<"proxy-authorization">>) -> true;
 is_sensitive_key(secret) -> true;
 is_sensitive_key("secret") -> true;
 is_sensitive_key(<<"secret">>) -> true;
+is_sensitive_key(secret_access_key) -> true;
+is_sensitive_key("secret_access_key") -> true;
+is_sensitive_key(<<"secret_access_key">>) -> true;
 is_sensitive_key(secret_key) -> true;
 is_sensitive_key("secret_key") -> true;
 is_sensitive_key(<<"secret_key">>) -> true;
@@ -779,6 +782,7 @@ redact_test_() ->
         'proxy-authorization',
         secret,
         secret_key,
+        secret_access_key,
         security_token,
         token,
         bind_password
