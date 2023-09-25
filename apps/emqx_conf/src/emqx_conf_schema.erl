@@ -1014,6 +1014,15 @@ fields("log_file_handler") ->
     ] ++ log_handler_common_confs(file, #{});
 fields("log_audit_handler") ->
     [
+        {"level",
+            sc(
+                log_level(),
+                #{
+                    default => info,
+                    desc => ?DESC("audit_handler_level"),
+                    importance => ?IMPORTANCE_HIDDEN
+                }
+            )},
         {"path",
             sc(
                 file(),
@@ -1048,11 +1057,12 @@ fields("log_audit_handler") ->
     ] ++
         %% Only support json
         lists:keydelete(
-            "formatter",
+            "level",
             1,
-            log_handler_common_confs(
-                file,
-                #{level => info, level_desc => "audit_handler_level"}
+            lists:keydelete(
+                "formatter",
+                1,
+                log_handler_common_confs(file, #{})
             )
         );
 fields("log_overload_kill") ->

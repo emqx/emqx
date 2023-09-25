@@ -43,8 +43,7 @@ from(jwt_token) -> "dashboard";
 from(api_key) -> "aip_key";
 from(_) -> "unauthorized".
 
-level(_, _Code, Duration) when Duration > 3000 -> warning;
-level(get, Code, _) when Code >= 200 andalso Code < 300 -> debug;
+level(get, _Code, _) -> debug;
 level(_, Code, _) when Code >= 200 andalso Code < 300 -> info;
 level(_, Code, _) when Code >= 300 andalso Code < 400 -> warning;
 level(_, Code, _) when Code >= 400 andalso Code < 500 -> error;
