@@ -253,7 +253,7 @@ print_record({client, {_, Infos, Stats}}) ->
 print(S) -> emqx_ctl:print(S).
 print(S, A) -> emqx_ctl:print(S, A).
 
-print_error(S, A) -> emqx_ctl:print_error(S, A).
+print_error(S, A) -> emqx_ctl:print_return_error(S, A).
 
 format(_, undefined) ->
     undefined;

@@ -38,8 +38,8 @@
 -export([
     print/1,
     print/2,
-    print_error/1,
-    print_error/2,
+    print_return_error/1,
+    print_return_error/2,
     warning/1,
     warning/2,
     usage/1,
@@ -209,14 +209,14 @@ print(Msg) ->
 print(Format, Args) ->
     io:format("~ts", [format(Format, Args)]).
 
--spec print_error(io:format(), [term()]) -> {error, string()}.
-print_error(Format, Args) ->
-    Reason = format(Format, Args),
+-spec print_return_error(io:format(), [term()]) -> {error, string()}.
+print_return_error(Format, Args) ->
+    Reason = format(iolist_to_binary(Format), Args),
     io:format("~ts", [Reason]),
     {error, Reason}.
 
--spec print_error(string()) -> {error, string()}.
-print_error(Msg) ->
+-spec print_return_error(string()) -> {error, string()}.
+print_return_error(Msg) ->
     Reason = format(Msg, []),
     io:format("~ts", [Reason]),
     {error, Reason}.

@@ -102,9 +102,9 @@ cluster(["join", SNode]) ->
                 cluster(["status"]),
             ok;
         ignore ->
-            emqx_ctl:print_error("Ignore.~n");
+            emqx_ctl:print_return_error("Ignore.~n");
         {error, Error} ->
-            emqx_ctl:print_error("Failed to join the cluster: ~0p~n", [Error])
+            emqx_ctl:print_return_error("Failed to join the cluster: ~0p~n", [Error])
     end;
 cluster(["leave"]) ->
     case mria:leave() of
@@ -112,7 +112,7 @@ cluster(["leave"]) ->
             emqx_ctl:print("Leave the cluster successfully.~n"),
             cluster(["status"]);
         {error, Error} ->
-            emqx_ctl:print_error("Failed to leave the cluster: ~0p~n", [Error])
+            emqx_ctl:print_return_error("Failed to leave the cluster: ~0p~n", [Error])
     end;
 cluster(["force-leave", SNode]) ->
     case mria:force_leave(ekka_node:parse_name(SNode)) of
@@ -122,7 +122,7 @@ cluster(["force-leave", SNode]) ->
         ignore ->
             emqx_ctl:print("Ignore.~n");
         {error, Error} ->
-            emqx_ctl:print_error("Failed to remove the node from cluster: ~0p~n", [Error])
+            emqx_ctl:print_return_error("Failed to remove the node from cluster: ~0p~n", [Error])
     end;
 cluster(["status"]) ->
     emqx_ctl:print("Cluster status: ~p~n", [cluster_info()]);
@@ -172,7 +172,7 @@ clients(_) ->
 
 if_client(ClientId, Fun) ->
     case ets:lookup(?CHAN_TAB, (bin(ClientId))) of
-        [] -> emqx_ctl:print_error("Not Found.~n");
+        [] -> emqx_ctl:print_return_error("Not Found.~n");
         [Channel] -> Fun({client, Channel})
     end.
 
@@ -203,10 +203,10 @@ subscriptions(["list"]) ->
 subscriptions(["show", ClientId]) ->
     case ets:lookup(emqx_subid, bin(ClientId)) of
         [] ->
-            emqx_ctl:print_error("Not Found.~n");
+            emqx_ctl:print_return_error("Not Found.~n");
         [{_, Pid}] ->
             case ets:match_object(?SUBOPTION, {{'_', Pid}, '_'}) of
-                [] -> emqx_ctl:print_error("Not Found.~n");
+                [] -> emqx_ctl:print_return_error("Not Found.~n");
                 Suboption -> [print({?SUBOPTION, Sub}) || Sub <- Suboption]
             end
     end;
@@ -214,7 +214,7 @@ subscriptions(["add", ClientId, Topic, QoS]) ->
     if_valid_qos(QoS, fun(IntQos) ->
         case ets:lookup(?CHAN_TAB, bin(ClientId)) of
             [] ->
-                emqx_ctl:print_error("Error: Channel not found!");
+                emqx_ctl:print_return_error("Error: Channel not found!");
             [{_, Pid}] ->
                 {Topic1, Options} = emqx_topic:parse(bin(Topic)),
                 Pid ! {subscribe, [{Topic1, Options#{qos => IntQos}}]},
@@ -224,7 +224,7 @@ subscriptions(["add", ClientId, Topic, QoS]) ->
 subscriptions(["del", ClientId, Topic]) ->
     case ets:lookup(?CHAN_TAB, bin(ClientId)) of
         [] ->
-            emqx_ctl:print_error("Error: Channel not found!");
+            emqx_ctl:print_return_error("Error: Channel not found!");
         [{_, Pid}] ->
             Pid ! {unsubscribe, [emqx_topic:parse(bin(Topic))]},
             emqx_ctl:print("ok~n")
@@ -242,10 +242,10 @@ subscriptions(_) ->
 if_valid_qos(QoS, Fun) ->
     try list_to_integer(QoS) of
         Int when ?IS_QOS(Int) -> Fun(Int);
-        _ -> emqx_ctl:print_error("QoS should be 0, 1, 2~n")
+        _ -> emqx_ctl:print_return_error("QoS should be 0, 1, 2~n")
     catch
         _:_ ->
-            emqx_ctl:print_error("QoS should be 0, 1, 2~n")
+            emqx_ctl:print_return_error("QoS should be 0, 1, 2~n")
     end.
 
 plugins(["list"]) ->
@@ -351,11 +351,15 @@ log(["set-level", Level]) ->
     case emqx_utils:safe_to_existing_atom(Level) of
         {ok, Level1} ->
             case emqx_logger:set_log_level(Level1) of
-                ok -> emqx_ctl:print("~ts~n", [Level]);
-                Error -> emqx_ctl:print_error("[error] set overall log level failed: ~p~n", [Error])
+                ok ->
+                    emqx_ctl:print("~ts~n", [Level]);
+                Error ->
+                    emqx_ctl:print_return_error("[error] set overall log level failed: ~p~n", [
+                        Error
+                    ])
             end;
         _ ->
-            emqx_ctl:print_error("[error] invalid level: ~p~n", [Level])
+            emqx_ctl:print_return_error("[error] invalid level: ~p~n", [Level])
     end;
 log(["primary-level"]) ->
     Level = emqx_logger:get_primary_log_level(),
@@ -366,7 +370,7 @@ log(["primary-level", Level]) ->
             _ = emqx_logger:set_primary_log_level(Level1),
             ok;
         _ ->
-            emqx_ctl:print_error("[error] invalid level: ~p~n", [Level])
+            emqx_ctl:print_return_error("[error] invalid level: ~p~n", [Level])
     end,
     emqx_ctl:print("~ts~n", [emqx_logger:get_primary_log_level()]);
 log(["handlers", "list"]) ->
@@ -390,12 +394,12 @@ log(["handlers", "start", HandlerId]) ->
                 ok ->
                     emqx_ctl:print("log handler ~ts started~n", [HandlerId]);
                 {error, Reason} ->
-                    emqx_ctl:print_error("[error] failed to start log handler ~ts: ~p~n", [
+                    emqx_ctl:print_return_error("[error] failed to start log handler ~ts: ~p~n", [
                         HandlerId, Reason
                     ])
             end;
         _ ->
-            emqx_ctl:print_error("[error] invalid handler:~ts~n", [HandlerId])
+            emqx_ctl:print_return_error("[error] invalid handler:~ts~n", [HandlerId])
     end;
 log(["handlers", "stop", HandlerId]) ->
     case emqx_utils:safe_to_existing_atom(HandlerId) of
@@ -404,12 +408,12 @@ log(["handlers", "stop", HandlerId]) ->
                 ok ->
                     emqx_ctl:print("log handler ~ts stopped~n", [HandlerId1]);
                 {error, Reason} ->
-                    emqx_ctl:print_error("[error] failed to stop log handler ~ts: ~p~n", [
+                    emqx_ctl:print_return_error("[error] failed to stop log handler ~ts: ~p~n", [
                         HandlerId1, Reason
                     ])
             end;
         _ ->
-            emqx_ctl:print_error("[error] invalid handler:~ts~n", [HandlerId])
+            emqx_ctl:print_return_error("[error] invalid handler:~ts~n", [HandlerId])
     end;
 log(["handlers", "set-level", HandlerId, Level]) ->
     case emqx_utils:safe_to_existing_atom(HandlerId) of
@@ -421,13 +425,13 @@ log(["handlers", "set-level", HandlerId, Level]) ->
                             #{level := NewLevel} = emqx_logger:get_log_handler(HandlerId1),
                             emqx_ctl:print("~ts~n", [NewLevel]);
                         {error, Error} ->
-                            emqx_ctl:print_error("[error] ~p~n", [Error])
+                            emqx_ctl:print_return_error("[error] ~p~n", [Error])
                     end;
                 _ ->
-                    emqx_ctl:print_error("[error] invalid level:~p~n", [Level])
+                    emqx_ctl:print_return_error("[error] invalid level:~p~n", [Level])
             end;
         _ ->
-            emqx_ctl:print_error("[error] invalid handler:~ts~n", [HandlerId])
+            emqx_ctl:print_return_error("[error] invalid handler:~ts~n", [HandlerId])
     end;
 log(_) ->
     emqx_ctl:usage(
@@ -491,7 +495,7 @@ trace_on(Name, Type, Filter, Level, LogFile) ->
             emqx_trace:check(),
             emqx_ctl:print("trace ~s ~s successfully~n", [Filter, Name]);
         {error, Error} ->
-            emqx_ctl:print_error("[error] trace ~s ~s: ~p~n", [Filter, Name, Error])
+            emqx_ctl:print_return_error("[error] trace ~s ~s: ~p~n", [Filter, Name, Error])
     end.
 
 trace_off(Type, Filter) ->
@@ -501,7 +505,7 @@ trace_off(Type, Filter) ->
             emqx_trace:check(),
             emqx_ctl:print("stop tracing ~s ~s successfully~n", [Type, Filter]);
         {error, Error} ->
-            emqx_ctl:print_error("[error] stop tracing ~s ~s: ~p~n", [Type, Filter, Error])
+            emqx_ctl:print_return_error("[error] stop tracing ~s ~s: ~p~n", [Type, Filter, Error])
     end.
 
 %%--------------------------------------------------------------------
@@ -571,7 +575,7 @@ trace_cluster_on(Name, Type, Filter, DurationS0) ->
         {ok, _} ->
             emqx_ctl:print("cluster_trace ~p ~s ~s successfully~n", [Type, Filter, Name]);
         {error, Error} ->
-            emqx_ctl:print_error(
+            emqx_ctl:print_return_error(
                 "[error] cluster_trace ~s ~s=~s ~p~n",
                 [Name, Type, Filter, Error]
             )
@@ -579,14 +583,18 @@ trace_cluster_on(Name, Type, Filter, DurationS0) ->
 
 trace_cluster_del(Name) ->
     case emqx_trace:delete(bin(Name)) of
-        ok -> emqx_ctl:print("Del cluster_trace ~s successfully~n", [Name]);
-        {error, Error} -> emqx_ctl:print_error("[error] Del cluster_trace ~s: ~p~n", [Name, Error])
+        ok ->
+            emqx_ctl:print("Del cluster_trace ~s successfully~n", [Name]);
+        {error, Error} ->
+            emqx_ctl:print_return_error("[error] Del cluster_trace ~s: ~p~n", [Name, Error])
     end.
 
 trace_cluster_off(Name) ->
     case emqx_trace:update(bin(Name), false) of
-        ok -> emqx_ctl:print("Stop cluster_trace ~s successfully~n", [Name]);
-        {error, Error} -> emqx_ctl:print_error("[error] Stop cluster_trace ~s: ~p~n", [Name, Error])
+        ok ->
+            emqx_ctl:print("Stop cluster_trace ~s successfully~n", [Name]);
+        {error, Error} ->
+            emqx_ctl:print_return_error("[error] Stop cluster_trace ~s: ~p~n", [Name, Error])
     end.
 
 trace_type("client", ClientId) -> {ok, clientid, bin(ClientId)};
@@ -645,10 +653,12 @@ listeners(["stop", ListenerId]) ->
                 ok ->
                     emqx_ctl:print("Stop ~ts listener successfully.~n", [ListenerId]);
                 {error, Error} ->
-                    emqx_ctl:print_error("Failed to stop ~ts listener: ~0p~n", [ListenerId, Error])
+                    emqx_ctl:print_return_error("Failed to stop ~ts listener: ~0p~n", [
+                        ListenerId, Error
+                    ])
             end;
         _ ->
-            emqx_ctl:print_error("Invalid listener: ~0p~n", [ListenerId])
+            emqx_ctl:print_return_error("Invalid listener: ~0p~n", [ListenerId])
     end;
 listeners(["start", ListenerId]) ->
     case emqx_utils:safe_to_existing_atom(ListenerId) of
@@ -657,10 +667,12 @@ listeners(["start", ListenerId]) ->
                 ok ->
                     emqx_ctl:print("Started ~ts listener successfully.~n", [ListenerId]);
                 {error, Error} ->
-                    emqx_ctl:print_error("Failed to start ~ts listener: ~0p~n", [ListenerId, Error])
+                    emqx_ctl:print_return_error("Failed to start ~ts listener: ~0p~n", [
+                        ListenerId, Error
+                    ])
             end;
         _ ->
-            emqx_ctl:print_error("Invalid listener: ~0p~n", [ListenerId])
+            emqx_ctl:print_return_error("Invalid listener: ~0p~n", [ListenerId])
     end;
 listeners(["restart", ListenerId]) ->
     case emqx_utils:safe_to_existing_atom(ListenerId) of
@@ -669,12 +681,12 @@ listeners(["restart", ListenerId]) ->
                 ok ->
                     emqx_ctl:print("Restarted ~ts listener successfully.~n", [ListenerId]);
                 {error, Error} ->
-                    emqx_ctl:print_error("Failed to restart ~ts listener: ~0p~n", [
+                    emqx_ctl:print_return_error("Failed to restart ~ts listener: ~0p~n", [
                         ListenerId, Error
                     ])
             end;
         _ ->
-            emqx_ctl:print_error("Invalid listener: ~0p~n", [ListenerId])
+            emqx_ctl:print_return_error("Invalid listener: ~0p~n", [ListenerId])
     end;
 listeners(_) ->
     emqx_ctl:usage([
@@ -747,7 +759,7 @@ data(["export"]) ->
             emqx_ctl:print("Data has been successfully exported to ~s.~n", [Filename]);
         {error, Reason} ->
             Reason1 = emqx_mgmt_data_backup:format_error(Reason),
-            emqx_ctl:print_error("[error] Data export failed, reason: ~p.~n", [Reason1])
+            emqx_ctl:print_return_error("[error] Data export failed, reason: ~p.~n", [Reason1])
     end;
 data(["import", Filename]) ->
     case emqx_mgmt_data_backup:import(Filename, ?DATA_BACKUP_OPTS) of
@@ -756,12 +768,12 @@ data(["import", Filename]) ->
         ->
             emqx_ctl:print("Data has been imported successfully.~n");
         {ok, _} ->
-            emqx_ctl:print_error(
+            emqx_ctl:print_return_error(
                 "Data has been imported, but some errors occurred, see the the log above.~n"
             );
         {error, Reason} ->
             Reason1 = emqx_mgmt_data_backup:format_error(Reason),
-            emqx_ctl:print_error("[error] Data import failed, reason: ~p.~n", [Reason1])
+            emqx_ctl:print_return_error("[error] Data import failed, reason: ~p.~n", [Reason1])
     end;
 data(_) ->
     emqx_ctl:usage([
