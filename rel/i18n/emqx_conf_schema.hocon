@@ -661,7 +661,7 @@ Can be one of:
   - <code>utc</code>: the UTC time offset
   - <code>+-[hh]:[mm]</code>: user specified time offset, such as "-02:00" or "+00:00"
 Defaults to: <code>system</code>.
-This config has no effect for when formatter is 'json' as the timestamp in JSON is miliseconds since epoch."""
+This config has no effect for when formatter is 'json' as the timestamp in JSON is milliseconds since epoch."""
 
 common_handler_time_offset.label:
 """Time Offset"""

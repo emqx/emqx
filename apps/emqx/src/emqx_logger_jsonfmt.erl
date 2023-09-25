@@ -236,20 +236,24 @@ json(P, C) when is_port(P) -> json(port_to_list(P), C);
 json(F, C) when is_function(F) -> json(erlang:fun_to_list(F), C);
 json(B, Config) when is_binary(B) ->
     best_effort_unicode(B, Config);
-json(L, Config) when is_list(L), is_integer(hd(L)) ->
-    best_effort_unicode(L, Config);
 json(M, Config) when is_list(M), is_tuple(hd(M)), tuple_size(hd(M)) =:= 2 ->
     best_effort_json_obj(M, Config);
 json(L, Config) when is_list(L) ->
-    [json(I, Config) || I <- L];
+    try unicode:characters_to_binary(L, utf8) of
+        B when is_binary(B) -> B;
+        _ -> [json(I, Config) || I <- L]
+    catch
+        _:_ ->
+            [json(I, Config) || I <- L]
+    end;
 json(Map, Config) when is_map(Map) ->
     best_effort_json_obj(Map, Config);
 json(Term, Config) ->
     do_format_msg("~p", [Term], Config).
 
 json_obj_root(Data0, Config) ->
-    Time = maps:get(time, Data0),
-    Level = maps:get(level, Data0),
+    Time = maps:get(time, Data0, undefined),
+    Level = maps:get(level, Data0, undefined),
     Msg1 =
         case maps:get(msg, Data0, undefined) of
             undefined ->
@@ -264,28 +268,7 @@ json_obj_root(Data0, Config) ->
             _ ->
                 json(Msg1, Config)
         end,
-    Line =
-        case maps:get(line, Data0, undefined) of
-            undefined ->
-                <<"">>;
-            Num ->
-                iolist_to_binary([":", integer_to_list(Num)])
-        end,
-
-    Mfal =
-        case maps:get(mfa, Data0, undefined) of
-            {M, F, A} ->
-                <<
-                    (atom_to_binary(M, utf8))/binary,
-                    $:,
-                    (atom_to_binary(F, utf8))/binary,
-                    $/,
-                    (integer_to_binary(A))/binary,
-                    Line/binary
-                >>;
-            _ ->
-                unefined
-        end,
+    Mfal = emqx_utils:format_mfal(Data0),
     Data =
         maps:fold(
             fun(K, V, D) ->
@@ -293,7 +276,9 @@ json_obj_root(Data0, Config) ->
                 [{K1, V1} | D]
             end,
             [],
-            maps:without([time, gl, file, report_cb, msg, '$kind', mfa, level, line], Data0)
+            maps:without(
+                [time, gl, file, report_cb, msg, '$kind', mfa, level, line, is_trace], Data0
+            )
         ),
     lists:filter(
         fun({_, V}) -> V =/= undefined end,
