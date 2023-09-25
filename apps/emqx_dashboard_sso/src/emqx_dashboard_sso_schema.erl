@@ -8,33 +8,32 @@
 -include_lib("typerefl/include/types.hrl").
 
 %% Hocon
--export([namespace/0, roots/0, fields/1, tags/0, desc/1]).
+-export([fields/1, desc/1]).
+
 -export([
     common_backend_schema/1,
     backend_schema/1,
     username_password_schema/0
 ]).
+
 -import(hoconsc, [ref/2, mk/2, enum/1]).
 
 %%------------------------------------------------------------------------------
 %% Hocon Schema
 %%------------------------------------------------------------------------------
-namespace() -> dashboard_sso.
-
-tags() ->
-    [<<"Dashboard Single Sign-On">>].
-
-roots() -> [dashboard_sso].
-
-fields(dashboard_sso) ->
+fields(sso) ->
     lists:map(
         fun({Type, Module}) ->
-            {Type, mk(emqx_dashboard_sso:hocon_ref(Module), #{required => {false, recursively}})}
+            {Type,
+                mk(
+                    emqx_dashboard_sso:hocon_ref(Module),
+                    #{required => {false, recursively}}
+                )}
         end,
         maps:to_list(emqx_dashboard_sso:backends())
     ).
 
-desc(dashboard_sso) ->
+desc(sso) ->
     "Dashboard Single Sign-On";
 desc(_) ->
     undefined.

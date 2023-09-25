@@ -40,7 +40,7 @@
 
 -import(emqx_dashboard_sso, [provider/1]).
 
--define(MOD_KEY_PATH, [dashboard_sso]).
+-define(MOD_KEY_PATH, [dashboard, sso]).
 -define(RESOURCE_GROUP, <<"emqx_dashboard_sso">>).
 -define(DEFAULT_RESOURCE_OPTS, #{
     start_after_created => false
@@ -66,7 +66,7 @@ running() ->
                 Acc
         end,
         [],
-        emqx:get_config([emqx_dashboard_sso])
+        emqx:get_config(?MOD_KEY_PATH)
     ).
 
 update(Backend, Config) ->
@@ -151,7 +151,7 @@ format_status(_Opt, Status) ->
 %% Internal functions
 %%------------------------------------------------------------------------------
 start_backend_services() ->
-    Backends = emqx_conf:get([dashboard_sso], #{}),
+    Backends = emqx_conf:get(?MOD_KEY_PATH, #{}),
     lists:foreach(
         fun({Backend, Config}) ->
             Provider = provider(Backend),
@@ -174,7 +174,7 @@ start_backend_services() ->
     ).
 
 update_config(Backend, UpdateReq) ->
-    case emqx_conf:update([dashboard_sso], UpdateReq, #{override_to => cluster}) of
+    case emqx_conf:update(?MOD_KEY_PATH, UpdateReq, #{override_to => cluster}) of
         {ok, UpdateResult} ->
             #{post_config_update := #{?MODULE := Result}} = UpdateResult,
             ?SLOG(info, #{
@@ -194,10 +194,10 @@ update_config(Backend, UpdateReq) ->
 
 pre_config_update(_Path, {update, Backend, Config}, OldConf) ->
     BackendBin = bin(Backend),
-    {ok, OldConf#{BackendBin => Config}};
+    {ok, update_raw_sso_cfg(OldConf, BackendBin, Config)};
 pre_config_update(_Path, {delete, Backend}, OldConf) ->
     BackendBin = bin(Backend),
-    case maps:find(BackendBin, OldConf) of
+    case find_raw_sso_cfg(BackendBin, OldConf) of
         error ->
             throw(not_exists);
         {ok, _} ->
@@ -267,3 +267,13 @@ on_backend_updated(Error, _) ->
 bin(A) when is_atom(A) -> atom_to_binary(A, utf8);
 bin(L) when is_list(L) -> list_to_binary(L);
 bin(X) -> X.
+
+update_raw_sso_cfg(undefined, Backend, BackendCfg) ->
+    #{Backend => BackendCfg};
+update_raw_sso_cfg(RAW_SSOCfg, Backend, BackendCfg) ->
+    RAW_SSOCfg#{Backend => BackendCfg}.
+
+find_raw_sso_cfg(_Backend, undefined) ->
+    error;
+find_raw_sso_cfg(Backend, RAW_SSOCfg) ->
+    maps:find(Backend, RAW_SSOCfg).

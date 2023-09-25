@@ -68,7 +68,7 @@ fields("dashboard") ->
                     importance => ?IMPORTANCE_HIDDEN
                 }
             )}
-    ];
+    ] ++ sso_fields();
 fields("listeners") ->
     [
         {"http",
@@ -299,3 +299,18 @@ https_converter(Conf = #{}, _Opts) ->
     Conf1#{<<"ssl_options">> => SslOpts};
 https_converter(Conf, _Opts) ->
     Conf.
+
+-if(?EMQX_RELEASE_EDITION == ee).
+sso_fields() ->
+    [
+        {sso,
+            ?HOCON(
+                ?R_REF(emqx_dashboard_sso_schema, sso),
+                #{required => {false, recursively}}
+            )}
+    ].
+
+-else.
+sso_fields() ->
+    [].
+-endif.
