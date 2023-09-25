@@ -678,7 +678,7 @@ return_change_result(ConfKeyPath, {{update, Req}, Opts}) ->
     case Req =/= ?TOMBSTONE_CONFIG_CHANGE_REQ of
         true ->
             #{
-                config => emqx_config:get(ConfKeyPath),
+                config => emqx_config:get(ConfKeyPath, undefined),
                 raw_config => return_rawconf(ConfKeyPath, Opts)
             };
         false ->
