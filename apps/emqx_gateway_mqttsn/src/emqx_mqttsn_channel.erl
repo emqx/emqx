@@ -2116,6 +2116,9 @@ handle_timeout(_TRef, expire_session, Channel) ->
 handle_timeout(_TRef, expire_asleep, Channel) ->
     shutdown(asleep_timeout, Channel);
 handle_timeout(_TRef, Msg, Channel) ->
+    %% NOTE
+    %% We do not expect `emqx_mqttsn_session` to set up any custom timers (i.e with
+    %% `emqx_session:ensure_timer/3`), because `emqx_session_mem` doesn't use any.
     ?SLOG(error, #{
         msg => "unexpected_timeout",
         timeout_msg => Msg
