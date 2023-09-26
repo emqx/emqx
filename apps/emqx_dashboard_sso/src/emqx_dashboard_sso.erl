@@ -16,7 +16,7 @@
     login/3
 ]).
 
--export([types/0, modules/0, provider/1, backends/0]).
+-export([types/0, modules/0, provider/1, backends/0, format/1]).
 
 %%------------------------------------------------------------------------------
 %% Callbacks
@@ -83,3 +83,23 @@ backends() ->
         ldap => emqx_dashboard_sso_ldap,
         saml => emqx_dashboard_sso_saml
     }.
+
+format(Args) ->
+    lists:foldl(fun combine/2, <<>>, Args).
+
+combine(Arg, Bin) when is_binary(Arg) ->
+    <<Bin/binary, Arg/binary>>;
+combine(Arg, Bin) when is_list(Arg) ->
+    case io_lib:printable_unicode_list(Arg) of
+        true ->
+            ArgBin = unicode:characters_to_binary(Arg),
+            <<Bin/binary, ArgBin/binary>>;
+        _ ->
+            generic_combine(Arg, Bin)
+    end;
+combine(Arg, Bin) ->
+    generic_combine(Arg, Bin).
+
+generic_combine(Arg, Bin) ->
+    Str = io_lib:format("~0p", [Arg]),
+    erlang:iolist_to_binary([Bin, Str]).

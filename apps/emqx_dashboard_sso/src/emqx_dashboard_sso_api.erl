@@ -267,8 +267,10 @@ handle_backend_update_result({error, already_exists}, _) ->
     {400, #{code => ?BAD_REQUEST, message => <<"Backend already exists">>}};
 handle_backend_update_result({error, failed_to_load_metadata}, _) ->
     {400, #{code => ?BAD_REQUEST, message => <<"Failed to load metadata">>}};
+handle_backend_update_result({error, Reason}, _) when is_binary(Reason) ->
+    {400, #{code => ?BAD_REQUEST, message => Reason}};
 handle_backend_update_result({error, Reason}, _) ->
-    {400, #{code => ?BAD_REQUEST, message => Reason}}.
+    {400, #{code => ?BAD_REQUEST, message => emqx_dashboard_sso:format(["Reason: ", Reason])}}.
 
 to_json(Data) ->
     emqx_utils_maps:jsonable_map(

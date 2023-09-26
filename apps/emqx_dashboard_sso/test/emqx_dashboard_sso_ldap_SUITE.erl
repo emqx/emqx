@@ -8,16 +8,23 @@
 -compile(export_all).
 
 -include_lib("emqx_dashboard/include/emqx_dashboard.hrl").
+-include_lib("snabbkaffe/include/snabbkaffe.hrl").
 -include_lib("eunit/include/eunit.hrl").
 
 -define(LDAP_HOST, "ldap").
 -define(LDAP_DEFAULT_PORT, 389).
 -define(LDAP_USER, <<"mqttuser0001">>).
 -define(LDAP_USER_PASSWORD, <<"mqttuser0001">>).
+
+-define(MOD_TAB, emqx_dashboard_sso).
+-define(MOD_KEY_PATH, [dashboard, sso, ldap]).
+-define(RESOURCE_GROUP, <<"emqx_dashboard_sso">>).
+
 -import(emqx_mgmt_api_test_util, [request/2, request/3, uri/1, request_api/3]).
 
 all() ->
     [
+        t_create_atomicly,
         t_create,
         t_update,
         t_get,
@@ -53,11 +60,43 @@ end_per_testcase(Case, _) ->
     end,
     ok.
 
+t_create_atomicly(_) ->
+    Path = uri(["sso", "ldap"]),
+    ?assertMatch(
+        {ok, 400, _},
+        request(
+            put,
+            Path,
+            ldap_config(#{
+                <<"username">> => <<"invalid">>,
+                <<"enable">> => true,
+                <<"request_timeout">> => <<"1s">>
+            })
+        )
+    ),
+    ?assertEqual(undefined, emqx:get_config(?MOD_KEY_PATH, undefined)),
+    ?assertEqual([], ets:tab2list(?MOD_TAB)),
+    ?retry(
+        _Interval = 1000,
+        _NAttempts = 5,
+        ?assertEqual([], emqx_resource_manager:list_group(?RESOURCE_GROUP))
+    ),
+    ok.
+
 t_create(_) ->
     check_running([]),
     Path = uri(["sso", "ldap"]),
     {ok, 200, Result} = request(put, Path, ldap_config()),
     check_running([]),
+
+    ?assertMatch(#{backend := ldap}, emqx:get_config(?MOD_KEY_PATH, undefined)),
+    ?assertMatch([_], ets:tab2list(?MOD_TAB)),
+    ?retry(
+        _Interval = 500,
+        _NAttempts = 10,
+        ?assertMatch([_], emqx_resource_manager:list_group(?RESOURCE_GROUP))
+    ),
+
     ?assertMatch(#{backend := <<"ldap">>, enable := false}, decode_json(Result)),
     ?assertMatch([#{backend := <<"ldap">>, enable := false}], get_sso()),
     ?assertNotEqual(undefined, emqx_dashboard_sso_manager:lookup_state(ldap)),
