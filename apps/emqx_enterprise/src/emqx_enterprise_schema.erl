@@ -41,7 +41,7 @@ fields("log_audit_handler") ->
                 emqx_conf_schema:log_level(),
                 #{
                     default => info,
-                    desc => ?DESC("audit_handler_level"),
+                    desc => ?DESC(emqx_conf_schema, "audit_handler_level"),
                     importance => ?IMPORTANCE_HIDDEN
                 }
             )},
