@@ -278,7 +278,7 @@ t_crud(Config) ->
             <<"code">> := <<"BAD_REQUEST">>,
             <<"message">> :=
                 #{
-                    <<"expected">> := [_ | _],
+                    <<"expected">> := <<"avro | protobuf">>,
                     <<"field_name">> := <<"type">>
                 }
         }},
@@ -301,7 +301,7 @@ t_crud(Config) ->
             <<"code">> := <<"BAD_REQUEST">>,
             <<"message">> :=
                 #{
-                    <<"expected">> := [_ | _],
+                    <<"expected">> := <<"avro | protobuf">>,
                     <<"field_name">> := <<"type">>
                 }
         }},

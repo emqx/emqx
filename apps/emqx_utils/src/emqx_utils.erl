@@ -61,7 +61,8 @@
     diff_lists/3,
     merge_lists/3,
     tcp_keepalive_opts/4,
-    format/1
+    format/1,
+    format_mfal/1
 ]).
 
 -export([
@@ -528,6 +529,30 @@ tcp_keepalive_opts(OS, _Idle, _Interval, _Probes) ->
 
 format(Term) ->
     iolist_to_binary(io_lib:format("~0p", [Term])).
+
+%% @doc Helper function for log formatters.
+-spec format_mfal(map()) -> undefined | binary().
+format_mfal(Data) ->
+    Line =
+        case maps:get(line, Data, undefined) of
+            undefined ->
+                <<"">>;
+            Num ->
+                ["(", integer_to_list(Num), ")"]
+        end,
+    case maps:get(mfa, Data, undefined) of
+        {M, F, A} ->
+            iolist_to_binary([
+                atom_to_binary(M, utf8),
+                $:,
+                atom_to_binary(F, utf8),
+                $/,
+                integer_to_binary(A),
+                Line
+            ]);
+        _ ->
+            undefined
+    end.
 
 %%------------------------------------------------------------------------------
 %% Internal Functions

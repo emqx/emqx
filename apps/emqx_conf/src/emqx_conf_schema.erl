@@ -1252,6 +1252,7 @@ log_handler_common_confs(Handler, Default) ->
             sc(
                 hoconsc:enum([text, json]),
                 #{
+                    aliases => [format],
                     default => maps:get(formatter, Default, text),
                     desc => ?DESC("common_handler_formatter"),
                     importance => ?IMPORTANCE_MEDIUM
