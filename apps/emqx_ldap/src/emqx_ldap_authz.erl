@@ -134,21 +134,10 @@ do_authorize(_Action, _Topic, [], _Entry) ->
     nomatch.
 
 new_annotations(Init, Source) ->
-    lists:foldl(
-        fun(Attr, Acc) ->
-            Acc#{
-                Attr =>
-                    case maps:get(Attr, Source) of
-                        Value when is_binary(Value) ->
-                            erlang:binary_to_list(Value);
-                        Value ->
-                            Value
-                    end
-            }
-        end,
-        Init,
-        [publish_attribute, subscribe_attribute, all_attribute]
-    ).
+    State = emqx_ldap:parse_config(Source, [query_timeout], [
+        publish_attribute, subscribe_attribute, all_attribute
+    ]),
+    maps:merge(Init, State).
 
 select_attrs(#{action_type := publish}, #{publish_attribute := Pub, all_attribute := All}) ->
     [Pub, All];
