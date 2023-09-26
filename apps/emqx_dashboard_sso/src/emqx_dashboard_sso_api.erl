@@ -159,17 +159,23 @@ login(post, #{bindings := #{backend := Backend}, body := Body} = Request) ->
         State ->
             case emqx_dashboard_sso:login(provider(Backend), Request, State) of
                 {ok, Role, Token} ->
-                    ?SLOG(info, #{msg => "dashboard_sso_login_successful", request => Request}),
+                    ?SLOG(info, #{
+                        msg => "dashboard_sso_login_successful",
+                        request => emqx_utils:redact(Request)
+                    }),
                     Username = maps:get(<<"username">>, Body),
                     {200, login_meta(Username, Role, Token)};
                 {redirect, Redirect} ->
-                    ?SLOG(info, #{msg => "dashboard_sso_login_redirect", request => Request}),
+                    ?SLOG(info, #{
+                        msg => "dashboard_sso_login_redirect",
+                        request => emqx_utils:redact(Request)
+                    }),
                     Redirect;
                 {error, Reason} ->
                     ?SLOG(info, #{
                         msg => "dashboard_sso_login_failed",
-                        request => Request,
-                        reason => Reason
+                        request => emqx_utils:redact(Request),
+                        reason => emqx_utils:redact(Reason)
                     }),
                     {401, #{code => ?BAD_USERNAME_OR_PWD, message => <<"Auth failed">>}}
             end
@@ -193,10 +199,14 @@ backend(get, #{bindings := #{backend := Type}}) ->
             {200, to_json(Backend)}
     end;
 backend(put, #{bindings := #{backend := Backend}, body := Config}) ->
-    ?SLOG(info, #{msg => "Update SSO backend", backend => Backend, config => Config}),
+    ?SLOG(info, #{
+        msg => "update_sso_backend",
+        backend => Backend,
+        config => emqx_utils:redact(Config)
+    }),
     on_backend_update(Backend, Config, fun emqx_dashboard_sso_manager:update/2);
 backend(delete, #{bindings := #{backend := Backend}}) ->
-    ?SLOG(info, #{msg => "Delete SSO backend", backend => Backend}),
+    ?SLOG(info, #{msg => "delete_sso_backend", backend => Backend}),
     handle_backend_update_result(emqx_dashboard_sso_manager:delete(Backend), undefined).
 
 sso_parameters(Params) ->
