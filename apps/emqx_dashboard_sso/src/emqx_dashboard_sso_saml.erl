@@ -29,7 +29,11 @@
 
 -dialyzer({nowarn_function, do_create/1}).
 
--define(RESPHEADERS, #{<<"Cache-Control">> => <<"no-cache">>, <<"Pragma">> => <<"no-cache">>}).
+-define(RESPHEADERS, #{
+    <<"cache-control">> => <<"no-cache">>,
+    <<"pragma">> => <<"no-cache">>,
+    <<"content-type">> => <<"text/plain">>
+}).
 -define(REDIRECT_BODY, <<"Redirecting...">>).
 
 -define(DIR, <<"saml_sp_certs">>).
@@ -129,7 +133,7 @@ login(
                 Html = esaml_binding:encode_http_post(IDP, SignedXml, <<>>),
                 {200, ?RESPHEADERS, Html};
             false ->
-                {302, ?RESPHEADERS#{<<"Location">> => Target}, ?REDIRECT_BODY}
+                {302, ?RESPHEADERS#{<<"location">> => Target}, ?REDIRECT_BODY}
         end,
     {redirect, Redirect}.
 
@@ -209,7 +213,7 @@ gen_redirect_response(DashboardAddr, Username) ->
     case ensure_user_exists(Username) of
         {ok, Role, Token} ->
             Target = login_redirect_target(DashboardAddr, Username, Role, Token),
-            {redirect, {302, ?RESPHEADERS#{<<"Location">> => Target}, ?REDIRECT_BODY}};
+            {redirect, {302, ?RESPHEADERS#{<<"location">> => Target}, ?REDIRECT_BODY}};
         {error, Reason} ->
             {error, Reason}
     end.
