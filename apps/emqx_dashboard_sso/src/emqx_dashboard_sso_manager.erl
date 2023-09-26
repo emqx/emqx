@@ -41,14 +41,16 @@
 
 -import(emqx_dashboard_sso, [provider/1]).
 
+-define(MOD_TAB, emqx_dashboard_sso).
 -define(MOD_KEY_PATH, [dashboard, sso]).
+-define(CALL_TIMEOUT, timer:seconds(10)).
 -define(MOD_KEY_PATH(Sub), [dashboard, sso, Sub]).
 -define(RESOURCE_GROUP, <<"emqx_dashboard_sso">>).
 -define(DEFAULT_RESOURCE_OPTS, #{
     start_after_created => false
 }).
 
--record(dashboard_sso, {
+-record(?MOD_TAB, {
     backend :: atom(),
     state :: map()
 }).
@@ -77,9 +79,9 @@ delete(Backend) ->
     update_config(Backend, {?FUNCTION_NAME, Backend}).
 
 lookup_state(Backend) ->
-    case ets:lookup(dashboard_sso, Backend) of
+    case ets:lookup(?MOD_TAB, Backend) of
         [Data] ->
-            Data#dashboard_sso.state;
+            Data#?MOD_TAB.state;
         [] ->
             undefined
     end.
@@ -96,7 +98,7 @@ create_resource(ResourceId, Module, Config) ->
         Config,
         ?DEFAULT_RESOURCE_OPTS
     ),
-    start_resource_if_enabled(ResourceId, Result, Config).
+    start_resource_if_enabled(ResourceId, Result, Config, fun clean_when_start_failed/1).
 
 update_resource(ResourceId, Module, Config) ->
     Result = emqx_resource:recreate_local(
@@ -105,7 +107,12 @@ update_resource(ResourceId, Module, Config) ->
     start_resource_if_enabled(ResourceId, Result, Config).
 
 call(Req) ->
-    gen_server:call(?MODULE, Req).
+    try
+        gen_server:call(?MODULE, Req, ?CALL_TIMEOUT)
+    catch
+        exit:{timeout, _} ->
+            {error, <<"Update backend failed: timeout">>}
+    end.
 
 %%------------------------------------------------------------------------------
 %% gen_server callbacks
@@ -114,12 +121,12 @@ init([]) ->
     process_flag(trap_exit, true),
     add_handler(),
     emqx_utils_ets:new(
-        dashboard_sso,
+        ?MOD_TAB,
         [
-            set,
+            ordered_set,
             public,
             named_table,
-            {keypos, #dashboard_sso.backend},
+            {keypos, #?MOD_TAB.backend},
             {read_concurrency, true}
         ]
     ),
@@ -160,13 +167,13 @@ start_backend_services() ->
             case emqx_dashboard_sso:create(Provider, Config) of
                 {ok, State} ->
                     ?SLOG(info, #{
-                        msg => "Start SSO backend successfully",
+                        msg => "start_sso_backend_successfully",
                         backend => Backend
                     }),
-                    ets:insert(dashboard_sso, #dashboard_sso{backend = Backend, state = State});
+                    ets:insert(?MOD_TAB, #?MOD_TAB{backend = Backend, state = State});
                 {error, Reason} ->
                     ?SLOG(error, #{
-                        msg => "Start SSO backend failed",
+                        msg => "start_sso_backend_failed",
                         backend => Backend,
                         reason => Reason
                     })
@@ -180,18 +187,24 @@ update_config(Backend, UpdateReq) ->
         {ok, UpdateResult} ->
             #{post_config_update := #{?MODULE := Result}} = UpdateResult,
             ?SLOG(info, #{
-                msg => "Update SSO configuration successfully",
+                msg => "update_sso_successfully",
                 backend => Backend,
                 result => Result
             }),
             Result;
-        {error, Reason} = Error ->
+        {error, Reason} ->
             ?SLOG(error, #{
-                msg => "Update SSO configuration failed",
+                msg => "update_sso_failed",
                 backend => Backend,
                 reason => Reason
             }),
-            Error
+            {error,
+                case Reason of
+                    {_Stage, _Mod, Reason2} ->
+                        Reason2;
+                    _ ->
+                        Reason
+                end}
     end.
 
 pre_config_update(_, {update, _Backend, Config}, _OldConf) ->
@@ -202,8 +215,7 @@ pre_config_update(_, {delete, _Backend}, _OldConf) ->
     {ok, null}.
 
 post_config_update(_, UpdateReq, NewConf, _OldConf, _AppEnvs) ->
-    Result = call({update_config, UpdateReq, NewConf}),
-    {ok, Result}.
+    call({update_config, UpdateReq, NewConf}).
 
 propagated_post_config_update(
     ?MOD_KEY_PATH(BackendBin) = Path, _UpdateReq, undefined, OldConf, AppEnvs
@@ -231,14 +243,14 @@ on_config_update({update, Backend, _RawConfig}, Config) ->
             on_backend_updated(
                 emqx_dashboard_sso:create(Provider, Config),
                 fun(State) ->
-                    ets:insert(dashboard_sso, #dashboard_sso{backend = Backend, state = State})
+                    ets:insert(?MOD_TAB, #?MOD_TAB{backend = Backend, state = State})
                 end
             );
         Data ->
             on_backend_updated(
-                emqx_dashboard_sso:update(Provider, Config, Data#dashboard_sso.state),
+                emqx_dashboard_sso:update(Provider, Config, Data#?MOD_TAB.state),
                 fun(State) ->
-                    ets:insert(dashboard_sso, Data#dashboard_sso{state = State})
+                    ets:insert(?MOD_TAB, Data#?MOD_TAB{state = State})
                 end
             )
     end;
@@ -249,33 +261,61 @@ on_config_update({delete, Backend}, _NewConf) ->
         Data ->
             Provider = provider(Backend),
             on_backend_updated(
-                emqx_dashboard_sso:destroy(Provider, Data#dashboard_sso.state),
+                emqx_dashboard_sso:destroy(Provider, Data#?MOD_TAB.state),
                 fun() ->
-                    ets:delete(dashboard_sso, Backend)
+                    ets:delete(?MOD_TAB, Backend)
                 end
             )
     end.
 
 lookup(Backend) ->
-    case ets:lookup(dashboard_sso, Backend) of
+    case ets:lookup(?MOD_TAB, Backend) of
         [Data] ->
             Data;
         [] ->
             undefined
     end.
 
-start_resource_if_enabled(ResourceId, {ok, _} = Result, #{enable := true}) ->
-    _ = emqx_resource:start(ResourceId),
-    Result;
-start_resource_if_enabled(_ResourceId, Result, _Config) ->
+start_resource_if_enabled(ResourceId, Result, Config) ->
+    start_resource_if_enabled(ResourceId, Result, Config, undefined).
+
+start_resource_if_enabled(
+    ResourceId, {ok, _} = Result, #{enable := true}, CleanWhenStartFailed
+) ->
+    case emqx_resource:start(ResourceId) of
+        ok ->
+            Result;
+        {error, Reason} ->
+            SafeReason = emqx_utils:redact(Reason),
+            ?SLOG(error, #{
+                msg => "start_backend_failed",
+                resource_id => ResourceId,
+                reason => SafeReason
+            }),
+            erlang:is_function(CleanWhenStartFailed) andalso
+                CleanWhenStartFailed(ResourceId),
+            {error, emqx_dashboard_sso:format(["Start backend failed, Reason: ", SafeReason])}
+    end;
+start_resource_if_enabled(_ResourceId, Result, _Config, _) ->
     Result.
 
+%% ensure the backend creation is atomic, clean the corresponding resource when necessary,
+%% when creating a backend fails, nothing will be inserted into the SSO table,
+%% thus the resources created by backend will leakage.
+%% Although we can treat start failure as successful,
+%% and insert the resource data into the SSO table,
+%% it may be strange for users: it succeeds, but can't be used.
+clean_when_start_failed(ResourceId) ->
+    _ = emqx_resource:remove_local(ResourceId),
+    ok.
+
+%% this first level `ok` is for emqx_config_handler, and the second level is for the caller
 on_backend_updated({ok, State} = Ok, Fun) ->
     Fun(State),
-    Ok;
+    {ok, Ok};
 on_backend_updated(ok, Fun) ->
     Fun(),
-    ok;
+    {ok, ok};
 on_backend_updated(Error, _) ->
     Error.
 
