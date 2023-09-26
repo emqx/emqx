@@ -35,8 +35,7 @@ cli(["start" | StartArgs]) ->
                     emqx_ctl:print("Rebalance(purge) started~n"),
                     true;
                 {error, Reason} ->
-                    emqx_ctl:print_return_error("Rebalance(purge) start error: ~p~n", [Reason]),
-                    false
+                    emqx_ctl:print_return_error("Rebalance(purge) start error: ~p~n", [Reason])
             end;
         {rebalance, Opts} ->
             case emqx_node_rebalance:start(Opts) of
@@ -44,20 +43,17 @@ cli(["start" | StartArgs]) ->
                     emqx_ctl:print("Rebalance started~n"),
                     true;
                 {error, Reason} ->
-                    emqx_ctl:print_return_error("Rebalance start error: ~p~n", [Reason]),
-                    false
+                    emqx_ctl:print_return_error("Rebalance start error: ~p~n", [Reason])
             end;
         {error, Error} ->
-            emqx_ctl:print_return_error("Rebalance start error: ~s~n", [Error]),
-            false
+            emqx_ctl:print_return_error("Rebalance start error: ~s~n", [Error])
     end;
 cli(["node-status", NodeStr]) ->
     case emqx_utils:safe_to_existing_atom(NodeStr, utf8) of
         {ok, Node} ->
             node_status(emqx_node_rebalance_status:local_status(Node));
         {error, _} ->
-            emqx_ctl:print_return_error("Node status error: invalid node~n"),
-            false
+            emqx_ctl:print_return_error("Node status error: invalid node~n")
     end;
 cli(["node-status"]) ->
     node_status(emqx_node_rebalance_status:local_status());

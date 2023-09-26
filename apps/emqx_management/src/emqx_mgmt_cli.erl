@@ -102,7 +102,8 @@ cluster(["join", SNode]) ->
                 cluster(["status"]),
             ok;
         ignore ->
-            emqx_ctl:print_return_error("Ignore.~n");
+            %% NOTE: intended to exit with code 0
+            emqx_ctl:print("Ignore.~n");
         {error, Error} ->
             emqx_ctl:print_return_error("Failed to join the cluster: ~0p~n", [Error])
     end;
@@ -368,11 +369,10 @@ log(["primary-level", Level]) ->
     case emqx_utils:safe_to_existing_atom(Level) of
         {ok, Level1} ->
             _ = emqx_logger:set_primary_log_level(Level1),
-            ok;
+            emqx_ctl:print("~ts~n", [emqx_logger:get_primary_log_level()]);
         _ ->
             emqx_ctl:print_return_error("[error] invalid level: ~p~n", [Level])
-    end,
-    emqx_ctl:print("~ts~n", [emqx_logger:get_primary_log_level()]);
+    end;
 log(["handlers", "list"]) ->
     _ = [
         emqx_ctl:print(
