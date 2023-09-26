@@ -230,7 +230,7 @@ remove_user(Username) ->
 
 -spec update_user(dashboard_username(), dashboard_user_role(), binary()) ->
     {ok, map()} | {error, term()}.
-update_user(Username, Role, Desc) when is_binary(Username) ->
+update_user(Username, Role, Desc) ->
     case legal_role(Role) of
         ok ->
             case
