@@ -266,7 +266,7 @@ fields(node_status) ->
             })},
         {status, ?HOCON(?R_REF(status))}
     ];
-fields({Type, with_name}) ->
+fields("with_name_" ++ Type) ->
     listener_struct_with_name(Type);
 fields(Type) ->
     listener_struct(Type).
@@ -308,7 +308,7 @@ listener_union_member_selector(Opts) ->
 
 create_listener_schema(Opts) ->
     Schemas = [
-        ?R_REF(Mod, {Type, with_name})
+        ?R_REF(Mod, "with_name_" ++ Type)
      || #{ref := ?R_REF(Mod, Type)} <- listeners_info(Opts)
     ],
     Example = maps:remove(id, tcp_schema_example()),
@@ -399,7 +399,7 @@ list_listeners(get, #{query_string := Query}) ->
         end,
     {200, listener_status_by_id(NodeL)};
 list_listeners(post, #{body := Body}) ->
-    create_listener(Body).
+    create_listener(name, Body).
 
 crud_listeners_by_id(get, #{bindings := #{id := Id}}) ->
     case find_listeners_by_id(Id) of
@@ -407,7 +407,7 @@ crud_listeners_by_id(get, #{bindings := #{id := Id}}) ->
         [L] -> {200, L}
     end;
 crud_listeners_by_id(put, #{bindings := #{id := Id}, body := Body0}) ->
-    case parse_listener_conf(Body0) of
+    case parse_listener_conf(id, Body0) of
         {Id, Type, Name, Conf} ->
             case get_raw(Type, Name) of
                 undefined ->
@@ -430,7 +430,7 @@ crud_listeners_by_id(put, #{bindings := #{id := Id}, body := Body0}) ->
             {400, #{code => 'BAD_LISTENER_ID', message => ?LISTENER_ID_INCONSISTENT}}
     end;
 crud_listeners_by_id(post, #{body := Body}) ->
-    create_listener(Body);
+    create_listener(id, Body);
 crud_listeners_by_id(delete, #{bindings := #{id := Id}}) ->
     {ok, #{type := Type, name := Name}} = emqx_listeners:parse_listener_id(Id),
     case find_listeners_by_id(Id) of
@@ -441,11 +441,10 @@ crud_listeners_by_id(delete, #{bindings := #{id := Id}}) ->
             {404, #{code => 'BAD_LISTENER_ID', message => ?LISTENER_NOT_FOUND}}
     end.
 
-parse_listener_conf(Conf0) ->
+parse_listener_conf(id, Conf0) ->
     Conf1 = maps:without([<<"running">>, <<"current_connections">>], Conf0),
     {TypeBin, Conf2} = maps:take(<<"type">>, Conf1),
     TypeAtom = binary_to_existing_atom(TypeBin),
-
     case maps:take(<<"id">>, Conf2) of
         {IdBin, Conf3} ->
             {ok, #{type := Type, name := Name}} = emqx_listeners:parse_listener_id(IdBin),
@@ -454,13 +453,18 @@ parse_listener_conf(Conf0) ->
                 false -> {error, listener_type_inconsistent}
             end;
         _ ->
-            case maps:take(<<"name">>, Conf2) of
-                {Name, Conf3} ->
-                    IdBin = <<TypeBin/binary, $:, Name/binary>>,
-                    {binary_to_atom(IdBin), TypeAtom, Name, Conf3};
-                _ ->
-                    {error, listener_config_invalid}
-            end
+            {error, listener_config_invalid}
+    end;
+parse_listener_conf(name, Conf0) ->
+    Conf1 = maps:without([<<"running">>, <<"current_connections">>], Conf0),
+    {TypeBin, Conf2} = maps:take(<<"type">>, Conf1),
+    TypeAtom = binary_to_existing_atom(TypeBin),
+    case maps:take(<<"name">>, Conf2) of
+        {Name, Conf3} ->
+            IdBin = <<TypeBin/binary, $:, Name/binary>>,
+            {binary_to_atom(IdBin), TypeAtom, Name, Conf3};
+        _ ->
+            {error, listener_config_invalid}
     end.
 
 stop_listeners_by_id(Method, Body = #{bindings := Bindings}) ->
@@ -832,8 +836,8 @@ tcp_schema_example() ->
         type => tcp
     }.
 
-create_listener(Body) ->
-    case parse_listener_conf(Body) of
+create_listener(From, Body) ->
+    case parse_listener_conf(From, Body) of
         {Id, Type, Name, Conf} ->
             case create(Type, Name, Conf) of
                 {ok, #{raw_config := _RawConf}} ->
