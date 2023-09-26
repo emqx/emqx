@@ -139,6 +139,7 @@ kafka_consumer_test() ->
     ok.
 
 message_key_dispatch_validations_test() ->
+    Name = myproducer,
     Conf0 = kafka_producer_new_hocon(),
     Conf1 =
         Conf0 ++
@@ -155,7 +156,7 @@ message_key_dispatch_validations_test() ->
                     <<"message">> := #{<<"key">> := <<>>}
                 }
         },
-        emqx_utils_maps:deep_get([<<"bridges">>, <<"kafka">>, <<"myproducer">>], Conf)
+        emqx_utils_maps:deep_get([<<"bridges">>, <<"kafka">>, atom_to_binary(Name)], Conf)
     ),
     ?assertThrow(
         {_, [
@@ -166,8 +167,6 @@ message_key_dispatch_validations_test() ->
         ]},
         check(Conf)
     ),
-    %% ensure atoms exist
-    _ = [myproducer],
     ?assertThrow(
         {_, [
             #{
