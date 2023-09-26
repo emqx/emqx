@@ -52,7 +52,7 @@
 %%    (e.g. in `init_per_suite/1` / `init_per_group/2`), providing the appspecs
 %%    and unique work dir for the testrun (e.g. `work_dir/1`). Save the result
 %%    in a context.
-%% 3. Call `emqx_cth_sutie:stop/1` to stop the applications after the testrun
+%% 3. Call `emqx_cth_suite:stop/1` to stop the applications after the testrun
 %%    finishes (e.g. in `end_per_suite/1` / `end_per_group/2`), providing the
 %%    result from step 2.
 -module(emqx_cth_suite).
@@ -245,6 +245,9 @@ spec_fmt(ffun, {_, X}) -> X.
 
 maybe_configure_app(_App, #{config := false}) ->
     ok;
+maybe_configure_app(_App, AppConfig = #{schema_mod := SchemaModule}) when is_atom(SchemaModule) ->
+    #{config := Config} = AppConfig,
+    configure_app(SchemaModule, Config);
 maybe_configure_app(App, #{config := Config}) ->
     case app_schema(App) of
         {ok, SchemaModule} ->
