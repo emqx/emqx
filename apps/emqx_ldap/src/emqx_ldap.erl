@@ -158,7 +158,7 @@ on_start(
         {error, Reason} ->
             ?tp(
                 ldap_connector_start_failed,
-                #{error => Reason}
+                #{error => emqx_utils:redact(Reason)}
             ),
             {error, Reason}
     end.
@@ -248,7 +248,7 @@ do_ldap_query(
     SearchOptions,
     #{pool_name := PoolName} = State
 ) ->
-    LogMeta = #{connector => InstId, search => SearchOptions, state => State},
+    LogMeta = #{connector => InstId, search => SearchOptions, state => emqx_utils:redact(State)},
     ?TRACE("QUERY", "ldap_connector_received", LogMeta),
     case
         ecpool:pick_and_do(
@@ -268,7 +268,10 @@ do_ldap_query(
         {error, Reason} ->
             ?SLOG(
                 error,
-                LogMeta#{msg => "ldap_connector_do_query_failed", reason => Reason}
+                LogMeta#{
+                    msg => "ldap_connector_do_query_failed",
+                    reason => emqx_utils:redact(Reason)
+                }
             ),
             {error, {unrecoverable_error, Reason}}
     end.
