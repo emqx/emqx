@@ -146,7 +146,7 @@ run_command(Cmd, Args) when is_atom(Cmd) ->
     audit_log(
         audit_level(Result, Duration),
         "from_cli",
-        #{duration_ms => Duration, result => Result, cmd => Cmd, args => Args, node => node()}
+        #{duration_ms => Duration, cmd => Cmd, args => Args, node => node()}
     ),
     Result.
 
