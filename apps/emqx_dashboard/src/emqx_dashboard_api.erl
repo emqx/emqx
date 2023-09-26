@@ -379,7 +379,7 @@ sso_parameters() ->
 sso_parameters(Params) ->
     emqx_dashboard_sso_api:sso_parameters(Params).
 
-username(#{query_string := #{<<"backend">> := local}}, Username) ->
+username(#{query_string := #{<<"backend">> := ?BACKEND_LOCAL}}, Username) ->
     Username;
 username(#{query_string := #{<<"backend">> := Backend}}, Username) ->
     ?SSO_USERNAME(Backend, Username);

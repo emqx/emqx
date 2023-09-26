@@ -427,7 +427,7 @@ flatten_username(#{username := ?SSO_USERNAME(Backend, Name)} = Data) ->
         backend => Backend
     };
 flatten_username(#{username := Username} = Data) when is_binary(Username) ->
-    Data#{backend => local}.
+    Data#{backend => ?BACKEND_LOCAL}.
 
 -spec add_sso_user(dashboard_sso_backend(), binary(), dashboard_user_role(), binary()) ->
     {ok, map()} | {error, any()}.
