@@ -28,7 +28,24 @@ fields("node") ->
 fields("log") ->
     redefine_log(emqx_conf_schema:fields("log"));
 fields("log_audit_handler") ->
+    CommonConfs = emqx_conf_schema:log_handler_common_confs(file, #{}),
+    CommonConfs1 = lists:filter(
+        fun({Key, _}) ->
+            not lists:member(Key, ["level", "formatter"])
+        end,
+        CommonConfs
+    ),
     [
+        {"level",
+            hoconsc:mk(
+                emqx_conf_schema:log_level(),
+                #{
+                    default => info,
+                    desc => ?DESC(emqx_conf_schema, "audit_handler_level"),
+                    importance => ?IMPORTANCE_HIDDEN
+                }
+            )},
+
         {"path",
             hoconsc:mk(
                 emqx_conf_schema:file(),
@@ -62,16 +79,7 @@ fields("log_audit_handler") ->
                     importance => ?IMPORTANCE_MEDIUM
                 }
             )}
-    ] ++
-        %% Only support json
-        lists:keydelete(
-            "formatter",
-            1,
-            emqx_conf_schema:log_handler_common_confs(
-                file,
-                #{level => info, level_desc => "audit_handler_level"}
-            )
-        );
+    ] ++ CommonConfs1;
 fields(Name) ->
     ee_delegate(fields, ?EE_SCHEMA_MODULES, Name).
 
