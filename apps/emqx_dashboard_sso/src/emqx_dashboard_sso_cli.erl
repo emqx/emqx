@@ -34,16 +34,13 @@ admins(["passwd", Username, Password]) ->
             print_error(Reason)
     end;
 admins(["del", Username]) ->
-    case emqx_dashboard_admin:remove_user(bin(Username)) of
-        {ok, _} ->
-            emqx_ctl:print("ok~n");
-        {error, Reason} ->
-            print_error(Reason)
-    end;
-admins(["del", Username, Backend]) ->
-    case emqx_dashboard_admin:remove_user(?SSO_USERNAME(atom(Backend), bin(Username))) of
-        {ok, _} ->
-            emqx_ctl:print("ok~n");
+    delete_user(bin(Username));
+admins(["del", Username, BackendName]) ->
+    case atom(BackendName) of
+        {ok, ?BACKEND_LOCAL} ->
+            delete_user(bin(Username));
+        {ok, Backend} ->
+            delete_user(?SSO_USERNAME(Backend, bin(Username)));
         {error, Reason} ->
             print_error(Reason)
     end;
@@ -52,9 +49,18 @@ admins(_) ->
         [
             {"admins add <Username> <Password> <Description> <Role>", "Add dashboard user"},
             {"admins passwd <Username> <Password>", "Reset dashboard user password"},
-            {"admins del <Username> <Backend>", "Delete dashboard user"}
+            {"admins del <Username> <Backend>",
+                "Delete dashboard user, <Backend> can be omitted, the default value is 'local'"}
         ]
     ).
 
 atom(S) ->
-    erlang:list_to_atom(S).
+    emqx_utils:safe_to_existing_atom(S).
+
+delete_user(Username) ->
+    case emqx_dashboard_admin:remove_user(Username) of
+        {ok, _} ->
+            emqx_ctl:print("ok~n");
+        {error, Reason} ->
+            print_error(Reason)
+    end.

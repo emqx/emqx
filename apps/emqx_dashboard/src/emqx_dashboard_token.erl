@@ -191,7 +191,7 @@ token_ttl() ->
 format(Token, ?SSO_USERNAME(Backend, Name), Role, ExpTime) ->
     format(Token, Backend, Name, Role, ExpTime);
 format(Token, Username, Role, ExpTime) ->
-    format(Token, local, Username, Role, ExpTime).
+    format(Token, ?BACKEND_LOCAL, Username, Role, ExpTime).
 
 format(Token, Backend, Username, Role, ExpTime) ->
     #?ADMIN_JWT{

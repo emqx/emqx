@@ -379,9 +379,9 @@ sso_parameters() ->
 sso_parameters(Params) ->
     emqx_dashboard_sso_api:sso_parameters(Params).
 
-username(#{bindings := #{backend := local}}, Username) ->
+username(#{query_string := #{<<"backend">> := ?BACKEND_LOCAL}}, Username) ->
     Username;
-username(#{bindings := #{backend := Backend}}, Username) ->
+username(#{query_string := #{<<"backend">> := Backend}}, Username) ->
     ?SSO_USERNAME(Backend, Username);
 username(_Req, Username) ->
     Username.
