@@ -749,7 +749,7 @@ handle_message(State, #{<<"ackId">> := AckId, <<"message">> := InnerMsg} = _Mess
             Payload = render(FullMessage, PayloadTemplate),
             MQTTMessage = emqx_message:make(InstanceId, MQTTQoS, MQTTTopic, Payload),
             _ = emqx:publish(MQTTMessage),
-            emqx:run_hook(Hookpoint, [FullMessage]),
+            emqx_hooks:run(Hookpoint, [FullMessage]),
             emqx_resource_metrics:received_inc(InstanceId),
             ok
         end

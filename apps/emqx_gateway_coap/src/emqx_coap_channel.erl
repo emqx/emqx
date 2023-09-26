@@ -286,7 +286,7 @@ handle_call(
     ok = emqx_broker:unsubscribe(MountedTopic),
     _ = run_hooks(
         Ctx,
-        'session.unsubscribe',
+        'session.unsubscribed',
         [ClientInfo, MountedTopic, #{}]
     ),
 

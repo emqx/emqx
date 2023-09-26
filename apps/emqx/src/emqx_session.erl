@@ -496,7 +496,7 @@ stats(Session) ->
 %%--------------------------------------------------------------------
 
 on_delivery_completed(Msg, #{clientid := ClientId}, Session) ->
-    emqx:run_hook(
+    emqx_hooks:run(
         'delivery.completed',
         [
             Msg,

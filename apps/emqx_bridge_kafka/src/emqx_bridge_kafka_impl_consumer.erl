@@ -252,7 +252,7 @@ do_handle_message(Message, State) ->
     MQTTTopic = render(FullMessage, MQTTTopicTemplate),
     MQTTMessage = emqx_message:make(ResourceId, MQTTQoS, MQTTTopic, Payload),
     _ = emqx:publish(MQTTMessage),
-    emqx:run_hook(Hookpoint, [FullMessage]),
+    emqx_hooks:run(Hookpoint, [FullMessage]),
     emqx_resource_metrics:received_inc(ResourceId),
     %% note: just `ack' does not commit the offset to the
     %% kafka consumer group.

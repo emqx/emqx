@@ -21,8 +21,8 @@
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
 
--define(EMQX_PLUGIN_TEMPLATE_NAME, "emqx_plugin_template").
--define(EMQX_PLUGIN_TEMPLATE_VSN, "5.0.0").
+-define(EMQX_PLUGIN_TEMPLATE_NAME, "my_emqx_plugin").
+-define(EMQX_PLUGIN_TEMPLATE_VSN, "5.1.0").
 -define(PACKAGE_SUFFIX, ".tar.gz").
 
 -define(CLUSTER_API_SERVER(PORT), ("http://127.0.0.1:" ++ (integer_to_list(PORT)))).

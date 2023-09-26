@@ -53,12 +53,6 @@
     subscribed/2
 ]).
 
-%% Hooks API
--export([
-    run_hook/2,
-    run_fold_hook/3
-]).
-
 %% Configs APIs
 -export([
     get_config/1,
@@ -172,15 +166,8 @@ subscribed(SubId, Topic) when is_atom(SubId); is_binary(SubId) ->
     emqx_broker:subscribed(SubId, iolist_to_binary(Topic)).
 
 %%--------------------------------------------------------------------
-%% Hooks API
+%% Config API
 %%--------------------------------------------------------------------
--spec run_hook(emqx_hooks:hookpoint(), list(any())) -> ok | stop.
-run_hook(HookPoint, Args) ->
-    emqx_hooks:run(HookPoint, Args).
-
--spec run_fold_hook(emqx_hooks:hookpoint(), list(any()), any()) -> any().
-run_fold_hook(HookPoint, Args, Acc) ->
-    emqx_hooks:run_fold(HookPoint, Args, Acc).
 
 -spec get_config(emqx_utils_maps:config_key_path()) -> term().
 get_config(KeyPath) ->

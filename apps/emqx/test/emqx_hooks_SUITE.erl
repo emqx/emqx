@@ -25,25 +25,23 @@
 all() -> emqx_common_test_helpers:all(?MODULE).
 
 init_per_testcase(_, Config) ->
+    {ok, _} = emqx_hooks:start_link(),
+    ok = emqx_hookpoints:register_hookpoints(
+        [
+            test_hook,
+            emqx_hook,
+            foldl_hook,
+            foldl_hook2,
+            foreach_hook,
+            foreach_filter1_hook,
+            foldl_filter2_hook
+        ]
+    ),
     Config.
 
 end_per_testcase(_) ->
+    ok = emqx_hookpoints:register_hookpoints(),
     catch emqx_hooks:stop().
-
-% t_lookup(_) ->
-%     error('TODO').
-
-% t_run_fold(_) ->
-%     error('TODO').
-
-% t_run(_) ->
-%     error('TODO').
-
-% t_del(_) ->
-%     error('TODO').
-
-% t_add(_) ->
-%     error('TODO').
 
 t_add_hook_order(_) ->
     ?assert(
@@ -65,7 +63,8 @@ add_hook_order_prop() ->
         Hooks,
         hooks(),
         try
-            {ok, _} = emqx_hooks:start_link(),
+            _ = emqx_hooks:start_link(),
+            ok = emqx_hookpoints:register_hookpoints([prop_hook]),
             [ok = emqx_hooks:add(prop_hook, {M, F, []}, Prio) || {Prio, M, F} <- Hooks],
             Callbacks = emqx_hooks:lookup(prop_hook),
             Order = [{Prio, M, F} || {callback, {M, F, _}, _Filter, Prio} <- Callbacks],
@@ -92,7 +91,6 @@ hooks() ->
     ).
 
 t_add_put_del_hook(_) ->
-    {ok, _} = emqx_hooks:start_link(),
     ok = emqx_hooks:add(test_hook, {?MODULE, hook_fun1, []}, 0),
     ok = emqx_hooks:add(test_hook, {?MODULE, hook_fun2, []}, 0),
     ?assertEqual(
@@ -150,31 +148,40 @@ t_add_put_del_hook(_) ->
     ?assertEqual([], emqx_hooks:lookup(emqx_hook)).
 
 t_run_hooks(_) ->
-    {ok, _} = emqx_hooks:start_link(),
     ok = emqx_hooks:add(foldl_hook, {?MODULE, hook_fun3, [init]}, 0),
     ok = emqx_hooks:add(foldl_hook, {?MODULE, hook_fun4, [init]}, 0),
     ok = emqx_hooks:add(foldl_hook, {?MODULE, hook_fun5, [init]}, 0),
-    [r5, r4] = emqx:run_fold_hook(foldl_hook, [arg1, arg2], []),
-    [] = emqx:run_fold_hook(unknown_hook, [], []),
+    [r5, r4] = emqx_hooks:run_fold(foldl_hook, [arg1, arg2], []),
+
+    ?assertException(
+        error,
+        {invalid_hookpoint, unknown_hook},
+        emqx_hooks:run_fold(unknown_hook, [], [])
+    ),
+    ?assertException(
+        error,
+        {invalid_hookpoint, unknown_hook},
+        emqx_hooks:add(unknown_hook, {?MODULE, hook_fun5, [init]}, 0)
+    ),
 
     ok = emqx_hooks:add(foldl_hook2, {?MODULE, hook_fun9, []}, 0),
     ok = emqx_hooks:add(foldl_hook2, {?MODULE, hook_fun10, []}, 0),
     %% Note: 10 is _less_ than 9 per lexicographic order
-    [r10] = emqx:run_fold_hook(foldl_hook2, [arg], []),
+    [r10] = emqx_hooks:run_fold(foldl_hook2, [arg], []),
 
     ok = emqx_hooks:add(foreach_hook, {?MODULE, hook_fun6, [initArg]}, 0),
     {error, already_exists} = emqx_hooks:add(foreach_hook, {?MODULE, hook_fun6, [initArg]}, 0),
     ok = emqx_hooks:add(foreach_hook, {?MODULE, hook_fun7, [initArg]}, 0),
     ok = emqx_hooks:add(foreach_hook, {?MODULE, hook_fun8, [initArg]}, 0),
-    ok = emqx:run_hook(foreach_hook, [arg]),
+    ok = emqx_hooks:run(foreach_hook, [arg]),
 
     ok = emqx_hooks:add(
         foreach_filter1_hook, {?MODULE, hook_fun1, []}, 0, {?MODULE, hook_filter1, []}
     ),
     %% filter passed
-    ?assertEqual(ok, emqx:run_hook(foreach_filter1_hook, [arg])),
+    ?assertEqual(ok, emqx_hooks:run(foreach_filter1_hook, [arg])),
     %% filter failed
-    ?assertEqual(ok, emqx:run_hook(foreach_filter1_hook, [arg1])),
+    ?assertEqual(ok, emqx_hooks:run(foreach_filter1_hook, [arg1])),
 
     ok = emqx_hooks:add(
         foldl_filter2_hook, {?MODULE, hook_fun2, []}, 0, {?MODULE, hook_filter2, [init_arg]}
@@ -182,11 +189,10 @@ t_run_hooks(_) ->
     ok = emqx_hooks:add(
         foldl_filter2_hook, {?MODULE, hook_fun2_1, []}, 0, {?MODULE, hook_filter2_1, [init_arg]}
     ),
-    ?assertEqual(3, emqx:run_fold_hook(foldl_filter2_hook, [arg], 1)),
-    ?assertEqual(2, emqx:run_fold_hook(foldl_filter2_hook, [arg1], 1)).
+    ?assertEqual(3, emqx_hooks:run_fold(foldl_filter2_hook, [arg], 1)),
+    ?assertEqual(2, emqx_hooks:run_fold(foldl_filter2_hook, [arg1], 1)).
 
 t_uncovered_func(_) ->
-    {ok, _} = emqx_hooks:start_link(),
     Pid = erlang:whereis(emqx_hooks),
     gen_server:call(Pid, test),
     gen_server:cast(Pid, test),

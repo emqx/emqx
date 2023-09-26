@@ -41,7 +41,7 @@
 %% if the bridge received msgs from the remote broker.
 on_message_received(Msg, HookPoint, ResId) ->
     emqx_resource_metrics:received_inc(ResId),
-    emqx:run_hook(HookPoint, [Msg]).
+    emqx_hooks:run(HookPoint, [Msg]).
 
 %% ===================================================================
 callback_mode() -> async_if_possible.

@@ -549,7 +549,7 @@ handle_in(
                 ok = emqx_broker:unsubscribe(MountedTopic),
                 _ = run_hooks(
                     Ctx,
-                    'session.unsubscribe',
+                    'session.unsubscribed',
                     [ClientInfo, MountedTopic, #{}]
                 ),
                 {ok, Channel#channel{subscriptions = lists:keydelete(SubId, 1, Subs)}};
@@ -869,7 +869,7 @@ handle_call(
     ok = emqx_broker:unsubscribe(MountedTopic),
     _ = run_hooks(
         Ctx,
-        'session.unsubscribe',
+        'session.unsubscribed',
         [ClientInfo, MountedTopic, #{}]
     ),
     reply(

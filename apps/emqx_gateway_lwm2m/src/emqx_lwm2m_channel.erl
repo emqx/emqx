@@ -264,7 +264,7 @@ handle_call(
     ok = emqx_broker:unsubscribe(MountedTopic),
     _ = run_hooks(
         Ctx,
-        'session.unsubscribe',
+        'session.unsubscribed',
         [ClientInfo, MountedTopic, #{}]
     ),
     %% modify session state
@@ -331,7 +331,7 @@ terminate(Reason, #channel{
     session = Session
 }) ->
     MountedTopic = emqx_lwm2m_session:on_close(Session),
-    _ = run_hooks(Ctx, 'session.unsubscribe', [ClientInfo, MountedTopic, #{}]),
+    _ = run_hooks(Ctx, 'session.unsubscribed', [ClientInfo, MountedTopic, #{}]),
     run_hooks(Ctx, 'session.terminated', [ClientInfo, Reason, Session]).
 
 %%--------------------------------------------------------------------
