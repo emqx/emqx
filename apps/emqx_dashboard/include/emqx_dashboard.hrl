@@ -24,6 +24,7 @@
 -define(ROLE_SUPERUSER, <<"administrator">>).
 -define(ROLE_DEFAULT, ?ROLE_SUPERUSER).
 
+-define(BACKEND_LOCAL, local).
 -define(SSO_USERNAME(Backend, Name), {Backend, Name}).
 
 -type dashboard_sso_backend() :: atom().

@@ -181,23 +181,8 @@ validate_log(Conf) ->
         }},
         FileHandler
     ),
-    AuditHandler = lists:keyfind(emqx_audit, 2, FileHandlers),
-    %% default is enable and log level is info.
-    ?assertMatch(
-        {handler, emqx_audit, logger_disk_log_h, #{
-            config := #{
-                type := wrap,
-                file := "log/audit.log",
-                max_no_bytes := _,
-                max_no_files := _
-            },
-            filesync_repeat_interval := no_repeat,
-            filters := [{filter_audit, {_, stop}}],
-            formatter := _,
-            level := info
-        }},
-        AuditHandler
-    ),
+    %% audit is an EE-only feature
+    ?assertNot(lists:keyfind(emqx_audit, 2, FileHandlers)),
     ConsoleHandler = lists:keyfind(logger_std_h, 3, Loggers),
     ?assertEqual(
         {handler, console, logger_std_h, #{

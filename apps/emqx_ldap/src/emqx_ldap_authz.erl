@@ -116,7 +116,7 @@ authorize(
         {error, Reason} ->
             ?SLOG(error, #{
                 msg => "query_ldap_error",
-                reason => Reason,
+                reason => emqx_utils:redact(Reason),
                 resource_id => ResourceID
             }),
             nomatch
