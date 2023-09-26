@@ -195,6 +195,59 @@ validate_log(Conf) ->
     ).
 
 %% erlfmt-ignore
+-define(FILE_LOG_BASE_CONF,
+    """
+    log.file.default {
+        enable = true
+        file = \"log/xx-emqx.log\"
+        formatter = text
+        level = debug
+        rotation_count = ~s
+        rotation_size = ~s
+        time_offset = \"+01:00\"
+      }
+    """
+).
+
+file_log_infinity_rotation_size_test_() ->
+    ensure_acl_conf(),
+    BaseConf = to_bin(?BASE_CONF, ["emqx1@127.0.0.1", "emqx1@127.0.0.1"]),
+    Gen = fun(#{count := Count, size := Size}) ->
+        Conf0 = to_bin(?FILE_LOG_BASE_CONF, [Count, Size]),
+        Conf1 = [BaseConf, Conf0],
+        {ok, Conf} = hocon:binary(Conf1, #{format => richmap}),
+        ConfList = hocon_tconf:generate(emqx_conf_schema, Conf),
+        Kernel = proplists:get_value(kernel, ConfList),
+        Loggers = proplists:get_value(logger, Kernel),
+        FileHandlers = lists:filter(fun(L) -> element(3, L) =:= logger_disk_log_h end, Loggers),
+        lists:keyfind(default, 2, FileHandlers)
+    end,
+    [
+        {"base conf: finite log (type = wrap)",
+            ?_assertMatch(
+                {handler, default, logger_disk_log_h, #{
+                    config := #{
+                        type := wrap,
+                        max_no_bytes := 1073741824,
+                        max_no_files := 20
+                    }
+                }},
+                Gen(#{count => "20", size => "\"1024MB\""})
+            )},
+        {"rotation size = infinity (type = halt)",
+            ?_assertMatch(
+                {handler, default, logger_disk_log_h, #{
+                    config := #{
+                        type := halt,
+                        max_no_bytes := infinity,
+                        max_no_files := 9
+                    }
+                }},
+                Gen(#{count => "9", size => "\"infinity\""})
+            )}
+    ].
+
+%% erlfmt-ignore
 -define(KERNEL_LOG_CONF,
     """
     log.console {
