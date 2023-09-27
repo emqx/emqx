@@ -24,8 +24,8 @@
 
 -export([
     running/0,
-    get_backend_status/2,
     lookup_state/1,
+    get_backend_status/2,
     make_resource_id/1,
     create_resource/3,
     update_resource/3
@@ -45,7 +45,7 @@
 -define(MOD_KEY_PATH, [dashboard, sso]).
 -define(MOD_KEY_PATH(Sub), [dashboard, sso, Sub]).
 -define(RESOURCE_GROUP, <<"emqx_dashboard_sso">>).
--define(START_ERROR_KEY, start_error).
+-define(NO_ERROR, <<>>).
 -define(DEFAULT_RESOURCE_OPTS, #{
     start_after_created => false
 }).
@@ -53,7 +53,7 @@
 -record(?MOD_TAB, {
     backend :: atom(),
     state :: map(),
-    last_error = <<>> :: term()
+    last_error = ?NO_ERROR :: term()
 }).
 
 %%------------------------------------------------------------------------------
@@ -65,7 +65,7 @@ start_link() ->
 running() ->
     lists:filtermap(
         fun
-            (#?MOD_TAB{backend = Backend, last_error = <<>>}) ->
+            (#?MOD_TAB{backend = Backend, last_error = ?NO_ERROR}) ->
                 {true, Backend};
             (_) ->
                 false
@@ -78,7 +78,7 @@ get_backend_status(Backend, false) ->
         backend => Backend,
         enable => false,
         running => false,
-        last_error => <<>>
+        last_error => ?NO_ERROR
     };
 get_backend_status(Backend, _) ->
     case lookup(Backend) of
@@ -87,7 +87,7 @@ get_backend_status(Backend, _) ->
                 backend => Backend,
                 enable => true,
                 running => false,
-                last_error => <<"resource not found">>
+                last_error => <<"Resource not found">>
             };
         Data ->
             maps:merge(#{backend => Backend, enable => true}, do_get_backend_status(Data))
@@ -179,54 +179,41 @@ start_backend_services() ->
                         msg => "start_sso_backend_successfully",
                         backend => Backend
                     }),
-                    ets:insert(?MOD_TAB, #?MOD_TAB{backend = Backend, state = State});
+                    update_state(Backend, State);
                 {error, Reason} ->
+                    SafeReason = emqx_utils:redact(Reason),
+                    update_last_error(Backend, SafeReason),
                     ?SLOG(error, #{
                         msg => "start_sso_backend_failed",
                         backend => Backend,
-                        reason => emqx_utils:redact(Reason)
+                        reason => SafeReason
                     })
-            end,
-            record_start_error(Backend, false)
+            end
         end,
         maps:to_list(Backends)
     ).
 
 update_config(Backend, UpdateReq) ->
-    OkFun = fun(Result) ->
-        ?SLOG(info, #{
-            msg => "update_sso_successfully",
-            backend => Backend,
-            result => emqx_utils:redact(Result)
-        }),
-        Result
-    end,
-
-    ErrFun = fun({error, Reason} = Error) ->
-        SafeReason = emqx_utils:redact(Reason),
-        ?SLOG(error, #{
-            msg => "update_sso_failed",
-            backend => Backend,
-            reason => SafeReason
-        }),
-        Error
-    end,
-
     %% we always make sure the valid configuration will update successfully,
     %% ignore the runtime error during its update
     case emqx_conf:update(?MOD_KEY_PATH(Backend), UpdateReq, #{override_to => cluster}) of
-        {ok, UpdateResult} ->
-            #{post_config_update := #{?MODULE := Result}} = UpdateResult,
-            case Result of
-                ok ->
-                    OkFun(Result);
-                {ok, _} ->
-                    OkFun(Result);
-                {error, _} = Error ->
-                    ErrFun(Error)
+        {ok, _UpdateResult} ->
+            case lookup(Backend) of
+                undefined ->
+                    ok;
+                #?MOD_TAB{state = State, last_error = ?NO_ERROR} ->
+                    {ok, State};
+                Data ->
+                    {error, Data#?MOD_TAB.last_error}
             end;
-        {error, _} = Error ->
-            ErrFun(Error)
+        {error, Reason} = Error ->
+            SafeReason = emqx_utils:redact(Reason),
+            ?SLOG(error, #{
+                msg => "update_sso_failed",
+                backend => Backend,
+                reason => SafeReason
+            }),
+            Error
     end.
 
 pre_config_update(_, {update, _Backend, Config}, _OldConf) ->
@@ -237,7 +224,8 @@ pre_config_update(_, {delete, _Backend}, _OldConf) ->
     {ok, null}.
 
 post_config_update(_, UpdateReq, NewConf, _OldConf, _AppEnvs) ->
-    {ok, on_config_update(UpdateReq, NewConf)}.
+    _ = on_config_update(UpdateReq, NewConf),
+    ok.
 
 propagated_post_config_update(
     ?MOD_KEY_PATH(BackendBin) = Path, _UpdateReq, undefined, OldConf, AppEnvs
@@ -265,26 +253,23 @@ on_config_update({update, Backend, _RawConfig}, Config) ->
             on_backend_updated(
                 Backend,
                 emqx_dashboard_sso:create(Provider, Config),
-                fun(State, LastError) ->
-                    ets:insert(
-                        ?MOD_TAB,
-                        #?MOD_TAB{backend = Backend, state = State, last_error = LastError}
-                    )
+                fun(State) ->
+                    update_state(Backend, State)
                 end
             );
         Data ->
             on_backend_updated(
                 Backend,
                 emqx_dashboard_sso:update(Provider, Config, Data#?MOD_TAB.state),
-                fun(State, LastError) ->
-                    ets:insert(?MOD_TAB, Data#?MOD_TAB{state = State, last_error = LastError})
+                fun(State) ->
+                    update_state(Backend, State)
                 end
             )
     end;
 on_config_update({delete, Backend}, _NewConf) ->
     case lookup(Backend) of
         undefined ->
-            {error, not_exists};
+            on_backend_updated(Backend, {error, not_exists}, undefined);
         Data ->
             Provider = provider(Backend),
             on_backend_updated(
@@ -306,31 +291,26 @@ lookup(Backend) ->
 
 %% to avoid resource leakage the resource start will never affect the update result,
 %% so the resource_id will always be recorded
-start_resource_if_enabled(ResourceId, {ok, _} = Result, #{enable := true}) ->
-    clear_start_error(),
+start_resource_if_enabled(ResourceId, {ok, _} = Result, #{enable := true, backend := Backend}) ->
     case emqx_resource:start(ResourceId) of
         ok ->
             ok;
         {error, Reason} ->
             SafeReason = emqx_utils:redact(Reason),
-            mark_start_error(SafeReason),
             ?SLOG(error, #{
                 msg => "start_backend_failed",
                 resource_id => ResourceId,
                 reason => SafeReason
             }),
+            update_last_error(Backend, SafeReason),
             ok
     end,
     Result;
 start_resource_if_enabled(_ResourceId, Result, _Config) ->
     Result.
 
-on_backend_updated(Backend, {ok, State} = Ok, Fun) ->
-    Fun(State, <<>>),
-    record_start_error(Backend, true),
-    Ok;
-on_backend_updated(_Backend, {ok, State, LastError} = Ok, Fun) ->
-    Fun(State, LastError),
+on_backend_updated(_Backend, {ok, State} = Ok, Fun) ->
+    Fun(State),
     Ok;
 on_backend_updated(_Backend, ok, Fun) ->
     Fun(),
@@ -373,29 +353,26 @@ new_ssl_source(Source, undefined) ->
 new_ssl_source(Source, SSL) ->
     Source#{<<"ssl">> => SSL}.
 
-clear_start_error() ->
-    mark_start_error(<<>>).
+update_state(Backend, State) ->
+    Data = ensure_backend_data(Backend),
+    ets:insert(?MOD_TAB, Data#?MOD_TAB{state = State}).
 
-mark_start_error(Reason) ->
-    erlang:put(?START_ERROR_KEY, Reason).
+update_last_error(Backend, LastError) ->
+    Data = ensure_backend_data(Backend),
+    ets:insert(?MOD_TAB, Data#?MOD_TAB{last_error = LastError}).
 
-record_start_error(Backend, Force) ->
-    case erlang:get(?START_ERROR_KEY) of
-        <<>> when Force ->
-            update_last_error(Backend, <<>>);
-        <<>> ->
-            ok;
-        Reason ->
-            update_last_error(Backend, Reason)
+ensure_backend_data(Backend) ->
+    case ets:lookup(?MOD_TAB, Backend) of
+        [Data] ->
+            Data;
+        [] ->
+            #?MOD_TAB{backend = Backend}
     end.
-
-update_last_error(Backend, Reason) ->
-    ets:update_element(?MOD_TAB, Backend, {#?MOD_TAB.last_error, Reason}).
 
 do_get_backend_status(#?MOD_TAB{state = #{resource_id := ResourceId}}) ->
     case emqx_resource_manager:lookup(ResourceId) of
         {ok, _Group, #{status := connected}} ->
-            #{running => true, last_error => <<>>};
+            #{running => true, last_error => ?NO_ERROR};
         {ok, _Group, #{status := Status}} ->
             #{
                 running => false,
@@ -407,8 +384,8 @@ do_get_backend_status(#?MOD_TAB{state = #{resource_id := ResourceId}}) ->
                 last_error => <<"Resource not found">>
             }
     end;
-do_get_backend_status(#?MOD_TAB{last_error = <<>>}) ->
-    #{running => true, last_error => <<>>};
+do_get_backend_status(#?MOD_TAB{last_error = ?NO_ERROR}) ->
+    #{running => true, last_error => ?NO_ERROR};
 do_get_backend_status(#?MOD_TAB{last_error = LastError}) ->
     #{
         running => false,

@@ -271,8 +271,6 @@ handle_backend_update_result(ok, _) ->
     204;
 handle_backend_update_result({error, not_exists}, _) ->
     {404, #{code => ?BACKEND_NOT_FOUND, message => <<"Backend not found">>}};
-handle_backend_update_result({error, already_exists}, _) ->
-    {400, #{code => ?BAD_REQUEST, message => <<"Backend already exists">>}};
 handle_backend_update_result({error, failed_to_load_metadata}, _) ->
     {400, #{code => ?BAD_REQUEST, message => <<"Failed to load metadata">>}};
 handle_backend_update_result({error, Reason}, _) when is_binary(Reason) ->
