@@ -43,6 +43,10 @@
     erpc_multicall/1
 ]).
 
+-ifdef(TEST).
+-include_lib("eunit/include/eunit.hrl").
+-endif.
+
 -compile(
     {inline, [
         rpc_node/1,
@@ -75,15 +79,15 @@
 
 -spec call(node(), module(), atom(), list()) -> call_result().
 call(Node, Mod, Fun, Args) ->
-    filter_result(gen_rpc:call(rpc_node(Node), Mod, Fun, Args)).
+    maybe_badrpc(gen_rpc:call(rpc_node(Node), Mod, Fun, Args)).
 
 -spec call(term(), node(), module(), atom(), list()) -> call_result().
 call(Key, Node, Mod, Fun, Args) ->
-    filter_result(gen_rpc:call(rpc_node({Key, Node}), Mod, Fun, Args)).
+    maybe_badrpc(gen_rpc:call(rpc_node({Key, Node}), Mod, Fun, Args)).
 
 -spec call(term(), node(), module(), atom(), list(), timeout()) -> call_result().
 call(Key, Node, Mod, Fun, Args, Timeout) ->
-    filter_result(gen_rpc:call(rpc_node({Key, Node}), Mod, Fun, Args, Timeout)).
+    maybe_badrpc(gen_rpc:call(rpc_node({Key, Node}), Mod, Fun, Args, Timeout)).
 
 -spec multicall([node()], module(), atom(), list()) -> multicall_result().
 multicall(Nodes, Mod, Fun, Args) ->
@@ -127,18 +131,15 @@ rpc_nodes([], Acc) ->
 rpc_nodes([Node | Nodes], Acc) ->
     rpc_nodes(Nodes, [rpc_node(Node) | Acc]).
 
-filter_result({Error, Reason}) when
-    Error =:= badrpc; Error =:= badtcp
-->
+maybe_badrpc({Error, Reason}) when Error =:= badrpc; Error =:= badtcp ->
     {badrpc, Reason};
-filter_result(Delivery) ->
+maybe_badrpc(Delivery) ->
     Delivery.
 
 max_client_num() ->
     emqx:get_config([rpc, tcp_client_num], ?DefaultClientNum).
 
 -spec unwrap_erpc(emqx_rpc:erpc(A) | [emqx_rpc:erpc(A)]) -> A | {error, _Err} | list().
-
 unwrap_erpc(Res) when is_list(Res) ->
     [unwrap_erpc(R) || R <- Res];
 unwrap_erpc({ok, A}) ->
@@ -151,3 +152,73 @@ unwrap_erpc({exit, Err}) ->
     {error, Err};
 unwrap_erpc({error, {erpc, Err}}) ->
     {error, Err}.
+
+-ifdef(TEST).
+
+badrpc_call_test_() ->
+    application:ensure_all_started(gen_rpc),
+    Node = node(),
+    [
+        {"throw", fun() ->
+            ?assertEqual(foo, call(Node, erlang, throw, [foo]))
+        end},
+        {"error", fun() ->
+            ?assertMatch({badrpc, {'EXIT', {foo, _}}}, call(Node, erlang, error, [foo]))
+        end},
+        {"exit", fun() ->
+            ?assertEqual({badrpc, {'EXIT', foo}}, call(Node, erlang, exit, [foo]))
+        end},
+        {"timeout", fun() ->
+            ?assertEqual({badrpc, timeout}, call(key, Node, timer, sleep, [1000], 100))
+        end},
+        {"noconnection", fun() ->
+            %% mute crash report from gen_rpc
+            logger:set_primary_config(level, critical),
+            try
+                ?assertEqual(
+                    {badrpc, nxdomain}, call(key, 'no@such.node', foo, bar, [])
+                )
+            after
+                logger:set_primary_config(level, notice)
+            end
+        end}
+    ].
+
+multicall_test() ->
+    application:ensure_all_started(gen_rpc),
+    logger:set_primary_config(level, critical),
+    BadNode = 'no@such.node',
+    ThisNode = node(),
+    Nodes = [ThisNode, BadNode],
+    Call4 = fun(M, F, A) -> multicall(Nodes, M, F, A) end,
+    Call5 = fun(Key, M, F, A) -> multicall(Key, Nodes, M, F, A) end,
+    try
+        ?assertMatch({[foo], [{BadNode, _}]}, Call4(erlang, throw, [foo])),
+        ?assertMatch({[], [{ThisNode, _}, {BadNode, _}]}, Call4(erlang, error, [foo])),
+        ?assertMatch({[], [{ThisNode, _}, {BadNode, _}]}, Call4(erlang, exit, [foo])),
+        ?assertMatch({[], [{ThisNode, _}, {BadNode, _}]}, Call5(key, foo, bar, []))
+    after
+        logger:set_primary_config(level, notice)
+    end.
+
+unwrap_erpc_test_() ->
+    Nodes = [node()],
+    MultiC = fun(M, F, A) -> unwrap_erpc(erpc:multicall(Nodes, M, F, A, 100)) end,
+    [
+        {"throw", fun() ->
+            ?assertEqual([{error, foo}], MultiC(erlang, throw, [foo]))
+        end},
+        {"error", fun() ->
+            ?assertEqual([{error, foo}], MultiC(erlang, error, [foo]))
+        end},
+        {"exit", fun() ->
+            ?assertEqual([{error, {exception, foo}}], MultiC(erlang, exit, [foo]))
+        end},
+        {"noconnection", fun() ->
+            ?assertEqual(
+                [{error, noconnection}], unwrap_erpc(erpc:multicall(['no@such.node'], foo, bar, []))
+            )
+        end}
+    ].
+
+-endif.

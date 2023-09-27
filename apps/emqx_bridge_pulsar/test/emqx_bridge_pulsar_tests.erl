@@ -11,6 +11,7 @@
 %%===========================================================================
 
 pulsar_producer_validations_test() ->
+    Name = my_producer,
     Conf0 = pulsar_producer_hocon(),
     Conf1 =
         Conf0 ++
@@ -24,7 +25,7 @@ pulsar_producer_validations_test() ->
             <<"strategy">> := <<"key_dispatch">>,
             <<"message">> := #{<<"key">> := <<>>}
         },
-        emqx_utils_maps:deep_get([<<"bridges">>, <<"pulsar_producer">>, <<"my_producer">>], Conf)
+        emqx_utils_maps:deep_get([<<"bridges">>, <<"pulsar_producer">>, atom_to_binary(Name)], Conf)
     ),
     ?assertThrow(
         {_, [
@@ -35,8 +36,6 @@ pulsar_producer_validations_test() ->
         ]},
         check(Conf)
     ),
-    %% ensure atoms exist
-    _ = [my_producer],
     ?assertThrow(
         {_, [
             #{
