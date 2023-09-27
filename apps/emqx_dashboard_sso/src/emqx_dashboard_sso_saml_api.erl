@@ -82,19 +82,17 @@ schema("/sso/saml/metadata") ->
 
 sp_saml_metadata(get, _Req) ->
     case emqx_dashboard_sso_manager:lookup_state(saml) of
-        undefined ->
-            {404, #{code => ?BACKEND_NOT_FOUND, message => <<"Backend not found">>}};
-        #{sp := SP} = _State ->
+        #{enable := true, sp := SP} = _State ->
             SignedXml = esaml_sp:generate_metadata(SP),
             Metadata = xmerl:export([SignedXml], xmerl_xml),
-            {200, #{<<"Content-Type">> => <<"text/xml">>}, erlang:iolist_to_binary(Metadata)}
+            {200, #{<<"Content-Type">> => <<"text/xml">>}, erlang:iolist_to_binary(Metadata)};
+        _ ->
+            {404, #{code => ?BACKEND_NOT_FOUND, message => <<"Backend not found">>}}
     end.
 
 sp_saml_callback(post, Req) ->
     case emqx_dashboard_sso_manager:lookup_state(saml) of
-        undefined ->
-            {404, #{code => ?BACKEND_NOT_FOUND, message => <<"Backend not found">>}};
-        State ->
+        State = #{enable := true} ->
             case (provider(saml)):callback(Req, State) of
                 {redirect, Redirect} ->
                     Redirect;
@@ -105,7 +103,9 @@ sp_saml_callback(post, Req) ->
                         reason => Reason
                     }),
                     {403, #{code => <<"UNAUTHORIZED">>, message => Reason}}
-            end
+            end;
+        _ ->
+            {404, #{code => ?BACKEND_NOT_FOUND, message => <<"Backend not found">>}}
     end.
 
 %%--------------------------------------------------------------------
