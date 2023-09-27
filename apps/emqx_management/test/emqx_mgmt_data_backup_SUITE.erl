@@ -439,7 +439,6 @@ apps_to_start() ->
         emqx_management,
         emqx_dashboard,
         emqx_auth,
-        emqx_auth_file,
         emqx_auth_http,
         emqx_auth_jwt,
         emqx_auth_mnesia,

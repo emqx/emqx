@@ -372,6 +372,17 @@ handle_call(
     end;
 handle_call({deregister_providers, AuthNTypes}, _From, #{providers := Providers} = State) ->
     reply(ok, State#{providers := maps:without(AuthNTypes, Providers)});
+%% Do not handle anything else before initialization is done.
+%% TODO convert gen_server to gen_statem
+handle_call(_, _From, #{init_done := false, providers := Providers} = State) ->
+    ProviderTypes = maps:keys(Providers),
+    Chains = chain_configs(),
+    ?SLOG(error, #{
+        msg => "authentication_not_initialized",
+        configured_provider_types => configured_provider_types(Chains),
+        registered_provider_types => ProviderTypes
+    }),
+    reply({error, not_initialized}, State);
 handle_call({delete_chain, ChainName}, _From, State) ->
     UpdateFun = fun(Chain) ->
         {_MatchedIDs, NewChain} = do_delete_authenticators(fun(_) -> true end, Chain),
@@ -469,14 +480,9 @@ code_change(_OldVsn, State, _Extra) ->
 %%------------------------------------------------------------------------------
 
 initialize_authentication(Providers) ->
-    Chains = chain_configs(),
     ProviderTypes = maps:keys(Providers),
-    HasProviders = lists:all(
-        fun({_, ChainConfigs}) ->
-            has_providers_for_configs(ChainConfigs, ProviderTypes)
-        end,
-        Chains
-    ),
+    Chains = chain_configs(),
+    HasProviders = has_providers_for_configs(Chains, ProviderTypes),
     do_initialize_authentication(Providers, Chains, HasProviders).
 
 do_initialize_authentication(_Providers, _Chains, _HasProviders = false) ->
@@ -513,25 +519,30 @@ initialize_chain_authentication(Providers, ChainName, AuthenticatorsConfig) ->
         to_list(AuthenticatorsConfig)
     ).
 
-has_providers_for_configs(AuthConfig, ProviderTypes) ->
+has_providers_for_configs(Chains, ProviderTypes) ->
+    (configured_provider_types(Chains) -- ProviderTypes) =:= [].
+
+configured_provider_types(Chains) ->
+    {_, ChainConfs} = lists:unzip(Chains),
+    ProviderTypes = lists:flatmap(
+        fun provider_types_for_chain/1,
+        ChainConfs
+    ),
+    lists:usort(ProviderTypes).
+
+provider_types_for_chain(AuthConfig) ->
     Configs = to_list(AuthConfig),
-    lists:all(
+    lists:map(
         fun(Config) ->
-            has_providers_for_config(Config, ProviderTypes)
+            provider_type_for_config(Config)
         end,
         Configs
     ).
 
-has_providers_for_config(_Config, []) ->
-    false;
-has_providers_for_config(#{mechanism := Mechanism, backend := Backend}, [
-    {Mechanism, Backend} | _ProviderTypes
-]) ->
-    true;
-has_providers_for_config(#{mechanism := Mechanism}, [Mechanism | _ProviderTypes]) ->
-    true;
-has_providers_for_config(Config, [_ProviderType | ProviderTypes]) ->
-    has_providers_for_config(Config, ProviderTypes).
+provider_type_for_config(#{mechanism := Mechanism, backend := Backend}) ->
+    {Mechanism, Backend};
+provider_type_for_config(#{mechanism := Mechanism}) ->
+    Mechanism.
 
 handle_update_authenticator(Chain, AuthenticatorID, Config) ->
     #chain{authenticators = Authenticators} = Chain,

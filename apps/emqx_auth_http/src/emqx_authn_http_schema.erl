@@ -24,12 +24,19 @@
 
 -export([
     fields/1,
+    validations/0,
     desc/1,
     refs/0,
     select_union_member/1
 ]).
 
 -define(NOT_EMPTY(MSG), emqx_resource_validator:not_empty(MSG)).
+-define(THROW_VALIDATION_ERROR(ERROR, MESSAGE),
+    throw(#{
+        error => ERROR,
+        message => MESSAGE
+    })
+).
 
 refs() ->
     [?R_REF(http_get), ?R_REF(http_post)].
@@ -77,6 +84,12 @@ desc(http_post) ->
     ?DESC(post);
 desc(_) ->
     undefined.
+
+validations() ->
+    [
+        {check_ssl_opts, fun check_ssl_opts/1},
+        {check_headers, fun check_headers/1}
+    ].
 
 common_fields() ->
     [
@@ -130,3 +143,39 @@ request_timeout(type) -> emqx_schema:duration_ms();
 request_timeout(desc) -> ?DESC(?FUNCTION_NAME);
 request_timeout(default) -> <<"5s">>;
 request_timeout(_) -> undefined.
+
+check_ssl_opts(#{
+    backend := ?AUTHN_BACKEND, url := <<"https://", _/binary>>, ssl := #{enable := false}
+}) ->
+    ?THROW_VALIDATION_ERROR(
+        invalid_ssl_opts,
+        <<"it's required to enable the TLS option to establish a https connection">>
+    );
+check_ssl_opts(#{
+    <<"backend">> := ?AUTHN_BACKEND,
+    <<"url">> := <<"https://", _/binary>>,
+    <<"ssl">> := #{<<"enable">> := false}
+}) ->
+    ?THROW_VALIDATION_ERROR(
+        invalid_ssl_opts,
+        <<"it's required to enable the TLS option to establish a https connection">>
+    );
+check_ssl_opts(_) ->
+    ok.
+
+check_headers(#{backend := ?AUTHN_BACKEND, headers := Headers, method := get}) ->
+    do_check_get_headers(Headers);
+check_headers(#{<<"backend">> := ?AUTHN_BACKEND, <<"headers">> := Headers, <<"method">> := get}) ->
+    do_check_get_headers(Headers);
+check_headers(_) ->
+    ok.
+
+do_check_get_headers(Headers) ->
+    case maps:is_key(<<"content-type">>, Headers) of
+        false ->
+            ok;
+        true ->
+            ?THROW_VALIDATION_ERROR(
+                invalid_headers, <<"HTTP GET requests cannot include content-type header.">>
+            )
+    end.

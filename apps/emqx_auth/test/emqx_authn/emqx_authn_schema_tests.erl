@@ -22,114 +22,113 @@
 -define(ERR(Reason), {error, Reason}).
 
 union_member_selector_mongo_test_() ->
-    Check = fun(Txt) -> check(emqx_authn_mongodb, Txt) end,
     [
         {"unknown", fun() ->
             ?assertMatch(
                 ?ERR(#{field_name := mongo_type, expected := _}),
-                Check("{mongo_type: foobar}")
+                check("{mechanism = password_based, backend = mongodb, mongo_type = foobar}")
             )
         end},
         {"single", fun() ->
             ?assertMatch(
-                ?ERR(#{matched_type := "authn:mongo_single"}),
-                Check("{mongo_type: single}")
+                ?ERR(#{matched_type := "mongo_single"}),
+                check("{mechanism = password_based, backend = mongodb, mongo_type = single}")
             )
         end},
         {"replica-set", fun() ->
             ?assertMatch(
-                ?ERR(#{matched_type := "authn:mongo_rs"}),
-                Check("{mongo_type: rs}")
+                ?ERR(#{matched_type := "mongo_rs"}),
+                check("{mechanism = password_based, backend = mongodb, mongo_type = rs}")
             )
         end},
         {"sharded", fun() ->
             ?assertMatch(
-                ?ERR(#{matched_type := "authn:mongo_sharded"}),
-                Check("{mongo_type: sharded}")
+                ?ERR(#{matched_type := "mongo_sharded"}),
+                check("{mechanism = password_based, backend = mongodb, mongo_type = sharded}")
             )
         end}
     ].
 
 union_member_selector_jwt_test_() ->
-    Check = fun(Txt) -> check(emqx_authn_jwt, Txt) end,
     [
         {"unknown", fun() ->
             ?assertMatch(
                 ?ERR(#{field_name := use_jwks, expected := "true | false"}),
-                Check("{use_jwks = 1}")
+                check("{mechanism = jwt, use_jwks = 1}")
             )
         end},
         {"jwks", fun() ->
             ?assertMatch(
-                ?ERR(#{matched_type := "authn:jwt_jwks"}),
-                Check("{use_jwks = true}")
+                ?ERR(#{matched_type := "jwt_jwks"}),
+                check("{mechanism = jwt, use_jwks = true}")
             )
         end},
         {"publick-key", fun() ->
             ?assertMatch(
-                ?ERR(#{matched_type := "authn:jwt_public_key"}),
-                Check("{use_jwks = false, public_key = 1}")
+                ?ERR(#{matched_type := "jwt_public_key"}),
+                check("{mechanism = jwt, use_jwks = false, public_key = 1}")
             )
         end},
         {"hmac-based", fun() ->
             ?assertMatch(
-                ?ERR(#{matched_type := "authn:jwt_hmac"}),
-                Check("{use_jwks = false}")
+                ?ERR(#{matched_type := "jwt_hmac"}),
+                check("{mechanism = jwt, use_jwks = false}")
             )
         end}
     ].
 
 union_member_selector_redis_test_() ->
-    Check = fun(Txt) -> check(emqx_authn_redis, Txt) end,
     [
         {"unknown", fun() ->
             ?assertMatch(
                 ?ERR(#{field_name := redis_type, expected := _}),
-                Check("{redis_type = 1}")
+                check("{mechanism = password_based, backend = redis, redis_type = 1}")
             )
         end},
         {"single", fun() ->
             ?assertMatch(
-                ?ERR(#{matched_type := "authn:redis_single"}),
-                Check("{redis_type = single}")
+                ?ERR(#{matched_type := "redis_single"}),
+                check("{mechanism = password_based, backend = redis, redis_type = single}")
             )
         end},
         {"cluster", fun() ->
             ?assertMatch(
-                ?ERR(#{matched_type := "authn:redis_cluster"}),
-                Check("{redis_type = cluster}")
+                ?ERR(#{matched_type := "redis_cluster"}),
+                check("{mechanism = password_based, backend = redis, redis_type = cluster}")
             )
         end},
         {"sentinel", fun() ->
             ?assertMatch(
-                ?ERR(#{matched_type := "authn:redis_sentinel"}),
-                Check("{redis_type = sentinel}")
+                ?ERR(#{matched_type := "redis_sentinel"}),
+                check("{mechanism = password_based, backend = redis, redis_type = sentinel}")
             )
         end}
     ].
 
 union_member_selector_http_test_() ->
-    Check = fun(Txt) -> check(emqx_authn_http, Txt) end,
     [
         {"unknown", fun() ->
             ?assertMatch(
                 ?ERR(#{field_name := method, expected := _}),
-                Check("{method = 1}")
+                check("{mechanism = password_based, backend = http, method = 1}")
             )
         end},
         {"get", fun() ->
             ?assertMatch(
-                ?ERR(#{matched_type := "authn:http_get"}),
-                Check("{method = get}")
+                ?ERR(#{matched_type := "http_get"}),
+                check("{mechanism = password_based, backend = http, method = get}")
             )
         end},
         {"post", fun() ->
             ?assertMatch(
-                ?ERR(#{matched_type := "authn:http_post"}),
-                Check("{method = post}")
+                ?ERR(#{matched_type := "http_post"}),
+                check("{mechanism = password_based, backend = http, method = post}")
             )
         end}
     ].
 
-check(Module, HoconConf) ->
-    emqx_hocon:check(Module, ["authentication= ", HoconConf]).
+check(HoconConf) ->
+    emqx_hocon:check(
+        #{roots => emqx_authn_schema:global_auth_fields()},
+        ["authentication= ", HoconConf]
+    ).

@@ -81,7 +81,7 @@ t_fill_defaults(Config) when is_list(Config) ->
     ).
 
 t_will_message_connection_denied({init, Config}) ->
-    emqx_common_test_helpers:start_apps([emqx_conf, emqx_auth, emqx_auth_file]),
+    emqx_common_test_helpers:start_apps([emqx_conf, emqx_auth]),
     emqx_authn_test_lib:register_fake_providers([{password_based, built_in_database}]),
     AuthnConfig = #{
         <<"mechanism">> => <<"password_based">>,
@@ -106,7 +106,7 @@ t_will_message_connection_denied({'end', _Config}) ->
         [authentication],
         {delete_authenticator, 'mqtt:global', <<"password_based:built_in_database">>}
     ),
-    emqx_common_test_helpers:stop_apps([emqx_auth_file, emqx_auth, emqx_conf]),
+    emqx_common_test_helpers:stop_apps([emqx_auth, emqx_conf]),
     ok;
 t_will_message_connection_denied(Config) when is_list(Config) ->
     process_flag(trap_exit, true),

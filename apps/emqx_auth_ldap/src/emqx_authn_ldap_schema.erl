@@ -23,6 +23,7 @@
 
 -export([
     fields/1,
+    desc/1,
     refs/0,
     select_union_member/1
 ]).
@@ -51,10 +52,10 @@ fields(ldap) ->
         emqx_authn_schema:common_fields() ++
         emqx_ldap:fields(config).
 
-% desc(ldap) ->
-%     ?DESC(ldap);
-% desc(_) ->
-%     undefined.
+desc(ldap) ->
+    ?DESC(ldap);
+desc(_) ->
+    undefined.
 
 password_attribute(type) -> string();
 password_attribute(desc) -> ?DESC(?FUNCTION_NAME);

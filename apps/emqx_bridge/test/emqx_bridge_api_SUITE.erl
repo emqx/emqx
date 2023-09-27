@@ -76,6 +76,7 @@
     emqx_conf,
     emqx,
     emqx_auth,
+    emqx_auth_mnesia,
     emqx_management,
     {emqx_rule_engine, "rule_engine { rules {} }"},
     {emqx_bridge, "bridges {}"}

@@ -228,9 +228,9 @@ create_or_update_authenticators(OldIds, ChainName, NewConfig) ->
             Id = authenticator_id(Conf),
             case lists:member(Id, OldIds) of
                 true ->
-                    emqx_authn_chains:update_authenticator(ChainName, Id, Conf);
+                    {ok, _} = emqx_authn_chains:update_authenticator(ChainName, Id, Conf);
                 false ->
-                    emqx_authn_chains:create_authenticator(ChainName, Conf)
+                    {ok, _} = emqx_authn_chains:create_authenticator(ChainName, Conf)
             end
         end,
         NewConfig
@@ -245,7 +245,7 @@ delete_authenticators(NewIds, ChainName, OldConfig) ->
                 true ->
                     ok;
                 false ->
-                    emqx_authn_chains:delete_authenticator(ChainName, Id)
+                    ok = emqx_authn_chains:delete_authenticator(ChainName, Id)
             end
         end,
         OldConfig

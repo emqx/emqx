@@ -118,7 +118,7 @@ desc(_) ->
 injected_fields() ->
     #{
         'roots.high' => [
-            {?CONF_NS, ?HOCON(?R_REF("authorization"), #{desc => ?DESC(?CONF_NS)})}
+            {?CONF_NS, ?HOCON(?R_REF(?CONF_NS), #{desc => ?DESC(?CONF_NS)})}
         ]
     }.
 

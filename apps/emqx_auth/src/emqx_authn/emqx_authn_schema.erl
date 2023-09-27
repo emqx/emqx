@@ -22,6 +22,8 @@
 -include("emqx_authn_schema.hrl").
 -include("emqx_authn_chains.hrl").
 
+-include_lib("eunit/include/eunit.hrl").
+
 -behaviour(emqx_schema_hooks).
 -export([
     injected_fields/0
@@ -30,13 +32,16 @@
 -export([
     common_fields/0,
     roots/0,
-    % validations/0,
     tags/0,
     fields/1,
     authenticator_type/0,
     authenticator_type_without_scram/0,
     mechanism/1,
     backend/1
+]).
+
+-export([
+    global_auth_fields/0
 ]).
 
 %%--------------------------------------------------------------------
@@ -110,6 +115,7 @@ global_auth_fields() ->
                 desc => ?DESC(global_authentication),
                 converter => fun ensure_array/2,
                 default => [],
+                validator => validator(),
                 importance => ?IMPORTANCE_LOW
             })}
     ].
@@ -121,6 +127,7 @@ mqtt_listener_auth_fields() ->
                 desc => ?DESC(listener_authentication),
                 converter => fun ensure_array/2,
                 default => [],
+                validator => validator(),
                 importance => ?IMPORTANCE_HIDDEN
             })}
     ].
@@ -206,6 +213,33 @@ common_field() ->
         {"rate_last5m", ?HOCON(float(), #{desc => ?DESC("rate_last5m")})}
     ].
 
+validator() ->
+    Validations = lists:flatmap(
+        fun validations/1,
+        provider_schema_mods()
+    ),
+    fun(AuthConf) ->
+        lists:foreach(
+            fun(Conf) ->
+                lists:foreach(
+                    fun({_Name, Validation}) ->
+                        Validation(Conf)
+                    end,
+                    Validations
+                )
+            end,
+            wrap_list(AuthConf)
+        )
+    end.
+
+validations(Mod) ->
+    case erlang:function_exported(Mod, validations, 0) of
+        true ->
+            Mod:validations();
+        false ->
+            []
+    end.
+
 provider_schema_mods() ->
     ?PROVIDER_SCHEMA_MODS ++ emqx_authn_enterprise:provider_schema_mods().
 
@@ -223,3 +257,8 @@ array(Name) ->
 
 array(Name, DescId) ->
     {Name, ?HOCON(?R_REF(Name), #{desc => ?DESC(DescId)})}.
+
+wrap_list(Map) when is_map(Map) ->
+    [Map];
+wrap_list(L) when is_list(L) ->
+    L.

@@ -110,7 +110,7 @@ init_per_suite(Config) ->
         emqx_authz_file,
         acl_conf_file,
         fun() ->
-            emqx_common_test_helpers:deps_path(emqx_auth_file, "etc/acl.conf")
+            emqx_common_test_helpers:deps_path(emqx_auth, "etc/acl.conf")
         end
     ),
 
@@ -120,7 +120,6 @@ init_per_suite(Config) ->
             {emqx_conf,
                 "authorization { cache { enable = false }, no_match = deny, sources = [] }"},
             emqx_auth,
-            emqx_auth_file,
             emqx_auth_http,
             emqx_auth_mnesia,
             emqx_auth_redis,

@@ -66,7 +66,9 @@ authorize(Client, PubSub, Topic, #{annotations := #{rules := Rules}}) ->
 
 read_files(#{<<"path">> := Path} = Source) ->
     {ok, Rules} = read_file(Path),
-    maps:remove(<<"path">>, Source#{<<"rules">> => Rules}).
+    maps:remove(<<"path">>, Source#{<<"rules">> => Rules});
+read_files(#{<<"rules">> := _} = Source) ->
+    Source.
 
 write_files(#{<<"rules">> := Rules} = Source0) ->
     AclPath = ?MODULE:acl_conf_file(),
@@ -75,7 +77,9 @@ write_files(#{<<"rules">> := Rules} = Source0) ->
     ok = check_acl_file_rules(AclPath, Rules),
     ok = write_file(AclPath, Rules),
     Source1 = maps:remove(<<"rules">>, Source0),
-    maps:put(<<"path">>, AclPath, Source1).
+    maps:put(<<"path">>, AclPath, Source1);
+write_files(#{<<"path">> := _} = Source) ->
+    Source.
 
 %%--------------------------------------------------------------------
 %% Internal functions

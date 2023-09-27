@@ -57,8 +57,6 @@
     maybe_read_source_files_safe/1
 ]).
 
-% -export([acl_conf_file/0]).
-
 %% Data backup
 -export([
     import_config/1,
@@ -89,9 +87,9 @@ init() ->
     ok = register_metrics(),
     emqx_conf:add_handler(?CONF_KEY_PATH, ?MODULE),
     emqx_conf:add_handler(?ROOT_KEY, ?MODULE),
-    emqx_authz_source_registry:create(),
     ok = emqx_hooks:put('client.authorize', {?MODULE, authorize_deny, []}, ?HP_AUTHZ),
     ok = register_source(client_info, emqx_authz_client_info),
+    ok = register_source(file, emqx_authz_file),
     ok.
 
 register_source(Type, Module) ->
@@ -748,6 +746,13 @@ type_take(Type, Sources) ->
 -compile(export_all).
 
 merge_sources_test() ->
+    ok = emqx_authz_source_registry:create(),
+    ok = lists:foreach(
+        fun(Type) ->
+            ok = emqx_authz_source_registry:register(Type, ?MODULE)
+        end,
+        [file, http, mysql, mongodb, redis, postgresql]
+    ),
     Default = [emqx_authz_schema:default_authz()],
     Http = #{<<"type">> => <<"http">>, <<"enable">> => true},
     Mysql = #{<<"type">> => <<"mysql">>, <<"enable">> => true},

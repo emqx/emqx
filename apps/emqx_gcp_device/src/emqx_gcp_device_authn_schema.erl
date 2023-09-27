@@ -23,6 +23,7 @@
 
 -export([
     fields/1,
+    desc/1,
     refs/0,
     select_union_member/1
 ]).
@@ -30,16 +31,16 @@
 refs() -> [?R_REF(gcp_device)].
 
 select_union_member(#{<<"mechanism">> := ?AUTHN_MECHANISM_BIN}) ->
-    [refs()];
+    refs();
 select_union_member(_Value) ->
     undefined.
 
 fields(gcp_device) ->
     [
-        {mechanism, emqx_authn_schema:mechanism('gcp_device')}
+        {mechanism, emqx_authn_schema:mechanism(gcp_device)}
     ] ++ emqx_authn_schema:common_fields().
 
-% desc(gcp_device) ->
-%     ?DESC(emqx_gcp_device_api, gcp_device);
-% desc(_) ->
-%     undefined.
+desc(gcp_device) ->
+    ?DESC(emqx_gcp_device_api, gcp_device);
+desc(_) ->
+    undefined.

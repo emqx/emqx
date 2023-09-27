@@ -113,4 +113,4 @@ check(Txt0) ->
     end.
 
 schema() ->
-    #{roots => emqx_authz_schema:fields("authorization")}.
+    #{roots => emqx_authz_schema:authz_fields()}.

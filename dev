@@ -330,7 +330,7 @@ EOF
 # copy cert files and acl.conf to etc
 copy_other_conf_files() {
     cp -r apps/emqx/etc/certs "$EMQX_ETC_DIR"/
-    cp apps/emqx_auth_file/etc/acl.conf "$EMQX_ETC_DIR"/
+    cp apps/emqx_auth/etc/acl.conf "$EMQX_ETC_DIR"/
 }
 
 is_current_profile_app() {

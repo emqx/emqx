@@ -33,6 +33,7 @@ start_link() ->
     supervisor:start_link({local, ?SERVER}, ?MODULE, []).
 
 init([]) ->
+    emqx_authz_source_registry:create(),
     SupFlags = #{
         strategy => one_for_all,
         intensity => 0,

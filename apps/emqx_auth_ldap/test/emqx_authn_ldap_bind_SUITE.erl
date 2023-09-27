@@ -21,7 +21,6 @@ all() ->
     emqx_common_test_helpers:all(?MODULE).
 
 init_per_testcase(_, Config) ->
-    emqx_authentication:initialize_authentication(?GLOBAL, []),
     emqx_authn_test_lib:delete_authenticators(
         [authentication],
         ?GLOBAL
@@ -32,7 +31,7 @@ init_per_suite(Config) ->
     _ = application:load(emqx_conf),
     case emqx_common_test_helpers:is_tcp_server_available(?LDAP_HOST, ?LDAP_DEFAULT_PORT) of
         true ->
-            Apps = emqx_cth_suite:start([emqx, emqx_conf, emqx_authn], #{
+            Apps = emqx_cth_suite:start([emqx, emqx_conf, emqx_auth, emqx_auth_ldap], #{
                 work_dir => ?config(priv_dir, Config)
             }),
             {ok, _} = emqx_resource:create_local(
@@ -67,7 +66,7 @@ t_create(_Config) ->
         {create_authenticator, ?GLOBAL, AuthConfig}
     ),
 
-    {ok, [#{provider := emqx_ldap_authn_bind}]} = emqx_authentication:list_authenticators(?GLOBAL),
+    {ok, [#{provider := emqx_authn_ldap_bind}]} = emqx_authn_chains:list_authenticators(?GLOBAL),
     emqx_authn_test_lib:delete_config(?ResourceID).
 
 t_create_invalid(_Config) ->
@@ -88,7 +87,7 @@ t_create_invalid(_Config) ->
             emqx_authn_test_lib:delete_config(?ResourceID),
             ?assertEqual(
                 {error, {not_found, {chain, ?GLOBAL}}},
-                emqx_authentication:list_authenticators(?GLOBAL)
+                emqx_authn_chains:list_authenticators(?GLOBAL)
             )
         end,
         InvalidConfigs
@@ -135,10 +134,10 @@ t_destroy(_Config) ->
         {create_authenticator, ?GLOBAL, AuthConfig}
     ),
 
-    {ok, [#{provider := emqx_ldap_authn_bind, state := State}]} =
-        emqx_authentication:list_authenticators(?GLOBAL),
+    {ok, [#{provider := emqx_authn_ldap_bind, state := State}]} =
+        emqx_authn_chains:list_authenticators(?GLOBAL),
 
-    {ok, _} = emqx_ldap_authn_bind:authenticate(
+    {ok, _} = emqx_authn_ldap_bind:authenticate(
         #{
             username => <<"mqttuser0001">>,
             password => <<"mqttuser0001">>
@@ -154,7 +153,7 @@ t_destroy(_Config) ->
     % Authenticator should not be usable anymore
     ?assertMatch(
         ignore,
-        emqx_ldap_authn_bind:authenticate(
+        emqx_authn_ldap_bind:authenticate(
             #{
                 username => <<"mqttuser0001">>,
                 password => <<"mqttuser0001">>

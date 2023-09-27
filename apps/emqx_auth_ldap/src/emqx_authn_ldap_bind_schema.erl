@@ -23,6 +23,7 @@
 
 -export([
     fields/1,
+    desc/1,
     refs/0,
     select_union_member/1
 ]).
@@ -51,10 +52,10 @@ fields(ldap_bind) ->
         emqx_authn_schema:common_fields() ++
         emqx_ldap:fields(config) ++ emqx_ldap:fields(bind_opts).
 
-% desc(ldap_bind) ->
-%     ?DESC(ldap_bind);
-% desc(_) ->
-%     undefined.
+desc(ldap_bind) ->
+    ?DESC(ldap_bind);
+desc(_) ->
+    undefined.
 
 query_timeout(type) -> emqx_schema:timeout_duration_ms();
 query_timeout(desc) -> ?DESC(?FUNCTION_NAME);

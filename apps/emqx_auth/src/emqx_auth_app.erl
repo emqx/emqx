@@ -37,7 +37,7 @@
 start(_StartType, _StartArgs) ->
     %% required by test cases, ensure the injection of schema
     _ = emqx_conf_schema:roots(),
-    {ok, Sup} = emqx_authn_sup:start_link(),
+    {ok, Sup} = emqx_auth_sup:start_link(),
     ok = emqx_authz:init(),
     {ok, Sup}.
 

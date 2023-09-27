@@ -60,7 +60,7 @@ init_per_suite(Config) ->
 
     ok = emqx_common_test_helpers:load_config(emqx_slow_subs_schema, ?CONF_DEFAULT),
     emqx_mgmt_api_test_util:init_suite([emqx_slow_subs]),
-    {ok, _} = application:ensure_all_started(emqx_authn),
+    {ok, _} = application:ensure_all_started(emqx_auth),
     Config.
 
 end_per_suite(Config) ->
@@ -69,7 +69,7 @@ end_per_suite(Config) ->
     mria_mnesia:delete_schema(),
     meck:unload(emqx_alarm),
 
-    application:stop(emqx_authn),
+    application:stop(emqx_auth),
     emqx_mgmt_api_test_util:end_suite([emqx_slow_subs]),
     Config.
 

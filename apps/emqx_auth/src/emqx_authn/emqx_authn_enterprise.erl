@@ -10,16 +10,6 @@
 
 -if(?EMQX_RELEASE_EDITION == ee).
 
-% providers() ->
-%     [
-%         {{password_based, ldap}, emqx_authn_ldap},
-%         {{password_based, ldap_bind}, emqx_ldap_authn_bind},
-%         {gcp_device, emqx_gcp_device_authn}
-%     ].
-
-% resource_provider() ->
-%     [emqx_authn_ldap, emqx_ldap_authn_bind].
-
 provider_schema_mods() ->
     ?EE_PROVIDER_SCHEMA_MODS.
 
@@ -28,9 +18,4 @@ provider_schema_mods() ->
 provider_schema_mods() ->
     [].
 
-% providers() ->
-%     [].
-
-% resource_provider() ->
-%      [].
 -endif.

@@ -58,7 +58,7 @@ init_per_suite(Config) ->
         emqx_authz_file,
         acl_conf_file,
         fun() ->
-            emqx_common_test_helpers:deps_path(emqx_auth_file, "etc/acl.conf")
+            emqx_common_test_helpers:deps_path(emqx_auth, "etc/acl.conf")
         end
     ),
     ok = emqx_common_test_helpers:load_config(emqx_modules_schema, ?MODULES_CONF),
