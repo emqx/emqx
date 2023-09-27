@@ -63,9 +63,10 @@ handle_info(_Msg, State) ->
 terminate(_Reason, _State) ->
     ok.
 
-setup(Conf = #{enable := true}) ->
-    ensure_apps(Conf),
-    create_metric_views();
+setup(Conf = #{enable := MetricsEnabled, trace := #{enable := TraceEnabled}}) ->
+    (MetricsEnabled orelse TraceEnabled) andalso ensure_apps(Conf),
+    ok = emqx_otel_trace:toggle_registered(TraceEnabled),
+    MetricsEnabled andalso create_metric_views();
 setup(_Conf) ->
     ok = cleanup(),
     ok.
@@ -73,6 +74,7 @@ setup(_Conf) ->
 ensure_apps(Conf) ->
     #{exporter := #{interval := ExporterInterval}} = Conf,
     {ok, _} = application:ensure_all_started(opentelemetry_exporter),
+    ok = application:set_env(opentelemetry, text_map_propagators, [trace_context]),
     {ok, _} = application:ensure_all_started(opentelemetry),
     _ = application:stop(opentelemetry_experimental),
     ok = application:set_env(

@@ -854,10 +854,14 @@ with_channel(Fun, Args, State = #state{channel = Channel}) ->
 
 %%--------------------------------------------------------------------
 %% Handle outgoing packets
+handle_outgoing(Packets, State) ->
+    Res = do_handle_outgoing(Packets, State),
+    emqx_external_trace:end_trace_send(Packets),
+    Res.
 
-handle_outgoing(Packets, State) when is_list(Packets) ->
+do_handle_outgoing(Packets, State) when is_list(Packets) ->
     send(lists:map(serialize_and_inc_stats_fun(State), Packets), State);
-handle_outgoing(Packet, State) ->
+do_handle_outgoing(Packet, State) ->
     send((serialize_and_inc_stats_fun(State))(Packet), State).
 
 serialize_and_inc_stats_fun(#state{serialize = Serialize}) ->

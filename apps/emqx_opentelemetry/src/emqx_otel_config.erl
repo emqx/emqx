@@ -51,8 +51,13 @@ post_config_update(?OPTL, _Req, New, _Old, AppEnvs) ->
 post_config_update(_ConfPath, _Req, _NewConf, _OldConf, _AppEnvs) ->
     ok.
 
-ensure_otel(#{enable := true} = Conf) ->
-    _ = emqx_otel:stop_otel(),
-    emqx_otel:start_otel(Conf);
-ensure_otel(#{enable := false}) ->
-    emqx_otel:stop_otel().
+ensure_otel(#{enable := MetricsEnabled, trace := #{enable := TraceEnabled}} = Conf) ->
+    case MetricsEnabled orelse TraceEnabled of
+        true ->
+            _ = emqx_otel:stop_otel(),
+            ok = emqx_otel:start_otel(Conf),
+            ok = emqx_otel_trace:toggle_registered(TraceEnabled);
+        false ->
+            ok = emqx_otel_trace:toggle_registered(false),
+            emqx_otel:stop_otel()
+    end.

@@ -42,6 +42,11 @@ fields("opentelemetry") ->
                     required => true,
                     desc => ?DESC(enable)
                 }
+            )},
+        {trace,
+            ?HOCON(
+                ?R_REF("trace"),
+                #{desc => ?DESC(trace)}
             )}
     ];
 fields("exporter") ->
@@ -75,8 +80,28 @@ fields("exporter") ->
                     desc => ?DESC(interval)
                 }
             )}
+    ];
+fields("trace") ->
+    [
+        {enable,
+            ?HOCON(
+                boolean(),
+                #{
+                    default => false,
+                    desc => ?DESC(trace_enable)
+                }
+            )},
+        {trace_all,
+            ?HOCON(
+                boolean(),
+                #{
+                    default => false,
+                    desc => ?DESC(trace_all)
+                }
+            )}
     ].
 
 desc("opentelemetry") -> ?DESC(opentelemetry);
 desc("exporter") -> ?DESC(exporter);
+desc("trace") -> ?DESC(trace);
 desc(_) -> undefined.

@@ -398,8 +398,10 @@ handle_in(?PACKET(_), Channel = #channel{conn_state = ConnState}) when
     handle_out(disconnect, ?RC_PROTOCOL_ERROR, Channel);
 handle_in(Packet = ?PUBLISH_PACKET(_QoS), Channel) ->
     case emqx_packet:check(Packet) of
-        ok -> process_publish(Packet, Channel);
-        {error, ReasonCode} -> handle_out(disconnect, ReasonCode, Channel)
+        ok ->
+            emqx_external_trace:trace_process_publish(Packet, Channel, fun process_publish/2);
+        {error, ReasonCode} ->
+            handle_out(disconnect, ReasonCode, Channel)
     end;
 handle_in(
     ?PUBACK_PACKET(PacketId, _ReasonCode, Properties),
@@ -917,8 +919,11 @@ maybe_update_expiry_interval(_Properties, Channel) ->
 
 -spec handle_deliver(list(emqx_types:deliver()), channel()) ->
     {ok, channel()} | {ok, replies(), channel()}.
+handle_deliver(Delivers, Channel) ->
+    Delivers1 = emqx_external_trace:start_trace_send(Delivers, Channel),
+    do_handle_deliver(Delivers1, Channel).
 
-handle_deliver(
+do_handle_deliver(
     Delivers,
     Channel = #channel{
         takeover = true,
@@ -930,7 +935,7 @@ handle_deliver(
     %% passed on the queue to the new connection in the session state.
     NPendings = lists:append(Pendings, maybe_nack(Delivers)),
     {ok, Channel#channel{pendings = NPendings}};
-handle_deliver(
+do_handle_deliver(
     Delivers,
     Channel = #channel{
         conn_state = disconnected,
@@ -945,7 +950,7 @@ handle_deliver(
     Messages = emqx_session:enrich_delivers(ClientInfo, Delivers1, Session),
     NSession = emqx_session_mem:enqueue(ClientInfo, Messages, Session),
     {ok, Channel#channel{session = NSession}};
-handle_deliver(
+do_handle_deliver(
     Delivers,
     Channel = #channel{
         session = Session,

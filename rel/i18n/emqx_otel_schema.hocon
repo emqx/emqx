@@ -4,12 +4,20 @@ opentelemetry.desc: "Open Telemetry Toolkit configuration"
 
 exporter.desc: "Open Telemetry Exporter"
 
-enable.desc: "Enable or disable open telemetry metrics"
+enable.desc: "Enable or disable Open Telemetry metrics"
 
 protocol.desc: "Open Telemetry Exporter Protocol"
 
 endpoint.desc: "Open Telemetry Exporter Endpoint"
 
 interval.desc: "The interval of sending metrics to Open Telemetry Endpoint"
+
+trace.desc: "Open Telemetry trace configuration"
+
+trace_enable.desc: "Enable or disable Open Telemetry trace"
+
+trace_all.desc:
+"""If enabled, all published messages are traced, a new trace ID is generated if it can't be extracted from the message.
+Otherwise, only messages published with trace context are traced. Disabled by default."""
 
 }

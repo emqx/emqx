@@ -42,7 +42,7 @@ init([]) ->
     },
     Children =
         case emqx_conf:get([opentelemetry]) of
-            #{enable := false} -> [];
-            #{enable := true} = Conf -> [worker_spec(emqx_otel, Conf)]
+            #{enable := false, trace := #{enable := false}} -> [];
+            Conf -> [worker_spec(emqx_otel, Conf)]
         end,
     {ok, {SupFlags, Children}}.

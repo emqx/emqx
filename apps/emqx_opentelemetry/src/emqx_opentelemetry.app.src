@@ -1,9 +1,16 @@
 {application, emqx_opentelemetry, [
     {description, "OpenTelemetry for EMQX Broker"},
-    {vsn, "0.1.2"},
+    {vsn, "0.2.0"},
     {registered, []},
     {mod, {emqx_otel_app, []}},
     {applications, [kernel, stdlib, emqx]},
+    {included_applications, [
+        opentelemetry,
+        opentelemetry_api,
+        opentelemetry_api_experimental,
+        opentelemetry_experimental,
+        opentelemetry_exporter
+    ]},
     {env, []},
     {modules, []},
     {licenses, ["Apache 2.0"]},
