@@ -30,7 +30,7 @@ log(Meta0) ->
     Meta = emqx_utils:redact(Meta2),
     ?AUDIT(
         Level,
-        "from_api",
+        rest_api,
         Meta#{
             from => from(maps:get(auth_type, Meta0, "")),
             username => binary_to_list(Username),

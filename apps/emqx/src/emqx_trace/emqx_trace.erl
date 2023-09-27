@@ -87,8 +87,13 @@ log(List, Msg, Meta) ->
     log(debug, List, Msg, Meta).
 
 log(Level, List, Msg, Meta) ->
-    Log = #{level => Level, meta => enrich_meta(Meta), msg => Msg},
-    log_filter(List, Log).
+    Log = #{level => Level, meta => enrich_meta(Meta)},
+    Log1 =
+        case Msg of
+            undefined -> Log;
+            _ -> maps:put(msg, Msg, Log)
+        end,
+    log_filter(List, Log1).
 
 enrich_meta(Meta) ->
     case logger:get_process_metadata() of

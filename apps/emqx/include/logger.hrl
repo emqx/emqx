@@ -61,7 +61,9 @@
     )
 end).
 
--define(AUDIT(_Level_, _Msg_, _Meta_), begin
+-define(AUDIT(_Level_, _From_, _Meta_), ?AUDIT(_Level_, _From_, undefined, _Meta_)).
+
+-define(AUDIT(_Level_, _From_, _Msg_, _Meta_), begin
     case emqx_config:get([log, audit], #{enable => false}) of
         #{enable := false} ->
             ok;
@@ -72,7 +74,7 @@ end).
                         _Level_,
                         [{emqx_audit, fun(L, _) -> L end, undefined, undefined}],
                         {report, _Msg_},
-                        _Meta_
+                        _Meta_#{from => _From_}
                     );
                 gt ->
                     ok
