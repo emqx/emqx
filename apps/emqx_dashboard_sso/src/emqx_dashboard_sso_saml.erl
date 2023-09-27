@@ -100,6 +100,8 @@ desc(_) ->
 %% APIs
 %%------------------------------------------------------------------------------
 
+create(#{enable := false} = _Config) ->
+    {ok, undefined};
 create(#{sp_sign_request := true} = Config) ->
     try
         do_create(ensure_cert_and_key(Config))
