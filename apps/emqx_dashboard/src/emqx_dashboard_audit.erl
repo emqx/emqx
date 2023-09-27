@@ -37,8 +37,7 @@ log(Meta0) ->
     ok.
 
 from(jwt_token) -> "dashboard";
-from(api_key) -> "rest_api";
-from(_) -> "unauthorized".
+from(_) -> "rest_api".
 
 level(get, _Code, _) -> debug;
 level(_, Code, _) when Code >= 200 andalso Code < 300 -> info;
