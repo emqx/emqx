@@ -112,7 +112,7 @@ max_heap_size_warning(MF, Args) ->
 log(_, {?MODULE, prompt_func}, [[{history, _}]]) ->
     ok;
 log(IsAllow, MF, Args) ->
-    ?AUDIT(warning, remote_console, #{
+    ?AUDIT(warning, shell, #{
         time => logger:timestamp(),
         function => MF,
         args => pp_args(Args),
