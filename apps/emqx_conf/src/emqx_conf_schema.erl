@@ -940,7 +940,9 @@ fields("rpc") ->
                     default => true,
                     desc => ?DESC(rpc_insecure_fallback)
                 }
-            )}
+            )},
+        {"ciphers", emqx_schema:ciphers_schema(tls_all_available)},
+        {"tls_versions", emqx_schema:tls_versions_schema(tls_all_available)}
     ];
 fields("log") ->
     [
@@ -1176,7 +1178,11 @@ translation("emqx") ->
         {"cluster_hocon_file", fun tr_cluster_hocon_file/1}
     ];
 translation("gen_rpc") ->
-    [{"default_client_driver", fun tr_default_config_driver/1}];
+    [
+        {"default_client_driver", fun tr_default_config_driver/1},
+        {"ssl_client_options", fun tr_gen_rpc_ssl_options/1},
+        {"ssl_server_options", fun tr_gen_rpc_ssl_options/1}
+    ];
 translation("prometheus") ->
     [
         {"collectors", fun tr_prometheus_collectors/1}
@@ -1239,6 +1245,11 @@ collector_enabled(disabled, _) -> [].
 
 tr_default_config_driver(Conf) ->
     conf_get("rpc.driver", Conf).
+
+tr_gen_rpc_ssl_options(Conf) ->
+    Ciphers = conf_get("rpc.ciphers", Conf),
+    Versions = conf_get("rpc.tls_versions", Conf),
+    [{ciphers, Ciphers}, {versions, Versions}].
 
 tr_config_files(_Conf) ->
     case os:getenv("EMQX_ETC_DIR") of

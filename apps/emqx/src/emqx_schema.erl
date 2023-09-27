@@ -168,7 +168,9 @@
 
 -export([namespace/0, roots/0, roots/1, fields/1, desc/1, tags/0]).
 -export([conf_get/2, conf_get/3, keys/2, filter/1]).
--export([server_ssl_opts_schema/2, client_ssl_opts_schema/1, ciphers_schema/1]).
+-export([
+    server_ssl_opts_schema/2, client_ssl_opts_schema/1, ciphers_schema/1, tls_versions_schema/1
+]).
 -export([password_converter/2, bin_str_converter/2]).
 -export([authz_fields/0]).
 -export([sc/2, map/2]).
@@ -2019,7 +2021,6 @@ common_ssl_opts_schema(Defaults, Type) ->
     D = fun(Field) -> maps:get(Field, Defaults, undefined) end,
     Df = fun(Field, Default) -> maps:get(Field, Defaults, Default) end,
     Collection = maps:get(versions, Defaults, tls_all_available),
-    DefaultVersions = default_tls_vsns(Collection),
     [
         {"cacertfile",
             sc(
@@ -2093,16 +2094,7 @@ common_ssl_opts_schema(Defaults, Type) ->
                     converter => fun password_converter/2
                 }
             )},
-        {"versions",
-            sc(
-                hoconsc:array(typerefl:atom()),
-                #{
-                    default => DefaultVersions,
-                    desc => ?DESC(common_ssl_opts_schema_versions),
-                    importance => ?IMPORTANCE_HIGH,
-                    validator => fun(Input) -> validate_tls_versions(Collection, Input) end
-                }
-            )},
+        {"versions", tls_versions_schema(Collection)},
         {"ciphers", ciphers_schema(D(ciphers))},
         {"user_lookup_fun",
             sc(
@@ -2318,6 +2310,19 @@ outdated_tls_vsn(tls_all_available) -> ['tlsv1.1', tlsv1].
 
 default_tls_vsns(Key) ->
     available_tls_vsns(Key) -- outdated_tls_vsn(Key).
+
+-spec tls_versions_schema(tls_all_available | dtls_all_available) -> hocon_schema:field_schema().
+tls_versions_schema(Collection) ->
+    DefaultVersions = default_tls_vsns(Collection),
+    sc(
+        hoconsc:array(typerefl:atom()),
+        #{
+            default => DefaultVersions,
+            desc => ?DESC(common_ssl_opts_schema_versions),
+            importance => ?IMPORTANCE_HIGH,
+            validator => fun(Input) -> validate_tls_versions(Collection, Input) end
+        }
+    ).
 
 -spec ciphers_schema(quic | dtls_all_available | tls_all_available | undefined) ->
     hocon_schema:field_schema().
