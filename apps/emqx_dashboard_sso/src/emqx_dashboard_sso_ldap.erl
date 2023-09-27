@@ -86,7 +86,7 @@ destroy(#{resource_id := ResourceId}) ->
 
 parse_config(Config0) ->
     Config = ensure_bind_password(Config0),
-    {Config, emqx_ldap:parse_config(Config, [query_timeout], [])}.
+    {Config, maps:with([query_timeout], Config0)}.
 
 %% In this feature, the `bind_password` is fixed, so it should conceal from the swagger,
 %% but the connector still needs it, hence we should add it back here

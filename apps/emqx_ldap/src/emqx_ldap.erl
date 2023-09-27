@@ -27,7 +27,7 @@
 
 -export([roots/0, fields/1, desc/1]).
 
--export([do_get_status/1, parse_config/3]).
+-export([do_get_status/1]).
 
 -define(LDAP_HOST_OPTIONS, #{
     default_port => 389
@@ -113,28 +113,6 @@ ensure_username(required) ->
     true;
 ensure_username(Field) ->
     ?ECS:username(Field).
-
-parse_config(Config, ToKeep, ToString) ->
-    Convert = fun(Value) ->
-        case lists:member(Value, ToString) of
-            true ->
-                erlang:binary_to_list(Value);
-            _ ->
-                Value
-        end
-    end,
-    lists:foldl(
-        fun(Key, Acc) ->
-            case maps:find(Key, Config) of
-                {ok, Value} ->
-                    Acc#{Key => Convert(Value)};
-                _ ->
-                    Acc
-            end
-        end,
-        #{},
-        ToKeep ++ ToString
-    ).
 
 %% ===================================================================
 callback_mode() -> always_sync.

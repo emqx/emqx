@@ -143,7 +143,7 @@ authenticate(
     end.
 
 parse_config(Config) ->
-    emqx_ldap:parse_config(Config, [query_timeout], [password_attribute, is_superuser_attribute]).
+    maps:with([query_timeout, password_attribute, is_superuser_attribute], Config).
 
 %% To compatible v4.x
 is_enabled(Password, #eldap_entry{attributes = Attributes} = Entry, State) ->

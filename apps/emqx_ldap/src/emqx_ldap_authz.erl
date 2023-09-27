@@ -134,9 +134,9 @@ do_authorize(_Action, _Topic, [], _Entry) ->
     nomatch.
 
 new_annotations(Init, Source) ->
-    State = emqx_ldap:parse_config(Source, [query_timeout], [
-        publish_attribute, subscribe_attribute, all_attribute
-    ]),
+    State = maps:with(
+        [query_timeout, publish_attribute, subscribe_attribute, all_attribute], Source
+    ),
     maps:merge(Init, State).
 
 select_attrs(#{action_type := publish}, #{publish_attribute := Pub, all_attribute := All}) ->
