@@ -224,10 +224,6 @@ best_effort_json_obj(Map, Config) ->
             do_format_msg("~p", [Map], Config)
     end.
 
-json([], _) ->
-    "";
-json(<<"">>, _) ->
-    "\"\"";
 json(A, _) when is_atom(A) -> atom_to_binary(A, utf8);
 json(I, _) when is_integer(I) -> I;
 json(F, _) when is_float(F) -> F;
