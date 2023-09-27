@@ -133,24 +133,28 @@ schema("/sso/:backend") ->
     }.
 
 fields(backend_status) ->
-    emqx_dashboard_sso_schema:common_backend_schema(emqx_dashboard_sso:types()).
+    emqx_dashboard_sso_schema:common_backend_schema(emqx_dashboard_sso:types()) ++
+        [
+            {running,
+                mk(
+                    boolean(), #{
+                        desc => ?DESC(running)
+                    }
+                )},
+            {last_error,
+                mk(
+                    binary(), #{
+                        desc => ?DESC(last_error)
+                    }
+                )}
+        ].
 
 %%--------------------------------------------------------------------
 %% API
 %%--------------------------------------------------------------------
 
 running(get, _Request) ->
-    SSO = emqx:get_config(?MOD_KEY_PATH, #{}),
-    {200,
-        lists:filtermap(
-            fun
-                (#{backend := Backend, enable := true}) ->
-                    {true, Backend};
-                (_) ->
-                    false
-            end,
-            maps:values(SSO)
-        )}.
+    {200, emqx_dashboard_sso_manager:running()}.
 
 login(post, #{bindings := #{backend := Backend}, body := Body} = Request) ->
     case emqx_dashboard_sso_manager:lookup_state(Backend) of
@@ -185,8 +189,12 @@ sso(get, _Request) ->
     SSO = emqx:get_config(?MOD_KEY_PATH, #{}),
     {200,
         lists:map(
-            fun(Backend) ->
-                maps:with([backend, enable], Backend)
+            fun(#{backend := Backend, enable := Enable}) ->
+                Status = emqx_dashboard_sso_manager:get_backend_status(Backend, Enable),
+                Status#{
+                    backend => Backend,
+                    enable => Enable
+                }
             end,
             maps:values(SSO)
         )}.

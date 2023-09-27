@@ -26,7 +26,9 @@
     backend => atom(),
     atom() => term()
 }.
--type state() :: #{atom() => term()}.
+
+%% Note: if a backend has a resource, it must be stored in the state and named resource_id
+-type state() :: #{resource_id => binary(), atom() => term()}.
 -type raw_config() :: #{binary() => term()}.
 -type config() :: parsed_config() | raw_config().
 -type hocon_ref() :: ?R_REF(Module :: atom(), Name :: atom() | binary()).
