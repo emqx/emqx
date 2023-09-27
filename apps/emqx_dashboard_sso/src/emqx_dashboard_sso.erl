@@ -13,7 +13,8 @@
     create/2,
     update/3,
     destroy/2,
-    login/3
+    login/3,
+    convert_certs/3
 ]).
 
 -export([types/0, modules/0, provider/1, backends/0, format/1]).
@@ -45,6 +46,11 @@
     | {redirect, tuple()}
     | {error, Reason :: term()}.
 
+-callback convert_certs(
+    Dir :: file:filename_all(),
+    config()
+) -> config().
+
 %%------------------------------------------------------------------------------
 %% Callback Interface
 %%------------------------------------------------------------------------------
@@ -67,6 +73,9 @@ destroy(Mod, State) ->
 
 login(Mod, Req, State) ->
     Mod:login(Req, State).
+
+convert_certs(Mod, Dir, Config) ->
+    Mod:convert_certs(Dir, Config).
 
 %%------------------------------------------------------------------------------
 %% API

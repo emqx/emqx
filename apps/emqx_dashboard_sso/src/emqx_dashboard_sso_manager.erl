@@ -52,7 +52,7 @@
 
 -record(?MOD_TAB, {
     backend :: atom(),
-    state :: map(),
+    state :: undefined | map(),
     last_error = ?NO_ERROR :: term()
 }).
 
@@ -217,7 +217,7 @@ update_config(Backend, UpdateReq) ->
     end.
 
 pre_config_update(_, {update, _Backend, Config}, _OldConf) ->
-    maybe_write_certs(Config);
+    {ok, maybe_write_certs(Config)};
 pre_config_update(_, {delete, _Backend}, undefined) ->
     throw(not_exists);
 pre_config_update(_, {delete, _Backend}, _OldConf) ->
@@ -333,25 +333,12 @@ remove_handler() ->
     ok = emqx_conf:remove_handler(?MOD_KEY_PATH('?')).
 
 maybe_write_certs(#{<<"backend">> := Backend} = Conf) ->
-    case
-        emqx_tls_lib:ensure_ssl_files(
-            ssl_file_path(Backend), maps:get(<<"ssl">>, Conf, undefined)
-        )
-    of
-        {ok, SSL} ->
-            {ok, new_ssl_source(Conf, SSL)};
-        {error, Reason} ->
-            ?SLOG(error, Reason#{msg => "bad_ssl_config"}),
-            throw({bad_ssl_config, Reason})
-    end.
+    Dir = certs_path(Backend),
+    Provider = provider(Backend),
+    emqx_dashboard_sso:convert_certs(Provider, Dir, Conf).
 
-ssl_file_path(Backend) ->
+certs_path(Backend) ->
     filename:join(["sso", Backend]).
-
-new_ssl_source(Source, undefined) ->
-    Source;
-new_ssl_source(Source, SSL) ->
-    Source#{<<"ssl">> => SSL}.
 
 update_state(Backend, State) ->
     Data = ensure_backend_data(Backend),
