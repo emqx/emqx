@@ -645,6 +645,7 @@ try_to_existing_atom(Convert, Data, Encoding) ->
         _:Reason -> {error, Reason}
     end.
 
+%% NOTE: keep alphabetical order
 is_sensitive_key(aws_secret_access_key) -> true;
 is_sensitive_key("aws_secret_access_key") -> true;
 is_sensitive_key(<<"aws_secret_access_key">>) -> true;
@@ -663,6 +664,8 @@ is_sensitive_key(<<"secret_key">>) -> true;
 is_sensitive_key(security_token) -> true;
 is_sensitive_key("security_token") -> true;
 is_sensitive_key(<<"security_token">>) -> true;
+is_sensitive_key(sp_private_key) -> true;
+is_sensitive_key(<<"sp_private_key">>) -> true;
 is_sensitive_key(token) -> true;
 is_sensitive_key("token") -> true;
 is_sensitive_key(<<"token">>) -> true;
