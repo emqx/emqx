@@ -74,7 +74,7 @@ fields(config) ->
         {request_timeout,
             ?HOCON(emqx_schema:timeout_duration_ms(), #{
                 desc => ?DESC(request_timeout),
-                default => <<"5s">>
+                default => <<"10s">>
             })},
         {ssl,
             ?HOCON(?R_REF(?MODULE, ssl), #{

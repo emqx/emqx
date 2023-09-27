@@ -27,6 +27,7 @@ all() ->
         t_create_atomicly,
         t_create,
         t_update,
+        t_update_atomicly,
         t_get,
         t_login_with_bad,
         t_first_login,
@@ -109,6 +110,37 @@ t_update(_) ->
     ?assertMatch(#{backend := <<"ldap">>, enable := true}, decode_json(Result)),
     ?assertMatch([#{backend := <<"ldap">>, enable := true}], get_sso()),
     ?assertNotEqual(undefined, emqx_dashboard_sso_manager:lookup_state(ldap)),
+    ok.
+
+%% update fails can rollback able
+t_update_atomicly(_) ->
+    CurrRes = emqx_resource_manager:list_group(?RESOURCE_GROUP),
+
+    Path = uri(["sso", "ldap"]),
+    ?assertMatch(
+        {ok, 400, _},
+        request(
+            put,
+            Path,
+            ldap_config(#{
+                <<"username">> => <<"invalid">>,
+                <<"enable">> => true,
+                <<"request_timeout">> => <<"1s">>
+            })
+        )
+    ),
+
+    ?assertMatch(#{backend := ldap}, emqx:get_config(?MOD_KEY_PATH, undefined)),
+    ?assertMatch([_], ets:tab2list(?MOD_TAB)),
+    ?retry(
+        _Interval = 5,
+        _NAttempts = 1000,
+        begin
+            Res = emqx_resource_manager:list_group(?RESOURCE_GROUP),
+            ?assertMatch([_], Res),
+            ?assertNotMatch(CurrRes, Res)
+        end
+    ),
     ok.
 
 t_get(_) ->
