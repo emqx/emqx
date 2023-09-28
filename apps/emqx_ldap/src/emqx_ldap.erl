@@ -249,7 +249,7 @@ do_ldap_query(
     #{pool_name := PoolName} = State
 ) ->
     LogMeta = #{connector => InstId, search => SearchOptions, state => emqx_utils:redact(State)},
-    ?TRACE("QUERY", "ldap_connector_received", LogMeta),
+    ?TRACE("QUERY", "ldap_connector_received_query", LogMeta),
     case
         ecpool:pick_and_do(
             PoolName,

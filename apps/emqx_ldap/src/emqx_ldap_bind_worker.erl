@@ -80,7 +80,9 @@ on_query(
                 ldap_connector_query_return,
                 #{result => ok}
             ),
-            ok;
+            {ok, #{result => ok}};
+        {error, invalidCredentials} ->
+            {ok, #{result => invalidCredentials}};
         {error, Reason} ->
             ?SLOG(
                 error,
