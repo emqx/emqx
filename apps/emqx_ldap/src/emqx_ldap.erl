@@ -177,7 +177,7 @@ on_query(InstId, {query, Data, Attrs}, State) ->
     on_query(InstId, {query, Data}, [{attributes, Attrs}], State);
 on_query(InstId, {query, Data, Attrs, Timeout}, State) ->
     on_query(InstId, {query, Data}, [{attributes, Attrs}, {timeout, Timeout}], State);
-on_query(InstId, {bind, _Data} = Req, State) ->
+on_query(InstId, {bind, _DN, _Data} = Req, State) ->
     emqx_ldap_bind_worker:on_query(InstId, Req, State).
 
 on_get_status(_InstId, #{pool_name := PoolName} = _State) ->
