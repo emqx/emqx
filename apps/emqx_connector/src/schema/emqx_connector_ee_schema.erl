@@ -1,7 +1,7 @@
 %%--------------------------------------------------------------------
 %% Copyright (c) 2022-2023 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
--module(emqx_connector_enterprise).
+-module(emqx_connector_ee_schema).
 
 -if(?EMQX_RELEASE_EDITION == ee).
 
@@ -10,7 +10,6 @@
     connector_impl_module/1
 ]).
 
--include_lib("hocon/include/hoconsc.hrl").
 -import(hoconsc, [mk/2, enum/1, ref/2]).
 
 -export([

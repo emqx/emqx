@@ -30,10 +30,10 @@
 enterprise_fields_connectors() ->
     %% We *must* do this to ensure the module is really loaded, especially when we use
     %% `call_hocon' from `nodetool' to generate initial configurations.
-    _ = emqx_connector_enterprise:module_info(),
-    case erlang:function_exported(emqx_connector_enterprise, fields, 1) of
+    _ = emqx_connector_ee_schema:module_info(),
+    case erlang:function_exported(emqx_connector_ee_schema, fields, 1) of
         true ->
-            emqx_connector_enterprise:fields(connectors);
+            emqx_connector_ee_schema:fields(connectors);
         false ->
             []
     end.

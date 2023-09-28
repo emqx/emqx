@@ -18,9 +18,7 @@
 -behaviour(emqx_config_handler).
 -behaviour(emqx_config_backup).
 
--include_lib("emqx/include/emqx.hrl").
 -include_lib("emqx/include/logger.hrl").
--include_lib("emqx/include/emqx_hooks.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
 -export([
@@ -29,25 +27,16 @@
 ]).
 
 -export([
-    % load_hook/0,
-    % unload_hook/0
-]).
-
-% -export([on_message_publish/1]).
-
--export([
-    load/0,
-    unload/0,
-    lookup/1,
-    lookup/2,
-    get_metrics/2,
+    check_deps_and_remove/3,
     create/3,
     disable_enable/3,
+    get_metrics/2,
+    list/0,
+    load/0,
+    lookup/1,
+    lookup/2,
     remove/2,
-    check_deps_and_remove/3,
-    list/0
-    % ,
-    % reload_hook/1
+    unload/0
 ]).
 
 -export([config_key_path/0]).
@@ -77,7 +66,6 @@ load() ->
     ).
 
 unload() ->
-    %% unload_hook(),
     Connectors = emqx:get_config([?ROOT_KEY], #{}),
     lists:foreach(
         fun({Type, NamedConf}) ->
@@ -114,102 +102,6 @@ safe_load_connector(Type, Name, Conf) ->
             })
     end.
 
-% reload_hook(Connectors) ->
-%     ok = unload_hook(),
-%     ok = load_hook(Connectors).
-
-% load_hook() ->
-%     Connectors = emqx:get_config([?ROOT_KEY], #{}),
-%     load_hook(Connectors).
-
-% load_hook(Connectors) ->
-%     lists:foreach(
-%         fun({Type, Connector}) ->
-%             lists:foreach(
-%                 fun({_Name, ConnectorConf}) ->
-%                     do_load_hook(Type, ConnectorConf)
-%                 end,
-%                 maps:to_list(Connector)
-%             )
-%         end,
-%         maps:to_list(Connectors)
-%     ).
-
-% do_load_hook(Type, #{local_topic := LocalTopic}) when
-%     ?EGRESS_DIR_BRIDGES(Type) andalso is_binary(LocalTopic)
-% ->
-%     emqx_hooks:put('message.publish', {?MODULE, on_message_publish, []}, ?HP_BRIDGE);
-% do_load_hook(mqtt, #{egress := #{local := #{topic := _}}}) ->
-%     emqx_hooks:put('message.publish', {?MODULE, on_message_publish, []}, ?HP_BRIDGE);
-% do_load_hook(_Type, _Conf) ->
-%     ok.
-
-% unload_hook() ->
-%     ok = emqx_hooks:del('message.publish', {?MODULE, on_message_publish}).
-
-% on_message_publish(Message = #message{topic = Topic, flags = Flags}) ->
-%     case maps:get(sys, Flags, false) of
-%         false ->
-%             {Msg, _} = emqx_rule_events:eventmsg_publish(Message),
-%             send_to_matched_egress_connectors(Topic, Msg);
-%         true ->
-%             ok
-%     end,
-%     {ok, Message}.
-
-% send_to_matched_egress_connectors(Topic, Msg) ->
-%     MatchedConnectorIds = get_matched_egress_connectors(Topic),
-%     lists:foreach(
-%         fun(Id) ->
-%             try send_message(Id, Msg) of
-%                 {error, Reason} ->
-%                     ?SLOG(error, #{
-%                         msg => "send_message_to_connector_failed",
-%                         connector => Id,
-%                         error => Reason
-%                     });
-%                 _ ->
-%                     ok
-%             catch
-%                 Err:Reason:ST ->
-%                     ?SLOG(error, #{
-%                         msg => "send_message_to_connector_exception",
-%                         connector => Id,
-%                         error => Err,
-%                         reason => Reason,
-%                         stacktrace => ST
-%                     })
-%             end
-%         end,
-%         MatchedConnectorIds
-%     ).
-
-% send_message(ConnectorId, Message) ->
-%     {ConnectorType, ConnectorName} = emqx_connector_resource:parse_connector_id(ConnectorId),
-%     ResId = emqx_connector_resource:resource_id(ConnectorType, ConnectorName),
-%     send_message(ConnectorType, ConnectorName, ResId, Message, #{}).
-
-% send_message(ConnectorType, ConnectorName, ResId, Message, QueryOpts0) ->
-%     case emqx:get_config([?ROOT_KEY, ConnectorType, ConnectorName], not_found) of
-%         not_found ->
-%             {error, connector_not_found};
-%         #{enable := true} = Config ->
-%             QueryOpts = maps:merge(query_opts(Config), QueryOpts0),
-%             emqx_resource:query(ResId, {send_message, Message}, QueryOpts);
-%         #{enable := false} ->
-%             {error, connector_stopped}
-%     end.
-
-% query_opts(Config) ->
-%     case emqx_utils_maps:deep_get([resource_opts, request_ttl], Config, false) of
-%         Timeout when is_integer(Timeout) orelse Timeout =:= infinity ->
-%             %% request_ttl is configured
-%             #{timeout => Timeout};
-%         _ ->
-%             %% emqx_resource has a default value (15s)
-%             #{}
-%     end.
-
 config_key_path() ->
     [?ROOT_KEY].
 
@@ -240,33 +132,25 @@ post_config_update([?ROOT_KEY], _Req, NewConf, OldConf, _AppEnv) ->
     Result = perform_connector_changes([
         #{action => fun emqx_connector_resource:remove/4, data => Removed},
         #{
-            action => fun emqx_connector_resource:create/4,
+            action => fun emqx_connector_resource:create/3,
             data => Added,
             on_exception_fn => fun emqx_connector_resource:remove/4
         },
         #{action => fun emqx_connector_resource:update/4, data => Updated}
     ]),
-    % ok = unload_hook(),
-    % ok = load_hook(NewConf),
     ?tp(connector_post_config_update_done, #{}),
     Result;
-post_config_update([?ROOT_KEY, BridgeType, BridgeName], '$remove', _, _OldConf, _AppEnvs) ->
-    ok = emqx_connector_resource:remove(BridgeType, BridgeName),
-    Bridges = emqx_utils_maps:deep_remove([BridgeType, BridgeName], emqx:get_config([connectors])),
-    emqx_connector:reload_hook(Bridges),
+post_config_update([?ROOT_KEY, Type, Name], '$remove', _, _OldConf, _AppEnvs) ->
+    ok = emqx_connector_resource:remove(Type, Name),
     ?tp(connector_post_config_update_done, #{}),
     ok;
-post_config_update([?ROOT_KEY, BridgeType, BridgeName], _Req, NewConf, undefined, _AppEnvs) ->
-    ok = emqx_connector_resource:create(BridgeType, BridgeName, NewConf),
+post_config_update([?ROOT_KEY, Type, Name], _Req, NewConf, undefined, _AppEnvs) ->
+    ok = emqx_connector_resource:create(Type, Name, NewConf),
     ?tp(connector_post_config_update_done, #{}),
     ok;
-post_config_update([connectors, BridgeType, BridgeName], _Req, NewConf, OldConf, _AppEnvs) ->
+post_config_update([connectors, Type, Name], _Req, NewConf, OldConf, _AppEnvs) ->
     ResOpts = emqx_resource:fetch_creation_opts(NewConf),
-    ok = emqx_connector_resource:update(BridgeType, BridgeName, {OldConf, NewConf}, ResOpts),
-    Bridges = emqx_utils_maps:deep_put(
-        [BridgeType, BridgeName], emqx:get_config([connectors]), NewConf
-    ),
-    emqx_connector:reload_hook(Bridges),
+    ok = emqx_connector_resource:update(Type, Name, {OldConf, NewConf}, ResOpts),
     ?tp(connector_post_config_update_done, #{}),
     ok.
 
@@ -311,13 +195,6 @@ lookup(Type, Name, RawConf) ->
 
 get_metrics(Type, Name) ->
     emqx_resource:get_metrics(emqx_connector_resource:resource_id(Type, Name)).
-
-% maybe_upgrade(mqtt, Config) ->
-%     emqx_connector_compatible_config:maybe_upgrade(Config);
-% maybe_upgrade(webhook, Config) ->
-%     emqx_connector_compatible_config:webhook_maybe_upgrade(Config);
-% maybe_upgrade(_Other, Config) ->
-%     Config.
 
 disable_enable(Action, ConnectorType, ConnectorName) when
     Action =:= disable; Action =:= enable
@@ -498,48 +375,6 @@ flatten_confs(Conf0) ->
 
 do_flatten_confs(Type, Conf0) ->
     [{{Type, Name}, Conf} || {Name, Conf} <- maps:to_list(Conf0)].
-
-% get_matched_egress_connectors(Topic) ->
-%     Connectors = emqx:get_config([connectors], #{}),
-%     maps:fold(
-%         fun(BType, Conf, Acc0) ->
-%             maps:fold(
-%                 fun
-%                     (BName, #{egress := _} = BConf, Acc1) when BType =:= mqtt ->
-%                         get_matched_connector_id(BType, BConf, Topic, BName, Acc1);
-%                     (_BName, #{ingress := _}, Acc1) when BType =:= mqtt ->
-%                         %% ignore ingress only connector
-%                         Acc1;
-%                     (BName, BConf, Acc1) ->
-%                         get_matched_connector_id(BType, BConf, Topic, BName, Acc1)
-%                 end,
-%                 Acc0,
-%                 Conf
-%             )
-%         end,
-%         [],
-%         Connectors
-%     ).
-
-% get_matched_connector_id(_BType, #{enable := false}, _Topic, _BName, Acc) ->
-%     Acc;
-% get_matched_connector_id(BType, Conf, Topic, BName, Acc) when ?EGRESS_DIR_BRIDGES(BType) ->
-%     case maps:get(local_topic, Conf, undefined) of
-%         undefined ->
-%             Acc;
-%         Filter ->
-%             do_get_matched_connector_id(Topic, Filter, BType, BName, Acc)
-%     end;
-% get_matched_connector_id(mqtt, #{egress := #{local := #{topic := Filter}}}, Topic, BName, Acc) ->
-%     do_get_matched_connector_id(Topic, Filter, mqtt, BName, Acc);
-% get_matched_connector_id(_BType, _Conf, _Topic, _BName, Acc) ->
-%     Acc.
-
-% do_get_matched_connector_id(Topic, Filter, BType, BName, Acc) ->
-%     case emqx_topic:match(Topic, Filter) of
-%         true -> [emqx_connector_resource:connector_id(BType, BName) | Acc];
-%         false -> Acc
-%     end.
 
 -spec get_basic_usage_info() ->
     #{
