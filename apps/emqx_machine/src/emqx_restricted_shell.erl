@@ -112,7 +112,7 @@ max_heap_size_warning(MF, Args) ->
 log(_, {?MODULE, prompt_func}, [[{history, _}]]) ->
     ok;
 log(IsAllow, MF, Args) ->
-    ?AUDIT(warning, "from_remote_console", #{
+    ?AUDIT(warning, erlang_console, #{
         time => logger:timestamp(),
         function => MF,
         args => pp_args(Args),
