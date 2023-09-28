@@ -151,13 +151,22 @@ tr_file_handlers(Conf) ->
     lists:map(fun tr_file_handler/1, Handlers).
 
 tr_file_handler({HandlerName, SubConf}) ->
+    FilePath = conf_get("path", SubConf),
+    RotationCount = conf_get("rotation_count", SubConf),
+    RotationSize = conf_get("rotation_size", SubConf),
+    Type =
+        case RotationSize of
+            infinity -> halt;
+            _ -> wrap
+        end,
+    HandlerConf = log_handler_conf(SubConf),
     {handler, atom(HandlerName), logger_disk_log_h, #{
         level => conf_get("level", SubConf),
-        config => (log_handler_conf(SubConf))#{
-            type => wrap,
-            file => conf_get("path", SubConf),
-            max_no_files => conf_get("rotation_count", SubConf),
-            max_no_bytes => conf_get("rotation_size", SubConf)
+        config => HandlerConf#{
+            type => Type,
+            file => FilePath,
+            max_no_files => RotationCount,
+            max_no_bytes => RotationSize
         },
         formatter => log_formatter(HandlerName, SubConf),
         filters => log_filter(HandlerName, SubConf),
@@ -216,38 +225,26 @@ log_formatter(HandlerName, Conf) ->
         end,
     SingleLine = conf_get("single_line", Conf),
     Depth = conf_get("max_depth", Conf),
+    Format =
+        case HandlerName of
+            ?AUDIT_HANDLER ->
+                json;
+            _ ->
+                conf_get("formatter", Conf)
+        end,
     do_formatter(
-        HandlerName, conf_get("formatter", Conf), CharsLimit, SingleLine, TimeOffSet, Depth
+        Format, CharsLimit, SingleLine, TimeOffSet, Depth
     ).
 
 %% helpers
-do_formatter(?AUDIT_HANDLER, _, CharsLimit, SingleLine, TimeOffSet, Depth) ->
-    {emqx_logger_jsonfmt, #{
-        template => [
-            time,
-            " [",
-            level,
-            "] ",
-            %% http api
-            {method, [code, " ", method, " ", operate_id, " ", username, " "], []},
-            %% cli
-            {cmd, [cmd, " "], []},
-            msg,
-            "\n"
-        ],
-        chars_limit => CharsLimit,
-        single_line => SingleLine,
-        time_offset => TimeOffSet,
-        depth => Depth
-    }};
-do_formatter(_, json, CharsLimit, SingleLine, TimeOffSet, Depth) ->
+do_formatter(json, CharsLimit, SingleLine, TimeOffSet, Depth) ->
     {emqx_logger_jsonfmt, #{
         chars_limit => CharsLimit,
         single_line => SingleLine,
         time_offset => TimeOffSet,
         depth => Depth
     }};
-do_formatter(_, text, CharsLimit, SingleLine, TimeOffSet, Depth) ->
+do_formatter(text, CharsLimit, SingleLine, TimeOffSet, Depth) ->
     {emqx_logger_textfmt, #{
         template => [time, " [", level, "] ", msg, "\n"],
         chars_limit => CharsLimit,

@@ -104,7 +104,7 @@ max_heap_size_warning(MF, Args) ->
                 msg => "shell_process_exceed_max_heap_size",
                 current_heap_size => HeapSize,
                 function => MF,
-                args => Args,
+                args => pp_args(Args),
                 max_heap_size => ?MAX_HEAP_SIZE
             })
     end.
@@ -112,24 +112,33 @@ max_heap_size_warning(MF, Args) ->
 log(_, {?MODULE, prompt_func}, [[{history, _}]]) ->
     ok;
 log(IsAllow, MF, Args) ->
-    ?AUDIT(warning, "from_remote_console", #{
+    ?AUDIT(warning, erlang_console, #{
         time => logger:timestamp(),
         function => MF,
-        args => Args,
+        args => pp_args(Args),
         permission => IsAllow
     }),
     to_console(IsAllow, MF, Args).
 
 to_console(prohibited, MF, Args) ->
     warning("DANGEROUS FUNCTION: FORBIDDEN IN SHELL!!!!!", []),
-    ?SLOG(error, #{msg => "execute_function_in_shell_prohibited", function => MF, args => Args});
+    ?SLOG(error, #{
+        msg => "execute_function_in_shell_prohibited",
+        function => MF,
+        args => pp_args(Args)
+    });
 to_console(exempted, MF, Args) ->
     limit_warning(MF, Args),
     ?SLOG(error, #{
-        msg => "execute_dangerous_function_in_shell_exempted", function => MF, args => Args
+        msg => "execute_dangerous_function_in_shell_exempted",
+        function => MF,
+        args => pp_args(Args)
     });
 to_console(ok, MF, Args) ->
     limit_warning(MF, Args).
 
 warning(Format, Args) ->
     io:format(?RED_BG ++ Format ++ ?RESET ++ "~n", Args).
+
+pp_args(Args) ->
+    iolist_to_binary(io_lib:format("~0p", [Args])).

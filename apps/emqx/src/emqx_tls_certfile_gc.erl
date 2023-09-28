@@ -271,8 +271,11 @@ find_config_references(Root) ->
 is_file_reference(Stack) ->
     lists:any(
         fun(KP) -> lists:prefix(lists:reverse(KP), Stack) end,
-        emqx_tls_lib:ssl_file_conf_keypaths()
+        conf_keypaths()
     ).
+
+conf_keypaths() ->
+    emqx_tls_lib:ssl_file_conf_keypaths().
 
 mk_fileref(AbsPath) ->
     case emqx_utils_fs:read_info(AbsPath) of

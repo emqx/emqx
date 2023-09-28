@@ -19,45 +19,51 @@
 -compile(export_all).
 
 -include_lib("eunit/include/eunit.hrl").
+-include_lib("common_test/include/ct.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
 %% erlfmt-ignore
 -define(BASE_CONF,
     """
-             node {
-                name = \"emqx1@127.0.0.1\"
-                cookie = \"emqxsecretcookie\"
-                data_dir = \"data\"
-             }
-             cluster {
-                name = emqxcl
-                discovery_strategy = static
-                static.seeds = \"emqx1@127.0.0.1\"
-                core_nodes = \"emqx1@127.0.0.1\"
-             }
-             log {
-                console {
-                enable = true
-                level = debug
-                }
-                file {
-                enable = true
-                level = info
-                path = \"log/emqx.log\"
-                }
-             }
+    log {
+       console {
+         enable = true
+         level = debug
+       }
+       file {
+         enable = true
+         level = info
+         path = \"log/emqx.log\"
+       }
+    }
     """).
 
 all() ->
     emqx_common_test_helpers:all(?MODULE).
 
 init_per_suite(Config) ->
-    emqx_common_test_helpers:load_config(emqx_conf_schema, iolist_to_binary(?BASE_CONF)),
-    emqx_mgmt_api_test_util:init_suite([emqx_conf]),
-    Config.
+    Apps = emqx_cth_suite:start(
+        [
+            emqx,
+            {emqx_conf, ?BASE_CONF}
+        ],
+        #{work_dir => emqx_cth_suite:work_dir(Config)}
+    ),
+    [{apps, Apps} | Config].
 
-end_per_suite(_Config) ->
-    emqx_mgmt_api_test_util:end_suite([emqx_conf]).
+end_per_suite(Config) ->
+    Apps = ?config(apps, Config),
+    ok = emqx_cth_suite:stop(Apps),
+    ok.
+
+init_per_testcase(_TestCase, Config) ->
+    LogConfRaw = emqx_conf:get_raw([<<"log">>]),
+    [{log_conf_raw, LogConfRaw} | Config].
+
+end_per_testcase(_TestCase, Config) ->
+    LogConfRaw = ?config(log_conf_raw, Config),
+    {ok, _} = emqx_conf:update([<<"log">>], LogConfRaw, #{}),
+    ok.
 
 t_log_conf(_Conf) ->
     FileExpect = #{
@@ -78,16 +84,7 @@ t_log_conf(_Conf) ->
                 <<"time_offset">> => <<"system">>
             },
         <<"file">> =>
-            #{<<"default">> => FileExpect},
-        <<"audit">> =>
-            #{
-                <<"enable">> => true,
-                <<"level">> => <<"info">>,
-                <<"path">> => <<"log/audit.log">>,
-                <<"rotation_count">> => 10,
-                <<"rotation_size">> => <<"50MB">>,
-                <<"time_offset">> => <<"system">>
-            }
+            #{<<"default">> => FileExpect}
     },
     ?assertEqual(ExpectLog1, emqx_conf:get_raw([<<"log">>])),
     UpdateLog0 = emqx_utils_maps:deep_remove([<<"file">>, <<"default">>], ExpectLog1),
@@ -117,4 +114,24 @@ t_log_conf(_Conf) ->
     ?assertMatch({ok, _}, emqx_conf:update([<<"log">>], UpdateLog2, #{})),
     ?assertMatch({error, {not_found, default}}, logger:get_handler_config(default)),
     ?assertMatch({error, {not_found, console}}, logger:get_handler_config(console)),
+    ok.
+
+t_file_logger_infinity_rotation(_Config) ->
+    ConfPath = [<<"log">>],
+    FileConfPath = [<<"file">>, <<"default">>],
+    ConfRaw = emqx_conf:get_raw(ConfPath),
+    FileConfRaw = emqx_utils_maps:deep_get(FileConfPath, ConfRaw),
+    %% inconsistent config: infinity rotation size, but finite rotation count
+    BadFileConfRaw = maps:merge(
+        FileConfRaw,
+        #{
+            <<"rotation_size">> => <<"infinity">>,
+            <<"rotation_count">> => 10
+        }
+    ),
+    BadConfRaw = emqx_utils_maps:deep_put(FileConfPath, ConfRaw, BadFileConfRaw),
+    ?assertMatch({ok, _}, emqx_conf:update(ConfPath, BadConfRaw, #{})),
+    HandlerIds = logger:get_handler_ids(),
+    %% ensure that the handler is correctly added
+    ?assert(lists:member(default, HandlerIds), #{handler_ids => HandlerIds}),
     ok.

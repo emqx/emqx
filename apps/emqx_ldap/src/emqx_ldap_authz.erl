@@ -116,7 +116,7 @@ authorize(
         {error, Reason} ->
             ?SLOG(error, #{
                 msg => "query_ldap_error",
-                reason => Reason,
+                reason => emqx_utils:redact(Reason),
                 resource_id => ResourceID
             }),
             nomatch
@@ -134,21 +134,10 @@ do_authorize(_Action, _Topic, [], _Entry) ->
     nomatch.
 
 new_annotations(Init, Source) ->
-    lists:foldl(
-        fun(Attr, Acc) ->
-            Acc#{
-                Attr =>
-                    case maps:get(Attr, Source) of
-                        Value when is_binary(Value) ->
-                            erlang:binary_to_list(Value);
-                        Value ->
-                            Value
-                    end
-            }
-        end,
-        Init,
-        [publish_attribute, subscribe_attribute, all_attribute]
-    ).
+    State = maps:with(
+        [query_timeout, publish_attribute, subscribe_attribute, all_attribute], Source
+    ),
+    maps:merge(Init, State).
 
 select_attrs(#{action_type := publish}, #{publish_attribute := Pub, all_attribute := All}) ->
     [Pub, All];

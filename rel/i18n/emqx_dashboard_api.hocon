@@ -43,7 +43,9 @@ login_success.desc:
 """Dashboard Auth Success"""
 
 logout_api.desc:
-"""Dashboard user logout"""
+"""Dashboard user logout.
+This endpoint is only for the Dashboard, not the `API Key`.
+The token from the `/login` endpoint must be a bearer authorization in the headers."""
 logout_api.label:
 """Dashboard user logout"""
 

@@ -15,8 +15,8 @@ endif
 
 # Dashboard version
 # from https://github.com/emqx/emqx-dashboard5
-export EMQX_DASHBOARD_VERSION ?= v1.4.1
-export EMQX_EE_DASHBOARD_VERSION ?= e1.2.1
+export EMQX_DASHBOARD_VERSION ?= v1.5.0
+export EMQX_EE_DASHBOARD_VERSION ?= e1.3.0
 
 # `:=` should be used here, otherwise the `$(shell ...)` will be executed every time when the variable is used
 # In make 4.4+, for backward-compatibility the value from the original environment is used.
@@ -75,7 +75,7 @@ mix-deps-get: $(ELIXIR_COMMON_DEPS)
 
 .PHONY: eunit
 eunit: $(REBAR) merge-config
-	@ENABLE_COVER_COMPILE=1 $(REBAR) eunit -v -c --cover_export_name $(CT_COVER_EXPORT_PREFIX)-eunit
+	@ENABLE_COVER_COMPILE=1 $(REBAR) eunit  --name eunit@127.0.0.1 -v -c --cover_export_name $(CT_COVER_EXPORT_PREFIX)-eunit
 
 .PHONY: proper
 proper: $(REBAR)

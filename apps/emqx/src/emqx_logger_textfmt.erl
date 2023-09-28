@@ -56,8 +56,7 @@ enrich_report(ReportRaw, Meta) ->
         end,
     ClientId = maps:get(clientid, Meta, undefined),
     Peer = maps:get(peername, Meta, undefined),
-    MFA = maps:get(mfa, Meta, undefined),
-    Line = maps:get(line, Meta, undefined),
+    MFA = emqx_utils:format_mfal(Meta),
     Msg = maps:get(msg, ReportRaw, undefined),
     %% turn it into a list so that the order of the fields is determined
     lists:foldl(
@@ -70,8 +69,7 @@ enrich_report(ReportRaw, Meta) ->
             {topic, try_format_unicode(Topic)},
             {clientid, try_format_unicode(ClientId)},
             {peername, Peer},
-            {line, Line},
-            {mfa, mfa(MFA)},
+            {mfa, try_format_unicode(MFA)},
             {msg, Msg}
         ]
     ).
@@ -84,7 +82,7 @@ try_format_unicode(Char) ->
             case unicode:characters_to_list(Char) of
                 {error, _, _} -> error;
                 {incomplete, _, _} -> error;
-                Binary -> Binary
+                List1 -> List1
             end
         catch
             _:_ ->
@@ -95,8 +93,8 @@ try_format_unicode(Char) ->
         _ -> List
     end.
 
-enrich_mfa({Fmt, Args}, #{mfa := Mfa, line := Line}) when is_list(Fmt) ->
-    {Fmt ++ " mfa: ~ts line: ~w", Args ++ [mfa(Mfa), Line]};
+enrich_mfa({Fmt, Args}, Data) when is_list(Fmt) ->
+    {Fmt ++ " mfa: ~ts", Args ++ [emqx_utils:format_mfal(Data)]};
 enrich_mfa(Msg, _) ->
     Msg.
 
@@ -113,6 +111,3 @@ enrich_topic({Fmt, Args}, #{topic := Topic}) when is_list(Fmt) ->
     {" topic: ~ts" ++ Fmt, [Topic | Args]};
 enrich_topic(Msg, _) ->
     Msg.
-
-mfa(undefined) -> undefined;
-mfa({M, F, A}) -> [atom_to_list(M), ":", atom_to_list(F), "/" ++ integer_to_list(A)].

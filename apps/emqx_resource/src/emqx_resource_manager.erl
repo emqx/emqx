@@ -223,9 +223,10 @@ restart(ResId, Opts) when is_binary(ResId) ->
 %% @doc Start the resource
 -spec start(resource_id(), creation_opts()) -> ok | {error, Reason :: term()}.
 start(ResId, Opts) ->
-    case safe_call(ResId, start, ?T_OPERATION) of
+    StartTimeout = maps:get(start_timeout, Opts, ?T_OPERATION),
+    case safe_call(ResId, start, StartTimeout) of
         ok ->
-            wait_for_ready(ResId, maps:get(start_timeout, Opts, 5000));
+            wait_for_ready(ResId, StartTimeout);
         {error, _Reason} = Error ->
             Error
     end.

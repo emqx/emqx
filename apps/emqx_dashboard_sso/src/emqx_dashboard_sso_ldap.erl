@@ -22,7 +22,8 @@
     login/2,
     create/1,
     update/2,
-    destroy/1
+    destroy/1,
+    convert_certs/2
 ]).
 
 %%------------------------------------------------------------------------------
@@ -86,19 +87,7 @@ destroy(#{resource_id := ResourceId}) ->
 
 parse_config(Config0) ->
     Config = ensure_bind_password(Config0),
-    State = lists:foldl(
-        fun(Key, Acc) ->
-            case maps:find(Key, Config) of
-                {ok, Value} when is_binary(Value) ->
-                    Acc#{Key := erlang:binary_to_list(Value)};
-                _ ->
-                    Acc
-            end
-        end,
-        Config,
-        [query_timeout]
-    ),
-    {Config, State}.
+    {Config, maps:with([query_timeout], Config0)}.
 
 %% In this feature, the `bind_password` is fixed, so it should conceal from the swagger,
 %% but the connector still needs it, hence we should add it back here
@@ -163,3 +152,21 @@ ensure_user_exists(Username) ->
                     Error
             end
     end.
+
+convert_certs(Dir, Conf) ->
+    case
+        emqx_tls_lib:ensure_ssl_files(
+            Dir, maps:get(<<"ssl">>, Conf, undefined)
+        )
+    of
+        {ok, SSL} ->
+            new_ssl_source(Conf, SSL);
+        {error, Reason} ->
+            ?SLOG(error, Reason#{msg => "bad_ssl_config"}),
+            throw({bad_ssl_config, Reason})
+    end.
+
+new_ssl_source(Source, undefined) ->
+    Source;
+new_ssl_source(Source, SSL) ->
+    Source#{<<"ssl">> => SSL}.

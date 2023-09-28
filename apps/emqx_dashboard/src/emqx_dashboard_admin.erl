@@ -212,8 +212,8 @@ add_user_(Username, Password, Role, Desc) ->
             mnesia:abort(<<"username_already_exist">>)
     end.
 
--spec remove_user(binary()) -> {ok, any()} | {error, any()}.
-remove_user(Username) when is_binary(Username) ->
+-spec remove_user(dashboard_username()) -> {ok, any()} | {error, any()}.
+remove_user(Username) ->
     Trans = fun() ->
         case lookup_user(Username) of
             [] -> mnesia:abort(<<"username_not_found">>);
@@ -230,7 +230,7 @@ remove_user(Username) when is_binary(Username) ->
 
 -spec update_user(dashboard_username(), dashboard_user_role(), binary()) ->
     {ok, map()} | {error, term()}.
-update_user(Username, Role, Desc) when is_binary(Username) ->
+update_user(Username, Role, Desc) ->
     case legal_role(Role) of
         ok ->
             case
@@ -427,7 +427,7 @@ flatten_username(#{username := ?SSO_USERNAME(Backend, Name)} = Data) ->
         backend => Backend
     };
 flatten_username(#{username := Username} = Data) when is_binary(Username) ->
-    Data#{backend => local}.
+    Data#{backend => ?BACKEND_LOCAL}.
 
 -spec add_sso_user(dashboard_sso_backend(), binary(), dashboard_user_role(), binary()) ->
     {ok, map()} | {error, any()}.
