@@ -32,6 +32,7 @@
 
 -export([
     create/3,
+    create/4,
     create_dry_run/2,
     recreate/2,
     recreate/3,
@@ -41,10 +42,10 @@
     reset_metrics/1,
     restart/2,
     start/2,
-    stop/2
-    % update/2,
-    % update/3%,
-    % update/4
+    stop/2,
+    update/2,
+    update/3,
+    update/4
 ]).
 
 -callback connector_config(ParsedConfig, ConnectorName :: atom() | binary()) ->
@@ -54,20 +55,20 @@ when
 -optional_callbacks([connector_config/2]).
 
 %% bi-directional connector with producer/consumer or ingress/egress configs
--define(IS_BI_DIR_BRIDGE(TYPE),
+-define(IS_BI_DIR_CONNECTOR(TYPE),
     (TYPE) =:= <<"mqtt">>
 ).
--define(IS_INGRESS_BRIDGE(TYPE),
+-define(IS_INGRESS_CONNECTOR(TYPE),
     (TYPE) =:= <<"kafka_consumer">> orelse
         (TYPE) =:= <<"gcp_pubsub_consumer">> orelse
-        ?IS_BI_DIR_BRIDGE(TYPE)
+        ?IS_BI_DIR_CONNECTOR(TYPE)
 ).
 
 -if(?EMQX_RELEASE_EDITION == ee).
-connector_to_resource_type(ConnectorType) -> emqx_connector_enterprise:resource_type(ConnectorType).
+connector_to_resource_type(ConnectorType) -> emqx_connector_ee_schema:resource_type(ConnectorType).
 
 connector_impl_module(ConnectorType) ->
-    emqx_connector_enterprise:connector_impl_module(ConnectorType).
+    emqx_connector_ee_schema:connector_impl_module(ConnectorType).
 -else.
 connector_to_resource_type(_) -> undefined.
 
@@ -168,6 +169,9 @@ start(Type, Name) ->
 %     create(ConnectorType, ConnectorName, Conf).
 
 create(Type, Name, Conf) ->
+    create(Type, Name, Conf, #{}).
+
+create(Type, Name, Conf, Opts) ->
     ?SLOG(info, #{
         msg => "create connector",
         type => Type,
@@ -180,60 +184,60 @@ create(Type, Name, Conf) ->
         <<"emqx_connector">>,
         connector_to_resource_type(Type),
         parse_confs(TypeBin, Name, Conf),
-        parse_opts(Conf, #{})
+        parse_opts(Conf, Opts)
     ),
     ok.
 
-% update(ConnectorId, {OldConf, Conf}) ->
-%     {ConnectorType, ConnectorName} = parse_connector_id(ConnectorId),
-%     update(ConnectorType, ConnectorName, {OldConf, Conf}).
+update(ConnectorId, {OldConf, Conf}) ->
+    {ConnectorType, ConnectorName} = parse_connector_id(ConnectorId),
+    update(ConnectorType, ConnectorName, {OldConf, Conf}).
 
-% update(Type, Name, {OldConf, Conf}) ->
-%     update(Type, Name, {OldConf, Conf}, #{}).
+update(Type, Name, {OldConf, Conf}) ->
+    update(Type, Name, {OldConf, Conf}, #{}).
 
-%update(Type, Name, {OldConf, Conf}, Opts) ->
-%    %% TODO: sometimes its not necessary to restart the connector connection.
-%    %%
-%    %% - if the connection related configs like `servers` is updated, we should restart/start
-%    %% or stop connectors according to the change.
-%    %% - if the connection related configs are not update, only non-connection configs like
-%    %% the `method` or `headers` of a WebHook is changed, then the connector can be updated
-%    %% without restarting the connector.
-%    %%
-%    case emqx_utils_maps:if_only_to_toggle_enable(OldConf, Conf) of
-%        false ->
-%            ?SLOG(info, #{
-%                msg => "update connector",
-%                type => Type,
-%                name => Name,
-%                config => emqx_utils:redact(Conf)
-%            }),
-%            case recreate(Type, Name, Conf, Opts) of
-%                {ok, _} ->
-%                    ok;
-%                {error, not_found} ->
-%                    ?SLOG(warning, #{
-%                        msg => "updating_a_non_existing_connector",
-%                        type => Type,
-%                        name => Name,
-%                        config => emqx_utils:redact(Conf)
-%                    }),
-%                    create(Type, Name, Conf, Opts);
-%                {error, Reason} ->
-%                    {error, {update_connector_failed, Reason}}
-%            end;
-%        true ->
-%            %% we don't need to recreate the connector if this config change is only to
-%            %% toggole the config 'connector.{type}.{name}.enable'
-%            _ =
-%                case maps:get(enable, Conf, true) of
-%                    true ->
-%                        restart(Type, Name);
-%                    false ->
-%                        stop(Type, Name)
-%                end,
-%            ok
-%    end.
+update(Type, Name, {OldConf, Conf}, Opts) ->
+    %% TODO: sometimes its not necessary to restart the connector connection.
+    %%
+    %% - if the connection related configs like `servers` is updated, we should restart/start
+    %% or stop connectors according to the change.
+    %% - if the connection related configs are not update, only non-connection configs like
+    %% the `method` or `headers` of a WebHook is changed, then the connector can be updated
+    %% without restarting the connector.
+    %%
+    case emqx_utils_maps:if_only_to_toggle_enable(OldConf, Conf) of
+        false ->
+            ?SLOG(info, #{
+                msg => "update connector",
+                type => Type,
+                name => Name,
+                config => emqx_utils:redact(Conf)
+            }),
+            case recreate(Type, Name, Conf, Opts) of
+                {ok, _} ->
+                    ok;
+                {error, not_found} ->
+                    ?SLOG(warning, #{
+                        msg => "updating_a_non_existing_connector",
+                        type => Type,
+                        name => Name,
+                        config => emqx_utils:redact(Conf)
+                    }),
+                    create(Type, Name, Conf, Opts);
+                {error, Reason} ->
+                    {error, {update_connector_failed, Reason}}
+            end;
+        true ->
+            %% we don't need to recreate the connector if this config change is only to
+            %% toggole the config 'connector.{type}.{name}.enable'
+            _ =
+                case maps:get(enable, Conf, true) of
+                    true ->
+                        restart(Type, Name);
+                    false ->
+                        stop(Type, Name)
+                end,
+            ok
+    end.
 
 recreate(Type, Name) ->
     recreate(Type, Name, emqx:get_config([connectors, Type, Name])).
@@ -373,7 +377,7 @@ parse_confs(<<"iotdb">>, Name, Conf) ->
         Name,
         WebhookConfig
     );
-parse_confs(Type, Name, Conf) when ?IS_INGRESS_BRIDGE(Type) ->
+parse_confs(Type, Name, Conf) when ?IS_INGRESS_CONNECTOR(Type) ->
     %% For some drivers that can be used as data-sources, we need to provide a
     %% hookpoint. The underlying driver will run `emqx_hooks:run/3` when it
     %% receives a message from the external database.
