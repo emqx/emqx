@@ -64,7 +64,7 @@ end_per_testcase(Case, _) ->
 t_bad_create(_) ->
     Path = uri(["sso", "ldap"]),
     ?assertMatch(
-        {ok, 200, _},
+        {ok, 400, _},
         request(
             put,
             Path,
@@ -168,7 +168,7 @@ t_next_login(_) ->
 t_bad_update(_) ->
     Path = uri(["sso", "ldap"]),
     ?assertMatch(
-        {ok, 200, _},
+        {ok, 400, _},
         request(
             put,
             Path,

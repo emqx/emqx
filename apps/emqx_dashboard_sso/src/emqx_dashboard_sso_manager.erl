@@ -63,14 +63,22 @@ start_link() ->
     gen_server:start_link({local, ?MODULE}, ?MODULE, [], []).
 
 running() ->
+    SSO = emqx:get_config(?MOD_KEY_PATH, #{}),
     lists:filtermap(
         fun
-            (#?MOD_TAB{backend = Backend, last_error = ?NO_ERROR}) ->
-                {true, Backend};
+            (#{backend := Backend, enable := true}) ->
+                case lookup(Backend) of
+                    undefined ->
+                        false;
+                    #?MOD_TAB{last_error = ?NO_ERROR} ->
+                        {true, Backend};
+                    _ ->
+                        false
+                end;
             (_) ->
                 false
         end,
-        ets:tab2list(?MOD_TAB)
+        maps:values(SSO)
     ).
 
 get_backend_status(Backend, false) ->
@@ -258,6 +266,7 @@ on_config_update({update, Backend, _RawConfig}, Config) ->
                 end
             );
         Data ->
+            update_last_error(Backend, ?NO_ERROR),
             on_backend_updated(
                 Backend,
                 emqx_dashboard_sso:update(Provider, Config, Data#?MOD_TAB.state),
