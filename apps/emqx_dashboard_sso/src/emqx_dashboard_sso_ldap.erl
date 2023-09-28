@@ -133,7 +133,7 @@ login(
             of
                 {ok, #{result := ok}} ->
                     ensure_user_exists(Username);
-                {ok, #{result := invalidCredentials} = Reason} ->
+                {ok, #{result := 'invalidCredentials'} = Reason} ->
                     {error, Reason};
                 {error, _} = Error ->
                     Error

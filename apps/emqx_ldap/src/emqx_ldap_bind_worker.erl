@@ -81,8 +81,8 @@ on_query(
                 #{result => ok}
             ),
             {ok, #{result => ok}};
-        {error, invalidCredentials} ->
-            {ok, #{result => invalidCredentials}};
+        {error, 'invalidCredentials'} ->
+            {ok, #{result => 'invalidCredentials'}};
         {error, Reason} ->
             ?SLOG(
                 error,
