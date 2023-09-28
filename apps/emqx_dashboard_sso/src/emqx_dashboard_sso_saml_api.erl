@@ -85,7 +85,7 @@ sp_saml_metadata(get, _Req) ->
         #{enable := true, sp := SP} = _State ->
             SignedXml = esaml_sp:generate_metadata(SP),
             Metadata = xmerl:export([SignedXml], xmerl_xml),
-            {200, #{<<"Content-Type">> => <<"text/xml">>}, erlang:iolist_to_binary(Metadata)};
+            {200, #{<<"content-type">> => <<"text/xml">>}, erlang:iolist_to_binary(Metadata)};
         _ ->
             {404, #{code => ?BACKEND_NOT_FOUND, message => <<"Backend not found">>}}
     end.
