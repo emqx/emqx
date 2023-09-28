@@ -87,19 +87,7 @@ destroy(#{resource_id := ResourceId}) ->
 
 parse_config(Config0) ->
     Config = ensure_bind_password(Config0),
-    State = lists:foldl(
-        fun(Key, Acc) ->
-            case maps:find(Key, Config) of
-                {ok, Value} when is_binary(Value) ->
-                    Acc#{Key := erlang:binary_to_list(Value)};
-                _ ->
-                    Acc
-            end
-        end,
-        Config,
-        [query_timeout]
-    ),
-    {Config, State}.
+    {Config, maps:with([query_timeout], Config0)}.
 
 %% In this feature, the `bind_password` is fixed, so it should conceal from the swagger,
 %% but the connector still needs it, hence we should add it back here
