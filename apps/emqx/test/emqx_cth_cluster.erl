@@ -38,10 +38,11 @@
 %%    in `end_per_suite/1` or `end_per_group/2`) with the result from step 2.
 -module(emqx_cth_cluster).
 
--export([start/2]).
+-export([start/2, start_nodespecs/1]).
 -export([stop/1, stop_node/1]).
 
 -export([start_bare_node/2]).
+-export([maybe_join_cluster/2]).
 
 -export([share_load_module/2]).
 -export([node_name/1, mk_nodespecs/2]).
@@ -109,6 +110,9 @@ when
     }.
 start(Nodes, ClusterOpts) ->
     NodeSpecs = mk_nodespecs(Nodes, ClusterOpts),
+    start_nodespecs(NodeSpecs).
+
+start_nodespecs(NodeSpecs) ->
     ct:pal("Starting cluster:\n  ~p", [NodeSpecs]),
     % 1. Start bare nodes with only basic applications running
     _ = emqx_utils:pmap(fun start_node_init/1, NodeSpecs, ?TIMEOUT_NODE_START_MS),
@@ -400,13 +404,14 @@ start_bare_node(Name, Spec = #{driver := ct_slave}) ->
             {monitor_master, true},
             {init_timeout, 20_000},
             {startup_timeout, 20_000},
-            {erl_flags, erl_flags()},
+            {erl_flags, erl_flags(Spec)},
             {env, []}
         ]
     ),
     init_bare_node(Node, Spec);
 start_bare_node(Name, Spec = #{driver := slave}) ->
-    {ok, Node} = slave:start_link(host(), Name, ebin_path()),
+    ExtraErlFlags = maps:get(extra_erl_flags, Spec, ""),
+    {ok, Node} = slave:start_link(host(), Name, ExtraErlFlags ++ " " ++ ebin_path()),
     init_bare_node(Node, Spec).
 
 init_bare_node(Node, Spec) ->
@@ -415,9 +420,10 @@ init_bare_node(Node, Spec) ->
     ok = set_node_opts(Node, Spec),
     Node.
 
-erl_flags() ->
+erl_flags(Spec) ->
+    ExtraErlFlags = maps:get(extra_erl_flags, Spec, ""),
     %% One core and redirecting logs to master
-    "+S 1:1 -master " ++ atom_to_list(node()) ++ " " ++ ebin_path().
+    ExtraErlFlags ++ " +S 1:1 -master " ++ atom_to_list(node()) ++ " " ++ ebin_path().
 
 ebin_path() ->
     string:join(["-pa" | lists:filter(fun is_lib/1, code:get_path())], " ").
