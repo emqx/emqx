@@ -93,6 +93,8 @@ format(Msg, Meta, Config) ->
         end,
     emqx_utils_json:encode(json_obj_root(Data, Config)).
 
+maybe_format_msg(undefined, _Meta, _Config) ->
+    #{};
 maybe_format_msg({report, Report} = Msg, #{report_cb := Cb} = Meta, Config) ->
     case is_map(Report) andalso Cb =:= ?DEFAULT_FORMATTER of
         true ->
