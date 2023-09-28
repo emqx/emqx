@@ -11,9 +11,7 @@
 -behaviour(gen_server).
 
 -type state() :: #{
-    instance_id := resource_id(),
-    partition_key := binary(),
-    stream_name := binary()
+    instance_id := resource_id()
 }.
 -type record() :: {Data :: binary(), PartitionKey :: binary()}.
 
@@ -22,8 +20,9 @@
 %% API
 -export([
     start_link/1,
-    connection_status/1,
-    query/2
+    connection_status/2,
+    list_shard_ids/2,
+    query/3
 ]).
 
 %% gen_server callbacks
@@ -48,16 +47,19 @@
 %%%===================================================================
 %%% API
 %%%===================================================================
-connection_status(Pid) ->
+connection_status(Pid, StreamName) ->
     try
-        gen_server:call(Pid, connection_status, ?HEALTH_CHECK_TIMEOUT)
+        gen_server:call(Pid, {connection_status, StreamName}, ?HEALTH_CHECK_TIMEOUT)
     catch
         _:_ ->
             {error, timeout}
     end.
 
-query(Pid, Records) ->
-    gen_server:call(Pid, {query, Records}, infinity).
+list_shard_ids(Pid, StreamName) ->
+    gen_server:call(Pid, {list_shard_ids, StreamName}, 15_000).
+
+query(Pid, StreamName, Records) ->
+    gen_server:call(Pid, {query, StreamName, Records}, infinity).
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -77,8 +79,6 @@ init(#{
     aws_access_key_id := AwsAccessKey,
     aws_secret_access_key := AwsSecretAccessKey,
     endpoint := Endpoint,
-    partition_key := PartitionKey,
-    stream_name := StreamName,
     max_retries := MaxRetries,
     instance_id := InstanceId
 }) ->
@@ -92,11 +92,7 @@ init(#{
                 supported_schemes => ["http", "https"]
             }
         ),
-    State = #{
-        instance_id => InstanceId,
-        partition_key => PartitionKey,
-        stream_name => StreamName
-    },
+    State = #{instance_id => InstanceId},
     New =
         fun(AccessKeyID, SecretAccessKey, HostAddr, HostPort, ConnectionScheme) ->
             Config0 = erlcloud_kinesis:new(
@@ -120,7 +116,7 @@ init(#{
             {stop, Reason}
     end.
 
-handle_call(connection_status, _From, #{stream_name := StreamName} = State) ->
+handle_call({connection_status, StreamName}, _From, State) ->
     Status =
         case erlcloud_kinesis:describe_stream(StreamName) of
             {ok, _} ->
@@ -131,7 +127,20 @@ handle_call(connection_status, _From, #{stream_name := StreamName} = State) ->
                 {error, Error}
         end,
     {reply, Status, State};
-handle_call({query, Records}, _From, #{stream_name := StreamName} = State) ->
+handle_call({list_shard_ids, StreamName}, _From, State) ->
+    case erlcloud_kinesis:list_shards(StreamName) of
+        {ok, Result} ->
+            ShardIds = [
+                ShardId
+             || {<<"Shards">>, Shards} <- Result,
+                ShardInfo <- Shards,
+                {<<"ShardId">>, ShardId} <- ShardInfo
+            ],
+            {reply, {ok, ShardIds}, State};
+        Error ->
+            {reply, Error, State}
+    end;
+handle_call({query, StreamName, Records}, _From, State) ->
     Result = do_query(StreamName, Records),
     {reply, Result, State};
 handle_call(_Request, _From, State) ->

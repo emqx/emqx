@@ -13,11 +13,12 @@
     "Kinesis stream is invalid. Please check if the stream exist in Kinesis account."
 ).
 
+-type stream_name() :: binary().
 -type config() :: #{
     aws_access_key_id := binary(),
     aws_secret_access_key := binary(),
     endpoint := binary(),
-    stream_name := binary(),
+    stream_name := stream_name(),
     partition_key := binary(),
     payload_template := binary(),
     max_retries := non_neg_integer(),
@@ -31,6 +32,7 @@
 }.
 -type state() :: #{
     pool_name := resource_id(),
+    stream_name := stream_name(),
     templates := templates()
 }.
 -export_type([config/0]).
@@ -59,7 +61,8 @@ callback_mode() -> always_sync.
 on_start(
     InstanceId,
     #{
-        pool_size := PoolSize
+        pool_size := PoolSize,
+        stream_name := StreamName
     } = Config0
 ) ->
     ?SLOG(info, #{
@@ -75,6 +78,7 @@ on_start(
     Templates = parse_template(Config),
     State = #{
         pool_name => InstanceId,
+        stream_name => StreamName,
         templates => Templates
     },
 
@@ -93,11 +97,15 @@ on_stop(InstanceId, _State) ->
 
 -spec on_get_status(resource_id(), state()) ->
     connected | disconnected | {disconnected, state(), {unhealthy_target, string()}}.
-on_get_status(_InstanceId, #{pool_name := Pool} = State) ->
+on_get_status(_InstanceId, State) ->
+    #{
+        pool_name := Pool,
+        stream_name := StreamName
+    } = State,
     case
         emqx_resource_pool:health_check_workers(
             Pool,
-            {emqx_bridge_kinesis_connector_client, connection_status, []},
+            {emqx_bridge_kinesis_connector_client, connection_status, [StreamName]},
             ?HEALTH_CHECK_TIMEOUT,
             #{return_values => true}
         )
@@ -168,15 +176,16 @@ connect(Opts) ->
     | {error, {unrecoverable_error, {unhealthy_target, string()}}}
     | {error, {unrecoverable_error, term()}}
     | {error, term()}.
-do_send_requests_sync(
-    InstanceId,
-    Requests,
-    #{pool_name := PoolName, templates := Templates}
-) ->
+do_send_requests_sync(InstanceId, Requests, State) ->
+    #{
+        pool_name := PoolName,
+        stream_name := StreamName,
+        templates := Templates
+    } = State,
     Records = render_records(Requests, Templates),
     Result = ecpool:pick_and_do(
         PoolName,
-        {emqx_bridge_kinesis_connector_client, query, [Records]},
+        {emqx_bridge_kinesis_connector_client, query, [StreamName, Records]},
         no_handover
     ),
     handle_result(Result, Requests, InstanceId).
