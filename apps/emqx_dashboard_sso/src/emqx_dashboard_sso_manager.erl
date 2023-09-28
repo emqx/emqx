@@ -50,6 +50,10 @@
     start_after_created => false
 }).
 
+-define(DEFAULT_START_OPTS, #{
+    start_timeout => timer:seconds(30)
+}).
+
 -record(?MOD_TAB, {
     backend :: atom(),
     state :: undefined | map(),
@@ -301,7 +305,7 @@ lookup(Backend) ->
 %% to avoid resource leakage the resource start will never affect the update result,
 %% so the resource_id will always be recorded
 start_resource_if_enabled(ResourceId, {ok, _} = Result, #{enable := true, backend := Backend}) ->
-    case emqx_resource:start(ResourceId) of
+    case emqx_resource:start(ResourceId, ?DEFAULT_START_OPTS) of
         ok ->
             ok;
         {error, Reason} ->
