@@ -279,7 +279,7 @@ do_ldap_query(
                             count => length(L)
                         }
                     ),
-                    {error, {recoverable_error, Msg}}
+                    {error, {unrecoverable_error, Msg}}
             end;
         {error, 'noSuchObject'} ->
             {ok, []};
