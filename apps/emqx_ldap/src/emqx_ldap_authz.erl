@@ -111,11 +111,11 @@ authorize(
     case emqx_resource:simple_sync_query(ResourceID, {query, Client, Attrs, QueryTimeout}) of
         {ok, []} ->
             nomatch;
-        {ok, [Entry | _]} ->
+        {ok, [Entry]} ->
             do_authorize(Action, Topic, Attrs, Entry);
         {error, Reason} ->
             ?SLOG(error, #{
-                msg => "query_ldap_error",
+                msg => "ldap_query_failed",
                 reason => emqx_utils:redact(Reason),
                 resource_id => ResourceID
             }),

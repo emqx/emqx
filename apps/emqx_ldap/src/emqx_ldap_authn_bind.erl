@@ -95,7 +95,7 @@ authenticate(
     of
         {ok, []} ->
             ignore;
-        {ok, [Entry | _]} ->
+        {ok, [Entry]} ->
             case
                 emqx_resource:simple_sync_query(
                     ResourceId,

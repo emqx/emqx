@@ -124,7 +124,7 @@ login(
     of
         {ok, []} ->
             {error, user_not_found};
-        {ok, [Entry | _]} ->
+        {ok, [Entry]} ->
             case
                 emqx_resource:simple_sync_query(
                     ResourceId,
