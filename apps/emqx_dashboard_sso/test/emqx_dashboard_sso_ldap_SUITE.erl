@@ -24,13 +24,14 @@
 
 all() ->
     [
-        t_create_atomicly,
+        t_bad_create,
         t_create,
         t_update,
         t_get,
         t_login_with_bad,
         t_first_login,
         t_next_login,
+        t_bad_update,
         t_delete
     ].
 
@@ -60,7 +61,7 @@ end_per_testcase(Case, _) ->
     end,
     ok.
 
-t_create_atomicly(_) ->
+t_bad_create(_) ->
     Path = uri(["sso", "ldap"]),
     ?assertMatch(
         {ok, 400, _},
@@ -74,12 +75,18 @@ t_create_atomicly(_) ->
             })
         )
     ),
-    ?assertEqual(undefined, emqx:get_config(?MOD_KEY_PATH, undefined)),
-    ?assertEqual([], ets:tab2list(?MOD_TAB)),
+    ?assertMatch(#{backend := ldap}, emqx:get_config(?MOD_KEY_PATH, undefined)),
+    check_running([]),
+    ?assertMatch(
+        [#{backend := <<"ldap">>, enable := true, running := false, last_error := _}], get_sso()
+    ),
+
+    emqx_dashboard_sso_manager:delete(ldap),
+
     ?retry(
-        _Interval = 1000,
-        _NAttempts = 5,
-        ?assertEqual([], emqx_resource_manager:list_group(?RESOURCE_GROUP))
+        _Interval = 500,
+        _NAttempts = 10,
+        ?assertMatch([], emqx_resource_manager:list_group(?RESOURCE_GROUP))
     ),
     ok.
 
@@ -156,6 +163,28 @@ t_next_login(_) ->
     },
     {ok, 200, Result} = request(post, Path, Req),
     ?assertMatch(#{license := _, token := _}, decode_json(Result)),
+    ok.
+
+t_bad_update(_) ->
+    Path = uri(["sso", "ldap"]),
+    ?assertMatch(
+        {ok, 400, _},
+        request(
+            put,
+            Path,
+            ldap_config(#{
+                <<"username">> => <<"invalid">>,
+                <<"enable">> => true,
+                <<"request_timeout">> => <<"1s">>
+            })
+        )
+    ),
+    ?assertMatch(#{backend := ldap}, emqx:get_config(?MOD_KEY_PATH, undefined)),
+    check_running([]),
+    ?assertMatch(
+        [#{backend := <<"ldap">>, enable := true, running := false, last_error := _}], get_sso()
+    ),
+
     ok.
 
 t_delete(_) ->

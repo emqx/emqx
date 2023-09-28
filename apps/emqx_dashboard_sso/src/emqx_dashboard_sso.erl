@@ -13,7 +13,8 @@
     create/2,
     update/3,
     destroy/2,
-    login/3
+    login/3,
+    convert_certs/3
 ]).
 
 -export([types/0, modules/0, provider/1, backends/0, format/1]).
@@ -26,7 +27,9 @@
     backend => atom(),
     atom() => term()
 }.
--type state() :: #{atom() => term()}.
+
+%% Note: if a backend has a resource, it must be stored in the state and named resource_id
+-type state() :: #{resource_id => binary(), atom() => term()}.
 -type raw_config() :: #{binary() => term()}.
 -type config() :: parsed_config() | raw_config().
 -type hocon_ref() :: ?R_REF(Module :: atom(), Name :: atom() | binary()).
@@ -42,6 +45,11 @@
     {ok, dashboard_user_role(), Token :: binary()}
     | {redirect, tuple()}
     | {error, Reason :: term()}.
+
+-callback convert_certs(
+    Dir :: file:filename_all(),
+    config()
+) -> config().
 
 %%------------------------------------------------------------------------------
 %% Callback Interface
@@ -65,6 +73,9 @@ destroy(Mod, State) ->
 
 login(Mod, Req, State) ->
     Mod:login(Req, State).
+
+convert_certs(Mod, Dir, Config) ->
+    Mod:convert_certs(Dir, Config).
 
 %%------------------------------------------------------------------------------
 %% API

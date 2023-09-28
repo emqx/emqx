@@ -50,11 +50,17 @@
 -define(IS_FALSE(Val), ((Val =:= false) orelse (Val =:= <<"false">>))).
 
 -define(SSL_FILE_OPT_PATHS, [
+    %% common ssl options
     [<<"keyfile">>],
     [<<"certfile">>],
     [<<"cacertfile">>],
-    [<<"ocsp">>, <<"issuer_pem">>]
+    %% OCSP
+    [<<"ocsp">>, <<"issuer_pem">>],
+    %% SSO
+    [<<"sp_public_key">>],
+    [<<"sp_private_key">>]
 ]).
+
 -define(SSL_FILE_OPT_PATHS_A, [
     [keyfile],
     [certfile],

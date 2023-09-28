@@ -224,10 +224,6 @@ best_effort_json_obj(Map, Config) ->
             do_format_msg("~p", [Map], Config)
     end.
 
-json([], _) ->
-    "";
-json(<<"">>, _) ->
-    "\"\"";
 json(A, _) when is_atom(A) -> atom_to_binary(A, utf8);
 json(I, _) when is_integer(I) -> I;
 json(F, _) when is_float(F) -> F;
@@ -239,12 +235,18 @@ json(B, Config) when is_binary(B) ->
 json(M, Config) when is_list(M), is_tuple(hd(M)), tuple_size(hd(M)) =:= 2 ->
     best_effort_json_obj(M, Config);
 json(L, Config) when is_list(L) ->
-    try unicode:characters_to_binary(L, utf8) of
-        B when is_binary(B) -> B;
-        _ -> [json(I, Config) || I <- L]
-    catch
-        _:_ ->
-            [json(I, Config) || I <- L]
+    case lists:all(fun erlang:is_binary/1, L) of
+        true ->
+            %% string array
+            L;
+        false ->
+            try unicode:characters_to_binary(L, utf8) of
+                B when is_binary(B) -> B;
+                _ -> [json(I, Config) || I <- L]
+            catch
+                _:_ ->
+                    [json(I, Config) || I <- L]
+            end
     end;
 json(Map, Config) when is_map(Map) ->
     best_effort_json_obj(Map, Config);
@@ -461,5 +463,16 @@ chars_limit_applied_on_format_result_test() ->
     #{<<"msg">> := LongStr1} = emqx_utils_json:decode(JSON),
     ?assertEqual(Limit, size(LongStr1)),
     ok.
+
+string_array_test() ->
+    Array = #{<<"arr">> => [<<"a">>, <<"b">>]},
+    Encoded = emqx_utils_json:encode(json(Array, config())),
+    ?assertEqual(Array, emqx_utils_json:decode(Encoded)).
+
+iolist_test() ->
+    Iolist = #{iolist => ["a", ["b"]]},
+    Concat = #{<<"iolist">> => <<"ab">>},
+    Encoded = emqx_utils_json:encode(json(Iolist, config())),
+    ?assertEqual(Concat, emqx_utils_json:decode(Encoded)).
 
 -endif.

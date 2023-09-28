@@ -22,7 +22,8 @@
 -export([
     create/1,
     update/2,
-    destroy/1
+    destroy/1,
+    convert_certs/2
 ]).
 
 -export([login/2, callback/2]).
@@ -104,7 +105,7 @@ create(#{enable := false} = _Config) ->
     {ok, undefined};
 create(#{sp_sign_request := true} = Config) ->
     try
-        do_create(ensure_cert_and_key(Config))
+        do_create(Config)
     catch
         Kind:Error ->
             Msg = failed_to_ensure_cert_and_key,
@@ -152,9 +153,30 @@ callback(_Req = #{body := Body}, #{sp := SP, dashboard_addr := DashboardAddr} = 
             {error, iolist_to_binary(Reason)}
     end.
 
+convert_certs(
+    Dir,
+    #{<<"sp_sign_request">> := true, <<"sp_public_key">> := Cert, <<"sp_private_key">> := Key} =
+        Conf
+) ->
+    case
+        emqx_tls_lib:ensure_ssl_files(
+            Dir, #{enable => ture, certfile => Cert, keyfile => Key}, #{}
+        )
+    of
+        {ok, #{certfile := CertPath, keyfile := KeyPath}} ->
+            Conf#{<<"sp_public_key">> => bin(CertPath), <<"sp_private_key">> => bin(KeyPath)};
+        {error, Reason} ->
+            ?SLOG(error, #{msg => "failed_to_save_sp_sign_keys", reason => Reason}),
+            throw("Failed to save sp signing key(s)")
+    end;
+convert_certs(_Dir, Conf) ->
+    Conf.
+
 %%------------------------------------------------------------------------------
 %% Internal functions
 %%------------------------------------------------------------------------------
+
+bin(X) -> iolist_to_binary(X).
 
 do_create(
     #{
@@ -223,18 +245,6 @@ gen_redirect_response(DashboardAddr, Username) ->
 %%------------------------------------------------------------------------------
 %% Helpers functions
 %%------------------------------------------------------------------------------
-
-ensure_cert_and_key(#{sp_public_key := Cert, sp_private_key := Key} = Config) ->
-    case
-        emqx_tls_lib:ensure_ssl_files(
-            ?DIR, #{enable => ture, certfile => Cert, keyfile => Key}, #{}
-        )
-    of
-        {ok, #{certfile := CertPath, keyfile := KeyPath} = _NSSL} ->
-            Config#{sp_public_key => CertPath, sp_private_key => KeyPath};
-        {error, #{which_options := KeyPath}} ->
-            error({missing_key, lists:flatten(KeyPath)})
-    end.
 
 %% TODO: unify with emqx_dashboard_sso_manager:ensure_user_exists/1
 ensure_user_exists(Username) ->
