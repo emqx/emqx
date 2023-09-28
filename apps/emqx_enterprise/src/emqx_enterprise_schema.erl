@@ -160,7 +160,7 @@ audit_log_conf() ->
                     %% `emqx_conf:gen_config_md' seems to expect.
                     desc => ?DESC(emqx_conf_schema, "log_audit_handler"),
                     importance => ?IMPORTANCE_HIGH,
-                    default => #{<<"enable">> => true, <<"level">> => <<"info">>}
+                    default => #{<<"enable">> => false, <<"level">> => <<"info">>}
                 }
             )}
     ].
