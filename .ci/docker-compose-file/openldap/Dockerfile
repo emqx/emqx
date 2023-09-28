@@ -1,16 +1,4 @@
-FROM ubuntu:20.04
-
-ARG LDAP_TAG=2.5.16
-
-ENV DEBIAN_FRONTEND noninteractive
-
-RUN apt-get update -y
-RUN apt-get install -y groff groff-base curl build-essential
-RUN curl -o openldap-${LDAP_TAG}.tgz https://www.openldap.org/software/download/OpenLDAP/openldap-release/openldap-${LDAP_TAG}.tgz \
-    && tar xvzf openldap-${LDAP_TAG}.tgz \
-    && cd openldap-${LDAP_TAG} \
-    && ./configure && make depend && make && make install \
-    && cd .. && rm -rf  openldap-${LDAP_TAG}
+FROM docker.io/zmstone/openldap:2.5.16
 
 COPY .ci/docker-compose-file/openldap/slapd.conf /usr/local/etc/openldap/slapd.conf
 COPY apps/emqx_ldap/test/data/emqx.io.ldif /usr/local/etc/openldap/schema/emqx.io.ldif
