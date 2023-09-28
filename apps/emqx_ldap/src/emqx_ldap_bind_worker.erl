@@ -58,14 +58,12 @@ on_stop(InstId, _State) ->
 
 on_query(
     InstId,
-    {bind, Data},
+    {bind, DN, Data},
     #{
-        base_tokens := DNTks,
         bind_password := PWTks,
         bind_pool_name := PoolName
     } = State
 ) ->
-    DN = emqx_placeholder:proc_tmpl(DNTks, Data),
     Password = emqx_placeholder:proc_tmpl(PWTks, Data),
 
     LogMeta = #{connector => InstId, state => State},

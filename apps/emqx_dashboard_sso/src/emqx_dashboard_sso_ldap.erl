@@ -124,11 +124,11 @@ login(
     of
         {ok, []} ->
             {error, user_not_found};
-        {ok, [_Entry | _]} ->
+        {ok, [Entry | _]} ->
             case
                 emqx_resource:simple_sync_query(
                     ResourceId,
-                    {bind, Sign}
+                    {bind, Entry#eldap_entry.object_name, Sign}
                 )
             of
                 ok ->

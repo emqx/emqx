@@ -95,11 +95,11 @@ authenticate(
     of
         {ok, []} ->
             ignore;
-        {ok, [_Entry | _]} ->
+        {ok, [Entry | _]} ->
             case
                 emqx_resource:simple_sync_query(
                     ResourceId,
-                    {bind, Credential}
+                    {bind, Entry#eldap_entry.object_name, Credential}
                 )
             of
                 ok ->
