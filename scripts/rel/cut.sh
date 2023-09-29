@@ -242,26 +242,46 @@ check_changelog() {
     fi
 }
 
+check_bpapi() {
+    local fname
+    case "$TAG" in
+        *.0)
+            fname="$(echo "$TAG" | sed 's/^e//; s/\.0$//')"
+            fpath="apps/emqx/test/emqx_static_checks_data/${fname}.bpapi"
+            logmsg "Checking $fpath"
+            if [ ! -f "$fpath" ]; then
+                logerr "BPAPI file missing: $fpath"
+                exit 1
+            fi
+            ;;
+        *)
+            true
+            ;;
+    esac
+}
+
+case "$TAG" in
+    *rc*)
+        true
+        ;;
+    *alpha*)
+        true
+        ;;
+    *beta*)
+        true
+        ;;
+    e*)
+        check_bpapi
+        check_changelog
+        ;;
+    v*)
+        check_changelog
+        ;;
+esac
+
 if [ "$DRYRUN" = 'yes' ]; then
     logmsg "Release tag is ready to be created with command: git tag $TAG"
 else
-    case "$TAG" in
-        *rc*)
-            true
-            ;;
-        *alpha*)
-            true
-            ;;
-        *beta*)
-            true
-            ;;
-        e*)
-            check_changelog
-            ;;
-        v*)
-            check_changelog
-            ;;
-    esac
     git tag "$TAG"
     logmsg "$TAG is created OK."
     logwarn "Don't forget to push the tag!"
