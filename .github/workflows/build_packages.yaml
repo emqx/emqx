@@ -280,7 +280,7 @@ jobs:
         name: ${{ matrix.profile }}
         path: packages/${{ matrix.profile }}
     - name: install dos2unix
-      run: sudo apt-get update && sudo apt install -y dos2unix
+      run: sudo apt-get update -y && sudo apt install -y dos2unix
     - name: get packages
       run: |
         set -eu
