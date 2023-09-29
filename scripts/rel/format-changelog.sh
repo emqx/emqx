@@ -57,8 +57,7 @@ case "${LANGUAGE:-}" in
         true
         ;;
     *)
-        logerr "-l|--lang must be 'en' or 'zh'"
-        exit 1
+        LANGUAGE='en'
         ;;
 esac
 
