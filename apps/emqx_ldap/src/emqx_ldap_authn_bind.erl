@@ -95,15 +95,21 @@ authenticate(
     of
         {ok, []} ->
             ignore;
-        {ok, [_Entry | _]} ->
+        {ok, [Entry]} ->
             case
                 emqx_resource:simple_sync_query(
                     ResourceId,
-                    {bind, Credential}
+                    {bind, Entry#eldap_entry.object_name, Credential}
                 )
             of
-                ok ->
+                {ok, #{result := ok}} ->
                     {ok, #{is_superuser => false}};
+                {ok, #{result := 'invalidCredentials'}} ->
+                    ?TRACE_AUTHN_PROVIDER(error, "ldap_bind_failed", #{
+                        resource => ResourceId,
+                        reason => 'invalidCredentials'
+                    }),
+                    {error, bad_username_or_password};
                 {error, Reason} ->
                     ?TRACE_AUTHN_PROVIDER(error, "ldap_bind_failed", #{
                         resource => ResourceId,

@@ -131,7 +131,7 @@ authenticate(
     of
         {ok, []} ->
             ignore;
-        {ok, [Entry | _]} ->
+        {ok, [Entry]} ->
             is_enabled(Password, Entry, State);
         {error, Reason} ->
             ?TRACE_AUTHN_PROVIDER(error, "ldap_query_failed", #{

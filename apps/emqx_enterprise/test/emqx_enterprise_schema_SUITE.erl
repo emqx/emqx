@@ -92,7 +92,7 @@ t_audit_log_conf(_Config) ->
             #{<<"default">> => FileExpect},
         <<"audit">> =>
             #{
-                <<"enable">> => true,
+                <<"enable">> => false,
                 <<"level">> => <<"info">>,
                 <<"path">> => <<"log/audit.log">>,
                 <<"rotation_count">> => 10,

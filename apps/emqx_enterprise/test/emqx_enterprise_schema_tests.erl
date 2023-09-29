@@ -19,14 +19,14 @@ doc_gen_test() ->
 
 audit_log_test() ->
     ensure_acl_conf(),
-    Conf0 = <<"node {cookie = aaa, data_dir = \"/tmp\"}">>,
+    Conf0 = <<"node {cookie = aaa, data_dir = \"/tmp\"}, log.audit.enable=true">>,
     {ok, ConfMap0} = hocon:binary(Conf0, #{format => richmap}),
     ConfList = hocon_tconf:generate(emqx_enterprise_schema, ConfMap0),
     Kernel = proplists:get_value(kernel, ConfList),
     Loggers = proplists:get_value(logger, Kernel),
     FileHandlers = lists:filter(fun(L) -> element(3, L) =:= logger_disk_log_h end, Loggers),
     AuditHandler = lists:keyfind(emqx_audit, 2, FileHandlers),
-    %% default is enable and log level is info.
+    %% default log level is info.
     ?assertMatch(
         {handler, emqx_audit, logger_disk_log_h, #{
             config := #{

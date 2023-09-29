@@ -6,8 +6,6 @@ services:
     build:
       context: ../..
       dockerfile: .ci/docker-compose-file/openldap/Dockerfile
-      args:
-        LDAP_TAG: ${LDAP_TAG}
     image: openldap
     #ports:
     #  - 389:389

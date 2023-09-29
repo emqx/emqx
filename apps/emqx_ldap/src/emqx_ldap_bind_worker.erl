@@ -58,14 +58,12 @@ on_stop(InstId, _State) ->
 
 on_query(
     InstId,
-    {bind, Data},
+    {bind, DN, Data},
     #{
-        base_tokens := DNTks,
         bind_password := PWTks,
         bind_pool_name := PoolName
     } = State
 ) ->
-    DN = emqx_placeholder:proc_tmpl(DNTks, Data),
     Password = emqx_placeholder:proc_tmpl(PWTks, Data),
 
     LogMeta = #{connector => InstId, state => State},
@@ -82,7 +80,9 @@ on_query(
                 ldap_connector_query_return,
                 #{result => ok}
             ),
-            ok;
+            {ok, #{result => ok}};
+        {error, 'invalidCredentials'} ->
+            {ok, #{result => 'invalidCredentials'}};
         {error, Reason} ->
             ?SLOG(
                 error,

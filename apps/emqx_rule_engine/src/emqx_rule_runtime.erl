@@ -361,8 +361,9 @@ do_handle_action(RuleId, {bridge, BridgeType, BridgeName, ResId}, Selected, _Env
         Result ->
             Result
     end;
-do_handle_action(RuleId, #{mod := Mod, func := Func, args := Args}, Selected, Envs) ->
+do_handle_action(RuleId, #{mod := Mod, func := Func} = Action, Selected, Envs) ->
     %% the function can also throw 'out_of_service'
+    Args = maps:get(args, Action, []),
     Result = Mod:Func(Selected, Envs, Args),
     inc_action_metrics(RuleId, Result),
     Result.
