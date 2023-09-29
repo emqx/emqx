@@ -856,7 +856,7 @@ handle_query_result(Id, Result, HasBeenSent) ->
     {ack | nack, function(), counters()}.
 handle_query_result_pure(_Id, ?RESOURCE_ERROR_M(exception, Msg), _HasBeenSent) ->
     PostFn = fun() ->
-        ?SLOG(error, #{msg => "resource_exception", info => Msg}),
+        ?SLOG(error, #{msg => "resource_exception", info => emqx_utils:redact(Msg)}),
         ok
     end,
     {nack, PostFn, #{}};

@@ -135,11 +135,13 @@ login(
                     ensure_user_exists(Username);
                 {ok, #{result := 'invalidCredentials'} = Reason} ->
                     {error, Reason};
-                {error, _} = Error ->
-                    Error
+                {error, _Reason} ->
+                    %% All error reasons are logged in resource buffer worker
+                    {error, ldap_bind_query_failed}
             end;
-        {error, _} = Error ->
-            Error
+        {error, _Reason} ->
+            %% All error reasons are logged in resource buffer worker
+            {error, ldap_query_failed}
     end.
 
 ensure_user_exists(Username) ->

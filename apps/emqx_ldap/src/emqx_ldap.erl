@@ -262,10 +262,12 @@ do_ldap_query(
                 ldap_connector_query_return,
                 #{result => Result}
             ),
-            case Result#eldap_search_result.entries of
-                [_] = Entry ->
-                    {ok, Entry};
-                [_ | _] = L ->
+            Entries = Result#eldap_search_result.entries,
+            Count = length(Entries),
+            case Count =< 1 of
+                true ->
+                    {ok, Entries};
+                false ->
                     %% Accept only a single exact match.
                     %% Multiple matches likely indicate:
                     %% 1. A misconfiguration in EMQX, allowing overly broad query conditions.
@@ -276,7 +278,7 @@ do_ldap_query(
                         error,
                         LogMeta#{
                             msg => "ldap_query_found_more_than_one_match",
-                            count => length(L)
+                            count => length(Entries)
                         }
                     ),
                     {error, {unrecoverable_error, Msg}}
