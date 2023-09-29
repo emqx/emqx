@@ -13,6 +13,12 @@ objectClass: top
 objectclass:organizationalUnit
 ou:testdevice
 
+# create dashboard.emqx.io
+dn:ou=dashboard,dc=emqx,dc=io
+objectClass: top
+objectclass:organizationalUnit
+ou:dashboard
+
 # create user admin
 dn:uid=admin,ou=testdevice,dc=emqx,dc=io
 objectClass: top
@@ -150,3 +156,23 @@ objectClass: mqttSecurity
 uid: mqttuser0007
 isSuperuser: TRUE
 userPassword: {SHA}axpQGbl00j3jvOG058y313ocnBk=
+
+## Try to test with base DN 'ou=dashboard,dc=emqx,dc=io'
+## with a filter ugroup=group1
+## this should return 2 users in the query and fail the test
+
+## echo -n "viewer1" | sha1sum | cut -d' ' -f1 | xxd -r -p | base64
+dn:uid=viewer1,ou=dashboard,dc=emqx,dc=io
+objectClass: top
+objectClass: dashboardUser
+uid: viewer1
+ugroup: group1
+userPassword: {SHA}I/LgVpQ6joiHifK7pZEQ1+0AUlg=
+
+## echo -n "viewer2" | sha1sum | cut -d' ' -f1 | xxd -r -p | base64
+dn:uid=viewer2,ou=dashboard,dc=emqx,dc=io
+objectClass: top
+objectClass: dashboardUser
+uid: viewer2
+ugroup: group1
+userPassword: {SHA}SR0qZpf8pYKKAbn6ILFvX91JuQg=

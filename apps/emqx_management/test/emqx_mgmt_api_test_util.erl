@@ -119,7 +119,7 @@ do_request_api(Method, Request, Opts) ->
     ReturnAll = maps:get(return_all, Opts, false),
     CompatibleMode = maps:get(compatible_mode, Opts, false),
     HttpcReqOpts = maps:get(httpc_req_opts, Opts, []),
-    ct:pal("Method: ~p, Request: ~p, Opts: ~p", [Method, Request, Opts]),
+    ct:pal("~p: ~p~nOpts: ~p", [Method, Request, Opts]),
     case httpc:request(Method, Request, [], HttpcReqOpts) of
         {error, socket_closed_remotely} ->
             {error, socket_closed_remotely};

@@ -249,7 +249,7 @@ do_ldap_query(
     #{pool_name := PoolName} = State
 ) ->
     LogMeta = #{connector => InstId, search => SearchOptions, state => emqx_utils:redact(State)},
-    ?TRACE("QUERY", "ldap_connector_received", LogMeta),
+    ?TRACE("QUERY", "ldap_connector_received_query", LogMeta),
     case
         ecpool:pick_and_do(
             PoolName,
@@ -262,7 +262,25 @@ do_ldap_query(
                 ldap_connector_query_return,
                 #{result => Result}
             ),
-            {ok, Result#eldap_search_result.entries};
+            case Result#eldap_search_result.entries of
+                [_] = Entry ->
+                    {ok, Entry};
+                [_ | _] = L ->
+                    %% Accept only a single exact match.
+                    %% Multiple matches likely indicate:
+                    %% 1. A misconfiguration in EMQX, allowing overly broad query conditions.
+                    %% 2. Indistinguishable entries in the LDAP database.
+                    %% Neither scenario should be allowed to proceed.
+                    Msg = "ldap_query_found_more_than_one_match",
+                    ?SLOG(
+                        error,
+                        LogMeta#{
+                            msg => "ldap_query_found_more_than_one_match",
+                            count => length(L)
+                        }
+                    ),
+                    {error, {unrecoverable_error, Msg}}
+            end;
         {error, 'noSuchObject'} ->
             {ok, []};
         {error, Reason} ->

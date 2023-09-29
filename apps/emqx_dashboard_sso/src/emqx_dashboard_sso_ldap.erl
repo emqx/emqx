@@ -124,15 +124,17 @@ login(
     of
         {ok, []} ->
             {error, user_not_found};
-        {ok, [Entry | _]} ->
+        {ok, [Entry]} ->
             case
                 emqx_resource:simple_sync_query(
                     ResourceId,
                     {bind, Entry#eldap_entry.object_name, Sign}
                 )
             of
-                ok ->
+                {ok, #{result := ok}} ->
                     ensure_user_exists(Username);
+                {ok, #{result := 'invalidCredentials'} = Reason} ->
+                    {error, Reason};
                 {error, _} = Error ->
                     Error
             end;
