@@ -66,7 +66,7 @@ close_iterator(Nodes, IteratorID) ->
 
 -spec close_all_iterators(
     [node()],
-    emqx_ds:session_id()
+    emqx_persistent_session_ds:id()
 ) ->
     emqx_rpc:erpc_multicall(ok).
 close_all_iterators(Nodes, DSSessionID) ->

@@ -21,7 +21,7 @@
 
 -record(ps_route, {
     topic :: binary(),
-    dest :: emqx_ds:session_id()
+    dest :: emqx_persistent_session_ds:id()
 }).
 -record(ps_routeidx, {
     entry :: emqx_topic_index:key(emqx_persistent_session_ds_router:dest()),

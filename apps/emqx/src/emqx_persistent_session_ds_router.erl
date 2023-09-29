@@ -40,7 +40,7 @@
 -export([has_route/2]).
 -endif.
 
--type dest() :: emqx_ds:session_id().
+-type dest() :: emqx_persistent_session_ds:id().
 
 -export_type([dest/0]).
 
@@ -159,7 +159,7 @@ print_routes(Topic) ->
         match_routes(Topic)
     ).
 
--spec cleanup_routes(emqx_ds:session_id()) -> ok.
+-spec cleanup_routes(emqx_persistent_session_ds:id()) -> ok.
 cleanup_routes(DSSessionId) ->
     %% NOTE
     %% No point in transaction here because all the operations on filters table are dirty.
