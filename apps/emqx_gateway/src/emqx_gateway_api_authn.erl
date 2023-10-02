@@ -381,6 +381,6 @@ params_fuzzy_in_qs() ->
 
 schema_authn() ->
     emqx_dashboard_swagger:schema_with_examples(
-        emqx_authn_schema:authenticator_type_without_scram(),
+        emqx_authn_schema:authenticator_type_without([emqx_authn_scram_mnesia_schema]),
         emqx_authn_api:authenticator_examples()
     ).

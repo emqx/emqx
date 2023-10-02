@@ -19,14 +19,13 @@
 -elvis([{elvis_style, invalid_dynamic_call, disable}]).
 -include_lib("hocon/include/hoconsc.hrl").
 -include("emqx_authn.hrl").
--include("emqx_authn_schema.hrl").
 -include("emqx_authn_chains.hrl").
 
 -include_lib("eunit/include/eunit.hrl").
 
 -behaviour(emqx_schema_hooks).
 -export([
-    injected_fields/0
+    injected_fields/1
 ]).
 
 -export([
@@ -35,7 +34,7 @@
     tags/0,
     fields/1,
     authenticator_type/0,
-    authenticator_type_without_scram/0,
+    authenticator_type_without/1,
     mechanism/1,
     backend/1
 ]).
@@ -43,6 +42,8 @@
 -export([
     global_auth_fields/0
 ]).
+
+-define(AUTHN_MODS_PT_KEY, {?MODULE, authn_schema_mods}).
 
 %%--------------------------------------------------------------------
 %% Authn Source Schema Behaviour
@@ -55,7 +56,8 @@
 
 roots() -> [].
 
-injected_fields() ->
+injected_fields(AuthnSchemaMods) ->
+    persistent_term:put(?AUTHN_MODS_PT_KEY, AuthnSchemaMods),
     #{
         'mqtt.listener' => mqtt_listener_auth_fields(),
         'roots.high' => global_auth_fields()
@@ -67,9 +69,9 @@ tags() ->
 authenticator_type() ->
     hoconsc:union(union_member_selector(provider_schema_mods())).
 
-authenticator_type_without_scram() ->
+authenticator_type_without(ProviderSchemaMods) ->
     hoconsc:union(
-        union_member_selector(provider_schema_mods() -- [emqx_authn_scram_mnesia_schema])
+        union_member_selector(provider_schema_mods() -- ProviderSchemaMods)
     ).
 
 union_member_selector(Mods) ->
@@ -241,7 +243,16 @@ validations(Mod) ->
     end.
 
 provider_schema_mods() ->
-    ?PROVIDER_SCHEMA_MODS ++ emqx_authn_enterprise:provider_schema_mods().
+    try
+        persistent_term:get(?AUTHN_MODS_PT_KEY)
+    catch
+        error:badarg ->
+            %% This may happen only in tests.
+            %% emqx_conf provides the schema mods for emqx_authn_schema
+            %% and injects it into the full app's schema.
+            %% Please check if emqx_conf is properly started.
+            error(emqx_authn_schema_not_injected)
+    end.
 
 status() ->
     hoconsc:enum([connected, disconnected, connecting]).

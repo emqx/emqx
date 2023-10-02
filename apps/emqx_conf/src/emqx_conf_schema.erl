@@ -26,6 +26,8 @@
 -include_lib("typerefl/include/types.hrl").
 -include_lib("hocon/include/hoconsc.hrl").
 
+-include("emqx_conf.hrl").
+
 -type log_level() :: debug | info | notice | warning | error | critical | alert | emergency | all.
 -type file() :: string().
 -type cipher() :: map().
@@ -70,8 +72,8 @@
     emqx_mgmt_api_key_schema
 ]).
 -define(INJECTING_CONFIGS, [
-    emqx_authn_schema,
-    emqx_authz_schema
+    {emqx_authn_schema, ?AUTHN_PROVIDER_SCHEMA_MODS},
+    {emqx_authz_schema, ?AUTHZ_SOURCE_SCHEMA_MODS}
 ]).
 
 %% 1 million default ports counter

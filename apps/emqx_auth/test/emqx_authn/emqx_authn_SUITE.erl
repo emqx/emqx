@@ -40,10 +40,19 @@ end_per_suite(_Config) ->
     ok.
 
 init_per_testcase(Case, Config) ->
-    ?MODULE:Case({init, Config}).
+    Apps = emqx_cth_suite:start(
+        [
+            emqx,
+            emqx_conf,
+            emqx_auth
+        ],
+        #{work_dir => emqx_cth_suite:work_dir(Case, Config)}
+    ),
+    ?MODULE:Case({init, [{apps, Apps} | Config]}).
 
 end_per_testcase(Case, Config) ->
-    ?MODULE:Case({'end', Config}).
+    ?MODULE:Case({'end', Config}),
+    emqx_cth_suite:stop(?config(apps, Config)).
 
 %%=================================================================================
 %% Helpers fns
@@ -81,7 +90,6 @@ t_fill_defaults(Config) when is_list(Config) ->
     ).
 
 t_will_message_connection_denied({init, Config}) ->
-    emqx_common_test_helpers:start_apps([emqx_conf, emqx_auth]),
     emqx_authn_test_lib:register_fake_providers([{password_based, built_in_database}]),
     AuthnConfig = #{
         <<"mechanism">> => <<"password_based">>,
@@ -106,7 +114,6 @@ t_will_message_connection_denied({'end', _Config}) ->
         [authentication],
         {delete_authenticator, 'mqtt:global', <<"password_based:built_in_database">>}
     ),
-    emqx_common_test_helpers:stop_apps([emqx_auth, emqx_conf]),
     ok;
 t_will_message_connection_denied(Config) when is_list(Config) ->
     process_flag(trap_exit, true),
@@ -146,7 +153,6 @@ t_will_message_connection_denied(Config) when is_list(Config) ->
 %% With auth enabled, send CONNECT without password field,
 %% expect CONNACK with reason_code=5 and socket close
 t_password_undefined({init, Config}) ->
-    emqx_common_test_helpers:start_apps([emqx_conf, emqx_auth]),
     emqx_authn_test_lib:register_fake_providers([
         {password_based, built_in_database}
     ]),
@@ -166,7 +172,6 @@ t_password_undefined({'end', _Config}) ->
         [authentication],
         {delete_authenticator, 'mqtt:global', <<"password_based:built_in_database">>}
     ),
-    emqx_common_test_helpers:stop_apps([emqx_auth, emqx_conf]),
     ok;
 t_password_undefined(Config) when is_list(Config) ->
     Payload = <<16, 19, 0, 4, 77, 81, 84, 84, 4, 130, 0, 60, 0, 2, 97, 49, 0, 3, 97, 97, 97>>,
@@ -198,7 +203,6 @@ t_password_undefined(Config) when is_list(Config) ->
     ok.
 
 t_update_conf({init, Config}) ->
-    emqx_common_test_helpers:start_apps([emqx_conf, emqx_auth]),
     emqx_authn_test_lib:register_fake_providers([
         {password_based, built_in_database},
         {password_based, http},
@@ -208,7 +212,6 @@ t_update_conf({init, Config}) ->
     Config;
 t_update_conf({'end', _Config}) ->
     {ok, _} = emqx:update_config([authentication], []),
-    emqx_common_test_helpers:stop_apps([emqx_auth, emqx_conf]),
     ok;
 t_update_conf(Config) when is_list(Config) ->
     Authn1 = #{

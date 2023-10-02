@@ -29,6 +29,7 @@
 ).
 
 -include_lib("eunit/include/eunit.hrl").
+-include_lib("common_test/include/ct.hrl").
 -include_lib("emqx/include/emqx.hrl").
 -include("emqx_dashboard.hrl").
 
@@ -59,11 +60,20 @@ init_per_suite(Config) ->
     Apps = emqx_machine_boot:reboot_apps(),
     ct:pal("load apps:~p~n", [Apps]),
     lists:foreach(fun(App) -> application:load(App) end, Apps),
-    emqx_mgmt_api_test_util:init_suite([emqx_management]),
-    Config.
+    SuiteApps = emqx_cth_suite:start(
+        [
+            emqx_conf,
+            emqx_management,
+            {emqx_dashboard, "dashboard.listeners.http { enable = true, bind = 18083 }"}
+        ],
+        #{work_dir => emqx_cth_suite:work_dir(Config)}
+    ),
+    emqx_common_test_http:create_default_app(),
+    [{suite_apps, SuiteApps} | Config].
 
-end_per_suite(_Config) ->
-    emqx_mgmt_api_test_util:end_suite([emqx_management]).
+end_per_suite(Config) ->
+    emqx_common_test_http:delete_default_app(),
+    emqx_cth_suite:stop(?config(suite_apps, Config)).
 
 t_overview(_) ->
     mnesia:clear_table(?ADMIN),

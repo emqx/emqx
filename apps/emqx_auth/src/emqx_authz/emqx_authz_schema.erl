@@ -17,7 +17,6 @@
 -module(emqx_authz_schema).
 
 -include("emqx_authz.hrl").
--include("emqx_authz_schema.hrl").
 -include_lib("hocon/include/hoconsc.hrl").
 
 -export([
@@ -34,13 +33,15 @@
 ]).
 
 -export([
-    injected_fields/0
+    injected_fields/1
 ]).
 
 -export([
     default_authz/0,
     authz_common_fields/1
 ]).
+
+-define(AUTHZ_MODS_PT_KEY, {?MODULE, authz_schema_mods}).
 
 %%--------------------------------------------------------------------
 %% Authz Source Schema Behaviour
@@ -115,7 +116,8 @@ desc(_) ->
 %% emqx_schema_hooks behaviour
 %%--------------------------------------------------------------------
 
-injected_fields() ->
+injected_fields(AuthzSchemaMods) ->
+    persistent_term:put(?AUTHZ_MODS_PT_KEY, AuthzSchemaMods),
     #{
         'roots.high' => [
             {?CONF_NS, ?HOCON(?R_REF(?CONF_NS), #{desc => ?DESC(?CONF_NS)})}
@@ -178,7 +180,16 @@ api_source_refs(Mod) ->
     end.
 
 source_schema_mods() ->
-    ?SOURCE_SCHEMA_MODS ++ emqx_authz_enterprise:source_schema_mods().
+    try
+        persistent_term:get(?AUTHZ_MODS_PT_KEY)
+    catch
+        error:badarg ->
+            %% This may happen only in tests.
+            %% emqx_conf provides the schema mods for emqx_authz_schema
+            %% and injects it into the full app's schema.
+            %% Please check if emqx_conf is properly started.
+            error(emqx_authz_schema_not_injected)
+    end.
 
 common_rate_field() ->
     [

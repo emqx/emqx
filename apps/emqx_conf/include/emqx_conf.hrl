@@ -36,4 +36,49 @@
 
 -define(READONLY_KEYS, [cluster, rpc, node]).
 
+-define(CE_AUTHZ_SOURCE_SCHEMA_MODS, [
+    emqx_authz_file_schema,
+    emqx_authz_mnesia_schema,
+    emqx_authz_http_schema,
+    emqx_authz_redis_schema,
+    emqx_authz_mysql_schema,
+    emqx_authz_postgresql_schema,
+    emqx_authz_mongodb_schema
+]).
+
+-define(EE_AUTHZ_SOURCE_SCHEMA_MODS, [
+    emqx_authz_ldap_schema
+]).
+
+-define(CE_AUTHN_PROVIDER_SCHEMA_MODS, [
+    emqx_authn_mnesia_schema,
+    emqx_authn_mysql_schema,
+    emqx_authn_postgresql_schema,
+    emqx_authn_mongodb_schema,
+    emqx_authn_redis_schema,
+    emqx_authn_http_schema,
+    emqx_authn_jwt_schema,
+    emqx_authn_scram_mnesia_schema
+]).
+
+-define(EE_AUTHN_PROVIDER_SCHEMA_MODS, [
+    emqx_authn_ldap_schema,
+    emqx_authn_ldap_bind_schema,
+    emqx_gcp_device_authn_schema
+]).
+
+-if(?EMQX_RELEASE_EDITION == ee).
+
+-define(AUTHZ_SOURCE_SCHEMA_MODS, ?CE_AUTHZ_SOURCE_SCHEMA_MODS ++ ?EE_AUTHZ_SOURCE_SCHEMA_MODS).
+-define(AUTHN_PROVIDER_SCHEMA_MODS,
+    (?CE_AUTHN_PROVIDER_SCHEMA_MODS ++ ?EE_AUTHN_PROVIDER_SCHEMA_MODS)
+).
+
+-else.
+
+-define(AUTHZ_SOURCE_SCHEMA_MODS, ?CE_AUTHZ_SOURCE_SCHEMA_MODS).
+-define(AUTHN_PROVIDER_SCHEMA_MODS, ?CE_AUTHN_PROVIDER_SCHEMA_MODS).
+
+-endif.
+
 -endif.

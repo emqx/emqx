@@ -22,7 +22,11 @@
     #{
         hookpoint() => [hocon_schema:field()]
     }.
--optional_callbacks([injected_fields/0]).
+-callback injected_fields(term()) ->
+    #{
+        hookpoint() => [hocon_schema:field()]
+    }.
+-optional_callbacks([injected_fields/0, injected_fields/1]).
 
 -export_type([hookpoint/0]).
 
@@ -92,6 +96,8 @@ inject_from_modules(Modules) ->
 
 append_module_injections(Module, AllInjections) when is_atom(Module) ->
     append_module_injections(Module:injected_fields(), AllInjections);
+append_module_injections({Module, Options}, AllInjections) when is_atom(Module) ->
+    append_module_injections(Module:injected_fields(Options), AllInjections);
 append_module_injections(ModuleInjections, AllInjections) when is_map(ModuleInjections) ->
     maps:fold(
         fun(PointName, Fields, Acc) ->
