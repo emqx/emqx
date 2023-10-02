@@ -40,6 +40,7 @@ COMMANDS:
   eval:   Evaluate an Erlang expression
 
 OPTIONS:
+  -h|--help:         Print this usage info.
   -p|--profile:      emqx | emqx-enterprise, defaults to 'PROFILE' env.
   -c|--compile:      Force recompile, otherwise starts with the already built libs
                      in '_build/\$PROFILE/lib/'.
@@ -98,6 +99,10 @@ esac
 
 while [ "$#" -gt 0 ]; do
     case $1 in
+        -h|--help)
+            usage
+            exit 0
+            ;;
         -n|--name)
             EMQX_NODE_NAME="$2"
             shift 1
@@ -119,6 +124,7 @@ while [ "$#" -gt 0 ]; do
             ;;
         *)
             logerr "Unknown argument $1"
+            usage
             exit 1
             ;;
     esac
