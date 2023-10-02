@@ -837,7 +837,14 @@ format_resource(
     },
     Node
 ) ->
-    RawConfFull = fill_defaults(Type, RawConf),
+    RawConfFull =
+        case emqx_bridge_v2:is_bridge_v2_type(Type) of
+            true ->
+                %% The defaults are already filled in
+                RawConf;
+            false ->
+                fill_defaults(Type, RawConf)
+        end,
     redact(
         maps:merge(
             RawConfFull#{

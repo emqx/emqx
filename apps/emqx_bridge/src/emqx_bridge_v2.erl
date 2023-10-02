@@ -38,6 +38,12 @@
     get_channels_for_connector/1
 ]).
 
+%% Compatibility API
+
+-export([
+    lookup_and_transform_to_bridge_v1/2
+]).
+
 %% CRUD API
 
 -export([
@@ -183,7 +189,7 @@ get_query_mode(BridgeV2Type, Config) ->
     emqx_resource:query_mode(ResourceType, Config, CreationOpts).
 
 send_message(BridgeType, BridgeName, Message, QueryOpts0) ->
-    case lookup(BridgeType, BridgeName) of
+    case lookup_raw_conf(BridgeType, BridgeName) of
         #{enable := true} = Config ->
             do_send_msg_with_enabled_config(BridgeType, BridgeName, Message, QueryOpts0, Config);
         #{enable := false} ->
@@ -193,7 +199,7 @@ send_message(BridgeType, BridgeName, Message, QueryOpts0) ->
     end.
 
 health_check(BridgeType, BridgeName) ->
-    case lookup(BridgeType, BridgeName) of
+    case lookup_raw_conf(BridgeType, BridgeName) of
         #{
             enable := true,
             connector := ConnectorName
@@ -267,7 +273,7 @@ parse_id(Id) ->
     end.
 
 id(BridgeType, BridgeName) ->
-    case lookup(BridgeType, BridgeName) of
+    case lookup_raw_conf(BridgeType, BridgeName) of
         #{connector := ConnectorName} ->
             id(BridgeType, BridgeName, ConnectorName);
         Error ->
@@ -279,6 +285,8 @@ id(BridgeType, BridgeName, ConnectorName) ->
     <<"bridge_v2:", (bin(BridgeType))/binary, ":", (bin(BridgeName))/binary, ":connector:",
         (bin(ConnectorType))/binary, ":", (bin(ConnectorName))/binary>>.
 
+bridge_v2_type_to_connector_type(Bin) when is_binary(Bin) ->
+    bridge_v2_type_to_connector_type(binary_to_existing_atom(Bin));
 bridge_v2_type_to_connector_type(kafka) ->
     kafka.
 
@@ -306,13 +314,13 @@ list() ->
     maps:fold(
         fun(Type, NameAndConf, Bridges) ->
             maps:fold(
-                fun(Name, RawConf, Acc) ->
+                fun(Name, _RawConf, Acc) ->
                     [
-                        #{
-                            type => Type,
-                            name => Name,
-                            raw_config => RawConf
-                        }
+                        begin
+                            {ok, BridgeInfo} =
+                                lookup(Type, Name),
+                            BridgeInfo
+                        end
                         | Acc
                     ]
                 end,
@@ -329,6 +337,66 @@ lookup(Id) ->
     lookup(Type, Name).
 
 lookup(Type, Name) ->
+    case emqx:get_config([?ROOT_KEY, Type, Name], not_found) of
+        not_found ->
+            {error, bridge_not_found};
+        #{connector := BridgeConnector} = RawConf ->
+            ConnectorId = emqx_connector_resource:resource_id(
+                bridge_v2_type_to_connector_type(Type), BridgeConnector
+            ),
+            InstanceData =
+                case emqx_resource:get_instance(ConnectorId) of
+                    {error, not_found} ->
+                        %% TODO should we throw an error here (this should not happen)?
+                        {error, not_found};
+                    {ok, _, Data} ->
+                        Data
+                end,
+            {ok, #{
+                type => Type,
+                name => Name,
+                raw_config => RawConf,
+                resource_data => InstanceData
+            }}
+    end.
+
+lookup_and_transform_to_bridge_v1(Type, Name) ->
+    case lookup(Type, Name) of
+        {ok, #{raw_config := #{connector := ConnectorName}} = BridgeV2} ->
+            ConnectorType = bridge_v2_type_to_connector_type(Type),
+            case emqx_connector:lookup(ConnectorType, ConnectorName) of
+                {ok, Connector} ->
+                    lookup_and_transform_to_bridge_v1_helper(
+                        Type, BridgeV2, ConnectorType, Connector
+                    );
+                Error ->
+                    Error
+            end;
+        Error ->
+            Error
+    end.
+
+lookup_and_transform_to_bridge_v1_helper(BridgeV2Type, BridgeV2, ConnectorType, Connector) ->
+    ConnectorRawConfig1 = maps:get(raw_config, Connector),
+    ConnectorRawConfig2 = fill_defaults(
+        ConnectorType,
+        ConnectorRawConfig1,
+        <<"connectors">>,
+        emqx_connector_schema
+    ),
+    BridgeV2RawConfig1 = maps:get(raw_config, BridgeV2),
+    BridgeV2RawConfig2 = fill_defaults(
+        BridgeV2Type,
+        BridgeV2RawConfig1,
+        <<"bridges_v2">>,
+        emqx_bridge_v2_schema
+    ),
+    BridgeV1Config1 = maps:remove(connector, BridgeV2RawConfig2),
+    BridgeV1Config2 = maps:merge(BridgeV1Config1, ConnectorRawConfig2),
+    BridgeV1 = maps:put(raw_config, BridgeV1Config2, BridgeV2),
+    {ok, BridgeV1}.
+
+lookup_raw_conf(Type, Name) ->
     case emqx:get_config([?ROOT_KEY, Type, Name], not_found) of
         not_found ->
             {error, bridge_not_found};
@@ -482,3 +550,17 @@ is_bridge_v2_installed_in_connector_state(Tag, State) when is_map(State) ->
     maps:is_key(Tag, BridgeV2s);
 is_bridge_v2_installed_in_connector_state(_Tag, _State) ->
     false.
+
+fill_defaults(Type, RawConf, TopLevelConf, SchemaModule) ->
+    PackedConf = pack_bridge_conf(Type, RawConf, TopLevelConf),
+    FullConf = emqx_config:fill_defaults(SchemaModule, PackedConf, #{}),
+    unpack_bridge_conf(Type, FullConf, TopLevelConf).
+
+pack_bridge_conf(Type, RawConf, TopLevelConf) ->
+    #{TopLevelConf => #{bin(Type) => #{<<"foo">> => RawConf}}}.
+
+unpack_bridge_conf(Type, PackedConf, TopLevelConf) ->
+    TypeBin = bin(Type),
+    #{TopLevelConf := Bridges} = PackedConf,
+    #{<<"foo">> := RawConf} = maps:get(TypeBin, Bridges),
+    RawConf.

@@ -1,7 +1,7 @@
 %%--------------------------------------------------------------------
 %% Copyright (c) 2022-2023 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
--module(emqx_action_enterprise).
+-module(emqx_bridge_v2_enterprise).
 
 -if(?EMQX_RELEASE_EDITION == ee).
 

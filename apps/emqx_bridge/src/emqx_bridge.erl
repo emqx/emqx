@@ -279,6 +279,7 @@ post_config_update([?ROOT_KEY], _Req, NewConf, OldConf, _AppEnv) ->
     Result.
 
 list() ->
+    % OldStyleBridges =
     maps:fold(
         fun(Type, NameAndConf, Bridges) ->
             maps:fold(
@@ -295,14 +296,20 @@ list() ->
         [],
         emqx:get_raw_config([bridges], #{})
     ).
+%%BridgeV2Bridges = emqx_bridge_v2:list().
 
 lookup(Id) ->
     {Type, Name} = emqx_bridge_resource:parse_bridge_id(Id),
     lookup(Type, Name).
 
 lookup(Type, Name) ->
-    RawConf = emqx:get_raw_config([bridges, Type, Name], #{}),
-    lookup(Type, Name, RawConf).
+    case emqx_bridge_v2:is_bridge_v2_type(Type) of
+        true ->
+            emqx_bridge_v2:lookup_and_transform_to_bridge_v1(Type, Name);
+        false ->
+            RawConf = emqx:get_raw_config([bridges, Type, Name], #{}),
+            lookup(Type, Name, RawConf)
+    end.
 
 lookup(Type, Name, RawConf) ->
     case emqx_resource:get_instance(emqx_bridge_resource:resource_id(Type, Name)) of
