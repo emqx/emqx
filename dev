@@ -46,6 +46,7 @@ OPTIONS:
                      in '_build/\$PROFILE/lib/'.
   -e|--ekka-epmd:    Force to use ekka_epmd.
   -n|--name:         Node name, defaults to \$EMQX_NODE__NAME or the \$EMQX_NODE_NAME env.
+  -s|--shortnames:   Use shortnames for erlang node name (ie. use -sname parameter).
 
 ENVIRONMENT VARIABLES:
 
@@ -70,6 +71,7 @@ PROFILE="${PROFILE:-emqx}"
 FORCE_COMPILE=0
 # Do not start using ekka epmd by default, so your IDE can connect to it
 EKKA_EPMD=0
+SHORTNAMES=0
 COMMAND='run'
 case "${1:-novalue}" in
     novalue)
@@ -116,6 +118,9 @@ while [ "$#" -gt 0 ]; do
             ;;
         -e|--ekka-epmd)
             EKKA_EPMD=1
+            ;;
+        -s|--shortnames)
+            SHORTNAMES=1
             ;;
         --)
             shift
@@ -175,6 +180,12 @@ if [ $EKKA_EPMD -eq 1 ]; then
     EPMD_ARGS='-start_epmd false -epmd_module ekka_epmd'
 else
     EPMD_ARGS=''
+fi
+
+if [ $SHORTNAMES -eq 1 ]; then
+    ERL_NAME_ARG='-sname'
+else
+    ERL_NAME_ARG='-name'
 fi
 
 
@@ -301,7 +312,7 @@ append_args_file() {
     ## ensure a new line at the end
     echo '' >> "$ARGS_FILE"
     cat <<EOF >> "$ARGS_FILE"
--name $EMQX_NODE_NAME
+$ERL_NAME_ARG $EMQX_NODE_NAME
 -mnesia dir '"$EMQX_DATA_DIR/mnesia/$EMQX_NODE_NAME"'
 -stdlib restricted_shell emqx_restricted_shell
 +spp true
@@ -399,7 +410,7 @@ boot() {
 
         # shellcheck disable=SC2086
         env APPS="$APPS" iex \
-          --name "$EMQX_NODE_NAME" \
+          -$ERL_NAME_ARG "$EMQX_NODE_NAME" \
           --erl "$EPMD_ARGS_ELIXIR" \
           --erl '-user Elixir.IEx.CLI' \
           --erl '-proto_dist ekka' \
@@ -415,7 +426,7 @@ boot() {
         "
 
         # shellcheck disable=SC2086
-        erl -name "$EMQX_NODE_NAME" \
+        erl $ERL_NAME_ARG "$EMQX_NODE_NAME" \
             $EPMD_ARGS \
             -proto_dist ekka \
             -args_file "$ARGS_FILE" \
@@ -429,14 +440,18 @@ boot() {
 gen_tmp_node_name() {
     local rnd
     rnd="$(od -t u -N 4 /dev/urandom | head -n1 | awk '{print $2 % 1000}')"
-    echo "remsh${rnd}-${EMQX_NODE_NAME}"
+    if [ $SHORTNAMES -eq  1 ]; then
+        echo "remsh${rnd}"
+    else
+        echo "remsh${rnd}-${EMQX_NODE_NAME}"
+    fi
 }
 
 remsh() {
     local tmpnode
     tmpnode="$(gen_tmp_node_name)"
     # shellcheck disable=SC2086
-    erl -name "$tmpnode" \
+    erl $ERL_NAME_ARG "$tmpnode" \
         -hidden \
         -setcookie "$COOKIE" \
         -remsh "$EMQX_NODE_NAME" \
@@ -449,7 +464,7 @@ eval_remsh_erl() {
     tmpnode="$(gen_tmp_node_name)"
     erl_code="$1"
     # shellcheck disable=SC2086 # need to expand EMQD_ARGS
-    erl -name "$tmpnode" -setcookie "$COOKIE" -hidden -noshell $EPMD_ARGS -eval "$erl_code" 2>&1
+    erl $ERL_NAME_ARG "$tmpnode" -setcookie "$COOKIE" -hidden -noshell $EPMD_ARGS -eval "$erl_code" 2>&1
 }
 
 ctl() {
