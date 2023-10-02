@@ -90,7 +90,7 @@
 -export([next/1]).
 
 -export([preserve_iterator/1]).
--export([restore_iterator/3]).
+-export([restore_iterator/2]).
 -export([refresh_iterator/1]).
 
 %% Debug/troubleshooting:
@@ -217,6 +217,7 @@
 
 -opaque db() :: #db{}.
 -opaque iterator() :: #it{}.
+-type serialized_iterator() :: binary().
 -type keymapper() :: #keymapper{}.
 -type keyspace_filter() :: #filter{}.
 
@@ -340,22 +341,30 @@ next(It0 = #it{filter = #filter{keymapper = Keymapper}}) ->
             {error, closed}
     end.
 
--spec preserve_iterator(iterator()) -> binary().
-preserve_iterator(#it{cursor = Cursor}) ->
+-spec preserve_iterator(iterator()) -> serialized_iterator().
+preserve_iterator(#it{
+    cursor = Cursor,
+    filter = #filter{
+        topic_filter = TopicFilter,
+        start_time = StartTime
+    }
+}) ->
     State = #{
         v => 1,
-        cursor => Cursor
+        cursor => Cursor,
+        replay => {TopicFilter, StartTime}
     },
     term_to_binary(State).
 
--spec restore_iterator(db(), emqx_ds:replay(), binary()) ->
+-spec restore_iterator(db(), serialized_iterator()) ->
     {ok, iterator()} | {error, _TODO}.
-restore_iterator(DB, Replay, Serial) when is_binary(Serial) ->
+restore_iterator(DB, Serial) when is_binary(Serial) ->
     State = binary_to_term(Serial),
-    restore_iterator(DB, Replay, State);
-restore_iterator(DB, Replay, #{
+    restore_iterator(DB, State);
+restore_iterator(DB, #{
     v := 1,
-    cursor := Cursor
+    cursor := Cursor,
+    replay := Replay = {_TopicFilter, _StartTime}
 }) ->
     case make_iterator(DB, Replay) of
         {ok, It} when Cursor == undefined ->

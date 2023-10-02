@@ -225,12 +225,9 @@ run_iterator_commands([iterate | Rest], It, Ctx) ->
             []
     end;
 run_iterator_commands([{preserve, restore} | Rest], It, Ctx) ->
-    #{
-        db := DB,
-        replay := Replay
-    } = Ctx,
+    #{db := DB} = Ctx,
     Serial = emqx_ds_message_storage_bitmask:preserve_iterator(It),
-    {ok, ItNext} = emqx_ds_message_storage_bitmask:restore_iterator(DB, Replay, Serial),
+    {ok, ItNext} = emqx_ds_message_storage_bitmask:restore_iterator(DB, Serial),
     run_iterator_commands(Rest, ItNext, Ctx);
 run_iterator_commands([], It, _Ctx) ->
     iterate_db(It).

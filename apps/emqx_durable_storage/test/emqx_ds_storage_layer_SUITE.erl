@@ -201,7 +201,7 @@ t_iterate_multigen_preserve_restore(_Config) ->
     ok = emqx_ds_storage_layer:preserve_iterator(It3, ReplayID),
     {ok, It4} = emqx_ds_storage_layer:restore_iterator(?SHARD, ReplayID),
     {It5, Res200} = iterate(It4, 1000),
-    ?assertEqual(none, It5),
+    ?assertEqual({end_of_stream, []}, iterate(It5, 1)),
     ?assertEqual(
         lists:sort([{Topic, TS} || Topic <- TopicsMatching, TS <- Timestamps]),
         lists:sort([binary_to_term(Payload) || Payload <- Res10 ++ Res100 ++ Res200])
@@ -224,21 +224,20 @@ iterate(DB, TopicFilter, StartTime) ->
 
 iterate(It) ->
     case emqx_ds_storage_layer:next(It) of
-        {value, Payload, ItNext} ->
+        {ok, ItNext, [Payload]} ->
             [Payload | iterate(ItNext)];
-        none ->
+        end_of_stream ->
             []
     end.
 
-iterate(It, 0) ->
-    {It, []};
+iterate(end_of_stream, _N) ->
+    {end_of_stream, []};
 iterate(It, N) ->
-    case emqx_ds_storage_layer:next(It) of
-        {value, Payload, ItNext} ->
-            {ItFinal, Ps} = iterate(ItNext, N - 1),
-            {ItFinal, [Payload | Ps]};
-        none ->
-            {none, []}
+    case emqx_ds_storage_layer:next(It, N) of
+        {ok, ItFinal, Payloads} ->
+            {ItFinal, Payloads};
+        end_of_stream ->
+            {end_of_stream, []}
     end.
 
 iterator(DB, TopicFilter, StartTime) ->

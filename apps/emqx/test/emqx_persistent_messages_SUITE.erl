@@ -272,9 +272,9 @@ consume(Shard, IteratorId) when is_binary(IteratorId) ->
 
 consume(It) ->
     case emqx_ds_storage_layer:next(It) of
-        {value, Msg, NIt} ->
+        {ok, NIt, [Msg]} ->
             [emqx_persistent_message:deserialize(Msg) | consume(NIt)];
-        none ->
+        end_of_stream ->
             []
     end.
 
