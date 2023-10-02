@@ -57,6 +57,7 @@ init() ->
             }
         ),
         ok = emqx_persistent_session_ds_router:init_tables(),
+        ok = emqx_persistent_session_ds:create_tables(),
         ok
     end).
 

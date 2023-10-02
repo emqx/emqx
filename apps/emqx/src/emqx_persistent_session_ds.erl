@@ -55,6 +55,13 @@
     terminate/2
 ]).
 
+%% session table operations
+-export([create_tables/0]).
+
+-ifdef(TEST).
+-export([session_open/1]).
+-endif.
+
 %% RPC
 -export([
     ensure_iterator_closed_on_all_shards/1,
@@ -71,8 +78,13 @@
 -define(DEFAULT_KEYSPACE, default).
 -define(DS_SHARD, {?DEFAULT_KEYSPACE, ?DS_SHARD_ID}).
 
--type id() :: emqx_ds:session_id().
+%% Currently, this is the clientid.  We avoid `emqx_types:clientid()' because that can be
+%% an atom, in theory (?).
+-type id() :: binary().
 -type iterator() :: emqx_ds:iterator().
+-type iterator_id() :: emqx_ds:iterator_id().
+-type topic_filter() :: emqx_ds:topic_filter().
+-type iterators() :: #{topic_filter() => iterator()}.
 -type session() :: #{
     %% Client ID
     id := id(),
@@ -91,6 +103,8 @@
 -type clientinfo() :: emqx_types:clientinfo().
 -type conninfo() :: emqx_session:conninfo().
 -type replies() :: emqx_session:replies().
+
+-export_type([id/0]).
 
 %%
 
@@ -118,11 +132,11 @@ open(#{clientid := ClientID}, _ConnInfo) ->
     end.
 
 ensure_session(ClientID, Conf) ->
-    {ok, Session, #{}} = emqx_ds:session_ensure_new(ClientID, Conf),
+    {ok, Session, #{}} = session_ensure_new(ClientID, Conf),
     Session#{iterators => #{}}.
 
 open_session(ClientID) ->
-    case emqx_ds:session_open(ClientID) of
+    case session_open(ClientID) of
         {ok, Session, Iterators} ->
             Session#{iterators => prep_iterators(Iterators)};
         false ->
@@ -144,7 +158,7 @@ destroy(#{clientid := ClientID}) ->
 
 destroy_session(ClientID) ->
     _ = ensure_all_iterators_closed(ClientID),
-    emqx_ds:session_drop(ClientID).
+    session_drop(ClientID).
 
 %%--------------------------------------------------------------------
 %% Info, Stats
@@ -352,7 +366,7 @@ add_subscription(TopicFilterBin, SubOpts, DSSessionID) ->
     % and iterator information can be reconstructed from this table, if needed.
     ok = emqx_persistent_session_ds_router:do_add_route(TopicFilterBin, DSSessionID),
     TopicFilter = emqx_topic:words(TopicFilterBin),
-    {ok, Iterator, IsNew} = emqx_ds:session_add_iterator(
+    {ok, Iterator, IsNew} = session_add_iterator(
         DSSessionID, TopicFilter, SubOpts
     ),
     Ctx = #{iterator => Iterator, is_new => IsNew},
@@ -368,7 +382,7 @@ add_subscription(TopicFilterBin, SubOpts, DSSessionID) ->
     iterator().
 update_subscription(TopicFilterBin, Iterator, SubOpts, DSSessionID) ->
     TopicFilter = emqx_topic:words(TopicFilterBin),
-    {ok, NIterator, false} = emqx_ds:session_add_iterator(
+    {ok, NIterator, false} = session_add_iterator(
         DSSessionID, TopicFilter, SubOpts
     ),
     ok = ?tp(persistent_session_ds_iterator_updated, #{iterator => Iterator}),
@@ -415,7 +429,7 @@ del_subscription(TopicFilterBin, #{id := IteratorID}, DSSessionID) ->
     ?tp_span(
         persistent_session_ds_iterator_delete,
         Ctx,
-        emqx_ds:session_del_iterator(DSSessionID, TopicFilter)
+        session_del_iterator(DSSessionID, TopicFilter)
     ),
     ok = emqx_persistent_session_ds_router:do_delete_route(TopicFilterBin, DSSessionID).
 
@@ -448,3 +462,210 @@ ensure_all_iterators_closed(DSSessionID) ->
 do_ensure_all_iterators_closed(DSSessionID) ->
     ok = emqx_ds_storage_layer:discard_iterator_prefix(?DS_SHARD, DSSessionID),
     ok.
+
+%%--------------------------------------------------------------------
+%% Session tables operations
+%%--------------------------------------------------------------------
+
+-define(SESSION_TAB, emqx_ds_session).
+-define(ITERATOR_REF_TAB, emqx_ds_iterator_ref).
+-define(DS_MRIA_SHARD, emqx_ds_shard).
+
+-record(session, {
+    %% same as clientid
+    id :: id(),
+    %% creation time
+    created_at :: _Millisecond :: non_neg_integer(),
+    expires_at = never :: _Millisecond :: non_neg_integer() | never,
+    %% for future usage
+    props = #{} :: map()
+}).
+
+-record(iterator_ref, {
+    ref_id :: {id(), emqx_ds:topic_filter()},
+    it_id :: emqx_ds:iterator_id(),
+    start_time :: emqx_ds:time(),
+    props = #{} :: map()
+}).
+
+create_tables() ->
+    ok = mria:create_table(
+        ?SESSION_TAB,
+        [
+            {rlog_shard, ?DS_MRIA_SHARD},
+            {type, set},
+            {storage, storage()},
+            {record_name, session},
+            {attributes, record_info(fields, session)}
+        ]
+    ),
+    ok = mria:create_table(
+        ?ITERATOR_REF_TAB,
+        [
+            {rlog_shard, ?DS_MRIA_SHARD},
+            {type, ordered_set},
+            {storage, storage()},
+            {record_name, iterator_ref},
+            {attributes, record_info(fields, iterator_ref)}
+        ]
+    ),
+    ok.
+
+-dialyzer({nowarn_function, storage/0}).
+storage() ->
+    %% FIXME: This is a temporary workaround to avoid crashes when starting on Windows
+    case mria:rocksdb_backend_available() of
+        true ->
+            rocksdb_copies;
+        _ ->
+            disc_copies
+    end.
+
+%% @doc Called when a client connects. This function looks up a
+%% session or returns `false` if previous one couldn't be found.
+%%
+%% This function also spawns replay agents for each iterator.
+%%
+%% Note: session API doesn't handle session takeovers, it's the job of
+%% the broker.
+-spec session_open(id()) ->
+    {ok, session(), iterators()} | false.
+session_open(SessionId) ->
+    transaction(fun() ->
+        case mnesia:read(?SESSION_TAB, SessionId, write) of
+            [Record = #session{}] ->
+                Session = export_record(Record),
+                IteratorRefs = session_read_iterators(SessionId),
+                Iterators = export_iterators(IteratorRefs),
+                {ok, Session, Iterators};
+            [] ->
+                false
+        end
+    end).
+
+-spec session_ensure_new(id(), _Props :: map()) ->
+    {ok, session(), iterators()}.
+session_ensure_new(SessionId, Props) ->
+    transaction(fun() ->
+        ok = session_drop_iterators(SessionId),
+        Session = export_record(session_create(SessionId, Props)),
+        {ok, Session, #{}}
+    end).
+
+session_create(SessionId, Props) ->
+    Session = #session{
+        id = SessionId,
+        created_at = erlang:system_time(millisecond),
+        expires_at = never,
+        props = Props
+    },
+    ok = mnesia:write(?SESSION_TAB, Session, write),
+    Session.
+
+%% @doc Called when a client reconnects with `clean session=true' or
+%% during session GC
+-spec session_drop(id()) -> ok.
+session_drop(DSSessionId) ->
+    transaction(fun() ->
+        %% TODO: ensure all iterators from this clientid are closed?
+        ok = session_drop_iterators(DSSessionId),
+        ok = mnesia:delete(?SESSION_TAB, DSSessionId, write)
+    end).
+
+session_drop_iterators(DSSessionId) ->
+    IteratorRefs = session_read_iterators(DSSessionId),
+    ok = lists:foreach(fun session_del_iterator/1, IteratorRefs).
+
+%% @doc Called when a client subscribes to a topic. Idempotent.
+-spec session_add_iterator(id(), topic_filter(), _Props :: map()) ->
+    {ok, iterator(), _IsNew :: boolean()}.
+session_add_iterator(DSSessionId, TopicFilter, Props) ->
+    IteratorRefId = {DSSessionId, TopicFilter},
+    transaction(fun() ->
+        case mnesia:read(?ITERATOR_REF_TAB, IteratorRefId, write) of
+            [] ->
+                IteratorRef = session_insert_iterator(DSSessionId, TopicFilter, Props),
+                Iterator = export_record(IteratorRef),
+                ?tp(
+                    ds_session_subscription_added,
+                    #{iterator => Iterator, session_id => DSSessionId}
+                ),
+                {ok, Iterator, _IsNew = true};
+            [#iterator_ref{} = IteratorRef] ->
+                NIteratorRef = session_update_iterator(IteratorRef, Props),
+                NIterator = export_record(NIteratorRef),
+                ?tp(
+                    ds_session_subscription_present,
+                    #{iterator => NIterator, session_id => DSSessionId}
+                ),
+                {ok, NIterator, _IsNew = false}
+        end
+    end).
+
+session_insert_iterator(DSSessionId, TopicFilter, Props) ->
+    {IteratorId, StartMS} = new_iterator_id(DSSessionId),
+    IteratorRef = #iterator_ref{
+        ref_id = {DSSessionId, TopicFilter},
+        it_id = IteratorId,
+        start_time = StartMS,
+        props = Props
+    },
+    ok = mnesia:write(?ITERATOR_REF_TAB, IteratorRef, write),
+    IteratorRef.
+
+session_update_iterator(IteratorRef, Props) ->
+    NIteratorRef = IteratorRef#iterator_ref{props = Props},
+    ok = mnesia:write(?ITERATOR_REF_TAB, NIteratorRef, write),
+    NIteratorRef.
+
+%% @doc Called when a client unsubscribes from a topic.
+-spec session_del_iterator(id(), topic_filter()) -> ok.
+session_del_iterator(DSSessionId, TopicFilter) ->
+    IteratorRefId = {DSSessionId, TopicFilter},
+    transaction(fun() ->
+        mnesia:delete(?ITERATOR_REF_TAB, IteratorRefId, write)
+    end).
+
+session_del_iterator(#iterator_ref{ref_id = IteratorRefId}) ->
+    mnesia:delete(?ITERATOR_REF_TAB, IteratorRefId, write).
+
+session_read_iterators(DSSessionId) ->
+    % NOTE: somewhat convoluted way to trick dialyzer
+    Pat = erlang:make_tuple(record_info(size, iterator_ref), '_', [
+        {1, iterator_ref},
+        {#iterator_ref.ref_id, {DSSessionId, '_'}}
+    ]),
+    mnesia:match_object(?ITERATOR_REF_TAB, Pat, read).
+
+-spec new_iterator_id(id()) -> {iterator_id(), emqx_ds:time()}.
+new_iterator_id(DSSessionId) ->
+    NowMS = erlang:system_time(microsecond),
+    IteratorId = <<DSSessionId/binary, (emqx_guid:gen())/binary>>,
+    {IteratorId, NowMS}.
+
+%%--------------------------------------------------------------------------------
+
+transaction(Fun) ->
+    {atomic, Res} = mria:transaction(?DS_MRIA_SHARD, Fun),
+    Res.
+
+%%--------------------------------------------------------------------------------
+
+export_iterators(IteratorRefs) ->
+    lists:foldl(
+        fun(IteratorRef = #iterator_ref{ref_id = {_DSSessionId, TopicFilter}}, Acc) ->
+            Acc#{TopicFilter => export_record(IteratorRef)}
+        end,
+        #{},
+        IteratorRefs
+    ).
+
+export_record(#session{} = Record) ->
+    export_record(Record, #session.id, [id, created_at, expires_at, props], #{});
+export_record(#iterator_ref{} = Record) ->
+    export_record(Record, #iterator_ref.it_id, [id, start_time, props], #{}).
+
+export_record(Record, I, [Field | Rest], Acc) ->
+    export_record(Record, I + 1, Rest, Acc#{Field => element(I, Record)});
+export_record(_, _, [], Acc) ->
+    Acc.
