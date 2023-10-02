@@ -51,7 +51,11 @@ namespace() -> "bridge_v2".
 tags() ->
     [<<"Bridge V2">>].
 
-roots() -> [{bridges_v2, ?HOCON(?R_REF(bridges_v2), #{importance => ?IMPORTANCE_LOW})}].
+roots() ->
+    case fields(bridges_v2) of
+        [] -> [];
+        _ -> [{bridges_v2, ?HOCON(?R_REF(bridges_v2), #{importance => ?IMPORTANCE_LOW})}]
+    end.
 
 fields(bridges_v2) ->
     [] ++ enterprise_fields_actions().

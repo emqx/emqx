@@ -203,7 +203,11 @@ namespace() -> "connector".
 tags() ->
     [<<"Connector">>].
 
-roots() -> [{connectors, ?HOCON(?R_REF(connectors), #{importance => ?IMPORTANCE_LOW})}].
+roots() ->
+    case fields(connectors) of
+        [] -> [];
+        _ -> [{connectors, ?HOCON(?R_REF(connectors), #{importance => ?IMPORTANCE_LOW})}]
+    end.
 
 fields(connectors) ->
     [] ++ enterprise_fields_connectors().
