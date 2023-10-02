@@ -12,7 +12,7 @@
 -export([store/5]).
 -export([delete/4]).
 
--export([make_iterator/2, next/1]).
+-export([make_iterator/2, next/1, next/2]).
 
 -export([
     preserve_iterator/2,
@@ -131,7 +131,7 @@
 -callback make_iterator(_Schema, emqx_ds:replay()) ->
     {ok, _It} | {error, _}.
 
--callback restore_iterator(_Schema, emqx_ds:replay(), binary()) -> {ok, _It} | {error, _}.
+-callback restore_iterator(_Schema, _Serialized :: binary()) -> {ok, _It} | {error, _}.
 
 -callback preserve_iterator(_It) -> term().
 
@@ -175,21 +175,52 @@ make_iterator(Shard, Replay = {_, StartTime}) ->
         replay = Replay
     }).
 
--spec next(iterator()) -> {value, binary(), iterator()} | none | {error, closed}.
-next(It = #it{module = Mod, data = ItData}) ->
+-spec next(iterator()) -> {ok, iterator(), [binary()]} | end_of_stream.
+next(It = #it{}) ->
+    next(It, _BatchSize = 1).
+
+-spec next(iterator(), pos_integer()) -> {ok, iterator(), [binary()]} | end_of_stream.
+next(#it{data = {?MODULE, end_of_stream}}, _BatchSize) ->
+    end_of_stream;
+next(
+    It = #it{shard = Shard, module = Mod, gen = Gen, data = {?MODULE, retry, Serialized}}, BatchSize
+) ->
+    #{data := DBData} = meta_get_gen(Shard, Gen),
+    {ok, ItData} = Mod:restore_iterator(DBData, Serialized),
+    next(It#it{data = ItData}, BatchSize);
+next(It = #it{}, BatchSize) ->
+    do_next(It, BatchSize, _Acc = []).
+
+-spec do_next(iterator(), non_neg_integer(), [binary()]) ->
+    {ok, iterator(), [binary()]} | end_of_stream.
+do_next(It, N, Acc) when N =< 0 ->
+    {ok, It, lists:reverse(Acc)};
+do_next(It = #it{module = Mod, data = ItData}, N, Acc) ->
     case Mod:next(ItData) of
         {value, Val, ItDataNext} ->
-            {value, Val, It#it{data = ItDataNext}};
-        {error, _} = Error ->
-            Error;
+            do_next(It#it{data = ItDataNext}, N - 1, [Val | Acc]);
+        {error, _} = _Error ->
+            %% todo: log?
+            %% iterator might be invalid now; will need to re-open it.
+            Serialized = Mod:preserve_iterator(ItData),
+            {ok, It#it{data = {?MODULE, retry, Serialized}}, lists:reverse(Acc)};
         none ->
             case open_next_iterator(It) of
                 {ok, ItNext} ->
-                    next(ItNext);
-                {error, _} = Error ->
-                    Error;
+                    do_next(ItNext, N, Acc);
+                {error, _} = _Error ->
+                    %% todo: log?
+                    %% fixme: only bad options may lead to this?
+                    %% return an "empty" iterator to be re-opened when retrying?
+                    Serialized = Mod:preserve_iterator(ItData),
+                    {ok, It#it{data = {?MODULE, retry, Serialized}}, lists:reverse(Acc)};
                 none ->
-                    none
+                    case Acc of
+                        [] ->
+                            end_of_stream;
+                        _ ->
+                            {ok, It#it{data = {?MODULE, end_of_stream}}, lists:reverse(Acc)}
+                    end
             end
     end.
 
@@ -407,8 +438,8 @@ open_iterator(#{module := Mod, data := Data}, It = #it{}) ->
 
 -spec open_restore_iterator(generation(), iterator(), binary()) ->
     {ok, iterator()} | {error, _Reason}.
-open_restore_iterator(#{module := Mod, data := Data}, It = #it{replay = Replay}, Serial) ->
-    case Mod:restore_iterator(Data, Replay, Serial) of
+open_restore_iterator(#{module := Mod, data := Data}, It = #it{}, Serial) ->
+    case Mod:restore_iterator(Data, Serial) of
         {ok, ItData} ->
             {ok, It#it{module = Mod, data = ItData}};
         Err ->
