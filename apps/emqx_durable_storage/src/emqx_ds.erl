@@ -15,48 +15,29 @@
 %%--------------------------------------------------------------------
 -module(emqx_ds).
 
--include_lib("stdlib/include/ms_transform.hrl").
--include_lib("snabbkaffe/include/snabbkaffe.hrl").
+%% Management API:
+-export([create_db/2]).
 
-%% API:
--export([ensure_shard/2]).
-%%   Messages:
--export([message_store/2, message_store/1, message_stats/0]).
-%%   Iterator:
--export([iterator_update/2, iterator_next/1, iterator_stats/0]).
+%% Message storage API:
+-export([message_store/3, message_store/2]).
+
+%% Message replay API:
+-export([get_streams/3, open_iterator/2, next/2]).
 
 %% internal exports:
 -export([]).
 
--export_type([
-    keyspace/0,
-    message_id/0,
-    message_stats/0,
-    message_store_opts/0,
-    replay/0,
-    replay_id/0,
-    iterator_id/0,
-    iterator/0,
-    shard/0,
-    shard_id/0,
-    topic/0,
-    topic_filter/0,
-    time/0
-]).
+-export_type([db/0, time/0, topic_filter/0, topic/0]).
 
 %%================================================================================
 %% Type declarations
 %%================================================================================
 
--type iterator() :: term().
-
--type iterator_id() :: binary().
-
--type message_store_opts() :: #{}.
-
--type message_stats() :: #{}.
-
--type message_id() :: binary().
+%% Different DBs are completely independent from each other. They
+%% could represent something like different tenants.
+%%
+%% Topics stored in different DBs aren't necesserily disjoint.
+-type db() :: binary().
 
 %% Parsed topic.
 -type topic() :: list(binary()).
@@ -64,9 +45,30 @@
 %% Parsed topic filter.
 -type topic_filter() :: list(binary() | '+' | '#' | '').
 
--type keyspace() :: atom().
--type shard_id() :: binary().
--type shard() :: {keyspace(), shard_id()}.
+%% This record enapsulates the stream entity from the replication
+%% level.
+%%
+%% TODO: currently the stream is hardwired to only support the
+%% internal rocksdb storage. In t he future we want to add another
+%% implementations for emqx_ds, so this type has to take this into
+%% account.
+-record(stream,
+        { shard :: emqx_ds:shard()
+        , enc :: emqx_ds_replication_layer:stream()
+        }).
+
+-type stream_rank() :: {integer(), integer()}.
+
+-opaque stream() :: #stream{}.
+
+%% This record encapsulates the iterator entity from the replication
+%% level.
+-record(iterator,
+        { shard :: emqx_ds:shard()
+        , enc :: enqx_ds_replication_layer:iterator()
+        }).
+
+-opaque iterator() :: #iterator{}.
 
 %% Timestamp
 %% Earliest possible timestamp is 0.
@@ -74,70 +76,89 @@
 %% use in emqx_guid.  Otherwise, the iterators won't match the message timestamps.
 -type time() :: non_neg_integer().
 
--type replay_id() :: binary().
+-type message_store_opts() :: #{}.
 
--type replay() :: {
-    _TopicFilter :: topic_filter(),
-    _StartTime :: time()
-}.
+-type create_db_opts() :: #{}.
+
+-type message_id() :: binary().
 
 %%================================================================================
 %% API funcions
 %%================================================================================
 
--spec ensure_shard(shard(), emqx_ds_storage_layer:options()) ->
-    ok | {error, _Reason}.
-ensure_shard(Shard, Options) ->
-    case emqx_ds_storage_layer_sup:start_shard(Shard, Options) of
-        {ok, _Pid} ->
-            ok;
-        {error, {already_started, _Pid}} ->
-            ok;
-        {error, Reason} ->
-            {error, Reason}
+-spec create_db(db(), create_db_opts()) -> ok.
+create_db(DB, Opts) ->
+    emqx_ds_replication_layer:create_db(DB, Opts).
+
+-spec message_store(db(), [emqx_types:message()], message_store_opts()) ->
+    {ok, [message_id()]} | {error, _}.
+message_store(DB, Msgs, Opts) ->
+    emqx_ds_replication_layer:message_store(DB, Msgs, Opts).
+
+-spec message_store(db(), [emqx_types:message()]) -> {ok, [message_id()]} | {error, _}.
+message_store(DB, Msgs) ->
+    message_store(DB, Msgs, #{}).
+
+%% @doc Get a list of streams needed for replaying a topic filter.
+%%
+%% Motivation: under the hood, EMQX may store different topics at
+%% different locations or even in different databases. A wildcard
+%% topic filter may require pulling data from any number of locations.
+%%
+%% Stream is an abstraction exposed by `emqx_ds' that reflects the
+%% notion that different topics can be stored differently, but hides
+%% the implementation details.
+%%
+%% Rules:
+%%
+%% 1. New streams matching the topic filter can appear without notice,
+%% so the replayer must periodically call this function to get the
+%% updated list of streams.
+%%
+%% 2. Streams may depend on one another. Therefore, care should be
+%% taken while replaying them in parallel to avoid out-of-order
+%% replay. This function returns stream together with its
+%% "coordinates": `{X, T, Stream}'. If X coordinate of two streams is
+%% different, then they can be replayed in parallel.  If it's the
+%% same, then the stream with smaller T coordinate should be replayed
+%% first.
+-spec get_streams(db(), topic_filter(), time()) -> [{stream_rank(), stream()}].
+get_streams(DB, TopicFilter, StartTime) ->
+    Shards = emqx_ds_replication_layer:list_shards(DB),
+    lists:flatmap(
+      fun(Shard) ->
+              Streams = emqx_ds_replication_layer:get_streams(Shard, TopicFilter, StartTime),
+              [{Rank, #stream{ shard = Shard
+                             , enc = I
+                             }} || {Rank, I} <- Streams]
+      end,
+      Shards).
+
+-spec open_iterator(stream(), time()) -> {ok, iterator()} | {error, _}.
+open_iterator(#stream{shard = Shard, enc = Stream}, StartTime) ->
+    case emqx_ds_replication_layer:open_iterator(Shard, Stream, StartTime) of
+        {ok, Iter} ->
+            {ok, #iterator{shard = Shard, enc = Iter}};
+        Err = {error, _} ->
+            Err
     end.
 
-%%--------------------------------------------------------------------------------
-%% Message
-%%--------------------------------------------------------------------------------
--spec message_store([emqx_types:message()], message_store_opts()) ->
-    {ok, [message_id()]} | {error, _}.
-message_store(_Msg, _Opts) ->
-    %% TODO
-    {error, not_implemented}.
+-spec next(iterator(), non_neg_integer()) -> {ok, iterator(), [emqx_types:message()]} | end_of_stream.
+next(#iterator{shard = Shard, enc = Iter0}, BatchSize) ->
+    case emqx_ds_replication_layer:next(Shard, Iter0, BatchSize) of
+        {ok, Iter, Batch} ->
+            {ok, #iterator{shard = Shard, enc = Iter}, Batch};
+        end_of_stream ->
+            end_of_stream
+    end.
 
--spec message_store([emqx_types:message()]) -> {ok, [message_id()]} | {error, _}.
-message_store(Msg) ->
-    %% TODO
-    message_store(Msg, #{}).
+%%================================================================================
+%% behavior callbacks
+%%================================================================================
 
--spec message_stats() -> message_stats().
-message_stats() ->
-    #{}.
-
-%%--------------------------------------------------------------------------------
-%% Session
-%%--------------------------------------------------------------------------------
-
-%%--------------------------------------------------------------------------------
-%% Iterator (pull API)
-%%--------------------------------------------------------------------------------
-
-%% @doc Called when a client acks a message
--spec iterator_update(iterator_id(), iterator()) -> ok.
-iterator_update(_IterId, _Iter) ->
-    %% TODO
-    ok.
-
-%% @doc Called when a client acks a message
--spec iterator_next(iterator()) -> {value, emqx_types:message(), iterator()} | none | {error, _}.
-iterator_next(_Iter) ->
-    %% TODO
-    none.
-
--spec iterator_stats() -> #{}.
-iterator_stats() ->
-    #{}.
+%%================================================================================
+%% Internal exports
+%%================================================================================
 
 %%================================================================================
 %% Internal functions

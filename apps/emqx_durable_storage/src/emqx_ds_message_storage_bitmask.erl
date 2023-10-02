@@ -85,9 +85,9 @@
 
 -export([store/5]).
 -export([delete/4]).
--export([make_iterator/2]).
--export([make_iterator/3]).
--export([next/1]).
+
+-export([get_streams/2]).
+-export([make_iterator/2, make_iterator/3, next/1]).
 
 -export([preserve_iterator/1]).
 -export([restore_iterator/2]).
@@ -112,7 +112,7 @@
     compute_topic_seek/4
 ]).
 
--export_type([db/0, iterator/0, schema/0]).
+-export_type([db/0, stream/0, iterator/0, schema/0]).
 
 -export_type([options/0]).
 -export_type([iteration_options/0]).
@@ -130,6 +130,8 @@
 %%================================================================================
 %% Type declarations
 %%================================================================================
+
+-opaque stream() :: singleton_stream.
 
 -type topic() :: emqx_ds:topic().
 -type topic_filter() :: emqx_ds:topic_filter().
@@ -287,6 +289,11 @@ store(DB = #db{handle = DBHandle, cf = CFHandle}, MessageID, PublishedAt, Topic,
 delete(DB = #db{handle = DBHandle, cf = CFHandle}, MessageID, PublishedAt, Topic) ->
     Key = make_message_key(Topic, PublishedAt, MessageID, DB#db.keymapper),
     rocksdb:delete(DBHandle, CFHandle, Key, DB#db.write_options).
+
+-spec get_streams(db(), emqx_ds:reply()) ->
+          [stream()].
+get_streams(_, _) ->
+    [singleton_stream].
 
 -spec make_iterator(db(), emqx_ds:replay()) ->
     {ok, iterator()} | {error, _TODO}.

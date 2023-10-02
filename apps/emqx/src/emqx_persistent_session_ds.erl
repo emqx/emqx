@@ -74,7 +74,7 @@
 ]).
 
 %% FIXME
--define(DS_SHARD_ID, <<"local">>).
+-define(DS_SHARD_ID, atom_to_binary(node())).
 -define(DEFAULT_KEYSPACE, default).
 -define(DS_SHARD, {?DEFAULT_KEYSPACE, ?DS_SHARD_ID}).
 

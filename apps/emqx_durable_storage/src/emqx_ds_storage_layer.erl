@@ -9,6 +9,7 @@
 -export([start_link/2]).
 -export([create_generation/3]).
 
+-export([get_streams/3]).
 -export([store/5]).
 -export([delete/4]).
 
@@ -27,7 +28,7 @@
 %% behaviour callbacks:
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2]).
 
--export_type([cf_refs/0, gen_id/0, options/0, state/0, iterator/0]).
+-export_type([stream/0, cf_refs/0, gen_id/0, options/0, state/0, iterator/0]).
 -export_type([db_options/0, db_write_options/0, db_read_options/0]).
 
 -compile({inline, [meta_lookup/2]}).
@@ -35,6 +36,8 @@
 %%================================================================================
 %% Type declarations
 %%================================================================================
+
+-opaque stream() :: {term()}.
 
 -type options() :: #{
     dir => file:filename()
@@ -114,10 +117,10 @@
     cf_refs(),
     _Schema
 ) ->
-    term().
+    _DB.
 
 -callback store(
-    _Schema,
+    _DB,
     _MessageID :: binary(),
     emqx_ds:time(),
     emqx_ds:topic(),
@@ -125,13 +128,16 @@
 ) ->
     ok | {error, _}.
 
--callback delete(_Schema, _MessageID :: binary(), emqx_ds:time(), emqx_ds:topic()) ->
+-callback delete(_DB, _MessageID :: binary(), emqx_ds:time(), emqx_ds:topic()) ->
     ok | {error, _}.
 
--callback make_iterator(_Schema, emqx_ds:replay()) ->
+-callback get_streams(_DB, emqx_ds:topic_filter(), emqx_ds:time()) ->
+    [_Stream].
+
+-callback make_iterator(_DB, emqx_ds:replay()) ->
     {ok, _It} | {error, _}.
 
--callback restore_iterator(_Schema, _Serialized :: binary()) -> {ok, _It} | {error, _}.
+-callback restore_iterator(_DB, _Serialized :: binary()) -> {ok, _It} | {error, _}.
 
 -callback preserve_iterator(_It) -> term().
 
@@ -145,6 +151,15 @@
     {ok, pid()}.
 start_link(Shard = {Keyspace, ShardId}, Options) ->
     gen_server:start_link(?REF(Keyspace, ShardId), ?MODULE, {Shard, Options}, []).
+
+-spec get_streams(emqx_ds:keyspace(), emqx_ds:shard_id(), emqx_ds:topic_filter(), emqx_ds:time()) -> [stream()].
+get_streams(KeySpace, TopicFilter, StartTime) ->
+    %% FIXME: messages can be potentially stored in multiple
+    %% generations. This function should return the results from all
+    %% of them!
+    %% Otherwise we could LOSE messages when generations are switched.
+    {GenId, #{module := Mod, }} = meta_lookup_gen(Shard, StartTime),
+
 
 -spec create_generation(
     emqx_ds:shard(), emqx_ds:time(), emqx_ds_conf:backend_config()
