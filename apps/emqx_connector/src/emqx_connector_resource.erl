@@ -39,7 +39,6 @@
     remove/1,
     remove/2,
     remove/4,
-    reset_metrics/1,
     restart/2,
     start/2,
     stop/2,
@@ -53,16 +52,6 @@
 when
     ParsedConfig :: #{atom() => any()}.
 -optional_callbacks([connector_config/2]).
-
-%% bi-directional connector with producer/consumer or ingress/egress configs
--define(IS_BI_DIR_CONNECTOR(TYPE),
-    (TYPE) =:= <<"mqtt">>
-).
--define(IS_INGRESS_CONNECTOR(TYPE),
-    (TYPE) =:= <<"kafka_consumer">> orelse
-        (TYPE) =:= <<"gcp_pubsub_consumer">> orelse
-        ?IS_BI_DIR_CONNECTOR(TYPE)
-).
 
 -if(?EMQX_RELEASE_EDITION == ee).
 connector_to_resource_type(ConnectorType) -> emqx_connector_ee_schema:resource_type(ConnectorType).
@@ -151,9 +140,6 @@ to_type_atom(Type) ->
         _:_ ->
             invalid_data(<<"unknown connector type: ", Type/binary>>)
     end.
-
-reset_metrics(ResourceId) ->
-    emqx_resource:reset_metrics(ResourceId).
 
 restart(Type, Name) ->
     emqx_resource:restart(resource_id(Type, Name)).
@@ -377,13 +363,6 @@ parse_confs(<<"iotdb">>, Name, Conf) ->
         Name,
         WebhookConfig
     );
-parse_confs(Type, Name, Conf) when ?IS_INGRESS_CONNECTOR(Type) ->
-    %% For some drivers that can be used as data-sources, we need to provide a
-    %% hookpoint. The underlying driver will run `emqx_hooks:run/3` when it
-    %% receives a message from the external database.
-    BId = connector_id(Type, Name),
-    ConnectorHookpoint = connector_hookpoint(BId),
-    Conf#{hookpoint => ConnectorHookpoint, connector_name => Name};
 %% TODO: rename this to `kafka_producer' after alias support is added
 %% to hocon; keeping this as just `kafka' for backwards compatibility.
 parse_confs(<<"kafka">> = _Type, Name, Conf) ->
