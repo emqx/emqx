@@ -51,4 +51,16 @@ backend_name.desc:
 backend_name.label:
 """Backend Name"""
 
+running.desc:
+"""Is the backend running"""
+
+running.label:
+"""Running"""
+
+last_error.desc:
+"""Last error of this backend"""
+
+last_error.label:
+"""Last Error"""
+
 }

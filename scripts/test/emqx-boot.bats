@@ -12,8 +12,16 @@
     [[ "$output" =~ "ERROR: Invalid node name,".+ ]]
 }
 
-@test "corrupted cluster config file" {
+@test "corrupted cluster-override.conf" {
     conffile="./_build/$PROFILE/rel/emqx/data/configs/cluster-override.conf"
+    echo "{" > $conffile
+    run ./_build/$PROFILE/rel/emqx/bin/emqx console
+    [[ $status -ne 0 ]]
+    rm -f $conffile
+}
+
+@test "corrupted cluster.hocon" {
+    conffile="./_build/$PROFILE/rel/emqx/data/configs/cluster.hocon"
     echo "{" > $conffile
     run ./_build/$PROFILE/rel/emqx/bin/emqx console
     [[ $status -ne 0 ]]

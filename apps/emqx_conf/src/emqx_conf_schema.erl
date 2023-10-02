@@ -43,6 +43,9 @@
 ]).
 -export([conf_get/2, conf_get/3, keys/2, filter/1]).
 
+%% internal exports for `emqx_enterprise_schema' only.
+-export([ensure_unicode_path/2, convert_rotation/2, log_handler_common_confs/2]).
+
 %% Static apps which merge their configs into the merged emqx.conf
 %% The list can not be made a dynamic read at run-time as it is used
 %% by nodetool to generate app.<time>.config before EMQX is started
@@ -964,15 +967,6 @@ fields("log") ->
                     aliases => [file_handlers],
                     importance => ?IMPORTANCE_HIGH
                 }
-            )},
-        {"audit",
-            sc(
-                ?R_REF("log_audit_handler"),
-                #{
-                    desc => ?DESC("log_audit_handler"),
-                    importance => ?IMPORTANCE_HIGH,
-                    default => #{<<"enable">> => true, <<"level">> => <<"info">>}
-                }
             )}
     ];
 fields("console_handler") ->
@@ -1014,49 +1008,6 @@ fields("log_file_handler") ->
                 }
             )}
     ] ++ log_handler_common_confs(file, #{});
-fields("log_audit_handler") ->
-    [
-        {"path",
-            sc(
-                file(),
-                #{
-                    desc => ?DESC("audit_file_handler_path"),
-                    default => <<"${EMQX_LOG_DIR}/audit.log">>,
-                    importance => ?IMPORTANCE_HIGH,
-                    converter => fun(Path, Opts) ->
-                        emqx_schema:naive_env_interpolation(ensure_unicode_path(Path, Opts))
-                    end
-                }
-            )},
-        {"rotation_count",
-            sc(
-                range(1, 128),
-                #{
-                    default => 10,
-                    converter => fun convert_rotation/2,
-                    desc => ?DESC("log_rotation_count"),
-                    importance => ?IMPORTANCE_MEDIUM
-                }
-            )},
-        {"rotation_size",
-            sc(
-                hoconsc:union([infinity, emqx_schema:bytesize()]),
-                #{
-                    default => <<"50MB">>,
-                    desc => ?DESC("log_file_handler_max_size"),
-                    importance => ?IMPORTANCE_MEDIUM
-                }
-            )}
-    ] ++
-        %% Only support json
-        lists:keydelete(
-            "formatter",
-            1,
-            log_handler_common_confs(
-                file,
-                #{level => info, level_desc => "audit_handler_level"}
-            )
-        );
 fields("log_overload_kill") ->
     [
         {"enable",
@@ -1147,8 +1098,6 @@ desc("console_handler") ->
     ?DESC("desc_console_handler");
 desc("log_file_handler") ->
     ?DESC("desc_log_file_handler");
-desc("log_audit_handler") ->
-    ?DESC("desc_audit_log_handler");
 desc("log_rotation") ->
     ?DESC("desc_log_rotation");
 desc("log_overload_kill") ->
@@ -1314,6 +1263,7 @@ log_handler_common_confs(Handler, Default) ->
             sc(
                 hoconsc:enum([text, json]),
                 #{
+                    aliases => [format],
                     default => maps:get(formatter, Default, text),
                     desc => ?DESC("common_handler_formatter"),
                     importance => ?IMPORTANCE_MEDIUM

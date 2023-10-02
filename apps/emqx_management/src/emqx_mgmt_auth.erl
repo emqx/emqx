@@ -156,6 +156,8 @@ authorize(<<"/api/v5/users", _/binary>>, _ApiKey, _ApiSecret) ->
     {error, <<"not_allowed">>};
 authorize(<<"/api/v5/api_key", _/binary>>, _ApiKey, _ApiSecret) ->
     {error, <<"not_allowed">>};
+authorize(<<"/api/v5/logout", _/binary>>, _ApiKey, _ApiSecret) ->
+    {error, <<"not_allowed">>};
 authorize(_Path, ApiKey, ApiSecret) ->
     Now = erlang:system_time(second),
     case find_by_api_key(ApiKey) of

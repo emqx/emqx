@@ -33,13 +33,14 @@
     backend/2
 ]).
 
--export([sso_parameters/1, login_reply/2]).
+-export([sso_parameters/1, login_meta/3]).
 
 -define(REDIRECT, 'REDIRECT').
 -define(BAD_USERNAME_OR_PWD, 'BAD_USERNAME_OR_PWD').
 -define(BAD_REQUEST, 'BAD_REQUEST').
 -define(BACKEND_NOT_FOUND, 'BACKEND_NOT_FOUND').
 -define(TAGS, <<"Dashboard Single Sign-On">>).
+-define(MOD_KEY_PATH, [dashboard, sso]).
 
 namespace() -> "dashboard_sso".
 
@@ -132,69 +133,88 @@ schema("/sso/:backend") ->
     }.
 
 fields(backend_status) ->
-    emqx_dashboard_sso_schema:common_backend_schema(emqx_dashboard_sso:types()).
+    emqx_dashboard_sso_schema:common_backend_schema(emqx_dashboard_sso:types()) ++
+        [
+            {running,
+                mk(
+                    boolean(), #{
+                        desc => ?DESC(running)
+                    }
+                )},
+            {last_error,
+                mk(
+                    binary(), #{
+                        desc => ?DESC(last_error)
+                    }
+                )}
+        ].
 
 %%--------------------------------------------------------------------
 %% API
 %%--------------------------------------------------------------------
 
 running(get, _Request) ->
-    SSO = emqx:get_config([dashboard_sso], #{}),
-    {200,
-        lists:filtermap(
-            fun
-                (#{backend := Backend, enable := true}) ->
-                    {true, Backend};
-                (_) ->
-                    false
-            end,
-            maps:values(SSO)
-        )}.
+    {200, emqx_dashboard_sso_manager:running()}.
 
-login(post, #{bindings := #{backend := Backend}} = Request) ->
+login(post, #{bindings := #{backend := Backend}, body := Body} = Request) ->
     case emqx_dashboard_sso_manager:lookup_state(Backend) of
         undefined ->
             {404, #{code => ?BACKEND_NOT_FOUND, message => <<"Backend not found">>}};
         State ->
             case emqx_dashboard_sso:login(provider(Backend), Request, State) of
                 {ok, Role, Token} ->
-                    ?SLOG(info, #{msg => "dashboard_sso_login_successful", request => Request}),
-                    {200, login_reply(Role, Token)};
+                    ?SLOG(info, #{
+                        msg => "dashboard_sso_login_successful",
+                        request => emqx_utils:redact(Request)
+                    }),
+                    Username = maps:get(<<"username">>, Body),
+                    {200, login_meta(Username, Role, Token)};
                 {redirect, Redirect} ->
-                    ?SLOG(info, #{msg => "dashboard_sso_login_redirect", request => Request}),
+                    ?SLOG(info, #{
+                        msg => "dashboard_sso_login_redirect",
+                        request => emqx_utils:redact(Request)
+                    }),
                     Redirect;
                 {error, Reason} ->
                     ?SLOG(info, #{
                         msg => "dashboard_sso_login_failed",
-                        request => Request,
-                        reason => Reason
+                        request => emqx_utils:redact(Request),
+                        reason => emqx_utils:redact(Reason)
                     }),
                     {401, #{code => ?BAD_USERNAME_OR_PWD, message => <<"Auth failed">>}}
             end
     end.
 
 sso(get, _Request) ->
-    SSO = emqx:get_config([dashboard_sso], #{}),
+    SSO = emqx:get_config(?MOD_KEY_PATH, #{}),
     {200,
         lists:map(
-            fun(Backend) ->
-                maps:with([backend, enable], Backend)
+            fun(#{backend := Backend, enable := Enable}) ->
+                Status = emqx_dashboard_sso_manager:get_backend_status(Backend, Enable),
+                Status#{
+                    backend => Backend,
+                    enable => Enable
+                }
             end,
             maps:values(SSO)
         )}.
 
 backend(get, #{bindings := #{backend := Type}}) ->
-    case emqx:get_config([dashboard_sso, Type], undefined) of
+    case emqx:get_config(?MOD_KEY_PATH ++ [Type], undefined) of
         undefined ->
             {404, #{code => ?BACKEND_NOT_FOUND, message => <<"Backend not found">>}};
         Backend ->
             {200, to_json(Backend)}
     end;
 backend(put, #{bindings := #{backend := Backend}, body := Config}) ->
-    ?SLOG(info, #{msg => "Update SSO backend", backend => Backend, config => Config}),
+    ?SLOG(info, #{
+        msg => "update_sso_backend",
+        backend => Backend,
+        config => emqx_utils:redact(Config)
+    }),
     on_backend_update(Backend, Config, fun emqx_dashboard_sso_manager:update/2);
 backend(delete, #{bindings := #{backend := Backend}}) ->
-    ?SLOG(info, #{msg => "Delete SSO backend", backend => Backend}),
+    ?SLOG(info, #{msg => "delete_sso_backend", backend => Backend}),
     handle_backend_update_result(emqx_dashboard_sso_manager:delete(Backend), undefined).
 
 sso_parameters(Params) ->
@@ -251,12 +271,12 @@ handle_backend_update_result(ok, _) ->
     204;
 handle_backend_update_result({error, not_exists}, _) ->
     {404, #{code => ?BACKEND_NOT_FOUND, message => <<"Backend not found">>}};
-handle_backend_update_result({error, already_exists}, _) ->
-    {400, #{code => ?BAD_REQUEST, message => <<"Backend already exists">>}};
 handle_backend_update_result({error, failed_to_load_metadata}, _) ->
     {400, #{code => ?BAD_REQUEST, message => <<"Failed to load metadata">>}};
+handle_backend_update_result({error, Reason}, _) when is_binary(Reason) ->
+    {400, #{code => ?BAD_REQUEST, message => Reason}};
 handle_backend_update_result({error, Reason}, _) ->
-    {400, #{code => ?BAD_REQUEST, message => Reason}}.
+    {400, #{code => ?BAD_REQUEST, message => emqx_dashboard_sso:format(["Reason: ", Reason])}}.
 
 to_json(Data) ->
     emqx_utils_maps:jsonable_map(
@@ -266,8 +286,9 @@ to_json(Data) ->
         end
     ).
 
-login_reply(Role, Token) ->
+login_meta(Username, Role, Token) ->
     #{
+        username => Username,
         role => Role,
         token => Token,
         version => iolist_to_binary(proplists:get_value(version, emqx_sys:info())),

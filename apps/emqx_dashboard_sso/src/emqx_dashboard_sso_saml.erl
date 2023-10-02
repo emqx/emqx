@@ -22,12 +22,20 @@
 -export([
     create/1,
     update/2,
-    destroy/1
+    destroy/1,
+    convert_certs/2
 ]).
 
 -export([login/2, callback/2]).
 
 -dialyzer({nowarn_function, do_create/1}).
+
+-define(RESPHEADERS, #{
+    <<"cache-control">> => <<"no-cache">>,
+    <<"pragma">> => <<"no-cache">>,
+    <<"content-type">> => <<"text/plain">>
+}).
+-define(REDIRECT_BODY, <<"Redirecting...">>).
 
 -define(DIR, <<"saml_sp_certs">>).
 
@@ -93,9 +101,11 @@ desc(_) ->
 %% APIs
 %%------------------------------------------------------------------------------
 
+create(#{enable := false} = _Config) ->
+    {ok, undefined};
 create(#{sp_sign_request := true} = Config) ->
     try
-        do_create(ensure_cert_and_key(Config))
+        do_create(Config)
     catch
         Kind:Error ->
             Msg = failed_to_ensure_cert_and_key,
@@ -103,7 +113,70 @@ create(#{sp_sign_request := true} = Config) ->
             {error, Msg}
     end;
 create(#{sp_sign_request := false} = Config) ->
-    do_create(Config#{key => undefined, certificate => undefined}).
+    do_create(Config#{sp_private_key => undefined, sp_public_key => undefined}).
+
+update(Config0, State) ->
+    destroy(State),
+    create(Config0).
+
+destroy(_State) ->
+    _ = file:del_dir_r(emqx_tls_lib:pem_dir(?DIR)),
+    _ = application:stop(esaml),
+    ok.
+
+login(
+    #{headers := Headers} = _Req,
+    #{sp := SP, idp_meta := #esaml_idp_metadata{login_location = IDP}} = _State
+) ->
+    SignedXml = esaml_sp:generate_authn_request(IDP, SP),
+    Target = esaml_binding:encode_http_redirect(IDP, SignedXml, <<>>),
+    Redirect =
+        case is_msie(Headers) of
+            true ->
+                Html = esaml_binding:encode_http_post(IDP, SignedXml, <<>>),
+                {200, ?RESPHEADERS, Html};
+            false ->
+                {302, ?RESPHEADERS#{<<"location">> => Target}, ?REDIRECT_BODY}
+        end,
+    {redirect, Redirect}.
+
+callback(_Req = #{body := Body}, #{sp := SP, dashboard_addr := DashboardAddr} = _State) ->
+    case do_validate_assertion(SP, fun esaml_util:check_dupe_ets/2, Body) of
+        {ok, Assertion, _RelayState} ->
+            Subject = Assertion#esaml_assertion.subject,
+            Username = iolist_to_binary(Subject#esaml_subject.name),
+            gen_redirect_response(DashboardAddr, Username);
+        {error, Reason0} ->
+            Reason = [
+                "Access denied, assertion failed validation:\n", io_lib:format("~p\n", [Reason0])
+            ],
+            {error, iolist_to_binary(Reason)}
+    end.
+
+convert_certs(
+    Dir,
+    #{<<"sp_sign_request">> := true, <<"sp_public_key">> := Cert, <<"sp_private_key">> := Key} =
+        Conf
+) ->
+    case
+        emqx_tls_lib:ensure_ssl_files(
+            Dir, #{enable => ture, certfile => Cert, keyfile => Key}, #{}
+        )
+    of
+        {ok, #{certfile := CertPath, keyfile := KeyPath}} ->
+            Conf#{<<"sp_public_key">> => bin(CertPath), <<"sp_private_key">> => bin(KeyPath)};
+        {error, Reason} ->
+            ?SLOG(error, #{msg => "failed_to_save_sp_sign_keys", reason => Reason}),
+            throw("Failed to save sp signing key(s)")
+    end;
+convert_certs(_Dir, Conf) ->
+    Conf.
+
+%%------------------------------------------------------------------------------
+%% Internal functions
+%%------------------------------------------------------------------------------
+
+bin(X) -> iolist_to_binary(X).
 
 do_create(
     #{
@@ -145,46 +218,6 @@ do_create(
             {error, Reason}
     end.
 
-update(Config0, State) ->
-    destroy(State),
-    create(Config0).
-
-destroy(_State) ->
-    _ = file:del_dir_r(emqx_tls_lib:pem_dir(?DIR)),
-    _ = application:stop(esaml),
-    ok.
-
-login(
-    #{headers := Headers} = _Req,
-    #{sp := SP, idp_meta := #esaml_idp_metadata{login_location = IDP}} = _State
-) ->
-    SignedXml = esaml_sp:generate_authn_request(IDP, SP),
-    Target = esaml_binding:encode_http_redirect(IDP, SignedXml, <<>>),
-    RespHeaders = #{<<"Cache-Control">> => <<"no-cache">>, <<"Pragma">> => <<"no-cache">>},
-    Redirect =
-        case is_msie(Headers) of
-            true ->
-                Html = esaml_binding:encode_http_post(IDP, SignedXml, <<>>),
-                {200, RespHeaders, Html};
-            false ->
-                RespHeaders1 = RespHeaders#{<<"Location">> => Target},
-                {302, RespHeaders1, <<"Redirecting...">>}
-        end,
-    {redirect, Redirect}.
-
-callback(_Req = #{body := Body}, #{sp := SP} = _State) ->
-    case do_validate_assertion(SP, fun esaml_util:check_dupe_ets/2, Body) of
-        {ok, Assertion, _RelayState} ->
-            Subject = Assertion#esaml_assertion.subject,
-            Username = iolist_to_binary(Subject#esaml_subject.name),
-            ensure_user_exists(Username);
-        {error, Reason0} ->
-            Reason = [
-                "Access denied, assertion failed validation:\n", io_lib:format("~p\n", [Reason0])
-            ],
-            {error, iolist_to_binary(Reason)}
-    end.
-
 do_validate_assertion(SP, DuplicateFun, Body) ->
     PostVals = cow_qs:parse_qs(Body),
     SAMLEncoding = proplists:get_value(<<"SAMLEncoding">>, PostVals),
@@ -200,30 +233,18 @@ do_validate_assertion(SP, DuplicateFun, Body) ->
             end
     end.
 
-%%------------------------------------------------------------------------------
-%% Internal functions
-%%------------------------------------------------------------------------------
-
-ensure_cert_and_key(#{sp_public_key := Cert, sp_private_key := Key} = Config) ->
-    case
-        emqx_tls_lib:ensure_ssl_files(
-            ?DIR, #{enable => ture, certfile => Cert, keyfile => Key}, #{}
-        )
-    of
-        {ok, #{certfile := CertPath, keyfile := KeyPath} = _NSSL} ->
-            Config#{sp_public_key => CertPath, sp_private_key => KeyPath};
-        {error, #{which_options := KeyPath}} ->
-            error({missing_key, lists:flatten(KeyPath)})
+gen_redirect_response(DashboardAddr, Username) ->
+    case ensure_user_exists(Username) of
+        {ok, Role, Token} ->
+            Target = login_redirect_target(DashboardAddr, Username, Role, Token),
+            {redirect, {302, ?RESPHEADERS#{<<"location">> => Target}, ?REDIRECT_BODY}};
+        {error, Reason} ->
+            {error, Reason}
     end.
 
-maybe_load_cert_or_key(undefined, _) ->
-    undefined;
-maybe_load_cert_or_key(Path, Func) ->
-    Func(Path).
-
-is_msie(Headers) ->
-    UA = maps:get(<<"user-agent">>, Headers, <<"">>),
-    not (binary:match(UA, <<"MSIE">>) =:= nomatch).
+%%------------------------------------------------------------------------------
+%% Helpers functions
+%%------------------------------------------------------------------------------
 
 %% TODO: unify with emqx_dashboard_sso_manager:ensure_user_exists/1
 ensure_user_exists(Username) ->
@@ -238,3 +259,19 @@ ensure_user_exists(Username) ->
                     Error
             end
     end.
+
+maybe_load_cert_or_key(undefined, _) ->
+    undefined;
+maybe_load_cert_or_key(Path, Func) ->
+    Func(Path).
+
+is_msie(Headers) ->
+    UA = maps:get(<<"user-agent">>, Headers, <<"">>),
+    not (binary:match(UA, <<"MSIE">>) =:= nomatch).
+
+login_redirect_target(DashboardAddr, Username, Role, Token) ->
+    LoginMeta = emqx_dashboard_sso_api:login_meta(Username, Role, Token),
+    <<DashboardAddr/binary, "/?login_meta=", (base64_login_meta(LoginMeta))/binary>>.
+
+base64_login_meta(LoginMeta) ->
+    base64:encode(emqx_utils_json:encode(LoginMeta)).

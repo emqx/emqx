@@ -238,7 +238,6 @@ t_clear_certs(Config) when is_list(Config) ->
     NewConf2 = emqx_utils_maps:deep_put(
         [<<"ssl_options">>, <<"keyfile">>], NewConf, cert_file("keyfile")
     ),
-
     _ = request(post, NewPath, [], NewConf2),
     ListResult1 = list_pem_dir("ssl", "clear"),
     ?assertMatch({ok, [_, _]}, ListResult1),
@@ -251,7 +250,7 @@ t_clear_certs(Config) when is_list(Config) ->
     _ = emqx_tls_certfile_gc:force(),
     ListResult2 = list_pem_dir("ssl", "clear"),
 
-    %% make sure the old cret file is deleted
+    %% make sure the old cert file is deleted
     ?assertMatch({ok, [_, _]}, ListResult2),
 
     {ok, ResultList1} = ListResult1,
@@ -273,6 +272,17 @@ t_clear_certs(Config) when is_list(Config) ->
     _ = delete(NewPath),
     _ = emqx_tls_certfile_gc:force(),
     ?assertMatch({error, enoent}, list_pem_dir("ssl", "clear")),
+
+    %% test create listeners without id in path
+    NewPath1 = emqx_mgmt_api_test_util:api_path(["listeners"]),
+    NewConf3 = maps:remove(<<"id">>, NewConf2#{<<"name">> => <<"clear">>}),
+    ?assertNotMatch({error, {"HTTP/1.1", 400, _}}, request(post, NewPath1, [], NewConf3)),
+    ListResult3 = list_pem_dir("ssl", "clear"),
+    ?assertMatch({ok, [_, _]}, ListResult3),
+    _ = delete(NewPath),
+    _ = emqx_tls_certfile_gc:force(),
+    ?assertMatch({error, enoent}, list_pem_dir("ssl", "clear")),
+
     ok.
 
 get_tcp_listeners(Node) ->

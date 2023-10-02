@@ -8,28 +8,42 @@
 -compile(export_all).
 
 -include_lib("emqx_dashboard/include/emqx_dashboard.hrl").
+-include_lib("snabbkaffe/include/snabbkaffe.hrl").
 -include_lib("eunit/include/eunit.hrl").
 
 -define(LDAP_HOST, "ldap").
 -define(LDAP_DEFAULT_PORT, 389).
--define(LDAP_USER, <<"mqttuser0001">>).
--define(LDAP_USER_PASSWORD, <<"mqttuser0001">>).
+-define(LDAP_USER, <<"viewer1">>).
+-define(LDAP_USER_PASSWORD, <<"viewer1">>).
+-define(LDAP_BASE_DN, <<"ou=dashboard,dc=emqx,dc=io">>).
+-define(LDAP_FILTER_WITH_UID, <<"(uid=${username})">>).
+%% there are more than one users in this group
+-define(LDAP_FILTER_WITH_GROUP, <<"(ugroup=group1)">>).
+
+-define(MOD_TAB, emqx_dashboard_sso).
+-define(MOD_KEY_PATH, [dashboard, sso, ldap]).
+-define(RESOURCE_GROUP, <<"emqx_dashboard_sso">>).
+
 -import(emqx_mgmt_api_test_util, [request/2, request/3, uri/1, request_api/3]).
 
+%% order matters
 all() ->
     [
+        t_bad_create,
         t_create,
         t_update,
         t_get,
         t_login_with_bad,
         t_first_login,
         t_next_login,
+        t_more_than_one_user_matched,
+        t_bad_update,
         t_delete
     ].
 
 init_per_suite(Config) ->
     _ = application:load(emqx_conf),
-    emqx_config:save_schema_mod_and_names(emqx_dashboard_sso_schema),
+    emqx_config:save_schema_mod_and_names(emqx_dashboard_schema),
     emqx_mgmt_api_test_util:init_suite([emqx_dashboard, emqx_dashboard_sso]),
     Config.
 
@@ -38,12 +52,13 @@ end_per_suite(_Config) ->
     [emqx_dashboard_admin:remove_user(Name) || #{username := Name} <- All],
     emqx_mgmt_api_test_util:end_suite([emqx_conf, emqx_dashboard_sso]).
 
-init_per_testcase(_, Config) ->
+init_per_testcase(Case, Config) ->
     {ok, _} = emqx_cluster_rpc:start_link(),
+    ?MODULE:Case({init, Config}),
     Config.
 
-end_per_testcase(Case, _) ->
-    Case =:= t_delete_backend andalso emqx_dashboard_sso_manager:delete(ldap),
+end_per_testcase(Case, Config) ->
+    ?MODULE:Case({'end', Config}),
     case erlang:whereis(node()) of
         undefined ->
             ok;
@@ -53,16 +68,66 @@ end_per_testcase(Case, _) ->
     end,
     ok.
 
+t_bad_create({init, Config}) ->
+    Config;
+t_bad_create({'end', _}) ->
+    ok;
+t_bad_create(_) ->
+    Path = uri(["sso", "ldap"]),
+    ?assertMatch(
+        {ok, 400, _},
+        request(
+            put,
+            Path,
+            ldap_config(#{
+                <<"username">> => <<"invalid">>,
+                <<"enable">> => true,
+                <<"request_timeout">> => <<"1s">>
+            })
+        )
+    ),
+    ?assertMatch(#{backend := ldap}, emqx:get_config(?MOD_KEY_PATH, undefined)),
+    check_running([]),
+    ?assertMatch(
+        [#{backend := <<"ldap">>, enable := true, running := false, last_error := _}], get_sso()
+    ),
+
+    emqx_dashboard_sso_manager:delete(ldap),
+
+    ?retry(
+        _Interval = 500,
+        _NAttempts = 10,
+        ?assertMatch([], emqx_resource_manager:list_group(?RESOURCE_GROUP))
+    ),
+    ok.
+
+t_create({init, Config}) ->
+    Config;
+t_create({'end', _Config}) ->
+    ok;
 t_create(_) ->
     check_running([]),
     Path = uri(["sso", "ldap"]),
     {ok, 200, Result} = request(put, Path, ldap_config()),
     check_running([]),
+
+    ?assertMatch(#{backend := ldap}, emqx:get_config(?MOD_KEY_PATH, undefined)),
+    ?assertMatch([_], ets:tab2list(?MOD_TAB)),
+    ?retry(
+        _Interval = 500,
+        _NAttempts = 10,
+        ?assertMatch([_], emqx_resource_manager:list_group(?RESOURCE_GROUP))
+    ),
+
     ?assertMatch(#{backend := <<"ldap">>, enable := false}, decode_json(Result)),
     ?assertMatch([#{backend := <<"ldap">>, enable := false}], get_sso()),
     ?assertNotEqual(undefined, emqx_dashboard_sso_manager:lookup_state(ldap)),
     ok.
 
+t_update({init, Config}) ->
+    Config;
+t_update({'end', _Config}) ->
+    ok;
 t_update(_) ->
     Path = uri(["sso", "ldap"]),
     {ok, 200, Result} = request(put, Path, ldap_config(#{<<"enable">> => <<"true">>})),
@@ -72,6 +137,10 @@ t_update(_) ->
     ?assertNotEqual(undefined, emqx_dashboard_sso_manager:lookup_state(ldap)),
     ok.
 
+t_get({init, Config}) ->
+    Config;
+t_get({'end', _Config}) ->
+    ok;
 t_get(_) ->
     Path = uri(["sso", "ldap"]),
     {ok, 200, Result} = request(get, Path),
@@ -81,6 +150,10 @@ t_get(_) ->
     {ok, 400, _} = request(get, NotExists),
     ok.
 
+t_login_with_bad({init, Config}) ->
+    Config;
+t_login_with_bad({'end', _Config}) ->
+    ok;
 t_login_with_bad(_) ->
     Path = uri(["sso", "login", "ldap"]),
     Req = #{
@@ -92,6 +165,10 @@ t_login_with_bad(_) ->
     ?assertMatch(#{code := <<"BAD_USERNAME_OR_PWD">>}, decode_json(Result)),
     ok.
 
+t_first_login({init, Config}) ->
+    Config;
+t_first_login({'end', _Config}) ->
+    ok;
 t_first_login(_) ->
     Path = uri(["sso", "login", "ldap"]),
     Req = #{
@@ -108,6 +185,10 @@ t_first_login(_) ->
     ),
     ok.
 
+t_next_login({init, Config}) ->
+    Config;
+t_next_login({'end', _Config}) ->
+    ok;
 t_next_login(_) ->
     Path = uri(["sso", "login", "ldap"]),
     Req = #{
@@ -119,6 +200,63 @@ t_next_login(_) ->
     ?assertMatch(#{license := _, token := _}, decode_json(Result)),
     ok.
 
+t_more_than_one_user_matched({init, Config}) ->
+    emqx_logger:set_primary_log_level(error),
+    Config;
+t_more_than_one_user_matched({'end', _Config}) ->
+    %% restore default config
+    Path = uri(["sso", "ldap"]),
+    {ok, 200, _} = request(put, Path, ldap_config(#{<<"enable">> => true})),
+    ok;
+t_more_than_one_user_matched(_) ->
+    Path = uri(["sso", "ldap"]),
+    %% change to query with ugroup=group1
+    NewConfig = ldap_config(#{
+        <<"enable">> => true,
+        <<"base_dn">> => ?LDAP_BASE_DN,
+        <<"filter">> => ?LDAP_FILTER_WITH_GROUP
+    }),
+    ?assertMatch({ok, 200, _}, request(put, Path, NewConfig)),
+    check_running([<<"ldap">>]),
+    Path1 = uri(["sso", "login", "ldap"]),
+    Req = #{
+        <<"backend">> => <<"ldap">>,
+        <<"username">> => ?LDAP_USER,
+        <<"password">> => ?LDAP_USER_PASSWORD
+    },
+    {ok, 401, Result} = request(post, Path1, Req),
+    ?assertMatch(#{code := <<"BAD_USERNAME_OR_PWD">>}, decode_json(Result)),
+    ok.
+
+t_bad_update({init, Config}) ->
+    Config;
+t_bad_update({'end', _Config}) ->
+    ok;
+t_bad_update(_) ->
+    Path = uri(["sso", "ldap"]),
+    ?assertMatch(
+        {ok, 400, _},
+        request(
+            put,
+            Path,
+            ldap_config(#{
+                <<"username">> => <<"invalid">>,
+                <<"enable">> => true,
+                <<"request_timeout">> => <<"1s">>
+            })
+        )
+    ),
+    ?assertMatch(#{backend := ldap}, emqx:get_config(?MOD_KEY_PATH, undefined)),
+    check_running([]),
+    ?assertMatch(
+        [#{backend := <<"ldap">>, enable := true, running := false, last_error := _}], get_sso()
+    ),
+    ok.
+
+t_delete({init, Config}) ->
+    Config;
+t_delete({'end', _Config}) ->
+    ok;
 t_delete(_) ->
     Path = uri(["sso", "ldap"]),
     ?assertMatch({ok, 204, _}, request(delete, Path)),
@@ -146,8 +284,8 @@ ldap_config(Override) ->
             <<"backend">> => <<"ldap">>,
             <<"enable">> => <<"false">>,
             <<"server">> => ldap_server(),
-            <<"base_dn">> => <<"uid=${username},ou=testdevice,dc=emqx,dc=io">>,
-            <<"filter">> => <<"(objectClass=mqttUser)">>,
+            <<"base_dn">> => ?LDAP_BASE_DN,
+            <<"filter">> => ?LDAP_FILTER_WITH_UID,
             <<"username">> => <<"cn=root,dc=emqx,dc=io">>,
             <<"password">> => <<"public">>,
             <<"pool_size">> => 8

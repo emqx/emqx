@@ -51,7 +51,8 @@
 -type config() :: #{
     depth => pos_integer() | unlimited,
     report_cb => logger:report_cb(),
-    single_line => boolean()
+    single_line => boolean(),
+    chars_limit => unlimited | pos_integer()
 }.
 
 -define(IS_STRING(String), (is_list(String) orelse is_binary(String))).
@@ -64,19 +65,17 @@
 best_effort_json(Input) ->
     best_effort_json(Input, [pretty, force_utf8]).
 best_effort_json(Input, Opts) ->
-    Config = #{depth => unlimited, single_line => true},
+    Config = #{depth => unlimited, single_line => true, chars_limit => unlimited},
     JsonReady = best_effort_json_obj(Input, Config),
     emqx_utils_json:encode(JsonReady, Opts).
 
 -spec format(logger:log_event(), config()) -> iodata().
-format(#{level := Level, msg := Msg, meta := Meta} = Event, Config0) when is_map(Config0) ->
+format(#{level := Level, msg := Msg, meta := Meta}, Config0) when is_map(Config0) ->
     Config = add_default_config(Config0),
-    MsgBin = format(Msg, Meta#{level => Level}, Config),
-    logger_formatter:format(Event#{msg => {string, MsgBin}}, Config).
+    [format(Msg, Meta#{level => Level}, Config), "\n"].
 
-format(Msg, Meta0, Config) ->
-    Meta = maps:without([time, level], Meta0),
-    Data0 =
+format(Msg, Meta, Config) ->
+    Data =
         try maybe_format_msg(Msg, Meta, Config) of
             Map when is_map(Map) ->
                 maps:merge(Map, Meta);
@@ -92,9 +91,10 @@ format(Msg, Meta0, Config) ->
                     fmt_stacktrace => S
                 }
         end,
-    Data = maps:without([report_cb], Data0),
-    emqx_utils_json:encode(json_obj(Data, Config)).
+    emqx_utils_json:encode(json_obj_root(Data, Config)).
 
+maybe_format_msg(undefined, _Meta, _Config) ->
+    #{};
 maybe_format_msg({report, Report} = Msg, #{report_cb := Cb} = Meta, Config) ->
     case is_map(Report) andalso Cb =:= ?DEFAULT_FORMATTER of
         true ->
@@ -128,7 +128,7 @@ format_msg({report, Report}, #{report_cb := Fun} = Meta, Config) when is_functio
     end;
 format_msg({report, Report}, #{report_cb := Fun}, Config) when is_function(Fun, 2) ->
     %% a format callback function of arity 2
-    case Fun(Report, maps:with([depth, single_line], Config)) of
+    case Fun(Report, maps:with([depth, single_line, chars_limit], Config)) of
         Chardata when ?IS_STRING(Chardata) ->
             try
                 unicode:characters_to_binary(Chardata, utf8)
@@ -152,17 +152,22 @@ format_msg({Fmt, Args}, _Meta, Config) ->
 
 do_format_msg(Format0, Args, #{
     depth := Depth,
-    single_line := SingleLine
+    single_line := SingleLine,
+    chars_limit := Limit
 }) ->
+    Opts = chars_limit_to_opts(Limit),
     Format1 = io_lib:scan_format(Format0, Args),
     Format = reformat(Format1, Depth, SingleLine),
-    Text0 = io_lib:build_text(Format, []),
+    Text0 = io_lib:build_text(Format, Opts),
     Text =
         case SingleLine of
             true -> re:replace(Text0, ",?\r?\n\s*", ", ", [{return, list}, global, unicode]);
             false -> Text0
         end,
     trim(unicode:characters_to_binary(Text, utf8)).
+
+chars_limit_to_opts(unlimited) -> [];
+chars_limit_to_opts(Limit) -> [{chars_limit, Limit}].
 
 %% Get rid of the leading spaces.
 %% leave alone the trailing spaces.
@@ -221,10 +226,6 @@ best_effort_json_obj(Map, Config) ->
             do_format_msg("~p", [Map], Config)
     end.
 
-json([], _) ->
-    "";
-json(<<"">>, _) ->
-    "\"\"";
 json(A, _) when is_atom(A) -> atom_to_binary(A, utf8);
 json(I, _) when is_integer(I) -> I;
 json(F, _) when is_float(F) -> F;
@@ -233,52 +234,76 @@ json(P, C) when is_port(P) -> json(port_to_list(P), C);
 json(F, C) when is_function(F) -> json(erlang:fun_to_list(F), C);
 json(B, Config) when is_binary(B) ->
     best_effort_unicode(B, Config);
-json(L, Config) when is_list(L), is_integer(hd(L)) ->
-    best_effort_unicode(L, Config);
 json(M, Config) when is_list(M), is_tuple(hd(M)), tuple_size(hd(M)) =:= 2 ->
     best_effort_json_obj(M, Config);
 json(L, Config) when is_list(L) ->
-    [json(I, Config) || I <- L];
+    case lists:all(fun erlang:is_binary/1, L) of
+        true ->
+            %% string array
+            L;
+        false ->
+            try unicode:characters_to_binary(L, utf8) of
+                B when is_binary(B) -> B;
+                _ -> [json(I, Config) || I <- L]
+            catch
+                _:_ ->
+                    [json(I, Config) || I <- L]
+            end
+    end;
 json(Map, Config) when is_map(Map) ->
     best_effort_json_obj(Map, Config);
 json(Term, Config) ->
     do_format_msg("~p", [Term], Config).
 
+json_obj_root(Data0, Config) ->
+    Time = maps:get(time, Data0, undefined),
+    Level = maps:get(level, Data0, undefined),
+    Msg1 =
+        case maps:get(msg, Data0, undefined) of
+            undefined ->
+                maps:get('$kind', Data0, undefined);
+            Msg0 ->
+                Msg0
+        end,
+    Msg =
+        case Msg1 of
+            undefined ->
+                undefined;
+            _ ->
+                json(Msg1, Config)
+        end,
+    Mfal = emqx_utils:format_mfal(Data0),
+    Data =
+        maps:fold(
+            fun(K, V, D) ->
+                {K1, V1} = json_kv(K, V, Config),
+                [{K1, V1} | D]
+            end,
+            [],
+            maps:without(
+                [time, gl, file, report_cb, msg, '$kind', mfa, level, line, is_trace], Data0
+            )
+        ),
+    lists:filter(
+        fun({_, V}) -> V =/= undefined end,
+        [{time, Time}, {level, Level}, {msg, Msg}, {mfa, Mfal}]
+    ) ++ Data.
+
 json_obj(Data, Config) ->
     maps:fold(
         fun(K, V, D) ->
-            json_kv(K, V, D, Config)
+            {K1, V1} = json_kv(K, V, Config),
+            maps:put(K1, V1, D)
         end,
         maps:new(),
         Data
     ).
 
-json_kv(mfa, {M, F, A}, Data, _Config) ->
-    maps:put(
-        mfa,
-        <<
-            (atom_to_binary(M, utf8))/binary,
-            $:,
-            (atom_to_binary(F, utf8))/binary,
-            $/,
-            (integer_to_binary(A))/binary
-        >>,
-        Data
-    );
-%% snabbkaffe
-json_kv('$kind', Kind, Data, Config) ->
-    maps:put(msg, json(Kind, Config), Data);
-json_kv(gl, _, Data, _Config) ->
-    %% drop gl because it's not interesting
-    Data;
-json_kv(file, _, Data, _Config) ->
-    %% drop 'file' because we have mfa
-    Data;
-json_kv(K0, V, Data, Config) ->
+json_kv(K0, V, Config) ->
     K = json_key(K0),
     case is_map(V) of
-        true -> maps:put(json(K, Config), best_effort_json_obj(V, Config), Data);
-        false -> maps:put(json(K, Config), json(V, Config), Data)
+        true -> {K, best_effort_json_obj(V, Config)};
+        false -> {K, json(V, Config)}
     end.
 
 json_key(A) when is_atom(A) -> json_key(atom_to_binary(A, utf8));
@@ -373,23 +398,83 @@ p_config() ->
     proper_types:shrink_list(
         [
             {depth, p_limit()},
-            {single_line, proper_types:boolean()}
+            {single_line, proper_types:boolean()},
+            {chars_limit, p_limit()}
         ]
     ).
 
+%% NOTE: pretty-printing format is asserted in the test
+%% This affects the CLI output format, consult the team before changing
+%% the format.
 best_effort_json_test() ->
     ?assertEqual(
         <<"{\n  \n}">>,
-        emqx_logger_jsonfmt:best_effort_json([])
+        best_effort_json([])
     ),
     ?assertEqual(
         <<"{\n  \"key\" : [\n    \n  ]\n}">>,
-        emqx_logger_jsonfmt:best_effort_json(#{key => []})
+        best_effort_json(#{key => []})
     ),
     ?assertEqual(
         <<"[\n  {\n    \"key\" : [\n      \n    ]\n  }\n]">>,
-        emqx_logger_jsonfmt:best_effort_json([#{key => []}])
+        best_effort_json([#{key => []}])
     ),
     ok.
+
+config() ->
+    #{
+        chars_limit => unlimited,
+        depth => unlimited,
+        single_line => true
+    }.
+
+make_log(Report) ->
+    #{
+        level => info,
+        msg => Report,
+        meta => #{time => 1111, report_cb => ?DEFAULT_FORMATTER}
+    }.
+
+ensure_json_output_test() ->
+    JSON = format(make_log({report, #{foo => bar}}), config()),
+    ?assert(is_map(emqx_utils_json:decode(JSON))),
+    ok.
+
+chars_limit_not_applied_on_raw_map_fields_test() ->
+    Limit = 32,
+    Len = 100,
+    LongStr = lists:duplicate(Len, $a),
+    Config0 = config(),
+    Config = Config0#{
+        chars_limit => Limit
+    },
+    JSON = format(make_log({report, #{foo => LongStr}}), Config),
+    #{<<"foo">> := LongStr1} = emqx_utils_json:decode(JSON),
+    ?assertEqual(Len, size(LongStr1)),
+    ok.
+
+chars_limit_applied_on_format_result_test() ->
+    Limit = 32,
+    Len = 100,
+    LongStr = lists:duplicate(Len, $a),
+    Config0 = config(),
+    Config = Config0#{
+        chars_limit => Limit
+    },
+    JSON = format(make_log({string, LongStr}), Config),
+    #{<<"msg">> := LongStr1} = emqx_utils_json:decode(JSON),
+    ?assertEqual(Limit, size(LongStr1)),
+    ok.
+
+string_array_test() ->
+    Array = #{<<"arr">> => [<<"a">>, <<"b">>]},
+    Encoded = emqx_utils_json:encode(json(Array, config())),
+    ?assertEqual(Array, emqx_utils_json:decode(Encoded)).
+
+iolist_test() ->
+    Iolist = #{iolist => ["a", ["b"]]},
+    Concat = #{<<"iolist">> => <<"ab">>},
+    Encoded = emqx_utils_json:encode(json(Iolist, config())),
+    ?assertEqual(Concat, emqx_utils_json:decode(Encoded)).
 
 -endif.

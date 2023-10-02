@@ -55,7 +55,7 @@ jobs:
         cd apps/emqx
         ./rebar3 xref
         ./rebar3 dialyzer
-        ./rebar3 eunit -v
+        ./rebar3 eunit -v --name 'eunit@127.0.0.1'
         ./rebar3 as standalone_test ct --name 'test@127.0.0.1' -v --readable=true
         ./rebar3 proper -d test/props
     - uses: actions/upload-artifact@v3

@@ -145,8 +145,8 @@ run_command(Cmd, Args) when is_atom(Cmd) ->
 
     audit_log(
         audit_level(Result, Duration),
-        "from_cli",
-        #{duration_ms => Duration, result => Result, cmd => Cmd, args => Args, node => node()}
+        cli,
+        #{duration_ms => Duration, cmd => Cmd, args => Args, node => node()}
     ),
     Result.
 
@@ -350,8 +350,6 @@ audit_log(Level, From, Log) ->
 
 -define(TOO_SLOW, 3000).
 
-audit_level(ok, Duration) when Duration >= ?TOO_SLOW -> warning;
-audit_level({ok, _}, Duration) when Duration >= ?TOO_SLOW -> warning;
 audit_level(ok, _Duration) -> info;
 audit_level({ok, _}, _Duration) -> info;
 audit_level(_, _) -> error.

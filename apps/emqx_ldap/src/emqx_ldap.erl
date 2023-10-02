@@ -74,7 +74,7 @@ fields(config) ->
         {request_timeout,
             ?HOCON(emqx_schema:timeout_duration_ms(), #{
                 desc => ?DESC(request_timeout),
-                default => <<"5s">>
+                default => <<"10s">>
             })},
         {ssl,
             ?HOCON(?R_REF(?MODULE, ssl), #{
@@ -158,7 +158,7 @@ on_start(
         {error, Reason} ->
             ?tp(
                 ldap_connector_start_failed,
-                #{error => Reason}
+                #{error => emqx_utils:redact(Reason)}
             ),
             {error, Reason}
     end.
@@ -177,7 +177,7 @@ on_query(InstId, {query, Data, Attrs}, State) ->
     on_query(InstId, {query, Data}, [{attributes, Attrs}], State);
 on_query(InstId, {query, Data, Attrs, Timeout}, State) ->
     on_query(InstId, {query, Data}, [{attributes, Attrs}, {timeout, Timeout}], State);
-on_query(InstId, {bind, _Data} = Req, State) ->
+on_query(InstId, {bind, _DN, _Data} = Req, State) ->
     emqx_ldap_bind_worker:on_query(InstId, Req, State).
 
 on_get_status(_InstId, #{pool_name := PoolName} = _State) ->
@@ -248,8 +248,8 @@ do_ldap_query(
     SearchOptions,
     #{pool_name := PoolName} = State
 ) ->
-    LogMeta = #{connector => InstId, search => SearchOptions, state => State},
-    ?TRACE("QUERY", "ldap_connector_received", LogMeta),
+    LogMeta = #{connector => InstId, search => SearchOptions, state => emqx_utils:redact(State)},
+    ?TRACE("QUERY", "ldap_connector_received_query", LogMeta),
     case
         ecpool:pick_and_do(
             PoolName,
@@ -262,13 +262,36 @@ do_ldap_query(
                 ldap_connector_query_return,
                 #{result => Result}
             ),
-            {ok, Result#eldap_search_result.entries};
+            Entries = Result#eldap_search_result.entries,
+            Count = length(Entries),
+            case Count =< 1 of
+                true ->
+                    {ok, Entries};
+                false ->
+                    %% Accept only a single exact match.
+                    %% Multiple matches likely indicate:
+                    %% 1. A misconfiguration in EMQX, allowing overly broad query conditions.
+                    %% 2. Indistinguishable entries in the LDAP database.
+                    %% Neither scenario should be allowed to proceed.
+                    Msg = "ldap_query_found_more_than_one_match",
+                    ?SLOG(
+                        error,
+                        LogMeta#{
+                            msg => "ldap_query_found_more_than_one_match",
+                            count => length(Entries)
+                        }
+                    ),
+                    {error, {unrecoverable_error, Msg}}
+            end;
         {error, 'noSuchObject'} ->
             {ok, []};
         {error, Reason} ->
             ?SLOG(
                 error,
-                LogMeta#{msg => "ldap_connector_do_query_failed", reason => Reason}
+                LogMeta#{
+                    msg => "ldap_connector_do_query_failed",
+                    reason => emqx_utils:redact(Reason)
+                }
             ),
             {error, {unrecoverable_error, Reason}}
     end.

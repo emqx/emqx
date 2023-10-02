@@ -233,56 +233,55 @@ if [ -d "${CHECKS_DIR}" ]; then
     done
 fi
 
-generate_changelog () {
-    local from_tag
-    from_tag="${PREV_TAG:-}"
-    if [[ -z $from_tag ]]; then
-        from_tag="$(./scripts/find-prev-rel-tag.sh "$PROFILE")"
-    fi
-    # num_en=$(git diff --name-only -a "${from_tag}...HEAD" "changes" | grep -c '.en.md')
-    # num_zh=$(git diff --name-only -a "${from_tag}...HEAD" "changes" | grep -c '.zh.md')
-    # if [ "$num_en" -ne "$num_zh" ]; then
-    #     echo "Number of English and Chinese changelog files added since ${from_tag} do not match."
-    #     exit 1
-    # fi
-    ./scripts/rel/format-changelog.sh -b "${from_tag}" -l 'en' -v "$TAG" > "changes/${TAG}.en.md"
-    # ./scripts/rel/format-changelog.sh -b "${from_tag}" -l 'zh' -v "$TAG" > "changes/${TAG}.zh.md"
-    git add changes/"${TAG}".*.md
-    if [ -n "$(git diff --staged --stat)" ]; then
-        git commit -m "docs: Generate changelog for ${TAG}"
-    else
-        logmsg "No changelog update."
-    fi
-}
-
 check_changelog() {
     local file="changes/${TAG}.en.md"
     if [ ! -f  "$file" ]; then
         logerr "Changelog file $file is missing."
+        logerr "Generate it with command: ./scripts/rel/format-changelog.sh -b ${PREV_TAG} -v ${TAG} > ${file}"
         exit 1
     fi
 }
 
+check_bpapi() {
+    local fname
+    case "$TAG" in
+        *.0)
+            fname="$(echo "$TAG" | sed 's/^e//; s/\.0$//')"
+            fpath="apps/emqx/test/emqx_static_checks_data/${fname}.bpapi"
+            logmsg "Checking $fpath"
+            if [ ! -f "$fpath" ]; then
+                logerr "BPAPI file missing: $fpath"
+                exit 1
+            fi
+            ;;
+        *)
+            true
+            ;;
+    esac
+}
+
+case "$TAG" in
+    *rc*)
+        true
+        ;;
+    *alpha*)
+        true
+        ;;
+    *beta*)
+        true
+        ;;
+    e*)
+        check_bpapi
+        check_changelog
+        ;;
+    v*)
+        check_changelog
+        ;;
+esac
+
 if [ "$DRYRUN" = 'yes' ]; then
     logmsg "Release tag is ready to be created with command: git tag $TAG"
 else
-    case "$TAG" in
-        *rc*)
-            true
-            ;;
-        *alpha*)
-            true
-            ;;
-        *beta*)
-            true
-            ;;
-        e*)
-            check_changelog
-            ;;
-        v*)
-            generate_changelog
-            ;;
-    esac
     git tag "$TAG"
     logmsg "$TAG is created OK."
     logwarn "Don't forget to push the tag!"

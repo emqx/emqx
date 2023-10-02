@@ -2007,6 +2007,8 @@ trim_conninfo(ConnInfo) ->
             %% NOTE
             %% We remove the peercert because it duplicates what's stored in the socket,
             %% otherwise it wastes about 1KB per connection.
+            %% Retrieve with: esockd_transport:peercert(Socket).
+            %% Decode with APIs exported from esockd_peercert and esockd_ssl
             peercert
         ],
         ConnInfo

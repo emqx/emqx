@@ -91,14 +91,14 @@ refs() ->
 create(_AuthenticatorID, Config) ->
     do_create(?MODULE, Config).
 
-do_create(Module, Config0) ->
+do_create(Module, Config) ->
     ResourceId = emqx_authn_utils:make_resource_id(Module),
-    {Config, State} = parse_config(Config0),
+    State = parse_config(Config),
     {ok, _Data} = emqx_authn_utils:create_resource(ResourceId, emqx_ldap, Config),
     {ok, State#{resource_id => ResourceId}}.
 
-update(Config0, #{resource_id := ResourceId} = _State) ->
-    {Config, NState} = parse_config(Config0),
+update(Config, #{resource_id := ResourceId} = _State) ->
+    NState = parse_config(Config),
     case emqx_authn_utils:update_resource(emqx_ldap, Config, ResourceId) of
         {error, Reason} ->
             error({load_config_error, Reason});
@@ -131,7 +131,7 @@ authenticate(
     of
         {ok, []} ->
             ignore;
-        {ok, [Entry | _]} ->
+        {ok, [Entry]} ->
             is_enabled(Password, Entry, State);
         {error, Reason} ->
             ?TRACE_AUTHN_PROVIDER(error, "ldap_query_failed", #{
@@ -143,19 +143,7 @@ authenticate(
     end.
 
 parse_config(Config) ->
-    State = lists:foldl(
-        fun(Key, Acc) ->
-            case maps:find(Key, Config) of
-                {ok, Value} when is_binary(Value) ->
-                    Acc#{Key := erlang:binary_to_list(Value)};
-                _ ->
-                    Acc
-            end
-        end,
-        Config,
-        [password_attribute, is_superuser_attribute, query_timeout]
-    ),
-    {Config, State}.
+    maps:with([query_timeout, password_attribute, is_superuser_attribute], Config).
 
 %% To compatible v4.x
 is_enabled(Password, #eldap_entry{attributes = Attributes} = Entry, State) ->

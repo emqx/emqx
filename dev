@@ -416,7 +416,7 @@ boot() {
 gen_tmp_node_name() {
     local rnd
     rnd="$(od -t u -N 4 /dev/urandom | head -n1 | awk '{print $2 % 1000}')"
-    echo "remsh${rnd}-$EMQX_NODE_NAME}"
+    echo "remsh${rnd}-${EMQX_NODE_NAME}"
 }
 
 remsh() {
