@@ -60,7 +60,9 @@ node_etc_dir.label:
 cluster_proto_dist.desc:
 """The Erlang distribution protocol for the cluster.<br/>
 - inet_tcp: IPv4 TCP <br/>
-- inet_tls: IPv4 TLS, works together with <code>etc/ssl_dist.conf</code>"""
+- inet_tls: IPv4 TLS, works together with <code>etc/ssl_dist.conf</code> <br/>
+- inet6_tcp: IPv6 TCP <br/>
+- inet6_tls: IPv6 TLS, works together with <code>etc/ssl_dist.conf</code>"""
 
 cluster_proto_dist.label:
 """Cluster Protocol Distribution"""
@@ -191,6 +193,13 @@ rpc_insecure_fallback.desc:
 
 rpc_insecure_fallback.label:
 """RPC insecure fallback"""
+
+rpc_listen_address.desc:
+"""Specify which IP address the RPC server should listen on.
+For example <code>"0.0.0.0"</code> (default) for IPv4 and <code>"::"</code> for IPv6"""
+
+rpc_listen_address.label:
+"""RPC Listen Address"""
 
 cluster_mcast_buffer.desc:
 """Size of the user-level buffer."""
