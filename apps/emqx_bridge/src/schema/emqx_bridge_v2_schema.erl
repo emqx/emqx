@@ -13,7 +13,7 @@
 %% See the License for the specific language governing permissions and
 %% limitations under the License.
 %%--------------------------------------------------------------------
--module(emqx_action_schema).
+-module(emqx_bridge_v2_schema).
 
 -include_lib("typerefl/include/types.hrl").
 -include_lib("hocon/include/hoconsc.hrl").
@@ -28,10 +28,10 @@
 enterprise_fields_actions() ->
     %% We *must* do this to ensure the module is really loaded, especially when we use
     %% `call_hocon' from `nodetool' to generate initial configurations.
-    _ = emqx_action_enterprise:module_info(),
-    case erlang:function_exported(emqx_action_enterprise, fields, 1) of
+    _ = emqx_bridge_v2_enterprise:module_info(),
+    case erlang:function_exported(emqx_bridge_v2_enterprise, fields, 1) of
         true ->
-            emqx_action_enterprise:fields(bridges_v2);
+            emqx_bridge_v2_enterprise:fields(bridges_v2);
         false ->
             []
     end.
