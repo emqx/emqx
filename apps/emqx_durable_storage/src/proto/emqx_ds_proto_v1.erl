@@ -34,15 +34,15 @@ create_shard(Node, Shard, Opts) ->
 
 -spec get_streams(node(), emqx_ds_replication_layer:shard(), emqx_ds:topic_filter(), emqx_ds:time()) ->
           [emqx_ds_replication_layer:stream()].
-get_streams(Shard, TopicFilter, Time) ->
+get_streams(Node, Shard, TopicFilter, Time) ->
     erpc:call(Node, emqx_ds_replication_layer, do_get_streams_v1, [Shard, TopicFilter, Time]).
 
 -spec open_iterator(node(), emqx_ds_replication_layer:shard(), emqx_ds_replication_layer:stream(), emqx_ds:time()) ->
           {ok, emqx_ds_replication_layer:iterator()} | {error, _}.
 open_iterator(Node, Shard, Stream, StartTime) ->
-    erpc:call(Node, emqx_ds_replication_layer, do_open_iterator_v1, [Shard, Stream, Time]).
+    erpc:call(Node, emqx_ds_replication_layer, do_open_iterator_v1, [Shard, Stream, StartTime]).
 
--spec next(node(), emqx_ds_replication_layer:shard(), emqx_ds_replication_layer:iterator(), non_neg_integer()) ->
+-spec next(node(), emqx_ds_replication_layer:shard(), emqx_ds_replication_layer:iterator(), pos_integer()) ->
           {ok, emqx_ds_replication_layer:iterator(), [emqx_types:messages()]} | end_of_stream.
 next(Node, Shard, Iter, BatchSize) ->
     erpc:call(Node, emqx_ds_replication_layer, do_next_v1, [Shard, Iter, BatchSize]).

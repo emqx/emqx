@@ -10,7 +10,7 @@
 -export([create_generation/3]).
 
 -export([get_streams/3]).
--export([store/5]).
+-export([message_store/3]).
 -export([delete/4]).
 
 -export([make_iterator/2, next/1, next/2]).
@@ -33,11 +33,13 @@
 
 -compile({inline, [meta_lookup/2]}).
 
+-include_lib("emqx/include/emqx.hrl").
+
 %%================================================================================
 %% Type declarations
 %%================================================================================
 
--opaque stream() :: {term()}.
+-type stream() :: term(). %% Opaque term returned by the generation callback module
 
 -type options() :: #{
     dir => file:filename()
@@ -101,7 +103,7 @@
 %% 3. `inplace_update_support`?
 -define(ITERATOR_CF_OPTS, []).
 
--define(REF(Keyspace, ShardId), {via, gproc, {n, l, {?MODULE, Keyspace, ShardId}}}).
+-define(REF(ShardId), {via, gproc, {n, l, {?MODULE, ShardId}}}).
 
 %%================================================================================
 %% Callbacks
@@ -149,30 +151,34 @@
 
 -spec start_link(emqx_ds:shard(), emqx_ds_storage_layer:options()) ->
     {ok, pid()}.
-start_link(Shard = {Keyspace, ShardId}, Options) ->
-    gen_server:start_link(?REF(Keyspace, ShardId), ?MODULE, {Shard, Options}, []).
+start_link(Shard, Options) ->
+    gen_server:start_link(?REF(Shard), ?MODULE, {Shard, Options}, []).
 
--spec get_streams(emqx_ds:keyspace(), emqx_ds:shard_id(), emqx_ds:topic_filter(), emqx_ds:time()) -> [stream()].
-get_streams(KeySpace, TopicFilter, StartTime) ->
-    %% FIXME: messages can be potentially stored in multiple
-    %% generations. This function should return the results from all
-    %% of them!
-    %% Otherwise we could LOSE messages when generations are switched.
-    {GenId, #{module := Mod, }} = meta_lookup_gen(Shard, StartTime),
+-spec get_streams(emqx_ds:shard_id(), emqx_ds:topic_filter(), emqx_ds:time()) -> [_Stream].
+get_streams(_ShardId, _TopicFilter, _StartTime) ->
+    [].
 
 
 -spec create_generation(
     emqx_ds:shard(), emqx_ds:time(), emqx_ds_conf:backend_config()
 ) ->
     {ok, gen_id()} | {error, nonmonotonic}.
-create_generation({Keyspace, ShardId}, Since, Config = {_Module, _Options}) ->
-    gen_server:call(?REF(Keyspace, ShardId), {create_generation, Since, Config}).
+create_generation(ShardId, Since, Config = {_Module, _Options}) ->
+    gen_server:call(?REF(ShardId), {create_generation, Since, Config}).
 
--spec store(emqx_ds:shard(), emqx_guid:guid(), emqx_ds:time(), emqx_ds:topic(), binary()) ->
-    ok | {error, _}.
-store(Shard, GUID, Time, Topic, Msg) ->
-    {_GenId, #{module := Mod, data := Data}} = meta_lookup_gen(Shard, Time),
-    Mod:store(Data, GUID, Time, Topic, Msg).
+-spec message_store(emqx_ds:shard(), [emqx_types:message()], emqx_ds:message_store_opts()) ->
+                           {ok, _MessageId} | {error, _}.
+message_store(Shard, Msgs, _Opts) ->
+    {ok, lists:map(
+           fun(Msg) ->
+                   GUID = emqx_message:id(Msg),
+                   Timestamp = Msg#message.timestamp,
+                   {_GenId, #{module := Mod, data := ModState}} = meta_lookup_gen(Shard, Timestamp),
+                   Topic = emqx_topic:words(emqx_message:topic(Msg)),
+                   Payload = serialize(Msg),
+                   Mod:store(ModState, GUID, Timestamp, Topic, Payload)
+           end,
+           Msgs)}.
 
 -spec delete(emqx_ds:shard(), emqx_guid:guid(), emqx_ds:time(), emqx_ds:topic()) ->
     ok | {error, _}.
@@ -212,7 +218,8 @@ do_next(It, N, Acc) when N =< 0 ->
     {ok, It, lists:reverse(Acc)};
 do_next(It = #it{module = Mod, data = ItData}, N, Acc) ->
     case Mod:next(ItData) of
-        {value, Val, ItDataNext} ->
+        {value, Bin, ItDataNext} ->
+            Val = deserialize(Bin),
             do_next(It#it{data = ItDataNext}, N - 1, [Val | Acc]);
         {error, _} = _Error ->
             %% todo: log?
@@ -662,6 +669,14 @@ is_gen_valid(Shard, GenId, Since) when GenId > 0 ->
     end;
 is_gen_valid(_Shard, 0, 0) ->
     ok.
+
+serialize(Msg) ->
+    %% TODO: remove topic, GUID, etc. from the stored message.
+    term_to_binary(emqx_message:to_map(Msg)).
+
+deserialize(Bin) ->
+    emqx_message:from_map(binary_to_term(Bin)).
+
 
 %% -spec store_cfs(rocksdb:db_handle(), [{string(), rocksdb:cf_handle()}]) -> ok.
 %% store_cfs(DBHandle, CFRefs) ->

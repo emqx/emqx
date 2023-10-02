@@ -19,7 +19,7 @@
 -export([create_db/2]).
 
 %% Message storage API:
--export([message_store/3, message_store/2]).
+-export([message_store/1, message_store/2, message_store/3]).
 
 %% Message replay API:
 -export([get_streams/3, open_iterator/2, next/2]).
@@ -53,7 +53,7 @@
 %% implementations for emqx_ds, so this type has to take this into
 %% account.
 -record(stream,
-        { shard :: emqx_ds:shard()
+        { shard :: emqx_ds_replication_layer:shard()
         , enc :: emqx_ds_replication_layer:stream()
         }).
 
@@ -64,7 +64,7 @@
 %% This record encapsulates the iterator entity from the replication
 %% level.
 -record(iterator,
-        { shard :: emqx_ds:shard()
+        { shard :: emqx_ds_replication_layer:shard()
         , enc :: enqx_ds_replication_layer:iterator()
         }).
 
@@ -80,7 +80,9 @@
 
 -type create_db_opts() :: #{}.
 
--type message_id() :: binary().
+-type message_id() :: emqx_ds_replication_layer:message_id().
+
+-define(DEFAULT_DB, <<"default">>).
 
 %%================================================================================
 %% API funcions
@@ -89,6 +91,11 @@
 -spec create_db(db(), create_db_opts()) -> ok.
 create_db(DB, Opts) ->
     emqx_ds_replication_layer:create_db(DB, Opts).
+
+-spec message_store([emqx_types:message()]) ->
+          {ok, [message_id()]} | {error, _}.
+message_store(Msgs) ->
+    message_store(?DEFAULT_DB, Msgs, #{}).
 
 -spec message_store(db(), [emqx_types:message()], message_store_opts()) ->
     {ok, [message_id()]} | {error, _}.
@@ -143,7 +150,7 @@ open_iterator(#stream{shard = Shard, enc = Stream}, StartTime) ->
             Err
     end.
 
--spec next(iterator(), non_neg_integer()) -> {ok, iterator(), [emqx_types:message()]} | end_of_stream.
+-spec next(iterator(), pos_integer()) -> {ok, iterator(), [emqx_types:message()]} | end_of_stream.
 next(#iterator{shard = Shard, enc = Iter0}, BatchSize) ->
     case emqx_ds_replication_layer:next(Shard, Iter0, BatchSize) of
         {ok, Iter, Batch} ->

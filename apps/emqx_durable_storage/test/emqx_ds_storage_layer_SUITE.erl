@@ -6,6 +6,7 @@
 -compile(export_all).
 -compile(nowarn_export_all).
 
+-include_lib("emqx/include/emqx.hrl").
 -include_lib("common_test/include/ct.hrl").
 -include_lib("stdlib/include/assert.hrl").
 
@@ -39,19 +40,24 @@ t_open(_Config) ->
 t_store(_Config) ->
     MessageID = emqx_guid:gen(),
     PublishedAt = 1000,
-    Topic = [<<"foo">>, <<"bar">>],
+    Topic = <<"foo/bar">>,
     Payload = <<"message">>,
-    ?assertMatch(ok, emqx_ds_storage_layer:store(?SHARD, MessageID, PublishedAt, Topic, Payload)).
+    Msg = #message{
+             id = MessageID,
+             topic = Topic,
+             payload = Payload,
+             timestamp = PublishedAt
+            },
+    ?assertMatch({ok, [_]}, emqx_ds_storage_layer:message_store(?SHARD, [Msg], #{})).
 
 %% Smoke test for iteration through a concrete topic
 t_iterate(_Config) ->
     %% Prepare data:
-    Topics = [[<<"foo">>, <<"bar">>], [<<"foo">>, <<"bar">>, <<"baz">>], [<<"a">>]],
+    Topics = [<<"foo/bar">>, <<"foo/bar/baz">>, <<"a">>],
     Timestamps = lists:seq(1, 10),
     [
-        emqx_ds_storage_layer:store(
+        store(
             ?SHARD,
-            emqx_guid:gen(),
             PublishedAt,
             Topic,
             integer_to_binary(PublishedAt)
@@ -61,7 +67,7 @@ t_iterate(_Config) ->
     %% Iterate through individual topics:
     [
         begin
-            {ok, It} = emqx_ds_storage_layer:make_iterator(?SHARD, {Topic, 0}),
+            {ok, It} = emqx_ds_storage_layer:make_iterator(?SHARD, {parse_topic(Topic), 0}),
             Values = iterate(It),
             ?assertEqual(lists:map(fun integer_to_binary/1, Timestamps), Values)
         end
@@ -149,7 +155,7 @@ t_create_gen(_Config) ->
     Topics = ["foo/bar", "foo/bar/baz"],
     Timestamps = lists:seq(1, 100),
     [
-        ?assertEqual(ok, store(?SHARD, PublishedAt, Topic, <<>>))
+        ?assertMatch({ok, [_]}, store(?SHARD, PublishedAt, Topic, <<>>))
      || Topic <- Topics, PublishedAt <- Timestamps
     ].
 
@@ -215,16 +221,24 @@ t_iterate_multigen_preserve_restore(_Config) ->
         emqx_ds_storage_layer:restore_iterator(?SHARD, ReplayID)
     ).
 
+store(Shard, PublishedAt, TopicL, Payload) when is_list(TopicL) ->
+    store(Shard, PublishedAt, list_to_binary(TopicL), Payload);
 store(Shard, PublishedAt, Topic, Payload) ->
     ID = emqx_guid:gen(),
-    emqx_ds_storage_layer:store(Shard, ID, PublishedAt, parse_topic(Topic), Payload).
+    Msg = #message{
+             id = ID,
+             topic = Topic,
+             timestamp = PublishedAt,
+             payload = Payload
+            },
+    emqx_ds_storage_layer:message_store(Shard, [Msg], #{}).
 
 iterate(DB, TopicFilter, StartTime) ->
     iterate(iterator(DB, TopicFilter, StartTime)).
 
 iterate(It) ->
     case emqx_ds_storage_layer:next(It) of
-        {ok, ItNext, [Payload]} ->
+        {ok, ItNext, [#message{payload = Payload}]} ->
             [Payload | iterate(ItNext)];
         end_of_stream ->
             []
@@ -234,8 +248,8 @@ iterate(end_of_stream, _N) ->
     {end_of_stream, []};
 iterate(It, N) ->
     case emqx_ds_storage_layer:next(It, N) of
-        {ok, ItFinal, Payloads} ->
-            {ItFinal, Payloads};
+        {ok, ItFinal, Messages} ->
+            {ItFinal, [Payload || #message{payload = Payload} <- Messages]};
         end_of_stream ->
             {end_of_stream, []}
     end.

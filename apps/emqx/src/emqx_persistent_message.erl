@@ -23,9 +23,7 @@
 
 %% Message persistence
 -export([
-    persist/1,
-    serialize/1,
-    deserialize/1
+    persist/1
 ]).
 
 %% FIXME
@@ -83,18 +81,9 @@ needs_persistence(Msg) ->
     not (emqx_message:get_flag(dup, Msg) orelse emqx_message:is_sys(Msg)).
 
 store_message(Msg) ->
-    ID = emqx_message:id(Msg),
-    Timestamp = emqx_guid:timestamp(ID),
-    Topic = emqx_topic:words(emqx_message:topic(Msg)),
-    emqx_ds_storage_layer:store(?DS_SHARD, ID, Timestamp, Topic, serialize(Msg)).
+    emqx_ds:message_store([Msg]).
 
 has_subscribers(#message{topic = Topic}) ->
     emqx_persistent_session_ds_router:has_any_route(Topic).
 
 %%
-
-serialize(Msg) ->
-    term_to_binary(emqx_message:to_map(Msg)).
-
-deserialize(Bin) ->
-    emqx_message:from_map(binary_to_term(Bin)).

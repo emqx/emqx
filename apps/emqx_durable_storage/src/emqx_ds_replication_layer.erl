@@ -28,11 +28,11 @@
 %% internal exports:
 -export([ do_create_shard_v1/2,
           do_get_streams_v1/3,
-          do_open_iterator/3,
+          do_open_iterator_v1/3,
           do_next_v1/3
         ]).
 
--export_type([shard/0, stream/0, iterator/0]).
+-export_type([shard/0, stream/0, iterator/0, message_id/0]).
 
 %%================================================================================
 %% Type declarations
@@ -43,6 +43,8 @@
 -type shard() :: binary().
 
 -opaque iterator() :: emqx_ds_storage_layer:iterator().
+
+-type message_id() :: emqx_ds_storage_layer:message_id().
 
 %%================================================================================
 %% API functions
@@ -83,10 +85,18 @@ open_iterator(Shard, Stream, StartTime) ->
     Node = node_of_shard(Shard),
     emqx_ds_proto_v1:open_iterator(Node, Shard, Stream, StartTime).
 
--spec next(shard(), iterator(), non_neg_integer()) ->
+-spec next(shard(), iterator(), pos_integer()) ->
           {ok, iterator(), [emqx_types:message()]} | end_of_stream.
 next(Shard, Iter, BatchSize) ->
     Node = node_of_shard(Shard),
+    %% TODO: iterator can contain information that is useful for
+    %% reconstructing messages sent over the network. For example,
+    %% when we send messages with the learned topic index, we could
+    %% send the static part of topic once, and append it to the
+    %% messages on the receiving node, hence saving some network.
+    %%
+    %% This kind of trickery should be probably done here in the
+    %% replication layer. Or, perhaps, in the logic lary.
     emqx_ds_proto_v1:next(Node, Shard, Iter, BatchSize).
 
 %%================================================================================
@@ -107,7 +117,7 @@ do_get_streams_v1(Shard, TopicFilter, StartTime) ->
     error({todo, Shard, TopicFilter, StartTime}).
 
 -spec do_open_iterator_v1(shard(), stream(), emqx_ds:time()) -> iterator().
-do_open_iterator_v1(Shard, Stream, Time) ->
+do_open_iterator_v1(Shard, Stream, StartTime) ->
     error({todo, Shard, Stream, StartTime}).
 
 -spec do_next_v1(shard(), iterator(), non_neg_integer()) ->
