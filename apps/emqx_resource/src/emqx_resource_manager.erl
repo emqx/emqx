@@ -32,7 +32,8 @@
     health_check/1,
     channel_health_check/2,
     add_channel/3,
-    remove_channel/2
+    remove_channel/2,
+    get_channels/1
 ]).
 
 -export([
@@ -296,6 +297,9 @@ add_channel(ResId, ChannelId, Config) ->
 remove_channel(ResId, ChannelId) ->
     safe_call(ResId, {remove_channel, ChannelId}, ?T_OPERATION).
 
+get_channels(ResId) ->
+    safe_call(ResId, get_channels, ?T_OPERATION).
+
 %% Server start/stop callbacks
 
 %% @doc Function called from the supervisor to actually start the server
@@ -426,6 +430,11 @@ handle_event(
     {call, From}, {remove_channel, ChannelId}, _State, Data
 ) ->
     handle_remove_channel(From, ChannelId, Data);
+handle_event(
+    {call, From}, get_channels, _State, Data
+) ->
+    Channels = emqx_resource:call_get_channels(Data#data.id, Data#data.mod),
+    {keep_state_and_data, {reply, From, {ok, Channels}}};
 handle_event(EventType, EventData, State, Data) ->
     ?SLOG(
         error,

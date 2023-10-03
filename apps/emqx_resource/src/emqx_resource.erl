@@ -77,6 +77,7 @@
     %% verify if the resource is working normally
     health_check/1,
     channel_health_check/2,
+    get_channels/1,
     %% set resource status to disconnected
     set_resource_status_connecting/1,
     %% stop the instance
@@ -442,6 +443,10 @@ health_check(ResId) ->
     {ok, resource_status()} | {error, term()}.
 channel_health_check(ResId, ChannelId) ->
     emqx_resource_manager:channel_health_check(ResId, ChannelId).
+
+-spec get_channels(resource_id()) -> [{binary(), map()}].
+get_channels(ResId) ->
+    emqx_resource_manager:get_channels(ResId).
 
 set_resource_status_connecting(ResId) ->
     emqx_resource_manager:set_resource_status_connecting(ResId).
