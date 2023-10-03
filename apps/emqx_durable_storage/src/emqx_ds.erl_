@@ -143,7 +143,7 @@ get_streams(Keyspace, TopicFilter, StartTime) ->
 
 -spec ensure_shard(shard(), emqx_ds_storage_layer:options()) ->
     ok | {error, _Reason}.
-ensure_shard(Shard, Options) ->
+ensure_shard(Sharzd, Options) ->
     case emqx_ds_storage_layer_sup:start_shard(Shard, Options) of
         {ok, _Pid} ->
             ok;

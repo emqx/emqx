@@ -42,18 +42,7 @@
 
 init() ->
     ?WHEN_ENABLED(begin
-        ok = emqx_ds:ensure_shard(
-            ?DS_SHARD,
-            #{
-                dir => filename:join([
-                    emqx:data_dir(),
-                    ds,
-                    messages,
-                    ?DEFAULT_KEYSPACE,
-                    ?DS_SHARD_ID
-                ])
-            }
-        ),
+                      ok = emqx_ds:create_db(<<"default">>, #{}),
         ok = emqx_persistent_session_ds_router:init_tables(),
         ok = emqx_persistent_session_ds:create_tables(),
         ok

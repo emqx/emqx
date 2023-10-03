@@ -282,14 +282,11 @@ init_per_testcase(TC, Config) ->
 end_per_testcase(TC, _Config) ->
     ok = emqx_ds_storage_layer_sup:stop_shard(shard(TC)).
 
-keyspace(TC) ->
-    list_to_atom(lists:concat([?MODULE, "_", TC])).
-
-shard_id(_TC) ->
-    <<"shard">>.
-
 shard(TC) ->
-    {keyspace(TC), shard_id(TC)}.
+    iolist_to_binary([?MODULE_STRING, "_", atom_to_list(TC)]).
+
+keyspace(TC) ->
+    TC.
 
 set_keyspace_config(Keyspace, Config) ->
     ok = application:set_env(emqx_ds, keyspace_config, #{Keyspace => Config}).

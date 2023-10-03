@@ -69,6 +69,7 @@
 
 -record(s, {
     shard :: emqx_ds:shard(),
+    keyspace :: emqx_ds_conf:keyspace(),
     db :: rocksdb:db_handle(),
     cf_iterator :: rocksdb:cf_handle(),
     cf_generations :: cf_refs()
@@ -176,7 +177,8 @@ message_store(Shard, Msgs, _Opts) ->
                    {_GenId, #{module := Mod, data := ModState}} = meta_lookup_gen(Shard, Timestamp),
                    Topic = emqx_topic:words(emqx_message:topic(Msg)),
                    Payload = serialize(Msg),
-                   Mod:store(ModState, GUID, Timestamp, Topic, Payload)
+                   Mod:store(ModState, GUID, Timestamp, Topic, Payload),
+                   GUID
            end,
            Msgs)}.
 
@@ -356,7 +358,7 @@ populate_metadata(GenId, S = #s{shard = Shard, db = DBHandle}) ->
     meta_register_gen(Shard, GenId, Gen).
 
 -spec ensure_current_generation(state()) -> state().
-ensure_current_generation(S = #s{shard = {Keyspace, _ShardId}, db = DBHandle}) ->
+ensure_current_generation(S = #s{shard = _Shard, keyspace = Keyspace, db = DBHandle}) ->
     case schema_get_current(DBHandle) of
         undefined ->
             Config = emqx_ds_conf:keyspace_config(Keyspace),
@@ -396,9 +398,11 @@ create_gen(GenId, Since, {Module, Options}, S = #s{db = DBHandle, cf_generations
     {ok, Gen, S#s{cf_generations = NewCFs ++ CFs}}.
 
 -spec open_db(emqx_ds:shard(), options()) -> {ok, state()} | {error, _TODO}.
-open_db(Shard = {Keyspace, ShardId}, Options) ->
-    DefaultDir = filename:join([atom_to_binary(Keyspace), ShardId]),
+open_db(Shard, Options) ->
+    DefaultDir = binary_to_list(Shard),
     DBDir = unicode:characters_to_list(maps:get(dir, Options, DefaultDir)),
+    %% TODO: properly forward keyspace
+    Keyspace = maps:get(keyspace, Options, default_keyspace),
     DBOptions = [
         {create_if_missing, true},
         {create_missing_column_families, true}
@@ -423,6 +427,7 @@ open_db(Shard = {Keyspace, ShardId}, Options) ->
             {CFNames, _} = lists:unzip(ExistingCFs),
             {ok, #s{
                 shard = Shard,
+                keyspace = Keyspace,
                 db = DBHandle,
                 cf_iterator = CFIterator,
                 cf_generations = lists:zip(CFNames, CFRefs)
@@ -451,7 +456,8 @@ open_next_iterator(Gen = #{}, It) ->
 
 -spec open_iterator(generation(), iterator()) -> {ok, iterator()} | {error, _Reason}.
 open_iterator(#{module := Mod, data := Data}, It = #it{}) ->
-    case Mod:make_iterator(Data, It#it.replay) of
+    Options = #{}, % TODO: passthrough options
+    case Mod:make_iterator(Data, It#it.replay, Options) of
         {ok, ItData} ->
             {ok, It#it{module = Mod, data = ItData}};
         Err ->
@@ -611,9 +617,9 @@ meta_register_gen(Shard, GenId, Gen) ->
 
 -spec meta_lookup_gen(emqx_ds:shard(), emqx_ds:time()) -> {gen_id(), generation()}.
 meta_lookup_gen(Shard, Time) ->
-    % TODO
-    % Is cheaper persistent term GC on update here worth extra lookup? I'm leaning
-    % towards a "no".
+    %% TODO
+    %% Is cheaper persistent term GC on update here worth extra lookup? I'm leaning
+    %% towards a "no".
     Current = meta_lookup(Shard, current),
     Gens = meta_lookup(Shard, Current),
     find_gen(Time, Current, Gens).
@@ -671,7 +677,8 @@ is_gen_valid(_Shard, 0, 0) ->
     ok.
 
 serialize(Msg) ->
-    %% TODO: remove topic, GUID, etc. from the stored message.
+    %% TODO: remove topic, GUID, etc. from the stored
+    %% message. Reconstruct it from the metadata.
     term_to_binary(emqx_message:to_map(Msg)).
 
 deserialize(Bin) ->

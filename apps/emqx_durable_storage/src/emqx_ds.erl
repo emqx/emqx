@@ -16,7 +16,7 @@
 -module(emqx_ds).
 
 %% Management API:
--export([create_db/2]).
+-export([open_db/2]).
 
 %% Message storage API:
 -export([message_store/1, message_store/2, message_store/3]).
@@ -88,9 +88,9 @@
 %% API funcions
 %%================================================================================
 
--spec create_db(db(), create_db_opts()) -> ok.
-create_db(DB, Opts) ->
-    emqx_ds_replication_layer:create_db(DB, Opts).
+-spec open_db(db(), create_db_opts()) -> ok.
+open_db(DB, Opts) ->
+    emqx_ds_replication_layer:open_db(DB, Opts).
 
 -spec message_store([emqx_types:message()]) ->
           {ok, [message_id()]} | {error, _}.
@@ -102,6 +102,7 @@ message_store(Msgs) ->
 message_store(DB, Msgs, Opts) ->
     emqx_ds_replication_layer:message_store(DB, Msgs, Opts).
 
+%% TODO: Do we really need to return message IDs? It's extra work...
 -spec message_store(db(), [emqx_types:message()]) -> {ok, [message_id()]} | {error, _}.
 message_store(DB, Msgs) ->
     message_store(DB, Msgs, #{}).

@@ -87,7 +87,7 @@
 -export([delete/4]).
 
 -export([get_streams/2]).
--export([make_iterator/2, make_iterator/3, next/1]).
+-export([make_iterator/3, next/1]).
 
 -export([preserve_iterator/1]).
 -export([restore_iterator/2]).
@@ -295,13 +295,6 @@ delete(DB = #db{handle = DBHandle, cf = CFHandle}, MessageID, PublishedAt, Topic
 get_streams(_, _) ->
     [singleton_stream].
 
--spec make_iterator(db(), emqx_ds:replay()) ->
-    {ok, iterator()} | {error, _TODO}.
-make_iterator(DB, Replay) ->
-    {Keyspace, _ShardId} = DB#db.shard,
-    Options = emqx_ds_conf:iteration_options(Keyspace),
-    make_iterator(DB, Replay, Options).
-
 -spec make_iterator(db(), emqx_ds:replay(), iteration_options()) ->
     % {error, invalid_start_time}? might just start from the beginning of time
     % and call it a day: client violated the contract anyway.
@@ -373,7 +366,8 @@ restore_iterator(DB, #{
     cursor := Cursor,
     replay := Replay = {_TopicFilter, _StartTime}
 }) ->
-    case make_iterator(DB, Replay) of
+    Options = #{}, % TODO: passthrough options
+    case make_iterator(DB, Replay, Options) of
         {ok, It} when Cursor == undefined ->
             % Iterator was preserved right after it has been made.
             {ok, It};

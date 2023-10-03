@@ -17,7 +17,7 @@
 
 -export([
           list_shards/1,
-          create_db/2,
+          open_db/2,
           message_store/3,
           get_streams/3,
           open_iterator/3,
@@ -26,7 +26,7 @@
 
 
 %% internal exports:
--export([ do_create_shard_v1/2,
+-export([ do_open_shard_v1/2,
           do_get_streams_v1/3,
           do_open_iterator_v1/3,
           do_next_v1/3
@@ -55,16 +55,16 @@ list_shards(DB) ->
     %% TODO: milestone 5
     lists:map(
       fun(Node) ->
-              term_to_binary({DB, Node})
+              shard_id(DB, Node)
       end,
       list_nodes()).
 
--spec create_db(emqx_ds:db(), emqx_ds:create_db_opts()) -> ok.
-create_db(DB, Opts) ->
+-spec open_db(emqx_ds:db(), emqx_ds:create_db_opts()) -> ok.
+open_db(DB, Opts) ->
     lists:foreach(
       fun(Node) ->
-              Shard = term_to_binary({DB, Node}),
-              emqx_ds_proto_v1:create_shard(Node, Shard, Opts)
+              Shard = shard_id(DB, Node),
+              emqx_ds_proto_v1:open_shard(Node, Shard, Opts)
       end,
       list_nodes()).
 
@@ -107,9 +107,9 @@ next(Shard, Iter, BatchSize) ->
 %% Internal exports (RPC targets)
 %%================================================================================
 
--spec do_create_shard_v1(shard(), emqx_ds:create_db_opts()) -> ok.
-do_create_shard_v1(Shard, Opts) ->
-    error({todo, Shard, Opts}).
+-spec do_open_shard_v1(shard(), emqx_ds:create_db_opts()) -> ok.
+do_open_shard_v1(Shard, Opts) ->
+    emqx_ds_storage_layer_sup:ensure_shard(Shard, Opts).
 
 -spec do_get_streams_v1(shard(), emqx_ds:topic_filter(), emqx_ds:time()) ->
           [{emqx_ds:stream_rank(), stream()}].
@@ -129,10 +129,16 @@ do_next_v1(Shard, Iter, BatchSize) ->
 %% Internal functions
 %%================================================================================
 
+shard_id(DB, Node) ->
+    %% TODO: don't bake node name into the schema, don't repeat the
+    %% Mnesia's 1M$ mistake.
+    NodeBin = atom_to_binary(Node),
+    <<DB/binary, ":",  NodeBin/binary>>.
+
 -spec node_of_shard(shard()) -> node().
 node_of_shard(ShardId) ->
-    {_DB, Node} = binary_to_term(ShardId),
-    Node.
+    [_DB, NodeBin] = binary:split(ShardId, <<":">>),
+    binary_to_atom(NodeBin).
 
 list_nodes() ->
     mria:running_nodes().

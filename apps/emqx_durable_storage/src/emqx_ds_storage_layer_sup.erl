@@ -35,6 +35,17 @@ stop_shard(Shard) ->
     ok = supervisor:terminate_child(?SUP, Shard),
     ok = supervisor:delete_child(?SUP, Shard).
 
+-spec ensure_shard(emqx_ds:shard(), emqx_ds_storage_layer:options()) -> ok | {error, _Reason}.
+ensure_shard(Shard, Options) ->
+    case start_shard(Shard, Options) of
+        {ok, _Pid} ->
+            ok;
+        {error, {already_started, _Pid}} ->
+            ok;
+        {error, Reason} ->
+            {error, Reason}
+    end.
+
 %%================================================================================
 %% behaviour callbacks
 %%================================================================================
