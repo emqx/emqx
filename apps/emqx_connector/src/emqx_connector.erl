@@ -27,7 +27,6 @@
 ]).
 
 -export([
-    check_deps_and_remove/3,
     create/3,
     disable_enable/3,
     get_metrics/2,
@@ -36,7 +35,8 @@
     lookup/1,
     lookup/2,
     remove/2,
-    unload/0
+    unload/0,
+    update/3
 ]).
 
 -export([config_key_path/0]).
@@ -148,7 +148,7 @@ post_config_update([?ROOT_KEY, Type, Name], _Req, NewConf, undefined, _AppEnvs) 
     ok = emqx_connector_resource:create(Type, Name, NewConf),
     ?tp(connector_post_config_update_done, #{}),
     ok;
-post_config_update([connectors, Type, Name], _Req, NewConf, OldConf, _AppEnvs) ->
+post_config_update([?ROOT_KEY, Type, Name], _Req, NewConf, OldConf, _AppEnvs) ->
     ResOpts = emqx_resource:fetch_creation_opts(NewConf),
     ok = emqx_connector_resource:update(Type, Name, {OldConf, NewConf}, ResOpts),
     ?tp(connector_post_config_update_done, #{}),
@@ -229,22 +229,22 @@ remove(ConnectorType, ConnectorName) ->
         #{override_to => cluster}
     ).
 
-check_deps_and_remove(ConnectorType, ConnectorName, RemoveDeps) ->
-    ConnectorId = emqx_connector_resource:connector_id(ConnectorType, ConnectorName),
-    %% NOTE: This violates the design: Rule depends on data-connector but not vice versa.
-    case emqx_rule_engine:get_rule_ids_by_action(ConnectorId) of
-        [] ->
-            remove(ConnectorType, ConnectorName);
-        RuleIds when RemoveDeps =:= false ->
-            {error, {rules_deps_on_this_connector, RuleIds}};
-        RuleIds when RemoveDeps =:= true ->
-            lists:foreach(
-                fun(R) ->
-                    emqx_rule_engine:ensure_action_removed(R, ConnectorId)
-                end,
-                RuleIds
-            ),
-            remove(ConnectorType, ConnectorName)
+update(ConnectorType, ConnectorName, RawConf) ->
+    ?SLOG(debug, #{
+        connector_action => update,
+        connector_type => ConnectorType,
+        connector_name => ConnectorName,
+        connector_raw_config => emqx_utils:redact(RawConf)
+    }),
+    case lookup(ConnectorType, ConnectorName) of
+        {ok, _Conf} ->
+            emqx_conf:update(
+                emqx_connector:config_key_path() ++ [ConnectorType, ConnectorName],
+                RawConf,
+                #{override_to => cluster}
+            );
+        Error ->
+            Error
     end.
 
 %%----------------------------------------------------------------------------------------
