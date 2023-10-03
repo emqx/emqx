@@ -150,10 +150,6 @@ stop(Type, Name) ->
 start(Type, Name) ->
     emqx_resource:start(resource_id(Type, Name)).
 
-% create(ConnectorId, Conf) ->
-%     {ConnectorType, ConnectorName} = parse_connector_id(ConnectorId),
-%     create(ConnectorType, ConnectorName, Conf).
-
 create(Type, Name, Conf) ->
     create(Type, Name, Conf, #{}).
 
