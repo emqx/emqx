@@ -141,9 +141,14 @@ post_config_update([?ROOT_KEY], _Req, NewConf, OldConf, _AppEnv) ->
     ?tp(connector_post_config_update_done, #{}),
     Result;
 post_config_update([?ROOT_KEY, Type, Name], '$remove', _, _OldConf, _AppEnvs) ->
-    ok = emqx_connector_resource:remove(Type, Name),
-    ?tp(connector_post_config_update_done, #{}),
-    ok;
+    case emqx_connector_resource:get_channels(Type, Name) of
+        {ok, []} ->
+            ok = emqx_connector_resource:remove(Type, Name),
+            ?tp(connector_post_config_update_done, #{}),
+            ok;
+        {ok, Channels} ->
+            {error, {active_channels, Channels}}
+    end;
 post_config_update([?ROOT_KEY, Type, Name], _Req, NewConf, undefined, _AppEnvs) ->
     ok = emqx_connector_resource:create(Type, Name, NewConf),
     ?tp(connector_post_config_update_done, #{}),

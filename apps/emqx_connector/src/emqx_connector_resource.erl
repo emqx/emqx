@@ -44,7 +44,8 @@
     stop/2,
     update/2,
     update/3,
-    update/4
+    update/4,
+    get_channels/2
 ]).
 
 -callback connector_config(ParsedConfig, ConnectorName :: atom() | binary()) ->
@@ -220,6 +221,9 @@ update(Type, Name, {OldConf, Conf}, Opts) ->
                 end,
             ok
     end.
+
+get_channels(Type, Name) ->
+    emqx_resource:get_channels(resource_id(Type, Name)).
 
 recreate(Type, Name) ->
     recreate(Type, Name, emqx:get_config([connectors, Type, Name])).

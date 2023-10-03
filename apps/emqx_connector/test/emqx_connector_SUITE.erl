@@ -147,6 +147,58 @@ t_connector_lifecycle(_Config) ->
     ),
     ok.
 
+t_remove_fail({'init', Config}) ->
+    meck:new(emqx_connector_ee_schema, [passthrough]),
+    meck:expect(emqx_connector_ee_schema, resource_type, 1, ?CONNECTOR),
+    meck:new(?CONNECTOR, [non_strict]),
+    meck:expect(?CONNECTOR, callback_mode, 0, async_if_possible),
+    meck:expect(?CONNECTOR, on_start, 2, {ok, connector_state}),
+    meck:expect(?CONNECTOR, on_get_channels, 1, [{<<"my_channel">>, #{}}]),
+    meck:expect(?CONNECTOR, on_add_channel, 4, {ok, connector_state}),
+    meck:expect(?CONNECTOR, on_stop, 2, ok),
+    meck:expect(?CONNECTOR, on_get_status, 2, connected),
+    [{mocked_mods, [?CONNECTOR, emqx_connector_ee_schema]} | Config];
+t_remove_fail({'end', Config}) ->
+    MockedMods = ?config(mocked_mods, Config),
+    meck:unload(MockedMods),
+    Config;
+t_remove_fail(_Config) ->
+    ?assertEqual(
+        [],
+        emqx_connector:list()
+    ),
+
+    ?assertMatch(
+        {ok, _},
+        emqx_connector:create(kafka, my_failing_connector, connector_config())
+    ),
+
+    ?assertMatch(
+        {error, {post_config_update, emqx_connector, {active_channels, [{<<"my_channel">>, _}]}}},
+        emqx_connector:remove(kafka, my_failing_connector)
+    ),
+
+    ?assertNotEqual(
+        [],
+        emqx_connector:list()
+    ),
+
+    ?assert(meck:validate(?CONNECTOR)),
+    ?assertMatch(
+        [
+            {_, {?CONNECTOR, callback_mode, []}, _},
+            {_, {?CONNECTOR, on_start, [_, _]}, {ok, connector_state}},
+            {_, {?CONNECTOR, on_get_channels, [_]}, _},
+            {_, {?CONNECTOR, on_add_channel, _}, {ok, connector_state}},
+            {_, {?CONNECTOR, on_get_status, [_, connector_state]}, connected},
+            {_, {?CONNECTOR, on_get_channels, [_]}, _}
+        ],
+        meck:history(?CONNECTOR)
+    ),
+    ok.
+
+%% helpers
+
 connector_config() ->
     #{
         <<"authentication">> => <<"none">>,
