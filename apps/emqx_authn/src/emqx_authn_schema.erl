@@ -42,8 +42,8 @@ roots() -> [].
 
 injected_fields() ->
     #{
-        'mqtt.listener' => global_auth_fields(),
-        'roots.high' => mqtt_listener_auth_fields()
+        'mqtt.listener' => mqtt_listener_auth_fields(),
+        'roots.high' => global_auth_fields()
     }.
 
 tags() ->
