@@ -26,6 +26,14 @@
 -export([roots/0, fields/1, desc/1, namespace/0, tags/0]).
 
 -if(?EMQX_RELEASE_EDITION == ee).
+enterprise_api_schemas(Method) ->
+    %% We *must* do this to ensure the module is really loaded, especially when we use
+    %% `call_hocon' from `nodetool' to generate initial configurations.
+    _ = emqx_connector_ee_schema:module_info(),
+    case erlang:function_exported(emqx_connector_ee_schema, api_schemas, 1) of
+        true -> emqx_connector_ee_schema:api_schemas(Method);
+        false -> []
+    end.
 
 enterprise_fields_connectors() ->
     %% We *must* do this to ensure the module is really loaded, especially when we use
@@ -199,6 +207,53 @@ transform_bridges_v1_to_connectors_and_bridges_v2(RawConfig) ->
 %% HOCON Schema Callbacks
 %%======================================================================================
 
+%% For HTTP APIs
+get_response() ->
+    api_schema("get").
+
+put_request() ->
+    api_schema("put").
+
+post_request() ->
+    api_schema("post").
+
+api_schema(Method) ->
+    Broker = [
+        {Type, ref(Mod, Method)}
+     || {Type, Mod} <- [
+            {<<"webhook">>, emqx_bridge_http_schema},
+            {<<"mqtt">>, emqx_bridge_mqtt_schema}
+        ]
+    ],
+    EE = enterprise_api_schemas(Method),
+    hoconsc:union(bridge_api_union(Broker ++ EE)).
+
+bridge_api_union(Refs) ->
+    Index = maps:from_list(Refs),
+    fun
+        (all_union_members) ->
+            maps:values(Index);
+        ({value, V}) ->
+            case V of
+                #{<<"type">> := T} ->
+                    case maps:get(T, Index, undefined) of
+                        undefined ->
+                            throw(#{
+                                field_name => type,
+                                reason => <<"unknown bridge type">>
+                            });
+                        Ref ->
+                            [Ref]
+                    end;
+                _ ->
+                    throw(#{
+                        field_name => type,
+                        reason => <<"unknown bridge type">>
+                    })
+            end
+    end.
+
+%% general config
 namespace() -> "connector".
 
 tags() ->
