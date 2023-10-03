@@ -106,6 +106,18 @@ t_connector_lifecycle(_Config) ->
     ),
 
     ?assertMatch(
+        {ok, #{config := #{connect_timeout := 10000}}},
+        emqx_connector:update(kafka, my_connector, (connector_config())#{
+            <<"connect_timeout">> => <<"10s">>
+        })
+    ),
+
+    ?assertMatch(
+        {ok, #{resource_data := #{config := #{connect_timeout := 10000}}}},
+        emqx_connector:lookup(kafka, my_connector)
+    ),
+
+    ?assertMatch(
         {ok, _},
         emqx_connector:remove(kafka, my_connector)
     ),
@@ -123,6 +135,10 @@ t_connector_lifecycle(_Config) ->
             {_, {?CONNECTOR, on_get_status, [_, connector_state]}, connected},
             {_, {?CONNECTOR, on_stop, [_, connector_state]}, ok},
             {_, {?CONNECTOR, on_stop, [_, connector_state]}, ok},
+            {_, {?CONNECTOR, on_start, [_, _]}, {ok, connector_state}},
+            {_, {?CONNECTOR, on_get_status, [_, connector_state]}, connected},
+            {_, {?CONNECTOR, on_stop, [_, connector_state]}, ok},
+            {_, {?CONNECTOR, callback_mode, []}, _},
             {_, {?CONNECTOR, on_start, [_, _]}, {ok, connector_state}},
             {_, {?CONNECTOR, on_get_status, [_, connector_state]}, connected},
             {_, {?CONNECTOR, on_stop, [_, connector_state]}, ok}
