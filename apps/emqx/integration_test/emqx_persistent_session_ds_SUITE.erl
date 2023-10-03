@@ -1,7 +1,7 @@
 %%--------------------------------------------------------------------
 %% Copyright (c) 2023 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
--module(emqx_ds_SUITE).
+-module(emqx_persistent_session_ds_SUITE).
 
 -compile(export_all).
 -compile(nowarn_export_all).

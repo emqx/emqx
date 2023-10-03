@@ -6,7 +6,7 @@
 -behaviour(supervisor).
 
 %% API:
--export([start_link/0, start_shard/2, stop_shard/1]).
+-export([start_link/0, start_shard/2, stop_shard/1, ensure_shard/2]).
 
 %% behaviour callbacks:
 -export([init/1]).

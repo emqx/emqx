@@ -17,8 +17,9 @@
 
 -behavior(emqx_bpapi).
 
+-include_lib("emqx/include/bpapi.hrl").
 %% API:
--export([]).
+-export([open_shard/3, get_streams/4, make_iterator/4, next/4]).
 
 %% behavior callbacks:
 -export([introduced_in/0]).
@@ -27,23 +28,29 @@
 %% API funcions
 %%================================================================================
 
--spec create_shard(node(), emqx_ds_replication_layer:shard(), emqx_ds:create_db_opts()) ->
-          ok.
-create_shard(Node, Shard, Opts) ->
-    erpc:call(Node, emqx_ds_replication_layer, do_create_shard_v1, [Shard, Opts]).
+-spec open_shard(node(), emqx_ds_replication_layer:shard(), emqx_ds:create_db_opts()) ->
+    ok.
+open_shard(Node, Shard, Opts) ->
+    erpc:call(Node, emqx_ds_replication_layer, do_open_shard_v1, [Shard, Opts]).
 
--spec get_streams(node(), emqx_ds_replication_layer:shard(), emqx_ds:topic_filter(), emqx_ds:time()) ->
-          [emqx_ds_replication_layer:stream()].
+-spec get_streams(
+    node(), emqx_ds_replication_layer:shard(), emqx_ds:topic_filter(), emqx_ds:time()
+) ->
+    [{integer(), emqx_ds_replication_layer:stream()}].
 get_streams(Node, Shard, TopicFilter, Time) ->
     erpc:call(Node, emqx_ds_replication_layer, do_get_streams_v1, [Shard, TopicFilter, Time]).
 
--spec open_iterator(node(), emqx_ds_replication_layer:shard(), emqx_ds_replication_layer:stream(), emqx_ds:time()) ->
-          {ok, emqx_ds_replication_layer:iterator()} | {error, _}.
-open_iterator(Node, Shard, Stream, StartTime) ->
-    erpc:call(Node, emqx_ds_replication_layer, do_open_iterator_v1, [Shard, Stream, StartTime]).
+-spec make_iterator(node(), emqx_ds_replication_layer:shard(), _Stream, emqx_ds:time()) ->
+    {ok, emqx_ds_replication_layer:iterator()} | {error, _}.
+make_iterator(Node, Shard, Stream, StartTime) ->
+    erpc:call(Node, emqx_ds_replication_layer, do_make_iterator_v1, [Shard, Stream, StartTime]).
 
--spec next(node(), emqx_ds_replication_layer:shard(), emqx_ds_replication_layer:iterator(), pos_integer()) ->
-          {ok, emqx_ds_replication_layer:iterator(), [emqx_types:messages()]} | end_of_stream.
+-spec next(
+    node(), emqx_ds_replication_layer:shard(), emqx_ds_replication_layer:iterator(), pos_integer()
+) ->
+    {ok, emqx_ds_replication_layer:iterator(), [emqx_types:messages()]}
+    | {ok, end_of_stream}
+    | {error, _}.
 next(Node, Shard, Iter, BatchSize) ->
     erpc:call(Node, emqx_ds_replication_layer, do_next_v1, [Shard, Iter, BatchSize]).
 

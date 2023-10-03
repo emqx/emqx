@@ -1,4 +1,4 @@
-#!/usr/bin/env elixir
+#! /usr/bin/env elixir
 
 defmodule CheckElixirEMQXMachineBootDiscrepancies do
   alias EMQXUmbrella.MixProject

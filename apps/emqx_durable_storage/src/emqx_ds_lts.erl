@@ -34,7 +34,8 @@
 %% Type declarations
 %%================================================================================
 
--define(EOT, []). %% End Of Topic
+%% End Of Topic
+-define(EOT, []).
 -define(PLUS, '+').
 
 -type edge() :: binary() | ?EOT | ?PLUS.
@@ -49,17 +50,17 @@
 
 -type threshold_fun() :: fun((non_neg_integer()) -> non_neg_integer()).
 
--record(trie,
-        { trie :: ets:tid()
-        , stats :: ets:tid()
-        }).
+-record(trie, {
+    trie :: ets:tid(),
+    stats :: ets:tid()
+}).
 
 -opaque trie() :: #trie{}.
 
--record(trans,
-        { key  :: {state(), edge()}
-        , next :: state()
-        }).
+-record(trans, {
+    key :: {state(), edge()},
+    next :: state()
+}).
 
 %%================================================================================
 %% API funcions
@@ -70,9 +71,10 @@
 trie_create() ->
     Trie = ets:new(trie, [{keypos, #trans.key}, set]),
     Stats = ets:new(stats, [{keypos, 1}, set]),
-    #trie{ trie = Trie
-         , stats = Stats
-         }.
+    #trie{
+        trie = Trie,
+        stats = Stats
+    }.
 
 %% @doc Create a topic key,
 -spec topic_key(trie(), threshold_fun(), [binary()]) -> msg_storage_key().
@@ -86,7 +88,7 @@ lookup_topic_key(Trie, Tokens) ->
 
 %% @doc Return list of keys of topics that match a given topic filter
 -spec match_topics(trie(), [binary() | '+' | '#']) ->
-          [{static_key(), _Varying :: binary() | ?PLUS}].
+    [{static_key(), _Varying :: binary() | ?PLUS}].
 match_topics(Trie, TopicFilter) ->
     do_match_topics(Trie, ?PREFIX, [], TopicFilter).
 
@@ -96,38 +98,43 @@ dump_to_dot(#trie{trie = Trie, stats = Stats}, Filename) ->
     L = ets:tab2list(Trie),
     {Nodes0, Edges} =
         lists:foldl(
-          fun(#trans{key = {From, Label}, next = To}, {AccN, AccEdge}) ->
-                  Edge = {From, To, Label},
-                  {[From, To] ++ AccN, [Edge|AccEdge]}
-          end,
-          {[], []},
-          L),
+            fun(#trans{key = {From, Label}, next = To}, {AccN, AccEdge}) ->
+                Edge = {From, To, Label},
+                {[From, To] ++ AccN, [Edge | AccEdge]}
+            end,
+            {[], []},
+            L
+        ),
     Nodes =
         lists:map(
-          fun(Node) ->
-                  case ets:lookup(Stats, Node) of
-                      [{_, NChildren}] -> ok;
-                      []               -> NChildren = 0
-                  end,
-                  {Node, NChildren}
-          end,
-          lists:usort(Nodes0)),
-    {ok, FD} = file:open(Filename, [write]),
-    Print = fun (?PREFIX) -> "prefix";
-                (NodeId) -> binary:encode_hex(NodeId)
+            fun(Node) ->
+                case ets:lookup(Stats, Node) of
+                    [{_, NChildren}] -> ok;
+                    [] -> NChildren = 0
+                end,
+                {Node, NChildren}
             end,
+            lists:usort(Nodes0)
+        ),
+    {ok, FD} = file:open(Filename, [write]),
+    Print = fun
+        (?PREFIX) -> "prefix";
+        (NodeId) -> binary:encode_hex(NodeId)
+    end,
     io:format(FD, "digraph {~n", []),
     lists:foreach(
-      fun({Node, NChildren}) ->
-              Id = Print(Node),
-              io:format(FD, "  \"~s\" [label=\"~s : ~p\"];~n", [Id, Id, NChildren])
-      end,
-      Nodes),
+        fun({Node, NChildren}) ->
+            Id = Print(Node),
+            io:format(FD, "  \"~s\" [label=\"~s : ~p\"];~n", [Id, Id, NChildren])
+        end,
+        Nodes
+    ),
     lists:foreach(
-      fun({From, To, Label}) ->
-              io:format(FD, "  \"~s\" -> \"~s\" [label=\"~s\"];~n", [Print(From), Print(To), Label])
-      end,
-      Edges),
+        fun({From, To, Label}) ->
+            io:format(FD, "  \"~s\" -> \"~s\" [label=\"~s\"];~n", [Print(From), Print(To), Label])
+        end,
+        Edges
+    ),
     io:format(FD, "}~n", []),
     file:close(FD).
 
@@ -135,12 +142,12 @@ dump_to_dot(#trie{trie = Trie, stats = Stats}, Filename) ->
 %% Internal exports
 %%================================================================================
 
--spec trie_next(trie(), state(), binary() | ?EOT) -> {Wildcard, state()} | undefined
-              when Wildcard :: boolean().
+-spec trie_next(trie(), state(), binary() | ?EOT) -> {Wildcard, state()} | undefined when
+    Wildcard :: boolean().
 trie_next(#trie{trie = Trie}, State, ?EOT) ->
     case ets:lookup(Trie, {State, ?EOT}) of
         [#trans{next = Next}] -> {false, Next};
-        []                    -> undefined
+        [] -> undefined
     end;
 trie_next(#trie{trie = Trie}, State, Token) ->
     case ets:lookup(Trie, {State, ?PLUS}) of
@@ -149,25 +156,27 @@ trie_next(#trie{trie = Trie}, State, Token) ->
         [] ->
             case ets:lookup(Trie, {State, Token}) of
                 [#trans{next = Next}] -> {false, Next};
-                []                    -> undefined
+                [] -> undefined
             end
     end.
 
--spec trie_insert(trie(), state(), edge()) -> {Updated, state()}
-              when Updated :: false | non_neg_integer().
+-spec trie_insert(trie(), state(), edge()) -> {Updated, state()} when
+    Updated :: false | non_neg_integer().
 trie_insert(#trie{trie = Trie, stats = Stats}, State, Token) ->
     Key = {State, Token},
     NewState = get_id_for_key(State, Token),
-    Rec = #trans{ key = Key
-                , next = NewState
-                },
+    Rec = #trans{
+        key = Key,
+        next = NewState
+    },
     case ets:insert_new(Trie, Rec) of
         true ->
-            Inc = case Token of
-                      ?EOT -> 0;
-                      ?PLUS -> 0;
-                      _ -> 1
-                  end,
+            Inc =
+                case Token of
+                    ?EOT -> 0;
+                    ?PLUS -> 0;
+                    _ -> 1
+                end,
             NChildren = ets:update_counter(Stats, State, {2, Inc}, {State, 0}),
             {NChildren, NewState};
         false ->
@@ -202,69 +211,75 @@ get_id_for_key(_State, _Token) ->
 do_match_topics(Trie, State, Varying, []) ->
     case trie_next(Trie, State, ?EOT) of
         {false, Static} -> [{Static, lists:reverse(Varying)}];
-        undefined       -> []
+        undefined -> []
     end;
 do_match_topics(Trie, State, Varying, ['#']) ->
     Emanating = emanating(Trie, State, ?PLUS),
     lists:flatmap(
-      fun({?EOT, Static}) ->
-              [{Static, lists:reverse(Varying)}];
-         ({?PLUS, NextState}) ->
-              do_match_topics(Trie, NextState, [?PLUS|Varying], ['#']);
-         ({_, NextState}) ->
-              do_match_topics(Trie, NextState, Varying, ['#'])
-      end,
-      Emanating);
-do_match_topics(Trie, State, Varying, [Level|Rest]) ->
+        fun
+            ({?EOT, Static}) ->
+                [{Static, lists:reverse(Varying)}];
+            ({?PLUS, NextState}) ->
+                do_match_topics(Trie, NextState, [?PLUS | Varying], ['#']);
+            ({_, NextState}) ->
+                do_match_topics(Trie, NextState, Varying, ['#'])
+        end,
+        Emanating
+    );
+do_match_topics(Trie, State, Varying, [Level | Rest]) ->
     Emanating = emanating(Trie, State, Level),
     lists:flatmap(
-      fun({?EOT, _NextState}) ->
-              [];
-         ({?PLUS, NextState}) ->
-              do_match_topics(Trie, NextState, [Level|Varying], Rest);
-         ({_, NextState}) ->
-              do_match_topics(Trie, NextState, Varying, Rest)
-      end,
-      Emanating).
+        fun
+            ({?EOT, _NextState}) ->
+                [];
+            ({?PLUS, NextState}) ->
+                do_match_topics(Trie, NextState, [Level | Varying], Rest);
+            ({_, NextState}) ->
+                do_match_topics(Trie, NextState, Varying, Rest)
+        end,
+        Emanating
+    ).
 
 -spec do_lookup_topic_key(trie(), state(), [binary()], [binary()]) ->
-        {ok, msg_storage_key()} | undefined.
+    {ok, msg_storage_key()} | undefined.
 do_lookup_topic_key(Trie, State, [], Varying) ->
-  case trie_next(Trie, State, ?EOT) of
-    {false, Static} ->
-      {ok, {Static, lists:reverse(Varying)}};
-    undefined ->
-      undefined
-  end;
-do_lookup_topic_key(Trie, State, [Tok|Rest], Varying) ->
-  case trie_next(Trie, State, Tok) of
-    {true, NextState} ->
-      do_lookup_topic_key(Trie, NextState, Rest, [Tok|Varying]);
-    {false, NextState} ->
-      do_lookup_topic_key(Trie, NextState, Rest, Varying);
-    undefined ->
-      undefined
-  end.
+    case trie_next(Trie, State, ?EOT) of
+        {false, Static} ->
+            {ok, {Static, lists:reverse(Varying)}};
+        undefined ->
+            undefined
+    end;
+do_lookup_topic_key(Trie, State, [Tok | Rest], Varying) ->
+    case trie_next(Trie, State, Tok) of
+        {true, NextState} ->
+            do_lookup_topic_key(Trie, NextState, Rest, [Tok | Varying]);
+        {false, NextState} ->
+            do_lookup_topic_key(Trie, NextState, Rest, Varying);
+        undefined ->
+            undefined
+    end.
 
 do_topic_key(Trie, _, _, State, [], Varying) ->
     {_, false, Static} = trie_next_(Trie, State, ?EOT),
     {Static, lists:reverse(Varying)};
-do_topic_key(Trie, ThresholdFun, Depth, State, [Tok|Rest], Varying0) ->
-    Threshold = ThresholdFun(Depth), % TODO: it's not necessary to call it every time.
-    Varying = case trie_next_(Trie, State, Tok) of
-                  {NChildren, _, _DiscardState} when is_integer(NChildren), NChildren > Threshold ->
-                      {_, NextState} = trie_insert(Trie, State, ?PLUS),
-                      [Tok|Varying0];
-                  {_, false, NextState} ->
-                      Varying0;
-                  {_, true, NextState} ->
-                      [Tok|Varying0]
-              end,
+do_topic_key(Trie, ThresholdFun, Depth, State, [Tok | Rest], Varying0) ->
+    % TODO: it's not necessary to call it every time.
+    Threshold = ThresholdFun(Depth),
+    Varying =
+        case trie_next_(Trie, State, Tok) of
+            {NChildren, _, _DiscardState} when is_integer(NChildren), NChildren > Threshold ->
+                {_, NextState} = trie_insert(Trie, State, ?PLUS),
+                [Tok | Varying0];
+            {_, false, NextState} ->
+                Varying0;
+            {_, true, NextState} ->
+                [Tok | Varying0]
+        end,
     do_topic_key(Trie, ThresholdFun, Depth + 1, NextState, Rest, Varying).
 
--spec trie_next_(trie(), state(), binary() | ?EOT) -> {New, Wildcard, state()}
-              when New :: false | non_neg_integer(),
-                   Wildcard :: boolean().
+-spec trie_next_(trie(), state(), binary() | ?EOT) -> {New, Wildcard, state()} when
+    New :: false | non_neg_integer(),
+    Wildcard :: boolean().
 trie_next_(Trie, State, Token) ->
     case trie_next(Trie, State, Token) of
         {Wildcard, NextState} ->
@@ -278,19 +293,26 @@ trie_next_(Trie, State, Token) ->
 %% erlfmt-ignore
 -spec emanating(trie(), state(), edge()) -> [{edge(), state()}].
 emanating(#trie{trie = Tab}, State, ?PLUS) ->
-    ets:select(Tab, ets:fun2ms(
-                      fun(#trans{key = {S, Edge}, next = Next}) when S == State ->
-                              {Edge, Next}
-                      end));
+    ets:select(
+        Tab,
+        ets:fun2ms(
+            fun(#trans{key = {S, Edge}, next = Next}) when S == State ->
+                {Edge, Next}
+            end
+        )
+    );
 emanating(#trie{trie = Tab}, State, ?EOT) ->
     case ets:lookup(Tab, {State, ?EOT}) of
         [#trans{next = Next}] -> [{?EOT, Next}];
-        []                    -> []
+        [] -> []
     end;
 emanating(#trie{trie = Tab}, State, Bin) when is_binary(Bin) ->
-    [{Edge, Next} || #trans{key = {_, Edge}, next = Next} <-
-                         ets:lookup(Tab, {State, ?PLUS}) ++
-                         ets:lookup(Tab, {State, Bin})].
+    [
+        {Edge, Next}
+     || #trans{key = {_, Edge}, next = Next} <-
+            ets:lookup(Tab, {State, ?PLUS}) ++
+                ets:lookup(Tab, {State, Bin})
+    ].
 
 %%================================================================================
 %% Tests
@@ -325,56 +347,71 @@ lookup_key_test() ->
     {_, S1} = trie_insert(T, ?PREFIX, <<"foo">>),
     {_, S11} = trie_insert(T, S1, <<"foo">>),
     %% Topics don't match until we insert ?EOT:
-    ?assertMatch( undefined
-                , lookup_topic_key(T, [<<"foo">>])
-                ),
-    ?assertMatch( undefined
-                , lookup_topic_key(T, [<<"foo">>, <<"foo">>])
-                ),
+    ?assertMatch(
+        undefined,
+        lookup_topic_key(T, [<<"foo">>])
+    ),
+    ?assertMatch(
+        undefined,
+        lookup_topic_key(T, [<<"foo">>, <<"foo">>])
+    ),
     {_, S10} = trie_insert(T, S1, ?EOT),
     {_, S110} = trie_insert(T, S11, ?EOT),
-    ?assertMatch( {ok, {S10, []}}
-                , lookup_topic_key(T, [<<"foo">>])
-                ),
-    ?assertMatch( {ok, {S110, []}}
-                , lookup_topic_key(T, [<<"foo">>, <<"foo">>])
-                ),
+    ?assertMatch(
+        {ok, {S10, []}},
+        lookup_topic_key(T, [<<"foo">>])
+    ),
+    ?assertMatch(
+        {ok, {S110, []}},
+        lookup_topic_key(T, [<<"foo">>, <<"foo">>])
+    ),
     %% The rest of keys still don't match:
-    ?assertMatch( undefined
-                , lookup_topic_key(T, [<<"bar">>])
-                ),
-    ?assertMatch( undefined
-                , lookup_topic_key(T, [<<"bar">>, <<"foo">>])
-                ).
+    ?assertMatch(
+        undefined,
+        lookup_topic_key(T, [<<"bar">>])
+    ),
+    ?assertMatch(
+        undefined,
+        lookup_topic_key(T, [<<"bar">>, <<"foo">>])
+    ).
 
 wildcard_lookup_test() ->
     T = trie_create(),
     {1, S1} = trie_insert(T, ?PREFIX, <<"foo">>),
-    {0, S11} = trie_insert(T, S1, ?PLUS), %% Plus doesn't increase the number of children
+    %% Plus doesn't increase the number of children
+    {0, S11} = trie_insert(T, S1, ?PLUS),
     {1, S111} = trie_insert(T, S11, <<"foo">>),
-    {0, S1110} = trie_insert(T, S111, ?EOT), %% ?EOT doesn't increase the number of children
-    ?assertMatch( {ok, {S1110, [<<"bar">>]}}
-                , lookup_topic_key(T, [<<"foo">>, <<"bar">>, <<"foo">>])
-                ),
-    ?assertMatch( {ok, {S1110, [<<"quux">>]}}
-                , lookup_topic_key(T, [<<"foo">>, <<"quux">>, <<"foo">>])
-                ),
-    ?assertMatch( undefined
-                , lookup_topic_key(T, [<<"foo">>])
-                ),
-    ?assertMatch( undefined
-                , lookup_topic_key(T, [<<"foo">>, <<"bar">>])
-                ),
-    ?assertMatch( undefined
-                , lookup_topic_key(T, [<<"foo">>, <<"bar">>, <<"bar">>])
-                ),
-    ?assertMatch( undefined
-                , lookup_topic_key(T, [<<"bar">>, <<"foo">>, <<"foo">>])
-                ),
+    %% ?EOT doesn't increase the number of children
+    {0, S1110} = trie_insert(T, S111, ?EOT),
+    ?assertMatch(
+        {ok, {S1110, [<<"bar">>]}},
+        lookup_topic_key(T, [<<"foo">>, <<"bar">>, <<"foo">>])
+    ),
+    ?assertMatch(
+        {ok, {S1110, [<<"quux">>]}},
+        lookup_topic_key(T, [<<"foo">>, <<"quux">>, <<"foo">>])
+    ),
+    ?assertMatch(
+        undefined,
+        lookup_topic_key(T, [<<"foo">>])
+    ),
+    ?assertMatch(
+        undefined,
+        lookup_topic_key(T, [<<"foo">>, <<"bar">>])
+    ),
+    ?assertMatch(
+        undefined,
+        lookup_topic_key(T, [<<"foo">>, <<"bar">>, <<"bar">>])
+    ),
+    ?assertMatch(
+        undefined,
+        lookup_topic_key(T, [<<"bar">>, <<"foo">>, <<"foo">>])
+    ),
     {_, S10} = trie_insert(T, S1, ?EOT),
-    ?assertMatch( {ok, {S10, []}}
-                , lookup_topic_key(T, [<<"foo">>])
-                ).
+    ?assertMatch(
+        {ok, {S10, []}},
+        lookup_topic_key(T, [<<"foo">>])
+    ).
 
 %% erlfmt-ignore
 topic_key_test() ->

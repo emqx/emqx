@@ -83,15 +83,11 @@
 -export([create_new/3, open/5]).
 -export([make_keymapper/1]).
 
--export([store/5]).
--export([delete/4]).
+-export([store/5, delete/4]).
 
--export([get_streams/2]).
--export([make_iterator/3, next/1]).
+-export([get_streams/3, make_iterator/3, next/1]).
 
--export([preserve_iterator/1]).
--export([restore_iterator/2]).
--export([refresh_iterator/1]).
+-export([preserve_iterator/1, restore_iterator/2, refresh_iterator/1]).
 
 %% Debug/troubleshooting:
 %% Keymappers
@@ -131,7 +127,7 @@
 %% Type declarations
 %%================================================================================
 
--opaque stream() :: singleton_stream.
+-opaque stream() :: emqx_ds:topic_filter().
 
 -type topic() :: emqx_ds:topic().
 -type topic_filter() :: emqx_ds:topic_filter().
@@ -290,10 +286,10 @@ delete(DB = #db{handle = DBHandle, cf = CFHandle}, MessageID, PublishedAt, Topic
     Key = make_message_key(Topic, PublishedAt, MessageID, DB#db.keymapper),
     rocksdb:delete(DBHandle, CFHandle, Key, DB#db.write_options).
 
--spec get_streams(db(), emqx_ds:reply()) ->
+-spec get_streams(db(), emqx_ds:topic_filter(), emqx_ds:time()) ->
           [stream()].
-get_streams(_, _) ->
-    [singleton_stream].
+get_streams(_, TopicFilter, _) ->
+    [{0, TopicFilter}].
 
 -spec make_iterator(db(), emqx_ds:replay(), iteration_options()) ->
     % {error, invalid_start_time}? might just start from the beginning of time

@@ -27,10 +27,6 @@
 ]).
 
 %% FIXME
--define(DS_SHARD_ID, <<"local">>).
--define(DEFAULT_KEYSPACE, default).
--define(DS_SHARD, {?DEFAULT_KEYSPACE, ?DS_SHARD_ID}).
-
 -define(WHEN_ENABLED(DO),
     case is_store_enabled() of
         true -> DO;
@@ -42,9 +38,9 @@
 
 init() ->
     ?WHEN_ENABLED(begin
-                      ok = emqx_ds:create_db(<<"default">>, #{}),
+        ok = emqx_ds:open_db(<<"default">>, #{}),
         ok = emqx_persistent_session_ds_router:init_tables(),
-        ok = emqx_persistent_session_ds:create_tables(),
+        %ok = emqx_persistent_session_ds:create_tables(),
         ok
     end).
 
@@ -70,7 +66,7 @@ needs_persistence(Msg) ->
     not (emqx_message:get_flag(dup, Msg) orelse emqx_message:is_sys(Msg)).
 
 store_message(Msg) ->
-    emqx_ds:message_store([Msg]).
+    emqx_ds:store_batch([Msg]).
 
 has_subscribers(#message{topic = Topic}) ->
     emqx_persistent_session_ds_router:has_any_route(Topic).

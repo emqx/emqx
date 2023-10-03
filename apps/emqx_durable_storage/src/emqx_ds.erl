@@ -13,31 +13,44 @@
 %% See the License for the specific language governing permissions and
 %% limitations under the License.
 %%--------------------------------------------------------------------
+
+%% @doc Main interface module for `emqx_durable_storage' application.
+%%
+%% It takes care of forwarding calls to the underlying DBMS. Currently
+%% only the embedded `emqx_ds_replication_layer' storage is supported,
+%% so all the calls are simply passed through.
 -module(emqx_ds).
 
 %% Management API:
 -export([open_db/2]).
 
 %% Message storage API:
--export([message_store/1, message_store/2, message_store/3]).
+-export([store_batch/1, store_batch/2, store_batch/3]).
 
 %% Message replay API:
--export([get_streams/3, open_iterator/2, next/2]).
+-export([get_streams/3, make_iterator/2, next/2]).
 
-%% internal exports:
+%% Misc. API:
 -export([]).
 
--export_type([db/0, time/0, topic_filter/0, topic/0]).
+-export_type([
+    db/0,
+    time/0,
+    topic_filter/0,
+    topic/0,
+    stream/0,
+    stream_rank/0,
+    iterator/0,
+    next_result/1, next_result/0,
+    store_batch_result/0,
+    make_iterator_result/1, make_iterator_result/0
+]).
 
 %%================================================================================
 %% Type declarations
 %%================================================================================
 
-%% Different DBs are completely independent from each other. They
-%% could represent something like different tenants.
-%%
-%% Topics stored in different DBs aren't necesserily disjoint.
--type db() :: binary().
+-type db() :: emqx_ds_replication_layer:db().
 
 %% Parsed topic.
 -type topic() :: list(binary()).
@@ -45,30 +58,22 @@
 %% Parsed topic filter.
 -type topic_filter() :: list(binary() | '+' | '#' | '').
 
-%% This record enapsulates the stream entity from the replication
-%% level.
-%%
-%% TODO: currently the stream is hardwired to only support the
-%% internal rocksdb storage. In t he future we want to add another
-%% implementations for emqx_ds, so this type has to take this into
-%% account.
--record(stream,
-        { shard :: emqx_ds_replication_layer:shard()
-        , enc :: emqx_ds_replication_layer:stream()
-        }).
-
 -type stream_rank() :: {integer(), integer()}.
 
--opaque stream() :: #stream{}.
+-opaque stream() :: emqx_ds_replication_layer:stream().
 
-%% This record encapsulates the iterator entity from the replication
-%% level.
--record(iterator,
-        { shard :: emqx_ds_replication_layer:shard()
-        , enc :: enqx_ds_replication_layer:iterator()
-        }).
+-opaque iterator() :: emqx_ds_replication_layer:iterator().
 
--opaque iterator() :: #iterator{}.
+-type store_batch_result() :: ok | {error, _}.
+
+-type make_iterator_result(Iterator) :: {ok, Iterator} | {error, _}.
+
+-type make_iterator_result() :: make_iterator_result(iterator()).
+
+-type next_result(Iterator) ::
+    {ok, Iterator, [emqx_types:message()]} | {ok, end_of_stream} | {error, _}.
+
+-type next_result() :: next_result(iterator()).
 
 %% Timestamp
 %% Earliest possible timestamp is 0.
@@ -78,7 +83,9 @@
 
 -type message_store_opts() :: #{}.
 
--type create_db_opts() :: #{}.
+-type create_db_opts() ::
+    %% TODO: keyspace
+    #{}.
 
 -type message_id() :: emqx_ds_replication_layer:message_id().
 
@@ -88,24 +95,24 @@
 %% API funcions
 %%================================================================================
 
+%% @doc Different DBs are completely independent from each other. They
+%% could represent something like different tenants.
 -spec open_db(db(), create_db_opts()) -> ok.
 open_db(DB, Opts) ->
     emqx_ds_replication_layer:open_db(DB, Opts).
 
--spec message_store([emqx_types:message()]) ->
-          {ok, [message_id()]} | {error, _}.
-message_store(Msgs) ->
-    message_store(?DEFAULT_DB, Msgs, #{}).
+-spec store_batch([emqx_types:message()]) -> store_batch_result().
+store_batch(Msgs) ->
+    store_batch(?DEFAULT_DB, Msgs, #{}).
 
--spec message_store(db(), [emqx_types:message()], message_store_opts()) ->
-    {ok, [message_id()]} | {error, _}.
-message_store(DB, Msgs, Opts) ->
-    emqx_ds_replication_layer:message_store(DB, Msgs, Opts).
+-spec store_batch(db(), [emqx_types:message()], message_store_opts()) -> store_batch_result().
+store_batch(DB, Msgs, Opts) ->
+    emqx_ds_replication_layer:store_batch(DB, Msgs, Opts).
 
 %% TODO: Do we really need to return message IDs? It's extra work...
--spec message_store(db(), [emqx_types:message()]) -> {ok, [message_id()]} | {error, _}.
-message_store(DB, Msgs) ->
-    message_store(DB, Msgs, #{}).
+-spec store_batch(db(), [emqx_types:message()]) -> {ok, [message_id()]} | {error, _}.
+store_batch(DB, Msgs) ->
+    store_batch(DB, Msgs, #{}).
 
 %% @doc Get a list of streams needed for replaying a topic filter.
 %%
@@ -113,56 +120,44 @@ message_store(DB, Msgs) ->
 %% different locations or even in different databases. A wildcard
 %% topic filter may require pulling data from any number of locations.
 %%
-%% Stream is an abstraction exposed by `emqx_ds' that reflects the
-%% notion that different topics can be stored differently, but hides
-%% the implementation details.
+%% Stream is an abstraction exposed by `emqx_ds' that, on one hand,
+%% reflects the notion that different topics can be stored
+%% differently, but hides the implementation details.
 %%
 %% Rules:
 %%
-%% 1. New streams matching the topic filter can appear without notice,
-%% so the replayer must periodically call this function to get the
-%% updated list of streams.
+%% 0. There is no 1-to-1 mapping between MQTT topics and streams. One
+%% stream can contain any number of MQTT topics.
+%%
+%% 1. New streams matching the topic filter and start time can appear
+%% without notice, so the replayer must periodically call this
+%% function to get the updated list of streams.
 %%
 %% 2. Streams may depend on one another. Therefore, care should be
 %% taken while replaying them in parallel to avoid out-of-order
 %% replay. This function returns stream together with its
-%% "coordinates": `{X, T, Stream}'. If X coordinate of two streams is
-%% different, then they can be replayed in parallel.  If it's the
-%% same, then the stream with smaller T coordinate should be replayed
-%% first.
+%% "coordinate": `stream_rank()'.
+%%
+%% Stream rank is a tuple of two integers, let's call them X and Y. If
+%% X coordinate of two streams is different, they are independent and
+%% can be replayed in parallel. If it's the same, then the stream with
+%% smaller Y coordinate should be replayed first. If Y coordinates are
+%% equal, then the streams are independent.
+%%
+%% Stream is fully consumed when `next/3' function returns
+%% `end_of_stream'. Then the client can proceed to replaying streams
+%% that depend on the given one.
 -spec get_streams(db(), topic_filter(), time()) -> [{stream_rank(), stream()}].
 get_streams(DB, TopicFilter, StartTime) ->
-    Shards = emqx_ds_replication_layer:list_shards(DB),
-    lists:flatmap(
-      fun(Shard) ->
-              Streams = emqx_ds_replication_layer:get_streams(Shard, TopicFilter, StartTime),
-              [{Rank, #stream{ shard = Shard
-                             , enc = I
-                             }} || {Rank, I} <- Streams]
-      end,
-      Shards).
+    emqx_ds_replication_layer:get_streams(DB, TopicFilter, StartTime).
 
--spec open_iterator(stream(), time()) -> {ok, iterator()} | {error, _}.
-open_iterator(#stream{shard = Shard, enc = Stream}, StartTime) ->
-    case emqx_ds_replication_layer:open_iterator(Shard, Stream, StartTime) of
-        {ok, Iter} ->
-            {ok, #iterator{shard = Shard, enc = Iter}};
-        Err = {error, _} ->
-            Err
-    end.
+-spec make_iterator(stream(), time()) -> make_iterator_result().
+make_iterator(Stream, StartTime) ->
+    emqx_ds_replication_layer:make_iterator(Stream, StartTime).
 
--spec next(iterator(), pos_integer()) -> {ok, iterator(), [emqx_types:message()]} | end_of_stream.
-next(#iterator{shard = Shard, enc = Iter0}, BatchSize) ->
-    case emqx_ds_replication_layer:next(Shard, Iter0, BatchSize) of
-        {ok, Iter, Batch} ->
-            {ok, #iterator{shard = Shard, enc = Iter}, Batch};
-        end_of_stream ->
-            end_of_stream
-    end.
-
-%%================================================================================
-%% behavior callbacks
-%%================================================================================
+-spec next(iterator(), pos_integer()) -> next_result().
+next(Iter, BatchSize) ->
+    emqx_ds_replication_layer:next(Iter, BatchSize).
 
 %%================================================================================
 %% Internal exports
