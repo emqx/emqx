@@ -13,8 +13,19 @@
 -import(hoconsc, [mk/2, enum/1, ref/2]).
 
 -export([
-    fields/1
+    api_schemas/1,
+    fields/1,
+    examples/1
 ]).
+
+resource_type(Type) when is_binary(Type) -> resource_type(binary_to_atom(Type, utf8));
+resource_type(kafka) -> emqx_bridge_kafka_impl_producer.
+
+%% For connectors that need to override connector configurations.
+connector_impl_module(ConnectorType) when is_binary(ConnectorType) ->
+    connector_impl_module(binary_to_atom(ConnectorType, utf8));
+connector_impl_module(_ConnectorType) ->
+    undefined.
 
 fields(connectors) ->
     kafka_structs().
@@ -31,14 +42,34 @@ kafka_structs() ->
             )}
     ].
 
-resource_type(Type) when is_binary(Type) -> resource_type(binary_to_atom(Type, utf8));
-resource_type(kafka) -> emqx_bridge_kafka_impl_producer.
+examples(Method) ->
+    MergeFun =
+        fun(Example, Examples) ->
+            maps:merge(Examples, Example)
+        end,
+    Fun =
+        fun(Module, Examples) ->
+            ConnectorExamples = erlang:apply(Module, conn_bridge_examples, [Method]),
+            lists:foldl(MergeFun, Examples, ConnectorExamples)
+        end,
+    lists:foldl(Fun, #{}, schema_modules()).
 
-%% For connectors that need to override connector configurations.
-connector_impl_module(ConnectorType) when is_binary(ConnectorType) ->
-    connector_impl_module(binary_to_atom(ConnectorType, utf8));
-connector_impl_module(_ConnectorType) ->
-    undefined.
+schema_modules() ->
+    [
+        emqx_bridge_kafka
+    ].
+
+api_schemas(Method) ->
+    [
+        %% We need to map the `type' field of a request (binary) to a
+        %% connector schema module.
+        %% TODO: rename this to `kafka_producer' after alias support is added
+        %% to hocon; keeping this as just `kafka' for backwards compatibility.
+        api_ref(emqx_bridge_kafka, <<"kafka">>, Method ++ "_producer")
+    ].
+
+api_ref(Module, Type, Method) ->
+    {Type, ref(Module, Method)}.
 
 -else.
 
