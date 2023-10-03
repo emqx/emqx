@@ -43,7 +43,7 @@ end_per_testcase(TestCase, Config) ->
 
 t_connector_lifecycle({init, Config}) ->
     meck:new(emqx_connector_ee_schema, [passthrough]),
-    meck:expect(emqx_connector_ee_schema, resource_type, 1, dummy_connector_impl),
+    meck:expect(emqx_connector_ee_schema, resource_type, 1, ?CONNECTOR),
     meck:new(?CONNECTOR, [non_strict]),
     meck:expect(?CONNECTOR, callback_mode, 0, async_if_possible),
     meck:expect(?CONNECTOR, on_start, 2, {ok, connector_state}),
@@ -71,18 +71,38 @@ t_connector_lifecycle(_Config) ->
     ),
 
     ?assertMatch(
-        {ok, #{name := my_connector, type := kafka}},
+        {ok, #{name := my_connector, type := kafka, resource_data := #{status := connected}}},
         emqx_connector:lookup(<<"kafka:my_connector">>)
     ),
 
     ?assertMatch(
-        {ok, #{name := my_connector, type := kafka}},
+        {ok, #{name := my_connector, type := kafka, resource_data := #{status := connected}}},
         emqx_connector:lookup(kafka, my_connector)
     ),
 
     ?assertMatch(
         [#{name := <<"my_connector">>, type := <<"kafka">>}],
         emqx_connector:list()
+    ),
+
+    ?assertMatch(
+        {ok, #{config := #{enable := false}}},
+        emqx_connector:disable_enable(disable, kafka, my_connector)
+    ),
+
+    ?assertMatch(
+        {ok, #{resource_data := #{status := stopped}}},
+        emqx_connector:lookup(kafka, my_connector)
+    ),
+
+    ?assertMatch(
+        {ok, #{config := #{enable := true}}},
+        emqx_connector:disable_enable(enable, kafka, my_connector)
+    ),
+
+    ?assertMatch(
+        {ok, #{resource_data := #{status := connected}}},
+        emqx_connector:lookup(kafka, my_connector)
     ),
 
     ?assertMatch(
@@ -99,6 +119,10 @@ t_connector_lifecycle(_Config) ->
     ?assertMatch(
         [
             {_, {?CONNECTOR, callback_mode, []}, _},
+            {_, {?CONNECTOR, on_start, [_, _]}, {ok, connector_state}},
+            {_, {?CONNECTOR, on_get_status, [_, connector_state]}, connected},
+            {_, {?CONNECTOR, on_stop, [_, connector_state]}, ok},
+            {_, {?CONNECTOR, on_stop, [_, connector_state]}, ok},
             {_, {?CONNECTOR, on_start, [_, _]}, {ok, connector_state}},
             {_, {?CONNECTOR, on_get_status, [_, connector_state]}, connected},
             {_, {?CONNECTOR, on_stop, [_, connector_state]}, ok}
