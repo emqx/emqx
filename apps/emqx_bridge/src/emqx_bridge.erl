@@ -279,23 +279,26 @@ post_config_update([?ROOT_KEY], _Req, NewConf, OldConf, _AppEnv) ->
     Result.
 
 list() ->
-    % OldStyleBridges =
-    maps:fold(
-        fun(Type, NameAndConf, Bridges) ->
-            maps:fold(
-                fun(Name, RawConf, Acc) ->
-                    case lookup(Type, Name, RawConf) of
-                        {error, not_found} -> Acc;
-                        {ok, Res} -> [Res | Acc]
-                    end
-                end,
-                Bridges,
-                NameAndConf
-            )
-        end,
-        [],
-        emqx:get_raw_config([bridges], #{})
-    ).
+    BridgeV1Bridges =
+        maps:fold(
+            fun(Type, NameAndConf, Bridges) ->
+                maps:fold(
+                    fun(Name, RawConf, Acc) ->
+                        case lookup(Type, Name, RawConf) of
+                            {error, not_found} -> Acc;
+                            {ok, Res} -> [Res | Acc]
+                        end
+                    end,
+                    Bridges,
+                    NameAndConf
+                )
+            end,
+            [],
+            emqx:get_raw_config([bridges], #{})
+        ),
+    BridgeV2Bridges =
+        emqx_bridge_v2:list_and_transform_to_bridge_v1(),
+    BridgeV1Bridges ++ BridgeV2Bridges.
 %%BridgeV2Bridges = emqx_bridge_v2:list().
 
 lookup(Id) ->
@@ -325,7 +328,12 @@ lookup(Type, Name, RawConf) ->
     end.
 
 get_metrics(Type, Name) ->
-    emqx_resource:get_metrics(emqx_bridge_resource:resource_id(Type, Name)).
+    case emqx_bridge_v2:is_bridge_v2_type(Type) of
+        true ->
+            emqx_bridge_v2:get_metrics(Type, Name);
+        false ->
+            emqx_resource:get_metrics(emqx_bridge_resource:resource_id(Type, Name))
+    end.
 
 maybe_upgrade(mqtt, Config) ->
     emqx_bridge_compatible_config:maybe_upgrade(Config);
@@ -337,11 +345,16 @@ maybe_upgrade(_Other, Config) ->
 disable_enable(Action, BridgeType, BridgeName) when
     Action =:= disable; Action =:= enable
 ->
-    emqx_conf:update(
-        config_key_path() ++ [BridgeType, BridgeName],
-        {Action, BridgeType, BridgeName},
-        #{override_to => cluster}
-    ).
+    case emqx_bridge_v2:is_bridge_v2_type(BridgeType) of
+        true ->
+            emqx_bridge_v2:disable_enable(Action, BridgeType, BridgeName);
+        false ->
+            emqx_conf:update(
+                config_key_path() ++ [BridgeType, BridgeName],
+                {Action, BridgeType, BridgeName},
+                #{override_to => cluster}
+            )
+    end.
 
 create(BridgeType, BridgeName, RawConf) ->
     ?SLOG(debug, #{
@@ -350,24 +363,47 @@ create(BridgeType, BridgeName, RawConf) ->
         bridge_name => BridgeName,
         bridge_raw_config => emqx_utils:redact(RawConf)
     }),
-    emqx_conf:update(
-        emqx_bridge:config_key_path() ++ [BridgeType, BridgeName],
-        RawConf,
-        #{override_to => cluster}
-    ).
+    case emqx_bridge_v2:is_bridge_v2_type(BridgeType) of
+        true ->
+            emqx_bridge_v2:split_bridge_v1_config_and_create(BridgeType, BridgeName, RawConf);
+        false ->
+            emqx_conf:update(
+                emqx_bridge:config_key_path() ++ [BridgeType, BridgeName],
+                RawConf,
+                #{override_to => cluster}
+            )
+    end.
 
+%% NOTE: This function can cause broken references but it is only called from
+%% test cases.
 remove(BridgeType, BridgeName) ->
     ?SLOG(debug, #{
         bridge_action => remove,
         bridge_type => BridgeType,
         bridge_name => BridgeName
     }),
+    case emqx_bridge_v2:is_bridge_v2_type(BridgeType) of
+        true ->
+            emqx_bridge_v2:remove(BridgeType, BridgeName);
+        false ->
+            remove_v1(BridgeType, BridgeName)
+    end.
+
+remove_v1(BridgeType, BridgeName) ->
     emqx_conf:remove(
         emqx_bridge:config_key_path() ++ [BridgeType, BridgeName],
         #{override_to => cluster}
     ).
 
 check_deps_and_remove(BridgeType, BridgeName, RemoveDeps) ->
+    case emqx_bridge_v2:is_bridge_v2_type(BridgeType) of
+        true ->
+            emqx_bridge_v2:check_deps_and_remove(BridgeType, BridgeName, RemoveDeps);
+        false ->
+            check_deps_and_remove_v1(BridgeType, BridgeName, RemoveDeps)
+    end.
+
+check_deps_and_remove_v1(BridgeType, BridgeName, RemoveDeps) ->
     BridgeId = emqx_bridge_resource:bridge_id(BridgeType, BridgeName),
     %% NOTE: This violates the design: Rule depends on data-bridge but not vice versa.
     case emqx_rule_engine:get_rule_ids_by_action(BridgeId) of

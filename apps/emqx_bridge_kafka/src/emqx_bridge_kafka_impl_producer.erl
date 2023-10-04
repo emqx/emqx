@@ -71,6 +71,19 @@ on_start(<<"connector:", _/binary>> = InstId, Config) ->
     },
     case wolff:ensure_supervised_client(ClientId, Hosts, ClientConfig) of
         {ok, _} ->
+            case wolff_client_sup:find_client(ClientId) of
+                {ok, Pid} ->
+                    case wolff_client:check_connectivity(Pid) of
+                        ok ->
+                            ok;
+                        {error, Error} ->
+                            deallocate_client(ClientId),
+                            throw({failed_to_connect, Error})
+                    end;
+                {error, Reason} ->
+                    deallocate_client(ClientId),
+                    throw({failed_to_find_created_client, Reason})
+            end,
             ?SLOG(info, #{
                 msg => "kafka_client_started",
                 instance_id => InstId,
@@ -455,13 +468,13 @@ on_kafka_ack(_Partition, buffer_overflow_discarded, _Callback) ->
 %% `emqx_resource_manager' will kill the wolff producers and messages might be lost.
 on_get_status(
     <<"connector:", _/binary>> = _InstId,
-    #{client_id := ClientId} = _State
+    #{client_id := ClientId} = State
 ) ->
     case wolff_client_sup:find_client(ClientId) of
         {ok, Pid} ->
             case wolff_client:check_connectivity(Pid) of
                 ok -> connected;
-                {error, Error} -> {connecting, Error}
+                {error, Error} -> {connecting, State, Error}
             end;
         {error, _Reason} ->
             connecting

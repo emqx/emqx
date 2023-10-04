@@ -485,8 +485,9 @@ schema("/bridges_probe") ->
     ?TRY_PARSE_ID(
         Id,
         case emqx_bridge:lookup(BridgeType, BridgeName) of
-            {ok, _} ->
-                RawConf = emqx:get_raw_config([bridges, BridgeType, BridgeName], #{}),
+            {ok, #{raw_config := RawConf}} ->
+                %% TODO will the maybe_upgrade step done by emqx_bridge:lookup cause any problems
+                %%RawConf = emqx:get_raw_config([bridges, BridgeType, BridgeName], #{}),
                 Conf = deobfuscate(Conf1, RawConf),
                 update_bridge(BridgeType, BridgeName, Conf);
             {error, not_found} ->
@@ -562,8 +563,9 @@ schema("/bridges_probe") ->
 
 maybe_deobfuscate_bridge_probe(#{<<"type">> := BridgeType, <<"name">> := BridgeName} = Params) ->
     case emqx_bridge:lookup(BridgeType, BridgeName) of
-        {ok, _} ->
-            RawConf = emqx:get_raw_config([bridges, BridgeType, BridgeName], #{}),
+        {ok, #{raw_config := RawConf}} ->
+            %% TODO check if RawConf optained above is compatible with the commented out code below
+            %% RawConf = emqx:get_raw_config([bridges, BridgeType, BridgeName], #{}),
             deobfuscate(Params, RawConf);
         _ ->
             %% A bridge may be probed before it's created, so not finding it here is fine
@@ -693,12 +695,12 @@ get_metrics_from_local_node(BridgeType, BridgeName) ->
     ).
 
 is_enabled_bridge(BridgeType, BridgeName) ->
-    try emqx:get_config([bridges, BridgeType, binary_to_existing_atom(BridgeName)]) of
-        ConfMap ->
-            maps:get(enable, ConfMap, false)
+    try emqx_bridge:lookup(BridgeType, binary_to_existing_atom(BridgeName)) of
+        {ok, #{raw_config := ConfMap}} ->
+            maps:get(<<"enable">>, ConfMap, false);
+        {error, not_found} ->
+            throw(not_found)
     catch
-        error:{config_not_found, _} ->
-            throw(not_found);
         error:badarg ->
             %% catch non-existing atom,
             %% none-existing atom means it is not available in config PT storage.
