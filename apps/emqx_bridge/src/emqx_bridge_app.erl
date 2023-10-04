@@ -18,7 +18,6 @@
 -behaviour(application).
 
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
-
 -export([start/2, stop/1]).
 
 -export([

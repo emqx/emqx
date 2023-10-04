@@ -233,7 +233,7 @@
 
 -callback on_get_channels(
     ResId :: term()
-) -> {ok, NewState :: term()}.
+) -> {ok, [term()]}.
 
 -spec list_types() -> [module()].
 list_types() ->

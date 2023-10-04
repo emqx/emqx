@@ -22,6 +22,7 @@
 -include_lib("common_test/include/ct.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 -include_lib("brod/include/brod.hrl").
+
 all() ->
     emqx_common_test_helpers:all(?MODULE).
 
@@ -123,23 +124,33 @@ t_health_check(_) ->
     {ok, _} = emqx_connector:remove(kafka, test_connector3),
     ok.
 
+t_local_topic(_) ->
+    BridgeV2Config = bridge_v2_config(<<"test_connector">>),
+    ConnectorConfig = connector_config(),
+    {ok, _} = emqx_connector:create(kafka, test_connector, ConnectorConfig),
+    {ok, _} = emqx_bridge_v2:create(kafka, test_bridge, BridgeV2Config),
+    %% Send a message to the local topic
+    Payload = <<"local_topic_payload">>,
+    Offset = resolve_kafka_offset(),
+    emqx:publish(emqx_message:make(<<"kafka_t/hej">>, Payload)),
+    check_kafka_message_payload(Offset, Payload),
+    {ok, _} = emqx_bridge_v2:remove(kafka, test_bridge),
+    {ok, _} = emqx_connector:remove(kafka, test_connector),
+    ok.
+
 check_send_message_with_bridge(BridgeName) ->
     %% ######################################
     %% Create Kafka message
     %% ######################################
-    KafkaTopic = emqx_bridge_kafka_impl_producer_SUITE:test_topic_one_partition(),
-    Partition = 0,
     Time = erlang:unique_integer(),
     BinTime = integer_to_binary(Time),
+    Payload = list_to_binary("payload" ++ integer_to_list(Time)),
     Msg = #{
         clientid => BinTime,
-        payload => <<"payload">>,
+        payload => Payload,
         timestamp => Time
     },
-    Hosts = emqx_bridge_kafka_impl_producer_SUITE:kafka_hosts(),
-    {ok, Offset0} = emqx_bridge_kafka_impl_producer_SUITE:resolve_kafka_offset(
-        Hosts, KafkaTopic, Partition
-    ),
+    Offset = resolve_kafka_offset(),
     %% ######################################
     %% Send message
     %% ######################################
@@ -147,8 +158,23 @@ check_send_message_with_bridge(BridgeName) ->
     %% ######################################
     %% Check if message is sent to Kafka
     %% ######################################
-    {ok, {_, [KafkaMsg0]}} = brod:fetch(Hosts, KafkaTopic, Partition, Offset0),
-    ?assertMatch(#kafka_message{key = BinTime}, KafkaMsg0).
+    check_kafka_message_payload(Offset, Payload).
+
+resolve_kafka_offset() ->
+    KafkaTopic = emqx_bridge_kafka_impl_producer_SUITE:test_topic_one_partition(),
+    Partition = 0,
+    Hosts = emqx_bridge_kafka_impl_producer_SUITE:kafka_hosts(),
+    {ok, Offset0} = emqx_bridge_kafka_impl_producer_SUITE:resolve_kafka_offset(
+        Hosts, KafkaTopic, Partition
+    ),
+    Offset0.
+
+check_kafka_message_payload(Offset, ExpectedPayload) ->
+    KafkaTopic = emqx_bridge_kafka_impl_producer_SUITE:test_topic_one_partition(),
+    Partition = 0,
+    Hosts = emqx_bridge_kafka_impl_producer_SUITE:kafka_hosts(),
+    {ok, {_, [KafkaMsg0]}} = brod:fetch(Hosts, KafkaTopic, Partition, Offset),
+    ?assertMatch(#kafka_message{value = ExpectedPayload}, KafkaMsg0).
 
 bridge_v2_config(ConnectorName) ->
     #{
@@ -168,7 +194,7 @@ bridge_v2_config(ConnectorName) ->
             <<"message">> => #{
                 <<"key">> => <<"${.clientid}">>,
                 <<"timestamp">> => <<"${.timestamp}">>,
-                <<"value">> => <<"${.}">>
+                <<"value">> => <<"${.payload}">>
             },
             <<"partition_count_refresh_interval">> => <<"60s">>,
             <<"partition_strategy">> => <<"random">>,
