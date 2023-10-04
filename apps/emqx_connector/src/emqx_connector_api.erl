@@ -42,6 +42,30 @@
     '/connectors_probe'/2
 ]).
 
+-export([lookup_from_local_node/2]).
+
+-define(CONNECTOR_NOT_ENABLED,
+    ?BAD_REQUEST(<<"Forbidden operation, connector not enabled">>)
+).
+
+-define(CONNECTOR_NOT_FOUND(CONNECTOR_TYPE, CONNECTOR_NAME),
+    ?NOT_FOUND(
+        <<"Connector lookup failed: connector named '", (bin(CONNECTOR_NAME))/binary, "' of type ",
+            (bin(CONNECTOR_TYPE))/binary, " does not exist.">>
+    )
+).
+
+%% Don't turn connector_name to atom, it's maybe not a existing atom.
+-define(TRY_PARSE_ID(ID, EXPR),
+    try emqx_connector_resource:parse_connector_id(Id, #{atom_name => false}) of
+        {ConnectorType, ConnectorName} ->
+            EXPR
+    catch
+        throw:#{reason := Reason} ->
+            ?NOT_FOUND(<<"Invalid connector ID, ", Reason/binary>>)
+    end
+).
+
 namespace() -> "connector".
 
 api_spec() ->
@@ -412,7 +436,7 @@ schema("/connectors_probe") ->
     end;
 '/connectors'(get, _Params) ->
     Nodes = mria:running_nodes(),
-    NodeReplies = emqx_connector_proto_v4:list_connectors_on_nodes(Nodes),
+    NodeReplies = emqx_connector_proto_v1:list_connectors_on_nodes(Nodes),
     case is_ok(NodeReplies) of
         {ok, NodeConnectors} ->
             AllConnectors = [
@@ -439,17 +463,11 @@ schema("/connectors_probe") ->
                 ?CONNECTOR_NOT_FOUND(ConnectorType, ConnectorName)
         end
     );
-'/connectors/:id'(delete, #{bindings := #{id := Id}, query_string := Qs}) ->
+'/connectors/:id'(delete, #{bindings := #{id := Id}}) ->
     ?TRY_PARSE_ID(
         Id,
         case emqx_connector:lookup(ConnectorType, ConnectorName) of
             {ok, _} ->
-                AlsoDeleteActs =
-                    case maps:get(<<"also_delete_dep_actions">>, Qs, <<"false">>) of
-                        <<"true">> -> true;
-                        true -> true;
-                        _ -> false
-                    end,
                 case emqx_connector:remove(ConnectorType, ConnectorName) of
                     {ok, _} ->
                         ?NO_CONTENT;
@@ -508,20 +526,10 @@ maybe_deobfuscate_connector_probe(
 maybe_deobfuscate_connector_probe(Params) ->
     Params.
 
-get_metrics_from_all_nodes(ConnectorType, ConnectorName) ->
-    Nodes = mria:running_nodes(),
-    Result = do_bpapi_call(all, get_metrics_from_all_nodes, [Nodes, ConnectorType, ConnectorName]),
-    case Result of
-        Metrics when is_list(Metrics) ->
-            {200, format_connector_metrics(lists:zip(Nodes, Metrics))};
-        {error, Reason} ->
-            ?INTERNAL_ERROR(Reason)
-    end.
-
 lookup_from_all_nodes(ConnectorType, ConnectorName, SuccCode) ->
     Nodes = mria:running_nodes(),
     case
-        is_ok(emqx_connector_proto_v4:lookup_from_all_nodes(Nodes, ConnectorType, ConnectorName))
+        is_ok(emqx_connector_proto_v1:lookup_from_all_nodes(Nodes, ConnectorType, ConnectorName))
     of
         {ok, [{ok, _} | _] = Results} ->
             {SuccCode, format_connector_info([R || {ok, R} <- Results])};
@@ -550,9 +558,6 @@ create_or_update_connector(ConnectorType, ConnectorName, Conf, HttpStatusCode) -
         {error, Reason} when is_map(Reason) ->
             ?BAD_REQUEST(map_to_json(redact(Reason)))
     end.
-
-get_metrics_from_local_node(ConnectorType, ConnectorName) ->
-    format_metrics(emqx_connector:get_metrics(ConnectorType, ConnectorName)).
 
 '/connectors/:id/enable/:enable'(put, #{bindings := #{id := Id, enable := Enable}}) ->
     ?TRY_PARSE_ID(
@@ -701,20 +706,6 @@ format_connector_info([FirstConnector | _] = Connectors) ->
         node_status => NodeStatus
     }).
 
-format_connector_metrics(Connectors) ->
-    FilteredConnectors = lists:filter(
-        fun
-            ({_Node, Metric}) when is_map(Metric) -> true;
-            (_) -> false
-        end,
-        Connectors
-    ),
-    NodeMetrics = collect_metrics(FilteredConnectors),
-    #{
-        metrics => aggregate_metrics(NodeMetrics),
-        node_metrics => NodeMetrics
-    }.
-
 node_status(Connectors) ->
     [maps:with([node, status, status_reason], B) || B <- Connectors].
 
@@ -726,43 +717,6 @@ aggregate_status(AllStatus) ->
         true -> HeadVal;
         false -> inconsistent
     end.
-
-collect_metrics(Connectors) ->
-    [#{node => Node, metrics => Metrics} || {Node, Metrics} <- Connectors].
-
-aggregate_metrics(AllMetrics) ->
-    InitMetrics = ?EMPTY_METRICS,
-    lists:foldl(fun aggregate_metrics/2, InitMetrics, AllMetrics).
-
-aggregate_metrics(
-    #{
-        metrics := ?metrics(
-            M1, M2, M3, M4, M5, M6, M7, M8, M9, M10, M11, M12, M13, M14, M15, M16, M17
-        )
-    },
-    ?metrics(
-        N1, N2, N3, N4, N5, N6, N7, N8, N9, N10, N11, N12, N13, N14, N15, N16, N17
-    )
-) ->
-    ?METRICS(
-        M1 + N1,
-        M2 + N2,
-        M3 + N3,
-        M4 + N4,
-        M5 + N5,
-        M6 + N6,
-        M7 + N7,
-        M8 + N8,
-        M9 + N9,
-        M10 + N10,
-        M11 + N11,
-        M12 + N12,
-        M13 + N13,
-        M14 + N14,
-        M15 + N15,
-        M16 + N16,
-        M17 + N17
-    ).
 
 format_resource(
     #{
@@ -794,88 +748,6 @@ format_resource_data(error, Error, Result) ->
 format_resource_data(K, V, Result) ->
     Result#{K => V}.
 
-format_metrics(#{
-    counters := #{
-        'dropped' := Dropped,
-        'dropped.other' := DroppedOther,
-        'dropped.expired' := DroppedExpired,
-        'dropped.queue_full' := DroppedQueueFull,
-        'dropped.resource_not_found' := DroppedResourceNotFound,
-        'dropped.resource_stopped' := DroppedResourceStopped,
-        'matched' := Matched,
-        'retried' := Retried,
-        'late_reply' := LateReply,
-        'failed' := SentFailed,
-        'success' := SentSucc,
-        'received' := Rcvd
-    },
-    gauges := Gauges,
-    rate := #{
-        matched := #{current := Rate, last5m := Rate5m, max := RateMax}
-    }
-}) ->
-    Queued = maps:get('queuing', Gauges, 0),
-    SentInflight = maps:get('inflight', Gauges, 0),
-    ?METRICS(
-        Dropped,
-        DroppedOther,
-        DroppedExpired,
-        DroppedQueueFull,
-        DroppedResourceNotFound,
-        DroppedResourceStopped,
-        Matched,
-        Queued,
-        Retried,
-        LateReply,
-        SentFailed,
-        SentInflight,
-        SentSucc,
-        Rate,
-        Rate5m,
-        RateMax,
-        Rcvd
-    );
-format_metrics(_Metrics) ->
-    %% Empty metrics: can happen when a node joins another and a
-    %% connector is not yet replicated to it, so the counters map is
-    %% empty.
-    ?METRICS(
-        _Dropped = 0,
-        _DroppedOther = 0,
-        _DroppedExpired = 0,
-        _DroppedQueueFull = 0,
-        _DroppedResourceNotFound = 0,
-        _DroppedResourceStopped = 0,
-        _Matched = 0,
-        _Queued = 0,
-        _Retried = 0,
-        _LateReply = 0,
-        _SentFailed = 0,
-        _SentInflight = 0,
-        _SentSucc = 0,
-        _Rate = 0,
-        _Rate5m = 0,
-        _RateMax = 0,
-        _Rcvd = 0
-    ).
-
-fill_defaults(Type, RawConf) ->
-    PackedConf = pack_connector_conf(Type, RawConf),
-    FullConf = emqx_config:fill_defaults(emqx_connector_schema, PackedConf, #{}),
-    unpack_connector_conf(Type, FullConf).
-
-pack_connector_conf(Type, RawConf) ->
-    #{<<"connectors">> => #{bin(Type) => #{<<"foo">> => RawConf}}}.
-
-filter_raw_conf(_TypeBin, RawConf) ->
-    RawConf.
-
-unpack_connector_conf(Type, PackedConf) ->
-    TypeBin = bin(Type),
-    #{<<"connectors">> := Connectors} = PackedConf,
-    #{<<"foo">> := RawConf} = maps:get(TypeBin, Connectors),
-    filter_raw_conf(TypeBin, RawConf).
-
 is_ok(ok) ->
     ok;
 is_ok(OkResult = {ok, _}) ->
@@ -905,8 +777,6 @@ filter_out_request_body(Conf) ->
         <<"status">>,
         <<"status_reason">>,
         <<"node_status">>,
-        <<"node_metrics">>,
-        <<"metrics">>,
         <<"node">>
     ],
     maps:without(ExtraConfs, Conf).
@@ -985,7 +855,6 @@ maybe_unwrap(RpcMulticallResult) ->
 
 supported_versions(start_connector_to_node) -> [2, 3, 4];
 supported_versions(start_connectors_to_all_nodes) -> [2, 3, 4];
-supported_versions(get_metrics_from_all_nodes) -> [4];
 supported_versions(_Call) -> [1, 2, 3, 4].
 
 redact(Term) ->

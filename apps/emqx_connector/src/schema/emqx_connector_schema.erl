@@ -25,6 +25,8 @@
 
 -export([roots/0, fields/1, desc/1, namespace/0, tags/0]).
 
+-export([get_response/0, put_request/0, post_request/0]).
+
 -if(?EMQX_RELEASE_EDITION == ee).
 enterprise_api_schemas(Method) ->
     %% We *must* do this to ensure the module is really loaded, especially when we use
