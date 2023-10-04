@@ -22,15 +22,18 @@
 -include_lib("common_test/include/ct.hrl").
 -include_lib("stdlib/include/assert.hrl").
 
-%% A simple smoke test that verifies that opening the DB doesn't crash
-t_00_smoke_open(_Config) ->
-    ?assertMatch(ok, emqx_ds:open_db(<<"DB1">>, #{})),
-    ?assertMatch(ok, emqx_ds:open_db(<<"DB1">>, #{})).
+%% A simple smoke test that verifies that opening/closing the DB
+%% doesn't crash
+t_00_smoke_open_drop(_Config) ->
+    DB = 'DB',
+    ?assertMatch(ok, emqx_ds:open_db(DB, #{})),
+    ?assertMatch(ok, emqx_ds:open_db(DB, #{})),
+    ?assertMatch(ok, emqx_ds:drop_db(DB)).
 
 %% A simple smoke test that verifies that storing the messages doesn't
 %% crash
 t_01_smoke_store(_Config) ->
-    DB = <<"default">>,
+    DB = default,
     ?assertMatch(ok, emqx_ds:open_db(DB, #{})),
     Msg = message(<<"foo/bar">>, <<"foo">>, 0),
     ?assertMatch(ok, emqx_ds:store_batch(DB, [Msg])).
@@ -38,7 +41,7 @@ t_01_smoke_store(_Config) ->
 %% A simple smoke test that verifies that getting the list of streams
 %% doesn't crash and that iterators can be opened.
 t_02_smoke_get_streams_start_iter(_Config) ->
-    DB = <<"default">>,
+    DB = ?FUNCTION_NAME,
     ?assertMatch(ok, emqx_ds:open_db(DB, #{})),
     StartTime = 0,
     [{Rank, Stream}] = emqx_ds:get_streams(DB, ['#'], StartTime),
@@ -48,7 +51,7 @@ t_02_smoke_get_streams_start_iter(_Config) ->
 %% A simple smoke test that verifies that it's possible to iterate
 %% over messages.
 t_03_smoke_iterate(_Config) ->
-    DB = atom_to_binary(?FUNCTION_NAME),
+    DB = ?FUNCTION_NAME,
     ?assertMatch(ok, emqx_ds:open_db(DB, #{})),
     StartTime = 0,
     Msgs = [

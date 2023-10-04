@@ -18,6 +18,7 @@
 -export([
     list_shards/1,
     open_db/2,
+    drop_db/1,
     store_batch/3,
     get_streams/3,
     make_iterator/2,
@@ -27,6 +28,7 @@
 %% internal exports:
 -export([
     do_open_shard_v1/2,
+    do_drop_shard_v1/1,
     do_get_streams_v1/3,
     do_make_iterator_v1/3,
     do_next_v1/3
@@ -38,9 +40,9 @@
 %% Type declarations
 %%================================================================================
 
--type db() :: binary().
+-type db() :: emqx_ds:db().
 
--type shard_id() :: binary().
+-type shard_id() :: {emqx_ds:db(), atom()}.
 
 %% This record enapsulates the stream entity from the replication
 %% level.
@@ -86,6 +88,16 @@ open_db(DB, Opts) ->
         fun(Node) ->
             Shard = shard_id(DB, Node),
             ok = emqx_ds_proto_v1:open_shard(Node, Shard, Opts)
+        end,
+        list_nodes()
+    ).
+
+-spec drop_db(emqx_ds:db()) -> ok | {error, _}.
+drop_db(DB) ->
+    lists:foreach(
+        fun(Node) ->
+            Shard = shard_id(DB, Node),
+            ok = emqx_ds_proto_v1:drop_shard(Node, Shard)
         end,
         list_nodes()
     ).
@@ -163,6 +175,10 @@ next(Iter0, BatchSize) ->
 do_open_shard_v1(Shard, Opts) ->
     emqx_ds_storage_layer:open_shard(Shard, Opts).
 
+-spec do_drop_shard_v1(shard_id()) -> ok.
+do_drop_shard_v1(Shard) ->
+    emqx_ds_storage_layer:drop_shard(Shard).
+
 -spec do_get_streams_v1(shard_id(), emqx_ds:topic_filter(), emqx_ds:time()) ->
     [{integer(), _Stream}].
 do_get_streams_v1(Shard, TopicFilter, StartTime) ->
@@ -187,13 +203,11 @@ add_shard_to_rank(Shard, RankY) ->
 shard_id(DB, Node) ->
     %% TODO: don't bake node name into the schema, don't repeat the
     %% Mnesia's 1M$ mistake.
-    NodeBin = atom_to_binary(Node),
-    <<DB/binary, ":", NodeBin/binary>>.
+    {DB, Node}.
 
 -spec node_of_shard(shard_id()) -> node().
-node_of_shard(ShardId) ->
-    [_DB, NodeBin] = binary:split(ShardId, <<":">>),
-    binary_to_atom(NodeBin).
+node_of_shard({_DB, Node}) ->
+    Node.
 
 list_nodes() ->
     mria:running_nodes().

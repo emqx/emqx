@@ -22,7 +22,7 @@
 -module(emqx_ds).
 
 %% Management API:
--export([open_db/2]).
+-export([open_db/2, drop_db/1]).
 
 %% Message storage API:
 -export([store_batch/1, store_batch/2, store_batch/3]).
@@ -50,7 +50,7 @@
 %% Type declarations
 %%================================================================================
 
--type db() :: emqx_ds_replication_layer:db().
+-type db() :: atom().
 
 %% Parsed topic.
 -type topic() :: list(binary()).
@@ -101,6 +101,12 @@
 open_db(DB, Opts) ->
     emqx_ds_replication_layer:open_db(DB, Opts).
 
+%% @doc TODO: currently if one or a few shards are down, they won't be
+%% deleted.
+-spec drop_db(db()) -> ok.
+drop_db(DB) ->
+    emqx_ds_replication_layer:drop_db(DB).
+
 -spec store_batch([emqx_types:message()]) -> store_batch_result().
 store_batch(Msgs) ->
     store_batch(?DEFAULT_DB, Msgs, #{}).
@@ -124,7 +130,15 @@ store_batch(DB, Msgs) ->
 %% reflects the notion that different topics can be stored
 %% differently, but hides the implementation details.
 %%
-%% Rules:
+%% While having to work with multiple iterators to replay a topic
+%% filter may be cumbersome, it opens up some possibilities:
+%%
+%% 1. It's possible to parallelize replays
+%%
+%% 2. Streams can be shared between different clients to implement
+%% shared subscriptions
+%%
+%% IMPORTANT RULES:
 %%
 %% 0. There is no 1-to-1 mapping between MQTT topics and streams. One
 %% stream can contain any number of MQTT topics.
@@ -145,8 +159,8 @@ store_batch(DB, Msgs) ->
 %% equal, then the streams are independent.
 %%
 %% Stream is fully consumed when `next/3' function returns
-%% `end_of_stream'. Then the client can proceed to replaying streams
-%% that depend on the given one.
+%% `end_of_stream'. Then and only then the client can proceed to
+%% replaying streams that depend on the given one.
 -spec get_streams(db(), topic_filter(), time()) -> [{stream_rank(), stream()}].
 get_streams(DB, TopicFilter, StartTime) ->
     emqx_ds_replication_layer:get_streams(DB, TopicFilter, StartTime).

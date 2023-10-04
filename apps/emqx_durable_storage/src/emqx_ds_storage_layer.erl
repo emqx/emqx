@@ -18,13 +18,13 @@
 -behaviour(gen_server).
 
 %% Replication layer API:
--export([open_shard/2, store_batch/3, get_streams/3, make_iterator/3, next/3]).
+-export([open_shard/2, drop_shard/1, store_batch/3, get_streams/3, make_iterator/3, next/3]).
 
 %% gen_server
 -export([start_link/2, init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2]).
 
 %% internal exports:
--export([]).
+-export([drop_shard/1]).
 
 -export_type([gen_id/0, generation/0, cf_refs/0, stream/0, iterator/0]).
 
@@ -124,6 +124,11 @@
 open_shard(Shard, Options) ->
     emqx_ds_storage_layer_sup:ensure_shard(Shard, Options).
 
+-spec drop_shard(shard_id()) -> ok.
+drop_shard(Shard) ->
+    emqx_ds_storage_layer_sup:stop_shard(Shard),
+    ok = rocksdb:destroy(db_dir(Shard), []).
+
 -spec store_batch(shard_id(), [emqx_types:message()], emqx_ds:message_store_opts()) ->
     emqx_ds:store_batch_result().
 store_batch(Shard, Messages, Options) ->
@@ -188,7 +193,7 @@ next(Shard, Iter = #it{generation = GenId, enc = GenIter0}, BatchSize) ->
 
 -define(REF(ShardId), {via, gproc, {n, l, {?MODULE, ShardId}}}).
 
--spec start_link(emqx_ds:shard_id(), emqx_ds:create_db_opts()) ->
+-spec start_link(shard_id(), emqx_ds:create_db_opts()) ->
     {ok, pid()}.
 start_link(Shard, Options) ->
     gen_server:start_link(?REF(Shard), ?MODULE, {Shard, Options}, []).
@@ -303,13 +308,12 @@ commit_metadata(#s{shard_id = ShardId, schema = Schema, shard = Runtime, db = DB
 -spec rocksdb_open(shard_id(), emqx_ds:create_db_opts()) ->
     {ok, rocksdb:db_handle(), cf_refs()} | {error, _TODO}.
 rocksdb_open(Shard, Options) ->
-    DefaultDir = binary_to_list(Shard),
-    DBDir = unicode:characters_to_list(maps:get(dir, Options, DefaultDir)),
     DBOptions = [
         {create_if_missing, true},
         {create_missing_column_families, true}
         | maps:get(db_options, Options, [])
     ],
+    DBDir = db_dir(Shard),
     _ = filelib:ensure_dir(DBDir),
     ExistingCFs =
         case rocksdb:list_column_families(DBDir, DBOptions) of
@@ -330,6 +334,10 @@ rocksdb_open(Shard, Options) ->
         Error ->
             Error
     end.
+
+-spec db_dir(shard_id()) -> file:filename().
+db_dir({DB, ShardId}) ->
+    lists:flatten([atom_to_list(DB), $:, atom_to_list(ShardId)]).
 
 %%--------------------------------------------------------------------------------
 %% Schema access

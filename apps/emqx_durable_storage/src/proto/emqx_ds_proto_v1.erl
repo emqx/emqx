@@ -19,7 +19,7 @@
 
 -include_lib("emqx/include/bpapi.hrl").
 %% API:
--export([open_shard/3, get_streams/4, make_iterator/4, next/4]).
+-export([open_shard/3, drop_shard/2, get_streams/4, make_iterator/4, next/4]).
 
 %% behavior callbacks:
 -export([introduced_in/0]).
@@ -32,6 +32,11 @@
     ok.
 open_shard(Node, Shard, Opts) ->
     erpc:call(Node, emqx_ds_replication_layer, do_open_shard_v1, [Shard, Opts]).
+
+-spec drop_shard(node(), emqx_ds_replication_layer:shard()) ->
+    ok.
+drop_shard(Node, Shard) ->
+    erpc:call(Node, emqx_ds_replication_layer, do_drop_shard_v1, [Shard]).
 
 -spec get_streams(
     node(), emqx_ds_replication_layer:shard(), emqx_ds:topic_filter(), emqx_ds:time()

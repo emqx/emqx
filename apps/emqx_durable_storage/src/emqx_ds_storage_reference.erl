@@ -98,13 +98,14 @@ make_iterator(_Shard, _Data, #stream{topic_filter = TopicFilter}, StartTime) ->
 next(_Shard, #s{db = DB, cf = CF}, It0, BatchSize) ->
     #it{topic_filter = TopicFilter, start_time = StartTime, last_seen_message_key = Key0} = It0,
     {ok, ITHandle} = rocksdb:iterator(DB, CF, []),
-    Action = case Key0 of
-                 first ->
-                     first;
-                 _ ->
-                     rocksdb:iterator_move(ITHandle, Key0),
-                     next
-             end,
+    Action =
+        case Key0 of
+            first ->
+                first;
+            _ ->
+                rocksdb:iterator_move(ITHandle, Key0),
+                next
+        end,
     {Key, Messages} = do_next(TopicFilter, StartTime, ITHandle, Action, BatchSize, Key0, []),
     rocksdb:iterator_close(ITHandle),
     It = It0#it{last_seen_message_key = Key},
