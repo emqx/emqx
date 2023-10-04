@@ -159,16 +159,7 @@ connector_info_array_example(Method) ->
 
 connector_info_examples(Method) ->
     maps:merge(
-        #{
-            <<"webhook_example">> => #{
-                summary => <<"WebHook">>,
-                value => info_example(webhook, Method)
-            },
-            <<"mqtt_example">> => #{
-                summary => <<"MQTT Connector">>,
-                value => info_example(mqtt, Method)
-            }
-        },
+        #{},
         emqx_enterprise_connector_examples(Method)
     ).
 
@@ -178,96 +169,6 @@ emqx_enterprise_connector_examples(Method) ->
 -else.
 emqx_enterprise_connector_examples(_Method) -> #{}.
 -endif.
-
-info_example(Type, Method) ->
-    maps:merge(
-        info_example_basic(Type),
-        method_example(Type, Method)
-    ).
-
-method_example(Type, Method) when Method == get; Method == post ->
-    SType = atom_to_list(Type),
-    SName = SType ++ "_example",
-    #{
-        type => bin(SType),
-        name => bin(SName)
-    };
-method_example(_Type, put) ->
-    #{}.
-
-info_example_basic(webhook) ->
-    #{
-        enable => true,
-        url => <<"http://localhost:9901/messages/${topic}">>,
-        request_timeout => <<"15s">>,
-        connect_timeout => <<"15s">>,
-        max_retries => 3,
-        pool_type => <<"random">>,
-        pool_size => 4,
-        enable_pipelining => 100,
-        ssl => #{enable => false},
-        local_topic => <<"emqx_webhook/#">>,
-        method => post,
-        body => <<"${payload}">>,
-        resource_opts => #{
-            worker_pool_size => 1,
-            health_check_interval => 15000,
-            query_mode => async,
-            inflight_window => 100,
-            max_buffer_bytes => 100 * 1024 * 1024
-        }
-    };
-info_example_basic(mqtt) ->
-    (mqtt_main_example())#{
-        egress => mqtt_egress_example(),
-        ingress => mqtt_ingress_example()
-    }.
-
-mqtt_main_example() ->
-    #{
-        enable => true,
-        server => <<"127.0.0.1:1883">>,
-        proto_ver => <<"v4">>,
-        username => <<"foo">>,
-        password => <<"******">>,
-        clean_start => true,
-        keepalive => <<"300s">>,
-        retry_interval => <<"15s">>,
-        max_inflight => 100,
-        resource_opts => #{
-            health_check_interval => <<"15s">>,
-            query_mode => sync,
-            max_buffer_bytes => 100 * 1024 * 1024
-        },
-        ssl => #{
-            enable => false
-        }
-    }.
-mqtt_egress_example() ->
-    #{
-        local => #{
-            topic => <<"emqx/#">>
-        },
-        remote => #{
-            topic => <<"from_emqx/${topic}">>,
-            qos => <<"${qos}">>,
-            payload => <<"${payload}">>,
-            retain => false
-        }
-    }.
-mqtt_ingress_example() ->
-    #{
-        remote => #{
-            topic => <<"aws/#">>,
-            qos => 1
-        },
-        local => #{
-            topic => <<"from_aws/${topic}">>,
-            qos => <<"${qos}">>,
-            payload => <<"${payload}">>,
-            retain => <<"${retain}">>
-        }
-    }.
 
 schema("/connectors") ->
     #{
