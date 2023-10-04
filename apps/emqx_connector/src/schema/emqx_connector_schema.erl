@@ -223,8 +223,8 @@ api_schema(Method) ->
     Broker = [
         {Type, ref(Mod, Method)}
      || {Type, Mod} <- [
-            {<<"webhook">>, emqx_bridge_http_schema},
-            {<<"mqtt">>, emqx_bridge_mqtt_schema}
+            %% {<<"webhook">>, emqx_bridge_http_schema},
+            %% {<<"mqtt">>, emqx_bridge_mqtt_schema}
         ]
     ],
     EE = enterprise_api_schemas(Method),

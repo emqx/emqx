@@ -18,7 +18,8 @@
 -import(hoconsc, [mk/2, enum/1, ref/2]).
 
 -export([
-    conn_bridge_examples/1
+    conn_bridge_examples/1,
+    connector_examples/1
 ]).
 
 -export([
@@ -33,6 +34,18 @@
 
 %% -------------------------------------------------------------------------------------------------
 %% api
+
+connector_examples(_Method) ->
+    [
+        #{
+            <<"kafka">> => #{
+                summary => <<"Kafka Connector">>,
+                value => maps:merge(
+                    #{name => <<"my_connector">>, type => <<"kafka">>}, values(common_config)
+                )
+            }
+        }
+    ].
 
 conn_bridge_examples(Method) ->
     [
@@ -150,15 +163,19 @@ namespace() -> "bridge_kafka".
 roots() -> ["config_consumer", "config_producer"].
 
 fields("post_" ++ Type) ->
-    [type_field(), name_field() | fields("config_" ++ Type)];
+    [type_field(Type), name_field() | fields("config_" ++ Type)];
 fields("put_" ++ Type) ->
     fields("config_" ++ Type);
 fields("get_" ++ Type) ->
     emqx_bridge_schema:status_fields() ++ fields("post_" ++ Type);
+fields("config_connector") ->
+    fields(kafka_connector);
 fields("config_producer") ->
     fields(kafka_producer);
 fields("config_consumer") ->
     fields(kafka_consumer);
+fields(kafka_connector) ->
+    fields("config");
 fields(kafka_producer) ->
     fields("config") ++ fields(producer_opts);
 fields(kafka_producer_action) ->
@@ -511,7 +528,9 @@ struct_names() ->
 
 %% -------------------------------------------------------------------------------------------------
 %% internal
-type_field() ->
+type_field("connector") ->
+    {type, mk(enum([kafka]), #{required => true, desc => ?DESC("desc_type")})};
+type_field(_) ->
     {type,
         %% TODO: rename `kafka' to `kafka_producer' after alias
         %% support is added to hocon; keeping this as just `kafka' for

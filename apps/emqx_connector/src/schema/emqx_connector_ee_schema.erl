@@ -49,7 +49,7 @@ examples(Method) ->
         end,
     Fun =
         fun(Module, Examples) ->
-            ConnectorExamples = erlang:apply(Module, conn_bridge_examples, [Method]),
+            ConnectorExamples = erlang:apply(Module, connector_examples, [Method]),
             lists:foldl(MergeFun, Examples, ConnectorExamples)
         end,
     lists:foldl(Fun, #{}, schema_modules()).
@@ -65,7 +65,7 @@ api_schemas(Method) ->
         %% connector schema module.
         %% TODO: rename this to `kafka_producer' after alias support is added
         %% to hocon; keeping this as just `kafka' for backwards compatibility.
-        api_ref(emqx_bridge_kafka, <<"kafka">>, Method ++ "_producer")
+        api_ref(emqx_bridge_kafka, <<"kafka">>, Method ++ "_connector")
     ].
 
 api_ref(Module, Type, Method) ->
