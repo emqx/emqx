@@ -694,7 +694,7 @@ opt_partial_chain(SslOpts) ->
 
 %% @doc make verify_fun if set.
 -spec opt_verify_fun(SslOpts :: map()) -> NewSslOpts :: map().
-opt_verify_fun(#{verify_peer_ext_key_usage := V} = SslOpts) ->
+opt_verify_fun(#{verify_peer_ext_key_usage := V} = SslOpts) when V =/= undefined ->
     SslOpts#{verify_fun => emqx_const_v2:make_tls_verify_fun(verify_cert_extKeyUsage, V)};
 opt_verify_fun(SslOpts) ->
     SslOpts.
