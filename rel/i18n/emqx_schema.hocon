@@ -712,6 +712,12 @@ common_ssl_opts_schema_partial_chain.desc:
 common_ssl_opts_schema_partial_chain.label:
 """Partial chain"""
 
+common_ssl_opts_verify_peer_ext_key_usage.desc:
+"""Verify Extended Key Usage in Peer's certificate"""
+
+common_ssl_opts_verify_peer_ext_key_usage.label:
+"""Verify KeyUsage in cert"""
+
 fields_listeners_ssl.desc:
 """SSL listeners."""
 
