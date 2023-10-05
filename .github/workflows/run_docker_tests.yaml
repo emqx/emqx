@@ -112,5 +112,5 @@ jobs:
       # simple smoke test for node_dump
       - name: test node_dump
         run: |
-          docker exec -u root node1.emqx.io apt update && apt install -y net-tools
+          docker exec -t -u root node1.emqx.io bash -c 'apt-get -y update && apt-get -y install net-tools'
           docker exec node1.emqx.io node_dump
