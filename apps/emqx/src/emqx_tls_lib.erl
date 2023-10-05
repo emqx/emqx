@@ -15,6 +15,7 @@
 %%--------------------------------------------------------------------
 
 -module(emqx_tls_lib).
+-elvis([{elvis_style, atom_naming_convention, #{regex => "^([a-z][a-z0-9A-Z]*_?)*(_SUITE)?$"}}]).
 
 %% version & cipher suites
 -export([
