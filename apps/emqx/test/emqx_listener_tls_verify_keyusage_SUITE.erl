@@ -18,17 +18,19 @@
 -compile(export_all).
 -compile(nowarn_export_all).
 
--include_lib("emqx/include/emqx.hrl").
--include_lib("emqx/include/emqx_mqtt.hrl").
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
 
--import(emqx_test_tls_certs_helper, [
-    fail_when_ssl_error/1,
-    fail_when_no_ssl_alert/2,
-    generate_tls_certs/1,
-    gen_host_cert/4
-]).
+-import(
+    emqx_test_tls_certs_helper,
+    [
+        fail_when_ssl_error/1,
+        fail_when_no_ssl_alert/2,
+        generate_tls_certs/1,
+        gen_host_cert/4,
+        emqx_start_listener/4
+    ]
+).
 
 all() ->
     [
@@ -37,7 +39,7 @@ all() ->
     ].
 
 all_tc() ->
-    emqx_ct:all(?MODULE).
+    emqx_common_test_helpers:all(?MODULE).
 
 groups() ->
     [
@@ -68,7 +70,7 @@ t_conn_success_verify_peer_ext_key_usage_unset(Config) ->
     DataDir = ?config(data_dir, Config),
     %% Given listener keyusage unset
     Options = [{ssl_options, ?config(ssl_config, Config)}],
-    emqx_listeners:start_listener(ssl, Port, Options),
+    emqx_start_listener(?FUNCTION_NAME, ssl, Port, Options),
     %% when client connect with cert without keyusage ext
     {ok, Socket} = ssl:connect(
         {127, 0, 0, 1},
@@ -93,7 +95,7 @@ t_conn_success_verify_peer_ext_key_usage_undefined(Config) ->
             | ?config(ssl_config, Config)
         ]}
     ],
-    emqx_listeners:start_listener(ssl, Port, Options),
+    emqx_start_listener(?FUNCTION_NAME, ssl, Port, Options),
     %% when client connect with cert without keyusages ext
     {ok, Socket} = ssl:connect(
         {127, 0, 0, 1},
@@ -121,7 +123,7 @@ t_conn_success_verify_peer_ext_key_usage_matched_predefined(Config) ->
 
     %% When client cert has clientAuth that is matched
     gen_client_cert_ext_keyusage(?FUNCTION_NAME, "intermediate1", DataDir, "clientAuth"),
-    emqx_listeners:start_listener(ssl, Port, Options),
+    emqx_start_listener(?FUNCTION_NAME, ssl, Port, Options),
     {ok, Socket} = ssl:connect(
         {127, 0, 0, 1},
         Port,
@@ -147,7 +149,7 @@ t_conn_success_verify_peer_ext_key_usage_matched_raw_oid(Config) ->
             | ?config(ssl_config, Config)
         ]}
     ],
-    emqx_listeners:start_listener(ssl, Port, Options),
+    emqx_start_listener(?FUNCTION_NAME, ssl, Port, Options),
     %% When client cert has keyusage and matched.
     gen_client_cert_ext_keyusage(?FUNCTION_NAME, "intermediate1", DataDir, "clientAuth"),
     {ok, Socket} = ssl:connect(
@@ -174,7 +176,7 @@ t_conn_success_verify_peer_ext_key_usage_matched_ordered_list(Config) ->
             | ?config(ssl_config, Config)
         ]}
     ],
-    emqx_listeners:start_listener(ssl, Port, Options),
+    emqx_start_listener(?FUNCTION_NAME, ssl, Port, Options),
     %% When client cert has the same keyusage ext list
     gen_client_cert_ext_keyusage(?FUNCTION_NAME, "intermediate1", DataDir, "clientAuth,serverAuth"),
     {ok, Socket} = ssl:connect(
@@ -200,7 +202,7 @@ t_conn_success_verify_peer_ext_key_usage_matched_unordered_list(Config) ->
             | ?config(ssl_config, Config)
         ]}
     ],
-    emqx_listeners:start_listener(ssl, Port, Options),
+    emqx_start_listener(?FUNCTION_NAME, ssl, Port, Options),
     %% When client cert has the same keyusage ext list but different order
     gen_client_cert_ext_keyusage(?FUNCTION_NAME, "intermediate1", DataDir, "clientAuth,serverAuth"),
     {ok, Socket} = ssl:connect(
@@ -226,7 +228,7 @@ t_conn_fail_verify_peer_ext_key_usage_unmatched_raw_oid(Config) ->
             | ?config(ssl_config, Config)
         ]}
     ],
-    emqx_listeners:start_listener(ssl, Port, Options),
+    emqx_start_listener(?FUNCTION_NAME, ssl, Port, Options),
 
     %% When client cert has the keyusage but not matching OID
     gen_client_cert_ext_keyusage(?FUNCTION_NAME, "intermediate1", DataDir, "clientAuth"),
@@ -254,7 +256,7 @@ t_conn_fail_verify_peer_ext_key_usage_empty_str(Config) ->
         ]}
     ],
     %% Give listener keyusage is empty string
-    emqx_listeners:start_listener(ssl, Port, Options),
+    emqx_start_listener(?FUNCTION_NAME, ssl, Port, Options),
     %% When client connect with cert without keyusage
     {ok, Socket} = ssl:connect(
         {127, 0, 0, 1},
@@ -280,7 +282,7 @@ t_conn_fail_client_keyusage_unmatch(Config) ->
             | ?config(ssl_config, Config)
         ]}
     ],
-    emqx_listeners:start_listener(ssl, Port, Options),
+    emqx_start_listener(?FUNCTION_NAME, ssl, Port, Options),
     %% When client connect with mismatch cert keyusage = codeSigning
     gen_client_cert_ext_keyusage(?FUNCTION_NAME, "intermediate1", DataDir, "codeSigning"),
     {ok, Socket} = ssl:connect(
@@ -307,7 +309,7 @@ t_conn_fail_client_keyusage_incomplete(Config) ->
             | ?config(ssl_config, Config)
         ]}
     ],
-    emqx_listeners:start_listener(ssl, Port, Options),
+    emqx_start_listener(?FUNCTION_NAME, ssl, Port, Options),
     %% When client connect with cert keyusage = clientAuth
     gen_client_cert_ext_keyusage(?FUNCTION_NAME, "intermediate1", DataDir, "codeSigning"),
     {ok, Socket} = ssl:connect(
