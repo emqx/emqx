@@ -706,6 +706,12 @@ common_ssl_opts_schema_verify.desc:
 common_ssl_opts_schema_verify.label:
 """Verify peer"""
 
+common_ssl_opts_schema_partial_chain.desc:
+"""Enable or disable peer verification with partial_chain"""
+
+common_ssl_opts_schema_partial_chain.label:
+"""Partial chain"""
+
 fields_listeners_ssl.desc:
 """SSL listeners."""
 
