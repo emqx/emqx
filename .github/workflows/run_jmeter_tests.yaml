@@ -118,6 +118,7 @@ jobs:
       env:
         PGSQL_TAG: ${{ matrix.pgsql_tag }}
       run: |
+        docker pull postgres:${PGSQL_TAG}
         docker compose \
           -f .ci/docker-compose-file/docker-compose-emqx-cluster.yaml \
           -f .ci/docker-compose-file/docker-compose-pgsql-tls.yaml \
