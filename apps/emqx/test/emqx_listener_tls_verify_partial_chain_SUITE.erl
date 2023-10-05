@@ -300,8 +300,9 @@ t_conn_success_with_old_and_renewed_intermediate_cacert_bundle_and_client_using_
 
 %% @doc: verify even if listener has old/new intermediate2 certs,
 %%       client1 should not able to connect with old intermediate2 cert.
-%%  In this case, listener verify_fun returns {trusted_ca, Oldintermediate2Cert} but OTP should still fail the validation
-%%  since the client1 cert is not signed by Oldintermediate2Cert (trusted CA cert).
+%%  In this case, listener verify_fun returns {trusted_ca, Oldintermediate2Cert} but
+%%  OTP should still fail the validation since the client1 cert is not signed by
+%%  Oldintermediate2Cert (trusted CA cert).
 %% @end
 t_fail_success_with_old_and_renewed_intermediate_cacert_bundle_and_client_using_all_CAcerts(Config) ->
     Port = emqx_test_tls_certs_helper:select_free_port(ssl),
