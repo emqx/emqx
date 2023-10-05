@@ -23,6 +23,8 @@
     default_ciphers/0,
     selected_ciphers/1,
     integral_ciphers/2,
+    opt_partial_chain/1,
+    opt_verify_fun/1,
     all_ciphers_set_cached/0
 ]).
 
@@ -676,3 +678,55 @@ ensure_ssl_file_key(SSL, RequiredKeyPaths) ->
         [] -> ok;
         Miss -> {error, #{reason => ssl_file_option_not_found, which_options => Miss}}
     end.
+
+%% @doc enable TLS partial_chain validation if set.
+-spec opt_partial_chain(SslOpts :: map()) -> NewSslOpts :: map().
+opt_partial_chain(#{partial_chain := false} = SslOpts) ->
+    maps:remove(partial_chain, SslOpts);
+opt_partial_chain(#{partial_chain := true} = SslOpts) ->
+    SslOpts#{partial_chain := rootfun_trusted_ca_from_cacertfile(1, SslOpts)};
+opt_partial_chain(#{partial_chain := cacert_from_cacertfile} = SslOpts) ->
+    SslOpts#{partial_chain := rootfun_trusted_ca_from_cacertfile(1, SslOpts)};
+opt_partial_chain(#{partial_chain := two_cacerts_from_cacertfile} = SslOpts) ->
+    SslOpts#{partial_chain := rootfun_trusted_ca_from_cacertfile(2, SslOpts)};
+opt_partial_chain(SslOpts) ->
+    SslOpts.
+
+%% @doc make verify_fun if set.
+-spec opt_verify_fun(SslOpts :: map()) -> NewSslOpts :: map().
+opt_verify_fun(#{verify_peer_ext_key_usage := V} = SslOpts) ->
+    SslOpts#{verify_fun => emqx_const_v2:make_tls_verify_fun(verify_cert_extKeyUsage, V)};
+opt_verify_fun(SslOpts) ->
+    SslOpts.
+
+%% @doc Helper, make TLS root_fun
+rootfun_trusted_ca_from_cacertfile(NumOfCerts, #{cacertfile := Cacertfile}) ->
+    case file:read_file(Cacertfile) of
+        {ok, PemBin} ->
+            try
+                do_rootfun_trusted_ca_from_cacertfile(NumOfCerts, PemBin)
+            catch
+                _Error:_Info:ST ->
+                    %% The cacertfile will be checked by OTP SSL as well and OTP choice to be silent on this.
+                    %% We are touching security sutffs, don't leak extra info..
+                    ?SLOG(error, #{
+                        msg => "trusted_cacert_not_found_in_cacertfile", stacktrace => ST
+                    }),
+                    throw({error, ?FUNCTION_NAME})
+            end;
+        {error, Reason} ->
+            throw({error, {read_cacertfile_error, Cacertfile, Reason}})
+    end;
+rootfun_trusted_ca_from_cacertfile(_NumOfCerts, _SslOpts) ->
+    throw({error, cacertfile_unset}).
+
+do_rootfun_trusted_ca_from_cacertfile(NumOfCerts, PemBin) ->
+    %% The last one or two should be the top parent in the chain if it is a chain
+    Certs = public_key:pem_decode(PemBin),
+    Pos = length(Certs) - NumOfCerts + 1,
+    Trusted = [
+        CADer
+     || {'Certificate', CADer, _} <-
+            lists:sublist(public_key:pem_decode(PemBin), Pos, NumOfCerts)
+    ],
+    emqx_const_v2:make_tls_root_fun(cacert_from_cacertfile, Trusted).
