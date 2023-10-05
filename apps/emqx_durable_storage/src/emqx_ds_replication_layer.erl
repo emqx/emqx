@@ -48,19 +48,19 @@
 %% level.
 %%
 %% TODO: currently the stream is hardwired to only support the
-%% internal rocksdb storage. In t he future we want to add another
+%% internal rocksdb storage. In the future we want to add another
 %% implementations for emqx_ds, so this type has to take this into
 %% account.
 -record(stream, {
     shard :: emqx_ds_replication_layer:shard_id(),
-    enc :: emqx_ds_replication_layer:stream()
+    enc :: emqx_ds_storage_layer:stream()
 }).
 
--opaque stream() :: stream().
+-opaque stream() :: #stream{}.
 
 -record(iterator, {
     shard :: emqx_ds_replication_layer:shard_id(),
-    enc :: enqx_ds_replication_layer:iterator()
+    enc :: enqx_ds_storage_layer:iterator()
 }).
 
 -opaque iterator() :: #iterator{}.
@@ -154,7 +154,7 @@ next(Iter0, BatchSize) ->
     %% messages on the receiving node, hence saving some network.
     %%
     %% This kind of trickery should be probably done here in the
-    %% replication layer. Or, perhaps, in the logic lary.
+    %% replication layer. Or, perhaps, in the logic layer.
     case emqx_ds_proto_v1:next(Node, Shard, StorageIter0, BatchSize) of
         {ok, StorageIter, Batch} ->
             Iter = #iterator{shard = Shard, enc = StorageIter},

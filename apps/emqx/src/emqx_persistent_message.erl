@@ -42,7 +42,7 @@ init() ->
     ?WHEN_ENABLED(begin
         ok = emqx_ds:open_db(?PERSISTENT_MESSAGE_DB, #{}),
         ok = emqx_persistent_session_ds_router:init_tables(),
-        %ok = emqx_persistent_session_ds:create_tables(),
+        ok = emqx_persistent_session_ds:create_tables(),
         ok
     end).
 
