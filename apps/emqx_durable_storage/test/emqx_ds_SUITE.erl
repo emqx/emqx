@@ -21,9 +21,10 @@
 -include_lib("emqx/include/emqx.hrl").
 -include_lib("common_test/include/ct.hrl").
 -include_lib("stdlib/include/assert.hrl").
+-include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
 %% A simple smoke test that verifies that opening/closing the DB
-%% doesn't crash
+%% doesn't crash, and not much else
 t_00_smoke_open_drop(_Config) ->
     DB = 'DB',
     ?assertMatch(ok, emqx_ds:open_db(DB, #{})),
@@ -65,6 +66,32 @@ t_03_smoke_iterate(_Config) ->
     {ok, Iter, Batch} = iterate(Iter0, 1),
     ?assertEqual(Msgs, Batch, {Iter0, Iter}).
 
+%% Verify that iterators survive restart of the application. This is
+%% an important property, since the lifetime of the iterators is tied
+%% to the external resources, such as clients' sessions, and they
+%% should always be able to continue replaying the topics from where
+%% they are left off.
+t_04_restart(_Config) ->
+    DB = ?FUNCTION_NAME,
+    ?assertMatch(ok, emqx_ds:open_db(DB, #{})),
+    StartTime = 0,
+    Msgs = [
+        message(<<"foo/bar">>, <<"1">>, 0),
+        message(<<"foo">>, <<"2">>, 1),
+        message(<<"bar/bar">>, <<"3">>, 2)
+    ],
+    ?assertMatch(ok, emqx_ds:store_batch(DB, Msgs)),
+    [{_, Stream}] = emqx_ds:get_streams(DB, ['#'], StartTime),
+    {ok, Iter0} = emqx_ds:make_iterator(Stream, StartTime),
+    %% Restart the application:
+    ?tp(warning, emqx_ds_SUITE_restart_app, #{}),
+    ok = application:stop(emqx_durable_storage),
+    {ok, _} = application:ensure_all_started(emqx_durable_storage),
+    ok = emqx_ds:open_db(DB, #{}),
+    %% The old iterator should be still operational:
+    {ok, Iter, Batch} = iterate(Iter0, 1),
+    ?assertEqual(Msgs, Batch, {Iter0, Iter}).
+
 message(Topic, Payload, PublishedAt) ->
     #message{
         topic = Topic,
@@ -102,7 +129,7 @@ end_per_suite(Config) ->
     ok.
 
 init_per_testcase(_TC, Config) ->
-    snabbkaffe:fix_ct_logging(),
+    %% snabbkaffe:fix_ct_logging(),
     application:ensure_all_started(emqx_durable_storage),
     Config.
 

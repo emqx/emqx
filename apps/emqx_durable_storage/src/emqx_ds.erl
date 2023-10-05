@@ -25,7 +25,7 @@
 -export([open_db/2, drop_db/1]).
 
 %% Message storage API:
--export([store_batch/1, store_batch/2, store_batch/3]).
+-export([store_batch/2, store_batch/3]).
 
 %% Message replay API:
 -export([get_streams/3, make_iterator/2, next/2]).
@@ -89,8 +89,6 @@
 
 -type message_id() :: emqx_ds_replication_layer:message_id().
 
--define(DEFAULT_DB, <<"default">>).
-
 %%================================================================================
 %% API funcions
 %%================================================================================
@@ -106,10 +104,6 @@ open_db(DB, Opts) ->
 -spec drop_db(db()) -> ok.
 drop_db(DB) ->
     emqx_ds_replication_layer:drop_db(DB).
-
--spec store_batch([emqx_types:message()]) -> store_batch_result().
-store_batch(Msgs) ->
-    store_batch(?DEFAULT_DB, Msgs, #{}).
 
 -spec store_batch(db(), [emqx_types:message()], message_store_opts()) -> store_batch_result().
 store_batch(DB, Msgs, Opts) ->

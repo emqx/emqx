@@ -26,6 +26,8 @@
     persist/1
 ]).
 
+-define(PERSISTENT_MESSAGE_DB, emqx_persistent_message).
+
 %% FIXME
 -define(WHEN_ENABLED(DO),
     case is_store_enabled() of
@@ -38,7 +40,7 @@
 
 init() ->
     ?WHEN_ENABLED(begin
-        ok = emqx_ds:open_db(<<"default">>, #{}),
+        ok = emqx_ds:open_db(?PERSISTENT_MESSAGE_DB, #{}),
         ok = emqx_persistent_session_ds_router:init_tables(),
         %ok = emqx_persistent_session_ds:create_tables(),
         ok
@@ -65,8 +67,9 @@ persist(Msg) ->
 needs_persistence(Msg) ->
     not (emqx_message:get_flag(dup, Msg) orelse emqx_message:is_sys(Msg)).
 
+-spec store_message(emqx_types:message()) -> emqx_ds:store_batch_result().
 store_message(Msg) ->
-    emqx_ds:store_batch([Msg]).
+    emqx_ds:store_batch(?PERSISTENT_MESSAGE_DB, [Msg]).
 
 has_subscribers(#message{topic = Topic}) ->
     emqx_persistent_session_ds_router:has_any_route(Topic).

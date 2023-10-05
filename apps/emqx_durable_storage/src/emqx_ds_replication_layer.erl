@@ -196,10 +196,6 @@ do_next_v1(Shard, Iter, BatchSize) ->
 %% Internal functions
 %%================================================================================
 
-add_shard_to_rank(Shard, RankY) ->
-    RankX = erlang:phash2(Shard, 255),
-    {RankX, RankY}.
-
 shard_id(DB, Node) ->
     %% TODO: don't bake node name into the schema, don't repeat the
     %% Mnesia's 1M$ mistake.

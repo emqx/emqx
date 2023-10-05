@@ -103,7 +103,7 @@ next(_Shard, #s{db = DB, cf = CF}, It0, BatchSize) ->
             first ->
                 first;
             _ ->
-                rocksdb:iterator_move(ITHandle, Key0),
+                _ = rocksdb:iterator_move(ITHandle, Key0),
                 next
         end,
     {Key, Messages} = do_next(TopicFilter, StartTime, ITHandle, Action, BatchSize, Key0, []),

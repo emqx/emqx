@@ -24,9 +24,9 @@
 -export([start_link/2, init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2]).
 
 %% internal exports:
--export([drop_shard/1]).
-
 -export_type([gen_id/0, generation/0, cf_refs/0, stream/0, iterator/0]).
+
+-include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
 %%================================================================================
 %% Type declarations
@@ -79,9 +79,11 @@
 %%%% Shard:
 
 -type shard(GenData) :: #{
+    %% ID of the current generation (where the new data is written:)
     current_generation := gen_id(),
-    default_generation_module := module(),
-    default_generation_config := term(),
+    %% This data is used to create new generation:
+    prototype := {module(), term()},
+    %% Generations:
     {generation, gen_id()} => GenData
 }.
 
@@ -206,6 +208,9 @@ start_link(Shard, Options) ->
     shard :: shard()
 }).
 
+%% Note: we specify gen_server requests as records to make use of Dialyzer:
+-record(call_create_generation, {since :: emqx_ds:time()}).
+
 -type server_state() :: #s{}.
 
 -define(DEFAULT_CF, "default").
@@ -213,6 +218,7 @@ start_link(Shard, Options) ->
 
 init({ShardId, Options}) ->
     process_flag(trap_exit, true),
+    logger:set_process_metadata(#{shard_id => ShardId, domain => [ds, storage_layer, shard]}),
     erase_schema_runtime(ShardId),
     {ok, DB, CFRefs0} = rocksdb_open(ShardId, Options),
     {Schema, CFRefs} =
@@ -233,13 +239,10 @@ init({ShardId, Options}) ->
     commit_metadata(S),
     {ok, S}.
 
-%% handle_call({create_generation, Since, Config}, _From, S) ->
-%%     case create_new_gen(Since, Config, S) of
-%%         {ok, GenId, NS} ->
-%%             {reply, {ok, GenId}, NS};
-%%         {error, _} = Error ->
-%%             {reply, Error, S}
-%%     end;
+handle_call(#call_create_generation{since = Since}, _From, S0) ->
+    S = add_generation(S0, Since),
+    commit_metadata(S),
+    {reply, ok, S};
 handle_call(_Call, _From, S) ->
     {reply, {error, unknown_call}, S}.
 
@@ -275,29 +278,52 @@ open_shard(ShardId, DB, CFRefs, ShardSchema) ->
         ShardSchema
     ).
 
+-spec add_generation(server_state(), emqx_ds:time()) -> server_state().
+add_generation(S0, Since) ->
+    #s{shard_id = ShardId, db = DB, schema = Schema0, shard = Shard0, cf_refs = CFRefs0} = S0,
+    {GenId, Schema, NewCFRefs} = new_generation(ShardId, DB, Schema0, Since),
+    CFRefs = NewCFRefs ++ CFRefs0,
+    Key = {generation, GenId},
+    Generation = open_generation(ShardId, DB, CFRefs, GenId, maps:get(Key, Schema)),
+    Shard = Shard0#{Key => Generation},
+    S0#s{
+        cf_refs = CFRefs,
+        schema = Schema,
+        shard = Shard
+    }.
+
 -spec open_generation(shard_id(), rocksdb:db_handle(), cf_refs(), gen_id(), generation_schema()) ->
     generation().
 open_generation(ShardId, DB, CFRefs, GenId, GenSchema) ->
+    ?tp(debug, ds_open_generation, #{gen_id => GenId, schema => GenSchema}),
     #{module := Mod, data := Schema} = GenSchema,
     RuntimeData = Mod:open(ShardId, DB, GenId, CFRefs, Schema),
     GenSchema#{data => RuntimeData}.
 
 -spec create_new_shard_schema(shard_id(), rocksdb:db_handle(), cf_refs(), _Options) ->
     {shard_schema(), cf_refs()}.
-create_new_shard_schema(ShardId, DB, CFRefs, _Options) ->
-    GenId = 1,
-    %% TODO: read from options/config
-    Mod = emqx_ds_storage_reference,
-    ModConfig = #{},
-    {GenData, NewCFRefs} = Mod:create(ShardId, DB, GenId, ModConfig),
-    GenSchema = #{module => Mod, data => GenData, since => 0, until => undefined},
-    ShardSchema = #{
+create_new_shard_schema(ShardId, DB, CFRefs, Options) ->
+    ?tp(notice, ds_create_new_shard_schema, #{shard => ShardId, options => Options}),
+    %% TODO: read prototype from options/config
+    Schema0 = #{
+        current_generation => 0,
+        prototype => {emqx_ds_storage_reference, #{}}
+    },
+    {_NewGenId, Schema, NewCFRefs} = new_generation(ShardId, DB, Schema0, _Since = 0),
+    {Schema, NewCFRefs ++ CFRefs}.
+
+-spec new_generation(shard_id(), rocksdb:db_handle(), shard_schema(), emqx_ds:time()) ->
+    {gen_id(), shard_schema(), cf_refs()}.
+new_generation(ShardId, DB, Schema0, Since) ->
+    #{current_generation := PrevGenId, prototype := {Mod, ModConf}} = Schema0,
+    GenId = PrevGenId + 1,
+    {GenData, NewCFRefs} = Mod:create(ShardId, DB, GenId, ModConf),
+    GenSchema = #{module => Mod, data => GenData, since => Since, until => undefined},
+    Schema = Schema0#{
         current_generation => GenId,
-        default_generation_module => Mod,
-        default_generation_confg => ModConfig,
         {generation, GenId} => GenSchema
     },
-    {ShardSchema, NewCFRefs ++ CFRefs}.
+    {GenId, Schema, NewCFRefs}.
 
 %% @doc Commit current state of the server to both rocksdb and the persistent term
 -spec commit_metadata(server_state()) -> ok.
@@ -393,7 +419,7 @@ get_schema_persistent(DB) ->
         {ok, Blob} ->
             Schema = binary_to_term(Blob),
             %% Sanity check:
-            #{current_generation := _, default_generation_module := _} = Schema,
+            #{current_generation := _, prototype := _} = Schema,
             Schema;
         not_found ->
             not_found
