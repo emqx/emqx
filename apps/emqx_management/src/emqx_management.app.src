@@ -2,7 +2,7 @@
 {application, emqx_management, [
     {description, "EMQX Management API and CLI"},
     % strict semver, bump manually!
-    {vsn, "5.0.31"},
+    {vsn, "5.0.32"},
     {modules, []},
     {registered, [emqx_management_sup]},
     {applications, [kernel, stdlib, emqx_plugins, minirest, emqx, emqx_ctl, emqx_bridge_http]},
