@@ -108,11 +108,14 @@ jobs:
         with:
           name: coverdata
           path: _build/test/cover
+      - name: compress logs
+        if: failure()
+        run: tar -czf logs.tar.gz _build/test/logs
       - uses: actions/upload-artifact@v3
         if: failure()
         with:
           name: logs-${{ matrix.profile }}-${{ matrix.prefix }}-${{ matrix.otp }}-sg${{ matrix.suitegroup }}
-          path: _build/test/logs
+          path: logs.tar.gz
 
   ct:
     runs-on: ${{ fromJSON(inputs.runner_labels) }}
@@ -149,11 +152,14 @@ jobs:
           name: coverdata
           path: _build/test/cover
           if-no-files-found: warn # do not fail if no coverdata found
+      - name: compress logs
+        if: failure()
+        run: tar -czf logs.tar.gz _build/test/logs
       - uses: actions/upload-artifact@v3
         if: failure()
         with:
           name: logs-${{ matrix.profile }}-${{ matrix.prefix }}-${{ matrix.otp }}-sg${{ matrix.suitegroup }}
-          path: _build/test/logs
+          path: logs.tar.gz
 
   tests_passed:
     needs:
