@@ -17,6 +17,7 @@
 %%--------------------------------------------------------------------
 
 -module(emqx_const_v2).
+-elvis([{elvis_style, atom_naming_convention, #{regex => "^([a-z][a-z0-9A-Z]*_?)*(_SUITE)?$"}}]).
 
 -export([
     make_tls_root_fun/2,
