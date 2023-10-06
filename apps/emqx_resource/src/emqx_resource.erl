@@ -306,8 +306,7 @@ query(ResId, Request, Opts) ->
                 {simple_async, _} ->
                     %% TODO(5.1.1): pass Resource instead of ResId to simple APIs
                     %% so the buffer worker does not need to lookup the cache again
-                    Opts1 = Opts#{is_buffer_supported => true},
-                    emqx_resource_buffer_worker:simple_async_query(ResId, Request, Opts1);
+                    emqx_resource_buffer_worker:simple_async_query(ResId, Request, Opts);
                 {simple_sync, _} ->
                     %% TODO(5.1.1): pass Resource instead of ResId to simple APIs
                     %% so the buffer worker does not need to lookup the cache again
