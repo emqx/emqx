@@ -611,8 +611,18 @@ ranch_opts(Type, ListenOn, Opts) ->
     MaxConnections = maps:get(max_connections, Opts, 1024),
     SocketOpts =
         case Type of
-            wss -> tcp_opts(Opts) ++ proplists:delete(handshake_timeout, ssl_opts(Opts));
-            ws -> tcp_opts(Opts)
+            wss ->
+                tcp_opts(Opts) ++
+                    lists:filter(
+                        fun
+                            ({partial_chain, _}) -> false;
+                            ({handshake_timeout, _}) -> false;
+                            (_) -> true
+                        end,
+                        ssl_opts(Opts)
+                    );
+            ws ->
+                tcp_opts(Opts)
         end,
     #{
         num_acceptors => NumAcceptors,
