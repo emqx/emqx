@@ -36,12 +36,6 @@ all() -> emqx_common_test_helpers:all(?MODULE).
 init_per_suite(Config) ->
     generate_tls_certs(Config),
     application:ensure_all_started(esockd),
-    dbg:tracer(process, {fun dbg:dhandler/2, group_leader()}),
-    dbg:p(all, c),
-    dbg:tpl(emqx_listeners, esockd_opts, cx),
-    dbg:tpl(emqx_listeners, inject_root_fun, cx),
-    dbg:tpl(esockd, open, cx),
-
     [{ssl_config, ssl_config_verify_partial_chain()} | Config].
 
 end_per_suite(_Config) ->
@@ -51,12 +45,13 @@ t_conn_success_with_server_intermediate_cacert_and_client_cert(Config) ->
     Port = emqx_test_tls_certs_helper:select_free_port(ssl),
     DataDir = ?config(data_dir, Config),
     Options = [
-        {ssl_options, [
-            {cacertfile, filename:join(DataDir, "intermediate1.pem")},
-            {certfile, filename:join(DataDir, "server1.pem")},
-            {keyfile, filename:join(DataDir, "server1.key")}
-            | ?config(ssl_config, Config)
-        ]}
+        {ssl_options,
+            ?config(ssl_config, Config) ++
+                [
+                    {cacertfile, filename:join(DataDir, "intermediate1.pem")},
+                    {certfile, filename:join(DataDir, "server1.pem")},
+                    {keyfile, filename:join(DataDir, "server1.key")}
+                ]}
     ],
     emqx_start_listener(?FUNCTION_NAME, ssl, Port, Options),
     {ok, Socket} = ssl:connect(
@@ -75,12 +70,13 @@ t_conn_success_with_intermediate_cacert_bundle(Config) ->
     Port = emqx_test_tls_certs_helper:select_free_port(ssl),
     DataDir = ?config(data_dir, Config),
     Options = [
-        {ssl_options, [
-            {cacertfile, filename:join(DataDir, "server1-intermediate1-bundle.pem")},
-            {certfile, filename:join(DataDir, "server1.pem")},
-            {keyfile, filename:join(DataDir, "server1.key")}
-            | ?config(ssl_config, Config)
-        ]}
+        {ssl_options,
+            ?config(ssl_config, Config) ++
+                [
+                    {cacertfile, filename:join(DataDir, "server1-intermediate1-bundle.pem")},
+                    {certfile, filename:join(DataDir, "server1.pem")},
+                    {keyfile, filename:join(DataDir, "server1.key")}
+                ]}
     ],
     emqx_start_listener(?FUNCTION_NAME, ssl, Port, Options),
     {ok, Socket} = ssl:connect(
@@ -99,12 +95,13 @@ t_conn_success_with_renewed_intermediate_cacert(Config) ->
     Port = emqx_test_tls_certs_helper:select_free_port(ssl),
     DataDir = ?config(data_dir, Config),
     Options = [
-        {ssl_options, [
-            {cacertfile, filename:join(DataDir, "intermediate1_renewed.pem")},
-            {certfile, filename:join(DataDir, "server1.pem")},
-            {keyfile, filename:join(DataDir, "server1.key")}
-            | ?config(ssl_config, Config)
-        ]}
+        {ssl_options,
+            ?config(ssl_config, Config) ++
+                [
+                    {cacertfile, filename:join(DataDir, "intermediate1_renewed.pem")},
+                    {certfile, filename:join(DataDir, "server1.pem")},
+                    {keyfile, filename:join(DataDir, "server1.key")}
+                ]}
     ],
     emqx_start_listener(?FUNCTION_NAME, ssl, Port, Options),
     {ok, Socket} = ssl:connect(
@@ -123,12 +120,13 @@ t_conn_fail_with_renewed_intermediate_cacert_and_client_using_old_complete_bundl
     Port = emqx_test_tls_certs_helper:select_free_port(ssl),
     DataDir = ?config(data_dir, Config),
     Options = [
-        {ssl_options, [
-            {cacertfile, filename:join(DataDir, "intermediate2_renewed.pem")},
-            {certfile, filename:join(DataDir, "server2.pem")},
-            {keyfile, filename:join(DataDir, "server2.key")}
-            | ?config(ssl_config, Config)
-        ]}
+        {ssl_options,
+            ?config(ssl_config, Config) ++
+                [
+                    {cacertfile, filename:join(DataDir, "intermediate2_renewed.pem")},
+                    {certfile, filename:join(DataDir, "server2.pem")},
+                    {keyfile, filename:join(DataDir, "server2.key")}
+                ]}
     ],
     emqx_start_listener(?FUNCTION_NAME, ssl, Port, Options),
     {ok, Socket} = ssl:connect(
@@ -147,12 +145,13 @@ t_conn_fail_with_renewed_intermediate_cacert_and_client_using_old_bundle(Config)
     Port = emqx_test_tls_certs_helper:select_free_port(ssl),
     DataDir = ?config(data_dir, Config),
     Options = [
-        {ssl_options, [
-            {cacertfile, filename:join(DataDir, "intermediate2_renewed.pem")},
-            {certfile, filename:join(DataDir, "server2.pem")},
-            {keyfile, filename:join(DataDir, "server2.key")}
-            | ?config(ssl_config, Config)
-        ]}
+        {ssl_options,
+            ?config(ssl_config, Config) ++
+                [
+                    {cacertfile, filename:join(DataDir, "intermediate2_renewed.pem")},
+                    {certfile, filename:join(DataDir, "server2.pem")},
+                    {keyfile, filename:join(DataDir, "server2.key")}
+                ]}
     ],
     emqx_start_listener(?FUNCTION_NAME, ssl, Port, Options),
     {ok, Socket} = ssl:connect(
@@ -173,13 +172,14 @@ t_conn_success_with_old_and_renewed_intermediate_cacert_and_client_provides_rene
     Port = emqx_test_tls_certs_helper:select_free_port(ssl),
     DataDir = ?config(data_dir, Config),
     Options = [
-        {ssl_options, [
-            {cacertfile, filename:join(DataDir, "intermediate2_renewed_old-bundle.pem")},
-            {certfile, filename:join(DataDir, "server2.pem")},
-            {keyfile, filename:join(DataDir, "server2.key")},
-            {partial_chain, two_cacerts_from_cacertfile}
-            | ?config(ssl_config, Config)
-        ]}
+        {ssl_options,
+            ?config(ssl_config, Config) ++
+                [
+                    {cacertfile, filename:join(DataDir, "intermediate2_renewed_old-bundle.pem")},
+                    {certfile, filename:join(DataDir, "server2.pem")},
+                    {keyfile, filename:join(DataDir, "server2.key")},
+                    {partial_chain, two_cacerts_from_cacertfile}
+                ]}
     ],
     emqx_start_listener(?FUNCTION_NAME, ssl, Port, Options),
     {ok, Socket} = ssl:connect(
@@ -201,12 +201,13 @@ t_conn_success_with_new_intermediate_cacert_and_client_provides_renewed_client_c
     Port = emqx_test_tls_certs_helper:select_free_port(ssl),
     DataDir = ?config(data_dir, Config),
     Options = [
-        {ssl_options, [
-            {cacertfile, filename:join(DataDir, "intermediate2_renewed.pem")},
-            {certfile, filename:join(DataDir, "server2.pem")},
-            {keyfile, filename:join(DataDir, "server2.key")}
-            | ?config(ssl_config, Config)
-        ]}
+        {ssl_options,
+            ?config(ssl_config, Config) ++
+                [
+                    {cacertfile, filename:join(DataDir, "intermediate2_renewed.pem")},
+                    {certfile, filename:join(DataDir, "server2.pem")},
+                    {keyfile, filename:join(DataDir, "server2.key")}
+                ]}
     ],
     emqx_start_listener(?FUNCTION_NAME, ssl, Port, Options),
     {ok, Socket} = ssl:connect(
@@ -226,13 +227,14 @@ t_conn_success_with_old_and_renewed_intermediate_cacert_and_client_provides_clie
     Port = emqx_test_tls_certs_helper:select_free_port(ssl),
     DataDir = ?config(data_dir, Config),
     Options = [
-        {ssl_options, [
-            {cacertfile, filename:join(DataDir, "intermediate2_renewed_old-bundle.pem")},
-            {certfile, filename:join(DataDir, "server2.pem")},
-            {keyfile, filename:join(DataDir, "server2.key")},
-            {partial_chain, two_cacerts_from_cacertfile}
-            | ?config(ssl_config, Config)
-        ]}
+        {ssl_options,
+            ?config(ssl_config, Config) ++
+                [
+                    {cacertfile, filename:join(DataDir, "intermediate2_renewed_old-bundle.pem")},
+                    {certfile, filename:join(DataDir, "server2.pem")},
+                    {keyfile, filename:join(DataDir, "server2.key")},
+                    {partial_chain, two_cacerts_from_cacertfile}
+                ]}
     ],
     emqx_start_listener(?FUNCTION_NAME, ssl, Port, Options),
     {ok, Socket} = ssl:connect(
@@ -252,12 +254,13 @@ t_conn_fail_with_renewed_and_old_intermediate_cacert_and_client_using_old_bundle
     Port = emqx_test_tls_certs_helper:select_free_port(ssl),
     DataDir = ?config(data_dir, Config),
     Options = [
-        {ssl_options, [
-            {cacertfile, filename:join(DataDir, "intermediate2_renewed_old-bundle.pem")},
-            {certfile, filename:join(DataDir, "server2.pem")},
-            {keyfile, filename:join(DataDir, "server2.key")}
-            | ?config(ssl_config, Config)
-        ]}
+        {ssl_options,
+            ?config(ssl_config, Config) ++
+                [
+                    {cacertfile, filename:join(DataDir, "intermediate2_renewed_old-bundle.pem")},
+                    {certfile, filename:join(DataDir, "server2.pem")},
+                    {keyfile, filename:join(DataDir, "server2.key")}
+                ]}
     ],
     emqx_start_listener(?FUNCTION_NAME, ssl, Port, Options),
     {ok, Socket} = ssl:connect(
@@ -273,17 +276,20 @@ t_conn_fail_with_renewed_and_old_intermediate_cacert_and_client_using_old_bundle
     ssl:close(Socket).
 
 %% @doc verify when config (two_cacerts_from_cacertfile) allows two versions of certs from same trusted CA.
-t_conn_success_with_old_and_renewed_intermediate_cacert_bundle_and_client_using_old_bundle(Config) ->
+t_001_conn_success_with_old_and_renewed_intermediate_cacert_bundle_and_client_using_old_bundle(
+    Config
+) ->
     Port = emqx_test_tls_certs_helper:select_free_port(ssl),
     DataDir = ?config(data_dir, Config),
     Options = [
-        {ssl_options, [
-            {cacertfile, filename:join(DataDir, "intermediate2_renewed_old-bundle.pem")},
-            {certfile, filename:join(DataDir, "server2.pem")},
-            {keyfile, filename:join(DataDir, "server2.key")},
-            {partial_chain, two_cacerts_from_cacertfile}
-            | ?config(ssl_config, Config)
-        ]}
+        {ssl_options,
+            ?config(ssl_config, Config) ++
+                [
+                    {cacertfile, filename:join(DataDir, "intermediate2_renewed_old-bundle.pem")},
+                    {certfile, filename:join(DataDir, "server2.pem")},
+                    {keyfile, filename:join(DataDir, "server2.key")},
+                    {partial_chain, two_cacerts_from_cacertfile}
+                ]}
     ],
     emqx_start_listener(?FUNCTION_NAME, ssl, Port, Options),
     {ok, Socket} = ssl:connect(
@@ -304,17 +310,18 @@ t_conn_success_with_old_and_renewed_intermediate_cacert_bundle_and_client_using_
 %%  OTP should still fail the validation since the client1 cert is not signed by
 %%  Oldintermediate2Cert (trusted CA cert).
 %% @end
-t_fail_success_with_old_and_renewed_intermediate_cacert_bundle_and_client_using_all_CAcerts(Config) ->
+t_conn_fail_with_old_and_renewed_intermediate_cacert_bundle_and_client_using_all_CAcerts(Config) ->
     Port = emqx_test_tls_certs_helper:select_free_port(ssl),
     DataDir = ?config(data_dir, Config),
     Options = [
-        {ssl_options, [
-            {cacertfile, filename:join(DataDir, "intermediate2_renewed_old-bundle.pem")},
-            {certfile, filename:join(DataDir, "server2.pem")},
-            {keyfile, filename:join(DataDir, "server2.key")},
-            {partial_chain, two_cacerts_from_cacertfile}
-            | ?config(ssl_config, Config)
-        ]}
+        {ssl_options,
+            ?config(ssl_config, Config) ++
+                [
+                    {cacertfile, filename:join(DataDir, "intermediate2_renewed_old-bundle.pem")},
+                    {certfile, filename:join(DataDir, "server2.pem")},
+                    {keyfile, filename:join(DataDir, "server2.key")},
+                    {partial_chain, two_cacerts_from_cacertfile}
+                ]}
     ],
     emqx_start_listener(?FUNCTION_NAME, ssl, Port, Options),
     {ok, Socket} = ssl:connect(
@@ -333,12 +340,13 @@ t_conn_fail_with_renewed_intermediate_cacert_other_client(Config) ->
     Port = emqx_test_tls_certs_helper:select_free_port(ssl),
     DataDir = ?config(data_dir, Config),
     Options = [
-        {ssl_options, [
-            {cacertfile, filename:join(DataDir, "intermediate1_renewed.pem")},
-            {certfile, filename:join(DataDir, "server1.pem")},
-            {keyfile, filename:join(DataDir, "server1.key")}
-            | ?config(ssl_config, Config)
-        ]}
+        {ssl_options,
+            ?config(ssl_config, Config) ++
+                [
+                    {cacertfile, filename:join(DataDir, "intermediate1_renewed.pem")},
+                    {certfile, filename:join(DataDir, "server1.pem")},
+                    {keyfile, filename:join(DataDir, "server1.key")}
+                ]}
     ],
     emqx_start_listener(?FUNCTION_NAME, ssl, Port, Options),
     {ok, Socket} = ssl:connect(
@@ -357,12 +365,13 @@ t_conn_fail_with_intermediate_cacert_bundle_but_incorrect_order(Config) ->
     Port = emqx_test_tls_certs_helper:select_free_port(ssl),
     DataDir = ?config(data_dir, Config),
     Options = [
-        {ssl_options, [
-            {cacertfile, filename:join(DataDir, "intermediate1-server1-bundle.pem")},
-            {certfile, filename:join(DataDir, "server1.pem")},
-            {keyfile, filename:join(DataDir, "server1.key")}
-            | ?config(ssl_config, Config)
-        ]}
+        {ssl_options,
+            ?config(ssl_config, Config) ++
+                [
+                    {cacertfile, filename:join(DataDir, "intermediate1-server1-bundle.pem")},
+                    {certfile, filename:join(DataDir, "server1.pem")},
+                    {keyfile, filename:join(DataDir, "server1.key")}
+                ]}
     ],
     emqx_start_listener(?FUNCTION_NAME, ssl, Port, Options),
     {ok, Socket} = ssl:connect(
@@ -381,12 +390,13 @@ t_conn_fail_when_singed_by_other_intermediate_ca(Config) ->
     Port = emqx_test_tls_certs_helper:select_free_port(ssl),
     DataDir = ?config(data_dir, Config),
     Options = [
-        {ssl_options, [
-            {cacertfile, filename:join(DataDir, "intermediate1.pem")},
-            {certfile, filename:join(DataDir, "server1.pem")},
-            {keyfile, filename:join(DataDir, "server1.key")}
-            | ?config(ssl_config, Config)
-        ]}
+        {ssl_options,
+            ?config(ssl_config, Config) ++
+                [
+                    {cacertfile, filename:join(DataDir, "intermediate1.pem")},
+                    {certfile, filename:join(DataDir, "server1.pem")},
+                    {keyfile, filename:join(DataDir, "server1.key")}
+                ]}
     ],
     emqx_start_listener(?FUNCTION_NAME, ssl, Port, Options),
     {ok, Socket} = ssl:connect(
@@ -405,12 +415,13 @@ t_conn_success_with_complete_chain_that_server_root_cacert_and_client_complete_c
     Port = emqx_test_tls_certs_helper:select_free_port(ssl),
     DataDir = ?config(data_dir, Config),
     Options = [
-        {ssl_options, [
-            {cacertfile, filename:join(DataDir, "root.pem")},
-            {certfile, filename:join(DataDir, "server2.pem")},
-            {keyfile, filename:join(DataDir, "server2.key")}
-            | ?config(ssl_config, Config)
-        ]}
+        {ssl_options,
+            ?config(ssl_config, Config) ++
+                [
+                    {cacertfile, filename:join(DataDir, "root.pem")},
+                    {certfile, filename:join(DataDir, "server2.pem")},
+                    {keyfile, filename:join(DataDir, "server2.key")}
+                ]}
     ],
     emqx_start_listener(?FUNCTION_NAME, ssl, Port, Options),
     {ok, Socket} = ssl:connect(
@@ -429,12 +440,13 @@ t_conn_fail_with_other_client_complete_cert_chain(Config) ->
     Port = emqx_test_tls_certs_helper:select_free_port(ssl),
     DataDir = ?config(data_dir, Config),
     Options = [
-        {ssl_options, [
-            {cacertfile, filename:join(DataDir, "intermediate1.pem")},
-            {certfile, filename:join(DataDir, "server1.pem")},
-            {keyfile, filename:join(DataDir, "server1.key")}
-            | ?config(ssl_config, Config)
-        ]}
+        {ssl_options,
+            ?config(ssl_config, Config) ++
+                [
+                    {cacertfile, filename:join(DataDir, "intermediate1.pem")},
+                    {certfile, filename:join(DataDir, "server1.pem")},
+                    {keyfile, filename:join(DataDir, "server1.key")}
+                ]}
     ],
     emqx_start_listener(?FUNCTION_NAME, ssl, Port, Options),
     {ok, Socket} = ssl:connect(
@@ -453,12 +465,13 @@ t_conn_fail_with_server_intermediate_and_other_client_complete_cert_chain(Config
     Port = emqx_test_tls_certs_helper:select_free_port(ssl),
     DataDir = ?config(data_dir, Config),
     Options = [
-        {ssl_options, [
-            {cacertfile, filename:join(DataDir, "intermediate1-root-bundle.pem")},
-            {certfile, filename:join(DataDir, "server1.pem")},
-            {keyfile, filename:join(DataDir, "server1.key")}
-            | ?config(ssl_config, Config)
-        ]}
+        {ssl_options,
+            ?config(ssl_config, Config) ++
+                [
+                    {cacertfile, filename:join(DataDir, "intermediate1-root-bundle.pem")},
+                    {certfile, filename:join(DataDir, "server1.pem")},
+                    {keyfile, filename:join(DataDir, "server1.key")}
+                ]}
     ],
     emqx_start_listener(?FUNCTION_NAME, ssl, Port, Options),
     {ok, Socket} = ssl:connect(
@@ -477,12 +490,13 @@ t_conn_success_with_server_intermediate_cacert_and_client_complete_chain(Config)
     Port = emqx_test_tls_certs_helper:select_free_port(ssl),
     DataDir = ?config(data_dir, Config),
     Options = [
-        {ssl_options, [
-            {cacertfile, filename:join(DataDir, "intermediate2.pem")},
-            {certfile, filename:join(DataDir, "server2.pem")},
-            {keyfile, filename:join(DataDir, "server2.key")}
-            | ?config(ssl_config, Config)
-        ]}
+        {ssl_options,
+            ?config(ssl_config, Config) ++
+                [
+                    {cacertfile, filename:join(DataDir, "intermediate2.pem")},
+                    {certfile, filename:join(DataDir, "server2.pem")},
+                    {keyfile, filename:join(DataDir, "server2.key")}
+                ]}
     ],
     emqx_start_listener(?FUNCTION_NAME, ssl, Port, Options),
     {ok, Socket} = ssl:connect(
@@ -501,12 +515,13 @@ t_conn_fail_with_server_intermediate_chain_and_client_other_incomplete_cert_chai
     Port = emqx_test_tls_certs_helper:select_free_port(ssl),
     DataDir = ?config(data_dir, Config),
     Options = [
-        {ssl_options, [
-            {cacertfile, filename:join(DataDir, "intermediate1.pem")},
-            {certfile, filename:join(DataDir, "server1.pem")},
-            {keyfile, filename:join(DataDir, "server1.key")}
-            | ?config(ssl_config, Config)
-        ]}
+        {ssl_options,
+            ?config(ssl_config, Config) ++
+                [
+                    {cacertfile, filename:join(DataDir, "intermediate1.pem")},
+                    {certfile, filename:join(DataDir, "server1.pem")},
+                    {keyfile, filename:join(DataDir, "server1.key")}
+                ]}
     ],
     emqx_start_listener(?FUNCTION_NAME, ssl, Port, Options),
     {ok, Socket} = ssl:connect(
@@ -525,12 +540,13 @@ t_conn_fail_with_server_intermediate_and_other_client_root_chain(Config) ->
     Port = emqx_test_tls_certs_helper:select_free_port(ssl),
     DataDir = ?config(data_dir, Config),
     Options = [
-        {ssl_options, [
-            {cacertfile, filename:join(DataDir, "intermediate1.pem")},
-            {certfile, filename:join(DataDir, "server1.pem")},
-            {keyfile, filename:join(DataDir, "server1.key")}
-            | ?config(ssl_config, Config)
-        ]}
+        {ssl_options,
+            ?config(ssl_config, Config) ++
+                [
+                    {cacertfile, filename:join(DataDir, "intermediate1.pem")},
+                    {certfile, filename:join(DataDir, "server1.pem")},
+                    {keyfile, filename:join(DataDir, "server1.key")}
+                ]}
     ],
     emqx_start_listener(?FUNCTION_NAME, ssl, Port, Options),
     {ok, Socket} = ssl:connect(
@@ -549,12 +565,13 @@ t_conn_success_with_server_intermediate_and_client_root_chain(Config) ->
     Port = emqx_test_tls_certs_helper:select_free_port(ssl),
     DataDir = ?config(data_dir, Config),
     Options = [
-        {ssl_options, [
-            {cacertfile, filename:join(DataDir, "intermediate2.pem")},
-            {certfile, filename:join(DataDir, "server2.pem")},
-            {keyfile, filename:join(DataDir, "server2.key")}
-            | ?config(ssl_config, Config)
-        ]}
+        {ssl_options,
+            ?config(ssl_config, Config) ++
+                [
+                    {cacertfile, filename:join(DataDir, "intermediate2.pem")},
+                    {certfile, filename:join(DataDir, "server2.pem")},
+                    {keyfile, filename:join(DataDir, "server2.key")}
+                ]}
     ],
     emqx_start_listener(?FUNCTION_NAME, ssl, Port, Options),
     {ok, Socket} = ssl:connect(
@@ -574,12 +591,13 @@ t_conn_success_with_server_all_CA_bundle_and_client_root_chain(Config) ->
     Port = emqx_test_tls_certs_helper:select_free_port(ssl),
     DataDir = ?config(data_dir, Config),
     Options = [
-        {ssl_options, [
-            {cacertfile, filename:join(DataDir, "all-CAcerts-bundle.pem")},
-            {certfile, filename:join(DataDir, "server1.pem")},
-            {keyfile, filename:join(DataDir, "server1.key")}
-            | ?config(ssl_config, Config)
-        ]}
+        {ssl_options,
+            ?config(ssl_config, Config) ++
+                [
+                    {cacertfile, filename:join(DataDir, "all-CAcerts-bundle.pem")},
+                    {certfile, filename:join(DataDir, "server1.pem")},
+                    {keyfile, filename:join(DataDir, "server1.key")}
+                ]}
     ],
     emqx_start_listener(?FUNCTION_NAME, ssl, Port, Options),
     {ok, Socket} = ssl:connect(
@@ -598,12 +616,13 @@ t_conn_fail_with_server_two_IA_bundle_and_client_root_chain(Config) ->
     Port = emqx_test_tls_certs_helper:select_free_port(ssl),
     DataDir = ?config(data_dir, Config),
     Options = [
-        {ssl_options, [
-            {cacertfile, filename:join(DataDir, "two-intermediates-bundle.pem")},
-            {certfile, filename:join(DataDir, "server1.pem")},
-            {keyfile, filename:join(DataDir, "server1.key")}
-            | ?config(ssl_config, Config)
-        ]}
+        {ssl_options,
+            ?config(ssl_config, Config) ++
+                [
+                    {cacertfile, filename:join(DataDir, "two-intermediates-bundle.pem")},
+                    {certfile, filename:join(DataDir, "server1.pem")},
+                    {keyfile, filename:join(DataDir, "server1.key")}
+                ]}
     ],
     emqx_start_listener(?FUNCTION_NAME, ssl, Port, Options),
     {ok, Socket} = ssl:connect(
@@ -622,13 +641,14 @@ t_conn_fail_with_server_partial_chain_false_intermediate_cacert_and_client_cert(
     Port = emqx_test_tls_certs_helper:select_free_port(ssl),
     DataDir = ?config(data_dir, Config),
     Options = [
-        {ssl_options, [
-            {cacertfile, filename:join(DataDir, "intermediate1.pem")},
-            {certfile, filename:join(DataDir, "server1.pem")},
-            {keyfile, filename:join(DataDir, "server1.key")},
-            {partial_chain, false}
-            | ?config(ssl_config, Config)
-        ]}
+        {ssl_options,
+            ?config(ssl_config, Config) ++
+                [
+                    {cacertfile, filename:join(DataDir, "intermediate1.pem")},
+                    {certfile, filename:join(DataDir, "server1.pem")},
+                    {keyfile, filename:join(DataDir, "server1.key")},
+                    {partial_chain, false}
+                ]}
     ],
     emqx_start_listener(?FUNCTION_NAME, ssl, Port, Options),
     {ok, Socket} = ssl:connect(
@@ -648,12 +668,13 @@ t_error_handling_invalid_cacertfile(Config) ->
     DataDir = ?config(data_dir, Config),
     %% trigger error
     Options = [
-        {ssl_options, [
-            {cacertfile, filename:join(DataDir, "server2.key")},
-            {certfile, filename:join(DataDir, "server2.pem")},
-            {keyfile, filename:join(DataDir, "server2.key")}
-            | ?config(ssl_config, Config)
-        ]}
+        {ssl_options,
+            ?config(ssl_config, Config) ++
+                [
+                    {cacertfile, filename:join(DataDir, "server2.key")},
+                    {certfile, filename:join(DataDir, "server2.pem")},
+                    {keyfile, filename:join(DataDir, "server2.key")}
+                ]}
     ],
     ?assertException(
         throw,
