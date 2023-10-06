@@ -39,7 +39,8 @@
 -export([
     simple_sync_query/2,
     simple_sync_query/3,
-    simple_async_query/3
+    simple_async_query/3,
+    simple_sync_internal_buffer_query/3
 ]).
 
 -export([
@@ -53,7 +54,9 @@
 
 -export([queue_item_marshaller/1, estimate_size/1]).
 
--export([handle_async_reply/2, handle_async_batch_reply/2, reply_call/2]).
+-export([
+    handle_async_reply/2, handle_async_batch_reply/2, reply_call/2, reply_call_internal_buffer/3
+]).
 
 -export([clear_disk_queue_dir/2]).
 
@@ -168,6 +171,42 @@ simple_async_query(Id, Request, QueryOpts0) ->
     ),
     _ = handle_query_result(Id, Result, _HasBeenSent = false),
     Result.
+
+%% This is a hack to handle cases where the underlying connector has internal buffering
+%% (e.g.: Kafka and Pulsar producers).  Since the message may be inernally retried at a
+%% later time, we can't bump metrics immediatelly if the return value is not a success
+%% (e.g.: if the call timed out, but the message was enqueued nevertheless).
+-spec simple_sync_internal_buffer_query(id(), request(), query_opts()) -> term().
+simple_sync_internal_buffer_query(Id, Request, QueryOpts0) ->
+    ?tp(simple_sync_internal_buffer_query, #{id => Id, request => Request, query_opts => QueryOpts0}),
+    ReplyAlias = alias([reply]),
+    try
+        MaybeReplyTo = maps:get(reply_to, QueryOpts0, undefined),
+        QueryOpts1 = QueryOpts0#{
+            reply_to => {fun ?MODULE:reply_call_internal_buffer/3, [ReplyAlias, MaybeReplyTo]}
+        },
+        QueryOpts = #{timeout := Timeout} = maps:merge(simple_query_opts(), QueryOpts1),
+        case simple_async_query(Id, Request, QueryOpts) of
+            {error, _} = Error ->
+                Error;
+            {async_return, {error, _} = Error} ->
+                Error;
+            {async_return, {ok, _Pid}} ->
+                receive
+                    {ReplyAlias, Response} ->
+                        Response
+                after Timeout ->
+                    _ = unalias(ReplyAlias),
+                    receive
+                        {ReplyAlias, Response} ->
+                            Response
+                    after 0 -> {error, timeout}
+                    end
+                end
+        end
+    after
+        _ = unalias(ReplyAlias)
+    end.
 
 simple_query_opts() ->
     ensure_expire_at(#{simple_query => true, timeout => infinity}).
@@ -1907,6 +1946,12 @@ reply_call(Alias, Response) ->
     %% demonitor.
     erlang:send(Alias, {Alias, Response}),
     ok.
+
+%% Used by `simple_sync_internal_buffer_query' to reply and chain existing `reply_to'
+%% callbacks.
+reply_call_internal_buffer(ReplyAlias, MaybeReplyTo, Response) ->
+    ?MODULE:reply_call(ReplyAlias, Response),
+    do_reply_caller(MaybeReplyTo, Response).
 
 -ifdef(TEST).
 -include_lib("eunit/include/eunit.hrl").
