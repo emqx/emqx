@@ -73,7 +73,7 @@ on:
       runner_labels:
         required: false
         type: string
-        default: '["self-hosted","ephemeral"]'
+        default: '["self-hosted","ephemeral", "linux"]'
 
 jobs:
   docker:

@@ -29,7 +29,7 @@ jobs:
       ct-matrix: ${{ steps.matrix.outputs.ct-matrix }}
       ct-host: ${{ steps.matrix.outputs.ct-host }}
       ct-docker: ${{ steps.matrix.outputs.ct-docker }}
-      runner_labels: ${{ github.repository_owner == 'emqx' && '["aws-amd64"]' || '["ubuntu-22.04"]' }}
+      runner_labels: ${{ github.repository_owner == 'emqx' && '["self-hosted", "ephemeral"]' || '["ubuntu-22.04"]' }}
       builder: 'ghcr.io/emqx/emqx-builder/5.1-4:1.14.5-25.3.2-2-ubuntu22.04'
       builder_vsn: '5.1-4'
       otp_vsn: '25.3.2-2'
