@@ -7,7 +7,7 @@ concurrency:
 on:
   workflow_call:
     inputs:
-      runner:
+      runner_labels:
         required: true
         type: string
       builder:
@@ -22,7 +22,7 @@ env:
 
 jobs:
   static_checks:
-    runs-on: ${{ inputs.runner }}
+    runs-on: ${{ fromJSON(inputs.runner_labels) }}
     name: "static_checks (${{ matrix.profile }})"
     strategy:
       fail-fast: false
@@ -30,7 +30,6 @@ jobs:
         include: ${{ fromJson(inputs.ct-matrix) }}
     container: "ghcr.io/emqx/emqx-builder/${{ matrix.builder }}:${{ matrix.elixir }}-${{ matrix.otp }}-ubuntu22.04"
     steps:
-      - uses: AutoModality/action-clean@v1
       - uses: actions/download-artifact@v3
         with:
           name: ${{ matrix.profile }}

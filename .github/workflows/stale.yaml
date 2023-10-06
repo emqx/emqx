@@ -10,8 +10,8 @@ on:
 
 jobs:
   stale:
-    runs-on: ubuntu-22.04
     if: github.repository_owner == 'emqx'
+    runs-on: ['self-hosted', 'linux', 'x64', 'ephemeral']
     permissions:
       issues: write
       pull-requests: none

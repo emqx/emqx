@@ -10,8 +10,8 @@ on:
 
 jobs:
   rerun-failed-jobs:
-    runs-on: ubuntu-22.04
     if: github.repository_owner == 'emqx'
+    runs-on: ['self-hosted', 'linux', 'x64', 'ephemeral']
     permissions:
       checks: read
       actions: write
