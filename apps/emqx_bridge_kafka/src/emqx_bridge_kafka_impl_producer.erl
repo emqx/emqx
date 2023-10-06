@@ -3,6 +3,8 @@
 %%--------------------------------------------------------------------
 -module(emqx_bridge_kafka_impl_producer).
 
+-behaviour(emqx_resource).
+
 -include_lib("emqx_resource/include/emqx_resource.hrl").
 -include_lib("snabbkaffe/include/trace.hrl").
 
