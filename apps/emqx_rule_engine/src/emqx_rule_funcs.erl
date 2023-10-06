@@ -80,14 +80,18 @@
     tanh/1
 ]).
 
-%% Bits Funcs
+%% Bitwise operations
 -export([
     bitnot/1,
     bitand/2,
     bitor/2,
     bitxor/2,
     bitsl/2,
-    bitsr/2,
+    bitsr/2
+]).
+
+%% binary and bitstring Funcs
+-export([
     bitsize/1,
     bytesize/1,
     subbits/2,
