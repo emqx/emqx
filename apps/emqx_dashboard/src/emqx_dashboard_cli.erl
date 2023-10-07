@@ -70,7 +70,7 @@ admins(_) ->
 unload() ->
     emqx_ctl:unregister_command(admins).
 
-bin(S) -> iolist_to_binary(S).
+bin(S) -> unicode:characters_to_binary(S).
 
 print_error(Reason) when is_binary(Reason) ->
     emqx_ctl:print("Error: ~s~n", [Reason]).
