@@ -92,7 +92,7 @@ type ->
     value: {type, '$1'}.
 
 dnattrs ->
-    colon dn: {dnAttributes, true}.
+    dn: {dnAttributes, true}.
 
 matchingrule ->
     colon value: {matchingRule, '$2'}.
