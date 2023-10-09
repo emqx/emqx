@@ -195,11 +195,18 @@ rpc_insecure_fallback.label:
 """RPC insecure fallback"""
 
 rpc_listen_address.desc:
-"""Specify which IP address the RPC server should listen on.
-For example <code>"0.0.0.0"</code> (default) for IPv4 and <code>"::"</code> for IPv6"""
+"""Indicates the IP address for the RPC server to listen on. For example, use <code>"0.0.0.0"</code> for IPv4 or <code>"::"</code> for IPv6."""
 
 rpc_listen_address.label:
-"""RPC Listen Address"""
+"""RPC Listen IP Address"""
+
+rpc_ipv6_only.desc:
+"""This setting is effective only when <code>rpc.listen_address</code> is assigned an IPv6 address.
+If set to <code>true</code>, the RPC client will exclusively use IPv6 for connections.
+Otherwise, the client might opt for IPv4, even if the server is on IPv6."""
+
+rpc_ipv6_only.label:
+"""Use IPv6 Only"""
 
 cluster_mcast_buffer.desc:
 """Size of the user-level buffer."""

@@ -957,6 +957,16 @@ fields("rpc") ->
                     desc => ?DESC(rpc_listen_address),
                     importance => ?IMPORTANCE_MEDIUM
                 }
+            )},
+        {"ipv6_only",
+            sc(
+                boolean(),
+                #{
+                    default => false,
+                    mapping => "gen_rpc.ipv6_only",
+                    desc => ?DESC(rpc_ipv6_only),
+                    importance => ?IMPORTANCE_LOW
+                }
             )}
     ];
 fields("log") ->
