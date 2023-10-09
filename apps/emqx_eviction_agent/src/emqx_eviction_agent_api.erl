@@ -23,6 +23,8 @@
     roots/0
 ]).
 
+-define(TAGS, [<<"Node Eviction">>]).
+
 %% API callbacks
 -export([
     '/node_eviction/status'/2
@@ -44,7 +46,7 @@ schema("/node_eviction/status") ->
     #{
         'operationId' => '/node_eviction/status',
         get => #{
-            tags => [<<"node_eviction">>],
+            tags => ?TAGS,
             summary => <<"Get node eviction status">>,
             description => ?DESC("node_eviction_status_get"),
             responses => #{

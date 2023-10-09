@@ -1,6 +1,6 @@
 {application, emqx_ft, [
     {description, "EMQX file transfer over MQTT"},
-    {vsn, "0.1.7"},
+    {vsn, "0.1.8"},
     {registered, []},
     {mod, {emqx_ft_app, []}},
     {applications, [
