@@ -167,7 +167,8 @@ t_update(_Config) ->
     CorrectConfig = raw_ldap_auth_config(),
     IncorrectConfig =
         CorrectConfig#{
-            <<"base_dn">> => <<"ou=testdevice,dc=emqx,dc=io">>
+            <<"base_dn">> => <<"ou=testdevice,dc=emqx,dc=io">>,
+            <<"filter">> => <<"(objectClass=mqttUser)">>
         },
 
     {ok, _} = emqx:update_config(
@@ -208,7 +209,8 @@ raw_ldap_auth_config() ->
         <<"mechanism">> => <<"password_based">>,
         <<"backend">> => <<"ldap_bind">>,
         <<"server">> => ldap_server(),
-        <<"base_dn">> => <<"uid=${username},ou=testdevice,dc=emqx,dc=io">>,
+        <<"base_dn">> => <<"ou=testdevice,dc=emqx,dc=io">>,
+        <<"filter">> => <<"(uid=${username})">>,
         <<"username">> => <<"cn=root,dc=emqx,dc=io">>,
         <<"password">> => <<"public">>,
         <<"pool_size">> => 8,
@@ -226,13 +228,22 @@ user_seeds() ->
             result => Result
         }
     end,
+
+    Normal = lists:map(
+        fun(Idx) ->
+            erlang:iolist_to_binary(io_lib:format("mqttuser000~b", [Idx]))
+        end,
+        lists:seq(1, 5)
+    ),
+
+    Specials = [<<"mqttuser0008 (test)">>],
+
     Valid =
         lists:map(
-            fun(Idx) ->
-                Username = erlang:iolist_to_binary(io_lib:format("mqttuser000~b", [Idx])),
+            fun(Username) ->
                 New(Username, Username, {ok, #{is_superuser => false}})
             end,
-            lists:seq(1, 5)
+            Normal ++ Specials
         ),
     [
         %% Not exists
