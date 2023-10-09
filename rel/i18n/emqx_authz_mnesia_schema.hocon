@@ -1,0 +1,9 @@
+emqx_authz_mnesia_schema {
+
+builtin_db.desc:
+"""Authorization using a built-in database (mnesia)."""
+
+builtin_db.label:
+"""Builtin Database"""
+
+}

@@ -27,11 +27,11 @@ all() ->
     emqx_common_test_helpers:all(?MODULE).
 
 init_per_suite(Config) ->
-    emqx_mgmt_api_test_util:init_suite([emqx_conf, emqx_authz, emqx_authn]),
+    emqx_mgmt_api_test_util:init_suite([emqx_conf, emqx_auth, emqx_auth_redis]),
     Config.
 
 end_per_suite(_Config) ->
-    emqx_mgmt_api_test_util:end_suite([emqx_conf, emqx_authz, emqx_authn]).
+    emqx_mgmt_api_test_util:end_suite([emqx_conf, emqx_auth, emqx_auth_redis]).
 
 t_load_config(Config) ->
     Authz = authorization,

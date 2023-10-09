@@ -4,9 +4,9 @@
 
 -module(emqx_gcp_device_app).
 
--behaviour(application).
+-include("emqx_gcp_device.hrl").
 
--emqx_plugin(?MODULE).
+-behaviour(application).
 
 -export([
     start/2,
@@ -15,6 +15,7 @@
 
 start(_StartType, _StartArgs) ->
     emqx_gcp_device:create_table(),
+    emqx_authn:register_provider(?AUTHN_TYPE, emqx_gcp_device_authn),
     emqx_gcp_device_sup:start_link().
 
 stop(_State) ->

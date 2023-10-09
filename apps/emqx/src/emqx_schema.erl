@@ -216,16 +216,18 @@ roots(high) ->
                 }
             )}
     ] ++
-        emqx_schema_hooks:injection_point('roots.high') ++
-        [
-            %% NOTE: authorization schema here is only to keep emqx app pure
-            %% the full schema for EMQX node is injected in emqx_conf_schema.
-            {?EMQX_AUTHORIZATION_CONFIG_ROOT_NAME,
-                sc(
-                    ref(?EMQX_AUTHORIZATION_CONFIG_ROOT_NAME),
-                    #{importance => ?IMPORTANCE_HIDDEN}
-                )}
-        ];
+        emqx_schema_hooks:injection_point(
+            'roots.high',
+            [
+                %% NOTE: authorization schema here is only to keep emqx app pure
+                %% the full schema for EMQX node is injected in emqx_conf_schema.
+                {?EMQX_AUTHORIZATION_CONFIG_ROOT_NAME,
+                    sc(
+                        ref(?EMQX_AUTHORIZATION_CONFIG_ROOT_NAME),
+                        #{importance => ?IMPORTANCE_HIDDEN}
+                    )}
+            ]
+        );
 roots(medium) ->
     [
         {"broker",

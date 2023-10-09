@@ -11,7 +11,7 @@ protocol access on EMQX. For example:
 - Configuration & Schema
 - HTTP/CLI management interfaces
 
-The emqx_gateway application depends on `emqx`, `emqx_authn`, `emqx_authz`, `emqx_ctl` that
+The emqx_gateway application depends on `emqx`, `emqx_auth`, ``emqx_auth_*`, `emqx_ctl` that
 provide the foundation for protocol access.
 
 More introduction: [Extended Protocol Gateway](https://www.emqx.io/docs/en/v5.0/gateway/gateway.html)

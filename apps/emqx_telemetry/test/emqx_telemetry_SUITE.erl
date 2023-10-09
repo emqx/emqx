@@ -43,20 +43,22 @@ apps() ->
         emqx_conf,
         emqx_management,
         emqx_retainer,
-        emqx_authn,
-        emqx_authz,
+        emqx_auth,
+        emqx_auth_redis,
+        emqx_auth_mnesia,
+        emqx_auth_postgresql,
         emqx_modules,
         emqx_telemetry
     ].
 
 init_per_suite(Config) ->
     net_kernel:start(['master@127.0.0.1', longnames]),
-    ok = meck:new(emqx_authz, [non_strict, passthrough, no_history, no_link]),
+    ok = meck:new(emqx_authz_file, [non_strict, passthrough, no_history, no_link]),
     meck:expect(
-        emqx_authz,
+        emqx_authz_file,
         acl_conf_file,
         fun() ->
-            emqx_common_test_helpers:deps_path(emqx_authz, "etc/acl.conf")
+            emqx_common_test_helpers:deps_path(emqx_auth, "etc/acl.conf")
         end
     ),
     ok = emqx_common_test_helpers:load_config(emqx_modules_schema, ?MODULES_CONF),
@@ -76,7 +78,7 @@ end_per_suite(_Config) ->
     mnesia:clear_table(cluster_rpc_commit),
     mnesia:clear_table(cluster_rpc_mfa),
     stop_apps(),
-    meck:unload(emqx_authz),
+    meck:unload(emqx_authz_file),
     ok.
 
 init_per_testcase(t_get_telemetry_without_memsup, Config) ->
@@ -715,37 +717,33 @@ mock_advanced_mqtt_features() ->
     ok.
 
 create_authn(ChainName, built_in_database) ->
-    emqx_authentication:initialize_authentication(
+    emqx_authn_chains:create_authenticator(
         ChainName,
-        [
-            #{
-                mechanism => password_based,
-                backend => built_in_database,
-                enable => true,
-                user_id_type => username,
-                password_hash_algorithm => #{
-                    name => plain,
-                    salt_position => suffix
-                }
+        #{
+            mechanism => password_based,
+            backend => built_in_database,
+            enable => true,
+            user_id_type => username,
+            password_hash_algorithm => #{
+                name => plain,
+                salt_position => suffix
             }
-        ]
+        }
     );
 create_authn(ChainName, redis) ->
-    emqx_authentication:initialize_authentication(
+    emqx_authn_chains:create_authenticator(
         ChainName,
-        [
-            #{
-                mechanism => password_based,
-                backend => redis,
-                enable => true,
-                user_id_type => username,
-                cmd => "HMGET mqtt_user:${username} password_hash salt is_superuser",
-                password_hash_algorithm => #{
-                    name => plain,
-                    salt_position => suffix
-                }
+        #{
+            mechanism => password_based,
+            backend => redis,
+            enable => true,
+            user_id_type => username,
+            cmd => "HMGET mqtt_user:${username} password_hash salt is_superuser",
+            password_hash_algorithm => #{
+                name => plain,
+                salt_position => suffix
             }
-        ]
+        }
     ).
 
 create_authz(postgresql) ->
@@ -813,7 +811,7 @@ setup_fake_rule_engine_data() ->
         ),
     ok.
 
-set_special_configs(emqx_authz) ->
+set_special_configs(emqx_auth) ->
     {ok, _} = emqx:update_config([authorization, cache, enable], false),
     {ok, _} = emqx:update_config([authorization, no_match], deny),
     {ok, _} = emqx:update_config([authorization, sources], []),

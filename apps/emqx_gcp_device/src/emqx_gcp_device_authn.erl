@@ -4,24 +4,12 @@
 
 -module(emqx_gcp_device_authn).
 
--include_lib("emqx_authn/include/emqx_authn.hrl").
+-include_lib("emqx_auth/include/emqx_authn.hrl").
 -include_lib("emqx/include/logger.hrl").
--include_lib("hocon/include/hoconsc.hrl").
 -include_lib("jose/include/jose_jwt.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
--behaviour(hocon_schema).
-
 -export([
-    namespace/0,
-    tags/0,
-    roots/0,
-    fields/1,
-    desc/1
-]).
-
--export([
-    refs/0,
     create/2,
     update/2,
     authenticate/2,
@@ -29,34 +17,8 @@
 ]).
 
 %%------------------------------------------------------------------------------
-%% Hocon Schema
-%%------------------------------------------------------------------------------
-
-namespace() -> "authn".
-
-tags() ->
-    [<<"Authentication">>].
-
-%% used for config check when the schema module is resolved
-roots() ->
-    [{?CONF_NS, hoconsc:mk(hoconsc:ref(gcp_device))}].
-
-fields(gcp_device) ->
-    common_fields().
-
-desc(gcp_device) ->
-    ?DESC(emqx_gcp_device_api, gcp_device);
-desc(_) ->
-    undefined.
-
-%%------------------------------------------------------------------------------
 %% APIs
 %%------------------------------------------------------------------------------
-
-refs() ->
-    [
-        hoconsc:ref(?MODULE, gcp_device)
-    ].
 
 create(_AuthenticatorID, _Config) ->
     {ok, #{}}.
@@ -79,11 +41,6 @@ destroy(_State) ->
 %%--------------------------------------------------------------------
 %% Internal functions
 %%--------------------------------------------------------------------
-
-common_fields() ->
-    [
-        {mechanism, emqx_authn_schema:mechanism('gcp_device')}
-    ] ++ emqx_authn_schema:common_fields().
 
 % The check logic is the following:
 %% 1. If clientid is not GCP-like or password is not a JWT, the result is ignore

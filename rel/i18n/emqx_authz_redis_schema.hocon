@@ -1,0 +1,27 @@
+emqx_authz_redis_schema {
+
+redis_sentinel.desc:
+"""Authorization using a Redis Sentinel."""
+
+redis_sentinel.label:
+"""redis_sentinel"""
+
+redis_cluster.desc:
+"""Authorization using a Redis cluster."""
+
+redis_cluster.label:
+"""redis_cluster"""
+
+redis_single.desc:
+"""Authorization using a single Redis instance."""
+
+redis_single.label:
+"""redis_single"""
+
+cmd.desc:
+"""Database query used to retrieve authorization data."""
+
+cmd.label:
+"""cmd"""
+
+}

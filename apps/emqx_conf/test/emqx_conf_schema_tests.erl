@@ -338,13 +338,11 @@ log_rotation_count_limit_test() ->
     """
 ).
 
--define(ERROR(Reason),
+-define(ERROR(Error),
     {emqx_conf_schema, [
         #{
             kind := validation_error,
-            reason := integrity_validation_failure,
-            result := _,
-            validation_name := Reason
+            reason := #{error := Error}
         }
     ]}
 ).
@@ -374,7 +372,7 @@ authn_validations_test() ->
     Conf2 = <<BaseConf/binary, DisableSSLWithHttps/binary>>,
     {ok, ConfMap2} = hocon:binary(Conf2, #{format => richmap}),
     ?assertThrow(
-        ?ERROR(check_http_ssl_opts),
+        ?ERROR(invalid_ssl_opts),
         hocon_tconf:map_translate(emqx_conf_schema, ConfMap2, #{format => richmap})
     ),
 

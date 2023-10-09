@@ -1,10 +1,10 @@
 %% -*- mode: erlang -*-
 {application, emqx_gateway, [
     {description, "The Gateway management application"},
-    {vsn, "0.1.25"},
+    {vsn, "0.1.26"},
     {registered, []},
     {mod, {emqx_gateway_app, []}},
-    {applications, [kernel, stdlib, emqx, emqx_authn, emqx_ctl]},
+    {applications, [kernel, stdlib, emqx, emqx_auth, emqx_ctl]},
     {env, []},
     {modules, []},
     {licenses, ["Apache 2.0"]},

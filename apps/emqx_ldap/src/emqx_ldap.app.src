@@ -6,8 +6,8 @@
         kernel,
         stdlib,
         eldap,
-        emqx_authn,
-        emqx_authz
+        emqx_connector,
+        emqx_resource
     ]},
     {env, []},
     {modules, []},

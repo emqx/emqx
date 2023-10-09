@@ -128,7 +128,7 @@ init_per_group(LisType, ServiceName, Scheme, Cfg) ->
     Svrs = emqx_exproto_echo_svr:start(Scheme),
     application:load(emqx_gateway_exproto),
     emqx_common_test_helpers:start_apps(
-        [emqx_conf, emqx_authn, emqx_gateway],
+        [emqx_conf, emqx_auth, emqx_gateway],
         fun(App) ->
             set_special_cfg(App, LisType, ServiceName, Scheme)
         end
@@ -143,7 +143,7 @@ init_per_group(LisType, ServiceName, Scheme, Cfg) ->
 
 end_per_group(_, Cfg) ->
     emqx_config:erase(gateway),
-    emqx_common_test_helpers:stop_apps([emqx_gateway, emqx_authn, emqx_conf]),
+    emqx_common_test_helpers:stop_apps([emqx_gateway, emqx_auth, emqx_conf]),
     emqx_exproto_echo_svr:stop(proplists:get_value(servers, Cfg)).
 
 init_per_testcase(TestCase, Cfg) when

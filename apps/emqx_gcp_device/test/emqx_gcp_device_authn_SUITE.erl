@@ -10,7 +10,7 @@
 -include_lib("common_test/include/ct.hrl").
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
--include_lib("emqx_authn/include/emqx_authn.hrl").
+-include_lib("emqx_auth/include/emqx_authn.hrl").
 
 -define(PATH, [authentication]).
 -define(DEVICE_ID, <<"test-device">>).
@@ -23,7 +23,7 @@ all() ->
 
 init_per_suite(Config0) ->
     ok = snabbkaffe:start_trace(),
-    Apps = emqx_cth_suite:start([emqx, emqx_conf, emqx_authn, emqx_gcp_device], #{
+    Apps = emqx_cth_suite:start([emqx, emqx_conf, emqx_auth, emqx_gcp_device], #{
         work_dir => ?config(priv_dir, Config0)
     }),
     ValidExpirationTime = erlang:system_time(second) + 3600,
@@ -65,7 +65,7 @@ t_create(_Config) ->
     {ok, _} = emqx:update_config(?PATH, {create_authenticator, ?GLOBAL, AuthConfig}),
     ?assertMatch(
         {ok, [#{provider := emqx_gcp_device_authn}]},
-        emqx_authentication:list_authenticators(?GLOBAL)
+        emqx_authn_chains:list_authenticators(?GLOBAL)
     ).
 
 t_destroy(Config) ->
@@ -95,7 +95,7 @@ t_expired_client(Config) ->
     {ok, _} = emqx:update_config(?PATH, {create_authenticator, ?GLOBAL, AuthConfig}),
     ?assertMatch(
         {ok, [#{provider := emqx_gcp_device_authn}]},
-        emqx_authentication:list_authenticators(?GLOBAL)
+        emqx_authn_chains:list_authenticators(?GLOBAL)
     ),
     ok = emqx_gcp_device:put_device(Client),
     ?assertMatch(
@@ -162,7 +162,7 @@ test_rsa_key(private) ->
     data_file("private_key.pem").
 
 data_file(Name) ->
-    Dir = code:lib_dir(emqx_authn, test),
+    Dir = code:lib_dir(emqx_auth, test),
     list_to_binary(filename:join([Dir, "data", Name])).
 
 credential(ClientId, JWT) ->

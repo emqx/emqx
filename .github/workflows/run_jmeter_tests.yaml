@@ -136,7 +136,7 @@ jobs:
           -Dpgsql_user="root" \
           -Dpgsql_pwd="public" \
           -Ddbname="mqtt" \
-          -Droute="apps/emqx_authn/test/data/certs" \
+          -Droute="apps/emqx_auth/test/data/certs" \
           -Dca_name="ca.crt" \
           -Dkey_name="client.key" \
           -Dcert_name="client.crt" \
@@ -199,7 +199,7 @@ jobs:
           -Dmysql_user="root" \
           -Dmysql_pwd="public" \
           -Ddbname="mqtt" \
-          -Droute="apps/emqx_authn/test/data/certs" \
+          -Droute="apps/emqx_auth/test/data/certs" \
           -Dca_name="ca.crt" \
           -Dkey_name="client.key" \
           -Dcert_name="client.crt" \

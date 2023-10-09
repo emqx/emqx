@@ -1,0 +1,11 @@
+emqx_authn_ldap_bind_schema {
+
+ldap_bind.desc:
+"""Configuration of authenticator using the LDAP bind operation as the authentication method."""
+
+query_timeout.desc:
+"""Timeout for the LDAP query."""
+
+query_timeout.label:
+"""Query Timeout"""
+}

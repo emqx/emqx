@@ -170,14 +170,15 @@ is_app(Name) ->
     end.
 
 sorted_reboot_apps() ->
-    Apps0 = [{App, app_deps(App)} || App <- reboot_apps()],
+    RebootApps = reboot_apps(),
+    Apps0 = [{App, app_deps(App, RebootApps)} || App <- RebootApps],
     Apps = inject_bridge_deps(Apps0),
     sorted_reboot_apps(Apps).
 
-app_deps(App) ->
+app_deps(App, RebootApps) ->
     case application:get_key(App, applications) of
         undefined -> undefined;
-        {ok, List} -> lists:filter(fun(A) -> lists:member(A, reboot_apps()) end, List)
+        {ok, List} -> lists:filter(fun(A) -> lists:member(A, RebootApps) end, List)
     end.
 
 %% `emqx_bridge' is special in that it needs all the bridges apps to

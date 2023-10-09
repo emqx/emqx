@@ -126,7 +126,7 @@ get_basic_usage_info() ->
 get_authn_type(#{authentication := Authn = #{mechanism := Mechanism, backend := Backend}}) when
     is_atom(Mechanism), is_atom(Backend)
 ->
-    emqx_authentication_config:authenticator_id(Authn);
+    emqx_authn_config:authenticator_id(Authn);
 get_authn_type(_) ->
     <<"undefined">>.
 

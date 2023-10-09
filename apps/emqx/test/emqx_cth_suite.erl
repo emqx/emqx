@@ -330,7 +330,7 @@ default_appspec(emqx, SuiteOpts) ->
         % overwrite everything with a default configuration.
         before_start => fun inhibit_config_loader/2
     };
-default_appspec(emqx_authz, _SuiteOpts) ->
+default_appspec(emqx_auth, _SuiteOpts) ->
     #{
         config => #{
             % NOTE
@@ -356,15 +356,21 @@ default_appspec(emqx_conf, SuiteOpts) ->
         Config,
         [
             emqx,
-            emqx_authz
+            emqx_auth
         ]
     ),
     #{
         config => SharedConfig,
-        % NOTE
-        % We inform `emqx` of our config loader before starting `emqx_conf` so that it won't
-        % overwrite everything with a default configuration.
-        before_start => fun inhibit_config_loader/2
+        before_start => fun(App, Conf) ->
+            % NOTE
+            % We inform `emqx` of our config loader before starting `emqx_conf` so that it won't
+            % overwrite everything with a default configuration.
+            ok = inhibit_config_loader(App, Conf),
+            % NOTE
+            % This should be done to pass authz schema validations.
+            % In production, acl.conf file is created by the release process.
+            ok = emqx_common_test_helpers:copy_acl_conf()
+        end
     };
 default_appspec(emqx_dashboard, _SuiteOpts) ->
     #{

@@ -22,7 +22,7 @@
 -include_lib("common_test/include/ct.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
--define(ROLE_SUPERUSER, <<"superuser">>).
+-define(ROLE_SUPERUSER, <<"administrator">>).
 -define(BOOTSTRAP_BACKUP, "emqx-export-test-bootstrap-ce.tar.gz").
 
 all() ->
@@ -397,7 +397,7 @@ users(Prefix) ->
     ].
 
 authn_ids(AuthnConf) ->
-    lists:sort([emqx_authentication:authenticator_id(Conf) || Conf <- AuthnConf]).
+    lists:sort([emqx_authn_chains:authenticator_id(Conf) || Conf <- AuthnConf]).
 
 recompose_version(MajorInt, MinorInt, Patch) ->
     unicode:characters_to_list(
@@ -438,8 +438,14 @@ apps_to_start() ->
         emqx_psk,
         emqx_management,
         emqx_dashboard,
-        emqx_authz,
-        emqx_authn,
+        emqx_auth,
+        emqx_auth_http,
+        emqx_auth_jwt,
+        emqx_auth_mnesia,
+        emqx_auth_mongodb,
+        emqx_auth_mysql,
+        emqx_auth_postgresql,
+        emqx_auth_redis,
         emqx_rule_engine,
         emqx_retainer,
         emqx_prometheus,

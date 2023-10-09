@@ -66,11 +66,11 @@ init_per_suite(Conf) ->
     emqx_config:erase(gateway),
     emqx_gateway_test_utils:load_all_gateway_apps(),
     emqx_common_test_helpers:load_config(emqx_gateway_schema, ?CONF_DEFAULT),
-    emqx_mgmt_api_test_util:init_suite([emqx_conf, emqx_authn, emqx_gateway]),
+    emqx_mgmt_api_test_util:init_suite([emqx_conf, emqx_auth, emqx_gateway]),
     Conf.
 
 end_per_suite(Conf) ->
-    emqx_mgmt_api_test_util:end_suite([emqx_gateway, emqx_authn, emqx_conf]),
+    emqx_mgmt_api_test_util:end_suite([emqx_gateway, emqx_auth, emqx_conf]),
     Conf.
 
 init_per_testcase(_, Conf) ->

@@ -108,6 +108,7 @@ is_community_umbrella_app("apps/emqx_enterprise") -> false;
 is_community_umbrella_app("apps/emqx_bridge_kinesis") -> false;
 is_community_umbrella_app("apps/emqx_bridge_azure_event_hub") -> false;
 is_community_umbrella_app("apps/emqx_ldap") -> false;
+is_community_umbrella_app("apps/emqx_auth_ldap") -> false;
 is_community_umbrella_app("apps/emqx_gcp_device") -> false;
 is_community_umbrella_app("apps/emqx_dashboard_rbac") -> false;
 is_community_umbrella_app("apps/emqx_dashboard_sso") -> false;
@@ -455,7 +456,7 @@ relx_overlay(ReleaseType, Edition) ->
         {copy, "bin/emqx_ctl", "bin/emqx_ctl-{{release_version}}"},
         {copy, "bin/install_upgrade.escript", "bin/install_upgrade.escript-{{release_version}}"},
         {copy, "apps/emqx_gateway_lwm2m/lwm2m_xml", "etc/lwm2m_xml"},
-        {copy, "apps/emqx_authz/etc/acl.conf", "etc/acl.conf"},
+        {copy, "apps/emqx_auth/etc/acl.conf", "etc/acl.conf"},
         {template, "bin/emqx.cmd", "bin/emqx.cmd"},
         {template, "bin/emqx_ctl.cmd", "bin/emqx_ctl.cmd"},
         {copy, "bin/nodetool", "bin/nodetool"},

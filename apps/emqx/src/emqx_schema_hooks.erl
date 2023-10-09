@@ -22,7 +22,11 @@
     #{
         hookpoint() => [hocon_schema:field()]
     }.
--optional_callbacks([injected_fields/0]).
+-callback injected_fields(term()) ->
+    #{
+        hookpoint() => [hocon_schema:field()]
+    }.
+-optional_callbacks([injected_fields/0, injected_fields/1]).
 
 -export_type([hookpoint/0]).
 
@@ -30,6 +34,7 @@
 
 -export([
     injection_point/1,
+    injection_point/2,
     inject_from_modules/1
 ]).
 
@@ -43,9 +48,15 @@
 %% API
 %%--------------------------------------------------------------------
 
+-spec injection_point(hookpoint()) -> [hocon_schema:field()].
 injection_point(PointName) ->
-    persistent_term:get(?HOOKPOINT_PT_KEY(PointName), []).
+    injection_point(PointName, []).
 
+-spec injection_point(hookpoint(), [hocon_schema:field()]) -> [hocon_schema:field()].
+injection_point(PointName, Default) ->
+    persistent_term:get(?HOOKPOINT_PT_KEY(PointName), Default).
+
+-spec erase_injections() -> ok.
 erase_injections() ->
     lists:foreach(
         fun
@@ -57,6 +68,7 @@ erase_injections() ->
         persistent_term:get()
     ).
 
+-spec any_injections() -> boolean().
 any_injections() ->
     lists:any(
         fun
@@ -68,6 +80,7 @@ any_injections() ->
         persistent_term:get()
     ).
 
+-spec inject_from_modules([module() | {module(), term()}]) -> ok.
 inject_from_modules(Modules) ->
     Injections =
         lists:foldl(
@@ -83,6 +96,8 @@ inject_from_modules(Modules) ->
 
 append_module_injections(Module, AllInjections) when is_atom(Module) ->
     append_module_injections(Module:injected_fields(), AllInjections);
+append_module_injections({Module, Options}, AllInjections) when is_atom(Module) ->
+    append_module_injections(Module:injected_fields(Options), AllInjections);
 append_module_injections(ModuleInjections, AllInjections) when is_map(ModuleInjections) ->
     maps:fold(
         fun(PointName, Fields, Acc) ->

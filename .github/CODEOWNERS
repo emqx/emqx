@@ -3,9 +3,9 @@
 
 ## apps
 /apps/emqx/                @emqx/emqx-review-board @lafirest
-/apps/emqx_authn/          @emqx/emqx-review-board @JimMoen @savonarola
-/apps/emqx_authz/          @emqx/emqx-review-board @JimMoen @savonarola
 /apps/emqx_connector/      @emqx/emqx-review-board
+/apps/emqx_auth/           @emqx/emqx-review-board @JimMoen @savonarola
+/apps/emqx_connector/      @emqx/emqx-review-board @JimMoen
 /apps/emqx_dashboard/      @emqx/emqx-review-board @JimMoen @lafirest
 /apps/emqx_dashboard_rbac/ @emqx/emqx-review-board @lafirest
 /apps/emqx_dashboard_sso/  @emqx/emqx-review-board @JimMoen @lafirest

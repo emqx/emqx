@@ -39,7 +39,8 @@
     flush/1,
     load/1,
     render_and_load_app_config/1,
-    render_and_load_app_config/2
+    render_and_load_app_config/2,
+    copy_acl_conf/0
 ]).
 
 -export([
@@ -527,11 +528,11 @@ copy_certs(_, _) ->
 
 copy_acl_conf() ->
     Dest = filename:join([code:lib_dir(emqx), "etc/acl.conf"]),
-    case code:lib_dir(emqx_authz) of
+    case code:lib_dir(emqx_auth) of
         {error, bad_name} ->
             (not filelib:is_regular(Dest)) andalso file:write_file(Dest, <<"">>);
         _ ->
-            {ok, _} = file:copy(deps_path(emqx_authz, "etc/acl.conf"), Dest)
+            {ok, _} = file:copy(deps_path(emqx_auth, "etc/acl.conf"), Dest)
     end,
     ok.
 

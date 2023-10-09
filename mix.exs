@@ -226,6 +226,7 @@ defmodule EMQXUmbrella.MixProject do
       :emqx_bridge_kinesis,
       :emqx_bridge_azure_event_hub,
       :emqx_ldap,
+      :emqx_auth_ldap,
       :emqx_gcp_device,
       :emqx_dashboard_rbac,
       :emqx_dashboard_sso
@@ -534,12 +535,12 @@ defmodule EMQXUmbrella.MixProject do
     )
 
     Mix.Generator.copy_file(
-      "apps/emqx_authz/etc/acl.conf",
+      "apps/emqx_auth/etc/acl.conf",
       Path.join(etc, "acl.conf"),
       force: overwrite?
     )
 
-    # required by emqx_authz
+    # required by emqx_auth
     File.cp_r!(
       "apps/emqx/etc/certs",
       Path.join(etc, "certs")

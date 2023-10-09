@@ -75,7 +75,8 @@
 -define(APPSPECS, [
     emqx_conf,
     emqx,
-    emqx_authn,
+    emqx_auth,
+    emqx_auth_mnesia,
     emqx_management,
     {emqx_rule_engine, "rule_engine { rules {} }"},
     {emqx_bridge, "bridges {}"}
@@ -1436,11 +1437,11 @@ get_raw_config(Path, Config) ->
 
 add_user_auth(Chain, AuthenticatorID, User, Config) ->
     Node = ?config(node, Config),
-    erpc:call(Node, emqx_authentication, add_user, [Chain, AuthenticatorID, User]).
+    erpc:call(Node, emqx_authn_chains, add_user, [Chain, AuthenticatorID, User]).
 
 delete_user_auth(Chain, AuthenticatorID, User, Config) ->
     Node = ?config(node, Config),
-    erpc:call(Node, emqx_authentication, delete_user, [Chain, AuthenticatorID, User]).
+    erpc:call(Node, emqx_authn_chains, delete_user, [Chain, AuthenticatorID, User]).
 
 str(S) when is_list(S) -> S;
 str(S) when is_binary(S) -> binary_to_list(S).

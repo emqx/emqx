@@ -1,0 +1,12 @@
+emqx_authn_postgresql_schema {
+
+postgresql.desc:
+"""Configuration of authenticator using PostgreSQL as authentication data source."""
+
+query.desc:
+"""SQL used to query data for authentication, such as password hash."""
+
+query.label:
+"""Query"""
+
+}

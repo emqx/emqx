@@ -175,8 +175,10 @@ on_start(
             end;
         _ ->
             case emqx_resource_pool:start(InstId, ?MODULE, Opts ++ [{options, Options}]) of
-                ok -> {ok, State};
-                {error, Reason} -> {error, Reason}
+                ok ->
+                    {ok, State};
+                {error, Reason} ->
+                    {error, Reason}
             end
     end.
 

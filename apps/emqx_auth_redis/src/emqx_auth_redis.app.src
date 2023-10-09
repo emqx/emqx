@@ -1,0 +1,19 @@
+%% -*- mode: erlang -*-
+{application, emqx_auth_redis, [
+    {description, "EMQX Redis Authentication and Authorization"},
+    {vsn, "0.1.0"},
+    {registered, []},
+    {mod, {emqx_auth_redis_app, []}},
+    {applications, [
+        kernel,
+        stdlib,
+        emqx,
+        emqx_redis,
+        emqx_auth
+    ]},
+    {env, []},
+    {modules, []},
+
+    {licenses, ["Apache 2.0"]},
+    {links, []}
+]}.

@@ -6,12 +6,6 @@ deny.desc:
 deny.label:
 """The Number of Authentication Failures"""
 
-redis_sentinel.desc:
-"""Authorization using a Redis Sentinel."""
-
-redis_sentinel.label:
-"""redis_sentinel"""
-
 rate.desc:
 """The rate of matched, times/second."""
 
@@ -24,47 +18,11 @@ status.desc:
 status.label:
 """Status"""
 
-method.desc:
-"""HTTP method."""
-
-method.label:
-"""method"""
-
-query.desc:
-"""Database query used to retrieve authorization data."""
-
-query.label:
-"""query"""
-
 metrics_total.desc:
 """The total number of times the authorization rule was triggered."""
 
 metrics_total.label:
 """The Total Number of Times the Authorization Rule was Triggered"""
-
-redis_cluster.desc:
-"""Authorization using a Redis cluster."""
-
-redis_cluster.label:
-"""redis_cluster"""
-
-mysql.desc:
-"""Authorization using a MySQL database."""
-
-mysql.label:
-"""mysql"""
-
-postgresql.desc:
-"""Authorization using a PostgreSQL database."""
-
-postgresql.label:
-"""postgresql"""
-
-mongo_rs.desc:
-"""Authorization using a MongoDB replica set."""
-
-mongo_rs.label:
-"""mongo_rs"""
 
 type.desc:
 """Backend type."""
@@ -72,35 +30,11 @@ type.desc:
 type.label:
 """type"""
 
-mongo_sharded.desc:
-"""Authorization using a sharded MongoDB cluster."""
-
-mongo_sharded.label:
-"""mongo_sharded"""
-
-body.desc:
-"""HTTP request body."""
-
-body.label:
-"""Request Body"""
-
-url.desc:
-"""URL of the auth server."""
-
-url.label:
-"""URL"""
-
 node.desc:
 """Node name."""
 
 node.label:
 """Node Name."""
-
-headers.desc:
-"""List of HTTP Headers."""
-
-headers.label:
-"""Headers"""
 
 rate_last5m.desc:
 """The average rate of matched in the last 5 minutes, times/second."""
@@ -108,23 +42,11 @@ rate_last5m.desc:
 rate_last5m.label:
 """Rate in Last 5min"""
 
-headers_no_content_type.desc:
-"""List of HTTP headers (without <code>content-type</code>)."""
-
-headers_no_content_type.label:
-"""headers_no_content_type"""
-
 node_error.desc:
 """The error of node."""
 
 node_error.label:
 """Error in Node"""
-
-builtin_db.desc:
-"""Authorization using a built-in database (mnesia)."""
-
-builtin_db.label:
-"""Builtin Database"""
 
 enable.desc:
 """Set to <code>true</code> or <code>false</code> to disable this ACL provider"""
@@ -150,34 +72,6 @@ rate_max.desc:
 rate_max.label:
 """Max Rate"""
 
-filter.desc:
-"""Conditional expression that defines the filter condition in the query.
-Filter supports the following placeholders<br/>
- - <code>${username}</code>: Will be replaced at runtime with <code>Username</code> used by the client when connecting<br/>
- - <code>${clientid}</code>: Will be replaced at runtime with <code>Client ID</code> used by the client when connecting"""
-
-filter.label:
-"""Filter"""
-
-path.desc:
-"""Path to the file which contains the ACL rules.
-If the file provisioned before starting EMQX node,
-it can be placed anywhere as long as EMQX has read access to it.
-That is, EMQX will treat it as read only.
-
-In case the rule-set is created or updated from EMQX Dashboard or HTTP API,
-a new file will be created and placed in `authz` subdirectory inside EMQX's `data_dir`,
-and the old file will not be used anymore."""
-
-path.label:
-"""path"""
-
-redis_single.desc:
-"""Authorization using a single Redis instance."""
-
-redis_single.label:
-"""redis_single"""
-
 failed.desc:
 """Count of query failed."""
 
@@ -196,47 +90,11 @@ authorization.desc:
 authorization.label:
 """authorization"""
 
-collection.desc:
-"""`MongoDB` collection containing the authorization data."""
-
-collection.label:
-"""collection"""
-
-mongo_single.desc:
-"""Authorization using a single MongoDB instance."""
-
-mongo_single.label:
-"""mongo_single"""
-
-file.desc:
-"""Authorization using a static file."""
-
-file.label:
-"""file"""
-
-http_post.desc:
-"""Authorization using an external HTTP server (via POST requests)."""
-
-http_post.label:
-"""http_post"""
-
-request_timeout.desc:
-"""HTTP request timeout."""
-
-request_timeout.label:
-"""Request Timeout"""
-
 allow.desc:
 """The number of times the authentication was successful."""
 
 allow.label:
 """The Number of Times the Authentication was Successful"""
-
-cmd.desc:
-"""Database query used to retrieve authorization data."""
-
-cmd.label:
-"""cmd"""
 
 nomatch.desc:
 """The number of times that no authorization rules were matched."""
@@ -277,11 +135,5 @@ success.desc:
 
 success.label:
 """Success"""
-
-http_get.desc:
-"""Authorization using an external HTTP server (via GET requests)."""
-
-http_get.label:
-"""http_get"""
 
 }
