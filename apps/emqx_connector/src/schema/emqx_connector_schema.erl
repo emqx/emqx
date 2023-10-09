@@ -50,6 +50,8 @@ enterprise_fields_connectors() ->
 
 -else.
 
+enterprise_api_schemas(Method) -> [].
+
 enterprise_fields_connectors() -> [].
 
 -endif.
