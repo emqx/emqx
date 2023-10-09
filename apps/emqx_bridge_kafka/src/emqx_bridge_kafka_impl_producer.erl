@@ -44,7 +44,7 @@ query_mode(_) ->
 callback_mode() -> async_if_possible.
 
 %% @doc Config schema is defined in emqx_connector_kafka.
-on_start(<<"connector:", _/binary>> = InstId, Config) ->
+on_start(InstId, Config) ->
     #{
         authentication := Auth,
         bootstrap_hosts := Hosts0,
@@ -467,7 +467,7 @@ on_kafka_ack(_Partition, buffer_overflow_discarded, _Callback) ->
 %% `emqx_resource_buffer_worker', we must avoid returning `disconnected' here.  Otherwise,
 %% `emqx_resource_manager' will kill the wolff producers and messages might be lost.
 on_get_status(
-    <<"connector:", _/binary>> = _InstId,
+    _InstId,
     #{client_id := ClientId} = State
 ) ->
     case wolff_client_sup:find_client(ClientId) of

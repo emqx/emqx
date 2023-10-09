@@ -86,7 +86,7 @@ parse_connector_id(ConnectorId, Opts) ->
     case string:split(bin(ConnectorId), ":", all) of
         [Type, Name] ->
             {to_type_atom(Type), validate_name(Name, Opts)};
-        [<<"connector">>, Type, Name] ->
+        [_, Type, Name] ->
             {to_type_atom(Type), validate_name(Name, Opts)};
         _ ->
             invalid_data(
