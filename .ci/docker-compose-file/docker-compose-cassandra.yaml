@@ -2,7 +2,7 @@ version: '3.9'
 
 x-cassandra: &cassandra
   restart: always
-  image: cassandra:${CASSANDRA_TAG:-3.11.6}
+  image: public.ecr.aws/docker/library/cassandra:${CASSANDRA_TAG:-3.11}
   environment:
     CASSANDRA_BROADCAST_ADDRESS: "1.2.3.4"
     CASSANDRA_RPC_ADDRESS: "0.0.0.0"

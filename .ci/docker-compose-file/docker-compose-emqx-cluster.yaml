@@ -13,7 +13,7 @@ x-default-emqx: &default-emqx
 services:
   haproxy:
     container_name: haproxy
-    image: haproxy:2.4
+    image: public.ecr.aws/docker/library/haproxy:2.4
     depends_on:
       - emqx1
       - emqx2

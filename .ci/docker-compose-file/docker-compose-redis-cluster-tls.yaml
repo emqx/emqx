@@ -3,7 +3,7 @@ services:
 
   redis-cluster-tls-1: &redis-node
     container_name: redis-cluster-tls-1
-    image: redis:${REDIS_TAG}
+    image: public.ecr.aws/docker/library/redis:${REDIS_TAG}
     volumes:
     - ./redis/cluster-tls:/usr/local/etc/redis
     - ../../apps/emqx/etc/certs:/etc/certs
