@@ -93,7 +93,7 @@ exit 0
 %defattr(-,root,root)
 %{_service_dst}
 %attr(-,%{_user},%{_group}) %{_lib_home}/*
-%attr(-,%{_user},%{_group}) %dir %{_var_home}
+%attr(750,%{_user},%{_group}) %dir %{_var_home}
 %attr(-,%{_user},%{_group}) %config(noreplace) %{_var_home}/*
 %attr(-,%{_user},%{_group}) %dir %{_log_dir}
 %attr(-,%{_user},%{_group}) %config(noreplace) %{_conf_dir}/*
