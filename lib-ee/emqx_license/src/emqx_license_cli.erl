@@ -41,7 +41,7 @@ license(_) ->
     emqx_ctl:usage(
         [
             {"license info", "Show license info"},
-            {"license update License", "Update license given as a string"}
+            {"license update <License>", "Update license given as a string"}
         ]
     ).
 
