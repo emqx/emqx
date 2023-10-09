@@ -26,6 +26,7 @@
     recreate/4,
     remove/1,
     create_dry_run/2,
+    create_dry_run/3,
     restart/2,
     start/2,
     stop/1,
@@ -159,6 +160,9 @@ create(ResId, Group, ResourceType, Config, Opts) ->
     ok | {error, Reason :: term()}.
 create_dry_run(ResourceType, Config) ->
     ResId = make_test_id(),
+    create_dry_run(ResId, ResourceType, Config).
+
+create_dry_run(ResId, ResourceType, Config) ->
     Opts =
         case is_map(Config) of
             true -> maps:get(resource_opts, Config, #{});

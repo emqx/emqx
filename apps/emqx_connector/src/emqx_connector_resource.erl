@@ -241,11 +241,11 @@ recreate(Type, Name, Conf, Opts) ->
     ).
 
 create_dry_run(Type, Conf0) ->
-    TmpName = iolist_to_binary([?TEST_ID_PREFIX, emqx_utils:gen_id(8)]),
-    TmpPath = emqx_utils:safe_filename(TmpName),
     %% Already typechecked, no need to catch errors
     TypeBin = bin(Type),
     TypeAtom = safe_atom(Type),
+    TmpName = iolist_to_binary([?TEST_ID_PREFIX, TypeBin, ":", emqx_utils:gen_id(8)]),
+    TmpPath = emqx_utils:safe_filename(TmpName),
     Conf1 = maps:without([<<"name">>], Conf0),
     RawConf = #{<<"connectors">> => #{TypeBin => #{<<"temp_name">> => Conf1}}},
     try
@@ -260,7 +260,9 @@ create_dry_run(Type, Conf0) ->
                 {error, Reason};
             {ok, ConfNew} ->
                 ParseConf = parse_confs(bin(Type), TmpName, ConfNew),
-                emqx_resource:create_dry_run_local(connector_to_resource_type(Type), ParseConf)
+                emqx_resource:create_dry_run_local(
+                    TmpName, connector_to_resource_type(Type), ParseConf
+                )
         end
     catch
         %% validation errors
