@@ -311,7 +311,15 @@ query(ResId, Request, Opts) ->
                     %% TODO(5.1.1): pass Resource instead of ResId to simple APIs
                     %% so the buffer worker does not need to lookup the cache again
                     emqx_resource_buffer_worker:simple_sync_query(ResId, Request, Opts);
+                {simple_async_internal_buffer, _} ->
+                    %% This is for bridges/connectors that have internal buffering, such
+                    %% as Kafka and Pulsar producers.
+                    %% TODO(5.1.1): pass Resource instead of ResId to simple APIs
+                    %% so the buffer worker does not need to lookup the cache again
+                    emqx_resource_buffer_worker:simple_async_query(ResId, Request, Opts);
                 {simple_sync_internal_buffer, _} ->
+                    %% This is for bridges/connectors that have internal buffering, such
+                    %% as Kafka and Pulsar producers.
                     %% TODO(5.1.1): pass Resource instead of ResId to simple APIs
                     %% so the buffer worker does not need to lookup the cache again
                     emqx_resource_buffer_worker:simple_sync_internal_buffer_query(

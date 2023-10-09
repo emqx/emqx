@@ -1088,7 +1088,7 @@ call_query(QM, Id, Index, Ref, Query, QueryOpts) ->
     end.
 
 do_call_query(QM, Id, Index, Ref, Query, QueryOpts, #{query_mode := ResQM} = Resource) when
-    ResQM =:= simple_async; ResQM =:= simple_sync
+    ResQM =:= simple_sync_internal_buffer; ResQM =:= simple_async_internal_buffer
 ->
     %% The connector supports buffer, send even in disconnected state
     #{mod := Mod, state := ResSt, callback_mode := CBM} = Resource,
