@@ -1048,7 +1048,9 @@ call_query(QM, Id, Index, Ref, Query, QueryOpts) ->
             ?RESOURCE_ERROR(not_found, "resource not found")
     end.
 
-do_call_query(QM, Id, Index, Ref, Query, #{is_buffer_supported := true} = QueryOpts, Resource) ->
+do_call_query(QM, Id, Index, Ref, Query, QueryOpts, #{query_mode := ResQM} = Resource) when
+    ResQM =:= simple_async; ResQM =:= simple_sync
+->
     %% The connector supports buffer, send even in disconnected state
     #{mod := Mod, state := ResSt, callback_mode := CBM} = Resource,
     CallMode = call_mode(QM, CBM),
@@ -1059,7 +1061,7 @@ do_call_query(QM, Id, Index, Ref, Query, QueryOpts, #{status := connected} = Res
     #{mod := Mod, state := ResSt, callback_mode := CBM} = Resource,
     CallMode = call_mode(QM, CBM),
     apply_query_fun(CallMode, Mod, Id, Index, Ref, Query, ResSt, QueryOpts);
-do_call_query(_QM, _Id, _Index, _Ref, _Query, _QueryOpts, _Data) ->
+do_call_query(_QM, _Id, _Index, _Ref, _Query, _QueryOpts, _Resource) ->
     ?RESOURCE_ERROR(not_connected, "resource not connected").
 
 -define(APPLY_RESOURCE(NAME, EXPR, REQ),

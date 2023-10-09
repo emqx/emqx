@@ -7,6 +7,9 @@ concurrency:
 on:
   workflow_call:
     inputs:
+      runner_labels:
+        required: true
+        type: string
       version-emqx:
         required: true
         type: string
@@ -16,7 +19,7 @@ on:
 
 jobs:
   helm_test:
-    runs-on: ubuntu-22.04
+    runs-on: ${{ fromJSON(inputs.runner_labels) }}
     defaults:
       run:
         shell: bash

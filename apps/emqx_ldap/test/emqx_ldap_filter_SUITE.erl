@@ -223,6 +223,23 @@ t_error(_Config) ->
     ?assertMatch({error, _}, scan_and_parse("attr=value")),
     ?assertMatch({error, _}, scan_and_parse("(a=b)(c=d)")).
 
+t_escape(_Config) ->
+    ?assertEqual(
+        'and'([equalityMatch("a", "(value)")]),
+        parse("(&(a=\\(value\\)))")
+    ),
+    ?assertEqual(
+        'or'([equalityMatch("a", "name (1)")]),
+        parse("(|(a=name \\(1\\)))")
+    ),
+    ?assertEqual(
+        'or'([equalityMatch("a", "name (1) *")]),
+        parse("(|(a=name\\ \\(1\\) \\*))")
+    ).
+
+t_value_eql_dn(_Config) ->
+    ?assertEqual('and'([equalityMatch("a", "dn")]), parse("(&(a=dn))")).
+
 % %%------------------------------------------------------------------------------
 % %% Helpers
 % %%------------------------------------------------------------------------------

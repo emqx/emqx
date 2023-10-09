@@ -331,13 +331,14 @@ safe_to_existing_atom(Str) ->
 is_initialized() ->
     ets:info(?CMD_TAB) =/= undefined.
 
-audit_log(Level, From, Log) ->
+audit_log(Level, From, Log = #{args := Args}) ->
     case lookup_command(audit) of
         {error, _} ->
             ignore;
         {ok, {Mod, Fun}} ->
             try
-                apply(Mod, Fun, [Level, From, Log])
+                Log1 = Log#{args => [unicode:characters_to_binary(A) || A <- Args]},
+                apply(Mod, Fun, [Level, From, Log1])
             catch
                 _:Reason:Stacktrace ->
                     ?LOG_ERROR(#{

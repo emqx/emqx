@@ -7,7 +7,7 @@ concurrency:
 on:
   workflow_call:
     inputs:
-      runner:
+      runner_labels:
         required: true
         type: string
       builder:
@@ -27,10 +27,10 @@ on:
     inputs:
       ref:
         required: false
-      runner:
+      runner_labels:
         required: false
         type: string
-        default: 'ubuntu-22.04'
+        default: '["self-hosted","ephemeral"]'
       builder:
         required: false
         type: string
@@ -50,7 +50,7 @@ on:
 
 jobs:
   linux:
-    runs-on: ${{ inputs.runner }}
+    runs-on: ${{ fromJSON(inputs.runner_labels) }}
     env:
       EMQX_NAME: ${{ matrix.profile[0] }}
 
@@ -64,7 +64,6 @@ jobs:
     container: "ghcr.io/emqx/emqx-builder/${{ inputs.builder_vsn }}:${{ inputs.elixir_vsn }}-${{ matrix.profile[1] }}-${{ matrix.profile[2] }}"
 
     steps:
-    - uses: AutoModality/action-clean@v1
     - uses: actions/checkout@v3
       with:
         fetch-depth: 0

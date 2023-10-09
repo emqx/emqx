@@ -110,7 +110,7 @@ schema("/file_transfer") ->
     #{
         'operationId' => '/file_transfer',
         get => #{
-            tags => [<<"file_transfer">>],
+            tags => ?TAGS,
             summary => <<"Get current File Transfer configuration">>,
             description => ?DESC("file_transfer_get_config"),
             responses => #{
@@ -118,7 +118,7 @@ schema("/file_transfer") ->
             }
         },
         put => #{
-            tags => [<<"file_transfer">>],
+            tags => ?TAGS,
             summary => <<"Update File Transfer configuration">>,
             description => ?DESC("file_transfer_update_config"),
             'requestBody' => ?SCHEMA_CONFIG,

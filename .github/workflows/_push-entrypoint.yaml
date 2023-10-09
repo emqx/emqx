@@ -11,9 +11,7 @@ on:
       - 'e*'
     branches:
       - 'master'
-      - 'release-51'
-      - 'release-52'
-      - 'release-53'
+      - 'release-5?'
       - 'ci/**'
 
 env:
@@ -21,7 +19,7 @@ env:
 
 jobs:
   prepare:
-    runs-on: ${{ github.repository_owner == 'emqx' && 'aws-amd64' || 'ubuntu-22.04' }}
+    runs-on: ${{ fromJSON(github.repository_owner == 'emqx' && '["self-hosted", "ephemeral"]' || '["ubuntu-22.04"]') }}
     container: 'ghcr.io/emqx/emqx-builder/5.1-4:1.14.5-25.3.2-2-ubuntu22.04'
     outputs:
       profile: ${{ steps.parse-git-ref.outputs.profile }}
@@ -31,7 +29,7 @@ jobs:
       ct-matrix: ${{ steps.matrix.outputs.ct-matrix }}
       ct-host: ${{ steps.matrix.outputs.ct-host }}
       ct-docker: ${{ steps.matrix.outputs.ct-docker }}
-      runner: ${{ github.repository_owner == 'emqx' && 'aws-amd64' || 'ubuntu-22.04' }}
+      runner_labels: ${{ github.repository_owner == 'emqx' && '["self-hosted", "ephemeral"]' || '["ubuntu-22.04"]' }}
       builder: 'ghcr.io/emqx/emqx-builder/5.1-4:1.14.5-25.3.2-2-ubuntu22.04'
       builder_vsn: '5.1-4'
       otp_vsn: '25.3.2-2'
@@ -95,7 +93,6 @@ jobs:
       otp_vsn: ${{ needs.prepare.outputs.otp_vsn }}
       elixir_vsn: ${{ needs.prepare.outputs.elixir_vsn }}
       builder_vsn: ${{ needs.prepare.outputs.builder_vsn }}
-      runner: ${{ needs.prepare.outputs.runner }}
     secrets: inherit
 
   build_and_push_docker_images:
@@ -111,7 +108,7 @@ jobs:
       otp_vsn: ${{ needs.prepare.outputs.otp_vsn }}
       elixir_vsn: ${{ needs.prepare.outputs.elixir_vsn }}
       builder_vsn: ${{ needs.prepare.outputs.builder_vsn }}
-      runner: ${{ needs.prepare.outputs.runner }}
+      runner_labels: ${{ needs.prepare.outputs.runner_labels }}
     secrets: inherit
 
   build_slim_packages:
@@ -120,7 +117,7 @@ jobs:
       - prepare
     uses: ./.github/workflows/build_slim_packages.yaml
     with:
-      runner: ${{ needs.prepare.outputs.runner }}
+      runner_labels: ${{ needs.prepare.outputs.runner_labels }}
       builder: ${{ needs.prepare.outputs.builder }}
       builder_vsn: ${{ needs.prepare.outputs.builder_vsn }}
       otp_vsn: ${{ needs.prepare.outputs.otp_vsn }}
@@ -128,7 +125,7 @@ jobs:
 
   compile:
     if: needs.prepare.outputs.release != 'true'
-    runs-on: ${{ needs.prepare.outputs.runner }}
+    runs-on: ${{ fromJSON(needs.prepare.outputs.runner_labels) }}
     container: ${{ needs.prepare.outputs.builder }}
     needs:
       - prepare
@@ -165,7 +162,7 @@ jobs:
       - compile
     uses: ./.github/workflows/run_emqx_app_tests.yaml
     with:
-      runner: ${{ needs.prepare.outputs.runner }}
+      runner_labels: ${{ needs.prepare.outputs.runner_labels }}
       builder: ${{ needs.prepare.outputs.builder }}
       before_ref: ${{ github.event.before }}
       after_ref: ${{ github.sha }}
@@ -177,7 +174,7 @@ jobs:
       - compile
     uses: ./.github/workflows/run_test_cases.yaml
     with:
-      runner: ${{ needs.prepare.outputs.runner }}
+      runner_labels: ${{ needs.prepare.outputs.runner_labels }}
       builder: ${{ needs.prepare.outputs.builder }}
       ct-matrix: ${{ needs.prepare.outputs.ct-matrix }}
       ct-host: ${{ needs.prepare.outputs.ct-host }}
@@ -190,7 +187,7 @@ jobs:
       - compile
     uses: ./.github/workflows/run_conf_tests.yaml
     with:
-      runner: ${{ needs.prepare.outputs.runner }}
+      runner_labels: ${{ needs.prepare.outputs.runner_labels }}
       builder: ${{ needs.prepare.outputs.builder }}
 
   static_checks:
@@ -200,6 +197,6 @@ jobs:
       - compile
     uses: ./.github/workflows/static_checks.yaml
     with:
-      runner: ${{ needs.prepare.outputs.runner }}
+      runner_labels: ${{ needs.prepare.outputs.runner_labels }}
       builder: ${{ needs.prepare.outputs.builder }}
       ct-matrix: ${{ needs.prepare.outputs.ct-matrix }}

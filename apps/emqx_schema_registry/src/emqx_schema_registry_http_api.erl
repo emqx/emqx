@@ -22,6 +22,8 @@
     '/schema_registry/:name'/2
 ]).
 
+-define(TAGS, [<<"Schema Registry">>]).
+
 %%-------------------------------------------------------------------------------------------------
 %% `minirest' and `minirest_trails' API
 %%-------------------------------------------------------------------------------------------------
@@ -41,7 +43,7 @@ schema("/schema_registry") ->
     #{
         'operationId' => '/schema_registry',
         get => #{
-            tags => [<<"schema_registry">>],
+            tags => ?TAGS,
             summary => <<"List registered schemas">>,
             description => ?DESC("desc_schema_registry_api_list"),
             responses =>
@@ -57,7 +59,7 @@ schema("/schema_registry") ->
                 }
         },
         post => #{
-            tags => [<<"schema_registry">>],
+            tags => ?TAGS,
             summary => <<"Register a new schema">>,
             description => ?DESC("desc_schema_registry_api_post"),
             'requestBody' => emqx_dashboard_swagger:schema_with_examples(
@@ -79,7 +81,7 @@ schema("/schema_registry/:name") ->
     #{
         'operationId' => '/schema_registry/:name',
         get => #{
-            tags => [<<"schema_registry">>],
+            tags => ?TAGS,
             summary => <<"Get registered schema">>,
             description => ?DESC("desc_schema_registry_api_get"),
             parameters => [param_path_schema_name()],
@@ -94,7 +96,7 @@ schema("/schema_registry/:name") ->
                 }
         },
         put => #{
-            tags => [<<"schema_registry">>],
+            tags => ?TAGS,
             summary => <<"Update a schema">>,
             description => ?DESC("desc_schema_registry_api_put"),
             parameters => [param_path_schema_name()],
@@ -113,7 +115,7 @@ schema("/schema_registry/:name") ->
                 }
         },
         delete => #{
-            tags => [<<"schema_registry">>],
+            tags => ?TAGS,
             summary => <<"Delete registered schema">>,
             description => ?DESC("desc_schema_registry_api_delete"),
             parameters => [param_path_schema_name()],

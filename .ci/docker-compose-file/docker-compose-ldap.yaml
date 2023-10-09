@@ -6,6 +6,8 @@ services:
     build:
       context: ../..
       dockerfile: .ci/docker-compose-file/openldap/Dockerfile
+    ulimits:
+      nofile: 1024
     image: openldap
     #ports:
     #  - 389:389

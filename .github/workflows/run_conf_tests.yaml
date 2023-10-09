@@ -7,7 +7,7 @@ concurrency:
 on:
   workflow_call:
     inputs:
-      runner:
+      runner_labels:
         required: true
         type: string
       builder:
@@ -16,7 +16,7 @@ on:
 
 jobs:
   run_conf_tests:
-    runs-on: ${{ inputs.runner }}
+    runs-on: ${{ fromJSON(inputs.runner_labels) }}
     container: ${{ inputs.builder }}
     env:
       PROFILE: ${{ matrix.profile }}
@@ -27,7 +27,6 @@ jobs:
           - emqx
           - emqx-enterprise
     steps:
-      - uses: AutoModality/action-clean@v1
       - uses: actions/download-artifact@v3
         with:
           name: ${{ matrix.profile }}

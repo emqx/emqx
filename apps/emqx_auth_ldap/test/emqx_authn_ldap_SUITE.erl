@@ -240,7 +240,8 @@ user_seeds() ->
         %% Disabled
         New(<<"mqttuser0006">>, <<"mqttuser0006">>, {error, user_disabled}),
         %% IsSuperuser
-        New(<<"mqttuser0007">>, <<"mqttuser0007">>, {ok, #{is_superuser => true}})
+        New(<<"mqttuser0007">>, <<"mqttuser0007">>, {ok, #{is_superuser => true}}),
+        New(<<"mqttuser0008 (test)">>, <<"mqttuser0008 (test)">>, {ok, #{is_superuser => true}})
         | Valid
     ].
 

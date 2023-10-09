@@ -226,7 +226,9 @@ on_query(
     #{base_tokens := BaseTks, filter_tokens := FilterTks} = State
 ) ->
     Base = emqx_placeholder:proc_tmpl(BaseTks, Data),
-    FilterBin = emqx_placeholder:proc_tmpl(FilterTks, Data),
+    FilterBin = emqx_placeholder:proc_tmpl(FilterTks, Data, #{
+        return => full_binary, var_trans => fun filter_escape/1
+    }),
     case emqx_ldap_filter_parser:scan_and_parse(FilterBin) of
         {ok, Filter} ->
             do_ldap_query(
@@ -278,7 +280,7 @@ do_ldap_query(
                         error,
                         LogMeta#{
                             msg => "ldap_query_found_more_than_one_match",
-                            count => length(Entries)
+                            count => Count
                         }
                     ),
                     {error, {unrecoverable_error, Msg}}
@@ -314,3 +316,20 @@ do_prepare_template([{filter, V} | T], State) ->
     do_prepare_template(T, State#{filter_tokens => emqx_placeholder:preproc_tmpl(V)});
 do_prepare_template([], State) ->
     State.
+
+filter_escape(Binary) when is_binary(Binary) ->
+    filter_escape(erlang:binary_to_list(Binary));
+filter_escape([$\\ | T]) ->
+    [$\\, $\\ | filter_escape(T)];
+filter_escape([Char | T]) ->
+    case lists:member(Char, filter_control_chars()) of
+        true ->
+            [$\\, Char | filter_escape(T)];
+        _ ->
+            [Char | filter_escape(T)]
+    end;
+filter_escape([]) ->
+    [].
+
+filter_control_chars() ->
+    [$(, $), $&, $|, $=, $!, $~, $>, $<, $:, $*, $\t, $\n, $\r].

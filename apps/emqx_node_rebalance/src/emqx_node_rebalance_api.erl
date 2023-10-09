@@ -50,6 +50,7 @@
 -define(NODE_EVACUATING, 'NODE_EVACUATING').
 -define(RPC_ERROR, 'RPC_ERROR').
 -define(NOT_FOUND, 'NOT_FOUND').
+-define(TAGS, [<<"Load Rebalance">>]).
 
 %%--------------------------------------------------------------------
 %% API Spec
@@ -78,7 +79,7 @@ schema("/load_rebalance/status") ->
     #{
         'operationId' => '/load_rebalance/status',
         get => #{
-            tags => [<<"load_rebalance">>],
+            tags => ?TAGS,
             summary => <<"Get rebalance status">>,
             description => ?DESC("load_rebalance_status"),
             responses => #{
@@ -90,7 +91,7 @@ schema("/load_rebalance/global_status") ->
     #{
         'operationId' => '/load_rebalance/global_status',
         get => #{
-            tags => [<<"load_rebalance">>],
+            tags => ?TAGS,
             summary => <<"Get global rebalance status">>,
             description => ?DESC("load_rebalance_global_status"),
             responses => #{
@@ -102,7 +103,7 @@ schema("/load_rebalance/availability_check") ->
     #{
         'operationId' => '/load_rebalance/availability_check',
         get => #{
-            tags => [<<"load_rebalance">>],
+            tags => ?TAGS,
             summary => <<"Node rebalance availability check">>,
             description => ?DESC("load_rebalance_availability_check"),
             responses => #{
@@ -115,7 +116,7 @@ schema("/load_rebalance/:node/start") ->
     #{
         'operationId' => '/load_rebalance/:node/start',
         post => #{
-            tags => [<<"load_rebalance">>],
+            tags => ?TAGS,
             summary => <<"Start rebalancing with the node as coordinator">>,
             description => ?DESC("load_rebalance_start"),
             parameters => [param_node()],
@@ -135,7 +136,7 @@ schema("/load_rebalance/:node/stop") ->
     #{
         'operationId' => '/load_rebalance/:node/stop',
         post => #{
-            tags => [<<"load_rebalance">>],
+            tags => ?TAGS,
             summary => <<"Stop rebalancing coordinated by the node">>,
             description => ?DESC("load_rebalance_stop"),
             parameters => [param_node()],
@@ -150,7 +151,7 @@ schema("/load_rebalance/:node/evacuation/start") ->
     #{
         'operationId' => '/load_rebalance/:node/evacuation/start',
         post => #{
-            tags => [<<"load_rebalance">>],
+            tags => ?TAGS,
             summary => <<"Start evacuation on a node">>,
             description => ?DESC("load_rebalance_evacuation_start"),
             parameters => [param_node()],
@@ -170,7 +171,7 @@ schema("/load_rebalance/:node/evacuation/stop") ->
     #{
         'operationId' => '/load_rebalance/:node/evacuation/stop',
         post => #{
-            tags => [<<"load_rebalance">>],
+            tags => ?TAGS,
             summary => <<"Stop evacuation on a node">>,
             description => ?DESC("load_rebalance_evacuation_stop"),
             parameters => [param_node()],
@@ -186,7 +187,7 @@ schema("/load_rebalance/:node/evacuation/stop") ->
 %%     #{
 %%         'operationId' => '/load_rebalance/:node/purge/start',
 %%         post => #{
-%%             tags => [<<"load_rebalance">>],
+%%             tags => ?TAGS,
 %%             summary => <<"Start purge on the whole cluster">>,
 %%             description => ?DESC("cluster_purge_start"),
 %%             parameters => [param_node()],
@@ -206,7 +207,7 @@ schema("/load_rebalance/:node/evacuation/stop") ->
 %%     #{
 %%         'operationId' => '/load_rebalance/:node/purge/stop',
 %%         post => #{
-%%             tags => [<<"load_rebalance">>],
+%%             tags => ?TAGS,
 %%             summary => <<"Stop purge on the whole cluster">>,
 %%             description => ?DESC("cluster_purge_stop"),
 %%             parameters => [param_node()],
