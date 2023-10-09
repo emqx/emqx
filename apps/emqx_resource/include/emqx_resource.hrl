@@ -26,6 +26,7 @@
     simple_sync
     | simple_async
     | simple_sync_internal_buffer
+    | simple_async_internal_buffer
     | sync
     | async
     | no_queries.
