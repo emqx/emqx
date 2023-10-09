@@ -497,11 +497,11 @@ desc("config") ->
     ?DESC("desc_config");
 desc(resource_opts) ->
     ?DESC(emqx_resource_schema, "resource_opts");
-desc("get_" ++ Type) when Type =:= "consumer"; Type =:= "producer" ->
+desc("get_" ++ Type) when Type =:= "consumer"; Type =:= "producer"; Type =:= "connector" ->
     ["Configuration for Kafka using `GET` method."];
-desc("put_" ++ Type) when Type =:= "consumer"; Type =:= "producer" ->
+desc("put_" ++ Type) when Type =:= "consumer"; Type =:= "producer"; Type =:= "connector" ->
     ["Configuration for Kafka using `PUT` method."];
-desc("post_" ++ Type) when Type =:= "consumer"; Type =:= "producer" ->
+desc("post_" ++ Type) when Type =:= "consumer"; Type =:= "producer"; Type =:= "connector" ->
     ["Configuration for Kafka using `POST` method."];
 desc(kafka_producer_action) ->
     ?DESC("kafka_producer_action");
