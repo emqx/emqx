@@ -65,8 +65,10 @@ get_chann_conn_mod(ClientId, ChanPid) ->
 
 -spec takeover_session(emqx_types:clientid(), emqx_cm:chan_pid()) ->
     none
-    | {expired | persistent, emqx_session:session()}
     | {living, _ConnMod :: atom(), emqx_cm:chan_pid(), emqx_session:session()}
+    %% NOTE: v5.3.0
+    | {living, _ConnMod :: atom(), emqx_session:session()}
+    | {expired | persistent, emqx_session:session()}
     | {badrpc, _}.
 takeover_session(ClientId, ChanPid) ->
     rpc:call(node(ChanPid), emqx_cm, takeover_session, [ClientId, ChanPid], ?T_TAKEOVER * 2).
