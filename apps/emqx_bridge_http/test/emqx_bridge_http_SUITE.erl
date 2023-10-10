@@ -429,8 +429,8 @@ t_async_free_retries(Config) ->
         ),
         ?assertEqual(ExpectedAttempts, Get(), #{error => Error})
     end,
-    do_t_async_retries(Context, {error, normal}, Fn),
-    do_t_async_retries(Context, {error, {shutdown, normal}}, Fn),
+    do_t_async_retries(?FUNCTION_NAME, Context, {error, normal}, Fn),
+    do_t_async_retries(?FUNCTION_NAME, Context, {error, {shutdown, normal}}, Fn),
     ok.
 
 t_async_common_retries(Config) ->
@@ -465,10 +465,12 @@ t_async_common_retries(Config) ->
     end,
     %% These two succeed because they're further retried by the buffer
     %% worker synchronously, and we're not mock that call.
-    do_t_async_retries(Context, {error, {closed, "The connection was lost."}}, FnSucceed),
-    do_t_async_retries(Context, {error, {shutdown, closed}}, FnSucceed),
+    do_t_async_retries(
+        ?FUNCTION_NAME, Context, {error, {closed, "The connection was lost."}}, FnSucceed
+    ),
+    do_t_async_retries(?FUNCTION_NAME, Context, {error, {shutdown, closed}}, FnSucceed),
     %% This fails because this error is treated as unrecoverable.
-    do_t_async_retries(Context, {error, something_else}, FnFail),
+    do_t_async_retries(?FUNCTION_NAME, Context, {error, something_else}, FnFail),
     ok.
 
 t_bad_bridge_config(_Config) ->
@@ -688,14 +690,15 @@ t_bridge_probes_header_atoms(Config) ->
     ok.
 
 %% helpers
-do_t_async_retries(TestContext, Error, Fn) ->
+do_t_async_retries(TestCase, TestContext, Error, Fn) ->
     #{error_attempts := ErrorAttempts} = TestContext,
-    persistent_term:put({?MODULE, ?FUNCTION_NAME, attempts}, 0),
-    on_exit(fun() -> persistent_term:erase({?MODULE, ?FUNCTION_NAME, attempts}) end),
-    Get = fun() -> persistent_term:get({?MODULE, ?FUNCTION_NAME, attempts}) end,
+    PTKey = {?MODULE, TestCase, attempts},
+    persistent_term:put(PTKey, 0),
+    on_exit(fun() -> persistent_term:erase(PTKey) end),
+    Get = fun() -> persistent_term:get(PTKey) end,
     GetAndBump = fun() ->
-        Attempts = persistent_term:get({?MODULE, ?FUNCTION_NAME, attempts}),
-        persistent_term:put({?MODULE, ?FUNCTION_NAME, attempts}, Attempts + 1),
+        Attempts = persistent_term:get(PTKey),
+        persistent_term:put(PTKey, Attempts + 1),
         Attempts + 1
     end,
     emqx_common_test_helpers:with_mock(
@@ -714,6 +717,7 @@ do_t_async_retries(TestContext, Error, Fn) ->
         end,
         fun() -> Fn(Get, Error) end
     ),
+    persistent_term:erase(PTKey),
     ok.
 
 receive_request_notifications(MessageIDs, _ResponseDelay, _Acc) when map_size(MessageIDs) =:= 0 ->
