@@ -4,7 +4,7 @@ services:
   mongo1:
     hostname: mongo1
     container_name: mongo1
-    image: mongo:${MONGO_TAG}
+    image: public.ecr.aws/docker/library/mongo:${MONGO_TAG}
     environment:
       MONGO_INITDB_DATABASE: mqtt
     networks:
@@ -27,7 +27,7 @@ services:
   mongo2:
     hostname: mongo2
     container_name: mongo2
-    image: mongo:${MONGO_TAG}
+    image: public.ecr.aws/docker/library/mongo:${MONGO_TAG}
     environment:
       MONGO_INITDB_DATABASE: mqtt
     networks:
@@ -50,7 +50,7 @@ services:
   mongo3:
     hostname: mongo3
     container_name: mongo3
-    image: mongo:${MONGO_TAG}
+    image: public.ecr.aws/docker/library/mongo:${MONGO_TAG}
     environment:
       MONGO_INITDB_DATABASE: mqtt
     networks:
@@ -71,7 +71,7 @@ services:
         mongod --ipv6 --bind_ip_all --tlsMode requireTLS --tlsCertificateKeyFile /etc/certs/mongodb.pem --replSet rs0
       
   mongo_client:
-    image: mongo:${MONGO_TAG}
+    image: public.ecr.aws/docker/library/mongo:${MONGO_TAG}
     container_name: mongo_client
     networks:
       - emqx_bridge

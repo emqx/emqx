@@ -3,7 +3,7 @@ services:
 
   redis-cluster-1: &redis-node
     container_name: redis-cluster-1
-    image: redis:${REDIS_TAG}
+    image: public.ecr.aws/docker/library/redis:${REDIS_TAG}
     volumes:
     - ./redis/cluster-tcp:/usr/local/etc/redis
     command: redis-server /usr/local/etc/redis/redis.conf

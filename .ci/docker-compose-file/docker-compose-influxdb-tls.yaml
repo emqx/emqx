@@ -3,7 +3,7 @@ version: '3.9'
 services:
   influxdb_server_tls:
     container_name: influxdb_tls
-    image: influxdb:${INFLUXDB_TAG}
+    image: public.ecr.aws/docker/library/influxdb:${INFLUXDB_TAG}
     expose:
       - "8086"
       - "8089/udp"

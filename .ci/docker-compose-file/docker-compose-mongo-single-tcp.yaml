@@ -3,7 +3,7 @@ version: '3.9'
 services:
   mongo_server:
     container_name: mongo
-    image: mongo:${MONGO_TAG}
+    image: public.ecr.aws/docker/library/mongo:${MONGO_TAG}
     restart: always
     networks:
       - emqx_bridge

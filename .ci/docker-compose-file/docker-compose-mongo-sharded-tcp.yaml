@@ -4,7 +4,7 @@ services:
   mongosharded1:
     hostname: mongosharded1
     container_name: mongosharded1
-    image: mongo:${MONGO_TAG}
+    image: public.ecr.aws/docker/library/mongo:${MONGO_TAG}
     environment:
       MONGO_INITDB_DATABASE: mqtt
     networks:
@@ -24,7 +24,7 @@ services:
   mongosharded2:
     hostname: mongosharded2
     container_name: mongosharded2
-    image: mongo:${MONGO_TAG}
+    image: public.ecr.aws/docker/library/mongo:${MONGO_TAG}
     environment:
       MONGO_INITDB_DATABASE: mqtt
     networks:
@@ -44,7 +44,7 @@ services:
   mongosharded3:
     hostname: mongosharded3
     container_name: mongosharded3
-    image: mongo:${MONGO_TAG}
+    image: public.ecr.aws/docker/library/mongo:${MONGO_TAG}
     environment:
       MONGO_INITDB_DATABASE: mqtt
     networks:
@@ -62,7 +62,7 @@ services:
       --bind_ip_all
 
   mongosharded_client:
-    image: mongo:${MONGO_TAG}
+    image: public.ecr.aws/docker/library/mongo:${MONGO_TAG}
     container_name: mongosharded_client
     networks:
       - emqx_bridge

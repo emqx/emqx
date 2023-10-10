@@ -3,7 +3,7 @@ version: '3.9'
 services:
   mysql_server:
     container_name: mysql
-    image: mysql:${MYSQL_TAG}
+    image: public.ecr.aws/docker/library/mysql:${MYSQL_TAG}
     restart: always
     ports:
       - "3306:3306"

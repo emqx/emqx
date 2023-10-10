@@ -3,7 +3,7 @@ version: '3.9'
 services:
   mongo_server_tls:
     container_name: mongo-tls
-    image: mongo:${MONGO_TAG}
+    image: public.ecr.aws/docker/library/mongo:${MONGO_TAG}
     restart: always
     environment:
       MONGO_INITDB_DATABASE: mqtt

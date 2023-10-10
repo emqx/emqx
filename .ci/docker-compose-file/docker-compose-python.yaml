@@ -3,7 +3,7 @@ version: '3.9'
 services:
   python:
     container_name: python
-    image: python:3.9.16-alpine3.18
+    image: public.ecr.aws/docker/library/python:3.9.16-alpine3.18
     depends_on:
       - emqx1
       - emqx2

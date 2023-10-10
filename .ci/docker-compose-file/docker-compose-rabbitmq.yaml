@@ -3,7 +3,7 @@ version: '3.9'
 services:
   rabbitmq:
     container_name: rabbitmq
-    image: rabbitmq:3.11-management
+    image: public.ecr.aws/docker/library/rabbitmq:3.11-management
 
     restart: always
     expose:
