@@ -407,10 +407,10 @@ make_docker() {
         PRODUCT_DESCRIPTION='Official docker image for EMQX Enterprise, an enterprise MQTT platform at scale. '
         DOCUMENTATION_URL='https://docs.emqx.com/en/enterprise/latest/'
     fi
-    # shellcheck disable=SC2155
-    local ISO_8601_DATE="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
-    # shellcheck disable=SC2155
-    local GIT_REVISION="$(git rev-parse HEAD)"
+    local ISO_8601_DATE GIT_REVISION
+    ISO_8601_DATE="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
+    GIT_REVISION="$(git rev-parse HEAD)"
+    export BUILDX_NO_DEFAULT_ATTESTATIONS=1
     local DOCKER_BUILDX_ARGS=(
        --build-arg BUILD_FROM="${EMQX_BUILDER}" \
        --build-arg RUN_FROM="${EMQX_RUNNER}" \
@@ -430,7 +430,6 @@ make_docker() {
        --label org.opencontainers.image.licenses="${LICENSE}" \
        --label org.opencontainers.image.otp.version="${EMQX_BUILDER_OTP}" \
        --tag "${EMQX_IMAGE_TAG}" \
-       --provenance false \
        --pull
     )
     if [ "${DOCKER_BUILD_NOCACHE:-false}" = true ]; then

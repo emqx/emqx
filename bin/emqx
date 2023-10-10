@@ -522,17 +522,13 @@ else
         ## only one emqx node is running, get running args from 'ps -ef' output
         tmp_nodename=$(echo -e "$PS_LINE" | $GREP -oE "\s-s?name.*" | awk '{print $2}' || true)
         tmp_cookie=$(echo -e "$PS_LINE" | $GREP -oE "\s-setcookie.*" | awk '{print $2}' || true)
+        tmp_proto_dist=$(echo -e "$PS_LINE" | $GREP -oE '\s-ekka_proto_dist.*' | awk '{print $2}' || echo 'inet_tcp')
         SSL_DIST_OPTFILE="$(echo -e "$PS_LINE" | $GREP -oE '\-ssl_dist_optfile\s.+\s' | awk '{print $2}' || true)"
         tmp_ticktime="$(echo -e "$PS_LINE" | $GREP -oE '\s-kernel\snet_ticktime\s.+\s' | awk '{print $3}' || true)"
         # data_dir is actually not needed, but kept anyway
         tmp_datadir="$(echo -e "$PS_LINE" | $GREP -oE "\-emqx_data_dir.*" | sed -E 's#.+emqx_data_dir[[:blank:]]##g' | sed -E 's#[[:blank:]]--$##g' || true)"
-        if [ -z "$SSL_DIST_OPTFILE" ]; then
-            tmp_proto='inet_tcp'
-        else
-            tmp_proto='inet_tls'
-        fi
         ## Make the format like what call_hocon multi_get prints out, but only need 4 args
-        EMQX_BOOT_CONFIGS="node.name=${tmp_nodename}\nnode.cookie=${tmp_cookie}\ncluster.proto_dist=${tmp_proto}\nnode.dist_net_ticktime=$tmp_ticktime\nnode.data_dir=${tmp_datadir}"
+        EMQX_BOOT_CONFIGS="node.name=${tmp_nodename}\nnode.cookie=${tmp_cookie}\ncluster.proto_dist=${tmp_proto_dist}\nnode.dist_net_ticktime=$tmp_ticktime\nnode.data_dir=${tmp_datadir}"
     else
         if [ "$RUNNING_NODES_COUNT" -gt 1 ]; then
             if [ -z "${EMQX_NODE__NAME:-}" ]; then
@@ -567,7 +563,7 @@ TICKTIME="$(get_boot_config 'node.dist_net_ticktime' || echo '120')"
 # this environment variable is required by ekka_dist module
 # because proto_dist is overriden to ekka, and there is a lack of ekka_tls module
 export EKKA_PROTO_DIST_MOD="${PROTO_DIST:-inet_tcp}"
-if [ "$EKKA_PROTO_DIST_MOD" = 'inet_tls' ]; then
+if [ "$EKKA_PROTO_DIST_MOD" = 'inet_tls' ] || [ "$EKKA_PROTO_DIST_MOD" = 'inet6_tls' ]; then
     if [ "$IS_BOOT_COMMAND" = 'yes' ]; then
         SSL_DIST_OPTFILE=${EMQX_SSL_DIST_OPTFILE:-"$EMQX_ETC_DIR/ssl_dist.conf"}
         case "$SSL_DIST_OPTFILE" in
@@ -1216,7 +1212,6 @@ case "${COMMAND}" in
         export PROGNAME
 
         # Store passed arguments since they will be erased by `set`
-        # add emqx_data_dir to boot command so it is visible from 'ps -ef'
         ARGS="$*"
 
         # shellcheck disable=SC2086
@@ -1247,10 +1242,13 @@ case "${COMMAND}" in
         fi
 
         # Log the startup
-        logger -t "${REL_NAME}[$$]" "EXEC: $* -- ${1+$ARGS} -emqx_data_dir ${DATA_DIR}"
+        logger -t "${REL_NAME}[$$]" "EXEC: $* -- ${1+$ARGS} -ekka_proto_dist ${EKKA_PROTO_DIST_MOD} -emqx_data_dir ${DATA_DIR}"
 
         # Start the VM
-        exec "$@" -- ${1+$ARGS} -emqx_data_dir "${DATA_DIR}"
+        # add ekka_proto_dist emqx_data_dir to boot command so it is visible from 'ps -ef'
+        # NTOE: order matters! emqx_data_dir has to be positioned at the end of the line to simplify the
+        # line parsing when file path contains spaces
+        exec "$@" -- ${1+$ARGS} -ekka_proto_dist "${EKKA_PROTO_DIST_MOD}" -emqx_data_dir "${DATA_DIR}"
         ;;
 
     ctl)

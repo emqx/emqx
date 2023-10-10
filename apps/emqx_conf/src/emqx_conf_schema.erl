@@ -195,7 +195,7 @@ fields("cluster") ->
             )},
         {"proto_dist",
             sc(
-                hoconsc:enum([inet_tcp, inet6_tcp, inet_tls]),
+                hoconsc:enum([inet_tcp, inet6_tcp, inet_tls, inet6_tls]),
                 #{
                     mapping => "ekka.proto_dist",
                     default => inet_tcp,
@@ -948,7 +948,26 @@ fields("rpc") ->
                 }
             )},
         {"ciphers", emqx_schema:ciphers_schema(tls_all_available)},
-        {"tls_versions", emqx_schema:tls_versions_schema(tls_all_available)}
+        {"tls_versions", emqx_schema:tls_versions_schema(tls_all_available)},
+        {"listen_address",
+            sc(
+                string(),
+                #{
+                    default => "0.0.0.0",
+                    desc => ?DESC(rpc_listen_address),
+                    importance => ?IMPORTANCE_MEDIUM
+                }
+            )},
+        {"ipv6_only",
+            sc(
+                boolean(),
+                #{
+                    default => false,
+                    mapping => "gen_rpc.ipv6_only",
+                    desc => ?DESC(rpc_ipv6_only),
+                    importance => ?IMPORTANCE_LOW
+                }
+            )}
     ];
 fields("log") ->
     [
@@ -1133,7 +1152,16 @@ translation("gen_rpc") ->
     [
         {"default_client_driver", fun tr_default_config_driver/1},
         {"ssl_client_options", fun tr_gen_rpc_ssl_options/1},
-        {"ssl_server_options", fun tr_gen_rpc_ssl_options/1}
+        {"ssl_server_options", fun tr_gen_rpc_ssl_options/1},
+        {"socket_ip", fun(Conf) ->
+            Addr = conf_get("rpc.listen_address", Conf),
+            case inet:parse_address(Addr) of
+                {ok, Tuple} ->
+                    Tuple;
+                {error, _Reason} ->
+                    throw(#{bad_ip_address => Addr})
+            end
+        end}
     ];
 translation("prometheus") ->
     [
