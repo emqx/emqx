@@ -32,9 +32,9 @@
 -define(kafka_producers, kafka_producers).
 
 query_mode(#{kafka := #{query_mode := sync}}) ->
-    simple_sync;
+    simple_sync_internal_buffer;
 query_mode(_) ->
-    simple_async.
+    simple_async_internal_buffer.
 
 callback_mode() -> async_if_possible.
 

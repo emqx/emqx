@@ -73,7 +73,7 @@
 callback_mode() -> async_if_possible.
 
 query_mode(_Config) ->
-    simple_async.
+    simple_async_internal_buffer.
 
 -spec on_start(resource_id(), config()) -> {ok, state()}.
 on_start(InstanceId, Config) ->
