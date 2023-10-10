@@ -1707,6 +1707,7 @@ t_dynamic_mqtt_topic(Config) ->
                 create_bridge(Config)
             ),
             wait_until_subscribers_are_ready(NPartitions, 40_000),
+            ping_until_healthy(Config, _Period = 1_500, _Timeout = 24_000),
             {ok, C} = emqtt:start_link(),
             on_exit(fun() -> emqtt:stop(C) end),
             {ok, _} = emqtt:connect(C),
