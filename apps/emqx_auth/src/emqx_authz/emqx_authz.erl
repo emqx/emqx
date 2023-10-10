@@ -88,8 +88,7 @@ init() ->
     emqx_conf:add_handler(?CONF_KEY_PATH, ?MODULE),
     emqx_conf:add_handler(?ROOT_KEY, ?MODULE),
     ok = emqx_hooks:put('client.authorize', {?MODULE, authorize_deny, []}, ?HP_AUTHZ),
-    ok = register_source(client_info, emqx_authz_client_info),
-    ok = register_source(file, emqx_authz_file),
+    ok = register_builtin_sources(),
     ok.
 
 register_source(Type, Module) ->
@@ -123,6 +122,14 @@ are_all_providers_registered() ->
         {unknown_authz_source_type, _Type} ->
             false
     end.
+
+register_builtin_sources() ->
+    lists:foreach(
+        fun({Type, Module}) ->
+            register_source(Type, Module)
+        end,
+        ?BUILTIN_SOURCES
+    ).
 
 configured_types() ->
     lists:map(
@@ -186,8 +193,14 @@ pre_config_update(Path, Cmd, Sources) ->
         {error, Reason} -> {error, Reason};
         NSources -> {ok, NSources}
     catch
-        Error:Reason:Stack ->
+        throw:Reason ->
             ?SLOG(info, #{
+                msg => "error_in_pre_config_update",
+                reason => Reason
+            }),
+            {error, Reason};
+        Error:Reason:Stack ->
+            ?SLOG(warning, #{
                 msg => "error_in_pre_config_update",
                 exception => Error,
                 reason => Reason,
@@ -572,10 +585,6 @@ maybe_convert_sources(
 maybe_convert_sources(RawConf, _Fun) ->
     RawConf.
 
-% read_acl_file(#{<<"path">> := Path} = Source) ->
-%     {ok, Rules} = emqx_authz_file:read_file(Path),
-%     maps:remove(<<"path">>, Source#{<<"rules">> => Rules}).
-
 %%------------------------------------------------------------------------------
 %% Extended Features
 %%------------------------------------------------------------------------------
@@ -682,7 +691,7 @@ maybe_read_source_files_safe(Source0) ->
     catch
         Error:Reason:Stacktrace ->
             ?SLOG(error, #{
-                msg => "error_in_maybe_read_source_files",
+                msg => "error_when_reading_source_files",
                 exception => Error,
                 reason => Reason,
                 stacktrace => Stacktrace

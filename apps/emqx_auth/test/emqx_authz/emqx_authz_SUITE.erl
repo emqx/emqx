@@ -20,7 +20,6 @@
 
 -include("emqx_authz.hrl").
 -include_lib("emqx/include/emqx.hrl").
--include_lib("emqx/include/emqx_mqtt.hrl").
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
 -include_lib("emqx/include/emqx_placeholder.hrl").
@@ -35,33 +34,18 @@ groups() ->
     [].
 
 init_per_suite(Config) ->
-    meck:new(emqx_resource, [non_strict, passthrough, no_history, no_link]),
-    meck:expect(emqx_resource, create_local, fun(_, _, _, _) -> {ok, meck_data} end),
-    meck:expect(emqx_resource, remove_local, fun(_) -> ok end),
-    meck:expect(
-        emqx_authz_file,
-        acl_conf_file,
-        fun() ->
-            emqx_common_test_helpers:deps_path(emqx_auth, "etc/acl.conf")
-        end
-    ),
     Apps = emqx_cth_suite:start(
         [
             emqx,
             {emqx_conf,
                 "authorization { cache { enable = false }, no_match = deny, sources = [] }"},
-            emqx_auth,
-            emqx_auth_http,
-            emqx_auth_mnesia,
-            emqx_auth_redis,
-            emqx_auth_postgresql,
-            emqx_auth_mysql,
-            emqx_auth_mongodb
+            emqx_auth
         ],
         #{
             work_dir => filename:join(?config(priv_dir, Config), ?MODULE)
         }
     ),
+    ok = emqx_authz_test_lib:register_fake_sources([http, redis, mongodb, mysql, postgresql]),
     [{suite_apps, Apps} | Config].
 
 end_per_suite(Config) ->
@@ -73,8 +57,8 @@ end_per_suite(Config) ->
             <<"sources">> => []
         }
     ),
+    ok = emqx_authz_test_lib:deregister_sources(),
     emqx_cth_suite:stop(?config(suite_apps, Config)),
-    meck:unload(emqx_resource),
     ok.
 
 init_per_testcase(TestCase, Config) when
@@ -102,7 +86,7 @@ end_per_testcase(_TestCase, _Config) ->
     emqx_common_test_helpers:call_janitor(),
     ok.
 
--define(SOURCE1, #{
+-define(SOURCE_HTTP, #{
     <<"type">> => <<"http">>,
     <<"enable">> => true,
     <<"url">> => <<"https://example.com:443/a/b?c=d">>,
@@ -111,7 +95,7 @@ end_per_testcase(_TestCase, _Config) ->
     <<"method">> => <<"get">>,
     <<"request_timeout">> => <<"5s">>
 }).
--define(SOURCE2, #{
+-define(SOURCE_MONGODB, #{
     <<"type">> => <<"mongodb">>,
     <<"enable">> => true,
     <<"mongo_type">> => <<"single">>,
@@ -123,7 +107,7 @@ end_per_testcase(_TestCase, _Config) ->
     <<"collection">> => <<"authz">>,
     <<"filter">> => #{<<"a">> => <<"b">>}
 }).
--define(SOURCE3, #{
+-define(SOURCE_MYSQL, #{
     <<"type">> => <<"mysql">>,
     <<"enable">> => true,
     <<"server">> => <<"127.0.0.1:27017">>,
@@ -135,7 +119,7 @@ end_per_testcase(_TestCase, _Config) ->
     <<"ssl">> => #{<<"enable">> => false},
     <<"query">> => <<"abcb">>
 }).
--define(SOURCE4, #{
+-define(SOURCE_POSTGRESQL, #{
     <<"type">> => <<"postgresql">>,
     <<"enable">> => true,
     <<"server">> => <<"127.0.0.1:27017">>,
@@ -147,7 +131,7 @@ end_per_testcase(_TestCase, _Config) ->
     <<"ssl">> => #{<<"enable">> => false},
     <<"query">> => <<"abcb">>
 }).
--define(SOURCE5, #{
+-define(SOURCE_REDIS, #{
     <<"type">> => <<"redis">>,
     <<"redis_type">> => <<"single">>,
     <<"enable">> => true,
@@ -160,37 +144,28 @@ end_per_testcase(_TestCase, _Config) ->
     <<"cmd">> => <<"HGETALL mqtt_authz:", ?PH_USERNAME/binary>>
 }).
 
--define(FILE_SOURCE(Rules), #{
+-define(SOURCE_FILE(Rules), #{
     <<"type">> => <<"file">>,
     <<"enable">> => true,
     <<"rules">> => Rules
 }).
 
--define(SOURCE6,
-    ?FILE_SOURCE(
+-define(SOURCE_FILE1,
+    ?SOURCE_FILE(
         <<
             "{allow,{username,\"^dashboard?\"},subscribe,[\"$SYS/#\"]}."
             "\n{allow,{ipaddr,\"127.0.0.1\"},all,[\"$SYS/#\",\"#\"]}."
         >>
     )
 ).
--define(SOURCE7,
-    ?FILE_SOURCE(
+-define(SOURCE_FILE2,
+    ?SOURCE_FILE(
         <<
             "{allow,{username,\"some_client\"},publish,[\"some_client/lwt\"]}.\n"
             "{deny, all}."
         >>
     )
 ).
-
--define(BAD_FILE_SOURCE2, #{
-    <<"type">> => <<"file">>,
-    <<"enable">> => true,
-    <<"rules">> =>
-        <<
-            "{not_allow,{username,\"some_client\"},publish,[\"some_client/lwt\"]}."
-        >>
-}).
 
 %%------------------------------------------------------------------------------
 %% Testcases
@@ -199,24 +174,23 @@ end_per_testcase(_TestCase, _Config) ->
 -define(UPDATE_ERROR(Err), {error, {pre_config_update, emqx_authz, Err}}).
 
 t_bad_file_source(_) ->
-    BadContent = ?FILE_SOURCE(<<"{allow,{username,\"bar\"}, publish, [\"test\"]}">>),
+    BadContent = ?SOURCE_FILE(<<"{allow,{username,\"bar\"}, publish, [\"test\"]}">>),
     BadContentErr = {bad_acl_file_content, {1, erl_parse, ["syntax error before: ", []]}},
-    BadRule = ?FILE_SOURCE(<<"{allow,{username,\"bar\"},publish}.">>),
+    BadRule = ?SOURCE_FILE(<<"{allow,{username,\"bar\"},publish}.">>),
     BadRuleErr = {invalid_authorization_rule, {allow, {username, "bar"}, publish}},
-    BadPermission = ?FILE_SOURCE(<<"{not_allow,{username,\"bar\"},publish,[\"test\"]}.">>),
+    BadPermission = ?SOURCE_FILE(<<"{not_allow,{username,\"bar\"},publish,[\"test\"]}.">>),
     BadPermissionErr = {invalid_authorization_permission, not_allow},
-    BadAction = ?FILE_SOURCE(<<"{allow,{username,\"bar\"},pubsub,[\"test\"]}.">>),
+    BadAction = ?SOURCE_FILE(<<"{allow,{username,\"bar\"},pubsub,[\"test\"]}.">>),
     BadActionErr = {invalid_authorization_action, pubsub},
     lists:foreach(
         fun({Source, Error}) ->
             File = emqx_authz_file:acl_conf_file(),
-            {ok, Bin1} = file:read_file(File),
+            ?assertEqual({error, enoent}, file:read_file(File)),
             ?assertEqual(?UPDATE_ERROR(Error), emqx_authz:update(?CMD_REPLACE, [Source])),
             ?assertEqual(?UPDATE_ERROR(Error), emqx_authz:update(?CMD_PREPEND, Source)),
             ?assertEqual(?UPDATE_ERROR(Error), emqx_authz:update(?CMD_APPEND, Source)),
-            %% Check file content not changed if update failed
-            {ok, Bin2} = file:read_file(File),
-            ?assertEqual(Bin1, Bin2)
+            %% Check file is not created if update failed;
+            ?assertEqual({error, enoent}, file:read_file(File))
         end,
         [
             {BadContent, BadContentErr},
@@ -230,14 +204,32 @@ t_bad_file_source(_) ->
         emqx_conf:get([authorization, sources], [])
     ).
 
+t_good_file_source(_) ->
+    RuleBin = <<"{allow,{username,\"bar\"}, publish, [\"test\"]}.">>,
+    GoodFileSource = ?SOURCE_FILE(RuleBin),
+    File = emqx_authz_file:acl_conf_file(),
+    lists:foreach(
+        fun({Command, Argument}) ->
+            _ = file:delete(File),
+            ?assertMatch({ok, _}, emqx_authz:update(Command, Argument)),
+            ?assertEqual({ok, RuleBin}, file:read_file(File)),
+            {ok, _} = emqx_authz:update(?CMD_REPLACE, [])
+        end,
+        [
+            {?CMD_REPLACE, [GoodFileSource]},
+            {?CMD_PREPEND, GoodFileSource},
+            {?CMD_APPEND, GoodFileSource}
+        ]
+    ).
+
 t_update_source(_) ->
     %% replace all
-    {ok, _} = emqx_authz:update(?CMD_REPLACE, [?SOURCE3]),
-    {ok, _} = emqx_authz:update(?CMD_PREPEND, ?SOURCE2),
-    {ok, _} = emqx_authz:update(?CMD_PREPEND, ?SOURCE1),
-    {ok, _} = emqx_authz:update(?CMD_APPEND, ?SOURCE4),
-    {ok, _} = emqx_authz:update(?CMD_APPEND, ?SOURCE5),
-    {ok, _} = emqx_authz:update(?CMD_APPEND, ?SOURCE6),
+    {ok, _} = emqx_authz:update(?CMD_REPLACE, [?SOURCE_MYSQL]),
+    {ok, _} = emqx_authz:update(?CMD_PREPEND, ?SOURCE_MONGODB),
+    {ok, _} = emqx_authz:update(?CMD_PREPEND, ?SOURCE_HTTP),
+    {ok, _} = emqx_authz:update(?CMD_APPEND, ?SOURCE_POSTGRESQL),
+    {ok, _} = emqx_authz:update(?CMD_APPEND, ?SOURCE_REDIS),
+    {ok, _} = emqx_authz:update(?CMD_APPEND, ?SOURCE_FILE1),
 
     ?assertMatch(
         [
@@ -251,19 +243,23 @@ t_update_source(_) ->
         emqx_conf:get([authorization, sources], [])
     ),
 
-    {ok, _} = emqx_authz:update({?CMD_REPLACE, http}, ?SOURCE1#{<<"enable">> := true}),
-    {ok, _} = emqx_authz:update({?CMD_REPLACE, mongodb}, ?SOURCE2#{<<"enable">> := true}),
-    {ok, _} = emqx_authz:update({?CMD_REPLACE, mysql}, ?SOURCE3#{<<"enable">> := true}),
-    {ok, _} = emqx_authz:update({?CMD_REPLACE, postgresql}, ?SOURCE4#{<<"enable">> := true}),
-    {ok, _} = emqx_authz:update({?CMD_REPLACE, redis}, ?SOURCE5#{<<"enable">> := true}),
-    {ok, _} = emqx_authz:update({?CMD_REPLACE, file}, ?SOURCE6#{<<"enable">> := true}),
+    {ok, _} = emqx_authz:update({?CMD_REPLACE, http}, ?SOURCE_HTTP#{<<"enable">> := true}),
+    {ok, _} = emqx_authz:update({?CMD_REPLACE, mongodb}, ?SOURCE_MONGODB#{<<"enable">> := true}),
+    {ok, _} = emqx_authz:update({?CMD_REPLACE, mysql}, ?SOURCE_MYSQL#{<<"enable">> := true}),
+    {ok, _} = emqx_authz:update({?CMD_REPLACE, postgresql}, ?SOURCE_POSTGRESQL#{
+        <<"enable">> := true
+    }),
+    {ok, _} = emqx_authz:update({?CMD_REPLACE, redis}, ?SOURCE_REDIS#{<<"enable">> := true}),
+    {ok, _} = emqx_authz:update({?CMD_REPLACE, file}, ?SOURCE_FILE1#{<<"enable">> := true}),
 
-    {ok, _} = emqx_authz:update({?CMD_REPLACE, http}, ?SOURCE1#{<<"enable">> := false}),
-    {ok, _} = emqx_authz:update({?CMD_REPLACE, mongodb}, ?SOURCE2#{<<"enable">> := false}),
-    {ok, _} = emqx_authz:update({?CMD_REPLACE, mysql}, ?SOURCE3#{<<"enable">> := false}),
-    {ok, _} = emqx_authz:update({?CMD_REPLACE, postgresql}, ?SOURCE4#{<<"enable">> := false}),
-    {ok, _} = emqx_authz:update({?CMD_REPLACE, redis}, ?SOURCE5#{<<"enable">> := false}),
-    {ok, _} = emqx_authz:update({?CMD_REPLACE, file}, ?SOURCE6#{<<"enable">> := false}),
+    {ok, _} = emqx_authz:update({?CMD_REPLACE, http}, ?SOURCE_HTTP#{<<"enable">> := false}),
+    {ok, _} = emqx_authz:update({?CMD_REPLACE, mongodb}, ?SOURCE_MONGODB#{<<"enable">> := false}),
+    {ok, _} = emqx_authz:update({?CMD_REPLACE, mysql}, ?SOURCE_MYSQL#{<<"enable">> := false}),
+    {ok, _} = emqx_authz:update({?CMD_REPLACE, postgresql}, ?SOURCE_POSTGRESQL#{
+        <<"enable">> := false
+    }),
+    {ok, _} = emqx_authz:update({?CMD_REPLACE, redis}, ?SOURCE_REDIS#{<<"enable">> := false}),
+    {ok, _} = emqx_authz:update({?CMD_REPLACE, file}, ?SOURCE_FILE1#{<<"enable">> := false}),
 
     ?assertMatch(
         [
@@ -295,7 +291,12 @@ t_replace_all(_) ->
     Conf = emqx:get_raw_config(RootKey),
     emqx_authz_utils:update_config(RootKey, Conf#{
         <<"sources">> => [
-            ?SOURCE6, ?SOURCE5, ?SOURCE4, ?SOURCE3, ?SOURCE2, ?SOURCE1
+            ?SOURCE_FILE1,
+            ?SOURCE_REDIS,
+            ?SOURCE_POSTGRESQL,
+            ?SOURCE_MYSQL,
+            ?SOURCE_MONGODB,
+            ?SOURCE_HTTP
         ]
     }),
     %% config
@@ -335,7 +336,7 @@ t_replace_all(_) ->
         {ok, _},
         emqx_authz_utils:update_config(
             RootKey,
-            Conf#{<<"sources">> => [?SOURCE1#{<<"enable">> => false}]}
+            Conf#{<<"sources">> => [?SOURCE_HTTP#{<<"enable">> => false}]}
         )
     ),
     %% hooks status
@@ -351,7 +352,7 @@ t_replace_all(_) ->
     ok.
 
 t_delete_source(_) ->
-    {ok, _} = emqx_authz:update(?CMD_REPLACE, [?SOURCE1]),
+    {ok, _} = emqx_authz:update(?CMD_REPLACE, [?SOURCE_HTTP]),
 
     ?assertMatch([#{type := http, enable := true}], emqx_conf:get([authorization, sources], [])),
 
@@ -363,12 +364,12 @@ t_move_source(_) ->
     {ok, _} = emqx_authz:update(
         ?CMD_REPLACE,
         [
-            ?SOURCE1,
-            ?SOURCE2,
-            ?SOURCE3,
-            ?SOURCE4,
-            ?SOURCE5,
-            ?SOURCE6
+            ?SOURCE_HTTP,
+            ?SOURCE_MONGODB,
+            ?SOURCE_MYSQL,
+            ?SOURCE_POSTGRESQL,
+            ?SOURCE_REDIS,
+            ?SOURCE_FILE1
         ]
     ),
     ?assertMatch(
@@ -437,15 +438,26 @@ t_move_source(_) ->
 
     ok.
 
+t_pre_config_update_crash(_) ->
+    ok = meck:new(emqx_authz_fake_source, [non_strict, passthrough, no_history]),
+    ok = meck:expect(emqx_authz_fake_source, write_files, fun(_) -> meck:exception(error, oops) end),
+    ?assertEqual(
+        {error, {pre_config_update, emqx_authz, oops}},
+        emqx_authz:update(?CMD_APPEND, ?SOURCE_HTTP)
+    ),
+    ok = meck:unload(emqx_authz_fake_source).
+
 t_get_enabled_authzs_none_enabled(_Config) ->
     ?assertEqual([], emqx_authz:get_enabled_authzs()).
 
 t_get_enabled_authzs_some_enabled(_Config) ->
-    {ok, _} = emqx_authz:update(?CMD_REPLACE, [?SOURCE4, ?SOURCE5#{<<"enable">> := false}]),
+    {ok, _} = emqx_authz:update(?CMD_REPLACE, [
+        ?SOURCE_POSTGRESQL, ?SOURCE_REDIS#{<<"enable">> := false}
+    ]),
     ?assertEqual([postgresql], emqx_authz:get_enabled_authzs()).
 
 t_subscribe_deny_disconnect_publishes_last_will_testament(_Config) ->
-    {ok, _} = emqx_authz:update(?CMD_REPLACE, [?SOURCE7]),
+    {ok, _} = emqx_authz:update(?CMD_REPLACE, [?SOURCE_FILE2]),
     {ok, C} = emqtt:start_link([
         {username, <<"some_client">>},
         {will_topic, <<"some_client/lwt">>},
@@ -473,7 +485,7 @@ t_subscribe_deny_disconnect_publishes_last_will_testament(_Config) ->
     ok.
 
 t_publish_deny_disconnect_publishes_last_will_testament(_Config) ->
-    {ok, _} = emqx_authz:update(?CMD_REPLACE, [?SOURCE7]),
+    {ok, _} = emqx_authz:update(?CMD_REPLACE, [?SOURCE_FILE2]),
     {ok, C} = emqtt:start_link([
         {username, <<"some_client">>},
         {will_topic, <<"some_client/lwt">>},
@@ -530,7 +542,7 @@ t_publish_last_will_testament_denied_topic(_Config) ->
 %% and then gets banned and kicked out while connected.  Should not
 %% publish LWT.
 t_publish_last_will_testament_banned_client_connecting(_Config) ->
-    {ok, _} = emqx_authz:update(?CMD_REPLACE, [?SOURCE7]),
+    {ok, _} = emqx_authz:update(?CMD_REPLACE, [?SOURCE_FILE2]),
     Username = <<"some_client">>,
     ClientId = <<"some_clientid">>,
     LWTPayload = <<"should not be published">>,
