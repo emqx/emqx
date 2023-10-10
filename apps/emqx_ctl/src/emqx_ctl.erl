@@ -331,14 +331,13 @@ safe_to_existing_atom(Str) ->
 is_initialized() ->
     ets:info(?CMD_TAB) =/= undefined.
 
-audit_log(Level, From, Log = #{args := Args}) ->
+audit_log(Level, From, Log) ->
     case lookup_command(audit) of
         {error, _} ->
             ignore;
         {ok, {Mod, Fun}} ->
             try
-                Log1 = Log#{args => [unicode:characters_to_binary(A) || A <- Args]},
-                apply(Mod, Fun, [Level, From, Log1])
+                apply(Mod, Fun, [Level, From, normalize_audit_log_args(Log)])
             catch
                 _:Reason:Stacktrace ->
                     ?LOG_ERROR(#{
@@ -349,11 +348,17 @@ audit_log(Level, From, Log = #{args := Args}) ->
             end
     end.
 
--define(TOO_SLOW, 3000).
-
 audit_level(ok, _Duration) -> info;
 audit_level({ok, _}, _Duration) -> info;
 audit_level(_, _) -> error.
+
+normalize_audit_log_args(Log = #{args := [Parsed | _] = Exprs, cmd := eval_erl}) when
+    is_tuple(Parsed)
+->
+    String = erl_pp:exprs(Exprs, [{linewidth, 10000}]),
+    Log#{args => [unicode:characters_to_binary(String)]};
+normalize_audit_log_args(Log = #{args := Args}) ->
+    Log#{args => [unicode:characters_to_binary(A) || A <- Args]}.
 
 eval_erl([Parsed | _] = Expr) when is_tuple(Parsed) ->
     eval_expr(Expr);

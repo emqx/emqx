@@ -16,6 +16,7 @@ NET='emqx.io'
 NODE1="node1.$NET"
 NODE2="node2.$NET"
 COOKIE='this-is-a-secret'
+IPV6=0
 
 cleanup() {
     docker rm -f haproxy >/dev/null 2>&1 || true
@@ -24,31 +25,61 @@ cleanup() {
     docker network rm "$NET" >/dev/null 2>&1 || true
 }
 
-while getopts ":Pc" opt
+show_help() {
+    echo "Usage: $0 [options] EMQX_IMAGE1 [EMQX_IAMGE2]"
+    echo ""
+    echo "Specifiy which docker image to run with EMQX_IMAGE1"
+    echo "EMQX_IMAGE2 is the same as EMQX_IMAGE1 if not set"
+    echo ""
+    echo "Options:"
+    echo "  -h, --help  Show this help message and exit."
+    echo "  -P          Add -p options for docker run to expose more HAProxy container ports."
+    echo "  -6          Test with IPv6"
+    echo "  -c          Cleanup: delete docker network, force delete the containers."
+}
+
+while getopts "hc6P:" opt
 do
     case $opt in
         # -P option is treated similarly to docker run -P:
         # publish ports to random available host ports
         P) HAPROXY_PORTS=(-p 18083 -p 8883 -p 8084);;
         c) cleanup; exit 0;;
+        h) show_help; exit 0;;
+        6) IPV6=1;;
         *) ;;
     esac
 done
 shift $((OPTIND - 1))
 
-IMAGE1="${1}"
+IMAGE1="${1:-}"
 IMAGE2="${2:-${IMAGE1}}"
+
+if [ -z "${IMAGE1:-}" ] || [ -z "${IMAGE2:-}" ]; then
+    show_help
+    exit 1
+fi
 
 cleanup
 
-docker network create "$NET"
+if [ ${IPV6} = 1 ]; then
+    docker network create --ipv6 --subnet 2001:0DB8::/112 "$NET"
+    RPC_ADDRESS="::"
+    PROTO_DIST='inet6_tls'
+else
+    docker network create "$NET"
+    RPC_ADDRESS="0.0.0.0"
+    PROTO_DIST='inet_tls'
+fi
 
 docker run -d -t --restart=always --name "$NODE1" \
   --net "$NET" \
   -e EMQX_LOG__CONSOLE_HANDLER__LEVEL=debug \
   -e EMQX_NODE_NAME="emqx@$NODE1" \
   -e EMQX_NODE_COOKIE="$COOKIE" \
-  -e EMQX_CLUSTER__PROTO_DIST='inet_tls' \
+  -e EMQX_CLUSTER__PROTO_DIST="${PROTO_DIST}" \
+  -e EMQX_RPC__LISTEN_ADDRESS="${RPC_ADDRESS}" \
+  -e EMQX_RPC__IPV6_ONLY="true" \
   -e EMQX_listeners__ssl__default__enable=false \
   -e EMQX_listeners__wss__default__enable=false \
   -e EMQX_listeners__tcp__default__proxy_protocol=true \
@@ -60,7 +91,9 @@ docker run -d -t --restart=always --name "$NODE2" \
   -e EMQX_LOG__CONSOLE_HANDLER__LEVEL=debug \
   -e EMQX_NODE_NAME="emqx@$NODE2" \
   -e EMQX_NODE_COOKIE="$COOKIE" \
-  -e EMQX_CLUSTER__PROTO_DIST='inet_tls' \
+  -e EMQX_CLUSTER__PROTO_DIST="${PROTO_DIST}" \
+  -e EMQX_RPC__LISTEN_ADDRESS="${RPC_ADDRESS}" \
+  -e EMQX_RPC__IPV6_ONLY="true" \
   -e EMQX_listeners__ssl__default__enable=false \
   -e EMQX_listeners__wss__default__enable=false \
   -e EMQX_listeners__tcp__default__proxy_protocol=true \

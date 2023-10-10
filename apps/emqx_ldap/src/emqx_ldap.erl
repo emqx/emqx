@@ -319,10 +319,8 @@ do_prepare_template([], State) ->
 
 filter_escape(Binary) when is_binary(Binary) ->
     filter_escape(erlang:binary_to_list(Binary));
-filter_escape([$\\ | T]) ->
-    [$\\, $\\ | filter_escape(T)];
 filter_escape([Char | T]) ->
-    case lists:member(Char, filter_control_chars()) of
+    case lists:member(Char, filter_special_chars()) of
         true ->
             [$\\, Char | filter_escape(T)];
         _ ->
@@ -331,5 +329,5 @@ filter_escape([Char | T]) ->
 filter_escape([]) ->
     [].
 
-filter_control_chars() ->
-    [$(, $), $&, $|, $=, $!, $~, $>, $<, $:, $*, $\t, $\n, $\r].
+filter_special_chars() ->
+    [$(, $), $&, $|, $=, $!, $~, $>, $<, $:, $*, $\t, $\n, $\r, $\\].
