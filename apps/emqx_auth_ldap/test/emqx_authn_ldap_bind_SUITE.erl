@@ -235,7 +235,7 @@ user_seeds() ->
         lists:seq(1, 5)
     ),
 
-    Specials = [<<"mqttuser0008 (test)">>],
+    Specials = [<<"mqttuser0008 (test)">>, <<"mqttuser0009 \\\\test\\\\">>],
 
     Valid =
         lists:map(

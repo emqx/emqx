@@ -235,6 +235,10 @@ t_escape(_Config) ->
     ?assertEqual(
         'or'([equalityMatch("a", "name (1) *")]),
         parse("(|(a=name\\ \\(1\\) \\*))")
+    ),
+    ?assertEqual(
+        'and'([equalityMatch("a", "\\value\\")]),
+        parse("(&(a=\\\\value\\\\))")
     ).
 
 t_value_eql_dn(_Config) ->
