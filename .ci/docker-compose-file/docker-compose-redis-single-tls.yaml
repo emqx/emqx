@@ -3,7 +3,7 @@ version: '3.9'
 services:
   redis_server_tls:
     container_name: redis-tls
-    image: redis:${REDIS_TAG}
+    image: public.ecr.aws/docker/library/redis:${REDIS_TAG}
     volumes:
       - ./certs/server.crt:/etc/certs/redis.crt
       - ./certs/server.key:/etc/certs/redis.key

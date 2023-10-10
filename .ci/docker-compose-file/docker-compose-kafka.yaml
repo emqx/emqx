@@ -2,7 +2,7 @@ version: '3.9'
 
 services:
   zookeeper:
-    image: docker.io/library/zookeeper:3.6
+    image: public.ecr.aws/docker/library/zookeeper:3.6
     ports:
       - "2181:2181"
     container_name: zookeeper

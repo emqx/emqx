@@ -1,4 +1,4 @@
-ARG BUILD_FROM=postgres:13
+ARG BUILD_FROM=public.ecr.aws/docker/library/postgres:13
 FROM ${BUILD_FROM}
 ARG POSTGRES_USER=postgres
 COPY --chown=$POSTGRES_USER ./pgsql/pg_hba_tls.conf /var/lib/postgresql/pg_hba.conf

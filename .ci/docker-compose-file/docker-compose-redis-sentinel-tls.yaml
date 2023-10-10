@@ -4,7 +4,7 @@ services:
 
   redis-sentinel-tls-master:
     container_name: redis-sentinel-tls-master
-    image: redis:${REDIS_TAG}
+    image: public.ecr.aws/docker/library/redis:${REDIS_TAG}
     volumes:
       - ./redis/sentinel-tls:/usr/local/etc/redis
       - ../../apps/emqx/etc/certs:/etc/certs
@@ -14,7 +14,7 @@ services:
 
   redis-sentinel-tls-slave:
     container_name: redis-sentinel-tls-slave
-    image: redis:${REDIS_TAG}
+    image: public.ecr.aws/docker/library/redis:${REDIS_TAG}
     volumes:
       - ./redis/sentinel-tls:/usr/local/etc/redis
       - ../../apps/emqx/etc/certs:/etc/certs
@@ -26,7 +26,7 @@ services:
 
   redis-sentinel-tls:
     container_name: redis-sentinel-tls
-    image: redis:${REDIS_TAG}
+    image: public.ecr.aws/docker/library/redis:${REDIS_TAG}
     volumes:
       - ./redis/sentinel-tls/sentinel-base.conf:/usr/local/etc/redis/sentinel-base.conf
       - ../../apps/emqx/etc/certs:/etc/certs

@@ -4,7 +4,7 @@ services:
 
   redis-sentinel-master:
     container_name: redis-sentinel-master
-    image: redis:${REDIS_TAG}
+    image: public.ecr.aws/docker/library/redis:${REDIS_TAG}
     volumes:
     - ./redis/sentinel-tcp:/usr/local/etc/redis
     command: redis-server /usr/local/etc/redis/master.conf
@@ -13,7 +13,7 @@ services:
 
   redis-sentinel-slave:
     container_name: redis-sentinel-slave
-    image: redis:${REDIS_TAG}
+    image: public.ecr.aws/docker/library/redis:${REDIS_TAG}
     volumes:
       - ./redis/sentinel-tcp:/usr/local/etc/redis
     command: redis-server /usr/local/etc/redis/slave.conf
@@ -24,7 +24,7 @@ services:
 
   redis-sentinel:
     container_name: redis-sentinel
-    image: redis:${REDIS_TAG}
+    image: public.ecr.aws/docker/library/redis:${REDIS_TAG}
     volumes:
       - ./redis/sentinel-tcp/sentinel-base.conf:/usr/local/etc/redis/sentinel-base.conf
     depends_on:
