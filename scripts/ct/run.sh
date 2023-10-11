@@ -98,33 +98,18 @@ if [ ! -d "${WHICH_APP}" ]; then
     exit 1
 fi
 
-if [[ "${WHICH_APP}" == lib-ee* && (-z "${PROFILE+x}" || "${PROFILE}" != emqx-enterprise) ]]; then
-    echo 'You are trying to run an enterprise test case without the emqx-enterprise profile.'
-    echo 'This will most likely not work.'
-    echo ''
-    echo 'Run "export PROFILE=emqx-enterprise" and "make" to fix this'
-    exit 1
-fi
-
 ERLANG_CONTAINER='erlang'
 DOCKER_CT_ENVS_FILE="${WHICH_APP}/docker-ct"
 
-case "${WHICH_APP}" in
-    lib-ee*)
-        ## ensure enterprise profile when testing lib-ee applications
-        export PROFILE='emqx-enterprise'
-        ;;
-    apps/*)
-        if [[ -f "${WHICH_APP}/BSL.txt" ]]; then
-          export PROFILE='emqx-enterprise'
-        else
-          export PROFILE='emqx'
-        fi
-        ;;
-    *)
-        export PROFILE="${PROFILE:-emqx}"
-        ;;
-esac
+if [ -f "${WHICH_APP}/BSL.txt" ]; then
+    if [ -n "${PROFILE:-}" ] && [ "${PROFILE}" != 'emqx-enterprise' ]; then
+        echo "bad_profile: PROFILE=${PROFILE} will not work for app ${WHICH_APP}"
+        exit 1
+    fi
+    export PROFILE='emqx-enterprise'
+else
+    export PROFILE='emqx'
+fi
 
 if [ -f "$DOCKER_CT_ENVS_FILE" ]; then
     # shellcheck disable=SC2002
