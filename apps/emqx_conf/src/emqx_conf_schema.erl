@@ -659,7 +659,7 @@ fields("node") ->
                 hoconsc:enum([gen_rpc, rpc]),
                 #{
                     mapping => "mria.rlog_rpc_module",
-                    default => gen_rpc,
+                    default => rpc,
                     'readOnly' => true,
                     importance => ?IMPORTANCE_HIDDEN,
                     desc => ?DESC(db_rpc_module)
