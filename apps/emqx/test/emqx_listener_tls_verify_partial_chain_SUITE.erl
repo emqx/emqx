@@ -60,6 +60,7 @@ t_conn_success_with_server_intermediate_cacert_and_client_cert(Config) ->
         [
             {keyfile, filename:join(DataDir, "client1.key")},
             {certfile, filename:join(DataDir, "client1.pem")}
+            | client_default_tls_opts()
         ],
         1000
     ),
@@ -85,6 +86,7 @@ t_conn_success_with_intermediate_cacert_bundle(Config) ->
         [
             {keyfile, filename:join(DataDir, "client1.key")},
             {certfile, filename:join(DataDir, "client1.pem")}
+            | client_default_tls_opts()
         ],
         1000
     ),
@@ -110,6 +112,7 @@ t_conn_success_with_renewed_intermediate_cacert(Config) ->
         [
             {keyfile, filename:join(DataDir, "client1.key")},
             {certfile, filename:join(DataDir, "client1.pem")}
+            | client_default_tls_opts()
         ],
         1000
     ),
@@ -129,17 +132,17 @@ t_conn_fail_with_renewed_intermediate_cacert_and_client_using_old_complete_bundl
                 ]}
     ],
     emqx_start_listener(?FUNCTION_NAME, ssl, Port, Options),
-    {ok, Socket} = ssl:connect(
+    Res = ssl:connect(
         {127, 0, 0, 1},
         Port,
         [
             {keyfile, filename:join(DataDir, "client2.key")},
             {certfile, filename:join(DataDir, "client2-complete-bundle.pem")}
+            | client_default_tls_opts()
         ],
         1000
     ),
-    fail_when_no_ssl_alert(Socket, unknown_ca),
-    ssl:close(Socket).
+    fail_when_no_ssl_alert(Res, unknown_ca).
 
 t_conn_fail_with_renewed_intermediate_cacert_and_client_using_old_bundle(Config) ->
     Port = emqx_test_tls_certs_helper:select_free_port(ssl),
@@ -154,17 +157,17 @@ t_conn_fail_with_renewed_intermediate_cacert_and_client_using_old_bundle(Config)
                 ]}
     ],
     emqx_start_listener(?FUNCTION_NAME, ssl, Port, Options),
-    {ok, Socket} = ssl:connect(
+    Res = ssl:connect(
         {127, 0, 0, 1},
         Port,
         [
             {keyfile, filename:join(DataDir, "client2.key")},
             {certfile, filename:join(DataDir, "client2-intermediate2-bundle.pem")}
+            | client_default_tls_opts()
         ],
         1000
     ),
-    fail_when_no_ssl_alert(Socket, unknown_ca),
-    ssl:close(Socket).
+    fail_when_no_ssl_alert(Res, unknown_ca).
 
 t_conn_success_with_old_and_renewed_intermediate_cacert_and_client_provides_renewed_client_cert(
     Config
@@ -188,6 +191,7 @@ t_conn_success_with_old_and_renewed_intermediate_cacert_and_client_provides_rene
         [
             {keyfile, filename:join(DataDir, "client2.key")},
             {certfile, filename:join(DataDir, "client2_renewed.pem")}
+            | client_default_tls_opts()
         ],
         1000
     ),
@@ -216,6 +220,7 @@ t_conn_success_with_new_intermediate_cacert_and_client_provides_renewed_client_c
         [
             {keyfile, filename:join(DataDir, "client2.key")},
             {certfile, filename:join(DataDir, "client2_renewed.pem")}
+            | client_default_tls_opts()
         ],
         1000
     ),
@@ -243,6 +248,7 @@ t_conn_success_with_old_and_renewed_intermediate_cacert_and_client_provides_clie
         [
             {keyfile, filename:join(DataDir, "client2.key")},
             {certfile, filename:join(DataDir, "client2.pem")}
+            | client_default_tls_opts()
         ],
         1000
     ),
@@ -263,17 +269,17 @@ t_conn_fail_with_renewed_and_old_intermediate_cacert_and_client_using_old_bundle
                 ]}
     ],
     emqx_start_listener(?FUNCTION_NAME, ssl, Port, Options),
-    {ok, Socket} = ssl:connect(
+    Res = ssl:connect(
         {127, 0, 0, 1},
         Port,
         [
             {keyfile, filename:join(DataDir, "client2.key")},
             {certfile, filename:join(DataDir, "client2-intermediate2-bundle.pem")}
+            | client_default_tls_opts()
         ],
         1000
     ),
-    fail_when_no_ssl_alert(Socket, unknown_ca),
-    ssl:close(Socket).
+    fail_when_no_ssl_alert(Res, unknown_ca).
 
 %% @doc verify when config (two_cacerts_from_cacertfile) allows two versions of certs from same trusted CA.
 t_001_conn_success_with_old_and_renewed_intermediate_cacert_bundle_and_client_using_old_bundle(
@@ -298,6 +304,7 @@ t_001_conn_success_with_old_and_renewed_intermediate_cacert_bundle_and_client_us
         [
             {keyfile, filename:join(DataDir, "client2.key")},
             {certfile, filename:join(DataDir, "client2-intermediate2-bundle.pem")}
+            | client_default_tls_opts()
         ],
         1000
     ),
@@ -324,17 +331,17 @@ t_conn_fail_with_old_and_renewed_intermediate_cacert_bundle_and_client_using_all
                 ]}
     ],
     emqx_start_listener(?FUNCTION_NAME, ssl, Port, Options),
-    {ok, Socket} = ssl:connect(
+    Res = ssl:connect(
         {127, 0, 0, 1},
         Port,
         [
             {keyfile, filename:join(DataDir, "client1.key")},
             {certfile, filename:join(DataDir, "all-CAcerts-bundle.pem")}
+            | client_default_tls_opts()
         ],
         1000
     ),
-    fail_when_no_ssl_alert(Socket, unknown_ca),
-    ssl:close(Socket).
+    fail_when_no_ssl_alert(Res, unknown_ca).
 
 t_conn_fail_with_renewed_intermediate_cacert_other_client(Config) ->
     Port = emqx_test_tls_certs_helper:select_free_port(ssl),
@@ -349,17 +356,17 @@ t_conn_fail_with_renewed_intermediate_cacert_other_client(Config) ->
                 ]}
     ],
     emqx_start_listener(?FUNCTION_NAME, ssl, Port, Options),
-    {ok, Socket} = ssl:connect(
+    Res = ssl:connect(
         {127, 0, 0, 1},
         Port,
         [
             {keyfile, filename:join(DataDir, "client2.key")},
             {certfile, filename:join(DataDir, "client2.pem")}
+            | client_default_tls_opts()
         ],
         1000
     ),
-    fail_when_no_ssl_alert(Socket, unknown_ca),
-    ssl:close(Socket).
+    fail_when_no_ssl_alert(Res, unknown_ca).
 
 t_conn_fail_with_intermediate_cacert_bundle_but_incorrect_order(Config) ->
     Port = emqx_test_tls_certs_helper:select_free_port(ssl),
@@ -374,17 +381,17 @@ t_conn_fail_with_intermediate_cacert_bundle_but_incorrect_order(Config) ->
                 ]}
     ],
     emqx_start_listener(?FUNCTION_NAME, ssl, Port, Options),
-    {ok, Socket} = ssl:connect(
+    Res = ssl:connect(
         {127, 0, 0, 1},
         Port,
         [
             {keyfile, filename:join(DataDir, "client1.key")},
             {certfile, filename:join(DataDir, "client1.pem")}
+            | client_default_tls_opts()
         ],
         1000
     ),
-    fail_when_no_ssl_alert(Socket, unknown_ca),
-    ssl:close(Socket).
+    fail_when_no_ssl_alert(Res, unknown_ca).
 
 t_conn_fail_when_singed_by_other_intermediate_ca(Config) ->
     Port = emqx_test_tls_certs_helper:select_free_port(ssl),
@@ -399,17 +406,17 @@ t_conn_fail_when_singed_by_other_intermediate_ca(Config) ->
                 ]}
     ],
     emqx_start_listener(?FUNCTION_NAME, ssl, Port, Options),
-    {ok, Socket} = ssl:connect(
+    Res = ssl:connect(
         {127, 0, 0, 1},
         Port,
         [
             {keyfile, filename:join(DataDir, "client2.key")},
             {certfile, filename:join(DataDir, "client2.pem")}
+            | client_default_tls_opts()
         ],
         1000
     ),
-    fail_when_no_ssl_alert(Socket, unknown_ca),
-    ok = ssl:close(Socket).
+    fail_when_no_ssl_alert(Res, unknown_ca).
 
 t_conn_success_with_complete_chain_that_server_root_cacert_and_client_complete_cert_chain(Config) ->
     Port = emqx_test_tls_certs_helper:select_free_port(ssl),
@@ -430,6 +437,7 @@ t_conn_success_with_complete_chain_that_server_root_cacert_and_client_complete_c
         [
             {keyfile, filename:join(DataDir, "client2.key")},
             {certfile, filename:join(DataDir, "client2-complete-bundle.pem")}
+            | client_default_tls_opts()
         ],
         1000
     ),
@@ -449,17 +457,17 @@ t_conn_fail_with_other_client_complete_cert_chain(Config) ->
                 ]}
     ],
     emqx_start_listener(?FUNCTION_NAME, ssl, Port, Options),
-    {ok, Socket} = ssl:connect(
+    Res = ssl:connect(
         {127, 0, 0, 1},
         Port,
         [
             {keyfile, filename:join(DataDir, "client2.key")},
             {certfile, filename:join(DataDir, "client2-complete-bundle.pem")}
+            | client_default_tls_opts()
         ],
         1000
     ),
-    fail_when_no_ssl_alert(Socket, unknown_ca),
-    ok = ssl:close(Socket).
+    fail_when_no_ssl_alert(Res, unknown_ca).
 
 t_conn_fail_with_server_intermediate_and_other_client_complete_cert_chain(Config) ->
     Port = emqx_test_tls_certs_helper:select_free_port(ssl),
@@ -480,6 +488,7 @@ t_conn_fail_with_server_intermediate_and_other_client_complete_cert_chain(Config
         [
             {keyfile, filename:join(DataDir, "client2.key")},
             {certfile, filename:join(DataDir, "client2-complete-bundle.pem")}
+            | client_default_tls_opts()
         ],
         1000
     ),
@@ -505,6 +514,7 @@ t_conn_success_with_server_intermediate_cacert_and_client_complete_chain(Config)
         [
             {keyfile, filename:join(DataDir, "client2.key")},
             {certfile, filename:join(DataDir, "client2-complete-bundle.pem")}
+            | client_default_tls_opts()
         ],
         1000
     ),
@@ -524,17 +534,17 @@ t_conn_fail_with_server_intermediate_chain_and_client_other_incomplete_cert_chai
                 ]}
     ],
     emqx_start_listener(?FUNCTION_NAME, ssl, Port, Options),
-    {ok, Socket} = ssl:connect(
+    Res = ssl:connect(
         {127, 0, 0, 1},
         Port,
         [
             {keyfile, filename:join(DataDir, "client2.key")},
             {certfile, filename:join(DataDir, "client2-intermediate2-bundle.pem")}
+            | client_default_tls_opts()
         ],
         1000
     ),
-    fail_when_no_ssl_alert(Socket, unknown_ca),
-    ok = ssl:close(Socket).
+    fail_when_no_ssl_alert(Res, unknown_ca).
 
 t_conn_fail_with_server_intermediate_and_other_client_root_chain(Config) ->
     Port = emqx_test_tls_certs_helper:select_free_port(ssl),
@@ -549,17 +559,17 @@ t_conn_fail_with_server_intermediate_and_other_client_root_chain(Config) ->
                 ]}
     ],
     emqx_start_listener(?FUNCTION_NAME, ssl, Port, Options),
-    {ok, Socket} = ssl:connect(
+    Res = ssl:connect(
         {127, 0, 0, 1},
         Port,
         [
             {keyfile, filename:join(DataDir, "client2.key")},
             {certfile, filename:join(DataDir, "client2-root-bundle.pem")}
+            | client_default_tls_opts()
         ],
         1000
     ),
-    fail_when_no_ssl_alert(Socket, unknown_ca),
-    ok = ssl:close(Socket).
+    fail_when_no_ssl_alert(Res, unknown_ca).
 
 t_conn_success_with_server_intermediate_and_client_root_chain(Config) ->
     Port = emqx_test_tls_certs_helper:select_free_port(ssl),
@@ -580,6 +590,7 @@ t_conn_success_with_server_intermediate_and_client_root_chain(Config) ->
         [
             {keyfile, filename:join(DataDir, "client2.key")},
             {certfile, filename:join(DataDir, "client2-root-bundle.pem")}
+            | client_default_tls_opts()
         ],
         1000
     ),
@@ -606,6 +617,7 @@ t_conn_success_with_server_all_CA_bundle_and_client_root_chain(Config) ->
         [
             {keyfile, filename:join(DataDir, "client2.key")},
             {certfile, filename:join(DataDir, "client2-root-bundle.pem")}
+            | client_default_tls_opts()
         ],
         1000
     ),
@@ -625,17 +637,17 @@ t_conn_fail_with_server_two_IA_bundle_and_client_root_chain(Config) ->
                 ]}
     ],
     emqx_start_listener(?FUNCTION_NAME, ssl, Port, Options),
-    {ok, Socket} = ssl:connect(
+    Res = ssl:connect(
         {127, 0, 0, 1},
         Port,
         [
             {keyfile, filename:join(DataDir, "client2.key")},
             {certfile, filename:join(DataDir, "client2-root-bundle.pem")}
+            | client_default_tls_opts()
         ],
         1000
     ),
-    fail_when_no_ssl_alert(Socket, unknown_ca),
-    ok = ssl:close(Socket).
+    fail_when_no_ssl_alert(Res, unknown_ca).
 
 t_conn_fail_with_server_partial_chain_false_intermediate_cacert_and_client_cert(Config) ->
     Port = emqx_test_tls_certs_helper:select_free_port(ssl),
@@ -651,17 +663,17 @@ t_conn_fail_with_server_partial_chain_false_intermediate_cacert_and_client_cert(
                 ]}
     ],
     emqx_start_listener(?FUNCTION_NAME, ssl, Port, Options),
-    {ok, Socket} = ssl:connect(
+    Res = ssl:connect(
         {127, 0, 0, 1},
         Port,
         [
             {keyfile, filename:join(DataDir, "client1.key")},
             {certfile, filename:join(DataDir, "client1.pem")}
+            | client_default_tls_opts()
         ],
         1000
     ),
-    fail_when_no_ssl_alert(Socket, unknown_ca),
-    ssl:close(Socket).
+    fail_when_no_ssl_alert(Res, unknown_ca).
 
 t_error_handling_invalid_cacertfile(Config) ->
     Port = emqx_test_tls_certs_helper:select_free_port(ssl),
@@ -688,3 +700,6 @@ ssl_config_verify_partial_chain() ->
         {fail_if_no_peer_cert, true},
         {partial_chain, true}
     ].
+
+client_default_tls_opts() ->
+    [{versions, ['tlsv1.2']}].
