@@ -17,7 +17,9 @@
 -module(emqx_ds_lts).
 
 %% API:
--export([trie_create/1, trie_create/0, topic_key/3, match_topics/2, lookup_topic_key/2]).
+-export([
+    trie_create/1, trie_create/0, trie_restore/2, topic_key/3, match_topics/2, lookup_topic_key/2
+]).
 
 %% Debug:
 -export([trie_next/3, trie_insert/3, dump_to_dot/2]).
@@ -85,8 +87,19 @@ trie_create(Persist) ->
 -spec trie_create() -> trie().
 trie_create() ->
     trie_create(fun(_, _) ->
-                        ok
-                end).
+        ok
+    end).
+
+%% @doc Restore trie from a dump
+-spec trie_restore(persist_callback(), [{_Key, _Val}]) -> trie().
+trie_restore(Persist, Dump) ->
+    Trie = trie_create(Persist),
+    lists:foreach(
+        fun({{StateFrom, Token}, StateTo}) ->
+            trie_insert(Trie, StateFrom, Token, StateTo)
+        end,
+        Dump
+    ).
 
 %% @doc Lookup the topic key. Create a new one, if not found.
 -spec topic_key(trie(), threshold_fun(), [binary()]) -> msg_storage_key().
@@ -173,11 +186,20 @@ trie_next(#trie{trie = Trie}, State, Token) ->
     end.
 
 -spec trie_insert(trie(), state(), edge()) -> {Updated, state()} when
-      NChildren :: non_neg_integer(),
+    NChildren :: non_neg_integer(),
     Updated :: false | NChildren.
-trie_insert(#trie{trie = Trie, stats = Stats, persist = Persist}, State, Token) ->
+trie_insert(Trie, State, Token) ->
+    trie_insert(Trie, State, Token, get_id_for_key(State, Token)).
+
+%%================================================================================
+%% Internal functions
+%%================================================================================
+
+-spec trie_insert(trie(), state(), edge(), state()) -> {Updated, state()} when
+    NChildren :: non_neg_integer(),
+    Updated :: false | NChildren.
+trie_insert(#trie{trie = Trie, stats = Stats, persist = Persist}, State, Token, NewState) ->
     Key = {State, Token},
-    NewState = get_id_for_key(State, Token),
     Rec = #trans{
         key = Key,
         next = NewState
@@ -197,10 +219,6 @@ trie_insert(#trie{trie = Trie, stats = Stats, persist = Persist}, State, Token) 
             [#trans{next = NextState}] = ets:lookup(Trie, Key),
             {false, NextState}
     end.
-
-%%================================================================================
-%% Internal functions
-%%================================================================================
 
 -spec get_id_for_key(state(), edge()) -> static_key().
 get_id_for_key(_State, _Token) ->

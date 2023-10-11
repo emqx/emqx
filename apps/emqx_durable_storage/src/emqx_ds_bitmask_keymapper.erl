@@ -348,7 +348,6 @@ ones(Bits) ->
 %%     NBits = ceil(math:log2(N + 1)),
 %%     ones(NBits).
 
-
 %% bitmask_of_test() ->
 %%     ?assertEqual(2#0, bitmask_of(0)),
 %%     ?assertEqual(2#1, bitmask_of(1)),

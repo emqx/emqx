@@ -132,7 +132,8 @@ get_streams(DB, TopicFilter, StartTime) ->
         Shards
     ).
 
--spec make_iterator(stream(), emqx_ds:topic_filter(), emqx_ds:time()) -> emqx_ds:make_iterator_result(iterator()).
+-spec make_iterator(stream(), emqx_ds:topic_filter(), emqx_ds:time()) ->
+    emqx_ds:make_iterator_result(iterator()).
 make_iterator(Stream, TopicFilter, StartTime) ->
     #stream{shard = Shard, enc = StorageStream} = Stream,
     Node = node_of_shard(Shard),
@@ -184,7 +185,8 @@ do_drop_shard_v1(Shard) ->
 do_get_streams_v1(Shard, TopicFilter, StartTime) ->
     emqx_ds_storage_layer:get_streams(Shard, TopicFilter, StartTime).
 
--spec do_make_iterator_v1(shard_id(), _Stream, emqx_ds:topic_filter(), emqx_ds:time()) -> {ok, iterator()} | {error, _}.
+-spec do_make_iterator_v1(shard_id(), _Stream, emqx_ds:topic_filter(), emqx_ds:time()) ->
+    {ok, iterator()} | {error, _}.
 do_make_iterator_v1(Shard, Stream, TopicFilter, StartTime) ->
     emqx_ds_storage_layer:make_iterator(Shard, Stream, TopicFilter, StartTime).
 
