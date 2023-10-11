@@ -67,7 +67,7 @@ retainer(_) ->
         [
             {"retainer info", "Show the count of retained messages"},
             {"retainer topics", "Same as retainer topic 1 1000"},
-            {"retainer topics <Start> <Length>",
+            {"retainer topics <Start> <Limit>",
                 "Show topics of retained messages by the specified range"},
             {"retainer clean", "Clean all retained messages"},
             {"retainer clean <Topic>", "Clean retained messages by the specified topic filter"},
