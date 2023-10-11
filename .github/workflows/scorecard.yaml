@@ -1,0 +1,51 @@
+name: Scorecard supply-chain security
+on:
+  # For Branch-Protection check. Only the default branch is supported. See
+  # https://github.com/ossf/scorecard/blob/main/docs/checks.md#branch-protection
+  branch_protection_rule:
+  # To guarantee Maintained check is occasionally updated. See
+  # https://github.com/ossf/scorecard/blob/main/docs/checks.md#maintained
+  schedule:
+    - cron: '25 21 * * 6'
+  push:
+    branches: [ "master" ]
+  workflow_dispatch:
+
+permissions: read-all
+
+jobs:
+  analysis:
+    name: Scorecard analysis
+    runs-on: ubuntu-latest
+    permissions:
+      security-events: write
+      id-token: write
+
+    steps:
+      - name: "Checkout code"
+        uses: actions/checkout@8ade135a41bc03ea155e62e844d188df1ea18608 # v4.1.0
+        with:
+          persist-credentials: false
+
+      - name: "Run analysis"
+        uses: ossf/scorecard-action@483ef80eb98fb506c348f7d62e28055e49fe2398 # v2.3.0
+        with:
+          results_file: results.sarif
+          results_format: sarif
+          # - Publish results to OpenSSF REST API for easy access by consumers
+          # - Allows the repository to include the Scorecard badge.
+          # - See https://github.com/ossf/scorecard-action#publishing-results.
+          publish_results: true
+
+      - name: "Upload artifact"
+        uses: actions/upload-artifact@a8a3f3ad30e3422c9c7b888a15615d19a852ae32 # v3.1.3
+        with:
+          name: SARIF file
+          path: results.sarif
+          retention-days: 5
+
+      # Upload the results to GitHub's code scanning dashboard.
+      - name: "Upload to code-scanning"
+        uses: github/codeql-action/upload-sarif@8e0b1c74b1d5a0077b04d064c76ee714d3da7637 # v2.22.1
+        with:
+          sarif_file: results.sarif
