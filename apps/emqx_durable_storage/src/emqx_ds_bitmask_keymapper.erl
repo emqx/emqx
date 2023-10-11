@@ -80,20 +80,24 @@
 %%================================================================================
 
 %% API:
--export([make_keymapper/1, vector_to_key/2, key_to_vector/2, next_range/3]).
-
-%% behavior callbacks:
--export([]).
-
-%% internal exports:
--export([]).
+-export([
+    make_keymapper/1,
+    vector_to_key/2,
+    bin_vector_to_key/2,
+    key_to_vector/2,
+    bin_key_to_vector/2,
+    next_range/3,
+    key_to_bitstring/2,
+    bitstring_to_key/2
+]).
 
 -export_type([vector/0, key/0, dimension/0, offset/0, bitsize/0, bitsource/0, keymapper/0]).
 
 -compile(
     {inline, [
         ones/1,
-        extract/2
+        extract/2,
+        extract_inv/2
     ]}
 ).
 
@@ -118,7 +122,7 @@
 -type bitsize() :: pos_integer().
 
 %% The resulting 1D key:
--type key() :: binary().
+-type key() :: non_neg_integer().
 
 -type bitsource() ::
     %% Consume `_Size` bits from timestamp starting at `_Offset`th
@@ -148,7 +152,8 @@
 %% API functions
 %%================================================================================
 
-%% @doc
+%% @doc Create a keymapper object that stores the "schema" of the
+%% transformation from a list of bitsources.
 %%
 %% Note: Dimension is 1-based.
 -spec make_keymapper([bitsource()]) -> keymapper().
@@ -183,6 +188,19 @@ vector_to_key(#keymapper{scanner = []}, []) ->
 vector_to_key(#keymapper{scanner = [Actions | Scanner]}, [Coord | Vector]) ->
     do_vector_to_key(Actions, Scanner, Coord, Vector, 0).
 
+%% @doc Same as `vector_to_key', but it works with binaries, and outputs a binary.
+-spec bin_vector_to_key(keymapper(), [binary()]) -> binary().
+bin_vector_to_key(Keymapper = #keymapper{dim_sizeof = DimSizeof, size = Size}, Binaries) ->
+    Vec = lists:map(
+        fun({Bin, SizeOf}) ->
+            <<Int:SizeOf, _/binary>> = Bin,
+            Int
+        end,
+        lists:zip(Binaries, DimSizeof)
+    ),
+    Key = vector_to_key(Keymapper, Vec),
+    <<Key:Size>>.
+
 %% @doc Map key to a vector.
 %%
 %% Note: `vector_to_key(key_to_vector(K)) = K' but
@@ -200,6 +218,18 @@ key_to_vector(#keymapper{scanner = Scanner}, Key) ->
             )
         end,
         Scanner
+    ).
+
+%% @doc Same as `key_to_vector', but it works with binaries.
+-spec bin_key_to_vector(keymapper(), binary()) -> [binary()].
+bin_key_to_vector(Keymapper = #keymapper{dim_sizeof = DimSizeof, size = Size}, BinKey) ->
+    <<Key:Size>> = BinKey,
+    Vector = key_to_vector(Keymapper, Key),
+    lists:map(
+        fun({Elem, SizeOf}) ->
+            <<Elem:SizeOf>>
+        end,
+        lists:zip(Vector, DimSizeof)
     ).
 
 %% @doc Given a keymapper, a filter, and a key, return a triple containing:
@@ -231,6 +261,15 @@ next_range(Keymapper, Filter0, PrevKey) ->
             Bitfilter = NewKey band Bitmask,
             {NewKey, Bitmask, Bitfilter}
     end.
+
+-spec bitstring_to_key(keymapper(), bitstring()) -> key().
+bitstring_to_key(#keymapper{size = Size}, Bin) ->
+    <<Key:Size>> = Bin,
+    Key.
+
+-spec key_to_bitstring(keymapper(), key()) -> bitstring().
+key_to_bitstring(#keymapper{size = Size}, Key) ->
+    <<Key:Size>>.
 
 %%================================================================================
 %% Internal functions
@@ -311,7 +350,6 @@ fold_bitsources(Fun, InitAcc, Bitsources) ->
         Bitsources
     ).
 
-%% Specialized version of fold:
 do_vector_to_key([], [], _Coord, [], Acc) ->
     Acc;
 do_vector_to_key([], [NewActions | Scanner], _Coord, [NewCoord | Vector], Acc) ->

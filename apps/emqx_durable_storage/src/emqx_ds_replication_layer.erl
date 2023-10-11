@@ -119,7 +119,7 @@ get_streams(DB, TopicFilter, StartTime) ->
             Streams = emqx_ds_proto_v1:get_streams(Node, Shard, TopicFilter, StartTime),
             lists:map(
                 fun({RankY, Stream}) ->
-                    RankX = erlang:phash2(Shard, 255),
+                    RankX = Shard,
                     Rank = {RankX, RankY},
                     {Rank, #stream{
                         shard = Shard,

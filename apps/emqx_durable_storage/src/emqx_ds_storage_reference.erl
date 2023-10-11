@@ -32,13 +32,15 @@
 %% internal exports:
 -export([]).
 
--export_type([]).
+-export_type([options/0]).
 
 -include_lib("emqx/include/emqx.hrl").
 
 %%================================================================================
 %% Type declarations
 %%================================================================================
+
+-type options() :: #{}.
 
 %% Permanent state:
 -record(schema, {}).
@@ -134,4 +136,4 @@ do_next(TopicFilter, StartTime, IT, Action, NLeft, Key0, Acc) ->
 %% @doc Generate a column family ID for the MQTT messages
 -spec data_cf(emqx_ds_storage_layer:gen_id()) -> [char()].
 data_cf(GenId) ->
-    ?MODULE_STRING ++ integer_to_list(GenId).
+    "emqx_ds_storage_reference" ++ integer_to_list(GenId).

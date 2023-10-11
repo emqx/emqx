@@ -34,6 +34,8 @@
 -export([]).
 
 -export_type([
+    create_db_opts/0,
+    builtin_db_opts/0,
     db/0,
     time/0,
     topic_filter/0,
@@ -58,7 +60,7 @@
 %% Parsed topic filter.
 -type topic_filter() :: list(binary() | '+' | '#' | '').
 
--type stream_rank() :: {integer(), integer()}.
+-type stream_rank() :: {term(), integer()}.
 
 -opaque stream() :: emqx_ds_replication_layer:stream().
 
@@ -83,9 +85,14 @@
 
 -type message_store_opts() :: #{}.
 
+-type builtin_db_opts() ::
+    #{
+        backend := builtin,
+        storage := emqx_ds_storage_layer:prototype()
+    }.
+
 -type create_db_opts() ::
-    %% TODO: keyspace
-    #{}.
+    builtin_db_opts().
 
 -type message_id() :: emqx_ds_replication_layer:message_id().
 
@@ -96,7 +103,7 @@
 %% @doc Different DBs are completely independent from each other. They
 %% could represent something like different tenants.
 -spec open_db(db(), create_db_opts()) -> ok.
-open_db(DB, Opts) ->
+open_db(DB, Opts = #{backend := builtin}) ->
     emqx_ds_replication_layer:open_db(DB, Opts).
 
 %% @doc TODO: currently if one or a few shards are down, they won't be
@@ -109,8 +116,7 @@ drop_db(DB) ->
 store_batch(DB, Msgs, Opts) ->
     emqx_ds_replication_layer:store_batch(DB, Msgs, Opts).
 
-%% TODO: Do we really need to return message IDs? It's extra work...
--spec store_batch(db(), [emqx_types:message()]) -> {ok, [message_id()]} | {error, _}.
+-spec store_batch(db(), [emqx_types:message()]) -> store_batch_result().
 store_batch(DB, Msgs) ->
     store_batch(DB, Msgs, #{}).
 

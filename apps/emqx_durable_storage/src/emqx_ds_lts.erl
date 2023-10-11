@@ -24,7 +24,7 @@
 %% Debug:
 -export([trie_next/3, trie_insert/3, dump_to_dot/2]).
 
--export_type([static_key/0, trie/0]).
+-export_type([options/0, static_key/0, trie/0]).
 
 -include_lib("stdlib/include/ms_transform.hrl").
 
@@ -43,12 +43,12 @@
 -type edge() :: binary() | ?EOT | ?PLUS.
 
 %% Fixed size binary
--type static_key() :: binary().
+-type static_key() :: non_neg_integer().
 
 -define(PREFIX, prefix).
 -type state() :: static_key() | ?PREFIX.
 
--type varying() :: [binary()].
+-type varying() :: [binary() | ?PLUS].
 
 -type msg_storage_key() :: {static_key(), varying()}.
 
@@ -56,8 +56,15 @@
 
 -type persist_callback() :: fun((_Key, _Val) -> ok).
 
+-type options() ::
+    #{
+        persist_callback => persist_callback(),
+        static_key_size => pos_integer()
+    }.
+
 -record(trie, {
     persist :: persist_callback(),
+    static_key_size :: pos_integer(),
     trie :: ets:tid(),
     stats :: ets:tid()
 }).
@@ -74,32 +81,40 @@
 %%================================================================================
 
 %% @doc Create an empty trie
--spec trie_create(persist_callback()) -> trie().
-trie_create(Persist) ->
-    Trie = ets:new(trie, [{keypos, #trans.key}, set]),
-    Stats = ets:new(stats, [{keypos, 1}, set]),
+-spec trie_create(options()) -> trie().
+trie_create(UserOpts) ->
+    Defaults = #{
+        persist_callback => fun(_, _) -> ok end,
+        static_key_size => 8
+    },
+    #{
+        persist_callback := Persist,
+        static_key_size := StaticKeySize
+    } = maps:merge(Defaults, UserOpts),
+    Trie = ets:new(trie, [{keypos, #trans.key}, set, public]),
+    Stats = ets:new(stats, [{keypos, 1}, set, public]),
     #trie{
         persist = Persist,
+        static_key_size = StaticKeySize,
         trie = Trie,
         stats = Stats
     }.
 
 -spec trie_create() -> trie().
 trie_create() ->
-    trie_create(fun(_, _) ->
-        ok
-    end).
+    trie_create(#{}).
 
 %% @doc Restore trie from a dump
--spec trie_restore(persist_callback(), [{_Key, _Val}]) -> trie().
-trie_restore(Persist, Dump) ->
-    Trie = trie_create(Persist),
+-spec trie_restore(options(), [{_Key, _Val}]) -> trie().
+trie_restore(Options, Dump) ->
+    Trie = trie_create(Options),
     lists:foreach(
         fun({{StateFrom, Token}, StateTo}) ->
             trie_insert(Trie, StateFrom, Token, StateTo)
         end,
         Dump
-    ).
+    ),
+    Trie.
 
 %% @doc Lookup the topic key. Create a new one, if not found.
 -spec topic_key(trie(), threshold_fun(), [binary()]) -> msg_storage_key().
@@ -113,7 +128,7 @@ lookup_topic_key(Trie, Tokens) ->
 
 %% @doc Return list of keys of topics that match a given topic filter
 -spec match_topics(trie(), [binary() | '+' | '#']) ->
-    [{static_key(), _Varying :: binary() | ?PLUS}].
+    [msg_storage_key()].
 match_topics(Trie, TopicFilter) ->
     do_match_topics(Trie, ?PREFIX, [], TopicFilter).
 
@@ -189,7 +204,7 @@ trie_next(#trie{trie = Trie}, State, Token) ->
     NChildren :: non_neg_integer(),
     Updated :: false | NChildren.
 trie_insert(Trie, State, Token) ->
-    trie_insert(Trie, State, Token, get_id_for_key(State, Token)).
+    trie_insert(Trie, State, Token, get_id_for_key(Trie, State, Token)).
 
 %%================================================================================
 %% Internal functions
@@ -220,8 +235,8 @@ trie_insert(#trie{trie = Trie, stats = Stats, persist = Persist}, State, Token, 
             {false, NextState}
     end.
 
--spec get_id_for_key(state(), edge()) -> static_key().
-get_id_for_key(_State, _Token) ->
+-spec get_id_for_key(trie(), state(), edge()) -> static_key().
+get_id_for_key(#trie{static_key_size = Size}, _State, _Token) ->
     %% Requirements for the return value:
     %%
     %% It should be globally unique for the `{State, Token}` pair. Other
@@ -235,7 +250,8 @@ get_id_for_key(_State, _Token) ->
     %% If we want to impress computer science crowd, sorry, I mean to
     %% minimize storage requirements, we can even employ Huffman coding
     %% based on the frequency of messages.
-    crypto:strong_rand_bytes(8).
+    <<Int:(Size * 8)>> = crypto:strong_rand_bytes(Size),
+    Int.
 
 %% erlfmt-ignore
 -spec do_match_topics(trie(), state(), [binary() | '+'], [binary() | '+' | '#']) ->
@@ -492,7 +508,7 @@ topic_key_test() ->
           end,
           lists:seq(1, 100))
     after
-        dump_to_dot(T, atom_to_list(?FUNCTION_NAME) ++ ".dot")
+        dump_to_dot(T, filename:join("_build", atom_to_list(?FUNCTION_NAME) ++ ".dot"))
     end.
 
 %% erlfmt-ignore
@@ -539,7 +555,7 @@ topic_match_test() ->
                              {S2_1_, ['+', '+']}]),
         ok
     after
-        dump_to_dot(T, atom_to_list(?FUNCTION_NAME) ++ ".dot")
+        dump_to_dot(T, filename:join("_build", atom_to_list(?FUNCTION_NAME) ++ ".dot"))
     end.
 
 -define(keys_history, topic_key_history).

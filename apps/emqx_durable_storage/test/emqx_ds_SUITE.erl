@@ -23,19 +23,25 @@
 -include_lib("stdlib/include/assert.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
+opts() ->
+    #{
+        backend => builtin,
+        storage => {emqx_ds_storage_reference, #{}}
+    }.
+
 %% A simple smoke test that verifies that opening/closing the DB
 %% doesn't crash, and not much else
 t_00_smoke_open_drop(_Config) ->
     DB = 'DB',
-    ?assertMatch(ok, emqx_ds:open_db(DB, #{})),
-    ?assertMatch(ok, emqx_ds:open_db(DB, #{})),
+    ?assertMatch(ok, emqx_ds:open_db(DB, opts())),
+    ?assertMatch(ok, emqx_ds:open_db(DB, opts())),
     ?assertMatch(ok, emqx_ds:drop_db(DB)).
 
 %% A simple smoke test that verifies that storing the messages doesn't
 %% crash
 t_01_smoke_store(_Config) ->
     DB = default,
-    ?assertMatch(ok, emqx_ds:open_db(DB, #{})),
+    ?assertMatch(ok, emqx_ds:open_db(DB, opts())),
     Msg = message(<<"foo/bar">>, <<"foo">>, 0),
     ?assertMatch(ok, emqx_ds:store_batch(DB, [Msg])).
 
@@ -43,7 +49,7 @@ t_01_smoke_store(_Config) ->
 %% doesn't crash and that iterators can be opened.
 t_02_smoke_get_streams_start_iter(_Config) ->
     DB = ?FUNCTION_NAME,
-    ?assertMatch(ok, emqx_ds:open_db(DB, #{})),
+    ?assertMatch(ok, emqx_ds:open_db(DB, opts())),
     StartTime = 0,
     TopicFilter = ['#'],
     [{Rank, Stream}] = emqx_ds:get_streams(DB, TopicFilter, StartTime),
@@ -54,7 +60,7 @@ t_02_smoke_get_streams_start_iter(_Config) ->
 %% over messages.
 t_03_smoke_iterate(_Config) ->
     DB = ?FUNCTION_NAME,
-    ?assertMatch(ok, emqx_ds:open_db(DB, #{})),
+    ?assertMatch(ok, emqx_ds:open_db(DB, opts())),
     StartTime = 0,
     TopicFilter = ['#'],
     Msgs = [
@@ -75,7 +81,7 @@ t_03_smoke_iterate(_Config) ->
 %% they are left off.
 t_04_restart(_Config) ->
     DB = ?FUNCTION_NAME,
-    ?assertMatch(ok, emqx_ds:open_db(DB, #{})),
+    ?assertMatch(ok, emqx_ds:open_db(DB, opts())),
     TopicFilter = ['#'],
     StartTime = 0,
     Msgs = [
@@ -90,7 +96,7 @@ t_04_restart(_Config) ->
     ?tp(warning, emqx_ds_SUITE_restart_app, #{}),
     ok = application:stop(emqx_durable_storage),
     {ok, _} = application:ensure_all_started(emqx_durable_storage),
-    ok = emqx_ds:open_db(DB, #{}),
+    ok = emqx_ds:open_db(DB, opts()),
     %% The old iterator should be still operational:
     {ok, Iter, Batch} = iterate(Iter0, 1),
     ?assertEqual(Msgs, Batch, {Iter0, Iter}).

@@ -32,6 +32,10 @@
 %% Type declarations
 %%================================================================================
 
+-type prototype() ::
+    {emqx_ds_storage_reference, emqx_ds_storage_reference:options()}
+    | {emqx_ds_storage_bitfield_lts, emqx_ds_storage_bitfield_lts:options()}.
+
 -type shard_id() :: emqx_ds_replication_layer:shard_id().
 
 -type cf_refs() :: [{string(), rocksdb:cf_handle()}].
@@ -107,7 +111,7 @@
     _Data.
 
 -callback store_batch(shard_id(), _Data, [emqx_types:message()], emqx_ds:message_store_opts()) ->
-    ok.
+    emqx_ds:store_batch_result().
 
 -callback get_streams(shard_id(), _Data, emqx_ds:topic_filter(), emqx_ds:time()) ->
     [_Stream].
@@ -122,7 +126,7 @@
 %% API for the replication layer
 %%================================================================================
 
--spec open_shard(shard_id(), emqx_ds:create_db_opts()) -> ok.
+-spec open_shard(shard_id(), emqx_ds:builtin_db_opts()) -> ok.
 open_shard(Shard, Options) ->
     emqx_ds_storage_layer_sup:ensure_shard(Shard, Options).
 
@@ -195,7 +199,7 @@ next(Shard, Iter = #it{generation = GenId, enc = GenIter0}, BatchSize) ->
 
 -define(REF(ShardId), {via, gproc, {n, l, {?MODULE, ShardId}}}).
 
--spec start_link(shard_id(), emqx_ds:create_db_opts()) ->
+-spec start_link(shard_id(), emqx_ds:builtin_db_opts()) ->
     {ok, pid()}.
 start_link(Shard, Options) ->
     gen_server:start_link(?REF(Shard), ?MODULE, {Shard, Options}, []).
@@ -224,7 +228,8 @@ init({ShardId, Options}) ->
     {Schema, CFRefs} =
         case get_schema_persistent(DB) of
             not_found ->
-                create_new_shard_schema(ShardId, DB, CFRefs0, Options);
+                Prototype = maps:get(storage, Options),
+                create_new_shard_schema(ShardId, DB, CFRefs0, Prototype);
             Scm ->
                 {Scm, CFRefs0}
         end,
@@ -300,14 +305,14 @@ open_generation(ShardId, DB, CFRefs, GenId, GenSchema) ->
     RuntimeData = Mod:open(ShardId, DB, GenId, CFRefs, Schema),
     GenSchema#{data => RuntimeData}.
 
--spec create_new_shard_schema(shard_id(), rocksdb:db_handle(), cf_refs(), _Options) ->
+-spec create_new_shard_schema(shard_id(), rocksdb:db_handle(), cf_refs(), prototype()) ->
     {shard_schema(), cf_refs()}.
-create_new_shard_schema(ShardId, DB, CFRefs, Options) ->
-    ?tp(notice, ds_create_new_shard_schema, #{shard => ShardId, options => Options}),
+create_new_shard_schema(ShardId, DB, CFRefs, Prototype) ->
+    ?tp(notice, ds_create_new_shard_schema, #{shard => ShardId, prototype => Prototype}),
     %% TODO: read prototype from options/config
     Schema0 = #{
         current_generation => 0,
-        prototype => {emqx_ds_storage_reference, #{}}
+        prototype => Prototype
     },
     {_NewGenId, Schema, NewCFRefs} = new_generation(ShardId, DB, Schema0, _Since = 0),
     {Schema, NewCFRefs ++ CFRefs}.
@@ -331,7 +336,7 @@ commit_metadata(#s{shard_id = ShardId, schema = Schema, shard = Runtime, db = DB
     ok = put_schema_persistent(DB, Schema),
     put_schema_runtime(ShardId, Runtime).
 
--spec rocksdb_open(shard_id(), emqx_ds:create_db_opts()) ->
+-spec rocksdb_open(shard_id(), emqx_ds:builtin_db_opts()) ->
     {ok, rocksdb:db_handle(), cf_refs()} | {error, _TODO}.
 rocksdb_open(Shard, Options) ->
     DBOptions = [
