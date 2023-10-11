@@ -45,9 +45,10 @@ t_02_smoke_get_streams_start_iter(_Config) ->
     DB = ?FUNCTION_NAME,
     ?assertMatch(ok, emqx_ds:open_db(DB, #{})),
     StartTime = 0,
-    [{Rank, Stream}] = emqx_ds:get_streams(DB, ['#'], StartTime),
+    TopicFilter = ['#'],
+    [{Rank, Stream}] = emqx_ds:get_streams(DB, TopicFilter, StartTime),
     ?assertMatch({_, _}, Rank),
-    ?assertMatch({ok, _Iter}, emqx_ds:make_iterator(Stream, StartTime)).
+    ?assertMatch({ok, _Iter}, emqx_ds:make_iterator(Stream, TopicFilter, StartTime)).
 
 %% A simple smoke test that verifies that it's possible to iterate
 %% over messages.
@@ -55,14 +56,15 @@ t_03_smoke_iterate(_Config) ->
     DB = ?FUNCTION_NAME,
     ?assertMatch(ok, emqx_ds:open_db(DB, #{})),
     StartTime = 0,
+    TopicFilter = ['#'],
     Msgs = [
         message(<<"foo/bar">>, <<"1">>, 0),
         message(<<"foo">>, <<"2">>, 1),
         message(<<"bar/bar">>, <<"3">>, 2)
     ],
     ?assertMatch(ok, emqx_ds:store_batch(DB, Msgs)),
-    [{_, Stream}] = emqx_ds:get_streams(DB, ['#'], StartTime),
-    {ok, Iter0} = emqx_ds:make_iterator(Stream, StartTime),
+    [{_, Stream}] = emqx_ds:get_streams(DB, TopicFilter, StartTime),
+    {ok, Iter0} = emqx_ds:make_iterator(Stream, TopicFilter, StartTime),
     {ok, Iter, Batch} = iterate(Iter0, 1),
     ?assertEqual(Msgs, Batch, {Iter0, Iter}).
 
@@ -74,6 +76,7 @@ t_03_smoke_iterate(_Config) ->
 t_04_restart(_Config) ->
     DB = ?FUNCTION_NAME,
     ?assertMatch(ok, emqx_ds:open_db(DB, #{})),
+    TopicFilter = ['#'],
     StartTime = 0,
     Msgs = [
         message(<<"foo/bar">>, <<"1">>, 0),
@@ -81,8 +84,8 @@ t_04_restart(_Config) ->
         message(<<"bar/bar">>, <<"3">>, 2)
     ],
     ?assertMatch(ok, emqx_ds:store_batch(DB, Msgs)),
-    [{_, Stream}] = emqx_ds:get_streams(DB, ['#'], StartTime),
-    {ok, Iter0} = emqx_ds:make_iterator(Stream, StartTime),
+    [{_, Stream}] = emqx_ds:get_streams(DB, TopicFilter, StartTime),
+    {ok, Iter0} = emqx_ds:make_iterator(Stream, TopicFilter, StartTime),
     %% Restart the application:
     ?tp(warning, emqx_ds_SUITE_restart_app, #{}),
     ok = application:stop(emqx_durable_storage),

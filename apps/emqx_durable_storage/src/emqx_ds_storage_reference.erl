@@ -27,7 +27,7 @@
 -export([]).
 
 %% behavior callbacks:
--export([create/4, open/5, store_batch/4, get_streams/4, make_iterator/4, next/4]).
+-export([create/4, open/5, store_batch/4, get_streams/4, make_iterator/5, next/4]).
 
 %% internal exports:
 -export([]).
@@ -49,7 +49,7 @@
     cf :: rocksdb:cf_handle()
 }).
 
--record(stream, {topic_filter :: emqx_ds:topic_filter()}).
+-record(stream, {}).
 
 -record(it, {
     topic_filter :: emqx_ds:topic_filter(),
@@ -86,10 +86,10 @@ store_batch(_ShardId, #s{db = DB, cf = CF}, Messages, _Options) ->
         Messages
     ).
 
-get_streams(_Shard, _Data, TopicFilter, _StartTime) ->
-    [#stream{topic_filter = TopicFilter}].
+get_streams(_Shard, _Data, _TopicFilter, _StartTime) ->
+    [#stream{}].
 
-make_iterator(_Shard, _Data, #stream{topic_filter = TopicFilter}, StartTime) ->
+make_iterator(_Shard, _Data, #stream{}, TopicFilter, StartTime) ->
     {ok, #it{
         topic_filter = TopicFilter,
         start_time = StartTime

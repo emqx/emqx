@@ -334,29 +334,30 @@ extract_inv(Dest, #scan_action{
 ones(Bits) ->
     1 bsl Bits - 1.
 
-%% Create a bitmask that is sufficient to cover a given number. E.g.:
-%%
-%% 2#1000 -> 2#1111; 2#0 -> 2#0; 2#10101 -> 2#11111
-bitmask_of(N) ->
-    %% FIXME: avoid floats
-    NBits = ceil(math:log2(N + 1)),
-    ones(NBits).
-
 %%================================================================================
 %% Unit tests
 %%================================================================================
 
 -ifdef(TEST).
 
-bitmask_of_test() ->
-    ?assertEqual(2#0, bitmask_of(0)),
-    ?assertEqual(2#1, bitmask_of(1)),
-    ?assertEqual(2#11, bitmask_of(2#10)),
-    ?assertEqual(2#11, bitmask_of(2#11)),
-    ?assertEqual(2#1111, bitmask_of(2#1000)),
-    ?assertEqual(2#1111, bitmask_of(2#1111)),
-    ?assertEqual(ones(128), bitmask_of(ones(128))),
-    ?assertEqual(ones(256), bitmask_of(ones(256))).
+%% %% Create a bitmask that is sufficient to cover a given number. E.g.:
+%% %%
+%% %% 2#1000 -> 2#1111; 2#0 -> 2#0; 2#10101 -> 2#11111
+%% bitmask_of(N) ->
+%%     %% FIXME: avoid floats
+%%     NBits = ceil(math:log2(N + 1)),
+%%     ones(NBits).
+
+
+%% bitmask_of_test() ->
+%%     ?assertEqual(2#0, bitmask_of(0)),
+%%     ?assertEqual(2#1, bitmask_of(1)),
+%%     ?assertEqual(2#11, bitmask_of(2#10)),
+%%     ?assertEqual(2#11, bitmask_of(2#11)),
+%%     ?assertEqual(2#1111, bitmask_of(2#1000)),
+%%     ?assertEqual(2#1111, bitmask_of(2#1111)),
+%%     ?assertEqual(ones(128), bitmask_of(ones(128))),
+%%     ?assertEqual(ones(256), bitmask_of(ones(256))).
 
 make_keymapper0_test() ->
     Schema = [],

@@ -28,7 +28,7 @@
 -export([store_batch/2, store_batch/3]).
 
 %% Message replay API:
--export([get_streams/3, make_iterator/2, next/2]).
+-export([get_streams/3, make_iterator/3, next/2]).
 
 %% Misc. API:
 -export([]).
@@ -159,9 +159,9 @@ store_batch(DB, Msgs) ->
 get_streams(DB, TopicFilter, StartTime) ->
     emqx_ds_replication_layer:get_streams(DB, TopicFilter, StartTime).
 
--spec make_iterator(stream(), time()) -> make_iterator_result().
-make_iterator(Stream, StartTime) ->
-    emqx_ds_replication_layer:make_iterator(Stream, StartTime).
+-spec make_iterator(stream(), topic_filter(), time()) -> make_iterator_result().
+make_iterator(Stream, TopicFilter, StartTime) ->
+    emqx_ds_replication_layer:make_iterator(Stream, TopicFilter, StartTime).
 
 -spec next(iterator(), pos_integer()) -> next_result().
 next(Iter, BatchSize) ->

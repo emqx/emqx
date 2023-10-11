@@ -19,7 +19,7 @@
 
 -include_lib("emqx/include/bpapi.hrl").
 %% API:
--export([open_shard/3, drop_shard/2, get_streams/4, make_iterator/4, next/4]).
+-export([open_shard/3, drop_shard/2, get_streams/4, make_iterator/5, next/4]).
 
 %% behavior callbacks:
 -export([introduced_in/0]).
@@ -45,10 +45,10 @@ drop_shard(Node, Shard) ->
 get_streams(Node, Shard, TopicFilter, Time) ->
     erpc:call(Node, emqx_ds_replication_layer, do_get_streams_v1, [Shard, TopicFilter, Time]).
 
--spec make_iterator(node(), emqx_ds_replication_layer:shard(), _Stream, emqx_ds:time()) ->
+-spec make_iterator(node(), emqx_ds_replication_layer:shard(), _Stream, emqx_ds:topic_filter(), emqx_ds:time()) ->
     {ok, emqx_ds_replication_layer:iterator()} | {error, _}.
-make_iterator(Node, Shard, Stream, StartTime) ->
-    erpc:call(Node, emqx_ds_replication_layer, do_make_iterator_v1, [Shard, Stream, StartTime]).
+make_iterator(Node, Shard, Stream, TopicFilter, StartTime) ->
+    erpc:call(Node, emqx_ds_replication_layer, do_make_iterator_v1, [Shard, Stream, TopicFilter, StartTime]).
 
 -spec next(
     node(), emqx_ds_replication_layer:shard(), emqx_ds_replication_layer:iterator(), pos_integer()

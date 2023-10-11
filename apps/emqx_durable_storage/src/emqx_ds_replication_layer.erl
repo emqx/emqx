@@ -21,7 +21,7 @@
     drop_db/1,
     store_batch/3,
     get_streams/3,
-    make_iterator/2,
+    make_iterator/3,
     next/2
 ]).
 
@@ -30,7 +30,7 @@
     do_open_shard_v1/2,
     do_drop_shard_v1/1,
     do_get_streams_v1/3,
-    do_make_iterator_v1/3,
+    do_make_iterator_v1/4,
     do_next_v1/3
 ]).
 
@@ -132,11 +132,11 @@ get_streams(DB, TopicFilter, StartTime) ->
         Shards
     ).
 
--spec make_iterator(stream(), emqx_ds:time()) -> emqx_ds:make_iterator_result(iterator()).
-make_iterator(Stream, StartTime) ->
+-spec make_iterator(stream(), emqx_ds:topic_filter(), emqx_ds:time()) -> emqx_ds:make_iterator_result(iterator()).
+make_iterator(Stream, TopicFilter, StartTime) ->
     #stream{shard = Shard, enc = StorageStream} = Stream,
     Node = node_of_shard(Shard),
-    case emqx_ds_proto_v1:make_iterator(Node, Shard, StorageStream, StartTime) of
+    case emqx_ds_proto_v1:make_iterator(Node, Shard, StorageStream, TopicFilter, StartTime) of
         {ok, Iter} ->
             {ok, #iterator{shard = Shard, enc = Iter}};
         Err = {error, _} ->
@@ -184,9 +184,9 @@ do_drop_shard_v1(Shard) ->
 do_get_streams_v1(Shard, TopicFilter, StartTime) ->
     emqx_ds_storage_layer:get_streams(Shard, TopicFilter, StartTime).
 
--spec do_make_iterator_v1(shard_id(), _Stream, emqx_ds:time()) -> {ok, iterator()} | {error, _}.
-do_make_iterator_v1(Shard, Stream, StartTime) ->
-    emqx_ds_storage_layer:make_iterator(Shard, Stream, StartTime).
+-spec do_make_iterator_v1(shard_id(), _Stream, emqx_ds:topic_filter(), emqx_ds:time()) -> {ok, iterator()} | {error, _}.
+do_make_iterator_v1(Shard, Stream, TopicFilter, StartTime) ->
+    emqx_ds_storage_layer:make_iterator(Shard, Stream, TopicFilter, StartTime).
 
 -spec do_next_v1(shard_id(), Iter, pos_integer()) -> emqx_ds:next_result(Iter).
 do_next_v1(Shard, Iter, BatchSize) ->
