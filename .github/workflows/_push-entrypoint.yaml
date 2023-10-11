@@ -149,7 +149,7 @@ jobs:
           ENABLE_COVER_COMPILE: 1
         run: |
           make $PROFILE
-          zip -ryq $PROFILE.zip .
+          zip -ryq -x@.github/workflows/.zipignore $PROFILE.zip .
       - uses: actions/upload-artifact@v3
         with:
           name: ${{ matrix.profile }}
