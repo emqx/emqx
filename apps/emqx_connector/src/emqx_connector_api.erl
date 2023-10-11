@@ -744,7 +744,7 @@ do_bpapi_call(Node, Call, Args) ->
 do_bpapi_call_vsn(SupportedVersion, Call, Args) ->
     case lists:member(SupportedVersion, supported_versions(Call)) of
         true ->
-            apply(emqx_connector_proto_v4, Call, Args);
+            apply(emqx_connector_proto_v1, Call, Args);
         false ->
             {error, not_implemented}
     end.
@@ -754,9 +754,7 @@ maybe_unwrap({error, not_implemented}) ->
 maybe_unwrap(RpcMulticallResult) ->
     emqx_rpc:unwrap_erpc(RpcMulticallResult).
 
-supported_versions(start_connector_to_node) -> [2, 3, 4];
-supported_versions(start_connectors_to_all_nodes) -> [2, 3, 4];
-supported_versions(_Call) -> [1, 2, 3, 4].
+supported_versions(_Call) -> [1].
 
 redact(Term) ->
     emqx_utils:redact(Term).
