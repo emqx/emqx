@@ -212,9 +212,16 @@ fail_when_ssl_error(Socket, Timeout) ->
         ok
     end.
 
-%% @doc fail the test if no ssl_error recvd
-fail_when_no_ssl_alert(Socket, Alert) ->
-    fail_when_no_ssl_alert(Socket, Alert, 1000).
+%% @doc fail the test if no ssl_error
+fail_when_no_ssl_alert(Res, Alert) ->
+    fail_when_no_ssl_alert(Res, Alert, 1000).
+
+fail_when_no_ssl_alert({error, {tls_alert, {Alert, _}}}, Alert, _Timeout) ->
+    ok;
+fail_when_no_ssl_alert({error, _} = Other, Alert, _Timeout) ->
+    ct:fail("returned unexpected ssl_error: ~p, expected ~n", [Other, Alert]);
+fail_when_no_ssl_alert({ok, Socket}, Alert, Timeout) ->
+    fail_when_no_ssl_alert(Socket, Alert, Timeout);
 fail_when_no_ssl_alert(Socket, Alert, Timeout) ->
     receive
         {ssl_error, Socket, {tls_alert, {Alert, AlertInfo}}} ->

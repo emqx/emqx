@@ -205,17 +205,18 @@ t_conn_fail_with_server_partial_chain(Config) ->
         ]}
     ],
     emqx_start_listener(?FUNCTION_NAME, ssl, Port, Options),
-    {ok, Socket} = ssl:connect(
+    Res = ssl:connect(
         {127, 0, 0, 1},
         Port,
         [
             {keyfile, filename:join(DataDir, "client2.key")},
-            {certfile, filename:join(DataDir, "client2-complete-bundle.pem")}
+            {certfile, filename:join(DataDir, "client2-complete-bundle.pem")},
+            {versions, ['tlsv1.2']},
+            {verify, verify_none}
         ],
         1000
     ),
-    fail_when_no_ssl_alert(Socket, unknown_ca),
-    ok = ssl:close(Socket).
+    fail_when_no_ssl_alert(Res, unknown_ca).
 
 t_conn_fail_without_root_cacert(Config) ->
     Port = emqx_test_tls_certs_helper:select_free_port(ssl),
@@ -229,17 +230,18 @@ t_conn_fail_without_root_cacert(Config) ->
         ]}
     ],
     emqx_start_listener(?FUNCTION_NAME, ssl, Port, Options),
-    {ok, Socket} = ssl:connect(
+    Res = ssl:connect(
         {127, 0, 0, 1},
         Port,
         [
             {keyfile, filename:join(DataDir, "client2.key")},
-            {certfile, filename:join(DataDir, "client2-intermediate2-bundle.pem")}
+            {certfile, filename:join(DataDir, "client2-intermediate2-bundle.pem")},
+            %% stick to tlsv1.2 for consistent error message
+            {versions, ['tlsv1.2']}
         ],
         1000
     ),
-    fail_when_no_ssl_alert(Socket, unknown_ca),
-    ok = ssl:close(Socket).
+    fail_when_no_ssl_alert(Res, unknown_ca).
 
 ssl_config_verify_peer() ->
     [
