@@ -95,8 +95,7 @@
     emqx,
     emqx_authn,
     emqx_management,
-    {emqx_connector, "connectors {}"},
-    emqx_bridge_kafka
+    {emqx_connector, "connectors {}"}
 ]).
 
 -define(APPSPEC_DASHBOARD,
@@ -114,8 +113,7 @@ all() ->
 groups() ->
     AllTCs = emqx_common_test_helpers:all(?MODULE),
     SingleOnlyTests = [
-        t_http_crud_apis
-        %t_bridges_probe
+        t_connector_lifecycle
     ],
     ClusterLaterJoinOnlyTCs = [
         % t_cluster_later_join_metrics
@@ -174,11 +172,14 @@ end_per_group(_, Config) ->
     emqx_cth_suite:stop(?config(group_apps, Config)),
     ok.
 
-end_per_testcase(_, Config) ->
+init_per_testcase(TestCase, Config) ->
+    ?MODULE:TestCase({init, Config}).
+
+end_per_testcase(TestCase, Config) ->
     Node = ?config(node, Config),
     ok = emqx_common_test_helpers:call_janitor(),
     ok = erpc:call(Node, fun clear_resources/0),
-    ok.
+    ?MODULE:TestCase({'end', Config}).
 
 clear_resources() ->
     lists:foreach(
@@ -195,7 +196,21 @@ clear_resources() ->
 %% We have to pretend testing a kafka connector since at this point that's the
 %% only one that's implemented.
 
-t_http_crud_apis(Config) ->
+-define(CONNECTOR_IMPL, dummy_connector_impl).
+t_connector_lifecycle({init, Config}) ->
+    meck:new(emqx_connector_ee_schema, [passthrough]),
+    meck:expect(emqx_connector_ee_schema, resource_type, 1, ?CONNECTOR_IMPL),
+    meck:new(?CONNECTOR_IMPL, [non_strict]),
+    meck:expect(?CONNECTOR_IMPL, callback_mode, 0, async_if_possible),
+    meck:expect(?CONNECTOR_IMPL, on_start, 2, {ok, connector_state}),
+    meck:expect(?CONNECTOR_IMPL, on_stop, 2, ok),
+    meck:expect(?CONNECTOR_IMPL, on_get_status, 2, connected),
+    [{mocked_mods, [?CONNECTOR_IMPL, emqx_connector_ee_schema]} | Config];
+t_connector_lifecycle({'end', Config}) ->
+    MockedMods = ?config(mocked_mods, Config),
+    meck:unload(MockedMods),
+    Config;
+t_connector_lifecycle(Config) ->
     %% assert we there's no bridges at first
     {ok, 200, []} = request_json(get, uri(["connectors"]), Config),
 
