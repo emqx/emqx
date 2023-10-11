@@ -51,6 +51,24 @@ setup_config(BaseConfig, SpecialParams) ->
         {error, Reason} -> {error, Reason}
     end.
 
+register_fake_sources(SourceTypes) ->
+    lists:foreach(
+        fun(Type) ->
+            emqx_authz_source_registry:register(Type, emqx_authz_fake_source)
+        end,
+        SourceTypes
+    ).
+
+deregister_sources() ->
+    {BuiltInTypes, _} = lists:unzip(?BUILTIN_SOURCES),
+    SourceTypes = emqx_authz_source_registry:get(),
+    lists:foreach(
+        fun(Type) ->
+            emqx_authz_source_registry:register(Type, emqx_authz_fake_source)
+        end,
+        SourceTypes -- BuiltInTypes
+    ).
+
 %%--------------------------------------------------------------------
 %% Table-based test helpers
 %%--------------------------------------------------------------------

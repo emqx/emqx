@@ -163,3 +163,8 @@
 
 -define(DEFAULT_RULE_QOS, [0, 1, 2]).
 -define(DEFAULT_RULE_RETAIN, all).
+
+-define(BUILTIN_SOURCES, [
+    {client_info, emqx_authz_client_info},
+    {file, emqx_authz_file}
+]).

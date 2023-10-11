@@ -26,6 +26,7 @@
 -include_lib("emqx/include/logger.hrl").
 -include_lib("emqx/include/emqx_hooks.hrl").
 -include_lib("stdlib/include/ms_transform.hrl").
+-include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
 -define(CONF_ROOT, ?EMQX_AUTHENTICATION_CONFIG_ROOT_NAME_ATOM).
 
@@ -446,7 +447,7 @@ handle_continue(initialize_authentication, #{init_done := true} = State) ->
     {noreply, State};
 handle_continue(initialize_authentication, #{providers := Providers} = State) ->
     InitDone = initialize_authentication(Providers),
-    {noreply, State#{init_done := InitDone}}.
+    {noreply, maybe_hook(State#{init_done := InitDone})}.
 
 handle_cast(Req, State) ->
     ?SLOG(error, #{msg => "unexpected_cast", cast => Req}),
@@ -495,6 +496,7 @@ do_initialize_authentication(Providers, Chains, _HasProviders = true) ->
         Chains
     ),
     ok = unhook_deny(),
+    ?tp(info, authn_chains_initialization_done, #{}),
     true.
 
 initialize_chain_authentication(_Providers, _ChainName, []) ->
