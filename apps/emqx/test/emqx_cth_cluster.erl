@@ -95,7 +95,18 @@
 
     % Tooling to manage nodes
     % Default: `ct_slave`.
-    driver => ct_slave | slave
+    driver => ct_slave | slave,
+
+    % Library path to start the node with
+    % See `ERL_LIBS` in `erl(1)` for details
+    % Default: none
+    erl_libs_path => string() | [file:name()],
+
+    % List of directories or modules to have in the code path on the node
+    % Default:
+    % * if `erl_libs_path` is defined: this module
+    % * otherwise: code path of the current node w/o common system and build tooling stuff
+    erl_code_path => [module() | file:name()]
 }}.
 
 -spec start([nodespec()], ClusterOpts) ->
@@ -287,7 +298,11 @@ start_node_init(Spec = #{name := Node}) ->
     % Make it possible to call `ct:pal` and friends (if running under rebar3)
     _ = share_load_module(Node, cthr),
     % Enable snabbkaffe trace forwarding
-    ok = snabbkaffe:forward_trace(Node),
+    try
+        snabbkaffe:forward_trace(Node)
+    catch
+        error:_ -> ct:pal(error, "Snabbkaffe traces forwarding unavailable")
+    end,
     ok.
 
 run_node_phase_cluster(Spec = #{name := Node}) ->
@@ -400,13 +415,15 @@ start_bare_node(Name, Spec = #{driver := ct_slave}) ->
             {monitor_master, true},
             {init_timeout, 20_000},
             {startup_timeout, 20_000},
-            {erl_flags, erl_flags()},
-            {env, []}
+            {erl_flags, erl_args(Spec)},
+            {env, erl_envs(Spec)}
         ]
     ),
     init_bare_node(Node, Spec);
 start_bare_node(Name, Spec = #{driver := slave}) ->
-    {ok, Node} = slave:start_link(host(), Name, ebin_path()),
+    Env = [string:join(["-env", N, V], " ") || {N, V} <- erl_envs(Spec)],
+    Args = string:join(Env ++ erl_code_path_args(Spec), " "),
+    {ok, Node} = slave:start_link(host(), Name, Args),
     init_bare_node(Node, Spec).
 
 init_bare_node(Node, Spec) ->
@@ -415,12 +432,41 @@ init_bare_node(Node, Spec) ->
     ok = set_node_opts(Node, Spec),
     Node.
 
-erl_flags() ->
+erl_args(Spec) ->
     %% One core and redirecting logs to master
-    "+S 1:1 -master " ++ atom_to_list(node()) ++ " " ++ ebin_path().
+    string:join(
+        [
+            "+S 1:1",
+            "-master " ++ atom_to_list(node())
+            | erl_code_path_args(Spec)
+        ],
+        " "
+    ).
 
-ebin_path() ->
-    string:join(["-pa" | lists:filter(fun is_lib/1, code:get_path())], " ").
+erl_envs(#{erl_libs_path := Dirs = [Dir | _]}) when is_list(Dir) ->
+    [{"ERL_LIBS", string:join(Dirs, ":")}];
+erl_envs(#{erl_libs_path := Path}) when is_list(Path) ->
+    [{"ERL_LIBS", Path}];
+erl_envs(#{}) ->
+    [].
+
+erl_code_path_args(#{} = Spec) ->
+    erl_code_path_args(get_code_path(Spec));
+erl_code_path_args(Path = [_ | _]) ->
+    ["-pa" | Path];
+erl_code_path_args([]) ->
+    [].
+
+get_code_path(#{erl_libs_path := LPath} = Spec) when is_list(LPath) ->
+    CPath = maps:get(erl_code_path, Spec, []),
+    lists:usort([expand_code_path(X) || X <- [?MODULE | CPath]]);
+get_code_path(#{}) ->
+    lists:filter(fun is_lib/1, code:get_path()).
+
+expand_code_path(Dir) when is_list(Dir) ->
+    Dir;
+expand_code_path(Module) when is_atom(Module) ->
+    filename:dirname(code:which(Module)).
 
 is_lib(Path) ->
     string:prefix(Path, code:lib_dir()) =:= nomatch andalso
