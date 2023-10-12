@@ -8,10 +8,9 @@
 -define(RED, "\e[31m").
 -define(RESET, "\e[39m").
 
-main([Files0]) ->
+main(Files) ->
     io:format(user, "checking i18n file styles~n", []),
     _ = put(errors, 0),
-    Files = string:tokens(Files0, "\n"),
     ok = load_hocon(),
     ok = lists:foreach(fun check/1, Files),
     case get(errors) of
