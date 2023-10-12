@@ -90,7 +90,7 @@ error_schema(Codes, Message) when is_list(Codes) andalso is_binary(Message) ->
 
 get_response_body_schema() ->
     emqx_dashboard_swagger:schema_with_examples(
-        emqx_bridge_schema:get_response(),
+        emqx_connector_schema:get_response(),
         connector_info_examples(get)
     ).
 
