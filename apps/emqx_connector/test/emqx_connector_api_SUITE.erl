@@ -179,7 +179,7 @@ init_per_testcase(_TestCase, Config) ->
         undefined ->
             init_mocks();
         Nodes ->
-            [erpc:call(Node, ?MODULE, inject_mocks, []) || Node <- Nodes]
+            [erpc:call(Node, ?MODULE, init_mocks, []) || Node <- Nodes]
     end,
     Config.
 
@@ -195,34 +195,11 @@ end_per_testcase(_TestCase, Config) ->
     ok = erpc:call(Node, fun clear_resources/0),
     ok.
 
-loop(Mocks) ->
-    receive
-        {get_mocks, Pid} ->
-            Pid ! {mocks, Mocks},
-            loop(Mocks);
-        stop_mocks ->
-            meck:unload()
-    end.
-
-inject_mocks() ->
-    Pid = spawn(fun() ->
-        Mocks = ?MODULE:init_mocks(),
-        loop(Mocks)
-    end),
-    %% make sure mocks are ready before we leave
-    Pid ! {get_mocks, self()},
-    receive
-        {mocks, _Mocks} ->
-            %% ct:pal("received mocks! ~p", [_Mocks]),
-            ok
-    end,
-    Pid.
-
 -define(CONNECTOR_IMPL, dummy_connector_impl).
 init_mocks() ->
-    meck:new(emqx_connector_ee_schema, [passthrough]),
+    meck:new(emqx_connector_ee_schema, [passthrough, no_link]),
     meck:expect(emqx_connector_ee_schema, resource_type, 1, ?CONNECTOR_IMPL),
-    meck:new(?CONNECTOR_IMPL, [non_strict]),
+    meck:new(?CONNECTOR_IMPL, [non_strict, no_link]),
     meck:expect(?CONNECTOR_IMPL, callback_mode, 0, async_if_possible),
     meck:expect(
         ?CONNECTOR_IMPL,
