@@ -552,6 +552,8 @@ group_trace_files(TraceLog, TraceFiles) ->
                 empty;
             ({ok, _Node, _Bin}) ->
                 nonempty;
+            ({error, _Node, enoent}) ->
+                empty;
             ({error, Node, Reason}) ->
                 ?SLOG(error, #{
                     msg => "download_trace_log_error",
