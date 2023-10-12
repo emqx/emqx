@@ -17,6 +17,9 @@ on:
         required: true
         type: string
 
+permissions:
+  contents: read
+
 jobs:
   helm_test:
     runs-on: ${{ fromJSON(inputs.runner_labels) }}

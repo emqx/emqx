@@ -10,6 +10,9 @@ on:
         required: true
         type: string
 
+permissions:
+  contents: read
+
 jobs:
   check_deps_integrity:
     runs-on: ${{ fromJSON(inputs.runner_labels) }}

@@ -20,6 +20,9 @@ on:
 env:
   IS_CI: "yes"
 
+permissions:
+  contents: read
+
 jobs:
   static_checks:
     runs-on: ${{ fromJSON(inputs.runner_labels) }}

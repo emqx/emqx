@@ -14,6 +14,9 @@ on:
         required: true
         type: string
 
+permissions:
+  contents: read
+
 jobs:
   relup_test_plan:
     runs-on: ["${{ inputs.runner }}", 'linux', 'x64', 'ephemeral']

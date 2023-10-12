@@ -8,6 +8,9 @@ on:
     - cron: "0 * * * *"
   workflow_dispatch:
 
+permissions:
+  contents: read
+
 jobs:
   stale:
     if: github.repository_owner == 'emqx'
