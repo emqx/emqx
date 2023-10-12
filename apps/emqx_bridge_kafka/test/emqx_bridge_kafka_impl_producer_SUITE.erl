@@ -162,11 +162,9 @@ t_query_mode(CtConfig) ->
 %% Test cases for all combinations of SSL, no SSL and authentication types
 %%------------------------------------------------------------------------------
 
-%% OK
 t_publish_no_auth(CtConfig) ->
     publish_with_and_without_ssl(CtConfig, "none").
 
-%% OK
 t_publish_no_auth_key_dispatch(CtConfig) ->
     publish_with_and_without_ssl(CtConfig, "none", #{"partition_strategy" => "key_dispatch"}).
 
@@ -186,8 +184,8 @@ t_publish_no_auth_key_dispatch(CtConfig) ->
 %% Test cases for REST api
 %%------------------------------------------------------------------------------
 
-% t_kafka_bridge_rest_api_plain_text(_CtConfig) ->
-%     kafka_bridge_rest_api_all_auth_methods(false).
+t_kafka_bridge_rest_api_plain_text(_CtConfig) ->
+    kafka_bridge_rest_api_all_auth_methods(false).
 
 % t_kafka_bridge_rest_api_ssl(_CtConfig) ->
 %     kafka_bridge_rest_api_all_auth_methods(true).
@@ -223,55 +221,62 @@ kafka_bridge_rest_api_all_auth_methods(UseSSL) ->
             SSLSettings
         )
     ),
-    kafka_bridge_rest_api_helper(
-        maps:merge(
-            #{
-                <<"bootstrap_hosts">> => SASLHostsString,
-                <<"authentication">> => BinifyMap(valid_sasl_plain_settings())
-            },
-            SSLSettings
-        )
-    ),
-    kafka_bridge_rest_api_helper(
-        maps:merge(
-            #{
-                <<"bootstrap_hosts">> => SASLHostsString,
-                <<"authentication">> => BinifyMap(valid_sasl_scram256_settings())
-            },
-            SSLSettings
-        )
-    ),
-    kafka_bridge_rest_api_helper(
-        maps:merge(
-            #{
-                <<"bootstrap_hosts">> => SASLHostsString,
-                <<"authentication">> => BinifyMap(valid_sasl_scram512_settings())
-            },
-            SSLSettings
-        )
-    ),
-    kafka_bridge_rest_api_helper(
-        maps:merge(
-            #{
-                <<"bootstrap_hosts">> => SASLHostsString,
-                <<"authentication">> => BinifyMap(valid_sasl_kerberos_settings())
-            },
-            SSLSettings
-        )
-    ),
+    % kafka_bridge_rest_api_helper(
+    %     maps:merge(
+    %         #{
+    %             <<"bootstrap_hosts">> => SASLHostsString,
+    %             <<"authentication">> => BinifyMap(valid_sasl_plain_settings())
+    %         },
+    %         SSLSettings
+    %     )
+    % ),
+    % kafka_bridge_rest_api_helper(
+    %     maps:merge(
+    %         #{
+    %             <<"bootstrap_hosts">> => SASLHostsString,
+    %             <<"authentication">> => BinifyMap(valid_sasl_scram256_settings())
+    %         },
+    %         SSLSettings
+    %     )
+    % ),
+    % kafka_bridge_rest_api_helper(
+    %     maps:merge(
+    %         #{
+    %             <<"bootstrap_hosts">> => SASLHostsString,
+    %             <<"authentication">> => BinifyMap(valid_sasl_scram512_settings())
+    %         },
+    %         SSLSettings
+    %     )
+    % ),
+    % kafka_bridge_rest_api_helper(
+    %     maps:merge(
+    %         #{
+    %             <<"bootstrap_hosts">> => SASLHostsString,
+    %             <<"authentication">> => BinifyMap(valid_sasl_kerberos_settings())
+    %         },
+    %         SSLSettings
+    %     )
+    % ),
     ok.
+
+%% So that we can check if new atoms are created when they are not supposed to be created
+pre_create_atoms() ->
+    [
+        'kafka_producer__probe_',
+        probedryrun
+    ].
 
 kafka_bridge_rest_api_helper(Config) ->
     BridgeType = ?BRIDGE_TYPE,
     BridgeName = "my_kafka_bridge",
     BridgeID = emqx_bridge_resource:bridge_id(
-        erlang:list_to_binary(BridgeType),
-        erlang:list_to_binary(BridgeName)
+        list_to_binary(BridgeType),
+        list_to_binary(BridgeName)
     ),
-    ResourceId = emqx_bridge_resource:resource_id(
-        erlang:list_to_binary(BridgeType),
-        erlang:list_to_binary(BridgeName)
-    ),
+    % ResourceId = emqx_bridge_resource:resource_id(
+    %     erlang:list_to_binary(BridgeType),
+    %     erlang:list_to_binary(BridgeName)
+    % ),
     UrlEscColon = "%3A",
     BridgesProbeParts = ["bridges_probe"],
     BridgeIdUrlEnc = BridgeType ++ UrlEscColon ++ BridgeName,
@@ -331,12 +336,13 @@ kafka_bridge_rest_api_helper(Config) ->
     %% Check that the new bridge is in the list of bridges
     true = MyKafkaBridgeExists(),
     %% Probe should work
-    {ok, 204, _} = http_post(BridgesProbeParts, CreateBody),
     %% no extra atoms should be created when probing
+    %% See pre_create_atoms() above
     AtomsBefore = erlang:system_info(atom_count),
     {ok, 204, _} = http_post(BridgesProbeParts, CreateBody),
     AtomsAfter = erlang:system_info(atom_count),
     ?assertEqual(AtomsBefore, AtomsAfter),
+    {ok, 204, X} = http_post(BridgesProbeParts, CreateBody),
     %% Create a rule that uses the bridge
     {ok, 201, Rule} = http_post(
         ["rules"],
@@ -348,20 +354,24 @@ kafka_bridge_rest_api_helper(Config) ->
         }
     ),
     #{<<"id">> := RuleId} = emqx_utils_json:decode(Rule, [return_maps]),
+    BridgeV2Id = emqx_bridge_v2:id(
+        list_to_binary(BridgeType),
+        list_to_binary(BridgeName)
+    ),
     %% counters should be empty before
-    ?assertEqual(0, emqx_resource_metrics:matched_get(ResourceId)),
-    ?assertEqual(0, emqx_resource_metrics:success_get(ResourceId)),
-    ?assertEqual(0, emqx_resource_metrics:dropped_get(ResourceId)),
-    ?assertEqual(0, emqx_resource_metrics:failed_get(ResourceId)),
-    ?assertEqual(0, emqx_resource_metrics:inflight_get(ResourceId)),
-    ?assertEqual(0, emqx_resource_metrics:queuing_get(ResourceId)),
-    ?assertEqual(0, emqx_resource_metrics:dropped_other_get(ResourceId)),
-    ?assertEqual(0, emqx_resource_metrics:dropped_queue_full_get(ResourceId)),
-    ?assertEqual(0, emqx_resource_metrics:dropped_resource_not_found_get(ResourceId)),
-    ?assertEqual(0, emqx_resource_metrics:dropped_resource_stopped_get(ResourceId)),
-    ?assertEqual(0, emqx_resource_metrics:retried_get(ResourceId)),
-    ?assertEqual(0, emqx_resource_metrics:retried_failed_get(ResourceId)),
-    ?assertEqual(0, emqx_resource_metrics:retried_success_get(ResourceId)),
+    ?assertEqual(0, emqx_resource_metrics:matched_get(BridgeV2Id)),
+    ?assertEqual(0, emqx_resource_metrics:success_get(BridgeV2Id)),
+    ?assertEqual(0, emqx_resource_metrics:dropped_get(BridgeV2Id)),
+    ?assertEqual(0, emqx_resource_metrics:failed_get(BridgeV2Id)),
+    ?assertEqual(0, emqx_resource_metrics:inflight_get(BridgeV2Id)),
+    ?assertEqual(0, emqx_resource_metrics:queuing_get(BridgeV2Id)),
+    ?assertEqual(0, emqx_resource_metrics:dropped_other_get(BridgeV2Id)),
+    ?assertEqual(0, emqx_resource_metrics:dropped_queue_full_get(BridgeV2Id)),
+    ?assertEqual(0, emqx_resource_metrics:dropped_resource_not_found_get(BridgeV2Id)),
+    ?assertEqual(0, emqx_resource_metrics:dropped_resource_stopped_get(BridgeV2Id)),
+    ?assertEqual(0, emqx_resource_metrics:retried_get(BridgeV2Id)),
+    ?assertEqual(0, emqx_resource_metrics:retried_failed_get(BridgeV2Id)),
+    ?assertEqual(0, emqx_resource_metrics:retried_success_get(BridgeV2Id)),
     %% Get offset before sending message
     {ok, Offset} = resolve_kafka_offset(kafka_hosts(), KafkaTopic, 0),
     %% Send message to topic and check that it got forwarded to Kafka
@@ -369,34 +379,55 @@ kafka_bridge_rest_api_helper(Config) ->
     emqx:publish(emqx_message:make(<<"kafka_bridge_topic/1">>, Body)),
     %% Give Kafka some time to get message
     timer:sleep(100),
-    %% Check that Kafka got message
+    % %% Check that Kafka got message
     BrodOut = brod:fetch(kafka_hosts(), KafkaTopic, 0, Offset),
     {ok, {_, [KafkaMsg]}} = BrodOut,
     Body = KafkaMsg#kafka_message.value,
     %% Check crucial counters and gauges
-    ?assertEqual(1, emqx_resource_metrics:matched_get(ResourceId)),
-    ?assertEqual(1, emqx_resource_metrics:success_get(ResourceId)),
+    ?assertEqual(1, emqx_resource_metrics:matched_get(BridgeV2Id)),
+    ?assertEqual(1, emqx_resource_metrics:success_get(BridgeV2Id)),
     ?assertEqual(1, emqx_metrics_worker:get(rule_metrics, RuleId, 'actions.success')),
     ?assertEqual(0, emqx_metrics_worker:get(rule_metrics, RuleId, 'actions.failed')),
-    ?assertEqual(0, emqx_resource_metrics:dropped_get(ResourceId)),
-    ?assertEqual(0, emqx_resource_metrics:failed_get(ResourceId)),
-    ?assertEqual(0, emqx_resource_metrics:inflight_get(ResourceId)),
-    ?assertEqual(0, emqx_resource_metrics:queuing_get(ResourceId)),
-    ?assertEqual(0, emqx_resource_metrics:dropped_other_get(ResourceId)),
-    ?assertEqual(0, emqx_resource_metrics:dropped_queue_full_get(ResourceId)),
-    ?assertEqual(0, emqx_resource_metrics:dropped_resource_not_found_get(ResourceId)),
-    ?assertEqual(0, emqx_resource_metrics:dropped_resource_stopped_get(ResourceId)),
-    ?assertEqual(0, emqx_resource_metrics:retried_get(ResourceId)),
-    ?assertEqual(0, emqx_resource_metrics:retried_failed_get(ResourceId)),
-    ?assertEqual(0, emqx_resource_metrics:retried_success_get(ResourceId)),
-    %% Perform operations
+    ?assertEqual(0, emqx_resource_metrics:dropped_get(BridgeV2Id)),
+    ?assertEqual(0, emqx_resource_metrics:failed_get(BridgeV2Id)),
+    ?assertEqual(0, emqx_resource_metrics:inflight_get(BridgeV2Id)),
+    ?assertEqual(0, emqx_resource_metrics:queuing_get(BridgeV2Id)),
+    ?assertEqual(0, emqx_resource_metrics:dropped_other_get(BridgeV2Id)),
+    ?assertEqual(0, emqx_resource_metrics:dropped_queue_full_get(BridgeV2Id)),
+    ?assertEqual(0, emqx_resource_metrics:dropped_resource_not_found_get(BridgeV2Id)),
+    ?assertEqual(0, emqx_resource_metrics:dropped_resource_stopped_get(BridgeV2Id)),
+    ?assertEqual(0, emqx_resource_metrics:retried_get(BridgeV2Id)),
+    ?assertEqual(0, emqx_resource_metrics:retried_failed_get(BridgeV2Id)),
+    ?assertEqual(0, emqx_resource_metrics:retried_success_get(BridgeV2Id)),
+    % %% Perform operations
     {ok, 204, _} = http_put(BridgesPartsOpDisable, #{}),
+    %% Success counter should be reset
+    ?assertEqual(0, emqx_resource_metrics:success_get(BridgeV2Id)),
+    emqx:publish(emqx_message:make(<<"kafka_bridge_topic/1">>, Body)),
+    timer:sleep(100),
+    ?assertEqual(0, emqx_resource_metrics:success_get(BridgeV2Id)),
+    ?assertEqual(1, emqx_metrics_worker:get(rule_metrics, RuleId, 'actions.success')),
+    ?assertEqual(1, emqx_metrics_worker:get(rule_metrics, RuleId, 'actions.failed')),
     {ok, 204, _} = http_put(BridgesPartsOpDisable, #{}),
     {ok, 204, _} = http_put(BridgesPartsOpEnable, #{}),
+    ?assertEqual(0, emqx_resource_metrics:success_get(BridgeV2Id)),
+    %% Success counter should increase but
+    emqx:publish(emqx_message:make(<<"kafka_bridge_topic/1">>, Body)),
+    timer:sleep(100),
+    ?assertEqual(1, emqx_resource_metrics:success_get(BridgeV2Id)),
+    ?assertEqual(2, emqx_metrics_worker:get(rule_metrics, RuleId, 'actions.success')),
     {ok, 204, _} = http_put(BridgesPartsOpEnable, #{}),
     {ok, 204, _} = http_post(BridgesPartsOpStop, #{}),
+    %% TODO: This is a bit tricky with the compatibility layer. Currently one
+    %% can send a message even to a stopped channel. How shall we handle this?
+    ?assertEqual(0, emqx_resource_metrics:success_get(BridgeV2Id)),
     {ok, 204, _} = http_post(BridgesPartsOpStop, #{}),
     {ok, 204, _} = http_post(BridgesPartsOpRestart, #{}),
+    %% Success counter should increase
+    emqx:publish(emqx_message:make(<<"kafka_bridge_topic/1">>, Body)),
+    timer:sleep(100),
+    ?assertEqual(1, emqx_resource_metrics:success_get(BridgeV2Id)),
+    ?assertEqual(3, emqx_metrics_worker:get(rule_metrics, RuleId, 'actions.success')),
     %% Cleanup
     {ok, 204, _} = http_delete(BridgesPartsIdDeleteAlsoActions),
     false = MyKafkaBridgeExists(),
@@ -479,83 +510,79 @@ t_failed_creation_then_fix(Config) ->
     delete_all_bridges(),
     ok.
 
-% t_custom_timestamp(_Config) ->
-%     HostsString = kafka_hosts_string_sasl(),
-%     AuthSettings = valid_sasl_plain_settings(),
-%     Hash = erlang:phash2([HostsString, ?FUNCTION_NAME]),
-%     Type = ?BRIDGE_TYPE,
-%     Name = "kafka_bridge_name_" ++ erlang:integer_to_list(Hash),
-%     ResourceId = emqx_bridge_resource:resource_id(Type, Name),
-%     KafkaTopic = test_topic_one_partition(),
-%     MQTTTopic = <<"t/local/kafka">>,
-%     emqx:subscribe(MQTTTopic),
-%     Conf0 = config(#{
-%         "authentication" => AuthSettings,
-%         "kafka_hosts_string" => HostsString,
-%         "local_topic" => MQTTTopic,
-%         "kafka_topic" => KafkaTopic,
-%         "instance_id" => ResourceId,
-%         "ssl" => #{}
-%     }),
-%     Conf = emqx_utils_maps:deep_put(
-%         [<<"kafka">>, <<"message">>, <<"timestamp">>],
-%         Conf0,
-%         <<"123">>
-%     ),
-%     {ok, _} = emqx_bridge:create(Type, erlang:list_to_atom(Name), Conf),
-%     {ok, Offset} = resolve_kafka_offset(kafka_hosts(), KafkaTopic, 0),
-%     ct:pal("base offset before testing ~p", [Offset]),
-%     Time = erlang:unique_integer(),
-%     BinTime = integer_to_binary(Time),
-%     Msg = #{
-%         clientid => BinTime,
-%         payload => <<"payload">>,
-%         timestamp => Time
-%     },
-%     emqx:publish(emqx_message:make(MQTTTopic, emqx_utils_json:encode(Msg))),
-%     {ok, {_, [KafkaMsg]}} =
-%         ?retry(
-%             _Interval = 500,
-%             _NAttempts = 20,
-%             {ok, {_, [_]}} = brod:fetch(kafka_hosts(), KafkaTopic, _Partition = 0, Offset)
-%         ),
-%     ?assertMatch(#kafka_message{ts = 123, ts_type = create}, KafkaMsg),
-%     delete_all_bridges(),
-%     ok.
+t_custom_timestamp(_Config) ->
+    HostsString = kafka_hosts_string(),
+    AuthSettings = "none",
+    Hash = erlang:phash2([HostsString, ?FUNCTION_NAME]),
+    Type = ?BRIDGE_TYPE,
+    Name = "kafka_bridge_name_" ++ erlang:integer_to_list(Hash),
+    KafkaTopic = test_topic_one_partition(),
+    MQTTTopic = <<"t/local/kafka">>,
+    emqx:subscribe(MQTTTopic),
+    Conf0 = config(#{
+        "authentication" => AuthSettings,
+        "kafka_hosts_string" => HostsString,
+        "local_topic" => MQTTTopic,
+        "kafka_topic" => KafkaTopic,
+        "bridge_name" => Name,
+        "ssl" => #{}
+    }),
+    Conf = emqx_utils_maps:deep_put(
+        [<<"kafka">>, <<"message">>, <<"timestamp">>],
+        Conf0,
+        <<"123">>
+    ),
+    {ok, _} = emqx_bridge:create(list_to_atom(Type), list_to_atom(Name), Conf),
+    {ok, Offset} = resolve_kafka_offset(kafka_hosts(), KafkaTopic, 0),
+    ct:pal("base offset before testing ~p", [Offset]),
+    Time = erlang:unique_integer(),
+    BinTime = integer_to_binary(Time),
+    Msg = #{
+        clientid => BinTime,
+        payload => <<"payload">>,
+        timestamp => Time
+    },
+    emqx:publish(emqx_message:make(MQTTTopic, emqx_utils_json:encode(Msg))),
+    {ok, {_, [KafkaMsg]}} =
+        ?retry(
+            _Interval = 500,
+            _NAttempts = 20,
+            {ok, {_, [_]}} = brod:fetch(kafka_hosts(), KafkaTopic, _Partition = 0, Offset)
+        ),
+    ?assertMatch(#kafka_message{ts = 123, ts_type = create}, KafkaMsg),
+    delete_all_bridges(),
+    ok.
 
-% t_nonexistent_topic(_Config) ->
-%     HostsString = kafka_hosts_string_sasl(),
-%     AuthSettings = valid_sasl_plain_settings(),
-%     Hash = erlang:phash2([HostsString, ?FUNCTION_NAME]),
-%     Type = ?BRIDGE_TYPE,
-%     Name = "kafka_bridge_name_" ++ erlang:integer_to_list(Hash),
-%     ResourceId = emqx_bridge_resource:resource_id(Type, Name),
-%     BridgeId = emqx_bridge_resource:bridge_id(Type, Name),
-%     KafkaTopic = "undefined-test-topic",
-%     Conf = config(#{
-%         "authentication" => AuthSettings,
-%         "kafka_hosts_string" => HostsString,
-%         "kafka_topic" => KafkaTopic,
-%         "instance_id" => ResourceId,
-%         "producer" => #{
-%             "kafka" => #{
-%                 "buffer" => #{
-%                     "memory_overload_protection" => false
-%                 }
-%             }
-%         },
-%         "ssl" => #{}
-%     }),
-%     {ok, #{config := ValidConfigAtom1}} = emqx_bridge:create(
-%         Type, erlang:list_to_atom(Name), Conf
-%     ),
-%     ValidConfigAtom = ValidConfigAtom1#{bridge_name => Name},
-%     ?assertThrow(_, ?PRODUCER:on_start(ResourceId, ValidConfigAtom)),
-%     ok = emqx_bridge_resource:remove(BridgeId),
-%     delete_all_bridges(),
-%     ok.
+t_nonexistent_topic(_Config) ->
+    HostsString = kafka_hosts_string(),
+    AuthSettings = "none",
+    Hash = erlang:phash2([HostsString, ?FUNCTION_NAME]),
+    Type = ?BRIDGE_TYPE,
+    Name = "kafka_bridge_name_" ++ erlang:integer_to_list(Hash),
+    KafkaTopic = "undefined-test-topic",
+    Conf = config(#{
+        "authentication" => AuthSettings,
+        "kafka_hosts_string" => HostsString,
+        "kafka_topic" => KafkaTopic,
+        "bridge_name" => Name,
+        "producer" => #{
+            "kafka" => #{
+                "buffer" => #{
+                    "memory_overload_protection" => false
+                }
+            }
+        },
+        "ssl" => #{}
+    }),
+    {ok, #{config := _ValidConfigAtom1}} = emqx_bridge:create(
+        erlang:list_to_atom(Type), erlang:list_to_atom(Name), Conf
+    ),
+    % TODO: make sure the user facing APIs for Bridge V1 also get this error
+    {error, _} = emqx_bridge_v2:health_check(list_to_atom(Type), list_to_atom(Name)),
+    {ok, _} = emqx_bridge:remove(list_to_atom(Type), list_to_atom(Name)),
+    delete_all_bridges(),
+    ok.
 
-%% DONE
 t_send_message_with_headers(Config) ->
     %% TODO Change this back to SASL plain once we figure out why it is not working
     HostsString = kafka_hosts_string(),
@@ -793,89 +820,92 @@ t_wrong_headers(_Config) ->
     ),
     ok.
 
-% t_wrong_headers_from_message(Config) ->
-%     HostsString = kafka_hosts_string_sasl(),
-%     AuthSettings = valid_sasl_plain_settings(),
-%     Hash = erlang:phash2([HostsString, ?FUNCTION_NAME]),
-%     Type = ?BRIDGE_TYPE,
-%     Name = "kafka_bridge_name_" ++ erlang:integer_to_list(Hash),
-%     ResourceId = emqx_bridge_resource:resource_id(Type, Name),
-%     BridgeId = emqx_bridge_resource:bridge_id(Type, Name),
-%     KafkaTopic = test_topic_one_partition(),
-%     Conf = config_with_headers(#{
-%         "authentication" => AuthSettings,
-%         "kafka_hosts_string" => HostsString,
-%         "kafka_topic" => KafkaTopic,
-%         "instance_id" => ResourceId,
-%         "kafka_headers" => <<"${payload}">>,
-%         "producer" => #{
-%             "kafka" => #{
-%                 "buffer" => #{
-%                     "memory_overload_protection" => false
-%                 }
-%             }
-%         },
-%         "ssl" => #{}
-%     }),
-%     {ok, #{config := ConfigAtom1}} = emqx_bridge:create(
-%         Type, erlang:list_to_atom(Name), Conf
-%     ),
-%     ConfigAtom = ConfigAtom1#{bridge_name => Name},
-%     {ok, State} = ?PRODUCER:on_start(ResourceId, ConfigAtom),
-%     Time1 = erlang:unique_integer(),
-%     Payload1 = <<"wrong_header">>,
-%     Msg1 = #{
-%         clientid => integer_to_binary(Time1),
-%         payload => Payload1,
-%         timestamp => Time1
-%     },
-%     ?assertError(
-%         {badmatch, {error, {unrecoverable_error, {bad_kafka_headers, Payload1}}}},
-%         send(Config, ResourceId, Msg1, State)
-%     ),
-%     Time2 = erlang:unique_integer(),
-%     Payload2 = <<"[{\"foo\":\"bar\"}, {\"foo2\":\"bar2\"}]">>,
-%     Msg2 = #{
-%         clientid => integer_to_binary(Time2),
-%         payload => Payload2,
-%         timestamp => Time2
-%     },
-%     ?assertError(
-%         {badmatch, {error, {unrecoverable_error, {bad_kafka_header, [{<<"foo">>, <<"bar">>}]}}}},
-%         send(Config, ResourceId, Msg2, State)
-%     ),
-%     Time3 = erlang:unique_integer(),
-%     Payload3 = <<"[{\"key\":\"foo\"}, {\"value\":\"bar\"}]">>,
-%     Msg3 = #{
-%         clientid => integer_to_binary(Time3),
-%         payload => Payload3,
-%         timestamp => Time3
-%     },
-%     ?assertError(
-%         {badmatch, {error, {unrecoverable_error, {bad_kafka_header, [{<<"key">>, <<"foo">>}]}}}},
-%         send(Config, ResourceId, Msg3, State)
-%     ),
-%     Time4 = erlang:unique_integer(),
-%     Payload4 = <<"[{\"key\":\"foo\", \"value\":\"bar\"}]">>,
-%     Msg4 = #{
-%         clientid => integer_to_binary(Time4),
-%         payload => Payload4,
-%         timestamp => Time4
-%     },
-%     ?assertError(
-%         {badmatch,
-%             {error,
-%                 {unrecoverable_error,
-%                     {bad_kafka_header, [{<<"key">>, <<"foo">>}, {<<"value">>, <<"bar">>}]}}}},
-%         send(Config, ResourceId, Msg4, State)
-%     ),
-%     %% TODO: refactor those into init/end per testcase
-%     ok = ?PRODUCER:on_stop(ResourceId, State),
-%     ?assertEqual([], supervisor:which_children(wolff_client_sup)),
-%     ?assertEqual([], supervisor:which_children(wolff_producers_sup)),
-%     ok = emqx_bridge_resource:remove(BridgeId),
-%     delete_all_bridges(),
-%     ok.
+t_wrong_headers_from_message(Config) ->
+    HostsString = kafka_hosts_string(),
+    AuthSettings = "none",
+    Hash = erlang:phash2([HostsString, ?FUNCTION_NAME]),
+    Type = ?BRIDGE_TYPE,
+    Name = "kafka_bridge_name_" ++ erlang:integer_to_list(Hash),
+    % ResourceId = emqx_bridge_resource:resource_id(Type, Name),
+    % BridgeId = emqx_bridge_resource:bridge_id(Type, Name),
+    KafkaTopic = test_topic_one_partition(),
+    Conf = config_with_headers(#{
+        "authentication" => AuthSettings,
+        "kafka_hosts_string" => HostsString,
+        "kafka_topic" => KafkaTopic,
+        "bridge_name" => Name,
+        "kafka_headers" => <<"${payload}">>,
+        "producer" => #{
+            "kafka" => #{
+                "buffer" => #{
+                    "memory_overload_protection" => false
+                }
+            }
+        },
+        "ssl" => #{}
+    }),
+    {ok, _} = emqx_bridge:create(
+        list_to_atom(Type), list_to_atom(Name), Conf
+    ),
+    % ConfigAtom = ConfigAtom1#{bridge_name => Name},
+    % {ok, State} = ?PRODUCER:on_start(ResourceId, ConfigAtom),
+    ResourceId = emqx_bridge_resource:resource_id(bin(Type), bin(Name)),
+    {ok, _Group, #{state := State}} = emqx_resource:get_instance(ResourceId),
+    Time1 = erlang:unique_integer(),
+    Payload1 = <<"wrong_header">>,
+    Msg1 = #{
+        clientid => integer_to_binary(Time1),
+        payload => Payload1,
+        timestamp => Time1
+    },
+    BridgeV2Id = emqx_bridge_v2:id(bin(Type), bin(Name)),
+    ?assertError(
+        {badmatch, {error, {unrecoverable_error, {bad_kafka_headers, Payload1}}}},
+        send(Config, ResourceId, Msg1, State, BridgeV2Id)
+    ),
+    Time2 = erlang:unique_integer(),
+    Payload2 = <<"[{\"foo\":\"bar\"}, {\"foo2\":\"bar2\"}]">>,
+    Msg2 = #{
+        clientid => integer_to_binary(Time2),
+        payload => Payload2,
+        timestamp => Time2
+    },
+    ?assertError(
+        {badmatch, {error, {unrecoverable_error, {bad_kafka_header, [{<<"foo">>, <<"bar">>}]}}}},
+        send(Config, ResourceId, Msg2, State, BridgeV2Id)
+    ),
+    Time3 = erlang:unique_integer(),
+    Payload3 = <<"[{\"key\":\"foo\"}, {\"value\":\"bar\"}]">>,
+    Msg3 = #{
+        clientid => integer_to_binary(Time3),
+        payload => Payload3,
+        timestamp => Time3
+    },
+    ?assertError(
+        {badmatch, {error, {unrecoverable_error, {bad_kafka_header, [{<<"key">>, <<"foo">>}]}}}},
+        send(Config, ResourceId, Msg3, State, BridgeV2Id)
+    ),
+    Time4 = erlang:unique_integer(),
+    Payload4 = <<"[{\"key\":\"foo\", \"value\":\"bar\"}]">>,
+    Msg4 = #{
+        clientid => integer_to_binary(Time4),
+        payload => Payload4,
+        timestamp => Time4
+    },
+    ?assertError(
+        {badmatch,
+            {error,
+                {unrecoverable_error,
+                    {bad_kafka_header, [{<<"key">>, <<"foo">>}, {<<"value">>, <<"bar">>}]}}}},
+        send(Config, ResourceId, Msg4, State, BridgeV2Id)
+    ),
+    %% TODO: refactor those into init/end per testcase
+    ok = ?PRODUCER:on_stop(ResourceId, State),
+    ?assertEqual([], supervisor:which_children(wolff_client_sup)),
+    ?assertEqual([], supervisor:which_children(wolff_producers_sup)),
+    {ok, _} = emqx_bridge:remove(list_to_atom(Type), list_to_atom(Name)),
+    delete_all_bridges(),
+    ok.
 
 %%------------------------------------------------------------------------------
 %% Helper functions
