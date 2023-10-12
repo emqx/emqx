@@ -5,12 +5,30 @@
 
 -if(?EMQX_RELEASE_EDITION == ee).
 
--include_lib("hocon/include/hoconsc.hrl").
 -import(hoconsc, [mk/2, enum/1, ref/2]).
 
 -export([
+    api_schemas/1,
+    examples/1,
     fields/1
 ]).
+
+examples(Method) ->
+    MergeFun =
+        fun(Example, Examples) ->
+            maps:merge(Examples, Example)
+        end,
+    Fun =
+        fun(Module, Examples) ->
+            ConnectorExamples = erlang:apply(Module, bridge_v2_examples, [Method]),
+            lists:foldl(MergeFun, Examples, ConnectorExamples)
+        end,
+    lists:foldl(Fun, #{}, schema_modules()).
+
+schema_modules() ->
+    [
+        emqx_bridge_kafka
+    ].
 
 fields(bridges_v2) ->
     kafka_structs().
@@ -26,6 +44,18 @@ kafka_structs() ->
                 }
             )}
     ].
+
+api_schemas(Method) ->
+    [
+        %% We need to map the `type' field of a request (binary) to a
+        %% connector schema module.
+        %% TODO: rename this to `kafka_producer' after alias support is added
+        %% to hocon; keeping this as just `kafka' for backwards compatibility.
+        api_ref(emqx_bridge_kafka, <<"kafka">>, Method ++ "_bridge_v2")
+    ].
+
+api_ref(Module, Type, Method) ->
+    {Type, ref(Module, Method)}.
 
 -else.
 
