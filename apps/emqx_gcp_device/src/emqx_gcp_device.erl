@@ -8,7 +8,10 @@
 -include_lib("emqx/include/logger.hrl").
 -include_lib("stdlib/include/ms_transform.hrl").
 
--define(AUTHN_SHARD, ?MODULE).
+%% NOTE
+%% We share the shard with `emqx_auth_mnesia` to ensure backward compatibility
+%% with EMQX 5.2.x and earlier.
+-define(AUTHN_SHARD, emqx_authn_shard).
 
 %% Management
 -export([put_device/1, get_device/1, remove_device/1]).
