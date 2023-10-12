@@ -43,7 +43,6 @@ jobs:
           key: rebar3-dialyzer-plt-${{ matrix.profile }}-${{ matrix.otp }}-${{ hashFiles('rebar.*', 'apps/*/rebar.*', 'lib-ee/*/rebar.*') }}
           restore-keys: |
             rebar3-dialyzer-plt-${{ matrix.profile }}-${{ matrix.otp }}-
+      - run: cat .env | tee -a $GITHUB_ENV
       - name: run static checks
-        env:
-          PROFILE: ${{ matrix.profile }}
         run: make static_checks

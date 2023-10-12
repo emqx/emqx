@@ -13,20 +13,11 @@ on:
       builder:
         required: true
         type: string
-      version-emqx:
-        required: false
-        type: string
-      version-emqx-enterprise:
-        required: false
-        type: string
 
 jobs:
   run_conf_tests:
     runs-on: ${{ fromJSON(inputs.runner_labels) }}
     container: ${{ inputs.builder }}
-    env:
-      PROFILE: ${{ matrix.profile }}
-      PKG_VSN: ${{ startsWith(matrix.profile, 'emqx-enterprise') && inputs.version-emqx-enterprise || inputs.version-emqx }}
     strategy:
       fail-fast: false
       matrix:
@@ -41,6 +32,7 @@ jobs:
         run: |
           unzip -o -q ${{ matrix.profile }}.zip
           git config --global --add safe.directory "$GITHUB_WORKSPACE"
+      - run: cat .env | tee -a $GITHUB_ENV
       - run: make ${{ matrix.profile }}
       - run: ./scripts/test/check-example-configs.sh
       - run: ./scripts/conf-test/run.sh

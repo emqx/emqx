@@ -139,6 +139,8 @@ jobs:
         run: |
           make ensure-rebar3
           make ${PROFILE}-compile test-compile
+          echo "PROFILE=${PROFILE}" | tee -a .env
+          echo "PKG_VSN=$(./pkg-vsn.sh ${PROFILE})" | tee -a .env
           zip -ryq -x@.github/workflows/.zipignore $PROFILE.zip .
       - uses: actions/upload-artifact@v3
         with:
@@ -217,8 +219,6 @@ jobs:
     with:
       runner_labels: ${{ needs.sanity-checks.outputs.runner_labels }}
       builder: ${{ needs.sanity-checks.outputs.builder }}
-      version-emqx: ${{ needs.sanity-checks.outputs.version-emqx }}
-      version-emqx-enterprise: ${{ needs.sanity-checks.outputs.version-emqx-enterprise }}
 
   check_deps_integrity:
     needs:
