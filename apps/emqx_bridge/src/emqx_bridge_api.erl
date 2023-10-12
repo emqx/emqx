@@ -542,7 +542,8 @@ schema("/bridges_probe") ->
     case emqx_dashboard_swagger:filter_check_request_and_translate_body(Request, RequestMeta) of
         {ok, #{body := #{<<"type">> := ConnType} = Params}} ->
             Params1 = maybe_deobfuscate_bridge_probe(Params),
-            case emqx_bridge_resource:create_dry_run(ConnType, maps:remove(<<"type">>, Params1)) of
+            Params2 = maps:remove(<<"type">>, Params1),
+            case emqx_bridge_resource:create_dry_run(ConnType, Params2) of
                 ok ->
                     ?NO_CONTENT;
                 {error, #{kind := validation_error} = Reason0} ->

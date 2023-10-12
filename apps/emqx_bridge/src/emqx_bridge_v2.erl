@@ -70,7 +70,8 @@
     send_message/4,
     start/2,
     stop/2,
-    restart/2
+    restart/2,
+    reset_metrics/2
 ]).
 
 %% Config Update Handler API
@@ -188,6 +189,19 @@ send_message(BridgeType, BridgeName, Message, QueryOpts0) ->
             Error
     end.
 
+do_send_msg_with_enabled_config(
+    BridgeType, BridgeName, Message, QueryOpts0, Config
+) ->
+    QueryMode = get_query_mode(BridgeType, Config),
+    QueryOpts = maps:merge(
+        emqx_bridge:query_opts(Config),
+        QueryOpts0#{
+            query_mode => QueryMode
+        }
+    ),
+    BridgeV2Id = emqx_bridge_v2:id(BridgeType, BridgeName),
+    emqx_resource:query(BridgeV2Id, {BridgeV2Id, Message}, QueryOpts).
+
 health_check(BridgeType, BridgeName) ->
     case lookup_raw_conf(BridgeType, BridgeName) of
         #{
@@ -219,10 +233,10 @@ restart(Type, Name) ->
     stop(Type, Name),
     start(Type, Name).
 
-%% TODO: The following functions just restart the bridge_v2 as a temporary solution.
+%% TODO: it is not clear what these operations should do
 
 stop(Type, Name) ->
-    %% Stop means that we should remove the channel from the connector and reset the metrrics
+    %% Stop means that we should remove the channel from the connector and reset the metrics
     %% The emqx_resource_buffer_worker is not stopped
     stop_helper(Type, Name, lookup_raw_conf(Type, Name)).
 
@@ -230,7 +244,7 @@ stop_helper(_Type, _Name, #{enable := false}) ->
     ok;
 stop_helper(BridgeV2Type, BridgeName, #{connector := ConnectorName}) ->
     BridgeV2Id = id(BridgeV2Type, BridgeName, ConnectorName),
-    ok = emqx_resource:clear_metrics(BridgeV2Id),
+    ok = emqx_metrics_worker:reset_metrics(?RES_METRICS, BridgeV2Id),
     ConnectorId = emqx_connector_resource:resource_id(
         bridge_v2_type_to_connector_type(BridgeV2Type), ConnectorName
     ),
@@ -242,59 +256,22 @@ start(Type, Name) ->
 
 start_helper(_Type, _Name, #{enable := false}) ->
     ok;
-start_helper(BridgeV2Type, BridgeName, #{connector := ConnectorName}) ->
+start_helper(BridgeV2Type, BridgeName, #{connector := ConnectorName} = Config) ->
     BridgeV2Id = id(BridgeV2Type, BridgeName, ConnectorName),
     %% Deinstall from connector
     ConnectorId = emqx_connector_resource:resource_id(
         bridge_v2_type_to_connector_type(BridgeV2Type), ConnectorName
     ),
-    emqx_resource_manager:add_channel(ConnectorId, BridgeV2Id, #{connector => ConnectorName}).
+    emqx_resource_manager:add_channel(ConnectorId, BridgeV2Id, Config).
 
-% do_send_msg_with_enabled_config(BridgeType, BridgeName, Message, QueryOpts0, Config) ->
-%     BridgeV2Id = emqx_bridge_v2:id(BridgeType, BridgeName),
-%     ConnectorResourceId = emqx_bridge_v2:extract_connector_id_from_bridge_v2_id(BridgeV2Id),
-%     try
-%         case emqx_resource_manager:maybe_install_bridge_v2(ConnectorResourceId, BridgeV2Id) of
-%             ok ->
-%                 do_send_msg_after_bridge_v2_installed(
-%                   BridgeType,
-%                   BridgeName,
-%                   BridgeV2Id,
-%                   Message,
-%                   QueryOpts0,
-%                   Config
-%                  );
-%             InstallError ->
-%                 throw(InstallError)
-%         end
-%     catch
-%         Error:Reason:Stack ->
-%             Msg = iolist_to_binary(
-%                 io_lib:format(
-%                     "Failed to install bridge_v2 ~p in connector ~p: ~p",
-%                     [BridgeV2Id, ConnectorResourceId, Reason]
-%                 )
-%             ),
-%             ?SLOG(error, #{
-%                 msg => Msg,
-%                 error => Error,
-%                 reason => Reason,
-%                 stacktrace => Stack
-%             })
-%     end.
+reset_metrics(Type, Name) ->
+    reset_metrics_helper(Type, Name, lookup_raw_conf(Type, Name)).
 
-do_send_msg_with_enabled_config(
-    BridgeType, BridgeName, Message, QueryOpts0, Config
-) ->
-    QueryMode = get_query_mode(BridgeType, Config),
-    QueryOpts = maps:merge(
-        emqx_bridge:query_opts(Config),
-        QueryOpts0#{
-            query_mode => QueryMode
-        }
-    ),
-    BridgeV2Id = emqx_bridge_v2:id(BridgeType, BridgeName),
-    emqx_resource:query(BridgeV2Id, {BridgeV2Id, Message}, QueryOpts).
+reset_metrics_helper(_Type, _Name, #{enable := false}) ->
+    ok;
+reset_metrics_helper(BridgeV2Type, BridgeName, #{connector := ConnectorName}) ->
+    BridgeV2Id = id(BridgeV2Type, BridgeName, ConnectorName),
+    ok = emqx_metrics_worker:reset_metrics(?RES_METRICS, BridgeV2Id).
 
 parse_id(Id) ->
     case binary:split(Id, <<":">>, [global]) of
@@ -401,7 +378,7 @@ lookup(Id) ->
 lookup(Type, Name) ->
     case emqx:get_raw_config([?ROOT_KEY, Type, Name], not_found) of
         not_found ->
-            {error, bridge_not_found};
+            {error, not_found};
         #{<<"connector">> := BridgeConnector} = RawConf ->
             ConnectorId = emqx_connector_resource:resource_id(
                 bridge_v2_type_to_connector_type(Type), BridgeConnector
@@ -605,19 +582,37 @@ split_and_validate_bridge_v1_config(BridgeType, BridgeName, RawConf) ->
     end.
 
 bridge_v1_create_dry_run(BridgeType, RawConfig0) ->
-    RawConf = maps:without(<<"name">>, RawConfig0),
+    RawConf = maps:without([<<"name">>], RawConfig0),
     TmpName = iolist_to_binary([?TEST_ID_PREFIX, emqx_utils:gen_id(8)]),
     #{
-        connector_type := _ConnectorType,
+        connector_type := ConnectorType,
         connector_name := _NewConnectorName,
-        connector_conf := _NewConnectorRawConf,
-        bridge_v2_type := _BridgeType,
-        bridge_v2_name := _BridgeName,
-        bridge_v2_conf := _NewBridgeV2RawConf
-    } =
-        split_and_validate_bridge_v1_config(BridgeType, TmpName, RawConf),
-    % TODO once we have implemented the dry-run for channels we should use it here
-    ok.
+        connector_conf := ConnectorRawConf,
+        bridge_v2_type := BridgeType,
+        bridge_v2_name := BridgeName,
+        bridge_v2_conf := BridgeV2RawConf
+    } = split_and_validate_bridge_v1_config(BridgeType, TmpName, RawConf),
+    OnReadyCallback =
+        fun(ConnectorId) ->
+            {_, ConnectorName} = emqx_connector_resource:parse_connector_id(ConnectorId),
+            ChannelTestId = id(BridgeType, BridgeName, ConnectorName),
+            BridgeV2Conf = emqx_utils_maps:unsafe_atom_key_map(BridgeV2RawConf),
+            case emqx_resource_manager:add_channel(ConnectorId, ChannelTestId, BridgeV2Conf) of
+                {error, Reason} ->
+                    {error, Reason};
+                ok ->
+                    HealthCheckResult = emqx_resource_manager:channel_health_check(
+                        ConnectorId, ChannelTestId
+                    ),
+                    case HealthCheckResult of
+                        {error, Reason} ->
+                            {error, Reason};
+                        _ ->
+                            ok
+                    end
+            end
+        end,
+    emqx_connector_resource:create_dry_run(ConnectorType, ConnectorRawConf, OnReadyCallback).
 
 %% NOTE: This function can cause broken references but it is only called from
 %% test cases.

@@ -27,6 +27,7 @@
     remove/1,
     create_dry_run/2,
     create_dry_run/3,
+    create_dry_run/4,
     restart/2,
     start/2,
     stop/1,
@@ -163,6 +164,16 @@ create_dry_run(ResourceType, Config) ->
     create_dry_run(ResId, ResourceType, Config).
 
 create_dry_run(ResId, ResourceType, Config) ->
+    create_dry_run(ResId, ResourceType, Config, fun do_nothing_on_ready/1).
+
+do_nothing_on_ready(_ResId) ->
+    ok.
+
+-spec create_dry_run(resource_id(), resource_type(), resource_config(), OnReadyCallback) ->
+    ok | {error, Reason :: term()}
+when
+    OnReadyCallback :: fun((resource_id()) -> ok | {error, Reason :: term()}).
+create_dry_run(ResId, ResourceType, Config, OnReadyCallback) ->
     Opts =
         case is_map(Config) of
             true -> maps:get(resource_opts, Config, #{});
@@ -173,7 +184,19 @@ create_dry_run(ResId, ResourceType, Config) ->
     Timeout = emqx_utils:clamp(HealthCheckInterval, 5_000, 60_000),
     case wait_for_ready(ResId, Timeout) of
         ok ->
-            remove(ResId);
+            CallbackResult =
+                try
+                    OnReadyCallback(ResId)
+                catch
+                    _:CallbackReason ->
+                        {error, CallbackReason}
+                end,
+            case remove(ResId) of
+                ok ->
+                    CallbackResult;
+                {error, _} = Error ->
+                    Error
+            end;
         {error, Reason} ->
             _ = remove(ResId),
             {error, Reason};

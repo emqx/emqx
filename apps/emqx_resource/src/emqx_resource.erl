@@ -51,6 +51,7 @@
     create_dry_run/2,
     create_dry_run_local/2,
     create_dry_run_local/3,
+    create_dry_run_local/4,
     %% this will do create_dry_run, stop the old instance and start a new one
     recreate/3,
     recreate/4,
@@ -295,6 +296,13 @@ create_dry_run_local(ResourceType, Config) ->
 
 create_dry_run_local(ResId, ResourceType, Config) ->
     emqx_resource_manager:create_dry_run(ResId, ResourceType, Config).
+
+-spec create_dry_run_local(resource_id(), resource_type(), resource_config(), OnReadyCallback) ->
+    ok | {error, Reason :: term()}
+when
+    OnReadyCallback :: fun((resource_id()) -> ok | {error, Reason :: term()}).
+create_dry_run_local(ResId, ResourceType, Config, OnReadyCallback) ->
+    emqx_resource_manager:create_dry_run(ResId, ResourceType, Config, OnReadyCallback).
 
 -spec recreate(resource_id(), resource_type(), resource_config()) ->
     {ok, resource_data()} | {error, Reason :: term()}.

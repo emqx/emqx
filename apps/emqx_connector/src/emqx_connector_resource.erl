@@ -34,6 +34,7 @@
     create/3,
     create/4,
     create_dry_run/2,
+    create_dry_run/3,
     recreate/2,
     recreate/3,
     remove/1,
@@ -240,11 +241,15 @@ recreate(Type, Name, Conf, Opts) ->
         parse_opts(Conf, Opts)
     ).
 
-create_dry_run(Type, Conf0) ->
+create_dry_run(Type, Conf) ->
+    create_dry_run(Type, Conf, fun(_) -> ok end).
+
+create_dry_run(Type, Conf0, Callback) ->
     %% Already typechecked, no need to catch errors
     TypeBin = bin(Type),
     TypeAtom = safe_atom(Type),
-    TmpName = iolist_to_binary([?TEST_ID_PREFIX, TypeBin, ":", emqx_utils:gen_id(8)]),
+    %% We use a fixed name here to avoid createing an atom
+    TmpName = iolist_to_binary([?TEST_ID_PREFIX, TypeBin, ":", <<"probedryrun">>]),
     TmpPath = emqx_utils:safe_filename(TmpName),
     Conf1 = maps:without([<<"name">>], Conf0),
     RawConf = #{<<"connectors">> => #{TypeBin => #{<<"temp_name">> => Conf1}}},
@@ -261,7 +266,7 @@ create_dry_run(Type, Conf0) ->
             {ok, ConfNew} ->
                 ParseConf = parse_confs(bin(Type), TmpName, ConfNew),
                 emqx_resource:create_dry_run_local(
-                    TmpName, connector_to_resource_type(Type), ParseConf
+                    TmpName, connector_to_resource_type(Type), ParseConf, Callback
                 )
         end
     catch
