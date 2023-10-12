@@ -8,6 +8,9 @@ on:
     - cron: "0 * * * *"
   workflow_dispatch:
 
+permissions:
+  contents: read
+
 jobs:
   rerun-failed-jobs:
     if: github.repository_owner == 'emqx'

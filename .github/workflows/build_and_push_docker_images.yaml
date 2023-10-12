@@ -75,6 +75,9 @@ on:
         type: string
         default: '["self-hosted","ephemeral", "linux"]'
 
+permissions:
+  contents: read
+
 jobs:
   docker:
     runs-on: ${{ fromJSON(inputs.runner_labels) }}

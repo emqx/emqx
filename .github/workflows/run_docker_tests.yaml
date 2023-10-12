@@ -17,6 +17,9 @@ on:
         required: true
         type: string
 
+permissions:
+  contents: read
+
 jobs:
   basic-tests:
     runs-on: ${{ fromJSON(inputs.runner_labels) }}

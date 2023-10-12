@@ -23,6 +23,9 @@ on:
         required: true
         type: string
 
+permissions:
+  contents: read
+
 jobs:
   docker:
     runs-on: ${{ fromJSON(inputs.runner_labels) }}
