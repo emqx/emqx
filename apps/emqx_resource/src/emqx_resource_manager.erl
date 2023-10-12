@@ -69,8 +69,8 @@
     state,
     error,
     pid,
-    extra,
-    added_channels
+    added_channels,
+    extra
 }).
 -type data() :: #data{}.
 
