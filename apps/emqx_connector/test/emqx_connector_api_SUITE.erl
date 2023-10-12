@@ -517,44 +517,42 @@ do_start_stop_connectors(TestType, Config) ->
     ok = gen_tcp:close(Sock),
     ok.
 
-%% t_start_stop_inconsistent_bridge_node(Config) ->
-%%     start_stop_inconsistent_bridge(node, Config).
+t_start_stop_inconsistent_connector_node(Config) ->
+    start_stop_inconsistent_connector(node, Config).
 
-%% t_start_stop_inconsistent_bridge_cluster(Config) ->
-%%     start_stop_inconsistent_bridge(cluster, Config).
+t_start_stop_inconsistent_connector_cluster(Config) ->
+    start_stop_inconsistent_connector(cluster, Config).
 
-%% start_stop_inconsistent_bridge(Type, Config) ->
-%%     Port = ?config(port, Config),
-%%     URL = ?URL(Port, "abc"),
-%%     Node = ?config(node, Config),
+start_stop_inconsistent_connector(Type, Config) ->
+    Node = ?config(node, Config),
 
-%%     erpc:call(Node, fun() ->
-%%         meck:new(emqx_bridge_resource, [passthrough, no_link]),
-%%         meck:expect(
-%%             emqx_bridge_resource,
-%%             stop,
-%%             fun
-%%                 (_, <<"bridge_not_found">>) -> {error, not_found};
-%%                 (BridgeType, Name) -> meck:passthrough([BridgeType, Name])
-%%             end
-%%         )
-%%     end),
+    erpc:call(Node, fun() ->
+        meck:new(emqx_connector_resource, [passthrough, no_link]),
+        meck:expect(
+            emqx_connector_resource,
+            stop,
+            fun
+                (_, <<"connector_not_found">>) -> {error, not_found};
+                (ConnectorType, Name) -> meck:passthrough([ConnectorType, Name])
+            end
+        )
+    end),
 
-%%     emqx_common_test_helpers:on_exit(fun() ->
-%%         erpc:call(Node, fun() ->
-%%             meck:unload([emqx_bridge_resource])
-%%         end)
-%%     end),
+    emqx_common_test_helpers:on_exit(fun() ->
+        erpc:call(Node, fun() ->
+            meck:unload([emqx_connector_resource])
+        end)
+    end),
 
-%%     {ok, 201, _Bridge} = request(
-%%         post,
-%%         uri(["bridges"]),
-%%         ?HTTP_BRIDGE(URL, <<"bridge_not_found">>),
-%%         Config
-%%     ),
-%%     {ok, 503, _} = request(
-%%         post, {operation, Type, stop, <<"webhook:bridge_not_found">>}, Config
-%%     ).
+    {ok, 201, _Connector} = request(
+        post,
+        uri(["connectors"]),
+        ?KAFKA_CONNECTOR(<<"connector_not_found">>),
+        Config
+    ),
+    {ok, 503, _} = request(
+        post, {operation, Type, stop, <<"kafka:connector_not_found">>}, Config
+    ).
 
 t_enable_disable_connectors(Config) ->
     %% assert we there's no connectors at first
