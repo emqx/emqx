@@ -195,14 +195,28 @@ end_per_testcase(_TestCase, Config) ->
     ok = erpc:call(Node, fun clear_resources/0),
     ok.
 
+loop(Mocks) ->
+    receive
+        {get_mocks, Pid} ->
+            Pid ! {mocks, Mocks},
+            loop(Mocks);
+        stop_mocks ->
+            meck:unload()
+    end.
+
 inject_mocks() ->
-    _Pid = spawn(fun() ->
-        _Mocks = ?MODULE:init_mocks(),
-        receive
-            stop_mocks ->
-                meck:unload()
-        end
-    end).
+    Pid = spawn(fun() ->
+        Mocks = ?MODULE:init_mocks(),
+        loop(Mocks)
+    end),
+    %% make sure mocks are ready before we leave
+    Pid ! {get_mocks, self()},
+    receive
+        {mocks, _Mocks} ->
+            %% ct:pal("received mocks! ~p", [_Mocks]),
+            ok
+    end,
+    Pid.
 
 -define(CONNECTOR_IMPL, dummy_connector_impl).
 init_mocks() ->
