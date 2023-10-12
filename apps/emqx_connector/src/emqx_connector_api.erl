@@ -347,7 +347,11 @@ schema("/connectors_probe") ->
             ?OK(zip_connectors(AllConnectors));
         {error, Reason} ->
             ?INTERNAL_ERROR(Reason)
-    end.
+    end;
+'/connectors'(post, _Params) ->
+    ?BAD_REQUEST(<<"Bad Request">>);
+'/connectors'(_, _) ->
+    ?METHOD_NOT_ALLOWED.
 
 '/connectors/:id'(get, #{bindings := #{id := Id}}) ->
     ?TRY_PARSE_ID(Id, lookup_from_all_nodes(ConnectorType, ConnectorName, 200));
@@ -385,7 +389,9 @@ schema("/connectors_probe") ->
             {error, not_found} ->
                 ?CONNECTOR_NOT_FOUND(ConnectorType, ConnectorName)
         end
-    ).
+    );
+'/connectors/:id'(_, _) ->
+    ?METHOD_NOT_ALLOWED.
 
 '/connectors_probe'(post, Request) ->
     RequestMeta = #{module => ?MODULE, method => post, path => "/connectors_probe"},
@@ -411,7 +417,9 @@ schema("/connectors_probe") ->
             end;
         BadRequest ->
             redact(BadRequest)
-    end.
+    end;
+'/connectors_probe'(_, _) ->
+    ?METHOD_NOT_ALLOWED.
 
 maybe_deobfuscate_connector_probe(
     #{<<"type">> := ConnectorType, <<"name">> := ConnectorName} = Params

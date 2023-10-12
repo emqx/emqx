@@ -3,7 +3,6 @@
 %%--------------------------------------------------------------------
 -module(emqx_bridge_kafka).
 
--include_lib("emqx_connector/include/emqx_connector.hrl").
 -include_lib("typerefl/include/types.hrl").
 -include_lib("hocon/include/hoconsc.hrl").
 
@@ -18,6 +17,7 @@
 -import(hoconsc, [mk/2, enum/1, ref/2]).
 
 -export([
+    bridge_v2_examples/1,
     conn_bridge_examples/1,
     connector_examples/1
 ]).
@@ -47,6 +47,16 @@ connector_examples(_Method) ->
         }
     ].
 
+bridge_v2_examples(Method) ->
+    [
+        #{
+            <<"kafka">> => #{
+                summary => <<"Kafka Bridge v2">>,
+                value => values({Method, bridge_v2_producer})
+            }
+        }
+    ].
+
 conn_bridge_examples(Method) ->
     [
         #{
@@ -67,11 +77,41 @@ conn_bridge_examples(Method) ->
     ].
 
 values({get, KafkaType}) ->
-    values({post, KafkaType});
+    maps:merge(
+        #{
+            status => <<"connected">>,
+            node_status => [
+                #{
+                    node => <<"emqx@localhost">>,
+                    status => <<"connected">>
+                }
+            ]
+        },
+        values({post, KafkaType})
+    );
 values({post, KafkaType}) ->
-    maps:merge(values(common_config), values(KafkaType));
+    maps:merge(
+        #{
+            name => <<"my_bridge">>,
+            type => <<"kafka">>
+        },
+        values({put, KafkaType})
+    );
+values({put, KafkaType}) when KafkaType =:= bridge_v2_producer ->
+    values(KafkaType);
 values({put, KafkaType}) ->
-    values({post, KafkaType});
+    maps:merge(values(common_config), values(KafkaType));
+values(bridge_v2_producer) ->
+    maps:merge(
+        #{
+            enable => true,
+            connector => <<"my_connector">>,
+            resource_opts => #{
+                health_check_interval => "32s"
+            }
+        },
+        values(producer)
+    );
 values(common_config) ->
     #{
         authentication => #{
@@ -160,7 +200,7 @@ host_opts() ->
 
 namespace() -> "bridge_kafka".
 
-roots() -> ["config_consumer", "config_producer"].
+roots() -> ["config_consumer", "config_producer", "config_bridge_v2"].
 
 fields("post_" ++ Type) ->
     [type_field(Type), name_field() | fields("config_" ++ Type)];
@@ -168,6 +208,8 @@ fields("put_" ++ Type) ->
     fields("config_" ++ Type);
 fields("get_" ++ Type) ->
     emqx_bridge_schema:status_fields() ++ fields("post_" ++ Type);
+fields("config_bridge_v2") ->
+    fields(kafka_producer_action);
 fields("config_connector") ->
     fields(kafka_connector);
 fields("config_producer") ->
