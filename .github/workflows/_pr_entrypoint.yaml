@@ -217,6 +217,8 @@ jobs:
     with:
       runner_labels: ${{ needs.sanity-checks.outputs.runner_labels }}
       builder: ${{ needs.sanity-checks.outputs.builder }}
+      version-emqx: ${{ needs.sanity-checks.outputs.version-emqx }}
+      version-emqx-enterprise: ${{ needs.sanity-checks.outputs.version-emqx-enterprise }}
 
   check_deps_integrity:
     needs:

@@ -13,6 +13,12 @@ on:
       builder:
         required: true
         type: string
+      version-emqx:
+        required: false
+        type: string
+      version-emqx-enterprise:
+        required: false
+        type: string
 
 jobs:
   run_conf_tests:
@@ -20,6 +26,7 @@ jobs:
     container: ${{ inputs.builder }}
     env:
       PROFILE: ${{ matrix.profile }}
+      PKG_VSN: ${{ startsWith(matrix.profile, 'emqx-enterprise') && inputs.version-emqx-enterprise || inputs.version-emqx }}
     strategy:
       fail-fast: false
       matrix:
