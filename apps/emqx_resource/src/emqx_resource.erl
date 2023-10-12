@@ -535,7 +535,7 @@ call_channel_health_check(ResId, ChannelId, Mod, ResourceState) ->
     ?SAFE_CALL(Mod:on_get_channel_status(ResId, ChannelId, ResourceState)).
 
 call_add_channel(ResId, Mod, ResourceState, ChannelId, ChannelConfig) ->
-    %% Check if maybe_install_insert_template is exported
+    %% Check if on_add_channel is exported
     case erlang:function_exported(Mod, on_add_channel, 4) of
         true ->
             try
