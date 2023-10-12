@@ -119,8 +119,6 @@
             emqx_eviction_agent,
             emqx_node_rebalance,
             emqx_ft,
-            emqx_ldap,
-            emqx_auth_ldap,
             emqx_gcp_device,
             emqx_dashboard_rbac,
             emqx_dashboard_sso
