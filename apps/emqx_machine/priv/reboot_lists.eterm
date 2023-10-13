@@ -80,6 +80,7 @@
             emqx_mongodb,
             emqx_redis,
             emqx_mysql,
+            emqx_postgresql,
             emqx_plugins,
             emqx_opentelemetry,
             quicer,

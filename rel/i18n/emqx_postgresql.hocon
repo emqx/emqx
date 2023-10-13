@@ -1,4 +1,4 @@
-emqx_connector_pgsql {
+emqx_postgresql {
 
 server.desc:
 """The IPv4 or IPv6 address or the hostname to connect to.<br/>

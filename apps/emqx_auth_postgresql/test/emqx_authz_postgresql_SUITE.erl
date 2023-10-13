@@ -18,7 +18,7 @@
 -compile(nowarn_export_all).
 -compile(export_all).
 
--include("emqx_connector.hrl").
+-include_lib("emqx_postgresql/include/emqx_postgresql.hrl").
 -include_lib("emqx_auth/include/emqx_authz.hrl").
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
@@ -438,7 +438,7 @@ create_pgsql_resource() ->
     emqx_resource:create_local(
         ?PGSQL_RESOURCE,
         ?AUTHZ_RESOURCE_GROUP,
-        emqx_connector_pgsql,
+        emqx_postgresql,
         pgsql_config(),
         #{}
     ).

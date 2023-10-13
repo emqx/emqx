@@ -82,7 +82,7 @@ fields("config") ->
                 #{desc => ?DESC("local_topic"), default => undefined}
             )}
     ] ++ emqx_resource_schema:fields("resource_opts") ++
-        (emqx_connector_pgsql:fields(config) --
+        (emqx_postgresql:fields(config) --
             emqx_connector_schema_lib:prepare_statement_fields());
 fields("post") ->
     fields("post", pgsql);

@@ -13,18 +13,19 @@
 % %% limitations under the License.
 % %%--------------------------------------------------------------------
 
--module(emqx_connector_pgsql_SUITE).
+-module(emqx_postgresql_SUITE).
 
 -compile(nowarn_export_all).
 -compile(export_all).
 
--include("emqx_connector.hrl").
+-include("emqx_connector/include/emqx_connector.hrl").
+-include_lib("emqx_postgresql/include/emqx_postgresql.hrl").
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("emqx/include/emqx.hrl").
 -include_lib("stdlib/include/assert.hrl").
 
 -define(PGSQL_HOST, "pgsql").
--define(PGSQL_RESOURCE_MOD, emqx_connector_pgsql).
+-define(PGSQL_RESOURCE_MOD, emqx_postgresql).
 
 all() ->
     emqx_common_test_helpers:all(?MODULE).
@@ -60,7 +61,7 @@ end_per_testcase(_, _Config) ->
 
 t_lifecycle(_Config) ->
     perform_lifecycle_check(
-        <<"emqx_connector_pgsql_SUITE">>,
+        <<"emqx_postgresql_SUITE">>,
         pgsql_config()
     ).
 
