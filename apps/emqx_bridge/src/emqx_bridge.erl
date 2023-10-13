@@ -398,7 +398,11 @@ remove_v1(BridgeType, BridgeName) ->
 check_deps_and_remove(BridgeType, BridgeName, RemoveDeps) ->
     case emqx_bridge_v2:is_bridge_v2_type(BridgeType) of
         true ->
-            emqx_bridge_v2:check_deps_and_remove(BridgeType, BridgeName, RemoveDeps);
+            emqx_bridge_v2:check_deps_and_remove_transform_to_bridge_v1(
+                BridgeType,
+                BridgeName,
+                RemoveDeps
+            );
         false ->
             check_deps_and_remove_v1(BridgeType, BridgeName, RemoveDeps)
     end.
