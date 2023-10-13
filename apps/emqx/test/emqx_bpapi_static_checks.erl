@@ -411,10 +411,19 @@ setnok() ->
     put(bpapi_ok, false).
 
 dumps_dir() ->
-    filename:join(project_root_dir(), "apps/emqx/test/emqx_static_checks_data").
-
-project_root_dir() ->
-    string:trim(os:cmd("git rev-parse --show-toplevel")).
+    filename:join(emqx_app_dir(), "test/emqx_static_checks_data").
 
 versions_file() ->
-    filename:join(project_root_dir(), "apps/emqx/priv/bpapi.versions").
+    filename:join(emqx_app_dir(), "priv/bpapi.versions").
+
+emqx_app_dir() ->
+    Info = ?MODULE:module_info(compile),
+    case proplists:get_value(source, Info) of
+        Source when is_list(Source) ->
+            filename:dirname(filename:dirname(Source));
+        undefined ->
+            "apps/emqx"
+    end.
+
+project_root_dir() ->
+    filename:dirname(filename:dirname(emqx_app_dir())).
