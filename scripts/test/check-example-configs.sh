@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 
 set -euo pipefail
-PROJ_DIR="$(git rev-parse --show-toplevel)"
+
+cd -P -- "$(dirname -- "$0")/../.."
 
 PROFILE="${PROFILE:-emqx}"
 DIR_NAME='examples'
@@ -11,7 +12,7 @@ if [ "${PROFILE}" = 'emqx-enterprise' ]; then
     SCHEMA_MOD='emqx_enterprise_schema'
 fi
 
-IFS=$'\n' read -r -d '' -a FILES < <(find "${PROJ_DIR}/rel/config/${DIR_NAME}" -name "*.example" 2>/dev/null | sort && printf '\0')
+IFS=$'\n' read -r -d '' -a FILES < <(find "rel/config/${DIR_NAME}" -name "*.example" 2>/dev/null | sort && printf '\0')
 
 prepare_erl_libs() {
     local libs_dir="$1"
@@ -30,7 +31,7 @@ prepare_erl_libs() {
 }
 
 # This is needed when checking schema
-export EMQX_ETC_DIR="${PROJ_DIR}/apps/emqx/etc"
+export EMQX_ETC_DIR="apps/emqx/etc"
 
 prepare_erl_libs "_build/$PROFILE/lib"
 
