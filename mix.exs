@@ -169,24 +169,10 @@ defmodule EMQXUmbrella.MixProject do
   end
 
   defp enterprise_apps(_profile_info = %{edition_type: :enterprise}) do
-    umbrella_apps =
-      Enum.map(enterprise_umbrella_apps(), fn app_name ->
-        path = "apps/#{app_name}"
-        {app_name, path: path, manager: :rebar3, override: true}
-      end)
-
-    "lib-ee/*"
-    |> Path.wildcard()
-    |> Enum.filter(&File.dir?/1)
-    |> Enum.map(fn path ->
-      app =
-        path
-        |> Path.basename()
-        |> String.to_atom()
-
-      {app, path: path, manager: :rebar3, override: true}
+    Enum.map(enterprise_umbrella_apps(), fn app_name ->
+      path = "apps/#{app_name}"
+      {app_name, path: path, manager: :rebar3, override: true}
     end)
-    |> Enum.concat(umbrella_apps)
   end
 
   defp enterprise_apps(_profile_info) do
@@ -220,6 +206,7 @@ defmodule EMQXUmbrella.MixProject do
       :emqx_bridge_rabbitmq,
       :emqx_bridge_clickhouse,
       :emqx_ft,
+      :emqx_license,
       :emqx_s3,
       :emqx_schema_registry,
       :emqx_enterprise,

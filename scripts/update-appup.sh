@@ -72,12 +72,6 @@ while [ "$#" -gt 0 ]; do
   esac
 done
 
-if [ "$TAG_PREFIX" = 'v' ]; then
-    SRC_DIRS="{apps}"
-else
-    SRC_DIRS="{apps,lib-ee}"
-fi
-
 ## make sure we build here in bash and always pass --skip-build to escript
 if [ "${SKIP_BUILD:-}" != 'yes' ]; then
     make "${PROFILE}"
@@ -114,7 +108,7 @@ PREV_REL_DIR="${PREV_DIR_BASE}/${PREV_TAG}/_build/${PROFILE}/lib"
 # this in turn makes quoting "${ESCRIPT_ARGS[@]}" problematic, hence disable SC2068 check here
 # shellcheck disable=SC2068
 ./scripts/update_appup.escript \
-    --src-dirs "${SRC_DIRS}/**" \
+    --src-dirs "apps/**" \
     --release-dir "_build/${PROFILE}/lib" \
     --prev-release-dir "${PREV_REL_DIR}" \
     --skip-build \

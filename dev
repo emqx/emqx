@@ -336,13 +336,6 @@ copy_other_conf_files() {
 is_current_profile_app() {
     local app="$1"
     case "$app" in
-        lib-ee*)
-            if [ "$PROFILE" = 'emqx-enterprise' ]; then
-                return 0
-            else
-                return 1
-            fi
-            ;;
         *emqx_telemetry*)
             if [ "$PROFILE" = 'emqx-enterprise' ]; then
                 return 1

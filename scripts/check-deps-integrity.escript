@@ -5,9 +5,7 @@
 -mode(compile).
 
 main([]) ->
-    Files = ["rebar.config"] ++
-            apps_rebar_config("apps") ++
-            apps_rebar_config("lib-ee"),
+    Files = ["rebar.config"] ++ apps_rebar_config("apps"),
     Deps = collect_deps(Files, #{}),
     case count_bad_deps(Deps) of
         0 ->
