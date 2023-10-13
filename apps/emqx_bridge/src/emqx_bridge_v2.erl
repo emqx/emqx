@@ -647,13 +647,43 @@ check_deps_and_remove(BridgeType, BridgeName, RemoveDeps) ->
     end.
 
 check_deps_and_remove_transform_to_bridge_v1(BridgeType, BridgeName, RemoveDeps) ->
+    check_deps_and_remove_transform_to_bridge_v1(
+        BridgeType,
+        BridgeName,
+        RemoveDeps,
+        lookup_raw_conf(BridgeType, BridgeName)
+    ).
+
+check_deps_and_remove_transform_to_bridge_v1(
+    BridgeType,
+    BridgeName,
+    RemoveDeps,
+    #{connector := ConnectorName}
+) ->
     case check_deps_and_remove(BridgeType, BridgeName, RemoveDeps) of
         {error, _} = Error ->
             Error;
         Result ->
-            %% TODO: We should call emqx_connector:check_deps_and_remove here
-            %% to remain as backward compatible as possible.
+            %% Check if there are other channels that depends on the same connector
+            case connector_has_channels(BridgeType, ConnectorName) of
+                false ->
+                    ConnectorType = bridge_v2_type_to_connector_type(BridgeType),
+                    emqx_connector:remove(ConnectorType, ConnectorName);
+                true ->
+                    ok
+            end,
             Result
+    end;
+check_deps_and_remove_transform_to_bridge_v1(_BridgeType, _BridgeName, _RemoveDeps, Error) ->
+    Error.
+
+connector_has_channels(BridgeV2Type, ConnectorName) ->
+    ConnectorType = bridge_v2_type_to_connector_type(BridgeV2Type),
+    case emqx_connector_resource:get_channels(ConnectorType, ConnectorName) of
+        {ok, []} ->
+            false;
+        _ ->
+            true
     end.
 
 %% NOTE: We depends on the `emqx_bridge:pre_config_update/3` to restart/stop the
