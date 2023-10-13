@@ -45,7 +45,7 @@
 -export([
     lookup_and_transform_to_bridge_v1/2,
     list_and_transform_to_bridge_v1/0,
-    check_deps_and_remove_transform_to_bridge_v1/3,
+    bridge_v1_check_deps_and_remove/3,
     split_bridge_v1_config_and_create/3,
     bridge_v1_create_dry_run/2
 ]).
@@ -646,15 +646,15 @@ check_deps_and_remove(BridgeType, BridgeName, RemoveDeps) ->
             remove(BridgeType, BridgeName)
     end.
 
-check_deps_and_remove_transform_to_bridge_v1(BridgeType, BridgeName, RemoveDeps) ->
-    check_deps_and_remove_transform_to_bridge_v1(
+bridge_v1_check_deps_and_remove(BridgeType, BridgeName, RemoveDeps) ->
+    bridge_v1_check_deps_and_remove(
         BridgeType,
         BridgeName,
         RemoveDeps,
         lookup_raw_conf(BridgeType, BridgeName)
     ).
 
-check_deps_and_remove_transform_to_bridge_v1(
+bridge_v1_check_deps_and_remove(
     BridgeType,
     BridgeName,
     RemoveDeps,
@@ -674,7 +674,7 @@ check_deps_and_remove_transform_to_bridge_v1(
             end,
             Result
     end;
-check_deps_and_remove_transform_to_bridge_v1(_BridgeType, _BridgeName, _RemoveDeps, Error) ->
+bridge_v1_check_deps_and_remove(_BridgeType, _BridgeName, _RemoveDeps, Error) ->
     Error.
 
 connector_has_channels(BridgeV2Type, ConnectorName) ->
