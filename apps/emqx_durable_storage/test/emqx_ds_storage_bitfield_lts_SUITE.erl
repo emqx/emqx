@@ -168,7 +168,6 @@ t_get_streams(_Config) ->
 %%     ),
 %%     ok.
 
-
 %% t_create_gen(_Config) ->
 %%     {ok, 1} = emqx_ds_storage_layer:create_generation(?SHARD, 5, ?DEFAULT_CONFIG),
 %%     ?assertEqual(
