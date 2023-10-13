@@ -221,6 +221,35 @@ t_normalize_rules(_Config) ->
         )
     ).
 
+t_destroy(_Config) ->
+    ClientInfo = emqx_authz_test_lib:base_client_info(),
+
+    ok = emqx_authz_mnesia:store_rules(
+        {username, <<"username">>},
+        [#{<<"permission">> => <<"allow">>, <<"action">> => <<"publish">>, <<"topic">> => <<"t">>}]
+    ),
+
+    ?assertEqual(
+        allow,
+        emqx_access_control:authorize(ClientInfo, ?AUTHZ_PUBLISH, <<"t">>)
+    ),
+
+    ok = emqx_authz_test_lib:reset_authorizers(),
+
+    ?assertEqual(
+        deny,
+        emqx_access_control:authorize(ClientInfo, ?AUTHZ_PUBLISH, <<"t">>)
+    ),
+
+    ok = setup_config(),
+
+    %% After destroy, the rules should be empty
+
+    ?assertEqual(
+        deny,
+        emqx_access_control:authorize(ClientInfo, ?AUTHZ_PUBLISH, <<"t">>)
+    ).
+
 %%------------------------------------------------------------------------------
 %% Helpers
 %%------------------------------------------------------------------------------
