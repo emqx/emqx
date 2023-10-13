@@ -95,7 +95,9 @@ create(Source) -> Source.
 
 update(Source) -> Source.
 
-destroy(_Source) -> ok.
+destroy(_Source) ->
+    {atomic, ok} = mria:clear_table(?ACL_TABLE),
+    ok.
 
 authorize(
     #{
