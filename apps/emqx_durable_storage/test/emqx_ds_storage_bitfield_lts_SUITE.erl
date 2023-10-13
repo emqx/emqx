@@ -129,7 +129,7 @@ t_get_streams(_Config) ->
 t_replay(_Config) ->
     %% Create concrete topics:
     Topics = [<<"foo/bar">>, <<"foo/bar/baz">>],
-    Timestamps = lists:seq(1, 10),
+    Timestamps = lists:seq(1, 10_000, 100),
     Batch1 = [
         make_message(PublishedAt, Topic, integer_to_binary(PublishedAt))
      || Topic <- Topics, PublishedAt <- Timestamps
@@ -140,10 +140,10 @@ t_replay(_Config) ->
         begin
             B = integer_to_binary(I),
             make_message(
-              TS, <<"wildcard/", B/binary, "/suffix/", Suffix/binary>>, integer_to_binary(TS)
+                TS, <<"wildcard/", B/binary, "/suffix/", Suffix/binary>>, integer_to_binary(TS)
             )
         end
-     || I <- lists:seq(1, 200), TS <- lists:seq(1, 10), Suffix <- [<<"foo">>, <<"bar">>]
+     || I <- lists:seq(1, 200), TS <- Timestamps, Suffix <- [<<"foo">>, <<"bar">>]
     ],
     ok = emqx_ds_storage_layer:store_batch(?SHARD, Batch2, []),
     %% Check various topic filters:
@@ -158,6 +158,9 @@ t_replay(_Config) ->
     ?assert(check(?SHARD, <<"foo/+/+">>, 0, Messages)),
     ?assert(check(?SHARD, <<"+/+/+">>, 0, Messages)),
     ?assert(check(?SHARD, <<"+/+/baz">>, 0, Messages)),
+    %% Restart shard to make sure trie is persisted and restored:
+    ok = emqx_ds_storage_layer_sup:stop_shard(?SHARD),
+    {ok, _} = emqx_ds_storage_layer_sup:start_shard(?SHARD, #{}),
     %% Learned wildcard topics:
     ?assertNot(check(?SHARD, <<"wildcard/1000/suffix/foo">>, 0, [])),
     ?assert(check(?SHARD, <<"wildcard/1/suffix/foo">>, 0, Messages)),
@@ -179,23 +182,24 @@ check(Shard, TopicFilter, StartTime, ExpectedMessages) ->
         ExpectedMessages
     ),
     ?check_trace(
-       #{timetrap => 10_000},
-       begin
-           Dump = dump_messages(Shard, TopicFilter, StartTime),
-           verify_dump(TopicFilter, StartTime, Dump),
-           Missing = ExpectedFiltered -- Dump,
-           Extras = Dump -- ExpectedFiltered,
-           ?assertMatch(
-               #{missing := [], unexpected := []},
-               #{
-                   missing => Missing,
-                   unexpected => Extras,
-                   topic_filter => TopicFilter,
-                   start_time => StartTime
-               }
-           )
-       end,
-       []),
+        #{timetrap => 10_000},
+        begin
+            Dump = dump_messages(Shard, TopicFilter, StartTime),
+            verify_dump(TopicFilter, StartTime, Dump),
+            Missing = ExpectedFiltered -- Dump,
+            Extras = Dump -- ExpectedFiltered,
+            ?assertMatch(
+                #{missing := [], unexpected := []},
+                #{
+                    missing => Missing,
+                    unexpected => Extras,
+                    topic_filter => TopicFilter,
+                    start_time => StartTime
+                }
+            )
+        end,
+        []
+    ),
     length(ExpectedFiltered) > 0.
 
 verify_dump(TopicFilter, StartTime, Dump) ->
@@ -227,77 +231,25 @@ dump_messages(Shard, TopicFilter, StartTime) ->
     ).
 
 dump_stream(Shard, Stream, TopicFilter, StartTime) ->
-    BatchSize = 3,
+    BatchSize = 100,
     {ok, Iterator} = emqx_ds_storage_layer:make_iterator(
         Shard, Stream, parse_topic(TopicFilter), StartTime
     ),
-    Loop = fun F(It, 0) ->
-                   error({too_many_iterations, It});
-               F(It, N) ->
-        case emqx_ds_storage_layer:next(Shard, It, BatchSize) of
-            end_of_stream ->
-                [];
-            {ok, _NextIt, []} ->
-                [];
-            {ok, NextIt, Batch} ->
-                Batch ++ F(NextIt, N - 1)
-        end
+    Loop = fun
+        F(It, 0) ->
+            error({too_many_iterations, It});
+        F(It, N) ->
+            case emqx_ds_storage_layer:next(Shard, It, BatchSize) of
+                end_of_stream ->
+                    [];
+                {ok, _NextIt, []} ->
+                    [];
+                {ok, NextIt, Batch} ->
+                    Batch ++ F(NextIt, N - 1)
+            end
     end,
-    MaxIterations = 1000,
+    MaxIterations = 1000000,
     Loop(Iterator, MaxIterations).
-
-%% Smoke test for iteration with wildcard topic filter
-%% t_iterate_wildcard(_Config) ->
-%%     %% Prepare data:
-%%     Topics = ["foo/bar", "foo/bar/baz", "a", "a/bar"],
-%%     Timestamps = lists:seq(1, 10),
-%%     _ = [
-%%         store(?SHARD, PublishedAt, Topic, term_to_binary({Topic, PublishedAt}))
-%%      || Topic <- Topics, PublishedAt <- Timestamps
-%%     ],
-%%     ?assertEqual(
-%%         lists:sort([{Topic, PublishedAt} || Topic <- Topics, PublishedAt <- Timestamps]),
-%%         lists:sort([binary_to_term(Payload) || Payload <- iterate(?SHARD, "#", 0)])
-%%     ),
-%%     ?assertEqual(
-%%         [],
-%%         lists:sort([binary_to_term(Payload) || Payload <- iterate(?SHARD, "#", 10 + 1)])
-%%     ),
-%%     ?assertEqual(
-%%         lists:sort([{Topic, PublishedAt} || Topic <- Topics, PublishedAt <- lists:seq(5, 10)]),
-%%         lists:sort([binary_to_term(Payload) || Payload <- iterate(?SHARD, "#", 5)])
-%%     ),
-%%     ?assertEqual(
-%%         lists:sort([
-%%             {Topic, PublishedAt}
-%%          || Topic <- ["foo/bar", "foo/bar/baz"], PublishedAt <- Timestamps
-%%         ]),
-%%         lists:sort([binary_to_term(Payload) || Payload <- iterate(?SHARD, "foo/#", 0)])
-%%     ),
-%%     ?assertEqual(
-%%         lists:sort([{"foo/bar", PublishedAt} || PublishedAt <- Timestamps]),
-%%         lists:sort([binary_to_term(Payload) || Payload <- iterate(?SHARD, "foo/+", 0)])
-%%     ),
-%%     ?assertEqual(
-%%         [],
-%%         lists:sort([binary_to_term(Payload) || Payload <- iterate(?SHARD, "foo/+/bar", 0)])
-%%     ),
-%%     ?assertEqual(
-%%         lists:sort([
-%%             {Topic, PublishedAt}
-%%          || Topic <- ["foo/bar", "foo/bar/baz", "a/bar"], PublishedAt <- Timestamps
-%%         ]),
-%%         lists:sort([binary_to_term(Payload) || Payload <- iterate(?SHARD, "+/bar/#", 0)])
-%%     ),
-%%     ?assertEqual(
-%%         lists:sort([{Topic, PublishedAt} || Topic <- ["a", "a/bar"], PublishedAt <- Timestamps]),
-%%         lists:sort([binary_to_term(Payload) || Payload <- iterate(?SHARD, "a/#", 0)])
-%%     ),
-%%     ?assertEqual(
-%%         [],
-%%         lists:sort([binary_to_term(Payload) || Payload <- iterate(?SHARD, "a/+/+", 0)])
-%%     ),
-%%     ok.
 
 %% t_create_gen(_Config) ->
 %%     {ok, 1} = emqx_ds_storage_layer:create_generation(?SHARD, 5, ?DEFAULT_CONFIG),

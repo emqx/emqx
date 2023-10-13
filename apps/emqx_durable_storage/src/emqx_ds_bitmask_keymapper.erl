@@ -86,9 +86,12 @@
     bin_vector_to_key/2,
     key_to_vector/2,
     bin_key_to_vector/2,
-    next_range/3,
     key_to_bitstring/2,
     bitstring_to_key/2,
+    make_filter/2,
+    ratchet/2,
+    bin_increment/2,
+    bin_checkmask/2,
     bitsize/1
 ]).
 
@@ -148,6 +151,10 @@
 -opaque keymapper() :: #keymapper{}.
 
 -type scalar_range() :: any | {'=', scalar() | infinity} | {'>=', scalar()}.
+
+-include("emqx_ds_bitmask.hrl").
+
+-type filter() :: #filter{}.
 
 %%================================================================================
 %% API functions
@@ -237,36 +244,6 @@ bin_key_to_vector(Keymapper = #keymapper{dim_sizeof = DimSizeof, size = Size}, B
         lists:zip(Vector, DimSizeof)
     ).
 
-%% @doc Given a keymapper, a filter, and a key, return a triple containing:
-%%
-%% 1. `NextKey', a key that is greater than the given one, and is
-%% within the given range.
-%%
-%% 2. `Bitmask'
-%%
-%% 3. `Bitfilter'
-%%
-%% Bitmask and bitfilter can be used to verify that key any K is in
-%% the range using the following inequality:
-%%
-%% K >= NextKey && (K band Bitmask) =:= Bitfilter.
-%%
-%% ...or `undefined' if the next key is outside the range.
--spec next_range(keymapper(), [scalar_range()], key()) -> {key(), integer(), integer()} | undefined.
-next_range(Keymapper, Filter0, PrevKey) ->
-    %% Key -> Vector -> +1 on vector -> Key
-    Filter = desugar_filter(Keymapper, Filter0),
-    PrevVec = key_to_vector(Keymapper, PrevKey),
-    case inc_vector(Filter, PrevVec) of
-        overflow ->
-            undefined;
-        NextVec ->
-            NewKey = vector_to_key(Keymapper, NextVec),
-            Bitmask = make_bitmask(Keymapper, Filter),
-            Bitfilter = NewKey band Bitmask,
-            {NewKey, Bitmask, Bitfilter}
-    end.
-
 -spec bitstring_to_key(keymapper(), bitstring()) -> key().
 bitstring_to_key(#keymapper{size = Size}, Bin) ->
     case Bin of
@@ -280,60 +257,208 @@ bitstring_to_key(#keymapper{size = Size}, Bin) ->
 key_to_bitstring(#keymapper{size = Size}, Key) ->
     <<Key:Size>>.
 
+%% @doc Create a filter object that facilitates range scans.
+-spec make_filter(keymapper(), [scalar_range()]) -> filter().
+make_filter(KeyMapper = #keymapper{schema = Schema, dim_sizeof = DimSizeof, size = Size}, Filter0) ->
+    NDim = length(DimSizeof),
+    %% Transform "symbolic" inequations to ranges:
+    Filter1 = inequations_to_ranges(KeyMapper, Filter0),
+    {Bitmask, Bitfilter} = make_bitfilter(KeyMapper, Filter1),
+    %% Calculate maximum source offset as per bitsource specification:
+    MaxOffset = lists:foldl(
+        fun({Dim, Offset, _Size}, Acc) ->
+            maps:update_with(Dim, fun(OldVal) -> max(OldVal, Offset) end, 0, Acc)
+        end,
+        #{},
+        Schema
+    ),
+    %% Adjust minimum and maximum values for each interval like this:
+    %%
+    %% Min: 110100|101011 -> 110100|00000
+    %% Max: 110101|001011 -> 110101|11111
+    %%            ^
+    %%            |
+    %%       max offset
+    %%
+    %% This is needed so when we increment the vector, we always scan
+    %% the full range of least significant bits.
+    Filter2 = lists:map(
+        fun
+            ({{Val, Val}, _Dim}) ->
+                {Val, Val};
+            ({{Min0, Max0}, Dim}) ->
+                Offset = maps:get(Dim, MaxOffset, 0),
+                %% Set least significant bits of Min to 0:
+                Min = (Min0 bsr Offset) bsl Offset,
+                %% Set least significant bits of Max to 1:
+                Max = Max0 bor ones(Offset),
+                {Min, Max}
+        end,
+        lists:zip(Filter1, lists:seq(1, NDim))
+    ),
+    %% Project the vector into "bitsource coordinate system":
+    {_, Filter} = fold_bitsources(
+        fun(DstOffset, {Dim, SrcOffset, Size}, Acc) ->
+            {Min0, Max0} = lists:nth(Dim, Filter2),
+            Min = (Min0 bsr SrcOffset) band ones(Size),
+            Max = (Max0 bsr SrcOffset) band ones(Size),
+            Action = #filter_scan_action{
+                offset = DstOffset,
+                size = Size,
+                min = Min,
+                max = Max
+            },
+            [Action | Acc]
+        end,
+        [],
+        Schema
+    ),
+    Ranges = array:from_list(lists:reverse(Filter)),
+    %% Compute estimated upper and lower bounds of a _continous_
+    %% interval where all keys lie:
+    case Filter of
+        [] ->
+            RangeMin = 0,
+            RangeMax = 0;
+        [#filter_scan_action{offset = MSBOffset, min = MSBMin, max = MSBMax} | _] ->
+            RangeMin = MSBMin bsl MSBOffset,
+            RangeMax = MSBMax bsl MSBOffset bor ones(MSBOffset)
+    end,
+    %% Final value
+    #filter{
+        size = Size,
+        bitmask = Bitmask,
+        bitfilter = Bitfilter,
+        bitsource_ranges = Ranges,
+        range_min = RangeMin,
+        range_max = RangeMax
+    }.
+
+-spec ratchet(filter(), key()) -> key() | overflow.
+ratchet(#filter{bitsource_ranges = Ranges, range_max = Max}, Key) when Key =< Max ->
+    NDim = array:size(Ranges),
+    case ratchet_scan(Ranges, NDim, Key, 0, _Pivot = {-1, 0}, _Carry = 0) of
+        overflow ->
+            overflow;
+        {Pivot, Increment} ->
+            ratchet_do(Ranges, Key, NDim - 1, Pivot, Increment)
+    end;
+ratchet(_, _) ->
+    overflow.
+
+-spec bin_increment(filter(), binary()) -> binary() | overflow.
+bin_increment(Filter = #filter{size = Size}, <<>>) ->
+    Key = ratchet(Filter, 0),
+    <<Key:Size>>;
+bin_increment(Filter = #filter{size = Size, bitmask = Bitmask, bitfilter = Bitfilter}, KeyBin) ->
+    <<Key0:Size>> = KeyBin,
+    Key1 = Key0 + 1,
+    if
+        Key1 band Bitmask =:= Bitfilter ->
+            %% TODO: check overflow
+            <<Key1:Size>>;
+        true ->
+            case ratchet(Filter, Key1) of
+                overflow ->
+                    overflow;
+                Key ->
+                    <<Key:Size>>
+            end
+    end.
+
+-spec bin_checkmask(filter(), binary()) -> boolean().
+bin_checkmask(#filter{size = Size, bitmask = Bitmask, bitfilter = Bitfilter}, Key) ->
+    case Key of
+        <<Int:Size>> ->
+            Int band Bitmask =:= Bitfilter;
+        _ ->
+            false
+    end.
+
 %%================================================================================
 %% Internal functions
 %%================================================================================
 
--spec make_bitmask(keymapper(), [{non_neg_integer(), non_neg_integer()}]) -> non_neg_integer().
-make_bitmask(Keymapper = #keymapper{dim_sizeof = DimSizeof}, Ranges) ->
-    BitmaskVector = lists:map(
+%% Note: this function operates in bitsource basis, scanning it from 0
+%% to NDim (i.e. from the least significant bits to the most
+%% significant bits)
+ratchet_scan(_Ranges, NDim, _Key, NDim, Pivot, 0) ->
+    %% We've reached the end:
+    Pivot;
+ratchet_scan(_Ranges, NDim, _Key, NDim, _Pivot, 1) ->
+    %% We've reached the end, but key is still not large enough:
+    overflow;
+ratchet_scan(Ranges, NDim, Key, I, Pivot0, Carry) ->
+    #filter_scan_action{offset = Offset, size = Size, min = Min, max = Max} = array:get(I, Ranges),
+    %% Extract I-th element of the vector from the original key:
+    Elem = ((Key bsr Offset) band ones(Size)) + Carry,
+    if
+        Elem < Min ->
+            %% I-th coordinate is less than the specified minimum.
+            %%
+            %% We reset this coordinate to the minimum value. It means
+            %% we incremented this bitposition, the less significant
+            %% bits have to be reset to their respective minimum
+            %% values:
+            Pivot = {I + 1, 0},
+            ratchet_scan(Ranges, NDim, Key, I + 1, Pivot, 0);
+        Elem > Max ->
+            %% I-th coordinate is larger than the specified
+            %% minimum. We can only fix this problem by incrementing
+            %% the next coordinate (i.e. more significant bits).
+            %%
+            %% We reset this coordinate to the minimum value, and
+            %% increment the next coordinate (by setting `Carry' to
+            %% 1).
+            Pivot = {I + 1, 1},
+            ratchet_scan(Ranges, NDim, Key, I + 1, Pivot, 1);
+        true ->
+            %% Coordinate is within range:
+            ratchet_scan(Ranges, NDim, Key, I + 1, Pivot0, 0)
+    end.
+
+%% Note: this function operates in bitsource basis, scanning it from
+%% NDim to 0. It applies the transformation specified by
+%% `ratchet_scan'.
+ratchet_do(Ranges, Key, I, _Pivot, _Increment) when I < 0 ->
+    0;
+ratchet_do(Ranges, Key, I, Pivot, Increment) ->
+    #filter_scan_action{offset = Offset, size = Size, min = Min} = array:get(I, Ranges),
+    Mask = ones(Offset + Size) bxor ones(Offset),
+    Elem =
+        if
+            I > Pivot ->
+                Mask band Key;
+            I =:= Pivot ->
+                (Mask band Key) + (Increment bsl Offset);
+            true ->
+                Min bsl Offset
+        end,
+    %% erlang:display(
+    %%     {ratchet_do, I, integer_to_list(Key, 16), integer_to_list(Mask, 2),
+    %%         integer_to_list(Elem, 16)}
+    %% ),
+    Elem bor ratchet_do(Ranges, Key, I - 1, Pivot, Increment).
+
+-spec make_bitfilter(keymapper(), [{non_neg_integer(), non_neg_integer()}]) ->
+    {non_neg_integer(), non_neg_integer()}.
+make_bitfilter(Keymapper = #keymapper{dim_sizeof = DimSizeof}, Ranges) ->
+    L = lists:map(
         fun
             ({{N, N}, Bits}) ->
                 %% For strict equality we can employ bitmask:
-                ones(Bits);
+                {ones(Bits), N};
             (_) ->
-                0
+                {0, 0}
         end,
         lists:zip(Ranges, DimSizeof)
     ),
-    vector_to_key(Keymapper, BitmaskVector).
-
--spec inc_vector([{non_neg_integer(), non_neg_integer()}], vector()) -> vector() | overflow.
-inc_vector(Filter, Vec0) ->
-    case normalize_vector(Filter, Vec0) of
-        {true, Vec} ->
-            Vec;
-        {false, Vec} ->
-            do_inc_vector(Filter, Vec, [])
-    end.
-
-do_inc_vector([], [], _Acc) ->
-    overflow;
-do_inc_vector([{Min, Max} | Intervals], [Elem | Vec], Acc) ->
-    case Elem of
-        Max ->
-            do_inc_vector(Intervals, Vec, [Min | Acc]);
-        _ when Elem < Max ->
-            lists:reverse(Acc) ++ [Elem + 1 | Vec]
-    end.
-
-normalize_vector(Intervals, Vec0) ->
-    Vec = lists:map(
-        fun
-            ({{Min, _Max}, Elem}) when Min > Elem ->
-                Min;
-            ({{_Min, Max}, Elem}) when Max < Elem ->
-                Max;
-            ({_, Elem}) ->
-                Elem
-        end,
-        lists:zip(Intervals, Vec0)
-    ),
-    {Vec > Vec0, Vec}.
+    {Bitmask, Bitfilter} = lists:unzip(L),
+    {vector_to_key(Keymapper, Bitmask), vector_to_key(Keymapper, Bitfilter)}.
 
 %% Transform inequalities into a list of closed intervals that the
 %% vector elements should lie in.
-desugar_filter(#keymapper{dim_sizeof = DimSizeof}, Filter) ->
+inequations_to_ranges(#keymapper{dim_sizeof = DimSizeof}, Filter) ->
     lists:map(
         fun
             ({any, Bitsize}) ->
@@ -389,24 +514,6 @@ ones(Bits) ->
 %%================================================================================
 
 -ifdef(TEST).
-
-%% %% Create a bitmask that is sufficient to cover a given number. E.g.:
-%% %%
-%% %% 2#1000 -> 2#1111; 2#0 -> 2#0; 2#10101 -> 2#11111
-%% bitmask_of(N) ->
-%%     %% FIXME: avoid floats
-%%     NBits = ceil(math:log2(N + 1)),
-%%     ones(NBits).
-
-%% bitmask_of_test() ->
-%%     ?assertEqual(2#0, bitmask_of(0)),
-%%     ?assertEqual(2#1, bitmask_of(1)),
-%%     ?assertEqual(2#11, bitmask_of(2#10)),
-%%     ?assertEqual(2#11, bitmask_of(2#11)),
-%%     ?assertEqual(2#1111, bitmask_of(2#1000)),
-%%     ?assertEqual(2#1111, bitmask_of(2#1111)),
-%%     ?assertEqual(ones(128), bitmask_of(ones(128))),
-%%     ?assertEqual(ones(256), bitmask_of(ones(256))).
 
 make_keymapper0_test() ->
     Schema = [],
@@ -510,235 +617,117 @@ key_to_vector2_test() ->
     key2vec(Schema, [0, 1]),
     key2vec(Schema, [255, 0]).
 
-inc_vector0_test() ->
-    Keymapper = make_keymapper([]),
-    ?assertMatch(overflow, incvec(Keymapper, [], [])).
-
-inc_vector1_test() ->
-    Keymapper = make_keymapper([{1, 0, 8}]),
-    ?assertMatch([3], incvec(Keymapper, [{'=', 3}], [1])),
-    ?assertMatch([3], incvec(Keymapper, [{'=', 3}], [2])),
-    ?assertMatch(overflow, incvec(Keymapper, [{'=', 3}], [3])),
-    ?assertMatch(overflow, incvec(Keymapper, [{'=', 3}], [4])),
-    ?assertMatch(overflow, incvec(Keymapper, [{'=', 3}], [255])),
-    %% Now with >=:
-    ?assertMatch([1], incvec(Keymapper, [{'>=', 0}], [0])),
-    ?assertMatch([255], incvec(Keymapper, [{'>=', 0}], [254])),
-    ?assertMatch(overflow, incvec(Keymapper, [{'>=', 0}], [255])),
-
-    ?assertMatch([100], incvec(Keymapper, [{'>=', 100}], [0])),
-    ?assertMatch([100], incvec(Keymapper, [{'>=', 100}], [99])),
-    ?assertMatch([255], incvec(Keymapper, [{'>=', 100}], [254])),
-    ?assertMatch(overflow, incvec(Keymapper, [{'>=', 100}], [255])).
-
-inc_vector2_test() ->
-    Keymapper = make_keymapper([{1, 0, 8}, {2, 0, 8}, {3, 0, 8}]),
-    Filter = [{'>=', 0}, {'=', 100}, {'>=', 30}],
-    ?assertMatch([0, 100, 30], incvec(Keymapper, Filter, [0, 0, 0])),
-    ?assertMatch([1, 100, 30], incvec(Keymapper, Filter, [0, 100, 30])),
-    ?assertMatch([255, 100, 30], incvec(Keymapper, Filter, [254, 100, 30])),
-    ?assertMatch([0, 100, 31], incvec(Keymapper, Filter, [255, 100, 30])),
-    ?assertMatch([0, 100, 30], incvec(Keymapper, Filter, [0, 100, 29])),
-    ?assertMatch(overflow, incvec(Keymapper, Filter, [255, 100, 255])),
-    ?assertMatch([255, 100, 255], incvec(Keymapper, Filter, [254, 100, 255])),
-    ?assertMatch([0, 100, 255], incvec(Keymapper, Filter, [255, 100, 254])),
-    %% Nasty cases (shouldn't happen, hopefully):
-    ?assertMatch([1, 100, 30], incvec(Keymapper, Filter, [0, 101, 0])),
-    ?assertMatch([1, 100, 33], incvec(Keymapper, Filter, [0, 101, 33])),
-    ?assertMatch([0, 100, 255], incvec(Keymapper, Filter, [255, 101, 254])),
-    ?assertMatch(overflow, incvec(Keymapper, Filter, [255, 101, 255])).
-
 make_bitmask0_test() ->
     Keymapper = make_keymapper([]),
-    ?assertMatch(0, mkbmask(Keymapper, [])).
+    ?assertMatch({0, 0}, mkbmask(Keymapper, [])).
 
 make_bitmask1_test() ->
     Keymapper = make_keymapper([{1, 0, 8}]),
-    ?assertEqual(0, mkbmask(Keymapper, [any])),
-    ?assertEqual(16#ff, mkbmask(Keymapper, [{'=', 1}])),
-    ?assertEqual(16#ff, mkbmask(Keymapper, [{'=', 255}])),
-    ?assertEqual(0, mkbmask(Keymapper, [{'>=', 0}])),
-    ?assertEqual(0, mkbmask(Keymapper, [{'>=', 1}])),
-    ?assertEqual(0, mkbmask(Keymapper, [{'>=', 16#f}])).
+    ?assertEqual({0, 0}, mkbmask(Keymapper, [any])),
+    ?assertEqual({16#ff, 1}, mkbmask(Keymapper, [{'=', 1}])),
+    ?assertEqual({16#ff, 255}, mkbmask(Keymapper, [{'=', 255}])),
+    ?assertEqual({0, 0}, mkbmask(Keymapper, [{'>=', 0}])),
+    ?assertEqual({0, 0}, mkbmask(Keymapper, [{'>=', 1}])),
+    ?assertEqual({0, 0}, mkbmask(Keymapper, [{'>=', 16#f}])).
 
 make_bitmask2_test() ->
     Keymapper = make_keymapper([{1, 0, 3}, {2, 0, 4}, {3, 0, 2}]),
-    ?assertEqual(2#00_0000_000, mkbmask(Keymapper, [any, any, any])),
-    ?assertEqual(2#11_0000_000, mkbmask(Keymapper, [any, any, {'=', 0}])),
-    ?assertEqual(2#00_1111_000, mkbmask(Keymapper, [any, {'=', 0}, any])),
-    ?assertEqual(2#00_0000_111, mkbmask(Keymapper, [{'=', 0}, any, any])).
+    ?assertEqual({2#00_0000_000, 2#00_0000_000}, mkbmask(Keymapper, [any, any, any])),
+    ?assertEqual({2#11_0000_000, 2#00_0000_000}, mkbmask(Keymapper, [any, any, {'=', 0}])),
+    ?assertEqual({2#00_1111_000, 2#00_0000_000}, mkbmask(Keymapper, [any, {'=', 0}, any])),
+    ?assertEqual({2#00_0000_111, 2#00_0000_000}, mkbmask(Keymapper, [{'=', 0}, any, any])).
 
 make_bitmask3_test() ->
     %% Key format of type |TimeOffset|Topic|Epoch|:
-    Keymapper = make_keymapper([{1, 8, 8}, {2, 0, 8}, {1, 0, 8}]),
-    ?assertEqual(2#00000000_00000000_00000000, mkbmask(Keymapper, [any, any])),
-    ?assertEqual(2#11111111_11111111_11111111, mkbmask(Keymapper, [{'=', 33}, {'=', 22}])),
-    ?assertEqual(2#11111111_11111111_11111111, mkbmask(Keymapper, [{'=', 33}, {'=', 22}])),
-    ?assertEqual(2#00000000_11111111_00000000, mkbmask(Keymapper, [{'>=', 255}, {'=', 22}])).
+    Keymapper = make_keymapper([{1, 0, 8}, {2, 0, 8}, {1, 8, 8}]),
+    ?assertEqual({2#00000000_00000000_00000000, 16#00_00_00}, mkbmask(Keymapper, [any, any])),
+    ?assertEqual(
+        {2#11111111_11111111_11111111, 16#aa_cc_bb},
+        mkbmask(Keymapper, [{'=', 16#aabb}, {'=', 16#cc}])
+    ),
+    ?assertEqual(
+        {2#00000000_11111111_00000000, 16#00_bb_00}, mkbmask(Keymapper, [{'>=', 255}, {'=', 16#bb}])
+    ).
 
-next_range0_test() ->
-    Keymapper = make_keymapper([]),
+make_filter_test() ->
+    KeyMapper = make_keymapper([]),
     Filter = [],
-    PrevKey = 0,
-    ?assertMatch(undefined, next_range(Keymapper, Filter, PrevKey)).
+    ?assertMatch(#filter{size = 0, bitmask = 0, bitfilter = 0}, make_filter(KeyMapper, Filter)).
 
-next_range1_test() ->
-    Keymapper = make_keymapper([{1, 0, 8}, {2, 0, 8}]),
-    ?assertMatch(undefined, next_range(Keymapper, [{'=', 0}, {'=', 0}], 0)),
-    ?assertMatch({1, 16#ffff, 1}, next_range(Keymapper, [{'=', 1}, {'=', 0}], 0)),
-    ?assertMatch({16#100, 16#ffff, 16#100}, next_range(Keymapper, [{'=', 0}, {'=', 1}], 0)),
-    %% Now with any:
-    ?assertMatch({1, 0, 0}, next_range(Keymapper, [any, any], 0)),
-    ?assertMatch({2, 0, 0}, next_range(Keymapper, [any, any], 1)),
-    ?assertMatch({16#fffb, 0, 0}, next_range(Keymapper, [any, any], 16#fffa)),
-    %% Now with >=:
+ratchet1_test() ->
+    Bitsources = [{1, 0, 8}],
+    M = make_keymapper(Bitsources),
+    F = make_filter(M, [any]),
+    #filter{bitsource_ranges = Rarr} = F,
     ?assertMatch(
-        {16#42_30, 16#ff00, 16#42_00}, next_range(Keymapper, [{'>=', 16#30}, {'=', 16#42}], 0)
+        [
+            #filter_scan_action{
+                offset = 0,
+                size = 8,
+                min = 0,
+                max = 16#ff
+            }
+        ],
+        array:to_list(Rarr)
     ),
-    ?assertMatch(
-        {16#42_31, 16#ff00, 16#42_00},
-        next_range(Keymapper, [{'>=', 16#30}, {'=', 16#42}], 16#42_30)
-    ),
+    ?assertEqual(0, ratchet(F, 0)),
+    ?assertEqual(16#fa, ratchet(F, 16#fa)),
+    ?assertEqual(16#ff, ratchet(F, 16#ff)),
+    ?assertEqual(overflow, ratchet(F, 16#100), "TBD: filter must store the upper bound").
 
-    ?assertMatch(
-        {16#30_42, 16#00ff, 16#00_42}, next_range(Keymapper, [{'=', 16#42}, {'>=', 16#30}], 0)
-    ),
-    ?assertMatch(
-        {16#31_42, 16#00ff, 16#00_42},
-        next_range(Keymapper, [{'=', 16#42}, {'>=', 16#30}], 16#00_43)
-    ).
+%% erlfmt-ignore
+ratchet2_test() ->
+    Bitsources = [{1, 0, 8},  %% Static topic index
+                  {2, 8, 8},  %% Epoch
+                  {3, 0, 8},  %% Varying topic hash
+                  {2, 0, 8}], %% Timestamp offset
+    M = make_keymapper(lists:reverse(Bitsources)),
+    F1 = make_filter(M, [{'=', 16#aa}, any, {'=', 16#cc}]),
+    ?assertEqual(16#aa00cc00, ratchet(F1, 0)),
+    ?assertEqual(16#aa01cc00, ratchet(F1, 16#aa00cd00)),
+    ?assertEqual(16#aa01cc11, ratchet(F1, 16#aa01cc11)),
+    ?assertEqual(16#aa11cc00, ratchet(F1, 16#aa10cd00)),
+    ?assertEqual(16#aa11cc00, ratchet(F1, 16#aa10dc11)),
+    ?assertEqual(overflow,    ratchet(F1, 16#ab000000)),
+    F2 = make_filter(M, [{'=', 16#aa}, {'>=', 16#dddd}, {'=', 16#cc}]),
+    ?assertEqual(16#aaddcc00, ratchet(F2, 0)),
+    ?assertEqual(16#aa_de_cc_00, ratchet(F2, 16#aa_dd_cd_11)).
 
-%% Bunch of tests that verifying that next_range doesn't skip over keys:
+ratchet3_test() ->
+    ?assert(proper:quickcheck(ratchet1_prop(), 100)).
 
--define(assertIterComplete(A, B),
-    ?assertEqual(A -- [0], B)
-).
+%% erlfmt-ignore
+ratchet1_prop() ->
+    EpochBits = 4,
+    Bitsources = [{1, 0, 2},  %% Static topic index
+                  {2, EpochBits, 4},  %% Epoch
+                  {3, 0, 2},  %% Varying topic hash
+                  {2, 0, EpochBits}], %% Timestamp offset
+    M = make_keymapper(lists:reverse(Bitsources)),
+    F1 = make_filter(M, [{'=', 2#10}, any, {'=', 2#01}]),
+    ?FORALL(N, integer(0, ones(12)),
+             ratchet_prop(F1, N)).
 
--define(assertSameSet(A, B),
-    ?assertIterComplete(lists:sort(A), lists:sort(B))
-).
-
-iterate1_test() ->
-    SizeX = 3,
-    SizeY = 3,
-    Keymapper = make_keymapper([{1, 0, SizeX}, {2, 0, SizeY}]),
-    Keys = test_iteration(Keymapper, [any, any]),
-    Expected = [
-        X bor (Y bsl SizeX)
-     || Y <- lists:seq(0, ones(SizeY)), X <- lists:seq(0, ones(SizeX))
-    ],
-    ?assertIterComplete(Expected, Keys).
-
-iterate2_test() ->
-    SizeX = 64,
-    SizeY = 3,
-    Keymapper = make_keymapper([{1, 0, SizeX}, {2, 0, SizeY}]),
-    X = 123456789,
-    Keys = test_iteration(Keymapper, [{'=', X}, any]),
-    Expected = [
-        X bor (Y bsl SizeX)
-     || Y <- lists:seq(0, ones(SizeY))
-    ],
-    ?assertIterComplete(Expected, Keys).
-
-iterate3_test() ->
-    SizeX = 3,
-    SizeY = 64,
-    Y = 42,
-    Keymapper = make_keymapper([{1, 0, SizeX}, {2, 0, SizeY}]),
-    Keys = test_iteration(Keymapper, [any, {'=', Y}]),
-    Expected = [
-        X bor (Y bsl SizeX)
-     || X <- lists:seq(0, ones(SizeX))
-    ],
-    ?assertIterComplete(Expected, Keys).
-
-iterate4_test() ->
-    SizeX = 8,
-    SizeY = 4,
-    MinX = 16#fa,
-    MinY = 16#a,
-    Keymapper = make_keymapper([{1, 0, SizeX}, {2, 0, SizeY}]),
-    Keys = test_iteration(Keymapper, [{'>=', MinX}, {'>=', MinY}]),
-    Expected = [
-        X bor (Y bsl SizeX)
-     || Y <- lists:seq(MinY, ones(SizeY)), X <- lists:seq(MinX, ones(SizeX))
-    ],
-    ?assertIterComplete(Expected, Keys).
-
-iterate1_prop() ->
-    Size = 4,
-    ?FORALL(
-        {SizeX, SizeY},
-        {integer(1, Size), integer(1, Size)},
-        ?FORALL(
-            {SplitX, MinX, MinY},
-            {integer(0, SizeX), integer(0, SizeX), integer(0, SizeY)},
-            begin
-                Keymapper = make_keymapper([
-                    {1, 0, SplitX}, {2, 0, SizeY}, {1, SplitX, SizeX - SplitX}
-                ]),
-                Keys = test_iteration(Keymapper, [{'>=', MinX}, {'>=', MinY}]),
-                Expected = [
-                    vector_to_key(Keymapper, [X, Y])
-                 || X <- lists:seq(MinX, ones(SizeX)),
-                    Y <- lists:seq(MinY, ones(SizeY))
-                ],
-                ?assertSameSet(Expected, Keys),
-                true
-            end
-        )
-    ).
-
-iterate5_test() ->
-    ?assert(proper:quickcheck(iterate1_prop(), 100)).
-
-iterate2_prop() ->
-    Size = 4,
-    ?FORALL(
-        {SizeX, SizeY},
-        {integer(1, Size), integer(1, Size)},
-        ?FORALL(
-            {SplitX, MinX, MinY},
-            {integer(0, SizeX), integer(0, SizeX), integer(0, SizeY)},
-            begin
-                Keymapper = make_keymapper([
-                    {1, SplitX, SizeX - SplitX}, {2, 0, SizeY}, {1, 0, SplitX}
-                ]),
-                Keys = test_iteration(Keymapper, [{'>=', MinX}, {'>=', MinY}]),
-                Expected = [
-                    vector_to_key(Keymapper, [X, Y])
-                 || X <- lists:seq(MinX, ones(SizeX)),
-                    Y <- lists:seq(MinY, ones(SizeY))
-                ],
-                ?assertSameSet(Expected, Keys),
-                true
-            end
-        )
-    ).
-
-iterate6_test() ->
-    ?assert(proper:quickcheck(iterate2_prop(), 1000)).
-
-test_iteration(Keymapper, Filter) ->
-    test_iteration(Keymapper, Filter, 0).
-
-test_iteration(Keymapper, Filter, PrevKey) ->
-    case next_range(Keymapper, Filter, PrevKey) of
-        undefined ->
-            [];
-        {Key, Bitmask, Bitfilter} ->
-            ?assert((Key band Bitmask) =:= Bitfilter),
-            [Key | test_iteration(Keymapper, Filter, Key)]
-    end.
+ratchet_prop(Filter = #filter{bitfilter = Bitfilter, bitmask = Bitmask, size = Size}, Key0) ->
+    Key = ratchet(Filter, Key0),
+    ?assert(Key =:= overflow orelse (Key band Bitmask =:= Bitfilter)),
+    ?assert(Key >= Key0, {Key, '>=', Key}),
+    IMax = ones(Size),
+    CheckGaps = fun
+        F(I) when I >= Key; I > IMax ->
+            true;
+        F(I) ->
+            ?assertNot(
+                I band Bitmask =:= Bitfilter,
+                {found_gap, Key0, I, Key}
+            ),
+            F(I + 1)
+    end,
+    CheckGaps(Key0).
 
 mkbmask(Keymapper, Filter0) ->
-    Filter = desugar_filter(Keymapper, Filter0),
-    make_bitmask(Keymapper, Filter).
-
-incvec(Keymapper, Filter0, Vector) ->
-    Filter = desugar_filter(Keymapper, Filter0),
-    inc_vector(Filter, Vector).
+    Filter = inequations_to_ranges(Keymapper, Filter0),
+    make_bitfilter(Keymapper, Filter).
 
 key2vec(Schema, Vector) ->
     Keymapper = make_keymapper(Schema),
