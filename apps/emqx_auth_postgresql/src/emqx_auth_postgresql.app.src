@@ -9,7 +9,7 @@
         stdlib,
         emqx,
         emqx_auth,
-        emqx_connector
+        emqx_postgresql
     ]},
     {env, []},
     {modules, []},

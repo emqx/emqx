@@ -33,7 +33,7 @@ type() -> ?AUTHZ_TYPE.
 
 fields(postgresql) ->
     emqx_authz_schema:authz_common_fields(?AUTHZ_TYPE) ++
-        emqx_connector_pgsql:fields(config) ++
+        emqx_postgresql:fields(config) ++
         [{query, query()}].
 
 desc(postgresql) ->
