@@ -246,13 +246,18 @@ on_sql_query(InstId, PoolName, Type, NameOrSQL, Data) ->
                 pgsql_connector_query_return,
                 #{error => Reason}
             ),
-            ?SLOG(error, #{
-                msg => "postgresql_connector_do_sql_query_failed",
-                connector => InstId,
-                type => Type,
-                sql => NameOrSQL,
-                reason => Reason
-            }),
+            ?SLOG(
+                error,
+                maps:merge(
+                    #{
+                        msg => "postgresql_connector_do_sql_query_failed",
+                        connector => InstId,
+                        type => Type,
+                        sql => NameOrSQL
+                    },
+                    translate_to_log_context(Reason)
+                )
+            ),
             case Reason of
                 sync_required ->
                     {error, {recoverable_error, Reason}};
@@ -452,10 +457,12 @@ init_prepare(State = #{prepare_sql := Prepares, pool_name := PoolName}) ->
                 {ok, Sts} ->
                     State#{prepare_statement := Sts};
                 Error ->
-                    LogMeta = #{
-                        msg => <<"postgresql_init_prepare_statement_failed">>, error => Error
-                    },
-                    ?SLOG(error, LogMeta),
+                    LogMsg =
+                        maps:merge(
+                            #{msg => <<"postgresql_init_prepare_statement_failed">>},
+                            translate_to_log_context(Error)
+                        ),
+                    ?SLOG(error, LogMsg),
                     %% mark the prepare_sql as failed
                     State#{prepare_sql => {error, Prepares}}
             end
@@ -500,10 +507,20 @@ prepare_sql_to_conn(Conn, [{Key, SQL} | PrepareList], Statements) when is_pid(Co
         {error, {error, error, _, undefined_table, _, _} = Error} ->
             %% Target table is not created
             ?tp(pgsql_undefined_table, #{}),
-            ?SLOG(error, LogMeta#{msg => "postgresql_parse_failed", error => Error}),
+            LogMsg =
+                maps:merge(
+                    LogMeta#{msg => "postgresql_parse_failed"},
+                    translate_to_log_context(Error)
+                ),
+            ?SLOG(error, LogMsg),
             {error, undefined_table};
         {error, Error} = Other ->
-            ?SLOG(error, LogMeta#{msg => "postgresql_parse_failed", error => Error}),
+            LogMsg =
+                maps:merge(
+                    LogMeta#{msg => "postgresql_parse_failed"},
+                    translate_to_log_context(Error)
+                ),
+            ?SLOG(error, LogMsg),
             Other
     end.
 
@@ -529,3 +546,21 @@ handle_batch_result([{error, Error} | _Rest], _Acc) ->
     {error, {unrecoverable_error, Error}};
 handle_batch_result([], Acc) ->
     {ok, Acc}.
+
+translate_to_log_context(#error{} = Reason) ->
+    #error{
+        severity = Severity,
+        code = Code,
+        codename = Codename,
+        message = Message,
+        extra = Extra
+    } = Reason,
+    #{
+        driver_severity => Severity,
+        driver_error_codename => Codename,
+        driver_error_code => Code,
+        driver_error_message => emqx_logger_textfmt:try_format_unicode(Message),
+        driver_error_extra => Extra
+    };
+translate_to_log_context(Reason) ->
+    #{reason => Reason}.
