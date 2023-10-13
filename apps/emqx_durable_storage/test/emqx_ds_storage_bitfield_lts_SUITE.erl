@@ -8,6 +8,7 @@
 
 -include_lib("emqx/include/emqx.hrl").
 -include_lib("common_test/include/ct.hrl").
+-include_lib("snabbkaffe/include/snabbkaffe.hrl").
 -include_lib("stdlib/include/assert.hrl").
 
 -define(SHARD, shard(?FUNCTION_NAME)).
@@ -72,10 +73,10 @@ t_iterate(_Config) ->
 
 -define(assertSameSet(A, B), ?assertEqual(lists:sort(A), lists:sort(B))).
 
-%% Smoke test that verifies that concrete topics become individual
-%% streams, unless there's too many of them
+%% Smoke test that verifies that concrete topics are mapped to
+%% individual streams, unless there's too many of them.
 t_get_streams(_Config) ->
-    %% Prepare data:
+    %% Prepare data (without wildcards):
     Topics = [<<"foo/bar">>, <<"foo/bar/baz">>, <<"a">>],
     Timestamps = lists:seq(1, 10),
     Batch = [
@@ -91,11 +92,13 @@ t_get_streams(_Config) ->
     [FooBar = {_, _}] = GetStream(<<"foo/bar">>),
     [FooBarBaz] = GetStream(<<"foo/bar/baz">>),
     [A] = GetStream(<<"a">>),
-    %% Restart shard to make sure trie is persisted:
+    %% Restart shard to make sure trie is persisted and restored:
     ok = emqx_ds_storage_layer_sup:stop_shard(?SHARD),
     {ok, _} = emqx_ds_storage_layer_sup:start_shard(?SHARD, #{}),
-    %% Test various wildcards:
+    %% Verify that there are no "ghost streams" for topics that don't
+    %% have any messages:
     [] = GetStream(<<"bar/foo">>),
+    %% Test some wildcard patterns:
     ?assertEqual([FooBar], GetStream("+/+")),
     ?assertSameSet([FooBar, FooBarBaz], GetStream(<<"foo/#">>)),
     ?assertSameSet([FooBar, FooBarBaz, A], GetStream(<<"#">>)),
@@ -110,10 +113,138 @@ t_get_streams(_Config) ->
     ok = emqx_ds_storage_layer:store_batch(?SHARD, NewBatch, []),
     %% Check that "foo/bar/baz" topic now appears in two streams:
     %% "foo/bar/baz" and "foo/bar/+":
-    NewStreams = lists:sort(GetStream(<<"foo/bar/baz">>)),
+    NewStreams = lists:sort(GetStream("foo/bar/baz")),
     ?assertMatch([_, _], NewStreams),
-    ?assertMatch([_], NewStreams -- [FooBarBaz]),
+    ?assert(lists:member(FooBarBaz, NewStreams)),
+    %% Verify that size of the trie is still relatively small, even
+    %% after processing 200+ topics:
+    AllStreams = GetStream("#"),
+    NTotal = length(AllStreams),
+    ?assert(NTotal < 30, {NTotal, '<', 30}),
+    ?assert(lists:member(FooBar, AllStreams)),
+    ?assert(lists:member(FooBarBaz, AllStreams)),
+    ?assert(lists:member(A, AllStreams)),
     ok.
+
+t_replay(_Config) ->
+    %% Create concrete topics:
+    Topics = [<<"foo/bar">>, <<"foo/bar/baz">>],
+    Timestamps = lists:seq(1, 10),
+    Batch1 = [
+        make_message(PublishedAt, Topic, integer_to_binary(PublishedAt))
+     || Topic <- Topics, PublishedAt <- Timestamps
+    ],
+    ok = emqx_ds_storage_layer:store_batch(?SHARD, Batch1, []),
+    %% Create wildcard topics `wildcard/+/suffix/foo' and `wildcard/+/suffix/bar':
+    Batch2 = [
+        begin
+            B = integer_to_binary(I),
+            make_message(
+              TS, <<"wildcard/", B/binary, "/suffix/", Suffix/binary>>, integer_to_binary(TS)
+            )
+        end
+     || I <- lists:seq(1, 200), TS <- lists:seq(1, 10), Suffix <- [<<"foo">>, <<"bar">>]
+    ],
+    ok = emqx_ds_storage_layer:store_batch(?SHARD, Batch2, []),
+    %% Check various topic filters:
+    Messages = Batch1 ++ Batch2,
+    %% Missing topics (no ghost messages):
+    ?assertNot(check(?SHARD, <<"missing/foo/bar">>, 0, Messages)),
+    %% Regular topics:
+    ?assert(check(?SHARD, <<"foo/bar">>, 0, Messages)),
+    ?assert(check(?SHARD, <<"foo/bar/baz">>, 0, Messages)),
+    ?assert(check(?SHARD, <<"foo/#">>, 0, Messages)),
+    ?assert(check(?SHARD, <<"foo/+">>, 0, Messages)),
+    ?assert(check(?SHARD, <<"foo/+/+">>, 0, Messages)),
+    ?assert(check(?SHARD, <<"+/+/+">>, 0, Messages)),
+    ?assert(check(?SHARD, <<"+/+/baz">>, 0, Messages)),
+    %% Learned wildcard topics:
+    ?assertNot(check(?SHARD, <<"wildcard/1000/suffix/foo">>, 0, [])),
+    ?assert(check(?SHARD, <<"wildcard/1/suffix/foo">>, 0, Messages)),
+    ?assert(check(?SHARD, <<"wildcard/100/suffix/foo">>, 0, Messages)),
+    ?assert(check(?SHARD, <<"wildcard/+/suffix/foo">>, 0, Messages)),
+    ?assert(check(?SHARD, <<"wildcard/1/suffix/+">>, 0, Messages)),
+    ?assert(check(?SHARD, <<"wildcard/100/suffix/+">>, 0, Messages)),
+    ?assert(check(?SHARD, <<"wildcard/#">>, 0, Messages)),
+    ?assert(check(?SHARD, <<"wildcard/1/#">>, 0, Messages)),
+    ?assert(check(?SHARD, <<"wildcard/100/#">>, 0, Messages)),
+    ?assert(check(?SHARD, <<"#">>, 0, Messages)),
+    ok.
+
+check(Shard, TopicFilter, StartTime, ExpectedMessages) ->
+    ExpectedFiltered = lists:filter(
+        fun(#message{topic = Topic, timestamp = TS}) ->
+            emqx_topic:match(Topic, TopicFilter) andalso TS >= StartTime
+        end,
+        ExpectedMessages
+    ),
+    ?check_trace(
+       #{timetrap => 10_000},
+       begin
+           Dump = dump_messages(Shard, TopicFilter, StartTime),
+           verify_dump(TopicFilter, StartTime, Dump),
+           Missing = ExpectedFiltered -- Dump,
+           Extras = Dump -- ExpectedFiltered,
+           ?assertMatch(
+               #{missing := [], unexpected := []},
+               #{
+                   missing => Missing,
+                   unexpected => Extras,
+                   topic_filter => TopicFilter,
+                   start_time => StartTime
+               }
+           )
+       end,
+       []),
+    length(ExpectedFiltered) > 0.
+
+verify_dump(TopicFilter, StartTime, Dump) ->
+    lists:foldl(
+        fun(#message{topic = Topic, timestamp = TS}, Acc) ->
+            %% Verify that the topic of the message returned by the
+            %% iterator matches the expected topic filter:
+            ?assert(emqx_topic:match(Topic, TopicFilter), {unexpected_topic, Topic, TopicFilter}),
+            %% Verify that timestamp of the message is greater than
+            %% the StartTime of the iterator:
+            ?assert(TS >= StartTime, {start_time, TopicFilter, TS, StartTime}),
+            %% Verify that iterator didn't reorder messages
+            %% (timestamps for each topic are growing):
+            LastTopicTs = maps:get(Topic, Acc, -1),
+            ?assert(TS >= LastTopicTs, {topic_ts_reordering, Topic, TS, LastTopicTs}),
+            Acc#{Topic => TS}
+        end,
+        #{},
+        Dump
+    ).
+
+dump_messages(Shard, TopicFilter, StartTime) ->
+    Streams = emqx_ds_storage_layer:get_streams(Shard, parse_topic(TopicFilter), StartTime),
+    lists:flatmap(
+        fun({_Rank, Stream}) ->
+            dump_stream(Shard, Stream, TopicFilter, StartTime)
+        end,
+        Streams
+    ).
+
+dump_stream(Shard, Stream, TopicFilter, StartTime) ->
+    BatchSize = 3,
+    {ok, Iterator} = emqx_ds_storage_layer:make_iterator(
+        Shard, Stream, parse_topic(TopicFilter), StartTime
+    ),
+    Loop = fun F(It, 0) ->
+                   error({too_many_iterations, It});
+               F(It, N) ->
+        case emqx_ds_storage_layer:next(Shard, It, BatchSize) of
+            end_of_stream ->
+                [];
+            {ok, _NextIt, []} ->
+                [];
+            {ok, NextIt, Batch} ->
+                Batch ++ F(NextIt, N - 1)
+        end
+    end,
+    MaxIterations = 1000,
+    Loop(Iterator, MaxIterations).
 
 %% Smoke test for iteration with wildcard topic filter
 %% t_iterate_wildcard(_Config) ->
@@ -317,6 +448,7 @@ parse_topic(Topic) ->
 %% CT callbacks
 
 all() -> emqx_common_test_helpers:all(?MODULE).
+suite() -> [{timetrap, {seconds, 20}}].
 
 init_per_suite(Config) ->
     {ok, _} = application:ensure_all_started(emqx_durable_storage),

@@ -88,7 +88,8 @@
     bin_key_to_vector/2,
     next_range/3,
     key_to_bitstring/2,
-    bitstring_to_key/2
+    bitstring_to_key/2,
+    bitsize/1
 ]).
 
 -export_type([vector/0, key/0, dimension/0, offset/0, bitsize/0, bitsource/0, keymapper/0]).
@@ -146,7 +147,7 @@
 
 -opaque keymapper() :: #keymapper{}.
 
--type scalar_range() :: any | {'=', scalar()} | {'>=', scalar()}.
+-type scalar_range() :: any | {'=', scalar() | infinity} | {'>=', scalar()}.
 
 %%================================================================================
 %% API functions
@@ -178,6 +179,10 @@ make_keymapper(Bitsources) ->
         size = Size,
         dim_sizeof = DimSizeof
     }.
+
+-spec bitsize(keymapper()) -> pos_integer().
+bitsize(#keymapper{size = Size}) ->
+    Size.
 
 %% @doc Map N-dimensional vector to a scalar key.
 %%
@@ -264,8 +269,12 @@ next_range(Keymapper, Filter0, PrevKey) ->
 
 -spec bitstring_to_key(keymapper(), bitstring()) -> key().
 bitstring_to_key(#keymapper{size = Size}, Bin) ->
-    <<Key:Size>> = Bin,
-    Key.
+    case Bin of
+        <<Key:Size>> ->
+            Key;
+        _ ->
+            error({invalid_key, Bin, Size})
+    end.
 
 -spec key_to_bitstring(keymapper(), key()) -> bitstring().
 key_to_bitstring(#keymapper{size = Size}, Key) ->
@@ -329,6 +338,9 @@ desugar_filter(#keymapper{dim_sizeof = DimSizeof}, Filter) ->
         fun
             ({any, Bitsize}) ->
                 {0, ones(Bitsize)};
+            ({{'=', infinity}, Bitsize}) ->
+                Val = ones(Bitsize),
+                {Val, Val};
             ({{'=', Val}, _Bitsize}) ->
                 {Val, Val};
             ({{'>=', Val}, Bitsize}) ->
@@ -469,6 +481,14 @@ vector_to_key3_test() ->
 vector_to_key4_test() ->
     Schema = [{1, 0, 8}, {2, 0, 8}, {1, 8, 8}, {2, 16, 8}],
     ?assertEqual(16#bb112211, vec2key(Schema, [16#aa1111, 16#bb2222])).
+
+%% Test with binaries:
+vector_to_key_bin_test() ->
+    Schema = [{1, 0, 8 * 4}, {2, 0, 8 * 5}, {3, 0, 8 * 5}],
+    Keymapper = make_keymapper(lists:reverse(Schema)),
+    ?assertMatch(
+        <<"wellhelloworld">>, bin_vector_to_key(Keymapper, [<<"well">>, <<"hello">>, <<"world">>])
+    ).
 
 key_to_vector0_test() ->
     Schema = [],

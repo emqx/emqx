@@ -35,6 +35,7 @@
 -export_type([options/0]).
 
 -include_lib("emqx/include/emqx.hrl").
+-include_lib("snabbkaffe/include/trace.hrl").
 
 %%================================================================================
 %% Type declarations
@@ -52,7 +53,7 @@
     #{
         bits_per_wildcard_level := pos_integer(),
         topic_index_bytes := pos_integer(),
-        epoch_bits := non_neg_integer(),
+        ts_bits := non_neg_integer(),
         ts_offset_bits := non_neg_integer()
     }.
 
@@ -80,6 +81,8 @@
     ((KEY band BITMASK) =:= BITFILTER)
 ).
 
+-define(COUNTER, emqx_ds_storage_bitfield_lts_counter).
+
 %%================================================================================
 %% API funcions
 %%================================================================================
@@ -92,20 +95,17 @@ create(_ShardId, DBHandle, GenId, Options) ->
     %% Get options:
     BitsPerTopicLevel = maps:get(bits_per_wildcard_level, Options, 64),
     TopicIndexBytes = maps:get(topic_index_bytes, Options, 4),
-    TSOffsetBits = maps:get(epoch_bits, Options, 5),
+    TSOffsetBits = maps:get(epoch_bits, Options, 8), %% TODO: change to 10 to make it around ~1 sec
     %% Create column families:
     DataCFName = data_cf(GenId),
     TrieCFName = trie_cf(GenId),
     {ok, DataCFHandle} = rocksdb:create_column_family(DBHandle, DataCFName, []),
     {ok, TrieCFHandle} = rocksdb:create_column_family(DBHandle, TrieCFName, []),
     %% Create schema:
-
-    % Fixed size_of MQTT message timestamp
-    SizeOfTS = 64,
     Schema = #{
         bits_per_wildcard_level => BitsPerTopicLevel,
         topic_index_bytes => TopicIndexBytes,
-        epoch_bits => SizeOfTS - TSOffsetBits,
+        ts_bits => 64,
         ts_offset_bits => TSOffsetBits
     },
     {Schema, [{DataCFName, DataCFHandle}, {TrieCFName, TrieCFHandle}]}.
@@ -114,19 +114,19 @@ open(_Shard, DBHandle, GenId, CFRefs, Schema) ->
     #{
         bits_per_wildcard_level := BitsPerTopicLevel,
         topic_index_bytes := TopicIndexBytes,
-        epoch_bits := EpochBits,
+        ts_bits := TSBits,
         ts_offset_bits := TSOffsetBits
     } = Schema,
     {_, DataCF} = lists:keyfind(data_cf(GenId), 1, CFRefs),
     {_, TrieCF} = lists:keyfind(trie_cf(GenId), 1, CFRefs),
     Trie = restore_trie(TopicIndexBytes, DBHandle, TrieCF),
-    %% If user's topics have more than learned 10 wildcard levels then
-    %% total carnage is going on; learned topic structure doesn't
-    %% really apply:
+    %% If user's topics have more than learned 10 wildcard levels,
+    %% then it's total carnage; learned topic structure won't help
+    %% much:
     MaxWildcardLevels = 10,
     Keymappers = array:from_list(
         [
-            make_keymapper(TopicIndexBytes, EpochBits, BitsPerTopicLevel, TSOffsetBits, N)
+            make_keymapper(TopicIndexBytes, BitsPerTopicLevel, TSBits, TSOffsetBits, N)
          || N <- lists:seq(0, MaxWildcardLevels)
         ]
     ),
@@ -180,11 +180,18 @@ next(_Shard, #s{db = DB, data = CF, keymappers = Keymappers}, It0, BatchSize) ->
     % TODO: ugh, so ugly
     NVarying = length(KeyFilter) - 2,
     Keymapper = array:get(NVarying, Keymappers),
-    {ok, ITHandle} = rocksdb:iterator(DB, CF, []),
+    %% Calculate lower and upper bounds for iteration:
+    LowerBound = lower_bound(Keymapper, KeyFilter),
+    UpperBound = upper_bound(Keymapper, KeyFilter),
+    {ok, ITHandle} = rocksdb:iterator(DB, CF, [
+        {iterate_lower_bound, LowerBound}, {iterate_upper_bound, UpperBound}
+    ]),
     try
+        put(?COUNTER, 0),
         next_loop(ITHandle, Keymapper, It0, [], BatchSize)
     after
-        rocksdb:iterator_close(ITHandle)
+        rocksdb:iterator_close(ITHandle),
+        erase(?COUNTER)
     end.
 
 %%================================================================================
@@ -193,35 +200,42 @@ next(_Shard, #s{db = DB, data = CF, keymappers = Keymappers}, It0, BatchSize) ->
 
 next_loop(_, _, It, Acc, 0) ->
     {ok, It, lists:reverse(Acc)};
-next_loop(ITHandle, KeyMapper, It0, Acc0, N0) ->
-    {Key1, Bitmask, Bitfilter} = next_range(KeyMapper, It0),
-    case iterator_move(KeyMapper, ITHandle, {seek, Key1}) of
-        {ok, Key, Val} when ?QUICKCHECK_KEY(Key, Bitmask, Bitfilter) ->
-            Msg = deserialize(Val),
-            It1 = It0#it{last_seen_key = Key},
-            case check_message(It1, Msg) of
-                true ->
-                    N1 = N0 - 1,
-                    Acc1 = [Msg | Acc0];
-                false ->
-                    N1 = N0,
-                    Acc1 = Acc0
-            end,
-            {N, It, Acc} = traverse_interval(
-                ITHandle, KeyMapper, Bitmask, Bitfilter, It1, Acc1, N1
-            ),
-            next_loop(ITHandle, KeyMapper, It, Acc, N);
-        {ok, Key, _Val} ->
-            It = It0#it{last_seen_key = Key},
-            next_loop(ITHandle, KeyMapper, It, Acc0, N0);
-        {error, invalid_iterator} ->
+next_loop(ITHandle, KeyMapper, It0 = #it{last_seen_key = Key0, key_filter = KeyFilter}, Acc0, N0) ->
+    inc_counter(),
+    case next_range(KeyMapper, It0) of
+        {Key1, Bitmask, Bitfilter} when Key1 > Key0 ->
+            case iterator_move(KeyMapper, ITHandle, {seek, Key1}) of
+                {ok, Key, Val} when ?QUICKCHECK_KEY(Key, Bitmask, Bitfilter) ->
+                    assert_progress(bitmask_match, KeyMapper, KeyFilter, Key0, Key1),
+                    Msg = deserialize(Val),
+                    It1 = It0#it{last_seen_key = Key},
+                    case check_message(It1, Msg) of
+                        true ->
+                            N1 = N0 - 1,
+                            Acc1 = [Msg | Acc0];
+                        false ->
+                            N1 = N0,
+                            Acc1 = Acc0
+                    end,
+                    {N, It, Acc} = traverse_interval(
+                        ITHandle, KeyMapper, Bitmask, Bitfilter, It1, Acc1, N1
+                    ),
+                    next_loop(ITHandle, KeyMapper, It, Acc, N);
+                {ok, Key, _Val} ->
+                    assert_progress(bitmask_miss, KeyMapper, KeyFilter, Key0, Key1),
+                    It = It0#it{last_seen_key = Key},
+                    next_loop(ITHandle, KeyMapper, It, Acc0, N0);
+                {error, invalid_iterator} ->
+                    {ok, It0, lists:reverse(Acc0)}
+            end;
+        _ ->
             {ok, It0, lists:reverse(Acc0)}
     end.
 
 traverse_interval(_, _, _, _, It, Acc, 0) ->
     {0, It, Acc};
 traverse_interval(ITHandle, KeyMapper, Bitmask, Bitfilter, It0, Acc, N) ->
-    %% TODO: supply the upper limit to rocksdb to the last extra seek:
+    inc_counter(),
     case iterator_move(KeyMapper, ITHandle, next) of
         {ok, Key, Val} when ?QUICKCHECK_KEY(Key, Bitmask, Bitfilter) ->
             Msg = deserialize(Val),
@@ -265,6 +279,28 @@ iterator_move(KeyMapper, ITHandle, Action0) ->
             Other
     end.
 
+assert_progress(_Msg, _KeyMapper, _KeyFilter, Key0, Key1) when Key1 > Key0 ->
+    ?tp_ignore_side_effects_in_prod(
+       emqx_ds_storage_bitfield_lts_iter_move,
+       #{ location => _Msg
+        , key0 => format_key(_KeyMapper, Key0)
+        , key1 => format_key(_KeyMapper, Key1)
+        }),
+    ok;
+assert_progress(Msg, KeyMapper, KeyFilter, Key0, Key1) ->
+    Str0 = format_key(KeyMapper, Key0),
+    Str1 = format_key(KeyMapper, Key1),
+    error(#{'$msg' => Msg, key0 => Str0, key1 => Str1, step => get(?COUNTER), keyfilter => lists:map(fun format_keyfilter/1, KeyFilter)}).
+
+format_key(KeyMapper, Key) ->
+    Vec = [integer_to_list(I, 16) || I <- emqx_ds_bitmask_keymapper:key_to_vector(KeyMapper, Key)],
+    lists:flatten(io_lib:format("~.16B (~s)", [Key, string:join(Vec, ",")])).
+
+format_keyfilter(any) ->
+    any;
+format_keyfilter({Op, Val}) ->
+    {Op, integer_to_list(Val, 16)}.
+
 -spec make_key(#s{}, #message{}) -> {binary(), [binary()]}.
 make_key(#s{keymappers = KeyMappers, trie = Trie}, #message{timestamp = Timestamp, topic = TopicBin}) ->
     Tokens = emqx_topic:tokens(TopicBin),
@@ -303,15 +339,33 @@ deserialize(Blob) ->
 -define(BYTE_SIZE, 8).
 
 %% erlfmt-ignore
-make_keymapper(TopicIndexBytes, EpochBits, BitsPerTopicLevel, TSOffsetBits, N) ->
+make_keymapper(TopicIndexBytes, BitsPerTopicLevel, TSBits, TSOffsetBits, N) ->
     Bitsources =
     %% Dimension Offset        Bitsize
         [{1,     0,            TopicIndexBytes * ?BYTE_SIZE},      %% Topic index
-         {2,     TSOffsetBits, EpochBits                   }] ++   %% Timestamp epoch
+         {2,     TSOffsetBits, TSBits - TSOffsetBits       }] ++   %% Timestamp epoch
         [{2 + I, 0,            BitsPerTopicLevel           }       %% Varying topic levels
                                                            || I <- lists:seq(1, N)] ++
         [{2,     0,            TSOffsetBits                }],     %% Timestamp offset
-    emqx_ds_bitmask_keymapper:make_keymapper(Bitsources).
+    Keymapper = emqx_ds_bitmask_keymapper:make_keymapper(lists:reverse(Bitsources)),
+    %% Assert:
+    case emqx_ds_bitmask_keymapper:bitsize(Keymapper) rem 8 of
+        0 ->
+            ok;
+        _ ->
+            error(#{'$msg' => "Non-even key size", bitsources => Bitsources})
+    end,
+    Keymapper.
+
+upper_bound(Keymapper, [TopicIndex | Rest]) ->
+    filter_to_key(Keymapper, [TopicIndex | [{'=', infinity} || _ <- Rest]]).
+
+lower_bound(Keymapper, [TopicIndex | Rest]) ->
+    filter_to_key(Keymapper, [TopicIndex | [{'=', 0} || _ <- Rest]]).
+
+filter_to_key(KeyMapper, KeyFilter) ->
+    {Key, _, _} = emqx_ds_bitmask_keymapper:next_range(KeyMapper, KeyFilter, 0),
+    emqx_ds_bitmask_keymapper:key_to_bitstring(KeyMapper, Key).
 
 -spec restore_trie(pos_integer(), rocksdb:db_handle(), rocksdb:cf_handle()) -> emqx_ds_lts:trie().
 restore_trie(TopicIndexBytes, DB, CF) ->
@@ -334,6 +388,10 @@ read_persisted_trie(IT, {ok, KeyB, ValB}) ->
     ];
 read_persisted_trie(IT, {error, invalid_iterator}) ->
     [].
+
+inc_counter() ->
+    N = get(?COUNTER),
+    put(?COUNTER, N + 1).
 
 %% @doc Generate a column family ID for the MQTT messages
 -spec data_cf(emqx_ds_storage_layer:gen_id()) -> [char()].
