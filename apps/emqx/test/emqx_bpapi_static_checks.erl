@@ -244,19 +244,28 @@ get_param_types(Signatures, {M, F, A}) ->
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
 dump() ->
-    case
-        {
-            filelib:wildcard(project_root_dir() ++ "/*_plt"),
-            filelib:wildcard(project_root_dir() ++ "/_build/check/lib")
-        }
-    of
+    RootDir = project_root_dir(),
+    TryRelDir = RootDir ++ "/_build/check/lib",
+    case {filelib:wildcard(RootDir ++ "/*_plt"), filelib:wildcard(TryRelDir)} of
         {[PLT | _], [RelDir | _]} ->
             dump(#{
                 plt => PLT,
                 reldir => RelDir
             });
-        _ ->
-            error("failed to guess run options")
+        {[], _} ->
+            logger:error(
+                "No usable PLT files found in \"~s\", abort ~n"
+                "Try running `rebar3 as check dialyzer` at least once first",
+                [RootDir]
+            ),
+            error(run_failed);
+        {_, []} ->
+            logger:error(
+                "No built applications found in \"~s\", abort ~n"
+                "Try running `rebar3 as check compile` at least once first",
+                [TryRelDir]
+            ),
+            error(run_failed)
     end.
 
 %% Collect the local BPAPI modules to a dump file
