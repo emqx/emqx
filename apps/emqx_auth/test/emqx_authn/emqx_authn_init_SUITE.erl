@@ -19,6 +19,7 @@
 -compile(export_all).
 -compile(nowarn_export_all).
 
+-include_lib("emqx/include/asserts.hrl").
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
 
@@ -48,9 +49,11 @@ init_per_testcase(_Case, Config) ->
             work_dir => ?config(priv_dir, Config)
         }
     ),
+    ok = snabbkaffe:start_trace(),
     [{apps, Apps} | Config].
 
 end_per_testcase(_Case, Config) ->
+    ok = snabbkaffe:stop(),
     _ = application:stop(emqx_auth),
     ok = emqx_cth_suite:stop(?config(apps, Config)),
     ok.
@@ -66,10 +69,14 @@ t_initialize(_Config) ->
         emqx_access_control:authenticate(?CLIENTINFO)
     ),
 
-    ok = emqx_authn_test_lib:register_fake_providers([{password_based, built_in_database}]),
+    ?assertWaitEvent(
+        ok = emqx_authn_test_lib:register_fake_providers([{password_based, built_in_database}]),
+        #{?snk_kind := authn_chains_initialization_done},
+        100
+    ),
 
     ?assertMatch(
-        {error, not_authorized},
+        {error, bad_username_or_password},
         emqx_access_control:authenticate(?CLIENTINFO)
     ),
 

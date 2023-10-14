@@ -332,7 +332,7 @@ on_get_status(_InstId, #{pool_name := PoolName} = State) ->
     end.
 
 do_get_status(Conn) ->
-    ok == element(1, ecql:query(Conn, "SELECT count(1) AS T FROM system.local")).
+    ok == element(1, ecql:query(Conn, "SELECT cluster_name FROM system.local")).
 
 do_check_prepares(#{prepare_cql := Prepares}) when is_map(Prepares) ->
     ok;
