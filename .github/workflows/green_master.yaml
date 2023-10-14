@@ -7,6 +7,9 @@ on:
     # run hourly
     - cron: "0 * * * *"
   workflow_dispatch:
+    inputs:
+      ref:
+        required: false
 
 permissions:
   contents: read
@@ -20,10 +23,16 @@ jobs:
       actions: write
     steps:
       - uses: actions/checkout@v3
+        with:
+          ref: ${{ github.event.inputs.ref || 'master' }}
 
       - name: run script
         shell: bash
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          python3 scripts/rerun-failed-checks.py
+          gh api --method GET -f head_sha=$(git rev-parse HEAD) -f status=completed -f exclude_pull_requests=true /repos/emqx/emqx/actions/runs > runs.json
+          for id in $(jq -r '.workflow_runs[] | select((."conclusion" != "success") and .run_attempt < 3) | .id' runs.json); do
+            echo "rerun https://github.com/emqx/emqx/actions/runs/$id"
+            gh api --method POST /repos/emqx/emqx/actions/runs/$id/rerun-failed-jobs
+          done
