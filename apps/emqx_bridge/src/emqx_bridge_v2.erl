@@ -71,7 +71,8 @@
     start/2,
     stop/2,
     restart/2,
-    reset_metrics/2
+    reset_metrics/2,
+    create_dry_run/2
 ]).
 
 %% Config Update Handler API
@@ -93,7 +94,7 @@ get_channels_for_connector(ConnectorId) ->
     RelevantBridgeV2Types = [
         Type
      || Type <- RootConf,
-        bridge_v2_type_to_connector_type(Type) =:= ConnectorType
+        ?MODULE:bridge_v2_type_to_connector_type(Type) =:= ConnectorType
     ],
     lists:flatten([
         get_channels_for_connector(ConnectorName, BridgeV2Type)
@@ -147,7 +148,7 @@ install_bridge_v2(
     end,
     %% If there is a running connector, we need to install the Bridge V2 in it
     ConnectorId = emqx_connector_resource:resource_id(
-        bridge_v2_type_to_connector_type(BridgeV2Type), ConnectorName
+        ?MODULE:bridge_v2_type_to_connector_type(BridgeV2Type), ConnectorName
     ),
     emqx_resource_manager:add_channel(ConnectorId, BridgeV2Id, Config),
     ok.
@@ -170,13 +171,14 @@ uninstall_bridge_v2(
     ok = emqx_resource:clear_metrics(BridgeV2Id),
     %% Deinstall from connector
     ConnectorId = emqx_connector_resource:resource_id(
-        bridge_v2_type_to_connector_type(BridgeV2Type), ConnectorName
+        ?MODULE:bridge_v2_type_to_connector_type(BridgeV2Type), ConnectorName
     ),
     emqx_resource_manager:remove_channel(ConnectorId, BridgeV2Id).
 
 get_query_mode(BridgeV2Type, Config) ->
     CreationOpts = emqx_resource:fetch_creation_opts(Config),
-    ResourceType = emqx_bridge_resource:bridge_to_resource_type(BridgeV2Type),
+    ConnectorType = ?MODULE:bridge_v2_type_to_connector_type(BridgeV2Type),
+    ResourceType = emqx_connector_resource:connector_to_resource_type(ConnectorType),
     emqx_resource:query_mode(ResourceType, Config, CreationOpts).
 
 send_message(BridgeType, BridgeName, Message, QueryOpts0) ->
@@ -209,7 +211,7 @@ health_check(BridgeType, BridgeName) ->
             connector := ConnectorName
         } ->
             ConnectorId = emqx_connector_resource:resource_id(
-                bridge_v2_type_to_connector_type(BridgeType), ConnectorName
+                ?MODULE:bridge_v2_type_to_connector_type(BridgeType), ConnectorName
             ),
             emqx_resource_manager:channel_health_check(
                 ConnectorId, id(BridgeType, BridgeName, ConnectorName)
@@ -246,7 +248,7 @@ stop_helper(BridgeV2Type, BridgeName, #{connector := ConnectorName}) ->
     BridgeV2Id = id(BridgeV2Type, BridgeName, ConnectorName),
     ok = emqx_metrics_worker:reset_metrics(?RES_METRICS, BridgeV2Id),
     ConnectorId = emqx_connector_resource:resource_id(
-        bridge_v2_type_to_connector_type(BridgeV2Type), ConnectorName
+        ?MODULE:bridge_v2_type_to_connector_type(BridgeV2Type), ConnectorName
     ),
     emqx_resource_manager:remove_channel(ConnectorId, BridgeV2Id).
 
@@ -260,7 +262,7 @@ start_helper(BridgeV2Type, BridgeName, #{connector := ConnectorName} = Config) -
     BridgeV2Id = id(BridgeV2Type, BridgeName, ConnectorName),
     %% Deinstall from connector
     ConnectorId = emqx_connector_resource:resource_id(
-        bridge_v2_type_to_connector_type(BridgeV2Type), ConnectorName
+        ?MODULE:bridge_v2_type_to_connector_type(BridgeV2Type), ConnectorName
     ),
     emqx_resource_manager:add_channel(ConnectorId, BridgeV2Id, Config).
 
@@ -292,7 +294,7 @@ id(BridgeType, BridgeName) ->
     end.
 
 id(BridgeType, BridgeName, ConnectorName) ->
-    ConnectorType = bin(bridge_v2_type_to_connector_type(BridgeType)),
+    ConnectorType = bin(?MODULE:bridge_v2_type_to_connector_type(BridgeType)),
     <<"bridge_v2:", (bin(BridgeType))/binary, ":", (bin(BridgeName))/binary, ":connector:",
         (bin(ConnectorType))/binary, ":", (bin(ConnectorName))/binary>>.
 
@@ -304,7 +306,7 @@ external_id(BridgeType, BridgeName) ->
     <<Type/binary, ":", Name/binary>>.
 
 bridge_v2_type_to_connector_type(Bin) when is_binary(Bin) ->
-    bridge_v2_type_to_connector_type(binary_to_existing_atom(Bin));
+    ?MODULE:bridge_v2_type_to_connector_type(binary_to_existing_atom(Bin));
 bridge_v2_type_to_connector_type(kafka) ->
     kafka.
 
@@ -381,7 +383,7 @@ lookup(Type, Name) ->
             {error, not_found};
         #{<<"connector">> := BridgeConnector} = RawConf ->
             ConnectorId = emqx_connector_resource:resource_id(
-                bridge_v2_type_to_connector_type(Type), BridgeConnector
+                ?MODULE:bridge_v2_type_to_connector_type(Type), BridgeConnector
             ),
             InstanceData =
                 case emqx_resource:get_instance(ConnectorId) of
@@ -402,7 +404,7 @@ lookup(Type, Name) ->
 lookup_and_transform_to_bridge_v1(Type, Name) ->
     case lookup(Type, Name) of
         {ok, #{raw_config := #{<<"connector">> := ConnectorName}} = BridgeV2} ->
-            ConnectorType = bridge_v2_type_to_connector_type(Type),
+            ConnectorType = ?MODULE:bridge_v2_type_to_connector_type(Type),
             case emqx_connector:lookup(ConnectorType, ConnectorName) of
                 {ok, Connector} ->
                     lookup_and_transform_to_bridge_v1_helper(
@@ -492,7 +494,7 @@ split_and_validate_bridge_v1_config(BridgeType, BridgeName, RawConf) ->
     %% Create fake global config for the transformation and then call
     %% emqx_connector_schema:transform_bridges_v1_to_connectors_and_bridges_v2/1
 
-    ConnectorType = bridge_v2_type_to_connector_type(BridgeType),
+    ConnectorType = ?MODULE:bridge_v2_type_to_connector_type(BridgeType),
     %% Needed so name confligts will ba avoided
     CurrentConnectorsConfig = emqx:get_raw_config([connectors], #{}),
     FakeGlobalConfig = #{
@@ -585,13 +587,18 @@ bridge_v1_create_dry_run(BridgeType, RawConfig0) ->
     RawConf = maps:without([<<"name">>], RawConfig0),
     TmpName = iolist_to_binary([?TEST_ID_PREFIX, emqx_utils:gen_id(8)]),
     #{
-        connector_type := ConnectorType,
+        connector_type := _ConnectorType,
         connector_name := _NewConnectorName,
         connector_conf := ConnectorRawConf,
         bridge_v2_type := BridgeType,
-        bridge_v2_name := BridgeName,
+        bridge_v2_name := _BridgeName,
         bridge_v2_conf := BridgeV2RawConf
     } = split_and_validate_bridge_v1_config(BridgeType, TmpName, RawConf),
+    create_dry_run_helper(BridgeType, ConnectorRawConf, BridgeV2RawConf).
+
+create_dry_run_helper(BridgeType, ConnectorRawConf, BridgeV2RawConf) ->
+    BridgeName = iolist_to_binary([?TEST_ID_PREFIX, emqx_utils:gen_id(8)]),
+    ConnectorType = ?MODULE:bridge_v2_type_to_connector_type(BridgeType),
     OnReadyCallback =
         fun(ConnectorId) ->
             {_, ConnectorName} = emqx_connector_resource:parse_connector_id(ConnectorId),
@@ -613,6 +620,34 @@ bridge_v1_create_dry_run(BridgeType, RawConfig0) ->
             end
         end,
     emqx_connector_resource:create_dry_run(ConnectorType, ConnectorRawConf, OnReadyCallback).
+
+create_dry_run(Type, Conf0) ->
+    Conf1 = maps:without([<<"name">>], Conf0),
+    TypeBin = bin(Type),
+    TypeAtom = binary_to_existing_atom(TypeBin),
+    RawConf = #{<<"bridges_v2">> => #{TypeBin => #{<<"temp_name">> => Conf1}}},
+    %% Check config
+    try
+        #{bridges_v2 := #{TypeAtom := #{temp_name := _Conf}}} =
+            hocon_tconf:check_plain(
+                emqx_bridge_v2_schema,
+                RawConf,
+                #{atom_key => true, required => false}
+            )
+    catch
+        %% validation errors
+        throw:Reason1 ->
+            {error, Reason1}
+    end,
+    #{<<"connector">> := ConnectorName} = Conf1,
+    %% Check that the connector exists and do the dry run if it exists
+    ConnectorType = ?MODULE:bridge_v2_type_to_connector_type(Type),
+    case emqx:get_raw_config([connectors, ConnectorType, ConnectorName], not_found) of
+        not_found ->
+            {error, iolist_to_binary(io_lib:format("Connector ~p not found", [ConnectorName]))};
+        ConnectorRawConf ->
+            create_dry_run_helper(Type, ConnectorRawConf, Conf1)
+    end.
 
 %% NOTE: This function can cause broken references but it is only called from
 %% test cases.
@@ -667,7 +702,7 @@ bridge_v1_check_deps_and_remove(
             %% Check if there are other channels that depends on the same connector
             case connector_has_channels(BridgeType, ConnectorName) of
                 false ->
-                    ConnectorType = bridge_v2_type_to_connector_type(BridgeType),
+                    ConnectorType = ?MODULE:bridge_v2_type_to_connector_type(BridgeType),
                     emqx_connector:remove(ConnectorType, ConnectorName);
                 true ->
                     ok
@@ -678,7 +713,7 @@ bridge_v1_check_deps_and_remove(_BridgeType, _BridgeName, _RemoveDeps, Error) ->
     Error.
 
 connector_has_channels(BridgeV2Type, ConnectorName) ->
-    ConnectorType = bridge_v2_type_to_connector_type(BridgeV2Type),
+    ConnectorType = ?MODULE:bridge_v2_type_to_connector_type(BridgeV2Type),
     case emqx_connector_resource:get_channels(ConnectorType, ConnectorName) of
         {ok, []} ->
             false;
@@ -842,7 +877,7 @@ bridge_v1_id_to_connector_resource_id(BridgeId) ->
                     Error ->
                         throw(Error)
                 end,
-            ConnectorType = bin(bridge_v2_type_to_connector_type(BridgeV2Type)),
+            ConnectorType = bin(?MODULE:bridge_v2_type_to_connector_type(BridgeV2Type)),
             <<"connector:", ConnectorType/binary, ":", ConnectorName/binary>>
     end.
 

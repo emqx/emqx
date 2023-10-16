@@ -56,15 +56,24 @@ when
 -optional_callbacks([connector_config/2]).
 
 -if(?EMQX_RELEASE_EDITION == ee).
-connector_to_resource_type(ConnectorType) -> emqx_connector_ee_schema:resource_type(ConnectorType).
+connector_to_resource_type(ConnectorType) ->
+    try
+        emqx_connector_ee_schema:resource_type(ConnectorType)
+    catch
+        _:_ -> connector_to_resource_type_ce(ConnectorType)
+    end.
 
 connector_impl_module(ConnectorType) ->
     emqx_connector_ee_schema:connector_impl_module(ConnectorType).
 -else.
-connector_to_resource_type(_) -> undefined.
+
+connector_to_resource_type(ConnectorType) -> connector_to_resource_type_ce(ConnectorType).
 
 connector_impl_module(_ConnectorType) -> undefined.
+
 -endif.
+
+connector_to_resource_type_ce(_) -> undefined.
 
 resource_id(ConnectorId) when is_binary(ConnectorId) ->
     <<"connector:", ConnectorId/binary>>.
@@ -166,7 +175,7 @@ create(Type, Name, Conf, Opts) ->
     {ok, _Data} = emqx_resource:create_local(
         resource_id(Type, Name),
         <<"emqx_connector">>,
-        connector_to_resource_type(Type),
+        ?MODULE:connector_to_resource_type(Type),
         parse_confs(TypeBin, Name, Conf),
         parse_opts(Conf, Opts)
     ),
@@ -236,7 +245,7 @@ recreate(Type, Name, Conf, Opts) ->
     TypeBin = bin(Type),
     emqx_resource:recreate_local(
         resource_id(Type, Name),
-        connector_to_resource_type(Type),
+        ?MODULE:connector_to_resource_type(Type),
         parse_confs(TypeBin, Name, Conf),
         parse_opts(Conf, Opts)
     ).
@@ -266,7 +275,7 @@ create_dry_run(Type, Conf0, Callback) ->
             {ok, ConfNew} ->
                 ParseConf = parse_confs(bin(Type), TmpName, ConfNew),
                 emqx_resource:create_dry_run_local(
-                    TmpName, connector_to_resource_type(Type), ParseConf, Callback
+                    TmpName, ?MODULE:connector_to_resource_type(Type), ParseConf, Callback
                 )
         end
     catch
