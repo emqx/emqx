@@ -57,6 +57,8 @@
 -define(DEFAULT_PIPELINE_SIZE, 100).
 -define(DEFAULT_REQUEST_TIMEOUT_MS, 30_000).
 
+-define(READACT_REQUEST_NOTE, "the request body is redacted due to security reasons").
+
 %%=====================================================================
 %% Hocon schema
 
@@ -303,7 +305,8 @@ on_query(
         "QUERY",
         "http_connector_received",
         #{
-            request => redact(Request),
+            request => redact_request(Request),
+            note => ?READACT_REQUEST_NOTE,
             connector => InstId,
             state => redact(State)
         }
@@ -329,7 +332,7 @@ on_query(
         {error, #{status_code := StatusCode}} ->
             ?SLOG(error, #{
                 msg => "http_connector_do_request_received_error_response",
-                note => "the body will be redacted due to security reasons",
+                note => ?READACT_REQUEST_NOTE,
                 request => redact_request(NRequest),
                 connector => InstId,
                 status_code => StatusCode
@@ -338,7 +341,8 @@ on_query(
         {error, Reason} ->
             ?SLOG(error, #{
                 msg => "http_connector_do_request_failed",
-                request => redact(NRequest),
+                note => ?READACT_REQUEST_NOTE,
+                request => redact_request(NRequest),
                 reason => Reason,
                 connector => InstId
             }),
@@ -379,7 +383,8 @@ on_query_async(
         "QUERY_ASYNC",
         "http_connector_received",
         #{
-            request => redact(Request),
+            request => redact_request(Request),
+            note => ?READACT_REQUEST_NOTE,
             connector => InstId,
             state => redact(State)
         }

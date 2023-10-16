@@ -29,7 +29,7 @@
 -define(PGSQL_HOST, "pgsql").
 -define(REDIS_SINGLE_HOST, "redis").
 
--define(SOURCE1, #{
+-define(SOURCE_REDIS1, #{
     <<"type">> => <<"http">>,
     <<"enable">> => true,
     <<"url">> => <<"https://fake.com:443/acl?username=", ?PH_USERNAME/binary>>,
@@ -38,7 +38,7 @@
     <<"method">> => <<"get">>,
     <<"request_timeout">> => <<"5s">>
 }).
--define(SOURCE2, #{
+-define(SOURCE_MONGODB, #{
     <<"type">> => <<"mongodb">>,
     <<"enable">> => true,
     <<"mongo_type">> => <<"single">>,
@@ -50,7 +50,7 @@
     <<"collection">> => <<"fake">>,
     <<"filter">> => #{<<"a">> => <<"b">>}
 }).
--define(SOURCE3, #{
+-define(SOURCE_MYSQL, #{
     <<"type">> => <<"mysql">>,
     <<"enable">> => true,
     <<"server">> => <<?MYSQL_HOST>>,
@@ -62,7 +62,7 @@
     <<"ssl">> => #{<<"enable">> => false},
     <<"query">> => <<"abcb">>
 }).
--define(SOURCE4, #{
+-define(SOURCE_POSTGRESQL, #{
     <<"type">> => <<"postgresql">>,
     <<"enable">> => true,
     <<"server">> => <<?PGSQL_HOST>>,
@@ -74,7 +74,7 @@
     <<"ssl">> => #{<<"enable">> => false},
     <<"query">> => <<"abcb">>
 }).
--define(SOURCE5, #{
+-define(SOURCE_REDIS2, #{
     <<"type">> => <<"redis">>,
     <<"enable">> => true,
     <<"servers">> => <<?REDIS_SINGLE_HOST, ",127.0.0.1:6380">>,
@@ -85,7 +85,7 @@
     <<"ssl">> => #{<<"enable">> => false},
     <<"cmd">> => <<"HGETALL mqtt_authz:", ?PH_USERNAME/binary>>
 }).
--define(SOURCE6, #{
+-define(SOURCE_FILE, #{
     <<"type">> => <<"file">>,
     <<"enable">> => true,
     <<"rules">> =>
@@ -120,12 +120,6 @@ init_per_suite(Config) ->
             {emqx_conf,
                 "authorization { cache { enable = false }, no_match = deny, sources = [] }"},
             emqx_auth,
-            emqx_auth_http,
-            emqx_auth_mnesia,
-            emqx_auth_redis,
-            emqx_auth_postgresql,
-            emqx_auth_mysql,
-            emqx_auth_mongodb,
             emqx_management,
             {emqx_dashboard, "dashboard.listeners.http { enable = true, bind = 18083 }"}
         ],
@@ -133,6 +127,7 @@ init_per_suite(Config) ->
             work_dir => filename:join(?config(priv_dir, Config), ?MODULE)
         }
     ),
+    ok = emqx_authz_test_lib:register_fake_sources([http, mongodb, mysql, postgresql, redis]),
     _ = emqx_common_test_http:create_default_app(),
     [{suite_apps, Apps} | Config].
 
@@ -192,9 +187,11 @@ t_api(_) ->
         begin
             {ok, 204, _} = request(post, uri(["authorization", "sources"]), Source)
         end
-     || Source <- lists:reverse([?SOURCE2, ?SOURCE3, ?SOURCE4, ?SOURCE5, ?SOURCE6])
+     || Source <- lists:reverse([
+            ?SOURCE_MONGODB, ?SOURCE_MYSQL, ?SOURCE_POSTGRESQL, ?SOURCE_REDIS2, ?SOURCE_FILE
+        ])
     ],
-    {ok, 204, _} = request(post, uri(["authorization", "sources"]), ?SOURCE1),
+    {ok, 204, _} = request(post, uri(["authorization", "sources"]), ?SOURCE_REDIS1),
 
     {ok, 200, Result2} = request(get, uri(["authorization", "sources"]), []),
     Sources = get_sources(Result2),
@@ -214,7 +211,7 @@ t_api(_) ->
     {ok, 204, _} = request(
         put,
         uri(["authorization", "sources", "http"]),
-        ?SOURCE1#{<<"enable">> := false}
+        ?SOURCE_REDIS1#{<<"enable">> := false}
     ),
     {ok, 200, Result3} = request(get, uri(["authorization", "sources", "http"]), []),
     ?assertMatch(
@@ -238,7 +235,7 @@ t_api(_) ->
     {ok, 204, _} = request(
         put,
         uri(["authorization", "sources", "mongodb"]),
-        ?SOURCE2#{
+        ?SOURCE_MONGODB#{
             <<"ssl">> => #{
                 <<"enable">> => <<"true">>,
                 <<"cacertfile">> => Cacertfile,
@@ -279,7 +276,7 @@ t_api(_) ->
     {ok, 204, _} = request(
         put,
         uri(["authorization", "sources", "mongodb"]),
-        ?SOURCE2#{
+        ?SOURCE_MONGODB#{
             <<"ssl">> => #{
                 <<"enable">> => <<"true">>,
                 <<"cacertfile">> => Cacert,
@@ -329,19 +326,19 @@ t_api(_) ->
     {ok, 204, _} = request(
         put,
         uri(["authorization", "sources", "mysql"]),
-        ?SOURCE3#{<<"server">> := <<"192.168.1.100:3306">>}
+        ?SOURCE_MYSQL#{<<"server">> := <<"192.168.1.100:3306">>}
     ),
 
     {ok, 204, _} = request(
         put,
         uri(["authorization", "sources", "postgresql"]),
-        ?SOURCE4#{<<"server">> := <<"fake">>}
+        ?SOURCE_POSTGRESQL#{<<"server">> := <<"fake">>}
     ),
 
     {ok, 204, _} = request(
         put,
         uri(["authorization", "sources", "redis"]),
-        ?SOURCE5#{
+        ?SOURCE_REDIS2#{
             <<"servers">> := [
                 <<"192.168.1.100:6379">>,
                 <<"192.168.1.100:6380">>
@@ -413,7 +410,7 @@ t_api(_) ->
         #{<<"type">> => <<"built_in_database">>, <<"enable">> => false}
     ),
 
-    {ok, 204, _} = request(post, uri(["authorization", "sources"]), ?SOURCE6),
+    {ok, 204, _} = request(post, uri(["authorization", "sources"]), ?SOURCE_FILE),
 
     {ok, Client} = emqtt:start_link(
         [
@@ -505,7 +502,9 @@ t_api(_) ->
     ok.
 
 t_source_move(_) ->
-    {ok, _} = emqx_authz:update(replace, [?SOURCE1, ?SOURCE2, ?SOURCE3, ?SOURCE4, ?SOURCE5]),
+    {ok, _} = emqx_authz:update(replace, [
+        ?SOURCE_REDIS1, ?SOURCE_MONGODB, ?SOURCE_MYSQL, ?SOURCE_POSTGRESQL, ?SOURCE_REDIS2
+    ]),
     ?assertMatch(
         [
             #{type := http},

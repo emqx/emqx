@@ -22,11 +22,18 @@
 -type resource_state() :: term().
 -type resource_status() :: connected | disconnected | connecting | stopped.
 -type callback_mode() :: always_sync | async_if_possible.
--type query_mode() :: simple_sync | simple_async | sync | async | no_queries.
+-type query_mode() ::
+    simple_sync
+    | simple_async
+    | simple_sync_internal_buffer
+    | simple_async_internal_buffer
+    | sync
+    | async
+    | no_queries.
 -type result() :: term().
 -type reply_fun() ::
-    {fun((result(), Args :: term()) -> any()), Args :: term()}
-    | {fun((result(), Args :: term()) -> any()), Args :: term(), reply_context()}
+    {fun((...) -> any()), Args :: [term()]}
+    | {fun((...) -> any()), Args :: [term()], reply_context()}
     | undefined.
 -type reply_context() :: #{reply_dropped => boolean()}.
 -type query_opts() :: #{
@@ -36,7 +43,6 @@
     expire_at => infinity | integer(),
     async_reply_fun => reply_fun(),
     simple_query => boolean(),
-    is_buffer_supported => boolean(),
     reply_to => reply_fun()
 }.
 -type resource_data() :: #{

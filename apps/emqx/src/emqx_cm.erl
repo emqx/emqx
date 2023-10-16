@@ -298,9 +298,9 @@ takeover_session_begin(ClientId) ->
 
 takeover_session_begin(ClientId, ChanPid) when is_pid(ChanPid) ->
     case takeover_session(ClientId, ChanPid) of
-        {living, ConnMod, Session} ->
+        {living, ConnMod, ChanPid, Session} ->
             {ok, Session, {ConnMod, ChanPid}};
-        none ->
+        _ ->
             none
     end;
 takeover_session_begin(_ClientId, undefined) ->
@@ -368,13 +368,20 @@ do_takeover_begin(ClientId, ChanPid) when node(ChanPid) == node() ->
         ConnMod when is_atom(ConnMod) ->
             case request_stepdown({takeover, 'begin'}, ConnMod, ChanPid) of
                 {ok, Session} ->
-                    {living, ConnMod, Session};
+                    {living, ConnMod, ChanPid, Session};
                 {error, Reason} ->
                     error(Reason)
             end
     end;
 do_takeover_begin(ClientId, ChanPid) ->
-    wrap_rpc(emqx_cm_proto_v2:takeover_session(ClientId, ChanPid)).
+    case wrap_rpc(emqx_cm_proto_v2:takeover_session(ClientId, ChanPid)) of
+        %% NOTE: v5.3.0
+        {living, ConnMod, Session} ->
+            {living, ConnMod, ChanPid, Session};
+        %% NOTE: other versions
+        Res ->
+            Res
+    end.
 
 %% @doc Discard all the sessions identified by the ClientId.
 -spec discard_session(emqx_types:clientid()) -> ok.
