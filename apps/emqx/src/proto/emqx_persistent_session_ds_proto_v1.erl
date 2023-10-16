@@ -23,8 +23,7 @@
 
     open_iterator/4,
     close_iterator/2,
-    close_all_iterators/2,
-    get_streams/5
+    close_all_iterators/2
 ]).
 
 -include_lib("emqx/include/bpapi.hrl").
@@ -49,22 +48,6 @@ open_iterator(Nodes, TopicFilter, StartMS, IteratorID) ->
         do_open_iterator,
         [TopicFilter, StartMS, IteratorID],
         ?TIMEOUT
-    ).
-
--spec get_streams(
-    node(),
-    emqx_ds:keyspace(),
-    emqx_ds:shard_id(),
-    emqx_ds:topic_filter(),
-    emqx_ds:time()
-) ->
-    [emqx_ds_storage_layer:stream()].
-get_streams(Node, Keyspace, ShardId, TopicFilter, StartTime) ->
-    erpc:call(
-        Node,
-        emqx_ds_storage_layer,
-        get_streams,
-        [Keyspace, ShardId, TopicFilter, StartTime]
     ).
 
 -spec close_iterator(
