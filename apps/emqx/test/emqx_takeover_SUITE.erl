@@ -31,14 +31,29 @@
 %%--------------------------------------------------------------------
 %% Initial funcs
 
-all() -> emqx_common_test_helpers:all(?MODULE).
+all() ->
+    [
+        t_takeover,
+        t_takeover_cluster
+        | [{group, g_takeover_cluster_compat} || length(emqx_cth_compat:profiles()) > 0]
+    ].
+
+groups() ->
+    CompatProfiles = emqx_cth_compat:profiles(),
+    TestCases = [t_takeover_cluster],
+    [
+        {g_takeover_cluster_compat, [], [{group, Name} || {Name, _} <- CompatProfiles]},
+        {backward, [], TestCases},
+        {forward, [], TestCases}
+        | [{Name, [], [{group, backward}, {group, forward}]} || {Name, _} <- CompatProfiles]
+    ].
 
 init_per_suite(Config) ->
     Apps = emqx_cth_suite:start(
         [emqx],
         #{work_dir => emqx_cth_suite:work_dir(Config)}
     ),
-    [{apps, Apps} | Config].
+    [{apps, Apps}, {compat, emqx_cth_compat:profiles()} | Config].
 
 end_per_suite(Config) ->
     Apps = ?config(apps, Config),
@@ -47,14 +62,19 @@ end_per_suite(Config) ->
 
 init_per_testcase(t_takeover_cluster = TC, Config) ->
     ct:timetrap({seconds, 30}),
+    {Node1Spec, Node2Spec} =
+        case emqx_cth_suite:tc_group_path(Config) of
+            [backward, Name, g_takeover_cluster_compat] ->
+                {#{}, emqx_cth_compat:profile(Name)};
+            [forward, Name, g_takeover_cluster_compat] ->
+                {emqx_cth_compat:profile(Name), #{}};
+            _ ->
+                {#{}, #{}}
+        end,
     Nodes = emqx_cth_cluster:start(
         [
-            {emqx_takeover_SUITE1, #{
-                apps => [mk_emqx_appspec()]
-            }},
-            {emqx_takeover_SUITE2, #{
-                apps => [mk_emqx_appspec()]
-            }}
+            {emqx_takeover_SUITE1, Node1Spec#{apps => [mk_emqx_appspec()]}},
+            {emqx_takeover_SUITE2, Node2Spec#{apps => [mk_emqx_appspec()]}}
         ],
         #{work_dir => emqx_cth_suite:work_dir(TC, Config)}
     ),
@@ -65,6 +85,11 @@ init_per_testcase(_TC, Config) ->
 
 mk_emqx_appspec() ->
     {emqx, #{
+        config =>
+            "listeners {"
+            "\n ssl.default.enable = false"
+            "\n wss.default.enable = false"
+            "\n }",
         after_start => fun() ->
             % NOTE
             % This one is actually defined on `emqx_conf_schema` level, but used
