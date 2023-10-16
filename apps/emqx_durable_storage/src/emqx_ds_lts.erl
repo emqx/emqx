@@ -32,6 +32,8 @@
 -include_lib("eunit/include/eunit.hrl").
 -endif.
 
+-elvis([{elvis_style, variable_naming_convention, disable}]).
+
 %%================================================================================
 %% Type declarations
 %%================================================================================
@@ -601,7 +603,11 @@ test_key(Trie, Threshold, Topic0) ->
                 fun(Old) ->
                         case Old =:= Topic of
                             true  -> Old;
-                            false -> error(#{'$msg' => "Duplicate key!", key => Ret, old_topic => Old, new_topic => Topic})
+                            false -> error(#{ '$msg' => "Duplicate key!"
+                                            , key => Ret
+                                            , old_topic => Old
+                                            , new_topic => Topic
+                                            })
                         end
                 end,
                 Topic,

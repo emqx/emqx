@@ -354,36 +354,6 @@ store(Shard, PublishedAt, Topic, Payload) ->
     },
     emqx_ds_storage_layer:message_store(Shard, [Msg], #{}).
 
-%% iterate(Shard, TopicFilter, StartTime) ->
-%%     Streams = emqx_ds_storage_layer:get_streams(Shard, TopicFilter, StartTime),
-%%     lists:flatmap(
-%%       fun(Stream) ->
-%%               iterate(Shard, iterator(Shard, Stream, TopicFilter, StartTime))
-%%       end,
-%%       Streams).
-
-%% iterate(Shard, It) ->
-%%     case emqx_ds_storage_layer:next(Shard, It) of
-%%         {ok, ItNext, [#message{payload = Payload}]} ->
-%%             [Payload | iterate(Shard, ItNext)];
-%%         end_of_stream ->
-%%             []
-%%     end.
-
-%% iterate(_Shard, end_of_stream, _N) ->
-%%     {end_of_stream, []};
-%% iterate(Shard, It, N) ->
-%%     case emqx_ds_storage_layer:next(Shard, It, N) of
-%%         {ok, ItFinal, Messages} ->
-%%             {ItFinal, [Payload || #message{payload = Payload} <- Messages]};
-%%         end_of_stream ->
-%%             {end_of_stream, []}
-%%     end.
-
-%% iterator(Shard, Stream, TopicFilter, StartTime) ->
-%%     {ok, It} = emqx_ds_storage_layer:make_iterator(Shard, Stream, parse_topic(TopicFilter), StartTime),
-%%     It.
-
 payloads(Messages) ->
     lists:map(
         fun(#message{payload = P}) ->

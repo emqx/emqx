@@ -21,7 +21,7 @@
 %% used for testing.
 -module(emqx_ds_storage_reference).
 
--behavior(emqx_ds_storage_layer).
+-behaviour(emqx_ds_storage_layer).
 
 %% API:
 -export([]).

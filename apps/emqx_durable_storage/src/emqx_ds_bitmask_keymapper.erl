@@ -105,6 +105,8 @@
     ]}
 ).
 
+-elvis([{elvis_style, no_if_expression, disable}]).
+
 -ifdef(TEST).
 -include_lib("proper/include/proper.hrl").
 -include_lib("eunit/include/eunit.hrl").
@@ -139,7 +141,9 @@
     dst_offset :: offset()
 }).
 
--type scanner() :: [[#scan_action{}]].
+-type scan_action() :: #scan_action{}.
+
+-type scanner() :: [[scan_action()]].
 
 -record(keymapper, {
     schema :: [bitsource()],
@@ -259,7 +263,9 @@ key_to_bitstring(#keymapper{size = Size}, Key) ->
 
 %% @doc Create a filter object that facilitates range scans.
 -spec make_filter(keymapper(), [scalar_range()]) -> filter().
-make_filter(KeyMapper = #keymapper{schema = Schema, dim_sizeof = DimSizeof, size = Size}, Filter0) ->
+make_filter(
+    KeyMapper = #keymapper{schema = Schema, dim_sizeof = DimSizeof, size = TotalSize}, Filter0
+) ->
     NDim = length(DimSizeof),
     %% Transform "symbolic" inequations to ranges:
     Filter1 = inequations_to_ranges(KeyMapper, Filter0),
@@ -326,7 +332,7 @@ make_filter(KeyMapper = #keymapper{schema = Schema, dim_sizeof = DimSizeof, size
     end,
     %% Final value
     #filter{
-        size = Size,
+        size = TotalSize,
         bitmask = Bitmask,
         bitfilter = Bitfilter,
         bitsource_ranges = Ranges,
@@ -420,7 +426,7 @@ ratchet_scan(Ranges, NDim, Key, I, Pivot0, Carry) ->
 %% Note: this function operates in bitsource basis, scanning it from
 %% NDim to 0. It applies the transformation specified by
 %% `ratchet_scan'.
-ratchet_do(Ranges, Key, I, _Pivot, _Increment) when I < 0 ->
+ratchet_do(_Ranges, _Key, I, _Pivot, _Increment) when I < 0 ->
     0;
 ratchet_do(Ranges, Key, I, Pivot, Increment) ->
     #filter_scan_action{offset = Offset, size = Size, min = Min} = array:get(I, Ranges),
@@ -495,12 +501,12 @@ do_vector_to_key([Action | Actions], Scanner, Coord, Vector, Acc0) ->
     Acc = Acc0 bor extract(Coord, Action),
     do_vector_to_key(Actions, Scanner, Coord, Vector, Acc).
 
--spec extract(_Source :: scalar(), #scan_action{}) -> integer().
+-spec extract(_Source :: scalar(), scan_action()) -> integer().
 extract(Src, #scan_action{src_bitmask = SrcBitmask, src_offset = SrcOffset, dst_offset = DstOffset}) ->
     ((Src bsr SrcOffset) band SrcBitmask) bsl DstOffset.
 
 %% extract^-1
--spec extract_inv(_Dest :: scalar(), #scan_action{}) -> integer().
+-spec extract_inv(_Dest :: scalar(), scan_action()) -> integer().
 extract_inv(Dest, #scan_action{
     src_bitmask = SrcBitmask, src_offset = SrcOffset, dst_offset = DestOffset
 }) ->
