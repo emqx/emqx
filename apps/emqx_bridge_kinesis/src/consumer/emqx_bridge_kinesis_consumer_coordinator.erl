@@ -3,6 +3,85 @@
 %%--------------------------------------------------------------------
 -module(emqx_bridge_kinesis_consumer_coordinator).
 
+%%========================================================================================
+%% @doc This process is used by the Kinesis Consumer bridge to (re)distribute shards among
+%% nodes.
+%%
+%% See also the original RFC:
+%% https://emqx.atlassian.net/wiki/spaces/P/pages/692092942/Consumer+data+bridge
+%%
+%% # Election process
+%%
+%% 0) Each node that has the bridge configured starts this process.
+%%
+%% 1) The process always starts in the `candidate' state.  It then immediately attempts to
+%%    elect itself as `leader' by registering a name that should be unique per bridge.
+%%
+%% 2) If the registration is successful, the process transitions to the `leader' state and
+%%    then distributes shards among the cluster nodes.  Such assignments are stored in
+%%    Mnesia.  It also subscribes to cluster membership change events using `ekka:monitor'
+%%    API.
+%%
+%% 3) If the registration is unsuccessful (i.e.: another process already claimed the
+%%    name), then it transitions to the `follower' state and will simply read the
+%%    decisions taken by the leader.
+%%
+%% 4) Both `leader' and `follower' processes should then start one worker process for each
+%%    locally assigned shard to start consuming the stream.  (TODO)
+%%
+%% 5) Each coordinator process may periodically check its assignments to stop or start new
+%%    worker processes if assignments changed.  Also, the `leader' may send a message to
+%%    specific nodes alerting them to changes in assignments.  (TODO)
+%%
+%% 6) The `follower' coordinators monitor the `leader' process.  If that process dies,
+%%    each `follower' will enter the `candidate' state and begin the election process from
+%%    (1).
+%%
+%% 7) In the event that the EMQX cluster is partitioned into 2 or more cliques, each with
+%%    its `leader', and then the partitioning is resolved, `global' will signal the
+%%    conflict to all leaders, which will step down by stopping and being restarted by
+%%    their supervisor.  It's important that they terminate so that `follower' processes
+%%    will be notified and update their monitors to the new leader which will be elected
+%%    accordingly.
+%%
+%% # Shard distribution process
+%%
+%% Once elected, the leader then proceeds to list the existing Kinesis stream shard list,
+%% the existing shard assignments per node (if any) and the current cluster members.
+%%
+%% ## Redistribution of shards (`?redistribute_stale` event)
+%%
+%% Unassigned shards, shards assigned to non-cluster nodes (removed nodes/nodes that left)
+%% and shards assigned to nodes that are currently down are distributed among the running
+%% nodes.  This process is performed by the leader when it enters such state, and also
+%% periodically.  Even if there are not enough shards to be assigned to all nodes, an
+%% empty shard list is assigned to the surplus nodes to indicate that they've been
+%% accounted for.
+%%
+%% ## Nodes added (`{timeout, ?add_nodes}' event)
+%%
+%% When new nodes join the cluster, the `leader' process is notified and buffers the new
+%% nodes during a configurable amount of time.  After this time elapses, it then proceeds
+%% to distribute shards to those new nodes by moving assignments from nodes with more
+%% shards to the new ones.  The simple heuristic to distribute shards is as follows.
+%%
+%% The minimum desired number of shards per node is calculated by dividing the total
+%% number of shards by the total number of nodes (including new ones),
+%% `DesiredMinPerNode'.  Using that number, it then defines the potential donor nodes as
+%% those that have more shards assigned to them than this minimum number.
+%%
+%% Then, for each new node, surplus shards are taken from the donor nodes and assigned to
+%% the new nodes so that they have _at most_ `DesiredMinPerNode' shards.
+%%
+%% ## Nodes removed (`{timeout, ?remove_nodes}' event)
+%%
+%% When nodes leave the cluster or become down, the `leader' process is notified and
+%% buffers the dead nodes during a configurable amount of time.  After this time elapses,
+%% it then proceeds to move shards that were assigned to those dead nodes to the other
+%% running nodes.  It distributes those dangling shards in a round-robin fashion to each
+%% surviving node.
+%%========================================================================================
+
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
 %% API
