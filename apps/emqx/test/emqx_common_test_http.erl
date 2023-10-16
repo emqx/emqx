@@ -17,6 +17,7 @@
 -module(emqx_common_test_http).
 
 -include_lib("common_test/include/ct.hrl").
+-include_lib("emqx_dashboard/include/emqx_dashboard_rbac.hrl").
 
 -export([
     request_api/3,
@@ -90,7 +91,12 @@ create_default_app() ->
     Now = erlang:system_time(second),
     ExpiredAt = Now + timer:minutes(10),
     emqx_mgmt_auth:create(
-        ?DEFAULT_APP_ID, ?DEFAULT_APP_SECRET, true, ExpiredAt, <<"default app key for test">>
+        ?DEFAULT_APP_ID,
+        ?DEFAULT_APP_SECRET,
+        true,
+        ExpiredAt,
+        <<"default app key for test">>,
+        ?ROLE_API_SUPERUSER
     ).
 
 delete_default_app() ->
