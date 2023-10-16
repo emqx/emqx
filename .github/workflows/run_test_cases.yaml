@@ -139,12 +139,18 @@ jobs:
           unzip -o -q ${{ matrix.profile }}.zip
           git config --global --add safe.directory "$GITHUB_WORKSPACE"
 
+      - name: prepare compat testing
+        id: compat
+        if: ${{ matrix.app == 'apps/emqx' }} # FIXME
+        uses: ./.github/actions/prepare-compat-testing
+
         # produces $PROFILE-<app-name>-<otp-vsn>-sg<suitegroup>.coverdata
       - name: run common tests
         env:
           PROFILE: ${{ matrix.profile }}
           SUITEGROUP: ${{ matrix.suitegroup }}
           CT_COVER_EXPORT_PREFIX: ${{ matrix.profile }}-${{ matrix.otp }}-sg${{ matrix.suitegroup }}
+          EMQX_CI_CT_COMPAT_PROFILES_FILENAME: ${{ steps.compat.outputs.profiles-file }}
         run: |
           make "${{ matrix.app }}-ct"
       - uses: actions/upload-artifact@v3

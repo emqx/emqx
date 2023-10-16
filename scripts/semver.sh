@@ -3,7 +3,7 @@
 set -e
 
 function parseSemver() {
-    local RE='^([0-9]+)\.([0-9]+)\.([0-9]+)(-([a-z]+\.[0-9]+))?$'
+    local RE='^([0-9]+)\.([0-9]+)\.([0-9]+)(-([a-z]+\.[0-9]+))?(-g([0-9a-f]+))?$'
     echo "$1" | grep -qE "$RE" || exit 1
     #shellcheck disable=SC2155
     local MAJOR=$(echo "$1" | sed -r "s#$RE#\1#")
@@ -13,14 +13,17 @@ function parseSemver() {
     local PATCH=$(echo "$1" | sed -r "s#$RE#\3#")
     #shellcheck disable=SC2155
     local BUILD=$(echo "$1" | sed -r "s#$RE#\5#")
+    #shellcheck disable=SC2155
+    local DEVEL=$(echo "$1" | sed -r "s#$RE#\7#")
     case "${2}" in
         --major) echo "${MAJOR}" ;;
         --minor) echo "${MINOR}" ;;
         --patch) echo "${PATCH}" ;;
         --build) echo "${BUILD}" ;;
+        --devel) echo "${DEVEL}" ;;
         *)
             cat <<EOF
-{"major": ${MAJOR}, "minor": ${MINOR}, "patch": ${PATCH}, "build": "${BUILD}"}
+{"major": ${MAJOR}, "minor": ${MINOR}, "patch": ${PATCH}, "build": "${BUILD}", "devel": "${DEVEL}"}
 EOF
             ;;
     esac
