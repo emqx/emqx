@@ -17,7 +17,6 @@
 -module(emqx_common_test_http).
 
 -include_lib("common_test/include/ct.hrl").
--include_lib("emqx_dashboard/include/emqx_dashboard_rbac.hrl").
 
 -export([
     request_api/3,
@@ -33,6 +32,9 @@
 
 -define(DEFAULT_APP_ID, <<"default_appid">>).
 -define(DEFAULT_APP_SECRET, <<"default_app_secret">>).
+
+%% from emqx_dashboard/include/emqx_dashboard_rbac.hrl
+-define(ROLE_API_SUPERUSER, <<"api_administrator">>).
 
 request_api(Method, Url, Auth) ->
     request_api(Method, Url, [], Auth, []).
