@@ -47,7 +47,10 @@ post_boot() ->
     ok = ensure_apps_started(),
     ok = print_vsn(),
     ok = start_autocluster(),
-    ?AUDIT(alert, cli, #{time => logger:timestamp(), event => "emqx_start"}),
+    ?AUDIT(alert, #{
+        event => "emqx_start",
+        from => event
+    }),
     ignore.
 
 -ifdef(TEST).

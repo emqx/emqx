@@ -61,23 +61,26 @@
     )
 end).
 
--define(AUDIT(_Level_, _From_, _Meta_), begin
+-define(AUDIT(_LevelFun_, _MetaFun_), begin
     case emqx_config:get([log, audit], #{enable => false}) of
         #{enable := false} ->
             ok;
         #{enable := true, level := _AllowLevel_} ->
+            _Level_ = _LevelFun_,
             case logger:compare_levels(_AllowLevel_, _Level_) of
                 _R_ when _R_ == lt; _R_ == eq ->
-                    emqx_trace:log(
-                        _Level_,
-                        [{emqx_audit, fun(L, _) -> L end, undefined, undefined}],
-                        _Msg = undefined,
-                        _Meta_#{from => _From_}
-                    );
+                    ?LOG_AUDIT_EVENT(_Level_, _MetaFun_);
                 gt ->
                     ok
             end
     end
+end).
+
+-define(LOG_AUDIT_EVENT(Level, M), begin
+    M1 = (M)#{time => logger:timestamp(), level => Level},
+    Filter = [{emqx_audit, fun(L, _) -> L end, undefined, undefined}],
+    emqx_trace:log(Level, Filter, undefined, M1),
+    emqx_audit:log(M1)
 end).
 
 %% print to 'user' group leader
