@@ -108,7 +108,7 @@ bridge_info_array_example(Method) ->
 emqx_enterprise_bridge_examples(Method) ->
     emqx_bridge_v2_enterprise:examples(Method).
 -else.
-emqx_enterprise_bridgex_examples(_Method) -> #{}.
+emqx_enterprise_bridge_examples(_Method) -> #{}.
 -endif.
 
 param_path_id() ->

@@ -52,6 +52,8 @@ enterprise_fields_actions() ->
 
 -else.
 
+enterprise_api_schemas(_Method) -> [].
+
 enterprise_fields_actions() -> [].
 
 -endif.
