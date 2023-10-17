@@ -25,8 +25,8 @@
 -include("emqx_audit.hrl").
 
 %% API
--export([start_link/1]).
--export([log/1]).
+-export([start_link/0]).
+-export([log/1, log/2]).
 
 %% gen_server callbacks
 -export([
@@ -132,14 +132,21 @@ to_audit(#{from := erlang_console, function := F, args := Args}) ->
         args = iolist_to_binary(io_lib:format("~p: ~p~n", [F, Args]))
     }.
 
+log(_Level, undefined) ->
+    ok;
+log(Level, Meta1) ->
+    Meta2 = Meta1#{time => logger:timestamp(), level => Level},
+    Filter = [{emqx_audit, fun(L, _) -> L end, undefined, undefined}],
+    emqx_trace:log(Level, Filter, undefined, Meta2),
+    emqx_audit:log(Meta2).
+
 log(Log) ->
     gen_server:cast(?MODULE, {write, to_audit(Log)}).
 
-start_link(Config) ->
-    gen_server:start_link({local, ?MODULE}, ?MODULE, [Config], []).
+start_link() ->
+    gen_server:start_link({local, ?MODULE}, ?MODULE, [], []).
 
-init([Config]) ->
-    erlang:process_flag(trap_exit, true),
+init([]) ->
     ok = mria:create_table(?AUDIT, [
         {type, ordered_set},
         {rlog_shard, ?COMMON_SHARD},
@@ -147,28 +154,25 @@ init([Config]) ->
         {record_name, ?AUDIT},
         {attributes, record_info(fields, ?AUDIT)}
     ]),
-    {ok, Config, {continue, setup}}.
+    {ok, #{}, {continue, setup}}.
 
-handle_continue(setup, #{max_size := MaxSize} = State) ->
+handle_continue(setup, #{} = State) ->
     ok = mria:wait_for_tables([?AUDIT]),
-    LatestId = latest_id(),
-    clean_expired(LatestId, MaxSize),
-    {noreply, State#{latest_id => LatestId}}.
+    clean_expired(),
+    {noreply, State}.
 
 handle_call(_Request, _From, State = #{}) ->
     {reply, ok, State}.
 
-handle_cast({write, Log}, State = #{latest_id := LatestId}) ->
-    NewSeq = LatestId + 1,
-    Audit = Log#?AUDIT{seq = NewSeq},
-    mnesia:dirty_write(?AUDIT, Audit),
-    {noreply, State#{latest_id => NewSeq}, ?CLEAN_EXPIRED_MS};
+handle_cast({write, Log}, State) ->
+    _ = write_log(Log),
+    {noreply, State#{}, ?CLEAN_EXPIRED_MS};
 handle_cast(_Request, State = #{}) ->
     {noreply, State}.
 
-handle_info(timeout, State = #{max_size := MaxSize, latest_id := LatestId}) ->
-    clean_expired(LatestId, MaxSize),
-    {noreply, State#{latest_id => latest_id()}, hibernate};
+handle_info(timeout, State = #{}) ->
+    clean_expired(),
+    {noreply, State, hibernate};
 handle_info(_Info, State = #{}) ->
     {noreply, State}.
 
@@ -182,7 +186,33 @@ code_change(_OldVsn, State = #{}, _Extra) ->
 %%% Internal functions
 %%%===================================================================
 
-clean_expired(LatestId, MaxSize) ->
+write_log(Log) ->
+    case
+        mria:transaction(
+            ?COMMON_SHARD,
+            fun(L) ->
+                New =
+                    case mnesia:last(?AUDIT) of
+                        '$end_of_table' -> 1;
+                        LastId -> LastId + 1
+                    end,
+                mnesia:write(L#?AUDIT{seq = New})
+            end,
+            [Log]
+        )
+    of
+        {atomic, ok} ->
+            ok;
+        Reason ->
+            ?SLOG(warning, #{
+                msg => "write_audit_log_failed",
+                reason => Reason
+            })
+    end.
+
+clean_expired() ->
+    MaxSize = max_size(),
+    LatestId = latest_id(),
     Min = LatestId - MaxSize,
     %% MS = ets:fun2ms(fun(#?AUDIT{seq = Seq}) when Seq =< Min -> true end),
     MS = [{#?AUDIT{seq = '$1', _ = '_'}, [{'=<', '$1', Min}], [true]}],
@@ -200,3 +230,6 @@ latest_id() ->
         '$end_of_table' -> 0;
         Seq -> Seq
     end.
+
+max_size() ->
+    emqx_conf:get([log, audit, max_filter_size], 5000).

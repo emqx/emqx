@@ -20,15 +20,15 @@
 %% API
 -export([log/2]).
 
-%% todo filter high frequency events
--define(HIGH_FREQUENCY_EVENTS, [
-    mqtt_subscribe,
-    mqtt_unsubscribe,
-    mqtt_subscribe_batch,
-    mqtt_unsubscribe_batch,
-    mqtt_publish,
-    mqtt_publish_batch,
-    kickout_client
+%% filter high frequency events
+-define(HIGH_FREQUENCY_REQUESTS, [
+    <<"/clients/:clientid/publish">>,
+    <<"/clients/:clientid/subscribe">>,
+    <<"/clients/:clientid/unsubscribe">>,
+    <<"/clients/:clientid/publish/bulk">>,
+    <<"/clients/:clientid/unsubscribe/bulk">>,
+    <<"/clients/:clientid/subscribe/bulk">>,
+    <<"/clients/kickout/bulk">>
 ]).
 
 log(#{code := Code, method := Method} = Meta, Req) ->
@@ -36,22 +36,31 @@ log(#{code := Code, method := Method} = Meta, Req) ->
     ?AUDIT(level(Method, Code), log_meta(Meta, Req)).
 
 log_meta(Meta, Req) ->
-    Meta1 = #{
-        time => logger:timestamp(),
-        from => from(Meta),
-        source => source(Meta),
-        duration_ms => duration_ms(Meta),
-        source_ip => source_ip(Req),
-        operation_type => operation_type(Meta),
-        %% method for http filter api.
-        http_method => maps:get(method, Meta),
-        http_request => http_request(Meta),
-        http_status_code => maps:get(code, Meta),
-        operation_result => operation_result(Meta),
-        node => node()
-    },
-    Meta2 = maps:without([req_start, req_end, method, headers, body, bindings, code], Meta),
-    emqx_utils:redact(maps:merge(Meta2, Meta1)).
+    #{operation_id := OperationId} = Meta,
+    case
+        lists:member(OperationId, ?HIGH_FREQUENCY_REQUESTS) andalso
+            ignore_high_frequency_request()
+    of
+        true ->
+            undefined;
+        false ->
+            Meta1 = #{
+                time => logger:timestamp(),
+                from => from(Meta),
+                source => source(Meta),
+                duration_ms => duration_ms(Meta),
+                source_ip => source_ip(Req),
+                operation_type => operation_type(Meta),
+                %% method for http filter api.
+                http_method => maps:get(method, Meta),
+                http_request => http_request(Meta),
+                http_status_code => maps:get(code, Meta),
+                operation_result => operation_result(Meta),
+                node => node()
+            },
+            Meta2 = maps:without([req_start, req_end, method, headers, body, bindings, code], Meta),
+            emqx_utils:redact(maps:merge(Meta2, Meta1))
+    end.
 
 duration_ms(#{req_start := ReqStart, req_end := ReqEnd}) ->
     erlang:convert_time_unit(ReqEnd - ReqStart, native, millisecond).
@@ -84,8 +93,10 @@ source_ip(Req) ->
 
 operation_type(Meta) ->
     case maps:find(operation_id, Meta) of
-        {ok, OperationId} -> lists:nth(2, binary:split(OperationId, <<"/">>));
-        _ -> <<"unknown">>
+        {ok, OperationId} ->
+            lists:nth(2, binary:split(OperationId, <<"/">>, [global]));
+        _ ->
+            <<"unknown">>
     end.
 
 http_request(Meta) ->
@@ -99,3 +110,6 @@ level(_, Code) when Code >= 200 andalso Code < 300 -> info;
 level(_, Code) when Code >= 300 andalso Code < 400 -> warning;
 level(_, Code) when Code >= 400 andalso Code < 500 -> error;
 level(_, _) -> critical.
+
+ignore_high_frequency_request() ->
+    emqx_conf:get([log, audit, ignore_high_frequency_request], true).

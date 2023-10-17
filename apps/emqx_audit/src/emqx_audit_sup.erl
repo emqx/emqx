@@ -36,7 +36,7 @@ init([]) ->
     ChildSpecs = [
         #{
             id => emqx_audit,
-            start => {emqx_audit, start_link, [#{max_size => 5000}]},
+            start => {emqx_audit, start_link, []},
             type => worker,
             restart => transient,
             shutdown => 1000

@@ -78,6 +78,24 @@ fields("log_audit_handler") ->
                     desc => ?DESC(emqx_conf_schema, "log_file_handler_max_size"),
                     importance => ?IMPORTANCE_MEDIUM
                 }
+            )},
+        {"max_filter_size",
+            hoconsc:mk(
+                range(10, 30000),
+                #{
+                    default => 5000,
+                    desc => ?DESC(emqx_conf_schema, "audit_log_max_filter_limit"),
+                    importance => ?IMPORTANCE_MEDIUM
+                }
+            )},
+        {"ignore_high_frequency_request",
+            hoconsc:mk(
+                boolean(),
+                #{
+                    default => true,
+                    desc => ?DESC(emqx_conf_schema, "audit_log_ignore_high_frequency_request"),
+                    importance => ?IMPORTANCE_MEDIUM
+                }
             )}
     ] ++ CommonConfs1;
 fields(Name) ->

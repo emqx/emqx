@@ -118,8 +118,9 @@ update_log_handler({Action, {handler, Id, Mod, Conf}}) ->
     end,
     ok.
 
+-dialyzer({nowarn_function, [audit/2]}).
 audit(Event, ?AUDIT_HANDLER) ->
-    ?LOG_AUDIT_EVENT(alert, #{event => Event, from => event});
+    emqx_audit:log(alert, #{event => Event, from => event});
 audit(_, _) ->
     ok.
 

@@ -69,18 +69,11 @@ end).
             _Level_ = _LevelFun_,
             case logger:compare_levels(_AllowLevel_, _Level_) of
                 _R_ when _R_ == lt; _R_ == eq ->
-                    ?LOG_AUDIT_EVENT(_Level_, _MetaFun_);
+                    emqx_audit:log(_Level_, _MetaFun_);
                 gt ->
                     ok
             end
     end
-end).
-
--define(LOG_AUDIT_EVENT(Level, M), begin
-    M1 = (M)#{time => logger:timestamp(), level => Level},
-    Filter = [{emqx_audit, fun(L, _) -> L end, undefined, undefined}],
-    emqx_trace:log(Level, Filter, undefined, M1),
-    emqx_audit:log(M1)
 end).
 
 %% print to 'user' group leader
