@@ -207,8 +207,15 @@ add_user_(Username, Password, Role, Desc) ->
                 description = Desc
             },
             mnesia:write(Admin),
+            ?SLOG(info, #{msg => "dashboard_sso_user_added", username => Username, role => Role}),
             flatten_username(#{username => Username, role => Role, description => Desc});
         [_] ->
+            ?SLOG(info, #{
+                msg => "dashboard_sso_user_add_failed",
+                reason => "username_already_exists",
+                username => Username,
+                role => Role
+            }),
             mnesia:abort(<<"username_already_exist">>)
     end.
 
