@@ -112,12 +112,24 @@ init_per_testcase(_TestCase, Config) ->
 
 end_per_testcase(_TestCase, Config) ->
     %% Remove the fake connector
-    ok = emqx_connector:remove(con_type(), con_name()),
+    {ok, _} = emqx_connector:remove(con_type(), con_name()),
     Config.
 
 t_create_remove(_) ->
     {ok, _} = emqx_bridge_v2:create(bridge_type(), my_test_bridge, bridge_config()),
     {ok, _} = emqx_bridge_v2:remove(bridge_type(), my_test_bridge),
+    ok.
+
+t_list(_) ->
+    [] = emqx_bridge_v2:list(),
+    {ok, _} = emqx_bridge_v2:create(bridge_type(), my_test_bridge, bridge_config()),
+    1 = length(emqx_bridge_v2:list()),
+    {ok, _} = emqx_bridge_v2:create(bridge_type(), my_test_bridge2, bridge_config()),
+    2 = length(emqx_bridge_v2:list()),
+    {ok, _} = emqx_bridge_v2:remove(bridge_type(), my_test_bridge),
+    1 = length(emqx_bridge_v2:list()),
+    {ok, _} = emqx_bridge_v2:remove(bridge_type(), my_test_bridge2),
+    0 = length(emqx_bridge_v2:list()),
     ok.
 
 t_create_dry_run(_) ->

@@ -205,35 +205,29 @@
 
 -callback query_mode(Config :: term()) -> query_mode().
 
-%% This callback handles the installation of a specified Bridge V2 resource.
+%% This callback handles the installation of a specified channel.
 %%
-%% It's guaranteed that the provided Bridge V2 is not already installed when this
-%% function is invoked. Upon successful installation, the function should return a
-%% new state with the installed Bridge V2 encapsulated within the `installed_bridge_v2s` map.
-%%
-%% The Bridge V2 state must be stored in the `installed_bridge_v2s` map using the
-%% Bridge V2 resource ID as the key, as the caching mechanism depends on this structure.
-%%
-%% If the Bridge V2 cannot be successfully installed, the callback shall
-%% throw an exception.
+%% If the channel cannot be successfully installed, the callback shall
+%% throw an exception or return an error tuple.
 -callback on_add_channel(
-    ResId :: term(), ResourceState :: term(), BridgeV2Id :: binary(), ChannelConfig :: map()
-) -> {ok, NewState :: #{installed_bridge_v2s := map()}}.
+    ResId :: term(), ResourceState :: term(), ChannelId :: binary(), ChannelConfig :: map()
+) -> {ok, term()} | {error, term()}.
 
-%% This callback handles the deinstallation of a specified Bridge V2 resource.
+%% This callback handles the removal of a specified channel resource.
 %%
-%% It's guaranteed that the provided Bridge V2 is installed when this
+%% It's guaranteed that the provided channel is installed when this
 %% function is invoked. Upon successful deinstallation, the function should return
-%% a new state where the Bridge V2 id key has been removed from the `installed_bridge_v2s` map.
+%% a new state
 %%
-%% If the Bridge V2 cannot be successfully deinstalled, the callback shall
+%% If the channel cannot be successfully deinstalled, the callback should
 %% log an error.
 %%
-%% Also see the documentation for `on_add_channel/4`.
 -callback on_remove_channel(
-    ResId :: term(), ResourceState :: term(), BridgeV2Id :: binary()
+    ResId :: term(), ResourceState :: term(), ChannelId :: binary()
 ) -> {ok, NewState :: term()}.
 
+%% This callback shall return a list of channel configs that are currently active
+%% for the resource with the given id.
 -callback on_get_channels(
     ResId :: term()
 ) -> {ok, [term()]}.
@@ -362,7 +356,6 @@ query(ResId, Request) ->
 -spec query(resource_id(), Request :: term(), query_opts()) ->
     Result :: term().
 query(ResId, Request, Opts) ->
-    %% We keep this A
     case get_query_mode_error(ResId, Opts) of
         {error, _} = ErrorTuple ->
             ErrorTuple;
@@ -406,15 +399,15 @@ query(ResId, Request, Opts) ->
     end.
 
 get_query_mode_error(ResId, Opts) ->
-    case emqx_bridge_v2:is_bridge_v2_id(ResId) of
-        true ->
+    case maps:get(query_mode_cache_override, Opts, true) of
+        false ->
             case Opts of
                 #{query_mode := QueryMode} ->
                     {QueryMode, ok};
                 _ ->
                     {async, unhealthy_target}
             end;
-        false ->
+        true ->
             case emqx_resource_manager:lookup_cached(ResId) of
                 {ok, _Group, #{query_mode := QM, error := Error}} ->
                     {QM, Error};

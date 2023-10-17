@@ -27,8 +27,6 @@
 
 -define(TOP_LELVE_HDLR_PATH, (emqx_bridge:config_key_path())).
 -define(LEAF_NODE_HDLR_PATH, (emqx_bridge:config_key_path() ++ ['?', '?'])).
--define(TOP_LELVE_HDLR_PATH_BRIDGE_V2, (emqx_bridge_v2:config_key_path())).
--define(LEAF_NODE_HDLR_PATH_BRIDGE_V2, (emqx_bridge_v2:config_key_path() ++ ['?', '?'])).
 
 start(_StartType, _StartArgs) ->
     {ok, Sup} = emqx_bridge_sup:start_link(),
@@ -38,16 +36,12 @@ start(_StartType, _StartArgs) ->
     ok = emqx_bridge:load_hook(),
     ok = emqx_config_handler:add_handler(?LEAF_NODE_HDLR_PATH, ?MODULE),
     ok = emqx_config_handler:add_handler(?TOP_LELVE_HDLR_PATH, emqx_bridge),
-    ok = emqx_config_handler:add_handler(?LEAF_NODE_HDLR_PATH_BRIDGE_V2, emqx_bridge_v2),
-    ok = emqx_config_handler:add_handler(?TOP_LELVE_HDLR_PATH_BRIDGE_V2, emqx_bridge_v2),
     ?tp(emqx_bridge_app_started, #{}),
     {ok, Sup}.
 
 stop(_State) ->
     emqx_conf:remove_handler(?LEAF_NODE_HDLR_PATH),
     emqx_conf:remove_handler(?TOP_LELVE_HDLR_PATH),
-    emqx_conf:remove_handler(emqx_bridge_v2:config_key_path()),
-    emqx_conf:remove_handler(?LEAF_NODE_HDLR_PATH_BRIDGE_V2),
     ok = emqx_bridge:unload(),
     ok = emqx_bridge_v2:unload(),
     ok.
