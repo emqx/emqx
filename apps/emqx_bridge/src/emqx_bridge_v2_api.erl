@@ -37,11 +37,10 @@
 -export([
     '/bridges_v2'/2,
     '/bridges_v2/:id'/2,
-    '/bridges_v2/:id/enable/:enable'/2
-    %%,
+    '/bridges_v2/:id/enable/:enable'/2,
     %% '/bridges_v2/:id/:operation'/2,
     %% '/nodes/:node/bridges_v2/:id/:operation'/2,
-    %% '/bridges_v2_probe'/2
+    '/bridges_v2_probe'/2
 ]).
 
 %% BpAPI
@@ -73,11 +72,10 @@ paths() ->
     [
         "/bridges_v2",
         "/bridges_v2/:id",
-        "/bridges_v2/:id/enable/:enable"
-        %%,
+        "/bridges_v2/:id/enable/:enable",
         %% "/bridges_v2/:id/:operation",
         %% "/nodes/:node/bridges_v2/:id/:operation",
-        %% "/bridges_v2_probe"
+        "/bridges_v2_probe"
     ].
 
 error_schema(Code, Message) when is_atom(Code) ->
@@ -223,7 +221,7 @@ schema("/bridges_v2/:id/enable/:enable") ->
                         503 => error_schema('SERVICE_UNAVAILABLE', "Service unavailable")
                     }
             }
-    }.
+    };
 %% schema("/bridges/:id/:operation") ->
 %%     #{
 %%         'operationId' => '/bridges/:id/:operation',
@@ -272,23 +270,23 @@ schema("/bridges_v2/:id/enable/:enable") ->
 %%             }
 %%         }
 %%     };
-%% schema("/bridges_probe") ->
-%%     #{
-%%         'operationId' => '/bridges_probe',
-%%         post => #{
-%%             tags => [<<"bridges">>],
-%%             desc => ?DESC("desc_api9"),
-%%             summary => <<"Test creating bridge">>,
-%%             'requestBody' => emqx_dashboard_swagger:schema_with_examples(
-%%                 emqx_bridge_schema:post_request(),
-%%                 bridge_info_examples(post)
-%%             ),
-%%             responses => #{
-%%                 204 => <<"Test bridge OK">>,
-%%                 400 => error_schema(['TEST_FAILED'], "bridge test failed")
-%%             }
-%%         }
-%%     }.
+schema("/bridges_v2_probe") ->
+    #{
+        'operationId' => '/bridges_v2_probe',
+        post => #{
+            tags => [<<"bridges_v2">>],
+            desc => ?DESC("desc_api9"),
+            summary => <<"Test creating bridge">>,
+            'requestBody' => emqx_dashboard_swagger:schema_with_examples(
+                emqx_bridge_v2_schema:post_request(),
+                bridge_info_examples(post)
+            ),
+            responses => #{
+                204 => <<"Test bridge OK">>,
+                400 => error_schema(['TEST_FAILED'], "bridge test failed")
+            }
+        }
+    }.
 
 '/bridges_v2'(post, #{body := #{<<"type">> := BridgeType, <<"name">> := BridgeName} = Conf0}) ->
     case emqx_bridge_v2:lookup(BridgeType, BridgeName) of
@@ -379,6 +377,44 @@ schema("/bridges_v2/:id/enable/:enable") ->
     );
 '/bridges_v2/:id/enable/:enable'(_, _) ->
     ?METHOD_NOT_ALLOWED.
+
+'/bridges_v2_probe'(post, Request) ->
+    RequestMeta = #{module => ?MODULE, method => post, path => "/bridges_v2_probe"},
+    case emqx_dashboard_swagger:filter_check_request_and_translate_body(Request, RequestMeta) of
+        {ok, #{body := #{<<"type">> := ConnType} = Params}} ->
+            Params1 = maybe_deobfuscate_bridge_probe(Params),
+            Params2 = maps:remove(<<"type">>, Params1),
+            case emqx_bridge_v2:create_dry_run(ConnType, Params2) of
+                ok ->
+                    ?NO_CONTENT;
+                {error, #{kind := validation_error} = Reason0} ->
+                    Reason = redact(Reason0),
+                    ?BAD_REQUEST('TEST_FAILED', map_to_json(Reason));
+                {error, Reason0} when not is_tuple(Reason0); element(1, Reason0) =/= 'exit' ->
+                    Reason1 =
+                        case Reason0 of
+                            {unhealthy_target, Message} -> Message;
+                            _ -> Reason0
+                        end,
+                    Reason = redact(Reason1),
+                    ?BAD_REQUEST('TEST_FAILED', Reason)
+            end;
+        BadRequest ->
+            redact(BadRequest)
+    end.
+
+maybe_deobfuscate_bridge_probe(#{<<"type">> := BridgeType, <<"name">> := BridgeName} = Params) ->
+    case emqx_bridge:lookup(BridgeType, BridgeName) of
+        {ok, #{raw_config := RawConf}} ->
+            %% TODO check if RawConf optained above is compatible with the commented out code below
+            %% RawConf = emqx:get_raw_config([bridges, BridgeType, BridgeName], #{}),
+            deobfuscate(Params, RawConf);
+        _ ->
+            %% A bridge may be probed before it's created, so not finding it here is fine
+            Params
+    end;
+maybe_deobfuscate_bridge_probe(Params) ->
+    Params.
 
 %%% API helpers
 is_ok(ok) ->

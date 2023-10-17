@@ -336,7 +336,7 @@ fields(producer_opts) ->
                 desc => ?DESC(producer_kafka_opts),
                 validator => fun producer_strategy_key_validator/1
             })},
-        {resource_opts, mk(ref(resource_opts), #{default => #{}})}
+        {resource_opts, mk(ref(resource_opts), #{default => #{}, desc => ?DESC(resource_opts)})}
     ];
 fields(producer_kafka_opts) ->
     [
@@ -539,11 +539,17 @@ desc("config") ->
     ?DESC("desc_config");
 desc(resource_opts) ->
     ?DESC(emqx_resource_schema, "resource_opts");
-desc("get_" ++ Type) when Type =:= "consumer"; Type =:= "producer"; Type =:= "connector" ->
+desc("get_" ++ Type) when
+    Type =:= "consumer"; Type =:= "producer"; Type =:= "connector"; Type =:= "bridge_v2"
+->
     ["Configuration for Kafka using `GET` method."];
-desc("put_" ++ Type) when Type =:= "consumer"; Type =:= "producer"; Type =:= "connector" ->
+desc("put_" ++ Type) when
+    Type =:= "consumer"; Type =:= "producer"; Type =:= "connector"; Type =:= "bridge_v2"
+->
     ["Configuration for Kafka using `PUT` method."];
-desc("post_" ++ Type) when Type =:= "consumer"; Type =:= "producer"; Type =:= "connector" ->
+desc("post_" ++ Type) when
+    Type =:= "consumer"; Type =:= "producer"; Type =:= "connector"; Type =:= "bridge_v2"
+->
     ["Configuration for Kafka using `POST` method."];
 desc(kafka_producer_action) ->
     ?DESC("kafka_producer_action");
