@@ -121,16 +121,22 @@ when
 start(Nodes, ClusterOpts) ->
     NodeSpecs = mk_nodespecs(Nodes, ClusterOpts),
     ct:pal("Starting cluster:\n  ~p", [NodeSpecs]),
-    % 1. Start bare nodes with only basic applications running
-    _ = emqx_utils:pmap(fun start_node_init/1, NodeSpecs, ?TIMEOUT_NODE_START_MS),
-    % 2. Start applications needed to enable clustering
-    % Generally, this causes some applications to restart, but we deliberately don't
-    % start them yet.
-    _ = lists:foreach(fun run_node_phase_cluster/1, NodeSpecs),
-    % 3. Start applications after cluster is formed
-    % Cluster-joins are complete, so they shouldn't restart in the background anymore.
-    _ = emqx_utils:pmap(fun run_node_phase_apps/1, NodeSpecs, ?TIMEOUT_APPS_START_MS),
-    [Node || #{name := Node} <- NodeSpecs].
+    try
+        % 1. Start bare nodes with only basic applications running
+        _ = emqx_utils:pmap(fun start_node_init/1, NodeSpecs, ?TIMEOUT_NODE_START_MS),
+        % 2. Start applications needed to enable clustering
+        % Generally, this causes some applications to restart, but we deliberately don't
+        % start them yet.
+        _ = lists:foreach(fun run_node_phase_cluster/1, NodeSpecs),
+        % 3. Start applications after cluster is formed
+        % Cluster-joins are complete, so they shouldn't restart in the background anymore.
+        _ = emqx_utils:pmap(fun run_node_phase_apps/1, NodeSpecs, ?TIMEOUT_APPS_START_MS),
+        [Node || #{name := Node} <- NodeSpecs]
+    catch
+        C:E:Stacktrace ->
+            _ = [catch stop_node(Node, Spec) || Spec = #{name := Node} <- NodeSpecs],
+            erlang:raise(C, E, Stacktrace)
+    end.
 
 mk_nodespecs(Nodes, ClusterOpts) ->
     NodeSpecs = lists:zipwith(
