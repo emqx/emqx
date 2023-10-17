@@ -1005,9 +1005,6 @@ bin(Bin) when is_binary(Bin) -> Bin;
 bin(Str) when is_list(Str) -> list_to_binary(Str);
 bin(Atom) when is_atom(Atom) -> atom_to_binary(Atom, utf8).
 
-is_bridge_v2_id(<<"bridge_v2:", _/binary>>) -> true;
-is_bridge_v2_id(_) -> false.
-
 extract_connector_id_from_bridge_v2_id(Id) ->
     case binary:split(Id, <<":">>, [global]) of
         [<<"bridge_v2">>, _Type, _Name, <<"connector">>, ConnectorType, ConnecorName] ->
