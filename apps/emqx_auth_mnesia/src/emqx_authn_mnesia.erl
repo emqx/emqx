@@ -50,7 +50,7 @@
 %% Internal exports (RPC)
 -export([
     do_destroy/1,
-    do_add_user/2,
+    do_add_user/1,
     do_delete_user/2,
     do_update_user/3,
     import/2,
@@ -187,24 +187,22 @@ import_users({Filename0, FileData}, State) ->
             {error, {unsupported_file_format, Extension}}
     end.
 
-add_user(UserInfo, State) ->
-    trans(fun ?MODULE:do_add_user/2, [UserInfo, State]).
+add_user(
+    UserInfo,
+    State
+) ->
+    UserInfoRecord = user_info_record(UserInfo, State),
+    trans(fun ?MODULE:do_add_user/1, [UserInfoRecord]).
 
 do_add_user(
-    #{
-        user_id := UserID,
-        password := Password
-    } = UserInfo,
-    #{
-        user_group := UserGroup,
-        password_hash_algorithm := Algorithm
-    }
+    #user_info{
+        user_id = {_UserGroup, UserID} = DBUserID,
+        is_superuser = IsSuperuser
+    } = UserInfoRecord
 ) ->
-    case mnesia:read(?TAB, {UserGroup, UserID}, write) of
+    case mnesia:read(?TAB, DBUserID, write) of
         [] ->
-            {PasswordHash, Salt} = emqx_authn_password_hashing:hash(Algorithm, Password),
-            IsSuperuser = maps:get(is_superuser, UserInfo, false),
-            insert_user(UserGroup, UserID, PasswordHash, Salt, IsSuperuser),
+            insert_user(UserInfoRecord),
             {ok, #{user_id => UserID, is_superuser => IsSuperuser}};
         [_] ->
             {error, already_exist}
@@ -222,38 +220,30 @@ do_delete_user(UserID, #{user_group := UserGroup}) ->
     end.
 
 update_user(UserID, UserInfo, State) ->
-    trans(fun ?MODULE:do_update_user/3, [UserID, UserInfo, State]).
+    FieldsToUpdate = fields_to_update(
+        UserInfo,
+        [
+            hash_and_salt,
+            is_superuser
+        ],
+        State
+    ),
+    trans(fun ?MODULE:do_update_user/3, [UserID, FieldsToUpdate, State]).
 
 do_update_user(
     UserID,
-    UserInfo,
+    FieldsToUpdate,
     #{
-        user_group := UserGroup,
-        password_hash_algorithm := Algorithm
+        user_group := UserGroup
     }
 ) ->
     case mnesia:read(?TAB, {UserGroup, UserID}, write) of
         [] ->
             {error, not_found};
-        [
-            #user_info{
-                password_hash = PasswordHash,
-                salt = Salt,
-                is_superuser = IsSuperuser
-            }
-        ] ->
-            NSuperuser = maps:get(is_superuser, UserInfo, IsSuperuser),
-            {NPasswordHash, NSalt} =
-                case UserInfo of
-                    #{password := Password} ->
-                        emqx_authn_password_hashing:hash(
-                            Algorithm, Password
-                        );
-                    #{} ->
-                        {PasswordHash, Salt}
-                end,
-            insert_user(UserGroup, UserID, NPasswordHash, NSalt, NSuperuser),
-            {ok, #{user_id => UserID, is_superuser => NSuperuser}}
+        [#user_info{} = UserInfoRecord] ->
+            NUserInfoRecord = update_user_record(UserInfoRecord, FieldsToUpdate),
+            insert_user(NUserInfoRecord),
+            {ok, #{user_id => UserID, is_superuser => NUserInfoRecord#user_info.is_superuser}}
     end.
 
 lookup_user(UserID, #{user_group := UserGroup}) ->
@@ -391,13 +381,59 @@ get_user_info_by_seq(_, _, _) ->
     {error, bad_format}.
 
 insert_user(UserGroup, UserID, PasswordHash, Salt, IsSuperuser) ->
-    UserInfo = #user_info{
+    UserInfoRecord = user_info_record(UserGroup, UserID, PasswordHash, Salt, IsSuperuser),
+    insert_user(UserInfoRecord).
+
+insert_user(#user_info{} = UserInfoRecord) ->
+    mnesia:write(?TAB, UserInfoRecord, write).
+
+user_info_record(UserGroup, UserID, PasswordHash, Salt, IsSuperuser) ->
+    #user_info{
         user_id = {UserGroup, UserID},
         password_hash = PasswordHash,
         salt = Salt,
         is_superuser = IsSuperuser
-    },
-    mnesia:write(?TAB, UserInfo, write).
+    }.
+
+user_info_record(
+    #{
+        user_id := UserID,
+        password := Password
+    } = UserInfo,
+    #{
+        password_hash_algorithm := Algorithm,
+        user_group := UserGroup
+    } = _State
+) ->
+    IsSuperuser = maps:get(is_superuser, UserInfo, false),
+    {PasswordHash, Salt} = emqx_authn_password_hashing:hash(Algorithm, Password),
+    user_info_record(UserGroup, UserID, PasswordHash, Salt, IsSuperuser).
+
+fields_to_update(
+    #{password := Password} = UserInfo,
+    [hash_and_salt | Rest],
+    #{password_hash_algorithm := Algorithm} = State
+) ->
+    [
+        {hash_and_salt,
+            emqx_authn_password_hashing:hash(
+                Algorithm, Password
+            )}
+        | fields_to_update(UserInfo, Rest, State)
+    ];
+fields_to_update(#{is_superuser := IsSuperuser} = UserInfo, [is_superuser | Rest], State) ->
+    [{is_superuser, IsSuperuser} | fields_to_update(UserInfo, Rest, State)];
+fields_to_update(UserInfo, [_ | Rest], State) ->
+    fields_to_update(UserInfo, Rest, State);
+fields_to_update(_UserInfo, [], _State) ->
+    [].
+
+update_user_record(UserInfoRecord, []) ->
+    UserInfoRecord;
+update_user_record(UserInfoRecord, [{hash_and_salt, {PasswordHash, Salt}} | Rest]) ->
+    update_user_record(UserInfoRecord#user_info{password_hash = PasswordHash, salt = Salt}, Rest);
+update_user_record(UserInfoRecord, [{is_superuser, IsSuperuser} | Rest]) ->
+    update_user_record(UserInfoRecord#user_info{is_superuser = IsSuperuser}, Rest).
 
 %% TODO: Support other type
 get_user_identity(#{username := Username}, username) ->
