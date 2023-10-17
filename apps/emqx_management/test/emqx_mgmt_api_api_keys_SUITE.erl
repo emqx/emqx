@@ -19,12 +19,26 @@
 -compile(nowarn_export_all).
 
 -include_lib("eunit/include/eunit.hrl").
+-include_lib("emqx_dashboard/include/emqx_dashboard_rbac.hrl").
+
+-if(?EMQX_RELEASE_EDITION == ee).
+-define(EE_CASES, [
+    t_ee_create,
+    t_ee_update,
+    t_ee_authorize_viewer,
+    t_ee_authorize_admin,
+    t_ee_authorize_publisher
+]).
+-else.
+-define(EE_CASES, []).
+-endif.
 
 all() -> [{group, parallel}, {group, sequence}].
 suite() -> [{timetrap, {minutes, 1}}].
 groups() ->
     [
         {parallel, [parallel], [t_create, t_update, t_delete, t_authorize, t_create_unexpired_app]},
+        {parallel, [parallel], ?EE_CASES},
         {sequence, [], [t_bootstrap_file, t_create_failed]}
     ].
 
@@ -222,6 +236,102 @@ t_create_unexpired_app(_Config) ->
     ?assertMatch(#{<<"expired_at">> := <<"infinity">>}, Create2),
     ok.
 
+t_ee_create(_Config) ->
+    Name = <<"EMQX-EE-API-KEY-1">>,
+    {ok, Create} = create_app(Name, #{role => ?ROLE_API_VIEWER}),
+    ?assertMatch(
+        #{
+            <<"api_key">> := _,
+            <<"api_secret">> := _,
+            <<"created_at">> := _,
+            <<"desc">> := _,
+            <<"enable">> := true,
+            <<"expired_at">> := _,
+            <<"name">> := Name,
+            <<"role">> := ?ROLE_API_VIEWER
+        },
+        Create
+    ),
+
+    {ok, App} = read_app(Name),
+    ?assertMatch(#{<<"name">> := Name, <<"role">> := ?ROLE_API_VIEWER}, App).
+
+t_ee_update(_Config) ->
+    Name = <<"EMQX-EE-API-UPDATE-KEY">>,
+    {ok, _} = create_app(Name, #{role => ?ROLE_API_VIEWER}),
+
+    Change = #{
+        desc => <<"NoteVersion1"/utf8>>,
+        enable => false,
+        role => ?ROLE_API_SUPERUSER
+    },
+    {ok, Update1} = update_app(Name, Change),
+    ?assertEqual(?ROLE_API_SUPERUSER, maps:get(<<"role">>, Update1)),
+
+    {ok, App} = read_app(Name),
+    ?assertMatch(#{<<"name">> := Name, <<"role">> := ?ROLE_API_SUPERUSER}, App).
+
+t_ee_authorize_viewer(_Config) ->
+    Name = <<"EMQX-EE-API-AUTHORIZE-KEY-VIEWER">>,
+    {ok, #{<<"api_key">> := ApiKey, <<"api_secret">> := ApiSecret}} = create_app(Name, #{
+        role => ?ROLE_API_VIEWER
+    }),
+    BasicHeader = emqx_common_test_http:auth_header(
+        binary_to_list(ApiKey),
+        binary_to_list(ApiSecret)
+    ),
+
+    BanPath = emqx_mgmt_api_test_util:api_path(["banned"]),
+    ?assertMatch({ok, _}, emqx_mgmt_api_test_util:request_api(get, BanPath, BasicHeader)),
+    ?assertMatch(
+        {error, {_, 403, _}}, emqx_mgmt_api_test_util:request_api(delete, BanPath, BasicHeader)
+    ).
+
+t_ee_authorize_admin(_Config) ->
+    Name = <<"EMQX-EE-API-AUTHORIZE-KEY-ADMIN">>,
+    {ok, #{<<"api_key">> := ApiKey, <<"api_secret">> := ApiSecret}} = create_app(Name, #{
+        role => ?ROLE_API_SUPERUSER
+    }),
+    BasicHeader = emqx_common_test_http:auth_header(
+        binary_to_list(ApiKey),
+        binary_to_list(ApiSecret)
+    ),
+
+    BanPath = emqx_mgmt_api_test_util:api_path(["banned"]),
+    ?assertMatch({ok, _}, emqx_mgmt_api_test_util:request_api(get, BanPath, BasicHeader)),
+    ?assertMatch(
+        {ok, _}, emqx_mgmt_api_test_util:request_api(delete, BanPath, BasicHeader)
+    ).
+
+t_ee_authorize_publisher(_Config) ->
+    Name = <<"EMQX-EE-API-AUTHORIZE-KEY-PUBLISHER">>,
+    {ok, #{<<"api_key">> := ApiKey, <<"api_secret">> := ApiSecret}} = create_app(Name, #{
+        role => ?ROLE_API_PUBLISHER
+    }),
+    BasicHeader = emqx_common_test_http:auth_header(
+        binary_to_list(ApiKey),
+        binary_to_list(ApiSecret)
+    ),
+
+    BanPath = emqx_mgmt_api_test_util:api_path(["banned"]),
+    Publish = emqx_mgmt_api_test_util:api_path(["publish"]),
+    ?assertMatch(
+        {error, {_, 403, _}}, emqx_mgmt_api_test_util:request_api(get, BanPath, BasicHeader)
+    ),
+    ?assertMatch(
+        {error, {_, 403, _}}, emqx_mgmt_api_test_util:request_api(delete, BanPath, BasicHeader)
+    ),
+    ?_assertMatch(
+        {ok, _},
+        emqx_mgmt_api_test_util:request_api(
+            post,
+            Publish,
+            [],
+            BasicHeader,
+            #{topic => <<"t/t_ee_authorize_publisher">>, payload => <<"hello">>}
+        )
+    ).
+
 list_app() ->
     AuthHeader = emqx_dashboard_SUITE:auth_header_(),
     Path = emqx_mgmt_api_test_util:api_path(["api_key"]),
@@ -239,10 +349,13 @@ read_app(Name) ->
     end.
 
 create_app(Name) ->
+    create_app(Name, #{}).
+
+create_app(Name, Extra) ->
     AuthHeader = emqx_dashboard_SUITE:auth_header_(),
     Path = emqx_mgmt_api_test_util:api_path(["api_key"]),
     ExpiredAt = to_rfc3339(erlang:system_time(second) + 1000),
-    App = #{
+    App = Extra#{
         name => Name,
         expired_at => ExpiredAt,
         desc => <<"Note"/utf8>>,

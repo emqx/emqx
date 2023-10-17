@@ -42,7 +42,7 @@
 
 %% Internal exports (RPC)
 -export([
-    do_update/4,
+    do_update/5,
     do_delete/1,
     do_create_app/3,
     do_force_create_app/3
@@ -149,12 +149,12 @@ read(Name) ->
 update(Name, Enable, ExpiredAt, Desc, Role) ->
     case valid_role(Role) of
         ok ->
-            trans(fun ?MODULE:do_update/4, [Name, Enable, ExpiredAt, Desc]);
+            trans(fun ?MODULE:do_update/5, [Name, Enable, ExpiredAt, Desc, Role]);
         Error ->
             Error
     end.
 
-do_update(Name, Enable, ExpiredAt, Desc) ->
+do_update(Name, Enable, ExpiredAt, Desc, Role) ->
     case mnesia:read(?APP, Name, write) of
         [] ->
             mnesia:abort(not_found);
@@ -163,7 +163,8 @@ do_update(Name, Enable, ExpiredAt, Desc) ->
                 App0#?APP{
                     expired_at = ExpiredAt,
                     enable = ensure_not_undefined(Enable, Enable0),
-                    desc = ensure_not_undefined(Desc, Desc0)
+                    desc = ensure_not_undefined(Desc, Desc0),
+                    role = Role
                 },
             ok = mnesia:write(App),
             to_map(App)
