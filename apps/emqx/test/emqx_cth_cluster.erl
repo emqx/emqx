@@ -41,11 +41,15 @@
 -export([start/2]).
 -export([stop/1, stop_node/1]).
 
+-export([merge_nodespecs/2]).
+
 -export([start_bare_node/2]).
 
 -export([share_load_module/2]).
 -export([node_name/1, mk_nodespecs/2]).
 -export([start_apps/2, set_node_opts/2]).
+
+-export_type([nodespec/0]).
 
 -define(APPS_CLUSTERING, [gen_rpc, mria, ekka]).
 
@@ -55,7 +59,7 @@
 
 %%
 
--type nodespec() :: {_ShortName :: atom(), #{
+-type nodespec() :: #{
     % DB Role
     % Default: `core`
     role => core | replicant,
@@ -107,9 +111,9 @@
     % * if `erl_libs_path` is defined: this module
     % * otherwise: code path of the current node w/o common system and build tooling stuff
     erl_code_path => [module() | file:name()]
-}}.
+}.
 
--spec start([nodespec()], ClusterOpts) ->
+-spec start([{_ShortName :: atom(), nodespec()}], ClusterOpts) ->
     [node()]
 when
     ClusterOpts :: #{
@@ -390,6 +394,32 @@ stop_node(Node, #{driver := ct_slave}) ->
     end;
 stop_node(Node, #{driver := slave}) ->
     slave:stop(Node).
+
+%%
+
+-spec merge_nodespecs(nodespec(), nodespec()) -> nodespec().
+merge_nodespecs(Spec1, Spec2) ->
+    maps:merge_with(
+        fun
+            (apps, A1, A2) -> merge_appspecs(A1, A2);
+            (_Key, _V1, V2) -> V2
+        end,
+        Spec1,
+        Spec2
+    ).
+
+merge_appspecs([{App, OptsProfile} | AppsProfile], Apps) ->
+    case lists:keytake(App, 1, Apps) of
+        {value, {App, Opts}, AppsRest} ->
+            OptsMerged = emqx_cth_suite:merge_appspec(OptsProfile, Opts),
+            [{App, OptsMerged} | merge_appspecs(AppsProfile, AppsRest)];
+        false ->
+            [{App, OptsProfile} | merge_appspecs(AppsProfile, Apps)]
+    end;
+merge_appspecs([App | AppsProfile], Apps) ->
+    merge_appspecs([{App, #{}} | AppsProfile], Apps);
+merge_appspecs([], Apps) ->
+    Apps.
 
 %% Ports
 

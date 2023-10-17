@@ -21,7 +21,9 @@
 
 -export([
     profiles/0,
-    profile/1
+    profile/1,
+    nodespec/2,
+    amend/1
 ]).
 
 -export_type([profiles/0]).
@@ -43,6 +45,7 @@
 
 -type name() :: atom().
 -type profiles() :: [{name(), profile()}].
+-type nodespec() :: emqx_cth_cluster:nodespec().
 
 -reflect_type([profile/0]).
 
@@ -93,3 +96,32 @@ validate_profiles(Profiles) ->
 -spec profile(name()) -> profile() | undefined.
 profile(Name) ->
     proplists:get_value(Name, profiles(), undefined).
+
+%% @doc Apply compatibility profile to the given nodespec.
+-spec nodespec(name(), nodespec()) -> nodespec() | undefined.
+nodespec(Name, Spec) ->
+    emqx_maybe:apply(
+        fun(Profile) -> emqx_cth_cluster:merge_nodespecs(Profile, Spec) end,
+        profile(Name)
+    ).
+
+%% @doc Amend the given nodespec with few workarounds to make it compatible with
+%% older versions of EMQX.
+-spec amend(nodespec()) -> nodespec().
+amend(Spec) ->
+    emqx_cth_cluster:merge_nodespecs(compat_workarounds_nodespec(), Spec).
+
+%%
+
+compat_workarounds_nodespec() ->
+    #{apps => [compat_appspec(gen_rpc)]}.
+
+compat_appspec(gen_rpc) ->
+    {gen_rpc, #{
+        override_env => [
+            % NOTE
+            % Allow connects between EMQX 5.3.x and 5.2.x nodes.
+            % Remove this workaround when EMQX 5.4.0 is released.
+            {insecure_auth_fallback_allowed, true}
+        ]
+    }}.

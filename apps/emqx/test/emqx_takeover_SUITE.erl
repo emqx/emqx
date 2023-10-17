@@ -62,19 +62,20 @@ end_per_suite(Config) ->
 
 init_per_testcase(t_takeover_cluster = TC, Config) ->
     ct:timetrap({seconds, 30}),
+    NodeSpec = #{apps => [mk_emqx_appspec()]},
     {Node1Spec, Node2Spec} =
         case emqx_cth_suite:tc_group_path(Config) of
             [backward, Name, g_takeover_cluster_compat] ->
-                {#{}, emqx_cth_compat:profile(Name)};
+                {emqx_cth_compat:amend(NodeSpec), emqx_cth_compat:nodespec(Name, NodeSpec)};
             [forward, Name, g_takeover_cluster_compat] ->
-                {emqx_cth_compat:profile(Name), #{}};
+                {emqx_cth_compat:nodespec(Name, NodeSpec), emqx_cth_compat:amend(NodeSpec)};
             _ ->
-                {#{}, #{}}
+                {NodeSpec, NodeSpec}
         end,
     Nodes = emqx_cth_cluster:start(
         [
-            {emqx_takeover_SUITE1, Node1Spec#{apps => [mk_emqx_appspec()]}},
-            {emqx_takeover_SUITE2, Node2Spec#{apps => [mk_emqx_appspec()]}}
+            {emqx_takeover_SUITE1, Node1Spec},
+            {emqx_takeover_SUITE2, Node2Spec}
         ],
         #{work_dir => emqx_cth_suite:work_dir(TC, Config)}
     ),
