@@ -145,7 +145,7 @@ store_filemeta(Storage, Transfer, Meta) ->
             % We won't see conflicts in case of concurrent `store_filemeta`
             % requests. It's rather odd scenario so it's fine not to worry
             % about it too much now.
-            {error, conflict};
+            {error, filemeta_conflict};
         {error, Reason} when Reason =:= notfound; Reason =:= corrupted; Reason =:= enoent ->
             write_file_atomic(Storage, Transfer, Filepath, encode_filemeta(Meta));
         {error, _} = Error ->

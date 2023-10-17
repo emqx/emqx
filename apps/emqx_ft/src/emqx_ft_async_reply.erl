@@ -27,6 +27,7 @@
 
 -export([
     register/3,
+    register/4,
     take_by_mref/1,
     with_new_packet/3,
     deregister_all/1
@@ -42,12 +43,14 @@
 -define(MON_TAB, emqx_ft_async_mons).
 -define(MON_KEY(MRef), ?MON_KEY(self(), MRef)).
 -define(MON_KEY(ChannelPid, MRef), {ChannelPid, MRef}).
+-define(MON_RECORD(KEY, PACKET_ID, TREF, DATA), {KEY, PACKET_ID, TREF, DATA}).
 
 %% async worker monitors by packet ids
 
 -define(PACKET_TAB, emqx_ft_async_packets).
 -define(PACKET_KEY(PacketId), ?PACKET_KEY(self(), PacketId)).
 -define(PACKET_KEY(ChannelPid, PacketId), {ChannelPid, PacketId}).
+-define(PACKET_RECORD(KEY, MREF, DATA), {KEY, MREF, DATA}).
 
 %%--------------------------------------------------------------------
 %% API
@@ -66,10 +69,15 @@ create_tables() ->
     ok = emqx_utils_ets:new(?PACKET_TAB, EtsOptions),
     ok.
 
--spec register(packet_id(), mon_ref(), timer_ref()) -> ok.
-register(PacketId, MRef, TRef) ->
-    _ = ets:insert(?PACKET_TAB, {?PACKET_KEY(PacketId), MRef}),
-    _ = ets:insert(?MON_TAB, {?MON_KEY(MRef), PacketId, TRef}),
+-spec register(packet_id(), mon_ref(), timer_ref(), term()) -> ok.
+register(PacketId, MRef, TRef, Data) ->
+    _ = ets:insert(?PACKET_TAB, ?PACKET_RECORD(?PACKET_KEY(PacketId), MRef, Data)),
+    _ = ets:insert(?MON_TAB, ?MON_RECORD(?MON_KEY(MRef), PacketId, TRef, Data)),
+    ok.
+
+-spec register(mon_ref(), timer_ref(), term()) -> ok.
+register(MRef, TRef, Data) ->
+    _ = ets:insert(?MON_TAB, ?MON_RECORD(?MON_KEY(MRef), undefined, TRef, Data)),
     ok.
 
 -spec with_new_packet(packet_id(), fun(() -> any()), any()) -> any().
@@ -79,12 +87,12 @@ with_new_packet(PacketId, Fun, Default) ->
         false -> Fun()
     end.
 
--spec take_by_mref(mon_ref()) -> {ok, packet_id(), timer_ref()} | not_found.
+-spec take_by_mref(mon_ref()) -> {ok, packet_id() | undefined, timer_ref(), term()} | not_found.
 take_by_mref(MRef) ->
     case ets:take(?MON_TAB, ?MON_KEY(MRef)) of
-        [{_, PacketId, TRef}] ->
-            _ = ets:delete(?PACKET_TAB, ?PACKET_KEY(PacketId)),
-            {ok, PacketId, TRef};
+        [?MON_RECORD(_, PacketId, TRef, Data)] ->
+            PacketId =/= undefined andalso ets:delete(?PACKET_TAB, ?PACKET_KEY(PacketId)),
+            {ok, PacketId, TRef, Data};
         [] ->
             not_found
     end.
@@ -104,11 +112,11 @@ info() ->
 %%-------------------------------------------------------------------
 
 deregister_packets(ChannelPid) when is_pid(ChannelPid) ->
-    MS = [{{?PACKET_KEY(ChannelPid, '_'), '_'}, [], [true]}],
+    MS = [{?PACKET_RECORD(?PACKET_KEY(ChannelPid, '_'), '_', '_'), [], [true]}],
     _ = ets:select_delete(?PACKET_TAB, MS),
     ok.
 
 deregister_mons(ChannelPid) ->
-    MS = [{{?MON_KEY(ChannelPid, '_'), '_', '_'}, [], [true]}],
+    MS = [{?MON_RECORD(?MON_KEY(ChannelPid, '_'), '_', '_', '_'), [], [true]}],
     _ = ets:select_delete(?MON_TAB, MS),
     ok.
