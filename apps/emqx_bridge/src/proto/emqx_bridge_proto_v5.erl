@@ -31,6 +31,8 @@
     start_bridges_to_all_nodes/3,
     stop_bridges_to_all_nodes/3,
 
+    v2_start_bridge_to_node/3,
+    v2_start_bridge_to_all_nodes/3,
     v2_list_bridges_on_nodes/1,
     v2_lookup_from_all_nodes/3
 ]).
@@ -137,6 +139,7 @@ get_metrics_from_all_nodes(Nodes, BridgeType, BridgeName) ->
         ?TIMEOUT
     ).
 
+%% V2 Calls
 -spec v2_list_bridges_on_nodes([node()]) ->
     emqx_rpc:erpc_multicall([emqx_resource:resource_data()]).
 v2_list_bridges_on_nodes(Nodes) ->
@@ -149,6 +152,28 @@ v2_lookup_from_all_nodes(Nodes, BridgeType, BridgeName) ->
         Nodes,
         emqx_bridge_v2_api,
         lookup_from_local_node,
+        [BridgeType, BridgeName],
+        ?TIMEOUT
+    ).
+
+-spec v2_start_bridge_to_all_nodes([node()], key(), key()) ->
+    emqx_rpc:erpc_multicall().
+v2_start_bridge_to_all_nodes(Nodes, BridgeType, BridgeName) ->
+    erpc:multicall(
+        Nodes,
+        emqx_bridge_v2,
+        start,
+        [BridgeType, BridgeName],
+        ?TIMEOUT
+    ).
+
+-spec v2_start_bridge_to_node(node(), key(), key()) ->
+    term().
+v2_start_bridge_to_node(Node, BridgeType, BridgeName) ->
+    rpc:call(
+        Node,
+        emqx_bridge_v2,
+        start,
         [BridgeType, BridgeName],
         ?TIMEOUT
     ).
