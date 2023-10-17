@@ -86,13 +86,13 @@ desc_param_path_node.label:
 """The node name"""
 
 desc_param_path_operation_cluster.desc:
-"""Operations can be one of: 'stop' or 'restart'."""
+"""Operations can be one of: 'start'."""
 
 desc_param_path_operation_cluster.label:
 """Cluster Operation"""
 
 desc_param_path_operation_on_node.desc:
-"""Operations can be one of: 'stop' or 'restart'."""
+"""Operations can be one of: 'start'."""
 
 desc_param_path_operation_on_node.label:
 """Node Operation """
