@@ -16,7 +16,7 @@ env:
 
 jobs:
   sanity-checks:
-    runs-on: ${{ fromJSON(github.repository_owner == 'emqx' && '["self-hosted","ephemeral"]' || '["ubuntu-22.04"]') }}
+    runs-on: ${{ fromJSON(github.repository_owner == 'emqx' && '["self-hosted","ephemeral","linux","x64"]' || '["ubuntu-22.04"]') }}
     container: "ghcr.io/emqx/emqx-builder/5.1-4:1.14.5-25.3.2-2-ubuntu22.04"
     outputs:
       ct-matrix: ${{ steps.matrix.outputs.ct-matrix }}
@@ -24,7 +24,7 @@ jobs:
       ct-docker: ${{ steps.matrix.outputs.ct-docker }}
       version-emqx: ${{ steps.matrix.outputs.version-emqx }}
       version-emqx-enterprise: ${{ steps.matrix.outputs.version-emqx-enterprise }}
-      runner_labels: ${{ github.repository_owner == 'emqx' && '["self-hosted", "ephemeral"]' || '["ubuntu-22.04"]' }}
+      runner_labels: ${{ github.repository_owner == 'emqx' && '["self-hosted","ephemeral","linux","x64"]' || '["ubuntu-22.04"]' }}
       builder: "ghcr.io/emqx/emqx-builder/5.1-4:1.14.5-25.3.2-2-ubuntu22.04"
       builder_vsn: "5.1-4"
       otp_vsn: "25.3.2-2"
@@ -57,8 +57,8 @@ jobs:
         env:
           ACTIONLINT_VSN: 1.6.25
         run: |
-          wget https://github.com/rhysd/actionlint/releases/download/v${ACTIONLINT_VSN}/actionlint_${ACTIONLINT_VSN}_linux_amd64.tar.gz
-          tar zxf actionlint_${ACTIONLINT_VSN}_linux_amd64.tar.gz actionlint
+          wget -q https://github.com/rhysd/actionlint/releases/download/v${ACTIONLINT_VSN}/actionlint_${ACTIONLINT_VSN}_linux_$(dpkg --print-architecture).tar.gz -O actionlint.tar.gz
+          tar zxf actionlint.tar.gz actionlint
           # TODO: enable shellcheck when all the current issues are fixed
           ./actionlint -color \
             -shellcheck= \
