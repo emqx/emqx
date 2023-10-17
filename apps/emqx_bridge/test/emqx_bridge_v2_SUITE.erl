@@ -66,7 +66,7 @@ bridge_schema() ->
 
 bridge_config() ->
     #{
-        <<"connector">> => con_name()
+        <<"connector">> => atom_to_binary(con_name())
     }.
 
 all() ->
@@ -87,6 +87,7 @@ init_per_suite(Config) ->
 
     meck:new(emqx_bridge_v2, [passthrough, no_link]),
     meck:expect(emqx_bridge_v2, bridge_v2_type_to_connector_type, 1, con_type()),
+    meck:expect(emqx_bridge_v2, bridge_v1_type_to_bridge_v2_type, 1, bridge_type()),
 
     _ = application:load(emqx_conf),
     ok = emqx_common_test_helpers:start_apps(start_apps()),
@@ -166,3 +167,15 @@ t_create_dry_run_fail_get_channel_status(_) ->
 t_create_dry_run_connector_does_not_exist(_) ->
     BridgeConf = (bridge_config())#{<<"connector">> => <<"connector_does_not_exist">>},
     {error, _} = emqx_bridge_v2:create_dry_run(bridge_type(), BridgeConf).
+
+t_is_valid_bridge_v1(_) ->
+    {ok, _} = emqx_bridge_v2:create(bridge_type(), my_test_bridge, bridge_config()),
+    true = emqx_bridge_v2:is_valid_bridge_v1(bridge_v1_type, my_test_bridge),
+    %% Add another channel/bridge to the connector
+    {ok, _} = emqx_bridge_v2:create(bridge_type(), my_test_bridge_2, bridge_config()),
+    false = emqx_bridge_v2:is_valid_bridge_v1(bridge_v1_type, my_test_bridge),
+    {ok, _} = emqx_bridge_v2:remove(bridge_type(), my_test_bridge),
+    true = emqx_bridge_v2:is_valid_bridge_v1(bridge_v1_type, my_test_bridge_2),
+    {ok, _} = emqx_bridge_v2:remove(bridge_type(), my_test_bridge_2),
+    false = emqx_bridge_v2:is_valid_bridge_v1(bridge_v1_type, my_test_bridge),
+    ok.

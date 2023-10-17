@@ -449,7 +449,7 @@ health_check(ResId) ->
 channel_health_check(ResId, ChannelId) ->
     emqx_resource_manager:channel_health_check(ResId, ChannelId).
 
--spec get_channels(resource_id()) -> [{binary(), map()}].
+-spec get_channels(resource_id()) -> {ok, [{binary(), map()}]}.
 get_channels(ResId) ->
     emqx_resource_manager:get_channels(ResId).
 
