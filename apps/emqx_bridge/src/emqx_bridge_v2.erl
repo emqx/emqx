@@ -245,7 +245,15 @@ install_bridge_v2(
     ConnectorId = emqx_connector_resource:resource_id(
         ?MODULE:bridge_v2_type_to_connector_type(BridgeV2Type), ConnectorName
     ),
-    emqx_resource_manager:add_channel(ConnectorId, BridgeV2Id, Config),
+    ConfigWithTypeAndName = Config#{
+        bridge_type => bin(BridgeV2Type),
+        bridge_name => bin(BridgeName)
+    },
+    emqx_resource_manager:add_channel(
+        ConnectorId,
+        BridgeV2Id,
+        ConfigWithTypeAndName
+    ),
     ok.
 
 uninstall_bridge_v2(
@@ -323,7 +331,15 @@ start_helper(BridgeV2Type, BridgeName, #{connector := ConnectorName} = Config) -
     ConnectorId = emqx_connector_resource:resource_id(
         ?MODULE:bridge_v2_type_to_connector_type(BridgeV2Type), ConnectorName
     ),
-    emqx_resource_manager:add_channel(ConnectorId, BridgeV2Id, Config).
+    ConfigWithTypeAndName = Config#{
+        bridge_type => bin(BridgeV2Type),
+        bridge_name => bin(BridgeName)
+    },
+    emqx_resource_manager:add_channel(
+        ConnectorId,
+        BridgeV2Id,
+        ConfigWithTypeAndName
+    ).
 
 reset_metrics(Type, Name) ->
     reset_metrics_helper(Type, Name, lookup_raw_conf(Type, Name)).
@@ -389,8 +405,14 @@ create_dry_run_helper(BridgeType, ConnectorRawConf, BridgeV2RawConf) ->
         fun(ConnectorId) ->
             {_, ConnectorName} = emqx_connector_resource:parse_connector_id(ConnectorId),
             ChannelTestId = id(BridgeType, BridgeName, ConnectorName),
-            BridgeV2Conf = emqx_utils_maps:unsafe_atom_key_map(BridgeV2RawConf),
-            case emqx_resource_manager:add_channel(ConnectorId, ChannelTestId, BridgeV2Conf) of
+            Conf = emqx_utils_maps:unsafe_atom_key_map(BridgeV2RawConf),
+            ConfWithTypeAndName = Conf#{
+                bridge_type => bin(BridgeType),
+                bridge_name => bin(BridgeName)
+            },
+            case
+                emqx_resource_manager:add_channel(ConnectorId, ChannelTestId, ConfWithTypeAndName)
+            of
                 {error, Reason} ->
                     {error, Reason};
                 ok ->
