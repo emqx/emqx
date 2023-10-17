@@ -6,7 +6,11 @@
 
 set -euo pipefail
 
-[ "${DEBUG:-0}" -eq 1 ] && set -x
+if [ "${DEBUG:-0}" -eq 1 ]; then
+    set -x
+    # set this for rebar3
+    export DIAGNOSTIC=1
+fi
 
 PROFILE_ARG="$1"
 ARTIFACT="$2"
@@ -449,17 +453,33 @@ make_docker() {
     if [ "${DOCKER_PUSH:-false}" = true ]; then
         DOCKER_BUILDX_ARGS+=(--push)
     fi
+    if [ -d "${REBAR_GIT_CACHE_DIR:-}" ]; then
+        cache_tar="$(pwd)/rebar-git-cache.tar"
+        if [ ! -f "${cache_tar}" ]; then
+            pushd "${REBAR_GIT_CACHE_DIR}" >/dev/null
+            tar -cf "${cache_tar}" .
+            popd >/dev/null
+        fi
+    fi
+    if [ -n "${DEBUG:-}" ]; then
+        DOCKER_BUILDX_ARGS+=(--build-arg DEBUG="${DEBUG}" --progress=plain)
+    fi
+
     # shellcheck disable=SC2015
     [ -f ./.dockerignore ] && mv ./.dockerignore ./.dockerignore.bak || true
     trap docker_cleanup EXIT
     {
-        echo '/_build'
-        echo '/deps'
-        echo '/*.lock'
+        echo '_build/'
+        echo 'deps/'
+        echo '*.lock'
+        echo '_packages/'
+        echo '.vs/'
+        echo '.vscode/'
+        echo 'lux_logs/'
+        echo '_upgrade_base/'
     } >> ./.dockerignore
-    set -x
+    echo "Docker build args: ${DOCKER_BUILDX_ARGS[*]}"
     docker buildx build "${DOCKER_BUILDX_ARGS[@]}" .
-    [[ "${DEBUG:-}" -eq 1 ]] || set +x
     echo "${EMQX_IMAGE_TAG}" > ./.docker_image_tag
 }
 
