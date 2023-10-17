@@ -23,6 +23,7 @@
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
 -define(ROLE_SUPERUSER, <<"administrator">>).
+-define(ROLE_API_SUPERUSER, <<"api_administrator">>).
 -define(BOOTSTRAP_BACKUP, "emqx-export-test-bootstrap-ce.tar.gz").
 
 all() ->
@@ -56,7 +57,7 @@ init_per_testcase(TC = t_verify_imported_mnesia_tab_on_cluster, Config) ->
     [{cluster, cluster(TC, Config)} | setup(TC, Config)];
 init_per_testcase(t_mnesia_bad_tab_schema, Config) ->
     meck:new(emqx_mgmt_data_backup, [passthrough]),
-    meck:expect(TC = emqx_mgmt_data_backup, mnesia_tabs_to_backup, 0, [data_backup_test]),
+    meck:expect(TC = emqx_mgmt_data_backup, mnesia_tabs_to_backup, 0, [?MODULE]),
     setup(TC, Config);
 init_per_testcase(TC, Config) ->
     setup(TC, Config).
@@ -99,7 +100,15 @@ t_cluster_hocon_export_import(Config) ->
     ?assertEqual(Exp, emqx_mgmt_data_backup:import(FileName)),
     ?assertEqual(RawConfAfterImport, emqx:get_raw_config([])),
     %% lookup file inside <data_dir>/backup
-    ?assertEqual(Exp, emqx_mgmt_data_backup:import(filename:basename(FileName))).
+    ?assertEqual(Exp, emqx_mgmt_data_backup:import(filename:basename(FileName))),
+
+    %% backup data migration test
+    ?assertMatch([_, _, _], ets:tab2list(emqx_app)),
+    ?assertMatch(
+        {ok, #{name := <<"key_to_export2">>, role := ?ROLE_API_SUPERUSER}},
+        emqx_mgmt_auth:read(<<"key_to_export2">>)
+    ),
+    ok.
 
 t_ee_to_ce_backup(Config) ->
     case emqx_release:edition() of
@@ -328,6 +337,9 @@ t_verify_imported_mnesia_tab_on_cluster(Config) ->
     %% Give some extra time to replicant to import data...
     timer:sleep(3000),
     ?assertEqual(AllUsers, lists:sort(rpc:call(ReplicantNode, mnesia, dirty_all_keys, [Tab]))).
+
+backup_tables() ->
+    [data_backup_test].
 
 t_mnesia_bad_tab_schema(_Config) ->
     OldAttributes = [id, name, description],

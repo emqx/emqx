@@ -38,7 +38,7 @@
 -export([authorize/4]).
 -export([post_config_update/5]).
 
--export([backup_tables/0]).
+-export([backup_tables/0, validate_mnesia_backup/1, migrate_mnesia_backup/1]).
 
 %% Internal exports (RPC)
 -export([
@@ -83,6 +83,35 @@ mnesia(boot) ->
 %%--------------------------------------------------------------------
 
 backup_tables() -> [?APP].
+
+validate_mnesia_backup({schema, _Tab, CreateList} = Schema) ->
+    case emqx_mgmt_data_backup:default_validate_mnesia_backup(Schema) of
+        ok ->
+            {ok, over};
+        _ ->
+            case proplists:get_value(attributes, CreateList) of
+                [name, api_key, api_secret_hash, enable, desc, expired_at, created_at] ->
+                    {ok, migrate};
+                Fields ->
+                    {error, {unknow_fields, Fields}}
+            end
+    end;
+validate_mnesia_backup(_Other) ->
+    ok.
+
+migrate_mnesia_backup({schema, Tab, CreateList}) ->
+    case proplists:get_value(attributes, CreateList) of
+        [name, api_key, api_secret_hash, enable, desc, expired_at, created_at] = Fields ->
+            NewFields = Fields ++ [role, extra],
+            CreateList2 = lists:keyreplace(
+                attributes, 1, CreateList, {attributes, NewFields}
+            ),
+            {ok, {schema, Tab, CreateList2}};
+        Fields ->
+            {error, {unknow_fields, Fields}}
+    end;
+migrate_mnesia_backup(Data) ->
+    {ok, do_table_migrate(Data)}.
 
 post_config_update([api_key], _Req, NewConf, _OldConf, _AppEnvs) ->
     #{bootstrap_file := File} = NewConf,
@@ -203,7 +232,9 @@ ensure_not_undefined(New, _Old) -> New.
 
 to_map(Apps) when is_list(Apps) ->
     [to_map(App) || App <- Apps];
-to_map(#?APP{name = N, api_key = K, enable = E, expired_at = ET, created_at = CT, desc = D}) ->
+to_map(#?APP{
+    name = N, api_key = K, enable = E, expired_at = ET, created_at = CT, desc = D, role = Role
+}) ->
     #{
         name => N,
         api_key => K,
@@ -211,7 +242,8 @@ to_map(#?APP{name = N, api_key = K, enable = E, expired_at = ET, created_at = CT
         expired_at => ET,
         created_at => CT,
         desc => D,
-        expired => is_expired(ET)
+        expired => is_expired(ET),
+        role => Role
     }.
 
 is_expired(undefined) -> false;
@@ -397,24 +429,22 @@ maybe_migrate_table(Fields) ->
         true ->
             ok;
         false ->
-            TransFun = fun(App) ->
-                case App of
-                    {?APP, Name, Key, Hash, Enable, Desc, ExpiredAt, CreatedAt} ->
-                        #?APP{
-                            name = Name,
-                            api_key = Key,
-                            api_secret_hash = Hash,
-                            enable = Enable,
-                            desc = Desc,
-                            expired_at = ExpiredAt,
-                            created_at = CreatedAt,
-                            role = ?ROLE_API_VIEWER,
-                            extra = #{}
-                        };
-                    #?APP{} ->
-                        App
-                end
-            end,
+            TransFun = fun do_table_migrate/1,
             {atomic, ok} = mnesia:transform_table(?APP, TransFun, Fields, ?APP),
             ok
     end.
+
+do_table_migrate({?APP, Name, Key, Hash, Enable, Desc, ExpiredAt, CreatedAt}) ->
+    #?APP{
+        name = Name,
+        api_key = Key,
+        api_secret_hash = Hash,
+        enable = Enable,
+        desc = Desc,
+        expired_at = ExpiredAt,
+        created_at = CreatedAt,
+        role = ?ROLE_API_DEFAULT,
+        extra = #{}
+    };
+do_table_migrate(#?APP{} = App) ->
+    App.

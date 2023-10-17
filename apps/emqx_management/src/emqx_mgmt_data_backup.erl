@@ -24,6 +24,8 @@
     format_error/1
 ]).
 
+-export([default_validate_mnesia_backup/1]).
+
 -ifdef(TEST).
 -compile(export_all).
 -compile(nowarn_export_all).
@@ -223,7 +225,15 @@ export_cluster_hocon(TarDescriptor, BackupBaseName, Opts) ->
 export_mnesia_tabs(TarDescriptor, BackupName, BackupBaseName, Opts) ->
     maybe_print("Exporting built-in database...~n", [], Opts),
     lists:foreach(
-        fun(Tab) -> export_mnesia_tab(TarDescriptor, Tab, BackupName, BackupBaseName, Opts) end,
+        fun(Mod) ->
+            Tabs = Mod:backup_tables(),
+            lists:foreach(
+                fun(Tab) ->
+                    export_mnesia_tab(TarDescriptor, Tab, BackupName, BackupBaseName, Opts)
+                end,
+                Tabs
+            )
+        end,
         tabs_to_backup()
     ).
 
@@ -259,7 +269,7 @@ tabs_to_backup() ->
 -endif.
 
 mnesia_tabs_to_backup() ->
-    lists:flatten([M:backup_tables() || M <- find_behaviours(emqx_db_backup)]).
+    lists:flatten([M || M <- find_behaviours(emqx_db_backup)]).
 
 mnesia_backup_name(Path, TabName) ->
     filename:join([Path, ?BACKUP_MNESIA_DIR, atom_to_list(TabName)]).
@@ -364,36 +374,42 @@ import_mnesia_tabs(BackupDir, Opts) ->
     maybe_print("Importing built-in database...~n", [], Opts),
     filter_errors(
         lists:foldr(
-            fun(Tab, Acc) -> Acc#{Tab => import_mnesia_tab(BackupDir, Tab, Opts)} end,
+            fun(Mod, Acc) ->
+                Tabs = Mod:backup_tables(),
+                lists:foldr(
+                    fun(Tab, InAcc) ->
+                        InAcc#{Tab => import_mnesia_tab(BackupDir, Mod, Tab, Opts)}
+                    end,
+                    Acc,
+                    Tabs
+                )
+            end,
             #{},
             tabs_to_backup()
         )
     ).
 
-import_mnesia_tab(BackupDir, TabName, Opts) ->
+import_mnesia_tab(BackupDir, Mod, TabName, Opts) ->
     MnesiaBackupFileName = mnesia_backup_name(BackupDir, TabName),
     case filelib:is_regular(MnesiaBackupFileName) of
         true ->
             maybe_print("Importing ~p database table...~n", [TabName], Opts),
-            restore_mnesia_tab(BackupDir, MnesiaBackupFileName, TabName, Opts);
+            restore_mnesia_tab(BackupDir, MnesiaBackupFileName, Mod, TabName, Opts);
         false ->
             maybe_print("No backup file for ~p database table...~n", [TabName], Opts),
             ?SLOG(info, #{msg => "missing_mnesia_backup", table => TabName, backup => BackupDir}),
             ok
     end.
 
-restore_mnesia_tab(BackupDir, MnesiaBackupFileName, TabName, Opts) ->
-    Validated =
-        catch mnesia:traverse_backup(
-            MnesiaBackupFileName, mnesia_backup, dummy, read_only, fun validate_mnesia_backup/2, 0
-        ),
+restore_mnesia_tab(BackupDir, MnesiaBackupFileName, Mod, TabName, Opts) ->
+    Validated = validate_mnesia_backup(MnesiaBackupFileName, Mod),
     try
         case Validated of
-            {ok, _} ->
+            {ok, #{backup_file := BackupFile}} ->
                 %% As we use keep_tables option, we don't need to modify 'copies' (nodes)
                 %% in a backup file before restoring it,  as `mnsia:restore/2` will ignore
                 %% backed-up schema and keep the current table schema unchanged
-                Restored = mnesia:restore(MnesiaBackupFileName, [{default_op, keep_tables}]),
+                Restored = mnesia:restore(BackupFile, [{default_op, keep_tables}]),
                 case Restored of
                     {atomic, [TabName]} ->
                         ok;
@@ -425,17 +441,81 @@ restore_mnesia_tab(BackupDir, MnesiaBackupFileName, TabName, Opts) ->
 %% NOTE: if backup file is valid, we keep traversing it, though we only need to validate schema.
 %% Looks like there is no clean way to abort traversal without triggering any error reporting,
 %% `mnesia_bup:read_schema/2` is an option but its direct usage should also be avoided...
-validate_mnesia_backup({schema, Tab, CreateList} = Schema, Acc) ->
+validate_mnesia_backup(MnesiaBackupFileName, Mod) ->
+    Init = #{backup_file => MnesiaBackupFileName},
+    Validated =
+        catch mnesia:traverse_backup(
+            MnesiaBackupFileName,
+            mnesia_backup,
+            dummy,
+            read_only,
+            mnesia_backup_validator(Mod),
+            Init
+        ),
+    case Validated of
+        ok ->
+            {ok, Init};
+        {error, {_, over}} ->
+            {ok, Init};
+        {error, {_, migrate}} ->
+            migrate_mnesia_backup(MnesiaBackupFileName, Mod, Init);
+        Error ->
+            Error
+    end.
+
+%% if the module has validator callback, use it else use the default
+mnesia_backup_validator(Mod) ->
+    Validator =
+        case erlang:function_exported(Mod, validate_mnesia_backup, 1) of
+            true ->
+                fun Mod:validate_mnesia_backup/1;
+            _ ->
+                fun default_validate_mnesia_backup/1
+        end,
+    fun(Schema, Acc) ->
+        case Validator(Schema) of
+            ok ->
+                {[Schema], Acc};
+            {ok, Break} ->
+                throw({error, Break});
+            Error ->
+                throw(Error)
+        end
+    end.
+
+default_validate_mnesia_backup({schema, Tab, CreateList}) ->
     ImportAttributes = proplists:get_value(attributes, CreateList),
     Attributes = mnesia:table_info(Tab, attributes),
-    case ImportAttributes =/= Attributes of
+    case ImportAttributes == Attributes of
         true ->
-            throw({error, different_table_schema});
+            ok;
         false ->
-            {[Schema], Acc}
+            {error, different_table_schema}
     end;
-validate_mnesia_backup(Other, Acc) ->
-    {[Other], Acc}.
+default_validate_mnesia_backup(_Other) ->
+    ok.
+
+migrate_mnesia_backup(MnesiaBackupFileName, Mod, Acc) ->
+    case erlang:function_exported(Mod, migrate_mnesia_backup, 1) of
+        true ->
+            MigrateFile = MnesiaBackupFileName ++ ".migrate",
+            Migrator = fun(Schema, InAcc) ->
+                case Mod:migrate_mnesia_backup(Schema) of
+                    {ok, NewSchema} ->
+                        {[NewSchema], InAcc};
+                    Error ->
+                        throw(Error)
+                end
+            end,
+            catch mnesia:traverse_backup(
+                MnesiaBackupFileName,
+                MigrateFile,
+                Migrator,
+                Acc#{backup_file := MigrateFile}
+            );
+        _ ->
+            {error, no_migrator}
+    end.
 
 extract_backup(BackupFileName) ->
     BackupDir = root_backup_dir(),
