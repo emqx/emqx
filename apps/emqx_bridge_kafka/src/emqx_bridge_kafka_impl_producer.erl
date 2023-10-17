@@ -153,7 +153,9 @@ create_producers_for_bridge_v2(
         end,
     ok = check_topic_status(Hosts, KafkaConfig, KafkaTopic),
     ok = check_if_healthy_leaders(ClientId, KafkaTopic),
-    WolffProducerConfig = producers_config(BridgeType, BridgeName, ClientId, KafkaConfig, IsDryRun, BridgeV2Id),
+    WolffProducerConfig = producers_config(
+        BridgeType, BridgeName, ClientId, KafkaConfig, IsDryRun, BridgeV2Id
+    ),
     case wolff:ensure_supervised_producers(ClientId, KafkaTopic, WolffProducerConfig) of
         {ok, Producers} ->
             ok = emqx_resource:allocate_resource(InstId, {?kafka_producers, BridgeV2Id}, Producers),

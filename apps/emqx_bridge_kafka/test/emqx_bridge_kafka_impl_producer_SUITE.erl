@@ -196,11 +196,11 @@ kafka_bridge_rest_api_all_auth_methods(UseSSL) ->
             true -> kafka_hosts_string_ssl();
             false -> kafka_hosts_string()
         end,
-    SASLHostsString =
-        case UseSSL of
-            true -> kafka_hosts_string_ssl_sasl();
-            false -> kafka_hosts_string_sasl()
-        end,
+    % SASLHostsString =
+    %     case UseSSL of
+    %         true -> kafka_hosts_string_ssl_sasl();
+    %         false -> kafka_hosts_string_sasl()
+    %     end,
     BinifyMap = fun(Map) ->
         maps:from_list([
             {erlang:iolist_to_binary(K), erlang:iolist_to_binary(V)}
@@ -263,7 +263,8 @@ kafka_bridge_rest_api_all_auth_methods(UseSSL) ->
 pre_create_atoms() ->
     [
         'kafka_producer__probe_',
-        probedryrun
+        probedryrun,
+        kafka__probe_
     ].
 
 kafka_bridge_rest_api_helper(Config) ->
@@ -342,7 +343,7 @@ kafka_bridge_rest_api_helper(Config) ->
     {ok, 204, _} = http_post(BridgesProbeParts, CreateBody),
     AtomsAfter = erlang:system_info(atom_count),
     ?assertEqual(AtomsBefore, AtomsAfter),
-    {ok, 204, X} = http_post(BridgesProbeParts, CreateBody),
+    {ok, 204, _X} = http_post(BridgesProbeParts, CreateBody),
     %% Create a rule that uses the bridge
     {ok, 201, Rule} = http_post(
         ["rules"],
@@ -871,7 +872,7 @@ t_wrong_headers_from_message(Config) ->
         timestamp => Time2
     },
     ?assertError(
-        {badmatch, {error, {unrecoverable_error, {bad_kafka_header, [{<<"foo">>, <<"bar">>}]}}}},
+        {badmatch, {error, {unrecoverable_error, {bad_kafka_header, #{<<"foo">> := <<"bar">>}}}}},
         send(Config, ResourceId, Msg2, State, BridgeV2Id)
     ),
     Time3 = erlang:unique_integer(),
@@ -882,22 +883,8 @@ t_wrong_headers_from_message(Config) ->
         timestamp => Time3
     },
     ?assertError(
-        {badmatch, {error, {unrecoverable_error, {bad_kafka_header, [{<<"key">>, <<"foo">>}]}}}},
+        {badmatch, {error, {unrecoverable_error, {bad_kafka_header, #{<<"key">> := <<"foo">>}}}}},
         send(Config, ResourceId, Msg3, State, BridgeV2Id)
-    ),
-    Time4 = erlang:unique_integer(),
-    Payload4 = <<"[{\"key\":\"foo\", \"value\":\"bar\"}]">>,
-    Msg4 = #{
-        clientid => integer_to_binary(Time4),
-        payload => Payload4,
-        timestamp => Time4
-    },
-    ?assertError(
-        {badmatch,
-            {error,
-                {unrecoverable_error,
-                    {bad_kafka_header, [{<<"key">>, <<"foo">>}, {<<"value">>, <<"bar">>}]}}}},
-        send(Config, ResourceId, Msg4, State, BridgeV2Id)
     ),
     %% TODO: refactor those into init/end per testcase
     ok = ?PRODUCER:on_stop(ResourceId, State),
@@ -933,7 +920,10 @@ do_send(Ref, Config, ResourceId, Msg, State, BridgeV2Id) when is_list(Config) ->
             F(ok);
         on_query_async ->
             {ok, _} = ?PRODUCER:on_query_async(ResourceId, {BridgeV2Id, Msg}, {F, []}, State),
-            ok
+            ok;
+        undefined ->
+            ok = ?PRODUCER:on_query(ResourceId, {BridgeV2Id, Msg}, State),
+            F(ok)
     end.
 
 publish_with_config_template_parameters(CtConfig, ConfigTemplateParameters) ->

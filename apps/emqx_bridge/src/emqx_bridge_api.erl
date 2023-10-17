@@ -1058,10 +1058,10 @@ maybe_unwrap({error, not_implemented}) ->
 maybe_unwrap(RpcMulticallResult) ->
     emqx_rpc:unwrap_erpc(RpcMulticallResult).
 
-supported_versions(start_bridge_to_node) -> [2, 3, 4];
-supported_versions(start_bridges_to_all_nodes) -> [2, 3, 4];
-supported_versions(get_metrics_from_all_nodes) -> [4];
-supported_versions(_Call) -> [1, 2, 3, 4].
+supported_versions(start_bridge_to_node) -> [2, 3, 4, 5];
+supported_versions(start_bridges_to_all_nodes) -> [2, 3, 4, 5];
+supported_versions(get_metrics_from_all_nodes) -> [4, 5];
+supported_versions(_Call) -> [1, 2, 3, 4, 5].
 
 redact(Term) ->
     emqx_utils:redact(Term).
