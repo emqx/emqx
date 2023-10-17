@@ -70,7 +70,8 @@
 -export([
     bridge_v2_type_to_connector_type/1,
     id/2,
-    id/3
+    id/3,
+    is_valid_bridge_v1/2
 ]).
 
 %% Config Update Handler API
@@ -752,8 +753,30 @@ unpack_bridge_conf(Type, PackedConf, TopLevelConf) ->
 %%====================================================================
 %% Compatibility API
 %%====================================================================
+
+%% Check if the bridge can be converted to a valid bridge v1
+%%
+%% * The corresponding bridge v2 should exist
+%% * The connector for the bridge v2 should have exactly on channel
+is_valid_bridge_v1(BridgeV1Type, BridgeName) ->
+    BridgeV2Type = ?MODULE:bridge_v1_type_to_bridge_v2_type(BridgeV1Type),
+    case lookup_raw_conf(BridgeV2Type, BridgeName) of
+        {error, _} ->
+            false;
+        #{connector := ConnectorName} ->
+            ConnectorType = ?MODULE:bridge_v2_type_to_connector_type(BridgeV2Type),
+            ConnectorResourceId = emqx_connector_resource:resource_id(ConnectorType, ConnectorName),
+            {ok, Channels} = emqx_resource:get_channels(ConnectorResourceId),
+            case Channels of
+                [_Channel] ->
+                    true;
+                _ ->
+                    false
+            end
+    end.
+
 bridge_v1_type_to_bridge_v2_type(Bin) when is_binary(Bin) ->
-    bridge_v1_type_to_bridge_v2_type(binary_to_existing_atom(Bin));
+    ?MODULE:bridge_v1_type_to_bridge_v2_type(binary_to_existing_atom(Bin));
 bridge_v1_type_to_bridge_v2_type(kafka) ->
     kafka.
 
@@ -985,7 +1008,7 @@ connector_has_channels(BridgeV2Type, ConnectorName) ->
 bridge_v1_id_to_connector_resource_id(BridgeId) ->
     case binary:split(BridgeId, <<":">>) of
         [Type, Name] ->
-            BridgeV2Type = bin(bridge_v1_type_to_bridge_v2_type(Type)),
+            BridgeV2Type = bin(?MODULE:bridge_v1_type_to_bridge_v2_type(Type)),
             ConnectorName =
                 case lookup_raw_conf(BridgeV2Type, Name) of
                     #{connector := Con} ->
