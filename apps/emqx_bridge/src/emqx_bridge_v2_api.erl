@@ -294,7 +294,7 @@ schema("/bridges_v2/:id/enable/:enable") ->
     case emqx_bridge_v2:lookup(BridgeType, BridgeName) of
         {ok, _} ->
             ?BAD_REQUEST('ALREADY_EXISTS', <<"bridge already exists">>);
-        {error, bridge_not_found} ->
+        {error, not_found} ->
             Conf = filter_out_request_body(Conf0),
             create_bridge(BridgeType, BridgeName, Conf)
     end;
@@ -327,7 +327,7 @@ schema("/bridges_v2/:id/enable/:enable") ->
                 RawConf = emqx:get_raw_config([bridges, BridgeType, BridgeName], #{}),
                 Conf = deobfuscate(Conf1, RawConf),
                 update_bridge(BridgeType, BridgeName, Conf);
-            {error, bridge_not_found} ->
+            {error, not_found} ->
                 ?BRIDGE_NOT_FOUND(BridgeType, BridgeName)
         end
     );
@@ -349,7 +349,7 @@ schema("/bridges_v2/:id/enable/:enable") ->
                     {error, Reason} ->
                         ?INTERNAL_ERROR(Reason)
                 end;
-            {error, bridge_not_found} ->
+            {error, not_found} ->
                 ?BRIDGE_NOT_FOUND(BridgeType, BridgeName)
         end
     );
@@ -366,7 +366,7 @@ schema("/bridges_v2/:id/enable/:enable") ->
                 case emqx_bridge_v2:disable_enable(OperFunc, BridgeType, BridgeName) of
                     {ok, _} ->
                         ?NO_CONTENT;
-                    {error, {pre_config_update, _, bridge_not_found}} ->
+                    {error, {pre_config_update, _, not_found}} ->
                         ?BRIDGE_NOT_FOUND(BridgeType, BridgeName);
                     {error, {_, _, timeout}} ->
                         ?SERVICE_UNAVAILABLE(<<"request timeout">>);
@@ -429,7 +429,7 @@ lookup_from_all_nodes(BridgeType, BridgeName, SuccCode) ->
     case is_ok(emqx_bridge_proto_v5:v2_lookup_from_all_nodes(Nodes, BridgeType, BridgeName)) of
         {ok, [{ok, _} | _] = Results} ->
             {SuccCode, format_bridge_info([R || {ok, R} <- Results])};
-        {ok, [{error, bridge_not_found} | _]} ->
+        {ok, [{error, not_found} | _]} ->
             ?BRIDGE_NOT_FOUND(BridgeType, BridgeName);
         {error, Reason} ->
             ?INTERNAL_ERROR(Reason)
