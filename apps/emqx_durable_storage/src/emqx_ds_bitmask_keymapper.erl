@@ -699,26 +699,44 @@ ratchet2_test() ->
     ?assertEqual(16#aaddcc00, ratchet(F2, 0)),
     ?assertEqual(16#aa_de_cc_00, ratchet(F2, 16#aa_dd_cd_11)).
 
-ratchet3_test() ->
-    ?assert(proper:quickcheck(ratchet1_prop(), 100)).
-
 %% erlfmt-ignore
-ratchet1_prop() ->
+ratchet3_test_() ->
     EpochBits = 4,
     Bitsources = [{1, 0, 2},  %% Static topic index
                   {2, EpochBits, 4},  %% Epoch
                   {3, 0, 2},  %% Varying topic hash
                   {2, 0, EpochBits}], %% Timestamp offset
-    M = make_keymapper(lists:reverse(Bitsources)),
-    F1 = make_filter(M, [{'=', 2#10}, any, {'=', 2#01}]),
-    ?FORALL(N, integer(0, ones(12)),
-             ratchet_prop(F1, N)).
+    Keymapper = make_keymapper(lists:reverse(Bitsources)),
+    Filter1 = make_filter(Keymapper, [{'=', 2#10}, any, {'=', 2#01}]),
+    Filter2 = make_filter(Keymapper, [{'=', 2#01}, any, any]),
+    Filter3 = make_filter(Keymapper, [{'=', 2#01}, {'>=', 16#aa}, any]),
+    {timeout, 15,
+     [?_assert(test_iterate(Filter1, 0)),
+      ?_assert(test_iterate(Filter2, 0)),
+      %% Not starting from 0 here for simplicity, since the beginning
+      %% of a >= interval can't be properly checked with a bitmask:
+      ?_assert(test_iterate(Filter3, ratchet(Filter3, 1)))
+     ]}.
 
-ratchet_prop(Filter = #filter{bitfilter = Bitfilter, bitmask = Bitmask, size = Size}, Key0) ->
-    Key = ratchet(Filter, Key0),
+%% Note: this function iterates through the full range of keys, so its
+%% complexity grows _exponentially_ with the total size of the
+%% keymapper.
+test_iterate(Filter, overflow) ->
+    true;
+test_iterate(Filter, Key0) ->
+    Key = ratchet(Filter, Key0 + 1),
+    ?assert(ratchet_prop(Filter, Key0, Key)),
+    test_iterate(Filter, Key).
+
+ratchet_prop(Filter = #filter{bitfilter = Bitfilter, bitmask = Bitmask, size = Size}, Key0, Key) ->
+    %% Validate basic properties of the generated key. It must be
+    %% greater than the old key, and match the bitmask:
     ?assert(Key =:= overflow orelse (Key band Bitmask =:= Bitfilter)),
-    ?assert(Key >= Key0, {Key, '>=', Key}),
+    ?assert(Key > Key0, {Key, '>=', Key}),
     IMax = ones(Size),
+    %% Iterate through all keys between `Key0 + 1' and `Key' and
+    %% validate that none of them match the bitmask. Ultimately, it
+    %% means that `ratchet' function doesn't skip over any valid keys:
     CheckGaps = fun
         F(I) when I >= Key; I > IMax ->
             true;
@@ -729,7 +747,7 @@ ratchet_prop(Filter = #filter{bitfilter = Bitfilter, bitmask = Bitmask, size = S
             ),
             F(I + 1)
     end,
-    CheckGaps(Key0).
+    CheckGaps(Key0 + 1).
 
 mkbmask(Keymapper, Filter0) ->
     Filter = inequations_to_ranges(Keymapper, Filter0),
