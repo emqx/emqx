@@ -8,7 +8,7 @@ services:
       dockerfile: ./pgsql/Dockerfile
       args:
         POSTGRES_USER: postgres
-        BUILD_FROM: postgres:${PGSQL_TAG}
+        BUILD_FROM: public.ecr.aws/docker/library/postgres:${PGSQL_TAG}
     image: emqx_pgsql:${PGSQL_TAG}
     restart: always
     environment:
