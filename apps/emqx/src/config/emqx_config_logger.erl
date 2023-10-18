@@ -118,11 +118,18 @@ update_log_handler({Action, {handler, Id, Mod, Conf}}) ->
     end,
     ok.
 
+-ifdef(EMQX_RELEASE_EDITION).
+
 -if(?EMQX_RELEASE_EDITION == ee).
 audit(Event, ?AUDIT_HANDLER) ->
     emqx_audit:log(alert, #{event => Event, from => event});
 audit(_, _) ->
     ok.
+-else.
+audit(_, _) ->
+    ok.
+-endif.
+
 -else.
 audit(_, _) ->
     ok.
