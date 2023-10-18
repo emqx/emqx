@@ -1,23 +1,35 @@
 ARG BUILD_FROM=ghcr.io/emqx/emqx-builder/5.1-4:1.14.5-25.3.2-2-debian11
 ARG RUN_FROM=public.ecr.aws/debian/debian:11-slim
 FROM ${BUILD_FROM} AS builder
+ARG DEBUG=0
 
 COPY . /emqx
 
 ARG EMQX_NAME=emqx
 ARG PKG_VSN
-ENV EMQX_RELUP=false
 
-RUN export PROFILE=${EMQX_NAME%%-elixir} \
-    && export EMQX_NAME1=$EMQX_NAME \
-    && export EMQX_NAME=$PROFILE \
-    && export EMQX_REL_PATH="/emqx/_build/$EMQX_NAME/rel/emqx" \
-    && export EMQX_REL_FORM='docker' \
-    && cd /emqx \
-    && make $EMQX_NAME1 \
-    && rm -f $EMQX_REL_PATH/*.tar.gz \
+ENV EMQX_RELUP=false
+ENV DEBUG=${DEBUG}
+ENV EMQX_REL_FORM='docker'
+
+WORKDIR /emqx/
+
+RUN git config --global --add safe.directory '*'
+
+RUN if [ -f rebar-git-cache.tar ]; then \
+        mkdir .cache && \
+        tar -xf rebar-git-cache.tar -C .cache && \
+        export REBAR_GIT_CACHE_DIR='/emqx/.cache' && \
+        export REBAR_GIT_CACHE_REF_AUTOFILL=0 ;\
+    fi \
+    && export PROFILE=${EMQX_NAME%%-elixir} \
+    && export EMQX_NAME1="${EMQX_NAME}" \
+    && export EMQX_NAME=${PROFILE} \
+    && export EMQX_REL_PATH="/emqx/_build/${EMQX_NAME}/rel/emqx" \
+    && make ${EMQX_NAME1} \
+    && rm -f ${EMQX_REL_PATH}/*.tar.gz \
     && mkdir -p /emqx-rel \
-    && mv $EMQX_REL_PATH /emqx-rel
+    && mv ${EMQX_REL_PATH} /emqx-rel
 
 FROM $RUN_FROM
 ARG EXTRA_DEPS=''

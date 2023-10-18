@@ -8,4 +8,3 @@ PROFILE="$1"
 REL_DIR="$2"
 
 ./rebar3 as "$PROFILE" sbom -f -o "$REL_DIR/bom.json"
-
