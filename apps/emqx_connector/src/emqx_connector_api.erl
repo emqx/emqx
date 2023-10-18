@@ -69,7 +69,7 @@
 namespace() -> "connector".
 
 api_spec() ->
-    emqx_dashboard_swagger:spec(?MODULE, #{check_schema => false}).
+    emqx_dashboard_swagger:spec(?MODULE, #{check_schema => true}).
 
 paths() ->
     [
@@ -347,11 +347,7 @@ schema("/connectors_probe") ->
             ?OK(zip_connectors(AllConnectors));
         {error, Reason} ->
             ?INTERNAL_ERROR(Reason)
-    end;
-'/connectors'(post, _Params) ->
-    ?BAD_REQUEST(<<"Bad Request">>);
-'/connectors'(_, _) ->
-    ?METHOD_NOT_ALLOWED.
+    end.
 
 '/connectors/:id'(get, #{bindings := #{id := Id}}) ->
     ?TRY_PARSE_ID(Id, lookup_from_all_nodes(ConnectorType, ConnectorName, 200));
@@ -389,9 +385,7 @@ schema("/connectors_probe") ->
             {error, not_found} ->
                 ?CONNECTOR_NOT_FOUND(ConnectorType, ConnectorName)
         end
-    );
-'/connectors/:id'(_, _) ->
-    ?METHOD_NOT_ALLOWED.
+    ).
 
 '/connectors_probe'(post, Request) ->
     RequestMeta = #{module => ?MODULE, method => post, path => "/connectors_probe"},
@@ -417,9 +411,7 @@ schema("/connectors_probe") ->
             end;
         BadRequest ->
             redact(BadRequest)
-    end;
-'/connectors_probe'(_, _) ->
-    ?METHOD_NOT_ALLOWED.
+    end.
 
 maybe_deobfuscate_connector_probe(
     #{<<"type">> := ConnectorType, <<"name">> := ConnectorName} = Params
@@ -471,22 +463,17 @@ create_or_update_connector(ConnectorType, ConnectorName, Conf, HttpStatusCode) -
 '/connectors/:id/enable/:enable'(put, #{bindings := #{id := Id, enable := Enable}}) ->
     ?TRY_PARSE_ID(
         Id,
-        case enable_func(Enable) of
-            invalid ->
-                ?NOT_FOUND(<<"Invalid operation">>);
-            OperFunc ->
-                case emqx_connector:disable_enable(OperFunc, ConnectorType, ConnectorName) of
-                    {ok, _} ->
-                        ?NO_CONTENT;
-                    {error, {pre_config_update, _, connector_not_found}} ->
-                        ?CONNECTOR_NOT_FOUND(ConnectorType, ConnectorName);
-                    {error, {_, _, timeout}} ->
-                        ?SERVICE_UNAVAILABLE(<<"request timeout">>);
-                    {error, timeout} ->
-                        ?SERVICE_UNAVAILABLE(<<"request timeout">>);
-                    {error, Reason} ->
-                        ?INTERNAL_ERROR(Reason)
-                end
+        case emqx_connector:disable_enable(enable_func(Enable), ConnectorType, ConnectorName) of
+            {ok, _} ->
+                ?NO_CONTENT;
+            {error, {pre_config_update, _, connector_not_found}} ->
+                ?CONNECTOR_NOT_FOUND(ConnectorType, ConnectorName);
+            {error, {_, _, timeout}} ->
+                ?SERVICE_UNAVAILABLE(<<"request timeout">>);
+            {error, timeout} ->
+                ?SERVICE_UNAVAILABLE(<<"request timeout">>);
+            {error, Reason} ->
+                ?INTERNAL_ERROR(Reason)
         end
     ).
 
@@ -496,20 +483,10 @@ create_or_update_connector(ConnectorType, ConnectorName, Conf, HttpStatusCode) -
 }) ->
     ?TRY_PARSE_ID(
         Id,
-        case operation_to_all_func(Op) of
-            invalid ->
-                ?NOT_FOUND(<<"Invalid operation: ", Op/binary>>);
-            OperFunc ->
-                try is_enabled_connector(ConnectorType, ConnectorName) of
-                    false ->
-                        ?CONNECTOR_NOT_ENABLED;
-                    true ->
-                        Nodes = mria:running_nodes(),
-                        call_operation(all, OperFunc, [Nodes, ConnectorType, ConnectorName])
-                catch
-                    throw:not_found ->
-                        ?CONNECTOR_NOT_FOUND(ConnectorType, ConnectorName)
-                end
+        begin
+            OperFunc = operation_func(all, Op),
+            Nodes = mria:running_nodes(),
+            call_operation_if_enabled(all, OperFunc, [Nodes, ConnectorType, ConnectorName])
         end
     ).
 
@@ -519,28 +496,27 @@ create_or_update_connector(ConnectorType, ConnectorName, Conf, HttpStatusCode) -
 }) ->
     ?TRY_PARSE_ID(
         Id,
-        case node_operation_func(Op) of
-            invalid ->
-                ?NOT_FOUND(<<"Invalid operation: ", Op/binary>>);
-            OperFunc ->
-                try is_enabled_connector(ConnectorType, ConnectorName) of
-                    false ->
-                        ?CONNECTOR_NOT_ENABLED;
-                    true ->
-                        case emqx_utils:safe_to_existing_atom(Node, utf8) of
-                            {ok, TargetNode} ->
-                                call_operation(TargetNode, OperFunc, [
-                                    TargetNode, ConnectorType, ConnectorName
-                                ]);
-                            {error, _} ->
-                                ?NOT_FOUND(<<"Invalid node name: ", Node/binary>>)
-                        end
-                catch
-                    throw:not_found ->
-                        ?CONNECTOR_NOT_FOUND(ConnectorType, ConnectorName)
-                end
+        case emqx_utils:safe_to_existing_atom(Node, utf8) of
+            {ok, TargetNode} ->
+                OperFunc = operation_func(TargetNode, Op),
+                call_operation_if_enabled(TargetNode, OperFunc, [
+                    TargetNode, ConnectorType, ConnectorName
+                ]);
+            {error, _} ->
+                ?NOT_FOUND(<<"Invalid node name: ", Node/binary>>)
         end
     ).
+
+call_operation_if_enabled(NodeOrAll, OperFunc, [Nodes, BridgeType, BridgeName]) ->
+    try is_enabled_connector(BridgeType, BridgeName) of
+        false ->
+            ?CONNECTOR_NOT_ENABLED;
+        true ->
+            call_operation(NodeOrAll, OperFunc, [Nodes, BridgeType, BridgeName])
+    catch
+        throw:not_found ->
+            ?CONNECTOR_NOT_FOUND(BridgeType, BridgeName)
+    end.
 
 is_enabled_connector(ConnectorType, ConnectorName) ->
     try emqx:get_config([connectors, ConnectorType, binary_to_existing_atom(ConnectorName)]) of
@@ -555,19 +531,15 @@ is_enabled_connector(ConnectorType, ConnectorName) ->
             throw(not_found)
     end.
 
-node_operation_func(<<"restart">>) -> restart_connector_to_node;
-node_operation_func(<<"start">>) -> start_connector_to_node;
-node_operation_func(<<"stop">>) -> stop_connector_to_node;
-node_operation_func(_) -> invalid.
+operation_func(all, restart) -> restart_connectors_to_all_nodes;
+operation_func(all, start) -> start_connectors_to_all_nodes;
+operation_func(all, stop) -> stop_connectors_to_all_nodes;
+operation_func(_Node, restart) -> restart_connector_to_node;
+operation_func(_Node, start) -> start_connector_to_node;
+operation_func(_Node, stop) -> stop_connector_to_node.
 
-operation_to_all_func(<<"restart">>) -> restart_connectors_to_all_nodes;
-operation_to_all_func(<<"start">>) -> start_connectors_to_all_nodes;
-operation_to_all_func(<<"stop">>) -> stop_connectors_to_all_nodes;
-operation_to_all_func(_) -> invalid.
-
-enable_func(<<"true">>) -> enable;
-enable_func(<<"false">>) -> disable;
-enable_func(_) -> invalid.
+enable_func(true) -> enable;
+enable_func(false) -> disable.
 
 zip_connectors([ConnectorsFirstNode | _] = ConnectorsAllNodes) ->
     lists:foldl(

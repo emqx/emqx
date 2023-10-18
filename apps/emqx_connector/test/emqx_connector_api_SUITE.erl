@@ -26,7 +26,6 @@
 
 -define(CONNECTOR_NAME, (atom_to_binary(?FUNCTION_NAME))).
 -define(CONNECTOR(NAME, TYPE), #{
-    <<"enable">> => true,
     %<<"ssl">> => #{<<"enable">> => false},
     <<"type">> => TYPE,
     <<"name">> => NAME
@@ -35,10 +34,11 @@
 -define(CONNECTOR_TYPE_STR, "kafka").
 -define(CONNECTOR_TYPE, <<?CONNECTOR_TYPE_STR>>).
 -define(KAFKA_BOOTSTRAP_HOST, <<"127.0.0.1:9092">>).
--define(KAFKA_CONNECTOR(Name, BootstrapHosts), ?CONNECTOR(Name, ?CONNECTOR_TYPE)#{
+-define(KAFKA_CONNECTOR_BASE(BootstrapHosts), #{
     <<"authentication">> => <<"none">>,
     <<"bootstrap_hosts">> => BootstrapHosts,
     <<"connect_timeout">> => <<"5s">>,
+    <<"enable">> => true,
     <<"metadata_request_timeout">> => <<"5s">>,
     <<"min_metadata_refresh_interval">> => <<"3s">>,
     <<"socket_opts">> =>
@@ -49,6 +49,9 @@
             <<"tcp_keepalive">> => <<"none">>
         }
 }).
+-define(KAFKA_CONNECTOR_BASE, ?KAFKA_CONNECTOR_BASE(?KAFKA_BOOTSTRAP_HOST)).
+-define(KAFKA_CONNECTOR(Name, BootstrapHosts),
+        ?CONNECTOR(Name, ?CONNECTOR_TYPE)?KAFKA_CONNECTOR_BASE(BootstrapHosts)).
 -define(KAFKA_CONNECTOR(Name), ?KAFKA_CONNECTOR(Name, ?KAFKA_BOOTSTRAP_HOST)).
 
 %% -define(CONNECTOR_TYPE_MQTT, <<"mqtt">>).
@@ -284,14 +287,13 @@ t_connectors_lifecycle(Config) ->
             <<"type">> := ?CONNECTOR_TYPE,
             <<"name">> := ConnectorName,
             <<"bootstrap_hosts">> := <<"foobla:1234">>,
-            <<"enable">> := true,
             <<"status">> := _,
             <<"node_status">> := [_ | _]
         }},
         request_json(
             put,
             uri(["connectors", ConnectorID]),
-            ?KAFKA_CONNECTOR(?CONNECTOR_NAME, <<"foobla:1234">>),
+            ?KAFKA_CONNECTOR_BASE(<<"foobla:1234">>),
             Config
         )
     ),
@@ -323,9 +325,9 @@ t_connectors_lifecycle(Config) ->
     ),
 
     ?assertMatch(
-        {ok, 404, #{
-            <<"code">> := <<"NOT_FOUND">>,
-            <<"message">> := <<"Invalid operation", _/binary>>
+        {ok, 400, #{
+            <<"code">> := <<"BAD_REQUEST">>,
+            <<"message">> := _
         }},
         request_json(post, uri(["connectors", ConnectorID, "brababbel"]), Config)
     ),
@@ -343,7 +345,7 @@ t_connectors_lifecycle(Config) ->
         request_json(
             put,
             uri(["connectors", ConnectorID]),
-            ?KAFKA_CONNECTOR(?CONNECTOR_NAME),
+            ?KAFKA_CONNECTOR_BASE,
             Config
         )
     ),
@@ -453,7 +455,7 @@ do_start_stop_connectors(TestType, Config) ->
         request_json(get, uri(["connectors", ConnectorID]), Config)
     ),
 
-    {ok, 404, _} = request(post, {operation, TestType, invalidop, ConnectorID}, Config),
+    {ok, 400, _} = request(post, {operation, TestType, invalidop, ConnectorID}, Config),
 
     %% delete the connector
     {ok, 204, <<>>} = request(delete, uri(["connectors", ConnectorID]), Config),
@@ -574,7 +576,7 @@ t_enable_disable_connectors(Config) ->
     {ok, 204, <<>>} = request(put, enable_path(false, ConnectorID), Config),
 
     %% bad param
-    {ok, 404, _} = request(put, enable_path(foo, ConnectorID), Config),
+    {ok, 400, _} = request(put, enable_path(foo, ConnectorID), Config),
     {ok, 404, _} = request(put, enable_path(true, "foo"), Config),
     {ok, 404, _} = request(put, enable_path(true, "webhook:foo"), Config),
 
@@ -619,9 +621,9 @@ t_with_redact_update(Config) ->
     ),
 
     %% update with redacted config
-    ConnectorConf = emqx_utils:redact(Template),
+    ConnectorUpdatedConf = maps:without([<<"name">>, <<"type">>], emqx_utils:redact(Template)),
     ConnectorID = emqx_connector_resource:connector_id(?CONNECTOR_TYPE, Name),
-    {ok, 200, _} = request(put, uri(["connectors", ConnectorID]), ConnectorConf, Config),
+    {ok, 200, _} = request(put, uri(["connectors", ConnectorID]), ConnectorUpdatedConf, Config),
     ?assertEqual(
         Password,
         get_raw_config([connectors, ?CONNECTOR_TYPE, Name, authentication, password], Config)
