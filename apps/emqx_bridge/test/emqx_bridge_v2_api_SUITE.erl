@@ -367,9 +367,9 @@ t_bridges_lifecycle(Config) ->
     ),
 
     ?assertMatch(
-        {ok, 404, #{
-            <<"code">> := <<"NOT_FOUND">>,
-            <<"message">> := <<"Invalid operation", _/binary>>
+        {ok, 400, #{
+            <<"code">> := <<"BAD_REQUEST">>,
+            <<"message">> := _
         }},
         request_json(post, uri([?ROOT, BridgeID, "brababbel"]), Config)
     ),
@@ -388,7 +388,10 @@ t_bridges_lifecycle(Config) ->
         request_json(
             put,
             uri([?ROOT, BridgeID]),
-            ?KAFKA_BRIDGE(?BRIDGE_NAME, <<"foobla">>),
+            maps:without(
+                [<<"type">>, <<"name">>],
+                ?KAFKA_BRIDGE(?BRIDGE_NAME, <<"foobla">>)
+            ),
             Config
         )
     ),
@@ -406,7 +409,10 @@ t_bridges_lifecycle(Config) ->
         request_json(
             put,
             uri([?ROOT, BridgeID]),
-            ?KAFKA_BRIDGE(?BRIDGE_NAME),
+            maps:without(
+                [<<"type">>, <<"name">>],
+                ?KAFKA_BRIDGE(?BRIDGE_NAME)
+            ),
             Config
         )
     ),
@@ -489,7 +495,7 @@ do_start_bridge(TestType, Config) ->
         request_json(get, uri([?ROOT, BridgeID]), Config)
     ),
 
-    {ok, 404, _} = request(post, {operation, TestType, invalidop, BridgeID}, Config),
+    {ok, 400, _} = request(post, {operation, TestType, invalidop, BridgeID}, Config),
 
     %% delete the bridge
     {ok, 204, <<>>} = request(delete, uri([?ROOT, BridgeID]), Config),
