@@ -184,7 +184,7 @@ haproxy_cid=$(docker run -d --name haproxy \
                      -v "$(pwd)/apps/emqx/etc/certs:/usr/local/etc/haproxy/certs" \
                      -w /usr/local/etc/haproxy \
                      "${HAPROXY_PORTS[@]}" \
-                     "haproxy:2.4" \
+                     "public.ecr.aws/docker/library/haproxy:2.4" \
                      bash -c 'set -euo pipefail;
                               cat certs/cert.pem certs/key.pem > /tmp/emqx.pem;
                               haproxy -f haproxy.cfg')
