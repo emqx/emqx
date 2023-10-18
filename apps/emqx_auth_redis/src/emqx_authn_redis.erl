@@ -118,54 +118,51 @@ authenticate(
 
 parse_config(
     #{
-        cmd := Cmd,
+        cmd := CmdStr,
         password_hash_algorithm := Algorithm
     } = Config
 ) ->
-    try
-        NCmd = parse_cmd(Cmd),
-        ok = emqx_authn_password_hashing:init(Algorithm),
-        ok = emqx_authn_utils:ensure_apps_started(Algorithm),
-        State = maps:with([password_hash_algorithm, salt_position], Config),
-        {Config, State#{cmd => NCmd}}
-    catch
-        error:{unsupported_cmd, _Cmd} ->
-            {error, {unsupported_cmd, Cmd}};
-        error:missing_password_hash ->
-            {error, missing_password_hash};
-        error:{unsupported_fields, Fields} ->
-            {error, {unsupported_fields, Fields}}
+    case parse_cmd(CmdStr) of
+        {ok, Cmd} ->
+            ok = emqx_authn_password_hashing:init(Algorithm),
+            ok = emqx_authn_utils:ensure_apps_started(Algorithm),
+            State = maps:with([password_hash_algorithm, salt_position], Config),
+            {Config, State#{cmd => Cmd}};
+        {error, _} = Error ->
+            Error
     end.
 
-%% Only support HGET and HMGET
-parse_cmd(Cmd) ->
-    case string:tokens(Cmd, " ") of
-        [Command, Key, Field | Fields] when Command =:= "HGET" orelse Command =:= "HMGET" ->
-            NFields = [Field | Fields],
-            check_fields(NFields),
-            KeyTemplate = emqx_authn_utils:parse_str(list_to_binary(Key)),
-            {Command, KeyTemplate, NFields};
-        _ ->
-            error({unsupported_cmd, Cmd})
+parse_cmd(CmdStr) ->
+    case emqx_redis_command:split(CmdStr) of
+        {ok, Cmd} ->
+            case validate_cmd(Cmd) of
+                ok ->
+                    [CommandName, Key | Fields] = Cmd,
+                    {ok, {CommandName, emqx_authn_utils:parse_str(Key), Fields}};
+                {error, _} = Error ->
+                    Error
+            end;
+        {error, _} = Error ->
+            Error
     end.
 
-check_fields(Fields) ->
-    HasPassHash = lists:member("password_hash", Fields) orelse lists:member("password", Fields),
-    KnownFields = ["password_hash", "password", "salt", "is_superuser"],
-    UnknownFields = [F || F <- Fields, not lists:member(F, KnownFields)],
-
-    case {HasPassHash, UnknownFields} of
-        {true, []} -> ok;
-        {true, _} -> error({unsupported_fields, UnknownFields});
-        {false, _} -> error(missing_password_hash)
-    end.
+validate_cmd(Cmd) ->
+    emqx_auth_redis_validations:validate_command(
+        [
+            not_empty,
+            {command_name, [<<"hget">>, <<"hmget">>]},
+            {allowed_fields, [<<"password_hash">>, <<"password">>, <<"salt">>, <<"is_superuser">>]},
+            {required_field_one_of, [<<"password_hash">>, <<"password">>]}
+        ],
+        Cmd
+    ).
 
 merge(Fields, Value) when not is_list(Value) ->
     merge(Fields, [Value]);
 merge(Fields, Values) ->
     maps:from_list(
         [
-            {list_to_binary(K), V}
+            {K, V}
          || {K, V} <- lists:zip(Fields, Values), V =/= undefined
         ]
     ).
