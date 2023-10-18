@@ -244,16 +244,14 @@ bridge_api_union(Refs) ->
                         undefined ->
                             throw(#{
                                 field_name => type,
+                                value => T,
                                 reason => <<"unknown bridge type">>
                             });
                         Ref ->
                             [Ref]
                     end;
                 _ ->
-                    throw(#{
-                        field_name => type,
-                        reason => <<"unknown bridge type">>
-                    })
+                    maps:values(Index)
             end
     end.
 
