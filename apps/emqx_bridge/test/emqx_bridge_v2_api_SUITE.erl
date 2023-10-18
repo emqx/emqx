@@ -145,7 +145,7 @@
 -define(APPSPECS, [
     emqx_conf,
     emqx,
-    emqx_authn,
+    emqx_auth,
     emqx_management,
     {emqx_bridge, "bridges_v2 {}"}
 ]).
