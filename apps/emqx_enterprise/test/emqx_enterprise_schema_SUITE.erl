@@ -95,6 +95,8 @@ t_audit_log_conf(_Config) ->
                 <<"enable">> => false,
                 <<"level">> => <<"info">>,
                 <<"path">> => <<"log/audit.log">>,
+                <<"ignore_high_frequency_request">> => true,
+                <<"max_filter_size">> => 5000,
                 <<"rotation_count">> => 10,
                 <<"rotation_size">> => <<"50MB">>,
                 <<"time_offset">> => <<"system">>

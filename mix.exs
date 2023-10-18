@@ -214,7 +214,7 @@ defmodule EMQXUmbrella.MixProject do
       :emqx_bridge_azure_event_hub,
       :emqx_gcp_device,
       :emqx_dashboard_rbac,
-      :eqmx_dashboard_sso,
+      :emqx_dashboard_sso,
       :emqx_audit
     ])
   end

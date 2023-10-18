@@ -732,8 +732,8 @@ audit_log_max_filter_limit.label:
 """Max Filter Limit"""
 
 audit_log_ignore_high_frequency_request.desc:
-"""Ignore high frequency requests to avoid flooding the audit log.
-such publish/subscribe kickout http api requests are ignored."""
+"""Ignore high frequency requests to avoid flooding the audit log,
+such as publish/subscribe kick out http api requests are ignored."""
 
 audit_log_ignore_high_frequency_request.label:
 """Ignore High Frequency Request"""
