@@ -1,0 +1,45 @@
+emqx_bridge_syskeeper {
+
+config_enable.desc:
+"""Enable or disable this bridge"""
+
+config_enable.label:
+"""Enable Or Disable Bridge"""
+
+desc_config.desc:
+"""Configuration for a Syskeeper bridge"""
+
+desc_config.label:
+"""Syskeeper Bridge Configuration"""
+
+desc_name.desc:
+"""Bridge name."""
+
+desc_name.label:
+"""Bridge Name"""
+
+desc_type.desc:
+"""The Bridge Type"""
+
+desc_type.label:
+"""Bridge Type"""
+
+template.desc:
+"""Template"""
+
+template.label:
+"""Template"""
+
+target_topic.desc:
+"""The topic for the forwarded message"""
+
+target_topic.label:
+"""Target Topic"""
+
+target_qos.desc:
+"""The QoS for the forwarded message, -1 is for the original topic"""
+
+target_qos.label:
+"""Target QoS"""
+
+}

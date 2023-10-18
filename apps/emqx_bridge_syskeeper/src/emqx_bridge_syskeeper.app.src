@@ -1,0 +1,13 @@
+{application, emqx_bridge_syskeeper, [
+    {description, "EMQX Enterprise Bridge"},
+    {vsn, "0.1.0"},
+    {registered, []},
+    {applications, [
+        kernel,
+        stdlib,
+        emqx_resource
+    ]},
+    {env, []},
+    {modules, []},
+    {links, []}
+]}.

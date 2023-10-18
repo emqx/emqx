@@ -1,0 +1,45 @@
+emqx_bridge_syskeeper_proxy {
+
+config_enable.desc:
+"""Enable or disable this bridge"""
+
+config_enable.label:
+"""Enable Or Disable Bridge"""
+
+desc_config.desc:
+"""Configuration for a Syskeeper proxy bridge"""
+
+desc_config.label:
+"""Syskeeper Proxy Bridge Configuration"""
+
+desc_name.desc:
+"""Bridge name"""
+
+desc_name.label:
+"""Bridge Name"""
+
+desc_type.desc:
+"""The Bridge Type"""
+
+desc_type.label:
+"""Bridge Type"""
+
+listen.desc:
+"""The listening address for this Syskeeper proxy server"""
+
+listen.label:
+"""Listen Address"""
+
+acceptors.desc:
+"""The number of the acceptors"""
+
+acceptors.label:
+"""Acceptors"""
+
+handshake_timeout.desc:
+"""The maximum to wait for the handshake when a connection is created"""
+
+handshake_timeout.label:
+"""Handshake Timeout"""
+
+}

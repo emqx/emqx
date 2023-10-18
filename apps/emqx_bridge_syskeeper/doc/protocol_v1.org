@@ -1,0 +1,80 @@
+* Packet Format
+    +-------+-----+-----+-----+-----+-----------------+----------------+
+    | bytes |  0  |  1  |  2  |  3  |        5        |    6 .. end    |
+    +-------+-----+-----+-----+-----+-----------------+----------------+
+    |       |    variable length    |  common header  |    payload     |
+    +-------+-----------------------+-----------------+----------------+
+
+    The length of the remaining part(common header + payload) is indicated by the Length Header of each packet
+
+* Common Header
+    +------+-----+-----+-----+-----+-----+-----+-----+-----+
+    | bits |  0  |  1  |  2  |  3  |  4  |  5  |  6  |  7  |
+    +------+-----+-----+-----+-----+-----+-----+-----+-----+
+    |      |      packet type      |     shared flags      |
+    +------+-----------------------+-----------------------+
+** Types
+    +----------+-----------+
+    |   type   |   usage   |
+    +----------+-----------+
+    |    0     | handshake |
+    +----------+-----------+
+    |    1     |  forward  |
+    +----------+-----------+
+    |    2     | heartbeat |
+    +----------+-----------+
+** Shared Flags
+    The usage of each bit is determined by the type of packet
+* Handshake Packet
+    +-------+---------------+---------------+
+    | bytes |       0       |       1       |
+    +-------+---------------+---------------+
+    |       | common header |    version    |
+    +-------+---------------+---------------+
+* Forward Packet
+    +------+---+---+---+---+---+---+---+-----+-----------+
+    | bits | 0 | 1 | 2 | 3 | 4 | 5 | 6 |  7  |    ...    |
+    +------+---+---+---+---+---+---+---+-----+-----------+
+    |      |               |           | ACK |           |
+    |      |  packet type  +-----------+-----+  payload  |
+    |      |               |  forward flags  |           |
+    +------+---------------+-----------------+-----------+
+
+** Flags
+    +------+-------------------------------------------+
+    | flag |                   usage                   |
+    +------+-------------------------------------------+
+    | ACK  |      This packet need a ACK response      |
+    +------+-------------------------------------------+
+
+** Payload
+    +-------+-----+-------+-----+-----+-----+-----+
+    | bytes |  0  |  ..   |  n  | n+1 | ..  |  x  |
+    +-------+-----+-------+-----+-----+-----+-----+
+    |       |  Content Length   | Message Content |
+    +-------+-------------------+-----------------+
+
+    + Content length is a variable length number.
+    + Message content is a list in an opaque binary format whose element is a map structure
+
+*** Message Content map structure
+
+#+begin_src json
+  {
+    id: "0006081CCFF3D48F03C10000058B0000", // unique message id
+    qos: 1,
+    flags: {dup: false, retain: false},
+    from: "clientid",
+    topic: "t/1",
+    payload: "hello, world",
+    timestamp: 1697786555281
+  }
+#+end_src
+
+* Heartbeat Packet
+
+    +-------+---------------+
+    | bytes |       0       |
+    +-------+---------------+
+    |       | common header |
+    +-------+---------------+
