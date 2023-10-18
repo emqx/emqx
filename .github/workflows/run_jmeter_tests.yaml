@@ -118,7 +118,6 @@ jobs:
       env:
         PGSQL_TAG: ${{ matrix.pgsql_tag }}
       run: |
-        docker pull postgres:${PGSQL_TAG}
         docker compose \
           -f .ci/docker-compose-file/docker-compose-emqx-cluster.yaml \
           -f .ci/docker-compose-file/docker-compose-pgsql-tls.yaml \
@@ -245,7 +244,7 @@ jobs:
         cd scripts/jwks-server
         mvn package
         cd target
-        docker run --name jwks_server --network emqx_bridge --ip 172.100.239.88 -d -v $(pwd)/jwkserver-0.0.1.jar:/jwks_server/jwkserver-0.0.1.jar --workdir /jwks_server openjdk:8-jdk bash \
+        docker run --name jwks_server --network emqx_bridge --ip 172.100.239.88 -d -v $(pwd)/jwkserver-0.0.1.jar:/jwks_server/jwkserver-0.0.1.jar --workdir /jwks_server public.ecr.aws/amazoncorretto/amazoncorretto:8 bash \
         -c "java -jar jwkserver-0.0.1.jar"
     - name: run jmeter
       run: |

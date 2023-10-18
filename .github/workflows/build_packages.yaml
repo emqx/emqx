@@ -151,7 +151,7 @@ jobs:
         path: _packages/${{ matrix.profile }}/
 
   linux:
-    runs-on: ['self-hosted', 'linux', "${{ matrix.arch }}"]
+    runs-on: ['self-hosted', 'ephemeral', 'linux', "${{ matrix.arch }}"]
     # always run in builder container because the host might have the wrong OTP version etc.
     # otherwise buildx.sh does not run docker if arch and os matches the target arch and os.
     container:
