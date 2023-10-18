@@ -21,12 +21,13 @@ main(Args) ->
                     ok
             end
     end,
-    ok = add_libs_dir(),
     case Args of
         ["hocon" | Rest] ->
+            ok = add_libs_dir(),
             %% forward the call to hocon_cli
             hocon_cli:main(Rest);
         ["check_license_key", Key0] ->
+            ok = add_libs_dir(),
             Key = cleanup_key(Key0),
             check_license(#{key => Key});
         _ ->
