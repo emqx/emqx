@@ -118,11 +118,15 @@ update_log_handler({Action, {handler, Id, Mod, Conf}}) ->
     end,
     ok.
 
--dialyzer({nowarn_function, [audit/2]}).
+-if(?EMQX_RELEASE_EDITION == ee).
 audit(Event, ?AUDIT_HANDLER) ->
     emqx_audit:log(alert, #{event => Event, from => event});
 audit(_, _) ->
     ok.
+-else.
+audit(_, _) ->
+    ok.
+-endif.
 
 id_for_log(console) -> "log.console";
 id_for_log(Other) -> "log.file." ++ atom_to_list(Other).

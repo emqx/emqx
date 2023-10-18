@@ -330,6 +330,7 @@ defmodule EMQXUmbrella.MixProject do
             :emqx_gateway_lwm2m,
             :emqx_gateway_exproto,
             :emqx_dashboard,
+            :emqx_dashboard_sso,
             :emqx_resource,
             :emqx_connector,
             :emqx_exhook,
