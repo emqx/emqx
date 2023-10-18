@@ -16,12 +16,10 @@
 
 -module(emqx_audit).
 
-%% API
--export([]).
-
 -behaviour(gen_server).
--include_lib("emqx/include/logger.hrl").
+
 -include_lib("emqx/include/emqx.hrl").
+-include_lib("emqx/include/logger.hrl").
 -include("emqx_audit.hrl").
 
 %% API
