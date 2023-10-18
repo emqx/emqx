@@ -416,20 +416,10 @@ schema("/bridges_v2_probe") ->
 }) ->
     ?TRY_PARSE_ID(
         Id,
-        try is_enabled_bridge(BridgeType, BridgeName) of
-            false ->
-                ?BRIDGE_NOT_ENABLED;
-            true ->
-                case operation_to_all_func(Op) of
-                    invalid ->
-                        ?NOT_FOUND(<<"Invalid operation: ", Op/binary>>);
-                    OperFunc ->
-                        Nodes = mria:running_nodes(),
-                        call_operation(all, OperFunc, [Nodes, BridgeType, BridgeName])
-                end
-        catch
-            throw:not_found ->
-                ?BRIDGE_NOT_FOUND(BridgeType, BridgeName)
+        begin
+            OperFunc = operation_func(all, Op),
+            Nodes = mria:running_nodes(),
+            call_operation_if_enabled(all, OperFunc, [Nodes, BridgeType, BridgeName])
         end
     ).
 
@@ -441,22 +431,8 @@ schema("/bridges_v2_probe") ->
         Id,
         case emqx_utils:safe_to_existing_atom(Node, utf8) of
             {ok, TargetNode} ->
-                try is_enabled_bridge(BridgeType, BridgeName) of
-                    false ->
-                        ?BRIDGE_NOT_ENABLED;
-                    true ->
-                        case node_operation_func(Op) of
-                            invalid ->
-                                ?NOT_FOUND(<<"Invalid operation: ", Op/binary>>);
-                            OperFunc ->
-                                call_operation(TargetNode, OperFunc, [
-                                    TargetNode, BridgeType, BridgeName
-                                ])
-                        end
-                catch
-                    throw:not_found ->
-                        ?BRIDGE_NOT_FOUND(BridgeType, BridgeName)
-                end;
+                OperFunc = operation_func(TargetNode, Op),
+                call_operation_if_enabled(TargetNode, OperFunc, [TargetNode, BridgeType, BridgeName]);
             {error, _} ->
                 ?NOT_FOUND(<<"Invalid node name: ", Node/binary>>)
         end
@@ -555,6 +531,20 @@ lookup_from_all_nodes(BridgeType, BridgeName, SuccCode) ->
             ?INTERNAL_ERROR(Reason)
     end.
 
+operation_func(all, start) -> v2_start_bridge_to_all_nodes;
+operation_func(_Node, start) -> v2_start_bridge_to_node.
+
+call_operation_if_enabled(NodeOrAll, OperFunc, [Nodes, BridgeType, BridgeName]) ->
+    try is_enabled_bridge(BridgeType, BridgeName) of
+        false ->
+            ?BRIDGE_NOT_ENABLED;
+        true ->
+            call_operation(NodeOrAll, OperFunc, [Nodes, BridgeType, BridgeName])
+    catch
+        throw:not_found ->
+            ?BRIDGE_NOT_FOUND(BridgeType, BridgeName)
+    end.
+
 is_enabled_bridge(BridgeType, BridgeName) ->
     try emqx_bridge_v2:lookup(BridgeType, binary_to_existing_atom(BridgeName)) of
         {ok, #{raw_config := ConfMap}} ->
@@ -567,12 +557,6 @@ is_enabled_bridge(BridgeType, BridgeName) ->
             %% none-existing atom means it is not available in config PT storage.
             throw(not_found)
     end.
-
-node_operation_func(<<"start">>) -> v2_start_bridge_to_node;
-node_operation_func(_) -> invalid.
-
-operation_to_all_func(<<"start">>) -> v2_start_bridge_to_all_nodes;
-operation_to_all_func(_) -> invalid.
 
 call_operation(NodeOrAll, OperFunc, Args = [_Nodes, BridgeType, BridgeName]) ->
     case is_ok(do_bpapi_call(NodeOrAll, OperFunc, Args)) of
