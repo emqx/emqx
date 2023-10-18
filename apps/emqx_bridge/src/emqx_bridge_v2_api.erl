@@ -70,7 +70,7 @@
 namespace() -> "bridge_v2".
 
 api_spec() ->
-    emqx_dashboard_swagger:spec(?MODULE, #{check_schema => false}).
+    emqx_dashboard_swagger:spec(?MODULE, #{check_schema => true}).
 
 paths() ->
     [
@@ -348,11 +348,7 @@ schema("/bridges_v2_probe") ->
             ?OK(zip_bridges(AllBridges));
         {error, Reason} ->
             ?INTERNAL_ERROR(Reason)
-    end;
-'/bridges_v2'(post, _Params) ->
-    ?BAD_REQUEST("Bad Request");
-'/bridges_v2'(_, _) ->
-    ?METHOD_NOT_ALLOWED.
+    end.
 
 '/bridges_v2/:id'(get, #{bindings := #{id := Id}}) ->
     ?TRY_PARSE_ID(Id, lookup_from_all_nodes(BridgeType, BridgeName, 200));
@@ -390,9 +386,7 @@ schema("/bridges_v2_probe") ->
             {error, not_found} ->
                 ?BRIDGE_NOT_FOUND(BridgeType, BridgeName)
         end
-    );
-'/bridges_v2/:id'(_, _) ->
-    ?METHOD_NOT_ALLOWED.
+    ).
 
 '/bridges_v2/:id/enable/:enable'(put, #{bindings := #{id := Id, enable := Enable}}) ->
     ?TRY_PARSE_ID(
@@ -414,9 +408,7 @@ schema("/bridges_v2_probe") ->
                         ?INTERNAL_ERROR(Reason)
                 end
         end
-    );
-'/bridges_v2/:id/enable/:enable'(_, _) ->
-    ?METHOD_NOT_ALLOWED.
+    ).
 
 '/bridges_v2/:id/:operation'(post, #{
     bindings :=
