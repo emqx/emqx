@@ -68,3 +68,4 @@ lux_logs/
 bom.json
 ct_run*/
 apps/emqx_conf/etc/emqx.conf.all.rendered*
+rebar-git-cache.tar
