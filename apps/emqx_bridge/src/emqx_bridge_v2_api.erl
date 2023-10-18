@@ -391,22 +391,17 @@ schema("/bridges_v2_probe") ->
 '/bridges_v2/:id/enable/:enable'(put, #{bindings := #{id := Id, enable := Enable}}) ->
     ?TRY_PARSE_ID(
         Id,
-        case enable_func(Enable) of
-            invalid ->
-                ?NOT_FOUND(<<"Invalid operation">>);
-            OperFunc ->
-                case emqx_bridge_v2:disable_enable(OperFunc, BridgeType, BridgeName) of
-                    {ok, _} ->
-                        ?NO_CONTENT;
-                    {error, {pre_config_update, _, not_found}} ->
-                        ?BRIDGE_NOT_FOUND(BridgeType, BridgeName);
-                    {error, {_, _, timeout}} ->
-                        ?SERVICE_UNAVAILABLE(<<"request timeout">>);
-                    {error, timeout} ->
-                        ?SERVICE_UNAVAILABLE(<<"request timeout">>);
-                    {error, Reason} ->
-                        ?INTERNAL_ERROR(Reason)
-                end
+        case emqx_bridge_v2:disable_enable(enable_func(Enable), BridgeType, BridgeName) of
+            {ok, _} ->
+                ?NO_CONTENT;
+            {error, {pre_config_update, _, not_found}} ->
+                ?BRIDGE_NOT_FOUND(BridgeType, BridgeName);
+            {error, {_, _, timeout}} ->
+                ?SERVICE_UNAVAILABLE(<<"request timeout">>);
+            {error, timeout} ->
+                ?SERVICE_UNAVAILABLE(<<"request timeout">>);
+            {error, Reason} ->
+                ?INTERNAL_ERROR(Reason)
         end
     ).
 
@@ -728,9 +723,8 @@ create_or_update_bridge(BridgeType, BridgeName, Conf, HttpStatusCode) ->
             ?BAD_REQUEST(map_to_json(redact(Reason)))
     end.
 
-enable_func(<<"true">>) -> enable;
-enable_func(<<"false">>) -> disable;
-enable_func(_) -> invalid.
+enable_func(true) -> enable;
+enable_func(false) -> disable.
 
 filter_out_request_body(Conf) ->
     ExtraConfs = [
