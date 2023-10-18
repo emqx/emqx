@@ -83,10 +83,26 @@ init_per_testcase(t_connection_with_authn_failed, Config) ->
         fun(_) -> {error, bad_username_or_password} end
     ),
     Config;
+init_per_testcase(t_heartbeat, Config) ->
+    NewHeartbeat = 800,
+    OldConf = emqx:get_raw_config([gateway, coap]),
+    {ok, _} = emqx_gateway_conf:update_gateway(
+        coap,
+        OldConf#{<<"heartbeat">> => <<"800ms">>}
+    ),
+    [
+        {old_conf, OldConf},
+        {new_heartbeat, NewHeartbeat}
+        | Config
+    ];
 init_per_testcase(_, Config) ->
     ok = meck:new(emqx_access_control, [passthrough]),
     Config.
 
+end_per_testcase(t_heartbeat, Config) ->
+    OldConf = ?config(old_conf, Config),
+    {ok, _} = emqx_gateway_conf:update_gateway(coap, OldConf),
+    ok;
 end_per_testcase(_, Config) ->
     ok = meck:unload(emqx_access_control),
     Config.
@@ -123,13 +139,49 @@ t_connection(_) ->
         ),
 
         %% heartbeat
-        HeartURI =
-            ?MQTT_PREFIX ++
-                "/connection?clientid=client1&token=" ++
-                Token,
+        {ok, changed, _} = send_heartbeat(Token),
 
-        ?LOGT("send heartbeat request:~ts~n", [HeartURI]),
-        {ok, changed, _} = er_coap_client:request(put, HeartURI),
+        disconnection(Channel, Token),
+
+        timer:sleep(100),
+        ?assertEqual(
+            [],
+            emqx_gateway_cm_registry:lookup_channels(coap, <<"client1">>)
+        )
+    end,
+    do(Action).
+
+t_heartbeat(Config) ->
+    Heartbeat = ?config(new_heartbeat, Config),
+    Action = fun(Channel) ->
+        Token = connection(Channel),
+
+        timer:sleep(100),
+        ?assertNotEqual(
+            [],
+            emqx_gateway_cm_registry:lookup_channels(coap, <<"client1">>)
+        ),
+
+        %% must keep client connection alive
+        Delay = Heartbeat div 2,
+        lists:foreach(
+            fun(_) ->
+                ?assertMatch({ok, changed, _}, send_heartbeat(Token)),
+                timer:sleep(Delay)
+            end,
+            lists:seq(1, 5)
+        ),
+
+        ?assertNotEqual(
+            [],
+            emqx_gateway_cm_registry:lookup_channels(coap, <<"client1">>)
+        ),
+
+        timer:sleep(Heartbeat * 2),
+        ?assertEqual(
+            [],
+            emqx_gateway_cm_registry:lookup_channels(coap, <<"client1">>)
+        ),
 
         disconnection(Channel, Token),
 
@@ -490,6 +542,15 @@ t_connectionless_pubsub(_) ->
 
 %%--------------------------------------------------------------------
 %% helpers
+
+send_heartbeat(Token) ->
+    HeartURI =
+        ?MQTT_PREFIX ++
+            "/connection?clientid=client1&token=" ++
+            Token,
+
+    ?LOGT("send heartbeat request:~ts~n", [HeartURI]),
+    er_coap_client:request(put, HeartURI).
 
 connection(Channel) ->
     URI =
