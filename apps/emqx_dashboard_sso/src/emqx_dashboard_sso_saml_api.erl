@@ -95,6 +95,10 @@ sp_saml_callback(post, Req) ->
         State = #{enable := true} ->
             case (provider(saml)):callback(Req, State) of
                 {redirect, Redirect} ->
+                    ?SLOG(info, #{
+                        msg => "dashboard_saml_sso_login_successful",
+                        redirect => "SAML login successful. Redirecting with LoginMeta."
+                    }),
                     Redirect;
                 {error, Reason} ->
                     ?SLOG(info, #{
