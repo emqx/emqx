@@ -204,7 +204,7 @@ authorize(_Path, Req, ApiKey, ApiSecret) ->
     case find_by_api_key(ApiKey) of
         {ok, true, ExpiredAt, SecretHash, Role} when ExpiredAt >= Now ->
             case emqx_dashboard_admin:verify_hash(ApiSecret, SecretHash) of
-                ok -> check_rbac(Req, Role);
+                ok -> check_rbac(Req, ApiKey, Role);
                 error -> {error, "secret_error"}
             end;
         {ok, true, _ExpiredAt, _SecretHash, _Role} ->
@@ -396,8 +396,8 @@ add_bootstrap_file(File, Dev, MP, Line) ->
     end.
 
 -if(?EMQX_RELEASE_EDITION == ee).
-check_rbac(Req, Role) ->
-    case emqx_dashboard_rbac:check_rbac(Req, Role) of
+check_rbac(Req, ApiKey, Role) ->
+    case emqx_dashboard_rbac:check_rbac(Req, ApiKey, Role) of
         true ->
             ok;
         _ ->
@@ -412,7 +412,7 @@ valid_role(Role) ->
 
 -else.
 
-check_rbac(_Req, _Role) ->
+check_rbac(_Req, _ApiKey, _Role) ->
     ok.
 
 format_app_extend(App) ->
