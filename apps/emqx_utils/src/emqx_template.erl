@@ -29,6 +29,7 @@
 -export([render_strict/3]).
 
 -export([lookup_var/2]).
+-export([lookup_loose_json/2]).
 -export([to_string/1]).
 
 -export_type([t/0]).
@@ -62,16 +63,23 @@
 -type binding() :: scalar() | list(scalar()) | bindings().
 -type bindings() :: #{atom() | binary() => binding()}.
 
+-type reason() :: undefined | {location(), _InvalidType :: atom()}.
+-type location() :: non_neg_integer().
+
 -type var_trans() ::
     fun((Value :: term()) -> unicode:chardata())
     | fun((varname(), Value :: term()) -> unicode:chardata()).
+
+-type var_lookup() ::
+    fun((accessor(), bindings()) -> {ok, binding()} | {error, reason()}).
 
 -type parse_opts() :: #{
     strip_double_quote => boolean()
 }.
 
 -type render_opts() :: #{
-    var_trans => var_trans()
+    var_trans => var_trans(),
+    var_lookup => var_lookup()
 }.
 
 -define(PH_VAR_THIS, '$this').
@@ -173,7 +181,7 @@ render_placeholder(Name) ->
 %% By default, all binding values are converted to strings using `to_string/1`
 %% function. Option `var_trans` can be used to override this behaviour.
 -spec render(t(), bindings()) ->
-    {term(), [_Error :: {varname(), undefined}]}.
+    {term(), [_Error :: {varname(), reason()}]}.
 render(Template, Bindings) ->
     render(Template, Bindings, #{}).
 
@@ -195,7 +203,7 @@ render({'$tpl', Template}, Bindings, Opts) ->
     render_deep(Template, Bindings, Opts).
 
 render_binding(Name, Accessor, Bindings, Opts) ->
-    case lookup_var(Accessor, Bindings) of
+    case lookup_value(Accessor, Bindings, Opts) of
         {ok, Value} ->
             {render_value(Name, Value, Opts), []};
         {error, Reason} ->
@@ -204,6 +212,11 @@ render_binding(Name, Accessor, Bindings, Opts) ->
             % and an atom `undefined` in `TransFun`.
             {render_value(Name, undefined, Opts), [{Name, Reason}]}
     end.
+
+lookup_value(Accessor, Bindings, #{var_lookup := LookupFun}) ->
+    LookupFun(Accessor, Bindings);
+lookup_value(Accessor, Bindings, #{}) ->
+    lookup_var(Accessor, Bindings).
 
 render_value(_Name, Value, #{var_trans := TransFun}) when is_function(TransFun, 1) ->
     TransFun(Value);
@@ -309,17 +322,60 @@ unparse_deep(Term) ->
 
 %%
 
+%% @doc Lookup a variable in the bindings accessible through the accessor.
+%% Lookup is "loose" in the sense that atom and binary keys in the bindings are
+%% treated equally. This is useful for both hand-crafted and JSON-like bindings.
+%% This is the default lookup function used by rendering functions.
 -spec lookup_var(accessor(), bindings()) ->
-    {ok, binding()} | {error, undefined}.
-lookup_var(Var, Value) when Var == ?PH_VAR_THIS orelse Var == [] ->
+    {ok, binding()} | {error, reason()}.
+lookup_var(Var, Bindings) ->
+    lookup_var(0, Var, Bindings).
+
+lookup_var(_, Var, Value) when Var == ?PH_VAR_THIS orelse Var == [] ->
     {ok, Value};
-lookup_var([Prop | Rest], Bindings) ->
+lookup_var(Loc, [Prop | Rest], Bindings) when is_map(Bindings) ->
     case lookup(Prop, Bindings) of
         {ok, Value} ->
-            lookup_var(Rest, Value);
+            lookup_var(Loc + 1, Rest, Value);
         {error, Reason} ->
             {error, Reason}
-    end.
+    end;
+lookup_var(Loc, _, Invalid) ->
+    {error, {Loc, type_name(Invalid)}}.
+
+%% @doc Lookup a variable in the bindings accessible through the accessor.
+%% Additionally to `lookup_var/2` behavior, this function also tries to parse any
+%% binary as JSON to a map if accessor needs to go deeper into it.
+-spec lookup_loose_json(accessor(), bindings() | binary()) ->
+    {ok, binding()} | {error, reason()}.
+lookup_loose_json(Var, Bindings) ->
+    lookup_loose_json(0, Var, Bindings).
+
+lookup_loose_json(_, Var, Value) when Var == ?PH_VAR_THIS orelse Var == [] ->
+    {ok, Value};
+lookup_loose_json(Loc, [Prop | Rest], Bindings) when is_map(Bindings) ->
+    case lookup(Prop, Bindings) of
+        {ok, Value} ->
+            lookup_loose_json(Loc + 1, Rest, Value);
+        {error, Reason} ->
+            {error, Reason}
+    end;
+lookup_loose_json(Loc, Rest, Json) when is_binary(Json) ->
+    try emqx_utils_json:decode(Json) of
+        Bindings ->
+            % NOTE: This is intentional, we don't want to parse nested JSON.
+            lookup_var(Loc, Rest, Bindings)
+    catch
+        error:_ ->
+            {error, {Loc, binary}}
+    end;
+lookup_loose_json(Loc, _, Invalid) ->
+    {error, {Loc, type_name(Invalid)}}.
+
+type_name(Term) when is_atom(Term) -> atom;
+type_name(Term) when is_number(Term) -> number;
+type_name(Term) when is_binary(Term) -> binary;
+type_name(Term) when is_list(Term) -> list.
 
 -spec lookup(Prop :: binary(), bindings()) ->
     {ok, binding()} | {error, undefined}.

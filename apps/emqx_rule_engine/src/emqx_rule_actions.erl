@@ -72,8 +72,8 @@ pre_process_action_args(
     Args#{
         preprocessed_tmpl => #{
             topic => emqx_template:parse(Topic),
-            qos => parse_vars(QoS),
-            retain => parse_vars(Retain),
+            qos => parse_simple_var(QoS),
+            retain => parse_simple_var(Retain),
             payload => parse_payload(Payload),
             mqtt_properties => parse_mqtt_properties(MQTTProperties),
             user_properties => parse_user_properties(UserProperties)
@@ -119,8 +119,8 @@ republish(
     }
 ) ->
     % NOTE: rendering missing bindings as string "undefined"
-    {TopicString, _Errors1} = emqx_template:render(TopicTemplate, Selected),
-    {PayloadString, _Errors2} = emqx_template:render(PayloadTemplate, Selected),
+    {TopicString, _Errors1} = render_template(TopicTemplate, Selected),
+    {PayloadString, _Errors2} = render_template(PayloadTemplate, Selected),
     Topic = iolist_to_binary(TopicString),
     Payload = iolist_to_binary(PayloadString),
     QoS = render_simple_var(QoSTemplate, Selected, 0),
@@ -201,10 +201,16 @@ safe_publish(RuleId, Topic, QoS, Flags, Payload, PubProps) ->
     _ = emqx_broker:safe_publish(Msg),
     emqx_metrics:inc_msg(Msg).
 
-parse_vars(Data) when is_binary(Data) ->
+parse_simple_var(Data) when is_binary(Data) ->
     emqx_template:parse(Data);
-parse_vars(Data) ->
+parse_simple_var(Data) ->
     {const, Data}.
+
+parse_payload(Payload) ->
+    case string:is_empty(Payload) of
+        false -> emqx_template:parse(Payload);
+        true -> emqx_template:parse("${.}")
+    end.
 
 parse_mqtt_properties(MQTTPropertiesTemplate) ->
     maps:map(
@@ -225,20 +231,18 @@ parse_user_properties(_) ->
     %% invalid, discard
     undefined.
 
+render_template(Template, Bindings) ->
+    Opts = #{var_lookup => fun emqx_template:lookup_loose_json/2},
+    emqx_template:render(Template, Bindings, Opts).
+
 render_simple_var([{var, _Name, Accessor}], Data, Default) ->
-    case emqx_template:lookup_var(Accessor, Data) of
+    case emqx_template:lookup_loose_json(Accessor, Data) of
         {ok, Var} -> Var;
         %% cannot find the variable from Data
         {error, _} -> Default
     end;
 render_simple_var({const, Val}, _Data, _Default) ->
     Val.
-
-parse_payload(Payload) ->
-    case string:is_empty(Payload) of
-        false -> emqx_template:parse(Payload);
-        true -> emqx_template:parse("${.}")
-    end.
 
 render_pub_props(UserPropertiesTemplate, Selected, Env) ->
     UserProperties =
@@ -257,26 +261,24 @@ render_mqtt_properties(MQTTPropertiesTemplate, Selected, Env) ->
     MQTTProperties =
         maps:fold(
             fun(K, Template, Acc) ->
-                try
-                    V = unicode:characters_to_binary(
-                        emqx_template:render_strict(Template, Selected)
-                    ),
-                    Acc#{K => V}
-                catch
-                    Kind:Error ->
+                {V, Errors} = render_template(Template, Selected),
+                NAcc = Acc#{K => iolist_to_binary(V)},
+                case Errors of
+                    [] ->
+                        ok;
+                    Errors ->
                         ?SLOG(
                             debug,
                             #{
                                 msg => "bad_mqtt_property_value_ignored",
                                 rule_id => RuleId,
-                                exception => Kind,
-                                reason => Error,
+                                reason => Errors,
                                 property => K,
                                 selected => Selected
                             }
-                        ),
-                        Acc
-                end
+                        )
+                end,
+                NAcc
             end,
             #{},
             MQTTPropertiesTemplate

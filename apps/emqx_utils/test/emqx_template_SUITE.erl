@@ -89,15 +89,15 @@ t_render_this(_) ->
     ).
 
 t_render_missing_bindings(_) ->
-    Bindings = #{no => #{}},
+    Bindings = #{no => #{}, c => #{<<"c1">> => 42}},
     Template = emqx_template:parse(
-        <<"a:${a},b:${b},c:${c},d:${d.d1},e:${no.such_atom_i_swear}">>
+        <<"a:${a},b:${b},c:${c.c1.c2},d:${d.d1},e:${no.such_atom_i_swear}">>
     ),
     ?assertEqual(
         {<<"a:undefined,b:undefined,c:undefined,d:undefined,e:undefined">>, [
             {"no.such_atom_i_swear", undefined},
             {"d.d1", undefined},
-            {"c", undefined},
+            {"c.c1.c2", {2, number}},
             {"b", undefined},
             {"a", undefined}
         ]},
@@ -107,7 +107,7 @@ t_render_missing_bindings(_) ->
         [
             {"no.such_atom_i_swear", undefined},
             {"d.d1", undefined},
-            {"c", undefined},
+            {"c.c1.c2", {2, number}},
             {"b", undefined},
             {"a", undefined}
         ],
