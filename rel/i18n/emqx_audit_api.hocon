@@ -17,7 +17,7 @@ filter_from.desc:
 `rest_api`: API KEY request logs.
 `cli`: The emqx command line logs.
 `erlang_console`: The emqx remote_console run function logs.
-`event`: Logs related to events such as emqx_start, emqx_stop, audit_enabled, and audit_disabled."""
+`event`: Logs related to events such as emqx_start, emqx_gracefully_stop, audit_enabled, and audit_disabled."""
 
 filter_source.desc:
 """"Filter logs based on source, Possible values are:

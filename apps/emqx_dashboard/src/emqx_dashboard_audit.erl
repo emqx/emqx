@@ -17,6 +17,7 @@
 -module(emqx_dashboard_audit).
 
 -include_lib("emqx/include/logger.hrl").
+-include_lib("emqx/include/http_api.hrl").
 %% API
 -export([log/2]).
 
@@ -65,19 +66,20 @@ log_meta(Meta, Req) ->
 duration_ms(#{req_start := ReqStart, req_end := ReqEnd}) ->
     erlang:convert_time_unit(ReqEnd - ReqStart, native, millisecond).
 
-from(Meta) ->
-    case maps:find(auth_type, Meta) of
-        {ok, jwt_token} ->
-            dashboard;
-        {ok, api_key} ->
-            rest_api;
-        error ->
-            case maps:find(operation_id, Meta) of
-                %% login api create jwt_token, so we don have authorization in it's headers
-                {ok, <<"/login">>} -> dashboard;
-                _ -> unknown
-            end
+from(#{auth_type := jwt_token}) ->
+    dashboard;
+from(#{auth_type := api_key}) ->
+    rest_api;
+from(#{operation_id := <<"/login">>}) ->
+    dashboard;
+from(#{code := Code} = Meta) when Code =:= 401 orelse Code =:= 403 ->
+    case maps:find(failure, Meta) of
+        {ok, #{code := 'BAD_API_KEY_OR_SECRET'}} -> rest_api;
+        {ok, #{code := 'UNAUTHORIZED_ROLE', message := ?API_KEY_NOT_ALLOW_MSG}} -> rest_api;
+        %% 'TOKEN_TIME_OUT' 'BAD_TOKEN' is dashboard code.
+        _ -> dashboard
     end.
+
 source(#{source := Source}) -> Source;
 source(#{operation_id := <<"/login">>, body := #{<<"username">> := Username}}) -> Username;
 source(_Meta) -> <<"">>.

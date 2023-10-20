@@ -726,7 +726,7 @@ audit_handler_level.label:
 """Log Level"""
 
 audit_log_max_filter_limit.desc:
-"""Maximum size of the filter."""
+"""Store the latest N log entries in a database for allow `/audit` HTTP API to filter and retrieval of log data."""
 
 audit_log_max_filter_limit.label:
 """Max Filter Limit"""

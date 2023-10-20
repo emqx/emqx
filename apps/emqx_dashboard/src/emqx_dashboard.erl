@@ -260,8 +260,7 @@ api_key_authorize(Req, Key, Secret) ->
                 <<"Not allowed, Check api_key/api_secret">>
             );
         {error, unauthorized_role} ->
-            {403, 'UNAUTHORIZED_ROLE',
-                <<"This API Key don't have permission to access this resource">>};
+            {403, 'UNAUTHORIZED_ROLE', ?API_KEY_NOT_ALLOW_MSG};
         {error, _} ->
             return_unauthorized(
                 ?BAD_API_KEY_OR_SECRET,
