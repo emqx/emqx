@@ -40,7 +40,10 @@ jobs:
         profile:
         - emqx
         - emqx-enterprise
-
+        rpc:
+        - tcp
+        - ssl1.3
+        - ssl1.2
     steps:
     - uses: actions/checkout@v3
       with:
@@ -56,6 +59,40 @@ jobs:
           echo "${stderr}";
           exit 1;
         fi
+    - name: Prepare emqxConfig.EMQX_RPC using TCP
+      working-directory: source
+      if: matrix.rpc == 'tcp'
+      run: |
+        cat > rpc-overrides.yaml <<EOL
+        emqxConfig:
+          EMQX_RPC__PROTOCOL: tcp
+        EOL
+    - name: Prepare emqxConfig.EMQX_RPC using ssl1.3
+      working-directory: source
+      if: matrix.rpc == 'ssl1.3'
+      run: |
+        cat > rpc-overrides.yaml <<EOL
+        emqxConfig:
+          EMQX_RPC__PROTOCOL: ssl
+          EMQX_RPC__CERTFILE: /opt/emqx/etc/certs/cert.pem
+          EMQX_RPC__KEYFILE: /opt/emqx/etc/certs/key.pem
+          EMQX_RPC__CACERTFILE: /opt/emqx/etc/certs/cacert.pem
+          EMQX_RPC__CIPHERS: TLS_AES_256_GCM_SHA384,TLS_AES_128_GCM_SHA256
+          EMQX_RPC__TLS_VERSIONS: "[tlsv1.3]"
+        EOL
+    - name: Prepare emqxConfig.EMQX_RPC using ssl1.2
+      working-directory: source
+      if: matrix.rpc == 'ssl1.2'
+      run: |
+        cat > rpc-overrides.yaml <<EOL
+        emqxConfig:
+          EMQX_RPC__PROTOCOL: ssl
+          EMQX_RPC__CERTFILE: /opt/emqx/etc/certs/cert.pem
+          EMQX_RPC__KEYFILE: /opt/emqx/etc/certs/key.pem
+          EMQX_RPC__CACERTFILE: /opt/emqx/etc/certs/cacert.pem
+          EMQX_RPC__CIPHERS: TLS_AES_256_GCM_SHA384,TLS_AES_128_GCM_SHA256
+          EMQX_RPC__TLS_VERSIONS: "[tlsv1.2]"
+        EOL
     - name: run emqx on chart (k8s)
       if: matrix.discovery == 'k8s'
       working-directory: source
@@ -73,6 +110,7 @@ jobs:
             --set emqxConfig.EMQX_MQTT__MAX_TOPIC_ALIAS=10 \
             --set emqxConfig.EMQX_AUTHORIZATION__SOURCES=[] \
             --set emqxConfig.EMQX_AUTHORIZATION__NO_MATCH=allow \
+            --values rpc-overrides.yaml \
             deploy/charts/${EMQX_NAME} \
             --debug
     - name: run emqx on chart (dns)
@@ -91,6 +129,7 @@ jobs:
             --set emqxConfig.EMQX_MQTT__MAX_TOPIC_ALIAS=10 \
             --set emqxConfig.EMQX_AUTHORIZATION__SOURCES=[] \
             --set emqxConfig.EMQX_AUTHORIZATION__NO_MATCH=allow \
+            --values rpc-overrides.yaml \
             deploy/charts/${EMQX_NAME} \
             --debug
     - name: waiting emqx started
