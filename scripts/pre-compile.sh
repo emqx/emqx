@@ -2,6 +2,8 @@
 
 set -euo pipefail
 
+[ "${DEBUG:-0}" -eq 1 ] && set -x
+
 # NOTE: PROFILE_STR may not be exactly PROFILE (emqx or emqx-enterprise)
 # it might be with suffix such as -pkg etc.
 PROFILE_STR="${1}"
@@ -28,5 +30,6 @@ curl -L --silent --show-error \
      --output "apps/emqx_dashboard/priv/desc.zh.hocon" \
     'https://raw.githubusercontent.com/emqx/emqx-i18n/main/desc.zh.hocon'
 
-# generate sbom
-./scripts/update-bom.sh "$PROFILE_STR" ./rel
+# TODO
+# make sbom a build artifcat
+# ./scripts/update-bom.sh "$PROFILE_STR" ./rel

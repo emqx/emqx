@@ -18,99 +18,15 @@
 
 -include_lib("emqx_auth/include/emqx_authn.hrl").
 -include_lib("emqx/include/logger.hrl").
--include_lib("hocon/include/hoconsc.hrl").
 
--behaviour(hocon_schema).
 -behaviour(emqx_authn_provider).
 
 -export([
-    namespace/0,
-    tags/0,
-    roots/0,
-    fields/1,
-    desc/1
-]).
-
--export([
-    refs/0,
-    union_member_selector/1,
     create/2,
     update/2,
     authenticate/2,
     destroy/1
 ]).
-
-%%------------------------------------------------------------------------------
-%% Hocon Schema
-%%------------------------------------------------------------------------------
-
-namespace() -> "authn".
-
-tags() ->
-    [<<"Authentication">>].
-
-%% used for config check when the schema module is resolved
-roots() ->
-    [
-        {?CONF_NS,
-            hoconsc:mk(
-                hoconsc:union(fun ?MODULE:union_member_selector/1),
-                #{}
-            )}
-    ].
-
-fields(redis_single) ->
-    common_fields() ++ emqx_redis:fields(single);
-fields(redis_cluster) ->
-    common_fields() ++ emqx_redis:fields(cluster);
-fields(redis_sentinel) ->
-    common_fields() ++ emqx_redis:fields(sentinel).
-
-desc(redis_single) ->
-    ?DESC(single);
-desc(redis_cluster) ->
-    ?DESC(cluster);
-desc(redis_sentinel) ->
-    ?DESC(sentinel);
-desc(_) ->
-    "".
-
-common_fields() ->
-    [
-        {mechanism, emqx_authn_schema:mechanism(password_based)},
-        {backend, emqx_authn_schema:backend(redis)},
-        {cmd, fun cmd/1},
-        {password_hash_algorithm, fun emqx_authn_password_hashing:type_ro/1}
-    ] ++ emqx_authn_schema:common_fields().
-
-cmd(type) -> string();
-cmd(desc) -> ?DESC(?FUNCTION_NAME);
-cmd(required) -> true;
-cmd(_) -> undefined.
-
-refs() ->
-    [
-        hoconsc:ref(?MODULE, redis_single),
-        hoconsc:ref(?MODULE, redis_cluster),
-        hoconsc:ref(?MODULE, redis_sentinel)
-    ].
-
-union_member_selector(all_union_members) ->
-    refs();
-union_member_selector({value, Value}) ->
-    refs(Value).
-
-refs(#{<<"redis_type">> := <<"single">>}) ->
-    [hoconsc:ref(?MODULE, redis_single)];
-refs(#{<<"redis_type">> := <<"cluster">>}) ->
-    [hoconsc:ref(?MODULE, redis_cluster)];
-refs(#{<<"redis_type">> := <<"sentinel">>}) ->
-    [hoconsc:ref(?MODULE, redis_sentinel)];
-refs(_) ->
-    throw(#{
-        field_name => redis_type,
-        expected => "single | cluster | sentinel"
-    }).
 
 %%------------------------------------------------------------------------------
 %% APIs

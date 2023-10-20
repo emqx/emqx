@@ -86,7 +86,6 @@
 -define(INFO_KEYS, [conninfo, conn_state, clientinfo, session]).
 
 -define(DEF_IDLE_TIME, timer:seconds(30)).
--define(GET_IDLE_TIME(Cfg), maps:get(idle_timeout, Cfg, ?DEF_IDLE_TIME)).
 
 -import(emqx_coap_medium, [reply/2, reply/3, reply/4, iter/3, iter/4]).
 
@@ -150,8 +149,7 @@ init(
             mountpoint => Mountpoint
         }
     ),
-    %% FIXME: it should coap.hearbeat instead of idle_timeout?
-    Heartbeat = ?GET_IDLE_TIME(Config),
+    Heartbeat = maps:get(heartbeat, Config, ?DEF_IDLE_TIME),
     #channel{
         ctx = Ctx,
         conninfo = ConnInfo,
@@ -179,8 +177,8 @@ send_request(Channel, Request) ->
     | {ok, replies(), channel()}
     | {shutdown, Reason :: term(), channel()}
     | {shutdown, Reason :: term(), replies(), channel()}.
-handle_in(Msg, ChannleT) ->
-    Channel = ensure_keepalive_timer(ChannleT),
+handle_in(Msg, Channel0) ->
+    Channel = ensure_keepalive_timer(Channel0),
     case emqx_coap_message:is_request(Msg) of
         true ->
             check_auth_state(Msg, Channel);
@@ -321,6 +319,9 @@ handle_call(Req, _From, Channel) ->
 handle_cast(close, Channel) ->
     ?SLOG(info, #{msg => "close_connection"}),
     shutdown(normal, Channel);
+handle_cast(inc_recv_pkt, Channel) ->
+    _ = emqx_pd:inc_counter(recv_pkt, 1),
+    {ok, Channel};
 handle_cast(Req, Channel) ->
     ?SLOG(error, #{msg => "unexpected_cast", cast => Req}),
     {ok, Channel}.
@@ -455,6 +456,13 @@ check_token(
                     Reply = emqx_coap_message:piggyback({error, unauthorized}, Msg),
                     {shutdown, normal, Reply, Channel};
                 true ->
+                    %% hack: since each message request can spawn a new connection
+                    %% process, we can't rely on the `inc_incoming_stats' call in
+                    %% `emqx_gateway_conn:handle_incoming' to properly keep track of
+                    %% bumping incoming requests for an existing channel.  Since this
+                    %% number is used by keepalive, we have to bump it inside the
+                    %% requested channel/connection pid so heartbeats actually work.
+                    emqx_gateway_cm:cast(coap, ReqClientId, inc_recv_pkt),
                     call_session(handle_request, Msg, Channel)
             end;
         _ ->

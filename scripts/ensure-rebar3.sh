@@ -2,6 +2,8 @@
 
 set -euo pipefail
 
+[ "${DEBUG:-0}" -eq 1 ] && set -x
+
 ## rebar3 tag 3.19.0-emqx-1 is compiled using latest official OTP-24 image.
 ## we have to use an otp24-compiled rebar3 because the defination of record #application{}
 ## in systools.hrl is changed in otp24.
@@ -14,7 +16,7 @@ case ${OTP_VSN} in
         VERSION="3.18.0-emqx-1"
         ;;
     25*)
-        VERSION="3.19.0-emqx-8"
+        VERSION="3.19.0-emqx-9"
         ;;
     *)
         echo "Unsupporetd Erlang/OTP version $OTP_VSN"
