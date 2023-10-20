@@ -34,7 +34,9 @@
     tags/0,
     fields/1,
     authenticator_type/0,
+    authenticator_type/1,
     authenticator_type_without/1,
+    authenticator_type_without/2,
     mechanism/1,
     backend/1
 ]).
@@ -43,16 +45,34 @@
     global_auth_fields/0
 ]).
 
+-export_type([shema_kind/0]).
+
 -define(AUTHN_MODS_PT_KEY, {?MODULE, authn_schema_mods}).
+-define(DEFAULT_SCHEMA_KIND, config).
 
 %%--------------------------------------------------------------------
 %% Authn Source Schema Behaviour
 %%--------------------------------------------------------------------
 
 -type schema_ref() :: ?R_REF(module(), hocon_schema:name()).
+-type shema_kind() ::
+    %% api_write: schema for mutating API request validation
+    api_write
+    %% config: schema for config validation
+    | config.
 -callback refs() -> [schema_ref()].
--callback select_union_member(emqx_config:raw_config()) -> schema_ref() | undefined | no_return().
+-callback refs(shema_kind()) -> [schema_ref()].
+-callback select_union_member(emqx_config:raw_config()) -> [schema_ref()] | undefined | no_return().
+-callback select_union_member(shema_kind(), emqx_config:raw_config()) ->
+    [schema_ref()] | undefined | no_return().
 -callback fields(hocon_schema:name()) -> [hocon_schema:field()].
+
+-optional_callbacks([
+    select_union_member/1,
+    select_union_member/2,
+    refs/0,
+    refs/1
+]).
 
 roots() -> [].
 
@@ -67,45 +87,63 @@ tags() ->
     [<<"Authentication">>].
 
 authenticator_type() ->
-    hoconsc:union(union_member_selector(provider_schema_mods())).
+    authenticator_type(?DEFAULT_SCHEMA_KIND).
+
+authenticator_type(Kind) ->
+    hoconsc:union(union_member_selector(Kind, provider_schema_mods())).
 
 authenticator_type_without(ProviderSchemaMods) ->
+    authenticator_type_without(?DEFAULT_SCHEMA_KIND, ProviderSchemaMods).
+
+authenticator_type_without(Kind, ProviderSchemaMods) ->
     hoconsc:union(
-        union_member_selector(provider_schema_mods() -- ProviderSchemaMods)
+        union_member_selector(Kind, provider_schema_mods() -- ProviderSchemaMods)
     ).
 
-union_member_selector(Mods) ->
-    AllTypes = config_refs(Mods),
+union_member_selector(Kind, Mods) ->
+    AllTypes = config_refs(Kind, Mods),
     fun
         (all_union_members) -> AllTypes;
-        ({value, Value}) -> select_union_member(Value, Mods)
+        ({value, Value}) -> select_union_member(Kind, Value, Mods)
     end.
 
-select_union_member(#{<<"mechanism">> := Mechanism, <<"backend">> := Backend}, []) ->
+select_union_member(_Kind, #{<<"mechanism">> := Mechanism, <<"backend">> := Backend}, []) ->
     throw(#{
         reason => "unsupported_mechanism",
         mechanism => Mechanism,
         backend => Backend
     });
-select_union_member(#{<<"mechanism">> := Mechanism}, []) ->
+select_union_member(_Kind, #{<<"mechanism">> := Mechanism}, []) ->
     throw(#{
         reason => "unsupported_mechanism",
         mechanism => Mechanism
     });
-select_union_member(#{<<"mechanism">> := _} = Value, [Mod | Mods]) ->
-    case Mod:select_union_member(Value) of
+select_union_member(Kind, #{<<"mechanism">> := _} = Value, [Mod | Mods]) ->
+    case mod_select_union_member(Kind, Value, Mod) of
         undefined ->
-            select_union_member(Value, Mods);
+            select_union_member(Kind, Value, Mods);
         Member ->
             Member
     end;
-select_union_member(#{} = _Value, _Mods) ->
+select_union_member(_Kind, #{} = _Value, _Mods) ->
     throw(#{reason => "missing_mechanism_field"});
-select_union_member(Value, _Mods) ->
+select_union_member(_Kind, Value, _Mods) ->
     throw(#{reason => "not_a_struct", value => Value}).
 
-config_refs(Mods) ->
-    lists:append([Mod:refs() || Mod <- Mods]).
+mod_select_union_member(Kind, Value, Mod) ->
+    emqx_utils:call_first_defined([
+        {Mod, select_union_member, [Kind, Value]},
+        {Mod, select_union_member, [Value]}
+    ]).
+
+config_refs(Kind, Mods) ->
+    lists:append([mod_refs(Kind, Mod) || Mod <- Mods]).
+
+mod_refs(Kind, Mod) ->
+    emqx_utils:call_first_defined([
+        {Mod, refs, [Kind]},
+        {Mod, refs, []}
+    ]).
 
 root_type() ->
     hoconsc:array(authenticator_type()).

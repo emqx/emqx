@@ -63,14 +63,16 @@ end_per_testcase(_, Config) ->
 init_per_suite(Config) ->
     Apps = emqx_cth_suite:start(
         [
-            emqx,
             emqx_conf,
+            emqx,
             emqx_auth,
+            %% to load schema
+            {emqx_auth_mnesia, #{start => false}},
             emqx_management,
             {emqx_dashboard, "dashboard.listeners.http { enable = true, bind = 18083 }"}
         ],
         #{
-            work_dir => ?config(priv_dir, Config)
+            work_dir => filename:join(?config(priv_dir, Config), ?MODULE)
         }
     ),
     _ = emqx_common_test_http:create_default_app(),
@@ -534,6 +536,36 @@ ignore_switch_to_global_chain(_) ->
         emqtt:connect(Client4)
     ),
     ok = emqtt:disconnect(Client4).
+
+t_bcrypt_validation(_Config) ->
+    BaseConf = #{
+        mechanism => <<"password_based">>,
+        backend => <<"built_in_database">>,
+        user_id_type => <<"username">>
+    },
+    BcryptValid = #{
+        name => <<"bcrypt">>,
+        salt_rounds => 10
+    },
+    BcryptInvalid = #{
+        name => <<"bcrypt">>,
+        salt_rounds => 15
+    },
+
+    ConfValid = BaseConf#{password_hash_algorithm => BcryptValid},
+    ConfInvalid = BaseConf#{password_hash_algorithm => BcryptInvalid},
+
+    {ok, 400, _} = request(
+        post,
+        uri([?CONF_NS]),
+        ConfInvalid
+    ),
+
+    {ok, 200, _} = request(
+        post,
+        uri([?CONF_NS]),
+        ConfValid
+    ).
 
 %%------------------------------------------------------------------------------
 %% Helpers

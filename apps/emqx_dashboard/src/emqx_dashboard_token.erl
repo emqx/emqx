@@ -248,8 +248,8 @@ clean_expired_jwt(Now) ->
 
 -if(?EMQX_RELEASE_EDITION == ee).
 check_rbac(Req, JWT) ->
-    #?ADMIN_JWT{exptime = _ExpTime, extra = Extra, username = _Username} = JWT,
-    case emqx_dashboard_rbac:check_rbac(Req, Extra) of
+    #?ADMIN_JWT{exptime = _ExpTime, extra = Extra, username = Username} = JWT,
+    case emqx_dashboard_rbac:check_rbac(Req, Username, Extra) of
         true ->
             save_new_jwt(JWT);
         _ ->
