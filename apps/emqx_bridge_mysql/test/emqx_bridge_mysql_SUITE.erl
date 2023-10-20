@@ -565,6 +565,7 @@ t_simple_sql_query(Config) ->
     ok.
 
 t_missing_data(Config) ->
+    BatchSize = ?config(batch_size, Config),
     ?assertMatch(
         {ok, _},
         create_bridge(Config)
@@ -575,13 +576,27 @@ t_missing_data(Config) ->
     ),
     send_message(Config, #{}),
     {ok, [Event]} = snabbkaffe:receive_events(SRef),
-    ?assertMatch(
-        #{
-            result :=
-                {error, {unrecoverable_error, {1048, _, <<"Column 'arrived' cannot be null">>}}}
-        },
-        Event
-    ),
+    case BatchSize of
+        N when N > 1 ->
+            ?assertMatch(
+                #{
+                    result :=
+                        {error,
+                            {unrecoverable_error,
+                                {1292, _, <<"Truncated incorrect DOUBLE value: 'undefined'">>}}}
+                },
+                Event
+            );
+        1 ->
+            ?assertMatch(
+                #{
+                    result :=
+                        {error,
+                            {unrecoverable_error, {1048, _, <<"Column 'arrived' cannot be null">>}}}
+                },
+                Event
+            )
+    end,
     ok.
 
 t_bad_sql_parameter(Config) ->

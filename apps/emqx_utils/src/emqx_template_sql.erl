@@ -40,7 +40,12 @@
 }.
 
 -type render_opts() :: #{
-    escaping => mysql | cql | sql
+    %% String escaping rules to use.
+    %% Default: `sql` (generic)
+    escaping => sql | mysql | cql,
+    %% Value to map `undefined` to, either to NULLs or to arbitrary strings.
+    %% Default: `null`
+    undefined => null | unicode:chardata()
 }.
 
 -define(TEMPLATE_PARSE_OPTS, [strip_double_quote]).

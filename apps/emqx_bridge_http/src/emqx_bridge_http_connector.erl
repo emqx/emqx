@@ -573,7 +573,7 @@ render_headers(HeaderTks, Msg) ->
 
 render_template(Template, Msg) ->
     % NOTE: ignoring errors here, missing variables will be rendered as `"undefined"`.
-    {String, _Errors} = emqx_template:render(Template, Msg),
+    {String, _Errors} = emqx_template:render(Template, {emqx_jsonish, Msg}),
     String.
 
 render_template_string(Template, Msg) ->

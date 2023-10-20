@@ -313,8 +313,8 @@ do_check_prepares(
     case validate_table_existence(WorkerPids, SQL) of
         ok ->
             ok;
-        {error, undefined_table} ->
-            {error, {undefined_table, State}}
+        {error, Reason} ->
+            {error, Reason}
     end;
 do_check_prepares(#{prepares := Prepares}) when is_map(Prepares) ->
     ok;
@@ -433,7 +433,7 @@ parse_prepare_sql(Key, Query, Acc) ->
 
 render_prepare_sql_row(RowTemplate, Data) ->
     % NOTE: ignoring errors here, missing variables will be replaced with `null`.
-    {Row, _Errors} = emqx_template_sql:render_prepstmt(RowTemplate, Data),
+    {Row, _Errors} = emqx_template_sql:render_prepstmt(RowTemplate, {emqx_jsonish, Data}),
     Row.
 
 init_prepare(State = #{query_templates := Templates}) when map_size(Templates) == 0 ->
@@ -443,10 +443,13 @@ init_prepare(State = #{}) ->
         {ok, PrepStatements} ->
             State#{prepares => PrepStatements};
         Error ->
-            ?SLOG(error, maps:merge(
-                #{msg => <<"postgresql_init_prepare_statement_failed">>},
-                translate_to_log_context(Error)
-            )),
+            ?SLOG(
+                error,
+                maps:merge(
+                    #{msg => <<"postgresql_init_prepare_statement_failed">>},
+                    translate_to_log_context(Error)
+                )
+            ),
             %% mark the prepares failed
             State#{prepares => Error}
     end.
@@ -484,7 +487,7 @@ prepare_sql_to_conn(Conn, Prepares) ->
 prepare_sql_to_conn(Conn, [], Statements) when is_pid(Conn) ->
     {ok, Statements};
 prepare_sql_to_conn(Conn, [{Key, {SQL, _RowTemplate}} | Rest], Statements) when is_pid(Conn) ->
-    LogMeta = #{msg => "PostgreSQL Prepare Statement", name => Key, sql => SQL},
+    LogMeta = #{msg => "postgresql_prepare_statement", name => Key, sql => SQL},
     ?SLOG(info, LogMeta),
     case epgsql:parse2(Conn, Key, SQL, []) of
         {ok, Statement} ->

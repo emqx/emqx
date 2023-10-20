@@ -235,6 +235,10 @@ t_render_sql(_) ->
     ?assertEqual(
         <<"a:'1',b:1,c:1.0,d:'{\"d1\":\"hi\"}',n:NULL,u:'utf8\\'s cool 🐸'"/utf8>>,
         bin(emqx_template_sql:render_strict(Template, Context, #{}))
+    ),
+    ?assertEqual(
+        <<"a:'1',b:1,c:1.0,d:'{\"d1\":\"hi\"}',n:'undefined',u:'utf8\\'s cool 🐸'"/utf8>>,
+        bin(emqx_template_sql:render_strict(Template, Context, #{undefined => "undefined"}))
     ).
 
 t_render_mysql(_) ->

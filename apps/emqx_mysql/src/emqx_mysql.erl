@@ -426,8 +426,12 @@ proc_sql_params(TypeOrKey, SQLOrData, Params, #{query_templates := Templates}) -
         undefined ->
             {SQLOrData, Params};
         {_InsertPart, RowTemplate} ->
-            % NOTE: ignoring errors here, missing variables are set to `null`.
-            {Row, _Errors} = emqx_template_sql:render_prepstmt(RowTemplate, SQLOrData),
+            % NOTE
+            % Ignoring errors here, missing variables are set to `null`.
+            {Row, _Errors} = emqx_template_sql:render_prepstmt(
+                RowTemplate,
+                {emqx_jsonish, SQLOrData}
+            ),
             {TypeOrKey, Row}
     end.
 
@@ -437,8 +441,11 @@ on_batch_insert(InstId, BatchReqs, {InsertPart, RowTemplate}, State) ->
     on_sql_query(InstId, query, Query, no_params, default_timeout, State).
 
 render_row(RowTemplate, Data) ->
-    % NOTE: ignoring errors here, missing variables are set to "NULL".
-    {Row, _Errors} = emqx_template_sql:render(RowTemplate, Data, #{escaping => mysql}),
+    % NOTE
+    % Ignoring errors here, missing variables are set to "'undefined'" due to backward
+    % compatibility requirements.
+    RenderOpts = #{escaping => mysql, undefined => <<"undefined">>},
+    {Row, _Errors} = emqx_template_sql:render(RowTemplate, {emqx_jsonish, Data}, RenderOpts),
     Row.
 
 on_sql_query(
