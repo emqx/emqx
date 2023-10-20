@@ -1150,7 +1150,7 @@ translation("emqx") ->
     ];
 translation("gen_rpc") ->
     [
-        {"default_client_driver", fun tr_default_config_driver/1},
+        {"default_client_driver", fun tr_gen_rpc_default_client_driver/1},
         {"ssl_client_options", fun tr_gen_rpc_ssl_options/1},
         {"ssl_server_options", fun tr_gen_rpc_ssl_options/1},
         {"socket_ip", fun(Conf) ->
@@ -1223,8 +1223,8 @@ tr_vm_msacc_collector(Conf) ->
 collector_enabled(enabled, Collector) -> [Collector];
 collector_enabled(disabled, _) -> [].
 
-tr_default_config_driver(Conf) ->
-    conf_get("rpc.driver", Conf).
+tr_gen_rpc_default_client_driver(Conf) ->
+    conf_get("rpc.protocol", Conf).
 
 tr_gen_rpc_ssl_options(Conf) ->
     Ciphers = conf_get("rpc.ciphers", Conf),
