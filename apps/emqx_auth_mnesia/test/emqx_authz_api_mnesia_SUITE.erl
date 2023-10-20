@@ -331,4 +331,159 @@ t_api(_) ->
             []
         ),
     ?assertEqual(0, emqx_authz_mnesia:record_count()),
+
+    Examples = make_examples(emqx_authz_api_mnesia),
+    ?assertEqual(
+        14,
+        length(Examples)
+    ),
+
+    Fixtures1 = fun() ->
+        {ok, _, _} =
+            request(
+                delete,
+                uri(["authorization", "sources", "built_in_database", "rules", "all"]),
+                []
+            ),
+        {ok, _, _} =
+            request(
+                delete,
+                uri(["authorization", "sources", "built_in_database", "rules", "users"]),
+                []
+            ),
+        {ok, _, _} =
+            request(
+                delete,
+                uri(["authorization", "sources", "built_in_database", "rules", "clients"]),
+                []
+            )
+    end,
+    run_examples(Examples, Fixtures1),
+
+    Fixtures2 = fun() ->
+        %% disable/remove built_in_database
+        {ok, 204, _} =
+            request(
+                delete,
+                uri(["authorization", "sources", "built_in_database"]),
+                []
+            )
+    end,
+
+    run_examples(404, Examples, Fixtures2),
+
     ok.
+
+%% test helpers
+-define(REPLACEMENTS, #{
+    ":clientid" => <<"client1">>,
+    ":username" => <<"user1">>
+}).
+
+run_examples(Examples) ->
+    %% assume all ok
+    run_examples(
+        fun
+            ({ok, Code, _}) when
+                Code >= 200,
+                Code =< 299
+            ->
+                true;
+            (_Res) ->
+                ct:pal("check failed: ~p", [_Res]),
+                false
+        end,
+        Examples
+    ).
+
+run_examples(Examples, Fixtures) when is_function(Fixtures) ->
+    Fixtures(),
+    run_examples(Examples);
+run_examples(Check, Examples) when is_function(Check) ->
+    lists:foreach(
+        fun({Path, Op, Body} = _Req) ->
+            ct:pal("req: ~p", [_Req]),
+            ?assert(
+                Check(
+                    request(Op, uri(Path), Body)
+                )
+            )
+        end,
+        Examples
+    );
+run_examples(Code, Examples) when is_number(Code) ->
+    run_examples(
+        fun
+            ({ok, ResCode, _}) when Code =:= ResCode -> true;
+            (_) -> false
+        end,
+        Examples
+    ).
+
+run_examples(CodeOrCheck, Examples, Fixtures) when is_function(Fixtures) ->
+    Fixtures(),
+    run_examples(CodeOrCheck, Examples).
+
+make_examples(ApiMod) ->
+    make_examples(ApiMod, ?REPLACEMENTS).
+
+-spec make_examples(Mod :: atom()) -> [{Path :: list(), [{Op :: atom(), Body :: term()}]}].
+make_examples(ApiMod, Replacements) ->
+    Paths = ApiMod:paths(),
+    lists:flatten(
+        lists:map(
+            fun(Path) ->
+                Schema = ApiMod:schema(Path),
+                lists:map(
+                    fun({Op, OpSchema}) ->
+                        Body =
+                            case maps:get('requestBody', OpSchema, undefined) of
+                                undefined ->
+                                    [];
+                                HoconWithExamples ->
+                                    maps:get(
+                                        value,
+                                        hd(
+                                            maps:values(
+                                                maps:get(
+                                                    <<"examples">>,
+                                                    maps:get(examples, HoconWithExamples)
+                                                )
+                                            )
+                                        )
+                                    )
+                            end,
+                        {replace_parts(to_parts(Path), Replacements), Op, Body}
+                    end,
+                    lists:sort(fun op_sort/2, maps:to_list(maps:remove('operationId', Schema)))
+                )
+            end,
+            Paths
+        )
+    ).
+
+op_sort({post, _}, {_, _}) ->
+    true;
+op_sort({put, _}, {_, _}) ->
+    true;
+op_sort({get, _}, {delete, _}) ->
+    true;
+op_sort(_, _) ->
+    false.
+
+to_parts(Path) ->
+    string:tokens(Path, "/").
+
+replace_parts(Parts, Replacements) ->
+    lists:map(
+        fun(Part) ->
+            %% that's the fun part
+            case maps:is_key(Part, Replacements) of
+                true ->
+                    maps:get(Part, Replacements);
+                false ->
+                    Part
+            end
+        end,
+        Parts
+    ).

@@ -426,161 +426,210 @@ fields(rules) ->
 %% HTTP API
 %%--------------------------------------------------------------------
 
+-define(IF_CONFIGURED_AUTHZ_SOURCE(EXPR),
+    emqx_authz_api_sources:with_source(
+        <<"built_in_database">>,
+        fun(_Source) ->
+            EXPR
+        end
+    )
+).
+
 users(get, #{query_string := QueryString}) ->
-    case
-        emqx_mgmt_api:node_query(
-            node(),
-            ?ACL_TABLE,
-            QueryString,
-            ?ACL_USERNAME_QSCHEMA,
-            ?QUERY_USERNAME_FUN,
-            fun ?MODULE:format_result/1
-        )
-    of
-        {error, page_limit_invalid} ->
-            {400, #{code => <<"INVALID_PARAMETER">>, message => <<"page_limit_invalid">>}};
-        {error, Node, Error} ->
-            Message = list_to_binary(io_lib:format("bad rpc call ~p, Reason ~p", [Node, Error])),
-            {500, #{code => <<"NODE_DOWN">>, message => Message}};
-        Result ->
-            {200, Result}
-    end;
+    ?IF_CONFIGURED_AUTHZ_SOURCE(
+        case
+            emqx_mgmt_api:node_query(
+                node(),
+                ?ACL_TABLE,
+                QueryString,
+                ?ACL_USERNAME_QSCHEMA,
+                ?QUERY_USERNAME_FUN,
+                fun ?MODULE:format_result/1
+            )
+        of
+            {error, page_limit_invalid} ->
+                {400, #{code => <<"INVALID_PARAMETER">>, message => <<"page_limit_invalid">>}};
+            {error, Node, Error} ->
+                Message = list_to_binary(
+                    io_lib:format("bad rpc call ~p, Reason ~p", [Node, Error])
+                ),
+                {500, #{code => <<"NODE_DOWN">>, message => Message}};
+            Result ->
+                {200, Result}
+        end
+    );
 users(post, #{body := Body}) when is_list(Body) ->
-    case ensure_all_not_exists(<<"username">>, username, Body) of
-        [] ->
-            lists:foreach(
-                fun(#{<<"username">> := Username, <<"rules">> := Rules}) ->
-                    emqx_authz_mnesia:store_rules({username, Username}, Rules)
-                end,
-                Body
-            ),
-            {204};
-        Exists ->
-            {409, #{
-                code => <<"ALREADY_EXISTS">>,
-                message => binfmt("Users '~ts' already exist", [binjoin(Exists)])
-            }}
-    end.
+    ?IF_CONFIGURED_AUTHZ_SOURCE(
+        case ensure_all_not_exists(<<"username">>, username, Body) of
+            [] ->
+                lists:foreach(
+                    fun(#{<<"username">> := Username, <<"rules">> := Rules}) ->
+                        emqx_authz_mnesia:store_rules({username, Username}, Rules)
+                    end,
+                    Body
+                ),
+                {204};
+            Exists ->
+                {409, #{
+                    code => <<"ALREADY_EXISTS">>,
+                    message => binfmt("Users '~ts' already exist", [binjoin(Exists)])
+                }}
+        end
+    ).
 
 clients(get, #{query_string := QueryString}) ->
-    case
-        emqx_mgmt_api:node_query(
-            node(),
-            ?ACL_TABLE,
-            QueryString,
-            ?ACL_CLIENTID_QSCHEMA,
-            ?QUERY_CLIENTID_FUN,
-            fun ?MODULE:format_result/1
-        )
-    of
-        {error, page_limit_invalid} ->
-            {400, #{code => <<"INVALID_PARAMETER">>, message => <<"page_limit_invalid">>}};
-        {error, Node, Error} ->
-            Message = list_to_binary(io_lib:format("bad rpc call ~p, Reason ~p", [Node, Error])),
-            {500, #{code => <<"NODE_DOWN">>, message => Message}};
-        Result ->
-            {200, Result}
-    end;
+    ?IF_CONFIGURED_AUTHZ_SOURCE(
+        case
+            emqx_mgmt_api:node_query(
+                node(),
+                ?ACL_TABLE,
+                QueryString,
+                ?ACL_CLIENTID_QSCHEMA,
+                ?QUERY_CLIENTID_FUN,
+                fun ?MODULE:format_result/1
+            )
+        of
+            {error, page_limit_invalid} ->
+                {400, #{code => <<"INVALID_PARAMETER">>, message => <<"page_limit_invalid">>}};
+            {error, Node, Error} ->
+                Message = list_to_binary(
+                    io_lib:format("bad rpc call ~p, Reason ~p", [Node, Error])
+                ),
+                {500, #{code => <<"NODE_DOWN">>, message => Message}};
+            Result ->
+                {200, Result}
+        end
+    );
 clients(post, #{body := Body}) when is_list(Body) ->
-    case ensure_all_not_exists(<<"clientid">>, clientid, Body) of
-        [] ->
-            lists:foreach(
-                fun(#{<<"clientid">> := ClientID, <<"rules">> := Rules}) ->
-                    emqx_authz_mnesia:store_rules({clientid, ClientID}, Rules)
-                end,
-                Body
-            ),
-            {204};
-        Exists ->
-            {409, #{
-                code => <<"ALREADY_EXISTS">>,
-                message => binfmt("Clients '~ts' already exist", [binjoin(Exists)])
-            }}
-    end.
+    ?IF_CONFIGURED_AUTHZ_SOURCE(
+        case ensure_all_not_exists(<<"clientid">>, clientid, Body) of
+            [] ->
+                lists:foreach(
+                    fun(#{<<"clientid">> := ClientID, <<"rules">> := Rules}) ->
+                        emqx_authz_mnesia:store_rules({clientid, ClientID}, Rules)
+                    end,
+                    Body
+                ),
+                {204};
+            Exists ->
+                {409, #{
+                    code => <<"ALREADY_EXISTS">>,
+                    message => binfmt("Clients '~ts' already exist", [binjoin(Exists)])
+                }}
+        end
+    ).
 
 user(get, #{bindings := #{username := Username}}) ->
-    case emqx_authz_mnesia:get_rules({username, Username}) of
-        not_found ->
-            {404, #{code => <<"NOT_FOUND">>, message => <<"Not Found">>}};
-        {ok, Rules} ->
-            {200, #{
-                username => Username,
-                rules => format_rules(Rules)
-            }}
-    end;
+    ?IF_CONFIGURED_AUTHZ_SOURCE(
+        case emqx_authz_mnesia:get_rules({username, Username}) of
+            not_found ->
+                {404, #{code => <<"NOT_FOUND">>, message => <<"Not Found">>}};
+            {ok, Rules} ->
+                {200, #{
+                    username => Username,
+                    rules => format_rules(Rules)
+                }}
+        end
+    );
 user(put, #{
     bindings := #{username := Username},
     body := #{<<"username">> := Username, <<"rules">> := Rules}
 }) ->
-    emqx_authz_mnesia:store_rules({username, Username}, Rules),
-    {204};
-user(delete, #{bindings := #{username := Username}}) ->
-    case emqx_authz_mnesia:get_rules({username, Username}) of
-        not_found ->
-            {404, #{code => <<"NOT_FOUND">>, message => <<"Username Not Found">>}};
-        {ok, _Rules} ->
-            emqx_authz_mnesia:delete_rules({username, Username}),
+    ?IF_CONFIGURED_AUTHZ_SOURCE(
+        begin
+            emqx_authz_mnesia:store_rules({username, Username}, Rules),
             {204}
-    end.
+        end
+    );
+user(delete, #{bindings := #{username := Username}}) ->
+    ?IF_CONFIGURED_AUTHZ_SOURCE(
+        case emqx_authz_mnesia:get_rules({username, Username}) of
+            not_found ->
+                {404, #{code => <<"NOT_FOUND">>, message => <<"Username Not Found">>}};
+            {ok, _Rules} ->
+                emqx_authz_mnesia:delete_rules({username, Username}),
+                {204}
+        end
+    ).
 
 client(get, #{bindings := #{clientid := ClientID}}) ->
-    case emqx_authz_mnesia:get_rules({clientid, ClientID}) of
-        not_found ->
-            {404, #{code => <<"NOT_FOUND">>, message => <<"Not Found">>}};
-        {ok, Rules} ->
-            {200, #{
-                clientid => ClientID,
-                rules => format_rules(Rules)
-            }}
-    end;
+    ?IF_CONFIGURED_AUTHZ_SOURCE(
+        case emqx_authz_mnesia:get_rules({clientid, ClientID}) of
+            not_found ->
+                {404, #{code => <<"NOT_FOUND">>, message => <<"Not Found">>}};
+            {ok, Rules} ->
+                {200, #{
+                    clientid => ClientID,
+                    rules => format_rules(Rules)
+                }}
+        end
+    );
 client(put, #{
     bindings := #{clientid := ClientID},
     body := #{<<"clientid">> := ClientID, <<"rules">> := Rules}
 }) ->
-    emqx_authz_mnesia:store_rules({clientid, ClientID}, Rules),
-    {204};
-client(delete, #{bindings := #{clientid := ClientID}}) ->
-    case emqx_authz_mnesia:get_rules({clientid, ClientID}) of
-        not_found ->
-            {404, #{code => <<"NOT_FOUND">>, message => <<"ClientID Not Found">>}};
-        {ok, _Rules} ->
-            emqx_authz_mnesia:delete_rules({clientid, ClientID}),
+    ?IF_CONFIGURED_AUTHZ_SOURCE(
+        begin
+            emqx_authz_mnesia:store_rules({clientid, ClientID}, Rules),
             {204}
-    end.
+        end
+    );
+client(delete, #{bindings := #{clientid := ClientID}}) ->
+    ?IF_CONFIGURED_AUTHZ_SOURCE(
+        case emqx_authz_mnesia:get_rules({clientid, ClientID}) of
+            not_found ->
+                {404, #{code => <<"NOT_FOUND">>, message => <<"ClientID Not Found">>}};
+            {ok, _Rules} ->
+                emqx_authz_mnesia:delete_rules({clientid, ClientID}),
+                {204}
+        end
+    ).
 
 all(get, _) ->
-    case emqx_authz_mnesia:get_rules(all) of
-        not_found ->
-            {200, #{rules => []}};
-        {ok, Rules} ->
-            {200, #{
-                rules => format_rules(Rules)
-            }}
-    end;
+    ?IF_CONFIGURED_AUTHZ_SOURCE(
+        case emqx_authz_mnesia:get_rules(all) of
+            not_found ->
+                {200, #{rules => []}};
+            {ok, Rules} ->
+                {200, #{
+                    rules => format_rules(Rules)
+                }}
+        end
+    );
 all(post, #{body := #{<<"rules">> := Rules}}) ->
-    emqx_authz_mnesia:store_rules(all, Rules),
-    {204};
+    ?IF_CONFIGURED_AUTHZ_SOURCE(
+        begin
+            emqx_authz_mnesia:store_rules(all, Rules),
+            {204}
+        end
+    );
 all(delete, _) ->
-    emqx_authz_mnesia:store_rules(all, []),
-    {204}.
+    ?IF_CONFIGURED_AUTHZ_SOURCE(
+        begin
+            emqx_authz_mnesia:store_rules(all, []),
+            {204}
+        end
+    ).
 
 rules(delete, _) ->
-    case emqx_authz_api_sources:get_raw_source(<<"built_in_database">>) of
-        [#{<<"enable">> := false}] ->
-            ok = emqx_authz_mnesia:purge_rules(),
-            {204};
-        [#{<<"enable">> := true}] ->
-            {400, #{
-                code => <<"BAD_REQUEST">>,
-                message =>
-                    <<"'built_in_database' type source must be disabled before purge.">>
-            }};
-        [] ->
-            {404, #{
-                code => <<"BAD_REQUEST">>,
-                message => <<"'built_in_database' type source is not found.">>
-            }}
-    end.
+    ?IF_CONFIGURED_AUTHZ_SOURCE(
+        case emqx_authz_api_sources:get_raw_source(<<"built_in_database">>) of
+            [#{<<"enable">> := false}] ->
+                ok = emqx_authz_mnesia:purge_rules(),
+                {204};
+            [#{<<"enable">> := true}] ->
+                {400, #{
+                    code => <<"BAD_REQUEST">>,
+                    message =>
+                        <<"'built_in_database' type source must be disabled before purge.">>
+                }};
+            [] ->
+                {404, #{
+                    code => <<"BAD_REQUEST">>,
+                    message => <<"'built_in_database' type source is not found.">>
+                }}
+        end
+    ).
 
 %%--------------------------------------------------------------------
 %% QueryString to MatchSpec
