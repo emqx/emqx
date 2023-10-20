@@ -33,6 +33,9 @@
 -define(DEFAULT_APP_ID, <<"default_appid">>).
 -define(DEFAULT_APP_SECRET, <<"default_app_secret">>).
 
+%% from emqx_dashboard/include/emqx_dashboard_rbac.hrl
+-define(ROLE_API_SUPERUSER, <<"api_administrator">>).
+
 request_api(Method, Url, Auth) ->
     request_api(Method, Url, [], Auth, []).
 
@@ -90,7 +93,12 @@ create_default_app() ->
     Now = erlang:system_time(second),
     ExpiredAt = Now + timer:minutes(10),
     emqx_mgmt_auth:create(
-        ?DEFAULT_APP_ID, ?DEFAULT_APP_SECRET, true, ExpiredAt, <<"default app key for test">>
+        ?DEFAULT_APP_ID,
+        ?DEFAULT_APP_SECRET,
+        true,
+        ExpiredAt,
+        <<"default app key for test">>,
+        ?ROLE_API_SUPERUSER
     ).
 
 delete_default_app() ->

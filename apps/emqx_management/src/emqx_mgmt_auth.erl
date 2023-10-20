@@ -16,6 +16,7 @@
 -module(emqx_mgmt_auth).
 -include_lib("emqx/include/emqx.hrl").
 -include_lib("emqx/include/logger.hrl").
+-include_lib("emqx_dashboard/include/emqx_dashboard_rbac.hrl").
 
 -behaviour(emqx_db_backup).
 
@@ -25,33 +26,34 @@
 -behaviour(emqx_config_handler).
 
 -export([
-    create/4,
+    create/5,
     read/1,
-    update/4,
+    update/5,
     delete/1,
     list/0,
     init_bootstrap_file/0,
     format/1
 ]).
 
--export([authorize/3]).
+-export([authorize/4]).
 -export([post_config_update/5]).
 
--export([backup_tables/0]).
+-export([backup_tables/0, validate_mnesia_backup/1, migrate_mnesia_backup/1]).
 
 %% Internal exports (RPC)
 -export([
-    do_update/4,
+    do_update/5,
     do_delete/1,
     do_create_app/3,
     do_force_create_app/3
 ]).
 
 -ifdef(TEST).
--export([create/5]).
+-export([create/6]).
 -endif.
 
 -define(APP, emqx_app).
+-type api_user_role() :: binary().
 
 -record(?APP, {
     name = <<>> :: binary() | '_',
@@ -60,23 +62,56 @@
     enable = true :: boolean() | '_',
     desc = <<>> :: binary() | '_',
     expired_at = 0 :: integer() | undefined | infinity | '_',
-    created_at = 0 :: integer() | '_'
+    created_at = 0 :: integer() | '_',
+    role = ?ROLE_DEFAULT :: api_user_role() | '_',
+    extra = #{} :: map() | '_'
 }).
 
 mnesia(boot) ->
+    Fields = record_info(fields, ?APP),
     ok = mria:create_table(?APP, [
         {type, set},
         {rlog_shard, ?COMMON_SHARD},
         {storage, disc_copies},
         {record_name, ?APP},
-        {attributes, record_info(fields, ?APP)}
-    ]).
+        {attributes, Fields}
+    ]),
+    maybe_migrate_table(Fields).
 
 %%--------------------------------------------------------------------
 %% Data backup
 %%--------------------------------------------------------------------
 
 backup_tables() -> [?APP].
+
+validate_mnesia_backup({schema, _Tab, CreateList} = Schema) ->
+    case emqx_mgmt_data_backup:default_validate_mnesia_backup(Schema) of
+        ok ->
+            {ok, over};
+        _ ->
+            case proplists:get_value(attributes, CreateList) of
+                [name, api_key, api_secret_hash, enable, desc, expired_at, created_at] ->
+                    {ok, migrate};
+                Fields ->
+                    {error, {unknow_fields, Fields}}
+            end
+    end;
+validate_mnesia_backup(_Other) ->
+    ok.
+
+migrate_mnesia_backup({schema, Tab, CreateList}) ->
+    case proplists:get_value(attributes, CreateList) of
+        [name, api_key, api_secret_hash, enable, desc, expired_at, created_at] = Fields ->
+            NewFields = Fields ++ [role, extra],
+            CreateList2 = lists:keyreplace(
+                attributes, 1, CreateList, {attributes, NewFields}
+            ),
+            {ok, {schema, Tab, CreateList2}};
+        Fields ->
+            {error, {unknow_fields, Fields}}
+    end;
+migrate_mnesia_backup(Data) ->
+    {ok, do_table_migrate(Data)}.
 
 post_config_update([api_key], _Req, NewConf, _OldConf, _AppEnvs) ->
     #{bootstrap_file := File} = NewConf,
@@ -95,13 +130,13 @@ init_bootstrap_file() ->
     ?SLOG(debug, #{msg => "init_bootstrap_api_keys_from_file", file => File}),
     init_bootstrap_file(File).
 
-create(Name, Enable, ExpiredAt, Desc) ->
+create(Name, Enable, ExpiredAt, Desc, Role) ->
     ApiSecret = generate_api_secret(),
-    create(Name, ApiSecret, Enable, ExpiredAt, Desc).
+    create(Name, ApiSecret, Enable, ExpiredAt, Desc, Role).
 
-create(Name, ApiSecret, Enable, ExpiredAt, Desc) ->
+create(Name, ApiSecret, Enable, ExpiredAt, Desc, Role) ->
     case mnesia:table_info(?APP, size) < 100 of
-        true -> create_app(Name, ApiSecret, Enable, ExpiredAt, Desc);
+        true -> create_app(Name, ApiSecret, Enable, ExpiredAt, Desc, Role);
         false -> {error, "Maximum ApiKey"}
     end.
 
@@ -111,10 +146,15 @@ read(Name) ->
         [] -> {error, not_found}
     end.
 
-update(Name, Enable, ExpiredAt, Desc) ->
-    trans(fun ?MODULE:do_update/4, [Name, Enable, ExpiredAt, Desc]).
+update(Name, Enable, ExpiredAt, Desc, Role) ->
+    case valid_role(Role) of
+        ok ->
+            trans(fun ?MODULE:do_update/5, [Name, Enable, ExpiredAt, Desc, Role]);
+        Error ->
+            Error
+    end.
 
-do_update(Name, Enable, ExpiredAt, Desc) ->
+do_update(Name, Enable, ExpiredAt, Desc, Role) ->
     case mnesia:read(?APP, Name, write) of
         [] ->
             mnesia:abort(not_found);
@@ -123,7 +163,8 @@ do_update(Name, Enable, ExpiredAt, Desc) ->
                 App0#?APP{
                     expired_at = ExpiredAt,
                     enable = ensure_not_undefined(Enable, Enable0),
-                    desc = ensure_not_undefined(Desc, Desc0)
+                    desc = ensure_not_undefined(Desc, Desc0),
+                    role = Role
                 },
             ok = mnesia:write(App),
             to_map(App)
@@ -138,37 +179,37 @@ do_delete(Name) ->
         [_App] -> mnesia:delete({?APP, Name})
     end.
 
-format(App = #{expired_at := ExpiredAt0, created_at := CreateAt}) ->
-    ExpiredAt =
-        case ExpiredAt0 of
-            infinity -> <<"infinity">>;
-            _ -> emqx_utils_calendar:epoch_to_rfc3339(ExpiredAt0, second)
-        end,
-    App#{
-        expired_at => ExpiredAt,
-        created_at => emqx_utils_calendar:epoch_to_rfc3339(CreateAt, second)
-    }.
+format(App = #{expired_at := ExpiredAt, created_at := CreateAt}) ->
+    format_app_extend(App#{
+        expired_at => format_epoch(ExpiredAt),
+        created_at => format_epoch(CreateAt)
+    }).
+
+format_epoch(infinity) ->
+    <<"infinity">>;
+format_epoch(Epoch) ->
+    emqx_utils_calendar:epoch_to_rfc3339(Epoch, second).
 
 list() ->
     to_map(ets:match_object(?APP, #?APP{_ = '_'})).
 
-authorize(<<"/api/v5/users", _/binary>>, _ApiKey, _ApiSecret) ->
+authorize(<<"/api/v5/users", _/binary>>, _Req, _ApiKey, _ApiSecret) ->
     {error, <<"not_allowed">>};
-authorize(<<"/api/v5/api_key", _/binary>>, _ApiKey, _ApiSecret) ->
+authorize(<<"/api/v5/api_key", _/binary>>, _Req, _ApiKey, _ApiSecret) ->
     {error, <<"not_allowed">>};
-authorize(<<"/api/v5/logout", _/binary>>, _ApiKey, _ApiSecret) ->
+authorize(<<"/api/v5/logout", _/binary>>, _Req, _ApiKey, _ApiSecret) ->
     {error, <<"not_allowed">>};
-authorize(_Path, ApiKey, ApiSecret) ->
+authorize(_Path, Req, ApiKey, ApiSecret) ->
     Now = erlang:system_time(second),
     case find_by_api_key(ApiKey) of
-        {ok, true, ExpiredAt, SecretHash} when ExpiredAt >= Now ->
+        {ok, true, ExpiredAt, SecretHash, Role} when ExpiredAt >= Now ->
             case emqx_dashboard_admin:verify_hash(ApiSecret, SecretHash) of
-                ok -> ok;
+                ok -> check_rbac(Req, Role);
                 error -> {error, "secret_error"}
             end;
-        {ok, true, _ExpiredAt, _SecretHash} ->
+        {ok, true, _ExpiredAt, _SecretHash, _Role} ->
             {error, "secret_expired"};
-        {ok, false, _ExpiredAt, _SecretHash} ->
+        {ok, false, _ExpiredAt, _SecretHash, _Role} ->
             {error, "secret_disable"};
         {error, Reason} ->
             {error, Reason}
@@ -177,8 +218,12 @@ authorize(_Path, ApiKey, ApiSecret) ->
 find_by_api_key(ApiKey) ->
     Fun = fun() -> mnesia:match_object(#?APP{api_key = ApiKey, _ = '_'}) end,
     case mria:ro_transaction(?COMMON_SHARD, Fun) of
-        {atomic, [#?APP{api_secret_hash = SecretHash, enable = Enable, expired_at = ExpiredAt}]} ->
-            {ok, Enable, ExpiredAt, SecretHash};
+        {atomic, [
+            #?APP{
+                api_secret_hash = SecretHash, enable = Enable, expired_at = ExpiredAt, role = Role
+            }
+        ]} ->
+            {ok, Enable, ExpiredAt, SecretHash, Role};
         _ ->
             {error, "not_found"}
     end.
@@ -188,7 +233,9 @@ ensure_not_undefined(New, _Old) -> New.
 
 to_map(Apps) when is_list(Apps) ->
     [to_map(App) || App <- Apps];
-to_map(#?APP{name = N, api_key = K, enable = E, expired_at = ET, created_at = CT, desc = D}) ->
+to_map(#?APP{
+    name = N, api_key = K, enable = E, expired_at = ET, created_at = CT, desc = D, role = Role
+}) ->
     #{
         name => N,
         api_key => K,
@@ -196,13 +243,14 @@ to_map(#?APP{name = N, api_key = K, enable = E, expired_at = ET, created_at = CT
         expired_at => ET,
         created_at => CT,
         desc => D,
-        expired => is_expired(ET)
+        expired => is_expired(ET),
+        role => Role
     }.
 
 is_expired(undefined) -> false;
 is_expired(ExpiredTime) -> ExpiredTime < erlang:system_time(second).
 
-create_app(Name, ApiSecret, Enable, ExpiredAt, Desc) ->
+create_app(Name, ApiSecret, Enable, ExpiredAt, Desc, Role) ->
     App =
         #?APP{
             name = Name,
@@ -211,7 +259,8 @@ create_app(Name, ApiSecret, Enable, ExpiredAt, Desc) ->
             desc = Desc,
             created_at = erlang:system_time(second),
             api_secret_hash = emqx_dashboard_admin:hash(ApiSecret),
-            api_key = list_to_binary(emqx_utils:gen_id(16))
+            api_key = list_to_binary(emqx_utils:gen_id(16)),
+            role = Role
         },
     case create_app(App) of
         {ok, Res} ->
@@ -220,8 +269,13 @@ create_app(Name, ApiSecret, Enable, ExpiredAt, Desc) ->
             Error
     end.
 
-create_app(App = #?APP{api_key = ApiKey, name = Name}) ->
-    trans(fun ?MODULE:do_create_app/3, [App, ApiKey, Name]).
+create_app(App = #?APP{api_key = ApiKey, name = Name, role = Role}) ->
+    case valid_role(Role) of
+        ok ->
+            trans(fun ?MODULE:do_create_app/3, [App, ApiKey, Name]);
+        Error ->
+            Error
+    end.
 
 force_create_app(NamePrefix, App = #?APP{api_key = ApiKey}) ->
     trans(fun ?MODULE:do_force_create_app/3, [App, ApiKey, NamePrefix]).
@@ -340,3 +394,58 @@ add_bootstrap_file(File, Dev, MP, Line) ->
         {error, Reason} ->
             throw(#{file => File, line => Line, reason => Reason})
     end.
+
+-if(?EMQX_RELEASE_EDITION == ee).
+check_rbac(Req, Role) ->
+    case emqx_dashboard_rbac:check_rbac(Req, Role) of
+        true ->
+            ok;
+        _ ->
+            {error, unauthorized_role}
+    end.
+
+format_app_extend(App) ->
+    App.
+
+valid_role(Role) ->
+    emqx_dashboard_rbac:valid_api_role(Role).
+
+-else.
+
+check_rbac(_Req, _Role) ->
+    ok.
+
+format_app_extend(App) ->
+    maps:remove(role, App).
+
+valid_role(?ROLE_API_DEFAULT) ->
+    ok;
+valid_role(_) ->
+    {error, <<"Role does not exist">>}.
+
+-endif.
+
+maybe_migrate_table(Fields) ->
+    case mnesia:table_info(?APP, attributes) =:= Fields of
+        true ->
+            ok;
+        false ->
+            TransFun = fun do_table_migrate/1,
+            {atomic, ok} = mnesia:transform_table(?APP, TransFun, Fields, ?APP),
+            ok
+    end.
+
+do_table_migrate({?APP, Name, Key, Hash, Enable, Desc, ExpiredAt, CreatedAt}) ->
+    #?APP{
+        name = Name,
+        api_key = Key,
+        api_secret_hash = Hash,
+        enable = Enable,
+        desc = Desc,
+        expired_at = ExpiredAt,
+        created_at = CreatedAt,
+        role = ?ROLE_API_DEFAULT,
+        extra = #{}
+    };
+do_table_migrate(#?APP{} = App) ->
+    App.

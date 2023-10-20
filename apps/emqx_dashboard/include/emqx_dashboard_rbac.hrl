@@ -13,24 +13,21 @@
 %% See the License for the specific language governing permissions and
 %% limitations under the License.
 %%--------------------------------------------------------------------
+-ifndef(EMQX_DASHBOARD_RBAC).
+-define(EMQX_DASHBOARD_RBAC, true).
 
--module(emqx_db_backup).
+%% TODO:
+%% The predefined roles of the preliminary RBAC implementation,
+%% these may be removed when developing the full RBAC feature.
+%% In full RBAC feature, the role may be customised created and deleted,
+%% a predefined configuration would replace these macros.
+-define(ROLE_VIEWER, <<"viewer">>).
+-define(ROLE_SUPERUSER, <<"administrator">>).
+-define(ROLE_DEFAULT, ?ROLE_SUPERUSER).
 
--type traverse_break_reason() :: over | migrate.
+-define(ROLE_API_VIEWER, <<"api_viewer">>).
+-define(ROLE_API_SUPERUSER, <<"api_administrator">>).
+-define(ROLE_API_PUBLISHER, <<"api_publisher">>).
+-define(ROLE_API_DEFAULT, ?ROLE_API_SUPERUSER).
 
--callback backup_tables() -> [mria:table()].
-
-%% validate the backup
-%% return `ok` to traverse the next item
-%% return `{ok, over}` to finish the traverse
-%% return `{ok, migrate}` to call the migration callback
--callback validate_mnesia_backup(tuple()) ->
-    ok
-    | {ok, traverse_break_reason()}
-    | {error, term()}.
-
--callback migrate_mnesia_backup(tuple()) -> {ok, tuple()} | {error, term()}.
-
--optional_callbacks([validate_mnesia_backup/1, migrate_mnesia_backup/1]).
-
--export_type([traverse_break_reason/0]).
+-endif.

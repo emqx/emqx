@@ -423,7 +423,7 @@ ensure_role(Role) when is_binary(Role) ->
 
 -if(?EMQX_RELEASE_EDITION == ee).
 legal_role(Role) ->
-    emqx_dashboard_rbac:valid_role(Role).
+    emqx_dashboard_rbac:valid_dashboard_role(Role).
 
 role(Data) ->
     emqx_dashboard_rbac:role(Data).
@@ -454,8 +454,10 @@ lookup_user(Backend, Username) when is_atom(Backend) ->
 
 -dialyzer({no_match, [add_user/4, update_user/3]}).
 
+legal_role(?ROLE_DEFAULT) ->
+    ok;
 legal_role(_) ->
-    ok.
+    {error, <<"Role does not exist">>}.
 
 role(_) ->
     ?ROLE_DEFAULT.

@@ -212,7 +212,7 @@ listener_name(Protocol) ->
 
 -if(?EMQX_RELEASE_EDITION =/= ee).
 %% dialyzer complains about the `unauthorized_role' clause...
--dialyzer({no_match, [authorize/1]}).
+-dialyzer({no_match, [authorize/1, api_key_authorize/3]}).
 -endif.
 
 authorize(Req) ->
@@ -251,7 +251,7 @@ listeners() ->
 
 api_key_authorize(Req, Key, Secret) ->
     Path = cowboy_req:path(Req),
-    case emqx_mgmt_auth:authorize(Path, Key, Secret) of
+    case emqx_mgmt_auth:authorize(Path, Req, Key, Secret) of
         ok ->
             {ok, #{auth_type => api_key, api_key => Key}};
         {error, <<"not_allowed">>} ->
@@ -259,6 +259,9 @@ api_key_authorize(Req, Key, Secret) ->
                 ?BAD_API_KEY_OR_SECRET,
                 <<"Not allowed, Check api_key/api_secret">>
             );
+        {error, unauthorized_role} ->
+            {403, 'UNAUTHORIZED_ROLE',
+                <<"This API Key don't have permission to access this resource">>};
         {error, _} ->
             return_unauthorized(
                 ?BAD_API_KEY_OR_SECRET,
