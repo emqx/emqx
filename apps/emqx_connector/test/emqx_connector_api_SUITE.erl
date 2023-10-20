@@ -51,7 +51,11 @@
 }).
 -define(KAFKA_CONNECTOR_BASE, ?KAFKA_CONNECTOR_BASE(?KAFKA_BOOTSTRAP_HOST)).
 -define(KAFKA_CONNECTOR(Name, BootstrapHosts),
-        ?CONNECTOR(Name, ?CONNECTOR_TYPE)?KAFKA_CONNECTOR_BASE(BootstrapHosts)).
+    maps:merge(
+        ?CONNECTOR(Name, ?CONNECTOR_TYPE),
+        ?KAFKA_CONNECTOR_BASE(BootstrapHosts)
+    )
+).
 -define(KAFKA_CONNECTOR(Name), ?KAFKA_CONNECTOR(Name, ?KAFKA_BOOTSTRAP_HOST)).
 
 %% -define(CONNECTOR_TYPE_MQTT, <<"mqtt">>).
@@ -605,7 +609,7 @@ t_enable_disable_connectors(Config) ->
 t_with_redact_update(Config) ->
     Name = <<"redact_update">>,
     Password = <<"123456">>,
-    Template = ?KAFKA_CONNECTOR(Name)#{
+    Template = (?KAFKA_CONNECTOR(Name))#{
         <<"authentication">> => #{
             <<"mechanism">> => <<"plain">>,
             <<"username">> => <<"test">>,
