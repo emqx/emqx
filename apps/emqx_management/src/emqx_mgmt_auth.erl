@@ -14,6 +14,7 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 -module(emqx_mgmt_auth).
+-include_lib("emqx_mgmt.hrl").
 -include_lib("emqx/include/emqx.hrl").
 -include_lib("emqx/include/logger.hrl").
 
@@ -49,6 +50,7 @@
 
 -ifdef(TEST).
 -export([create/6]).
+-export([trans/2, force_create_app/1]).
 -endif.
 
 -define(APP, emqx_app).
