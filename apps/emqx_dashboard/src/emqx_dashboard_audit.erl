@@ -22,10 +22,10 @@
 
 %% filter high frequency events
 -define(HIGH_FREQUENCY_REQUESTS, [
-    <<"/clients/:clientid/publish">>,
+    <<"/publish">>,
     <<"/clients/:clientid/subscribe">>,
     <<"/clients/:clientid/unsubscribe">>,
-    <<"/clients/:clientid/publish/bulk">>,
+    <<"/publish/bulk">>,
     <<"/clients/:clientid/unsubscribe/bulk">>,
     <<"/clients/:clientid/subscribe/bulk">>,
     <<"/clients/kickout/bulk">>

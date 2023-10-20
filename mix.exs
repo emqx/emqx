@@ -331,6 +331,7 @@ defmodule EMQXUmbrella.MixProject do
             :emqx_gateway_exproto,
             :emqx_dashboard,
             :emqx_dashboard_sso,
+            :emqx_audit,
             :emqx_resource,
             :emqx_connector,
             :emqx_exhook,
