@@ -69,7 +69,7 @@ on:
       builder_vsn:
         required: false
         type: string
-        default: '5.1-4'
+        default: '5.2-3'
       runner_labels:
         required: false
         type: string

@@ -32,7 +32,7 @@ jobs:
           - ubuntu22.04
           - amzn2023
         builder:
-          - 5.1-4
+          - 5.2-3
         elixir:
           - 1.14.5
 
