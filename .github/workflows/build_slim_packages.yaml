@@ -34,11 +34,11 @@ on:
       builder:
         required: false
         type: string
-        default: 'ghcr.io/emqx/emqx-builder/5.1-4:1.14.5-25.3.2-2-ubuntu22.04'
+        default: 'ghcr.io/emqx/emqx-builder/5.2-3:1.14.5-25.3.2-2-ubuntu22.04'
       builder_vsn:
         required: false
         type: string
-        default: '5.1-4'
+        default: '5.2-3'
       otp_vsn:
         required: false
         type: string
