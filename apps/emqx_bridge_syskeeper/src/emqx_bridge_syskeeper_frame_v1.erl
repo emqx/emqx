@@ -63,7 +63,7 @@ parse_forward(<<_:4, AckVal:4, Bin/binary>>) ->
             {ok, #{
                 type => forward,
                 ack => ?I2B(AckVal),
-                messages => emqx_bridge_syskeeper_frame:marshaller(MsgBin)
+                messages => marshaller(MsgBin)
             }};
         Error ->
             Error

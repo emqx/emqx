@@ -52,7 +52,7 @@ on_start(
     } = Config
 ) ->
     ?SLOG(info, #{
-        msg => "starting_syskeeper_connector",
+        msg => "starting_syskeeper_proxy_server",
         connector => InstanceId,
         config => Config
     }),
@@ -78,7 +78,7 @@ on_start(
 
 on_stop(InstanceId, _State) ->
     ?SLOG(info, #{
-        msg => "stopping_syskeeper_connector",
+        msg => "stopping_syskeeper_proxy_server",
         connector => InstanceId
     }),
     case emqx_resource:get_allocated_resources(InstanceId) of
@@ -127,8 +127,11 @@ init([Transport, Socket, Conf]) ->
 
 handle_event(internal, wait_ready, wait_ready, Data) ->
     wait_ready(Data);
-handle_event(state_timeout, handshake_timeout, handshake, _Data) ->
-    %%    ?LOG(error, "Handshake tiemout~n", []),
+handle_event(state_timeout, handshake_timeout, handshake, Data) ->
+    ?SLOG(info, #{
+        msg => "syskeeper_proxy_server_handshake_timeout",
+        data => Data
+    }),
     {stop, normal};
 handle_event(internal, try_parse, running, Data) ->
     try_parse(running, Data);
@@ -136,11 +139,21 @@ handle_event(info, {tcp, _Socket, Bin}, State, Data) ->
     try_parse(State, combine_buffer(Bin, Data));
 handle_event(info, {tcp_closed, _}, _State, _Data) ->
     {stop, normal};
-handle_event(info, {tcp_error, _, _Reason}, _State, _Data) ->
-    %%    ?LOG(warning, "TCP error, reason:~p~n", [Reason]),
+handle_event(info, {tcp_error, Error, Reason}, _State, _Data) ->
+    ?SLOG(warning, #{
+        msg => "syskeeper_proxy_server_tcp_error",
+        error => Error,
+        reason => Reason
+    }),
     {stop, normal};
-handle_event(_Event, _Content, _State, _Data) ->
-    %%    ?LOG(warning, "Unexpected event:~p, Context:~p, State:~p~n", [Event, Content, State]),
+handle_event(Event, Content, State, Data) ->
+    ?SLOG(warning, #{
+        msg => "syskeeper_proxy_server_unexpected_event",
+        event => Event,
+        content => Content,
+        state => State,
+        data => Data
+    }),
     keep_state_and_data.
 
 -spec terminate(Reason :: term(), State :: state(), Data :: data()) ->
@@ -183,6 +196,11 @@ wait_ready(
                 {state_timeout, Timeout, handshake_timeout}};
         {error, Reason} ->
             ok = Transport:fast_close(RawSocket),
+            ?SLOG(error, #{
+                msg => "syskeeper_proxy_server_listen_error",
+                transport => Transport,
+                reason => Reason
+            }),
             {stop, Reason}
     end.
 
@@ -202,8 +220,13 @@ try_parse(State, #{buffer := Bin} = Data) ->
             end;
         {error, incomplete} ->
             {keep_state, Data};
-        {error, _Reason} ->
-            %%            ?LOG(warning, "Parse error, reason:~p, buffer:~p~n", [Reason, Bin]),
+        {error, Reason} ->
+            ?SLOG(error, #{
+                msg => "syskeeper_proxy_server_try_parse_error",
+                state => State,
+                data => Data,
+                reason => Reason
+            }),
             {stop, parse_error}
     end.
 
@@ -230,9 +253,14 @@ do_forward(Ack, Messages, Data) ->
 
 handle_parse_result({ok, Msg}, State, Data) ->
     handle_packet(Msg, State, Data);
-handle_parse_result({error, _Reason} = Error, State, Data) ->
+handle_parse_result({error, Reason} = Error, State, Data) ->
     handle_parse_error(Error, State, #{buffer := _Bin} = Data),
-    %%    ?LOG(warning, "Parse error, state:~p, reason:~p, buffer:~p~n", [State, Reason, Bin]),
+    ?SLOG(error, #{
+        msg => "syskeeper_proxy_server_parse_result_error",
+        state => State,
+        data => Data,
+        reason => Reason
+    }),
     {stop, parse_error}.
 
 handle_parse_error(_, handshake, Data) ->
