@@ -14,6 +14,7 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 -module(emqx_mgmt_auth).
+-include_lib("emqx_mgmt.hrl").
 -include_lib("emqx/include/emqx.hrl").
 -include_lib("emqx/include/logger.hrl").
 
@@ -43,12 +44,13 @@
 -export([
     do_update/4,
     do_delete/1,
-    do_create_app/3,
-    do_force_create_app/3
+    do_create_app/1,
+    do_force_create_app/1
 ]).
 
 -ifdef(TEST).
--export([create/5]).
+-export([create/6]).
+-export([trans/2, force_create_app/1]).
 -endif.
 
 -define(APP, emqx_app).
@@ -62,6 +64,8 @@
     expired_at = 0 :: integer() | undefined | infinity | '_',
     created_at = 0 :: integer() | '_'
 }).
+
+-define(DEFAULT_HASH_LEN, 16).
 
 mnesia(boot) ->
     ok = mria:create_table(?APP, [
@@ -97,11 +101,12 @@ init_bootstrap_file() ->
 
 create(Name, Enable, ExpiredAt, Desc) ->
     ApiSecret = generate_api_secret(),
-    create(Name, ApiSecret, Enable, ExpiredAt, Desc).
+    ApiKey = generate_unique_api_key(Name),
+    create(Name, ApiKey, ApiSecret, Enable, ExpiredAt, Desc).
 
-create(Name, ApiSecret, Enable, ExpiredAt, Desc) ->
+create(Name, ApiKey, ApiSecret, Enable, ExpiredAt, Desc) ->
     case mnesia:table_info(?APP, size) < 100 of
-        true -> create_app(Name, ApiSecret, Enable, ExpiredAt, Desc);
+        true -> create_app(Name, ApiKey, ApiSecret, Enable, ExpiredAt, Desc);
         false -> {error, "Maximum ApiKey"}
     end.
 
@@ -202,7 +207,7 @@ to_map(#?APP{name = N, api_key = K, enable = E, expired_at = ET, created_at = CT
 is_expired(undefined) -> false;
 is_expired(ExpiredTime) -> ExpiredTime < erlang:system_time(second).
 
-create_app(Name, ApiSecret, Enable, ExpiredAt, Desc) ->
+create_app(Name, ApiKey, ApiSecret, Enable, ExpiredAt, Desc) ->
     App =
         #?APP{
             name = Name,
@@ -211,7 +216,7 @@ create_app(Name, ApiSecret, Enable, ExpiredAt, Desc) ->
             desc = Desc,
             created_at = erlang:system_time(second),
             api_secret_hash = emqx_dashboard_admin:hash(ApiSecret),
-            api_key = list_to_binary(emqx_utils:gen_id(16))
+            api_key = ApiKey
         },
     case create_app(App) of
         {ok, Res} ->
@@ -220,13 +225,13 @@ create_app(Name, ApiSecret, Enable, ExpiredAt, Desc) ->
             Error
     end.
 
-create_app(App = #?APP{api_key = ApiKey, name = Name}) ->
-    trans(fun ?MODULE:do_create_app/3, [App, ApiKey, Name]).
+create_app(App) ->
+    trans(fun ?MODULE:do_create_app/1, [App]).
 
-force_create_app(NamePrefix, App = #?APP{api_key = ApiKey}) ->
-    trans(fun ?MODULE:do_force_create_app/3, [App, ApiKey, NamePrefix]).
+force_create_app(App) ->
+    trans(fun ?MODULE:do_force_create_app/1, [App]).
 
-do_create_app(App, ApiKey, Name) ->
+do_create_app(App = #?APP{api_key = ApiKey, name = Name}) ->
     case mnesia:read(?APP, Name) of
         [_] ->
             mnesia:abort(name_already_existed);
@@ -240,21 +245,56 @@ do_create_app(App, ApiKey, Name) ->
             end
     end.
 
-do_force_create_app(App, ApiKey, NamePrefix) ->
+do_force_create_app(App) ->
+    _ = maybe_cleanup_api_key(App),
+    ok = mnesia:write(App).
+
+maybe_cleanup_api_key(#?APP{name = Name, api_key = ApiKey}) ->
     case mnesia:match_object(?APP, #?APP{api_key = ApiKey, _ = '_'}, read) of
         [] ->
-            NewName = generate_unique_name(NamePrefix),
-            ok = mnesia:write(App#?APP{name = NewName});
+            ok;
         [#?APP{name = Name}] ->
-            ok = mnesia:write(App#?APP{name = Name})
+            ?SLOG(debug, #{
+                msg => "same_apikey_detected",
+                info => <<"The last `KEY:SECRET` in bootstrap file will be used.">>
+            }),
+            ok;
+        [_App1] ->
+            ?SLOG(info, #{
+                msg => "update_apikey_name_from_old_version",
+                info => <<"Update ApiKey name with new name rule, more information: xxx">>
+            }),
+            ok;
+        Existed ->
+            %% Duplicated or upgraded from old version:
+            %% Which `Name` and `ApiKey` are not related in old version.
+            %% So delete it/(them) and write a new record with a name strongly related to the apikey.
+            %% The apikeys generated from the file do not have names.
+            %% Generate a name for the apikey from the apikey itself by rule:
+            %% Use `from_bootstrap_file_` as the prefix, and the first 16 digits of the
+            %% sha512 hexadecimal value of the `ApiKey` as the suffix to form the name of the apikey.
+            %% e.g. The name of the apikey: `example-api-key:secret_xxxx` is `from_bootstrap_file_53280fb165b6cd37`
+            ?SLOG(info, #{
+                msg => "duplicated_apikey_detected",
+                info => <<"Delete duplicated apikeys and write a new one from bootstrap file">>
+            }),
+            _ = lists:map(
+                fun(#?APP{name = N}) -> ok = mnesia:delete({?APP, N}) end, Existed
+            ),
+            ok
     end.
 
-generate_unique_name(NamePrefix) ->
-    New = list_to_binary(NamePrefix ++ emqx_utils:gen_id(16)),
-    case mnesia:read(?APP, New) of
-        [] -> New;
-        _ -> generate_unique_name(NamePrefix)
-    end.
+hash_string_from_seed(Seed, PrefixLen) ->
+    <<Integer:512>> = crypto:hash(sha512, Seed),
+    list_to_binary(string:slice(io_lib:format("~128.16.0b", [Integer]), 0, PrefixLen)).
+
+%% Form Dashboard API Key pannel, only `Name` provided for users
+generate_unique_api_key(Name) ->
+    hash_string_from_seed(Name, ?DEFAULT_HASH_LEN).
+
+%% Form BootStrap File, only `ApiKey` provided from file, no `Name`
+generate_unique_name(NamePrefix, ApiKey) ->
+    <<NamePrefix/binary, (hash_string_from_seed(ApiKey, ?DEFAULT_HASH_LEN))/binary>>.
 
 trans(Fun, Args) ->
     case mria:transaction(?COMMON_SHARD, Fun, Args) of
@@ -300,22 +340,24 @@ init_bootstrap_file(File, Dev, MP) ->
     end.
 
 -define(BOOTSTRAP_TAG, <<"Bootstrapped From File">>).
+-define(FROM_BOOTSTRAP_FILE_PREFIX, <<"from_bootstrap_file_">>).
 
 add_bootstrap_file(File, Dev, MP, Line) ->
     case file:read_line(Dev) of
         {ok, Bin} ->
             case re:run(Bin, MP, [global, {capture, all_but_first, binary}]) of
-                {match, [[AppKey, ApiSecret]]} ->
+                {match, [[ApiKey, ApiSecret]]} ->
                     App =
                         #?APP{
+                            name = generate_unique_name(?FROM_BOOTSTRAP_FILE_PREFIX, ApiKey),
+                            api_key = ApiKey,
+                            api_secret_hash = emqx_dashboard_admin:hash(ApiSecret),
                             enable = true,
-                            expired_at = infinity,
                             desc = ?BOOTSTRAP_TAG,
                             created_at = erlang:system_time(second),
-                            api_secret_hash = emqx_dashboard_admin:hash(ApiSecret),
-                            api_key = AppKey
+                            expired_at = infinity
                         },
-                    case force_create_app("from_bootstrap_file_", App) of
+                    case force_create_app(App) of
                         {ok, ok} ->
                             add_bootstrap_file(File, Dev, MP, Line + 1);
                         {error, Reason} ->
