@@ -219,7 +219,9 @@ resolve_schema_module() ->
         "emqx" ->
             emqx_conf_schema;
         "emqx-enterprise" ->
-            emqx_enterprise_schema
+            emqx_enterprise_schema;
+        false ->
+            error("PROFILE environment variable is not set")
     end.
 -else.
 -spec resolve_schema_module() -> no_return().
