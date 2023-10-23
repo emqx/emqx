@@ -341,11 +341,11 @@ do_select(
         try
             case maps:get(continuation, QueryState, undefined) of
                 undefined ->
-                    ets:select(Tab, Ms, Limit);
+                    ets:select_reverse(Tab, Ms, Limit);
                 Continuation ->
                     %% XXX: Repair is necessary because we pass Continuation back
                     %% and forth through the nodes in the `do_cluster_query`
-                    ets:select(ets:repair_continuation(Continuation, Ms))
+                    ets:select_reverse(ets:repair_continuation(Continuation, Ms))
             end
         catch
             exit:_ = Exit ->

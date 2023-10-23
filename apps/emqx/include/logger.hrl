@@ -61,19 +61,15 @@
     )
 end).
 
--define(AUDIT(_Level_, _From_, _Meta_), begin
+-define(AUDIT(_LevelFun_, _MetaFun_), begin
     case emqx_config:get([log, audit], #{enable => false}) of
         #{enable := false} ->
             ok;
         #{enable := true, level := _AllowLevel_} ->
+            _Level_ = _LevelFun_,
             case logger:compare_levels(_AllowLevel_, _Level_) of
                 _R_ when _R_ == lt; _R_ == eq ->
-                    emqx_trace:log(
-                        _Level_,
-                        [{emqx_audit, fun(L, _) -> L end, undefined, undefined}],
-                        _Msg = undefined,
-                        _Meta_#{from => _From_}
-                    );
+                    emqx_audit:log(_Level_, _MetaFun_);
                 gt ->
                     ok
             end

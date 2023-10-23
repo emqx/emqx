@@ -725,6 +725,19 @@ audit_handler_level.desc:
 audit_handler_level.label:
 """Log Level"""
 
+audit_log_max_filter_limit.desc:
+"""Store the latest N log entries in a database for allow `/audit` HTTP API to filter and retrieval of log data."""
+
+audit_log_max_filter_limit.label:
+"""Max Filter Limit"""
+
+audit_log_ignore_high_frequency_request.desc:
+"""Ignore high frequency requests to avoid flooding the audit log,
+such as publish/subscribe kick out http api requests are ignored."""
+
+audit_log_ignore_high_frequency_request.label:
+"""Ignore High Frequency Request"""
+
 desc_rpc.desc:
 """EMQX uses a library called <code>gen_rpc</code> for inter-broker communication.<br/>
 Most of the time the default config should work,

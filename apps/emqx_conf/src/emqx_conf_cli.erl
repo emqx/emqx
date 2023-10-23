@@ -108,15 +108,14 @@ admins(_) ->
     emqx_ctl:usage(usage_sync()).
 
 audit(Level, From, Log) ->
-    Log1 = redact(Log#{time => logger:timestamp()}),
-    ?AUDIT(Level, From, Log1).
+    ?AUDIT(Level, redact(Log#{from => From})).
 
-redact(Logs = #{cmd := admins, args := ["add", Username, _Password | Rest]}) ->
-    Logs#{args => ["add", Username, "******" | Rest]};
-redact(Logs = #{cmd := admins, args := ["passwd", Username, _Password]}) ->
-    Logs#{args => ["passwd", Username, "******"]};
-redact(Logs = #{cmd := license, args := ["update", _License]}) ->
-    Logs#{args => ["update", "******"]};
+redact(Logs = #{cmd := admins, args := [<<"add">>, Username, _Password | Rest]}) ->
+    Logs#{args => [<<"add">>, Username, <<"******">> | Rest]};
+redact(Logs = #{cmd := admins, args := [<<"passwd">>, Username, _Password]}) ->
+    Logs#{args => [<<"passwd">>, Username, <<"******">>]};
+redact(Logs = #{cmd := license, args := [<<"update">>, _License]}) ->
+    Logs#{args => [<<"update">>, "******"]};
 redact(Logs) ->
     Logs.
 

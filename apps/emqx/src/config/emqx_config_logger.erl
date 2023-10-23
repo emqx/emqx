@@ -23,6 +23,8 @@
 -export([post_config_update/5]).
 -export([filter_audit/2]).
 
+-include("logger.hrl").
+
 -define(LOG, [log]).
 -define(AUDIT_HANDLER, emqx_audit).
 
@@ -96,6 +98,7 @@ update_log_handlers(NewHandlers) ->
     ok.
 
 update_log_handler({removed, Id}) ->
+    audit("audit_disabled", Id),
     log_to_console("Config override: ~s is removed~n", [id_for_log(Id)]),
     logger:remove_handler(Id);
 update_log_handler({Action, {handler, Id, Mod, Conf}}) ->
@@ -104,6 +107,7 @@ update_log_handler({Action, {handler, Id, Mod, Conf}}) ->
     _ = logger:remove_handler(Id),
     case logger:add_handler(Id, Mod, Conf) of
         ok ->
+            audit("audit_enabled", Id),
             ok;
         %% Don't crash here, otherwise the cluster rpc will retry the wrong handler forever.
         {error, Reason} ->
@@ -113,6 +117,23 @@ update_log_handler({Action, {handler, Id, Mod, Conf}}) ->
             )
     end,
     ok.
+
+-ifdef(EMQX_RELEASE_EDITION).
+
+-if(?EMQX_RELEASE_EDITION == ee).
+audit(Event, ?AUDIT_HANDLER) ->
+    emqx_audit:log(alert, #{event => Event, from => event});
+audit(_, _) ->
+    ok.
+-else.
+audit(_, _) ->
+    ok.
+-endif.
+
+-else.
+audit(_, _) ->
+    ok.
+-endif.
 
 id_for_log(console) -> "log.console";
 id_for_log(Other) -> "log.file." ++ atom_to_list(Other).
