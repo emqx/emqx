@@ -221,25 +221,30 @@ parse_template([], Templates) ->
 try_apply_template([{Type, _} | _] = Datas, #{templates := Templates} = State) ->
     case maps:find(Type, Templates) of
         {ok, Template} ->
-            {ok, apply_template(Datas, Template, State)};
+            apply_template(Datas, Template, State);
         _ ->
             {error, {unrecoverable_error, {invalid_request, Datas}}}
     end.
 
 apply_template(Datas, Template, State) ->
-    lists:map(
-        fun({_, Data}) ->
-            do_apply_template(Data, Template, State)
-        end,
-        Datas
-    ).
+    apply_template(Datas, Template, State, []).
+
+apply_template([{_, Data} | T], Template, State, Acc) ->
+    case do_apply_template(Data, Template, State) of
+        {ok, Msg} ->
+            apply_template(T, Template, State, [Msg | Acc]);
+        Error ->
+            Error
+    end;
+apply_template([], _Template, _State, Acc) ->
+    {ok, lists:reverse(Acc)}.
 
 do_apply_template(#{id := Id, qos := QoS, clientid := From} = Data, Template, #{
     target_qos := TargetQoS, target_topic_tks := TargetTopicTks
 }) ->
     Msg = maps:with([qos, flags, topic, payload, timestamp], Data),
     Topic = emqx_placeholder:proc_tmpl(TargetTopicTks, Msg),
-    Msg#{
+    {ok, Msg#{
         id => emqx_guid:from_hexstr(Id),
         qos :=
             case TargetQoS of
@@ -251,7 +256,15 @@ do_apply_template(#{id := Id, qos := QoS, clientid := From} = Data, Template, #{
         from => From,
         topic := Topic,
         payload := format_data(Template, Msg)
-    }.
+    }};
+do_apply_template(Data, Template, State) ->
+    ?SLOG(info, #{
+        msg => "syskeeper_connector_apply_template_error",
+        data => Data,
+        template => Template,
+        state => State
+    }),
+    {error, {unrecoverable_error, {invalid_data, Data}}}.
 
 format_data([], Msg) ->
     emqx_utils_json:encode(Msg);
