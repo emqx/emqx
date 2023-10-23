@@ -29,7 +29,8 @@
 -export([render_strict/3]).
 
 -export([lookup_var/2]).
--export([lookup_loose_json/2]).
+-export([lookup/2]).
+
 -export([to_string/1]).
 
 -export_type([t/0]).
@@ -38,6 +39,10 @@
 -export_type([placeholder/0]).
 -export_type([varname/0]).
 -export_type([bindings/0]).
+-export_type([accessor/0]).
+
+-export_type([context/0]).
+-export_type([render_opts/0]).
 
 -type t() :: str() | {'$tpl', deeptpl()}.
 
@@ -70,19 +75,22 @@
     fun((Value :: term()) -> unicode:chardata())
     | fun((varname(), Value :: term()) -> unicode:chardata()).
 
--type var_lookup() ::
-    fun((accessor(), bindings()) -> {ok, binding()} | {error, reason()}).
-
 -type parse_opts() :: #{
     strip_double_quote => boolean()
 }.
 
 -type render_opts() :: #{
-    var_trans => var_trans(),
-    var_lookup => var_lookup()
+    var_trans => var_trans()
 }.
 
--define(PH_VAR_THIS, '$this').
+-type context() ::
+    %% Map with (potentially nested) bindings.
+    bindings()
+    %% Arbitrary term accessible via an access module with `lookup/2` function.
+    | {_AccessModule :: module(), _Bindings}.
+
+%% Access module API
+-callback lookup(accessor(), _Bindings) -> {ok, _Value} | {error, reason()}.
 
 -define(RE_PLACEHOLDER, "\\$\\{[.]?([a-zA-Z0-9._]*)\\}").
 -define(RE_ESCAPE, "\\$\\{(\\$)\\}").
@@ -130,7 +138,7 @@ prepend(Head, To) ->
 parse_accessor(Var) ->
     case string:split(Var, <<".">>, all) of
         [<<>>] ->
-            ?PH_VAR_THIS;
+            [];
         Name ->
             Name
     end.
@@ -180,18 +188,18 @@ render_placeholder(Name) ->
 %% If one or more placeholders are not found in bindings, an error is returned.
 %% By default, all binding values are converted to strings using `to_string/1`
 %% function. Option `var_trans` can be used to override this behaviour.
--spec render(t(), bindings()) ->
+-spec render(t(), context()) ->
     {term(), [_Error :: {varname(), reason()}]}.
-render(Template, Bindings) ->
-    render(Template, Bindings, #{}).
+render(Template, Context) ->
+    render(Template, Context, #{}).
 
--spec render(t(), bindings(), render_opts()) ->
+-spec render(t(), context(), render_opts()) ->
     {term(), [_Error :: {varname(), undefined}]}.
-render(Template, Bindings, Opts) when is_list(Template) ->
+render(Template, Context, Opts) when is_list(Template) ->
     lists:mapfoldl(
         fun
             ({var, Name, Accessor}, EAcc) ->
-                {String, Errors} = render_binding(Name, Accessor, Bindings, Opts),
+                {String, Errors} = render_binding(Name, Accessor, Context, Opts),
                 {String, Errors ++ EAcc};
             (String, EAcc) ->
                 {String, EAcc}
@@ -199,11 +207,11 @@ render(Template, Bindings, Opts) when is_list(Template) ->
         [],
         Template
     );
-render({'$tpl', Template}, Bindings, Opts) ->
-    render_deep(Template, Bindings, Opts).
+render({'$tpl', Template}, Context, Opts) ->
+    render_deep(Template, Context, Opts).
 
-render_binding(Name, Accessor, Bindings, Opts) ->
-    case lookup_value(Accessor, Bindings, Opts) of
+render_binding(Name, Accessor, Context, Opts) ->
+    case lookup_value(Accessor, Context) of
         {ok, Value} ->
             {render_value(Name, Value, Opts), []};
         {error, Reason} ->
@@ -213,9 +221,9 @@ render_binding(Name, Accessor, Bindings, Opts) ->
             {render_value(Name, undefined, Opts), [{Name, Reason}]}
     end.
 
-lookup_value(Accessor, Bindings, #{var_lookup := LookupFun}) ->
-    LookupFun(Accessor, Bindings);
-lookup_value(Accessor, Bindings, #{}) ->
+lookup_value(Accessor, {AccessMod, Bindings}) ->
+    AccessMod:lookup(Accessor, Bindings);
+lookup_value(Accessor, Bindings) ->
     lookup_var(Accessor, Bindings).
 
 render_value(_Name, Value, #{var_trans := TransFun}) when is_function(TransFun, 1) ->
@@ -228,19 +236,19 @@ render_value(_Name, Value, #{}) ->
 %% @doc Render a template with given bindings.
 %% Behaves like `render/2`, but raises an error exception if one or more placeholders
 %% are not found in the bindings.
--spec render_strict(t(), bindings()) ->
+-spec render_strict(t(), context()) ->
     term().
-render_strict(Template, Bindings) ->
-    render_strict(Template, Bindings, #{}).
+render_strict(Template, Context) ->
+    render_strict(Template, Context, #{}).
 
--spec render_strict(t(), bindings(), render_opts()) ->
+-spec render_strict(t(), context(), render_opts()) ->
     term().
-render_strict(Template, Bindings, Opts) ->
-    case render(Template, Bindings, Opts) of
+render_strict(Template, Context, Opts) ->
+    case render(Template, Context, Opts) of
         {Render, []} ->
             Render;
         {_, Errors = [_ | _]} ->
-            error(Errors, [unparse(Template), Bindings])
+            error(Errors, [unparse(Template), Context])
     end.
 
 %% @doc Parse an arbitrary Erlang term into a "deep" template.
@@ -275,30 +283,30 @@ parse_deep_term(Term, Opts) when is_binary(Term) ->
 parse_deep_term(Term, _Opts) ->
     Term.
 
-render_deep(Template, Bindings, Opts) when is_map(Template) ->
+render_deep(Template, Context, Opts) when is_map(Template) ->
     maps:fold(
         fun(KT, VT, {Acc, Errors}) ->
-            {K, KErrors} = render_deep(KT, Bindings, Opts),
-            {V, VErrors} = render_deep(VT, Bindings, Opts),
+            {K, KErrors} = render_deep(KT, Context, Opts),
+            {V, VErrors} = render_deep(VT, Context, Opts),
             {Acc#{K => V}, KErrors ++ VErrors ++ Errors}
         end,
         {#{}, []},
         Template
     );
-render_deep({list, Template}, Bindings, Opts) when is_list(Template) ->
+render_deep({list, Template}, Context, Opts) when is_list(Template) ->
     lists:mapfoldr(
         fun(T, Errors) ->
-            {E, VErrors} = render_deep(T, Bindings, Opts),
+            {E, VErrors} = render_deep(T, Context, Opts),
             {E, VErrors ++ Errors}
         end,
         [],
         Template
     );
-render_deep({tuple, Template}, Bindings, Opts) when is_list(Template) ->
-    {Term, Errors} = render_deep({list, Template}, Bindings, Opts),
+render_deep({tuple, Template}, Context, Opts) when is_list(Template) ->
+    {Term, Errors} = render_deep({list, Template}, Context, Opts),
     {list_to_tuple(Term), Errors};
-render_deep(Template, Bindings, Opts) when is_list(Template) ->
-    {String, Errors} = render(Template, Bindings, Opts),
+render_deep(Template, Context, Opts) when is_list(Template) ->
+    {String, Errors} = render(Template, Context, Opts),
     {unicode:characters_to_binary(String), Errors};
 render_deep(Term, _Bindings, _Opts) ->
     {Term, []}.
@@ -331,7 +339,7 @@ unparse_deep(Term) ->
 lookup_var(Var, Bindings) ->
     lookup_var(0, Var, Bindings).
 
-lookup_var(_, Var, Value) when Var == ?PH_VAR_THIS orelse Var == [] ->
+lookup_var(_, [], Value) ->
     {ok, Value};
 lookup_var(Loc, [Prop | Rest], Bindings) when is_map(Bindings) ->
     case lookup(Prop, Bindings) of
@@ -341,35 +349,6 @@ lookup_var(Loc, [Prop | Rest], Bindings) when is_map(Bindings) ->
             {error, Reason}
     end;
 lookup_var(Loc, _, Invalid) ->
-    {error, {Loc, type_name(Invalid)}}.
-
-%% @doc Lookup a variable in the bindings accessible through the accessor.
-%% Additionally to `lookup_var/2` behavior, this function also tries to parse any
-%% binary as JSON to a map if accessor needs to go deeper into it.
--spec lookup_loose_json(accessor(), bindings() | binary()) ->
-    {ok, binding()} | {error, reason()}.
-lookup_loose_json(Var, Bindings) ->
-    lookup_loose_json(0, Var, Bindings).
-
-lookup_loose_json(_, Var, Value) when Var == ?PH_VAR_THIS orelse Var == [] ->
-    {ok, Value};
-lookup_loose_json(Loc, [Prop | Rest], Bindings) when is_map(Bindings) ->
-    case lookup(Prop, Bindings) of
-        {ok, Value} ->
-            lookup_loose_json(Loc + 1, Rest, Value);
-        {error, Reason} ->
-            {error, Reason}
-    end;
-lookup_loose_json(Loc, Rest, Json) when is_binary(Json) ->
-    try emqx_utils_json:decode(Json) of
-        Bindings ->
-            % NOTE: This is intentional, we don't want to parse nested JSON.
-            lookup_var(Loc, Rest, Bindings)
-    catch
-        error:_ ->
-            {error, {Loc, binary}}
-    end;
-lookup_loose_json(Loc, _, Invalid) ->
     {error, {Loc, type_name(Invalid)}}.
 
 type_name(Term) when is_atom(Term) -> atom;

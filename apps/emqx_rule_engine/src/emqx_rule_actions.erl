@@ -232,11 +232,10 @@ parse_user_properties(_) ->
     undefined.
 
 render_template(Template, Bindings) ->
-    Opts = #{var_lookup => fun emqx_template:lookup_loose_json/2},
-    emqx_template:render(Template, Bindings, Opts).
+    emqx_template:render(Template, {emqx_jsonish, Bindings}).
 
 render_simple_var([{var, _Name, Accessor}], Data, Default) ->
-    case emqx_template:lookup_loose_json(Accessor, Data) of
+    case emqx_jsonish:lookup(Accessor, Data) of
         {ok, Var} -> Var;
         %% cannot find the variable from Data
         {error, _} -> Default

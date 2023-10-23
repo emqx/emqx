@@ -27,9 +27,9 @@
 
 -export_type([row_template/0]).
 
--type template() :: emqx_template:t().
+-type template() :: emqx_template:str().
 -type row_template() :: [emqx_template:placeholder()].
--type bindings() :: emqx_template:bindings().
+-type context() :: emqx_template:context().
 
 -type values() :: [emqx_utils_sql:value()].
 
@@ -62,19 +62,19 @@ parse(String, Opts) ->
 %% @doc Render an SQL statement template given a set of bindings.
 %% Interpolation generally follows the SQL syntax, strings are escaped according to the
 %% `escaping` option.
--spec render(template(), bindings(), render_opts()) ->
+-spec render(template(), context(), render_opts()) ->
     {unicode:chardata(), [_Error]}.
-render(Template, Bindings, Opts) ->
-    emqx_template:render(Template, Bindings, #{
+render(Template, Context, Opts) ->
+    emqx_template:render(Template, Context, #{
         var_trans => fun(Value) -> emqx_utils_sql:to_sql_string(Value, Opts) end
     }).
 
 %% @doc Render an SQL statement template given a set of bindings.
 %% Errors are raised if any placeholders are not bound.
--spec render_strict(template(), bindings(), render_opts()) ->
+-spec render_strict(template(), context(), render_opts()) ->
     unicode:chardata().
-render_strict(Template, Bindings, Opts) ->
-    emqx_template:render_strict(Template, Bindings, #{
+render_strict(Template, Context, Opts) ->
+    emqx_template:render_strict(Template, Context, #{
         var_trans => fun(Value) -> emqx_utils_sql:to_sql_string(Value, Opts) end
     }).
 
@@ -124,14 +124,14 @@ mk_replace(':n', N) ->
 %% An _SQL value_ is a vaguely defined concept here, it is something that's considered
 %% compatible with the protocol of the database being used. See the definition of
 %% `emqx_utils_sql:value()` for more details.
--spec render_prepstmt(template(), bindings()) ->
+-spec render_prepstmt(template(), context()) ->
     {values(), [_Error]}.
-render_prepstmt(Template, Bindings) ->
+render_prepstmt(Template, Context) ->
     Opts = #{var_trans => fun emqx_utils_sql:to_sql_value/1},
-    emqx_template:render(Template, Bindings, Opts).
+    emqx_template:render(Template, Context, Opts).
 
--spec render_prepstmt_strict(template(), bindings()) ->
+-spec render_prepstmt_strict(template(), context()) ->
     values().
-render_prepstmt_strict(Template, Bindings) ->
+render_prepstmt_strict(Template, Context) ->
     Opts = #{var_trans => fun emqx_utils_sql:to_sql_value/1},
-    emqx_template:render_strict(Template, Bindings, Opts).
+    emqx_template:render_strict(Template, Context, Opts).

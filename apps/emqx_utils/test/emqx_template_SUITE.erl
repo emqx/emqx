@@ -25,7 +25,7 @@
 all() -> emqx_common_test_helpers:all(?MODULE).
 
 t_render(_) ->
-    Bindings = #{
+    Context = #{
         a => <<"1">>,
         b => 1,
         c => 1.0,
@@ -38,15 +38,15 @@ t_render(_) ->
     ),
     ?assertEqual(
         {<<"a:1,b:1,c:1.0,d:{\"d1\":\"hi\"},d1:hi,l:[0,1,1000],u:utf-8 is ǝɹǝɥ"/utf8>>, []},
-        render_string(Template, Bindings)
+        render_string(Template, Context)
     ).
 
 t_render_var_trans(_) ->
-    Bindings = #{a => <<"1">>, b => 1, c => #{prop => 1.0}},
+    Context = #{a => <<"1">>, b => 1, c => #{prop => 1.0}},
     Template = emqx_template:parse(<<"a:${a},b:${b},c:${c.prop}">>),
     {String, Errors} = emqx_template:render(
         Template,
-        Bindings,
+        Context,
         #{var_trans => fun(Name, _) -> "<" ++ Name ++ ">" end}
     ),
     ?assertEqual(
@@ -55,7 +55,7 @@ t_render_var_trans(_) ->
     ).
 
 t_render_path(_) ->
-    Bindings = #{d => #{d1 => <<"hi">>}},
+    Context = #{d => #{d1 => <<"hi">>}},
     Template = emqx_template:parse(<<"d.d1:${d.d1}">>),
     ?assertEqual(
         ok,
@@ -63,11 +63,11 @@ t_render_path(_) ->
     ),
     ?assertEqual(
         {<<"d.d1:hi">>, []},
-        render_string(Template, Bindings)
+        render_string(Template, Context)
     ).
 
 t_render_custom_ph(_) ->
-    Bindings = #{a => <<"a">>, b => <<"b">>},
+    Context = #{a => <<"a">>, b => <<"b">>},
     Template = emqx_template:parse(<<"a:${a},b:${b}">>),
     ?assertEqual(
         {error, [{"b", disallowed}]},
@@ -75,21 +75,21 @@ t_render_custom_ph(_) ->
     ),
     ?assertEqual(
         <<"a:a,b:b">>,
-        render_strict_string(Template, Bindings)
+        render_strict_string(Template, Context)
     ).
 
 t_render_this(_) ->
-    Bindings = #{a => <<"a">>, b => [1, 2, 3]},
+    Context = #{a => <<"a">>, b => [1, 2, 3]},
     Template = emqx_template:parse(<<"this:${} / also:${.}">>),
     ?assertEqual(ok, emqx_template:validate(["."], Template)),
     ?assertEqual(
         % NOTE: order of the keys in the JSON object depends on the JSON encoder
         <<"this:{\"b\":[1,2,3],\"a\":\"a\"} / also:{\"b\":[1,2,3],\"a\":\"a\"}">>,
-        render_strict_string(Template, Bindings)
+        render_strict_string(Template, Context)
     ).
 
 t_render_missing_bindings(_) ->
-    Bindings = #{no => #{}, c => #{<<"c1">> => 42}},
+    Context = #{no => #{}, c => #{<<"c1">> => 42}},
     Template = emqx_template:parse(
         <<"a:${a},b:${b},c:${c.c1.c2},d:${d.d1},e:${no.such_atom_i_swear}">>
     ),
@@ -101,7 +101,7 @@ t_render_missing_bindings(_) ->
             {"b", undefined},
             {"a", undefined}
         ]},
-        render_string(Template, Bindings)
+        render_string(Template, Context)
     ),
     ?assertError(
         [
@@ -111,7 +111,21 @@ t_render_missing_bindings(_) ->
             {"b", undefined},
             {"a", undefined}
         ],
-        render_strict_string(Template, Bindings)
+        render_strict_string(Template, Context)
+    ).
+
+t_render_custom_bindings(_) ->
+    _ = erlang:put(a, <<"foo">>),
+    _ = erlang:put(b, #{<<"bar">> => #{atom => 42}}),
+    Template = emqx_template:parse(
+        <<"a:${a},b:${b.bar.atom},c:${c},oops:${b.bar.atom.oops}">>
+    ),
+    ?assertEqual(
+        {<<"a:foo,b:42,c:undefined,oops:undefined">>, [
+            {"b.bar.atom.oops", {2, number}},
+            {"c", undefined}
+        ]},
+        render_string(Template, {?MODULE, []})
     ).
 
 t_unparse(_) ->
@@ -141,33 +155,33 @@ t_const(_) ->
     ).
 
 t_render_partial_ph(_) ->
-    Bindings = #{a => <<"1">>, b => 1, c => 1.0, d => #{d1 => <<"hi">>}},
+    Context = #{a => <<"1">>, b => 1, c => 1.0, d => #{d1 => <<"hi">>}},
     Template = emqx_template:parse(<<"a:$a,b:b},c:{c},d:${d">>),
     ?assertEqual(
         <<"a:$a,b:b},c:{c},d:${d">>,
-        render_strict_string(Template, Bindings)
+        render_strict_string(Template, Context)
     ).
 
 t_parse_escaped(_) ->
-    Bindings = #{a => <<"1">>, b => 1, c => "VAR"},
+    Context = #{a => <<"1">>, b => 1, c => "VAR"},
     Template = emqx_template:parse(<<"a:${a},b:${$}{b},c:${$}{${c}},lit:${$}{$}">>),
     ?assertEqual(
         <<"a:1,b:${b},c:${VAR},lit:${$}">>,
-        render_strict_string(Template, Bindings)
+        render_strict_string(Template, Context)
     ).
 
 t_parse_escaped_dquote(_) ->
-    Bindings = #{a => <<"1">>, b => 1},
+    Context = #{a => <<"1">>, b => 1},
     Template = emqx_template:parse(<<"a:\"${a}\",b:\"${$}{b}\"">>, #{
         strip_double_quote => true
     }),
     ?assertEqual(
         <<"a:1,b:\"${b}\"">>,
-        render_strict_string(Template, Bindings)
+        render_strict_string(Template, Context)
     ).
 
 t_parse_sql_prepstmt(_) ->
-    Bindings = #{a => <<"1">>, b => 1, c => 1.0, d => #{d1 => <<"hi">>}},
+    Context = #{a => <<"1">>, b => 1, c => 1.0, d => #{d1 => <<"hi">>}},
     {PrepareStatement, RowTemplate} =
         emqx_template_sql:parse_prepstmt(<<"a:${a},b:${b},c:${c},d:${d}">>, #{
             parameters => '?'
@@ -175,11 +189,11 @@ t_parse_sql_prepstmt(_) ->
     ?assertEqual(<<"a:?,b:?,c:?,d:?">>, bin(PrepareStatement)),
     ?assertEqual(
         {[<<"1">>, 1, 1.0, <<"{\"d1\":\"hi\"}">>], _Errors = []},
-        emqx_template_sql:render_prepstmt(RowTemplate, Bindings)
+        emqx_template_sql:render_prepstmt(RowTemplate, Context)
     ).
 
 t_parse_sql_prepstmt_n(_) ->
-    Bindings = #{a => undefined, b => true, c => atom, d => #{d1 => 42.1337}},
+    Context = #{a => undefined, b => true, c => atom, d => #{d1 => 42.1337}},
     {PrepareStatement, RowTemplate} =
         emqx_template_sql:parse_prepstmt(<<"a:${a},b:${b},c:${c},d:${d}">>, #{
             parameters => '$n'
@@ -187,7 +201,7 @@ t_parse_sql_prepstmt_n(_) ->
     ?assertEqual(<<"a:$1,b:$2,c:$3,d:$4">>, bin(PrepareStatement)),
     ?assertEqual(
         [null, true, <<"atom">>, <<"{\"d1\":42.1337}">>],
-        emqx_template_sql:render_prepstmt_strict(RowTemplate, Bindings)
+        emqx_template_sql:render_prepstmt_strict(RowTemplate, Context)
     ).
 
 t_parse_sql_prepstmt_colon(_) ->
@@ -198,14 +212,14 @@ t_parse_sql_prepstmt_colon(_) ->
     ?assertEqual(<<"a=:1,b=:2,c=:3,d=:4">>, bin(PrepareStatement)).
 
 t_parse_sql_prepstmt_partial_ph(_) ->
-    Bindings = #{a => <<"1">>, b => 1, c => 1.0, d => #{d1 => <<"hi">>}},
+    Context = #{a => <<"1">>, b => 1, c => 1.0, d => #{d1 => <<"hi">>}},
     {PrepareStatement, RowTemplate} =
         emqx_template_sql:parse_prepstmt(<<"a:$a,b:b},c:{c},d:${d">>, #{parameters => '?'}),
     ?assertEqual(<<"a:$a,b:b},c:{c},d:${d">>, bin(PrepareStatement)),
-    ?assertEqual([], emqx_template_sql:render_prepstmt_strict(RowTemplate, Bindings)).
+    ?assertEqual([], emqx_template_sql:render_prepstmt_strict(RowTemplate, Context)).
 
 t_render_sql(_) ->
-    Bindings = #{
+    Context = #{
         a => <<"1">>,
         b => 1,
         c => 1.0,
@@ -216,17 +230,17 @@ t_render_sql(_) ->
     Template = emqx_template:parse(<<"a:${a},b:${b},c:${c},d:${d},n:${n},u:${u}">>),
     ?assertMatch(
         {_String, _Errors = []},
-        emqx_template_sql:render(Template, Bindings, #{})
+        emqx_template_sql:render(Template, Context, #{})
     ),
     ?assertEqual(
         <<"a:'1',b:1,c:1.0,d:'{\"d1\":\"hi\"}',n:NULL,u:'utf8\\'s cool 🐸'"/utf8>>,
-        bin(emqx_template_sql:render_strict(Template, Bindings, #{}))
+        bin(emqx_template_sql:render_strict(Template, Context, #{}))
     ).
 
 t_render_mysql(_) ->
     %% with apostrophes
     %% https://github.com/emqx/emqx/issues/4135
-    Bindings = #{
+    Context = #{
         a => <<"1''2">>,
         b => 1,
         c => 1.0,
@@ -245,13 +259,13 @@ t_render_mysql(_) ->
             "e:'\\\\\\0💩',f:0x6E6F6E2D75746638DCC900,g:'utf8\\'s cool 🐸',"/utf8,
             "h:'imgood'"
         >>,
-        bin(emqx_template_sql:render_strict(Template, Bindings, #{escaping => mysql}))
+        bin(emqx_template_sql:render_strict(Template, Context, #{escaping => mysql}))
     ).
 
 t_render_cql(_) ->
     %% with apostrophes for cassandra
     %% https://github.com/emqx/emqx/issues/4148
-    Bindings = #{
+    Context = #{
         a => <<"1''2">>,
         b => 1,
         c => 1.0,
@@ -260,7 +274,7 @@ t_render_cql(_) ->
     Template = emqx_template:parse(<<"a:${a},b:${b},c:${c},d:${d}">>),
     ?assertEqual(
         <<"a:'1''''2',b:1,c:1.0,d:'{\"d1\":\"someone''s phone\"}'">>,
-        bin(emqx_template_sql:render_strict(Template, Bindings, #{escaping => cql}))
+        bin(emqx_template_sql:render_strict(Template, Context, #{escaping => cql}))
     ).
 
 t_render_sql_custom_ph(_) ->
@@ -273,7 +287,7 @@ t_render_sql_custom_ph(_) ->
     ?assertEqual(<<"a:$1,b:$2">>, bin(PrepareStatement)).
 
 t_render_sql_strip_double_quote(_) ->
-    Bindings = #{a => <<"a">>, b => <<"b">>},
+    Context = #{a => <<"a">>, b => <<"b">>},
 
     %% no strip_double_quote option: "${key}" -> "value"
     {PrepareStatement1, RowTemplate1} = emqx_template_sql:parse_prepstmt(
@@ -283,7 +297,7 @@ t_render_sql_strip_double_quote(_) ->
     ?assertEqual(<<"a:\"$1\",b:\"$2\"">>, bin(PrepareStatement1)),
     ?assertEqual(
         [<<"a">>, <<"b">>],
-        emqx_template_sql:render_prepstmt_strict(RowTemplate1, Bindings)
+        emqx_template_sql:render_prepstmt_strict(RowTemplate1, Context)
     ),
 
     %% strip_double_quote = true:  "${key}" -> value
@@ -294,11 +308,11 @@ t_render_sql_strip_double_quote(_) ->
     ?assertEqual(<<"a:$1,b:$2">>, bin(PrepareStatement2)),
     ?assertEqual(
         [<<"a">>, <<"b">>],
-        emqx_template_sql:render_prepstmt_strict(RowTemplate2, Bindings)
+        emqx_template_sql:render_prepstmt_strict(RowTemplate2, Context)
     ).
 
 t_render_tmpl_deep(_) ->
-    Bindings = #{a => <<"1">>, b => 1, c => 1.0, d => #{d1 => <<"hi">>}},
+    Context = #{a => <<"1">>, b => 1, c => 1.0, d => #{d1 => <<"hi">>}},
 
     Template = emqx_template:parse_deep(
         #{<<"${a}">> => [<<"$${b}">>, "c", 2, 3.0, '${d}', {[<<"${c}">>, <<"${$}{d}">>], 0}]}
@@ -311,7 +325,7 @@ t_render_tmpl_deep(_) ->
 
     ?assertEqual(
         #{<<"1">> => [<<"$1">>, "c", 2, 3.0, '${d}', {[<<"1.0">>, <<"${d}">>], 0}]},
-        emqx_template:render_strict(Template, Bindings)
+        emqx_template:render_strict(Template, Context)
     ).
 
 t_unparse_tmpl_deep(_) ->
@@ -321,12 +335,22 @@ t_unparse_tmpl_deep(_) ->
 
 %%
 
-render_string(Template, Bindings) ->
-    {String, Errors} = emqx_template:render(Template, Bindings),
+render_string(Template, Context) ->
+    {String, Errors} = emqx_template:render(Template, Context),
     {bin(String), Errors}.
 
-render_strict_string(Template, Bindings) ->
-    bin(emqx_template:render_strict(Template, Bindings)).
+render_strict_string(Template, Context) ->
+    bin(emqx_template:render_strict(Template, Context)).
 
 bin(String) ->
     unicode:characters_to_binary(String).
+
+%% Access module API
+
+lookup([], _) ->
+    {error, undefined};
+lookup([Prop | Rest], _) ->
+    case erlang:get(binary_to_atom(Prop)) of
+        undefined -> {error, undefined};
+        Value -> emqx_template:lookup_var(Rest, Value)
+    end.
