@@ -109,7 +109,8 @@ jobs:
             --set emqxConfig.EMQX_AUTHORIZATION__NO_MATCH=allow \
             --values rpc-overrides.yaml \
             deploy/charts/${EMQX_NAME} \
-            --debug
+            --debug \
+            --wait
     - name: run emqx on chart (dns)
       if: matrix.discovery == 'dns'
       working-directory: source
@@ -128,7 +129,8 @@ jobs:
             --set emqxConfig.EMQX_AUTHORIZATION__NO_MATCH=allow \
             --values rpc-overrides.yaml \
             deploy/charts/${EMQX_NAME} \
-            --debug
+            --debug \
+            --wait
     - name: waiting emqx started
       timeout-minutes: 5
       run: |
