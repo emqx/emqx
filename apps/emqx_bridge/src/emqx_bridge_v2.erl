@@ -432,11 +432,10 @@ create_dry_run_helper(BridgeType, ConnectorRawConf, BridgeV2RawConf) ->
 create_dry_run(Type, Conf0) ->
     Conf1 = maps:without([<<"name">>], Conf0),
     TypeBin = bin(Type),
-    TypeAtom = binary_to_existing_atom(TypeBin),
     RawConf = #{<<"bridges_v2">> => #{TypeBin => #{<<"temp_name">> => Conf1}}},
     %% Check config
     try
-        #{bridges_v2 := #{TypeAtom := #{temp_name := _Conf}}} =
+        _ =
             hocon_tconf:check_plain(
                 emqx_bridge_v2_schema,
                 RawConf,

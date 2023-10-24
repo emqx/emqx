@@ -263,12 +263,13 @@ create_dry_run(Type, Conf0, Callback) ->
     Conf1 = maps:without([<<"name">>], Conf0),
     RawConf = #{<<"connectors">> => #{TypeBin => #{<<"temp_name">> => Conf1}}},
     try
-        #{connectors := #{TypeAtom := #{temp_name := Conf}}} =
+        CheckedConf =
             hocon_tconf:check_plain(
                 emqx_connector_schema,
                 RawConf,
                 #{atom_key => true, required => false}
             ),
+        Conf = get_temp_conf(TypeAtom, CheckedConf),
         case emqx_connector_ssl:convert_certs(TmpPath, Conf) of
             {error, Reason} ->
                 {error, Reason};
@@ -284,6 +285,14 @@ create_dry_run(Type, Conf0, Callback) ->
             {error, Reason1}
     after
         _ = file:del_dir_r(emqx_tls_lib:pem_dir(TmpPath))
+    end.
+
+get_temp_conf(TypeAtom, CheckedConf) ->
+    case CheckedConf of
+        #{connectors := #{TypeAtom := #{temp_name := Conf}}} ->
+            Conf;
+        #{connectors := #{TypeAtom := #{<<"temp_name">> := Conf}}} ->
+            Conf
     end.
 
 remove(ConnectorId) ->
