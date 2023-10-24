@@ -296,11 +296,7 @@ remove(Type, Name) ->
 %% just for perform_connector_changes/1
 remove(Type, Name, _Conf, _Opts) ->
     ?SLOG(info, #{msg => "remove_connector", type => Type, name => Name}),
-    case emqx_resource:remove_local(resource_id(Type, Name)) of
-        ok -> ok;
-        {error, not_found} -> ok;
-        {error, Reason} -> {error, Reason}
-    end.
+    emqx_resource:remove_local(resource_id(Type, Name)).
 
 %% convert connector configs to what the connector modules want
 parse_confs(
