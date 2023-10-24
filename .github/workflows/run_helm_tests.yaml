@@ -158,6 +158,10 @@ jobs:
           [ $nodes_length != "3" ]
         do
           echo "waiting ${EMQX_NAME} cluster scale. Current live nodes: $nodes_length."
+
+          kubectl describe sts
+          kubectl describe pods
+
           sleep 1
         done
     - uses: actions/checkout@v3
