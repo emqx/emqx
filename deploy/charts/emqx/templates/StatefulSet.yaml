@@ -121,9 +121,9 @@ spec:
           {{- end }}
           - name: ekka
             containerPort: 4370
-          - name: gen_rpc
+          - name: genrpc
             containerPort: 5370
-          - name: gen_rpc2
+          - name: genrpc2
             containerPort: 35390
           envFrom:
             - configMapRef:
