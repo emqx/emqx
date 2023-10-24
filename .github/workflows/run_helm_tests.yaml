@@ -138,6 +138,8 @@ jobs:
           kubectl get pods;
           echo "==============================";
           echo "waiting emqx started";
+          kubectl describe sts
+          kubectl describe pods
           sleep 10;
         done
     - name: Get Token
