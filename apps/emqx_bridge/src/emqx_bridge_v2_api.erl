@@ -266,7 +266,7 @@ schema("/bridges_v2/:id/:operation") ->
     #{
         'operationId' => '/bridges_v2/:id/:operation',
         post => #{
-            tags => [<<"bridges">>],
+            tags => [<<"bridges_v2">>],
             summary => <<"Manually start a bridge">>,
             description => ?DESC("desc_api7"),
             parameters => [
@@ -288,7 +288,7 @@ schema("/nodes/:node/bridges_v2/:id/:operation") ->
     #{
         'operationId' => '/nodes/:node/bridges_v2/:id/:operation',
         post => #{
-            tags => [<<"bridges">>],
+            tags => [<<"bridges_v2">>],
             summary => <<"Manually start a bridge">>,
             description => ?DESC("desc_api8"),
             parameters => [
