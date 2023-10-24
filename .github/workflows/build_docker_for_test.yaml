@@ -37,9 +37,6 @@ jobs:
       matrix:
         profile:
           - emqx
-          - emqx-enterprise
-          - emqx-elixir
-          - emqx-enterprise-elixir
 
     steps:
       - uses: actions/checkout@v3
