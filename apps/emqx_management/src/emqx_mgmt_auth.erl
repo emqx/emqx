@@ -38,7 +38,7 @@
 -export([authorize/4]).
 -export([post_config_update/5]).
 
--export([backup_tables/0, validate_mnesia_backup/1, migrate_mnesia_backup/1]).
+-export([backup_tables/0]).
 
 %% Internal exports (RPC)
 -export([
@@ -53,18 +53,17 @@
 -endif.
 
 -define(APP, emqx_app).
--type api_user_role() :: binary().
 
 -record(?APP, {
     name = <<>> :: binary() | '_',
     api_key = <<>> :: binary() | '_',
     api_secret_hash = <<>> :: binary() | '_',
     enable = true :: boolean() | '_',
-    desc = <<>> :: binary() | '_',
+    %% Since v5.4.0 the `desc` has changed to `extra`
+    %% desc = <<>> :: binary() | '_',
+    extra = #{} :: binary() | map() | '_',
     expired_at = 0 :: integer() | undefined | infinity | '_',
-    created_at = 0 :: integer() | '_',
-    role = ?ROLE_DEFAULT :: api_user_role() | '_',
-    extra = #{} :: map() | '_'
+    created_at = 0 :: integer() | '_'
 }).
 
 mnesia(boot) ->
@@ -75,43 +74,13 @@ mnesia(boot) ->
         {storage, disc_copies},
         {record_name, ?APP},
         {attributes, Fields}
-    ]),
-    maybe_migrate_table(Fields).
+    ]).
 
 %%--------------------------------------------------------------------
 %% Data backup
 %%--------------------------------------------------------------------
 
 backup_tables() -> [?APP].
-
-validate_mnesia_backup({schema, _Tab, CreateList} = Schema) ->
-    case emqx_mgmt_data_backup:default_validate_mnesia_backup(Schema) of
-        ok ->
-            {ok, over};
-        _ ->
-            case proplists:get_value(attributes, CreateList) of
-                [name, api_key, api_secret_hash, enable, desc, expired_at, created_at] ->
-                    {ok, migrate};
-                Fields ->
-                    {error, {unknow_fields, Fields}}
-            end
-    end;
-validate_mnesia_backup(_Other) ->
-    ok.
-
-migrate_mnesia_backup({schema, Tab, CreateList}) ->
-    case proplists:get_value(attributes, CreateList) of
-        [name, api_key, api_secret_hash, enable, desc, expired_at, created_at] = Fields ->
-            NewFields = Fields ++ [role, extra],
-            CreateList2 = lists:keyreplace(
-                attributes, 1, CreateList, {attributes, NewFields}
-            ),
-            {ok, {schema, Tab, CreateList2}};
-        Fields ->
-            {error, {unknow_fields, Fields}}
-    end;
-migrate_mnesia_backup(Data) ->
-    {ok, do_table_migrate(Data)}.
 
 post_config_update([api_key], _Req, NewConf, _OldConf, _AppEnvs) ->
     #{bootstrap_file := File} = NewConf,
@@ -158,13 +127,13 @@ do_update(Name, Enable, ExpiredAt, Desc, Role) ->
     case mnesia:read(?APP, Name, write) of
         [] ->
             mnesia:abort(not_found);
-        [App0 = #?APP{enable = Enable0, desc = Desc0}] ->
+        [App0 = #?APP{enable = Enable0, extra = Extra0}] ->
+            #{desc := Desc0} = Extra = normalize_extra(Extra0),
             App =
                 App0#?APP{
                     expired_at = ExpiredAt,
                     enable = ensure_not_undefined(Enable, Enable0),
-                    desc = ensure_not_undefined(Desc, Desc0),
-                    role = Role
+                    extra = Extra#{desc := ensure_not_undefined(Desc, Desc0), role := Role}
                 },
             ok = mnesia:write(App),
             to_map(App)
@@ -220,10 +189,10 @@ find_by_api_key(ApiKey) ->
     case mria:ro_transaction(?COMMON_SHARD, Fun) of
         {atomic, [
             #?APP{
-                api_secret_hash = SecretHash, enable = Enable, expired_at = ExpiredAt, role = Role
+                api_secret_hash = SecretHash, enable = Enable, expired_at = ExpiredAt, extra = Extra
             }
         ]} ->
-            {ok, Enable, ExpiredAt, SecretHash, Role};
+            {ok, Enable, ExpiredAt, SecretHash, get_role(Extra)};
         _ ->
             {error, "not_found"}
     end.
@@ -234,15 +203,16 @@ ensure_not_undefined(New, _Old) -> New.
 to_map(Apps) when is_list(Apps) ->
     [to_map(App) || App <- Apps];
 to_map(#?APP{
-    name = N, api_key = K, enable = E, expired_at = ET, created_at = CT, desc = D, role = Role
+    name = N, api_key = K, enable = E, expired_at = ET, created_at = CT, extra = Extra0
 }) ->
+    #{role := Role, desc := Desc} = normalize_extra(Extra0),
     #{
         name => N,
         api_key => K,
         enable => E,
         expired_at => ET,
         created_at => CT,
-        desc => D,
+        desc => Desc,
         expired => is_expired(ET),
         role => Role
     }.
@@ -256,11 +226,10 @@ create_app(Name, ApiSecret, Enable, ExpiredAt, Desc, Role) ->
             name = Name,
             enable = Enable,
             expired_at = ExpiredAt,
-            desc = Desc,
+            extra = #{desc => Desc, role => Role},
             created_at = erlang:system_time(second),
             api_secret_hash = emqx_dashboard_admin:hash(ApiSecret),
-            api_key = list_to_binary(emqx_utils:gen_id(16)),
-            role = Role
+            api_key = list_to_binary(emqx_utils:gen_id(16))
         },
     case create_app(App) of
         {ok, Res} ->
@@ -269,7 +238,7 @@ create_app(Name, ApiSecret, Enable, ExpiredAt, Desc, Role) ->
             Error
     end.
 
-create_app(App = #?APP{api_key = ApiKey, name = Name, role = Role}) ->
+create_app(App = #?APP{api_key = ApiKey, name = Name, extra = #{role := Role}}) ->
     case valid_role(Role) of
         ok ->
             trans(fun ?MODULE:do_create_app/3, [App, ApiKey, Name]);
@@ -364,7 +333,7 @@ add_bootstrap_file(File, Dev, MP, Line) ->
                         #?APP{
                             enable = true,
                             expired_at = infinity,
-                            desc = ?BOOTSTRAP_TAG,
+                            extra = #{desc => ?BOOTSTRAP_TAG, role => ?ROLE_API_DEFAULT},
                             created_at = erlang:system_time(second),
                             api_secret_hash = emqx_dashboard_admin:hash(ApiSecret),
                             api_key = AppKey
@@ -395,6 +364,18 @@ add_bootstrap_file(File, Dev, MP, Line) ->
             throw(#{file => File, line => Line, reason => Reason})
     end.
 
+get_role(#{role := Role}) ->
+    Role;
+%% Before v5.4.0,
+%% the field in the position of the `extra` is `desc` which is a binary for description
+get_role(_Desc) ->
+    ?ROLE_API_DEFAULT.
+
+normalize_extra(Map) when is_map(Map) ->
+    Map;
+normalize_extra(Desc) ->
+    #{desc => Desc, role => ?ROLE_API_DEFAULT}.
+
 -if(?EMQX_RELEASE_EDITION == ee).
 check_rbac(Req, ApiKey, Role) ->
     case emqx_dashboard_rbac:check_rbac(Req, ApiKey, Role) of
@@ -424,28 +405,3 @@ valid_role(_) ->
     {error, <<"Role does not exist">>}.
 
 -endif.
-
-maybe_migrate_table(Fields) ->
-    case mnesia:table_info(?APP, attributes) =:= Fields of
-        true ->
-            ok;
-        false ->
-            TransFun = fun do_table_migrate/1,
-            {atomic, ok} = mnesia:transform_table(?APP, TransFun, Fields, ?APP),
-            ok
-    end.
-
-do_table_migrate({?APP, Name, Key, Hash, Enable, Desc, ExpiredAt, CreatedAt}) ->
-    #?APP{
-        name = Name,
-        api_key = Key,
-        api_secret_hash = Hash,
-        enable = Enable,
-        desc = Desc,
-        expired_at = ExpiredAt,
-        created_at = CreatedAt,
-        role = ?ROLE_API_DEFAULT,
-        extra = #{}
-    };
-do_table_migrate(#?APP{} = App) ->
-    App.
