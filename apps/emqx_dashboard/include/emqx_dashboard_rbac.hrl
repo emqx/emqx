@@ -25,9 +25,9 @@
 -define(ROLE_SUPERUSER, <<"administrator">>).
 -define(ROLE_DEFAULT, ?ROLE_SUPERUSER).
 
--define(ROLE_API_VIEWER, <<"api_viewer">>).
--define(ROLE_API_SUPERUSER, <<"api_administrator">>).
--define(ROLE_API_PUBLISHER, <<"api_publisher">>).
+-define(ROLE_API_VIEWER, <<"viewer">>).
+-define(ROLE_API_SUPERUSER, <<"administrator">>).
+-define(ROLE_API_PUBLISHER, <<"publisher">>).
 -define(ROLE_API_DEFAULT, ?ROLE_API_SUPERUSER).
 
 -endif.
