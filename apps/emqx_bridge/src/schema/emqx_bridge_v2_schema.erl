@@ -121,5 +121,7 @@ roots() ->
 fields(bridges_v2) ->
     [] ++ enterprise_fields_actions().
 
+desc(bridges_v2) ->
+    ?DESC("desc_bridges_v2");
 desc(_) ->
     undefined.

@@ -270,6 +270,8 @@ roots() ->
 fields(connectors) ->
     [] ++ enterprise_fields_connectors().
 
+desc(connectors) ->
+    ?DESC("desc_connectors");
 desc(_) ->
     undefined.
 
