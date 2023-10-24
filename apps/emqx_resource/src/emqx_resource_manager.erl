@@ -675,8 +675,7 @@ add_channel_need_insert_update_data(Data, ChannelId, ChannelConfig) ->
                 state = NewState,
                 added_channels = NewAddedChannelsMap
             },
-            update_state(UpdatedData, Data),
-            {ok, UpdatedData};
+            {ok, update_state(UpdatedData, Data)};
         {error, Reason} = Error ->
             %% Log the error as a warning
             ?SLOG(warning, #{
@@ -712,8 +711,7 @@ handle_remove_channel_exists(From, ChannelId, Data) ->
                 state = NewState,
                 added_channels = NewAddedChannelsMap
             },
-            update_state(UpdatedData, Data),
-            {keep_state, UpdatedData, [{reply, From, ok}]};
+            {keep_state, update_state(UpdatedData, Data), [{reply, From, ok}]};
         {error, Reason} = Error ->
             %% Log the error as a warning
             ?SLOG(warning, #{

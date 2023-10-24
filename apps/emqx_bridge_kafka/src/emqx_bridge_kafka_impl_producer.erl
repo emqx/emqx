@@ -219,7 +219,8 @@ deallocate_client(ClientId) ->
             msg => "failed_to_delete_kafka_client",
             client_id => ClientId
         }
-    ).
+    ),
+    ok.
 
 deallocate_producers(ClientId, Producers) ->
     _ = with_log_at_error(

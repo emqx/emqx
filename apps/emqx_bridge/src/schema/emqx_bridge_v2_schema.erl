@@ -70,15 +70,8 @@ post_request() ->
     api_schema("post").
 
 api_schema(Method) ->
-    Broker = [
-        {Type, ref(Mod, Method)}
-     || {Type, Mod} <- [
-            %       {<<"webhook">>, emqx_bridge_http_schema},
-            %       {<<"mqtt">>, emqx_bridge_mqtt_schema}
-        ]
-    ],
     EE = enterprise_api_schemas(Method),
-    hoconsc:union(bridge_api_union(Broker ++ EE)).
+    hoconsc:union(bridge_api_union(EE)).
 
 bridge_api_union(Refs) ->
     Index = maps:from_list(Refs),

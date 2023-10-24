@@ -441,20 +441,20 @@ create_dry_run(Type, Conf0) ->
                 emqx_bridge_v2_schema,
                 RawConf,
                 #{atom_key => true, required => false}
-            )
+            ),
+        #{<<"connector">> := ConnectorName} = Conf1,
+        %% Check that the connector exists and do the dry run if it exists
+        ConnectorType = ?MODULE:bridge_v2_type_to_connector_type(Type),
+        case emqx:get_raw_config([connectors, ConnectorType, ConnectorName], not_found) of
+            not_found ->
+                {error, iolist_to_binary(io_lib:format("Connector ~p not found", [ConnectorName]))};
+            ConnectorRawConf ->
+                create_dry_run_helper(Type, ConnectorRawConf, Conf1)
+        end
     catch
         %% validation errors
         throw:Reason1 ->
             {error, Reason1}
-    end,
-    #{<<"connector">> := ConnectorName} = Conf1,
-    %% Check that the connector exists and do the dry run if it exists
-    ConnectorType = ?MODULE:bridge_v2_type_to_connector_type(Type),
-    case emqx:get_raw_config([connectors, ConnectorType, ConnectorName], not_found) of
-        not_found ->
-            {error, iolist_to_binary(io_lib:format("Connector ~p not found", [ConnectorName]))};
-        ConnectorRawConf ->
-            create_dry_run_helper(Type, ConnectorRawConf, Conf1)
     end.
 
 get_metrics(Type, Name) ->
@@ -874,8 +874,21 @@ split_bridge_v1_config_and_create(BridgeV1Type, BridgeName, RawConf) ->
                 {ok, _} = Result ->
                     Result;
                 Error ->
-                    emqx_connector:remove(ConnectorType, ConnectorNameAtom),
-                    Error
+                    case emqx_connector:remove(ConnectorType, ConnectorNameAtom) of
+                        {ok, _} ->
+                            Error;
+                        Error ->
+                            %% TODO log error
+                            ?SLOG(warning, #{
+                                message =>
+                                    <<"Failed to remove connector after bridge creation failed">>,
+                                bridge_version => 2,
+                                bridge_type => BridgeType,
+                                bridge_name => BridgeName,
+                                bridge_raw_config => emqx_utils:redact(RawConf)
+                            }),
+                            Error
+                    end
             end;
         Error ->
             Error
@@ -999,7 +1012,7 @@ bridge_v1_check_deps_and_remove(
     BridgeType,
     BridgeName,
     RemoveDeps,
-    #{connector := ConnectorName}
+    #{connector := ConnectorName} = Conf
 ) ->
     case check_deps_and_remove(BridgeType, BridgeName, RemoveDeps) of
         {error, _} = Error ->
@@ -1009,7 +1022,20 @@ bridge_v1_check_deps_and_remove(
             case connector_has_channels(BridgeType, ConnectorName) of
                 false ->
                     ConnectorType = ?MODULE:bridge_v2_type_to_connector_type(BridgeType),
-                    emqx_connector:remove(ConnectorType, ConnectorName);
+                    case emqx_connector:remove(ConnectorType, ConnectorName) of
+                        {ok, _} ->
+                            ok;
+                        Error ->
+                            ?SLOG(warning, #{
+                                message => <<"Failed to remove connector after bridge removal">>,
+                                bridge_version => 2,
+                                bridge_type => BridgeType,
+                                bridge_name => BridgeName,
+                                error => Error,
+                                bridge_raw_config => emqx_utils:redact(Conf)
+                            }),
+                            ok
+                    end;
                 true ->
                     ok
             end,

@@ -230,7 +230,7 @@
 %% for the resource with the given id.
 -callback on_get_channels(
     ResId :: term()
-) -> {ok, [term()]}.
+) -> [term()].
 
 -spec list_types() -> [module()].
 list_types() ->
@@ -337,8 +337,7 @@ remove_local(ResId) ->
                 resource_id => ResId
             }),
             ok
-    end,
-    ok.
+    end.
 
 -spec reset_metrics_local(resource_id()) -> ok.
 reset_metrics_local(ResId) ->
@@ -412,7 +411,7 @@ get_query_mode_error(ResId, Opts) ->
                 {ok, _Group, #{query_mode := QM, error := Error}} ->
                     {QM, Error};
                 {error, not_found} ->
-                    ?RESOURCE_ERROR(not_found, "resource not found")
+                    {error, not_found}
             end
     end.
 
@@ -449,7 +448,7 @@ health_check(ResId) ->
 channel_health_check(ResId, ChannelId) ->
     emqx_resource_manager:channel_health_check(ResId, ChannelId).
 
--spec get_channels(resource_id()) -> {ok, [{binary(), map()}]}.
+-spec get_channels(resource_id()) -> {ok, [{binary(), map()}]} | {error, term()}.
 get_channels(ResId) ->
     emqx_resource_manager:get_channels(ResId).
 

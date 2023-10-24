@@ -44,7 +44,9 @@
     expire_at => infinity | integer(),
     async_reply_fun => reply_fun(),
     simple_query => boolean(),
-    reply_to => reply_fun()
+    reply_to => reply_fun(),
+    query_mode => query_mode(),
+    query_mode_cache_override => boolean()
 }.
 -type resource_data() :: #{
     id := resource_id(),
@@ -54,7 +56,8 @@
     config := resource_config(),
     error := term(),
     state := resource_state(),
-    status := resource_status()
+    status := resource_status(),
+    added_channels := term()
 }.
 -type resource_group() :: binary().
 -type creation_opts() :: #{
