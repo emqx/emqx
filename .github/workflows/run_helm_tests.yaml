@@ -89,6 +89,7 @@ jobs:
           EMQX_RPC__CACERTFILE: /opt/emqx/etc/certs/cacert.pem
           EMQX_RPC__CIPHERS: TLS_AES_256_GCM_SHA384,TLS_AES_128_GCM_SHA256
           EMQX_RPC__TLS_VERSIONS: "[tlsv1.2]"
+          EMQX_RPC__ssl_server_port: 35389
         EOL
     - name: run emqx on chart (k8s)
       if: matrix.discovery == 'k8s'
@@ -109,8 +110,7 @@ jobs:
             --set emqxConfig.EMQX_AUTHORIZATION__NO_MATCH=allow \
             --values rpc-overrides.yaml \
             deploy/charts/${EMQX_NAME} \
-            --debug \
-            --wait
+            --debug
     - name: run emqx on chart (dns)
       if: matrix.discovery == 'dns'
       working-directory: source
@@ -129,8 +129,7 @@ jobs:
             --set emqxConfig.EMQX_AUTHORIZATION__NO_MATCH=allow \
             --values rpc-overrides.yaml \
             deploy/charts/${EMQX_NAME} \
-            --debug \
-            --wait
+            --debug 
     - name: waiting emqx started
       timeout-minutes: 5
       run: |
@@ -191,4 +190,8 @@ jobs:
 
         pytest --retries 3 -v paho.mqtt.testing/interoperability/test_client/V5/test_connect.py -k test_basic --host "127.0.0.1"
     - if: failure()
-      run: kubectl logs -l "app.kubernetes.io/instance=${EMQX_NAME}" -c emqx --tail=1000
+      run: |
+        kubectl describe sts
+        kubectl describe pods
+
+        kubectl logs -l "app.kubernetes.io/instance=${EMQX_NAME}" -c emqx --tail=1000
