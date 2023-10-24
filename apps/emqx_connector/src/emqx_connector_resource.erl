@@ -258,7 +258,7 @@ create_dry_run(Type, Conf0, Callback) ->
     %% Already typechecked, no need to catch errors
     TypeBin = bin(Type),
     TypeAtom = safe_atom(Type),
-    %% We use a fixed name here to avoid createing an atom
+    %% We use a fixed name here to avoid creating an atom
     TmpName = iolist_to_binary([?TEST_ID_PREFIX, TypeBin, ":", <<"probedryrun">>]),
     TmpPath = emqx_utils:safe_filename(TmpName),
     Conf1 = maps:without([<<"name">>], Conf0),

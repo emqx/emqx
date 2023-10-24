@@ -7,7 +7,7 @@
 -include_lib("hocon/include/hoconsc.hrl").
 
 -behaviour(hocon_schema).
--behaviour(emqx_bridge_resource).
+-behaviour(emqx_connector_resource).
 
 %% `hocon_schema' API
 -export([
@@ -18,13 +18,21 @@
 ]).
 
 %% emqx_bridge_enterprise "unofficial" API
--export([conn_bridge_examples/1]).
+-export([
+    bridge_v2_examples/1,
+    conn_bridge_examples/1,
+    connector_examples/1
+]).
 
+%% emqx_connector_resource behaviour callbacks
 -export([connector_config/1]).
 
 -export([producer_converter/2, host_opts/0]).
 
 -import(hoconsc, [mk/2, enum/1, ref/2]).
+
+-define(AEH_CONNECTOR_TYPE, azure_event_hub).
+-define(AEH_CONNECTOR_TYPE_BIN, <<"azure_event_hub">>).
 
 %%-------------------------------------------------------------------------------------------------
 %% `hocon_schema' API
@@ -34,10 +42,48 @@ namespace() -> "bridge_azure_event_hub".
 
 roots() -> ["config_producer"].
 
+fields("put_connector") ->
+    Fields = override(
+        emqx_bridge_kafka:fields("put_connector"),
+        connector_overrides()
+    ),
+    override_documentations(Fields);
+fields("get_connector") ->
+    emqx_bridge_schema:status_fields() ++
+        fields("post_connector");
+fields("post_connector") ->
+    Fields = override(
+        emqx_bridge_kafka:fields("post_connector"),
+        connector_overrides()
+    ),
+    override_documentations(Fields);
+fields("put_bridge_v2") ->
+    Fields = override(
+        emqx_bridge_kafka:fields("put_bridge_v2"),
+        bridge_v2_overrides()
+    ),
+    override_documentations(Fields);
+fields("get_bridge_v2") ->
+    emqx_bridge_schema:status_fields() ++
+        fields("post_bridge_v2");
+fields("post_bridge_v2") ->
+    Fields = override(
+        emqx_bridge_kafka:fields("post_bridge_v2"),
+        bridge_v2_overrides()
+    ),
+    override_documentations(Fields);
 fields("post_producer") ->
     Fields = override(
         emqx_bridge_kafka:fields("post_producer"),
         producer_overrides()
+    ),
+    override_documentations(Fields);
+fields("config_bridge_v2") ->
+    fields(bridge_v2);
+fields("config_connector") ->
+    Fields = override(
+        emqx_bridge_kafka:fields(kafka_connector),
+        connector_overrides()
     ),
     override_documentations(Fields);
 fields("config_producer") ->
@@ -68,19 +114,37 @@ fields(kafka_message) ->
     Fields0 = emqx_bridge_kafka:fields(kafka_message),
     Fields = proplists:delete(timestamp, Fields0),
     override_documentations(Fields);
+fields(bridge_v2) ->
+    Fields =
+        override(
+            emqx_bridge_kafka:fields(producer_opts),
+            bridge_v2_overrides()
+        ) ++
+            [
+                {enable, mk(boolean(), #{desc => ?DESC("config_enable"), default => true})},
+                {connector,
+                    mk(binary(), #{
+                        desc => ?DESC(emqx_connector_schema, "connector_field"), required => true
+                    })}
+            ],
+    override_documentations(Fields);
 fields(Method) ->
     Fields = emqx_bridge_kafka:fields(Method),
     override_documentations(Fields).
 
+desc("config") ->
+    ?DESC("desc_config");
+desc("config_connector") ->
+    ?DESC("desc_config");
 desc("config_producer") ->
     ?DESC("desc_config");
 desc("ssl_client_opts") ->
     emqx_schema:desc("ssl_client_opts");
-desc("get_producer") ->
+desc("get_" ++ Type) when Type == "producer"; Type == "connector"; Type == "bridge_v2" ->
     ["Configuration for Azure Event Hub using `GET` method."];
-desc("put_producer") ->
+desc("put_" ++ Type) when Type == "producer"; Type == "connector"; Type == "bridge_v2" ->
     ["Configuration for Azure Event Hub using `PUT` method."];
-desc("post_producer") ->
+desc("post_" ++ Type) when Type == "producer"; Type == "connector"; Type == "bridge_v2" ->
     ["Configuration for Azure Event Hub using `POST` method."];
 desc(Name) ->
     lists:member(Name, struct_names()) orelse throw({missing_desc, Name}),
@@ -90,7 +154,28 @@ struct_names() ->
     [
         auth_username_password,
         kafka_message,
-        producer_kafka_opts
+        producer_kafka_opts,
+        bridge_v2
+    ].
+
+bridge_v2_examples(Method) ->
+    [
+        #{
+            ?AEH_CONNECTOR_TYPE_BIN => #{
+                summary => <<"Azure Event Hub Bridge v2">>,
+                value => values({Method, bridge_v2})
+            }
+        }
+    ].
+
+connector_examples(Method) ->
+    [
+        #{
+            ?AEH_CONNECTOR_TYPE_BIN => #{
+                summary => <<"Azure Event Hub Connector">>,
+                value => values({Method, connector})
+            }
+        }
     ].
 
 conn_bridge_examples(Method) ->
@@ -104,11 +189,40 @@ conn_bridge_examples(Method) ->
     ].
 
 values({get, AEHType}) ->
-    values({post, AEHType});
+    maps:merge(
+        #{
+            status => <<"connected">>,
+            node_status => [
+                #{
+                    node => <<"emqx@localhost">>,
+                    status => <<"connected">>
+                }
+            ]
+        },
+        values({post, AEHType})
+    );
+values({post, bridge_v2}) ->
+    maps:merge(
+        values(producer),
+        #{
+            enable => true,
+            connector => <<"my_azure_event_hub_connector">>,
+            name => <<"my_azure_event_hub_bridge">>,
+            type => ?AEH_CONNECTOR_TYPE_BIN
+        }
+    );
 values({post, AEHType}) ->
     maps:merge(values(common_config), values(AEHType));
 values({put, AEHType}) ->
     values({post, AEHType});
+values(connector) ->
+    maps:merge(
+        values(common_config),
+        #{
+            name => <<"my_azure_event_hub_connector">>,
+            type => ?AEH_CONNECTOR_TYPE_BIN
+        }
+    );
 values(common_config) ->
     #{
         authentication => #{
@@ -119,12 +233,14 @@ values(common_config) ->
         enable => true,
         metadata_request_timeout => <<"4s">>,
         min_metadata_refresh_interval => <<"3s">>,
+        name => <<"my_azure_event_hub_bridge">>,
         socket_opts => #{
             sndbuf => <<"1024KB">>,
             recbuf => <<"1024KB">>,
             nodelay => true,
             tcp_keepalive => <<"none">>
-        }
+        },
+        type => <<"azure_event_hub_producer">>
     };
 values(producer) ->
     #{
@@ -163,7 +279,7 @@ values(producer) ->
     }.
 
 %%-------------------------------------------------------------------------------------------------
-%% `emqx_bridge_resource' API
+%% `emqx_connector_resource' API
 %%-------------------------------------------------------------------------------------------------
 
 connector_config(Config) ->
@@ -181,6 +297,37 @@ connector_config(Config) ->
 
 ref(Name) ->
     hoconsc:ref(?MODULE, Name).
+
+connector_overrides() ->
+    #{
+        authentication =>
+            mk(
+                ref(auth_username_password),
+                #{
+                    default => #{},
+                    required => true,
+                    desc => ?DESC("authentication")
+                }
+            ),
+        bootstrap_hosts =>
+            mk(
+                binary(),
+                #{
+                    required => true,
+                    validator => emqx_schema:servers_validator(
+                        host_opts(), _Required = true
+                    )
+                }
+            ),
+        ssl => mk(ref("ssl_client_opts"), #{default => #{<<"enable">> => true}}),
+        type => mk(
+            ?AEH_CONNECTOR_TYPE,
+            #{
+                required => true,
+                desc => ?DESC("connector_type")
+            }
+        )
+    }.
 
 producer_overrides() ->
     #{
@@ -212,6 +359,22 @@ producer_overrides() ->
         type => mk(azure_event_hub_producer, #{required => true})
     }.
 
+bridge_v2_overrides() ->
+    #{
+        kafka =>
+            mk(ref(producer_kafka_opts), #{
+                required => true,
+                validator => fun emqx_bridge_kafka:producer_strategy_key_validator/1
+            }),
+        ssl => mk(ref("ssl_client_opts"), #{default => #{<<"enable">> => true}}),
+        type => mk(
+            ?AEH_CONNECTOR_TYPE,
+            #{
+                required => true,
+                desc => ?DESC("bridge_v2_type")
+            }
+        )
+    }.
 auth_overrides() ->
     #{
         mechanism =>

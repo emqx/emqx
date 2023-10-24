@@ -620,7 +620,9 @@ id(BridgeType, BridgeName, ConnectorName) ->
 bridge_v2_type_to_connector_type(Bin) when is_binary(Bin) ->
     ?MODULE:bridge_v2_type_to_connector_type(binary_to_existing_atom(Bin));
 bridge_v2_type_to_connector_type(kafka) ->
-    kafka.
+    kafka;
+bridge_v2_type_to_connector_type(azure_event_hub) ->
+    azure_event_hub.
 
 %%====================================================================
 %% Config Update Handler API
@@ -799,11 +801,15 @@ is_valid_bridge_v1(BridgeV1Type, BridgeName) ->
 bridge_v1_type_to_bridge_v2_type(Bin) when is_binary(Bin) ->
     ?MODULE:bridge_v1_type_to_bridge_v2_type(binary_to_existing_atom(Bin));
 bridge_v1_type_to_bridge_v2_type(kafka) ->
-    kafka.
+    kafka;
+bridge_v1_type_to_bridge_v2_type(azure_event_hub) ->
+    azure_event_hub.
 
 is_bridge_v2_type(Atom) when is_atom(Atom) ->
     is_bridge_v2_type(atom_to_binary(Atom, utf8));
 is_bridge_v2_type(<<"kafka">>) ->
+    true;
+is_bridge_v2_type(<<"azure_event_hub">>) ->
     true;
 is_bridge_v2_type(_) ->
     false.

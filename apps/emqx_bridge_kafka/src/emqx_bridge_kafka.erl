@@ -105,7 +105,7 @@ values(bridge_v2_producer) ->
     maps:merge(
         #{
             enable => true,
-            connector => <<"my_connector">>,
+            connector => <<"my_kafka_connector">>,
             resource_opts => #{
                 health_check_interval => "32s"
             }

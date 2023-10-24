@@ -56,7 +56,8 @@ enterprise_fields_connectors() -> [].
 
 -endif.
 
-connector_type_to_bridge_types(kafka) -> [kafka].
+connector_type_to_bridge_types(kafka) -> [kafka];
+connector_type_to_bridge_types(azure_event_hub) -> [azure_event_hub].
 
 actions_config_name() -> <<"bridges_v2">>.
 

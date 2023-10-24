@@ -183,6 +183,23 @@ authentication.desc:
 authentication.label:
 """Authentication"""
 
+connector_type.label:
+"""Connector Type"""
+
+connector_type.desc:
+"""The type of the connector."""
+
+bridge_v2_type.label:
+"""Bridge Type"""
+
+bridge_v2_type.desc:
+"""The type of the bridge."""
+
+bridge_v2.label:
+"""Bridge v2 Config"""
+bridge_v2.desc:
+"""The configuration for a bridge v2."""
+
 buffer_memory_overload_protection.desc:
 """Applicable when buffer mode is set to <code>memory</code>
 EMQX will drop old buffered messages under high memory pressure. The high memory threshold is defined in config <code>sysmon.os.sysmem_high_watermark</code>. NOTE: This config only works on Linux."""

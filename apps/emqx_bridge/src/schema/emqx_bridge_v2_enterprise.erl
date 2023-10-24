@@ -27,19 +27,28 @@ examples(Method) ->
 
 schema_modules() ->
     [
-        emqx_bridge_kafka
+        emqx_bridge_kafka,
+        emqx_bridge_azure_event_hub
     ].
 
 fields(bridges_v2) ->
-    kafka_structs().
+    bridge_v2_structs().
 
-kafka_structs() ->
+bridge_v2_structs() ->
     [
         {kafka,
             mk(
                 hoconsc:map(name, ref(emqx_bridge_kafka, kafka_producer_action)),
                 #{
                     desc => <<"Kafka Producer Bridge V2 Config">>,
+                    required => false
+                }
+            )},
+        {azure_event_hub,
+            mk(
+                hoconsc:map(name, ref(emqx_bridge_azure_event_hub, bridge_v2)),
+                #{
+                    desc => <<"Azure Event Hub Bridge V2 Config">>,
                     required => false
                 }
             )}
@@ -51,7 +60,8 @@ api_schemas(Method) ->
         %% connector schema module.
         %% TODO: rename this to `kafka_producer' after alias support is added
         %% to hocon; keeping this as just `kafka' for backwards compatibility.
-        api_ref(emqx_bridge_kafka, <<"kafka">>, Method ++ "_bridge_v2")
+        api_ref(emqx_bridge_kafka, <<"kafka">>, Method ++ "_bridge_v2"),
+        api_ref(emqx_bridge_azure_event_hub, <<"azure_event_hub">>, Method ++ "_bridge_v2")
     ].
 
 api_ref(Module, Type, Method) ->
