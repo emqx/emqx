@@ -297,7 +297,7 @@ init_bootstrap_file(<<>>) ->
 init_bootstrap_file(File) ->
     case file:open(File, [read, binary]) of
         {ok, Dev} ->
-            {ok, MP} = re:compile(<<"(\.+):(\.+$)">>, [ungreedy]),
+            {ok, MP} = re:compile(<<"(\.+):(\.+)(?::(\.+))?$">>, [ungreedy]),
             init_bootstrap_file(File, Dev, MP);
         {error, Reason0} ->
             Reason = emqx_utils:explain_posix(Reason0),
@@ -327,13 +327,13 @@ init_bootstrap_file(File, Dev, MP) ->
 add_bootstrap_file(File, Dev, MP, Line) ->
     case file:read_line(Dev) of
         {ok, Bin} ->
-            case re:run(Bin, MP, [global, {capture, all_but_first, binary}]) of
-                {match, [[AppKey, ApiSecret]]} ->
+            case parse_bootstrap_line(Bin, MP) of
+                {ok, [AppKey, ApiSecret, Role]} ->
                     App =
                         #?APP{
                             enable = true,
                             expired_at = infinity,
-                            extra = #{desc => ?BOOTSTRAP_TAG, role => ?ROLE_API_DEFAULT},
+                            extra = #{desc => ?BOOTSTRAP_TAG, role => Role},
                             created_at = erlang:system_time(second),
                             api_secret_hash = emqx_dashboard_admin:hash(ApiSecret),
                             api_key = AppKey
@@ -344,8 +344,7 @@ add_bootstrap_file(File, Dev, MP, Line) ->
                         {error, Reason} ->
                             throw(#{file => File, line => Line, content => Bin, reason => Reason})
                     end;
-                _ ->
-                    Reason = "invalid_format",
+                {error, Reason} ->
                     ?SLOG(
                         error,
                         #{
@@ -362,6 +361,21 @@ add_bootstrap_file(File, Dev, MP, Line) ->
             ok;
         {error, Reason} ->
             throw(#{file => File, line => Line, reason => Reason})
+    end.
+
+parse_bootstrap_line(Bin, MP) ->
+    case re:run(Bin, MP, [global, {capture, all_but_first, binary}]) of
+        {match, [[_AppKey, _ApiSecret] = Args]} ->
+            {ok, Args ++ [?ROLE_API_DEFAULT]};
+        {match, [[_AppKey, _ApiSecret, Role] = Args]} ->
+            case valid_role(Role) of
+                ok ->
+                    {ok, Args};
+                _Error ->
+                    {error, {"invalid_role", Role}}
+            end;
+        _ ->
+            {error, "invalid_format"}
     end.
 
 get_role(#{role := Role}) ->
