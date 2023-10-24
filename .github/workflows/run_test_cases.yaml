@@ -141,7 +141,7 @@ jobs:
 
       - name: prepare compat testing
         id: compat
-        if: ${{ matrix.app == 'apps/emqx' }} # FIXME
+        if: ${{ matrix.compat }}
         uses: ./.github/actions/prepare-compat-testing
 
         # produces $PROFILE-<app-name>-<otp-vsn>-sg<suitegroup>.coverdata

@@ -52,19 +52,24 @@ fi
 ###### now deal with the github action's matrix.
 ##################################################
 
+LINESEP=''
+
+print_line() {
+    echo -n "${LINESEP}"
+    echo "${1}"
+    LINESEP=', '
+}
+
 format_app_description() {
+    ## prefix is for github actions (they don't like slash in variables)
+    local prefix=${1//\//_}
     local groups="$2"
     local group=0
     while [ "$groups" -gt $group ]; do
-        if [ $group -gt 0 ]; then
-            echo ", "
-        fi
         group=$(( group + 1 ))
-        ## prefix is for github actions (they don't like slash in variables)
-        local prefix=${1//\//_}
-        echo -n -e "$(
-    cat <<END
-        {"app": "${1}", "suitegroup": "${group}_${groups}", "profile": "${3}", "runner": "${4}", "prefix": "${prefix}"}
+        print_line "$(
+cat <<END
+{"app": "${1}", "suitegroup": "${group}_${groups}", "profile": "${3}", "runner": "${4}", "prefix": "${prefix}", "compat": ${5}}
 END
         )"
     done
@@ -74,6 +79,8 @@ describe_app() {
     app="$1"
     local runner="host"
     local profile
+    local suitegroups=1
+    local compat="false"
     if [ -f "${app}/docker-ct" ]; then
         runner="docker"
     fi
@@ -92,21 +99,18 @@ describe_app() {
     esac
     if [[ "$app" == "apps/emqx" ]]; then
         suitegroups=5
-    else
-        suitegroups=1
     fi
-    format_app_description "$app" "$suitegroups" "$profile" "$runner"
+    if grep -rq '-behaviour(emqx_bpapi)' "${app}/" ; then
+        # NOTE: Implicitly assuming that any app with BPAPI protocols might want compat testing.
+        compat="true"
+    fi
+    format_app_description "$app" "$suitegroups" "$profile" "$runner" "$compat"
 }
 
 matrix() {
-    local sep='['
+    echo -n '[ '
     for app in ${APPS_ALL}; do
-        row="$(describe_app "$app")"
-        if [ -z "$row" ]; then
-            continue
-        fi
-        echo -n "${sep}${row}"
-        sep=', '
+        describe_app "${app}"
     done
     echo ']'
 }
