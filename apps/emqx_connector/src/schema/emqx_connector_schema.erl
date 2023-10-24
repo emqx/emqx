@@ -254,6 +254,8 @@ namespace() -> "connector".
 tags() ->
     [<<"Connector">>].
 
+-dialyzer({nowarn_function, roots/0}).
+
 roots() ->
     case fields(connectors) of
         [] -> [];
