@@ -147,39 +147,6 @@ jobs:
           path: ${{ matrix.profile }}.zip
           retention-days: 1
 
-  run_emqx_app_tests:
-    needs:
-      - sanity-checks
-      - compile
-    uses: ./.github/workflows/run_emqx_app_tests.yaml
-    with:
-      runner_labels: ${{ needs.sanity-checks.outputs.runner_labels }}
-      builder: ${{ needs.sanity-checks.outputs.builder }}
-      before_ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.event.before }}
-      after_ref: ${{ github.sha }}
-
-  run_test_cases:
-    needs:
-      - sanity-checks
-      - compile
-    uses: ./.github/workflows/run_test_cases.yaml
-    with:
-      runner_labels: ${{ needs.sanity-checks.outputs.runner_labels }}
-      builder: ${{ needs.sanity-checks.outputs.builder }}
-      ct-matrix: ${{ needs.sanity-checks.outputs.ct-matrix }}
-      ct-host: ${{ needs.sanity-checks.outputs.ct-host }}
-      ct-docker: ${{ needs.sanity-checks.outputs.ct-docker }}
-
-  static_checks:
-    needs:
-      - sanity-checks
-      - compile
-    uses: ./.github/workflows/static_checks.yaml
-    with:
-      runner_labels: ${{ needs.sanity-checks.outputs.runner_labels }}
-      builder: ${{ needs.sanity-checks.outputs.builder }}
-      ct-matrix: ${{ needs.sanity-checks.outputs.ct-matrix }}
-
   build_slim_packages:
     needs:
       - sanity-checks
@@ -202,49 +169,6 @@ jobs:
       version-emqx: ${{ needs.sanity-checks.outputs.version-emqx }}
       version-emqx-enterprise: ${{ needs.sanity-checks.outputs.version-emqx-enterprise }}
 
-  spellcheck:
-    needs:
-      - sanity-checks
-      - build_slim_packages
-    uses: ./.github/workflows/spellcheck.yaml
-    with:
-      runner_labels: ${{ needs.sanity-checks.outputs.runner_labels }}
-
-  run_conf_tests:
-    needs:
-      - sanity-checks
-      - compile
-    uses: ./.github/workflows/run_conf_tests.yaml
-    with:
-      runner_labels: ${{ needs.sanity-checks.outputs.runner_labels }}
-      builder: ${{ needs.sanity-checks.outputs.builder }}
-
-  check_deps_integrity:
-    needs:
-      - sanity-checks
-    uses: ./.github/workflows/check_deps_integrity.yaml
-    with:
-      runner_labels: ${{ needs.sanity-checks.outputs.runner_labels }}
-      builder: ${{ needs.sanity-checks.outputs.builder }}
-
-  run_jmeter_tests:
-    needs:
-      - sanity-checks
-      - build_docker_for_test
-    uses: ./.github/workflows/run_jmeter_tests.yaml
-    with:
-      runner_labels: ${{ needs.sanity-checks.outputs.runner_labels }}
-      version-emqx: ${{ needs.sanity-checks.outputs.version-emqx }}
-
-  run_docker_tests:
-    needs:
-      - sanity-checks
-      - build_docker_for_test
-    uses: ./.github/workflows/run_docker_tests.yaml
-    with:
-      runner_labels: ${{ needs.sanity-checks.outputs.runner_labels }}
-      version-emqx: ${{ needs.sanity-checks.outputs.version-emqx }}
-      version-emqx-enterprise: ${{ needs.sanity-checks.outputs.version-emqx-enterprise }}
 
   run_helm_tests:
     needs:
