@@ -121,6 +121,8 @@ spec:
           {{- end }}
           - name: ekka
             containerPort: 4370
+          - name: gen_rpc
+            containerPort: 5370
           envFrom:
             - configMapRef:
                 name: {{ include "emqx.fullname" . }}-env
