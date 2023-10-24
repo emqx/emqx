@@ -223,9 +223,9 @@ post_request() ->
 
 api_schema(Method) ->
     EE = enterprise_api_schemas(Method),
-    hoconsc:union(bridge_api_union(EE)).
+    hoconsc:union(connector_api_union(EE)).
 
-bridge_api_union(Refs) ->
+connector_api_union(Refs) ->
     Index = maps:from_list(Refs),
     fun
         (all_union_members) ->
@@ -238,7 +238,7 @@ bridge_api_union(Refs) ->
                             throw(#{
                                 field_name => type,
                                 value => T,
-                                reason => <<"unknown bridge type">>
+                                reason => <<"unknown connector type">>
                             });
                         Ref ->
                             [Ref]
