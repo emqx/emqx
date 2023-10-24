@@ -326,7 +326,7 @@ mk_client_opts(
         ],
         Config
     ),
-    Options#{
+    mk_client_opt_password(Options#{
         hosts => [HostPort],
         clientid => clientid(ResourceId, ClientScope, Config),
         connect_timeout => 30,
@@ -334,7 +334,13 @@ mk_client_opts(
         force_ping => true,
         ssl => EnableSsl,
         ssl_opts => maps:to_list(maps:remove(enable, Ssl))
-    }.
+    }).
+
+mk_client_opt_password(Options = #{password := Secret}) ->
+    %% TODO: Teach `emqtt` to accept 0-arity closures as passwords.
+    Options#{password := emqx_secret:unwrap(Secret)};
+mk_client_opt_password(Options) ->
+    Options.
 
 ms_to_s(Ms) ->
     erlang:ceil(Ms / 1000).
