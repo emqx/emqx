@@ -105,6 +105,8 @@ namespace() -> "bridges_v2".
 tags() ->
     [<<"Bridge V2">>].
 
+-dialyzer({nowarn_function, roots/0}).
+
 roots() ->
     case fields(bridges_v2) of
         [] -> [];
