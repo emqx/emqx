@@ -258,8 +258,13 @@ tags() ->
 
 roots() ->
     case fields(connectors) of
-        [] -> [];
-        _ -> [{connectors, ?HOCON(?R_REF(connectors), #{importance => ?IMPORTANCE_LOW})}]
+        [] ->
+            [
+                {connectors,
+                    ?HOCON(hoconsc:map(name, typerefl:map()), #{importance => ?IMPORTANCE_LOW})}
+            ];
+        _ ->
+            [{connectors, ?HOCON(?R_REF(connectors), #{importance => ?IMPORTANCE_LOW})}]
     end.
 
 fields(connectors) ->

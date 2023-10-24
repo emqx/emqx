@@ -109,8 +109,13 @@ tags() ->
 
 roots() ->
     case fields(bridges_v2) of
-        [] -> [];
-        _ -> [{bridges_v2, ?HOCON(?R_REF(bridges_v2), #{importance => ?IMPORTANCE_LOW})}]
+        [] ->
+            [
+                {bridges_v2,
+                    ?HOCON(hoconsc:map(name, typerefl:map()), #{importance => ?IMPORTANCE_LOW})}
+            ];
+        _ ->
+            [{bridges_v2, ?HOCON(?R_REF(bridges_v2), #{importance => ?IMPORTANCE_LOW})}]
     end.
 
 fields(bridges_v2) ->
