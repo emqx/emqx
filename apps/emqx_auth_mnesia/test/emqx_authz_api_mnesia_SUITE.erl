@@ -415,7 +415,9 @@ run_examples(Code, Examples) when is_number(Code) ->
     run_examples(
         fun
             ({ok, ResCode, _}) when Code =:= ResCode -> true;
-            (_) -> false
+            (_Res) ->
+                ct:pal("check failed: ~p", [_Res]),
+                false
         end,
         Examples
     ).
@@ -455,7 +457,9 @@ make_examples(ApiMod, Replacements) ->
                             end,
                         {replace_parts(to_parts(Path), Replacements), Op, Body}
                     end,
-                    lists:sort(fun op_sort/2, maps:to_list(maps:remove('operationId', Schema)))
+                    lists:sort(
+                        fun op_sort/2, maps:to_list(maps:with([get, put, post, delete], Schema))
+                    )
                 )
             end,
             Paths
