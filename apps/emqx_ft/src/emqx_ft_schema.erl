@@ -77,7 +77,7 @@ fields(file_transfer) ->
                     desc => ?DESC("init_timeout"),
                     required => false,
                     importance => ?IMPORTANCE_LOW,
-                    default => "10s"
+                    default => <<"10s">>
                 }
             )},
         {store_segment_timeout,
@@ -87,7 +87,7 @@ fields(file_transfer) ->
                     desc => ?DESC("store_segment_timeout"),
                     required => false,
                     importance => ?IMPORTANCE_LOW,
-                    default => "5m"
+                    default => <<"5m">>
                 }
             )},
         {assemble_timeout,
@@ -97,7 +97,7 @@ fields(file_transfer) ->
                     desc => ?DESC("assemble_timeout"),
                     required => false,
                     importance => ?IMPORTANCE_LOW,
-                    default => "5m"
+                    default => <<"5m">>
                 }
             )},
         {storage,
@@ -208,7 +208,7 @@ fields(local_storage_segments_gc) ->
                 #{
                     desc => ?DESC("storage_gc_interval"),
                     required => false,
-                    default => "1h"
+                    default => <<"1h">>
                 }
             )},
         {maximum_segments_ttl,
@@ -218,7 +218,7 @@ fields(local_storage_segments_gc) ->
                 #{
                     desc => ?DESC("storage_gc_max_segments_ttl"),
                     required => false,
-                    default => "24h"
+                    default => <<"24h">>
                 }
             )},
         {minimum_segments_ttl,
@@ -228,7 +228,7 @@ fields(local_storage_segments_gc) ->
                 #{
                     desc => ?DESC("storage_gc_min_segments_ttl"),
                     required => false,
-                    default => "5m",
+                    default => <<"5m">>,
                     % NOTE
                     % This setting does not seem to be useful to an end-user.
                     hidden => true

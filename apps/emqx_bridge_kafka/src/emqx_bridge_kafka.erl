@@ -444,7 +444,7 @@ fields(consumer_kafka_opts) ->
     [
         {max_batch_bytes,
             mk(emqx_schema:bytesize(), #{
-                default => "896KB", desc => ?DESC(consumer_max_batch_bytes)
+                default => <<"896KB">>, desc => ?DESC(consumer_max_batch_bytes)
             })},
         {max_rejoin_attempts,
             mk(non_neg_integer(), #{

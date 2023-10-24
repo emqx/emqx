@@ -953,7 +953,7 @@ fields("rpc") ->
             sc(
                 string(),
                 #{
-                    default => "0.0.0.0",
+                    default => <<"0.0.0.0">>,
                     desc => ?DESC(rpc_listen_address),
                     importance => ?IMPORTANCE_MEDIUM
                 }
