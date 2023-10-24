@@ -154,12 +154,18 @@
     {emqx_dashboard, "dashboard.listeners.http { enable = true, bind = 18083 }"}
 ).
 
+-if(?EMQX_RELEASE_EDITION == ee).
+%% For now we got only kafka implementing `bridge_v2` and that is enterprise only.
 all() ->
     [
         {group, single},
         %{group, cluster_later_join},
         {group, cluster}
     ].
+-else.
+all() ->
+    [].
+-endif.
 
 groups() ->
     AllTCs = emqx_common_test_helpers:all(?MODULE),
