@@ -147,17 +147,6 @@ jobs:
           path: ${{ matrix.profile }}.zip
           retention-days: 1
 
-  build_slim_packages:
-    needs:
-      - sanity-checks
-    uses: ./.github/workflows/build_slim_packages.yaml
-    with:
-      runner_labels: ${{ needs.sanity-checks.outputs.runner_labels }}
-      builder: ${{ needs.sanity-checks.outputs.builder }}
-      builder_vsn: ${{ needs.sanity-checks.outputs.builder_vsn }}
-      otp_vsn: ${{ needs.sanity-checks.outputs.otp_vsn }}
-      elixir_vsn: ${{ needs.sanity-checks.outputs.elixir_vsn }}
-
   build_docker_for_test:
     needs:
       - sanity-checks
