@@ -76,8 +76,6 @@ jobs:
           EMQX_RPC__CACERTFILE: /opt/emqx/etc/certs/cacert.pem
           EMQX_RPC__CIPHERS: TLS_AES_256_GCM_SHA384,TLS_AES_128_GCM_SHA256
           EMQX_RPC__TLS_VERSIONS: "[tlsv1.3]"
-          EMQX_RPC__SSL_SERVER_PRT: 5370
-          EMQX_RPC__PORT_DISCOVERY: manual
         EOL
     - name: Prepare emqxConfig.EMQX_RPC using ssl1.2
       working-directory: source
@@ -91,7 +89,6 @@ jobs:
           EMQX_RPC__CACERTFILE: /opt/emqx/etc/certs/cacert.pem
           EMQX_RPC__CIPHERS: TLS_AES_256_GCM_SHA384,TLS_AES_128_GCM_SHA256
           EMQX_RPC__TLS_VERSIONS: "[tlsv1.2]"
-          EMQX_RPC__SSL_SERVER_PRT: 5370
           EMQX_RPC__PORT_DISCOVERY: manual
         EOL
     - name: run emqx on chart (k8s)

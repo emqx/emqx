@@ -121,9 +121,9 @@ spec:
           {{- end }}
           - name: ekka
             containerPort: 4370
-          - name: genrpc
+          - name: genrpc-manual
             containerPort: 5369
-          - name: genrpc-ssl
+          - name: genrpc2-auto
             containerPort: 5370
           envFrom:
             - configMapRef:
