@@ -262,7 +262,9 @@ maybe_cleanup_api_key(#?APP{name = Name, api_key = ApiKey}) ->
         [_App1] ->
             ?SLOG(info, #{
                 msg => "update_apikey_name_from_old_version",
-                info => <<"Update ApiKey name with new name rule, more information: xxx">>
+                info =>
+                    <<"Update ApiKey name with new name rule, see also: ",
+                        "https://github.com/emqx/emqx/pull/11798">>
             }),
             ok;
         Existed ->
