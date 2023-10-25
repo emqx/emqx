@@ -115,7 +115,7 @@ jobs:
           echo "version-emqx-enterprise=$(./pkg-vsn.sh emqx-enterprise)" | tee -a $GITHUB_OUTPUT
 
   compile:
-    runs-on: ${{ fromJSON(needs.sanity-checks.outputs.runner_labels) }}
+    runs-on: ${{ fromJSON(github.repository_owner == 'emqx' && '["self-hosted","ephemeral-xl","linux","x64"]' || '["ubuntu-22.04"]') }}
     container: ${{ needs.sanity-checks.outputs.builder }}
     needs:
       - sanity-checks
