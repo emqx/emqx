@@ -41,6 +41,8 @@ init_per_testcase(TestCase, Config) ->
 end_per_testcase(TestCase, Config) ->
     ?MODULE:TestCase({'end', Config}).
 
+%% the 2 test cases below are based on kafka connector which is ee only
+-if(?EMQX_RELEASE_EDITION == ee).
 t_connector_lifecycle({init, Config}) ->
     meck:new(emqx_connector_ee_schema, [passthrough]),
     meck:expect(emqx_connector_ee_schema, resource_type, 1, ?CONNECTOR),
@@ -226,3 +228,4 @@ connector_config() ->
                 <<"versions">> => [<<"tlsv1.3">>, <<"tlsv1.2">>]
             }
     }.
+-endif.
