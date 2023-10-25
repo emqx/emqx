@@ -45,11 +45,12 @@ paths() ->
 
 %% This is a rather hidden API, so we don't need to add translations for the description.
 schema("/schemas/:name") ->
+    Schemas = [hotconf, bridges, bridges_v2, connectors],
     #{
         'operationId' => get_schema,
         get => #{
             parameters => [
-                {name, hoconsc:mk(hoconsc:enum([hotconf, bridges, bridges_v2]), #{in => path})}
+                {name, hoconsc:mk(hoconsc:enum(Schemas), #{in => path})}
             ],
             desc => <<
                 "Get the schema JSON of the specified name. "
@@ -79,11 +80,17 @@ gen_schema(hotconf) ->
 gen_schema(bridges) ->
     emqx_conf:bridge_schema_json();
 gen_schema(bridges_v2) ->
-    bridge_v2_schema_json().
+    bridge_v2_schema_json();
+gen_schema(connectors) ->
+    connectors_schema_json().
 
 bridge_v2_schema_json() ->
     SchemaInfo = #{title => <<"EMQX Data Bridge V2 API Schema">>, version => <<"0.1.0">>},
     gen_api_schema_json_iodata(emqx_bridge_v2_api, SchemaInfo).
+
+connectors_schema_json() ->
+    SchemaInfo = #{title => <<"EMQX Connectors Schema">>, version => <<"0.1.0">>},
+    gen_api_schema_json_iodata(emqx_connector_api, SchemaInfo).
 
 gen_api_schema_json_iodata(SchemaMod, SchemaInfo) ->
     emqx_dashboard_swagger:gen_api_schema_json_iodata(
