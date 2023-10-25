@@ -174,7 +174,6 @@
 -export([password_converter/2, bin_str_converter/2]).
 -export([authz_fields/0]).
 -export([sc/2, map/2]).
--export([upgrade_raw_conf/1]).
 
 -elvis([{elvis_style, god_modules, disable}]).
 
@@ -182,10 +181,6 @@
 -define(MAX_UINT(Bits), (?BIT(Bits) - 1)).
 -define(DEFAULT_MULTIPLIER, 1.5).
 -define(DEFAULT_BACKOFF, 0.75).
-
-%% dummy callback from eqmx_config:init_load
-upgrade_raw_conf(RawConf) ->
-    RawConf.
 
 namespace() -> broker.
 

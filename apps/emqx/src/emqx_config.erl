@@ -325,7 +325,7 @@ init_load(SchemaMod, Conf) when is_list(Conf) orelse is_binary(Conf) ->
     ok = save_schema_mod_and_names(SchemaMod),
     HasDeprecatedFile = has_deprecated_file(),
     RawConf0 = load_config_files(HasDeprecatedFile, Conf),
-    RawConf1 = apply(SchemaMod, upgrade_raw_conf, [RawConf0]),
+    RawConf1 = upgrade_raw_conf(SchemaMod, RawConf0),
     warning_deprecated_root_key(RawConf1),
     RawConf2 =
         case HasDeprecatedFile of
@@ -341,6 +341,14 @@ init_load(SchemaMod, Conf) when is_list(Conf) orelse is_binary(Conf) ->
     ok = save_to_config_map(CheckedConf, RawConf3),
     maybe_init_default_zone(),
     ok.
+
+upgrade_raw_conf(SchemaMod, RawConf) ->
+    case erlang:function_exported(SchemaMod, upgrade_raw_conf, 1) of
+        true ->
+            SchemaMod:upgrade_raw_conf(RawConf);
+        false ->
+            RawConf
+    end.
 
 %% Merge environment variable overrides on top, then merge with overrides.
 overlay_v0(SchemaMod, RawConf) when is_map(RawConf) ->
