@@ -22,7 +22,9 @@
     store_batch/3,
     get_streams/3,
     make_iterator/3,
-    next/2
+    next/2,
+    save_iterator/3,
+    get_iterator/2
 ]).
 
 %% internal exports:
@@ -42,7 +44,7 @@
 
 -type db() :: emqx_ds:db().
 
--type shard_id() :: {emqx_ds:db(), atom()}.
+-type shard_id() :: {db(), atom()}.
 
 %% This record enapsulates the stream entity from the replication
 %% level.
@@ -71,7 +73,7 @@
 %% API functions
 %%================================================================================
 
--spec list_shards(emqx_ds:db()) -> [shard_id()].
+-spec list_shards(db()) -> [shard_id()].
 list_shards(DB) ->
     %% TODO: milestone 5
     lists:map(
@@ -81,7 +83,7 @@ list_shards(DB) ->
         list_nodes()
     ).
 
--spec open_db(emqx_ds:db(), emqx_ds:create_db_opts()) -> ok | {error, _}.
+-spec open_db(db(), emqx_ds:create_db_opts()) -> ok | {error, _}.
 open_db(DB, Opts) ->
     %% TODO: improve error reporting, don't just crash
     lists:foreach(
@@ -92,7 +94,7 @@ open_db(DB, Opts) ->
         list_nodes()
     ).
 
--spec drop_db(emqx_ds:db()) -> ok | {error, _}.
+-spec drop_db(db()) -> ok | {error, _}.
 drop_db(DB) ->
     lists:foreach(
         fun(Node) ->
@@ -102,7 +104,7 @@ drop_db(DB) ->
         list_nodes()
     ).
 
--spec store_batch(emqx_ds:db(), [emqx_types:message()], emqx_ds:message_store_opts()) ->
+-spec store_batch(db(), [emqx_types:message()], emqx_ds:message_store_opts()) ->
     emqx_ds:store_batch_result().
 store_batch(DB, Msg, Opts) ->
     %% TODO: Currently we store messages locally.
@@ -112,7 +114,7 @@ store_batch(DB, Msg, Opts) ->
 -spec get_streams(db(), emqx_ds:topic_filter(), emqx_ds:time()) ->
     [{emqx_ds:stream_rank(), stream()}].
 get_streams(DB, TopicFilter, StartTime) ->
-    Shards = emqx_ds_replication_layer:list_shards(DB),
+    Shards = list_shards(DB),
     lists:flatmap(
         fun(Shard) ->
             Node = node_of_shard(Shard),
@@ -163,6 +165,14 @@ next(Iter0, BatchSize) ->
         Other ->
             Other
     end.
+
+-spec save_iterator(db(), emqx_ds:iterator_id(), iterator()) -> ok.
+save_iterator(_DB, _ITRef, _Iterator) ->
+    error(todo).
+
+-spec get_iterator(db(), emqx_ds:iterator_id()) -> emqx_ds:get_iterator_result(iterator()).
+get_iterator(_DB, _ITRef) ->
+    error(todo).
 
 %%================================================================================
 %% behavior callbacks

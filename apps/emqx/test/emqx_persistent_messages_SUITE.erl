@@ -103,8 +103,8 @@ t_messages_persisted(_Config) ->
     ct:pal("Persisted = ~p", [Persisted]),
 
     ?assertEqual(
-        [M1, M2, M5, M7, M9, M10],
-        [{emqx_message:topic(M), emqx_message:payload(M)} || M <- Persisted]
+        lists:sort([M1, M2, M5, M7, M9, M10]),
+        lists:sort([{emqx_message:topic(M), emqx_message:payload(M)} || M <- Persisted])
     ),
 
     ok.
@@ -146,11 +146,11 @@ t_messages_persisted_2(_Config) ->
     ct:pal("Persisted = ~p", [Persisted]),
 
     ?assertEqual(
-        [
+        lists:sort([
             {T(<<"client/1/topic">>), <<"4">>},
             {T(<<"client/2/topic">>), <<"5">>}
-        ],
-        [{emqx_message:topic(M), emqx_message:payload(M)} || M <- Persisted]
+        ]),
+        lists:sort([{emqx_message:topic(M), emqx_message:payload(M)} || M <- Persisted])
     ),
 
     ok.
@@ -252,9 +252,13 @@ connect(Opts0 = #{}) ->
     Client.
 
 consume(TopicFiler, StartMS) ->
-    [{_, Stream}] = emqx_ds:get_streams(?PERSISTENT_MESSAGE_DB, TopicFiler, StartMS),
-    {ok, It} = emqx_ds:make_iterator(Stream, StartMS),
-    consume(It).
+    lists:flatmap(
+        fun({_Rank, Stream}) ->
+            {ok, It} = emqx_ds:make_iterator(Stream, StartMS, 0),
+            consume(It)
+        end,
+        emqx_ds:get_streams(?PERSISTENT_MESSAGE_DB, TopicFiler, StartMS)
+    ).
 
 consume(It) ->
     case emqx_ds:next(It, 100) of

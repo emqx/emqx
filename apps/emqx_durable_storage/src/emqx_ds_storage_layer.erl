@@ -368,7 +368,7 @@ rocksdb_open(Shard, Options) ->
 
 -spec db_dir(shard_id()) -> file:filename().
 db_dir({DB, ShardId}) ->
-    lists:flatten([atom_to_list(DB), $:, atom_to_list(ShardId)]).
+    filename:join("data", lists:flatten([atom_to_list(DB), $:, atom_to_list(ShardId)])).
 
 %%--------------------------------------------------------------------------------
 %% Schema access

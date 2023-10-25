@@ -510,6 +510,48 @@ t_process_dies_session_expires(Config) ->
 
     emqtt:disconnect(Client2).
 
+t_publish_while_client_is_gone_qos1(Config) ->
+    %% A persistent session should receive messages in its
+    %% subscription even if the process owning the session dies.
+    ConnFun = ?config(conn_fun, Config),
+    Topic = ?config(topic, Config),
+    STopic = ?config(stopic, Config),
+    Payload1 = <<"hello1">>,
+    Payload2 = <<"hello2">>,
+    ClientId = ?config(client_id, Config),
+    {ok, Client1} = emqtt:start_link([
+        {proto_ver, v5},
+        {clientid, ClientId},
+        {properties, #{'Session-Expiry-Interval' => 30}},
+        {clean_start, true}
+        | Config
+    ]),
+    {ok, _} = emqtt:ConnFun(Client1),
+    {ok, _, [1]} = emqtt:subscribe(Client1, STopic, qos1),
+
+    ok = emqtt:disconnect(Client1),
+    maybe_kill_connection_process(ClientId, Config),
+
+    ok = publish(Topic, [Payload1, Payload2]),
+
+    {ok, Client2} = emqtt:start_link([
+        {proto_ver, v5},
+        {clientid, ClientId},
+        {properties, #{'Session-Expiry-Interval' => 30}},
+        {clean_start, false}
+        | Config
+    ]),
+    {ok, _} = emqtt:ConnFun(Client2),
+    Msgs = receive_messages(2),
+    ?assertMatch([_, _], Msgs),
+    [Msg2, Msg1] = Msgs,
+    ?assertEqual({ok, iolist_to_binary(Payload1)}, maps:find(payload, Msg1)),
+    ?assertEqual({ok, 1}, maps:find(qos, Msg1)),
+    ?assertEqual({ok, iolist_to_binary(Payload2)}, maps:find(payload, Msg2)),
+    ?assertEqual({ok, 1}, maps:find(qos, Msg2)),
+
+    ok = emqtt:disconnect(Client2).
+
 t_publish_while_client_is_gone(init, Config) -> skip_ds_tc(Config);
 t_publish_while_client_is_gone('end', _Config) -> ok.
 t_publish_while_client_is_gone(Config) ->
