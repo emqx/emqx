@@ -1151,6 +1151,7 @@ translation("emqx") ->
 translation("gen_rpc") ->
     [
         {"default_client_driver", fun tr_gen_rpc_default_client_driver/1},
+        {"tcp_client_port", fun tr_gen_rpc_tcp_client_port/1},
         {"ssl_client_port", fun tr_gen_rpc_ssl_client_port/1},
         {"ssl_client_options", fun tr_gen_rpc_ssl_options/1},
         {"ssl_server_options", fun tr_gen_rpc_ssl_options/1},
@@ -1226,6 +1227,9 @@ collector_enabled(disabled, _) -> [].
 
 tr_gen_rpc_default_client_driver(Conf) ->
     conf_get("rpc.protocol", Conf).
+
+tr_gen_rpc_tcp_client_port(Conf) ->
+    conf_get("rpc.tcp_server_port", Conf).
 
 tr_gen_rpc_ssl_client_port(Conf) ->
     conf_get("rpc.ssl_server_port", Conf).
