@@ -150,7 +150,8 @@ post_config_update([?ROOT_KEY, Type, Name], '$remove', _, _OldConf, _AppEnvs) ->
             {error, {active_channels, Channels}}
     end;
 post_config_update([?ROOT_KEY, Type, Name], _Req, NewConf, undefined, _AppEnvs) ->
-    ok = emqx_connector_resource:create(Type, Name, NewConf),
+    ResOpts = emqx_resource:fetch_creation_opts(NewConf),
+    ok = emqx_connector_resource:create(Type, Name, NewConf, ResOpts),
     ?tp(connector_post_config_update_done, #{}),
     ok;
 post_config_update([?ROOT_KEY, Type, Name], _Req, NewConf, OldConf, _AppEnvs) ->

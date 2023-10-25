@@ -527,9 +527,8 @@ call_health_check(ResId, Mod, ResourceState) ->
     ?SAFE_CALL(Mod:on_get_status(ResId, ResourceState)).
 
 -spec call_channel_health_check(resource_id(), channel_id(), module(), resource_state()) ->
-    resource_status()
-    | {resource_status()}
-    | {resource_status(), term()}
+    channel_status()
+    | {channel_status(), term()}
     | {error, term()}.
 call_channel_health_check(ResId, ChannelId, Mod, ResourceState) ->
     ?SAFE_CALL(Mod:on_get_channel_status(ResId, ChannelId, ResourceState)).
