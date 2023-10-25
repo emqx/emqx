@@ -548,7 +548,7 @@ call_add_channel(ResId, Mod, ResourceState, ChannelId, ChannelConfig) ->
                 Kind:Reason:Stacktrace ->
                     {error, #{
                         exception => Kind,
-                        reason => Reason,
+                        reason => emqx_utils:redact(Reason),
                         stacktrace => emqx_utils:redact(Stacktrace)
                     }}
             end;
@@ -570,7 +570,7 @@ call_remove_channel(ResId, Mod, ResourceState, ChannelId) ->
                 Kind:Reason:Stacktrace ->
                     {error, #{
                         exception => Kind,
-                        reason => Reason,
+                        reason => emqx_utils:redact(Reason),
                         stacktrace => emqx_utils:redact(Stacktrace)
                     }}
             end;
