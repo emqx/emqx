@@ -796,19 +796,19 @@ do_gen_reason_codes(Acc, [], []) ->
     lists:reverse(Acc);
 do_gen_reason_codes(
     Acc,
-    [{_TF, ?RC_SUCCESS} | RestCheckedTF],
-    [{_TF, NRC} | RestTFWithNRC]
+    [{_, ?RC_SUCCESS} | RestTF],
+    [{_, NRC} | RestWithNRC]
 ) ->
     %% will passing through `process_subscribe/2`
     %% use NRC to override IintialRC
-    do_gen_reason_codes([NRC | Acc], RestCheckedTF, RestTFWithNRC);
+    do_gen_reason_codes([NRC | Acc], RestTF, RestWithNRC);
 do_gen_reason_codes(
     Acc,
-    [{_TF, InitialRC} | RestChecked],
-    RestTFWithNRC
+    [{_, InitialRC} | Rest],
+    RestWithNRC
 ) ->
     %% InitialRC is not `RC_SUCCESS`, use it.
-    do_gen_reason_codes([InitialRC | Acc], RestChecked, RestTFWithNRC).
+    do_gen_reason_codes([InitialRC | Acc], Rest, RestWithNRC).
 
 %%--------------------------------------------------------------------
 %% Process Unsubscribe
