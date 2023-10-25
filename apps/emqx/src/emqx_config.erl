@@ -345,7 +345,8 @@ init_load(SchemaMod, Conf) when is_list(Conf) orelse is_binary(Conf) ->
 upgrade_raw_conf(SchemaMod, RawConf) ->
     case erlang:function_exported(SchemaMod, upgrade_raw_conf, 1) of
         true ->
-            SchemaMod:upgrade_raw_conf(RawConf);
+            %% TODO make it a schema module behaviour in hocon_schema
+            apply(SchemaMod, upgrade_raw_conf, [RawConf]);
         false ->
             RawConf
     end.
