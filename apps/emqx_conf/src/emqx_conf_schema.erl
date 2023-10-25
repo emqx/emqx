@@ -44,6 +44,7 @@
     namespace/0, roots/0, fields/1, translations/0, translation/1, validations/0, desc/1, tags/0
 ]).
 -export([conf_get/2, conf_get/3, keys/2, filter/1]).
+-export([upgrade_raw_conf/1]).
 
 %% internal exports for `emqx_enterprise_schema' only.
 -export([ensure_unicode_path/2, convert_rotation/2, log_handler_common_confs/2]).
@@ -80,6 +81,10 @@
 
 %% 1 million default ports counter
 -define(DEFAULT_MAX_PORTS, 1024 * 1024).
+
+%% Callback to upgrade config after loaded from config file but before validation.
+upgrade_raw_conf(RawConf) ->
+    emqx_connector_schema:transform_bridges_v1_to_connectors_and_bridges_v2(RawConf).
 
 %% root config should not have a namespace
 namespace() -> undefined.

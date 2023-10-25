@@ -325,7 +325,7 @@ init_load(SchemaMod, Conf) when is_list(Conf) orelse is_binary(Conf) ->
     ok = save_schema_mod_and_names(SchemaMod),
     HasDeprecatedFile = has_deprecated_file(),
     RawConf0 = load_config_files(HasDeprecatedFile, Conf),
-    RawConf1 = emqx_connector_schema:transform_bridges_v1_to_connectors_and_bridges_v2(RawConf0),
+    RawConf1 = apply(SchemaMod, upgrade_raw_conf, [RawConf0]),
     warning_deprecated_root_key(RawConf1),
     RawConf2 =
         case HasDeprecatedFile of
