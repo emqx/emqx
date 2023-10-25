@@ -141,14 +141,15 @@ record(Group, Topic, SubPid) ->
 dispatch(Group, Topic, Delivery) ->
     dispatch(Group, Topic, Delivery, _FailedSubs = #{}).
 
-dispatch(Group, Topic, Delivery = #delivery{message = Msg}, FailedSubs) ->
-    #message{from = ClientId, topic = SourceTopic} = Msg,
+dispatch(Group, Topic, Delivery = #delivery{message = Msg0}, FailedSubs) ->
+    #message{from = ClientId, topic = SourceTopic} = Msg0,
+    Msg1 = with_shared_record(Msg0, Group, Topic),
     case pick(strategy(Group), ClientId, SourceTopic, Group, Topic, FailedSubs) of
         false ->
             {error, no_subscribers};
         {Type, SubPid} ->
-            Msg1 = with_redispatch_to(Msg, Group, Topic),
-            case do_dispatch(SubPid, Group, Topic, Msg1, Type) of
+            Msg2 = with_redispatch_to(Msg1, Group, Topic),
+            case do_dispatch(SubPid, Group, Topic, Msg2, Type) of
                 ok ->
                     {ok, 1};
                 {error, Reason} ->
@@ -238,6 +239,9 @@ with_redispatch_to(#message{qos = ?QOS_0} = Msg, _Group, _Topic) ->
     Msg;
 with_redispatch_to(Msg, Group, Topic) ->
     emqx_message:set_headers(#{redispatch_to => ?REDISPATCH_TO(Group, Topic)}, Msg).
+
+with_shared_record(Msg, Group, Topic) ->
+    emqx_message:set_headers(#{shared_record => emqx_topic:make_shared_record(Group, Topic)}, Msg).
 
 %% @hidden Redispatch is needed only for the messages with redispatch_to header added.
 is_redispatch_needed(#message{} = Msg) ->

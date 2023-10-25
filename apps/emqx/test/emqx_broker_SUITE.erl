@@ -308,7 +308,10 @@ t_shared_subscribe(Config) when is_list(Config) ->
     emqx_broker:safe_publish(emqx_message:make(ct, <<"topic">>, <<"hello">>)),
     ?assert(
         receive
-            {deliver, <<"topic">>, #message{payload = <<"hello">>}} ->
+            {deliver, <<"topic">>, #message{
+                headers = #{shared_record := #share{group = <<"group">>, topic = <<"topic">>}},
+                payload = <<"hello">>
+            }} ->
                 true;
             Msg ->
                 ct:pal("Msg: ~p", [Msg]),
