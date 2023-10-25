@@ -73,10 +73,19 @@ on_remove_channel(
 
 on_query(
     _InstId,
-    {_MessageTag, _Message},
-    _ConnectorState
+    {ChannelId, Message},
+    ConnectorState
 ) ->
-    throw(not_implemented).
+    Channels = maps:get(channels, ConnectorState, #{}),
+    %% Lookup the channel
+    ChannelState = maps:get(ChannelId, Channels, not_found),
+    case ChannelState of
+        not_found -> throw(<<"Channel not active">>);
+        _ -> ok
+    end,
+    SendTo = maps:get(send_to, ChannelState),
+    SendTo ! Message,
+    ok.
 
 on_get_channels(ResId) ->
     emqx_bridge_v2:get_channels_for_connector(ResId).

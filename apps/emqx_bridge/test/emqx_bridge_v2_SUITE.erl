@@ -30,6 +30,9 @@ con_type() ->
 con_name() ->
     my_connector.
 
+connector_resource_id() ->
+    emqx_connector_resource:resource_id(con_type(), con_name()).
+
 bridge_type() ->
     test_bridge_type.
 
@@ -48,7 +51,13 @@ con_schema() ->
     ].
 
 con_config() ->
-    #{}.
+    #{
+        <<"enable">> => true,
+        <<"resource_opts">> => #{
+            %% Set this to a low value to make the test run faster
+            <<"health_check_interval">> => 100
+        }
+    }.
 
 bridge_schema() ->
     [
@@ -66,8 +75,16 @@ bridge_schema() ->
 
 bridge_config() ->
     #{
-        <<"connector">> => atom_to_binary(con_name())
+        <<"connector">> => atom_to_binary(con_name()),
+        <<"enable">> => true,
+        <<"send_to">> => registered_process_name(),
+        <<"resource_opts">> => #{
+            <<"resume_interval">> => 100
+        }
     }.
+
+registered_process_name() ->
+    my_registered_process.
 
 all() ->
     emqx_common_test_helpers:all(?MODULE).
@@ -179,3 +196,100 @@ t_is_valid_bridge_v1(_) ->
     {ok, _} = emqx_bridge_v2:remove(bridge_type(), my_test_bridge_2),
     false = emqx_bridge_v2:is_valid_bridge_v1(bridge_v1_type, my_test_bridge),
     ok.
+
+t_manual_health_check(_) ->
+    {ok, _} = emqx_bridge_v2:create(bridge_type(), my_test_bridge, bridge_config()),
+    %% Run a health check for the bridge
+    connected = emqx_bridge_v2:health_check(bridge_type(), my_test_bridge),
+    {ok, _} = emqx_bridge_v2:remove(bridge_type(), my_test_bridge),
+    ok.
+
+t_manual_health_check_exception(_) ->
+    Conf = (bridge_config())#{<<"on_get_channel_status_fun">> => fun() -> throw(my_error) end},
+    {ok, _} = emqx_bridge_v2:create(bridge_type(), my_test_bridge, Conf),
+    %% Run a health check for the bridge
+    {error, _} = emqx_bridge_v2:health_check(bridge_type(), my_test_bridge),
+    {ok, _} = emqx_bridge_v2:remove(bridge_type(), my_test_bridge),
+    ok.
+
+t_manual_health_check_exception_error(_) ->
+    Conf = (bridge_config())#{<<"on_get_channel_status_fun">> => fun() -> error(my_error) end},
+    {ok, _} = emqx_bridge_v2:create(bridge_type(), my_test_bridge, Conf),
+    %% Run a health check for the bridge
+    {error, _} = emqx_bridge_v2:health_check(bridge_type(), my_test_bridge),
+    {ok, _} = emqx_bridge_v2:remove(bridge_type(), my_test_bridge),
+    ok.
+
+t_manual_health_check_error(_) ->
+    Conf = (bridge_config())#{<<"on_get_channel_status_fun">> => fun() -> {error, my_error} end},
+    {ok, _} = emqx_bridge_v2:create(bridge_type(), my_test_bridge, Conf),
+    %% Run a health check for the bridge
+    {error, my_error} = emqx_bridge_v2:health_check(bridge_type(), my_test_bridge),
+    {ok, _} = emqx_bridge_v2:remove(bridge_type(), my_test_bridge),
+    ok.
+
+t_send_message(_) ->
+    {ok, _} = emqx_bridge_v2:create(bridge_type(), my_test_bridge, bridge_config()),
+    %% Register name for this process
+    register(registered_process_name(), self()),
+    _ = emqx_bridge_v2:send_message(bridge_type(), my_test_bridge, <<"my_msg">>, #{}),
+    receive
+        <<"my_msg">> ->
+            ok
+    after 1000 ->
+        ct:fail("Failed to receive message")
+    end,
+    unregister(registered_process_name()),
+    {ok, _} = emqx_bridge_v2:remove(bridge_type(), my_test_bridge),
+    ok.
+
+t_send_message_unhealthy_channel(_) ->
+    OnGetStatusResponseETS = ets:new(on_get_status_response_ets, [public]),
+    ets:insert(OnGetStatusResponseETS, {status_value, {error, my_error}}),
+    OnGetStatusFun = fun() -> ets:lookup_element(OnGetStatusResponseETS, status_value, 2) end,
+    Conf = (bridge_config())#{<<"on_get_channel_status_fun">> => OnGetStatusFun},
+    {ok, _} = emqx_bridge_v2:create(bridge_type(), my_test_bridge, Conf),
+    %% Register name for this process
+    register(registered_process_name(), self()),
+    _ = emqx_bridge_v2:send_message(bridge_type(), my_test_bridge, <<"my_msg">>, #{timeout => 1}),
+    receive
+        Any ->
+            ct:pal("Received message: ~p", [Any]),
+            ct:fail("Should not get message here")
+    after 1 ->
+        ok
+    end,
+    %% Sending should work again after the channel is healthy
+    ets:insert(OnGetStatusResponseETS, {status_value, connected}),
+    _ = emqx_bridge_v2:send_message(
+        bridge_type(),
+        my_test_bridge,
+        <<"my_msg">>,
+        #{resume_interval => 100}
+    ),
+    receive
+        <<"my_msg">> ->
+            ok
+    after 10000 ->
+        ct:fail("Failed to receive message")
+    end,
+    unregister(registered_process_name()),
+    {ok, _} = emqx_bridge_v2:remove(bridge_type(), my_test_bridge),
+    ok.
+
+t_unhealthy_channel_alarm(_) ->
+    Conf = (bridge_config())#{<<"on_get_channel_status_fun">> => fun() -> {error, my_error} end},
+    0 = get_bridge_v2_alarm_cnt(),
+    {ok, _} = emqx_bridge_v2:create(bridge_type(), my_test_bridge, Conf),
+    1 = get_bridge_v2_alarm_cnt(),
+    {ok, _} = emqx_bridge_v2:remove(bridge_type(), my_test_bridge),
+    0 = get_bridge_v2_alarm_cnt(),
+    ok.
+
+get_bridge_v2_alarm_cnt() ->
+    Alarms = emqx_alarm:get_alarms(activated),
+    FilterFun = fun
+        (#{name := S}) when is_binary(S) -> string:find(S, "bridge_v2") =/= nomatch;
+        (_) -> false
+    end,
+    length(lists:filter(FilterFun, Alarms)).

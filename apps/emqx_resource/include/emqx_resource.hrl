@@ -22,6 +22,7 @@
 -type resource_spec() :: map().
 -type resource_state() :: term().
 -type resource_status() :: connected | disconnected | connecting | stopped.
+-type channel_status() :: connected | connecting.
 -type callback_mode() :: always_sync | async_if_possible.
 -type query_mode() ::
     simple_sync
