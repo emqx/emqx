@@ -59,12 +59,8 @@ valid_role(Type, Role) ->
 %% ===================================================================
 check_rbac(?ROLE_SUPERUSER, _, _, _) ->
     true;
-%%check_rbac(?ROLE_API_SUPERUSER, _, _, _) ->
-%%    true;
 check_rbac(?ROLE_VIEWER, <<"GET">>, _, _) ->
     true;
-%%check_rbac(?ROLE_API_VIEWER, <<"GET">>, _, _) ->
-%%    true;
 check_rbac(?ROLE_API_PUBLISHER, <<"POST">>, <<"/publish">>, _) ->
     true;
 check_rbac(?ROLE_API_PUBLISHER, <<"POST">>, <<"/publish/bulk">>, _) ->

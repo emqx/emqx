@@ -38,7 +38,7 @@
 -export([authorize/4]).
 -export([post_config_update/5]).
 
--export([backup_tables/0]).
+-export([backup_tables/0, validate_mnesia_backup/1]).
 
 %% Internal exports (RPC)
 -export([
@@ -81,6 +81,22 @@ mnesia(boot) ->
 %%--------------------------------------------------------------------
 
 backup_tables() -> [?APP].
+
+validate_mnesia_backup({schema, _Tab, CreateList} = Schema) ->
+    case emqx_mgmt_data_backup:default_validate_mnesia_backup(Schema) of
+        ok ->
+            ok;
+        _ ->
+            case proplists:get_value(attributes, CreateList) of
+                %% Since v5.4.0 the `desc` has changed to `extra`
+                [name, api_key, api_secret_hash, enable, desc, expired_at, created_at] ->
+                    ok;
+                Fields ->
+                    {error, {unknow_fields, Fields}}
+            end
+    end;
+validate_mnesia_backup(_Other) ->
+    ok.
 
 post_config_update([api_key], _Req, NewConf, _OldConf, _AppEnvs) ->
     #{bootstrap_file := File} = NewConf,

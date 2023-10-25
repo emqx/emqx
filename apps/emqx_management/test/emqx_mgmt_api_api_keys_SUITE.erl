@@ -39,7 +39,7 @@ groups() ->
     [
         {parallel, [parallel], [t_create, t_update, t_delete, t_authorize, t_create_unexpired_app]},
         {parallel, [parallel], ?EE_CASES},
-        {sequence, [], [t_bootstrap_file, t_create_failed]}
+        {sequence, [], [t_bootstrap_file, t_bootstrap_file_with_role, t_create_failed]}
     ].
 
 init_per_suite(Config) ->
@@ -85,6 +85,92 @@ t_bootstrap_file(_) ->
     ?assertMatch({error, _}, auth_authorize(TestPath, <<"test-2">>, <<"secret-12">>)),
     update_file(<<>>),
     ok.
+
+-if(?EMQX_RELEASE_EDITION == ee).
+t_bootstrap_file_with_role(_) ->
+    Search = fun(Name) ->
+        lists:search(
+            fun(#{api_key := AppName}) ->
+                AppName =:= Name
+            end,
+            emqx_mgmt_auth:list()
+        )
+    end,
+
+    Bin = <<"role-1:role-1:viewer\nrole-2:role-2:administrator\nrole-3:role-3">>,
+    File = "./bootstrap_api_keys.txt",
+    ok = file:write_file(File, Bin),
+    update_file(File),
+
+    ?assertMatch(
+        {value, #{api_key := <<"role-1">>, role := <<"viewer">>}},
+        Search(<<"role-1">>)
+    ),
+
+    ?assertMatch(
+        {value, #{api_key := <<"role-2">>, role := <<"administrator">>}},
+        Search(<<"role-2">>)
+    ),
+
+    ?assertMatch(
+        {value, #{api_key := <<"role-3">>, role := <<"administrator">>}},
+        Search(<<"role-3">>)
+    ),
+
+    %% bad role
+    BadBin = <<"role-4:secret-11:bad\n">>,
+    ok = file:write_file(File, BadBin),
+    update_file(File),
+    ?assertEqual(
+        false,
+        Search(<<"role-4">>)
+    ),
+    ok.
+-else.
+t_bootstrap_file_with_role(_) ->
+    Search = fun(Name) ->
+        lists:search(
+            fun(#{api_key := AppName}) ->
+                AppName =:= Name
+            end,
+            emqx_mgmt_auth:list()
+        )
+    end,
+
+    Bin = <<"role-1:role-1:administrator\nrole-2:role-2">>,
+    File = "./bootstrap_api_keys.txt",
+    ok = file:write_file(File, Bin),
+    update_file(File),
+
+    ?assertMatch(
+        {value, #{api_key := <<"role-1">>, role := <<"administrator">>}},
+        Search(<<"role-1">>)
+    ),
+
+    ?assertMatch(
+        {value, #{api_key := <<"role-2">>, role := <<"administrator">>}},
+        Search(<<"role-2">>)
+    ),
+
+    %% only administrator
+    OtherRoleBin = <<"role-3:role-3:viewer\n">>,
+    ok = file:write_file(File, OtherRoleBin),
+    update_file(File),
+    ?assertEqual(
+        false,
+        Search(<<"role-3">>)
+    ),
+
+    %% bad role
+    BadBin = <<"role-4:secret-11:bad\n">>,
+    ok = file:write_file(File, BadBin),
+    update_file(File),
+    ?assertEqual(
+        false,
+        Search(<<"role-4">>)
+    ),
+    ok.
+-endif.
 
 auth_authorize(Path, Key, Secret) ->
     FakePath = erlang:list_to_binary(emqx_dashboard_swagger:relative_uri("/fake")),
