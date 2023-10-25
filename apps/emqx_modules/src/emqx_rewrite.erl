@@ -150,15 +150,16 @@ compile(Rules) ->
         Rules
     ).
 
-%% FIXME: rewrite #share{} and return #share{}, not formated $share/group/topic
 match_and_rewrite(Topic, [], _) ->
     Topic;
 match_and_rewrite(Topic, [{Filter, MP, Dest} | Rules], Binds) ->
     case emqx_topic:match(Topic, Filter) of
-        true -> rewrite(emqx_topic:get_shared_real_topic(Topic), MP, Dest, Binds);
+        true -> rewrite(Topic, MP, Dest, Binds);
         false -> match_and_rewrite(Topic, Rules, Binds)
     end.
 
+rewrite(SharedRecord = #share{topic = Topic}, MP, Dest, Binds) ->
+    SharedRecord#share{topic = rewrite(Topic, MP, Dest, Binds)};
 rewrite(Topic, MP, Dest, Binds) ->
     case re:run(Topic, MP, [{capture, all_but_first, list}]) of
         {match, Captured} ->
