@@ -80,6 +80,10 @@ describe_app() {
         runner="docker"
     fi
     case "${app}" in
+        # emqx_connector test suite is using kafka brdige which is only available in emqx-enterprise
+        apps/emqx_connector)
+            profile='emqx-enterprise'
+            ;;
         apps/*)
             if [[ -f "${app}/BSL.txt" ]]; then
               profile='emqx-enterprise'
