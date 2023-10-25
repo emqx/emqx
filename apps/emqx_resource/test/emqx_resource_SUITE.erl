@@ -167,7 +167,7 @@ t_create_remove_local(_) ->
             ?assertMatch(ok, emqx_resource:remove_local(?ID)),
 
             ?assertMatch(
-                ?RESOURCE_ERROR(not_found),
+                {error, not_found},
                 emqx_resource:query(?ID, get_state)
             ),
 
@@ -235,7 +235,7 @@ t_query(_) ->
     {ok, #{pid := _}} = emqx_resource:query(?ID, get_state),
 
     ?assertMatch(
-        ?RESOURCE_ERROR(not_found),
+        {error, not_found},
         emqx_resource:query(<<"unknown">>, get_state)
     ),
 
