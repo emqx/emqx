@@ -629,7 +629,7 @@ remove_channels_in_list([ChannelID | Rest], Data) ->
             remove_channels_in_list(Rest, NewData);
         {error, Reason} ->
             ?SLOG(warning, #{
-                msg => add_channel_failed,
+                msg => remove_channel_failed,
                 id => Data#data.id,
                 channel_id => ChannelID,
                 reason => Reason
