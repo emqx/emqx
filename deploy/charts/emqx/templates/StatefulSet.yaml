@@ -123,8 +123,6 @@ spec:
             containerPort: 4370
           - name: genrpc-manual
             containerPort: 5369
-          - name: genrpc2-auto
-            containerPort: 5370
           envFrom:
             - configMapRef:
                 name: {{ include "emqx.fullname" . }}-env
