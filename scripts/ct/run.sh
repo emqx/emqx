@@ -110,6 +110,10 @@ ERLANG_CONTAINER='erlang'
 DOCKER_CT_ENVS_FILE="${WHICH_APP}/docker-ct"
 
 case "${WHICH_APP}" in
+    # emqx_connector test suite is using kafka bridge which is only available in emqx-enterprise
+    apps/emqx_connector)
+        export PROFILE='emqx-enterprise'
+        ;;
     lib-ee*)
         ## ensure enterprise profile when testing lib-ee applications
         export PROFILE='emqx-enterprise'
