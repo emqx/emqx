@@ -121,6 +121,35 @@ t_cli(_Config) ->
     ?assertMatch(#{<<"data">> := []}, emqx_utils_json:decode(Res2, [return_maps])),
     ok.
 
+t_max_size(_Config) ->
+    {ok, _} = emqx:update_config([log, audit, max_filter_size], 1000),
+    SizeFun =
+        fun() ->
+            AuditPath = emqx_mgmt_api_test_util:api_path(["audit"]),
+            AuthHeader = emqx_mgmt_api_test_util:auth_header_(),
+            Limit = "limit=1000",
+            {ok, Res} = emqx_mgmt_api_test_util:request_api(get, AuditPath, Limit, AuthHeader),
+            #{<<"data">> := Data} = emqx_utils_json:decode(Res, [return_maps]),
+            erlang:length(Data)
+        end,
+    InitSize = SizeFun(),
+    lists:foreach(
+        fun(_) ->
+            ok = emqx_ctl:run_command(["conf", "show", "log"])
+        end,
+        lists:duplicate(100, 1)
+    ),
+    timer:sleep(110),
+    Size1 = SizeFun(),
+    ?assert(Size1 - InitSize >= 100, {Size1, InitSize}),
+    {ok, _} = emqx:update_config([log, audit, max_filter_size], 10),
+    %% wait for clean_expired
+    timer:sleep(500),
+    ExpectSize = emqx:get_config([log, audit, max_filter_size]),
+    Size2 = SizeFun(),
+    ?assertEqual(ExpectSize, Size2, {sys:get_state(emqx_audit)}),
+    ok.
+
 t_kickout_clients_without_log(_) ->
     process_flag(trap_exit, true),
     AuditPath = emqx_mgmt_api_test_util:api_path(["audit"]),
