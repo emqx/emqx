@@ -80,14 +80,6 @@ on_query(
     Channels = maps:get(channels, ConnectorState, #{}),
     %% Lookup the channel
     ChannelState = maps:get(ChannelId, Channels, not_found),
-    case ChannelState of
-        not_found ->
-            error(
-                {recoverable_error, <<"Unexpected type for batch message (Expected send_message)">>}
-            );
-        _ ->
-            ok
-    end,
     SendTo = maps:get(send_to, ChannelState),
     SendTo ! Message,
     ok.
