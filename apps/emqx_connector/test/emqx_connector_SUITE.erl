@@ -191,8 +191,9 @@ t_remove_fail(_Config) ->
             {_, {?CONNECTOR, callback_mode, []}, _},
             {_, {?CONNECTOR, on_start, [_, _]}, {ok, connector_state}},
             {_, {?CONNECTOR, on_get_channels, [_]}, _},
-            {_, {?CONNECTOR, on_add_channel, _}, {ok, connector_state}},
             {_, {?CONNECTOR, on_get_status, [_, connector_state]}, connected},
+            {_, {?CONNECTOR, on_get_channels, [_]}, _},
+            {_, {?CONNECTOR, on_add_channel, _}, {ok, connector_state}},
             {_, {?CONNECTOR, on_get_channels, [_]}, _}
         ],
         meck:history(?CONNECTOR)
