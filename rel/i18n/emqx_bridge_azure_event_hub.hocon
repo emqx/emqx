@@ -325,4 +325,18 @@ desc_config.desc:
 desc_config.label:
 """Azure Event Hub Bridge Configuration"""
 
+ssl_client_opts.desc:
+"""TLS/SSL options for Azure Event Hub client."""
+ssl_client_opts.label:
+"""TLS/SSL options"""
+
+server_name_indication.desc:
+"""Server Name Indication (SNI) setting for TLS handshake.<br/>
+- <code>auto</code>: The client will use <code>"servicebus.windows.net"</code> as SNI.<br/>
+- <code>disable</code>: If you wish to prevent the client from sending the SNI.<br/>
+- Other string values it will be sent as-is."""
+
+server_name_indication.label:
+"""SNI"""
+
 }

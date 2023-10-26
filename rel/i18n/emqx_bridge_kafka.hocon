@@ -436,4 +436,19 @@ kafka_producer_action.desc:
 kafka_producer_action.label:
 """Kafka Producer Action"""
 
+ssl_client_opts.desc:
+"""TLS/SSL options for Kafka client."""
+ssl_client_opts.label:
+"""TLS/SSL options"""
+
+server_name_indication.desc:
+"""Server Name Indication (SNI) setting for TLS handshake.<br/>
+- <code>auto</code>: Allow the client to automatically determine the appropriate SNI.<br/>
+- <code>disable</code>: If you wish to prevent the client from sending the SNI.<br/>
+- Other string values will be sent as-is."""
+
+server_name_indication.label:
+"""SNI"""
+
+
 }

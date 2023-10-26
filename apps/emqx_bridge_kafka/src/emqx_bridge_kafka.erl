@@ -27,7 +27,8 @@
     roots/0,
     fields/1,
     desc/1,
-    host_opts/0
+    host_opts/0,
+    ssl_client_opts_fields/0
 ]).
 
 -export([kafka_producer_converter/2, producer_strategy_key_validator/1]).
@@ -195,6 +196,40 @@ values(consumer) ->
 %% -------------------------------------------------------------------------------------------------
 %% Hocon Schema Definitions
 
+%% In addition to the common ssl client options defined in emqx_schema module
+%% Kafka supports a special value 'auto' in order to support different bootstrap endpoints
+%% as well as partition leaders.
+%% A static SNI is quite unusual for Kafka, but it's kept anyway.
+ssl_overrides() ->
+    #{
+        "server_name_indication" =>
+            mk(
+                hoconsc:union([auto, disable, string()]),
+                #{
+                    example => auto,
+                    default => <<"auto">>,
+                    importance => ?IMPORTANCE_LOW,
+                    desc => ?DESC("server_name_indication")
+                }
+            )
+    }.
+
+override(Fields, Overrides) ->
+    lists:map(
+        fun({Name, Sc}) ->
+            case maps:find(Name, Overrides) of
+                {ok, Override} ->
+                    {Name, hocon_schema:override(Sc, Override)};
+                error ->
+                    {Name, Sc}
+            end
+        end,
+        Fields
+    ).
+
+ssl_client_opts_fields() ->
+    override(emqx_schema:client_ssl_opts_schema(#{}), ssl_overrides()).
+
 host_opts() ->
     #{default_port => 9092}.
 
@@ -266,8 +301,11 @@ fields("config") ->
             mk(hoconsc:union([none, ref(auth_username_password), ref(auth_gssapi_kerberos)]), #{
                 default => none, desc => ?DESC("authentication")
             })},
-        {socket_opts, mk(ref(socket_opts), #{required => false, desc => ?DESC(socket_opts)})}
-    ] ++ emqx_connector_schema_lib:ssl_fields();
+        {socket_opts, mk(ref(socket_opts), #{required => false, desc => ?DESC(socket_opts)})},
+        {ssl, mk(ref(ssl_client_opts), #{})}
+    ];
+fields(ssl_client_opts) ->
+    ssl_client_opts_fields();
 fields(auth_username_password) ->
     [
         {mechanism,
@@ -571,7 +609,8 @@ struct_names() ->
         consumer_opts,
         consumer_kafka_opts,
         consumer_topic_mapping,
-        producer_kafka_ext_headers
+        producer_kafka_ext_headers,
+        ssl_client_opts
     ].
 
 %% -------------------------------------------------------------------------------------------------

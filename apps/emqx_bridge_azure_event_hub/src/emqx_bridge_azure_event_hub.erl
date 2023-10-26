@@ -98,9 +98,9 @@ fields(auth_username_password) ->
         auth_overrides()
     ),
     override_documentations(Fields);
-fields("ssl_client_opts") ->
+fields(ssl_client_opts) ->
     Fields = override(
-        emqx_schema:fields("ssl_client_opts"),
+        emqx_bridge_kafka:ssl_client_opts_fields(),
         ssl_overrides()
     ),
     override_documentations(Fields);
@@ -138,8 +138,6 @@ desc("config_connector") ->
     ?DESC("desc_config");
 desc("config_producer") ->
     ?DESC("desc_config");
-desc("ssl_client_opts") ->
-    emqx_schema:desc("ssl_client_opts");
 desc("get_" ++ Type) when Type == "producer"; Type == "connector"; Type == "bridge_v2" ->
     ["Configuration for Azure Event Hub using `GET` method."];
 desc("put_" ++ Type) when Type == "producer"; Type == "connector"; Type == "bridge_v2" ->
@@ -155,7 +153,8 @@ struct_names() ->
         auth_username_password,
         kafka_message,
         producer_kafka_opts,
-        bridge_v2
+        bridge_v2,
+        ssl_client_opts
     ].
 
 bridge_v2_examples(Method) ->
@@ -319,7 +318,7 @@ connector_overrides() ->
                     )
                 }
             ),
-        ssl => mk(ref("ssl_client_opts"), #{default => #{<<"enable">> => true}}),
+        ssl => mk(ref(ssl_client_opts), #{default => #{<<"enable">> => true}}),
         type => mk(
             ?AEH_CONNECTOR_TYPE,
             #{
@@ -355,7 +354,7 @@ producer_overrides() ->
                 required => true,
                 validator => fun emqx_bridge_kafka:producer_strategy_key_validator/1
             }),
-        ssl => mk(ref("ssl_client_opts"), #{default => #{<<"enable">> => true}}),
+        ssl => mk(ref(ssl_client_opts), #{default => #{<<"enable">> => true}}),
         type => mk(azure_event_hub_producer, #{required => true})
     }.
 
@@ -366,7 +365,7 @@ bridge_v2_overrides() ->
                 required => true,
                 validator => fun emqx_bridge_kafka:producer_strategy_key_validator/1
             }),
-        ssl => mk(ref("ssl_client_opts"), #{default => #{<<"enable">> => true}}),
+        ssl => mk(ref(ssl_client_opts), #{default => #{<<"enable">> => true}}),
         type => mk(
             ?AEH_CONNECTOR_TYPE,
             #{
@@ -391,19 +390,11 @@ auth_overrides() ->
             })
     }.
 
+%% Kafka has SSL disabled by default
+%% Azure must use SSL
 ssl_overrides() ->
     #{
-        %% FIXME: change this once the config option is defined
-        %% "cacerts" => mk(boolean(), #{default => true}),
-        "enable" => mk(true, #{default => true}),
-        "server_name_indication" =>
-            mk(
-                hoconsc:union([disable, auto, string()]),
-                #{
-                    example => auto,
-                    default => <<"auto">>
-                }
-            )
+        "enable" => mk(true, #{default => true})
     }.
 
 kafka_producer_overrides() ->
