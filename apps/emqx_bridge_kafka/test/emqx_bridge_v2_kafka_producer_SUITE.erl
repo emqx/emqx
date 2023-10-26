@@ -212,7 +212,7 @@ bridge_v2_config(ConnectorName) ->
 connector_config() ->
     #{
         <<"authentication">> => <<"none">>,
-        <<"bootstrap_hosts">> => <<"127.0.0.1:9092">>,
+        <<"bootstrap_hosts">> => iolist_to_binary(kafka_hosts_string()),
         <<"connect_timeout">> => <<"5s">>,
         <<"enable">> => true,
         <<"metadata_request_timeout">> => <<"5s">>,
@@ -236,3 +236,8 @@ connector_config() ->
                 <<"versions">> => [<<"tlsv1.3">>, <<"tlsv1.2">>]
             }
     }.
+
+kafka_hosts_string() ->
+    KafkaHost = os:getenv("KAFKA_PLAIN_HOST", "kafka-1.emqx.net"),
+    KafkaPort = os:getenv("KAFKA_PLAIN_PORT", "9092"),
+    KafkaHost ++ ":" ++ KafkaPort.
