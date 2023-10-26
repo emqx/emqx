@@ -75,14 +75,7 @@ convert_secret(Secret, #{}) ->
 
 -spec wrap(source()) -> emqx_secret:t(t()).
 wrap(Source) ->
-    try
-        _Secret = load(Source),
-        emqx_secret:wrap(?MODULE, load, Source)
-    catch
-        error:Reason ->
-            % NOTE: This should be a term serializable as JSON value.
-            throw(emqx_utils:format(Reason))
-    end.
+    emqx_secret:wrap(?MODULE, load, Source).
 
 -spec source(emqx_secret:t(t())) -> source().
 source(Secret) when is_function(Secret) ->
@@ -103,5 +96,9 @@ load_file(Filename) ->
         {ok, Secret} ->
             string:trim(Secret, trailing, [$\n]);
         {error, Reason} ->
-            error({inaccessible_secret_file, Reason}, [Filename])
+            throw(#{
+                msg => failed_to_read_secret_file,
+                path => Filename,
+                reason => emqx_utils:explain_posix(Reason)
+            })
     end.

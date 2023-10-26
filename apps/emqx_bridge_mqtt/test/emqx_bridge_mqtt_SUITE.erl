@@ -230,16 +230,18 @@ t_conf_bridge_authn_passfile(Config) ->
     ?assertReceive(
         {authenticate, #{username := Username2, password := Password2}}
     ),
-    {ok, 400, #{<<"message">> := Message}} = request_json(
-        post,
-        uri(["bridges"]),
-        ?SERVER_CONF(<<>>, <<"file://im/pretty/sure/theres/no/such/file">>)#{
-            <<"name">> => <<"t_conf_bridge_authn_no_passfile">>
-        }
-    ),
     ?assertMatch(
-        #{<<"reason">> := <<"{inaccessible_secret_file,enoent}">>},
-        emqx_utils_json:decode(Message)
+        {ok, 201, #{
+            <<"status">> := <<"disconnected">>,
+            <<"status_reason">> := <<"#{msg => failed_to_read_secret_file", _/bytes>>
+        }},
+        request_json(
+            post,
+            uri(["bridges"]),
+            ?SERVER_CONF(<<>>, <<"file://im/pretty/sure/theres/no/such/file">>)#{
+                <<"name">> => <<"t_conf_bridge_authn_no_passfile">>
+            }
+        )
     ).
 
 hook_authenticate() ->
