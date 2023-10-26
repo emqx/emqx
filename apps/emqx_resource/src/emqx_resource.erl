@@ -200,8 +200,8 @@
     | {resource_status(), resource_state(), term()}.
 
 -callback on_get_channel_status(resource_id(), channel_id(), resource_state()) ->
-    resource_status()
-    | {resource_status(), term()}.
+    channel_status()
+    | {error, term()}.
 
 -callback query_mode(Config :: term()) -> query_mode().
 
@@ -525,7 +525,6 @@ call_health_check(ResId, Mod, ResourceState) ->
 
 -spec call_channel_health_check(resource_id(), channel_id(), module(), resource_state()) ->
     channel_status()
-    | {channel_status(), term()}
     | {error, term()}.
 call_channel_health_check(ResId, ChannelId, Mod, ResourceState) ->
     ?SAFE_CALL(Mod:on_get_channel_status(ResId, ChannelId, ResourceState)).

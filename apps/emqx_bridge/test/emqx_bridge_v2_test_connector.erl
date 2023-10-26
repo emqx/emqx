@@ -37,6 +37,12 @@ query_mode(_Config) ->
 callback_mode() ->
     always_sync.
 
+on_start(
+    _InstId,
+    #{on_start_fun := FunRef} = Conf
+) ->
+    Fun = emqx_bridge_v2_SUITE:unwrap_fun(FunRef),
+    Fun(Conf);
 on_start(_InstId, _Config) ->
     {ok, #{}}.
 
@@ -95,6 +101,12 @@ on_query_async(
 ) ->
     throw(not_implemented).
 
+on_get_status(
+    _InstId,
+    #{on_get_status_fun := FunRef}
+) ->
+    Fun = emqx_bridge_v2_SUITE:unwrap_fun(FunRef),
+    Fun();
 on_get_status(
     _InstId,
     _State

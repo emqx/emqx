@@ -502,10 +502,10 @@ on_get_channel_status(
                             connected
                     catch
                         _ErrorType:Reason ->
-                            {connecting, Reason}
+                            {error, Reason}
                     end;
                 {error, Error} ->
-                    {connecting, Error}
+                    {error, Error}
             end;
         {error, _Reason} ->
             connecting

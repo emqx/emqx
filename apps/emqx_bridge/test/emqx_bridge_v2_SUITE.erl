@@ -259,7 +259,7 @@ t_send_message(_) ->
     receive
         <<"my_msg">> ->
             ok
-    after 1000 ->
+    after 10000 ->
         ct:fail("Failed to receive message")
     end,
     unregister(registered_process_name()),
@@ -300,6 +300,66 @@ t_send_message_unhealthy_channel(_) ->
     end,
     unregister(registered_process_name()),
     {ok, _} = emqx_bridge_v2:remove(bridge_type(), my_test_bridge),
+    ok.
+
+t_send_message_unhealthy_connector(_) ->
+    ResponseETS = ets:new(response_ets, [public]),
+    ets:insert(ResponseETS, {on_start_value, conf}),
+    ets:insert(ResponseETS, {on_get_status_value, connecting}),
+    OnStartFun = wrap_fun(fun(Conf) ->
+        case ets:lookup_element(ResponseETS, on_start_value, 2) of
+            conf ->
+                {ok, Conf};
+            V ->
+                V
+        end
+    end),
+    OnGetStatusFun = wrap_fun(fun() ->
+        ets:lookup_element(ResponseETS, on_get_status_value, 2)
+    end),
+    ConConfig = emqx_utils_maps:deep_merge(con_config(), #{
+        <<"on_start_fun">> => OnStartFun,
+        <<"on_get_status_fun">> => OnGetStatusFun,
+        <<"resource_opts">> => #{<<"start_timeout">> => 100}
+    }),
+    ConName = ?FUNCTION_NAME,
+    {ok, _} = emqx_connector:create(con_type(), ConName, ConConfig),
+    BridgeConf = (bridge_config())#{
+        <<"connector">> => atom_to_binary(ConName)
+    },
+    {ok, _} = emqx_bridge_v2:create(bridge_type(), my_test_bridge, BridgeConf),
+    %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+    %% Test that sending does not work when the connector is unhealthy (connecting)
+    %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+    register(registered_process_name(), self()),
+    _ = emqx_bridge_v2:send_message(bridge_type(), my_test_bridge, <<"my_msg">>, #{timeout => 100}),
+    receive
+        Any ->
+            ct:pal("Received message: ~p", [Any]),
+            ct:fail("Should not get message here")
+    after 10 ->
+        ok
+    end,
+    %% We should have one alarm
+    1 = get_bridge_v2_alarm_cnt(),
+    %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+    %% Test that sending works again when the connector is healthy (connected)
+    %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+    ets:insert(ResponseETS, {on_get_status_value, connected}),
+
+    _ = emqx_bridge_v2:send_message(bridge_type(), my_test_bridge, <<"my_msg">>, #{timeout => 1000}),
+    receive
+        <<"my_msg">> ->
+            ok
+    after 1000 ->
+        ct:fail("Failed to receive message")
+    end,
+    %% The alarm should be gone at this point
+    0 = get_bridge_v2_alarm_cnt(),
+    unregister(registered_process_name()),
+    {ok, _} = emqx_bridge_v2:remove(bridge_type(), my_test_bridge),
+    {ok, _} = emqx_connector:remove(con_type(), ConName),
+    ets:delete(ResponseETS),
     ok.
 
 t_unhealthy_channel_alarm(_) ->

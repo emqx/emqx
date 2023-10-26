@@ -430,6 +430,14 @@ handle_event(enter, _OldState, connected = State, Data) ->
     {keep_state_and_data, health_check_actions(Data)};
 handle_event(state_timeout, health_check, connected, Data) ->
     handle_connected_health_check(Data);
+handle_event(
+    {call, From}, {add_channel, ChannelId, Config}, connected = _State, Data
+) ->
+    handle_add_channel(From, Data, ChannelId, Config);
+handle_event(
+    {call, From}, {remove_channel, ChannelId}, connected = _State, Data
+) ->
+    handle_remove_channel(From, ChannelId, Data);
 %% State: DISCONNECTED
 handle_event(enter, _OldState, disconnected = State, Data) ->
     ok = log_state_consistency(State, Data),
@@ -443,15 +451,15 @@ handle_event(state_timeout, auto_retry, disconnected, Data) ->
 handle_event(enter, _OldState, stopped = State, Data) ->
     ok = log_state_consistency(State, Data),
     {keep_state_and_data, []};
-%% The following events can be handled in any state
+%% The following events can be handled in any other state
 handle_event(
-    {call, From}, {add_channel, ChannelId, Config}, _State, Data
+    {call, From}, {add_channel, ChannelId, _Config}, State, Data
 ) ->
-    handle_add_channel(From, Data, ChannelId, Config);
+    handle_not_connected_add_channel(From, ChannelId, State, Data);
 handle_event(
     {call, From}, {remove_channel, ChannelId}, _State, Data
 ) ->
-    handle_remove_channel(From, ChannelId, Data);
+    handle_not_connected_remove_channel(From, ChannelId, Data);
 handle_event(
     {call, From}, get_channels, _State, Data
 ) ->
@@ -545,11 +553,13 @@ start_resource(Data, From) ->
                 reason => Reason
             }),
             _ = maybe_alarm(disconnected, Data#data.id, Err, Data#data.error),
+            %% Add channels and raise alarms
+            NewData1 = channels_health_check(disconnected, add_channels(Data)),
             %% Keep track of the error reason why the connection did not work
             %% so that the Reason can be returned when the verification call is made.
-            UpdatedData = Data#data{status = disconnected, error = Err},
-            Actions = maybe_reply(retry_actions(UpdatedData), From, Err),
-            {next_state, disconnected, update_state(UpdatedData, Data), Actions}
+            NewData2 = NewData1#data{status = disconnected, error = Err},
+            Actions = maybe_reply(retry_actions(NewData2), From, Err),
+            {next_state, disconnected, update_state(NewData2, Data), Actions}
     end.
 
 add_channels(Data) ->
@@ -612,10 +622,10 @@ stop_resource(#data{state = ResState, id = ResId} = Data) ->
     %% The callback mod should make sure the resource is stopped after on_stop/2
     %% is returned.
     HasAllocatedResources = emqx_resource:has_allocated_resources(ResId),
+    %% Before stop is called we remove all the channels from the resource
+    NewData = remove_channels(Data),
     case ResState =/= undefined orelse HasAllocatedResources of
         true ->
-            %% Before stop is called we remove all the channels from the resource
-            NewData = remove_channels(Data),
             %% we clear the allocated resources after stop is successful
             emqx_resource:call_stop(NewData#data.id, NewData#data.mod, ResState);
         false ->
@@ -623,7 +633,7 @@ stop_resource(#data{state = ResState, id = ResId} = Data) ->
     end,
     _ = maybe_clear_alarm(ResId),
     ok = emqx_metrics_worker:reset_metrics(?RES_METRICS, ResId),
-    Data#data{status = stopped}.
+    NewData#data{status = stopped}.
 
 remove_channels(Data) ->
     Channels = maps:keys(Data#data.added_channels),
@@ -641,9 +651,7 @@ remove_channels_in_list([ChannelID | Rest], Data, KeepInChannelMap) ->
                 maybe_clear_alarm(ChannelID),
                 maps:remove(ChannelID, AddedChannelsMap)
         end,
-    case
-        emqx_resource:call_remove_channel(Data#data.id, Data#data.mod, Data#data.state, ChannelID)
-    of
+    case safe_call_remove_channel(Data#data.id, Data#data.mod, Data#data.state, ChannelID) of
         {ok, NewState} ->
             NewData = Data#data{
                 state = NewState,
@@ -662,6 +670,11 @@ remove_channels_in_list([ChannelID | Rest], Data, KeepInChannelMap) ->
             },
             remove_channels_in_list(Rest, NewData, KeepInChannelMap)
     end.
+
+safe_call_remove_channel(_ResId, _Mod, undefined = State, _ChannelID) ->
+    {ok, State};
+safe_call_remove_channel(ResId, Mod, State, ChannelID) ->
+    emqx_resource:call_remove_channel(ResId, Mod, State, ChannelID).
 
 make_test_id() ->
     RandId = iolist_to_binary(emqx_utils:gen_id(16)),
@@ -710,8 +723,20 @@ add_channel_need_insert_update_data(Data, ChannelId, ChannelConfig) ->
             update_state(UpdatedData, Data)
     end.
 
+handle_not_connected_add_channel(From, ChannelId, State, Data) ->
+    %% When state is not connected the channel will be added to the channels
+    %% map but nothing else will happen.
+    Channels = Data#data.added_channels,
+    NewChannels = maps:put(ChannelId, {error, resource_not_operational}, Channels),
+    NewData1 = Data#data{added_channels = NewChannels},
+    %% Do channel health check to trigger alarm
+    NewData2 = channels_health_check(State, NewData1),
+    {keep_state, update_state(NewData2, Data), [{reply, From, ok}]}.
+
 handle_remove_channel(From, ChannelId, Data) ->
     Channels = Data#data.added_channels,
+    %% Deactivate alarm
+    _ = maybe_clear_alarm(ChannelId),
     case maps:get(ChannelId, Channels, {error, not_added}) of
         {error, _} ->
             %% The channel is already not installed in the connector state.
@@ -721,8 +746,6 @@ handle_remove_channel(From, ChannelId, Data) ->
             NewData = Data#data{
                 added_channels = NewAddedChannels
             },
-            %% Deactivate alarm
-            _ = maybe_clear_alarm(ChannelId),
             {keep_state, NewData, [{reply, From, ok}]};
         _ ->
             %% The channel is installed in the connector state
@@ -753,6 +776,15 @@ handle_remove_channel_exists(From, ChannelId, Data) ->
             }),
             {keep_state_and_data, [{reply, From, Error}]}
     end.
+
+handle_not_connected_remove_channel(From, ChannelId, Data) ->
+    %% When state is not connected the channel will be removed from the channels
+    %% map but nothing else will happen.
+    Channels = Data#data.added_channels,
+    NewChannels = maps:remove(ChannelId, Channels),
+    NewData = Data#data{added_channels = NewChannels},
+    _ = maybe_clear_alarm(ChannelId),
+    {keep_state, update_state(NewData, Data), [{reply, From, ok}]}.
 
 handle_manually_health_check(From, Data) ->
     with_health_check(
