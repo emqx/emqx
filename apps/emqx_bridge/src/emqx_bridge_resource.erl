@@ -110,6 +110,8 @@ parse_bridge_id(BridgeId, Opts) ->
     case string:split(bin(BridgeId), ":", all) of
         [Type, Name] ->
             {to_type_atom(Type), validate_name(Name, Opts)};
+        [Bridge, Type, Name] when Bridge =:= <<"bridge">>; Bridge =:= "bridge" ->
+            {to_type_atom(Type), validate_name(Name, Opts)};
         _ ->
             invalid_data(
                 <<"should be of pattern {type}:{name}, but got ", BridgeId/binary>>
