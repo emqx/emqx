@@ -653,7 +653,7 @@ get_metrics_from_local_node(BridgeType, BridgeName) ->
             invalid ->
                 ?NOT_FOUND(<<"Invalid operation: ", Op/binary>>);
             OperFunc ->
-                try is_enabled_bridge(BridgeType, BridgeName) of
+                try is_bridge_enabled(BridgeType, BridgeName) of
                     false ->
                         ?BRIDGE_NOT_ENABLED;
                     true ->
@@ -676,7 +676,7 @@ get_metrics_from_local_node(BridgeType, BridgeName) ->
             invalid ->
                 ?NOT_FOUND(<<"Invalid operation: ", Op/binary>>);
             OperFunc ->
-                try is_enabled_bridge(BridgeType, BridgeName) of
+                try is_bridge_enabled(BridgeType, BridgeName) of
                     false ->
                         ?BRIDGE_NOT_ENABLED;
                     true ->
@@ -695,7 +695,27 @@ get_metrics_from_local_node(BridgeType, BridgeName) ->
         end
     ).
 
-is_enabled_bridge(BridgeType, BridgeName) ->
+is_bridge_enabled(BridgeType, BridgeName) ->
+    case emqx_bridge_v2:is_bridge_v2_type(BridgeType) of
+        true -> is_bridge_enabled_v2(BridgeType, BridgeName);
+        false -> is_bridge_enabled_v1(BridgeType, BridgeName)
+    end.
+
+is_bridge_enabled_v1(BridgeType, BridgeName) ->
+    %% we read from the transalted config because the defaults are populated here.
+    try emqx:get_config([bridges, BridgeType, binary_to_existing_atom(BridgeName)]) of
+        ConfMap ->
+            maps:get(enable, ConfMap, false)
+    catch
+        error:{config_not_found, _} ->
+            throw(not_found);
+        error:badarg ->
+            %% catch non-existing atom,
+            %% none-existing atom means it is not available in config PT storage.
+            throw(not_found)
+    end.
+
+is_bridge_enabled_v2(BridgeType, BridgeName) ->
     try emqx_bridge:lookup(BridgeType, binary_to_existing_atom(BridgeName)) of
         {ok, #{raw_config := ConfMap}} ->
             maps:get(<<"enable">>, ConfMap, false);
