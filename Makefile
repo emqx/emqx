@@ -303,3 +303,7 @@ fmt: $(REBAR)
 .PHONY: clean-test-cluster-config
 clean-test-cluster-config:
 	@rm -f apps/emqx_conf/data/configs/cluster.hocon || true
+
+.PHONY: spellcheck
+spellcheck:
+	./scripts/spellcheck/spellcheck.sh _build/docgen/$(PROFILE)/schema-en.json

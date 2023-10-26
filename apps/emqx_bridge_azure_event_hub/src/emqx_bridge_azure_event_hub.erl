@@ -52,9 +52,9 @@ fields(auth_username_password) ->
         auth_overrides()
     ),
     override_documentations(Fields);
-fields("ssl_client_opts") ->
+fields(ssl_client_opts) ->
     Fields = override(
-        emqx_schema:fields("ssl_client_opts"),
+        emqx_bridge_kafka:ssl_client_opts_fields(),
         ssl_overrides()
     ),
     override_documentations(Fields);
@@ -74,8 +74,6 @@ fields(Method) ->
 
 desc("config_producer") ->
     ?DESC("desc_config");
-desc("ssl_client_opts") ->
-    emqx_schema:desc("ssl_client_opts");
 desc("get_producer") ->
     ["Configuration for Azure Event Hub using `GET` method."];
 desc("put_producer") ->
@@ -90,7 +88,8 @@ struct_names() ->
     [
         auth_username_password,
         kafka_message,
-        producer_kafka_opts
+        producer_kafka_opts,
+        ssl_client_opts
     ].
 
 conn_bridge_examples(Method) ->
@@ -208,7 +207,7 @@ producer_overrides() ->
                 required => true,
                 validator => fun emqx_bridge_kafka:producer_strategy_key_validator/1
             }),
-        ssl => mk(ref("ssl_client_opts"), #{default => #{<<"enable">> => true}}),
+        ssl => mk(ref(ssl_client_opts), #{default => #{<<"enable">> => true}}),
         type => mk(azure_event_hub_producer, #{required => true})
     }.
 
@@ -228,19 +227,11 @@ auth_overrides() ->
             })
     }.
 
+%% Kafka has SSL disabled by default
+%% Azure must use SSL
 ssl_overrides() ->
     #{
-        %% FIXME: change this once the config option is defined
-        %% "cacerts" => mk(boolean(), #{default => true}),
-        "enable" => mk(true, #{default => true}),
-        "server_name_indication" =>
-            mk(
-                hoconsc:union([disable, auto, string()]),
-                #{
-                    example => auto,
-                    default => <<"auto">>
-                }
-            )
+        "enable" => mk(true, #{default => true})
     }.
 
 kafka_producer_overrides() ->
