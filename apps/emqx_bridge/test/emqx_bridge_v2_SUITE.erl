@@ -21,11 +21,13 @@
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
 
+-import(emqx_common_test_helpers, [on_exit/1]).
+
 con_mod() ->
     emqx_bridge_v2_test_connector.
 
 con_type() ->
-    test_connector_type.
+    bridge_type().
 
 con_name() ->
     my_connector.
@@ -60,9 +62,13 @@ con_config() ->
     }.
 
 bridge_schema() ->
+    bridge_schema(_Opts = #{}).
+
+bridge_schema(Opts) ->
+    Type = maps:get(bridge_type, Opts, bridge_type()),
     [
         {
-            bridge_type(),
+            Type,
             hoconsc:mk(
                 hoconsc:map(name, typerefl:map()),
                 #{
@@ -94,49 +100,84 @@ all() ->
 
 start_apps() -> [emqx, emqx_conf, emqx_connector, emqx_bridge].
 
-init_per_suite(Config) ->
-    %% Setting up mocks for fake connector and bridge V2
-    meck:new(emqx_connector_schema, [passthrough, no_link]),
+setup_mocks() ->
+    MeckOpts = [passthrough, no_link, no_history, non_strict],
+
+    catch meck:new(emqx_connector_schema, MeckOpts),
     meck:expect(emqx_connector_schema, fields, 1, con_schema()),
 
-    meck:new(emqx_connector_resource, [passthrough, no_link]),
+    catch meck:new(emqx_connector_resource, MeckOpts),
     meck:expect(emqx_connector_resource, connector_to_resource_type, 1, con_mod()),
 
-    meck:new(emqx_bridge_v2_schema, [passthrough, no_link]),
+    catch meck:new(emqx_bridge_v2_schema, MeckOpts),
     meck:expect(emqx_bridge_v2_schema, fields, 1, bridge_schema()),
 
-    meck:new(emqx_bridge_v2, [passthrough, no_link]),
+    catch meck:new(emqx_bridge_v2, MeckOpts),
     meck:expect(emqx_bridge_v2, bridge_v2_type_to_connector_type, 1, con_type()),
     meck:expect(emqx_bridge_v2, bridge_v1_type_to_bridge_v2_type, 1, bridge_type()),
 
-    _ = application:load(emqx_conf),
-    ok = emqx_common_test_helpers:start_apps(start_apps()),
+    ok.
+
+init_per_suite(Config) ->
+    Apps = emqx_cth_suite:start(
+        app_specs(),
+        #{work_dir => emqx_cth_suite:work_dir(Config)}
+    ),
+    [{apps, Apps} | Config].
+
+end_per_suite(Config) ->
+    Apps = ?config(apps, Config),
+    emqx_cth_suite:stop(Apps),
+    ok.
+
+app_specs() ->
+    [
+        emqx,
+        emqx_conf,
+        emqx_connector,
+        emqx_bridge
+    ].
+
+init_per_testcase(_TestCase, Config) ->
+    %% Setting up mocks for fake connector and bridge V2
+    setup_mocks(),
+    ets:new(fun_table_name(), [named_table, public]),
+    %% Create a fake connector
+    {ok, _} = emqx_connector:create(con_type(), con_name(), con_config()),
     [
         {mocked_mods, [
             emqx_connector_schema,
             emqx_connector_resource,
-            emqx_bridge_v2_schema,
+
             emqx_bridge_v2
         ]}
         | Config
     ].
 
-end_per_suite(Config) ->
-    MockedMods = proplists:get_value(mocked_mods, Config),
-    meck:unload(MockedMods),
-    emqx_common_test_helpers:stop_apps(start_apps()).
-
-init_per_testcase(_TestCase, Config) ->
-    ets:new(fun_table_name(), [named_table, public]),
-    %% Create a fake connector
-    {ok, _} = emqx_connector:create(con_type(), con_name(), con_config()),
-    Config.
-
-end_per_testcase(_TestCase, Config) ->
+end_per_testcase(_TestCase, _Config) ->
     ets:delete(fun_table_name()),
-    %% Remove the fake connector
-    {ok, _} = emqx_connector:remove(con_type(), con_name()),
-    Config.
+    delete_all_bridges_and_connectors(),
+    meck:unload(),
+    emqx_common_test_helpers:call_janitor(),
+    ok.
+
+delete_all_bridges_and_connectors() ->
+    lists:foreach(
+        fun(#{name := Name, type := Type}) ->
+            ct:pal("removing bridge ~p", [{Type, Name}]),
+            emqx_bridge_v2:remove(Type, Name)
+        end,
+        emqx_bridge_v2:list()
+    ),
+    lists:foreach(
+        fun(#{name := Name, type := Type}) ->
+            ct:pal("removing connector ~p", [{Type, Name}]),
+            emqx_connector:remove(Type, Name)
+        end,
+        emqx_connector:list()
+    ),
+    emqx_conf:update([bridges_v2], #{}, #{override_to => cluster}),
+    ok.
 
 %% Hocon does not support placing a fun in a config map so we replace it with a string
 
@@ -381,3 +422,94 @@ get_bridge_v2_alarm_cnt() ->
         (_) -> false
     end,
     length(lists:filter(FilterFun, Alarms)).
+
+t_load_no_matching_connector(_Config) ->
+    Conf = bridge_config(),
+    BridgeTypeBin = atom_to_binary(bridge_type()),
+    BridgeNameBin0 = <<"my_test_bridge_update">>,
+    ?assertMatch({ok, _}, emqx_bridge_v2:create(bridge_type(), BridgeNameBin0, Conf)),
+
+    %% updating to invalid reference
+    RootConf0 = #{
+        BridgeTypeBin =>
+            #{BridgeNameBin0 => Conf#{<<"connector">> := <<"unknown">>}}
+    },
+    ?assertMatch(
+        {error,
+            {post_config_update, _HandlerMod, #{
+                bridge_name := my_test_bridge_update,
+                connector_name := unknown,
+                type := _,
+                reason := "connector_not_found_or_wrong_type"
+            }}},
+        emqx_conf:update([bridges_v2], RootConf0, #{override_to => cluster})
+    ),
+
+    %% creating new with invalid reference
+    BridgeNameBin1 = <<"my_test_bridge_new">>,
+    RootConf1 = #{
+        BridgeTypeBin =>
+            #{BridgeNameBin1 => Conf#{<<"connector">> := <<"unknown">>}}
+    },
+    ?assertMatch(
+        {error,
+            {post_config_update, _HandlerMod, #{
+                bridge_name := my_test_bridge_new,
+                connector_name := unknown,
+                type := _,
+                reason := "connector_not_found_or_wrong_type"
+            }}},
+        emqx_conf:update([bridges_v2], RootConf1, #{override_to => cluster})
+    ),
+
+    ok.
+
+t_create_no_matching_connector(_Config) ->
+    Conf = (bridge_config())#{<<"connector">> => <<"wrong_connector_name">>},
+    ?assertMatch(
+        {error,
+            {post_config_update, _HandlerMod, #{
+                bridge_name := _,
+                connector_name := _,
+                type := _,
+                reason := "connector_not_found_or_wrong_type"
+            }}},
+        emqx_bridge_v2:create(bridge_type(), my_test_bridge, Conf)
+    ),
+    ok.
+
+t_create_wrong_connector_type(_Config) ->
+    meck:expect(
+        emqx_bridge_v2_schema,
+        fields,
+        1,
+        bridge_schema(#{bridge_type => wrong_type})
+    ),
+    Conf = bridge_config(),
+    ?assertMatch(
+        {error,
+            {post_config_update, _HandlerMod, #{
+                bridge_name := _,
+                connector_name := _,
+                type := wrong_type,
+                reason := "connector_not_found_or_wrong_type"
+            }}},
+        emqx_bridge_v2:create(wrong_type, my_test_bridge, Conf)
+    ),
+    ok.
+
+t_update_connector_not_found(_Config) ->
+    Conf = bridge_config(),
+    ?assertMatch({ok, _}, emqx_bridge_v2:create(bridge_type(), my_test_bridge, Conf)),
+    BadConf = Conf#{<<"connector">> => <<"wrong_connector_name">>},
+    ?assertMatch(
+        {error,
+            {post_config_update, _HandlerMod, #{
+                bridge_name := _,
+                connector_name := _,
+                type := _,
+                reason := "connector_not_found_or_wrong_type"
+            }}},
+        emqx_bridge_v2:create(bridge_type(), my_test_bridge, BadConf)
+    ),
+    ok.

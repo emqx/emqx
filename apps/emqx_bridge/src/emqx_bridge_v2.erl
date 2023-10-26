@@ -655,26 +655,47 @@ operation_to_enable(enable) -> true.
 post_config_update([?ROOT_KEY], _Req, NewConf, OldConf, _AppEnv) ->
     #{added := Added, removed := Removed, changed := Updated} =
         diff_confs(NewConf, OldConf),
-    %% The config update will be failed if any task in `perform_bridge_changes` failed.
-    RemoveFun = fun uninstall_bridge_v2/3,
-    CreateFun = fun install_bridge_v2/3,
-    UpdateFun = fun(Type, Name, {OldBridgeConf, Conf}) ->
-        uninstall_bridge_v2(Type, Name, OldBridgeConf),
-        install_bridge_v2(Type, Name, Conf)
-    end,
-    Result = perform_bridge_changes([
-        #{action => RemoveFun, data => Removed},
-        #{
-            action => CreateFun,
-            data => Added,
-            on_exception_fn => fun emqx_bridge_resource:remove/4
-        },
-        #{action => UpdateFun, data => Updated}
-    ]),
-    ok = unload_message_publish_hook(),
-    ok = load_message_publish_hook(NewConf),
-    ?tp(bridge_post_config_update_done, #{}),
-    Result;
+    %% new and updated bridges must have their connector references validated
+    UpdatedConfigs =
+        lists:map(
+            fun({{Type, BridgeName}, {_Old, New}}) ->
+                {Type, BridgeName, New}
+            end,
+            maps:to_list(Updated)
+        ),
+    AddedConfigs =
+        lists:map(
+            fun({{Type, BridgeName}, AddedConf}) ->
+                {Type, BridgeName, AddedConf}
+            end,
+            maps:to_list(Added)
+        ),
+    ToValidate = UpdatedConfigs ++ AddedConfigs,
+    case multi_validate_referenced_connectors(ToValidate) of
+        ok ->
+            %% The config update will be failed if any task in `perform_bridge_changes` failed.
+            RemoveFun = fun uninstall_bridge_v2/3,
+            CreateFun = fun install_bridge_v2/3,
+            UpdateFun = fun(Type, Name, {OldBridgeConf, Conf}) ->
+                uninstall_bridge_v2(Type, Name, OldBridgeConf),
+                install_bridge_v2(Type, Name, Conf)
+            end,
+            Result = perform_bridge_changes([
+                #{action => RemoveFun, data => Removed},
+                #{
+                    action => CreateFun,
+                    data => Added,
+                    on_exception_fn => fun emqx_bridge_resource:remove/4
+                },
+                #{action => UpdateFun, data => Updated}
+            ]),
+            ok = unload_message_publish_hook(),
+            ok = load_message_publish_hook(NewConf),
+            ?tp(bridge_post_config_update_done, #{}),
+            Result;
+        {error, Error} ->
+            {error, Error}
+    end;
 post_config_update([?ROOT_KEY, BridgeType, BridgeName], '$remove', _, _OldConf, _AppEnvs) ->
     Conf = emqx:get_config([?ROOT_KEY, BridgeType, BridgeName]),
     ok = uninstall_bridge_v2(BridgeType, BridgeName, Conf),
@@ -683,22 +704,36 @@ post_config_update([?ROOT_KEY, BridgeType, BridgeName], '$remove', _, _OldConf, 
     ?tp(bridge_post_config_update_done, #{}),
     ok;
 post_config_update([?ROOT_KEY, BridgeType, BridgeName], _Req, NewConf, undefined, _AppEnvs) ->
-    ok = install_bridge_v2(BridgeType, BridgeName, NewConf),
-    Bridges = emqx_utils_maps:deep_put(
-        [BridgeType, BridgeName], emqx:get_config([?ROOT_KEY]), NewConf
-    ),
-    reload_message_publish_hook(Bridges),
-    ?tp(bridge_post_config_update_done, #{}),
-    ok;
+    %% N.B.: all bridges must use the same field name (`connector`) to define the
+    %% connector name.
+    ConnectorName = maps:get(connector, NewConf),
+    case validate_referenced_connectors(BridgeType, ConnectorName, BridgeName) of
+        ok ->
+            ok = install_bridge_v2(BridgeType, BridgeName, NewConf),
+            Bridges = emqx_utils_maps:deep_put(
+                [BridgeType, BridgeName], emqx:get_config([?ROOT_KEY]), NewConf
+            ),
+            reload_message_publish_hook(Bridges),
+            ?tp(bridge_post_config_update_done, #{}),
+            ok;
+        {error, Error} ->
+            {error, Error}
+    end;
 post_config_update([?ROOT_KEY, BridgeType, BridgeName], _Req, NewConf, OldConf, _AppEnvs) ->
-    ok = uninstall_bridge_v2(BridgeType, BridgeName, OldConf),
-    ok = install_bridge_v2(BridgeType, BridgeName, NewConf),
-    Bridges = emqx_utils_maps:deep_put(
-        [BridgeType, BridgeName], emqx:get_config([?ROOT_KEY]), NewConf
-    ),
-    reload_message_publish_hook(Bridges),
-    ?tp(bridge_post_config_update_done, #{}),
-    ok.
+    ConnectorName = maps:get(connector, NewConf),
+    case validate_referenced_connectors(BridgeType, ConnectorName, BridgeName) of
+        ok ->
+            ok = uninstall_bridge_v2(BridgeType, BridgeName, OldConf),
+            ok = install_bridge_v2(BridgeType, BridgeName, NewConf),
+            Bridges = emqx_utils_maps:deep_put(
+                [BridgeType, BridgeName], emqx:get_config([?ROOT_KEY]), NewConf
+            ),
+            reload_message_publish_hook(Bridges),
+            ?tp(bridge_post_config_update_done, #{}),
+            ok;
+        {error, Error} ->
+            {error, Error}
+    end.
 
 diff_confs(NewConfs, OldConfs) ->
     emqx_utils_maps:diff_maps(
@@ -1087,4 +1122,52 @@ extract_connector_id_from_bridge_v2_id(Id) ->
             <<"connector:", ConnectorType/binary, ":", ConnecorName/binary>>;
         _X ->
             error({error, iolist_to_binary(io_lib:format("Invalid bridge V2 ID: ~p", [Id]))})
+    end.
+
+to_existing_atom(X) ->
+    case emqx_utils:safe_to_existing_atom(X, utf8) of
+        {ok, A} -> A;
+        {error, _} -> throw(bad_atom)
+    end.
+
+validate_referenced_connectors(Type0, ConnectorName0, BridgeName) ->
+    %% N.B.: assumes that, for all bridgeV2 types, the name of the bridge type is
+    %% identical to its matching connector type name.
+    try
+        Type = to_existing_atom(Type0),
+        ConnectorName = to_existing_atom(ConnectorName0),
+        case emqx_config:get([connectors, Type, ConnectorName], undefined) of
+            undefined ->
+                {error, #{
+                    reason => "connector_not_found_or_wrong_type",
+                    type => Type,
+                    bridge_name => BridgeName,
+                    connector_name => ConnectorName
+                }};
+            _ ->
+                ok
+        end
+    catch
+        throw:bad_atom ->
+            {error, #{
+                reason => "connector_not_found_or_wrong_type",
+                type => Type0,
+                bridge_name => BridgeName,
+                connector_name => ConnectorName0
+            }}
+    end.
+
+multi_validate_referenced_connectors(Configs) ->
+    Pipeline =
+        lists:map(
+            fun({Type, BridgeName, #{connector := ConnectorName}}) ->
+                fun(_) -> validate_referenced_connectors(Type, ConnectorName, BridgeName) end
+            end,
+            Configs
+        ),
+    case emqx_utils:pipeline(Pipeline, unused, unused) of
+        {ok, _, _} ->
+            ok;
+        {error, Reason, _State} ->
+            {error, Reason}
     end.
