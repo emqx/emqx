@@ -27,7 +27,7 @@
 -define(LDAP_RESOURCE, <<"emqx_authn_ldap_bind_SUITE">>).
 
 -define(PATH, [authentication]).
--define(ResourceID, <<"password_based:ldap_bind">>).
+-define(ResourceID, <<"password_based:ldap">>).
 
 all() ->
     emqx_common_test_helpers:all(?MODULE).
@@ -78,7 +78,7 @@ t_create(_Config) ->
         {create_authenticator, ?GLOBAL, AuthConfig}
     ),
 
-    {ok, [#{provider := emqx_authn_ldap_bind}]} = emqx_authn_chains:list_authenticators(?GLOBAL),
+    {ok, [#{provider := emqx_authn_ldap}]} = emqx_authn_chains:list_authenticators(?GLOBAL),
     emqx_authn_test_lib:delete_config(?ResourceID).
 
 t_create_invalid(_Config) ->
@@ -146,10 +146,10 @@ t_destroy(_Config) ->
         {create_authenticator, ?GLOBAL, AuthConfig}
     ),
 
-    {ok, [#{provider := emqx_authn_ldap_bind, state := State}]} =
+    {ok, [#{provider := emqx_authn_ldap, state := State}]} =
         emqx_authn_chains:list_authenticators(?GLOBAL),
 
-    {ok, _} = emqx_authn_ldap_bind:authenticate(
+    {ok, _} = emqx_authn_ldap:authenticate(
         #{
             username => <<"mqttuser0001">>,
             password => <<"mqttuser0001">>
@@ -165,7 +165,7 @@ t_destroy(_Config) ->
     % Authenticator should not be usable anymore
     ?assertMatch(
         ignore,
-        emqx_authn_ldap_bind:authenticate(
+        emqx_authn_ldap:authenticate(
             #{
                 username => <<"mqttuser0001">>,
                 password => <<"mqttuser0001">>
@@ -199,7 +199,7 @@ t_update(_Config) ->
     % We update with config with correct query, provider should update and work properly
     {ok, _} = emqx:update_config(
         ?PATH,
-        {update_authenticator, ?GLOBAL, <<"password_based:ldap_bind">>, CorrectConfig}
+        {update_authenticator, ?GLOBAL, <<"password_based:ldap">>, CorrectConfig}
     ),
 
     {ok, _} = emqx_access_control:authenticate(
@@ -218,14 +218,17 @@ t_update(_Config) ->
 raw_ldap_auth_config() ->
     #{
         <<"mechanism">> => <<"password_based">>,
-        <<"backend">> => <<"ldap_bind">>,
+        <<"backend">> => <<"ldap">>,
         <<"server">> => ldap_server(),
         <<"base_dn">> => <<"ou=testdevice,dc=emqx,dc=io">>,
         <<"filter">> => <<"(uid=${username})">>,
         <<"username">> => <<"cn=root,dc=emqx,dc=io">>,
         <<"password">> => <<"public">>,
         <<"pool_size">> => 8,
-        <<"bind_password">> => <<"${password}">>
+        <<"method">> => #{
+            <<"type">> => <<"bind">>,
+            <<"bind_password">> => <<"${password}">>
+        }
     }.
 
 user_seeds() ->
