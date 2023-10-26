@@ -109,26 +109,37 @@ fi
 ERLANG_CONTAINER='erlang'
 DOCKER_CT_ENVS_FILE="${WHICH_APP}/docker-ct"
 
-case "${WHICH_APP}" in
-    # emqx_connector test suite is using kafka bridge which is only available in emqx-enterprise
-    apps/emqx_connector)
-        export PROFILE='emqx-enterprise'
-        ;;
-    lib-ee*)
-        ## ensure enterprise profile when testing lib-ee applications
-        export PROFILE='emqx-enterprise'
-        ;;
-    apps/*)
-        if [[ -f "${WHICH_APP}/BSL.txt" ]]; then
-          export PROFILE='emqx-enterprise'
-        else
-          export PROFILE='emqx'
-        fi
-        ;;
-    *)
-        export PROFILE="${PROFILE:-emqx}"
-        ;;
-esac
+if [ -z "${PROFILE+x}" ]; then
+    case "${WHICH_APP}" in
+        apps/emqx)
+            export PROFILE='emqx-enterprise'
+            ;;
+        apps/emqx_bridge)
+            export PROFILE='emqx-enterprise'
+            ;;
+        # emqx_connector test suite is using kafka bridge which is only available in emqx-enterprise
+        apps/emqx_connector)
+            export PROFILE='emqx-enterprise'
+            ;;
+        apps/emqx_dashboard)
+            export PROFILE='emqx-enterprise'
+            ;;
+        lib-ee*)
+            ## ensure enterprise profile when testing lib-ee applications
+            export PROFILE='emqx-enterprise'
+            ;;
+        apps/*)
+            if [[ -f "${WHICH_APP}/BSL.txt" ]]; then
+                export PROFILE='emqx-enterprise'
+            else
+                export PROFILE='emqx'
+            fi
+            ;;
+        *)
+            export PROFILE="${PROFILE:-emqx}"
+            ;;
+    esac
+fi
 
 if [ -f "$DOCKER_CT_ENVS_FILE" ]; then
     # shellcheck disable=SC2002
