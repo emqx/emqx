@@ -362,8 +362,8 @@ send_message(BridgeType, BridgeName, Message, QueryOpts0) ->
             do_send_msg_with_enabled_config(BridgeType, BridgeName, Message, QueryOpts0, Config);
         #{enable := false} ->
             {error, bridge_stopped};
-        Error ->
-            Error
+        _Error ->
+            {error, bridge_not_found}
     end.
 
 do_send_msg_with_enabled_config(

@@ -44,8 +44,9 @@ on_add_channel(
     _InstId,
     _State,
     _ChannelId,
-    #{on_add_channel_fun := Fun}
+    #{on_add_channel_fun := FunRef}
 ) ->
+    Fun = emqx_bridge_v2_SUITE:unwrap_fun(FunRef),
     Fun();
 on_add_channel(
     _InstId,
@@ -80,8 +81,12 @@ on_query(
     %% Lookup the channel
     ChannelState = maps:get(ChannelId, Channels, not_found),
     case ChannelState of
-        not_found -> throw(<<"Channel not active">>);
-        _ -> ok
+        not_found ->
+            error(
+                {recoverable_error, <<"Unexpected type for batch message (Expected send_message)">>}
+            );
+        _ ->
+            ok
     end,
     SendTo = maps:get(send_to, ChannelState),
     SendTo ! Message,
@@ -112,7 +117,8 @@ on_get_channel_status(
     Channels = maps:get(channels, State),
     ChannelState = maps:get(ChannelId, Channels),
     case ChannelState of
-        #{on_get_channel_status_fun := Fun} ->
+        #{on_get_channel_status_fun := FunRef} ->
+            Fun = emqx_bridge_v2_SUITE:unwrap_fun(FunRef),
             Fun();
         _ ->
             connected

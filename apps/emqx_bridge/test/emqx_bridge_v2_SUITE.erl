@@ -83,6 +83,9 @@ bridge_config() ->
         }
     }.
 
+fun_table_name() ->
+    emqx_bridge_v2_SUITE_fun_table.
+
 registered_process_name() ->
     my_registered_process.
 
@@ -124,14 +127,28 @@ end_per_suite(Config) ->
     emqx_common_test_helpers:stop_apps(start_apps()).
 
 init_per_testcase(_TestCase, Config) ->
+    ets:new(fun_table_name(), [named_table, public]),
     %% Create a fake connector
     {ok, _} = emqx_connector:create(con_type(), con_name(), con_config()),
     Config.
 
 end_per_testcase(_TestCase, Config) ->
+    ets:delete(fun_table_name()),
     %% Remove the fake connector
     {ok, _} = emqx_connector:remove(con_type(), con_name()),
     Config.
+
+%% Hocon does not support placing a fun in a config map so we replace it with a string
+
+wrap_fun(Fun) ->
+    UniqRef = make_ref(),
+    UniqRefBin = term_to_binary(UniqRef),
+    UniqRefStr = iolist_to_binary(base64:encode(UniqRefBin)),
+    ets:insert(fun_table_name(), {UniqRefStr, Fun}),
+    UniqRefStr.
+
+unwrap_fun(UniqRefStr) ->
+    ets:lookup_element(fun_table_name(), UniqRefStr, 2).
 
 t_create_remove(_) ->
     {ok, _} = emqx_bridge_v2:create(bridge_type(), my_test_bridge, bridge_config()),
@@ -155,28 +172,28 @@ t_create_dry_run(_) ->
 
 t_create_dry_run_fail_add_channel(_) ->
     Msg = <<"Failed to add channel">>,
-    OnAddChannel1 = fun() ->
+    OnAddChannel1 = wrap_fun(fun() ->
         {error, Msg}
-    end,
+    end),
     Conf1 = (bridge_config())#{on_add_channel_fun => OnAddChannel1},
     {error, Msg} = emqx_bridge_v2:create_dry_run(bridge_type(), Conf1),
-    OnAddChannel2 = fun() ->
+    OnAddChannel2 = wrap_fun(fun() ->
         throw(Msg)
-    end,
+    end),
     Conf2 = (bridge_config())#{on_add_channel_fun => OnAddChannel2},
     {error, Msg} = emqx_bridge_v2:create_dry_run(bridge_type(), Conf2),
     ok.
 
 t_create_dry_run_fail_get_channel_status(_) ->
     Msg = <<"Failed to add channel">>,
-    Fun1 = fun() ->
+    Fun1 = wrap_fun(fun() ->
         {error, Msg}
-    end,
+    end),
     Conf1 = (bridge_config())#{on_get_channel_status_fun => Fun1},
     {error, Msg} = emqx_bridge_v2:create_dry_run(bridge_type(), Conf1),
-    Fun2 = fun() ->
+    Fun2 = wrap_fun(fun() ->
         throw(Msg)
-    end,
+    end),
     Conf2 = (bridge_config())#{on_get_channel_status_fun => Fun2},
     {error, _} = emqx_bridge_v2:create_dry_run(bridge_type(), Conf2),
     ok.
@@ -205,7 +222,9 @@ t_manual_health_check(_) ->
     ok.
 
 t_manual_health_check_exception(_) ->
-    Conf = (bridge_config())#{<<"on_get_channel_status_fun">> => fun() -> throw(my_error) end},
+    Conf = (bridge_config())#{
+        <<"on_get_channel_status_fun">> => wrap_fun(fun() -> throw(my_error) end)
+    },
     {ok, _} = emqx_bridge_v2:create(bridge_type(), my_test_bridge, Conf),
     %% Run a health check for the bridge
     {error, _} = emqx_bridge_v2:health_check(bridge_type(), my_test_bridge),
@@ -213,7 +232,9 @@ t_manual_health_check_exception(_) ->
     ok.
 
 t_manual_health_check_exception_error(_) ->
-    Conf = (bridge_config())#{<<"on_get_channel_status_fun">> => fun() -> error(my_error) end},
+    Conf = (bridge_config())#{
+        <<"on_get_channel_status_fun">> => wrap_fun(fun() -> error(my_error) end)
+    },
     {ok, _} = emqx_bridge_v2:create(bridge_type(), my_test_bridge, Conf),
     %% Run a health check for the bridge
     {error, _} = emqx_bridge_v2:health_check(bridge_type(), my_test_bridge),
@@ -221,7 +242,9 @@ t_manual_health_check_exception_error(_) ->
     ok.
 
 t_manual_health_check_error(_) ->
-    Conf = (bridge_config())#{<<"on_get_channel_status_fun">> => fun() -> {error, my_error} end},
+    Conf = (bridge_config())#{
+        <<"on_get_channel_status_fun">> => wrap_fun(fun() -> {error, my_error} end)
+    },
     {ok, _} = emqx_bridge_v2:create(bridge_type(), my_test_bridge, Conf),
     %% Run a health check for the bridge
     {error, my_error} = emqx_bridge_v2:health_check(bridge_type(), my_test_bridge),
@@ -246,7 +269,9 @@ t_send_message(_) ->
 t_send_message_unhealthy_channel(_) ->
     OnGetStatusResponseETS = ets:new(on_get_status_response_ets, [public]),
     ets:insert(OnGetStatusResponseETS, {status_value, {error, my_error}}),
-    OnGetStatusFun = fun() -> ets:lookup_element(OnGetStatusResponseETS, status_value, 2) end,
+    OnGetStatusFun = wrap_fun(fun() ->
+        ets:lookup_element(OnGetStatusResponseETS, status_value, 2)
+    end),
     Conf = (bridge_config())#{<<"on_get_channel_status_fun">> => OnGetStatusFun},
     {ok, _} = emqx_bridge_v2:create(bridge_type(), my_test_bridge, Conf),
     %% Register name for this process
@@ -265,7 +290,7 @@ t_send_message_unhealthy_channel(_) ->
         bridge_type(),
         my_test_bridge,
         <<"my_msg">>,
-        #{resume_interval => 100}
+        #{}
     ),
     receive
         <<"my_msg">> ->
@@ -278,7 +303,10 @@ t_send_message_unhealthy_channel(_) ->
     ok.
 
 t_unhealthy_channel_alarm(_) ->
-    Conf = (bridge_config())#{<<"on_get_channel_status_fun">> => fun() -> {error, my_error} end},
+    Conf = (bridge_config())#{
+        <<"on_get_channel_status_fun">> =>
+            wrap_fun(fun() -> {error, my_error} end)
+    },
     0 = get_bridge_v2_alarm_cnt(),
     {ok, _} = emqx_bridge_v2:create(bridge_type(), my_test_bridge, Conf),
     1 = get_bridge_v2_alarm_cnt(),
