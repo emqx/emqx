@@ -69,7 +69,7 @@ jobs:
 
   ct_docker:
     runs-on: ${{ fromJSON(inputs.runner_labels) }}
-    name: "ct_docker (${{ matrix.app }}-${{ matrix.suitegroup }})"
+    name: "${{ matrix.app }}-${{ matrix.suitegroup }} (${{ matrix.profile }})"
     strategy:
       fail-fast: false
       matrix:
@@ -119,7 +119,7 @@ jobs:
 
   ct:
     runs-on: ${{ fromJSON(inputs.runner_labels) }}
-    name: "ct (${{ matrix.app }}-${{ matrix.suitegroup }})"
+    name: "${{ matrix.app }}-${{ matrix.suitegroup }} (${{ matrix.profile }})"
     strategy:
       fail-fast: false
       matrix:
