@@ -54,7 +54,7 @@ fi
 ###### now deal with the github action's matrix.
 ##################################################
 
-format_app_description() {
+format_app_entry() {
     local groups="$2"
     local group=0
     while [ "$groups" -gt $group ]; do
@@ -72,52 +72,51 @@ END
     done
 }
 
-describe_app() {
-    app="$1"
-    local runner="host"
-    local profile
-    if [ -f "${app}/docker-ct" ]; then
-        runner="docker"
-    fi
-    case "${app}" in
-        # emqx_connector test suite is using kafka bridge which is only available in emqx-enterprise
-        apps/emqx_connector)
-            profile='emqx-enterprise'
-            ;;
-        apps/*)
-            if [[ -f "${app}/BSL.txt" ]]; then
-              profile='emqx-enterprise'
-            else
-              profile='emqx'
-            fi
-            ;;
-        lib-ee/*)
-            profile='emqx-enterprise'
-            ;;
-        *)
-            echo "unknown app: $app"
-            exit 1
-            ;;
-    esac
-    if [[ "$app" == "apps/emqx" ]]; then
-        suitegroups=5
-    else
-        suitegroups=1
-    fi
-    format_app_description "$app" "$suitegroups" "$profile" "$runner"
-}
-
 matrix() {
-    local sep='['
+    local runner
+    local profile
+    local entries=()
     for app in ${APPS_ALL}; do
-        row="$(describe_app "$app")"
-        if [ -z "$row" ]; then
-            continue
+        if [ -f "${app}/docker-ct" ]; then
+            runner="docker"
+        else
+            runner="host"
         fi
-        echo -n "${sep}${row}"
-        sep=', '
+        case "${app}" in
+            apps/emqx)
+                entries+=("$(format_app_entry "$app" 5 emqx "$runner")")
+                entries+=("$(format_app_entry "$app" 5 emqx-enterprise "$runner")")
+                ;;
+            apps/emqx_bridge)
+                entries+=("$(format_app_entry "$app" 1 emqx "$runner")")
+                entries+=("$(format_app_entry "$app" 1 emqx-enterprise "$runner")")
+                ;;
+            apps/emqx_connector)
+                entries+=("$(format_app_entry "$app" 1 emqx "$runner")")
+                entries+=("$(format_app_entry "$app" 1 emqx-enterprise "$runner")")
+                ;;
+            apps/emqx_dashboard)
+                entries+=("$(format_app_entry "$app" 1 emqx "$runner")")
+                entries+=("$(format_app_entry "$app" 1 emqx-enterprise "$runner")")
+                ;;
+            apps/*)
+                if [[ -f "${app}/BSL.txt" ]]; then
+                    profile='emqx-enterprise'
+                else
+                    profile='emqx'
+                fi
+                entries+=("$(format_app_entry "$app" 1 "$profile" "$runner")")
+                ;;
+            lib-ee/*)
+                entries+=("$(format_app_entry "$app" 1 emqx-enterprise "$runner")")
+                ;;
+            *)
+                echo "unknown app: $app"
+                exit 1
+                ;;
+        esac
     done
-    echo ']'
+    echo -n "[$(IFS=,; echo "${entries[*]}")]"
 }
 
 matrix
