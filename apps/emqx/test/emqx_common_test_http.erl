@@ -34,7 +34,7 @@
 -define(DEFAULT_APP_SECRET, <<"default_app_secret">>).
 
 %% from emqx_dashboard/include/emqx_dashboard_rbac.hrl
--define(ROLE_API_SUPERUSER, <<"api_administrator">>).
+-define(ROLE_API_SUPERUSER, <<"administrator">>).
 
 request_api(Method, Url, Auth) ->
     request_api(Method, Url, [], Auth, []).

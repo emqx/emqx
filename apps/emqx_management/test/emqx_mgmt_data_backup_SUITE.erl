@@ -23,7 +23,7 @@
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
 -define(ROLE_SUPERUSER, <<"administrator">>).
--define(ROLE_API_SUPERUSER, <<"api_administrator">>).
+-define(ROLE_API_SUPERUSER, <<"administrator">>).
 -define(BOOTSTRAP_BACKUP, "emqx-export-test-bootstrap-ce.tar.gz").
 
 all() ->
