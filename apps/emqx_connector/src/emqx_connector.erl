@@ -128,18 +128,23 @@ operation_to_enable(enable) -> true.
 post_config_update([?ROOT_KEY], _Req, NewConf, OldConf, _AppEnv) ->
     #{added := Added, removed := Removed, changed := Updated} =
         diff_confs(NewConf, OldConf),
-    %% The config update will be failed if any task in `perform_connector_changes` failed.
-    Result = perform_connector_changes([
-        #{action => fun emqx_connector_resource:remove/4, data => Removed},
-        #{
-            action => fun emqx_connector_resource:create/3,
-            data => Added,
-            on_exception_fn => fun emqx_connector_resource:remove/4
-        },
-        #{action => fun emqx_connector_resource:update/4, data => Updated}
-    ]),
-    ?tp(connector_post_config_update_done, #{}),
-    Result;
+    case ensure_no_channels(Removed) of
+        ok ->
+            %% The config update will be failed if any task in `perform_connector_changes` failed.
+            Result = perform_connector_changes([
+                #{action => fun emqx_connector_resource:remove/4, data => Removed},
+                #{
+                    action => fun emqx_connector_resource:create/3,
+                    data => Added,
+                    on_exception_fn => fun emqx_connector_resource:remove/4
+                },
+                #{action => fun emqx_connector_resource:update/4, data => Updated}
+            ]),
+            ?tp(connector_post_config_update_done, #{}),
+            Result;
+        {error, Error} ->
+            {error, Error}
+    end;
 post_config_update([?ROOT_KEY, Type, Name], '$remove', _, _OldConf, _AppEnvs) ->
     case emqx_connector_resource:get_channels(Type, Name) of
         {ok, []} ->
@@ -418,4 +423,31 @@ get_basic_usage_info() ->
         %% for instance, when the connector app is not ready yet.
         _:_ ->
             InitialAcc
+    end.
+
+ensure_no_channels(Configs) ->
+    Pipeline =
+        lists:map(
+            fun({Type, ConnectorName}) ->
+                fun(_) ->
+                    case emqx_connector_resource:get_channels(Type, ConnectorName) of
+                        {ok, []} ->
+                            ok;
+                        {ok, Channels} ->
+                            {error, #{
+                                reason => "connector_has_active_channels",
+                                type => Type,
+                                connector_name => ConnectorName,
+                                active_channels => Channels
+                            }}
+                    end
+                end
+            end,
+            maps:keys(Configs)
+        ),
+    case emqx_utils:pipeline(Pipeline, unused, unused) of
+        {ok, _, _} ->
+            ok;
+        {error, Reason, _State} ->
+            {error, Reason}
     end.

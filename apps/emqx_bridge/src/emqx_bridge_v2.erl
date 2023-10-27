@@ -124,10 +124,14 @@ lookup(Type, Name) ->
                 ?MODULE:bridge_v2_type_to_connector_type(Type), BridgeConnector
             ),
             %% The connector should always exist
+            %% ... but, in theory, there might be no channels associated to it when we try
+            %% to delete the connector, and then this reference will become dangling...
             InstanceData =
                 case emqx_resource:get_instance(ConnectorId) of
                     {ok, _, Data} ->
-                        Data
+                        Data;
+                    {error, not_found} ->
+                        undefined
                 end,
             {ok, #{
                 type => Type,

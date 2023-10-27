@@ -513,3 +513,73 @@ t_update_connector_not_found(_Config) ->
         emqx_bridge_v2:create(bridge_type(), my_test_bridge, BadConf)
     ),
     ok.
+
+t_remove_single_connector_being_referenced_with_active_channels(_Config) ->
+    %% we test the connector post config update here because we also need bridges.
+    Conf = bridge_config(),
+    ?assertMatch({ok, _}, emqx_bridge_v2:create(bridge_type(), my_test_bridge, Conf)),
+    ?assertMatch(
+        {error, {post_config_update, _HandlerMod, {active_channels, [_ | _]}}},
+        emqx_connector:remove(con_type(), con_name())
+    ),
+    ok.
+
+t_remove_single_connector_being_referenced_without_active_channels(_Config) ->
+    %% we test the connector post config update here because we also need bridges.
+    Conf = bridge_config(),
+    BridgeName = my_test_bridge,
+    ?assertMatch({ok, _}, emqx_bridge_v2:create(bridge_type(), BridgeName, Conf)),
+    emqx_common_test_helpers:with_mock(
+        emqx_bridge_v2_test_connector,
+        on_get_channels,
+        fun(_ResId) -> [] end,
+        fun() ->
+            ?assertMatch({ok, _}, emqx_connector:remove(con_type(), con_name())),
+            %% we no longer have connector data if this happens...
+            ?assertMatch(
+                {ok, #{resource_data := undefined}},
+                emqx_bridge_v2:lookup(bridge_type(), BridgeName)
+            ),
+            ok
+        end
+    ),
+    ok.
+
+t_remove_multiple_connectors_being_referenced_with_channels(_Config) ->
+    Conf = bridge_config(),
+    BridgeName = my_test_bridge,
+    ?assertMatch({ok, _}, emqx_bridge_v2:create(bridge_type(), BridgeName, Conf)),
+    ?assertMatch(
+        {error,
+            {post_config_update, _HandlerMod, #{
+                reason := "connector_has_active_channels",
+                type := _,
+                connector_name := _,
+                active_channels := [_ | _]
+            }}},
+        emqx_conf:update([connectors], #{}, #{override_to => cluster})
+    ),
+    ok.
+
+t_remove_multiple_connectors_being_referenced_without_channels(_Config) ->
+    Conf = bridge_config(),
+    BridgeName = my_test_bridge,
+    ?assertMatch({ok, _}, emqx_bridge_v2:create(bridge_type(), BridgeName, Conf)),
+    emqx_common_test_helpers:with_mock(
+        emqx_bridge_v2_test_connector,
+        on_get_channels,
+        fun(_ResId) -> [] end,
+        fun() ->
+            ?assertMatch(
+                {ok, _},
+                emqx_conf:update([connectors], #{}, #{override_to => cluster})
+            ),
+            %% we no longer have connector data if this happens...
+            ?assertMatch(
+                {ok, #{resource_data := undefined}},
+                emqx_bridge_v2:lookup(bridge_type(), BridgeName)
+            ),
+            ok
+        end
+    ),
+    ok.
