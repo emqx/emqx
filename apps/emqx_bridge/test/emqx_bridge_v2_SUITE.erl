@@ -176,7 +176,7 @@ delete_all_bridges_and_connectors() ->
         end,
         emqx_connector:list()
     ),
-    emqx_conf:update([bridges_v2], #{}, #{override_to => cluster}),
+    update_root_config(#{}),
     ok.
 
 %% Hocon does not support placing a fun in a config map so we replace it with a string
@@ -190,6 +190,12 @@ wrap_fun(Fun) ->
 
 unwrap_fun(UniqRefStr) ->
     ets:lookup_element(fun_table_name(), UniqRefStr, 2).
+
+update_root_config(RootConf) ->
+    emqx_conf:update([bridges_v2], RootConf, #{override_to => cluster}).
+
+update_root_connectors_config(RootConf) ->
+    emqx_conf:update([connectors], RootConf, #{override_to => cluster}).
 
 t_create_remove(_) ->
     {ok, _} = emqx_bridge_v2:create(bridge_type(), my_test_bridge, bridge_config()),
@@ -442,7 +448,7 @@ t_load_no_matching_connector(_Config) ->
                 type := _,
                 reason := "connector_not_found_or_wrong_type"
             }}},
-        emqx_conf:update([bridges_v2], RootConf0, #{override_to => cluster})
+        update_root_config(RootConf0)
     ),
 
     %% creating new with invalid reference
@@ -459,7 +465,63 @@ t_load_no_matching_connector(_Config) ->
                 type := _,
                 reason := "connector_not_found_or_wrong_type"
             }}},
-        emqx_conf:update([bridges_v2], RootConf1, #{override_to => cluster})
+        update_root_config(RootConf1)
+    ),
+
+    ok.
+
+%% tests root config handler post config update hook
+t_load_config_success(_Config) ->
+    Conf = bridge_config(),
+    BridgeType = bridge_type(),
+    BridgeTypeBin = atom_to_binary(BridgeType),
+    BridgeName = my_test_bridge_root,
+    BridgeNameBin = atom_to_binary(BridgeName),
+
+    %% pre-condition
+    ?assertEqual(#{}, emqx_config:get([bridges_v2])),
+
+    %% create
+    RootConf0 = #{BridgeTypeBin => #{BridgeNameBin => Conf}},
+    ?assertMatch(
+        {ok, _},
+        update_root_config(RootConf0)
+    ),
+    ?assertMatch(
+        {ok, #{
+            type := BridgeType,
+            name := BridgeName,
+            raw_config := #{},
+            resource_data := #{}
+        }},
+        emqx_bridge_v2:lookup(BridgeType, BridgeName)
+    ),
+
+    %% update
+    RootConf1 = #{BridgeTypeBin => #{BridgeNameBin => Conf#{<<"some_key">> => <<"new_value">>}}},
+    ?assertMatch(
+        {ok, _},
+        update_root_config(RootConf1)
+    ),
+    ?assertMatch(
+        {ok, #{
+            type := BridgeType,
+            name := BridgeName,
+            raw_config := #{<<"some_key">> := <<"new_value">>},
+            resource_data := #{}
+        }},
+        emqx_bridge_v2:lookup(BridgeType, BridgeName)
+    ),
+
+    %% delete
+    RootConf2 = #{},
+    ?assertMatch(
+        {ok, _},
+        update_root_config(RootConf2)
+    ),
+    ?assertMatch(
+        {error, not_found},
+        emqx_bridge_v2:lookup(BridgeType, BridgeName)
     ),
 
     ok.
@@ -557,7 +619,7 @@ t_remove_multiple_connectors_being_referenced_with_channels(_Config) ->
                 connector_name := _,
                 active_channels := [_ | _]
             }}},
-        emqx_conf:update([connectors], #{}, #{override_to => cluster})
+        update_root_connectors_config(#{})
     ),
     ok.
 
@@ -572,7 +634,7 @@ t_remove_multiple_connectors_being_referenced_without_channels(_Config) ->
         fun() ->
             ?assertMatch(
                 {ok, _},
-                emqx_conf:update([connectors], #{}, #{override_to => cluster})
+                update_root_connectors_config(#{})
             ),
             %% we no longer have connector data if this happens...
             ?assertMatch(
