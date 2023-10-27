@@ -213,6 +213,7 @@ on_stop(InstanceId, _State) ->
         end,
         AllocatedResources
     ),
+    ?tp(kafka_producer_stopped, #{instance_id => InstanceId}),
     ok.
 
 deallocate_client(ClientId) ->
