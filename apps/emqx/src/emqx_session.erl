@@ -412,7 +412,7 @@ enrich_delivers(ClientInfo, [D | Rest], UpgradeQoS, Session) ->
 enrich_deliver(ClientInfo, {deliver, Topic, Msg}, UpgradeQoS, Session) ->
     SubOpts =
         case Msg of
-            #message{headers = #{redispatch_to := {Group, T}}} ->
+            #message{headers = #{redispatch_to := ?REDISPATCH_TO(Group, T)}} ->
                 ?IMPL(Session):get_subscription(emqx_topic:make_shared_record(Group, T), Session);
             _ ->
                 ?IMPL(Session):get_subscription(Topic, Session)

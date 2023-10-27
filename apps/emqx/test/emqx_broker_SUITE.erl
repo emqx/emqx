@@ -309,7 +309,7 @@ t_shared_subscribe(Config) when is_list(Config) ->
     ?assert(
         receive
             {deliver, <<"topic">>, #message{
-                headers = #{redispatch_to := {<<"group">>, <<"topic">>}},
+                headers = #{redispatch_to := ?REDISPATCH_TO(<<"group">>, <<"topic">>)},
                 payload = <<"hello">>
             }} ->
                 true;

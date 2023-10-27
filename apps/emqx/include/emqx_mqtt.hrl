@@ -675,6 +675,8 @@ end).
 -define(QUEUE, "$queue").
 -define(SHARE(Group, Topic), emqx_topic:join([<<?SHARE>>, Group, Topic])).
 
+-define(REDISPATCH_TO(GROUP, TOPIC), {GROUP, TOPIC}).
+
 -define(SHARE_EMPTY_FILTER, share_subscription_topic_cannot_be_empty).
 -define(SHARE_EMPTY_GROUP, share_subscription_group_name_cannot_be_empty).
 -define(SHARE_RECURSIVELY, '$share_cannot_be_used_as_real_topic_filter').
