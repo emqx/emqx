@@ -234,9 +234,9 @@ install_bridge_v2(
     %% We might need to create buffer workers for Bridge V2
     case get_query_mode(BridgeV2Type, Config) of
         %% the Bridge V2 has built-in buffer, so there is no need for resource workers
-        simple_sync ->
+        simple_sync_internal_buffer ->
             ok;
-        simple_async ->
+        simple_async_internal_buffer ->
             ok;
         %% The Bridge V2 is a consumer Bridge V2, so there is no need for resource workers
         no_queries ->
