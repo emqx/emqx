@@ -20,6 +20,7 @@
 
 -include("emqx_retainer.hrl").
 -include_lib("emqx/include/logger.hrl").
+-include_lib("emqx/include/emqx_mqtt.hrl").
 -include_lib("emqx/include/emqx_hooks.hrl").
 
 -export([start_link/0]).
@@ -87,7 +88,7 @@
 %% Hook API
 %%------------------------------------------------------------------------------
 -spec on_session_subscribed(_, _, emqx_types:subopts(), _) -> any().
-on_session_subscribed(_, _, #{share := ShareName}, _) when ShareName =/= undefined ->
+on_session_subscribed(_, #share{} = _Topic, _SubOpts, _) ->
     ok;
 on_session_subscribed(_, Topic, #{rh := Rh} = Opts, Context) ->
     IsNew = maps:get(is_new, Opts, true),

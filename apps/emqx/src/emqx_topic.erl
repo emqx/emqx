@@ -36,9 +36,16 @@
     parse/2
 ]).
 
+-export([
+    maybe_format_share/1,
+    get_shared_real_topic/1,
+    make_shared_record/2
+]).
+
 -type topic() :: emqx_types:topic().
 -type word() :: emqx_types:word().
 -type words() :: emqx_types:words().
+-type share() :: emqx_types:share().
 
 %% Guards
 -define(MULTI_LEVEL_WILDCARD_NOT_LAST(C, REST),
@@ -50,7 +57,9 @@
 %%--------------------------------------------------------------------
 
 %% @doc Is wildcard topic?
--spec wildcard(topic() | words()) -> true | false.
+-spec wildcard(topic() | share() | words()) -> true | false.
+wildcard(#share{topic = Topic}) when is_binary(Topic) ->
+    wildcard(Topic);
 wildcard(Topic) when is_binary(Topic) ->
     wildcard(words(Topic));
 wildcard([]) ->
@@ -64,7 +73,7 @@ wildcard([_H | T]) ->
 
 %% @doc Match Topic name with filter.
 -spec match(Name, Filter) -> boolean() when
-    Name :: topic() | words(),
+    Name :: topic() | share() | words(),
     Filter :: topic() | words().
 match(<<$$, _/binary>>, <<$+, _/binary>>) ->
     false;
@@ -72,6 +81,8 @@ match(<<$$, _/binary>>, <<$#, _/binary>>) ->
     false;
 match(Name, Filter) when is_binary(Name), is_binary(Filter) ->
     match(words(Name), words(Filter));
+match(#share{} = Name, Filter) ->
+    match_share(Name, Filter);
 match([], []) ->
     true;
 match([H | T1], [H | T2]) ->
@@ -87,12 +98,26 @@ match([_H1 | _], []) ->
 match([], [_H | _T2]) ->
     false.
 
+-spec match_share(Name, Filter) -> boolean() when
+    Name :: share(),
+    Filter :: topic() | share().
+match_share(#share{topic = Name}, Filter) when is_binary(Filter) ->
+    %% only match real topic filter for normal topic filter.
+    match(words(Name), words(Filter));
+match_share(#share{group = Group, topic = Name}, #share{group = Group, topic = Filter}) ->
+    %% Matching real topic filter When subed same share group.
+    match(words(Name), words(Filter));
+match_share(#share{}, _) ->
+    %% Otherwise, non-matched.
+    false.
+
 -spec match_any(Name, [Filter]) -> boolean() when
     Name :: topic() | words(),
     Filter :: topic() | words().
 match_any(Topic, Filters) ->
     lists:any(fun(Filter) -> match(Topic, Filter) end, Filters).
 
+%% TODO: validate share topic #share{} for emqx_trace.erl
 %% @doc Validate topic name or filter
 -spec validate(topic() | {name | filter, topic()}) -> true.
 validate(Topic) when is_binary(Topic) ->
@@ -107,7 +132,7 @@ validate(_, <<>>) ->
 validate(_, Topic) when is_binary(Topic) andalso (size(Topic) > ?MAX_TOPIC_LEN) ->
     %% MQTT-5.0 [MQTT-4.7.3-3]
     error(topic_too_long);
-validate(filter, SharedFilter = <<"$share/", _Rest/binary>>) ->
+validate(filter, SharedFilter = <<?SHARE, "/", _Rest/binary>>) ->
     validate_share(SharedFilter);
 validate(filter, Filter) when is_binary(Filter) ->
     validate2(words(Filter));
@@ -139,12 +164,12 @@ validate3(<<C/utf8, _Rest/binary>>) when C == $#; C == $+; C == 0 ->
 validate3(<<_/utf8, Rest/binary>>) ->
     validate3(Rest).
 
-validate_share(<<"$share/", Rest/binary>>) when
+validate_share(<<?SHARE, "/", Rest/binary>>) when
     Rest =:= <<>> orelse Rest =:= <<"/">>
 ->
     %% MQTT-5.0 [MQTT-4.8.2-1]
     error(?SHARE_EMPTY_FILTER);
-validate_share(<<"$share/", Rest/binary>>) ->
+validate_share(<<?SHARE, "/", Rest/binary>>) ->
     case binary:split(Rest, <<"/">>) of
         %% MQTT-5.0 [MQTT-4.8.2-1]
         [<<>>, _] ->
@@ -156,7 +181,7 @@ validate_share(<<"$share/", Rest/binary>>) ->
             validate_share(ShareName, Filter)
     end.
 
-validate_share(_, <<"$share/", _Rest/binary>>) ->
+validate_share(_, <<?SHARE, "/", _Rest/binary>>) ->
     error(?SHARE_RECURSIVELY);
 validate_share(ShareName, Filter) ->
     case binary:match(ShareName, [<<"+">>, <<"#">>]) of
@@ -185,7 +210,9 @@ bin('#') -> <<"#">>;
 bin(B) when is_binary(B) -> B;
 bin(L) when is_list(L) -> list_to_binary(L).
 
--spec levels(topic()) -> pos_integer().
+-spec levels(topic() | share()) -> pos_integer().
+levels(#share{topic = Topic}) when is_binary(Topic) ->
+    levels(Topic);
 levels(Topic) when is_binary(Topic) ->
     length(tokens(Topic)).
 
@@ -197,6 +224,8 @@ tokens(Topic) ->
 
 %% @doc Split Topic Path to Words
 -spec words(topic()) -> words().
+words(#share{topic = Topic}) when is_binary(Topic) ->
+    words(Topic);
 words(Topic) when is_binary(Topic) ->
     [word(W) || W <- tokens(Topic)].
 
@@ -237,26 +266,29 @@ do_join(_TopicAcc, [C | Words]) when ?MULTI_LEVEL_WILDCARD_NOT_LAST(C, Words) ->
 do_join(TopicAcc, [Word | Words]) ->
     do_join(<<TopicAcc/binary, "/", (bin(Word))/binary>>, Words).
 
--spec parse(topic() | {topic(), map()}) -> {topic(), #{share => binary()}}.
+-spec parse(topic() | {topic(), map()}) -> {topic() | share(), map()}.
 parse(TopicFilter) when is_binary(TopicFilter) ->
     parse(TopicFilter, #{});
 parse({TopicFilter, Options}) when is_binary(TopicFilter) ->
     parse(TopicFilter, Options).
 
--spec parse(topic(), map()) -> {topic(), map()}.
-parse(TopicFilter = <<"$queue/", _/binary>>, #{share := _Group}) ->
-    error({invalid_topic_filter, TopicFilter});
-parse(TopicFilter = <<"$share/", _/binary>>, #{share := _Group}) ->
-    error({invalid_topic_filter, TopicFilter});
-parse(<<"$queue/", TopicFilter/binary>>, Options) ->
-    parse(TopicFilter, Options#{share => <<"$queue">>});
-parse(TopicFilter = <<"$share/", Rest/binary>>, Options) ->
+-spec parse(topic() | share(), map()) -> {topic() | share(), map()}.
+%% <<"$queue/[real_topic_filter]>">> equivalent to <<"$share/$queue/[real_topic_filter]">>
+%% So the head of `real_topic_filter` MUST NOT be `<<$queue>>` or `<<$share>>`
+parse(#share{topic = Topic = <<?QUEUE, "/", _/binary>>}, _Options) ->
+    error({invalid_topic_filter, Topic});
+parse(#share{topic = Topic = <<?SHARE, "/", _/binary>>}, _Options) ->
+    error({invalid_topic_filter, Topic});
+parse(<<?QUEUE, "/", Topic/binary>>, Options) ->
+    parse(#share{group = <<?QUEUE>>, topic = Topic}, Options);
+parse(TopicFilter = <<?SHARE, "/", Rest/binary>>, Options) ->
     case binary:split(Rest, <<"/">>) of
         [_Any] ->
             error({invalid_topic_filter, TopicFilter});
-        [ShareName, Filter] ->
-            case binary:match(ShareName, [<<"+">>, <<"#">>]) of
-                nomatch -> parse(Filter, Options#{share => ShareName});
+        %% `Group` could be `$share` or `$queue`
+        [Group, Topic] ->
+            case binary:match(Group, [<<"+">>, <<"#">>]) of
+                nomatch -> parse(#share{group = Group, topic = Topic}, Options);
                 _ -> error({invalid_topic_filter, TopicFilter})
             end
     end;
@@ -267,5 +299,22 @@ parse(TopicFilter = <<"$exclusive/", Topic/binary>>, Options) ->
         _ ->
             {Topic, Options#{is_exclusive => true}}
     end;
-parse(TopicFilter, Options) ->
+parse(TopicFilter, Options) when
+    ?IS_TOPIC(TopicFilter)
+->
     {TopicFilter, Options}.
+
+get_shared_real_topic(#share{topic = TopicFilter}) ->
+    TopicFilter;
+get_shared_real_topic(TopicFilter) when is_binary(TopicFilter) ->
+    TopicFilter.
+
+make_shared_record(Group, Topic) ->
+    #share{group = Group, topic = Topic}.
+
+maybe_format_share(#share{group = <<?QUEUE>>, topic = Topic}) ->
+    join([<<?QUEUE>>, Topic]);
+maybe_format_share(#share{group = Group, topic = Topic}) ->
+    join([<<?SHARE>>, Group, Topic]);
+maybe_format_share(Topic) ->
+    join([Topic]).

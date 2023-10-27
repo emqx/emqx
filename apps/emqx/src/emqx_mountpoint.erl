@@ -17,6 +17,7 @@
 -module(emqx_mountpoint).
 
 -include("emqx.hrl").
+-include("emqx_mqtt.hrl").
 -include("emqx_placeholder.hrl").
 -include("types.hrl").
 
@@ -34,38 +35,54 @@
 -spec mount(maybe(mountpoint()), Any) -> Any when
     Any ::
         emqx_types:topic()
+        | emqx_types:share()
         | emqx_types:message()
         | emqx_types:topic_filters().
 mount(undefined, Any) ->
     Any;
-mount(MountPoint, Topic) when is_binary(Topic) ->
-    prefix(MountPoint, Topic);
-mount(MountPoint, Msg = #message{topic = Topic}) ->
-    Msg#message{topic = prefix(MountPoint, Topic)};
+mount(MountPoint, Topic) when ?IS_TOPIC(Topic) ->
+    prefix_maybe_share(MountPoint, Topic);
+mount(MountPoint, Msg = #message{topic = Topic}) when is_binary(Topic) ->
+    Msg#message{topic = prefix_maybe_share(MountPoint, Topic)};
 mount(MountPoint, TopicFilters) when is_list(TopicFilters) ->
-    [{prefix(MountPoint, Topic), SubOpts} || {Topic, SubOpts} <- TopicFilters].
+    [{prefix_maybe_share(MountPoint, Topic), SubOpts} || {Topic, SubOpts} <- TopicFilters].
 
-%% @private
--compile({inline, [prefix/2]}).
-prefix(MountPoint, Topic) ->
-    <<MountPoint/binary, Topic/binary>>.
+-spec prefix_maybe_share(maybe(mountpoint()), Any) -> Any when
+    Any ::
+        emqx_types:topic()
+        | emqx_types:share().
+prefix_maybe_share(MountPoint, Topic) when
+    is_binary(MountPoint) andalso is_binary(Topic)
+->
+    <<MountPoint/binary, Topic/binary>>;
+prefix_maybe_share(MountPoint, #share{group = Group, topic = Topic}) when
+    is_binary(MountPoint) andalso is_binary(Topic)
+->
+    #share{group = Group, topic = prefix_maybe_share(MountPoint, Topic)}.
 
 -spec unmount(maybe(mountpoint()), Any) -> Any when
     Any ::
         emqx_types:topic()
+        | emqx_types:share()
         | emqx_types:message().
 unmount(undefined, Any) ->
     Any;
-unmount(MountPoint, Topic) when is_binary(Topic) ->
+unmount(MountPoint, Topic) when ?IS_TOPIC(Topic) ->
+    unmount_maybe_share(MountPoint, Topic);
+unmount(MountPoint, Msg = #message{topic = Topic}) when is_binary(Topic) ->
+    Msg#message{topic = unmount_maybe_share(MountPoint, Topic)}.
+
+unmount_maybe_share(MountPoint, Topic) when
+    is_binary(MountPoint) andalso is_binary(Topic)
+->
     case string:prefix(Topic, MountPoint) of
         nomatch -> Topic;
         Topic1 -> Topic1
     end;
-unmount(MountPoint, Msg = #message{topic = Topic}) ->
-    case string:prefix(Topic, MountPoint) of
-        nomatch -> Msg;
-        Topic1 -> Msg#message{topic = Topic1}
-    end.
+unmount_maybe_share(MountPoint, TopicFilter = #share{topic = Topic}) when
+    is_binary(MountPoint) andalso is_binary(Topic)
+->
+    TopicFilter#share{topic = unmount_maybe_share(MountPoint, Topic)}.
 
 -spec replvar(maybe(mountpoint()), map()) -> maybe(mountpoint()).
 replvar(undefined, _Vars) ->

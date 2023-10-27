@@ -177,6 +177,7 @@ compat(connack, 16#9D) -> ?CONNACK_SERVER;
 compat(connack, 16#9F) -> ?CONNACK_SERVER;
 compat(suback, Code) when Code =< ?QOS_2 -> Code;
 compat(suback, Code) when Code >= 16#80 -> 16#80;
+%% TODO: 16#80(qos0) 16#81(qos1) 16#82(qos2) for mqtt-v3.1.1
 compat(unsuback, _Code) -> undefined;
 compat(_Other, _Code) -> undefined.
 

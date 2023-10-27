@@ -96,7 +96,7 @@ choose_ingress_pool_size(
     #{remote := #{topic := RemoteTopic}, pool_size := PoolSize}
 ) ->
     case emqx_topic:parse(RemoteTopic) of
-        {_Filter, #{share := _Name}} ->
+        {#share{} = _Filter, _SubOpts} ->
             % NOTE: this is shared subscription, many workers may subscribe
             PoolSize;
         {_Filter, #{}} when PoolSize > 1 ->

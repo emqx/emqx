@@ -95,7 +95,6 @@
 -define(ACK, shared_sub_ack).
 -define(NACK(Reason), {shared_sub_nack, Reason}).
 -define(NO_ACK, no_ack).
--define(REDISPATCH_TO(GROUP, TOPIC), {GROUP, TOPIC}).
 -define(SUBSCRIBER_DOWN, noproc).
 
 -type redispatch_to() :: ?REDISPATCH_TO(emqx_types:group(), emqx_types:topic()).
@@ -234,19 +233,16 @@ without_group_ack(Msg) ->
 get_group_ack(Msg) ->
     emqx_message:get_header(shared_dispatch_ack, Msg, ?NO_ACK).
 
-with_redispatch_to(#message{qos = ?QOS_0} = Msg, _Group, _Topic) ->
-    Msg;
+%% always add `redispatch_to` header to the message
+%% for QOS_0 msgs, redispatch_to is not needed and filtered out in is_redispatch_needed/1
 with_redispatch_to(Msg, Group, Topic) ->
     emqx_message:set_headers(#{redispatch_to => ?REDISPATCH_TO(Group, Topic)}, Msg).
 
-%% @hidden Redispatch is needed only for the messages with redispatch_to header added.
-is_redispatch_needed(#message{} = Msg) ->
-    case get_redispatch_to(Msg) of
-        ?REDISPATCH_TO(_, _) ->
-            true;
-        _ ->
-            false
-    end.
+%% @hidden Redispatch is needed only for the messages which not QOS_0
+is_redispatch_needed(#message{qos = ?QOS_0}) ->
+    false;
+is_redispatch_needed(#message{headers = #{redispatch_to := ?REDISPATCH_TO(_, _)}}) ->
+    true.
 
 %% @doc Redispatch shared deliveries to other members in the group.
 redispatch(Messages0) ->
