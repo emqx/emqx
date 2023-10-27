@@ -460,6 +460,8 @@ schema("/bridges_probe") ->
     case emqx_bridge:lookup(BridgeType, BridgeName) of
         {ok, _} ->
             ?BAD_REQUEST('ALREADY_EXISTS', <<"bridge already exists">>);
+        {error, not_bridge_v1_compatible} ->
+            ?BAD_REQUEST('ALREADY_EXISTS', non_compat_bridge_msg());
         {error, not_found} ->
             Conf = filter_out_request_body(Conf0),
             create_bridge(BridgeType, BridgeName, Conf)
@@ -487,11 +489,12 @@ schema("/bridges_probe") ->
         case emqx_bridge:lookup(BridgeType, BridgeName) of
             {ok, #{raw_config := RawConf}} ->
                 %% TODO will the maybe_upgrade step done by emqx_bridge:lookup cause any problems
-                %%RawConf = emqx:get_raw_config([bridges, BridgeType, BridgeName], #{}),
                 Conf = deobfuscate(Conf1, RawConf),
                 update_bridge(BridgeType, BridgeName, Conf);
             {error, not_found} ->
-                ?BRIDGE_NOT_FOUND(BridgeType, BridgeName)
+                ?BRIDGE_NOT_FOUND(BridgeType, BridgeName);
+            {error, not_bridge_v1_compatible} ->
+                ?BAD_REQUEST('ALREADY_EXISTS', non_compat_bridge_msg())
         end
     );
 '/bridges/:id'(delete, #{bindings := #{id := Id}, query_string := Qs}) ->
@@ -519,7 +522,9 @@ schema("/bridges_probe") ->
                         ?INTERNAL_ERROR(Reason)
                 end;
             {error, not_found} ->
-                ?BRIDGE_NOT_FOUND(BridgeType, BridgeName)
+                ?BRIDGE_NOT_FOUND(BridgeType, BridgeName);
+            {error, not_bridge_v1_compatible} ->
+                ?BAD_REQUEST('ALREADY_EXISTS', non_compat_bridge_msg())
         end
     ).
 
@@ -529,11 +534,16 @@ schema("/bridges_probe") ->
 '/bridges/:id/metrics/reset'(put, #{bindings := #{id := Id}}) ->
     ?TRY_PARSE_ID(
         Id,
-        begin
-            ok = emqx_bridge_resource:reset_metrics(
-                emqx_bridge_resource:resource_id(BridgeType, BridgeName)
-            ),
-            ?NO_CONTENT
+        case emqx_bridge_v2:is_bridge_v2_type(BridgeType) of
+            true ->
+                BridgeV2Type = emqx_bridge_v2:bridge_v2_type_to_connector_type(BridgeType),
+                ok = emqx_bridge_v2:reset_metrics(BridgeV2Type, BridgeName),
+                ?NO_CONTENT;
+            false ->
+                ok = emqx_bridge_resource:reset_metrics(
+                    emqx_bridge_resource:resource_id(BridgeType, BridgeName)
+                ),
+                ?NO_CONTENT
         end
     ).
 
@@ -592,6 +602,8 @@ lookup_from_all_nodes(BridgeType, BridgeName, SuccCode) ->
             {SuccCode, format_bridge_info([R || {ok, R} <- Results])};
         {ok, [{error, not_found} | _]} ->
             ?BRIDGE_NOT_FOUND(BridgeType, BridgeName);
+        {ok, [{error, not_bridge_v1_compatible} | _]} ->
+            ?NOT_FOUND(non_compat_bridge_msg());
         {error, Reason} ->
             ?INTERNAL_ERROR(Reason)
     end.
@@ -606,7 +618,17 @@ create_bridge(BridgeType, BridgeName, Conf) ->
     create_or_update_bridge(BridgeType, BridgeName, Conf, 201).
 
 update_bridge(BridgeType, BridgeName, Conf) ->
-    create_or_update_bridge(BridgeType, BridgeName, Conf, 200).
+    case emqx_bridge_v2:is_bridge_v2_type(BridgeType) of
+        true ->
+            case emqx_bridge_v2:is_valid_bridge_v1(BridgeType, BridgeName) of
+                true ->
+                    create_or_update_bridge(BridgeType, BridgeName, Conf, 200);
+                false ->
+                    ?NOT_FOUND(non_compat_bridge_msg())
+            end;
+        false ->
+            create_or_update_bridge(BridgeType, BridgeName, Conf, 200)
+    end.
 
 create_or_update_bridge(BridgeType, BridgeName, Conf, HttpStatusCode) ->
     case emqx_bridge:create(BridgeType, BridgeName, Conf) of
@@ -1119,3 +1141,6 @@ map_to_json(M0) ->
             M2 = maps:without([value, <<"value">>], M1),
             emqx_utils_json:encode(M2)
     end.
+
+non_compat_bridge_msg() ->
+    <<"bridge already exists as non Bridge V1 compatible Bridge V2 bridge">>.

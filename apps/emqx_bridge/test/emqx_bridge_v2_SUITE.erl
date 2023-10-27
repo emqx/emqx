@@ -258,7 +258,8 @@ t_is_valid_bridge_v1(_) ->
     {ok, _} = emqx_bridge_v2:remove(bridge_type(), my_test_bridge),
     true = emqx_bridge_v2:is_valid_bridge_v1(bridge_v1_type, my_test_bridge_2),
     {ok, _} = emqx_bridge_v2:remove(bridge_type(), my_test_bridge_2),
-    false = emqx_bridge_v2:is_valid_bridge_v1(bridge_v1_type, my_test_bridge),
+    %% Non existing bridge is a valid Bridge V1
+    true = emqx_bridge_v2:is_valid_bridge_v1(bridge_v1_type, my_test_bridge),
     ok.
 
 t_manual_health_check(_) ->
@@ -599,7 +600,7 @@ t_remove_single_connector_being_referenced_without_active_channels(_Config) ->
             ?assertMatch({ok, _}, emqx_connector:remove(con_type(), con_name())),
             %% we no longer have connector data if this happens...
             ?assertMatch(
-                {ok, #{resource_data := undefined}},
+                {ok, #{resource_data := #{}}},
                 emqx_bridge_v2:lookup(bridge_type(), BridgeName)
             ),
             ok
@@ -638,7 +639,7 @@ t_remove_multiple_connectors_being_referenced_without_channels(_Config) ->
             ),
             %% we no longer have connector data if this happens...
             ?assertMatch(
-                {ok, #{resource_data := undefined}},
+                {ok, #{resource_data := #{}}},
                 emqx_bridge_v2:lookup(bridge_type(), BridgeName)
             ),
             ok

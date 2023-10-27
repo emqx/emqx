@@ -330,7 +330,13 @@ lookup(Type, Name, RawConf) ->
 get_metrics(Type, Name) ->
     case emqx_bridge_v2:is_bridge_v2_type(Type) of
         true ->
-            emqx_bridge_v2:get_metrics(Type, Name);
+            case emqx_bridge_v2:is_valid_bridge_v1(Type, Name) of
+                true ->
+                    BridgeV2Type = emqx_bridge_v2:bridge_v2_type_to_connector_type(Type),
+                    emqx_bridge_v2:get_metrics(BridgeV2Type, Name);
+                false ->
+                    {error, not_bridge_v1_compatible}
+            end;
         false ->
             emqx_resource:get_metrics(emqx_bridge_resource:resource_id(Type, Name))
     end.
@@ -347,7 +353,12 @@ disable_enable(Action, BridgeType, BridgeName) when
 ->
     case emqx_bridge_v2:is_bridge_v2_type(BridgeType) of
         true ->
-            emqx_bridge_v2:disable_enable(Action, BridgeType, BridgeName);
+            case emqx_bridge_v2:is_valid_bridge_v1(BridgeType, BridgeName) of
+                true ->
+                    do_disable_enable_bridge_v2_compatible(Action, BridgeType, BridgeName);
+                false ->
+                    {error, not_bridge_v1_compatible}
+            end;
         false ->
             emqx_conf:update(
                 config_key_path() ++ [BridgeType, BridgeName],
@@ -355,6 +366,15 @@ disable_enable(Action, BridgeType, BridgeName) when
                 #{override_to => cluster}
             )
     end.
+
+do_disable_enable_bridge_v2_compatible(enable, BridgeType, BridgeName) ->
+    BridgeV2Type = emqx_bridge_v2:bridge_v1_type_to_bridge_v2_type(BridgeType),
+    _ = emqx_connector:disable_enable(enable, BridgeType, BridgeName),
+    emqx_bridge_v2:disable_enable(enable, BridgeV2Type, BridgeName);
+do_disable_enable_bridge_v2_compatible(disable, BridgeType, BridgeName) ->
+    BridgeV2Type = emqx_bridge_v2:bridge_v1_type_to_bridge_v2_type(BridgeType),
+    _ = emqx_bridge_v2:disable_enable(disable, BridgeV2Type, BridgeName),
+    emqx_connector:disable_enable(disable, BridgeType, BridgeName).
 
 create(BridgeType, BridgeName, RawConf) ->
     ?SLOG(debug, #{

@@ -172,7 +172,13 @@ reset_metrics(ResourceId) ->
         false ->
             emqx_resource:reset_metrics(ResourceId);
         true ->
-            emqx_bridge_v2:reset_metrics(Type, Name)
+            case emqx_bridge_v2:is_valid_bridge_v1(Type, Name) of
+                true ->
+                    BridgeV2Type = emqx_bridge_v2:bridge_v2_type_to_connector_type(Type),
+                    emqx_bridge_v2:reset_metrics(BridgeV2Type, Name);
+                false ->
+                    {error, not_bridge_v1_compatible}
+            end
     end.
 
 restart(Type, Name) ->
