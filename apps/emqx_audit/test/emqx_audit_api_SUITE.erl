@@ -21,14 +21,12 @@
 
 all() ->
     [
-        {group, enabled},
-        {group, disabled}
+        {group, audit, [sequence]}
     ].
 
 groups() ->
     [
-        {enabled, [sequence], common_tests() -- [t_disabled]},
-        {disabled, [sequence], [t_disabled]}
+        {audit, [sequence], common_tests()}
     ].
 
 common_tests() ->
@@ -114,6 +112,8 @@ t_disabled(_) ->
     Logs1 = emqx_utils_maps:deep_put([<<"audit">>, <<"max_filter_size">>], Logs, 100),
     NewLogs = emqx_utils_maps:deep_put([<<"audit">>, <<"enable">>], Logs1, false),
     {ok, _} = emqx_mgmt_api_configs_SUITE:update_config("log", NewLogs),
+    {ok, GetLog1} = emqx_mgmt_api_configs_SUITE:get_config("log"),
+    ?assertEqual(NewLogs, GetLog1),
     ?assertMatch(
         {error, _},
         emqx_mgmt_api_test_util:request_api(get, AuditPath, "limit=1", AuthHeader)
@@ -132,6 +132,8 @@ t_disabled(_) ->
     ?assertEqual(Size2, Size3),
     %% enabled again
     {ok, _} = emqx_mgmt_api_configs_SUITE:update_config("log", Logs1),
+    {ok, GetLog2} = emqx_mgmt_api_configs_SUITE:get_config("log"),
+    ?assertEqual(Logs1, GetLog2),
     Size4 = mnesia:table_info(emqx_audit, size),
     ?assertEqual(Size3 + 1, Size4),
     ok.
@@ -243,4 +245,4 @@ kickout_clients() ->
 
     {ok, Clients2} = emqx_mgmt_api_test_util:request_api(get, ClientsPath),
     ClientsResponse2 = emqx_utils_json:decode(Clients2, [return_maps]),
-    ?assertMatch(#{<<"meta">> := #{<<"count">> := 0}}, ClientsResponse2).
+    ?assertMatch(#{<<"data">> := []}, ClientsResponse2).

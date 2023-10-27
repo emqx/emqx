@@ -37,6 +37,8 @@
 -define(AUDIT_MOD, audit).
 -define(UPDATE_READONLY_KEYS_PROHIBITED, "update_readonly_keys_prohibited").
 
+-dialyzer({no_match, [load/0]}).
+
 load() ->
     emqx_ctl:register_command(?CLUSTER_CALL, {?MODULE, admins}, [hidden]),
     emqx_ctl:register_command(?CONF, {?MODULE, conf}, []),

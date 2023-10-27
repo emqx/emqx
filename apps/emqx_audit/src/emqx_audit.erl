@@ -108,10 +108,12 @@ log(Level, Meta1, Handler) ->
 
 remove_handler_when_disabled() ->
     case emqx_config:get([log, audit, enable], false) of
-        true -> ok;
-        false -> _ = logger:remove_handler(?AUDIT_HANDLER)
-    end,
-    ok.
+        true ->
+            ok;
+        false ->
+            _ = logger:remove_handler(?AUDIT_HANDLER),
+            ok
+    end.
 
 log_to_db(Log) ->
     Audit0 = to_audit(Log),

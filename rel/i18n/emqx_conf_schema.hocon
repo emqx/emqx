@@ -727,8 +727,7 @@ audit_handler_level.label:
 
 audit_log_max_filter_limit.desc:
 """Store the latest N log entries in a database for allow `/audit` HTTP API to filter and retrieval of log data.
-The interval for purging redundant log records is maintained within a range of 10~20 seconds.
-"""
+The interval for purging redundant log records is maintained within a range of 10~20 seconds."""
 
 audit_log_max_filter_limit.label:
 """Max Filter Limit"""
