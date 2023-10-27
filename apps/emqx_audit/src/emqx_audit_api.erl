@@ -59,7 +59,7 @@ schema("/audit") ->
                         desc => ?DESC(filter_node)
                     })},
                 {from,
-                    ?HOCON(?ENUM([dashboard, rest_api, cli, erlang_console, event]), #{
+                    ?HOCON(?ENUM([dashboard, rest_api, cli, erlang_console]), #{
                         in => query,
                         required => false,
                         example => <<"dashboard">>,
@@ -175,7 +175,7 @@ fields(audit) ->
                 desc => "The node name to which the log is created"
             })},
         {from,
-            ?HOCON(?ENUM([dashboard, rest_api, cli, erlang_console, event]), #{
+            ?HOCON(?ENUM([dashboard, rest_api, cli, erlang_console]), #{
                 desc => "The source type of the log"
             })},
         {source,

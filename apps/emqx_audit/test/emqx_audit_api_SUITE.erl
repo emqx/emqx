@@ -49,6 +49,7 @@ init_per_suite(Config) ->
     emqx_mgmt_api_test_util:init_suite([emqx_ctl, emqx_conf, emqx_audit]),
     ok = emqx_common_test_helpers:load_config(emqx_enterprise_schema, ?CONF_DEFAULT),
     emqx_config:save_schema_mod_and_names(emqx_enterprise_schema),
+    ok = emqx_config_logger:refresh_config(),
     application:set_env(emqx, boot_modules, []),
     emqx_conf_cli:load(),
     Config.
@@ -144,7 +145,7 @@ t_max_size(_Config) ->
     ?assert(Size1 - InitSize >= 100, {Size1, InitSize}),
     {ok, _} = emqx:update_config([log, audit, max_filter_size], 10),
     %% wait for clean_expired
-    timer:sleep(500),
+    timer:sleep(250),
     ExpectSize = emqx:get_config([log, audit, max_filter_size]),
     Size2 = SizeFun(),
     ?assertEqual(ExpectSize, Size2, {sys:get_state(emqx_audit)}),

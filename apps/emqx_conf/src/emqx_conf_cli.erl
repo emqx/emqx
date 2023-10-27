@@ -40,7 +40,10 @@
 load() ->
     emqx_ctl:register_command(?CLUSTER_CALL, {?MODULE, admins}, [hidden]),
     emqx_ctl:register_command(?CONF, {?MODULE, conf}, []),
-    emqx_ctl:register_command(?AUDIT_MOD, {?MODULE, audit}, [hidden]),
+    case emqx_release:edition() of
+        ee -> emqx_ctl:register_command(?AUDIT_MOD, {?MODULE, audit}, [hidden]);
+        ce -> ok
+    end,
     ok.
 
 unload() ->

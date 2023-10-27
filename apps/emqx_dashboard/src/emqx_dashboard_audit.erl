@@ -37,10 +37,11 @@ log(#{code := Code, method := Method} = Meta, Req) ->
     ?AUDIT(level(Method, Code), log_meta(Meta, Req)).
 
 log_meta(Meta, Req) ->
-    #{operation_id := OperationId} = Meta,
+    #{operation_id := OperationId, method := Method} = Meta,
     case
-        lists:member(OperationId, ?HIGH_FREQUENCY_REQUESTS) andalso
-            ignore_high_frequency_request()
+        Method =:= get orelse
+            (lists:member(OperationId, ?HIGH_FREQUENCY_REQUESTS) andalso
+                ignore_high_frequency_request())
     of
         true ->
             undefined;
@@ -53,7 +54,7 @@ log_meta(Meta, Req) ->
                 source_ip => source_ip(Req),
                 operation_type => operation_type(Meta),
                 %% method for http filter api.
-                http_method => maps:get(method, Meta),
+                http_method => Method,
                 http_request => http_request(Meta),
                 http_status_code => maps:get(code, Meta),
                 operation_result => operation_result(Meta),

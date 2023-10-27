@@ -40,7 +40,9 @@
     end
 ).
 
+-define(AUDIT_HANDLER, emqx_audit).
 -define(TRACE_FILTER, emqx_trace_filter).
+-define(OWN_KEYS, [level, filters, filter_default, handlers]).
 
 -define(TRACE(Tag, Msg, Meta), ?TRACE(debug, Tag, Msg, Meta)).
 
@@ -62,15 +64,15 @@
 end).
 
 -define(AUDIT(_LevelFun_, _MetaFun_), begin
-    case emqx_config:get([log, audit], #{enable => false}) of
-        #{enable := false} ->
+    case logger_config:get(logger, ?AUDIT_HANDLER) of
+        {error, {not_found, _}} ->
             ok;
-        #{enable := true, level := _AllowLevel_} ->
+        {ok, Handler = #{level := _AllowLevel_}} ->
             _Level_ = _LevelFun_,
             case logger:compare_levels(_AllowLevel_, _Level_) of
                 _R_ when _R_ == lt; _R_ == eq ->
-                    emqx_audit:log(_Level_, _MetaFun_);
-                gt ->
+                    emqx_audit:log(_Level_, _MetaFun_, Handler);
+                _ ->
                     ok
             end
     end
