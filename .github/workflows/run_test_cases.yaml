@@ -52,6 +52,7 @@ jobs:
       - name: eunit
         env:
           PROFILE: ${{ matrix.profile }}
+          ENABLE_COVER_COMPILE: 1
           CT_COVER_EXPORT_PREFIX: ${{ matrix.profile }}-${{ matrix.otp }}
         run: make eunit
 
@@ -59,6 +60,7 @@ jobs:
       - name: proper
         env:
           PROFILE: ${{ matrix.profile }}
+          ENABLE_COVER_COMPILE: 1
           CT_COVER_EXPORT_PREFIX: ${{ matrix.profile }}-${{ matrix.otp }}
         run: make proper
 
@@ -102,6 +104,7 @@ jobs:
           MINIO_TAG: "RELEASE.2023-03-20T20-16-18Z"
           PROFILE: ${{ matrix.profile }}
           SUITEGROUP: ${{ matrix.suitegroup }}
+          ENABLE_COVER_COMPILE: 1
           CT_COVER_EXPORT_PREFIX: ${{ matrix.profile }}-${{ matrix.otp }}-sg${{ matrix.suitegroup }}
         run: ./scripts/ct/run.sh --ci --app ${{ matrix.app }}
       - uses: actions/upload-artifact@v3
@@ -144,6 +147,7 @@ jobs:
         env:
           PROFILE: ${{ matrix.profile }}
           SUITEGROUP: ${{ matrix.suitegroup }}
+          ENABLE_COVER_COMPILE: 1
           CT_COVER_EXPORT_PREFIX: ${{ matrix.profile }}-${{ matrix.otp }}-sg${{ matrix.suitegroup }}
         run: |
           make "${{ matrix.app }}-ct"
