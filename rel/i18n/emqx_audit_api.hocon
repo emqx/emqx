@@ -16,7 +16,7 @@ filter_from.desc:
 `dashboard`: Dashboard request logs, requiring the use of a jwt_token.
 `rest_api`: API KEY request logs.
 `cli`: The emqx command line logs.
-`erlang_console`: The emqx remote_console run function logs.
+`erlang_console`: The emqx remote_console run function logs."""
 
 filter_source.desc:
 """"Filter logs based on source, Possible values are:

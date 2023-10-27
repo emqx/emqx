@@ -19,6 +19,21 @@
 
 -include_lib("eunit/include/eunit.hrl").
 
+all() ->
+    [
+        {group, enabled},
+        {group, disabled}
+    ].
+
+groups() ->
+    [
+        {enabled, [sequence], common_tests() -- [t_disabled]},
+        {disabled, [sequence], [t_disabled]}
+    ].
+
+common_tests() ->
+    emqx_common_test_helpers:all(?MODULE).
+
 -define(CONF_DEFAULT, #{
     node =>
         #{
@@ -39,9 +54,6 @@
             }
     }
 }).
-
-all() ->
-    emqx_common_test_helpers:all(?MODULE).
 
 init_per_suite(Config) ->
     _ = application:load(emqx_conf),
@@ -88,6 +100,40 @@ t_http_api(_) ->
         },
         emqx_utils_json:decode(Res1, [return_maps])
     ),
+    ok.
+
+t_disabled(_) ->
+    Enable = [log, audit, enable],
+    ?assertEqual(true, emqx:get_config(Enable)),
+    AuditPath = emqx_mgmt_api_test_util:api_path(["audit"]),
+    AuthHeader = emqx_mgmt_api_test_util:auth_header_(),
+    {ok, _} = emqx_mgmt_api_test_util:request_api(get, AuditPath, "limit=1", AuthHeader),
+    Size1 = mnesia:table_info(emqx_audit, size),
+
+    {ok, Logs} = emqx_mgmt_api_configs_SUITE:get_config("log"),
+    Logs1 = emqx_utils_maps:deep_put([<<"audit">>, <<"max_filter_size">>], Logs, 100),
+    NewLogs = emqx_utils_maps:deep_put([<<"audit">>, <<"enable">>], Logs1, false),
+    {ok, _} = emqx_mgmt_api_configs_SUITE:update_config("log", NewLogs),
+    ?assertMatch(
+        {error, _},
+        emqx_mgmt_api_test_util:request_api(get, AuditPath, "limit=1", AuthHeader)
+    ),
+
+    Size2 = mnesia:table_info(emqx_audit, size),
+    %% Record the audit disable action, so the size + 1
+    ?assertEqual(Size1 + 1, Size2),
+
+    {ok, Zones} = emqx_mgmt_api_configs_SUITE:get_global_zone(),
+    NewZones = emqx_utils_maps:deep_put([<<"mqtt">>, <<"max_topic_levels">>], Zones, 111),
+    {ok, #{<<"mqtt">> := Res}} = emqx_mgmt_api_configs_SUITE:update_global_zone(NewZones),
+    ?assertMatch(#{<<"max_topic_levels">> := 111}, Res),
+    Size3 = mnesia:table_info(emqx_audit, size),
+    %% Don't record mqtt update request.
+    ?assertEqual(Size2, Size3),
+    %% enabled again
+    {ok, _} = emqx_mgmt_api_configs_SUITE:update_config("log", Logs1),
+    Size4 = mnesia:table_info(emqx_audit, size),
+    ?assertEqual(Size3 + 1, Size4),
     ok.
 
 t_cli(_Config) ->

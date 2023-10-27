@@ -35,6 +35,7 @@
     {<<"gte_duration_ms">>, timestamp},
     {<<"lte_duration_ms">>, timestamp}
 ]).
+-define(DISABLE_MSG, <<"Audit is disabled">>).
 
 namespace() -> "audit".
 
@@ -151,7 +152,11 @@ schema("/audit") ->
                     emqx_dashboard_swagger:schema_with_example(
                         array(?REF(audit_list)),
                         audit_log_list_example()
-                    )
+                    ),
+                400 => emqx_dashboard_swagger:error_codes(
+                    ['BAD_REQUEST'],
+                    ?DISABLE_MSG
+                )
             }
         }
     }.
@@ -232,23 +237,30 @@ fields(http_request) ->
     ].
 
 audit(get, #{query_string := QueryString}) ->
-    case
-        emqx_mgmt_api:node_query(
-            node(),
-            ?AUDIT,
-            QueryString,
-            ?AUDIT_QS_SCHEMA,
-            fun ?MODULE:qs2ms/2,
-            fun ?MODULE:format/1
-        )
-    of
-        {error, page_limit_invalid} ->
-            {400, #{code => 'BAD_REQUEST', message => <<"page_limit_invalid">>}};
-        {error, Node, Error} ->
-            Message = list_to_binary(io_lib:format("bad rpc call ~p, Reason ~p", [Node, Error])),
-            {500, #{code => <<"NODE_DOWN">>, message => Message}};
-        Result ->
-            {200, Result}
+    case emqx_config:get([log, audit, enable], false) of
+        false ->
+            {400, #{code => 'BAD_REQUEST', message => ?DISABLE_MSG}};
+        true ->
+            case
+                emqx_mgmt_api:node_query(
+                    node(),
+                    ?AUDIT,
+                    QueryString,
+                    ?AUDIT_QS_SCHEMA,
+                    fun ?MODULE:qs2ms/2,
+                    fun ?MODULE:format/1
+                )
+            of
+                {error, page_limit_invalid} ->
+                    {400, #{code => 'BAD_REQUEST', message => <<"page_limit_invalid">>}};
+                {error, Node, Error} ->
+                    Message = list_to_binary(
+                        io_lib:format("bad rpc call ~p, Reason ~p", [Node, Error])
+                    ),
+                    {500, #{code => <<"NODE_DOWN">>, message => Message}};
+                Result ->
+                    {200, Result}
+            end
     end.
 
 qs2ms(_Tab, {Qs, _}) ->
