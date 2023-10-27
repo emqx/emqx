@@ -951,10 +951,10 @@ lookup_and_transform_to_bridge_v1_helper(
     ),
     BridgeV1Config1 = maps:remove(<<"connector">>, BridgeV2RawConfig2),
     BridgeV1Config2 = maps:merge(BridgeV1Config1, ConnectorRawConfig2),
-    BridgeV1 = maps:put(raw_config, BridgeV1Config2, BridgeV2),
-    BridgeV1_1 = maps:remove(status, BridgeV1),
+    BridgeV1Tmp = maps:put(raw_config, BridgeV1Config2, BridgeV2),
+    BridgeV1 = maps:remove(status, BridgeV1Tmp),
     BridgeV2Status = maps:get(status, BridgeV2, undefined),
-    ResourceData1 = maps:get(resource_data, BridgeV1_1, #{}),
+    ResourceData1 = maps:get(resource_data, BridgeV1, #{}),
     %% Replace id in resouce data
     BridgeV1Id = <<"bridge:", (bin(BridgeV1Type))/binary, ":", (bin(BridgeName))/binary>>,
     ResourceData2 = maps:put(id, BridgeV1Id, ResourceData1),
@@ -964,16 +964,16 @@ lookup_and_transform_to_bridge_v1_helper(
             case BridgeV2Status of
                 <<"connected">> ->
                     %% No need to modify the status
-                    {ok, BridgeV1_1#{resource_data => ResourceData2}};
+                    {ok, BridgeV1#{resource_data => ResourceData2}};
                 NotConnected ->
                     ResourceData3 = maps:put(status, connecting, ResourceData2),
                     ResourceData4 = maps:put(error, NotConnected, ResourceData3),
-                    BridgeV1_2 = maps:put(resource_data, ResourceData4, BridgeV1_1),
-                    {ok, BridgeV1_2}
+                    BridgeV1Final = maps:put(resource_data, ResourceData4, BridgeV1),
+                    {ok, BridgeV1Final}
             end;
         _ ->
             %% No need to modify the status
-            {ok, BridgeV1_1}
+            {ok, BridgeV1}
     end.
 
 lookup_raw_conf(Type, Name) ->
