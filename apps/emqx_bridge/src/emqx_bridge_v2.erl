@@ -92,7 +92,8 @@
     bridge_v1_create_dry_run/2,
     extract_connector_id_from_bridge_v2_id/1,
     bridge_v1_type_to_bridge_v2_type/1,
-    bridge_v1_id_to_connector_resource_id/1
+    bridge_v1_id_to_connector_resource_id/1,
+    bridge_v1_enable_disable/3
 ]).
 
 %%====================================================================
@@ -1214,6 +1215,31 @@ bridge_v1_id_to_connector_resource_id(BridgeId) ->
             <<"connector:", ConnectorType/binary, ":", ConnectorName/binary>>
     end.
 
+bridge_v1_enable_disable(Action, BridgeType, BridgeName) ->
+    case emqx_bridge_v2:is_valid_bridge_v1(BridgeType, BridgeName) of
+        true ->
+            bridge_v1_enable_disable_helper(
+                Action,
+                BridgeType,
+                BridgeName,
+                lookup_raw_conf(BridgeType, BridgeName)
+            );
+        false ->
+            {error, not_bridge_v1_compatible}
+    end.
+
+bridge_v1_enable_disable_helper(_Op, _BridgeType, _BridgeName, {error, bridge_not_found}) ->
+    {error, bridge_not_found};
+bridge_v1_enable_disable_helper(enable, BridgeType, BridgeName, #{connector := ConnectorName}) ->
+    BridgeV2Type = ?MODULE:bridge_v1_type_to_bridge_v2_type(BridgeType),
+    ConnectorType = ?MODULE:bridge_v2_type_to_connector_type(BridgeV2Type),
+    {ok, _} = emqx_connector:disable_enable(enable, ConnectorType, ConnectorName),
+    emqx_bridge_v2:disable_enable(enable, BridgeV2Type, BridgeName);
+bridge_v1_enable_disable_helper(disable, BridgeType, BridgeName, #{connector := ConnectorName}) ->
+    BridgeV2Type = emqx_bridge_v2:bridge_v1_type_to_bridge_v2_type(BridgeType),
+    ConnectorType = ?MODULE:bridge_v2_type_to_connector_type(BridgeV2Type),
+    {ok, _} = emqx_bridge_v2:disable_enable(disable, BridgeV2Type, BridgeName),
+    emqx_connector:disable_enable(disable, ConnectorType, ConnectorName).
 %%====================================================================
 %% Misc helper functions
 %%====================================================================

@@ -353,12 +353,7 @@ disable_enable(Action, BridgeType, BridgeName) when
 ->
     case emqx_bridge_v2:is_bridge_v2_type(BridgeType) of
         true ->
-            case emqx_bridge_v2:is_valid_bridge_v1(BridgeType, BridgeName) of
-                true ->
-                    do_disable_enable_bridge_v2_compatible(Action, BridgeType, BridgeName);
-                false ->
-                    {error, not_bridge_v1_compatible}
-            end;
+            emqx_bridge_v2:bridge_v1_enable_disable(Action, BridgeType, BridgeName);
         false ->
             emqx_conf:update(
                 config_key_path() ++ [BridgeType, BridgeName],
@@ -366,15 +361,6 @@ disable_enable(Action, BridgeType, BridgeName) when
                 #{override_to => cluster}
             )
     end.
-
-do_disable_enable_bridge_v2_compatible(enable, BridgeType, BridgeName) ->
-    BridgeV2Type = emqx_bridge_v2:bridge_v1_type_to_bridge_v2_type(BridgeType),
-    _ = emqx_connector:disable_enable(enable, BridgeType, BridgeName),
-    emqx_bridge_v2:disable_enable(enable, BridgeV2Type, BridgeName);
-do_disable_enable_bridge_v2_compatible(disable, BridgeType, BridgeName) ->
-    BridgeV2Type = emqx_bridge_v2:bridge_v1_type_to_bridge_v2_type(BridgeType),
-    _ = emqx_bridge_v2:disable_enable(disable, BridgeV2Type, BridgeName),
-    emqx_connector:disable_enable(disable, BridgeType, BridgeName).
 
 create(BridgeType, BridgeName, RawConf) ->
     ?SLOG(debug, #{
