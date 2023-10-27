@@ -57,7 +57,7 @@ ensure_enterprise_schema_loaded() ->
 
 %% NOTE: We depends on the `emqx_bridge:pre_config_update/3` to restart/stop the
 %%       underlying resources.
-pre_config_update(_, {_Oper, _, _}, undefined) ->
+pre_config_update(_, {_Oper, _Type, _Name}, undefined) ->
     {error, bridge_not_found};
 pre_config_update(_, {Oper, _Type, _Name}, OldConfig) ->
     %% to save the 'enable' to the config files

@@ -73,10 +73,7 @@
     T == gcp_pubsub;
     T == influxdb_api_v1;
     T == influxdb_api_v2;
-    %% TODO: rename this to `kafka_producer' after alias support is
-    %% added to hocon; keeping this as just `kafka' for backwards
-    %% compatibility.
-    T == kafka;
+    T == kafka_producer;
     T == redis_single;
     T == redis_sentinel;
     T == redis_cluster;
@@ -213,13 +210,19 @@ send_to_matched_egress_bridges(Topic, Msg) ->
                 _ ->
                     ok
             catch
+                throw:Reason ->
+                    ?SLOG(error, #{
+                        msg => "send_message_to_bridge_exception",
+                        bridge => Id,
+                        reason => emqx_utils:redact(Reason)
+                    });
                 Err:Reason:ST ->
                     ?SLOG(error, #{
                         msg => "send_message_to_bridge_exception",
                         bridge => Id,
                         error => Err,
-                        reason => Reason,
-                        stacktrace => ST
+                        reason => emqx_utils:redact(Reason),
+                        stacktrace => emqx_utils:redact(ST)
                     })
             end
         end,
@@ -348,9 +351,10 @@ maybe_upgrade(webhook, Config) ->
 maybe_upgrade(_Other, Config) ->
     Config.
 
-disable_enable(Action, BridgeType, BridgeName) when
+disable_enable(Action, BridgeType0, BridgeName) when
     Action =:= disable; Action =:= enable
 ->
+    BridgeType = upgrade_type(BridgeType0),
     case emqx_bridge_v2:is_bridge_v2_type(BridgeType) of
         true ->
             emqx_bridge_v2:bridge_v1_enable_disable(Action, BridgeType, BridgeName);
@@ -362,7 +366,8 @@ disable_enable(Action, BridgeType, BridgeName) when
             )
     end.
 
-create(BridgeType, BridgeName, RawConf) ->
+create(BridgeType0, BridgeName, RawConf) ->
+    BridgeType = upgrade_type(BridgeType0),
     ?SLOG(debug, #{
         bridge_action => create,
         bridge_type => BridgeType,
@@ -382,7 +387,9 @@ create(BridgeType, BridgeName, RawConf) ->
 
 %% NOTE: This function can cause broken references but it is only called from
 %% test cases.
-remove(BridgeType, BridgeName) ->
+-spec remove(atom() | binary(), binary()) -> ok | {error, any()}.
+remove(BridgeType0, BridgeName) ->
+    BridgeType = upgrade_type(BridgeType0),
     ?SLOG(debug, #{
         bridge_action => remove,
         bridge_type => BridgeType,
@@ -395,13 +402,22 @@ remove(BridgeType, BridgeName) ->
             remove_v1(BridgeType, BridgeName)
     end.
 
-remove_v1(BridgeType, BridgeName) ->
-    emqx_conf:remove(
-        emqx_bridge:config_key_path() ++ [BridgeType, BridgeName],
-        #{override_to => cluster}
-    ).
+remove_v1(BridgeType0, BridgeName) ->
+    BridgeType = upgrade_type(BridgeType0),
+    case
+        emqx_conf:remove(
+            emqx_bridge:config_key_path() ++ [BridgeType, BridgeName],
+            #{override_to => cluster}
+        )
+    of
+        {ok, _} ->
+            ok;
+        {error, Reason} ->
+            {error, Reason}
+    end.
 
-check_deps_and_remove(BridgeType, BridgeName, RemoveDeps) ->
+check_deps_and_remove(BridgeType0, BridgeName, RemoveDeps) ->
+    BridgeType = upgrade_type(BridgeType0),
     case emqx_bridge_v2:is_bridge_v2_type(BridgeType) of
         true ->
             emqx_bridge_v2:bridge_v1_check_deps_and_remove(
@@ -410,25 +426,15 @@ check_deps_and_remove(BridgeType, BridgeName, RemoveDeps) ->
                 RemoveDeps
             );
         false ->
-            check_deps_and_remove_v1(BridgeType, BridgeName, RemoveDeps)
+            do_check_deps_and_remove(BridgeType, BridgeName, RemoveDeps)
     end.
 
-check_deps_and_remove_v1(BridgeType, BridgeName, RemoveDeps) ->
-    BridgeId = emqx_bridge_resource:bridge_id(BridgeType, BridgeName),
-    %% NOTE: This violates the design: Rule depends on data-bridge but not vice versa.
-    case emqx_rule_engine:get_rule_ids_by_action(BridgeId) of
-        [] ->
+do_check_deps_and_remove(BridgeType, BridgeName, RemoveDeps) ->
+    case emqx_bridge_lib:maybe_withdraw_rule_action(BridgeType, BridgeName, RemoveDeps) of
+        ok ->
             remove(BridgeType, BridgeName);
-        RuleIds when RemoveDeps =:= false ->
-            {error, {rules_deps_on_this_bridge, RuleIds}};
-        RuleIds when RemoveDeps =:= true ->
-            lists:foreach(
-                fun(R) ->
-                    emqx_rule_engine:ensure_action_removed(R, BridgeId)
-                end,
-                RuleIds
-            ),
-            remove(BridgeType, BridgeName)
+        {error, Reason} ->
+            {error, Reason}
     end.
 
 %%----------------------------------------------------------------------------------------
@@ -655,3 +661,6 @@ validate_bridge_name(BridgeName0) ->
 
 to_bin(A) when is_atom(A) -> atom_to_binary(A, utf8);
 to_bin(B) when is_binary(B) -> B.
+
+upgrade_type(Type) ->
+    emqx_bridge_lib:upgrade_type(Type).

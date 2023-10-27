@@ -35,7 +35,7 @@
     <<"name">> => NAME
 }).
 
--define(CONNECTOR_TYPE_STR, "kafka").
+-define(CONNECTOR_TYPE_STR, "kafka_producer").
 -define(CONNECTOR_TYPE, <<?CONNECTOR_TYPE_STR>>).
 -define(KAFKA_BOOTSTRAP_HOST, <<"127.0.0.1:9092">>).
 -define(KAFKA_CONNECTOR(Name, BootstrapHosts), ?RESOURCE(Name, ?CONNECTOR_TYPE)#{
@@ -57,7 +57,7 @@
 -define(CONNECTOR, ?CONNECTOR(?CONNECTOR_NAME)).
 
 -define(BRIDGE_NAME, (atom_to_binary(?FUNCTION_NAME))).
--define(BRIDGE_TYPE_STR, "kafka").
+-define(BRIDGE_TYPE_STR, "kafka_producer").
 -define(BRIDGE_TYPE, <<?BRIDGE_TYPE_STR>>).
 -define(KAFKA_BRIDGE(Name, Connector), ?RESOURCE(Name, ?BRIDGE_TYPE)#{
     <<"connector">> => Connector,
@@ -284,13 +284,13 @@ init_mocks() ->
 clear_resources() ->
     lists:foreach(
         fun(#{type := Type, name := Name}) ->
-            {ok, _} = emqx_bridge_v2:remove(Type, Name)
+            ok = emqx_bridge_v2:remove(Type, Name)
         end,
         emqx_bridge_v2:list()
     ),
     lists:foreach(
         fun(#{type := Type, name := Name}) ->
-            {ok, _} = emqx_connector:remove(Type, Name)
+            ok = emqx_connector:remove(Type, Name)
         end,
         emqx_connector:list()
     ).
@@ -307,7 +307,7 @@ t_bridges_lifecycle(Config) ->
     {ok, 200, []} = request_json(get, uri([?ROOT]), Config),
 
     {ok, 404, _} = request(get, uri([?ROOT, "foo"]), Config),
-    {ok, 404, _} = request(get, uri([?ROOT, "kafka:foo"]), Config),
+    {ok, 404, _} = request(get, uri([?ROOT, "kafka_producer:foo"]), Config),
 
     %% need a var for patterns below
     BridgeName = ?BRIDGE_NAME,
@@ -449,13 +449,13 @@ t_start_bridge_unknown_node(Config) ->
     {ok, 404, _} =
         request(
             post,
-            uri(["nodes", "thisbetterbenotanatomyet", ?ROOT, "kafka:foo", start]),
+            uri(["nodes", "thisbetterbenotanatomyet", ?ROOT, "kafka_producer:foo", start]),
             Config
         ),
     {ok, 404, _} =
         request(
             post,
-            uri(["nodes", "undefined", ?ROOT, "kafka:foo", start]),
+            uri(["nodes", "undefined", ?ROOT, "kafka_producer:foo", start]),
             Config
         ).
 

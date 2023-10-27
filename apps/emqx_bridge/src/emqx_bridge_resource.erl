@@ -157,6 +157,9 @@ is_id_char($-) -> true;
 is_id_char($.) -> true;
 is_id_char(_) -> false.
 
+to_type_atom(<<"kafka">>) ->
+    %% backward compatible
+    kafka_producer;
 to_type_atom(Type) ->
     try
         erlang:binary_to_existing_atom(Type, utf8)
@@ -297,7 +300,8 @@ recreate(Type, Name, Conf0, Opts) ->
         parse_opts(Conf, Opts)
     ).
 
-create_dry_run(Type, Conf0) ->
+create_dry_run(Type0, Conf0) ->
+    Type = emqx_bridge_lib:upgrade_type(Type0),
     case emqx_bridge_v2:is_bridge_v2_type(Type) of
         false ->
             create_dry_run_bridge_v1(Type, Conf0);

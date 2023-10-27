@@ -456,7 +456,8 @@ schema("/bridges_probe") ->
         }
     }.
 
-'/bridges'(post, #{body := #{<<"type">> := BridgeType, <<"name">> := BridgeName} = Conf0}) ->
+'/bridges'(post, #{body := #{<<"type">> := BridgeType0, <<"name">> := BridgeName} = Conf0}) ->
+    BridgeType = upgrade_type(BridgeType0),
     case emqx_bridge:lookup(BridgeType, BridgeName) of
         {ok, _} ->
             ?BAD_REQUEST('ALREADY_EXISTS', <<"bridge already exists">>);
@@ -502,20 +503,24 @@ schema("/bridges_probe") ->
         Id,
         case emqx_bridge:lookup(BridgeType, BridgeName) of
             {ok, _} ->
-                AlsoDeleteActs =
+                AlsoDelete =
                     case maps:get(<<"also_delete_dep_actions">>, Qs, <<"false">>) of
-                        <<"true">> -> true;
-                        true -> true;
-                        _ -> false
+                        <<"true">> -> [rule_actions, connector];
+                        true -> [rule_actions, connector];
+                        _ -> []
                     end,
-                case emqx_bridge:check_deps_and_remove(BridgeType, BridgeName, AlsoDeleteActs) of
-                    {ok, _} ->
+                case emqx_bridge:check_deps_and_remove(BridgeType, BridgeName, AlsoDelete) of
+                    ok ->
                         ?NO_CONTENT;
-                    {error, {rules_deps_on_this_bridge, RuleIds}} ->
-                        ?BAD_REQUEST(
-                            {<<"Cannot delete bridge while active rules are defined for this bridge">>,
-                                RuleIds}
-                        );
+                    {error, #{
+                        reason := rules_depending_on_this_bridge,
+                        rule_ids := RuleIds
+                    }} ->
+                        RulesStr = [[" ", I] || I <- RuleIds],
+                        Msg = bin([
+                            "Cannot delete bridge while active rules are depending on it:", RulesStr
+                        ]),
+                        ?BAD_REQUEST(Msg);
                     {error, timeout} ->
                         ?SERVICE_UNAVAILABLE(<<"request timeout">>);
                     {error, Reason} ->
@@ -550,10 +555,10 @@ schema("/bridges_probe") ->
 '/bridges_probe'(post, Request) ->
     RequestMeta = #{module => ?MODULE, method => post, path => "/bridges_probe"},
     case emqx_dashboard_swagger:filter_check_request_and_translate_body(Request, RequestMeta) of
-        {ok, #{body := #{<<"type">> := ConnType} = Params}} ->
+        {ok, #{body := #{<<"type">> := BridgeType} = Params}} ->
             Params1 = maybe_deobfuscate_bridge_probe(Params),
             Params2 = maps:remove(<<"type">>, Params1),
-            case emqx_bridge_resource:create_dry_run(ConnType, Params2) of
+            case emqx_bridge_resource:create_dry_run(BridgeType, Params2) of
                 ok ->
                     ?NO_CONTENT;
                 {error, #{kind := validation_error} = Reason0} ->
@@ -572,7 +577,8 @@ schema("/bridges_probe") ->
             redact(BadRequest)
     end.
 
-maybe_deobfuscate_bridge_probe(#{<<"type">> := BridgeType, <<"name">> := BridgeName} = Params) ->
+maybe_deobfuscate_bridge_probe(#{<<"type">> := BridgeType0, <<"name">> := BridgeName} = Params) ->
+    BridgeType = upgrade_type(BridgeType0),
     case emqx_bridge:lookup(BridgeType, BridgeName) of
         {ok, #{raw_config := RawConf}} ->
             %% TODO check if RawConf optained above is compatible with the commented out code below
@@ -630,7 +636,8 @@ update_bridge(BridgeType, BridgeName, Conf) ->
             create_or_update_bridge(BridgeType, BridgeName, Conf, 200)
     end.
 
-create_or_update_bridge(BridgeType, BridgeName, Conf, HttpStatusCode) ->
+create_or_update_bridge(BridgeType0, BridgeName, Conf, HttpStatusCode) ->
+    BridgeType = upgrade_type(BridgeType0),
     case emqx_bridge:create(BridgeType, BridgeName, Conf) of
         {ok, _} ->
             lookup_from_all_nodes(BridgeType, BridgeName, HttpStatusCode);
@@ -640,7 +647,8 @@ create_or_update_bridge(BridgeType, BridgeName, Conf, HttpStatusCode) ->
             ?BAD_REQUEST(map_to_json(redact(Reason)))
     end.
 
-get_metrics_from_local_node(BridgeType, BridgeName) ->
+get_metrics_from_local_node(BridgeType0, BridgeName) ->
+    BridgeType = upgrade_type(BridgeType0),
     format_metrics(emqx_bridge:get_metrics(BridgeType, BridgeName)).
 
 '/bridges/:id/enable/:enable'(put, #{bindings := #{id := Id, enable := Enable}}) ->
@@ -1145,3 +1153,6 @@ map_to_json(M0) ->
 
 non_compat_bridge_msg() ->
     <<"bridge already exists as non Bridge V1 compatible Bridge V2 bridge">>.
+
+upgrade_type(Type) ->
+    emqx_bridge_lib:upgrade_type(Type).

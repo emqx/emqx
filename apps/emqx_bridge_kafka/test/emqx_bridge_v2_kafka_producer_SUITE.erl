@@ -23,6 +23,8 @@
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 -include_lib("brod/include/brod.hrl").
 
+-define(TYPE, kafka_producer).
+
 all() ->
     emqx_common_test_helpers:all(?MODULE).
 
@@ -50,30 +52,30 @@ apps_to_start_and_stop() ->
 t_create_remove_list(_) ->
     [] = emqx_bridge_v2:list(),
     ConnectorConfig = connector_config(),
-    {ok, _} = emqx_connector:create(kafka, test_connector, ConnectorConfig),
+    {ok, _} = emqx_connector:create(?TYPE, test_connector, ConnectorConfig),
     Config = bridge_v2_config(<<"test_connector">>),
-    {ok, _Config} = emqx_bridge_v2:create(kafka, test_bridge_v2, Config),
+    {ok, _Config} = emqx_bridge_v2:create(?TYPE, test_bridge_v2, Config),
     [BridgeV2Info] = emqx_bridge_v2:list(),
     #{
         name := <<"test_bridge_v2">>,
-        type := <<"kafka">>,
+        type := <<"kafka_producer">>,
         raw_config := _RawConfig
     } = BridgeV2Info,
-    {ok, _Config2} = emqx_bridge_v2:create(kafka, test_bridge_v2_2, Config),
+    {ok, _Config2} = emqx_bridge_v2:create(?TYPE, test_bridge_v2_2, Config),
     2 = length(emqx_bridge_v2:list()),
-    {ok, _} = emqx_bridge_v2:remove(kafka, test_bridge_v2),
+    ok = emqx_bridge_v2:remove(?TYPE, test_bridge_v2),
     1 = length(emqx_bridge_v2:list()),
-    {ok, _} = emqx_bridge_v2:remove(kafka, test_bridge_v2_2),
+    ok = emqx_bridge_v2:remove(?TYPE, test_bridge_v2_2),
     [] = emqx_bridge_v2:list(),
-    emqx_connector:remove(kafka, test_connector),
+    emqx_connector:remove(?TYPE, test_connector),
     ok.
 
 %% Test sending a message to a bridge V2
 t_send_message(_) ->
     BridgeV2Config = bridge_v2_config(<<"test_connector2">>),
     ConnectorConfig = connector_config(),
-    {ok, _} = emqx_connector:create(kafka, test_connector2, ConnectorConfig),
-    {ok, _} = emqx_bridge_v2:create(kafka, test_bridge_v2_1, BridgeV2Config),
+    {ok, _} = emqx_connector:create(?TYPE, test_connector2, ConnectorConfig),
+    {ok, _} = emqx_bridge_v2:create(?TYPE, test_bridge_v2_1, BridgeV2Config),
     %% Use the bridge to send a message
     check_send_message_with_bridge(test_bridge_v2_1),
     %% Create a few more bridges with the same connector and test them
@@ -83,7 +85,7 @@ t_send_message(_) ->
     ],
     lists:foreach(
         fun(BridgeName) ->
-            {ok, _} = emqx_bridge_v2:create(kafka, BridgeName, BridgeV2Config),
+            {ok, _} = emqx_bridge_v2:create(?TYPE, BridgeName, BridgeV2Config),
             check_send_message_with_bridge(BridgeName)
         end,
         BridgeNames1
@@ -104,38 +106,38 @@ t_send_message(_) ->
     %% Remove all the bridges
     lists:foreach(
         fun(BridgeName) ->
-            {ok, _} = emqx_bridge_v2:remove(kafka, BridgeName)
+            ok = emqx_bridge_v2:remove(?TYPE, BridgeName)
         end,
         BridgeNames
     ),
-    emqx_connector:remove(kafka, test_connector2),
+    emqx_connector:remove(?TYPE, test_connector2),
     ok.
 
 %% Test that we can get the status of the bridge V2
 t_health_check(_) ->
     BridgeV2Config = bridge_v2_config(<<"test_connector3">>),
     ConnectorConfig = connector_config(),
-    {ok, _} = emqx_connector:create(kafka, test_connector3, ConnectorConfig),
-    {ok, _} = emqx_bridge_v2:create(kafka, test_bridge_v2, BridgeV2Config),
-    connected = emqx_bridge_v2:health_check(kafka, test_bridge_v2),
-    {ok, _} = emqx_bridge_v2:remove(kafka, test_bridge_v2),
+    {ok, _} = emqx_connector:create(?TYPE, test_connector3, ConnectorConfig),
+    {ok, _} = emqx_bridge_v2:create(?TYPE, test_bridge_v2, BridgeV2Config),
+    connected = emqx_bridge_v2:health_check(?TYPE, test_bridge_v2),
+    ok = emqx_bridge_v2:remove(?TYPE, test_bridge_v2),
     %% Check behaviour when bridge does not exist
-    {error, bridge_not_found} = emqx_bridge_v2:health_check(kafka, test_bridge_v2),
-    {ok, _} = emqx_connector:remove(kafka, test_connector3),
+    {error, bridge_not_found} = emqx_bridge_v2:health_check(?TYPE, test_bridge_v2),
+    ok = emqx_connector:remove(?TYPE, test_connector3),
     ok.
 
 t_local_topic(_) ->
     BridgeV2Config = bridge_v2_config(<<"test_connector">>),
     ConnectorConfig = connector_config(),
-    {ok, _} = emqx_connector:create(kafka, test_connector, ConnectorConfig),
-    {ok, _} = emqx_bridge_v2:create(kafka, test_bridge, BridgeV2Config),
+    {ok, _} = emqx_connector:create(?TYPE, test_connector, ConnectorConfig),
+    {ok, _} = emqx_bridge_v2:create(?TYPE, test_bridge, BridgeV2Config),
     %% Send a message to the local topic
     Payload = <<"local_topic_payload">>,
     Offset = resolve_kafka_offset(),
     emqx:publish(emqx_message:make(<<"kafka_t/hej">>, Payload)),
     check_kafka_message_payload(Offset, Payload),
-    {ok, _} = emqx_bridge_v2:remove(kafka, test_bridge),
-    {ok, _} = emqx_connector:remove(kafka, test_connector),
+    ok = emqx_bridge_v2:remove(?TYPE, test_bridge),
+    ok = emqx_connector:remove(?TYPE, test_connector),
     ok.
 
 check_send_message_with_bridge(BridgeName) ->
@@ -154,7 +156,7 @@ check_send_message_with_bridge(BridgeName) ->
     %% ######################################
     %% Send message
     %% ######################################
-    emqx_bridge_v2:send_message(kafka, BridgeName, Msg, #{}),
+    emqx_bridge_v2:send_message(?TYPE, BridgeName, Msg, #{}),
     %% ######################################
     %% Check if message is sent to Kafka
     %% ######################################

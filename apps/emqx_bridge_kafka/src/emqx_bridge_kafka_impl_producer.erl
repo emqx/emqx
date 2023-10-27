@@ -42,32 +42,39 @@ query_mode(_) ->
 
 callback_mode() -> async_if_possible.
 
+check_config(Key, Config) when is_map_key(Key, Config) ->
+    tr_config(Key, maps:get(Key, Config));
+check_config(Key, _Config) ->
+    throw(#{
+        reason => missing_required_config,
+        missing_config => Key
+    }).
+
+tr_config(bootstrap_hosts, Hosts) ->
+    emqx_bridge_kafka_impl:hosts(Hosts);
+tr_config(authentication, Auth) ->
+    emqx_bridge_kafka_impl:sasl(Auth);
+tr_config(ssl, Ssl) ->
+    ssl(Ssl);
+tr_config(socket_opts, Opts) ->
+    emqx_bridge_kafka_impl:socket_opts(Opts);
+tr_config(_Key, Value) ->
+    Value.
+
 %% @doc Config schema is defined in emqx_bridge_kafka.
 on_start(InstId, Config) ->
-    #{
-        authentication := Auth,
-        bootstrap_hosts := Hosts0,
-        connector_name := ConnectorName,
-        connector_type := ConnectorType,
-        connect_timeout := ConnTimeout,
-        metadata_request_timeout := MetaReqTimeout,
-        min_metadata_refresh_interval := MinMetaRefreshInterval,
-        socket_opts := SocketOpts,
-        ssl := SSL
-    } = Config,
-    ResourceId = emqx_connector_resource:resource_id(ConnectorType, ConnectorName),
-    Hosts = emqx_bridge_kafka_impl:hosts(Hosts0),
-    ClientId = emqx_bridge_kafka_impl:make_client_id(ConnectorType, ConnectorName),
-    ok = emqx_resource:allocate_resource(InstId, ?kafka_client_id, ClientId),
+    C = fun(Key) -> check_config(Key, Config) end,
+    Hosts = C(bootstrap_hosts),
     ClientConfig = #{
-        min_metadata_refresh_interval => MinMetaRefreshInterval,
-        connect_timeout => ConnTimeout,
-        client_id => ClientId,
-        request_timeout => MetaReqTimeout,
-        extra_sock_opts => emqx_bridge_kafka_impl:socket_opts(SocketOpts),
-        sasl => emqx_bridge_kafka_impl:sasl(Auth),
-        ssl => ssl(SSL)
+        min_metadata_refresh_interval => C(min_metadata_refresh_interval),
+        connect_timeout => C(connect_timeout),
+        request_timeout => C(metadata_request_timeout),
+        extra_sock_opts => C(socket_opts),
+        sasl => C(authentication),
+        ssl => C(ssl)
     },
+    ClientId = InstId,
+    ok = emqx_resource:allocate_resource(InstId, ?kafka_client_id, ClientId),
     case wolff:ensure_supervised_client(ClientId, Hosts, ClientConfig) of
         {ok, _} ->
             case wolff_client_sup:find_client(ClientId) of
@@ -90,7 +97,7 @@ on_start(InstId, Config) ->
             });
         {error, Reason} ->
             ?SLOG(error, #{
-                msg => "failed_to_start_kafka_client",
+                msg => failed_to_start_kafka_client,
                 instance_id => InstId,
                 kafka_hosts => Hosts,
                 reason => Reason
@@ -100,9 +107,6 @@ on_start(InstId, Config) ->
     %% Check if this is a dry run
     {ok, #{
         client_id => ClientId,
-        resource_id => ResourceId,
-        hosts => Hosts,
-        client_config => ClientConfig,
         installed_bridge_v2s => #{}
     }}.
 
@@ -110,8 +114,6 @@ on_add_channel(
     InstId,
     #{
         client_id := ClientId,
-        hosts := Hosts,
-        client_config := ClientConfig,
         installed_bridge_v2s := InstalledBridgeV2s
     } = OldState,
     BridgeV2Id,
@@ -119,7 +121,7 @@ on_add_channel(
 ) ->
     %% The following will throw an exception if the bridge producers fails to start
     {ok, BridgeV2State} = create_producers_for_bridge_v2(
-        InstId, BridgeV2Id, ClientId, Hosts, ClientConfig, BridgeV2Config
+        InstId, BridgeV2Id, ClientId, BridgeV2Config
     ),
     NewInstalledBridgeV2s = maps:put(BridgeV2Id, BridgeV2State, InstalledBridgeV2s),
     %% Update state
@@ -130,8 +132,6 @@ create_producers_for_bridge_v2(
     InstId,
     BridgeV2Id,
     ClientId,
-    Hosts,
-    ClientConfig,
     #{
         bridge_type := BridgeType,
         kafka := KafkaConfig
@@ -154,8 +154,7 @@ create_producers_for_bridge_v2(
             _ ->
                 string:equal(TestIdStart, InstId)
         end,
-    ok = check_topic_status(Hosts, ClientConfig, KafkaTopic),
-    ok = check_if_healthy_leaders(ClientId, KafkaTopic),
+    ok = check_topic_and_leader_connections(ClientId, KafkaTopic),
     WolffProducerConfig = producers_config(
         BridgeType, BridgeName, ClientId, KafkaConfig, IsDryRun, BridgeV2Id
     ),
@@ -168,7 +167,7 @@ create_producers_for_bridge_v2(
             _ = maybe_install_wolff_telemetry_handlers(BridgeV2Id),
             {ok, #{
                 message_template => compile_message_template(MessageTemplate),
-                client_id => ClientId,
+                kafka_client_id => ClientId,
                 kafka_topic => KafkaTopic,
                 producers => Producers,
                 resource_id => BridgeV2Id,
@@ -183,7 +182,7 @@ create_producers_for_bridge_v2(
             ?SLOG(error, #{
                 msg => "failed_to_start_kafka_producer",
                 instance_id => InstId,
-                kafka_hosts => Hosts,
+                kafka_client_id => ClientId,
                 kafka_topic => KafkaTopic,
                 reason => Reason2
             }),
@@ -268,7 +267,6 @@ on_remove_channel(
     InstId,
     #{
         client_id := _ClientId,
-        hosts := _Hosts,
         installed_bridge_v2s := InstalledBridgeV2s
     } = OldState,
     BridgeV2Id
@@ -492,54 +490,38 @@ on_get_channel_status(
     ChannelId,
     #{
         client_id := ClientId,
-        hosts := Hosts,
-        client_config := ClientConfig,
         installed_bridge_v2s := Channels
     } = _State
 ) ->
     #{kafka_topic := KafkaTopic} = maps:get(ChannelId, Channels),
-    case wolff_client_sup:find_client(ClientId) of
-        {ok, Pid} ->
-            case wolff_client:check_connectivity(Pid) of
-                ok ->
-                    try check_leaders_and_topic(ClientId, Pid, Hosts, ClientConfig, KafkaTopic) of
-                        ok ->
-                            connected
-                    catch
-                        _ErrorType:Reason ->
-                            {error, Reason}
-                    end;
-                {error, Error} ->
-                    {error, Error}
-            end;
-        {error, _Reason} ->
-            connecting
+    try
+        ok = check_topic_and_leader_connections(ClientId, KafkaTopic),
+        connected
+    catch
+        throw:#{reason := restarting} ->
+            conneting
     end.
 
-check_leaders_and_topic(
-    ClientId,
-    ClientPid,
-    Hosts,
-    ClientConfig,
-    KafkaTopic
-) ->
-    check_topic_status(Hosts, ClientConfig, KafkaTopic),
-    do_check_if_healthy_leaders(ClientId, ClientPid, KafkaTopic).
-
-check_if_healthy_leaders(ClientId, KafkaTopic) when is_binary(ClientId) ->
+check_topic_and_leader_connections(ClientId, KafkaTopic) ->
     case wolff_client_sup:find_client(ClientId) of
         {ok, Pid} ->
-            do_check_if_healthy_leaders(ClientId, Pid, KafkaTopic);
-        {error, Reason} ->
+            ok = check_topic_status(ClientId, Pid, KafkaTopic),
+            ok = check_if_healthy_leaders(ClientId, Pid, KafkaTopic);
+        {error, no_such_client} ->
             throw(#{
-                error => cannot_find_kafka_client,
-                reason => Reason,
+                reason => cannot_find_kafka_client,
+                kafka_client => ClientId,
+                kafka_topic => KafkaTopic
+            });
+        {error, restarting} ->
+            throw(#{
+                reason => restarting,
                 kafka_client => ClientId,
                 kafka_topic => KafkaTopic
             })
     end.
 
-do_check_if_healthy_leaders(ClientId, ClientPid, KafkaTopic) when is_pid(ClientPid) ->
+check_if_healthy_leaders(ClientId, ClientPid, KafkaTopic) when is_pid(ClientPid) ->
     Leaders =
         case wolff_client:get_leader_connections(ClientPid, KafkaTopic) of
             {ok, LeadersToCheck} ->
@@ -567,16 +549,20 @@ do_check_if_healthy_leaders(ClientId, ClientPid, KafkaTopic) when is_pid(ClientP
             ok
     end.
 
-check_topic_status(Hosts, ClientConfig, KafkaTopic) ->
-    %% TODO: change to call wolff:check_if_topic_exists when type spec is fixed for this function
-    case wolff_client:check_if_topic_exists(Hosts, ClientConfig#{nolink => true}, KafkaTopic) of
+check_topic_status(ClientId, WolffClientPid, KafkaTopic) ->
+    case wolff_client:check_topic_exists_with_client_pid(WolffClientPid, KafkaTopic) of
         ok ->
             ok;
         {error, unknown_topic_or_partition} ->
-            throw(#{error => unknown_kafka_topic, topic => KafkaTopic});
+            throw(#{
+                error => unknown_kafka_topic,
+                kafka_client_id => ClientId,
+                kafka_topic => KafkaTopic
+            });
         {error, Reason} ->
             throw(#{
                 error => failed_to_check_topic_status,
+                kafka_client_id => ClientId,
                 reason => Reason,
                 kafka_topic => KafkaTopic
             })

@@ -371,7 +371,7 @@ schema("/bridges_v2_probe") ->
         case emqx_bridge_v2:lookup(BridgeType, BridgeName) of
             {ok, _} ->
                 case emqx_bridge_v2:remove(BridgeType, BridgeName) of
-                    {ok, _} ->
+                    ok ->
                         ?NO_CONTENT;
                     {error, {active_channels, Channels}} ->
                         ?BAD_REQUEST(

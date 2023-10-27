@@ -36,7 +36,7 @@ fields(bridges_v2) ->
 
 bridge_v2_structs() ->
     [
-        {kafka,
+        {kafka_producer,
             mk(
                 hoconsc:map(name, ref(emqx_bridge_kafka, kafka_producer_action)),
                 #{
@@ -56,11 +56,7 @@ bridge_v2_structs() ->
 
 api_schemas(Method) ->
     [
-        %% We need to map the `type' field of a request (binary) to a
-        %% connector schema module.
-        %% TODO: rename this to `kafka_producer' after alias support is added
-        %% to hocon; keeping this as just `kafka' for backwards compatibility.
-        api_ref(emqx_bridge_kafka, <<"kafka">>, Method ++ "_bridge_v2"),
+        api_ref(emqx_bridge_kafka, <<"kafka_producer">>, Method ++ "_bridge_v2"),
         api_ref(emqx_bridge_azure_event_hub, <<"azure_event_hub">>, Method ++ "_bridge_v2")
     ].
 

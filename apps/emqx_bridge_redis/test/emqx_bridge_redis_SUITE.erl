@@ -214,7 +214,7 @@ t_create_delete_bridge(Config) ->
     %% check export through local topic
     _ = check_resource_queries(ResourceId, <<"local_topic/test">>, IsBatch),
 
-    {ok, _} = emqx_bridge:remove(Type, Name).
+    ok = emqx_bridge:remove(Type, Name).
 
 % check that we provide correct examples
 t_check_values(_Config) ->
@@ -294,7 +294,7 @@ t_check_replay(Config) ->
             )
         end
     ),
-    {ok, _} = emqx_bridge:remove(Type, Name).
+    ok = emqx_bridge:remove(Type, Name).
 
 t_permanent_error(_Config) ->
     Name = <<"invalid_command_bridge">>,
@@ -322,7 +322,7 @@ t_permanent_error(_Config) ->
             )
         end
     ),
-    {ok, _} = emqx_bridge:remove(Type, Name).
+    ok = emqx_bridge:remove(Type, Name).
 
 t_auth_username_password(_Config) ->
     Name = <<"mybridge">>,
@@ -338,7 +338,7 @@ t_auth_username_password(_Config) ->
         emqx_resource:health_check(ResourceId),
         5
     ),
-    {ok, _} = emqx_bridge:remove(Type, Name).
+    ok = emqx_bridge:remove(Type, Name).
 
 t_auth_error_username_password(_Config) ->
     Name = <<"mybridge">>,
@@ -359,7 +359,7 @@ t_auth_error_username_password(_Config) ->
         {ok, _, #{error := {unhealthy_target, _Msg}}},
         emqx_resource_manager:lookup(ResourceId)
     ),
-    {ok, _} = emqx_bridge:remove(Type, Name).
+    ok = emqx_bridge:remove(Type, Name).
 
 t_auth_error_password_only(_Config) ->
     Name = <<"mybridge">>,
@@ -379,7 +379,7 @@ t_auth_error_password_only(_Config) ->
         {ok, _, #{error := {unhealthy_target, _Msg}}},
         emqx_resource_manager:lookup(ResourceId)
     ),
-    {ok, _} = emqx_bridge:remove(Type, Name).
+    ok = emqx_bridge:remove(Type, Name).
 
 t_create_disconnected(Config) ->
     Name = <<"toxic_bridge">>,
@@ -399,7 +399,7 @@ t_create_disconnected(Config) ->
             ok
         end
     ),
-    {ok, _} = emqx_bridge:remove(Type, Name).
+    ok = emqx_bridge:remove(Type, Name).
 
 %%------------------------------------------------------------------------------
 %% Helper functions

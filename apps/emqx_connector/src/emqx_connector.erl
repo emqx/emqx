@@ -235,10 +235,17 @@ remove(ConnectorType, ConnectorName) ->
         connector_type => ConnectorType,
         connector_name => ConnectorName
     }),
-    emqx_conf:remove(
-        emqx_connector:config_key_path() ++ [ConnectorType, ConnectorName],
-        #{override_to => cluster}
-    ).
+    case
+        emqx_conf:remove(
+            emqx_connector:config_key_path() ++ [ConnectorType, ConnectorName],
+            #{override_to => cluster}
+        )
+    of
+        {ok, _} ->
+            ok;
+        {error, Reason} ->
+            {error, Reason}
+    end.
 
 update(ConnectorType, ConnectorName, RawConf) ->
     ?SLOG(debug, #{

@@ -214,7 +214,7 @@ update_root_connectors_config(RootConf) ->
 
 t_create_remove(_) ->
     {ok, _} = emqx_bridge_v2:create(bridge_type(), my_test_bridge, bridge_config()),
-    {ok, _} = emqx_bridge_v2:remove(bridge_type(), my_test_bridge),
+    ok = emqx_bridge_v2:remove(bridge_type(), my_test_bridge),
     ok.
 
 t_list(_) ->
@@ -223,9 +223,9 @@ t_list(_) ->
     1 = length(emqx_bridge_v2:list()),
     {ok, _} = emqx_bridge_v2:create(bridge_type(), my_test_bridge2, bridge_config()),
     2 = length(emqx_bridge_v2:list()),
-    {ok, _} = emqx_bridge_v2:remove(bridge_type(), my_test_bridge),
+    ok = emqx_bridge_v2:remove(bridge_type(), my_test_bridge),
     1 = length(emqx_bridge_v2:list()),
-    {ok, _} = emqx_bridge_v2:remove(bridge_type(), my_test_bridge2),
+    ok = emqx_bridge_v2:remove(bridge_type(), my_test_bridge2),
     0 = length(emqx_bridge_v2:list()),
     ok.
 
@@ -270,9 +270,9 @@ t_is_valid_bridge_v1(_) ->
     %% Add another channel/bridge to the connector
     {ok, _} = emqx_bridge_v2:create(bridge_type(), my_test_bridge_2, bridge_config()),
     false = emqx_bridge_v2:is_valid_bridge_v1(bridge_v1_type, my_test_bridge),
-    {ok, _} = emqx_bridge_v2:remove(bridge_type(), my_test_bridge),
+    ok = emqx_bridge_v2:remove(bridge_type(), my_test_bridge),
     true = emqx_bridge_v2:is_valid_bridge_v1(bridge_v1_type, my_test_bridge_2),
-    {ok, _} = emqx_bridge_v2:remove(bridge_type(), my_test_bridge_2),
+    ok = emqx_bridge_v2:remove(bridge_type(), my_test_bridge_2),
     %% Non existing bridge is a valid Bridge V1
     true = emqx_bridge_v2:is_valid_bridge_v1(bridge_v1_type, my_test_bridge),
     ok.
@@ -281,7 +281,7 @@ t_manual_health_check(_) ->
     {ok, _} = emqx_bridge_v2:create(bridge_type(), my_test_bridge, bridge_config()),
     %% Run a health check for the bridge
     connected = emqx_bridge_v2:health_check(bridge_type(), my_test_bridge),
-    {ok, _} = emqx_bridge_v2:remove(bridge_type(), my_test_bridge),
+    ok = emqx_bridge_v2:remove(bridge_type(), my_test_bridge),
     ok.
 
 t_manual_health_check_exception(_) ->
@@ -291,7 +291,7 @@ t_manual_health_check_exception(_) ->
     {ok, _} = emqx_bridge_v2:create(bridge_type(), my_test_bridge, Conf),
     %% Run a health check for the bridge
     {error, _} = emqx_bridge_v2:health_check(bridge_type(), my_test_bridge),
-    {ok, _} = emqx_bridge_v2:remove(bridge_type(), my_test_bridge),
+    ok = emqx_bridge_v2:remove(bridge_type(), my_test_bridge),
     ok.
 
 t_manual_health_check_exception_error(_) ->
@@ -301,7 +301,7 @@ t_manual_health_check_exception_error(_) ->
     {ok, _} = emqx_bridge_v2:create(bridge_type(), my_test_bridge, Conf),
     %% Run a health check for the bridge
     {error, _} = emqx_bridge_v2:health_check(bridge_type(), my_test_bridge),
-    {ok, _} = emqx_bridge_v2:remove(bridge_type(), my_test_bridge),
+    ok = emqx_bridge_v2:remove(bridge_type(), my_test_bridge),
     ok.
 
 t_manual_health_check_error(_) ->
@@ -311,7 +311,7 @@ t_manual_health_check_error(_) ->
     {ok, _} = emqx_bridge_v2:create(bridge_type(), my_test_bridge, Conf),
     %% Run a health check for the bridge
     {error, my_error} = emqx_bridge_v2:health_check(bridge_type(), my_test_bridge),
-    {ok, _} = emqx_bridge_v2:remove(bridge_type(), my_test_bridge),
+    ok = emqx_bridge_v2:remove(bridge_type(), my_test_bridge),
     ok.
 
 t_send_message(_) ->
@@ -326,8 +326,7 @@ t_send_message(_) ->
         ct:fail("Failed to receive message")
     end,
     unregister(registered_process_name()),
-    {ok, _} = emqx_bridge_v2:remove(bridge_type(), my_test_bridge),
-    ok.
+    ok = emqx_bridge_v2:remove(bridge_type(), my_test_bridge).
 
 t_send_message_through_rule(_) ->
     BridgeName = my_test_bridge,
@@ -362,7 +361,7 @@ t_send_message_through_rule(_) ->
     end,
     unregister(registered_process_name()),
     ok = emqx_rule_engine:delete_rule(atom_to_binary(?FUNCTION_NAME)),
-    {ok, _} = emqx_bridge_v2:remove(bridge_type(), BridgeName),
+    ok = emqx_bridge_v2:remove(bridge_type(), BridgeName),
     ok.
 
 t_send_message_through_local_topic(_) ->
@@ -387,7 +386,7 @@ t_send_message_through_local_topic(_) ->
         ct:fail("Failed to receive message")
     end,
     unregister(registered_process_name()),
-    {ok, _} = emqx_bridge_v2:remove(bridge_type(), BridgeName),
+    ok = emqx_bridge_v2:remove(bridge_type(), BridgeName),
     ok.
 
 t_send_message_unhealthy_channel(_) ->
@@ -423,8 +422,7 @@ t_send_message_unhealthy_channel(_) ->
         ct:fail("Failed to receive message")
     end,
     unregister(registered_process_name()),
-    {ok, _} = emqx_bridge_v2:remove(bridge_type(), my_test_bridge),
-    ok.
+    ok = emqx_bridge_v2:remove(bridge_type(), my_test_bridge).
 
 t_send_message_unhealthy_connector(_) ->
     ResponseETS = ets:new(response_ets, [public]),
@@ -481,8 +479,8 @@ t_send_message_unhealthy_connector(_) ->
     %% The alarm should be gone at this point
     0 = get_bridge_v2_alarm_cnt(),
     unregister(registered_process_name()),
-    {ok, _} = emqx_bridge_v2:remove(bridge_type(), my_test_bridge),
-    {ok, _} = emqx_connector:remove(con_type(), ConName),
+    ok = emqx_bridge_v2:remove(bridge_type(), my_test_bridge),
+    ok = emqx_connector:remove(con_type(), ConName),
     ets:delete(ResponseETS),
     ok.
 
@@ -494,7 +492,7 @@ t_unhealthy_channel_alarm(_) ->
     0 = get_bridge_v2_alarm_cnt(),
     {ok, _} = emqx_bridge_v2:create(bridge_type(), my_test_bridge, Conf),
     1 = get_bridge_v2_alarm_cnt(),
-    {ok, _} = emqx_bridge_v2:remove(bridge_type(), my_test_bridge),
+    ok = emqx_bridge_v2:remove(bridge_type(), my_test_bridge),
     0 = get_bridge_v2_alarm_cnt(),
     ok.
 
@@ -673,7 +671,7 @@ t_remove_single_connector_being_referenced_without_active_channels(_Config) ->
         on_get_channels,
         fun(_ResId) -> [] end,
         fun() ->
-            ?assertMatch({ok, _}, emqx_connector:remove(con_type(), con_name())),
+            ?assertMatch(ok, emqx_connector:remove(con_type(), con_name())),
             %% we no longer have connector data if this happens...
             ?assertMatch(
                 {ok, #{resource_data := #{}}},

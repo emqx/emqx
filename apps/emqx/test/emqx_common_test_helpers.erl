@@ -22,6 +22,7 @@
 
 -export([
     all/1,
+    groups/2,
     init_per_testcase/3,
     end_per_testcase/3,
     boot_modules/1,
@@ -1375,3 +1376,39 @@ select_free_port(GenModule, Fun) when
     end,
     ct:pal("Select free OS port: ~p", [Port]),
     Port.
+
+%% generate ct group spec
+%%
+%% Inputs:
+%%
+%%   [ [tcp, no_auth],
+%%     [ssl, no_auth],
+%%     [ssl, basic_auth]
+%%   ]
+%%
+%% Return:
+%%   [ {tcp, [], [{no_auth,    [], Cases}
+%%               ]},
+%%     {ssl, [], [{no_auth,    [], Cases},
+%%                {basic_auth, [], Cases}
+%%               ]}
+%%   ]
+groups(Matrix, Cases) ->
+    lists:foldr(
+        fun(Row, Acc) ->
+            add_group(Row, Acc, Cases)
+        end,
+        [],
+        Matrix
+    ).
+
+add_group([], Acc, Cases) ->
+    lists:usort(Acc ++ Cases);
+add_group([Name | More], Acc, Cases) ->
+    case lists:keyfind(Name, 1, Acc) of
+        false ->
+            [{Name, [], add_group(More, [], Cases)} | Acc];
+        {Name, [], SubGroup} ->
+            New = {Name, [], add_group(More, SubGroup, Cases)},
+            lists:keystore(Name, 1, Acc, New)
+    end.

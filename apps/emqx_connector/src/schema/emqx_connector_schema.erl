@@ -56,7 +56,7 @@ enterprise_fields_connectors() -> [].
 
 -endif.
 
-connector_type_to_bridge_types(kafka) -> [kafka];
+connector_type_to_bridge_types(kafka_producer) -> [kafka_producer];
 connector_type_to_bridge_types(azure_event_hub) -> [azure_event_hub].
 
 actions_config_name() -> <<"bridges_v2">>.
@@ -182,14 +182,14 @@ transform_old_style_bridges_to_connector_and_actions_of_type(
                 RawConfigSoFar,
                 ConnectorMap
             ),
-            %% Remove bridge
+            %% Remove bridge (v1)
             RawConfigSoFar2 = emqx_utils_maps:deep_remove(
                 [<<"bridges">>, to_bin(BridgeType), BridgeName],
                 RawConfigSoFar1
             ),
-            %% Add action
+            %% Add bridge_v2
             RawConfigSoFar3 = emqx_utils_maps:deep_put(
-                [actions_config_name(), to_bin(BridgeType), BridgeName],
+                [actions_config_name(), to_bin(maybe_rename(BridgeType)), BridgeName],
                 RawConfigSoFar2,
                 ActionMap
             ),
@@ -207,6 +207,12 @@ transform_bridges_v1_to_connectors_and_bridges_v2(RawConfig) ->
         ConnectorFields
     ),
     NewRawConf.
+
+%% v1 uses 'kafka' as bridge type v2 uses 'kafka_producer'
+maybe_rename(kafka) ->
+    kafka_producer;
+maybe_rename(Name) ->
+    Name.
 
 %%======================================================================================
 %% HOCON Schema Callbacks

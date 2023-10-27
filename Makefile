@@ -111,6 +111,11 @@ ifneq ($(CASES),)
 CASES_ARG := --case $(CASES)
 endif
 
+# Allow user-set GROUPS environment variable
+ifneq ($(GROUPS),)
+GROUPS_ARG := --groups $(GROUPS)
+endif
+
 ## example:
 ## env SUITES=apps/appname/test/test_SUITE.erl CASES=t_foo make apps/appname-ct
 define gen-app-ct-target
@@ -122,6 +127,7 @@ ifneq ($(SUITES),)
 		--name $(CT_NODE_NAME) \
 		--cover_export_name $(CT_COVER_EXPORT_PREFIX)-$(subst /,-,$1) \
 		--suite $(SUITES) \
+		$(GROUPS_ARG) \
 		$(CASES_ARG)
 else
 	@echo 'No suites found for $1'

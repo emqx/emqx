@@ -60,20 +60,25 @@ connector_to_resource_type(ConnectorType) ->
     try
         emqx_connector_ee_schema:resource_type(ConnectorType)
     catch
-        _:_ -> connector_to_resource_type_ce(ConnectorType)
+        error:{unknown_connector_type, _} ->
+            %% maybe it's a CE connector
+            connector_to_resource_type_ce(ConnectorType)
     end.
 
 connector_impl_module(ConnectorType) ->
     emqx_connector_ee_schema:connector_impl_module(ConnectorType).
 -else.
 
-connector_to_resource_type(ConnectorType) -> connector_to_resource_type_ce(ConnectorType).
+connector_to_resource_type(ConnectorType) ->
+    connector_to_resource_type_ce(ConnectorType).
 
-connector_impl_module(_ConnectorType) -> undefined.
+connector_impl_module(_ConnectorType) ->
+    undefined.
 
 -endif.
 
-connector_to_resource_type_ce(_) -> undefined.
+connector_to_resource_type_ce(_ConnectorType) ->
+    no_bridge_v2_for_c2_so_far.
 
 resource_id(ConnectorId) when is_binary(ConnectorId) ->
     <<"connector:", ConnectorId/binary>>.
@@ -386,8 +391,6 @@ parse_confs(<<"iotdb">>, Name, Conf) ->
         Name,
         WebhookConfig
     );
-%% TODO: rename this to `kafka_producer' after alias support is added
-%% to hocon; keeping this as just `kafka' for backwards compatibility.
 parse_confs(ConnectorType, _Name, Config) ->
     connector_config(ConnectorType, Config).
 

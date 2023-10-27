@@ -12,7 +12,7 @@
 
 -define(BRIDGE_TYPE, azure_event_hub).
 -define(BRIDGE_TYPE_BIN, <<"azure_event_hub">>).
--define(KAFKA_BRIDGE_TYPE, kafka).
+-define(KAFKA_BRIDGE_TYPE, kafka_producer).
 -define(APPS, [emqx_resource, emqx_connector, emqx_bridge, emqx_rule_engine]).
 
 -import(emqx_common_test_helpers, [on_exit/1]).

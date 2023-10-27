@@ -64,64 +64,68 @@ t_connector_lifecycle(_Config) ->
 
     ?assertMatch(
         {ok, _},
-        emqx_connector:create(kafka, my_connector, connector_config())
+        emqx_connector:create(kafka_producer, my_connector, connector_config())
     ),
 
     ?assertMatch(
-        {ok, #{name := my_connector, type := kafka}},
-        emqx_connector:lookup(<<"connector:kafka:my_connector">>)
+        {ok, #{name := my_connector, type := kafka_producer}},
+        emqx_connector:lookup(<<"connector:kafka_producer:my_connector">>)
     ),
 
     ?assertMatch(
-        {ok, #{name := my_connector, type := kafka, resource_data := #{status := connected}}},
-        emqx_connector:lookup(<<"kafka:my_connector">>)
+        {ok, #{
+            name := my_connector, type := kafka_producer, resource_data := #{status := connected}
+        }},
+        emqx_connector:lookup(<<"kafka_producer:my_connector">>)
     ),
 
     ?assertMatch(
-        {ok, #{name := my_connector, type := kafka, resource_data := #{status := connected}}},
-        emqx_connector:lookup(kafka, my_connector)
+        {ok, #{
+            name := my_connector, type := kafka_producer, resource_data := #{status := connected}
+        }},
+        emqx_connector:lookup(kafka_producer, my_connector)
     ),
 
     ?assertMatch(
-        [#{name := <<"my_connector">>, type := <<"kafka">>}],
+        [#{name := <<"my_connector">>, type := <<"kafka_producer">>}],
         emqx_connector:list()
     ),
 
     ?assertMatch(
         {ok, #{config := #{enable := false}}},
-        emqx_connector:disable_enable(disable, kafka, my_connector)
+        emqx_connector:disable_enable(disable, kafka_producer, my_connector)
     ),
 
     ?assertMatch(
         {ok, #{resource_data := #{status := stopped}}},
-        emqx_connector:lookup(kafka, my_connector)
+        emqx_connector:lookup(kafka_producer, my_connector)
     ),
 
     ?assertMatch(
         {ok, #{config := #{enable := true}}},
-        emqx_connector:disable_enable(enable, kafka, my_connector)
+        emqx_connector:disable_enable(enable, kafka_producer, my_connector)
     ),
 
     ?assertMatch(
         {ok, #{resource_data := #{status := connected}}},
-        emqx_connector:lookup(kafka, my_connector)
+        emqx_connector:lookup(kafka_producer, my_connector)
     ),
 
     ?assertMatch(
         {ok, #{config := #{connect_timeout := 10000}}},
-        emqx_connector:update(kafka, my_connector, (connector_config())#{
+        emqx_connector:update(kafka_producer, my_connector, (connector_config())#{
             <<"connect_timeout">> => <<"10s">>
         })
     ),
 
     ?assertMatch(
         {ok, #{resource_data := #{config := #{connect_timeout := 10000}}}},
-        emqx_connector:lookup(kafka, my_connector)
+        emqx_connector:lookup(kafka_producer, my_connector)
     ),
 
     ?assertMatch(
-        {ok, _},
-        emqx_connector:remove(kafka, my_connector)
+        ok,
+        emqx_connector:remove(kafka_producer, my_connector)
     ),
 
     ?assertEqual(
@@ -172,12 +176,12 @@ t_remove_fail(_Config) ->
 
     ?assertMatch(
         {ok, _},
-        emqx_connector:create(kafka, my_failing_connector, connector_config())
+        emqx_connector:create(kafka_producer, my_failing_connector, connector_config())
     ),
 
     ?assertMatch(
         {error, {post_config_update, emqx_connector, {active_channels, [{<<"my_channel">>, _}]}}},
-        emqx_connector:remove(kafka, my_failing_connector)
+        emqx_connector:remove(kafka_producer, my_failing_connector)
     ),
 
     ?assertNotEqual(

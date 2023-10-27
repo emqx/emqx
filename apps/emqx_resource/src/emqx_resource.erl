@@ -17,7 +17,6 @@
 -module(emqx_resource).
 
 -include("emqx_resource.hrl").
--include("emqx_resource_utils.hrl").
 -include("emqx_resource_errors.hrl").
 -include_lib("emqx/include/logger.hrl").
 
@@ -231,6 +230,23 @@
 -callback on_get_channels(
     ResId :: term()
 ) -> [term()].
+
+-define(SAFE_CALL(EXPR),
+    (fun() ->
+        try
+            EXPR
+        catch
+            throw:Reason ->
+                {error, Reason};
+            C:E:S ->
+                {error, #{
+                    execption => C,
+                    reason => emqx_utils:redact(E),
+                    stacktrace => emqx_utils:redact(S)
+                }}
+        end
+    end)()
+).
 
 -spec list_types() -> [module()].
 list_types() ->
@@ -499,21 +515,14 @@ get_callback_mode(Mod) ->
 -spec call_start(resource_id(), module(), resource_config()) ->
     {ok, resource_state()} | {error, Reason :: term()}.
 call_start(ResId, Mod, Config) ->
-    try
-        %% If the previous manager process crashed without cleaning up
-        %% allocated resources, clean them up.
-        clean_allocated_resources(ResId, Mod),
-        Mod:on_start(ResId, Config)
-    catch
-        throw:Error ->
-            {error, Error};
-        Kind:Error:Stacktrace ->
-            {error, #{
-                exception => Kind,
-                reason => Error,
-                stacktrace => emqx_utils:redact(Stacktrace)
-            }}
-    end.
+    ?SAFE_CALL(
+        begin
+            %% If the previous manager process crashed without cleaning up
+            %% allocated resources, clean them up.
+            clean_allocated_resources(ResId, Mod),
+            Mod:on_start(ResId, Config)
+        end
+    ).
 
 -spec call_health_check(resource_id(), module(), resource_state()) ->
     resource_status()
@@ -533,20 +542,11 @@ call_add_channel(ResId, Mod, ResourceState, ChannelId, ChannelConfig) ->
     %% Check if on_add_channel is exported
     case erlang:function_exported(Mod, on_add_channel, 4) of
         true ->
-            try
+            ?SAFE_CALL(
                 Mod:on_add_channel(
                     ResId, ResourceState, ChannelId, ChannelConfig
                 )
-            catch
-                throw:Error ->
-                    {error, Error};
-                Kind:Reason:Stacktrace ->
-                    {error, #{
-                        exception => Kind,
-                        reason => emqx_utils:redact(Reason),
-                        stacktrace => emqx_utils:redact(Stacktrace)
-                    }}
-            end;
+            );
         false ->
             {error,
                 <<<<"on_add_channel callback function not available for connector with resource id ">>/binary,
@@ -557,18 +557,11 @@ call_remove_channel(ResId, Mod, ResourceState, ChannelId) ->
     %% Check if maybe_install_insert_template is exported
     case erlang:function_exported(Mod, on_remove_channel, 3) of
         true ->
-            try
+            ?SAFE_CALL(
                 Mod:on_remove_channel(
                     ResId, ResourceState, ChannelId
                 )
-            catch
-                Kind:Reason:Stacktrace ->
-                    {error, #{
-                        exception => Kind,
-                        reason => emqx_utils:redact(Reason),
-                        stacktrace => emqx_utils:redact(Stacktrace)
-                    }}
-            end;
+            );
         false ->
             {error,
                 <<<<"on_remove_channel callback function not available for connector with resource id ">>/binary,

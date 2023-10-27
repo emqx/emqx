@@ -31,7 +31,7 @@
     <<"name">> => NAME
 }).
 
--define(CONNECTOR_TYPE_STR, "kafka").
+-define(CONNECTOR_TYPE_STR, "kafka_producer").
 -define(CONNECTOR_TYPE, <<?CONNECTOR_TYPE_STR>>).
 -define(KAFKA_BOOTSTRAP_HOST, <<"127.0.0.1:9092">>).
 -define(KAFKA_CONNECTOR_BASE(BootstrapHosts), #{
@@ -74,7 +74,7 @@
 %% }).
 %% -define(MQTT_CONNECTOR(SERVER), ?MQTT_CONNECTOR(SERVER, <<"mqtt_egress_test_connector">>)).
 
-%% -define(CONNECTOR_TYPE_HTTP, <<"kafka">>).
+%% -define(CONNECTOR_TYPE_HTTP, <<"kafka_producer">>).
 %% -define(HTTP_CONNECTOR(URL, NAME), ?CONNECTOR(NAME, ?CONNECTOR_TYPE_HTTP)#{
 %%     <<"url">> => URL,
 %%     <<"local_topic">> => <<"emqx_webhook/#">>,
@@ -113,7 +113,7 @@
 ).
 
 -if(?EMQX_RELEASE_EDITION == ee).
-%% For now we got only kafka implementing `bridge_v2` and that is enterprise only.
+%% For now we got only kafka_producer implementing `bridge_v2` and that is enterprise only.
 all() ->
     [
         {group, single},
@@ -238,7 +238,7 @@ init_mocks() ->
 clear_resources() ->
     lists:foreach(
         fun(#{type := Type, name := Name}) ->
-            {ok, _} = emqx_connector:remove(Type, Name)
+            ok = emqx_connector:remove(Type, Name)
         end,
         emqx_connector:list()
     ).
@@ -247,7 +247,7 @@ clear_resources() ->
 %% Testcases
 %%------------------------------------------------------------------------------
 
-%% We have to pretend testing a kafka connector since at this point that's the
+%% We have to pretend testing a kafka_producer connector since at this point that's the
 %% only one that's implemented.
 
 t_connectors_lifecycle(Config) ->
@@ -255,7 +255,7 @@ t_connectors_lifecycle(Config) ->
     {ok, 200, []} = request_json(get, uri(["connectors"]), Config),
 
     {ok, 404, _} = request(get, uri(["connectors", "foo"]), Config),
-    {ok, 404, _} = request(get, uri(["connectors", "kafka:foo"]), Config),
+    {ok, 404, _} = request(get, uri(["connectors", "kafka_producer:foo"]), Config),
 
     %% need a var for patterns below
     ConnectorName = ?CONNECTOR_NAME,
@@ -386,13 +386,13 @@ t_start_connector_unknown_node(Config) ->
     {ok, 404, _} =
         request(
             post,
-            uri(["nodes", "thisbetterbenotanatomyet", "connectors", "kafka:foo", start]),
+            uri(["nodes", "thisbetterbenotanatomyet", "connectors", "kafka_producer:foo", start]),
             Config
         ),
     {ok, 404, _} =
         request(
             post,
-            uri(["nodes", "undefined", "connectors", "kafka:foo", start]),
+            uri(["nodes", "undefined", "connectors", "kafka_producer:foo", start]),
             Config
         ).
 
@@ -540,7 +540,7 @@ start_stop_inconsistent_connector(Type, Config) ->
         Config
     ),
     {ok, 503, _} = request(
-        post, {operation, Type, stop, <<"kafka:connector_not_found">>}, Config
+        post, {operation, Type, stop, <<"kafka_producer:connector_not_found">>}, Config
     ).
 
 t_enable_disable_connectors(Config) ->

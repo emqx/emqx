@@ -51,7 +51,7 @@ connector_examples(_Method) ->
 bridge_v2_examples(Method) ->
     [
         #{
-            <<"kafka">> => #{
+            <<"kafka_producer">> => #{
                 summary => <<"Kafka Bridge v2">>,
                 value => values({Method, bridge_v2_producer})
             }
@@ -61,9 +61,6 @@ bridge_v2_examples(Method) ->
 conn_bridge_examples(Method) ->
     [
         #{
-            %% TODO: rename this to `kafka_producer' after alias
-            %% support is added to hocon; keeping this as just `kafka'
-            %% for backwards compatibility.
             <<"kafka">> => #{
                 summary => <<"Kafka Producer Bridge">>,
                 value => values({Method, producer})
@@ -616,13 +613,12 @@ struct_names() ->
 %% -------------------------------------------------------------------------------------------------
 %% internal
 type_field("connector") ->
-    {type, mk(enum([kafka]), #{required => true, desc => ?DESC("desc_type")})};
+    {type, mk(enum([kafka_producer]), #{required => true, desc => ?DESC("desc_type")})};
 type_field(_) ->
     {type,
-        %% TODO: rename `kafka' to `kafka_producer' after alias
-        %% support is added to hocon; keeping this as just `kafka' for
-        %% backwards compatibility.
-        mk(enum([kafka_consumer, kafka]), #{required => true, desc => ?DESC("desc_type")})}.
+        mk(enum([kafka_consumer, kafka, kafka_producer]), #{
+            required => true, desc => ?DESC("desc_type")
+        })}.
 
 name_field() ->
     {name, mk(binary(), #{required => true, desc => ?DESC("desc_name")})}.
