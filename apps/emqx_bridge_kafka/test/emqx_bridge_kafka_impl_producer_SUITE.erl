@@ -168,17 +168,17 @@ t_publish_no_auth(CtConfig) ->
 t_publish_no_auth_key_dispatch(CtConfig) ->
     publish_with_and_without_ssl(CtConfig, "none", #{"partition_strategy" => "key_dispatch"}).
 
-% t_publish_sasl_plain(CtConfig) ->
-%     publish_with_and_without_ssl(CtConfig, valid_sasl_plain_settings()).
+t_publish_sasl_plain(CtConfig) ->
+    publish_with_and_without_ssl(CtConfig, valid_sasl_plain_settings()).
 
-% t_publish_sasl_scram256(CtConfig) ->
-%     publish_with_and_without_ssl(CtConfig, valid_sasl_scram256_settings()).
+t_publish_sasl_scram256(CtConfig) ->
+    publish_with_and_without_ssl(CtConfig, valid_sasl_scram256_settings()).
 
-% t_publish_sasl_scram512(CtConfig) ->
-%     publish_with_and_without_ssl(CtConfig, valid_sasl_scram512_settings()).
+t_publish_sasl_scram512(CtConfig) ->
+    publish_with_and_without_ssl(CtConfig, valid_sasl_scram512_settings()).
 
-% t_publish_sasl_kerberos(CtConfig) ->
-%     publish_with_and_without_ssl(CtConfig, valid_sasl_kerberos_settings()).
+t_publish_sasl_kerberos(CtConfig) ->
+    publish_with_and_without_ssl(CtConfig, valid_sasl_kerberos_settings()).
 
 %%------------------------------------------------------------------------------
 %% Test cases for REST api
@@ -187,20 +187,21 @@ t_publish_no_auth_key_dispatch(CtConfig) ->
 t_kafka_bridge_rest_api_plain_text(_CtConfig) ->
     kafka_bridge_rest_api_all_auth_methods(false).
 
-% t_kafka_bridge_rest_api_ssl(_CtConfig) ->
-%     kafka_bridge_rest_api_all_auth_methods(true).
+t_kafka_bridge_rest_api_ssl(_CtConfig) ->
+    kafka_bridge_rest_api_all_auth_methods(true).
 
 kafka_bridge_rest_api_all_auth_methods(UseSSL) ->
+    emqx_logger:set_log_level(debug),
     NormalHostsString =
         case UseSSL of
             true -> kafka_hosts_string_ssl();
             false -> kafka_hosts_string()
         end,
-    % SASLHostsString =
-    %     case UseSSL of
-    %         true -> kafka_hosts_string_ssl_sasl();
-    %         false -> kafka_hosts_string_sasl()
-    %     end,
+    SASLHostsString =
+        case UseSSL of
+            true -> kafka_hosts_string_ssl_sasl();
+            false -> kafka_hosts_string_sasl()
+        end,
     BinifyMap = fun(Map) ->
         maps:from_list([
             {erlang:iolist_to_binary(K), erlang:iolist_to_binary(V)}
@@ -210,7 +211,7 @@ kafka_bridge_rest_api_all_auth_methods(UseSSL) ->
     SSLSettings =
         case UseSSL of
             true -> #{<<"ssl">> => BinifyMap(valid_ssl_settings())};
-            false -> #{}
+            false -> #{<<"ssl">> => BinifyMap(#{"enable" => "false"})}
         end,
     kafka_bridge_rest_api_helper(
         maps:merge(
@@ -221,42 +222,42 @@ kafka_bridge_rest_api_all_auth_methods(UseSSL) ->
             SSLSettings
         )
     ),
-    % kafka_bridge_rest_api_helper(
-    %     maps:merge(
-    %         #{
-    %             <<"bootstrap_hosts">> => SASLHostsString,
-    %             <<"authentication">> => BinifyMap(valid_sasl_plain_settings())
-    %         },
-    %         SSLSettings
-    %     )
-    % ),
-    % kafka_bridge_rest_api_helper(
-    %     maps:merge(
-    %         #{
-    %             <<"bootstrap_hosts">> => SASLHostsString,
-    %             <<"authentication">> => BinifyMap(valid_sasl_scram256_settings())
-    %         },
-    %         SSLSettings
-    %     )
-    % ),
-    % kafka_bridge_rest_api_helper(
-    %     maps:merge(
-    %         #{
-    %             <<"bootstrap_hosts">> => SASLHostsString,
-    %             <<"authentication">> => BinifyMap(valid_sasl_scram512_settings())
-    %         },
-    %         SSLSettings
-    %     )
-    % ),
-    % kafka_bridge_rest_api_helper(
-    %     maps:merge(
-    %         #{
-    %             <<"bootstrap_hosts">> => SASLHostsString,
-    %             <<"authentication">> => BinifyMap(valid_sasl_kerberos_settings())
-    %         },
-    %         SSLSettings
-    %     )
-    % ),
+    kafka_bridge_rest_api_helper(
+        maps:merge(
+            #{
+                <<"bootstrap_hosts">> => SASLHostsString,
+                <<"authentication">> => BinifyMap(valid_sasl_plain_settings())
+            },
+            SSLSettings
+        )
+    ),
+    kafka_bridge_rest_api_helper(
+        maps:merge(
+            #{
+                <<"bootstrap_hosts">> => SASLHostsString,
+                <<"authentication">> => BinifyMap(valid_sasl_scram256_settings())
+            },
+            SSLSettings
+        )
+    ),
+    kafka_bridge_rest_api_helper(
+        maps:merge(
+            #{
+                <<"bootstrap_hosts">> => SASLHostsString,
+                <<"authentication">> => BinifyMap(valid_sasl_scram512_settings())
+            },
+            SSLSettings
+        )
+    ),
+    kafka_bridge_rest_api_helper(
+        maps:merge(
+            #{
+                <<"bootstrap_hosts">> => SASLHostsString,
+                <<"authentication">> => BinifyMap(valid_sasl_kerberos_settings())
+            },
+            SSLSettings
+        )
+    ),
     ok.
 
 %% So that we can check if new atoms are created when they are not supposed to be created
@@ -328,11 +329,7 @@ kafka_bridge_rest_api_helper(Config) ->
             }
         }
     },
-    CreateBody =
-        case maps:is_key(<<"ssl">>, Config) of
-            true -> CreateBodyTmp#{<<"ssl">> => maps:get(<<"ssl">>, Config)};
-            false -> CreateBodyTmp
-        end,
+    CreateBody = CreateBodyTmp#{<<"ssl">> => maps:get(<<"ssl">>, Config)},
     {ok, 201, _Data} = http_post(BridgesParts, CreateBody),
     %% Check that the new bridge is in the list of bridges
     true = MyKafkaBridgeExists(),
