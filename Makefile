@@ -23,17 +23,6 @@ endif
 export EMQX_DASHBOARD_VERSION ?= v1.5.0
 export EMQX_EE_DASHBOARD_VERSION ?= e1.3.0
 
-# `:=` should be used here, otherwise the `$(shell ...)` will be executed every time when the variable is used
-# In make 4.4+, for backward-compatibility the value from the original environment is used.
-# so the shell script will be executed tons of times.
-# https://github.com/emqx/emqx/pull/10627
-ifeq ($(strip $(OTP_VSN)),)
-export OTP_VSN := $(shell $(SCRIPTS)/get-otp-vsn.sh)
-endif
-ifeq ($(strip $(ELIXIR_VSN)),)
-export ELIXIR_VSN := $(shell $(SCRIPTS)/get-elixir-vsn.sh)
-endif
-
 PROFILE ?= emqx
 REL_PROFILES := emqx emqx-enterprise
 PKG_PROFILES := emqx-pkg emqx-enterprise-pkg
@@ -44,6 +33,10 @@ CT_READABLE ?= true
 CT_COVER_EXPORT_PREFIX ?= $(PROFILE)
 
 export REBAR_GIT_CLONE_OPTIONS += --depth=1
+
+.PHONY: nothing
+nothing:
+	@:
 
 .PHONY: default
 default: $(REBAR) $(PROFILE)
