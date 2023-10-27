@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-## If EMQX_CT_SUITES is provided, it prints the variable.
+## If EMQX_CT_SUITES or SUITES is provided, it prints the variable.
 ## Otherwise this script tries to find all test/*_SUITE.erl files of then given app,
 ## file names are separated by comma for rebar3 ct's `--suite` option
 
@@ -12,7 +12,8 @@ set -euo pipefail
 # ensure dir
 cd -P -- "$(dirname -- "$0")/.."
 
-## EMQX_CT_SUITES is useful in ad-hoc runs
+## EMQX_CT_SUITES or SUITES is useful in ad-hoc runs
+EMQX_CT_SUITES="${EMQX_CT_SUITES:-${SUITES:-}}"
 if [ -n "${EMQX_CT_SUITES:-}" ]; then
     echo "${EMQX_CT_SUITES}"
     exit 0
