@@ -98,7 +98,14 @@ registered_process_name() ->
 all() ->
     emqx_common_test_helpers:all(?MODULE).
 
-start_apps() -> [emqx, emqx_conf, emqx_connector, emqx_bridge].
+start_apps() ->
+    [
+        emqx,
+        emqx_conf,
+        emqx_connector,
+        emqx_bridge,
+        emqx_rule_engine
+    ].
 
 setup_mocks() ->
     MeckOpts = [passthrough, no_link, no_history, non_strict],
@@ -115,7 +122,14 @@ setup_mocks() ->
     catch meck:new(emqx_bridge_v2, MeckOpts),
     meck:expect(emqx_bridge_v2, bridge_v2_type_to_connector_type, 1, con_type()),
     meck:expect(emqx_bridge_v2, bridge_v1_type_to_bridge_v2_type, 1, bridge_type()),
-
+    IsBridgeV2TypeFun = fun(Type) ->
+        BridgeV2Type = bridge_type(),
+        case Type of
+            BridgeV2Type -> true;
+            _ -> false
+        end
+    end,
+    meck:expect(emqx_bridge_v2, is_bridge_v2_type, 1, IsBridgeV2TypeFun),
     ok.
 
 init_per_suite(Config) ->
@@ -135,7 +149,8 @@ app_specs() ->
         emqx,
         emqx_conf,
         emqx_connector,
-        emqx_bridge
+        emqx_bridge,
+        emqx_rule_engine
     ].
 
 init_per_testcase(_TestCase, Config) ->
@@ -311,6 +326,42 @@ t_send_message(_) ->
         ct:fail("Failed to receive message")
     end,
     unregister(registered_process_name()),
+    {ok, _} = emqx_bridge_v2:remove(bridge_type(), my_test_bridge),
+    ok.
+
+t_send_message_through_rule(_) ->
+    BridgeName = my_test_bridge,
+    {ok, _} = emqx_bridge_v2:create(bridge_type(), BridgeName, bridge_config()),
+    %% Create a rule to send message to the bridge
+    {ok, _} = emqx_rule_engine:create_rule(
+        #{
+            sql => <<"select * from \"t/a\"">>,
+            id => atom_to_binary(?FUNCTION_NAME),
+            actions => [
+                <<
+                    (atom_to_binary(bridge_type()))/binary,
+                    ":",
+                    (atom_to_binary(BridgeName))/binary
+                >>
+            ],
+            description => <<"bridge_v2 test rule">>
+        }
+    ),
+    %% Register name for this process
+    register(registered_process_name(), self()),
+    %% Send message to the topic
+    ClientId = atom_to_binary(?FUNCTION_NAME),
+    Payload = <<"hello">>,
+    Msg = emqx_message:make(ClientId, 0, <<"t/a">>, Payload),
+    emqx:publish(Msg),
+    receive
+        #{payload := Payload} ->
+            ok
+    after 10000 ->
+        ct:fail("Failed to receive message")
+    end,
+    unregister(registered_process_name()),
+    ok = emqx_rule_engine:delete_rule(atom_to_binary(?FUNCTION_NAME)),
     {ok, _} = emqx_bridge_v2:remove(bridge_type(), my_test_bridge),
     ok.
 

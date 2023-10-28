@@ -888,6 +888,9 @@ bridge_v1_type_to_bridge_v2_type(kafka) ->
 bridge_v1_type_to_bridge_v2_type(azure_event_hub) ->
     azure_event_hub.
 
+%% This function should return true for all inputs that are bridge V1 types for
+%% bridges that have been refactored to bridge V2s, and for all all bridge V2
+%% types. For everything else the function should return false.
 is_bridge_v2_type(Atom) when is_atom(Atom) ->
     is_bridge_v2_type(atom_to_binary(Atom, utf8));
 is_bridge_v2_type(<<"kafka">>) ->

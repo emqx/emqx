@@ -47,7 +47,16 @@ parse_action(BridgeId) when is_binary(BridgeId) ->
     {Type, Name} = emqx_bridge_resource:parse_bridge_id(BridgeId),
     case emqx_bridge_v2:is_bridge_v2_type(Type) of
         true ->
-            {bridge_v2, Type, Name};
+            %% Could be an old bridge V1 type that should be converted to a V2 type
+            try emqx_bridge_v2:bridge_v1_type_to_bridge_v2_type(Type) of
+                BridgeV2Type ->
+                    {bridge_v2, BridgeV2Type, Name}
+            catch
+                _:_ ->
+                    %% We got a bridge v2 type that is not also a bridge v1
+                    %% type
+                    {bridge_v2, Type, Name}
+            end;
         false ->
             {bridge, Type, Name, emqx_bridge_resource:resource_id(Type, Name)}
     end;
