@@ -737,13 +737,14 @@ is_bridge_enabled_v1(BridgeType, BridgeName) ->
             throw(not_found)
     end.
 
-is_bridge_enabled_v2(BridgeType, BridgeName) ->
-    try emqx_bridge:lookup(BridgeType, binary_to_existing_atom(BridgeName)) of
-        {ok, #{raw_config := ConfMap}} ->
-            maps:get(<<"enable">>, ConfMap, false);
-        {error, not_found} ->
-            throw(not_found)
+is_bridge_enabled_v2(BridgeV1Type, BridgeName) ->
+    BridgeV2Type = emqx_bridge_v2:bridge_v1_type_to_bridge_v2_type(BridgeV1Type),
+    try emqx:get_config([bridges_v2, BridgeV2Type, binary_to_existing_atom(BridgeName)]) of
+        ConfMap ->
+            maps:get(enable, ConfMap, true)
     catch
+        error:{config_not_found, _} ->
+            throw(not_found);
         error:badarg ->
             %% catch non-existing atom,
             %% none-existing atom means it is not available in config PT storage.
