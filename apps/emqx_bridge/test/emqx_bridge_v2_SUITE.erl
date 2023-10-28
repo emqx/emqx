@@ -362,7 +362,32 @@ t_send_message_through_rule(_) ->
     end,
     unregister(registered_process_name()),
     ok = emqx_rule_engine:delete_rule(atom_to_binary(?FUNCTION_NAME)),
-    {ok, _} = emqx_bridge_v2:remove(bridge_type(), my_test_bridge),
+    {ok, _} = emqx_bridge_v2:remove(bridge_type(), BridgeName),
+    ok.
+
+t_send_message_through_local_topic(_) ->
+    %% Bridge configuration with local topic
+    BridgeName = my_test_bridge,
+    TopicName = <<"t/b">>,
+    BridgeConfig = (bridge_config())#{
+        <<"local_topic">> => TopicName
+    },
+    {ok, _} = emqx_bridge_v2:create(bridge_type(), BridgeName, BridgeConfig),
+    %% Register name for this process
+    register(registered_process_name(), self()),
+    %% Send message to the topic
+    ClientId = atom_to_binary(?FUNCTION_NAME),
+    Payload = <<"hej">>,
+    Msg = emqx_message:make(ClientId, 0, TopicName, Payload),
+    emqx:publish(Msg),
+    receive
+        #{payload := Payload} ->
+            ok
+    after 10000 ->
+        ct:fail("Failed to receive message")
+    end,
+    unregister(registered_process_name()),
+    {ok, _} = emqx_bridge_v2:remove(bridge_type(), BridgeName),
     ok.
 
 t_send_message_unhealthy_channel(_) ->
