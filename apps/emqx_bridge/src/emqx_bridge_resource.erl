@@ -186,7 +186,7 @@ restart(Type, Name) ->
         false ->
             emqx_resource:restart(resource_id(Type, Name));
         true ->
-            emqx_bridge_v2:restart(Type, Name)
+            emqx_bridge_v2:bridge_v1_restart(Type, Name)
     end.
 
 stop(Type, Name) ->
@@ -194,7 +194,7 @@ stop(Type, Name) ->
         false ->
             emqx_resource:stop(resource_id(Type, Name));
         true ->
-            emqx_bridge_v2:stop(Type, Name)
+            emqx_bridge_v2:bridge_v1_stop(Type, Name)
     end.
 
 start(Type, Name) ->
@@ -202,7 +202,7 @@ start(Type, Name) ->
         false ->
             emqx_resource:start(resource_id(Type, Name));
         true ->
-            emqx_bridge_v2:start(Type, Name)
+            emqx_bridge_v2:bridge_v1_start(Type, Name)
     end.
 
 create(BridgeId, Conf) ->
