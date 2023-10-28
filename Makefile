@@ -73,11 +73,11 @@ mix-deps-get: $(ELIXIR_COMMON_DEPS)
 
 .PHONY: eunit
 eunit: $(REBAR) merge-config
-	@ENABLE_COVER_COMPILE=1 $(REBAR) eunit  --name eunit@127.0.0.1 -v -c --cover_export_name $(CT_COVER_EXPORT_PREFIX)-eunit
+	@$(REBAR) eunit --name eunit@127.0.0.1 -v -c --cover_export_name $(CT_COVER_EXPORT_PREFIX)-eunit
 
 .PHONY: proper
 proper: $(REBAR)
-	@ENABLE_COVER_COMPILE=1 $(REBAR) proper -d test/props -c
+	@$(REBAR) proper -d test/props -c
 
 .PHONY: test-compile
 test-compile: $(REBAR) merge-config
@@ -89,7 +89,7 @@ $(REL_PROFILES:%=%-compile): $(REBAR) merge-config
 
 .PHONY: ct
 ct: $(REBAR) merge-config
-	@ENABLE_COVER_COMPILE=1 $(REBAR) ct --name $(CT_NODE_NAME) -c -v --cover_export_name $(CT_COVER_EXPORT_PREFIX)-ct
+	@$(REBAR) ct --name $(CT_NODE_NAME) -c -v --cover_export_name $(CT_COVER_EXPORT_PREFIX)-ct
 
 ## only check bpapi for enterprise profile because it's a super-set.
 .PHONY: static_checks
@@ -110,7 +110,7 @@ define gen-app-ct-target
 $1-ct: $(REBAR) merge-config clean-test-cluster-config
 	$(eval SUITES := $(shell $(SCRIPTS)/find-suites.sh $1))
 ifneq ($(SUITES),)
-	ENABLE_COVER_COMPILE=1 $(REBAR) ct -c -v \
+	@$(REBAR) ct -c -v \
 		--readable=$(CT_READABLE) \
 		--name $(CT_NODE_NAME) \
 		--cover_export_name $(CT_COVER_EXPORT_PREFIX)-$(subst /,-,$1) \

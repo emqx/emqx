@@ -303,6 +303,7 @@ else
         docker exec -e IS_CI="$IS_CI" \
                     -e PROFILE="$PROFILE" \
                     -e SUITEGROUP="${SUITEGROUP:-}" \
+                    -e ENABLE_COVER_COMPILE="${ENABLE_COVER_COMPILE:-}" \
                     -e CT_COVER_EXPORT_PREFIX="${CT_COVER_EXPORT_PREFIX:-}" \
                     -i $TTY "$ERLANG_CONTAINER" \
                     bash -c "BUILD_WITHOUT_QUIC=1 make ${WHICH_APP}-ct"
