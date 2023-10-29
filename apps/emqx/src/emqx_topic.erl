@@ -83,6 +83,8 @@ match(Name, Filter) when is_binary(Name), is_binary(Filter) ->
     match(words(Name), words(Filter));
 match(#share{} = Name, Filter) ->
     match_share(Name, Filter);
+match(Name, #share{} = Filter) ->
+    match_share(Name, Filter);
 match([], []) ->
     true;
 match([H | T1], [H | T2]) ->
@@ -109,7 +111,10 @@ match_share(#share{group = Group, topic = Name}, #share{group = Group, topic = F
     match(words(Name), words(Filter));
 match_share(#share{}, _) ->
     %% Otherwise, non-matched.
-    false.
+    false;
+match_share(Name, #share{topic = Filter}) when is_binary(Name) ->
+    %% Only match real topic filter for normal topic_filter/topic_name.
+    match(Name, Filter).
 
 -spec match_any(Name, [Filter]) -> boolean() when
     Name :: topic() | words(),

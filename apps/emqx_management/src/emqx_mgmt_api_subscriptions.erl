@@ -142,31 +142,25 @@ parameters() ->
 
 subscriptions(get, #{query_string := QString}) ->
     Response =
-        case maps:get(<<"node">>, QString, undefined) of
-            undefined ->
-                emqx_mgmt_api:cluster_query(
-                    ?SUBOPTION,
-                    QString,
-                    ?SUBS_QSCHEMA,
-                    fun ?MODULE:qs2ms/2,
-                    fun ?MODULE:format/2
-                );
-            Node0 ->
-                case emqx_utils:safe_to_existing_atom(Node0) of
-                    {ok, Node1} ->
-                        emqx_mgmt_api:node_query(
-                            Node1,
-                            ?SUBOPTION,
-                            QString,
-                            ?SUBS_QSCHEMA,
-                            fun ?MODULE:qs2ms/2,
-                            fun ?MODULE:format/2
-                        );
-                    {error, _} ->
-                        {error, Node0, {badrpc, <<"invalid node">>}}
+        try
+            begin
+                case maps:get(<<"match_topic">>, QString, undefined) of
+                    undefined ->
+                        do_subscriptions_query(QString);
+                    MatchTopic ->
+                        case emqx_topic:parse(MatchTopic) of
+                            {#share{}, _} -> {error, invalid_match_topic};
+                            _ -> do_subscriptions_query(QString)
+                        end
                 end
+            end
+        catch
+            error:{invalid_topic_filter, _} ->
+                {error, invalid_match_topic}
         end,
     case Response of
+        {error, invalid_match_topic} ->
+            {400, #{code => <<"INVALID_PARAMETER">>, message => <<"match_topic_invalid">>}};
         {error, page_limit_invalid} ->
             {400, #{code => <<"INVALID_PARAMETER">>, message => <<"page_limit_invalid">>}};
         {error, Node, {badrpc, R}} ->
@@ -174,6 +168,20 @@ subscriptions(get, #{query_string := QString}) ->
             {500, #{code => <<"NODE_DOWN">>, message => Message}};
         Result ->
             {200, Result}
+    end.
+
+do_subscriptions_query(QString) ->
+    Args = [?SUBOPTION, QString, ?SUBS_QSCHEMA, fun ?MODULE:qs2ms/2, fun ?MODULE:format/2],
+    case maps:get(<<"node">>, QString, undefined) of
+        undefined ->
+            erlang:apply(fun emqx_mgmt_api:cluster_query/5, Args);
+        Node0 ->
+            case emqx_utils:safe_to_existing_atom(Node0) of
+                {ok, Node1} ->
+                    erlang:apply(fun emqx_mgmt_api:node_query/6, [Node1 | Args]);
+                {error, _} ->
+                    {error, Node0, {badrpc, <<"invalid node">>}}
+            end
     end.
 
 format(WhichNode, {{Topic, _Subscriber}, SubOpts}) ->
@@ -228,5 +236,4 @@ fuzzy_filter_fun(Fuzzy) ->
 run_fuzzy_filter(_, []) ->
     true;
 run_fuzzy_filter(E = {{SubedTopic, _}, _}, [{topic, match, TopicFilter} | Fuzzy]) ->
-    {Filter, _SubOpts} = emqx_topic:parse(TopicFilter),
-    emqx_topic:match(SubedTopic, Filter) andalso run_fuzzy_filter(E, Fuzzy).
+    emqx_topic:match(SubedTopic, TopicFilter) andalso run_fuzzy_filter(E, Fuzzy).
