@@ -530,7 +530,7 @@ t_use_legacy_protocol_option(Config) ->
     Expected0 = maps:from_keys(WorkerPids0, true),
     LegacyOptions0 = maps:from_list([{Pid, mc_utils:use_legacy_protocol(Pid)} || Pid <- WorkerPids0]),
     ?assertEqual(Expected0, LegacyOptions0),
-    {ok, _} = delete_bridge(Config),
+    ok = delete_bridge(Config),
 
     {ok, _} = create_bridge(Config, #{<<"use_legacy_protocol">> => <<"false">>}),
     ?retry(

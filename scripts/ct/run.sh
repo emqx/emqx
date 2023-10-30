@@ -109,22 +109,37 @@ fi
 ERLANG_CONTAINER='erlang'
 DOCKER_CT_ENVS_FILE="${WHICH_APP}/docker-ct"
 
-case "${WHICH_APP}" in
-    lib-ee*)
-        ## ensure enterprise profile when testing lib-ee applications
-        export PROFILE='emqx-enterprise'
-        ;;
-    apps/*)
-        if [[ -f "${WHICH_APP}/BSL.txt" ]]; then
-          export PROFILE='emqx-enterprise'
-        else
-          export PROFILE='emqx'
-        fi
-        ;;
-    *)
-        export PROFILE="${PROFILE:-emqx}"
-        ;;
-esac
+if [ -z "${PROFILE+x}" ]; then
+    case "${WHICH_APP}" in
+        apps/emqx)
+            export PROFILE='emqx-enterprise'
+            ;;
+        apps/emqx_bridge)
+            export PROFILE='emqx-enterprise'
+            ;;
+        # emqx_connector test suite is using kafka bridge which is only available in emqx-enterprise
+        apps/emqx_connector)
+            export PROFILE='emqx-enterprise'
+            ;;
+        apps/emqx_dashboard)
+            export PROFILE='emqx-enterprise'
+            ;;
+        lib-ee*)
+            ## ensure enterprise profile when testing lib-ee applications
+            export PROFILE='emqx-enterprise'
+            ;;
+        apps/*)
+            if [[ -f "${WHICH_APP}/BSL.txt" ]]; then
+                export PROFILE='emqx-enterprise'
+            else
+                export PROFILE='emqx'
+            fi
+            ;;
+        *)
+            export PROFILE="${PROFILE:-emqx}"
+            ;;
+    esac
+fi
 
 if [ -f "$DOCKER_CT_ENVS_FILE" ]; then
     # shellcheck disable=SC2002
@@ -276,14 +291,18 @@ if [ "$STOP" = 'no' ]; then
     set -e
 fi
 
-# rebar, mix and hex cache directory need to be writable by $DOCKER_USER
-docker exec -i $TTY -u root:root "$ERLANG_CONTAINER" bash -c "mkdir -p /.cache /.hex /.mix && chown $DOCKER_USER /.cache /.hex /.mix"
-# need to initialize .erlang.cookie manually here because / is not writable by $DOCKER_USER
-docker exec -i $TTY -u root:root "$ERLANG_CONTAINER" bash -c "openssl rand -base64 -hex 16 > /.erlang.cookie && chown $DOCKER_USER /.erlang.cookie && chmod 0400 /.erlang.cookie"
-# the user must exist inside the container for `whoami` to work
-docker exec -i $TTY -u root:root "$ERLANG_CONTAINER" bash -c "useradd --uid $DOCKER_USER -M -d / emqx" || true
-docker exec -i $TTY -u root:root "$ERLANG_CONTAINER" bash -c "chown -R $DOCKER_USER /var/lib/secret" || true
-docker exec -i $TTY -u root:root "$ERLANG_CONTAINER" bash -c "$INSTALL_ODBC" || true
+if [ "$DOCKER_USER" != "root" ]; then
+    # the user must exist inside the container for `whoami` to work
+    docker exec -i $TTY -u root:root "$ERLANG_CONTAINER" bash -c \
+          "useradd --uid $DOCKER_USER -M -d / emqx && \
+           mkdir -p /.cache /.hex /.mix && \
+           chown $DOCKER_USER /.cache /.hex /.mix && \
+           openssl rand -base64 -hex 16 > /.erlang.cookie && \
+           chown $DOCKER_USER /.erlang.cookie && \
+           chmod 0400 /.erlang.cookie && \
+           chown -R $DOCKER_USER /var/lib/secret && \
+           $INSTALL_ODBC" || true
+fi
 
 if [ "$ONLY_UP" = 'yes' ]; then
     exit 0

@@ -242,8 +242,7 @@ make_bridge(Config) ->
 delete_bridge() ->
     Type = <<"rabbitmq">>,
     Name = atom_to_binary(?MODULE),
-    {ok, _} = emqx_bridge:remove(Type, Name),
-    ok.
+    ok = emqx_bridge:remove(Type, Name).
 
 %%------------------------------------------------------------------------------
 %% Test Cases

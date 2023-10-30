@@ -61,7 +61,7 @@ request_api(Method, Url, QueryParams, Auth, Body, HttpOpts) ->
     do_request_api(Method, Request, HttpOpts).
 
 do_request_api(Method, Request, HttpOpts) ->
-    ct:pal("Method: ~p, Request: ~p", [Method, Request]),
+    % ct:pal("Method: ~p, Request: ~p", [Method, Request]),
     case httpc:request(Method, Request, HttpOpts, [{body_format, binary}]) of
         {error, socket_closed_remotely} ->
             {error, socket_closed_remotely};

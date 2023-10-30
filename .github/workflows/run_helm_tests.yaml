@@ -140,12 +140,13 @@ jobs:
           echo "waiting emqx started";
           sleep 10;
         done
-    - name: Get Token
+    - name: Setup 18083 port forwarding
       run: |
-        kubectl port-forward service/${EMQX_NAME} 18083:18083 > /dev/null &
+        nohup kubectl port-forward service/${EMQX_NAME} 18083:18083 > /dev/null &
+    - name: Get auth token
+      run: |
         curl --head -X GET --retry 10 --retry-connrefused --retry-delay 6 http://localhost:18083/status
         echo "TOKEN=$(curl --silent -X 'POST' 'http://127.0.0.1:18083/api/v5/login' -H 'accept: application/json' -H 'Content-Type: application/json' -d '{"username": "admin","password": "public"}' | jq -r ".token")" >> $GITHUB_ENV
-
     - name: Check cluster
       timeout-minutes: 1
       run: |
