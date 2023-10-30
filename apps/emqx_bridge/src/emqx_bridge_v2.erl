@@ -1389,28 +1389,31 @@ validate_referenced_connectors(BridgeType, ConnectorNameBin, BridgeName) ->
     %% N.B.: assumes that, for all bridgeV2 types, the name of the bridge type is
     %% identical to its matching connector type name.
     try
-        ConnectorType = bridge_v2_type_to_connector_type(to_existing_atom(BridgeType)),
-        ConnectorName = to_existing_atom(ConnectorNameBin),
+        {ConnectorName, ConnectorType} = to_connector(ConnectorNameBin, BridgeType),
         case emqx_config:get([connectors, ConnectorType, ConnectorName], undefined) of
             undefined ->
-                {error, #{
-                    reason => "connector_not_found_or_wrong_type",
-                    connector_name => ConnectorName,
-                    connectortype => ConnectorType,
-                    bridge_name => BridgeName,
-                    bridge_type => BridgeType
-                }};
+                throw(not_found);
             _ ->
                 ok
         end
     catch
-        throw:bad_atom ->
+        throw:not_found ->
             {error, #{
                 reason => "connector_not_found_or_wrong_type",
-                type => BridgeType,
+                connector_name => ConnectorNameBin,
                 bridge_name => BridgeName,
-                connector_name => ConnectorNameBin
+                bridge_type => BridgeType
             }}
+    end.
+
+to_connector(ConnectorNameBin, BridgeType) ->
+    try
+        ConnectorType = ?MODULE:bridge_v2_type_to_connector_type(to_existing_atom(BridgeType)),
+        ConnectorName = to_existing_atom(ConnectorNameBin),
+        {ConnectorName, ConnectorType}
+    catch
+        _:_ ->
+            throw(not_found)
     end.
 
 multi_validate_referenced_connectors(Configs) ->
