@@ -258,6 +258,18 @@ pre_create_atoms() ->
         kafka__probe_
     ].
 
+http_get_bridges(UrlPath, Name0) ->
+    Name = iolist_to_binary(Name0),
+    {ok, _Code, BridgesData} = http_get(UrlPath),
+    Bridges = json(BridgesData),
+    lists:filter(
+        fun
+            (#{<<"name">> := N}) when N =:= Name -> true;
+            (_) -> false
+        end,
+        Bridges
+    ).
+
 kafka_bridge_rest_api_helper(Config) ->
     BridgeType = ?BRIDGE_TYPE,
     BridgeName = "my_kafka_bridge",
@@ -277,27 +289,16 @@ kafka_bridge_rest_api_helper(Config) ->
     BridgesPartsOpRestart = OpUrlFun("restart"),
     BridgesPartsOpStop = OpUrlFun("stop"),
     %% List bridges
-    MyKafkaBridgeExists = fun() ->
-        {ok, _Code, BridgesData} = http_get(BridgesParts),
-        Bridges = json(BridgesData),
-        lists:any(
-            fun
-                (#{<<"name">> := <<"my_kafka_bridge">>}) -> true;
-                (_) -> false
-            end,
-            Bridges
-        )
-    end,
     %% Delete if my_kafka_bridge exists
-    case MyKafkaBridgeExists() of
-        true ->
+    case http_get_bridges(BridgesParts, BridgeName) of
+        [_] ->
             %% Delete the bridge my_kafka_bridge
             {ok, 204, <<>>} = http_delete(BridgesPartsIdDeleteAlsoActions);
-        false ->
+        [] ->
             ok
     end,
     try
-        false = MyKafkaBridgeExists(),
+        ?assertEqual([], http_get_bridges(BridgesParts, BridgeName)),
         %% Create new Kafka bridge
         KafkaTopic = test_topic_one_partition(),
         CreateBodyTmp = #{
@@ -319,7 +320,7 @@ kafka_bridge_rest_api_helper(Config) ->
         CreateBody = CreateBodyTmp#{<<"ssl">> => maps:get(<<"ssl">>, Config)},
         {ok, 201, _Data} = http_post(BridgesParts, CreateBody),
         %% Check that the new bridge is in the list of bridges
-        true = MyKafkaBridgeExists(),
+        ?assertMatch([#{<<"type">> := <<"kafka">>}], http_get_bridges(BridgesParts, BridgeName)),
         %% Probe should work
         %% no extra atoms should be created when probing
         %% See pre_create_atoms() above
@@ -419,8 +420,9 @@ kafka_bridge_rest_api_helper(Config) ->
         % this delete should not be necessary beause of the also_delete_dep_actions flag
         % {ok, 204, _} = http_delete(["rules", RuleId]),
         {ok, 204, _} = http_delete(BridgesPartsIdDeleteAlsoActions),
-        false = MyKafkaBridgeExists(),
-        delete_all_bridges()
+        Remain = http_get_bridges(BridgesParts, BridgeName),
+        delete_all_bridges(),
+        ?assertEqual([], Remain)
     end,
     ok.
 

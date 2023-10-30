@@ -902,7 +902,7 @@ format_resource(
     redact(
         maps:merge(
             RawConfFull#{
-                type => Type,
+                type => downgrade_type(Type),
                 name => maps:get(<<"name">>, RawConf, BridgeName),
                 node => Node
             },
@@ -1156,3 +1156,6 @@ non_compat_bridge_msg() ->
 
 upgrade_type(Type) ->
     emqx_bridge_lib:upgrade_type(Type).
+
+downgrade_type(Type) ->
+    emqx_bridge_lib:downgrade_type(Type).
