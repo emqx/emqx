@@ -62,7 +62,9 @@
 
 %% Data backup
 -export([
-    import_config/1
+    import_config/1,
+    %% exported for emqx_bridge_v2
+    import_config/4
 ]).
 
 -export([query_opts/1]).
@@ -442,15 +444,18 @@ do_check_deps_and_remove(BridgeType, BridgeName, RemoveDeps) ->
 %%----------------------------------------------------------------------------------------
 
 import_config(RawConf) ->
-    RootKeyPath = config_key_path(),
-    BridgesConf = maps:get(<<"bridges">>, RawConf, #{}),
+    import_config(RawConf, <<"bridges">>, ?ROOT_KEY, config_key_path()).
+
+%% Used in emqx_bridge_v2
+import_config(RawConf, RawConfKey, RootKey, RootKeyPath) ->
+    BridgesConf = maps:get(RawConfKey, RawConf, #{}),
     OldBridgesConf = emqx:get_raw_config(RootKeyPath, #{}),
     MergedConf = merge_confs(OldBridgesConf, BridgesConf),
     case emqx_conf:update(RootKeyPath, MergedConf, #{override_to => cluster}) of
         {ok, #{raw_config := NewRawConf}} ->
-            {ok, #{root_key => ?ROOT_KEY, changed => changed_paths(OldBridgesConf, NewRawConf)}};
+            {ok, #{root_key => RootKey, changed => changed_paths(OldBridgesConf, NewRawConf)}};
         Error ->
-            {error, #{root_key => ?ROOT_KEY, reason => Error}}
+            {error, #{root_key => RootKey, reason => Error}}
     end.
 
 merge_confs(OldConf, NewConf) ->
