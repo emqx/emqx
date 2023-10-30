@@ -134,7 +134,7 @@ post_config_update([?ROOT_KEY], _Req, NewConf, OldConf, _AppEnv) ->
             Result = perform_connector_changes([
                 #{action => fun emqx_connector_resource:remove/4, data => Removed},
                 #{
-                    action => fun emqx_connector_resource:create/3,
+                    action => fun emqx_connector_resource:create/4,
                     data => Added,
                     on_exception_fn => fun emqx_connector_resource:remove/4
                 },
