@@ -361,6 +361,33 @@ do_handle_action(RuleId, {bridge, BridgeType, BridgeName, ResId}, Selected, _Env
         Result ->
             Result
     end;
+do_handle_action(
+    RuleId,
+    {bridge_v2, BridgeType, BridgeName},
+    Selected,
+    _Envs
+) ->
+    ?TRACE(
+        "BRIDGE",
+        "bridge_action",
+        #{bridge_id => {bridge_v2, BridgeType, BridgeName}}
+    ),
+    ReplyTo = {fun ?MODULE:inc_action_metrics/2, [RuleId], #{reply_dropped => true}},
+    case
+        emqx_bridge_v2:send_message(
+            BridgeType,
+            BridgeName,
+            Selected,
+            #{reply_to => ReplyTo}
+        )
+    of
+        {error, Reason} when Reason == bridge_not_found; Reason == bridge_stopped ->
+            throw(out_of_service);
+        ?RESOURCE_ERROR_M(R, _) when ?IS_RES_DOWN(R) ->
+            throw(out_of_service);
+        Result ->
+            Result
+    end;
 do_handle_action(RuleId, #{mod := Mod, func := Func} = Action, Selected, Envs) ->
     %% the function can also throw 'out_of_service'
     Args = maps:get(args, Action, []),

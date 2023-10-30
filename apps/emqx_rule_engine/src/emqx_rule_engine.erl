@@ -515,11 +515,8 @@ do_delete_rule_index(#{id := Id, from := From}) ->
 parse_actions(Actions) ->
     [do_parse_action(Act) || Act <- Actions].
 
-do_parse_action(Action) when is_map(Action) ->
-    emqx_rule_actions:parse_action(Action);
-do_parse_action(BridgeId) when is_binary(BridgeId) ->
-    {Type, Name} = emqx_bridge_resource:parse_bridge_id(BridgeId),
-    {bridge, Type, Name, emqx_bridge_resource:resource_id(Type, Name)}.
+do_parse_action(Action) ->
+    emqx_rule_actions:parse_action(Action).
 
 get_all_records(Tab) ->
     [Rule#{id => Id} || {Id, Rule} <- ets:tab2list(Tab)].

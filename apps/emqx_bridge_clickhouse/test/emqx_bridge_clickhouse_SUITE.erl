@@ -177,8 +177,7 @@ make_bridge(Config) ->
 delete_bridge() ->
     Type = <<"clickhouse">>,
     Name = atom_to_binary(?MODULE),
-    {ok, _} = emqx_bridge:remove(Type, Name),
-    ok.
+    ok = emqx_bridge:remove(Type, Name).
 
 reset_table(Config) ->
     ClickhouseConnection = proplists:get_value(clickhouse_connection, Config),

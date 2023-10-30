@@ -891,7 +891,7 @@ t_start_stop(Config) ->
             {ok, _} = snabbkaffe:receive_events(SRef0),
             ?assertMatch({ok, connected}, emqx_resource_manager:health_check(ResourceId)),
 
-            ?assertMatch({ok, _}, remove_bridge(Config)),
+            ?assertMatch(ok, remove_bridge(Config)),
             ok
         end,
         [

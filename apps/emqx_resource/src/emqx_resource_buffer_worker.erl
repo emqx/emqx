@@ -1076,7 +1076,7 @@ handle_async_worker_down(Data0, Pid) ->
 -spec call_query(force_sync | async_if_possible, _, _, _, _, _) -> _.
 call_query(QM, Id, Index, Ref, Query, QueryOpts) ->
     ?tp(call_query_enter, #{id => Id, query => Query, query_mode => QM}),
-    case emqx_resource_manager:lookup_cached(Id) of
+    case emqx_resource_manager:lookup_cached(extract_connector_id(Id)) of
         {ok, _Group, #{status := stopped}} ->
             ?RESOURCE_ERROR(stopped, "resource stopped or disabled");
         {ok, _Group, #{status := connecting, error := unhealthy_target}} ->
@@ -1087,20 +1087,65 @@ call_query(QM, Id, Index, Ref, Query, QueryOpts) ->
             ?RESOURCE_ERROR(not_found, "resource not found")
     end.
 
+%% bridge_v2:kafka_producer:myproducer1:connector:kafka_producer:mykakfaclient1
+extract_connector_id(Id) when is_binary(Id) ->
+    case binary:split(Id, <<":">>, [global]) of
+        [
+            _ChannelGlobalType,
+            _ChannelSubType,
+            _ChannelName,
+            <<"connector">>,
+            ConnectorType,
+            ConnectorName
+        ] ->
+            <<"connector:", ConnectorType/binary, ":", ConnectorName/binary>>;
+        _ ->
+            Id
+    end;
+extract_connector_id(Id) ->
+    Id.
+
+is_channel_id(Id) ->
+    extract_connector_id(Id) =/= Id.
+
+%% Check if channel is installed in the connector state.
+%% There is no need to query the conncector if the channel is not
+%% installed as the query will fail anyway.
+pre_query_channel_check({Id, _} = _Request, Channels) when
+    is_map_key(Id, Channels),
+    (map_get(Id, Channels) =:= connected orelse map_get(Id, Channels) =:= connecting)
+->
+    ok;
+pre_query_channel_check({Id, _} = _Request, _Channels) ->
+    %% Fail with a recoverable error if the channel is not installed
+    %% so that the operation can be retried. It is emqx_resource_manager's
+    %% responsibility to ensure that the channel installation is retried.
+    case is_channel_id(Id) of
+        true ->
+            error(
+                {recoverable_error,
+                    iolist_to_binary(io_lib:format("channel: \"~s\" not operational", [Id]))}
+            );
+        false ->
+            ok
+    end;
+pre_query_channel_check(_Request, _Channels) ->
+    ok.
+
 do_call_query(QM, Id, Index, Ref, Query, QueryOpts, #{query_mode := ResQM} = Resource) when
     ResQM =:= simple_sync_internal_buffer; ResQM =:= simple_async_internal_buffer
 ->
     %% The connector supports buffer, send even in disconnected state
-    #{mod := Mod, state := ResSt, callback_mode := CBM} = Resource,
+    #{mod := Mod, state := ResSt, callback_mode := CBM, added_channels := Channels} = Resource,
     CallMode = call_mode(QM, CBM),
-    apply_query_fun(CallMode, Mod, Id, Index, Ref, Query, ResSt, QueryOpts);
+    apply_query_fun(CallMode, Mod, Id, Index, Ref, Query, ResSt, Channels, QueryOpts);
 do_call_query(QM, Id, Index, Ref, Query, QueryOpts, #{status := connected} = Resource) ->
     %% when calling from the buffer worker or other simple queries,
     %% only apply the query fun when it's at connected status
-    #{mod := Mod, state := ResSt, callback_mode := CBM} = Resource,
+    #{mod := Mod, state := ResSt, callback_mode := CBM, added_channels := Channels} = Resource,
     CallMode = call_mode(QM, CBM),
-    apply_query_fun(CallMode, Mod, Id, Index, Ref, Query, ResSt, QueryOpts);
-do_call_query(_QM, _Id, _Index, _Ref, _Query, _QueryOpts, _Resource) ->
+    apply_query_fun(CallMode, Mod, Id, Index, Ref, Query, ResSt, Channels, QueryOpts);
+do_call_query(_QM, _Id, _Index, _Ref, _Query, _QueryOpts, _Data) ->
     ?RESOURCE_ERROR(not_connected, "resource not connected").
 
 -define(APPLY_RESOURCE(NAME, EXPR, REQ),
@@ -1131,14 +1176,23 @@ do_call_query(_QM, _Id, _Index, _Ref, _Query, _QueryOpts, _Resource) ->
 ).
 
 apply_query_fun(
-    sync, Mod, Id, _Index, _Ref, ?QUERY(_, Request, _, _) = _Query, ResSt, QueryOpts
+    sync, Mod, Id, _Index, _Ref, ?QUERY(_, Request, _, _) = _Query, ResSt, Channels, QueryOpts
 ) ->
     ?tp(call_query, #{id => Id, mod => Mod, query => _Query, res_st => ResSt, call_mode => sync}),
     maybe_reply_to(
-        ?APPLY_RESOURCE(call_query, Mod:on_query(Id, Request, ResSt), Request),
+        ?APPLY_RESOURCE(
+            call_query,
+            begin
+                pre_query_channel_check(Request, Channels),
+                Mod:on_query(extract_connector_id(Id), Request, ResSt)
+            end,
+            Request
+        ),
         QueryOpts
     );
-apply_query_fun(async, Mod, Id, Index, Ref, ?QUERY(_, Request, _, _) = Query, ResSt, QueryOpts) ->
+apply_query_fun(
+    async, Mod, Id, Index, Ref, ?QUERY(_, Request, _, _) = Query, ResSt, Channels, QueryOpts
+) ->
     ?tp(call_query_async, #{
         id => Id, mod => Mod, query => Query, res_st => ResSt, call_mode => async
     }),
@@ -1160,23 +1214,51 @@ apply_query_fun(async, Mod, Id, Index, Ref, ?QUERY(_, Request, _, _) = Query, Re
             AsyncWorkerMRef = undefined,
             InflightItem = ?INFLIGHT_ITEM(Ref, Query, IsRetriable, AsyncWorkerMRef),
             ok = inflight_append(InflightTID, InflightItem),
-            Result = Mod:on_query_async(Id, Request, {ReplyFun, [ReplyContext]}, ResSt),
+            pre_query_channel_check(Request, Channels),
+            Result = Mod:on_query_async(
+                extract_connector_id(Id), Request, {ReplyFun, [ReplyContext]}, ResSt
+            ),
             {async_return, Result}
         end,
         Request
     );
 apply_query_fun(
-    sync, Mod, Id, _Index, _Ref, [?QUERY(_, _, _, _) | _] = Batch, ResSt, QueryOpts
+    sync,
+    Mod,
+    Id,
+    _Index,
+    _Ref,
+    [?QUERY(_, FirstRequest, _, _) | _] = Batch,
+    ResSt,
+    Channels,
+    QueryOpts
 ) ->
     ?tp(call_batch_query, #{
         id => Id, mod => Mod, batch => Batch, res_st => ResSt, call_mode => sync
     }),
     Requests = lists:map(fun(?QUERY(_ReplyTo, Request, _, _ExpireAt)) -> Request end, Batch),
     maybe_reply_to(
-        ?APPLY_RESOURCE(call_batch_query, Mod:on_batch_query(Id, Requests, ResSt), Batch),
+        ?APPLY_RESOURCE(
+            call_batch_query,
+            begin
+                pre_query_channel_check(FirstRequest, Channels),
+                Mod:on_batch_query(extract_connector_id(Id), Requests, ResSt)
+            end,
+            Batch
+        ),
         QueryOpts
     );
-apply_query_fun(async, Mod, Id, Index, Ref, [?QUERY(_, _, _, _) | _] = Batch, ResSt, QueryOpts) ->
+apply_query_fun(
+    async,
+    Mod,
+    Id,
+    Index,
+    Ref,
+    [?QUERY(_, FirstRequest, _, _) | _] = Batch,
+    ResSt,
+    Channels,
+    QueryOpts
+) ->
     ?tp(call_batch_query_async, #{
         id => Id, mod => Mod, batch => Batch, res_st => ResSt, call_mode => async
     }),
@@ -1201,7 +1283,10 @@ apply_query_fun(async, Mod, Id, Index, Ref, [?QUERY(_, _, _, _) | _] = Batch, Re
             AsyncWorkerMRef = undefined,
             InflightItem = ?INFLIGHT_ITEM(Ref, Batch, IsRetriable, AsyncWorkerMRef),
             ok = inflight_append(InflightTID, InflightItem),
-            Result = Mod:on_batch_query_async(Id, Requests, {ReplyFun, [ReplyContext]}, ResSt),
+            pre_query_channel_check(FirstRequest, Channels),
+            Result = Mod:on_batch_query_async(
+                extract_connector_id(Id), Requests, {ReplyFun, [ReplyContext]}, ResSt
+            ),
             {async_return, Result}
         end,
         Batch
