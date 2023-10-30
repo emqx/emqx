@@ -106,6 +106,7 @@ jobs:
             --set emqxConfig.EMQX_MQTT__RETRY_INTERVAL=2s \
             --set emqxConfig.EMQX_MQTT__MAX_TOPIC_ALIAS=10 \
             --set emqxConfig.EMQX_AUTHORIZATION__SOURCES=[] \
+            --set emqxConfig.EMQX_LOG__CONSOLE__LEVEL=debug \
             --set emqxConfig.EMQX_AUTHORIZATION__NO_MATCH=allow \
             --values rpc-overrides.yaml \
             deploy/charts/${EMQX_NAME} \
@@ -125,6 +126,7 @@ jobs:
             --set emqxConfig.EMQX_MQTT__RETRY_INTERVAL=2s \
             --set emqxConfig.EMQX_MQTT__MAX_TOPIC_ALIAS=10 \
             --set emqxConfig.EMQX_AUTHORIZATION__SOURCES=[] \
+            --set emqxConfig.EMQX_LOG__CONSOLE__LEVEL=debug \
             --set emqxConfig.EMQX_AUTHORIZATION__NO_MATCH=allow \
             --values rpc-overrides.yaml \
             deploy/charts/${EMQX_NAME} \
