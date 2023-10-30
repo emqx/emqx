@@ -25,9 +25,6 @@
 %% HOCON Schema API
 -export([convert_secret/2]).
 
-%% Target of `emqx_secret:wrap/3`
--export([load/1]).
-
 %% @doc Secret value.
 -type t() :: binary().
 
@@ -74,31 +71,15 @@ convert_secret(Secret, #{}) ->
     end.
 
 -spec wrap(source()) -> emqx_secret:t(t()).
-wrap(Source) ->
-    emqx_secret:wrap(?MODULE, load, Source).
+wrap(<<"file://", Filename/binary>>) ->
+    emqx_secret:wrap_load({file, Filename});
+wrap(Secret) ->
+    emqx_secret:wrap(Secret).
 
 -spec source(emqx_secret:t(t())) -> source().
 source(Secret) when is_function(Secret) ->
-    emqx_secret:term(Secret);
+    source(emqx_secret:term(Secret));
+source({file, Filename}) ->
+    <<"file://", Filename/binary>>;
 source(Secret) ->
     Secret.
-
-%%
-
--spec load(source()) -> t().
-load(<<"file://", Filename/binary>>) ->
-    load_file(Filename);
-load(Secret) ->
-    Secret.
-
-load_file(Filename) ->
-    case file:read_file(Filename) of
-        {ok, Secret} ->
-            string:trim(Secret, trailing, [$\n]);
-        {error, Reason} ->
-            throw(#{
-                msg => failed_to_read_secret_file,
-                path => Filename,
-                reason => emqx_utils:explain_posix(Reason)
-            })
-    end.

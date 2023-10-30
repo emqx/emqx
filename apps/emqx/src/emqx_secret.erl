@@ -19,11 +19,15 @@
 -module(emqx_secret).
 
 %% API:
--export([wrap/1, wrap/3, unwrap/1, term/1]).
+-export([wrap/1, wrap_load/1, unwrap/1, term/1]).
 
 -export_type([t/1]).
 
 -opaque t(T) :: T | fun(() -> t(T)).
+
+%% Secret loader module.
+%% Any changes related to processing of secrets should be made there.
+-define(LOADER, emqx_secret_loader).
 
 %%================================================================================
 %% API funcions
@@ -37,12 +41,12 @@ wrap(Term) ->
         Term
     end.
 
-%% @doc Wrap a function call over a term in a secret closure.
+%% @doc Wrap a loader function call over a term in a secret closure.
 %% This is slightly more flexible form of `wrap/1` with the same basic purpose.
--spec wrap(module(), atom(), _Term) -> t(_).
-wrap(Module, Function, Term) ->
+-spec wrap_load(emqx_secret_loader:source()) -> t(_).
+wrap_load(Source) ->
     fun() ->
-        apply(Module, Function, [Term])
+        apply(?LOADER, load, [Source])
     end.
 
 %% @doc Unwrap a secret closure, revealing the secret.

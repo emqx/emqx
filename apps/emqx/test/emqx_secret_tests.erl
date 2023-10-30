@@ -16,8 +16,6 @@
 
 -module(emqx_secret_tests).
 
--export([ident/1]).
-
 -include_lib("eunit/include/eunit.hrl").
 
 wrap_unwrap_test() ->
@@ -32,28 +30,36 @@ unwrap_immediate_test() ->
         emqx_secret:unwrap(42)
     ).
 
-wrap_unwrap_external_test() ->
+wrap_unwrap_load_test_() ->
+    Secret = <<"foobaz">>,
+    {
+        setup,
+        fun() -> write_temp_file(Secret) end,
+        fun(Filename) -> file:delete(Filename) end,
+        fun(Filename) ->
+            ?_assertEqual(
+                Secret,
+                emqx_secret:unwrap(emqx_secret:wrap_load({file, Filename}))
+            )
+        end
+    }.
+
+wrap_load_term_test() ->
     ?assertEqual(
-        ident({foo, bar}),
-        emqx_secret:unwrap(emqx_secret:wrap(?MODULE, ident, {foo, bar}))
+        {file, "no/such/file/i/swear"},
+        emqx_secret:term(emqx_secret:wrap_load({file, "no/such/file/i/swear"}))
     ).
 
-wrap_unwrap_transform_test() ->
-    ?assertEqual(
-        <<"this_was_an_atom">>,
-        emqx_secret:unwrap(emqx_secret:wrap(erlang, atom_to_binary, this_was_an_atom))
+wrap_unwrap_missing_file_test() ->
+    ?assertThrow(
+        #{msg := failed_to_read_secret_file, reason := "No such file or directory"},
+        emqx_secret:unwrap(emqx_secret:wrap_load({file, "no/such/file/i/swear"}))
     ).
 
 wrap_term_test() ->
     ?assertEqual(
         42,
         emqx_secret:term(emqx_secret:wrap(42))
-    ).
-
-wrap_external_term_test() ->
-    ?assertEqual(
-        this_was_an_atom,
-        emqx_secret:term(emqx_secret:wrap(erlang, atom_to_binary, this_was_an_atom))
     ).
 
 external_fun_term_error_test() ->
@@ -63,7 +69,8 @@ external_fun_term_error_test() ->
         emqx_secret:term(fun() -> Term end)
     ).
 
-%%
-
-ident(X) ->
-    X.
+write_temp_file(Bytes) ->
+    Ts = erlang:system_time(millisecond),
+    Filename = filename:join("/tmp", ?MODULE_STRING ++ integer_to_list(-Ts)),
+    ok = file:write_file(Filename, Bytes),
+    Filename.
