@@ -10,8 +10,10 @@
 -include_lib("common_test/include/ct.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
--define(BRIDGE_TYPE, azure_event_hub).
--define(BRIDGE_TYPE_BIN, <<"azure_event_hub">>).
+-define(BRIDGE_TYPE, azure_event_hub_producer).
+-define(BRIDGE_TYPE_BIN, <<"azure_event_hub_producer">>).
+-define(CONNECTOR_TYPE, azure_event_hub_producer).
+-define(CONNECTOR_TYPE_BIN, <<"azure_event_hub_producer">>).
 -define(KAFKA_BRIDGE_TYPE, kafka_producer).
 -define(APPS, [emqx_resource, emqx_connector, emqx_bridge, emqx_rule_engine]).
 
@@ -88,7 +90,7 @@ common_init_per_testcase(TestCase, Config) ->
     ok = snabbkaffe:start_trace(),
     ExtraConfig ++
         [
-            {connector_type, ?BRIDGE_TYPE},
+            {connector_type, ?CONNECTOR_TYPE},
             {connector_name, Name},
             {connector_config, ConnectorConfig},
             {bridge_type, ?BRIDGE_TYPE},
@@ -156,7 +158,7 @@ connector_config(Name, KafkaHost, KafkaPort) ->
     parse_and_check_connector_config(InnerConfigMap, Name).
 
 parse_and_check_connector_config(InnerConfigMap, Name) ->
-    TypeBin = ?BRIDGE_TYPE_BIN,
+    TypeBin = ?CONNECTOR_TYPE_BIN,
     RawConf = #{<<"connectors">> => #{TypeBin => #{Name => InnerConfigMap}}},
     #{<<"connectors">> := #{TypeBin := #{Name := Config}}} =
         hocon_tconf:check_plain(emqx_connector_schema, RawConf, #{

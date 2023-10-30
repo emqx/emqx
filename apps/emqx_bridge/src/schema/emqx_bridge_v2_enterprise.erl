@@ -44,7 +44,7 @@ bridge_v2_structs() ->
                     required => false
                 }
             )},
-        {azure_event_hub,
+        {azure_event_hub_producer,
             mk(
                 hoconsc:map(name, ref(emqx_bridge_azure_event_hub, bridge_v2)),
                 #{
@@ -57,7 +57,7 @@ bridge_v2_structs() ->
 api_schemas(Method) ->
     [
         api_ref(emqx_bridge_kafka, <<"kafka_producer">>, Method ++ "_bridge_v2"),
-        api_ref(emqx_bridge_azure_event_hub, <<"azure_event_hub">>, Method ++ "_bridge_v2")
+        api_ref(emqx_bridge_azure_event_hub, <<"azure_event_hub_producer">>, Method ++ "_bridge_v2")
     ].
 
 api_ref(Module, Type, Method) ->

@@ -23,7 +23,7 @@ resource_type(Type) when is_binary(Type) ->
 resource_type(kafka_producer) ->
     emqx_bridge_kafka_impl_producer;
 %% We use AEH's Kafka interface.
-resource_type(azure_event_hub) ->
+resource_type(azure_event_hub_producer) ->
     emqx_bridge_kafka_impl_producer;
 resource_type(Type) ->
     error({unknown_connector_type, Type}).
@@ -31,7 +31,7 @@ resource_type(Type) ->
 %% For connectors that need to override connector configurations.
 connector_impl_module(ConnectorType) when is_binary(ConnectorType) ->
     connector_impl_module(binary_to_atom(ConnectorType, utf8));
-connector_impl_module(azure_event_hub) ->
+connector_impl_module(azure_event_hub_producer) ->
     emqx_bridge_azure_event_hub;
 connector_impl_module(_ConnectorType) ->
     undefined.
@@ -49,7 +49,7 @@ connector_structs() ->
                     required => false
                 }
             )},
-        {azure_event_hub,
+        {azure_event_hub_producer,
             mk(
                 hoconsc:map(name, ref(emqx_bridge_azure_event_hub, "config_connector")),
                 #{
@@ -82,7 +82,7 @@ api_schemas(Method) ->
         %% We need to map the `type' field of a request (binary) to a
         %% connector schema module.
         api_ref(emqx_bridge_kafka, <<"kafka_producer">>, Method ++ "_connector"),
-        api_ref(emqx_bridge_azure_event_hub, <<"azure_event_hub">>, Method ++ "_connector")
+        api_ref(emqx_bridge_azure_event_hub, <<"azure_event_hub_producer">>, Method ++ "_connector")
     ].
 
 api_ref(Module, Type, Method) ->

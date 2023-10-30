@@ -737,8 +737,8 @@ bridge_v2_type_to_connector_type(kafka) ->
     kafka_producer;
 bridge_v2_type_to_connector_type(kafka_producer) ->
     kafka_producer;
-bridge_v2_type_to_connector_type(azure_event_hub) ->
-    azure_event_hub.
+bridge_v2_type_to_connector_type(azure_event_hub_producer) ->
+    azure_event_hub_producer.
 
 %%====================================================================
 %% Data backup API
@@ -964,8 +964,8 @@ bridge_v1_type_to_bridge_v2_type(kafka) ->
     kafka_producer;
 bridge_v1_type_to_bridge_v2_type(kafka_producer) ->
     kafka_producer;
-bridge_v1_type_to_bridge_v2_type(azure_event_hub) ->
-    azure_event_hub.
+bridge_v1_type_to_bridge_v2_type(azure_event_hub_producer) ->
+    azure_event_hub_producer.
 
 %% This function should return true for all inputs that are bridge V1 types for
 %% bridges that have been refactored to bridge V2s, and for all all bridge V2
@@ -976,7 +976,7 @@ is_bridge_v2_type(<<"kafka_producer">>) ->
     true;
 is_bridge_v2_type(<<"kafka">>) ->
     true;
-is_bridge_v2_type(<<"azure_event_hub">>) ->
+is_bridge_v2_type(<<"azure_event_hub_producer">>) ->
     true;
 is_bridge_v2_type(_) ->
     false.
@@ -1385,19 +1385,20 @@ to_existing_atom(X) ->
         {error, _} -> throw(bad_atom)
     end.
 
-validate_referenced_connectors(Type0, ConnectorName0, BridgeName) ->
+validate_referenced_connectors(BridgeType, ConnectorNameBin, BridgeName) ->
     %% N.B.: assumes that, for all bridgeV2 types, the name of the bridge type is
     %% identical to its matching connector type name.
     try
-        Type = to_existing_atom(Type0),
-        ConnectorName = to_existing_atom(ConnectorName0),
-        case emqx_config:get([connectors, Type, ConnectorName], undefined) of
+        ConnectorType = bridge_v2_type_to_connector_type(to_existing_atom(BridgeType)),
+        ConnectorName = to_existing_atom(ConnectorNameBin),
+        case emqx_config:get([connectors, ConnectorType, ConnectorName], undefined) of
             undefined ->
                 {error, #{
                     reason => "connector_not_found_or_wrong_type",
-                    type => Type,
+                    connector_name => ConnectorName,
+                    connectortype => ConnectorType,
                     bridge_name => BridgeName,
-                    connector_name => ConnectorName
+                    bridge_type => BridgeType
                 }};
             _ ->
                 ok
@@ -1406,9 +1407,9 @@ validate_referenced_connectors(Type0, ConnectorName0, BridgeName) ->
         throw:bad_atom ->
             {error, #{
                 reason => "connector_not_found_or_wrong_type",
-                type => Type0,
+                type => BridgeType,
                 bridge_name => BridgeName,
-                connector_name => ConnectorName0
+                connector_name => ConnectorNameBin
             }}
     end.
 
