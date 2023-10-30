@@ -69,7 +69,7 @@ mix-deps-get: $(ELIXIR_COMMON_DEPS)
 
 .PHONY: eunit
 eunit: $(REBAR) merge-config
-	@$(REBAR) eunit --name eunit@127.0.0.1 -v -c --cover_export_name $(CT_COVER_EXPORT_PREFIX)-eunit
+	@$(REBAR) eunit --name eunit@127.0.0.1 -c -v --cover_export_name $(CT_COVER_EXPORT_PREFIX)-eunit
 
 .PHONY: proper
 proper: $(REBAR)
@@ -105,16 +105,22 @@ ifneq ($(GROUPS),)
 GROUPS_ARG := --groups $(GROUPS)
 endif
 
+ifeq ($(ENABLE_COVER_COMPILE),1)
+cover_args = --cover --cover_export_name $(CT_COVER_EXPORT_PREFIX)-$(subst /,-,$1)
+else
+cover_args =
+endif
+
 ## example:
 ## env SUITES=apps/appname/test/test_SUITE.erl CASES=t_foo make apps/appname-ct
 define gen-app-ct-target
 $1-ct: $(REBAR) merge-config clean-test-cluster-config
 	$(eval SUITES := $(shell $(SCRIPTS)/find-suites.sh $1))
 ifneq ($(SUITES),)
-	@$(REBAR) ct -c -v \
+	$(REBAR) ct -v \
 		--readable=$(CT_READABLE) \
 		--name $(CT_NODE_NAME) \
-		--cover_export_name $(CT_COVER_EXPORT_PREFIX)-$(subst /,-,$1) \
+		$(call cover_args,$1) \
 		--suite $(SUITES) \
 		$(GROUPS_ARG) \
 		$(CASES_ARG)
