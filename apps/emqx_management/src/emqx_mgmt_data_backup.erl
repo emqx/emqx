@@ -61,6 +61,12 @@
     <<"slow_subs">>
 ]).
 
+%% emqx_bridge_v2 depends on emqx_connector, so connectors need to be imported first
+-define(IMPORT_ORDER, [
+    emqx_connector,
+    emqx_bridge_v2
+]).
+
 -define(DEFAULT_OPTS, #{}).
 -define(tar(_FileName_), _FileName_ ++ ?TAR_SUFFIX).
 -define(fmt_tar_err(_Expr_),
@@ -534,7 +540,7 @@ do_import_conf(RawConf, Opts) ->
     GenConfErrs = filter_errors(maps:from_list(import_generic_conf(RawConf))),
     maybe_print_errors(GenConfErrs, Opts),
     Errors =
-        lists:foldr(
+        lists:foldl(
             fun(Module, ErrorsAcc) ->
                 case Module:import_config(RawConf) of
                     {ok, #{changed := Changed}} ->
@@ -545,10 +551,26 @@ do_import_conf(RawConf, Opts) ->
                 end
             end,
             GenConfErrs,
-            find_behaviours(emqx_config_backup)
+            sort_importer_modules(find_behaviours(emqx_config_backup))
         ),
     maybe_print_errors(Errors, Opts),
     Errors.
+
+sort_importer_modules(Modules) ->
+    lists:sort(
+        fun(M1, M2) -> order(M1, ?IMPORT_ORDER) =< order(M2, ?IMPORT_ORDER) end,
+        Modules
+    ).
+
+order(Elem, List) ->
+    order(Elem, List, 0).
+
+order(_Elem, [], Order) ->
+    Order;
+order(Elem, [Elem | _], Order) ->
+    Order;
+order(Elem, [_ | T], Order) ->
+    order(Elem, T, Order + 1).
 
 import_generic_conf(Data) ->
     lists:map(
