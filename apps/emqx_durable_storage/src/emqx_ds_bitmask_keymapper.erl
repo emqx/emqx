@@ -154,7 +154,8 @@
 
 -opaque keymapper() :: #keymapper{}.
 
--type scalar_range() :: any | {'=', scalar() | infinity} | {'>=', scalar()}.
+-type scalar_range() ::
+    any | {'=', scalar() | infinity} | {'>=', scalar()} | {scalar(), '..', scalar()}.
 
 -include("emqx_ds_bitmask.hrl").
 
@@ -523,7 +524,9 @@ constraints_to_ranges(#keymapper{dim_sizeof = DimSizeof}, Filter) ->
             ({'=', Val}, _Bitsize) ->
                 {Val, Val};
             ({'>=', Val}, Bitsize) ->
-                {Val, ones(Bitsize)}
+                {Val, ones(Bitsize)};
+            ({Min, '..', Max}, _Bitsize) ->
+                {Min, Max}
         end,
         Filter,
         DimSizeof

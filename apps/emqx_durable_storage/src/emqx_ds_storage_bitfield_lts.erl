@@ -206,7 +206,7 @@ next_until(#s{db = DB, data = CF, keymappers = Keymappers}, It, SafeCutoffTime, 
     %% Make filter:
     Inequations = [
         {'=', TopicIndex},
-        {'>=', StartTime}
+        {StartTime, '..', SafeCutoffTime - 1}
         | lists:map(
             fun
                 ('+') ->
