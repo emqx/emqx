@@ -142,21 +142,9 @@ parameters() ->
 
 subscriptions(get, #{query_string := QString}) ->
     Response =
-        try
-            begin
-                case maps:get(<<"match_topic">>, QString, undefined) of
-                    undefined ->
-                        do_subscriptions_query(QString);
-                    MatchTopic ->
-                        case emqx_topic:parse(MatchTopic) of
-                            {#share{}, _} -> {error, invalid_match_topic};
-                            _ -> do_subscriptions_query(QString)
-                        end
-                end
-            end
-        catch
-            error:{invalid_topic_filter, _} ->
-                {error, invalid_match_topic}
+        case check_match_topic(QString) of
+            ok -> do_subscriptions_query(QString);
+            {error, _} = Err -> Err
         end,
     case Response of
         {error, invalid_match_topic} ->
@@ -169,6 +157,31 @@ subscriptions(get, #{query_string := QString}) ->
         Result ->
             {200, Result}
     end.
+
+format(WhichNode, {{Topic, _Subscriber}, SubOpts}) ->
+    maps:merge(
+        #{
+            topic => emqx_topic:maybe_format_share(Topic),
+            clientid => maps:get(subid, SubOpts, null),
+            node => WhichNode
+        },
+        maps:with([qos, nl, rap, rh], SubOpts)
+    ).
+
+%%--------------------------------------------------------------------
+%% Internal functions
+%%--------------------------------------------------------------------
+
+check_match_topic(#{<<"match_topic">> := MatchTopic}) ->
+    try emqx_topic:parse(MatchTopic) of
+        {#share{}, _} -> {error, invalid_match_topic};
+        _ -> ok
+    catch
+        error:{invalid_topic_filter, _} ->
+            {error, invalid_match_topic}
+    end;
+check_match_topic(_) ->
+    ok.
 
 do_subscriptions_query(QString) ->
     Args = [?SUBOPTION, QString, ?SUBS_QSCHEMA, fun ?MODULE:qs2ms/2, fun ?MODULE:format/2],
@@ -183,16 +196,6 @@ do_subscriptions_query(QString) ->
                     {error, Node0, {badrpc, <<"invalid node">>}}
             end
     end.
-
-format(WhichNode, {{Topic, _Subscriber}, SubOpts}) ->
-    maps:merge(
-        #{
-            topic => emqx_topic:maybe_format_share(Topic),
-            clientid => maps:get(subid, SubOpts, null),
-            node => WhichNode
-        },
-        maps:with([qos, nl, rap, rh], SubOpts)
-    ).
 
 %%--------------------------------------------------------------------
 %% QueryString to MatchSpec
