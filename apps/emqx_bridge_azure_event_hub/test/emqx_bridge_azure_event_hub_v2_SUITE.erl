@@ -15,7 +15,6 @@
 -define(CONNECTOR_TYPE, azure_event_hub_producer).
 -define(CONNECTOR_TYPE_BIN, <<"azure_event_hub_producer">>).
 -define(KAFKA_BRIDGE_TYPE, kafka_producer).
--define(APPS, [emqx_resource, emqx_connector, emqx_bridge, emqx_rule_engine]).
 
 -import(emqx_common_test_helpers, [on_exit/1]).
 
@@ -43,6 +42,7 @@ init_per_suite(Config) ->
                     emqx_resource,
                     emqx_bridge_azure_event_hub,
                     emqx_bridge,
+                    emqx_rule_engine,
                     {emqx_dashboard, "dashboard.listeners.http { enable = true, bind = 18083 }"}
                 ],
                 #{work_dir => ?config(priv_dir, Config)}
