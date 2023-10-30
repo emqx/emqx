@@ -283,6 +283,13 @@ config_enable.desc:
 config_enable.label:
 """Enable or Disable"""
 
+
+config_connector.desc:
+"""Reference to connector"""
+
+config_connector.label:
+"""Connector"""
+
 consumer_mqtt_payload.desc:
 """The template for transforming the incoming Kafka message.  By default, it will use JSON format to serialize inputs from the Kafka message.  Such fields are:
 <code>headers</code>: an object containing string key-value pairs.
@@ -421,5 +428,27 @@ sync_query_timeout.desc:
 
 sync_query_timeout.label:
 """Synchronous Query Timeout"""
+
+
+kafka_producer_action.desc:
+"""Kafka Producer Action"""
+
+kafka_producer_action.label:
+"""Kafka Producer Action"""
+
+ssl_client_opts.desc:
+"""TLS/SSL options for Kafka client."""
+ssl_client_opts.label:
+"""TLS/SSL options"""
+
+server_name_indication.desc:
+"""Server Name Indication (SNI) setting for TLS handshake.<br/>
+- <code>auto</code>: Allow the client to automatically determine the appropriate SNI.<br/>
+- <code>disable</code>: If you wish to prevent the client from sending the SNI.<br/>
+- Other string values will be sent as-is."""
+
+server_name_indication.label:
+"""SNI"""
+
 
 }

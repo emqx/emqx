@@ -326,7 +326,7 @@ which accepts the connection and performs TLS handshake may differ from the
 host the TLS client initially connects to, e.g. when connecting to an IP address
 or when the host has multiple resolvable DNS records <br/>
 If not specified, it will default to the host name string which is used
-to establish the connection, unless it is IP addressed used.<br/>
+to establish the connection, unless it is IP address used.<br/>
 The host name is then also used in the host name verification of the peer
 certificate.<br/> The special value 'disable' prevents the Server Name
 Indication extension from being sent and disables the hostname
