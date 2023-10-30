@@ -168,6 +168,10 @@
 %% transformation from a list of bitsources.
 %%
 %% Note: Dimension is 1-based.
+%%
+%% Note: order of bitsources is important. First element of the list
+%% is mapped to the _least_ significant bits of the key, and the last
+%% element becomes most significant bits.
 -spec make_keymapper([bitsource()]) -> keymapper().
 make_keymapper(Bitsources) ->
     Arr0 = array:new([{fixed, false}, {default, {0, []}}]),
@@ -207,12 +211,13 @@ vector_to_key(#keymapper{scanner = [Actions | Scanner]}, [Coord | Vector]) ->
 %% @doc Same as `vector_to_key', but it works with binaries, and outputs a binary.
 -spec bin_vector_to_key(keymapper(), [binary()]) -> binary().
 bin_vector_to_key(Keymapper = #keymapper{dim_sizeof = DimSizeof, size = Size}, Binaries) ->
-    Vec = lists:map(
-        fun({Bin, SizeOf}) ->
+    Vec = lists:zipwith(
+        fun(Bin, SizeOf) ->
             <<Int:SizeOf, _/binary>> = Bin,
             Int
         end,
-        lists:zip(Binaries, DimSizeof)
+        Binaries,
+        DimSizeof
     ),
     Key = vector_to_key(Keymapper, Vec),
     <<Key:Size>>.
@@ -241,13 +246,15 @@ key_to_vector(#keymapper{scanner = Scanner}, Key) ->
 bin_key_to_vector(Keymapper = #keymapper{dim_sizeof = DimSizeof, size = Size}, BinKey) ->
     <<Key:Size>> = BinKey,
     Vector = key_to_vector(Keymapper, Key),
-    lists:map(
-        fun({Elem, SizeOf}) ->
+    lists:zipwith(
+        fun(Elem, SizeOf) ->
             <<Elem:SizeOf>>
         end,
-        lists:zip(Vector, DimSizeof)
+        Vector,
+        DimSizeof
     ).
 
+%% @doc Transform a bitstring to a key
 -spec bitstring_to_key(keymapper(), bitstring()) -> key().
 bitstring_to_key(#keymapper{size = Size}, Bin) ->
     case Bin of
@@ -257,6 +264,7 @@ bitstring_to_key(#keymapper{size = Size}, Bin) ->
             error({invalid_key, Bin, Size})
     end.
 
+%% @doc Transform key to a fixed-size bistring
 -spec key_to_bitstring(keymapper(), key()) -> bitstring().
 key_to_bitstring(#keymapper{size = Size}, Key) ->
     <<Key:Size>>.
@@ -267,13 +275,15 @@ make_filter(
     KeyMapper = #keymapper{schema = Schema, dim_sizeof = DimSizeof, size = TotalSize}, Filter0
 ) ->
     NDim = length(DimSizeof),
-    %% Transform "symbolic" inequations to ranges:
-    Filter1 = inequations_to_ranges(KeyMapper, Filter0),
+    %% Transform "symbolic" constraints to ranges:
+    Filter1 = constraints_to_ranges(KeyMapper, Filter0),
     {Bitmask, Bitfilter} = make_bitfilter(KeyMapper, Filter1),
     %% Calculate maximum source offset as per bitsource specification:
     MaxOffset = lists:foldl(
         fun({Dim, Offset, _Size}, Acc) ->
-            maps:update_with(Dim, fun(OldVal) -> max(OldVal, Offset) end, 0, Acc)
+            maps:update_with(
+                Dim, fun(OldVal) -> max(OldVal, Offset) end, maps:merge(#{Dim => 0}, Acc)
+            )
         end,
         #{},
         Schema
@@ -288,11 +298,11 @@ make_filter(
     %%
     %% This is needed so when we increment the vector, we always scan
     %% the full range of least significant bits.
-    Filter2 = lists:map(
+    Filter2 = lists:zipwith(
         fun
-            ({{Val, Val}, _Dim}) ->
+            ({Val, Val}, _Dim) ->
                 {Val, Val};
-            ({{Min0, Max0}, Dim}) ->
+            ({Min0, Max0}, Dim) ->
                 Offset = maps:get(Dim, MaxOffset, 0),
                 %% Set least significant bits of Min to 0:
                 Min = (Min0 bsr Offset) bsl Offset,
@@ -300,7 +310,8 @@ make_filter(
                 Max = Max0 bor ones(Offset),
                 {Min, Max}
         end,
-        lists:zip(Filter1, lists:seq(1, NDim))
+        Filter1,
+        lists:seq(1, NDim)
     ),
     %% Project the vector into "bitsource coordinate system":
     {_, Filter} = fold_bitsources(
@@ -340,10 +351,37 @@ make_filter(
         range_max = RangeMax
     }.
 
+%% @doc Given a filter `F' and key `K0', return the smallest key `K'
+%% that satisfies the following conditions:
+%%
+%% 1. `K >= K0'
+%%
+%% 2. `K' satisfies filter `F'.
+%%
+%% If these conditions cannot be satisfied, return `overflow'.
+%%
+%% Corollary: `K' may be equal to `K0'.
 -spec ratchet(filter(), key()) -> key() | overflow.
 ratchet(#filter{bitsource_ranges = Ranges, range_max = Max}, Key) when Key =< Max ->
+    %% This function works in two steps: first, it finds the position
+    %% of bitsource ("pivot point") corresponding to the part of the
+    %% key that should be incremented (or set to the _minimum_ value
+    %% of the range, in case the respective part of the original key
+    %% is less than the minimum). It also returns "increment": value
+    %% that should be added to the part of the key at the pivot point.
+    %% Increment can be 0 or 1.
+    %%
+    %% Then it transforms the key using the following operation:
+    %%
+    %% 1. Parts of the key that are less than the pivot point are
+    %% reset to their minimum values.
+    %%
+    %% 2. `Increment' is added to the part of the key at the pivot
+    %% point.
+    %%
+    %% 3. The rest of key stays the same
     NDim = array:size(Ranges),
-    case ratchet_scan(Ranges, NDim, Key, 0, _Pivot = {-1, 0}, _Carry = 0) of
+    case ratchet_scan(Ranges, NDim, Key, 0, {_Pivot0 = -1, _Increment0 = 0}, _Carry = 0) of
         overflow ->
             overflow;
         {Pivot, Increment} ->
@@ -352,16 +390,21 @@ ratchet(#filter{bitsource_ranges = Ranges, range_max = Max}, Key) when Key =< Ma
 ratchet(_, _) ->
     overflow.
 
+%% @doc Given a binary representing a key and a filter, return the
+%% next key matching the filter, or `overflow' if such key doesn't
+%% exist.
 -spec bin_increment(filter(), binary()) -> binary() | overflow.
 bin_increment(Filter = #filter{size = Size}, <<>>) ->
     Key = ratchet(Filter, 0),
     <<Key:Size>>;
-bin_increment(Filter = #filter{size = Size, bitmask = Bitmask, bitfilter = Bitfilter}, KeyBin) ->
+bin_increment(
+    Filter = #filter{size = Size, bitmask = Bitmask, bitfilter = Bitfilter, range_max = RangeMax},
+    KeyBin
+) ->
     <<Key0:Size>> = KeyBin,
     Key1 = Key0 + 1,
     if
-        Key1 band Bitmask =:= Bitfilter ->
-            %% TODO: check overflow
+        Key1 band Bitmask =:= Bitfilter, Key1 =< RangeMax ->
             <<Key1:Size>>;
         true ->
             case ratchet(Filter, Key1) of
@@ -372,6 +415,10 @@ bin_increment(Filter = #filter{size = Size, bitmask = Bitmask, bitfilter = Bitfi
             end
     end.
 
+%% @doc Given a filter and a binary representation of a key, return
+%% `false' if the key _doesn't_ match the fitler. This function
+%% returning `true' is necessary, but not sufficient condition that
+%% the key satisfies the filter.
 -spec bin_checkmask(filter(), binary()) -> boolean().
 bin_checkmask(#filter{size = Size, bitmask = Bitmask, bitfilter = Bitfilter}, Key) ->
     case Key of
@@ -449,35 +496,37 @@ ratchet_do(Ranges, Key, I, Pivot, Increment) ->
 -spec make_bitfilter(keymapper(), [{non_neg_integer(), non_neg_integer()}]) ->
     {non_neg_integer(), non_neg_integer()}.
 make_bitfilter(Keymapper = #keymapper{dim_sizeof = DimSizeof}, Ranges) ->
-    L = lists:map(
+    L = lists:zipwith(
         fun
-            ({{N, N}, Bits}) ->
+            ({N, N}, Bits) ->
                 %% For strict equality we can employ bitmask:
                 {ones(Bits), N};
-            (_) ->
+            (_, _) ->
                 {0, 0}
         end,
-        lists:zip(Ranges, DimSizeof)
+        Ranges,
+        DimSizeof
     ),
     {Bitmask, Bitfilter} = lists:unzip(L),
     {vector_to_key(Keymapper, Bitmask), vector_to_key(Keymapper, Bitfilter)}.
 
 %% Transform inequalities into a list of closed intervals that the
 %% vector elements should lie in.
-inequations_to_ranges(#keymapper{dim_sizeof = DimSizeof}, Filter) ->
-    lists:map(
+constraints_to_ranges(#keymapper{dim_sizeof = DimSizeof}, Filter) ->
+    lists:zipwith(
         fun
-            ({any, Bitsize}) ->
+            (any, Bitsize) ->
                 {0, ones(Bitsize)};
-            ({{'=', infinity}, Bitsize}) ->
+            ({'=', infinity}, Bitsize) ->
                 Val = ones(Bitsize),
                 {Val, Val};
-            ({{'=', Val}, _Bitsize}) ->
+            ({'=', Val}, _Bitsize) ->
                 {Val, Val};
-            ({{'>=', Val}, Bitsize}) ->
+            ({'>=', Val}, Bitsize) ->
                 {Val, ones(Bitsize)}
         end,
-        lists:zip(Filter, DimSizeof)
+        Filter,
+        DimSizeof
     ).
 
 -spec fold_bitsources(fun((_DstOffset :: non_neg_integer(), bitsource(), Acc) -> Acc), Acc, [
@@ -679,7 +728,7 @@ ratchet1_test() ->
     ?assertEqual(0, ratchet(F, 0)),
     ?assertEqual(16#fa, ratchet(F, 16#fa)),
     ?assertEqual(16#ff, ratchet(F, 16#ff)),
-    ?assertEqual(overflow, ratchet(F, 16#100), "TBD: filter must store the upper bound").
+    ?assertEqual(overflow, ratchet(F, 16#100)).
 
 %% erlfmt-ignore
 ratchet2_test() ->
@@ -696,6 +745,11 @@ ratchet2_test() ->
     ?assertEqual(16#aa11cc00, ratchet(F1, 16#aa10dc11)),
     ?assertEqual(overflow,    ratchet(F1, 16#ab000000)),
     F2 = make_filter(M, [{'=', 16#aa}, {'>=', 16#dddd}, {'=', 16#cc}]),
+    %% TODO: note that it's `16#aaddcc00` instead of
+    %% `16#aaddccdd'. That is because currently ratchet function
+    %% doesn't take LSBs of an '>=' interval if it has a hole in the
+    %% middle (see `make_filter/2'). This only adds extra keys to the
+    %% very first interval, so it's not deemed a huge problem.
     ?assertEqual(16#aaddcc00, ratchet(F2, 0)),
     ?assertEqual(16#aa_de_cc_00, ratchet(F2, 16#aa_dd_cd_11)).
 
@@ -721,18 +775,18 @@ ratchet3_test_() ->
 %% Note: this function iterates through the full range of keys, so its
 %% complexity grows _exponentially_ with the total size of the
 %% keymapper.
-test_iterate(Filter, overflow) ->
+test_iterate(_Filter, overflow) ->
     true;
 test_iterate(Filter, Key0) ->
     Key = ratchet(Filter, Key0 + 1),
     ?assert(ratchet_prop(Filter, Key0, Key)),
     test_iterate(Filter, Key).
 
-ratchet_prop(Filter = #filter{bitfilter = Bitfilter, bitmask = Bitmask, size = Size}, Key0, Key) ->
+ratchet_prop(#filter{bitfilter = Bitfilter, bitmask = Bitmask, size = Size}, Key0, Key) ->
     %% Validate basic properties of the generated key. It must be
     %% greater than the old key, and match the bitmask:
     ?assert(Key =:= overflow orelse (Key band Bitmask =:= Bitfilter)),
-    ?assert(Key > Key0, {Key, '>=', Key}),
+    ?assert(Key > Key0, {Key, '>=', Key0}),
     IMax = ones(Size),
     %% Iterate through all keys between `Key0 + 1' and `Key' and
     %% validate that none of them match the bitmask. Ultimately, it
@@ -750,7 +804,7 @@ ratchet_prop(Filter = #filter{bitfilter = Bitfilter, bitmask = Bitmask, size = S
     CheckGaps(Key0 + 1).
 
 mkbmask(Keymapper, Filter0) ->
-    Filter = inequations_to_ranges(Keymapper, Filter0),
+    Filter = constraints_to_ranges(Keymapper, Filter0),
     make_bitfilter(Keymapper, Filter).
 
 key2vec(Schema, Vector) ->

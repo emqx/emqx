@@ -45,7 +45,7 @@
 %% Note: this record might be stored permanently on a remote node.
 -record(stream, {
     generation :: gen_id(),
-    enc :: _EncapsultatedData,
+    enc :: _EncapsulatedData,
     misc = #{} :: map()
 }).
 
@@ -54,7 +54,7 @@
 %% Note: this record might be stored permanently on a remote node.
 -record(it, {
     generation :: gen_id(),
-    enc :: _EncapsultatedData,
+    enc :: _EncapsulatedData,
     misc = #{} :: map()
 }).
 
@@ -83,10 +83,10 @@
 %%%% Shard:
 
 -type shard(GenData) :: #{
-    %% ID of the current generation (where the new data is written:)
+    %% ID of the current generation (where the new data is written):
     current_generation := gen_id(),
     %% This data is used to create new generation:
-    prototype := {module(), term()},
+    prototype := prototype(),
     %% Generations:
     {generation, gen_id()} => GenData
 }.

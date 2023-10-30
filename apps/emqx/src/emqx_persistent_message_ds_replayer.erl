@@ -72,7 +72,13 @@ replay(_SessionId, _Inflight = #inflight{offset_ranges = _Ranges}) ->
 
 -spec commit_offset(emqx_persistent_session_ds:id(), emqx_types:packet_id(), inflight()) ->
     {_IsValidOffset :: boolean(), inflight()}.
-commit_offset(SessionId, PacketId, Inflight0 = #inflight{acked_seqno = AckedSeqno0, next_seqno = NextSeqNo, offset_ranges = Ranges0}) ->
+commit_offset(
+    SessionId,
+    PacketId,
+    Inflight0 = #inflight{
+        acked_seqno = AckedSeqno0, next_seqno = NextSeqNo, offset_ranges = Ranges0
+    }
+) ->
     AckedSeqno = packet_id_to_seqno(NextSeqNo, PacketId),
     true = AckedSeqno0 < AckedSeqno,
     Ranges = lists:filter(

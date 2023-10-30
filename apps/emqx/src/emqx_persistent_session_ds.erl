@@ -281,7 +281,8 @@ publish(_PacketId, Msg, Session) ->
 puback(_ClientInfo, PacketId, Session = #{id := Id, inflight := Inflight0}) ->
     case emqx_persistent_message_ds_replayer:commit_offset(Id, PacketId, Inflight0) of
         {true, Inflight} ->
-            Msg = #message{}, %% TODO
+            %% TODO
+            Msg = #message{},
             {ok, Msg, [], Session#{inflight => Inflight}};
         {false, _} ->
             {error, ?RC_PACKET_IDENTIFIER_NOT_FOUND}

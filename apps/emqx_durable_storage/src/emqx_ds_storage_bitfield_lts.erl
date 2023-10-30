@@ -14,11 +14,8 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
-%% @doc Reference implementation of the storage.
-%%
-%% Trivial, extremely slow and inefficient. It also doesn't handle
-%% restart of the Erlang node properly, so obviously it's only to be
-%% used for testing.
+%% @doc A storage layout based on learned topic structure and using
+%% bitfield mapping for the varying topic layers.
 -module(emqx_ds_storage_bitfield_lts).
 
 -behaviour(emqx_ds_storage_layer).
@@ -82,6 +79,9 @@
 
 -define(COUNTER, emqx_ds_storage_bitfield_lts_counter).
 
+%% Limit on the number of wildcard levels in the learned topic trie:
+-define(WILDCARD_LIMIT, 10).
+
 -include("emqx_ds_bitmask.hrl").
 
 %%================================================================================
@@ -140,7 +140,7 @@ open(_Shard, DBHandle, GenId, CFRefs, Schema) ->
     %% If user's topics have more than learned 10 wildcard levels
     %% (more than 2, really), then it's total carnage; learned topic
     %% structure won't help.
-    MaxWildcardLevels = 10,
+    MaxWildcardLevels = ?WILDCARD_LIMIT,
     KeymapperCache = array:from_list(
         [
             make_keymapper(TopicIndexBytes, BitsPerTopicLevel, TSBits, TSOffsetBits, N)
@@ -201,6 +201,9 @@ next(_Shard, #s{db = DB, data = CF, keymappers = Keymappers}, It0, BatchSize) ->
     %% levels. Magic constant 2: we have two extra dimensions of topic
     %% index and time; the rest of dimensions are varying levels.
     NVarying = length(Inequations) - 2,
+    %% Assert:
+    NVarying =< ?WILDCARD_LIMIT orelse
+        error({too_many_varying_topic_levels, NVarying}),
     Keymapper = array:get(NVarying, Keymappers),
     Filter =
         #filter{range_min = LowerBound, range_max = UpperBound} = emqx_ds_bitmask_keymapper:make_filter(
@@ -208,7 +211,7 @@ next(_Shard, #s{db = DB, data = CF, keymappers = Keymappers}, It0, BatchSize) ->
         ),
     {ok, ITHandle} = rocksdb:iterator(DB, CF, [
         {iterate_lower_bound, emqx_ds_bitmask_keymapper:key_to_bitstring(Keymapper, LowerBound)},
-        {iterate_upper_bound, emqx_ds_bitmask_keymapper:key_to_bitstring(Keymapper, UpperBound)}
+        {iterate_upper_bound, emqx_ds_bitmask_keymapper:key_to_bitstring(Keymapper, UpperBound + 1)}
     ]),
     try
         put(?COUNTER, 0),

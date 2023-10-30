@@ -13,6 +13,9 @@
 %% See the License for the specific language governing permissions and
 %% limitations under the License.
 %%--------------------------------------------------------------------
+
+%% @doc Replication layer for DS backends that don't support
+%% replication on their own.
 -module(emqx_ds_replication_layer).
 
 -export([
