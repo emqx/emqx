@@ -34,10 +34,6 @@ CT_COVER_EXPORT_PREFIX ?= $(PROFILE)
 
 export REBAR_GIT_CLONE_OPTIONS += --depth=1
 
-.PHONY: nothing
-nothing:
-	@:
-
 .PHONY: default
 default: $(REBAR) $(PROFILE)
 
@@ -324,3 +320,7 @@ clean-test-cluster-config:
 .PHONY: spellcheck
 spellcheck:
 	./scripts/spellcheck/spellcheck.sh _build/docgen/$(PROFILE)/schema-en.json
+
+.PHONY: nothing
+nothing:
+	@:
