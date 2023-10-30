@@ -185,3 +185,29 @@ hash_examples() ->
             }
         }
     ].
+
+t_pbkdf2_schema(_Config) ->
+    Config = fun(Iterations) ->
+        #{
+            <<"pbkdf2">> => #{
+                <<"name">> => <<"pbkdf2">>,
+                <<"mac_fun">> => <<"sha">>,
+                <<"iterations">> => Iterations
+            }
+        }
+    end,
+
+    ?assertException(
+        throw,
+        {emqx_authn_password_hashing, _},
+        hocon_tconf:check_plain(emqx_authn_password_hashing, Config(0), #{}, [pbkdf2])
+    ),
+    ?assertException(
+        throw,
+        {emqx_authn_password_hashing, _},
+        hocon_tconf:check_plain(emqx_authn_password_hashing, Config(-1), #{}, [pbkdf2])
+    ),
+    ?assertMatch(
+        #{<<"pbkdf2">> := _},
+        hocon_tconf:check_plain(emqx_authn_password_hashing, Config(1), #{}, [pbkdf2])
+    ).

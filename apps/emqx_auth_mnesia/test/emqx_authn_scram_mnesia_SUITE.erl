@@ -314,6 +314,74 @@ t_update_user(_) ->
 
     {ok, #{is_superuser := true}} = emqx_authn_scram_mnesia:lookup_user(<<"u">>, State).
 
+t_update_user_keys(_Config) ->
+    Algorithm = sha512,
+    Username = <<"u">>,
+    Password = <<"p">>,
+
+    init_auth(Username, <<"badpass">>, Algorithm),
+
+    {ok, [#{state := State}]} = emqx_authn_chains:list_authenticators(?GLOBAL),
+
+    emqx_authn_scram_mnesia:update_user(
+        Username,
+        #{password => Password},
+        State
+    ),
+
+    ok = emqx_config:put([mqtt, idle_timeout], 500),
+
+    {ok, Pid} = emqx_authn_mqtt_test_client:start_link("127.0.0.1", 1883),
+
+    ClientFirstMessage = esasl_scram:client_first_message(Username),
+
+    ConnectPacket = ?CONNECT_PACKET(
+        #mqtt_packet_connect{
+            proto_ver = ?MQTT_PROTO_V5,
+            properties = #{
+                'Authentication-Method' => <<"SCRAM-SHA-512">>,
+                'Authentication-Data' => ClientFirstMessage
+            }
+        }
+    ),
+
+    ok = emqx_authn_mqtt_test_client:send(Pid, ConnectPacket),
+
+    ?AUTH_PACKET(
+        ?RC_CONTINUE_AUTHENTICATION,
+        #{'Authentication-Data' := ServerFirstMessage}
+    ) = receive_packet(),
+
+    {continue, ClientFinalMessage, ClientCache} =
+        esasl_scram:check_server_first_message(
+            ServerFirstMessage,
+            #{
+                client_first_message => ClientFirstMessage,
+                password => Password,
+                algorithm => Algorithm
+            }
+        ),
+
+    AuthContinuePacket = ?AUTH_PACKET(
+        ?RC_CONTINUE_AUTHENTICATION,
+        #{
+            'Authentication-Method' => <<"SCRAM-SHA-512">>,
+            'Authentication-Data' => ClientFinalMessage
+        }
+    ),
+
+    ok = emqx_authn_mqtt_test_client:send(Pid, AuthContinuePacket),
+
+    ?CONNACK_PACKET(
+        ?RC_SUCCESS,
+        _,
+        #{'Authentication-Data' := ServerFinalMessage}
+    ) = receive_packet(),
+
+    ok = esasl_scram:check_server_final_message(
+        ServerFinalMessage, ClientCache#{algorithm => Algorithm}
+    ).
+
 t_list_users(_) ->
     Config = config(),
     {ok, State} = emqx_authn_scram_mnesia:create(<<"id">>, Config),
