@@ -39,10 +39,11 @@
 connector_examples(_Method) ->
     [
         #{
-            <<"kafka">> => #{
+            <<"kafka_producer">> => #{
                 summary => <<"Kafka Connector">>,
                 value => maps:merge(
-                    #{name => <<"my_connector">>, type => <<"kafka">>}, values(common_config)
+                    #{name => <<"my_connector">>, type => <<"kafka_producer">>},
+                    values(common_config)
                 )
             }
         }
@@ -61,7 +62,7 @@ bridge_v2_examples(Method) ->
 conn_bridge_examples(Method) ->
     [
         #{
-            <<"kafka">> => #{
+            <<"kafka_producer">> => #{
                 summary => <<"Kafka Producer Bridge">>,
                 value => values({Method, producer})
             }
@@ -90,8 +91,8 @@ values({get, KafkaType}) ->
 values({post, KafkaType}) ->
     maps:merge(
         #{
-            name => <<"my_bridge">>,
-            type => <<"kafka">>
+            name => <<"my_kafka_bridge">>,
+            type => <<"kafka_producer">>
         },
         values({put, KafkaType})
     );
@@ -612,7 +613,7 @@ struct_names() ->
 
 %% -------------------------------------------------------------------------------------------------
 %% internal
-type_field("connector") ->
+type_field(BridgeV2Type) when BridgeV2Type =:= "connector"; BridgeV2Type =:= "bridge_v2" ->
     {type, mk(enum([kafka_producer]), #{required => true, desc => ?DESC("desc_type")})};
 type_field(_) ->
     {type,
