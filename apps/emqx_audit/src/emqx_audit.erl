@@ -12,7 +12,9 @@
 
 %% API
 -export([start_link/0]).
--export([log/1, log/2]).
+-export([log/3]).
+
+-export([trans_clean_expired/2]).
 
 %% gen_server callbacks
 -export([
@@ -26,12 +28,15 @@
 ]).
 
 -define(FILTER_REQ, [cert, host_info, has_sent_resp, pid, path_info, peer, ref, sock, streamid]).
--define(CLEAN_EXPIRED_MS, 60 * 1000).
+
+-ifdef(TEST).
+-define(INTERVAL, 100).
+-else.
+-define(INTERVAL, 10000).
+-endif.
 
 to_audit(#{from := cli, cmd := Cmd, args := Args, duration_ms := DurationMs}) ->
     #?AUDIT{
-        created_at = erlang:system_time(microsecond),
-        node = node(),
         operation_id = <<"">>,
         operation_type = atom_to_binary(Cmd),
         args = Args,
@@ -45,8 +50,6 @@ to_audit(#{from := cli, cmd := Cmd, args := Args, duration_ms := DurationMs}) ->
         http_method = <<"">>,
         http_request = <<"">>
     };
-to_audit(#{http_method := get}) ->
-    ok;
 to_audit(#{from := From} = Log) when From =:= dashboard orelse From =:= rest_api ->
     #{
         source := Source,
@@ -62,8 +65,6 @@ to_audit(#{from := From} = Log) when From =:= dashboard orelse From =:= rest_api
         duration_ms := DurationMs
     } = Log,
     #?AUDIT{
-        created_at = erlang:system_time(microsecond),
-        node = node(),
         from = From,
         source = Source,
         source_ip = SourceIp,
@@ -79,29 +80,8 @@ to_audit(#{from := From} = Log) when From =:= dashboard orelse From =:= rest_api
         duration_ms = DurationMs,
         args = <<"">>
     };
-to_audit(#{from := event, event := Event}) ->
-    #?AUDIT{
-        created_at = erlang:system_time(microsecond),
-        node = node(),
-        from = event,
-        source = <<"">>,
-        source_ip = <<"">>,
-        %% operation info
-        operation_id = iolist_to_binary(Event),
-        operation_type = <<"">>,
-        operation_result = <<"">>,
-        failure = <<"">>,
-        %% request detail
-        http_status_code = <<"">>,
-        http_method = <<"">>,
-        http_request = <<"">>,
-        duration_ms = 0,
-        args = <<"">>
-    };
 to_audit(#{from := erlang_console, function := F, args := Args}) ->
     #?AUDIT{
-        created_at = erlang:system_time(microsecond),
-        node = node(),
         from = erlang_console,
         source = <<"">>,
         source_ip = <<"">>,
@@ -118,16 +98,30 @@ to_audit(#{from := erlang_console, function := F, args := Args}) ->
         args = iolist_to_binary(io_lib:format("~p: ~p~n", [F, Args]))
     }.
 
-log(_Level, undefined) ->
+log(_Level, undefined, _Handler) ->
     ok;
-log(Level, Meta1) ->
+log(Level, Meta1, Handler) ->
     Meta2 = Meta1#{time => logger:timestamp(), level => Level},
-    Filter = [{emqx_audit, fun(L, _) -> L end, undefined, undefined}],
-    emqx_trace:log(Level, Filter, undefined, Meta2),
-    emqx_audit:log(Meta2).
+    log_to_file(Level, Meta2, Handler),
+    log_to_db(Meta2),
+    remove_handler_when_disabled().
 
-log(Log) ->
-    gen_server:cast(?MODULE, {write, to_audit(Log)}).
+remove_handler_when_disabled() ->
+    case emqx_config:get([log, audit, enable], false) of
+        true ->
+            ok;
+        false ->
+            _ = logger:remove_handler(?AUDIT_HANDLER),
+            ok
+    end.
+
+log_to_db(Log) ->
+    Audit0 = to_audit(Log),
+    Audit = Audit0#?AUDIT{
+        node = node(),
+        created_at = erlang:system_time(microsecond)
+    },
+    mria:dirty_write(?AUDIT, Audit).
 
 start_link() ->
     gen_server:start_link({local, ?MODULE}, ?MODULE, [], []).
@@ -142,80 +136,110 @@ init([]) ->
     ]),
     {ok, #{}, {continue, setup}}.
 
-handle_continue(setup, #{} = State) ->
+handle_continue(setup, State) ->
     ok = mria:wait_for_tables([?AUDIT]),
-    clean_expired(),
-    {noreply, State}.
+    NewState = State#{role => mria_rlog:role()},
+    ?AUDIT(alert, #{
+        cmd => emqx,
+        args => ["start"],
+        version => emqx_release:version(),
+        from => cli,
+        duration_ms => 0
+    }),
+    {noreply, NewState, interval(NewState)}.
 
-handle_call(_Request, _From, State = #{}) ->
-    {reply, ok, State}.
+handle_call(_Request, _From, State) ->
+    {reply, ignore, State, interval(State)}.
 
-handle_cast({write, Log}, State) ->
-    _ = write_log(Log),
-    {noreply, State#{}, ?CLEAN_EXPIRED_MS};
-handle_cast(_Request, State = #{}) ->
-    {noreply, State}.
+handle_cast(_Request, State) ->
+    {noreply, State, interval(State)}.
 
-handle_info(timeout, State = #{}) ->
-    clean_expired(),
-    {noreply, State, hibernate};
-handle_info(_Info, State = #{}) ->
-    {noreply, State}.
+handle_info(timeout, State) ->
+    ExtraWait = clean_expired_logs(),
+    {noreply, State, interval(State) + ExtraWait};
+handle_info(_Info, State) ->
+    {noreply, State, interval(State)}.
 
-terminate(_Reason, _State = #{}) ->
+terminate(_Reason, _State) ->
     ok.
 
-code_change(_OldVsn, State = #{}, _Extra) ->
+code_change(_OldVsn, State, _Extra) ->
     {ok, State}.
 
 %%%===================================================================
 %%% Internal functions
 %%%===================================================================
 
-write_log(Log) ->
-    case
-        mria:transaction(
-            ?COMMON_SHARD,
-            fun(L) ->
-                New =
-                    case mnesia:last(?AUDIT) of
-                        '$end_of_table' -> 1;
-                        LastId -> LastId + 1
-                    end,
-                mnesia:write(L#?AUDIT{seq = New})
-            end,
-            [Log]
-        )
-    of
-        {atomic, ok} ->
-            ok;
-        Reason ->
-            ?SLOG(warning, #{
-                msg => "write_audit_log_failed",
-                reason => Reason
-            })
-    end.
-
-clean_expired() ->
+%% if clean_expired transaction aborted, it will be scheduled with extra 60 seconds.
+clean_expired_logs() ->
     MaxSize = max_size(),
-    LatestId = latest_id(),
-    Min = LatestId - MaxSize,
-    %% MS = ets:fun2ms(fun(#?AUDIT{seq = Seq}) when Seq =< Min -> true end),
-    MS = [{#?AUDIT{seq = '$1', _ = '_'}, [{'=<', '$1', Min}], [true]}],
-    NumDeleted = mnesia:ets(fun ets:select_delete/2, [?AUDIT, MS]),
-    ?SLOG(debug, #{
-        msg => "clean_audit_log",
-        latest_id => LatestId,
-        min => Min,
-        deleted_number => NumDeleted
-    }),
-    ok.
-
-latest_id() ->
-    case mnesia:dirty_last(?AUDIT) of
-        '$end_of_table' -> 0;
-        Seq -> Seq
+    Oldest = mnesia:dirty_first(?AUDIT),
+    CurSize = mnesia:table_info(?AUDIT, size),
+    case CurSize - MaxSize of
+        DelSize when DelSize > 0 ->
+            case
+                mria:transaction(
+                    ?COMMON_SHARD,
+                    fun ?MODULE:trans_clean_expired/2,
+                    [Oldest, DelSize]
+                )
+            of
+                {atomic, ok} ->
+                    0;
+                {aborted, Reason} ->
+                    ?SLOG(error, #{
+                        msg => "clean_expired_audit_aborted",
+                        reason => Reason,
+                        delete_size => DelSize,
+                        current_size => CurSize,
+                        max_count => MaxSize
+                    }),
+                    60000
+            end;
+        _ ->
+            0
     end.
+
+trans_clean_expired(Oldest, DelCount) ->
+    First = mnesia:first(?AUDIT),
+    %% Other node already clean from the oldest record.
+    %% ensure not delete twice, otherwise records that should not be deleted will be deleted.
+    case First =:= Oldest of
+        true -> do_clean_expired(First, DelCount);
+        false -> ok
+    end.
+
+do_clean_expired(_, DelSize) when DelSize =< 0 -> ok;
+do_clean_expired('$end_of_table', _DelSize) ->
+    ok;
+do_clean_expired(CurKey, DeleteSize) ->
+    mnesia:delete(?AUDIT, CurKey, sticky_write),
+    do_clean_expired(mnesia:next(?AUDIT, CurKey), DeleteSize - 1).
 
 max_size() ->
     emqx_conf:get([log, audit, max_filter_size], 5000).
+
+interval(#{role := replicant}) -> hibernate;
+interval(#{role := core}) -> ?INTERVAL + rand:uniform(?INTERVAL).
+
+log_to_file(Level, Meta, #{module := Module} = Handler) ->
+    Log = #{level => Level, meta => Meta, msg => undefined},
+    Handler1 = maps:without(?OWN_KEYS, Handler),
+    try
+        erlang:apply(Module, log, [Log, Handler1])
+    catch
+        C:R:S ->
+            case logger:remove_handler(?AUDIT_HANDLER) of
+                ok ->
+                    logger:internal_log(
+                        error, {removed_failing_handler, ?AUDIT_HANDLER, C, R, S}
+                    );
+                {error, {not_found, _}} ->
+                    ok;
+                {error, Reason} ->
+                    logger:internal_log(
+                        error,
+                        {removed_handler_failed, ?AUDIT_HANDLER, Reason, C, R, S}
+                    )
+            end
+    end.

@@ -19,6 +19,19 @@
 
 -include_lib("eunit/include/eunit.hrl").
 
+all() ->
+    [
+        {group, audit, [sequence]}
+    ].
+
+groups() ->
+    [
+        {audit, [sequence], common_tests()}
+    ].
+
+common_tests() ->
+    emqx_common_test_helpers:all(?MODULE).
+
 -define(CONF_DEFAULT, #{
     node =>
         #{
@@ -40,15 +53,13 @@
     }
 }).
 
-all() ->
-    emqx_common_test_helpers:all(?MODULE).
-
 init_per_suite(Config) ->
     _ = application:load(emqx_conf),
     emqx_config:erase_all(),
     emqx_mgmt_api_test_util:init_suite([emqx_ctl, emqx_conf, emqx_audit]),
     ok = emqx_common_test_helpers:load_config(emqx_enterprise_schema, ?CONF_DEFAULT),
     emqx_config:save_schema_mod_and_names(emqx_enterprise_schema),
+    ok = emqx_config_logger:refresh_config(),
     application:set_env(emqx, boot_modules, []),
     emqx_conf_cli:load(),
     Config.
@@ -89,6 +100,44 @@ t_http_api(_) ->
     ),
     ok.
 
+t_disabled(_) ->
+    Enable = [log, audit, enable],
+    ?assertEqual(true, emqx:get_config(Enable)),
+    AuditPath = emqx_mgmt_api_test_util:api_path(["audit"]),
+    AuthHeader = emqx_mgmt_api_test_util:auth_header_(),
+    {ok, _} = emqx_mgmt_api_test_util:request_api(get, AuditPath, "limit=1", AuthHeader),
+    Size1 = mnesia:table_info(emqx_audit, size),
+
+    {ok, Logs} = emqx_mgmt_api_configs_SUITE:get_config("log"),
+    Logs1 = emqx_utils_maps:deep_put([<<"audit">>, <<"max_filter_size">>], Logs, 100),
+    NewLogs = emqx_utils_maps:deep_put([<<"audit">>, <<"enable">>], Logs1, false),
+    {ok, _} = emqx_mgmt_api_configs_SUITE:update_config("log", NewLogs),
+    {ok, GetLog1} = emqx_mgmt_api_configs_SUITE:get_config("log"),
+    ?assertEqual(NewLogs, GetLog1),
+    ?assertMatch(
+        {error, _},
+        emqx_mgmt_api_test_util:request_api(get, AuditPath, "limit=1", AuthHeader)
+    ),
+
+    Size2 = mnesia:table_info(emqx_audit, size),
+    %% Record the audit disable action, so the size + 1
+    ?assertEqual(Size1 + 1, Size2),
+
+    {ok, Zones} = emqx_mgmt_api_configs_SUITE:get_global_zone(),
+    NewZones = emqx_utils_maps:deep_put([<<"mqtt">>, <<"max_topic_levels">>], Zones, 111),
+    {ok, #{<<"mqtt">> := Res}} = emqx_mgmt_api_configs_SUITE:update_global_zone(NewZones),
+    ?assertMatch(#{<<"max_topic_levels">> := 111}, Res),
+    Size3 = mnesia:table_info(emqx_audit, size),
+    %% Don't record mqtt update request.
+    ?assertEqual(Size2, Size3),
+    %% enabled again
+    {ok, _} = emqx_mgmt_api_configs_SUITE:update_config("log", Logs1),
+    {ok, GetLog2} = emqx_mgmt_api_configs_SUITE:get_config("log"),
+    ?assertEqual(Logs1, GetLog2),
+    Size4 = mnesia:table_info(emqx_audit, size),
+    ?assertEqual(Size3 + 1, Size4),
+    ok.
+
 t_cli(_Config) ->
     ok = emqx_ctl:run_command(["conf", "show", "log"]),
     AuditPath = emqx_mgmt_api_test_util:api_path(["audit"]),
@@ -119,6 +168,35 @@ t_cli(_Config) ->
         get, AuditPath, "from=erlang_console", AuthHeader
     ),
     ?assertMatch(#{<<"data">> := []}, emqx_utils_json:decode(Res2, [return_maps])),
+    ok.
+
+t_max_size(_Config) ->
+    {ok, _} = emqx:update_config([log, audit, max_filter_size], 1000),
+    SizeFun =
+        fun() ->
+            AuditPath = emqx_mgmt_api_test_util:api_path(["audit"]),
+            AuthHeader = emqx_mgmt_api_test_util:auth_header_(),
+            Limit = "limit=1000",
+            {ok, Res} = emqx_mgmt_api_test_util:request_api(get, AuditPath, Limit, AuthHeader),
+            #{<<"data">> := Data} = emqx_utils_json:decode(Res, [return_maps]),
+            erlang:length(Data)
+        end,
+    InitSize = SizeFun(),
+    lists:foreach(
+        fun(_) ->
+            ok = emqx_ctl:run_command(["conf", "show", "log"])
+        end,
+        lists:duplicate(100, 1)
+    ),
+    timer:sleep(110),
+    Size1 = SizeFun(),
+    ?assert(Size1 - InitSize >= 100, {Size1, InitSize}),
+    {ok, _} = emqx:update_config([log, audit, max_filter_size], 10),
+    %% wait for clean_expired
+    timer:sleep(250),
+    ExpectSize = emqx:get_config([log, audit, max_filter_size]),
+    Size2 = SizeFun(),
+    ?assertEqual(ExpectSize, Size2, {sys:get_state(emqx_audit)}),
     ok.
 
 t_kickout_clients_without_log(_) ->
@@ -167,4 +245,4 @@ kickout_clients() ->
 
     {ok, Clients2} = emqx_mgmt_api_test_util:request_api(get, ClientsPath),
     ClientsResponse2 = emqx_utils_json:decode(Clients2, [return_maps]),
-    ?assertMatch(#{<<"meta">> := #{<<"count">> := 0}}, ClientsResponse2).
+    ?assertMatch(#{<<"data">> := []}, ClientsResponse2).

@@ -72,7 +72,7 @@ start_listeners(Listeners) ->
         base_path => emqx_dashboard_swagger:base_path(),
         modules => minirest_api:find_api_modules(apps()),
         authorization => Authorization,
-        log => fun emqx_dashboard_audit:log/2,
+        log => audit_log_fun(),
         security => [#{'basicAuth' => []}, #{'bearerAuth' => []}],
         swagger_global_spec => GlobalSpec,
         dispatch => dispatch(),
@@ -210,9 +210,19 @@ filter_false(K, V, S) -> [{K, V} | S].
 listener_name(Protocol) ->
     list_to_atom(atom_to_list(Protocol) ++ ":dashboard").
 
+-dialyzer({no_match, [audit_log_fun/0]}).
+
+audit_log_fun() ->
+    case emqx_release:edition() of
+        ee -> fun emqx_dashboard_audit:log/2;
+        ce -> undefined
+    end.
+
 -if(?EMQX_RELEASE_EDITION =/= ee).
+
 %% dialyzer complains about the `unauthorized_role' clause...
 -dialyzer({no_match, [authorize/1, api_key_authorize/3]}).
+
 -endif.
 
 authorize(Req) ->

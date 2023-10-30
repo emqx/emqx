@@ -5,7 +5,6 @@
 -define(AUDIT, emqx_audit).
 
 -record(?AUDIT, {
-    seq,
     %% basic info
     created_at,
     node,

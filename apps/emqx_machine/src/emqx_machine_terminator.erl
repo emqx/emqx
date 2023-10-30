@@ -68,8 +68,11 @@ graceful() ->
 %% @doc Shutdown the Erlang VM and wait indefinitely.
 graceful_wait() ->
     ?AUDIT(alert, #{
-        event => "emqx_gracefully_stop",
-        from => event
+        cmd => emqx,
+        args => ["stop"],
+        version => emqx_release:version(),
+        from => cli,
+        duration_ms => element(1, erlang:statistics(wall_clock))
     }),
     ok = graceful(),
     exit_loop().

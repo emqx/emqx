@@ -105,7 +105,7 @@ log_filter([{Id, FilterFun, Filter, Name} | Rest], Log0) ->
         ignore ->
             ignore;
         Log ->
-            case logger_config:get(ets:whereis(logger), Id) of
+            case logger_config:get(logger, Id) of
                 {ok, #{module := Module} = HandlerConfig0} ->
                     HandlerConfig = maps:without(?OWN_KEYS, HandlerConfig0),
                     try

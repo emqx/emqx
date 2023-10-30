@@ -16,14 +16,13 @@ filter_from.desc:
 `dashboard`: Dashboard request logs, requiring the use of a jwt_token.
 `rest_api`: API KEY request logs.
 `cli`: The emqx command line logs.
-`erlang_console`: The emqx remote_console run function logs.
-`event`: Logs related to events such as emqx_start, emqx_gracefully_stop, audit_enabled, and audit_disabled."""
+`erlang_console`: The emqx remote_console run function logs."""
 
 filter_source.desc:
 """"Filter logs based on source, Possible values are:
 The login username when logs are generated from the dashboard.
 The API Keys when logs are generated from the REST API.
-empty string when logs are generated from CLI, Erlang console, or an event."""
+empty string when logs are generated from CLI, Erlang console."""
 
 filter_source_ip.desc:
 "Filter logs based on source ip when logs are generated from dashboard and REST API."
