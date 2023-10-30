@@ -341,7 +341,8 @@ gateway_schema(stomp) -> emqx_stomp_schema:fields(stomp);
 gateway_schema(mqttsn) -> emqx_mqttsn_schema:fields(mqttsn);
 gateway_schema(coap) -> emqx_coap_schema:fields(coap);
 gateway_schema(lwm2m) -> emqx_lwm2m_schema:fields(lwm2m);
-gateway_schema(exproto) -> emqx_exproto_schema:fields(exproto).
+gateway_schema(exproto) -> emqx_exproto_schema:fields(exproto);
+gateway_schema(gbt32960) -> emqx_gbt32960_schema:fields(gbt32960).
 
 %%--------------------------------------------------------------------
 %% helpers

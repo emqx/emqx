@@ -161,12 +161,13 @@ gateway_enable(put, #{bindings := #{name := Name, enable := Enable}}) ->
             return_http_error(404, <<"NOT FOUND">>)
     end.
 
--spec gw_name(binary()) -> stomp | coap | lwm2m | mqttsn | exproto | no_return().
+-spec gw_name(binary()) -> stomp | coap | lwm2m | mqttsn | exproto | gbt32960 | no_return().
 gw_name(<<"stomp">>) -> stomp;
 gw_name(<<"coap">>) -> coap;
 gw_name(<<"lwm2m">>) -> lwm2m;
 gw_name(<<"mqttsn">>) -> mqttsn;
 gw_name(<<"exproto">>) -> exproto;
+gw_name(<<"gbt32960">>) -> gbt32960;
 gw_name(_Else) -> throw(not_found).
 
 %%--------------------------------------------------------------------
@@ -390,7 +391,8 @@ fields(Gw) when
     Gw == mqttsn;
     Gw == coap;
     Gw == lwm2m;
-    Gw == exproto
+    Gw == exproto;
+    Gw == gbt32960
 ->
     [{name, mk(Gw, #{desc => ?DESC(gateway_name)})}] ++
         convert_listener_struct(emqx_gateway_schema:gateway_schema(Gw));
@@ -399,7 +401,8 @@ fields(Gw) when
     Gw == update_mqttsn;
     Gw == update_coap;
     Gw == update_lwm2m;
-    Gw == update_exproto
+    Gw == update_exproto;
+    Gw == update_gbt32960
 ->
     "update_" ++ GwStr = atom_to_list(Gw),
     Gw1 = list_to_existing_atom(GwStr),
@@ -458,7 +461,8 @@ schema_load_or_update_gateways_conf() ->
             ref(?MODULE, update_mqttsn),
             ref(?MODULE, update_coap),
             ref(?MODULE, update_lwm2m),
-            ref(?MODULE, update_exproto)
+            ref(?MODULE, update_exproto),
+            ref(?MODULE, update_gbt32960)
         ]),
         examples_update_gateway_confs()
     ).
@@ -470,7 +474,8 @@ schema_gateways_conf() ->
             ref(?MODULE, mqttsn),
             ref(?MODULE, coap),
             ref(?MODULE, lwm2m),
-            ref(?MODULE, exproto)
+            ref(?MODULE, exproto),
+            ref(?MODULE, gbt32960)
         ]),
         examples_gateway_confs()
     ).
@@ -756,6 +761,30 @@ examples_gateway_confs() ->
                                 }
                             ]
                     }
+            },
+        gbt32960_gateway =>
+            #{
+                summary => <<"A simple GBT32960 gateway config">>,
+                value =>
+                    #{
+                        enable => true,
+                        name => <<"gbt32960">>,
+                        enable_stats => true,
+                        mountpoint => <<"gbt32960/${clientid}">>,
+                        retry_interval => <<"8s">>,
+                        max_retry_times => 3,
+                        message_queue_len => 10,
+                        listeners =>
+                            [
+                                #{
+                                    type => <<"tcp">>,
+                                    name => <<"default">>,
+                                    bind => <<"7325">>,
+                                    max_connections => 1024000,
+                                    max_conn_rate => 1000
+                                }
+                            ]
+                    }
             }
     }.
 
@@ -853,6 +882,19 @@ examples_update_gateway_confs() ->
                             #{bind => <<"9100">>},
                         handler =>
                             #{address => <<"http://127.0.0.1:9001">>}
+                    }
+            },
+        gbt32960_gateway =>
+            #{
+                summary => <<"A simple GBT32960 gateway config">>,
+                value =>
+                    #{
+                        enable => true,
+                        enable_stats => true,
+                        mountpoint => <<"gbt32960/${clientid}">>,
+                        retry_interval => <<"8s">>,
+                        max_retry_times => 3,
+                        message_queue_len => 10
                     }
             }
     }.
