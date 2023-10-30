@@ -233,9 +233,13 @@ list_with_lookup_fun(LookupFun) ->
                 fun(Name, _RawConf, Acc) ->
                     [
                         begin
-                            {ok, BridgeInfo} =
-                                LookupFun(Type, Name),
-                            BridgeInfo
+                            case LookupFun(Type, Name) of
+                                {ok, BridgeInfo} ->
+                                    BridgeInfo;
+                                {error, not_bridge_v1_compatible} = Err ->
+                                    %% Filtered out by the caller
+                                    Err
+                            end
                         end
                         | Acc
                     ]
