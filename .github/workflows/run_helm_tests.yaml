@@ -150,10 +150,10 @@ jobs:
     - name: Check cluster
       timeout-minutes: 1
       run: |
-        while
-          nodes_length="$(curl --silent -H "Authorization: Bearer $TOKEN" -X GET http://127.0.0.1:18083/api/v5/cluster| jq '.nodes|length')"
-          [ $nodes_length != "3" ]
+        nodes_length=0
+        until [ $nodes_length = "3" ]
         do
+          nodes_length="$(curl --silent -H "Authorization: Bearer $TOKEN" -X GET http://127.0.0.1:18083/api/v5/cluster| jq '.nodes|length')"
           echo "waiting ${EMQX_NAME} cluster scale. Current live nodes: $nodes_length."
           sleep 1
         done
