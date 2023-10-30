@@ -65,6 +65,7 @@
 
 -export([work_dir/1]).
 -export([work_dir/2]).
+-export([tc_group_path/1]).
 
 -export([load_apps/1]).
 -export([start_apps/2]).
@@ -396,13 +397,8 @@ work_dir(CTConfig) ->
     [PrivDir] = proplists:get_all_values(priv_dir, CTConfig),
     % Directory specific to the currently executing test suite.
     [DataDir] = proplists:get_all_values(data_dir, CTConfig),
-    % NOTE: Contains the name of the current test group, if executed as part of a group.
-    GroupProps = proplists:get_value(tc_group_properties, CTConfig, []),
-    % NOTE: Contains names of outer test groups, if any.
-    GroupPathOuter = proplists:get_value(tc_group_path, CTConfig, []),
+    GroupLevels = [atom_to_list(Name) || Name <- tc_group_path(CTConfig)],
     SuiteDir = filename:basename(DataDir),
-    GroupPath = lists:append([GroupProps | GroupPathOuter]),
-    GroupLevels = [atom_to_list(Name) || {name, Name} <- GroupPath],
     WorkDir1 = filename:join(PrivDir, SuiteDir),
     WorkDir2 =
         case GroupLevels of
@@ -422,6 +418,16 @@ work_dir(CTConfig) ->
 work_dir(TCName, CTConfig) ->
     WorkDir = work_dir(CTConfig),
     filename:join(WorkDir, TCName).
+
+-spec tc_group_path(CTConfig :: proplists:proplist()) ->
+    [_GroupName :: atom()].
+tc_group_path(CTConfig) ->
+    % NOTE: Contains the name of the current test group, if executed as part of a group.
+    GroupProps = proplists:get_value(tc_group_properties, CTConfig, []),
+    % NOTE: Contains names of outer test groups, if any.
+    GroupPathOuter = proplists:get_value(tc_group_path, CTConfig, []),
+    GroupPath = [GroupProps | GroupPathOuter],
+    [Name || Props <- GroupPath, {name, Name} <- Props].
 
 %%
 

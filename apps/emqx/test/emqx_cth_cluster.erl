@@ -41,11 +41,15 @@
 -export([start/2]).
 -export([stop/1, stop_node/1]).
 
+-export([merge_nodespecs/2]).
+
 -export([start_bare_node/2]).
 
 -export([share_load_module/2]).
 -export([node_name/1, mk_nodespecs/2]).
 -export([start_apps/2, set_node_opts/2]).
+
+-export_type([nodespec/0]).
 
 -define(APPS_CLUSTERING, [gen_rpc, mria, ekka]).
 
@@ -55,7 +59,7 @@
 
 %%
 
--type nodespec() :: {_ShortName :: atom(), #{
+-type nodespec() :: #{
     % DB Role
     % Default: `core`
     role => core | replicant,
@@ -95,10 +99,21 @@
 
     % Tooling to manage nodes
     % Default: `ct_slave`.
-    driver => ct_slave | slave
-}}.
+    driver => ct_slave | slave,
 
--spec start([nodespec()], ClusterOpts) ->
+    % Library path to start the node with
+    % See `ERL_LIBS` in `erl(1)` for details
+    % Default: none
+    erl_libs_path => string() | [file:name()],
+
+    % List of directories or modules to have in the code path on the node
+    % Default:
+    % * if `erl_libs_path` is defined: this module
+    % * otherwise: code path of the current node w/o common system and build tooling stuff
+    erl_code_path => [module() | file:name()]
+}.
+
+-spec start([{_ShortName :: atom(), nodespec()}], ClusterOpts) ->
     [node()]
 when
     ClusterOpts :: #{
@@ -110,16 +125,22 @@ when
 start(Nodes, ClusterOpts) ->
     NodeSpecs = mk_nodespecs(Nodes, ClusterOpts),
     ct:pal("Starting cluster:\n  ~p", [NodeSpecs]),
-    % 1. Start bare nodes with only basic applications running
-    _ = emqx_utils:pmap(fun start_node_init/1, NodeSpecs, ?TIMEOUT_NODE_START_MS),
-    % 2. Start applications needed to enable clustering
-    % Generally, this causes some applications to restart, but we deliberately don't
-    % start them yet.
-    _ = lists:foreach(fun run_node_phase_cluster/1, NodeSpecs),
-    % 3. Start applications after cluster is formed
-    % Cluster-joins are complete, so they shouldn't restart in the background anymore.
-    _ = emqx_utils:pmap(fun run_node_phase_apps/1, NodeSpecs, ?TIMEOUT_APPS_START_MS),
-    [Node || #{name := Node} <- NodeSpecs].
+    try
+        % 1. Start bare nodes with only basic applications running
+        _ = emqx_utils:pmap(fun start_node_init/1, NodeSpecs, ?TIMEOUT_NODE_START_MS),
+        % 2. Start applications needed to enable clustering
+        % Generally, this causes some applications to restart, but we deliberately don't
+        % start them yet.
+        _ = lists:foreach(fun run_node_phase_cluster/1, NodeSpecs),
+        % 3. Start applications after cluster is formed
+        % Cluster-joins are complete, so they shouldn't restart in the background anymore.
+        _ = emqx_utils:pmap(fun run_node_phase_apps/1, NodeSpecs, ?TIMEOUT_APPS_START_MS),
+        [Node || #{name := Node} <- NodeSpecs]
+    catch
+        C:E:Stacktrace ->
+            _ = [catch stop_node(Node, Spec) || Spec = #{name := Node} <- NodeSpecs],
+            erlang:raise(C, E, Stacktrace)
+    end.
 
 mk_nodespecs(Nodes, ClusterOpts) ->
     NodeSpecs = lists:zipwith(
@@ -287,7 +308,11 @@ start_node_init(Spec = #{name := Node}) ->
     % Make it possible to call `ct:pal` and friends (if running under rebar3)
     _ = share_load_module(Node, cthr),
     % Enable snabbkaffe trace forwarding
-    ok = snabbkaffe:forward_trace(Node),
+    try
+        snabbkaffe:forward_trace(Node)
+    catch
+        error:_ -> ct:pal(error, "Snabbkaffe traces forwarding unavailable")
+    end,
     ok.
 
 run_node_phase_cluster(Spec = #{name := Node}) ->
@@ -370,6 +395,32 @@ stop_node(Node, #{driver := ct_slave}) ->
 stop_node(Node, #{driver := slave}) ->
     slave:stop(Node).
 
+%%
+
+-spec merge_nodespecs(nodespec(), nodespec()) -> nodespec().
+merge_nodespecs(Spec1, Spec2) ->
+    maps:merge_with(
+        fun
+            (apps, A1, A2) -> merge_appspecs(A1, A2);
+            (_Key, _V1, V2) -> V2
+        end,
+        Spec1,
+        Spec2
+    ).
+
+merge_appspecs([{App, OptsProfile} | AppsProfile], Apps) ->
+    case lists:keytake(App, 1, Apps) of
+        {value, {App, Opts}, AppsRest} ->
+            OptsMerged = emqx_cth_suite:merge_appspec(OptsProfile, Opts),
+            [{App, OptsMerged} | merge_appspecs(AppsProfile, AppsRest)];
+        false ->
+            [{App, OptsProfile} | merge_appspecs(AppsProfile, Apps)]
+    end;
+merge_appspecs([App | AppsProfile], Apps) ->
+    merge_appspecs([{App, #{}} | AppsProfile], Apps);
+merge_appspecs([], Apps) ->
+    Apps.
+
 %% Ports
 
 base_port(Number) ->
@@ -400,13 +451,15 @@ start_bare_node(Name, Spec = #{driver := ct_slave}) ->
             {monitor_master, true},
             {init_timeout, 20_000},
             {startup_timeout, 20_000},
-            {erl_flags, erl_flags()},
-            {env, []}
+            {erl_flags, erl_args(Spec)},
+            {env, erl_envs(Spec)}
         ]
     ),
     init_bare_node(Node, Spec);
 start_bare_node(Name, Spec = #{driver := slave}) ->
-    {ok, Node} = slave:start_link(host(), Name, ebin_path()),
+    Env = [string:join(["-env", N, V], " ") || {N, V} <- erl_envs(Spec)],
+    Args = string:join(Env ++ erl_code_path_args(Spec), " "),
+    {ok, Node} = slave:start_link(host(), Name, Args),
     init_bare_node(Node, Spec).
 
 init_bare_node(Node, Spec) ->
@@ -415,12 +468,41 @@ init_bare_node(Node, Spec) ->
     ok = set_node_opts(Node, Spec),
     Node.
 
-erl_flags() ->
+erl_args(Spec) ->
     %% One core and redirecting logs to master
-    "+S 1:1 -master " ++ atom_to_list(node()) ++ " " ++ ebin_path().
+    string:join(
+        [
+            "+S 1:1",
+            "-master " ++ atom_to_list(node())
+            | erl_code_path_args(Spec)
+        ],
+        " "
+    ).
 
-ebin_path() ->
-    string:join(["-pa" | lists:filter(fun is_lib/1, code:get_path())], " ").
+erl_envs(#{erl_libs_path := Dirs = [Dir | _]}) when is_list(Dir) ->
+    [{"ERL_LIBS", string:join(Dirs, ":")}];
+erl_envs(#{erl_libs_path := Path}) when is_list(Path) ->
+    [{"ERL_LIBS", Path}];
+erl_envs(#{}) ->
+    [].
+
+erl_code_path_args(#{} = Spec) ->
+    erl_code_path_args(get_code_path(Spec));
+erl_code_path_args(Path = [_ | _]) ->
+    ["-pa" | Path];
+erl_code_path_args([]) ->
+    [].
+
+get_code_path(#{erl_libs_path := LPath} = Spec) when is_list(LPath) ->
+    CPath = maps:get(erl_code_path, Spec, []),
+    lists:usort([expand_code_path(X) || X <- [?MODULE | CPath]]);
+get_code_path(#{}) ->
+    lists:filter(fun is_lib/1, code:get_path()).
+
+expand_code_path(Dir) when is_list(Dir) ->
+    Dir;
+expand_code_path(Module) when is_atom(Module) ->
+    filename:dirname(code:which(Module)).
 
 is_lib(Path) ->
     string:prefix(Path, code:lib_dir()) =:= nomatch andalso

@@ -1,0 +1,49 @@
+name: Prepare compatibility testing profiles
+
+inputs:
+  platform:
+    description: 'Which platform to download releases for?'
+    required: false
+    default: 'ubuntu22.04-amd64'
+    type: string
+
+outputs:
+  profiles-file:
+    description: 'Name of the file containing compatibility profiles'
+    value: ${{ steps.generate.outputs.file }}
+
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      run: cat .env | tee -a $GITHUB_ENV
+    - name: Compute oldest compatible release version
+      id: vsn
+      shell: bash
+      run: |
+        prefix=$(echo $PROFILE | grep -q 'enterprise' && echo 'e' || echo 'v')
+        compat=$(./scripts/semver.sh ${PKG_VSN} | jq -r '"\(.major).\(.minor-1).0"')
+        echo "profile=${PROFILE}" | tee -a $GITHUB_OUTPUT
+        echo "compat-vsn=${compat}" | tee -a $GITHUB_OUTPUT
+        echo "compat-tag=${prefix}${compat}" | tee -a $GITHUB_OUTPUT
+    - name: Download release
+      uses: robinraju/release-downloader@v1.8
+      with:
+        repository: emqx/emqx
+        tag: ${{ steps.vsn.outputs.compat-tag }}
+        fileName: ${{ steps.vsn.outputs.profile }}-${{ steps.vsn.outputs.compat-vsn }}-${{ inputs.platform }}.tar.gz
+        extract: true
+        out-file-path: "_compat/${{ steps.vsn.outputs.compat-vsn }}"
+    - name: Generate compatibility profiles
+      id: generate
+      shell: bash
+      run: |
+        vsn="${{ steps.vsn.outputs.compat-vsn }}"
+        filename="${PWD}/_compat/profiles.eterm"
+        echo "file=${filename}" | tee -a $GITHUB_OUTPUT
+        cat <<EOF | tee "${filename}"
+        {oldest_compat_release, #{
+            description => "EMQX ${vsn}",
+            erl_libs_path => "${PWD}/_compat/${vsn}/lib"
+        }}.
+        EOF
