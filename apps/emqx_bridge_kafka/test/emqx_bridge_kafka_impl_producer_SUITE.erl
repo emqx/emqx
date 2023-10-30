@@ -50,14 +50,6 @@
 %%------------------------------------------------------------------------------
 
 all() ->
-    [
-        {group, all},
-        {group, rest_api},
-        {group, publish},
-        {group, query_mode}
-    ].
-
-groups() ->
     case code:get_object_code(cthr) of
         {Module, Code, Filename} ->
             {module, Module} = code:load_binary(Module, Filename, Code),
@@ -66,18 +58,20 @@ groups() ->
             error
     end,
     All0 = emqx_common_test_helpers:all(?MODULE),
-    All =
-        All0 -- [t_rest_api, t_publish, t_send_message_with_headers, t_wrong_headers_from_message],
-    [
-        {all, All},
-        {publish, [], sub_groups([t_publish])},
-        {rest_api, [], sub_groups([t_rest_api])},
-        {query_mode, [], sub_groups([t_send_message_with_headers, t_wrong_headers_from_message])}
-    ].
+    All = All0 -- matrix_cases(),
+    Groups = lists:map(fun({G, _, _}) -> {group, G} end, groups()),
+    Groups ++ All.
 
-sub_groups(Cases) ->
-    Matrix = lists:usort(lists:append([?MODULE:Case(matrix) || Case <- Cases])),
-    emqx_common_test_helpers:groups(Matrix, Cases).
+groups() ->
+    emqx_common_test_helpers:matrix_to_groups(?MODULE, matrix_cases()).
+
+matrix_cases() ->
+    [
+        t_rest_api,
+        t_publish,
+        t_send_message_with_headers,
+        t_wrong_headers_from_message
+    ].
 
 test_topic_one_partition() ->
     "test-topic-one-partition".
@@ -133,26 +127,6 @@ end_per_suite(_Config) ->
     _ = application:stop(emqx_connector),
     ok.
 
-init_per_group(all, Config) ->
-    Config;
-init_per_group(rest_api, Config) ->
-    Config;
-init_per_group(publish, Config) ->
-    Config;
-init_per_group(query_mode, Config) ->
-    Config;
-init_per_group(GroupName, Config) ->
-    case lists:keyfind(group_path, 1, Config) of
-        {group_path, Path} ->
-            NewPath = Path ++ [GroupName],
-            lists:keystore(group_path, 1, Config, {group_path, NewPath});
-        _ ->
-            [{group_path, [GroupName]} | Config]
-    end.
-
-end_per_group(_, _) ->
-    ok.
-
 init_per_testcase(TestCase, Config) ->
     case proplists:get_value(debug_case, Config) of
         TestCase ->
@@ -204,13 +178,13 @@ t_query_mode_async(CtConfig) ->
 %%------------------------------------------------------------------------------
 
 t_publish(matrix) ->
-    [
+    {publish, [
         [tcp, none, key_dispatch, sync],
         [ssl, scram_sha512, random, async],
         [ssl, kerberos, random, sync]
-    ];
+    ]};
 t_publish(Config) ->
-    Path = proplists:get_value(group_path, Config),
+    Path = group_path(Config),
     ct:comment(Path),
     [Transport, Auth, Partitioner, QueryMode] = Path,
     Hosts = kafka_hosts_string(Transport, Auth),
@@ -241,14 +215,14 @@ t_publish(Config) ->
 %%------------------------------------------------------------------------------
 
 t_rest_api(matrix) ->
-    [
+    {rest_api, [
         [tcp, none],
         [tcp, plain],
         [ssl, scram_sha256],
         [ssl, kerberos]
-    ];
+    ]};
 t_rest_api(Config) ->
-    Path = proplists:get_value(group_path, Config),
+    Path = group_path(Config),
     ct:comment(Path),
     [Transport, Auth] = Path,
     Hosts = kafka_hosts_string(Transport, Auth),
@@ -597,9 +571,9 @@ t_nonexistent_topic(_Config) ->
     ok.
 
 t_send_message_with_headers(matrix) ->
-    [[sync], [async]];
+    {query_mode, [[sync], [async]]};
 t_send_message_with_headers(Config) ->
-    [Mode] = proplists:get_value(group_path, Config),
+    [Mode] = group_path(Config),
     ct:comment(Mode),
     HostsString = kafka_hosts_string_sasl(),
     AuthSettings = valid_sasl_plain_settings(),
@@ -837,7 +811,7 @@ t_wrong_headers(_Config) ->
     ok.
 
 t_wrong_headers_from_message(matrix) ->
-    [[sync], [async]];
+    {query_mode, [[sync], [async]]};
 t_wrong_headers_from_message(Config) ->
     HostsString = kafka_hosts_string(),
     AuthSettings = "none",
@@ -931,7 +905,7 @@ do_send(Ref, Config, ResourceId, Msg, State, BridgeV2Id) when is_list(Config) ->
         Caller ! {ack, Ref},
         ok
     end,
-    case proplists:get_value(group_path, Config) of
+    case group_path(Config) of
         [async] ->
             {ok, _} = ?PRODUCER:on_query_async(ResourceId, {BridgeV2Id, Msg}, {F, []}, State),
             ok;
@@ -1286,3 +1260,13 @@ bin_map(Map) ->
         {erlang:iolist_to_binary(K), erlang:iolist_to_binary(V)}
      || {K, V} <- maps:to_list(Map)
     ]).
+
+%% return the path (reverse of the stack) of the test groups.
+%% root group is discarded.
+group_path(Config) ->
+    case emqx_common_test_helpers:group_path(Config) of
+        [] ->
+            undefined;
+        Path ->
+            tl(Path)
+    end.
