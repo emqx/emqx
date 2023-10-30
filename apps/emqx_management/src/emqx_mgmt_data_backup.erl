@@ -462,11 +462,12 @@ import_cluster_hocon(BackupDir, Opts) ->
     case filelib:is_regular(HoconFileName) of
         true ->
             {ok, RawConf} = hocon:files([HoconFileName]),
-            {ok, _} = validate_cluster_hocon(RawConf),
+            RawConf1 = upgrade_raw_conf(emqx_conf:schema_module(), RawConf),
+            {ok, _} = validate_cluster_hocon(RawConf1),
             maybe_print("Importing cluster configuration...~n", [], Opts),
             %% At this point, when all validations have been passed, we want to log errors (if any)
             %% but proceed with the next items, instead of aborting the whole import operation
-            do_import_conf(RawConf, Opts);
+            do_import_conf(RawConf1, Opts);
         false ->
             maybe_print("No cluster configuration to be imported.~n", [], Opts),
             ?SLOG(info, #{
@@ -474,6 +475,16 @@ import_cluster_hocon(BackupDir, Opts) ->
                 backup => BackupDir
             }),
             #{}
+    end.
+
+upgrade_raw_conf(SchemaMod, RawConf) ->
+    _ = SchemaMod:module_info(),
+    case erlang:function_exported(SchemaMod, upgrade_raw_conf, 1) of
+        true ->
+            %% TODO make it a schema module behaviour in hocon_schema
+            apply(SchemaMod, upgrade_raw_conf, [RawConf]);
+        false ->
+            RawConf
     end.
 
 read_data_files(RawConf) ->
