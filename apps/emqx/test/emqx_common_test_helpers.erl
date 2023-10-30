@@ -1388,13 +1388,13 @@ select_free_port(GenModule, Fun) when
 %% groups() ->
 %%   emqx_common_test_helpers:groups(?MODULE, [case1, case2]).
 %%
-%% case1(matrxi) ->
+%% case1(matrix) ->
 %%   {g1, [[tcp, no_auth],
 %%         [ssl, no_auth],
 %%         [ssl, basic_auth]
 %%        ]};
 %%
-%% case2(matrxi) ->
+%% case2(matrix) ->
 %%   {g1, ...}
 %% ...
 %%
