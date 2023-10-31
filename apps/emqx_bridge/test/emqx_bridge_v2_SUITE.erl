@@ -120,16 +120,16 @@ setup_mocks() ->
     meck:expect(emqx_bridge_v2_schema, fields, 1, bridge_schema()),
 
     catch meck:new(emqx_bridge_v2, MeckOpts),
-    meck:expect(emqx_bridge_v2, bridge_v2_type_to_connector_type, 1, con_type()),
+    BridgeType = bridge_type(),
+    BridgeTypeBin = atom_to_binary(BridgeType),
+    meck:expect(
+        emqx_bridge_v2,
+        bridge_v2_type_to_connector_type,
+        fun(Type) when Type =:= BridgeType; Type =:= BridgeTypeBin -> con_type() end
+    ),
     meck:expect(emqx_bridge_v2, bridge_v1_type_to_bridge_v2_type, 1, bridge_type()),
-    IsBridgeV2TypeFun = fun(Type) ->
-        BridgeV2Type = bridge_type(),
-        case Type of
-            BridgeV2Type -> true;
-            _ -> false
-        end
-    end,
-    meck:expect(emqx_bridge_v2, is_bridge_v2_type, 1, IsBridgeV2TypeFun),
+
+    meck:expect(emqx_bridge_v2, is_bridge_v2_type, fun(Type) -> Type =:= BridgeType end),
     ok.
 
 init_per_suite(Config) ->
@@ -519,8 +519,8 @@ t_load_no_matching_connector(_Config) ->
         {error,
             {post_config_update, _HandlerMod, #{
                 bridge_name := my_test_bridge_update,
-                connector_name := unknown,
-                type := _,
+                connector_name := <<"unknown">>,
+                bridge_type := _,
                 reason := "connector_not_found_or_wrong_type"
             }}},
         update_root_config(RootConf0)
@@ -536,8 +536,8 @@ t_load_no_matching_connector(_Config) ->
         {error,
             {post_config_update, _HandlerMod, #{
                 bridge_name := my_test_bridge_new,
-                connector_name := unknown,
-                type := _,
+                connector_name := <<"unknown">>,
+                bridge_type := _,
                 reason := "connector_not_found_or_wrong_type"
             }}},
         update_root_config(RootConf1)
@@ -608,7 +608,7 @@ t_create_no_matching_connector(_Config) ->
             {post_config_update, _HandlerMod, #{
                 bridge_name := _,
                 connector_name := _,
-                type := _,
+                bridge_type := _,
                 reason := "connector_not_found_or_wrong_type"
             }}},
         emqx_bridge_v2:create(bridge_type(), my_test_bridge, Conf)
@@ -628,7 +628,7 @@ t_create_wrong_connector_type(_Config) ->
             {post_config_update, _HandlerMod, #{
                 bridge_name := _,
                 connector_name := _,
-                type := wrong_type,
+                bridge_type := wrong_type,
                 reason := "connector_not_found_or_wrong_type"
             }}},
         emqx_bridge_v2:create(wrong_type, my_test_bridge, Conf)
@@ -644,7 +644,7 @@ t_update_connector_not_found(_Config) ->
             {post_config_update, _HandlerMod, #{
                 bridge_name := _,
                 connector_name := _,
-                type := _,
+                bridge_type := _,
                 reason := "connector_not_found_or_wrong_type"
             }}},
         emqx_bridge_v2:create(bridge_type(), my_test_bridge, BadConf)

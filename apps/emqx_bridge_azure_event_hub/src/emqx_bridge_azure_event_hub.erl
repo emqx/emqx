@@ -31,8 +31,8 @@
 
 -import(hoconsc, [mk/2, enum/1, ref/2]).
 
--define(AEH_CONNECTOR_TYPE, azure_event_hub).
--define(AEH_CONNECTOR_TYPE_BIN, <<"azure_event_hub">>).
+-define(AEH_CONNECTOR_TYPE, azure_event_hub_producer).
+-define(AEH_CONNECTOR_TYPE_BIN, <<"azure_event_hub_producer">>).
 
 %%-------------------------------------------------------------------------------------------------
 %% `hocon_schema' API
