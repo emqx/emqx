@@ -33,7 +33,7 @@
         Ack == ?ACK_VIN_REPEAT
 ).
 
--type phase() :: search_heading_0x23 | parse.
+-type phase() :: search_heading | parse.
 
 -type parser_state() :: #{
     data := binary(),
@@ -46,7 +46,7 @@
 
 -spec initial_parse_state(map()) -> parser_state().
 initial_parse_state(_) ->
-    #{data => <<>>, phase => search_heading_0x23}.
+    #{data => <<>>, phase => search_heading}.
 
 -spec serialize_opts() -> emqx_gateway_frame:serialize_options().
 serialize_opts() ->
@@ -58,15 +58,15 @@ serialize_opts() ->
 parse(Bin, State) ->
     case enter_parse(Bin, State) of
         {ok, Message, Rest} ->
-            {ok, Message, Rest, State#{parse => search_heading_0x23}};
+            {ok, Message, Rest, State#{parse => search_heading}};
         {error, Error} ->
             {error, Error};
         {more_data_follow, Partial} ->
             {more, State#{data => Partial, phase => parse}}
     end.
 
-enter_parse(Bin, #{phase := search_heading_0x23}) ->
-    case search_heading_0x23(Bin) of
+enter_parse(Bin, #{phase := search_heading}) ->
+    case search_heading(Bin) of
         {ok, Rest} ->
             parse_msg(Rest);
         Error ->
@@ -75,11 +75,11 @@ enter_parse(Bin, #{phase := search_heading_0x23}) ->
 enter_parse(Bin, #{data := Data}) ->
     parse_msg(<<Data/binary, Bin/binary>>).
 
-search_heading_0x23(<<16#23, 16#23, Rest/binary>>) ->
+search_heading(<<16#23, 16#23, Rest/binary>>) ->
     {ok, Rest};
-search_heading_0x23(<<_, Rest/binary>>) ->
-    search_heading_0x23(Rest);
-search_heading_0x23(<<>>) ->
+search_heading(<<_, Rest/binary>>) ->
+    search_heading(Rest);
+search_heading(<<>>) ->
     {error, invalid_frame}.
 
 parse_msg(Binary) ->
@@ -329,8 +329,8 @@ parse_info(<<?INFO_TYPE_FUEL_CELL, Rest/binary>>, Acc) ->
 
     <<ProbeTemps:ProbeNum/binary, Rest2/binary>> = Rest1,
 
-    <<H_MaxTemp:?WORD, H_TempProbeCode:?BYTE, H_MaxConc:?WORD, H_ConcSensorCode:?BYTE,
-        H_MaxPress:?WORD, H_PressSensorCode:?BYTE, DCStatus:?BYTE, Rest3/binary>> = Rest2,
+    <<HMaxTemp:?WORD, HTempProbeCode:?BYTE, HMaxConc:?WORD, HConcSensorCode:?BYTE, HMaxPress:?WORD,
+        HPressSensorCode:?BYTE, DCStatus:?BYTE, Rest3/binary>> = Rest2,
     parse_info(Rest3, [
         #{
             <<"Type">> => <<"FuelCell">>,
@@ -339,12 +339,12 @@ parse_info(<<?INFO_TYPE_FUEL_CELL, Rest/binary>>, Acc) ->
             <<"FuelConsumption">> => FuelConsumption,
             <<"ProbeNum">> => ProbeNum,
             <<"ProbeTemps">> => binary_to_list(ProbeTemps),
-            <<"H_MaxTemp">> => H_MaxTemp,
-            <<"H_TempProbeCode">> => H_TempProbeCode,
-            <<"H_MaxConc">> => H_MaxConc,
-            <<"H_ConcSensorCode">> => H_ConcSensorCode,
-            <<"H_MaxPress">> => H_MaxPress,
-            <<"H_PressSensorCode">> => H_PressSensorCode,
+            <<"H_MaxTemp">> => HMaxTemp,
+            <<"H_TempProbeCode">> => HTempProbeCode,
+            <<"H_MaxConc">> => HMaxConc,
+            <<"H_ConcSensorCode">> => HConcSensorCode,
+            <<"H_MaxPress">> => HMaxPress,
+            <<"H_PressSensorCode">> => HPressSensorCode,
             <<"DCStatus">> => DCStatus
         }
         | Acc
@@ -696,8 +696,8 @@ tune_params_([#{16#02 := Val} | Rest], Bin) ->
 tune_params_([#{16#03 := Val} | Rest], Bin) ->
     tune_params_(Rest, <<16#03:?BYTE, Val:?WORD, Bin/binary>>);
 tune_params_([#{16#04 := Val} | Rest], Bin) ->
-    {Val_05, Rest1} = take_param(16#05, Rest),
-    tune_params_(Rest1, <<16#04:?BYTE, Val:?BYTE, 16#05, Val_05:Val/binary, Bin/binary>>);
+    {Val05, Rest1} = take_param(16#05, Rest),
+    tune_params_(Rest1, <<16#04:?BYTE, Val:?BYTE, 16#05, Val05:Val/binary, Bin/binary>>);
 tune_params_([#{16#05 := Val} | Rest], Bin) ->
     tune_params_(Rest ++ [#{16#05 => Val}], Bin);
 tune_params_([#{16#06 := Val} | Rest], Bin) ->
@@ -715,8 +715,8 @@ tune_params_([#{16#0B := Val} | Rest], Bin) ->
 tune_params_([#{16#0C := Val} | Rest], Bin) ->
     tune_params_(Rest, <<16#0C:?BYTE, Val:?BYTE, Bin/binary>>);
 tune_params_([#{16#0D := Val} | Rest], Bin) ->
-    {Val_0E, Rest1} = take_param(16#0E, Rest),
-    tune_params_(Rest1, <<16#0D:?BYTE, Val:?BYTE, 16#0E, Val_0E:Val/binary, Bin/binary>>);
+    {Val0E, Rest1} = take_param(16#0E, Rest),
+    tune_params_(Rest1, <<16#0D:?BYTE, Val:?BYTE, 16#0E, Val0E:Val/binary, Bin/binary>>);
 tune_params_([#{16#0E := Val} | Rest], Bin) ->
     tune_params_(Rest ++ [#{16#0E => Val}], Bin);
 tune_params_([#{16#0F := Val} | Rest], Bin) ->
