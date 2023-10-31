@@ -507,7 +507,7 @@ schema("/bridges_probe") ->
                     case maps:get(<<"also_delete_dep_actions">>, Qs, <<"false">>) of
                         <<"true">> -> [rule_actions, connector];
                         true -> [rule_actions, connector];
-                        _ -> []
+                        _ -> [connector]
                     end,
                 case emqx_bridge:check_deps_and_remove(BridgeType, BridgeName, AlsoDelete) of
                     ok ->
