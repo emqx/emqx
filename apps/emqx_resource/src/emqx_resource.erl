@@ -200,6 +200,7 @@
 
 -callback on_get_channel_status(resource_id(), channel_id(), resource_state()) ->
     channel_status()
+    | {channel_status(), Reason :: term()}
     | {error, term()}.
 
 -callback query_mode(Config :: term()) -> query_mode().
@@ -457,7 +458,7 @@ health_check(ResId) ->
     emqx_resource_manager:health_check(ResId).
 
 -spec channel_health_check(resource_id(), channel_id()) ->
-    {ok, resource_status()} | {error, term()}.
+    #{status := channel_status(), error := term(), any() := any()}.
 channel_health_check(ResId, ChannelId) ->
     emqx_resource_manager:channel_health_check(ResId, ChannelId).
 
@@ -534,6 +535,7 @@ call_health_check(ResId, Mod, ResourceState) ->
 
 -spec call_channel_health_check(resource_id(), channel_id(), module(), resource_state()) ->
     channel_status()
+    | {channel_status(), Reason :: term()}
     | {error, term()}.
 call_channel_health_check(ResId, ChannelId, Mod, ResourceState) ->
     ?SAFE_CALL(Mod:on_get_channel_status(ResId, ChannelId, ResourceState)).

@@ -173,20 +173,24 @@ lookup(Type, Name) ->
             Channels = maps:get(added_channels, InstanceData, #{}),
             BridgeV2Id = id(Type, Name, BridgeConnector),
             ChannelStatus = maps:get(BridgeV2Id, Channels, undefined),
-            DisplayBridgeV2Status =
+            {DisplayBridgeV2Status, ErrorMsg} =
                 case ChannelStatus of
-                    {error, undefined} -> <<"Unknown reason">>;
-                    {error, Reason} -> emqx_utils:readable_error_msg(Reason);
-                    connected -> <<"connected">>;
-                    connecting -> <<"connecting">>;
-                    Error -> emqx_utils:readable_error_msg(Error)
+                    #{status := connected} ->
+                        {connected, <<"">>};
+                    #{status := Status, error := undefined} ->
+                        {Status, <<"Unknown reason">>};
+                    #{status := Status, error := Error} ->
+                        {Status, emqx_utils:readable_error_msg(Error)};
+                    undefined ->
+                        {disconnected, <<"Pending installation">>}
                 end,
             {ok, #{
                 type => Type,
                 name => Name,
                 raw_config => RawConf,
                 resource_data => InstanceData,
-                status => DisplayBridgeV2Status
+                status => DisplayBridgeV2Status,
+                error => ErrorMsg
             }}
     end.
 
@@ -526,10 +530,10 @@ create_dry_run_helper(BridgeType, ConnectorRawConf, BridgeV2RawConf) ->
                         ConnectorId, ChannelTestId
                     ),
                     case HealthCheckResult of
-                        {error, Reason} ->
-                            {error, Reason};
-                        _ ->
-                            ok
+                        #{status := connected} ->
+                            ok;
+                        #{status := Status, error := Error} ->
+                            {error, {Status, Error}}
                     end
             end
         end,
@@ -1032,6 +1036,7 @@ lookup_and_transform_to_bridge_v1_helper(
     BridgeV1Tmp = maps:put(raw_config, BridgeV1Config2, BridgeV2),
     BridgeV1 = maps:remove(status, BridgeV1Tmp),
     BridgeV2Status = maps:get(status, BridgeV2, undefined),
+    BridgeV2Error = maps:get(error, BridgeV2, undefined),
     ResourceData1 = maps:get(resource_data, BridgeV1, #{}),
     %% Replace id in resouce data
     BridgeV1Id = <<"bridge:", (bin(BridgeV1Type))/binary, ":", (bin(BridgeName))/binary>>,
@@ -1040,12 +1045,12 @@ lookup_and_transform_to_bridge_v1_helper(
     case ConnectorStatus of
         connected ->
             case BridgeV2Status of
-                <<"connected">> ->
+                connected ->
                     %% No need to modify the status
                     {ok, BridgeV1#{resource_data => ResourceData2}};
                 NotConnected ->
-                    ResourceData3 = maps:put(status, connecting, ResourceData2),
-                    ResourceData4 = maps:put(error, NotConnected, ResourceData3),
+                    ResourceData3 = maps:put(status, NotConnected, ResourceData2),
+                    ResourceData4 = maps:put(error, BridgeV2Error, ResourceData3),
                     BridgeV1Final = maps:put(resource_data, ResourceData4, BridgeV1),
                     {ok, BridgeV1Final}
             end;

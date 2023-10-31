@@ -55,6 +55,14 @@ on_add_channel(
     Fun = emqx_bridge_v2_SUITE:unwrap_fun(FunRef),
     Fun();
 on_add_channel(
+    InstId,
+    #{on_add_channel_fun := FunRef} = ConnectorState,
+    ChannelId,
+    ChannelConfig
+) ->
+    Fun = emqx_bridge_v2_SUITE:unwrap_fun(FunRef),
+    Fun(InstId, ConnectorState, ChannelId, ChannelConfig);
+on_add_channel(
     _InstId,
     State,
     ChannelId,
@@ -118,8 +126,8 @@ on_get_channel_status(
     ChannelId,
     State
 ) ->
-    Channels = maps:get(channels, State),
-    ChannelState = maps:get(ChannelId, Channels),
+    Channels = maps:get(channels, State, #{}),
+    ChannelState = maps:get(ChannelId, Channels, #{}),
     case ChannelState of
         #{on_get_channel_status_fun := FunRef} ->
             Fun = emqx_bridge_v2_SUITE:unwrap_fun(FunRef),
