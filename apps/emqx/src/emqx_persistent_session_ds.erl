@@ -61,6 +61,13 @@
 %% session table operations
 -export([create_tables/0]).
 
+%% Remove me later (satisfy checks for an unused BPAPI)
+-export([
+    do_open_iterator/3,
+    do_ensure_iterator_closed/1,
+    do_ensure_all_iterators_closed/1
+]).
+
 -ifdef(TEST).
 -export([session_open/1]).
 -endif.
@@ -268,12 +275,16 @@ get_subscription(TopicFilter, #{iterators := Iters}) ->
     {ok, emqx_types:publish_result(), replies(), session()}
     | {error, emqx_types:reason_code()}.
 publish(_PacketId, Msg, Session) ->
-    ok = emqx_ds:store_batch(?PERSISTENT_MESSAGE_DB, [Msg]),
-    {ok, persisted, [], Session}.
+    %% TODO:
+    Result = emqx_broker:publish(Msg),
+    {ok, Result, [], Session}.
 
 %%--------------------------------------------------------------------
 %% Client -> Broker: PUBACK
 %%--------------------------------------------------------------------
+
+%% FIXME: parts of the commit offset function are mocked
+-dialyzer({nowarn_function, puback/3}).
 
 -spec puback(clientinfo(), emqx_types:packet_id(), session()) ->
     {ok, emqx_types:message(), replies(), session()}
@@ -323,17 +334,16 @@ pubcomp(_ClientInfo, _PacketId, _Session = #{}) ->
 %%--------------------------------------------------------------------
 
 -spec deliver(clientinfo(), [emqx_types:deliver()], session()) ->
-    {ok, emqx_types:message(), replies(), session()}.
+    {ok, replies(), session()}.
 deliver(_ClientInfo, _Delivers, Session) ->
-    %% This may be triggered for the system messages. FIXME.
+    %% TODO: QoS0 and system messages end up here.
     {ok, [], Session}.
 
--spec handle_timeout(clientinfo(), emqx_session:common_timer_name(), session()) ->
+-spec handle_timeout(clientinfo(), _Timeout, session()) ->
     {ok, replies(), session()} | {ok, replies(), timeout(), session()}.
 handle_timeout(_ClientInfo, pull, Session = #{id := Id, inflight := Inflight0}) ->
     WindowSize = 100,
     {Publishes, Inflight} = emqx_persistent_message_ds_replayer:poll(Id, Inflight0, WindowSize),
-    %%logger:warning("Inflight: ~p", [Inflight]),
     ensure_timer(pull),
     {ok, Publishes, Session#{inflight => Inflight}};
 handle_timeout(_ClientInfo, get_streams, Session = #{id := Id}) ->
@@ -602,6 +612,26 @@ new_subscription_id(DSSessionId, TopicFilter) ->
     {DSSubId, NowMS}.
 
 %%--------------------------------------------------------------------
+%% RPC targets (v1)
+%%--------------------------------------------------------------------
+
+%% RPC target.
+-spec do_open_iterator(emqx_types:words(), emqx_ds:time(), emqx_ds:iterator_id()) ->
+    {ok, emqx_ds_storage_layer:iterator()} | {error, _Reason}.
+do_open_iterator(_TopicFilter, _StartMS, _IteratorID) ->
+    {error, not_implemented}.
+
+%% RPC target.
+-spec do_ensure_iterator_closed(emqx_ds:iterator_id()) -> ok.
+do_ensure_iterator_closed(_IteratorID) ->
+    ok.
+
+%% RPC target.
+-spec do_ensure_all_iterators_closed(id()) -> ok.
+do_ensure_all_iterators_closed(_DSSessionID) ->
+    ok.
+
+%%--------------------------------------------------------------------
 %% Reading batches
 %%--------------------------------------------------------------------
 
@@ -677,5 +707,5 @@ export_record(_, _, [], Acc) ->
 
 -spec ensure_timer(pull | get_streams) -> ok.
 ensure_timer(Type) ->
-    emqx_utils:start_timer(100, {emqx_session, Type}),
+    _ = emqx_utils:start_timer(100, {emqx_session, Type}),
     ok.

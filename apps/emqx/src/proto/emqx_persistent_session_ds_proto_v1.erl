@@ -20,6 +20,7 @@
 
 -export([
     introduced_in/0,
+    deprecated_since/0,
 
     open_iterator/4,
     close_iterator/2,
@@ -31,8 +32,10 @@
 -define(TIMEOUT, 30_000).
 
 introduced_in() ->
-    %% FIXME
     "5.3.0".
+
+deprecated_since() ->
+    "5.4.0".
 
 -spec open_iterator(
     [node()],

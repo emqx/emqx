@@ -25,9 +25,7 @@
     store_batch/3,
     get_streams/3,
     make_iterator/3,
-    next/2,
-    save_iterator/3,
-    get_iterator/2
+    next/2
 ]).
 
 %% internal exports:
@@ -169,14 +167,6 @@ next(Iter0, BatchSize) ->
             Other
     end.
 
--spec save_iterator(db(), emqx_ds:iterator_id(), iterator()) -> ok.
-save_iterator(_DB, _ITRef, _Iterator) ->
-    error(todo).
-
--spec get_iterator(db(), emqx_ds:iterator_id()) -> emqx_ds:get_iterator_result(iterator()).
-get_iterator(_DB, _ITRef) ->
-    error(todo).
-
 %%================================================================================
 %% behavior callbacks
 %%================================================================================
@@ -198,12 +188,15 @@ do_drop_shard_v1(Shard) ->
 do_get_streams_v1(Shard, TopicFilter, StartTime) ->
     emqx_ds_storage_layer:get_streams(Shard, TopicFilter, StartTime).
 
--spec do_make_iterator_v1(shard_id(), _Stream, emqx_ds:topic_filter(), emqx_ds:time()) ->
+-spec do_make_iterator_v1(
+    shard_id(), emqx_ds_storage_layer:stream(), emqx_ds:topic_filter(), emqx_ds:time()
+) ->
     {ok, iterator()} | {error, _}.
 do_make_iterator_v1(Shard, Stream, TopicFilter, StartTime) ->
     emqx_ds_storage_layer:make_iterator(Shard, Stream, TopicFilter, StartTime).
 
--spec do_next_v1(shard_id(), Iter, pos_integer()) -> emqx_ds:next_result(Iter).
+-spec do_next_v1(shard_id(), emqx_ds_storage_layer:iterator(), pos_integer()) ->
+    emqx_ds:next_result(emqx_ds_storage_layer:iterator()).
 do_next_v1(Shard, Iter, BatchSize) ->
     emqx_ds_storage_layer:next(Shard, Iter, BatchSize).
 

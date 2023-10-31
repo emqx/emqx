@@ -30,9 +30,6 @@
 %% Message replay API:
 -export([get_streams/3, make_iterator/3, next/2]).
 
-%% Iterator storage API:
--export([save_iterator/3, get_iterator/2]).
-
 %% Misc. API:
 -export([]).
 
@@ -100,8 +97,6 @@
     builtin_db_opts().
 
 -type message_id() :: emqx_ds_replication_layer:message_id().
-
--type iterator_id() :: term().
 
 -type get_iterator_result(Iterator) :: {ok, Iterator} | undefined.
 
@@ -181,14 +176,6 @@ make_iterator(Stream, TopicFilter, StartTime) ->
 -spec next(iterator(), pos_integer()) -> next_result().
 next(Iter, BatchSize) ->
     emqx_ds_replication_layer:next(Iter, BatchSize).
-
--spec save_iterator(db(), iterator_id(), iterator()) -> ok.
-save_iterator(DB, ITRef, Iterator) ->
-    emqx_ds_replication_layer:save_iterator(DB, ITRef, Iterator).
-
--spec get_iterator(db(), iterator_id()) -> get_iterator_result(iterator()).
-get_iterator(DB, ITRef) ->
-    emqx_ds_replication_layer:get_iterator(DB, ITRef).
 
 %%================================================================================
 %% Internal exports

@@ -28,25 +28,29 @@
 %% API funcions
 %%================================================================================
 
--spec open_shard(node(), emqx_ds_replication_layer:shard(), emqx_ds:create_db_opts()) ->
+-spec open_shard(node(), emqx_ds_replication_layer:shard_id(), emqx_ds:create_db_opts()) ->
     ok.
 open_shard(Node, Shard, Opts) ->
     erpc:call(Node, emqx_ds_replication_layer, do_open_shard_v1, [Shard, Opts]).
 
--spec drop_shard(node(), emqx_ds_replication_layer:shard()) ->
+-spec drop_shard(node(), emqx_ds_replication_layer:shard_id()) ->
     ok.
 drop_shard(Node, Shard) ->
     erpc:call(Node, emqx_ds_replication_layer, do_drop_shard_v1, [Shard]).
 
 -spec get_streams(
-    node(), emqx_ds_replication_layer:shard(), emqx_ds:topic_filter(), emqx_ds:time()
+    node(), emqx_ds_replication_layer:shard_id(), emqx_ds:topic_filter(), emqx_ds:time()
 ) ->
     [{integer(), emqx_ds_replication_layer:stream()}].
 get_streams(Node, Shard, TopicFilter, Time) ->
     erpc:call(Node, emqx_ds_replication_layer, do_get_streams_v1, [Shard, TopicFilter, Time]).
 
 -spec make_iterator(
-    node(), emqx_ds_replication_layer:shard(), _Stream, emqx_ds:topic_filter(), emqx_ds:time()
+    node(),
+    emqx_ds_replication_layer:shard_id(),
+    emqx_ds_storage_layer:stream(),
+    emqx_ds:topic_filter(),
+    emqx_ds:time()
 ) ->
     {ok, emqx_ds_replication_layer:iterator()} | {error, _}.
 make_iterator(Node, Shard, Stream, TopicFilter, StartTime) ->
@@ -55,9 +59,9 @@ make_iterator(Node, Shard, Stream, TopicFilter, StartTime) ->
     ]).
 
 -spec next(
-    node(), emqx_ds_replication_layer:shard(), emqx_ds_replication_layer:iterator(), pos_integer()
+    node(), emqx_ds_replication_layer:shard_id(), emqx_ds_storage_layer:iterator(), pos_integer()
 ) ->
-    {ok, emqx_ds_replication_layer:iterator(), [emqx_types:messages()]}
+    {ok, emqx_ds_storage_layer:iterator(), [emqx_types:messages()]}
     | {ok, end_of_stream}
     | {error, _}.
 next(Node, Shard, Iter, BatchSize) ->
