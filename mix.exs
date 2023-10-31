@@ -56,7 +56,7 @@ defmodule EMQXUmbrella.MixProject do
       {:esockd, github: "emqx/esockd", tag: "5.9.7", override: true},
       {:rocksdb, github: "emqx/erlang-rocksdb", tag: "1.8.0-emqx-1", override: true},
       {:ekka, github: "emqx/ekka", tag: "0.15.16", override: true},
-      {:gen_rpc, github: "emqx/gen_rpc", tag: "3.2.0", override: true},
+      {:gen_rpc, github: "emqx/gen_rpc", tag: "3.2.1", override: true},
       {:grpc, github: "emqx/grpc-erl", tag: "0.6.8", override: true},
       {:minirest, github: "emqx/minirest", tag: "1.3.13", override: true},
       {:ecpool, github: "emqx/ecpool", tag: "0.5.4", override: true},
@@ -64,7 +64,7 @@ defmodule EMQXUmbrella.MixProject do
       {:pbkdf2, github: "emqx/erlang-pbkdf2", tag: "2.0.4", override: true},
       # maybe forbid to fetch quicer
       {:emqtt,
-       github: "emqx/emqtt", tag: "1.9.0", override: true, system_env: maybe_no_quic_env()},
+       github: "emqx/emqtt", tag: "1.9.1", override: true, system_env: maybe_no_quic_env()},
       {:rulesql, github: "emqx/rulesql", tag: "0.1.7"},
       {:observer_cli, "1.7.1"},
       {:system_monitor, github: "ieQu1/system_monitor", tag: "3.0.3"},
@@ -102,31 +102,31 @@ defmodule EMQXUmbrella.MixProject do
       {:opentelemetry_api,
        github: "emqx/opentelemetry-erlang",
        sparse: "apps/opentelemetry_api",
-       tag: "v1.3.0-emqx",
+       tag: "v1.3.1-emqx",
        override: true,
        runtime: false},
       {:opentelemetry,
        github: "emqx/opentelemetry-erlang",
        sparse: "apps/opentelemetry",
-       tag: "v1.3.0-emqx",
+       tag: "v1.3.1-emqx",
        override: true,
        runtime: false},
       {:opentelemetry_api_experimental,
        github: "emqx/opentelemetry-erlang",
        sparse: "apps/opentelemetry_api_experimental",
-       tag: "v1.3.0-emqx",
+       tag: "v1.3.1-emqx",
        override: true,
        runtime: false},
       {:opentelemetry_experimental,
        github: "emqx/opentelemetry-erlang",
        sparse: "apps/opentelemetry_experimental",
-       tag: "v1.3.0-emqx",
+       tag: "v1.3.1-emqx",
        override: true,
        runtime: false},
       {:opentelemetry_exporter,
        github: "emqx/opentelemetry-erlang",
        sparse: "apps/opentelemetry_exporter",
-       tag: "v1.3.0-emqx",
+       tag: "v1.3.1-emqx",
        override: true,
        runtime: false}
     ] ++
@@ -222,7 +222,7 @@ defmodule EMQXUmbrella.MixProject do
     [
       {:hstreamdb_erl, github: "hstreamdb/hstreamdb_erl", tag: "0.4.5+v0.16.1"},
       {:influxdb, github: "emqx/influxdb-client-erl", tag: "1.1.11", override: true},
-      {:wolff, github: "kafka4beam/wolff", tag: "1.7.7"},
+      {:wolff, github: "kafka4beam/wolff", tag: "1.8.0"},
       {:kafka_protocol, github: "kafka4beam/kafka_protocol", tag: "4.1.3", override: true},
       {:brod_gssapi, github: "kafka4beam/brod_gssapi", tag: "v0.1.0"},
       {:brod, github: "kafka4beam/brod", tag: "3.16.8"},
@@ -814,7 +814,7 @@ defmodule EMQXUmbrella.MixProject do
 
   defp jq_dep() do
     if enable_jq?(),
-      do: [{:jq, github: "emqx/jq", tag: "v0.3.10", override: true}],
+      do: [{:jq, github: "emqx/jq", tag: "v0.3.11", override: true}],
       else: []
   end
 

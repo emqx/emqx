@@ -74,7 +74,7 @@ fields(s3) ->
                 %% not used in a `receive ... after' block, just timestamp comparison
                 emqx_schema:duration_s(),
                 #{
-                    default => "1h",
+                    default => <<"1h">>,
                     desc => ?DESC("url_expire_time"),
                     required => false
                 }
@@ -83,7 +83,7 @@ fields(s3) ->
             mk(
                 emqx_schema:bytesize(),
                 #{
-                    default => "5mb",
+                    default => <<"5mb">>,
                     desc => ?DESC("min_part_size"),
                     required => true,
                     validator => fun part_size_validator/1
@@ -93,7 +93,7 @@ fields(s3) ->
             mk(
                 emqx_schema:bytesize(),
                 #{
-                    default => "5gb",
+                    default => <<"5gb">>,
                     desc => ?DESC("max_part_size"),
                     required => true,
                     validator => fun part_size_validator/1

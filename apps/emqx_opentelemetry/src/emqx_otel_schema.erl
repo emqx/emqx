@@ -62,7 +62,7 @@ fields("exporter") ->
                 emqx_schema:url(),
                 #{
                     mapping => "opentelemetry_exporter.otlp_endpoint",
-                    default => "http://localhost:4317",
+                    default => <<"http://localhost:4317">>,
                     desc => ?DESC(endpoint)
                 }
             )},
