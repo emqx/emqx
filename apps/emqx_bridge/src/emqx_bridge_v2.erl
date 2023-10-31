@@ -16,7 +16,7 @@
 -module(emqx_bridge_v2).
 
 -behaviour(emqx_config_handler).
-% -behaviour(emqx_config_backup).
+-behaviour(emqx_config_backup).
 
 -include_lib("emqx/include/emqx.hrl").
 -include_lib("emqx/include/logger.hrl").
@@ -75,6 +75,11 @@
 -export([
     post_config_update/5,
     pre_config_update/3
+]).
+
+%% Data backup
+-export([
+    import_config/1
 ]).
 
 %% Compatibility API
@@ -734,6 +739,14 @@ bridge_v2_type_to_connector_type(kafka_producer) ->
     kafka_producer;
 bridge_v2_type_to_connector_type(azure_event_hub) ->
     azure_event_hub.
+
+%%====================================================================
+%% Data backup API
+%%====================================================================
+
+import_config(RawConf) ->
+    %% bridges v2 structure
+    emqx_bridge:import_config(RawConf, <<"bridges_v2">>, ?ROOT_KEY, config_key_path()).
 
 %%====================================================================
 %% Config Update Handler API
