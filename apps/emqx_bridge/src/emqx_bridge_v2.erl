@@ -1092,15 +1092,13 @@ split_bridge_v1_config_and_create_helper(BridgeV1Type, BridgeName, RawConf) ->
         bridge_v2_conf := NewBridgeV2RawConf
     } =
         split_and_validate_bridge_v1_config(BridgeV1Type, BridgeName, RawConf),
-    %% TODO should we really create an atom here?
-    ConnectorNameAtom = binary_to_atom(NewConnectorName),
-    case emqx_connector:create(ConnectorType, ConnectorNameAtom, NewConnectorRawConf) of
+    case emqx_connector:create(ConnectorType, NewConnectorName, NewConnectorRawConf) of
         {ok, _} ->
             case create(BridgeType, BridgeName, NewBridgeV2RawConf) of
                 {ok, _} = Result ->
                     Result;
                 {error, Reason1} ->
-                    case emqx_connector:remove(ConnectorType, ConnectorNameAtom) of
+                    case emqx_connector:remove(ConnectorType, NewConnectorName) of
                         ok ->
                             {error, Reason1};
                         {error, Reason2} ->

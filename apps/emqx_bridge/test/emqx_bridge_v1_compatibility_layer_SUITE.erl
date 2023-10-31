@@ -444,6 +444,15 @@ bridge_node_operation_http_api_v2(Name, Node0, Op0) ->
 %% Test cases
 %%------------------------------------------------------------------------------
 
+t_name_too_long(_Config) ->
+    LongName = list_to_binary(lists:duplicate(256, $a)),
+    ?assertMatch(
+        {error,
+            {{_, 400, _}, _, #{<<"message">> := #{<<"reason">> := <<"Name is too long", _/binary>>}}}},
+        create_bridge_http_api_v1(#{name => LongName})
+    ),
+    ok.
+
 t_scenario_1(_Config) ->
     %% ===================================================================================
     %% Pre-conditions
