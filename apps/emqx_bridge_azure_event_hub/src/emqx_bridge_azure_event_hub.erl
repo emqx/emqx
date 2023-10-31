@@ -241,14 +241,6 @@ values({put, bridge_v2}) ->
     );
 values({put, producer}) ->
     values({post, producer});
-values(connector) ->
-    maps:merge(
-        values(common_config),
-        #{
-            name => <<"my_azure_event_hub_producer_connector">>,
-            type => ?AEH_CONNECTOR_TYPE_BIN
-        }
-    );
 values(common_config) ->
     #{
         authentication => #{
