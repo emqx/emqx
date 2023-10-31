@@ -149,8 +149,15 @@ qs2ms(_Tab, {Qs, _}) ->
 
 gen_match_spec([], Res) ->
     Res;
-gen_match_spec([{topic, '=:=', T} | Qs], [{{route, _, N}, [], ['$_']}]) ->
-    gen_match_spec(Qs, [{{route, T, N}, [], ['$_']}]);
+gen_match_spec([{topic, '=:=', T0} | Qs], [{{route, _, Node}, [], ['$_']}]) when is_atom(Node) ->
+    {T, D} =
+        case emqx_topic:parse(T0) of
+            {#share{group = Group, topic = Topic}, _SubOpts} ->
+                {Topic, {Group, Node}};
+            {T1, _SubOpts} ->
+                {T1, Node}
+        end,
+    gen_match_spec(Qs, [{{route, T, D}, [], ['$_']}]);
 gen_match_spec([{node, '=:=', N} | Qs], [{{route, T, _}, [], ['$_']}]) ->
     gen_match_spec(Qs, [{{route, T, N}, [], ['$_']}]).
 
