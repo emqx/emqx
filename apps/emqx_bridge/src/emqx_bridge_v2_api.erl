@@ -394,7 +394,7 @@ schema("/bridges_v2_probe") ->
         case emqx_bridge_v2:disable_enable(enable_func(Enable), BridgeType, BridgeName) of
             {ok, _} ->
                 ?NO_CONTENT;
-            {error, {pre_config_update, _, not_found}} ->
+            {error, {pre_config_update, _, bridge_not_found}} ->
                 ?BRIDGE_NOT_FOUND(BridgeType, BridgeName);
             {error, {_, _, timeout}} ->
                 ?SERVICE_UNAVAILABLE(<<"request timeout">>);
