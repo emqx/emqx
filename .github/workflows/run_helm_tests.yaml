@@ -106,6 +106,7 @@ jobs:
             --set emqxConfig.EMQX_MQTT__RETRY_INTERVAL=2s \
             --set emqxConfig.EMQX_MQTT__MAX_TOPIC_ALIAS=10 \
             --set emqxConfig.EMQX_AUTHORIZATION__SOURCES=[] \
+            --set emqxConfig.EMQX_LOG__CONSOLE__LEVEL=debug \
             --set emqxConfig.EMQX_AUTHORIZATION__NO_MATCH=allow \
             --values rpc-overrides.yaml \
             deploy/charts/${EMQX_NAME} \
@@ -125,9 +126,11 @@ jobs:
             --set emqxConfig.EMQX_MQTT__RETRY_INTERVAL=2s \
             --set emqxConfig.EMQX_MQTT__MAX_TOPIC_ALIAS=10 \
             --set emqxConfig.EMQX_AUTHORIZATION__SOURCES=[] \
+            --set emqxConfig.EMQX_LOG__CONSOLE__LEVEL=debug \
             --set emqxConfig.EMQX_AUTHORIZATION__NO_MATCH=allow \
             --values rpc-overrides.yaml \
             deploy/charts/${EMQX_NAME} \
+            --wait \
             --debug
     - name: waiting emqx started
       timeout-minutes: 5
@@ -154,8 +157,13 @@ jobs:
           nodes_length="$(curl --silent -H "Authorization: Bearer $TOKEN" -X GET http://127.0.0.1:18083/api/v5/cluster| jq '.nodes|length')"
           [ $nodes_length != "3" ]
         do
-          echo "waiting ${EMQX_NAME} cluster scale. Current live nodes: $nodes_length."
-          sleep 1
+          if [ $nodes_length -eq 0 ]; then
+            echo "node len must >= 1, refresh Token... "
+            TOKEN=$(curl --silent -X 'POST' 'http://127.0.0.1:18083/api/v5/login' -H 'accept: application/json' -H 'Content-Type: application/json' -d '{"username": "admin","password": "public"}' | jq -r ".token")
+          else
+            echo "waiting ${EMQX_NAME} cluster scale. Current live nodes: $nodes_length."
+          fi
+          sleep 1;
         done
     - uses: actions/checkout@v3
       with:
