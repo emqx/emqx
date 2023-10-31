@@ -1068,21 +1068,29 @@ split_bridge_v1_config_and_create(BridgeV1Type, BridgeName, RawConf) ->
     case lookup_conf(BridgeV2Type, BridgeName) of
         {error, _} ->
             %% If the bridge v2 does not exist, it is a valid bridge v1
-            split_bridge_v1_config_and_create_helper(BridgeV1Type, BridgeName, RawConf);
+            PreviousRawConf = undefined,
+            split_bridge_v1_config_and_create_helper(
+                BridgeV1Type, BridgeName, RawConf, PreviousRawConf
+            );
         _Conf ->
             case ?MODULE:is_valid_bridge_v1(BridgeV1Type, BridgeName) of
                 true ->
                     %% Using remove + create as update, hence do not delete deps.
                     RemoveDeps = [],
+                    PreviousRawConf = emqx:get_raw_config(
+                        [?ROOT_KEY, BridgeV2Type, BridgeName], undefined
+                    ),
                     bridge_v1_check_deps_and_remove(BridgeV1Type, BridgeName, RemoveDeps),
-                    split_bridge_v1_config_and_create_helper(BridgeV1Type, BridgeName, RawConf);
+                    split_bridge_v1_config_and_create_helper(
+                        BridgeV1Type, BridgeName, RawConf, PreviousRawConf
+                    );
                 false ->
                     %% If the bridge v2 exists, it is not a valid bridge v1
                     {error, non_compatible_bridge_v2_exists}
             end
     end.
 
-split_bridge_v1_config_and_create_helper(BridgeV1Type, BridgeName, RawConf) ->
+split_bridge_v1_config_and_create_helper(BridgeV1Type, BridgeName, RawConf, PreviousRawConf) ->
     #{
         connector_type := ConnectorType,
         connector_name := NewConnectorName,
@@ -1091,7 +1099,7 @@ split_bridge_v1_config_and_create_helper(BridgeV1Type, BridgeName, RawConf) ->
         bridge_v2_name := BridgeName,
         bridge_v2_conf := NewBridgeV2RawConf
     } =
-        split_and_validate_bridge_v1_config(BridgeV1Type, BridgeName, RawConf),
+        split_and_validate_bridge_v1_config(BridgeV1Type, BridgeName, RawConf, PreviousRawConf),
     case emqx_connector:create(ConnectorType, NewConnectorName, NewConnectorRawConf) of
         {ok, _} ->
             case create(BridgeType, BridgeName, NewBridgeV2RawConf) of
@@ -1116,14 +1124,14 @@ split_bridge_v1_config_and_create_helper(BridgeV1Type, BridgeName, RawConf) ->
             Error
     end.
 
-split_and_validate_bridge_v1_config(BridgeV1Type, BridgeName, RawConf) ->
+split_and_validate_bridge_v1_config(BridgeV1Type, BridgeName, RawConf, PreviousRawConf) ->
     %% Create fake global config for the transformation and then call
-    %% emqx_connector_schema:transform_bridges_v1_to_connectors_and_bridges_v2/1
+    %% `emqx_connector_schema:transform_bridges_v1_to_connectors_and_bridges_v2/1'
     BridgeV2Type = ?MODULE:bridge_v1_type_to_bridge_v2_type(BridgeV1Type),
     ConnectorType = connector_type(BridgeV2Type),
-    %% Needed so name confligts will ba avoided
+    %% Needed to avoid name conflicts
     CurrentConnectorsConfig = emqx:get_raw_config([connectors], #{}),
-    FakeGlobalConfig = #{
+    FakeGlobalConfig0 = #{
         <<"connectors">> => CurrentConnectorsConfig,
         <<"bridges">> => #{
             bin(BridgeV1Type) => #{
@@ -1131,6 +1139,13 @@ split_and_validate_bridge_v1_config(BridgeV1Type, BridgeName, RawConf) ->
             }
         }
     },
+    FakeGlobalConfig =
+        emqx_utils_maps:put_if(
+            FakeGlobalConfig0,
+            bin(?ROOT_KEY),
+            #{bin(BridgeV2Type) => #{bin(BridgeName) => PreviousRawConf}},
+            PreviousRawConf =/= undefined
+        ),
     Output = emqx_connector_schema:transform_bridges_v1_to_connectors_and_bridges_v2(
         FakeGlobalConfig
     ),
@@ -1143,34 +1158,21 @@ split_and_validate_bridge_v1_config(BridgeV1Type, BridgeName, RawConf) ->
             ],
             Output
         ),
-    ConnectorsBefore =
-        maps:keys(
-            emqx_utils_maps:deep_get(
-                [
-                    <<"connectors">>,
-                    bin(ConnectorType)
-                ],
-                FakeGlobalConfig,
-                #{}
-            )
-        ),
-    ConnectorsAfter =
-        maps:keys(
-            emqx_utils_maps:deep_get(
-                [
-                    <<"connectors">>,
-                    bin(ConnectorType)
-                ],
-                Output
-            )
-        ),
-    [NewConnectorName] = ConnectorsAfter -- ConnectorsBefore,
+    ConnectorName = emqx_utils_maps:deep_get(
+        [
+            bin(?ROOT_KEY),
+            bin(BridgeV2Type),
+            bin(BridgeName),
+            <<"connector">>
+        ],
+        Output
+    ),
     NewConnectorRawConf =
         emqx_utils_maps:deep_get(
             [
                 <<"connectors">>,
                 bin(ConnectorType),
-                bin(NewConnectorName)
+                bin(ConnectorName)
             ],
             Output
         ),
@@ -1178,7 +1180,7 @@ split_and_validate_bridge_v1_config(BridgeV1Type, BridgeName, RawConf) ->
     NewFakeGlobalConfig = #{
         <<"connectors">> => #{
             bin(ConnectorType) => #{
-                bin(NewConnectorName) => NewConnectorRawConf
+                bin(ConnectorName) => NewConnectorRawConf
             }
         },
         <<"bridges_v2">> => #{
@@ -1197,7 +1199,7 @@ split_and_validate_bridge_v1_config(BridgeV1Type, BridgeName, RawConf) ->
         _ ->
             #{
                 connector_type => ConnectorType,
-                connector_name => NewConnectorName,
+                connector_name => ConnectorName,
                 connector_conf => NewConnectorRawConf,
                 bridge_v2_type => BridgeV2Type,
                 bridge_v2_name => BridgeName,
@@ -1212,6 +1214,7 @@ split_and_validate_bridge_v1_config(BridgeV1Type, BridgeName, RawConf) ->
 bridge_v1_create_dry_run(BridgeType, RawConfig0) ->
     RawConf = maps:without([<<"name">>], RawConfig0),
     TmpName = iolist_to_binary([?TEST_ID_PREFIX, emqx_utils:gen_id(8)]),
+    PreviousRawConf = undefined,
     #{
         connector_type := _ConnectorType,
         connector_name := _NewConnectorName,
@@ -1219,7 +1222,7 @@ bridge_v1_create_dry_run(BridgeType, RawConfig0) ->
         bridge_v2_type := BridgeV2Type,
         bridge_v2_name := _BridgeName,
         bridge_v2_conf := BridgeV2RawConf
-    } = split_and_validate_bridge_v1_config(BridgeType, TmpName, RawConf),
+    } = split_and_validate_bridge_v1_config(BridgeType, TmpName, RawConf, PreviousRawConf),
     create_dry_run_helper(BridgeV2Type, ConnectorRawConf, BridgeV2RawConf).
 
 bridge_v1_check_deps_and_remove(BridgeV1Type, BridgeName, RemoveDeps) ->

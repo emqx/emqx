@@ -100,12 +100,6 @@ setup_mocks() ->
     IsBridgeV2TypeFun = fun(Type) ->
         BridgeV2Type = bridge_type(),
         BridgeV2TypeBin = bridge_type_bin(),
-        ct:pal("is_bridge_v2_type mock: ~p", [
-            #{
-                input_type => Type,
-                expected => [BridgeV2Type, BridgeV2TypeBin]
-            }
-        ]),
         case Type of
             BridgeV2Type -> true;
             BridgeV2TypeBin -> true;
@@ -333,7 +327,8 @@ get_connector_http(Name) ->
 create_bridge_http_api_v1(Opts) ->
     Name = maps:get(name, Opts),
     Overrides = maps:get(overrides, Opts, #{}),
-    BridgeConfig = emqx_utils_maps:deep_merge(bridge_config(), Overrides),
+    BridgeConfig0 = emqx_utils_maps:deep_merge(bridge_config(), Overrides),
+    BridgeConfig = maps:without([<<"connector">>], BridgeConfig0),
     Params = BridgeConfig#{<<"type">> => bridge_type_bin(), <<"name">> => Name},
     Path = emqx_mgmt_api_test_util:api_path(["bridges"]),
     ct:pal("creating bridge (http v1): ~p", [Params]),
@@ -350,6 +345,19 @@ create_bridge_http_api_v2(Opts) ->
     ct:pal("creating bridge (http v2): ~p", [Params]),
     Res = request(post, Path, Params),
     ct:pal("bridge create (http v2) result:\n  ~p", [Res]),
+    Res.
+
+update_bridge_http_api_v1(Opts) ->
+    Name = maps:get(name, Opts),
+    BridgeId = emqx_bridge_resource:bridge_id(bridge_type(), Name),
+    Overrides = maps:get(overrides, Opts, #{}),
+    BridgeConfig0 = emqx_utils_maps:deep_merge(bridge_config(), Overrides),
+    BridgeConfig = maps:without([<<"connector">>], BridgeConfig0),
+    Params = BridgeConfig,
+    Path = emqx_mgmt_api_test_util:api_path(["bridges", BridgeId]),
+    ct:pal("updating bridge (http v1): ~p", [Params]),
+    Res = request(put, Path, Params),
+    ct:pal("bridge update (http v1) result:\n  ~p", [Res]),
     Res.
 
 delete_bridge_http_api_v1(Opts) ->
@@ -515,8 +523,17 @@ t_scenario_1(_Config) ->
     ),
 
     %% ===================================================================================
-    %% TODO: Update the bridge using v1 API.
+    %% Update the bridge using v1 API.
     %% ===================================================================================
+    ?assertMatch(
+        {ok, {{_, 200, _}, _, _}},
+        update_bridge_http_api_v1(#{name => NameA})
+    ),
+    ?assertMatch({ok, {{_, 200, _}, _, [#{<<"name">> := NameA}]}}, list_bridges_http_api_v1()),
+    ?assertMatch({ok, {{_, 200, _}, _, [#{<<"name">> := NameA}]}}, list_bridges_http_api_v2()),
+    ?assertMatch({ok, {{_, 200, _}, _, [#{}, #{}]}}, list_connectors_http()),
+    ?assertMatch({ok, {{_, 200, _}, _, #{<<"name">> := NameA}}}, get_bridge_http_api_v1(NameA)),
+    ?assertMatch({ok, {{_, 200, _}, _, #{<<"name">> := NameA}}}, get_bridge_http_api_v2(NameA)),
 
     %% ===================================================================================
     %% Now create a new bridge_v2 pointing to the same connector.  It should no longer be
