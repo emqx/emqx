@@ -27,6 +27,8 @@
 
 -export([get_response/0, put_request/0, post_request/0]).
 
+-export([connector_type_to_bridge_types/1]).
+
 -if(?EMQX_RELEASE_EDITION == ee).
 enterprise_api_schemas(Method) ->
     %% We *must* do this to ensure the module is really loaded, especially when we use
@@ -143,11 +145,11 @@ generate_connector_name(ConnectorsMap, BridgeName, Attempt) ->
     end.
 
 transform_old_style_bridges_to_connector_and_actions_of_type(
-    {ConnectorType, #{type := {map, name, {ref, ConnectorConfSchemaMod, ConnectorConfSchemaName}}}},
+    {ConnectorType, #{type := ?MAP(_Name, ?R_REF(ConnectorConfSchemaMod, ConnectorConfSchemaName))}},
     RawConfig
 ) ->
     ConnectorFields = ConnectorConfSchemaMod:fields(ConnectorConfSchemaName),
-    BridgeTypes = connector_type_to_bridge_types(ConnectorType),
+    BridgeTypes = ?MODULE:connector_type_to_bridge_types(ConnectorType),
     BridgesConfMap = maps:get(<<"bridges">>, RawConfig, #{}),
     ConnectorsConfMap = maps:get(<<"connectors">>, RawConfig, #{}),
     BridgeConfigsToTransform1 =
@@ -200,7 +202,7 @@ transform_old_style_bridges_to_connector_and_actions_of_type(
     ).
 
 transform_bridges_v1_to_connectors_and_bridges_v2(RawConfig) ->
-    ConnectorFields = fields(connectors),
+    ConnectorFields = ?MODULE:fields(connectors),
     NewRawConf = lists:foldl(
         fun transform_old_style_bridges_to_connector_and_actions_of_type/2,
         RawConfig,

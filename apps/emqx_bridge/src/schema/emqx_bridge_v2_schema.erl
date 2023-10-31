@@ -29,6 +29,8 @@
     post_request/0
 ]).
 
+-export([enterprise_api_schemas/1]).
+
 -if(?EMQX_RELEASE_EDITION == ee).
 enterprise_api_schemas(Method) ->
     %% We *must* do this to ensure the module is really loaded, especially when we use
@@ -70,7 +72,7 @@ post_request() ->
     api_schema("post").
 
 api_schema(Method) ->
-    EE = enterprise_api_schemas(Method),
+    EE = ?MODULE:enterprise_api_schemas(Method),
     hoconsc:union(bridge_api_union(EE)).
 
 bridge_api_union(Refs) ->

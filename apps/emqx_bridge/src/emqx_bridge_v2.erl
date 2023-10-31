@@ -939,7 +939,7 @@ unpack_bridge_conf(Type, PackedConf, TopLevelConf) ->
 %% Check if the bridge can be converted to a valid bridge v1
 %%
 %% * The corresponding bridge v2 should exist
-%% * The connector for the bridge v2 should have exactly on channel
+%% * The connector for the bridge v2 should have exactly one channel
 is_valid_bridge_v1(BridgeV1Type, BridgeName) ->
     BridgeV2Type = ?MODULE:bridge_v1_type_to_bridge_v2_type(BridgeV1Type),
     case lookup_conf(BridgeV2Type, BridgeName) of
@@ -986,7 +986,7 @@ list_and_transform_to_bridge_v1() ->
     [B || B <- Bridges, B =/= not_bridge_v1_compatible_error()].
 
 lookup_and_transform_to_bridge_v1(BridgeV1Type, Name) ->
-    case is_valid_bridge_v1(BridgeV1Type, Name) of
+    case ?MODULE:is_valid_bridge_v1(BridgeV1Type, Name) of
         true ->
             Type = ?MODULE:bridge_v1_type_to_bridge_v2_type(BridgeV1Type),
             case lookup(Type, Name) of
@@ -1070,7 +1070,7 @@ split_bridge_v1_config_and_create(BridgeV1Type, BridgeName, RawConf) ->
             %% If the bridge v2 does not exist, it is a valid bridge v1
             split_bridge_v1_config_and_create_helper(BridgeV1Type, BridgeName, RawConf);
         _Conf ->
-            case is_valid_bridge_v1(BridgeV1Type, BridgeName) of
+            case ?MODULE:is_valid_bridge_v1(BridgeV1Type, BridgeName) of
                 true ->
                     %% Using remove + create as update, hence do not delete deps.
                     RemoveDeps = [],
