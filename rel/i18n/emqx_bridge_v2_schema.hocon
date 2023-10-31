@@ -1,0 +1,9 @@
+emqx_bridge_v2_schema {
+
+desc_bridges_v2.desc:
+"""Configuration for bridges."""
+
+desc_bridges_v2.label:
+"""Bridge Configuration"""
+
+}

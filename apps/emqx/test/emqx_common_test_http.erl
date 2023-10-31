@@ -31,6 +31,7 @@
 ]).
 
 -define(DEFAULT_APP_ID, <<"default_appid">>).
+-define(DEFAULT_APP_KEY, <<"default_app_key">>).
 -define(DEFAULT_APP_SECRET, <<"default_app_secret">>).
 
 request_api(Method, Url, Auth) ->
@@ -60,7 +61,7 @@ request_api(Method, Url, QueryParams, Auth, Body, HttpOpts) ->
     do_request_api(Method, Request, HttpOpts).
 
 do_request_api(Method, Request, HttpOpts) ->
-    ct:pal("Method: ~p, Request: ~p", [Method, Request]),
+    % ct:pal("Method: ~p, Request: ~p", [Method, Request]),
     case httpc:request(Method, Request, HttpOpts, [{body_format, binary}]) of
         {error, socket_closed_remotely} ->
             {error, socket_closed_remotely};
@@ -90,7 +91,12 @@ create_default_app() ->
     Now = erlang:system_time(second),
     ExpiredAt = Now + timer:minutes(10),
     emqx_mgmt_auth:create(
-        ?DEFAULT_APP_ID, ?DEFAULT_APP_SECRET, true, ExpiredAt, <<"default app key for test">>
+        ?DEFAULT_APP_ID,
+        ?DEFAULT_APP_KEY,
+        ?DEFAULT_APP_SECRET,
+        true,
+        ExpiredAt,
+        <<"default app key for test">>
     ).
 
 delete_default_app() ->

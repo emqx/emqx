@@ -20,7 +20,6 @@ options:
   -v|--version:
     The tag to be released
     e.g. v5.0.19, e5.0.1-alpha.1 etc.
-  -l|--lang: en | zh
 EOF
 }
 
@@ -40,11 +39,6 @@ while [ "$#" -gt 0 ]; do
             TEMPLATE_VSN_HEADING="$1"
             shift
             ;;
-        -l|--lang)
-            shift
-            LANGUAGE="$1"
-            shift
-            ;;
         *)
             logerr "Unknown option $1"
             exit 1
@@ -52,14 +46,7 @@ while [ "$#" -gt 0 ]; do
     esac
 done
 
-case "${LANGUAGE:-}" in
-    en|zh)
-        true
-        ;;
-    *)
-        LANGUAGE='en'
-        ;;
-esac
+LANGUAGE='en'
 
 case "${BASE_TAG:-}" in
     v*)
@@ -121,17 +108,11 @@ done < <(git diff --diff-filter=A --name-only "tags/${BASE_TAG}...HEAD" "${chang
 TEMPLATE_FEAT_CHANGES="$(section 'feat')"
 TEMPLATE_PERF_CHANGES="$(section 'perf')"
 TEMPLATE_FIX_CHANGES="$(section 'fix')"
+TEMPLATE_BREAKING_CHANGES="$(section 'breaking')"
 
-case "$LANGUAGE" in
-    en)
-        TEMPLATE_ENH_HEADING="Enhancements"
-        TEMPLATE_FIX_HEADING="Bug Fixes"
-        ;;
-    zh)
-        TEMPLATE_ENH_HEADING="增强"
-        TEMPLATE_FIX_HEADING="修复"
-        ;;
-esac
+TEMPLATE_ENH_HEADING="Enhancements"
+TEMPLATE_FIX_HEADING="Bug Fixes"
+TEMPLATE_BREAKING_HEADING="Breaking Changes"
 
 cat <<EOF
 # ${TEMPLATE_VSN_HEADING}
@@ -145,4 +126,8 @@ ${TEMPLATE_PERF_CHANGES}
 ## ${TEMPLATE_FIX_HEADING}
 
 ${TEMPLATE_FIX_CHANGES}
+
+## ${TEMPLATE_BREAKING_HEADING}
+
+${TEMPLATE_BREAKING_CHANGES}
 EOF

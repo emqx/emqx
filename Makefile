@@ -1,3 +1,8 @@
+ifeq ($(DEBUG),1)
+DEBUG_INFO = $(info $1)
+else
+DEBUG_INFO = @:
+endif
 REBAR = $(CURDIR)/rebar3
 BUILD = $(CURDIR)/build
 SCRIPTS = $(CURDIR)/scripts
@@ -17,17 +22,6 @@ endif
 # from https://github.com/emqx/emqx-dashboard5
 export EMQX_DASHBOARD_VERSION ?= v1.5.0
 export EMQX_EE_DASHBOARD_VERSION ?= e1.3.0
-
-# `:=` should be used here, otherwise the `$(shell ...)` will be executed every time when the variable is used
-# In make 4.4+, for backward-compatibility the value from the original environment is used.
-# so the shell script will be executed tons of times.
-# https://github.com/emqx/emqx/pull/10627
-ifeq ($(strip $(OTP_VSN)),)
-	export OTP_VSN := $(shell $(SCRIPTS)/get-otp-vsn.sh)
-endif
-ifeq ($(strip $(ELIXIR_VSN)),)
-	export ELIXIR_VSN := $(shell $(SCRIPTS)/get-elixir-vsn.sh)
-endif
 
 PROFILE ?= emqx
 REL_PROFILES := emqx emqx-enterprise
@@ -75,11 +69,11 @@ mix-deps-get: $(ELIXIR_COMMON_DEPS)
 
 .PHONY: eunit
 eunit: $(REBAR) merge-config
-	@ENABLE_COVER_COMPILE=1 $(REBAR) eunit  --name eunit@127.0.0.1 -v -c --cover_export_name $(CT_COVER_EXPORT_PREFIX)-eunit
+	@$(REBAR) eunit --name eunit@127.0.0.1 -c -v --cover_export_name $(CT_COVER_EXPORT_PREFIX)-eunit
 
 .PHONY: proper
 proper: $(REBAR)
-	@ENABLE_COVER_COMPILE=1 $(REBAR) proper -d test/props -c
+	@$(REBAR) proper -d test/props -c
 
 .PHONY: test-compile
 test-compile: $(REBAR) merge-config
@@ -91,7 +85,7 @@ $(REL_PROFILES:%=%-compile): $(REBAR) merge-config
 
 .PHONY: ct
 ct: $(REBAR) merge-config
-	@ENABLE_COVER_COMPILE=1 $(REBAR) ct --name $(CT_NODE_NAME) -c -v --cover_export_name $(CT_COVER_EXPORT_PREFIX)-ct
+	@$(REBAR) ct --name $(CT_NODE_NAME) -c -v --cover_export_name $(CT_COVER_EXPORT_PREFIX)-ct
 
 ## only check bpapi for enterprise profile because it's a super-set.
 .PHONY: static_checks
@@ -101,31 +95,56 @@ static_checks:
 	./scripts/check-i18n-style.sh
 	./scripts/check_missing_reboot_apps.exs
 
-APPS=$(shell $(SCRIPTS)/find-apps.sh)
+# Allow user-set CASES environment variable
+ifneq ($(CASES),)
+CASES_ARG := --case $(CASES)
+endif
 
-.PHONY: $(APPS:%=%-ct)
+# Allow user-set GROUPS environment variable
+ifneq ($(GROUPS),)
+GROUPS_ARG := --groups $(GROUPS)
+endif
+
+ifeq ($(ENABLE_COVER_COMPILE),1)
+cover_args = --cover --cover_export_name $(CT_COVER_EXPORT_PREFIX)-$(subst /,-,$1)
+else
+cover_args =
+endif
+
+## example:
+## env SUITES=apps/appname/test/test_SUITE.erl CASES=t_foo make apps/appname-ct
 define gen-app-ct-target
 $1-ct: $(REBAR) merge-config clean-test-cluster-config
 	$(eval SUITES := $(shell $(SCRIPTS)/find-suites.sh $1))
 ifneq ($(SUITES),)
-		ENABLE_COVER_COMPILE=1 $(REBAR) ct -c -v \
-			--readable=$(CT_READABLE) \
-			--name $(CT_NODE_NAME) \
-			--cover_export_name $(CT_COVER_EXPORT_PREFIX)-$(subst /,-,$1) \
-			--suite $(SUITES)
+	$(REBAR) ct -v \
+		--readable=$(CT_READABLE) \
+		--name $(CT_NODE_NAME) \
+		$(call cover_args,$1) \
+		--suite $(SUITES) \
+		$(GROUPS_ARG) \
+		$(CASES_ARG)
 else
-		@echo 'No suites found for $1'
+	@echo 'No suites found for $1'
 endif
 endef
-$(foreach app,$(APPS),$(eval $(call gen-app-ct-target,$(app))))
+
+ifneq ($(filter %-ct,$(MAKECMDGOALS)),)
+app_to_test := $(patsubst %-ct,%,$(filter %-ct,$(MAKECMDGOALS)))
+$(call DEBUG_INFO,app_to_test $(app_to_test))
+$(eval $(call gen-app-ct-target,$(app_to_test)))
+endif
 
 ## apps/name-prop targets
-.PHONY: $(APPS:%=%-prop)
 define gen-app-prop-target
 $1-prop:
 	$(REBAR) proper -d test/props -v -m $(shell $(SCRIPTS)/find-props.sh $1)
 endef
-$(foreach app,$(APPS),$(eval $(call gen-app-prop-target,$(app))))
+ifneq ($(filter %-prop,$(MAKECMDGOALS)),)
+app_to_test := $(patsubst %-prop,%,$(filter %-prop,$(MAKECMDGOALS)))
+$(call DEBUG_INFO,app_to_test $(app_to_test))
+$(eval $(call gen-app-prop-target,$(app_to_test)))
+endif
 
 .PHONY: ct-suite
 ct-suite: $(REBAR) merge-config clean-test-cluster-config
@@ -303,3 +322,11 @@ fmt: $(REBAR)
 .PHONY: clean-test-cluster-config
 clean-test-cluster-config:
 	@rm -f apps/emqx_conf/data/configs/cluster.hocon || true
+
+.PHONY: spellcheck
+spellcheck:
+	./scripts/spellcheck/spellcheck.sh _build/docgen/$(PROFILE)/schema-en.json
+
+.PHONY: nothing
+nothing:
+	@:

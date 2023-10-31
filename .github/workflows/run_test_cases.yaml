@@ -52,6 +52,7 @@ jobs:
       - name: eunit
         env:
           PROFILE: ${{ matrix.profile }}
+          ENABLE_COVER_COMPILE: 1
           CT_COVER_EXPORT_PREFIX: ${{ matrix.profile }}-${{ matrix.otp }}
         run: make eunit
 
@@ -59,6 +60,7 @@ jobs:
       - name: proper
         env:
           PROFILE: ${{ matrix.profile }}
+          ENABLE_COVER_COMPILE: 1
           CT_COVER_EXPORT_PREFIX: ${{ matrix.profile }}-${{ matrix.otp }}
         run: make proper
 
@@ -69,7 +71,7 @@ jobs:
 
   ct_docker:
     runs-on: ${{ fromJSON(inputs.runner_labels) }}
-    name: "ct_docker (${{ matrix.app }}-${{ matrix.suitegroup }})"
+    name: "${{ matrix.app }}-${{ matrix.suitegroup }} (${{ matrix.profile }})"
     strategy:
       fail-fast: false
       matrix:
@@ -102,6 +104,7 @@ jobs:
           MINIO_TAG: "RELEASE.2023-03-20T20-16-18Z"
           PROFILE: ${{ matrix.profile }}
           SUITEGROUP: ${{ matrix.suitegroup }}
+          ENABLE_COVER_COMPILE: 1
           CT_COVER_EXPORT_PREFIX: ${{ matrix.profile }}-${{ matrix.otp }}-sg${{ matrix.suitegroup }}
         run: ./scripts/ct/run.sh --ci --app ${{ matrix.app }}
       - uses: actions/upload-artifact@v3
@@ -119,7 +122,7 @@ jobs:
 
   ct:
     runs-on: ${{ fromJSON(inputs.runner_labels) }}
-    name: "ct (${{ matrix.app }}-${{ matrix.suitegroup }})"
+    name: "${{ matrix.app }}-${{ matrix.suitegroup }} (${{ matrix.profile }})"
     strategy:
       fail-fast: false
       matrix:
@@ -144,6 +147,7 @@ jobs:
         env:
           PROFILE: ${{ matrix.profile }}
           SUITEGROUP: ${{ matrix.suitegroup }}
+          ENABLE_COVER_COMPILE: 1
           CT_COVER_EXPORT_PREFIX: ${{ matrix.profile }}-${{ matrix.otp }}-sg${{ matrix.suitegroup }}
         run: |
           make "${{ matrix.app }}-ct"

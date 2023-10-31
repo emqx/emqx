@@ -25,6 +25,7 @@ jobs:
       version-emqx: ${{ steps.matrix.outputs.version-emqx }}
       version-emqx-enterprise: ${{ steps.matrix.outputs.version-emqx-enterprise }}
       runner_labels: ${{ github.repository_owner == 'emqx' && '["self-hosted","ephemeral","linux","x64"]' || '["ubuntu-22.04"]' }}
+      xl_runner_labels: ${{ github.repository_owner == 'emqx' && '["self-hosted","ephemeral-xl","linux","x64"]' || '["ubuntu-22.04"]' }}
       builder: "ghcr.io/emqx/emqx-builder/5.2-3:1.14.5-25.3.2-2-ubuntu22.04"
       builder_vsn: "5.2-3"
       otp_vsn: "25.3.2-2"
@@ -115,7 +116,7 @@ jobs:
           echo "version-emqx-enterprise=$(./pkg-vsn.sh emqx-enterprise)" | tee -a $GITHUB_OUTPUT
 
   compile:
-    runs-on: ${{ fromJSON(needs.sanity-checks.outputs.runner_labels) }}
+    runs-on: ${{ fromJSON(needs.sanity-checks.outputs.xl_runner_labels) }}
     container: ${{ needs.sanity-checks.outputs.builder }}
     needs:
       - sanity-checks
@@ -154,7 +155,7 @@ jobs:
       - compile
     uses: ./.github/workflows/run_emqx_app_tests.yaml
     with:
-      runner_labels: ${{ needs.sanity-checks.outputs.runner_labels }}
+      runner_labels: ${{ needs.sanity-checks.outputs.xl_runner_labels }}
       builder: ${{ needs.sanity-checks.outputs.builder }}
       before_ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.event.before }}
       after_ref: ${{ github.sha }}

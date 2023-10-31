@@ -62,8 +62,12 @@
 
 %% Data backup
 -export([
-    import_config/1
+    import_config/1,
+    %% exported for emqx_bridge_v2
+    import_config/4
 ]).
+
+-export([query_opts/1]).
 
 -define(EGRESS_DIR_BRIDGES(T),
     T == webhook;
@@ -71,10 +75,7 @@
     T == gcp_pubsub;
     T == influxdb_api_v1;
     T == influxdb_api_v2;
-    %% TODO: rename this to `kafka_producer' after alias support is
-    %% added to hocon; keeping this as just `kafka' for backwards
-    %% compatibility.
-    T == kafka;
+    T == kafka_producer;
     T == redis_single;
     T == redis_sentinel;
     T == redis_cluster;
@@ -211,13 +212,19 @@ send_to_matched_egress_bridges(Topic, Msg) ->
                 _ ->
                     ok
             catch
+                throw:Reason ->
+                    ?SLOG(error, #{
+                        msg => "send_message_to_bridge_exception",
+                        bridge => Id,
+                        reason => emqx_utils:redact(Reason)
+                    });
                 Err:Reason:ST ->
                     ?SLOG(error, #{
                         msg => "send_message_to_bridge_exception",
                         bridge => Id,
                         error => Err,
-                        reason => Reason,
-                        stacktrace => ST
+                        reason => emqx_utils:redact(Reason),
+                        stacktrace => emqx_utils:redact(ST)
                     })
             end
         end,
@@ -277,30 +284,40 @@ post_config_update([?ROOT_KEY], _Req, NewConf, OldConf, _AppEnv) ->
     Result.
 
 list() ->
-    maps:fold(
-        fun(Type, NameAndConf, Bridges) ->
-            maps:fold(
-                fun(Name, RawConf, Acc) ->
-                    case lookup(Type, Name, RawConf) of
-                        {error, not_found} -> Acc;
-                        {ok, Res} -> [Res | Acc]
-                    end
-                end,
-                Bridges,
-                NameAndConf
-            )
-        end,
-        [],
-        emqx:get_raw_config([bridges], #{})
-    ).
+    BridgeV1Bridges =
+        maps:fold(
+            fun(Type, NameAndConf, Bridges) ->
+                maps:fold(
+                    fun(Name, RawConf, Acc) ->
+                        case lookup(Type, Name, RawConf) of
+                            {error, not_found} -> Acc;
+                            {ok, Res} -> [Res | Acc]
+                        end
+                    end,
+                    Bridges,
+                    NameAndConf
+                )
+            end,
+            [],
+            emqx:get_raw_config([bridges], #{})
+        ),
+    BridgeV2Bridges =
+        emqx_bridge_v2:list_and_transform_to_bridge_v1(),
+    BridgeV1Bridges ++ BridgeV2Bridges.
+%%BridgeV2Bridges = emqx_bridge_v2:list().
 
 lookup(Id) ->
     {Type, Name} = emqx_bridge_resource:parse_bridge_id(Id),
     lookup(Type, Name).
 
 lookup(Type, Name) ->
-    RawConf = emqx:get_raw_config([bridges, Type, Name], #{}),
-    lookup(Type, Name, RawConf).
+    case emqx_bridge_v2:is_bridge_v2_type(Type) of
+        true ->
+            emqx_bridge_v2:lookup_and_transform_to_bridge_v1(Type, Name);
+        false ->
+            RawConf = emqx:get_raw_config([bridges, Type, Name], #{}),
+            lookup(Type, Name, RawConf)
+    end.
 
 lookup(Type, Name, RawConf) ->
     case emqx_resource:get_instance(emqx_bridge_resource:resource_id(Type, Name)) of
@@ -316,7 +333,18 @@ lookup(Type, Name, RawConf) ->
     end.
 
 get_metrics(Type, Name) ->
-    emqx_resource:get_metrics(emqx_bridge_resource:resource_id(Type, Name)).
+    case emqx_bridge_v2:is_bridge_v2_type(Type) of
+        true ->
+            case emqx_bridge_v2:is_valid_bridge_v1(Type, Name) of
+                true ->
+                    BridgeV2Type = emqx_bridge_v2:bridge_v2_type_to_connector_type(Type),
+                    emqx_bridge_v2:get_metrics(BridgeV2Type, Name);
+                false ->
+                    {error, not_bridge_v1_compatible}
+            end;
+        false ->
+            emqx_resource:get_metrics(emqx_bridge_resource:resource_id(Type, Name))
+    end.
 
 maybe_upgrade(mqtt, Config) ->
     emqx_bridge_compatible_config:maybe_upgrade(Config);
@@ -325,55 +353,90 @@ maybe_upgrade(webhook, Config) ->
 maybe_upgrade(_Other, Config) ->
     Config.
 
-disable_enable(Action, BridgeType, BridgeName) when
+disable_enable(Action, BridgeType0, BridgeName) when
     Action =:= disable; Action =:= enable
 ->
-    emqx_conf:update(
-        config_key_path() ++ [BridgeType, BridgeName],
-        {Action, BridgeType, BridgeName},
-        #{override_to => cluster}
-    ).
+    BridgeType = upgrade_type(BridgeType0),
+    case emqx_bridge_v2:is_bridge_v2_type(BridgeType) of
+        true ->
+            emqx_bridge_v2:bridge_v1_enable_disable(Action, BridgeType, BridgeName);
+        false ->
+            emqx_conf:update(
+                config_key_path() ++ [BridgeType, BridgeName],
+                {Action, BridgeType, BridgeName},
+                #{override_to => cluster}
+            )
+    end.
 
-create(BridgeType, BridgeName, RawConf) ->
+create(BridgeType0, BridgeName, RawConf) ->
+    BridgeType = upgrade_type(BridgeType0),
     ?SLOG(debug, #{
         bridge_action => create,
         bridge_type => BridgeType,
         bridge_name => BridgeName,
         bridge_raw_config => emqx_utils:redact(RawConf)
     }),
-    emqx_conf:update(
-        emqx_bridge:config_key_path() ++ [BridgeType, BridgeName],
-        RawConf,
-        #{override_to => cluster}
-    ).
+    case emqx_bridge_v2:is_bridge_v2_type(BridgeType) of
+        true ->
+            emqx_bridge_v2:split_bridge_v1_config_and_create(BridgeType, BridgeName, RawConf);
+        false ->
+            emqx_conf:update(
+                emqx_bridge:config_key_path() ++ [BridgeType, BridgeName],
+                RawConf,
+                #{override_to => cluster}
+            )
+    end.
 
-remove(BridgeType, BridgeName) ->
+%% NOTE: This function can cause broken references but it is only called from
+%% test cases.
+-spec remove(atom() | binary(), binary()) -> ok | {error, any()}.
+remove(BridgeType0, BridgeName) ->
+    BridgeType = upgrade_type(BridgeType0),
     ?SLOG(debug, #{
         bridge_action => remove,
         bridge_type => BridgeType,
         bridge_name => BridgeName
     }),
-    emqx_conf:remove(
-        emqx_bridge:config_key_path() ++ [BridgeType, BridgeName],
-        #{override_to => cluster}
-    ).
+    case emqx_bridge_v2:is_bridge_v2_type(BridgeType) of
+        true ->
+            emqx_bridge_v2:remove(BridgeType, BridgeName);
+        false ->
+            remove_v1(BridgeType, BridgeName)
+    end.
 
-check_deps_and_remove(BridgeType, BridgeName, RemoveDeps) ->
-    BridgeId = emqx_bridge_resource:bridge_id(BridgeType, BridgeName),
-    %% NOTE: This violates the design: Rule depends on data-bridge but not vice versa.
-    case emqx_rule_engine:get_rule_ids_by_action(BridgeId) of
-        [] ->
+remove_v1(BridgeType0, BridgeName) ->
+    BridgeType = upgrade_type(BridgeType0),
+    case
+        emqx_conf:remove(
+            emqx_bridge:config_key_path() ++ [BridgeType, BridgeName],
+            #{override_to => cluster}
+        )
+    of
+        {ok, _} ->
+            ok;
+        {error, Reason} ->
+            {error, Reason}
+    end.
+
+check_deps_and_remove(BridgeType0, BridgeName, RemoveDeps) ->
+    BridgeType = upgrade_type(BridgeType0),
+    case emqx_bridge_v2:is_bridge_v2_type(BridgeType) of
+        true ->
+            emqx_bridge_v2:bridge_v1_check_deps_and_remove(
+                BridgeType,
+                BridgeName,
+                RemoveDeps
+            );
+        false ->
+            do_check_deps_and_remove(BridgeType, BridgeName, RemoveDeps)
+    end.
+
+do_check_deps_and_remove(BridgeType, BridgeName, RemoveDeps) ->
+    case emqx_bridge_lib:maybe_withdraw_rule_action(BridgeType, BridgeName, RemoveDeps) of
+        ok ->
             remove(BridgeType, BridgeName);
-        RuleIds when RemoveDeps =:= false ->
-            {error, {rules_deps_on_this_bridge, RuleIds}};
-        RuleIds when RemoveDeps =:= true ->
-            lists:foreach(
-                fun(R) ->
-                    emqx_rule_engine:ensure_action_removed(R, BridgeId)
-                end,
-                RuleIds
-            ),
-            remove(BridgeType, BridgeName)
+        {error, Reason} ->
+            {error, Reason}
     end.
 
 %%----------------------------------------------------------------------------------------
@@ -381,15 +444,18 @@ check_deps_and_remove(BridgeType, BridgeName, RemoveDeps) ->
 %%----------------------------------------------------------------------------------------
 
 import_config(RawConf) ->
-    RootKeyPath = config_key_path(),
-    BridgesConf = maps:get(<<"bridges">>, RawConf, #{}),
+    import_config(RawConf, <<"bridges">>, ?ROOT_KEY, config_key_path()).
+
+%% Used in emqx_bridge_v2
+import_config(RawConf, RawConfKey, RootKey, RootKeyPath) ->
+    BridgesConf = maps:get(RawConfKey, RawConf, #{}),
     OldBridgesConf = emqx:get_raw_config(RootKeyPath, #{}),
     MergedConf = merge_confs(OldBridgesConf, BridgesConf),
     case emqx_conf:update(RootKeyPath, MergedConf, #{override_to => cluster}) of
         {ok, #{raw_config := NewRawConf}} ->
-            {ok, #{root_key => ?ROOT_KEY, changed => changed_paths(OldBridgesConf, NewRawConf)}};
+            {ok, #{root_key => RootKey, changed => changed_paths(OldBridgesConf, NewRawConf)}};
         Error ->
-            {error, #{root_key => ?ROOT_KEY, reason => Error}}
+            {error, #{root_key => RootKey, reason => Error}}
     end.
 
 merge_confs(OldConf, NewConf) ->
@@ -600,3 +666,6 @@ validate_bridge_name(BridgeName0) ->
 
 to_bin(A) when is_atom(A) -> atom_to_binary(A, utf8);
 to_bin(B) when is_binary(B) -> B.
+
+upgrade_type(Type) ->
+    emqx_bridge_lib:upgrade_type(Type).

@@ -61,6 +61,12 @@
     <<"slow_subs">>
 ]).
 
+%% emqx_bridge_v2 depends on emqx_connector, so connectors need to be imported first
+-define(IMPORT_ORDER, [
+    emqx_connector,
+    emqx_bridge_v2
+]).
+
 -define(DEFAULT_OPTS, #{}).
 -define(tar(_FileName_), _FileName_ ++ ?TAR_SUFFIX).
 -define(fmt_tar_err(_Expr_),
@@ -462,11 +468,12 @@ import_cluster_hocon(BackupDir, Opts) ->
     case filelib:is_regular(HoconFileName) of
         true ->
             {ok, RawConf} = hocon:files([HoconFileName]),
-            {ok, _} = validate_cluster_hocon(RawConf),
+            RawConf1 = upgrade_raw_conf(emqx_conf:schema_module(), RawConf),
+            {ok, _} = validate_cluster_hocon(RawConf1),
             maybe_print("Importing cluster configuration...~n", [], Opts),
             %% At this point, when all validations have been passed, we want to log errors (if any)
             %% but proceed with the next items, instead of aborting the whole import operation
-            do_import_conf(RawConf, Opts);
+            do_import_conf(RawConf1, Opts);
         false ->
             maybe_print("No cluster configuration to be imported.~n", [], Opts),
             ?SLOG(info, #{
@@ -474,6 +481,16 @@ import_cluster_hocon(BackupDir, Opts) ->
                 backup => BackupDir
             }),
             #{}
+    end.
+
+upgrade_raw_conf(SchemaMod, RawConf) ->
+    _ = SchemaMod:module_info(),
+    case erlang:function_exported(SchemaMod, upgrade_raw_conf, 1) of
+        true ->
+            %% TODO make it a schema module behaviour in hocon_schema
+            apply(SchemaMod, upgrade_raw_conf, [RawConf]);
+        false ->
+            RawConf
     end.
 
 read_data_files(RawConf) ->
@@ -523,7 +540,7 @@ do_import_conf(RawConf, Opts) ->
     GenConfErrs = filter_errors(maps:from_list(import_generic_conf(RawConf))),
     maybe_print_errors(GenConfErrs, Opts),
     Errors =
-        lists:foldr(
+        lists:foldl(
             fun(Module, ErrorsAcc) ->
                 case Module:import_config(RawConf) of
                     {ok, #{changed := Changed}} ->
@@ -534,10 +551,26 @@ do_import_conf(RawConf, Opts) ->
                 end
             end,
             GenConfErrs,
-            find_behaviours(emqx_config_backup)
+            sort_importer_modules(find_behaviours(emqx_config_backup))
         ),
     maybe_print_errors(Errors, Opts),
     Errors.
+
+sort_importer_modules(Modules) ->
+    lists:sort(
+        fun(M1, M2) -> order(M1, ?IMPORT_ORDER) =< order(M2, ?IMPORT_ORDER) end,
+        Modules
+    ).
+
+order(Elem, List) ->
+    order(Elem, List, 0).
+
+order(_Elem, [], Order) ->
+    Order;
+order(Elem, [Elem | _], Order) ->
+    Order;
+order(Elem, [_ | T], Order) ->
+    order(Elem, T, Order + 1).
 
 import_generic_conf(Data) ->
     lists:map(

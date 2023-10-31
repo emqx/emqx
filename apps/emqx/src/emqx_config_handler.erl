@@ -19,7 +19,7 @@
 
 -include("logger.hrl").
 -include("emqx_schema.hrl").
--include_lib("hocon/include/hoconsc.hrl").
+-include_lib("hocon/include/hocon_types.hrl").
 
 -behaviour(gen_server).
 
@@ -736,7 +736,7 @@ remove_empty_leaf(KeyPath, Handlers) ->
     end.
 
 assert_callback_function(Mod) ->
-    _ = Mod:module_info(),
+    _ = apply(Mod, module_info, []),
     case
         erlang:function_exported(Mod, pre_config_update, 3) orelse
             erlang:function_exported(Mod, post_config_update, 5)
