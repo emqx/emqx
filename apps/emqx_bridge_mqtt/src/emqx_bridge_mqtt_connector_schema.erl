@@ -99,13 +99,9 @@ fields("server_configs") ->
                 }
             )},
         {password,
-            mk(
-                binary(),
+            emqx_schema_secret:mk(
                 #{
-                    format => <<"password">>,
-                    sensitive => true,
-                    desc => ?DESC("password"),
-                    converter => fun emqx_schema:password_converter/2
+                    desc => ?DESC("password")
                 }
             )},
         {clean_start,
