@@ -249,32 +249,42 @@ create_rule_and_action_http(BridgeType, RuleTopic, Config, Opts) ->
             Error
     end.
 
+make_message(Config, MakeMessageFun) ->
+    BridgeType = ?config(bridge_type, Config),
+    case emqx_bridge_v2:is_bridge_v2_type(BridgeType) of
+        true ->
+            BridgeId = emqx_bridge_v2_testlib:bridge_id(Config),
+            {BridgeId, MakeMessageFun()};
+        false ->
+            {send_message, MakeMessageFun()}
+    end.
+
 %%------------------------------------------------------------------------------
 %% Testcases
 %%------------------------------------------------------------------------------
 
 t_sync_query(Config, MakeMessageFun, IsSuccessCheck, TracePoint) ->
-    ResourceId = resource_id(Config),
     ?check_trace(
         begin
             ?assertMatch({ok, _}, create_bridge_api(Config)),
+            ResourceId = resource_id(Config),
             ?retry(
                 _Sleep = 1_000,
                 _Attempts = 20,
                 ?assertEqual({ok, connected}, emqx_resource_manager:health_check(ResourceId))
             ),
-            Message = {send_message, MakeMessageFun()},
+            Message = make_message(Config, MakeMessageFun),
             IsSuccessCheck(emqx_resource:simple_sync_query(ResourceId, Message)),
             ok
         end,
         fun(Trace) ->
+            ResourceId = resource_id(Config),
             ?assertMatch([#{instance_id := ResourceId}], ?of_kind(TracePoint, Trace))
         end
     ),
     ok.
 
 t_async_query(Config, MakeMessageFun, IsSuccessCheck, TracePoint) ->
-    ResourceId = resource_id(Config),
     ReplyFun =
         fun(Pid, Result) ->
             Pid ! {result, Result}
@@ -282,12 +292,13 @@ t_async_query(Config, MakeMessageFun, IsSuccessCheck, TracePoint) ->
     ?check_trace(
         begin
             ?assertMatch({ok, _}, create_bridge_api(Config)),
+            ResourceId = resource_id(Config),
             ?retry(
                 _Sleep = 1_000,
                 _Attempts = 20,
                 ?assertEqual({ok, connected}, emqx_resource_manager:health_check(ResourceId))
             ),
-            Message = {send_message, MakeMessageFun()},
+            Message = make_message(Config, MakeMessageFun),
             ?assertMatch(
                 {ok, {ok, _}},
                 ?wait_async_action(
@@ -301,6 +312,7 @@ t_async_query(Config, MakeMessageFun, IsSuccessCheck, TracePoint) ->
             ok
         end,
         fun(Trace) ->
+            ResourceId = resource_id(Config),
             ?assertMatch([#{instance_id := ResourceId}], ?of_kind(TracePoint, Trace))
         end
     ),
@@ -342,7 +354,6 @@ t_start_stop(Config, StopTracePoint) ->
     t_start_stop(BridgeType, BridgeName, BridgeConfig, StopTracePoint).
 
 t_start_stop(BridgeType, BridgeName, BridgeConfig, StopTracePoint) ->
-    ResourceId = emqx_bridge_resource:resource_id(BridgeType, BridgeName),
     ?check_trace(
         begin
             %% Check that the bridge probe API doesn't leak atoms.
@@ -365,6 +376,7 @@ t_start_stop(BridgeType, BridgeName, BridgeConfig, StopTracePoint) ->
             ?assertEqual(AtomsBefore, AtomsAfter),
 
             ?assertMatch({ok, _}, emqx_bridge:create(BridgeType, BridgeName, BridgeConfig)),
+            ResourceId = emqx_bridge_resource:resource_id(BridgeType, BridgeName),
 
             %% Since the connection process is async, we give it some time to
             %% stabilize and avoid flakiness.
@@ -428,6 +440,7 @@ t_start_stop(BridgeType, BridgeName, BridgeConfig, StopTracePoint) ->
             ok
         end,
         fun(Trace) ->
+            ResourceId = emqx_bridge_resource:resource_id(BridgeType, BridgeName),
             %% one for each probe, two for real
             ?assertMatch(
                 [_, _, #{instance_id := ResourceId}, #{instance_id := ResourceId}],
@@ -445,9 +458,9 @@ t_on_get_status(Config, Opts) ->
     ProxyPort = ?config(proxy_port, Config),
     ProxyHost = ?config(proxy_host, Config),
     ProxyName = ?config(proxy_name, Config),
-    ResourceId = resource_id(Config),
     FailureStatus = maps:get(failure_status, Opts, disconnected),
     ?assertMatch({ok, _}, create_bridge(Config)),
+    ResourceId = resource_id(Config),
     %% Since the connection process is async, we give it some time to
     %% stabilize and avoid flakiness.
     ?retry(

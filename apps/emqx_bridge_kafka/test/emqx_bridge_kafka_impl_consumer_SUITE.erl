@@ -2187,7 +2187,7 @@ t_resource_manager_crash_after_subscriber_started(Config) ->
                 _ ->
                     ct:fail("unexpected result: ~p", [Res])
             end,
-            ?assertMatch({ok, _}, delete_bridge(Config)),
+            ?assertMatch(ok, delete_bridge(Config)),
             ?retry(
                 _Sleep = 50,
                 _Attempts = 50,
@@ -2244,7 +2244,7 @@ t_resource_manager_crash_before_subscriber_started(Config) ->
                 _ ->
                     ct:fail("unexpected result: ~p", [Res])
             end,
-            ?assertMatch({ok, _}, delete_bridge(Config)),
+            ?assertMatch(ok, delete_bridge(Config)),
             ?retry(
                 _Sleep = 50,
                 _Attempts = 50,

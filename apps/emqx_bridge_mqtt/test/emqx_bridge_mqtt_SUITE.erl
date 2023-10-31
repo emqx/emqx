@@ -179,7 +179,7 @@ clear_resources() ->
     ),
     lists:foreach(
         fun(#{type := Type, name := Name}) ->
-            {ok, _} = emqx_bridge:remove(Type, Name)
+            ok = emqx_bridge:remove(Type, Name)
         end,
         emqx_bridge:list()
     ).

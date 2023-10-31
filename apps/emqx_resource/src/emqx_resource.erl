@@ -17,7 +17,6 @@
 -module(emqx_resource).
 
 -include("emqx_resource.hrl").
--include("emqx_resource_utils.hrl").
 -include("emqx_resource_errors.hrl").
 -include_lib("emqx/include/logger.hrl").
 
@@ -50,6 +49,8 @@
     %% run start/2, health_check/2 and stop/1 sequentially
     create_dry_run/2,
     create_dry_run_local/2,
+    create_dry_run_local/3,
+    create_dry_run_local/4,
     %% this will do create_dry_run, stop the old instance and start a new one
     recreate/3,
     recreate/4,
@@ -59,11 +60,15 @@
     remove/1,
     remove_local/1,
     reset_metrics/1,
-    reset_metrics_local/1
+    reset_metrics_local/1,
+    %% Create metrics for a resource ID
+    create_metrics/1,
+    %% Delete metrics for a resource ID
+    clear_metrics/1
 ]).
 
 %% Calls to the callback module with current resource state
-%% They also save the state after the call finished (except query/2,3).
+%% They also save the state after the call finished (except call_get_channel_config/3).
 
 -export([
     start/1,
@@ -72,6 +77,8 @@
     restart/2,
     %% verify if the resource is working normally
     health_check/1,
+    channel_health_check/2,
+    get_channels/1,
     %% set resource status to disconnected
     set_resource_status_connecting/1,
     %% stop the instance
@@ -87,7 +94,9 @@
     has_allocated_resources/1,
     get_allocated_resources/1,
     get_allocated_resources_list/1,
-    forget_allocated_resources/1
+    forget_allocated_resources/1,
+    %% Get channel config from resource
+    call_get_channel_config/3
 ]).
 
 %% Direct calls to the callback module
@@ -99,10 +108,18 @@
     call_start/3,
     %% verify if the resource is working normally
     call_health_check/3,
+    %% verify if the resource channel is working normally
+    call_channel_health_check/4,
     %% stop the instance
     call_stop/3,
     %% get the query mode of the resource
-    query_mode/3
+    query_mode/3,
+    %% Add channel to resource
+    call_add_channel/5,
+    %% Remove channel from resource
+    call_remove_channel/4,
+    %% Get channels from resource
+    call_get_channels/2
 ]).
 
 %% list all the instances, id only.
@@ -125,6 +142,7 @@
 -export_type([
     query_mode/0,
     resource_id/0,
+    channel_id/0,
     resource_data/0,
     resource_status/0
 ]).
@@ -135,6 +153,10 @@
     on_query_async/4,
     on_batch_query_async/4,
     on_get_status/2,
+    on_get_channel_status/3,
+    on_add_channel/4,
+    on_remove_channel/3,
+    on_get_channels/1,
     query_mode/1
 ]).
 
@@ -176,7 +198,55 @@
     | {resource_status(), resource_state()}
     | {resource_status(), resource_state(), term()}.
 
+-callback on_get_channel_status(resource_id(), channel_id(), resource_state()) ->
+    channel_status()
+    | {error, term()}.
+
 -callback query_mode(Config :: term()) -> query_mode().
+
+%% This callback handles the installation of a specified channel.
+%%
+%% If the channel cannot be successfully installed, the callback shall
+%% throw an exception or return an error tuple.
+-callback on_add_channel(
+    ResId :: term(), ResourceState :: term(), ChannelId :: binary(), ChannelConfig :: map()
+) -> {ok, term()} | {error, term()}.
+
+%% This callback handles the removal of a specified channel resource.
+%%
+%% It's guaranteed that the provided channel is installed when this
+%% function is invoked. Upon successful deinstallation, the function should return
+%% a new state
+%%
+%% If the channel cannot be successfully deinstalled, the callback should
+%% log an error.
+%%
+-callback on_remove_channel(
+    ResId :: term(), ResourceState :: term(), ChannelId :: binary()
+) -> {ok, NewState :: term()}.
+
+%% This callback shall return a list of channel configs that are currently active
+%% for the resource with the given id.
+-callback on_get_channels(
+    ResId :: term()
+) -> [term()].
+
+-define(SAFE_CALL(EXPR),
+    (fun() ->
+        try
+            EXPR
+        catch
+            throw:Reason ->
+                {error, Reason};
+            C:E:S ->
+                {error, #{
+                    execption => C,
+                    reason => emqx_utils:redact(E),
+                    stacktrace => emqx_utils:redact(S)
+                }}
+        end
+    end)()
+).
 
 -spec list_types() -> [module()].
 list_types() ->
@@ -234,6 +304,16 @@ create_dry_run(ResourceType, Config) ->
 create_dry_run_local(ResourceType, Config) ->
     emqx_resource_manager:create_dry_run(ResourceType, Config).
 
+create_dry_run_local(ResId, ResourceType, Config) ->
+    emqx_resource_manager:create_dry_run(ResId, ResourceType, Config).
+
+-spec create_dry_run_local(resource_id(), resource_type(), resource_config(), OnReadyCallback) ->
+    ok | {error, Reason :: term()}
+when
+    OnReadyCallback :: fun((resource_id()) -> ok | {error, Reason :: term()}).
+create_dry_run_local(ResId, ResourceType, Config, OnReadyCallback) ->
+    emqx_resource_manager:create_dry_run(ResId, ResourceType, Config, OnReadyCallback).
+
 -spec recreate(resource_id(), resource_type(), resource_config()) ->
     {ok, resource_data()} | {error, Reason :: term()}.
 recreate(ResId, ResourceType, Config) ->
@@ -273,8 +353,7 @@ remove_local(ResId) ->
                 resource_id => ResId
             }),
             ok
-    end,
-    ok.
+    end.
 
 -spec reset_metrics_local(resource_id()) -> ok.
 reset_metrics_local(ResId) ->
@@ -292,46 +371,61 @@ query(ResId, Request) ->
 -spec query(resource_id(), Request :: term(), query_opts()) ->
     Result :: term().
 query(ResId, Request, Opts) ->
-    case emqx_resource_manager:lookup_cached(ResId) of
-        {ok, _Group, #{query_mode := QM, error := Error}} ->
-            case {QM, Error} of
-                {_, unhealthy_target} ->
-                    emqx_resource_metrics:matched_inc(ResId),
-                    emqx_resource_metrics:dropped_resource_stopped_inc(ResId),
-                    ?RESOURCE_ERROR(unhealthy_target, "unhealthy target");
-                {_, {unhealthy_target, _Message}} ->
-                    emqx_resource_metrics:matched_inc(ResId),
-                    emqx_resource_metrics:dropped_resource_stopped_inc(ResId),
-                    ?RESOURCE_ERROR(unhealthy_target, "unhealthy target");
-                {simple_async, _} ->
-                    %% TODO(5.1.1): pass Resource instead of ResId to simple APIs
-                    %% so the buffer worker does not need to lookup the cache again
-                    emqx_resource_buffer_worker:simple_async_query(ResId, Request, Opts);
-                {simple_sync, _} ->
-                    %% TODO(5.1.1): pass Resource instead of ResId to simple APIs
-                    %% so the buffer worker does not need to lookup the cache again
-                    emqx_resource_buffer_worker:simple_sync_query(ResId, Request, Opts);
-                {simple_async_internal_buffer, _} ->
-                    %% This is for bridges/connectors that have internal buffering, such
-                    %% as Kafka and Pulsar producers.
-                    %% TODO(5.1.1): pass Resource instead of ResId to simple APIs
-                    %% so the buffer worker does not need to lookup the cache again
-                    emqx_resource_buffer_worker:simple_async_query(ResId, Request, Opts);
-                {simple_sync_internal_buffer, _} ->
-                    %% This is for bridges/connectors that have internal buffering, such
-                    %% as Kafka and Pulsar producers.
-                    %% TODO(5.1.1): pass Resource instead of ResId to simple APIs
-                    %% so the buffer worker does not need to lookup the cache again
-                    emqx_resource_buffer_worker:simple_sync_internal_buffer_query(
-                        ResId, Request, Opts
-                    );
-                {sync, _} ->
-                    emqx_resource_buffer_worker:sync_query(ResId, Request, Opts);
-                {async, _} ->
-                    emqx_resource_buffer_worker:async_query(ResId, Request, Opts)
+    case get_query_mode_error(ResId, Opts) of
+        {error, _} = ErrorTuple ->
+            ErrorTuple;
+        {_, unhealthy_target} ->
+            emqx_resource_metrics:matched_inc(ResId),
+            emqx_resource_metrics:dropped_resource_stopped_inc(ResId),
+            ?RESOURCE_ERROR(unhealthy_target, "unhealthy target");
+        {_, {unhealthy_target, _Message}} ->
+            emqx_resource_metrics:matched_inc(ResId),
+            emqx_resource_metrics:dropped_resource_stopped_inc(ResId),
+            ?RESOURCE_ERROR(unhealthy_target, "unhealthy target");
+        {simple_async, _} ->
+            %% TODO(5.1.1): pass Resource instead of ResId to simple APIs
+            %% so the buffer worker does not need to lookup the cache again
+            emqx_resource_buffer_worker:simple_async_query(ResId, Request, Opts);
+        {simple_sync, _} ->
+            %% TODO(5.1.1): pass Resource instead of ResId to simple APIs
+            %% so the buffer worker does not need to lookup the cache again
+            emqx_resource_buffer_worker:simple_sync_query(ResId, Request, Opts);
+        {simple_async_internal_buffer, _} ->
+            %% This is for bridges/connectors that have internal buffering, such
+            %% as Kafka and Pulsar producers.
+            %% TODO(5.1.1): pass Resource instead of ResId to simple APIs
+            %% so the buffer worker does not need to lookup the cache again
+            emqx_resource_buffer_worker:simple_async_query(ResId, Request, Opts);
+        {simple_sync_internal_buffer, _} ->
+            %% This is for bridges/connectors that have internal buffering, such
+            %% as Kafka and Pulsar producers.
+            %% TODO(5.1.1): pass Resource instead of ResId to simple APIs
+            %% so the buffer worker does not need to lookup the cache again
+            emqx_resource_buffer_worker:simple_sync_internal_buffer_query(
+                ResId, Request, Opts
+            );
+        {sync, _} ->
+            emqx_resource_buffer_worker:sync_query(ResId, Request, Opts);
+        {async, _} ->
+            emqx_resource_buffer_worker:async_query(ResId, Request, Opts)
+    end.
+
+get_query_mode_error(ResId, Opts) ->
+    case maps:get(query_mode_cache_override, Opts, true) of
+        false ->
+            case Opts of
+                #{query_mode := QueryMode} ->
+                    {QueryMode, ok};
+                _ ->
+                    {async, unhealthy_target}
             end;
-        {error, not_found} ->
-            ?RESOURCE_ERROR(not_found, "resource not found")
+        true ->
+            case emqx_resource_manager:lookup_cached(ResId) of
+                {ok, _Group, #{query_mode := QM, error := Error}} ->
+                    {QM, Error};
+                {error, not_found} ->
+                    {error, not_found}
+            end
     end.
 
 -spec simple_sync_query(resource_id(), Request :: term()) -> Result :: term().
@@ -361,6 +455,15 @@ stop(ResId) ->
 -spec health_check(resource_id()) -> {ok, resource_status()} | {error, term()}.
 health_check(ResId) ->
     emqx_resource_manager:health_check(ResId).
+
+-spec channel_health_check(resource_id(), channel_id()) ->
+    {ok, resource_status()} | {error, term()}.
+channel_health_check(ResId, ChannelId) ->
+    emqx_resource_manager:channel_health_check(ResId, ChannelId).
+
+-spec get_channels(resource_id()) -> {ok, [{binary(), map()}]} | {error, term()}.
+get_channels(ResId) ->
+    emqx_resource_manager:get_channels(ResId).
 
 set_resource_status_connecting(ResId) ->
     emqx_resource_manager:set_resource_status_connecting(ResId).
@@ -412,21 +515,14 @@ get_callback_mode(Mod) ->
 -spec call_start(resource_id(), module(), resource_config()) ->
     {ok, resource_state()} | {error, Reason :: term()}.
 call_start(ResId, Mod, Config) ->
-    try
-        %% If the previous manager process crashed without cleaning up
-        %% allocated resources, clean them up.
-        clean_allocated_resources(ResId, Mod),
-        Mod:on_start(ResId, Config)
-    catch
-        throw:Error ->
-            {error, Error};
-        Kind:Error:Stacktrace ->
-            {error, #{
-                exception => Kind,
-                reason => Error,
-                stacktrace => emqx_utils:redact(Stacktrace)
-            }}
-    end.
+    ?SAFE_CALL(
+        begin
+            %% If the previous manager process crashed without cleaning up
+            %% allocated resources, clean them up.
+            clean_allocated_resources(ResId, Mod),
+            Mod:on_start(ResId, Config)
+        end
+    ).
 
 -spec call_health_check(resource_id(), module(), resource_state()) ->
     resource_status()
@@ -435,6 +531,67 @@ call_start(ResId, Mod, Config) ->
     | {error, term()}.
 call_health_check(ResId, Mod, ResourceState) ->
     ?SAFE_CALL(Mod:on_get_status(ResId, ResourceState)).
+
+-spec call_channel_health_check(resource_id(), channel_id(), module(), resource_state()) ->
+    channel_status()
+    | {error, term()}.
+call_channel_health_check(ResId, ChannelId, Mod, ResourceState) ->
+    ?SAFE_CALL(Mod:on_get_channel_status(ResId, ChannelId, ResourceState)).
+
+call_add_channel(ResId, Mod, ResourceState, ChannelId, ChannelConfig) ->
+    %% Check if on_add_channel is exported
+    case erlang:function_exported(Mod, on_add_channel, 4) of
+        true ->
+            ?SAFE_CALL(
+                Mod:on_add_channel(
+                    ResId, ResourceState, ChannelId, ChannelConfig
+                )
+            );
+        false ->
+            {error,
+                <<<<"on_add_channel callback function not available for connector with resource id ">>/binary,
+                    ResId/binary>>}
+    end.
+
+call_remove_channel(ResId, Mod, ResourceState, ChannelId) ->
+    %% Check if maybe_install_insert_template is exported
+    case erlang:function_exported(Mod, on_remove_channel, 3) of
+        true ->
+            ?SAFE_CALL(
+                Mod:on_remove_channel(
+                    ResId, ResourceState, ChannelId
+                )
+            );
+        false ->
+            {error,
+                <<<<"on_remove_channel callback function not available for connector with resource id ">>/binary,
+                    ResId/binary>>}
+    end.
+
+call_get_channels(ResId, Mod) ->
+    case erlang:function_exported(Mod, on_get_channels, 1) of
+        true ->
+            Mod:on_get_channels(ResId);
+        false ->
+            []
+    end.
+
+call_get_channel_config(ResId, ChannelId, Mod) ->
+    case erlang:function_exported(Mod, on_get_channels, 1) of
+        true ->
+            ChConfigs = Mod:on_get_channels(ResId),
+            case [Conf || {ChId, Conf} <- ChConfigs, ChId =:= ChannelId] of
+                [ChannelConf] ->
+                    ChannelConf;
+                _ ->
+                    {error,
+                        <<"Channel ", ChannelId/binary,
+                            "not found. There seems to be a broken reference">>}
+            end;
+        false ->
+            {error,
+                <<"on_get_channels callback function not available for resource id", ResId/binary>>}
+    end.
 
 -spec call_stop(resource_id(), module(), resource_state()) -> term().
 call_stop(ResId, Mod, ResourceState) ->
@@ -575,6 +732,33 @@ forget_allocated_resources(InstanceId) ->
     true = ets:delete(?RESOURCE_ALLOCATION_TAB, InstanceId),
     ok.
 
+-spec create_metrics(resource_id()) -> ok.
+create_metrics(ResId) ->
+    emqx_metrics_worker:create_metrics(
+        ?RES_METRICS,
+        ResId,
+        [
+            'matched',
+            'retried',
+            'retried.success',
+            'retried.failed',
+            'success',
+            'late_reply',
+            'failed',
+            'dropped',
+            'dropped.expired',
+            'dropped.queue_full',
+            'dropped.resource_not_found',
+            'dropped.resource_stopped',
+            'dropped.other',
+            'received'
+        ],
+        [matched]
+    ).
+
+-spec clear_metrics(resource_id()) -> ok.
+clear_metrics(ResId) ->
+    emqx_metrics_worker:clear_metrics(?RES_METRICS, ResId).
 %% =================================================================================
 
 filter_instances(Filter) ->
