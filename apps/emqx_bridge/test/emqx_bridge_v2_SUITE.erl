@@ -133,7 +133,6 @@ setup_mocks() ->
     ok.
 
 init_per_suite(Config) ->
-    snabbkaffe:fix_ct_logging(),
     Apps = emqx_cth_suite:start(
         app_specs(),
         #{work_dir => emqx_cth_suite:work_dir(Config)}

@@ -578,7 +578,7 @@ add_channels(Data) ->
     Channels = Data#data.added_channels,
     NewChannels = lists:foldl(
         fun({ChannelID, _Conf}, Acc) ->
-            maps:put(ChannelID, channel_status_new(), Acc)
+            maps:put(ChannelID, channel_status(), Acc)
         end,
         Channels,
         ChannelIDConfigTuples
@@ -617,7 +617,7 @@ add_channels_in_list([{ChannelID, ChannelConfig} | Rest], Data) ->
             AddedChannelsMap = Data#data.added_channels,
             NewAddedChannelsMap = maps:put(
                 ChannelID,
-                channel_status_new(Error),
+                channel_status(Error),
                 AddedChannelsMap
             ),
             NewData = Data#data{
@@ -703,7 +703,7 @@ handle_add_channel(From, Data, ChannelId, Config) ->
             maps:get(
                 ChannelId,
                 Channels,
-                channel_status_new()
+                channel_status()
             )
         )
     of
@@ -714,7 +714,7 @@ handle_add_channel(From, Data, ChannelId, Config) ->
             NewChannels = maps:put(ChannelId, channel_status_new_with_config(Config), Channels),
             NewData = Data#data{added_channels = NewChannels},
             {keep_state, update_state(NewData, Data), [
-                {reply, From, ok}, {state_timeout, 0, health_check}
+                {reply, From, ok}
             ]};
         true ->
             %% The channel is already installed in the connector state
@@ -732,7 +732,7 @@ handle_remove_channel(From, ChannelId, Data) ->
     Channels = Data#data.added_channels,
     %% Deactivate alarm
     _ = maybe_clear_alarm(ChannelId),
-    case channel_status_is_channel_added(maps:get(ChannelId, Channels, channel_status_new())) of
+    case channel_status_is_channel_added(maps:get(ChannelId, Channels, channel_status())) of
         false ->
             %% The channel is already not installed in the connector state.
             %% We still need to remove it from the added_channels map
@@ -792,7 +792,7 @@ handle_manually_health_check(From, Data) ->
     ).
 
 handle_manually_channel_health_check(From, #data{state = undefined}, _ChannelId) ->
-    {keep_state_and_data, [{reply, From, channel_status_new({error, resource_disconnected})}]};
+    {keep_state_and_data, [{reply, From, channel_status({error, resource_disconnected})}]};
 handle_manually_channel_health_check(
     From,
     #data{added_channels = Channels} = _Data,
@@ -806,11 +806,11 @@ handle_manually_channel_health_check(
     _Data,
     _ChannelId
 ) ->
-    {keep_state_and_data, [{reply, From, channel_status_new({error, channel_not_found})}]}.
+    {keep_state_and_data, [{reply, From, channel_status({error, channel_not_found})}]}.
 
 get_channel_status_channel_added(#data{id = ResId, mod = Mod, state = State}, ChannelId) ->
     RawStatus = emqx_resource:call_channel_health_check(ResId, ChannelId, Mod, State),
-    channel_status_new(RawStatus).
+    channel_status(RawStatus).
 
 handle_connecting_health_check(Data) ->
     with_health_check(
@@ -884,7 +884,7 @@ channels_health_check(connecting, Data0) ->
     ],
     ChannelsWithNewStatuses =
         [
-            {ChannelId, channel_status_new({connecting, resource_is_connecting})}
+            {ChannelId, channel_status({connecting, resource_is_connecting})}
          || ChannelId <- ChannelsToChangeStatusFor
         ],
     %% Update the channels map
@@ -924,7 +924,7 @@ channels_health_check(ResourceStatus, Data0) ->
     ChannelsWithNewAndOldStatuses =
         [
             {ChannelId, OldStatus,
-                channel_status_new(
+                channel_status(
                     {error,
                         resource_not_connected_channel_error_msg(
                             ResourceStatus,
@@ -1151,7 +1151,7 @@ safe_call(ResId, Message, Timeout) ->
 
 %% Helper functions for chanel status data
 
-channel_status_new() ->
+channel_status() ->
     #{
         %% The status of the channel. Can be one of the following:
         %% - disconnected: the channel is not added to the resource (error may contain the reason))
@@ -1181,29 +1181,29 @@ channel_status_new_waiting_for_health_check() ->
         error => no_health_check_yet
     }.
 
-channel_status_new({connecting, Error}) ->
+channel_status({connecting, Error}) ->
     #{
         status => connecting,
         error => Error
     };
-channel_status_new(connecting) ->
+channel_status(connecting) ->
     #{
         status => connecting,
         error => <<"Not connected for unknown reason">>
     };
-channel_status_new(connected) ->
+channel_status(connected) ->
     #{
         status => connected,
         error => undefined
     };
 %% Probably not so useful but it is permitted to set an error even when the
 %% status is connected
-channel_status_new({connected, Error}) ->
+channel_status({connected, Error}) ->
     #{
         status => connected,
         error => Error
     };
-channel_status_new({error, Reason}) ->
+channel_status({error, Reason}) ->
     #{
         status => disconnected,
         error => Reason
@@ -1226,7 +1226,7 @@ add_channel_status_if_not_exists(Data, ChannelId, State) ->
         true ->
             Data;
         false ->
-            ChannelStatus = channel_status_new({error, resource_not_operational}),
+            ChannelStatus = channel_status({error, resource_not_operational}),
             NewChannels = maps:put(ChannelId, ChannelStatus, Channels),
             maybe_alarm(State, ChannelId, ChannelStatus, no_prev),
             Data#data{added_channels = NewChannels}
