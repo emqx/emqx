@@ -570,7 +570,9 @@ t_nonexistent_topic(_Config) ->
         erlang:list_to_atom(Type), erlang:list_to_atom(Name), Conf
     ),
     % TODO: make sure the user facing APIs for Bridge V1 also get this error
-    {error, _} = emqx_bridge_v2:health_check(?BRIDGE_TYPE_V2, list_to_atom(Name)),
+    #{status := disconnected, error := #{error := unknown_kafka_topic}} = emqx_bridge_v2:health_check(
+        ?BRIDGE_TYPE_V2, list_to_atom(Name)
+    ),
     ok = emqx_bridge:remove(list_to_atom(Type), list_to_atom(Name)),
     delete_all_bridges(),
     ok.
