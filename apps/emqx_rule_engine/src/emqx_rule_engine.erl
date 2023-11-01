@@ -460,12 +460,11 @@ code_change(_OldVsn, State, _Extra) ->
 with_parsed_rule(Params = #{id := RuleId, sql := Sql, actions := Actions}, CreatedAt, Fun) ->
     case emqx_rule_sqlparser:parse(Sql) of
         {ok, Select} ->
-            Rule = #{
+            Rule0 = #{
                 id => RuleId,
                 name => maps:get(name, Params, <<"">>),
                 created_at => CreatedAt,
                 updated_at => now_ms(),
-                enable => maps:get(enable, Params, true),
                 sql => Sql,
                 actions => parse_actions(Actions),
                 description => maps:get(description, Params, ""),
@@ -478,6 +477,21 @@ with_parsed_rule(Params = #{id := RuleId, sql := Sql, actions := Actions}, Creat
                 conditions => emqx_rule_sqlparser:select_where(Select)
                 %% -- calculated fields end
             },
+            InputEnable = maps:get(enable, Params, true),
+            Enable =
+                case validate_bridge_existence_in_actions(Rule0) of
+                    ok ->
+                        InputEnable;
+                    {error, NonExistentBridgeIDs} ->
+                        ?SLOG(error, #{
+                            msg => "action_references_nonexistent_bridges",
+                            rule_id => RuleId,
+                            nonexistent_bridge_ids => NonExistentBridgeIDs,
+                            hint => "this rule will be disabled"
+                        }),
+                        false
+                end,
+            Rule = Rule0#{enable => Enable},
             ok = Fun(Rule),
             {ok, Rule};
         {error, Reason} ->
@@ -593,3 +607,42 @@ extra_functions_module() ->
 set_extra_functions_module(Mod) ->
     persistent_term:put({?MODULE, extra_functions}, Mod),
     ok.
+
+%% Checks whether the referenced bridges in actions all exist.  If there are non-existent
+%% ones, the rule shouldn't be allowed to be enabled.
+%% The actions here are already parsed.
+validate_bridge_existence_in_actions(#{actions := Actions, from := Froms} = _Rule) ->
+    BridgeIDs0 =
+        lists:map(
+            fun(BridgeID) ->
+                emqx_bridge_resource:parse_bridge_id(BridgeID, #{atom_name => false})
+            end,
+            get_referenced_hookpoints(Froms)
+        ),
+    BridgeIDs1 =
+        lists:filtermap(
+            fun
+                ({bridge_v2, Type, Name}) -> {true, {Type, Name}};
+                ({bridge, Type, Name, _ResId}) -> {true, {Type, Name}};
+                (_) -> false
+            end,
+            Actions
+        ),
+    NonExistentBridgeIDs =
+        lists:filter(
+            fun({Type, Name}) ->
+                try
+                    case emqx_bridge:lookup(Type, Name) of
+                        {ok, _} -> false;
+                        {error, _} -> true
+                    end
+                catch
+                    _:_ -> true
+                end
+            end,
+            BridgeIDs0 ++ BridgeIDs1
+        ),
+    case NonExistentBridgeIDs of
+        [] -> ok;
+        _ -> {error, #{nonexistent_bridge_ids => NonExistentBridgeIDs}}
+    end.

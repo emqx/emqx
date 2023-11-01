@@ -260,11 +260,13 @@ create_rule_and_action_http(BridgeType, RuleTopic, Config, Opts) ->
     BridgeName = ?config(bridge_name, Config),
     BridgeId = emqx_bridge_resource:bridge_id(BridgeType, BridgeName),
     SQL = maps:get(sql, Opts, <<"SELECT * FROM \"", RuleTopic/binary, "\"">>),
-    Params = #{
+    Params0 = #{
         enable => true,
         sql => SQL,
         actions => [BridgeId]
     },
+    Overrides = maps:get(overrides, Opts, #{}),
+    Params = emqx_utils_maps:deep_merge(Params0, Overrides),
     Path = emqx_mgmt_api_test_util:api_path(["rules"]),
     AuthHeader = emqx_mgmt_api_test_util:auth_header_(),
     ct:pal("rule action params: ~p", [Params]),
