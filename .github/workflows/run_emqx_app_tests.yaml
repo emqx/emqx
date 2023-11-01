@@ -63,3 +63,4 @@ jobs:
       with:
         name: logs-emqx-app-tests
         path: apps/emqx/_build/test/logs
+        retention-days: 7

@@ -115,6 +115,7 @@ jobs:
       with:
         name: ${{ matrix.profile }}
         path: _packages/${{ matrix.profile }}/
+        retention-days: 7
 
   mac:
     strategy:
@@ -149,6 +150,7 @@ jobs:
       with:
         name: ${{ matrix.profile }}
         path: _packages/${{ matrix.profile }}/
+        retention-days: 7
 
   linux:
     runs-on: ['self-hosted', 'ephemeral', 'linux', "${{ matrix.arch }}"]
@@ -246,6 +248,7 @@ jobs:
       with:
         name: ${{ matrix.profile }}
         path: _packages/${{ matrix.profile }}/
+        retention-days: 7
 
   publish_artifacts:
     runs-on: ubuntu-latest

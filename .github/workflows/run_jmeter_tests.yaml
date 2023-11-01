@@ -39,6 +39,7 @@ jobs:
       with:
         name: apache-jmeter.tgz
         path: /tmp/apache-jmeter.tgz
+        retention-days: 3
 
   advanced_feat:
     runs-on: ${{ fromJSON(inputs.runner_labels) }}
@@ -90,6 +91,7 @@ jobs:
       with:
         name: jmeter_logs
         path: ./jmeter_logs
+        retention-days: 3
 
   pgsql_authn_authz:
     runs-on: ${{ fromJSON(inputs.runner_labels) }}
@@ -156,6 +158,7 @@ jobs:
       with:
         name: jmeter_logs
         path: ./jmeter_logs
+        retention-days: 3
 
   mysql_authn_authz:
     runs-on: ${{ fromJSON(inputs.runner_labels) }}
@@ -215,6 +218,7 @@ jobs:
       with:
         name: jmeter_logs
         path: ./jmeter_logs
+        retention-days: 3
 
   JWT_authn:
     runs-on: ${{ fromJSON(inputs.runner_labels) }}
@@ -266,6 +270,7 @@ jobs:
       with:
         name: jmeter_logs
         path: ./jmeter_logs
+        retention-days: 3
 
   built_in_database_authn_authz:
     runs-on: ${{ fromJSON(inputs.runner_labels) }}
@@ -309,3 +314,4 @@ jobs:
       with:
         name: jmeter_logs
         path: ./jmeter_logs
+        retention-days: 3

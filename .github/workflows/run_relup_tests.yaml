@@ -54,6 +54,7 @@ jobs:
           _packages
           scripts
           .ci
+        retention-days: 7
 
   relup_test_run:
     needs:
@@ -117,3 +118,4 @@ jobs:
         name: debug_data
         path: |
           lux_logs
+        retention-days: 3

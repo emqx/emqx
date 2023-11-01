@@ -77,6 +77,7 @@ jobs:
         with:
           name: ${{ matrix.profile[0] }}
           path: _packages/${{ matrix.profile[0] }}/
+          retention-days: 7
       - name: Send notification to Slack
         uses: slackapi/slack-github-action@v1.23.0
         if: failure()

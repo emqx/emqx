@@ -68,6 +68,7 @@ jobs:
         with:
           name: coverdata
           path: _build/test/cover
+          retention-days: 7
 
   ct_docker:
     runs-on: ${{ fromJSON(inputs.runner_labels) }}
@@ -111,6 +112,7 @@ jobs:
         with:
           name: coverdata
           path: _build/test/cover
+          retention-days: 7
       - name: compress logs
         if: failure()
         run: tar -czf logs.tar.gz _build/test/logs
@@ -119,6 +121,7 @@ jobs:
         with:
           name: logs-${{ matrix.profile }}-${{ matrix.prefix }}-${{ matrix.otp }}-sg${{ matrix.suitegroup }}
           path: logs.tar.gz
+          retention-days: 7
 
   ct:
     runs-on: ${{ fromJSON(inputs.runner_labels) }}
@@ -156,6 +159,7 @@ jobs:
           name: coverdata
           path: _build/test/cover
           if-no-files-found: warn # do not fail if no coverdata found
+          retention-days: 7
       - name: compress logs
         if: failure()
         run: tar -czf logs.tar.gz _build/test/logs
@@ -164,6 +168,7 @@ jobs:
         with:
           name: logs-${{ matrix.profile }}-${{ matrix.prefix }}-${{ matrix.otp }}-sg${{ matrix.suitegroup }}
           path: logs.tar.gz
+          retention-days: 7
 
   tests_passed:
     needs:
