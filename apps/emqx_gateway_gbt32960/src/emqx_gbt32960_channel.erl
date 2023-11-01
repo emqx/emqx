@@ -92,6 +92,8 @@ info(Channel) ->
 -spec info(list(atom()) | atom(), channel()) -> term().
 info(Keys, Channel) when is_list(Keys) ->
     [{Key, info(Key, Channel)} || Key <- Keys];
+info(ctx, #channel{ctx = Ctx}) ->
+    Ctx;
 info(conninfo, #channel{conninfo = ConnInfo}) ->
     ConnInfo;
 info(zone, #channel{clientinfo = #{zone := Zone}}) ->
@@ -278,6 +280,9 @@ handle_out({AckCode, Frame}, Channel) when
     ?IS_ACK_CODE(AckCode)
 ->
     {ok, [{outgoing, ack(AckCode, Frame)}], Channel}.
+
+handle_out({AckCode, Frame}, Outgoings, Channel) when ?IS_ACK_CODE(AckCode) ->
+    {ok, [{outgoing, ack(AckCode, Frame)} | Outgoings], Channel}.
 
 %%--------------------------------------------------------------------
 %% Handle Delivers from broker to client
@@ -609,7 +614,7 @@ process_connect(
             _ = upstreaming(Frame, NChannel),
             %% XXX: connection_accepted is not defined by stomp protocol
             _ = run_hooks(Ctx, 'client.connack', [ConnInfo, connection_accepted, #{}]),
-            {ok, NChannel};
+            handle_out({?ACK_SUCCESS, Frame}, [{event, connected}], NChannel);
         {error, Reason} ->
             log(
                 error,

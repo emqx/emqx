@@ -7,12 +7,14 @@
 -include_lib("hocon/include/hoconsc.hrl").
 -include_lib("typerefl/include/types.hrl").
 
+-define(DEFAULT_MOUNTPOINT, <<"gbt32960/${clientid}">>).
+
 %% config schema provides
 -export([fields/1, desc/1]).
 
 fields(gbt32960) ->
     [
-        {mountpoint, emqx_gateway_schema:mountpoint()},
+        {mountpoint, emqx_gateway_schema:mountpoint(?DEFAULT_MOUNTPOINT)},
         {retry_interval,
             sc(
                 emqx_schema:duration_ms(),
