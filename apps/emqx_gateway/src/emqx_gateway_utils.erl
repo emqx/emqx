@@ -45,8 +45,10 @@
     global_chain/1,
     listener_chain/3,
     find_gateway_definitions/0,
+    find_gateway_definition/1,
     plus_max_connections/2,
-    random_clientid/1
+    random_clientid/1,
+    check_gateway_edition/1
 ]).
 
 -export([stringfy/1]).
@@ -538,6 +540,32 @@ find_gateway_definitions() ->
         )
     ).
 
+-spec find_gateway_definition(atom()) -> {ok, map()} | {error, term()}.
+find_gateway_definition(Name) ->
+    ensure_gateway_loaded(),
+    find_gateway_definition(Name, ignore_lib_apps(application:loaded_applications())).
+
+-dialyzer({no_match, [find_gateway_definition/2]}).
+find_gateway_definition(Name, [App | T]) ->
+    Attrs = find_attrs(App, gateway),
+    SearchFun = fun({_App, _Mod, #{name := GwName}}) ->
+        GwName =:= Name
+    end,
+    case lists:search(SearchFun, Attrs) of
+        {value, {_App, _Mod, Defination}} ->
+            case check_gateway_edition(Defination) of
+                true ->
+                    {ok, Defination};
+                _ ->
+                    {error, invalid_edition}
+            end;
+        false ->
+            find_gateway_definition(Name, T)
+    end;
+find_gateway_definition(_Name, []) ->
+    {error, not_found}.
+
+-dialyzer({no_match, [gateways/1]}).
 gateways([]) ->
     [];
 gateways([
@@ -550,7 +578,20 @@ gateways([
             }}
     | More
 ]) when is_atom(Name), is_atom(CbMod), is_atom(SchemaMod) ->
-    [Defination | gateways(More)].
+    case check_gateway_edition(Defination) of
+        true ->
+            [Defination | gateways(More)];
+        _ ->
+            gateways(More)
+    end.
+
+-if(?EMQX_RELEASE_EDITION == ee).
+check_gateway_edition(_Defination) ->
+    true.
+-else.
+check_gateway_edition(Defination) ->
+    ce == maps:get(edition, Defination, ce).
+-endif.
 
 find_attrs(App, Def) ->
     [

@@ -12,7 +12,8 @@
 -gateway(#{
     name => gbt32960,
     callback_module => ?MODULE,
-    config_schema_module => emqx_gbt32960_schema
+    config_schema_module => emqx_gbt32960_schema,
+    edition => ee
 }).
 
 %% callback_module must implement the emqx_gateway_impl behaviour

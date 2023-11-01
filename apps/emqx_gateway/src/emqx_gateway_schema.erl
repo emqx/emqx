@@ -48,12 +48,13 @@
     ip_port/0
 ]).
 -elvis([{elvis_style, dont_repeat_yourself, disable}]).
+-elvis([{elvis_style, invalid_dynamic_call, disable}]).
 
 -export([namespace/0, roots/0, fields/1, desc/1, tags/0]).
 
 -export([proxy_protocol_opts/0]).
 
--export([mountpoint/0, mountpoint/1, gateway_common_options/0, gateway_schema/1]).
+-export([mountpoint/0, mountpoint/1, gateway_common_options/0, gateway_schema/1, gateway_names/0]).
 
 namespace() -> gateway.
 
@@ -337,13 +338,21 @@ proxy_protocol_opts() ->
 %% dynamic schemas
 
 %% FIXME: don't hardcode the gateway names
-gateway_schema(stomp) -> emqx_stomp_schema:fields(stomp);
-gateway_schema(mqttsn) -> emqx_mqttsn_schema:fields(mqttsn);
-gateway_schema(coap) -> emqx_coap_schema:fields(coap);
-gateway_schema(lwm2m) -> emqx_lwm2m_schema:fields(lwm2m);
-gateway_schema(exproto) -> emqx_exproto_schema:fields(exproto);
-gateway_schema(gbt32960) -> emqx_gbt32960_schema:fields(gbt32960).
+gateway_schema(Name) ->
+    case emqx_gateway_utils:find_gateway_definition(Name) of
+        {ok, #{config_schema_module := SchemaMod}} ->
+            SchemaMod:fields(Name);
+        {error, _} = Error ->
+            throw(Error)
+    end.
 
+gateway_names() ->
+    Definations = emqx_gateway_utils:find_gateway_definitions(),
+    [
+        Name
+     || #{name := Name} = Defination <- Definations,
+        emqx_gateway_utils:check_gateway_edition(Defination)
+    ].
 %%--------------------------------------------------------------------
 %% helpers
 
