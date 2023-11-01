@@ -373,11 +373,6 @@ schema("/bridges_v2_probe") ->
                 case emqx_bridge_v2:remove(BridgeType, BridgeName) of
                     ok ->
                         ?NO_CONTENT;
-                    {error, {active_channels, Channels}} ->
-                        ?BAD_REQUEST(
-                            {<<"Cannot delete bridge while there are active channels defined for this bridge">>,
-                                Channels}
-                        );
                     {error, timeout} ->
                         ?SERVICE_UNAVAILABLE(<<"request timeout">>);
                     {error, Reason} ->
