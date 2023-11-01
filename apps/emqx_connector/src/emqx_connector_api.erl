@@ -97,7 +97,7 @@ get_response_body_schema() ->
 param_path_operation_cluster() ->
     {operation,
         mk(
-            enum([start, stop, restart]),
+            enum([start]),
             #{
                 in => path,
                 required => true,
@@ -109,7 +109,7 @@ param_path_operation_cluster() ->
 param_path_operation_on_node() ->
     {operation,
         mk(
-            enum([start, stop, restart]),
+            enum([start]),
             #{
                 in => path,
                 required => true,
@@ -266,7 +266,7 @@ schema("/connectors/:id/:operation") ->
         'operationId' => '/connectors/:id/:operation',
         post => #{
             tags => [<<"connectors">>],
-            summary => <<"Stop, start or restart connector">>,
+            summary => <<"Manually start a connector">>,
             description => ?DESC("desc_api7"),
             parameters => [
                 param_path_id(),
@@ -288,7 +288,7 @@ schema("/nodes/:node/connectors/:id/:operation") ->
         'operationId' => '/nodes/:node/connectors/:id/:operation',
         post => #{
             tags => [<<"connectors">>],
-            summary => <<"Stop, start or restart connector">>,
+            summary => <<"Manually start a connector for a given node">>,
             description => ?DESC("desc_api8"),
             parameters => [
                 param_path_node(),
@@ -531,12 +531,8 @@ is_enabled_connector(ConnectorType, ConnectorName) ->
             throw(not_found)
     end.
 
-operation_func(all, restart) -> restart_connectors_to_all_nodes;
 operation_func(all, start) -> start_connectors_to_all_nodes;
-operation_func(all, stop) -> stop_connectors_to_all_nodes;
-operation_func(_Node, restart) -> restart_connector_to_node;
-operation_func(_Node, start) -> start_connector_to_node;
-operation_func(_Node, stop) -> stop_connector_to_node.
+operation_func(_Node, start) -> start_connector_to_node.
 
 enable_func(true) -> enable;
 enable_func(false) -> disable.
