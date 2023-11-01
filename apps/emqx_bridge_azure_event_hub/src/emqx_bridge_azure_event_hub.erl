@@ -205,23 +205,42 @@ values({post, bridge_v2}) ->
         values(producer),
         #{
             enable => true,
-            connector => <<"my_azure_event_hub_connector">>,
-            name => <<"my_azure_event_hub_bridge">>,
+            connector => <<"my_azure_event_hub_producer_connector">>,
+            name => <<"my_azure_event_hub_producer_bridge">>,
             type => ?AEH_CONNECTOR_TYPE_BIN
         }
     );
-values({post, AEHType}) ->
-    maps:merge(values(common_config), values(AEHType));
-values({put, AEHType}) ->
-    values({post, AEHType});
-values(connector) ->
+values({post, connector}) ->
     maps:merge(
         values(common_config),
         #{
-            name => <<"my_azure_event_hub_connector">>,
+            name => <<"my_azure_event_hub_producer_connector">>,
             type => ?AEH_CONNECTOR_TYPE_BIN
         }
     );
+values({post, producer}) ->
+    maps:merge(
+        #{
+            name => <<"my_azure_event_hub_producer">>,
+            type => <<"azure_event_hub_producer">>
+        },
+        maps:merge(
+            values(common_config),
+            values(producer)
+        )
+    );
+values({put, connector}) ->
+    values(common_config);
+values({put, bridge_v2}) ->
+    maps:merge(
+        values(producer),
+        #{
+            enable => true,
+            connector => <<"my_azure_event_hub_producer_connector">>
+        }
+    );
+values({put, producer}) ->
+    values({post, producer});
 values(common_config) ->
     #{
         authentication => #{
@@ -232,14 +251,12 @@ values(common_config) ->
         enable => true,
         metadata_request_timeout => <<"4s">>,
         min_metadata_refresh_interval => <<"3s">>,
-        name => <<"my_azure_event_hub_bridge">>,
         socket_opts => #{
             sndbuf => <<"1024KB">>,
             recbuf => <<"1024KB">>,
             nodelay => true,
             tcp_keepalive => <<"none">>
-        },
-        type => <<"azure_event_hub_producer">>
+        }
     };
 values(producer) ->
     #{

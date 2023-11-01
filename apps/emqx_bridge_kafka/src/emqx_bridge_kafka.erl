@@ -36,15 +36,12 @@
 %% -------------------------------------------------------------------------------------------------
 %% api
 
-connector_examples(_Method) ->
+connector_examples(Method) ->
     [
         #{
             <<"kafka_producer">> => #{
-                summary => <<"Kafka Connector">>,
-                value => maps:merge(
-                    #{name => <<"my_connector">>, type => <<"kafka_producer">>},
-                    values(common_config)
-                )
+                summary => <<"Kafka Producer Connector">>,
+                value => values({Method, connector})
             }
         }
     ].
@@ -53,7 +50,7 @@ bridge_v2_examples(Method) ->
     [
         #{
             <<"kafka_producer">> => #{
-                summary => <<"Kafka Bridge v2">>,
+                summary => <<"Kafka Producer Bridge v2">>,
                 value => values({Method, bridge_v2_producer})
             }
         }
@@ -88,23 +85,33 @@ values({get, KafkaType}) ->
         },
         values({post, KafkaType})
     );
+values({post, connector}) ->
+    maps:merge(
+        #{
+            name => <<"my_kafka_producer_connector">>,
+            type => <<"kafka_producer">>
+        },
+        values(common_config)
+    );
 values({post, KafkaType}) ->
     maps:merge(
         #{
-            name => <<"my_kafka_bridge">>,
+            name => <<"my_kafka_producer_bridge">>,
             type => <<"kafka_producer">>
         },
         values({put, KafkaType})
     );
-values({put, KafkaType}) when KafkaType =:= bridge_v2_producer ->
-    values(KafkaType);
+values({put, bridge_v2_producer}) ->
+    values(bridge_v2_producer);
+values({put, connector}) ->
+    values(common_config);
 values({put, KafkaType}) ->
     maps:merge(values(common_config), values(KafkaType));
 values(bridge_v2_producer) ->
     maps:merge(
         #{
             enable => true,
-            connector => <<"my_kafka_connector">>,
+            connector => <<"my_kafka_producer_connector">>,
             resource_opts => #{
                 health_check_interval => "32s"
             }
