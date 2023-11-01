@@ -511,13 +511,7 @@ peercert() ->
 conn_mod() ->
     oneof([
         emqx_connection,
-        emqx_ws_connection,
-        emqx_coap_mqtt_adapter,
-        emqx_sn_gateway,
-        emqx_lwm2m_protocol,
-        emqx_gbt32960_conn,
-        emqx_jt808_connection,
-        emqx_tcp_connection
+        emqx_ws_connection
     ]).
 
 proto_name() ->
