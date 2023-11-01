@@ -27,6 +27,8 @@
 
 -export([get_response/0, put_request/0, post_request/0]).
 
+-export([connector_type_to_bridge_types/1]).
+
 -if(?EMQX_RELEASE_EDITION == ee).
 enterprise_api_schemas(Method) ->
     %% We *must* do this to ensure the module is really loaded, especially when we use
@@ -69,21 +71,31 @@ has_connector_field(BridgeConf, ConnectorFields) ->
         ConnectorFields
     ).
 
-bridge_configs_to_transform(_BridgeType, [] = _BridgeNameBridgeConfList, _ConnectorFields) ->
+bridge_configs_to_transform(
+    _BridgeType, [] = _BridgeNameBridgeConfList, _ConnectorFields, _RawConfig
+) ->
     [];
-bridge_configs_to_transform(BridgeType, [{BridgeName, BridgeConf} | Rest], ConnectorFields) ->
+bridge_configs_to_transform(
+    BridgeType, [{BridgeName, BridgeConf} | Rest], ConnectorFields, RawConfig
+) ->
     case has_connector_field(BridgeConf, ConnectorFields) of
         true ->
+            PreviousRawConfig =
+                emqx_utils_maps:deep_get(
+                    [<<"bridges_v2">>, to_bin(BridgeType), to_bin(BridgeName)],
+                    RawConfig,
+                    undefined
+                ),
             [
-                {BridgeType, BridgeName, BridgeConf, ConnectorFields}
-                | bridge_configs_to_transform(BridgeType, Rest, ConnectorFields)
+                {BridgeType, BridgeName, BridgeConf, ConnectorFields, PreviousRawConfig}
+                | bridge_configs_to_transform(BridgeType, Rest, ConnectorFields, RawConfig)
             ];
         false ->
-            bridge_configs_to_transform(BridgeType, Rest, ConnectorFields)
+            bridge_configs_to_transform(BridgeType, Rest, ConnectorFields, RawConfig)
     end.
 
 split_bridge_to_connector_and_action(
-    {ConnectorsMap, {BridgeType, BridgeName, BridgeConf, ConnectorFields}}
+    {ConnectorsMap, {BridgeType, BridgeName, BridgeConf, ConnectorFields, PreviousRawConfig}}
 ) ->
     %% Get connector fields from bridge config
     ConnectorMap = lists:foldl(
@@ -120,8 +132,12 @@ split_bridge_to_connector_and_action(
         BridgeConf,
         ConnectorFields
     ),
-    %% Generate a connector name
-    ConnectorName = generate_connector_name(ConnectorsMap, BridgeName, 0),
+    %% Generate a connector name, if needed.  Avoid doing so if there was a previous config.
+    ConnectorName =
+        case PreviousRawConfig of
+            #{<<"connector">> := ConnectorName0} -> ConnectorName0;
+            _ -> generate_connector_name(ConnectorsMap, BridgeName, 0)
+        end,
     %% Add connector field to action map
     ActionMap = maps:put(<<"connector">>, ConnectorName, ActionMap0),
     {BridgeType, BridgeName, ActionMap, ConnectorName, ConnectorMap}.
@@ -143,27 +159,24 @@ generate_connector_name(ConnectorsMap, BridgeName, Attempt) ->
     end.
 
 transform_old_style_bridges_to_connector_and_actions_of_type(
-    {ConnectorType, #{type := {map, name, {ref, ConnectorConfSchemaMod, ConnectorConfSchemaName}}}},
+    {ConnectorType, #{type := ?MAP(_Name, ?R_REF(ConnectorConfSchemaMod, ConnectorConfSchemaName))}},
     RawConfig
 ) ->
     ConnectorFields = ConnectorConfSchemaMod:fields(ConnectorConfSchemaName),
-    BridgeTypes = connector_type_to_bridge_types(ConnectorType),
+    BridgeTypes = ?MODULE:connector_type_to_bridge_types(ConnectorType),
     BridgesConfMap = maps:get(<<"bridges">>, RawConfig, #{}),
     ConnectorsConfMap = maps:get(<<"connectors">>, RawConfig, #{}),
-    BridgeConfigsToTransform1 =
-        lists:foldl(
-            fun(BridgeType, ToTranformSoFar) ->
+    BridgeConfigsToTransform =
+        lists:flatmap(
+            fun(BridgeType) ->
                 BridgeNameToBridgeMap = maps:get(to_bin(BridgeType), BridgesConfMap, #{}),
                 BridgeNameBridgeConfList = maps:to_list(BridgeNameToBridgeMap),
-                NewToTransform = bridge_configs_to_transform(
-                    BridgeType, BridgeNameBridgeConfList, ConnectorFields
-                ),
-                [NewToTransform, ToTranformSoFar]
+                bridge_configs_to_transform(
+                    BridgeType, BridgeNameBridgeConfList, ConnectorFields, RawConfig
+                )
             end,
-            [],
             BridgeTypes
         ),
-    BridgeConfigsToTransform = lists:flatten(BridgeConfigsToTransform1),
     ConnectorsWithTypeMap = maps:get(to_bin(ConnectorType), ConnectorsConfMap, #{}),
     BridgeConfigsToTransformWithConnectorConf = lists:zip(
         lists:duplicate(length(BridgeConfigsToTransform), ConnectorsWithTypeMap),
@@ -200,7 +213,7 @@ transform_old_style_bridges_to_connector_and_actions_of_type(
     ).
 
 transform_bridges_v1_to_connectors_and_bridges_v2(RawConfig) ->
-    ConnectorFields = fields(connectors),
+    ConnectorFields = ?MODULE:fields(connectors),
     NewRawConf = lists:foldl(
         fun transform_old_style_bridges_to_connector_and_actions_of_type/2,
         RawConfig,

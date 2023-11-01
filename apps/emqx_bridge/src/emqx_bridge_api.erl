@@ -387,6 +387,7 @@ schema("/bridges/:id/enable/:enable") ->
                 responses =>
                     #{
                         204 => <<"Success">>,
+                        400 => error_schema('BAD_REQUEST', non_compat_bridge_msg()),
                         404 => error_schema('NOT_FOUND', "Bridge not found or invalid operation"),
                         503 => error_schema('SERVICE_UNAVAILABLE', "Service unavailable")
                     }
@@ -507,7 +508,7 @@ schema("/bridges_probe") ->
                     case maps:get(<<"also_delete_dep_actions">>, Qs, <<"false">>) of
                         <<"true">> -> [rule_actions, connector];
                         true -> [rule_actions, connector];
-                        _ -> []
+                        _ -> [connector]
                     end,
                 case emqx_bridge:check_deps_and_remove(BridgeType, BridgeName, AlsoDelete) of
                     ok ->
@@ -667,6 +668,10 @@ get_metrics_from_local_node(BridgeType0, BridgeName) ->
                         ?SERVICE_UNAVAILABLE(<<"request timeout">>);
                     {error, timeout} ->
                         ?SERVICE_UNAVAILABLE(<<"request timeout">>);
+                    {error, not_bridge_v1_compatible} ->
+                        ?BAD_REQUEST(non_compat_bridge_msg());
+                    {error, bridge_not_found} ->
+                        ?BRIDGE_NOT_FOUND(BridgeType, BridgeName);
                     {error, Reason} ->
                         ?INTERNAL_ERROR(Reason)
                 end
