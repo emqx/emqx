@@ -65,7 +65,6 @@
             emqx_gateway_coap,
             emqx_gateway_lwm2m,
             emqx_gateway_exproto,
-            emqx_gateway_gbt32960,
             emqx_exhook,
             emqx_bridge,
             emqx_bridge_mqtt,
@@ -126,7 +125,8 @@
             emqx_gcp_device,
             emqx_dashboard_rbac,
             emqx_dashboard_sso,
-            emqx_audit
+            emqx_audit,
+            emqx_gateway_gbt32960
         ],
     %% must always be of type `load'
     ce_business_apps =>

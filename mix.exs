@@ -215,7 +215,8 @@ defmodule EMQXUmbrella.MixProject do
       :emqx_gcp_device,
       :emqx_dashboard_rbac,
       :emqx_dashboard_sso,
-      :emqx_audit
+      :emqx_audit,
+      :emqx_gateway_gbt32960
     ])
   end
 
@@ -329,7 +330,6 @@ defmodule EMQXUmbrella.MixProject do
             :emqx_gateway_coap,
             :emqx_gateway_lwm2m,
             :emqx_gateway_exproto,
-            :emqx_gateway_gbt32960,
             :emqx_dashboard,
             :emqx_dashboard_sso,
             :emqx_audit,
