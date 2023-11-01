@@ -315,7 +315,10 @@ channel_health_check(ResId, ChannelId) ->
     safe_call(ResId, {channel_health_check, ChannelId}, ?T_OPERATION).
 
 add_channel(ResId, ChannelId, Config) ->
-    safe_call(ResId, {add_channel, ChannelId, Config}, ?T_OPERATION).
+    Result = safe_call(ResId, {add_channel, ChannelId, Config}, ?T_OPERATION),
+    %% Wait for health_check to finish
+    _ = health_check(ResId),
+    Result.
 
 remove_channel(ResId, ChannelId) ->
     safe_call(ResId, {remove_channel, ChannelId}, ?T_OPERATION).

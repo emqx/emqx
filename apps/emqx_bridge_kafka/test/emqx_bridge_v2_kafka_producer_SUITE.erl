@@ -119,7 +119,7 @@ t_health_check(_) ->
     ConnectorConfig = connector_config(),
     {ok, _} = emqx_connector:create(?TYPE, test_connector3, ConnectorConfig),
     {ok, _} = emqx_bridge_v2:create(?TYPE, test_bridge_v2, BridgeV2Config),
-    connected = emqx_bridge_v2:health_check(?TYPE, test_bridge_v2),
+    #{status := connected} = emqx_bridge_v2:health_check(?TYPE, test_bridge_v2),
     ok = emqx_bridge_v2:remove(?TYPE, test_bridge_v2),
     %% Check behaviour when bridge does not exist
     {error, bridge_not_found} = emqx_bridge_v2:health_check(?TYPE, test_bridge_v2),
