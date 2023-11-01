@@ -307,7 +307,7 @@ health_check(ResId) ->
     safe_call(ResId, health_check, ?T_OPERATION).
 
 -spec channel_health_check(resource_id(), channel_id()) ->
-    #{status := channel_status(), error := term(), any() := any()}.
+    #{status := channel_status(), error := term(), any() => any()}.
 channel_health_check(ResId, ChannelId) ->
     %% Do normal health check first to trigger health checks for channels
     %% and update the cached health status for the channels
@@ -464,7 +464,7 @@ handle_event(
 handle_event(
     {call, From}, {remove_channel, ChannelId}, _State, Data
 ) ->
-    handle_not_connected_or_connecting_remove_channel(From, ChannelId, Data);
+    handle_not_connected_and_not_connecting_remove_channel(From, ChannelId, Data);
 handle_event(
     {call, From}, get_channels, _State, Data
 ) ->
@@ -706,14 +706,13 @@ handle_add_channel(From, Data, ChannelId, Config) ->
     of
         false ->
             %% The channel is not installed in the connector state
-            %% We need insert it into the channels map and let the health check
+            %% We insert it into the channels map and let the health check
             %% take care of the rest
             NewChannels = maps:put(ChannelId, channel_status_new_with_config(Config), Channels),
             NewData = Data#data{added_channels = NewChannels},
             {keep_state, update_state(NewData, Data), [
                 {reply, From, ok}, {state_timeout, 0, health_check}
             ]};
-        %%handle_add_channel_need_insert(From, Data, ChannelId, Data, ChannelConfig);
         true ->
             %% The channel is already installed in the connector state
             %% We don't need to install it again
@@ -770,9 +769,10 @@ handle_remove_channel_exists(From, ChannelId, Data) ->
             {keep_state_and_data, [{reply, From, Error}]}
     end.
 
-handle_not_connected_or_connecting_remove_channel(From, ChannelId, Data) ->
-    %% When state is not connected or connecting the channel will be removed
-    %% from the channels map but nothing else will happen.
+handle_not_connected_and_not_connecting_remove_channel(From, ChannelId, Data) ->
+    %% When state is not connected and not connecting the channel will be removed
+    %% from the channels map but nothing else will happen since the channel
+    %% is not addded/installed in the resource state.
     Channels = Data#data.added_channels,
     NewChannels = maps:remove(ChannelId, Channels),
     NewData = Data#data{added_channels = NewChannels},
