@@ -215,7 +215,8 @@ defmodule EMQXUmbrella.MixProject do
       :emqx_gcp_device,
       :emqx_dashboard_rbac,
       :emqx_dashboard_sso,
-      :emqx_audit
+      :emqx_audit,
+      :emqx_gateway_gbt32960
     ])
   end
 

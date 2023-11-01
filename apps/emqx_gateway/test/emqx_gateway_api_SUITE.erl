@@ -96,10 +96,8 @@ t_gateways(_) ->
     ok.
 
 t_gateway(_) ->
-    {404, GwNotFoundReq1} = request(get, "/gateways/not_a_known_atom"),
-    assert_not_found(GwNotFoundReq1),
-    {404, GwNotFoundReq2} = request(get, "/gateways/undefined"),
-    assert_not_found(GwNotFoundReq2),
+    ?assertMatch({400, #{code := <<"BAD_REQUEST">>}}, request(get, "/gateways/not_a_known_atom")),
+    ?assertMatch({400, #{code := <<"BAD_REQUEST">>}}, request(get, "/gateways/undefined")),
     {204, _} = request(put, "/gateways/stomp", #{}),
     {200, StompGw} = request(get, "/gateways/stomp"),
     assert_fields_exist(
@@ -110,7 +108,7 @@ t_gateway(_) ->
     {200, #{enable := true}} = request(get, "/gateways/stomp"),
     {204, _} = request(put, "/gateways/stomp", #{enable => false}),
     {200, #{enable := false}} = request(get, "/gateways/stomp"),
-    {404, _} = request(put, "/gateways/undefined", #{}),
+    ?assertMatch({400, #{code := <<"BAD_REQUEST">>}}, request(put, "/gateways/undefined", #{})),
     {400, _} = request(put, "/gateways/stomp", #{bad_key => "foo"}),
     ok.
 
@@ -129,8 +127,14 @@ t_gateway_enable(_) ->
     {200, #{enable := NotEnable}} = request(get, "/gateways/stomp"),
     {204, _} = request(put, "/gateways/stomp/enable/" ++ atom_to_list(Enable), undefined),
     {200, #{enable := Enable}} = request(get, "/gateways/stomp"),
-    {404, _} = request(put, "/gateways/undefined/enable/true", undefined),
-    {404, _} = request(put, "/gateways/not_a_known_atom/enable/true", undefined),
+    ?assertMatch(
+        {400, #{code := <<"BAD_REQUEST">>}},
+        request(put, "/gateways/undefined/enable/true", undefined)
+    ),
+    ?assertMatch(
+        {400, #{code := <<"BAD_REQUEST">>}},
+        request(put, "/gateways/not_a_known_atom/enable/true", undefined)
+    ),
     {404, _} = request(put, "/gateways/coap/enable/true", undefined),
     ok.
 

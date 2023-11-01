@@ -111,6 +111,7 @@ is_community_umbrella_app("apps/emqx_gcp_device") -> false;
 is_community_umbrella_app("apps/emqx_dashboard_rbac") -> false;
 is_community_umbrella_app("apps/emqx_dashboard_sso") -> false;
 is_community_umbrella_app("apps/emqx_audit") -> false;
+is_community_umbrella_app("apps/emqx_gateway_gbt32960") -> false;
 is_community_umbrella_app(_) -> true.
 
 is_jq_supported() ->

@@ -93,10 +93,9 @@ gateways(get, Request) ->
 
 gateway(get, #{bindings := #{name := Name}}) ->
     try
-        GwName = gw_name(Name),
-        case emqx_gateway:lookup(GwName) of
+        case emqx_gateway:lookup(Name) of
             undefined ->
-                {200, #{name => GwName, status => unloaded}};
+                {200, #{name => Name, status => unloaded}};
             Gateway ->
                 GwConf = emqx_gateway_conf:gateway(Name),
                 GwInfo0 = emqx_gateway_utils:unix_ts_to_rfc3339(
@@ -125,15 +124,14 @@ gateway(put, #{
 }) ->
     GwConf = maps:without([<<"name">>], GwConf0),
     try
-        GwName = gw_name(Name),
         LoadOrUpdateF =
-            case emqx_gateway:lookup(GwName) of
+            case emqx_gateway:lookup(Name) of
                 undefined ->
                     fun emqx_gateway_conf:load_gateway/2;
                 _ ->
                     fun emqx_gateway_conf:update_gateway/2
             end,
-        case LoadOrUpdateF(GwName, GwConf) of
+        case LoadOrUpdateF(Name, GwConf) of
             {ok, _} ->
                 {204};
             {error, Reason} ->
@@ -148,26 +146,17 @@ gateway(put, #{
 
 gateway_enable(put, #{bindings := #{name := Name, enable := Enable}}) ->
     try
-        GwName = gw_name(Name),
-        case emqx_gateway:lookup(GwName) of
+        case emqx_gateway:lookup(Name) of
             undefined ->
                 return_http_error(404, <<"NOT FOUND">>);
             _Gateway ->
-                {ok, _} = emqx_gateway_conf:update_gateway(GwName, #{<<"enable">> => Enable}),
+                {ok, _} = emqx_gateway_conf:update_gateway(Name, #{<<"enable">> => Enable}),
                 {204}
         end
     catch
         throw:not_found ->
             return_http_error(404, <<"NOT FOUND">>)
     end.
-
--spec gw_name(binary()) -> stomp | coap | lwm2m | mqttsn | exproto | no_return().
-gw_name(<<"stomp">>) -> stomp;
-gw_name(<<"coap">>) -> coap;
-gw_name(<<"lwm2m">>) -> lwm2m;
-gw_name(<<"mqttsn">>) -> mqttsn;
-gw_name(<<"exproto">>) -> exproto;
-gw_name(_Else) -> throw(not_found).
 
 %%--------------------------------------------------------------------
 %% Swagger defines
@@ -249,7 +238,7 @@ params_gateway_name_in_path() ->
     [
         {name,
             mk(
-                binary(),
+                hoconsc:enum(emqx_gateway_schema:gateway_names()),
                 #{
                     in => path,
                     desc => ?DESC(gateway_name_in_qs),
@@ -390,7 +379,8 @@ fields(Gw) when
     Gw == mqttsn;
     Gw == coap;
     Gw == lwm2m;
-    Gw == exproto
+    Gw == exproto;
+    Gw == gbt32960
 ->
     [{name, mk(Gw, #{desc => ?DESC(gateway_name)})}] ++
         convert_listener_struct(emqx_gateway_schema:gateway_schema(Gw));
@@ -399,7 +389,8 @@ fields(Gw) when
     Gw == update_mqttsn;
     Gw == update_coap;
     Gw == update_lwm2m;
-    Gw == update_exproto
+    Gw == update_exproto;
+    Gw == update_gbt32960
 ->
     "update_" ++ GwStr = atom_to_list(Gw),
     Gw1 = list_to_existing_atom(GwStr),
@@ -447,31 +438,30 @@ fields(gateway_stats) ->
     [{key, mk(binary(), #{})}].
 
 schema_load_or_update_gateways_conf() ->
+    Names = emqx_gateway_schema:gateway_names(),
     emqx_dashboard_swagger:schema_with_examples(
-        hoconsc:union([
-            ref(?MODULE, stomp),
-            ref(?MODULE, mqttsn),
-            ref(?MODULE, coap),
-            ref(?MODULE, lwm2m),
-            ref(?MODULE, exproto),
-            ref(?MODULE, update_stomp),
-            ref(?MODULE, update_mqttsn),
-            ref(?MODULE, update_coap),
-            ref(?MODULE, update_lwm2m),
-            ref(?MODULE, update_exproto)
-        ]),
+        hoconsc:union(
+            [
+                ref(?MODULE, Name)
+             || Name <-
+                    Names ++
+                        [
+                            erlang:list_to_existing_atom("update_" ++ erlang:atom_to_list(Name))
+                         || Name <- Names
+                        ]
+            ]
+        ),
         examples_update_gateway_confs()
     ).
 
 schema_gateways_conf() ->
     emqx_dashboard_swagger:schema_with_examples(
-        hoconsc:union([
-            ref(?MODULE, stomp),
-            ref(?MODULE, mqttsn),
-            ref(?MODULE, coap),
-            ref(?MODULE, lwm2m),
-            ref(?MODULE, exproto)
-        ]),
+        hoconsc:union(
+            [
+                ref(?MODULE, Name)
+             || Name <- emqx_gateway_schema:gateway_names()
+            ]
+        ),
         examples_gateway_confs()
     ).
 
@@ -756,6 +746,30 @@ examples_gateway_confs() ->
                                 }
                             ]
                     }
+            },
+        gbt32960_gateway =>
+            #{
+                summary => <<"A simple GBT32960 gateway config">>,
+                value =>
+                    #{
+                        enable => true,
+                        name => <<"gbt32960">>,
+                        enable_stats => true,
+                        mountpoint => <<"gbt32960/${clientid}">>,
+                        retry_interval => <<"8s">>,
+                        max_retry_times => 3,
+                        message_queue_len => 10,
+                        listeners =>
+                            [
+                                #{
+                                    type => <<"tcp">>,
+                                    name => <<"default">>,
+                                    bind => <<"7325">>,
+                                    max_connections => 1024000,
+                                    max_conn_rate => 1000
+                                }
+                            ]
+                    }
             }
     }.
 
@@ -853,6 +867,19 @@ examples_update_gateway_confs() ->
                             #{bind => <<"9100">>},
                         handler =>
                             #{address => <<"http://127.0.0.1:9001">>}
+                    }
+            },
+        gbt32960_gateway =>
+            #{
+                summary => <<"A simple GBT32960 gateway config">>,
+                value =>
+                    #{
+                        enable => true,
+                        enable_stats => true,
+                        mountpoint => <<"gbt32960/${clientid}">>,
+                        retry_interval => <<"8s">>,
+                        max_retry_times => 3,
+                        message_queue_len => 10
                     }
             }
     }.

@@ -513,29 +513,23 @@ codestr(501) -> 'NOT_IMPLEMENTED'.
 fmtstr(Fmt, Args) ->
     lists:flatten(io_lib:format(Fmt, Args)).
 
--spec with_authn(binary(), function()) -> any().
+-spec with_authn(atom(), function()) -> any().
 with_authn(GwName0, Fun) ->
     with_gateway(GwName0, fun(GwName, _GwConf) ->
         Authn = emqx_gateway_http:authn(GwName),
         Fun(GwName, Authn)
     end).
 
--spec with_listener_authn(binary(), binary(), function()) -> any().
+-spec with_listener_authn(atom(), binary(), function()) -> any().
 with_listener_authn(GwName0, Id, Fun) ->
     with_gateway(GwName0, fun(GwName, _GwConf) ->
         Authn = emqx_gateway_http:authn(GwName, Id),
         Fun(GwName, Authn)
     end).
 
--spec with_gateway(binary(), function()) -> any().
-with_gateway(GwName0, Fun) ->
+-spec with_gateway(atom(), function()) -> any().
+with_gateway(GwName, Fun) ->
     try
-        GwName =
-            try
-                binary_to_existing_atom(GwName0)
-            catch
-                _:_ -> error(badname)
-            end,
         case emqx_gateway:lookup(GwName) of
             undefined ->
                 return_http_error(404, "Gateway not loaded");
