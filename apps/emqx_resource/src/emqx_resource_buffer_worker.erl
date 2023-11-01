@@ -1112,11 +1112,21 @@ is_channel_id(Id) ->
 %% There is no need to query the conncector if the channel is not
 %% installed as the query will fail anyway.
 pre_query_channel_check({Id, _} = _Request, Channels) when
-    is_map_key(Id, Channels),
-    (map_get(Id, Channels) =:= connected orelse map_get(Id, Channels) =:= connecting)
+    is_map_key(Id, Channels)
 ->
-    ok;
+    ChannelStatus = maps:get(Id, Channels),
+    case emqx_resource_manager:channel_status_is_channel_added(ChannelStatus) of
+        true ->
+            ok;
+        false ->
+            maybe_throw_channel_not_installed(Id)
+    end;
 pre_query_channel_check({Id, _} = _Request, _Channels) ->
+    maybe_throw_channel_not_installed(Id);
+pre_query_channel_check(_Request, _Channels) ->
+    ok.
+
+maybe_throw_channel_not_installed(Id) ->
     %% Fail with a recoverable error if the channel is not installed
     %% so that the operation can be retried. It is emqx_resource_manager's
     %% responsibility to ensure that the channel installation is retried.
@@ -1128,9 +1138,7 @@ pre_query_channel_check({Id, _} = _Request, _Channels) ->
             );
         false ->
             ok
-    end;
-pre_query_channel_check(_Request, _Channels) ->
-    ok.
+    end.
 
 do_call_query(QM, Id, Index, Ref, Query, QueryOpts, #{query_mode := ResQM} = Resource) when
     ResQM =:= simple_sync_internal_buffer; ResQM =:= simple_async_internal_buffer
