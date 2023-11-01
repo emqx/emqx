@@ -70,11 +70,7 @@
 namespace() -> "bridge_v2".
 
 api_spec() ->
-    %% TODO
-    %% The check_schema option needs to be set to false so we get the
-    %% query_string to the delete operation. We can change this once
-    %% we have fixed the schmea for the delete operation.
-    emqx_dashboard_swagger:spec(?MODULE, #{check_schema => false}).
+    emqx_dashboard_swagger:spec(?MODULE, #{check_schema => true}).
 
 paths() ->
     [
@@ -124,6 +120,18 @@ param_path_id() ->
                 required => true,
                 example => <<"webhook:webhook_example">>,
                 desc => ?DESC("desc_param_path_id")
+            }
+        )}.
+
+param_qs_delete_cascade() ->
+    {also_delete_dep_actions,
+        mk(
+            boolean(),
+            #{
+                in => query,
+                required => false,
+                default => false,
+                desc => ?DESC("desc_qs_also_delete_dep_actions")
             }
         )}.
 
@@ -235,7 +243,7 @@ schema("/bridges_v2/:id") ->
             tags => [<<"bridges_v2">>],
             summary => <<"Delete bridge">>,
             description => ?DESC("desc_api5"),
-            parameters => [param_path_id()],
+            parameters => [param_path_id(), param_qs_delete_cascade()],
             responses => #{
                 204 => <<"Bridge deleted">>,
                 400 => error_schema(
@@ -369,7 +377,7 @@ schema("/bridges_v2_probe") ->
                 ?BRIDGE_NOT_FOUND(BridgeType, BridgeName)
         end
     );
-'/bridges_v2/:id'(delete, #{bindings := #{id := Id}, query_string := Qs} = All) ->
+'/bridges_v2/:id'(delete, #{bindings := #{id := Id}, query_string := Qs}) ->
     ?TRY_PARSE_ID(
         Id,
         case emqx_bridge_v2:lookup(BridgeType, BridgeName) of

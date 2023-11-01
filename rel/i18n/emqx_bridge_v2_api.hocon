@@ -79,6 +79,12 @@ desc_param_path_id.desc:
 desc_param_path_id.label:
 """Bridge ID"""
 
+desc_qs_also_delete_dep_actions.desc:
+"""Whether to cascade delete dependent actions."""
+
+desc_qs_also_delete_dep_actions.label:
+"""Cascade delete dependent actions?"""
+
 desc_param_path_node.desc:
 """The node name, e.g. 'emqx@127.0.0.1'."""
 
