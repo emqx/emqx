@@ -147,7 +147,8 @@
     emqx,
     emqx_auth,
     emqx_management,
-    {emqx_bridge, "bridges_v2 {}"}
+    {emqx_bridge, "bridges_v2 {}"},
+    {emqx_rule_engine, "rule_engine { rules {} }"}
 ]).
 
 -define(APPSPEC_DASHBOARD,
@@ -666,6 +667,73 @@ t_bridges_probe(Config) ->
         )
     ),
     ok.
+
+t_cascade_delete_actions(Config) ->
+    %% assert we there's no bridges at first
+    {ok, 200, []} = request_json(get, uri([?ROOT]), Config),
+    %% then we add a a bridge, using POST
+    %% POST /bridges_v2/ will create a bridge
+    BridgeID = emqx_bridge_resource:bridge_id(?BRIDGE_TYPE, ?BRIDGE_NAME),
+    {ok, 201, _} = request(
+        post,
+        uri([?ROOT]),
+        ?KAFKA_BRIDGE(?BRIDGE_NAME),
+        Config
+    ),
+    {ok, 201, #{<<"id">> := RuleId}} = request_json(
+        post,
+        uri(["rules"]),
+        #{
+            <<"name">> => <<"t_http_crud_apis">>,
+            <<"enable">> => true,
+            <<"actions">> => [BridgeID],
+            <<"sql">> => <<"SELECT * from \"t\"">>
+        },
+        Config
+    ),
+    %% delete the bridge will also delete the actions from the rules
+    {ok, 204, _} = request(
+        delete,
+        uri([?ROOT, BridgeID]) ++ "?also_delete_dep_actions=true",
+        Config
+    ),
+    {ok, 200, []} = request_json(get, uri([?ROOT]), Config),
+    ?assertMatch(
+        {ok, 200, #{<<"actions">> := []}},
+        request_json(get, uri(["rules", RuleId]), Config)
+    ),
+    {ok, 204, <<>>} = request(delete, uri(["rules", RuleId]), Config),
+
+    {ok, 201, _} = request(
+        post,
+        uri([?ROOT]),
+        ?KAFKA_BRIDGE(?BRIDGE_NAME),
+        Config
+    ),
+    {ok, 201, _} = request(
+        post,
+        uri(["rules"]),
+        #{
+            <<"name">> => <<"t_http_crud_apis">>,
+            <<"enable">> => true,
+            <<"actions">> => [BridgeID],
+            <<"sql">> => <<"SELECT * from \"t\"">>
+        },
+        Config
+    ),
+    {ok, 400, _} = request(
+        delete,
+        uri([?ROOT, BridgeID]),
+        Config
+    ),
+    {ok, 200, [_]} = request_json(get, uri([?ROOT]), Config),
+    %% Cleanup
+    {ok, 204, _} = request(
+        delete,
+        uri([?ROOT, BridgeID]) ++ "?also_delete_dep_actions=true",
+        Config
+    ),
+    {ok, 200, []} = request_json(get, uri([?ROOT]), Config).
 
 %%% helpers
 listen_on_random_port() ->

@@ -70,7 +70,11 @@
 namespace() -> "bridge_v2".
 
 api_spec() ->
-    emqx_dashboard_swagger:spec(?MODULE, #{check_schema => true}).
+    %% TODO
+    %% The check_schema option needs to be set to false so we get the
+    %% query_string to the delete operation. We can change this once
+    %% we have fixed the schmea for the delete operation.
+    emqx_dashboard_swagger:spec(?MODULE, #{check_schema => false}).
 
 paths() ->
     [
@@ -365,14 +369,35 @@ schema("/bridges_v2_probe") ->
                 ?BRIDGE_NOT_FOUND(BridgeType, BridgeName)
         end
     );
-'/bridges_v2/:id'(delete, #{bindings := #{id := Id}}) ->
+'/bridges_v2/:id'(delete, #{bindings := #{id := Id}, query_string := Qs} = All) ->
     ?TRY_PARSE_ID(
         Id,
         case emqx_bridge_v2:lookup(BridgeType, BridgeName) of
             {ok, _} ->
-                case emqx_bridge_v2:remove(BridgeType, BridgeName) of
+                AlsoDeleteActions =
+                    case maps:get(<<"also_delete_dep_actions">>, Qs, <<"false">>) of
+                        <<"true">> -> true;
+                        true -> true;
+                        _ -> false
+                    end,
+                case
+                    emqx_bridge_v2:check_deps_and_remove(BridgeType, BridgeName, AlsoDeleteActions)
+                of
                     ok ->
                         ?NO_CONTENT;
+                    {error, #{
+                        reason := rules_depending_on_this_bridge,
+                        rule_ids := RuleIds
+                    }} ->
+                        RuleIdLists = [binary_to_list(iolist_to_binary(X)) || X <- RuleIds],
+                        RulesStr = string:join(RuleIdLists, ", "),
+                        Msg = io_lib:format(
+                            "Cannot delete bridge while active rules are depending on it: ~s\n"
+                            "Append ?also_delete_dep_actions=true to the request URL to delete "
+                            "rule actions that depend on this bridge as well.",
+                            [RulesStr]
+                        ),
+                        ?BAD_REQUEST(iolist_to_binary(Msg));
                     {error, timeout} ->
                         ?SERVICE_UNAVAILABLE(<<"request timeout">>);
                     {error, Reason} ->
