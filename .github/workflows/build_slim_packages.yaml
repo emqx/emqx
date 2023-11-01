@@ -113,7 +113,6 @@ jobs:
         otp:
         - ${{ inputs.otp_vsn }}
         os:
-        - macos-11
         - macos-12-arm64
 
     runs-on: ${{ matrix.os }}
