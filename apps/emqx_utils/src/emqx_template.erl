@@ -117,8 +117,7 @@ parse(String, Opts) ->
                 <<"(" ?RE_PLACEHOLDER "|" ?RE_ESCAPE ")">>
         end,
     Splits = re:split(String, RE, [{return, binary}, group, trim, unicode]),
-    Components = lists:flatmap(fun parse_split/1, Splits),
-    Components.
+    lists:flatmap(fun parse_split/1, Splits).
 
 parse_split([Part, _PH, Var, <<>>]) ->
     % Regular placeholder
