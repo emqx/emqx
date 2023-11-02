@@ -16,6 +16,7 @@
 
 -module(emqx_jsonish).
 
+-behaviour(emqx_template).
 -export([lookup/2]).
 
 -export_type([t/0]).
@@ -53,11 +54,11 @@ lookup(Loc, Decoded, [Prop | Rest], Jsonish) when is_map(Jsonish) ->
         {error, Reason} ->
             {error, Reason}
     end;
-lookup(Loc, _Decoded = false, Rest, Json) when is_binary(Json) ->
+lookup(Loc, _Decoded = false, Props, Json) when is_binary(Json) ->
     try emqx_utils_json:decode(Json) of
         Value ->
             % NOTE: This is intentional, we don't want to parse nested JSON.
-            lookup(Loc, true, Rest, Value)
+            lookup(Loc, true, Props, Value)
     catch
         error:_ ->
             {error, {Loc, binary}}
