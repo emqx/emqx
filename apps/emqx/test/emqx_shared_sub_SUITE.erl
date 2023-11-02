@@ -908,6 +908,8 @@ t_session_takeover(Config) when is_list(Config) ->
     ?assertMatch([_], emqx:publish(Message3)),
     ?assertMatch([_], emqx:publish(Message4)),
     {true, _} = last_message(<<"hello2">>, [ConnPid2]),
+    %% We may or may not recv dup hello2 due to QoS1 redelivery
+    _ = last_message(<<"hello2">>, [ConnPid2]),
     {true, _} = last_message(<<"hello3">>, [ConnPid2]),
     {true, _} = last_message(<<"hello4">>, [ConnPid2]),
     ?assertEqual([], collect_msgs(timer:seconds(2))),

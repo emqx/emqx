@@ -1134,16 +1134,14 @@ handle_call(
     kick,
     Channel = #channel{
         conn_state = ConnState,
-        will_msg = WillMsg,
-        clientinfo = ClientInfo,
         conninfo = #{proto_ver := ProtoVer}
     }
 ) ->
-    (WillMsg =/= undefined) andalso publish_will_msg(ClientInfo, WillMsg),
+    Channel0 = maybe_publish_will_msg(Channel),
     Channel1 =
         case ConnState of
-            connected -> ensure_disconnected(kicked, Channel);
-            _ -> Channel
+            connected -> ensure_disconnected(kicked, Channel0);
+            _ -> Channel0
         end,
     case ProtoVer == ?MQTT_PROTO_V5 andalso ConnState == connected of
         true ->
@@ -1426,17 +1424,9 @@ terminate(normal, Channel) ->
     run_terminate_hook(normal, Channel);
 terminate({shutdown, kicked}, Channel) ->
     run_terminate_hook(kicked, Channel);
-terminate({shutdown, Reason}, Channel) when
-    Reason =:= discarded;
-    Reason =:= takenover
-->
-    run_terminate_hook(Reason, Channel);
-terminate(Reason, Channel = #channel{clientinfo = ClientInfo, will_msg = WillMsg}) ->
-    %% since will_msg is set to undefined as soon as it is published,
-    %% if will_msg still exists when the session is terminated, it
-    %% must be published immediately.
-    WillMsg =/= undefined andalso publish_will_msg(ClientInfo, WillMsg),
-    run_terminate_hook(Reason, Channel).
+terminate(Reason, Channel) ->
+    Channel1 = maybe_publish_will_msg(Channel),
+    run_terminate_hook(Reason, Channel1).
 
 run_terminate_hook(_Reason, #channel{session = undefined}) ->
     ok;

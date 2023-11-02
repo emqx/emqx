@@ -728,7 +728,8 @@ handle_call(_From, Req, State = #state{channel = Channel}) ->
         {shutdown, Reason, Reply, OutPacket, NChannel} ->
             NState = State#state{channel = NChannel},
             ok = handle_outgoing(OutPacket, NState),
-            shutdown(Reason, Reply, NState)
+            NState2 = graceful_shutdown_transport(Reason, NState),
+            shutdown(Reason, Reply, NState2)
     end.
 
 %%--------------------------------------------------------------------
@@ -1233,6 +1234,12 @@ set_tcp_keepalive({Type, Id}) ->
             {Idle, Interval, Probes} = emqx_schema:parse_tcp_keepalive(Value),
             async_set_keepalive(Idle, Interval, Probes)
     end.
+
+-spec graceful_shutdown_transport(atom(), state()) -> state().
+graceful_shutdown_transport(_Reason, S = #state{transport = Transport, socket = Socket}) ->
+    %% @TODO Reason is reserved for future use, quic transport
+    Transport:shutdown(Socket, read_write),
+    S#state{sockstate = closed}.
 
 %%--------------------------------------------------------------------
 %% For CT tests
