@@ -12,7 +12,7 @@ on:
 jobs:
   linux:
     if: github.repository_owner == 'emqx'
-    runs-on: ['self-hosted', 'ephemeral', 'linux', "${{ matrix.arch }}"]
+    runs-on: ${{ endsWith(github.repository, '/emqx') && 'ubuntu-22.04' || fromJSON('["self-hosted","ephemeral","linux","x64"]') }}
     container:
       image: "ghcr.io/emqx/emqx-builder/${{ matrix.builder }}:${{ matrix.elixir }}-${{ matrix.otp }}-${{ matrix.os }}"
 
@@ -21,7 +21,6 @@ jobs:
       matrix:
         profile:
           - ['emqx', 'master']
-          - ['emqx-enterprise', 'release-52']
           - ['emqx-enterprise', 'release-53']
         otp:
           - 25.3.2-2
@@ -101,7 +100,6 @@ jobs:
         otp:
           - 25.3.2-2
         os:
-          - macos-13
           - macos-12-arm64
 
     steps:

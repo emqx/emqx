@@ -7,9 +7,6 @@ concurrency:
 on:
   workflow_call:
     inputs:
-      runner_labels:
-        required: true
-        type: string
       builder:
         required: true
         type: string
@@ -27,10 +24,6 @@ on:
     inputs:
       ref:
         required: false
-      runner_labels:
-        required: false
-        type: string
-        default: '["self-hosted","ephemeral", "linux", "x64"]'
       builder:
         required: false
         type: string
@@ -50,7 +43,7 @@ on:
 
 jobs:
   linux:
-    runs-on: ${{ fromJSON(inputs.runner_labels) }}
+    runs-on: ${{ endsWith(github.repository, '/emqx') && 'ubuntu-22.04' || fromJSON('["self-hosted","ephemeral","linux","x64"]') }}
     env:
       EMQX_NAME: ${{ matrix.profile[0] }}
 

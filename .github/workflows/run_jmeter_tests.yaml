@@ -3,16 +3,13 @@ name: JMeter integration tests
 on:
   workflow_call:
     inputs:
-      runner_labels:
-        required: true
-        type: string
       version-emqx:
         required: true
         type: string
 
 jobs:
   jmeter_artifact:
-    runs-on: ${{ fromJSON(inputs.runner_labels) }}
+    runs-on: ${{ endsWith(github.repository, '/emqx') && 'ubuntu-22.04' || fromJSON('["self-hosted","ephemeral","linux","x64"]') }}
     steps:
     - name: Cache Jmeter
       id: cache-jmeter
@@ -42,7 +39,7 @@ jobs:
         retention-days: 3
 
   advanced_feat:
-    runs-on: ${{ fromJSON(inputs.runner_labels) }}
+    runs-on: ${{ github.repository_owner == 'emqx' && fromJSON('["self-hosted","ephemeral","linux","x64"]') || 'ubuntu-22.04' }}
 
     strategy:
       fail-fast: false
@@ -94,7 +91,7 @@ jobs:
         retention-days: 3
 
   pgsql_authn_authz:
-    runs-on: ${{ fromJSON(inputs.runner_labels) }}
+    runs-on: ${{ github.repository_owner == 'emqx' && fromJSON('["self-hosted","ephemeral","linux","x64"]') || 'ubuntu-22.04' }}
 
     strategy:
       fail-fast: false
@@ -161,7 +158,7 @@ jobs:
         retention-days: 3
 
   mysql_authn_authz:
-    runs-on: ${{ fromJSON(inputs.runner_labels) }}
+    runs-on: ${{ github.repository_owner == 'emqx' && fromJSON('["self-hosted","ephemeral","linux","x64"]') || 'ubuntu-22.04' }}
 
     strategy:
       fail-fast: false
@@ -221,7 +218,7 @@ jobs:
         retention-days: 3
 
   JWT_authn:
-    runs-on: ${{ fromJSON(inputs.runner_labels) }}
+    runs-on: ${{ github.repository_owner == 'emqx' && fromJSON('["self-hosted","ephemeral","linux","x64"]') || 'ubuntu-22.04' }}
 
     strategy:
       fail-fast: false
@@ -273,7 +270,7 @@ jobs:
         retention-days: 3
 
   built_in_database_authn_authz:
-    runs-on: ${{ fromJSON(inputs.runner_labels) }}
+    runs-on: ${{ github.repository_owner == 'emqx' && fromJSON('["self-hosted","ephemeral","linux","x64"]') || 'ubuntu-22.04' }}
 
     strategy:
       fail-fast: false

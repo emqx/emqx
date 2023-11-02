@@ -3,16 +3,13 @@ name: Check integrity of rebar and mix dependencies
 on:
   workflow_call:
     inputs:
-      runner_labels:
-        required: true
-        type: string
       builder:
         required: true
         type: string
 
 jobs:
   check_deps_integrity:
-    runs-on: ${{ fromJSON(inputs.runner_labels) }}
+    runs-on: ${{ endsWith(github.repository, '/emqx') && 'ubuntu-22.04' || fromJSON('["self-hosted","ephemeral","linux","x64"]') }}
     container: ${{ inputs.builder }}
     steps:
       - uses: actions/checkout@v3

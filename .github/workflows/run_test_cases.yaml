@@ -7,9 +7,6 @@ concurrency:
 on:
   workflow_call:
     inputs:
-      runner_labels:
-        required: true
-        type: string
       builder:
         required: true
         type: string
@@ -28,7 +25,7 @@ env:
 
 jobs:
   eunit_and_proper:
-    runs-on: ${{ fromJSON(inputs.runner_labels) }}
+    runs-on: ${{ github.repository_owner == 'emqx' && fromJSON('["self-hosted","ephemeral","linux","x64"]') || 'ubuntu-22.04' }}
     name: "eunit_and_proper (${{ matrix.profile }})"
     strategy:
       fail-fast: false
@@ -71,7 +68,7 @@ jobs:
           retention-days: 7
 
   ct_docker:
-    runs-on: ${{ fromJSON(inputs.runner_labels) }}
+    runs-on: ${{ github.repository_owner == 'emqx' && fromJSON('["self-hosted","ephemeral","linux","x64"]') || 'ubuntu-22.04' }}
     name: "${{ matrix.app }}-${{ matrix.suitegroup }} (${{ matrix.profile }})"
     strategy:
       fail-fast: false
@@ -124,7 +121,7 @@ jobs:
           retention-days: 7
 
   ct:
-    runs-on: ${{ fromJSON(inputs.runner_labels) }}
+    runs-on: ${{ github.repository_owner == 'emqx' && fromJSON('["self-hosted","ephemeral","linux","x64"]') || 'ubuntu-22.04' }}
     name: "${{ matrix.app }}-${{ matrix.suitegroup }} (${{ matrix.profile }})"
     strategy:
       fail-fast: false
@@ -175,7 +172,7 @@ jobs:
       - eunit_and_proper
       - ct
       - ct_docker
-    runs-on: ${{ fromJSON(inputs.runner_labels) }}
+    runs-on: ubuntu-22.04
     strategy:
       fail-fast: false
     steps:
@@ -186,7 +183,7 @@ jobs:
       - eunit_and_proper
       - ct
       - ct_docker
-    runs-on: ${{ fromJSON(inputs.runner_labels) }}
+    runs-on: ${{ endsWith(github.repository, '/emqx') && 'ubuntu-22.04' || fromJSON('["self-hosted","ephemeral","linux","x64"]') }}
     container: ${{ inputs.builder }}
     strategy:
       fail-fast: false
@@ -226,7 +223,7 @@ jobs:
   # do this in a separate job
   upload_coverdata:
     needs: make_cover
-    runs-on: ${{ fromJSON(inputs.runner_labels) }}
+    runs-on: ubuntu-22.04
     steps:
       - name: Coveralls Finished
         env:
