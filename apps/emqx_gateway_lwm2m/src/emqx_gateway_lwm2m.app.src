@@ -1,3 +1,4 @@
+%% -*- mode: erlang -*-
 {application, emqx_gateway_lwm2m, [
     {description, "LwM2M Gateway"},
     {vsn, "0.1.3"},
