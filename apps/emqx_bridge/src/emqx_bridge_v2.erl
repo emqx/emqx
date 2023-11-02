@@ -38,7 +38,11 @@
     list/0,
     lookup/2,
     create/3,
-    remove/2
+    remove/2,
+    %% The following is the remove function that is called by the HTTP API
+    %% It also checks for rule action dependencies and optionally removes
+    %% them
+    check_deps_and_remove/3
 ]).
 
 %% Operations
@@ -229,6 +233,25 @@ remove(BridgeType, BridgeName) ->
     of
         {ok, _} -> ok;
         {error, Reason} -> {error, Reason}
+    end.
+
+check_deps_and_remove(BridgeType, BridgeName, AlsoDeleteActions) ->
+    AlsoDelete =
+        case AlsoDeleteActions of
+            true -> [rule_actions];
+            false -> []
+        end,
+    case
+        emqx_bridge_lib:maybe_withdraw_rule_action(
+            BridgeType,
+            BridgeName,
+            AlsoDelete
+        )
+    of
+        ok ->
+            remove(BridgeType, BridgeName);
+        {error, Reason} ->
+            {error, Reason}
     end.
 
 %%--------------------------------------------------------------------

@@ -123,6 +123,18 @@ param_path_id() ->
             }
         )}.
 
+param_qs_delete_cascade() ->
+    {also_delete_dep_actions,
+        mk(
+            boolean(),
+            #{
+                in => query,
+                required => false,
+                default => false,
+                desc => ?DESC("desc_qs_also_delete_dep_actions")
+            }
+        )}.
+
 param_path_operation_cluster() ->
     {operation,
         mk(
@@ -231,7 +243,7 @@ schema("/bridges_v2/:id") ->
             tags => [<<"bridges_v2">>],
             summary => <<"Delete bridge">>,
             description => ?DESC("desc_api5"),
-            parameters => [param_path_id()],
+            parameters => [param_path_id(), param_qs_delete_cascade()],
             responses => #{
                 204 => <<"Bridge deleted">>,
                 400 => error_schema(
@@ -365,19 +377,35 @@ schema("/bridges_v2_probe") ->
                 ?BRIDGE_NOT_FOUND(BridgeType, BridgeName)
         end
     );
-'/bridges_v2/:id'(delete, #{bindings := #{id := Id}}) ->
+'/bridges_v2/:id'(delete, #{bindings := #{id := Id}, query_string := Qs}) ->
     ?TRY_PARSE_ID(
         Id,
         case emqx_bridge_v2:lookup(BridgeType, BridgeName) of
             {ok, _} ->
-                case emqx_bridge_v2:remove(BridgeType, BridgeName) of
+                AlsoDeleteActions =
+                    case maps:get(<<"also_delete_dep_actions">>, Qs, <<"false">>) of
+                        <<"true">> -> true;
+                        true -> true;
+                        _ -> false
+                    end,
+                case
+                    emqx_bridge_v2:check_deps_and_remove(BridgeType, BridgeName, AlsoDeleteActions)
+                of
                     ok ->
                         ?NO_CONTENT;
-                    {error, {active_channels, Channels}} ->
-                        ?BAD_REQUEST(
-                            {<<"Cannot delete bridge while there are active channels defined for this bridge">>,
-                                Channels}
-                        );
+                    {error, #{
+                        reason := rules_depending_on_this_bridge,
+                        rule_ids := RuleIds
+                    }} ->
+                        RuleIdLists = [binary_to_list(iolist_to_binary(X)) || X <- RuleIds],
+                        RulesStr = string:join(RuleIdLists, ", "),
+                        Msg = io_lib:format(
+                            "Cannot delete bridge while active rules are depending on it: ~s\n"
+                            "Append ?also_delete_dep_actions=true to the request URL to delete "
+                            "rule actions that depend on this bridge as well.",
+                            [RulesStr]
+                        ),
+                        ?BAD_REQUEST(iolist_to_binary(Msg));
                     {error, timeout} ->
                         ?SERVICE_UNAVAILABLE(<<"request timeout">>);
                     {error, Reason} ->
