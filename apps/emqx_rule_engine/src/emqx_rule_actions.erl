@@ -255,31 +255,33 @@ render_pub_props(UserPropertiesTemplate, Selected, Env) ->
         end,
     #{'User-Property' => UserProperties}.
 
+%%
+
+-define(BADPROP(K, REASON, ENV, DATA),
+    ?SLOG(
+        debug,
+        DATA#{
+            msg => "bad_mqtt_property_value_ignored",
+            rule_id => emqx_utils_maps:deep_get([metadata, rule_id], ENV, undefined),
+            reason => REASON,
+            property => K
+        }
+    )
+).
+
 render_mqtt_properties(MQTTPropertiesTemplate, Selected, Env) ->
-    #{metadata := #{rule_id := RuleId}} = Env,
     MQTTProperties =
-        maps:fold(
-            fun(K, Template, Acc) ->
+        maps:map(
+            fun(K, Template) ->
                 {V, Errors} = render_template(Template, Selected),
-                NAcc = Acc#{K => iolist_to_binary(V)},
                 case Errors of
                     [] ->
                         ok;
                     Errors ->
-                        ?SLOG(
-                            debug,
-                            #{
-                                msg => "bad_mqtt_property_value_ignored",
-                                rule_id => RuleId,
-                                reason => Errors,
-                                property => K,
-                                selected => Selected
-                            }
-                        )
+                        ?BADPROP(K, Errors, Env, #{selected => Selected})
                 end,
-                NAcc
+                iolist_to_binary(V)
             end,
-            #{},
             MQTTPropertiesTemplate
         ),
     coerce_properties_values(MQTTProperties, Env).
@@ -294,42 +296,24 @@ ensure_int(B) when is_binary(B) ->
 ensure_int(I) when is_integer(I) ->
     I.
 
-coerce_properties_values(MQTTProperties, #{metadata := #{rule_id := RuleId}}) ->
-    maps:fold(
-        fun(K, V0, Acc) ->
+coerce_properties_values(MQTTProperties, Env) ->
+    maps:filtermap(
+        fun(K, V) ->
             try
-                V = encode_mqtt_property(K, V0),
-                Acc#{K => V}
+                {true, encode_mqtt_property(K, V)}
             catch
-                throw:bad_integer ->
-                    ?SLOG(
-                        debug,
-                        #{
-                            msg => "bad_mqtt_property_value_ignored",
-                            rule_id => RuleId,
-                            reason => bad_integer,
-                            property => K,
-                            value => V0
-                        }
-                    ),
-                    Acc;
+                throw:Reason ->
+                    ?BADPROP(K, Reason, Env, #{value => V}),
+                    false;
                 Kind:Reason:Stacktrace ->
-                    ?SLOG(
-                        debug,
-                        #{
-                            msg => "bad_mqtt_property_value_ignored",
-                            rule_id => RuleId,
-                            exception => Kind,
-                            reason => Reason,
-                            property => K,
-                            value => V0,
-                            stacktrace => Stacktrace
-                        }
-                    ),
-                    Acc
+                    ?BADPROP(K, Reason, Env, #{
+                        value => V,
+                        exception => Kind,
+                        stacktrace => Stacktrace
+                    }),
+                    false
             end
         end,
-        #{},
         MQTTProperties
     ).
 
