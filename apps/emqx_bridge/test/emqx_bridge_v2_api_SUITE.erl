@@ -280,6 +280,9 @@ init_mocks() ->
     meck:expect(?CONNECTOR_IMPL, on_add_channel, 4, {ok, connector_state}),
     meck:expect(?CONNECTOR_IMPL, on_remove_channel, 3, {ok, connector_state}),
     meck:expect(?CONNECTOR_IMPL, on_get_channel_status, 3, connected),
+    ok = meck:expect(?CONNECTOR_IMPL, on_get_channels, fun(ResId) ->
+        emqx_bridge_v2:get_channels_for_connector(ResId)
+    end),
     [?CONNECTOR_IMPL, emqx_connector_ee_schema].
 
 clear_resources() ->
@@ -503,6 +506,29 @@ do_start_bridge(TestType, Config) ->
     ),
 
     {ok, 400, _} = request(post, {operation, TestType, invalidop, BridgeID}, Config),
+
+    %% Make start bridge fail
+    ok = meck:expect(
+        ?CONNECTOR_IMPL,
+        on_add_channel,
+        fun(_, _, _ResId, _Channel) -> {error, <<"my_error">>} end
+    ),
+
+    ok = emqx_connector_resource:stop(?BRIDGE_TYPE, ?CONNECTOR_NAME),
+    ok = emqx_connector_resource:start(?BRIDGE_TYPE, ?CONNECTOR_NAME),
+
+    {ok, 400, _} = request(post, {operation, TestType, start, BridgeID}, Config),
+
+    %% Make start bridge succeed
+
+    ok = meck:expect(
+        ?CONNECTOR_IMPL,
+        on_add_channel,
+        fun(_, _, _ResId, _Channel) -> {ok, connector_state} end
+    ),
+
+    %% try to start again
+    {ok, 204, <<>>} = request(post, {operation, TestType, start, BridgeID}, Config),
 
     %% delete the bridge
     {ok, 204, <<>>} = request(delete, uri([?ROOT, BridgeID]), Config),

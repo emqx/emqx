@@ -806,6 +806,44 @@ t_remove_multiple_connectors_being_referenced_without_channels(_Config) ->
     ),
     ok.
 
+t_start_operation_when_on_add_channel_gives_error(_Config) ->
+    Conf = bridge_config(),
+    BridgeName = my_test_bridge,
+    emqx_common_test_helpers:with_mock(
+        emqx_bridge_v2_test_connector,
+        on_add_channel,
+        fun(_, _, _ResId, _Channel) -> {error, <<"some_error">>} end,
+        fun() ->
+            %% We can crete the bridge event though on_add_channel returns error
+            ?assertMatch({ok, _}, emqx_bridge_v2:create(bridge_type(), BridgeName, Conf)),
+            ?assertMatch(
+                #{
+                    status := disconnected,
+                    error := <<"some_error">>
+                },
+                emqx_bridge_v2:health_check(bridge_type(), BridgeName)
+            ),
+            ?assertMatch(
+                {ok, #{
+                    status := disconnected,
+                    error := <<"some_error">>
+                }},
+                emqx_bridge_v2:lookup(bridge_type(), BridgeName)
+            ),
+            %% emqx_bridge_v2:start/2 should return ok if bridge if connected after
+            %% start and otherwise and error
+            ?assertMatch({error, _}, emqx_bridge_v2:start(bridge_type(), BridgeName)),
+            %% Let us change on_add_channel to be successful and try again
+            ok = meck:expect(
+                emqx_bridge_v2_test_connector,
+                on_add_channel,
+                fun(_, _, _ResId, _Channel) -> {ok, #{}} end
+            ),
+            ?assertMatch(ok, emqx_bridge_v2:start(bridge_type(), BridgeName))
+        end
+    ),
+    ok.
+
 %% Helper Functions
 
 wait_until(Fun) ->
