@@ -16,7 +16,9 @@
 
 -module(emqx_authz_utils).
 
+-include_lib("emqx/include/emqx_placeholder.hrl").
 -include_lib("emqx_authz.hrl").
+-include_lib("snabbkaffe/include/trace.hrl").
 
 -export([
     cleanup_resources/0,
@@ -108,48 +110,97 @@ update_config(Path, ConfigRequest) ->
     }).
 
 parse_deep(Template, PlaceHolders) ->
-    emqx_placeholder:preproc_tmpl_deep(Template, #{placeholders => PlaceHolders}).
+    Result = emqx_template:parse_deep(Template),
+    handle_disallowed_placeholders(Result, {deep, Template}, PlaceHolders).
 
 parse_str(Template, PlaceHolders) ->
-    emqx_placeholder:preproc_tmpl(Template, #{placeholders => PlaceHolders}).
+    Result = emqx_template:parse(Template),
+    handle_disallowed_placeholders(Result, {string, Template}, PlaceHolders).
 
 parse_sql(Template, ReplaceWith, PlaceHolders) ->
-    emqx_placeholder:preproc_sql(
+    {Statement, Result} = emqx_template_sql:parse_prepstmt(
         Template,
-        #{
-            replace_with => ReplaceWith,
-            placeholders => PlaceHolders,
-            strip_double_quote => true
-        }
-    ).
+        #{parameters => ReplaceWith, strip_double_quote => true}
+    ),
+    FResult = handle_disallowed_placeholders(Result, {string, Template}, PlaceHolders),
+    {Statement, FResult}.
+
+handle_disallowed_placeholders(Template, Source, Allowed) ->
+    case emqx_template:validate(Allowed, Template) of
+        ok ->
+            Template;
+        {error, Disallowed} ->
+            ?tp(warning, "authz_template_invalid", #{
+                template => Source,
+                reason => Disallowed,
+                allowed => #{placeholders => Allowed},
+                notice =>
+                    "Disallowed placeholders will be rendered as is."
+                    " However, consider using `${$}` escaping for literal `$` where"
+                    " needed to avoid unexpected results."
+            }),
+            Result = prerender_disallowed_placeholders(Template, Allowed),
+            case Source of
+                {string, _} ->
+                    emqx_template:parse(Result);
+                {deep, _} ->
+                    emqx_template:parse_deep(Result)
+            end
+    end.
+
+prerender_disallowed_placeholders(Template, Allowed) ->
+    {Result, _} = emqx_template:render(Template, #{}, #{
+        var_trans => fun(Name, _) ->
+            % NOTE
+            % Rendering disallowed placeholders in escaped form, which will then
+            % parse as a literal string.
+            case lists:member(Name, Allowed) of
+                true -> "${" ++ Name ++ "}";
+                false -> "${$}{" ++ Name ++ "}"
+            end
+        end
+    }),
+    Result.
 
 render_deep(Template, Values) ->
-    emqx_placeholder:proc_tmpl_deep(
+    % NOTE
+    % Ignoring errors here, undefined bindings will be replaced with empty string.
+    {Term, _Errors} = emqx_template:render(
         Template,
         client_vars(Values),
-        #{return => full_binary, var_trans => fun handle_var/2}
-    ).
+        #{var_trans => fun to_string/2}
+    ),
+    Term.
 
 render_str(Template, Values) ->
-    emqx_placeholder:proc_tmpl(
+    % NOTE
+    % Ignoring errors here, undefined bindings will be replaced with empty string.
+    {String, _Errors} = emqx_template:render(
         Template,
         client_vars(Values),
-        #{return => full_binary, var_trans => fun handle_var/2}
-    ).
+        #{var_trans => fun to_string/2}
+    ),
+    unicode:characters_to_binary(String).
 
 render_urlencoded_str(Template, Values) ->
-    emqx_placeholder:proc_tmpl(
+    % NOTE
+    % Ignoring errors here, undefined bindings will be replaced with empty string.
+    {String, _Errors} = emqx_template:render(
         Template,
         client_vars(Values),
-        #{return => full_binary, var_trans => fun urlencode_var/2}
-    ).
+        #{var_trans => fun to_urlencoded_string/2}
+    ),
+    unicode:characters_to_binary(String).
 
 render_sql_params(ParamList, Values) ->
-    emqx_placeholder:proc_tmpl(
+    % NOTE
+    % Ignoring errors here, undefined bindings will be replaced with empty string.
+    {Row, _Errors} = emqx_template:render(
         ParamList,
         client_vars(Values),
-        #{return => rawlist, var_trans => fun handle_sql_var/2}
-    ).
+        #{var_trans => fun to_sql_value/2}
+    ),
+    Row.
 
 -spec parse_http_resp_body(binary(), binary()) -> allow | deny | ignore | error.
 parse_http_resp_body(<<"application/x-www-form-urlencoded", _/binary>>, Body) ->
@@ -215,22 +266,24 @@ convert_client_var({dn, DN}) -> {cert_subject, DN};
 convert_client_var({protocol, Proto}) -> {proto_name, Proto};
 convert_client_var(Other) -> Other.
 
-urlencode_var(Var, Value) ->
-    emqx_http_lib:uri_encode(handle_var(Var, Value)).
+to_urlencoded_string(Name, Value) ->
+    emqx_http_lib:uri_encode(to_string(Name, Value)).
 
-handle_var(_Name, undefined) ->
-    <<>>;
-handle_var([<<"peerhost">>], IpAddr) ->
-    inet_parse:ntoa(IpAddr);
-handle_var(_Name, Value) ->
-    emqx_placeholder:bin(Value).
+to_string(Name, Value) ->
+    emqx_template:to_string(render_var(Name, Value)).
 
-handle_sql_var(_Name, undefined) ->
+to_sql_value(Name, Value) ->
+    emqx_utils_sql:to_sql_value(render_var(Name, Value)).
+
+render_var(_, undefined) ->
+    % NOTE
+    % Any allowed but undefined binding will be replaced with empty string, even when
+    % rendering SQL values.
     <<>>;
-handle_sql_var([<<"peerhost">>], IpAddr) ->
-    inet_parse:ntoa(IpAddr);
-handle_sql_var(_Name, Value) ->
-    emqx_placeholder:sql_data(Value).
+render_var(?VAR_PEERHOST, Value) ->
+    inet:ntoa(Value);
+render_var(_Name, Value) ->
+    Value.
 
 bin(A) when is_atom(A) -> atom_to_binary(A, utf8);
 bin(L) when is_list(L) -> list_to_binary(L);

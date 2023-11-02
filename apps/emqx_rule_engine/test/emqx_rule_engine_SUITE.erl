@@ -81,6 +81,7 @@ groups() ->
             t_sqlselect_3,
             t_sqlselect_message_publish_event_keep_original_props_1,
             t_sqlselect_message_publish_event_keep_original_props_2,
+            t_sqlselect_missing_template_vars_render_as_undefined,
             t_sqlparse_event_1,
             t_sqlparse_event_2,
             t_sqlparse_event_3,
@@ -1364,14 +1365,13 @@ t_sqlselect_inject_props(_Config) ->
             actions => [Repub]
         }
     ),
-    Props = user_properties(#{<<"inject_key">> => <<"inject_val">>}),
     {ok, Client} = emqtt:start_link([{username, <<"emqx">>}, {proto_ver, v5}]),
     {ok, _} = emqtt:connect(Client),
     {ok, _, _} = emqtt:subscribe(Client, <<"t2">>, 0),
     emqtt:publish(Client, <<"t1">>, #{}, <<"{\"x\":1}">>, [{qos, 0}]),
     receive
-        {publish, #{topic := T, payload := Payload, properties := Props2}} ->
-            ?assertEqual(Props, Props2),
+        {publish, #{topic := T, payload := Payload, properties := Props}} ->
+            ?assertEqual(user_properties(#{<<"inject_key">> => <<"inject_val">>}), Props),
             ?assertEqual(<<"t2">>, T),
             ?assertEqual(<<"{\"x\":1}">>, Payload)
     after 2000 ->
@@ -1946,6 +1946,32 @@ t_sqlselect_as_put(_Config) ->
         },
         PayloadMap2
     ).
+
+t_sqlselect_missing_template_vars_render_as_undefined(_Config) ->
+    SQL = <<"SELECT * FROM \"$events/client_connected\"">>,
+    Repub = republish_action(<<"t2">>, <<"${clientid}:${missing.var}">>),
+    {ok, TopicRule} = emqx_rule_engine:create_rule(
+        #{
+            sql => SQL,
+            id => ?TMP_RULEID,
+            actions => [Repub]
+        }
+    ),
+    {ok, Client1} = emqtt:start_link([{clientid, <<"sub-01">>}]),
+    {ok, _} = emqtt:connect(Client1),
+    {ok, _, _} = emqtt:subscribe(Client1, <<"t2">>),
+    {ok, Client2} = emqtt:start_link([{clientid, <<"pub-02">>}]),
+    {ok, _} = emqtt:connect(Client2),
+    emqtt:publish(Client2, <<"foo/bar/1">>, <<>>),
+    receive
+        {publish, Msg} ->
+            ?assertMatch(#{topic := <<"t2">>, payload := <<"pub-02:undefined">>}, Msg)
+    after 2000 ->
+        ct:fail(wait_for_t2)
+    end,
+    emqtt:stop(Client2),
+    emqtt:stop(Client1),
+    delete_rule(TopicRule).
 
 t_sqlparse_event_1(_Config) ->
     Sql =

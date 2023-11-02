@@ -338,6 +338,7 @@ defmodule EMQXUmbrella.MixProject do
             :emqx_management,
             :emqx_retainer,
             :emqx_prometheus,
+            :emqx_rule_engine,
             :emqx_auto_subscribe,
             :emqx_slow_subs,
             :emqx_plugins,

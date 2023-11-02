@@ -35,12 +35,12 @@
 -compile(nowarn_export_all).
 -endif.
 
--define(PLACEHOLDERS, [
-    ?PH_CERT_CN_NAME,
-    ?PH_CERT_SUBJECT,
-    ?PH_PEERHOST,
-    ?PH_CLIENTID,
-    ?PH_USERNAME
+-define(ALLOWED_VARS, [
+    ?VAR_CERT_CN_NAME,
+    ?VAR_CERT_SUBJECT,
+    ?VAR_PEERHOST,
+    ?VAR_CLIENTID,
+    ?VAR_USERNAME
 ]).
 
 description() ->
@@ -133,7 +133,7 @@ parse_cmd(Query) ->
     case emqx_redis_command:split(Query) of
         {ok, Cmd} ->
             ok = validate_cmd(Cmd),
-            emqx_authz_utils:parse_deep(Cmd, ?PLACEHOLDERS);
+            emqx_authz_utils:parse_deep(Cmd, ?ALLOWED_VARS);
         {error, Reason} ->
             error({invalid_redis_cmd, Reason, Query})
     end.

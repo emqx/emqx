@@ -566,7 +566,6 @@ t_simple_sql_query(Config) ->
 
 t_missing_data(Config) ->
     BatchSize = ?config(batch_size, Config),
-    IsBatch = BatchSize > 1,
     ?assertMatch(
         {ok, _},
         create_bridge(Config)
@@ -577,8 +576,8 @@ t_missing_data(Config) ->
     ),
     send_message(Config, #{}),
     {ok, [Event]} = snabbkaffe:receive_events(SRef),
-    case IsBatch of
-        true ->
+    case BatchSize of
+        N when N > 1 ->
             ?assertMatch(
                 #{
                     result :=
@@ -588,7 +587,7 @@ t_missing_data(Config) ->
                 },
                 Event
             );
-        false ->
+        1 ->
             ?assertMatch(
                 #{
                     result :=
