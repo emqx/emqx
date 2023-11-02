@@ -270,8 +270,7 @@ values(producer) ->
             topic => <<"topic">>,
             message => #{
                 key => <<"${.clientid}">>,
-                value => <<"${.}">>,
-                timestamp => <<"${.timestamp}">>
+                value => <<"${.}">>
             },
             max_batch_bytes => <<"896KB">>,
             partition_strategy => <<"random">>,
