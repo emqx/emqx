@@ -266,13 +266,15 @@ fields(kafka_producer_action) ->
         {connector,
             mk(binary(), #{
                 desc => ?DESC(emqx_connector_schema, "connector_field"), required => true
-            })}
+            })},
+        {description, emqx_schema:description_schema()}
     ] ++ fields(producer_opts);
 fields(kafka_consumer) ->
     fields("config") ++ fields(consumer_opts);
 fields("config") ->
     [
         {enable, mk(boolean(), #{desc => ?DESC("config_enable"), default => true})},
+        {description, emqx_schema:description_schema()},
         {bootstrap_hosts,
             mk(
                 binary(),
