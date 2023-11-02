@@ -718,7 +718,13 @@ node_status(Bridges) ->
 aggregate_status(AllStatus) ->
     Head = fun([A | _]) -> A end,
     HeadVal = maps:get(status, Head(AllStatus), connecting),
-    AllRes = lists:all(fun(#{status := Val}) -> Val == HeadVal end, AllStatus),
+    AllRes = lists:all(
+        fun
+            (#{status := Val}) -> Val == HeadVal;
+            (_) -> false
+        end,
+        AllStatus
+    ),
     case AllRes of
         true -> HeadVal;
         false -> inconsistent
