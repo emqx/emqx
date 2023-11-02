@@ -283,13 +283,6 @@ config_enable.desc:
 config_enable.label:
 """Enable or Disable"""
 
-
-config_connector.desc:
-"""Reference to connector"""
-
-config_connector.label:
-"""Connector"""
-
 consumer_mqtt_payload.desc:
 """The template for transforming the incoming Kafka message.  By default, it will use JSON format to serialize inputs from the Kafka message.  Such fields are:
 <code>headers</code>: an object containing string key-value pairs.
@@ -316,10 +309,10 @@ kafka_consumer.label:
 """Kafka Consumer"""
 
 desc_config.desc:
-"""Configuration for a Kafka bridge."""
+"""Configuration for a Kafka Producer Client."""
 
 desc_config.label:
-"""Kafka Bridge Configuration"""
+"""Kafka Producer Client Configuration"""
 
 consumer_value_encoding_mode.desc:
 """Defines how the value from the Kafka message is encoded before being forwarded via MQTT.

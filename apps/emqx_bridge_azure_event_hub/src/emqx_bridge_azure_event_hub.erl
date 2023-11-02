@@ -82,7 +82,7 @@ fields("config_bridge_v2") ->
     fields(bridge_v2);
 fields("config_connector") ->
     Fields = override(
-        emqx_bridge_kafka:fields(kafka_connector),
+        emqx_bridge_kafka:fields("config_connector"),
         connector_overrides()
     ),
     override_documentations(Fields);
@@ -117,7 +117,7 @@ fields(kafka_message) ->
 fields(bridge_v2) ->
     Fields =
         override(
-            emqx_bridge_kafka:fields(producer_opts),
+            emqx_bridge_kafka:producer_opts(),
             bridge_v2_overrides()
         ) ++
             [
@@ -267,7 +267,7 @@ values(common_config) ->
     };
 values(producer) ->
     #{
-        kafka => #{
+        parameters => #{
             topic => <<"topic">>,
             message => #{
                 key => <<"${.clientid}">>,
@@ -378,7 +378,16 @@ producer_overrides() ->
                     )
                 }
             ),
+        %% NOTE: field 'kafka' is renamed to 'parameters' since e5.3.1
+        %% We will keep 'kafka' for backward compatibility.
+        %% TODO: delete this override when we upgrade bridge schema json to 0.2.0
+        %% See emqx_conf:bridge_schema_json/0
         kafka =>
+            mk(ref(producer_kafka_opts), #{
+                required => true,
+                validator => fun emqx_bridge_kafka:producer_strategy_key_validator/1
+            }),
+        parameters =>
             mk(ref(producer_kafka_opts), #{
                 required => true,
                 validator => fun emqx_bridge_kafka:producer_strategy_key_validator/1
@@ -389,7 +398,7 @@ producer_overrides() ->
 
 bridge_v2_overrides() ->
     #{
-        kafka =>
+        parameters =>
             mk(ref(producer_kafka_opts), #{
                 required => true,
                 validator => fun emqx_bridge_kafka:producer_strategy_key_validator/1
