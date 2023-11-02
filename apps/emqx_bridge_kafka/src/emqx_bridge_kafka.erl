@@ -139,7 +139,7 @@ values(common_config) ->
     };
 values(producer) ->
     #{
-        kafka => #{
+        connector_channel => #{
             topic => <<"kafka-topic">>,
             message => #{
                 key => <<"${.clientid}">>,
@@ -175,7 +175,7 @@ values(producer) ->
     };
 values(consumer) ->
     #{
-        kafka => #{
+        connector_channel => #{
             max_batch_bytes => <<"896KB">>,
             offset_reset_policy => <<"latest">>,
             offset_commit_interval_seconds => 5
@@ -251,15 +251,13 @@ fields("get_" ++ Type) ->
 fields("config_bridge_v2") ->
     fields(kafka_producer_action);
 fields("config_connector") ->
-    fields(kafka_connector);
+    connector_config_fields();
 fields("config_producer") ->
     fields(kafka_producer);
 fields("config_consumer") ->
     fields(kafka_consumer);
-fields(kafka_connector) ->
-    fields("config");
 fields(kafka_producer) ->
-    fields("config") ++ fields(producer_opts);
+    connector_config_fields() ++ fields(producer_opts);
 fields(kafka_producer_action) ->
     [
         {enable, mk(boolean(), #{desc => ?DESC("config_enable"), default => true})},
@@ -270,47 +268,7 @@ fields(kafka_producer_action) ->
         {description, emqx_schema:description_schema()}
     ] ++ fields(producer_opts);
 fields(kafka_consumer) ->
-    fields("config") ++ fields(consumer_opts);
-fields("config") ->
-    [
-        {enable, mk(boolean(), #{desc => ?DESC("config_enable"), default => true})},
-        {description, emqx_schema:description_schema()},
-        {bootstrap_hosts,
-            mk(
-                binary(),
-                #{
-                    required => true,
-                    desc => ?DESC(bootstrap_hosts),
-                    validator => emqx_schema:servers_validator(
-                        host_opts(), _Required = true
-                    )
-                }
-            )},
-        {connect_timeout,
-            mk(emqx_schema:timeout_duration_ms(), #{
-                default => <<"5s">>,
-                desc => ?DESC(connect_timeout)
-            })},
-        {min_metadata_refresh_interval,
-            mk(
-                emqx_schema:timeout_duration_ms(),
-                #{
-                    default => <<"3s">>,
-                    desc => ?DESC(min_metadata_refresh_interval)
-                }
-            )},
-        {metadata_request_timeout,
-            mk(emqx_schema:timeout_duration_ms(), #{
-                default => <<"5s">>,
-                desc => ?DESC(metadata_request_timeout)
-            })},
-        {authentication,
-            mk(hoconsc:union([none, ref(auth_username_password), ref(auth_gssapi_kerberos)]), #{
-                default => none, desc => ?DESC("authentication")
-            })},
-        {socket_opts, mk(ref(socket_opts), #{required => false, desc => ?DESC(socket_opts)})},
-        {ssl, mk(ref(ssl_client_opts), #{})}
-    ];
+    connector_config_fields() ++ fields(consumer_opts);
 fields(ssl_client_opts) ->
     ssl_client_opts_fields();
 fields(auth_username_password) ->
@@ -375,9 +333,10 @@ fields(producer_opts) ->
         %% for egress bridges with this config, the published messages
         %% will be forwarded to such bridges.
         {local_topic, mk(binary(), #{required => false, desc => ?DESC(mqtt_topic)})},
-        {kafka,
+        {connector_channel,
             mk(ref(producer_kafka_opts), #{
                 required => true,
+                aliases => [kafka],
                 desc => ?DESC(producer_kafka_opts),
                 validator => fun producer_strategy_key_validator/1
             })},
@@ -580,7 +539,7 @@ fields(resource_opts) ->
     CreationOpts = emqx_resource_schema:create_opts(_Overrides = []),
     lists:filter(fun({Field, _}) -> lists:member(Field, SupportedFields) end, CreationOpts).
 
-desc("config") ->
+desc("config_connector") ->
     ?DESC("desc_config");
 desc(resource_opts) ->
     ?DESC(emqx_resource_schema, "resource_opts");
@@ -599,25 +558,47 @@ desc("post_" ++ Type) when
 desc(kafka_producer_action) ->
     ?DESC("kafka_producer_action");
 desc(Name) ->
-    lists:member(Name, struct_names()) orelse throw({missing_desc, Name}),
     ?DESC(Name).
 
-struct_names() ->
+connector_config_fields() ->
     [
-        auth_gssapi_kerberos,
-        auth_username_password,
-        kafka_message,
-        kafka_producer,
-        kafka_consumer,
-        producer_buffer,
-        producer_kafka_opts,
-        socket_opts,
-        producer_opts,
-        consumer_opts,
-        consumer_kafka_opts,
-        consumer_topic_mapping,
-        producer_kafka_ext_headers,
-        ssl_client_opts
+        {enable, mk(boolean(), #{desc => ?DESC("config_enable"), default => true})},
+        {description, emqx_schema:description_schema()},
+        {bootstrap_hosts,
+            mk(
+                binary(),
+                #{
+                    required => true,
+                    desc => ?DESC(bootstrap_hosts),
+                    validator => emqx_schema:servers_validator(
+                        host_opts(), _Required = true
+                    )
+                }
+            )},
+        {connect_timeout,
+            mk(emqx_schema:timeout_duration_ms(), #{
+                default => <<"5s">>,
+                desc => ?DESC(connect_timeout)
+            })},
+        {min_metadata_refresh_interval,
+            mk(
+                emqx_schema:timeout_duration_ms(),
+                #{
+                    default => <<"3s">>,
+                    desc => ?DESC(min_metadata_refresh_interval)
+                }
+            )},
+        {metadata_request_timeout,
+            mk(emqx_schema:timeout_duration_ms(), #{
+                default => <<"5s">>,
+                desc => ?DESC(metadata_request_timeout)
+            })},
+        {authentication,
+            mk(hoconsc:union([none, ref(auth_username_password), ref(auth_gssapi_kerberos)]), #{
+                default => none, desc => ?DESC("authentication")
+            })},
+        {socket_opts, mk(ref(socket_opts), #{required => false, desc => ?DESC(socket_opts)})},
+        {ssl, mk(ref(ssl_client_opts), #{})}
     ].
 
 %% -------------------------------------------------------------------------------------------------
@@ -626,7 +607,8 @@ type_field(BridgeV2Type) when BridgeV2Type =:= "connector"; BridgeV2Type =:= "br
     {type, mk(enum([kafka_producer]), #{required => true, desc => ?DESC("desc_type")})};
 type_field(_) ->
     {type,
-        mk(enum([kafka_consumer, kafka, kafka_producer]), #{
+        %% 'kafka' is kept for backward compatibility
+        mk(enum([kafka, kafka_producer, kafka_consumer]), #{
             required => true, desc => ?DESC("desc_type")
         })}.
 
@@ -644,13 +626,13 @@ kafka_producer_converter(
     %% old schema
     MQTTOpts = maps:get(<<"mqtt">>, OldOpts0, #{}),
     LocalTopic = maps:get(<<"topic">>, MQTTOpts, undefined),
-    KafkaOpts = maps:get(<<"kafka">>, OldOpts0),
+    KafkaOpts = maps:get(<<"connector_channel">>, OldOpts0),
     Config = maps:without([<<"producer">>], Config0),
     case LocalTopic =:= undefined of
         true ->
-            Config#{<<"kafka">> => KafkaOpts};
+            Config#{<<"connector_channel">> => KafkaOpts};
         false ->
-            Config#{<<"kafka">> => KafkaOpts, <<"local_topic">> => LocalTopic}
+            Config#{<<"connector_channel">> => KafkaOpts, <<"local_topic">> => LocalTopic}
     end;
 kafka_producer_converter(Config, _HoconOpts) ->
     %% new schema

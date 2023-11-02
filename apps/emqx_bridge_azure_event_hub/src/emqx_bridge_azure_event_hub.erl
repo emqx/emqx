@@ -82,7 +82,7 @@ fields("config_bridge_v2") ->
     fields(bridge_v2);
 fields("config_connector") ->
     Fields = override(
-        emqx_bridge_kafka:fields(kafka_connector),
+        emqx_bridge_kafka:fields("config_connector"),
         connector_overrides()
     ),
     override_documentations(Fields);

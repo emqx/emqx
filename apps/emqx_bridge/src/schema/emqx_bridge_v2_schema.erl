@@ -164,9 +164,8 @@ is_bad_schema(#{type := ?MAP(_, ?R_REF(Module, TypeName))}) ->
     end.
 
 common_field_names() ->
-    %% TODO: add 'config' to the list
     [
-        enable, description, local_topic, connector, resource_opts
+        enable, description, local_topic, connector, resource_opts, connector_channel
     ].
 
 -endif.

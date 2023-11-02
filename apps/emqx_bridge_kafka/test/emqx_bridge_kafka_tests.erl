@@ -150,13 +150,15 @@ message_key_dispatch_validations_test() ->
     Conf = parse(Conf1),
     ?assertMatch(
         #{
-            <<"kafka">> :=
+            <<"connector_channel">> :=
                 #{
                     <<"partition_strategy">> := <<"key_dispatch">>,
                     <<"message">> := #{<<"key">> := <<>>}
                 }
         },
-        emqx_utils_maps:deep_get([<<"bridges">>, <<"kafka">>, atom_to_binary(Name)], Conf)
+        emqx_utils_maps:deep_get(
+            [<<"bridges">>, <<"connector_channel">>, atom_to_binary(Name)], Conf
+        )
     ),
     ?assertThrow(
         {_, [

@@ -35,7 +35,7 @@
 -define(kafka_client_id, kafka_client_id).
 -define(kafka_producers, kafka_producers).
 
-query_mode(#{kafka := #{query_mode := sync}}) ->
+query_mode(#{connector_channel := #{query_mode := sync}}) ->
     simple_sync_internal_buffer;
 query_mode(_) ->
     simple_async_internal_buffer.
@@ -111,7 +111,7 @@ create_producers_for_bridge_v2(
     ClientId,
     #{
         bridge_type := BridgeType,
-        kafka := KafkaConfig
+        connector_channel := KafkaConfig
     }
 ) ->
     #{
