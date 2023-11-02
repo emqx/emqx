@@ -26,9 +26,6 @@
 
 -import(emqx_common_test_helpers, [on_exit/1]).
 
--define(DEFAULT_KEYSPACE, default).
--define(DS_SHARD_ID, <<"local">>).
--define(DS_SHARD, {?DEFAULT_KEYSPACE, ?DS_SHARD_ID}).
 -define(PERSISTENT_MESSAGE_DB, emqx_persistent_message).
 
 all() ->
@@ -49,6 +46,7 @@ init_per_testcase(t_session_subscription_iterators = TestCase, Config) ->
     Nodes = emqx_cth_cluster:start(Cluster, #{work_dir => emqx_cth_suite:work_dir(TestCase, Config)}),
     [{nodes, Nodes} | Config];
 init_per_testcase(TestCase, Config) ->
+    ok = emqx_ds:drop_db(?PERSISTENT_MESSAGE_DB),
     Apps = emqx_cth_suite:start(
         app_specs(),
         #{work_dir => emqx_cth_suite:work_dir(TestCase, Config)}
@@ -59,9 +57,9 @@ end_per_testcase(t_session_subscription_iterators, Config) ->
     Nodes = ?config(nodes, Config),
     emqx_common_test_helpers:call_janitor(60_000),
     ok = emqx_cth_cluster:stop(Nodes),
-    ok;
+    end_per_testcase(common, Config);
 end_per_testcase(_TestCase, Config) ->
-    Apps = ?config(apps, Config),
+    Apps = proplists:get_value(apps, Config, []),
     emqx_common_test_helpers:call_janitor(60_000),
     clear_db(),
     emqx_cth_suite:stop(Apps),
@@ -97,6 +95,7 @@ t_messages_persisted(_Config) ->
     Results = [emqtt:publish(CP, Topic, Payload, 1) || {Topic, Payload} <- Messages],
 
     ct:pal("Results = ~p", [Results]),
+    timer:sleep(2000),
 
     Persisted = consume(['#'], 0),
 
@@ -140,6 +139,8 @@ t_messages_persisted_2(_Config) ->
         emqtt:publish(CP, T(<<"client/1/topic">>), <<"7">>, 1),
     {ok, #{reason_code := ?RC_NO_MATCHING_SUBSCRIBERS}} =
         emqtt:publish(CP, T(<<"client/2/topic">>), <<"8">>, 1),
+
+    timer:sleep(2000),
 
     Persisted = consume(['#'], 0),
 
@@ -251,13 +252,14 @@ connect(Opts0 = #{}) ->
     {ok, _} = emqtt:connect(Client),
     Client.
 
-consume(TopicFiler, StartMS) ->
+consume(TopicFilter, StartMS) ->
+    Streams = emqx_ds:get_streams(?PERSISTENT_MESSAGE_DB, TopicFilter, StartMS),
     lists:flatmap(
         fun({_Rank, Stream}) ->
-            {ok, It} = emqx_ds:make_iterator(Stream, StartMS, 0),
+            {ok, It} = emqx_ds:make_iterator(Stream, TopicFilter, StartMS),
             consume(It)
         end,
-        emqx_ds:get_streams(?PERSISTENT_MESSAGE_DB, TopicFiler, StartMS)
+        Streams
     ).
 
 consume(It) ->

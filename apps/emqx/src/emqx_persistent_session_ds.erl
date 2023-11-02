@@ -115,6 +115,7 @@
     session().
 create(#{clientid := ClientID}, _ConnInfo, Conf) ->
     % TODO: expiration
+    ensure_timers(),
     ensure_session(ClientID, Conf).
 
 -spec open(clientinfo(), conninfo()) ->
@@ -127,10 +128,9 @@ open(#{clientid := ClientID}, _ConnInfo) ->
     %% somehow isolate those idling not-yet-expired sessions into a separate process
     %% space, and move this call back into `emqx_cm` where it belongs.
     ok = emqx_cm:discard_session(ClientID),
-    ensure_timer(pull),
-    ensure_timer(get_streams),
     case open_session(ClientID) of
         Session = #{} ->
+            ensure_timers(),
             {true, Session, []};
         false ->
             false
@@ -704,6 +704,12 @@ export_record(Record, I, [Field | Rest], Acc) ->
     export_record(Record, I + 1, Rest, Acc#{Field => element(I, Record)});
 export_record(_, _, [], Acc) ->
     Acc.
+
+%% TODO: find a more reliable way to perform actions that have side
+%% effects. Add `CBM:init' callback to the session behavior?
+ensure_timers() ->
+    ensure_timer(pull),
+    ensure_timer(get_streams).
 
 -spec ensure_timer(pull | get_streams) -> ok.
 ensure_timer(Type) ->

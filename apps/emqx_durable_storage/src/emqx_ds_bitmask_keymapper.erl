@@ -214,7 +214,7 @@ vector_to_key(#keymapper{scanner = [Actions | Scanner]}, [Coord | Vector]) ->
 bin_vector_to_key(Keymapper = #keymapper{dim_sizeof = DimSizeof, size = Size}, Binaries) ->
     Vec = lists:zipwith(
         fun(Bin, SizeOf) ->
-            <<Int:SizeOf, _/binary>> = Bin,
+            <<Int:SizeOf>> = Bin,
             Int
         end,
         Binaries,
@@ -402,7 +402,8 @@ bin_increment(
     Filter = #filter{size = Size, bitmask = Bitmask, bitfilter = Bitfilter, range_max = RangeMax},
     KeyBin
 ) ->
-    <<Key0:Size>> = KeyBin,
+    %% The key may contain random suffix, skip it:
+    <<Key0:Size, _/binary>> = KeyBin,
     Key1 = Key0 + 1,
     if
         Key1 band Bitmask =:= Bitfilter, Key1 =< RangeMax ->

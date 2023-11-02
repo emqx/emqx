@@ -24,6 +24,8 @@
 -export([start_link/2, init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2]).
 
 %% internal exports:
+-export([db_dir/1]).
+
 -export_type([gen_id/0, generation/0, cf_refs/0, stream/0, iterator/0]).
 
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
@@ -132,7 +134,7 @@ open_shard(Shard, Options) ->
 
 -spec drop_shard(shard_id()) -> ok.
 drop_shard(Shard) ->
-    emqx_ds_storage_layer_sup:stop_shard(Shard),
+    catch emqx_ds_storage_layer_sup:stop_shard(Shard),
     ok = rocksdb:destroy(db_dir(Shard), []).
 
 -spec store_batch(shard_id(), [emqx_types:message()], emqx_ds:message_store_opts()) ->
@@ -368,7 +370,7 @@ rocksdb_open(Shard, Options) ->
 
 -spec db_dir(shard_id()) -> file:filename().
 db_dir({DB, ShardId}) ->
-    filename:join(["data", atom_to_list(DB), atom_to_list(ShardId)]).
+    filename:join([emqx:data_dir(), atom_to_list(DB), atom_to_list(ShardId)]).
 
 %%--------------------------------------------------------------------------------
 %% Schema access

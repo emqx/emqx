@@ -111,6 +111,7 @@ open_db(DB, Opts = #{backend := builtin}) ->
     emqx_ds_replication_layer:open_db(DB, Opts).
 
 %% @doc TODO: currently if one or a few shards are down, they won't be
+
 %% deleted.
 -spec drop_db(db()) -> ok.
 drop_db(DB) ->

@@ -24,6 +24,8 @@
 -compile(export_all).
 -compile(nowarn_export_all).
 
+-define(PERSISTENT_MESSAGE_DB, emqx_persistent_message).
+
 %%--------------------------------------------------------------------
 %% SUITE boilerplate
 %%--------------------------------------------------------------------
@@ -131,6 +133,7 @@ get_listener_port(Type, Name) ->
 end_per_group(Group, Config) when Group == tcp; Group == ws; Group == quic ->
     ok = emqx_cth_suite:stop(?config(group_apps, Config));
 end_per_group(_, _Config) ->
+    ok = emqx_ds:drop_db(?PERSISTENT_MESSAGE_DB),
     ok.
 
 init_per_testcase(TestCase, Config) ->
@@ -188,7 +191,7 @@ receive_messages(Count, Msgs) ->
             receive_messages(Count - 1, [Msg | Msgs]);
         _Other ->
             receive_messages(Count, Msgs)
-    after 5000 ->
+    after 15000 ->
         Msgs
     end.
 
@@ -227,11 +230,11 @@ wait_for_cm_unregister(ClientId, N) ->
     end.
 
 publish(Topic, Payloads) ->
-    publish(Topic, Payloads, false).
+    publish(Topic, Payloads, false, 2).
 
-publish(Topic, Payloads, WaitForUnregister) ->
+publish(Topic, Payloads, WaitForUnregister, QoS) ->
     Fun = fun(Client, Payload) ->
-        {ok, _} = emqtt:publish(Client, Topic, Payload, 2)
+        {ok, _} = emqtt:publish(Client, Topic, Payload, QoS)
     end,
     do_publish(Payloads, Fun, WaitForUnregister).
 
@@ -532,7 +535,7 @@ t_publish_while_client_is_gone_qos1(Config) ->
     ok = emqtt:disconnect(Client1),
     maybe_kill_connection_process(ClientId, Config),
 
-    ok = publish(Topic, [Payload1, Payload2]),
+    ok = publish(Topic, [Payload1, Payload2], false, 1),
 
     {ok, Client2} = emqtt:start_link([
         {proto_ver, v5},

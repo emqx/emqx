@@ -206,7 +206,10 @@ next_until(#s{db = DB, data = CF, keymappers = Keymappers}, It, SafeCutoffTime, 
     %% Make filter:
     Inequations = [
         {'=', TopicIndex},
-        {StartTime, '..', SafeCutoffTime - 1}
+        {StartTime, '..', SafeCutoffTime - 1},
+        %% Unique integer:
+        any
+        %% Varying topic levels:
         | lists:map(
             fun
                 ('+') ->
@@ -337,9 +340,12 @@ make_key(#s{keymappers = KeyMappers, trie = Trie}, #message{timestamp = Timestam
 ]) ->
     binary().
 make_key(KeyMapper, TopicIndex, Timestamp, Varying) ->
+    UniqueInteger = erlang:unique_integer([monotonic, positive]),
     emqx_ds_bitmask_keymapper:key_to_bitstring(
         KeyMapper,
-        emqx_ds_bitmask_keymapper:vector_to_key(KeyMapper, [TopicIndex, Timestamp | Varying])
+        emqx_ds_bitmask_keymapper:vector_to_key(KeyMapper, [
+            TopicIndex, Timestamp, UniqueInteger | Varying
+        ])
     ).
 
 %% TODO: don't hardcode the thresholds
@@ -366,9 +372,10 @@ make_keymapper(TopicIndexBytes, BitsPerTopicLevel, TSBits, TSOffsetBits, N) ->
     %% Dimension Offset        Bitsize
         [{1,     0,            TopicIndexBytes * ?BYTE_SIZE},      %% Topic index
          {2,     TSOffsetBits, TSBits - TSOffsetBits       }] ++   %% Timestamp epoch
-        [{2 + I, 0,            BitsPerTopicLevel           }       %% Varying topic levels
+        [{3 + I, 0,            BitsPerTopicLevel           }       %% Varying topic levels
                                                            || I <- lists:seq(1, N)] ++
-        [{2,     0,            TSOffsetBits                }],     %% Timestamp offset
+        [{2,     0,            TSOffsetBits                },      %% Timestamp offset
+         {3,     0,            64                          }],     %% Unique integer
     Keymapper = emqx_ds_bitmask_keymapper:make_keymapper(lists:reverse(Bitsources)),
     %% Assert:
     case emqx_ds_bitmask_keymapper:bitsize(Keymapper) rem 8 of
