@@ -617,6 +617,28 @@ t_scenario_1(_Config) ->
     %% ?assertMatch({ok, {{_, 204, _}, _, _}}, bridge_node_operation_http_api_v2(NameB, restart)),
 
     %% ===================================================================================
+    %% Try to delete the original bridge using V1.  It should fail and its connector
+    %% should be preserved.
+    %% ===================================================================================
+    ?assertMatch(
+        {error, {{_, 400, _}, _, _}},
+        delete_bridge_http_api_v1(#{name => NameA})
+    ),
+    ?assertMatch({ok, {{_, 200, _}, _, []}}, list_bridges_http_api_v1()),
+    ?assertMatch(
+        {ok, {{_, 200, _}, _, [#{<<"name">> := _}, #{<<"name">> := _}]}}, list_bridges_http_api_v2()
+    ),
+    ?assertMatch({ok, {{_, 200, _}, _, [#{}, #{}]}}, list_connectors_http()),
+    ?assertMatch({error, {{_, 404, _}, _, #{}}}, get_bridge_http_api_v1(NameA)),
+    ?assertMatch({error, {{_, 404, _}, _, #{}}}, get_bridge_http_api_v1(NameB)),
+    ?assertMatch({ok, {{_, 200, _}, _, #{<<"name">> := NameA}}}, get_bridge_http_api_v2(NameA)),
+    ?assertMatch({ok, {{_, 200, _}, _, #{<<"name">> := NameB}}}, get_bridge_http_api_v2(NameB)),
+    ?assertMatch(
+        {ok, {{_, 200, _}, _, #{<<"name">> := GeneratedConnName}}},
+        get_connector_http(GeneratedConnName)
+    ),
+
+    %% ===================================================================================
     %% Delete the 2nd new bridge so it appears again in the V1 API.
     %% ===================================================================================
     ?assertMatch(

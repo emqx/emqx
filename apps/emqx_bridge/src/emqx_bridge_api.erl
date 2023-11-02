@@ -530,7 +530,7 @@ schema("/bridges_probe") ->
             {error, not_found} ->
                 ?BRIDGE_NOT_FOUND(BridgeType, BridgeName);
             {error, not_bridge_v1_compatible} ->
-                ?BAD_REQUEST('ALREADY_EXISTS', non_compat_bridge_msg())
+                ?BAD_REQUEST(non_compat_bridge_msg())
         end
     ).
 
