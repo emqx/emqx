@@ -1,0 +1,151 @@
+{
+    "$schema": "http://json-schema.org/draft-04/schema#",
+    "id": "urn:OCPP:1.6:2019:12:MeterValuesRequest",
+    "title": "MeterValuesRequest",
+    "type": "object",
+    "properties": {
+        "connectorId": {
+            "type": "integer"
+        },
+        "transactionId": {
+            "type": "integer"
+        },
+        "meterValue": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "timestamp": {
+                        "type": "string",
+                        "format": "date-time"
+                    },
+                    "sampledValue": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "value": {
+                                    "type": "string"
+                                },
+                                "context": {
+                                    "type": "string",
+                                    "additionalProperties": false,
+                                    "enum": [
+                                        "Interruption.Begin",
+                                        "Interruption.End",
+                                        "Sample.Clock",
+                                        "Sample.Periodic",
+                                        "Transaction.Begin",
+                                        "Transaction.End",
+                                        "Trigger",
+                                        "Other"
+                                    ]
+                                },
+                                "format": {
+                                    "type": "string",
+                                    "additionalProperties": false,
+                                    "enum": [
+                                        "Raw",
+                                        "SignedData"
+                                    ]
+                                },
+                                "measurand": {
+                                    "type": "string",
+                                    "additionalProperties": false,
+                                    "enum": [
+                                        "Energy.Active.Export.Register",
+                                        "Energy.Active.Import.Register",
+                                        "Energy.Reactive.Export.Register",
+                                        "Energy.Reactive.Import.Register",
+                                        "Energy.Active.Export.Interval",
+                                        "Energy.Active.Import.Interval",
+                                        "Energy.Reactive.Export.Interval",
+                                        "Energy.Reactive.Import.Interval",
+                                        "Power.Active.Export",
+                                        "Power.Active.Import",
+                                        "Power.Offered",
+                                        "Power.Reactive.Export",
+                                        "Power.Reactive.Import",
+                                        "Power.Factor",
+                                        "Current.Import",
+                                        "Current.Export",
+                                        "Current.Offered",
+                                        "Voltage",
+                                        "Frequency",
+                                        "Temperature",
+                                        "SoC",
+                                        "RPM"
+                                    ]
+                                },
+                                "phase": {
+                                    "type": "string",
+                                    "additionalProperties": false,
+                                    "enum": [
+                                        "L1",
+                                        "L2",
+                                        "L3",
+                                        "N",
+                                        "L1-N",
+                                        "L2-N",
+                                        "L3-N",
+                                        "L1-L2",
+                                        "L2-L3",
+                                        "L3-L1"
+                                    ]
+                                },
+                                "location": {
+                                    "type": "string",
+                                    "additionalProperties": false,
+                                    "enum": [
+                                        "Cable",
+                                        "EV",
+                                        "Inlet",
+                                        "Outlet",
+                                        "Body"
+                                    ]
+                                },
+                                "unit": {
+                                    "type": "string",
+                                    "additionalProperties": false,
+                                    "enum": [
+                                        "Wh",
+                                        "kWh",
+                                        "varh",
+                                        "kvarh",
+                                        "W",
+                                        "kW",
+                                        "VA",
+                                        "kVA",
+                                        "var",
+                                        "kvar",
+                                        "A",
+                                        "V",
+                                        "K",
+                                        "Celcius",
+                                        "Celsius",
+                                        "Fahrenheit",
+                                        "Percent"
+                                    ]
+                                }
+                            },
+                            "additionalProperties": false,
+                            "required": [
+                                "value"
+                            ]
+                        }
+                    }
+                },
+                "additionalProperties": false,
+                "required": [
+                    "timestamp",
+                    "sampledValue"
+                ]       
+            }
+        }
+    },
+    "additionalProperties": false,
+    "required": [
+        "connectorId",
+        "meterValue"
+    ]
+}

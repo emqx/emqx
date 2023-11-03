@@ -56,6 +56,8 @@
 
 -export([mountpoint/0, mountpoint/1, gateway_common_options/0, gateway_schema/1, gateway_names/0]).
 
+-export([ws_listener/2, wss_listener/2]).
+
 namespace() -> gateway.
 
 tags() ->
@@ -250,6 +252,137 @@ mountpoint(Default) ->
         }
     ).
 
+ws_listener(DefaultPath, DefaultSubProtocols) when
+    is_binary(DefaultPath), is_binary(DefaultSubProtocols)
+->
+    [
+        {acceptors, sc(integer(), #{default => 16, desc => ?DESC(tcp_listener_acceptors)})}
+    ] ++
+        ws_opts(DefaultPath, DefaultSubProtocols) ++
+        tcp_opts() ++
+        proxy_protocol_opts() ++
+        common_listener_opts().
+
+wss_listener(DefaultPath, DefaultSubProtocols) when
+    is_binary(DefaultPath), is_binary(DefaultSubProtocols)
+->
+    ws_listener(DefaultPath, DefaultSubProtocols) ++
+        [
+            {ssl_options,
+                sc(
+                    hoconsc:ref(emqx_schema, "listener_wss_opts"),
+                    #{
+                        desc => ?DESC(ssl_listener_options),
+                        validator => fun emqx_schema:validate_server_ssl_opts/1
+                    }
+                )}
+        ].
+
+ws_opts(DefaultPath, DefaultSubProtocols) ->
+    [
+        {"path",
+            sc(
+                string(),
+                #{
+                    default => DefaultPath,
+                    desc => ?DESC(fields_ws_opts_path)
+                }
+            )},
+        {"piggyback",
+            sc(
+                hoconsc:enum([single, multiple]),
+                #{
+                    default => single,
+                    desc => ?DESC(fields_ws_opts_piggyback)
+                }
+            )},
+        {"compress",
+            sc(
+                boolean(),
+                #{
+                    default => false,
+                    desc => ?DESC(fields_ws_opts_compress)
+                }
+            )},
+        {"idle_timeout",
+            sc(
+                duration(),
+                #{
+                    default => <<"7200s">>,
+                    desc => ?DESC(fields_ws_opts_idle_timeout)
+                }
+            )},
+        {"max_frame_size",
+            sc(
+                hoconsc:union([infinity, integer()]),
+                #{
+                    default => infinity,
+                    desc => ?DESC(fields_ws_opts_max_frame_size)
+                }
+            )},
+        {"fail_if_no_subprotocol",
+            sc(
+                boolean(),
+                #{
+                    default => true,
+                    desc => ?DESC(fields_ws_opts_fail_if_no_subprotocol)
+                }
+            )},
+        {"supported_subprotocols",
+            sc(
+                comma_separated_list(),
+                #{
+                    default => DefaultSubProtocols,
+                    desc => ?DESC(fields_ws_opts_supported_subprotocols)
+                }
+            )},
+        {"check_origin_enable",
+            sc(
+                boolean(),
+                #{
+                    default => false,
+                    desc => ?DESC(fields_ws_opts_check_origin_enable)
+                }
+            )},
+        {"allow_origin_absence",
+            sc(
+                boolean(),
+                #{
+                    default => true,
+                    desc => ?DESC(fields_ws_opts_allow_origin_absence)
+                }
+            )},
+        {"check_origins",
+            sc(
+                emqx_schema:comma_separated_binary(),
+                #{
+                    default => <<"http://localhost:18083, http://127.0.0.1:18083">>,
+                    desc => ?DESC(fields_ws_opts_check_origins)
+                }
+            )},
+        {"proxy_address_header",
+            sc(
+                string(),
+                #{
+                    default => <<"x-forwarded-for">>,
+                    desc => ?DESC(fields_ws_opts_proxy_address_header)
+                }
+            )},
+        {"proxy_port_header",
+            sc(
+                string(),
+                #{
+                    default => <<"x-forwarded-port">>,
+                    desc => ?DESC(fields_ws_opts_proxy_port_header)
+                }
+            )},
+        {"deflate_opts",
+            sc(
+                ref("deflate_opts"),
+                #{}
+            )}
+    ].
+
 common_listener_opts() ->
     [
         {enable,
@@ -328,7 +461,7 @@ proxy_protocol_opts() ->
             sc(
                 duration(),
                 #{
-                    default => <<"15s">>,
+                    default => <<"3s">>,
                     desc => ?DESC(tcp_listener_proxy_protocol_timeout)
                 }
             )}
@@ -337,7 +470,6 @@ proxy_protocol_opts() ->
 %%--------------------------------------------------------------------
 %% dynamic schemas
 
-%% FIXME: don't hardcode the gateway names
 gateway_schema(Name) ->
     case emqx_gateway_utils:find_gateway_definition(Name) of
         {ok, #{config_schema_module := SchemaMod}} ->

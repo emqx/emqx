@@ -798,9 +798,11 @@ format(Msg) ->
     io_lib:format("~p", [Msg]).
 
 type(_) ->
+    %% TODO:
     gbt32960.
 
 is_message(#frame{}) ->
+    %% TODO:
     true;
 is_message(_) ->
     false.
