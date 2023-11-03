@@ -358,7 +358,7 @@ fields(socket_opts) ->
                 boolean(),
                 #{
                     default => true,
-                    importance => ?IMPORTANCE_HIDDEN,
+                    importance => ?IMPORTANCE_LOW,
                     desc => ?DESC(socket_nodelay)
                 }
             )},
