@@ -95,20 +95,14 @@ connector_id(ConnectorType, ConnectorName) ->
 parse_connector_id(ConnectorId) ->
     parse_connector_id(ConnectorId, #{atom_name => true}).
 
--spec parse_connector_id(list() | binary() | atom(), #{atom_name => boolean()}) ->
+-spec parse_connector_id(binary() | atom(), #{atom_name => boolean()}) ->
     {atom(), atom() | binary()}.
+parse_connector_id(<<"connector:", ConnectorId/binary>>, Opts) ->
+    parse_connector_id(ConnectorId, Opts);
+parse_connector_id(<<?TEST_ID_PREFIX, ConnectorId/binary>>, Opts) ->
+    parse_connector_id(ConnectorId, Opts);
 parse_connector_id(ConnectorId, Opts) ->
-    case string:split(bin(ConnectorId), ":", all) of
-        [Type, Name] ->
-            {to_type_atom(Type), validate_name(Name, Opts)};
-        [_, Type, Name] ->
-            {to_type_atom(Type), validate_name(Name, Opts)};
-        _ ->
-            invalid_data(
-                <<"should be of pattern {type}:{name} or connector:{type}:{name}, but got ",
-                    ConnectorId/binary>>
-            )
-    end.
+    emqx_resource:parse_resource_id(ConnectorId, Opts).
 
 connector_hookpoint(ConnectorId) ->
     <<"$connectors/", (bin(ConnectorId))/binary>>.
@@ -117,45 +111,6 @@ connector_hookpoint_to_connector_id(?BRIDGE_HOOKPOINT(ConnectorId)) ->
     {ok, ConnectorId};
 connector_hookpoint_to_connector_id(_) ->
     {error, bad_connector_hookpoint}.
-
-validate_name(Name0, Opts) ->
-    Name = unicode:characters_to_list(Name0, utf8),
-    case is_list(Name) andalso Name =/= [] of
-        true ->
-            case lists:all(fun is_id_char/1, Name) of
-                true ->
-                    case maps:get(atom_name, Opts, true) of
-                        % NOTE
-                        % Rule may be created before connector, thus not `list_to_existing_atom/1`,
-                        % also it is infrequent user input anyway.
-                        true -> list_to_atom(Name);
-                        false -> Name0
-                    end;
-                false ->
-                    invalid_data(<<"bad name: ", Name0/binary>>)
-            end;
-        false ->
-            invalid_data(<<"only 0-9a-zA-Z_-. is allowed in name: ", Name0/binary>>)
-    end.
-
--spec invalid_data(binary()) -> no_return().
-invalid_data(Reason) -> throw(#{kind => validation_error, reason => Reason}).
-
-is_id_char(C) when C >= $0 andalso C =< $9 -> true;
-is_id_char(C) when C >= $a andalso C =< $z -> true;
-is_id_char(C) when C >= $A andalso C =< $Z -> true;
-is_id_char($_) -> true;
-is_id_char($-) -> true;
-is_id_char($.) -> true;
-is_id_char(_) -> false.
-
-to_type_atom(Type) ->
-    try
-        erlang:binary_to_existing_atom(Type, utf8)
-    catch
-        _:_ ->
-            invalid_data(<<"unknown connector type: ", Type/binary>>)
-    end.
 
 restart(Type, Name) ->
     emqx_resource:restart(resource_id(Type, Name)).
@@ -415,6 +370,13 @@ parse_url(Url) ->
         [Url] ->
             invalid_data(<<"Missing scheme in URL: ", Url/binary>>)
     end.
+
+-spec invalid_data(binary()) -> no_return().
+invalid_data(Msg) ->
+    throw(#{
+        kind => validation_error,
+        reason => Msg
+    }).
 
 bin(Bin) when is_binary(Bin) -> Bin;
 bin(Str) when is_list(Str) -> list_to_binary(Str);

@@ -258,7 +258,7 @@ end_per_testcase(_TestCase, Config) ->
     ok = emqx_common_test_helpers:call_janitor(),
     ok.
 
--define(CONNECTOR_IMPL, dummy_connector_impl).
+-define(CONNECTOR_IMPL, emqx_bridge_v2_dummy_connector).
 init_mocks() ->
     meck:new(emqx_connector_ee_schema, [passthrough, no_link]),
     meck:expect(emqx_connector_ee_schema, resource_type, 1, ?CONNECTOR_IMPL),
@@ -534,6 +534,7 @@ t_bridges_lifecycle(Config) ->
 
     %% Try create bridge with bad characters as name
     {ok, 400, _} = request(post, uri([?ROOT]), ?KAFKA_BRIDGE(<<"隋达"/utf8>>), Config),
+    {ok, 400, _} = request(post, uri([?ROOT]), ?KAFKA_BRIDGE(<<"a.b">>), Config),
     ok.
 
 t_start_bridge_unknown_node(Config) ->
