@@ -216,7 +216,13 @@ values({post, connector}) ->
         values(common_config),
         #{
             name => <<"my_azure_event_hub_producer_connector">>,
-            type => ?AEH_CONNECTOR_TYPE_BIN
+            type => ?AEH_CONNECTOR_TYPE_BIN,
+            ssl => #{
+                enable => true,
+                server_name_indication => <<"auto">>,
+                verify => <<"verify_none">>,
+                versions => [<<"tlsv1.3">>, <<"tlsv1.2">>]
+            }
         }
     );
 values({post, producer}) ->
@@ -265,8 +271,7 @@ values(producer) ->
             topic => <<"topic">>,
             message => #{
                 key => <<"${.clientid}">>,
-                value => <<"${.}">>,
-                timestamp => <<"${.timestamp}">>
+                value => <<"${.}">>
             },
             max_batch_bytes => <<"896KB">>,
             partition_strategy => <<"random">>,
@@ -336,7 +341,13 @@ connector_overrides() ->
                     )
                 }
             ),
-        ssl => mk(ref(ssl_client_opts), #{default => #{<<"enable">> => true}}),
+        ssl => mk(
+            ref(ssl_client_opts),
+            #{
+                required => true,
+                default => #{<<"enable">> => true}
+            }
+        ),
         type => mk(
             ?AEH_CONNECTOR_TYPE,
             #{
