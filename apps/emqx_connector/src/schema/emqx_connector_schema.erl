@@ -18,6 +18,7 @@
 -include_lib("typerefl/include/types.hrl").
 -include_lib("hocon/include/hoconsc.hrl").
 -include_lib("emqx/include/logger.hrl").
+-include_lib("eunit/include/eunit.hrl").
 
 -import(hoconsc, [mk/2, ref/2]).
 
@@ -305,3 +306,44 @@ to_bin(Bin) when is_binary(Bin) ->
     Bin;
 to_bin(Something) ->
     Something.
+
+-ifdef(TEST).
+-include_lib("hocon/include/hocon_types.hrl").
+schema_homogeneous_test() ->
+    case
+        lists:filtermap(
+            fun({_Name, Schema}) ->
+                is_bad_schema(Schema)
+            end,
+            fields(connectors)
+        )
+    of
+        [] ->
+            ok;
+        List ->
+            throw(List)
+    end.
+
+is_bad_schema(#{type := ?MAP(_, ?R_REF(Module, TypeName))}) ->
+    Fields = Module:fields(TypeName),
+    ExpectedFieldNames = common_field_names(),
+    MissingFileds = lists:filter(
+        fun(Name) -> lists:keyfind(Name, 1, Fields) =:= false end, ExpectedFieldNames
+    ),
+    case MissingFileds of
+        [] ->
+            false;
+        _ ->
+            {true, #{
+                schema_modle => Module,
+                type_name => TypeName,
+                missing_fields => MissingFileds
+            }}
+    end.
+
+common_field_names() ->
+    [
+        enable, description
+    ].
+
+-endif.

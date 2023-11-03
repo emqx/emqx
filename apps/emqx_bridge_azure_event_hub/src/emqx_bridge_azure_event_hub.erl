@@ -125,7 +125,8 @@ fields(bridge_v2) ->
                 {connector,
                     mk(binary(), #{
                         desc => ?DESC(emqx_connector_schema, "connector_field"), required => true
-                    })}
+                    })},
+                {description, emqx_schema:description_schema()}
             ],
     override_documentations(Fields);
 fields(Method) ->
