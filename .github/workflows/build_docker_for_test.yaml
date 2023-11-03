@@ -7,9 +7,6 @@ concurrency:
 on:
   workflow_call:
     inputs:
-      runner_labels:
-        required: true
-        type: string
       otp_vsn:
         required: true
         type: string
@@ -25,7 +22,7 @@ on:
 
 jobs:
   docker:
-    runs-on: ${{ fromJSON(inputs.runner_labels) }}
+    runs-on: ${{ endsWith(github.repository, '/emqx') && 'ubuntu-22.04' || fromJSON('["self-hosted","ephemeral","linux","x64"]') }}
     env:
       EMQX_NAME: ${{ matrix.profile }}
       PKG_VSN: ${{ startsWith(matrix.profile, 'emqx-enterprise') && inputs.version-emqx-enterprise || inputs.version-emqx }}

@@ -7,9 +7,6 @@ concurrency:
 on:
   workflow_call:
     inputs:
-      runner_labels:
-        required: true
-        type: string
       version-emqx:
         required: true
         type: string
@@ -19,7 +16,7 @@ on:
 
 jobs:
   basic-tests:
-    runs-on: ${{ fromJSON(inputs.runner_labels) }}
+    runs-on: ${{ endsWith(github.repository, '/emqx') && 'ubuntu-22.04' || fromJSON('["self-hosted","ephemeral","linux","x64"]') }}
     defaults:
       run:
         shell: bash
@@ -63,7 +60,7 @@ jobs:
           docker compose rm -fs
 
   paho-mqtt-testing:
-    runs-on: ${{ fromJSON(inputs.runner_labels) }}
+    runs-on: ${{ github.repository_owner == 'emqx' && fromJSON('["self-hosted","ephemeral","linux","x64"]') || 'ubuntu-22.04' }}
     defaults:
       run:
         shell: bash

@@ -10,9 +10,6 @@ concurrency:
 on:
   workflow_call:
     inputs:
-      runner_labels:
-        required: true
-        type: string
       builder:
         required: true
         type: string
@@ -28,7 +25,7 @@ env:
 
 jobs:
   run_emqx_app_tests:
-    runs-on: ${{ fromJSON(inputs.runner_labels) }}
+    runs-on: ${{ endsWith(github.repository, '/emqx') && 'ubuntu-22.04' || fromJSON('["self-hosted","ephemeral","linux","x64"]') }}
     container: ${{ inputs.builder }}
 
     defaults:
@@ -63,3 +60,4 @@ jobs:
       with:
         name: logs-emqx-app-tests
         path: apps/emqx/_build/test/logs
+        retention-days: 7

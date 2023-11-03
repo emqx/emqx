@@ -7,16 +7,13 @@ concurrency:
 on:
   workflow_call:
     inputs:
-      runner_labels:
-        required: true
-        type: string
       builder:
         required: true
         type: string
 
 jobs:
   run_conf_tests:
-    runs-on: ${{ fromJSON(inputs.runner_labels) }}
+    runs-on: ${{ endsWith(github.repository, '/emqx') && 'ubuntu-22.04' || fromJSON('["self-hosted","ephemeral","linux","x64"]') }}
     container: ${{ inputs.builder }}
     env:
       PROFILE: ${{ matrix.profile }}
@@ -45,4 +42,4 @@ jobs:
         with:
           name: logs-${{ matrix.profile }}
           path: _build/${{ matrix.profile }}/rel/emqx/logs
-
+          retention-days: 7
