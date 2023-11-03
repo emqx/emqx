@@ -147,6 +147,7 @@
     emqx,
     emqx_auth,
     emqx_management,
+    emqx_connector,
     {emqx_bridge, "bridges_v2 {}"},
     {emqx_rule_engine, "rule_engine { rules {} }"}
 ]).
@@ -280,6 +281,9 @@ init_mocks() ->
     meck:expect(?CONNECTOR_IMPL, on_add_channel, 4, {ok, connector_state}),
     meck:expect(?CONNECTOR_IMPL, on_remove_channel, 3, {ok, connector_state}),
     meck:expect(?CONNECTOR_IMPL, on_get_channel_status, 3, connected),
+    ok = meck:expect(?CONNECTOR_IMPL, on_get_channels, fun(ResId) ->
+        emqx_bridge_v2:get_channels_for_connector(ResId)
+    end),
     [?CONNECTOR_IMPL, emqx_connector_ee_schema].
 
 clear_resources() ->
@@ -504,6 +508,35 @@ do_start_bridge(TestType, Config) ->
 
     {ok, 400, _} = request(post, {operation, TestType, invalidop, BridgeID}, Config),
 
+    %% Make start bridge fail
+    expect_on_all_nodes(
+        ?CONNECTOR_IMPL,
+        on_add_channel,
+        fun(_, _, _ResId, _Channel) -> {error, <<"my_error">>} end,
+        Config
+    ),
+    ConnectorID = emqx_connector_resource:connector_id(?BRIDGE_TYPE, ?CONNECTOR_NAME),
+    {ok, 204, <<>>} = emqx_connector_api_SUITE:request(
+        post, {operation, TestType, stop, ConnectorID}, Config
+    ),
+    {ok, 204, <<>>} = emqx_connector_api_SUITE:request(
+        post, {operation, TestType, start, ConnectorID}, Config
+    ),
+
+    {ok, 400, _} = request(post, {operation, TestType, start, BridgeID}, Config),
+
+    %% Make start bridge succeed
+
+    expect_on_all_nodes(
+        ?CONNECTOR_IMPL,
+        on_add_channel,
+        fun(_, _, _ResId, _Channel) -> {ok, connector_state} end,
+        Config
+    ),
+
+    %% try to start again
+    {ok, 204, <<>>} = request(post, {operation, TestType, start, BridgeID}, Config),
+
     %% delete the bridge
     {ok, 204, <<>>} = request(delete, uri([?ROOT, BridgeID]), Config),
     {ok, 200, []} = request_json(get, uri([?ROOT]), Config),
@@ -512,6 +545,15 @@ do_start_bridge(TestType, Config) ->
     {ok, 404, _} = request(post, {operation, TestType, start, <<"wreckbook_fugazi">>}, Config),
     %% Looks ok but doesn't exist
     {ok, 404, _} = request(post, {operation, TestType, start, <<"webhook:cptn_hook">>}, Config),
+    ok.
+
+expect_on_all_nodes(Mod, Function, Fun, Config) ->
+    case ?config(cluster_nodes, Config) of
+        undefined ->
+            ok = meck:expect(Mod, Function, Fun);
+        Nodes ->
+            [erpc:call(Node, meck, expect, [Mod, Function, Fun]) || Node <- Nodes]
+    end,
     ok.
 
 %% t_start_stop_inconsistent_bridge_node(Config) ->

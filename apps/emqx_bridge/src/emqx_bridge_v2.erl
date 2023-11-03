@@ -434,39 +434,71 @@ disable_enable(Action, BridgeType, BridgeName) when
 
 %% Manually start connector. This function can speed up reconnection when
 %% waiting for auto reconnection. The function forwards the start request to
-%% its connector.
+%% its connector. Returns ok if the status of the bridge is connected after
+%% starting the connector. Returns {error, Reason} if the status of the bridge
+%% is something else than connected after starting the connector or if an
+%% error occurred when the connector was started.
+-spec start(term(), term()) -> ok | {error, Reason :: term()}.
 start(BridgeV2Type, Name) ->
     ConnectorOpFun = fun(ConnectorType, ConnectorName) ->
         emqx_connector_resource:start(ConnectorType, ConnectorName)
     end,
-    connector_operation_helper(BridgeV2Type, Name, ConnectorOpFun).
+    connector_operation_helper(BridgeV2Type, Name, ConnectorOpFun, true).
 
-connector_operation_helper(BridgeV2Type, Name, ConnectorOpFun) ->
+connector_operation_helper(BridgeV2Type, Name, ConnectorOpFun, DoHealthCheck) ->
     connector_operation_helper_with_conf(
         BridgeV2Type,
+        Name,
         lookup_conf(BridgeV2Type, Name),
-        ConnectorOpFun
+        ConnectorOpFun,
+        DoHealthCheck
     ).
 
 connector_operation_helper_with_conf(
     _BridgeV2Type,
+    _Name,
     {error, bridge_not_found} = Error,
-    _ConnectorOpFun
+    _ConnectorOpFun,
+    _DoHealthCheck
 ) ->
     Error;
 connector_operation_helper_with_conf(
     _BridgeV2Type,
+    _Name,
     #{enable := false},
-    _ConnectorOpFun
+    _ConnectorOpFun,
+    _DoHealthCheck
 ) ->
     ok;
 connector_operation_helper_with_conf(
     BridgeV2Type,
+    Name,
     #{connector := ConnectorName},
-    ConnectorOpFun
+    ConnectorOpFun,
+    DoHealthCheck
 ) ->
     ConnectorType = connector_type(BridgeV2Type),
-    ConnectorOpFun(ConnectorType, ConnectorName).
+    ConnectorOpFunResult = ConnectorOpFun(ConnectorType, ConnectorName),
+    case {DoHealthCheck, ConnectorOpFunResult} of
+        {false, _} ->
+            ConnectorOpFunResult;
+        {true, {error, Reason}} ->
+            {error, Reason};
+        {true, ok} ->
+            case health_check(BridgeV2Type, Name) of
+                #{status := connected} ->
+                    ok;
+                {error, Reason} ->
+                    {error, Reason};
+                #{status := Status, error := Reason} ->
+                    Msg = io_lib:format(
+                        "Connector started but bridge (~s:~s) is not connected. "
+                        "Bridge Status: ~p, Error: ~p",
+                        [bin(BridgeV2Type), bin(Name), Status, Reason]
+                    ),
+                    {error, iolist_to_binary(Msg)}
+            end
+    end.
 
 reset_metrics(Type, Name) ->
     reset_metrics_helper(Type, Name, lookup_conf(Type, Name)).
@@ -512,6 +544,9 @@ do_send_msg_with_enabled_config(
     ),
     BridgeV2Id = id(BridgeType, BridgeName),
     emqx_resource:query(BridgeV2Id, {BridgeV2Id, Message}, QueryOpts).
+
+-spec health_check(BridgeType :: term(), BridgeName :: term()) ->
+    #{status := term(), error := term()} | {error, Reason :: term()}.
 
 health_check(BridgeType, BridgeName) ->
     case lookup_conf(BridgeType, BridgeName) of
@@ -1365,28 +1400,30 @@ bridge_v1_restart(BridgeV1Type, Name) ->
     ConnectorOpFun = fun(ConnectorType, ConnectorName) ->
         emqx_connector_resource:restart(ConnectorType, ConnectorName)
     end,
-    bridge_v1_operation_helper(BridgeV1Type, Name, ConnectorOpFun).
+    bridge_v1_operation_helper(BridgeV1Type, Name, ConnectorOpFun, true).
 
 bridge_v1_stop(BridgeV1Type, Name) ->
     ConnectorOpFun = fun(ConnectorType, ConnectorName) ->
         emqx_connector_resource:stop(ConnectorType, ConnectorName)
     end,
-    bridge_v1_operation_helper(BridgeV1Type, Name, ConnectorOpFun).
+    bridge_v1_operation_helper(BridgeV1Type, Name, ConnectorOpFun, false).
 
 bridge_v1_start(BridgeV1Type, Name) ->
     ConnectorOpFun = fun(ConnectorType, ConnectorName) ->
         emqx_connector_resource:start(ConnectorType, ConnectorName)
     end,
-    bridge_v1_operation_helper(BridgeV1Type, Name, ConnectorOpFun).
+    bridge_v1_operation_helper(BridgeV1Type, Name, ConnectorOpFun, true).
 
-bridge_v1_operation_helper(BridgeV1Type, Name, ConnectorOpFun) ->
+bridge_v1_operation_helper(BridgeV1Type, Name, ConnectorOpFun, DoHealthCheck) ->
     BridgeV2Type = ?MODULE:bridge_v1_type_to_bridge_v2_type(BridgeV1Type),
     case emqx_bridge_v2:is_valid_bridge_v1(BridgeV1Type, Name) of
         true ->
             connector_operation_helper_with_conf(
                 BridgeV2Type,
+                Name,
                 lookup_conf(BridgeV2Type, Name),
-                ConnectorOpFun
+                ConnectorOpFun,
+                DoHealthCheck
             );
         false ->
             {error, not_bridge_v1_compatible}
