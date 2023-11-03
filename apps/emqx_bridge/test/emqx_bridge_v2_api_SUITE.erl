@@ -147,6 +147,7 @@
     emqx,
     emqx_auth,
     emqx_management,
+    emqx_connector,
     {emqx_bridge, "bridges_v2 {}"},
     {emqx_rule_engine, "rule_engine { rules {} }"}
 ]).
@@ -508,23 +509,29 @@ do_start_bridge(TestType, Config) ->
     {ok, 400, _} = request(post, {operation, TestType, invalidop, BridgeID}, Config),
 
     %% Make start bridge fail
-    ok = meck:expect(
+    expect_on_all_nodes(
         ?CONNECTOR_IMPL,
         on_add_channel,
-        fun(_, _, _ResId, _Channel) -> {error, <<"my_error">>} end
+        fun(_, _, _ResId, _Channel) -> {error, <<"my_error">>} end,
+        Config
     ),
-
-    ok = emqx_connector_resource:stop(?BRIDGE_TYPE, ?CONNECTOR_NAME),
-    ok = emqx_connector_resource:start(?BRIDGE_TYPE, ?CONNECTOR_NAME),
+    ConnectorID = emqx_connector_resource:connector_id(?BRIDGE_TYPE, ?CONNECTOR_NAME),
+    {ok, 204, <<>>} = emqx_connector_api_SUITE:request(
+        post, {operation, TestType, stop, ConnectorID}, Config
+    ),
+    {ok, 204, <<>>} = emqx_connector_api_SUITE:request(
+        post, {operation, TestType, start, ConnectorID}, Config
+    ),
 
     {ok, 400, _} = request(post, {operation, TestType, start, BridgeID}, Config),
 
     %% Make start bridge succeed
 
-    ok = meck:expect(
+    expect_on_all_nodes(
         ?CONNECTOR_IMPL,
         on_add_channel,
-        fun(_, _, _ResId, _Channel) -> {ok, connector_state} end
+        fun(_, _, _ResId, _Channel) -> {ok, connector_state} end,
+        Config
     ),
 
     %% try to start again
@@ -538,6 +545,15 @@ do_start_bridge(TestType, Config) ->
     {ok, 404, _} = request(post, {operation, TestType, start, <<"wreckbook_fugazi">>}, Config),
     %% Looks ok but doesn't exist
     {ok, 404, _} = request(post, {operation, TestType, start, <<"webhook:cptn_hook">>}, Config),
+    ok.
+
+expect_on_all_nodes(Mod, Function, Fun, Config) ->
+    case ?config(cluster_nodes, Config) of
+        undefined ->
+            ok = meck:expect(Mod, Function, Fun);
+        Nodes ->
+            [erpc:call(Node, meck, expect, [Mod, Function, Fun]) || Node <- Nodes]
+    end,
     ok.
 
 %% t_start_stop_inconsistent_bridge_node(Config) ->
