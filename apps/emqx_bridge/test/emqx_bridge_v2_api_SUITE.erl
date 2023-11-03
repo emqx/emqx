@@ -601,13 +601,9 @@ do_start_bridge(TestType, Config) ->
         fun(_, _, _ResId, _Channel) -> {error, <<"my_error">>} end,
         Config
     ),
-    ConnectorID = emqx_connector_resource:connector_id(?BRIDGE_TYPE, ?CONNECTOR_NAME),
-    {ok, 204, <<>>} = emqx_connector_api_SUITE:request(
-        post, {operation, TestType, stop, ConnectorID}, Config
-    ),
-    {ok, 204, <<>>} = emqx_connector_api_SUITE:request(
-        post, {operation, TestType, start, ConnectorID}, Config
-    ),
+
+    connector_operation(Config, ?BRIDGE_TYPE, ?CONNECTOR_NAME, stop),
+    connector_operation(Config, ?BRIDGE_TYPE, ?CONNECTOR_NAME, start),
 
     {ok, 400, _} = request(post, {operation, TestType, start, BridgeID}, Config),
 
@@ -641,6 +637,32 @@ expect_on_all_nodes(Mod, Function, Fun, Config) ->
             [erpc:call(Node, meck, expect, [Mod, Function, Fun]) || Node <- Nodes]
     end,
     ok.
+
+connector_operation(Config, ConnectorType, ConnectorName, OperationName) ->
+    case ?config(group, Config) of
+        cluster ->
+            case ?config(cluster_nodes, Config) of
+                undefined ->
+                    Node = ?config(node, Config),
+                    ok = rpc:call(
+                        Node,
+                        emqx_connector_resource,
+                        OperationName,
+                        [ConnectorType, ConnectorName],
+                        500
+                    );
+                Nodes ->
+                    erpc:multicall(
+                        Nodes,
+                        emqx_connector_resource,
+                        OperationName,
+                        [ConnectorType, ConnectorName],
+                        500
+                    )
+            end;
+        _ ->
+            ok = emqx_connector_resource:OperationName(ConnectorType, ConnectorName)
+    end.
 
 %% t_start_stop_inconsistent_bridge_node(Config) ->
 %%     start_stop_inconsistent_bridge(node, Config).
