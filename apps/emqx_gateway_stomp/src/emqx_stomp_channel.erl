@@ -1052,9 +1052,16 @@ handle_deliver(
                             _ ->
                                 Headers0
                         end,
+                    Headers2 = lists:foldl(
+                        fun({Key, _Val} = KV, Acc1) ->
+                            lists:keystore(Key, 1, Acc1, KV)
+                        end,
+                        Headers1,
+                        maps:get(stomp_headers, Headers, [])
+                    ),
                     Frame = #stomp_frame{
                         command = <<"MESSAGE">>,
-                        headers = Headers1 ++ maps:get(stomp_headers, Headers, []),
+                        headers = Headers2,
                         body = Payload
                     },
                     [Frame | Acc];
@@ -1160,12 +1167,12 @@ do_negotiate_version(Accepts) ->
         lists:reverse(lists:sort(binary:split(Accepts, <<",">>, [global])))
     ).
 
-do_negotiate_version(Ver, []) ->
-    {error, <<"Supported protocol versions < ", Ver/binary>>};
 do_negotiate_version(Ver, [AcceptVer | _]) when Ver >= AcceptVer ->
     {ok, AcceptVer};
 do_negotiate_version(Ver, [_ | T]) ->
-    do_negotiate_version(Ver, T).
+    do_negotiate_version(Ver, T);
+do_negotiate_version(Ver, _) ->
+    {error, <<"Supported protocol versions < ", Ver/binary>>}.
 
 header(Name, Headers) ->
     get_value(Name, Headers).
@@ -1227,7 +1234,6 @@ frame2message(
         [
             <<"destination">>,
             <<"content-length">>,
-            <<"content-type">>,
             <<"transaction">>,
             <<"receipt">>
         ]
