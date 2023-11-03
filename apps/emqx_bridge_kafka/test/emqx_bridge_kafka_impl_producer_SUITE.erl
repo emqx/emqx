@@ -474,7 +474,11 @@ t_failed_creation_then_fix(Config) ->
     %% before throwing, it should cleanup the client process.  we
     %% retry because the supervisor might need some time to really
     %% remove it from its tree.
-    ?retry(50, 10, ?assertEqual([], supervisor:which_children(wolff_client_sup))),
+    ?retry(
+        _Sleep0 = 50,
+        _Attempts0 = 10,
+        ?assertEqual([], supervisor:which_children(wolff_producers_sup))
+    ),
     %% must succeed with correct config
     {ok, #{config := _ValidConfigAtom1}} = emqx_bridge:create(
         list_to_atom(Type), list_to_atom(Name), ValidConf

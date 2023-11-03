@@ -194,18 +194,11 @@ on_stop(InstanceId, _State) ->
 
 ensure_client(ClientId, Hosts, ClientConfig) ->
     case wolff_client_sup:find_client(ClientId) of
-        {ok, Pid} ->
-            case wolff_client:check_connectivity(Pid) of
-                ok ->
-                    ok;
-                {error, Error} ->
-                    deallocate_client(ClientId),
-                    throw({failed_to_connect, Error})
-            end;
+        {ok, _Pid} ->
+            ok;
         {error, no_such_client} ->
             case wolff:ensure_supervised_client(ClientId, Hosts, ClientConfig) of
                 {ok, _} ->
-                    ok = ensure_connectivity(ClientId),
                     ?SLOG(info, #{
                         msg => "kafka_client_started",
                         client_id => ClientId,
@@ -219,21 +212,6 @@ ensure_client(ClientId, Hosts, ClientConfig) ->
                         reason => Reason
                     }),
                     throw(failed_to_start_kafka_client)
-            end;
-        {error, Reason} ->
-            deallocate_client(ClientId),
-            throw({failed_to_find_created_client, Reason})
-    end.
-
-ensure_connectivity(ClientId) ->
-    case wolff_client_sup:find_client(ClientId) of
-        {ok, Pid} ->
-            case wolff_client:check_connectivity(Pid) of
-                ok ->
-                    ok;
-                {error, Error} ->
-                    deallocate_client(ClientId),
-                    throw({failed_to_connect, Error})
             end;
         {error, Reason} ->
             deallocate_client(ClientId),
