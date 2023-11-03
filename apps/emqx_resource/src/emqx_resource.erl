@@ -139,6 +139,13 @@
 
 -export([apply_reply_fun/2]).
 
+%% common validations
+-export([
+    parse_resource_id/2,
+    validate_type/1,
+    validate_name/1
+]).
+
 -export_type([
     query_mode/0,
     resource_id/0,
@@ -776,3 +783,79 @@ clean_allocated_resources(ResourceId, ResourceMod) ->
         false ->
             ok
     end.
+
+%% @doc Split : separated resource id into type and name.
+%% Type must be an existing atom.
+%% Name is converted to atom if `atom_name` option is true.
+-spec parse_resource_id(list() | binary(), #{atom_name => boolean()}) ->
+    {atom(), atom() | binary()}.
+parse_resource_id(Id0, Opts) ->
+    Id = bin(Id0),
+    case string:split(bin(Id), ":", all) of
+        [Type, Name] ->
+            {to_type_atom(Type), validate_name(Name, Opts)};
+        _ ->
+            invalid_data(
+                <<"should be of pattern {type}:{name}, but got: ", Id/binary>>
+            )
+    end.
+
+to_type_atom(Type) when is_binary(Type) ->
+    try
+        erlang:binary_to_existing_atom(Type, utf8)
+    catch
+        _:_ ->
+            throw(#{
+                kind => validation_error,
+                reason => <<"unknown resource type: ", Type/binary>>
+            })
+    end.
+
+%% @doc Validate if type is valid.
+%% Throws and JSON-map error if invalid.
+-spec validate_type(binary()) -> ok.
+validate_type(Type) ->
+    _ = to_type_atom(Type),
+    ok.
+
+bin(Bin) when is_binary(Bin) -> Bin;
+bin(Str) when is_list(Str) -> list_to_binary(Str);
+bin(Atom) when is_atom(Atom) -> atom_to_binary(Atom, utf8).
+
+%% @doc Validate if name is valid for bridge.
+%% Throws and JSON-map error if invalid.
+-spec validate_name(binary()) -> ok.
+validate_name(Name) ->
+    _ = validate_name(Name, #{atom_name => false}),
+    ok.
+
+validate_name(<<>>, _Opts) ->
+    invalid_data("name cannot be empty string");
+validate_name(Name, _Opts) when size(Name) >= 255 ->
+    invalid_data("name length must be less than 255");
+validate_name(Name0, Opts) ->
+    Name = unicode:characters_to_list(Name0, utf8),
+    case lists:all(fun is_id_char/1, Name) of
+        true ->
+            case maps:get(atom_name, Opts, true) of
+                % NOTE
+                % Rule may be created before bridge, thus not `list_to_existing_atom/1`,
+                % also it is infrequent user input anyway.
+                true -> list_to_atom(Name);
+                false -> Name0
+            end;
+        false ->
+            invalid_data(
+                <<"only 0-9a-zA-Z_- is allowed in resource name, got: ", Name0/binary>>
+            )
+    end.
+
+-spec invalid_data(binary()) -> no_return().
+invalid_data(Reason) -> throw(#{kind => validation_error, reason => Reason}).
+
+is_id_char(C) when C >= $0 andalso C =< $9 -> true;
+is_id_char(C) when C >= $a andalso C =< $z -> true;
+is_id_char(C) when C >= $A andalso C =< $Z -> true;
+is_id_char($_) -> true;
+is_id_char($-) -> true;
+is_id_char(_) -> false.

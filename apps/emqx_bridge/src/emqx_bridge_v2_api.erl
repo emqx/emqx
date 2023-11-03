@@ -742,6 +742,22 @@ update_bridge(BridgeType, BridgeName, Conf) ->
     create_or_update_bridge(BridgeType, BridgeName, Conf, 200).
 
 create_or_update_bridge(BridgeType, BridgeName, Conf, HttpStatusCode) ->
+    Check =
+        try
+            is_binary(BridgeType) andalso emqx_resource:validate_type(BridgeType),
+            ok = emqx_resource:validate_name(BridgeName)
+        catch
+            throw:Error ->
+                ?BAD_REQUEST(map_to_json(Error))
+        end,
+    case Check of
+        ok ->
+            do_create_or_update_bridge(BridgeType, BridgeName, Conf, HttpStatusCode);
+        BadRequest ->
+            BadRequest
+    end.
+
+do_create_or_update_bridge(BridgeType, BridgeName, Conf, HttpStatusCode) ->
     case emqx_bridge_v2:create(BridgeType, BridgeName, Conf) of
         {ok, _} ->
             lookup_from_all_nodes(BridgeType, BridgeName, HttpStatusCode);
