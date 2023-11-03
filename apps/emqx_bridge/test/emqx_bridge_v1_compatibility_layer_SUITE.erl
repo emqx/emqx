@@ -448,6 +448,21 @@ bridge_node_operation_http_api_v2(Name, Node0, Op0) ->
     ct:pal("bridge node op ~p (http v2) result:\n  ~p", [{Node, Op}, Res]),
     Res.
 
+is_rule_enabled(RuleId) ->
+    {ok, #{enable := Enable}} = emqx_rule_engine:get_rule(RuleId),
+    Enable.
+
+update_rule_http(RuleId, Params) ->
+    Path = emqx_mgmt_api_test_util:api_path(["rules", RuleId]),
+    ct:pal("update rule ~p:\n  ~p", [RuleId, Params]),
+    Res = request(put, Path, Params),
+    ct:pal("update rule ~p result:\n  ~p", [RuleId, Res]),
+    Res.
+
+enable_rule_http(RuleId) ->
+    Params = #{<<"enable">> => true},
+    update_rule_http(RuleId, Params).
+
 %%------------------------------------------------------------------------------
 %% Test cases
 %%------------------------------------------------------------------------------
@@ -701,5 +716,93 @@ t_scenario_1(_Config) ->
     ?assertMatch({error, {{_, 404, _}, _, _}}, bridge_operation_http_api_v2(NameA, start)),
     %% TODO: currently, only `start' op is supported by the v2 API.
     %% ?assertMatch({error, {{_, 404, _}, _, _}}, bridge_operation_http_api_v2(NameA, restart)),
+
+    ok.
+
+t_scenario_2(Config) ->
+    %% ===================================================================================
+    %% Pre-conditions
+    %% ===================================================================================
+    ?assertMatch({ok, {{_, 200, _}, _, []}}, list_bridges_http_api_v1()),
+    ?assertMatch({ok, {{_, 200, _}, _, []}}, list_bridges_http_api_v2()),
+    %% created in the test case init
+    ?assertMatch({ok, {{_, 200, _}, _, [#{}]}}, list_connectors_http()),
+    {ok, {{_, 200, _}, _, [#{<<"name">> := _PreexistentConnectorName}]}} = list_connectors_http(),
+
+    %% ===================================================================================
+    %% Try to create a rule referencing a non-existent bridge.  It succeeds, but it's
+    %% implicitly disabled.  Trying to update it later without creating the bridge should
+    %% keep it disabled.
+    %% ===================================================================================
+    BridgeName = <<"scenario2">>,
+    RuleTopic = <<"t/scenario2">>,
+    {ok, #{<<"id">> := RuleId0}} =
+        emqx_bridge_v2_testlib:create_rule_and_action_http(
+            bridge_type(),
+            RuleTopic,
+            [
+                {bridge_name, BridgeName}
+                | Config
+            ],
+            #{overrides => #{enable => true}}
+        ),
+    ?assertNot(is_rule_enabled(RuleId0)),
+    ?assertMatch({ok, {{_, 200, _}, _, _}}, enable_rule_http(RuleId0)),
+    ?assertNot(is_rule_enabled(RuleId0)),
+
+    %% ===================================================================================
+    %% Now we create the bridge, and attempt to create a new enabled rule.  It should
+    %% start enabled.  Also, updating the previous rule to enable it should work now.
+    %% ===================================================================================
+    ?assertMatch(
+        {ok, {{_, 201, _}, _, #{}}},
+        create_bridge_http_api_v1(#{name => BridgeName})
+    ),
+    {ok, #{<<"id">> := RuleId1}} =
+        emqx_bridge_v2_testlib:create_rule_and_action_http(
+            bridge_type(),
+            RuleTopic,
+            [
+                {bridge_name, BridgeName}
+                | Config
+            ],
+            #{overrides => #{enable => true}}
+        ),
+    ?assertNot(is_rule_enabled(RuleId0)),
+    ?assert(is_rule_enabled(RuleId1)),
+    ?assertMatch({ok, {{_, 200, _}, _, _}}, enable_rule_http(RuleId0)),
+    ?assert(is_rule_enabled(RuleId0)),
+
+    %% ===================================================================================
+    %% Creating a rule with mixed existent/non-existent bridges should deny enabling it.
+    %% ===================================================================================
+    NonExistentBridgeName = <<"scenario2_not_created">>,
+    {ok, #{<<"id">> := RuleId2}} =
+        emqx_bridge_v2_testlib:create_rule_and_action_http(
+            bridge_type(),
+            RuleTopic,
+            [
+                {bridge_name, BridgeName}
+                | Config
+            ],
+            #{
+                overrides => #{
+                    enable => true,
+                    actions => [
+                        emqx_bridge_resource:bridge_id(
+                            bridge_type(),
+                            BridgeName
+                        ),
+                        emqx_bridge_resource:bridge_id(
+                            bridge_type(),
+                            NonExistentBridgeName
+                        )
+                    ]
+                }
+            }
+        ),
+    ?assertNot(is_rule_enabled(RuleId2)),
+    ?assertMatch({ok, {{_, 200, _}, _, _}}, enable_rule_http(RuleId2)),
+    ?assertNot(is_rule_enabled(RuleId2)),
 
     ok.

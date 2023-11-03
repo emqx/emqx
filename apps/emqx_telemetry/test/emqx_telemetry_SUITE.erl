@@ -781,8 +781,8 @@ setup_fake_rule_engine_data() ->
                     [
                         #{function => <<"erlang:hibernate">>, args => #{}},
                         #{function => console},
-                        <<"webhook:my_webhook">>,
-                        <<"webhook:my_webhook">>
+                        <<"webhook:basic_usage_info_webhook">>,
+                        <<"webhook:basic_usage_info_webhook_disabled">>
                     ]
             }
         ),
@@ -793,8 +793,8 @@ setup_fake_rule_engine_data() ->
                 sql => <<"select 1 from topic">>,
                 actions =>
                     [
-                        <<"mqtt:my_mqtt_bridge">>,
-                        <<"webhook:my_webhook">>
+                        <<"mqtt:basic_usage_info_mqtt">>,
+                        <<"webhook:basic_usage_info_webhook">>
                     ]
             }
         ),
@@ -802,7 +802,7 @@ setup_fake_rule_engine_data() ->
         emqx_rule_engine:create_rule(
             #{
                 id => <<"rule:t_get_basic_usage_info:3">>,
-                sql => <<"select 1 from \"$bridges/mqtt:mqtt_in\"">>,
+                sql => <<"select 1 from \"$bridges/mqtt:basic_usage_info_mqtt\"">>,
                 actions =>
                     [
                         #{function => console}
