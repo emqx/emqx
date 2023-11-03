@@ -606,12 +606,8 @@ call_operation(NodeOrAll, OperFunc, Args = [_Nodes, BridgeType, BridgeName]) ->
             ?SERVICE_UNAVAILABLE(<<"Bridge not found on remote node: ", BridgeId/binary>>);
         {error, {node_not_found, Node}} ->
             ?NOT_FOUND(<<"Node not found: ", (atom_to_binary(Node))/binary>>);
-        {error, {unhealthy_target, Message}} ->
-            ?BAD_REQUEST(Message);
-        {error, Reason} when not is_tuple(Reason); element(1, Reason) =/= 'exit' ->
-            ?BAD_REQUEST(redact(Reason));
         {error, Reason} ->
-            ?BAD_REQUEST(Reason)
+            ?BAD_REQUEST(redact(Reason))
     end.
 
 do_bpapi_call(all, Call, Args) ->

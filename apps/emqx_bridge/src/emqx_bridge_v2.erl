@@ -490,8 +490,13 @@ connector_operation_helper_with_conf(
                     ok;
                 {error, Reason} ->
                     {error, Reason};
-                NonConnectedStatus ->
-                    {error, NonConnectedStatus}
+                #{status := Status, error := Reason} ->
+                    Msg = io_lib:format(
+                        "Connector started but bridge (~s:~s) is not connected. "
+                        "Bridge Status: ~p, Error: ~p",
+                        [bin(BridgeV2Type), bin(Name), Status, Reason]
+                    ),
+                    {error, iolist_to_binary(Msg)}
             end
     end.
 
