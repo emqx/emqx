@@ -100,6 +100,11 @@
 }).
 -define(KAFKA_BRIDGE(Name), ?KAFKA_BRIDGE(Name, ?CONNECTOR_NAME)).
 
+-define(KAFKA_BRIDGE_UPDATE(Name, Connector),
+    maps:without([<<"name">>, <<"type">>], ?KAFKA_BRIDGE(Name, Connector))
+).
+-define(KAFKA_BRIDGE_UPDATE(Name), ?KAFKA_BRIDGE_UPDATE(Name, ?CONNECTOR_NAME)).
+
 %% -define(BRIDGE_TYPE_MQTT, <<"mqtt">>).
 %% -define(MQTT_BRIDGE(SERVER, NAME), ?BRIDGE(NAME, ?BRIDGE_TYPE_MQTT)#{
 %%     <<"server">> => SERVER,
@@ -399,16 +404,100 @@ t_bridges_lifecycle(Config) ->
         request_json(
             put,
             uri([?ROOT, BridgeID]),
-            maps:without(
-                [<<"type">>, <<"name">>],
-                ?KAFKA_BRIDGE(?BRIDGE_NAME, <<"foobla">>)
-            ),
+            ?KAFKA_BRIDGE_UPDATE(?BRIDGE_NAME, <<"foobla">>),
             Config
         )
     ),
 
+    %% update bridge with unknown connector name
+    {ok, 400, #{
+        <<"code">> := <<"BAD_REQUEST">>,
+        <<"message">> := Message1
+    }} =
+        request_json(
+            put,
+            uri([?ROOT, BridgeID]),
+            ?KAFKA_BRIDGE_UPDATE(?BRIDGE_NAME, <<"does_not_exist">>),
+            Config
+        ),
+    ?assertMatch(
+        #{<<"reason">> := <<"connector_not_found_or_wrong_type">>},
+        emqx_utils_json:decode(Message1)
+    ),
+
+    %% update bridge with connector of wrong type
+    {ok, 201, _} =
+        request(
+            post,
+            uri(["connectors"]),
+            (?CONNECTOR(<<"foobla2">>))#{
+                <<"type">> => <<"azure_event_hub_producer">>,
+                <<"authentication">> => #{
+                    <<"username">> => <<"emqxuser">>,
+                    <<"password">> => <<"topSecret">>,
+                    <<"mechanism">> => <<"plain">>
+                },
+                <<"ssl">> => #{
+                    <<"enable">> => true,
+                    <<"server_name_indication">> => <<"auto">>,
+                    <<"verify">> => <<"verify_none">>,
+                    <<"versions">> => [<<"tlsv1.3">>, <<"tlsv1.2">>]
+                }
+            },
+            Config
+        ),
+    {ok, 400, #{
+        <<"code">> := <<"BAD_REQUEST">>,
+        <<"message">> := Message2
+    }} =
+        request_json(
+            put,
+            uri([?ROOT, BridgeID]),
+            ?KAFKA_BRIDGE_UPDATE(?BRIDGE_NAME, <<"foobla2">>),
+            Config
+        ),
+    ?assertMatch(
+        #{<<"reason">> := <<"connector_not_found_or_wrong_type">>},
+        emqx_utils_json:decode(Message2)
+    ),
+
     %% delete the bridge
     {ok, 204, <<>>} = request(delete, uri([?ROOT, BridgeID]), Config),
+    {ok, 200, []} = request_json(get, uri([?ROOT]), Config),
+
+    %% try create with unknown connector name
+    {ok, 400, #{
+        <<"code">> := <<"BAD_REQUEST">>,
+        <<"message">> := Message3
+    }} =
+        request_json(
+            post,
+            uri([?ROOT]),
+            ?KAFKA_BRIDGE(?BRIDGE_NAME, <<"does_not_exist">>),
+            Config
+        ),
+    ?assertMatch(
+        #{<<"reason">> := <<"connector_not_found_or_wrong_type">>},
+        emqx_utils_json:decode(Message3)
+    ),
+
+    %% try create bridge with connector of wrong type
+    {ok, 400, #{
+        <<"code">> := <<"BAD_REQUEST">>,
+        <<"message">> := Message4
+    }} =
+        request_json(
+            post,
+            uri([?ROOT]),
+            ?KAFKA_BRIDGE(?BRIDGE_NAME, <<"foobla2">>),
+            Config
+        ),
+    ?assertMatch(
+        #{<<"reason">> := <<"connector_not_found_or_wrong_type">>},
+        emqx_utils_json:decode(Message4)
+    ),
+
+    %% make sure nothing has been created above
     {ok, 200, []} = request_json(get, uri([?ROOT]), Config),
 
     %% update a deleted bridge returns an error
@@ -420,15 +509,12 @@ t_bridges_lifecycle(Config) ->
         request_json(
             put,
             uri([?ROOT, BridgeID]),
-            maps:without(
-                [<<"type">>, <<"name">>],
-                ?KAFKA_BRIDGE(?BRIDGE_NAME)
-            ),
+            ?KAFKA_BRIDGE_UPDATE(?BRIDGE_NAME),
             Config
         )
     ),
 
-    %% Deleting a non-existing bridge should result in an error
+    %% deleting a non-existing bridge should result in an error
     ?assertMatch(
         {ok, 404, #{
             <<"code">> := <<"NOT_FOUND">>,

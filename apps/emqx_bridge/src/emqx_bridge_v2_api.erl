@@ -745,7 +745,12 @@ create_or_update_bridge(BridgeType, BridgeName, Conf, HttpStatusCode) ->
     case emqx_bridge_v2:create(BridgeType, BridgeName, Conf) of
         {ok, _} ->
             lookup_from_all_nodes(BridgeType, BridgeName, HttpStatusCode);
-        {error, Reason} when is_map(Reason) ->
+        {error, {PreOrPostConfigUpdate, _HandlerMod, Reason}} when
+            PreOrPostConfigUpdate =:= pre_config_update;
+            PreOrPostConfigUpdate =:= post_config_update
+        ->
+            ?BAD_REQUEST(map_to_json(redact(Reason)));
+        {error, Reason} ->
             ?BAD_REQUEST(map_to_json(redact(Reason)))
     end.
 
