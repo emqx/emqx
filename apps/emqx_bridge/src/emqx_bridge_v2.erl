@@ -108,6 +108,20 @@
 ]).
 
 %%====================================================================
+%% Types
+%%====================================================================
+
+-type bridge_v2_info() :: #{
+    type := binary(),
+    name := binary(),
+    raw_config := map(),
+    resource_data := map(),
+    status := emqx_resource:resource_status(),
+    %% Explanation of the status if the status is not connected
+    error := term()
+}.
+
+%%====================================================================
 %% Loading and unloading config when EMQX starts and stops
 %%====================================================================
 
@@ -157,6 +171,7 @@ unload_bridges() ->
 %% CRUD API
 %%====================================================================
 
+-spec lookup(binary() | atom(), binary() | atom()) -> {ok, bridge_v2_info()} | {error, not_found}.
 lookup(Type, Name) ->
     case emqx:get_raw_config([?ROOT_KEY, Type, Name], not_found) of
         not_found ->
@@ -191,8 +206,8 @@ lookup(Type, Name) ->
                         {disconnected, <<"Pending installation">>}
                 end,
             {ok, #{
-                type => Type,
-                name => Name,
+                type => bin(Type),
+                name => bin(Name),
                 raw_config => RawConf,
                 resource_data => InstanceData,
                 status => DisplayBridgeV2Status,
@@ -200,9 +215,12 @@ lookup(Type, Name) ->
             }}
     end.
 
+-spec list() -> [bridge_v2_info() | {error, term()}].
 list() ->
     list_with_lookup_fun(fun lookup/2).
 
+-spec create(atom() | binary(), binary(), map()) ->
+    {ok, emqx_config:update_result()} | {error, any()}.
 create(BridgeType, BridgeName, RawConf) ->
     ?SLOG(debug, #{
         brige_action => create,
@@ -217,9 +235,10 @@ create(BridgeType, BridgeName, RawConf) ->
         #{override_to => cluster}
     ).
 
-%% NOTE: This function can cause broken references but it is only called from
-%% test cases.
--spec remove(atom() | binary(), binary()) -> ok | {error, any()}.
+%% NOTE: This function can cause broken references from rules but it is only
+%% called directly from test cases.
+
+-spec remove(atom() | binary(), atom() | binary()) -> ok | {error, any()}.
 remove(BridgeType, BridgeName) ->
     ?SLOG(debug, #{
         brige_action => remove,
@@ -237,6 +256,7 @@ remove(BridgeType, BridgeName) ->
         {error, Reason} -> {error, Reason}
     end.
 
+-spec check_deps_and_remove(atom() | binary(), atom() | binary(), boolean()) -> ok | {error, any()}.
 check_deps_and_remove(BridgeType, BridgeName, AlsoDeleteActions) ->
     AlsoDelete =
         case AlsoDeleteActions of
