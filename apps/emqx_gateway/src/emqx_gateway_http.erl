@@ -251,10 +251,14 @@ authn(GwName, ListenerId) ->
     {_, Type, Name} = emqx_gateway_utils:parse_listener_id(ListenerId),
     Path = [gateway, GwName, listeners, Type, Name, ?AUTHN],
     ChainName = emqx_gateway_utils:listener_chain(GwName, Type, Name),
-    wrap_chain_name(
-        ChainName,
-        emqx_utils_maps:jsonable_map(emqx:get_raw_config(Path))
-    ).
+    try
+        wrap_chain_name(
+            ChainName,
+            emqx_utils_maps:jsonable_map(emqx:get_raw_config(Path))
+        )
+    catch
+        _:{config_not_found, _} -> authn(GwName)
+    end.
 
 wrap_chain_name(ChainName, Conf) ->
     case emqx_authn_chains:list_authenticators(ChainName) of
