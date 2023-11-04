@@ -647,10 +647,12 @@ t_load_config_success(_Config) ->
         {ok, _},
         update_root_config(RootConf0)
     ),
+    BridgeTypeBin = bin(BridgeType),
+    BridgeNameBin = bin(BridgeName),
     ?assertMatch(
         {ok, #{
-            type := BridgeType,
-            name := BridgeName,
+            type := BridgeTypeBin,
+            name := BridgeNameBin,
             raw_config := #{},
             resource_data := #{}
         }},
@@ -860,3 +862,7 @@ wait_until(Fun, Timeout) when Timeout >= 0 ->
     end;
 wait_until(_, _) ->
     ct:fail("Wait until event did not happen").
+
+bin(Bin) when is_binary(Bin) -> Bin;
+bin(Str) when is_list(Str) -> list_to_binary(Str);
+bin(Atom) when is_atom(Atom) -> atom_to_binary(Atom, utf8).
