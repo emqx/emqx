@@ -42,6 +42,7 @@
 %% gen_server callbacks
 -export([
     init/1,
+    handle_continue/2,
     handle_call/3,
     handle_cast/2,
     handle_info/2,
@@ -58,12 +59,6 @@
 
 -export([collect/1]).
 
--export([
-    %% For bpapi, deprecated_since 5.0.10, remove this when 5.1.x
-    do_start/0,
-    do_stop/0
-]).
-
 -define(C(K, L), proplists:get_value(K, L, 0)).
 
 -define(TIMER_MSG, '#interval').
@@ -74,8 +69,8 @@
 %% APIs
 %%--------------------------------------------------------------------
 
-start_link([]) ->
-    gen_server:start_link({local, ?MODULE}, ?MODULE, [], []).
+start_link(Conf) ->
+    gen_server:start_link({local, ?MODULE}, ?MODULE, Conf, []).
 
 info() ->
     gen_server:call(?MODULE, info).
@@ -84,49 +79,42 @@ info() ->
 %% gen_server callbacks
 %%--------------------------------------------------------------------
 
-init([]) ->
-    #{interval := Interval} = opts(),
-    {ok, #{timer => ensure_timer(Interval), ok => 0, failed => 0}}.
+init(Conf) ->
+    {ok, #{}, {continue, Conf}}.
 
-handle_call(info, _From, State = #{timer := Timer}) ->
-    {reply, State#{opts => opts(), next_push_ms => erlang:read_timer(Timer)}, State};
+handle_continue(Conf, State) ->
+    Opts = #{interval := Interval} = opts(Conf),
+    {noreply, State#{
+        timer => ensure_timer(Interval),
+        opts => Opts,
+        ok => 0,
+        failed => 0
+    }}.
+
+handle_call(info, _From, State = #{timer := Timer, opts := Opts}) ->
+    {reply, State#{opts => Opts, next_push_ms => erlang:read_timer(Timer)}, State};
 handle_call(_Msg, _From, State) ->
     {reply, ok, State}.
 
 handle_cast(_Msg, State) ->
     {noreply, State}.
 
-handle_info({timeout, Timer, ?TIMER_MSG}, State = #{timer := Timer}) ->
-    #{
-        interval := Interval,
-        headers := Headers,
-        job_name := JobName,
-        push_gateway_server := Server
-    } = opts(),
-    PushRes = push_to_push_gateway(Server, Headers, JobName),
+handle_info({timeout, Timer, ?TIMER_MSG}, State = #{timer := Timer, opts := Opts}) ->
+    #{interval := Interval, headers := Headers, url := Server} = Opts,
+    PushRes = push_to_push_gateway(Server, Headers),
     NewTimer = ensure_timer(Interval),
     NewState = maps:update_with(PushRes, fun(C) -> C + 1 end, 1, State#{timer => NewTimer}),
     %% Data is too big, hibernate for saving memory and stop system monitor warning.
     {noreply, NewState, hibernate};
+handle_info({update, Conf}, State = #{timer := Timer}) ->
+    emqx_utils:cancel_timer(Timer),
+    handle_continue(Conf, State);
 handle_info(_Msg, State) ->
     {noreply, State}.
 
-push_to_push_gateway(Uri, Headers, JobName) when is_list(Headers) ->
-    [Name, Ip] = string:tokens(atom_to_list(node()), "@"),
-    % NOTE: allowing errors here to keep rough backward compatibility
-    {JobName1, Errors} = emqx_template:render(
-        emqx_template:parse(JobName),
-        #{<<"name">> => Name, <<"host">> => Ip}
-    ),
-    _ =
-        Errors == [] orelse
-            ?SLOG(warning, #{
-                msg => "prometheus_job_name_template_invalid",
-                errors => Errors,
-                template => JobName
-            }),
+
+push_to_push_gateway(Url, Headers) when is_list(Headers) ->
     Data = prometheus_text_format:format(),
-    Url = lists:concat([Uri, "/metrics/job/", unicode:characters_to_list(JobName1)]),
     case httpc:request(post, {Url, Headers, "text/plain", Data}, ?HTTP_OPTIONS, []) of
         {ok, {{"HTTP/1.1", 200, _}, _RespHeaders, _RespBody}} ->
             ok;
@@ -152,8 +140,26 @@ ensure_timer(Interval) ->
 %%--------------------------------------------------------------------
 %% prometheus callbacks
 %%--------------------------------------------------------------------
-opts() ->
-    emqx_conf:get(?PROMETHEUS).
+opts(#{interval := Interval, headers := Headers, job_name := JobName, push_gateway_server := Url}) ->
+    #{interval => Interval, headers => Headers, url => join_url(Url, JobName)};
+opts(#{push_gateway := #{url := Url, job_name := JobName} = PushGateway}) ->
+    maps:put(url, join_url(Url, JobName), PushGateway).
+
+join_url(Url, JobName0) ->
+    [Name, Ip] = string:tokens(atom_to_list(node()), "@"),
+    % NOTE: allowing errors here to keep rough backward compatibility
+    {JobName1, Errors} = emqx_template:render(
+        emqx_template:parse(JobName0),
+        #{<<"name">> => Name, <<"host">> => Ip}
+    ),
+    _ =
+        Errors == [] orelse
+            ?SLOG(warning, #{
+                msg => "prometheus_job_name_template_invalid",
+                errors => Errors,
+                template => JobName0
+            }),
+    lists:concat([Url, "/metrics/job/", unicode:characters_to_list(JobName1)]).
 
 deregister_cleanup(_Registry) ->
     ok.
@@ -672,11 +678,3 @@ emqx_cluster_data() ->
         {nodes_running, length(Running)},
         {nodes_stopped, length(Stopped)}
     ].
-
-%% deprecated_since 5.0.10, remove this when 5.1.x
-do_start() ->
-    emqx_prometheus_sup:start_child(?APP).
-
-%% deprecated_since 5.0.10, remove this when 5.1.x
-do_stop() ->
-    emqx_prometheus_sup:stop_child(?APP).

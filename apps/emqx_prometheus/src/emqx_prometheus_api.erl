@@ -20,8 +20,6 @@
 
 -include_lib("hocon/include/hoconsc.hrl").
 
--import(hoconsc, [ref/2]).
-
 -export([
     api_spec/0,
     paths/0,
@@ -29,11 +27,10 @@
 ]).
 
 -export([
-    prometheus/2,
+    setting/2,
     stats/2
 ]).
 
--define(SCHEMA_MODULE, emqx_prometheus_schema).
 -define(TAGS, [<<"Monitor">>]).
 
 api_spec() ->
@@ -47,21 +44,21 @@ paths() ->
 
 schema("/prometheus") ->
     #{
-        'operationId' => prometheus,
+        'operationId' => setting,
         get =>
             #{
                 description => ?DESC(get_prom_conf_info),
                 tags => ?TAGS,
                 responses =>
-                    #{200 => prometheus_config_schema()}
+                    #{200 => prometheus_setting_schema()}
             },
         put =>
             #{
                 description => ?DESC(update_prom_conf_info),
                 tags => ?TAGS,
-                'requestBody' => prometheus_config_schema(),
+                'requestBody' => prometheus_setting_schema(),
                 responses =>
-                    #{200 => prometheus_config_schema()}
+                    #{200 => prometheus_setting_schema()}
             }
     };
 schema("/prometheus/stats") ->
@@ -81,9 +78,9 @@ schema("/prometheus/stats") ->
 %% API Handler funcs
 %%--------------------------------------------------------------------
 
-prometheus(get, _Params) ->
+setting(get, _Params) ->
     {200, emqx:get_raw_config([<<"prometheus">>], #{})};
-prometheus(put, #{body := Body}) ->
+setting(put, #{body := Body}) ->
     case emqx_prometheus_config:update(Body) of
         {ok, NewConfig} ->
             {200, NewConfig};
@@ -110,20 +107,57 @@ stats(get, #{headers := Headers}) ->
 %% Internal funcs
 %%--------------------------------------------------------------------
 
-prometheus_config_schema() ->
-    emqx_dashboard_swagger:schema_with_example(
-        ref(?SCHEMA_MODULE, "prometheus"),
-        prometheus_config_example()
+prometheus_setting_schema() ->
+    [{prometheus, #{type := Setting}}] = emqx_prometheus_schema:roots(),
+    emqx_dashboard_swagger:schema_with_examples(
+        Setting,
+        [
+            recommend_setting_example(),
+            legacy_setting_example()
+        ]
     ).
 
-prometheus_config_example() ->
-    #{
-        enable => true,
-        interval => "15s",
-        push_gateway_server => <<"http://127.0.0.1:9091">>,
-        headers => #{'header-name' => 'header-value'},
-        job_name => <<"${name}/instance/${name}~${host}">>
-    }.
+legacy_setting_example() ->
+    Summary = <<"legacy_deprecated_setting">>,
+    {Summary, #{
+        summary => Summary,
+        value => #{
+            enable => true,
+            interval => <<"15s">>,
+            push_gateway_server => <<"http://127.0.0.1:9091">>,
+            headers => #{<<"Authorization">> => <<"Basic YWRtaW46Y2JraG55eWd5QDE=">>},
+            job_name => <<"${name}/instance/${name}~${host}">>,
+            vm_dist_collector => <<"disabled">>,
+            vm_memory_collector => <<"disabled">>,
+            vm_msacc_collector => <<"disabled">>,
+            mnesia_collector => <<"disabled">>,
+            vm_statistics_collector => <<"disabled">>,
+            vm_system_info_collector => <<"disabled">>
+        }
+    }}.
+
+recommend_setting_example() ->
+    Summary = <<"recommend_setting">>,
+    {Summary, #{
+        summary => Summary,
+        value => #{
+            enable_basic_auth => false,
+            push_gateway => #{
+                interval => <<"15s">>,
+                url => <<"http://127.0.0.1:9091">>,
+                headers => #{<<"Authorization">> => <<"Basic YWRtaW46Y2JraG55eWd5QDE=">>},
+                job_name => <<"${name}/instance/${name}~${host}">>
+            },
+            collectors => #{
+                vm_dist => <<"disabled">>,
+                vm_memory => <<"disabled">>,
+                vm_msacc => <<"disabled">>,
+                mnesia => <<"disabled">>,
+                vm_statistics => <<"disabled">>,
+                vm_system_info => <<"disabled">>
+            }
+        }
+    }}.
 
 prometheus_data_schema() ->
     #{

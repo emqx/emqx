@@ -28,40 +28,59 @@
 %%--------------------------------------------------------------------
 %% Setups
 %%--------------------------------------------------------------------
-
 all() ->
-    emqx_common_test_helpers:all(?MODULE).
+    [
+        {group, new_config},
+        {group, legacy_config}
+    ].
+
+groups() ->
+    [
+        {new_config, [sequence], [t_stats_api, t_prometheus_api]},
+        {legacy_config, [sequence], [t_stats_api, t_legacy_prometheus_api]}
+    ].
 
 init_per_suite(Config) ->
-    application:load(emqx_conf),
-    ok = ekka:start(),
-    ok = mria_rlog:wait_for_shards([?CLUSTER_RPC_SHARD], infinity),
-
-    meck:new(mria_rlog, [non_strict, passthrough, no_link]),
-
-    emqx_prometheus_SUITE:load_config(),
-    emqx_mgmt_api_test_util:init_suite([emqx_prometheus]),
-
+    emqx_prometheus_SUITE:init_group(),
+    emqx_mgmt_api_test_util:init_suite([emqx_conf]),
     Config.
-
 end_per_suite(Config) ->
-    ekka:stop(),
-    mria:stop(),
-    mria_mnesia:delete_schema(),
-
-    meck:unload(mria_rlog),
-
-    emqx_mgmt_api_test_util:end_suite([emqx_prometheus]),
+    emqx_prometheus_SUITE:end_group(),
+    emqx_mgmt_api_test_util:end_suite([emqx_conf]),
     Config.
 
-init_per_testcase(_, Config) ->
-    {ok, _} = emqx_cluster_rpc:start_link(),
+init_per_group(new_config, Config) ->
+    emqx_common_test_helpers:start_apps(
+        [emqx_prometheus],
+        fun(App) -> set_special_configs(App, new_config) end
+    ),
+    Config;
+init_per_group(legacy_config, Config) ->
+    emqx_common_test_helpers:start_apps(
+        [emqx_prometheus],
+        fun(App) -> set_special_configs(App, legacy_config) end
+    ),
     Config.
+
+end_per_group(_Group, Config) ->
+    _ = application:stop(emqx_prometheus),
+    Config.
+
+set_special_configs(emqx_dashboard, _) ->
+    emqx_dashboard_api_test_helpers:set_default_config();
+set_special_configs(emqx_prometheus, new_config) ->
+    emqx_prometheus_SUITE:load_config(),
+    ok;
+set_special_configs(emqx_prometheus, legacy_config) ->
+    emqx_prometheus_SUITE:load_legacy_config(),
+    ok;
+set_special_configs(_App, _) ->
+    ok.
 
 %%--------------------------------------------------------------------
 %% Cases
 %%--------------------------------------------------------------------
-t_prometheus_api(_) ->
+t_legacy_prometheus_api(_) ->
     Path = emqx_mgmt_api_test_util:api_path(["prometheus"]),
     Auth = emqx_mgmt_api_test_util:auth_header_(),
     {ok, Response} = emqx_mgmt_api_test_util:request_api(get, Path, "", Auth),
@@ -139,6 +158,105 @@ t_prometheus_api(_) ->
     ?assertEqual((not Enable), undefined =/= erlang:whereis(emqx_prometheus)),
 
     ConfWithoutScheme = Conf#{<<"push_gateway_server">> => "127.0.0.1:8081"},
+    ?assertMatch(
+        {error, {"HTTP/1.1", 400, _}},
+        emqx_mgmt_api_test_util:request_api(put, Path, "", Auth, ConfWithoutScheme)
+    ),
+    ok.
+
+t_prometheus_api(_) ->
+    Path = emqx_mgmt_api_test_util:api_path(["prometheus"]),
+    Auth = emqx_mgmt_api_test_util:auth_header_(),
+    {ok, Response} = emqx_mgmt_api_test_util:request_api(get, Path, "", Auth),
+
+    Conf = emqx_utils_json:decode(Response, [return_maps]),
+    ?assertMatch(
+        #{
+            <<"push_gateway">> := #{},
+            <<"collectors">> := _,
+            <<"enable_basic_auth">> := _
+        },
+        Conf
+    ),
+    #{
+        <<"push_gateway">> :=
+            #{<<"url">> := Url} = PushGateway,
+        <<"collectors">> := Collector
+    } = Conf,
+    Pid = erlang:whereis(emqx_prometheus),
+    ?assertEqual(Url =/= "", undefined =/= Pid, {Url, Pid}),
+
+    NewConf = Conf#{
+        <<"push_gateway">> => PushGateway#{
+            <<"interval">> => <<"2s">>,
+            <<"headers">> => #{
+                <<"test-str1">> => <<"test-value">>,
+                <<"test-str2">> => <<"42">>
+            }
+        },
+        <<"collectors">> => Collector#{
+            <<"vm_dist">> => <<"enabled">>,
+            <<"vm_system_info">> => <<"enabled">>,
+            <<"vm_memory">> => <<"enabled">>,
+            <<"vm_msacc">> => <<"enabled">>,
+            <<"mnesia">> => <<"enabled">>,
+            <<"vm_statistics">> => <<"enabled">>
+        }
+    },
+    {ok, Response2} = emqx_mgmt_api_test_util:request_api(put, Path, "", Auth, NewConf),
+
+    Conf2 = emqx_utils_json:decode(Response2, [return_maps]),
+    ?assertMatch(NewConf, Conf2),
+
+    EnvCollectors = application:get_env(prometheus, collectors, []),
+    PromCollectors = prometheus_registry:collectors(default),
+    ?assertEqual(lists:sort(EnvCollectors), lists:sort(PromCollectors)),
+    ?assert(lists:member(prometheus_vm_statistics_collector, EnvCollectors), EnvCollectors),
+
+    lists:foreach(
+        fun({C, Enabled}) ->
+            ?assertEqual(Enabled, lists:member(C, EnvCollectors), EnvCollectors)
+        end,
+        [
+            {prometheus_vm_dist_collector, true},
+            {prometheus_vm_system_info_collector, true},
+            {prometheus_vm_memory_collector, true},
+            {prometheus_mnesia_collector, true},
+            {prometheus_vm_msacc_collector, true},
+            {prometheus_vm_statistics_collector, true}
+        ]
+    ),
+
+    ?assertMatch(
+        #{
+            <<"push_gateway">> := #{
+                <<"headers">> := #{
+                    <<"test-str1">> := <<"test-value">>,
+                    <<"test-str2">> := <<"42">>
+                }
+            }
+        },
+        emqx_config:get_raw([prometheus])
+    ),
+    ?assertMatch(
+        #{
+            push_gateway := #{
+                headers := [
+                    {"test-str2", "42"},
+                    {"test-str1", "test-value"}
+                ]
+            }
+        },
+        emqx_config:get([prometheus])
+    ),
+
+    NewConf1 = Conf#{<<"push_gateway">> => PushGateway#{<<"url">> => <<"">>}},
+    {ok, _Response3} = emqx_mgmt_api_test_util:request_api(put, Path, "", Auth, NewConf1),
+    ?assertEqual(undefined, erlang:whereis(emqx_prometheus)),
+
+    ConfWithoutScheme = Conf#{
+        <<"push_gateway">> => PushGateway#{<<"url">> => <<"127.0.0.1:8081">>}
+    },
     ?assertMatch(
         {error, {"HTTP/1.1", 400, _}},
         emqx_mgmt_api_test_util:request_api(put, Path, "", Auth, ConfWithoutScheme)

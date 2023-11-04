@@ -22,6 +22,7 @@
 -export([add_handler/0, remove_handler/0]).
 -export([post_config_update/5]).
 -export([update/1]).
+-export([conf/0, is_push_gateway_server_enabled/1]).
 
 update(Config) ->
     case
@@ -64,7 +65,20 @@ update_prometheus(AppEnvs) ->
     ),
     application:set_env(AppEnvs).
 
-update_push_gateway(#{enable := true}) ->
-    emqx_prometheus_sup:start_child(?APP);
-update_push_gateway(#{enable := false}) ->
-    emqx_prometheus_sup:stop_child(?APP).
+update_push_gateway(Prometheus) ->
+    case is_push_gateway_server_enabled(Prometheus) of
+        true ->
+            case erlang:whereis(?APP) of
+                undefined -> emqx_prometheus_sup:start_child(?APP, Prometheus);
+                Pid -> emqx_prometheus_sup:update_child(Pid, Prometheus)
+            end;
+        false ->
+            emqx_prometheus_sup:stop_child(?APP)
+    end.
+
+conf() ->
+    emqx_config:get(?PROMETHEUS).
+
+is_push_gateway_server_enabled(#{enable := true, push_gateway_server := Url}) -> Url =/= "";
+is_push_gateway_server_enabled(#{push_gateway := #{url := Url}}) -> Url =/= "";
+is_push_gateway_server_enabled(_) -> false.

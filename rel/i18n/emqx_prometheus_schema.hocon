@@ -1,8 +1,5 @@
 emqx_prometheus_schema {
 
-enable.desc:
-"""Turn Prometheus data pushing on or off"""
-
 headers.desc:
 """An HTTP Headers when pushing to Push Gateway.<br/>
 For example, <code> { Authorization = "some-authz-tokens"}</code>"""
@@ -17,19 +14,25 @@ job_name.desc:
 For example, when the EMQX node name is <code>emqx@127.0.0.1</code> then the <code>name</code> variable takes value <code>emqx</code> and the <code>host</code> variable takes value <code>127.0.0.1</code>.<br/>
 Default value is: <code>${name}/instance/${name}~${host}</code>"""
 
-mnesia_collector.desc:
-"""Enable or disable Mnesia metrics collector"""
-
 prometheus.desc:
 """EMQX's Prometheus scraping endpoint is enabled by default without authentication.
-You can inspect it with a `curl` command like this: `curl -f "127.0.0.1:18083/api/v5/prometheus/stats"`<br/>
-The 'enable' flag is used to turn on and off for the push-gateway integration."""
+You can inspect it with a `curl` command like this: `curl -f "127.0.0.1:18083/api/v5/prometheus/stats"`<br/>"""
 
 prometheus.label:
 """Prometheus"""
 
-push_gateway_server.desc:
-"""URL of Prometheus server. Pushgateway is optional, should not be configured if prometheus is to scrape EMQX."""
+push_gateway.desc:
+"""Push Gateway is optional, should not be configured if prometheus is to scrape EMQX."""
+
+collectors.desc:
+"""Metrics collectors to be enabled."""
+
+push_gateway_url.desc:
+"""URL of Prometheus server. Pushgateway is optional, should not be configured if prometheus is to scrape EMQX.
+Set url to "" to disable push gateway"""
+
+mnesia_collector.desc:
+"""Enable or disable Mnesia metrics collector"""
 
 vm_dist_collector.desc:
 """Enable or disable VM distribution collector, collects information about the sockets and processes involved in the Erlang distribution mechanism."""
@@ -45,5 +48,38 @@ vm_statistics_collector.desc:
 
 vm_system_info_collector.desc:
 """Enable or disable VM system info collector."""
+
+legacy_enable.desc:
+"""Deprecated, use prometheus.push_gateway.url instead"""
+
+legacy_headers.desc:
+"""Deprecated, use prometheus.push_gateway.headers instead"""
+
+legacy_interval.desc:
+"""Deprecated, use prometheus.push_gateway.interval instead"""
+
+legacy_job_name.desc:
+"""Deprecated, use prometheus.push_gateway.job_name instead"""
+
+legacy_push_gateway_server.desc:
+"""Deprecated, use prometheus.push_gateway.url instead"""
+
+legacy_mnesia_collector.desc:
+"""Deprecated, use prometheus.collectors.mnesia instead"""
+
+legacy_vm_dist_collector.desc:
+"""Deprecated, use prometheus.collectors.vm_dist instead"""
+
+legacy_vm_memory_collector.desc:
+"""Deprecated, use prometheus.collectors.vm_memory instead"""
+
+legacy_vm_msacc_collector.desc:
+"""Deprecated, use prometheus.collectors.vm_msacc instead"""
+
+legacy_vm_statistics_collector.desc:
+"""Deprecated, use prometheus.collectors.vm_statistics instead"""
+
+legacy_vm_system_info_collector.desc:
+"""Deprecated, use prometheus.collectors.vm_system_info instead"""
 
 }
