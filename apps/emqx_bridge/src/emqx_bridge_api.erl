@@ -627,7 +627,7 @@ create_bridge(BridgeType, BridgeName, Conf) ->
 update_bridge(BridgeType, BridgeName, Conf) ->
     case emqx_bridge_v2:is_bridge_v2_type(BridgeType) of
         true ->
-            case emqx_bridge_v2:is_valid_bridge_v1(BridgeType, BridgeName) of
+            case emqx_bridge_v2:bridge_v1_is_valid(BridgeType, BridgeName) of
                 true ->
                     create_or_update_bridge(BridgeType, BridgeName, Conf, 200);
                 false ->

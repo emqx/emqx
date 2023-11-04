@@ -307,7 +307,7 @@ list() ->
             emqx:get_raw_config([bridges], #{})
         ),
     BridgeV2Bridges =
-        emqx_bridge_v2:list_and_transform_to_bridge_v1(),
+        emqx_bridge_v2:bridge_v1_list_and_transform(),
     BridgeV1Bridges ++ BridgeV2Bridges.
 %%BridgeV2Bridges = emqx_bridge_v2:list().
 
@@ -318,7 +318,7 @@ lookup(Id) ->
 lookup(Type, Name) ->
     case emqx_bridge_v2:is_bridge_v2_type(Type) of
         true ->
-            emqx_bridge_v2:lookup_and_transform_to_bridge_v1(Type, Name);
+            emqx_bridge_v2:bridge_v1_lookup_and_transform(Type, Name);
         false ->
             RawConf = emqx:get_raw_config([bridges, Type, Name], #{}),
             lookup(Type, Name, RawConf)
@@ -340,7 +340,7 @@ lookup(Type, Name, RawConf) ->
 get_metrics(Type, Name) ->
     case emqx_bridge_v2:is_bridge_v2_type(Type) of
         true ->
-            case emqx_bridge_v2:is_valid_bridge_v1(Type, Name) of
+            case emqx_bridge_v2:bridge_v1_is_valid(Type, Name) of
                 true ->
                     BridgeV2Type = emqx_bridge_v2:bridge_v2_type_to_connector_type(Type),
                     emqx_bridge_v2:get_metrics(BridgeV2Type, Name);
@@ -383,7 +383,7 @@ create(BridgeType0, BridgeName, RawConf) ->
     }),
     case emqx_bridge_v2:is_bridge_v2_type(BridgeType) of
         true ->
-            emqx_bridge_v2:split_bridge_v1_config_and_create(BridgeType, BridgeName, RawConf);
+            emqx_bridge_v2:bridge_v1_split_config_and_create(BridgeType, BridgeName, RawConf);
         false ->
             emqx_conf:update(
                 emqx_bridge:config_key_path() ++ [BridgeType, BridgeName],
