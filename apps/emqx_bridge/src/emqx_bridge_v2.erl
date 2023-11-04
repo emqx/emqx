@@ -40,6 +40,8 @@
     list/0,
     lookup/2,
     create/3,
+    %% The remove/2 function is only for internal use as it may create
+    %% rules with broken dependencies
     remove/2,
     %% The following is the remove function that is called by the HTTP API
     %% It also checks for rule action dependencies and optionally removes
@@ -73,7 +75,8 @@
 -export([
     id/2,
     id/3,
-    is_valid_bridge_v1/2
+    bridge_v1_is_valid/2,
+    extract_connector_id_from_bridge_v2_id/1
 ]).
 
 %% Config Update Handler API
@@ -88,17 +91,23 @@
     import_config/1
 ]).
 
-%% Compatibility API
+%% Bridge V2 Types and Conversions
 
 -export([
     bridge_v2_type_to_connector_type/1,
-    is_bridge_v2_type/1,
-    lookup_and_transform_to_bridge_v1/2,
-    list_and_transform_to_bridge_v1/0,
+    is_bridge_v2_type/1
+]).
+
+%% Compatibility Layer API
+%% All public functions for the compatibility layer should be prefixed with
+%% birdge_v1_
+
+-export([
+    bridge_v1_lookup_and_transform/2,
+    bridge_v1_list_and_transform/0,
     bridge_v1_check_deps_and_remove/3,
-    split_bridge_v1_config_and_create/3,
+    bridge_v1_split_config_and_create/3,
     bridge_v1_create_dry_run/2,
-    extract_connector_id_from_bridge_v2_id/1,
     bridge_v1_type_to_bridge_v2_type/1,
     bridge_v1_id_to_connector_resource_id/1,
     bridge_v1_enable_disable/3,
@@ -215,7 +224,7 @@ lookup(Type, Name) ->
             }}
     end.
 
--spec list() -> [bridge_v2_info() | {error, term()}].
+-spec list() -> [bridge_v2_info()] | {error, term()}.
 list() ->
     list_with_lookup_fun(fun lookup/2).
 
@@ -1009,7 +1018,7 @@ unpack_bridge_conf(Type, PackedConf, TopLevelConf) ->
 %%
 %% * The corresponding bridge v2 should exist
 %% * The connector for the bridge v2 should have exactly one channel
-is_valid_bridge_v1(BridgeV1Type, BridgeName) ->
+bridge_v1_is_valid(BridgeV1Type, BridgeName) ->
     BridgeV2Type = ?MODULE:bridge_v1_type_to_bridge_v2_type(BridgeV1Type),
     case lookup_conf(BridgeV2Type, BridgeName) of
         {error, _} ->
@@ -1050,12 +1059,12 @@ is_bridge_v2_type(<<"azure_event_hub_producer">>) ->
 is_bridge_v2_type(_) ->
     false.
 
-list_and_transform_to_bridge_v1() ->
-    Bridges = list_with_lookup_fun(fun lookup_and_transform_to_bridge_v1/2),
+bridge_v1_list_and_transform() ->
+    Bridges = list_with_lookup_fun(fun bridge_v1_lookup_and_transform/2),
     [B || B <- Bridges, B =/= not_bridge_v1_compatible_error()].
 
-lookup_and_transform_to_bridge_v1(BridgeV1Type, Name) ->
-    case ?MODULE:is_valid_bridge_v1(BridgeV1Type, Name) of
+bridge_v1_lookup_and_transform(BridgeV1Type, Name) ->
+    case ?MODULE:bridge_v1_is_valid(BridgeV1Type, Name) of
         true ->
             Type = ?MODULE:bridge_v1_type_to_bridge_v2_type(BridgeV1Type),
             case lookup(Type, Name) of
@@ -1063,7 +1072,7 @@ lookup_and_transform_to_bridge_v1(BridgeV1Type, Name) ->
                     ConnectorType = connector_type(Type),
                     case emqx_connector:lookup(ConnectorType, ConnectorName) of
                         {ok, Connector} ->
-                            lookup_and_transform_to_bridge_v1_helper(
+                            bridge_v1_lookup_and_transform_helper(
                                 BridgeV1Type, Name, Type, BridgeV2, ConnectorType, Connector
                             );
                         Error ->
@@ -1079,7 +1088,7 @@ lookup_and_transform_to_bridge_v1(BridgeV1Type, Name) ->
 not_bridge_v1_compatible_error() ->
     {error, not_bridge_v1_compatible}.
 
-lookup_and_transform_to_bridge_v1_helper(
+bridge_v1_lookup_and_transform_helper(
     BridgeV1Type, BridgeName, BridgeV2Type, BridgeV2, ConnectorType, Connector
 ) ->
     ConnectorRawConfig1 = maps:get(raw_config, Connector),
@@ -1132,7 +1141,7 @@ lookup_conf(Type, Name) ->
             Config
     end.
 
-split_bridge_v1_config_and_create(BridgeV1Type, BridgeName, RawConf) ->
+bridge_v1_split_config_and_create(BridgeV1Type, BridgeName, RawConf) ->
     BridgeV2Type = ?MODULE:bridge_v1_type_to_bridge_v2_type(BridgeV1Type),
     %% Check if the bridge v2 exists
     case lookup_conf(BridgeV2Type, BridgeName) of
@@ -1143,7 +1152,7 @@ split_bridge_v1_config_and_create(BridgeV1Type, BridgeName, RawConf) ->
                 BridgeV1Type, BridgeName, RawConf, PreviousRawConf
             );
         _Conf ->
-            case ?MODULE:is_valid_bridge_v1(BridgeV1Type, BridgeName) of
+            case ?MODULE:bridge_v1_is_valid(BridgeV1Type, BridgeName) of
                 true ->
                     %% Using remove + create as update, hence do not delete deps.
                     RemoveDeps = [],
@@ -1378,7 +1387,7 @@ bridge_v1_id_to_connector_resource_id(BridgeId) ->
     end.
 
 bridge_v1_enable_disable(Action, BridgeType, BridgeName) ->
-    case emqx_bridge_v2:is_valid_bridge_v1(BridgeType, BridgeName) of
+    case emqx_bridge_v2:bridge_v1_is_valid(BridgeType, BridgeName) of
         true ->
             bridge_v1_enable_disable_helper(
                 Action,
@@ -1423,7 +1432,7 @@ bridge_v1_start(BridgeV1Type, Name) ->
 
 bridge_v1_operation_helper(BridgeV1Type, Name, ConnectorOpFun, DoHealthCheck) ->
     BridgeV2Type = ?MODULE:bridge_v1_type_to_bridge_v2_type(BridgeV1Type),
-    case emqx_bridge_v2:is_valid_bridge_v1(BridgeV1Type, Name) of
+    case emqx_bridge_v2:bridge_v1_is_valid(BridgeV1Type, Name) of
         true ->
             connector_operation_helper_with_conf(
                 BridgeV2Type,

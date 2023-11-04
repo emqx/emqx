@@ -264,17 +264,17 @@ t_create_dry_run_connector_does_not_exist(_) ->
     BridgeConf = (bridge_config())#{<<"connector">> => <<"connector_does_not_exist">>},
     {error, _} = emqx_bridge_v2:create_dry_run(bridge_type(), BridgeConf).
 
-t_is_valid_bridge_v1(_) ->
+t_bridge_v1_is_valid(_) ->
     {ok, _} = emqx_bridge_v2:create(bridge_type(), my_test_bridge, bridge_config()),
-    true = emqx_bridge_v2:is_valid_bridge_v1(bridge_v1_type, my_test_bridge),
+    true = emqx_bridge_v2:bridge_v1_is_valid(bridge_v1_type, my_test_bridge),
     %% Add another channel/bridge to the connector
     {ok, _} = emqx_bridge_v2:create(bridge_type(), my_test_bridge_2, bridge_config()),
-    false = emqx_bridge_v2:is_valid_bridge_v1(bridge_v1_type, my_test_bridge),
+    false = emqx_bridge_v2:bridge_v1_is_valid(bridge_v1_type, my_test_bridge),
     ok = emqx_bridge_v2:remove(bridge_type(), my_test_bridge),
-    true = emqx_bridge_v2:is_valid_bridge_v1(bridge_v1_type, my_test_bridge_2),
+    true = emqx_bridge_v2:bridge_v1_is_valid(bridge_v1_type, my_test_bridge_2),
     ok = emqx_bridge_v2:remove(bridge_type(), my_test_bridge_2),
     %% Non existing bridge is a valid Bridge V1
-    true = emqx_bridge_v2:is_valid_bridge_v1(bridge_v1_type, my_test_bridge),
+    true = emqx_bridge_v2:bridge_v1_is_valid(bridge_v1_type, my_test_bridge),
     ok.
 
 t_manual_health_check(_) ->
