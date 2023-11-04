@@ -50,6 +50,7 @@
 ]).
 
 %% Operations
+
 -export([
     disable_enable/3,
     health_check/2,
@@ -130,6 +131,9 @@
     error := term()
 }.
 
+-type bridge_v2_type() :: binary() | atom().
+-type bridge_v2_name() :: binary() | atom().
+
 %%====================================================================
 %% Loading and unloading config when EMQX starts and stops
 %%====================================================================
@@ -180,7 +184,7 @@ unload_bridges() ->
 %% CRUD API
 %%====================================================================
 
--spec lookup(binary() | atom(), binary() | atom()) -> {ok, bridge_v2_info()} | {error, not_found}.
+-spec lookup(bridge_v2_type(), bridge_v2_name()) -> {ok, bridge_v2_info()} | {error, not_found}.
 lookup(Type, Name) ->
     case emqx:get_raw_config([?ROOT_KEY, Type, Name], not_found) of
         not_found ->
@@ -228,7 +232,7 @@ lookup(Type, Name) ->
 list() ->
     list_with_lookup_fun(fun lookup/2).
 
--spec create(atom() | binary(), binary(), map()) ->
+-spec create(bridge_v2_type(), bridge_v2_name(), map()) ->
     {ok, emqx_config:update_result()} | {error, any()}.
 create(BridgeType, BridgeName, RawConf) ->
     ?SLOG(debug, #{
@@ -247,7 +251,7 @@ create(BridgeType, BridgeName, RawConf) ->
 %% NOTE: This function can cause broken references from rules but it is only
 %% called directly from test cases.
 
--spec remove(atom() | binary(), atom() | binary()) -> ok | {error, any()}.
+-spec remove(bridge_v2_type(), bridge_v2_name()) -> ok | {error, any()}.
 remove(BridgeType, BridgeName) ->
     ?SLOG(debug, #{
         brige_action => remove,
@@ -265,7 +269,7 @@ remove(BridgeType, BridgeName) ->
         {error, Reason} -> {error, Reason}
     end.
 
--spec check_deps_and_remove(atom() | binary(), atom() | binary(), boolean()) -> ok | {error, any()}.
+-spec check_deps_and_remove(bridge_v2_type(), bridge_v2_name(), boolean()) -> ok | {error, any()}.
 check_deps_and_remove(BridgeType, BridgeName, AlsoDeleteActions) ->
     AlsoDelete =
         case AlsoDeleteActions of
@@ -454,6 +458,8 @@ combine_connector_and_bridge_v2_config(
 %% Operations
 %%====================================================================
 
+-spec disable_enable(disable | enable, bridge_v2_type(), bridge_v2_name()) ->
+    {ok, any()} | {error, any()}.
 disable_enable(Action, BridgeType, BridgeName) when
     Action =:= disable; Action =:= enable
 ->
@@ -531,6 +537,7 @@ connector_operation_helper_with_conf(
             end
     end.
 
+-spec reset_metrics(bridge_v2_type(), bridge_v2_name()) -> ok | {error, not_found}.
 reset_metrics(Type, Name) ->
     reset_metrics_helper(Type, Name, lookup_conf(Type, Name)).
 
@@ -538,7 +545,9 @@ reset_metrics_helper(_Type, _Name, #{enable := false}) ->
     ok;
 reset_metrics_helper(BridgeV2Type, BridgeName, #{connector := ConnectorName}) ->
     BridgeV2Id = id(BridgeV2Type, BridgeName, ConnectorName),
-    ok = emqx_metrics_worker:reset_metrics(?RES_METRICS, BridgeV2Id).
+    ok = emqx_metrics_worker:reset_metrics(?RES_METRICS, BridgeV2Id);
+reset_metrics_helper(_, _, _) ->
+    {error, not_found}.
 
 get_query_mode(BridgeV2Type, Config) ->
     CreationOpts = emqx_resource:fetch_creation_opts(Config),
@@ -546,6 +555,8 @@ get_query_mode(BridgeV2Type, Config) ->
     ResourceType = emqx_connector_resource:connector_to_resource_type(ConnectorType),
     emqx_resource:query_mode(ResourceType, Config, CreationOpts).
 
+-spec send_message(bridge_v2_type(), bridge_v2_name(), Message :: term(), QueryOpts :: map()) ->
+    term() | {error, term()}.
 send_message(BridgeType, BridgeName, Message, QueryOpts0) ->
     case lookup_conf(BridgeType, BridgeName) of
         #{enable := true} = Config0 ->
@@ -579,8 +590,7 @@ do_send_msg_with_enabled_config(
     emqx_resource:query(BridgeV2Id, {BridgeV2Id, Message}, QueryOpts).
 
 -spec health_check(BridgeType :: term(), BridgeName :: term()) ->
-    #{status := term(), error := term()} | {error, Reason :: term()}.
-
+    #{status := emqx_resource:resource_status(), error := term()} | {error, Reason :: term()}.
 health_check(BridgeType, BridgeName) ->
     case lookup_conf(BridgeType, BridgeName) of
         #{
@@ -597,6 +607,34 @@ health_check(BridgeType, BridgeName) ->
             {error, bridge_stopped};
         Error ->
             Error
+    end.
+
+-spec create_dry_run(bridge_v2_type(), Config :: map()) -> ok | {error, term()}.
+create_dry_run(Type, Conf0) ->
+    Conf1 = maps:without([<<"name">>], Conf0),
+    TypeBin = bin(Type),
+    RawConf = #{<<"actions">> => #{TypeBin => #{<<"temp_name">> => Conf1}}},
+    %% Check config
+    try
+        _ =
+            hocon_tconf:check_plain(
+                emqx_bridge_v2_schema,
+                RawConf,
+                #{atom_key => true, required => false}
+            ),
+        #{<<"connector">> := ConnectorName} = Conf1,
+        %% Check that the connector exists and do the dry run if it exists
+        ConnectorType = connector_type(Type),
+        case emqx:get_raw_config([connectors, ConnectorType, ConnectorName], not_found) of
+            not_found ->
+                {error, iolist_to_binary(io_lib:format("Connector ~p not found", [ConnectorName]))};
+            ConnectorRawConf ->
+                create_dry_run_helper(Type, ConnectorRawConf, Conf1)
+        end
+    catch
+        %% validation errors
+        throw:Reason1 ->
+            {error, Reason1}
     end.
 
 create_dry_run_helper(BridgeType, ConnectorRawConf, BridgeV2RawConf) ->
@@ -630,33 +668,7 @@ create_dry_run_helper(BridgeType, ConnectorRawConf, BridgeV2RawConf) ->
         end,
     emqx_connector_resource:create_dry_run(ConnectorType, ConnectorRawConf, OnReadyCallback).
 
-create_dry_run(Type, Conf0) ->
-    Conf1 = maps:without([<<"name">>], Conf0),
-    TypeBin = bin(Type),
-    RawConf = #{<<"actions">> => #{TypeBin => #{<<"temp_name">> => Conf1}}},
-    %% Check config
-    try
-        _ =
-            hocon_tconf:check_plain(
-                emqx_bridge_v2_schema,
-                RawConf,
-                #{atom_key => true, required => false}
-            ),
-        #{<<"connector">> := ConnectorName} = Conf1,
-        %% Check that the connector exists and do the dry run if it exists
-        ConnectorType = connector_type(Type),
-        case emqx:get_raw_config([connectors, ConnectorType, ConnectorName], not_found) of
-            not_found ->
-                {error, iolist_to_binary(io_lib:format("Connector ~p not found", [ConnectorName]))};
-            ConnectorRawConf ->
-                create_dry_run_helper(Type, ConnectorRawConf, Conf1)
-        end
-    catch
-        %% validation errors
-        throw:Reason1 ->
-            {error, Reason1}
-    end.
-
+-spec get_metrics(bridge_v2_type(), bridge_v2_name()) -> emqx_metrics_worker:metrics().
 get_metrics(Type, Name) ->
     emqx_resource:get_metrics(id(Type, Name)).
 

@@ -447,7 +447,7 @@ health_check(ResId) ->
     emqx_resource_manager:health_check(ResId).
 
 -spec channel_health_check(resource_id(), channel_id()) ->
-    #{status := channel_status(), error := term(), any() => any()}.
+    #{status := resource_status(), error := term()}.
 channel_health_check(ResId, ChannelId) ->
     emqx_resource_manager:channel_health_check(ResId, ChannelId).
 
