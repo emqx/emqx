@@ -11,7 +11,8 @@ job_name.desc:
 """Job Name that is pushed to the Push Gateway. Available variables:<br/>
 - ${name}: Name of EMQX node.<br/>
 - ${host}: Host name of EMQX node.<br/>
-For example, when the EMQX node name is <code>emqx@127.0.0.1</code> then the <code>name</code> variable takes value <code>emqx</code> and the <code>host</code> variable takes value <code>127.0.0.1</code>.<br/>
+For example, when the EMQX node name is <code>emqx@127.0.0.1</code> then the <code>name</code>
+variable takes value <code>emqx</code> and the <code>host</code> variable takes value <code>127.0.0.1</code>.
 Default value is: <code>${name}/instance/${name}~${host}</code>"""
 
 prometheus.desc:
@@ -25,20 +26,24 @@ push_gateway.desc:
 """Push Gateway is optional, should not be configured if prometheus is to scrape EMQX."""
 
 collectors.desc:
-"""Metrics collectors to be enabled."""
+"""The internal advanced metrics of the virtual machine are initially disabled
+and are usually only enabled during performance testing.
+Enabling them will increase the CPU load."""
 
 push_gateway_url.desc:
-"""URL of Prometheus server. Pushgateway is optional, should not be configured if prometheus is to scrape EMQX.
+"""URL of Pushgateway server. Pushgateway is optional, should not be configured if prometheus is to scrape EMQX.
 Set url to "" to disable push gateway"""
 
 mnesia_collector.desc:
-"""Enable or disable Mnesia metrics collector"""
+"""Collects Mnesia metrics mainly using <code> mnesia:system_info/1 </code>"""
 
 vm_dist_collector.desc:
-"""Enable or disable VM distribution collector, collects information about the sockets and processes involved in the Erlang distribution mechanism."""
+"""Enable or disable VM distribution collector,
+collects information about the sockets and processes involved in the Erlang distribution mechanism."""
 
 vm_memory_collector.desc:
-"""Enable or disable VM memory metrics collector."""
+"""Collects information about memory dynamically allocated by the Erlang emulator using
+<code> erlang:memory/0 </code>."""
 
 vm_msacc_collector.desc:
 """Enable or disable VM microstate accounting metrics collector."""
