@@ -27,7 +27,8 @@
 -export([
     get_response/0,
     put_request/0,
-    post_request/0
+    post_request/0,
+    examples/1
 ]).
 
 -export([types/0, types_sc/0]).
@@ -85,7 +86,21 @@ post_request() ->
 
 api_schema(Method) ->
     EE = ?MODULE:enterprise_api_schemas(Method),
-    hoconsc:union(bridge_api_union(EE)).
+    APISchemas = registered_api_schemas(Method),
+    hoconsc:union(bridge_api_union(EE ++ APISchemas)).
+
+registered_api_schemas(Method) ->
+    %% We *must* do this to ensure the module is really loaded, especially when we use
+    %% `call_hocon' from `nodetool' to generate initial configurations.
+    _ = emqx_bridge_v2:module_info(),
+    RegistredSchmeas = emqx_bridge_v2:registered_schema_modules(),
+    [
+        api_ref(SchemaModule, atom_to_binary(BridgeV2Type), Method ++ "_bridge_v2")
+     || {BridgeV2Type, SchemaModule} <- RegistredSchmeas
+    ].
+
+api_ref(Module, Type, Method) ->
+    {Type, ref(Module, Method)}.
 
 bridge_api_union(Refs) ->
     Index = maps:from_list(Refs),
@@ -133,7 +148,17 @@ roots() ->
     end.
 
 fields(actions) ->
-    [] ++ enterprise_fields_actions().
+    %% We *must* do this to ensure the module is really loaded, especially when we use
+    %% `call_hocon' from `nodetool' to generate initial configurations.
+    _ = emqx_bridge_v2:module_info(),
+    enterprise_fields_actions() ++
+        registered_schema_fields().
+
+registered_schema_fields() ->
+    [
+        Module:fields(emqx_bridge_v2:bridge_v2_type_to_schame_stuct_field(BridgeV2Type))
+     || {BridgeV2Type, Module} <- emqx_bridge_v2:registered_schema_modules()
+    ].
 
 desc(actions) ->
     ?DESC("desc_bridges_v2");
@@ -147,6 +172,19 @@ types() ->
 -spec types_sc() -> ?ENUM([action_type()]).
 types_sc() ->
     hoconsc:enum(types()).
+
+examples(Method) ->
+    MergeFun =
+        fun(Example, Examples) ->
+            maps:merge(Examples, Example)
+        end,
+    Fun =
+        fun(Module, Examples) ->
+            ConnectorExamples = erlang:apply(Module, bridge_v2_examples, [Method]),
+            lists:foldl(MergeFun, Examples, ConnectorExamples)
+        end,
+    SchemaModules = [Mod || {_, Mod} <- emqx_bridge_v2:registered_schema_modules()],
+    lists:foldl(Fun, #{}, SchemaModules).
 
 -ifdef(TEST).
 -include_lib("hocon/include/hocon_types.hrl").

@@ -99,7 +99,7 @@ get_response_body_schema() ->
 
 bridge_info_examples(Method) ->
     maps:merge(
-        #{},
+        emqx_bridge_v2_schema:examples(Method),
         emqx_enterprise_bridge_examples(Method)
     ).
 
