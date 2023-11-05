@@ -48,7 +48,7 @@ remove_handler() ->
 
 post_config_update(?PROMETHEUS, _Req, New, Old, AppEnvs) ->
     update_prometheus(AppEnvs),
-    update_push_gateway(New),
+    _ = update_push_gateway(New),
     update_auth(New, Old);
 post_config_update(_ConfPath, _Req, _NewConf, _OldConf, _AppEnvs) ->
     ok.

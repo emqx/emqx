@@ -44,6 +44,7 @@ start_link() ->
 start_child(Mod, Conf) when is_atom(Mod) ->
     assert_started(supervisor:start_child(?MODULE, ?CHILD(Mod, Conf))).
 
+-spec update_child(pid() | atom(), map()) -> ok.
 update_child(Pid, Conf) ->
     erlang:send(Pid, {update, Conf}),
     ok.
