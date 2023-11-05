@@ -46,9 +46,10 @@ remove_handler() ->
     ok = emqx_config_handler:remove_handler(?PROMETHEUS),
     ok.
 
-post_config_update(?PROMETHEUS, _Req, New, _Old, AppEnvs) ->
+post_config_update(?PROMETHEUS, _Req, New, Old, AppEnvs) ->
     update_prometheus(AppEnvs),
-    update_push_gateway(New);
+    update_push_gateway(New),
+    update_auth(New, Old);
 post_config_update(_ConfPath, _Req, _NewConf, _OldConf, _AppEnvs) ->
     ok.
 
@@ -75,6 +76,12 @@ update_push_gateway(Prometheus) ->
         false ->
             emqx_prometheus_sup:stop_child(?APP)
     end.
+
+update_auth(#{enable_basic_auth := New}, #{enable_basic_auth := Old}) when New =/= Old ->
+    emqx_dashboard_listener:regenerate_minirest_dispatch(),
+    ok;
+update_auth(_, _) ->
+    ok.
 
 conf() ->
     emqx_config:get(?PROMETHEUS).

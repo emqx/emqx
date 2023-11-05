@@ -68,12 +68,17 @@ schema("/prometheus/stats") ->
             #{
                 description => ?DESC(get_prom_data),
                 tags => ?TAGS,
-                security => [],
+                security => security(),
                 responses =>
                     #{200 => prometheus_data_schema()}
             }
     }.
 
+security() ->
+    case emqx_config:get([prometheus, enable_basic_auth], false) of
+        true -> [#{'basicAuth' => []}, #{'bearerAuth' => []}];
+        false -> []
+    end.
 %%--------------------------------------------------------------------
 %% API Handler funcs
 %%--------------------------------------------------------------------

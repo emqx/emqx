@@ -36,8 +36,8 @@ all() ->
 
 groups() ->
     [
-        {new_config, [sequence], [t_stats_api, t_prometheus_api]},
-        {legacy_config, [sequence], [t_stats_api, t_legacy_prometheus_api]}
+        {new_config, [sequence], [t_stats_auth_api, t_stats_no_auth_api, t_prometheus_api]},
+        {legacy_config, [sequence], [t_stats_no_auth_api, t_legacy_prometheus_api]}
     ].
 
 init_per_suite(Config) ->
@@ -263,21 +263,34 @@ t_prometheus_api(_) ->
     ),
     ok.
 
-t_stats_api(_) ->
-    Path = emqx_mgmt_api_test_util:api_path(["prometheus", "stats"]),
-    Auth = emqx_mgmt_api_test_util:auth_header_(),
-    Headers = [{"accept", "application/json"}, Auth],
-    {ok, Response} = emqx_mgmt_api_test_util:request_api(get, Path, "", Headers),
+t_stats_no_auth_api(_) ->
+    %% undefined is legacy prometheus
+    case emqx:get_config([prometheus, enable_basic_auth], undefined) of
+        true ->
+            {ok, _} = emqx:update_config([prometheus, enable_basic_auth], false),
+            emqx_dashboard_listener:regenerate_minirest_dispatch();
+        _ ->
+            ok
+    end,
+    emqx_dashboard_listener:regenerate_minirest_dispatch(),
+    Json = [{"accept", "application/json"}],
+    request_stats(Json, []).
 
+t_stats_auth_api(_) ->
+    {ok, _} = emqx:update_config([prometheus, enable_basic_auth], true),
+    Auth = emqx_mgmt_api_test_util:auth_header_(),
+    JsonAuth = [{"accept", "application/json"}, Auth],
+    request_stats(JsonAuth, Auth),
+    ok.
+
+request_stats(JsonAuth, Auth) ->
+    Path = emqx_mgmt_api_test_util:api_path(["prometheus", "stats"]),
+    {ok, Response} = emqx_mgmt_api_test_util:request_api(get, Path, "", JsonAuth),
     Data = emqx_utils_json:decode(Response, [return_maps]),
     ?assertMatch(#{<<"client">> := _, <<"delivery">> := _}, Data),
-
     {ok, _} = emqx_mgmt_api_test_util:request_api(get, Path, "", Auth),
-
     ok = meck:expect(mria_rlog, backend, fun() -> rlog end),
-    {ok, _} = emqx_mgmt_api_test_util:request_api(get, Path, "", Auth),
-
-    ok.
+    {ok, _} = emqx_mgmt_api_test_util:request_api(get, Path, "", Auth).
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %%% Internal Functions
