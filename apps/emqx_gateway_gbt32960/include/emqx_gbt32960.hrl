@@ -4,6 +4,8 @@
 
 -record(frame, {cmd, ack, vin, encrypt, length, data, check, rawdata}).
 
+-type frame() :: #frame{}.
+
 -define(CMD(CmdType), #frame{
     cmd = CmdType,
     ack = ?ACK_IS_CMD

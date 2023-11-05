@@ -67,7 +67,6 @@
     | {close, Reason :: atom()}.
 
 -type replies() :: reply() | [reply()].
--type frame() :: emqx_gbt32960_frame:frame().
 
 -define(TIMER_TABLE, #{
     alive_timer => keepalive,
@@ -203,7 +202,7 @@ setting_peercert_infos(Peercert, ClientInfo) ->
 %%--------------------------------------------------------------------
 %% Handle incoming packet
 %%--------------------------------------------------------------------
--spec handle_in(emqx_gbt32960_frame:frame() | {frame_error, any()}, channel()) ->
+-spec handle_in(frame() | {frame_error, any()}, channel()) ->
     {ok, channel()}
     | {ok, replies(), channel()}
     | {shutdown, Reason :: term(), channel()}
