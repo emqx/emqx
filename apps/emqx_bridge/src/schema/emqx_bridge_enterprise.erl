@@ -82,6 +82,11 @@ schema_modules() ->
     ].
 
 examples(Method) ->
+    EnterpriseExamples = emqx_bridge_v2_enterprise:examples(Method),
+    RegisteredExamples = registered_examples(Method),
+    maps:merge(EnterpriseExamples, RegisteredExamples).
+
+registered_examples(Method) ->
     MergeFun =
         fun(Example, Examples) ->
             maps:merge(Examples, Example)
