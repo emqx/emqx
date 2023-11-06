@@ -24,6 +24,8 @@
         {emqx_bridge_v2_register_bridge_type, 1}
     ]}
 ]).
+-ignore_xref(emqx_bridge_v2_register_bridge_type/1).
+-ignore_xref(internal_register_bridge_type_with_lock/1).
 
 -include_lib("emqx/include/emqx.hrl").
 -include_lib("emqx/include/logger.hrl").
