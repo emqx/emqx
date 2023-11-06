@@ -151,8 +151,8 @@
     error := term()
 }.
 
--type bridge_v2_type() :: binary() | atom().
--type bridge_v2_name() :: binary() | atom().
+-type bridge_v2_type() :: binary() | atom() | [byte()].
+-type bridge_v2_name() :: binary() | atom() | [byte()].
 
 %%====================================================================
 
