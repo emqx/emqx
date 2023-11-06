@@ -732,7 +732,7 @@ t_scenario_2(Config) ->
     %% ===================================================================================
     %% Try to create a rule referencing a non-existent bridge.  It succeeds, but it's
     %% implicitly disabled.  Trying to update it later without creating the bridge should
-    %% keep it disabled.
+    %% allow it to be enabled.
     %% ===================================================================================
     BridgeName = <<"scenario2">>,
     RuleTopic = <<"t/scenario2">>,
@@ -746,9 +746,9 @@ t_scenario_2(Config) ->
             ],
             #{overrides => #{enable => true}}
         ),
-    ?assertNot(is_rule_enabled(RuleId0)),
+    ?assert(is_rule_enabled(RuleId0)),
     ?assertMatch({ok, {{_, 200, _}, _, _}}, enable_rule_http(RuleId0)),
-    ?assertNot(is_rule_enabled(RuleId0)),
+    ?assert(is_rule_enabled(RuleId0)),
 
     %% ===================================================================================
     %% Now we create the bridge, and attempt to create a new enabled rule.  It should
@@ -768,13 +768,13 @@ t_scenario_2(Config) ->
             ],
             #{overrides => #{enable => true}}
         ),
-    ?assertNot(is_rule_enabled(RuleId0)),
+    ?assert(is_rule_enabled(RuleId0)),
     ?assert(is_rule_enabled(RuleId1)),
     ?assertMatch({ok, {{_, 200, _}, _, _}}, enable_rule_http(RuleId0)),
     ?assert(is_rule_enabled(RuleId0)),
 
     %% ===================================================================================
-    %% Creating a rule with mixed existent/non-existent bridges should deny enabling it.
+    %% Creating a rule with mixed existent/non-existent bridges should allow enabling it.
     %% ===================================================================================
     NonExistentBridgeName = <<"scenario2_not_created">>,
     {ok, #{<<"id">> := RuleId2}} =
@@ -801,8 +801,8 @@ t_scenario_2(Config) ->
                 }
             }
         ),
-    ?assertNot(is_rule_enabled(RuleId2)),
+    ?assert(is_rule_enabled(RuleId2)),
     ?assertMatch({ok, {{_, 200, _}, _, _}}, enable_rule_http(RuleId2)),
-    ?assertNot(is_rule_enabled(RuleId2)),
+    ?assert(is_rule_enabled(RuleId2)),
 
     ok.
