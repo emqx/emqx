@@ -478,20 +478,18 @@ with_parsed_rule(Params = #{id := RuleId, sql := Sql, actions := Actions}, Creat
                 %% -- calculated fields end
             },
             InputEnable = maps:get(enable, Params, true),
-            Enable =
-                case validate_bridge_existence_in_actions(Rule0) of
-                    ok ->
-                        InputEnable;
-                    {error, NonExistentBridgeIDs} ->
-                        ?SLOG(error, #{
-                            msg => "action_references_nonexistent_bridges",
-                            rule_id => RuleId,
-                            nonexistent_bridge_ids => NonExistentBridgeIDs,
-                            hint => "this rule will be disabled"
-                        }),
-                        false
-                end,
-            Rule = Rule0#{enable => Enable},
+            case validate_bridge_existence_in_actions(Rule0) of
+                ok ->
+                    ok;
+                {error, NonExistentBridgeIDs} ->
+                    ?SLOG(error, #{
+                        msg => "action_references_nonexistent_bridges",
+                        rule_id => RuleId,
+                        nonexistent_bridge_ids => NonExistentBridgeIDs,
+                        hint => "this rule will be disabled"
+                    })
+            end,
+            Rule = Rule0#{enable => InputEnable},
             ok = Fun(Rule),
             {ok, Rule};
         {error, Reason} ->
