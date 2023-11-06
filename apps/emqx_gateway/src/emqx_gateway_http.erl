@@ -17,7 +17,7 @@
 %% @doc Gateway Interface Module for HTTP-APIs
 -module(emqx_gateway_http).
 
--include("include/emqx_gateway.hrl").
+-include("emqx_gateway.hrl").
 -include_lib("emqx/include/logger.hrl").
 -include_lib("emqx_auth/include/emqx_authn_chains.hrl").
 
