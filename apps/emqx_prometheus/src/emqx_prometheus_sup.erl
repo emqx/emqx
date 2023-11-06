@@ -20,6 +20,7 @@
 
 -export([
     start_link/0,
+    start_child/1,
     start_child/2,
     update_child/2,
     stop_child/1
@@ -39,6 +40,10 @@
 
 start_link() ->
     supervisor:start_link({local, ?MODULE}, ?MODULE, []).
+
+-spec start_child(atom()) -> ok.
+start_child(Mod) when is_atom(Mod) ->
+    start_child(Mod, emqx_prometheus_config:conf()).
 
 -spec start_child(atom(), map()) -> ok.
 start_child(Mod, Conf) when is_atom(Mod) ->

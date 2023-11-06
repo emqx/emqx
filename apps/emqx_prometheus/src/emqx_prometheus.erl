@@ -59,6 +59,12 @@
 
 -export([collect/1]).
 
+-export([
+    %% For bpapi, deprecated_since 5.0.10, remove this when 5.1.x
+    do_start/0,
+    do_stop/0
+]).
+
 -define(C(K, L), proplists:get_value(K, L, 0)).
 
 -define(TIMER_MSG, '#interval').
@@ -111,7 +117,6 @@ handle_info({update, Conf}, State = #{timer := Timer}) ->
     handle_continue(Conf, State);
 handle_info(_Msg, State) ->
     {noreply, State}.
-
 
 push_to_push_gateway(Url, Headers) when is_list(Headers) ->
     Data = prometheus_text_format:format(),
@@ -678,3 +683,11 @@ emqx_cluster_data() ->
         {nodes_running, length(Running)},
         {nodes_stopped, length(Stopped)}
     ].
+
+%% deprecated_since 5.0.10, remove this when 5.1.x
+do_start() ->
+    emqx_prometheus_sup:start_child(?APP).
+
+%% deprecated_since 5.0.10, remove this when 5.1.x
+do_stop() ->
+    emqx_prometheus_sup:stop_child(?APP).

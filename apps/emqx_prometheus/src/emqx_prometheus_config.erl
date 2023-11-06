@@ -20,7 +20,7 @@
 -include("emqx_prometheus.hrl").
 
 -export([add_handler/0, remove_handler/0]).
--export([post_config_update/5]).
+-export([pre_config_update/3, post_config_update/5]).
 -export([update/1]).
 -export([conf/0, is_push_gateway_server_enabled/1]).
 
@@ -45,6 +45,54 @@ add_handler() ->
 remove_handler() ->
     ok = emqx_config_handler:remove_handler(?PROMETHEUS),
     ok.
+
+%% when we import the config with the old version
+%% we need to respect it, and convert to new schema.
+pre_config_update(?PROMETHEUS, MergeConf, OriginConf) ->
+    OriginType = emqx_prometheus_schema:is_recommend_type(OriginConf),
+    MergeType = emqx_prometheus_schema:is_recommend_type(MergeConf),
+    {ok,
+        case {OriginType, MergeType} of
+            {true, false} -> to_recommend_type(MergeConf);
+            _ -> MergeConf
+        end}.
+
+to_recommend_type(Conf) ->
+    #{
+        <<"push_gateway">> => to_push_gateway(Conf),
+        <<"collectors">> => to_collectors(Conf)
+    }.
+
+to_push_gateway(Conf) ->
+    Init = maps:with([<<"interval">>, <<"headers">>, <<"job_name">>], Conf),
+    case maps:get(<<"push_gateway_server">>, Conf, "") of
+        "" ->
+            Init#{<<"url">> => <<"">>};
+        Url ->
+            case maps:get(<<"enable">>, Conf, false) of
+                false -> Init#{<<"url">> => <<"">>};
+                true -> Init#{<<"url">> => Url}
+            end
+    end.
+
+to_collectors(Conf) ->
+    lists:foldl(
+        fun({From, To}, Acc) ->
+            case maps:find(From, Conf) of
+                {ok, Value} -> Acc#{To => Value};
+                error -> Acc
+            end
+        end,
+        #{},
+        [
+            {<<"vm_dist_collector">>, <<"vm_dist">>},
+            {<<"mnesia_collector">>, <<"mnesia">>},
+            {<<"vm_statistics_collector">>, <<"vm_statistics">>},
+            {<<"vm_system_info_collector">>, <<"vm_system_info">>},
+            {<<"vm_memory_collector">>, <<"vm_memory">>},
+            {<<"vm_msacc_collector">>, <<"vm_msacc">>}
+        ]
+    ).
 
 post_config_update(?PROMETHEUS, _Req, New, Old, AppEnvs) ->
     update_prometheus(AppEnvs),

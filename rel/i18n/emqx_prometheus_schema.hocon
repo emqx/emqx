@@ -17,7 +17,7 @@ Default value is: <code>${name}/instance/${name}~${host}</code>"""
 
 prometheus.desc:
 """EMQX's Prometheus scraping endpoint is enabled by default without authentication.
-You can inspect it with a `curl` command like this: `curl -f "127.0.0.1:18083/api/v5/prometheus/stats"`<br/>"""
+You can inspect it with a `curl` command like this: `curl -f "127.0.0.1:18083/api/v5/prometheus/stats"`"""
 
 prometheus.label:
 """Prometheus"""
@@ -25,10 +25,16 @@ prometheus.label:
 push_gateway.desc:
 """Push Gateway is optional, should not be configured if prometheus is to scrape EMQX."""
 
+enable_basic_auth.desc:
+"""Enable or disable basic authentication for prometheus scrape api, not for Push Gateway"""
+
 collectors.desc:
 """The internal advanced metrics of the virtual machine are initially disabled
 and are usually only enabled during performance testing.
 Enabling them will increase the CPU load."""
+
+recommend_setting.desc:
+"""Recommended setting"""
 
 push_gateway_url.desc:
 """URL of Pushgateway server. Pushgateway is optional, should not be configured if prometheus is to scrape EMQX.
@@ -54,37 +60,43 @@ vm_statistics_collector.desc:
 vm_system_info_collector.desc:
 """Enable or disable VM system info collector."""
 
+legacy_deprecated_setting.desc:
+"""Deprecated"""
+
 legacy_enable.desc:
-"""Deprecated, use prometheus.push_gateway.url instead"""
+"""Deprecated, use `prometheus.push_gateway.url` instead"""
 
 legacy_headers.desc:
-"""Deprecated, use prometheus.push_gateway.headers instead"""
+"""Deprecated, use `prometheus.push_gateway.headers` instead"""
 
 legacy_interval.desc:
-"""Deprecated, use prometheus.push_gateway.interval instead"""
+"""Deprecated, use `prometheus.push_gateway.interval` instead"""
 
 legacy_job_name.desc:
-"""Deprecated, use prometheus.push_gateway.job_name instead"""
+"""Deprecated, use `prometheus.push_gateway.job_name` instead"""
 
 legacy_push_gateway_server.desc:
-"""Deprecated, use prometheus.push_gateway.url instead"""
+"""Deprecated, use `prometheus.push_gateway.url` instead"""
 
 legacy_mnesia_collector.desc:
-"""Deprecated, use prometheus.collectors.mnesia instead"""
+"""Deprecated, use `prometheus.collectors.mnesia` instead"""
 
 legacy_vm_dist_collector.desc:
-"""Deprecated, use prometheus.collectors.vm_dist instead"""
+"""Deprecated, use `prometheus.collectors.vm_dist` instead"""
 
 legacy_vm_memory_collector.desc:
-"""Deprecated, use prometheus.collectors.vm_memory instead"""
+"""Deprecated, use `prometheus.collectors.vm_memory` instead"""
 
 legacy_vm_msacc_collector.desc:
-"""Deprecated, use prometheus.collectors.vm_msacc instead"""
+"""Deprecated, use `prometheus.collectors.vm_msacc` instead"""
 
 legacy_vm_statistics_collector.desc:
-"""Deprecated, use prometheus.collectors.vm_statistics instead"""
+"""Deprecated, use `prometheus.collectors.vm_statistics` instead"""
 
 legacy_vm_system_info_collector.desc:
-"""Deprecated, use prometheus.collectors.vm_system_info instead"""
+"""Deprecated, use `prometheus.collectors.vm_system_info` instead"""
+
+legacy_deprecated_setting.desc:
+"""Deprecated"""
 
 }

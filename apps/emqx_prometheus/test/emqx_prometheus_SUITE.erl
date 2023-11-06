@@ -219,5 +219,5 @@ init(Req0, Opts) ->
         Headers
     ),
     RespHeader = #{<<"content-type">> => <<"text/plain; charset=utf-8">>},
-    Req = -cowboy_req:reply(200, RespHeader, <<"OK">>, Req0),
+    Req = cowboy_req:reply(200, RespHeader, <<"OK">>, Req0),
     {ok, Req, Opts}.

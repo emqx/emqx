@@ -27,7 +27,8 @@
     desc/1,
     translation/1,
     convert_headers/2,
-    validate_url/1
+    validate_url/1,
+    is_recommend_type/1
 ]).
 
 namespace() -> prometheus.
@@ -63,7 +64,7 @@ fields(recommend_setting) ->
                 }
             )},
         {collectors,
-            ?HOCON(?R_REF(collector), #{
+            ?HOCON(?R_REF(collectors), #{
                 required => false,
                 importance => ?IMPORTANCE_LOW,
                 desc => ?DESC(collectors)
@@ -110,7 +111,7 @@ fields(push_gateway) ->
                 }
             )}
     ];
-fields(collector) ->
+fields(collectors) ->
     [
         {vm_dist,
             ?HOCON(
@@ -295,13 +296,35 @@ setting_union_schema() ->
     RecommendSetting = ?R_REF(recommend_setting),
     LegacySetting = ?R_REF(legacy_deprecated_setting),
     fun
-        (all_union_members) -> [RecommendSetting, LegacySetting];
-        ({value, #{<<"enable">> := _}}) -> [LegacySetting];
-        %% all other cases treat as new config, include init empty config.
-        ({value, _}) -> [RecommendSetting]
+        (all_union_members) ->
+            [RecommendSetting, LegacySetting];
+        ({value, Setting}) ->
+            case is_recommend_type(Setting) of
+                true -> [RecommendSetting];
+                false -> [LegacySetting]
+            end
+    end.
+
+%% For it to be considered as new schema,
+%% all keys must be included in the new configuration.
+is_recommend_type(Setting) ->
+    case maps:keys(Setting) of
+        [] ->
+            true;
+        Keys ->
+            NewKeys = fields(recommend_setting),
+            Fun = fun(Key0) ->
+                Key = binary_to_existing_atom(Key0),
+                lists:keymember(Key, 1, NewKeys)
+            end,
+            lists:all(Fun, Keys)
     end.
 
 desc(prometheus) -> ?DESC(prometheus);
+desc(collectors) -> ?DESC(collectors);
+desc(legacy_deprecated_setting) -> ?DESC(legacy_deprecated_setting);
+desc(recommend_setting) -> ?DESC(recommend_setting);
+desc(push_gateway) -> ?DESC(push_gateway);
 desc(_) -> undefined.
 
 convert_headers(undefined, _) ->
