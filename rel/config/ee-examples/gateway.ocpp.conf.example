@@ -59,6 +59,6 @@ gateway.ocpp {
 
     listeners.ws.default {
         bind = "0.0.0.0:33033"
-        path = "/ocpp"
+        websocket.path = "/ocpp"
     }
 }

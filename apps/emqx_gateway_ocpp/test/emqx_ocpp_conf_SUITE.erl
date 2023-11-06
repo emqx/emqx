@@ -19,7 +19,7 @@
 -compile(export_all).
 -compile(nowarn_export_all).
 
-all() -> emqx_ct:all(?MODULE).
+all() -> emqx_common_test_helpers:all(?MODULE).
 
 init_per_suite(Conf) ->
     Conf.

@@ -309,8 +309,8 @@ stop_listeners(GwName, Listeners) ->
     lists:foreach(fun(L) -> stop_listener(GwName, L) end, Listeners).
 
 -spec stop_listener(GwName :: atom(), Listener :: tuple()) -> ok.
-stop_listener(GwName, {Type, LisName, ListenOn, SocketOpts, Cfg}) ->
-    StopRet = stop_listener(GwName, Type, LisName, ListenOn, SocketOpts, Cfg),
+stop_listener(GwName, {Type, LisName, ListenOn, Cfg}) ->
+    StopRet = stop_listener(GwName, Type, LisName, ListenOn, Cfg),
     ListenOnStr = emqx_listeners:format_bind(ListenOn),
     case StopRet of
         ok ->
@@ -326,7 +326,7 @@ stop_listener(GwName, {Type, LisName, ListenOn, SocketOpts, Cfg}) ->
     end,
     StopRet.
 
-stop_listener(GwName, Type, LisName, ListenOn, _SocketOpts, _Cfg) ->
+stop_listener(GwName, Type, LisName, ListenOn, _Cfg) ->
     Name = emqx_gateway_utils:listener_id(GwName, Type, LisName),
     esockd:close(Name, ListenOn).
 
@@ -443,8 +443,7 @@ stringfy(T) ->
         Type :: udp | tcp | ssl | dtls,
         Name :: atom(),
         ListenOn :: esockd:listen_on(),
-        RawCfg :: map(),
-        ConnCfg :: map()
+        RawCfg :: map()
     }).
 normalize_config(RawConf) ->
     LisMap = maps:get(listeners, RawConf, #{}),
