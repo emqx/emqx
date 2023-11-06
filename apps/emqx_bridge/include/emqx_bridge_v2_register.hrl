@@ -120,8 +120,15 @@ internal_register_bridge_type_with_lock(BridgeTypeInfo) ->
         InfoMap7,
         maps:get(schema_struct_field, BridgeTypeInfo)
     ),
-
-    ok = persistent_term:put(internal_emqx_bridge_v2_persistent_term_info_key(), InfoMap8).
+    InfoMap9 = emqx_utils_maps:deep_force_put(
+        [
+            bridge_v2_type_to_bridge_v1_type,
+            maps:get(bridge_v2_type_name, BridgeTypeInfo)
+        ],
+        InfoMap8,
+        maps:get(bridge_v1_type_name, BridgeTypeInfo)
+    ),
+    ok = persistent_term:put(internal_emqx_bridge_v2_persistent_term_info_key(), InfoMap9).
 
 internal_maybe_create_initial_bridge_v2_info_map() ->
     case persistent_term:get(internal_emqx_bridge_v2_persistent_term_info_key(), undefined) of
@@ -131,6 +138,7 @@ internal_maybe_create_initial_bridge_v2_info_map() ->
                 #{
                     bridge_v2_type_names => #{},
                     bridge_v1_type_to_bridge_v2_type => #{},
+                    bridge_v2_type_to_bridge_v1_type => #{},
                     bridge_v2_type_to_connector_type => #{},
                     bridge_v2_type_to_schema_module => #{},
                     bridge_v2_type_to_schema_struct_field => #{}
