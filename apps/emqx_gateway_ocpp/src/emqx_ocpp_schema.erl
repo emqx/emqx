@@ -29,7 +29,7 @@ fields(ocpp) ->
                 integer(),
                 #{
                     default => 1,
-                    required => true,
+                    required => false,
                     desc => ?DESC(heartbeat_checking_times_backoff)
                 }
             )},
@@ -39,7 +39,7 @@ fields(ocpp) ->
             sc(
                 hoconsc:union([all, upstream_only, dnstream_only, disable]),
                 #{
-                    default => all,
+                    default => disable,
                     desc => ?DESC(message_format_checking)
                 }
             )},
@@ -59,15 +59,21 @@ fields(ocpp) ->
                     desc => ?DESC(json_schema_id_prefix)
                 }
             )},
-        {listeners, sc(ref(listeners), #{desc => ?DESC(listeners)})}
+        {listeners, sc(ref(ws_listeners), #{desc => ?DESC(ws_listeners)})}
     ] ++ emqx_gateway_schema:gateway_common_options();
-fields(listeners) ->
+fields(ws_listeners) ->
+    [
+        {ws, sc(map(name, ref(ws_listener)), #{})},
+        {wss, sc(map(name, ref(wss_listener)), #{})}
+    ];
+fields(ws_listener) ->
+    emqx_gateway_schema:ws_listener() ++ [{websocket, sc(ref(websocket), #{})}];
+fields(wss_listener) ->
+    emqx_gateway_schema:wss_listener() ++ [{websocket, sc(ref(websocket), #{})}];
+fields(websocket) ->
     DefaultPath = <<"/ocpp">>,
     SubProtocols = <<"ocpp1.6, ocpp2.0">>,
-    [
-        {ws, emqx_gateway_schema:ws_listener(DefaultPath, SubProtocols)},
-        {wss, emqx_gateway_schema:wss_listener(DefaultPath, SubProtocols)}
-    ];
+    emqx_gateway_schema:ws_opts(DefaultPath, SubProtocols);
 fields(upstream) ->
     [
         {topic,
@@ -167,6 +173,9 @@ desc(_) ->
 
 sc(Type, Meta) ->
     hoconsc:mk(Type, Meta).
+
+map(Name, Type) ->
+    hoconsc:map(Name, Type).
 
 ref(Field) ->
     hoconsc:ref(?MODULE, Field).

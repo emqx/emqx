@@ -52,7 +52,8 @@ on_gateway_load(
     Listeners = normalize_config(Config),
     ModCfg = #{
         frame_mod => emqx_ocpp_frame,
-        chann_mod => emqx_ocpp_channel
+        chann_mod => emqx_ocpp_channel,
+        connection_mod => emqx_ocpp_connection
     },
     case
         start_listeners(

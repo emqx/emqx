@@ -56,7 +56,7 @@
 
 -export([mountpoint/0, mountpoint/1, gateway_common_options/0, gateway_schema/1, gateway_names/0]).
 
--export([ws_listener/2, wss_listener/2]).
+-export([ws_listener/0, wss_listener/0, ws_opts/2]).
 
 namespace() -> gateway.
 
@@ -129,6 +129,10 @@ fields(ssl_listener) ->
                     }
                 )}
         ];
+fields(ws_listener) ->
+    ws_listener() ++ ws_opts(<<>>, <<>>);
+fields(wss_listener) ->
+    wss_listener() ++ ws_opts(<<>>, <<>>);
 fields(udp_listener) ->
     [
         %% some special configs for udp listener
@@ -252,21 +256,16 @@ mountpoint(Default) ->
         }
     ).
 
-ws_listener(DefaultPath, DefaultSubProtocols) when
-    is_binary(DefaultPath), is_binary(DefaultSubProtocols)
-->
+ws_listener() ->
     [
         {acceptors, sc(integer(), #{default => 16, desc => ?DESC(tcp_listener_acceptors)})}
     ] ++
-        ws_opts(DefaultPath, DefaultSubProtocols) ++
         tcp_opts() ++
         proxy_protocol_opts() ++
         common_listener_opts().
 
-wss_listener(DefaultPath, DefaultSubProtocols) when
-    is_binary(DefaultPath), is_binary(DefaultSubProtocols)
-->
-    ws_listener(DefaultPath, DefaultSubProtocols) ++
+wss_listener() ->
+    ws_listener() ++
         [
             {ssl_options,
                 sc(
@@ -278,7 +277,9 @@ wss_listener(DefaultPath, DefaultSubProtocols) when
                 )}
         ].
 
-ws_opts(DefaultPath, DefaultSubProtocols) ->
+ws_opts(DefaultPath, DefaultSubProtocols) when
+    is_binary(DefaultPath), is_binary(DefaultSubProtocols)
+->
     [
         {"path",
             sc(
@@ -378,7 +379,7 @@ ws_opts(DefaultPath, DefaultSubProtocols) ->
             )},
         {"deflate_opts",
             sc(
-                ref("deflate_opts"),
+                ref(emqx_schema, "deflate_opts"),
                 #{}
             )}
     ].
