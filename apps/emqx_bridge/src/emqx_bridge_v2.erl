@@ -128,6 +128,8 @@
     bridge_v1_split_config_and_create/3,
     bridge_v1_create_dry_run/2,
     bridge_v1_type_to_bridge_v2_type/1,
+    %% Exception from the naming convention:
+    bridge_v2_type_to_bridge_v1_type/1,
     bridge_v1_id_to_connector_resource_id/1,
     bridge_v1_enable_disable/3,
     bridge_v1_restart/2,
@@ -1140,7 +1142,24 @@ bridge_v1_type_to_bridge_v2_type(Type) ->
 % bridge_v1_type_to_bridge_v2_type_old(kafka_producer) ->
 %     kafka_producer;
 bridge_v1_type_to_bridge_v2_type_old(azure_event_hub_producer) ->
-    azure_event_hub_producer.
+    azure_event_hub_producer;
+bridge_v1_type_to_bridge_v2_type_old(Type) ->
+    Type.
+
+bridge_v2_type_to_bridge_v1_type(Bin) when is_binary(Bin) ->
+    ?MODULE:bridge_v2_type_to_bridge_v1_type(binary_to_existing_atom(Bin));
+bridge_v2_type_to_bridge_v1_type(Type) ->
+    BridgeV2InfoMap = persistent_term:get(internal_emqx_bridge_v2_persistent_term_info_key()),
+    BridgeV2TypeToBridgeV1Type = maps:get(bridge_v2_type_to_bridge_v1_type, BridgeV2InfoMap),
+    case maps:get(Type, BridgeV2TypeToBridgeV1Type, undefined) of
+        undefined -> bridge_v2_type_to_bridge_v1_type_old(Type);
+        BridgeV1Type -> BridgeV1Type
+    end.
+
+bridge_v2_type_to_bridge_v1_type_old(azure_event_hub_producer) ->
+    azure_event_hub_producer;
+bridge_v2_type_to_bridge_v1_type_old(Type) ->
+    Type.
 
 %% This function should return true for all inputs that are bridge V1 types for
 %% bridges that have been refactored to bridge V2s, and for all all bridge V2
