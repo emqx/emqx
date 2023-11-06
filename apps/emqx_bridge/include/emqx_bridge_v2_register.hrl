@@ -78,41 +78,50 @@ internal_register_bridge_type_with_lock(BridgeTypeInfo) ->
         InfoMap2,
         maps:get(bridge_v2_type_name, BridgeTypeInfo)
     ),
+    %% Backwards compatibility
     InfoMap4 = emqx_utils_maps:deep_force_put(
         [
-            bridge_v2_type_to_connector_type,
+            bridge_v1_type_to_bridge_v2_type,
             maps:get(bridge_v2_type_name, BridgeTypeInfo)
         ],
         InfoMap3,
-        maps:get(connector_type, BridgeTypeInfo)
+        maps:get(bridge_v2_type_name, BridgeTypeInfo)
     ),
-    %% Backwards compatibility
     InfoMap5 = emqx_utils_maps:deep_force_put(
         [
             bridge_v2_type_to_connector_type,
-            maps:get(bridge_v1_type_name, BridgeTypeInfo)
+            maps:get(bridge_v2_type_name, BridgeTypeInfo)
         ],
         InfoMap4,
         maps:get(connector_type, BridgeTypeInfo)
     ),
+    %% Backwards compatibility
     InfoMap6 = emqx_utils_maps:deep_force_put(
+        [
+            bridge_v2_type_to_connector_type,
+            maps:get(bridge_v1_type_name, BridgeTypeInfo)
+        ],
+        InfoMap5,
+        maps:get(connector_type, BridgeTypeInfo)
+    ),
+    InfoMap7 = emqx_utils_maps:deep_force_put(
         [
             bridge_v2_type_to_schema_module,
             maps:get(bridge_v2_type_name, BridgeTypeInfo)
         ],
-        InfoMap5,
+        InfoMap6,
         maps:get(schema_module, BridgeTypeInfo)
     ),
-    InfoMap7 = emqx_utils_maps:deep_force_put(
+    InfoMap8 = emqx_utils_maps:deep_force_put(
         [
             bridge_v2_type_to_schema_struct_field,
             maps:get(bridge_v2_type_name, BridgeTypeInfo)
         ],
-        InfoMap6,
+        InfoMap7,
         maps:get(schema_struct_field, BridgeTypeInfo)
     ),
 
-    ok = persistent_term:put(internal_emqx_bridge_v2_persistent_term_info_key(), InfoMap7).
+    ok = persistent_term:put(internal_emqx_bridge_v2_persistent_term_info_key(), InfoMap8).
 
 internal_maybe_create_initial_bridge_v2_info_map() ->
     case persistent_term:get(internal_emqx_bridge_v2_persistent_term_info_key(), undefined) of
