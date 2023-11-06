@@ -17,7 +17,7 @@
 
 -behavior(emqx_bpapi).
 
--include_lib("emqx/include/bpapi.hrl").
+-include_lib("emqx_utils/include/bpapi.hrl").
 %% API:
 -export([open_shard/3, drop_shard/2, get_streams/4, make_iterator/5, next/4]).
 

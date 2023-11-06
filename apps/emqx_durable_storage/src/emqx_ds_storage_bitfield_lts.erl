@@ -31,7 +31,7 @@
 
 -export_type([options/0]).
 
--include_lib("emqx/include/emqx.hrl").
+-include_lib("emqx_utils/include/emqx_message.hrl").
 -include_lib("snabbkaffe/include/trace.hrl").
 
 %%================================================================================
