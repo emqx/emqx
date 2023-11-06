@@ -91,14 +91,15 @@ matrix() {
                 entries+=("$(format_app_entry "$app" 1 emqx "$runner")")
                 entries+=("$(format_app_entry "$app" 1 emqx-enterprise "$runner")")
                 ;;
-            apps/emqx_bridge_kafka)
-                entries+=("$(format_app_entry "$app" 3 emqx-enterprise "$runner")")
-                ;;
             apps/emqx_connector)
                 entries+=("$(format_app_entry "$app" 1 emqx "$runner")")
                 entries+=("$(format_app_entry "$app" 1 emqx-enterprise "$runner")")
                 ;;
             apps/emqx_dashboard)
+                entries+=("$(format_app_entry "$app" 1 emqx "$runner")")
+                entries+=("$(format_app_entry "$app" 1 emqx-enterprise "$runner")")
+                ;;
+            apps/emqx_rule_engine)
                 entries+=("$(format_app_entry "$app" 1 emqx "$runner")")
                 entries+=("$(format_app_entry "$app" 1 emqx-enterprise "$runner")")
                 ;;

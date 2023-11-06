@@ -124,6 +124,9 @@ if [ -z "${PROFILE+x}" ]; then
         apps/emqx_dashboard)
             export PROFILE='emqx-enterprise'
             ;;
+        apps/emqx_rule_engine)
+            export PROFILE='emqx-enterprise'
+            ;;
         lib-ee*)
             ## ensure enterprise profile when testing lib-ee applications
             export PROFILE='emqx-enterprise'
