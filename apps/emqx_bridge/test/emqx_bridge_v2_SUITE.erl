@@ -667,8 +667,8 @@ t_load_config_success(_Config) ->
     ),
     ?assertMatch(
         {ok, #{
-            type := BridgeType,
-            name := BridgeName,
+            type := BridgeTypeBin,
+            name := BridgeNameBin,
             raw_config := #{<<"some_key">> := <<"new_value">>},
             resource_data := #{}
         }},
