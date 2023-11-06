@@ -16,6 +16,8 @@
 
 -module(emqx_hookpoints).
 
+-include("logger.hrl").
+
 -type callback_result() :: stop | any().
 -type fold_callback_result(Acc) :: {stop, Acc} | {ok, Acc} | stop | any().
 
@@ -62,12 +64,16 @@
     'delivery.dropped',
     'delivery.completed',
     'cm.channel.unregistered',
-    'tls_handshake.psk_lookup',
+    'tls_handshake.psk_lookup'
+]).
 
+%% Our template plugin used this hookpoints before its 5.1.0 version,
+%% so we keep them here
+-define(DEPRECATED_HOOKPOINTS, [
     %% This is a deprecated hookpoint renamed to 'client.authorize'
-    %% However, our template plugin used this hookpoint before its 5.1.0 version,
-    %% so we keep it here
-    'client.check_acl'
+    'client.check_acl',
+    %% Misspelled hookpoint
+    'session.takeovered'
 ]).
 
 %%-----------------------------------------------------------------------------
@@ -206,27 +212,42 @@ when
 %% API
 %%-----------------------------------------------------------------------------
 
-default_hookpoints() ->
-    ?HOOKPOINTS.
+%% Binary hookpoint names are dynamic and used for bridges
+-type registered_hookpoint() :: atom().
+-type registered_hookpoint_status() :: valid | deprecated.
 
+-spec default_hookpoints() -> #{registered_hookpoint() => registered_hookpoint_status()}.
+default_hookpoints() ->
+    maps:merge(
+        maps:from_keys(?HOOKPOINTS, valid),
+        maps:from_keys(?DEPRECATED_HOOKPOINTS, deprecated)
+    ).
+
+-spec register_hookpoints() -> ok.
 register_hookpoints() ->
     register_hookpoints(default_hookpoints()).
 
-register_hookpoints(HookPoints) ->
-    persistent_term:put(?MODULE, maps:from_keys(HookPoints, true)).
+-spec register_hookpoints(
+    [registered_hookpoint()] | #{registered_hookpoint() => registered_hookpoint_status()}
+) -> ok.
+register_hookpoints(HookPoints) when is_list(HookPoints) ->
+    register_hookpoints(maps:from_keys(HookPoints, valid));
+register_hookpoints(HookPoints) when is_map(HookPoints) ->
+    persistent_term:put(?MODULE, HookPoints).
 
+-spec verify_hookpoint(registered_hookpoint() | binary()) -> ok | no_return().
 verify_hookpoint(HookPoint) when is_binary(HookPoint) -> ok;
 verify_hookpoint(HookPoint) ->
-    case maps:is_key(HookPoint, registered_hookpoints()) of
-        true ->
-            ok;
-        false ->
-            error({invalid_hookpoint, HookPoint})
+    case maps:find(HookPoint, registered_hookpoints()) of
+        {ok, valid} -> ok;
+        {ok, deprecated} -> ?SLOG(warning, #{msg => deprecated_hookpoint, hookpoint => HookPoint});
+        error -> error({invalid_hookpoint, HookPoint})
     end.
 
 %%-----------------------------------------------------------------------------
 %% Internal API
 %%-----------------------------------------------------------------------------
 
+-spec registered_hookpoints() -> #{registered_hookpoint() => registered_hookpoint_status()}.
 registered_hookpoints() ->
     persistent_term:get(?MODULE, #{}).
