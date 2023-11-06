@@ -24,7 +24,9 @@
 -include_lib("emqx_resource/include/emqx_resource.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
--define(ROOT_KEY, bridges_v2).
+%% Note: this is strange right now, because it lives in `emqx_bridge_v2', but it shall be
+%% refactored into a new module/application with appropriate name.
+-define(ROOT_KEY, actions).
 
 %% Loading and unloading config when EMQX starts and stops
 -export([
@@ -600,7 +602,7 @@ create_dry_run_helper(BridgeType, ConnectorRawConf, BridgeV2RawConf) ->
 create_dry_run(Type, Conf0) ->
     Conf1 = maps:without([<<"name">>], Conf0),
     TypeBin = bin(Type),
-    RawConf = #{<<"bridges_v2">> => #{TypeBin => #{<<"temp_name">> => Conf1}}},
+    RawConf = #{<<"actions">> => #{TypeBin => #{<<"temp_name">> => Conf1}}},
     %% Check config
     try
         _ =
@@ -741,7 +743,7 @@ parse_id(Id) ->
     case binary:split(Id, <<":">>, [global]) of
         [Type, Name] ->
             {Type, Name};
-        [<<"bridge_v2">>, Type, Name | _] ->
+        [<<"action">>, Type, Name | _] ->
             {Type, Name};
         _X ->
             error({error, iolist_to_binary(io_lib:format("Invalid id: ~p", [Id]))})
@@ -785,7 +787,7 @@ id(BridgeType, BridgeName) ->
 
 id(BridgeType, BridgeName, ConnectorName) ->
     ConnectorType = bin(connector_type(BridgeType)),
-    <<"bridge_v2:", (bin(BridgeType))/binary, ":", (bin(BridgeName))/binary, ":connector:",
+    <<"action:", (bin(BridgeType))/binary, ":", (bin(BridgeName))/binary, ":connector:",
         (bin(ConnectorType))/binary, ":", (bin(ConnectorName))/binary>>.
 
 connector_type(Type) ->
@@ -807,8 +809,8 @@ bridge_v2_type_to_connector_type(azure_event_hub_producer) ->
 %%====================================================================
 
 import_config(RawConf) ->
-    %% bridges v2 structure
-    emqx_bridge:import_config(RawConf, <<"bridges_v2">>, ?ROOT_KEY, config_key_path()).
+    %% actions structure
+    emqx_bridge:import_config(RawConf, <<"actions">>, ?ROOT_KEY, config_key_path()).
 
 %%====================================================================
 %% Config Update Handler API
@@ -833,8 +835,8 @@ pre_config_update(_Path, Conf, _OldConfig) when is_map(Conf) ->
 operation_to_enable(disable) -> false;
 operation_to_enable(enable) -> true.
 
-%% This top level handler will be triggered when the bridges_v2 path is updated
-%% with calls to emqx_conf:update([bridges_v2], BridgesConf, #{}).
+%% This top level handler will be triggered when the actions path is updated
+%% with calls to emqx_conf:update([actions], BridgesConf, #{}).
 %%
 %% A public API that can trigger this is:
 %% bin/emqx ctl conf load data/configs/cluster.hocon
@@ -1086,7 +1088,7 @@ lookup_and_transform_to_bridge_v1_helper(
     BridgeV2RawConfig2 = fill_defaults(
         BridgeV2Type,
         BridgeV2RawConfig1,
-        <<"bridges_v2">>,
+        <<"actions">>,
         emqx_bridge_v2_schema
     ),
     BridgeV1Config1 = maps:remove(<<"connector">>, BridgeV2RawConfig2),
@@ -1246,7 +1248,7 @@ split_and_validate_bridge_v1_config(BridgeV1Type, BridgeName, RawConf, PreviousR
                 bin(ConnectorName) => NewConnectorRawConf
             }
         },
-        <<"bridges_v2">> => #{
+        <<"actions">> => #{
             bin(BridgeV2Type) => #{
                 bin(BridgeName) => NewBridgeV2RawConf
             }
@@ -1439,10 +1441,10 @@ bin(Atom) when is_atom(Atom) -> atom_to_binary(Atom, utf8).
 
 extract_connector_id_from_bridge_v2_id(Id) ->
     case binary:split(Id, <<":">>, [global]) of
-        [<<"bridge_v2">>, _Type, _Name, <<"connector">>, ConnectorType, ConnecorName] ->
+        [<<"action">>, _Type, _Name, <<"connector">>, ConnectorType, ConnecorName] ->
             <<"connector:", ConnectorType/binary, ":", ConnecorName/binary>>;
         _X ->
-            error({error, iolist_to_binary(io_lib:format("Invalid bridge V2 ID: ~p", [Id]))})
+            error({error, iolist_to_binary(io_lib:format("Invalid action ID: ~p", [Id]))})
     end.
 
 to_existing_atom(X) ->

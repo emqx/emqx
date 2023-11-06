@@ -207,7 +207,7 @@ unwrap_fun(UniqRefStr) ->
     ets:lookup_element(fun_table_name(), UniqRefStr, 2).
 
 update_root_config(RootConf) ->
-    emqx_conf:update([bridges_v2], RootConf, #{override_to => cluster}).
+    emqx_conf:update([actions], RootConf, #{override_to => cluster}).
 
 update_root_connectors_config(RootConf) ->
     emqx_conf:update([connectors], RootConf, #{override_to => cluster}).
@@ -584,7 +584,7 @@ t_unhealthy_channel_alarm(_) ->
 get_bridge_v2_alarm_cnt() ->
     Alarms = emqx_alarm:get_alarms(activated),
     FilterFun = fun
-        (#{name := S}) when is_binary(S) -> string:find(S, "bridge_v2") =/= nomatch;
+        (#{name := S}) when is_binary(S) -> string:find(S, "action") =/= nomatch;
         (_) -> false
     end,
     length(lists:filter(FilterFun, Alarms)).
@@ -639,7 +639,7 @@ t_load_config_success(_Config) ->
     BridgeNameBin = atom_to_binary(BridgeName),
 
     %% pre-condition
-    ?assertEqual(#{}, emqx_config:get([bridges_v2])),
+    ?assertEqual(#{}, emqx_config:get([actions])),
 
     %% create
     RootConf0 = #{BridgeTypeBin => #{BridgeNameBin => Conf}},

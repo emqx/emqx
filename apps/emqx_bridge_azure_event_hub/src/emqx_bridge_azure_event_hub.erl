@@ -79,7 +79,7 @@ fields("post_producer") ->
     ),
     override_documentations(Fields);
 fields("config_bridge_v2") ->
-    fields(bridge_v2);
+    fields(actions);
 fields("config_connector") ->
     Fields = override(
         emqx_bridge_kafka:fields(kafka_connector),
@@ -114,7 +114,7 @@ fields(kafka_message) ->
     Fields0 = emqx_bridge_kafka:fields(kafka_message),
     Fields = proplists:delete(timestamp, Fields0),
     override_documentations(Fields);
-fields(bridge_v2) ->
+fields(actions) ->
     Fields =
         override(
             emqx_bridge_kafka:fields(producer_opts),
@@ -154,7 +154,7 @@ struct_names() ->
         auth_username_password,
         kafka_message,
         producer_kafka_opts,
-        bridge_v2,
+        actions,
         ssl_client_opts
     ].
 

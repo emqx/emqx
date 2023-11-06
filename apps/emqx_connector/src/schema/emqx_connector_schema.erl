@@ -62,7 +62,7 @@ enterprise_fields_connectors() -> [].
 connector_type_to_bridge_types(kafka_producer) -> [kafka, kafka_producer];
 connector_type_to_bridge_types(azure_event_hub_producer) -> [azure_event_hub_producer].
 
-actions_config_name() -> <<"bridges_v2">>.
+actions_config_name() -> <<"actions">>.
 
 has_connector_field(BridgeConf, ConnectorFields) ->
     lists:any(
@@ -83,7 +83,7 @@ bridge_configs_to_transform(
         true ->
             PreviousRawConfig =
                 emqx_utils_maps:deep_get(
-                    [<<"bridges_v2">>, to_bin(BridgeType), to_bin(BridgeName)],
+                    [<<"actions">>, to_bin(BridgeType), to_bin(BridgeName)],
                     RawConfig,
                     undefined
                 ),
@@ -201,7 +201,7 @@ transform_old_style_bridges_to_connector_and_actions_of_type(
                 [<<"bridges">>, to_bin(BridgeType), BridgeName],
                 RawConfigSoFar1
             ),
-            %% Add bridge_v2
+            %% Add action
             RawConfigSoFar3 = emqx_utils_maps:deep_put(
                 [actions_config_name(), to_bin(maybe_rename(BridgeType)), BridgeName],
                 RawConfigSoFar2,

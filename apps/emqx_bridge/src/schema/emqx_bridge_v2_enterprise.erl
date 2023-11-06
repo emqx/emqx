@@ -31,24 +31,24 @@ schema_modules() ->
         emqx_bridge_azure_event_hub
     ].
 
-fields(bridges_v2) ->
-    bridge_v2_structs().
+fields(actions) ->
+    action_structs().
 
-bridge_v2_structs() ->
+action_structs() ->
     [
         {kafka_producer,
             mk(
                 hoconsc:map(name, ref(emqx_bridge_kafka, kafka_producer_action)),
                 #{
-                    desc => <<"Kafka Producer Bridge V2 Config">>,
+                    desc => <<"Kafka Producer Actions Config">>,
                     required => false
                 }
             )},
         {azure_event_hub_producer,
             mk(
-                hoconsc:map(name, ref(emqx_bridge_azure_event_hub, bridge_v2)),
+                hoconsc:map(name, ref(emqx_bridge_azure_event_hub, actions)),
                 #{
-                    desc => <<"Azure Event Hub Bridge V2 Config">>,
+                    desc => <<"Azure Event Hub Actions Config">>,
                     required => false
                 }
             )}

@@ -1087,7 +1087,7 @@ call_query(QM, Id, Index, Ref, Query, QueryOpts) ->
             ?RESOURCE_ERROR(not_found, "resource not found")
     end.
 
-%% bridge_v2:kafka_producer:myproducer1:connector:kafka_producer:mykakfaclient1
+%% action:kafka_producer:myproducer1:connector:kafka_producer:mykakfaclient1
 extract_connector_id(Id) when is_binary(Id) ->
     case binary:split(Id, <<":">>, [global]) of
         [
