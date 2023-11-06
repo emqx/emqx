@@ -45,7 +45,8 @@
     lookup_cached/1,
     get_metrics/1,
     reset_metrics/1,
-    channel_status_is_channel_added/1
+    channel_status_is_channel_added/1,
+    get_query_mode_and_last_error/2
 ]).
 
 -export([
@@ -75,6 +76,7 @@
     extra
 }).
 -type data() :: #data{}.
+-type channel_status_map() :: #{status := channel_status(), error := term()}.
 
 -define(NAME(ResId), {n, l, {?MODULE, ResId}}).
 -define(REF(ResId), {via, gproc, ?NAME(ResId)}).
@@ -325,6 +327,46 @@ remove_channel(ResId, ChannelId) ->
 
 get_channels(ResId) ->
     safe_call(ResId, get_channels, ?T_OPERATION).
+
+-spec get_query_mode_and_last_error(resource_id(), query_opts()) ->
+    {ok, {query_mode(), LastError}} | {error, not_found}
+when
+    LastError ::
+        unhealthy_target
+        | {unhealthy_target, binary()}
+        | channel_status_map()
+        | term().
+get_query_mode_and_last_error(RequestResId, Opts = #{connector_resource_id := ResId}) ->
+    do_get_query_mode_error(ResId, RequestResId, Opts);
+get_query_mode_and_last_error(RequestResId, Opts) ->
+    do_get_query_mode_error(RequestResId, RequestResId, Opts).
+
+do_get_query_mode_error(ResId, RequestResId, Opts) ->
+    case emqx_resource_manager:lookup_cached(ResId) of
+        {ok, _Group, ResourceData} ->
+            QM = get_query_mode(ResourceData, Opts),
+            Error = get_error(RequestResId, ResourceData),
+            {ok, {QM, Error}};
+        {error, not_found} ->
+            {error, not_found}
+    end.
+
+get_query_mode(_ResourceData, #{query_mode := QM}) ->
+    QM;
+get_query_mode(#{query_mode := QM}, _Opts) ->
+    QM.
+
+get_error(ResId, #{added_channels := #{} = Channels} = ResourceData) when
+    is_map_key(ResId, Channels)
+->
+    case maps:get(ResId, Channels) of
+        #{error := Error} ->
+            Error;
+        _ ->
+            maps:get(error, ResourceData, undefined)
+    end;
+get_error(_ResId, #{error := Error}) ->
+    Error.
 
 %% Server start/stop callbacks
 

@@ -557,11 +557,8 @@ check_topic_status(ClientId, WolffClientPid, KafkaTopic) ->
         ok ->
             ok;
         {error, unknown_topic_or_partition} ->
-            throw(#{
-                error => unknown_kafka_topic,
-                kafka_client_id => ClientId,
-                kafka_topic => KafkaTopic
-            });
+            Msg = iolist_to_binary([<<"Unknown topic or partition: ">>, KafkaTopic]),
+            throw({unhealthy_target, Msg});
         {error, Reason} ->
             throw(#{
                 error => failed_to_check_topic_status,

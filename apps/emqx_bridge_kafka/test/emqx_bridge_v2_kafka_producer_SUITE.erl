@@ -140,6 +140,33 @@ t_local_topic(_) ->
     ok = emqx_connector:remove(?TYPE, test_connector),
     ok.
 
+t_unknown_topic(_Config) ->
+    ConnectorName = <<"test_connector">>,
+    BridgeName = <<"test_bridge">>,
+    BridgeV2Config0 = bridge_v2_config(ConnectorName),
+    BridgeV2Config = emqx_utils_maps:deep_put(
+        [<<"kafka">>, <<"topic">>],
+        BridgeV2Config0,
+        <<"nonexistent">>
+    ),
+    ConnectorConfig = connector_config(),
+    {ok, _} = emqx_connector:create(?TYPE, ConnectorName, ConnectorConfig),
+    {ok, _} = emqx_bridge_v2:create(?TYPE, BridgeName, BridgeV2Config),
+    Payload = <<"will be dropped">>,
+    emqx:publish(emqx_message:make(<<"kafka_t/local">>, Payload)),
+    BridgeV2Id = emqx_bridge_v2:id(?TYPE, BridgeName),
+    ?retry(
+        _Sleep0 = 50,
+        _Attempts0 = 100,
+        begin
+            ?assertEqual(1, emqx_resource_metrics:matched_get(BridgeV2Id)),
+            ?assertEqual(1, emqx_resource_metrics:dropped_get(BridgeV2Id)),
+            ?assertEqual(1, emqx_resource_metrics:dropped_resource_stopped_get(BridgeV2Id)),
+            ok
+        end
+    ),
+    ok.
+
 check_send_message_with_bridge(BridgeName) ->
     %% ######################################
     %% Create Kafka message
