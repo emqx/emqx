@@ -301,7 +301,7 @@ schema("/nodes/:node/actions/:id/:operation") ->
         'operationId' => '/nodes/:node/actions/:id/:operation',
         post => #{
             tags => [<<"actions">>],
-            summary => <<"Manually start a bridge">>,
+            summary => <<"Manually start a bridge on a given node">>,
             description => ?DESC("desc_api8"),
             parameters => [
                 param_path_node(),
