@@ -173,12 +173,14 @@ on_load() ->
     catch
         ErrorType:Reason:Stacktrace ->
             %% Logger may not be started so print to stdout
-            io:format("~p~n", #{
-                'error_type' => ErrorType,
-                'reason' => Reason,
-                'stacktrace' => Stacktrace,
-                'msg' => "Failed to register bridge V2 type"
-            }),
+            io:format("~p~n", [
+                #{
+                    'error_type' => ErrorType,
+                    'reason' => Reason,
+                    'stacktrace' => Stacktrace,
+                    'msg' => "Failed to register bridge V2 type"
+                }
+            ]),
             erlang:raise(ErrorType, Reason, Stacktrace)
     after
         global:del_lock(
