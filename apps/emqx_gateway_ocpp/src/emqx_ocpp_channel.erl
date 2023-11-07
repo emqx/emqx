@@ -86,7 +86,7 @@
     | {event, conn_state() | updated}
     | {close, Reason :: atom()}.
 
--type replies() :: emqx_ocpp_frame:frame() | reply() | [reply()].
+-type replies() :: reply() | [reply()].
 
 -define(TIMER_TABLE, #{
     alive_timer => keepalive
@@ -203,7 +203,7 @@ stats(#channel{mqueue = MQueue}) ->
 %% Init the channel
 %%--------------------------------------------------------------------
 
--spec init(emqx_types:conninfo(), proplists:proplist()) -> channel().
+-spec init(emqx_types:conninfo(), map()) -> channel().
 init(
     ConnInfo = #{
         peername := {PeerHost, _Port},
@@ -554,13 +554,14 @@ handle_call(Req, From, Channel) ->
 %%--------------------------------------------------------------------
 %% Handle Cast
 %%--------------------------------------------------------------------
+
 -spec handle_cast(Req :: any(), channel()) ->
     ok
     | {ok, channel()}
     | {shutdown, Reason :: term(), channel()}.
 handle_cast(Req, Channel) ->
     ?SLOG(error, #{msg => "unexpected_cast", req => Req}),
-    {noreply, Channel}.
+    {ok, Channel}.
 
 %%--------------------------------------------------------------------
 %% Handle Info
