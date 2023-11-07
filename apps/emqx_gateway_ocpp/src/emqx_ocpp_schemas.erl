@@ -32,7 +32,7 @@ load() ->
         disable ->
             ok;
         _ ->
-            case feedvar(emqx_ocpp_conf:get_env(json_schema_dir)) of
+            case feedvar(emqx_config:get([gateway, ocpp, json_schema_dir])) of
                 undefined ->
                     ok;
                 Dir ->
@@ -94,11 +94,11 @@ feedvar(Path) ->
     ).
 
 schema_id(?OCPP_MSG_TYPE_ID_CALL, Action) when is_binary(Action) ->
-    emqx_ocpp_conf:get_env(json_schema_id_prefix) ++
+    emqx_config:get([gateway, ocpp, json_schema_id_prefix]) ++
         binary_to_list(Action) ++
         "Request";
 schema_id(?OCPP_MSG_TYPE_ID_CALLRESULT, Action) when is_binary(Action) ->
-    emqx_ocpp_conf:get_env(json_schema_id_prefix) ++
+    emqx_config:get([gateway, ocpp, json_schema_id_prefix]) ++
         binary_to_list(Action) ++
         "Response".
 

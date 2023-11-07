@@ -204,13 +204,13 @@ call(WsPid, Req, Timeout) when is_pid(WsPid) ->
 
 init(Req, Opts) ->
     %% WS Transport Idle Timeout
-    IdleTimeout = proplists:get_value(idle_timeout, Opts, 7200000),
+    IdleTimeout = maps:get(idle_timeout, Opts, 7200000),
     MaxFrameSize =
-        case proplists:get_value(max_frame_size, Opts, 0) of
+        case maps:get(max_frame_size, Opts, 0) of
             0 -> infinity;
             I -> I
         end,
-    Compress = proplists:get_bool(compress, Opts),
+    Compress = emqx_utils_maps:deep_get([websocket, compress], Opts),
     WsOpts = #{
         compress => Compress,
         max_frame_size => MaxFrameSize,
@@ -270,7 +270,7 @@ init_state_and_channel([Req, Opts, _WsOpts], _State = undefined) ->
     },
     Limiter = undeined,
     ActiveN = emqx_gateway_utils:active_n(Opts),
-    Piggyback = proplists:get_value(piggyback, Opts, multiple),
+    Piggyback = emqx_utils_maps:deep_get([websocket, piggyback], Opts, multiple),
     ParseState = emqx_ocpp_frame:initial_parse_state(#{}),
     Serialize = emqx_ocpp_frame:serialize_opts(),
     Channel = emqx_ocpp_channel:init(ConnInfo, Opts),
@@ -303,7 +303,7 @@ init_state_and_channel([Req, Opts, _WsOpts], _State = undefined) ->
 
 peername_and_cert(Req, Opts) ->
     case
-        proplists:get_bool(proxy_protocol, Opts) andalso
+        maps:get(proxy_protocol, Opts, false) andalso
             maps:get(proxy_header, Req)
     of
         #{src_address := SrcAddr, src_port := SrcPort, ssl := SSL} ->
@@ -323,8 +323,8 @@ peername_and_cert(Req, Opts) ->
     end.
 
 parse_sec_websocket_protocol([Req, Opts, WsOpts], State) ->
-    SupportedSubprotocols = proplists:get_value(supported_subprotocols, Opts),
-    FailIfNoSubprotocol = proplists:get_value(fail_if_no_subprotocol, Opts),
+    SupportedSubprotocols = emqx_utils_maps:deep_get([websocket, supported_subprotocols], Opts),
+    FailIfNoSubprotocol = emqx_utils_maps:deep_get([websocket, fail_if_no_subprotocol], Opts),
     case cowboy_req:parse_header(<<"sec-websocket-protocol">>, Req) of
         undefined ->
             case FailIfNoSubprotocol of
@@ -402,7 +402,7 @@ auth_connect([Req, Opts, _WsOpts], State = #state{channel = Channel}) ->
     end.
 
 parse_clientid(Req, Opts) ->
-    PathPrefix = proplists:get_value(ocpp_path, Opts),
+    PathPrefix = emqx_utils_maps:deep_get([websocket, path], Opts),
     [_, ClientId0] = binary:split(
         cowboy_req:path(Req),
         iolist_to_binary(PathPrefix ++ "/")
@@ -426,12 +426,12 @@ parse_protocol_name(<<"ocpp1.6">>) ->
 parse_header_fun_origin(Req, Opts) ->
     case cowboy_req:header(<<"origin">>, Req) of
         undefined ->
-            case proplists:get_bool(allow_origin_absence, Opts) of
+            case emqx_utils_maps:deep_get([websocket, allow_origin_absence], Opts) of
                 true -> ok;
                 false -> {error, origin_header_cannot_be_absent}
             end;
         Value ->
-            Origins = proplists:get_value(check_origins, Opts, []),
+            Origins = emqx_utils_maps:deep_get([websocket, check_origins], Opts, []),
             case lists:member(Value, Origins) of
                 true -> ok;
                 false -> {error, {origin_not_allowed, Value}}
@@ -439,7 +439,7 @@ parse_header_fun_origin(Req, Opts) ->
     end.
 
 check_origin_header(Req, Opts) ->
-    case proplists:get_bool(check_origin_enable, Opts) of
+    case emqx_utils_maps:deep_get([websocket, check_origin_enable], Opts) of
         true -> parse_header_fun_origin(Req, Opts);
         false -> ok
     end.
@@ -547,9 +547,15 @@ handle_info({connack, ConnAck}, State) ->
 handle_info({close, Reason}, State) ->
     ?SLOG(debug, #{msg => "force_to_close_socket", reason => Reason}),
     return(enqueue({close, Reason}, State));
-handle_info({event, connected}, State = #state{channel = Channel}) ->
-    ClientId = emqx_ocpp_channel:info(clientid, Channel),
-    emqx_cm:insert_channel_info(ClientId, info(State), stats(State)),
+handle_info({event, connected}, State = #state{chann_mod = ChannMod, channel = Channel}) ->
+    Ctx = ChannMod:info(ctx, Channel),
+    ClientId = ChannMod:info(clientid, Channel),
+    emqx_gateway_ctx:insert_channel_info(
+        Ctx,
+        ClientId,
+        info(State),
+        stats(State)
+    ),
     return(State);
 handle_info({event, disconnected}, State = #state{chann_mod = ChannMod, channel = Channel}) ->
     Ctx = ChannMod:info(ctx, Channel),
@@ -577,12 +583,14 @@ handle_timeout(
     TRef,
     emit_stats,
     State = #state{
+        chann_mod = ChannMod,
         channel = Channel,
         stats_timer = TRef
     }
 ) ->
-    ClientId = emqx_ocpp_channel:info(clientid, Channel),
-    emqx_cm:set_chan_stats(ClientId, stats(State)),
+    Ctx = ChannMod:info(ctx, Channel),
+    ClientId = ChannMod:info(clientid, Channel),
+    emqx_gateway_ctx:set_chan_stats(Ctx, ClientId, stats(State)),
     return(State#state{stats_timer = undefined});
 handle_timeout(TRef, TMsg, State) ->
     with_channel(handle_timeout, [TRef, TMsg], State).
@@ -852,7 +860,9 @@ trigger(Event) -> erlang:send(self(), Event).
 
 get_peer(Req, Opts) ->
     {PeerAddr, PeerPort} = cowboy_req:peer(Req),
-    AddrHeader = cowboy_req:header(proplists:get_value(proxy_address_header, Opts), Req, <<>>),
+    AddrHeader = cowboy_req:header(
+        emqx_utils_maps:deep_get([websocket, proxy_address_header], Opts), Req, <<>>
+    ),
     ClientAddr =
         case string:tokens(binary_to_list(AddrHeader), ", ") of
             [] ->
@@ -867,7 +877,9 @@ get_peer(Req, Opts) ->
             _ ->
                 PeerAddr
         end,
-    PortHeader = cowboy_req:header(proplists:get_value(proxy_port_header, Opts), Req, <<>>),
+    PortHeader = cowboy_req:header(
+        emqx_utils_maps:deep_get([websocket, proxy_port_header], Opts), Req, <<>>
+    ),
     ClientPort =
         case string:tokens(binary_to_list(PortHeader), ", ") of
             [] ->

@@ -245,8 +245,6 @@ filter_out_low_level_opts(Type, RawCfg = #{gw_conf := Conf0}) when ?IS_ESOCKD_LI
         acceptors,
         max_connections,
         max_conn_rate,
-        proxy_protocol,
-        proxy_protocol_timeout,
         tcp_options,
         ssl_options,
         udp_options,
@@ -261,13 +259,10 @@ filter_out_low_level_opts(Type, RawCfg = #{gw_conf := Conf0}) when ?IS_COWBOY_LI
         acceptors,
         max_connections,
         max_conn_rate,
-        proxy_protocol,
-        proxy_protocol_timeout,
         tcp_options,
         ssl_options,
         udp_options,
-        dtls_options,
-        websocket
+        dtls_options
     ],
     Conf1 = maps:without(CowboyKeys, RawCfg),
     maps:merge(Conf0, Conf1).
@@ -536,7 +531,7 @@ ranch_opts(Type, ListenOn, Opts) ->
 ws_opts(Opts, Conf) ->
     ConnMod = maps:get(connection_mod, Conf, emqx_gateway_conn),
     WsPaths = [
-        {emqx_utils_maps:deep_get([websocket, path], Opts, "/"), ConnMod, Conf}
+        {emqx_utils_maps:deep_get([websocket, path], Opts, "") ++ "/[...]", ConnMod, Conf}
     ],
     Dispatch = cowboy_router:compile([{'_', WsPaths}]),
     ProxyProto = maps:get(proxy_protocol, Opts, false),

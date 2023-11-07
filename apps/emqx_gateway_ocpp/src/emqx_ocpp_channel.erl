@@ -63,7 +63,7 @@
     %% ClientInfo
     clientinfo :: emqx_types:clientinfo(),
     %% Session
-    session :: maybe(emqx_session:session()),
+    session :: maybe(map()),
     %% ClientInfo override specs
     clientinfo_override :: map(),
     %% Keepalive
@@ -163,18 +163,41 @@ info(clientid, #channel{clientinfo = ClientInfo}) ->
     maps:get(clientid, ClientInfo, undefined);
 info(username, #channel{clientinfo = ClientInfo}) ->
     maps:get(username, ClientInfo, undefined);
-info(session, #channel{session = Session}) ->
-    emqx_utils:maybe_apply(fun emqx_session:info/1, Session);
+info(session, #channel{conninfo = ConnInfo}) ->
+    %% XXX:
+    #{
+        created_at => maps:get(connected_at, ConnInfo, undefined),
+        is_persistent => false,
+        subscriptions => #{},
+        upgrade_qos => false,
+        retry_interval => 0,
+        await_rel_timeout => 0
+    };
 info(conn_state, #channel{conn_state = ConnState}) ->
     ConnState;
 info(keepalive, #channel{keepalive = Keepalive}) ->
     emqx_utils:maybe_apply(fun emqx_ocpp_keepalive:info/1, Keepalive);
+info(ctx, #channel{ctx = Ctx}) ->
+    Ctx;
 info(timers, #channel{timers = Timers}) ->
     Timers.
 
 -spec stats(channel()) -> emqx_types:stats().
-stats(#channel{session = Session}) ->
-    lists:append(emqx_session:stats(Session), emqx_pd:get_counters(?CHANNEL_METRICS)).
+stats(#channel{mqueue = MQueue}) ->
+    %% XXX:
+    SessionStats = [
+        {subscriptions_cnt, 0},
+        {subscriptions_max, 0},
+        {inflight_cnt, 0},
+        {inflight_max, 0},
+        {mqueue_len, queue:len(MQueue)},
+        {mqueue_max, queue:len(MQueue)},
+        {mqueue_dropped, 0},
+        {next_pkt_id, 0},
+        {awaiting_rel_cnt, 0},
+        {awaiting_rel_max, 0}
+    ],
+    lists:append(SessionStats, emqx_pd:get_counters(?CHANNEL_METRICS)).
 
 %%--------------------------------------------------------------------
 %% Init the channel
@@ -300,9 +323,9 @@ enrich_client(
 
 fix_mountpoint(ClientInfo = #{mountpoint := undefined}) ->
     ClientInfo;
-fix_mountpoint(ClientInfo = #{mountpoint := MountPoint}) ->
-    MountPoint1 = emqx_mountpoint:replvar(MountPoint, ClientInfo),
-    ClientInfo#{mountpoint := MountPoint1}.
+fix_mountpoint(ClientInfo = #{mountpoint := Mountpoint}) ->
+    Mountpoint1 = emqx_mountpoint:replvar(Mountpoint, ClientInfo),
+    ClientInfo#{mountpoint := Mountpoint1}.
 
 set_log_meta(#channel{
     clientinfo = #{clientid := ClientId},
@@ -353,14 +376,16 @@ publish(
                 clientid := ClientId,
                 username := Username,
                 protocol := Protocol,
-                peerhost := PeerHost
+                peerhost := PeerHost,
+                mountpoint := Mountpoint
             },
         conninfo = #{proto_ver := ProtoVer}
     }
 ) when
     is_map(Frame)
 ->
-    Topic = upstream_topic(Frame, Channel),
+    Topic0 = upstream_topic(Frame, Channel),
+    Topic = emqx_mountpoint:mount(Mountpoint, Topic0),
     Payload = frame2payload(Frame),
     emqx_broker:publish(
         emqx_message:make(
@@ -386,14 +411,14 @@ upstream_topic(
     case Type of
         ?OCPP_MSG_TYPE_ID_CALL ->
             Action = maps:get(action, Frame),
-            emqx_placeholder:proc_tmpl(
+            proc_tmpl(
                 emqx_ocpp_conf:uptopic(Action),
                 Vars#{action => Action}
             );
         ?OCPP_MSG_TYPE_ID_CALLRESULT ->
-            emqx_placeholder:proc_tmpl(emqx_ocpp_conf:up_reply_topic(), Vars);
+            proc_tmpl(emqx_ocpp_conf:up_reply_topic(), Vars);
         ?OCPP_MSG_TYPE_ID_CALLERROR ->
-            emqx_placeholder:proc_tmpl(emqx_ocpp_conf:up_error_topic(), Vars)
+            proc_tmpl(emqx_ocpp_conf:up_error_topic(), Vars)
     end.
 
 %%--------------------------------------------------------------------
@@ -589,27 +614,20 @@ process_connect(
     end.
 
 ensure_subscribe_dn_topics(
-    Channel = #channel{
-        clientinfo = #{clientid := ClientId} = ClientInfo,
-        session = Session
-    }
+    Channel = #channel{clientinfo = #{clientid := ClientId, mountpoint := Mountpoint} = ClientInfo}
 ) ->
-    TopicTokens = emqx_ocpp_conf:dntopic(),
     SubOpts = #{rh => 0, rap => 0, nl => 0, qos => ?QOS_1},
-    Topic = emqx_placeholder:proc_tmpl(
-        TopicTokens,
+    Topic0 = proc_tmpl(
+        emqx_ocpp_conf:dntopic(),
         #{
             clientid => ClientId,
             cid => ClientId
         }
     ),
-    {ok, NSession} = emqx_session:subscribe(
-        ClientInfo,
-        Topic,
-        SubOpts,
-        Session
-    ),
-    Channel#channel{session = NSession}.
+    Topic = emqx_mountpoint:mount(Mountpoint, Topic0),
+    ok = emqx_broker:subscribe(Topic, ClientId, SubOpts),
+    ok = emqx_hooks:run('session.subscribed', [ClientInfo, Topic, SubOpts]),
+    Channel.
 
 %%--------------------------------------------------------------------
 %% Handle timeout
@@ -694,10 +712,8 @@ terminate({shutdown, Reason}, Channel) when
 terminate(Reason, Channel) ->
     run_terminate_hook(Reason, Channel).
 
-run_terminate_hook(_Reason, #channel{session = undefined}) ->
-    ok;
-run_terminate_hook(Reason, #channel{clientinfo = ClientInfo, session = Session}) ->
-    emqx_session:terminate(ClientInfo, Reason, Session).
+run_terminate_hook(Reason, Channel = #channel{clientinfo = ClientInfo}) ->
+    emqx_hooks:run('session.terminated', [ClientInfo, Reason, info(session, Channel)]).
 
 %%--------------------------------------------------------------------
 %% Internal functions
@@ -795,12 +811,11 @@ ensure_disconnected(
     Reason,
     Channel = #channel{
         conninfo = ConnInfo,
-        clientinfo = ClientInfo = #{clientid := ClientId}
+        clientinfo = ClientInfo
     }
 ) ->
     NConnInfo = ConnInfo#{disconnected_at => erlang:system_time(millisecond)},
     ok = run_hooks('client.disconnected', [ClientInfo, Reason, NConnInfo]),
-    emqx_cm:unregister_channel(ClientId),
     Channel#channel{conninfo = NConnInfo, conn_state = disconnected}.
 
 %%--------------------------------------------------------------------
@@ -864,6 +879,10 @@ shutdown(success, Reply, Channel) ->
     shutdown(normal, Reply, Channel);
 shutdown(Reason, Reply, Channel) ->
     {shutdown, Reason, Reply, Channel}.
+
+proc_tmpl(Tmpl, Vars) ->
+    Tokens = emqx_placeholder:preproc_tmpl(Tmpl),
+    emqx_placeholder:proc_tmpl(Tokens, Vars).
 
 %%--------------------------------------------------------------------
 %% For CT tests
