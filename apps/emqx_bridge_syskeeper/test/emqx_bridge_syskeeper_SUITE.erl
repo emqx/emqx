@@ -13,7 +13,8 @@
 
 -define(HOST, "127.0.0.1").
 -define(PORT, 9092).
--define(ACK_TIMEOUT, <<"3s">>).
+-define(ACK_TIMEOUT, 2000).
+-define(HANDSHAKE_TIMEOUT, 10000).
 -define(SYSKEEPER_NAME, <<"syskeeper">>).
 -define(SYSKEEPER_PROXY_NAME, <<"syskeeper_proxy">>).
 -define(BATCH_SIZE, 3).
@@ -32,7 +33,13 @@ all() ->
 
 groups() ->
     TCs = emqx_common_test_helpers:all(?MODULE),
-    Lifecycle = [t_setup_via_config, t_setup_via_http_api, t_get_status],
+    Lifecycle = [
+        t_setup_proxy_via_config,
+        t_setup_proxy_via_http_api,
+        t_setup_forwarder_via_config,
+        t_setup_forwarder_via_http_api,
+        t_get_status
+    ],
     Write = TCs -- Lifecycle,
     BatchingGroups = [{group, with_batch}, {group, without_batch}],
     [
@@ -58,14 +65,21 @@ end_per_group(_Group, _Config) ->
     ok.
 
 init_per_suite(Config) ->
-    ok = emqx_common_test_helpers:start_apps([emqx_conf, emqx_bridge, emqx_bridge_syskeeper]),
+    ok = emqx_common_test_helpers:start_apps([
+        emqx_conf,
+        emqx_connector,
+        emqx_bridge,
+        emqx_bridge_syskeeper
+    ]),
     _ = emqx_bridge_enterprise:module_info(),
     emqx_mgmt_api_test_util:init_suite(),
     Config.
 
 end_per_suite(_Config) ->
     emqx_mgmt_api_test_util:end_suite(),
-    ok = emqx_common_test_helpers:stop_apps([emqx_bridge, emqx_conf]).
+    ok = emqx_common_test_helpers:stop_apps([
+        emqx_bridge_syskeeper, emqx_bridge, emqx_connector, emqx_conf
+    ]).
 
 init_per_testcase(_Testcase, Config) ->
     snabbkaffe:start_trace(),
@@ -73,15 +87,15 @@ init_per_testcase(_Testcase, Config) ->
 
 end_per_testcase(_Testcase, _Config) ->
     ok = snabbkaffe:stop(),
-    delete_bridge(syskeeper, ?SYSKEEPER_NAME),
-    delete_bridge(syskeeper_proxy, ?SYSKEEPER_PROXY_NAME),
+    delete_bridge(syskeeper_forwarder, ?SYSKEEPER_NAME),
+    delete_connectors(syskeeper_forwarder, ?SYSKEEPER_NAME),
+    delete_connectors(syskeeper_proxy, ?SYSKEEPER_PROXY_NAME),
     ok.
 
 %%------------------------------------------------------------------------------
 %% Helper fns
 %%------------------------------------------------------------------------------
 syskeeper_config(Config) ->
-    AckMode = proplists:get_value(ack_mode, Config, no_ack),
     BatchSize =
         case proplists:get_value(enable_batch, Config, false) of
             true -> ?BATCH_SIZE;
@@ -89,82 +103,126 @@ syskeeper_config(Config) ->
         end,
     ConfigString =
         io_lib:format(
-            "bridges.~s.~s {\n"
+            "actions.~s.~s {\n"
             "  enable = true\n"
-            "  server = \"~ts\"\n"
-            "  ack_mode = ~p\n"
-            "  ack_timeout = \"~ts\"\n"
+            "  connector = ~ts\n"
             "  resource_opts = {\n"
             "    request_ttl = 500ms\n"
             "    batch_size = ~b\n"
             "  }\n"
             "}",
             [
-                syskeeper,
+                syskeeper_forwarder,
                 ?SYSKEEPER_NAME,
-                server(),
-                AckMode,
-                ?ACK_TIMEOUT,
+                ?SYSKEEPER_NAME,
                 BatchSize
             ]
         ),
-    {?SYSKEEPER_NAME, parse_and_check(ConfigString, syskeeper, ?SYSKEEPER_NAME)}.
+    {?SYSKEEPER_NAME, parse_bridge_and_check(ConfigString, syskeeper_forwarder, ?SYSKEEPER_NAME)}.
+
+syskeeper_connector_config(Config) ->
+    AckMode = proplists:get_value(ack_mode, Config, no_ack),
+    ConfigString =
+        io_lib:format(
+            "connectors.~s.~s {\n"
+            "  enable = true\n"
+            "  server = \"~ts\"\n"
+            "  ack_mode = ~p\n"
+            "  ack_timeout = ~p\n"
+            "  pool_size = 1\n"
+            "}",
+            [
+                syskeeper_forwarder,
+                ?SYSKEEPER_NAME,
+                server(),
+                AckMode,
+                ?ACK_TIMEOUT
+            ]
+        ),
+    {?SYSKEEPER_NAME,
+        parse_connectors_and_check(ConfigString, syskeeper_forwarder, ?SYSKEEPER_NAME)}.
 
 syskeeper_proxy_config(_Config) ->
     ConfigString =
         io_lib:format(
-            "bridges.~s.~s {\n"
+            "connectors.~s.~s {\n"
             "  enable = true\n"
             "  listen = \"~ts\"\n"
             "  acceptors = 1\n"
+            "  handshake_timeout = ~p\n"
             "}",
             [
                 syskeeper_proxy,
                 ?SYSKEEPER_PROXY_NAME,
-                server()
+                server(),
+                ?HANDSHAKE_TIMEOUT
             ]
         ),
-    {?SYSKEEPER_PROXY_NAME, parse_and_check(ConfigString, syskeeper_proxy, ?SYSKEEPER_PROXY_NAME)}.
+    {?SYSKEEPER_PROXY_NAME,
+        parse_connectors_and_check(ConfigString, syskeeper_proxy, ?SYSKEEPER_PROXY_NAME)}.
 
-parse_and_check(ConfigString, BridgeType0, Name) ->
-    BridgeType = to_bin(BridgeType0),
-    ct:pal("ConfigString:~ts~n", [ConfigString]),
+parse_and_check(ConfigString, SchemaMod, RootKey, Type0, Name) ->
+    Type = to_bin(Type0),
     {ok, RawConf} = hocon:binary(ConfigString, #{format => map}),
-    hocon_tconf:check_plain(emqx_bridge_schema, RawConf, #{required => false, atom_key => false}),
-    #{<<"bridges">> := #{BridgeType := #{Name := Config}}} = RawConf,
+    hocon_tconf:check_plain(SchemaMod, RawConf, #{required => false, atom_key => false}),
+    #{RootKey := #{Type := #{Name := Config}}} = RawConf,
     Config.
 
+parse_bridge_and_check(ConfigString, BridgeType, Name) ->
+    parse_and_check(ConfigString, emqx_bridge_schema, <<"actions">>, BridgeType, Name).
+
+parse_connectors_and_check(ConfigString, ConnectorType, Name) ->
+    Config = parse_and_check(
+        ConfigString, emqx_connector_schema, <<"connectors">>, ConnectorType, Name
+    ),
+    emqx_utils_maps:safe_atom_key_map(Config).
+
 create_bridge(Type, Name, Conf) ->
-    emqx_bridge:create(Type, Name, Conf).
+    emqx_bridge_v2:create(Type, Name, Conf).
 
 delete_bridge(Type, Name) ->
-    emqx_bridge:remove(Type, Name).
+    emqx_bridge_v2:remove(Type, Name).
 
 create_both_bridge(Config) ->
     {ProxyName, ProxyConf} = syskeeper_proxy_config(Config),
-    ?assertMatch(
-        {ok, _},
-        create_bridge(syskeeper_proxy, ProxyName, ProxyConf)
-    ),
+    {ConnectorName, ConnectorConf} = syskeeper_connector_config(Config),
     {Name, Conf} = syskeeper_config(Config),
     ?assertMatch(
         {ok, _},
-        create_bridge(syskeeper, Name, Conf)
-    ).
+        create_connectors(syskeeper_proxy, ProxyName, ProxyConf)
+    ),
+    timer:sleep(1000),
+    ?assertMatch(
+        {ok, _},
+        create_connectors(syskeeper_forwarder, ConnectorName, ConnectorConf)
+    ),
+    timer:sleep(1000),
+    ?assertMatch({ok, _}, create_bridge(syskeeper_forwarder, Name, Conf)).
 
 create_bridge_http(Params) ->
-    Path = emqx_mgmt_api_test_util:api_path(["bridges"]),
+    call_create_http("actions", Params).
+
+create_connectors_http(Params) ->
+    call_create_http("connectors", Params).
+
+call_create_http(Root, Params) ->
+    Path = emqx_mgmt_api_test_util:api_path([Root]),
     AuthHeader = emqx_mgmt_api_test_util:auth_header_(),
     case emqx_mgmt_api_test_util:request_api(post, Path, "", AuthHeader, Params) of
         {ok, Res} -> {ok, emqx_utils_json:decode(Res, [return_maps])};
         Error -> Error
     end.
 
+create_connectors(Type, Name, Conf) ->
+    emqx_connector:create(Type, Name, Conf).
+
+delete_connectors(Type, Name) ->
+    emqx_connector:remove(Type, Name).
+
 send_message(_Config, Payload) ->
     Name = ?SYSKEEPER_NAME,
-    BridgeType = syskeeper,
-    BridgeID = emqx_bridge_resource:bridge_id(BridgeType, Name),
-    emqx_bridge:send_message(BridgeID, Payload).
+    BridgeType = syskeeper_forwarder,
+    emqx_bridge_v2:send_message(BridgeType, Name, Payload, #{}).
 
 to_bin(List) when is_list(List) ->
     unicode:characters_to_binary(List, utf8);
@@ -197,23 +255,23 @@ receive_msg() ->
 %%------------------------------------------------------------------------------
 %% Testcases
 %%------------------------------------------------------------------------------
-t_setup_via_config(Config) ->
+t_setup_proxy_via_config(Config) ->
     {Name, Conf} = syskeeper_proxy_config(Config),
     ?assertMatch(
         {ok, _},
-        create_bridge(syskeeper_proxy, Name, Conf)
+        create_connectors(syskeeper_proxy, Name, Conf)
     ),
     ?assertMatch(
         X when is_pid(X),
         esockd:listener({emqx_bridge_syskeeper_proxy_server, {?HOST, ?PORT}})
     ),
-    delete_bridge(syskeeper_proxy, Name),
+    delete_connectors(syskeeper_proxy, Name),
     ?assertError(
         not_found,
         esockd:listener({emqx_bridge_syskeeper_proxy_server, {?HOST, ?PORT}})
     ).
 
-t_setup_via_http_api(Config) ->
+t_setup_proxy_via_http_api(Config) ->
     {Name, ProxyConf0} = syskeeper_proxy_config(Config),
     ProxyConf = ProxyConf0#{
         <<"name">> => Name,
@@ -221,7 +279,7 @@ t_setup_via_http_api(Config) ->
     },
     ?assertMatch(
         {ok, _},
-        create_bridge_http(ProxyConf)
+        create_connectors_http(ProxyConf)
     ),
 
     ?assertMatch(
@@ -229,29 +287,64 @@ t_setup_via_http_api(Config) ->
         esockd:listener({emqx_bridge_syskeeper_proxy_server, {?HOST, ?PORT}})
     ),
 
-    delete_bridge(syskeeper_proxy, Name),
+    delete_connectors(syskeeper_proxy, Name),
 
     ?assertError(
         not_found,
         esockd:listener({emqx_bridge_syskeeper_proxy_server, {?HOST, ?PORT}})
     ).
 
+t_setup_forwarder_via_config(Config) ->
+    {ConnectorName, ConnectorConf} = syskeeper_connector_config(Config),
+    {Name, Conf} = syskeeper_config(Config),
+    ?assertMatch(
+        {ok, _},
+        create_connectors(syskeeper_forwarder, ConnectorName, ConnectorConf)
+    ),
+    ?assertMatch({ok, _}, create_bridge(syskeeper_forwarder, Name, Conf)).
+
+t_setup_forwarder_via_http_api(Config) ->
+    {ConnectorName, ConnectorConf0} = syskeeper_connector_config(Config),
+    {Name, Conf0} = syskeeper_config(Config),
+
+    ConnectorConf = ConnectorConf0#{
+        <<"name">> => ConnectorName,
+        <<"type">> => syskeeper_forwarder
+    },
+
+    Conf = Conf0#{
+        <<"name">> => Name,
+        <<"type">> => syskeeper_forwarder
+    },
+
+    ?assertMatch(
+        {ok, _},
+        create_connectors_http(ConnectorConf)
+    ),
+
+    ?assertMatch(
+        {ok, _},
+        create_bridge_http(Conf)
+    ).
+
 t_get_status(Config) ->
     create_both_bridge(Config),
-    SyskeeperId = emqx_bridge_resource:resource_id(syskeeper, ?SYSKEEPER_NAME),
-    ProxyId = emqx_bridge_resource:resource_id(syskeeper_proxy, ?SYSKEEPER_PROXY_NAME),
-    ?assertEqual({ok, connected}, emqx_resource_manager:health_check(SyskeeperId)),
-    ?assertEqual({ok, connected}, emqx_resource_manager:health_check(ProxyId)),
-    delete_bridge(syskeeper_proxy, ?SYSKEEPER_PROXY_NAME),
+    ?assertMatch(
+        #{status := connected}, emqx_bridge_v2:health_check(syskeeper_forwarder, ?SYSKEEPER_NAME)
+    ),
+    delete_connectors(syskeeper_proxy, ?SYSKEEPER_PROXY_NAME),
     ?retry(
         _Sleep = 500,
         _Attempts = 10,
-        ?assertMatch({ok, connecting}, emqx_resource_manager:health_check(SyskeeperId))
+        ?assertMatch(
+            #{status := connecting},
+            emqx_bridge_v2:health_check(syskeeper_forwarder, ?SYSKEEPER_NAME)
+        )
     ).
 
 t_write_failure(Config) ->
     create_both_bridge(Config),
-    delete_bridge(syskeeper_proxy, ?SYSKEEPER_PROXY_NAME),
+    delete_connectors(syskeeper_proxy, ?SYSKEEPER_PROXY_NAME),
     SentData = make_message(),
     Result =
         ?wait_async_action(

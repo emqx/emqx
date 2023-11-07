@@ -804,7 +804,9 @@ bridge_v2_type_to_connector_type(kafka) ->
 bridge_v2_type_to_connector_type(kafka_producer) ->
     kafka_producer;
 bridge_v2_type_to_connector_type(azure_event_hub_producer) ->
-    azure_event_hub_producer.
+    azure_event_hub_producer;
+bridge_v2_type_to_connector_type(syskeeper_forwarder) ->
+    syskeeper_forwarder.
 
 %%====================================================================
 %% Data backup API
@@ -1031,7 +1033,9 @@ bridge_v1_type_to_bridge_v2_type(kafka) ->
 bridge_v1_type_to_bridge_v2_type(kafka_producer) ->
     kafka_producer;
 bridge_v1_type_to_bridge_v2_type(azure_event_hub_producer) ->
-    azure_event_hub_producer.
+    azure_event_hub_producer;
+bridge_v1_type_to_bridge_v2_type(syskeeper_forwarder) ->
+    syskeeper_forwarder.
 
 %% This function should return true for all inputs that are bridge V1 types for
 %% bridges that have been refactored to bridge V2s, and for all all bridge V2
@@ -1043,6 +1047,8 @@ is_bridge_v2_type(<<"kafka_producer">>) ->
 is_bridge_v2_type(<<"kafka">>) ->
     true;
 is_bridge_v2_type(<<"azure_event_hub_producer">>) ->
+    true;
+is_bridge_v2_type(<<"syskeeper_forwarder">>) ->
     true;
 is_bridge_v2_type(_) ->
     false.

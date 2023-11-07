@@ -50,9 +50,7 @@ api_schemas(Method) ->
         api_ref(emqx_bridge_rabbitmq, <<"rabbitmq">>, Method),
         api_ref(emqx_bridge_kinesis, <<"kinesis_producer">>, Method ++ "_producer"),
         api_ref(emqx_bridge_greptimedb, <<"greptimedb">>, Method ++ "_grpc_v1"),
-        api_ref(emqx_bridge_azure_event_hub, <<"azure_event_hub_producer">>, Method ++ "_producer"),
-        api_ref(emqx_bridge_syskeeper, <<"syskeeper">>, Method),
-        api_ref(emqx_bridge_syskeeper_proxy, <<"syskeeper_proxy">>, Method)
+        api_ref(emqx_bridge_azure_event_hub, <<"azure_event_hub_producer">>, Method ++ "_producer")
     ].
 
 schema_modules() ->
@@ -80,9 +78,7 @@ schema_modules() ->
         emqx_bridge_rabbitmq,
         emqx_bridge_kinesis,
         emqx_bridge_greptimedb,
-        emqx_bridge_azure_event_hub,
-        emqx_bridge_syskeeper,
-        emqx_bridge_syskeeper_proxy
+        emqx_bridge_azure_event_hub
     ].
 
 examples(Method) ->
@@ -130,9 +126,7 @@ resource_type(rabbitmq) -> emqx_bridge_rabbitmq_connector;
 resource_type(kinesis_producer) -> emqx_bridge_kinesis_impl_producer;
 resource_type(greptimedb) -> emqx_bridge_greptimedb_connector;
 %% We use AEH's Kafka interface.
-resource_type(azure_event_hub_producer) -> emqx_bridge_kafka_impl_producer;
-resource_type(syskeeper) -> emqx_bridge_syskeeper_connector;
-resource_type(syskeeper_proxy) -> emqx_bridge_syskeeper_proxy_server.
+resource_type(azure_event_hub_producer) -> emqx_bridge_kafka_impl_producer.
 
 %% For bridges that need to override connector configurations.
 bridge_impl_module(BridgeType) when is_binary(BridgeType) ->
@@ -221,8 +215,7 @@ fields(bridges) ->
         influxdb_structs() ++
         redis_structs() ++
         pgsql_structs() ++ clickhouse_structs() ++ sqlserver_structs() ++ rabbitmq_structs() ++
-        kinesis_structs() ++ greptimedb_structs() ++ azure_event_hub_structs() ++
-        syskeeper_structs().
+        kinesis_structs() ++ greptimedb_structs() ++ azure_event_hub_structs().
 
 mongodb_structs() ->
     [
@@ -430,26 +423,6 @@ azure_event_hub_structs() ->
                 #{
                     desc => <<"EMQX Enterprise Config">>,
                     converter => fun azure_event_hub_producer_converter/2,
-                    required => false
-                }
-            )}
-    ].
-
-syskeeper_structs() ->
-    [
-        {syskeeper,
-            mk(
-                hoconsc:map(name, ref(emqx_bridge_syskeeper, "config")),
-                #{
-                    desc => <<"Syskeeper bridge config ">>,
-                    required => false
-                }
-            )},
-        {syskeeper_proxy,
-            mk(
-                hoconsc:map(name, ref(emqx_bridge_syskeeper_proxy, "config")),
-                #{
-                    desc => <<"Syskeeper proxy server config">>,
                     required => false
                 }
             )}

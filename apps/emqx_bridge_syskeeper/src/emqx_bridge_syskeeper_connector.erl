@@ -1,4 +1,4 @@
-%%--------------------------------------------------------------------
+%--------------------------------------------------------------------
 %% Copyright (c) 2023 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
 
@@ -12,7 +12,7 @@
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 -include_lib("hocon/include/hoconsc.hrl").
 
--export([roots/0, fields/1]).
+-export([roots/0, fields/1, desc/1, connector_examples/1]).
 
 %% `emqx_resource' API
 -export([
@@ -22,7 +22,11 @@
     on_stop/2,
     on_query/3,
     on_batch_query/3,
-    on_get_status/2
+    on_get_status/2,
+    on_add_channel/4,
+    on_remove_channel/3,
+    on_get_channels/1,
+    on_get_channel_status/3
 ]).
 
 -export([
@@ -38,12 +42,56 @@
 -define(EXTRA_CALL_TIMEOUT, 2000).
 
 %% -------------------------------------------------------------------------------------------------
+%% api
+connector_examples(Method) ->
+    [
+        #{
+            <<"syskeeper_forwarder">> => #{
+                summary => <<"Syskeeper Forwarder Connector">>,
+                value => values(Method)
+            }
+        }
+    ].
+
+values(get) ->
+    maps:merge(
+        #{
+            status => <<"connected">>,
+            node_status => [
+                #{
+                    node => <<"emqx@localhost">>,
+                    status => <<"connected">>
+                }
+            ]
+        },
+        values(post)
+    );
+values(post) ->
+    maps:merge(
+        #{
+            name => <<"syskeeper_forwarder">>,
+            type => <<"syskeeper_forwarder">>
+        },
+        values(put)
+    );
+values(put) ->
+    #{
+        enable => true,
+        server => <<"127.0.0.1:9092">>,
+        ack_mode => <<"no_ack">>,
+        ack_timeout => <<"10s">>,
+        pool_size => 16
+    }.
+
+%% -------------------------------------------------------------------------------------------------
 %% Hocon schema
 roots() ->
     [{config, #{type => hoconsc:ref(?MODULE, config)}}].
 
 fields(config) ->
     [
+        {enable, mk(boolean(), #{desc => ?DESC("config_enable"), default => true})},
+        {description, emqx_schema:description_schema()},
         {server, server()},
         {ack_mode,
             mk(
@@ -61,11 +109,30 @@ fields(config) ->
             (Other) ->
                 emqx_connector_schema_lib:pool_size(Other)
         end}
-    ].
+    ];
+fields("post") ->
+    [type_field(), name_field() | fields(config)];
+fields("put") ->
+    fields(config);
+fields("get") ->
+    emqx_bridge_schema:status_fields() ++ fields("post").
+
+desc(config) ->
+    ?DESC("desc_config");
+desc(Method) when Method =:= "get"; Method =:= "put"; Method =:= "post" ->
+    ["Configuration for Syskeeper Proxy using `", string:to_upper(Method), "` method."];
+desc(_) ->
+    undefined.
 
 server() ->
     Meta = #{desc => ?DESC("server")},
     emqx_schema:servers_sc(Meta, ?SYSKEEPER_HOST_OPTIONS).
+
+type_field() ->
+    {type, mk(enum([syskeeper_forwarder]), #{required => true, desc => ?DESC("desc_type")})}.
+
+name_field() ->
+    {name, mk(binary(), #{required => true, desc => ?DESC("desc_name")})}.
 
 %% -------------------------------------------------------------------------------------------------
 %% `emqx_resource' API
@@ -79,9 +146,7 @@ on_start(
     #{
         server := Server,
         pool_size := PoolSize,
-        ack_timeout := AckTimeout,
-        target_topic := TargetTopic,
-        target_qos := TargetQoS
+        ack_timeout := AckTimeout
     } = Config
 ) ->
     ?SLOG(info, #{
@@ -103,10 +168,8 @@ on_start(
 
     State = #{
         pool_name => InstanceId,
-        target_qos => TargetQoS,
         ack_timeout => AckTimeout,
-        templates => parse_template(Config),
-        target_topic_tks => emqx_placeholder:preproc_tmpl(TargetTopic)
+        channels => #{}
     },
     case emqx_resource_pool:start(InstanceId, ?MODULE, Options) of
         ok ->
@@ -122,13 +185,13 @@ on_stop(InstanceId, _State) ->
     }),
     emqx_resource_pool:stop(InstanceId).
 
-on_query(InstanceId, {send_message, _} = Query, State) ->
+on_query(InstanceId, {_MessageTag, _} = Query, State) ->
     do_query(InstanceId, [Query], State);
 on_query(_InstanceId, Query, _State) ->
     {error, {unrecoverable_error, {invalid_request, Query}}}.
 
 %% we only support batch insert
-on_batch_query(InstanceId, [{send_message, _} | _] = Query, State) ->
+on_batch_query(InstanceId, [{_MessageTag, _} | _] = Query, State) ->
     do_query(InstanceId, Query, State);
 on_batch_query(_InstanceId, Query, _State) ->
     {error, {unrecoverable_error, {invalid_request, Query}}}.
@@ -143,13 +206,46 @@ status_result(true) -> connected;
 status_result(false) -> connecting;
 status_result({error, _}) -> connecting.
 
+on_add_channel(_InstanceId, #{channels := Channels} = OldState, ChannelId, #{
+    target_topic := TargetTopic,
+    target_qos := TargetQoS,
+    template := Template
+}) ->
+    case maps:is_key(ChannelId, Channels) of
+        true ->
+            {error, already_exists};
+        _ ->
+            Channel = #{
+                target_qos => TargetQoS,
+                target_topic => emqx_placeholder:preproc_tmpl(TargetTopic),
+                template => emqx_placeholder:preproc_tmpl(Template)
+            },
+            Channels2 = Channels#{ChannelId => Channel},
+            {ok, OldState#{channels => Channels2}}
+    end.
+
+on_remove_channel(_InstanceId, #{channels := Channels} = OldState, ChannelId) ->
+    Channels2 = maps:remove(ChannelId, Channels),
+    {ok, OldState#{channels => Channels2}}.
+
+on_get_channels(InstanceId) ->
+    emqx_bridge_v2:get_channels_for_connector(InstanceId).
+
+on_get_channel_status(_InstanceId, ChannelId, #{channels := Channels}) ->
+    case maps:is_key(ChannelId, Channels) of
+        true ->
+            connected;
+        _ ->
+            {error, not_exists}
+    end.
+
 %% -------------------------------------------------------------------------------------------------
 %% Helper fns
 
 do_query(
     InstanceId,
     Query,
-    #{pool_name := PoolName, ack_timeout := AckTimeout} = State
+    #{pool_name := PoolName, ack_timeout := AckTimeout, channels := Channels} = State
 ) ->
     ?TRACE(
         "QUERY",
@@ -158,7 +254,7 @@ do_query(
     ),
 
     Result =
-        case try_apply_template(Query, State) of
+        case try_render_message(Query, Channels) of
             {ok, Msg} ->
                 ecpool:pick_and_do(
                     PoolName,
@@ -199,48 +295,26 @@ connect(Opts) ->
     Options = proplists:get_value(options, Opts),
     emqx_bridge_syskeeper_client:start_link(Options).
 
-parse_template(Config) ->
-    Templates =
-        case maps:get(template, Config, undefined) of
-            undefined -> #{};
-            <<>> -> #{};
-            Template -> #{send_message => Template}
-        end,
+try_render_message(Datas, Channels) ->
+    try_render_message(Datas, Channels, []).
 
-    parse_template(maps:to_list(Templates), #{}).
-
-parse_template([{Key, H} | T], Templates) ->
-    ParamsTks = emqx_placeholder:preproc_tmpl(H),
-    parse_template(
-        T,
-        Templates#{Key => ParamsTks}
-    );
-parse_template([], Templates) ->
-    Templates.
-
-try_apply_template([{Type, _} | _] = Datas, #{templates := Templates} = State) ->
-    case maps:find(Type, Templates) of
-        {ok, Template} ->
-            apply_template(Datas, Template, State);
+try_render_message([{MessageTag, Data} | T], Channels, Acc) ->
+    case maps:find(MessageTag, Channels) of
+        {ok, Channel} ->
+            case render_message(Data, Channel) of
+                {ok, Msg} ->
+                    try_render_message(T, Channels, [Msg | Acc]);
+                Error ->
+                    Error
+            end;
         _ ->
-            {error, {unrecoverable_error, {invalid_request, Datas}}}
-    end.
-
-apply_template(Datas, Template, State) ->
-    apply_template(Datas, Template, State, []).
-
-apply_template([{_, Data} | T], Template, State, Acc) ->
-    case do_apply_template(Data, Template, State) of
-        {ok, Msg} ->
-            apply_template(T, Template, State, [Msg | Acc]);
-        Error ->
-            Error
+            {error, {unrecoverable_error, {invalid_message_tag, MessageTag}}}
     end;
-apply_template([], _Template, _State, Acc) ->
+try_render_message([], _Channels, Acc) ->
     {ok, lists:reverse(Acc)}.
 
-do_apply_template(#{id := Id, qos := QoS, clientid := From} = Data, Template, #{
-    target_qos := TargetQoS, target_topic_tks := TargetTopicTks
+render_message(#{id := Id, qos := QoS, clientid := From} = Data, #{
+    target_qos := TargetQoS, target_topic := TargetTopicTks, template := Template
 }) ->
     Msg = maps:with([qos, flags, topic, payload, timestamp], Data),
     Topic = emqx_placeholder:proc_tmpl(TargetTopicTks, Msg),
@@ -257,13 +331,7 @@ do_apply_template(#{id := Id, qos := QoS, clientid := From} = Data, Template, #{
         topic := Topic,
         payload := format_data(Template, Msg)
     }};
-do_apply_template(Data, Template, State) ->
-    ?SLOG(info, #{
-        msg => "syskeeper_connector_apply_template_error",
-        data => Data,
-        template => Template,
-        state => State
-    }),
+render_message(Data, _Channel) ->
     {error, {unrecoverable_error, {invalid_data, Data}}}.
 
 format_data([], Msg) ->

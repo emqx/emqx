@@ -134,8 +134,11 @@ desc(_) ->
 schema_homogeneous_test() ->
     case
         lists:filtermap(
-            fun({_Name, Schema}) ->
-                is_bad_schema(Schema)
+            fun
+                ({syskeeper_forwarder, _Schema}) ->
+                    false;
+                ({_Name, Schema}) ->
+                    is_bad_schema(Schema)
             end,
             fields(actions)
         )

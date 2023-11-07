@@ -1,16 +1,16 @@
 emqx_bridge_syskeeper_proxy {
 
 config_enable.desc:
-"""Enable or disable this bridge"""
+"""Enable or disable this connector"""
 
 config_enable.label:
-"""Enable Or Disable Bridge"""
+"""Enable Or Disable Connector"""
 
 desc_config.desc:
-"""Configuration for a Syskeeper proxy bridge"""
+"""Configuration for a Syskeeper proxy connector"""
 
 desc_config.label:
-"""Syskeeper Proxy Bridge Configuration"""
+"""Syskeeper Proxy Connector Configuration"""
 
 desc_name.desc:
 """Bridge name"""

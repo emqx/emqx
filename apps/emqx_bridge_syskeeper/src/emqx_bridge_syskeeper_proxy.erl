@@ -11,7 +11,7 @@
 -import(hoconsc, [mk/2, enum/1, ref/2]).
 
 -export([
-    conn_bridge_examples/1,
+    connector_examples/1,
     values/1
 ]).
 
@@ -28,21 +28,40 @@
 
 %% -------------------------------------------------------------------------------------------------
 %% api
-conn_bridge_examples(Method) ->
+connector_examples(Method) ->
     [
         #{
             <<"syskeeper_proxy">> => #{
-                summary => <<"Syskeeper Bridge Proxy">>,
+                summary => <<"Syskeeper Proxy Connector">>,
                 value => values(Method)
             }
         }
     ].
 
-values(_Method) ->
+values(get) ->
+    maps:merge(
+        #{
+            status => <<"connected">>,
+            node_status => [
+                #{
+                    node => <<"emqx@localhost">>,
+                    status => <<"connected">>
+                }
+            ]
+        },
+        values(post)
+    );
+values(post) ->
+    maps:merge(
+        #{
+            name => <<"syskeeper_proxy">>,
+            type => <<"syskeeper_proxy">>
+        },
+        values(put)
+    );
+values(put) ->
     #{
         enable => true,
-        type => syskeeper_proxy,
-        name => <<"foo">>,
         listen => <<"127.0.0.1:9092">>,
         acceptors => 16,
         handshake_timeout => <<"16s">>
@@ -50,13 +69,14 @@ values(_Method) ->
 
 %% -------------------------------------------------------------------------------------------------
 %% Hocon Schema Definitions
-namespace() -> "bridge_syskeeper_proxy".
+namespace() -> "connector_syskeeper_proxy".
 
 roots() -> [].
 
-fields("config") ->
+fields(config) ->
     [
         {enable, mk(boolean(), #{desc => ?DESC("config_enable"), default => true})},
+        {description, emqx_schema:description_schema()},
         {listen, listen()},
         {acceptors,
             mk(
@@ -69,21 +89,17 @@ fields("config") ->
                 #{desc => ?DESC(handshake_timeout), default => <<"10s">>}
             )}
     ];
-fields("creation_opts") ->
-    emqx_resource_schema:create_opts([{worker_pool_size, #{default => 1}}]);
 fields("post") ->
-    [type_field(), name_field() | fields("config")];
+    [type_field(), name_field() | fields(config)];
 fields("put") ->
-    fields("config");
+    fields(config);
 fields("get") ->
     emqx_bridge_schema:status_fields() ++ fields("post").
 
-desc("config") ->
+desc(config) ->
     ?DESC("desc_config");
 desc(Method) when Method =:= "get"; Method =:= "put"; Method =:= "post" ->
     ["Configuration for Syskeeper Proxy using `", string:to_upper(Method), "` method."];
-desc("creation_opts" = Name) ->
-    emqx_resource_schema:desc(Name);
 desc(_) ->
     undefined.
 

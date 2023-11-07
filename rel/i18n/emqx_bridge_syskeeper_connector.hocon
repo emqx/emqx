@@ -1,5 +1,17 @@
 emqx_bridge_syskeeper_connector {
 
+desc_config.desc:
+"""Configuration for a Syskeeper forwarder connector"""
+
+desc_config.label:
+"""Syskeeper Forwarder Connector Configuration"""
+
+config_enable.desc:
+"""Enable or disable this connector"""
+
+config_enable.label:
+"""Enable Or Disable connector"""
+
 server.desc:
 """The address of the Syskeeper proxy server"""
 
