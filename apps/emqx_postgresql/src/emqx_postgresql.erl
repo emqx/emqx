@@ -131,7 +131,7 @@ on_start(
         {host, Host},
         {port, Port},
         {username, User},
-        {password, emqx_secret:wrap(maps:get(password, Config, ""))},
+        {password, maps:get(password, Config, "")},
         {database, DB},
         {auto_reconnect, ?AUTO_RECONNECT_INTERVAL},
         {pool_size, PoolSize}
@@ -357,6 +357,7 @@ validate_table_existence([], _SQL) ->
 connect(Opts) ->
     Host = proplists:get_value(host, Opts),
     Username = proplists:get_value(username, Opts),
+    %% TODO: teach `epgsql` to accept 0-arity closures as passwords.
     Password = emqx_secret:unwrap(proplists:get_value(password, Opts)),
     case epgsql:connect(Host, Username, Password, conn_opts(Opts)) of
         {ok, _Conn} = Ok ->
