@@ -88,7 +88,7 @@ fields(upstream) ->
         {topic_override_mapping,
             sc(
                 %% XXX: more clearly type defination
-                hoconsc:map(string(), string()),
+                hoconsc:map(name, string()),
                 #{
                     required => false,
                     default => #{},

@@ -748,7 +748,9 @@ ensure_gateway_loaded() ->
             emqx_gateway_stomp,
             emqx_gateway_coap,
             emqx_gateway_lwm2m,
-            emqx_gateway_mqttsn
+            emqx_gateway_mqttsn,
+            emqx_gateway_gbt32960,
+            emqx_gateway_ocpp
         ]
     ).
 
