@@ -24,7 +24,7 @@
 -include_lib("common_test/include/ct.hrl").
 -include_lib("snabbkaffe/include/test_macros.hrl").
 
--define(ROOT, "bridges_v2").
+-define(ROOT, "actions").
 
 -define(CONNECTOR_NAME, <<"my_connector">>).
 
@@ -153,7 +153,7 @@
     emqx_auth,
     emqx_management,
     emqx_connector,
-    {emqx_bridge, "bridges_v2 {}"},
+    {emqx_bridge, "actions {}"},
     {emqx_rule_engine, "rule_engine { rules {} }"}
 ]).
 
@@ -221,8 +221,8 @@ mk_cluster(Name, Config, Opts) ->
     Node2Apps = ?APPSPECS,
     emqx_cth_cluster:start(
         [
-            {emqx_bridge_api_SUITE_1, Opts#{role => core, apps => Node1Apps}},
-            {emqx_bridge_api_SUITE_2, Opts#{role => core, apps => Node2Apps}}
+            {emqx_bridge_v2_api_SUITE_1, Opts#{role => core, apps => Node1Apps}},
+            {emqx_bridge_v2_api_SUITE_2, Opts#{role => core, apps => Node2Apps}}
         ],
         #{work_dir => filename:join(?config(priv_dir, Config), Name)}
     ).
@@ -778,7 +778,7 @@ connector_operation(Config, ConnectorType, ConnectorName, OperationName) ->
 t_bridges_probe(Config) ->
     {ok, 204, <<>>} = request(
         post,
-        uri(["bridges_v2_probe"]),
+        uri(["actions_probe"]),
         ?KAFKA_BRIDGE(?BRIDGE_NAME),
         Config
     ),
@@ -786,7 +786,7 @@ t_bridges_probe(Config) ->
     %% second time with same name is ok since no real bridge created
     {ok, 204, <<>>} = request(
         post,
-        uri(["bridges_v2_probe"]),
+        uri(["actions_probe"]),
         ?KAFKA_BRIDGE(?BRIDGE_NAME),
         Config
     ),
@@ -800,7 +800,7 @@ t_bridges_probe(Config) ->
         }},
         request_json(
             post,
-            uri(["bridges_v2_probe"]),
+            uri(["actions_probe"]),
             ?KAFKA_BRIDGE(<<"broken_bridge">>, <<"brokenhost:1234">>),
             Config
         )
@@ -812,7 +812,7 @@ t_bridges_probe(Config) ->
         {ok, 400, #{<<"code">> := <<"BAD_REQUEST">>}},
         request_json(
             post,
-            uri(["bridges_v2_probe"]),
+            uri(["actions_probe"]),
             ?RESOURCE(<<"broken_bridge">>, <<"unknown_type">>),
             Config
         )
@@ -823,7 +823,7 @@ t_cascade_delete_actions(Config) ->
     %% assert we there's no bridges at first
     {ok, 200, []} = request_json(get, uri([?ROOT]), Config),
     %% then we add a a bridge, using POST
-    %% POST /bridges_v2/ will create a bridge
+    %% POST /actions/ will create a bridge
     BridgeID = emqx_bridge_resource:bridge_id(?BRIDGE_TYPE, ?BRIDGE_NAME),
     {ok, 201, _} = request(
         post,

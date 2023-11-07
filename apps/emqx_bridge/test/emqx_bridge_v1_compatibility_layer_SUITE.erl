@@ -234,7 +234,7 @@ unwrap_fun(UniqRefStr) ->
     ets:lookup_element(fun_table_name(), UniqRefStr, 2).
 
 update_root_config(RootConf) ->
-    emqx_conf:update([bridges_v2], RootConf, #{override_to => cluster}).
+    emqx_conf:update([actions], RootConf, #{override_to => cluster}).
 
 delete_all_bridges() ->
     lists:foreach(
@@ -287,7 +287,7 @@ list_bridges_http_api_v1() ->
     Res.
 
 list_bridges_http_api_v2() ->
-    Path = emqx_mgmt_api_test_util:api_path(["bridges_v2"]),
+    Path = emqx_mgmt_api_test_util:api_path(["actions"]),
     ct:pal("list bridges (http v2)"),
     Res = request(get, Path, _Params = []),
     ct:pal("list bridges (http v2) result:\n  ~p", [Res]),
@@ -310,7 +310,7 @@ get_bridge_http_api_v1(Name) ->
 
 get_bridge_http_api_v2(Name) ->
     BridgeId = emqx_bridge_resource:bridge_id(bridge_type(), Name),
-    Path = emqx_mgmt_api_test_util:api_path(["bridges_v2", BridgeId]),
+    Path = emqx_mgmt_api_test_util:api_path(["actions", BridgeId]),
     ct:pal("get bridge (http v2) (~p)", [#{name => Name}]),
     Res = request(get, Path, _Params = []),
     ct:pal("get bridge (http v2) (~p) result:\n  ~p", [#{name => Name}, Res]),
@@ -341,7 +341,7 @@ create_bridge_http_api_v2(Opts) ->
     Overrides = maps:get(overrides, Opts, #{}),
     BridgeConfig = emqx_utils_maps:deep_merge(bridge_config(), Overrides),
     Params = BridgeConfig#{<<"type">> => bridge_type_bin(), <<"name">> => Name},
-    Path = emqx_mgmt_api_test_util:api_path(["bridges_v2"]),
+    Path = emqx_mgmt_api_test_util:api_path(["actions"]),
     ct:pal("creating bridge (http v2): ~p", [Params]),
     Res = request(post, Path, Params),
     ct:pal("bridge create (http v2) result:\n  ~p", [Res]),
@@ -372,7 +372,7 @@ delete_bridge_http_api_v1(Opts) ->
 delete_bridge_http_api_v2(Opts) ->
     Name = maps:get(name, Opts),
     BridgeId = emqx_bridge_resource:bridge_id(bridge_type(), Name),
-    Path = emqx_mgmt_api_test_util:api_path(["bridges_v2", BridgeId]),
+    Path = emqx_mgmt_api_test_util:api_path(["actions", BridgeId]),
     ct:pal("deleting bridge (http v2)"),
     Res = request(delete, Path, _Params = []),
     ct:pal("bridge delete (http v2) result:\n  ~p", [Res]),
@@ -388,7 +388,7 @@ enable_bridge_http_api_v1(Name) ->
 
 enable_bridge_http_api_v2(Name) ->
     BridgeId = emqx_bridge_resource:bridge_id(bridge_type(), Name),
-    Path = emqx_mgmt_api_test_util:api_path(["bridges_v2", BridgeId, "enable", "true"]),
+    Path = emqx_mgmt_api_test_util:api_path(["actions", BridgeId, "enable", "true"]),
     ct:pal("enabling bridge (http v2)"),
     Res = request(put, Path, _Params = []),
     ct:pal("bridge enable (http v2) result:\n  ~p", [Res]),
@@ -404,7 +404,7 @@ disable_bridge_http_api_v1(Name) ->
 
 disable_bridge_http_api_v2(Name) ->
     BridgeId = emqx_bridge_resource:bridge_id(bridge_type(), Name),
-    Path = emqx_mgmt_api_test_util:api_path(["bridges_v2", BridgeId, "enable", "false"]),
+    Path = emqx_mgmt_api_test_util:api_path(["actions", BridgeId, "enable", "false"]),
     ct:pal("disabling bridge (http v2)"),
     Res = request(put, Path, _Params = []),
     ct:pal("bridge disable (http v2) result:\n  ~p", [Res]),
@@ -422,7 +422,7 @@ bridge_operation_http_api_v1(Name, Op0) ->
 bridge_operation_http_api_v2(Name, Op0) ->
     Op = atom_to_list(Op0),
     BridgeId = emqx_bridge_resource:bridge_id(bridge_type(), Name),
-    Path = emqx_mgmt_api_test_util:api_path(["bridges_v2", BridgeId, Op]),
+    Path = emqx_mgmt_api_test_util:api_path(["actions", BridgeId, Op]),
     ct:pal("bridge op ~p (http v2)", [Op]),
     Res = request(post, Path, _Params = []),
     ct:pal("bridge op ~p (http v2) result:\n  ~p", [Op, Res]),
@@ -442,7 +442,7 @@ bridge_node_operation_http_api_v2(Name, Node0, Op0) ->
     Op = atom_to_list(Op0),
     Node = atom_to_list(Node0),
     BridgeId = emqx_bridge_resource:bridge_id(bridge_type(), Name),
-    Path = emqx_mgmt_api_test_util:api_path(["nodes", Node, "bridges_v2", BridgeId, Op]),
+    Path = emqx_mgmt_api_test_util:api_path(["nodes", Node, "actions", BridgeId, Op]),
     ct:pal("bridge node op ~p (http v2)", [{Node, Op}]),
     Res = request(post, Path, _Params = []),
     ct:pal("bridge node op ~p (http v2) result:\n  ~p", [{Node, Op}, Res]),

@@ -50,7 +50,7 @@ bridge_v2_examples(Method) ->
     [
         #{
             <<"kafka_producer">> => #{
-                summary => <<"Kafka Producer Bridge v2">>,
+                summary => <<"Kafka Producer Action">>,
                 value => values({Method, bridge_v2_producer})
             }
         }

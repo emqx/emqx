@@ -48,7 +48,7 @@ enterprise_fields_actions() ->
     _ = emqx_bridge_v2_enterprise:module_info(),
     case erlang:function_exported(emqx_bridge_v2_enterprise, fields, 1) of
         true ->
-            emqx_bridge_v2_enterprise:fields(bridges_v2);
+            emqx_bridge_v2_enterprise:fields(actions);
         false ->
             []
     end.
@@ -103,28 +103,28 @@ bridge_api_union(Refs) ->
 %% HOCON Schema Callbacks
 %%======================================================================================
 
-namespace() -> "bridges_v2".
+namespace() -> "actions".
 
 tags() ->
-    [<<"Bridge V2">>].
+    [<<"Actions">>].
 
 -dialyzer({nowarn_function, roots/0}).
 
 roots() ->
-    case fields(bridges_v2) of
+    case fields(actions) of
         [] ->
             [
-                {bridges_v2,
+                {actions,
                     ?HOCON(hoconsc:map(name, typerefl:map()), #{importance => ?IMPORTANCE_LOW})}
             ];
         _ ->
-            [{bridges_v2, ?HOCON(?R_REF(bridges_v2), #{importance => ?IMPORTANCE_LOW})}]
+            [{actions, ?HOCON(?R_REF(actions), #{importance => ?IMPORTANCE_LOW})}]
     end.
 
-fields(bridges_v2) ->
+fields(actions) ->
     [] ++ enterprise_fields_actions().
 
-desc(bridges_v2) ->
+desc(actions) ->
     ?DESC("desc_bridges_v2");
 desc(_) ->
     undefined.
@@ -137,7 +137,7 @@ schema_homogeneous_test() ->
             fun({_Name, Schema}) ->
                 is_bad_schema(Schema)
             end,
-            fields(bridges_v2)
+            fields(actions)
         )
     of
         [] ->

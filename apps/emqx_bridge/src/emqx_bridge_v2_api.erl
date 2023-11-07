@@ -35,12 +35,12 @@
 
 %% API callbacks
 -export([
-    '/bridges_v2'/2,
-    '/bridges_v2/:id'/2,
-    '/bridges_v2/:id/enable/:enable'/2,
-    '/bridges_v2/:id/:operation'/2,
-    '/nodes/:node/bridges_v2/:id/:operation'/2,
-    '/bridges_v2_probe'/2
+    '/actions'/2,
+    '/actions/:id'/2,
+    '/actions/:id/enable/:enable'/2,
+    '/actions/:id/:operation'/2,
+    '/nodes/:node/actions/:id/:operation'/2,
+    '/actions_probe'/2
 ]).
 
 %% BpAPI
@@ -67,19 +67,19 @@
     end
 ).
 
-namespace() -> "bridge_v2".
+namespace() -> "actions".
 
 api_spec() ->
     emqx_dashboard_swagger:spec(?MODULE, #{check_schema => true}).
 
 paths() ->
     [
-        "/bridges_v2",
-        "/bridges_v2/:id",
-        "/bridges_v2/:id/enable/:enable",
-        "/bridges_v2/:id/:operation",
-        "/nodes/:node/bridges_v2/:id/:operation",
-        "/bridges_v2_probe"
+        "/actions",
+        "/actions/:id",
+        "/actions/:id/enable/:enable",
+        "/actions/:id/:operation",
+        "/nodes/:node/actions/:id/:operation",
+        "/actions_probe"
     ].
 
 error_schema(Code, Message) when is_atom(Code) ->
@@ -183,11 +183,11 @@ param_path_enable() ->
             }
         )}.
 
-schema("/bridges_v2") ->
+schema("/actions") ->
     #{
-        'operationId' => '/bridges_v2',
+        'operationId' => '/actions',
         get => #{
-            tags => [<<"bridges_v2">>],
+            tags => [<<"actions">>],
             summary => <<"List bridges">>,
             description => ?DESC("desc_api1"),
             responses => #{
@@ -198,7 +198,7 @@ schema("/bridges_v2") ->
             }
         },
         post => #{
-            tags => [<<"bridges_v2">>],
+            tags => [<<"actions">>],
             summary => <<"Create bridge">>,
             description => ?DESC("desc_api2"),
             'requestBody' => emqx_dashboard_swagger:schema_with_examples(
@@ -211,11 +211,11 @@ schema("/bridges_v2") ->
             }
         }
     };
-schema("/bridges_v2/:id") ->
+schema("/actions/:id") ->
     #{
-        'operationId' => '/bridges_v2/:id',
+        'operationId' => '/actions/:id',
         get => #{
-            tags => [<<"bridges_v2">>],
+            tags => [<<"actions">>],
             summary => <<"Get bridge">>,
             description => ?DESC("desc_api3"),
             parameters => [param_path_id()],
@@ -225,7 +225,7 @@ schema("/bridges_v2/:id") ->
             }
         },
         put => #{
-            tags => [<<"bridges_v2">>],
+            tags => [<<"actions">>],
             summary => <<"Update bridge">>,
             description => ?DESC("desc_api4"),
             parameters => [param_path_id()],
@@ -240,7 +240,7 @@ schema("/bridges_v2/:id") ->
             }
         },
         delete => #{
-            tags => [<<"bridges_v2">>],
+            tags => [<<"actions">>],
             summary => <<"Delete bridge">>,
             description => ?DESC("desc_api5"),
             parameters => [param_path_id(), param_qs_delete_cascade()],
@@ -255,12 +255,12 @@ schema("/bridges_v2/:id") ->
             }
         }
     };
-schema("/bridges_v2/:id/enable/:enable") ->
+schema("/actions/:id/enable/:enable") ->
     #{
-        'operationId' => '/bridges_v2/:id/enable/:enable',
+        'operationId' => '/actions/:id/enable/:enable',
         put =>
             #{
-                tags => [<<"bridges_v2">>],
+                tags => [<<"actions">>],
                 summary => <<"Enable or disable bridge">>,
                 desc => ?DESC("desc_enable_bridge"),
                 parameters => [param_path_id(), param_path_enable()],
@@ -274,11 +274,11 @@ schema("/bridges_v2/:id/enable/:enable") ->
                     }
             }
     };
-schema("/bridges_v2/:id/:operation") ->
+schema("/actions/:id/:operation") ->
     #{
-        'operationId' => '/bridges_v2/:id/:operation',
+        'operationId' => '/actions/:id/:operation',
         post => #{
-            tags => [<<"bridges_v2">>],
+            tags => [<<"actions">>],
             summary => <<"Manually start a bridge">>,
             description => ?DESC("desc_api7"),
             parameters => [
@@ -296,11 +296,11 @@ schema("/bridges_v2/:id/:operation") ->
             }
         }
     };
-schema("/nodes/:node/bridges_v2/:id/:operation") ->
+schema("/nodes/:node/actions/:id/:operation") ->
     #{
-        'operationId' => '/nodes/:node/bridges_v2/:id/:operation',
+        'operationId' => '/nodes/:node/actions/:id/:operation',
         post => #{
-            tags => [<<"bridges_v2">>],
+            tags => [<<"actions">>],
             summary => <<"Manually start a bridge">>,
             description => ?DESC("desc_api8"),
             parameters => [
@@ -322,11 +322,11 @@ schema("/nodes/:node/bridges_v2/:id/:operation") ->
             }
         }
     };
-schema("/bridges_v2_probe") ->
+schema("/actions_probe") ->
     #{
-        'operationId' => '/bridges_v2_probe',
+        'operationId' => '/actions_probe',
         post => #{
-            tags => [<<"bridges_v2">>],
+            tags => [<<"actions">>],
             desc => ?DESC("desc_api9"),
             summary => <<"Test creating bridge">>,
             'requestBody' => emqx_dashboard_swagger:schema_with_examples(
@@ -340,7 +340,7 @@ schema("/bridges_v2_probe") ->
         }
     }.
 
-'/bridges_v2'(post, #{body := #{<<"type">> := BridgeType, <<"name">> := BridgeName} = Conf0}) ->
+'/actions'(post, #{body := #{<<"type">> := BridgeType, <<"name">> := BridgeName} = Conf0}) ->
     case emqx_bridge_v2:lookup(BridgeType, BridgeName) of
         {ok, _} ->
             ?BAD_REQUEST('ALREADY_EXISTS', <<"bridge already exists">>);
@@ -348,7 +348,7 @@ schema("/bridges_v2_probe") ->
             Conf = filter_out_request_body(Conf0),
             create_bridge(BridgeType, BridgeName, Conf)
     end;
-'/bridges_v2'(get, _Params) ->
+'/actions'(get, _Params) ->
     Nodes = mria:running_nodes(),
     NodeReplies = emqx_bridge_proto_v5:v2_list_bridges_on_nodes(Nodes),
     case is_ok(NodeReplies) of
@@ -362,9 +362,9 @@ schema("/bridges_v2_probe") ->
             ?INTERNAL_ERROR(Reason)
     end.
 
-'/bridges_v2/:id'(get, #{bindings := #{id := Id}}) ->
+'/actions/:id'(get, #{bindings := #{id := Id}}) ->
     ?TRY_PARSE_ID(Id, lookup_from_all_nodes(BridgeType, BridgeName, 200));
-'/bridges_v2/:id'(put, #{bindings := #{id := Id}, body := Conf0}) ->
+'/actions/:id'(put, #{bindings := #{id := Id}, body := Conf0}) ->
     Conf1 = filter_out_request_body(Conf0),
     ?TRY_PARSE_ID(
         Id,
@@ -377,7 +377,7 @@ schema("/bridges_v2_probe") ->
                 ?BRIDGE_NOT_FOUND(BridgeType, BridgeName)
         end
     );
-'/bridges_v2/:id'(delete, #{bindings := #{id := Id}, query_string := Qs}) ->
+'/actions/:id'(delete, #{bindings := #{id := Id}, query_string := Qs}) ->
     ?TRY_PARSE_ID(
         Id,
         case emqx_bridge_v2:lookup(BridgeType, BridgeName) of
@@ -416,7 +416,7 @@ schema("/bridges_v2_probe") ->
         end
     ).
 
-'/bridges_v2/:id/enable/:enable'(put, #{bindings := #{id := Id, enable := Enable}}) ->
+'/actions/:id/enable/:enable'(put, #{bindings := #{id := Id, enable := Enable}}) ->
     ?TRY_PARSE_ID(
         Id,
         case emqx_bridge_v2:disable_enable(enable_func(Enable), BridgeType, BridgeName) of
@@ -433,7 +433,7 @@ schema("/bridges_v2_probe") ->
         end
     ).
 
-'/bridges_v2/:id/:operation'(post, #{
+'/actions/:id/:operation'(post, #{
     bindings :=
         #{id := Id, operation := Op}
 }) ->
@@ -446,7 +446,7 @@ schema("/bridges_v2_probe") ->
         end
     ).
 
-'/nodes/:node/bridges_v2/:id/:operation'(post, #{
+'/nodes/:node/actions/:id/:operation'(post, #{
     bindings :=
         #{id := Id, operation := Op, node := Node}
 }) ->
@@ -461,8 +461,8 @@ schema("/bridges_v2_probe") ->
         end
     ).
 
-'/bridges_v2_probe'(post, Request) ->
-    RequestMeta = #{module => ?MODULE, method => post, path => "/bridges_v2_probe"},
+'/actions_probe'(post, Request) ->
+    RequestMeta = #{module => ?MODULE, method => post, path => "/actions_probe"},
     case emqx_dashboard_swagger:filter_check_request_and_translate_body(Request, RequestMeta) of
         {ok, #{body := #{<<"type">> := ConnType} = Params}} ->
             Params1 = maybe_deobfuscate_bridge_probe(Params),
