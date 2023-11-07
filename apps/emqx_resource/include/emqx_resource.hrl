@@ -22,7 +22,7 @@
 -type resource_spec() :: map().
 -type resource_state() :: term().
 -type resource_status() :: connected | disconnected | connecting | stopped.
--type channel_status() :: connected | connecting.
+-type channel_status() :: connected | connecting | disconnected.
 -type callback_mode() :: always_sync | async_if_possible.
 -type query_mode() ::
     simple_sync
@@ -47,7 +47,7 @@
     simple_query => boolean(),
     reply_to => reply_fun(),
     query_mode => query_mode(),
-    query_mode_cache_override => boolean()
+    connector_resource_id => resource_id()
 }.
 -type resource_data() :: #{
     id := resource_id(),

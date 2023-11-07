@@ -537,11 +537,13 @@ do_send_msg_with_enabled_config(
     BridgeType, BridgeName, Message, QueryOpts0, Config
 ) ->
     QueryMode = get_query_mode(BridgeType, Config),
+    ConnectorName = maps:get(connector, Config),
+    ConnectorResId = emqx_connector_resource:resource_id(BridgeType, ConnectorName),
     QueryOpts = maps:merge(
         emqx_bridge:query_opts(Config),
         QueryOpts0#{
-            query_mode => QueryMode,
-            query_mode_cache_override => false
+            connector_resource_id => ConnectorResId,
+            query_mode => QueryMode
         }
     ),
     BridgeV2Id = id(BridgeType, BridgeName),

@@ -379,32 +379,32 @@ query(ResId, Request) ->
 -spec query(resource_id(), Request :: term(), query_opts()) ->
     Result :: term().
 query(ResId, Request, Opts) ->
-    case get_query_mode_error(ResId, Opts) of
+    case emqx_resource_manager:get_query_mode_and_last_error(ResId, Opts) of
         {error, _} = ErrorTuple ->
             ErrorTuple;
-        {_, unhealthy_target} ->
+        {ok, {_, unhealthy_target}} ->
             emqx_resource_metrics:matched_inc(ResId),
             emqx_resource_metrics:dropped_resource_stopped_inc(ResId),
             ?RESOURCE_ERROR(unhealthy_target, "unhealthy target");
-        {_, {unhealthy_target, _Message}} ->
+        {ok, {_, {unhealthy_target, Message}}} ->
             emqx_resource_metrics:matched_inc(ResId),
             emqx_resource_metrics:dropped_resource_stopped_inc(ResId),
-            ?RESOURCE_ERROR(unhealthy_target, "unhealthy target");
-        {simple_async, _} ->
+            ?RESOURCE_ERROR(unhealthy_target, Message);
+        {ok, {simple_async, _}} ->
             %% TODO(5.1.1): pass Resource instead of ResId to simple APIs
             %% so the buffer worker does not need to lookup the cache again
             emqx_resource_buffer_worker:simple_async_query(ResId, Request, Opts);
-        {simple_sync, _} ->
+        {ok, {simple_sync, _}} ->
             %% TODO(5.1.1): pass Resource instead of ResId to simple APIs
             %% so the buffer worker does not need to lookup the cache again
             emqx_resource_buffer_worker:simple_sync_query(ResId, Request, Opts);
-        {simple_async_internal_buffer, _} ->
+        {ok, {simple_async_internal_buffer, _}} ->
             %% This is for bridges/connectors that have internal buffering, such
             %% as Kafka and Pulsar producers.
             %% TODO(5.1.1): pass Resource instead of ResId to simple APIs
             %% so the buffer worker does not need to lookup the cache again
             emqx_resource_buffer_worker:simple_async_query(ResId, Request, Opts);
-        {simple_sync_internal_buffer, _} ->
+        {ok, {simple_sync_internal_buffer, _}} ->
             %% This is for bridges/connectors that have internal buffering, such
             %% as Kafka and Pulsar producers.
             %% TODO(5.1.1): pass Resource instead of ResId to simple APIs
@@ -412,28 +412,10 @@ query(ResId, Request, Opts) ->
             emqx_resource_buffer_worker:simple_sync_internal_buffer_query(
                 ResId, Request, Opts
             );
-        {sync, _} ->
+        {ok, {sync, _}} ->
             emqx_resource_buffer_worker:sync_query(ResId, Request, Opts);
-        {async, _} ->
+        {ok, {async, _}} ->
             emqx_resource_buffer_worker:async_query(ResId, Request, Opts)
-    end.
-
-get_query_mode_error(ResId, Opts) ->
-    case maps:get(query_mode_cache_override, Opts, true) of
-        false ->
-            case Opts of
-                #{query_mode := QueryMode} ->
-                    {QueryMode, ok};
-                _ ->
-                    {async, unhealthy_target}
-            end;
-        true ->
-            case emqx_resource_manager:lookup_cached(ResId) of
-                {ok, _Group, #{query_mode := QM, error := Error}} ->
-                    {QM, Error};
-                {error, not_found} ->
-                    {error, not_found}
-            end
     end.
 
 -spec simple_sync_query(resource_id(), Request :: term()) -> Result :: term().
