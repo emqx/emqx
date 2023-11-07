@@ -6,9 +6,6 @@
 
 -behaviour(emqx_resource).
 
--include_lib("emqx_connector/include/emqx_connector_tables.hrl").
--include_lib("emqx_resource/include/emqx_resource.hrl").
--include_lib("typerefl/include/types.hrl").
 -include_lib("emqx/include/logger.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
