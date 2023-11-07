@@ -14,7 +14,6 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
-
 %% This function is called to register a bridge V2. It should be called before
 %% the system boots in a function triggered by an -on_load() directive
 %% since it should be called before the system boots because the config
