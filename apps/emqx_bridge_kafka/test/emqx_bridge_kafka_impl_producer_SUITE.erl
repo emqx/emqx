@@ -1018,112 +1018,89 @@ hocon_config(Args, ConfigTemplateFun) ->
     ),
     Hocon.
 
-%% erlfmt-ignore
 hocon_config_template() ->
-"""
-bridges.kafka.{{ bridge_name }} {
-  bootstrap_hosts = \"{{ kafka_hosts_string }}\"
-  enable = true
-  authentication = {{{ authentication }}}
-  ssl = {{{ ssl }}}
-  local_topic = \"{{ local_topic }}\"
-  kafka = {
-    message = {
-      key = \"${clientid}\"
-      value = \"${.payload}\"
-      timestamp = \"${timestamp}\"
-    }
-    buffer = {
-      memory_overload_protection = false
-    }
-    partition_strategy = {{ partition_strategy }}
-    topic = \"{{ kafka_topic }}\"
-    query_mode = {{ query_mode }}
-  }
-  metadata_request_timeout = 5s
-  min_metadata_refresh_interval = 3s
-  socket_opts {
-    nodelay = true
-  }
-  connect_timeout = 5s
-}
-""".
+    "bridges.kafka.{{ bridge_name }} {"
+    "\n   bootstrap_hosts = \"{{ kafka_hosts_string }}\""
+    "\n   enable = true"
+    "\n   authentication = {{{ authentication }}}"
+    "\n   ssl = {{{ ssl }}}"
+    "\n   local_topic = \"{{ local_topic }}\""
+    "\n   kafka = {"
+    "\n     message = {"
+    "\n       key = \"${clientid}\""
+    "\n       value = \"${.payload}\""
+    "\n       timestamp = \"${timestamp}\""
+    "\n     }"
+    "\n     buffer = {"
+    "\n       memory_overload_protection = false"
+    "\n     }"
+    "\n     partition_strategy = {{ partition_strategy }}"
+    "\n     topic = \"{{ kafka_topic }}\""
+    "\n     query_mode = {{ query_mode }}"
+    "\n   }"
+    "\n   metadata_request_timeout = 5s"
+    "\n   min_metadata_refresh_interval = 3s"
+    "\n   socket_opts {"
+    "\n     nodelay = true"
+    "\n   }"
+    "\n   connect_timeout = 5s"
+    "\n }".
 
-%% erlfmt-ignore
 hocon_config_template_with_headers() ->
-"""
-bridges.kafka.{{ bridge_name }} {
-  bootstrap_hosts = \"{{ kafka_hosts_string }}\"
-  enable = true
-  authentication = {{{ authentication }}}
-  ssl = {{{ ssl }}}
-  local_topic = \"{{ local_topic }}\"
-  kafka = {
-    message = {
-      key = \"${clientid}\"
-      value = \"${.payload}\"
-      timestamp = \"${timestamp}\"
-    }
-    buffer = {
-      memory_overload_protection = false
-    }
-    kafka_headers = \"{{ kafka_headers }}\"
-    kafka_header_value_encode_mode: json
-    kafka_ext_headers: {{{ kafka_ext_headers }}}
-    partition_strategy = {{ partition_strategy }}
-    topic = \"{{ kafka_topic }}\"
-    query_mode = {{ query_mode }}
-  }
-  metadata_request_timeout = 5s
-  min_metadata_refresh_interval = 3s
-  socket_opts {
-    nodelay = true
-  }
-  connect_timeout = 5s
-}
-""".
+    "bridges.kafka.{{ bridge_name }} {"
+    "\n   bootstrap_hosts = \"{{ kafka_hosts_string }}\""
+    "\n   enable = true"
+    "\n   authentication = {{{ authentication }}}"
+    "\n   ssl = {{{ ssl }}}"
+    "\n   local_topic = \"{{ local_topic }}\""
+    "\n   kafka = {"
+    "\n     message = {"
+    "\n       key = \"${clientid}\""
+    "\n       value = \"${.payload}\""
+    "\n       timestamp = \"${timestamp}\""
+    "\n     }"
+    "\n     buffer = {"
+    "\n       memory_overload_protection = false"
+    "\n     }"
+    "\n     kafka_headers = \"{{ kafka_headers }}\""
+    "\n     kafka_header_value_encode_mode: json"
+    "\n     kafka_ext_headers: {{{ kafka_ext_headers }}}"
+    "\n     partition_strategy = {{ partition_strategy }}"
+    "\n     topic = \"{{ kafka_topic }}\""
+    "\n     query_mode = {{ query_mode }}"
+    "\n   }"
+    "\n   metadata_request_timeout = 5s"
+    "\n   min_metadata_refresh_interval = 3s"
+    "\n   socket_opts {"
+    "\n     nodelay = true"
+    "\n   }"
+    "\n   connect_timeout = 5s"
+    "\n }".
 
-%% erlfmt-ignore
 hocon_config_template_authentication("none") ->
     "none";
 hocon_config_template_authentication(#{"mechanism" := _}) ->
-"""
-{
-    mechanism = {{ mechanism }}
-    password = {{ password }}
-    username = {{ username }}
-}
-""";
+    "{"
+    "\n     mechanism = {{ mechanism }}"
+    "\n     password = {{ password }}"
+    "\n     username = {{ username }}"
+    "\n }";
 hocon_config_template_authentication(#{"kerberos_principal" := _}) ->
-"""
-{
-    kerberos_principal = \"{{ kerberos_principal }}\"
-    kerberos_keytab_file = \"{{ kerberos_keytab_file }}\"
-}
-""".
+    "{"
+    "\n     kerberos_principal = \"{{ kerberos_principal }}\""
+    "\n     kerberos_keytab_file = \"{{ kerberos_keytab_file }}\""
+    "\n }".
 
-%% erlfmt-ignore
 hocon_config_template_ssl(Map) when map_size(Map) =:= 0 ->
-"""
-{
-    enable = false
-}
-""";
+    "{ enable = false }";
 hocon_config_template_ssl(#{"enable" := "false"}) ->
-"""
-{
-    enable = false
-}
-""";
+    "{ enable = false }";
 hocon_config_template_ssl(#{"enable" := "true"}) ->
-"""
-{
-    enable = true
-    cacertfile = \"{{{cacertfile}}}\"
-    certfile = \"{{{certfile}}}\"
-    keyfile = \"{{{keyfile}}}\"
-}
-""".
+    "{      enable = true"
+    "\n     cacertfile = \"{{{cacertfile}}}\""
+    "\n     certfile = \"{{{certfile}}}\""
+    "\n     keyfile = \"{{{keyfile}}}\""
+    "\n }".
 
 kafka_hosts_string(tcp, none) ->
     kafka_hosts_string();
