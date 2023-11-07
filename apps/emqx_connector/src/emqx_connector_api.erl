@@ -288,7 +288,7 @@ schema("/nodes/:node/connectors/:id/:operation") ->
         'operationId' => '/nodes/:node/connectors/:id/:operation',
         post => #{
             tags => [<<"connectors">>],
-            summary => <<"Manually start a connector for a given node">>,
+            summary => <<"Manually start a connector on a given node">>,
             description => ?DESC("desc_api8"),
             parameters => [
                 param_path_node(),
