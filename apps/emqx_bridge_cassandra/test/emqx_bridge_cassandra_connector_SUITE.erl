@@ -40,10 +40,9 @@ all() ->
     ].
 
 groups() ->
-    TCs = emqx_common_test_helpers:all(?MODULE),
     [
-        {auth, TCs},
-        {noauth, TCs}
+        {auth, [t_lifecycle, t_start_passfile]},
+        {noauth, [t_lifecycle]}
     ].
 
 cassandra_servers(CassandraHost) ->
@@ -115,32 +114,37 @@ end_per_testcase(_, _Config) ->
 
 t_lifecycle(Config) ->
     perform_lifecycle_check(
-        <<"emqx_connector_cassandra_SUITE">>,
+        <<?MODULE_STRING>>,
         cassandra_config(Config)
     ).
 
-show(X) ->
-    erlang:display(X),
-    X.
-
-show(Label, What) ->
-    erlang:display({Label, What}),
-    What.
+t_start_passfile(Config) ->
+    ResourceID = atom_to_binary(?FUNCTION_NAME),
+    PasswordFilename = filename:join(?config(priv_dir, Config), "passfile"),
+    ok = file:write_file(PasswordFilename, ?CASSA_PASSWORD),
+    InitialConfig = emqx_utils_maps:deep_merge(
+        cassandra_config(Config),
+        #{
+            <<"config">> => #{
+                password => iolist_to_binary(["file://", PasswordFilename])
+            }
+        }
+    ),
+    ?assertMatch(
+        #{status := connected},
+        create_local_resource(ResourceID, check_config(InitialConfig))
+    ),
+    ?assertEqual(
+        ok,
+        emqx_resource:remove_local(ResourceID)
+    ).
 
 perform_lifecycle_check(ResourceId, InitialConfig) ->
-    {ok, #{config := CheckedConfig}} =
-        emqx_resource:check_config(?CASSANDRA_RESOURCE_MOD, InitialConfig),
-    {ok, #{
+    CheckedConfig = check_config(InitialConfig),
+    #{
         state := #{pool_name := PoolName} = State,
         status := InitialStatus
-    }} =
-        emqx_resource:create_local(
-            ResourceId,
-            ?CONNECTOR_RESOURCE_GROUP,
-            ?CASSANDRA_RESOURCE_MOD,
-            CheckedConfig,
-            #{}
-        ),
+    } = create_local_resource(ResourceId, CheckedConfig),
     ?assertEqual(InitialStatus, connected),
     % Instance should match the state and status of the just started resource
     {ok, ?CONNECTOR_RESOURCE_GROUP, #{
@@ -190,6 +194,21 @@ perform_lifecycle_check(ResourceId, InitialConfig) ->
 %%--------------------------------------------------------------------
 %% utils
 %%--------------------------------------------------------------------
+
+check_config(Config) ->
+    {ok, #{config := CheckedConfig}} = emqx_resource:check_config(?CASSANDRA_RESOURCE_MOD, Config),
+    CheckedConfig.
+
+create_local_resource(ResourceId, CheckedConfig) ->
+    {ok, Bridge} =
+        emqx_resource:create_local(
+            ResourceId,
+            ?CONNECTOR_RESOURCE_GROUP,
+            ?CASSANDRA_RESOURCE_MOD,
+            CheckedConfig,
+            #{}
+        ),
+    Bridge.
 
 cassandra_config(Config) ->
     Host = ?config(cassa_host, Config),
