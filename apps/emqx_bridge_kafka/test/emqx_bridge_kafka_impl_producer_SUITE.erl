@@ -28,13 +28,8 @@
 ).
 
 -include_lib("eunit/include/eunit.hrl").
--include_lib("emqx/include/emqx.hrl").
--include_lib("emqx_dashboard/include/emqx_dashboard.hrl").
 
 -define(HOST, "http://127.0.0.1:18083").
-
-%% -define(API_VERSION, "v5").
-
 -define(BASE_PATH, "/api/v5").
 
 %% NOTE: it's "kafka", but not "kafka_producer"
@@ -48,13 +43,6 @@
 %%------------------------------------------------------------------------------
 
 all() ->
-    case code:get_object_code(cthr) of
-        {Module, Code, Filename} ->
-            {module, Module} = code:load_binary(Module, Filename, Code),
-            ok;
-        error ->
-            error
-    end,
     All0 = emqx_common_test_helpers:all(?MODULE),
     All = All0 -- matrix_cases(),
     Groups = lists:map(fun({G, _, _}) -> {group, G} end, groups()),
@@ -105,23 +93,12 @@ init_per_suite(Config0) ->
             emqx_connector,
             emqx_bridge_kafka,
             emqx_bridge,
-            emqx_rule_engine
+            emqx_rule_engine,
+            {emqx_dashboard, "dashboard.listeners.http { enable = true, bind = 18083 }"}
         ],
         #{work_dir => emqx_cth_suite:work_dir(Config)}
     ),
-    emqx_mgmt_api_test_util:init_suite(),
     wait_until_kafka_is_up(),
-    %% Wait until bridges API is up
-    (fun WaitUntilRestApiUp() ->
-        case http_get(["bridges"]) of
-            {ok, 200, _Res} ->
-                ok;
-            Val ->
-                ct:pal("REST API for bridges not up. Wait and try again. Response: ~p", [Val]),
-                timer:sleep(1000),
-                WaitUntilRestApiUp()
-        end
-    end)(),
     [{apps, Apps} | Config].
 
 end_per_suite(Config) ->
@@ -183,6 +160,7 @@ t_query_mode_async(CtConfig) ->
 t_publish(matrix) ->
     {publish, [
         [tcp, none, key_dispatch, sync],
+        [ssl, plain_passfile, random, sync],
         [ssl, scram_sha512, random, async],
         [ssl, kerberos, random, sync]
     ]};
@@ -200,9 +178,15 @@ t_publish(Config) ->
         end,
     Auth1 =
         case Auth of
-            none -> "none";
-            scram_sha512 -> valid_sasl_scram512_settings();
-            kerberos -> valid_sasl_kerberos_settings()
+            none ->
+                "none";
+            plain_passfile ->
+                Passfile = filename:join(?config(priv_dir, Config), "passfile"),
+                valid_sasl_plain_passfile_settings(Passfile);
+            scram_sha512 ->
+                valid_sasl_scram512_settings();
+            kerberos ->
+                valid_sasl_kerberos_settings()
         end,
     ConnCfg = #{
         "bootstrap_hosts" => Hosts,
@@ -1082,8 +1066,8 @@ hocon_config_template_authentication("none") ->
 hocon_config_template_authentication(#{"mechanism" := _}) ->
     "{"
     "\n     mechanism = {{ mechanism }}"
-    "\n     password = {{ password }}"
-    "\n     username = {{ username }}"
+    "\n     password = \"{{ password }}\""
+    "\n     username = \"{{ username }}\""
     "\n }";
 hocon_config_template_authentication(#{"kerberos_principal" := _}) ->
     "{"
@@ -1172,6 +1156,13 @@ valid_sasl_kerberos_settings() ->
     #{
         "kerberos_principal" => "rig@KDC.EMQX.NET",
         "kerberos_keytab_file" => shared_secret(rig_keytab)
+    }.
+
+valid_sasl_plain_passfile_settings(Passfile) ->
+    Auth = valid_sasl_plain_settings(),
+    ok = file:write_file(Passfile, maps:get("password", Auth)),
+    Auth#{
+        "password" := "file://" ++ Passfile
     }.
 
 kafka_hosts() ->
