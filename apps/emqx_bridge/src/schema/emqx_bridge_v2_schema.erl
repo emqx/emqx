@@ -156,7 +156,7 @@ fields(actions) ->
 
 registered_schema_fields() ->
     [
-        Module:fields(emqx_bridge_v2:bridge_v2_type_to_schame_stuct_field(BridgeV2Type))
+        Module:fields(emqx_bridge_v2:bridge_v2_type_to_schame_struct_field(BridgeV2Type))
      || {BridgeV2Type, Module} <- emqx_bridge_v2:registered_schema_modules()
     ].
 

@@ -42,7 +42,7 @@
 %% Getting registered bridge schemas:
 
 -export([
-    bridge_v2_type_to_schame_stuct_field/1,
+    bridge_v2_type_to_schame_struct_field/1,
     registered_schema_modules/0
 ]).
 
@@ -195,7 +195,7 @@ on_load() ->
     end,
     ok.
 
-bridge_v2_type_to_schame_stuct_field(BridgeV2Type) ->
+bridge_v2_type_to_schame_struct_field(BridgeV2Type) ->
     InfoMap = persistent_term:get(internal_emqx_bridge_v2_persistent_term_info_key()),
     Map = maps:get(bridge_v2_type_to_schema_struct_field, InfoMap),
     maps:get(BridgeV2Type, Map).
