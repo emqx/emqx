@@ -900,7 +900,7 @@ format_resource(
         case emqx_bridge_v2:is_bridge_v2_type(Type) of
             true ->
                 %% The defaults are already filled in
-                RawConf;
+                downgrade_raw_conf(Type, RawConf);
             false ->
                 fill_defaults(Type, RawConf)
         end,
@@ -1164,3 +1164,19 @@ upgrade_type(Type) ->
 
 downgrade_type(Type) ->
     emqx_bridge_lib:downgrade_type(Type).
+
+%% TODO: move it to callback
+downgrade_raw_conf(kafka_producer, RawConf) ->
+    rename(<<"parameters">>, <<"kafka">>, RawConf);
+downgrade_raw_conf(azure_event_hub_producer, RawConf) ->
+    rename(<<"parameters">>, <<"kafka">>, RawConf);
+downgrade_raw_conf(_Type, RawConf) ->
+    RawConf.
+
+rename(OldKey, NewKey, Map) ->
+    case maps:find(OldKey, Map) of
+        {ok, Value} ->
+            maps:remove(OldKey, maps:put(NewKey, Value, Map));
+        error ->
+            Map
+    end.

@@ -453,9 +453,30 @@ update_connector(ConnectorType, ConnectorName, Conf) ->
     create_or_update_connector(ConnectorType, ConnectorName, Conf, 200).
 
 create_or_update_connector(ConnectorType, ConnectorName, Conf, HttpStatusCode) ->
+    Check =
+        try
+            is_binary(ConnectorType) andalso emqx_resource:validate_type(ConnectorType),
+            ok = emqx_resource:validate_name(ConnectorName)
+        catch
+            throw:Error ->
+                ?BAD_REQUEST(map_to_json(Error))
+        end,
+    case Check of
+        ok ->
+            do_create_or_update_connector(ConnectorType, ConnectorName, Conf, HttpStatusCode);
+        BadRequest ->
+            BadRequest
+    end.
+
+do_create_or_update_connector(ConnectorType, ConnectorName, Conf, HttpStatusCode) ->
     case emqx_connector:create(ConnectorType, ConnectorName, Conf) of
         {ok, _} ->
             lookup_from_all_nodes(ConnectorType, ConnectorName, HttpStatusCode);
+        {error, {PreOrPostConfigUpdate, _HandlerMod, Reason}} when
+            PreOrPostConfigUpdate =:= pre_config_update;
+            PreOrPostConfigUpdate =:= post_config_update
+        ->
+            ?BAD_REQUEST(map_to_json(redact(Reason)));
         {error, Reason} when is_map(Reason) ->
             ?BAD_REQUEST(map_to_json(redact(Reason)))
     end.
