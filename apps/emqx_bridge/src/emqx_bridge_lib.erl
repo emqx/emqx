@@ -56,13 +56,17 @@ maybe_withdraw_rule_action_loop([BridgeId | More], DeleteActions) ->
 upgrade_type(Type) when is_atom(Type) ->
     emqx_bridge_v2:bridge_v1_type_to_bridge_v2_type(Type);
 upgrade_type(Type) when is_binary(Type) ->
-    atom_to_binary(emqx_bridge_v2:bridge_v1_type_to_bridge_v2_type(Type)).
+    atom_to_binary(emqx_bridge_v2:bridge_v1_type_to_bridge_v2_type(Type));
+upgrade_type(Type) when is_list(Type) ->
+    atom_to_list(emqx_bridge_v2:bridge_v1_type_to_bridge_v2_type(list_to_binary(Type))).
 
 %% @doc Kafka producer bridge type renamed from 'kafka' to 'kafka_bridge' since 5.3.1
 downgrade_type(Type) when is_atom(Type) ->
     emqx_bridge_v2:bridge_v2_type_to_bridge_v1_type(Type);
 downgrade_type(Type) when is_binary(Type) ->
-    atom_to_binary(emqx_bridge_v2:bridge_v2_type_to_bridge_v1_type(Type)).
+    atom_to_binary(emqx_bridge_v2:bridge_v2_type_to_bridge_v1_type(Type));
+downgrade_type(Type) when is_list(Type) ->
+    atom_to_list(emqx_bridge_v2:bridge_v2_type_to_bridge_v1_type(list_to_binary(Type))).
 
 %% A rule might be referencing an old version bridge type name
 %% i.e. 'kafka' instead of 'kafka_producer' so we need to try both
