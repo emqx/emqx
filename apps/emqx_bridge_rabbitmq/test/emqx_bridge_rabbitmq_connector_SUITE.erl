@@ -10,6 +10,7 @@
 -include("emqx_connector.hrl").
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("stdlib/include/assert.hrl").
+-include_lib("common_test/include/ct.hrl").
 -include_lib("amqp_client/include/amqp_client.hrl").
 
 %% This test SUITE requires a running RabbitMQ instance. If you don't want to
@@ -25,6 +26,9 @@ rabbit_mq_host() ->
 
 rabbit_mq_port() ->
     5672.
+
+rabbit_mq_password() ->
+    <<"guest">>.
 
 rabbit_mq_exchange() ->
     <<"test_exchange">>.
@@ -45,12 +49,12 @@ init_per_suite(Config) ->
         )
     of
         true ->
-            ok = emqx_common_test_helpers:start_apps([emqx_conf]),
-            ok = emqx_connector_test_helpers:start_apps([emqx_resource]),
-            {ok, _} = application:ensure_all_started(emqx_connector),
-            {ok, _} = application:ensure_all_started(amqp_client),
+            Apps = emqx_cth_suite:start(
+                [emqx_conf, emqx_connector, emqx_bridge_rabbitmq],
+                #{work_dir => emqx_cth_suite:work_dir(Config)}
+            ),
             ChannelConnection = setup_rabbit_mq_exchange_and_queue(),
-            [{channel_connection, ChannelConnection} | Config];
+            [{channel_connection, ChannelConnection}, {suite_apps, Apps} | Config];
         false ->
             case os:getenv("IS_CI") of
                 "yes" ->
@@ -106,13 +110,11 @@ end_per_suite(Config) ->
         connection := Connection,
         channel := Channel
     } = get_channel_connection(Config),
-    ok = emqx_common_test_helpers:stop_apps([emqx_conf]),
-    ok = emqx_connector_test_helpers:stop_apps([emqx_resource]),
-    _ = application:stop(emqx_connector),
     %% Close the channel
     ok = amqp_channel:close(Channel),
     %% Close the connection
-    ok = amqp_connection:close(Connection).
+    ok = amqp_connection:close(Connection),
+    ok = emqx_cth_suite:stop(?config(suite_apps, Config)).
 
 % %%------------------------------------------------------------------------------
 % %% Testcases
@@ -125,23 +127,31 @@ t_lifecycle(Config) ->
         Config
     ).
 
+t_start_passfile(Config) ->
+    ResourceID = atom_to_binary(?FUNCTION_NAME),
+    PasswordFilename = filename:join(?config(priv_dir, Config), "passfile"),
+    ok = file:write_file(PasswordFilename, rabbit_mq_password()),
+    InitialConfig = rabbitmq_config(#{
+        password => iolist_to_binary(["file://", PasswordFilename])
+    }),
+    ?assertMatch(
+        #{status := connected},
+        create_local_resource(ResourceID, check_config(InitialConfig))
+    ),
+    ?assertEqual(
+        ok,
+        emqx_resource:remove_local(ResourceID)
+    ).
+
 perform_lifecycle_check(ResourceID, InitialConfig, TestConfig) ->
     #{
         channel := Channel
     } = get_channel_connection(TestConfig),
-    {ok, #{config := CheckedConfig}} =
-        emqx_resource:check_config(emqx_bridge_rabbitmq_connector, InitialConfig),
-    {ok, #{
+    CheckedConfig = check_config(InitialConfig),
+    #{
         state := #{poolname := PoolName} = State,
         status := InitialStatus
-    }} =
-        emqx_resource:create_local(
-            ResourceID,
-            ?CONNECTOR_RESOURCE_GROUP,
-            emqx_bridge_rabbitmq_connector,
-            CheckedConfig,
-            #{}
-        ),
+    } = create_local_resource(ResourceID, CheckedConfig),
     ?assertEqual(InitialStatus, connected),
     %% Instance should match the state and status of the just started resource
     {ok, ?CONNECTOR_RESOURCE_GROUP, #{
@@ -184,6 +194,21 @@ perform_lifecycle_check(ResourceID, InitialConfig, TestConfig) ->
 % %% Helpers
 % %%------------------------------------------------------------------------------
 
+check_config(Config) ->
+    {ok, #{config := CheckedConfig}} =
+        emqx_resource:check_config(emqx_bridge_rabbitmq_connector, Config),
+    CheckedConfig.
+
+create_local_resource(ResourceID, CheckedConfig) ->
+    {ok, Bridge} = emqx_resource:create_local(
+        ResourceID,
+        ?CONNECTOR_RESOURCE_GROUP,
+        emqx_bridge_rabbitmq_connector,
+        CheckedConfig,
+        #{}
+    ),
+    Bridge.
+
 perform_query(PoolName, Channel) ->
     %% Send message to queue:
     ok = emqx_resource:query(PoolName, {query, test_data()}),
@@ -216,16 +241,19 @@ receive_simple_test_message(Channel) ->
     end.
 
 rabbitmq_config() ->
+    rabbitmq_config(#{}).
+
+rabbitmq_config(Overrides) ->
     Config =
         #{
             server => rabbit_mq_host(),
             port => 5672,
             username => <<"guest">>,
-            password => <<"guest">>,
+            password => rabbit_mq_password(),
             exchange => rabbit_mq_exchange(),
             routing_key => rabbit_mq_routing_key()
         },
-    #{<<"config">> => Config}.
+    #{<<"config">> => maps:merge(Config, Overrides)}.
 
 test_data() ->
     #{<<"msg_field">> => <<"Hello">>}.
