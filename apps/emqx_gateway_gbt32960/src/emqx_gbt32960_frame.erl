@@ -62,7 +62,7 @@ serialize_opts() ->
 parse(Bin, State) ->
     case enter_parse(Bin, State) of
         {ok, Message, Rest} ->
-            {ok, Message, Rest, State#{phase => search_heading}};
+            {ok, Message, Rest, State#{data => <<>>, phase => search_heading}};
         {error, Error} ->
             {error, Error};
         {more_data_follow, Partial} ->
