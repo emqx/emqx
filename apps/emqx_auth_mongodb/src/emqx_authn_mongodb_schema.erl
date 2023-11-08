@@ -25,8 +25,11 @@
     fields/1,
     desc/1,
     refs/0,
-    select_union_member/1
+    select_union_member/1,
+    namespace/0
 ]).
+
+namespace() -> "authn".
 
 refs() ->
     [

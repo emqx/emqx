@@ -26,7 +26,8 @@
     fields/1,
     desc/1,
     source_refs/0,
-    select_union_member/1
+    select_union_member/1,
+    namespace/0
 ]).
 
 -export([
@@ -37,6 +38,8 @@
 -define(NOT_EMPTY(MSG), emqx_resource_validator:not_empty(MSG)).
 
 -import(emqx_schema, [mk_duration/2]).
+
+namespace() -> "authz".
 
 type() -> ?AUTHZ_TYPE.
 

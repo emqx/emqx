@@ -27,7 +27,8 @@
     validations/0,
     desc/1,
     refs/0,
-    select_union_member/1
+    select_union_member/1,
+    namespace/0
 ]).
 
 -define(NOT_EMPTY(MSG), emqx_resource_validator:not_empty(MSG)).
@@ -37,6 +38,8 @@
         message => MESSAGE
     })
 ).
+
+namespace() -> "authn".
 
 refs() ->
     [?R_REF(http_get), ?R_REF(http_post)].
