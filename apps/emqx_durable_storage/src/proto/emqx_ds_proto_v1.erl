@@ -41,7 +41,7 @@ drop_shard(Node, Shard) ->
 -spec get_streams(
     node(), emqx_ds_replication_layer:shard_id(), emqx_ds:topic_filter(), emqx_ds:time()
 ) ->
-    [{integer(), emqx_ds_replication_layer:stream()}].
+    [{integer(), emqx_ds_storage_layer:stream()}].
 get_streams(Node, Shard, TopicFilter, Time) ->
     erpc:call(Node, emqx_ds_replication_layer, do_get_streams_v1, [Shard, TopicFilter, Time]).
 
@@ -52,7 +52,7 @@ get_streams(Node, Shard, TopicFilter, Time) ->
     emqx_ds:topic_filter(),
     emqx_ds:time()
 ) ->
-    {ok, emqx_ds_replication_layer:iterator()} | {error, _}.
+    {ok, emqx_ds_storage_layer:iterator()} | {error, _}.
 make_iterator(Node, Shard, Stream, TopicFilter, StartTime) ->
     erpc:call(Node, emqx_ds_replication_layer, do_make_iterator_v1, [
         Shard, Stream, TopicFilter, StartTime
