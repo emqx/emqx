@@ -61,7 +61,7 @@ get_override_config_file() ->
         true ->
             case erlang:whereis(emqx_config_handler) of
                 undefined ->
-                    {error, #{msg => "emqx_config_handler_not_ready"}};
+                    {error, Data#{msg => "emqx_config_handler_not_ready"}};
                 _ ->
                     Fun = fun() ->
                         TnxId = emqx_cluster_rpc:get_node_tnx_id(Node),
