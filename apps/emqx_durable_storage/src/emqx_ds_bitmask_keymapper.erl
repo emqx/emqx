@@ -512,22 +512,24 @@ make_bitfilter(Keymapper = #keymapper{dim_sizeof = DimSizeof}, Ranges) ->
     {Bitmask, Bitfilter} = lists:unzip(L),
     {vector_to_key(Keymapper, Bitmask), vector_to_key(Keymapper, Bitfilter)}.
 
-%% Transform inequalities into a list of closed intervals that the
+%% Transform constraints into a list of closed intervals that the
 %% vector elements should lie in.
 constraints_to_ranges(#keymapper{dim_sizeof = DimSizeof}, Filter) ->
     lists:zipwith(
-        fun
-            (any, Bitsize) ->
-                {0, ones(Bitsize)};
-            ({'=', infinity}, Bitsize) ->
-                Val = ones(Bitsize),
-                {Val, Val};
-            ({'=', Val}, _Bitsize) ->
-                {Val, Val};
-            ({'>=', Val}, Bitsize) ->
-                {Val, ones(Bitsize)};
-            ({Min, '..', Max}, _Bitsize) ->
-                {Min, Max}
+        fun(Constraint, Bitsize) ->
+            Max = ones(Bitsize),
+            case Constraint of
+                any ->
+                    {0, Max};
+                {'=', infinity} ->
+                    {Max, Max};
+                {'=', Val} when Val =< Max ->
+                    {Val, Val};
+                {'>=', Val} when Val =< Max ->
+                    {Val, Max};
+                {A, '..', B} when A =< Max, B =< Max ->
+                    {A, B}
+            end
         end,
         Filter,
         DimSizeof

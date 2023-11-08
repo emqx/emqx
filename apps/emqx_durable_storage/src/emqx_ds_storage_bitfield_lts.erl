@@ -27,7 +27,7 @@
 -export([create/4, open/5, store_batch/4, get_streams/4, make_iterator/5, next/4]).
 
 %% internal exports:
--export([format_key/2, format_keyfilter/1]).
+-export([format_key/2]).
 
 -export_type([options/0]).
 
@@ -320,11 +320,6 @@ check_message(_Cutoff, _It, _Msg) ->
 format_key(KeyMapper, Key) ->
     Vec = [integer_to_list(I, 16) || I <- emqx_ds_bitmask_keymapper:key_to_vector(KeyMapper, Key)],
     lists:flatten(io_lib:format("~.16B (~s)", [Key, string:join(Vec, ",")])).
-
-format_keyfilter(any) ->
-    any;
-format_keyfilter({Op, Val}) ->
-    {Op, integer_to_list(Val, 16)}.
 
 -spec make_key(s(), emqx_types:message()) -> {binary(), [binary()]}.
 make_key(#s{keymappers = KeyMappers, trie = Trie}, #message{timestamp = Timestamp, topic = TopicBin}) ->

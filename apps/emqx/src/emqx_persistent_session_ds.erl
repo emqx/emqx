@@ -605,9 +605,11 @@ session_read_subscriptions(DSSessionId) ->
     ),
     mnesia:select(?SESSION_SUBSCRIPTIONS_TAB, MS, read).
 
--spec new_subscription_id(id(), topic_filter()) -> {subscription_id(), emqx_ds:time()}.
+-spec new_subscription_id(id(), topic_filter()) -> {subscription_id(), integer()}.
 new_subscription_id(DSSessionId, TopicFilter) ->
-    NowMS = erlang:system_time(microsecond),
+    %% Note: here we use _milliseconds_ to match with the timestamp
+    %% field of `#message' record.
+    NowMS = erlang:system_time(millisecond),
     DSSubId = {DSSessionId, TopicFilter},
     {DSSubId, NowMS}.
 
@@ -662,8 +664,7 @@ renew_streams(Id, ExistingStreams, TopicFilter, StartTime) ->
                             ok;
                         false ->
                             mnesia:write(?SESSION_STREAM_TAB, Rec, write),
-                            % StartTime),
-                            {ok, Iterator} = emqx_ds:make_iterator(Stream, TopicFilter, 0),
+                            {ok, Iterator} = emqx_ds:make_iterator(Stream, TopicFilter, StartTime),
                             IterRec = #ds_iter{id = {Id, Stream}, iter = Iterator},
                             mnesia:write(?SESSION_ITER_TAB, IterRec, write)
                     end
