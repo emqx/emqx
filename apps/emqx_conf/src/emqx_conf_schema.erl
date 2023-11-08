@@ -28,14 +28,12 @@
 
 -include("emqx_conf.hrl").
 
--type log_level() :: debug | info | notice | warning | error | critical | alert | emergency | all.
 -type file() :: string().
 -type cipher() :: map().
 
 -behaviour(hocon_schema).
 
 -reflect_type([
-    log_level/0,
     file/0,
     cipher/0
 ]).
@@ -1289,7 +1287,7 @@ log_handler_common_confs(Handler, Default) ->
     [
         {"level",
             sc(
-                log_level(),
+                hoconsc:enum([debug, info, notice, warning, error, critical, alert, emergency, all]),
                 #{
                     default => maps:get(level, Default, warning),
                     desc => ?DESC(LevelDesc),
