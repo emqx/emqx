@@ -28,13 +28,7 @@
 
 -include("emqx_conf.hrl").
 
--type cipher() :: map().
-
 -behaviour(hocon_schema).
-
--reflect_type([
-    cipher/0
-]).
 
 -export([
     namespace/0, roots/0, fields/1, translations/0, translation/1, validations/0, desc/1, tags/0
