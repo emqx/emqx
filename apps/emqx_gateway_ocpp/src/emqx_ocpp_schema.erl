@@ -33,8 +33,8 @@ fields(ocpp) ->
                     desc => ?DESC(heartbeat_checking_times_backoff)
                 }
             )},
-        {upstream, sc(ref(upstream), #{desc => ?DESC(upstream)})},
-        {dnstream, sc(ref(dnstream), #{desc => ?DESC(dnstream)})},
+        {upstream, sc(ref(upstream), #{})},
+        {dnstream, sc(ref(dnstream), #{})},
         {message_format_checking,
             sc(
                 hoconsc:union([all, upstream_only, dnstream_only, disable]),
@@ -59,7 +59,7 @@ fields(ocpp) ->
                     desc => ?DESC(json_schema_id_prefix)
                 }
             )},
-        {listeners, sc(ref(ws_listeners), #{desc => ?DESC(ws_listeners)})}
+        {listeners, sc(ref(ws_listeners), #{})}
     ] ++ emqx_gateway_schema:gateway_common_options();
 fields(ws_listeners) ->
     [
@@ -67,9 +67,11 @@ fields(ws_listeners) ->
         {wss, sc(map(name, ref(wss_listener)), #{})}
     ];
 fields(ws_listener) ->
-    emqx_gateway_schema:ws_listener() ++ [{websocket, sc(ref(websocket), #{})}];
+    emqx_gateway_schema:ws_listener() ++
+        [{websocket, sc(ref(websocket), #{})}];
 fields(wss_listener) ->
-    emqx_gateway_schema:wss_listener() ++ [{websocket, sc(ref(websocket), #{})}];
+    emqx_gateway_schema:wss_listener() ++
+        [{websocket, sc(ref(websocket), #{})}];
 fields(websocket) ->
     DefaultPath = <<"/ocpp">>,
     SubProtocols = <<"ocpp1.6, ocpp2.0">>,
@@ -125,15 +127,15 @@ fields(upstream) ->
     ];
 fields(dnstream) ->
     [
-        {strit_mode,
-            sc(
-                boolean(),
-                #{
-                    required => false,
-                    default => false,
-                    desc => ?DESC(dnstream_strit_mode)
-                }
-            )},
+        %%{strit_mode,
+        %%    sc(
+        %%        boolean(),
+        %%        #{
+        %%            required => false,
+        %%            default => false,
+        %%            desc => ?DESC(dnstream_strit_mode)
+        %%        }
+        %%    )},
         {topic,
             sc(
                 string(),
@@ -165,6 +167,29 @@ fields(dnstream) ->
 
 desc(ocpp) ->
     "The OCPP gateway";
+desc(upstream) ->
+    "Upload stream topic to notify third-party system what's messages/events reported by "
+    "Charge Point. Available placeholders:\n"
+    "- <code>cid</code>: Charge Point ID\n"
+    "- <code>clientid</code>: Equal to Charge Point ID\n"
+    "- <code>action</code>: Message Name in OCPP";
+desc(dnstream) ->
+    "Download stream topic to forward the system message to device. Available placeholders:\n"
+    "- <code>cid</code>: Charge Point ID\n"
+    "- <code>clientid</code>: Equal to Charge Point ID\n"
+    "- <code>action</code>: Message Name in OCPP";
+desc(ws_listeners) ->
+    "Websocket listeners";
+desc(ws_listener) ->
+    "Websocket listener";
+desc(ws) ->
+    "Websocket listener";
+desc(wss_listener) ->
+    "Websocket over TLS listener";
+desc(wss) ->
+    "Websocket over TLS listener";
+desc(websocket) ->
+    "Websocket options";
 desc(_) ->
     undefined.
 
