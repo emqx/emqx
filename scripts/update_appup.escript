@@ -1,6 +1,7 @@
 #!/usr/bin/env -S escript -c
 %% -*- erlang-indent-level:4 -*-
 
+%% erlfmt-ignore
 usage() ->
 "A script that fills in boilerplate for appup files.
 
@@ -35,51 +36,52 @@ Options:
   --src-dirs         Directories where source code is found. Defaults to '{src,apps}/**/'
 ".
 
--record(app,
-        { modules       :: #{module() => binary()}
-        , version       :: string()
-        }).
+-record(app, {
+    modules :: #{module() => binary()},
+    version :: string()
+}).
 
 default_options() ->
-    #{ clone_url      => find_upstream_repo("origin")
-     , make_command   => "make emqx-rel"
-     , beams_dir      => "_build/emqx/rel/emqx/lib/"
-     , check          => false
-     , prev_tag       => undefined
-     , src_dirs       => "{src,apps}/**/"
-     , prev_beams_dir => undefined
-     }.
+    #{
+        clone_url => find_upstream_repo("origin"),
+        make_command => "make emqx-rel",
+        beams_dir => "_build/emqx/rel/emqx/lib/",
+        check => false,
+        prev_tag => undefined,
+        src_dirs => "{src,apps}/**/",
+        prev_beams_dir => undefined
+    }.
 
 %% App-specific actions that should be added unconditionally to any update/downgrade:
 app_specific_actions(_) ->
     [].
 
 ignored_apps() ->
-    [gpb %% only a build tool
-    ] ++ otp_standard_apps().
+    %% only a build tool
+    [gpb] ++ otp_standard_apps().
 
 main(Args) ->
     #{prev_tag := Baseline} = Options = parse_args(Args, default_options()),
     init_globals(Options),
     main(Options, Baseline).
 
-parse_args([PrevTag = [A|_]], State) when A =/= $- ->
+parse_args([PrevTag = [A | _]], State) when A =/= $- ->
     State#{prev_tag => PrevTag};
-parse_args(["--check"|Rest], State) ->
+parse_args(["--check" | Rest], State) ->
     parse_args(Rest, State#{check => true});
-parse_args(["--skip-build"|Rest], State) ->
+parse_args(["--skip-build" | Rest], State) ->
     parse_args(Rest, State#{make_command => undefined});
-parse_args(["--repo", Repo|Rest], State) ->
+parse_args(["--repo", Repo | Rest], State) ->
     parse_args(Rest, State#{clone_url => Repo});
-parse_args(["--remote", Remote|Rest], State) ->
+parse_args(["--remote", Remote | Rest], State) ->
     parse_args(Rest, State#{clone_url => find_upstream_repo(Remote)});
-parse_args(["--make-command", Command|Rest], State) ->
+parse_args(["--make-command", Command | Rest], State) ->
     parse_args(Rest, State#{make_command => Command});
-parse_args(["--release-dir", Dir|Rest], State) ->
+parse_args(["--release-dir", Dir | Rest], State) ->
     parse_args(Rest, State#{beams_dir => Dir});
-parse_args(["--prev-release-dir", Dir|Rest], State) ->
+parse_args(["--prev-release-dir", Dir | Rest], State) ->
     parse_args(Rest, State#{prev_beams_dir => Dir});
-parse_args(["--src-dirs", Pattern|Rest], State) ->
+parse_args(["--src-dirs", Pattern | Rest], State) ->
     parse_args(Rest, State#{src_dirs => Pattern});
 parse_args(_, _) ->
     fail(usage()).
@@ -87,9 +89,11 @@ parse_args(_, _) ->
 main(Options, Baseline) ->
     {CurrRelDir, PrevRelDir} = prepare(Baseline, Options),
     putopt(prev_beams_dir, PrevRelDir),
-    log("~n===================================~n"
+    log(
+        "~n===================================~n"
         "Processing changes..."
-        "~n===================================~n"),
+        "~n===================================~n"
+    ),
     CurrAppsIdx = index_apps(CurrRelDir),
     PrevAppsIdx = index_apps(PrevRelDir),
     %% log("Curr: ~p~nPrev: ~p~n", [CurrAppsIdx, PrevAppsIdx]),
@@ -98,6 +102,7 @@ main(Options, Baseline) ->
     ok = check_appup_files(),
     ok = warn_and_exit(is_valid()).
 
+%% erlfmt-ignore
 warn_and_exit(true) ->
     log("
 NOTE: Please review the changes manually. This script does not know about NIF
@@ -109,9 +114,12 @@ warn_and_exit(false) ->
     halt(1).
 
 prepare(Baseline, Options = #{make_command := MakeCommand, beams_dir := BeamDir}) ->
-    log("~n===================================~n"
+    log(
+        "~n===================================~n"
         "Baseline: ~s"
-        "~n===================================~n", [Baseline]),
+        "~n===================================~n",
+        [Baseline]
+    ),
     log("Building the current version...~n"),
     ok = bash(MakeCommand),
     PrevRelDir =
@@ -126,6 +134,7 @@ prepare(Baseline, Options = #{make_command := MakeCommand, beams_dir := BeamDir}
         end,
     {BeamDir, PrevRelDir}.
 
+%% erlfmt-ignore
 build_prev_release(Baseline, #{clone_url := Repo, make_command := MakeCommand}) ->
     BaseDir = "/tmp/emqx-appup-base/",
     Dir = filename:basename(Repo, ".git") ++ [$-|Baseline],
@@ -146,24 +155,27 @@ find_upstream_repo(Remote) ->
 
 find_appup_actions(CurrApps, PrevApps) ->
     maps:fold(
-      fun(App, CurrAppIdx, Acc) ->
-              case PrevApps of
-                  #{App := PrevAppIdx} ->
-                      find_appup_actions(App, CurrAppIdx, PrevAppIdx) ++ Acc;
-                  _ ->
-                      %% New app, nothing to upgrade here.
-                      Acc
-              end
-      end,
-      [],
-      CurrApps).
+        fun(App, CurrAppIdx, Acc) ->
+            case PrevApps of
+                #{App := PrevAppIdx} ->
+                    find_appup_actions(App, CurrAppIdx, PrevAppIdx) ++ Acc;
+                _ ->
+                    %% New app, nothing to upgrade here.
+                    Acc
+            end
+        end,
+        [],
+        CurrApps
+    ).
 
 find_appup_actions(_App, AppIdx, AppIdx) ->
     %% No changes to the app, ignore:
     [];
-find_appup_actions(App,
-                   CurrAppIdx = #app{version = CurrVersion},
-                   PrevAppIdx = #app{version = PrevVersion}) ->
+find_appup_actions(
+    App,
+    CurrAppIdx = #app{version = CurrVersion},
+    PrevAppIdx = #app{version = PrevVersion}
+) ->
     {OldUpgrade0, OldDowngrade0} = find_base_appup_actions(App, PrevVersion),
     OldUpgrade = ensure_all_patch_versions(App, CurrVersion, OldUpgrade0),
     OldDowngrade = ensure_all_patch_versions(App, CurrVersion, OldDowngrade0),
@@ -195,7 +207,10 @@ do_ensure_all_patch_versions(App, CurrVsn, OldActions) ->
         {ok, ExpectedVsns} ->
             CoveredVsns = [V || {V, _} <- OldActions, V =/= <<".*">>],
             ExpectedVsnStrs = [vsn_number_to_string(V) || V <- ExpectedVsns],
-            MissingActions = [{V, []} || V <- ExpectedVsnStrs, not contains_version(V, CoveredVsns)],
+            MissingActions = [
+                {V, []}
+             || V <- ExpectedVsnStrs, not contains_version(V, CoveredVsns)
+            ],
             MissingActions ++ OldActions;
         {error, bad_version} ->
             log("WARN: Could not infer expected versions to upgrade from for ~p~n", [App]),
@@ -206,23 +221,24 @@ do_ensure_all_patch_versions(App, CurrVsn, OldActions) ->
 %% in their current appup.
 diff_appup_instructions(ComputedChanges, PresentChanges) ->
     lists:foldr(
-      fun({VsnOrRegex, ComputedActions}, Acc) ->
-              case find_matching_version(VsnOrRegex, PresentChanges) of
-                  undefined ->
-                      [{VsnOrRegex, ComputedActions} | Acc];
-                  PresentActions ->
-                      DiffActions = ComputedActions -- PresentActions,
-                      case DiffActions of
-                          [] ->
-                              %% no diff
-                              Acc;
-                          _ ->
-                              [{VsnOrRegex, DiffActions} | Acc]
-                      end
-              end
-      end,
-      [],
-      ComputedChanges).
+        fun({VsnOrRegex, ComputedActions}, Acc) ->
+            case find_matching_version(VsnOrRegex, PresentChanges) of
+                undefined ->
+                    [{VsnOrRegex, ComputedActions} | Acc];
+                PresentActions ->
+                    DiffActions = ComputedActions -- PresentActions,
+                    case DiffActions of
+                        [] ->
+                            %% no diff
+                            Acc;
+                        _ ->
+                            [{VsnOrRegex, DiffActions} | Acc]
+                    end
+            end
+        end,
+        [],
+        ComputedChanges
+    ).
 
 %% checks if any missing diffs are present
 %% and groups them by `up' and `down' types.
@@ -234,9 +250,10 @@ parse_appup_diffs(Upgrade, OldUpgrade, Downgrade, OldDowngrade) ->
             %% no diff for external dependency; ignore
             ok;
         _ ->
-            Diffs = #{ up => DiffUp
-                     , down => DiffDown
-                     },
+            Diffs = #{
+                up => DiffUp,
+                down => DiffDown
+            },
             {diffs, Diffs}
     end.
 
@@ -260,18 +277,21 @@ find_base_appup_actions(App, PrevVersion) ->
     {ensure_version(PrevVersion, Upgrade), ensure_version(PrevVersion, Downgrade)}.
 
 merge_update_actions(App, Changes, Vsns, PrevVersion) ->
-    lists:map(fun(Ret = {<<".*">>, _}) ->
-                      Ret;
-                 ({Vsn, Actions}) ->
-                      case is_skipped_version(App, Vsn, PrevVersion) of
-                          true ->
-                              log("WARN: ~p has version ~s skipped over?~n", [App, Vsn]),
-                              {Vsn, Actions};
-                          false ->
-                              {Vsn, do_merge_update_actions(App, Changes, Actions)}
-                      end
-              end,
-              Vsns).
+    lists:map(
+        fun
+            (Ret = {<<".*">>, _}) ->
+                Ret;
+            ({Vsn, Actions}) ->
+                case is_skipped_version(App, Vsn, PrevVersion) of
+                    true ->
+                        log("WARN: ~p has version ~s skipped over?~n", [App, Vsn]),
+                        {Vsn, Actions};
+                    false ->
+                        {Vsn, do_merge_update_actions(App, Changes, Actions)}
+                end
+        end,
+        Vsns
+    ).
 
 %% say current version is 1.1.3, and the compare base is version 1.1.1,
 %% but there is a 1.1.2 in appup we may skip merging instructions for
@@ -306,7 +326,7 @@ do_merge_update_actions(App, {New0, Changed0, Deleted0}, OldActions) ->
                 [];
             false ->
                 [{load_module, M, brutal_purge, soft_purge, []} || M <- Changed] ++
-                [{add_module, M} || M <- New]
+                    [{add_module, M} || M <- New]
         end,
     {OldActionsWithStop, OldActionsAfterStop} =
         find_application_stop_instruction(App, OldActions),
@@ -331,11 +351,14 @@ contains_restart_application(Application, Actions) ->
 find_application_stop_instruction(Application, Actions) ->
     {Before, After0} =
         lists:splitwith(
-          fun({apply, {application, stop, [App]}}) when App =:= Application ->
-                  false;
-             (_) ->
-                  true
-          end, Actions),
+            fun
+                ({apply, {application, stop, [App]}}) when App =:= Application ->
+                    false;
+                (_) ->
+                    true
+            end,
+            Actions
+        ),
     case After0 of
         [StopInst | After] ->
             {Before ++ [StopInst], After};
@@ -353,8 +376,10 @@ process_old_action({delete_module, Module}) ->
     [Module];
 process_old_action({update, Module, _Change}) ->
     [Module];
-process_old_action(LoadModule) when is_tuple(LoadModule) andalso
-                                    element(1, LoadModule) =:= load_module ->
+process_old_action(LoadModule) when
+    is_tuple(LoadModule) andalso
+        element(1, LoadModule) =:= load_module
+->
     element(2, LoadModule);
 process_old_action(_) ->
     [].
@@ -370,17 +395,19 @@ ensure_version(Version, OldInstructions) ->
 
 contains_version(Needle, Haystack) when is_list(Needle) ->
     lists:any(
-      fun(Regex) when is_binary(Regex) ->
-              case re:run(Needle, Regex) of
-                  {match, _} ->
-                      true;
-                  nomatch ->
-                      false
-              end;
-         (Vsn) ->
-              Vsn =:= Needle
-      end,
-      Haystack).
+        fun
+            (Regex) when is_binary(Regex) ->
+                case re:run(Needle, Regex) of
+                    {match, _} ->
+                        true;
+                    nomatch ->
+                        false
+                end;
+            (Vsn) ->
+                Vsn =:= Needle
+        end,
+        Haystack
+    ).
 
 %% As a best effort approach, we assume that we only bump patch
 %% version numbers between release upgrades for our dependencies and
@@ -413,9 +440,9 @@ vsn_number_to_string({Major, Minor, Patch}) ->
 
 read_appup(File) ->
     %% NOTE: appup file is a script, it may contain variables or functions.
-   case do_read_appup(File) of
-       {ok, {U, D}} -> {U, D};
-       {error, Reason} -> fail("Failed to parse appup file ~p~n~p", [File, Reason])
+    case do_read_appup(File) of
+        {ok, {U, D}} -> {U, D};
+        {error, Reason} -> fail("Failed to parse appup file ~p~n~p", [File, Reason])
     end.
 
 do_read_appup(File) ->
@@ -434,10 +461,11 @@ check_appup_files() ->
 
 update_appups(Changes) ->
     lists:foreach(
-      fun({App, {Upgrade, Downgrade, OldUpgrade, OldDowngrade}}) ->
-              do_update_appup(App, Upgrade, Downgrade, OldUpgrade, OldDowngrade)
-      end,
-      Changes).
+        fun({App, {Upgrade, Downgrade, OldUpgrade, OldDowngrade}}) ->
+            do_update_appup(App, Upgrade, Downgrade, OldUpgrade, OldDowngrade)
+        end,
+        Changes
+    ).
 
 do_update_appup(App, Upgrade, Downgrade, OldUpgrade, OldDowngrade) ->
     case locate_current_src(App, ".appup.src") of
@@ -469,8 +497,11 @@ check_appup(App, Upgrade, Downgrade, OldUpgrade, OldDowngrade) ->
             ok;
         {diffs, Diffs} ->
             set_invalid(),
-            log("ERROR: Appup file for '~p' is not complete.~n"
-                "Missing:~100p~n", [App, Diffs]),
+            log(
+                "ERROR: Appup file for '~p' is not complete.~n"
+                "Missing:~100p~n",
+                [App, Diffs]
+            ),
             notok
     end.
 
@@ -496,9 +527,12 @@ render_appup(App, File, Up, Down) ->
     end.
 
 do_render_appup(File, Up, Down) ->
-    IOList = io_lib:format("%% -*- mode: erlang -*-~n"
-                           "%% Unless you know what you are doing, DO NOT edit manually!!~n"
-                           "{VSN,~n  ~p,~n  ~p}.~n", [Up, Down]),
+    IOList = io_lib:format(
+        "%% -*- mode: erlang -*-~n"
+        "%% Unless you know what you are doing, DO NOT edit manually!!~n"
+        "{VSN,~n  ~p,~n  ~p}.~n",
+        [Up, Down]
+    ),
     ok = file:write_file(File, IOList).
 
 create_stub(App) ->
@@ -544,30 +578,37 @@ index_app(AppFile) ->
     %% Note: assuming that beams are always located in the same directory where app file is:
     EbinDir = filename:dirname(AppFile),
     Modules = hashsums(EbinDir),
-    {App, #app{ version       = Vsn
-              , modules       = Modules
-              }}.
+    {App, #app{
+        version = Vsn,
+        modules = Modules
+    }}.
 
-diff_app(UpOrDown, App,
-         #app{version = NewVersion, modules = NewModules},
-         #app{version = OldVersion, modules = OldModules}) ->
+diff_app(
+    UpOrDown,
+    App,
+    #app{version = NewVersion, modules = NewModules},
+    #app{version = OldVersion, modules = OldModules}
+) ->
     {New, Changed} =
-        maps:fold( fun(Mod, MD5, {New, Changed}) ->
-                           case OldModules of
-                               #{Mod := OldMD5} when MD5 =:= OldMD5 ->
-                                   {New, Changed};
-                               #{Mod := _} ->
-                                   {New, [Mod | Changed]};
-                               _ ->
-                                   {[Mod | New], Changed}
-                           end
-                   end
-                 , {[], []}
-                 , NewModules
-                 ),
+        maps:fold(
+            fun(Mod, MD5, {New, Changed}) ->
+                case OldModules of
+                    #{Mod := OldMD5} when MD5 =:= OldMD5 ->
+                        {New, Changed};
+                    #{Mod := _} ->
+                        {New, [Mod | Changed]};
+                    _ ->
+                        {[Mod | New], Changed}
+                end
+            end,
+            {[], []},
+            NewModules
+        ),
     Deleted = maps:keys(maps:without(maps:keys(NewModules), OldModules)),
-    Changes = lists:filter(fun({_T, L}) -> length(L) > 0 end,
-                           [{added, New}, {changed, Changed}, {deleted, Deleted}]),
+    Changes = lists:filter(
+        fun({_T, L}) -> length(L) > 0 end,
+        [{added, New}, {changed, Changed}, {deleted, Deleted}]
+    ),
     case NewVersion =:= OldVersion of
         true when Changes =:= [] ->
             %% no change
@@ -577,13 +618,17 @@ diff_app(UpOrDown, App,
             case UpOrDown =:= up of
                 true ->
                     %% only log for the upgrade case because it would be the same result
-                    log("ERROR: Application '~p' contains changes, but its version is not updated. ~s",
-                        [App, format_changes(Changes)]);
+                    log(
+                        "ERROR: Application '~p' contains changes, but its version is not updated. ~s",
+                        [App, format_changes(Changes)]
+                    );
                 false ->
                     ok
             end;
         false ->
-            log("INFO: Application '~p' has been updated: ~p --[~p]--> ~p~n", [App, OldVersion, UpOrDown, NewVersion]),
+            log("INFO: Application '~p' has been updated: ~p --[~p]--> ~p~n", [
+                App, OldVersion, UpOrDown, NewVersion
+            ]),
             log("INFO: changes [~p]: ~p~n", [UpOrDown, Changes]),
             ok
     end,
@@ -594,14 +639,16 @@ format_changes(Changes) ->
 
 -spec hashsums(file:filename()) -> #{module() => binary()}.
 hashsums(EbinDir) ->
-    maps:from_list(lists:map(
-                     fun(Beam) ->
-                             File = filename:join(EbinDir, Beam),
-                             {ok, Ret = {_Module, _MD5}} = beam_lib:md5(File),
-                             Ret
-                     end,
-                     filelib:wildcard("*.beam", EbinDir)
-                    )).
+    maps:from_list(
+        lists:map(
+            fun(Beam) ->
+                File = filename:join(EbinDir, Beam),
+                {ok, Ret = {_Module, _MD5}} = beam_lib:md5(File),
+                Ret
+            end,
+            filelib:wildcard("*.beam", EbinDir)
+        )
+    ).
 
 is_app_external(App) ->
     Ext = ".app.src",
@@ -674,12 +721,13 @@ do_locate(Dir, App, Suffix) ->
     end.
 
 find_app(Pattern) ->
-    lists:filter(fun(D) -> re:run(D, "apps/.*/_build") =:= nomatch end,
-                 filelib:wildcard(Pattern)).
+    lists:filter(
+        fun(D) -> re:run(D, "apps/.*/_build") =:= nomatch end,
+        filelib:wildcard(Pattern)
+    ).
 
 bash(undefined) -> ok;
-bash(Script) ->
-    bash(Script, []).
+bash(Script) -> bash(Script, []).
 
 bash(Script, Env) ->
     log("+ ~s~n+ Env: ~p~n", [Script, Env]),
@@ -695,12 +743,14 @@ cmd(Exec, Params) ->
             fail("Executable not found in $PATH: ~s", [Exec]);
         Path ->
             Params1 = maps:to_list(maps:with([env, args, cd], Params)),
-            Port = erlang:open_port( {spawn_executable, Path}
-                                   , [ exit_status
-                                     , nouse_stdio
-                                     | Params1
-                                     ]
-                                   ),
+            Port = erlang:open_port(
+                {spawn_executable, Path},
+                [
+                    exit_status,
+                    nouse_stdio
+                    | Params1
+                ]
+            ),
             receive
                 {Port, {exit_status, Status}} ->
                     Status
