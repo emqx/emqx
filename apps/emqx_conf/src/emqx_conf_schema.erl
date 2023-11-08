@@ -28,13 +28,11 @@
 
 -include("emqx_conf.hrl").
 
--type file() :: string().
 -type cipher() :: map().
 
 -behaviour(hocon_schema).
 
 -reflect_type([
-    file/0,
     cipher/0
 ]).
 
@@ -546,7 +544,7 @@ fields("node") ->
             )},
         {"crash_dump_file",
             sc(
-                file(),
+                string(),
                 #{
                     mapping => "vm_args.-env ERL_CRASH_DUMP",
                     desc => ?DESC(node_crash_dump_file),
@@ -837,7 +835,7 @@ fields("rpc") ->
             )},
         {"certfile",
             sc(
-                file(),
+                string(),
                 #{
                     mapping => "gen_rpc.certfile",
                     converter => fun ensure_unicode_path/2,
@@ -846,7 +844,7 @@ fields("rpc") ->
             )},
         {"keyfile",
             sc(
-                file(),
+                string(),
                 #{
                     mapping => "gen_rpc.keyfile",
                     converter => fun ensure_unicode_path/2,
@@ -855,7 +853,7 @@ fields("rpc") ->
             )},
         {"cacertfile",
             sc(
-                file(),
+                string(),
                 #{
                     mapping => "gen_rpc.cacertfile",
                     converter => fun ensure_unicode_path/2,
@@ -1002,7 +1000,7 @@ fields("log_file_handler") ->
     [
         {"path",
             sc(
-                file(),
+                string(),
                 #{
                     desc => ?DESC("log_file_handler_file"),
                     default => <<"${EMQX_LOG_DIR}/emqx.log">>,
