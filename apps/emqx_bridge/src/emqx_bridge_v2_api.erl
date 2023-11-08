@@ -709,8 +709,10 @@ format_resource(
     #{
         type := Type,
         name := Name,
+        status := Status,
+        error := Error,
         raw_config := RawConf,
-        resource_data := ResourceData
+        resource_data := _ResourceData
     },
     Node
 ) ->
@@ -719,14 +721,16 @@ format_resource(
             RawConf#{
                 type => Type,
                 name => maps:get(<<"name">>, RawConf, Name),
-                node => Node
+                node => Node,
+                status => Status,
+                error => Error
             },
-            format_resource_data(ResourceData)
+            format_bridge_status_and_error(#{status => Status, error => Error})
         )
     ).
 
-format_resource_data(ResData) ->
-    maps:fold(fun format_resource_data/3, #{}, maps:with([status, error], ResData)).
+format_bridge_status_and_error(Data) ->
+    maps:fold(fun format_resource_data/3, #{}, maps:with([status, error], Data)).
 
 format_resource_data(error, undefined, Result) ->
     Result;
