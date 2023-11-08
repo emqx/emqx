@@ -11,7 +11,8 @@
 -import(hoconsc, [mk/2, enum/1, ref/2]).
 
 -export([
-    conn_bridge_examples/1
+    conn_bridge_examples/1,
+    write_syntax_type/0
 ]).
 
 -export([
@@ -28,6 +29,9 @@
 
 %% -------------------------------------------------------------------------------------------------
 %% api
+
+write_syntax_type() ->
+    typerefl:alias("string", write_syntax()).
 
 conn_bridge_examples(Method) ->
     [
@@ -154,7 +158,7 @@ desc(_) ->
     undefined.
 
 write_syntax(type) ->
-    ?MODULE:write_syntax();
+    write_syntax_type();
 write_syntax(required) ->
     true;
 write_syntax(validator) ->
