@@ -100,7 +100,7 @@ common_fields() ->
         {backend, emqx_authn_schema:backend(?AUTHN_BACKEND)},
         {url, fun url/1},
         {body,
-            hoconsc:mk(map([{fuzzy, term(), binary()}]), #{
+            hoconsc:mk(typerefl:alias("map", map([{fuzzy, term(), binary()}])), #{
                 required => false, desc => ?DESC(body)
             })},
         {request_timeout, fun request_timeout/1}

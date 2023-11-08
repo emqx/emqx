@@ -99,7 +99,7 @@ http_common_fields() ->
             mk_duration("Request timeout", #{
                 required => false, default => <<"30s">>, desc => ?DESC(request_timeout)
             })},
-        {body, ?HOCON(map(), #{required => false, desc => ?DESC(body)})}
+        {body, ?HOCON(hoconsc:map(name, binary()), #{required => false, desc => ?DESC(body)})}
     ] ++
         lists:keydelete(
             pool_type,
@@ -108,7 +108,7 @@ http_common_fields() ->
         ).
 
 headers(type) ->
-    list({binary(), binary()});
+    typerefl:alias("map", list({binary(), binary()}));
 headers(desc) ->
     ?DESC(?FUNCTION_NAME);
 headers(converter) ->
@@ -121,7 +121,7 @@ headers(_) ->
     undefined.
 
 headers_no_content_type(type) ->
-    list({binary(), binary()});
+    typerefl:alias("map", list({binary(), binary()}));
 headers_no_content_type(desc) ->
     ?DESC(?FUNCTION_NAME);
 headers_no_content_type(converter) ->
