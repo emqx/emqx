@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2017-2023 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2022-2023 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -13,5 +13,24 @@
 %% See the License for the specific language governing permissions and
 %% limitations under the License.
 %%--------------------------------------------------------------------
+-ifndef(EMQX_DS_BITMASK_HRL).
+-define(EMQX_DS_BITMASK_HRL, true).
 
--include_lib("emqx_utils/include/bpapi.hrl").
+-record(filter_scan_action, {
+    offset :: emqx_ds_bitmask_keymapper:offset(),
+    size :: emqx_ds_bitmask_keymapper:bitsize(),
+    min :: non_neg_integer(),
+    max :: non_neg_integer()
+}).
+
+-record(filter, {
+    size :: non_neg_integer(),
+    bitfilter :: non_neg_integer(),
+    bitmask :: non_neg_integer(),
+    %% Ranges (in _bitsource_ basis):
+    bitsource_ranges :: array:array(#filter_scan_action{}),
+    range_min :: non_neg_integer(),
+    range_max :: non_neg_integer()
+}).
+
+-endif.

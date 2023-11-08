@@ -23,16 +23,12 @@
 
 %% Message persistence
 -export([
-    persist/1,
-    serialize/1,
-    deserialize/1
+    persist/1
 ]).
 
-%% FIXME
--define(DS_SHARD_ID, <<"local">>).
--define(DEFAULT_KEYSPACE, default).
--define(DS_SHARD, {?DEFAULT_KEYSPACE, ?DS_SHARD_ID}).
+-define(PERSISTENT_MESSAGE_DB, emqx_persistent_message).
 
+%% FIXME
 -define(WHEN_ENABLED(DO),
     case is_store_enabled() of
         true -> DO;
@@ -44,18 +40,10 @@
 
 init() ->
     ?WHEN_ENABLED(begin
-        ok = emqx_ds:ensure_shard(
-            ?DS_SHARD,
-            #{
-                dir => filename:join([
-                    emqx:data_dir(),
-                    ds,
-                    messages,
-                    ?DEFAULT_KEYSPACE,
-                    ?DS_SHARD_ID
-                ])
-            }
-        ),
+        ok = emqx_ds:open_db(?PERSISTENT_MESSAGE_DB, #{
+            backend => builtin,
+            storage => {emqx_ds_storage_bitfield_lts, #{}}
+        }),
         ok = emqx_persistent_session_ds_router:init_tables(),
         ok = emqx_persistent_session_ds:create_tables(),
         ok
@@ -82,19 +70,11 @@ persist(Msg) ->
 needs_persistence(Msg) ->
     not (emqx_message:get_flag(dup, Msg) orelse emqx_message:is_sys(Msg)).
 
+-spec store_message(emqx_types:message()) -> emqx_ds:store_batch_result().
 store_message(Msg) ->
-    ID = emqx_message:id(Msg),
-    Timestamp = emqx_guid:timestamp(ID),
-    Topic = emqx_topic:words(emqx_message:topic(Msg)),
-    emqx_ds_storage_layer:store(?DS_SHARD, ID, Timestamp, Topic, serialize(Msg)).
+    emqx_ds:store_batch(?PERSISTENT_MESSAGE_DB, [Msg]).
 
 has_subscribers(#message{topic = Topic}) ->
     emqx_persistent_session_ds_router:has_any_route(Topic).
 
 %%
-
-serialize(Msg) ->
-    term_to_binary(emqx_message:to_map(Msg)).
-
-deserialize(Bin) ->
-    emqx_message:from_map(binary_to_term(Bin)).

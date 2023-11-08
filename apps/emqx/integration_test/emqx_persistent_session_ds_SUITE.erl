@@ -1,7 +1,7 @@
 %%--------------------------------------------------------------------
 %% Copyright (c) 2023 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
--module(emqx_ds_SUITE).
+-module(emqx_persistent_session_ds_SUITE).
 
 -compile(export_all).
 -compile(nowarn_export_all).
@@ -14,7 +14,6 @@
 -define(DEFAULT_KEYSPACE, default).
 -define(DS_SHARD_ID, <<"local">>).
 -define(DS_SHARD, {?DEFAULT_KEYSPACE, ?DS_SHARD_ID}).
--define(ITERATOR_REF_TAB, emqx_ds_iterator_ref).
 
 -import(emqx_common_test_helpers, [on_exit/1]).
 
@@ -91,9 +90,6 @@ get_mqtt_port(Node, Type) ->
     {_IP, Port} = erpc:call(Node, emqx_config, get, [[listeners, Type, default, bind]]),
     Port.
 
-get_all_iterator_refs(Node) ->
-    erpc:call(Node, mnesia, dirty_all_keys, [?ITERATOR_REF_TAB]).
-
 get_all_iterator_ids(Node) ->
     Fn = fun(K, _V, Acc) -> [K | Acc] end,
     erpc:call(Node, fun() ->
@@ -126,6 +122,32 @@ start_client(Opts0 = #{}) ->
     on_exit(fun() -> catch emqtt:stop(Client) end),
     Client.
 
+restart_node(Node, NodeSpec) ->
+    ?tp(will_restart_node, #{}),
+    ?tp(notice, "restarting node", #{node => Node}),
+    true = monitor_node(Node, true),
+    ok = erpc:call(Node, init, restart, []),
+    receive
+        {nodedown, Node} ->
+            ok
+    after 10_000 ->
+        ct:fail("node ~p didn't stop", [Node])
+    end,
+    ?tp(notice, "waiting for nodeup", #{node => Node}),
+    wait_nodeup(Node),
+    wait_gen_rpc_down(NodeSpec),
+    ?tp(notice, "restarting apps", #{node => Node}),
+    Apps = maps:get(apps, NodeSpec),
+    ok = erpc:call(Node, emqx_cth_suite, load_apps, [Apps]),
+    _ = erpc:call(Node, emqx_cth_suite, start_apps, [Apps, NodeSpec]),
+    %% have to re-inject this so that we may stop the node succesfully at the
+    %% end....
+    ok = emqx_cth_cluster:set_node_opts(Node, NodeSpec),
+    ok = snabbkaffe:forward_trace(Node),
+    ?tp(notice, "node restarted", #{node => Node}),
+    ?tp(restarted_node, #{}),
+    ok.
+
 %%------------------------------------------------------------------------------
 %% Testcases
 %%------------------------------------------------------------------------------
@@ -143,24 +165,14 @@ t_non_persistent_session_subscription(_Config) ->
             {ok, _} = emqtt:connect(Client),
             ?tp(notice, "subscribing", #{}),
             {ok, _, [?RC_GRANTED_QOS_2]} = emqtt:subscribe(Client, SubTopicFilter, qos2),
-            IteratorRefs = get_all_iterator_refs(node()),
-            IteratorIds = get_all_iterator_ids(node()),
 
             ok = emqtt:stop(Client),
 
-            #{
-                iterator_refs => IteratorRefs,
-                iterator_ids => IteratorIds
-            }
+            ok
         end,
-        fun(Res, Trace) ->
+        fun(Trace) ->
             ct:pal("trace:\n  ~p", [Trace]),
-            #{
-                iterator_refs := IteratorRefs,
-                iterator_ids := IteratorIds
-            } = Res,
-            ?assertEqual([], IteratorRefs),
-            ?assertEqual({ok, []}, IteratorIds),
+            ?assertEqual([], ?of_kind(ds_session_subscription_added, Trace)),
             ok
         end
     ),
@@ -175,7 +187,7 @@ t_session_subscription_idempotency(Config) ->
     ?check_trace(
         begin
             ?force_ordering(
-                #{?snk_kind := persistent_session_ds_iterator_added},
+                #{?snk_kind := persistent_session_ds_subscription_added},
                 _NEvents0 = 1,
                 #{?snk_kind := will_restart_node},
                 _Guard0 = true
@@ -187,32 +199,7 @@ t_session_subscription_idempotency(Config) ->
                 _Guard1 = true
             ),
 
-            spawn_link(fun() ->
-                ?tp(will_restart_node, #{}),
-                ?tp(notice, "restarting node", #{node => Node1}),
-                true = monitor_node(Node1, true),
-                ok = erpc:call(Node1, init, restart, []),
-                receive
-                    {nodedown, Node1} ->
-                        ok
-                after 10_000 ->
-                    ct:fail("node ~p didn't stop", [Node1])
-                end,
-                ?tp(notice, "waiting for nodeup", #{node => Node1}),
-                wait_nodeup(Node1),
-                wait_gen_rpc_down(Node1Spec),
-                ?tp(notice, "restarting apps", #{node => Node1}),
-                Apps = maps:get(apps, Node1Spec),
-                ok = erpc:call(Node1, emqx_cth_suite, load_apps, [Apps]),
-                _ = erpc:call(Node1, emqx_cth_suite, start_apps, [Apps, Node1Spec]),
-                %% have to re-inject this so that we may stop the node succesfully at the
-                %% end....
-                ok = emqx_cth_cluster:set_node_opts(Node1, Node1Spec),
-                ok = snabbkaffe:forward_trace(Node1),
-                ?tp(notice, "node restarted", #{node => Node1}),
-                ?tp(restarted_node, #{}),
-                ok
-            end),
+            spawn_link(fun() -> restart_node(Node1, Node1Spec) end),
 
             ?tp(notice, "starting 1", #{}),
             Client0 = start_client(#{port => Port, clientid => ClientId}),
@@ -223,7 +210,7 @@ t_session_subscription_idempotency(Config) ->
             receive
                 {'EXIT', {shutdown, _}} ->
                     ok
-            after 0 -> ok
+            after 100 -> ok
             end,
             process_flag(trap_exit, false),
 
@@ -240,10 +227,7 @@ t_session_subscription_idempotency(Config) ->
         end,
         fun(Trace) ->
             ct:pal("trace:\n  ~p", [Trace]),
-            %% Exactly one iterator should have been opened.
             SubTopicFilterWords = emqx_topic:words(SubTopicFilter),
-            ?assertEqual([{ClientId, SubTopicFilterWords}], get_all_iterator_refs(Node1)),
-            ?assertMatch({ok, [_]}, get_all_iterator_ids(Node1)),
             ?assertMatch(
                 {ok, #{}, #{SubTopicFilterWords := #{}}},
                 erpc:call(Node1, emqx_persistent_session_ds, session_open, [ClientId])
@@ -262,7 +246,10 @@ t_session_unsubscription_idempotency(Config) ->
     ?check_trace(
         begin
             ?force_ordering(
-                #{?snk_kind := persistent_session_ds_close_iterators, ?snk_span := {complete, _}},
+                #{
+                    ?snk_kind := persistent_session_ds_subscription_delete,
+                    ?snk_span := {complete, _}
+                },
                 _NEvents0 = 1,
                 #{?snk_kind := will_restart_node},
                 _Guard0 = true
@@ -270,36 +257,11 @@ t_session_unsubscription_idempotency(Config) ->
             ?force_ordering(
                 #{?snk_kind := restarted_node},
                 _NEvents1 = 1,
-                #{?snk_kind := persistent_session_ds_iterator_delete, ?snk_span := start},
+                #{?snk_kind := persistent_session_ds_subscription_route_delete, ?snk_span := start},
                 _Guard1 = true
             ),
 
-            spawn_link(fun() ->
-                ?tp(will_restart_node, #{}),
-                ?tp(notice, "restarting node", #{node => Node1}),
-                true = monitor_node(Node1, true),
-                ok = erpc:call(Node1, init, restart, []),
-                receive
-                    {nodedown, Node1} ->
-                        ok
-                after 10_000 ->
-                    ct:fail("node ~p didn't stop", [Node1])
-                end,
-                ?tp(notice, "waiting for nodeup", #{node => Node1}),
-                wait_nodeup(Node1),
-                wait_gen_rpc_down(Node1Spec),
-                ?tp(notice, "restarting apps", #{node => Node1}),
-                Apps = maps:get(apps, Node1Spec),
-                ok = erpc:call(Node1, emqx_cth_suite, load_apps, [Apps]),
-                _ = erpc:call(Node1, emqx_cth_suite, start_apps, [Apps, Node1Spec]),
-                %% have to re-inject this so that we may stop the node succesfully at the
-                %% end....
-                ok = emqx_cth_cluster:set_node_opts(Node1, Node1Spec),
-                ok = snabbkaffe:forward_trace(Node1),
-                ?tp(notice, "node restarted", #{node => Node1}),
-                ?tp(restarted_node, #{}),
-                ok
-            end),
+            spawn_link(fun() -> restart_node(Node1, Node1Spec) end),
 
             ?tp(notice, "starting 1", #{}),
             Client0 = start_client(#{port => Port, clientid => ClientId}),
@@ -312,7 +274,7 @@ t_session_unsubscription_idempotency(Config) ->
             receive
                 {'EXIT', {shutdown, _}} ->
                     ok
-            after 0 -> ok
+            after 100 -> ok
             end,
             process_flag(trap_exit, false),
 
@@ -327,7 +289,7 @@ t_session_unsubscription_idempotency(Config) ->
                 ?wait_async_action(
                     emqtt:unsubscribe(Client1, SubTopicFilter),
                     #{
-                        ?snk_kind := persistent_session_ds_iterator_delete,
+                        ?snk_kind := persistent_session_ds_subscription_route_delete,
                         ?snk_span := {complete, _}
                     },
                     15_000
@@ -339,9 +301,10 @@ t_session_unsubscription_idempotency(Config) ->
         end,
         fun(Trace) ->
             ct:pal("trace:\n  ~p", [Trace]),
-            %% No iterators remaining
-            ?assertEqual([], get_all_iterator_refs(Node1)),
-            ?assertEqual({ok, []}, get_all_iterator_ids(Node1)),
+            ?assertMatch(
+                {ok, #{}, Subs = #{}} when map_size(Subs) =:= 0,
+                erpc:call(Node1, emqx_persistent_session_ds, session_open, [ClientId])
+            ),
             ok
         end
     ),

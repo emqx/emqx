@@ -6,7 +6,7 @@
 -behaviour(supervisor).
 
 %% API:
--export([start_link/0, start_shard/2, stop_shard/1]).
+-export([start_link/0, start_shard/2, stop_shard/1, ensure_shard/2]).
 
 %% behaviour callbacks:
 -export([init/1]).
@@ -25,7 +25,7 @@
 start_link() ->
     supervisor:start_link({local, ?SUP}, ?MODULE, []).
 
--spec start_shard(emqx_ds:shard(), emqx_ds_storage_layer:options()) ->
+-spec start_shard(emqx_ds_replication_layer:shard_id(), emqx_ds:create_db_opts()) ->
     supervisor:startchild_ret().
 start_shard(Shard, Options) ->
     supervisor:start_child(?SUP, shard_child_spec(Shard, Options)).
@@ -34,6 +34,17 @@ start_shard(Shard, Options) ->
 stop_shard(Shard) ->
     ok = supervisor:terminate_child(?SUP, Shard),
     ok = supervisor:delete_child(?SUP, Shard).
+
+-spec ensure_shard(emqx_ds:shard(), emqx_ds_storage_layer:options()) -> ok | {error, _Reason}.
+ensure_shard(Shard, Options) ->
+    case start_shard(Shard, Options) of
+        {ok, _Pid} ->
+            ok;
+        {error, {already_started, _Pid}} ->
+            ok;
+        {error, Reason} ->
+            {error, Reason}
+    end.
 
 %%================================================================================
 %% behaviour callbacks
@@ -52,7 +63,7 @@ init([]) ->
 %% Internal functions
 %%================================================================================
 
--spec shard_child_spec(emqx_ds:shard(), emqx_ds_storage_layer:options()) ->
+-spec shard_child_spec(emqx_ds_replication_layer:shard_id(), emqx_ds:create_db_opts()) ->
     supervisor:child_spec().
 shard_child_spec(Shard, Options) ->
     #{

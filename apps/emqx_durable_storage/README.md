@@ -1,9 +1,10 @@
 # EMQX Replay
 
-`emqx_ds` is a durable storage for MQTT messages within EMQX.
-It implements the following scenarios:
-- Persisting messages published by clients
--
+`emqx_ds` is a generic durable storage for MQTT messages within EMQX.
+
+Concepts:
+
+
 
 > 0. App overview introduction
 > 1. let people know what your project can do specifically. Is it a base
