@@ -24,7 +24,7 @@
 -include_lib("common_test/include/ct.hrl").
 -include_lib("snabbkaffe/include/test_macros.hrl").
 
--define(ROOT, "bridges_v2").
+-define(ROOT, "actions").
 
 -define(CONNECTOR_NAME, <<"my_connector">>).
 
@@ -100,6 +100,11 @@
 }).
 -define(KAFKA_BRIDGE(Name), ?KAFKA_BRIDGE(Name, ?CONNECTOR_NAME)).
 
+-define(KAFKA_BRIDGE_UPDATE(Name, Connector),
+    maps:without([<<"name">>, <<"type">>], ?KAFKA_BRIDGE(Name, Connector))
+).
+-define(KAFKA_BRIDGE_UPDATE(Name), ?KAFKA_BRIDGE_UPDATE(Name, ?CONNECTOR_NAME)).
+
 %% -define(BRIDGE_TYPE_MQTT, <<"mqtt">>).
 %% -define(MQTT_BRIDGE(SERVER, NAME), ?BRIDGE(NAME, ?BRIDGE_TYPE_MQTT)#{
 %%     <<"server">> => SERVER,
@@ -147,7 +152,9 @@
     emqx,
     emqx_auth,
     emqx_management,
-    {emqx_bridge, "bridges_v2 {}"}
+    emqx_connector,
+    {emqx_bridge, "actions {}"},
+    {emqx_rule_engine, "rule_engine { rules {} }"}
 ]).
 
 -define(APPSPEC_DASHBOARD,
@@ -214,8 +221,8 @@ mk_cluster(Name, Config, Opts) ->
     Node2Apps = ?APPSPECS,
     emqx_cth_cluster:start(
         [
-            {emqx_bridge_api_SUITE_1, Opts#{role => core, apps => Node1Apps}},
-            {emqx_bridge_api_SUITE_2, Opts#{role => core, apps => Node2Apps}}
+            {emqx_bridge_v2_api_SUITE_1, Opts#{role => core, apps => Node1Apps}},
+            {emqx_bridge_v2_api_SUITE_2, Opts#{role => core, apps => Node2Apps}}
         ],
         #{work_dir => filename:join(?config(priv_dir, Config), Name)}
     ).
@@ -251,7 +258,7 @@ end_per_testcase(_TestCase, Config) ->
     ok = emqx_common_test_helpers:call_janitor(),
     ok.
 
--define(CONNECTOR_IMPL, dummy_connector_impl).
+-define(CONNECTOR_IMPL, emqx_bridge_v2_dummy_connector).
 init_mocks() ->
     meck:new(emqx_connector_ee_schema, [passthrough, no_link]),
     meck:expect(emqx_connector_ee_schema, resource_type, 1, ?CONNECTOR_IMPL),
@@ -279,6 +286,9 @@ init_mocks() ->
     meck:expect(?CONNECTOR_IMPL, on_add_channel, 4, {ok, connector_state}),
     meck:expect(?CONNECTOR_IMPL, on_remove_channel, 3, {ok, connector_state}),
     meck:expect(?CONNECTOR_IMPL, on_get_channel_status, 3, connected),
+    ok = meck:expect(?CONNECTOR_IMPL, on_get_channels, fun(ResId) ->
+        emqx_bridge_v2:get_channels_for_connector(ResId)
+    end),
     [?CONNECTOR_IMPL, emqx_connector_ee_schema].
 
 clear_resources() ->
@@ -394,16 +404,100 @@ t_bridges_lifecycle(Config) ->
         request_json(
             put,
             uri([?ROOT, BridgeID]),
-            maps:without(
-                [<<"type">>, <<"name">>],
-                ?KAFKA_BRIDGE(?BRIDGE_NAME, <<"foobla">>)
-            ),
+            ?KAFKA_BRIDGE_UPDATE(?BRIDGE_NAME, <<"foobla">>),
             Config
         )
     ),
 
+    %% update bridge with unknown connector name
+    {ok, 400, #{
+        <<"code">> := <<"BAD_REQUEST">>,
+        <<"message">> := Message1
+    }} =
+        request_json(
+            put,
+            uri([?ROOT, BridgeID]),
+            ?KAFKA_BRIDGE_UPDATE(?BRIDGE_NAME, <<"does_not_exist">>),
+            Config
+        ),
+    ?assertMatch(
+        #{<<"reason">> := <<"connector_not_found_or_wrong_type">>},
+        emqx_utils_json:decode(Message1)
+    ),
+
+    %% update bridge with connector of wrong type
+    {ok, 201, _} =
+        request(
+            post,
+            uri(["connectors"]),
+            (?CONNECTOR(<<"foobla2">>))#{
+                <<"type">> => <<"azure_event_hub_producer">>,
+                <<"authentication">> => #{
+                    <<"username">> => <<"emqxuser">>,
+                    <<"password">> => <<"topSecret">>,
+                    <<"mechanism">> => <<"plain">>
+                },
+                <<"ssl">> => #{
+                    <<"enable">> => true,
+                    <<"server_name_indication">> => <<"auto">>,
+                    <<"verify">> => <<"verify_none">>,
+                    <<"versions">> => [<<"tlsv1.3">>, <<"tlsv1.2">>]
+                }
+            },
+            Config
+        ),
+    {ok, 400, #{
+        <<"code">> := <<"BAD_REQUEST">>,
+        <<"message">> := Message2
+    }} =
+        request_json(
+            put,
+            uri([?ROOT, BridgeID]),
+            ?KAFKA_BRIDGE_UPDATE(?BRIDGE_NAME, <<"foobla2">>),
+            Config
+        ),
+    ?assertMatch(
+        #{<<"reason">> := <<"connector_not_found_or_wrong_type">>},
+        emqx_utils_json:decode(Message2)
+    ),
+
     %% delete the bridge
     {ok, 204, <<>>} = request(delete, uri([?ROOT, BridgeID]), Config),
+    {ok, 200, []} = request_json(get, uri([?ROOT]), Config),
+
+    %% try create with unknown connector name
+    {ok, 400, #{
+        <<"code">> := <<"BAD_REQUEST">>,
+        <<"message">> := Message3
+    }} =
+        request_json(
+            post,
+            uri([?ROOT]),
+            ?KAFKA_BRIDGE(?BRIDGE_NAME, <<"does_not_exist">>),
+            Config
+        ),
+    ?assertMatch(
+        #{<<"reason">> := <<"connector_not_found_or_wrong_type">>},
+        emqx_utils_json:decode(Message3)
+    ),
+
+    %% try create bridge with connector of wrong type
+    {ok, 400, #{
+        <<"code">> := <<"BAD_REQUEST">>,
+        <<"message">> := Message4
+    }} =
+        request_json(
+            post,
+            uri([?ROOT]),
+            ?KAFKA_BRIDGE(?BRIDGE_NAME, <<"foobla2">>),
+            Config
+        ),
+    ?assertMatch(
+        #{<<"reason">> := <<"connector_not_found_or_wrong_type">>},
+        emqx_utils_json:decode(Message4)
+    ),
+
+    %% make sure nothing has been created above
     {ok, 200, []} = request_json(get, uri([?ROOT]), Config),
 
     %% update a deleted bridge returns an error
@@ -415,15 +509,12 @@ t_bridges_lifecycle(Config) ->
         request_json(
             put,
             uri([?ROOT, BridgeID]),
-            maps:without(
-                [<<"type">>, <<"name">>],
-                ?KAFKA_BRIDGE(?BRIDGE_NAME)
-            ),
+            ?KAFKA_BRIDGE_UPDATE(?BRIDGE_NAME),
             Config
         )
     ),
 
-    %% Deleting a non-existing bridge should result in an error
+    %% deleting a non-existing bridge should result in an error
     ?assertMatch(
         {ok, 404, #{
             <<"code">> := <<"NOT_FOUND">>,
@@ -443,6 +534,7 @@ t_bridges_lifecycle(Config) ->
 
     %% Try create bridge with bad characters as name
     {ok, 400, _} = request(post, uri([?ROOT]), ?KAFKA_BRIDGE(<<"隋达"/utf8>>), Config),
+    {ok, 400, _} = request(post, uri([?ROOT]), ?KAFKA_BRIDGE(<<"a.b">>), Config),
     ok.
 
 t_start_bridge_unknown_node(Config) ->
@@ -503,6 +595,31 @@ do_start_bridge(TestType, Config) ->
 
     {ok, 400, _} = request(post, {operation, TestType, invalidop, BridgeID}, Config),
 
+    %% Make start bridge fail
+    expect_on_all_nodes(
+        ?CONNECTOR_IMPL,
+        on_add_channel,
+        fun(_, _, _ResId, _Channel) -> {error, <<"my_error">>} end,
+        Config
+    ),
+
+    connector_operation(Config, ?BRIDGE_TYPE, ?CONNECTOR_NAME, stop),
+    connector_operation(Config, ?BRIDGE_TYPE, ?CONNECTOR_NAME, start),
+
+    {ok, 400, _} = request(post, {operation, TestType, start, BridgeID}, Config),
+
+    %% Make start bridge succeed
+
+    expect_on_all_nodes(
+        ?CONNECTOR_IMPL,
+        on_add_channel,
+        fun(_, _, _ResId, _Channel) -> {ok, connector_state} end,
+        Config
+    ),
+
+    %% try to start again
+    {ok, 204, <<>>} = request(post, {operation, TestType, start, BridgeID}, Config),
+
     %% delete the bridge
     {ok, 204, <<>>} = request(delete, uri([?ROOT, BridgeID]), Config),
     {ok, 200, []} = request_json(get, uri([?ROOT]), Config),
@@ -512,6 +629,41 @@ do_start_bridge(TestType, Config) ->
     %% Looks ok but doesn't exist
     {ok, 404, _} = request(post, {operation, TestType, start, <<"webhook:cptn_hook">>}, Config),
     ok.
+
+expect_on_all_nodes(Mod, Function, Fun, Config) ->
+    case ?config(cluster_nodes, Config) of
+        undefined ->
+            ok = meck:expect(Mod, Function, Fun);
+        Nodes ->
+            [erpc:call(Node, meck, expect, [Mod, Function, Fun]) || Node <- Nodes]
+    end,
+    ok.
+
+connector_operation(Config, ConnectorType, ConnectorName, OperationName) ->
+    case ?config(group, Config) of
+        cluster ->
+            case ?config(cluster_nodes, Config) of
+                undefined ->
+                    Node = ?config(node, Config),
+                    ok = rpc:call(
+                        Node,
+                        emqx_connector_resource,
+                        OperationName,
+                        [ConnectorType, ConnectorName],
+                        500
+                    );
+                Nodes ->
+                    erpc:multicall(
+                        Nodes,
+                        emqx_connector_resource,
+                        OperationName,
+                        [ConnectorType, ConnectorName],
+                        500
+                    )
+            end;
+        _ ->
+            ok = emqx_connector_resource:OperationName(ConnectorType, ConnectorName)
+    end.
 
 %% t_start_stop_inconsistent_bridge_node(Config) ->
 %%     start_stop_inconsistent_bridge(node, Config).
@@ -626,7 +778,7 @@ do_start_bridge(TestType, Config) ->
 t_bridges_probe(Config) ->
     {ok, 204, <<>>} = request(
         post,
-        uri(["bridges_v2_probe"]),
+        uri(["actions_probe"]),
         ?KAFKA_BRIDGE(?BRIDGE_NAME),
         Config
     ),
@@ -634,7 +786,7 @@ t_bridges_probe(Config) ->
     %% second time with same name is ok since no real bridge created
     {ok, 204, <<>>} = request(
         post,
-        uri(["bridges_v2_probe"]),
+        uri(["actions_probe"]),
         ?KAFKA_BRIDGE(?BRIDGE_NAME),
         Config
     ),
@@ -648,7 +800,7 @@ t_bridges_probe(Config) ->
         }},
         request_json(
             post,
-            uri(["bridges_v2_probe"]),
+            uri(["actions_probe"]),
             ?KAFKA_BRIDGE(<<"broken_bridge">>, <<"brokenhost:1234">>),
             Config
         )
@@ -660,12 +812,79 @@ t_bridges_probe(Config) ->
         {ok, 400, #{<<"code">> := <<"BAD_REQUEST">>}},
         request_json(
             post,
-            uri(["bridges_v2_probe"]),
+            uri(["actions_probe"]),
             ?RESOURCE(<<"broken_bridge">>, <<"unknown_type">>),
             Config
         )
     ),
     ok.
+
+t_cascade_delete_actions(Config) ->
+    %% assert we there's no bridges at first
+    {ok, 200, []} = request_json(get, uri([?ROOT]), Config),
+    %% then we add a a bridge, using POST
+    %% POST /actions/ will create a bridge
+    BridgeID = emqx_bridge_resource:bridge_id(?BRIDGE_TYPE, ?BRIDGE_NAME),
+    {ok, 201, _} = request(
+        post,
+        uri([?ROOT]),
+        ?KAFKA_BRIDGE(?BRIDGE_NAME),
+        Config
+    ),
+    {ok, 201, #{<<"id">> := RuleId}} = request_json(
+        post,
+        uri(["rules"]),
+        #{
+            <<"name">> => <<"t_http_crud_apis">>,
+            <<"enable">> => true,
+            <<"actions">> => [BridgeID],
+            <<"sql">> => <<"SELECT * from \"t\"">>
+        },
+        Config
+    ),
+    %% delete the bridge will also delete the actions from the rules
+    {ok, 204, _} = request(
+        delete,
+        uri([?ROOT, BridgeID]) ++ "?also_delete_dep_actions=true",
+        Config
+    ),
+    {ok, 200, []} = request_json(get, uri([?ROOT]), Config),
+    ?assertMatch(
+        {ok, 200, #{<<"actions">> := []}},
+        request_json(get, uri(["rules", RuleId]), Config)
+    ),
+    {ok, 204, <<>>} = request(delete, uri(["rules", RuleId]), Config),
+
+    {ok, 201, _} = request(
+        post,
+        uri([?ROOT]),
+        ?KAFKA_BRIDGE(?BRIDGE_NAME),
+        Config
+    ),
+    {ok, 201, _} = request(
+        post,
+        uri(["rules"]),
+        #{
+            <<"name">> => <<"t_http_crud_apis">>,
+            <<"enable">> => true,
+            <<"actions">> => [BridgeID],
+            <<"sql">> => <<"SELECT * from \"t\"">>
+        },
+        Config
+    ),
+    {ok, 400, _} = request(
+        delete,
+        uri([?ROOT, BridgeID]),
+        Config
+    ),
+    {ok, 200, [_]} = request_json(get, uri([?ROOT]), Config),
+    %% Cleanup
+    {ok, 204, _} = request(
+        delete,
+        uri([?ROOT, BridgeID]) ++ "?also_delete_dep_actions=true",
+        Config
+    ),
+    {ok, 200, []} = request_json(get, uri([?ROOT]), Config).
 
 %%% helpers
 listen_on_random_port() ->

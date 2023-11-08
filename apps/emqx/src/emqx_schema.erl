@@ -169,7 +169,11 @@
 -export([namespace/0, roots/0, roots/1, fields/1, desc/1, tags/0]).
 -export([conf_get/2, conf_get/3, keys/2, filter/1]).
 -export([
-    server_ssl_opts_schema/2, client_ssl_opts_schema/1, ciphers_schema/1, tls_versions_schema/1
+    server_ssl_opts_schema/2,
+    client_ssl_opts_schema/1,
+    ciphers_schema/1,
+    tls_versions_schema/1,
+    description_schema/0
 ]).
 -export([password_converter/2, bin_str_converter/2]).
 -export([authz_fields/0]).
@@ -3649,3 +3653,14 @@ default_mem_check_interval() ->
         true -> <<"60s">>;
         false -> disabled
     end.
+
+description_schema() ->
+    sc(
+        string(),
+        #{
+            default => <<"">>,
+            desc => ?DESC(description),
+            required => false,
+            importance => ?IMPORTANCE_LOW
+        }
+    ).

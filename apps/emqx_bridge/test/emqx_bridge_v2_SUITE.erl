@@ -207,7 +207,7 @@ unwrap_fun(UniqRefStr) ->
     ets:lookup_element(fun_table_name(), UniqRefStr, 2).
 
 update_root_config(RootConf) ->
-    emqx_conf:update([bridges_v2], RootConf, #{override_to => cluster}).
+    emqx_conf:update([actions], RootConf, #{override_to => cluster}).
 
 update_root_connectors_config(RootConf) ->
     emqx_conf:update([connectors], RootConf, #{override_to => cluster}).
@@ -238,12 +238,12 @@ t_create_dry_run_fail_add_channel(_) ->
         {error, Msg}
     end),
     Conf1 = (bridge_config())#{on_add_channel_fun => OnAddChannel1},
-    {error, Msg} = emqx_bridge_v2:create_dry_run(bridge_type(), Conf1),
+    {error, _} = emqx_bridge_v2:create_dry_run(bridge_type(), Conf1),
     OnAddChannel2 = wrap_fun(fun() ->
         throw(Msg)
     end),
     Conf2 = (bridge_config())#{on_add_channel_fun => OnAddChannel2},
-    {error, Msg} = emqx_bridge_v2:create_dry_run(bridge_type(), Conf2),
+    {error, _} = emqx_bridge_v2:create_dry_run(bridge_type(), Conf2),
     ok.
 
 t_create_dry_run_fail_get_channel_status(_) ->
@@ -252,7 +252,7 @@ t_create_dry_run_fail_get_channel_status(_) ->
         {error, Msg}
     end),
     Conf1 = (bridge_config())#{on_get_channel_status_fun => Fun1},
-    {error, Msg} = emqx_bridge_v2:create_dry_run(bridge_type(), Conf1),
+    {error, _} = emqx_bridge_v2:create_dry_run(bridge_type(), Conf1),
     Fun2 = wrap_fun(fun() ->
         throw(Msg)
     end),
@@ -280,7 +280,9 @@ t_is_valid_bridge_v1(_) ->
 t_manual_health_check(_) ->
     {ok, _} = emqx_bridge_v2:create(bridge_type(), my_test_bridge, bridge_config()),
     %% Run a health check for the bridge
-    connected = emqx_bridge_v2:health_check(bridge_type(), my_test_bridge),
+    #{error := undefined, status := connected} = emqx_bridge_v2:health_check(
+        bridge_type(), my_test_bridge
+    ),
     ok = emqx_bridge_v2:remove(bridge_type(), my_test_bridge),
     ok.
 
@@ -290,7 +292,9 @@ t_manual_health_check_exception(_) ->
     },
     {ok, _} = emqx_bridge_v2:create(bridge_type(), my_test_bridge, Conf),
     %% Run a health check for the bridge
-    {error, _} = emqx_bridge_v2:health_check(bridge_type(), my_test_bridge),
+    #{error := my_error, status := disconnected} = emqx_bridge_v2:health_check(
+        bridge_type(), my_test_bridge
+    ),
     ok = emqx_bridge_v2:remove(bridge_type(), my_test_bridge),
     ok.
 
@@ -300,7 +304,9 @@ t_manual_health_check_exception_error(_) ->
     },
     {ok, _} = emqx_bridge_v2:create(bridge_type(), my_test_bridge, Conf),
     %% Run a health check for the bridge
-    {error, _} = emqx_bridge_v2:health_check(bridge_type(), my_test_bridge),
+    #{error := _, status := disconnected} = emqx_bridge_v2:health_check(
+        bridge_type(), my_test_bridge
+    ),
     ok = emqx_bridge_v2:remove(bridge_type(), my_test_bridge),
     ok.
 
@@ -310,7 +316,9 @@ t_manual_health_check_error(_) ->
     },
     {ok, _} = emqx_bridge_v2:create(bridge_type(), my_test_bridge, Conf),
     %% Run a health check for the bridge
-    {error, my_error} = emqx_bridge_v2:health_check(bridge_type(), my_test_bridge),
+    #{error := my_error, status := disconnected} = emqx_bridge_v2:health_check(
+        bridge_type(), my_test_bridge
+    ),
     ok = emqx_bridge_v2:remove(bridge_type(), my_test_bridge),
     ok.
 
@@ -484,6 +492,83 @@ t_send_message_unhealthy_connector(_) ->
     ets:delete(ResponseETS),
     ok.
 
+t_connector_connected_to_connecting_to_connected_no_channel_restart(_) ->
+    ResponseETS = ets:new(response_ets, [public]),
+    ets:insert(ResponseETS, {on_start_value, conf}),
+    ets:insert(ResponseETS, {on_get_status_value, connected}),
+    OnStartFun = wrap_fun(fun(Conf) ->
+        case ets:lookup_element(ResponseETS, on_start_value, 2) of
+            conf ->
+                {ok, Conf};
+            V ->
+                V
+        end
+    end),
+    OnGetStatusFun = wrap_fun(fun() ->
+        ets:lookup_element(ResponseETS, on_get_status_value, 2)
+    end),
+    OnAddChannelCntr = counters:new(1, []),
+    OnAddChannelFun = wrap_fun(fun(_InstId, ConnectorState, _ChannelId, _ChannelConfig) ->
+        counters:add(OnAddChannelCntr, 1, 1),
+        {ok, ConnectorState}
+    end),
+    ConConfig = emqx_utils_maps:deep_merge(con_config(), #{
+        <<"on_start_fun">> => OnStartFun,
+        <<"on_get_status_fun">> => OnGetStatusFun,
+        <<"on_add_channel_fun">> => OnAddChannelFun,
+        <<"resource_opts">> => #{<<"start_timeout">> => 100}
+    }),
+    ConName = ?FUNCTION_NAME,
+    {ok, _} = emqx_connector:create(con_type(), ConName, ConConfig),
+    BridgeConf = (bridge_config())#{
+        <<"connector">> => atom_to_binary(ConName)
+    },
+    {ok, _} = emqx_bridge_v2:create(bridge_type(), my_test_bridge, BridgeConf),
+    %% Wait until on_add_channel_fun is called at least once
+    wait_until(fun() ->
+        counters:get(OnAddChannelCntr, 1) =:= 1
+    end),
+    1 = counters:get(OnAddChannelCntr, 1),
+    %% We change the status of the connector
+    ets:insert(ResponseETS, {on_get_status_value, connecting}),
+    %% Wait until the status is changed
+    wait_until(fun() ->
+        {ok, BridgeData} = emqx_bridge_v2:lookup(bridge_type(), my_test_bridge),
+        maps:get(status, BridgeData) =:= connecting
+    end),
+    {ok, BridgeData1} = emqx_bridge_v2:lookup(bridge_type(), my_test_bridge),
+    ct:pal("Bridge V2 status changed to: ~p", [maps:get(status, BridgeData1)]),
+    %% We change the status again back to connected
+    ets:insert(ResponseETS, {on_get_status_value, connected}),
+    %% Wait until the status is connected again
+    wait_until(fun() ->
+        {ok, BridgeData2} = emqx_bridge_v2:lookup(bridge_type(), my_test_bridge),
+        maps:get(status, BridgeData2) =:= connected
+    end),
+    %% On add channel should not have been called again
+    1 = counters:get(OnAddChannelCntr, 1),
+    %% We change the status to an error
+    ets:insert(ResponseETS, {on_get_status_value, {error, my_error}}),
+    %% Wait until the status is changed
+    wait_until(fun() ->
+        {ok, BridgeData2} = emqx_bridge_v2:lookup(bridge_type(), my_test_bridge),
+        maps:get(status, BridgeData2) =:= disconnected
+    end),
+    %% Now we go back to connected
+    ets:insert(ResponseETS, {on_get_status_value, connected}),
+    wait_until(fun() ->
+        {ok, BridgeData2} = emqx_bridge_v2:lookup(bridge_type(), my_test_bridge),
+        maps:get(status, BridgeData2) =:= connected
+    end),
+    %% Now the channel should have been removed and added again
+    wait_until(fun() ->
+        counters:get(OnAddChannelCntr, 1) =:= 2
+    end),
+    ok = emqx_bridge_v2:remove(bridge_type(), my_test_bridge),
+    ok = emqx_connector:remove(con_type(), ConName),
+    ets:delete(ResponseETS),
+    ok.
+
 t_unhealthy_channel_alarm(_) ->
     Conf = (bridge_config())#{
         <<"on_get_channel_status_fun">> =>
@@ -499,7 +584,7 @@ t_unhealthy_channel_alarm(_) ->
 get_bridge_v2_alarm_cnt() ->
     Alarms = emqx_alarm:get_alarms(activated),
     FilterFun = fun
-        (#{name := S}) when is_binary(S) -> string:find(S, "bridge_v2") =/= nomatch;
+        (#{name := S}) when is_binary(S) -> string:find(S, "action") =/= nomatch;
         (_) -> false
     end,
     length(lists:filter(FilterFun, Alarms)).
@@ -554,7 +639,7 @@ t_load_config_success(_Config) ->
     BridgeNameBin = atom_to_binary(BridgeName),
 
     %% pre-condition
-    ?assertEqual(#{}, emqx_config:get([bridges_v2])),
+    ?assertEqual(#{}, emqx_config:get([actions])),
 
     %% create
     RootConf0 = #{BridgeTypeBin => #{BridgeNameBin => Conf}},
@@ -720,3 +805,58 @@ t_remove_multiple_connectors_being_referenced_without_channels(_Config) ->
         end
     ),
     ok.
+
+t_start_operation_when_on_add_channel_gives_error(_Config) ->
+    Conf = bridge_config(),
+    BridgeName = my_test_bridge,
+    emqx_common_test_helpers:with_mock(
+        emqx_bridge_v2_test_connector,
+        on_add_channel,
+        fun(_, _, _ResId, _Channel) -> {error, <<"some_error">>} end,
+        fun() ->
+            %% We can crete the bridge event though on_add_channel returns error
+            ?assertMatch({ok, _}, emqx_bridge_v2:create(bridge_type(), BridgeName, Conf)),
+            ?assertMatch(
+                #{
+                    status := disconnected,
+                    error := <<"some_error">>
+                },
+                emqx_bridge_v2:health_check(bridge_type(), BridgeName)
+            ),
+            ?assertMatch(
+                {ok, #{
+                    status := disconnected,
+                    error := <<"some_error">>
+                }},
+                emqx_bridge_v2:lookup(bridge_type(), BridgeName)
+            ),
+            %% emqx_bridge_v2:start/2 should return ok if bridge if connected after
+            %% start and otherwise and error
+            ?assertMatch({error, _}, emqx_bridge_v2:start(bridge_type(), BridgeName)),
+            %% Let us change on_add_channel to be successful and try again
+            ok = meck:expect(
+                emqx_bridge_v2_test_connector,
+                on_add_channel,
+                fun(_, _, _ResId, _Channel) -> {ok, #{}} end
+            ),
+            ?assertMatch(ok, emqx_bridge_v2:start(bridge_type(), BridgeName))
+        end
+    ),
+    ok.
+
+%% Helper Functions
+
+wait_until(Fun) ->
+    wait_until(Fun, 5000).
+
+wait_until(Fun, Timeout) when Timeout >= 0 ->
+    case Fun() of
+        true ->
+            ok;
+        false ->
+            IdleTime = 100,
+            timer:sleep(IdleTime),
+            wait_until(Fun, Timeout - IdleTime)
+    end;
+wait_until(_, _) ->
+    ct:fail("Wait until event did not happen").

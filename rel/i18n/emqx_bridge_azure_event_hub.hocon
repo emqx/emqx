@@ -195,10 +195,10 @@ bridge_v2_type.label:
 bridge_v2_type.desc:
 """The type of the bridge."""
 
-bridge_v2.label:
-"""Bridge v2 Config"""
-bridge_v2.desc:
-"""The configuration for a bridge v2."""
+actions.label:
+"""Action Config"""
+actions.desc:
+"""The configuration for an action."""
 
 buffer_memory_overload_protection.desc:
 """Applicable when buffer mode is set to <code>memory</code>

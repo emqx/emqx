@@ -123,6 +123,9 @@ if [ -z "${PROFILE+x}" ]; then
         apps/emqx_dashboard)
             export PROFILE='emqx-enterprise'
             ;;
+        apps/emqx_rule_engine)
+            export PROFILE='emqx-enterprise'
+            ;;
         apps/*)
             if [[ -f "${WHICH_APP}/BSL.txt" ]]; then
                 export PROFILE='emqx-enterprise'

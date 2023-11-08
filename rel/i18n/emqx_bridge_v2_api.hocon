@@ -37,20 +37,19 @@ desc_api6.label:
 """Reset Bridge Metrics"""
 
 desc_api7.desc:
-"""Stop/restart bridges on all nodes in the cluster."""
+"""Start bridge on all nodes in the cluster."""
 
 desc_api7.label:
-"""Cluster Bridge Operate"""
+"""Cluster Bridge Operation"""
 
 desc_api8.desc:
-"""Stop/restart bridges on a specific node."""
+"""Start bridge on a specific node."""
 
 desc_api8.label:
-"""Node Bridge Operate"""
+"""Node Bridge Operation"""
 
 desc_api9.desc:
-"""Test creating a new bridge by given id.</br>
-The id must be of format '{type}:{name}'."""
+"""Test creating a new bridge."""
 
 desc_api9.label:
 """Test Bridge Creation"""
@@ -62,7 +61,7 @@ desc_bridge_metrics.label:
 """Get Bridge Metrics"""
 
 desc_enable_bridge.desc:
-"""Enable or Disable bridges on all nodes in the cluster."""
+"""Enable or Disable bridge on all nodes in the cluster."""
 
 desc_enable_bridge.label:
 """Cluster Bridge Enable"""
@@ -79,6 +78,12 @@ desc_param_path_id.desc:
 desc_param_path_id.label:
 """Bridge ID"""
 
+desc_qs_also_delete_dep_actions.desc:
+"""Whether to cascade delete dependent actions."""
+
+desc_qs_also_delete_dep_actions.label:
+"""Cascade delete dependent actions?"""
+
 desc_param_path_node.desc:
 """The node name, e.g. 'emqx@127.0.0.1'."""
 
@@ -86,13 +91,13 @@ desc_param_path_node.label:
 """The node name"""
 
 desc_param_path_operation_cluster.desc:
-"""Operations can be one of: 'start'."""
+"""Operation can be one of: 'start'."""
 
 desc_param_path_operation_cluster.label:
 """Cluster Operation"""
 
 desc_param_path_operation_on_node.desc:
-"""Operations can be one of: 'start'."""
+"""Operation can be one of: 'start'."""
 
 desc_param_path_operation_on_node.label:
 """Node Operation """

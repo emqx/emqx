@@ -35,12 +35,12 @@
 
 %% API callbacks
 -export([
-    '/bridges_v2'/2,
-    '/bridges_v2/:id'/2,
-    '/bridges_v2/:id/enable/:enable'/2,
-    '/bridges_v2/:id/:operation'/2,
-    '/nodes/:node/bridges_v2/:id/:operation'/2,
-    '/bridges_v2_probe'/2
+    '/actions'/2,
+    '/actions/:id'/2,
+    '/actions/:id/enable/:enable'/2,
+    '/actions/:id/:operation'/2,
+    '/nodes/:node/actions/:id/:operation'/2,
+    '/actions_probe'/2
 ]).
 
 %% BpAPI
@@ -67,19 +67,19 @@
     end
 ).
 
-namespace() -> "bridge_v2".
+namespace() -> "actions".
 
 api_spec() ->
     emqx_dashboard_swagger:spec(?MODULE, #{check_schema => true}).
 
 paths() ->
     [
-        "/bridges_v2",
-        "/bridges_v2/:id",
-        "/bridges_v2/:id/enable/:enable",
-        "/bridges_v2/:id/:operation",
-        "/nodes/:node/bridges_v2/:id/:operation",
-        "/bridges_v2_probe"
+        "/actions",
+        "/actions/:id",
+        "/actions/:id/enable/:enable",
+        "/actions/:id/:operation",
+        "/nodes/:node/actions/:id/:operation",
+        "/actions_probe"
     ].
 
 error_schema(Code, Message) when is_atom(Code) ->
@@ -120,6 +120,18 @@ param_path_id() ->
                 required => true,
                 example => <<"webhook:webhook_example">>,
                 desc => ?DESC("desc_param_path_id")
+            }
+        )}.
+
+param_qs_delete_cascade() ->
+    {also_delete_dep_actions,
+        mk(
+            boolean(),
+            #{
+                in => query,
+                required => false,
+                default => false,
+                desc => ?DESC("desc_qs_also_delete_dep_actions")
             }
         )}.
 
@@ -171,11 +183,11 @@ param_path_enable() ->
             }
         )}.
 
-schema("/bridges_v2") ->
+schema("/actions") ->
     #{
-        'operationId' => '/bridges_v2',
+        'operationId' => '/actions',
         get => #{
-            tags => [<<"bridges_v2">>],
+            tags => [<<"actions">>],
             summary => <<"List bridges">>,
             description => ?DESC("desc_api1"),
             responses => #{
@@ -186,7 +198,7 @@ schema("/bridges_v2") ->
             }
         },
         post => #{
-            tags => [<<"bridges_v2">>],
+            tags => [<<"actions">>],
             summary => <<"Create bridge">>,
             description => ?DESC("desc_api2"),
             'requestBody' => emqx_dashboard_swagger:schema_with_examples(
@@ -199,11 +211,11 @@ schema("/bridges_v2") ->
             }
         }
     };
-schema("/bridges_v2/:id") ->
+schema("/actions/:id") ->
     #{
-        'operationId' => '/bridges_v2/:id',
+        'operationId' => '/actions/:id',
         get => #{
-            tags => [<<"bridges_v2">>],
+            tags => [<<"actions">>],
             summary => <<"Get bridge">>,
             description => ?DESC("desc_api3"),
             parameters => [param_path_id()],
@@ -213,7 +225,7 @@ schema("/bridges_v2/:id") ->
             }
         },
         put => #{
-            tags => [<<"bridges_v2">>],
+            tags => [<<"actions">>],
             summary => <<"Update bridge">>,
             description => ?DESC("desc_api4"),
             parameters => [param_path_id()],
@@ -228,10 +240,10 @@ schema("/bridges_v2/:id") ->
             }
         },
         delete => #{
-            tags => [<<"bridges_v2">>],
+            tags => [<<"actions">>],
             summary => <<"Delete bridge">>,
             description => ?DESC("desc_api5"),
-            parameters => [param_path_id()],
+            parameters => [param_path_id(), param_qs_delete_cascade()],
             responses => #{
                 204 => <<"Bridge deleted">>,
                 400 => error_schema(
@@ -243,12 +255,12 @@ schema("/bridges_v2/:id") ->
             }
         }
     };
-schema("/bridges_v2/:id/enable/:enable") ->
+schema("/actions/:id/enable/:enable") ->
     #{
-        'operationId' => '/bridges_v2/:id/enable/:enable',
+        'operationId' => '/actions/:id/enable/:enable',
         put =>
             #{
-                tags => [<<"bridges_v2">>],
+                tags => [<<"actions">>],
                 summary => <<"Enable or disable bridge">>,
                 desc => ?DESC("desc_enable_bridge"),
                 parameters => [param_path_id(), param_path_enable()],
@@ -262,11 +274,11 @@ schema("/bridges_v2/:id/enable/:enable") ->
                     }
             }
     };
-schema("/bridges_v2/:id/:operation") ->
+schema("/actions/:id/:operation") ->
     #{
-        'operationId' => '/bridges_v2/:id/:operation',
+        'operationId' => '/actions/:id/:operation',
         post => #{
-            tags => [<<"bridges_v2">>],
+            tags => [<<"actions">>],
             summary => <<"Manually start a bridge">>,
             description => ?DESC("desc_api7"),
             parameters => [
@@ -284,12 +296,12 @@ schema("/bridges_v2/:id/:operation") ->
             }
         }
     };
-schema("/nodes/:node/bridges_v2/:id/:operation") ->
+schema("/nodes/:node/actions/:id/:operation") ->
     #{
-        'operationId' => '/nodes/:node/bridges_v2/:id/:operation',
+        'operationId' => '/nodes/:node/actions/:id/:operation',
         post => #{
-            tags => [<<"bridges_v2">>],
-            summary => <<"Manually start a bridge">>,
+            tags => [<<"actions">>],
+            summary => <<"Manually start a bridge on a given node">>,
             description => ?DESC("desc_api8"),
             parameters => [
                 param_path_node(),
@@ -310,11 +322,11 @@ schema("/nodes/:node/bridges_v2/:id/:operation") ->
             }
         }
     };
-schema("/bridges_v2_probe") ->
+schema("/actions_probe") ->
     #{
-        'operationId' => '/bridges_v2_probe',
+        'operationId' => '/actions_probe',
         post => #{
-            tags => [<<"bridges_v2">>],
+            tags => [<<"actions">>],
             desc => ?DESC("desc_api9"),
             summary => <<"Test creating bridge">>,
             'requestBody' => emqx_dashboard_swagger:schema_with_examples(
@@ -328,7 +340,7 @@ schema("/bridges_v2_probe") ->
         }
     }.
 
-'/bridges_v2'(post, #{body := #{<<"type">> := BridgeType, <<"name">> := BridgeName} = Conf0}) ->
+'/actions'(post, #{body := #{<<"type">> := BridgeType, <<"name">> := BridgeName} = Conf0}) ->
     case emqx_bridge_v2:lookup(BridgeType, BridgeName) of
         {ok, _} ->
             ?BAD_REQUEST('ALREADY_EXISTS', <<"bridge already exists">>);
@@ -336,7 +348,7 @@ schema("/bridges_v2_probe") ->
             Conf = filter_out_request_body(Conf0),
             create_bridge(BridgeType, BridgeName, Conf)
     end;
-'/bridges_v2'(get, _Params) ->
+'/actions'(get, _Params) ->
     Nodes = mria:running_nodes(),
     NodeReplies = emqx_bridge_proto_v5:v2_list_bridges_on_nodes(Nodes),
     case is_ok(NodeReplies) of
@@ -350,9 +362,9 @@ schema("/bridges_v2_probe") ->
             ?INTERNAL_ERROR(Reason)
     end.
 
-'/bridges_v2/:id'(get, #{bindings := #{id := Id}}) ->
+'/actions/:id'(get, #{bindings := #{id := Id}}) ->
     ?TRY_PARSE_ID(Id, lookup_from_all_nodes(BridgeType, BridgeName, 200));
-'/bridges_v2/:id'(put, #{bindings := #{id := Id}, body := Conf0}) ->
+'/actions/:id'(put, #{bindings := #{id := Id}, body := Conf0}) ->
     Conf1 = filter_out_request_body(Conf0),
     ?TRY_PARSE_ID(
         Id,
@@ -365,19 +377,35 @@ schema("/bridges_v2_probe") ->
                 ?BRIDGE_NOT_FOUND(BridgeType, BridgeName)
         end
     );
-'/bridges_v2/:id'(delete, #{bindings := #{id := Id}}) ->
+'/actions/:id'(delete, #{bindings := #{id := Id}, query_string := Qs}) ->
     ?TRY_PARSE_ID(
         Id,
         case emqx_bridge_v2:lookup(BridgeType, BridgeName) of
             {ok, _} ->
-                case emqx_bridge_v2:remove(BridgeType, BridgeName) of
+                AlsoDeleteActions =
+                    case maps:get(<<"also_delete_dep_actions">>, Qs, <<"false">>) of
+                        <<"true">> -> true;
+                        true -> true;
+                        _ -> false
+                    end,
+                case
+                    emqx_bridge_v2:check_deps_and_remove(BridgeType, BridgeName, AlsoDeleteActions)
+                of
                     ok ->
                         ?NO_CONTENT;
-                    {error, {active_channels, Channels}} ->
-                        ?BAD_REQUEST(
-                            {<<"Cannot delete bridge while there are active channels defined for this bridge">>,
-                                Channels}
-                        );
+                    {error, #{
+                        reason := rules_depending_on_this_bridge,
+                        rule_ids := RuleIds
+                    }} ->
+                        RuleIdLists = [binary_to_list(iolist_to_binary(X)) || X <- RuleIds],
+                        RulesStr = string:join(RuleIdLists, ", "),
+                        Msg = io_lib:format(
+                            "Cannot delete bridge while active rules are depending on it: ~s\n"
+                            "Append ?also_delete_dep_actions=true to the request URL to delete "
+                            "rule actions that depend on this bridge as well.",
+                            [RulesStr]
+                        ),
+                        ?BAD_REQUEST(iolist_to_binary(Msg));
                     {error, timeout} ->
                         ?SERVICE_UNAVAILABLE(<<"request timeout">>);
                     {error, Reason} ->
@@ -388,13 +416,13 @@ schema("/bridges_v2_probe") ->
         end
     ).
 
-'/bridges_v2/:id/enable/:enable'(put, #{bindings := #{id := Id, enable := Enable}}) ->
+'/actions/:id/enable/:enable'(put, #{bindings := #{id := Id, enable := Enable}}) ->
     ?TRY_PARSE_ID(
         Id,
         case emqx_bridge_v2:disable_enable(enable_func(Enable), BridgeType, BridgeName) of
             {ok, _} ->
                 ?NO_CONTENT;
-            {error, {pre_config_update, _, not_found}} ->
+            {error, {pre_config_update, _, bridge_not_found}} ->
                 ?BRIDGE_NOT_FOUND(BridgeType, BridgeName);
             {error, {_, _, timeout}} ->
                 ?SERVICE_UNAVAILABLE(<<"request timeout">>);
@@ -405,7 +433,7 @@ schema("/bridges_v2_probe") ->
         end
     ).
 
-'/bridges_v2/:id/:operation'(post, #{
+'/actions/:id/:operation'(post, #{
     bindings :=
         #{id := Id, operation := Op}
 }) ->
@@ -418,7 +446,7 @@ schema("/bridges_v2_probe") ->
         end
     ).
 
-'/nodes/:node/bridges_v2/:id/:operation'(post, #{
+'/nodes/:node/actions/:id/:operation'(post, #{
     bindings :=
         #{id := Id, operation := Op, node := Node}
 }) ->
@@ -433,8 +461,8 @@ schema("/bridges_v2_probe") ->
         end
     ).
 
-'/bridges_v2_probe'(post, Request) ->
-    RequestMeta = #{module => ?MODULE, method => post, path => "/bridges_v2_probe"},
+'/actions_probe'(post, Request) ->
+    RequestMeta = #{module => ?MODULE, method => post, path => "/actions_probe"},
     case emqx_dashboard_swagger:filter_check_request_and_translate_body(Request, RequestMeta) of
         {ok, #{body := #{<<"type">> := ConnType} = Params}} ->
             Params1 = maybe_deobfuscate_bridge_probe(Params),
@@ -578,9 +606,7 @@ call_operation(NodeOrAll, OperFunc, Args = [_Nodes, BridgeType, BridgeName]) ->
             ?SERVICE_UNAVAILABLE(<<"Bridge not found on remote node: ", BridgeId/binary>>);
         {error, {node_not_found, Node}} ->
             ?NOT_FOUND(<<"Node not found: ", (atom_to_binary(Node))/binary>>);
-        {error, {unhealthy_target, Message}} ->
-            ?BAD_REQUEST(Message);
-        {error, Reason} when not is_tuple(Reason); element(1, Reason) =/= 'exit' ->
+        {error, Reason} ->
             ?BAD_REQUEST(redact(Reason))
     end.
 
@@ -716,10 +742,31 @@ update_bridge(BridgeType, BridgeName, Conf) ->
     create_or_update_bridge(BridgeType, BridgeName, Conf, 200).
 
 create_or_update_bridge(BridgeType, BridgeName, Conf, HttpStatusCode) ->
+    Check =
+        try
+            is_binary(BridgeType) andalso emqx_resource:validate_type(BridgeType),
+            ok = emqx_resource:validate_name(BridgeName)
+        catch
+            throw:Error ->
+                ?BAD_REQUEST(map_to_json(Error))
+        end,
+    case Check of
+        ok ->
+            do_create_or_update_bridge(BridgeType, BridgeName, Conf, HttpStatusCode);
+        BadRequest ->
+            BadRequest
+    end.
+
+do_create_or_update_bridge(BridgeType, BridgeName, Conf, HttpStatusCode) ->
     case emqx_bridge_v2:create(BridgeType, BridgeName, Conf) of
         {ok, _} ->
             lookup_from_all_nodes(BridgeType, BridgeName, HttpStatusCode);
-        {error, Reason} when is_map(Reason) ->
+        {error, {PreOrPostConfigUpdate, _HandlerMod, Reason}} when
+            PreOrPostConfigUpdate =:= pre_config_update;
+            PreOrPostConfigUpdate =:= post_config_update
+        ->
+            ?BAD_REQUEST(map_to_json(redact(Reason)));
+        {error, Reason} ->
             ?BAD_REQUEST(map_to_json(redact(Reason)))
     end.
 

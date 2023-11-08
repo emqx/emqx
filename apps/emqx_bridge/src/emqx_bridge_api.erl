@@ -387,6 +387,7 @@ schema("/bridges/:id/enable/:enable") ->
                 responses =>
                     #{
                         204 => <<"Success">>,
+                        400 => error_schema('BAD_REQUEST', non_compat_bridge_msg()),
                         404 => error_schema('NOT_FOUND', "Bridge not found or invalid operation"),
                         503 => error_schema('SERVICE_UNAVAILABLE', "Service unavailable")
                     }
@@ -507,7 +508,7 @@ schema("/bridges_probe") ->
                     case maps:get(<<"also_delete_dep_actions">>, Qs, <<"false">>) of
                         <<"true">> -> [rule_actions, connector];
                         true -> [rule_actions, connector];
-                        _ -> []
+                        _ -> [connector]
                     end,
                 case emqx_bridge:check_deps_and_remove(BridgeType, BridgeName, AlsoDelete) of
                     ok ->
@@ -529,7 +530,7 @@ schema("/bridges_probe") ->
             {error, not_found} ->
                 ?BRIDGE_NOT_FOUND(BridgeType, BridgeName);
             {error, not_bridge_v1_compatible} ->
-                ?BAD_REQUEST('ALREADY_EXISTS', non_compat_bridge_msg())
+                ?BAD_REQUEST(non_compat_bridge_msg())
         end
     ).
 
@@ -667,6 +668,10 @@ get_metrics_from_local_node(BridgeType0, BridgeName) ->
                         ?SERVICE_UNAVAILABLE(<<"request timeout">>);
                     {error, timeout} ->
                         ?SERVICE_UNAVAILABLE(<<"request timeout">>);
+                    {error, not_bridge_v1_compatible} ->
+                        ?BAD_REQUEST(non_compat_bridge_msg());
+                    {error, bridge_not_found} ->
+                        ?BRIDGE_NOT_FOUND(BridgeType, BridgeName);
                     {error, Reason} ->
                         ?INTERNAL_ERROR(Reason)
                 end
@@ -747,7 +752,7 @@ is_bridge_enabled_v1(BridgeType, BridgeName) ->
 
 is_bridge_enabled_v2(BridgeV1Type, BridgeName) ->
     BridgeV2Type = emqx_bridge_v2:bridge_v1_type_to_bridge_v2_type(BridgeV1Type),
-    try emqx:get_config([bridges_v2, BridgeV2Type, binary_to_existing_atom(BridgeName)]) of
+    try emqx:get_config([actions, BridgeV2Type, binary_to_existing_atom(BridgeName)]) of
         ConfMap ->
             maps:get(enable, ConfMap, true)
     catch
@@ -895,7 +900,7 @@ format_resource(
         case emqx_bridge_v2:is_bridge_v2_type(Type) of
             true ->
                 %% The defaults are already filled in
-                RawConf;
+                downgrade_raw_conf(Type, RawConf);
             false ->
                 fill_defaults(Type, RawConf)
         end,
@@ -1073,7 +1078,7 @@ call_operation(NodeOrAll, OperFunc, Args = [_Nodes, BridgeType, BridgeName]) ->
             ?NOT_FOUND(<<"Node not found: ", (atom_to_binary(Node))/binary>>);
         {error, {unhealthy_target, Message}} ->
             ?BAD_REQUEST(Message);
-        {error, Reason} when not is_tuple(Reason); element(1, Reason) =/= 'exit' ->
+        {error, Reason} ->
             ?BAD_REQUEST(redact(Reason))
     end.
 
@@ -1159,3 +1164,19 @@ upgrade_type(Type) ->
 
 downgrade_type(Type) ->
     emqx_bridge_lib:downgrade_type(Type).
+
+%% TODO: move it to callback
+downgrade_raw_conf(kafka_producer, RawConf) ->
+    rename(<<"parameters">>, <<"kafka">>, RawConf);
+downgrade_raw_conf(azure_event_hub_producer, RawConf) ->
+    rename(<<"parameters">>, <<"kafka">>, RawConf);
+downgrade_raw_conf(_Type, RawConf) ->
+    RawConf.
+
+rename(OldKey, NewKey, Map) ->
+    case maps:find(OldKey, Map) of
+        {ok, Value} ->
+            maps:remove(OldKey, maps:put(NewKey, Value, Map));
+        error ->
+            Map
+    end.

@@ -1571,4 +1571,9 @@ the system topic <code>$SYS/sysmon/large_heap</code>."""
 sysmon_vm_large_heap.label:
 """Enable Large Heap monitoring."""
 
+description.label:
+"""Description"""
+description.desc:
+"""Descriptive text."""
+
 }

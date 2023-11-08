@@ -18,6 +18,7 @@
 -include_lib("typerefl/include/types.hrl").
 -include_lib("hocon/include/hoconsc.hrl").
 -include_lib("emqx/include/logger.hrl").
+-include_lib("eunit/include/eunit.hrl").
 
 -import(hoconsc, [mk/2, ref/2]).
 
@@ -28,6 +29,8 @@
     put_request/0,
     post_request/0
 ]).
+
+-export([enterprise_api_schemas/1]).
 
 -if(?EMQX_RELEASE_EDITION == ee).
 enterprise_api_schemas(Method) ->
@@ -45,7 +48,7 @@ enterprise_fields_actions() ->
     _ = emqx_bridge_v2_enterprise:module_info(),
     case erlang:function_exported(emqx_bridge_v2_enterprise, fields, 1) of
         true ->
-            emqx_bridge_v2_enterprise:fields(bridges_v2);
+            emqx_bridge_v2_enterprise:fields(actions);
         false ->
             []
     end.
@@ -70,7 +73,7 @@ post_request() ->
     api_schema("post").
 
 api_schema(Method) ->
-    EE = enterprise_api_schemas(Method),
+    EE = ?MODULE:enterprise_api_schemas(Method),
     hoconsc:union(bridge_api_union(EE)).
 
 bridge_api_union(Refs) ->
@@ -100,28 +103,69 @@ bridge_api_union(Refs) ->
 %% HOCON Schema Callbacks
 %%======================================================================================
 
-namespace() -> "bridges_v2".
+namespace() -> "actions".
 
 tags() ->
-    [<<"Bridge V2">>].
+    [<<"Actions">>].
 
 -dialyzer({nowarn_function, roots/0}).
 
 roots() ->
-    case fields(bridges_v2) of
+    case fields(actions) of
         [] ->
             [
-                {bridges_v2,
+                {actions,
                     ?HOCON(hoconsc:map(name, typerefl:map()), #{importance => ?IMPORTANCE_LOW})}
             ];
         _ ->
-            [{bridges_v2, ?HOCON(?R_REF(bridges_v2), #{importance => ?IMPORTANCE_LOW})}]
+            [{actions, ?HOCON(?R_REF(actions), #{importance => ?IMPORTANCE_LOW})}]
     end.
 
-fields(bridges_v2) ->
+fields(actions) ->
     [] ++ enterprise_fields_actions().
 
-desc(bridges_v2) ->
+desc(actions) ->
     ?DESC("desc_bridges_v2");
 desc(_) ->
     undefined.
+
+-ifdef(TEST).
+-include_lib("hocon/include/hocon_types.hrl").
+schema_homogeneous_test() ->
+    case
+        lists:filtermap(
+            fun({_Name, Schema}) ->
+                is_bad_schema(Schema)
+            end,
+            fields(actions)
+        )
+    of
+        [] ->
+            ok;
+        List ->
+            throw(List)
+    end.
+
+is_bad_schema(#{type := ?MAP(_, ?R_REF(Module, TypeName))}) ->
+    Fields = Module:fields(TypeName),
+    ExpectedFieldNames = common_field_names(),
+    MissingFileds = lists:filter(
+        fun(Name) -> lists:keyfind(Name, 1, Fields) =:= false end, ExpectedFieldNames
+    ),
+    case MissingFileds of
+        [] ->
+            false;
+        _ ->
+            {true, #{
+                schema_modle => Module,
+                type_name => TypeName,
+                missing_fields => MissingFileds
+            }}
+    end.
+
+common_field_names() ->
+    [
+        enable, description, local_topic, connector, resource_opts, parameters
+    ].
+
+-endif.
