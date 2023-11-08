@@ -33,6 +33,9 @@
 -export([
     namespace/0, roots/0, fields/1, translations/0, translation/1, validations/0, desc/1, tags/0
 ]).
+
+-export([log_level/0]).
+
 -export([conf_get/2, conf_get/3, keys/2, filter/1]).
 -export([upgrade_raw_conf/1]).
 
@@ -1279,7 +1282,7 @@ log_handler_common_confs(Handler, Default) ->
     [
         {"level",
             sc(
-                hoconsc:enum([debug, info, notice, warning, error, critical, alert, emergency, all]),
+                log_level(),
                 #{
                     default => maps:get(level, Default, warning),
                     desc => ?DESC(LevelDesc),
@@ -1528,3 +1531,6 @@ ensure_unicode_path(Path, _) when is_list(Path) ->
     Path;
 ensure_unicode_path(Path, _) ->
     throw({"not_string", Path}).
+
+log_level() ->
+    hoconsc:enum([debug, info, notice, warning, error, critical, alert, emergency, all]).
