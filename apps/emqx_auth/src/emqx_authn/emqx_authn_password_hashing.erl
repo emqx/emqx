@@ -67,7 +67,7 @@
 -define(SALT_ROUNDS_MIN, 5).
 -define(SALT_ROUNDS_MAX, 10).
 
-namespace() -> "authn-hash".
+namespace() -> "authn_hash".
 roots() -> [pbkdf2, bcrypt, bcrypt_rw, bcrypt_rw_api, simple].
 
 fields(bcrypt_rw) ->
