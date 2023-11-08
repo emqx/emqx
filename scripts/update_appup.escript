@@ -32,7 +32,7 @@ Options:
   --make-command     A command used to assemble the release
   --prev-release-dir Previous version's release dir (if already built/extracted)
   --release-dir      Release directory
-  --src-dirs         Directories where source code is found. Defaults to '{src,apps,lib-*}/**/'
+  --src-dirs         Directories where source code is found. Defaults to '{src,apps}/**/'
 ".
 
 -record(app,
@@ -46,7 +46,7 @@ default_options() ->
      , beams_dir      => "_build/emqx/rel/emqx/lib/"
      , check          => false
      , prev_tag       => undefined
-     , src_dirs       => "{src,apps,lib-*}/**/"
+     , src_dirs       => "{src,apps}/**/"
      , prev_beams_dir => undefined
      }.
 
