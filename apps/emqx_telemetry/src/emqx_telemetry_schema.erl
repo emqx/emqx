@@ -22,10 +22,14 @@
 -behaviour(hocon_schema).
 
 -export([
+    namespace/0,
     roots/0,
     fields/1,
     desc/1
 ]).
+
+%% 'emqxtel' to distinguish open-telemetry
+namespace() -> "emqxtel".
 
 roots() -> ["telemetry"].
 

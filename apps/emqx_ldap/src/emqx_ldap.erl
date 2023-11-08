@@ -59,7 +59,7 @@
 %% Hocon schema
 
 namespace() -> "ldap".
- 
+
 roots() ->
     [{config, #{type => hoconsc:ref(?MODULE, config)}}].
 
