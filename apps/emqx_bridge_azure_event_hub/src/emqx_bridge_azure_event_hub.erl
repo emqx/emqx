@@ -79,10 +79,10 @@ fields("post_producer") ->
     ),
     override_documentations(Fields);
 fields("config_bridge_v2") ->
-    fields(bridge_v2);
+    fields(actions);
 fields("config_connector") ->
     Fields = override(
-        emqx_bridge_kafka:fields(kafka_connector),
+        emqx_bridge_kafka:fields("config_connector"),
         connector_overrides()
     ),
     override_documentations(Fields);
@@ -114,10 +114,10 @@ fields(kafka_message) ->
     Fields0 = emqx_bridge_kafka:fields(kafka_message),
     Fields = proplists:delete(timestamp, Fields0),
     override_documentations(Fields);
-fields(bridge_v2) ->
+fields(actions) ->
     Fields =
         override(
-            emqx_bridge_kafka:fields(producer_opts),
+            emqx_bridge_kafka:producer_opts(),
             bridge_v2_overrides()
         ) ++
             [
@@ -125,7 +125,8 @@ fields(bridge_v2) ->
                 {connector,
                     mk(binary(), #{
                         desc => ?DESC(emqx_connector_schema, "connector_field"), required => true
-                    })}
+                    })},
+                {description, emqx_schema:description_schema()}
             ],
     override_documentations(Fields);
 fields(Method) ->
@@ -153,7 +154,7 @@ struct_names() ->
         auth_username_password,
         kafka_message,
         producer_kafka_opts,
-        bridge_v2,
+        actions,
         ssl_client_opts
     ].
 
@@ -205,23 +206,48 @@ values({post, bridge_v2}) ->
         values(producer),
         #{
             enable => true,
-            connector => <<"my_azure_event_hub_connector">>,
-            name => <<"my_azure_event_hub_bridge">>,
+            connector => <<"my_azure_event_hub_producer_connector">>,
+            name => <<"my_azure_event_hub_producer_bridge">>,
             type => ?AEH_CONNECTOR_TYPE_BIN
         }
     );
-values({post, AEHType}) ->
-    maps:merge(values(common_config), values(AEHType));
-values({put, AEHType}) ->
-    values({post, AEHType});
-values(connector) ->
+values({post, connector}) ->
     maps:merge(
         values(common_config),
         #{
-            name => <<"my_azure_event_hub_connector">>,
-            type => ?AEH_CONNECTOR_TYPE_BIN
+            name => <<"my_azure_event_hub_producer_connector">>,
+            type => ?AEH_CONNECTOR_TYPE_BIN,
+            ssl => #{
+                enable => true,
+                server_name_indication => <<"auto">>,
+                verify => <<"verify_none">>,
+                versions => [<<"tlsv1.3">>, <<"tlsv1.2">>]
+            }
         }
     );
+values({post, producer}) ->
+    maps:merge(
+        #{
+            name => <<"my_azure_event_hub_producer">>,
+            type => <<"azure_event_hub_producer">>
+        },
+        maps:merge(
+            values(common_config),
+            values(producer)
+        )
+    );
+values({put, connector}) ->
+    values(common_config);
+values({put, bridge_v2}) ->
+    maps:merge(
+        values(producer),
+        #{
+            enable => true,
+            connector => <<"my_azure_event_hub_producer_connector">>
+        }
+    );
+values({put, producer}) ->
+    values({post, producer});
 values(common_config) ->
     #{
         authentication => #{
@@ -232,23 +258,20 @@ values(common_config) ->
         enable => true,
         metadata_request_timeout => <<"4s">>,
         min_metadata_refresh_interval => <<"3s">>,
-        name => <<"my_azure_event_hub_bridge">>,
         socket_opts => #{
             sndbuf => <<"1024KB">>,
             recbuf => <<"1024KB">>,
             nodelay => true,
             tcp_keepalive => <<"none">>
-        },
-        type => <<"azure_event_hub_producer">>
+        }
     };
 values(producer) ->
     #{
-        kafka => #{
+        parameters => #{
             topic => <<"topic">>,
             message => #{
                 key => <<"${.clientid}">>,
-                value => <<"${.}">>,
-                timestamp => <<"${.timestamp}">>
+                value => <<"${.}">>
             },
             max_batch_bytes => <<"896KB">>,
             partition_strategy => <<"random">>,
@@ -318,7 +341,13 @@ connector_overrides() ->
                     )
                 }
             ),
-        ssl => mk(ref(ssl_client_opts), #{default => #{<<"enable">> => true}}),
+        ssl => mk(
+            ref(ssl_client_opts),
+            #{
+                required => true,
+                default => #{<<"enable">> => true}
+            }
+        ),
         type => mk(
             ?AEH_CONNECTOR_TYPE,
             #{
@@ -349,7 +378,16 @@ producer_overrides() ->
                     )
                 }
             ),
+        %% NOTE: field 'kafka' is renamed to 'parameters' since e5.3.1
+        %% We will keep 'kafka' for backward compatibility.
+        %% TODO: delete this override when we upgrade bridge schema json to 0.2.0
+        %% See emqx_conf:bridge_schema_json/0
         kafka =>
+            mk(ref(producer_kafka_opts), #{
+                required => true,
+                validator => fun emqx_bridge_kafka:producer_strategy_key_validator/1
+            }),
+        parameters =>
             mk(ref(producer_kafka_opts), #{
                 required => true,
                 validator => fun emqx_bridge_kafka:producer_strategy_key_validator/1
@@ -360,7 +398,7 @@ producer_overrides() ->
 
 bridge_v2_overrides() ->
     #{
-        kafka =>
+        parameters =>
             mk(ref(producer_kafka_opts), #{
                 required => true,
                 validator => fun emqx_bridge_kafka:producer_strategy_key_validator/1

@@ -6,10 +6,6 @@ concurrency:
 
 on:
   workflow_call:
-    inputs:
-      runner_labels:
-        required: true
-        type: string
 
 permissions:
   contents: read
@@ -21,7 +17,7 @@ jobs:
         profile:
         - emqx
         - emqx-enterprise
-    runs-on: ${{ fromJSON(inputs.runner_labels) }}
+    runs-on: ${{ endsWith(github.repository, '/emqx') && 'ubuntu-22.04' || fromJSON('["self-hosted","ephemeral","linux","x64"]') }}
     steps:
       - uses: actions/download-artifact@v3
         with:

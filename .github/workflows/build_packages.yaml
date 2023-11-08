@@ -115,6 +115,7 @@ jobs:
       with:
         name: ${{ matrix.profile }}
         path: _packages/${{ matrix.profile }}/
+        retention-days: 7
 
   mac:
     strategy:
@@ -149,9 +150,10 @@ jobs:
       with:
         name: ${{ matrix.profile }}
         path: _packages/${{ matrix.profile }}/
+        retention-days: 7
 
   linux:
-    runs-on: ['self-hosted', 'ephemeral', 'linux', "${{ matrix.arch }}"]
+    runs-on: [self-hosted, ephemeral, linux, "${{ matrix.arch }}"]
     # always run in builder container because the host might have the wrong OTP version etc.
     # otherwise buildx.sh does not run docker if arch and os matches the target arch and os.
     container:
@@ -199,8 +201,6 @@ jobs:
         shell: bash
 
     steps:
-    - uses: AutoModality/action-clean@v1
-
     - uses: actions/checkout@v3
       with:
         ref: ${{ github.event.inputs.ref }}
@@ -246,6 +246,7 @@ jobs:
       with:
         name: ${{ matrix.profile }}
         path: _packages/${{ matrix.profile }}/
+        retention-days: 7
 
   publish_artifacts:
     runs-on: ubuntu-latest

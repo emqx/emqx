@@ -121,7 +121,7 @@ bridge_id(Config) ->
     BridgeName = ?config(bridge_name, Config),
     BridgeId = emqx_bridge_resource:bridge_id(BridgeType, BridgeName),
     ConnectorId = emqx_bridge_resource:resource_id(BridgeType, BridgeName),
-    <<"bridge_v2:", BridgeId/binary, ":", ConnectorId/binary>>.
+    <<"action:", BridgeId/binary, ":", ConnectorId/binary>>.
 
 resource_id(Config) ->
     BridgeType = ?config(bridge_type, Config),
@@ -161,7 +161,7 @@ create_bridge_api(Config, Overrides) ->
         emqx_connector:create(ConnectorType, ConnectorName, ConnectorConfig),
 
     Params = BridgeConfig#{<<"type">> => BridgeType, <<"name">> => BridgeName},
-    Path = emqx_mgmt_api_test_util:api_path(["bridges_v2"]),
+    Path = emqx_mgmt_api_test_util:api_path(["actions"]),
     AuthHeader = emqx_mgmt_api_test_util:auth_header_(),
     Opts = #{return_all => true},
     ct:pal("creating bridge (via http): ~p", [Params]),
@@ -184,7 +184,7 @@ update_bridge_api(Config, Overrides) ->
     BridgeConfig0 = ?config(bridge_config, Config),
     BridgeConfig = emqx_utils_maps:deep_merge(BridgeConfig0, Overrides),
     BridgeId = emqx_bridge_resource:bridge_id(BridgeType, Name),
-    Path = emqx_mgmt_api_test_util:api_path(["bridges_v2", BridgeId]),
+    Path = emqx_mgmt_api_test_util:api_path(["actions", BridgeId]),
     AuthHeader = emqx_mgmt_api_test_util:auth_header_(),
     Opts = #{return_all => true},
     ct:pal("updating bridge (via http): ~p", [BridgeConfig]),
@@ -198,7 +198,7 @@ update_bridge_api(Config, Overrides) ->
 
 op_bridge_api(Op, BridgeType, BridgeName) ->
     BridgeId = emqx_bridge_resource:bridge_id(BridgeType, BridgeName),
-    Path = emqx_mgmt_api_test_util:api_path(["bridges_v2", BridgeId, Op]),
+    Path = emqx_mgmt_api_test_util:api_path(["actions", BridgeId, Op]),
     AuthHeader = emqx_mgmt_api_test_util:auth_header_(),
     Opts = #{return_all => true},
     ct:pal("calling bridge ~p (via http): ~p", [BridgeId, Op]),
@@ -228,7 +228,7 @@ probe_bridge_api(Config, Overrides) ->
 
 probe_bridge_api(BridgeType, BridgeName, BridgeConfig) ->
     Params = BridgeConfig#{<<"type">> => BridgeType, <<"name">> => BridgeName},
-    Path = emqx_mgmt_api_test_util:api_path(["bridges_v2_probe"]),
+    Path = emqx_mgmt_api_test_util:api_path(["actions_probe"]),
     AuthHeader = emqx_mgmt_api_test_util:auth_header_(),
     Opts = #{return_all => true},
     ct:pal("probing bridge (via http): ~p", [Params]),
@@ -260,11 +260,13 @@ create_rule_and_action_http(BridgeType, RuleTopic, Config, Opts) ->
     BridgeName = ?config(bridge_name, Config),
     BridgeId = emqx_bridge_resource:bridge_id(BridgeType, BridgeName),
     SQL = maps:get(sql, Opts, <<"SELECT * FROM \"", RuleTopic/binary, "\"">>),
-    Params = #{
+    Params0 = #{
         enable => true,
         sql => SQL,
         actions => [BridgeId]
     },
+    Overrides = maps:get(overrides, Opts, #{}),
+    Params = emqx_utils_maps:deep_merge(Params0, Overrides),
     Path = emqx_mgmt_api_test_util:api_path(["rules"]),
     AuthHeader = emqx_mgmt_api_test_util:auth_header_(),
     ct:pal("rule action params: ~p", [Params]),

@@ -45,7 +45,7 @@ paths() ->
 
 %% This is a rather hidden API, so we don't need to add translations for the description.
 schema("/schemas/:name") ->
-    Schemas = [hotconf, bridges, bridges_v2, connectors],
+    Schemas = [hotconf, bridges, actions, connectors],
     #{
         'operationId' => get_schema,
         get => #{
@@ -79,13 +79,14 @@ gen_schema(hotconf) ->
     emqx_conf:hotconf_schema_json();
 gen_schema(bridges) ->
     emqx_conf:bridge_schema_json();
-gen_schema(bridges_v2) ->
-    bridge_v2_schema_json();
+gen_schema(actions) ->
+    actions_schema_json();
 gen_schema(connectors) ->
     connectors_schema_json().
 
-bridge_v2_schema_json() ->
-    SchemaInfo = #{title => <<"EMQX Data Bridge V2 API Schema">>, version => <<"0.1.0">>},
+actions_schema_json() ->
+    SchemaInfo = #{title => <<"EMQX Data Actions API Schema">>, version => <<"0.1.0">>},
+    %% Note: this will be moved to `emqx_actions' application in the future.
     gen_api_schema_json_iodata(emqx_bridge_v2_api, SchemaInfo).
 
 connectors_schema_json() ->

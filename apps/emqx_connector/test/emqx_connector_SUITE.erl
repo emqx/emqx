@@ -22,7 +22,7 @@
 -include_lib("common_test/include/ct.hrl").
 
 -define(START_APPS, [emqx, emqx_conf, emqx_connector]).
--define(CONNECTOR, dummy_connector_impl).
+-define(CONNECTOR, emqx_connector_dummy_impl).
 
 all() ->
     emqx_common_test_helpers:all(?MODULE).

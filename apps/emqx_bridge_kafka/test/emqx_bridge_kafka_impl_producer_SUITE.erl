@@ -474,7 +474,11 @@ t_failed_creation_then_fix(Config) ->
     %% before throwing, it should cleanup the client process.  we
     %% retry because the supervisor might need some time to really
     %% remove it from its tree.
-    ?retry(50, 10, ?assertEqual([], supervisor:which_children(wolff_client_sup))),
+    ?retry(
+        _Sleep0 = 50,
+        _Attempts0 = 10,
+        ?assertEqual([], supervisor:which_children(wolff_producers_sup))
+    ),
     %% must succeed with correct config
     {ok, #{config := _ValidConfigAtom1}} = emqx_bridge:create(
         list_to_atom(Type), list_to_atom(Name), ValidConf
@@ -570,7 +574,15 @@ t_nonexistent_topic(_Config) ->
         erlang:list_to_atom(Type), erlang:list_to_atom(Name), Conf
     ),
     % TODO: make sure the user facing APIs for Bridge V1 also get this error
-    {error, _} = emqx_bridge_v2:health_check(?BRIDGE_TYPE_V2, list_to_atom(Name)),
+    ?assertMatch(
+        #{
+            status := disconnected,
+            error := {unhealthy_target, <<"Unknown topic or partition: undefined-test-topic">>}
+        },
+        emqx_bridge_v2:health_check(
+            ?BRIDGE_TYPE_V2, list_to_atom(Name)
+        )
+    ),
     ok = emqx_bridge:remove(list_to_atom(Type), list_to_atom(Name)),
     delete_all_bridges(),
     ok.

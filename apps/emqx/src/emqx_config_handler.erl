@@ -703,7 +703,7 @@ atom(Bin) when is_binary(Bin), size(Bin) > 255 ->
     erlang:throw(
         iolist_to_binary(
             io_lib:format(
-                "Name is is too long."
+                "Name is too long."
                 " Please provide a shorter name (<= 255 bytes)."
                 " The name that is too long: \"~s\"",
                 [Bin]

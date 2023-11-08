@@ -43,7 +43,7 @@ connector_structs() ->
     [
         {kafka_producer,
             mk(
-                hoconsc:map(name, ref(emqx_bridge_kafka, "config")),
+                hoconsc:map(name, ref(emqx_bridge_kafka, "config_connector")),
                 #{
                     desc => <<"Kafka Connector Config">>,
                     required => false

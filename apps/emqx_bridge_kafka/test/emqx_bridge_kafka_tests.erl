@@ -6,6 +6,10 @@
 
 -include_lib("eunit/include/eunit.hrl").
 
+-export([atoms/0]).
+%% ensure atoms exist
+atoms() -> [myproducer, my_consumer].
+
 %%===========================================================================
 %% Test cases
 %%===========================================================================
@@ -14,7 +18,6 @@ kafka_producer_test() ->
     Conf1 = parse(kafka_producer_old_hocon(_WithLocalTopic0 = false)),
     Conf2 = parse(kafka_producer_old_hocon(_WithLocalTopic1 = true)),
     Conf3 = parse(kafka_producer_new_hocon()),
-
     ?assertMatch(
         #{
             <<"bridges">> :=
@@ -22,7 +25,7 @@ kafka_producer_test() ->
                     <<"kafka_producer">> :=
                         #{
                             <<"myproducer">> :=
-                                #{<<"kafka">> := #{}}
+                                #{<<"parameters">> := #{}}
                         }
                 }
         },
@@ -49,7 +52,7 @@ kafka_producer_test() ->
                         #{
                             <<"myproducer">> :=
                                 #{
-                                    <<"kafka">> := #{},
+                                    <<"parameters">> := #{},
                                     <<"local_topic">> := <<"mqtt/local">>
                                 }
                         }
@@ -65,7 +68,7 @@ kafka_producer_test() ->
                         #{
                             <<"myproducer">> :=
                                 #{
-                                    <<"kafka">> := #{},
+                                    <<"parameters">> := #{},
                                     <<"local_topic">> := <<"mqtt/local">>
                                 }
                         }
@@ -156,12 +159,14 @@ message_key_dispatch_validations_test() ->
                     <<"message">> := #{<<"key">> := <<>>}
                 }
         },
-        emqx_utils_maps:deep_get([<<"bridges">>, <<"kafka">>, atom_to_binary(Name)], Conf)
+        emqx_utils_maps:deep_get(
+            [<<"bridges">>, <<"kafka">>, atom_to_binary(Name)], Conf
+        )
     ),
     ?assertThrow(
         {_, [
             #{
-                path := "bridges.kafka_producer.myproducer.kafka",
+                path := "bridges.kafka_producer.myproducer.parameters",
                 reason := "Message key cannot be empty when `key_dispatch` strategy is used"
             }
         ]},
@@ -170,7 +175,7 @@ message_key_dispatch_validations_test() ->
     ?assertThrow(
         {_, [
             #{
-                path := "bridges.kafka_producer.myproducer.kafka",
+                path := "bridges.kafka_producer.myproducer.parameters",
                 reason := "Message key cannot be empty when `key_dispatch` strategy is used"
             }
         ]},
@@ -181,8 +186,6 @@ message_key_dispatch_validations_test() ->
 tcp_keepalive_validation_test_() ->
     ProducerConf = parse(kafka_producer_new_hocon()),
     ConsumerConf = parse(kafka_consumer_hocon()),
-    %% ensure atoms exist
-    _ = [my_producer, my_consumer],
     test_keepalive_validation([<<"kafka">>, <<"myproducer">>], ProducerConf) ++
         test_keepalive_validation([<<"kafka_consumer">>, <<"my_consumer">>], ConsumerConf).
 
@@ -358,3 +361,10 @@ bridges.kafka_consumer.my_consumer {
   }
 }
 """.
+
+%% assert compatibility
+bridge_schema_json_test() ->
+    JSON = iolist_to_binary(emqx_conf:bridge_schema_json()),
+    Map = emqx_utils_json:decode(JSON),
+    Path = [<<"components">>, <<"schemas">>, <<"bridge_kafka.post_producer">>, <<"properties">>],
+    ?assertMatch(#{<<"kafka">> := _}, emqx_utils_maps:deep_get(Path, Map)).

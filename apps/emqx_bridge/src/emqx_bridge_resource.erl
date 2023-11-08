@@ -102,21 +102,15 @@ bridge_id(BridgeType, BridgeName) ->
     <<Type/binary, ":", Name/binary>>.
 
 parse_bridge_id(BridgeId) ->
-    parse_bridge_id(BridgeId, #{atom_name => true}).
+    parse_bridge_id(bin(BridgeId), #{atom_name => true}).
 
--spec parse_bridge_id(list() | binary() | atom(), #{atom_name => boolean()}) ->
+-spec parse_bridge_id(binary() | atom(), #{atom_name => boolean()}) ->
     {atom(), atom() | binary()}.
+parse_bridge_id(<<"bridge:", ID/binary>>, Opts) ->
+    parse_bridge_id(ID, Opts);
 parse_bridge_id(BridgeId, Opts) ->
-    case string:split(bin(BridgeId), ":", all) of
-        [Type, Name] ->
-            {to_type_atom(Type), validate_name(Name, Opts)};
-        [Bridge, Type, Name] when Bridge =:= <<"bridge">>; Bridge =:= "bridge" ->
-            {to_type_atom(Type), validate_name(Name, Opts)};
-        _ ->
-            invalid_data(
-                <<"should be of pattern {type}:{name}, but got ", BridgeId/binary>>
-            )
-    end.
+    {Type, Name} = emqx_resource:parse_resource_id(BridgeId, Opts),
+    {emqx_bridge_lib:upgrade_type(Type), Name}.
 
 bridge_hookpoint(BridgeId) ->
     <<"$bridges/", (bin(BridgeId))/binary>>.
@@ -126,47 +120,8 @@ bridge_hookpoint_to_bridge_id(?BRIDGE_HOOKPOINT(BridgeId)) ->
 bridge_hookpoint_to_bridge_id(_) ->
     {error, bad_bridge_hookpoint}.
 
-validate_name(Name0, Opts) ->
-    Name = unicode:characters_to_list(Name0, utf8),
-    case is_list(Name) andalso Name =/= [] of
-        true ->
-            case lists:all(fun is_id_char/1, Name) of
-                true ->
-                    case maps:get(atom_name, Opts, true) of
-                        % NOTE
-                        % Rule may be created before bridge, thus not `list_to_existing_atom/1`,
-                        % also it is infrequent user input anyway.
-                        true -> list_to_atom(Name);
-                        false -> Name0
-                    end;
-                false ->
-                    invalid_data(<<"bad name: ", Name0/binary>>)
-            end;
-        false ->
-            invalid_data(<<"only 0-9a-zA-Z_-. is allowed in name: ", Name0/binary>>)
-    end.
-
 -spec invalid_data(binary()) -> no_return().
 invalid_data(Reason) -> throw(#{kind => validation_error, reason => Reason}).
-
-is_id_char(C) when C >= $0 andalso C =< $9 -> true;
-is_id_char(C) when C >= $a andalso C =< $z -> true;
-is_id_char(C) when C >= $A andalso C =< $Z -> true;
-is_id_char($_) -> true;
-is_id_char($-) -> true;
-is_id_char($.) -> true;
-is_id_char(_) -> false.
-
-to_type_atom(<<"kafka">>) ->
-    %% backward compatible
-    kafka_producer;
-to_type_atom(Type) ->
-    try
-        erlang:binary_to_existing_atom(Type, utf8)
-    catch
-        _:_ ->
-            invalid_data(<<"unknown bridge type: ", Type/binary>>)
-    end.
 
 reset_metrics(ResourceId) ->
     %% TODO we should not create atoms here

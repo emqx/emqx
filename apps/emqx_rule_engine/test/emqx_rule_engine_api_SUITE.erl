@@ -310,6 +310,20 @@ t_rule_engine(_) ->
     }),
     {400, _} = emqx_rule_engine_api:'/rule_engine'(put, #{body => #{<<"something">> => <<"weird">>}}).
 
+t_downgrade_bridge_type(_) ->
+    #{id := RuleId} = create_rule((?SIMPLE_RULE(<<>>))#{<<"actions">> => [<<"kafka:name">>]}),
+    ?assertMatch(
+        %% returns a bridges_v2 ID
+        {200, #{data := [#{actions := [<<"kafka:name">>]}]}},
+        emqx_rule_engine_api:'/rules'(get, #{query_string => #{}})
+    ),
+    ?assertMatch(
+        %% returns a bridges_v2 ID
+        {200, #{actions := [<<"kafka:name">>]}},
+        emqx_rule_engine_api:'/rules/:id'(get, #{bindings => #{id => RuleId}})
+    ),
+    ok.
+
 rules_fixture(N) ->
     lists:map(
         fun(Seq0) ->

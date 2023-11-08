@@ -97,7 +97,7 @@ get_response_body_schema() ->
 param_path_operation_cluster() ->
     {operation,
         mk(
-            enum([start, stop, restart]),
+            enum([start]),
             #{
                 in => path,
                 required => true,
@@ -109,7 +109,7 @@ param_path_operation_cluster() ->
 param_path_operation_on_node() ->
     {operation,
         mk(
-            enum([start, stop, restart]),
+            enum([start]),
             #{
                 in => path,
                 required => true,
@@ -266,7 +266,7 @@ schema("/connectors/:id/:operation") ->
         'operationId' => '/connectors/:id/:operation',
         post => #{
             tags => [<<"connectors">>],
-            summary => <<"Stop, start or restart connector">>,
+            summary => <<"Manually start a connector">>,
             description => ?DESC("desc_api7"),
             parameters => [
                 param_path_id(),
@@ -288,7 +288,7 @@ schema("/nodes/:node/connectors/:id/:operation") ->
         'operationId' => '/nodes/:node/connectors/:id/:operation',
         post => #{
             tags => [<<"connectors">>],
-            summary => <<"Stop, start or restart connector">>,
+            summary => <<"Manually start a connector on a given node">>,
             description => ?DESC("desc_api8"),
             parameters => [
                 param_path_node(),
@@ -453,9 +453,30 @@ update_connector(ConnectorType, ConnectorName, Conf) ->
     create_or_update_connector(ConnectorType, ConnectorName, Conf, 200).
 
 create_or_update_connector(ConnectorType, ConnectorName, Conf, HttpStatusCode) ->
+    Check =
+        try
+            is_binary(ConnectorType) andalso emqx_resource:validate_type(ConnectorType),
+            ok = emqx_resource:validate_name(ConnectorName)
+        catch
+            throw:Error ->
+                ?BAD_REQUEST(map_to_json(Error))
+        end,
+    case Check of
+        ok ->
+            do_create_or_update_connector(ConnectorType, ConnectorName, Conf, HttpStatusCode);
+        BadRequest ->
+            BadRequest
+    end.
+
+do_create_or_update_connector(ConnectorType, ConnectorName, Conf, HttpStatusCode) ->
     case emqx_connector:create(ConnectorType, ConnectorName, Conf) of
         {ok, _} ->
             lookup_from_all_nodes(ConnectorType, ConnectorName, HttpStatusCode);
+        {error, {PreOrPostConfigUpdate, _HandlerMod, Reason}} when
+            PreOrPostConfigUpdate =:= pre_config_update;
+            PreOrPostConfigUpdate =:= post_config_update
+        ->
+            ?BAD_REQUEST(map_to_json(redact(Reason)));
         {error, Reason} when is_map(Reason) ->
             ?BAD_REQUEST(map_to_json(redact(Reason)))
     end.
@@ -531,12 +552,8 @@ is_enabled_connector(ConnectorType, ConnectorName) ->
             throw(not_found)
     end.
 
-operation_func(all, restart) -> restart_connectors_to_all_nodes;
 operation_func(all, start) -> start_connectors_to_all_nodes;
-operation_func(all, stop) -> stop_connectors_to_all_nodes;
-operation_func(_Node, restart) -> restart_connector_to_node;
-operation_func(_Node, start) -> start_connector_to_node;
-operation_func(_Node, stop) -> stop_connector_to_node.
+operation_func(_Node, start) -> start_connector_to_node.
 
 enable_func(true) -> enable;
 enable_func(false) -> disable.

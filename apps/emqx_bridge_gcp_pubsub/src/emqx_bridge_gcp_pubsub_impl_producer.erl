@@ -222,13 +222,8 @@ encode_payload(State, Selected) ->
     OrderingKey = render_key(OrderingKeyTemplate, Selected),
     Attributes = proc_attributes(AttributesTemplate, Selected),
     Payload0 = #{data => base64:encode(Data)},
-    Payload1 = put_if(Payload0, attributes, Attributes, map_size(Attributes) > 0),
-    put_if(Payload1, 'orderingKey', OrderingKey, OrderingKey =/= <<>>).
-
-put_if(Acc, K, V, true) ->
-    Acc#{K => V};
-put_if(Acc, _K, _V, false) ->
-    Acc.
+    Payload1 = emqx_utils_maps:put_if(Payload0, attributes, Attributes, map_size(Attributes) > 0),
+    emqx_utils_maps:put_if(Payload1, 'orderingKey', OrderingKey, OrderingKey =/= <<>>).
 
 -spec render_payload(emqx_placeholder:tmpl_token(), map()) -> binary().
 render_payload([] = _Template, Selected) ->
