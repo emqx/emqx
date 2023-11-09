@@ -30,6 +30,14 @@
 -define(PROTO_REG_AUTH_PATH, "/jt808/auth").
 -define(PROTO_REG_REGISTRY_PATH, "/jt808/registry").
 
+-define(JT808_PHONE, "000123456789").
+%% <<"jt808/000123456789/">>
+-define(JT808_MOUNTPOINT, "jt808/" ?JT808_PHONE "/").
+%% <<"jt808/000123456789/000123456789/up">>
+-define(JT808_UP_TOPIC, <<?JT808_MOUNTPOINT, ?JT808_PHONE, "/up">>).
+%% <<"jt808/000123456789/000123456789/dn">>
+-define(JT808_DN_TOPIC, <<?JT808_MOUNTPOINT, ?JT808_PHONE, "/dn">>).
+
 -define(CONF_DEFAULT, <<
     "\n"
     "gateway.jt808 {\n"
@@ -54,31 +62,59 @@
     "}\n"
 >>).
 
+-define(CONF_ANONYMOUS, <<
+    "\n"
+    "gateway.jt808 {\n"
+    "    listeners.tcp.default {\n"
+    "      bind = "
+    ?PORT_STR
+    "\n"
+    "    }\n"
+    "    proto {\n"
+    "      allow_anonymous = true\n"
+    "    }\n"
+    "}\n"
+>>).
+
 all() ->
-    [].
-%% emqx_common_test_helpers:all(?MODULE).
+    emqx_common_test_helpers:all(?MODULE).
 
 init_per_suite(Config) ->
+    Config.
+
+end_per_suite(_Config) ->
+    ok.
+
+init_per_testcase(Case = t_case02_anonymous_register_and_auth, Config) ->
+    Apps = boot_apps(Case, ?CONF_ANONYMOUS, Config),
+    [{suite_apps, Apps} | Config];
+init_per_testcase(Case, Config) ->
+    Apps = boot_apps(Case, ?CONF_DEFAULT, Config),
+    [{suite_apps, Apps} | Config].
+
+end_per_testcase(_Case, Config) ->
+    try
+        ok = emqx_jt808_auth_http_test_server:stop()
+    catch
+        exit:noproc ->
+            ok
+    end,
+    ok = emqx_cth_suite:stop(?config(suite_apps, Config)),
+    ok.
+
+boot_apps(Case, JT808Conf, Config) ->
     application:load(emqx_gateway_jt808),
     Apps = emqx_cth_suite:start(
         [
             cowboy,
-            {emqx_conf, ?CONF_DEFAULT},
-            emqx_gateway,
-            emqx_management,
-            {emqx_dashboard, "dashboard.listeners.http { enable = true, bind = 18083 }"}
+            {emqx_conf, JT808Conf},
+            emqx_gateway
         ],
-        #{work_dir => emqx_cth_suite:work_dir(Config)}
+        #{work_dir => emqx_cth_suite:work_dir(Case, Config)}
     ),
-    emqx_jt808_auth_http_test_server:start_link(),
-    emqx_common_test_http:create_default_app(),
-    [{suite_apps, Apps} | Config].
-
-end_per_suite(Config) ->
-    emqx_jt808_auth_http_test_server:stop(),
-    emqx_common_test_http:delete_default_app(),
-    emqx_cth_suite:stop(?config(suite_apps, Config)),
-    ok.
+    {ok, _Pid} = emqx_jt808_auth_http_test_server:start_link(),
+    timer:sleep(1000),
+    Apps.
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% helper functions %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
@@ -126,7 +162,7 @@ client_regi_procedure(Socket, ExpectedCode) ->
     RegisterPacket =
         <<58:?WORD, 59:?WORD, Manuf/binary, Model/binary, DevId/binary, Color, Plate/binary>>,
     MsgId = ?MC_REGISTER,
-    PhoneBCD = <<16#00, 16#61, 16#23, 16#45, 16#67, 16#89>>,
+    PhoneBCD = <<16#00, 16#01, 16#23, 16#45, 16#67, 16#89>>,
     MsgSn = 78,
     Size = size(RegisterPacket),
     Header =
@@ -179,7 +215,7 @@ client_auth_procedure(Socket, AuthCode) ->
             PhoneBCD/binary, MsgSn2:?WORD>>,
     S2 = gen_packet(Header2, GenAckPacket),
     ?assertEqual(S2, Packet),
-    ?assert(lists:member(<<"jt808/000123456789/dn">>, emqx:topics())),
+    ?assert(lists:member(?JT808_DN_TOPIC, emqx:topics())),
 
     ?LOGT("============= auth procedure success ===============", []).
 
@@ -290,7 +326,7 @@ binary_to_hex_string(Data) ->
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%% test cases %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
-t_register(_) ->
+t_case00_register(_) ->
     {ok, Socket} = gen_tcp:connect({127, 0, 0, 1}, ?PORT, [binary, {active, false}]),
 
     {ok, AuthCode} = client_regi_procedure(Socket),
@@ -298,14 +334,14 @@ t_register(_) ->
 
     ok = gen_tcp:close(Socket).
 
-t_auth(_) ->
+t_case01_auth(_) ->
     {ok, Socket} = gen_tcp:connect({127, 0, 0, 1}, ?PORT, [binary, {active, false}, {nodelay, true}]),
     {ok, AuthCode} = client_regi_procedure(Socket),
     ok = client_auth_procedure(Socket, AuthCode),
 
     ok = gen_tcp:close(Socket).
 
-t_anonymous_register_and_auth(_) ->
+t_case02_anonymous_register_and_auth(_) ->
     {ok, Socket} = gen_tcp:connect({127, 0, 0, 1}, ?PORT, [binary, {active, false}]),
 
     {ok, AuthCode} = client_regi_procedure(Socket, <<>>),
@@ -315,7 +351,7 @@ t_anonymous_register_and_auth(_) ->
 
     ok = gen_tcp:close(Socket).
 
-t_heartbeat(_) ->
+t_case03_heartbeat(_) ->
     {ok, Socket} = gen_tcp:connect({127, 0, 0, 1}, ?PORT, [binary, {active, false}]),
     {ok, AuthCode} = client_regi_procedure(Socket),
     ok = client_auth_procedure(Socket, AuthCode),
@@ -349,7 +385,7 @@ t_heartbeat(_) ->
     ok = gen_tcp:close(Socket).
 
 t_case04(_) ->
-    ok = emqx:subscribe(<<"jt808/000123456789/up">>),
+    ok = emqx:subscribe(?JT808_UP_TOPIC),
 
     {ok, Socket} = gen_tcp:connect({127, 0, 0, 1}, ?PORT, [binary, {active, false}]),
     {ok, AuthCode} = client_regi_procedure(Socket),
@@ -382,7 +418,7 @@ t_case04(_) ->
     S4 = gen_packet(Header4, GenAckPacket4),
     ?assertEqual(S4, Packet4),
     timer:sleep(100),
-    {<<"jt808/000123456789/up">>, Payload} = receive_msg(),
+    {?JT808_UP_TOPIC, Payload} = receive_msg(),
     ?assertEqual(
         #{
             <<"header">> => #{
@@ -412,7 +448,7 @@ t_case05(_Config) ->
         <<"header">> => #{<<"msg_id">> => ?MS_SEND_TEXT},
         <<"body">> => #{<<"flag">> => Flag, <<"text">> => Text}
     },
-    emqx:publish(emqx_message:make(<<"jt808/000123456789/dn">>, emqx_utils_json:encode(DlCommand))),
+    emqx:publish(emqx_message:make(?JT808_DN_TOPIC, emqx_utils_json:encode(DlCommand))),
     %
     % client get downlink "send text"
     %
@@ -460,7 +496,7 @@ t_case06_downlink_retx(_) ->
         <<"header">> => #{<<"msg_id">> => ?MS_SEND_TEXT},
         <<"body">> => #{<<"flag">> => Flag, <<"text">> => Text}
     },
-    emqx:publish(emqx_message:make(<<"jt808/000123456789/dn">>, emqx_utils_json:encode(DlCommand))),
+    emqx:publish(emqx_message:make(?JT808_DN_TOPIC, emqx_utils_json:encode(DlCommand))),
     %
     % client get downlink "send text"
     %
@@ -501,7 +537,7 @@ t_case06_downlink_retx(_) ->
     ok = gen_tcp:close(Socket).
 
 t_case07_dl_0x8302_send_question(_) ->
-    ok = emqx:subscribe(<<"jt808/000123456789/up">>),
+    ok = emqx:subscribe(?JT808_UP_TOPIC),
 
     {ok, Socket} = gen_tcp:connect({127, 0, 0, 1}, ?PORT, [binary, {active, false}]),
     {ok, AuthCode} = client_regi_procedure(Socket),
@@ -524,7 +560,7 @@ t_case07_dl_0x8302_send_question(_) ->
             ]
         }
     },
-    emqx:publish(emqx_message:make(<<"jt808/000123456789/dn">>, emqx_utils_json:encode(DlCommand))),
+    emqx:publish(emqx_message:make(?JT808_DN_TOPIC, emqx_utils_json:encode(DlCommand))),
 
     %% client get downlink "send text"
     MsgBody3 =
@@ -555,7 +591,7 @@ t_case07_dl_0x8302_send_question(_) ->
     ok = gen_tcp:send(Socket, S4),
     timer:sleep(100),
 
-    {<<"jt808/000123456789/up">>, Payload} = receive_msg(),
+    {?JT808_UP_TOPIC, Payload} = receive_msg(),
     ?assertEqual(
         #{
             <<"header">> => #{
@@ -578,14 +614,14 @@ t_case08_dl_0x8500_vehicle_ctrl(_Config) ->
     ok = client_auth_procedure(Socket, AuthCode),
     PhoneBCD = <<16#00, 16#01, 16#23, 16#45, 16#67, 16#89>>,
 
-    ok = emqx:subscribe(<<"jt808/000123456789/up">>),
+    ok = emqx:subscribe(?JT808_UP_TOPIC),
 
     Flag = 16#0,
     DlCommand = #{
         <<"header">> => #{<<"msg_id">> => ?MS_VEHICLE_CONTROL},
         <<"body">> => #{<<"flag">> => Flag}
     },
-    emqx:publish(emqx_message:make(<<"jt808/000123456789/dn">>, emqx_utils_json:encode(DlCommand))),
+    emqx:publish(emqx_message:make(?JT808_DN_TOPIC, emqx_utils_json:encode(DlCommand))),
 
     %
     % client get downlink "vehicle ctrl"
@@ -612,7 +648,7 @@ t_case08_dl_0x8500_vehicle_ctrl(_Config) ->
     ok = gen_tcp:send(Socket, CtrlAck),
     timer:sleep(300),
 
-    {<<"jt808/000123456789/up">>, Payload} = receive_msg(),
+    {?JT808_UP_TOPIC, Payload} = receive_msg(),
     ?assertEqual(
         #{
             <<"header">> =>
@@ -660,7 +696,7 @@ t_case09_dl_0x8103_set_client_param(_Config) ->
             ]
         }
     },
-    emqx:publish(emqx_message:make(<<"jt808/000123456789/dn">>, emqx_utils_json:encode(DlCommand))),
+    emqx:publish(emqx_message:make(?JT808_DN_TOPIC, emqx_utils_json:encode(DlCommand))),
 
     %
     % client get downlink "vehicle ctrl"
@@ -713,7 +749,7 @@ t_case10_dl_0x8104_query_client_all_param(_Config) ->
         <<"header">> => #{<<"msg_id">> => ?MS_CLIENT_CONTROL},
         <<"body">> => #{<<"command">> => 200, <<"param">> => <<"ABCD">>}
     },
-    emqx:publish(emqx_message:make(<<"jt808/000123456789/dn">>, emqx_utils_json:encode(DlCommand))),
+    emqx:publish(emqx_message:make(?JT808_DN_TOPIC, emqx_utils_json:encode(DlCommand))),
 
     %
     % client get downlink command
@@ -752,13 +788,13 @@ t_case11_dl_0x8106_query_client_param(_Config) ->
     ok = client_auth_procedure(Socket, AuthCode),
     PhoneBCD = <<16#00, 16#01, 16#23, 16#45, 16#67, 16#89>>,
 
-    ok = emqx:subscribe(<<"jt808/000123456789/up">>),
+    ok = emqx:subscribe(?JT808_UP_TOPIC),
 
     DlCommand = #{
         <<"header">> => #{<<"msg_id">> => ?MS_QUERY_CLIENT_PARAM},
         <<"body">> => #{<<"length">> => 2, <<"ids">> => [16#0092, 16#0031]}
     },
-    emqx:publish(emqx_message:make(<<"jt808/000123456789/dn">>, emqx_utils_json:encode(DlCommand))),
+    emqx:publish(emqx_message:make(?JT808_DN_TOPIC, emqx_utils_json:encode(DlCommand))),
 
     %
     % client get downlink command
@@ -791,7 +827,7 @@ t_case11_dl_0x8106_query_client_param(_Config) ->
 
     ok = gen_tcp:send(Socket, S4),
 
-    {<<"jt808/000123456789/up">>, Payload} = receive_msg(),
+    {?JT808_UP_TOPIC, Payload} = receive_msg(),
     ?assertEqual(
         #{
             <<"header">> => #{
@@ -827,10 +863,10 @@ t_case11_dl_0x8107_query_client_attrib(_Config) ->
     ok = client_auth_procedure(Socket, AuthCode),
     PhoneBCD = <<16#00, 16#01, 16#23, 16#45, 16#67, 16#89>>,
 
-    ok = emqx:subscribe(<<"jt808/000123456789/up">>),
+    ok = emqx:subscribe(?JT808_UP_TOPIC),
 
     DlCommand = #{<<"header">> => #{<<"msg_id">> => ?MS_QUERY_CLIENT_ATTRIB}},
-    emqx:publish(emqx_message:make(<<"jt808/000123456789/dn">>, emqx_utils_json:encode(DlCommand))),
+    emqx:publish(emqx_message:make(?JT808_DN_TOPIC, emqx_utils_json:encode(DlCommand))),
 
     %
     % client get downlink command
@@ -869,7 +905,7 @@ t_case11_dl_0x8107_query_client_attrib(_Config) ->
     ok = gen_tcp:send(Socket, S4),
     timer:sleep(100),
 
-    {<<"jt808/000123456789/up">>, Payload} = receive_msg(),
+    {?JT808_UP_TOPIC, Payload} = receive_msg(),
     ?assertEqual(
         #{
             <<"header">> => #{
@@ -906,10 +942,10 @@ t_case15_dl_0x8201_query_location(_Config) ->
     ok = client_auth_procedure(Socket, AuthCode),
     PhoneBCD = <<16#00, 16#01, 16#23, 16#45, 16#67, 16#89>>,
 
-    ok = emqx:subscribe(<<"jt808/000123456789/up">>),
+    ok = emqx:subscribe(?JT808_UP_TOPIC),
 
     DlCommand = #{<<"header">> => #{<<"msg_id">> => ?MS_QUERY_LOCATION}},
-    emqx:publish(emqx_message:make(<<"jt808/000123456789/dn">>, emqx_utils_json:encode(DlCommand))),
+    emqx:publish(emqx_message:make(?JT808_DN_TOPIC, emqx_utils_json:encode(DlCommand))),
 
     %
     % client get downlink command
@@ -944,7 +980,7 @@ t_case15_dl_0x8201_query_location(_Config) ->
     ok = gen_tcp:send(Socket, S4),
     timer:sleep(100),
 
-    {<<"jt808/000123456789/up">>, Payload} = receive_msg(),
+    {?JT808_UP_TOPIC, Payload} = receive_msg(),
     ?assertEqual(
         #{
             <<"header">> => #{
@@ -976,7 +1012,7 @@ t_location_report(_) ->
     ok = client_auth_procedure(Socket, AuthCode),
     PhoneBCD = <<16#00, 16#01, 16#23, 16#45, 16#67, 16#89>>,
 
-    ok = emqx:subscribe(<<"jt808/000123456789/up">>),
+    ok = emqx:subscribe(?JT808_UP_TOPIC),
 
     {LocationReportBinary, LocationReportJson} = location_report(),
     UlPacket = <<LocationReportBinary/binary>>,
@@ -992,7 +1028,7 @@ t_location_report(_) ->
     ok = gen_tcp:send(Socket, S),
     timer:sleep(100),
 
-    {<<"jt808/000123456789/up">>, Payload} = receive_msg(),
+    {?JT808_UP_TOPIC, Payload} = receive_msg(),
     ?assertEqual(
         #{
             <<"header">> => #{
@@ -1034,7 +1070,7 @@ t_case15_dl_0x8202_trace_location(_Config) ->
         <<"header">> => #{<<"msg_id">> => ?MS_TRACE_LOCATION},
         <<"body">> => #{<<"period">> => 23, <<"expiry">> => 183}
     },
-    emqx:publish(emqx_message:make(<<"jt808/000123456789/dn">>, emqx_utils_json:encode(DlCommand))),
+    emqx:publish(emqx_message:make(?JT808_DN_TOPIC, emqx_utils_json:encode(DlCommand))),
 
     %
     % client get downlink command
@@ -1070,7 +1106,7 @@ t_case50_ul_0x0303_info_request_cancel(_Config) ->
     ok = client_auth_procedure(Socket, AuthCode),
     PhoneBCD = <<16#00, 16#01, 16#23, 16#45, 16#67, 16#89>>,
 
-    ok = emqx:subscribe(<<"jt808/000123456789/up">>),
+    ok = emqx:subscribe(?JT808_UP_TOPIC),
 
     %
     % send event report
@@ -1099,7 +1135,7 @@ t_case50_ul_0x0303_info_request_cancel(_Config) ->
     S4 = gen_packet(Header4, GenAckPacket4),
     ?assertEqual(S4, Packet4),
 
-    {<<"jt808/000123456789/up">>, Payload} = receive_msg(),
+    {?JT808_UP_TOPIC, Payload} = receive_msg(),
     ?assertEqual(
         #{
             <<"header">> => #{
@@ -1122,7 +1158,7 @@ t_case51_ul_0x0701_waybill_report(_Config) ->
     ok = client_auth_procedure(Socket, AuthCode),
     PhoneBCD = <<16#00, 16#01, 16#23, 16#45, 16#67, 16#89>>,
 
-    ok = emqx:subscribe(<<"jt808/000123456789/up">>),
+    ok = emqx:subscribe(?JT808_UP_TOPIC),
 
     %
     % send event report
@@ -1151,7 +1187,7 @@ t_case51_ul_0x0701_waybill_report(_Config) ->
     S4 = gen_packet(Header4, GenAckPacket4),
     ?assertEqual(S4, Packet4),
 
-    {<<"jt808/000123456789/up">>, Payload} = receive_msg(),
+    {?JT808_UP_TOPIC, Payload} = receive_msg(),
     ?assertEqual(
         #{
             <<"header">> => #{
@@ -1174,7 +1210,7 @@ t_case52_ul_0x0705_can_bus_report(_Config) ->
     ok = client_auth_procedure(Socket, AuthCode),
     PhoneBCD = <<16#00, 16#01, 16#23, 16#45, 16#67, 16#89>>,
 
-    ok = emqx:subscribe(<<"jt808/000123456789/up">>),
+    ok = emqx:subscribe(?JT808_UP_TOPIC),
 
     %
     % send event report
@@ -1205,7 +1241,7 @@ t_case52_ul_0x0705_can_bus_report(_Config) ->
     S4 = gen_packet(Header4, GenAckPacket4),
     ?assertEqual(S4, Packet4),
 
-    {<<"jt808/000123456789/up">>, Payload} = receive_msg(),
+    {?JT808_UP_TOPIC, Payload} = receive_msg(),
     ?assertEqual(
         #{
             <<"header">> => #{
@@ -1247,7 +1283,7 @@ t_case53_ul_0x0800_multimedia_event_report(_Config) ->
     ok = client_auth_procedure(Socket, AuthCode),
     PhoneBCD = <<16#00, 16#01, 16#23, 16#45, 16#67, 16#89>>,
 
-    ok = emqx:subscribe(<<"jt808/000123456789/up">>),
+    ok = emqx:subscribe(?JT808_UP_TOPIC),
 
     %
     % send event report
@@ -1276,7 +1312,7 @@ t_case53_ul_0x0800_multimedia_event_report(_Config) ->
     S4 = gen_packet(Header4, GenAckPacket4),
     ?assertEqual(S4, Packet4),
 
-    {<<"jt808/000123456789/up">>, Payload} = receive_msg(),
+    {?JT808_UP_TOPIC, Payload} = receive_msg(),
     ?assertEqual(
         #{
             <<"header">> => #{
@@ -1305,7 +1341,7 @@ t_case54_ul_0x0900_send_transparent_data(_Config) ->
     ok = client_auth_procedure(Socket, AuthCode),
     PhoneBCD = <<16#00, 16#01, 16#23, 16#45, 16#67, 16#89>>,
 
-    ok = emqx:subscribe(<<"jt808/000123456789/up">>),
+    ok = emqx:subscribe(?JT808_UP_TOPIC),
 
     %
     % send event report
@@ -1334,7 +1370,7 @@ t_case54_ul_0x0900_send_transparent_data(_Config) ->
     S4 = gen_packet(Header4, GenAckPacket4),
     ?assertEqual(S4, Packet4),
 
-    {<<"jt808/000123456789/up">>, Payload} = receive_msg(),
+    {?JT808_UP_TOPIC, Payload} = receive_msg(),
     ?assertEqual(
         #{
             <<"header">> => #{
@@ -1356,7 +1392,7 @@ t_case55_ul_0x0901_send_zip_data(_Config) ->
     ok = client_auth_procedure(Socket, AuthCode),
     PhoneBCD = <<16#00, 16#01, 16#23, 16#45, 16#67, 16#89>>,
 
-    ok = emqx:subscribe(<<"jt808/000123456789/up">>),
+    ok = emqx:subscribe(?JT808_UP_TOPIC),
 
     %
     % send event report
@@ -1385,7 +1421,7 @@ t_case55_ul_0x0901_send_zip_data(_Config) ->
     S4 = gen_packet(Header4, GenAckPacket4),
     ?assertEqual(S4, Packet4),
 
-    {<<"jt808/000123456789/up">>, Payload} = receive_msg(),
+    {?JT808_UP_TOPIC, Payload} = receive_msg(),
     ?assertEqual(
         #{
             <<"header">> => #{
@@ -1423,7 +1459,7 @@ t_case16_dl_0x8301_set_event(_Config) ->
                 ]
         }
     },
-    emqx:publish(emqx_message:make(<<"jt808/000123456789/dn">>, emqx_utils_json:encode(DlCommand))),
+    emqx:publish(emqx_message:make(?JT808_DN_TOPIC, emqx_utils_json:encode(DlCommand))),
 
     %
     % client get downlink command
@@ -1471,7 +1507,7 @@ t_case17_dl_0x8303_set_menu(_Config) ->
                 ]
         }
     },
-    emqx:publish(emqx_message:make(<<"jt808/000123456789/dn">>, emqx_utils_json:encode(DlCommand))),
+    emqx:publish(emqx_message:make(?JT808_DN_TOPIC, emqx_utils_json:encode(DlCommand))),
 
     %% client get downlink command
     MsgBody3 = <<3:8, 2:8, 56:8, 3:?WORD, <<"111">>/binary, 7:8, 5:?WORD, <<"nwKdmww">>/binary>>,
@@ -1509,7 +1545,7 @@ t_case18_dl_0x8304_info_content(_Config) ->
         <<"header">> => #{<<"msg_id">> => ?MS_INFO_CONTENT},
         <<"body">> => #{<<"type">> => 3, <<"length">> => 2, <<"info">> => <<"NY">>}
     },
-    emqx:publish(emqx_message:make(<<"jt808/000123456789/dn">>, emqx_utils_json:encode(DlCommand))),
+    emqx:publish(emqx_message:make(?JT808_DN_TOPIC, emqx_utils_json:encode(DlCommand))),
 
     %% client get downlink command
     MsgBody3 = <<3:8, 2:?WORD, <<"NY">>/binary>>,
@@ -1547,7 +1583,7 @@ t_case19_dl_0x8400_phone_callback(_Config) ->
         <<"header">> => #{<<"msg_id">> => ?MS_PHONE_CALLBACK},
         <<"body">> => #{<<"type">> => 0, <<"phone">> => <<"15632597856">>}
     },
-    emqx:publish(emqx_message:make(<<"jt808/000123456789/dn">>, emqx_utils_json:encode(DlCommand))),
+    emqx:publish(emqx_message:make(?JT808_DN_TOPIC, emqx_utils_json:encode(DlCommand))),
 
     %% client get downlink command
     MsgBody3 = <<0:8, <<"15632597856">>/binary>>,
@@ -1605,7 +1641,7 @@ t_case20_dl_0x8401_set_phone_number(_Config) ->
                 ]
         }
     },
-    emqx:publish(emqx_message:make(<<"jt808/000123456789/dn">>, emqx_utils_json:encode(DlCommand))),
+    emqx:publish(emqx_message:make(?JT808_DN_TOPIC, emqx_utils_json:encode(DlCommand))),
 
     %
     % client get downlink command
@@ -1675,7 +1711,7 @@ t_case21_dl_0x8600_set_circle_area(_Config) ->
                 ]
         }
     },
-    emqx:publish(emqx_message:make(<<"jt808/000123456789/dn">>, emqx_utils_json:encode(DlCommand))),
+    emqx:publish(emqx_message:make(?JT808_DN_TOPIC, emqx_utils_json:encode(DlCommand))),
 
     %% client get downlink command
     MsgBody3 =
@@ -1719,7 +1755,7 @@ t_case22_dl_0x8601_del_circle_area(_Config) ->
         <<"header">> => #{<<"msg_id">> => ?MS_DEL_CIRCLE_AREA},
         <<"body">> => #{<<"length">> => 2, <<"ids">> => [3, 78]}
     },
-    emqx:publish(emqx_message:make(<<"jt808/000123456789/dn">>, emqx_utils_json:encode(DlCommand))),
+    emqx:publish(emqx_message:make(?JT808_DN_TOPIC, emqx_utils_json:encode(DlCommand))),
 
     %
     % client get downlink command
@@ -1789,7 +1825,7 @@ t_case23_dl_0x8602_set_rect_area(_Config) ->
                 ]
         }
     },
-    emqx:publish(emqx_message:make(<<"jt808/000123456789/dn">>, emqx_utils_json:encode(DlCommand))),
+    emqx:publish(emqx_message:make(?JT808_DN_TOPIC, emqx_utils_json:encode(DlCommand))),
 
     %
     % client get downlink command
@@ -1835,7 +1871,7 @@ t_case24_dl_0x8603_del_circle_area(_Config) ->
         <<"header">> => #{<<"msg_id">> => ?MS_DEL_RECT_AREA},
         <<"body">> => #{<<"length">> => 2, <<"ids">> => [3, 78]}
     },
-    emqx:publish(emqx_message:make(<<"jt808/000123456789/dn">>, emqx_utils_json:encode(DlCommand))),
+    emqx:publish(emqx_message:make(?JT808_DN_TOPIC, emqx_utils_json:encode(DlCommand))),
 
     %
     % client get downlink command
@@ -1889,7 +1925,7 @@ t_case25_dl_0x8604_set_poly_area(_Config) ->
                 ]
         }
     },
-    emqx:publish(emqx_message:make(<<"jt808/000123456789/dn">>, emqx_utils_json:encode(DlCommand))),
+    emqx:publish(emqx_message:make(?JT808_DN_TOPIC, emqx_utils_json:encode(DlCommand))),
 
     %
     % client get downlink command
@@ -1932,7 +1968,7 @@ t_case26_dl_0x8605_del_poly_area(_Config) ->
         <<"header">> => #{<<"msg_id">> => ?MS_DEL_POLY_AREA},
         <<"body">> => #{<<"length">> => 2, <<"ids">> => [3, 78]}
     },
-    emqx:publish(emqx_message:make(<<"jt808/000123456789/dn">>, emqx_utils_json:encode(DlCommand))),
+    emqx:publish(emqx_message:make(?JT808_DN_TOPIC, emqx_utils_json:encode(DlCommand))),
 
     %
     % client get downlink command
@@ -2005,7 +2041,7 @@ t_case27_dl_0x8606_set_path(_Config) ->
                 ]
         }
     },
-    emqx:publish(emqx_message:make(<<"jt808/000123456789/dn">>, emqx_utils_json:encode(DlCommand))),
+    emqx:publish(emqx_message:make(?JT808_DN_TOPIC, emqx_utils_json:encode(DlCommand))),
 
     %
     % client get downlink command
@@ -2049,7 +2085,7 @@ t_case26_dl_0x8607_del_path(_Config) ->
         <<"header">> => #{<<"msg_id">> => ?MS_DEL_PATH},
         <<"body">> => #{<<"length">> => 2, <<"ids">> => [3, 78]}
     },
-    emqx:publish(emqx_message:make(<<"jt808/000123456789/dn">>, emqx_utils_json:encode(DlCommand))),
+    emqx:publish(emqx_message:make(?JT808_DN_TOPIC, emqx_utils_json:encode(DlCommand))),
 
     %
     % client get downlink command
@@ -2085,7 +2121,7 @@ t_case27_dl_0x8700_drive_record_capture(_Config) ->
     ok = client_auth_procedure(Socket, AuthCode),
     PhoneBCD = <<16#00, 16#01, 16#23, 16#45, 16#67, 16#89>>,
 
-    ok = emqx:subscribe(<<"jt808/000123456789/up">>),
+    ok = emqx:subscribe(?JT808_UP_TOPIC),
 
     CaptureCmd = 2,
     DlCommand = #{
@@ -2094,7 +2130,7 @@ t_case27_dl_0x8700_drive_record_capture(_Config) ->
             <<"command">> => CaptureCmd, <<"param">> => base64:encode(<<"000123456789">>)
         }
     },
-    emqx:publish(emqx_message:make(<<"jt808/000123456789/dn">>, emqx_utils_json:encode(DlCommand))),
+    emqx:publish(emqx_message:make(?JT808_DN_TOPIC, emqx_utils_json:encode(DlCommand))),
 
     %
     % client get downlink command
@@ -2130,7 +2166,7 @@ t_case27_dl_0x8700_drive_record_capture(_Config) ->
     ok = gen_tcp:send(Socket, S4),
     timer:sleep(100),
 
-    {<<"jt808/000123456789/up">>, Payload} = receive_msg(),
+    {?JT808_UP_TOPIC, Payload} = receive_msg(),
     ?assertEqual(
         #{
             <<"header">> => #{
@@ -2167,7 +2203,7 @@ t_case28_dl_0x8701_drive_record_param_send(_Config) ->
             <<"command">> => CaptureCmd, <<"param">> => base64:encode(<<"000123456789">>)
         }
     },
-    emqx:publish(emqx_message:make(<<"jt808/000123456789/dn">>, emqx_utils_json:encode(DlCommand))),
+    emqx:publish(emqx_message:make(?JT808_DN_TOPIC, emqx_utils_json:encode(DlCommand))),
 
     %
     % client get downlink command
@@ -2203,10 +2239,10 @@ t_case29_dl_0x8702_request_driver_id(_Config) ->
     ok = client_auth_procedure(Socket, AuthCode),
     PhoneBCD = <<16#00, 16#01, 16#23, 16#45, 16#67, 16#89>>,
 
-    ok = emqx:subscribe(<<"jt808/000123456789/up">>),
+    ok = emqx:subscribe(?JT808_UP_TOPIC),
 
     DlCommand = #{<<"header">> => #{<<"msg_id">> => ?MS_REQ_DRIVER_ID}},
-    emqx:publish(emqx_message:make(<<"jt808/000123456789/dn">>, emqx_utils_json:encode(DlCommand))),
+    emqx:publish(emqx_message:make(?JT808_DN_TOPIC, emqx_utils_json:encode(DlCommand))),
 
     %
     % client get downlink command
@@ -2245,7 +2281,7 @@ t_case29_dl_0x8702_request_driver_id(_Config) ->
     ok = gen_tcp:send(Socket, S4),
     timer:sleep(100),
 
-    {<<"jt808/000123456789/up">>, Payload} = receive_msg(),
+    {?JT808_UP_TOPIC, Payload} = receive_msg(),
     ?assertEqual(
         #{
             <<"header">> => #{
@@ -2280,7 +2316,7 @@ t_case30_dl_0x8801_camera_shot(_Config) ->
     ok = client_auth_procedure(Socket, AuthCode),
     PhoneBCD = <<16#00, 16#01, 16#23, 16#45, 16#67, 16#89>>,
 
-    ok = emqx:subscribe(<<"jt808/000123456789/up">>),
+    ok = emqx:subscribe(?JT808_UP_TOPIC),
 
     DlCommand = #{
         <<"header">> => #{<<"msg_id">> => ?MS_CAMERA_SHOT},
@@ -2297,7 +2333,7 @@ t_case30_dl_0x8801_camera_shot(_Config) ->
             <<"chromaticity">> => 7
         }
     },
-    emqx:publish(emqx_message:make(<<"jt808/000123456789/dn">>, emqx_utils_json:encode(DlCommand))),
+    emqx:publish(emqx_message:make(?JT808_DN_TOPIC, emqx_utils_json:encode(DlCommand))),
 
     %
     % client get downlink command
@@ -2333,7 +2369,7 @@ t_case30_dl_0x8801_camera_shot(_Config) ->
     ok = gen_tcp:send(Socket, S4),
     timer:sleep(100),
 
-    {<<"jt808/000123456789/up">>, Payload} = receive_msg(),
+    {?JT808_UP_TOPIC, Payload} = receive_msg(),
     ?assertEqual(
         #{
             <<"header">> => #{
@@ -2365,7 +2401,7 @@ t_case31_dl_0x8802_mm_data_search(_Config) ->
     ok = client_auth_procedure(Socket, AuthCode),
     PhoneBCD = <<16#00, 16#01, 16#23, 16#45, 16#67, 16#89>>,
 
-    ok = emqx:subscribe(<<"jt808/000123456789/up">>),
+    ok = emqx:subscribe(?JT808_UP_TOPIC),
 
     DlCommand = #{
         <<"header">> => #{<<"msg_id">> => ?MS_MM_DATA_SEARCH},
@@ -2377,7 +2413,7 @@ t_case31_dl_0x8802_mm_data_search(_Config) ->
             <<"end_time">> => <<"170923145826">>
         }
     },
-    emqx:publish(emqx_message:make(<<"jt808/000123456789/dn">>, emqx_utils_json:encode(DlCommand))),
+    emqx:publish(emqx_message:make(?JT808_DN_TOPIC, emqx_utils_json:encode(DlCommand))),
 
     %
     % client get downlink command
@@ -2418,7 +2454,7 @@ t_case31_dl_0x8802_mm_data_search(_Config) ->
     ok = gen_tcp:send(Socket, S4),
     timer:sleep(100),
 
-    {<<"jt808/000123456789/up">>, Payload} = receive_msg(),
+    {?JT808_UP_TOPIC, Payload} = receive_msg(),
     ?assertEqual(
         #{
             <<"header">> => #{
@@ -2474,7 +2510,7 @@ t_case32_dl_0x8803_mm_data_upload(_Config) ->
             <<"delete">> => 1
         }
     },
-    emqx:publish(emqx_message:make(<<"jt808/000123456789/dn">>, emqx_utils_json:encode(DlCommand))),
+    emqx:publish(emqx_message:make(?JT808_DN_TOPIC, emqx_utils_json:encode(DlCommand))),
 
     %
     % client get downlink command
@@ -2521,7 +2557,7 @@ t_case33_dl_0x8804_voice_record(_Config) ->
             <<"rate">> => 4
         }
     },
-    emqx:publish(emqx_message:make(<<"jt808/000123456789/dn">>, emqx_utils_json:encode(DlCommand))),
+    emqx:publish(emqx_message:make(?JT808_DN_TOPIC, emqx_utils_json:encode(DlCommand))),
 
     %
     % client get downlink command
@@ -2557,7 +2593,7 @@ t_case34_dl_0x8805_single_mm_data_ctrl(_Config) ->
     ok = client_auth_procedure(Socket, AuthCode),
     PhoneBCD = <<16#00, 16#01, 16#23, 16#45, 16#67, 16#89>>,
 
-    ok = emqx:subscribe(<<"jt808/000123456789/up">>),
+    ok = emqx:subscribe(?JT808_UP_TOPIC),
 
     DlCommand = #{
         <<"header">> => #{<<"msg_id">> => ?MS_SINGLE_MM_DATA_CTRL},
@@ -2566,7 +2602,7 @@ t_case34_dl_0x8805_single_mm_data_ctrl(_Config) ->
             <<"flag">> => 40
         }
     },
-    emqx:publish(emqx_message:make(<<"jt808/000123456789/dn">>, emqx_utils_json:encode(DlCommand))),
+    emqx:publish(emqx_message:make(?JT808_DN_TOPIC, emqx_utils_json:encode(DlCommand))),
 
     %% client get downlink command
     MsgBody3 = <<30:?DWORD, 40:8>>,
@@ -2602,7 +2638,7 @@ t_case34_dl_0x8805_single_mm_data_ctrl(_Config) ->
     ok = gen_tcp:send(Socket, S4),
     timer:sleep(100),
 
-    {<<"jt808/000123456789/up">>, Payload} = receive_msg(),
+    {?JT808_UP_TOPIC, Payload} = receive_msg(),
     ?assertEqual(
         #{
             <<"header">> => #{
