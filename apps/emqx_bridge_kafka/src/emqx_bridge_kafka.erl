@@ -100,7 +100,7 @@ values({post, connector}) ->
 values({post, KafkaType}) ->
     maps:merge(
         #{
-            name => <<"my_kafka_producer_bridge">>,
+            name => <<"my_kafka_producer_action">>,
             type => <<"kafka_producer">>
         },
         values({put, KafkaType})

@@ -1157,7 +1157,7 @@ map_to_json(M0) ->
     end.
 
 non_compat_bridge_msg() ->
-    <<"bridge already exists as non Bridge V1 compatible Bridge V2 bridge">>.
+    <<"bridge already exists as non Bridge V1 compatible action">>.
 
 upgrade_type(Type) ->
     emqx_bridge_lib:upgrade_type(Type).
