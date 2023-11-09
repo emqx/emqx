@@ -54,6 +54,12 @@ desc_api9.desc:
 desc_api9.label:
 """Test Bridge Creation"""
 
+desc_api10.desc:
+"""Lists the available action types."""
+
+desc_api10.label:
+"""List action types"""
+
 desc_bridge_metrics.desc:
 """Get bridge metrics by id."""
 
