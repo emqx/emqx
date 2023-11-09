@@ -97,8 +97,6 @@
     props := map()
 }.
 
-%% -type session() :: #session{}.
-
 -type timestamp() :: emqx_utils_calendar:epoch_millisecond().
 -type topic() :: emqx_types:topic().
 -type clientinfo() :: emqx_types:clientinfo().
@@ -344,7 +342,15 @@ deliver(_ClientInfo, _Delivers, Session) ->
 handle_timeout(_ClientInfo, pull, Session = #{id := Id, inflight := Inflight0}) ->
     WindowSize = 100,
     {Publishes, Inflight} = emqx_persistent_message_ds_replayer:poll(Id, Inflight0, WindowSize),
-    ensure_timer(pull),
+    %% TODO: make these values configurable:
+    Timeout =
+        case Publishes of
+            [] ->
+                100;
+            [_ | _] ->
+                0
+        end,
+    ensure_timer(pull, Timeout),
     {ok, Publishes, Session#{inflight => Inflight}};
 handle_timeout(_ClientInfo, get_streams, Session = #{id := Id}) ->
     renew_streams(Id),
@@ -714,5 +720,9 @@ ensure_timers() ->
 
 -spec ensure_timer(pull | get_streams) -> ok.
 ensure_timer(Type) ->
-    _ = emqx_utils:start_timer(100, {emqx_session, Type}),
+    ensure_timer(Type, 100).
+
+-spec ensure_timer(pull | get_streams, non_neg_integer()) -> ok.
+ensure_timer(Type, Timeout) ->
+    _ = emqx_utils:start_timer(Timeout, {emqx_session, Type}),
     ok.

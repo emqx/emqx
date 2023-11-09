@@ -34,6 +34,18 @@
 %% Type declarations
 %%================================================================================
 
+%% # "Record" integer keys.  We use maps with integer keys to avoid persisting and sending
+%% records over the wire.
+
+%% tags:
+-define(stream, stream).
+-define(it, it).
+
+%% keys:
+-define(tag, 1).
+-define(generation, 2).
+-define(enc, 3).
+
 -type prototype() ::
     {emqx_ds_storage_reference, emqx_ds_storage_reference:options()}
     | {emqx_ds_storage_bitfield_lts, emqx_ds_storage_bitfield_lts:options()}.
@@ -44,23 +56,21 @@
 
 -type gen_id() :: 0..16#ffff.
 
-%% Note: this record might be stored permanently on a remote node.
--record(stream, {
-    generation :: gen_id(),
-    enc :: _EncapsulatedData,
-    misc = #{} :: map()
-}).
+%% Note: this might be stored permanently on a remote node.
+-opaque stream() ::
+    #{
+        ?tag := ?stream,
+        ?generation := gen_id(),
+        ?enc := term()
+    }.
 
--opaque stream() :: #stream{}.
-
-%% Note: this record might be stored permanently on a remote node.
--record(it, {
-    generation :: gen_id(),
-    enc :: _EncapsulatedData,
-    misc = #{} :: map()
-}).
-
--opaque iterator() :: #it{}.
+%% Note: this might be stored permanently on a remote node.
+-opaque iterator() ::
+    #{
+        ?tag := ?it,
+        ?generation := gen_id(),
+        ?enc := term()
+    }.
 
 %%%% Generation:
 
@@ -154,9 +164,10 @@ get_streams(Shard, TopicFilter, StartTime) ->
             #{module := Mod, data := GenData} = generation_get(Shard, GenId),
             Streams = Mod:get_streams(Shard, GenData, TopicFilter, StartTime),
             [
-                {GenId, #stream{
-                    generation = GenId,
-                    enc = Stream
+                {GenId, #{
+                    ?tag => ?stream,
+                    ?generation => GenId,
+                    ?enc => Stream
                 }}
              || Stream <- Streams
             ]
@@ -166,13 +177,16 @@ get_streams(Shard, TopicFilter, StartTime) ->
 
 -spec make_iterator(shard_id(), stream(), emqx_ds:topic_filter(), emqx_ds:time()) ->
     emqx_ds:make_iterator_result(iterator()).
-make_iterator(Shard, #stream{generation = GenId, enc = Stream}, TopicFilter, StartTime) ->
+make_iterator(
+    Shard, #{?tag := ?stream, ?generation := GenId, ?enc := Stream}, TopicFilter, StartTime
+) ->
     #{module := Mod, data := GenData} = generation_get(Shard, GenId),
     case Mod:make_iterator(Shard, GenData, Stream, TopicFilter, StartTime) of
         {ok, Iter} ->
-            {ok, #it{
-                generation = GenId,
-                enc = Iter
+            {ok, #{
+                ?tag => ?it,
+                ?generation => GenId,
+                ?enc => Iter
             }};
         {error, _} = Err ->
             Err
@@ -180,7 +194,7 @@ make_iterator(Shard, #stream{generation = GenId, enc = Stream}, TopicFilter, Sta
 
 -spec next(shard_id(), iterator(), pos_integer()) ->
     emqx_ds:next_result(iterator()).
-next(Shard, Iter = #it{generation = GenId, enc = GenIter0}, BatchSize) ->
+next(Shard, Iter = #{?tag := ?it, ?generation := GenId, ?enc := GenIter0}, BatchSize) ->
     #{module := Mod, data := GenData} = generation_get(Shard, GenId),
     Current = generation_current(Shard),
     case Mod:next(Shard, GenData, GenIter0, BatchSize) of
@@ -190,7 +204,7 @@ next(Shard, Iter = #it{generation = GenId, enc = GenIter0}, BatchSize) ->
             %% the stream has been fully replayed.
             {ok, end_of_stream};
         {ok, GenIter, Batch} ->
-            {ok, Iter#it{enc = GenIter}, Batch};
+            {ok, Iter#{?enc := GenIter}, Batch};
         Error = {error, _} ->
             Error
     end.
