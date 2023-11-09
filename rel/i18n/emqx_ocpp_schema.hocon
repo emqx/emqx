@@ -44,4 +44,10 @@ Default: ${application}/priv/schemas"""
 json_schema_id_prefix.desc:
 """The ID prefix for the OCPP message schemas."""
 
+ws.desc:
+"""Websocket listener."""
+
+wss.desc:
+"""Websocket over TLS listener."""
+
 }

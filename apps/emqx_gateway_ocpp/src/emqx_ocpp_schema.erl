@@ -63,8 +63,8 @@ fields(ocpp) ->
     ] ++ emqx_gateway_schema:gateway_common_options();
 fields(ws_listeners) ->
     [
-        {ws, sc(map(name, ref(ws_listener)), #{})},
-        {wss, sc(map(name, ref(wss_listener)), #{})}
+        {ws, sc(map(name, ref(ws_listener)), #{desc => ?DESC(ws)})},
+        {wss, sc(map(name, ref(wss_listener)), #{desc => ?DESC(wss)})}
     ];
 fields(ws_listener) ->
     emqx_gateway_schema:ws_listener() ++
@@ -182,11 +182,7 @@ desc(ws_listeners) ->
     "Websocket listeners";
 desc(ws_listener) ->
     "Websocket listener";
-desc(ws) ->
-    "Websocket listener";
 desc(wss_listener) ->
-    "Websocket over TLS listener";
-desc(wss) ->
     "Websocket over TLS listener";
 desc(websocket) ->
     "Websocket options";
