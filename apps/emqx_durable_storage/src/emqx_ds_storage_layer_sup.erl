@@ -25,7 +25,7 @@
 start_link() ->
     supervisor:start_link({local, ?SUP}, ?MODULE, []).
 
--spec start_shard(emqx_ds_replication_layer:shard_id(), emqx_ds:create_db_opts()) ->
+-spec start_shard(emqx_ds_storage_layer:shard_id(), emqx_ds:create_db_opts()) ->
     supervisor:startchild_ret().
 start_shard(Shard, Options) ->
     supervisor:start_child(?SUP, shard_child_spec(Shard, Options)).
@@ -33,9 +33,10 @@ start_shard(Shard, Options) ->
 -spec stop_shard(emqx_ds:shard()) -> ok | {error, _}.
 stop_shard(Shard) ->
     ok = supervisor:terminate_child(?SUP, Shard),
-    ok = supervisor:delete_child(?SUP, Shard).
+    Ok = supervisor:delete_child(?SUP, Shard).
 
--spec ensure_shard(emqx_ds:shard(), emqx_ds_storage_layer:options()) -> ok | {error, _Reason}.
+-spec ensure_shard(emqx_ds_storage_layer:shard_id(), emqx_ds_storage_layer:options()) ->
+    ok | {error, _Reason}.
 ensure_shard(Shard, Options) ->
     case start_shard(Shard, Options) of
         {ok, _Pid} ->
@@ -63,7 +64,7 @@ init([]) ->
 %% Internal functions
 %%================================================================================
 
--spec shard_child_spec(emqx_ds_replication_layer:shard_id(), emqx_ds:create_db_opts()) ->
+-spec shard_child_spec(emqx_ds_storage_layer:shard_id(), emqx_ds:create_db_opts()) ->
     supervisor:child_spec().
 shard_child_spec(Shard, Options) ->
     #{

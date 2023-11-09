@@ -161,7 +161,7 @@ fetch(_SessionId, Inflight, _Streams, 0, Acc) ->
 fetch(SessionId, Inflight0, [Stream | Streams], N, Publishes0) ->
     #inflight{next_seqno = FirstSeqNo, offset_ranges = Ranges0} = Inflight0,
     ItBegin = get_last_iterator(SessionId, Stream, Ranges0),
-    {ok, ItEnd, Messages} = emqx_ds:next(ItBegin, N),
+    {ok, ItEnd, Messages} = emqx_ds:next(?PERSISTENT_MESSAGE_DB, ItBegin, N),
     {NMessages, Publishes, Inflight1} =
         lists:foldl(
             fun(Msg, {N0, PubAcc0, InflightAcc0}) ->
