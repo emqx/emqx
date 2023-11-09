@@ -14,7 +14,7 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
--module(emqx_otel).
+-module(emqx_otel_metrics).
 -include_lib("emqx/include/logger.hrl").
 
 -export([start_otel/1, stop_otel/0]).
@@ -29,17 +29,19 @@ start_otel(Conf) ->
     assert_started(supervisor:start_child(?SUPERVISOR, Spec)).
 
 stop_otel() ->
+    Res =
+        case erlang:whereis(?SUPERVISOR) of
+            undefined ->
+                ok;
+            Pid ->
+                case supervisor:terminate_child(Pid, ?MODULE) of
+                    ok -> supervisor:delete_child(Pid, ?MODULE);
+                    {error, not_found} -> ok;
+                    Error -> Error
+                end
+        end,
     ok = cleanup(),
-    case erlang:whereis(?SUPERVISOR) of
-        undefined ->
-            ok;
-        Pid ->
-            case supervisor:terminate_child(Pid, ?MODULE) of
-                ok -> supervisor:delete_child(Pid, ?MODULE);
-                {error, not_found} -> ok;
-                Error -> Error
-            end
-    end.
+    Res.
 
 start_link(Conf) ->
     gen_server:start_link({local, ?MODULE}, ?MODULE, Conf, []).
@@ -71,32 +73,40 @@ setup(_Conf) ->
     ok.
 
 ensure_apps(Conf) ->
-    #{exporter := #{interval := ExporterInterval}} = Conf,
+    #{exporter := #{interval := ExporterInterval} = Exporter} = Conf,
     {ok, _} = application:ensure_all_started(opentelemetry_exporter),
     {ok, _} = application:ensure_all_started(opentelemetry),
-    _ = application:stop(opentelemetry_experimental),
+    {ok, _} = application:ensure_all_started(opentelemetry_experimental),
+    {ok, _} = application:ensure_all_started(opentelemetry_api_experimental),
+
+    _ = opentelemetry_experimental:stop_default_metrics(),
     ok = application:set_env(
         opentelemetry_experimental,
         readers,
         [
             #{
+                id => emqx_otel_metric_reader,
                 module => otel_metric_reader,
                 config => #{
-                    exporter => {opentelemetry_exporter, #{}},
+                    exporter => emqx_otel_config:otel_exporter(Exporter),
                     export_interval_ms => ExporterInterval
                 }
             }
         ]
     ),
-    {ok, _} = application:ensure_all_started(opentelemetry_experimental),
-    {ok, _} = application:ensure_all_started(opentelemetry_api_experimental),
+    {ok, _} = opentelemetry_experimental:start_default_metrics(),
     ok.
 
 cleanup() ->
-    _ = application:stop(opentelemetry),
-    _ = application:stop(opentelemetry_experimental),
-    _ = application:stop(opentelemetry_experimental_api),
-    _ = application:stop(opentelemetry_exporter),
+    safe_stop_default_metrics().
+
+safe_stop_default_metrics() ->
+    try
+        _ = opentelemetry_experimental:stop_default_metrics()
+    catch
+        %% noramal scenario, metrics supervisor is not started
+        exit:{noproc, _} -> ok
+    end,
     ok.
 
 create_metric_views() ->

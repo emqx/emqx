@@ -19,11 +19,17 @@
 -behaviour(application).
 
 -export([start/2, stop/1]).
+-export([stop_deps/0]).
 
 start(_StartType, _StartArgs) ->
     emqx_otel_config:add_handler(),
+    ok = emqx_otel_config:add_otel_log_handler(),
     emqx_otel_sup:start_link().
 
 stop(_State) ->
     emqx_otel_config:remove_handler(),
+    _ = emqx_otel_config:remove_otel_log_handler(),
     ok.
+
+stop_deps() ->
+    emqx_otel_config:stop_all_otel_apps().

@@ -69,9 +69,9 @@ stop_apps() ->
     ?SLOG(notice, #{msg => "stopping_emqx_apps"}),
     _ = emqx_alarm_handler:unload(),
     ok = emqx_conf_app:unset_config_loaded(),
+    lists:foreach(fun stop_one_app/1, lists:reverse(sorted_reboot_apps())),
     %% Mute otel deps application.
-    _ = emqx_otel:stop_otel(),
-    lists:foreach(fun stop_one_app/1, lists:reverse(sorted_reboot_apps())).
+    ok = emqx_otel_app:stop_deps().
 
 %% Those port apps are terminated after the main apps
 %% Don't need to stop when reboot.
