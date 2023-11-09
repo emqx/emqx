@@ -22,6 +22,8 @@
 
 -export([
     all/1,
+    matrix_to_groups/2,
+    group_path/1,
     init_per_testcase/3,
     end_per_testcase/3,
     boot_modules/1,
@@ -1375,3 +1377,83 @@ select_free_port(GenModule, Fun) when
     end,
     ct:pal("Select free OS port: ~p", [Port]),
     Port.
+
+%% Generate ct sub-groups from test-case's 'matrix' clause
+%% NOTE: the test cases must have a root group name which
+%% is unkonwn to this API.
+%%
+%% e.g.
+%% all() -> [{group, g1}].
+%%
+%% groups() ->
+%%   emqx_common_test_helpers:groups(?MODULE, [case1, case2]).
+%%
+%% case1(matrix) ->
+%%   {g1, [[tcp, no_auth],
+%%         [ssl, no_auth],
+%%         [ssl, basic_auth]
+%%        ]};
+%%
+%% case2(matrix) ->
+%%   {g1, ...}
+%% ...
+%%
+%% Return:
+%%
+%%  [{g1, [],
+%%     [ {tcp, [], [{no_auth,    [], [case1, case2]}
+%%                 ]},
+%%       {ssl, [], [{no_auth,    [], [case1, case2]},
+%%                  {basic_auth, [], [case1, case2]}
+%%                 ]}
+%%     ]
+%%   }
+%%  ]
+matrix_to_groups(Module, Cases) ->
+    lists:foldr(
+        fun(Case, Acc) ->
+            add_case_matrix(Module, Case, Acc)
+        end,
+        [],
+        Cases
+    ).
+
+add_case_matrix(Module, Case, Acc0) ->
+    {RootGroup, Matrix} = Module:Case(matrix),
+    lists:foldr(
+        fun(Row, Acc) ->
+            add_group([RootGroup | Row], Acc, Case)
+        end,
+        Acc0,
+        Matrix
+    ).
+
+add_group([], Acc, Case) ->
+    case lists:member(Case, Acc) of
+        true ->
+            Acc;
+        false ->
+            [Case | Acc]
+    end;
+add_group([Name | More], Acc, Cases) ->
+    case lists:keyfind(Name, 1, Acc) of
+        false ->
+            [{Name, [], add_group(More, [], Cases)} | Acc];
+        {Name, [], SubGroup} ->
+            New = {Name, [], add_group(More, SubGroup, Cases)},
+            lists:keystore(Name, 1, Acc, New)
+    end.
+
+group_path(Config) ->
+    try
+        Current = proplists:get_value(tc_group_properties, Config),
+        NameF = fun(Props) ->
+            {name, Name} = lists:keyfind(name, 1, Props),
+            Name
+        end,
+        Stack = proplists:get_value(tc_group_path, Config),
+        lists:reverse(lists:map(NameF, [Current | Stack]))
+    catch
+        _:_ ->
+            []
+    end.

@@ -324,6 +324,7 @@ connect_and_drop_table(Config) ->
 
 connect_and_clear_table(Config) ->
     Con = connect_direct_pgsql(Config),
+    _ = epgsql:squery(Con, ?SQL_CREATE_TABLE),
     {ok, _} = epgsql:squery(Con, ?SQL_DELETE),
     ok = epgsql:close(Con).
 
@@ -668,7 +669,7 @@ t_missing_table(Config) ->
             ok
         end,
         fun(Trace) ->
-            ?assertMatch([_, _, _], ?of_kind(pgsql_undefined_table, Trace)),
+            ?assertMatch([_], ?of_kind(pgsql_undefined_table, Trace)),
             ok
         end
     ),

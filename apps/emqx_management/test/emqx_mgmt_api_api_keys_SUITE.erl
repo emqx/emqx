@@ -19,6 +19,7 @@
 -compile(nowarn_export_all).
 
 -include_lib("eunit/include/eunit.hrl").
+-include_lib("common_test/include/ct.hrl").
 -include_lib("emqx_dashboard/include/emqx_dashboard_rbac.hrl").
 
 -if(?EMQX_RELEASE_EDITION == ee).
@@ -32,6 +33,18 @@
 -else.
 -define(EE_CASES, []).
 -endif.
+
+-define(APP, emqx_app).
+
+-record(?APP, {
+    name = <<>> :: binary() | '_',
+    api_key = <<>> :: binary() | '_',
+    api_secret_hash = <<>> :: binary() | '_',
+    enable = true :: boolean() | '_',
+    desc = <<>> :: binary() | '_',
+    expired_at = 0 :: integer() | undefined | infinity | '_',
+    created_at = 0 :: integer() | '_'
+}).
 
 all() -> [{group, parallel}, {group, sequence}].
 suite() -> [{timetrap, {minutes, 1}}].
@@ -84,6 +97,97 @@ t_bootstrap_file(_) ->
     ?assertEqual(ok, auth_authorize(TestPath, <<"test-1">>, <<"secret-11">>)),
     ?assertMatch({error, _}, auth_authorize(TestPath, <<"test-2">>, <<"secret-12">>)),
     update_file(<<>>),
+    ok.
+
+t_bootstrap_file_override(_) ->
+    TestPath = <<"/api/v5/status">>,
+    Bin =
+        <<"test-1:secret-1\ntest-1:duplicated-secret-1\ntest-2:secret-2\ntest-2:duplicated-secret-2">>,
+    File = "./bootstrap_api_keys.txt",
+    ok = file:write_file(File, Bin),
+    update_file(File),
+
+    ?assertEqual(ok, emqx_mgmt_auth:init_bootstrap_file()),
+
+    MatchFun = fun(ApiKey) -> mnesia:match_object(#?APP{api_key = ApiKey, _ = '_'}) end,
+    ?assertMatch(
+        {ok, [
+            #?APP{
+                name = <<"from_bootstrap_file_18926f94712af04e">>,
+                api_key = <<"test-1">>
+            }
+        ]},
+        emqx_mgmt_auth:trans(MatchFun, [<<"test-1">>])
+    ),
+    ?assertEqual(ok, emqx_mgmt_auth:authorize(TestPath, <<"test-1">>, <<"duplicated-secret-1">>)),
+
+    ?assertMatch(
+        {ok, [
+            #?APP{
+                name = <<"from_bootstrap_file_de1c28a2e610e734">>,
+                api_key = <<"test-2">>
+            }
+        ]},
+        emqx_mgmt_auth:trans(MatchFun, [<<"test-2">>])
+    ),
+    ?assertEqual(ok, emqx_mgmt_auth:authorize(TestPath, <<"test-2">>, <<"duplicated-secret-2">>)),
+    ok.
+
+t_bootstrap_file_dup_override(_) ->
+    TestPath = <<"/api/v5/status">>,
+    TestApiKey = <<"test-1">>,
+    Bin = <<"test-1:secret-1">>,
+    File = "./bootstrap_api_keys.txt",
+    ok = file:write_file(File, Bin),
+    update_file(File),
+    ?assertEqual(ok, emqx_mgmt_auth:init_bootstrap_file()),
+
+    SameAppWithDiffName = #?APP{
+        name = <<"name-1">>,
+        api_key = <<"test-1">>,
+        api_secret_hash = emqx_dashboard_admin:hash(<<"duplicated-secret-1">>),
+        enable = true,
+        desc = <<"dup api key">>,
+        created_at = erlang:system_time(second),
+        expired_at = infinity
+    },
+    WriteFun = fun(App) -> mnesia:write(App) end,
+    MatchFun = fun(ApiKey) -> mnesia:match_object(#?APP{api_key = ApiKey, _ = '_'}) end,
+
+    ?assertEqual({ok, ok}, emqx_mgmt_auth:trans(WriteFun, [SameAppWithDiffName])),
+    %% as erlang term order
+    ?assertMatch(
+        {ok, [
+            #?APP{
+                name = <<"name-1">>,
+                api_key = <<"test-1">>
+            },
+            #?APP{
+                name = <<"from_bootstrap_file_18926f94712af04e">>,
+                api_key = <<"test-1">>
+            }
+        ]},
+        emqx_mgmt_auth:trans(MatchFun, [TestApiKey])
+    ),
+
+    update_file(File),
+
+    %% Similar to loading bootstrap file at node startup
+    %% the duplicated apikey in mnesia will be cleaned up
+    ?assertEqual(ok, emqx_mgmt_auth:init_bootstrap_file()),
+    ?assertMatch(
+        {ok, [
+            #?APP{
+                name = <<"from_bootstrap_file_18926f94712af04e">>,
+                api_key = <<"test-1">>
+            }
+        ]},
+        emqx_mgmt_auth:trans(MatchFun, [<<"test-1">>])
+    ),
+
+    %% the last apikey in bootstrap file will override the all in mnesia and the previous one(s) in bootstrap file
+    ?assertEqual(ok, emqx_mgmt_auth:authorize(TestPath, <<"test-1">>, <<"secret-1">>)),
+
     ok.
 
 -if(?EMQX_RELEASE_EDITION == ee).

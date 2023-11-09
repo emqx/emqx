@@ -3,17 +3,17 @@ version: '3.9'
 services:
   erlang:
     container_name: erlang
-    image: ${DOCKER_CT_RUNNER_IMAGE:-ghcr.io/emqx/emqx-builder/5.1-4:1.14.5-25.3.2-2-ubuntu20.04}
+    image: ${DOCKER_CT_RUNNER_IMAGE:-ghcr.io/emqx/emqx-builder/5.2-3:1.14.5-25.3.2-2-ubuntu22.04}
     env_file:
       - conf.env
     environment:
-      GITHUB_ACTIONS: ${GITHUB_ACTIONS}
-      GITHUB_TOKEN: ${GITHUB_TOKEN}
-      GITHUB_RUN_ID: ${GITHUB_RUN_ID}
-      GITHUB_SHA: ${GITHUB_SHA}
-      GITHUB_RUN_NUMBER: ${GITHUB_RUN_NUMBER}
-      GITHUB_EVENT_NAME: ${GITHUB_EVENT_NAME}
-      GITHUB_REF: ${GITHUB_REF}
+      GITHUB_ACTIONS: ${GITHUB_ACTIONS:-}
+      GITHUB_TOKEN: ${GITHUB_TOKEN:-}
+      GITHUB_RUN_ID: ${GITHUB_RUN_ID:-}
+      GITHUB_SHA: ${GITHUB_SHA:-}
+      GITHUB_RUN_NUMBER: ${GITHUB_RUN_NUMBER:-}
+      GITHUB_EVENT_NAME: ${GITHUB_EVENT_NAME:-}
+      GITHUB_REF: ${GITHUB_REF:-}
     networks:
       - emqx_bridge
     ports:

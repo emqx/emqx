@@ -26,7 +26,14 @@
 -export([init/1]).
 
 ensure_child(ResId, Group, ResourceType, Config, Opts) ->
-    _ = supervisor:start_child(?MODULE, child_spec(ResId, Group, ResourceType, Config, Opts)),
+    case supervisor:start_child(?MODULE, child_spec(ResId, Group, ResourceType, Config, Opts)) of
+        {error, Reason} ->
+            %% This should not happen in production but it can be a huge time sink in
+            %% development environments if the error is just silently ignored.
+            error(Reason);
+        _ ->
+            ok
+    end,
     ok.
 
 delete_child(ResId) ->

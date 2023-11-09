@@ -7,9 +7,6 @@ concurrency:
 on:
   workflow_call:
     inputs:
-      runner_labels:
-        required: true
-        type: string
       builder:
         required: true
         type: string
@@ -28,7 +25,7 @@ env:
 
 jobs:
   eunit_and_proper:
-    runs-on: ${{ fromJSON(inputs.runner_labels) }}
+    runs-on: ${{ github.repository_owner == 'emqx' && fromJSON('["self-hosted","ephemeral","linux","x64"]') || 'ubuntu-22.04' }}
     name: "eunit_and_proper (${{ matrix.profile }})"
     strategy:
       fail-fast: false
@@ -52,6 +49,7 @@ jobs:
       - name: eunit
         env:
           PROFILE: ${{ matrix.profile }}
+          ENABLE_COVER_COMPILE: 1
           CT_COVER_EXPORT_PREFIX: ${{ matrix.profile }}-${{ matrix.otp }}
         run: make eunit
 
@@ -59,6 +57,7 @@ jobs:
       - name: proper
         env:
           PROFILE: ${{ matrix.profile }}
+          ENABLE_COVER_COMPILE: 1
           CT_COVER_EXPORT_PREFIX: ${{ matrix.profile }}-${{ matrix.otp }}
         run: make proper
 
@@ -66,10 +65,11 @@ jobs:
         with:
           name: coverdata
           path: _build/test/cover
+          retention-days: 7
 
   ct_docker:
-    runs-on: ${{ fromJSON(inputs.runner_labels) }}
-    name: "ct_docker (${{ matrix.app }}-${{ matrix.suitegroup }})"
+    runs-on: ${{ github.repository_owner == 'emqx' && fromJSON('["self-hosted","ephemeral","linux","x64"]') || 'ubuntu-22.04' }}
+    name: "${{ matrix.app }}-${{ matrix.suitegroup }} (${{ matrix.profile }})"
     strategy:
       fail-fast: false
       matrix:
@@ -102,12 +102,14 @@ jobs:
           MINIO_TAG: "RELEASE.2023-03-20T20-16-18Z"
           PROFILE: ${{ matrix.profile }}
           SUITEGROUP: ${{ matrix.suitegroup }}
+          ENABLE_COVER_COMPILE: 1
           CT_COVER_EXPORT_PREFIX: ${{ matrix.profile }}-${{ matrix.otp }}-sg${{ matrix.suitegroup }}
         run: ./scripts/ct/run.sh --ci --app ${{ matrix.app }}
       - uses: actions/upload-artifact@v3
         with:
           name: coverdata
           path: _build/test/cover
+          retention-days: 7
       - name: compress logs
         if: failure()
         run: tar -czf logs.tar.gz _build/test/logs
@@ -116,10 +118,11 @@ jobs:
         with:
           name: logs-${{ matrix.profile }}-${{ matrix.prefix }}-${{ matrix.otp }}-sg${{ matrix.suitegroup }}
           path: logs.tar.gz
+          retention-days: 7
 
   ct:
-    runs-on: ${{ fromJSON(inputs.runner_labels) }}
-    name: "ct (${{ matrix.app }}-${{ matrix.suitegroup }})"
+    runs-on: ${{ github.repository_owner == 'emqx' && fromJSON('["self-hosted","ephemeral","linux","x64"]') || 'ubuntu-22.04' }}
+    name: "${{ matrix.app }}-${{ matrix.suitegroup }} (${{ matrix.profile }})"
     strategy:
       fail-fast: false
       matrix:
@@ -144,6 +147,7 @@ jobs:
         env:
           PROFILE: ${{ matrix.profile }}
           SUITEGROUP: ${{ matrix.suitegroup }}
+          ENABLE_COVER_COMPILE: 1
           CT_COVER_EXPORT_PREFIX: ${{ matrix.profile }}-${{ matrix.otp }}-sg${{ matrix.suitegroup }}
         run: |
           make "${{ matrix.app }}-ct"
@@ -152,6 +156,7 @@ jobs:
           name: coverdata
           path: _build/test/cover
           if-no-files-found: warn # do not fail if no coverdata found
+          retention-days: 7
       - name: compress logs
         if: failure()
         run: tar -czf logs.tar.gz _build/test/logs
@@ -160,13 +165,14 @@ jobs:
         with:
           name: logs-${{ matrix.profile }}-${{ matrix.prefix }}-${{ matrix.otp }}-sg${{ matrix.suitegroup }}
           path: logs.tar.gz
+          retention-days: 7
 
   tests_passed:
     needs:
       - eunit_and_proper
       - ct
       - ct_docker
-    runs-on: ${{ fromJSON(inputs.runner_labels) }}
+    runs-on: ubuntu-22.04
     strategy:
       fail-fast: false
     steps:
@@ -177,7 +183,7 @@ jobs:
       - eunit_and_proper
       - ct
       - ct_docker
-    runs-on: ${{ fromJSON(inputs.runner_labels) }}
+    runs-on: ${{ endsWith(github.repository, '/emqx') && 'ubuntu-22.04' || fromJSON('["self-hosted","ephemeral","linux","x64"]') }}
     container: ${{ inputs.builder }}
     strategy:
       fail-fast: false
@@ -217,7 +223,7 @@ jobs:
   # do this in a separate job
   upload_coverdata:
     needs: make_cover
-    runs-on: ${{ fromJSON(inputs.runner_labels) }}
+    runs-on: ubuntu-22.04
     steps:
       - name: Coveralls Finished
         env:

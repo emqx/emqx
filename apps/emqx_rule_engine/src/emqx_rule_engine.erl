@@ -460,12 +460,11 @@ code_change(_OldVsn, State, _Extra) ->
 with_parsed_rule(Params = #{id := RuleId, sql := Sql, actions := Actions}, CreatedAt, Fun) ->
     case emqx_rule_sqlparser:parse(Sql) of
         {ok, Select} ->
-            Rule = #{
+            Rule0 = #{
                 id => RuleId,
                 name => maps:get(name, Params, <<"">>),
                 created_at => CreatedAt,
                 updated_at => now_ms(),
-                enable => maps:get(enable, Params, true),
                 sql => Sql,
                 actions => parse_actions(Actions),
                 description => maps:get(description, Params, ""),
@@ -478,6 +477,19 @@ with_parsed_rule(Params = #{id := RuleId, sql := Sql, actions := Actions}, Creat
                 conditions => emqx_rule_sqlparser:select_where(Select)
                 %% -- calculated fields end
             },
+            InputEnable = maps:get(enable, Params, true),
+            case validate_bridge_existence_in_actions(Rule0) of
+                ok ->
+                    ok;
+                {error, NonExistentBridgeIDs} ->
+                    ?SLOG(error, #{
+                        msg => "action_references_nonexistent_bridges",
+                        rule_id => RuleId,
+                        nonexistent_bridge_ids => NonExistentBridgeIDs,
+                        hint => "this rule will be disabled"
+                    })
+            end,
+            Rule = Rule0#{enable => InputEnable},
             ok = Fun(Rule),
             {ok, Rule};
         {error, Reason} ->
@@ -515,11 +527,8 @@ do_delete_rule_index(#{id := Id, from := From}) ->
 parse_actions(Actions) ->
     [do_parse_action(Act) || Act <- Actions].
 
-do_parse_action(Action) when is_map(Action) ->
-    emqx_rule_actions:parse_action(Action);
-do_parse_action(BridgeId) when is_binary(BridgeId) ->
-    {Type, Name} = emqx_bridge_resource:parse_bridge_id(BridgeId),
-    {bridge, Type, Name, emqx_bridge_resource:resource_id(Type, Name)}.
+do_parse_action(Action) ->
+    emqx_rule_actions:parse_action(Action).
 
 get_all_records(Tab) ->
     [Rule#{id => Id} || {Id, Rule} <- ets:tab2list(Tab)].
@@ -596,3 +605,42 @@ extra_functions_module() ->
 set_extra_functions_module(Mod) ->
     persistent_term:put({?MODULE, extra_functions}, Mod),
     ok.
+
+%% Checks whether the referenced bridges in actions all exist.  If there are non-existent
+%% ones, the rule shouldn't be allowed to be enabled.
+%% The actions here are already parsed.
+validate_bridge_existence_in_actions(#{actions := Actions, from := Froms} = _Rule) ->
+    BridgeIDs0 =
+        lists:map(
+            fun(BridgeID) ->
+                emqx_bridge_resource:parse_bridge_id(BridgeID, #{atom_name => false})
+            end,
+            get_referenced_hookpoints(Froms)
+        ),
+    BridgeIDs1 =
+        lists:filtermap(
+            fun
+                ({bridge_v2, Type, Name}) -> {true, {Type, Name}};
+                ({bridge, Type, Name, _ResId}) -> {true, {Type, Name}};
+                (_) -> false
+            end,
+            Actions
+        ),
+    NonExistentBridgeIDs =
+        lists:filter(
+            fun({Type, Name}) ->
+                try
+                    case emqx_bridge:lookup(Type, Name) of
+                        {ok, _} -> false;
+                        {error, _} -> true
+                    end
+                catch
+                    _:_ -> true
+                end
+            end,
+            BridgeIDs0 ++ BridgeIDs1
+        ),
+    case NonExistentBridgeIDs of
+        [] -> ok;
+        _ -> {error, #{nonexistent_bridge_ids => NonExistentBridgeIDs}}
+    end.

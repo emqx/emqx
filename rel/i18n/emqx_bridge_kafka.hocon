@@ -309,10 +309,10 @@ kafka_consumer.label:
 """Kafka Consumer"""
 
 desc_config.desc:
-"""Configuration for a Kafka bridge."""
+"""Configuration for a Kafka Producer Client."""
 
 desc_config.label:
-"""Kafka Bridge Configuration"""
+"""Kafka Producer Client Configuration"""
 
 consumer_value_encoding_mode.desc:
 """Defines how the value from the Kafka message is encoded before being forwarded via MQTT.
@@ -421,5 +421,27 @@ sync_query_timeout.desc:
 
 sync_query_timeout.label:
 """Synchronous Query Timeout"""
+
+
+kafka_producer_action.desc:
+"""Kafka Producer Action"""
+
+kafka_producer_action.label:
+"""Kafka Producer Action"""
+
+ssl_client_opts.desc:
+"""TLS/SSL options for Kafka client."""
+ssl_client_opts.label:
+"""TLS/SSL options"""
+
+server_name_indication.desc:
+"""Server Name Indication (SNI) setting for TLS handshake.<br/>
+- <code>auto</code>: Allow the client to automatically determine the appropriate SNI.<br/>
+- <code>disable</code>: If you wish to prevent the client from sending the SNI.<br/>
+- Other string values will be sent as-is."""
+
+server_name_indication.label:
+"""SNI"""
+
 
 }

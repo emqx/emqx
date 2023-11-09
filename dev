@@ -227,8 +227,6 @@ prepare_erl_libs() {
         for app in "_build/${profile}/checkouts"/*; do
             erl_libs="${erl_libs}${sep}${app}"
         done
-    else
-        echo "no checkouts"
     fi
     export ERL_LIBS="$erl_libs"
 }

@@ -1040,7 +1040,7 @@ t_resource_manager_crash_after_producers_started(Config) ->
                         Producers =/= undefined,
                     10_000
                 ),
-            ?assertMatch({ok, _}, delete_bridge(Config)),
+            ?assertMatch(ok, delete_bridge(Config)),
             ?assertEqual([], get_pulsar_producers()),
             ok
         end,
@@ -1073,7 +1073,7 @@ t_resource_manager_crash_before_producers_started(Config) ->
                     #{?snk_kind := pulsar_bridge_stopped, pulsar_producers := undefined},
                     10_000
                 ),
-            ?assertMatch({ok, _}, delete_bridge(Config)),
+            ?assertMatch(ok, delete_bridge(Config)),
             ?assertEqual([], get_pulsar_producers()),
             ok
         end,

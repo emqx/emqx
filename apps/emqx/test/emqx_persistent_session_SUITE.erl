@@ -24,6 +24,8 @@
 -compile(export_all).
 -compile(nowarn_export_all).
 
+-define(PERSISTENT_MESSAGE_DB, emqx_persistent_message).
+
 %%--------------------------------------------------------------------
 %% SUITE boilerplate
 %%--------------------------------------------------------------------
@@ -131,6 +133,7 @@ get_listener_port(Type, Name) ->
 end_per_group(Group, Config) when Group == tcp; Group == ws; Group == quic ->
     ok = emqx_cth_suite:stop(?config(group_apps, Config));
 end_per_group(_, _Config) ->
+    ok = emqx_ds:drop_db(?PERSISTENT_MESSAGE_DB),
     ok.
 
 init_per_testcase(TestCase, Config) ->
@@ -188,7 +191,7 @@ receive_messages(Count, Msgs) ->
             receive_messages(Count - 1, [Msg | Msgs]);
         _Other ->
             receive_messages(Count, Msgs)
-    after 5000 ->
+    after 15000 ->
         Msgs
     end.
 
@@ -227,11 +230,11 @@ wait_for_cm_unregister(ClientId, N) ->
     end.
 
 publish(Topic, Payloads) ->
-    publish(Topic, Payloads, false).
+    publish(Topic, Payloads, false, 2).
 
-publish(Topic, Payloads, WaitForUnregister) ->
+publish(Topic, Payloads, WaitForUnregister, QoS) ->
     Fun = fun(Client, Payload) ->
-        {ok, _} = emqtt:publish(Client, Topic, Payload, 2)
+        {ok, _} = emqtt:publish(Client, Topic, Payload, QoS)
     end,
     do_publish(Payloads, Fun, WaitForUnregister).
 
@@ -509,6 +512,48 @@ t_process_dies_session_expires(Config) ->
     ?assertEqual([], receive_messages(1)),
 
     emqtt:disconnect(Client2).
+
+t_publish_while_client_is_gone_qos1(Config) ->
+    %% A persistent session should receive messages in its
+    %% subscription even if the process owning the session dies.
+    ConnFun = ?config(conn_fun, Config),
+    Topic = ?config(topic, Config),
+    STopic = ?config(stopic, Config),
+    Payload1 = <<"hello1">>,
+    Payload2 = <<"hello2">>,
+    ClientId = ?config(client_id, Config),
+    {ok, Client1} = emqtt:start_link([
+        {proto_ver, v5},
+        {clientid, ClientId},
+        {properties, #{'Session-Expiry-Interval' => 30}},
+        {clean_start, true}
+        | Config
+    ]),
+    {ok, _} = emqtt:ConnFun(Client1),
+    {ok, _, [1]} = emqtt:subscribe(Client1, STopic, qos1),
+
+    ok = emqtt:disconnect(Client1),
+    maybe_kill_connection_process(ClientId, Config),
+
+    ok = publish(Topic, [Payload1, Payload2], false, 1),
+
+    {ok, Client2} = emqtt:start_link([
+        {proto_ver, v5},
+        {clientid, ClientId},
+        {properties, #{'Session-Expiry-Interval' => 30}},
+        {clean_start, false}
+        | Config
+    ]),
+    {ok, _} = emqtt:ConnFun(Client2),
+    Msgs = receive_messages(2),
+    ?assertMatch([_, _], Msgs),
+    [Msg2, Msg1] = Msgs,
+    ?assertEqual({ok, iolist_to_binary(Payload1)}, maps:find(payload, Msg1)),
+    ?assertEqual({ok, 1}, maps:find(qos, Msg1)),
+    ?assertEqual({ok, iolist_to_binary(Payload2)}, maps:find(payload, Msg2)),
+    ?assertEqual({ok, 1}, maps:find(qos, Msg2)),
+
+    ok = emqtt:disconnect(Client2).
 
 t_publish_while_client_is_gone(init, Config) -> skip_ds_tc(Config);
 t_publish_while_client_is_gone('end', _Config) -> ok.

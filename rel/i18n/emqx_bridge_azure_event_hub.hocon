@@ -183,6 +183,23 @@ authentication.desc:
 authentication.label:
 """Authentication"""
 
+connector_type.label:
+"""Connector Type"""
+
+connector_type.desc:
+"""The type of the connector."""
+
+bridge_v2_type.label:
+"""Bridge Type"""
+
+bridge_v2_type.desc:
+"""The type of the bridge."""
+
+actions.label:
+"""Action Config"""
+actions.desc:
+"""The configuration for an action."""
+
 buffer_memory_overload_protection.desc:
 """Applicable when buffer mode is set to <code>memory</code>
 EMQX will drop old buffered messages under high memory pressure. The high memory threshold is defined in config <code>sysmon.os.sysmem_high_watermark</code>. NOTE: This config only works on Linux."""
@@ -307,5 +324,19 @@ desc_config.desc:
 
 desc_config.label:
 """Azure Event Hub Bridge Configuration"""
+
+ssl_client_opts.desc:
+"""TLS/SSL options for Azure Event Hub client."""
+ssl_client_opts.label:
+"""TLS/SSL options"""
+
+server_name_indication.desc:
+"""Server Name Indication (SNI) setting for TLS handshake.<br/>
+- <code>auto</code>: The client will use <code>"servicebus.windows.net"</code> as SNI.<br/>
+- <code>disable</code>: If you wish to prevent the client from sending the SNI.<br/>
+- Other string values it will be sent as-is."""
+
+server_name_indication.label:
+"""SNI"""
 
 }

@@ -92,7 +92,7 @@ fields(pbkdf2) ->
             )},
         {iterations,
             sc(
-                integer(),
+                pos_integer(),
                 #{required => true, desc => "Iteration count for PBKDF2 hashing algorithm."}
             )},
         {dk_length, fun dk_length/1}

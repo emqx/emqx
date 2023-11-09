@@ -14,7 +14,11 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
-%% This module is for dashboard to retrieve the schema hot config and bridges.
+%% This module is for dashboard to retrieve the schema of
+%% 1. hot-config
+%% 2. bridge
+%% 3. bridge_v2
+%% 4. connector
 -module(emqx_dashboard_schema_api).
 
 -behaviour(minirest_api).
@@ -41,11 +45,12 @@ paths() ->
 
 %% This is a rather hidden API, so we don't need to add translations for the description.
 schema("/schemas/:name") ->
+    Schemas = [hotconf, bridges, actions, connectors],
     #{
         'operationId' => get_schema,
         get => #{
             parameters => [
-                {name, hoconsc:mk(hoconsc:enum([hotconf, bridges]), #{in => path})}
+                {name, hoconsc:mk(hoconsc:enum(Schemas), #{in => path})}
             ],
             desc => <<
                 "Get the schema JSON of the specified name. "
@@ -73,4 +78,24 @@ get_schema(get, _) ->
 gen_schema(hotconf) ->
     emqx_conf:hotconf_schema_json();
 gen_schema(bridges) ->
-    emqx_conf:bridge_schema_json().
+    emqx_conf:bridge_schema_json();
+gen_schema(actions) ->
+    actions_schema_json();
+gen_schema(connectors) ->
+    connectors_schema_json().
+
+actions_schema_json() ->
+    SchemaInfo = #{title => <<"EMQX Data Actions API Schema">>, version => <<"0.1.0">>},
+    %% Note: this will be moved to `emqx_actions' application in the future.
+    gen_api_schema_json_iodata(emqx_bridge_v2_api, SchemaInfo).
+
+connectors_schema_json() ->
+    SchemaInfo = #{title => <<"EMQX Connectors Schema">>, version => <<"0.1.0">>},
+    gen_api_schema_json_iodata(emqx_connector_api, SchemaInfo).
+
+gen_api_schema_json_iodata(SchemaMod, SchemaInfo) ->
+    emqx_dashboard_swagger:gen_api_schema_json_iodata(
+        SchemaMod,
+        SchemaInfo,
+        fun emqx_conf:hocon_schema_to_spec/2
+    ).

@@ -7,9 +7,6 @@ concurrency:
 on:
   workflow_call:
     inputs:
-      runner_labels:
-        required: true
-        type: string
       version-emqx:
         required: true
         type: string
@@ -22,7 +19,7 @@ permissions:
 
 jobs:
   helm_test:
-    runs-on: ${{ fromJSON(inputs.runner_labels) }}
+    runs-on: ${{ github.repository_owner == 'emqx' && fromJSON('["self-hosted","ephemeral","linux","x64"]') || 'ubuntu-22.04' }}
     defaults:
       run:
         shell: bash
@@ -40,7 +37,10 @@ jobs:
         profile:
         - emqx
         - emqx-enterprise
-
+        rpc:
+        - tcp
+        - ssl1.3
+        - ssl1.2
     steps:
     - uses: actions/checkout@v3
       with:
@@ -56,6 +56,40 @@ jobs:
           echo "${stderr}";
           exit 1;
         fi
+    - name: Prepare emqxConfig.EMQX_RPC using TCP
+      working-directory: source
+      if: matrix.rpc == 'tcp'
+      run: |
+        cat > rpc-overrides.yaml <<EOL
+        emqxConfig:
+          EMQX_RPC__PROTOCOL: tcp
+        EOL
+    - name: Prepare emqxConfig.EMQX_RPC using ssl1.3
+      working-directory: source
+      if: matrix.rpc == 'ssl1.3'
+      run: |
+        cat > rpc-overrides.yaml <<EOL
+        emqxConfig:
+          EMQX_RPC__PROTOCOL: ssl
+          EMQX_RPC__CERTFILE: /opt/emqx/etc/certs/cert.pem
+          EMQX_RPC__KEYFILE: /opt/emqx/etc/certs/key.pem
+          EMQX_RPC__CACERTFILE: /opt/emqx/etc/certs/cacert.pem
+          EMQX_RPC__CIPHERS: TLS_AES_256_GCM_SHA384,TLS_AES_128_GCM_SHA256
+          EMQX_RPC__TLS_VERSIONS: "[tlsv1.3]"
+        EOL
+    - name: Prepare emqxConfig.EMQX_RPC using ssl1.2
+      working-directory: source
+      if: matrix.rpc == 'ssl1.2'
+      run: |
+        cat > rpc-overrides.yaml <<EOL
+        emqxConfig:
+          EMQX_RPC__PROTOCOL: ssl
+          EMQX_RPC__CERTFILE: /opt/emqx/etc/certs/cert.pem
+          EMQX_RPC__KEYFILE: /opt/emqx/etc/certs/key.pem
+          EMQX_RPC__CACERTFILE: /opt/emqx/etc/certs/cacert.pem
+          EMQX_RPC__CIPHERS: TLS_AES_256_GCM_SHA384,TLS_AES_128_GCM_SHA256
+          EMQX_RPC__TLS_VERSIONS: "[tlsv1.2]"
+        EOL
     - name: run emqx on chart (k8s)
       if: matrix.discovery == 'k8s'
       working-directory: source
@@ -72,7 +106,9 @@ jobs:
             --set emqxConfig.EMQX_MQTT__RETRY_INTERVAL=2s \
             --set emqxConfig.EMQX_MQTT__MAX_TOPIC_ALIAS=10 \
             --set emqxConfig.EMQX_AUTHORIZATION__SOURCES=[] \
+            --set emqxConfig.EMQX_LOG__CONSOLE__LEVEL=debug \
             --set emqxConfig.EMQX_AUTHORIZATION__NO_MATCH=allow \
+            --values rpc-overrides.yaml \
             deploy/charts/${EMQX_NAME} \
             --debug
     - name: run emqx on chart (dns)
@@ -90,8 +126,11 @@ jobs:
             --set emqxConfig.EMQX_MQTT__RETRY_INTERVAL=2s \
             --set emqxConfig.EMQX_MQTT__MAX_TOPIC_ALIAS=10 \
             --set emqxConfig.EMQX_AUTHORIZATION__SOURCES=[] \
+            --set emqxConfig.EMQX_LOG__CONSOLE__LEVEL=debug \
             --set emqxConfig.EMQX_AUTHORIZATION__NO_MATCH=allow \
+            --values rpc-overrides.yaml \
             deploy/charts/${EMQX_NAME} \
+            --wait \
             --debug
     - name: waiting emqx started
       timeout-minutes: 5
@@ -104,12 +143,13 @@ jobs:
           echo "waiting emqx started";
           sleep 10;
         done
-    - name: Get Token
+    - name: Setup 18083 port forwarding
       run: |
-        kubectl port-forward service/${EMQX_NAME} 18083:18083 > /dev/null &
+        nohup kubectl port-forward service/${EMQX_NAME} 18083:18083 > /dev/null &
+    - name: Get auth token
+      run: |
         curl --head -X GET --retry 10 --retry-connrefused --retry-delay 6 http://localhost:18083/status
         echo "TOKEN=$(curl --silent -X 'POST' 'http://127.0.0.1:18083/api/v5/login' -H 'accept: application/json' -H 'Content-Type: application/json' -d '{"username": "admin","password": "public"}' | jq -r ".token")" >> $GITHUB_ENV
-
     - name: Check cluster
       timeout-minutes: 1
       run: |
@@ -117,8 +157,13 @@ jobs:
           nodes_length="$(curl --silent -H "Authorization: Bearer $TOKEN" -X GET http://127.0.0.1:18083/api/v5/cluster| jq '.nodes|length')"
           [ $nodes_length != "3" ]
         do
-          echo "waiting ${EMQX_NAME} cluster scale. Current live nodes: $nodes_length."
-          sleep 1
+          if [ $nodes_length -eq 0 ]; then
+            echo "node len must >= 1, refresh Token... "
+            TOKEN=$(curl --silent -X 'POST' 'http://127.0.0.1:18083/api/v5/login' -H 'accept: application/json' -H 'Content-Type: application/json' -d '{"username": "admin","password": "public"}' | jq -r ".token")
+          else
+            echo "waiting ${EMQX_NAME} cluster scale. Current live nodes: $nodes_length."
+          fi
+          sleep 1;
         done
     - uses: actions/checkout@v3
       with:

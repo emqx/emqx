@@ -19,7 +19,7 @@
 
 -include("logger.hrl").
 -include("emqx_schema.hrl").
--include_lib("hocon/include/hoconsc.hrl").
+-include_lib("hocon/include/hocon_types.hrl").
 
 -behaviour(gen_server).
 
@@ -703,7 +703,7 @@ atom(Bin) when is_binary(Bin), size(Bin) > 255 ->
     erlang:throw(
         iolist_to_binary(
             io_lib:format(
-                "Name is is too long."
+                "Name is too long."
                 " Please provide a shorter name (<= 255 bytes)."
                 " The name that is too long: \"~s\"",
                 [Bin]
@@ -736,7 +736,7 @@ remove_empty_leaf(KeyPath, Handlers) ->
     end.
 
 assert_callback_function(Mod) ->
-    _ = Mod:module_info(),
+    _ = apply(Mod, module_info, []),
     case
         erlang:function_exported(Mod, pre_config_update, 3) orelse
             erlang:function_exported(Mod, post_config_update, 5)

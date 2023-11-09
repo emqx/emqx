@@ -80,7 +80,17 @@ bridge_impl_module(_BridgeType) -> undefined.
 -endif.
 
 resource_id(BridgeId) when is_binary(BridgeId) ->
-    <<"bridge:", BridgeId/binary>>.
+    case binary:split(BridgeId, <<":">>) of
+        [Type, _Name] ->
+            case emqx_bridge_v2:is_bridge_v2_type(Type) of
+                true ->
+                    emqx_bridge_v2:bridge_v1_id_to_connector_resource_id(BridgeId);
+                false ->
+                    <<"bridge:", BridgeId/binary>>
+            end;
+        _ ->
+            invalid_data(<<"should be of pattern {type}:{name}, but got ", BridgeId/binary>>)
+    end.
 
 resource_id(BridgeType, BridgeName) ->
     BridgeId = bridge_id(BridgeType, BridgeName),
@@ -92,19 +102,15 @@ bridge_id(BridgeType, BridgeName) ->
     <<Type/binary, ":", Name/binary>>.
 
 parse_bridge_id(BridgeId) ->
-    parse_bridge_id(BridgeId, #{atom_name => true}).
+    parse_bridge_id(bin(BridgeId), #{atom_name => true}).
 
--spec parse_bridge_id(list() | binary() | atom(), #{atom_name => boolean()}) ->
+-spec parse_bridge_id(binary() | atom(), #{atom_name => boolean()}) ->
     {atom(), atom() | binary()}.
+parse_bridge_id(<<"bridge:", ID/binary>>, Opts) ->
+    parse_bridge_id(ID, Opts);
 parse_bridge_id(BridgeId, Opts) ->
-    case string:split(bin(BridgeId), ":", all) of
-        [Type, Name] ->
-            {to_type_atom(Type), validate_name(Name, Opts)};
-        _ ->
-            invalid_data(
-                <<"should be of pattern {type}:{name}, but got ", BridgeId/binary>>
-            )
-    end.
+    {Type, Name} = emqx_resource:parse_resource_id(BridgeId, Opts),
+    {emqx_bridge_lib:upgrade_type(Type), Name}.
 
 bridge_hookpoint(BridgeId) ->
     <<"$bridges/", (bin(BridgeId))/binary>>.
@@ -114,56 +120,48 @@ bridge_hookpoint_to_bridge_id(?BRIDGE_HOOKPOINT(BridgeId)) ->
 bridge_hookpoint_to_bridge_id(_) ->
     {error, bad_bridge_hookpoint}.
 
-validate_name(Name0, Opts) ->
-    Name = unicode:characters_to_list(Name0, utf8),
-    case is_list(Name) andalso Name =/= [] of
-        true ->
-            case lists:all(fun is_id_char/1, Name) of
-                true ->
-                    case maps:get(atom_name, Opts, true) of
-                        % NOTE
-                        % Rule may be created before bridge, thus not `list_to_existing_atom/1`,
-                        % also it is infrequent user input anyway.
-                        true -> list_to_atom(Name);
-                        false -> Name0
-                    end;
-                false ->
-                    invalid_data(<<"bad name: ", Name0/binary>>)
-            end;
-        false ->
-            invalid_data(<<"only 0-9a-zA-Z_-. is allowed in name: ", Name0/binary>>)
-    end.
-
 -spec invalid_data(binary()) -> no_return().
 invalid_data(Reason) -> throw(#{kind => validation_error, reason => Reason}).
 
-is_id_char(C) when C >= $0 andalso C =< $9 -> true;
-is_id_char(C) when C >= $a andalso C =< $z -> true;
-is_id_char(C) when C >= $A andalso C =< $Z -> true;
-is_id_char($_) -> true;
-is_id_char($-) -> true;
-is_id_char($.) -> true;
-is_id_char(_) -> false.
-
-to_type_atom(Type) ->
-    try
-        erlang:binary_to_existing_atom(Type, utf8)
-    catch
-        _:_ ->
-            invalid_data(<<"unknown bridge type: ", Type/binary>>)
+reset_metrics(ResourceId) ->
+    %% TODO we should not create atoms here
+    {Type, Name} = parse_bridge_id(ResourceId),
+    case emqx_bridge_v2:is_bridge_v2_type(Type) of
+        false ->
+            emqx_resource:reset_metrics(ResourceId);
+        true ->
+            case emqx_bridge_v2:is_valid_bridge_v1(Type, Name) of
+                true ->
+                    BridgeV2Type = emqx_bridge_v2:bridge_v2_type_to_connector_type(Type),
+                    emqx_bridge_v2:reset_metrics(BridgeV2Type, Name);
+                false ->
+                    {error, not_bridge_v1_compatible}
+            end
     end.
 
-reset_metrics(ResourceId) ->
-    emqx_resource:reset_metrics(ResourceId).
-
 restart(Type, Name) ->
-    emqx_resource:restart(resource_id(Type, Name)).
+    case emqx_bridge_v2:is_bridge_v2_type(Type) of
+        false ->
+            emqx_resource:restart(resource_id(Type, Name));
+        true ->
+            emqx_bridge_v2:bridge_v1_restart(Type, Name)
+    end.
 
 stop(Type, Name) ->
-    emqx_resource:stop(resource_id(Type, Name)).
+    case emqx_bridge_v2:is_bridge_v2_type(Type) of
+        false ->
+            emqx_resource:stop(resource_id(Type, Name));
+        true ->
+            emqx_bridge_v2:bridge_v1_stop(Type, Name)
+    end.
 
 start(Type, Name) ->
-    emqx_resource:start(resource_id(Type, Name)).
+    case emqx_bridge_v2:is_bridge_v2_type(Type) of
+        false ->
+            emqx_resource:start(resource_id(Type, Name));
+        true ->
+            emqx_bridge_v2:bridge_v1_start(Type, Name)
+    end.
 
 create(BridgeId, Conf) ->
     {BridgeType, BridgeName} = parse_bridge_id(BridgeId),
@@ -257,7 +255,16 @@ recreate(Type, Name, Conf0, Opts) ->
         parse_opts(Conf, Opts)
     ).
 
-create_dry_run(Type, Conf0) ->
+create_dry_run(Type0, Conf0) ->
+    Type = emqx_bridge_lib:upgrade_type(Type0),
+    case emqx_bridge_v2:is_bridge_v2_type(Type) of
+        false ->
+            create_dry_run_bridge_v1(Type, Conf0);
+        true ->
+            emqx_bridge_v2:bridge_v1_create_dry_run(Type, Conf0)
+    end.
+
+create_dry_run_bridge_v1(Type, Conf0) ->
     TmpName = iolist_to_binary([?TEST_ID_PREFIX, emqx_utils:gen_id(8)]),
     TmpPath = emqx_utils:safe_filename(TmpName),
     %% Already typechecked, no need to catch errors
@@ -297,6 +304,7 @@ remove(Type, Name) ->
 
 %% just for perform_bridge_changes/1
 remove(Type, Name, _Conf, _Opts) ->
+    %% TODO we need to handle bridge_v2 here
     ?SLOG(info, #{msg => "remove_bridge", type => Type, name => Name}),
     emqx_resource:remove_local(resource_id(Type, Name)).
 

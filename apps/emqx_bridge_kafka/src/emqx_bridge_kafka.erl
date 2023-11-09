@@ -3,7 +3,6 @@
 %%--------------------------------------------------------------------
 -module(emqx_bridge_kafka).
 
--include_lib("emqx_connector/include/emqx_connector.hrl").
 -include_lib("typerefl/include/types.hrl").
 -include_lib("hocon/include/hoconsc.hrl").
 
@@ -18,7 +17,9 @@
 -import(hoconsc, [mk/2, enum/1, ref/2]).
 
 -export([
-    conn_bridge_examples/1
+    bridge_v2_examples/1,
+    conn_bridge_examples/1,
+    connector_examples/1
 ]).
 
 -export([
@@ -26,21 +27,43 @@
     roots/0,
     fields/1,
     desc/1,
-    host_opts/0
+    host_opts/0,
+    ssl_client_opts_fields/0,
+    producer_opts/0
 ]).
 
--export([kafka_producer_converter/2, producer_strategy_key_validator/1]).
+-export([
+    kafka_producer_converter/2,
+    producer_strategy_key_validator/1
+]).
 
 %% -------------------------------------------------------------------------------------------------
 %% api
 
+connector_examples(Method) ->
+    [
+        #{
+            <<"kafka_producer">> => #{
+                summary => <<"Kafka Producer Connector">>,
+                value => values({Method, connector})
+            }
+        }
+    ].
+
+bridge_v2_examples(Method) ->
+    [
+        #{
+            <<"kafka_producer">> => #{
+                summary => <<"Kafka Producer Action">>,
+                value => values({Method, bridge_v2_producer})
+            }
+        }
+    ].
+
 conn_bridge_examples(Method) ->
     [
         #{
-            %% TODO: rename this to `kafka_producer' after alias
-            %% support is added to hocon; keeping this as just `kafka'
-            %% for backwards compatibility.
-            <<"kafka">> => #{
+            <<"kafka_producer">> => #{
                 summary => <<"Kafka Producer Bridge">>,
                 value => values({Method, producer})
             }
@@ -54,11 +77,51 @@ conn_bridge_examples(Method) ->
     ].
 
 values({get, KafkaType}) ->
-    values({post, KafkaType});
+    maps:merge(
+        #{
+            status => <<"connected">>,
+            node_status => [
+                #{
+                    node => <<"emqx@localhost">>,
+                    status => <<"connected">>
+                }
+            ]
+        },
+        values({post, KafkaType})
+    );
+values({post, connector}) ->
+    maps:merge(
+        #{
+            name => <<"my_kafka_producer_connector">>,
+            type => <<"kafka_producer">>
+        },
+        values(common_config)
+    );
 values({post, KafkaType}) ->
-    maps:merge(values(common_config), values(KafkaType));
+    maps:merge(
+        #{
+            name => <<"my_kafka_producer_bridge">>,
+            type => <<"kafka_producer">>
+        },
+        values({put, KafkaType})
+    );
+values({put, bridge_v2_producer}) ->
+    values(bridge_v2_producer);
+values({put, connector}) ->
+    values(common_config);
 values({put, KafkaType}) ->
-    values({post, KafkaType});
+    maps:merge(values(common_config), values(KafkaType));
+values(bridge_v2_producer) ->
+    maps:merge(
+        #{
+            enable => true,
+            connector => <<"my_kafka_producer_connector">>,
+            resource_opts => #{
+                health_check_interval => "32s"
+            }
+        },
+        values(producer)
+    );
 values(common_config) ->
     #{
         authentication => #{
@@ -142,65 +205,76 @@ values(consumer) ->
 %% -------------------------------------------------------------------------------------------------
 %% Hocon Schema Definitions
 
+%% In addition to the common ssl client options defined in emqx_schema module
+%% Kafka supports a special value 'auto' in order to support different bootstrap endpoints
+%% as well as partition leaders.
+%% A static SNI is quite unusual for Kafka, but it's kept anyway.
+ssl_overrides() ->
+    #{
+        "server_name_indication" =>
+            mk(
+                hoconsc:union([auto, disable, string()]),
+                #{
+                    example => auto,
+                    default => <<"auto">>,
+                    importance => ?IMPORTANCE_LOW,
+                    desc => ?DESC("server_name_indication")
+                }
+            )
+    }.
+
+override(Fields, Overrides) ->
+    lists:map(
+        fun({Name, Sc}) ->
+            case maps:find(Name, Overrides) of
+                {ok, Override} ->
+                    {Name, hocon_schema:override(Sc, Override)};
+                error ->
+                    {Name, Sc}
+            end
+        end,
+        Fields
+    ).
+
+ssl_client_opts_fields() ->
+    override(emqx_schema:client_ssl_opts_schema(#{}), ssl_overrides()).
+
 host_opts() ->
     #{default_port => 9092}.
 
 namespace() -> "bridge_kafka".
 
-roots() -> ["config_consumer", "config_producer"].
+roots() -> ["config_consumer", "config_producer", "config_bridge_v2"].
 
 fields("post_" ++ Type) ->
-    [type_field(), name_field() | fields("config_" ++ Type)];
+    [type_field(Type), name_field() | fields("config_" ++ Type)];
 fields("put_" ++ Type) ->
     fields("config_" ++ Type);
 fields("get_" ++ Type) ->
     emqx_bridge_schema:status_fields() ++ fields("post_" ++ Type);
+fields("config_bridge_v2") ->
+    fields(kafka_producer_action);
+fields("config_connector") ->
+    connector_config_fields();
 fields("config_producer") ->
     fields(kafka_producer);
 fields("config_consumer") ->
     fields(kafka_consumer);
 fields(kafka_producer) ->
-    fields("config") ++ fields(producer_opts);
-fields(kafka_consumer) ->
-    fields("config") ++ fields(consumer_opts);
-fields("config") ->
+    connector_config_fields() ++ producer_opts();
+fields(kafka_producer_action) ->
     [
         {enable, mk(boolean(), #{desc => ?DESC("config_enable"), default => true})},
-        {bootstrap_hosts,
-            mk(
-                binary(),
-                #{
-                    required => true,
-                    desc => ?DESC(bootstrap_hosts),
-                    validator => emqx_schema:servers_validator(
-                        host_opts(), _Required = true
-                    )
-                }
-            )},
-        {connect_timeout,
-            mk(emqx_schema:timeout_duration_ms(), #{
-                default => <<"5s">>,
-                desc => ?DESC(connect_timeout)
+        {connector,
+            mk(binary(), #{
+                desc => ?DESC(emqx_connector_schema, "connector_field"), required => true
             })},
-        {min_metadata_refresh_interval,
-            mk(
-                emqx_schema:timeout_duration_ms(),
-                #{
-                    default => <<"3s">>,
-                    desc => ?DESC(min_metadata_refresh_interval)
-                }
-            )},
-        {metadata_request_timeout,
-            mk(emqx_schema:timeout_duration_ms(), #{
-                default => <<"5s">>,
-                desc => ?DESC(metadata_request_timeout)
-            })},
-        {authentication,
-            mk(hoconsc:union([none, ref(auth_username_password), ref(auth_gssapi_kerberos)]), #{
-                default => none, desc => ?DESC("authentication")
-            })},
-        {socket_opts, mk(ref(socket_opts), #{required => false, desc => ?DESC(socket_opts)})}
-    ] ++ emqx_connector_schema_lib:ssl_fields();
+        {description, emqx_schema:description_schema()}
+    ] ++ producer_opts();
+fields(kafka_consumer) ->
+    connector_config_fields() ++ fields(consumer_opts);
+fields(ssl_client_opts) ->
+    ssl_client_opts_fields();
 fields(auth_username_password) ->
     [
         {mechanism,
@@ -246,7 +320,7 @@ fields(socket_opts) ->
                 boolean(),
                 #{
                     default => true,
-                    importance => ?IMPORTANCE_HIDDEN,
+                    importance => ?IMPORTANCE_LOW,
                     desc => ?DESC(socket_nodelay)
                 }
             )},
@@ -256,20 +330,6 @@ fields(socket_opts) ->
                 desc => ?DESC(socket_tcp_keepalive),
                 validator => fun emqx_schema:validate_tcp_keepalive/1
             })}
-    ];
-fields(producer_opts) ->
-    [
-        %% Note: there's an implicit convention in `emqx_bridge' that,
-        %% for egress bridges with this config, the published messages
-        %% will be forwarded to such bridges.
-        {local_topic, mk(binary(), #{required => false, desc => ?DESC(mqtt_topic)})},
-        {kafka,
-            mk(ref(producer_kafka_opts), #{
-                required => true,
-                desc => ?DESC(producer_kafka_opts),
-                validator => fun producer_strategy_key_validator/1
-            })},
-        {resource_opts, mk(ref(resource_opts), #{default => #{}})}
     ];
 fields(producer_kafka_opts) ->
     [
@@ -444,7 +504,7 @@ fields(consumer_kafka_opts) ->
     [
         {max_batch_bytes,
             mk(emqx_schema:bytesize(), #{
-                default => "896KB", desc => ?DESC(consumer_max_batch_bytes)
+                default => <<"896KB">>, desc => ?DESC(consumer_max_batch_bytes)
             })},
         {max_rejoin_attempts,
             mk(non_neg_integer(), #{
@@ -468,45 +528,107 @@ fields(resource_opts) ->
     CreationOpts = emqx_resource_schema:create_opts(_Overrides = []),
     lists:filter(fun({Field, _}) -> lists:member(Field, SupportedFields) end, CreationOpts).
 
-desc("config") ->
+desc("config_connector") ->
     ?DESC("desc_config");
 desc(resource_opts) ->
     ?DESC(emqx_resource_schema, "resource_opts");
-desc("get_" ++ Type) when Type =:= "consumer"; Type =:= "producer" ->
+desc("get_" ++ Type) when
+    Type =:= "consumer"; Type =:= "producer"; Type =:= "connector"; Type =:= "bridge_v2"
+->
     ["Configuration for Kafka using `GET` method."];
-desc("put_" ++ Type) when Type =:= "consumer"; Type =:= "producer" ->
+desc("put_" ++ Type) when
+    Type =:= "consumer"; Type =:= "producer"; Type =:= "connector"; Type =:= "bridge_v2"
+->
     ["Configuration for Kafka using `PUT` method."];
-desc("post_" ++ Type) when Type =:= "consumer"; Type =:= "producer" ->
+desc("post_" ++ Type) when
+    Type =:= "consumer"; Type =:= "producer"; Type =:= "connector"; Type =:= "bridge_v2"
+->
     ["Configuration for Kafka using `POST` method."];
+desc(kafka_producer_action) ->
+    ?DESC("kafka_producer_action");
 desc(Name) ->
-    lists:member(Name, struct_names()) orelse throw({missing_desc, Name}),
     ?DESC(Name).
 
-struct_names() ->
+connector_config_fields() ->
     [
-        auth_gssapi_kerberos,
-        auth_username_password,
-        kafka_message,
-        kafka_producer,
-        kafka_consumer,
-        producer_buffer,
-        producer_kafka_opts,
-        socket_opts,
-        producer_opts,
-        consumer_opts,
-        consumer_kafka_opts,
-        consumer_topic_mapping,
-        producer_kafka_ext_headers
+        {enable, mk(boolean(), #{desc => ?DESC("config_enable"), default => true})},
+        {description, emqx_schema:description_schema()},
+        {bootstrap_hosts,
+            mk(
+                binary(),
+                #{
+                    required => true,
+                    desc => ?DESC(bootstrap_hosts),
+                    validator => emqx_schema:servers_validator(
+                        host_opts(), _Required = true
+                    )
+                }
+            )},
+        {connect_timeout,
+            mk(emqx_schema:timeout_duration_ms(), #{
+                default => <<"5s">>,
+                desc => ?DESC(connect_timeout)
+            })},
+        {min_metadata_refresh_interval,
+            mk(
+                emqx_schema:timeout_duration_ms(),
+                #{
+                    default => <<"3s">>,
+                    desc => ?DESC(min_metadata_refresh_interval)
+                }
+            )},
+        {metadata_request_timeout,
+            mk(emqx_schema:timeout_duration_ms(), #{
+                default => <<"5s">>,
+                desc => ?DESC(metadata_request_timeout)
+            })},
+        {authentication,
+            mk(hoconsc:union([none, ref(auth_username_password), ref(auth_gssapi_kerberos)]), #{
+                default => none, desc => ?DESC("authentication")
+            })},
+        {socket_opts, mk(ref(socket_opts), #{required => false, desc => ?DESC(socket_opts)})},
+        {ssl, mk(ref(ssl_client_opts), #{})}
     ].
+
+producer_opts() ->
+    [
+        %% Note: there's an implicit convention in `emqx_bridge' that,
+        %% for egress bridges with this config, the published messages
+        %% will be forwarded to such bridges.
+        {local_topic, mk(binary(), #{required => false, desc => ?DESC(mqtt_topic)})},
+        parameters_field(),
+        {resource_opts, mk(ref(resource_opts), #{default => #{}, desc => ?DESC(resource_opts)})}
+    ].
+
+%% Since e5.3.1, we want to rename the field 'kafka' to 'parameters'
+%% Hoever we need to keep it backward compatible for generated schema json (version 0.1.0)
+%% since schema is data for the 'schemas' API.
+parameters_field() ->
+    {Name, Alias} =
+        case get(emqx_bridge_schema_version) of
+            <<"0.1.0">> ->
+                {kafka, parameters};
+            _ ->
+                {parameters, kafka}
+        end,
+    {Name,
+        mk(ref(producer_kafka_opts), #{
+            required => true,
+            aliases => [Alias],
+            desc => ?DESC(producer_kafka_opts),
+            validator => fun producer_strategy_key_validator/1
+        })}.
 
 %% -------------------------------------------------------------------------------------------------
 %% internal
-type_field() ->
+type_field(BridgeV2Type) when BridgeV2Type =:= "connector"; BridgeV2Type =:= "bridge_v2" ->
+    {type, mk(enum([kafka_producer]), #{required => true, desc => ?DESC("desc_type")})};
+type_field(_) ->
     {type,
-        %% TODO: rename `kafka' to `kafka_producer' after alias
-        %% support is added to hocon; keeping this as just `kafka' for
-        %% backwards compatibility.
-        mk(enum([kafka_consumer, kafka]), #{required => true, desc => ?DESC("desc_type")})}.
+        %% 'kafka' is kept for backward compatibility
+        mk(enum([kafka, kafka_producer, kafka_consumer]), #{
+            required => true, desc => ?DESC("desc_type")
+        })}.
 
 name_field() ->
     {name, mk(binary(), #{required => true, desc => ?DESC("desc_name")})}.
@@ -519,17 +641,23 @@ kafka_producer_converter(undefined, _HoconOpts) ->
 kafka_producer_converter(
     #{<<"producer">> := OldOpts0, <<"bootstrap_hosts">> := _} = Config0, _HoconOpts
 ) ->
-    %% old schema
+    %% prior to e5.0.2
     MQTTOpts = maps:get(<<"mqtt">>, OldOpts0, #{}),
     LocalTopic = maps:get(<<"topic">>, MQTTOpts, undefined),
     KafkaOpts = maps:get(<<"kafka">>, OldOpts0),
     Config = maps:without([<<"producer">>], Config0),
     case LocalTopic =:= undefined of
         true ->
-            Config#{<<"kafka">> => KafkaOpts};
+            Config#{<<"parameters">> => KafkaOpts};
         false ->
-            Config#{<<"kafka">> => KafkaOpts, <<"local_topic">> => LocalTopic}
+            Config#{<<"parameters">> => KafkaOpts, <<"local_topic">> => LocalTopic}
     end;
+kafka_producer_converter(
+    #{<<"kafka">> := _} = Config0, _HoconOpts
+) ->
+    %% from e5.0.2 to e5.3.0
+    {KafkaOpts, Config} = maps:take(<<"kafka">>, Config0),
+    Config#{<<"parameters">> => KafkaOpts};
 kafka_producer_converter(Config, _HoconOpts) ->
     %% new schema
     Config.

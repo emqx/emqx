@@ -83,7 +83,7 @@ do_check_pass({_SimpleHash, _Salt, _SaltPosition} = HashParams, PasswordHash, Pa
     compare_secure(Hash, PasswordHash).
 
 -spec hash(hash_params(), password()) -> password_hash().
-hash({pbkdf2, MacFun, Salt, Iterations, DKLength}, Password) ->
+hash({pbkdf2, MacFun, Salt, Iterations, DKLength}, Password) when Iterations > 0 ->
     case pbkdf2(MacFun, Password, Salt, Iterations, DKLength) of
         {ok, HashPasswd} ->
             hex(HashPasswd);

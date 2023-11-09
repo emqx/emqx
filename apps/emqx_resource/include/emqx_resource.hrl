@@ -15,12 +15,14 @@
 %%--------------------------------------------------------------------
 -type resource_type() :: module().
 -type resource_id() :: binary().
+-type channel_id() :: binary().
 -type raw_resource_config() :: binary() | raw_term_resource_config().
 -type raw_term_resource_config() :: #{binary() => term()} | [raw_term_resource_config()].
 -type resource_config() :: term().
 -type resource_spec() :: map().
 -type resource_state() :: term().
 -type resource_status() :: connected | disconnected | connecting | stopped.
+-type channel_status() :: connected | connecting | disconnected.
 -type callback_mode() :: always_sync | async_if_possible.
 -type query_mode() ::
     simple_sync
@@ -43,7 +45,9 @@
     expire_at => infinity | integer(),
     async_reply_fun => reply_fun(),
     simple_query => boolean(),
-    reply_to => reply_fun()
+    reply_to => reply_fun(),
+    query_mode => query_mode(),
+    connector_resource_id => resource_id()
 }.
 -type resource_data() :: #{
     id := resource_id(),
@@ -53,7 +57,8 @@
     config := resource_config(),
     error := term(),
     state := resource_state(),
-    status := resource_status()
+    status := resource_status(),
+    added_channels := term()
 }.
 -type resource_group() :: binary().
 -type creation_opts() :: #{

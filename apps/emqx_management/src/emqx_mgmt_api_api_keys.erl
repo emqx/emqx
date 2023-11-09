@@ -194,6 +194,7 @@ api_key(post, #{body := App}) ->
     ExpiredAt = ensure_expired_at(App),
     Desc = unicode:characters_to_binary(Desc0, unicode),
     Role = maps:get(<<"role">>, App, ?ROLE_API_DEFAULT),
+    %% create api_key with random api_key and api_secret from Dashboard
     case emqx_mgmt_auth:create(Name, Enable, ExpiredAt, Desc, Role) of
         {ok, NewApp} ->
             {200, emqx_mgmt_auth:format(NewApp)};
