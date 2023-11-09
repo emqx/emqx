@@ -133,6 +133,9 @@ make_docs() {
     erl -noshell -eval \
         "ok = emqx_conf:dump_schema('$docdir', $SCHEMA_MODULE), \
          halt(0)."
+    local desc="$docdir/desc.en.hocon"
+    log "Generating $desc"
+    scripts/merge-i18n.escript | jq --sort-keys . > "$desc"
 }
 
 ## arg1 is the profile for which the following args (as app names) should be excluded
