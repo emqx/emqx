@@ -75,3 +75,6 @@
 % 0x0A~0x2F: Customized data for Platform Exchange Protocol
 % 0x30~0x7F: Reserved
 % 0x80~0xFE: Customized by user
+
+-define(DEFAULT_MOUNTPOINT, <<"gbt32960/${clientid}/">>).
+-define(DEFAULT_DOWNLINK_TOPIC, <<"dnstream">>).
