@@ -242,8 +242,10 @@ packet_id_to_seqno_test() ->
     ?assertEqual(1, packet_id_to_seqno(1, 1)),
     ?assertEqual(1, packet_id_to_seqno(10, 1)),
     ?assertEqual(1, packet_id_to_seqno(1 bsl 16 - 1, 1)),
+    ?assertEqual(1, packet_id_to_seqno(1 bsl 16, 1)),
     %% Packet ID = 1; second and 3rd epochs:
     ?assertEqual(1 bsl 16 + 1, packet_id_to_seqno(1 bsl 16 + 1, 1)),
+    ?assertEqual(1 bsl 16 + 1, packet_id_to_seqno(2 bsl 16, 1)),
     ?assertEqual(2 bsl 16 + 1, packet_id_to_seqno(2 bsl 16 + 1, 1)),
     %% Packet ID = 16#ffff:
     PID = 1 bsl 16 - 1,
@@ -279,7 +281,7 @@ next_seqno_gen() ->
     ).
 
 seqno_gen(NextSeqNo) ->
-    WindowSize = 1 bsl 16 - 2,
+    WindowSize = 1 bsl 16 - 1,
     Min = max(0, NextSeqNo - WindowSize),
     Max = max(0, NextSeqNo - 1),
     range(Min, Max).
