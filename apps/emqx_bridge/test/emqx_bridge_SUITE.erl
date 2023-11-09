@@ -55,7 +55,7 @@ init_per_testcase(_TestCase, Config) ->
 end_per_testcase(t_get_basic_usage_info_1, _Config) ->
     lists:foreach(
         fun({BridgeType, BridgeName}) ->
-            {ok, _} = emqx_bridge:remove(BridgeType, BridgeName)
+            ok = emqx_bridge:remove(BridgeType, BridgeName)
         end,
         [
             {webhook, <<"basic_usage_info_webhook">>},

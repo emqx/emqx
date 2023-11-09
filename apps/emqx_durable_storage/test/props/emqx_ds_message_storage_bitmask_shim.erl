@@ -4,9 +4,11 @@
 
 -module(emqx_ds_message_storage_bitmask_shim).
 
+-include_lib("emqx/include/emqx.hrl").
+
 -export([open/0]).
 -export([close/1]).
--export([store/5]).
+-export([store/2]).
 -export([iterate/2]).
 
 -type topic() :: list(binary()).
@@ -25,20 +27,21 @@ close(Tab) ->
     true = ets:delete(Tab),
     ok.
 
--spec store(t(), emqx_guid:guid(), time(), topic(), binary()) ->
+-spec store(t(), emqx_types:message()) ->
     ok | {error, _TODO}.
-store(Tab, MessageID, PublishedAt, Topic, Payload) ->
-    true = ets:insert(Tab, {{PublishedAt, MessageID}, Topic, Payload}),
+store(Tab, Msg = #message{id = MessageID, timestamp = PublishedAt}) ->
+    true = ets:insert(Tab, {{PublishedAt, MessageID}, Msg}),
     ok.
 
 -spec iterate(t(), emqx_ds:replay()) ->
     [binary()].
-iterate(Tab, {TopicFilter, StartTime}) ->
+iterate(Tab, {TopicFilter0, StartTime}) ->
+    TopicFilter = iolist_to_binary(lists:join("/", TopicFilter0)),
     ets:foldr(
-        fun({{PublishedAt, _}, Topic, Payload}, Acc) ->
+        fun({{PublishedAt, _}, Msg = #message{topic = Topic}}, Acc) ->
             case emqx_topic:match(Topic, TopicFilter) of
                 true when PublishedAt >= StartTime ->
-                    [Payload | Acc];
+                    [Msg | Acc];
                 _ ->
                     Acc
             end

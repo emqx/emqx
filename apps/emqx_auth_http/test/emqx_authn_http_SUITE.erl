@@ -27,7 +27,7 @@
 -define(PATH, [?CONF_NS_ATOM]).
 
 -define(HTTP_PORT, 32333).
--define(HTTP_PATH, "/auth").
+-define(HTTP_PATH, "/auth/[...]").
 -define(CREDENTIALS, #{
     clientid => <<"clienta">>,
     username => <<"plain">>,
@@ -146,8 +146,12 @@ t_authenticate(_Config) ->
 test_user_auth(#{
     handler := Handler,
     config_params := SpecificConfgParams,
-    result := Result
+    result := Expect
 }) ->
+    Result = perform_user_auth(SpecificConfgParams, Handler, ?CREDENTIALS),
+    ?assertEqual(Expect, Result).
+
+perform_user_auth(SpecificConfgParams, Handler, Credentials) ->
     AuthConfig = maps:merge(raw_http_auth_config(), SpecificConfgParams),
 
     {ok, _} = emqx:update_config(
@@ -157,21 +161,21 @@ test_user_auth(#{
 
     ok = emqx_authn_http_test_server:set_handler(Handler),
 
-    ?assertEqual(Result, emqx_access_control:authenticate(?CREDENTIALS)),
+    Result = emqx_access_control:authenticate(Credentials),
 
     emqx_authn_test_lib:delete_authenticators(
         [authentication],
         ?GLOBAL
-    ).
+    ),
+
+    Result.
 
 t_authenticate_path_placeholders(_Config) ->
-    ok = emqx_authn_http_test_server:stop(),
-    {ok, _} = emqx_authn_http_test_server:start_link(?HTTP_PORT, <<"/[...]">>),
     ok = emqx_authn_http_test_server:set_handler(
         fun(Req0, State) ->
             Req =
                 case cowboy_req:path(Req0) of
-                    <<"/my/p%20ath//us%20er/auth//">> ->
+                    <<"/auth/p%20ath//us%20er/auth//">> ->
                         cowboy_req:reply(
                             200,
                             #{<<"content-type">> => <<"application/json">>},
@@ -193,7 +197,7 @@ t_authenticate_path_placeholders(_Config) ->
     AuthConfig = maps:merge(
         raw_http_auth_config(),
         #{
-            <<"url">> => <<"http://127.0.0.1:32333/my/p%20ath//${username}/auth//">>,
+            <<"url">> => <<"http://127.0.0.1:32333/auth/p%20ath//${username}/auth//">>,
             <<"body">> => #{}
         }
     ),
@@ -254,6 +258,39 @@ t_no_value_for_placeholder(_Config) ->
         [authentication],
         ?GLOBAL
     ).
+
+t_disallowed_placeholders_preserved(_Config) ->
+    Config = #{
+        <<"method">> => <<"post">>,
+        <<"headers">> => #{<<"content-type">> => <<"application/json">>},
+        <<"body">> => #{
+            <<"username">> => ?PH_USERNAME,
+            <<"password">> => ?PH_PASSWORD,
+            <<"this">> => <<"${whatisthis}">>
+        }
+    },
+    Handler = fun(Req0, State) ->
+        {ok, Body, Req1} = cowboy_req:read_body(Req0),
+        #{
+            <<"username">> := <<"plain">>,
+            <<"password">> := <<"plain">>,
+            <<"this">> := <<"${whatisthis}">>
+        } = emqx_utils_json:decode(Body),
+        Req = cowboy_req:reply(
+            200,
+            #{<<"content-type">> => <<"application/json">>},
+            emqx_utils_json:encode(#{result => allow, is_superuser => false}),
+            Req1
+        ),
+        {ok, Req, State}
+    end,
+    ?assertMatch({ok, _}, perform_user_auth(Config, Handler, ?CREDENTIALS)),
+
+    % NOTE: disallowed placeholder left intact, which makes the URL invalid
+    ConfigUrl = Config#{
+        <<"url">> => <<"http://127.0.0.1:32333/auth/${whatisthis}">>
+    },
+    ?assertMatch({error, _}, perform_user_auth(ConfigUrl, Handler, ?CREDENTIALS)).
 
 t_destroy(_Config) ->
     AuthConfig = raw_http_auth_config(),

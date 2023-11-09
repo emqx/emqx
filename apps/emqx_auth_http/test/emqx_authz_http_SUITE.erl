@@ -494,6 +494,67 @@ t_no_value_for_placeholder(_Config) ->
         emqx_access_control:authorize(ClientInfo, ?AUTHZ_PUBLISH, <<"t">>)
     ).
 
+t_disallowed_placeholders_preserved(_Config) ->
+    ok = setup_handler_and_config(
+        fun(Req0, State) ->
+            {ok, Body, Req1} = cowboy_req:read_body(Req0),
+            ?assertMatch(
+                #{
+                    <<"cname">> := <<>>,
+                    <<"usertypo">> := <<"${usertypo}">>
+                },
+                emqx_utils_json:decode(Body)
+            ),
+            {ok, ?AUTHZ_HTTP_RESP(allow, Req1), State}
+        end,
+        #{
+            <<"method">> => <<"post">>,
+            <<"body">> => #{
+                <<"cname">> => ?PH_CERT_CN_NAME,
+                <<"usertypo">> => <<"${usertypo}">>
+            }
+        }
+    ),
+
+    ClientInfo = #{
+        clientid => <<"client id">>,
+        username => <<"user name">>,
+        peerhost => {127, 0, 0, 1},
+        protocol => <<"MQTT">>,
+        zone => default,
+        listener => {tcp, default}
+    },
+
+    ?assertEqual(
+        allow,
+        emqx_access_control:authorize(ClientInfo, ?AUTHZ_PUBLISH, <<"t">>)
+    ).
+
+t_disallowed_placeholders_path(_Config) ->
+    ok = setup_handler_and_config(
+        fun(Req, State) ->
+            {ok, ?AUTHZ_HTTP_RESP(allow, Req), State}
+        end,
+        #{
+            <<"url">> => <<"http://127.0.0.1:33333/authz/use%20rs/${typo}">>
+        }
+    ),
+
+    ClientInfo = #{
+        clientid => <<"client id">>,
+        username => <<"user name">>,
+        peerhost => {127, 0, 0, 1},
+        protocol => <<"MQTT">>,
+        zone => default,
+        listener => {tcp, default}
+    },
+
+    % % NOTE: disallowed placeholder left intact, which makes the URL invalid
+    ?assertEqual(
+        deny,
+        emqx_access_control:authorize(ClientInfo, ?AUTHZ_PUBLISH, <<"t">>)
+    ).
+
 t_create_replace(_Config) ->
     ClientInfo = #{
         clientid => <<"clientid">>,

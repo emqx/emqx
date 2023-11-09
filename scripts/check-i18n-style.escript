@@ -46,7 +46,6 @@ logerr(Fmt, Args) ->
     _ = put(errors, N + 1),
     ok.
 
-
 check(File) ->
     io:format(user, ".", []),
     {ok, C} = hocon:load(File),
@@ -54,9 +53,12 @@ check(File) ->
     ok.
 
 check_one_field(Name, Field) ->
-    maps:foreach(fun(SubName, DescAndLabel) ->
-                         check_desc_and_label([Name, ".", SubName], DescAndLabel)
-                 end, Field).
+    maps:foreach(
+        fun(SubName, DescAndLabel) ->
+            check_desc_and_label([Name, ".", SubName], DescAndLabel)
+        end,
+        Field
+    ).
 
 check_desc_and_label(Name, D) ->
     case maps:keys(D) -- [<<"desc">>, <<"label">>] of
@@ -84,8 +86,8 @@ check_desc_string(Name, <<>>) ->
 check_desc_string(Name, BinStr) ->
     Str = unicode:characters_to_list(BinStr, utf8),
     Err = fun(Reason) ->
-            logerr("~s: ~s~n", [Name, Reason])
-          end,
+        logerr("~s: ~s~n", [Name, Reason])
+    end,
     case Str of
         [$\s | _] ->
             Err("remove leading whitespace");

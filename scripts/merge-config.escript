@@ -90,14 +90,18 @@ merge_desc_files() ->
 
 do_merge_desc_files(BaseConf, Cfgs) ->
     lists:foldl(
-      fun(CfgFile, Acc) ->
-              case filelib:is_regular(CfgFile) of
-                  true ->
-                      {ok, Bin1} = file:read_file(CfgFile),
-                      [Acc, io_lib:nl(), Bin1];
-                  false -> Acc
-              end
-      end, BaseConf, Cfgs).
+        fun(CfgFile, Acc) ->
+            case filelib:is_regular(CfgFile) of
+                true ->
+                    {ok, Bin1} = file:read_file(CfgFile),
+                    [Acc, io_lib:nl(), Bin1];
+                false ->
+                    Acc
+            end
+        end,
+        BaseConf,
+        Cfgs
+    ).
 
 get_all_desc_files() ->
     Dir = filename:join(["rel", "i18n"]),

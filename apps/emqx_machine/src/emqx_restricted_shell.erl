@@ -33,6 +33,21 @@
 -define(LOCAL_PROHIBITED, [halt, q]).
 -define(REMOTE_PROHIBITED, [{erlang, halt}, {c, q}, {init, stop}, {init, restart}, {init, reboot}]).
 
+-define(WARN_ONCE(Fn, Args),
+    case get(Fn) of
+        true ->
+            ok;
+        _ ->
+            case apply(Fn, Args) of
+                true ->
+                    put(Fn, true),
+                    ok;
+                false ->
+                    ok
+            end
+    end
+).
+
 is_locked() ->
     {ok, false} =/= application:get_env(?APP, ?IS_LOCKED).
 
@@ -72,31 +87,31 @@ is_allowed(prohibited) -> false;
 is_allowed(_) -> true.
 
 limit_warning(MF, Args) ->
-    max_heap_size_warning(MF, Args),
-    max_args_warning(MF, Args).
+    ?WARN_ONCE(fun max_heap_size_warning/2, [MF, Args]),
+    ?WARN_ONCE(fun max_args_warning/2, [MF, Args]).
 
 max_args_warning(MF, Args) ->
     ArgsSize = erts_debug:flat_size(Args),
-    case ArgsSize < ?MAX_ARGS_SIZE of
+    case ArgsSize > ?MAX_ARGS_SIZE of
         true ->
-            ok;
-        false ->
             warning("[WARNING] current_args_size:~w, max_args_size:~w", [ArgsSize, ?MAX_ARGS_SIZE]),
             ?SLOG(warning, #{
                 msg => "execute_function_in_shell_max_args_size",
                 function => MF,
                 %%args => Args,
                 args_size => ArgsSize,
-                max_heap_size => ?MAX_ARGS_SIZE
-            })
+                max_heap_size => ?MAX_ARGS_SIZE,
+                pid => self()
+            }),
+            true;
+        false ->
+            false
     end.
 
 max_heap_size_warning(MF, Args) ->
     {heap_size, HeapSize} = erlang:process_info(self(), heap_size),
-    case HeapSize < ?MAX_HEAP_SIZE of
+    case HeapSize > ?MAX_HEAP_SIZE of
         true ->
-            ok;
-        false ->
             warning("[WARNING] current_heap_size:~w, max_heap_size_warning:~w", [
                 HeapSize, ?MAX_HEAP_SIZE
             ]),
@@ -105,8 +120,12 @@ max_heap_size_warning(MF, Args) ->
                 current_heap_size => HeapSize,
                 function => MF,
                 args => pp_args(Args),
-                max_heap_size => ?MAX_HEAP_SIZE
-            })
+                max_heap_size => ?MAX_HEAP_SIZE,
+                pid => self()
+            }),
+            true;
+        false ->
+            false
     end.
 
 log(_, {?MODULE, prompt_func}, [[{history, _}]]) ->

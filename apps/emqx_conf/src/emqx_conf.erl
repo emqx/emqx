@@ -188,8 +188,14 @@ hotconf_schema_json() ->
 
 %% TODO: move this function to emqx_dashboard when we stop generating this JSON at build time.
 bridge_schema_json() ->
-    SchemaInfo = #{title => <<"EMQX Data Bridge API Schema">>, version => <<"0.1.0">>},
-    gen_api_schema_json_iodata(emqx_bridge_api, SchemaInfo).
+    Version = <<"0.1.0">>,
+    SchemaInfo = #{title => <<"EMQX Data Bridge API Schema">>, version => Version},
+    put(emqx_bridge_schema_version, Version),
+    try
+        gen_api_schema_json_iodata(emqx_bridge_api, SchemaInfo)
+    after
+        erase(emqx_bridge_schema_version)
+    end.
 
 %% TODO: remove it and also remove hocon_md.erl and friends.
 %% markdown generation from schema is a failure and we are moving to an interactive
@@ -219,7 +225,9 @@ resolve_schema_module() ->
         "emqx" ->
             emqx_conf_schema;
         "emqx-enterprise" ->
-            emqx_enterprise_schema
+            emqx_enterprise_schema;
+        false ->
+            error("PROFILE environment variable is not set")
     end.
 -else.
 -spec resolve_schema_module() -> no_return().

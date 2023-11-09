@@ -43,6 +43,23 @@
 %%--------------------------------------------------------------------
 %% APIs
 %%--------------------------------------------------------------------
+parse_action(BridgeId) when is_binary(BridgeId) ->
+    {Type, Name} = emqx_bridge_resource:parse_bridge_id(BridgeId),
+    case emqx_bridge_v2:is_bridge_v2_type(Type) of
+        true ->
+            %% Could be an old bridge V1 type that should be converted to a V2 type
+            try emqx_bridge_v2:bridge_v1_type_to_bridge_v2_type(Type) of
+                BridgeV2Type ->
+                    {bridge_v2, BridgeV2Type, Name}
+            catch
+                _:_ ->
+                    %% We got a bridge v2 type that is not also a bridge v1
+                    %% type
+                    {bridge_v2, Type, Name}
+            end;
+        false ->
+            {bridge, Type, Name, emqx_bridge_resource:resource_id(Type, Name)}
+    end;
 parse_action(#{function := ActionFunc} = Action) ->
     {Mod, Func} = parse_action_func(ActionFunc),
     Res = #{mod => Mod, func => Func},
@@ -65,23 +82,18 @@ pre_process_action_args(
         qos := QoS,
         retain := Retain,
         payload := Payload,
-        mqtt_properties := MQTTPropertiesTemplate0,
-        user_properties := UserPropertiesTemplate
+        mqtt_properties := MQTTProperties,
+        user_properties := UserProperties
     } = Args
 ) ->
-    MQTTPropertiesTemplate =
-        maps:map(
-            fun(_Key, V) -> emqx_placeholder:preproc_tmpl(V) end,
-            MQTTPropertiesTemplate0
-        ),
     Args#{
         preprocessed_tmpl => #{
-            topic => emqx_placeholder:preproc_tmpl(Topic),
-            qos => preproc_vars(QoS),
-            retain => preproc_vars(Retain),
-            payload => emqx_placeholder:preproc_tmpl(Payload),
-            mqtt_properties => MQTTPropertiesTemplate,
-            user_properties => preproc_user_properties(UserPropertiesTemplate)
+            topic => emqx_template:parse(Topic),
+            qos => parse_simple_var(QoS),
+            retain => parse_simple_var(Retain),
+            payload => parse_payload(Payload),
+            mqtt_properties => parse_mqtt_properties(MQTTProperties),
+            user_properties => parse_user_properties(UserProperties)
         }
     };
 pre_process_action_args(_, Args) ->
@@ -114,25 +126,28 @@ republish(
     #{metadata := #{rule_id := RuleId}} = Env,
     #{
         preprocessed_tmpl := #{
-            qos := QoSTks,
-            retain := RetainTks,
-            topic := TopicTks,
-            payload := PayloadTks,
+            qos := QoSTemplate,
+            retain := RetainTemplate,
+            topic := TopicTemplate,
+            payload := PayloadTemplate,
             mqtt_properties := MQTTPropertiesTemplate,
-            user_properties := UserPropertiesTks
+            user_properties := UserPropertiesTemplate
         }
     }
 ) ->
-    Topic = emqx_placeholder:proc_tmpl(TopicTks, Selected),
-    Payload = format_msg(PayloadTks, Selected),
-    QoS = replace_simple_var(QoSTks, Selected, 0),
-    Retain = replace_simple_var(RetainTks, Selected, false),
+    % NOTE: rendering missing bindings as string "undefined"
+    {TopicString, _Errors1} = render_template(TopicTemplate, Selected),
+    {PayloadString, _Errors2} = render_template(PayloadTemplate, Selected),
+    Topic = iolist_to_binary(TopicString),
+    Payload = iolist_to_binary(PayloadString),
+    QoS = render_simple_var(QoSTemplate, Selected, 0),
+    Retain = render_simple_var(RetainTemplate, Selected, false),
     %% 'flags' is set for message re-publishes or message related
     %% events such as message.acked and message.dropped
     Flags0 = maps:get(flags, Env, #{}),
     Flags = Flags0#{retain => Retain},
-    PubProps0 = format_pub_props(UserPropertiesTks, Selected, Env),
-    MQTTProps = format_mqtt_properties(MQTTPropertiesTemplate, Selected, Env),
+    PubProps0 = render_pub_props(UserPropertiesTemplate, Selected, Env),
+    MQTTProps = render_mqtt_properties(MQTTPropertiesTemplate, Selected, Env),
     PubProps = maps:merge(PubProps0, MQTTProps),
     ?TRACE(
         "RULE",
@@ -203,79 +218,90 @@ safe_publish(RuleId, Topic, QoS, Flags, Payload, PubProps) ->
     _ = emqx_broker:safe_publish(Msg),
     emqx_metrics:inc_msg(Msg).
 
-preproc_vars(Data) when is_binary(Data) ->
-    emqx_placeholder:preproc_tmpl(Data);
-preproc_vars(Data) ->
-    Data.
+parse_simple_var(Data) when is_binary(Data) ->
+    emqx_template:parse(Data);
+parse_simple_var(Data) ->
+    {const, Data}.
 
-preproc_user_properties(<<"${pub_props.'User-Property'}">>) ->
+parse_payload(Payload) ->
+    case string:is_empty(Payload) of
+        false -> emqx_template:parse(Payload);
+        true -> emqx_template:parse("${.}")
+    end.
+
+parse_mqtt_properties(MQTTPropertiesTemplate) ->
+    maps:map(
+        fun(_Key, V) -> emqx_template:parse(V) end,
+        MQTTPropertiesTemplate
+    ).
+
+parse_user_properties(<<"${pub_props.'User-Property'}">>) ->
     %% keep the original
     %% avoid processing this special variable because
     %% we do not want to force users to select the value
     %% the value will be taken from Env.pub_props directly
     ?ORIGINAL_USER_PROPERTIES;
-preproc_user_properties(<<"${", _/binary>> = V) ->
+parse_user_properties(<<"${", _/binary>> = V) ->
     %% use a variable
-    emqx_placeholder:preproc_tmpl(V);
-preproc_user_properties(_) ->
+    emqx_template:parse(V);
+parse_user_properties(_) ->
     %% invalid, discard
     undefined.
 
-replace_simple_var(Tokens, Data, Default) when is_list(Tokens) ->
-    [Var] = emqx_placeholder:proc_tmpl(Tokens, Data, #{return => rawlist}),
-    case Var of
+render_template(Template, Bindings) ->
+    emqx_template:render(Template, {emqx_jsonish, Bindings}).
+
+render_simple_var([{var, _Name, Accessor}], Data, Default) ->
+    case emqx_jsonish:lookup(Accessor, Data) of
+        {ok, Var} -> Var;
         %% cannot find the variable from Data
-        undefined -> Default;
-        _ -> Var
+        {error, _} -> Default
     end;
-replace_simple_var(Val, _Data, _Default) ->
+render_simple_var({const, Val}, _Data, _Default) ->
     Val.
 
-format_msg([], Selected) ->
-    emqx_utils_json:encode(Selected);
-format_msg(Tokens, Selected) ->
-    emqx_placeholder:proc_tmpl(Tokens, Selected).
-
-format_pub_props(UserPropertiesTks, Selected, Env) ->
+render_pub_props(UserPropertiesTemplate, Selected, Env) ->
     UserProperties =
-        case UserPropertiesTks of
+        case UserPropertiesTemplate of
             ?ORIGINAL_USER_PROPERTIES ->
                 maps:get('User-Property', maps:get(pub_props, Env, #{}), #{});
             undefined ->
                 #{};
             _ ->
-                replace_simple_var(UserPropertiesTks, Selected, #{})
+                render_simple_var(UserPropertiesTemplate, Selected, #{})
         end,
     #{'User-Property' => UserProperties}.
 
-format_mqtt_properties(MQTTPropertiesTemplate, Selected, Env) ->
-    #{metadata := #{rule_id := RuleId}} = Env,
-    MQTTProperties0 =
-        maps:fold(
-            fun(K, Template, Acc) ->
-                try
-                    V = emqx_placeholder:proc_tmpl(Template, Selected),
-                    Acc#{K => V}
-                catch
-                    Kind:Error ->
-                        ?SLOG(
-                            debug,
-                            #{
-                                msg => "bad_mqtt_property_value_ignored",
-                                rule_id => RuleId,
-                                exception => Kind,
-                                reason => Error,
-                                property => K,
-                                selected => Selected
-                            }
-                        ),
-                        Acc
-                end
+%%
+
+-define(BADPROP(K, REASON, ENV, DATA),
+    ?SLOG(
+        debug,
+        DATA#{
+            msg => "bad_mqtt_property_value_ignored",
+            rule_id => emqx_utils_maps:deep_get([metadata, rule_id], ENV, undefined),
+            reason => REASON,
+            property => K
+        }
+    )
+).
+
+render_mqtt_properties(MQTTPropertiesTemplate, Selected, Env) ->
+    MQTTProperties =
+        maps:map(
+            fun(K, Template) ->
+                {V, Errors} = render_template(Template, Selected),
+                case Errors of
+                    [] ->
+                        ok;
+                    Errors ->
+                        ?BADPROP(K, Errors, Env, #{selected => Selected})
+                end,
+                iolist_to_binary(V)
             end,
-            #{},
             MQTTPropertiesTemplate
         ),
-    coerce_properties_values(MQTTProperties0, Env).
+    coerce_properties_values(MQTTProperties, Env).
 
 ensure_int(B) when is_binary(B) ->
     try
@@ -287,42 +313,24 @@ ensure_int(B) when is_binary(B) ->
 ensure_int(I) when is_integer(I) ->
     I.
 
-coerce_properties_values(MQTTProperties, #{metadata := #{rule_id := RuleId}}) ->
-    maps:fold(
-        fun(K, V0, Acc) ->
+coerce_properties_values(MQTTProperties, Env) ->
+    maps:filtermap(
+        fun(K, V) ->
             try
-                V = encode_mqtt_property(K, V0),
-                Acc#{K => V}
+                {true, encode_mqtt_property(K, V)}
             catch
-                throw:bad_integer ->
-                    ?SLOG(
-                        debug,
-                        #{
-                            msg => "bad_mqtt_property_value_ignored",
-                            rule_id => RuleId,
-                            reason => bad_integer,
-                            property => K,
-                            value => V0
-                        }
-                    ),
-                    Acc;
+                throw:Reason ->
+                    ?BADPROP(K, Reason, Env, #{value => V}),
+                    false;
                 Kind:Reason:Stacktrace ->
-                    ?SLOG(
-                        debug,
-                        #{
-                            msg => "bad_mqtt_property_value_ignored",
-                            rule_id => RuleId,
-                            exception => Kind,
-                            reason => Reason,
-                            property => K,
-                            value => V0,
-                            stacktrace => Stacktrace
-                        }
-                    ),
-                    Acc
+                    ?BADPROP(K, Reason, Env, #{
+                        value => V,
+                        exception => Kind,
+                        stacktrace => Stacktrace
+                    }),
+                    false
             end
         end,
-        #{},
         MQTTProperties
     ).
 

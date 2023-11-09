@@ -85,7 +85,7 @@ common_fields() ->
         {password_hash_algorithm, fun emqx_authn_password_hashing:type_ro/1}
     ] ++ emqx_authn_schema:common_fields().
 
-cmd(type) -> string();
+cmd(type) -> binary();
 cmd(desc) -> ?DESC(?FUNCTION_NAME);
 cmd(required) -> true;
 cmd(_) -> undefined.

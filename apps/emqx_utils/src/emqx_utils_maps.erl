@@ -33,7 +33,8 @@
     diff_maps/2,
     best_effort_recursive_sum/3,
     if_only_to_toggle_enable/2,
-    update_if_present/3
+    update_if_present/3,
+    put_if/4
 ]).
 
 -export_type([config_key/0, config_key_path/0]).
@@ -303,3 +304,8 @@ update_if_present(Key, Fun, Map) ->
         _ ->
             Map
     end.
+
+put_if(Acc, K, V, true) ->
+    Acc#{K => V};
+put_if(Acc, _K, _V, false) ->
+    Acc.

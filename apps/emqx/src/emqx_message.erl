@@ -66,7 +66,8 @@
 
 -export([
     is_expired/1,
-    update_expiry/1
+    update_expiry/1,
+    timestamp_now/0
 ]).
 
 -export([
@@ -113,14 +114,13 @@ make(From, Topic, Payload) ->
     emqx_types:payload()
 ) -> emqx_types:message().
 make(From, QoS, Topic, Payload) when ?QOS_0 =< QoS, QoS =< ?QOS_2 ->
-    Now = erlang:system_time(millisecond),
     #message{
         id = emqx_guid:gen(),
         qos = QoS,
         from = From,
         topic = Topic,
         payload = Payload,
-        timestamp = Now
+        timestamp = timestamp_now()
     }.
 
 -spec make(
@@ -137,7 +137,6 @@ make(From, QoS, Topic, Payload, Flags, Headers) when
     is_map(Flags),
     is_map(Headers)
 ->
-    Now = erlang:system_time(millisecond),
     #message{
         id = emqx_guid:gen(),
         qos = QoS,
@@ -146,7 +145,7 @@ make(From, QoS, Topic, Payload, Flags, Headers) when
         headers = Headers,
         topic = Topic,
         payload = Payload,
-        timestamp = Now
+        timestamp = timestamp_now()
     }.
 
 -spec make(
@@ -164,7 +163,6 @@ make(MsgId, From, QoS, Topic, Payload, Flags, Headers) when
     is_map(Flags),
     is_map(Headers)
 ->
-    Now = erlang:system_time(millisecond),
     #message{
         id = MsgId,
         qos = QoS,
@@ -173,7 +171,7 @@ make(MsgId, From, QoS, Topic, Payload, Flags, Headers) when
         headers = Headers,
         topic = Topic,
         payload = Payload,
-        timestamp = Now
+        timestamp = timestamp_now()
     }.
 
 %% optimistic esitmation of a message size after serialization
@@ -403,6 +401,11 @@ from_map(#{
         extra = Extra
     }.
 
+%% @doc Get current timestamp in milliseconds.
+-spec timestamp_now() -> integer().
+timestamp_now() ->
+    erlang:system_time(millisecond).
+
 %% MilliSeconds
 elapsed(Since) ->
-    max(0, erlang:system_time(millisecond) - Since).
+    max(0, timestamp_now() - Since).

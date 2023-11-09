@@ -52,29 +52,7 @@
 
 -record(subscription, {topic, subid, subopts}).
 
-%% See 'Application Message' in MQTT Version 5.0
--record(message, {
-    %% Global unique message ID
-    id :: binary(),
-    %% Message QoS
-    qos = 0,
-    %% Message from
-    from :: atom() | binary(),
-    %% Message flags
-    flags = #{} :: emqx_types:flags(),
-    %% Message headers. May contain any metadata. e.g. the
-    %% protocol version number, username, peerhost or
-    %% the PUBLISH properties (MQTT 5.0).
-    headers = #{} :: emqx_types:headers(),
-    %% Topic that the message is published to
-    topic :: emqx_types:topic(),
-    %% Message Payload
-    payload :: emqx_types:payload(),
-    %% Timestamp (Unit: millisecond)
-    timestamp :: integer(),
-    %% not used so far, for future extension
-    extra = [] :: term()
-}).
+-include_lib("emqx_utils/include/emqx_message.hrl").
 
 -record(delivery, {
     %% Sender of the delivery

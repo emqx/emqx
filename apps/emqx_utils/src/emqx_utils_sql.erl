@@ -80,10 +80,15 @@ to_sql_value(Map) when is_map(Map) -> emqx_utils_json:encode(Map).
 
 %% @doc Convert an Erlang term to a string that can be interpolated in literal
 %% SQL statements. The value is escaped if necessary.
--spec to_sql_string(term(), Options) -> iodata() when
+-spec to_sql_string(term(), Options) -> unicode:chardata() when
     Options :: #{
-        escaping => cql | mysql | sql
+        escaping => mysql | sql | cql,
+        undefined => null | unicode:chardata()
     }.
+to_sql_string(undefined, #{undefined := Str} = Opts) when Str =/= null ->
+    to_sql_string(Str, Opts);
+to_sql_string(undefined, #{}) ->
+    <<"NULL">>;
 to_sql_string(String, #{escaping := mysql}) when is_binary(String) ->
     try
         escape_mysql(String)
@@ -98,7 +103,7 @@ to_sql_string(Term, #{escaping := cql}) ->
 to_sql_string(Term, #{}) ->
     maybe_escape(Term, fun escape_sql/1).
 
--spec maybe_escape(_Value, fun((binary()) -> iodata())) -> iodata().
+-spec maybe_escape(_Value, fun((binary()) -> iodata())) -> unicode:chardata().
 maybe_escape(Str, EscapeFun) when is_binary(Str) ->
     EscapeFun(Str);
 maybe_escape(Str, EscapeFun) when is_list(Str) ->
@@ -109,9 +114,9 @@ maybe_escape(Str, EscapeFun) when is_list(Str) ->
             error(Otherwise)
     end;
 maybe_escape(Val, EscapeFun) when is_atom(Val) orelse is_map(Val) ->
-    EscapeFun(emqx_utils_conv:bin(Val));
+    EscapeFun(emqx_template:to_string(Val));
 maybe_escape(Val, _EscapeFun) ->
-    emqx_utils_conv:bin(Val).
+    emqx_template:to_string(Val).
 
 -spec escape_sql(binary()) -> iodata().
 escape_sql(S) ->

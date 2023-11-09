@@ -7,9 +7,6 @@ concurrency:
 on:
   workflow_call:
     inputs:
-      runner:
-        required: true
-        type: string
       builder:
         required: true
         type: string
@@ -19,7 +16,7 @@ permissions:
 
 jobs:
   relup_test_plan:
-    runs-on: ["${{ inputs.runner }}", 'linux', 'x64', 'ephemeral']
+    runs-on: ${{ endsWith(github.repository, '/emqx') && 'ubuntu-22.04' || fromJSON('["self-hosted","ephemeral","linux","x64"]') }}
     container: ${{ inputs.builder }}
     outputs:
       CUR_EE_VSN: ${{ steps.find-versions.outputs.CUR_EE_VSN }}
@@ -57,12 +54,13 @@ jobs:
           _packages
           scripts
           .ci
+        retention-days: 7
 
   relup_test_run:
     needs:
       - relup_test_plan
     if: needs.relup_test_plan.outputs.OLD_VERSIONS != '[]'
-    runs-on: ["${{ inputs.runner }}", 'linux', 'x64', 'ephemeral']
+    runs-on: ${{ endsWith(github.repository, '/emqx') && 'ubuntu-22.04' || fromJSON('["self-hosted","ephemeral","linux","x64"]') }}
     strategy:
       fail-fast: false
       matrix:
@@ -120,3 +118,4 @@ jobs:
         name: debug_data
         path: |
           lux_logs
+        retention-days: 3

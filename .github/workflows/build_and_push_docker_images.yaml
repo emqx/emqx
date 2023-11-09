@@ -28,9 +28,6 @@ on:
       builder_vsn:
         required: true
         type: string
-      runner_labels:
-        required: true
-        type: string
     secrets:
       DOCKER_HUB_USER:
         required: true
@@ -69,18 +66,14 @@ on:
       builder_vsn:
         required: false
         type: string
-        default: '5.1-4'
-      runner_labels:
-        required: false
-        type: string
-        default: '["self-hosted","ephemeral","linux","x64"]'
+        default: '5.2-3'
 
 permissions:
   contents: read
 
 jobs:
   docker:
-    runs-on: ${{ fromJSON(inputs.runner_labels) }}
+    runs-on: ${{ endsWith(github.repository, '/emqx') && 'ubuntu-22.04' || fromJSON('["self-hosted","ephemeral","linux","x64"]') }}
 
     strategy:
       fail-fast: false

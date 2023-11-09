@@ -51,7 +51,7 @@
 %% Internal exports (RPC)
 -export([
     do_destroy/1,
-    do_add_user/2,
+    do_add_user/1,
     do_delete_user/2,
     do_update_user/3
 ]).
@@ -157,19 +157,15 @@ do_destroy(UserGroup) ->
     ).
 
 add_user(UserInfo, State) ->
-    trans(fun ?MODULE:do_add_user/2, [UserInfo, State]).
+    UserInfoRecord = user_info_record(UserInfo, State),
+    trans(fun ?MODULE:do_add_user/1, [UserInfoRecord]).
 
 do_add_user(
-    #{
-        user_id := UserID,
-        password := Password
-    } = UserInfo,
-    #{user_group := UserGroup} = State
+    #user_info{user_id = {UserID, _} = DBUserID, is_superuser = IsSuperuser} = UserInfoRecord
 ) ->
-    case mnesia:read(?TAB, {UserGroup, UserID}, write) of
+    case mnesia:read(?TAB, DBUserID, write) of
         [] ->
-            IsSuperuser = maps:get(is_superuser, UserInfo, false),
-            add_user(UserGroup, UserID, Password, IsSuperuser, State),
+            mnesia:write(?TAB, UserInfoRecord, write),
             {ok, #{user_id => UserID, is_superuser => IsSuperuser}};
         [_] ->
             {error, already_exist}
@@ -187,36 +183,28 @@ do_delete_user(UserID, #{user_group := UserGroup}) ->
     end.
 
 update_user(UserID, User, State) ->
-    trans(fun ?MODULE:do_update_user/3, [UserID, User, State]).
+    FieldsToUpdate = fields_to_update(
+        User,
+        [
+            keys_and_salt,
+            is_superuser
+        ],
+        State
+    ),
+    trans(fun ?MODULE:do_update_user/3, [UserID, FieldsToUpdate, State]).
 
 do_update_user(
     UserID,
-    User,
-    #{user_group := UserGroup} = State
+    FieldsToUpdate,
+    #{user_group := UserGroup} = _State
 ) ->
     case mnesia:read(?TAB, {UserGroup, UserID}, write) of
         [] ->
             {error, not_found};
-        [#user_info{is_superuser = IsSuperuser} = UserInfo] ->
-            UserInfo1 = UserInfo#user_info{
-                is_superuser = maps:get(is_superuser, User, IsSuperuser)
-            },
-            UserInfo2 =
-                case maps:get(password, User, undefined) of
-                    undefined ->
-                        UserInfo1;
-                    Password ->
-                        {StoredKey, ServerKey, Salt} = esasl_scram:generate_authentication_info(
-                            Password, State
-                        ),
-                        UserInfo1#user_info{
-                            stored_key = StoredKey,
-                            server_key = ServerKey,
-                            salt = Salt
-                        }
-                end,
-            mnesia:write(?TAB, UserInfo2, write),
-            {ok, format_user_info(UserInfo2)}
+        [#user_info{} = UserInfo0] ->
+            UserInfo1 = update_user_record(UserInfo0, FieldsToUpdate),
+            mnesia:write(?TAB, UserInfo1, write),
+            {ok, format_user_info(UserInfo1)}
     end.
 
 lookup_user(UserID, #{user_group := UserGroup}) ->
@@ -315,19 +303,56 @@ check_client_final_message(Bin, #{is_superuser := IsSuperuser} = Cache, #{algori
             {error, not_authorized}
     end.
 
-add_user(UserGroup, UserID, Password, IsSuperuser, State) ->
-    {StoredKey, ServerKey, Salt} = esasl_scram:generate_authentication_info(Password, State),
-    write_user(UserGroup, UserID, StoredKey, ServerKey, Salt, IsSuperuser).
+user_info_record(
+    #{
+        user_id := UserID,
+        password := Password
+    } = UserInfo,
+    #{user_group := UserGroup} = State
+) ->
+    IsSuperuser = maps:get(is_superuser, UserInfo, false),
+    user_info_record(UserGroup, UserID, Password, IsSuperuser, State).
 
-write_user(UserGroup, UserID, StoredKey, ServerKey, Salt, IsSuperuser) ->
-    UserInfo = #user_info{
+user_info_record(UserGroup, UserID, Password, IsSuperuser, State) ->
+    {StoredKey, ServerKey, Salt} = esasl_scram:generate_authentication_info(Password, State),
+    #user_info{
         user_id = {UserGroup, UserID},
         stored_key = StoredKey,
         server_key = ServerKey,
         salt = Salt,
         is_superuser = IsSuperuser
-    },
-    mnesia:write(?TAB, UserInfo, write).
+    }.
+
+fields_to_update(
+    #{password := Password} = UserInfo,
+    [keys_and_salt | Rest],
+    State
+) ->
+    {StoredKey, ServerKey, Salt} = esasl_scram:generate_authentication_info(Password, State),
+    [
+        {keys_and_salt, {StoredKey, ServerKey, Salt}}
+        | fields_to_update(UserInfo, Rest, State)
+    ];
+fields_to_update(#{is_superuser := IsSuperuser} = UserInfo, [is_superuser | Rest], State) ->
+    [{is_superuser, IsSuperuser} | fields_to_update(UserInfo, Rest, State)];
+fields_to_update(UserInfo, [_ | Rest], State) ->
+    fields_to_update(UserInfo, Rest, State);
+fields_to_update(_UserInfo, [], _State) ->
+    [].
+
+update_user_record(UserInfoRecord, []) ->
+    UserInfoRecord;
+update_user_record(UserInfoRecord, [{keys_and_salt, {StoredKey, ServerKey, Salt}} | Rest]) ->
+    update_user_record(
+        UserInfoRecord#user_info{
+            stored_key = StoredKey,
+            server_key = ServerKey,
+            salt = Salt
+        },
+        Rest
+    );
+update_user_record(UserInfoRecord, [{is_superuser, IsSuperuser} | Rest]) ->
+    update_user_record(UserInfoRecord#user_info{is_superuser = IsSuperuser}, Rest).
 
 retrieve(UserID, #{user_group := UserGroup}) ->
     case mnesia:dirty_read(?TAB, {UserGroup, UserID}) of

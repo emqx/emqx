@@ -10,12 +10,17 @@
 -include_lib("hocon/include/hoconsc.hrl").
 
 -export([namespace/0, roots/0, fields/1, translations/0, translation/1, desc/1, validations/0]).
+-export([upgrade_raw_conf/1]).
 
 -define(EE_SCHEMA_MODULES, [
     emqx_license_schema,
     emqx_schema_registry_schema,
     emqx_ft_schema
 ]).
+
+%% Callback to upgrade config after loaded from config file but before validation.
+upgrade_raw_conf(RawConf) ->
+    emqx_conf_schema:upgrade_raw_conf(RawConf).
 
 namespace() ->
     emqx_conf_schema:namespace().

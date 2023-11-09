@@ -29,6 +29,16 @@
 ).
 -define(EMQX_PLUGIN_TEMPLATE_VSN, "5.1.0").
 -define(EMQX_PLUGIN_TEMPLATE_TAG, "5.1.0").
+
+-define(EMQX_PLUGIN_TEMPLATES_LEGACY, [
+    #{
+        vsn => "5.0.0",
+        tag => "5.0.0",
+        release_name => "emqx_plugin_template",
+        app_name => emqx_plugin_template
+    }
+]).
+
 -define(EMQX_ELIXIR_PLUGIN_TEMPLATE_RELEASE_NAME, "elixir_plugin_template").
 -define(EMQX_ELIXIR_PLUGIN_TEMPLATE_URL,
     "https://github.com/emqx/emqx-elixir-plugin/releases/download/"
@@ -287,6 +297,36 @@ t_start_restart_and_stop(Config) ->
     ok = emqx_plugins:ensure_disabled(NameVsn),
     ok = emqx_plugins:ensure_uninstalled(NameVsn),
     ok = emqx_plugins:ensure_uninstalled(Bar2),
+    ?assertEqual([], emqx_plugins:list()),
+    ok.
+
+t_legacy_plugins({init, Config}) ->
+    Config;
+t_legacy_plugins({'end', _Config}) ->
+    ok;
+t_legacy_plugins(Config) ->
+    lists:foreach(
+        fun(LegacyPlugin) ->
+            test_legacy_plugin(LegacyPlugin, Config)
+        end,
+        ?EMQX_PLUGIN_TEMPLATES_LEGACY
+    ).
+
+test_legacy_plugin(#{app_name := AppName} = LegacyPlugin, _Config) ->
+    #{package := Package} = get_demo_plugin_package(LegacyPlugin#{
+        shdir => emqx_plugins:install_dir(), git_url => ?EMQX_PLUGIN_TEMPLATE_URL
+    }),
+    NameVsn = filename:basename(Package, ?PACKAGE_SUFFIX),
+    ok = emqx_plugins:ensure_installed(NameVsn),
+    %% start
+    ok = emqx_plugins:ensure_started(NameVsn),
+    ok = assert_app_running(AppName, true),
+    ok = assert_app_running(map_sets, true),
+    %% stop
+    ok = emqx_plugins:ensure_stopped(NameVsn),
+    ok = assert_app_running(AppName, false),
+    ok = assert_app_running(map_sets, false),
+    ok = emqx_plugins:ensure_uninstalled(NameVsn),
     ?assertEqual([], emqx_plugins:list()),
     ok.
 
