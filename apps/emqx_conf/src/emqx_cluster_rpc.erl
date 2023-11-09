@@ -44,7 +44,9 @@
     read_next_mfa/1,
     trans_query/1,
     trans_status/0,
-    on_leave_clean/0
+    on_leave_clean/0,
+    get_commit_lag/0,
+    get_commit_lag/1
 ]).
 
 -export([
@@ -231,13 +233,29 @@ make_initiate_call_req(M, F, A) ->
 -spec get_node_tnx_id(node()) -> integer().
 get_node_tnx_id(Node) ->
     case mnesia:wread({?CLUSTER_COMMIT, Node}) of
-        [] -> -1;
+        [] -> ?DEFAULT_INIT_TXN_ID;
         [#cluster_rpc_commit{tnx_id = TnxId}] -> TnxId
     end.
 
+%% @doc Return the commit lag of *this* node.
+-spec get_commit_lag() -> #{my_id := pos_integer(), latest := pos_integer()}.
+get_commit_lag() ->
+    {atomic, Result} = transaction(fun ?MODULE:get_commit_lag/1, [node()]),
+    Result.
+
+get_commit_lag(Node) ->
+    LatestId = get_cluster_tnx_id(),
+    LatestNode =
+        case mnesia:read(?CLUSTER_MFA, LatestId) of
+            [#?CLUSTER_MFA{initiator = N}] -> N;
+            _ -> undefined
+        end,
+    MyId = get_node_tnx_id(Node),
+    #{my_id => MyId, latest => LatestId, latest_node => LatestNode}.
+
 %% Checks whether the Mnesia tables used by this module are waiting to
 %% be loaded and from where.
--spec get_tables_status() -> #{atom() => {waiting, [node()]} | {disc | network, node()}}.
+-spec get_tables_status() -> #{atom() => {waiting, [node()]} | {loaded, local | node()}}.
 get_tables_status() ->
     maps:from_list([
         {Tab, do_get_tables_status(Tab)}
@@ -249,13 +267,16 @@ do_get_tables_status(Tab) ->
     TabNodes = proplists:get_value(all_nodes, Props),
     KnownDown = mnesia_recover:get_mnesia_downs(),
     LocalNode = node(),
-    case proplists:get_value(load_node, Props) of
+    %% load_node. Returns the name of the node that Mnesia loaded the table from.
+    %% The structure of the returned value is unspecified, but can be useful for debugging purposes.
+    LoadedFrom = proplists:get_value(load_node, Props),
+    case LoadedFrom of
         unknown ->
             {waiting, TabNodes -- [LocalNode | KnownDown]};
         LocalNode ->
-            {disc, LocalNode};
+            {loaded, local};
         Node ->
-            {network, Node}
+            {loaded, Node}
     end.
 
 %% Regardless of what MFA is returned, consider it a success),

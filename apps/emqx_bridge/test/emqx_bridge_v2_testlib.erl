@@ -145,6 +145,39 @@ create_bridge(Config, Overrides) ->
     ct:pal("creating bridge with config: ~p", [BridgeConfig]),
     emqx_bridge_v2:create(BridgeType, BridgeName, BridgeConfig).
 
+list_bridges_api() ->
+    Params = [],
+    Path = emqx_mgmt_api_test_util:api_path(["actions"]),
+    AuthHeader = emqx_mgmt_api_test_util:auth_header_(),
+    Opts = #{return_all => true},
+    ct:pal("listing bridges (via http)"),
+    Res =
+        case emqx_mgmt_api_test_util:request_api(get, Path, "", AuthHeader, Params, Opts) of
+            {ok, {Status, Headers, Body0}} ->
+                {ok, {Status, Headers, emqx_utils_json:decode(Body0, [return_maps])}};
+            Error ->
+                Error
+        end,
+    ct:pal("list bridges result: ~p", [Res]),
+    Res.
+
+get_bridge_api(BridgeType, BridgeName) ->
+    BridgeId = emqx_bridge_resource:bridge_id(BridgeType, BridgeName),
+    Params = [],
+    Path = emqx_mgmt_api_test_util:api_path(["actions", BridgeId]),
+    AuthHeader = emqx_mgmt_api_test_util:auth_header_(),
+    Opts = #{return_all => true},
+    ct:pal("get bridge ~p (via http)", [{BridgeType, BridgeName}]),
+    Res =
+        case emqx_mgmt_api_test_util:request_api(get, Path, "", AuthHeader, Params, Opts) of
+            {ok, {Status, Headers, Body0}} ->
+                {ok, {Status, Headers, emqx_utils_json:decode(Body0, [return_maps])}};
+            Error ->
+                Error
+        end,
+    ct:pal("get bridge ~p result: ~p", [{BridgeType, BridgeName}, Res]),
+    Res.
+
 create_bridge_api(Config) ->
     create_bridge_api(Config, _Overrides = #{}).
 

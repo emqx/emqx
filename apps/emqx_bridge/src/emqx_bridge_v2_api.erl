@@ -40,7 +40,8 @@
     '/actions/:id/enable/:enable'/2,
     '/actions/:id/:operation'/2,
     '/nodes/:node/actions/:id/:operation'/2,
-    '/actions_probe'/2
+    '/actions_probe'/2,
+    '/action_types'/2
 ]).
 
 %% BpAPI
@@ -79,7 +80,8 @@ paths() ->
         "/actions/:id/enable/:enable",
         "/actions/:id/:operation",
         "/nodes/:node/actions/:id/:operation",
-        "/actions_probe"
+        "/actions_probe",
+        "/action_types"
     ].
 
 error_schema(Code, Message) when is_atom(Code) ->
@@ -338,6 +340,27 @@ schema("/actions_probe") ->
                 400 => error_schema(['TEST_FAILED'], "bridge test failed")
             }
         }
+    };
+schema("/action_types") ->
+    #{
+        'operationId' => '/action_types',
+        get => #{
+            tags => [<<"actions">>],
+            desc => ?DESC("desc_api10"),
+            summary => <<"List available action types">>,
+            responses => #{
+                200 => emqx_dashboard_swagger:schema_with_examples(
+                    array(emqx_bridge_v2_schema:types_sc()),
+                    #{
+                        <<"types">> =>
+                            #{
+                                summary => <<"Action types">>,
+                                value => emqx_bridge_v2_schema:types()
+                            }
+                    }
+                )
+            }
+        }
     }.
 
 '/actions'(post, #{body := #{<<"type">> := BridgeType, <<"name">> := BridgeName} = Conf0}) ->
@@ -485,6 +508,9 @@ schema("/actions_probe") ->
         BadRequest ->
             redact(BadRequest)
     end.
+
+'/action_types'(get, _Request) ->
+    ?OK(emqx_bridge_v2_schema:types()).
 
 maybe_deobfuscate_bridge_probe(#{<<"type">> := BridgeType, <<"name">> := BridgeName} = Params) ->
     case emqx_bridge:lookup(BridgeType, BridgeName) of
@@ -709,8 +735,10 @@ format_resource(
     #{
         type := Type,
         name := Name,
+        status := Status,
+        error := Error,
         raw_config := RawConf,
-        resource_data := ResourceData
+        resource_data := _ResourceData
     },
     Node
 ) ->
@@ -719,14 +747,16 @@ format_resource(
             RawConf#{
                 type => Type,
                 name => maps:get(<<"name">>, RawConf, Name),
-                node => Node
+                node => Node,
+                status => Status,
+                error => Error
             },
-            format_resource_data(ResourceData)
+            format_bridge_status_and_error(#{status => Status, error => Error})
         )
     ).
 
-format_resource_data(ResData) ->
-    maps:fold(fun format_resource_data/3, #{}, maps:with([status, error], ResData)).
+format_bridge_status_and_error(Data) ->
+    maps:fold(fun format_resource_data/3, #{}, maps:with([status, error], Data)).
 
 format_resource_data(error, undefined, Result) ->
     Result;

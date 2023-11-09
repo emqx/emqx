@@ -236,6 +236,14 @@ end_per_group(_, Config) ->
     emqx_cth_suite:stop(?config(group_apps, Config)),
     ok.
 
+init_per_testcase(t_action_types, Config) ->
+    case ?config(cluster_nodes, Config) of
+        undefined ->
+            init_mocks();
+        Nodes ->
+            [erpc:call(Node, ?MODULE, init_mocks, []) || Node <- Nodes]
+    end,
+    Config;
 init_per_testcase(_TestCase, Config) ->
     case ?config(cluster_nodes, Config) of
         undefined ->
@@ -260,8 +268,14 @@ end_per_testcase(_TestCase, Config) ->
 
 -define(CONNECTOR_IMPL, emqx_bridge_v2_dummy_connector).
 init_mocks() ->
-    meck:new(emqx_connector_ee_schema, [passthrough, no_link]),
-    meck:expect(emqx_connector_ee_schema, resource_type, 1, ?CONNECTOR_IMPL),
+    case emqx_release:edition() of
+        ee ->
+            meck:new(emqx_connector_ee_schema, [passthrough, no_link]),
+            meck:expect(emqx_connector_ee_schema, resource_type, 1, ?CONNECTOR_IMPL),
+            ok;
+        ce ->
+            ok
+    end,
     meck:new(?CONNECTOR_IMPL, [non_strict, no_link]),
     meck:expect(?CONNECTOR_IMPL, callback_mode, 0, async_if_possible),
     meck:expect(
@@ -289,7 +303,7 @@ init_mocks() ->
     ok = meck:expect(?CONNECTOR_IMPL, on_get_channels, fun(ResId) ->
         emqx_bridge_v2:get_channels_for_connector(ResId)
     end),
-    [?CONNECTOR_IMPL, emqx_connector_ee_schema].
+    ok.
 
 clear_resources() ->
     lists:foreach(
@@ -885,6 +899,14 @@ t_cascade_delete_actions(Config) ->
         Config
     ),
     {ok, 200, []} = request_json(get, uri([?ROOT]), Config).
+
+t_action_types(Config) ->
+    Res = request_json(get, uri(["action_types"]), Config),
+    ?assertMatch({ok, 200, _}, Res),
+    {ok, 200, Types} = Res,
+    ?assert(is_list(Types), #{types => Types}),
+    ?assert(lists:all(fun is_binary/1, Types), #{types => Types}),
+    ok.
 
 %%% helpers
 listen_on_random_port() ->
