@@ -16,8 +16,6 @@
 ]).
 -import(hoconsc, [mk/2, enum/1, ref/2]).
 
--on_load(register_bridge_v2/0).
-
 -export([
     bridge_v2_examples/1,
     conn_bridge_examples/1,
@@ -537,7 +535,9 @@ fields(bridge_v2_field) ->
                 desc => <<"Kafka Producer Bridge V2 Config">>,
                 required => false
             }
-        )}.
+        )};
+fields(action) ->
+    fields(bridge_v2_field).
 
 desc("config_connector") ->
     ?DESC("desc_config");
@@ -725,17 +725,3 @@ kafka_ext_header_value_validator(Value) ->
                 "placeholder like ${foo}, or a simple string."
             }
     end.
-
--include_lib("emqx_bridge/include/emqx_bridge_v2_register.hrl").
-
-register_bridge_v2() ->
-    emqx_bridge_v2_register_bridge_type(#{
-        %% Should be provided by all bridges. Even if the bridge_v2_type_name is
-        %% the same as the bridge_v1_type_named.
-        'bridge_v1_type_name' => kafka,
-        'bridge_v2_type_name' => kafka_producer,
-        'connector_type' => kafka_producer,
-        'schema_module' => ?MODULE,
-        'schema_struct_field' => bridge_v2_field
-    }),
-    ok.

@@ -18,15 +18,6 @@
 -behaviour(emqx_config_handler).
 -behaviour(emqx_config_backup).
 
--compile([
-    {nowarn_unused_function, [
-        {internal_register_bridge_type_with_lock, 1},
-        {emqx_bridge_v2_register_bridge_type, 1}
-    ]}
-]).
--ignore_xref(emqx_bridge_v2_register_bridge_type/1).
--ignore_xref(internal_register_bridge_type_with_lock/1).
-
 -include_lib("emqx/include/emqx.hrl").
 -include_lib("emqx/include/logger.hrl").
 -include_lib("emqx/include/emqx_hooks.hrl").
@@ -36,15 +27,6 @@
 %% Note: this is strange right now, because it lives in `emqx_bridge_v2', but it shall be
 %% refactored into a new module/application with appropriate name.
 -define(ROOT_KEY, actions).
-
--on_load(on_load/0).
-
-%% Getting registered bridge schemas:
-
--export([
-    bridge_v2_type_to_schame_struct_field/1,
-    registered_schema_modules/0
-]).
 
 %% Loading and unloading config when EMQX starts and stops
 -export([
@@ -157,53 +139,6 @@
 %%====================================================================
 
 %%====================================================================
-
--include_lib("emqx_bridge/include/emqx_bridge_v2_register.hrl").
-
-on_load() ->
-    try
-        %% We must prevent overwriting so we take a lock when writing to persistent_term
-        global:set_lock(
-            {
-                internal_emqx_bridge_v2_persistent_term_info_key(),
-                internal_emqx_bridge_v2_persistent_term_info_key()
-            },
-            [node()],
-            infinity
-        ),
-        internal_maybe_create_initial_bridge_v2_info_map()
-    catch
-        ErrorType:Reason:Stacktrace ->
-            %% Logger may not be started so print to stdout
-            io:format("~p~n", [
-                #{
-                    'error_type' => ErrorType,
-                    'reason' => Reason,
-                    'stacktrace' => Stacktrace,
-                    'msg' => "Failed to register bridge V2 type"
-                }
-            ]),
-            erlang:raise(ErrorType, Reason, Stacktrace)
-    after
-        global:del_lock(
-            {
-                internal_emqx_bridge_v2_persistent_term_info_key(),
-                internal_emqx_bridge_v2_persistent_term_info_key()
-            },
-            [node()]
-        )
-    end,
-    ok.
-
-bridge_v2_type_to_schame_struct_field(BridgeV2Type) ->
-    InfoMap = persistent_term:get(internal_emqx_bridge_v2_persistent_term_info_key()),
-    Map = maps:get(bridge_v2_type_to_schema_struct_field, InfoMap),
-    maps:get(BridgeV2Type, Map).
-
-registered_schema_modules() ->
-    InfoMap = persistent_term:get(internal_emqx_bridge_v2_persistent_term_info_key()),
-    Schemas = maps:get(bridge_v2_type_to_schema_module, InfoMap),
-    maps:to_list(Schemas).
 
 %%====================================================================
 %% Loading and unloading config when EMQX starts and stops
@@ -908,23 +843,8 @@ connector_type(Type) ->
     %% remote call so it can be mocked
     ?MODULE:bridge_v2_type_to_connector_type(Type).
 
-bridge_v2_type_to_connector_type(Type) when not is_atom(Type) ->
-    bridge_v2_type_to_connector_type(binary_to_existing_atom(iolist_to_binary(Type)));
 bridge_v2_type_to_connector_type(Type) ->
-    BridgeV2InfoMap = persistent_term:get(internal_emqx_bridge_v2_persistent_term_info_key()),
-    BridgeV2TypeToConnectorTypeMap = maps:get(bridge_v2_type_to_connector_type, BridgeV2InfoMap),
-    case maps:get(Type, BridgeV2TypeToConnectorTypeMap, undefined) of
-        undefined -> bridge_v2_type_to_connector_type_old(Type);
-        ConnectorType -> ConnectorType
-    end.
-
-% bridge_v2_type_to_connector_type_old(kafka) ->
-%     %% backward compatible
-%     kafka_producer;
-% bridge_v2_type_to_connector_type_old(kafka_producer) ->
-%     kafka_producer;
-bridge_v2_type_to_connector_type_old(azure_event_hub_producer) ->
-    azure_event_hub_producer.
+    emqx_action_info:action_type_to_connector_type(Type).
 
 %%====================================================================
 %% Data backup API
@@ -1144,61 +1064,14 @@ bridge_v1_is_valid(BridgeV1Type, BridgeName) ->
             end
     end.
 
-bridge_v1_type_to_bridge_v2_type(Bin) when is_binary(Bin) ->
-    ?MODULE:bridge_v1_type_to_bridge_v2_type(binary_to_existing_atom(Bin));
 bridge_v1_type_to_bridge_v2_type(Type) ->
-    BridgeV2InfoMap = persistent_term:get(internal_emqx_bridge_v2_persistent_term_info_key()),
-    BridgeV1TypeToBridgeV2Type = maps:get(bridge_v1_type_to_bridge_v2_type, BridgeV2InfoMap),
-    case maps:get(Type, BridgeV1TypeToBridgeV2Type, undefined) of
-        undefined -> bridge_v1_type_to_bridge_v2_type_old(Type);
-        BridgeV2Type -> BridgeV2Type
-    end.
+    emqx_action_info:bridge_v1_type_to_action_type(Type).
 
-% bridge_v1_type_to_bridge_v2_type_old(kafka) ->
-%     kafka_producer;
-% bridge_v1_type_to_bridge_v2_type_old(kafka_producer) ->
-%     kafka_producer;
-bridge_v1_type_to_bridge_v2_type_old(azure_event_hub_producer) ->
-    azure_event_hub_producer;
-bridge_v1_type_to_bridge_v2_type_old(Type) ->
-    Type.
-
-bridge_v2_type_to_bridge_v1_type(Bin) when is_binary(Bin) ->
-    ?MODULE:bridge_v2_type_to_bridge_v1_type(binary_to_existing_atom(Bin));
 bridge_v2_type_to_bridge_v1_type(Type) ->
-    BridgeV2InfoMap = persistent_term:get(internal_emqx_bridge_v2_persistent_term_info_key()),
-    BridgeV2TypeToBridgeV1Type = maps:get(bridge_v2_type_to_bridge_v1_type, BridgeV2InfoMap),
-    case maps:get(Type, BridgeV2TypeToBridgeV1Type, undefined) of
-        undefined -> bridge_v2_type_to_bridge_v1_type_old(Type);
-        BridgeV1Type -> BridgeV1Type
-    end.
+    emqx_action_info:action_type_to_bridge_v1_type(Type).
 
-bridge_v2_type_to_bridge_v1_type_old(azure_event_hub_producer) ->
-    azure_event_hub_producer;
-bridge_v2_type_to_bridge_v1_type_old(Type) ->
-    Type.
-
-%% This function should return true for all inputs that are bridge V1 types for
-%% bridges that have been refactored to bridge V2s, and for all all bridge V2
-%% types. For everything else the function should return false.
-is_bridge_v2_type(Bin) when is_binary(Bin) ->
-    is_bridge_v2_type(binary_to_existing_atom(Bin));
 is_bridge_v2_type(Type) ->
-    BridgeV2InfoMap = persistent_term:get(internal_emqx_bridge_v2_persistent_term_info_key()),
-    BridgeV2Types = maps:get(bridge_v2_type_names, BridgeV2InfoMap),
-    case maps:get(Type, BridgeV2Types, undefined) of
-        undefined -> is_bridge_v2_type_old(Type);
-        _ -> true
-    end.
-
-% is_bridge_v2_type_old(kafka_producer) ->
-%     true;
-% is_bridge_v2_type_old(kafka) ->
-%     true;
-is_bridge_v2_type_old(azure_event_hub_producer) ->
-    true;
-is_bridge_v2_type_old(_) ->
-    false.
+    emqx_action_info:is_action_type(Type).
 
 bridge_v1_list_and_transform() ->
     Bridges = list_with_lookup_fun(fun bridge_v1_lookup_and_transform/2),
