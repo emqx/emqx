@@ -36,6 +36,7 @@
     stream :: emqx_ds:stream(),
     rank :: emqx_ds:stream_rank()
 }).
+-type ds_stream() :: #ds_stream{}.
 
 -record(ds_iter, {
     id :: {emqx_persistent_session_ds:id(), emqx_ds:stream()},

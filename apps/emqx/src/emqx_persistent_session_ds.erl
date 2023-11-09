@@ -97,8 +97,6 @@
     props := map()
 }.
 
-%% -type session() :: #session{}.
-
 -type timestamp() :: emqx_utils_calendar:epoch_millisecond().
 -type topic() :: emqx_types:topic().
 -type clientinfo() :: emqx_types:clientinfo().
