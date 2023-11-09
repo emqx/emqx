@@ -62,12 +62,10 @@ fields(connector_config) ->
                 }
             )},
         {aws_secret_access_key,
-            mk(
-                binary(),
+            emqx_schema_secret:mk(
                 #{
                     required => true,
-                    desc => ?DESC("aws_secret_access_key"),
-                    sensitive => true
+                    desc => ?DESC("aws_secret_access_key")
                 }
             )},
         {endpoint,
