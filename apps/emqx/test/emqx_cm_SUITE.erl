@@ -306,7 +306,7 @@ test_stepdown_session(Action, Reason) ->
     ok = emqx_cm:register_channel(ClientId, Pid1, ConnInfo),
     ok = emqx_cm:register_channel(ClientId, Pid1, ConnInfo),
     ok = emqx_cm:register_channel(ClientId, Pid2, ConnInfo),
-    ?assertEqual([Pid1, Pid2], lists:sort(emqx_cm:lookup_channels(ClientId))),
+    ?assertEqual(lists:sort([Pid1, Pid2]), lists:sort(emqx_cm:lookup_channels(ClientId))),
     case Reason of
         noproc ->
             exit(Pid1, kill),
