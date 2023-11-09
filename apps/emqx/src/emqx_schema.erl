@@ -1849,7 +1849,7 @@ base_listener(Bind) ->
                     default => true
                 }
             )}
-    ] ++ emqx_limiter_schema:short_paths_fields(?MODULE).
+    ] ++ emqx_limiter_schema:short_paths_fields().
 
 desc("persistent_session_store") ->
     "Settings for message persistence.";
