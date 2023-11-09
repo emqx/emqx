@@ -93,7 +93,7 @@ registered_api_schemas(Method) ->
     %% We *must* do this to ensure the module is really loaded, especially when we use
     %% `call_hocon' from `nodetool' to generate initial configurations.
     _ = emqx_bridge_v2:module_info(),
-    RegistredSchmeas = emqx_bridge_v2:registered_schema_modules(),
+    RegistredSchmeas = emqx_action_info:registered_schema_modules(),
     [
         api_ref(SchemaModule, atom_to_binary(BridgeV2Type), Method ++ "_bridge_v2")
      || {BridgeV2Type, SchemaModule} <- RegistredSchmeas
@@ -156,8 +156,8 @@ fields(actions) ->
 
 registered_schema_fields() ->
     [
-        Module:fields(emqx_bridge_v2:bridge_v2_type_to_schame_struct_field(BridgeV2Type))
-     || {BridgeV2Type, Module} <- emqx_bridge_v2:registered_schema_modules()
+        Module:fields(action)
+     || {_BridgeV2Type, Module} <- emqx_action_info:registered_schema_modules()
     ].
 
 desc(actions) ->
@@ -183,7 +183,7 @@ examples(Method) ->
             ConnectorExamples = erlang:apply(Module, bridge_v2_examples, [Method]),
             lists:foldl(MergeFun, Examples, ConnectorExamples)
         end,
-    SchemaModules = [Mod || {_, Mod} <- emqx_bridge_v2:registered_schema_modules()],
+    SchemaModules = [Mod || {_, Mod} <- emqx_action_info:registered_schema_modules()],
     lists:foldl(Fun, #{}, SchemaModules).
 
 -ifdef(TEST).
