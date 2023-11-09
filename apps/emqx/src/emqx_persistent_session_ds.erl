@@ -342,7 +342,7 @@ deliver(_ClientInfo, _Delivers, Session) ->
 -spec handle_timeout(clientinfo(), _Timeout, session()) ->
     {ok, replies(), session()} | {ok, replies(), timeout(), session()}.
 handle_timeout(_ClientInfo, pull, Session = #{id := Id, inflight := Inflight0}) ->
-    WindowSize = 100,
+    WindowSize = 1000,
     {Publishes, Inflight} = emqx_persistent_message_ds_replayer:poll(Id, Inflight0, WindowSize),
     %% TODO: make these values configurable:
     Timeout =
