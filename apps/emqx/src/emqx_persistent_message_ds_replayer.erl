@@ -28,6 +28,10 @@
 
 -include("emqx_persistent_session_ds.hrl").
 
+-ifdef(TEST).
+-include_lib("eunit/include/eunit.hrl").
+-endif.
+
 %%================================================================================
 %% Type declarations
 %%================================================================================
