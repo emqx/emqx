@@ -30,9 +30,18 @@
     post_request/0
 ]).
 
+-export([types/0, types_sc/0]).
+
 -export([enterprise_api_schemas/1]).
 
+-export_type([action_type/0]).
+
+%% Should we explicitly list them here so dialyzer may be more helpful?
+-type action_type() :: atom().
+
 -if(?EMQX_RELEASE_EDITION == ee).
+-spec enterprise_api_schemas(Method) -> [{_Type :: binary(), ?R_REF(module(), Method)}] when
+    Method :: string().
 enterprise_api_schemas(Method) ->
     %% We *must* do this to ensure the module is really loaded, especially when we use
     %% `call_hocon' from `nodetool' to generate initial configurations.
@@ -55,6 +64,8 @@ enterprise_fields_actions() ->
 
 -else.
 
+-spec enterprise_api_schemas(Method) -> [{_Type :: binary(), ?R_REF(module(), Method)}] when
+    Method :: string().
 enterprise_api_schemas(_Method) -> [].
 
 enterprise_fields_actions() -> [].
@@ -128,6 +139,14 @@ desc(actions) ->
     ?DESC("desc_bridges_v2");
 desc(_) ->
     undefined.
+
+-spec types() -> [action_type()].
+types() ->
+    proplists:get_keys(?MODULE:fields(actions)).
+
+-spec types_sc() -> ?ENUM([action_type()]).
+types_sc() ->
+    hoconsc:enum(types()).
 
 -ifdef(TEST).
 -include_lib("hocon/include/hocon_types.hrl").
