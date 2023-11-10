@@ -1,16 +1,18 @@
-# emqx-gbt32960
+# EMQX GBT/32960 网关
 
-该文档定义了 Plugins **emqx_gbt32960** 和 **EMQX** 之间数据交换的格式
+该文档定义了 **GBT/32960** 网关和 **EMQX** 之间数据交换的格式
 
 约定:
 - Payload 采用 Json 格式进行组装
 - Json Key 采用大驼峰格式命名
+- 使用车辆的 `vin` 值作为 `clientid`
+- 默认挂载点为: gbt32960/${clientid}
 
 # Upstream
-数据流向: Terminal -> emqx_gbt32960 -> EMQX
+数据流向: Terminal -> GBT/32960 -> EMQX
 
 ## 车辆登入
-Topic: gbt32960/${vin}/upstream/vlogin
+Topic: gbt32960/${clientid}/upstream/vlogin
 
 ```json
 {
@@ -57,7 +59,7 @@ Topic: gbt32960/${vin}/upstream/vlogin
 
 ## 车辆登出
 
-Topic: gbt32960/${vin}/upstream/vlogout
+Topic: gbt32960/${clientid}/upstream/vlogout
 
 车辆登出的 `Cmd` 值为 4，其余字段含义与登入相同：
 
@@ -82,7 +84,7 @@ Topic: gbt32960/${vin}/upstream/vlogout
 
 ## 实时信息上报
 
-Topic: gbt32960/${vin}/upstream/info
+Topic: gbt32960/${clientid}/upstream/info
 
 > 不同信息类型上报，格式上只有 Infos 里面的对象属性不同，通过 `Type` 进行区分
 > Infos 为数组，代表车载终端每次报文可以上报多个信息
@@ -256,11 +258,11 @@ Topic: gbt32960/${vin}/upstream/info
 | ------------------- | ------- | ------------------------------------------------------------ |
 | `Type`              | String  | 数据类型，此处为 `FuleCell`                                  |
 | `CellVoltage`       | Integer | 燃料电池电压，有效值范围 0~20000（表示 0V ~ 2000V）单位 0.1 V |
-| `CellCurrent`       | Integer | 燃料电池电流，有效值范围 0~20000（表示 0A~ +2000A）单位 0.1 A |
+| `CellCurrent`       | Integer | 燃料电池电流，有效值范围 0~20000（表示 0A ~ +2000A）单位 0.1 A |
 | `FuelConsumption`   | Integer | 燃料消耗率，有效值范围 0~60000（表示 0kg/100km ~ 600 kg/100km) 单位 0.01 kg/100km |
 | `ProbeNum`          | Integer | 燃料电池探针总数，有效值范围 0~65531                         |
 | `ProbeTemps`        | Array   | 燃料电池每探针温度值                                         |
-| `H_MaxTemp`         | Integer | 氢系统最高温度，有效值 0~2400（偏移量40°C，表示 -40°C~200°C）单位 0.1 °C |
+| `H_MaxTemp`         | Integer | 氢系统最高温度，有效值 0~2400（偏移量40°C，表示 -40°C ~ 200°C）单位 0.1 °C |
 | `H_TempProbeCode`   | Integer | 氢系统最高温度探针代号，有效值 1~252                         |
 | `H_MaxConc`         | Integer | 氢气最高浓度，有效值 0~60000（表示 0mg/kg ~ 50000 mg/kg）单位 1mg/kg |
 | `H_ConcSensorCode`  | Integer | 氢气最高浓度传感器代号，有效值 1~252                         |
@@ -302,8 +304,8 @@ Topic: gbt32960/${vin}/upstream/info
 | ----------------- | ------- | ------------------------------------------------------------ |
 | `Type`            | String  | 数据类型，此处为 `Engine`                                    |
 | `Status`          | Integer | 发动机状态，`1` 表示启动；`2` 关闭                           |
-| `CrankshaftSpeed` | Integer | 曲轴转速，有效值 0~60000（表示 0r/min~60000r/min）单位 1r/min |
-| `FuelConsumption` | Integer | 燃料消耗率，有效范围 0~60000（表示 0L/100km~600L/100km）单位 0.01 L/100km |
+| `CrankshaftSpeed` | Integer | 曲轴转速，有效值 0~60000（表示 0r/min ~ 60000r/min）单位 1r/min |
+| `FuelConsumption` | Integer | 燃料消耗率，有效范围 0~60000（表示 0L/100km ~ 600L/100km）单位 0.01 L/100km |
 
 
 
@@ -396,10 +398,10 @@ Topic: gbt32960/${vin}/upstream/info
 | `MinBatteryVoltage`         | Integer | 电池单体电压最低值，有效值 0~15000（表示 0V~15V）单位 0.001V |
 | `MaxTempSubsysNo`           | Integer | 最高温度子系统号，有效值 1~250                               |
 | `MaxTempProbeNo`            | Integer | 最高温度探针序号，有效值 1~250                               |
-| `MaxTemp`                   | Integer | 最高温度值，有效值范围 0~250（偏移量40，表示 -40°C~+210°C）  |
+| `MaxTemp`                   | Integer | 最高温度值，有效值范围 0~250（偏移量40，表示 -40°C ~ +210°C）  |
 | `MinTempSubsysNo`           | Integer | 最低温度子系统号，有效值 1~250                               |
 | `MinTempProbeNo`            | Integer | 最低温度探针序号，有效值 1~250                               |
-| `MinTemp`                   | Integer | 最低温度值，有效值范围 0~250（偏移量40，表示 -40°C~+210°C）  |
+| `MinTemp`                   | Integer | 最低温度值，有效值范围 0~250（偏移量40，表示 -40°C ~ +210°C）  |
 
 
 
@@ -508,7 +510,7 @@ Topic: gbt32960/${vin}/upstream/info
 
 | 字段        | 类型    | 描述                                 |
 | ----------- | ------- | ------------------------------------ |
-| `Type`      | String  | 数据类型，此处位 `ChargeableVoltage` |
+| `Type`      | String  | 数据类型，此处为 `ChargeableVoltage` |
 | `Number`    | Integer | 可充电储能子系统个数，有效范围 1~250 |
 | `SubSystem` | Object  | 可充电储能子系统电压信息列表         |
 
@@ -517,12 +519,12 @@ Topic: gbt32960/${vin}/upstream/info
 | 字段                 | 类型    | 描述                                                         |
 | -------------------- | ------- | ------------------------------------------------------------ |
 | `ChargeableSubsysNo` | Integer | 可充电储能子系统号，有效值范围，1~250                        |
-| `ChargeableVoltage`  | Integer | 可充电储能装置电压，有效值范围，0~10000（表示 0V~1000V）单位 0.1 V |
-| `ChargeableCurrent`  | Integer | 可充电储能装置电流，有效值范围，0~20000（数值偏移量 1000A，表示 -1000A~+1000A）单位 0.1 A |
+| `ChargeableVoltage`  | Integer | 可充电储能装置电压，有效值范围，0~10000（表示 0V ~ 1000V）单位 0.1 V |
+| `ChargeableCurrent`  | Integer | 可充电储能装置电流，有效值范围，0~20000（数值偏移量 1000A，表示 -1000A ~ +1000A）单位 0.1 A |
 | `CellsTotal`         | Integer | 单体电池总数，有效值范围 1~65531                             |
 | `FrameCellsIndex`    | Integer | 本帧起始电池序号，当本帧单体个数超过 200 时，应该拆分多个帧进行传输，有效值范围 1~65531 |
 | `FrameCellsCount`    | Integer | 本帧单体电池总数，有效值范围 1~200                           |
-| `CellsVoltage`       | Array   | 单体电池电压，有效值范围 0~60000（表示 0V~60.000V）单位 0.001V |
+| `CellsVoltage`       | Array   | 单体电池电压，有效值范围 0~60000（表示 0V ~ 60.000V）单位 0.001V |
 
 
 
@@ -583,18 +585,18 @@ Topic: gbt32960/${vin}/upstream/info
 
 ## 数据补发
 
-Topic: gbt32960/${vin}/upstream/reinfo
+Topic: gbt32960/${clientid}/upstream/reinfo
 
 **数据格式: 略** (与实时数据上报相同)
 
 # Downstream
 
-> 请求数据流向: EMQX -> emqx_gbt32960 -> Terminal
+> 请求数据流向: EMQX -> GBT/32960 -> Terminal
 
-> 应答数据流向: Terminal -> emqx_gbt32960 -> EMQX
+> 应答数据流向: Terminal -> GBT/32960 -> EMQX
 
-下行主题: gbt32960/${vin}/dnstream
-上行应答主题: gbt32960/${vin}/upstream/response
+下行主题: gbt32960/${clientid}/dnstream
+上行应答主题: gbt32960/${clientid}/upstream/response
 
 ## 参数查询
 
