@@ -4,6 +4,12 @@ set -euo pipefail
 # ensure dir
 cd -P -- "$(dirname -- "${BASH_SOURCE[0]}")/.."
 
+log_red() {
+  local RED='\033[0;31m' # Red
+  local NC='\033[0m' # No Color
+  echo -e "${RED}${1}${NC}"
+}
+
 # match any official release tag 'e*' and 'v*'
 latest_release="$(env PREV_TAG_MATCH_PATTERN='*' ./scripts/find-prev-rel-tag.sh)"
 echo "Version check compare base: $latest_release"
@@ -47,7 +53,7 @@ for app in ${APPS}; do
                              -- "$app_path/priv" \
                              -- "$app_path/c_src" | wc -l ) "
         if [ "$changed_lines" -gt 0 ]; then
-            echo "ERROR: $src_file needs a vsn bump"
+            log_red "ERROR: $src_file needs a vsn bump"
             bad_app_count=$(( bad_app_count + 1))
         fi
     else
