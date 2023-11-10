@@ -978,7 +978,7 @@ fields("log") ->
             })},
         {"file",
             sc(
-                ?UNION([
+                hoconsc:union([
                     ?R_REF("log_file_handler"),
                     ?MAP(handler_name, ?R_REF("log_file_handler"))
                 ]),

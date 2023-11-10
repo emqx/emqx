@@ -136,7 +136,7 @@ authz_fields() ->
     [
         {sources,
             ?HOCON(
-                ?ARRAY(?UNION(UnionMemberSelector)),
+                ?ARRAY(hoconsc:union(UnionMemberSelector)),
                 #{
                     default => [default_authz()],
                     desc => ?DESC(sources),
@@ -153,7 +153,7 @@ api_authz_fields() ->
     [{sources, ?HOCON(?ARRAY(api_source_type()), #{desc => ?DESC(sources)})}].
 
 api_source_type() ->
-    ?UNION(api_authz_refs()).
+    hoconsc:union(api_authz_refs()).
 
 api_authz_refs() ->
     lists:concat([api_source_refs(Mod) || Mod <- source_schema_mods()]).

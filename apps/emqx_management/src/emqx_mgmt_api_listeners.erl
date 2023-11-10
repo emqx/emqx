@@ -313,7 +313,7 @@ create_listener_schema(Opts) ->
     ],
     Example = maps:remove(id, tcp_schema_example()),
     emqx_dashboard_swagger:schema_with_example(
-        ?UNION(Schemas),
+        hoconsc:union(Schemas),
         Example#{name => <<"demo">>}
     ).
 
