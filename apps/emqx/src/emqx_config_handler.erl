@@ -662,14 +662,16 @@ remove_from_override_config(_BinKeyPath, #{persistent := false}) ->
     undefined;
 remove_from_override_config(BinKeyPath, Opts) ->
     OldConf = emqx_config:read_override_conf(Opts),
-    emqx_utils_maps:deep_remove(BinKeyPath, OldConf).
+    UpgradedOldConf = emqx_conf_schema:upgrade_raw_conf(OldConf),
+    emqx_utils_maps:deep_remove(BinKeyPath, UpgradedOldConf).
 
 %% apply new config on top of override config
 merge_to_override_config(_RawConf, #{persistent := false}) ->
     undefined;
 merge_to_override_config(RawConf, Opts) ->
     OldConf = emqx_config:read_override_conf(Opts),
-    maps:merge(OldConf, RawConf).
+    UpgradedOldConf = emqx_conf_schema:upgrade_raw_conf(OldConf),
+    maps:merge(UpgradedOldConf, RawConf).
 
 up_req({remove, _Opts}) -> '$remove';
 up_req({{update, Req}, _Opts}) -> Req.
