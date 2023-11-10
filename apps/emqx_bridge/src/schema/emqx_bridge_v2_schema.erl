@@ -90,13 +90,10 @@ api_schema(Method) ->
     hoconsc:union(bridge_api_union(EE ++ APISchemas)).
 
 registered_api_schemas(Method) ->
-    %% We *must* do this to ensure the module is really loaded, especially when we use
-    %% `call_hocon' from `nodetool' to generate initial configurations.
-    _ = emqx_bridge_v2:module_info(),
-    RegistredSchmeas = emqx_action_info:registered_schema_modules(),
+    RegisteredSchemas = emqx_action_info:registered_schema_modules(),
     [
         api_ref(SchemaModule, atom_to_binary(BridgeV2Type), Method ++ "_bridge_v2")
-     || {BridgeV2Type, SchemaModule} <- RegistredSchmeas
+     || {BridgeV2Type, SchemaModule} <- RegisteredSchemas
     ].
 
 api_ref(Module, Type, Method) ->
@@ -148,9 +145,6 @@ roots() ->
     end.
 
 fields(actions) ->
-    %% We *must* do this to ensure the module is really loaded, especially when we use
-    %% `call_hocon' from `nodetool' to generate initial configurations.
-    _ = emqx_bridge_v2:module_info(),
     enterprise_fields_actions() ++
         registered_schema_fields().
 
