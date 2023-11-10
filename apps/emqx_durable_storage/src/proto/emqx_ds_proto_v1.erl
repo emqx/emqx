@@ -30,7 +30,7 @@
 
 -spec open_shard(
     node(),
-    emqx_ds_replication_layer:db(),
+    emqx_ds:db(),
     emqx_ds_replication_layer:shard_id(),
     emqx_ds:create_db_opts()
 ) ->
@@ -38,7 +38,7 @@
 open_shard(Node, DB, Shard, Opts) ->
     erpc:call(Node, emqx_ds_replication_layer, do_open_shard_v1, [DB, Shard, Opts]).
 
--spec drop_shard(node(), emqx_ds_replication_layer:db(), emqx_ds_replication_layer:shard_id()) ->
+-spec drop_shard(node(), emqx_ds:db(), emqx_ds_replication_layer:shard_id()) ->
     ok.
 drop_shard(Node, DB, Shard) ->
     erpc:call(Node, emqx_ds_replication_layer, do_drop_shard_v1, [DB, Shard]).

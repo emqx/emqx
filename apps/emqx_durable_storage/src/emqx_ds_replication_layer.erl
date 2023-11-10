@@ -58,8 +58,6 @@
 -define(shard, 2).
 -define(enc, 3).
 
--type db() :: emqx_ds:db().
-
 -type shard_id() :: atom().
 
 %% This enapsulates the stream entity from the replication level.
@@ -88,12 +86,12 @@
 %% API functions
 %%================================================================================
 
--spec list_shards(db()) -> [shard_id()].
+-spec list_shards(emqx_ds:db()) -> [shard_id()].
 list_shards(_DB) ->
     %% TODO: milestone 5
     list_nodes().
 
--spec open_db(db(), emqx_ds:create_db_opts()) -> ok | {error, _}.
+-spec open_db(emqx_ds:db(), emqx_ds:create_db_opts()) -> ok | {error, _}.
 open_db(DB, Opts) ->
     %% TODO: improve error reporting, don't just crash
     lists:foreach(
@@ -104,7 +102,7 @@ open_db(DB, Opts) ->
         list_shards(DB)
     ).
 
--spec drop_db(db()) -> ok | {error, _}.
+-spec drop_db(emqx_ds:db()) -> ok | {error, _}.
 drop_db(DB) ->
     lists:foreach(
         fun(Shard) ->
@@ -114,7 +112,7 @@ drop_db(DB) ->
         list_shards(DB)
     ).
 
--spec store_batch(db(), [emqx_types:message()], emqx_ds:message_store_opts()) ->
+-spec store_batch(emqx_ds:db(), [emqx_types:message()], emqx_ds:message_store_opts()) ->
     emqx_ds:store_batch_result().
 store_batch(DB, Batch, Opts) ->
     %% TODO: Currently we store messages locally.
@@ -122,7 +120,7 @@ store_batch(DB, Batch, Opts) ->
     Node = node_of_shard(DB, Shard),
     emqx_ds_proto_v1:store_batch(Node, DB, Shard, Batch, Opts).
 
--spec get_streams(db(), emqx_ds:topic_filter(), emqx_ds:time()) ->
+-spec get_streams(emqx_ds:db(), emqx_ds:topic_filter(), emqx_ds:time()) ->
     [{emqx_ds:stream_rank(), stream()}].
 get_streams(DB, TopicFilter, StartTime) ->
     Shards = list_shards(DB),
@@ -186,17 +184,22 @@ next(DB, Iter0, BatchSize) ->
 %% Internal exports (RPC targets)
 %%================================================================================
 
--spec do_open_shard_v1(db(), emqx_ds_replication_layer:shard_id(), emqx_ds:create_db_opts()) ->
+-spec do_open_shard_v1(
+    emqx_ds:db(), emqx_ds_replication_layer:shard_id(), emqx_ds:create_db_opts()
+) ->
     ok | {error, _}.
 do_open_shard_v1(DB, Shard, Opts) ->
     emqx_ds_storage_layer:open_shard({DB, Shard}, Opts).
 
--spec do_drop_shard_v1(db(), emqx_ds_replication_layer:shard_id()) -> ok | {error, _}.
+-spec do_drop_shard_v1(emqx_ds:db(), emqx_ds_replication_layer:shard_id()) -> ok | {error, _}.
 do_drop_shard_v1(DB, Shard) ->
     emqx_ds_storage_layer:drop_shard({DB, Shard}).
 
 -spec do_store_batch_v1(
-    db(), emqx_ds_replication_layer:shard_id(), [emqx_types:message()], emqx_ds:message_store_opts()
+    emqx_ds:db(),
+    emqx_ds_replication_layer:shard_id(),
+    [emqx_types:message()],
+    emqx_ds:message_store_opts()
 ) ->
     emqx_ds:store_batch_result().
 do_store_batch_v1(DB, Shard, Batch, Options) ->
