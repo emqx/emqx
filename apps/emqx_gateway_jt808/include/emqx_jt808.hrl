@@ -187,8 +187,8 @@
 
 -record(auth, {
     allow_anonymous :: boolean(),
-    registry :: emqx_schema:url(),
-    authentication :: emqx_schema:url()
+    registry :: emqx_schema:url() | undefined,
+    authentication :: emqx_schema:url() | undefined
 }).
 -type auth() :: #auth{}.
 
