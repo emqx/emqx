@@ -799,8 +799,6 @@ hocon_schema_to_spec(?UNION(Types, _DisplayName), LocalModule) ->
 hocon_schema_to_spec(Atom, _LocalModule) when is_atom(Atom) ->
     {#{type => string, enum => [Atom]}, []}.
 
-typename_to_spec("term()", _Mod) ->
-    #{type => string, example => <<"any">>};
 typename_to_spec("boolean()", _Mod) ->
     #{type => boolean};
 typename_to_spec("binary()", _Mod) ->
@@ -884,26 +882,6 @@ typename_to_spec("comma_separated_binary()", _Mod) ->
     #{type => string, example => <<"item1,item2">>};
 typename_to_spec("comma_separated_atoms()", _Mod) ->
     #{type => string, example => <<"item1,item2">>};
-typename_to_spec("pool_type()", _Mod) ->
-    #{type => string, enum => [random, hash]};
-typename_to_spec("log_level()", _Mod) ->
-    #{
-        type => string,
-        enum => [debug, info, notice, warning, error, critical, alert, emergency, all]
-    };
-typename_to_spec("rate()", _Mod) ->
-    #{type => string, example => <<"10MB">>};
-typename_to_spec("burst()", _Mod) ->
-    #{type => string, example => <<"100MB">>};
-typename_to_spec("burst_rate()", _Mod) ->
-    %% 0/0s = no burst
-    #{type => string, example => <<"10MB">>};
-typename_to_spec("failure_strategy()", _Mod) ->
-    #{type => string, example => <<"force">>};
-typename_to_spec("initial()", _Mod) ->
-    #{type => string, example => <<"0MB">>};
-typename_to_spec("bucket_name()", _Mod) ->
-    #{type => string, example => <<"retainer">>};
 typename_to_spec("json_binary()", _Mod) ->
     #{type => string, example => <<"{\"a\": [1,true]}">>};
 typename_to_spec("port_number()", _Mod) ->
