@@ -19,7 +19,7 @@
 
 -include_lib("emqx_utils/include/bpapi.hrl").
 %% API:
--export([open_shard/4, drop_shard/3, get_streams/5, make_iterator/6, next/5]).
+-export([open_shard/4, drop_shard/3, store_batch/5, get_streams/5, make_iterator/6, next/5]).
 
 %% behavior callbacks:
 -export([introduced_in/0]).
@@ -80,6 +80,17 @@ make_iterator(Node, DB, Shard, Stream, TopicFilter, StartTime) ->
     | {error, _}.
 next(Node, DB, Shard, Iter, BatchSize) ->
     erpc:call(Node, emqx_ds_replication_layer, do_next_v1, [DB, Shard, Iter, BatchSize]).
+
+-spec store_batch(
+    node(),
+    emqx_ds:db(),
+    emqx_ds_replication_layer:shard_id(),
+    [emqx_types:message()],
+    emqx_ds:message_store_opts()
+) ->
+    emqx_ds:store_batch_result().
+store_batch(Node, DB, Shard, Batch, Options) ->
+    erpc:call(Node, emqx_ds_replication_layer, do_store_batch_v1, [DB, Shard, Batch, Options]).
 
 %%================================================================================
 %% behavior callbacks

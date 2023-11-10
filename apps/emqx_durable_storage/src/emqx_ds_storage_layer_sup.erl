@@ -33,7 +33,7 @@ start_shard(Shard, Options) ->
 -spec stop_shard(emqx_ds:shard()) -> ok | {error, _}.
 stop_shard(Shard) ->
     ok = supervisor:terminate_child(?SUP, Shard),
-    Ok = supervisor:delete_child(?SUP, Shard).
+    ok = supervisor:delete_child(?SUP, Shard).
 
 -spec ensure_shard(emqx_ds_storage_layer:shard_id(), emqx_ds_storage_layer:options()) ->
     ok | {error, _Reason}.

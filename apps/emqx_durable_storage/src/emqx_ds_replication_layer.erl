@@ -34,6 +34,7 @@
 -export([
     do_open_shard_v1/3,
     do_drop_shard_v1/2,
+    do_store_batch_v1/4,
     do_get_streams_v1/4,
     do_make_iterator_v1/5,
     do_next_v1/4
@@ -115,10 +116,11 @@ drop_db(DB) ->
 
 -spec store_batch(db(), [emqx_types:message()], emqx_ds:message_store_opts()) ->
     emqx_ds:store_batch_result().
-store_batch(DB, Msg, Opts) ->
+store_batch(DB, Batch, Opts) ->
     %% TODO: Currently we store messages locally.
-    Shard = {DB, node()},
-    emqx_ds_storage_layer:store_batch(Shard, Msg, Opts).
+    Shard = node(),
+    Node = node_of_shard(DB, Shard),
+    emqx_ds_proto_v1:store_batch(Node, DB, Shard, Batch, Opts).
 
 -spec get_streams(db(), emqx_ds:topic_filter(), emqx_ds:time()) ->
     [{emqx_ds:stream_rank(), stream()}].
@@ -184,14 +186,21 @@ next(DB, Iter0, BatchSize) ->
 %% Internal exports (RPC targets)
 %%================================================================================
 
--spec do_open_shard_v1(db(), emqx_ds_storage_layer:shard_id(), emqx_ds:create_db_opts()) ->
+-spec do_open_shard_v1(db(), emqx_ds_replication_layer:shard_id(), emqx_ds:create_db_opts()) ->
     ok | {error, _}.
 do_open_shard_v1(DB, Shard, Opts) ->
     emqx_ds_storage_layer:open_shard({DB, Shard}, Opts).
 
--spec do_drop_shard_v1(db(), emqx_ds_storage_layer:shard_id()) -> ok | {error, _}.
+-spec do_drop_shard_v1(db(), emqx_ds_replication_layer:shard_id()) -> ok | {error, _}.
 do_drop_shard_v1(DB, Shard) ->
     emqx_ds_storage_layer:drop_shard({DB, Shard}).
+
+-spec do_store_batch_v1(
+    db(), emqx_ds_replication_layer:shard_id(), [emqx_types:message()], emqx_ds:message_store_opts()
+) ->
+    emqx_ds:store_batch_result().
+do_store_batch_v1(DB, Shard, Batch, Options) ->
+    emqx_ds_storage_layer:store_batch({DB, Shard}, Batch, Options).
 
 -spec do_get_streams_v1(
     emqx_ds:db(), emqx_ds_replicationi_layer:shard_id(), emqx_ds:topic_filter(), emqx_ds:time()
