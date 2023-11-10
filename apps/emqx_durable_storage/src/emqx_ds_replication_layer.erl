@@ -50,8 +50,8 @@
 %% records over the wire.
 
 %% tags:
--define(stream, stream).
--define(it, it).
+-define(STREAM, 1).
+-define(IT, 2).
 
 %% keys:
 -define(tag, 1).
@@ -68,14 +68,14 @@
 %% account.
 -opaque stream() ::
     #{
-        ?tag := ?stream,
+        ?tag := ?STREAM,
         ?shard := emqx_ds_replication_layer:shard_id(),
         ?enc := emqx_ds_storage_layer:stream()
     }.
 
 -opaque iterator() ::
     #{
-        ?tag := ?it,
+        ?tag := ?IT,
         ?shard := emqx_ds_replication_layer:shard_id(),
         ?enc := emqx_ds_storage_layer:iterator()
     }.
@@ -133,7 +133,7 @@ get_streams(DB, TopicFilter, StartTime) ->
                     RankX = Shard,
                     Rank = {RankX, RankY},
                     {Rank, #{
-                        ?tag => ?stream,
+                        ?tag => ?STREAM,
                         ?shard => Shard,
                         ?enc => Stream
                     }}
@@ -147,18 +147,18 @@ get_streams(DB, TopicFilter, StartTime) ->
 -spec make_iterator(emqx_ds:db(), stream(), emqx_ds:topic_filter(), emqx_ds:time()) ->
     emqx_ds:make_iterator_result(iterator()).
 make_iterator(DB, Stream, TopicFilter, StartTime) ->
-    #{?tag := ?stream, ?shard := Shard, ?enc := StorageStream} = Stream,
+    #{?tag := ?STREAM, ?shard := Shard, ?enc := StorageStream} = Stream,
     Node = node_of_shard(DB, Shard),
     case emqx_ds_proto_v1:make_iterator(Node, DB, Shard, StorageStream, TopicFilter, StartTime) of
         {ok, Iter} ->
-            {ok, #{?tag => ?it, ?shard => Shard, ?enc => Iter}};
+            {ok, #{?tag => ?IT, ?shard => Shard, ?enc => Iter}};
         Err = {error, _} ->
             Err
     end.
 
 -spec next(emqx_ds:db(), iterator(), pos_integer()) -> emqx_ds:next_result(iterator()).
 next(DB, Iter0, BatchSize) ->
-    #{?tag := ?it, ?shard := Shard, ?enc := StorageIter0} = Iter0,
+    #{?tag := ?IT, ?shard := Shard, ?enc := StorageIter0} = Iter0,
     Node = node_of_shard(DB, Shard),
     %% TODO: iterator can contain information that is useful for
     %% reconstructing messages sent over the network. For example,
