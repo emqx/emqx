@@ -28,7 +28,8 @@
     get_response/0,
     put_request/0,
     post_request/0,
-    examples/1
+    examples/1,
+    registered_api_schemas/1
 ]).
 
 -export([types/0, types_sc/0]).

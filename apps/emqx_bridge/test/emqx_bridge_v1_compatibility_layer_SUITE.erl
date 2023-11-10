@@ -111,7 +111,7 @@ setup_mocks() ->
     catch meck:new(emqx_bridge_v2_schema, MeckOpts),
     meck:expect(
         emqx_bridge_v2_schema,
-        enterprise_api_schemas,
+        registered_api_schemas,
         1,
         fun(Method) -> [{bridge_type_bin(), hoconsc:ref(?MODULE, "api_" ++ Method)}] end
     ),
