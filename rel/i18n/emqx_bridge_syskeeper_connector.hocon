@@ -1,0 +1,33 @@
+emqx_bridge_syskeeper_connector {
+
+desc_config.desc:
+"""Configuration for a Syskeeper forwarder connector"""
+
+desc_config.label:
+"""Syskeeper Forwarder Connector Configuration"""
+
+config_enable.desc:
+"""Enable or disable this connector"""
+
+config_enable.label:
+"""Enable Or Disable connector"""
+
+server.desc:
+"""The address of the Syskeeper proxy server"""
+
+server.label:
+"""Server"""
+
+ack_mode.desc:
+"""Specify whether the proxy server should reply with an acknowledgement for the message forwarding, can be:<br>- need_ack <br>- no_ack <br>"""
+
+ack_mode.label:
+"""Acknowledgement Mode"""
+
+ack_timeout.desc:
+"""The maximum time to wait for an acknowledgement from the proxy server"""
+
+ack_timeout.label:
+"""Acknowledgement Timeout"""
+
+}

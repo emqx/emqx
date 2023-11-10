@@ -28,7 +28,8 @@ examples(Method) ->
 schema_modules() ->
     [
         emqx_bridge_kafka,
-        emqx_bridge_azure_event_hub
+        emqx_bridge_azure_event_hub,
+        emqx_bridge_syskeeper
     ].
 
 fields(actions) ->
@@ -51,13 +52,24 @@ action_structs() ->
                     desc => <<"Azure Event Hub Actions Config">>,
                     required => false
                 }
+            )},
+        {syskeeper_forwarder,
+            mk(
+                hoconsc:map(name, ref(emqx_bridge_syskeeper, config)),
+                #{
+                    desc => <<"Syskeeper forwarder Bridge V2 Config">>,
+                    required => false
+                }
             )}
     ].
 
 api_schemas(Method) ->
     [
         api_ref(emqx_bridge_kafka, <<"kafka_producer">>, Method ++ "_bridge_v2"),
-        api_ref(emqx_bridge_azure_event_hub, <<"azure_event_hub_producer">>, Method ++ "_bridge_v2")
+        api_ref(
+            emqx_bridge_azure_event_hub, <<"azure_event_hub_producer">>, Method ++ "_bridge_v2"
+        ),
+        api_ref(emqx_bridge_syskeeper, <<"syskeeper_forwarder">>, Method)
     ].
 
 api_ref(Module, Type, Method) ->
