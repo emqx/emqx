@@ -114,6 +114,15 @@ fields(kafka_message) ->
     Fields0 = emqx_bridge_kafka:fields(kafka_message),
     Fields = proplists:delete(timestamp, Fields0),
     override_documentations(Fields);
+fields(action) ->
+    {azure_event_hub_producer,
+        mk(
+            hoconsc:map(name, ref(emqx_bridge_azure_event_hub, actions)),
+            #{
+                desc => <<"Azure Event Hub Actions Config">>,
+                required => false
+            }
+        )};
 fields(actions) ->
     Fields =
         override(
