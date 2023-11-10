@@ -50,7 +50,7 @@
     {emqx_ds_storage_reference, emqx_ds_storage_reference:options()}
     | {emqx_ds_storage_bitfield_lts, emqx_ds_storage_bitfield_lts:options()}.
 
--type shard_id() :: emqx_ds_replication_layer:shard_id().
+-type shard_id() :: {emqx_ds:db(), emqx_ds_replication_layer:shard_id()}.
 
 -type cf_refs() :: [{string(), rocksdb:cf_handle()}].
 
@@ -217,7 +217,7 @@ next(Shard, Iter = #{?tag := ?it, ?generation := GenId, ?enc := GenIter0}, Batch
 
 -spec start_link(shard_id(), emqx_ds:builtin_db_opts()) ->
     {ok, pid()}.
-start_link(Shard, Options) ->
+start_link(Shard = {_, _}, Options) ->
     gen_server:start_link(?REF(Shard), ?MODULE, {Shard, Options}, []).
 
 -record(s, {
@@ -417,11 +417,11 @@ generations_since(Shard, Since) ->
 -define(PERSISTENT_TERM(SHARD), {emqx_ds_storage_layer, SHARD}).
 
 -spec get_schema_runtime(shard_id()) -> shard().
-get_schema_runtime(Shard) ->
+get_schema_runtime(Shard = {_, _}) ->
     persistent_term:get(?PERSISTENT_TERM(Shard)).
 
 -spec put_schema_runtime(shard_id(), shard()) -> ok.
-put_schema_runtime(Shard, RuntimeSchema) ->
+put_schema_runtime(Shard = {_, _}, RuntimeSchema) ->
     persistent_term:put(?PERSISTENT_TERM(Shard), RuntimeSchema),
     ok.
 

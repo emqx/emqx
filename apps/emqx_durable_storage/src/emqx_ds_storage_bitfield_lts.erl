@@ -110,7 +110,7 @@
 %%================================================================================
 
 -spec create(
-    emqx_ds_replication_layer:shard_id(),
+    emqx_ds_storage_layer:shard_id(),
     rocksdb:db_handle(),
     emqx_ds_storage_layer:gen_id(),
     options()
@@ -137,7 +137,7 @@ create(_ShardId, DBHandle, GenId, Options) ->
     {Schema, [{DataCFName, DataCFHandle}, {TrieCFName, TrieCFHandle}]}.
 
 -spec open(
-    emqx_ds_replication_layer:shard_id(),
+    emqx_ds_storage_layer:shard_id(),
     rocksdb:db_handle(),
     emqx_ds_storage_layer:gen_id(),
     emqx_ds_storage_layer:cf_refs(),
@@ -173,7 +173,7 @@ open(_Shard, DBHandle, GenId, CFRefs, Schema) ->
     }.
 
 -spec store_batch(
-    emqx_ds_replication_layer:shard_id(), s(), [emqx_types:message()], emqx_ds:message_store_opts()
+    emqx_ds_storage_layer:shard_id(), s(), [emqx_types:message()], emqx_ds:message_store_opts()
 ) ->
     emqx_ds:store_batch_result().
 store_batch(_ShardId, S = #s{db = DB, data = Data}, Messages, _Options) ->
@@ -187,7 +187,7 @@ store_batch(_ShardId, S = #s{db = DB, data = Data}, Messages, _Options) ->
     ).
 
 -spec get_streams(
-    emqx_ds_replication_layer:shard_id(),
+    emqx_ds_storage_layer:shard_id(),
     s(),
     emqx_ds:topic_filter(),
     emqx_ds:time()
@@ -197,7 +197,7 @@ get_streams(_Shard, #s{trie = Trie}, TopicFilter, _StartTime) ->
     [#{?tag => ?stream, ?storage_key => I} || I <- Indexes].
 
 -spec make_iterator(
-    emqx_ds_replication_layer:shard_id(),
+    emqx_ds_storage_layer:shard_id(),
     s(),
     stream(),
     emqx_ds:topic_filter(),

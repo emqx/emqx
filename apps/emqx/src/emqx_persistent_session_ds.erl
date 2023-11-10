@@ -105,8 +105,6 @@
 
 -export_type([id/0]).
 
--define(PERSISTENT_MESSAGE_DB, emqx_persistent_message).
-
 %%
 
 -spec create(clientinfo(), conninfo(), emqx_session:conf()) ->
@@ -497,8 +495,6 @@ storage() ->
 %% @doc Called when a client connects. This function looks up a
 %% session or returns `false` if previous one couldn't be found.
 %%
-%% This function also spawns replay agents for each iterator.
-%%
 %% Note: session API doesn't handle session takeovers, it's the job of
 %% the broker.
 -spec session_open(id()) ->
@@ -670,7 +666,9 @@ renew_streams(Id, ExistingStreams, TopicFilter, StartTime) ->
                             ok;
                         false ->
                             mnesia:write(?SESSION_STREAM_TAB, Rec, write),
-                            {ok, Iterator} = emqx_ds:make_iterator(Stream, TopicFilter, StartTime),
+                            {ok, Iterator} = emqx_ds:make_iterator(
+                                ?PERSISTENT_MESSAGE_DB, Stream, TopicFilter, StartTime
+                            ),
                             IterRec = #ds_iter{id = {Id, Stream}, iter = Iterator},
                             mnesia:write(?SESSION_ITER_TAB, IterRec, write)
                     end
