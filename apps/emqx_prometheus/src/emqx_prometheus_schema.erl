@@ -57,7 +57,7 @@ fields("prometheus") ->
             )},
         {headers,
             ?HOCON(
-                typerefl:alias("map", list({string(), string()})),
+                typerefl:alias("map", list({string(), string()}), #{}, [string(), string()]),
                 #{
                     default => #{},
                     required => false,

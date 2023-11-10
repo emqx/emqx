@@ -865,7 +865,8 @@ typename_to_spec("bytesize()", _Mod) ->
     #{type => string, example => <<"32MB">>};
 typename_to_spec("wordsize()", _Mod) ->
     #{type => string, example => <<"1024KB">>};
-typename_to_spec("map()", _Mod) ->
+typename_to_spec("map(" ++ Map, _Mod) ->
+    [$) | _MapArgs] = lists:reverse(Map),
     #{type => object, example => #{}};
 typename_to_spec("service_account_json()", _Mod) ->
     #{type => object, example => #{}};
