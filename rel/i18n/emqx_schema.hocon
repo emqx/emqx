@@ -92,7 +92,7 @@ mqtt_max_topic_alias.label:
 """Max Topic Alias"""
 
 common_ssl_opts_schema_user_lookup_fun.desc:
-"""EMQX-internal callback that is used to lookup pre-shared key (PSK) identity.</br>
+"""EMQX-internal callback that is used to lookup pre-shared key (PSK) identity.<br/>
 Has no effect when TLS version is configured (or negotiated) to 1.3"""
 
 common_ssl_opts_schema_user_lookup_fun.label:
@@ -1207,7 +1207,7 @@ The SSL application already takes measures to counter-act such attempts,
 but client-initiated renegotiation can be strictly disabled by setting this option to false.
 The default value is true. Note that disabling renegotiation can result in
 long-lived connections becoming unusable due to limits on
-the number of messages the underlying cipher suite can encipher.</br>
+the number of messages the underlying cipher suite can encipher.<br/>
 Has no effect when TLS version is configured (or negotiated) to 1.3"""
 
 server_ssl_opts_schema_client_renegotiation.label:
@@ -1294,7 +1294,7 @@ common_ssl_opts_schema_secure_renegotiate.desc:
 """SSL parameter renegotiation is a feature that allows a client and a server
 to renegotiate the parameters of the SSL connection on the fly.
 RFC 5746 defines a more secure way of doing this. By enabling secure renegotiation,
-you drop support for the insecure renegotiation, prone to MitM attacks.</br>
+you drop support for the insecure renegotiation, prone to MitM attacks.<br/>
 Has no effect when TLS version is configured (or negotiated) to 1.3"""
 
 common_ssl_opts_schema_secure_renegotiate.label:
@@ -1330,7 +1330,7 @@ mqtt_max_packet_size.label:
 """Max Packet Size"""
 
 common_ssl_opts_schema_reuse_sessions.desc:
-"""Enable TLS session reuse.</br>
+"""Enable TLS session reuse.<br/>
 Has no effect when TLS version is configured (or negotiated) to 1.3"""
 
 common_ssl_opts_schema_reuse_sessions.label:

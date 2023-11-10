@@ -851,17 +851,8 @@ typename_to_spec("file()", _Mod) ->
     #{type => string, example => <<"/path/to/file">>};
 typename_to_spec("ip_port()", _Mod) ->
     #{type => string, example => <<"127.0.0.1:80">>};
-typename_to_spec("write_syntax()", _Mod) ->
-    #{
-        type => string,
-        example =>
-            <<"${topic},clientid=${clientid}", " ", "payload=${payload},",
-                "${clientid}_int_value=${payload.int_key}i,", "bool=${payload.bool}">>
-    };
 typename_to_spec("url()", _Mod) ->
     #{type => string, example => <<"http://127.0.0.1">>};
-typename_to_spec("connect_timeout()", Mod) ->
-    typename_to_spec("timeout()", Mod);
 typename_to_spec("timeout()", _Mod) ->
     #{
         <<"oneOf">> => [
@@ -916,8 +907,6 @@ typename_to_spec("json_binary()", _Mod) ->
     #{type => string, example => <<"{\"a\": [1,true]}">>};
 typename_to_spec("port_number()", _Mod) ->
     range("1..65535");
-typename_to_spec("secret_access_key()", _Mod) ->
-    #{type => string, example => <<"TW8dPwmjpjJJuLW....">>};
 typename_to_spec(Name, Mod) ->
     try_convert_to_spec(Name, Mod, [
         fun try_remote_module_type/2,
