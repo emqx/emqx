@@ -162,7 +162,7 @@ bridge_v2_examples(Method) ->
     [
         #{
             ?AEH_CONNECTOR_TYPE_BIN => #{
-                summary => <<"Azure Event Hub Bridge v2">>,
+                summary => <<"Azure Event Hub Action">>,
                 value => values({Method, bridge_v2})
             }
         }
@@ -207,7 +207,7 @@ values({post, bridge_v2}) ->
         #{
             enable => true,
             connector => <<"my_azure_event_hub_producer_connector">>,
-            name => <<"my_azure_event_hub_producer_bridge">>,
+            name => <<"my_azure_event_hub_producer_action">>,
             type => ?AEH_CONNECTOR_TYPE_BIN
         }
     );
