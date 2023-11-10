@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2022 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2023 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
 -module(emqx_bridge_syskeeper).
 
@@ -59,9 +59,11 @@ values(put) ->
     #{
         enable => true,
         connector => <<"syskeeper_forwarder">>,
-        target_topic => <<"${topic}">>,
-        target_qos => <<"-1">>,
-        template => <<"${payload}">>,
+        parameters => #{
+            target_topic => <<"${topic}">>,
+            target_qos => <<"-1">>,
+            template => <<"${payload}">>
+        },
         resource_opts => #{
             worker_pool_size => 16
         }
@@ -69,7 +71,7 @@ values(put) ->
 
 %% -------------------------------------------------------------------------------------------------
 %% Hocon Schema Definitions
-namespace() -> "bridge_syskeeper".
+namespace() -> "syskeeper".
 
 roots() -> [].
 
@@ -81,6 +83,24 @@ fields(config) ->
             mk(binary(), #{
                 desc => ?DESC(emqx_connector_schema, "connector_field"), required => true
             })},
+        {parameters,
+            mk(
+                ref(?MODULE, "parameters"),
+                #{required => true, desc => ?DESC("parameters")}
+            )},
+        {local_topic, mk(binary(), #{required => false, desc => ?DESC(mqtt_topic)})},
+        {resource_opts,
+            mk(
+                ref(?MODULE, "creation_opts"),
+                #{
+                    required => false,
+                    default => #{},
+                    desc => ?DESC(emqx_resource_schema, <<"resource_opts">>)
+                }
+            )}
+    ];
+fields("parameters") ->
+    [
         {target_topic,
             mk(
                 binary(),
@@ -95,15 +115,6 @@ fields(config) ->
             mk(
                 binary(),
                 #{desc => ?DESC("template"), default => <<"${payload}">>}
-            )},
-        {resource_opts,
-            mk(
-                ref(?MODULE, "creation_opts"),
-                #{
-                    required => false,
-                    default => #{},
-                    desc => ?DESC(emqx_resource_schema, <<"resource_opts">>)
-                }
             )}
     ];
 fields("creation_opts") ->
@@ -119,6 +130,8 @@ desc(config) ->
     ?DESC("desc_config");
 desc(Method) when Method =:= "get"; Method =:= "put"; Method =:= "post" ->
     ["Configuration for Syskeeper using `", string:to_upper(Method), "` method."];
+desc("parameters") ->
+    ?DESC("parameters");
 desc("creation_opts" = Name) ->
     emqx_resource_schema:desc(Name);
 desc(_) ->

@@ -42,4 +42,15 @@ target_qos.desc:
 target_qos.label:
 """Target QoS"""
 
+parameters.desc:
+"""Syskeeper data bridge parameters"""
+
+parameters.label:
+"""Parameters"""
+
+mqtt_topic.desc:
+"""MQTT topic or topic filter as data source (bridge input).  If rule action is used as data source, this config should be left empty, otherwise messages will be duplicated in Syskeeper."""
+
+mqtt_topic.label:
+"""Source MQTT Topic"""
 }

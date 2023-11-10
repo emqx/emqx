@@ -206,11 +206,18 @@ status_result(true) -> connected;
 status_result(false) -> connecting;
 status_result({error, _}) -> connecting.
 
-on_add_channel(_InstanceId, #{channels := Channels} = OldState, ChannelId, #{
-    target_topic := TargetTopic,
-    target_qos := TargetQoS,
-    template := Template
-}) ->
+on_add_channel(
+    _InstanceId,
+    #{channels := Channels} = OldState,
+    ChannelId,
+    #{
+        parameters := #{
+            target_topic := TargetTopic,
+            target_qos := TargetQoS,
+            template := Template
+        }
+    }
+) ->
     case maps:is_key(ChannelId, Channels) of
         true ->
             {error, already_exists};
