@@ -160,10 +160,10 @@ cluster_gateway_status(GwName) ->
 max_connections_count(Config) ->
     Listeners = emqx_gateway_utils:normalize_config(Config),
     lists:foldl(
-        fun({_, _, _, SocketOpts, _}, Acc) ->
+        fun({_, _, _, Conf0}, Acc) ->
             emqx_gateway_utils:plus_max_connections(
                 Acc,
-                proplists:get_value(max_connections, SocketOpts, 0)
+                maps:get(max_connections, Conf0, 0)
             )
         end,
         0,
@@ -184,7 +184,7 @@ current_connections_count(GwName) ->
 get_listeners_status(GwName, Config) ->
     Listeners = emqx_gateway_utils:normalize_config(Config),
     lists:map(
-        fun({Type, LisName, ListenOn, _, _}) ->
+        fun({Type, LisName, ListenOn, _}) ->
             Name0 = listener_id(GwName, Type, LisName),
             Name = {Name0, ListenOn},
             LisO = #{id => Name0, type => Type, name => LisName},
