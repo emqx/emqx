@@ -101,7 +101,7 @@ fields(connector_config) ->
             )},
         {service_account_json,
             sc(
-                service_account_json(),
+                typerefl:alias("map", ?MODULE:service_account_json()),
                 #{
                     required => true,
                     validator => fun ?MODULE:service_account_json_validator/1,

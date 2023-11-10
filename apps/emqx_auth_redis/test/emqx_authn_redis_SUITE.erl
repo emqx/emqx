@@ -170,7 +170,7 @@ test_create_invalid_config(InvalidAuthConfig, Path) ->
     ?assertMatch(
         {error, #{
             kind := validation_error,
-            matched_type := "redis_single",
+            matched_type := "authn:redis_single",
             path := Path
         }},
         emqx:update_config(?PATH, {create_authenticator, ?GLOBAL, InvalidAuthConfig})

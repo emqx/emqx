@@ -292,7 +292,7 @@ hocon_schema_to_spec(?MAP(Name, Type), LocalModule) ->
         },
         SubRefs
     };
-hocon_schema_to_spec(?UNION(Types), LocalModule) ->
+hocon_schema_to_spec(?UNION(Types, _DisplayName), LocalModule) ->
     {OneOf, Refs} = lists:foldl(
         fun(Type, {Acc, RefsAcc}) ->
             {Schema, SubRefs} = hocon_schema_to_spec(Type, LocalModule),

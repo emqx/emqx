@@ -345,15 +345,7 @@ parse_spec_ref(Module, Path, Options) ->
             erlang:apply(Module, schema, [Path])
         catch
             Error:Reason:Stacktrace ->
-                %% This error is intended to fail the build
-                %% hence print to standard_error
-                io:format(
-                    standard_error,
-                    "Failed to generate swagger for path ~p in module ~p~n"
-                    "error:~p~nreason:~p~n~p~n",
-                    [Module, Path, Error, Reason, Stacktrace]
-                ),
-                error({failed_to_generate_swagger_spec, Module, Path})
+                failed_to_generate_swagger_spec(Module, Path, Error, Reason, Stacktrace)
         end,
     OperationId = maps:get('operationId', Schema),
     {Specs, Refs} = maps:fold(
@@ -369,6 +361,24 @@ parse_spec_ref(Module, Path, Options) ->
     RouteOpts = generate_route_opts(Schema, Options),
     {OperationId, Specs, Refs, RouteOpts}.
 
+-ifdef(TEST).
+-spec failed_to_generate_swagger_spec(_, _, _, _, _) -> no_return().
+failed_to_generate_swagger_spec(Module, Path, _Error, _Reason, _Stacktrace) ->
+    error({failed_to_generate_swagger_spec, Module, Path}).
+-else.
+-spec failed_to_generate_swagger_spec(_, _, _, _, _) -> no_return().
+failed_to_generate_swagger_spec(Module, Path, Error, Reason, Stacktrace) ->
+    %% This error is intended to fail the build
+    %% hence print to standard_error
+    io:format(
+        standard_error,
+        "Failed to generate swagger for path ~p in module ~p~n"
+        "error:~p~nreason:~p~n~p~n",
+        [Module, Path, Error, Reason, Stacktrace]
+    ),
+    error({failed_to_generate_swagger_spec, Module, Path}).
+
+-endif.
 generate_route_opts(Schema, Options) ->
     #{filter => compose_filters(filter(Options), custom_filter(Schema))}.
 
@@ -776,7 +786,7 @@ hocon_schema_to_spec(?MAP(Name, Type), LocalModule) ->
         },
         SubRefs
     };
-hocon_schema_to_spec(?UNION(Types), LocalModule) ->
+hocon_schema_to_spec(?UNION(Types, _DisplayName), LocalModule) ->
     {OneOf, Refs} = lists:foldl(
         fun(Type, {Acc, RefsAcc}) ->
             {Schema, SubRefs} = hocon_schema_to_spec(Type, LocalModule),

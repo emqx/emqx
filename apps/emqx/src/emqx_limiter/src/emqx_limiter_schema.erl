@@ -33,7 +33,8 @@
     desc/1,
     types/0,
     short_paths/0,
-    short_paths_fields/0
+    short_paths_fields/0,
+    rate_type/0
 ]).
 
 -define(KILOBYTE, 1024).
@@ -129,9 +130,9 @@ fields(limiter) ->
         ];
 fields(node_opts) ->
     [
-        {rate, ?HOCON(rate(), #{desc => deprecated_desc(rate), default => <<"infinity">>})},
+        {rate, ?HOCON(rate_type(), #{desc => deprecated_desc(rate), default => <<"infinity">>})},
         {burst,
-            ?HOCON(burst_rate(), #{
+            ?HOCON(burst_rate_type(), #{
                 desc => deprecated_desc(burst),
                 default => <<"0">>
             })}
@@ -142,7 +143,7 @@ fields(bucket_opts) ->
     fields_of_bucket(<<"infinity">>);
 fields(client_opts) ->
     [
-        {rate, ?HOCON(rate(), #{default => <<"infinity">>, desc => deprecated_desc(rate)})},
+        {rate, ?HOCON(rate_type(), #{default => <<"infinity">>, desc => deprecated_desc(rate)})},
         {initial,
             ?HOCON(initial(), #{
                 default => <<"0">>,
@@ -164,7 +165,7 @@ fields(client_opts) ->
                 }
             )},
         {burst,
-            ?HOCON(burst(), #{
+            ?HOCON(burst_type(), #{
                 desc => deprecated_desc(burst),
                 default => <<"0">>,
                 importance => ?IMPORTANCE_HIDDEN,
@@ -211,7 +212,7 @@ short_paths_fields() ->
 short_paths_fields(Importance) ->
     [
         {Name,
-            ?HOCON(rate(), #{
+            ?HOCON(rate_type(), #{
                 desc => ?DESC(Name),
                 required => false,
                 importance => Importance,
@@ -415,7 +416,7 @@ composite_bucket_fields(Types, ClientRef) ->
 
 fields_of_bucket(Default) ->
     [
-        {rate, ?HOCON(rate(), #{desc => deprecated_desc(rate), default => Default})},
+        {rate, ?HOCON(rate_type(), #{desc => deprecated_desc(rate), default => Default})},
         {burst,
             ?HOCON(burst(), #{
                 desc => deprecated_desc(burst),
@@ -461,3 +462,12 @@ alias_of_type(_) ->
 
 deprecated_desc(_Field) ->
     <<"Deprecated since v5.0.25">>.
+
+rate_type() ->
+    typerefl:alias("string", rate()).
+
+burst_type() ->
+    typerefl:alias("string", burst()).
+
+burst_rate_type() ->
+    typerefl:alias("string", burst_rate()).

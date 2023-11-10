@@ -16,10 +16,6 @@
 
 -module(emqx_authn_http_schema).
 
--include("emqx_auth_http.hrl").
--include_lib("emqx_auth/include/emqx_authn.hrl").
--include_lib("hocon/include/hoconsc.hrl").
-
 -behaviour(emqx_authn_schema).
 
 -export([
@@ -27,8 +23,13 @@
     validations/0,
     desc/1,
     refs/0,
-    select_union_member/1
+    select_union_member/1,
+    namespace/0
 ]).
+
+-include("emqx_auth_http.hrl").
+-include_lib("emqx_auth/include/emqx_authn.hrl").
+-include_lib("hocon/include/hoconsc.hrl").
 
 -define(NOT_EMPTY(MSG), emqx_resource_validator:not_empty(MSG)).
 -define(THROW_VALIDATION_ERROR(ERROR, MESSAGE),
@@ -37,6 +38,8 @@
         message => MESSAGE
     })
 ).
+
+namespace() -> "authn".
 
 refs() ->
     [?R_REF(http_get), ?R_REF(http_post)].
@@ -97,7 +100,7 @@ common_fields() ->
         {backend, emqx_authn_schema:backend(?AUTHN_BACKEND)},
         {url, fun url/1},
         {body,
-            hoconsc:mk(map([{fuzzy, term(), binary()}]), #{
+            hoconsc:mk(typerefl:alias("map", map([{fuzzy, term(), binary()}])), #{
                 required => false, desc => ?DESC(body)
             })},
         {request_timeout, fun request_timeout/1}

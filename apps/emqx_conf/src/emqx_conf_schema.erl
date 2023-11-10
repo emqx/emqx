@@ -28,21 +28,14 @@
 
 -include("emqx_conf.hrl").
 
--type log_level() :: debug | info | notice | warning | error | critical | alert | emergency | all.
--type file() :: string().
--type cipher() :: map().
-
 -behaviour(hocon_schema).
-
--reflect_type([
-    log_level/0,
-    file/0,
-    cipher/0
-]).
 
 -export([
     namespace/0, roots/0, fields/1, translations/0, translation/1, validations/0, desc/1, tags/0
 ]).
+
+-export([log_level/0]).
+
 -export([conf_get/2, conf_get/3, keys/2, filter/1]).
 -export([upgrade_raw_conf/1]).
 
@@ -548,7 +541,7 @@ fields("node") ->
             )},
         {"crash_dump_file",
             sc(
-                file(),
+                string(),
                 #{
                     mapping => "vm_args.-env ERL_CRASH_DUMP",
                     desc => ?DESC(node_crash_dump_file),
@@ -839,7 +832,7 @@ fields("rpc") ->
             )},
         {"certfile",
             sc(
-                file(),
+                string(),
                 #{
                     mapping => "gen_rpc.certfile",
                     converter => fun ensure_unicode_path/2,
@@ -848,7 +841,7 @@ fields("rpc") ->
             )},
         {"keyfile",
             sc(
-                file(),
+                string(),
                 #{
                     mapping => "gen_rpc.keyfile",
                     converter => fun ensure_unicode_path/2,
@@ -857,7 +850,7 @@ fields("rpc") ->
             )},
         {"cacertfile",
             sc(
-                file(),
+                string(),
                 #{
                     mapping => "gen_rpc.cacertfile",
                     converter => fun ensure_unicode_path/2,
@@ -985,7 +978,7 @@ fields("log") ->
             })},
         {"file",
             sc(
-                ?UNION([
+                hoconsc:union([
                     ?R_REF("log_file_handler"),
                     ?MAP(handler_name, ?R_REF("log_file_handler"))
                 ]),
@@ -1004,7 +997,7 @@ fields("log_file_handler") ->
     [
         {"path",
             sc(
-                file(),
+                string(),
                 #{
                     desc => ?DESC("log_file_handler_file"),
                     default => <<"${EMQX_LOG_DIR}/emqx.log">>,
@@ -1538,3 +1531,6 @@ ensure_unicode_path(Path, _) when is_list(Path) ->
     Path;
 ensure_unicode_path(Path, _) ->
     throw({"not_string", Path}).
+
+log_level() ->
+    hoconsc:enum([debug, info, notice, warning, error, critical, alert, emergency, all]).
