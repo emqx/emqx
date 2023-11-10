@@ -87,7 +87,7 @@ on_start(
     ?SLOG(info, #{
         msg => "starting_syskeeper_connector",
         connector => InstanceId,
-        config => redact(Config)
+        config => Config
     }),
 
     HostCfg = emqx_schema:parse_server(Server, ?SYSKEEPER_HOST_OPTIONS),
@@ -175,12 +175,12 @@ do_query(
                 syskeeper_connector_query_return,
                 #{error => Reason}
             ),
-            %% ?SLOG(error, #{
-            %%     msg => "syskeeper_connector_do_query_failed",
-            %%     connector => InstanceId,
-            %%     query => Query,
-            %%     reason => Reason
-            %% }),
+            ?SLOG(error, #{
+                msg => "syskeeper_connector_do_query_failed",
+                connector => InstanceId,
+                query => Query,
+                reason => Reason
+            }),
             case Reason of
                 ecpool_empty ->
                     {error, {recoverable_error, Reason}};
@@ -188,10 +188,10 @@ do_query(
                     Result
             end;
         _ ->
-            %% ?tp(
-            %%     syskeeper_connector_query_return,
-            %%     #{result => Result}
-            %% ),
+            ?tp(
+                syskeeper_connector_query_return,
+                #{result => Result}
+            ),
             Result
     end.
 
@@ -257,6 +257,3 @@ format_data([], Msg) ->
     emqx_utils_json:encode(Msg);
 format_data(Tokens, Msg) ->
     emqx_placeholder:proc_tmpl(Tokens, Msg).
-
-redact(Data) ->
-    emqx_utils:redact(Data, fun(Any) -> Any =:= aws_secret_access_key end).
