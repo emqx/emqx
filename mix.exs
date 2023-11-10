@@ -217,7 +217,8 @@ defmodule EMQXUmbrella.MixProject do
       :emqx_dashboard_sso,
       :emqx_audit,
       :emqx_gateway_gbt32960,
-      :emqx_gateway_ocpp
+      :emqx_gateway_ocpp,
+      :emqx_bridge_syskeeper
     ])
   end
 
