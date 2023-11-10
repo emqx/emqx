@@ -41,7 +41,10 @@
 
 -if(?EMQX_RELEASE_EDITION == ee).
 hard_coded_action_info_modules_ee() ->
-    [emqx_bridge_kafka_action_info].
+    [
+        emqx_bridge_kafka_action_info,
+        emqx_bridge_azure_event_hub_action_info
+    ].
 -else.
 hard_coded_action_info_modules_ee() ->
     [].
@@ -63,17 +66,9 @@ action_type_to_connector_type(Type) ->
     ActionInfoMap = info_map(),
     ActionTypeToConnectorTypeMap = maps:get(action_type_to_connector_type, ActionInfoMap),
     case maps:get(Type, ActionTypeToConnectorTypeMap, undefined) of
-        undefined -> action_type_to_connector_type_old(Type);
+        undefined -> Type;
         ConnectorType -> ConnectorType
     end.
-
-% action_type_to_connector_type_old(kafka) ->
-%     %% backward compatible
-%     kafka_producer;
-% action_type_to_connector_type_old(kafka_producer) ->
-%     kafka_producer;
-action_type_to_connector_type_old(azure_event_hub_producer) ->
-    azure_event_hub_producer.
 
 bridge_v1_type_to_action_type(Bin) when is_binary(Bin) ->
     bridge_v1_type_to_action_type(binary_to_existing_atom(Bin));
@@ -81,18 +76,9 @@ bridge_v1_type_to_action_type(Type) ->
     ActionInfoMap = info_map(),
     BridgeV1TypeToActionType = maps:get(bridge_v1_type_to_action_type, ActionInfoMap),
     case maps:get(Type, BridgeV1TypeToActionType, undefined) of
-        undefined -> bridge_v1_type_to_action_type_old(Type);
+        undefined -> Type;
         ActionType -> ActionType
     end.
-
-% bridge_v1_type_to_action_type_old(kafka) ->
-%     kafka_producer;
-% bridge_v1_type_to_action_type_old(kafka_producer) ->
-%     kafka_producer;
-bridge_v1_type_to_action_type_old(azure_event_hub_producer) ->
-    azure_event_hub_producer;
-bridge_v1_type_to_action_type_old(Type) ->
-    Type.
 
 action_type_to_bridge_v1_type(Bin) when is_binary(Bin) ->
     action_type_to_bridge_v1_type(binary_to_existing_atom(Bin));
@@ -100,14 +86,9 @@ action_type_to_bridge_v1_type(Type) ->
     ActionInfoMap = info_map(),
     ActionTypeToBridgeV1Type = maps:get(action_type_to_bridge_v1_type, ActionInfoMap),
     case maps:get(Type, ActionTypeToBridgeV1Type, undefined) of
-        undefined -> action_type_to_bridge_v1_type_old(Type);
+        undefined -> Type;
         BridgeV1Type -> BridgeV1Type
     end.
-
-action_type_to_bridge_v1_type_old(azure_event_hub_producer) ->
-    azure_event_hub_producer;
-action_type_to_bridge_v1_type_old(Type) ->
-    Type.
 
 %% This function should return true for all inputs that are bridge V1 types for
 %% bridges that have been refactored to bridge V2s, and for all all bridge V2
@@ -118,18 +99,9 @@ is_action_type(Type) ->
     ActionInfoMap = info_map(),
     ActionTypes = maps:get(action_type_names, ActionInfoMap),
     case maps:get(Type, ActionTypes, undefined) of
-        undefined -> is_action_type_old(Type);
+        undefined -> false;
         _ -> true
     end.
-
-% is_action_type_old(kafka_producer) ->
-%     true;
-% is_action_type_old(kafka) ->
-%     true;
-is_action_type_old(azure_event_hub_producer) ->
-    true;
-is_action_type_old(_) ->
-    false.
 
 registered_schema_modules() ->
     InfoMap = info_map(),
