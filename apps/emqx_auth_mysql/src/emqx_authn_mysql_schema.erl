@@ -16,9 +16,6 @@
 
 -module(emqx_authn_mysql_schema).
 
--include("emqx_auth_mysql.hrl").
--include_lib("hocon/include/hoconsc.hrl").
-
 -behaviour(emqx_authn_schema).
 
 -export([
@@ -28,6 +25,9 @@
     refs/0,
     select_union_member/1
 ]).
+
+-include("emqx_auth_mysql.hrl").
+-include_lib("hocon/include/hoconsc.hrl").
 
 namespace() -> "authn".
 

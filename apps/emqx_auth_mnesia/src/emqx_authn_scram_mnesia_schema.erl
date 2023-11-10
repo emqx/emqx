@@ -22,11 +22,14 @@
 -behaviour(emqx_authn_schema).
 
 -export([
+    namespace/0,
     fields/1,
     desc/1,
     refs/0,
     select_union_member/1
 ]).
+
+namespace() -> "authn".
 
 refs() ->
     [?R_REF(scram)].

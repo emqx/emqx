@@ -16,17 +16,20 @@
 
 -module(emqx_authn_ldap_schema).
 
--include("emqx_auth_ldap.hrl").
--include_lib("hocon/include/hoconsc.hrl").
-
 -behaviour(emqx_authn_schema).
 
 -export([
+    namespace/0,
     fields/1,
     desc/1,
     refs/0,
     select_union_member/1
 ]).
+
+-include("emqx_auth_ldap.hrl").
+-include_lib("hocon/include/hoconsc.hrl").
+
+namespace() -> "authn".
 
 refs() ->
     [?R_REF(ldap)].

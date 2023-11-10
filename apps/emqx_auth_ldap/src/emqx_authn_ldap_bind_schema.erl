@@ -16,9 +16,6 @@
 
 -module(emqx_authn_ldap_bind_schema).
 
--include("emqx_auth_ldap.hrl").
--include_lib("hocon/include/hoconsc.hrl").
-
 -behaviour(emqx_authn_schema).
 
 -export([
@@ -28,6 +25,9 @@
     select_union_member/1,
     namespace/0
 ]).
+
+-include("emqx_auth_ldap.hrl").
+-include_lib("hocon/include/hoconsc.hrl").
 
 namespace() -> "authn".
 

@@ -16,10 +16,6 @@
 
 -module(emqx_authn_http_schema).
 
--include("emqx_auth_http.hrl").
--include_lib("emqx_auth/include/emqx_authn.hrl").
--include_lib("hocon/include/hoconsc.hrl").
-
 -behaviour(emqx_authn_schema).
 
 -export([
@@ -30,6 +26,10 @@
     select_union_member/1,
     namespace/0
 ]).
+
+-include("emqx_auth_http.hrl").
+-include_lib("emqx_auth/include/emqx_authn.hrl").
+-include_lib("hocon/include/hoconsc.hrl").
 
 -define(NOT_EMPTY(MSG), emqx_resource_validator:not_empty(MSG)).
 -define(THROW_VALIDATION_ERROR(ERROR, MESSAGE),
