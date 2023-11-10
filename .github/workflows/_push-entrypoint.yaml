@@ -11,7 +11,7 @@ on:
       - 'e*'
     branches:
       - 'master'
-      - 'release-5?'
+      - 'release-5[0-9]'
       - 'ci/**'
 
 env:
