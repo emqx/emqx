@@ -28,6 +28,10 @@
 
 -include("emqx_persistent_session_ds.hrl").
 
+-ifdef(TEST).
+-include_lib("eunit/include/eunit.hrl").
+-endif.
+
 %%================================================================================
 %% Type declarations
 %%================================================================================
@@ -132,7 +136,7 @@ fetch(_SessionId, Inflight, _Streams = [], _N, Acc) ->
     {lists:reverse(Acc), Inflight};
 fetch(_SessionId, Inflight, _Streams, 0, Acc) ->
     {lists:reverse(Acc), Inflight};
-fetch(SessionId, Inflight0, [#ds_stream{stream = Stream} | Streams], N, Publishes0) ->
+fetch(SessionId, Inflight0, [Stream | Streams], N, Publishes0) ->
     #inflight{next_seqno = FirstSeqNo, offset_ranges = Ranges0} = Inflight0,
     ItBegin = get_last_iterator(SessionId, Stream, Ranges0),
     {ok, ItEnd, Messages} = emqx_ds:next(ItBegin, N),
@@ -162,6 +166,7 @@ fetch(SessionId, Inflight0, [#ds_stream{stream = Stream} | Streams], N, Publishe
             fetch(SessionId, Inflight1, Streams, N, Publishes)
     end.
 
+-spec update_iterator(emqx_persistent_session_ds:id(), emqx_ds:stream(), emqx_ds:iterator()) -> ok.
 update_iterator(SessionId, Stream, Iterator) ->
     mria:dirty_write(?SESSION_ITER_TAB, #ds_iter{id = {SessionId, Stream}, iter = Iterator}).
 
@@ -173,13 +178,20 @@ get_last_iterator(SessionId, Stream, Ranges) ->
             Next
     end.
 
+-spec get_iterator(emqx_persistent_session_ds:id(), emqx_ds:stream()) -> emqx_ds:iterator().
 get_iterator(SessionId, Stream) ->
     Id = {SessionId, Stream},
     [#ds_iter{iter = It}] = mnesia:dirty_read(?SESSION_ITER_TAB, Id),
     It.
 
+-spec get_streams(emqx_persistent_session_ds:id()) -> [emqx_ds:stream()].
 get_streams(SessionId) ->
-    mnesia:dirty_read(?SESSION_STREAM_TAB, SessionId).
+    lists:map(
+        fun(#ds_stream{stream = Stream}) ->
+            Stream
+        end,
+        mnesia:dirty_read(?SESSION_STREAM_TAB, SessionId)
+    ).
 
 %% Packet ID as defined by MQTT protocol is a 16-bit integer in range
 %% 1..FFFF. This function translates internal session sequence number

@@ -43,30 +43,41 @@
 %% Type declarations
 %%================================================================================
 
+%% # "Record" integer keys.  We use maps with integer keys to avoid persisting and sending
+%% records over the wire.
+
+%% tags:
+-define(stream, stream).
+-define(it, it).
+
+%% keys:
+-define(tag, 1).
+-define(shard, 2).
+-define(enc, 3).
+
 -type db() :: emqx_ds:db().
 
 -type shard_id() :: {db(), atom()}.
 
-%% This record enapsulates the stream entity from the replication
-%% level.
+%% This enapsulates the stream entity from the replication level.
 %%
 %% TODO: currently the stream is hardwired to only support the
 %% internal rocksdb storage. In the future we want to add another
 %% implementations for emqx_ds, so this type has to take this into
 %% account.
--record(stream, {
-    shard :: emqx_ds_replication_layer:shard_id(),
-    enc :: emqx_ds_storage_layer:stream()
-}).
+-opaque stream() ::
+    #{
+        ?tag := ?stream,
+        ?shard := emqx_ds_replication_layer:shard_id(),
+        ?enc := emqx_ds_storage_layer:stream()
+    }.
 
--opaque stream() :: #stream{}.
-
--record(iterator, {
-    shard :: emqx_ds_replication_layer:shard_id(),
-    enc :: enqx_ds_storage_layer:iterator()
-}).
-
--opaque iterator() :: #iterator{}.
+-opaque iterator() ::
+    #{
+        ?tag := ?it,
+        ?shard := emqx_ds_replication_layer:shard_id(),
+        ?enc := emqx_ds_storage_layer:iterator()
+    }.
 
 -type message_id() :: emqx_ds_storage_layer:message_id().
 
@@ -124,9 +135,10 @@ get_streams(DB, TopicFilter, StartTime) ->
                 fun({RankY, Stream}) ->
                     RankX = Shard,
                     Rank = {RankX, RankY},
-                    {Rank, #stream{
-                        shard = Shard,
-                        enc = Stream
+                    {Rank, #{
+                        ?tag => ?stream,
+                        ?shard => Shard,
+                        ?enc => Stream
                     }}
                 end,
                 Streams
@@ -138,18 +150,18 @@ get_streams(DB, TopicFilter, StartTime) ->
 -spec make_iterator(stream(), emqx_ds:topic_filter(), emqx_ds:time()) ->
     emqx_ds:make_iterator_result(iterator()).
 make_iterator(Stream, TopicFilter, StartTime) ->
-    #stream{shard = Shard, enc = StorageStream} = Stream,
+    #{?tag := ?stream, ?shard := Shard, ?enc := StorageStream} = Stream,
     Node = node_of_shard(Shard),
     case emqx_ds_proto_v1:make_iterator(Node, Shard, StorageStream, TopicFilter, StartTime) of
         {ok, Iter} ->
-            {ok, #iterator{shard = Shard, enc = Iter}};
+            {ok, #{?tag => ?it, ?shard => Shard, ?enc => Iter}};
         Err = {error, _} ->
             Err
     end.
 
 -spec next(iterator(), pos_integer()) -> emqx_ds:next_result(iterator()).
 next(Iter0, BatchSize) ->
-    #iterator{shard = Shard, enc = StorageIter0} = Iter0,
+    #{?tag := ?it, ?shard := Shard, ?enc := StorageIter0} = Iter0,
     Node = node_of_shard(Shard),
     %% TODO: iterator can contain information that is useful for
     %% reconstructing messages sent over the network. For example,
@@ -161,7 +173,7 @@ next(Iter0, BatchSize) ->
     %% replication layer. Or, perhaps, in the logic layer.
     case emqx_ds_proto_v1:next(Node, Shard, StorageIter0, BatchSize) of
         {ok, StorageIter, Batch} ->
-            Iter = #iterator{shard = Shard, enc = StorageIter},
+            Iter = Iter0#{?enc := StorageIter},
             {ok, Iter, Batch};
         Other ->
             Other
@@ -184,14 +196,14 @@ do_drop_shard_v1(Shard) ->
     emqx_ds_storage_layer:drop_shard(Shard).
 
 -spec do_get_streams_v1(shard_id(), emqx_ds:topic_filter(), emqx_ds:time()) ->
-    [{integer(), _Stream}].
+    [{integer(), emqx_ds_storage_layer:stream()}].
 do_get_streams_v1(Shard, TopicFilter, StartTime) ->
     emqx_ds_storage_layer:get_streams(Shard, TopicFilter, StartTime).
 
 -spec do_make_iterator_v1(
     shard_id(), emqx_ds_storage_layer:stream(), emqx_ds:topic_filter(), emqx_ds:time()
 ) ->
-    {ok, iterator()} | {error, _}.
+    {ok, emqx_ds_storage_layer:iterator()} | {error, _}.
 do_make_iterator_v1(Shard, Stream, TopicFilter, StartTime) ->
     emqx_ds_storage_layer:make_iterator(Shard, Stream, TopicFilter, StartTime).
 
