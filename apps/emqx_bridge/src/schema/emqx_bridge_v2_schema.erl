@@ -33,45 +33,10 @@
 
 -export([types/0, types_sc/0]).
 
--export([enterprise_api_schemas/1]).
-
 -export_type([action_type/0]).
 
 %% Should we explicitly list them here so dialyzer may be more helpful?
 -type action_type() :: atom().
-
--if(?EMQX_RELEASE_EDITION == ee).
--spec enterprise_api_schemas(Method) -> [{_Type :: binary(), ?R_REF(module(), Method)}] when
-    Method :: string().
-enterprise_api_schemas(Method) ->
-    %% We *must* do this to ensure the module is really loaded, especially when we use
-    %% `call_hocon' from `nodetool' to generate initial configurations.
-    _ = emqx_bridge_v2_enterprise:module_info(),
-    case erlang:function_exported(emqx_bridge_v2_enterprise, api_schemas, 1) of
-        true -> emqx_bridge_v2_enterprise:api_schemas(Method);
-        false -> []
-    end.
-
-enterprise_fields_actions() ->
-    %% We *must* do this to ensure the module is really loaded, especially when we use
-    %% `call_hocon' from `nodetool' to generate initial configurations.
-    _ = emqx_bridge_v2_enterprise:module_info(),
-    case erlang:function_exported(emqx_bridge_v2_enterprise, fields, 1) of
-        true ->
-            emqx_bridge_v2_enterprise:fields(actions);
-        false ->
-            []
-    end.
-
--else.
-
--spec enterprise_api_schemas(Method) -> [{_Type :: binary(), ?R_REF(module(), Method)}] when
-    Method :: string().
-enterprise_api_schemas(_Method) -> [].
-
-enterprise_fields_actions() -> [].
-
--endif.
 
 %%======================================================================================
 %% For HTTP APIs
@@ -85,9 +50,8 @@ post_request() ->
     api_schema("post").
 
 api_schema(Method) ->
-    EE = ?MODULE:enterprise_api_schemas(Method),
     APISchemas = registered_api_schemas(Method),
-    hoconsc:union(bridge_api_union(EE ++ APISchemas)).
+    hoconsc:union(bridge_api_union(APISchemas)).
 
 registered_api_schemas(Method) ->
     RegisteredSchemas = emqx_action_info:registered_schema_modules(),
@@ -145,8 +109,7 @@ roots() ->
     end.
 
 fields(actions) ->
-    enterprise_fields_actions() ++
-        registered_schema_fields().
+    registered_schema_fields().
 
 registered_schema_fields() ->
     [
