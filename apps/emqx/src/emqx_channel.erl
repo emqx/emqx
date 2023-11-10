@@ -117,7 +117,17 @@
     atom() => term()
 }.
 
--type conn_state() :: idle | connecting | connected | reauthenticating | disconnected.
+%%  init
+-type conn_state() ::
+    idle
+    %% mqtt connect recved but not acked
+    | connecting
+    %% mqtt connect acked
+    | connected
+    %% mqtt connected but reauthenticating
+    | reauthenticating
+    %% keepalive timeout or connection terminated
+    | disconnected.
 
 -type reply() ::
     {outgoing, emqx_types:packet()}
@@ -1137,10 +1147,11 @@ handle_call(
         conninfo = #{proto_ver := ProtoVer}
     }
 ) ->
+    Channel0 = maybe_publish_will_msg(kicked, Channel),
     Channel1 =
         case ConnState of
-            connected -> ensure_disconnected(kicked, Channel);
-            _ -> Channel
+            connected -> ensure_disconnected(kicked, Channel0);
+            _ -> Channel0
         end,
     case ProtoVer == ?MQTT_PROTO_V5 andalso ConnState == connected of
         true ->
@@ -1422,6 +1433,14 @@ terminate(_, #channel{conn_state = idle} = _Channel) ->
     ok;
 terminate(normal, Channel) ->
     run_terminate_hook(normal, Channel);
+terminate({shutdown, Reason}, Channel) when
+    Reason =:= expired orelse
+        Reason =:= takenover orelse
+        Reason =:= kicked orelse
+        Reason =:= discarded
+->
+    Channel1 = maybe_publish_will_msg(Reason, Channel),
+    run_terminate_hook(Reason, Channel1);
 terminate(Reason, Channel) ->
     Channel1 = maybe_publish_will_msg(Reason, Channel),
     run_terminate_hook(Reason, Channel1).
@@ -2216,8 +2235,18 @@ session_disconnect(_ClientInfo, _ConnInfo, undefined) ->
 %%--------------------------------------------------------------------
 %% Maybe Publish will msg
 -spec maybe_publish_will_msg(Reason, channel()) -> channel() when
-    Reason :: kick | sock_closed | {shutdown, atom()}.
+    Reason :: takenover | kicked | discarded | expired | sock_closed | {shutdown, atom()}.
 maybe_publish_will_msg(_Reason, Channel = #channel{will_msg = undefined}) ->
+    Channel;
+maybe_publish_will_msg({shutdown, not_authorized}, Channel) ->
+    Channel;
+maybe_publish_will_msg(not_authorized, Channel) ->
+    Channel;
+maybe_publish_will_msg(_Reason, Channel = #channel{conn_state = ConnState}) when
+    ConnState =:= idle orelse
+        ConnState =:= connecting orelse
+        ConnState =:= reauthenticating
+->
     Channel;
 maybe_publish_will_msg(
     _Reason,
@@ -2229,30 +2258,51 @@ maybe_publish_will_msg(
 maybe_publish_will_msg(
     Reason, Channel = #channel{clientinfo = ClientInfo, will_msg = WillMsg, timers = Timers}
 ) when
-    Reason =:= {shutdown, expired} orelse
-        Reason =:= {shutdown, kicked}
+    Reason =:= expired orelse
+        Reason =:= discarded orelse
+        %% Unsure...
+        Reason =:= {shutdown, internal_error} orelse
+        Reason =:= kicked
 ->
-    %% Must publish now without delay and cancel the will message timer.
+    %% For the cases that session MUST be gone.
+    %% a. expired (session expired)
+    %% c. discarded (Session ends because another process starts new session with the same clientid)
+    %% b. kicked. (kicked by operation)
+    %% d. internal_error (maybe not recoverable)
+    %% This ensures willmsg will be published if the willmsg timer is scheduled but not fired
+    %% OR fired but not yet handled
     DelayedWillTimer = maps:get(will_message, Timers, undefined),
     DelayedWillTimer =/= undefined andalso erlang:cancel_timer(DelayedWillTimer, [{async, true}]),
     _ = publish_will_msg(ClientInfo, WillMsg),
     Channel#channel{will_msg = undefined, timers = maps:remove(will_message, Timers)};
 maybe_publish_will_msg(
-    _OtherReasons, Channel = #channel{clientinfo = ClientInfo, will_msg = WillMsg, timers = Timers}
+    Reason, Channel = #channel{clientinfo = ClientInfo, will_msg = WillMsg, timers = Timers}
 ) ->
-    case maps:get(will_message, Timers, undefined) of
-        undefined ->
-            %% May defer the will message publishing
-            case will_delay_interval(WillMsg) of
-                0 ->
-                    ok = publish_will_msg(ClientInfo, WillMsg),
-                    Channel#channel{will_msg = undefined};
-                I ->
-                    ensure_timer(will_message, timer:seconds(I), Channel)
-            end;
-        %% Will message is already scheduled
-        _ ->
-            Channel
+    %% For the cases that session MAY/MAY NOT be gone, we don't care about session expired or not.
+    %% willmsg publish could be defered.
+    IsSessionExpirationInProgress = maps:is_key(expire_session, Timers),
+    IsWillmsgScheduled = maps:is_key(will_message, Timers),
+    case will_delay_interval(WillMsg) of
+        0 ->
+            %% [MQTT-3.1.2-8], 0 means will delay Will Delay Interval has elapsed
+            false = IsWillmsgScheduled,
+            ok = publish_will_msg(ClientInfo, WillMsg),
+            Channel#channel{will_msg = undefined};
+        I when IsSessionExpirationInProgress andalso not IsWillmsgScheduled ->
+            %% We delay the will message publishing
+            %% Willmsg will be published whatever which timer fired first
+            ensure_timer(will_message, timer:seconds(I), Channel);
+        _ when IsSessionExpirationInProgress andalso IsWillmsgScheduled ->
+            %% Willmsg will be published whatever which timer fired first [MQTT-3.1.3-9].
+            Channel;
+        _I when Reason =:= takenover ->
+            %% don't see the point to delay the willmsg
+            Channel;
+        _I when not IsSessionExpirationInProgress andalso IsWillmsgScheduled ->
+            Channel;
+        I when not IsSessionExpirationInProgress andalso not IsWillmsgScheduled ->
+            %% @FIXME: process may terminate before the timer fired
+            ensure_timer(will_message, timer:seconds(I), Channel)
     end.
 
 will_delay_interval(WillMsg) ->

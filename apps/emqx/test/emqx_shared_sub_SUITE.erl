@@ -923,6 +923,7 @@ t_session_kicked({init, Config}) when is_list(Config) ->
 t_session_kicked({'end', Config}) when is_list(Config) ->
     emqx_config:put_zone_conf(default, [mqtt, max_inflight], 0);
 t_session_kicked(Config) when is_list(Config) ->
+    emqx_logger:set_log_level(debug),
     Topic = <<"foo/bar/1">>,
     ClientId1 = <<"ClientId1">>,
     ClientId2 = <<"ClientId2">>,
@@ -953,6 +954,8 @@ t_session_kicked(Config) when is_list(Config) ->
     %% on if it's picked as the first one for round_robin
     MsgRec1 = ?WAIT(2000, {publish, #{client_pid := ConnPid2, payload := P1}}, P1),
     MsgRec2 = ?WAIT(2000, {publish, #{client_pid := ConnPid2, payload := P2}}, P2),
+
+    ct:pal("MsgRec1: ~p MsgRec2 ~p ~n", [MsgRec1, MsgRec2]),
     case MsgRec2 of
         <<"hello3">> ->
             ?assertEqual(<<"hello1">>, MsgRec1);

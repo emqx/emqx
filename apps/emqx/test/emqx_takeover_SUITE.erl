@@ -224,6 +224,68 @@ t_takeover_willmsg_clean_session(Config) ->
     ?assert(not is_process_alive(CPid1)),
     ok.
 
+t_takeover_clean_session_with_delayed_willmsg(Config) ->
+    process_flag(trap_exit, true),
+    ClientId = atom_to_binary(?FUNCTION_NAME),
+    WillTopic = <<ClientId/binary, <<"willtopic">>/binary>>,
+    Middle = ?CNT div 2,
+    Client1Msgs = messages(ClientId, 0, Middle),
+    Client2Msgs = messages(ClientId, Middle, ?CNT div 2),
+    AllMsgs = Client1Msgs ++ Client2Msgs,
+    WillOpts = [
+        {proto_ver, ?config(mqtt_vsn, Config)},
+        {clean_start, false},
+        {will_topic, WillTopic},
+        {will_payload, <<"willpayload_delay10">>},
+        {will_qos, 1},
+        %% mqttv5 only
+        {properties, #{'Will-Delay-Interval' => 10000}}
+    ],
+    WillOptsClean = [
+        {proto_ver, ?config(mqtt_vsn, Config)},
+        {clean_start, true},
+        {will_topic, WillTopic},
+        {will_payload, <<"willpayload_2">>},
+        {will_qos, 1}
+    ],
+
+    Commands =
+        %% GIVEN: client connect with willmsg payload <<"willpayload_delay10">> and delay-interval 10s
+        [{fun start_client/5, [ClientId, ClientId, ?QOS_1, WillOpts]}] ++
+            [
+                {fun start_client/5, [
+                    <<ClientId/binary, <<"_willsub">>/binary>>, WillTopic, ?QOS_1, []
+                ]}
+            ] ++
+            [{fun publish_msg/2, [Msg]} || Msg <- Client1Msgs] ++
+            %% WHEN: client connects with clean_start=true and willmsg payload <<"willpayload_2">>
+            [{fun start_client/5, [ClientId, ClientId, ?QOS_1, WillOptsClean]}] ++
+            [{fun publish_msg/2, [Msg]} || Msg <- Client2Msgs],
+
+    FCtx = lists:foldl(
+        fun({Fun, Args}, Ctx) ->
+            ct:pal("COMMAND: ~p ~p", [element(2, erlang:fun_info(Fun, name)), Args]),
+            apply(Fun, [Ctx | Args])
+        end,
+        #{},
+        Commands
+    ),
+    #{client := [CPid2, CPidSub, CPid1]} = FCtx,
+    assert_client_exit(CPid1, ?config(mqtt_vsn, Config), takenover),
+    Received = [Msg || {publish, Msg} <- ?drainMailbox(?SLEEP)],
+    ct:pal("received: ~p", [[P || #{payload := P} <- Received]]),
+    {IsWill1, ReceivedNoWill0} = filter_payload(Received, <<"willpayload_delay10">>),
+    {IsWill2, ReceivedNoWill} = filter_payload(ReceivedNoWill0, <<"willpayload_2">>),
+    assert_messages_missed(AllMsgs, ReceivedNoWill),
+    assert_messages_order(AllMsgs, ReceivedNoWill),
+    %% THEN: payload <<"willpayload_delay10">> should be published without delay.
+    ?assert(IsWill1),
+    ?assertNot(IsWill2),
+    emqtt:stop(CPid2),
+    emqtt:stop(CPidSub),
+    ?assert(not is_process_alive(CPid1)),
+    ok.
+
 t_kick_session(Config) ->
     process_flag(trap_exit, true),
     ClientId = atom_to_binary(?FUNCTION_NAME),
