@@ -94,7 +94,7 @@ t_takeover(Config) ->
 
     #{client := [CPid2, CPid1]} = FCtx,
 
-    assert_client_exit(CPid1, ?config(mqtt_vsn, Config)),
+    assert_client_exit(CPid1, ?config(mqtt_vsn, Config), takenover),
     ?assertReceive({'EXIT', CPid2, normal}),
     Received = [Msg || {publish, Msg} <- ?drainMailbox(?SLEEP)],
     ct:pal("middle: ~p", [Middle]),
@@ -141,7 +141,7 @@ t_takeover_willmsg(Config) ->
     ),
 
     #{client := [CPid2, CPidSub, CPid1]} = FCtx,
-    assert_client_exit(CPid1, ?config(mqtt_vsn, Config)),
+    assert_client_exit(CPid1, ?config(mqtt_vsn, Config), takenover),
     Received = [Msg || {publish, Msg} <- ?drainMailbox(?SLEEP)],
     ct:pal("received: ~p", [[P || #{payload := P} <- Received]]),
     {IsWill, ReceivedNoWill} = filter_payload(Received, <<"willpayload">>),
@@ -189,16 +189,7 @@ t_takeover_willmsg_clean_session(Config) ->
             [{fun publish_msg/2, [Msg]} || Msg <- Client1Msgs] ++
             %% WHEN: client connects with clean_start=true and willmsg payload <<"willpayload_2">>
             [{fun start_client/5, [ClientId, ClientId, ?QOS_1, WillOptsClean]}] ++
-            [{fun publish_msg/2, [Msg]} || Msg <- Client2Msgs] ++
-            [
-                {
-                    fun(CTX) ->
-                        timer:sleep(1000),
-                        CTX
-                    end,
-                    []
-                }
-            ],
+            [{fun publish_msg/2, [Msg]} || Msg <- Client2Msgs],
 
     FCtx = lists:foldl(
         fun({Fun, Args}, Ctx) ->
@@ -209,7 +200,7 @@ t_takeover_willmsg_clean_session(Config) ->
         Commands
     ),
     #{client := [CPid2, CPidSub, CPid1]} = FCtx,
-    assert_client_exit(CPid1, ?config(mqtt_vsn, Config)),
+    assert_client_exit(CPid1, ?config(mqtt_vsn, Config), takenover),
     Received = [Msg || {publish, Msg} <- ?drainMailbox(?SLEEP)],
     ct:pal("received: ~p", [[P || #{payload := P} <- Received]]),
     {IsWill1, ReceivedNoWill0} = filter_payload(Received, <<"willpayload_1">>),
@@ -220,6 +211,58 @@ t_takeover_willmsg_clean_session(Config) ->
     ?assert(IsWill1),
     ?assertNot(IsWill2),
     emqtt:stop(CPid2),
+    emqtt:stop(CPidSub),
+    ?assert(not is_process_alive(CPid1)),
+    ok.
+
+t_kick_session(Config) ->
+    process_flag(trap_exit, true),
+    ClientId = atom_to_binary(?FUNCTION_NAME),
+    WillTopic = <<ClientId/binary, <<"willtopic">>/binary>>,
+    % emqx_logger:set_log_level(debug),
+    WillOpts = [
+        {proto_ver, ?config(mqtt_vsn, Config)},
+        {clean_start, false},
+        {will_topic, WillTopic},
+        {will_payload, <<"willpayload_kick">>},
+        {will_qos, 1}
+    ],
+    Commands =
+        %% GIVEN: client connect with willmsg payload <<"willpayload_kick">>
+        [{fun start_client/5, [ClientId, ClientId, ?QOS_1, WillOpts]}] ++
+            [
+                {fun start_client/5, [
+                    <<ClientId/binary, <<"_willsub">>/binary>>, WillTopic, ?QOS_1, []
+                ]}
+            ] ++
+            [
+                %% kick may fail (not found) without this delay
+                {
+                    fun(CTX) ->
+                        timer:sleep(100),
+                        CTX
+                    end,
+                    []
+                }
+            ] ++
+            %% WHEN: client is kicked with kick_session
+            [{fun kick_client/2, [ClientId]}],
+
+    FCtx = lists:foldl(
+        fun({Fun, Args}, Ctx) ->
+            ct:pal("COMMAND: ~p ~p", [element(2, erlang:fun_info(Fun, name)), Args]),
+            apply(Fun, [Ctx | Args])
+        end,
+        #{},
+        Commands
+    ),
+    #{client := [CPidSub, CPid1]} = FCtx,
+    assert_client_exit(CPid1, ?config(mqtt_vsn, Config), kicked),
+    Received = [Msg || {publish, Msg} <- ?drainMailbox(?SLEEP)],
+    ct:pal("received: ~p", [[P || #{payload := P} <- Received]]),
+    %% THEN: payload <<"willpayload_kick">> should be published
+    {IsWill1, _ReceivedNoWill} = filter_payload(Received, <<"willpayload_kick">>),
+    ?assert(IsWill1),
     emqtt:stop(CPidSub),
     ?assert(not is_process_alive(CPid1)),
     ok.
@@ -237,6 +280,10 @@ start_client(Ctx, ClientId, Topic, Qos, Opts) ->
         {ok, _, [Qos]} = emqtt:subscribe(CPid, Topic, Qos)
     end),
     Ctx#{client => [CPid | maps:get(client, Ctx, [])]}.
+
+kick_client(Ctx, ClientId) ->
+    ok = emqx_cm:kick_session(ClientId),
+    Ctx.
 
 publish_msg(Ctx, Msg) ->
     ok = timer:sleep(rand:uniform(?SLEEP)),
@@ -306,23 +353,20 @@ payload(I) ->
 -spec filter_payload(List :: [#{payload := binary()}], Payload :: binary()) ->
     {IsPayloadFound :: boolean(), OtherPayloads :: [#{payload := binary()}]}.
 filter_payload(List, Payload) when is_binary(Payload) ->
-    IsWill = lists:any(
-        fun
-            (#{payload := P}) -> Payload == P;
-            (_) -> false
-        end,
-        List
-    ),
     Filtered = [
         Msg
      || #{payload := P} = Msg <- List,
         P =/= Payload
     ],
-    {IsWill, Filtered}.
+    {length(List) =/= length(Filtered), Filtered}.
 
 %% @doc assert emqtt *client* process exits as expected.
-assert_client_exit(Pid, v5) ->
+assert_client_exit(Pid, v5, takenover) ->
     %% @ref: MQTT 5.0 spec [MQTT-3.1.4-3]
     ?assertReceive({'EXIT', Pid, {disconnected, ?RC_SESSION_TAKEN_OVER, _}});
-assert_client_exit(Pid, v3) ->
-    ?assertReceive({'EXIT', Pid, {shutdown, tcp_closed}}).
+assert_client_exit(Pid, v3, takenover) ->
+    ?assertReceive({'EXIT', Pid, {shutdown, tcp_closed}});
+assert_client_exit(Pid, v3, kicked) ->
+    ?assertReceive({'EXIT', Pid, _});
+assert_client_exit(Pid, v5, kicked) ->
+    ?assertReceive({'EXIT', Pid, {disconnected, ?RC_ADMINISTRATIVE_ACTION, _}}).

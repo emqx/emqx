@@ -1137,11 +1137,10 @@ handle_call(
         conninfo = #{proto_ver := ProtoVer}
     }
 ) ->
-    Channel0 = maybe_publish_will_msg(kick, Channel),
     Channel1 =
         case ConnState of
-            connected -> ensure_disconnected(kicked, Channel0);
-            _ -> Channel0
+            connected -> ensure_disconnected(kicked, Channel);
+            _ -> Channel
         end,
     case ProtoVer == ?MQTT_PROTO_V5 andalso ConnState == connected of
         true ->
@@ -1423,8 +1422,6 @@ terminate(_, #channel{conn_state = idle} = _Channel) ->
     ok;
 terminate(normal, Channel) ->
     run_terminate_hook(normal, Channel);
-terminate({shutdown, kicked}, Channel) ->
-    run_terminate_hook(kicked, Channel);
 terminate(Reason, Channel) ->
     Channel1 = maybe_publish_will_msg(Reason, Channel),
     run_terminate_hook(Reason, Channel1).
@@ -2232,7 +2229,8 @@ maybe_publish_will_msg(
 maybe_publish_will_msg(
     Reason, Channel = #channel{clientinfo = ClientInfo, will_msg = WillMsg, timers = Timers}
 ) when
-    Reason =:= {shutdown, expired}
+    Reason =:= {shutdown, expired} orelse
+        Reason =:= {shutdown, kicked}
 ->
     %% Must publish now without delay and cancel the will message timer.
     DelayedWillTimer = maps:get(will_message, Timers, undefined),
