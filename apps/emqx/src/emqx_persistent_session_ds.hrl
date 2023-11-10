@@ -39,9 +39,10 @@
     rank :: emqx_ds:stream_rank()
 }).
 -type ds_stream() :: #ds_stream{}.
+-type ds_stream_bin() :: binary().
 
 -record(ds_iter, {
-    id :: {emqx_persistent_session_ds:id(), emqx_ds:stream()},
+    id :: {emqx_persistent_session_ds:id(), ds_stream_bin()},
     iter :: emqx_ds:iterator()
 }).
 
