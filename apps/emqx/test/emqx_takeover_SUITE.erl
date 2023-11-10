@@ -76,6 +76,14 @@ t_takeover(Config) ->
     Client1Msgs = messages(ClientId, 0, Middle),
     Client2Msgs = messages(ClientId, Middle, ?CNT div 2),
     AllMsgs = Client1Msgs ++ Client2Msgs,
+    meck:new(emqx_cm, [non_strict, passthrough]),
+    meck:expect(emqx_cm, takeover_session_end, fun(Arg) ->
+        %% trigger more complex takeover conditions during 2-phase takeover protocol:
+        %% when messages are accumulated in 2 processes simultaneously,
+        %% and need to be properly ordered / deduplicated after the protocol commences.
+        ok = timer:sleep(?SLEEP * 2),
+        meck:passthrough([Arg])
+    end),
     Commands =
         [{fun start_client/5, [ClientId, ClientId, ?QOS_1, ClientOpts]}] ++
             [{fun publish_msg/2, [Msg]} || Msg <- Client1Msgs] ++
@@ -101,6 +109,7 @@ t_takeover(Config) ->
     ct:pal("received: ~p", [[P || #{payload := P} <- Received]]),
     assert_messages_missed(AllMsgs, Received),
     assert_messages_order(AllMsgs, Received),
+    meck:unload(emqx_cm),
     ok.
 
 t_takeover_willmsg(Config) ->
