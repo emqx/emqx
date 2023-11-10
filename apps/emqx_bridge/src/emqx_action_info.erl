@@ -1,3 +1,5 @@
+%%--------------------------------------------------------------------
+%% Copyright (c) 2023 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -146,7 +148,7 @@ action_info_modules() ->
     lists:usort(lists:flatten(ActionInfoModules) ++ hard_coded_action_info_modules()).
 
 action_info_modules(App) ->
-    case application:get_env(App, emqx, action_info_module) of
+    case application:get_env(App, emqx_action_info_module) of
         {ok, Module} ->
             [Module];
         _ ->

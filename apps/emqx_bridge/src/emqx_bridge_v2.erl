@@ -101,7 +101,7 @@
 
 %% Compatibility Layer API
 %% All public functions for the compatibility layer should be prefixed with
-%% birdge_v1_
+%% bridge_v1_
 
 -export([
     bridge_v1_lookup_and_transform/2,
