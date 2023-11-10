@@ -845,20 +845,10 @@ typename_to_spec("timeout_duration_ms()", _Mod) ->
     #{type => string, example => <<"32s">>};
 typename_to_spec("percent()", _Mod) ->
     #{type => number, example => <<"12%">>};
-typename_to_spec("file()", _Mod) ->
-    #{type => string, example => <<"/path/to/file">>};
 typename_to_spec("ip_port()", _Mod) ->
     #{type => string, example => <<"127.0.0.1:80">>};
 typename_to_spec("url()", _Mod) ->
     #{type => string, example => <<"http://127.0.0.1">>};
-typename_to_spec("timeout()", _Mod) ->
-    #{
-        <<"oneOf">> => [
-            #{type => string, example => infinity},
-            #{type => integer}
-        ],
-        example => infinity
-    };
 typename_to_spec("bytesize()", _Mod) ->
     #{type => string, example => <<"32MB">>};
 typename_to_spec("wordsize()", _Mod) ->
@@ -866,16 +856,8 @@ typename_to_spec("wordsize()", _Mod) ->
 typename_to_spec("map(" ++ Map, _Mod) ->
     [$) | _MapArgs] = lists:reverse(Map),
     #{type => object, example => #{}};
-typename_to_spec("service_account_json()", _Mod) ->
-    #{type => object, example => #{}};
-typename_to_spec("#{" ++ _, Mod) ->
-    typename_to_spec("map()", Mod);
 typename_to_spec("qos()", _Mod) ->
     #{type => integer, minimum => 0, maximum => 2, example => 0};
-typename_to_spec("{binary(), binary()}", _Mod) ->
-    #{type => object, example => #{}};
-typename_to_spec("{string(), string()}", _Mod) ->
-    #{type => object, example => #{}};
 typename_to_spec("comma_separated_list()", _Mod) ->
     #{type => string, example => <<"item1,item2">>};
 typename_to_spec("comma_separated_binary()", _Mod) ->
