@@ -44,7 +44,7 @@ gateway_common_listener_enable.desc:
 """Enable the listener."""
 
 gateway_common_listener_enable_authn.desc:
-"""Set <code>true</code> (default) to enable client authentication on this listener. 
+"""Set <code>true</code> (default) to enable client authentication on this listener.
 When set to <code>false</code> clients will be allowed to connect without authentication."""
 
 gateway_common_listener_max_conn_rate.desc:
@@ -62,9 +62,10 @@ then the client actually subscribes to the topic `some_tenant/t`.
 Similarly, if another client B (connected to the same listener as the client A) sends a message to topic `t`,
 the message is routed to all the clients subscribed `some_tenant/t`,
 so client A will receive the message, with topic name `t`. Set to `""` to disable the feature.
-Variables in mountpoint string:<br/>
+Supported placeholders in mountpoint string:<br/>
   - <code>${clientid}</code>: clientid<br/>
-  - <code>${username}</code>: username"""
+  - <code>${username}</code>: username<br/>
+  - <code>${endpoint_name}</code>: endpoint name"""
 
 listener_name_to_settings_map.desc:
 """A map from listener names to listener settings."""
