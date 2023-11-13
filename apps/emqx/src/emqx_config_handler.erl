@@ -662,7 +662,7 @@ remove_from_override_config(_BinKeyPath, #{persistent := false}) ->
     undefined;
 remove_from_override_config(BinKeyPath, Opts) ->
     OldConf = emqx_config:read_override_conf(Opts),
-    UpgradedOldConf = emqx_conf_schema:upgrade_raw_conf(OldConf),
+    UpgradedOldConf = upgrade_conf(OldConf),
     emqx_utils_maps:deep_remove(BinKeyPath, UpgradedOldConf).
 
 %% apply new config on top of override config
@@ -670,8 +670,24 @@ merge_to_override_config(_RawConf, #{persistent := false}) ->
     undefined;
 merge_to_override_config(RawConf, Opts) ->
     OldConf = emqx_config:read_override_conf(Opts),
-    UpgradedOldConf = emqx_conf_schema:upgrade_raw_conf(OldConf),
+    UpgradedOldConf = upgrade_conf(OldConf),
     maps:merge(UpgradedOldConf, RawConf).
+
+upgrade_conf(Conf) ->
+    try
+        ConfLoader = emqx_app:get_config_loader(),
+        SchemaModule = apply(ConfLoader, schema_module, []),
+        apply(SchemaModule, upgrade_raw_conf, [Conf])
+    catch
+        ErrorType:Reason:Stack ->
+            ?SLOG(warning, #{
+                msg => "Failed to upgrade override config",
+                error_type => ErrorType,
+                reason => Reason,
+                stacktrace => Stack
+            }),
+            Conf
+    end.
 
 up_req({remove, _Opts}) -> '$remove';
 up_req({{update, Req}, _Opts}) -> Req.
