@@ -681,7 +681,7 @@ upgrade_conf(Conf) ->
     catch
         ErrorType:Reason:Stack ->
             ?SLOG(warning, #{
-                msg => "Failed to upgrade override config",
+                msg => "failed_to_upgrade_config",
                 error_type => ErrorType,
                 reason => Reason,
                 stacktrace => Stack
