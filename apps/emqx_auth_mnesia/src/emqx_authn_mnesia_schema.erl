@@ -25,8 +25,11 @@
     fields/1,
     desc/1,
     refs/1,
-    select_union_member/2
+    select_union_member/2,
+    namespace/0
 ]).
+
+namespace() -> "authn".
 
 refs(api_write) ->
     [?R_REF(builtin_db_api)];

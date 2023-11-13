@@ -37,7 +37,7 @@
 %% ecpool connect & reconnect
 -export([connect/1]).
 
--export([roots/0, fields/1, desc/1]).
+-export([namespace/0, roots/0, fields/1, desc/1]).
 
 -export([do_get_status/1]).
 
@@ -57,6 +57,9 @@
 
 %%=====================================================================
 %% Hocon schema
+
+namespace() -> "ldap".
+
 roots() ->
     [{config, #{type => hoconsc:ref(?MODULE, config)}}].
 

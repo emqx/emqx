@@ -262,7 +262,7 @@ actions() ->
     end.
 
 qos() ->
-    ?UNION([emqx_schema:qos(), binary()]).
+    hoconsc:union([emqx_schema:qos(), binary()]).
 
 rule_engine_settings() ->
     [

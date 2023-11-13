@@ -1849,7 +1849,7 @@ base_listener(Bind) ->
                     default => true
                 }
             )}
-    ] ++ emqx_limiter_schema:short_paths_fields(?MODULE).
+    ] ++ emqx_limiter_schema:short_paths_fields().
 
 desc("persistent_session_store") ->
     "Settings for message persistence.";
@@ -3316,7 +3316,7 @@ get_tombstone_map_value_type(Schema) ->
     %% hoconsc:map_value_type(Schema)
     ?MAP(_Name, Union) = hocon_schema:field_schema(Schema, type),
     %% TODO: violation of abstraction, fix hoconsc:union_members/1
-    ?UNION(Members) = Union,
+    ?UNION(Members, _) = Union,
     Tombstone = tombstone(),
     [Type, Tombstone] = hoconsc:union_members(Members),
     Type.

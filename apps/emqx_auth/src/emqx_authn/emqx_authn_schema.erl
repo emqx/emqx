@@ -38,7 +38,8 @@
     authenticator_type_without/1,
     authenticator_type_without/2,
     mechanism/1,
-    backend/1
+    backend/1,
+    namespace/0
 ]).
 
 -export([
@@ -60,6 +61,7 @@
     api_write
     %% config: schema for config validation
     | config.
+-callback namespace() -> string().
 -callback refs() -> [schema_ref()].
 -callback refs(shema_kind()) -> [schema_ref()].
 -callback select_union_member(emqx_config:raw_config()) -> [schema_ref()] | undefined | no_return().
@@ -73,6 +75,8 @@
     refs/0,
     refs/1
 ]).
+
+namespace() -> "authn".
 
 roots() -> [].
 

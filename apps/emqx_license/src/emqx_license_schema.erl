@@ -13,11 +13,13 @@
 
 -behaviour(hocon_schema).
 
--export([roots/0, fields/1, validations/0, desc/1, tags/0]).
+-export([namespace/0, roots/0, fields/1, validations/0, desc/1, tags/0]).
 
 -export([
     default_license/0
 ]).
+
+namespace() -> "license".
 
 roots() ->
     [

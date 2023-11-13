@@ -126,7 +126,7 @@ desc(_) ->
     undefined.
 
 write_syntax(type) ->
-    emqx_bridge_influxdb:write_syntax();
+    emqx_bridge_influxdb:write_syntax_type();
 write_syntax(required) ->
     true;
 write_syntax(validator) ->

@@ -46,14 +46,6 @@
 
 -export([validate_method/1, join_paths/2]).
 
--type connect_timeout() :: emqx_schema:duration() | infinity.
--type pool_type() :: random | hash.
-
--reflect_type([
-    connect_timeout/0,
-    pool_type/0
-]).
-
 -define(DEFAULT_PIPELINE_SIZE, 100).
 -define(DEFAULT_REQUEST_TIMEOUT_MS, 30_000).
 
@@ -89,7 +81,7 @@ fields(config) ->
             )},
         {pool_type,
             sc(
-                pool_type(),
+                hoconsc:enum([random, hash]),
                 #{
                     default => random,
                     desc => ?DESC("pool_type")

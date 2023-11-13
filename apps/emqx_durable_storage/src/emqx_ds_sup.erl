@@ -30,7 +30,7 @@ start_link() ->
 %%================================================================================
 
 init([]) ->
-    Children = [shard_sup()],
+    Children = [storage_layer_sup()],
     SupFlags = #{
         strategy => one_for_all,
         intensity => 0,
@@ -42,7 +42,7 @@ init([]) ->
 %% Internal functions
 %%================================================================================
 
-shard_sup() ->
+storage_layer_sup() ->
     #{
         id => local_store_shard_sup,
         start => {emqx_ds_storage_layer_sup, start_link, []},

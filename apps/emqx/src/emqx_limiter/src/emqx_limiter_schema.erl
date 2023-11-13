@@ -33,7 +33,8 @@
     desc/1,
     types/0,
     short_paths/0,
-    short_paths_fields/1
+    short_paths_fields/0,
+    rate_type/0
 ]).
 
 -define(KILOBYTE, 1024).
@@ -103,11 +104,11 @@ roots() ->
     ].
 
 fields(limiter) ->
-    short_paths_fields(?MODULE, ?IMPORTANCE_HIDDEN) ++
+    short_paths_fields(?IMPORTANCE_HIDDEN) ++
         [
             {Type,
                 ?HOCON(?R_REF(node_opts), #{
-                    desc => ?DESC(Type),
+                    desc => deprecated_desc(Type),
                     importance => ?IMPORTANCE_HIDDEN,
                     required => {false, recursively},
                     aliases => alias_of_type(Type)
@@ -120,7 +121,7 @@ fields(limiter) ->
                 ?HOCON(
                     ?R_REF(client_fields),
                     #{
-                        desc => ?DESC(client),
+                        desc => deprecated_desc(client),
                         importance => ?IMPORTANCE_HIDDEN,
                         required => {false, recursively},
                         deprecated => {since, "5.0.25"}
@@ -129,10 +130,10 @@ fields(limiter) ->
         ];
 fields(node_opts) ->
     [
-        {rate, ?HOCON(rate(), #{desc => ?DESC(rate), default => <<"infinity">>})},
+        {rate, ?HOCON(rate_type(), #{desc => deprecated_desc(rate), default => <<"infinity">>})},
         {burst,
-            ?HOCON(burst_rate(), #{
-                desc => ?DESC(burst),
+            ?HOCON(burst_rate_type(), #{
+                desc => deprecated_desc(burst),
                 default => <<"0">>
             })}
     ];
@@ -142,11 +143,12 @@ fields(bucket_opts) ->
     fields_of_bucket(<<"infinity">>);
 fields(client_opts) ->
     [
-        {rate, ?HOCON(rate(), #{default => <<"infinity">>, desc => ?DESC(rate)})},
+        {rate, ?HOCON(rate_type(), #{default => <<"infinity">>, desc => deprecated_desc(rate)})},
         {initial,
             ?HOCON(initial(), #{
                 default => <<"0">>,
-                desc => ?DESC(initial),
+
+                desc => deprecated_desc(initial),
                 importance => ?IMPORTANCE_HIDDEN
             })},
         %% low_watermark add for emqx_channel and emqx_session
@@ -157,14 +159,14 @@ fields(client_opts) ->
             ?HOCON(
                 initial(),
                 #{
-                    desc => ?DESC(low_watermark),
+                    desc => deprecated_desc(low_watermark),
                     default => <<"0">>,
                     importance => ?IMPORTANCE_HIDDEN
                 }
             )},
         {burst,
-            ?HOCON(burst(), #{
-                desc => ?DESC(burst),
+            ?HOCON(burst_type(), #{
+                desc => deprecated_desc(burst),
                 default => <<"0">>,
                 importance => ?IMPORTANCE_HIDDEN,
                 aliases => [capacity]
@@ -173,7 +175,7 @@ fields(client_opts) ->
             ?HOCON(
                 boolean(),
                 #{
-                    desc => ?DESC(divisible),
+                    desc => deprecated_desc(divisible),
                     default => true,
                     importance => ?IMPORTANCE_HIDDEN
                 }
@@ -182,7 +184,7 @@ fields(client_opts) ->
             ?HOCON(
                 emqx_schema:timeout_duration(),
                 #{
-                    desc => ?DESC(max_retry_time),
+                    desc => deprecated_desc(max_retry_time),
                     default => <<"1h">>,
                     importance => ?IMPORTANCE_HIDDEN
                 }
@@ -191,7 +193,7 @@ fields(client_opts) ->
             ?HOCON(
                 failure_strategy(),
                 #{
-                    desc => ?DESC(failure_strategy),
+                    desc => deprecated_desc(failure_strategy),
                     default => force,
                     importance => ?IMPORTANCE_HIDDEN
                 }
@@ -204,14 +206,14 @@ fields(listener_client_fields) ->
 fields(Type) ->
     simple_bucket_field(Type).
 
-short_paths_fields(DesModule) ->
-    short_paths_fields(DesModule, ?DEFAULT_IMPORTANCE).
+short_paths_fields() ->
+    short_paths_fields(?DEFAULT_IMPORTANCE).
 
-short_paths_fields(DesModule, Importance) ->
+short_paths_fields(Importance) ->
     [
         {Name,
-            ?HOCON(rate(), #{
-                desc => ?DESC(DesModule, Name),
+            ?HOCON(rate_type(), #{
+                desc => ?DESC(Name),
                 required => false,
                 importance => Importance,
                 example => Example
@@ -381,7 +383,7 @@ simple_bucket_field(Type) when is_atom(Type) ->
                 ?HOCON(
                     ?R_REF(?MODULE, client_opts),
                     #{
-                        desc => ?DESC(client),
+                        desc => deprecated_desc(client),
                         required => {false, recursively},
                         importance => importance_of_type(Type),
                         aliases => alias_of_type(Type)
@@ -394,7 +396,7 @@ composite_bucket_fields(Types, ClientRef) ->
     [
         {Type,
             ?HOCON(?R_REF(?MODULE, bucket_opts), #{
-                desc => ?DESC(?MODULE, Type),
+                desc => deprecated_desc(Type),
                 required => {false, recursively},
                 importance => importance_of_type(Type),
                 aliases => alias_of_type(Type)
@@ -406,7 +408,7 @@ composite_bucket_fields(Types, ClientRef) ->
                 ?HOCON(
                     ?R_REF(?MODULE, ClientRef),
                     #{
-                        desc => ?DESC(client),
+                        desc => deprecated_desc(client),
                         required => {false, recursively}
                     }
                 )}
@@ -414,10 +416,10 @@ composite_bucket_fields(Types, ClientRef) ->
 
 fields_of_bucket(Default) ->
     [
-        {rate, ?HOCON(rate(), #{desc => ?DESC(rate), default => Default})},
+        {rate, ?HOCON(rate_type(), #{desc => deprecated_desc(rate), default => Default})},
         {burst,
             ?HOCON(burst(), #{
-                desc => ?DESC(burst),
+                desc => deprecated_desc(burst),
                 default => <<"0">>,
                 importance => ?IMPORTANCE_HIDDEN,
                 aliases => [capacity]
@@ -425,7 +427,7 @@ fields_of_bucket(Default) ->
         {initial,
             ?HOCON(initial(), #{
                 default => <<"0">>,
-                desc => ?DESC(initial),
+                desc => deprecated_desc(initial),
                 importance => ?IMPORTANCE_HIDDEN
             })}
     ].
@@ -434,7 +436,7 @@ client_fields(Types) ->
     [
         {Type,
             ?HOCON(?R_REF(client_opts), #{
-                desc => ?DESC(Type),
+                desc => deprecated_desc(Type),
                 required => false,
                 importance => importance_of_type(Type),
                 aliases => alias_of_type(Type)
@@ -457,3 +459,15 @@ alias_of_type(bytes) ->
     [bytes_in];
 alias_of_type(_) ->
     [].
+
+deprecated_desc(_Field) ->
+    <<"Deprecated since v5.0.25">>.
+
+rate_type() ->
+    typerefl:alias("string", rate()).
+
+burst_type() ->
+    typerefl:alias("string", burst()).
+
+burst_rate_type() ->
+    typerefl:alias("string", burst_rate()).

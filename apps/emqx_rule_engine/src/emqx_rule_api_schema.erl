@@ -24,7 +24,7 @@
 
 -export([check_params/2]).
 
--export([roots/0, fields/1]).
+-export([namespace/0, roots/0, fields/1]).
 
 -type tag() :: rule_creation | rule_test | rule_engine.
 
@@ -45,6 +45,8 @@ check_params(Params, Tag) ->
 
 %%======================================================================================
 %% Hocon Schema Definitions
+
+namespace() -> "rule_engine".
 
 roots() ->
     [
