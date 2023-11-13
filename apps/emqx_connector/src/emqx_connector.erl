@@ -108,18 +108,28 @@ config_key_path() ->
 pre_config_update([?ROOT_KEY], RawConf, RawConf) ->
     {ok, RawConf};
 pre_config_update([?ROOT_KEY], NewConf, _RawConf) ->
-    {ok, convert_certs(NewConf)};
+    case multi_validate_connector_names(NewConf) of
+        ok ->
+            {ok, convert_certs(NewConf)};
+        Error ->
+            Error
+    end;
 pre_config_update(_, {_Oper, _, _}, undefined) ->
     {error, connector_not_found};
 pre_config_update(_, {Oper, _Type, _Name}, OldConfig) ->
     %% to save the 'enable' to the config files
     {ok, OldConfig#{<<"enable">> => operation_to_enable(Oper)}};
 pre_config_update(Path, Conf, _OldConfig) when is_map(Conf) ->
-    case emqx_connector_ssl:convert_certs(filename:join(Path), Conf) of
-        {error, Reason} ->
-            {error, Reason};
-        {ok, ConfNew} ->
-            {ok, ConfNew}
+    case validate_connector_name_in_config(Path) of
+        ok ->
+            case emqx_connector_ssl:convert_certs(filename:join(Path), Conf) of
+                {error, Reason} ->
+                    {error, Reason};
+                {ok, ConfNew} ->
+                    {ok, ConfNew}
+            end;
+        Error ->
+            Error
     end.
 
 operation_to_enable(disable) -> false;
@@ -457,4 +467,52 @@ ensure_no_channels(Configs) ->
             ok;
         {error, Reason, _State} ->
             {error, Reason}
+    end.
+
+to_bin(A) when is_atom(A) -> atom_to_binary(A, utf8);
+to_bin(B) when is_binary(B) -> B.
+
+validate_connector_name(ConnectorName) ->
+    try
+        _ = emqx_resource:validate_name(to_bin(ConnectorName)),
+        ok
+    catch
+        throw:Error ->
+            {error, Error}
+    end.
+
+validate_connector_name_in_config(Path) ->
+    case Path of
+        [?ROOT_KEY, _ConnectorType, ConnectorName] ->
+            validate_connector_name(ConnectorName);
+        _ ->
+            ok
+    end.
+
+multi_validate_connector_names(Conf) ->
+    ConnectorTypeAndNames =
+        [
+            {Type, Name}
+         || {Type, NameToConf} <- maps:to_list(Conf),
+            {Name, _Conf} <- maps:to_list(NameToConf)
+        ],
+    BadConnectors =
+        lists:filtermap(
+            fun({Type, Name}) ->
+                case validate_connector_name(Name) of
+                    ok -> false;
+                    _Error -> {true, #{type => Type, name => Name}}
+                end
+            end,
+            ConnectorTypeAndNames
+        ),
+    case BadConnectors of
+        [] ->
+            ok;
+        [_ | _] ->
+            {error, #{
+                kind => validation_error,
+                reason => bad_connector_names,
+                bad_connectors => BadConnectors
+            }}
     end.
