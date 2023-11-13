@@ -258,7 +258,7 @@ readable("service_account_json()") ->
 readable("json_binary()") ->
     #{
         swagger => #{type => string, example => <<"{\"a\": [1,true]}">>},
-        dashboard => #{type => object},
+        dashboard => #{type => string},
         docgen => #{type => "String", example => <<"{\"a\": [1,true]}">>}
     };
 readable("port_number()") ->
@@ -330,6 +330,5 @@ try_range(Name) ->
 add_integer_prop(Schema, Key, Value) ->
     case string:to_integer(Value) of
         {error, no_integer} -> Schema;
-        {Int, []} when Key =:= minimum -> Schema#{Key => Int};
         {Int, []} -> Schema#{Key => Int}
     end.
