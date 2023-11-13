@@ -799,8 +799,6 @@ hocon_schema_to_spec(?UNION(Types, _DisplayName), LocalModule) ->
 hocon_schema_to_spec(Atom, _LocalModule) when is_atom(Atom) ->
     {#{type => string, enum => [Atom]}, []}.
 
-typename_to_spec("term()", _Mod) ->
-    #{type => string, example => <<"any">>};
 typename_to_spec("boolean()", _Mod) ->
     #{type => boolean};
 typename_to_spec("binary()", _Mod) ->
@@ -847,77 +845,29 @@ typename_to_spec("timeout_duration_ms()", _Mod) ->
     #{type => string, example => <<"32s">>};
 typename_to_spec("percent()", _Mod) ->
     #{type => number, example => <<"12%">>};
-typename_to_spec("file()", _Mod) ->
-    #{type => string, example => <<"/path/to/file">>};
 typename_to_spec("ip_port()", _Mod) ->
     #{type => string, example => <<"127.0.0.1:80">>};
-typename_to_spec("write_syntax()", _Mod) ->
-    #{
-        type => string,
-        example =>
-            <<"${topic},clientid=${clientid}", " ", "payload=${payload},",
-                "${clientid}_int_value=${payload.int_key}i,", "bool=${payload.bool}">>
-    };
 typename_to_spec("url()", _Mod) ->
     #{type => string, example => <<"http://127.0.0.1">>};
-typename_to_spec("connect_timeout()", Mod) ->
-    typename_to_spec("timeout()", Mod);
-typename_to_spec("timeout()", _Mod) ->
-    #{
-        <<"oneOf">> => [
-            #{type => string, example => infinity},
-            #{type => integer}
-        ],
-        example => infinity
-    };
 typename_to_spec("bytesize()", _Mod) ->
     #{type => string, example => <<"32MB">>};
 typename_to_spec("wordsize()", _Mod) ->
     #{type => string, example => <<"1024KB">>};
-typename_to_spec("map()", _Mod) ->
+typename_to_spec("map(" ++ Map, _Mod) ->
+    [$) | _MapArgs] = lists:reverse(Map),
     #{type => object, example => #{}};
-typename_to_spec("service_account_json()", _Mod) ->
-    #{type => object, example => #{}};
-typename_to_spec("#{" ++ _, Mod) ->
-    typename_to_spec("map()", Mod);
 typename_to_spec("qos()", _Mod) ->
     #{type => integer, minimum => 0, maximum => 2, example => 0};
-typename_to_spec("{binary(), binary()}", _Mod) ->
-    #{type => object, example => #{}};
-typename_to_spec("{string(), string()}", _Mod) ->
-    #{type => object, example => #{}};
 typename_to_spec("comma_separated_list()", _Mod) ->
     #{type => string, example => <<"item1,item2">>};
 typename_to_spec("comma_separated_binary()", _Mod) ->
     #{type => string, example => <<"item1,item2">>};
 typename_to_spec("comma_separated_atoms()", _Mod) ->
     #{type => string, example => <<"item1,item2">>};
-typename_to_spec("pool_type()", _Mod) ->
-    #{type => string, enum => [random, hash]};
-typename_to_spec("log_level()", _Mod) ->
-    #{
-        type => string,
-        enum => [debug, info, notice, warning, error, critical, alert, emergency, all]
-    };
-typename_to_spec("rate()", _Mod) ->
-    #{type => string, example => <<"10MB">>};
-typename_to_spec("burst()", _Mod) ->
-    #{type => string, example => <<"100MB">>};
-typename_to_spec("burst_rate()", _Mod) ->
-    %% 0/0s = no burst
-    #{type => string, example => <<"10MB">>};
-typename_to_spec("failure_strategy()", _Mod) ->
-    #{type => string, example => <<"force">>};
-typename_to_spec("initial()", _Mod) ->
-    #{type => string, example => <<"0MB">>};
-typename_to_spec("bucket_name()", _Mod) ->
-    #{type => string, example => <<"retainer">>};
 typename_to_spec("json_binary()", _Mod) ->
     #{type => string, example => <<"{\"a\": [1,true]}">>};
 typename_to_spec("port_number()", _Mod) ->
     range("1..65535");
-typename_to_spec("secret_access_key()", _Mod) ->
-    #{type => string, example => <<"TW8dPwmjpjJJuLW....">>};
 typename_to_spec(Name, Mod) ->
     try_convert_to_spec(Name, Mod, [
         fun try_remote_module_type/2,

@@ -49,7 +49,7 @@ desc_api8.label:
 """Node Bridge Operate"""
 
 desc_api9.desc:
-"""Test creating a new bridge by given ID </br>
+"""Test creating a new bridge by given ID <br/>
 The ID must be of format '{type}:{name}'"""
 
 desc_api9.label:

@@ -152,7 +152,8 @@ refresh_interval(validator) -> [fun(I) -> I > 0 end];
 refresh_interval(_) -> undefined.
 
 verify_claims(type) ->
-    list();
+    %% user input is a map, converted to a list of {binary(), binary()}
+    typerefl:alias("map", list());
 verify_claims(desc) ->
     ?DESC(?FUNCTION_NAME);
 verify_claims(default) ->

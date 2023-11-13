@@ -305,10 +305,6 @@ hocon_schema_to_spec(?UNION(Types, _DisplayName), LocalModule) ->
 hocon_schema_to_spec(Atom, _LocalModule) when is_atom(Atom) ->
     {#{type => enum, symbols => [Atom]}, []}.
 
-typename_to_spec("user_id_type()", _Mod) ->
-    #{type => enum, symbols => [clientid, username]};
-typename_to_spec("term()", _Mod) ->
-    #{type => string};
 typename_to_spec("boolean()", _Mod) ->
     #{type => boolean};
 typename_to_spec("binary()", _Mod) ->
@@ -317,6 +313,8 @@ typename_to_spec("float()", _Mod) ->
     #{type => number};
 typename_to_spec("integer()", _Mod) ->
     #{type => number};
+typename_to_spec("pos_integer()", _Mod) ->
+    #{type => integer};
 typename_to_spec("non_neg_integer()", _Mod) ->
     #{type => number, minimum => 0};
 typename_to_spec("number()", _Mod) ->
@@ -339,8 +337,6 @@ typename_to_spec("timeout_duration_ms()", _Mod) ->
     #{type => duration};
 typename_to_spec("percent()", _Mod) ->
     #{type => percent};
-typename_to_spec("file()", _Mod) ->
-    #{type => string};
 typename_to_spec("ip_port()", _Mod) ->
     #{type => ip_port};
 typename_to_spec("url()", _Mod) ->
@@ -355,46 +351,22 @@ typename_to_spec("comma_separated_list()", _Mod) ->
     #{type => comma_separated_string};
 typename_to_spec("comma_separated_atoms()", _Mod) ->
     #{type => comma_separated_string};
-typename_to_spec("pool_type()", _Mod) ->
-    #{type => enum, symbols => [random, hash]};
-typename_to_spec("log_level()", _Mod) ->
-    #{
-        type => enum,
-        symbols => [
-            debug,
-            info,
-            notice,
-            warning,
-            error,
-            critical,
-            alert,
-            emergency,
-            all
-        ]
-    };
-typename_to_spec("rate()", _Mod) ->
-    #{type => string};
-typename_to_spec("capacity()", _Mod) ->
-    #{type => string};
-typename_to_spec("burst_rate()", _Mod) ->
-    #{type => string};
-typename_to_spec("failure_strategy()", _Mod) ->
-    #{type => enum, symbols => [force, drop, throw]};
-typename_to_spec("initial()", _Mod) ->
-    #{type => string};
-typename_to_spec("map()", _Mod) ->
+typename_to_spec("map(" ++ Map, _Mod) ->
+    [$) | _MapArgs] = lists:reverse(Map),
     #{type => object};
-typename_to_spec("#{" ++ _, Mod) ->
-    typename_to_spec("map()", Mod);
+typename_to_spec("port_number()", _Mod) ->
+    #{type => integer};
 typename_to_spec(Name, Mod) ->
     Spec = range(Name),
     Spec1 = remote_module_type(Spec, Name, Mod),
     Spec2 = typerefl_array(Spec1, Name, Mod),
     Spec3 = integer(Spec2, Name),
-    default_type(Spec3).
+    default_type(Mod, Name, Spec3).
 
-default_type(nomatch) -> #{type => string};
-default_type(Type) -> Type.
+default_type(Mod, Name, nomatch) ->
+    error({unknown_type, Mod, Name});
+default_type(_Mod, _Name, Type) ->
+    Type.
 
 range(Name) ->
     case string:split(Name, "..") of
