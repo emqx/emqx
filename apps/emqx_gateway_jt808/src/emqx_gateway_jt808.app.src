@@ -1,11 +1,11 @@
 %% -*- mode: erlang -*-
-{application, emqx_gateway_stomp, [
-    {description, "Stomp Gateway"},
-    {vsn, "0.1.3"},
+{application, emqx_gateway_jt808, [
+    {description, "JT/T 808 Gateway"},
+    {vsn, "0.0.1"},
     {registered, []},
     {applications, [kernel, stdlib, emqx, emqx_gateway]},
     {env, []},
     {modules, []},
-    {licenses, ["Apache 2.0"]},
+    {licenses, ["BSL"]},
     {links, []}
 ]}.

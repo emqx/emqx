@@ -4,10 +4,9 @@
 
 -module(emqx_gbt32960_schema).
 
+-include("emqx_gbt32960.hrl").
 -include_lib("hocon/include/hoconsc.hrl").
 -include_lib("typerefl/include/types.hrl").
-
--define(DEFAULT_MOUNTPOINT, <<"gbt32960/${clientid}">>).
 
 %% config schema provides
 -export([fields/1, desc/1]).

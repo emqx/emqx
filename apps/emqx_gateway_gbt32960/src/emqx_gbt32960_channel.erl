@@ -67,7 +67,6 @@
     | {close, Reason :: atom()}.
 
 -type replies() :: reply() | [reply()].
--type frame() :: emqx_gbt32960_frame:frame().
 
 -define(TIMER_TABLE, #{
     alive_timer => keepalive,
@@ -75,8 +74,6 @@
 }).
 
 -define(INFO_KEYS, [conninfo, conn_state, clientinfo, session, will_msg]).
--define(DEFAULT_MOUNTPOINT, <<"gbt32960/${clientid}">>).
--define(DEFAULT_DOWNLINK_TOPIC, <<"/dnstream">>).
 
 -dialyzer({nowarn_function, init/2}).
 
@@ -203,7 +200,7 @@ setting_peercert_infos(Peercert, ClientInfo) ->
 %%--------------------------------------------------------------------
 %% Handle incoming packet
 %%--------------------------------------------------------------------
--spec handle_in(emqx_gbt32960_frame:frame() | {frame_error, any()}, channel()) ->
+-spec handle_in(frame() | {frame_error, any()}, channel()) ->
     {ok, channel()}
     | {ok, replies(), channel()}
     | {shutdown, Reason :: term(), channel()}
@@ -703,14 +700,14 @@ upstreaming(
 transform(Frame = ?CMD(Cmd), Mountpoint) ->
     Suffix =
         case Cmd of
-            ?CMD_VIHECLE_LOGIN -> <<"/upstream/vlogin">>;
-            ?CMD_INFO_REPORT -> <<"/upstream/info">>;
-            ?CMD_INFO_RE_REPORT -> <<"/upstream/reinfo">>;
-            ?CMD_VIHECLE_LOGOUT -> <<"/upstream/vlogout">>;
-            ?CMD_PLATFORM_LOGIN -> <<"/upstream/plogin">>;
-            ?CMD_PLATFORM_LOGOUT -> <<"/upstream/plogout">>;
+            ?CMD_VIHECLE_LOGIN -> <<"upstream/vlogin">>;
+            ?CMD_INFO_REPORT -> <<"upstream/info">>;
+            ?CMD_INFO_RE_REPORT -> <<"upstream/reinfo">>;
+            ?CMD_VIHECLE_LOGOUT -> <<"upstream/vlogout">>;
+            ?CMD_PLATFORM_LOGIN -> <<"upstream/plogin">>;
+            ?CMD_PLATFORM_LOGOUT -> <<"upstream/plogout">>;
             %CMD_HEARTBEAT, CMD_SCHOOL_TIME ...
-            _ -> <<"/upstream/transparent">>
+            _ -> <<"upstream/transparent">>
         end,
     Topic = emqx_mountpoint:mount(Mountpoint, Suffix),
     Payload = to_json(Frame),
@@ -718,7 +715,7 @@ transform(Frame = ?CMD(Cmd), Mountpoint) ->
 transform(Frame = #frame{ack = Ack}, Mountpoint) when
     ?IS_ACK_CODE(Ack)
 ->
-    Topic = emqx_mountpoint:mount(Mountpoint, <<"/upstream/response">>),
+    Topic = emqx_mountpoint:mount(Mountpoint, <<"upstream/response">>),
     Payload = to_json(Frame),
     {Topic, Payload}.
 

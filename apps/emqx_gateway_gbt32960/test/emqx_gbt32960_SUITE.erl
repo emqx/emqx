@@ -29,7 +29,8 @@
     "}\n"
 >>).
 
-all() -> emqx_common_test_helpers:all(?MODULE).
+all() ->
+    emqx_common_test_helpers:all(?MODULE).
 
 init_per_suite(Config) ->
     application:load(emqx_gateway_gbt32960),

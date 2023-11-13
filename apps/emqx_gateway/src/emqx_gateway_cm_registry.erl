@@ -17,7 +17,7 @@
 %% @doc The gateway connection registry
 -module(emqx_gateway_cm_registry).
 
--include("include/emqx_gateway.hrl").
+-include("emqx_gateway.hrl").
 
 -behaviour(gen_server).
 

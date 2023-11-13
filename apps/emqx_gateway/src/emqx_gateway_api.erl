@@ -381,7 +381,8 @@ fields(Gw) when
     Gw == lwm2m;
     Gw == exproto;
     Gw == gbt32960;
-    Gw == ocpp
+    Gw == ocpp;
+    Gw == jt808
 ->
     [{name, mk(Gw, #{desc => ?DESC(gateway_name)})}] ++
         convert_listener_struct(emqx_gateway_schema:gateway_schema(Gw));
@@ -392,7 +393,8 @@ fields(Gw) when
     Gw == update_lwm2m;
     Gw == update_exproto;
     Gw == update_gbt32960;
-    Gw == update_ocpp
+    Gw == update_ocpp;
+    Gw == update_jt808
 ->
     "update_" ++ GwStr = atom_to_list(Gw),
     Gw1 = list_to_existing_atom(GwStr),
