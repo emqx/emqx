@@ -362,39 +362,22 @@ uninstall_bridge_v2(
 uninstall_bridge_v2(
     BridgeV2Type,
     BridgeName,
-    Config
-) ->
-    uninstall_bridge_v2_helper(
-        BridgeV2Type,
-        BridgeName,
-        combine_connector_and_bridge_v2_config(
-            BridgeV2Type,
-            BridgeName,
-            Config
-        )
-    ).
-
-uninstall_bridge_v2_helper(
-    _BridgeV2Type,
-    _BridgeName,
-    {error, Reason} = Error
-) ->
-    ?SLOG(error, Reason),
-    Error;
-uninstall_bridge_v2_helper(
-    BridgeV2Type,
-    BridgeName,
     #{connector := ConnectorName} = Config
 ) ->
     BridgeV2Id = id(BridgeV2Type, BridgeName, ConnectorName),
     CreationOpts = emqx_resource:fetch_creation_opts(Config),
     ok = emqx_resource_buffer_worker_sup:stop_workers(BridgeV2Id, CreationOpts),
     ok = emqx_resource:clear_metrics(BridgeV2Id),
-    %% Deinstall from connector
-    ConnectorId = emqx_connector_resource:resource_id(
-        connector_type(BridgeV2Type), ConnectorName
-    ),
-    emqx_resource_manager:remove_channel(ConnectorId, BridgeV2Id).
+    case combine_connector_and_bridge_v2_config(BridgeV2Type, BridgeName, Config) of
+        {error, _} ->
+            ok;
+        _CombinedConfig ->
+            %% Deinstall from connector
+            ConnectorId = emqx_connector_resource:resource_id(
+                connector_type(BridgeV2Type), ConnectorName
+            ),
+            emqx_resource_manager:remove_channel(ConnectorId, BridgeV2Id)
+    end.
 
 combine_connector_and_bridge_v2_config(
     BridgeV2Type,
