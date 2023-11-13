@@ -47,7 +47,6 @@
 -type bytesize() :: integer().
 -type wordsize() :: bytesize().
 -type percent() :: float().
--type file() :: string().
 -type comma_separated_list() :: list(string()).
 -type comma_separated_binary() :: [binary()].
 -type comma_separated_atoms() :: [atom()].
@@ -151,7 +150,6 @@
     bytesize/0,
     wordsize/0,
     percent/0,
-    file/0,
     comma_separated_list/0,
     comma_separated_binary/0,
     ip_port/0,

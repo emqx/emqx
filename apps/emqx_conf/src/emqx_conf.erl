@@ -337,8 +337,6 @@ typename_to_spec("timeout_duration_ms()", _Mod) ->
     #{type => duration};
 typename_to_spec("percent()", _Mod) ->
     #{type => percent};
-typename_to_spec("file()", _Mod) ->
-    #{type => string};
 typename_to_spec("ip_port()", _Mod) ->
     #{type => ip_port};
 typename_to_spec("url()", _Mod) ->

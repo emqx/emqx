@@ -344,10 +344,9 @@ t_complex_type(_Config) ->
                 enum := [random, hash], type := string
             }},
             {<<"timeout">>, #{
-                example := infinity,
                 <<"oneOf">> := [
-                    #{example := infinity, type := string},
-                    #{type := integer}
+                    #{example := _, type := string},
+                    #{enum := [infinity], type := string}
                 ]
             }},
             {<<"bytesize">>, #{
@@ -653,7 +652,8 @@ schema("/ref/complex_type") ->
                     {server, hoconsc:mk(emqx_schema:ip_port(), #{})},
                     {connect_timeout, hoconsc:mk(emqx_schema:timeout_duration(), #{})},
                     {pool_type, hoconsc:mk(hoconsc:enum([random, hash]), #{})},
-                    {timeout, hoconsc:mk(timeout(), #{})},
+                    {timeout,
+                        hoconsc:mk(hoconsc:union([infinity, emqx_schema:timeout_duration()]), #{})},
                     {bytesize, hoconsc:mk(emqx_schema:bytesize(), #{})},
                     {wordsize, hoconsc:mk(emqx_schema:wordsize(), #{})},
                     {maps, hoconsc:mk(map(), #{})},
@@ -687,7 +687,7 @@ to_schema(Object) ->
 fields(good_ref) ->
     [
         {'webhook-host', mk(emqx_schema:ip_port(), #{default => <<"127.0.0.1:80">>})},
-        {log_dir, mk(emqx_schema:file(), #{example => "var/log/emqx"})},
+        {log_dir, mk(string(), #{example => "var/log/emqx"})},
         {tag, mk(binary(), #{desc => <<"tag">>})}
     ];
 fields(nest_ref) ->
