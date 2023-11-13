@@ -801,8 +801,6 @@ do_create_or_update_bridge(BridgeType, BridgeName, Conf, HttpStatusCode) ->
             PreOrPostConfigUpdate =:= pre_config_update;
             PreOrPostConfigUpdate =:= post_config_update
         ->
-            ?BAD_REQUEST(map_to_json(redact(Reason)));
-        {error, Reason} ->
             ?BAD_REQUEST(map_to_json(redact(Reason)))
     end.
 
