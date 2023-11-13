@@ -28,7 +28,13 @@
     get_response/0,
     put_request/0,
     post_request/0,
-    examples/1,
+    examples/1
+]).
+
+%% Exported for mocking
+%% TODO: refactor emqx_bridge_v1_compatibility_layer_SUITE so we don't need to
+%% export this
+-export([
     registered_api_schemas/1
 ]).
 
@@ -51,7 +57,7 @@ post_request() ->
     api_schema("post").
 
 api_schema(Method) ->
-    APISchemas = registered_api_schemas(Method),
+    APISchemas = ?MODULE:registered_api_schemas(Method),
     hoconsc:union(bridge_api_union(APISchemas)).
 
 registered_api_schemas(Method) ->
