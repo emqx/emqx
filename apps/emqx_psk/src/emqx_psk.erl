@@ -63,10 +63,6 @@
     extra :: term()
 }).
 
--export([mnesia/1]).
-
--boot_mnesia({mnesia, [boot]}).
-
 -include("emqx_psk.hrl").
 
 -define(CR, 13).
@@ -75,22 +71,6 @@
 -ifdef(TEST).
 -export([call/1, trim_crlf/1, import_psks/3]).
 -endif.
-
-%%------------------------------------------------------------------------------
-%% Mnesia bootstrap
-%%------------------------------------------------------------------------------
-
-%% @doc Create or replicate tables.
--spec mnesia(boot | copy) -> ok.
-mnesia(boot) ->
-    ok = mria:create_table(?TAB, [
-        {rlog_shard, ?PSK_SHARD},
-        {type, ordered_set},
-        {storage, disc_copies},
-        {record_name, psk_entry},
-        {attributes, record_info(fields, psk_entry)},
-        {storage_properties, [{ets, [{read_concurrency, true}]}]}
-    ]).
 
 %%------------------------------------------------------------------------------
 %% Data backup
@@ -156,6 +136,7 @@ post_config_update([?PSK_KEY], _Req, #{enable := Enable} = NewConf, _OldConf, _A
 %%------------------------------------------------------------------------------
 
 init(_Opts) ->
+    create_tables(),
     _ =
         case get_config(enable) of
             true -> load();
@@ -322,3 +303,19 @@ call(Request) ->
         exit:{timeout, _Details} ->
             {error, timeout}
     end.
+
+%%------------------------------------------------------------------------------
+%% Mnesia bootstrap
+%%------------------------------------------------------------------------------
+
+%% @doc Create or replicate tables.
+-spec create_tables() -> ok.
+create_tables() ->
+    ok = mria:create_table(?TAB, [
+        {rlog_shard, ?PSK_SHARD},
+        {type, ordered_set},
+        {storage, disc_copies},
+        {record_name, psk_entry},
+        {attributes, record_info(fields, psk_entry)},
+        {storage_properties, [{ets, [{read_concurrency, true}]}]}
+    ]).

@@ -21,11 +21,6 @@
 -include("emqx.hrl").
 -include("logger.hrl").
 
-%% Mnesia bootstrap
--export([mnesia/1]).
-
--boot_mnesia({mnesia, [boot]}).
-
 -export([start_link/0]).
 %% API
 -export([
@@ -81,32 +76,6 @@
 -compile(export_all).
 -compile(nowarn_export_all).
 -endif.
-
-%%--------------------------------------------------------------------
-%% Mnesia bootstrap
-%%--------------------------------------------------------------------
-
-mnesia(boot) ->
-    ok = mria:create_table(
-        ?ACTIVATED_ALARM,
-        [
-            {type, ordered_set},
-            {storage, disc_copies},
-            {local_content, true},
-            {record_name, activated_alarm},
-            {attributes, record_info(fields, activated_alarm)}
-        ]
-    ),
-    ok = mria:create_table(
-        ?DEACTIVATED_ALARM,
-        [
-            {type, ordered_set},
-            {storage, disc_copies},
-            {local_content, true},
-            {record_name, deactivated_alarm},
-            {attributes, record_info(fields, deactivated_alarm)}
-        ]
-    ).
 
 %%--------------------------------------------------------------------
 %% API
@@ -220,6 +189,7 @@ to_rfc3339(Timestamp) ->
 %%--------------------------------------------------------------------
 
 init([]) ->
+    ensure_tables(),
     ok = mria:wait_for_tables([?ACTIVATED_ALARM, ?DEACTIVATED_ALARM, ?TRIE]),
     deactivate_all_alarms(),
     {ok, #{}, get_validity_period()}.
@@ -492,3 +462,29 @@ safe_call(Req) ->
             }),
             {error, Reason}
     end.
+
+%%--------------------------------------------------------------------
+%% Mnesia bootstrap
+%%--------------------------------------------------------------------
+
+ensure_tables() ->
+    ok = mria:create_table(
+        ?ACTIVATED_ALARM,
+        [
+            {type, ordered_set},
+            {storage, disc_copies},
+            {local_content, true},
+            {record_name, activated_alarm},
+            {attributes, record_info(fields, activated_alarm)}
+        ]
+    ),
+    ok = mria:create_table(
+        ?DEACTIVATED_ALARM,
+        [
+            {type, ordered_set},
+            {storage, disc_copies},
+            {local_content, true},
+            {record_name, deactivated_alarm},
+            {attributes, record_info(fields, deactivated_alarm)}
+        ]
+    ).

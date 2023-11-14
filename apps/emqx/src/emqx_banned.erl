@@ -24,11 +24,6 @@
 -include("types.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
-%% Mnesia bootstrap
--export([mnesia/1]).
-
--boot_mnesia({mnesia, [boot]}).
-
 -export([start_link/0, stop/0]).
 
 -export([
@@ -71,20 +66,6 @@
 -compile(export_all).
 -compile(nowarn_export_all).
 -endif.
-
-%%--------------------------------------------------------------------
-%% Mnesia bootstrap
-%%--------------------------------------------------------------------
-
-mnesia(boot) ->
-    ok = mria:create_table(?BANNED_TAB, [
-        {type, set},
-        {rlog_shard, ?COMMON_SHARD},
-        {storage, disc_copies},
-        {record_name, banned},
-        {attributes, record_info(fields, banned)},
-        {storage_properties, [{ets, [{read_concurrency, true}]}]}
-    ]).
 
 %%--------------------------------------------------------------------
 %% Data backup
@@ -236,6 +217,7 @@ clear() ->
 %%--------------------------------------------------------------------
 
 init([]) ->
+    ensure_tables(),
     {ok, ensure_expiry_timer(#{expiry_timer => undefined})}.
 
 handle_call(Req, _From, State) ->
@@ -302,3 +284,17 @@ on_banned(#banned{who = {clientid, ClientId}}) ->
     ok;
 on_banned(_) ->
     ok.
+
+%%--------------------------------------------------------------------
+%% Mnesia bootstrap
+%%--------------------------------------------------------------------
+
+ensure_tables() ->
+    ok = mria:create_table(?BANNED_TAB, [
+        {type, set},
+        {rlog_shard, ?COMMON_SHARD},
+        {storage, disc_copies},
+        {record_name, banned},
+        {attributes, record_info(fields, banned)},
+        {storage_properties, [{ets, [{read_concurrency, true}]}]}
+    ]).

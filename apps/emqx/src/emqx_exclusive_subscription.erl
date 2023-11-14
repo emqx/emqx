@@ -22,13 +22,10 @@
 -logger_header("[exclusive]").
 
 %% Mnesia bootstrap
--export([mnesia/1]).
+-export([ensure_tables/0]).
 
 %% For upgrade
 -export([on_add_module/0, on_delete_module/0]).
-
--boot_mnesia({mnesia, [boot]}).
--copy_mnesia({mnesia, [copy]}).
 
 -export([
     check_subscribe/2,
@@ -53,7 +50,7 @@
 %% Mnesia bootstrap
 %%--------------------------------------------------------------------
 
-mnesia(boot) ->
+ensure_tables() ->
     StoreProps = [
         {ets, [
             {read_concurrency, true},
@@ -75,7 +72,7 @@ mnesia(boot) ->
 %%--------------------------------------------------------------------
 
 on_add_module() ->
-    mnesia(boot).
+    ensure_tables().
 
 on_delete_module() ->
     clear().

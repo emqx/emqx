@@ -27,6 +27,7 @@
 -include("emqx_conf.hrl").
 
 start(_StartType, _StartArgs) ->
+    ok = emqx_cluster_rpc:ensure_tables(),
     try
         ok = init_conf()
     catch
