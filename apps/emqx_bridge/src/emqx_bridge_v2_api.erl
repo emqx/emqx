@@ -98,20 +98,10 @@ get_response_body_schema() ->
     ).
 
 bridge_info_examples(Method) ->
-    maps:merge(
-        #{},
-        emqx_enterprise_bridge_examples(Method)
-    ).
+    emqx_bridge_v2_schema:examples(Method).
 
 bridge_info_array_example(Method) ->
     lists:map(fun(#{value := Config}) -> Config end, maps:values(bridge_info_examples(Method))).
-
--if(?EMQX_RELEASE_EDITION == ee).
-emqx_enterprise_bridge_examples(Method) ->
-    emqx_bridge_v2_enterprise:examples(Method).
--else.
-emqx_enterprise_bridge_examples(_Method) -> #{}.
--endif.
 
 param_path_id() ->
     {id,

@@ -27,50 +27,23 @@
 -export([
     get_response/0,
     put_request/0,
-    post_request/0
+    post_request/0,
+    examples/1
+]).
+
+%% Exported for mocking
+%% TODO: refactor emqx_bridge_v1_compatibility_layer_SUITE so we don't need to
+%% export this
+-export([
+    registered_api_schemas/1
 ]).
 
 -export([types/0, types_sc/0]).
-
--export([enterprise_api_schemas/1]).
 
 -export_type([action_type/0]).
 
 %% Should we explicitly list them here so dialyzer may be more helpful?
 -type action_type() :: atom().
-
--if(?EMQX_RELEASE_EDITION == ee).
--spec enterprise_api_schemas(Method) -> [{_Type :: binary(), ?R_REF(module(), Method)}] when
-    Method :: string().
-enterprise_api_schemas(Method) ->
-    %% We *must* do this to ensure the module is really loaded, especially when we use
-    %% `call_hocon' from `nodetool' to generate initial configurations.
-    _ = emqx_bridge_v2_enterprise:module_info(),
-    case erlang:function_exported(emqx_bridge_v2_enterprise, api_schemas, 1) of
-        true -> emqx_bridge_v2_enterprise:api_schemas(Method);
-        false -> []
-    end.
-
-enterprise_fields_actions() ->
-    %% We *must* do this to ensure the module is really loaded, especially when we use
-    %% `call_hocon' from `nodetool' to generate initial configurations.
-    _ = emqx_bridge_v2_enterprise:module_info(),
-    case erlang:function_exported(emqx_bridge_v2_enterprise, fields, 1) of
-        true ->
-            emqx_bridge_v2_enterprise:fields(actions);
-        false ->
-            []
-    end.
-
--else.
-
--spec enterprise_api_schemas(Method) -> [{_Type :: binary(), ?R_REF(module(), Method)}] when
-    Method :: string().
-enterprise_api_schemas(_Method) -> [].
-
-enterprise_fields_actions() -> [].
-
--endif.
 
 %%======================================================================================
 %% For HTTP APIs
@@ -84,8 +57,18 @@ post_request() ->
     api_schema("post").
 
 api_schema(Method) ->
-    EE = ?MODULE:enterprise_api_schemas(Method),
-    hoconsc:union(bridge_api_union(EE)).
+    APISchemas = ?MODULE:registered_api_schemas(Method),
+    hoconsc:union(bridge_api_union(APISchemas)).
+
+registered_api_schemas(Method) ->
+    RegisteredSchemas = emqx_action_info:registered_schema_modules(),
+    [
+        api_ref(SchemaModule, atom_to_binary(BridgeV2Type), Method ++ "_bridge_v2")
+     || {BridgeV2Type, SchemaModule} <- RegisteredSchemas
+    ].
+
+api_ref(Module, Type, Method) ->
+    {Type, ref(Module, Method)}.
 
 bridge_api_union(Refs) ->
     Index = maps:from_list(Refs),
@@ -133,7 +116,13 @@ roots() ->
     end.
 
 fields(actions) ->
-    [] ++ enterprise_fields_actions().
+    registered_schema_fields().
+
+registered_schema_fields() ->
+    [
+        Module:fields(action)
+     || {_BridgeV2Type, Module} <- emqx_action_info:registered_schema_modules()
+    ].
 
 desc(actions) ->
     ?DESC("desc_bridges_v2");
@@ -147,6 +136,19 @@ types() ->
 -spec types_sc() -> ?ENUM([action_type()]).
 types_sc() ->
     hoconsc:enum(types()).
+
+examples(Method) ->
+    MergeFun =
+        fun(Example, Examples) ->
+            maps:merge(Examples, Example)
+        end,
+    Fun =
+        fun(Module, Examples) ->
+            ConnectorExamples = erlang:apply(Module, bridge_v2_examples, [Method]),
+            lists:foldl(MergeFun, Examples, ConnectorExamples)
+        end,
+    SchemaModules = [Mod || {_, Mod} <- emqx_action_info:registered_schema_modules()],
+    lists:foldl(Fun, #{}, SchemaModules).
 
 -ifdef(TEST).
 -include_lib("hocon/include/hocon_types.hrl").
