@@ -20,8 +20,7 @@
     handle_cast/2,
     handle_info/2,
     terminate/2,
-    code_change/3,
-    format_status/2
+    code_change/3
 ]).
 
 -ifdef(TEST).
@@ -62,11 +61,13 @@ start_link(Options) ->
 %% Initialize dynamodb data bridge
 init(#{
     aws_access_key_id := AccessKeyID,
-    aws_secret_access_key := SecretAccessKey,
+    aws_secret_access_key := Secret,
     host := Host,
     port := Port,
     schema := Schema
 }) ->
+    %% TODO: teach `erlcloud` to to accept 0-arity closures as passwords.
+    SecretAccessKey = to_str(emqx_secret:unwrap(Secret)),
     erlcloud_ddb2:configure(AccessKeyID, SecretAccessKey, Host, Port, Schema),
     {ok, #{}}.
 
@@ -100,13 +101,6 @@ terminate(_Reason, _State) ->
 
 code_change(_OldVsn, State, _Extra) ->
     {ok, State}.
-
--spec format_status(
-    Opt :: normal | terminate,
-    Status :: list()
-) -> Status :: term().
-format_status(_Opt, Status) ->
-    Status.
 
 %%%===================================================================
 %%% Internal functions
@@ -184,3 +178,8 @@ convert2binary(Value) when is_list(Value) ->
     unicode:characters_to_binary(Value);
 convert2binary(Value) when is_map(Value) ->
     emqx_utils_json:encode(Value).
+
+to_str(List) when is_list(List) ->
+    List;
+to_str(Bin) when is_binary(Bin) ->
+    erlang:binary_to_list(Bin).

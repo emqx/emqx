@@ -204,7 +204,7 @@ backend(get, #{bindings := #{backend := Type}}) ->
         undefined ->
             {404, #{code => ?BACKEND_NOT_FOUND, message => <<"Backend not found">>}};
         Backend ->
-            {200, to_json(Backend)}
+            {200, to_redacted_json(Backend)}
     end;
 backend(put, #{bindings := #{backend := Backend}, body := Config}) ->
     ?SLOG(info, #{
@@ -264,9 +264,9 @@ valid_config(_, _, _) ->
     {error, invalid_config}.
 
 handle_backend_update_result({ok, #{backend := saml} = State}, _Config) ->
-    {200, to_json(maps:without([idp_meta, sp], State))};
+    {200, to_redacted_json(maps:without([idp_meta, sp], State))};
 handle_backend_update_result({ok, _State}, Config) ->
-    {200, to_json(Config)};
+    {200, to_redacted_json(Config)};
 handle_backend_update_result(ok, _) ->
     204;
 handle_backend_update_result({error, not_exists}, _) ->
@@ -278,9 +278,9 @@ handle_backend_update_result({error, Reason}, _) when is_binary(Reason) ->
 handle_backend_update_result({error, Reason}, _) ->
     {400, #{code => ?BAD_REQUEST, message => emqx_dashboard_sso:format(["Reason: ", Reason])}}.
 
-to_json(Data) ->
+to_redacted_json(Data) ->
     emqx_utils_maps:jsonable_map(
-        Data,
+        emqx_utils:redact(Data),
         fun(K, V) ->
             {K, emqx_utils_maps:binary_string(V)}
         end

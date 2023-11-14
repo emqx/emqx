@@ -74,7 +74,7 @@ fields(config) ->
                     desc => ?DESC("username")
                 }
             )},
-        {password, fun emqx_connector_schema_lib:password_required/1},
+        {password, emqx_connector_schema_lib:password_field(#{required => true})},
         {pool_size,
             hoconsc:mk(
                 typerefl:pos_integer(),
@@ -196,7 +196,6 @@ on_start(
     #{
         pool_size := PoolSize,
         payload_template := PayloadTemplate,
-        password := Password,
         delivery_mode := InitialDeliveryMode
     } = InitialConfig
 ) ->
@@ -206,7 +205,6 @@ on_start(
             persistent -> 2
         end,
     Config = InitialConfig#{
-        password => emqx_secret:wrap(Password),
         delivery_mode => DeliveryMode
     },
     ?SLOG(info, #{
@@ -242,13 +240,11 @@ on_start(
         ok ->
             {ok, State};
         {error, Reason} ->
-            LogMessage =
-                #{
-                    msg => "rabbitmq_connector_start_failed",
-                    error_reason => Reason,
-                    config => emqx_utils:redact(Config)
-                },
-            ?SLOG(info, LogMessage),
+            ?SLOG(info, #{
+                msg => "rabbitmq_connector_start_failed",
+                error_reason => Reason,
+                config => emqx_utils:redact(Config)
+            }),
             {error, Reason}
     end.
 
@@ -321,6 +317,7 @@ create_rabbitmq_connection_and_channel(Config) ->
         heartbeat := Heartbeat,
         wait_for_publish_confirmations := WaitForPublishConfirmations
     } = Config,
+    %% TODO: teach `amqp` to accept 0-arity closures as passwords.
     Password = emqx_secret:unwrap(WrappedPassword),
     SSLOptions =
         case maps:get(ssl, Config, #{}) of

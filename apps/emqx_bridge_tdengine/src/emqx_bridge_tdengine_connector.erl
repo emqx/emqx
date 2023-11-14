@@ -6,7 +6,6 @@
 
 -behaviour(emqx_resource).
 
--include_lib("emqx_resource/include/emqx_resource.hrl").
 -include_lib("typerefl/include/types.hrl").
 -include_lib("emqx/include/logger.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
@@ -48,8 +47,8 @@ adjust_fields(Fields) ->
         fun
             ({username, OrigUsernameFn}) ->
                 {username, add_default_fn(OrigUsernameFn, <<"root">>)};
-            ({password, OrigPasswordFn}) ->
-                {password, make_required_fn(OrigPasswordFn)};
+            ({password, _}) ->
+                {password, emqx_connector_schema_lib:password_field(#{required => true})};
             (Field) ->
                 Field
         end,
@@ -59,12 +58,6 @@ adjust_fields(Fields) ->
 add_default_fn(OrigFn, Default) ->
     fun
         (default) -> Default;
-        (Field) -> OrigFn(Field)
-    end.
-
-make_required_fn(OrigFn) ->
-    fun
-        (required) -> true;
         (Field) -> OrigFn(Field)
     end.
 
@@ -223,7 +216,10 @@ aggregate_query(BatchTks, BatchReqs, Acc) ->
     ).
 
 connect(Opts) ->
-    tdengine:start_link(Opts).
+    %% TODO: teach `tdengine` to accept 0-arity closures as passwords.
+    {value, {password, Secret}, OptsRest} = lists:keytake(password, 1, Opts),
+    NOpts = [{password, emqx_secret:unwrap(Secret)} | OptsRest],
+    tdengine:start_link(NOpts).
 
 query_opts(#{database := Database} = _Opts) ->
     [{db_name, Database}].

@@ -283,11 +283,9 @@ fields(auth_username_password) ->
             })},
         {username, mk(binary(), #{required => true, desc => ?DESC(auth_sasl_username)})},
         {password,
-            mk(binary(), #{
+            emqx_connector_schema_lib:password_field(#{
                 required => true,
-                sensitive => true,
-                desc => ?DESC(auth_sasl_password),
-                converter => fun emqx_schema:password_converter/2
+                desc => ?DESC(auth_sasl_password)
             })}
     ];
 fields(auth_gssapi_kerberos) ->
