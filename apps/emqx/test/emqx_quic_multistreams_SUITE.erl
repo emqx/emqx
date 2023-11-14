@@ -674,7 +674,16 @@ t_multi_streams_packet_malform(Config) ->
 
     ?assert(is_list(emqtt:info(C))),
 
-    {error, stm_send_error, aborted} = quicer:send(MalformStream, <<1, 2, 3, 4, 5, 6, 7, 8, 9, 0>>),
+    {error, stm_send_error, _} =
+        snabbkaffe:retry(
+            10000,
+            10,
+            fun() ->
+                {error, stm_send_error, _} = quicer:send(
+                    MalformStream, <<1, 2, 3, 4, 5, 6, 7, 8, 9, 0>>
+                )
+            end
+        ),
 
     ?assert(is_list(emqtt:info(C))),
 

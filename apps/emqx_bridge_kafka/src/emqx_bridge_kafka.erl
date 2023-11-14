@@ -100,7 +100,7 @@ values({post, connector}) ->
 values({post, KafkaType}) ->
     maps:merge(
         #{
-            name => <<"my_kafka_producer_bridge">>,
+            name => <<"my_kafka_producer_action">>,
             type => <<"kafka_producer">>
         },
         values({put, KafkaType})
@@ -526,7 +526,18 @@ fields(consumer_kafka_opts) ->
 fields(resource_opts) ->
     SupportedFields = [health_check_interval],
     CreationOpts = emqx_resource_schema:create_opts(_Overrides = []),
-    lists:filter(fun({Field, _}) -> lists:member(Field, SupportedFields) end, CreationOpts).
+    lists:filter(fun({Field, _}) -> lists:member(Field, SupportedFields) end, CreationOpts);
+fields(action_field) ->
+    {kafka_producer,
+        mk(
+            hoconsc:map(name, ref(emqx_bridge_kafka, kafka_producer_action)),
+            #{
+                desc => <<"Kafka Producer Action Config">>,
+                required => false
+            }
+        )};
+fields(action) ->
+    fields(action_field).
 
 desc("config_connector") ->
     ?DESC("desc_config");
