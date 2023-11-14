@@ -26,6 +26,9 @@
 -include("emqx_dashboard.hrl").
 
 start(_StartType, _StartArgs) ->
+    emqx_dashboard_admin:ensure_tables(),
+    emqx_dashboard_monitor:ensure_tables(),
+    emqx_dashboard_token:ensure_tables(),
     ok = mria_rlog:wait_for_shards([?DASHBOARD_SHARD], infinity),
     {ok, Sup} = emqx_dashboard_sup:start_link(),
     case emqx_dashboard:start_listeners() of

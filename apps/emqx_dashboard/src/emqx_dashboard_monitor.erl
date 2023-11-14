@@ -22,8 +22,6 @@
 
 -behaviour(gen_server).
 
--boot_mnesia({mnesia, [boot]}).
-
 -export([start_link/0]).
 
 -export([
@@ -35,7 +33,7 @@
     code_change/3
 ]).
 
--export([mnesia/1]).
+-export([ensure_tables/0]).
 
 -export([
     samplers/0,
@@ -64,7 +62,7 @@
     data :: map()
 }).
 
-mnesia(boot) ->
+ensure_tables() ->
     ok = mria:create_table(?TAB, [
         {type, set},
         {local_content, true},
