@@ -75,6 +75,15 @@ namespace() -> "syskeeper".
 
 roots() -> [].
 
+fields(action) ->
+    {syskeeper_forwarder,
+        mk(
+            hoconsc:map(name, ref(?MODULE, config)),
+            #{
+                desc => <<"Syskeeper Forwarder Action Config">>,
+                required => false
+            }
+        )};
 fields(config) ->
     [
         {enable, mk(boolean(), #{desc => ?DESC("config_enable"), default => true})},
@@ -121,10 +130,16 @@ fields("creation_opts") ->
     emqx_resource_schema:create_opts([{request_ttl, #{default => infinity}}]);
 fields("post") ->
     [type_field(), name_field() | fields(config)];
+fields("post_bridge_v2") ->
+    fields("post");
 fields("put") ->
     fields(config);
+fields("put_bridge_v2") ->
+    fields("put");
 fields("get") ->
-    emqx_bridge_schema:status_fields() ++ fields("post").
+    emqx_bridge_schema:status_fields() ++ fields("post");
+fields("get_bridge_v2") ->
+    fields("get").
 
 desc(config) ->
     ?DESC("desc_config");
