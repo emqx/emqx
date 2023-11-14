@@ -375,9 +375,6 @@ t_complex_type(_Config) ->
                     all
                 ],
                 type := string
-            }},
-            {<<"fix_integer">>, #{
-                default := 100, enum := [100], type := integer
             }}
         ],
         Properties
@@ -413,7 +410,7 @@ t_ref_array_with_key(_Config) ->
                         {<<"percent_ex">>, #{
                             description => <<"percent example">>,
                             example => <<"12%">>,
-                            type => number
+                            type => string
                         }},
                         {<<"duration_ms_ex">>, #{
                             description => <<"duration ms example">>,
@@ -659,8 +656,7 @@ schema("/ref/complex_type") ->
                     {maps, hoconsc:mk(map(), #{})},
                     {comma_separated_list, hoconsc:mk(emqx_schema:comma_separated_list(), #{})},
                     {comma_separated_atoms, hoconsc:mk(emqx_schema:comma_separated_atoms(), #{})},
-                    {log_level, hoconsc:mk(emqx_conf_schema:log_level(), #{})},
-                    {fix_integer, hoconsc:mk(typerefl:integer(100), #{})}
+                    {log_level, hoconsc:mk(emqx_conf_schema:log_level(), #{})}
                 ]
             }
         }
