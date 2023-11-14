@@ -240,8 +240,8 @@ send_message(BridgeId, Message) ->
     {BridgeV1Type, BridgeName} = emqx_bridge_resource:parse_bridge_id(BridgeId),
     case emqx_bridge_v2:is_bridge_v2_type(BridgeV1Type) of
         true ->
-            BridgeV2Type = emqx_bridge_v2:bridge_v1_type_to_bridge_v2_type(BridgeV1Type),
-            emqx_bridge_v2:send_message(BridgeV2Type, BridgeName, Message, #{});
+            ActionType = emqx_action_info:bridge_v1_type_to_action_type(BridgeV1Type),
+            emqx_bridge_v2:send_message(ActionType, BridgeName, Message, #{});
         false ->
             ResId = emqx_bridge_resource:resource_id(BridgeV1Type, BridgeName),
             send_message(BridgeV1Type, BridgeName, ResId, Message, #{})
@@ -414,7 +414,7 @@ remove(BridgeType0, BridgeName) ->
     }),
     case emqx_bridge_v2:is_bridge_v2_type(BridgeType) of
         true ->
-            emqx_bridge_v2:remove(BridgeType, BridgeName);
+            emqx_bridge_v2:bridge_v1_remove(BridgeType0, BridgeName);
         false ->
             remove_v1(BridgeType, BridgeName)
     end.

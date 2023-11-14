@@ -72,7 +72,10 @@ connector_type_to_bridge_types(gcp_pubsub_producer) -> [gcp_pubsub, gcp_pubsub_p
 connector_type_to_bridge_types(kafka_producer) -> [kafka, kafka_producer];
 connector_type_to_bridge_types(mongodb) -> [mongodb, mongodb_rs, mongodb_sharded, mongodb_single];
 connector_type_to_bridge_types(syskeeper_forwarder) -> [syskeeper_forwarder];
-connector_type_to_bridge_types(syskeeper_proxy) -> [].
+connector_type_to_bridge_types(syskeeper_proxy) -> [];
+connector_type_to_bridge_types(pgsql) -> [pgsql];
+connector_type_to_bridge_types(timescale) -> [timescale];
+connector_type_to_bridge_types(matrix) -> [matrix].
 
 actions_config_name() -> <<"actions">>.
 

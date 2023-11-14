@@ -35,6 +35,12 @@ resource_type(syskeeper_forwarder) ->
     emqx_bridge_syskeeper_connector;
 resource_type(syskeeper_proxy) ->
     emqx_bridge_syskeeper_proxy_server;
+resource_type(pgsql) ->
+    emqx_postgresql;
+resource_type(timescale) ->
+    emqx_postgresql;
+resource_type(matrix) ->
+    emqx_postgresql;
 resource_type(Type) ->
     error({unknown_connector_type, Type}).
 
@@ -108,6 +114,30 @@ connector_structs() ->
                     desc => <<"Syskeeper Proxy Connector Config">>,
                     required => false
                 }
+            )},
+        {pgsql,
+            mk(
+                hoconsc:map(name, ref(emqx_postgresql_connector_schema, "config_connector")),
+                #{
+                    desc => <<"PostgreSQL Connector Config">>,
+                    required => false
+                }
+            )},
+        {timescale,
+            mk(
+                hoconsc:map(name, ref(emqx_bridge_timescale, "config_connector")),
+                #{
+                    desc => <<"Timescale Connector Config">>,
+                    required => false
+                }
+            )},
+        {matrix,
+            mk(
+                hoconsc:map(name, ref(emqx_bridge_matrix, "config_connector")),
+                #{
+                    desc => <<"Matrix Connector Config">>,
+                    required => false
+                }
             )}
     ].
 
@@ -131,7 +161,10 @@ schema_modules() ->
         emqx_bridge_kafka,
         emqx_bridge_mongodb,
         emqx_bridge_syskeeper_connector,
-        emqx_bridge_syskeeper_proxy
+        emqx_bridge_syskeeper_proxy,
+        emqx_postgresql_connector_schema,
+        emqx_bridge_timescale,
+        emqx_bridge_matrix
     ].
 
 api_schemas(Method) ->
@@ -152,7 +185,10 @@ api_schemas(Method) ->
         api_ref(emqx_bridge_kafka, <<"kafka_producer">>, Method ++ "_connector"),
         api_ref(emqx_bridge_mongodb, <<"mongodb">>, Method ++ "_connector"),
         api_ref(emqx_bridge_syskeeper_connector, <<"syskeeper_forwarder">>, Method),
-        api_ref(emqx_bridge_syskeeper_proxy, <<"syskeeper_proxy">>, Method)
+        api_ref(emqx_bridge_syskeeper_proxy, <<"syskeeper_proxy">>, Method),
+        api_ref(emqx_postgresql_connector_schema, <<"pgsql">>, Method ++ "_connector"),
+        api_ref(emqx_bridge_timescale, <<"timescale">>, Method ++ "_connector"),
+        api_ref(emqx_bridge_matrix, <<"matrix">>, Method ++ "_connector")
     ].
 
 api_ref(Module, Type, Method) ->
