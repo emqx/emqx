@@ -190,12 +190,7 @@ code_change(_OldVsn, State, _Extra) ->
 %%--------------------------------------------------------------------
 
 stats_fun() ->
-    case ets:info(?ROUTE_TAB, size) of
-        undefined ->
-            ok;
-        Size ->
-            emqx_stats:setstat('topics.count', 'topics.max', Size)
-    end.
+    emqx_stats:setstat('topics.count', 'topics.max', emqx_router:stats(n_routes)).
 
 cleanup_routes(Node) ->
     emqx_router:cleanup_routes(Node).
