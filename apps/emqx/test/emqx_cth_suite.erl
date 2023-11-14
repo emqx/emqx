@@ -74,6 +74,9 @@
 
 -export([merge_appspec/2]).
 
+%% "Unofficial" `emqx_config_handler' and `emqx_conf' APIs
+-export([schema_module/0, upgrade_raw_conf/1]).
+
 -export_type([appspec/0]).
 -export_type([appspec_opts/0]).
 
@@ -477,3 +480,18 @@ render_config(Config = #{}) ->
     unicode:characters_to_binary(hocon_pp:do(Config, #{}));
 render_config(Config) ->
     unicode:characters_to_binary(Config).
+
+%%
+
+%% "Unofficial" `emqx_config_handler' API
+schema_module() ->
+    ?MODULE.
+
+%% "Unofficial" `emqx_conf' API
+upgrade_raw_conf(Conf) ->
+    case emqx_release:edition() of
+        ee ->
+            emqx_enterprise_schema:upgrade_raw_conf(Conf);
+        ce ->
+            emqx_conf_schema:upgrade_raw_conf(Conf)
+    end.
