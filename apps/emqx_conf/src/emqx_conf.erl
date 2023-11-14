@@ -151,6 +151,9 @@ reset(Node, KeyPath, Opts) ->
 %% @doc Called from build script.
 %% TODO: move to a external escript after all refactoring is done
 dump_schema(Dir, SchemaModule) ->
+    %% TODO: Load all apps instead of only emqx_dashboard
+    %% as this will help schemas that searches for apps with
+    %% relevant schema definitions
     _ = application:load(emqx_dashboard),
     ok = emqx_dashboard_desc_cache:init(),
     lists:foreach(
