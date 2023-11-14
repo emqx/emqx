@@ -20,12 +20,10 @@
 
 %% Mnesia bootstrap
 -export([
-    mnesia/1,
+    ensure_tables/0,
     wait_for_tables/0,
     create_session_trie/1
 ]).
-
--boot_mnesia({mnesia, [boot]}).
 
 %% Trie APIs
 -export([
@@ -65,8 +63,8 @@
 %%--------------------------------------------------------------------
 
 %% @doc Create or replicate topics table.
--spec mnesia(boot | copy) -> ok.
-mnesia(boot) ->
+-spec ensure_tables() -> ok.
+ensure_tables() ->
     %% Optimize storage
     StoreProps = [
         {ets, [

@@ -37,6 +37,7 @@
 %%--------------------------------------------------------------------
 
 start(_Type, _Args) ->
+    ensure_tables(),
     ok = maybe_load_config(),
     _ = emqx_persistent_message:init(),
     ok = maybe_start_quicer(),
@@ -122,3 +123,12 @@ get_description() -> emqx_release:description().
 
 get_release() ->
     emqx_release:version().
+
+ensure_tables() ->
+    ok = emqx_router:ensure_tables(),
+    ok = emqx_router_helper:ensure_tables(),
+    ok = emqx_trie:ensure_tables(),
+    ok = emqx_delayed:ensure_tables(),
+    ok = emqx_exclusive_subscription:ensure_tables(),
+    ok = emqx_shared_sub:ensure_tables(),
+    ok.
