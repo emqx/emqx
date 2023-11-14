@@ -65,21 +65,23 @@ end_per_group(_Group, _Config) ->
     ok.
 
 init_per_suite(Config) ->
-    ok = emqx_common_test_helpers:start_apps([
-        emqx_conf,
-        emqx_connector,
-        emqx_bridge,
-        emqx_bridge_syskeeper
-    ]),
-    _ = emqx_bridge_enterprise:module_info(),
+    Apps = emqx_cth_suite:start(
+        [
+            emqx_conf,
+            emqx_connector,
+            emqx_bridge,
+            emqx_bridge_syskeeper
+        ],
+        #{work_dir => emqx_cth_suite:work_dir(Config)}
+    ),
     emqx_mgmt_api_test_util:init_suite(),
-    Config.
+    [{apps, Apps} | Config].
 
-end_per_suite(_Config) ->
+end_per_suite(Config) ->
+    Apps = ?config(apps, Config),
     emqx_mgmt_api_test_util:end_suite(),
-    ok = emqx_common_test_helpers:stop_apps([
-        emqx_bridge_syskeeper, emqx_bridge, emqx_connector, emqx_conf
-    ]).
+    ok = emqx_cth_suite:stop(Apps),
+    ok.
 
 init_per_testcase(_Testcase, Config) ->
     snabbkaffe:start_trace(),
