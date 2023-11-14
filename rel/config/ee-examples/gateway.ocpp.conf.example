@@ -1,0 +1,64 @@
+##--------------------------------------------------------------------
+## Gateway OCPP
+##
+## Add a OCPP-J gateway
+##--------------------------------------------------------------------
+## Note: This is an example of how to configure this feature
+##       you should copy and paste the below data into the emqx.conf for working
+
+gateway.ocpp {
+
+    ## When publishing or subscribing, prefix all topics with a mountpoint string.
+    ## It's a way that you can use to implement isolation of message routing between different
+    ## gateway protocols
+    mountpoint = "ocpp/"
+
+    ## The default Heartbeat time interval
+    default_heartbeat_interval = "60s"
+
+    ## The backoff for hearbeat checking times
+    heartbeat_checking_times_backoff = 1
+
+    ## Whether to enable message format legality checking.
+    ## EMQX checks the message format of the upstream and dnstream against the
+    ## format defined in json-schema.
+    ## When the check fails, emqx will reply with a corresponding answer message.
+    ##
+    ## Enum with:
+    ##  - all: check all messages
+    ##  - upstream_only: check upstream messages only
+    ##  - dnstream_only: check dnstream messages only
+    ##  - disable: don't check any messages
+    message_format_checking = disable
+
+    ## Upload stream topic to notify third-party system whats messges/events
+    ## reported by Charge Point
+    ##
+    ## Avaiable placeholders:
+    ##  - cid: Charge Point ID
+    ##  - clientid: Equal to Charge Point ID
+    ##  - action: Message Name in OCPP
+    upstream {
+        topic = "cp/${clientid}"
+        ## UpStream topic override mapping by Message Name
+        topic_override_mapping {
+            #"BootNotification" = "cp/${clientid}/Notify/BootNotification"
+        }
+        reply_topic = "cp/${clientid}/Reply"
+        error_topic = "cp/${clientid}/Reply"
+    }
+
+    dnstream {
+        ## Download stream topic to receive request/control messages from third-party
+        ## system.
+        ##
+        ## This value is a wildcard topic name that subscribed by every connected Charge
+        ## Point.
+        topic = "cs/${clientid}"
+    }
+
+    listeners.ws.default {
+        bind = "0.0.0.0:33033"
+        websocket.path = "/ocpp"
+    }
+}

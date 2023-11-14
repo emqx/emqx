@@ -460,8 +460,11 @@ message SubOpts {
   // The QoS level
   uint32 qos = 1;
 
+  // deprecated
+  reserved 2;
+  reserved "share";
   // The group name for shared subscription
-  string share = 2;
+  // string share = 2;
 
   // The Retain Handling option (MQTT v5.0)
   //

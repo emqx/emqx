@@ -17,6 +17,7 @@
 %% HTTP API Auth
 -define(BAD_USERNAME_OR_PWD, 'BAD_USERNAME_OR_PWD').
 -define(BAD_API_KEY_OR_SECRET, 'BAD_API_KEY_OR_SECRET').
+-define(API_KEY_NOT_ALLOW_MSG, <<"This API Key don't have permission to access this resource">>).
 
 %% Bad Request
 -define(BAD_REQUEST, 'BAD_REQUEST').

@@ -199,7 +199,7 @@ on_start(
     Options = [
         {server, to_bin(Server)},
         {username, Username},
-        {password, emqx_secret:wrap(maps:get(password, Config, ""))},
+        {password, maps:get(password, Config, emqx_secret:wrap(""))},
         {driver, Driver},
         {database, Database},
         {pool_size, PoolSize}

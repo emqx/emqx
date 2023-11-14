@@ -48,13 +48,8 @@ fields(config) ->
                 binary(),
                 #{default => <<>>, desc => ?DESC("access_key")}
             )},
-        {secret_key,
-            mk(
-                binary(),
-                #{default => <<>>, desc => ?DESC("secret_key"), sensitive => true}
-            )},
-        {security_token,
-            mk(binary(), #{default => <<>>, desc => ?DESC(security_token), sensitive => true})},
+        {secret_key, emqx_schema_secret:mk(#{default => <<>>, desc => ?DESC("secret_key")})},
+        {security_token, emqx_schema_secret:mk(#{default => <<>>, desc => ?DESC(security_token)})},
         {sync_timeout,
             mk(
                 emqx_schema:timeout_duration(),
@@ -294,21 +289,19 @@ make_producer_opts(
         acl_info => emqx_secret:wrap(ACLInfo)
     }.
 
-acl_info(<<>>, <<>>, <<>>) ->
+acl_info(<<>>, _, _) ->
     #{};
-acl_info(AccessKey, SecretKey, <<>>) when is_binary(AccessKey), is_binary(SecretKey) ->
-    #{
+acl_info(AccessKey, SecretKey, SecurityToken) when is_binary(AccessKey) ->
+    Info = #{
         access_key => AccessKey,
-        secret_key => SecretKey
-    };
-acl_info(AccessKey, SecretKey, SecurityToken) when
-    is_binary(AccessKey), is_binary(SecretKey), is_binary(SecurityToken)
-->
-    #{
-        access_key => AccessKey,
-        secret_key => SecretKey,
-        security_token => SecurityToken
-    };
+        secret_key => emqx_maybe:define(emqx_secret:unwrap(SecretKey), <<>>)
+    },
+    case emqx_maybe:define(emqx_secret:unwrap(SecurityToken), <<>>) of
+        <<>> ->
+            Info;
+        Token ->
+            Info#{security_token => Token}
+    end;
 acl_info(_, _, _) ->
     #{}.
 

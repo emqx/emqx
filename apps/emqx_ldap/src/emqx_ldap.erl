@@ -53,8 +53,6 @@
         filter_tokens := params_tokens()
     }.
 
--define(ECS, emqx_connector_schema_lib).
-
 %%=====================================================================
 %% Hocon schema
 
@@ -66,9 +64,9 @@ roots() ->
 fields(config) ->
     [
         {server, server()},
-        {pool_size, fun ?ECS:pool_size/1},
+        {pool_size, fun emqx_connector_schema_lib:pool_size/1},
         {username, fun ensure_username/1},
-        {password, fun ?ECS:password/1},
+        {password, emqx_connector_schema_lib:password_field()},
         {base_dn,
             ?HOCON(binary(), #{
                 desc => ?DESC(base_dn),
@@ -127,7 +125,7 @@ server() ->
 ensure_username(required) ->
     true;
 ensure_username(Field) ->
-    ?ECS:username(Field).
+    emqx_connector_schema_lib:username(Field).
 
 %% ===================================================================
 callback_mode() -> always_sync.
@@ -226,7 +224,8 @@ connect(Options) ->
     OpenOpts = maps:to_list(maps:with([port, sslopts], Conf)),
     case eldap:open([Host], [{log, fun log/3}, {timeout, RequestTimeout} | OpenOpts]) of
         {ok, Handle} = Ret ->
-            case eldap:simple_bind(Handle, Username, Password) of
+            %% TODO: teach `eldap` to accept 0-arity closures as passwords.
+            case eldap:simple_bind(Handle, Username, emqx_secret:unwrap(Password)) of
                 ok -> Ret;
                 Error -> Error
             end;
@@ -323,13 +322,13 @@ log(Level, Format, Args) ->
     ).
 
 prepare_template(Config, State) ->
-    do_prepare_template(maps:to_list(maps:with([base_dn, filter], Config)), State).
+    maps:fold(fun prepare_template/3, State, Config).
 
-do_prepare_template([{base_dn, V} | T], State) ->
-    do_prepare_template(T, State#{base_tokens => emqx_placeholder:preproc_tmpl(V)});
-do_prepare_template([{filter, V} | T], State) ->
-    do_prepare_template(T, State#{filter_tokens => emqx_placeholder:preproc_tmpl(V)});
-do_prepare_template([], State) ->
+prepare_template(base_dn, V, State) ->
+    State#{base_tokens => emqx_placeholder:preproc_tmpl(V)};
+prepare_template(filter, V, State) ->
+    State#{filter_tokens => emqx_placeholder:preproc_tmpl(V)};
+prepare_template(_Entry, _, State) ->
     State.
 
 filter_escape(Binary) when is_binary(Binary) ->

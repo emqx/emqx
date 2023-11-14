@@ -130,7 +130,9 @@ end_per_group(_Group, _Config) ->
     ok.
 
 init_per_suite(Config) ->
-    Config.
+    Passfile = filename:join(?config(priv_dir, Config), "passfile"),
+    ok = file:write_file(Passfile, <<?SQL_SERVER_PASSWORD>>),
+    [{sqlserver_passfile, Passfile} | Config].
 
 end_per_suite(_Config) ->
     emqx_mgmt_api_test_util:end_suite(),
@@ -193,7 +195,9 @@ t_setup_via_http_api_and_publish(Config) ->
     SQLServerConfig0 = ?config(sqlserver_config, Config),
     SQLServerConfig = SQLServerConfig0#{
         <<"name">> => Name,
-        <<"type">> => BridgeType
+        <<"type">> => BridgeType,
+        %% NOTE: using literal password with HTTP API requests.
+        <<"password">> => <<?SQL_SERVER_PASSWORD>>
     },
     ?assertMatch(
         {ok, _},
@@ -449,6 +453,7 @@ sqlserver_config(BridgeType, Config) ->
     Name = atom_to_binary(?MODULE),
     BatchSize = batch_size(Config),
     QueryMode = ?config(query_mode, Config),
+    Passfile = ?config(sqlserver_passfile, Config),
     ConfigString =
         io_lib:format(
             "bridges.~s.~s {\n"
@@ -472,7 +477,7 @@ sqlserver_config(BridgeType, Config) ->
                 Server,
                 ?SQL_SERVER_DATABASE,
                 ?SQL_SERVER_USERNAME,
-                ?SQL_SERVER_PASSWORD,
+                "file://" ++ Passfile,
                 ?SQL_BRIDGE,
                 ?SQL_SERVER_DRIVER,
                 BatchSize,

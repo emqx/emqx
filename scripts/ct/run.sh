@@ -40,6 +40,7 @@ ATTACH='no'
 STOP='no'
 IS_CI='no'
 ODBC_REQUEST='no'
+UP='up'
 while [ "$#" -gt 0 ]; do
     case $1 in
         -h|--help)
@@ -72,6 +73,7 @@ while [ "$#" -gt 0 ]; do
             ;;
         --ci)
             IS_CI='yes'
+            UP='up --quiet-pull'
             shift 1
             ;;
         --)
@@ -254,10 +256,8 @@ else
     INSTALL_ODBC="echo 'msodbc driver not requested'"
 fi
 
-F_OPTIONS=""
-
 for file in "${FILES[@]}"; do
-    F_OPTIONS="$F_OPTIONS -f $file"
+    DC="$DC -f $file"
 done
 
 DOCKER_USER="$(id -u)"
@@ -275,15 +275,14 @@ if [ "$STOP" = 'no' ]; then
     # some left-over log file has to be deleted before a new docker-compose up
     rm -f '.ci/docker-compose-file/redis/*.log'
     set +e
-    # shellcheck disable=2086 # no quotes for F_OPTIONS
-    $DC $F_OPTIONS up -d --build --remove-orphans
+    # shellcheck disable=2086 # no quotes for UP
+    $DC $UP -d --build --remove-orphans
     RESULT=$?
     if [ $RESULT -ne 0 ]; then
         mkdir -p _build/test/logs
         LOG='_build/test/logs/docker-compose.log'
         echo "Dumping docker-compose log to $LOG"
-        # shellcheck disable=2086 # no quotes for F_OPTIONS
-        $DC $F_OPTIONS logs --no-color --timestamps > "$LOG"
+        $DC logs --no-color --timestamps > "$LOG"
         exit 1
     fi
     set -e
@@ -309,8 +308,7 @@ fi
 set +e
 
 if [ "$STOP" = 'yes' ]; then
-    # shellcheck disable=2086 # no quotes for F_OPTIONS
-    $DC $F_OPTIONS down --remove-orphans
+    $DC down --remove-orphans
 elif [ "$ATTACH" = 'yes' ]; then
     docker exec -it "$ERLANG_CONTAINER" bash
 elif [ "$CONSOLE" = 'yes' ]; then
@@ -335,12 +333,10 @@ else
     if [ "$RESULT" -ne 0 ]; then
         LOG='_build/test/logs/docker-compose.log'
         echo "Dumping docker-compose log to $LOG"
-        # shellcheck disable=2086 # no quotes for F_OPTIONS
-        $DC $F_OPTIONS logs --no-color --timestamps > "$LOG"
+        $DC logs --no-color --timestamps > "$LOG"
     fi
     if [ "$KEEP_UP" != 'yes' ]; then
-        # shellcheck disable=2086 # no quotes for F_OPTIONS
-        $DC $F_OPTIONS down
+        $DC down
     fi
     exit "$RESULT"
 fi

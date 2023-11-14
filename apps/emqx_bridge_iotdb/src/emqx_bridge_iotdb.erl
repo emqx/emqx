@@ -51,12 +51,9 @@ fields(auth_basic) ->
     [
         {username, mk(binary(), #{required => true, desc => ?DESC("config_auth_basic_username")})},
         {password,
-            mk(binary(), #{
+            emqx_schema_secret:mk(#{
                 required => true,
-                desc => ?DESC("config_auth_basic_password"),
-                format => <<"password">>,
-                sensitive => true,
-                converter => fun emqx_schema:password_converter/2
+                desc => ?DESC("config_auth_basic_password")
             })}
     ].
 

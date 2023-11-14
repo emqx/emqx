@@ -15,7 +15,7 @@
 
 -type config() :: #{
     aws_access_key_id := binary(),
-    aws_secret_access_key := binary(),
+    aws_secret_access_key := emqx_secret:t(binary()),
     endpoint := binary(),
     stream_name := binary(),
     partition_key := binary(),
