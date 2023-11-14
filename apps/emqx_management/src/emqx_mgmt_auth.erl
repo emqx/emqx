@@ -14,16 +14,16 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 -module(emqx_mgmt_auth).
+
+-behaviour(emqx_config_handler).
+-behaviour(emqx_db_backup).
+
 -include_lib("emqx_mgmt.hrl").
 -include_lib("emqx/include/emqx.hrl").
 -include_lib("emqx/include/logger.hrl").
 
--behaviour(emqx_db_backup).
-
 %% API
--export([mnesia/1]).
--boot_mnesia({mnesia, [boot]}).
--behaviour(emqx_config_handler).
+-export([ensure_tables/0]).
 
 -export([
     create/4,
@@ -67,7 +67,7 @@
 
 -define(DEFAULT_HASH_LEN, 16).
 
-mnesia(boot) ->
+ensure_tables() ->
     ok = mria:create_table(?APP, [
         {type, set},
         {rlog_shard, ?COMMON_SHARD},
