@@ -118,18 +118,20 @@ create_tabs() ->
 %% Subscribe API
 %%------------------------------------------------------------------------------
 
--spec subscribe(emqx_types:topic()) -> ok.
-subscribe(Topic) when is_binary(Topic) ->
+-spec subscribe(emqx_types:topic() | emqx_types:share()) -> ok.
+subscribe(Topic) when ?IS_TOPIC(Topic) ->
     subscribe(Topic, undefined).
 
--spec subscribe(emqx_types:topic(), emqx_types:subid() | emqx_types:subopts()) -> ok.
-subscribe(Topic, SubId) when is_binary(Topic), ?IS_SUBID(SubId) ->
+-spec subscribe(emqx_types:topic() | emqx_types:share(), emqx_types:subid() | emqx_types:subopts()) ->
+    ok.
+subscribe(Topic, SubId) when ?IS_TOPIC(Topic), ?IS_SUBID(SubId) ->
     subscribe(Topic, SubId, ?DEFAULT_SUBOPTS);
-subscribe(Topic, SubOpts) when is_binary(Topic), is_map(SubOpts) ->
+subscribe(Topic, SubOpts) when ?IS_TOPIC(Topic), is_map(SubOpts) ->
     subscribe(Topic, undefined, SubOpts).
 
--spec subscribe(emqx_types:topic(), emqx_types:subid(), emqx_types:subopts()) -> ok.
-subscribe(Topic, SubId, SubOpts0) when is_binary(Topic), ?IS_SUBID(SubId), is_map(SubOpts0) ->
+-spec subscribe(emqx_types:topic() | emqx_types:share(), emqx_types:subid(), emqx_types:subopts()) ->
+    ok.
+subscribe(Topic, SubId, SubOpts0) when ?IS_TOPIC(Topic), ?IS_SUBID(SubId), is_map(SubOpts0) ->
     SubOpts = maps:merge(?DEFAULT_SUBOPTS, SubOpts0),
     _ = emqx_trace:subscribe(Topic, SubId, SubOpts),
     SubPid = self(),
@@ -151,13 +153,13 @@ with_subid(undefined, SubOpts) ->
 with_subid(SubId, SubOpts) ->
     maps:put(subid, SubId, SubOpts).
 
-%% @private
 do_subscribe(Topic, SubPid, SubOpts) ->
     true = ets:insert(?SUBSCRIPTION, {SubPid, Topic}),
-    Group = maps:get(share, SubOpts, undefined),
-    do_subscribe(Group, Topic, SubPid, SubOpts).
+    do_subscribe2(Topic, SubPid, SubOpts).
 
-do_subscribe(undefined, Topic, SubPid, SubOpts) ->
+do_subscribe2(Topic, SubPid, SubOpts) when is_binary(Topic) ->
+    %% FIXME: subscribe shard bug
+    %% https://emqx.atlassian.net/browse/EMQX-10214
     case emqx_broker_helper:get_sub_shard(SubPid, Topic) of
         0 ->
             true = ets:insert(?SUBSCRIBER, {Topic, SubPid}),
@@ -168,34 +170,40 @@ do_subscribe(undefined, Topic, SubPid, SubOpts) ->
             true = ets:insert(?SUBOPTION, {{Topic, SubPid}, maps:put(shard, I, SubOpts)}),
             call(pick({Topic, I}), {subscribe, Topic, I})
     end;
-%% Shared subscription
-do_subscribe(Group, Topic, SubPid, SubOpts) ->
+do_subscribe2(Topic = #share{group = Group, topic = RealTopic}, SubPid, SubOpts) when
+    is_binary(RealTopic)
+->
     true = ets:insert(?SUBOPTION, {{Topic, SubPid}, SubOpts}),
-    emqx_shared_sub:subscribe(Group, Topic, SubPid).
+    emqx_shared_sub:subscribe(Group, RealTopic, SubPid).
 
 %%--------------------------------------------------------------------
 %% Unsubscribe API
 %%--------------------------------------------------------------------
 
--spec unsubscribe(emqx_types:topic()) -> ok.
-unsubscribe(Topic) when is_binary(Topic) ->
+-spec unsubscribe(emqx_types:topic() | emqx_types:share()) -> ok.
+unsubscribe(Topic) when ?IS_TOPIC(Topic) ->
     SubPid = self(),
     case ets:lookup(?SUBOPTION, {Topic, SubPid}) of
         [{_, SubOpts}] ->
-            _ = emqx_broker_helper:reclaim_seq(Topic),
             _ = emqx_trace:unsubscribe(Topic, SubOpts),
             do_unsubscribe(Topic, SubPid, SubOpts);
         [] ->
             ok
     end.
 
+-spec do_unsubscribe(emqx_types:topic() | emqx_types:share(), pid(), emqx_types:subopts()) ->
+    ok.
 do_unsubscribe(Topic, SubPid, SubOpts) ->
     true = ets:delete(?SUBOPTION, {Topic, SubPid}),
     true = ets:delete_object(?SUBSCRIPTION, {SubPid, Topic}),
-    Group = maps:get(share, SubOpts, undefined),
-    do_unsubscribe(Group, Topic, SubPid, SubOpts).
+    do_unsubscribe2(Topic, SubPid, SubOpts).
 
-do_unsubscribe(undefined, Topic, SubPid, SubOpts) ->
+-spec do_unsubscribe2(emqx_types:topic() | emqx_types:share(), pid(), emqx_types:subopts()) ->
+    ok.
+do_unsubscribe2(Topic, SubPid, SubOpts) when
+    is_binary(Topic), is_pid(SubPid), is_map(SubOpts)
+->
+    _ = emqx_broker_helper:reclaim_seq(Topic),
     case maps:get(shard, SubOpts, 0) of
         0 ->
             true = ets:delete_object(?SUBSCRIBER, {Topic, SubPid}),
@@ -205,7 +213,9 @@ do_unsubscribe(undefined, Topic, SubPid, SubOpts) ->
             true = ets:delete_object(?SUBSCRIBER, {{shard, Topic, I}, SubPid}),
             cast(pick({Topic, I}), {unsubscribed, Topic, I})
     end;
-do_unsubscribe(Group, Topic, SubPid, _SubOpts) ->
+do_unsubscribe2(#share{group = Group, topic = Topic}, SubPid, _SubOpts) when
+    is_binary(Group), is_binary(Topic), is_pid(SubPid)
+->
     emqx_shared_sub:unsubscribe(Group, Topic, SubPid).
 
 %%--------------------------------------------------------------------
@@ -306,7 +316,9 @@ aggre([], true, Acc) ->
     lists:usort(Acc).
 
 %% @doc Forward message to another node.
--spec forward(node(), emqx_types:topic(), emqx_types:delivery(), RpcMode :: sync | async) ->
+-spec forward(
+    node(), emqx_types:topic() | emqx_types:share(), emqx_types:delivery(), RpcMode :: sync | async
+) ->
     emqx_types:deliver_result().
 forward(Node, To, Delivery, async) ->
     true = emqx_broker_proto_v1:forward_async(Node, To, Delivery),
@@ -329,7 +341,8 @@ forward(Node, To, Delivery, sync) ->
             Result
     end.
 
--spec dispatch(emqx_types:topic(), emqx_types:delivery()) -> emqx_types:deliver_result().
+-spec dispatch(emqx_types:topic() | emqx_types:share(), emqx_types:delivery()) ->
+    emqx_types:deliver_result().
 dispatch(Topic, Delivery = #delivery{}) when is_binary(Topic) ->
     case emqx:is_running() of
         true ->
@@ -353,7 +366,11 @@ inc_dropped_cnt(Msg) ->
     end.
 
 -compile({inline, [subscribers/1]}).
--spec subscribers(emqx_types:topic() | {shard, emqx_types:topic(), non_neg_integer()}) ->
+-spec subscribers(
+    emqx_types:topic()
+    | emqx_types:share()
+    | {shard, emqx_types:topic() | emqx_types:share(), non_neg_integer()}
+) ->
     [pid()].
 subscribers(Topic) when is_binary(Topic) ->
     lookup_value(?SUBSCRIBER, Topic, []);
@@ -372,7 +389,7 @@ subscriber_down(SubPid) ->
                 SubOpts when is_map(SubOpts) ->
                     _ = emqx_broker_helper:reclaim_seq(Topic),
                     true = ets:delete(?SUBOPTION, {Topic, SubPid}),
-                    do_unsubscribe(undefined, Topic, SubPid, SubOpts);
+                    do_unsubscribe2(Topic, SubPid, SubOpts);
                 undefined ->
                     ok
             end
@@ -386,7 +403,7 @@ subscriber_down(SubPid) ->
 %%--------------------------------------------------------------------
 
 -spec subscriptions(pid() | emqx_types:subid()) ->
-    [{emqx_types:topic(), emqx_types:subopts()}].
+    [{emqx_types:topic() | emqx_types:share(), emqx_types:subopts()}].
 subscriptions(SubPid) when is_pid(SubPid) ->
     [
         {Topic, lookup_value(?SUBOPTION, {Topic, SubPid}, #{})}
@@ -400,20 +417,22 @@ subscriptions(SubId) ->
             []
     end.
 
--spec subscriptions_via_topic(emqx_types:topic()) -> [emqx_types:subopts()].
+-spec subscriptions_via_topic(emqx_types:topic() | emqx_types:share()) -> [emqx_types:subopts()].
 subscriptions_via_topic(Topic) ->
     MatchSpec = [{{{Topic, '_'}, '_'}, [], ['$_']}],
     ets:select(?SUBOPTION, MatchSpec).
 
--spec subscribed(pid() | emqx_types:subid(), emqx_types:topic()) -> boolean().
+-spec subscribed(
+    pid() | emqx_types:subid(), emqx_types:topic() | emqx_types:share()
+) -> boolean().
 subscribed(SubPid, Topic) when is_pid(SubPid) ->
     ets:member(?SUBOPTION, {Topic, SubPid});
 subscribed(SubId, Topic) when ?IS_SUBID(SubId) ->
     SubPid = emqx_broker_helper:lookup_subpid(SubId),
     ets:member(?SUBOPTION, {Topic, SubPid}).
 
--spec get_subopts(pid(), emqx_types:topic()) -> maybe(emqx_types:subopts()).
-get_subopts(SubPid, Topic) when is_pid(SubPid), is_binary(Topic) ->
+-spec get_subopts(pid(), emqx_types:topic() | emqx_types:share()) -> maybe(emqx_types:subopts()).
+get_subopts(SubPid, Topic) when is_pid(SubPid), ?IS_TOPIC(Topic) ->
     lookup_value(?SUBOPTION, {Topic, SubPid});
 get_subopts(SubId, Topic) when ?IS_SUBID(SubId) ->
     case emqx_broker_helper:lookup_subpid(SubId) of
@@ -423,7 +442,7 @@ get_subopts(SubId, Topic) when ?IS_SUBID(SubId) ->
             undefined
     end.
 
--spec set_subopts(emqx_types:topic(), emqx_types:subopts()) -> boolean().
+-spec set_subopts(emqx_types:topic() | emqx_types:share(), emqx_types:subopts()) -> boolean().
 set_subopts(Topic, NewOpts) when is_binary(Topic), is_map(NewOpts) ->
     set_subopts(self(), Topic, NewOpts).
 
@@ -437,7 +456,7 @@ set_subopts(SubPid, Topic, NewOpts) ->
             false
     end.
 
--spec topics() -> [emqx_types:topic()].
+-spec topics() -> [emqx_types:topic() | emqx_types:share()].
 topics() ->
     emqx_router:topics().
 
@@ -542,7 +561,8 @@ code_change(_OldVsn, State, _Extra) ->
 %% Internal functions
 %%--------------------------------------------------------------------
 
--spec do_dispatch(emqx_types:topic(), emqx_types:delivery()) -> emqx_types:deliver_result().
+-spec do_dispatch(emqx_types:topic() | emqx_types:share(), emqx_types:delivery()) ->
+    emqx_types:deliver_result().
 do_dispatch(Topic, #delivery{message = Msg}) ->
     DispN = lists:foldl(
         fun(Sub, N) ->
@@ -560,6 +580,8 @@ do_dispatch(Topic, #delivery{message = Msg}) ->
             {ok, DispN}
     end.
 
+%% Donot dispatch to share subscriber here.
+%% we do it in `emqx_shared_sub.erl` with configured strategy
 do_dispatch(SubPid, Topic, Msg) when is_pid(SubPid) ->
     case erlang:is_process_alive(SubPid) of
         true ->

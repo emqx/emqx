@@ -77,7 +77,7 @@ EMQX Cloud 文档：[docs.emqx.com/zh/cloud/latest/](https://docs.emqx.com/zh/cl
 
   优雅的跨平台 MQTT 5.0 客户端工具，提供了桌面端、命令行、Web 三种版本，帮助您更快的开发和调试 MQTT 服务和应用。
 
-- [车联网平台搭建从入门到精通 ](https://www.emqx.com/zh/blog/category/internet-of-vehicles)
+- [车联网平台搭建从入门到精通](https://www.emqx.com/zh/blog/category/internet-of-vehicles)
 
   结合 EMQ 在车联网领域的实践经验，从协议选择等理论知识，到平台架构设计等实战操作，分享如何搭建一个可靠、高效、符合行业场景需求的车联网平台。
 

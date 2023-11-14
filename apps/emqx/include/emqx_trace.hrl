@@ -32,6 +32,5 @@
 
 -define(SHARD, ?COMMON_SHARD).
 -define(MAX_SIZE, 30).
--define(OWN_KEYS, [level, filters, filter_default, handlers]).
 
 -endif.

@@ -19,23 +19,52 @@
 -module(emqx_secret).
 
 %% API:
--export([wrap/1, unwrap/1]).
+-export([wrap/1, wrap_load/1, unwrap/1, term/1]).
 
 -export_type([t/1]).
 
 -opaque t(T) :: T | fun(() -> t(T)).
 
+%% Secret loader module.
+%% Any changes related to processing of secrets should be made there.
+-define(LOADER, emqx_secret_loader).
+
 %%================================================================================
 %% API funcions
 %%================================================================================
 
+%% @doc Wrap a term in a secret closure.
+%% This effectively hides the term from any term formatting / printing code.
+-spec wrap(T) -> t(T).
 wrap(Term) ->
     fun() ->
         Term
     end.
 
+%% @doc Wrap a loader function call over a term in a secret closure.
+%% This is slightly more flexible form of `wrap/1` with the same basic purpose.
+-spec wrap_load(emqx_secret_loader:source()) -> t(_).
+wrap_load(Source) ->
+    fun() ->
+        apply(?LOADER, load, [Source])
+    end.
+
+%% @doc Unwrap a secret closure, revealing the secret.
+%% This is either `Term` or `Module:Function(Term)` depending on how it was wrapped.
+-spec unwrap(t(T)) -> T.
 unwrap(Term) when is_function(Term, 0) ->
     %% Handle potentially nested funs
     unwrap(Term());
 unwrap(Term) ->
     Term.
+
+%% @doc Inspect the term wrapped in a secret closure.
+-spec term(t(_)) -> _Term.
+term(Wrap) when is_function(Wrap, 0) ->
+    case erlang:fun_info(Wrap, module) of
+        {module, ?MODULE} ->
+            {env, Env} = erlang:fun_info(Wrap, env),
+            lists:last(Env);
+        _ ->
+            error(badarg, [Wrap])
+    end.

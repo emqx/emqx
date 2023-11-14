@@ -52,7 +52,7 @@
 %%--------------------------------------------------------------------
 
 api_spec() ->
-    emqx_dashboard_swagger:spec(?MODULE, #{check_schema => false}).
+    emqx_dashboard_swagger:spec(?MODULE, #{check_schema => true, translate_body => true}).
 
 paths() ->
     [
@@ -157,7 +157,7 @@ params_gateway_name_in_path() ->
     [
         {name,
             mk(
-                binary(),
+                hoconsc:enum(emqx_gateway_schema:gateway_names()),
                 #{
                     in => path,
                     desc => ?DESC(emqx_gateway_api, gateway_name_in_qs),

@@ -93,7 +93,8 @@
     T == iotdb;
     T == kinesis_producer;
     T == greptimedb;
-    T == azure_event_hub_producer
+    T == azure_event_hub_producer;
+    T == syskeeper_forwarder
 ).
 
 -define(ROOT_KEY, bridges).
