@@ -19,7 +19,7 @@
 -module(emqx_persistent_message_ds_replayer).
 
 %% API:
--export([new/0, next_packet_id/1, replay/2, commit_offset/3, poll/3]).
+-export([new/0, next_packet_id/1, replay/2, commit_offset/3, poll/3, n_inflight/1]).
 
 %% internal exports:
 -export([]).
@@ -77,6 +77,17 @@ next_packet_id(Inflight0 = #inflight{next_seqno = LastSeqNo}) ->
             next_packet_id(Inflight);
         PacketId ->
             {PacketId, Inflight}
+    end.
+
+-spec n_inflight(inflight()) -> non_neg_integer().
+n_inflight(#inflight{next_seqno = NextSeqNo, acked_seqno = AckedSeqno}) ->
+    %% NOTE: this function assumes that gaps in the sequence ID occur
+    %% _only_ when the packet ID wraps:
+    case AckedSeqno >= ((NextSeqNo bsr 16) bsl 16) of
+        true ->
+            NextSeqNo - AckedSeqno;
+        false ->
+            NextSeqNo - AckedSeqno - 1
     end.
 
 -spec replay(emqx_persistent_session_ds:id(), inflight()) ->
