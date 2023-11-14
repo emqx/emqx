@@ -63,7 +63,7 @@ pre_config_update(_, {Oper, _Type, _Name}, OldConfig) ->
     %% to save the 'enable' to the config files
     {ok, OldConfig#{<<"enable">> => operation_to_enable(Oper)}};
 pre_config_update(Path, Conf, _OldConfig) when is_map(Conf) ->
-    case validate_bridge_name(Path) of
+    case validate_bridge_name_in_config(Path) of
         ok ->
             case emqx_connector_ssl:convert_certs(filename:join(Path), Conf) of
                 {error, Reason} ->
@@ -104,11 +104,23 @@ post_config_update([bridges, BridgeType, BridgeName], _Req, NewConf, OldConf, _A
 operation_to_enable(disable) -> false;
 operation_to_enable(enable) -> true.
 
-validate_bridge_name(Path) ->
+validate_bridge_name_in_config(Path) ->
     [RootKey] = emqx_bridge:config_key_path(),
     case Path of
         [RootKey, _BridgeType, BridgeName] ->
-            emqx_bridge:validate_bridge_name(BridgeName);
+            validate_bridge_name(BridgeName);
         _ ->
             ok
+    end.
+
+to_bin(A) when is_atom(A) -> atom_to_binary(A, utf8);
+to_bin(B) when is_binary(B) -> B.
+
+validate_bridge_name(BridgeName) ->
+    try
+        _ = emqx_resource:validate_name(to_bin(BridgeName)),
+        ok
+    catch
+        throw:Error ->
+            {error, Error}
     end.

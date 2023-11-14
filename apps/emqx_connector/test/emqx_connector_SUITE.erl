@@ -204,6 +204,71 @@ t_remove_fail(_Config) ->
     ),
     ok.
 
+t_create_with_bad_name_direct_path({init, Config}) ->
+    meck:new(emqx_connector_ee_schema, [passthrough]),
+    meck:expect(emqx_connector_ee_schema, resource_type, 1, ?CONNECTOR),
+    meck:new(?CONNECTOR, [non_strict]),
+    meck:expect(?CONNECTOR, callback_mode, 0, async_if_possible),
+    meck:expect(?CONNECTOR, on_start, 2, {ok, connector_state}),
+    meck:expect(?CONNECTOR, on_stop, 2, ok),
+    meck:expect(?CONNECTOR, on_get_status, 2, connected),
+    Config;
+t_create_with_bad_name_direct_path({'end', _Config}) ->
+    meck:unload(),
+    ok;
+t_create_with_bad_name_direct_path(_Config) ->
+    Path = [connectors, kafka_producer, 'test_哈哈'],
+    ConnConfig0 = connector_config(),
+    %% Note: must contain SSL options to trigger original bug.
+    Cacertfile = emqx_common_test_helpers:app_path(
+        emqx,
+        filename:join(["etc", "certs", "cacert.pem"])
+    ),
+    ConnConfig = ConnConfig0#{<<"ssl">> => #{<<"cacertfile">> => Cacertfile}},
+    ?assertMatch(
+        {error,
+            {pre_config_update, _ConfigHandlerMod, #{
+                kind := validation_error,
+                reason := <<"only 0-9a-zA-Z_- is allowed in resource name", _/binary>>
+            }}},
+        emqx:update_config(Path, ConnConfig)
+    ),
+    ok.
+
+t_create_with_bad_name_root_path({init, Config}) ->
+    meck:new(emqx_connector_ee_schema, [passthrough]),
+    meck:expect(emqx_connector_ee_schema, resource_type, 1, ?CONNECTOR),
+    meck:new(?CONNECTOR, [non_strict]),
+    meck:expect(?CONNECTOR, callback_mode, 0, async_if_possible),
+    meck:expect(?CONNECTOR, on_start, 2, {ok, connector_state}),
+    meck:expect(?CONNECTOR, on_stop, 2, ok),
+    meck:expect(?CONNECTOR, on_get_status, 2, connected),
+    Config;
+t_create_with_bad_name_root_path({'end', _Config}) ->
+    meck:unload(),
+    ok;
+t_create_with_bad_name_root_path(_Config) ->
+    Path = [connectors],
+    BadConnectorName = <<"test_哈哈">>,
+    ConnConfig0 = connector_config(),
+    %% Note: must contain SSL options to trigger original bug.
+    Cacertfile = emqx_common_test_helpers:app_path(
+        emqx,
+        filename:join(["etc", "certs", "cacert.pem"])
+    ),
+    ConnConfig = ConnConfig0#{<<"ssl">> => #{<<"cacertfile">> => Cacertfile}},
+    Conf = #{<<"kafka_producer">> => #{BadConnectorName => ConnConfig}},
+    ?assertMatch(
+        {error,
+            {pre_config_update, _ConfigHandlerMod, #{
+                kind := validation_error,
+                reason := bad_connector_names,
+                bad_connectors := [#{type := <<"kafka_producer">>, name := BadConnectorName}]
+            }}},
+        emqx:update_config(Path, Conf)
+    ),
+    ok.
+
 %% helpers
 
 connector_config() ->
