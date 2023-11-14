@@ -55,7 +55,7 @@ fields(ldap) ->
         [
             {method,
                 ?HOCON(
-                    ?UNION([?R_REF(hash_method), ?R_REF(bind_method)]),
+                    hoconsc:union([?R_REF(hash_method), ?R_REF(bind_method)]),
                     #{desc => ?DESC(method)}
                 )}
         ];
