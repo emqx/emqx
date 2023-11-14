@@ -170,21 +170,17 @@ fields(auth_basic) ->
     [
         {username, mk(binary(), #{required => true, desc => ?DESC("auth_basic_username")})},
         {password,
-            mk(binary(), #{
+            emqx_schema_secret:mk(#{
                 required => true,
-                desc => ?DESC("auth_basic_password"),
-                sensitive => true,
-                converter => fun emqx_schema:password_converter/2
+                desc => ?DESC("auth_basic_password")
             })}
     ];
 fields(auth_token) ->
     [
         {jwt,
-            mk(binary(), #{
+            emqx_schema_secret:mk(#{
                 required => true,
-                desc => ?DESC("auth_token_jwt"),
-                sensitive => true,
-                converter => fun emqx_schema:password_converter/2
+                desc => ?DESC("auth_token_jwt")
             })}
     ];
 fields("get_" ++ Type) ->

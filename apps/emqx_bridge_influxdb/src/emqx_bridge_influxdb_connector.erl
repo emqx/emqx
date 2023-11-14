@@ -192,20 +192,14 @@ fields(influxdb_api_v1) ->
         [
             {database, mk(binary(), #{required => true, desc => ?DESC("database")})},
             {username, mk(binary(), #{desc => ?DESC("username")})},
-            {password,
-                mk(binary(), #{
-                    desc => ?DESC("password"),
-                    format => <<"password">>,
-                    sensitive => true,
-                    converter => fun emqx_schema:password_converter/2
-                })}
+            {password, emqx_schema_secret:mk(#{desc => ?DESC("password")})}
         ] ++ emqx_connector_schema_lib:ssl_fields();
 fields(influxdb_api_v2) ->
     fields(common) ++
         [
             {bucket, mk(binary(), #{required => true, desc => ?DESC("bucket")})},
             {org, mk(binary(), #{required => true, desc => ?DESC("org")})},
-            {token, mk(binary(), #{required => true, desc => ?DESC("token")})}
+            {token, emqx_schema_secret:mk(#{required => true, desc => ?DESC("token")})}
         ] ++ emqx_connector_schema_lib:ssl_fields().
 
 server() ->
@@ -363,7 +357,8 @@ protocol_config(#{
         {version, v2},
         {bucket, str(Bucket)},
         {org, str(Org)},
-        {token, Token}
+        %% TODO: teach `influxdb` to accept 0-arity closures as passwords.
+        {token, emqx_secret:unwrap(Token)}
     ] ++ ssl_config(SSL).
 
 ssl_config(#{enable := false}) ->
@@ -383,7 +378,8 @@ username(_) ->
     [].
 
 password(#{password := Password}) ->
-    [{password, str(Password)}];
+    %% TODO: teach `influxdb` to accept 0-arity closures as passwords.
+    [{password, str(emqx_secret:unwrap(Password))}];
 password(_) ->
     [].
 

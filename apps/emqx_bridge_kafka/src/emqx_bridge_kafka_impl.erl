@@ -31,8 +31,8 @@ make_client_id(BridgeType0, BridgeName0) ->
 
 sasl(none) ->
     undefined;
-sasl(#{mechanism := Mechanism, username := Username, password := Password}) ->
-    {Mechanism, Username, emqx_secret:wrap(Password)};
+sasl(#{mechanism := Mechanism, username := Username, password := Secret}) ->
+    {Mechanism, Username, Secret};
 sasl(#{
     kerberos_principal := Principal,
     kerberos_keytab_file := KeyTabFile

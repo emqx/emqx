@@ -95,7 +95,7 @@ on_start(
         {host, Host},
         {port, Port},
         {user, emqx_utils_conv:str(User)},
-        {password, jamdb_secret:wrap(maps:get(password, Config, ""))},
+        {password, maps:get(password, Config, "")},
         {sid, emqx_utils_conv:str(Sid)},
         {service_name, ServiceName},
         {pool_size, maps:get(pool_size, Config, ?DEFAULT_POOL_SIZE)},

@@ -22,8 +22,6 @@
 -define(BATCH_SIZE, 10).
 -define(PAYLOAD, <<"HELLO">>).
 
--define(GET_CONFIG(KEY__, CFG__), proplists:get_value(KEY__, CFG__)).
-
 %% How to run it locally (all commands are run in $PROJ_ROOT dir):
 %% run ct in docker container
 %% run script:
@@ -84,7 +82,9 @@ end_per_group(_Group, _Config) ->
     ok.
 
 init_per_suite(Config) ->
-    Config.
+    SecretFile = filename:join(?config(priv_dir, Config), "secret"),
+    ok = file:write_file(SecretFile, <<?SECRET_ACCESS_KEY>>),
+    [{dynamo_secretfile, SecretFile} | Config].
 
 end_per_suite(_Config) ->
     emqx_mgmt_api_test_util:end_suite(),
@@ -158,32 +158,35 @@ common_init(ConfigT) ->
     end.
 
 dynamo_config(BridgeType, Config) ->
-    Port = integer_to_list(?GET_CONFIG(port, Config)),
-    Url = "http://" ++ ?GET_CONFIG(host, Config) ++ ":" ++ Port,
+    Host = ?config(host, Config),
+    Port = ?config(port, Config),
     Name = atom_to_binary(?MODULE),
-    BatchSize = ?GET_CONFIG(batch_size, Config),
-    QueryMode = ?GET_CONFIG(query_mode, Config),
+    BatchSize = ?config(batch_size, Config),
+    QueryMode = ?config(query_mode, Config),
+    SecretFile = ?config(dynamo_secretfile, Config),
     ConfigString =
         io_lib:format(
-            "bridges.~s.~s {\n"
-            "  enable = true\n"
-            "  url = ~p\n"
-            "  table = ~p\n"
-            "  aws_access_key_id = ~p\n"
-            "  aws_secret_access_key = ~p\n"
-            "  resource_opts = {\n"
-            "    request_ttl = 500ms\n"
-            "    batch_size = ~b\n"
-            "    query_mode = ~s\n"
-            "  }\n"
-            "}",
+            "bridges.~s.~s {"
+            "\n   enable = true"
+            "\n   url = \"http://~s:~p\""
+            "\n   table = ~p"
+            "\n   aws_access_key_id = ~p"
+            "\n   aws_secret_access_key = ~p"
+            "\n   resource_opts = {"
+            "\n     request_ttl = 500ms"
+            "\n     batch_size = ~b"
+            "\n     query_mode = ~s"
+            "\n   }"
+            "\n }",
             [
                 BridgeType,
                 Name,
-                Url,
+                Host,
+                Port,
                 ?TABLE,
                 ?ACCESS_KEY_ID,
-                ?SECRET_ACCESS_KEY,
+                %% NOTE: using file-based secrets with HOCON configs
+                "file://" ++ SecretFile,
                 BatchSize,
                 QueryMode
             ]
@@ -252,8 +255,8 @@ delete_table(_Config) ->
     erlcloud_ddb2:delete_table(?TABLE_BIN).
 
 setup_dynamo(Config) ->
-    Host = ?GET_CONFIG(host, Config),
-    Port = ?GET_CONFIG(port, Config),
+    Host = ?config(host, Config),
+    Port = ?config(port, Config),
     erlcloud_ddb2:configure(?ACCESS_KEY_ID, ?SECRET_ACCESS_KEY, Host, Port, ?SCHEMA).
 
 directly_setup_dynamo() ->
@@ -313,7 +316,9 @@ t_setup_via_http_api_and_publish(Config) ->
     PgsqlConfig0 = ?config(dynamo_config, Config),
     PgsqlConfig = PgsqlConfig0#{
         <<"name">> => Name,
-        <<"type">> => BridgeType
+        <<"type">> => BridgeType,
+        %% NOTE: using literal secret with HTTP API requests.
+        <<"aws_secret_access_key">> => <<?SECRET_ACCESS_KEY>>
     },
     ?assertMatch(
         {ok, _},
@@ -400,7 +405,7 @@ t_simple_query(Config) ->
     ),
     Request = {get_item, {<<"id">>, <<"not_exists">>}},
     Result = query_resource(Config, Request),
-    case ?GET_CONFIG(batch_size, Config) of
+    case ?config(batch_size, Config) of
         ?BATCH_SIZE ->
             ?assertMatch({error, {unrecoverable_error, {invalid_request, _}}}, Result);
         1 ->

@@ -9,6 +9,9 @@ services:
       - emqx_bridge
     ports:
       - "27017:27017"
+    env_file:
+      - .env
+      - credentials.env
     command:
       --ipv6
       --bind_ip_all
