@@ -131,7 +131,7 @@ on_start(
         {host, Host},
         {port, Port},
         {username, User},
-        {password, maps:get(password, Config, "")},
+        {password, maps:get(password, Config, emqx_secret:wrap(""))},
         {database, DB},
         {auto_reconnect, ?AUTO_RECONNECT_INTERVAL},
         {pool_size, PoolSize}

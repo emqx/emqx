@@ -379,7 +379,7 @@ username(_) ->
 
 password(#{password := Password}) ->
     %% TODO: teach `influxdb` to accept 0-arity closures as passwords.
-    [{password, emqx_secret:unwrap(Password)}];
+    [{password, str(emqx_secret:unwrap(Password))}];
 password(_) ->
     [].
 
