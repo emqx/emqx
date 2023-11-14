@@ -39,6 +39,8 @@
     code_change/3
 ]).
 
+-define(RETRY_MS, 10000).
+
 is_ready(Timeout) ->
     try
         ready =:= gen_server:call(?MODULE, is_ready, Timeout)
@@ -53,12 +55,22 @@ start_link() ->
 init([]) ->
     erlang:process_flag(trap_exit, true),
     ok = add_handler(),
-    {ok, undefined, {continue, regenerate_dispatch}}.
+    {ok, undefined, {continue, {regenerate_dispatch, 0}}}.
 
-handle_continue(regenerate_dispatch, _State) ->
+%% regenerate dispatch is very slow, if we join the cluster before the dispatch is ready
+%% join the cluster will reboot lots of apps, it will block application_controller process.
+%% regenerate dispatch will set env in application_controller,
+%% so this will timeout when application_controller is busy rebooting apps.
+handle_continue({regenerate_dispatch, Time}, State) ->
+    Time > 0 andalso timer:sleep(Time),
     %% initialize the swagger dispatches
-    ready = regenerate_minirest_dispatch(),
-    {noreply, ready, hibernate}.
+    try
+        ready = regenerate_minirest_dispatch(),
+        {noreply, ready, hibernate}
+    catch
+        exit:{timeout, {gen_server, call, [application_controller | _]}} ->
+            {noreply, State, {continue, {regenerate_dispatch, ?RETRY_MS}}}
+    end.
 
 handle_call(is_ready, _From, State) ->
     {reply, State, State, hibernate};

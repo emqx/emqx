@@ -33,6 +33,41 @@ end_per_suite(_Config) ->
     ok = change_i18n_lang(en),
     emqx_mgmt_api_test_util:end_suite([emqx_conf]).
 
+init_per_testcase(t_dispatch_generate_retry, Config) ->
+    ok = meck:new(application, [passthrough, no_link, unstick]),
+    meck:expect(
+        application,
+        set_env,
+        fun(_) ->
+            meck:exception(exit, {gen_server, call, [application_controller, {set_env, ops}]})
+        end
+    ),
+    Config;
+init_per_testcase(_Testcase, Config) ->
+    Config.
+
+end_per_testcase(t_dispatch_generate_retry, _Config) ->
+    catch meck:unload(application),
+    ok;
+end_per_testcase(_Testcase, _Config) ->
+    ok.
+
+t_dispatch_generate_retry(_Config) ->
+    Pid1 = erlang:whereis(emqx_dashboard_listener),
+    ok = gen_server:stop(emqx_dashboard_listener),
+    timer:sleep(500),
+    Pid2 = erlang:whereis(emqx_dashboard_listener),
+    ?assertNotEqual(Pid1, Pid2),
+    ?assertNot(emqx_dashboard_listener:is_ready(500)),
+    ?assertExit(
+        {timeout, _},
+        sys:get_state(emqx_dashboard_listener, 1000),
+        "emqx_dashboard_listenre is busy and timeout"
+    ),
+    meck:unload(application),
+    ?assert(emqx_dashboard_listener:is_ready(11000)),
+    ok.
+
 t_change_i18n_lang(_Config) ->
     ?check_trace(
         begin
