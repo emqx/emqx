@@ -190,7 +190,9 @@ on_session_subscribed(ClientInfo, Topic, SubOpts, Conf) ->
     apply_event(
         'session.subscribed',
         fun() ->
-            eventmsg_sub_or_unsub('session.subscribed', ClientInfo, Topic, SubOpts)
+            eventmsg_sub_or_unsub(
+                'session.subscribed', ClientInfo, emqx_topic:maybe_format_share(Topic), SubOpts
+            )
         end,
         Conf
     ).
@@ -199,7 +201,9 @@ on_session_unsubscribed(ClientInfo, Topic, SubOpts, Conf) ->
     apply_event(
         'session.unsubscribed',
         fun() ->
-            eventmsg_sub_or_unsub('session.unsubscribed', ClientInfo, Topic, SubOpts)
+            eventmsg_sub_or_unsub(
+                'session.unsubscribed', ClientInfo, emqx_topic:maybe_format_share(Topic), SubOpts
+            )
         end,
         Conf
     ).

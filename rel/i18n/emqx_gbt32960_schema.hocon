@@ -1,0 +1,12 @@
+emqx_gbt32960_schema {
+
+retry_interval.desc:
+"""Re-send time interval"""
+
+max_retry_times.desc:
+"""Re-send max times"""
+
+message_queue_len.desc:
+"""Max message queue length"""
+
+}

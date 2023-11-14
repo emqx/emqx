@@ -17,7 +17,7 @@
 %% @doc The gateway instance context
 -module(emqx_gateway_ctx).
 
--include("include/emqx_gateway.hrl").
+-include("emqx_gateway.hrl").
 
 %% @doc The running context for a Connection/Channel process.
 %%

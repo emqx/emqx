@@ -34,6 +34,9 @@
 -define(DEFAULT_APP_KEY, <<"default_app_key">>).
 -define(DEFAULT_APP_SECRET, <<"default_app_secret">>).
 
+%% from emqx_dashboard/include/emqx_dashboard_rbac.hrl
+-define(ROLE_API_SUPERUSER, <<"administrator">>).
+
 request_api(Method, Url, Auth) ->
     request_api(Method, Url, [], Auth, []).
 
@@ -96,7 +99,8 @@ create_default_app() ->
         ?DEFAULT_APP_SECRET,
         true,
         ExpiredAt,
-        <<"default app key for test">>
+        <<"default app key for test">>,
+        ?ROLE_API_SUPERUSER
     ).
 
 delete_default_app() ->

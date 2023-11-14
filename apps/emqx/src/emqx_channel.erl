@@ -476,60 +476,27 @@ handle_in(
             ok = emqx_metrics:inc('packets.pubcomp.missed'),
             {ok, Channel}
     end;
-handle_in(
-    SubPkt = ?SUBSCRIBE_PACKET(PacketId, Properties, TopicFilters),
-    Channel = #channel{clientinfo = ClientInfo}
-) ->
-    case emqx_packet:check(SubPkt) of
-        ok ->
-            TopicFilters0 = parse_topic_filters(TopicFilters),
-            TopicFilters1 = enrich_subopts_subid(Properties, TopicFilters0),
-            TupleTopicFilters0 = check_sub_authzs(TopicFilters1, Channel),
-            HasAuthzDeny = lists:any(
-                fun({_TopicFilter, ReasonCode}) ->
-                    ReasonCode =:= ?RC_NOT_AUTHORIZED
-                end,
-                TupleTopicFilters0
-            ),
-            DenyAction = emqx:get_config([authorization, deny_action], ignore),
-            case DenyAction =:= disconnect andalso HasAuthzDeny of
-                true ->
-                    handle_out(disconnect, ?RC_NOT_AUTHORIZED, Channel);
-                false ->
-                    TopicFilters2 = [
-                        TopicFilter
-                     || {TopicFilter, ?RC_SUCCESS} <- TupleTopicFilters0
-                    ],
-                    TopicFilters3 = run_hooks(
-                        'client.subscribe',
-                        [ClientInfo, Properties],
-                        TopicFilters2
-                    ),
-                    {TupleTopicFilters1, NChannel} = process_subscribe(
-                        TopicFilters3,
-                        Properties,
-                        Channel
-                    ),
-                    TupleTopicFilters2 =
-                        lists:foldl(
-                            fun
-                                ({{Topic, Opts = #{deny_subscription := true}}, _QoS}, Acc) ->
-                                    Key = {Topic, maps:without([deny_subscription], Opts)},
-                                    lists:keyreplace(Key, 1, Acc, {Key, ?RC_UNSPECIFIED_ERROR});
-                                (Tuple = {Key, _Value}, Acc) ->
-                                    lists:keyreplace(Key, 1, Acc, Tuple)
-                            end,
-                            TupleTopicFilters0,
-                            TupleTopicFilters1
-                        ),
-                    ReasonCodes2 = [
-                        ReasonCode
-                     || {_TopicFilter, ReasonCode} <- TupleTopicFilters2
-                    ],
-                    handle_out(suback, {PacketId, ReasonCodes2}, NChannel)
-            end;
-        {error, ReasonCode} ->
-            handle_out(disconnect, ReasonCode, Channel)
+handle_in(SubPkt = ?SUBSCRIBE_PACKET(PacketId, _Properties, _TopicFilters0), Channel0) ->
+    Pipe = pipeline(
+        [
+            fun check_subscribe/2,
+            fun enrich_subscribe/2,
+            %% TODO && FIXME (EMQX-10786): mount topic before authz check.
+            fun check_sub_authzs/2,
+            fun check_sub_caps/2
+        ],
+        SubPkt,
+        Channel0
+    ),
+    case Pipe of
+        {ok, NPkt = ?SUBSCRIBE_PACKET(_PacketId, TFChecked), Channel} ->
+            {TFSubedWithNRC, NChannel} = process_subscribe(run_sub_hooks(NPkt, Channel), Channel),
+            ReasonCodes = gen_reason_codes(TFChecked, TFSubedWithNRC),
+            handle_out(suback, {PacketId, ReasonCodes}, NChannel);
+        {error, {disconnect, RC}, Channel} ->
+            %% funcs in pipeline always cause action: `disconnect`
+            %% And Only one ReasonCode in DISCONNECT packet
+            handle_out(disconnect, RC, Channel)
     end;
 handle_in(
     Packet = ?UNSUBSCRIBE_PACKET(PacketId, Properties, TopicFilters),
@@ -540,7 +507,7 @@ handle_in(
             TopicFilters1 = run_hooks(
                 'client.unsubscribe',
                 [ClientInfo, Properties],
-                parse_topic_filters(TopicFilters)
+                parse_raw_topic_filters(TopicFilters)
             ),
             {ReasonCodes, NChannel} = process_unsubscribe(TopicFilters1, Properties, Channel),
             handle_out(unsuback, {PacketId, ReasonCodes}, NChannel);
@@ -782,32 +749,14 @@ after_message_acked(ClientInfo, Msg, PubAckProps) ->
 %% Process Subscribe
 %%--------------------------------------------------------------------
 
--compile({inline, [process_subscribe/3]}).
-process_subscribe(TopicFilters, SubProps, Channel) ->
-    process_subscribe(TopicFilters, SubProps, Channel, []).
+process_subscribe(TopicFilters, Channel) ->
+    process_subscribe(TopicFilters, Channel, []).
 
-process_subscribe([], _SubProps, Channel, Acc) ->
+process_subscribe([], Channel, Acc) ->
     {lists:reverse(Acc), Channel};
-process_subscribe([Topic = {TopicFilter, SubOpts} | More], SubProps, Channel, Acc) ->
-    case check_sub_caps(TopicFilter, SubOpts, Channel) of
-        ok ->
-            {ReasonCode, NChannel} = do_subscribe(
-                TopicFilter,
-                SubOpts#{sub_props => SubProps},
-                Channel
-            ),
-            process_subscribe(More, SubProps, NChannel, [{Topic, ReasonCode} | Acc]);
-        {error, ReasonCode} ->
-            ?SLOG(
-                warning,
-                #{
-                    msg => "cannot_subscribe_topic_filter",
-                    reason => emqx_reason_codes:name(ReasonCode)
-                },
-                #{topic => TopicFilter}
-            ),
-            process_subscribe(More, SubProps, Channel, [{Topic, ReasonCode} | Acc])
-    end.
+process_subscribe([Filter = {TopicFilter, SubOpts} | More], Channel, Acc) ->
+    {NReasonCode, NChannel} = do_subscribe(TopicFilter, SubOpts, Channel),
+    process_subscribe(More, NChannel, [{Filter, NReasonCode} | Acc]).
 
 do_subscribe(
     TopicFilter,
@@ -818,11 +767,13 @@ do_subscribe(
             session = Session
         }
 ) ->
+    %% TODO && FIXME (EMQX-10786): mount topic before authz check.
     NTopicFilter = emqx_mountpoint:mount(MountPoint, TopicFilter),
-    NSubOpts = enrich_subopts(maps:merge(?DEFAULT_SUBOPTS, SubOpts), Channel),
-    case emqx_session:subscribe(ClientInfo, NTopicFilter, NSubOpts, Session) of
+    case emqx_session:subscribe(ClientInfo, NTopicFilter, SubOpts, Session) of
         {ok, NSession} ->
-            {QoS, Channel#channel{session = NSession}};
+            %% TODO && FIXME (EMQX-11216): QoS as ReasonCode(max granted QoS) for now
+            RC = QoS,
+            {RC, Channel#channel{session = NSession}};
         {error, RC} ->
             ?SLOG(
                 warning,
@@ -834,6 +785,30 @@ do_subscribe(
             ),
             {RC, Channel}
     end.
+
+gen_reason_codes(TFChecked, TFSubedWitNhRC) ->
+    do_gen_reason_codes([], TFChecked, TFSubedWitNhRC).
+
+%% Initial RC is `RC_SUCCESS | RC_NOT_AUTHORIZED`, generated by check_sub_authzs/2
+%% And then TF with `RC_SUCCESS` will passing through `process_subscribe/2` and
+%% NRC should override the initial RC.
+do_gen_reason_codes(Acc, [], []) ->
+    lists:reverse(Acc);
+do_gen_reason_codes(
+    Acc,
+    [{_, ?RC_SUCCESS} | RestTF],
+    [{_, NRC} | RestWithNRC]
+) ->
+    %% will passing through `process_subscribe/2`
+    %% use NRC to override IintialRC
+    do_gen_reason_codes([NRC | Acc], RestTF, RestWithNRC);
+do_gen_reason_codes(
+    Acc,
+    [{_, InitialRC} | Rest],
+    RestWithNRC
+) ->
+    %% InitialRC is not `RC_SUCCESS`, use it.
+    do_gen_reason_codes([InitialRC | Acc], Rest, RestWithNRC).
 
 %%--------------------------------------------------------------------
 %% Process Unsubscribe
@@ -1213,13 +1188,8 @@ handle_call(Req, Channel) ->
     ok | {ok, channel()} | {shutdown, Reason :: term(), channel()}.
 
 handle_info({subscribe, TopicFilters}, Channel) ->
-    {_, NChannel} = lists:foldl(
-        fun({TopicFilter, SubOpts}, {_, ChannelAcc}) ->
-            do_subscribe(TopicFilter, SubOpts, ChannelAcc)
-        end,
-        {[], Channel},
-        parse_topic_filters(TopicFilters)
-    ),
+    NTopicFilters = enrich_subscribe(TopicFilters, Channel),
+    {_TopicFiltersWithRC, NChannel} = process_subscribe(NTopicFilters, Channel),
     {ok, NChannel};
 handle_info({unsubscribe, TopicFilters}, Channel) ->
     {_RC, NChannel} = process_unsubscribe(TopicFilters, #{}, Channel),
@@ -1858,48 +1828,155 @@ check_pub_caps(
     emqx_mqtt_caps:check_pub(Zone, #{qos => QoS, retain => Retain, topic => Topic}).
 
 %%--------------------------------------------------------------------
+%% Check Subscribe Packet
+
+check_subscribe(SubPkt, _Channel) ->
+    case emqx_packet:check(SubPkt) of
+        ok -> ok;
+        {error, RC} -> {error, {disconnect, RC}}
+    end.
+
+%%--------------------------------------------------------------------
 %% Check Sub Authorization
 
-check_sub_authzs(TopicFilters, Channel) ->
-    check_sub_authzs(TopicFilters, Channel, []).
-
 check_sub_authzs(
-    [TopicFilter = {Topic, _} | More],
-    Channel = #channel{clientinfo = ClientInfo},
-    Acc
+    ?SUBSCRIBE_PACKET(PacketId, SubProps, TopicFilters0),
+    Channel = #channel{clientinfo = ClientInfo}
 ) ->
+    CheckResult = do_check_sub_authzs(TopicFilters0, ClientInfo),
+    HasAuthzDeny = lists:any(
+        fun({{_TopicFilter, _SubOpts}, ReasonCode}) ->
+            ReasonCode =:= ?RC_NOT_AUTHORIZED
+        end,
+        CheckResult
+    ),
+    DenyAction = emqx:get_config([authorization, deny_action], ignore),
+    case DenyAction =:= disconnect andalso HasAuthzDeny of
+        true ->
+            {error, {disconnect, ?RC_NOT_AUTHORIZED}, Channel};
+        false ->
+            {ok, ?SUBSCRIBE_PACKET(PacketId, SubProps, CheckResult), Channel}
+    end.
+
+do_check_sub_authzs(TopicFilters, ClientInfo) ->
+    do_check_sub_authzs(ClientInfo, TopicFilters, []).
+
+do_check_sub_authzs(_ClientInfo, [], Acc) ->
+    lists:reverse(Acc);
+do_check_sub_authzs(ClientInfo, [TopicFilter = {Topic, _SubOpts} | More], Acc) ->
+    %% subsclibe authz check only cares the real topic filter when shared-sub
+    %% e.g. only check <<"t/#">> for <<"$share/g/t/#">>
     Action = authz_action(TopicFilter),
-    case emqx_access_control:authorize(ClientInfo, Action, Topic) of
+    case
+        emqx_access_control:authorize(
+            ClientInfo,
+            Action,
+            emqx_topic:get_shared_real_topic(Topic)
+        )
+    of
+        %% TODO: support maximum QoS granted
+        %% MQTT-3.1.1 [MQTT-3.8.4-6] and MQTT-5.0 [MQTT-3.8.4-7]
+        %% Not implemented yet:
+        %% {allow, RC} -> do_check_sub_authzs(ClientInfo, More, [{TopicFilter, RC} | Acc]);
         allow ->
-            check_sub_authzs(More, Channel, [{TopicFilter, ?RC_SUCCESS} | Acc]);
+            do_check_sub_authzs(ClientInfo, More, [{TopicFilter, ?RC_SUCCESS} | Acc]);
         deny ->
-            check_sub_authzs(More, Channel, [{TopicFilter, ?RC_NOT_AUTHORIZED} | Acc])
-    end;
-check_sub_authzs([], _Channel, Acc) ->
-    lists:reverse(Acc).
+            do_check_sub_authzs(ClientInfo, More, [{TopicFilter, ?RC_NOT_AUTHORIZED} | Acc])
+    end.
 
 %%--------------------------------------------------------------------
 %% Check Sub Caps
 
-check_sub_caps(TopicFilter, SubOpts, #channel{clientinfo = ClientInfo}) ->
-    emqx_mqtt_caps:check_sub(ClientInfo, TopicFilter, SubOpts).
+check_sub_caps(
+    ?SUBSCRIBE_PACKET(PacketId, SubProps, TopicFilters),
+    Channel = #channel{clientinfo = ClientInfo}
+) ->
+    CheckResult = do_check_sub_caps(ClientInfo, TopicFilters),
+    {ok, ?SUBSCRIBE_PACKET(PacketId, SubProps, CheckResult), Channel}.
+
+do_check_sub_caps(ClientInfo, TopicFilters) ->
+    do_check_sub_caps(ClientInfo, TopicFilters, []).
+
+do_check_sub_caps(_ClientInfo, [], Acc) ->
+    lists:reverse(Acc);
+do_check_sub_caps(ClientInfo, [TopicFilter = {{Topic, SubOpts}, ?RC_SUCCESS} | More], Acc) ->
+    case emqx_mqtt_caps:check_sub(ClientInfo, Topic, SubOpts) of
+        ok ->
+            do_check_sub_caps(ClientInfo, More, [TopicFilter | Acc]);
+        {error, NRC} ->
+            ?SLOG(
+                warning,
+                #{
+                    msg => "cannot_subscribe_topic_filter",
+                    reason => emqx_reason_codes:name(NRC)
+                },
+                #{topic => Topic}
+            ),
+            do_check_sub_caps(ClientInfo, More, [{{Topic, SubOpts}, NRC} | Acc])
+    end;
+do_check_sub_caps(ClientInfo, [TopicFilter = {{_Topic, _SubOpts}, _OtherRC} | More], Acc) ->
+    do_check_sub_caps(ClientInfo, More, [TopicFilter | Acc]).
 
 %%--------------------------------------------------------------------
-%% Enrich SubId
+%% Run Subscribe Hooks
 
-enrich_subopts_subid(#{'Subscription-Identifier' := SubId}, TopicFilters) ->
-    [{Topic, SubOpts#{subid => SubId}} || {Topic, SubOpts} <- TopicFilters];
-enrich_subopts_subid(_Properties, TopicFilters) ->
-    TopicFilters.
+run_sub_hooks(
+    ?SUBSCRIBE_PACKET(_PacketId, Properties, TopicFilters0),
+    _Channel = #channel{clientinfo = ClientInfo}
+) ->
+    TopicFilters = [
+        TopicFilter
+     || {TopicFilter, ?RC_SUCCESS} <- TopicFilters0
+    ],
+    _NTopicFilters = run_hooks('client.subscribe', [ClientInfo, Properties], TopicFilters).
 
 %%--------------------------------------------------------------------
 %% Enrich SubOpts
 
-enrich_subopts(SubOpts, _Channel = ?IS_MQTT_V5) ->
-    SubOpts;
-enrich_subopts(SubOpts, #channel{clientinfo = #{zone := Zone, is_bridge := IsBridge}}) ->
+%% for api subscribe without sub-authz check and sub-caps check.
+enrich_subscribe(TopicFilters, Channel) when is_list(TopicFilters) ->
+    do_enrich_subscribe(#{}, TopicFilters, Channel);
+%% for mqtt clients sent subscribe packet.
+enrich_subscribe(?SUBSCRIBE_PACKET(PacketId, Properties, TopicFilters), Channel) ->
+    NTopicFilters = do_enrich_subscribe(Properties, TopicFilters, Channel),
+    {ok, ?SUBSCRIBE_PACKET(PacketId, Properties, NTopicFilters), Channel}.
+
+do_enrich_subscribe(Properties, TopicFilters, Channel) ->
+    _NTopicFilters = run_fold(
+        [
+            %% TODO: do try catch with reason code here
+            fun(TFs, _) -> parse_raw_topic_filters(TFs) end,
+            fun enrich_subopts_subid/2,
+            fun enrich_subopts_porps/2,
+            fun enrich_subopts_flags/2
+        ],
+        TopicFilters,
+        #{sub_props => Properties, channel => Channel}
+    ).
+
+enrich_subopts_subid(TopicFilters, #{sub_props := #{'Subscription-Identifier' := SubId}}) ->
+    [{Topic, SubOpts#{subid => SubId}} || {Topic, SubOpts} <- TopicFilters];
+enrich_subopts_subid(TopicFilters, _State) ->
+    TopicFilters.
+
+enrich_subopts_porps(TopicFilters, #{sub_props := SubProps}) ->
+    [{Topic, SubOpts#{sub_props => SubProps}} || {Topic, SubOpts} <- TopicFilters].
+
+enrich_subopts_flags(TopicFilters, #{channel := Channel}) ->
+    do_enrich_subopts_flags(TopicFilters, Channel).
+
+do_enrich_subopts_flags(TopicFilters, ?IS_MQTT_V5) ->
+    [{Topic, merge_default_subopts(SubOpts)} || {Topic, SubOpts} <- TopicFilters];
+do_enrich_subopts_flags(TopicFilters, #channel{clientinfo = #{zone := Zone, is_bridge := IsBridge}}) ->
+    Rap = flag(IsBridge),
     NL = flag(get_mqtt_conf(Zone, ignore_loop_deliver)),
-    SubOpts#{rap => flag(IsBridge), nl => NL}.
+    [
+        {Topic, (merge_default_subopts(SubOpts))#{rap => Rap, nl => NL}}
+     || {Topic, SubOpts} <- TopicFilters
+    ].
+
+merge_default_subopts(SubOpts) ->
+    maps:merge(?DEFAULT_SUBOPTS, SubOpts).
 
 %%--------------------------------------------------------------------
 %% Enrich ConnAck Caps
@@ -2089,8 +2166,8 @@ maybe_shutdown(Reason, _Intent = shutdown, Channel) ->
 %%--------------------------------------------------------------------
 %% Parse Topic Filters
 
--compile({inline, [parse_topic_filters/1]}).
-parse_topic_filters(TopicFilters) ->
+%% [{<<"$share/group/topic">>, _SubOpts = #{}} | _]
+parse_raw_topic_filters(TopicFilters) ->
     lists:map(fun emqx_topic:parse/1, TopicFilters).
 
 %%--------------------------------------------------------------------

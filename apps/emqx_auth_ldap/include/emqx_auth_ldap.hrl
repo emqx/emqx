@@ -26,10 +26,6 @@
 -define(AUTHN_BACKEND, ldap).
 -define(AUTHN_BACKEND_BIN, <<"ldap">>).
 
--define(AUTHN_BACKEND_BIND, ldap_bind).
--define(AUTHN_BACKEND_BIND_BIN, <<"ldap_bind">>).
-
 -define(AUTHN_TYPE, {?AUTHN_MECHANISM, ?AUTHN_BACKEND}).
--define(AUTHN_TYPE_BIND, {?AUTHN_MECHANISM, ?AUTHN_BACKEND_BIND}).
 
 -endif.

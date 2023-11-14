@@ -16,4 +16,21 @@
 
 -module(emqx_db_backup).
 
+-type traverse_break_reason() :: over | migrate.
+
 -callback backup_tables() -> [mria:table()].
+
+%% validate the backup
+%% return `ok` to traverse the next item
+%% return `{ok, over}` to finish the traverse
+%% return `{ok, migrate}` to call the migration callback
+-callback validate_mnesia_backup(tuple()) ->
+    ok
+    | {ok, traverse_break_reason()}
+    | {error, term()}.
+
+-callback migrate_mnesia_backup(tuple()) -> {ok, tuple()} | {error, term()}.
+
+-optional_callbacks([validate_mnesia_backup/1, migrate_mnesia_backup/1]).
+
+-export_type([traverse_break_reason/0]).

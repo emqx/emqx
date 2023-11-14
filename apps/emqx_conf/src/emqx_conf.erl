@@ -359,6 +359,11 @@ typename_to_spec("map(" ++ Map, _Mod) ->
     #{type => object};
 typename_to_spec("port_number()", _Mod) ->
     #{type => integer};
+typename_to_spec("secret_access_key()", _Mod) ->
+    #{type => string, example => <<"TW8dPwmjpjJJuLW....">>};
+typename_to_spec("secret()", _Mod) ->
+    %% TODO: ideally, this should be dispatched to the module that defines this type
+    #{type => string, example => <<"R4ND0M/S∃CЯ∃T"/utf8>>};
 typename_to_spec(Name, Mod) ->
     Spec = range(Name),
     Spec1 = remote_module_type(Spec, Name, Mod),

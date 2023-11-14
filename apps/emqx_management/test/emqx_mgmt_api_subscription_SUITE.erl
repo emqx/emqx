@@ -155,6 +155,56 @@ t_list_with_internal_subscription(_Config) ->
     ),
     ok.
 
+t_list_with_shared_sub(_Config) ->
+    Client = proplists:get_value(client, _Config),
+    RealTopic = <<"t/+">>,
+    Topic = <<"$share/g1/", RealTopic/binary>>,
+
+    {ok, _, _} = emqtt:subscribe(Client, Topic),
+    {ok, _, _} = emqtt:subscribe(Client, RealTopic),
+
+    QS = [
+        {"clientid", ?CLIENTID},
+        {"match_topic", "t/#"}
+    ],
+    Headers = emqx_mgmt_api_test_util:auth_header_(),
+
+    ?assertMatch(
+        #{<<"data">> := [#{<<"clientid">> := ?CLIENTID}, #{<<"clientid">> := ?CLIENTID}]},
+        request_json(get, QS, Headers)
+    ),
+
+    ok.
+
+t_list_with_invalid_match_topic(_Config) ->
+    Client = proplists:get_value(client, _Config),
+    RealTopic = <<"t/+">>,
+    Topic = <<"$share/g1/", RealTopic/binary>>,
+
+    {ok, _, _} = emqtt:subscribe(Client, Topic),
+    {ok, _, _} = emqtt:subscribe(Client, RealTopic),
+
+    QS = [
+        {"clientid", ?CLIENTID},
+        {"match_topic", "$share/g1/t/1"}
+    ],
+    Headers = emqx_mgmt_api_test_util:auth_header_(),
+
+    ?assertMatch(
+        {error,
+            {{_, 400, _}, _, #{
+                <<"message">> := <<"match_topic_invalid">>,
+                <<"code">> := <<"INVALID_PARAMETER">>
+            }}},
+        begin
+            {error, {R, _H, Body}} = emqx_mgmt_api_test_util:request_api(
+                get, path(), uri_string:compose_query(QS), Headers, [], #{return_all => true}
+            ),
+            {error, {R, _H, emqx_utils_json:decode(Body, [return_maps])}}
+        end
+    ),
+    ok.
+
 request_json(Method, Query, Headers) when is_list(Query) ->
     Qs = uri_string:compose_query(Query),
     {ok, MatchRes} = emqx_mgmt_api_test_util:request_api(Method, path(), Qs, Headers),

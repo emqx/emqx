@@ -1,3 +1,4 @@
+%% -*- mode: erlang -*-
 {application, emqx_gateway_stomp, [
     {description, "Stomp Gateway"},
     {vsn, "0.1.4"},

@@ -23,8 +23,9 @@
 -export([post_config_update/5]).
 -export([filter_audit/2]).
 
+-include("logger.hrl").
+
 -define(LOG, [log]).
--define(AUDIT_HANDLER, emqx_audit).
 
 add_handler() ->
     ok = emqx_config_handler:add_handler(?LOG, ?MODULE),
@@ -95,6 +96,10 @@ update_log_handlers(NewHandlers) ->
     ok = application:set_env(kernel, logger, NewHandlers),
     ok.
 
+%% Don't remove audit log handler here, we need record this removed action into audit log file.
+%% we will remove audit log handler after audit log is record in emqx_audit:log/3.
+update_log_handler({removed, ?AUDIT_HANDLER}) ->
+    ok;
 update_log_handler({removed, Id}) ->
     log_to_console("Config override: ~s is removed~n", [id_for_log(Id)]),
     logger:remove_handler(Id);

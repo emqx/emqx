@@ -1,0 +1,68 @@
+{
+    "$schema": "http://json-schema.org/draft-04/schema#",
+    "id": "urn:OCPP:1.6:2019:12:SendLocalListRequest",
+    "title": "SendLocalListRequest",
+    "type": "object",
+    "properties": {
+        "listVersion": {
+            "type": "integer"
+        },
+        "localAuthorizationList": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "idTag": {
+                        "type": "string",
+                        "maxLength": 20
+                    },
+                    "idTagInfo": {
+                        "type": "object",
+                        "properties": {
+                            "expiryDate": {
+                                "type": "string",
+                                "format": "date-time"
+                            },
+                            "parentIdTag": {
+                                "type": "string",
+                                "maxLength": 20
+                            },
+                            "status": {
+                                "type": "string",
+                                "additionalProperties": false,
+                                "enum": [
+                                    "Accepted",
+                                    "Blocked",
+                                    "Expired",
+                                    "Invalid",
+                                    "ConcurrentTx"
+                                ]
+                            }
+                        },
+                        "additionalProperties": false,
+                        "required": [
+                            "status"
+                        ]
+                    }
+                },
+                "additionalProperties": false,
+                "required": [
+                    "idTag"
+                ]
+            }
+        },
+        "updateType": {
+            "type": "string",
+            "additionalProperties": false,
+            "enum": [
+                "Differential",
+                "Full"
+            ]
+        }
+    },
+    "additionalProperties": false,
+    "required": [
+        "listVersion",
+        "updateType"
+    ]
+}

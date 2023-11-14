@@ -20,32 +20,13 @@
 -include_lib("emqx/include/logger.hrl").
 -include_lib("eldap/include/eldap.hrl").
 
--behaviour(emqx_authn_provider).
-
 -export([
-    create/2,
-    update/2,
-    authenticate/2,
-    destroy/1
+    authenticate/2
 ]).
 
 %%------------------------------------------------------------------------------
 %% APIs
 %%------------------------------------------------------------------------------
-
-create(_AuthenticatorID, Config) ->
-    emqx_authn_ldap:do_create(?MODULE, Config).
-
-update(Config, State) ->
-    emqx_authn_ldap:update(Config, State).
-
-destroy(State) ->
-    emqx_authn_ldap:destroy(State).
-
-authenticate(#{auth_method := _}, _) ->
-    ignore;
-authenticate(#{password := undefined}, _) ->
-    {error, bad_username_or_password};
 authenticate(
     #{password := _Password} = Credential,
     #{

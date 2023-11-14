@@ -56,6 +56,17 @@
 -define(MAX_TOPIC_LEN, 65535).
 
 %%--------------------------------------------------------------------
+%% MQTT Share-Sub Internal
+%%--------------------------------------------------------------------
+
+-record(share, {group :: emqx_types:group(), topic :: emqx_types:topic()}).
+
+%% guards
+-define(IS_TOPIC(T),
+    (is_binary(T) orelse is_record(T, share))
+).
+
+%%--------------------------------------------------------------------
 %% MQTT QoS Levels
 %%--------------------------------------------------------------------
 
@@ -661,13 +672,10 @@ end).
 -define(PACKET(Type), #mqtt_packet{header = #mqtt_packet_header{type = Type}}).
 
 -define(SHARE, "$share").
+-define(QUEUE, "$queue").
 -define(SHARE(Group, Topic), emqx_topic:join([<<?SHARE>>, Group, Topic])).
--define(IS_SHARE(Topic),
-    case Topic of
-        <<?SHARE, _/binary>> -> true;
-        _ -> false
-    end
-).
+
+-define(REDISPATCH_TO(GROUP, TOPIC), {GROUP, TOPIC}).
 
 -define(SHARE_EMPTY_FILTER, share_subscription_topic_cannot_be_empty).
 -define(SHARE_EMPTY_GROUP, share_subscription_group_name_cannot_be_empty).

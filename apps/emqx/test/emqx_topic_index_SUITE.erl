@@ -209,9 +209,6 @@ t_match_fast_forward(Config) ->
     M:insert(<<"a/b/1/2/3/4/5/6/7/8/9/#">>, id1, <<>>, Tab),
     M:insert(<<"z/y/x/+/+">>, id2, <<>>, Tab),
     M:insert(<<"a/b/c/+">>, id3, <<>>, Tab),
-    % dbg:tracer(),
-    % dbg:p(all, c),
-    % dbg:tpl({ets, next, '_'}, x),
     ?assertEqual(id1, id(match(M, <<"a/b/1/2/3/4/5/6/7/8/9/0">>, Tab))),
     ?assertEqual([id1], [id(X) || X <- matches(M, <<"a/b/1/2/3/4/5/6/7/8/9/0">>, Tab)]).
 

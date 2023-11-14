@@ -37,10 +37,15 @@
 -define(AUDIT_MOD, audit).
 -define(UPDATE_READONLY_KEYS_PROHIBITED, "update_readonly_keys_prohibited").
 
+-dialyzer({no_match, [load/0]}).
+
 load() ->
     emqx_ctl:register_command(?CLUSTER_CALL, {?MODULE, admins}, [hidden]),
     emqx_ctl:register_command(?CONF, {?MODULE, conf}, []),
-    emqx_ctl:register_command(?AUDIT_MOD, {?MODULE, audit}, [hidden]),
+    case emqx_release:edition() of
+        ee -> emqx_ctl:register_command(?AUDIT_MOD, {?MODULE, audit}, [hidden]);
+        ce -> ok
+    end,
     ok.
 
 unload() ->
@@ -108,15 +113,14 @@ admins(_) ->
     emqx_ctl:usage(usage_sync()).
 
 audit(Level, From, Log) ->
-    Log1 = redact(Log#{time => logger:timestamp()}),
-    ?AUDIT(Level, From, Log1).
+    ?AUDIT(Level, redact(Log#{from => From})).
 
-redact(Logs = #{cmd := admins, args := ["add", Username, _Password | Rest]}) ->
-    Logs#{args => ["add", Username, "******" | Rest]};
-redact(Logs = #{cmd := admins, args := ["passwd", Username, _Password]}) ->
-    Logs#{args => ["passwd", Username, "******"]};
-redact(Logs = #{cmd := license, args := ["update", _License]}) ->
-    Logs#{args => ["update", "******"]};
+redact(Logs = #{cmd := admins, args := [<<"add">>, Username, _Password | Rest]}) ->
+    Logs#{args => [<<"add">>, Username, <<"******">> | Rest]};
+redact(Logs = #{cmd := admins, args := [<<"passwd">>, Username, _Password]}) ->
+    Logs#{args => [<<"passwd">>, Username, <<"******">>]};
+redact(Logs = #{cmd := license, args := [<<"update">>, _License]}) ->
+    Logs#{args => [<<"update">>, "******"]};
 redact(Logs) ->
     Logs.
 

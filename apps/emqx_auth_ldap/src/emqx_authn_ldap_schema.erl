@@ -32,7 +32,7 @@
 namespace() -> "authn".
 
 refs() ->
-    [?R_REF(ldap)].
+    [?R_REF(ldap), ?R_REF(ldap_deprecated)].
 
 select_union_member(#{<<"mechanism">> := ?AUTHN_MECHANISM_BIN, <<"backend">> := ?AUTHN_BACKEND_BIN}) ->
     refs();
@@ -44,12 +44,34 @@ select_union_member(#{<<"backend">> := ?AUTHN_BACKEND_BIN}) ->
 select_union_member(_) ->
     undefined.
 
+fields(ldap_deprecated) ->
+    common_fields() ++
+        [
+            {password_attribute, password_attribute()},
+            {is_superuser_attribute, is_superuser_attribute()}
+        ];
 fields(ldap) ->
+    common_fields() ++
+        [
+            {method,
+                ?HOCON(
+                    ?UNION([?R_REF(hash_method), ?R_REF(bind_method)]),
+                    #{desc => ?DESC(method)}
+                )}
+        ];
+fields(hash_method) ->
+    [
+        {type, method_type(hash)},
+        {password_attribute, password_attribute()},
+        {is_superuser_attribute, is_superuser_attribute()}
+    ];
+fields(bind_method) ->
+    [{type, method_type(bind)}] ++ emqx_ldap:fields(bind_opts).
+
+common_fields() ->
     [
         {mechanism, emqx_authn_schema:mechanism(?AUTHN_MECHANISM)},
         {backend, emqx_authn_schema:backend(?AUTHN_BACKEND)},
-        {password_attribute, fun password_attribute/1},
-        {is_superuser_attribute, fun is_superuser_attribute/1},
         {query_timeout, fun query_timeout/1}
     ] ++
         emqx_authn_schema:common_fields() ++
@@ -57,18 +79,35 @@ fields(ldap) ->
 
 desc(ldap) ->
     ?DESC(ldap);
+desc(ldap_deprecated) ->
+    ?DESC(ldap_deprecated);
+desc(hash_method) ->
+    ?DESC(hash_method);
+desc(bind_method) ->
+    ?DESC(bind_method);
 desc(_) ->
     undefined.
 
-password_attribute(type) -> string();
-password_attribute(desc) -> ?DESC(?FUNCTION_NAME);
-password_attribute(default) -> <<"userPassword">>;
-password_attribute(_) -> undefined.
+method_type(Type) ->
+    ?HOCON(?ENUM([Type]), #{desc => ?DESC(?FUNCTION_NAME), default => Type}).
 
-is_superuser_attribute(type) -> string();
-is_superuser_attribute(desc) -> ?DESC(?FUNCTION_NAME);
-is_superuser_attribute(default) -> <<"isSuperuser">>;
-is_superuser_attribute(_) -> undefined.
+password_attribute() ->
+    ?HOCON(
+        string(),
+        #{
+            desc => ?DESC(?FUNCTION_NAME),
+            default => <<"userPassword">>
+        }
+    ).
+
+is_superuser_attribute() ->
+    ?HOCON(
+        string(),
+        #{
+            desc => ?DESC(?FUNCTION_NAME),
+            default => <<"isSuperuser">>
+        }
+    ).
 
 query_timeout(type) -> emqx_schema:timeout_duration_ms();
 query_timeout(desc) -> ?DESC(?FUNCTION_NAME);
