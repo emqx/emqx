@@ -188,8 +188,12 @@ fetch(SessionId, Inflight0, [Stream | Streams], N, Publishes0) ->
     end.
 
 -spec update_iterator(emqx_persistent_session_ds:id(), emqx_ds:stream(), emqx_ds:iterator()) -> ok.
-update_iterator(SessionId, Stream, Iterator) ->
-    mria:dirty_write(?SESSION_ITER_TAB, #ds_iter{id = {SessionId, Stream}, iter = Iterator}).
+update_iterator(DSSessionId, Stream, Iterator) ->
+    %% Workaround: we convert `Stream' to a binary before attempting to store it in
+    %% mnesia(rocksdb) because of a bug in `mnesia_rocksdb' when trying to do
+    %% `mnesia:dirty_all_keys' later.
+    StreamBin = term_to_binary(Stream),
+    mria:dirty_write(?SESSION_ITER_TAB, #ds_iter{id = {DSSessionId, StreamBin}, iter = Iterator}).
 
 get_last_iterator(SessionId, Stream, Ranges) ->
     case lists:keyfind(Stream, #range.stream, lists:reverse(Ranges)) of
@@ -200,8 +204,10 @@ get_last_iterator(SessionId, Stream, Ranges) ->
     end.
 
 -spec get_iterator(emqx_persistent_session_ds:id(), emqx_ds:stream()) -> emqx_ds:iterator().
-get_iterator(SessionId, Stream) ->
-    Id = {SessionId, Stream},
+get_iterator(DSSessionId, Stream) ->
+    %% See comment in `update_iterator'.
+    StreamBin = term_to_binary(Stream),
+    Id = {DSSessionId, StreamBin},
     [#ds_iter{iter = It}] = mnesia:dirty_read(?SESSION_ITER_TAB, Id),
     It.
 
