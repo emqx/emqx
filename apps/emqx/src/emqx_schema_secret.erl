@@ -49,7 +49,7 @@
 
 -spec mk(#{atom() => _}) -> hocon_schema:field_schema().
 mk(Overrides = #{}) ->
-    hoconsc:mk(secret(), maps:merge(?SCHEMA, Overrides)).
+    hoconsc:mk(typerefl:alias("string", secret()), maps:merge(?SCHEMA, Overrides)).
 
 convert_secret(undefined, #{}) ->
     undefined;
