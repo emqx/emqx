@@ -39,10 +39,10 @@ init_per_testcase(Case, Config) ->
         ],
         #{work_dir => emqx_cth_suite:work_dir(Case, Config)}
     ),
-    [{suite_apps, Apps} | Config].
+    [{apps, Apps} | Config].
 
 end_per_testcase(_Case, Config) ->
-    ok = emqx_cth_suite:stop(?config(suite_apps, Config)),
+    ok = emqx_cth_suite:stop(?config(apps, Config)),
     ok.
 
 %%--------------------------------------------------------------------

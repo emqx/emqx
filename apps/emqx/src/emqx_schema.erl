@@ -47,11 +47,9 @@
 -type bytesize() :: integer().
 -type wordsize() :: bytesize().
 -type percent() :: float().
--type file() :: string().
--type comma_separated_list() :: list().
+-type comma_separated_list() :: list(string()).
 -type comma_separated_binary() :: [binary()].
 -type comma_separated_atoms() :: [atom()].
--type bar_separated_list() :: list().
 -type ip_port() :: tuple() | integer().
 -type cipher() :: map().
 -type port_number() :: 1..65535.
@@ -75,7 +73,6 @@
 -typerefl_from_string({percent/0, emqx_schema, to_percent}).
 -typerefl_from_string({comma_separated_list/0, emqx_schema, to_comma_separated_list}).
 -typerefl_from_string({comma_separated_binary/0, emqx_schema, to_comma_separated_binary}).
--typerefl_from_string({bar_separated_list/0, emqx_schema, to_bar_separated_list}).
 -typerefl_from_string({ip_port/0, emqx_schema, to_ip_port}).
 -typerefl_from_string({cipher/0, emqx_schema, to_erl_cipher_suite}).
 -typerefl_from_string({comma_separated_atoms/0, emqx_schema, to_comma_separated_atoms}).
@@ -118,7 +115,6 @@
     to_percent/1,
     to_comma_separated_list/1,
     to_comma_separated_binary/1,
-    to_bar_separated_list/1,
     to_ip_port/1,
     to_erl_cipher_suite/1,
     to_comma_separated_atoms/1,
@@ -154,10 +150,8 @@
     bytesize/0,
     wordsize/0,
     percent/0,
-    file/0,
     comma_separated_list/0,
     comma_separated_binary/0,
-    bar_separated_list/0,
     ip_port/0,
     cipher/0,
     comma_separated_atoms/0,
@@ -1849,7 +1843,7 @@ base_listener(Bind) ->
                     default => true
                 }
             )}
-    ] ++ emqx_limiter_schema:short_paths_fields(?MODULE).
+    ] ++ emqx_limiter_schema:short_paths_fields().
 
 desc("persistent_session_store") ->
     "Settings for message persistence.";
@@ -2563,9 +2557,6 @@ to_json_binary(Str) ->
         Error ->
             Error
     end.
-
-to_bar_separated_list(Str) ->
-    {ok, string:tokens(Str, "| ")}.
 
 %% @doc support the following format:
 %%  - 127.0.0.1:1883
@@ -3316,7 +3307,7 @@ get_tombstone_map_value_type(Schema) ->
     %% hoconsc:map_value_type(Schema)
     ?MAP(_Name, Union) = hocon_schema:field_schema(Schema, type),
     %% TODO: violation of abstraction, fix hoconsc:union_members/1
-    ?UNION(Members) = Union,
+    ?UNION(Members, _) = Union,
     Tombstone = tombstone(),
     [Type, Tombstone] = hoconsc:union_members(Members),
     Type.

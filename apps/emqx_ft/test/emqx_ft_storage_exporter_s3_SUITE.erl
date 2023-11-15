@@ -38,25 +38,23 @@ init_per_suite(Config) ->
 end_per_suite(_Config) ->
     ok.
 
-set_special_configs(Config) ->
-    fun
-        (emqx_ft) ->
-            Storage = emqx_ft_test_helpers:local_storage(Config, #{
-                exporter => s3, bucket_name => ?config(bucket_name, Config)
-            }),
-            emqx_ft_test_helpers:load_config(#{<<"enable">> => true, <<"storage">> => Storage});
-        (_) ->
-            ok
-    end.
-
-init_per_testcase(Case, Config0) ->
+init_per_testcase(Case, Config) ->
     ClientId = atom_to_binary(Case),
     BucketName = create_bucket(),
-    Config1 = [{bucket_name, BucketName}, {clientid, ClientId} | Config0],
-    ok = emqx_common_test_helpers:start_apps([emqx_conf, emqx_ft], set_special_configs(Config1)),
-    Config1.
-end_per_testcase(_Case, _Config) ->
-    ok = emqx_common_test_helpers:stop_apps([emqx_ft, emqx_conf]),
+    Storage = emqx_ft_test_helpers:local_storage(Config, #{
+        exporter => s3, bucket_name => BucketName
+    }),
+    WorkDir = filename:join(?config(priv_dir, Config), atom_to_list(Case)),
+    Apps = emqx_cth_suite:start(
+        [
+            emqx_conf,
+            {emqx_ft, #{config => emqx_ft_test_helpers:config(Storage)}}
+        ],
+        #{work_dir => WorkDir}
+    ),
+    [{apps, Apps}, {bucket_name, BucketName}, {clientid, ClientId} | Config].
+end_per_testcase(_Case, Config) ->
+    ok = emqx_cth_suite:stop(?config(apps, Config)),
     ok.
 
 %%--------------------------------------------------------------------

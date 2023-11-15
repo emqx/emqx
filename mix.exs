@@ -72,7 +72,7 @@ defmodule EMQXUmbrella.MixProject do
       # in conflict by emqtt and hocon
       {:getopt, "1.0.2", override: true},
       {:snabbkaffe, github: "kafka4beam/snabbkaffe", tag: "1.0.8", override: true},
-      {:hocon, github: "emqx/hocon", tag: "0.39.19", override: true},
+      {:hocon, github: "emqx/hocon", tag: "0.40.0", override: true},
       {:emqx_http_lib, github: "emqx/emqx_http_lib", tag: "0.5.3", override: true},
       {:esasl, github: "emqx/esasl", tag: "0.2.0"},
       {:jose, github: "potatosalad/erlang-jose", tag: "1.11.2"},
@@ -169,24 +169,10 @@ defmodule EMQXUmbrella.MixProject do
   end
 
   defp enterprise_apps(_profile_info = %{edition_type: :enterprise}) do
-    umbrella_apps =
-      Enum.map(enterprise_umbrella_apps(), fn app_name ->
-        path = "apps/#{app_name}"
-        {app_name, path: path, manager: :rebar3, override: true}
-      end)
-
-    "lib-ee/*"
-    |> Path.wildcard()
-    |> Enum.filter(&File.dir?/1)
-    |> Enum.map(fn path ->
-      app =
-        path
-        |> Path.basename()
-        |> String.to_atom()
-
-      {app, path: path, manager: :rebar3, override: true}
+    Enum.map(enterprise_umbrella_apps(), fn app_name ->
+      path = "apps/#{app_name}"
+      {app_name, path: path, manager: :rebar3, override: true}
     end)
-    |> Enum.concat(umbrella_apps)
   end
 
   defp enterprise_apps(_profile_info) do
@@ -220,13 +206,12 @@ defmodule EMQXUmbrella.MixProject do
       :emqx_bridge_rabbitmq,
       :emqx_bridge_clickhouse,
       :emqx_ft,
+      :emqx_license,
       :emqx_s3,
       :emqx_schema_registry,
       :emqx_enterprise,
       :emqx_bridge_kinesis,
       :emqx_bridge_azure_event_hub,
-      :emqx_ldap,
-      :emqx_auth_ldap,
       :emqx_gcp_device,
       :emqx_dashboard_rbac,
       :emqx_dashboard_sso
@@ -353,6 +338,7 @@ defmodule EMQXUmbrella.MixProject do
             :emqx_management,
             :emqx_retainer,
             :emqx_prometheus,
+            :emqx_rule_engine,
             :emqx_auto_subscribe,
             :emqx_slow_subs,
             :emqx_plugins,

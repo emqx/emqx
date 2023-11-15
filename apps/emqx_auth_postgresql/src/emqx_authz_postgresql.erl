@@ -37,32 +37,32 @@
 -compile(nowarn_export_all).
 -endif.
 
--define(PLACEHOLDERS, [
-    ?PH_USERNAME,
-    ?PH_CLIENTID,
-    ?PH_PEERHOST,
-    ?PH_CERT_CN_NAME,
-    ?PH_CERT_SUBJECT
+-define(ALLOWED_VARS, [
+    ?VAR_USERNAME,
+    ?VAR_CLIENTID,
+    ?VAR_PEERHOST,
+    ?VAR_CERT_CN_NAME,
+    ?VAR_CERT_SUBJECT
 ]).
 
 description() ->
     "AuthZ with PostgreSQL".
 
 create(#{query := SQL0} = Source) ->
-    {SQL, PlaceHolders} = emqx_authz_utils:parse_sql(SQL0, '$n', ?PLACEHOLDERS),
-    ResourceID = emqx_authz_utils:make_resource_id(emqx_connector_pgsql),
+    {SQL, PlaceHolders} = emqx_authz_utils:parse_sql(SQL0, '$n', ?ALLOWED_VARS),
+    ResourceID = emqx_authz_utils:make_resource_id(emqx_postgresql),
     {ok, _Data} = emqx_authz_utils:create_resource(
         ResourceID,
-        emqx_connector_pgsql,
+        emqx_postgresql,
         Source#{prepare_statement => #{ResourceID => SQL}}
     ),
     Source#{annotations => #{id => ResourceID, placeholders => PlaceHolders}}.
 
 update(#{query := SQL0, annotations := #{id := ResourceID}} = Source) ->
-    {SQL, PlaceHolders} = emqx_authz_utils:parse_sql(SQL0, '$n', ?PLACEHOLDERS),
+    {SQL, PlaceHolders} = emqx_authz_utils:parse_sql(SQL0, '$n', ?ALLOWED_VARS),
     case
         emqx_authz_utils:update_resource(
-            emqx_connector_pgsql,
+            emqx_postgresql,
             Source#{prepare_statement => #{ResourceID => SQL}}
         )
     of

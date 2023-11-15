@@ -181,11 +181,15 @@ t_subscribe(_) ->
 
         %% 'user-defined' header will be retain
         ok = send_message_frame(Sock, <<"/queue/foo">>, <<"hello">>, [
-            {<<"user-defined">>, <<"emq">>}
+            {<<"user-defined">>, <<"emq">>},
+            {<<"content-type">>, <<"text/html">>}
         ]),
         ?assertMatch({ok, #stomp_frame{command = <<"RECEIPT">>}}, recv_a_frame(Sock)),
 
         {ok, Frame} = recv_a_frame(Sock),
+        ?assertEqual(
+            <<"text/html">>, proplists:get_value(<<"content-type">>, Frame#stomp_frame.headers)
+        ),
 
         ?assertMatch(
             #stomp_frame{
@@ -976,6 +980,10 @@ t_mountpoint(_) ->
             body = <<"hello">>
         }} = recv_a_frame(Sock),
         ?assertEqual(<<"t/a">>, proplists:get_value(<<"destination">>, Headers)),
+
+        ?assertEqual(
+            <<"text/plain">>, proplists:get_value(<<"content-type">>, Headers)
+        ),
 
         ok = send_disconnect_frame(Sock)
     end,

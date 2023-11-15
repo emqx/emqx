@@ -389,7 +389,16 @@ t_download_empty_trace(_Config) ->
     ),
     {error, {{_, 404, _}, _Headers, Body}} =
         request_api(get, api_path(<<"trace/", Name/binary, "/download">>), [], #{return_all => true}),
-    ?assertMatch(#{<<"message">> := <<"Trace is empty">>}, emqx_utils_json:decode(Body)).
+    ?assertMatch(#{<<"message">> := <<"Trace is empty">>}, emqx_utils_json:decode(Body)),
+    File = emqx_trace:log_file(Name, Now),
+    ct:pal("FileName: ~p", [File]),
+    ?assertEqual({ok, <<>>}, file:read_file(File)),
+    ?assertEqual(ok, file:delete(File)),
+    %% return 404 if trace file is not found
+    {error, {{_, 404, _}, _Headers, Body}} =
+        request_api(get, api_path(<<"trace/", Name/binary, "/download">>), [], #{return_all => true}),
+    ?assertMatch(#{<<"message">> := <<"Trace is empty">>}, emqx_utils_json:decode(Body)),
+    ok.
 
 to_rfc3339(Second) ->
     list_to_binary(calendar:system_time_to_rfc3339(Second)).

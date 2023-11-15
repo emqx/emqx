@@ -67,6 +67,10 @@ set_special_configs(_App) ->
     ok.
 
 t_compile(_) ->
+    % NOTE
+    % Some of the following testcase are relying on the internal representation of
+    % `emqx_template:t()`. If the internal representation is changed, these testcases
+    % may fail.
     ?assertEqual({deny, all, all, [['#']]}, emqx_authz_rule:compile({deny, all})),
 
     ?assertEqual(
@@ -74,13 +78,13 @@ t_compile(_) ->
         emqx_authz_rule:compile({allow, {ipaddr, "127.0.0.1"}, all, [{eq, "#"}, {eq, "+"}]})
     ),
 
-    ?assertEqual(
+    ?assertMatch(
         {allow,
             {ipaddrs, [
                 {{127, 0, 0, 1}, {127, 0, 0, 1}, 32},
                 {{192, 168, 1, 0}, {192, 168, 1, 255}, 24}
             ]},
-            subscribe, [{pattern, [{var, [<<"clientid">>]}]}]},
+            subscribe, [{pattern, [{var, "clientid", [_]}]}]},
         emqx_authz_rule:compile(
             {allow, {ipaddrs, ["127.0.0.1", "192.168.1.0/24"]}, subscribe, [?PH_S_CLIENTID]}
         )
@@ -102,7 +106,7 @@ t_compile(_) ->
                 {clientid, {re_pattern, _, _, _, _}}
             ]},
             publish, [
-                {pattern, [{var, [<<"username">>]}]}, {pattern, [{var, [<<"clientid">>]}]}
+                {pattern, [{var, "username", [_]}]}, {pattern, [{var, "clientid", [_]}]}
             ]},
         emqx_authz_rule:compile(
             {allow,
@@ -114,9 +118,9 @@ t_compile(_) ->
         )
     ),
 
-    ?assertEqual(
+    ?assertMatch(
         {allow, {username, {eq, <<"test">>}}, publish, [
-            {pattern, [{str, <<"t/foo">>}, {var, [<<"username">>]}, {str, <<"boo">>}]}
+            {pattern, [<<"t/foo">>, {var, "username", [_]}, <<"boo">>]}
         ]},
         emqx_authz_rule:compile({allow, {username, "test"}, publish, ["t/foo${username}boo"]})
     ),

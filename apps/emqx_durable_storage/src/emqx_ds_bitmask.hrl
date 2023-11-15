@@ -13,23 +13,24 @@
 %% See the License for the specific language governing permissions and
 %% limitations under the License.
 %%--------------------------------------------------------------------
+-ifndef(EMQX_DS_BITMASK_HRL).
+-define(EMQX_DS_BITMASK_HRL, true).
 
--module(emqx_connector_utils).
+-record(filter_scan_action, {
+    offset :: emqx_ds_bitmask_keymapper:offset(),
+    size :: emqx_ds_bitmask_keymapper:bitsize(),
+    min :: non_neg_integer(),
+    max :: non_neg_integer()
+}).
 
--export([split_insert_sql/1]).
+-record(filter, {
+    size :: non_neg_integer(),
+    bitfilter :: non_neg_integer(),
+    bitmask :: non_neg_integer(),
+    %% Ranges (in _bitsource_ basis):
+    bitsource_ranges :: array:array(#filter_scan_action{}),
+    range_min :: non_neg_integer(),
+    range_max :: non_neg_integer()
+}).
 
-%% SQL = <<"INSERT INTO \"abc\" (c1,c2,c3) VALUES (${1}, ${1}, ${1})">>
-split_insert_sql(SQL) ->
-    case re:split(SQL, "((?i)values)", [{return, binary}]) of
-        [Part1, _, Part3] ->
-            case string:trim(Part1, leading) of
-                <<"insert", _/binary>> = InsertSQL ->
-                    {ok, {InsertSQL, Part3}};
-                <<"INSERT", _/binary>> = InsertSQL ->
-                    {ok, {InsertSQL, Part3}};
-                _ ->
-                    {error, not_insert_sql}
-            end;
-        _ ->
-            {error, not_insert_sql}
-    end.
+-endif.

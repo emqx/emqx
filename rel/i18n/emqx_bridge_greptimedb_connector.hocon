@@ -31,8 +31,8 @@ protocol.label:
 """Protocol"""
 
 server.desc:
-"""The IPv4 or IPv6 address or the hostname to connect to.</br>
-A host entry has the following form: `Host[:Port]`.</br>
+"""The IPv4 or IPv6 address or the hostname to connect to.<br/>
+A host entry has the following form: `Host[:Port]`.<br/>
 The GreptimeDB default port 8086 is used if `[:Port]` is not specified."""
 
 server.label:

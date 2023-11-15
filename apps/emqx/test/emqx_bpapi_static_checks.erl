@@ -244,19 +244,28 @@ get_param_types(Signatures, {M, F, A}) ->
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
 dump() ->
-    case
-        {
-            filelib:wildcard(project_root_dir() ++ "/*_plt"),
-            filelib:wildcard(project_root_dir() ++ "/_build/check/lib")
-        }
-    of
+    RootDir = project_root_dir(),
+    TryRelDir = RootDir ++ "/_build/check/lib",
+    case {filelib:wildcard(RootDir ++ "/*_plt"), filelib:wildcard(TryRelDir)} of
         {[PLT | _], [RelDir | _]} ->
             dump(#{
                 plt => PLT,
                 reldir => RelDir
             });
-        _ ->
-            error("failed to guess run options")
+        {[], _} ->
+            logger:error(
+                "No usable PLT files found in \"~s\", abort ~n"
+                "Try running `rebar3 as check dialyzer` at least once first",
+                [RootDir]
+            ),
+            error(run_failed);
+        {_, []} ->
+            logger:error(
+                "No built applications found in \"~s\", abort ~n"
+                "Try running `rebar3 as check compile` at least once first",
+                [TryRelDir]
+            ),
+            error(run_failed)
     end.
 
 %% Collect the local BPAPI modules to a dump file
@@ -411,10 +420,19 @@ setnok() ->
     put(bpapi_ok, false).
 
 dumps_dir() ->
-    filename:join(project_root_dir(), "apps/emqx/test/emqx_static_checks_data").
-
-project_root_dir() ->
-    string:trim(os:cmd("git rev-parse --show-toplevel")).
+    filename:join(emqx_app_dir(), "test/emqx_static_checks_data").
 
 versions_file() ->
-    filename:join(project_root_dir(), "apps/emqx/priv/bpapi.versions").
+    filename:join(emqx_app_dir(), "priv/bpapi.versions").
+
+emqx_app_dir() ->
+    Info = ?MODULE:module_info(compile),
+    case proplists:get_value(source, Info) of
+        Source when is_list(Source) ->
+            filename:dirname(filename:dirname(Source));
+        undefined ->
+            "apps/emqx"
+    end.
+
+project_root_dir() ->
+    filename:dirname(filename:dirname(emqx_app_dir())).

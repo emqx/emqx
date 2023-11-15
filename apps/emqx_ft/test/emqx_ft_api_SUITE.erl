@@ -85,7 +85,7 @@ t_list_files(Config) ->
     FileId = <<"f1">>,
 
     Node = lists:last(test_nodes(Config)),
-    ok = emqx_ft_test_helpers:upload_file(ClientId, FileId, "f1", <<"data">>, Node),
+    ok = emqx_ft_test_helpers:upload_file(sync, ClientId, FileId, "f1", <<"data">>, Node),
 
     {ok, 200, #{<<"files">> := Files}} =
         request_json(get, uri(["file_transfer", "files"]), Config),
@@ -114,7 +114,7 @@ t_download_transfer(Config) ->
 
     Nodes = [Node | _] = test_nodes(Config),
     NodeUpload = lists:last(Nodes),
-    ok = emqx_ft_test_helpers:upload_file(ClientId, FileId, "f1", <<"data">>, NodeUpload),
+    ok = emqx_ft_test_helpers:upload_file(sync, ClientId, FileId, "f1", <<"data">>, NodeUpload),
 
     ?assertMatch(
         {ok, 400, #{<<"code">> := <<"BAD_REQUEST">>}},
@@ -185,7 +185,7 @@ t_list_files_paging(Config) ->
     ],
     ok = lists:foreach(
         fun({FileId, Name, Node}) ->
-            ok = emqx_ft_test_helpers:upload_file(ClientId, FileId, Name, <<"data">>, Node)
+            ok = emqx_ft_test_helpers:upload_file(sync, ClientId, FileId, Name, <<"data">>, Node)
         end,
         Uploads
     ),

@@ -511,7 +511,10 @@ do_authorize(_Client, _PubSub, _Topic, []) ->
 do_authorize(Client, PubSub, Topic, [#{enable := false} | Rest]) ->
     do_authorize(Client, PubSub, Topic, Rest);
 do_authorize(
-    Client,
+    #{
+        username := Username,
+        peerhost := IpAddress
+    } = Client,
     PubSub,
     Topic,
     [Connector = #{type := Type} | Tail]
@@ -521,11 +524,32 @@ do_authorize(
     try Module:authorize(Client, PubSub, Topic, Connector) of
         nomatch ->
             emqx_metrics_worker:inc(authz_metrics, Type, nomatch),
+            ?TRACE("AUTHZ", "authorization_module_nomatch", #{
+                module => Module,
+                username => Username,
+                ipaddr => IpAddress,
+                topic => Topic,
+                pub_sub => PubSub
+            }),
             do_authorize(Client, PubSub, Topic, Tail);
         %% {matched, allow | deny | ignore}
         {matched, ignore} ->
+            ?TRACE("AUTHZ", "authorization_module_match_ignore", #{
+                module => Module,
+                username => Username,
+                ipaddr => IpAddress,
+                topic => Topic,
+                pub_sub => PubSub
+            }),
             do_authorize(Client, PubSub, Topic, Tail);
         ignore ->
+            ?TRACE("AUTHZ", "authorization_module_ignore", #{
+                module => Module,
+                username => Username,
+                ipaddr => IpAddress,
+                topic => Topic,
+                pub_sub => PubSub
+            }),
             do_authorize(Client, PubSub, Topic, Tail);
         %% {matched, allow | deny}
         Matched ->

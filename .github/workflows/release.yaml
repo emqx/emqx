@@ -13,9 +13,14 @@ on:
         required: true
         default: false
 
+permissions:
+  contents: read
+
 jobs:
   upload:
     runs-on: ubuntu-22.04
+    permissions:
+      packages: write
     strategy:
       fail-fast: false
     steps:

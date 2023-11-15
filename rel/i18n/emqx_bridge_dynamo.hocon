@@ -26,7 +26,7 @@ desc_type.label:
 
 local_topic.desc:
 """The MQTT topic filter to be forwarded to DynamoDB. All MQTT `PUBLISH` messages with the topic
-matching the `local_topic` will be forwarded.</br>
+matching the `local_topic` will be forwarded.<br/>
 NOTE: if this bridge is used as the action of a rule (EMQX rule engine), and also `local_topic` is
 configured, then both the data got from the rule and the MQTT messages that match `local_topic`
 will be forwarded."""

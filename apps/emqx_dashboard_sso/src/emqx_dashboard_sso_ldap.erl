@@ -12,6 +12,7 @@
 -behaviour(emqx_dashboard_sso).
 
 -export([
+    namespace/0,
     fields/1,
     desc/1
 ]).
@@ -29,6 +30,9 @@
 %%------------------------------------------------------------------------------
 %% Hocon Schema
 %%------------------------------------------------------------------------------
+
+namespace() ->
+    "sso".
 
 hocon_ref() ->
     hoconsc:ref(?MODULE, ldap).

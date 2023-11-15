@@ -19,6 +19,9 @@ env:
   TF_VAR_prometheus_remote_write_url: ${{ secrets.TF_EMQX_PERF_TEST_PROMETHEUS_REMOTE_WRITE_URL }}
   SLACK_WEBHOOK_URL: ${{ secrets.TF_EMQX_PERF_TEST_SLACK_URL }}
 
+permissions:
+  contents: read
+
 jobs:
   prepare:
     runs-on: ubuntu-latest

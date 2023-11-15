@@ -20,13 +20,13 @@
 -include_lib("hocon/include/hoconsc.hrl").
 
 -export([
+    pool_size/1,
     relational_db_fields/0,
     ssl_fields/0,
     prepare_statement_fields/0
 ]).
 
 -export([
-    pool_size/1,
     database/1,
     username/1,
     password/1,
@@ -35,13 +35,11 @@
 ]).
 
 -type database() :: binary().
--type pool_size() :: pos_integer().
 -type username() :: binary().
 -type password() :: binary().
 
 -reflect_type([
     database/0,
-    pool_size/0,
     username/0,
     password/0
 ]).

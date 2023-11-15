@@ -227,8 +227,6 @@ prepare_erl_libs() {
         for app in "_build/${profile}/checkouts"/*; do
             erl_libs="${erl_libs}${sep}${app}"
         done
-    else
-        echo "no checkouts"
     fi
     export ERL_LIBS="$erl_libs"
 }
@@ -336,13 +334,6 @@ copy_other_conf_files() {
 is_current_profile_app() {
     local app="$1"
     case "$app" in
-        lib-ee*)
-            if [ "$PROFILE" = 'emqx-enterprise' ]; then
-                return 0
-            else
-                return 1
-            fi
-            ;;
         *emqx_telemetry*)
             if [ "$PROFILE" = 'emqx-enterprise' ]; then
                 return 1

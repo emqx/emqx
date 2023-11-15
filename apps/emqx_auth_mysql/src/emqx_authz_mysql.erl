@@ -37,26 +37,26 @@
 -compile(nowarn_export_all).
 -endif.
 
--define(PLACEHOLDERS, [
-    ?PH_USERNAME,
-    ?PH_CLIENTID,
-    ?PH_PEERHOST,
-    ?PH_CERT_CN_NAME,
-    ?PH_CERT_SUBJECT
+-define(ALLOWED_VARS, [
+    ?VAR_USERNAME,
+    ?VAR_CLIENTID,
+    ?VAR_PEERHOST,
+    ?VAR_CERT_CN_NAME,
+    ?VAR_CERT_SUBJECT
 ]).
 
 description() ->
     "AuthZ with Mysql".
 
 create(#{query := SQL} = Source0) ->
-    {PrepareSQL, TmplToken} = emqx_authz_utils:parse_sql(SQL, '?', ?PLACEHOLDERS),
+    {PrepareSQL, TmplToken} = emqx_authz_utils:parse_sql(SQL, '?', ?ALLOWED_VARS),
     ResourceId = emqx_authz_utils:make_resource_id(?MODULE),
     Source = Source0#{prepare_statement => #{?PREPARE_KEY => PrepareSQL}},
     {ok, _Data} = emqx_authz_utils:create_resource(ResourceId, emqx_mysql, Source),
     Source#{annotations => #{id => ResourceId, tmpl_token => TmplToken}}.
 
 update(#{query := SQL} = Source0) ->
-    {PrepareSQL, TmplToken} = emqx_authz_utils:parse_sql(SQL, '?', ?PLACEHOLDERS),
+    {PrepareSQL, TmplToken} = emqx_authz_utils:parse_sql(SQL, '?', ?ALLOWED_VARS),
     Source = Source0#{prepare_statement => #{?PREPARE_KEY => PrepareSQL}},
     case emqx_authz_utils:update_resource(emqx_mysql, Source) of
         {error, Reason} ->

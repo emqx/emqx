@@ -7,6 +7,9 @@ concurrency:
 on:
   workflow_call:
 
+permissions:
+  contents: read
+
 jobs:
   spellcheck:
     strategy:

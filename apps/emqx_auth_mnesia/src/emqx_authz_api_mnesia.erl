@@ -18,6 +18,7 @@
 
 -behaviour(minirest_api).
 
+-include("emqx_auth_mnesia.hrl").
 -include_lib("emqx_auth/include/emqx_authz.hrl").
 -include_lib("emqx/include/logger.hrl").
 -include_lib("hocon/include/hoconsc.hrl").
@@ -55,6 +56,9 @@
     format_result/1
 ]).
 
+%% minirest filter callback
+-export([is_configured_authz_source/2]).
+
 -define(BAD_REQUEST, 'BAD_REQUEST').
 -define(NOT_FOUND, 'NOT_FOUND').
 -define(ALREADY_EXISTS, 'ALREADY_EXISTS').
@@ -85,6 +89,7 @@ paths() ->
 schema("/authorization/sources/built_in_database/rules/users") ->
     #{
         'operationId' => users,
+        filter => fun ?MODULE:is_configured_authz_source/2,
         get =>
             #{
                 tags => [<<"authorization">>],
@@ -131,6 +136,7 @@ schema("/authorization/sources/built_in_database/rules/users") ->
 schema("/authorization/sources/built_in_database/rules/clients") ->
     #{
         'operationId' => clients,
+        filter => fun ?MODULE:is_configured_authz_source/2,
         get =>
             #{
                 tags => [<<"authorization">>],
@@ -177,6 +183,7 @@ schema("/authorization/sources/built_in_database/rules/clients") ->
 schema("/authorization/sources/built_in_database/rules/users/:username") ->
     #{
         'operationId' => user,
+        filter => fun ?MODULE:is_configured_authz_source/2,
         get =>
             #{
                 tags => [<<"authorization">>],
@@ -230,6 +237,7 @@ schema("/authorization/sources/built_in_database/rules/users/:username") ->
 schema("/authorization/sources/built_in_database/rules/clients/:clientid") ->
     #{
         'operationId' => client,
+        filter => fun ?MODULE:is_configured_authz_source/2,
         get =>
             #{
                 tags => [<<"authorization">>],
@@ -283,6 +291,7 @@ schema("/authorization/sources/built_in_database/rules/clients/:clientid") ->
 schema("/authorization/sources/built_in_database/rules/all") ->
     #{
         'operationId' => all,
+        filter => fun ?MODULE:is_configured_authz_source/2,
         get =>
             #{
                 tags => [<<"authorization">>],
@@ -317,6 +326,7 @@ schema("/authorization/sources/built_in_database/rules/all") ->
 schema("/authorization/sources/built_in_database/rules") ->
     #{
         'operationId' => rules,
+        filter => fun ?MODULE:is_configured_authz_source/2,
         delete =>
             #{
                 tags => [<<"authorization">>],
@@ -426,6 +436,14 @@ fields(rules) ->
 %% HTTP API
 %%--------------------------------------------------------------------
 
+is_configured_authz_source(Params, _Meta) ->
+    emqx_authz_api_sources:with_source(
+        ?AUTHZ_TYPE_BIN,
+        fun(_Source) ->
+            {ok, Params}
+        end
+    ).
+
 users(get, #{query_string := QueryString}) ->
     case
         emqx_mgmt_api:node_query(
@@ -440,7 +458,9 @@ users(get, #{query_string := QueryString}) ->
         {error, page_limit_invalid} ->
             {400, #{code => <<"INVALID_PARAMETER">>, message => <<"page_limit_invalid">>}};
         {error, Node, Error} ->
-            Message = list_to_binary(io_lib:format("bad rpc call ~p, Reason ~p", [Node, Error])),
+            Message = list_to_binary(
+                io_lib:format("bad rpc call ~p, Reason ~p", [Node, Error])
+            ),
             {500, #{code => <<"NODE_DOWN">>, message => Message}};
         Result ->
             {200, Result}
@@ -476,7 +496,9 @@ clients(get, #{query_string := QueryString}) ->
         {error, page_limit_invalid} ->
             {400, #{code => <<"INVALID_PARAMETER">>, message => <<"page_limit_invalid">>}};
         {error, Node, Error} ->
-            Message = list_to_binary(io_lib:format("bad rpc call ~p, Reason ~p", [Node, Error])),
+            Message = list_to_binary(
+                io_lib:format("bad rpc call ~p, Reason ~p", [Node, Error])
+            ),
             {500, #{code => <<"NODE_DOWN">>, message => Message}};
         Result ->
             {200, Result}

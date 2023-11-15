@@ -38,12 +38,21 @@
 -define(OPTS, #{rawconf_with_defaults => true, override_to => cluster}).
 -define(TAGS, ["Configs"]).
 
+-if(?EMQX_RELEASE_EDITION == ee).
+-define(ROOT_KEYS_EE, [
+    <<"file_transfer">>
+]).
+-else.
+-define(ROOT_KEYS_EE, []).
+-endif.
+
 -define(ROOT_KEYS, [
     <<"dashboard">>,
     <<"alarm">>,
     <<"sys_topics">>,
     <<"sysmon">>,
     <<"log">>
+    | ?ROOT_KEYS_EE
 ]).
 
 %% erlfmt-ignore

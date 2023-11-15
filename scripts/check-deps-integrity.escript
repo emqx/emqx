@@ -5,9 +5,7 @@
 -mode(compile).
 
 main([]) ->
-    Files = ["rebar.config"] ++
-            apps_rebar_config("apps") ++
-            apps_rebar_config("lib-ee"),
+    Files = ["rebar.config"] ++ apps_rebar_config("apps"),
     Deps = collect_deps(Files, #{}),
     case count_bad_deps(Deps) of
         0 ->
@@ -22,7 +20,8 @@ apps_rebar_config(Dir) ->
 
 %% collect a kv-list of {DepName, [{DepReference, RebarConfigFile}]}
 %% the value part should have unique DepReference
-collect_deps([], Acc) -> maps:to_list(Acc);
+collect_deps([], Acc) ->
+    maps:to_list(Acc);
 collect_deps([File | Files], Acc) ->
     Deps =
         try
@@ -30,12 +29,13 @@ collect_deps([File | Files], Acc) ->
             {deps, Deps0} = lists:keyfind(deps, 1, Config),
             Deps0
         catch
-            C : E : St ->
+            C:E:St ->
                 erlang:raise(C, {E, {failed_to_find_deps_in_rebar_config, File}}, St)
         end,
     collect_deps(Files, do_collect_deps(Deps, File, Acc)).
 
-do_collect_deps([], _File, Acc) -> Acc;
+do_collect_deps([], _File, Acc) ->
+    Acc;
 %% ignore relative app dependencies
 do_collect_deps([{_Name, {path, _Path}} | Deps], File, Acc) ->
     do_collect_deps(Deps, File, Acc);
@@ -43,7 +43,8 @@ do_collect_deps([{Name, Ref} | Deps], File, Acc) ->
     Refs = maps:get(Name, Acc, []),
     do_collect_deps(Deps, File, Acc#{Name => [{Ref, File} | Refs]}).
 
-count_bad_deps([]) -> 0;
+count_bad_deps([]) ->
+    0;
 count_bad_deps([{Name, Refs0} | Rest]) ->
     Refs = lists:keysort(1, Refs0),
     case is_unique_ref(Refs) andalso not_branch_ref(Refs) of
@@ -55,10 +56,8 @@ count_bad_deps([{Name, Refs0} | Rest]) ->
     end.
 
 is_unique_ref([_]) -> true;
-is_unique_ref([{Ref, _File1}, {Ref, File2} | Rest]) ->
-    is_unique_ref([{Ref, File2} | Rest]);
-is_unique_ref(_) ->
-    false.
+is_unique_ref([{Ref, _File1}, {Ref, File2} | Rest]) -> is_unique_ref([{Ref, File2} | Rest]);
+is_unique_ref(_) -> false.
 
 not_branch_ref([]) -> true;
 not_branch_ref([{{git, _Repo, {branch, _Branch}}, _File} | _Rest]) -> false;

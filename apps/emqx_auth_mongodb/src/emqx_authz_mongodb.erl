@@ -35,12 +35,12 @@
 -compile(nowarn_export_all).
 -endif.
 
--define(PLACEHOLDERS, [
-    ?PH_USERNAME,
-    ?PH_CLIENTID,
-    ?PH_PEERHOST,
-    ?PH_CERT_CN_NAME,
-    ?PH_CERT_SUBJECT
+-define(ALLOWED_VARS, [
+    ?VAR_USERNAME,
+    ?VAR_CLIENTID,
+    ?VAR_PEERHOST,
+    ?VAR_CERT_CN_NAME,
+    ?VAR_CERT_SUBJECT
 ]).
 
 description() ->
@@ -49,11 +49,11 @@ description() ->
 create(#{filter := Filter} = Source) ->
     ResourceId = emqx_authz_utils:make_resource_id(?MODULE),
     {ok, _Data} = emqx_authz_utils:create_resource(ResourceId, emqx_mongodb, Source),
-    FilterTemp = emqx_authz_utils:parse_deep(Filter, ?PLACEHOLDERS),
+    FilterTemp = emqx_authz_utils:parse_deep(Filter, ?ALLOWED_VARS),
     Source#{annotations => #{id => ResourceId}, filter_template => FilterTemp}.
 
 update(#{filter := Filter} = Source) ->
-    FilterTemp = emqx_authz_utils:parse_deep(Filter, ?PLACEHOLDERS),
+    FilterTemp = emqx_authz_utils:parse_deep(Filter, ?ALLOWED_VARS),
     case emqx_authz_utils:update_resource(emqx_mongodb, Source) of
         {error, Reason} ->
             error({load_config_error, Reason});

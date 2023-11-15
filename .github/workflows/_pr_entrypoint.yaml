@@ -137,9 +137,10 @@ jobs:
           ENABLE_COVER_COMPILE: 1
         run: |
           make ensure-rebar3
-          make ${PROFILE}
-          make test-compile
-          zip -ryq $PROFILE.zip .
+          make ${PROFILE}-compile test-compile
+          echo "PROFILE=${PROFILE}" | tee -a .env
+          echo "PKG_VSN=$(./pkg-vsn.sh ${PROFILE})" | tee -a .env
+          zip -ryq -x@.github/workflows/.zipignore $PROFILE.zip .
       - uses: actions/upload-artifact@v3
         with:
           name: ${{ matrix.profile }}

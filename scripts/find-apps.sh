@@ -41,9 +41,7 @@ find_app() {
     "$FIND" "${appdir}" -mindepth 1 -maxdepth 1 -type d
 }
 
-CE="$(find_app 'apps')"
-EE="$(find_app 'lib-ee')"
-APPS_ALL="$(echo -e "${CE}\n${EE}")"
+APPS_ALL="$(find_app 'apps')"
 
 if [ "$MODE" = 'list' ]; then
     echo "${APPS_ALL}"
@@ -110,9 +108,6 @@ matrix() {
                     profile='emqx'
                 fi
                 entries+=("$(format_app_entry "$app" 1 "$profile" "$runner")")
-                ;;
-            lib-ee/*)
-                entries+=("$(format_app_entry "$app" 1 emqx-enterprise "$runner")")
                 ;;
             *)
                 echo "unknown app: $app"

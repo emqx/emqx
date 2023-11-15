@@ -49,6 +49,8 @@
     aggregate_metrics/1
 ]).
 
+-export([with_source/2]).
+
 -define(TAGS, [<<"Authorization">>]).
 
 api_spec() ->

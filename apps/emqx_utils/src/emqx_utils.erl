@@ -62,7 +62,8 @@
     merge_lists/3,
     tcp_keepalive_opts/4,
     format/1,
-    format_mfal/1
+    format_mfal/1,
+    call_first_defined/1
 ]).
 
 -export([
@@ -553,6 +554,22 @@ format_mfal(Data) ->
         _ ->
             undefined
     end.
+
+-spec call_first_defined(list({module(), atom(), list()})) -> term() | no_return().
+call_first_defined([{Module, Function, Args} | Rest]) ->
+    try
+        apply(Module, Function, Args)
+    catch
+        error:undef:Stacktrace ->
+            case Stacktrace of
+                [{Module, Function, _, _} | _] ->
+                    call_first_defined(Rest);
+                _ ->
+                    erlang:raise(error, undef, Stacktrace)
+            end
+    end;
+call_first_defined([]) ->
+    error(none_fun_is_defined).
 
 %%------------------------------------------------------------------------------
 %% Internal Functions
