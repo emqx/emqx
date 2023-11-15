@@ -22,11 +22,14 @@
 -behaviour(emqx_authn_schema).
 
 -export([
+    namespace/0,
     fields/1,
     desc/1,
     refs/0,
     select_union_member/1
 ]).
+
+namespace() -> "authn".
 
 select_union_member(
     #{
@@ -50,7 +53,7 @@ fields(postgresql) ->
         {query, fun query/1}
     ] ++
         emqx_authn_schema:common_fields() ++
-        proplists:delete(prepare_statement, emqx_connector_pgsql:fields(config)).
+        proplists:delete(prepare_statement, emqx_postgresql:fields(config)).
 
 desc(postgresql) ->
     ?DESC(postgresql);

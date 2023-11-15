@@ -16,7 +16,6 @@
 
 -module(emqx_authn_chains_SUITE).
 
--behaviour(hocon_schema).
 -behaviour(emqx_authn_provider).
 
 -compile(export_all).

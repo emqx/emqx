@@ -156,12 +156,16 @@ handle_event(internal, _, {assemble, [{Node, Segment} | Rest]}, St = #{export :=
     % Currently, race is possible between getting segment info from the remote node and
     % this node garbage collecting the segment itself.
     % TODO: pipelining
-    % TODO: better error handling
-    {ok, Content} = pread(Node, Segment, St),
-    case emqx_ft_storage_exporter:write(Export, Content) of
-        {ok, NExport} ->
-            {next_state, {assemble, Rest}, St#{export := NExport}, ?internal([])};
-        {error, _} = Error ->
+    case pread(Node, Segment, St) of
+        {ok, Content} ->
+            case emqx_ft_storage_exporter:write(Export, Content) of
+                {ok, NExport} ->
+                    {next_state, {assemble, Rest}, St#{export := NExport}, ?internal([])};
+                {error, _} = Error ->
+                    {stop, {shutdown, Error}, maps:remove(export, St)}
+            end;
+        {error, ReadError} ->
+            Error = {error, {read_segment, ReadError}},
             {stop, {shutdown, Error}, maps:remove(export, St)}
     end;
 handle_event(internal, _, {assemble, []}, St = #{}) ->

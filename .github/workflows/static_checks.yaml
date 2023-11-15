@@ -17,6 +17,9 @@ on:
 env:
   IS_CI: "yes"
 
+permissions:
+  contents: read
+
 jobs:
   static_checks:
     runs-on: ${{ github.repository_owner == 'emqx' && fromJSON('["self-hosted","ephemeral","linux","x64"]') || 'ubuntu-22.04' }}
@@ -37,10 +40,9 @@ jobs:
       - uses: actions/cache@v3
         with:
           path: "emqx_dialyzer_${{ matrix.otp }}_plt"
-          key: rebar3-dialyzer-plt-${{ matrix.profile }}-${{ matrix.otp }}-${{ hashFiles('rebar.*', 'apps/*/rebar.*', 'lib-ee/*/rebar.*') }}
+          key: rebar3-dialyzer-plt-${{ matrix.profile }}-${{ matrix.otp }}-${{ hashFiles('rebar.*', 'apps/*/rebar.*') }}
           restore-keys: |
             rebar3-dialyzer-plt-${{ matrix.profile }}-${{ matrix.otp }}-
+      - run: cat .env | tee -a $GITHUB_ENV
       - name: run static checks
-        env:
-          PROFILE: ${{ matrix.profile }}
         run: make static_checks

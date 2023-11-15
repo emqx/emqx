@@ -44,6 +44,9 @@ t_info(_Config) ->
 t_topics(_Config) ->
     ok = emqx_retainer_mnesia_cli:retainer(["topics"]).
 
+t_topics_with_len(_Config) ->
+    ok = emqx_retainer_mnesia_cli:retainer(["topics", "100", "200"]).
+
 t_clean(_Config) ->
     ok = emqx_retainer_mnesia_cli:retainer(["clean"]).
 

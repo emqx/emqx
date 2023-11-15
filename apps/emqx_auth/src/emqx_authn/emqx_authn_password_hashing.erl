@@ -53,7 +53,8 @@
 
 -export([
     type_ro/1,
-    type_rw/1
+    type_rw/1,
+    type_rw_api/1
 ]).
 
 -export([
@@ -67,21 +68,17 @@
 -define(SALT_ROUNDS_MAX, 10).
 
 namespace() -> "authn-hash".
-roots() -> [pbkdf2, bcrypt, bcrypt_rw, simple].
+roots() -> [pbkdf2, bcrypt, bcrypt_rw, bcrypt_rw_api, simple].
 
 fields(bcrypt_rw) ->
     fields(bcrypt) ++
         [
-            {salt_rounds,
-                sc(
-                    range(?SALT_ROUNDS_MIN, ?SALT_ROUNDS_MAX),
-                    #{
-                        default => ?SALT_ROUNDS_MAX,
-                        example => ?SALT_ROUNDS_MAX,
-                        desc => "Work factor for BCRYPT password generation.",
-                        converter => fun salt_rounds_converter/2
-                    }
-                )}
+            {salt_rounds, fun bcrypt_salt_rounds/1}
+        ];
+fields(bcrypt_rw_api) ->
+    fields(bcrypt) ++
+        [
+            {salt_rounds, fun bcrypt_salt_rounds_api/1}
         ];
 fields(bcrypt) ->
     [{name, sc(bcrypt, #{required => true, desc => "BCRYPT password hashing."})}];
@@ -95,7 +92,7 @@ fields(pbkdf2) ->
             )},
         {iterations,
             sc(
-                integer(),
+                pos_integer(),
                 #{required => true, desc => "Iteration count for PBKDF2 hashing algorithm."}
             )},
         {dk_length, fun dk_length/1}
@@ -110,6 +107,15 @@ fields(simple) ->
         {salt_position, fun salt_position/1}
     ].
 
+bcrypt_salt_rounds(converter) -> fun salt_rounds_converter/2;
+bcrypt_salt_rounds(Option) -> bcrypt_salt_rounds_api(Option).
+
+bcrypt_salt_rounds_api(type) -> range(?SALT_ROUNDS_MIN, ?SALT_ROUNDS_MAX);
+bcrypt_salt_rounds_api(default) -> ?SALT_ROUNDS_MAX;
+bcrypt_salt_rounds_api(example) -> ?SALT_ROUNDS_MAX;
+bcrypt_salt_rounds_api(desc) -> "Work factor for BCRYPT password generation.";
+bcrypt_salt_rounds_api(_) -> undefined.
+
 salt_rounds_converter(undefined, _) ->
     undefined;
 salt_rounds_converter(I, _) when is_integer(I) ->
@@ -119,6 +125,8 @@ salt_rounds_converter(X, _) ->
 
 desc(bcrypt_rw) ->
     "Settings for bcrypt password hashing algorithm (for DB backends with write capability).";
+desc(bcrypt_rw_api) ->
+    desc(bcrypt_rw);
 desc(bcrypt) ->
     "Settings for bcrypt password hashing algorithm.";
 desc(pbkdf2) ->
@@ -143,14 +151,20 @@ dk_length(desc) ->
 dk_length(_) ->
     undefined.
 
-%% for simple_authn/emqx_authn_mnesia
+%% for emqx_authn_mnesia
 type_rw(type) ->
     hoconsc:union(rw_refs());
-type_rw(default) ->
-    #{<<"name">> => sha256, <<"salt_position">> => prefix};
 type_rw(desc) ->
     "Options for password hash creation and verification.";
-type_rw(_) ->
+type_rw(Option) ->
+    type_ro(Option).
+
+%% for emqx_authn_mnesia API
+type_rw_api(type) ->
+    hoconsc:union(api_refs());
+type_rw_api(desc) ->
+    "Options for password hash creation and verification through API.";
+type_rw_api(_) ->
     undefined.
 
 %% for other authn resources
@@ -242,31 +256,41 @@ check_password(#{name := Other, salt_position := SaltPosition}, Salt, PasswordHa
 %%------------------------------------------------------------------------------
 
 rw_refs() ->
-    All = [
-        hoconsc:ref(?MODULE, bcrypt_rw),
-        hoconsc:ref(?MODULE, pbkdf2),
-        hoconsc:ref(?MODULE, simple)
-    ],
-    fun
-        (all_union_members) -> All;
-        ({value, #{<<"name">> := <<"bcrypt">>}}) -> [hoconsc:ref(?MODULE, bcrypt_rw)];
-        ({value, #{<<"name">> := <<"pbkdf2">>}}) -> [hoconsc:ref(?MODULE, pbkdf2)];
-        ({value, #{<<"name">> := _}}) -> [hoconsc:ref(?MODULE, simple)];
-        ({value, _}) -> throw(#{reason => "algorithm_name_missing"})
-    end.
+    union_selector(rw).
 
 ro_refs() ->
-    All = [
-        hoconsc:ref(?MODULE, bcrypt),
-        hoconsc:ref(?MODULE, pbkdf2),
-        hoconsc:ref(?MODULE, simple)
-    ],
+    union_selector(ro).
+
+api_refs() ->
+    union_selector(api).
+
+sc(Type, Meta) -> hoconsc:mk(Type, Meta).
+
+union_selector(Kind) ->
     fun
-        (all_union_members) -> All;
-        ({value, #{<<"name">> := <<"bcrypt">>}}) -> [hoconsc:ref(?MODULE, bcrypt)];
-        ({value, #{<<"name">> := <<"pbkdf2">>}}) -> [hoconsc:ref(?MODULE, pbkdf2)];
-        ({value, #{<<"name">> := _}}) -> [hoconsc:ref(?MODULE, simple)];
+        (all_union_members) -> refs(Kind);
+        ({value, #{<<"name">> := <<"bcrypt">>}}) -> [bcrypt_ref(Kind)];
+        ({value, #{<<"name">> := <<"pbkdf2">>}}) -> [pbkdf2_ref(Kind)];
+        ({value, #{<<"name">> := _}}) -> [simple_ref(Kind)];
         ({value, _}) -> throw(#{reason => "algorithm_name_missing"})
     end.
 
-sc(Type, Meta) -> hoconsc:mk(Type, Meta).
+refs(Kind) ->
+    [
+        bcrypt_ref(Kind),
+        pbkdf2_ref(Kind),
+        simple_ref(Kind)
+    ].
+
+pbkdf2_ref(_) ->
+    hoconsc:ref(?MODULE, pbkdf2).
+
+bcrypt_ref(rw) ->
+    hoconsc:ref(?MODULE, bcrypt_rw);
+bcrypt_ref(api) ->
+    hoconsc:ref(?MODULE, bcrypt_rw_api);
+bcrypt_ref(_) ->
+    hoconsc:ref(?MODULE, bcrypt).
+
+simple_ref(_) ->
+    hoconsc:ref(?MODULE, simple).

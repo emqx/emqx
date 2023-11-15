@@ -25,10 +25,12 @@ cd -P -- "$(dirname -- "${BASH_SOURCE[0]}")/.."
 # generate merged config files and English translation of the desc (desc.en.hocon)
 ./scripts/merge-config.escript
 
+I18N_REPO_BRANCH="v$(./pkg-vsn.sh "${PROFILE_STR}" | tr -d '.' | cut -c 1-2)"
+
 # download desc (i18n) translations
 curl -L --silent --show-error \
      --output "apps/emqx_dashboard/priv/desc.zh.hocon" \
-    'https://raw.githubusercontent.com/emqx/emqx-i18n/main/desc.zh.hocon'
+     "https://raw.githubusercontent.com/emqx/emqx-i18n/${I18N_REPO_BRANCH}/desc.zh.hocon"
 
 # TODO
 # make sbom a build artifcat

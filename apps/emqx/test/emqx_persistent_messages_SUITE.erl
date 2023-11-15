@@ -26,9 +26,7 @@
 
 -import(emqx_common_test_helpers, [on_exit/1]).
 
--define(DEFAULT_KEYSPACE, default).
--define(DS_SHARD_ID, <<"local">>).
--define(DS_SHARD, {?DEFAULT_KEYSPACE, ?DS_SHARD_ID}).
+-define(PERSISTENT_MESSAGE_DB, emqx_persistent_message).
 
 all() ->
     emqx_common_test_helpers:all(?MODULE).
@@ -48,6 +46,7 @@ init_per_testcase(t_session_subscription_iterators = TestCase, Config) ->
     Nodes = emqx_cth_cluster:start(Cluster, #{work_dir => emqx_cth_suite:work_dir(TestCase, Config)}),
     [{nodes, Nodes} | Config];
 init_per_testcase(TestCase, Config) ->
+    ok = emqx_ds:drop_db(?PERSISTENT_MESSAGE_DB),
     Apps = emqx_cth_suite:start(
         app_specs(),
         #{work_dir => emqx_cth_suite:work_dir(TestCase, Config)}
@@ -58,10 +57,11 @@ end_per_testcase(t_session_subscription_iterators, Config) ->
     Nodes = ?config(nodes, Config),
     emqx_common_test_helpers:call_janitor(60_000),
     ok = emqx_cth_cluster:stop(Nodes),
-    ok;
+    end_per_testcase(common, Config);
 end_per_testcase(_TestCase, Config) ->
-    Apps = ?config(apps, Config),
+    Apps = proplists:get_value(apps, Config, []),
     emqx_common_test_helpers:call_janitor(60_000),
+    clear_db(),
     emqx_cth_suite:stop(Apps),
     ok.
 
@@ -95,14 +95,15 @@ t_messages_persisted(_Config) ->
     Results = [emqtt:publish(CP, Topic, Payload, 1) || {Topic, Payload} <- Messages],
 
     ct:pal("Results = ~p", [Results]),
+    timer:sleep(2000),
 
-    Persisted = consume(?DS_SHARD, {['#'], 0}),
+    Persisted = consume(['#'], 0),
 
     ct:pal("Persisted = ~p", [Persisted]),
 
     ?assertEqual(
-        [M1, M2, M5, M7, M9, M10],
-        [{emqx_message:topic(M), emqx_message:payload(M)} || M <- Persisted]
+        lists:sort([M1, M2, M5, M7, M9, M10]),
+        lists:sort([{emqx_message:topic(M), emqx_message:payload(M)} || M <- Persisted])
     ),
 
     ok.
@@ -139,23 +140,25 @@ t_messages_persisted_2(_Config) ->
     {ok, #{reason_code := ?RC_NO_MATCHING_SUBSCRIBERS}} =
         emqtt:publish(CP, T(<<"client/2/topic">>), <<"8">>, 1),
 
-    Persisted = consume(?DS_SHARD, {['#'], 0}),
+    timer:sleep(2000),
+
+    Persisted = consume(['#'], 0),
 
     ct:pal("Persisted = ~p", [Persisted]),
 
     ?assertEqual(
-        [
+        lists:sort([
             {T(<<"client/1/topic">>), <<"4">>},
             {T(<<"client/2/topic">>), <<"5">>}
-        ],
-        [{emqx_message:topic(M), emqx_message:payload(M)} || M <- Persisted]
+        ]),
+        lists:sort([{emqx_message:topic(M), emqx_message:payload(M)} || M <- Persisted])
     ),
 
     ok.
 
 %% TODO: test quic and ws too
 t_session_subscription_iterators(Config) ->
-    [Node1, Node2] = ?config(nodes, Config),
+    [Node1, _Node2] = ?config(nodes, Config),
     Port = get_mqtt_port(Node1, tcp),
     Topic = <<"t/topic">>,
     SubTopicFilter = <<"t/+">>,
@@ -202,11 +205,8 @@ t_session_subscription_iterators(Config) ->
                 messages => [Message1, Message2, Message3, Message4]
             }
         end,
-        fun(Results, Trace) ->
+        fun(Trace) ->
             ct:pal("trace:\n  ~p", [Trace]),
-            #{
-                messages := [_Message1, Message2, Message3 | _]
-            } = Results,
             case ?of_kind(ds_session_subscription_added, Trace) of
                 [] ->
                     %% Since `emqx_durable_storage' is a dependency of `emqx', it gets
@@ -228,17 +228,6 @@ t_session_subscription_iterators(Config) ->
                     ),
                     ok
             end,
-            ?assertMatch({ok, [_]}, get_all_iterator_ids(Node1)),
-            {ok, [IteratorId]} = get_all_iterator_ids(Node1),
-            ?assertMatch({ok, [IteratorId]}, get_all_iterator_ids(Node2)),
-            ReplayMessages1 = erpc:call(Node1, fun() -> consume(?DS_SHARD, IteratorId) end),
-            ExpectedMessages = [Message2, Message3],
-            %% Note: it is expected that this will break after replayers are in place.
-            %% They might have consumed all the messages by this time.
-            ?assertEqual(ExpectedMessages, ReplayMessages1),
-            %% Different DS shard
-            ReplayMessages2 = erpc:call(Node2, fun() -> consume(?DS_SHARD, IteratorId) end),
-            ?assertEqual([], ReplayMessages2),
             ok
         end
     ),
@@ -263,32 +252,25 @@ connect(Opts0 = #{}) ->
     {ok, _} = emqtt:connect(Client),
     Client.
 
-consume(Shard, Replay = {_TopicFiler, _StartMS}) ->
-    {ok, It} = emqx_ds_storage_layer:make_iterator(Shard, Replay),
-    consume(It);
-consume(Shard, IteratorId) when is_binary(IteratorId) ->
-    {ok, It} = emqx_ds_storage_layer:restore_iterator(Shard, IteratorId),
-    consume(It).
+consume(TopicFilter, StartMS) ->
+    Streams = emqx_ds:get_streams(?PERSISTENT_MESSAGE_DB, TopicFilter, StartMS),
+    lists:flatmap(
+        fun({_Rank, Stream}) ->
+            {ok, It} = emqx_ds:make_iterator(?PERSISTENT_MESSAGE_DB, Stream, TopicFilter, StartMS),
+            consume(It)
+        end,
+        Streams
+    ).
 
 consume(It) ->
-    case emqx_ds_storage_layer:next(It) of
-        {value, Msg, NIt} ->
-            [emqx_persistent_message:deserialize(Msg) | consume(NIt)];
-        none ->
+    case emqx_ds:next(?PERSISTENT_MESSAGE_DB, It, 100) of
+        {ok, _NIt, _Msgs = []} ->
+            [];
+        {ok, NIt, Msgs} ->
+            Msgs ++ consume(NIt);
+        {ok, end_of_stream} ->
             []
     end.
-
-delete_all_messages() ->
-    Persisted = consume(?DS_SHARD, {['#'], 0}),
-    lists:foreach(
-        fun(Msg) ->
-            GUID = emqx_message:id(Msg),
-            Topic = emqx_topic:words(emqx_message:topic(Msg)),
-            Timestamp = emqx_guid:timestamp(GUID),
-            ok = emqx_ds_storage_layer:delete(?DS_SHARD, GUID, Timestamp, Topic)
-        end,
-        Persisted
-    ).
 
 receive_messages(Count) ->
     receive_messages(Count, []).
@@ -305,13 +287,6 @@ receive_messages(Count, Msgs) ->
 
 publish(Node, Message) ->
     erpc:call(Node, emqx, publish, [Message]).
-
-get_iterator_ids(Node, ClientId) ->
-    Channel = erpc:call(Node, fun() ->
-        [ConnPid] = emqx_cm:lookup_channels(ClientId),
-        sys:get_state(ConnPid)
-    end),
-    emqx_connection:info({channel, {session, iterators}}, Channel).
 
 app_specs() ->
     [
@@ -330,5 +305,6 @@ get_mqtt_port(Node, Type) ->
     {_IP, Port} = erpc:call(Node, emqx_config, get, [[listeners, Type, default, bind]]),
     Port.
 
-get_all_iterator_ids(Node) ->
-    erpc:call(Node, emqx_ds_storage_layer, list_iterator_prefix, [?DS_SHARD, <<>>]).
+clear_db() ->
+    ok = emqx_ds:drop_db(?PERSISTENT_MESSAGE_DB),
+    ok.

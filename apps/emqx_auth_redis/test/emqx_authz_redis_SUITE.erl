@@ -112,13 +112,33 @@ t_create_invalid_config(_Config) ->
     ).
 
 t_redis_error(_Config) ->
-    ok = setup_config(#{<<"cmd">> => <<"INVALID COMMAND">>}),
+    q([<<"SET">>, <<"notahash">>, <<"stringvalue">>]),
+
+    ok = setup_config(#{<<"cmd">> => <<"HGETALL notahash">>}),
 
     ClientInfo = emqx_authz_test_lib:base_client_info(),
 
     ?assertEqual(
         deny,
         emqx_access_control:authorize(ClientInfo, ?AUTHZ_SUBSCRIBE, <<"a">>)
+    ).
+
+t_invalid_command(_Config) ->
+    Config = raw_redis_authz_config(),
+
+    ?assertMatch(
+        {error, _},
+        emqx_authz:update(?CMD_REPLACE, [Config#{<<"cmd">> => <<"HGET key">>}])
+    ),
+
+    ?assertMatch(
+        {ok, _},
+        emqx_authz:update(?CMD_REPLACE, [Config#{<<"cmd">> => <<"HGETALL key">>}])
+    ),
+
+    ?assertMatch(
+        {error, _},
+        emqx_authz:update({?CMD_REPLACE, redis}, Config#{<<"cmd">> => <<"HGET key">>})
     ).
 
 %%------------------------------------------------------------------------------

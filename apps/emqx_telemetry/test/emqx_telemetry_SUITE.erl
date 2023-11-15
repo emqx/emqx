@@ -738,7 +738,7 @@ create_authn(ChainName, redis) ->
             backend => redis,
             enable => true,
             user_id_type => username,
-            cmd => "HMGET mqtt_user:${username} password_hash salt is_superuser",
+            cmd => <<"HMGET mqtt_user:${username} password_hash salt is_superuser">>,
             password_hash_algorithm => #{
                 name => plain,
                 salt_position => suffix

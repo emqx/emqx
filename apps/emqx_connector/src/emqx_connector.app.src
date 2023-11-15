@@ -10,8 +10,6 @@
         ecpool,
         emqx_resource,
         eredis_cluster,
-        eredis,
-        epgsql,
         ehttpc,
         jose,
         emqx,

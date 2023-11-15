@@ -35,27 +35,25 @@
 -compile(nowarn_export_all).
 -endif.
 
--define(PLACEHOLDERS, [
-    ?PH_CERT_CN_NAME,
-    ?PH_CERT_SUBJECT,
-    ?PH_PEERHOST,
-    ?PH_CLIENTID,
-    ?PH_USERNAME
+-define(ALLOWED_VARS, [
+    ?VAR_CERT_CN_NAME,
+    ?VAR_CERT_SUBJECT,
+    ?VAR_PEERHOST,
+    ?VAR_CLIENTID,
+    ?VAR_USERNAME
 ]).
 
 description() ->
     "AuthZ with Redis".
 
 create(#{cmd := CmdStr} = Source) ->
-    Cmd = tokens(CmdStr),
+    CmdTemplate = parse_cmd(CmdStr),
     ResourceId = emqx_authz_utils:make_resource_id(?MODULE),
-    CmdTemplate = emqx_authz_utils:parse_deep(Cmd, ?PLACEHOLDERS),
     {ok, _Data} = emqx_authz_utils:create_resource(ResourceId, emqx_redis, Source),
     Source#{annotations => #{id => ResourceId}, cmd_template => CmdTemplate}.
 
 update(#{cmd := CmdStr} = Source) ->
-    Cmd = tokens(CmdStr),
-    CmdTemplate = emqx_authz_utils:parse_deep(Cmd, ?PLACEHOLDERS),
+    CmdTemplate = parse_cmd(CmdStr),
     case emqx_authz_utils:update_resource(emqx_redis, Source) of
         {error, Reason} ->
             error({load_config_error, Reason});
@@ -131,9 +129,28 @@ compile_rule(RuleBin, TopicFilterRaw) ->
             error(Reason)
     end.
 
-tokens(Query) ->
-    Tokens = binary:split(Query, <<" ">>, [global]),
-    [Token || Token <- Tokens, size(Token) > 0].
+parse_cmd(Query) ->
+    case emqx_redis_command:split(Query) of
+        {ok, Cmd} ->
+            ok = validate_cmd(Cmd),
+            emqx_authz_utils:parse_deep(Cmd, ?ALLOWED_VARS);
+        {error, Reason} ->
+            error({invalid_redis_cmd, Reason, Query})
+    end.
+
+validate_cmd(Cmd) ->
+    case
+        emqx_auth_redis_validations:validate_command(
+            [
+                not_empty,
+                {command_name, [<<"hmget">>, <<"hgetall">>]}
+            ],
+            Cmd
+        )
+    of
+        ok -> ok;
+        {error, Reason} -> error({invalid_redis_cmd, Reason, Cmd})
+    end.
 
 parse_rule(<<"publish">>) ->
     #{<<"action">> => <<"publish">>};

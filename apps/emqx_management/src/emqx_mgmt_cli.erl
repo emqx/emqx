@@ -157,7 +157,10 @@ sort_map_list_field(Field, Map) ->
 %% @doc Query clients
 
 clients(["list"]) ->
-    dump(?CHAN_TAB, client);
+    case ets:info(?CHAN_TAB, size) of
+        0 -> emqx_ctl:print("No clients.~n");
+        _ -> dump(?CHAN_TAB, client)
+    end;
 clients(["show", ClientId]) ->
     if_client(ClientId, fun print/1);
 clients(["kick", ClientId]) ->
@@ -180,10 +183,15 @@ if_client(ClientId, Fun) ->
 %% @doc Topics Command
 
 topics(["list"]) ->
-    emqx_router:foldr_routes(
-        fun(Route, Acc) -> [print({emqx_topic, Route}) | Acc] end,
-        []
-    );
+    Res =
+        emqx_router:foldr_routes(
+            fun(Route, Acc) -> [print({emqx_topic, Route}) | Acc] end,
+            []
+        ),
+    case Res of
+        [] -> emqx_ctl:print("No topics.~n");
+        _ -> ok
+    end;
 topics(["show", Topic]) ->
     Routes = emqx_router:lookup_routes(Topic),
     [print({emqx_topic, Route}) || Route <- Routes];
@@ -194,12 +202,17 @@ topics(_) ->
     ]).
 
 subscriptions(["list"]) ->
-    lists:foreach(
-        fun(Suboption) ->
-            print({?SUBOPTION, Suboption})
-        end,
-        ets:tab2list(?SUBOPTION)
-    );
+    case ets:info(?SUBOPTION, size) of
+        0 ->
+            emqx_ctl:print("No subscriptions.~n");
+        _ ->
+            lists:foreach(
+                fun(SubOption) ->
+                    print({?SUBOPTION, SubOption})
+                end,
+                ets:tab2list(?SUBOPTION)
+            )
+    end;
 subscriptions(["show", ClientId]) ->
     case ets:lookup(emqx_subid, bin(ClientId)) of
         [] ->
@@ -207,7 +220,7 @@ subscriptions(["show", ClientId]) ->
         [{_, Pid}] ->
             case ets:match_object(?SUBOPTION, {{'_', Pid}, '_'}) of
                 [] -> emqx_ctl:print("Not Found.~n");
-                Suboption -> [print({?SUBOPTION, Sub}) || Sub <- Suboption]
+                SubOption -> [print({?SUBOPTION, Sub}) || Sub <- SubOption]
             end
     end;
 subscriptions(["add", ClientId, Topic, QoS]) ->
@@ -446,13 +459,20 @@ log(_) ->
 %% @doc Trace Command
 
 trace(["list"]) ->
-    lists:foreach(
-        fun(Trace) ->
-            #{type := Type, filter := Filter, level := Level, dst := Dst} = Trace,
-            emqx_ctl:print("Trace(~s=~s, level=~s, destination=~0p)~n", [Type, Filter, Level, Dst])
-        end,
-        emqx_trace_handler:running()
-    );
+    case emqx_trace_handler:running() of
+        [] ->
+            emqx_ctl:print("Trace is empty~n", []);
+        Traces ->
+            lists:foreach(
+                fun(Trace) ->
+                    #{type := Type, filter := Filter, level := Level, dst := Dst} = Trace,
+                    emqx_ctl:print("Trace(~s=~s, level=~s, destination=~0p)~n", [
+                        Type, Filter, Level, Dst
+                    ])
+                end,
+                Traces
+            )
+    end;
 trace(["stop", Operation, Filter0]) ->
     case trace_type(Operation, Filter0) of
         {ok, Type, Filter} -> trace_off(Type, Filter);

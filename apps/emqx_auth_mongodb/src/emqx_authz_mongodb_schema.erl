@@ -16,16 +16,19 @@
 
 -module(emqx_authz_mongodb_schema).
 
--include("emqx_auth_mongodb.hrl").
--include_lib("hocon/include/hoconsc.hrl").
-
 -export([
     type/0,
     fields/1,
     desc/1,
     source_refs/0,
-    select_union_member/1
+    select_union_member/1,
+    namespace/0
 ]).
+
+-include("emqx_auth_mongodb.hrl").
+-include_lib("hocon/include/hoconsc.hrl").
+
+namespace() -> "authz".
 
 type() -> ?AUTHZ_TYPE.
 

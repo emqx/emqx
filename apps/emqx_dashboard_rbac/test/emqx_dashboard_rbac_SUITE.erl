@@ -160,6 +160,34 @@ t_login_out(_) ->
     {ok, Username} = emqx_dashboard_admin:verify_token(FakeReq, Token),
     ok.
 
+t_change_pwd(_) ->
+    Viewer1 = <<"viewer1">>,
+    Viewer2 = <<"viewer2">>,
+    SuperUser = <<"super_user">>,
+    Password = <<"public_www1">>,
+    Desc = <<"desc">>,
+    {ok, _} = emqx_dashboard_admin:add_user(Viewer1, Password, ?ROLE_VIEWER, Desc),
+    {ok, _} = emqx_dashboard_admin:add_user(Viewer2, Password, ?ROLE_VIEWER, Desc),
+    {ok, _} = emqx_dashboard_admin:add_user(SuperUser, Password, ?ROLE_SUPERUSER, Desc),
+    {ok, ?ROLE_VIEWER, Viewer1Token} = emqx_dashboard_admin:sign_token(Viewer1, Password),
+    {ok, ?ROLE_SUPERUSER, SuperToken} = emqx_dashboard_admin:sign_token(SuperUser, Password),
+    %% viewer can change own password
+    ?assertEqual({ok, Viewer1}, change_pwd(Viewer1Token, Viewer1)),
+    %% viewer can't change other's password
+    ?assertEqual({error, unauthorized_role}, change_pwd(Viewer1Token, Viewer2)),
+    ?assertEqual({error, unauthorized_role}, change_pwd(Viewer1Token, SuperUser)),
+    %% superuser can change other's password
+    ?assertEqual({ok, SuperUser}, change_pwd(SuperToken, Viewer1)),
+    ?assertEqual({ok, SuperUser}, change_pwd(SuperToken, Viewer2)),
+    ?assertEqual({ok, SuperUser}, change_pwd(SuperToken, SuperUser)),
+    ok.
+
+change_pwd(Token, Username) ->
+    Path = "/users/" ++ binary_to_list(Username) ++ "/change_pwd",
+    Path1 = erlang:list_to_binary(emqx_dashboard_swagger:relative_uri(Path)),
+    Req = #{method => <<"POST">>, path => Path1},
+    emqx_dashboard_admin:verify_token(Req, Token).
+
 add_default_superuser() ->
     {ok, _NewUser} = emqx_dashboard_admin:add_user(
         ?DEFAULT_SUPERUSER,

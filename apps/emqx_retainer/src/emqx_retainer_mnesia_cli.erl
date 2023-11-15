@@ -32,10 +32,11 @@ load() ->
     ok = emqx_ctl:register_command(retainer, {?MODULE, retainer}, []).
 
 retainer(["info"]) ->
-    ?PRINT("Number of retained messages: ~p~n", [emqx_retainer:retained_count()]);
+    count();
 retainer(["topics"]) ->
-    [?PRINT("~ts~n", [I]) || I <- emqx_retainer_mnesia:topics()],
-    ok;
+    topic(1, 1000);
+retainer(["topics", Start, Len]) ->
+    topic(list_to_integer(Start), list_to_integer(Len));
 retainer(["clean", Topic]) ->
     emqx_retainer:delete(list_to_binary(Topic));
 retainer(["clean"]) ->
@@ -65,7 +66,9 @@ retainer(_) ->
     emqx_ctl:usage(
         [
             {"retainer info", "Show the count of retained messages"},
-            {"retainer topics", "Show all topics of retained messages"},
+            {"retainer topics", "Same as retainer topic 1 1000"},
+            {"retainer topics <Start> <Limit>",
+                "Show topics of retained messages by the specified range"},
             {"retainer clean", "Clean all retained messages"},
             {"retainer clean <Topic>", "Clean retained messages by the specified topic filter"},
             {"retainer reindex status", "Show reindex status"},
@@ -98,3 +101,12 @@ do_reindex(Force) ->
         end
     ),
     ?PRINT_MSG("Reindexing finished~n").
+
+count() ->
+    ?PRINT("Number of retained messages: ~p~n", [emqx_retainer:retained_count()]).
+
+topic(Start, Len) ->
+    count(),
+    Topics = lists:sublist(emqx_retainer_mnesia:topics(), Start, Len),
+    [?PRINT("~ts~n", [I]) || I <- Topics],
+    ok.

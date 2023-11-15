@@ -22,12 +22,15 @@
 -behaviour(emqx_authz_schema).
 
 -export([
+    namespace/0,
     type/0,
     fields/1,
     desc/1,
     source_refs/0,
     select_union_member/1
 ]).
+
+namespace() -> "authz".
 
 type() -> ?AUTHZ_TYPE.
 

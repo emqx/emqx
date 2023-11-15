@@ -31,48 +31,6 @@ Read pattern: pseudoserial
 
 Number of records: O(total write throughput * retention time)
 
-## Session storage
-
-Data there is updated when:
-
-- A new client connects with clean session = false
-- Client subscribes to a topic
-- Client unsubscribes to a topic
-- Garbage collection is performed
-
-Write throughput: low
-
-Data is read when a client connects and replay agents are started
-
-Read throughput: low
-
-Data format:
-
-`#session{clientId = "foobar", iterators = [ItKey1, ItKey2, ItKey3, ...]}`
-
-Number of records: O(N clients)
-
-Size of record: O(N subscriptions per clients)
-
-## Iterator storage
-
-Data is written every time a client acks a message.
-
-Data is read when a client reconnects and we restart replay agents.
-
-`#iterator{key = IterKey, data = Blob}`
-
-Number of records: O(N clients * N subscriptions per client)
-
-Size of record: O(1)
-
-Write throughput: high, lots of small updates
-
-Write pattern: mostly key overwrite
-
-Read throughput: low
-
-Read pattern: random
 
 # Push vs. Pull model
 

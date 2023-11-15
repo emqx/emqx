@@ -170,7 +170,7 @@ test_create_invalid_config(InvalidAuthConfig, Path) ->
     ?assertMatch(
         {error, #{
             kind := validation_error,
-            matched_type := "redis_single",
+            matched_type := "authn:redis_single",
             path := Path
         }},
         emqx:update_config(?PATH, {create_authenticator, ?GLOBAL, InvalidAuthConfig})
@@ -336,7 +336,22 @@ user_seeds() ->
             config_params => #{},
             result => {ok, #{is_superuser => true}}
         },
-
+        #{
+            data => #{
+                password_hash => <<"plainsalt">>,
+                salt => <<"salt">>,
+                is_superuser => <<"1">>
+            },
+            credentials => #{
+                username => <<"plain">>,
+                password => <<"plain">>
+            },
+            key => <<"mqtt_user:plain">>,
+            config_params => #{
+                <<"cmd">> => <<"HmGeT mqtt_user:${username} password_hash salt is_superuser">>
+            },
+            result => {ok, #{is_superuser => true}}
+        },
         #{
             data => #{
                 password_hash => <<"9b4d0c43d206d48279e69b9ad7132e22">>,

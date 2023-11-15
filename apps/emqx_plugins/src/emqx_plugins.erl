@@ -433,9 +433,16 @@ do_ensure_started(NameVsn) ->
     tryit(
         "start_plugins",
         fun() ->
-            ok = ensure_exists_and_installed(NameVsn),
-            Plugin = do_read_plugin(NameVsn),
-            ok = load_code_start_apps(NameVsn, Plugin)
+            case ensure_exists_and_installed(NameVsn) of
+                ok ->
+                    Plugin = do_read_plugin(NameVsn),
+                    ok = load_code_start_apps(NameVsn, Plugin);
+                {error, plugin_not_found} ->
+                    ?SLOG(error, #{
+                        msg => "plugin_not_found",
+                        name_vsn => NameVsn
+                    })
+            end
         end
     ).
 
@@ -665,6 +672,7 @@ do_load_plugin_app(AppName, Ebin) ->
     lists:foreach(
         fun(BeamFile) ->
             Module = list_to_atom(filename:basename(BeamFile, ".beam")),
+            _ = code:purge(Module),
             case code:load_file(Module) of
                 {module, _} ->
                     ok;

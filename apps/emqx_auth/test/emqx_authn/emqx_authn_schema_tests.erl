@@ -22,6 +22,7 @@
 -define(ERR(Reason), {error, Reason}).
 
 union_member_selector_mongo_test_() ->
+    ok = ensure_schema_load(),
     [
         {"unknown", fun() ->
             ?assertMatch(
@@ -31,25 +32,26 @@ union_member_selector_mongo_test_() ->
         end},
         {"single", fun() ->
             ?assertMatch(
-                ?ERR(#{matched_type := "mongo_single"}),
+                ?ERR(#{matched_type := "authn:mongo_single"}),
                 check("{mechanism = password_based, backend = mongodb, mongo_type = single}")
             )
         end},
         {"replica-set", fun() ->
             ?assertMatch(
-                ?ERR(#{matched_type := "mongo_rs"}),
+                ?ERR(#{matched_type := "authn:mongo_rs"}),
                 check("{mechanism = password_based, backend = mongodb, mongo_type = rs}")
             )
         end},
         {"sharded", fun() ->
             ?assertMatch(
-                ?ERR(#{matched_type := "mongo_sharded"}),
+                ?ERR(#{matched_type := "authn:mongo_sharded"}),
                 check("{mechanism = password_based, backend = mongodb, mongo_type = sharded}")
             )
         end}
     ].
 
 union_member_selector_jwt_test_() ->
+    ok = ensure_schema_load(),
     [
         {"unknown", fun() ->
             ?assertMatch(
@@ -59,25 +61,26 @@ union_member_selector_jwt_test_() ->
         end},
         {"jwks", fun() ->
             ?assertMatch(
-                ?ERR(#{matched_type := "jwt_jwks"}),
+                ?ERR(#{matched_type := "authn:jwt_jwks"}),
                 check("{mechanism = jwt, use_jwks = true}")
             )
         end},
         {"publick-key", fun() ->
             ?assertMatch(
-                ?ERR(#{matched_type := "jwt_public_key"}),
+                ?ERR(#{matched_type := "authn:jwt_public_key"}),
                 check("{mechanism = jwt, use_jwks = false, public_key = 1}")
             )
         end},
         {"hmac-based", fun() ->
             ?assertMatch(
-                ?ERR(#{matched_type := "jwt_hmac"}),
+                ?ERR(#{matched_type := "authn:jwt_hmac"}),
                 check("{mechanism = jwt, use_jwks = false}")
             )
         end}
     ].
 
 union_member_selector_redis_test_() ->
+    ok = ensure_schema_load(),
     [
         {"unknown", fun() ->
             ?assertMatch(
@@ -87,25 +90,26 @@ union_member_selector_redis_test_() ->
         end},
         {"single", fun() ->
             ?assertMatch(
-                ?ERR(#{matched_type := "redis_single"}),
+                ?ERR(#{matched_type := "authn:redis_single"}),
                 check("{mechanism = password_based, backend = redis, redis_type = single}")
             )
         end},
         {"cluster", fun() ->
             ?assertMatch(
-                ?ERR(#{matched_type := "redis_cluster"}),
+                ?ERR(#{matched_type := "authn:redis_cluster"}),
                 check("{mechanism = password_based, backend = redis, redis_type = cluster}")
             )
         end},
         {"sentinel", fun() ->
             ?assertMatch(
-                ?ERR(#{matched_type := "redis_sentinel"}),
+                ?ERR(#{matched_type := "authn:redis_sentinel"}),
                 check("{mechanism = password_based, backend = redis, redis_type = sentinel}")
             )
         end}
     ].
 
 union_member_selector_http_test_() ->
+    ok = ensure_schema_load(),
     [
         {"unknown", fun() ->
             ?assertMatch(
@@ -115,13 +119,13 @@ union_member_selector_http_test_() ->
         end},
         {"get", fun() ->
             ?assertMatch(
-                ?ERR(#{matched_type := "http_get"}),
+                ?ERR(#{matched_type := "authn:http_get"}),
                 check("{mechanism = password_based, backend = http, method = get}")
             )
         end},
         {"post", fun() ->
             ?assertMatch(
-                ?ERR(#{matched_type := "http_post"}),
+                ?ERR(#{matched_type := "authn:http_post"}),
                 check("{mechanism = password_based, backend = http, method = post}")
             )
         end}
@@ -132,3 +136,7 @@ check(HoconConf) ->
         #{roots => emqx_authn_schema:global_auth_fields()},
         ["authentication= ", HoconConf]
     ).
+
+ensure_schema_load() ->
+    _ = emqx_conf_schema:roots(),
+    ok.

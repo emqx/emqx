@@ -24,27 +24,33 @@
 -export([
     fields/1,
     desc/1,
-    refs/0,
-    select_union_member/1
+    refs/1,
+    select_union_member/2,
+    namespace/0
 ]).
 
-refs() ->
+namespace() -> "authn".
+
+refs(api_write) ->
+    [?R_REF(builtin_db_api)];
+refs(_) ->
     [?R_REF(builtin_db)].
 
-select_union_member(#{
+select_union_member(Kind, #{
     <<"mechanism">> := ?AUTHN_MECHANISM_SIMPLE_BIN, <<"backend">> := ?AUTHN_BACKEND_BIN
 }) ->
-    refs();
-select_union_member(_) ->
+    refs(Kind);
+select_union_member(_Kind, _Value) ->
     undefined.
 
 fields(builtin_db) ->
     [
-        {mechanism, emqx_authn_schema:mechanism(?AUTHN_MECHANISM_SIMPLE)},
-        {backend, emqx_authn_schema:backend(?AUTHN_BACKEND)},
-        {user_id_type, fun user_id_type/1},
         {password_hash_algorithm, fun emqx_authn_password_hashing:type_rw/1}
-    ] ++ emqx_authn_schema:common_fields().
+    ] ++ common_fields();
+fields(builtin_db_api) ->
+    [
+        {password_hash_algorithm, fun emqx_authn_password_hashing:type_rw_api/1}
+    ] ++ common_fields().
 
 desc(builtin_db) ->
     ?DESC(builtin_db);
@@ -56,3 +62,10 @@ user_id_type(desc) -> ?DESC(?FUNCTION_NAME);
 user_id_type(default) -> <<"username">>;
 user_id_type(required) -> true;
 user_id_type(_) -> undefined.
+
+common_fields() ->
+    [
+        {mechanism, emqx_authn_schema:mechanism(?AUTHN_MECHANISM_SIMPLE)},
+        {backend, emqx_authn_schema:backend(?AUTHN_BACKEND)},
+        {user_id_type, fun user_id_type/1}
+    ] ++ emqx_authn_schema:common_fields().

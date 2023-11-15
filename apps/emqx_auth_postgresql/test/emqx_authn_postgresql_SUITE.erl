@@ -19,7 +19,7 @@
 -compile(nowarn_export_all).
 -compile(export_all).
 
--include_lib("emqx_connector/include/emqx_connector.hrl").
+-include_lib("emqx_postgresql/include/emqx_postgresql.hrl").
 -include_lib("emqx_auth/include/emqx_authn.hrl").
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
@@ -64,7 +64,7 @@ init_per_suite(Config) ->
             {ok, _} = emqx_resource:create_local(
                 ?PGSQL_RESOURCE,
                 ?AUTHN_RESOURCE_GROUP,
-                emqx_connector_pgsql,
+                emqx_postgresql,
                 pgsql_config(),
                 #{}
             ),
@@ -104,7 +104,7 @@ t_update_with_invalid_config(_Config) ->
     ?assertMatch(
         {error, #{
             kind := validation_error,
-            matched_type := "postgresql",
+            matched_type := "authn:postgresql",
             path := "authentication.1.server",
             reason := required_field
         }},

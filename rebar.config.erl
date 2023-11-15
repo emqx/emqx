@@ -107,8 +107,6 @@ is_community_umbrella_app("apps/emqx_schema_registry") -> false;
 is_community_umbrella_app("apps/emqx_enterprise") -> false;
 is_community_umbrella_app("apps/emqx_bridge_kinesis") -> false;
 is_community_umbrella_app("apps/emqx_bridge_azure_event_hub") -> false;
-is_community_umbrella_app("apps/emqx_ldap") -> false;
-is_community_umbrella_app("apps/emqx_auth_ldap") -> false;
 is_community_umbrella_app("apps/emqx_gcp_device") -> false;
 is_community_umbrella_app("apps/emqx_dashboard_rbac") -> false;
 is_community_umbrella_app("apps/emqx_dashboard_sso") -> false;
@@ -164,11 +162,7 @@ project_app_dirs(Edition) ->
      || Path <- filelib:wildcard("apps/*"),
         is_community_umbrella_app(Path) orelse IsEnterprise
     ],
-    UmbrellaApps ++
-        case IsEnterprise of
-            true -> ["lib-ee/*"];
-            false -> []
-        end.
+    UmbrellaApps.
 
 plugins() ->
     [
@@ -539,8 +533,7 @@ provide_bcrypt_release(ReleaseType) ->
 
 erl_opts_i() ->
     [{i, "apps"}] ++
-        [{i, Dir} || Dir <- filelib:wildcard(filename:join(["apps", "*", "include"]))] ++
-        [{i, Dir} || Dir <- filelib:wildcard(filename:join(["lib-ee", "*", "include"]))].
+        [{i, Dir} || Dir <- filelib:wildcard(filename:join(["apps", "*", "include"]))].
 
 dialyzer(Config) ->
     {dialyzer, OldDialyzerConfig} = lists:keyfind(dialyzer, 1, Config),
@@ -597,7 +590,7 @@ coveralls() ->
             []
     end.
 
-app_names() -> list_dir("apps") ++ list_dir("lib-ee").
+app_names() -> list_dir("apps").
 
 list_dir(Dir) ->
     case filelib:is_dir(Dir) of

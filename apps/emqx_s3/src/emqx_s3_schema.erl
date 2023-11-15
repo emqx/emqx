@@ -37,7 +37,7 @@ fields(s3) ->
             )},
         {secret_access_key,
             mk(
-                secret_access_key(),
+                typerefl:alias("string", secret_access_key()),
                 #{
                     desc => ?DESC("secret_access_key"),
                     required => false,

@@ -31,7 +31,8 @@
 
 all() ->
     [
-        {group, single_node},
+        {group, async_mode},
+        {group, sync_mode},
         {group, cluster}
     ].
 
@@ -50,7 +51,14 @@ groups() ->
             t_nasty_filenames,
             t_no_meta,
             t_no_segment,
-            t_simple_transfer
+            t_simple_transfer,
+            t_assemble_timeout
+        ]},
+        {async_mode, [], [
+            {group, single_node}
+        ]},
+        {sync_mode, [], [
+            {group, single_node}
         ]},
         {cluster, [], [
             t_switch_node,
@@ -72,9 +80,10 @@ init_per_suite(Config) ->
         emqx_ft_test_helpers:local_storage(Config),
         #{<<"local">> => #{<<"segments">> => #{<<"gc">> => #{<<"interval">> => 0}}}}
     ),
+    FTConfig = emqx_ft_test_helpers:config(Storage, #{<<"assemble_timeout">> => <<"2s">>}),
     Apps = emqx_cth_suite:start(
         [
-            {emqx_ft, #{config => emqx_ft_test_helpers:config(Storage)}}
+            {emqx_ft, #{config => FTConfig}}
         ],
         #{work_dir => emqx_cth_suite:work_dir(Config)}
     ),
@@ -85,7 +94,10 @@ end_per_suite(Config) ->
     ok.
 
 init_per_testcase(Case, Config) ->
-    ClientId = atom_to_binary(Case),
+    ClientId = iolist_to_binary([
+        atom_to_binary(Case), <<"-">>, emqx_ft_test_helpers:unique_binary_string()
+    ]),
+    ok = set_client_specific_ft_dirs(ClientId, Config),
     case ?config(group, Config) of
         cluster ->
             [{clientid, ClientId} | Config];
@@ -103,6 +115,10 @@ init_per_group(Group = cluster, Config) ->
     Cluster = mk_cluster_specs(Config),
     Nodes = emqx_cth_cluster:start(Cluster, #{work_dir => WorkDir}),
     [{group, Group}, {cluster_nodes, Nodes} | Config];
+init_per_group(_Group = async_mode, Config) ->
+    [{mode, sync} | Config];
+init_per_group(_Group = sync_mode, Config) ->
+    [{mode, async} | Config];
 init_per_group(Group, Config) ->
     [{group, Group} | Config].
 
@@ -127,7 +143,7 @@ mk_cluster_specs(_Config) ->
     ].
 
 %%--------------------------------------------------------------------
-%% Tests
+%% Single node tests
 %%--------------------------------------------------------------------
 
 t_invalid_topic_format(Config) ->
@@ -171,32 +187,32 @@ t_invalid_fileid(Config) ->
     C = ?config(client, Config),
     ?assertRCName(
         unspecified_error,
-        emqtt:publish(C, <<"$file//init">>, <<>>, 1)
+        emqtt:publish(C, mk_init_topic(Config, <<>>), <<>>, 1)
     ).
 
 t_invalid_filename(Config) ->
     C = ?config(client, Config),
     ?assertRCName(
         unspecified_error,
-        emqtt:publish(C, mk_init_topic(<<"f1">>), encode_meta(meta(".", <<>>)), 1)
+        emqtt:publish(C, mk_init_topic(Config, <<"f1">>), encode_meta(meta(".", <<>>)), 1)
     ),
     ?assertRCName(
         unspecified_error,
-        emqtt:publish(C, mk_init_topic(<<"f2">>), encode_meta(meta("..", <<>>)), 1)
+        emqtt:publish(C, mk_init_topic(Config, <<"f2">>), encode_meta(meta("..", <<>>)), 1)
     ),
     ?assertRCName(
         unspecified_error,
-        emqtt:publish(C, mk_init_topic(<<"f2">>), encode_meta(meta("../nice", <<>>)), 1)
+        emqtt:publish(C, mk_init_topic(Config, <<"f2">>), encode_meta(meta("../nice", <<>>)), 1)
     ),
     ?assertRCName(
         unspecified_error,
-        emqtt:publish(C, mk_init_topic(<<"f3">>), encode_meta(meta("/etc/passwd", <<>>)), 1)
+        emqtt:publish(C, mk_init_topic(Config, <<"f3">>), encode_meta(meta("/etc/passwd", <<>>)), 1)
     ),
     ?assertRCName(
         unspecified_error,
         emqtt:publish(
             C,
-            mk_init_topic(<<"f4">>),
+            mk_init_topic(Config, <<"f4">>),
             encode_meta(meta(lists:duplicate(1000, $A), <<>>)),
             1
         )
@@ -204,6 +220,7 @@ t_invalid_filename(Config) ->
 
 t_simple_transfer(Config) ->
     C = ?config(client, Config),
+    ClientId = ?config(clientid, Config),
 
     Filename = "topsecret.pdf",
     FileId = <<"f1">>,
@@ -214,22 +231,24 @@ t_simple_transfer(Config) ->
 
     ?assertRCName(
         success,
-        emqtt:publish(C, mk_init_topic(FileId), encode_meta(Meta), 1)
+        emqtt:publish(C, mk_init_topic(Config, FileId), encode_meta(Meta), 1)
     ),
 
     lists:foreach(
         fun({Chunk, Offset}) ->
             ?assertRCName(
                 success,
-                emqtt:publish(C, mk_segment_topic(FileId, Offset), Chunk, 1)
+                emqtt:publish(C, mk_segment_topic(Config, FileId, Offset), Chunk, 1)
             )
         end,
         with_offsets(Data)
     ),
 
-    ?assertRCName(
-        success,
-        emqtt:publish(C, mk_fin_topic(FileId, Filesize), <<>>, 1)
+    ?assertEqual(
+        ok,
+        emqx_ft_test_helpers:fin_result(
+            mode(Config), ClientId, C, mk_fin_topic(Config, FileId, Filesize)
+        )
     ),
 
     [Export] = list_files(?config(clientid, Config)),
@@ -238,7 +257,7 @@ t_simple_transfer(Config) ->
         read_export(Export)
     ).
 
-t_nasty_clientids_fileids(_Config) ->
+t_nasty_clientids_fileids(Config) ->
     Transfers = [
         {<<".">>, <<".">>},
         {<<"🌚"/utf8>>, <<"🌝"/utf8>>},
@@ -249,15 +268,16 @@ t_nasty_clientids_fileids(_Config) ->
 
     ok = lists:foreach(
         fun({ClientId, FileId}) ->
-            ok = emqx_ft_test_helpers:upload_file(ClientId, FileId, "justfile", ClientId),
+            Data = ClientId,
+            ok = emqx_ft_test_helpers:upload_file(mode(Config), ClientId, FileId, "justfile", Data),
             [Export] = list_files(ClientId),
             ?assertMatch(#{meta := #{name := "justfile"}}, Export),
-            ?assertEqual({ok, ClientId}, read_export(Export))
+            ?assertEqual({ok, Data}, read_export(Export))
         end,
         Transfers
     ).
 
-t_nasty_filenames(_Config) ->
+t_nasty_filenames(Config) ->
     Filenames = [
         {<<"nasty1">>, "146%"},
         {<<"nasty2">>, "🌚"},
@@ -267,7 +287,7 @@ t_nasty_filenames(_Config) ->
     ok = lists:foreach(
         fun({ClientId, Filename}) ->
             FileId = unicode:characters_to_binary(Filename),
-            ok = emqx_ft_test_helpers:upload_file(ClientId, FileId, Filename, FileId),
+            ok = emqx_ft_test_helpers:upload_file(mode(Config), ClientId, FileId, Filename, FileId),
             [Export] = list_files(ClientId),
             ?assertMatch(#{meta := #{name := Filename}}, Export),
             ?assertEqual({ok, FileId}, read_export(Export))
@@ -285,34 +305,36 @@ t_meta_conflict(Config) ->
 
     ?assertRCName(
         success,
-        emqtt:publish(C, mk_init_topic(FileId), encode_meta(Meta), 1)
+        emqtt:publish(C, mk_init_topic(Config, FileId), encode_meta(Meta), 1)
     ),
 
     ConflictMeta = Meta#{name => "conflict.pdf"},
 
     ?assertRCName(
         unspecified_error,
-        emqtt:publish(C, mk_init_topic(FileId), encode_meta(ConflictMeta), 1)
+        emqtt:publish(C, mk_init_topic(Config, FileId), encode_meta(ConflictMeta), 1)
     ).
 
 t_no_meta(Config) ->
     C = ?config(client, Config),
+    ClientId = ?config(clientid, Config),
 
     FileId = <<"f1">>,
     Data = <<"first">>,
 
     ?assertRCName(
         success,
-        emqtt:publish(C, mk_segment_topic(FileId, 0), Data, 1)
+        emqtt:publish(C, mk_segment_topic(Config, FileId, 0), Data, 1)
     ),
 
-    ?assertRCName(
-        unspecified_error,
-        emqtt:publish(C, mk_fin_topic(FileId, 42), <<>>, 1)
+    ?assertEqual(
+        {error, unspecified_error},
+        emqx_ft_test_helpers:fin_result(mode(Config), ClientId, C, mk_fin_topic(Config, FileId, 42))
     ).
 
 t_no_segment(Config) ->
     C = ?config(client, Config),
+    ClientId = ?config(clientid, Config),
 
     Filename = "topsecret.pdf",
     FileId = <<"f1">>,
@@ -323,23 +345,25 @@ t_no_segment(Config) ->
 
     ?assertRCName(
         success,
-        emqtt:publish(C, mk_init_topic(FileId), encode_meta(Meta), 1)
+        emqtt:publish(C, mk_init_topic(Config, FileId), encode_meta(Meta), 1)
     ),
 
     lists:foreach(
         fun({Chunk, Offset}) ->
             ?assertRCName(
                 success,
-                emqtt:publish(C, mk_segment_topic(FileId, Offset), Chunk, 1)
+                emqtt:publish(C, mk_segment_topic(Config, FileId, Offset), Chunk, 1)
             )
         end,
         %% Skip the first segment
         tl(with_offsets(Data))
     ),
 
-    ?assertRCName(
-        unspecified_error,
-        emqtt:publish(C, mk_fin_topic(FileId, Filesize), <<>>, 1)
+    ?assertEqual(
+        {error, unspecified_error},
+        emqx_ft_test_helpers:fin_result(
+            mode(Config), ClientId, C, mk_fin_topic(Config, FileId, Filesize)
+        )
     ).
 
 t_invalid_meta(Config) ->
@@ -352,17 +376,18 @@ t_invalid_meta(Config) ->
     MetaPayload = emqx_utils_json:encode(Meta),
     ?assertRCName(
         unspecified_error,
-        emqtt:publish(C, mk_init_topic(FileId), MetaPayload, 1)
+        emqtt:publish(C, mk_init_topic(Config, FileId), MetaPayload, 1)
     ),
 
     %% Invalid JSON
     ?assertRCName(
         unspecified_error,
-        emqtt:publish(C, mk_init_topic(FileId), <<"{oops;">>, 1)
+        emqtt:publish(C, mk_init_topic(Config, FileId), <<"{oops;">>, 1)
     ).
 
 t_invalid_checksum(Config) ->
     C = ?config(client, Config),
+    ClientId = ?config(clientid, Config),
 
     Filename = "topsecret.pdf",
     FileId = <<"f1">>,
@@ -374,35 +399,39 @@ t_invalid_checksum(Config) ->
 
     ?assertRCName(
         success,
-        emqtt:publish(C, mk_init_topic(FileId), MetaPayload, 1)
+        emqtt:publish(C, mk_init_topic(Config, FileId), MetaPayload, 1)
     ),
 
     lists:foreach(
         fun({Chunk, Offset}) ->
             ?assertRCName(
                 success,
-                emqtt:publish(C, mk_segment_topic(FileId, Offset), Chunk, 1)
+                emqtt:publish(C, mk_segment_topic(Config, FileId, Offset), Chunk, 1)
             )
         end,
         with_offsets(Data)
     ),
 
     % Send `fin` w/o checksum, should fail since filemeta checksum is invalid
-    FinTopic = mk_fin_topic(FileId, Filesize),
-    ?assertRCName(
-        unspecified_error,
-        emqtt:publish(C, FinTopic, <<>>, 1)
+    FinTopic = mk_fin_topic(Config, FileId, Filesize),
+
+    ?assertEqual(
+        {error, unspecified_error},
+        emqx_ft_test_helpers:fin_result(mode(Config), ClientId, C, FinTopic)
     ),
 
     % Send `fin` with the correct checksum
     Checksum = binary:encode_hex(sha256(Data)),
-    ?assertRCName(
-        success,
-        emqtt:publish(C, <<FinTopic/binary, "/", Checksum/binary>>, <<>>, 1)
+    ?assertEqual(
+        ok,
+        emqx_ft_test_helpers:fin_result(
+            mode(Config), ClientId, C, <<FinTopic/binary, "/", Checksum/binary>>
+        )
     ).
 
 t_corrupted_segment_retry(Config) ->
     C = ?config(client, Config),
+    ClientId = ?config(clientid, Config),
 
     Filename = "corruption.pdf",
     FileId = <<"4242-4242">>,
@@ -421,34 +450,88 @@ t_corrupted_segment_retry(Config) ->
 
     Meta = #{size := Filesize} = meta(Filename, Data),
 
-    ?assertRCName(success, emqtt:publish(C, mk_init_topic(FileId), encode_meta(Meta), 1)),
+    ?assertRCName(success, emqtt:publish(C, mk_init_topic(Config, FileId), encode_meta(Meta), 1)),
 
     ?assertRCName(
         success,
-        emqtt:publish(C, mk_segment_topic(FileId, Offset1, Checksum1), Seg1, 1)
+        emqtt:publish(C, mk_segment_topic(Config, FileId, Offset1, Checksum1), Seg1, 1)
     ),
 
     % segment is corrupted
     ?assertRCName(
         unspecified_error,
-        emqtt:publish(C, mk_segment_topic(FileId, Offset2, Checksum2), <<Seg2/binary, 42>>, 1)
+        emqtt:publish(
+            C, mk_segment_topic(Config, FileId, Offset2, Checksum2), <<Seg2/binary, 42>>, 1
+        )
     ),
 
     % retry
     ?assertRCName(
         success,
-        emqtt:publish(C, mk_segment_topic(FileId, Offset2, Checksum2), Seg2, 1)
+        emqtt:publish(C, mk_segment_topic(Config, FileId, Offset2, Checksum2), Seg2, 1)
     ),
 
     ?assertRCName(
         success,
-        emqtt:publish(C, mk_segment_topic(FileId, Offset3, Checksum3), Seg3, 1)
+        emqtt:publish(C, mk_segment_topic(Config, FileId, Offset3, Checksum3), Seg3, 1)
     ),
 
-    ?assertRCName(
-        success,
-        emqtt:publish(C, mk_fin_topic(FileId, Filesize), <<>>, 1)
+    ?assertEqual(
+        ok,
+        emqx_ft_test_helpers:fin_result(
+            mode(Config), ClientId, C, mk_fin_topic(Config, FileId, Filesize)
+        )
     ).
+
+t_assemble_crash(Config) ->
+    C = ?config(client, Config),
+
+    meck:new(emqx_ft_storage_fs),
+    meck:expect(emqx_ft_storage_fs, assemble, fun(_, _, _, _) -> meck:exception(error, oops) end),
+
+    ?assertRCName(
+        unspecified_error,
+        emqtt:publish(C, <<"$file/someid/fin">>, <<>>, 1)
+    ),
+
+    meck:unload(emqx_ft_storage_fs).
+
+t_assemble_timeout(Config) ->
+    C = ?config(client, Config),
+    ClientId = ?config(clientid, Config),
+
+    SleepForever = fun() ->
+        Ref = make_ref(),
+        receive
+            Ref -> ok
+        end
+    end,
+
+    ok = meck:new(emqx_ft_storage, [passthrough]),
+    ok = meck:expect(emqx_ft_storage, assemble, fun(_, _, _) ->
+        {async, spawn_link(SleepForever)}
+    end),
+
+    {Time, Res} = timer:tc(
+        fun() ->
+            emqx_ft_test_helpers:fin_result(
+                mode(Config), ClientId, C, <<"$file/someid/fin/9999999">>
+            )
+        end
+    ),
+
+    ok = meck:unload(emqx_ft_storage),
+
+    ?assertEqual(
+        {error, unspecified_error},
+        Res
+    ),
+
+    ?assert(2_000_000 < Time).
+
+%%--------------------------------------------------------------------
+%% Cluster tests
+%%--------------------------------------------------------------------
 
 t_switch_node(Config) ->
     [Node | _] = ?config(cluster_nodes, Config),
@@ -471,11 +554,11 @@ t_switch_node(Config) ->
 
     ?assertRCName(
         success,
-        emqtt:publish(C1, mk_init_topic(FileId), encode_meta(Meta), 1)
+        emqtt:publish(C1, mk_init_topic(Config, FileId), encode_meta(Meta), 1)
     ),
     ?assertRCName(
         success,
-        emqtt:publish(C1, mk_segment_topic(FileId, Offset0), Data0, 1)
+        emqtt:publish(C1, mk_segment_topic(Config, FileId, Offset0), Data0, 1)
     ),
 
     %% Then, switch the client to the main node
@@ -487,16 +570,16 @@ t_switch_node(Config) ->
 
     ?assertRCName(
         success,
-        emqtt:publish(C2, mk_segment_topic(FileId, Offset1), Data1, 1)
+        emqtt:publish(C2, mk_segment_topic(Config, FileId, Offset1), Data1, 1)
     ),
     ?assertRCName(
         success,
-        emqtt:publish(C2, mk_segment_topic(FileId, Offset2), Data2, 1)
+        emqtt:publish(C2, mk_segment_topic(Config, FileId, Offset2), Data2, 1)
     ),
 
     ?assertRCName(
         success,
-        emqtt:publish(C2, mk_fin_topic(FileId, Filesize), <<>>, 1)
+        emqtt:publish(C2, mk_fin_topic(Config, FileId, Filesize), <<>>, 1)
     ),
 
     ok = emqtt:stop(C2),
@@ -507,17 +590,6 @@ t_switch_node(Config) ->
     ?assertEqual(
         {ok, iolist_to_binary(Data)},
         read_export(Export)
-    ).
-
-t_assemble_crash(Config) ->
-    C = ?config(client, Config),
-
-    meck:new(emqx_ft_storage_fs),
-    meck:expect(emqx_ft_storage_fs, assemble, fun(_, _, _, _) -> meck:exception(error, oops) end),
-
-    ?assertRCName(
-        unspecified_error,
-        emqtt:publish(C, <<"$file/someid/fin">>, <<>>, 1)
     ).
 
 t_unreliable_migrating_client(Config) ->
@@ -543,10 +615,10 @@ t_unreliable_migrating_client(Config) ->
         {fun connect_mqtt_client/2, [NodeSelf]},
         % Send filemeta and 3 initial segments
         % (assuming client chose 100 bytes as a desired segment size)
-        {fun send_filemeta/2, [Meta]},
-        {fun send_segment/3, [0, 100]},
-        {fun send_segment/3, [100, 100]},
-        {fun send_segment/3, [200, 100]},
+        {fun send_filemeta/3, [Config, Meta]},
+        {fun send_segment/4, [Config, 0, 100]},
+        {fun send_segment/4, [Config, 100, 100]},
+        {fun send_segment/4, [Config, 200, 100]},
         % Disconnect the client cleanly
         {fun stop_mqtt_client/1, []},
         % Connect to the broker on `Node1`
@@ -555,27 +627,27 @@ t_unreliable_migrating_client(Config) ->
         % Client forgot the state for some reason and started the transfer again.
         % (assuming this is usual for a client on a device that was rebooted)
         {fun connect_mqtt_client/2, [Node2]},
-        {fun send_filemeta/2, [Meta]},
+        {fun send_filemeta/3, [Config, Meta]},
         % This time it chose 200 bytes as a segment size
-        {fun send_segment/3, [0, 200]},
-        {fun send_segment/3, [200, 200]},
+        {fun send_segment/4, [Config, 0, 200]},
+        {fun send_segment/4, [Config, 200, 200]},
         % But now it downscaled back to 100 bytes segments
-        {fun send_segment/3, [400, 100]},
+        {fun send_segment/4, [Config, 400, 100]},
         % Client lost connectivity and reconnected
         % (also had last few segments unacked and decided to resend them)
         {fun connect_mqtt_client/2, [Node2]},
-        {fun send_segment/3, [200, 200]},
-        {fun send_segment/3, [400, 200]},
+        {fun send_segment/4, [Config, 200, 200]},
+        {fun send_segment/4, [Config, 400, 200]},
         % Client lost connectivity and reconnected, this time to another node
         % (also had last segment unacked and decided to resend it)
         {fun connect_mqtt_client/2, [Node1]},
-        {fun send_segment/3, [400, 200]},
-        {fun send_segment/3, [600, eof]},
-        {fun send_finish/1, []},
+        {fun send_segment/4, [Config, 400, 200]},
+        {fun send_segment/4, [Config, 600, eof]},
+        {fun send_finish/2, [Config]},
         % Client lost connectivity and reconnected, this time to the current node
         % (client had `fin` unacked and decided to resend it)
         {fun connect_mqtt_client/2, [NodeSelf]},
-        {fun send_finish/1, []}
+        {fun send_finish/2, [Config]}
     ],
     _Context = run_commands(Commands, Context),
 
@@ -621,8 +693,8 @@ t_concurrent_fins(Config) ->
     Context1 = run_commands(
         [
             {fun connect_mqtt_client/2, [Node1]},
-            {fun send_filemeta/2, [Meta]},
-            {fun send_segment/3, [0, 100]},
+            {fun send_filemeta/3, [Config, Meta]},
+            {fun send_segment/4, [Config, 0, 100]},
             {fun stop_mqtt_client/1, []}
         ],
         Context0
@@ -634,7 +706,7 @@ t_concurrent_fins(Config) ->
         run_commands(
             [
                 {fun connect_mqtt_client/2, [Node]},
-                {fun send_finish/1, []}
+                {fun send_finish/2, [Config]}
             ],
             Context1
         )
@@ -708,14 +780,16 @@ disown_mqtt_client(Context = #{client := Client}) ->
 disown_mqtt_client(Context = #{}) ->
     Context.
 
-send_filemeta(Meta, Context = #{client := Client, fileid := FileId}) ->
+send_filemeta(Config, Meta, Context = #{client := Client, fileid := FileId}) ->
     ?assertRCName(
         success,
-        emqtt:publish(Client, mk_init_topic(FileId), encode_meta(Meta), 1)
+        emqtt:publish(Client, mk_init_topic(Config, FileId), encode_meta(Meta), 1)
     ),
     Context.
 
-send_segment(Offset, Size, Context = #{client := Client, fileid := FileId, payload := Payload}) ->
+send_segment(
+    Config, Offset, Size, Context = #{client := Client, fileid := FileId, payload := Payload}
+) ->
     Data =
         case Size of
             eof ->
@@ -725,14 +799,14 @@ send_segment(Offset, Size, Context = #{client := Client, fileid := FileId, paylo
         end,
     ?assertRCName(
         success,
-        emqtt:publish(Client, mk_segment_topic(FileId, Offset), Data, 1)
+        emqtt:publish(Client, mk_segment_topic(Config, FileId, Offset), Data, 1)
     ),
     Context.
 
-send_finish(Context = #{client := Client, fileid := FileId, filesize := Filesize}) ->
+send_finish(Config, Context = #{client := Client, fileid := FileId, filesize := Filesize}) ->
     ?assertRCName(
         success,
-        emqtt:publish(Client, mk_fin_topic(FileId, Filesize), <<>>, 1)
+        emqtt:publish(Client, mk_fin_topic(Config, FileId, Filesize), <<>>, 1)
     ),
     Context.
 
@@ -749,23 +823,30 @@ fs_exported_file_attributes(FSExports) ->
         lists:sort(FSExports)
     ).
 
-mk_init_topic(FileId) ->
-    <<"$file/", FileId/binary, "/init">>.
+mk_init_topic(Config, FileId) ->
+    RequestTopicPrefix = request_topic_prefix(Config, FileId),
+    <<RequestTopicPrefix/binary, "/init">>.
 
-mk_segment_topic(FileId, Offset) when is_integer(Offset) ->
-    mk_segment_topic(FileId, integer_to_binary(Offset));
-mk_segment_topic(FileId, Offset) when is_binary(Offset) ->
-    <<"$file/", FileId/binary, "/", Offset/binary>>.
+mk_segment_topic(Config, FileId, Offset) when is_integer(Offset) ->
+    mk_segment_topic(Config, FileId, integer_to_binary(Offset));
+mk_segment_topic(Config, FileId, Offset) when is_binary(Offset) ->
+    RequestTopicPrefix = request_topic_prefix(Config, FileId),
+    <<RequestTopicPrefix/binary, "/", Offset/binary>>.
 
-mk_segment_topic(FileId, Offset, Checksum) when is_integer(Offset) ->
-    mk_segment_topic(FileId, integer_to_binary(Offset), Checksum);
-mk_segment_topic(FileId, Offset, Checksum) when is_binary(Offset) ->
-    <<"$file/", FileId/binary, "/", Offset/binary, "/", Checksum/binary>>.
+mk_segment_topic(Config, FileId, Offset, Checksum) when is_integer(Offset) ->
+    mk_segment_topic(Config, FileId, integer_to_binary(Offset), Checksum);
+mk_segment_topic(Config, FileId, Offset, Checksum) when is_binary(Offset) ->
+    RequestTopicPrefix = request_topic_prefix(Config, FileId),
+    <<RequestTopicPrefix/binary, "/", Offset/binary, "/", Checksum/binary>>.
 
-mk_fin_topic(FileId, Size) when is_integer(Size) ->
-    mk_fin_topic(FileId, integer_to_binary(Size));
-mk_fin_topic(FileId, Size) when is_binary(Size) ->
-    <<"$file/", FileId/binary, "/fin/", Size/binary>>.
+mk_fin_topic(Config, FileId, Size) when is_integer(Size) ->
+    mk_fin_topic(Config, FileId, integer_to_binary(Size));
+mk_fin_topic(Config, FileId, Size) when is_binary(Size) ->
+    RequestTopicPrefix = request_topic_prefix(Config, FileId),
+    <<RequestTopicPrefix/binary, "/fin/", Size/binary>>.
+
+request_topic_prefix(Config, FileId) ->
+    emqx_ft_test_helpers:request_topic_prefix(mode(Config), FileId).
 
 with_offsets(Items) ->
     {List, _} = lists:mapfoldl(
@@ -799,3 +880,17 @@ list_files(ClientId) ->
 read_export(#{path := AbsFilepath}) ->
     % TODO: only works for the local filesystem exporter right now
     file:read_file(AbsFilepath).
+
+set_client_specific_ft_dirs(ClientId, Config) ->
+    FTRoot = emqx_ft_test_helpers:ft_root(Config),
+    ok = emqx_config:put(
+        [file_transfer, storage, local, segments, root],
+        filename:join([FTRoot, ClientId, segments])
+    ),
+    ok = emqx_config:put(
+        [file_transfer, storage, local, exporter, local, root],
+        filename:join([FTRoot, ClientId, exports])
+    ).
+
+mode(Config) ->
+    proplists:get_value(mode, Config, sync).

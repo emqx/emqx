@@ -53,7 +53,7 @@ fields("log_audit_handler") ->
 
         {"path",
             hoconsc:mk(
-                emqx_conf_schema:file(),
+                string(),
                 #{
                     desc => ?DESC(emqx_conf_schema, "audit_file_handler_path"),
                     default => <<"${EMQX_LOG_DIR}/audit.log">>,

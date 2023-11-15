@@ -22,6 +22,7 @@
 -behaviour(emqx_authz_schema).
 
 -export([
+    namespace/0,
     type/0,
     fields/1,
     desc/1,
@@ -29,11 +30,13 @@
     select_union_member/1
 ]).
 
+namespace() -> "authz".
+
 type() -> ?AUTHZ_TYPE.
 
 fields(postgresql) ->
     emqx_authz_schema:authz_common_fields(?AUTHZ_TYPE) ++
-        emqx_connector_pgsql:fields(config) ++
+        emqx_postgresql:fields(config) ++
         [{query, query()}].
 
 desc(postgresql) ->

@@ -258,21 +258,21 @@ set_chan_stats(ClientId, ChanPid, Stats) ->
     end.
 
 %% @doc Open a session.
--spec open_session(boolean(), emqx_types:clientinfo(), emqx_types:conninfo()) ->
+-spec open_session(_CleanStart :: boolean(), emqx_types:clientinfo(), emqx_types:conninfo()) ->
     {ok, #{
         session := emqx_session:t(),
         present := boolean(),
         replay => _ReplayContext
     }}
     | {error, Reason :: term()}.
-open_session(true, ClientInfo = #{clientid := ClientId}, ConnInfo) ->
+open_session(_CleanStart = true, ClientInfo = #{clientid := ClientId}, ConnInfo) ->
     Self = self(),
     emqx_cm_locker:trans(ClientId, fun(_) ->
         ok = discard_session(ClientId),
         ok = emqx_session:destroy(ClientInfo, ConnInfo),
         create_register_session(ClientInfo, ConnInfo, Self)
     end);
-open_session(false, ClientInfo = #{clientid := ClientId}, ConnInfo) ->
+open_session(_CleanStart = false, ClientInfo = #{clientid := ClientId}, ConnInfo) ->
     Self = self(),
     emqx_cm_locker:trans(ClientId, fun(_) ->
         case emqx_session:open(ClientInfo, ConnInfo) of

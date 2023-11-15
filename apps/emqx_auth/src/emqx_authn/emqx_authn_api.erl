@@ -147,7 +147,7 @@ schema("/authentication") ->
             description => ?DESC(authentication_get),
             responses => #{
                 200 => emqx_dashboard_swagger:schema_with_example(
-                    hoconsc:array(emqx_authn_schema:authenticator_type()),
+                    hoconsc:array(authenticator_type(config)),
                     authenticator_array_example()
                 )
             }
@@ -156,12 +156,12 @@ schema("/authentication") ->
             tags => ?API_TAGS_GLOBAL,
             description => ?DESC(authentication_post),
             'requestBody' => emqx_dashboard_swagger:schema_with_examples(
-                emqx_authn_schema:authenticator_type(),
+                authenticator_type(api_write),
                 authenticator_examples()
             ),
             responses => #{
                 200 => emqx_dashboard_swagger:schema_with_examples(
-                    emqx_authn_schema:authenticator_type(),
+                    authenticator_type(config),
                     authenticator_examples()
                 ),
                 400 => error_codes([?BAD_REQUEST], <<"Bad Request">>),
@@ -178,7 +178,7 @@ schema("/authentication/:id") ->
             parameters => [param_auth_id()],
             responses => #{
                 200 => emqx_dashboard_swagger:schema_with_examples(
-                    emqx_authn_schema:authenticator_type(),
+                    authenticator_type(config),
                     authenticator_examples()
                 ),
                 404 => error_codes([?NOT_FOUND], <<"Not Found">>)
@@ -189,7 +189,7 @@ schema("/authentication/:id") ->
             description => ?DESC(authentication_id_put),
             parameters => [param_auth_id()],
             'requestBody' => emqx_dashboard_swagger:schema_with_examples(
-                emqx_authn_schema:authenticator_type(),
+                authenticator_type(api_write),
                 authenticator_examples()
             ),
             responses => #{
@@ -236,7 +236,7 @@ schema("/listeners/:listener_id/authentication") ->
             parameters => [param_listener_id()],
             responses => #{
                 200 => emqx_dashboard_swagger:schema_with_example(
-                    hoconsc:array(emqx_authn_schema:authenticator_type()),
+                    hoconsc:array(authenticator_type(config)),
                     authenticator_array_example()
                 )
             }
@@ -247,12 +247,12 @@ schema("/listeners/:listener_id/authentication") ->
             description => ?DESC(listeners_listener_id_authentication_post),
             parameters => [param_listener_id()],
             'requestBody' => emqx_dashboard_swagger:schema_with_examples(
-                emqx_authn_schema:authenticator_type(),
+                authenticator_type(api_write),
                 authenticator_examples()
             ),
             responses => #{
                 200 => emqx_dashboard_swagger:schema_with_examples(
-                    emqx_authn_schema:authenticator_type(),
+                    authenticator_type(config),
                     authenticator_examples()
                 ),
                 400 => error_codes([?BAD_REQUEST], <<"Bad Request">>),
@@ -270,7 +270,7 @@ schema("/listeners/:listener_id/authentication/:id") ->
             parameters => [param_listener_id(), param_auth_id()],
             responses => #{
                 200 => emqx_dashboard_swagger:schema_with_examples(
-                    emqx_authn_schema:authenticator_type(),
+                    authenticator_type(config),
                     authenticator_examples()
                 ),
                 404 => error_codes([?NOT_FOUND], <<"Not Found">>)
@@ -282,7 +282,7 @@ schema("/listeners/:listener_id/authentication/:id") ->
             description => ?DESC(listeners_listener_id_authentication_id_put),
             parameters => [param_listener_id(), param_auth_id()],
             'requestBody' => emqx_dashboard_swagger:schema_with_examples(
-                emqx_authn_schema:authenticator_type(),
+                authenticator_type(api_write),
                 authenticator_examples()
             ),
             responses => #{
@@ -1277,6 +1277,9 @@ paginated_list_type(Type) ->
         {data, hoconsc:array(Type)},
         {meta, ref(emqx_dashboard_swagger, meta)}
     ].
+
+authenticator_type(Kind) ->
+    emqx_authn_schema:authenticator_type(Kind).
 
 authenticator_array_example() ->
     [Config || #{value := Config} <- maps:values(authenticator_examples())].

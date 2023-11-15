@@ -46,14 +46,14 @@ create(Config0) ->
     {Config, State} = parse_config(Config0, ResourceId),
     {ok, _Data} = emqx_authn_utils:create_resource(
         ResourceId,
-        emqx_connector_pgsql,
+        emqx_postgresql,
         Config
     ),
     {ok, State#{resource_id => ResourceId}}.
 
 update(Config0, #{resource_id := ResourceId} = _State) ->
     {Config, NState} = parse_config(Config0, ResourceId),
-    case emqx_authn_utils:update_resource(emqx_connector_pgsql, Config, ResourceId) of
+    case emqx_authn_utils:update_resource(emqx_postgresql, Config, ResourceId) of
         {error, Reason} ->
             error({load_config_error, Reason});
         {ok, _} ->

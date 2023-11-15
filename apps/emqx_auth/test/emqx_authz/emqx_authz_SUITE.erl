@@ -70,6 +70,7 @@ init_per_testcase(TestCase, Config) when
     {ok, _} = emqx:update_config([authorization, deny_action], disconnect),
     Config;
 init_per_testcase(_TestCase, Config) ->
+    _ = file:delete(emqx_authz_file:acl_conf_file()),
     {ok, _} = emqx_authz:update(?CMD_REPLACE, []),
     Config.
 

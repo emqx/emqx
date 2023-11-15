@@ -66,8 +66,9 @@
 %%   - Callbacks with greater priority values will be run before
 %%     the ones with lower priority values. e.g. A Callback with
 %%     priority = 2 precedes the callback with priority = 1.
-%%   - The execution order is the adding order of callbacks if they have
-%%     equal priority values.
+%%   - If the priorities of the hooks are equal then their execution
+%%     order is determined by the lexicographic of hook function
+%%     names.
 
 -type hookpoint() :: atom() | binary().
 -type action() :: {module(), atom(), [term()] | undefined}.
