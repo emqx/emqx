@@ -338,7 +338,7 @@ pubcomp(_ClientInfo, _PacketId, _Session = #{}) ->
 -spec deliver(clientinfo(), [emqx_types:deliver()], session()) ->
     {ok, replies(), session()}.
 deliver(_ClientInfo, _Delivers, Session) ->
-    %% TODO: QoS0 and system messages end up here.
+    %% TODO: system messages end up here.
     {ok, [], Session}.
 
 -spec handle_timeout(clientinfo(), _Timeout, session()) ->

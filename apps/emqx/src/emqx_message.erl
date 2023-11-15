@@ -301,7 +301,9 @@ update_expiry(Msg) ->
     Msg.
 
 %% @doc Message to PUBLISH Packet.
--spec to_packet(emqx_types:packet_id(), emqx_types:message()) ->
+%%
+%% When QoS=0 then packet id must be `undefined'
+-spec to_packet(emqx_types:packet_id() | undefined, emqx_types:message()) ->
     emqx_types:packet().
 to_packet(
     PacketId,

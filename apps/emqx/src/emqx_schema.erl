@@ -1775,9 +1775,9 @@ fields("session_persistence") ->
             )},
         {"idle_poll_interval",
             sc(
-                duration(),
+                timeout_duration(),
                 #{
-                    default => 100,
+                    default => <<"100ms">>,
                     desc => ?DESC(session_ds_idle_poll_interval)
                 }
             )},
