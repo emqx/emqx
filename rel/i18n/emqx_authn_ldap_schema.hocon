@@ -3,6 +3,9 @@ emqx_authn_ldap_schema {
 ldap.desc:
 """Configuration of authenticator using LDAP as authentication data source."""
 
+ldap_deprecated.desc:
+"""This is a deprecated form, you should avoid using it."""
+
 password_attribute.desc:
 """Indicates which attribute is used to represent the user's password."""
 
@@ -20,5 +23,17 @@ query_timeout.desc:
 
 query_timeout.label:
 """Query Timeout"""
+
+hash_method.desc:
+"""Authenticate by comparing the hashed password which was provided by the `password attribute`."""
+
+bind_method.desc:
+"""Authenticate by the LDAP bind operation."""
+
+method.desc:
+"""Authentication method."""
+
+method_type.desc:
+"""Authentication method type."""
 
 }

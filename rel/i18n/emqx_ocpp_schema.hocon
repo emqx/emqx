@@ -1,0 +1,53 @@
+emqx_ocpp_schema {
+
+default_heartbeat_interval.desc:
+"""The default Heartbeat time interval"""
+
+heartbeat_checking_times_backoff.desc:
+"""The backoff for heartbeat checking times"""
+
+message_format_checking.desc:
+"""Whether to enable message format legality checking.
+EMQX checks the message format of the upload stream and download stream against the
+format defined in json-schema.
+When the check fails, emqx will reply with a corresponding answer message.
+
+The checking strategy can be one of the following values:
+- <code>all</code>: check all messages
+- <code>upstream_only</code>: check upload stream messages only
+- <code>dnstream_only</code>: check download stream messages only
+- <code>disable</code>: don't check any messages"""
+
+upstream_topic.desc:
+"""The topic for Upload stream Call Request messages."""
+
+upstream_topic_override_mapping.desc:
+"""Upload stream topic override mapping by Message Name."""
+
+upstream_reply_topic.desc:
+"""The topic for Upload stream Reply messages."""
+
+upstream_error_topic.desc:
+"""The topic for Upload stream error topic."""
+
+dnstream_topic.desc:
+"""Download stream topic to receive request/control messages from third-party system.
+This value is a wildcard topic name that subscribed by every connected Charge Point."""
+
+dnstream_max_mqueue_len.desc:
+"""The maximum message queue length for download stream message delivery."""
+
+json_schema_dir.desc:
+"""JSON Schema directory for OCPP message definitions.
+Default: ${application}/priv/schemas"""
+
+json_schema_id_prefix.desc:
+"""The ID prefix for the OCPP message schemas."""
+
+ws.desc:
+"""Websocket listener."""
+
+wss.desc:
+"""Websocket over TLS listener."""
+
+}

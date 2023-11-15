@@ -17,7 +17,7 @@
 %% @doc Gateway Interface Module for HTTP-APIs
 -module(emqx_gateway_http).
 
--include("include/emqx_gateway.hrl").
+-include("emqx_gateway.hrl").
 -include_lib("emqx/include/logger.hrl").
 -include_lib("emqx_auth/include/emqx_authn_chains.hrl").
 
@@ -160,10 +160,10 @@ cluster_gateway_status(GwName) ->
 max_connections_count(Config) ->
     Listeners = emqx_gateway_utils:normalize_config(Config),
     lists:foldl(
-        fun({_, _, _, SocketOpts, _}, Acc) ->
+        fun({_, _, _, Conf0}, Acc) ->
             emqx_gateway_utils:plus_max_connections(
                 Acc,
-                proplists:get_value(max_connections, SocketOpts, 0)
+                maps:get(max_connections, Conf0, 0)
             )
         end,
         0,
@@ -184,7 +184,7 @@ current_connections_count(GwName) ->
 get_listeners_status(GwName, Config) ->
     Listeners = emqx_gateway_utils:normalize_config(Config),
     lists:map(
-        fun({Type, LisName, ListenOn, _, _}) ->
+        fun({Type, LisName, ListenOn, _}) ->
             Name0 = listener_id(GwName, Type, LisName),
             Name = {Name0, ListenOn},
             LisO = #{id => Name0, type => Type, name => LisName},
@@ -513,29 +513,23 @@ codestr(501) -> 'NOT_IMPLEMENTED'.
 fmtstr(Fmt, Args) ->
     lists:flatten(io_lib:format(Fmt, Args)).
 
--spec with_authn(binary(), function()) -> any().
+-spec with_authn(atom(), function()) -> any().
 with_authn(GwName0, Fun) ->
     with_gateway(GwName0, fun(GwName, _GwConf) ->
         Authn = emqx_gateway_http:authn(GwName),
         Fun(GwName, Authn)
     end).
 
--spec with_listener_authn(binary(), binary(), function()) -> any().
+-spec with_listener_authn(atom(), binary(), function()) -> any().
 with_listener_authn(GwName0, Id, Fun) ->
     with_gateway(GwName0, fun(GwName, _GwConf) ->
         Authn = emqx_gateway_http:authn(GwName, Id),
         Fun(GwName, Authn)
     end).
 
--spec with_gateway(binary(), function()) -> any().
-with_gateway(GwName0, Fun) ->
+-spec with_gateway(atom(), function()) -> any().
+with_gateway(GwName, Fun) ->
     try
-        GwName =
-            try
-                binary_to_existing_atom(GwName0)
-            catch
-                _:_ -> error(badname)
-            end,
         case emqx_gateway:lookup(GwName) of
             undefined ->
                 return_http_error(404, "Gateway not loaded");

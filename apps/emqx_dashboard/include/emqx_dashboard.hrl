@@ -13,16 +13,9 @@
 %% See the License for the specific language governing permissions and
 %% limitations under the License.
 %%--------------------------------------------------------------------
--define(ADMIN, emqx_admin).
+-include("emqx_dashboard_rbac.hrl").
 
-%% TODO:
-%% The predefined roles of the preliminary RBAC implementation,
-%% these may be removed when developing the full RBAC feature.
-%% In full RBAC feature, the role may be customised created and deleted,
-%% a predefined configuration would replace these macros.
--define(ROLE_VIEWER, <<"viewer">>).
--define(ROLE_SUPERUSER, <<"administrator">>).
--define(ROLE_DEFAULT, ?ROLE_SUPERUSER).
+-define(ADMIN, emqx_admin).
 
 -define(BACKEND_LOCAL, local).
 -define(SSO_USERNAME(Backend, Name), {Backend, Name}).

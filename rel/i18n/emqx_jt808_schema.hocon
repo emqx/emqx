@@ -1,0 +1,30 @@
+emqx_jt808_schema {
+
+jt808_frame_max_length.desc:
+"""The maximum length of the JT/T 808 frame."""
+
+jt808_allow_anonymous.desc:
+"""Allow anonymous access to the JT/T 808 Gateway."""
+
+registry_url.desc
+"""The JT/T 808 device registry central URL."""
+
+authentication_url.desc
+"""The JT/T 808 device authentication central URL."""
+
+jt808_up_topic.desc
+"""The topic of the JT/T 808 protocol upstream message."""
+
+jt808_dn_topic.desc
+"""The topic of the JT/T 808 protocol downstream message."""
+
+retry_interval.desc:
+"""Re-send time interval"""
+
+max_retry_times.desc:
+"""Re-send max times"""
+
+message_queue_len.desc:
+"""Max message queue length"""
+
+}

@@ -16,7 +16,6 @@
 -define(APPS, [emqx_bridge, emqx_resource, emqx_rule_engine, emqx_oracle, emqx_bridge_oracle]).
 -define(SID, "XE").
 -define(RULE_TOPIC, "mqtt/rule").
-% -define(RULE_TOPIC_BIN, <<?RULE_TOPIC>>).
 
 %%------------------------------------------------------------------------------
 %% CT boilerplate
@@ -32,9 +31,6 @@ groups() ->
     [
         {plain, AllTCs}
     ].
-
-only_once_tests() ->
-    [t_create_via_http].
 
 init_per_suite(Config) ->
     Config.

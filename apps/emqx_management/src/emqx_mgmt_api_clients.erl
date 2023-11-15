@@ -629,15 +629,8 @@ subscriptions(get, #{bindings := #{clientid := ClientID}}) ->
             {200, []};
         {Node, Subs} ->
             Formatter =
-                fun({Topic, SubOpts}) ->
-                    maps:merge(
-                        #{
-                            node => Node,
-                            clientid => ClientID,
-                            topic => Topic
-                        },
-                        maps:with([qos, nl, rap, rh], SubOpts)
-                    )
+                fun(_Sub = {Topic, SubOpts}) ->
+                    emqx_mgmt_api_subscriptions:format(Node, {{Topic, ClientID}, SubOpts})
                 end,
             {200, lists:map(Formatter, Subs)}
     end.

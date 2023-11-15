@@ -45,12 +45,10 @@ fields(config) ->
                 #{required => true, desc => ?DESC("aws_access_key_id")}
             )},
         {aws_secret_access_key,
-            mk(
-                binary(),
+            emqx_schema_secret:mk(
                 #{
                     required => true,
-                    desc => ?DESC("aws_secret_access_key"),
-                    sensitive => true
+                    desc => ?DESC("aws_secret_access_key")
                 }
             )},
         {pool_size, fun emqx_connector_schema_lib:pool_size/1},
@@ -89,7 +87,7 @@ on_start(
             host => Host,
             port => Port,
             aws_access_key_id => to_str(AccessKeyID),
-            aws_secret_access_key => to_str(SecretAccessKey),
+            aws_secret_access_key => SecretAccessKey,
             schema => Schema
         }},
         {pool_size, PoolSize}
@@ -182,9 +180,8 @@ do_query(
     end.
 
 connect(Opts) ->
-    Options = proplists:get_value(config, Opts),
-    {ok, _Pid} = Result = emqx_bridge_dynamo_connector_client:start_link(Options),
-    Result.
+    Config = proplists:get_value(config, Opts),
+    {ok, _Pid} = emqx_bridge_dynamo_connector_client:start_link(Config).
 
 parse_template(Config) ->
     Templates =

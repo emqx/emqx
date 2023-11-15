@@ -23,7 +23,7 @@
 
 -behaviour(supervisor).
 
--include("include/emqx_gateway.hrl").
+-include("emqx_gateway.hrl").
 
 -export([start_link/1]).
 

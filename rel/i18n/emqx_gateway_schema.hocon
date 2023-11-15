@@ -44,7 +44,7 @@ gateway_common_listener_enable.desc:
 """Enable the listener."""
 
 gateway_common_listener_enable_authn.desc:
-"""Set <code>true</code> (default) to enable client authentication on this listener. 
+"""Set <code>true</code> (default) to enable client authentication on this listener.
 When set to <code>false</code> clients will be allowed to connect without authentication."""
 
 gateway_common_listener_max_conn_rate.desc:
@@ -62,9 +62,10 @@ then the client actually subscribes to the topic `some_tenant/t`.
 Similarly, if another client B (connected to the same listener as the client A) sends a message to topic `t`,
 the message is routed to all the clients subscribed `some_tenant/t`,
 so client A will receive the message, with topic name `t`. Set to `""` to disable the feature.
-Variables in mountpoint string:<br/>
+Supported placeholders in mountpoint string:<br/>
   - <code>${clientid}</code>: clientid<br/>
-  - <code>${username}</code>: username"""
+  - <code>${username}</code>: username<br/>
+  - <code>${endpoint_name}</code>: endpoint name"""
 
 listener_name_to_settings_map.desc:
 """A map from listener names to listener settings."""
@@ -113,5 +114,85 @@ udp_listener_udp_opts.desc:
 
 udp_listeners.desc:
 """Settings for the UDP listeners."""
+
+fields_ws_opts_path.desc:
+"""WebSocket's MQTT protocol path. So the address of EMQX Broker's WebSocket is:
+<code>ws://{ip}:{port}/mqtt</code>"""
+
+fields_ws_opts_path.label:
+"""WS MQTT Path"""
+
+fields_ws_opts_piggyback.desc:
+"""Whether a WebSocket message is allowed to contain multiple MQTT packets."""
+
+fields_ws_opts_piggyback.label:
+"""MQTT Piggyback"""
+
+fields_ws_opts_compress.desc:
+"""If <code>true</code>, compress WebSocket messages using <code>zlib</code>.<br/>
+The configuration items under <code>deflate_opts</code> belong to the compression-related parameter configuration."""
+
+fields_ws_opts_compress.label:
+"""Ws compress"""
+
+fields_ws_opts_idle_timeout.desc:
+"""Close transport-layer connections from the clients that have not sent MQTT CONNECT message within this interval."""
+
+fields_ws_opts_idle_timeout.label:
+"""WS idle timeout"""
+
+fields_ws_opts_max_frame_size.desc:
+"""The maximum length of a single MQTT packet."""
+
+fields_ws_opts_max_frame_size.label:
+"""Max frame size"""
+
+fields_ws_opts_fail_if_no_subprotocol.desc:
+"""If <code>true</code>, the server will return an error when
+ the client does not carry the <code>Sec-WebSocket-Protocol</code> field.
+ <br/>Note: WeChat applet needs to disable this verification."""
+
+fields_ws_opts_fail_if_no_subprotocol.label:
+"""Fail if no subprotocol"""
+
+fields_ws_opts_supported_subprotocols.desc:
+"""Comma-separated list of supported subprotocols."""
+
+fields_ws_opts_supported_subprotocols.label:
+"""Supported subprotocols"""
+
+fields_ws_opts_check_origin_enable.desc:
+"""If <code>true</code>, <code>origin</code> HTTP header will be
+ validated against the list of allowed origins configured in <code>check_origins</code>
+ parameter."""
+
+fields_ws_opts_check_origin_enable.label:
+"""Check origin"""
+
+fields_ws_opts_allow_origin_absence.desc:
+"""If <code>false</code> and <code>check_origin_enable</code> is
+ <code>true</code>, the server will reject requests that don't have <code>origin</code>
+ HTTP header."""
+
+fields_ws_opts_allow_origin_absence.label:
+"""Allow origin absence"""
+
+fields_ws_opts_check_origins.desc:
+"""List of allowed origins.<br/>See <code>check_origin_enable</code>."""
+
+fields_ws_opts_check_origins.label:
+"""Allowed origins"""
+fields_ws_opts_proxy_port_header.desc:
+"""HTTP header used to pass information about the client port. Relevant when the EMQX cluster is deployed behind a load-balancer."""
+
+fields_ws_opts_proxy_port_header.label:
+"""Proxy port header"""
+
+fields_ws_opts_proxy_address_header.desc:
+"""HTTP header used to pass information about the client IP address.
+Relevant when the EMQX cluster is deployed behind a load-balancer."""
+
+fields_ws_opts_proxy_address_header.label:
+"""Proxy address header"""
 
 }

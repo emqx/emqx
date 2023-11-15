@@ -1,0 +1,10 @@
+{application, emqx_audit, [
+    {description, "Audit log for EMQX"},
+    {vsn, "0.1.0"},
+    {registered, []},
+    {mod, {emqx_audit_app, []}},
+    {applications, [kernel, stdlib, emqx]},
+    {env, []},
+    {modules, []},
+    {links, []}
+]}.

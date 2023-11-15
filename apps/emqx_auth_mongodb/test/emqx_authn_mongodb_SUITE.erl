@@ -278,6 +278,10 @@ raw_mongo_auth_config() ->
         <<"server">> => mongo_server(),
         <<"w_mode">> => <<"unsafe">>,
 
+        <<"auth_source">> => mongo_authsource(),
+        <<"username">> => mongo_username(),
+        <<"password">> => mongo_password(),
+
         <<"filter">> => #{<<"username">> => <<"${username}">>},
         <<"password_hash_field">> => <<"password_hash">>,
         <<"salt_field">> => <<"salt">>,
@@ -464,8 +468,20 @@ mongo_config() ->
         {database, <<"mqtt">>},
         {host, ?MONGO_HOST},
         {port, ?MONGO_DEFAULT_PORT},
+        {auth_source, mongo_authsource()},
+        {login, mongo_username()},
+        {password, mongo_password()},
         {register, ?MONGO_CLIENT}
     ].
+
+mongo_authsource() ->
+    iolist_to_binary(os:getenv("MONGO_AUTHSOURCE", "admin")).
+
+mongo_username() ->
+    iolist_to_binary(os:getenv("MONGO_USERNAME", "")).
+
+mongo_password() ->
+    iolist_to_binary(os:getenv("MONGO_PASSWORD", "")).
 
 start_apps(Apps) ->
     lists:foreach(fun application:ensure_all_started/1, Apps).

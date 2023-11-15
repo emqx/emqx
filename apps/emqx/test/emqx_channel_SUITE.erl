@@ -456,7 +456,7 @@ t_process_subscribe(_) ->
     ok = meck:expect(emqx_session, subscribe, fun(_, _, _, Session) -> {ok, Session} end),
     TopicFilters = [TopicFilter = {<<"+">>, ?DEFAULT_SUBOPTS}],
     {[{TopicFilter, ?RC_SUCCESS}], _Channel} =
-        emqx_channel:process_subscribe(TopicFilters, #{}, channel()).
+        emqx_channel:process_subscribe(TopicFilters, channel()).
 
 t_process_unsubscribe(_) ->
     ok = meck:expect(emqx_session, unsubscribe, fun(_, _, _, Session) -> {ok, Session} end),
@@ -914,7 +914,13 @@ t_check_pub_alias(_) ->
 t_check_sub_authzs(_) ->
     emqx_config:put_zone_conf(default, [authorization, enable], true),
     TopicFilter = {<<"t">>, ?DEFAULT_SUBOPTS},
-    [{TopicFilter, 0}] = emqx_channel:check_sub_authzs([TopicFilter], channel()).
+    SubPkt = ?SUBSCRIBE_PACKET(1, #{}, [TopicFilter]),
+    CheckedSubPkt = ?SUBSCRIBE_PACKET(1, #{}, [{TopicFilter, ?RC_SUCCESS}]),
+    Channel = channel(),
+    ?assertEqual(
+        {ok, CheckedSubPkt, Channel},
+        emqx_channel:check_sub_authzs(SubPkt, Channel)
+    ).
 
 t_enrich_connack_caps(_) ->
     ok = meck:new(emqx_mqtt_caps, [passthrough, no_history]),
@@ -1061,6 +1067,7 @@ clientinfo(InitProps) ->
             clientid => <<"clientid">>,
             username => <<"username">>,
             is_superuser => false,
+            is_bridge => false,
             mountpoint => undefined
         },
         InitProps

@@ -70,7 +70,7 @@ cassandra_db_fields() ->
         {keyspace, fun keyspace/1},
         {pool_size, fun emqx_connector_schema_lib:pool_size/1},
         {username, fun emqx_connector_schema_lib:username/1},
-        {password, fun emqx_connector_schema_lib:password/1},
+        {password, emqx_connector_schema_lib:password_field()},
         {auto_reconnect, fun emqx_connector_schema_lib:auto_reconnect/1}
     ].
 
@@ -111,14 +111,14 @@ on_start(
             emqx_schema:parse_servers(Servers0, ?DEFAULT_SERVER_OPTION)
         ),
 
-    Options = [
-        {nodes, Servers},
-        {keyspace, Keyspace},
-        {auto_reconnect, ?AUTO_RECONNECT_INTERVAL},
-        {pool_size, PoolSize}
-    ],
-    Options1 = maybe_add_opt(username, Config, Options),
-    Options2 = maybe_add_opt(password, Config, Options1, _IsSensitive = true),
+    Options =
+        maps:to_list(maps:with([username, password], Config)) ++
+            [
+                {nodes, Servers},
+                {keyspace, Keyspace},
+                {auto_reconnect, ?AUTO_RECONNECT_INTERVAL},
+                {pool_size, PoolSize}
+            ],
 
     SslOpts =
         case maps:get(enable, SSL) of
@@ -131,7 +131,7 @@ on_start(
                 []
         end,
     State = parse_prepare_cql(Config),
-    case emqx_resource_pool:start(InstId, ?MODULE, Options2 ++ SslOpts) of
+    case emqx_resource_pool:start(InstId, ?MODULE, Options ++ SslOpts) of
         ok ->
             {ok, init_prepare(State#{pool_name => InstId, prepare_statement => #{}})};
         {error, Reason} ->
@@ -387,6 +387,7 @@ conn_opts(Opts) ->
 conn_opts([], Acc) ->
     Acc;
 conn_opts([{password, Password} | Opts], Acc) ->
+    %% TODO: teach `ecql` to accept 0-arity closures as passwords.
     conn_opts(Opts, [{password, emqx_secret:unwrap(Password)} | Acc]);
 conn_opts([Opt | Opts], Acc) ->
     conn_opts(Opts, [Opt | Acc]).
@@ -512,19 +513,3 @@ maybe_assign_type(V) when is_integer(V) ->
 maybe_assign_type(V) when is_float(V) -> {double, V};
 maybe_assign_type(V) ->
     V.
-
-maybe_add_opt(Key, Conf, Opts) ->
-    maybe_add_opt(Key, Conf, Opts, _IsSensitive = false).
-
-maybe_add_opt(Key, Conf, Opts, IsSensitive) ->
-    case Conf of
-        #{Key := Val} ->
-            [{Key, maybe_wrap(IsSensitive, Val)} | Opts];
-        _ ->
-            Opts
-    end.
-
-maybe_wrap(false = _IsSensitive, Val) ->
-    Val;
-maybe_wrap(true, Val) ->
-    emqx_secret:wrap(Val).

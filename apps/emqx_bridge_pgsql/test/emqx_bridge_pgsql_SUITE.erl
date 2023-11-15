@@ -183,31 +183,33 @@ pgsql_config(BridgeType, Config) ->
         end,
     QueryMode = ?config(query_mode, Config),
     TlsEnabled = ?config(enable_tls, Config),
+    %% NOTE: supplying password through a file here, to verify that it works.
+    Password = create_passfile(BridgeType, Config),
     ConfigString =
         io_lib:format(
-            "bridges.~s.~s {\n"
-            "  enable = true\n"
-            "  server = ~p\n"
-            "  database = ~p\n"
-            "  username = ~p\n"
-            "  password = ~p\n"
-            "  sql = ~p\n"
-            "  resource_opts = {\n"
-            "    request_ttl = 500ms\n"
-            "    batch_size = ~b\n"
-            "    query_mode = ~s\n"
-            "  }\n"
-            "  ssl = {\n"
-            "    enable = ~w\n"
-            "  }\n"
-            "}",
+            "bridges.~s.~s {"
+            "\n   enable = true"
+            "\n   server = ~p"
+            "\n   database = ~p"
+            "\n   username = ~p"
+            "\n   password = ~p"
+            "\n   sql = ~p"
+            "\n   resource_opts = {"
+            "\n     request_ttl = 500ms"
+            "\n     batch_size = ~b"
+            "\n     query_mode = ~s"
+            "\n   }"
+            "\n   ssl = {"
+            "\n     enable = ~w"
+            "\n   }"
+            "\n }",
             [
                 BridgeType,
                 Name,
                 Server,
                 ?PGSQL_DATABASE,
                 ?PGSQL_USERNAME,
-                ?PGSQL_PASSWORD,
+                Password,
                 ?SQL_BRIDGE,
                 BatchSize,
                 QueryMode,
@@ -215,6 +217,12 @@ pgsql_config(BridgeType, Config) ->
             ]
         ),
     {Name, parse_and_check(ConfigString, BridgeType, Name)}.
+
+create_passfile(BridgeType, Config) ->
+    Filename = binary_to_list(BridgeType) ++ ".passfile",
+    Filepath = filename:join(?config(priv_dir, Config), Filename),
+    ok = file:write_file(Filepath, ?PGSQL_PASSWORD),
+    "file://" ++ Filepath.
 
 parse_and_check(ConfigString, BridgeType, Name) ->
     {ok, RawConf} = hocon:binary(ConfigString, #{format => map}),
@@ -379,7 +387,9 @@ t_setup_via_http_api_and_publish(Config) ->
     QueryMode = ?config(query_mode, Config),
     PgsqlConfig = PgsqlConfig0#{
         <<"name">> => Name,
-        <<"type">> => BridgeType
+        <<"type">> => BridgeType,
+        %% NOTE: using literal passwords with HTTP API requests.
+        <<"password">> => <<?PGSQL_PASSWORD>>
     },
     ?assertMatch(
         {ok, _},
