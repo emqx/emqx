@@ -44,6 +44,8 @@
 %% State is stored in-memory in the process heap.
 -module(emqx_session_mem).
 
+-behaviour(emqx_session).
+
 -include("emqx.hrl").
 -include("emqx_mqtt.hrl").
 -include("emqx_session_mem.hrl").

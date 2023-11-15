@@ -54,7 +54,7 @@ t_02_smoke_get_streams_start_iter(_Config) ->
     TopicFilter = ['#'],
     [{Rank, Stream}] = emqx_ds:get_streams(DB, TopicFilter, StartTime),
     ?assertMatch({_, _}, Rank),
-    ?assertMatch({ok, _Iter}, emqx_ds:make_iterator(Stream, TopicFilter, StartTime)).
+    ?assertMatch({ok, _Iter}, emqx_ds:make_iterator(DB, Stream, TopicFilter, StartTime)).
 
 %% A simple smoke test that verifies that it's possible to iterate
 %% over messages.
@@ -70,8 +70,8 @@ t_03_smoke_iterate(_Config) ->
     ],
     ?assertMatch(ok, emqx_ds:store_batch(DB, Msgs)),
     [{_, Stream}] = emqx_ds:get_streams(DB, TopicFilter, StartTime),
-    {ok, Iter0} = emqx_ds:make_iterator(Stream, TopicFilter, StartTime),
-    {ok, Iter, Batch} = iterate(Iter0, 1),
+    {ok, Iter0} = emqx_ds:make_iterator(DB, Stream, TopicFilter, StartTime),
+    {ok, Iter, Batch} = iterate(DB, Iter0, 1),
     ?assertEqual(Msgs, Batch, {Iter0, Iter}).
 
 %% Verify that iterators survive restart of the application. This is
@@ -91,14 +91,14 @@ t_04_restart(_Config) ->
     ],
     ?assertMatch(ok, emqx_ds:store_batch(DB, Msgs)),
     [{_, Stream}] = emqx_ds:get_streams(DB, TopicFilter, StartTime),
-    {ok, Iter0} = emqx_ds:make_iterator(Stream, TopicFilter, StartTime),
+    {ok, Iter0} = emqx_ds:make_iterator(DB, Stream, TopicFilter, StartTime),
     %% Restart the application:
     ?tp(warning, emqx_ds_SUITE_restart_app, #{}),
     ok = application:stop(emqx_durable_storage),
     {ok, _} = application:ensure_all_started(emqx_durable_storage),
     ok = emqx_ds:open_db(DB, opts()),
     %% The old iterator should be still operational:
-    {ok, Iter, Batch} = iterate(Iter0, 1),
+    {ok, Iter, Batch} = iterate(DB, Iter0, 1),
     ?assertEqual(Msgs, Batch, {Iter0, Iter}).
 
 message(Topic, Payload, PublishedAt) ->
@@ -109,15 +109,15 @@ message(Topic, Payload, PublishedAt) ->
         id = emqx_guid:gen()
     }.
 
-iterate(It, BatchSize) ->
-    iterate(It, BatchSize, []).
+iterate(DB, It, BatchSize) ->
+    iterate(DB, It, BatchSize, []).
 
-iterate(It0, BatchSize, Acc) ->
-    case emqx_ds:next(It0, BatchSize) of
+iterate(DB, It0, BatchSize, Acc) ->
+    case emqx_ds:next(DB, It0, BatchSize) of
         {ok, It, []} ->
             {ok, It, Acc};
         {ok, It, Msgs} ->
-            iterate(It, BatchSize, Acc ++ Msgs);
+            iterate(DB, It, BatchSize, Acc ++ Msgs);
         Ret ->
             Ret
     end.

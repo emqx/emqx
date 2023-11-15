@@ -309,7 +309,7 @@ health_check(ResId) ->
     safe_call(ResId, health_check, ?T_OPERATION).
 
 -spec channel_health_check(resource_id(), channel_id()) ->
-    #{status := channel_status(), error := term(), any() => any()}.
+    #{status := resource_status(), error := term()}.
 channel_health_check(ResId, ChannelId) ->
     %% Do normal health check first to trigger health checks for channels
     %% and update the cached health status for the channels

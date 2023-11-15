@@ -21,6 +21,7 @@
 
 -define(CLUSTER_MFA, cluster_rpc_mfa).
 -define(CLUSTER_COMMIT, cluster_rpc_commit).
+-define(DEFAULT_INIT_TXN_ID, -1).
 
 -record(cluster_rpc_mfa, {
     tnx_id :: pos_integer(),

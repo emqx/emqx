@@ -38,8 +38,8 @@
 %% records over the wire.
 
 %% tags:
--define(stream, stream).
--define(it, it).
+-define(STREAM, 1).
+-define(IT, 2).
 
 %% keys:
 -define(tag, 1).
@@ -50,7 +50,7 @@
     {emqx_ds_storage_reference, emqx_ds_storage_reference:options()}
     | {emqx_ds_storage_bitfield_lts, emqx_ds_storage_bitfield_lts:options()}.
 
--type shard_id() :: emqx_ds_replication_layer:shard_id().
+-type shard_id() :: {emqx_ds:db(), emqx_ds_replication_layer:shard_id()}.
 
 -type cf_refs() :: [{string(), rocksdb:cf_handle()}].
 
@@ -59,7 +59,7 @@
 %% Note: this might be stored permanently on a remote node.
 -opaque stream() ::
     #{
-        ?tag := ?stream,
+        ?tag := ?STREAM,
         ?generation := gen_id(),
         ?enc := term()
     }.
@@ -67,7 +67,7 @@
 %% Note: this might be stored permanently on a remote node.
 -opaque iterator() ::
     #{
-        ?tag := ?it,
+        ?tag := ?IT,
         ?generation := gen_id(),
         ?enc := term()
     }.
@@ -165,7 +165,7 @@ get_streams(Shard, TopicFilter, StartTime) ->
             Streams = Mod:get_streams(Shard, GenData, TopicFilter, StartTime),
             [
                 {GenId, #{
-                    ?tag => ?stream,
+                    ?tag => ?STREAM,
                     ?generation => GenId,
                     ?enc => Stream
                 }}
@@ -178,13 +178,13 @@ get_streams(Shard, TopicFilter, StartTime) ->
 -spec make_iterator(shard_id(), stream(), emqx_ds:topic_filter(), emqx_ds:time()) ->
     emqx_ds:make_iterator_result(iterator()).
 make_iterator(
-    Shard, #{?tag := ?stream, ?generation := GenId, ?enc := Stream}, TopicFilter, StartTime
+    Shard, #{?tag := ?STREAM, ?generation := GenId, ?enc := Stream}, TopicFilter, StartTime
 ) ->
     #{module := Mod, data := GenData} = generation_get(Shard, GenId),
     case Mod:make_iterator(Shard, GenData, Stream, TopicFilter, StartTime) of
         {ok, Iter} ->
             {ok, #{
-                ?tag => ?it,
+                ?tag => ?IT,
                 ?generation => GenId,
                 ?enc => Iter
             }};
@@ -194,7 +194,7 @@ make_iterator(
 
 -spec next(shard_id(), iterator(), pos_integer()) ->
     emqx_ds:next_result(iterator()).
-next(Shard, Iter = #{?tag := ?it, ?generation := GenId, ?enc := GenIter0}, BatchSize) ->
+next(Shard, Iter = #{?tag := ?IT, ?generation := GenId, ?enc := GenIter0}, BatchSize) ->
     #{module := Mod, data := GenData} = generation_get(Shard, GenId),
     Current = generation_current(Shard),
     case Mod:next(Shard, GenData, GenIter0, BatchSize) of
@@ -217,7 +217,7 @@ next(Shard, Iter = #{?tag := ?it, ?generation := GenId, ?enc := GenIter0}, Batch
 
 -spec start_link(shard_id(), emqx_ds:builtin_db_opts()) ->
     {ok, pid()}.
-start_link(Shard, Options) ->
+start_link(Shard = {_, _}, Options) ->
     gen_server:start_link(?REF(Shard), ?MODULE, {Shard, Options}, []).
 
 -record(s, {
@@ -417,11 +417,11 @@ generations_since(Shard, Since) ->
 -define(PERSISTENT_TERM(SHARD), {emqx_ds_storage_layer, SHARD}).
 
 -spec get_schema_runtime(shard_id()) -> shard().
-get_schema_runtime(Shard) ->
+get_schema_runtime(Shard = {_, _}) ->
     persistent_term:get(?PERSISTENT_TERM(Shard)).
 
 -spec put_schema_runtime(shard_id(), shard()) -> ok.
-put_schema_runtime(Shard, RuntimeSchema) ->
+put_schema_runtime(Shard = {_, _}, RuntimeSchema) ->
     persistent_term:put(?PERSISTENT_TERM(Shard), RuntimeSchema),
     ok.
 

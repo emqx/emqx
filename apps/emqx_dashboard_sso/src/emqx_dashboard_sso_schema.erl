@@ -8,7 +8,7 @@
 -include_lib("typerefl/include/types.hrl").
 
 %% Hocon
--export([fields/1, desc/1]).
+-export([namespace/0, fields/1, desc/1]).
 
 -export([
     common_backend_schema/1,
@@ -21,6 +21,8 @@
 %%------------------------------------------------------------------------------
 %% Hocon Schema
 %%------------------------------------------------------------------------------
+namespace() -> "sso".
+
 fields(sso) ->
     lists:map(
         fun({Type, Module}) ->

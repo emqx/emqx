@@ -22,6 +22,7 @@
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
 -behaviour(emqx_resource).
+-behaviour(hocon_schema).
 
 %% callbacks of behaviour emqx_resource
 -export([
@@ -29,7 +30,8 @@
     on_start/2,
     on_stop/2,
     on_query/3,
-    on_get_status/2
+    on_get_status/2,
+    namespace/0
 ]).
 
 %% ecpool callback
@@ -50,6 +52,9 @@
 }).
 
 %%=====================================================================
+
+namespace() -> "mongo".
+
 roots() ->
     [
         {config, #{

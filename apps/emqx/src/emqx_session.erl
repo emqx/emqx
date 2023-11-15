@@ -176,6 +176,7 @@
     t().
 -callback open(clientinfo(), conninfo()) ->
     {_IsPresent :: true, t(), _ReplayContext} | false.
+-callback destroy(t() | clientinfo()) -> ok.
 
 %%--------------------------------------------------------------------
 %% Create a Session
@@ -247,7 +248,14 @@ get_mqtt_conf(Zone, Key) ->
 
 -spec destroy(clientinfo(), conninfo()) -> ok.
 destroy(ClientInfo, ConnInfo) ->
-    (choose_impl_mod(ConnInfo)):destroy(ClientInfo).
+    %% When destroying/discarding a session, the current `ClientInfo' might suggest an
+    %% implementation which does not correspond to the one previously used by this client.
+    %% An example of this is a client that first connects with `Session-Expiry-Interval' >
+    %% 0, and later reconnects with `Session-Expiry-Interval' = 0 and `clean_start' =
+    %% true.  So we may simply destroy sessions from all implementations, since the key
+    %% (ClientID) is the same.
+    Mods = choose_impl_candidates(ConnInfo),
+    lists:foreach(fun(Mod) -> Mod:destroy(ClientInfo) end, Mods).
 
 -spec destroy(t()) -> ok.
 destroy(Session) ->

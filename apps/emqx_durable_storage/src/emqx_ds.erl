@@ -28,7 +28,7 @@
 -export([store_batch/2, store_batch/3]).
 
 %% Message replay API:
--export([get_streams/3, make_iterator/3, next/2]).
+-export([get_streams/3, make_iterator/4, next/3]).
 
 %% Misc. API:
 -export([]).
@@ -100,6 +100,26 @@
 
 -type get_iterator_result(Iterator) :: {ok, Iterator} | undefined.
 
+-define(persistent_term(DB), {emqx_ds_db_backend, DB}).
+
+-define(module(DB), (persistent_term:get(?persistent_term(DB)))).
+
+%%================================================================================
+%% Behavior callbacks
+%%================================================================================
+
+-callback open_db(db(), create_db_opts()) -> ok | {error, _}.
+
+-callback drop_db(db()) -> ok | {error, _}.
+
+-callback store_batch(db(), [emqx_types:message()], message_store_opts()) -> store_batch_result().
+
+-callback get_streams(db(), topic_filter(), time()) -> [{stream_rank(), stream()}].
+
+-callback make_iterator(db(), _Stream, topic_filter(), time()) -> make_iterator_result(_Iterator).
+
+-callback next(db(), Iterator, pos_integer()) -> next_result(Iterator).
+
 %%================================================================================
 %% API funcions
 %%================================================================================
@@ -107,19 +127,29 @@
 %% @doc Different DBs are completely independent from each other. They
 %% could represent something like different tenants.
 -spec open_db(db(), create_db_opts()) -> ok.
-open_db(DB, Opts = #{backend := builtin}) ->
-    emqx_ds_replication_layer:open_db(DB, Opts).
+open_db(DB, Opts = #{backend := Backend}) when Backend =:= builtin ->
+    Module =
+        case Backend of
+            builtin -> emqx_ds_replication_layer
+        end,
+    persistent_term:put(?persistent_term(DB), Module),
+    ?module(DB):open_db(DB, Opts).
 
 %% @doc TODO: currently if one or a few shards are down, they won't be
 
 %% deleted.
 -spec drop_db(db()) -> ok.
 drop_db(DB) ->
-    emqx_ds_replication_layer:drop_db(DB).
+    case persistent_term:get(?persistent_term(DB), undefined) of
+        undefined ->
+            ok;
+        Module ->
+            Module:drop_db(DB)
+    end.
 
 -spec store_batch(db(), [emqx_types:message()], message_store_opts()) -> store_batch_result().
 store_batch(DB, Msgs, Opts) ->
-    emqx_ds_replication_layer:store_batch(DB, Msgs, Opts).
+    ?module(DB):store_batch(DB, Msgs, Opts).
 
 -spec store_batch(db(), [emqx_types:message()]) -> store_batch_result().
 store_batch(DB, Msgs) ->
@@ -168,15 +198,15 @@ store_batch(DB, Msgs) ->
 %% replaying streams that depend on the given one.
 -spec get_streams(db(), topic_filter(), time()) -> [{stream_rank(), stream()}].
 get_streams(DB, TopicFilter, StartTime) ->
-    emqx_ds_replication_layer:get_streams(DB, TopicFilter, StartTime).
+    ?module(DB):get_streams(DB, TopicFilter, StartTime).
 
--spec make_iterator(stream(), topic_filter(), time()) -> make_iterator_result().
-make_iterator(Stream, TopicFilter, StartTime) ->
-    emqx_ds_replication_layer:make_iterator(Stream, TopicFilter, StartTime).
+-spec make_iterator(db(), stream(), topic_filter(), time()) -> make_iterator_result().
+make_iterator(DB, Stream, TopicFilter, StartTime) ->
+    ?module(DB):make_iterator(DB, Stream, TopicFilter, StartTime).
 
--spec next(iterator(), pos_integer()) -> next_result().
-next(Iter, BatchSize) ->
-    emqx_ds_replication_layer:next(Iter, BatchSize).
+-spec next(db(), iterator(), pos_integer()) -> next_result().
+next(DB, Iter, BatchSize) ->
+    ?module(DB):next(DB, Iter, BatchSize).
 
 %%================================================================================
 %% Internal exports

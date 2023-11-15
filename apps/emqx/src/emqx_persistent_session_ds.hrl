@@ -16,6 +16,8 @@
 -ifndef(EMQX_PERSISTENT_SESSION_DS_HRL_HRL).
 -define(EMQX_PERSISTENT_SESSION_DS_HRL_HRL, true).
 
+-define(PERSISTENT_MESSAGE_DB, emqx_persistent_message).
+
 -define(SESSION_TAB, emqx_ds_session).
 -define(SESSION_SUBSCRIPTIONS_TAB, emqx_ds_session_subscriptions).
 -define(SESSION_STREAM_TAB, emqx_ds_stream_tab).
@@ -37,9 +39,10 @@
     rank :: emqx_ds:stream_rank()
 }).
 -type ds_stream() :: #ds_stream{}.
+-type ds_stream_bin() :: binary().
 
 -record(ds_iter, {
-    id :: {emqx_persistent_session_ds:id(), emqx_ds:stream()},
+    id :: {emqx_persistent_session_ds:id(), ds_stream_bin()},
     iter :: emqx_ds:iterator()
 }).
 

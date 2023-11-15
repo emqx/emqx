@@ -11,7 +11,7 @@
 %%===========================================================================
 
 pulsar_producer_validations_test() ->
-    Name = my_producer,
+    Name = list_to_atom("my_producer"),
     Conf0 = pulsar_producer_hocon(),
     Conf1 =
         Conf0 ++

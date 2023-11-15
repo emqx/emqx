@@ -26,7 +26,8 @@
     fields/1,
     desc/1,
     source_refs/0,
-    select_union_member/1
+    select_union_member/1,
+    namespace/0
 ]).
 
 -export([
@@ -37,6 +38,8 @@
 -define(NOT_EMPTY(MSG), emqx_resource_validator:not_empty(MSG)).
 
 -import(emqx_schema, [mk_duration/2]).
+
+namespace() -> "authz".
 
 type() -> ?AUTHZ_TYPE.
 
@@ -96,7 +99,7 @@ http_common_fields() ->
             mk_duration("Request timeout", #{
                 required => false, default => <<"30s">>, desc => ?DESC(request_timeout)
             })},
-        {body, ?HOCON(map(), #{required => false, desc => ?DESC(body)})}
+        {body, ?HOCON(hoconsc:map(name, binary()), #{required => false, desc => ?DESC(body)})}
     ] ++
         lists:keydelete(
             pool_type,
@@ -105,7 +108,7 @@ http_common_fields() ->
         ).
 
 headers(type) ->
-    list({binary(), binary()});
+    typerefl:alias("map", list({binary(), binary()}), #{}, [binary(), binary()]);
 headers(desc) ->
     ?DESC(?FUNCTION_NAME);
 headers(converter) ->
@@ -118,7 +121,7 @@ headers(_) ->
     undefined.
 
 headers_no_content_type(type) ->
-    list({binary(), binary()});
+    typerefl:alias("map", list({binary(), binary()}), #{}, [binary(), binary()]);
 headers_no_content_type(desc) ->
     ?DESC(?FUNCTION_NAME);
 headers_no_content_type(converter) ->

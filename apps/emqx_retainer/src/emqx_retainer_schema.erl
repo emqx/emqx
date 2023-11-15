@@ -77,7 +77,7 @@ fields("retainer") ->
             )},
         {delivery_rate,
             ?HOCON(
-                emqx_limiter_schema:rate(),
+                emqx_limiter_schema:rate_type(),
                 #{
                     required => false,
                     desc => ?DESC(delivery_rate),

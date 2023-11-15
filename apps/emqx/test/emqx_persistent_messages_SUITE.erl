@@ -256,14 +256,14 @@ consume(TopicFilter, StartMS) ->
     Streams = emqx_ds:get_streams(?PERSISTENT_MESSAGE_DB, TopicFilter, StartMS),
     lists:flatmap(
         fun({_Rank, Stream}) ->
-            {ok, It} = emqx_ds:make_iterator(Stream, TopicFilter, StartMS),
+            {ok, It} = emqx_ds:make_iterator(?PERSISTENT_MESSAGE_DB, Stream, TopicFilter, StartMS),
             consume(It)
         end,
         Streams
     ).
 
 consume(It) ->
-    case emqx_ds:next(It, 100) of
+    case emqx_ds:next(?PERSISTENT_MESSAGE_DB, It, 100) of
         {ok, _NIt, _Msgs = []} ->
             [];
         {ok, NIt, Msgs} ->

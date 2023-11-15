@@ -20,7 +20,7 @@
 -behaviour(ecpool_worker).
 
 %% hocon_schema callbacks
--export([roots/0, fields/1]).
+-export([namespace/0, roots/0, fields/1]).
 
 %% HTTP API callbacks
 -export([values/1]).
@@ -42,6 +42,8 @@
 
 %% Internal callbacks
 -export([publish_messages/3]).
+
+namespace() -> "rabbitmq".
 
 roots() ->
     [{config, #{type => hoconsc:ref(?MODULE, config)}}].

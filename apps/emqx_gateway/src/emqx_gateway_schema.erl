@@ -32,19 +32,16 @@
 -type duration() :: non_neg_integer().
 -type duration_s() :: non_neg_integer().
 -type bytesize() :: pos_integer().
--type comma_separated_list() :: list().
 
 -typerefl_from_string({ip_port/0, emqx_schema, to_ip_port}).
 -typerefl_from_string({duration/0, emqx_schema, to_duration}).
 -typerefl_from_string({duration_s/0, emqx_schema, to_duration_s}).
 -typerefl_from_string({bytesize/0, emqx_schema, to_bytesize}).
--typerefl_from_string({comma_separated_list/0, emqx_schema, to_comma_separated_list}).
 
 -reflect_type([
     duration/0,
     duration_s/0,
     bytesize/0,
-    comma_separated_list/0,
     ip_port/0
 ]).
 -elvis([{elvis_style, dont_repeat_yourself, disable}]).
@@ -331,7 +328,7 @@ ws_opts(DefaultPath, DefaultSubProtocols) when
             )},
         {"supported_subprotocols",
             sc(
-                comma_separated_list(),
+                emqx_schema:comma_separated_list(),
                 #{
                     default => DefaultSubProtocols,
                     desc => ?DESC(fields_ws_opts_supported_subprotocols)

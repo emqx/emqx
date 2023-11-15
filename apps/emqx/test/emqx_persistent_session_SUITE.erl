@@ -133,7 +133,7 @@ get_listener_port(Type, Name) ->
 end_per_group(Group, Config) when Group == tcp; Group == ws; Group == quic ->
     ok = emqx_cth_suite:stop(?config(group_apps, Config));
 end_per_group(_, _Config) ->
-    ok = emqx_ds:drop_db(?PERSISTENT_MESSAGE_DB),
+    catch emqx_ds:drop_db(?PERSISTENT_MESSAGE_DB),
     ok.
 
 init_per_testcase(TestCase, Config) ->
@@ -599,6 +599,7 @@ t_publish_while_client_is_gone(Config) ->
 
     ok = emqtt:disconnect(Client2).
 
+%% TODO: don't skip after QoS2 support is added to DS.
 t_clean_start_drops_subscriptions(init, Config) -> skip_ds_tc(Config);
 t_clean_start_drops_subscriptions('end', _Config) -> ok.
 t_clean_start_drops_subscriptions(Config) ->

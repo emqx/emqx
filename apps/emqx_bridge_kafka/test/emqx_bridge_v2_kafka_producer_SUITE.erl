@@ -29,25 +29,27 @@ all() ->
     emqx_common_test_helpers:all(?MODULE).
 
 init_per_suite(Config) ->
-    _ = application:load(emqx_conf),
-    ok = emqx_common_test_helpers:start_apps(apps_to_start_and_stop()),
-    application:ensure_all_started(telemetry),
-    application:ensure_all_started(wolff),
-    application:ensure_all_started(brod),
+    Apps = emqx_cth_suite:start(
+        [
+            emqx,
+            emqx_conf,
+            emqx_connector,
+            emqx_bridge_kafka,
+            emqx_bridge,
+            emqx_rule_engine,
+            emqx_management,
+            {emqx_dashboard, "dashboard.listeners.http { enable = true, bind = 18083 }"}
+        ],
+        #{work_dir => emqx_cth_suite:work_dir(Config)}
+    ),
+    {ok, _} = emqx_common_test_http:create_default_app(),
     emqx_bridge_kafka_impl_producer_SUITE:wait_until_kafka_is_up(),
-    Config.
+    [{apps, Apps} | Config].
 
-end_per_suite(_Config) ->
-    emqx_common_test_helpers:stop_apps(apps_to_start_and_stop()).
-
-apps_to_start_and_stop() ->
-    [
-        emqx,
-        emqx_conf,
-        emqx_connector,
-        emqx_bridge,
-        emqx_rule_engine
-    ].
+end_per_suite(Config) ->
+    Apps = ?config(apps, Config),
+    emqx_cth_suite:stop(Apps),
+    ok.
 
 t_create_remove_list(_) ->
     [] = emqx_bridge_v2:list(),
@@ -164,6 +166,24 @@ t_unknown_topic(_Config) ->
             ?assertEqual(1, emqx_resource_metrics:dropped_resource_stopped_get(BridgeV2Id)),
             ok
         end
+    ),
+    ?assertMatch(
+        {ok,
+            {{_, 200, _}, _, [
+                #{
+                    <<"status">> := <<"disconnected">>,
+                    <<"node_status">> := [#{<<"status">> := <<"disconnected">>}]
+                }
+            ]}},
+        emqx_bridge_v2_testlib:list_bridges_api()
+    ),
+    ?assertMatch(
+        {ok,
+            {{_, 200, _}, _, #{
+                <<"status">> := <<"disconnected">>,
+                <<"node_status">> := [#{<<"status">> := <<"disconnected">>}]
+            }}},
+        emqx_bridge_v2_testlib:get_bridge_api(?TYPE, BridgeName)
     ),
     ok.
 

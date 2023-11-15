@@ -19,7 +19,7 @@
 
 -include_lib("emqx_utils/include/bpapi.hrl").
 %% API:
--export([open_shard/3, drop_shard/2, get_streams/4, make_iterator/5, next/4]).
+-export([open_shard/4, drop_shard/3, store_batch/5, get_streams/5, make_iterator/6, next/5]).
 
 %% behavior callbacks:
 -export([introduced_in/0]).
@@ -28,44 +28,69 @@
 %% API funcions
 %%================================================================================
 
--spec open_shard(node(), emqx_ds_replication_layer:shard_id(), emqx_ds:create_db_opts()) ->
+-spec open_shard(
+    node(),
+    emqx_ds:db(),
+    emqx_ds_replication_layer:shard_id(),
+    emqx_ds:create_db_opts()
+) ->
     ok.
-open_shard(Node, Shard, Opts) ->
-    erpc:call(Node, emqx_ds_replication_layer, do_open_shard_v1, [Shard, Opts]).
+open_shard(Node, DB, Shard, Opts) ->
+    erpc:call(Node, emqx_ds_replication_layer, do_open_shard_v1, [DB, Shard, Opts]).
 
--spec drop_shard(node(), emqx_ds_replication_layer:shard_id()) ->
+-spec drop_shard(node(), emqx_ds:db(), emqx_ds_replication_layer:shard_id()) ->
     ok.
-drop_shard(Node, Shard) ->
-    erpc:call(Node, emqx_ds_replication_layer, do_drop_shard_v1, [Shard]).
+drop_shard(Node, DB, Shard) ->
+    erpc:call(Node, emqx_ds_replication_layer, do_drop_shard_v1, [DB, Shard]).
 
 -spec get_streams(
-    node(), emqx_ds_replication_layer:shard_id(), emqx_ds:topic_filter(), emqx_ds:time()
+    node(),
+    emqx_ds:db(),
+    emqx_ds_replication_layer:shard_id(),
+    emqx_ds:topic_filter(),
+    emqx_ds:time()
 ) ->
     [{integer(), emqx_ds_storage_layer:stream()}].
-get_streams(Node, Shard, TopicFilter, Time) ->
-    erpc:call(Node, emqx_ds_replication_layer, do_get_streams_v1, [Shard, TopicFilter, Time]).
+get_streams(Node, DB, Shard, TopicFilter, Time) ->
+    erpc:call(Node, emqx_ds_replication_layer, do_get_streams_v1, [DB, Shard, TopicFilter, Time]).
 
 -spec make_iterator(
     node(),
+    emqx_ds:db(),
     emqx_ds_replication_layer:shard_id(),
     emqx_ds_storage_layer:stream(),
     emqx_ds:topic_filter(),
     emqx_ds:time()
 ) ->
     {ok, emqx_ds_storage_layer:iterator()} | {error, _}.
-make_iterator(Node, Shard, Stream, TopicFilter, StartTime) ->
+make_iterator(Node, DB, Shard, Stream, TopicFilter, StartTime) ->
     erpc:call(Node, emqx_ds_replication_layer, do_make_iterator_v1, [
-        Shard, Stream, TopicFilter, StartTime
+        DB, Shard, Stream, TopicFilter, StartTime
     ]).
 
 -spec next(
-    node(), emqx_ds_replication_layer:shard_id(), emqx_ds_storage_layer:iterator(), pos_integer()
+    node(),
+    emqx_ds:db(),
+    emqx_ds_replication_layer:shard_id(),
+    emqx_ds_storage_layer:iterator(),
+    pos_integer()
 ) ->
     {ok, emqx_ds_storage_layer:iterator(), [emqx_types:messages()]}
     | {ok, end_of_stream}
     | {error, _}.
-next(Node, Shard, Iter, BatchSize) ->
-    erpc:call(Node, emqx_ds_replication_layer, do_next_v1, [Shard, Iter, BatchSize]).
+next(Node, DB, Shard, Iter, BatchSize) ->
+    erpc:call(Node, emqx_ds_replication_layer, do_next_v1, [DB, Shard, Iter, BatchSize]).
+
+-spec store_batch(
+    node(),
+    emqx_ds:db(),
+    emqx_ds_replication_layer:shard_id(),
+    [emqx_types:message()],
+    emqx_ds:message_store_opts()
+) ->
+    emqx_ds:store_batch_result().
+store_batch(Node, DB, Shard, Batch, Options) ->
+    erpc:call(Node, emqx_ds_replication_layer, do_store_batch_v1, [DB, Shard, Batch, Options]).
 
 %%================================================================================
 %% behavior callbacks
