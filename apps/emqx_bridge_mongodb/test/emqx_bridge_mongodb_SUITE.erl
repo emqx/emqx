@@ -132,7 +132,17 @@ init_per_suite(Config) ->
 
 end_per_suite(_Config) ->
     emqx_mgmt_api_test_util:end_suite(),
-    ok = emqx_common_test_helpers:stop_apps([emqx_mongodb, emqx_bridge, emqx_rule_engine, emqx_conf]),
+    ok = emqx_common_test_helpers:stop_apps(
+        [
+            emqx_management,
+            emqx_bridge_mongodb,
+            emqx_mongodb,
+            emqx_bridge,
+            emqx_connector,
+            emqx_rule_engine,
+            emqx_conf
+        ]
+    ),
     ok.
 
 init_per_testcase(_Testcase, Config) ->
@@ -144,6 +154,7 @@ init_per_testcase(_Testcase, Config) ->
 end_per_testcase(_Testcase, Config) ->
     clear_db(Config),
     delete_bridge(Config),
+    [] = emqx_connector:list(),
     snabbkaffe:stop(),
     ok.
 
@@ -157,9 +168,17 @@ start_apps() ->
     %% we want to make sure they are loaded before
     %% ekka start in emqx_common_test_helpers:start_apps/1
     emqx_common_test_helpers:render_and_load_app_config(emqx_conf),
-    ok = emqx_common_test_helpers:start_apps([
-        emqx_conf, emqx_rule_engine, emqx_bridge, emqx_mongodb
-    ]).
+    ok = emqx_common_test_helpers:start_apps(
+        [
+            emqx_conf,
+            emqx_rule_engine,
+            emqx_connector,
+            emqx_bridge,
+            emqx_mongodb,
+            emqx_bridge_mongodb,
+            emqx_management
+        ]
+    ).
 
 ensure_loaded() ->
     _ = application:load(emqtt),
@@ -198,6 +217,7 @@ mongo_config(MongoHost, MongoPort0, rs = Type, Config) ->
             "\n   w_mode = safe"
             "\n   use_legacy_protocol = auto"
             "\n   database = mqtt"
+            "\n   mongo_type = rs"
             "\n   resource_opts = {"
             "\n     query_mode = ~s"
             "\n     worker_pool_size = 1"
@@ -224,6 +244,7 @@ mongo_config(MongoHost, MongoPort0, sharded = Type, Config) ->
             "\n   w_mode = safe"
             "\n   use_legacy_protocol = auto"
             "\n   database = mqtt"
+            "\n   mongo_type = sharded"
             "\n   resource_opts = {"
             "\n     query_mode = ~s"
             "\n     worker_pool_size = 1"
@@ -253,6 +274,7 @@ mongo_config(MongoHost, MongoPort0, single = Type, Config) ->
             "\n   auth_source = ~s"
             "\n   username = ~s"
             "\n   password = \"file://~s\""
+            "\n   mongo_type = single"
             "\n   resource_opts = {"
             "\n     query_mode = ~s"
             "\n     worker_pool_size = 1"
@@ -290,13 +312,17 @@ create_bridge(Config, Overrides) ->
 delete_bridge(Config) ->
     Type = mongo_type_bin(?config(mongo_type, Config)),
     Name = ?config(mongo_name, Config),
-    emqx_bridge:remove(Type, Name).
+    emqx_bridge:check_deps_and_remove(Type, Name, [connector, rule_actions]).
 
 create_bridge_http(Params) ->
     Path = emqx_mgmt_api_test_util:api_path(["bridges"]),
     AuthHeader = emqx_mgmt_api_test_util:auth_header_(),
-    case emqx_mgmt_api_test_util:request_api(post, Path, "", AuthHeader, Params) of
-        {ok, Res} -> {ok, emqx_utils_json:decode(Res, [return_maps])};
+    case
+        emqx_mgmt_api_test_util:request_api(post, Path, "", AuthHeader, Params, #{
+            return_all => true
+        })
+    of
+        {ok, {{_, 201, _}, _, Body}} -> {ok, emqx_utils_json:decode(Body, [return_maps])};
         Error -> Error
     end.
 
@@ -564,8 +590,8 @@ t_get_status_server_selection_too_short(Config) ->
     ok.
 
 t_use_legacy_protocol_option(Config) ->
-    ResourceID = resource_id(Config),
     {ok, _} = create_bridge(Config, #{<<"use_legacy_protocol">> => <<"true">>}),
+    ResourceID = resource_id(Config),
     ?retry(
         _Interval0 = 200,
         _NAttempts0 = 20,

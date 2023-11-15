@@ -78,6 +78,14 @@ external_ids(Type, Name) ->
             [external_id(Type0, Name), external_id(Type, Name)]
     end.
 
+get_conf(BridgeType, BridgeName) ->
+    case emqx_bridge_v2:is_bridge_v2_type(BridgeType) of
+        true ->
+            emqx_conf:get_raw([actions, BridgeType, BridgeName]);
+        false ->
+            undefined
+    end.
+
 %% Creates the external id for the bridge_v2 that is used by the rule actions
 %% to refer to the bridge_v2
 external_id(BridgeType, BridgeName) ->
@@ -87,9 +95,3 @@ external_id(BridgeType, BridgeName) ->
 
 bin(Bin) when is_binary(Bin) -> Bin;
 bin(Atom) when is_atom(Atom) -> atom_to_binary(Atom, utf8).
-
-get_conf(BridgeType, BridgeName) ->
-    case emqx_bridge_v2:is_bridge_v2_type(BridgeType) of
-        true -> emqx_conf:get_raw([actions, BridgeType, BridgeName]);
-        false -> emqx_conf:get_raw([bridges, BridgeType, BridgeName])
-    end.

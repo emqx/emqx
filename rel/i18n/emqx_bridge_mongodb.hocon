@@ -48,6 +48,12 @@ mongodb_single_conf.desc:
 mongodb_single_conf.label:
 """MongoDB (Standalone) Configuration"""
 
+mongodb_parameters.label:
+"""MongoDB Type Specific Parameters"""
+
+mongodb_parameters.desc:
+"""Set of parameters specific for the given type of this MongoDB connector, `mongo_type` can be one of `single` (Standalone), `sharded` (Sharded) or `rs` (Replica Set)."""
+
 payload_template.desc:
 """The template for formatting the outgoing messages.  If undefined, rule engine will use JSON format to serialize all visible inputs, such as clientid, topic, payload etc."""
 
@@ -58,5 +64,20 @@ batch_size.desc:
 """There is no batching support for MongoDB at the moment, so this config field has no effect. Internally the value is overridden to 1."""
 batch_size.label:
 """Batch Size"""
+
+action_parameters.label:
+"""Action Parameters"""
+action_parameters.desc:
+"""Additional parameters specific to this action type"""
+
+mongodb_action.label:
+"""MongoDB Action"""
+mongodb_action.desc:
+"""Action to interact with a MongoDB connector"""
+
+mqtt_topic.desc:
+"""MQTT topic or topic filter as data source (bridge input).  If rule action is used as data source, this config should be left empty, otherwise messages will be duplicated in MongoDB."""
+mqtt_topic.label:
+"""Source MQTT Topic"""
 
 }

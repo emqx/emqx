@@ -77,6 +77,7 @@ hard_coded_action_info_modules_ee() ->
         emqx_bridge_confluent_producer_action_info,
         emqx_bridge_gcp_pubsub_producer_action_info,
         emqx_bridge_kafka_action_info,
+        emqx_bridge_mongodb_action_info,
         emqx_bridge_syskeeper_action_info
     ].
 -else.
@@ -116,14 +117,17 @@ bridge_v1_type_to_action_type(Type) ->
 
 action_type_to_bridge_v1_type(Bin, Conf) when is_binary(Bin) ->
     action_type_to_bridge_v1_type(binary_to_existing_atom(Bin), Conf);
-action_type_to_bridge_v1_type(ActionType, Conf) ->
+action_type_to_bridge_v1_type(ActionType, ActionConf) ->
     ActionInfoMap = info_map(),
     ActionTypeToBridgeV1Type = maps:get(action_type_to_bridge_v1_type, ActionInfoMap),
     case maps:get(ActionType, ActionTypeToBridgeV1Type, undefined) of
         undefined ->
             ActionType;
         BridgeV1TypeFun when is_function(BridgeV1TypeFun) ->
-            BridgeV1TypeFun(get_confs(ActionType, Conf));
+            case get_confs(ActionType, ActionConf) of
+                {ConnectorConfig, ActionConfig} -> BridgeV1TypeFun({ConnectorConfig, ActionConfig});
+                undefined -> ActionType
+            end;
         BridgeV1Type ->
             BridgeV1Type
     end.
@@ -131,7 +135,9 @@ action_type_to_bridge_v1_type(ActionType, Conf) ->
 get_confs(ActionType, #{<<"connector">> := ConnectorName} = ActionConfig) ->
     ConnectorType = action_type_to_connector_type(ActionType),
     ConnectorConfig = emqx_conf:get_raw([connectors, ConnectorType, ConnectorName]),
-    {ActionConfig, ConnectorConfig}.
+    {ConnectorConfig, ActionConfig};
+get_confs(_, _) ->
+    undefined.
 
 %% This function should return true for all inputs that are bridge V1 types for
 %% bridges that have been refactored to bridge V2s, and for all all bridge V2

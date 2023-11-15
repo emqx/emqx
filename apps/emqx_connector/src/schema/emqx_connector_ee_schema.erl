@@ -20,8 +20,8 @@
 
 resource_type(Type) when is_binary(Type) ->
     resource_type(binary_to_atom(Type, utf8));
-%% We use AEH's Kafka interface.
 resource_type(azure_event_hub_producer) ->
+    %% We use AEH's Kafka interface.
     emqx_bridge_kafka_impl_producer;
 resource_type(confluent_producer) ->
     emqx_bridge_kafka_impl_producer;
@@ -29,6 +29,8 @@ resource_type(gcp_pubsub_producer) ->
     emqx_bridge_gcp_pubsub_impl_producer;
 resource_type(kafka_producer) ->
     emqx_bridge_kafka_impl_producer;
+resource_type(mongodb) ->
+    emqx_bridge_mongodb_connector;
 resource_type(syskeeper_forwarder) ->
     emqx_bridge_syskeeper_connector;
 resource_type(syskeeper_proxy) ->
@@ -83,6 +85,14 @@ connector_structs() ->
                     required => false
                 }
             )},
+        {mongodb,
+            mk(
+                hoconsc:map(name, ref(emqx_bridge_mongodb, "config_connector")),
+                #{
+                    desc => <<"MongoDB Connector Config">>,
+                    required => false
+                }
+            )},
         {syskeeper_forwarder,
             mk(
                 hoconsc:map(name, ref(emqx_bridge_syskeeper_connector, config)),
@@ -119,6 +129,7 @@ schema_modules() ->
         emqx_bridge_confluent_producer,
         emqx_bridge_gcp_pubsub_producer_schema,
         emqx_bridge_kafka,
+        emqx_bridge_mongodb,
         emqx_bridge_syskeeper_connector,
         emqx_bridge_syskeeper_proxy
     ].
@@ -133,12 +144,13 @@ api_schemas(Method) ->
         api_ref(
             emqx_bridge_confluent_producer, <<"confluent_producer">>, Method ++ "_connector"
         ),
-        api_ref(emqx_bridge_kafka, <<"kafka_producer">>, Method ++ "_connector"),
         api_ref(
             emqx_bridge_gcp_pubsub_producer_schema,
             <<"gcp_pubsub_producer">>,
             Method ++ "_connector"
         ),
+        api_ref(emqx_bridge_kafka, <<"kafka_producer">>, Method ++ "_connector"),
+        api_ref(emqx_bridge_mongodb, <<"mongodb">>, Method ++ "_connector"),
         api_ref(emqx_bridge_syskeeper_connector, <<"syskeeper_forwarder">>, Method),
         api_ref(emqx_bridge_syskeeper_proxy, <<"syskeeper_proxy">>, Method)
     ].

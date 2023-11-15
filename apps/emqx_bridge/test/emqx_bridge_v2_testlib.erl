@@ -552,18 +552,24 @@ t_on_get_status(Config, Opts) ->
         _Attempts = 20,
         ?assertEqual({ok, connected}, emqx_resource_manager:health_check(ResourceId))
     ),
-    emqx_common_test_helpers:with_failure(down, ProxyName, ProxyHost, ProxyPort, fun() ->
-        ct:sleep(500),
-        ?retry(
-            _Interval0 = 200,
-            _Attempts0 = 10,
-            ?assertEqual({ok, FailureStatus}, emqx_resource_manager:health_check(ResourceId))
-        )
-    end),
-    %% Check that it recovers itself.
-    ?retry(
-        _Sleep = 1_000,
-        _Attempts = 20,
-        ?assertEqual({ok, connected}, emqx_resource_manager:health_check(ResourceId))
-    ),
+    case ProxyHost of
+        undefined ->
+            ok;
+        _ ->
+            emqx_common_test_helpers:with_failure(down, ProxyName, ProxyHost, ProxyPort, fun() ->
+                ?retry(
+                    _Interval0 = 100,
+                    _Attempts0 = 20,
+                    ?assertEqual(
+                        {ok, FailureStatus}, emqx_resource_manager:health_check(ResourceId)
+                    )
+                )
+            end),
+            %% Check that it recovers itself.
+            ?retry(
+                _Sleep = 1_000,
+                _Attempts = 20,
+                ?assertEqual({ok, connected}, emqx_resource_manager:health_check(ResourceId))
+            )
+    end,
     ok.

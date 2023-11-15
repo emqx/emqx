@@ -9,7 +9,7 @@
         emqx_resource,
         emqx_mongodb
     ]},
-    {env, []},
+    {env, [{emqx_action_info_modules, [emqx_bridge_mongodb_action_info]}]},
     {modules, []},
     {links, []}
 ]}.

@@ -68,8 +68,9 @@ enterprise_fields_connectors() -> [].
 
 connector_type_to_bridge_types(azure_event_hub_producer) -> [azure_event_hub_producer];
 connector_type_to_bridge_types(confluent_producer) -> [confluent_producer];
-connector_type_to_bridge_types(gcp_pubsub_producer) -> [gcp_pubsub_producer];
+connector_type_to_bridge_types(gcp_pubsub_producer) -> [gcp_pubsub, gcp_pubsub_producer];
 connector_type_to_bridge_types(kafka_producer) -> [kafka, kafka_producer];
+connector_type_to_bridge_types(mongodb) -> [mongodb, mongodb_rs, mongodb_sharded, mongodb_single];
 connector_type_to_bridge_types(syskeeper_forwarder) -> [syskeeper_forwarder];
 connector_type_to_bridge_types(syskeeper_proxy) -> [].
 
@@ -266,8 +267,9 @@ transform_old_style_bridges_to_connector_and_actions_of_type(
                 RawConfigSoFar1
             ),
             %% Add action
+            ActionType = emqx_action_info:bridge_v1_type_to_action_type(to_bin(BridgeType)),
             RawConfigSoFar3 = emqx_utils_maps:deep_put(
-                [actions_config_name(), to_bin(maybe_rename(BridgeType)), BridgeName],
+                [actions_config_name(), to_bin(ActionType), BridgeName],
                 RawConfigSoFar2,
                 ActionMap
             ),
@@ -285,12 +287,6 @@ transform_bridges_v1_to_connectors_and_bridges_v2(RawConfig) ->
         ConnectorFields
     ),
     NewRawConf.
-
-%% v1 uses 'kafka' as bridge type v2 uses 'kafka_producer'
-maybe_rename(kafka) ->
-    kafka_producer;
-maybe_rename(Name) ->
-    Name.
 
 %%======================================================================================
 %% HOCON Schema Callbacks
