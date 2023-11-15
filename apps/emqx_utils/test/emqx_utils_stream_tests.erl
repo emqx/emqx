@@ -50,12 +50,12 @@ chain_take_test() ->
     ),
     ?assertMatch(
         {[1, 2, 3, 4, 5], _SRest},
-        emqx_utils_stream:take(5, S)
+        emqx_utils_stream:consume(5, S)
     ),
-    {_, SRest} = emqx_utils_stream:take(5, S),
+    {_, SRest} = emqx_utils_stream:consume(5, S),
     ?assertEqual(
         [6, 7, 8],
-        emqx_utils_stream:take(5, SRest)
+        emqx_utils_stream:consume(5, SRest)
     ).
 
 chain_list_map_test() ->

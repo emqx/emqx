@@ -479,7 +479,7 @@ select_v2(_Spec, Limit, Stream) ->
     select_next(Limit, Stream).
 
 select_next(N, Stream) ->
-    case emqx_utils_stream:take(N, Stream) of
+    case emqx_utils_stream:consume(N, Stream) of
         {Routes, SRest} ->
             {Routes, SRest};
         Routes ->
