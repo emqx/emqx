@@ -79,7 +79,8 @@ The following table lists the configurable parameters of the emqx chart and thei
 | `service.loadBalancerSourceRanges` | Address(es) that are allowed when service is LoadBalancer | [] |
 | `service.externalIPs` | ExternalIPs for the service | [] |
 | `service.externalTrafficPolicy` |	External Traffic Policy for the service |	`Cluster`
-| `service.annotations` | Service annotations | {}(evaluated as a template) |
+| `service.annotations` | Service/ServiceMonitor annotations | {}(evaluated as a template) |
+| `service.labels` | Service/ServiceMontior labels | {}(evaluated as a template) |
 | `ingress.dashboard.enabled` | Enable ingress for EMQX Dashboard | false |
 | `ingress.dashboard.ingressClassName` | Set the ingress class for EMQX Dashboard | |
 | `ingress.dashboard.path` | Ingress path for EMQX Dashboard | / |
