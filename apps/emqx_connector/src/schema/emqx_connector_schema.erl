@@ -33,7 +33,10 @@
 
 -export([connector_type_to_bridge_types/1]).
 
+
 -export([resource_opts_fields/0, resource_opts_fields/1]).
+
+-export([examples/1]).
 
 -if(?EMQX_RELEASE_EDITION == ee).
 enterprise_api_schemas(Method) ->
@@ -64,6 +67,37 @@ enterprise_fields_connectors() -> [].
 
 -endif.
 
+api_schemas(Method) ->
+    [
+        %% We need to map the `type' field of a request (binary) to a
+        %% connector schema module.
+        api_ref(emqx_bridge_http_schema, <<"webhook">>, Method ++ "_connector")
+    ].
+
+api_ref(Module, Type, Method) ->
+    {Type, ref(Module, Method)}.
+
+examples(Method) ->
+    MergeFun =
+        fun(Example, Examples) ->
+            maps:merge(Examples, Example)
+        end,
+    Fun =
+        fun(Module, Examples) ->
+            ConnectorExamples = erlang:apply(Module, connector_examples, [Method]),
+            lists:foldl(MergeFun, Examples, ConnectorExamples)
+        end,
+    lists:foldl(Fun, #{}, schema_modules()).
+
+-if(?EMQX_RELEASE_EDITION == ee).
+schema_modules() ->
+    [emqx_bridge_http_schema] ++ emqx_connector_ee_schema:schema_modules().
+-else.
+schema_modules() ->
+    [emqx_bridge_http_schema].
+-endif.
+
+connector_type_to_bridge_types(webhook) -> [webhook];
 connector_type_to_bridge_types(kafka_producer) -> [kafka, kafka_producer];
 connector_type_to_bridge_types(azure_event_hub_producer) -> [azure_event_hub_producer].
 
@@ -298,8 +332,9 @@ post_request() ->
     api_schema("post").
 
 api_schema(Method) ->
+    CE = api_schemas(Method),
     EE = enterprise_api_schemas(Method),
-    hoconsc:union(connector_api_union(EE)).
+    hoconsc:union(connector_api_union(CE ++ EE)).
 
 connector_api_union(Refs) ->
     Index = maps:from_list(Refs),
@@ -344,7 +379,16 @@ roots() ->
     end.
 
 fields(connectors) ->
-    [] ++ enterprise_fields_connectors().
+    [
+        {webhook,
+            mk(
+                hoconsc:map(name, ref(emqx_bridge_http_schema, "config_connector")),
+                #{
+                    desc => <<"HTTP Connector Config">>,
+                    required => false
+                }
+            )}
+    ] ++ enterprise_fields_connectors().
 
 desc(connectors) ->
     ?DESC("desc_connectors");

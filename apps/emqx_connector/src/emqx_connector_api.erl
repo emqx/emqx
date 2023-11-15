@@ -158,17 +158,7 @@ connector_info_array_example(Method) ->
     lists:map(fun(#{value := Config}) -> Config end, maps:values(connector_info_examples(Method))).
 
 connector_info_examples(Method) ->
-    maps:merge(
-        #{},
-        emqx_enterprise_connector_examples(Method)
-    ).
-
--if(?EMQX_RELEASE_EDITION == ee).
-emqx_enterprise_connector_examples(Method) ->
-    emqx_connector_ee_schema:examples(Method).
--else.
-emqx_enterprise_connector_examples(_Method) -> #{}.
--endif.
+    emqx_connector_schema:examples(Method).
 
 schema("/connectors") ->
     #{
