@@ -410,10 +410,10 @@ uninstall_bridge_v2(
     CreationOpts = emqx_resource:fetch_creation_opts(Config),
     ok = emqx_resource_buffer_worker_sup:stop_workers(BridgeV2Id, CreationOpts),
     ok = emqx_resource:clear_metrics(BridgeV2Id),
-    case combine_connector_and_bridge_v2_config(BridgeV2Type, BridgeName, Config) of
+    case validate_referenced_connectors(BridgeV2Type, ConnectorName, BridgeName) of
         {error, _} ->
             ok;
-        _CombinedConfig ->
+        ok ->
             %% Deinstall from connector
             ConnectorId = emqx_connector_resource:resource_id(
                 connector_type(BridgeV2Type), ConnectorName
