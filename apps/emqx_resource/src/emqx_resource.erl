@@ -201,9 +201,9 @@
 
 %% when calling emqx_resource:health_check/2
 -callback on_get_status(resource_id(), resource_state()) ->
-    resource_status()
-    | {resource_status(), resource_state()}
-    | {resource_status(), resource_state(), term()}.
+    health_check_status()
+    | {health_check_status(), resource_state()}
+    | {health_check_status(), resource_state(), term()}.
 
 -callback on_get_channel_status(resource_id(), channel_id(), resource_state()) ->
     channel_status()
@@ -519,8 +519,8 @@ call_start(ResId, Mod, Config) ->
     | {resource_status(), resource_state()}
     | {resource_status(), resource_state(), term()}
     | {error, term()}.
-call_health_check(ResId, Mod, ResourceState) ->
-    ?SAFE_CALL(Mod:on_get_status(ResId, ResourceState)).
+call_health_check(ResId, Mod, ResourceStatus) ->
+    ?SAFE_CALL(Mod:on_get_status(ResId, ResourceStatus)).
 
 -spec call_channel_health_check(resource_id(), channel_id(), module(), resource_state()) ->
     channel_status()

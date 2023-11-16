@@ -1077,9 +1077,11 @@ handle_async_worker_down(Data0, Pid) ->
 call_query(QM, Id, Index, Ref, Query, QueryOpts) ->
     ?tp(call_query_enter, #{id => Id, query => Query, query_mode => QM}),
     case emqx_resource_manager:lookup_cached(extract_connector_id(Id)) of
-        {ok, _Group, #{status := stopped}} ->
+        %% This seems to be the only place where the `rm_status_stopped' status matters,
+        %% to distinguish from the `disconnected' status.
+        {ok, _Group, #{status := ?rm_status_stopped}} ->
             ?RESOURCE_ERROR(stopped, "resource stopped or disabled");
-        {ok, _Group, #{status := connecting, error := unhealthy_target}} ->
+        {ok, _Group, #{status := ?status_connecting, error := unhealthy_target}} ->
             {error, {unrecoverable_error, unhealthy_target}};
         {ok, _Group, Resource} ->
             do_call_query(QM, Id, Index, Ref, Query, QueryOpts, Resource);
