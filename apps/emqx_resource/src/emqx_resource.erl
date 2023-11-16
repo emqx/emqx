@@ -201,9 +201,9 @@
 
 %% when calling emqx_resource:health_check/2
 -callback on_get_status(resource_id(), resource_state()) ->
-    resource_status()
-    | {resource_status(), resource_state()}
-    | {resource_status(), resource_state(), term()}.
+    health_check_status()
+    | {health_check_status(), resource_state()}
+    | {health_check_status(), resource_state(), term()}.
 
 -callback on_get_channel_status(resource_id(), channel_id(), resource_state()) ->
     channel_status()
@@ -248,7 +248,7 @@
                 {error, Reason};
             C:E:S ->
                 {error, #{
-                    execption => C,
+                    exception => C,
                     reason => emqx_utils:redact(E),
                     stacktrace => emqx_utils:redact(S)
                 }}
