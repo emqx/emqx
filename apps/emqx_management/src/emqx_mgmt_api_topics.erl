@@ -18,7 +18,6 @@
 
 -include_lib("emqx/include/emqx.hrl").
 -include_lib("emqx/include/emqx_mqtt.hrl").
--include_lib("emqx/include/emqx_router.hrl").
 -include_lib("typerefl/include/types.hrl").
 -include_lib("hocon/include/hoconsc.hrl").
 
@@ -36,8 +35,6 @@
     topics/2,
     topic/2
 ]).
-
--export([qs2ms/2, format/1]).
 
 -define(TOPIC_NOT_FOUND, 'TOPIC_NOT_FOUND').
 
@@ -110,23 +107,15 @@ topic(get, #{bindings := Bindings}) ->
 %%%==============================================================================================
 %% api apply
 do_list(Params) ->
-    case
-        emqx_mgmt_api:node_query(
-            node(),
-            ?ROUTE_TAB,
-            Params,
-            ?TOPICS_QUERY_SCHEMA,
-            fun ?MODULE:qs2ms/2,
-            fun ?MODULE:format/1
-        )
-    of
-        {error, page_limit_invalid} ->
-            {400, #{code => <<"INVALID_PARAMETER">>, message => <<"page_limit_invalid">>}};
-        {error, Node, Error} ->
-            Message = list_to_binary(io_lib:format("bad rpc call ~p, Reason ~p", [Node, Error])),
-            {500, #{code => <<"NODE_DOWN">>, message => Message}};
-        Response ->
-            {200, Response}
+    try
+        Pager = parse_pager_params(Params),
+        {_, Query} = emqx_mgmt_api:parse_qstring(Params, ?TOPICS_QUERY_SCHEMA),
+        QState = Pager#{continuation => undefined},
+        QResult = eval_topic_query(qs2ms(Query), QState),
+        {200, format_list_response(Pager, QResult)}
+    catch
+        throw:{error, page_limit_invalid} ->
+            {400, #{code => <<"INVALID_PARAMETER">>, message => <<"page_limit_invalid">>}}
     end.
 
 lookup(#{topic := Topic}) ->
@@ -140,26 +129,63 @@ lookup(#{topic := Topic}) ->
 
 %%%==============================================================================================
 %% internal
--spec qs2ms(atom(), {list(), list()}) -> emqx_mgmt_api:match_spec_and_filter().
-qs2ms(_Tab, {Qs, _}) ->
-    #{
-        match_spec => gen_match_spec(Qs, [{{route, '_', '_'}, [], ['$_']}]),
-        fuzzy_fun => undefined
-    }.
 
-gen_match_spec([], Res) ->
-    Res;
-gen_match_spec([{topic, '=:=', T0} | Qs], [{{route, _, Node}, [], ['$_']}]) when is_atom(Node) ->
-    {T, D} =
-        case emqx_topic:parse(T0) of
-            {#share{group = Group, topic = Topic}, _SubOpts} ->
-                {Topic, {Group, Node}};
-            {T1, _SubOpts} ->
-                {T1, Node}
-        end,
-    gen_match_spec(Qs, [{{route, T, D}, [], ['$_']}]);
-gen_match_spec([{node, '=:=', N} | Qs], [{{route, T, _}, [], ['$_']}]) ->
-    gen_match_spec(Qs, [{{route, T, N}, [], ['$_']}]).
+parse_pager_params(Params) ->
+    try emqx_mgmt_api:parse_pager_params(Params) of
+        Pager = #{} ->
+            Pager;
+        false ->
+            throw({error, page_limit_invalid})
+    catch
+        error:badarg ->
+            throw({error, page_limit_invalid})
+    end.
+
+-spec qs2ms({list(), list()}) -> tuple().
+qs2ms({Qs, _}) ->
+    lists:foldl(fun gen_match_spec/2, {'_', '_'}, Qs).
+
+gen_match_spec({topic, '=:=', QTopic}, {_MTopic, MNode}) when is_atom(MNode) ->
+    case emqx_topic:parse(QTopic) of
+        {#share{group = Group, topic = Topic}, _SubOpts} ->
+            {Topic, {Group, MNode}};
+        {Topic, _SubOpts} ->
+            {Topic, MNode}
+    end;
+gen_match_spec({node, '=:=', QNode}, {MTopic, _MDest}) ->
+    {MTopic, QNode}.
+
+eval_topic_query(MS, QState) ->
+    finalize_query(eval_topic_query(MS, QState, emqx_mgmt_api:init_query_result())).
+
+eval_topic_query(MS, QState, QResult) ->
+    QPage = eval_topic_query_page(MS, QState),
+    case QPage of
+        {Rows, '$end_of_table'} ->
+            {_, NQResult} = emqx_mgmt_api:accumulate_query_rows(node(), Rows, QState, QResult),
+            NQResult#{complete => true};
+        {Rows, NCont} ->
+            {_, NQResult} = emqx_mgmt_api:accumulate_query_rows(node(), Rows, QState, QResult),
+            eval_topic_query(MS, QState#{continuation := NCont}, NQResult);
+        '$end_of_table' ->
+            QResult#{complete => true}
+    end.
+
+eval_topic_query_page(MS, #{limit := Limit, continuation := Cont}) ->
+    emqx_router:select(MS, Limit, Cont).
+
+finalize_query(QResult = #{overflow := Overflow, complete := Complete}) ->
+    HasNext = Overflow orelse not Complete,
+    QResult#{hasnext => HasNext}.
+
+format_list_response(Meta, _QResult = #{hasnext := HasNext, rows := RowsAcc, cursor := Cursor}) ->
+    #{
+        meta => Meta#{hasnext => HasNext, count => Cursor},
+        data => lists:flatmap(
+            fun({_Node, Rows}) -> [format(R) || R <- Rows] end,
+            RowsAcc
+        )
+    }.
 
 format(#route{topic = Topic, dest = {Group, Node}}) ->
     #{topic => ?SHARE(Group, Topic), node => Node};
