@@ -1268,7 +1268,7 @@ add_channel_status_if_not_exists(Data, ChannelId, State) ->
         true ->
             Data;
         false ->
-            ChannelStatus = channel_status({error, resource_not_operational}),
+            ChannelStatus = channel_status({State, resource_not_operational}),
             NewChannels = maps:put(ChannelId, ChannelStatus, Channels),
             maybe_alarm(State, ChannelId, ChannelStatus, no_prev),
             Data#data{added_channels = NewChannels}

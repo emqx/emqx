@@ -148,3 +148,8 @@
 -define(RES_METRICS, resource_metrics).
 
 -define(RESOURCE_ALLOCATION_TAB, emqx_resource_allocations).
+
+%% bridge/connector/action status
+-define(status_connected, connected).
+-define(status_connecting, connecting).
+-define(status_disconnected, disconnected).
