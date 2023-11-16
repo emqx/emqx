@@ -587,7 +587,7 @@ t_broken_bridge_config(Config) ->
                 <<"type">> := ?BRIDGE_TYPE,
                 <<"connector">> := <<"does_not_exist">>,
                 <<"status">> := <<"disconnected">>,
-                <<"error">> := <<"Pending installation">>
+                <<"error">> := <<"Not installed">>
             }
         ]},
         request_json(get, uri([?ROOT]), Config)
@@ -640,7 +640,7 @@ t_fix_broken_bridge_config(Config) ->
                 <<"type">> := ?BRIDGE_TYPE,
                 <<"connector">> := <<"does_not_exist">>,
                 <<"status">> := <<"disconnected">>,
-                <<"error">> := <<"Pending installation">>
+                <<"error">> := <<"Not installed">>
             }
         ]},
         request_json(get, uri([?ROOT]), Config)

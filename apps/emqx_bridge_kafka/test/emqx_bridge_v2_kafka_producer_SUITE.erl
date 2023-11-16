@@ -23,6 +23,8 @@
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 -include_lib("brod/include/brod.hrl").
 
+-import(emqx_common_test_helpers, [on_exit/1]).
+
 -define(TYPE, kafka_producer).
 
 %%------------------------------------------------------------------------------
@@ -53,6 +55,13 @@ init_per_suite(Config) ->
 end_per_suite(Config) ->
     Apps = ?config(apps, Config),
     emqx_cth_suite:stop(Apps),
+    ok.
+
+init_per_testcase(_TestCase, Config) ->
+    Config.
+
+end_per_testcase(_TestCase, _Config) ->
+    emqx_common_test_helpers:call_janitor(60_000),
     ok.
 
 %%-------------------------------------------------------------------------------------
@@ -162,6 +171,16 @@ kafka_hosts_string() ->
     KafkaHost = os:getenv("KAFKA_PLAIN_HOST", "kafka-1.emqx.net"),
     KafkaPort = os:getenv("KAFKA_PLAIN_PORT", "9092"),
     KafkaHost ++ ":" ++ KafkaPort.
+
+create_connector(Name, Config) ->
+    Res = emqx_connector:create(?TYPE, Name, Config),
+    on_exit(fun() -> emqx_connector:remove(?TYPE, Name) end),
+    Res.
+
+create_action(Name, Config) ->
+    Res = emqx_bridge_v2:create(?TYPE, Name, Config),
+    on_exit(fun() -> emqx_bridge_v2:remove(?TYPE, Name) end),
+    Res.
 
 %%------------------------------------------------------------------------------
 %% Testcases
@@ -301,4 +320,25 @@ t_unknown_topic(_Config) ->
             }}},
         emqx_bridge_v2_testlib:get_bridge_api(?TYPE, BridgeName)
     ),
+    ok.
+
+t_bad_url(_Config) ->
+    ConnectorName = <<"test_connector">>,
+    ActionName = <<"test_action">>,
+    ActionConfig = bridge_v2_config(<<"test_connector">>),
+    ConnectorConfig0 = connector_config(),
+    ConnectorConfig = ConnectorConfig0#{<<"bootstrap_hosts">> := <<"bad_host:9092">>},
+    ?assertMatch({ok, _}, create_connector(ConnectorName, ConnectorConfig)),
+    ?assertMatch({ok, _}, create_action(ActionName, ActionConfig)),
+    ?assertMatch(
+        {ok, #{
+            resource_data :=
+                #{
+                    status := connecting,
+                    error := [#{reason := unresolvable_hostname}]
+                }
+        }},
+        emqx_connector:lookup(?TYPE, ConnectorName)
+    ),
+    ?assertMatch({ok, #{status := connecting}}, emqx_bridge_v2:lookup(?TYPE, ActionName)),
     ok.
