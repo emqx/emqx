@@ -12,6 +12,12 @@ desc_license_key_api.desc:
 desc_license_key_api.label:
 """Update license"""
 
+desc_license_unset_api.label:
+"""Unset license"""
+
+desc_license_unset_api.desc:
+"""Unset license to default evaluate license key"""
+
 desc_license_setting_api.desc:
 """Update license setting"""
 

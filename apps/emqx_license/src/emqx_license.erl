@@ -22,6 +22,7 @@
     unload/0,
     read_license/0,
     read_license/1,
+    unset/0,
     update_key/1,
     update_setting/1
 ]).
@@ -54,6 +55,9 @@ unload() ->
     del_license_hook(),
     emqx_conf:remove_handler(?CONF_KEY_PATH),
     emqx_license_cli:unload().
+
+unset() ->
+    update_key(emqx_license_schema:default_license()).
 
 -spec update_key(binary() | string()) ->
     {ok, emqx_config:update_result()} | {error, emqx_config:update_error()}.

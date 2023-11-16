@@ -40,6 +40,7 @@ fields(key_license) ->
         {key, #{
             type => binary(),
             default => default_license(),
+            converter => fun converter_license/2,
             %% so it's not logged
             sensitive => true,
             required => true,
@@ -80,14 +81,18 @@ check_license_watermark(Conf) ->
     end.
 
 %% @doc The default license key.
-%% This default license has 1000 connections limit.
+%% This default license has 100 connections limit.
 %% It is issued on 2023-01-09 and valid for 5 years (1825 days)
 %% NOTE: when updating a new key, the schema doc in emqx_license_schema.hocon
 %% should be updated accordingly
+%% erlfmt-ignore
 default_license() ->
-    <<
-        "MjIwMTExCjAKMTAKRXZhbHVhdGlvbgpjb250YWN0QGVtcXguaW8KZ"
-        "GVmYXVsdAoyMDIzMDEwOQoxODI1CjEwMAo=.MEUCIG62t8W15g05f"
-        "1cKx3tA3YgJoR0dmyHOPCdbUxBGxgKKAiEAhHKh8dUwhU+OxNEaOn"
-        "8mgRDtiT3R8RZooqy6dEsOmDI="
-    >>.
+    <<"
+MjIwMTExCjAKMTAKRXZhbHVhdGlvbgpjb250YWN0QGVtcXguaW8KZ
+GVmYXVsdAoyMDIzMDEwOQoxODI1CjEwMAo=.MEUCIG62t8W15g05f
+1cKx3tA3YgJoR0dmyHOPCdbUxBGxgKKAiEAhHKh8dUwhU+OxNEaOn
+8mgRDtiT3R8RZooqy6dEsOmDI=
+">>.
+
+converter_license(License, _Conf) ->
+    iolist_to_binary(string:replace(License, "\n", "", all)).

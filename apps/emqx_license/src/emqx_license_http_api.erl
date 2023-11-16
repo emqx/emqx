@@ -6,8 +6,9 @@
 
 -behaviour(minirest_api).
 
--include_lib("hocon/include/hoconsc.hrl").
 -include_lib("emqx/include/logger.hrl").
+-include_lib("hocon/include/hoconsc.hrl").
+-include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
 -export([
     namespace/0,
@@ -20,6 +21,7 @@
 
 -export([
     '/license'/2,
+    '/license/unset'/2,
     '/license/setting'/2
 ]).
 
@@ -33,6 +35,7 @@ api_spec() ->
 paths() ->
     [
         "/license",
+        "/license/unset",
         "/license/setting"
     ].
 
@@ -83,6 +86,26 @@ schema("/license") ->
             }
         }
     };
+schema("/license/unset") ->
+    #{
+        'operationId' => '/license/unset',
+        post => #{
+            tags => ?LICENSE_TAGS,
+            summary => <<"Unset license key">>,
+            description => ?DESC("desc_license_unset_api"),
+            %% no requestBody
+            responses => #{
+                200 => emqx_dashboard_swagger:schema_with_examples(
+                    map(),
+                    #{
+                        sample_license_info => #{
+                            value => sample_license_info_response()
+                        }
+                    }
+                )
+            }
+        }
+    };
 schema("/license/setting") ->
     #{
         'operationId' => '/license/setting',
@@ -126,22 +149,20 @@ error_msg(Code, Msg) ->
 '/license'(get, _Params) ->
     License = maps:from_list(emqx_license_checker:dump()),
     {200, License};
-%% set/update license
 '/license'(post, #{body := #{<<"key">> := Key}}) ->
-    case emqx_license:update_key(Key) of
-        {error, Error} ->
-            ?SLOG(error, #{
-                msg => "bad_license_key",
-                reason => Error
-            }),
-            {400, error_msg(?BAD_REQUEST, <<"Bad license key">>)};
-        {ok, _} ->
-            ?SLOG(info, #{msg => "updated_license_key"}),
-            License = maps:from_list(emqx_license_checker:dump()),
-            {200, License}
-    end;
+    do_update_license_key(fun() ->
+        ?tp(unset_license_key, #{operation_method => "api"}),
+        emqx_license:update_key(Key)
+    end);
 '/license'(post, _Params) ->
     {400, error_msg(?BAD_REQUEST, <<"Invalid request params">>)}.
+
+'/license/unset'(post, _Params) ->
+    do_update_license_key(fun() ->
+        ?tp(unset_to_default_evaluation_license_key, #{operation_method => "api"}),
+        ?SLOG(info, #{msg => "unset_to_default_evaluation_license_key", operation_method => "api"}),
+        emqx_license:unset()
+    end).
 
 '/license/setting'(get, _Params) ->
     {200, maps:remove(<<"key">>, emqx_config:get_raw([license]))};
@@ -156,6 +177,20 @@ error_msg(Code, Msg) ->
         {ok, _} ->
             ?SLOG(info, #{msg => "updated_license_setting"}),
             '/license/setting'(get, undefined)
+    end.
+
+do_update_license_key(Fun) when is_function(Fun, 0) ->
+    case Fun() of
+        {error, Error} ->
+            ?SLOG(error, #{
+                msg => "bad_license_key",
+                reason => Error
+            }),
+            {400, error_msg(?BAD_REQUEST, <<"Bad license key">>)};
+        {ok, _} ->
+            ?SLOG(info, #{msg => "updated_license_key"}),
+            License = maps:from_list(emqx_license_checker:dump()),
+            {200, License}
     end.
 
 fields(key_license) ->
