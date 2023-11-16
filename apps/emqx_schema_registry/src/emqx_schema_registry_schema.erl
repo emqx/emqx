@@ -10,6 +10,7 @@
 
 %% `hocon_schema' API
 -export([
+    namespace/0,
     roots/0,
     fields/1,
     desc/1,
@@ -25,6 +26,8 @@
 %%------------------------------------------------------------------------------
 %% `hocon_schema' APIs
 %%------------------------------------------------------------------------------
+
+namespace() -> ?CONF_KEY_ROOT.
 
 roots() ->
     [{?CONF_KEY_ROOT, mk(ref(?CONF_KEY_ROOT), #{required => false})}].

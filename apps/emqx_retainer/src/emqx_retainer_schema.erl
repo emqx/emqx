@@ -30,7 +30,7 @@
 
 -define(INVALID_SPEC(_REASON_), throw({_REASON_, #{default => ?DEFAULT_INDICES}})).
 
-namespace() -> "retainer".
+namespace() -> retainer.
 
 roots() ->
     [

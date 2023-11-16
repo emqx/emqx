@@ -79,8 +79,7 @@
 upgrade_raw_conf(RawConf) ->
     emqx_connector_schema:transform_bridges_v1_to_connectors_and_bridges_v2(RawConf).
 
-%% root config should not have a namespace
-namespace() -> undefined.
+namespace() -> emqx.
 
 tags() ->
     [<<"EMQX">>].
