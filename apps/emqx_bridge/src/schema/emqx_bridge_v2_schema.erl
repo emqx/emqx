@@ -40,6 +40,8 @@
 
 -export([types/0, types_sc/0]).
 
+-export([make_action_schema/1]).
+
 -export_type([action_type/0]).
 
 %% Should we explicitly list them here so dialyzer may be more helpful?
@@ -116,7 +118,9 @@ roots() ->
     end.
 
 fields(actions) ->
-    registered_schema_fields().
+    registered_schema_fields();
+fields(resource_opts) ->
+    emqx_resource_schema:create_opts(_Overrides = []).
 
 registered_schema_fields() ->
     [
@@ -149,6 +153,24 @@ examples(Method) ->
         end,
     SchemaModules = [Mod || {_, Mod} <- emqx_action_info:registered_schema_modules()],
     lists:foldl(Fun, #{}, SchemaModules).
+
+%%======================================================================================
+%% Helper functions for making HOCON Schema
+%%======================================================================================
+
+make_action_schema(ActionParametersRef) ->
+    [
+        {enable, mk(boolean(), #{desc => ?DESC("config_enable"), default => true})},
+        {connector,
+            mk(binary(), #{
+                desc => ?DESC(emqx_connector_schema, "connector_field"), required => true
+            })},
+        {description, emqx_schema:description_schema()},
+        {local_topic, mk(binary(), #{required => false, desc => ?DESC(mqtt_topic)})},
+        {parameters, ActionParametersRef},
+        {resource_opts,
+            mk(ref(?MODULE, resource_opts), #{default => #{}, desc => ?DESC(resource_opts)})}
+    ].
 
 -ifdef(TEST).
 -include_lib("hocon/include/hocon_types.hrl").
