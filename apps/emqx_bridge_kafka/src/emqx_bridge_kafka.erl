@@ -610,7 +610,7 @@ producer_opts() ->
     ].
 
 %% Since e5.3.1, we want to rename the field 'kafka' to 'parameters'
-%% Hoever we need to keep it backward compatible for generated schema json (version 0.1.0)
+%% However we need to keep it backward compatible for generated schema json (version 0.1.0)
 %% since schema is data for the 'schemas' API.
 parameters_field() ->
     {Name, Alias} =
