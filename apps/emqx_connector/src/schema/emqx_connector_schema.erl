@@ -98,16 +98,16 @@ bridge_configs_to_transform(
     end.
 
 split_bridge_to_connector_and_action(
-    {ConnectorsMap, {BridgeType, BridgeName, BridgeConf, ConnectorFields, PreviousRawConfig}}
+    {ConnectorsMap, {BridgeType, BridgeName, ActionConf, ConnectorFields, PreviousRawConfig}}
 ) ->
     %% Get connector fields from bridge config
     ConnectorMap = lists:foldl(
         fun({ConnectorFieldName, _Spec}, ToTransformSoFar) ->
-            case maps:is_key(to_bin(ConnectorFieldName), BridgeConf) of
+            case maps:is_key(to_bin(ConnectorFieldName), ActionConf) of
                 true ->
                     NewToTransform = maps:put(
                         to_bin(ConnectorFieldName),
-                        maps:get(to_bin(ConnectorFieldName), BridgeConf),
+                        maps:get(to_bin(ConnectorFieldName), ActionConf),
                         ToTransformSoFar
                     ),
                     NewToTransform;
@@ -118,23 +118,6 @@ split_bridge_to_connector_and_action(
         #{},
         ConnectorFields
     ),
-    %% Remove connector fields from bridge config to create Action
-    ActionMap0 = lists:foldl(
-        fun
-            ({enable, _Spec}, ToTransformSoFar) ->
-                %% Enable filed is used in both
-                ToTransformSoFar;
-            ({ConnectorFieldName, _Spec}, ToTransformSoFar) ->
-                case maps:is_key(to_bin(ConnectorFieldName), BridgeConf) of
-                    true ->
-                        maps:remove(to_bin(ConnectorFieldName), ToTransformSoFar);
-                    false ->
-                        ToTransformSoFar
-                end
-        end,
-        BridgeConf,
-        ConnectorFields
-    ),
     %% Generate a connector name, if needed.  Avoid doing so if there was a previous config.
     ConnectorName =
         case PreviousRawConfig of
@@ -142,7 +125,7 @@ split_bridge_to_connector_and_action(
             _ -> generate_connector_name(ConnectorsMap, BridgeName, 0)
         end,
     %% Add connector field to action map
-    ActionMap = maps:put(<<"connector">>, ConnectorName, ActionMap0),
+    ActionMap = maps:put(<<"connector">>, ConnectorName, ActionConf),
     {BridgeType, BridgeName, ActionMap, ConnectorName, ConnectorMap}.
 
 generate_connector_name(ConnectorsMap, BridgeName, Attempt) ->
@@ -191,7 +174,7 @@ transform_old_style_bridges_to_connector_and_actions_of_type(
     ),
     %% Add connectors and actions and remove bridges
     lists:foldl(
-        fun({BridgeType, BridgeName, ActionMap, ConnectorName, ConnectorMap}, RawConfigSoFar) ->
+        fun({BridgeType, BridgeName, ActionMap0, ConnectorName, ConnectorMap}, RawConfigSoFar) ->
             %% Add connector
             RawConfigSoFar1 = emqx_utils_maps:deep_put(
                 [<<"connectors">>, to_bin(ConnectorType), ConnectorName],
@@ -203,21 +186,12 @@ transform_old_style_bridges_to_connector_and_actions_of_type(
                 [<<"bridges">>, to_bin(BridgeType), BridgeName],
                 RawConfigSoFar1
             ),
-            %% Take fields that should be in the top level of the action map
-            TopLevelFields = [<<"resource_opts">>, <<"enable">>, <<"connector">>],
-            TopLevelActionFields = maps:with(TopLevelFields, ActionMap),
-            ParametersActionFields = maps:without(TopLevelFields, ActionMap),
-            %% Action map should be wrapped under parameters key
-            WrappedParameters = #{<<"parameters">> => ParametersActionFields},
-            FinalActionMap = maps:merge(TopLevelActionFields, WrappedParameters),
-            FixedActionMap = emqx_action_info:bridge_v1_to_action_fixup(
-                BridgeType, FinalActionMap
-            ),
+            ActionMap = emqx_action_info:bridge_v1_to_action_fixup(BridgeType, ActionMap0),
             %% Add action
             RawConfigSoFar3 = emqx_utils_maps:deep_put(
                 [actions_config_name(), to_bin(maybe_rename(BridgeType)), BridgeName],
                 RawConfigSoFar2,
-                FixedActionMap
+                ActionMap
             ),
             RawConfigSoFar3
         end,

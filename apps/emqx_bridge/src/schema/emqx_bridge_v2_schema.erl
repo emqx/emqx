@@ -40,7 +40,7 @@
 
 -export([types/0, types_sc/0]).
 
--export([make_action_schema/1]).
+-export([make_producer_action_schema/1, make_consumer_action_schema/1]).
 
 -export_type([action_type/0]).
 
@@ -158,7 +158,13 @@ examples(Method) ->
 %% Helper functions for making HOCON Schema
 %%======================================================================================
 
-make_action_schema(ActionParametersRef) ->
+make_producer_action_schema(ActionParametersRef) ->
+    [
+        {local_topic, mk(binary(), #{required => false, desc => ?DESC(mqtt_topic)})}
+        | make_consumer_action_schema(ActionParametersRef)
+    ].
+
+make_consumer_action_schema(ActionParametersRef) ->
     [
         {enable, mk(boolean(), #{desc => ?DESC("config_enable"), default => true})},
         {connector,
@@ -166,7 +172,6 @@ make_action_schema(ActionParametersRef) ->
                 desc => ?DESC(emqx_connector_schema, "connector_field"), required => true
             })},
         {description, emqx_schema:description_schema()},
-        {local_topic, mk(binary(), #{required => false, desc => ?DESC(mqtt_topic)})},
         {parameters, ActionParametersRef},
         {resource_opts,
             mk(ref(?MODULE, resource_opts), #{default => #{}, desc => ?DESC(resource_opts)})}
