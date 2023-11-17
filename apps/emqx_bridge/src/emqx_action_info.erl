@@ -25,15 +25,25 @@
     action_type_to_bridge_v1_type/1,
     bridge_v1_type_to_action_type/1,
     is_action_type/1,
-    registered_schema_modules/0
+    registered_schema_modules/0,
+    action_to_bridge_v1_fixup/2,
+    bridge_v1_to_action_fixup/2
 ]).
 
 -callback bridge_v1_type_name() -> atom().
 -callback action_type_name() -> atom().
 -callback connector_type_name() -> atom().
 -callback schema_module() -> atom().
+%% Define this if the automatic config downgrade is not enough for the bridge.
+-callback action_to_bridge_v1_fixup(map()) -> term().
+%% Define this if the automatic config upgrade is not enough for the bridge.
+-callback bridge_v1_to_action_fixup(map()) -> term().
 
--optional_callbacks([bridge_v1_type_name/0]).
+-optional_callbacks([
+    bridge_v1_type_name/0,
+    action_to_bridge_v1_fixup/1,
+    bridge_v1_to_action_fixup/1
+]).
 
 %% ====================================================================
 %% Hadcoded list of info modules for actions
@@ -111,9 +121,32 @@ registered_schema_modules() ->
     Schemas = maps:get(action_type_to_schema_module, InfoMap),
     maps:to_list(Schemas).
 
+action_to_bridge_v1_fixup(ActionOrBridgeType, Config) ->
+    Module = get_action_info_module(ActionOrBridgeType),
+    case erlang:function_exported(Module, action_to_bridge_v1_fixup, 1) of
+        true ->
+            Module:action_to_bridge_v1_fixup(Config);
+        false ->
+            Config
+    end.
+
+bridge_v1_to_action_fixup(ActionOrBridgeType, Config) ->
+    Module = get_action_info_module(ActionOrBridgeType),
+    case erlang:function_exported(Module, bridge_v1_to_action_fixup, 1) of
+        true ->
+            Module:bridge_v1_to_action_fixup(Config);
+        false ->
+            Config
+    end.
+
 %% ====================================================================
 %% Internal functions for building the info map and accessing it
 %% ====================================================================
+
+get_action_info_module(ActionOrBridgeType) ->
+    InfoMap = info_map(),
+    ActionInfoModuleMap = maps:get(action_type_to_info_module, InfoMap),
+    maps:get(ActionOrBridgeType, ActionInfoModuleMap).
 
 internal_emqx_action_persistent_term_info_key() ->
     ?FUNCTION_NAME.
@@ -162,7 +195,8 @@ initial_info_map() ->
         bridge_v1_type_to_action_type => #{},
         action_type_to_bridge_v1_type => #{},
         action_type_to_connector_type => #{},
-        action_type_to_schema_module => #{}
+        action_type_to_schema_module => #{},
+        action_type_to_info_module => #{}
     }.
 
 get_info_map(Module) ->
@@ -196,5 +230,9 @@ get_info_map(Module) ->
         },
         action_type_to_schema_module => #{
             ActionType => Module:schema_module()
+        },
+        action_type_to_info_module => #{
+            ActionType => Module,
+            BridgeV1Type => Module
         }
     }.
