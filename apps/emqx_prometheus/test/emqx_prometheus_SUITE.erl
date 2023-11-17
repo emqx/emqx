@@ -53,6 +53,7 @@
                 },
             <<"push_gateway">> =>
                 #{
+                    <<"enable">> => true,
                     <<"headers">> => #{<<"Authorization">> => <<"some-authz-tokens">>},
                     <<"interval">> => <<"1s">>,
                     <<"job_name">> => <<"${name}~${host}">>,

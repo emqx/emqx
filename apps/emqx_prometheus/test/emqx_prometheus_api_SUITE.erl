@@ -180,11 +180,11 @@ t_prometheus_api(_) ->
     ),
     #{
         <<"push_gateway">> :=
-            #{<<"url">> := Url} = PushGateway,
+            #{<<"url">> := Url, <<"enable">> := Enable} = PushGateway,
         <<"collectors">> := Collector
     } = Conf,
     Pid = erlang:whereis(emqx_prometheus),
-    ?assertEqual(Url =/= "", undefined =/= Pid, {Url, Pid}),
+    ?assertEqual(Enable, undefined =/= Pid, {Url, Pid}),
 
     NewConf = Conf#{
         <<"push_gateway">> => PushGateway#{
@@ -250,7 +250,7 @@ t_prometheus_api(_) ->
         emqx_config:get([prometheus])
     ),
 
-    NewConf1 = Conf#{<<"push_gateway">> => PushGateway#{<<"url">> => <<"">>}},
+    NewConf1 = Conf#{<<"push_gateway">> => PushGateway#{<<"enable">> => false}},
     {ok, _Response3} = emqx_mgmt_api_test_util:request_api(put, Path, "", Auth, NewConf1),
     ?assertEqual(undefined, erlang:whereis(emqx_prometheus)),
 

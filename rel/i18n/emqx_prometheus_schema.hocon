@@ -37,8 +37,9 @@ recommend_setting.desc:
 """Recommended setting"""
 
 push_gateway_url.desc:
-"""URL of Pushgateway server. Pushgateway is optional, should not be configured if prometheus is to scrape EMQX.
-Set url to "" to disable push gateway"""
+"""URL of Pushgateway server. Pushgateway is optional, should not be configured if prometheus is to scrape EMQX."""
+push_gateway_enable.desc:
+"""Enable or disable Pushgateway"""
 
 mnesia_collector.desc:
 """Collects Mnesia metrics mainly using <code> mnesia:system_info/1 </code>"""
@@ -61,42 +62,42 @@ vm_system_info_collector.desc:
 """Enable or disable VM system info collector."""
 
 legacy_deprecated_setting.desc:
-"""Deprecated"""
+"""Deprecated since 5.4.0"""
 
 legacy_enable.desc:
-"""Deprecated, use `prometheus.push_gateway.url` instead"""
+"""Deprecated since 5.4.0, use `prometheus.push_gateway.url` instead"""
 
 legacy_headers.desc:
-"""Deprecated, use `prometheus.push_gateway.headers` instead"""
+"""Deprecated since 5.4.0, use `prometheus.push_gateway.headers` instead"""
 
 legacy_interval.desc:
-"""Deprecated, use `prometheus.push_gateway.interval` instead"""
+"""Deprecated since 5.4.0, use `prometheus.push_gateway.interval` instead"""
 
 legacy_job_name.desc:
-"""Deprecated, use `prometheus.push_gateway.job_name` instead"""
+"""Deprecated since 5.4.0, use `prometheus.push_gateway.job_name` instead"""
 
 legacy_push_gateway_server.desc:
-"""Deprecated, use `prometheus.push_gateway.url` instead"""
+"""Deprecated since 5.4.0, use `prometheus.push_gateway.url` instead"""
 
 legacy_mnesia_collector.desc:
-"""Deprecated, use `prometheus.collectors.mnesia` instead"""
+"""Deprecated since 5.4.0, use `prometheus.collectors.mnesia` instead"""
 
 legacy_vm_dist_collector.desc:
-"""Deprecated, use `prometheus.collectors.vm_dist` instead"""
+"""Deprecated since 5.4.0, use `prometheus.collectors.vm_dist` instead"""
 
 legacy_vm_memory_collector.desc:
-"""Deprecated, use `prometheus.collectors.vm_memory` instead"""
+"""Deprecated since 5.4.0, use `prometheus.collectors.vm_memory` instead"""
 
 legacy_vm_msacc_collector.desc:
-"""Deprecated, use `prometheus.collectors.vm_msacc` instead"""
+"""Deprecated since 5.4.0, use `prometheus.collectors.vm_msacc` instead"""
 
 legacy_vm_statistics_collector.desc:
-"""Deprecated, use `prometheus.collectors.vm_statistics` instead"""
+"""Deprecated since 5.4.0, use `prometheus.collectors.vm_statistics` instead"""
 
 legacy_vm_system_info_collector.desc:
 """Deprecated, use `prometheus.collectors.vm_system_info` instead"""
 
 legacy_deprecated_setting.desc:
-"""Deprecated"""
+"""Deprecated since 5.4.0"""
 
 }

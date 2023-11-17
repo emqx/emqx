@@ -72,12 +72,21 @@ fields(recommend_setting) ->
     ];
 fields(push_gateway) ->
     [
+        {enable,
+            ?HOCON(
+                boolean(),
+                #{
+                    default => false,
+                    required => true,
+                    desc => ?DESC(push_gateway_enable)
+                }
+            )},
         {url,
             ?HOCON(
                 string(),
                 #{
                     required => false,
-                    default => <<"">>,
+                    default => <<"http://127.0.0.1:9091">>,
                     validator => fun ?MODULE:validate_url/1,
                     desc => ?DESC(push_gateway_url)
                 }
@@ -197,7 +206,7 @@ fields(legacy_deprecated_setting) ->
             )},
         {headers,
             ?HOCON(
-                list({string(), string()}),
+                typerefl:alias("map", list({string(), string()}), #{}, [string(), string()]),
                 #{
                     default => #{},
                     required => false,
@@ -214,7 +223,6 @@ fields(legacy_deprecated_setting) ->
                     desc => ?DESC(legacy_job_name)
                 }
             )},
-
         {enable,
             ?HOCON(
                 boolean(),
@@ -352,11 +360,6 @@ validate_url(Url) ->
             S =:= <<"https">>;
             S =:= <<"http">>
         ->
-            ok;
-        %% default is ""
-        #{path := []} ->
-            ok;
-        #{path := <<>>} ->
             ok;
         _ ->
             {error, "Invalid url"}

@@ -64,15 +64,12 @@ to_recommend_type(Conf) ->
     }.
 
 to_push_gateway(Conf) ->
-    Init = maps:with([<<"interval">>, <<"headers">>, <<"job_name">>], Conf),
+    Init = maps:with([<<"interval">>, <<"headers">>, <<"job_name">>, <<"enable">>], Conf),
     case maps:get(<<"push_gateway_server">>, Conf, "") of
         "" ->
-            Init#{<<"url">> => <<"">>};
+            Init#{<<"enable">> => false};
         Url ->
-            case maps:get(<<"enable">>, Conf, false) of
-                false -> Init#{<<"url">> => <<"">>};
-                true -> Init#{<<"url">> => Url}
-            end
+            Init#{<<"url">> => Url}
     end.
 
 to_collectors(Conf) ->
@@ -134,6 +131,9 @@ update_auth(_, _) ->
 conf() ->
     emqx_config:get(?PROMETHEUS).
 
-is_push_gateway_server_enabled(#{enable := true, push_gateway_server := Url}) -> Url =/= "";
-is_push_gateway_server_enabled(#{push_gateway := #{url := Url}}) -> Url =/= "";
-is_push_gateway_server_enabled(_) -> false.
+is_push_gateway_server_enabled(#{enable := true, push_gateway_server := Url}) ->
+    Url =/= "";
+is_push_gateway_server_enabled(#{push_gateway := #{url := Url, enable := Enable}}) ->
+    Enable andalso Url =/= "";
+is_push_gateway_server_enabled(_) ->
+    false.
