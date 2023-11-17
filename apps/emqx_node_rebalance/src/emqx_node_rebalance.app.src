@@ -1,11 +1,12 @@
 {application, emqx_node_rebalance, [
     {description, "EMQX Node Rebalance"},
-    {vsn, "5.0.6"},
+    {vsn, "5.0.7"},
     {registered, [
         emqx_node_rebalance_sup,
         emqx_node_rebalance,
         emqx_node_rebalance_agent,
-        emqx_node_rebalance_evacuation
+        emqx_node_rebalance_evacuation,
+        emqx_node_rebalance_purge
     ]},
     {applications, [
         kernel,

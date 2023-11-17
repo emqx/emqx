@@ -13,6 +13,7 @@
 -import(
     emqx_mgmt_api_test_util,
     [
+        request_api/3,
         request/2,
         request/3,
         uri/1
@@ -24,18 +25,17 @@
     [emqtt_connect_many/2, stop_many/1, case_specific_node_name/3]
 ).
 
--define(START_APPS, [emqx_eviction_agent, emqx_node_rebalance]).
-
 all() ->
     emqx_common_test_helpers:all(?MODULE).
 
 init_per_suite(Config) ->
-    ok = emqx_common_test_helpers:start_apps(?START_APPS),
-    Config.
+    Apps = emqx_cth_suite:start([emqx, emqx_eviction_agent, emqx_node_rebalance], #{
+        work_dir => ?config(priv_dir, Config)
+    }),
+    [{apps, Apps} | Config].
 
-end_per_suite(_Config) ->
-    ok = emqx_common_test_helpers:stop_apps(?START_APPS),
-    ok.
+end_per_suite(Config) ->
+    emqx_cth_suite:stop(?config(apps, Config)).
 
 init_per_testcase(Case, Config) ->
     DonorNode = case_specific_node_name(?MODULE, Case, '_donor'),
@@ -57,7 +57,6 @@ init_per_testcase(Case, Config) ->
     [{cluster_nodes, ClusterNodes} | Config].
 end_per_testcase(_Case, Config) ->
     Nodes = ?config(cluster_nodes, Config),
-    erpc:multicall(Nodes, meck, unload, []),
     _ = emqx_cth_cluster:stop(Nodes),
     ok.
 
@@ -473,27 +472,30 @@ t_start_stop_rebalance(Config) ->
 t_availability_check(Config) ->
     [DonorNode | _] = ?config(cluster_nodes, Config),
     ?assertMatch(
-        {ok, 200, #{}},
-        api_get(["load_rebalance", "availability_check"])
+        {ok, _},
+        api_get_noauth(["load_rebalance", "availability_check"])
     ),
 
     ok = rpc:call(DonorNode, emqx_node_rebalance_evacuation, start, [#{}]),
 
     ?assertMatch(
-        {ok, 503, _},
-        api_get(["load_rebalance", "availability_check"])
+        {error, {_, 503, _}},
+        api_get_noauth(["load_rebalance", "availability_check"])
     ),
 
     ok = rpc:call(DonorNode, emqx_node_rebalance_evacuation, stop, []),
 
     ?assertMatch(
-        {ok, 200, #{}},
-        api_get(["load_rebalance", "availability_check"])
+        {ok, _},
+        api_get_noauth(["load_rebalance", "availability_check"])
     ).
 
 %%--------------------------------------------------------------------
 %% Helpers
 %%--------------------------------------------------------------------
+
+api_get_noauth(Path) ->
+    request_api(get, uri(Path), emqx_common_test_http:auth_header("invalid", "password")).
 
 api_get(Path) ->
     case request(get, uri(Path)) of

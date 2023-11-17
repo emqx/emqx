@@ -5,6 +5,7 @@
 -module(emqx_node_rebalance_status).
 
 -export([
+    availability_status/0,
     local_status/0,
     local_status/1,
     global_status/0,
@@ -22,6 +23,13 @@
 %%--------------------------------------------------------------------
 %% APIs
 %%--------------------------------------------------------------------
+
+-spec availability_status() -> available | unavailable.
+availability_status() ->
+    case emqx_eviction_agent:enable_status() of
+        {enabled, _Kind, _ServerReference, _Options} -> unavailable;
+        disabled -> available
+    end.
 
 -spec local_status() -> disabled | {evacuation, map()} | {purge, map()} | {rebalance, map()}.
 local_status() ->

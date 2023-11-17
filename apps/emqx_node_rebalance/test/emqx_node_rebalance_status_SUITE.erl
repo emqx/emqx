@@ -32,6 +32,7 @@ init_per_suite(Config) ->
     Apps = [
         emqx_conf,
         emqx,
+        emqx_eviction_agent,
         emqx_node_rebalance
     ],
     Cluster = [

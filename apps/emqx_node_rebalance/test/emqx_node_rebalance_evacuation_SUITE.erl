@@ -15,7 +15,13 @@
 
 -import(
     emqx_eviction_agent_test_helpers,
-    [emqtt_connect/1, emqtt_try_connect/1, case_specific_node_name/3]
+    [
+        emqtt_connect/1,
+        emqtt_try_connect/1,
+        case_specific_node_name/3,
+        start_cluster/3,
+        stop_cluster/1
+    ]
 ).
 
 all() -> [{group, one_node}, {group, two_node}].
@@ -37,12 +43,13 @@ one_node_cases() ->
     emqx_common_test_helpers:all(?MODULE) -- two_node_cases().
 
 init_per_suite(Config) ->
-    ok = emqx_common_test_helpers:start_apps([]),
-    Config.
+    Apps = emqx_cth_suite:start([emqx], #{
+        work_dir => ?config(priv_dir, Config)
+    }),
+    [{apps, Apps} | Config].
 
-end_per_suite(_Config) ->
-    ok = emqx_common_test_helpers:stop_apps([]),
-    ok.
+end_per_suite(Config) ->
+    emqx_cth_suite:stop(?config(apps, Config)).
 
 init_per_group(one_node, Config) ->
     [{cluster_type, one_node} | Config];
@@ -53,30 +60,23 @@ end_per_group(_Group, _Config) ->
     ok.
 
 init_per_testcase(Case, Config) ->
-    NodesWithPorts =
+    NodeNames =
         case ?config(cluster_type, Config) of
             one_node ->
-                [{case_specific_node_name(?MODULE, Case, '_evacuated'), 2883}];
+                [case_specific_node_name(?MODULE, Case, '_evacuated')];
             two_node ->
                 [
-                    {case_specific_node_name(?MODULE, Case, '_evacuated'), 2883},
-                    {case_specific_node_name(?MODULE, Case, '_recipient'), 3883}
+                    case_specific_node_name(?MODULE, Case, '_evacuated'),
+                    case_specific_node_name(?MODULE, Case, '_recipient')
                 ]
         end,
-    ClusterNodes = emqx_eviction_agent_test_helpers:start_cluster(
-        NodesWithPorts,
-        [emqx_eviction_agent, emqx_node_rebalance],
-        [{emqx, data_dir, case_specific_data_dir(Case, Config)}]
-    ),
+    ClusterNodes = start_cluster(Config, NodeNames, [emqx, emqx_eviction_agent, emqx_node_rebalance]),
     ok = snabbkaffe:start_trace(),
     [{cluster_nodes, ClusterNodes} | Config].
 
 end_per_testcase(_Case, Config) ->
     ok = snabbkaffe:stop(),
-    ok = emqx_eviction_agent_test_helpers:stop_cluster(
-        ?config(cluster_nodes, Config),
-        [emqx_eviction_agent, emqx_node_rebalance]
-    ).
+    stop_cluster(?config(cluster_nodes, Config)).
 
 %%--------------------------------------------------------------------
 %% Tests
@@ -89,10 +89,9 @@ t_agent_busy(Config) ->
 
     ok = rpc:call(DonorNode, emqx_eviction_agent, enable, [other_rebalance, undefined]),
 
-    ?assertWaitEvent(
-        rpc:call(DonorNode, emqx_node_rebalance_evacuation, start, [opts(Config)]),
-        #{?snk_kind := eviction_agent_busy},
-        5000
+    ?assertEqual(
+        {error, eviction_agent_busy},
+        rpc:call(DonorNode, emqx_node_rebalance_evacuation, start, [opts(Config)])
     ).
 
 t_already_started(Config) ->
@@ -118,7 +117,13 @@ t_start(Config) ->
     [{DonorNode, DonorPort}] = ?config(cluster_nodes, Config),
 
     ?assertWaitEvent(
-        rpc:call(DonorNode, emqx_node_rebalance_evacuation, start, [opts(Config)]),
+        begin
+            rpc:call(DonorNode, emqx_node_rebalance_evacuation, start, [opts(Config)]),
+            ?assertMatch(
+                ok,
+                emqtt_try_connect([{port, DonorPort}])
+            )
+        end,
         #{?snk_kind := eviction_agent_started},
         5000
     ),
