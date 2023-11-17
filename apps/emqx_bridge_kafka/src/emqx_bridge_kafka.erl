@@ -29,7 +29,7 @@
     desc/1,
     host_opts/0,
     ssl_client_opts_fields/0,
-    producer_opts/0
+    producer_opts/1
 ]).
 
 -export([
@@ -261,7 +261,7 @@ fields("config_producer") ->
 fields("config_consumer") ->
     fields(kafka_consumer);
 fields(kafka_producer) ->
-    connector_config_fields() ++ producer_opts();
+    connector_config_fields() ++ producer_opts(v1);
 fields(kafka_producer_action) ->
     [
         {enable, mk(boolean(), #{desc => ?DESC("config_enable"), default => true})},
@@ -270,7 +270,7 @@ fields(kafka_producer_action) ->
                 desc => ?DESC(emqx_connector_schema, "connector_field"), required => true
             })},
         {description, emqx_schema:description_schema()}
-    ] ++ producer_opts();
+    ] ++ producer_opts(action);
 fields(kafka_consumer) ->
     connector_config_fields() ++ fields(consumer_opts);
 fields(ssl_client_opts) ->
@@ -601,25 +601,28 @@ connector_config_fields() ->
         {ssl, mk(ref(ssl_client_opts), #{})}
     ].
 
-producer_opts() ->
+producer_opts(ActionOrBridgeV1) ->
     [
         %% Note: there's an implicit convention in `emqx_bridge' that,
         %% for egress bridges with this config, the published messages
         %% will be forwarded to such bridges.
         {local_topic, mk(binary(), #{required => false, desc => ?DESC(mqtt_topic)})},
-        parameters_field(),
+        parameters_field(ActionOrBridgeV1),
         {resource_opts, mk(ref(resource_opts), #{default => #{}, desc => ?DESC(resource_opts)})}
     ].
 
 %% Since e5.3.1, we want to rename the field 'kafka' to 'parameters'
 %% Hoever we need to keep it backward compatible for generated schema json (version 0.1.0)
 %% since schema is data for the 'schemas' API.
-parameters_field() ->
+parameters_field(ActionOrBridgeV1) ->
+    OverriddenV1 = <<"0.1.0">> =:= get(emqx_bridge_schema_version),
     {Name, Alias} =
-        case get(emqx_bridge_schema_version) of
-            <<"0.1.0">> ->
+        case {OverriddenV1, ActionOrBridgeV1} of
+            {true, _} ->
                 {kafka, parameters};
-            _ ->
+            {_, v1} ->
+                {kafka, parameters};
+            {_, action} ->
                 {parameters, kafka}
         end,
     {Name,
