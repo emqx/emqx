@@ -15,7 +15,9 @@
 
 -define(DEFAULT_CONFIG, #{
     backend => builtin,
-    storage => {emqx_ds_storage_bitfield_lts, #{}}
+    storage => {emqx_ds_storage_bitfield_lts, #{}},
+    n_shards => 255,
+    replication_factor => 3
 }).
 
 -define(COMPACT_CONFIG, #{
@@ -23,7 +25,9 @@
     storage =>
         {emqx_ds_storage_bitfield_lts, #{
             bits_per_wildcard_level => 8
-        }}
+        }},
+    n_shards => 255,
+    replication_factor => 3
 }).
 
 %% Smoke test for opening and reopening the database

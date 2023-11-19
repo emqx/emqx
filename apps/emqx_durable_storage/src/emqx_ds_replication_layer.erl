@@ -40,7 +40,7 @@
     do_next_v1/4
 ]).
 
--export_type([shard_id/0, stream/0, iterator/0, message_id/0]).
+-export_type([shard_id/0, builtin_db_opts/0, stream/0, iterator/0, message_id/0]).
 
 %%================================================================================
 %% Type declarations
@@ -58,7 +58,15 @@
 -define(shard, 2).
 -define(enc, 3).
 
--type shard_id() :: atom().
+-type shard_id() :: binary().
+
+-type builtin_db_opts() ::
+    #{
+        backend := builtin,
+        storage := emqx_ds_storage_layer:prototype(),
+        n_shards => pos_integer(),
+        replication_factor => pos_integer()
+    }.
 
 %% This enapsulates the stream entity from the replication level.
 %%
@@ -89,11 +97,12 @@
 -spec list_shards(emqx_ds:db()) -> [shard_id()].
 list_shards(_DB) ->
     %% TODO: milestone 5
-    list_nodes().
+    lists:map(fun atom_to_binary/1, list_nodes()).
 
--spec open_db(emqx_ds:db(), emqx_ds:create_db_opts()) -> ok | {error, _}.
-open_db(DB, Opts) ->
+-spec open_db(emqx_ds:db(), builtin_db_opts()) -> ok | {error, _}.
+open_db(DB, CreateOpts) ->
     %% TODO: improve error reporting, don't just crash
+    Opts = emqx_ds_replication_layer_meta:open_db(DB, CreateOpts),
     lists:foreach(
         fun(Shard) ->
             Node = node_of_shard(DB, Shard),
@@ -104,6 +113,7 @@ open_db(DB, Opts) ->
 
 -spec drop_db(emqx_ds:db()) -> ok | {error, _}.
 drop_db(DB) ->
+    _ = emqx_ds_replication_layer_meta:drop_db(DB),
     lists:foreach(
         fun(Shard) ->
             Node = node_of_shard(DB, Shard),
@@ -116,7 +126,7 @@ drop_db(DB) ->
     emqx_ds:store_batch_result().
 store_batch(DB, Batch, Opts) ->
     %% TODO: Currently we store messages locally.
-    Shard = node(),
+    Shard = atom_to_binary(node()),
     Node = node_of_shard(DB, Shard),
     emqx_ds_proto_v1:store_batch(Node, DB, Shard, Batch, Opts).
 
@@ -238,8 +248,8 @@ do_next_v1(DB, Shard, Iter, BatchSize) ->
 %%================================================================================
 
 -spec node_of_shard(emqx_ds:db(), shard_id()) -> node().
-node_of_shard(_DB, Node) ->
-    Node.
+node_of_shard(_DB, Shard) ->
+    binary_to_atom(Shard).
 
 list_nodes() ->
     mria:running_nodes().

@@ -23,10 +23,14 @@
 -include_lib("stdlib/include/assert.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
+-define(N_SHARDS, 8).
+
 opts() ->
     #{
         backend => builtin,
-        storage => {emqx_ds_storage_reference, #{}}
+        storage => {emqx_ds_storage_reference, #{}},
+        n_shards => ?N_SHARDS,
+        replication_factor => 3
     }.
 
 %% A simple smoke test that verifies that opening/closing the DB
@@ -34,6 +38,17 @@ opts() ->
 t_00_smoke_open_drop(_Config) ->
     DB = 'DB',
     ?assertMatch(ok, emqx_ds:open_db(DB, opts())),
+    [Site] = emqx_ds_replication_layer_meta:sites(),
+    Shards = emqx_ds_replication_layer_meta:shards(DB),
+    ?assertEqual(?N_SHARDS, length(Shards)),
+    lists:foreach(
+        fun(Shard) ->
+            ?assertEqual(
+                {ok, [Site]}, emqx_ds_replication_layer_meta:replica_set(DB, Shard), {DB, Shard}
+            )
+        end,
+        Shards
+    ),
     ?assertMatch(ok, emqx_ds:open_db(DB, opts())),
     ?assertMatch(ok, emqx_ds:drop_db(DB)).
 
@@ -143,4 +158,6 @@ init_per_testcase(_TC, Config) ->
     Config.
 
 end_per_testcase(_TC, _Config) ->
-    ok = application:stop(emqx_durable_storage).
+    ok = application:stop(emqx_durable_storage),
+    mnesia:delete_schema([node()]),
+    mria:stop().

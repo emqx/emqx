@@ -57,7 +57,9 @@ storage_backend() ->
 storage_backend(#{builtin := #{enable := true}}) ->
     #{
         backend => builtin,
-        storage => {emqx_ds_storage_bitfield_lts, #{}}
+        storage => {emqx_ds_storage_bitfield_lts, #{}},
+        n_shards => 16,
+        replication_factor => 3
     }.
 
 %%--------------------------------------------------------------------
