@@ -183,7 +183,7 @@ transform_bridge_v1_config_to_action_config(
                         (not maps:is_key(ConnectorFieldNameBin, TopKeysMap))
                 of
                     true ->
-                        maps:remove(to_bin(ConnectorFieldName), ToTransformSoFar);
+                        maps:remove(ConnectorFieldNameBin, ToTransformSoFar);
                     false ->
                         ToTransformSoFar
                 end

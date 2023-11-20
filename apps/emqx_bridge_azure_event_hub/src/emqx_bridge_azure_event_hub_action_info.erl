@@ -29,4 +29,4 @@ connector_action_config_to_bridge_v1_config(ConnectorConfig, ActionConfig) ->
     ).
 
 bridge_v1_config_to_action_config(BridgeV1Conf, ConnectorName) ->
-    bridge_v1_config_to_action_config(BridgeV1Conf, ConnectorName).
+    emqx_bridge_kafka_action_info:bridge_v1_config_to_action_config(BridgeV1Conf, ConnectorName).

@@ -29,7 +29,6 @@ connector_action_config_to_bridge_v1_config(ConnectorConfig, ActionConfig) ->
     emqx_utils_maps:rename(<<"parameters">>, <<"kafka">>, BridgeV1Config2).
 
 bridge_v1_config_to_action_config(BridgeV1Conf, ConnectorName) ->
-    BridgeV1Conf,
     Config0 = emqx_action_info:transform_bridge_v1_config_to_action_config(
         BridgeV1Conf, ConnectorName, schema_module(), kafka_producer
     ),
