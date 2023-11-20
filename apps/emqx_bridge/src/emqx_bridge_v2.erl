@@ -111,7 +111,7 @@
     bridge_v1_create_dry_run/2,
     bridge_v1_type_to_bridge_v2_type/1,
     %% Exception from the naming convention:
-    bridge_v2_type_to_bridge_v1_type/1,
+    bridge_v2_type_to_bridge_v1_type/2,
     bridge_v1_id_to_connector_resource_id/1,
     bridge_v1_enable_disable/3,
     bridge_v1_restart/2,
@@ -1050,8 +1050,8 @@ bridge_v1_is_valid(BridgeV1Type, BridgeName) ->
 bridge_v1_type_to_bridge_v2_type(Type) ->
     emqx_action_info:bridge_v1_type_to_action_type(Type).
 
-bridge_v2_type_to_bridge_v1_type(Type) ->
-    emqx_action_info:action_type_to_bridge_v1_type(Type).
+bridge_v2_type_to_bridge_v1_type(Type, Conf) ->
+    emqx_action_info:action_type_to_bridge_v1_type(Type, Conf).
 
 is_bridge_v2_type(Type) ->
     emqx_action_info:is_action_type(Type).

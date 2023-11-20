@@ -621,8 +621,13 @@ partitioner(random) -> random;
 partitioner(key_dispatch) -> first_key_dispatch.
 
 replayq_dir(BridgeType, BridgeName) ->
+    RawConf = emqx_conf:get_raw([actions, BridgeType, BridgeName]),
     DirName = iolist_to_binary([
-        emqx_bridge_lib:downgrade_type(BridgeType), ":", BridgeName, ":", atom_to_list(node())
+        emqx_bridge_lib:downgrade_type(BridgeType, RawConf),
+        ":",
+        BridgeName,
+        ":",
+        atom_to_list(node())
     ]),
     filename:join([emqx:data_dir(), "kafka", DirName]).
 
