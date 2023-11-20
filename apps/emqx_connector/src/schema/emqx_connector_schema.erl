@@ -103,24 +103,34 @@ bridge_configs_to_transform(
 split_bridge_to_connector_and_action(
     {ConnectorsMap, {BridgeType, BridgeName, BridgeV1Conf, ConnectorFields, PreviousRawConfig}}
 ) ->
-    %% Get connector fields from bridge config
-    ConnectorMap = lists:foldl(
-        fun({ConnectorFieldName, _Spec}, ToTransformSoFar) ->
-            case maps:is_key(to_bin(ConnectorFieldName), BridgeV1Conf) of
-                true ->
-                    NewToTransform = maps:put(
-                        to_bin(ConnectorFieldName),
-                        maps:get(to_bin(ConnectorFieldName), BridgeV1Conf),
-                        ToTransformSoFar
-                    ),
-                    NewToTransform;
-                false ->
-                    ToTransformSoFar
-            end
+    ConnectorMap =
+        case emqx_action_info:has_custom_bridge_v1_config_to_connector_config(BridgeType) of
+            true ->
+                emqx_action_info:bridge_v1_config_to_connector_config(
+                    BridgeType, BridgeV1Conf
+                );
+            false ->
+                %% We do an automatic transfomation to get the connector config
+                %% if the callback is not defined.
+                %% Get connector fields from bridge config
+                lists:foldl(
+                    fun({ConnectorFieldName, _Spec}, ToTransformSoFar) ->
+                        case maps:is_key(to_bin(ConnectorFieldName), BridgeV1Conf) of
+                            true ->
+                                NewToTransform = maps:put(
+                                    to_bin(ConnectorFieldName),
+                                    maps:get(to_bin(ConnectorFieldName), BridgeV1Conf),
+                                    ToTransformSoFar
+                                ),
+                                NewToTransform;
+                            false ->
+                                ToTransformSoFar
+                        end
+                    end,
+                    #{},
+                    ConnectorFields
+                )
         end,
-        #{},
-        ConnectorFields
-    ),
     %% Generate a connector name, if needed.  Avoid doing so if there was a previous config.
     ConnectorName =
         case PreviousRawConfig of

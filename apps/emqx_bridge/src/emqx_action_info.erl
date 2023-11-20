@@ -28,6 +28,8 @@
     registered_schema_modules/0,
     connector_action_config_to_bridge_v1_config/3,
     has_custom_connector_action_config_to_bridge_v1_config/1,
+    bridge_v1_config_to_connector_config/2,
+    has_custom_bridge_v1_config_to_connector_config/1,
     bridge_v1_config_to_action_config/3,
     has_custom_bridge_v1_config_to_action_config/1,
     transform_bridge_v1_config_to_action_config/4
@@ -41,6 +43,8 @@
 -callback connector_action_config_to_bridge_v1_config(
     ConnectorConfig :: map(), ActionConfig :: map()
 ) -> map().
+%% Define this if the automatic config upgrade is not enough for the connector.
+-callback bridge_v1_config_to_connector_config(BridgeV1Config :: map()) -> map().
 %% Define this if the automatic config upgrade is not enough for the bridge.
 %% If you want to make use of the automatic config upgrade, you can call
 %% emqx_action_info:transform_bridge_v1_config_to_action_config/4 in your
@@ -51,6 +55,7 @@
 -optional_callbacks([
     bridge_v1_type_name/0,
     connector_action_config_to_bridge_v1_config/2,
+    bridge_v1_config_to_connector_config/1,
     bridge_v1_config_to_action_config/2
 ]).
 
@@ -138,6 +143,15 @@ connector_action_config_to_bridge_v1_config(ActionOrBridgeType, ConnectorConfig,
     Module = get_action_info_module(ActionOrBridgeType),
     %% should only be called if defined
     Module:connector_action_config_to_bridge_v1_config(ConnectorConfig, ActionConfig).
+
+has_custom_bridge_v1_config_to_connector_config(ActionOrBridgeType) ->
+    Module = get_action_info_module(ActionOrBridgeType),
+    erlang:function_exported(Module, bridge_v1_config_to_connector_config, 1).
+
+bridge_v1_config_to_connector_config(ActionOrBridgeType, BridgeV1Config) ->
+    Module = get_action_info_module(ActionOrBridgeType),
+    %% should only be called if defined
+    Module:bridge_v1_config_to_connector_config(BridgeV1Config).
 
 has_custom_bridge_v1_config_to_action_config(ActionOrBridgeType) ->
     Module = get_action_info_module(ActionOrBridgeType),
