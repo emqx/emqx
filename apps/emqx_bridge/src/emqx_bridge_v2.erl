@@ -1102,10 +1102,23 @@ bridge_v1_lookup_and_transform_helper(
         <<"actions">>,
         emqx_bridge_v2_schema
     ),
-    BridgeV1Config1 = maps:remove(<<"connector">>, BridgeV2RawConfig2),
-    BridgeV1Config2 = maps:merge(BridgeV1Config1, ConnectorRawConfig2),
-    BridgeV1Config3 = emqx_action_info:action_to_bridge_v1_fixup(BridgeV2Type, BridgeV1Config2),
-    BridgeV1Tmp = maps:put(raw_config, BridgeV1Config3, BridgeV2),
+    BridgeV1ConfigFinal =
+        case
+            emqx_action_info:has_custom_connector_action_config_to_bridge_v1_config(BridgeV1Type)
+        of
+            false ->
+                BridgeV1Config1 = maps:remove(<<"connector">>, BridgeV2RawConfig2),
+                %% Move parameters to the top level
+                ParametersMap = maps:get(<<"parameters">>, BridgeV1Config1, #{}),
+                BridgeV1Config2 = maps:remove(<<"parameters">>, BridgeV1Config1),
+                BridgeV1Config3 = emqx_utils_maps:deep_merge(BridgeV1Config2, ParametersMap),
+                emqx_utils_maps:deep_merge(ConnectorRawConfig2, BridgeV1Config3);
+            true ->
+                emqx_action_info:connector_action_config_to_bridge_v1_config(
+                    BridgeV1Type, ConnectorRawConfig2, BridgeV2RawConfig2
+                )
+        end,
+    BridgeV1Tmp = maps:put(raw_config, BridgeV1ConfigFinal, BridgeV2),
     BridgeV1 = maps:remove(status, BridgeV1Tmp),
     BridgeV2Status = maps:get(status, BridgeV2, undefined),
     BridgeV2Error = maps:get(error, BridgeV2, undefined),

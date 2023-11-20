@@ -26,8 +26,13 @@
     bridge_v1_type_to_action_type/1,
     is_action_type/1,
     registered_schema_modules/0,
-    action_to_bridge_v1_fixup/2,
-    bridge_v1_to_action_fixup/2
+    connector_action_config_to_bridge_v1_config/3,
+    has_custom_connector_action_config_to_bridge_v1_config/1,
+    bridge_v1_config_to_connector_config/2,
+    has_custom_bridge_v1_config_to_connector_config/1,
+    bridge_v1_config_to_action_config/3,
+    has_custom_bridge_v1_config_to_action_config/1,
+    transform_bridge_v1_config_to_action_config/4
 ]).
 
 -callback bridge_v1_type_name() ->
@@ -40,14 +45,23 @@
 -callback connector_type_name() -> atom().
 -callback schema_module() -> atom().
 %% Define this if the automatic config downgrade is not enough for the bridge.
--callback action_to_bridge_v1_fixup(map()) -> map().
+-callback connector_action_config_to_bridge_v1_config(
+    ConnectorConfig :: map(), ActionConfig :: map()
+) -> map().
+%% Define this if the automatic config upgrade is not enough for the connector.
+-callback bridge_v1_config_to_connector_config(BridgeV1Config :: map()) -> map().
 %% Define this if the automatic config upgrade is not enough for the bridge.
--callback bridge_v1_to_action_fixup(map()) -> map().
+%% If you want to make use of the automatic config upgrade, you can call
+%% emqx_action_info:transform_bridge_v1_config_to_action_config/4 in your
+%% implementation and do some adjustments on the result.
+-callback bridge_v1_config_to_action_config(BridgeV1Config :: map(), ConnectorName :: binary()) ->
+    map().
 
 -optional_callbacks([
     bridge_v1_type_name/0,
-    action_to_bridge_v1_fixup/1,
-    bridge_v1_to_action_fixup/1
+    connector_action_config_to_bridge_v1_config/2,
+    bridge_v1_config_to_connector_config/1,
+    bridge_v1_config_to_action_config/2
 ]).
 
 %% ====================================================================
@@ -132,45 +146,38 @@ registered_schema_modules() ->
     Schemas = maps:get(action_type_to_schema_module, InfoMap),
     maps:to_list(Schemas).
 
-action_to_bridge_v1_fixup(ActionOrBridgeType, Config) ->
+has_custom_connector_action_config_to_bridge_v1_config(ActionOrBridgeType) ->
     Module = get_action_info_module(ActionOrBridgeType),
-    case erlang:function_exported(Module, action_to_bridge_v1_fixup, 1) of
-        true ->
-            Module:action_to_bridge_v1_fixup(Config);
-        false ->
-            Config
-    end.
+    erlang:function_exported(Module, connector_action_config_to_bridge_v1_config, 2).
 
-bridge_v1_to_action_fixup(ActionOrBridgeType, Config0) ->
+connector_action_config_to_bridge_v1_config(ActionOrBridgeType, ConnectorConfig, ActionConfig) ->
     Module = get_action_info_module(ActionOrBridgeType),
-    case erlang:function_exported(Module, bridge_v1_to_action_fixup, 1) of
-        true ->
-            Config1 = Module:bridge_v1_to_action_fixup(Config0),
-            common_bridge_v1_to_action_adapter(Config1);
-        false ->
-            common_bridge_v1_to_action_adapter(Config0)
-    end.
+    %% should only be called if defined
+    Module:connector_action_config_to_bridge_v1_config(ConnectorConfig, ActionConfig).
 
-%% ====================================================================
-%% Helper fns
-%% ====================================================================
+has_custom_bridge_v1_config_to_connector_config(ActionOrBridgeType) ->
+    Module = get_action_info_module(ActionOrBridgeType),
+    erlang:function_exported(Module, bridge_v1_config_to_connector_config, 1).
 
-common_bridge_v1_to_action_adapter(RawConfig) ->
-    TopKeys = [
-        <<"enable">>,
-        <<"connector">>,
-        <<"local_topic">>,
-        <<"resource_opts">>,
-        <<"description">>,
-        <<"parameters">>
-    ],
-    TopMap = maps:with(TopKeys, RawConfig),
-    RestMap = maps:without(TopKeys, RawConfig),
-    %% Other parameters should be stuffed into `parameters'
-    emqx_utils_maps:update_if_present(
-        <<"parameters">>,
-        fun(Old) -> emqx_utils_maps:deep_merge(Old, RestMap) end,
-        TopMap
+bridge_v1_config_to_connector_config(ActionOrBridgeType, BridgeV1Config) ->
+    Module = get_action_info_module(ActionOrBridgeType),
+    %% should only be called if defined
+    Module:bridge_v1_config_to_connector_config(BridgeV1Config).
+
+has_custom_bridge_v1_config_to_action_config(ActionOrBridgeType) ->
+    Module = get_action_info_module(ActionOrBridgeType),
+    erlang:function_exported(Module, bridge_v1_config_to_action_config, 2).
+
+bridge_v1_config_to_action_config(ActionOrBridgeType, BridgeV1Config, ConnectorName) ->
+    Module = get_action_info_module(ActionOrBridgeType),
+    %% should only be called if defined
+    Module:bridge_v1_config_to_action_config(BridgeV1Config, ConnectorName).
+
+transform_bridge_v1_config_to_action_config(
+    BridgeV1Conf, ConnectorName, ConnectorConfSchemaMod, ConnectorConfSchemaName
+) ->
+    emqx_connector_schema:transform_bridge_v1_config_to_action_config(
+        BridgeV1Conf, ConnectorName, ConnectorConfSchemaMod, ConnectorConfSchemaName
     ).
 
 %% ====================================================================
