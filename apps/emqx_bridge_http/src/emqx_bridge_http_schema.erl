@@ -123,7 +123,7 @@ fields("config_connector") ->
                     default => true
                 }
             )}
-    ] ++ connector_opts_1() ++ connector_opts_0();
+    ] ++ connector_url_headers() ++ connector_opts();
 %%--------------------------------------------------------------------
 %% v1/v2
 fields("resource_opts") ->
@@ -155,7 +155,7 @@ basic_config() ->
                     default => true
                 }
             )}
-    ] ++ webhook_resource_opts() ++ connector_opts_0().
+    ] ++ webhook_resource_opts() ++ connector_opts().
 
 request_config() ->
     [
@@ -202,7 +202,7 @@ request_config() ->
 %%--------------------------------------------------------------------
 %% helpers for v2 only
 
-connector_opts_1() ->
+connector_url_headers() ->
     [url_field(), headers_field()].
 
 %%--------------------------------------------------------------------
@@ -287,7 +287,7 @@ webhook_resource_opts() ->
             )}
     ].
 
-connector_opts_0() ->
+connector_opts() ->
     mark_request_field_deperecated(
         proplists:delete(max_retries, emqx_bridge_http_connector:fields(config))
     ).

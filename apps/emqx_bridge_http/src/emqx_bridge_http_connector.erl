@@ -281,7 +281,7 @@ on_stop(InstId, _State) ->
     Res.
 
 on_remove_channel(
-    InstId,
+    _InstId,
     OldState = #{installed_actions := InstalledActions},
     ActionId
 ) ->
@@ -646,7 +646,7 @@ process_request_and_action(Request, ActionState, Msg) ->
     ),
 
     HeadersTemplate1 = maps:get(headers, Request),
-    HeadersTemplate2= maps:get(headers, ActionState),
+    HeadersTemplate2 = maps:get(headers, ActionState),
     Headers = merge_proplist(
         render_headers(HeadersTemplate1, Msg),
         render_headers(HeadersTemplate2, Msg)
