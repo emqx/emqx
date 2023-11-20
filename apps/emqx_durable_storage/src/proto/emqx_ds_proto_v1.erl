@@ -75,7 +75,7 @@ next(Node, DB, Shard, Iter, BatchSize) ->
     node(),
     emqx_ds:db(),
     emqx_ds_replication_layer:shard_id(),
-    [emqx_types:message()],
+    emqx_ds_replication_layer:batch(),
     emqx_ds:message_store_opts()
 ) ->
     emqx_ds:store_batch_result().
