@@ -242,7 +242,9 @@ with_redispatch_to(Msg, Group, Topic) ->
 is_redispatch_needed(#message{qos = ?QOS_0}) ->
     false;
 is_redispatch_needed(#message{headers = #{redispatch_to := ?REDISPATCH_TO(_, _)}}) ->
-    true.
+    true;
+is_redispatch_needed(#message{}) ->
+    false.
 
 %% @doc Redispatch shared deliveries to other members in the group.
 redispatch(Messages0) ->
