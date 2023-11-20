@@ -54,27 +54,24 @@ remove_handler() ->
 
 post_config_update(?OPTL, _Req, Old, Old, _AppEnvs) ->
     ok;
-post_config_update(?OPTL, _Req, New, _Old, AppEnvs) ->
+post_config_update(?OPTL, _Req, New, Old, AppEnvs) ->
     application:set_env(AppEnvs),
-    MetricsRes = ensure_otel_metrics(New),
-    LogsRes = ensure_otel_logs(New),
+    MetricsRes = ensure_otel_metrics(New, Old),
+    LogsRes = ensure_otel_logs(New, Old),
+    TracesRes = ensure_otel_traces(New, Old),
     _ = maybe_stop_all_otel_apps(New),
-    case {MetricsRes, LogsRes} of
-        {ok, ok} -> ok;
+    case {MetricsRes, LogsRes, TracesRes} of
+        {ok, ok, ok} -> ok;
         Other -> {error, Other}
     end;
 post_config_update(_ConfPath, _Req, _NewConf, _OldConf, _AppEnvs) ->
     ok.
 
 stop_all_otel_apps() ->
-    _ = application:stop(opentelemetry),
-    _ = application:stop(opentelemetry_experimental),
-    _ = application:stop(opentelemetry_experimental_api),
-    _ = application:stop(opentelemetry_exporter),
-    ok.
+    stop_all_otel_apps(true).
 
 add_otel_log_handler() ->
-    ensure_otel_logs(emqx:get_config(?OPTL)).
+    ensure_otel_logs(emqx:get_config(?OPTL), #{}).
 
 remove_otel_log_handler() ->
     remove_handler_if_present(?OTEL_LOG_HANDLER_ID).
@@ -93,22 +90,33 @@ otel_exporter(ExporterConf) ->
 
 %% Internal functions
 
-ensure_otel_metrics(#{metrics := #{enable := true} = MetricsConf}) ->
+ensure_otel_metrics(#{metrics := MetricsConf}, #{metrics := MetricsConf}) ->
+    ok;
+ensure_otel_metrics(#{metrics := #{enable := true} = MetricsConf}, _Old) ->
     _ = emqx_otel_metrics:stop_otel(),
     emqx_otel_metrics:start_otel(MetricsConf);
-ensure_otel_metrics(#{metrics := #{enable := false}}) ->
+ensure_otel_metrics(#{metrics := #{enable := false}}, _Old) ->
     emqx_otel_metrics:stop_otel();
-ensure_otel_metrics(_) ->
+ensure_otel_metrics(_, _) ->
     ok.
 
-ensure_otel_logs(#{logs := #{enable := true} = LogsConf}) ->
+ensure_otel_logs(#{logs := LogsConf}, #{logs := LogsConf}) ->
+    ok;
+ensure_otel_logs(#{logs := #{enable := true} = LogsConf}, _OldConf) ->
     ok = remove_handler_if_present(?OTEL_LOG_HANDLER_ID),
     ok = ensure_log_apps(),
     HandlerConf = tr_handler_conf(LogsConf),
     %% NOTE: should primary logger level be updated if it's higher than otel log level?
     logger:add_handler(?OTEL_LOG_HANDLER_ID, ?OTEL_LOG_HANDLER, HandlerConf);
-ensure_otel_logs(#{logs := #{enable := false}}) ->
+ensure_otel_logs(#{logs := #{enable := false}}, _OldConf) ->
     remove_handler_if_present(?OTEL_LOG_HANDLER_ID).
+
+ensure_otel_traces(#{traces := TracesConf}, #{traces := TracesConf}) ->
+    ok;
+ensure_otel_traces(#{traces := #{enable := true} = TracesConf}, _OldConf) ->
+    emqx_otel_trace:start(TracesConf);
+ensure_otel_traces(#{traces := #{enable := false}}, _OldConf) ->
+    emqx_otel_trace:stop().
 
 remove_handler_if_present(HandlerId) ->
     case logger:get_handler_config(HandlerId) of
@@ -123,8 +131,13 @@ ensure_log_apps() ->
     {ok, _} = application:ensure_all_started(opentelemetry_experimental),
     ok.
 
-maybe_stop_all_otel_apps(#{metrics := #{enable := false}, logs := #{enable := false}}) ->
-    stop_all_otel_apps();
+maybe_stop_all_otel_apps(#{
+    metrics := #{enable := false},
+    logs := #{enable := false},
+    traces := #{enable := false}
+}) ->
+    IsShutdown = false,
+    stop_all_otel_apps(IsShutdown);
 maybe_stop_all_otel_apps(_) ->
     ok.
 
@@ -158,3 +171,18 @@ is_ssl(<<"https://", _/binary>> = _Endpoint) ->
     true;
 is_ssl(_Endpoint) ->
     false.
+
+stop_all_otel_apps(IsShutdown) ->
+    %% if traces were enabled, it's not safe to stop opentelemetry app,
+    %% as there could be not finsihed traces that would crash if spans ETS tables are deleted
+    _ =
+        case IsShutdown of
+            true ->
+                _ = application:stop(opentelemetry);
+            false ->
+                ok
+        end,
+    _ = application:stop(opentelemetry_experimental),
+    _ = application:stop(opentelemetry_experimental_api),
+    _ = application:stop(opentelemetry_exporter),
+    ok.

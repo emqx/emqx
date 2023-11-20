@@ -62,6 +62,13 @@ fields("opentelemetry") ->
                 #{
                     desc => ?DESC(otel_logs)
                 }
+            )},
+        {traces,
+            ?HOCON(
+                ?R_REF("otel_traces"),
+                #{
+                    desc => ?DESC(otel_traces)
+                }
             )}
     ];
 fields("otel_metrics") ->
@@ -137,21 +144,94 @@ fields("otel_logs") ->
                 }
             )}
     ];
+fields("otel_traces") ->
+    [
+        {enable,
+            ?HOCON(
+                boolean(),
+                #{
+                    default => false,
+                    desc => ?DESC(enable),
+                    importance => ?IMPORTANCE_HIGH
+                }
+            )},
+        {max_queue_size,
+            ?HOCON(
+                pos_integer(),
+                #{
+                    default => 2048,
+                    desc => ?DESC(max_queue_size),
+                    importance => ?IMPORTANCE_HIDDEN
+                }
+            )},
+        {exporting_timeout,
+            ?HOCON(
+                emqx_schema:timeout_duration_ms(),
+                #{
+                    default => <<"30s">>,
+                    desc => ?DESC(exporting_timeout),
+                    importance => ?IMPORTANCE_HIDDEN
+                }
+            )},
+        {scheduled_delay,
+            ?HOCON(
+                emqx_schema:timeout_duration_ms(),
+                #{
+                    default => <<"5s">>,
+                    desc => ?DESC(scheduled_delay),
+                    importance => ?IMPORTANCE_HIDDEN
+                }
+            )},
+        {exporter,
+            ?HOCON(
+                ?R_REF("otel_traces_exporter"),
+                #{
+                    desc => ?DESC(exporter),
+                    importance => ?IMPORTANCE_HIGH
+                }
+            )},
+        {filter,
+            ?HOCON(
+                ?R_REF("trace_filter"),
+                #{
+                    desc => ?DESC(trace_filter),
+                    importance => ?IMPORTANCE_MEDIUM
+                }
+            )}
+    ];
 fields("otel_metrics_exporter") ->
     exporter_fields(metrics);
 fields("otel_logs_exporter") ->
     exporter_fields(logs);
 fields("ssl_opts") ->
     Schema = emqx_schema:client_ssl_opts_schema(#{}),
-    lists:keydelete("enable", 1, Schema).
+    lists:keydelete("enable", 1, Schema);
+fields("otel_traces_exporter") ->
+    exporter_fields(traces);
+fields("trace_filter") ->
+    %% More filters can be implemented in future, e.g. topic, clientid
+    [
+        {trace_all,
+            ?HOCON(
+                boolean(),
+                #{
+                    default => false,
+                    desc => ?DESC(trace_all),
+                    importance => ?IMPORTANCE_MEDIUM
+                }
+            )}
+    ].
 
 desc("opentelemetry") -> ?DESC(opentelemetry);
 desc("exporter") -> ?DESC(exporter);
 desc("otel_logs_exporter") -> ?DESC(exporter);
 desc("otel_metrics_exporter") -> ?DESC(exporter);
+desc("otel_traces_exporter") -> ?DESC(exporter);
 desc("otel_logs") -> ?DESC(otel_logs);
 desc("otel_metrics") -> ?DESC(otel_metrics);
+desc("otel_traces") -> ?DESC(otel_traces);
 desc("ssl_opts") -> ?DESC(exporter_ssl);
+desc("trace_filter") -> ?DESC(trace_filter);
 desc(_) -> undefined.
 
 exporter_fields(OtelSignal) ->
