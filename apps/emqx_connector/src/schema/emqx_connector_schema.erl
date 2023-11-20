@@ -98,16 +98,16 @@ bridge_configs_to_transform(
     end.
 
 split_bridge_to_connector_and_action(
-    {ConnectorsMap, {BridgeType, BridgeName, ActionConf, ConnectorFields, PreviousRawConfig}}
+    {ConnectorsMap, {BridgeType, BridgeName, BridgeV1Conf, ConnectorFields, PreviousRawConfig}}
 ) ->
     %% Get connector fields from bridge config
     ConnectorMap = lists:foldl(
         fun({ConnectorFieldName, _Spec}, ToTransformSoFar) ->
-            case maps:is_key(to_bin(ConnectorFieldName), ActionConf) of
+            case maps:is_key(to_bin(ConnectorFieldName), BridgeV1Conf) of
                 true ->
                     NewToTransform = maps:put(
                         to_bin(ConnectorFieldName),
-                        maps:get(to_bin(ConnectorFieldName), ActionConf),
+                        maps:get(to_bin(ConnectorFieldName), BridgeV1Conf),
                         ToTransformSoFar
                     ),
                     NewToTransform;
@@ -125,8 +125,52 @@ split_bridge_to_connector_and_action(
             _ -> generate_connector_name(ConnectorsMap, BridgeName, 0)
         end,
     %% Add connector field to action map
-    ActionMap = maps:put(<<"connector">>, ConnectorName, ActionConf),
+    ActionMap = transform_bridge_v1_to_action(
+        BridgeType, BridgeV1Conf, ConnectorName, ConnectorFields
+    ),
     {BridgeType, BridgeName, ActionMap, ConnectorName, ConnectorMap}.
+
+transform_bridge_v1_to_action(BridgeType, BridgeV1Conf, ConnectorName, ConnectorFields) ->
+    BridgeV1ConfKey = <<"__bridge_v1_conf__">>,
+    TopKeys = [
+        <<"enable">>,
+        <<"connector">>,
+        <<"local_topic">>,
+        <<"resource_opts">>,
+        <<"description">>,
+        <<"parameters">>,
+        BridgeV1ConfKey
+    ],
+    %% Remove connector fields
+    ActionMap0 = lists:foldl(
+        fun
+            ({enable, _Spec}, ToTransformSoFar) ->
+                %% Enable filed is used in both
+                ToTransformSoFar;
+            ({ConnectorFieldName, _Spec}, ToTransformSoFar) ->
+                case maps:is_key(to_bin(ConnectorFieldName), BridgeV1Conf) of
+                    true ->
+                        maps:remove(to_bin(ConnectorFieldName), ToTransformSoFar);
+                    false ->
+                        ToTransformSoFar
+                end
+        end,
+        BridgeV1Conf,
+        ConnectorFields
+    ),
+    %% Add special key as the whole original bridge config might be needed by
+    %% the fixup function
+    ActionMap1 = emqx_utils_maps:deep_put([BridgeV1ConfKey], ActionMap0, BridgeV1Conf),
+    %% Add the connector field
+    ActionMap2 = maps:put(<<"connector">>, ConnectorName, ActionMap1),
+    TopMap = maps:with(TopKeys, ActionMap2),
+    RestMap = maps:without(TopKeys, ActionMap2),
+    %% Other parameters should be stuffed into `parameters'
+    ActionMap = emqx_utils_maps:deep_merge(TopMap, #{<<"parameters">> => RestMap}),
+    %% Run the fixup callback if it is defined
+    FixedActionMap = emqx_action_info:bridge_v1_to_action_fixup(BridgeType, ActionMap),
+    %% remove the special key as it is not needed anymore
+    maps:without([BridgeV1ConfKey], FixedActionMap).
 
 generate_connector_name(ConnectorsMap, BridgeName, Attempt) ->
     ConnectorNameList =
@@ -174,7 +218,7 @@ transform_old_style_bridges_to_connector_and_actions_of_type(
     ),
     %% Add connectors and actions and remove bridges
     lists:foldl(
-        fun({BridgeType, BridgeName, ActionMap0, ConnectorName, ConnectorMap}, RawConfigSoFar) ->
+        fun({BridgeType, BridgeName, ActionMap, ConnectorName, ConnectorMap}, RawConfigSoFar) ->
             %% Add connector
             RawConfigSoFar1 = emqx_utils_maps:deep_put(
                 [<<"connectors">>, to_bin(ConnectorType), ConnectorName],
@@ -186,7 +230,6 @@ transform_old_style_bridges_to_connector_and_actions_of_type(
                 [<<"bridges">>, to_bin(BridgeType), BridgeName],
                 RawConfigSoFar1
             ),
-            ActionMap = emqx_action_info:bridge_v1_to_action_fixup(BridgeType, ActionMap0),
             %% Add action
             RawConfigSoFar3 = emqx_utils_maps:deep_put(
                 [actions_config_name(), to_bin(maybe_rename(BridgeType)), BridgeName],

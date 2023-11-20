@@ -27,8 +27,10 @@ action_to_bridge_v1_fixup(Config) ->
     emqx_utils_maps:rename(<<"parameters">>, <<"kafka">>, Config).
 
 bridge_v1_to_action_fixup(Config0) ->
-    Config = emqx_utils_maps:rename(<<"kafka">>, <<"parameters">>, Config0),
-    maps:with(producer_action_field_keys(), Config).
+    KafkaMap = emqx_utils_maps:deep_get([<<"parameters">>, <<"kafka">>], Config0),
+    Config1 = emqx_utils_maps:deep_remove([<<"parameters">>, <<"kafka">>], Config0),
+    Config2 = maps:put(<<"parameters">>, KafkaMap, Config1),
+    maps:with(producer_action_field_keys(), Config2).
 
 %%------------------------------------------------------------------------------------------
 %% Internal helper fns
