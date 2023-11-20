@@ -11,12 +11,6 @@
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 -include_lib("emqx/include/emqx_mqtt.hrl").
 
--include_lib("emqx/src/emqx_persistent_session_ds.hrl").
-
--define(DEFAULT_KEYSPACE, default).
--define(DS_SHARD_ID, <<"local">>).
--define(DS_SHARD, {?DEFAULT_KEYSPACE, ?DS_SHARD_ID}).
-
 -import(emqx_common_test_helpers, [on_exit/1]).
 
 %%------------------------------------------------------------------------------
@@ -91,12 +85,6 @@ app_specs() ->
 get_mqtt_port(Node, Type) ->
     {_IP, Port} = erpc:call(Node, emqx_config, get, [[listeners, Type, default, bind]]),
     Port.
-
-get_all_iterator_ids(Node) ->
-    Fn = fun(K, _V, Acc) -> [K | Acc] end,
-    erpc:call(Node, fun() ->
-        emqx_ds_storage_layer:foldl_iterator_prefix(?DS_SHARD, <<>>, Fn, [])
-    end).
 
 wait_nodeup(Node) ->
     ?retry(
@@ -233,9 +221,8 @@ t_session_subscription_idempotency(Config) ->
         end,
         fun(Trace) ->
             ct:pal("trace:\n  ~p", [Trace]),
-            SubTopicFilterWords = emqx_topic:words(SubTopicFilter),
             ?assertMatch(
-                {ok, #{}, #{SubTopicFilterWords := #{}}},
+                #{subscriptions := #{SubTopicFilter := #{}}},
                 erpc:call(Node1, emqx_persistent_session_ds, session_open, [ClientId])
             )
         end
@@ -308,7 +295,7 @@ t_session_unsubscription_idempotency(Config) ->
         fun(Trace) ->
             ct:pal("trace:\n  ~p", [Trace]),
             ?assertMatch(
-                {ok, #{}, Subs = #{}} when map_size(Subs) =:= 0,
+                #{subscriptions := Subs = #{}} when map_size(Subs) =:= 0,
                 erpc:call(Node1, emqx_persistent_session_ds, session_open, [ClientId])
             ),
             ok
@@ -370,18 +357,12 @@ do_t_session_discard(Params) ->
                 _Attempts0 = 50,
                 true = map_size(emqx_persistent_session_ds:list_all_streams()) > 0
             ),
-            ?retry(
-                _Sleep0 = 100,
-                _Attempts0 = 50,
-                true = map_size(emqx_persistent_session_ds:list_all_iterators()) > 0
-            ),
             ok = emqtt:stop(Client0),
             ?tp(notice, "disconnected", #{}),
 
             ?tp(notice, "reconnecting", #{}),
-            %% we still have iterators and streams
+            %% we still have streams
             ?assert(map_size(emqx_persistent_session_ds:list_all_streams()) > 0),
-            ?assert(map_size(emqx_persistent_session_ds:list_all_iterators()) > 0),
             Client1 = start_client(ReconnectOpts),
             {ok, _} = emqtt:connect(Client1),
             ?assertEqual([], emqtt:subscriptions(Client1)),
@@ -394,7 +375,7 @@ do_t_session_discard(Params) ->
             ?assertEqual(#{}, emqx_persistent_session_ds:list_all_subscriptions()),
             ?assertEqual([], emqx_persistent_session_ds_router:topics()),
             ?assertEqual(#{}, emqx_persistent_session_ds:list_all_streams()),
-            ?assertEqual(#{}, emqx_persistent_session_ds:list_all_iterators()),
+            ?assertEqual(#{}, emqx_persistent_session_ds:list_all_pubranges()),
             ok = emqtt:stop(Client1),
             ?tp(notice, "disconnected", #{}),
 
