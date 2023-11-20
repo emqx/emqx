@@ -202,33 +202,36 @@ lookup(Type, Name) ->
             %% The connector should always exist
             %% ... but, in theory, there might be no channels associated to it when we try
             %% to delete the connector, and then this reference will become dangling...
-            InstanceData =
+            ConnectorData =
                 case emqx_resource:get_instance(ConnectorId) of
                     {ok, _, Data} ->
                         Data;
                     {error, not_found} ->
                         #{}
                 end,
-            %% Find the Bridge V2 status from the InstanceData
-            Channels = maps:get(added_channels, InstanceData, #{}),
+            %% Find the Bridge V2 status from the ConnectorData
+            ConnectorStatus = maps:get(status, ConnectorData, undefined),
+            Channels = maps:get(added_channels, ConnectorData, #{}),
             BridgeV2Id = id(Type, Name, BridgeConnector),
             ChannelStatus = maps:get(BridgeV2Id, Channels, undefined),
             {DisplayBridgeV2Status, ErrorMsg} =
-                case ChannelStatus of
-                    #{status := connected} ->
-                        {connected, <<"">>};
-                    #{status := Status, error := undefined} ->
+                case {ChannelStatus, ConnectorStatus} of
+                    {#{status := ?status_connected}, _} ->
+                        {?status_connected, <<"">>};
+                    {#{error := resource_not_operational}, ?status_connecting} ->
+                        {?status_connecting, <<"Not installed">>};
+                    {#{status := Status, error := undefined}, _} ->
                         {Status, <<"Unknown reason">>};
-                    #{status := Status, error := Error} ->
+                    {#{status := Status, error := Error}, _} ->
                         {Status, emqx_utils:readable_error_msg(Error)};
-                    undefined ->
-                        {disconnected, <<"Pending installation">>}
+                    {undefined, _} ->
+                        {?status_disconnected, <<"Not installed">>}
                 end,
             {ok, #{
                 type => bin(Type),
                 name => bin(Name),
                 raw_config => RawConf,
-                resource_data => InstanceData,
+                resource_data => ConnectorData,
                 status => DisplayBridgeV2Status,
                 error => ErrorMsg
             }}

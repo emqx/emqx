@@ -1362,7 +1362,13 @@ t_create_with_bad_name(Config) ->
             Config
         ),
     Msg = emqx_utils_json:decode(Msg0, [return_maps]),
-    ?assertMatch(#{<<"reason">> := <<"bad_bridge_name">>}, Msg),
+    ?assertMatch(
+        #{
+            <<"kind">> := <<"validation_error">>,
+            <<"reason">> := <<"only 0-9a-zA-Z_- is allowed in resource name", _/binary>>
+        },
+        Msg
+    ),
     ok.
 
 validate_resource_request_ttl(single, Timeout, Name) ->
