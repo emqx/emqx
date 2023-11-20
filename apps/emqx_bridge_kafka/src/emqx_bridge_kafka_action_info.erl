@@ -11,8 +11,8 @@
     action_type_name/0,
     connector_type_name/0,
     schema_module/0,
-    action_to_bridge_v1_fixup/1,
-    bridge_v1_to_action_fixup/1
+    connector_action_config_to_bridge_v1_config/2,
+    bridge_v1_config_to_action_config/2
 ]).
 
 bridge_v1_type_name() -> kafka.
@@ -23,17 +23,23 @@ connector_type_name() -> kafka_producer.
 
 schema_module() -> emqx_bridge_kafka.
 
-action_to_bridge_v1_fixup(Config) ->
-    emqx_utils_maps:rename(<<"parameters">>, <<"kafka">>, Config).
+connector_action_config_to_bridge_v1_config(ConnectorConfig, ActionConfig) ->
+    BridgeV1Config1 = maps:remove(<<"connector">>, ActionConfig),
+    BridgeV1Config2 = emqx_utils_maps:deep_merge(ConnectorConfig, BridgeV1Config1),
+    emqx_utils_maps:rename(<<"parameters">>, <<"kafka">>, BridgeV1Config2).
 
-bridge_v1_to_action_fixup(Config0) ->
+bridge_v1_config_to_action_config(BridgeV1Conf, ConnectorName) ->
+    BridgeV1Conf,
+    Config0 = emqx_action_info:transform_bridge_v1_config_to_action_config(
+        BridgeV1Conf, ConnectorName, schema_module(), kafka_producer
+    ),
     KafkaMap = emqx_utils_maps:deep_get([<<"parameters">>, <<"kafka">>], Config0),
     Config1 = emqx_utils_maps:deep_remove([<<"parameters">>, <<"kafka">>], Config0),
     Config2 = maps:put(<<"parameters">>, KafkaMap, Config1),
     maps:with(producer_action_field_keys(), Config2).
 
 %%------------------------------------------------------------------------------------------
-%% Internal helper fns
+%% Internal helper functions
 %%------------------------------------------------------------------------------------------
 
 producer_action_field_keys() ->

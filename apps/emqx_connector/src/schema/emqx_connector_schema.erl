@@ -22,7 +22,10 @@
 
 -import(hoconsc, [mk/2, ref/2]).
 
--export([transform_bridges_v1_to_connectors_and_bridges_v2/1]).
+-export([
+    transform_bridges_v1_to_connectors_and_bridges_v2/1,
+    transform_bridge_v1_config_to_action_config/4
+]).
 
 -export([roots/0, fields/1, desc/1, namespace/0, tags/0]).
 
@@ -124,23 +127,39 @@ split_bridge_to_connector_and_action(
             #{<<"connector">> := ConnectorName0} -> ConnectorName0;
             _ -> generate_connector_name(ConnectorsMap, BridgeName, 0)
         end,
-    %% Add connector field to action map
-    ActionMap = transform_bridge_v1_to_action(
-        BridgeType, BridgeV1Conf, ConnectorName, ConnectorFields
-    ),
+    ActionMap =
+        case emqx_action_info:has_custom_bridge_v1_config_to_action_config(BridgeType) of
+            true ->
+                emqx_action_info:bridge_v1_config_to_action_config(
+                    BridgeType, BridgeV1Conf, ConnectorName
+                );
+            false ->
+                transform_bridge_v1_config_to_action_config(
+                    BridgeV1Conf, ConnectorName, ConnectorFields
+                )
+        end,
     {BridgeType, BridgeName, ActionMap, ConnectorName, ConnectorMap}.
 
-transform_bridge_v1_to_action(BridgeType, BridgeV1Conf, ConnectorName, ConnectorFields) ->
-    BridgeV1ConfKey = <<"__bridge_v1_conf__">>,
+transform_bridge_v1_config_to_action_config(
+    BridgeV1Conf, ConnectorName, ConnectorConfSchemaMod, ConnectorConfSchemaName
+) ->
+    ConnectorFields = ConnectorConfSchemaMod:fields(ConnectorConfSchemaName),
+    transform_bridge_v1_config_to_action_config(
+        BridgeV1Conf, ConnectorName, ConnectorFields
+    ).
+
+transform_bridge_v1_config_to_action_config(
+    BridgeV1Conf, ConnectorName, ConnectorFields
+) ->
     TopKeys = [
         <<"enable">>,
         <<"connector">>,
         <<"local_topic">>,
         <<"resource_opts">>,
         <<"description">>,
-        <<"parameters">>,
-        BridgeV1ConfKey
+        <<"parameters">>
     ],
+    TopKeysMap = maps:from_keys(TopKeys, true),
     %% Remove connector fields
     ActionMap0 = lists:foldl(
         fun
@@ -148,7 +167,11 @@ transform_bridge_v1_to_action(BridgeType, BridgeV1Conf, ConnectorName, Connector
                 %% Enable filed is used in both
                 ToTransformSoFar;
             ({ConnectorFieldName, _Spec}, ToTransformSoFar) ->
-                case maps:is_key(to_bin(ConnectorFieldName), BridgeV1Conf) of
+                ConnectorFieldNameBin = to_bin(ConnectorFieldName),
+                case
+                    maps:is_key(ConnectorFieldNameBin, BridgeV1Conf) andalso
+                        (not maps:is_key(ConnectorFieldNameBin, TopKeysMap))
+                of
                     true ->
                         maps:remove(to_bin(ConnectorFieldName), ToTransformSoFar);
                     false ->
@@ -158,19 +181,12 @@ transform_bridge_v1_to_action(BridgeType, BridgeV1Conf, ConnectorName, Connector
         BridgeV1Conf,
         ConnectorFields
     ),
-    %% Add special key as the whole original bridge config might be needed by
-    %% the fixup function
-    ActionMap1 = emqx_utils_maps:deep_put([BridgeV1ConfKey], ActionMap0, BridgeV1Conf),
     %% Add the connector field
-    ActionMap2 = maps:put(<<"connector">>, ConnectorName, ActionMap1),
-    TopMap = maps:with(TopKeys, ActionMap2),
-    RestMap = maps:without(TopKeys, ActionMap2),
+    ActionMap1 = maps:put(<<"connector">>, ConnectorName, ActionMap0),
+    TopMap = maps:with(TopKeys, ActionMap1),
+    RestMap = maps:without(TopKeys, ActionMap1),
     %% Other parameters should be stuffed into `parameters'
-    ActionMap = emqx_utils_maps:deep_merge(TopMap, #{<<"parameters">> => RestMap}),
-    %% Run the fixup callback if it is defined
-    FixedActionMap = emqx_action_info:bridge_v1_to_action_fixup(BridgeType, ActionMap),
-    %% remove the special key as it is not needed anymore
-    maps:without([BridgeV1ConfKey], FixedActionMap).
+    emqx_utils_maps:deep_merge(TopMap, #{<<"parameters">> => RestMap}).
 
 generate_connector_name(ConnectorsMap, BridgeName, Attempt) ->
     ConnectorNameList =
