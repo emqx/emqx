@@ -9,15 +9,13 @@
 -include_lib("emqx/include/logger.hrl").
 -include("emqx_license.hrl").
 
--define(PUBKEY, <<
-    ""
-    "\n"
-    "-----BEGIN PUBLIC KEY-----\n"
-    "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEbtkdos3TZmSv+D7+X5pc0yfcjum2\n"
-    "Q1DK6PCWkiQihjvjJjKFzdYzcWOgC6f4Ou3mgGAUSjdQYYnFKZ/9f5ax4g==\n"
-    "-----END PUBLIC KEY-----\n"
-    ""
->>).
+%% erlfmt-ignore
+-define(PUBKEY, <<"
+-----BEGIN PUBLIC KEY-----
+MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEbtkdos3TZmSv+D7+X5pc0yfcjum2
+Q1DK6PCWkiQihjvjJjKFzdYzcWOgC6f4Ou3mgGAUSjdQYYnFKZ/9f5ax4g==
+-----END PUBLIC KEY-----
+">>).
 
 -define(LICENSE_PARSE_MODULES, [
     emqx_license_parser_v20220101
