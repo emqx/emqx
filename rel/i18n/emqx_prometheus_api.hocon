@@ -11,8 +11,8 @@ update_prom_conf_info.label:
 """Update Prometheus config"""
 
 get_prom_data.desc:
-"""Get Prometheus Data"""
+"""Get Prometheus Metrics"""
 get_prom_data.label:
-"""Get Prometheus Data"""
+"""Prometheus Metrics"""
 
 }
