@@ -77,8 +77,10 @@ connector_impl_module(_ConnectorType) ->
 
 -endif.
 
-connector_to_resource_type_ce(_ConnectorType) ->
-    no_bridge_v2_for_c2_so_far.
+connector_to_resource_type_ce(webhook) ->
+    emqx_bridge_http_connector;
+connector_to_resource_type_ce(ConnectorType) ->
+    error({no_bridge_v2, ConnectorType}).
 
 resource_id(ConnectorId) when is_binary(ConnectorId) ->
     <<"connector:", ConnectorId/binary>>.
@@ -275,9 +277,7 @@ parse_confs(
     _Name,
     #{
         url := Url,
-        method := Method,
-        headers := Headers,
-        max_retries := Retry
+        headers := Headers
     } = Conf
 ) ->
     Url1 = bin(Url),
@@ -290,20 +290,14 @@ parse_confs(
                 Reason1 = emqx_utils:readable_error_msg(Reason),
                 invalid_data(<<"Invalid URL: ", Url1/binary, ", details: ", Reason1/binary>>)
         end,
-    RequestTTL = emqx_utils_maps:deep_get(
-        [resource_opts, request_ttl],
-        Conf
-    ),
     Conf#{
         base_url => BaseUrl1,
         request =>
             #{
                 path => Path,
-                method => Method,
-                body => maps:get(body, Conf, undefined),
                 headers => Headers,
-                request_ttl => RequestTTL,
-                max_retries => Retry
+                body => undefined,
+                method => undefined
             }
     };
 parse_confs(<<"iotdb">>, Name, Conf) ->

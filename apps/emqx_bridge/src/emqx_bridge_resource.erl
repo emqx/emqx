@@ -309,6 +309,7 @@ remove(Type, Name, _Conf, _Opts) ->
     emqx_resource:remove_local(resource_id(Type, Name)).
 
 %% convert bridge configs to what the connector modules want
+%% TODO: remove it, if the http_bridge already ported to v2
 parse_confs(
     <<"webhook">>,
     _Name,
