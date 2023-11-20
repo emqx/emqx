@@ -341,6 +341,22 @@ fields("persistent_session_store") ->
                     importance => ?IMPORTANCE_HIDDEN
                 }
             )},
+        {"n_shards",
+            sc(
+                pos_integer(),
+                #{
+                    default => 16,
+                    importance => ?IMPORTANCE_HIDDEN
+                }
+            )},
+        {"replication_factor",
+            sc(
+                pos_integer(),
+                #{
+                    default => 3,
+                    importance => ?IMPORTANCE_HIDDEN
+                }
+            )},
         {"on_disc",
             sc(
                 boolean(),

@@ -30,7 +30,7 @@ start_link() ->
 %%================================================================================
 
 init([]) ->
-    Children = [storage_layer_sup()],
+    Children = [meta(), storage_layer_sup()],
     SupFlags = #{
         strategy => one_for_all,
         intensity => 0,
@@ -41,6 +41,15 @@ init([]) ->
 %%================================================================================
 %% Internal functions
 %%================================================================================
+
+meta() ->
+    #{
+        id => emqx_ds_replication_layer_meta,
+        start => {emqx_ds_replication_layer_meta, start_link, []},
+        restart => permanent,
+        type => worker,
+        shutdown => 5000
+    }.
 
 storage_layer_sup() ->
     #{

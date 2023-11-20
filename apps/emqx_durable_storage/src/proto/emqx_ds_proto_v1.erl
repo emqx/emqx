@@ -19,7 +19,7 @@
 
 -include_lib("emqx_utils/include/bpapi.hrl").
 %% API:
--export([open_shard/4, drop_shard/3, store_batch/5, get_streams/5, make_iterator/6, next/5]).
+-export([drop_db/2, store_batch/5, get_streams/5, make_iterator/6, next/5]).
 
 %% behavior callbacks:
 -export([introduced_in/0]).
@@ -28,20 +28,10 @@
 %% API funcions
 %%================================================================================
 
--spec open_shard(
-    node(),
-    emqx_ds:db(),
-    emqx_ds_replication_layer:shard_id(),
-    emqx_ds:create_db_opts()
-) ->
-    ok.
-open_shard(Node, DB, Shard, Opts) ->
-    erpc:call(Node, emqx_ds_replication_layer, do_open_shard_v1, [DB, Shard, Opts]).
-
--spec drop_shard(node(), emqx_ds:db(), emqx_ds_replication_layer:shard_id()) ->
-    ok.
-drop_shard(Node, DB, Shard) ->
-    erpc:call(Node, emqx_ds_replication_layer, do_drop_shard_v1, [DB, Shard]).
+-spec drop_db([node()], emqx_ds:db()) ->
+    [{ok, ok} | erpc:caught_call_exception()].
+drop_db(Node, DB) ->
+    erpc:multicall(Node, emqx_ds_replication_layer, do_drop_db_v1, [DB]).
 
 -spec get_streams(
     node(),
