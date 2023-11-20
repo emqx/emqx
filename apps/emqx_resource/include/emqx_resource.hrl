@@ -13,6 +13,16 @@
 %% See the License for the specific language governing permissions and
 %% limitations under the License.
 %%--------------------------------------------------------------------
+
+%% bridge/connector/action status
+-define(status_connected, connected).
+-define(status_connecting, connecting).
+-define(status_disconnected, disconnected).
+%% Note: the `stopped' status can only be emitted by `emqx_resource_manager'...  Modules
+%% implementing `emqx_resource' behavior should not return it.  The `rm_' prefix is to
+%% remind us of that.
+-define(rm_status_stopped, stopped).
+
 -type resource_type() :: module().
 -type resource_id() :: binary().
 -type channel_id() :: binary().
@@ -21,8 +31,12 @@
 -type resource_config() :: term().
 -type resource_spec() :: map().
 -type resource_state() :: term().
--type resource_status() :: connected | disconnected | connecting | stopped.
--type channel_status() :: connected | connecting | disconnected.
+%% Note: the `stopped' status can only be emitted by `emqx_resource_manager'...  Modules
+%% implementing `emqx_resource' behavior should not return it.
+-type resource_status() ::
+    ?status_connected | ?status_disconnected | ?status_connecting | ?rm_status_stopped.
+-type health_check_status() :: ?status_connected | ?status_disconnected | ?status_connecting.
+-type channel_status() :: ?status_connected | ?status_connecting | ?status_disconnected.
 -type callback_mode() :: always_sync | async_if_possible.
 -type query_mode() ::
     simple_sync

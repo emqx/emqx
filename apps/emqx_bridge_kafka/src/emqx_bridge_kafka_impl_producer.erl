@@ -481,11 +481,11 @@ on_get_status(
     case wolff_client_sup:find_client(ClientId) of
         {ok, Pid} ->
             case wolff_client:check_connectivity(Pid) of
-                ok -> connected;
-                {error, Error} -> {connecting, State, Error}
+                ok -> ?status_connected;
+                {error, Error} -> {?status_connecting, State, Error}
             end;
         {error, _Reason} ->
-            connecting
+            ?status_connecting
     end.
 
 on_get_channel_status(
@@ -499,10 +499,10 @@ on_get_channel_status(
     #{kafka_topic := KafkaTopic} = maps:get(ChannelId, Channels),
     try
         ok = check_topic_and_leader_connections(ClientId, KafkaTopic),
-        connected
+        ?status_connected
     catch
         throw:#{reason := restarting} ->
-            conneting
+            ?status_connecting
     end.
 
 check_topic_and_leader_connections(ClientId, KafkaTopic) ->
