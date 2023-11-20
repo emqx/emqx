@@ -79,7 +79,7 @@ cluster(#{n := N}) ->
 app_specs() ->
     [
         emqx_durable_storage,
-        {emqx, "persistent_session_store = {ds = true}"}
+        {emqx, "session_persistence = {enable = true}"}
     ].
 
 get_mqtt_port(Node, Type) ->

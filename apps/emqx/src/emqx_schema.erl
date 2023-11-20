@@ -294,7 +294,19 @@ roots(low) ->
         {"persistent_session_store",
             sc(
                 ref("persistent_session_store"),
-                #{importance => ?IMPORTANCE_HIDDEN}
+                #{
+                    %% NOTE
+                    %% Due to some quirks in interaction between `emqx_config` and
+                    %% `hocon_tconf`, schema roots cannot currently be deprecated.
+                    importance => ?IMPORTANCE_HIDDEN
+                }
+            )},
+        {"session_persistence",
+            sc(
+                ref("session_persistence"),
+                #{
+                    importance => ?IMPORTANCE_HIDDEN
+                }
             )},
         {"trace",
             sc(
@@ -309,11 +321,12 @@ roots(low) ->
     ].
 
 fields("persistent_session_store") ->
+    Deprecated = #{deprecated => {since, "5.4.0"}},
     [
         {"enabled",
             sc(
                 boolean(),
-                #{
+                Deprecated#{
                     default => false,
                     %% TODO(5.2): change field name to 'enable' and keep 'enabled' as an alias
                     aliases => [enable],
@@ -323,7 +336,7 @@ fields("persistent_session_store") ->
         {"ds",
             sc(
                 boolean(),
-                #{
+                Deprecated#{
                     default => false,
                     importance => ?IMPORTANCE_HIDDEN
                 }
@@ -331,7 +344,7 @@ fields("persistent_session_store") ->
         {"on_disc",
             sc(
                 boolean(),
-                #{
+                Deprecated#{
                     default => true,
                     desc => ?DESC(persistent_store_on_disc)
                 }
@@ -339,7 +352,7 @@ fields("persistent_session_store") ->
         {"ram_cache",
             sc(
                 boolean(),
-                #{
+                Deprecated#{
                     default => false,
                     desc => ?DESC(persistent_store_ram_cache)
                 }
@@ -347,7 +360,7 @@ fields("persistent_session_store") ->
         {"backend",
             sc(
                 hoconsc:union([ref("persistent_session_builtin")]),
-                #{
+                Deprecated#{
                     default => #{
                         <<"type">> => <<"builtin">>,
                         <<"session">> =>
@@ -363,7 +376,7 @@ fields("persistent_session_store") ->
         {"max_retain_undelivered",
             sc(
                 duration(),
-                #{
+                Deprecated#{
                     default => <<"1h">>,
                     desc => ?DESC(persistent_session_store_max_retain_undelivered)
                 }
@@ -371,7 +384,7 @@ fields("persistent_session_store") ->
         {"message_gc_interval",
             sc(
                 duration(),
-                #{
+                Deprecated#{
                     default => <<"1h">>,
                     desc => ?DESC(persistent_session_store_message_gc_interval)
                 }
@@ -379,7 +392,7 @@ fields("persistent_session_store") ->
         {"session_message_gc_interval",
             sc(
                 duration(),
-                #{
+                Deprecated#{
                     default => <<"1m">>,
                     desc => ?DESC(persistent_session_store_session_message_gc_interval)
                 }
@@ -1740,6 +1753,45 @@ fields("trace") ->
                 importance => ?IMPORTANCE_HIDDEN,
                 desc => ?DESC(fields_trace_payload_encode)
             })}
+    ];
+fields("session_persistence") ->
+    [
+        {"enable",
+            sc(
+                boolean(), #{
+                    desc => ?DESC(session_persistence_enable),
+                    default => false
+                }
+            )},
+        {"storage",
+            sc(
+                ref("session_storage_backend"), #{
+                    desc => ?DESC(session_persistence_storage),
+                    validator => fun validate_backend_enabled/1,
+                    default => #{
+                        <<"builtin">> => #{}
+                    }
+                }
+            )}
+    ];
+fields("session_storage_backend") ->
+    [
+        {"builtin",
+            sc(ref("session_storage_backend_builtin"), #{
+                desc => ?DESC(session_storage_backend_builtin),
+                required => {false, recursively}
+            })}
+    ];
+fields("session_storage_backend_builtin") ->
+    [
+        {"enable",
+            sc(
+                boolean(),
+                #{
+                    desc => ?DESC(session_storage_backend_enable),
+                    default => true
+                }
+            )}
     ].
 
 mqtt_listener(Bind) ->
@@ -1992,6 +2044,8 @@ desc("ocsp") ->
     "Per listener OCSP Stapling configuration.";
 desc("crl_cache") ->
     "Global CRL cache options.";
+desc("session_persistence") ->
+    "Settings governing durable sessions persistence.";
 desc(_) ->
     undefined.
 
@@ -2013,6 +2067,17 @@ ensure_list(V) ->
 
 filter(Opts) ->
     [{K, V} || {K, V} <- Opts, V =/= undefined].
+
+validate_backend_enabled(Config) ->
+    Enabled = maps:filter(fun(_, #{<<"enable">> := E}) -> E end, Config),
+    case maps:to_list(Enabled) of
+        [{_Type, _BackendConfig}] ->
+            ok;
+        _Conflicts = [_ | _] ->
+            {error, multiple_enabled_backends};
+        _None = [] ->
+            {error, no_enabled_backend}
+    end.
 
 %% @private This function defines the SSL opts which are commonly used by
 %% SSL listener and client.

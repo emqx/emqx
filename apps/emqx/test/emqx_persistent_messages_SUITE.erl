@@ -291,7 +291,7 @@ publish(Node, Message) ->
 app_specs() ->
     [
         emqx_durable_storage,
-        {emqx, "persistent_session_store {ds = true}"}
+        {emqx, "session_persistence {enable = true}"}
     ].
 
 cluster() ->
