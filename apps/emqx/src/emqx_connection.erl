@@ -555,7 +555,7 @@ handle_msg({quic, Data, _Stream, #{len := Len}}, State) when is_binary(Data) ->
 handle_msg(check_cache, #state{limiter_buffer = Cache} = State) ->
     case queue:peek(Cache) of
         empty ->
-            activate_socket(State);
+            handle_info(activate_socket, State);
         {value, #pending_req{need = Needs, data = Data, next = Next}} ->
             State2 = State#state{limiter_buffer = queue:drop(Cache)},
             check_limiter(Needs, Data, Next, [check_cache], State2)
