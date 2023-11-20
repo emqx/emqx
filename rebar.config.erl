@@ -79,6 +79,7 @@ is_enterprise(ce) -> false;
 is_enterprise(ee) -> true.
 
 is_community_umbrella_app("apps/emqx_bridge_kafka") -> false;
+is_community_umbrella_app("apps/emqx_bridge_confluent") -> false;
 is_community_umbrella_app("apps/emqx_bridge_gcp_pubsub") -> false;
 is_community_umbrella_app("apps/emqx_bridge_cassandra") -> false;
 is_community_umbrella_app("apps/emqx_bridge_opents") -> false;

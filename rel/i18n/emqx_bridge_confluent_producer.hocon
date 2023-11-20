@@ -1,0 +1,342 @@
+emqx_bridge_confluent_producer {
+
+connect_timeout.desc:
+"""Maximum wait time for TCP connection establishment (including authentication time if enabled)."""
+
+connect_timeout.label:
+"""Connect Timeout"""
+
+producer_opts.desc:
+"""Local MQTT data source and Confluent bridge configs."""
+
+producer_opts.label:
+"""MQTT to Confluent"""
+
+min_metadata_refresh_interval.desc:
+"""Minimum time interval the client has to wait before refreshing Confluent Kafka broker and topic metadata. Setting too small value may add extra load on Confluent."""
+
+min_metadata_refresh_interval.label:
+"""Min Metadata Refresh Interval"""
+
+kafka_producer.desc:
+"""Confluent Producer configuration."""
+
+kafka_producer.label:
+"""Confluent Producer"""
+
+producer_buffer.desc:
+"""Configure producer message buffer.
+
+Tell Confluent producer how to buffer messages when EMQX has more messages to send than Confluent can keep up, or when Confluent is down."""
+
+producer_buffer.label:
+"""Message Buffer"""
+
+socket_send_buffer.desc:
+"""Fine tune the socket send buffer. The default value is tuned for high throughput."""
+
+socket_send_buffer.label:
+"""Socket Send Buffer Size"""
+
+socket_receive_buffer.desc:
+"""Fine tune the socket receive buffer. The default value is tuned for high throughput."""
+
+socket_receive_buffer.label:
+"""Socket Receive Buffer Size"""
+
+socket_tcp_keepalive.desc:
+"""Enable TCP keepalive for Confluent bridge connections.
+The value is three comma separated numbers in the format of 'Idle,Interval,Probes'
+ - Idle: The number of seconds a connection needs to be idle before the server begins to send out keep-alive probes (Linux default 7200).
+ - Interval: The number of seconds between TCP keep-alive probes (Linux default 75).
+ - Probes: The maximum number of TCP keep-alive probes to send before giving up and killing the connection if no response is obtained from the other end (Linux default 9).
+For example "240,30,5" means: TCP keepalive probes are sent after the connection is idle for 240 seconds, and the probes are sent every 30 seconds until a response is received, if it misses 5 consecutive responses, the connection should be closed.
+Default: 'none'"""
+
+socket_tcp_keepalive.label:
+"""TCP keepalive options"""
+
+desc_name.desc:
+"""Action name, used as a human-readable description of the action."""
+
+desc_name.label:
+"""Action Name"""
+
+producer_kafka_opts.desc:
+"""Confluent producer configs."""
+
+producer_kafka_opts.label:
+"""Confluent Producer"""
+
+kafka_topic.desc:
+"""Event Hub name"""
+
+kafka_topic.label:
+"""Event Hub Name"""
+
+kafka_message_timestamp.desc:
+"""Which timestamp to use. The timestamp is expected to be a millisecond precision Unix epoch which can be in string format, e.g. <code>1661326462115</code> or <code>'1661326462115'</code>. When the desired data field for this template is not found, or if the found data is not a valid integer, the current system timestamp will be used."""
+
+kafka_message_timestamp.label:
+"""Message Timestamp"""
+
+buffer_mode.desc:
+"""Message buffer mode.
+
+<code>memory</code>: Buffer all messages in memory. The messages will be lost in case of EMQX node restart
+<code>disk</code>: Buffer all messages on disk. The messages on disk are able to survive EMQX node restart.
+<code>hybrid</code>: Buffer message in memory first, when up to certain limit (see <code>segment_bytes</code> config for more information), then start offloading messages to disk, Like <code>memory</code> mode, the messages will be lost in case of EMQX node restart."""
+
+buffer_mode.label:
+"""Buffer Mode"""
+
+socket_opts.desc:
+"""Extra socket options."""
+
+socket_opts.label:
+"""Socket Options"""
+
+partition_count_refresh_interval.desc:
+"""The time interval for Confluent producer to discover increased number of partitions.
+After the number of partitions is increased in Confluent, EMQX will start taking the
+discovered partitions into account when dispatching messages per <code>partition_strategy</code>."""
+
+partition_count_refresh_interval.label:
+"""Partition Count Refresh Interval"""
+
+max_batch_bytes.desc:
+"""Maximum bytes to collect in a Confluent message batch. Most of the Kafka brokers default to a limit of 1 MB batch size. EMQX's default value is less than 1 MB in order to compensate Kafka message encoding overheads (especially when each individual message is very small). When a single message is over the limit, it is still sent (as a single element batch)."""
+
+max_batch_bytes.label:
+"""Max Batch Bytes"""
+
+required_acks.desc:
+"""Required acknowledgements for Confluent partition leader to wait for its followers before it sends back the acknowledgement to EMQX Confluent producer
+
+<code>all_isr</code>: Require all in-sync replicas to acknowledge.
+<code>leader_only</code>: Require only the partition-leader's acknowledgement."""
+
+required_acks.label:
+"""Required Acks"""
+
+kafka_headers.desc:
+"""Please provide a placeholder to be used as Confluent Headers<br/>
+e.g. <code>${pub_props}</code><br/>
+Notice that the value of the placeholder must either be an object:
+<code>{\"foo\": \"bar\"}</code>
+or an array of key-value pairs:
+<code>[{\"key\": \"foo\", \"value\": \"bar\"}]</code>"""
+
+kafka_headers.label:
+"""Confluent Headers"""
+
+producer_kafka_ext_headers.desc:
+"""Please provide more key-value pairs for Confluent headers<br/>
+The key-value pairs here will be combined with the
+value of <code>kafka_headers</code> field before sending to Confluent."""
+
+producer_kafka_ext_headers.label:
+"""Extra Confluent headers"""
+
+producer_kafka_ext_header_key.desc:
+"""Key of the Confluent header. Placeholders in format of ${var} are supported."""
+
+producer_kafka_ext_header_key.label:
+"""Confluent extra header key."""
+
+producer_kafka_ext_header_value.desc:
+"""Value of the Confluent header. Placeholders in format of ${var} are supported."""
+
+producer_kafka_ext_header_value.label:
+"""Value"""
+
+kafka_header_value_encode_mode.desc:
+"""Confluent headers value encode mode<br/>
+ - NONE: only add binary values to Confluent headers;<br/>
+ - JSON: only add JSON values to Confluent headers,
+and encode it to JSON strings before sending."""
+
+kafka_header_value_encode_mode.label:
+"""Confluent headers value encode mode"""
+
+metadata_request_timeout.desc:
+"""Maximum wait time when fetching metadata from Confluent."""
+
+metadata_request_timeout.label:
+"""Metadata Request Timeout"""
+
+desc_type.desc:
+"""The Action Type"""
+
+desc_type.label:
+"""Action Type"""
+
+socket_nodelay.desc:
+"""When set to 'true', TCP buffer is sent as soon as possible. Otherwise, the OS kernel may buffer small TCP packets for a while (40 ms by default)."""
+
+socket_nodelay.label:
+"""No Delay"""
+
+authentication.desc:
+"""Authentication configs."""
+
+authentication.label:
+"""Authentication"""
+
+connector_type.label:
+"""Connector Type"""
+
+connector_type.desc:
+"""The type of the connector."""
+
+bridge_v2_type.label:
+"""Action Type"""
+
+bridge_v2_type.desc:
+"""The type of the action."""
+
+actions.label:
+"""Action Config"""
+actions.desc:
+"""The configuration for an action."""
+
+buffer_memory_overload_protection.desc:
+"""Applicable when buffer mode is set to <code>memory</code>
+EMQX will drop old buffered messages under high memory pressure. The high memory threshold is defined in config <code>sysmon.os.sysmem_high_watermark</code>. NOTE: This config only works on Linux."""
+
+buffer_memory_overload_protection.label:
+"""Memory Overload Protection"""
+
+auth_sasl_mechanism.desc:
+"""SASL authentication mechanism."""
+
+auth_sasl_mechanism.label:
+"""Mechanism"""
+
+config_enable.desc:
+"""Enable (true) or disable (false) this action."""
+
+config_enable.label:
+"""Enable or Disable"""
+
+desc_config.desc:
+"""Configuration for a Confluent action."""
+
+desc_config.label:
+"""Confluent Action Configuration"""
+
+buffer_per_partition_limit.desc:
+"""Number of bytes allowed to buffer for each Confluent partition. When this limit is exceeded, old messages will be dropped in a trade for credits for new messages to be buffered."""
+
+buffer_per_partition_limit.label:
+"""Per-partition Buffer Limit"""
+
+bootstrap_hosts.desc:
+"""A comma separated list of Confluent Kafka <code>host[:port]</code> namespace endpoints to bootstrap the client.  Default port number is 9092."""
+
+bootstrap_hosts.label:
+"""Bootstrap Server"""
+
+kafka_message_key.desc:
+"""Template to render Confluent message key. If the template is rendered into a NULL value (i.e. there is no such data field in Rule Engine context) then Confluent's <code>NULL</code> (but not empty string) is used."""
+
+kafka_message_key.label:
+"""Message Key"""
+
+kafka_message.desc:
+"""Template to render a Confluent message."""
+
+kafka_message.label:
+"""Confluent Message Template"""
+
+mqtt_topic.desc:
+"""MQTT topic or topic filter as data source (action input).  If rule action is used as data source, this config should be left empty, otherwise messages will be duplicated in Confluent."""
+
+mqtt_topic.label:
+"""Source MQTT Topic"""
+
+kafka_message_value.desc:
+"""Template to render Confluent message value. If the template is rendered into a NULL value (i.e. there is no such data field in Rule Engine context) then Confluent's <code>NULL</code> (but not empty string) is used."""
+
+kafka_message_value.label:
+"""Message Value"""
+
+partition_strategy.desc:
+"""Partition strategy is to tell the producer how to dispatch messages to Confluent partitions.
+
+<code>random</code>: Randomly pick a partition for each message
+<code>key_dispatch</code>: Hash Confluent message key to a partition number"""
+
+partition_strategy.label:
+"""Partition Strategy"""
+
+buffer_segment_bytes.desc:
+"""Applicable when buffer mode is set to <code>disk</code> or <code>hybrid</code>.
+This value is to specify the size of each on-disk buffer file."""
+
+buffer_segment_bytes.label:
+"""Segment File Bytes"""
+
+max_inflight.desc:
+"""Maximum number of batches allowed for Confluent producer (per-partition) to send before receiving acknowledgement from Confluent. Greater value typically means better throughput. However, there can be a risk of message reordering when this value is greater than 1."""
+
+max_inflight.label:
+"""Max Inflight"""
+
+compression.desc:
+"""Compression method."""
+
+compression.label:
+"""Compression"""
+
+query_mode.desc:
+"""Query mode. Optional 'sync/async', default 'async'."""
+
+query_mode.label:
+"""Query mode"""
+
+sync_query_timeout.desc:
+"""This parameter defines the timeout limit for synchronous queries. It applies only when the action query mode is configured to 'sync'."""
+
+sync_query_timeout.label:
+"""Synchronous Query Timeout"""
+
+auth_username_password.desc:
+"""Username/password based authentication."""
+
+auth_username_password.label:
+"""Username/password Auth"""
+
+auth_sasl_username.desc:
+"""Confluent Key."""
+
+auth_sasl_username.label:
+"""Key"""
+
+auth_sasl_password.desc:
+"""Confluent Secret."""
+
+auth_sasl_password.label:
+"""Secret"""
+
+producer_kafka_opts.desc:
+"""Confluent producer configs."""
+
+producer_kafka_opts.label:
+"""Confluent Producer"""
+
+ssl_client_opts.desc:
+"""TLS/SSL options for Confluent client."""
+ssl_client_opts.label:
+"""TLS/SSL options"""
+
+server_name_indication.desc:
+"""Server Name Indication (SNI) setting for TLS handshake.<br/>
+- <code>auto</code>: The client will use <code>"servicebus.windows.net"</code> as SNI.<br/>
+- <code>disable</code>: If you wish to prevent the client from sending the SNI.<br/>
+- Other string values it will be sent as-is."""
+
+server_name_indication.label:
+"""SNI"""
+
+}
