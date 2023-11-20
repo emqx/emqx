@@ -7,8 +7,8 @@
 -compile(nowarn_export_all).
 -compile(export_all).
 
--include_lib("emqx/include/emqx_mqtt.hrl").
 -include_lib("eunit/include/eunit.hrl").
+-include_lib("snabbkaffe/include/snabbkaffe.hrl").
 -include_lib("common_test/include/ct.hrl").
 
 %%------------------------------------------------------------------------------
@@ -37,17 +37,19 @@ end_per_suite(_) ->
 set_special_configs(emqx_dashboard) ->
     emqx_dashboard_api_test_helpers:set_default_config(<<"license_admin">>);
 set_special_configs(emqx_license) ->
-    LicenseKey = emqx_license_test_lib:make_license(#{max_connections => "100"}),
+    LicenseKey = default_license(),
     Config = #{
         key => LicenseKey, connection_low_watermark => 0.75, connection_high_watermark => 0.8
     },
     emqx_config:put([license], Config),
+
     RawConfig = #{
         <<"key">> => LicenseKey,
         <<"connection_low_watermark">> => <<"75%">>,
         <<"connection_high_watermark">> => <<"80%">>
     },
     emqx_config:put_raw([<<"license">>], RawConfig),
+
     ok = persistent_term:put(
         emqx_license_test_pubkey,
         emqx_license_test_lib:public_key_pem()
@@ -56,10 +58,31 @@ set_special_configs(emqx_license) ->
 set_special_configs(_) ->
     ok.
 
+init_per_testcase(t_unset_license, Config) ->
+    {ok, _} = emqx_cluster_rpc:start_link(node(), emqx_cluster_rpc, 1000),
+    MeckLicenseValues = #{
+        license_format => "220111",
+        license_type => "0",
+        customer_type => "10",
+        name => "Default Meck License",
+        email => "contact@meck.com",
+        deployment => "meck-deployment",
+        start_date => "20220111",
+        days => "100000",
+        max_connections => "100"
+    },
+    DefaultMeckLicenseKey = emqx_license_test_lib:make_license(MeckLicenseValues),
+    ok = meck:new(emqx_license_schema, [passthrough, no_history]),
+    ok = meck:expect(emqx_license_schema, default_license, fun() -> DefaultMeckLicenseKey end),
+    Config;
 init_per_testcase(_TestCase, Config) ->
     {ok, _} = emqx_cluster_rpc:start_link(node(), emqx_cluster_rpc, 1000),
     Config.
 
+end_per_testcase(t_unset_license, _Config) ->
+    ok = meck:unload(emqx_license_schema),
+    {ok, _} = reset_license(),
+    ok;
 end_per_testcase(_TestCase, _Config) ->
     {ok, _} = reset_license(),
     ok.
@@ -77,6 +100,7 @@ uri(Segments) ->
 get_license() ->
     maps:from_list(emqx_license_checker:dump()).
 
+%% TODO: use new mecked license in SUITES
 default_license() ->
     emqx_license_test_lib:make_license(#{max_connections => "100"}).
 
@@ -210,6 +234,39 @@ t_license_setting(_Config) ->
         })
     ),
     ok.
+
+t_unset_license(_Config) ->
+    ?check_trace(
+        begin
+            {ok, 200, Payload} = UnsetRes = request(post, uri(["license", "unset"]), []),
+            ?assertMatch({ok, 200, _}, UnsetRes),
+            ?assertEqual(
+                #{
+                    <<"customer">> => <<"Default Meck License">>,
+                    <<"customer_type">> => 10,
+                    <<"deployment">> => <<"meck-deployment">>,
+                    <<"email">> => <<"contact@meck.com">>,
+                    <<"expiry">> => false,
+                    <<"expiry_at">> => <<"2295-10-27">>,
+                    <<"max_connections">> => 100,
+                    <<"start_at">> => <<"2022-01-11">>,
+                    <<"type">> => <<"trial">>
+                },
+                emqx_utils_json:decode(Payload, [return_maps])
+            )
+        end,
+        fun(Trace) ->
+            ?assertMatch(
+                [#{operation_method := "api"}],
+                ?of_kind(unset_to_default_evaluation_license_key, Trace)
+            )
+        end
+    ),
+    ok.
+
+%%------------------------------------------------------------------------------
+%% Helpers
+%%------------------------------------------------------------------------------
 
 validate_setting(Res, ExpectLow, ExpectHigh) ->
     ?assertMatch({ok, 200, _}, Res),
