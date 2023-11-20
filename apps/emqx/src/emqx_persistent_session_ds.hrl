@@ -62,7 +62,9 @@
     %%   the range.
     %% * For checkpoint range, this is the iterator pointing right past the last
     %%   message in the range.
-    iterator :: emqx_ds:iterator()
+    iterator :: emqx_ds:iterator(),
+    %% Reserved for future use.
+    misc = #{} :: map()
 }).
 -type ds_pubrange() :: #ds_pubrange{}.
 
@@ -72,7 +74,6 @@
     %% creation time
     created_at :: _Millisecond :: non_neg_integer(),
     expires_at = never :: _Millisecond :: non_neg_integer() | never,
-    % last_ack = 0 :: emqx_persistent_message_ds_replayer:seqno(),
     %% for future usage
     props = #{} :: map()
 }).
