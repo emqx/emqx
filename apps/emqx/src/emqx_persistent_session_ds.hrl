@@ -43,12 +43,25 @@
 
 -record(ds_pubrange, {
     id :: {
+        %% What session this range belongs to.
         _Session :: emqx_persistent_session_ds:id(),
+        %% Where this range starts.
         _First :: emqx_persistent_message_ds_replayer:seqno()
     },
+    %% Where this range ends: the first seqno that is not included in the range.
     until :: emqx_persistent_message_ds_replayer:seqno(),
+    %% Which stream this range is over.
     stream :: _StreamRef,
+    %% Type of a range:
+    %% * Inflight range is a range of yet unacked messages from this stream.
+    %% * Checkpoint range was already acked, its purpose is to keep track of the
+    %%   very last iterator for this stream.
     type :: inflight | checkpoint,
+    %% Meaning of this depends on the type of the range:
+    %% * For inflight range, this is the iterator pointing to the first message in
+    %%   the range.
+    %% * For checkpoint range, this is the iterator pointing right past the last
+    %%   message in the range.
     iterator :: emqx_ds:iterator()
 }).
 -type ds_pubrange() :: #ds_pubrange{}.
