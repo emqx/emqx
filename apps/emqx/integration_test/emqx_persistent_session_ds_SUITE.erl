@@ -357,18 +357,12 @@ do_t_session_discard(Params) ->
                 _Attempts0 = 50,
                 true = map_size(emqx_persistent_session_ds:list_all_streams()) > 0
             ),
-            ?retry(
-                _Sleep0 = 100,
-                _Attempts0 = 50,
-                true = map_size(emqx_persistent_session_ds:list_all_iterators()) > 0
-            ),
             ok = emqtt:stop(Client0),
             ?tp(notice, "disconnected", #{}),
 
             ?tp(notice, "reconnecting", #{}),
-            %% we still have iterators and streams
+            %% we still have streams
             ?assert(map_size(emqx_persistent_session_ds:list_all_streams()) > 0),
-            ?assert(map_size(emqx_persistent_session_ds:list_all_iterators()) > 0),
             Client1 = start_client(ReconnectOpts),
             {ok, _} = emqtt:connect(Client1),
             ?assertEqual([], emqtt:subscriptions(Client1)),
@@ -381,7 +375,7 @@ do_t_session_discard(Params) ->
             ?assertEqual(#{}, emqx_persistent_session_ds:list_all_subscriptions()),
             ?assertEqual([], emqx_persistent_session_ds_router:topics()),
             ?assertEqual(#{}, emqx_persistent_session_ds:list_all_streams()),
-            ?assertEqual(#{}, emqx_persistent_session_ds:list_all_iterators()),
+            ?assertEqual(#{}, emqx_persistent_session_ds:list_all_pubranges()),
             ok = emqtt:stop(Client1),
             ?tp(notice, "disconnected", #{}),
 
