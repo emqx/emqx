@@ -266,8 +266,9 @@ replay_range(
             _ ->
                 lists:nthtail(range_size(First, FirstUnacked), Messages)
         end,
+    MessagesReplay = [emqx_message:set_flag(dup, true, Msg) || Msg <- MessagesUnacked],
     %% Asserting that range is consistent with the message storage state.
-    {Replies, Until} = publish(FirstUnacked, MessagesUnacked),
+    {Replies, Until} = publish(FirstUnacked, MessagesReplay),
     %% Again, we need to keep the iterator pointing past the end of the
     %% range, so that we can pick up where we left off.
     Range = Range0#ds_pubrange{iterator = ItNext},

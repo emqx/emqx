@@ -675,6 +675,12 @@ t_publish_many_while_client_is_gone_qos1(Config) ->
     ?assert(NMsgs2 > NPubs2, Msgs2),
     ?assert(NMsgs2 >= NPubs - NAcked, Msgs2),
     NSame = NMsgs2 - NPubs2,
+    ?assert(
+        lists:all(fun(#{dup := Dup}) -> Dup end, lists:sublist(Msgs2, NSame))
+    ),
+    ?assertNot(
+        lists:all(fun(#{dup := Dup}) -> Dup end, lists:nthtail(NSame, Msgs2))
+    ),
     ?assertEqual(
         [maps:with([packet_id, topic, payload], M) || M <- lists:nthtail(NMsgs1 - NSame, Msgs1)],
         [maps:with([packet_id, topic, payload], M) || M <- lists:sublist(Msgs2, NSame)]
