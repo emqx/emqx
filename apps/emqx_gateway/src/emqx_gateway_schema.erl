@@ -127,9 +127,15 @@ fields(ssl_listener) ->
                 )}
         ];
 fields(ws_listener) ->
-    ws_listener() ++ ws_opts(<<>>, <<>>);
+    emqx_gateway_schema:ws_listener() ++
+        [{websocket, sc(ref(websocket), #{})}];
 fields(wss_listener) ->
-    wss_listener() ++ ws_opts(<<>>, <<>>);
+    emqx_gateway_schema:wss_listener() ++
+        [{websocket, sc(ref(websocket), #{})}];
+fields(websocket) ->
+    DefaultPath = <<>>,
+    SubProtocols = <<>>,
+    emqx_gateway_schema:ws_opts(DefaultPath, SubProtocols);
 fields(udp_listener) ->
     [
         %% some special configs for udp listener
@@ -193,6 +199,8 @@ desc(udp_opts) ->
     "Settings for UDP sockets.";
 desc(dtls_opts) ->
     "Settings for DTLS protocol.";
+desc(websocket) ->
+    "Websocket options";
 desc(_) ->
     undefined.
 
