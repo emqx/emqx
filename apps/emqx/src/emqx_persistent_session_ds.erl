@@ -440,12 +440,6 @@ del_subscription(TopicFilter, DSSessionId) ->
 %%--------------------------------------------------------------------
 
 create_tables() ->
-    ok = emqx_ds:open_db(?PERSISTENT_MESSAGE_DB, #{
-        backend => builtin,
-        storage => {emqx_ds_storage_bitfield_lts, #{}},
-        n_shards => 16,
-        replication_factor => 3
-    }),
     ok = mria:create_table(
         ?SESSION_TAB,
         [
