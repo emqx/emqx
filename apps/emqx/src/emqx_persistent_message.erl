@@ -54,10 +54,14 @@ is_persistence_enabled() ->
 storage_backend() ->
     storage_backend(emqx_config:get([session_persistence, storage])).
 
-storage_backend(#{builtin := #{enable := true}}) ->
+storage_backend(#{
+    builtin := #{enable := true, n_shards := NShards, replication_factor := ReplicationFactor}
+}) ->
     #{
         backend => builtin,
-        storage => {emqx_ds_storage_bitfield_lts, #{}}
+        storage => {emqx_ds_storage_bitfield_lts, #{}},
+        n_shards => NShards,
+        replication_factor => ReplicationFactor
     }.
 
 %%--------------------------------------------------------------------
