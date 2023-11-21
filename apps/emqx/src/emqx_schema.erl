@@ -1781,7 +1781,7 @@ fields("session_storage_backend") ->
                 desc => ?DESC(session_storage_backend_builtin),
                 required => {false, recursively}
             })}
-    ];
+    ] ++ emqx_schema_hooks:injection_point('session_persistence.storage_backends', []);
 fields("session_storage_backend_builtin") ->
     [
         {"enable",

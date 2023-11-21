@@ -91,7 +91,7 @@ list_shards(_DB) ->
     %% TODO: milestone 5
     list_nodes().
 
--spec open_db(emqx_ds:db(), emqx_ds:create_db_opts()) -> ok | {error, _}.
+-spec open_db(emqx_ds:db(), emqx_ds:builtin_db_opts()) -> ok | {error, _}.
 open_db(DB, Opts) ->
     %% TODO: improve error reporting, don't just crash
     lists:foreach(
@@ -185,7 +185,7 @@ next(DB, Iter0, BatchSize) ->
 %%================================================================================
 
 -spec do_open_shard_v1(
-    emqx_ds:db(), emqx_ds_replication_layer:shard_id(), emqx_ds:create_db_opts()
+    emqx_ds:db(), emqx_ds_replication_layer:shard_id(), emqx_ds:builtin_db_opts()
 ) ->
     ok | {error, _}.
 do_open_shard_v1(DB, Shard, Opts) ->

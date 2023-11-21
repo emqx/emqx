@@ -32,7 +32,7 @@
     node(),
     emqx_ds:db(),
     emqx_ds_replication_layer:shard_id(),
-    emqx_ds:create_db_opts()
+    emqx_ds:builtin_db_opts()
 ) ->
     ok.
 open_shard(Node, DB, Shard, Opts) ->

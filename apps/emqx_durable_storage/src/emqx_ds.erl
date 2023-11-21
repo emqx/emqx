@@ -90,11 +90,20 @@
 -type builtin_db_opts() ::
     #{
         backend := builtin,
-        storage := emqx_ds_storage_layer:prototype()
+        storage => emqx_ds_storage_layer:prototype()
+    }.
+
+-type generic_db_options() ::
+    #{
+        backend := atom(),
+        options := #{
+            ds_module := module(),
+            _ => _
+        }
     }.
 
 -type create_db_opts() ::
-    builtin_db_opts().
+    builtin_db_opts() | generic_db_options().
 
 -type message_id() :: emqx_ds_replication_layer:message_id().
 
@@ -127,13 +136,9 @@
 %% @doc Different DBs are completely independent from each other. They
 %% could represent something like different tenants.
 -spec open_db(db(), create_db_opts()) -> ok.
-open_db(DB, Opts = #{backend := Backend}) when Backend =:= builtin ->
-    Module =
-        case Backend of
-            builtin -> emqx_ds_replication_layer
-        end,
-    persistent_term:put(?persistent_term(DB), Module),
-    ?module(DB):open_db(DB, Opts).
+open_db(DB, Options) ->
+    persistent_term:put(?persistent_term(DB), ds_module(Options)),
+    ?module(DB):open_db(DB, ds_config(Options)).
 
 %% @doc TODO: currently if one or a few shards are down, they won't be
 
@@ -215,3 +220,13 @@ next(DB, Iter, BatchSize) ->
 %%================================================================================
 %% Internal functions
 %%================================================================================
+
+ds_module(#{backend := builtin}) ->
+    emqx_ds_replication_layer;
+ds_module(#{options := #{ds_module := Module}}) ->
+    Module.
+
+ds_config(#{backend := builtin} = Config) when not is_map_key(storage, Config) ->
+    Config#{storage => {emqx_ds_storage_bitfield_lts, #{}}};
+ds_config(Config) ->
+    Config.

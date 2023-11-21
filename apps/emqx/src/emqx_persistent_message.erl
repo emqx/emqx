@@ -52,13 +52,17 @@ is_persistence_enabled() ->
 
 -spec storage_backend() -> emqx_ds:create_db_opts().
 storage_backend() ->
-    storage_backend(emqx_config:get([session_persistence, storage])).
+    enabled_storage_backend(maps:to_list(emqx_config:get([session_persistence, storage]))).
 
-storage_backend(#{builtin := #{enable := true}}) ->
+enabled_storage_backend([{builtin, #{enable := true}} | _OtherBackends]) ->
+    #{backend => builtin};
+enabled_storage_backend([{Backend, #{enable := true} = Options} | _OtherBackends]) ->
     #{
-        backend => builtin,
-        storage => {emqx_ds_storage_bitfield_lts, #{}}
-    }.
+        backend => Backend,
+        options => Options
+    };
+enabled_storage_backend([_ | OtherBackends]) ->
+    enabled_storage_backend(OtherBackends).
 
 %%--------------------------------------------------------------------
 
