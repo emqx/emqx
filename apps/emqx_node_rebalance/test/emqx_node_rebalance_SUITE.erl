@@ -16,39 +16,46 @@
 
 -import(
     emqx_eviction_agent_test_helpers,
-    [emqtt_connect_many/1, emqtt_connect_many/2, stop_many/1, case_specific_node_name/3]
+    [
+        emqtt_connect_many/1,
+        emqtt_connect_many/2,
+        emqtt_try_connect/1,
+        stop_many/1,
+        case_specific_node_name/3,
+        start_cluster/3,
+        stop_cluster/1
+    ]
 ).
-
--define(START_APPS, [emqx_eviction_agent, emqx_node_rebalance]).
 
 all() ->
     emqx_common_test_helpers:all(?MODULE).
 
 init_per_suite(Config) ->
-    ok = emqx_common_test_helpers:start_apps([]),
-    Config.
+    Apps = emqx_cth_suite:start([emqx], #{
+        work_dir => ?config(priv_dir, Config)
+    }),
+    [{apps, Apps} | Config].
 
-end_per_suite(_Config) ->
-    ok = emqx_common_test_helpers:stop_apps([]),
-    ok.
+end_per_suite(Config) ->
+    emqx_cth_suite:stop(?config(apps, Config)).
 
 init_per_testcase(Case, Config) ->
-    ClusterNodes = emqx_eviction_agent_test_helpers:start_cluster(
+    NodeNames =
         [
-            {case_specific_node_name(?MODULE, Case, '_donor'), 2883},
-            {case_specific_node_name(?MODULE, Case, '_recipient'), 3883}
+            case_specific_node_name(?MODULE, Case, '_donor'),
+            case_specific_node_name(?MODULE, Case, '_recipient')
         ],
-        ?START_APPS
+    ClusterNodes = start_cluster(
+        Config,
+        NodeNames,
+        [emqx, emqx_eviction_agent, emqx_node_rebalance]
     ),
     ok = snabbkaffe:start_trace(),
     [{cluster_nodes, ClusterNodes} | Config].
 
 end_per_testcase(_Case, Config) ->
     ok = snabbkaffe:stop(),
-    ok = emqx_eviction_agent_test_helpers:stop_cluster(
-        ?config(cluster_nodes, Config),
-        ?START_APPS
-    ).
+    stop_cluster(?config(cluster_nodes, Config)).
 
 %%--------------------------------------------------------------------
 %% Tests
@@ -227,3 +234,43 @@ t_available_nodes(Config) ->
             [[DonorNode, RecipientNode]]
         )
     ).
+
+t_before_health_check_over(Config) ->
+    process_flag(trap_exit, true),
+
+    [{DonorNode, DonorPort}, {RecipientNode, _RecipientPort}] = ?config(cluster_nodes, Config),
+
+    Nodes = [DonorNode, RecipientNode],
+
+    Conns = emqtt_connect_many(DonorPort, 50),
+
+    Opts = #{
+        conn_evict_rate => 1,
+        sess_evict_rate => 1,
+        evict_interval => 1000,
+        abs_conn_threshold => 1,
+        abs_sess_threshold => 1,
+        rel_conn_threshold => 1.0,
+        rel_sess_threshold => 1.0,
+        wait_health_check => 2,
+        wait_takeover => 100,
+        nodes => Nodes
+    },
+
+    ?assertWaitEvent(
+        begin
+            ok = rpc:call(DonorNode, emqx_node_rebalance, start, [Opts]),
+            ?assertMatch(
+                ok,
+                emqtt_try_connect([{port, DonorPort}])
+            )
+        end,
+        #{?snk_kind := node_rebalance_enable_started_prohibiting},
+        5000
+    ),
+    ?assertMatch(
+        {error, {use_another_server, #{}}},
+        emqtt_try_connect([{port, DonorPort}])
+    ),
+
+    stop_many(Conns).

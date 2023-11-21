@@ -41,6 +41,8 @@
     start_error/0
 ]).
 
+-define(ENABLE_KIND, ?MODULE).
+
 %%--------------------------------------------------------------------
 %% APIs
 %%--------------------------------------------------------------------
@@ -143,9 +145,13 @@ handle_event(
     state_timeout,
     evict_conns,
     wait_health_check,
-    Data
+    #{donors := DonorNodes} = Data
 ) ->
     ?SLOG(warning, #{msg => "node_rebalance_wait_health_check_over"}),
+    _ = multicall(DonorNodes, enable_rebalance_agent, [
+        self(), ?ENABLE_KIND, #{allow_connections => false}
+    ]),
+    ?tp(debug, node_rebalance_enable_started_prohibiting, #{}),
     {next_state, evicting_conns, Data, [{state_timeout, 0, evict_conns}]};
 handle_event(
     state_timeout,
@@ -232,7 +238,9 @@ enable_rebalance(#{opts := Opts} = Data) ->
         false ->
             {error, nothing_to_balance};
         true ->
-            _ = multicall(DonorNodes, enable_rebalance_agent, [self()]),
+            _ = multicall(DonorNodes, enable_rebalance_agent, [
+                self(), ?ENABLE_KIND, #{allow_connections => true}
+            ]),
             {ok, Data#{
                 donors => DonorNodes,
                 recipients => RecipientNodes,
@@ -242,7 +250,7 @@ enable_rebalance(#{opts := Opts} = Data) ->
     end.
 
 disable_rebalance(#{donors := DonorNodes}) ->
-    _ = multicall(DonorNodes, disable_rebalance_agent, [self()]),
+    _ = multicall(DonorNodes, disable_rebalance_agent, [self(), ?ENABLE_KIND]),
     ok.
 
 evict_conns(#{donors := DonorNodes, recipients := RecipientNodes, opts := Opts} = Data) ->
@@ -370,7 +378,7 @@ avg(List) when length(List) >= 1 ->
     lists:sum(List) / length(List).
 
 multicall(Nodes, F, A) ->
-    case apply(emqx_node_rebalance_proto_v2, F, [Nodes | A]) of
+    case apply(emqx_node_rebalance_proto_v3, F, [Nodes | A]) of
         {Results, []} ->
             case lists:partition(fun is_ok/1, lists:zip(Nodes, Results)) of
                 {OkResults, []} ->

@@ -22,12 +22,23 @@ all() ->
     emqx_common_test_helpers:all(?MODULE).
 
 init_per_suite(Config) ->
-    emqx_mgmt_api_test_util:init_suite([emqx_eviction_agent]),
-    Config.
+    Apps = emqx_cth_suite:start(
+        [
+            emqx,
+            emqx_eviction_agent,
+            emqx_management,
+            {emqx_dashboard, "dashboard.listeners.http { enable = true, bind = 18083 }"}
+        ],
+        #{
+            work_dir => emqx_cth_suite:work_dir(Config)
+        }
+    ),
+    _ = emqx_common_test_http:create_default_app(),
+    [{apps, Apps} | Config].
 
 end_per_suite(Config) ->
-    emqx_mgmt_api_test_util:end_suite([emqx_eviction_agent]),
-    Config.
+    emqx_common_test_http:delete_default_app(),
+    emqx_cth_suite:stop(?config(apps, Config)).
 
 %%--------------------------------------------------------------------
 %% Tests
