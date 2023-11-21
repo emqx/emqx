@@ -615,14 +615,11 @@ producer_opts(ActionOrBridgeV1) ->
 %% Hoever we need to keep it backward compatible for generated schema json (version 0.1.0)
 %% since schema is data for the 'schemas' API.
 parameters_field(ActionOrBridgeV1) ->
-    OverriddenV1 = <<"0.1.0">> =:= get(emqx_bridge_schema_version),
     {Name, Alias} =
-        case {OverriddenV1, ActionOrBridgeV1} of
-            {true, _} ->
+        case ActionOrBridgeV1 of
+            v1 ->
                 {kafka, parameters};
-            {_, v1} ->
-                {kafka, parameters};
-            {_, action} ->
+            action ->
                 {parameters, kafka}
         end,
     {Name,
