@@ -1565,6 +1565,9 @@ session_persistence_storage.desc:
 session_storage_backend_enable.desc:
 """Enable this backend."""
 
+session_builtin_n_shards.desc:
+"""Number of shards used for storing the messages."""
+
 session_storage_backend_builtin.desc:
 """Builtin session storage backend utilizing embedded RocksDB key-value store."""
 
