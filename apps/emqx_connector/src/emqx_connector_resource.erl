@@ -49,6 +49,8 @@
     get_channels/2
 ]).
 
+-export([parse_url/1]).
+
 -callback connector_config(ParsedConfig) ->
     ParsedConfig
 when

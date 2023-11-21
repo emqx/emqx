@@ -650,7 +650,8 @@ create_or_update_bridge(BridgeType0, BridgeName, Conf, HttpStatusCode) ->
 
 get_metrics_from_local_node(BridgeType0, BridgeName) ->
     BridgeType = upgrade_type(BridgeType0),
-    format_metrics(emqx_bridge:get_metrics(BridgeType, BridgeName)).
+    MetricsResult = emqx_bridge:get_metrics(BridgeType, BridgeName),
+    format_metrics(MetricsResult).
 
 '/bridges/:id/enable/:enable'(put, #{bindings := #{id := Id, enable := Enable}}) ->
     ?TRY_PARSE_ID(

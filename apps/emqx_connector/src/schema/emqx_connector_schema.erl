@@ -33,7 +33,6 @@
 
 -export([connector_type_to_bridge_types/1]).
 
-
 -export([resource_opts_fields/0, resource_opts_fields/1]).
 
 -export([examples/1]).

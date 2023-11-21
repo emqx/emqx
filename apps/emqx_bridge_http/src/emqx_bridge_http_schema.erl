@@ -75,7 +75,14 @@ fields(webhook_action) ->
         %% for egress bridges with this config, the published messages
         %% will be forwarded to such bridges.
         {local_topic,
-            mk(binary(), #{required => false, desc => ?DESC(emqx_bridge_kafka, mqtt_topic)})},
+            mk(
+                binary(),
+                #{
+                    required => false,
+                    desc => ?DESC("config_local_topic"),
+                    importance => ?IMPORTANCE_HIDDEN
+                }
+            )},
         %% Since e5.3.2, we split the webhook_bridge to two parts: a) connector. b) actions.
         %% some fields are moved to connector, some fields are moved to actions and composed into the
         %% `parameters` field.
@@ -83,8 +90,6 @@ fields(webhook_action) ->
             mk(ref(parameters_opts), #{
                 required => true,
                 desc => ?DESC(parameters_opts)
-                %% TODO:
-                %%validator => fun producer_strategy_key_validator/1
             })}
     ] ++ webhook_resource_opts();
 fields(parameters_opts) ->
@@ -99,7 +104,9 @@ fields(parameters_opts) ->
             )},
         method_field(),
         headers_field(),
-        body_field()
+        body_field(),
+        max_retries_field(),
+        request_timeout_field()
     ];
 %% v2: api schema
 %% The parameter equls to
@@ -122,7 +129,8 @@ fields("config_connector") ->
                     desc => <<"Enable or disable this connector">>,
                     default => true
                 }
-            )}
+            )},
+        {description, emqx_schema:description_schema()}
     ] ++ connector_url_headers() ++ connector_opts();
 %%--------------------------------------------------------------------
 %% v1/v2
@@ -139,6 +147,8 @@ desc("resource_opts") ->
     ?DESC(emqx_resource_schema, "creation_opts");
 desc(Method) when Method =:= "get"; Method =:= "put"; Method =:= "post" ->
     ["Configuration for WebHook using `", string:to_upper(Method), "` method."];
+desc("config_connector") ->
+    ?DESC("desc_config");
 desc(_) ->
     undefined.
 
@@ -180,23 +190,8 @@ request_config() ->
         method_field(),
         headers_field(),
         body_field(),
-        {max_retries,
-            mk(
-                non_neg_integer(),
-                #{
-                    default => 2,
-                    desc => ?DESC("config_max_retries")
-                }
-            )},
-        {request_timeout,
-            mk(
-                emqx_schema:duration_ms(),
-                #{
-                    default => <<"15s">>,
-                    deprecated => {since, "v5.0.26"},
-                    desc => ?DESC("config_request_timeout")
-                }
-            )}
+        max_retries_field(),
+        request_timeout_field()
     ].
 
 %%--------------------------------------------------------------------
@@ -271,6 +266,27 @@ body_field() ->
             #{
                 default => undefined,
                 desc => ?DESC("config_body")
+            }
+        )}.
+
+max_retries_field() ->
+    {max_retries,
+        mk(
+            non_neg_integer(),
+            #{
+                default => 2,
+                desc => ?DESC("config_max_retries")
+            }
+        )}.
+
+request_timeout_field() ->
+    {request_timeout,
+        mk(
+            emqx_schema:duration_ms(),
+            #{
+                default => <<"15s">>,
+                deprecated => {since, "v5.0.26"},
+                desc => ?DESC("config_request_timeout")
             }
         )}.
 

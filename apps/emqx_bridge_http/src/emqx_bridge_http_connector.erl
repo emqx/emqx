@@ -568,10 +568,10 @@ preprocess_request(Req) when map_size(Req) == 0 ->
 preprocess_request(
     #{
         method := Method,
-        path := Path,
-        headers := Headers
+        path := Path
     } = Req
 ) ->
+    Headers = maps:get(headers, Req, []),
     #{
         method => parse_template(to_bin(Method)),
         path => parse_template(Path),
@@ -637,13 +637,14 @@ process_request_and_action(Request, ActionState, Msg) ->
     BodyTemplate = maps:get(body, ActionState),
     Body = render_request_body(BodyTemplate, Msg),
 
-    PathTemplate1 = maps:get(path, Request),
-    PathTemplate2 = maps:get(path, ActionState),
+    PathPrefix = unicode:characters_to_list(render_template(maps:get(path, Request), Msg)),
+    PathSuffix = unicode:characters_to_list(render_template(maps:get(path, ActionState), Msg)),
 
-    Path = join_paths(
-        unicode:characters_to_list(render_template(PathTemplate1, Msg)),
-        unicode:characters_to_list(render_template(PathTemplate2, Msg))
-    ),
+    Path =
+        case PathSuffix of
+            "" -> PathPrefix;
+            _ -> join_paths(PathPrefix, PathSuffix)
+        end,
 
     HeadersTemplate1 = maps:get(headers, Request),
     HeadersTemplate2 = maps:get(headers, ActionState),
