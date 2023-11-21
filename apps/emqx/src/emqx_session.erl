@@ -617,11 +617,11 @@ maybe_mock_impl_mod(_) ->
 
 -spec choose_impl_mod(conninfo()) -> module().
 choose_impl_mod(#{expiry_interval := EI}) ->
-    hd(choose_impl_candidates(EI, emqx_persistent_message:is_store_enabled())).
+    hd(choose_impl_candidates(EI, emqx_persistent_message:is_persistence_enabled())).
 
 -spec choose_impl_candidates(conninfo()) -> [module()].
 choose_impl_candidates(#{expiry_interval := EI}) ->
-    choose_impl_candidates(EI, emqx_persistent_message:is_store_enabled()).
+    choose_impl_candidates(EI, emqx_persistent_message:is_persistence_enabled()).
 
 choose_impl_candidates(_, _IsPSStoreEnabled = false) ->
     [emqx_session_mem];

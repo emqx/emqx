@@ -35,8 +35,8 @@ all() ->
         % NOTE
         % Tests are disabled while existing session persistence impl is being
         % phased out.
-        {group, persistent_store_disabled},
-        {group, persistent_store_ds}
+        {group, persistence_disabled},
+        {group, persistence_enabled}
     ].
 
 %% A persistent session can be resumed in two ways:
@@ -54,24 +54,24 @@ groups() ->
     TCs = emqx_common_test_helpers:all(?MODULE),
     TCsNonGeneric = [t_choose_impl],
     [
-        {persistent_store_disabled, [{group, no_kill_connection_process}]},
-        {persistent_store_ds, [{group, no_kill_connection_process}]},
+        {persistence_disabled, [{group, no_kill_connection_process}]},
+        {persistence_enabled, [{group, no_kill_connection_process}]},
         {no_kill_connection_process, [], [{group, tcp}, {group, quic}, {group, ws}]},
         {tcp, [], TCs},
         {quic, [], TCs -- TCsNonGeneric},
         {ws, [], TCs -- TCsNonGeneric}
     ].
 
-init_per_group(persistent_store_disabled, Config) ->
+init_per_group(persistence_disabled, Config) ->
     [
-        {emqx_config, "persistent_session_store { enabled = false }"},
-        {persistent_store, false}
+        {emqx_config, "session_persistence { enable = false }"},
+        {persistence, false}
         | Config
     ];
-init_per_group(persistent_store_ds, Config) ->
+init_per_group(persistence_enabled, Config) ->
     [
-        {emqx_config, "persistent_session_store { ds = true }"},
-        {persistent_store, ds}
+        {emqx_config, "session_persistence { enable = true }"},
+        {persistence, ds}
         | Config
     ];
 init_per_group(Group, Config) when Group == tcp ->
@@ -312,7 +312,7 @@ t_choose_impl(Config) ->
     {ok, _} = emqtt:ConnFun(Client),
     [ChanPid] = emqx_cm:lookup_channels(ClientId),
     ?assertEqual(
-        case ?config(persistent_store, Config) of
+        case ?config(persistence, Config) of
             false -> emqx_session_mem;
             ds -> emqx_persistent_session_ds
         end,
@@ -878,7 +878,7 @@ t_multiple_subscription_matches(Config) ->
     ok = emqtt:disconnect(Client2).
 
 skip_ds_tc(Config) ->
-    case ?config(persistent_store, Config) of
+    case ?config(persistence, Config) of
         ds ->
             {skip, "Testcase not yet supported under 'emqx_persistent_session_ds' implementation"};
         _ ->
