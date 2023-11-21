@@ -19,7 +19,7 @@
 -include("emqx.hrl").
 
 -export([init/0]).
--export([is_persistence_enabled/0]).
+-export([is_persistence_enabled/0, force_ds/0]).
 
 %% Message persistence
 -export([
@@ -53,6 +53,12 @@ is_persistence_enabled() ->
 -spec storage_backend() -> emqx_ds:create_db_opts().
 storage_backend() ->
     storage_backend(emqx_config:get([session_persistence, storage])).
+
+%% Dev-only option: force all messages to go through
+%% `emqx_persistent_session_ds':
+-spec force_ds() -> boolean().
+force_ds() ->
+    emqx_config:get([session_persistence, force_ds]).
 
 storage_backend(#{
     builtin := #{enable := true, n_shards := NShards, replication_factor := ReplicationFactor}
