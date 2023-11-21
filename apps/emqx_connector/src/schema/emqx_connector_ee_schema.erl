@@ -25,6 +25,8 @@ resource_type(azure_event_hub_producer) ->
     emqx_bridge_kafka_impl_producer;
 resource_type(confluent_producer) ->
     emqx_bridge_kafka_impl_producer;
+resource_type(gcp_pubsub_producer) ->
+    emqx_bridge_gcp_pubsub_impl_producer;
 resource_type(kafka_producer) ->
     emqx_bridge_kafka_impl_producer;
 resource_type(syskeeper_forwarder) ->
@@ -62,6 +64,14 @@ connector_structs() ->
                 hoconsc:map(name, ref(emqx_bridge_confluent_producer, "config_connector")),
                 #{
                     desc => <<"Confluent Connector Config">>,
+                    required => false
+                }
+            )},
+        {gcp_pubsub_producer,
+            mk(
+                hoconsc:map(name, ref(emqx_bridge_gcp_pubsub_producer_schema, "config_connector")),
+                #{
+                    desc => <<"GCP PubSub Producer Connector Config">>,
                     required => false
                 }
             )},

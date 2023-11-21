@@ -40,7 +40,11 @@
 
 -export([types/0, types_sc/0]).
 
--export([make_producer_action_schema/1, make_consumer_action_schema/1]).
+-export([
+    make_producer_action_schema/1,
+    make_consumer_action_schema/1,
+    top_level_common_action_keys/0
+]).
 
 -export_type([action_type/0]).
 
@@ -130,6 +134,8 @@ registered_schema_fields() ->
 
 desc(actions) ->
     ?DESC("desc_bridges_v2");
+desc(resource_opts) ->
+    ?DESC(emqx_resource_schema, "resource_opts");
 desc(_) ->
     undefined.
 
@@ -154,6 +160,16 @@ examples(Method) ->
     SchemaModules = [Mod || {_, Mod} <- emqx_action_info:registered_schema_modules()],
     lists:foldl(Fun, #{}, SchemaModules).
 
+top_level_common_action_keys() ->
+    [
+        <<"connector">>,
+        <<"description">>,
+        <<"enable">>,
+        <<"local_topic">>,
+        <<"parameters">>,
+        <<"resource_opts">>
+    ].
+
 %%======================================================================================
 %% Helper functions for making HOCON Schema
 %%======================================================================================
@@ -174,7 +190,10 @@ make_consumer_action_schema(ActionParametersRef) ->
         {description, emqx_schema:description_schema()},
         {parameters, ActionParametersRef},
         {resource_opts,
-            mk(ref(?MODULE, resource_opts), #{default => #{}, desc => ?DESC(resource_opts)})}
+            mk(ref(?MODULE, resource_opts), #{
+                default => #{},
+                desc => ?DESC(emqx_resource_schema, "resource_opts")
+            })}
     ].
 
 -ifdef(TEST).
@@ -196,7 +215,7 @@ schema_homogeneous_test() ->
 
 is_bad_schema(#{type := ?MAP(_, ?R_REF(Module, TypeName))}) ->
     Fields = Module:fields(TypeName),
-    ExpectedFieldNames = common_field_names(),
+    ExpectedFieldNames = lists:map(fun binary_to_atom/1, top_level_common_action_keys()),
     MissingFileds = lists:filter(
         fun(Name) -> lists:keyfind(Name, 1, Fields) =:= false end, ExpectedFieldNames
     ),
@@ -210,10 +229,5 @@ is_bad_schema(#{type := ?MAP(_, ?R_REF(Module, TypeName))}) ->
                 missing_fields => MissingFileds
             }}
     end.
-
-common_field_names() ->
-    [
-        enable, description, local_topic, connector, resource_opts, parameters
-    ].
 
 -endif.

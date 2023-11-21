@@ -6,4 +6,14 @@ desc_bridges_v2.desc:
 desc_bridges_v2.label:
 """Bridge Configuration"""
 
+mqtt_topic.desc:
+"""MQTT topic or topic filter as data source (action input).  If rule action is used as data source, this config should be left empty, otherwise messages will be duplicated in the remote system."""
+mqtt_topic.label:
+"""Source MQTT Topic"""
+
+config_enable.desc:
+"""Enable (true) or disable (false) this action."""
+config_enable.label:
+"""Enable or Disable"""
+
 }
