@@ -2248,23 +2248,26 @@ session_disconnect(_ClientInfo, _ConnInfo, undefined) ->
 %%   - EMQX operations on the client
 %% @NOTE:
 %%    Connection close with session expiry interval = 0 means session close.
+%% @NOTE:
+%%    The caller does not need to take care of the case when process terminates while will_msg is published
+%%    as it is designed by the spec.
 -spec maybe_publish_will_msg(Reason, channel()) -> channel() when
     Reason ::
-        %% Connection will terminate because session is taken over by another process.
+        %% Connection is terminating because session is taken over by another process.
         takenover
-        %% Connection will terminate because of EMQX mgmt operation, also delete the session.
+        %% Connection is terminating because of EMQX mgmt operation, also delete the session.
         | kicked
-        %% Connection will terminate because session is taken over by another process.
+        %% Connection is terminating because session is taken over by another process.
         | discarded
-        %% Connection will terminate because session is expired
+        %% Connection is terminating because session is expired
         | expired
-        %% Connection will terminate because of socket close/error
+        %% Connection is terminating because of socket close/error
         | sock_closed
-        %% Connection will terminate with Reasons
+        %% Connection is terminating with Reasons
         | {shutdown, atom()}
-        %% Connection will terminate soon, delay willmsg publish is impossible.
+        %% Connection is terminating, delay willmsg publish is impossible.
         | ?chan_terminating
-        %% Connection will terminate because of normal MQTT disconnection, implies delete the session.
+        %% Connection is terminating because of normal MQTT disconnection, implies delete the session.
         | normal.
 maybe_publish_will_msg(normal, Channel) ->
     %% [MQTT-3.1.2-8]
