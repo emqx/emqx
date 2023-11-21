@@ -829,7 +829,7 @@ t_create_with_bad_name(_Config) ->
             <<"code">> := <<"BAD_REQUEST">>,
             <<"message">> := #{
                 <<"kind">> := <<"validation_error">>,
-                <<"reason">> := <<"only 0-9a-zA-Z_- is allowed in resource name", _/binary>>
+                <<"reason">> := <<"Invalid name format.", _/binary>>
             }
         }}} = create_bridge_http_api_v1(Opts),
     ok.

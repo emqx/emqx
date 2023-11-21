@@ -199,7 +199,7 @@ t_create_with_bad_name(_Config) ->
     ?assertMatch(
         {error,
             {pre_config_update, emqx_bridge_app, #{
-                reason := <<"only 0-9a-zA-Z_- is allowed in resource name", _/binary>>,
+                reason := <<"Invalid name format.", _/binary>>,
                 kind := validation_error
             }}},
         emqx:update_config(Path, Conf)

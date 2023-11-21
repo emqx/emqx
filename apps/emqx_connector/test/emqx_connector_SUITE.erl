@@ -229,7 +229,7 @@ t_create_with_bad_name_direct_path(_Config) ->
         {error,
             {pre_config_update, _ConfigHandlerMod, #{
                 kind := validation_error,
-                reason := <<"only 0-9a-zA-Z_- is allowed in resource name", _/binary>>
+                reason := <<"Invalid name format.", _/binary>>
             }}},
         emqx:update_config(Path, ConnConfig)
     ),
