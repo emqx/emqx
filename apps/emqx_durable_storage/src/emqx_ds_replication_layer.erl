@@ -53,6 +53,7 @@
 %% tags:
 -define(STREAM, 1).
 -define(IT, 2).
+-define(BATCH, 3).
 
 %% keys:
 -define(tag, 1).
@@ -91,12 +92,12 @@
 
 -type message_id() :: emqx_ds_storage_layer:message_id().
 
--record(batch, {
-    messages :: [emqx_types:message()],
-    misc = #{} :: map()
-}).
+-define(batch_messages, 2).
 
--type batch() :: #batch{}.
+-type batch() :: #{
+    ?tag := ?BATCH,
+    ?batch_messages := [emqx_types:message()]
+}.
 
 %%================================================================================
 %% API functions
@@ -130,7 +131,7 @@ drop_db(DB) ->
 store_batch(DB, Messages, Opts) ->
     Shard = shard_of_messages(DB, Messages),
     Node = node_of_shard(DB, Shard),
-    Batch = #batch{messages = Messages},
+    Batch = #{?tag => ?BATCH, ?batch_messages => Messages},
     emqx_ds_proto_v1:store_batch(Node, DB, Shard, Batch, Opts).
 
 -spec get_streams(emqx_ds:db(), emqx_ds:topic_filter(), emqx_ds:time()) ->
@@ -214,7 +215,7 @@ do_drop_db_v1(DB) ->
     emqx_ds:message_store_opts()
 ) ->
     emqx_ds:store_batch_result().
-do_store_batch_v1(DB, Shard, #batch{messages = Messages}, Options) ->
+do_store_batch_v1(DB, Shard, #{?tag := ?BATCH, ?batch_messages := Messages}, Options) ->
     emqx_ds_storage_layer:store_batch({DB, Shard}, Messages, Options).
 
 -spec do_get_streams_v1(

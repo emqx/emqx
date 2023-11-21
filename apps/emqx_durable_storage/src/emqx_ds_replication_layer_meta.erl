@@ -81,7 +81,8 @@
 
 -record(?SHARD_TAB, {
     shard :: {emqx_ds:db(), emqx_ds_replication_layer:shard_id()},
-    %% Sites that the
+    %% Sites that should contain the data when the cluster is in the
+    %% stable state (no nodes are being added or removed from it):
     replica_set :: [site()],
     %% Sites that contain the actual data:
     in_sync_replicas :: [site()],
@@ -98,6 +99,10 @@
 %%================================================================================
 %% API funcions
 %%================================================================================
+
+-spec this_site() -> site().
+this_site() ->
+    persistent_term:get(?emqx_ds_builtin_site).
 
 -spec n_shards(emqx_ds:db()) -> pos_integer().
 n_shards(DB) ->
@@ -301,17 +306,13 @@ ensure_site() ->
     persistent_term:put(?emqx_ds_builtin_site, Site),
     ok.
 
--spec this_site() -> site().
-this_site() ->
-    persistent_term:get(?emqx_ds_builtin_site).
-
 -spec create_shards(emqx_ds:db(), pos_integer(), pos_integer()) -> ok.
 create_shards(DB, NShards, ReplicationFactor) ->
     Shards = [integer_to_binary(I) || I <- lists:seq(0, NShards - 1)],
-    Sites = sites(),
+    AllSites = sites(),
     lists:foreach(
         fun(Shard) ->
-            Hashes0 = [{hash(Shard, Site), Site} || Site <- Sites],
+            Hashes0 = [{hash(Shard, Site), Site} || Site <- AllSites],
             Hashes = lists:sort(Hashes0),
             {_, Sites} = lists:unzip(Hashes),
             [First | _] = ReplicaSet = lists:sublist(Sites, 1, ReplicationFactor),
