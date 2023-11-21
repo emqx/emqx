@@ -34,7 +34,8 @@
     best_effort_recursive_sum/3,
     if_only_to_toggle_enable/2,
     update_if_present/3,
-    put_if/4
+    put_if/4,
+    rename/3
 ]).
 
 -export_type([config_key/0, config_key_path/0]).
@@ -309,3 +310,11 @@ put_if(Acc, K, V, true) ->
     Acc#{K => V};
 put_if(Acc, _K, _V, false) ->
     Acc.
+
+rename(OldKey, NewKey, Map) ->
+    case maps:find(OldKey, Map) of
+        {ok, Value} ->
+            maps:put(NewKey, Value, maps:remove(OldKey, Map));
+        error ->
+            Map
+    end.
