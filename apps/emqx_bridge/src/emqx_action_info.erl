@@ -224,7 +224,8 @@ initial_info_map() ->
         bridge_v1_type_to_action_type => #{},
         action_type_to_bridge_v1_type => #{},
         action_type_to_connector_type => #{},
-        action_type_to_schema_module => #{}
+        action_type_to_schema_module => #{},
+        action_type_to_info_module => #{}
     }.
 
 get_info_map(Module) ->
@@ -258,5 +259,10 @@ get_info_map(Module) ->
         },
         action_type_to_schema_module => #{
             ActionType => Module:schema_module()
+        },
+        action_type_to_info_module => #{
+            ActionType => Module,
+            %% Alias the bridge V1 type to the action type
+            BridgeV1Type => Module
         }
     }.
