@@ -61,10 +61,6 @@ body:
         # paste output here
         $ uname -a
         # paste output here
-
-        # On Windows:
-        C:\> wmic os get Caption, Version, BuildNumber, OSArchitecture
-        # paste output here
         ```
 
         </details>
