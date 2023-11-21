@@ -37,7 +37,6 @@
 -include_lib("opentelemetry_api/include/otel_tracer.hrl").
 
 -define(EMQX_OTEL_CTX, otel_ctx).
-%% NOTE: it's possible to use trace_flags to set is_sampled flag
 -define(IS_ENABLED, emqx_enable).
 -define(USER_PROPERTY, 'User-Property').
 
@@ -115,13 +114,11 @@ trace_process_publish(Packet, Channel, ProcessFun) ->
             Ctx = otel_tracer:set_current_span(RootCtx1, SpanCtx),
             %% put ctx to packet, so it can be further propagated
             Packet1 = put_ctx_to_packet(Ctx, Packet),
-            %% TODO: consider getting rid of propagating Ctx through process dict as it's anyway seems to have
-            %% very limited usage
-            otel_ctx:attach(Ctx),
+            _ = otel_ctx:attach(Ctx),
             try
                 ProcessFun(Packet1, Channel)
             after
-                ?end_span(),
+                _ = ?end_span(),
                 clear()
             end
     end.
@@ -261,7 +258,8 @@ clear() ->
 
 safe_stop_default_tracer() ->
     try
-        _ = opentelemetry:stop_default_tracer_provider()
+        _ = opentelemetry:stop_default_tracer_provider(),
+        ok
     catch
         %% noramal scenario, opentelemetry supervisor is not started
         exit:{noproc, _} -> ok

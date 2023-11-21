@@ -102,12 +102,12 @@ cleanup() ->
 
 safe_stop_default_metrics() ->
     try
-        _ = opentelemetry_experimental:stop_default_metrics()
+        _ = opentelemetry_experimental:stop_default_metrics(),
+        ok
     catch
         %% noramal scenario, metrics supervisor is not started
         exit:{noproc, _} -> ok
-    end,
-    ok.
+    end.
 
 create_metric_views() ->
     Meter = opentelemetry_experimental:get_meter(),

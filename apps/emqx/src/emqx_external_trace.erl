@@ -39,12 +39,12 @@
 
 -define(PROVIDER, {?MODULE, trace_provider}).
 
--define(with_provider(IfRegisitered, IfNotRegisired),
+-define(with_provider(IfRegistered, IfNotRegistered),
     case persistent_term:get(?PROVIDER, undefined) of
         undefined ->
-            IfNotRegisired;
+            IfNotRegistered;
         Provider ->
-            Provider:IfRegisitered
+            Provider:IfRegistered
     end
 ).
 
