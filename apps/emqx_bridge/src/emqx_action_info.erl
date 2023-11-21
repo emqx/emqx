@@ -73,8 +73,9 @@
 -if(?EMQX_RELEASE_EDITION == ee).
 hard_coded_action_info_modules_ee() ->
     [
-        emqx_bridge_kafka_action_info,
         emqx_bridge_azure_event_hub_action_info,
+        emqx_bridge_confluent_producer_action_info,
+        emqx_bridge_kafka_action_info,
         emqx_bridge_syskeeper_action_info
     ].
 -else.
