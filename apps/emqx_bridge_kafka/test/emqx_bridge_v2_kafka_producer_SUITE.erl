@@ -23,7 +23,13 @@
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 -include_lib("brod/include/brod.hrl").
 
+-import(emqx_common_test_helpers, [on_exit/1]).
+
 -define(TYPE, kafka_producer).
+
+%%------------------------------------------------------------------------------
+%% CT boilerplate
+%%------------------------------------------------------------------------------
 
 all() ->
     emqx_common_test_helpers:all(?MODULE).
@@ -50,6 +56,135 @@ end_per_suite(Config) ->
     Apps = ?config(apps, Config),
     emqx_cth_suite:stop(Apps),
     ok.
+
+init_per_testcase(_TestCase, Config) ->
+    Config.
+
+end_per_testcase(_TestCase, _Config) ->
+    emqx_common_test_helpers:call_janitor(60_000),
+    ok.
+
+%%-------------------------------------------------------------------------------------
+%% Helper fns
+%%-------------------------------------------------------------------------------------
+
+check_send_message_with_bridge(BridgeName) ->
+    %% ######################################
+    %% Create Kafka message
+    %% ######################################
+    Time = erlang:unique_integer(),
+    BinTime = integer_to_binary(Time),
+    Payload = list_to_binary("payload" ++ integer_to_list(Time)),
+    Msg = #{
+        clientid => BinTime,
+        payload => Payload,
+        timestamp => Time
+    },
+    Offset = resolve_kafka_offset(),
+    %% ######################################
+    %% Send message
+    %% ######################################
+    emqx_bridge_v2:send_message(?TYPE, BridgeName, Msg, #{}),
+    %% ######################################
+    %% Check if message is sent to Kafka
+    %% ######################################
+    check_kafka_message_payload(Offset, Payload).
+
+resolve_kafka_offset() ->
+    KafkaTopic = emqx_bridge_kafka_impl_producer_SUITE:test_topic_one_partition(),
+    Partition = 0,
+    Hosts = emqx_bridge_kafka_impl_producer_SUITE:kafka_hosts(),
+    {ok, Offset0} = emqx_bridge_kafka_impl_producer_SUITE:resolve_kafka_offset(
+        Hosts, KafkaTopic, Partition
+    ),
+    Offset0.
+
+check_kafka_message_payload(Offset, ExpectedPayload) ->
+    KafkaTopic = emqx_bridge_kafka_impl_producer_SUITE:test_topic_one_partition(),
+    Partition = 0,
+    Hosts = emqx_bridge_kafka_impl_producer_SUITE:kafka_hosts(),
+    {ok, {_, [KafkaMsg0]}} = brod:fetch(Hosts, KafkaTopic, Partition, Offset),
+    ?assertMatch(#kafka_message{value = ExpectedPayload}, KafkaMsg0).
+
+bridge_v2_config(ConnectorName) ->
+    #{
+        <<"connector">> => ConnectorName,
+        <<"enable">> => true,
+        <<"kafka">> => #{
+            <<"buffer">> => #{
+                <<"memory_overload_protection">> => false,
+                <<"mode">> => <<"memory">>,
+                <<"per_partition_limit">> => <<"2GB">>,
+                <<"segment_bytes">> => <<"100MB">>
+            },
+            <<"compression">> => <<"no_compression">>,
+            <<"kafka_header_value_encode_mode">> => <<"none">>,
+            <<"max_batch_bytes">> => <<"896KB">>,
+            <<"max_inflight">> => 10,
+            <<"message">> => #{
+                <<"key">> => <<"${.clientid}">>,
+                <<"timestamp">> => <<"${.timestamp}">>,
+                <<"value">> => <<"${.payload}">>
+            },
+            <<"partition_count_refresh_interval">> => <<"60s">>,
+            <<"partition_strategy">> => <<"random">>,
+            <<"query_mode">> => <<"sync">>,
+            <<"required_acks">> => <<"all_isr">>,
+            <<"sync_query_timeout">> => <<"5s">>,
+            <<"topic">> => emqx_bridge_kafka_impl_producer_SUITE:test_topic_one_partition()
+        },
+        <<"local_topic">> => <<"kafka_t/#">>,
+        <<"resource_opts">> => #{
+            <<"health_check_interval">> => <<"15s">>
+        }
+    }.
+
+connector_config() ->
+    #{
+        <<"authentication">> => <<"none">>,
+        <<"bootstrap_hosts">> => iolist_to_binary(kafka_hosts_string()),
+        <<"connect_timeout">> => <<"5s">>,
+        <<"enable">> => true,
+        <<"metadata_request_timeout">> => <<"5s">>,
+        <<"min_metadata_refresh_interval">> => <<"3s">>,
+        <<"socket_opts">> =>
+            #{
+                <<"recbuf">> => <<"1024KB">>,
+                <<"sndbuf">> => <<"1024KB">>,
+                <<"tcp_keepalive">> => <<"none">>
+            },
+        <<"ssl">> =>
+            #{
+                <<"ciphers">> => [],
+                <<"depth">> => 10,
+                <<"enable">> => false,
+                <<"hibernate_after">> => <<"5s">>,
+                <<"log_level">> => <<"notice">>,
+                <<"reuse_sessions">> => true,
+                <<"secure_renegotiate">> => true,
+                <<"verify">> => <<"verify_peer">>,
+                <<"versions">> => [<<"tlsv1.3">>, <<"tlsv1.2">>]
+            }
+    }.
+
+kafka_hosts_string() ->
+    KafkaHost = os:getenv("KAFKA_PLAIN_HOST", "kafka-1.emqx.net"),
+    KafkaPort = os:getenv("KAFKA_PLAIN_PORT", "9092"),
+    KafkaHost ++ ":" ++ KafkaPort.
+
+create_connector(Name, Config) ->
+    Res = emqx_connector:create(?TYPE, Name, Config),
+    on_exit(fun() -> emqx_connector:remove(?TYPE, Name) end),
+    Res.
+
+create_action(Name, Config) ->
+    Res = emqx_bridge_v2:create(?TYPE, Name, Config),
+    on_exit(fun() -> emqx_bridge_v2:remove(?TYPE, Name) end),
+    Res.
+
+%%------------------------------------------------------------------------------
+%% Testcases
+%%------------------------------------------------------------------------------
 
 t_create_remove_list(_) ->
     [] = emqx_bridge_v2:list(),
@@ -187,106 +322,23 @@ t_unknown_topic(_Config) ->
     ),
     ok.
 
-check_send_message_with_bridge(BridgeName) ->
-    %% ######################################
-    %% Create Kafka message
-    %% ######################################
-    Time = erlang:unique_integer(),
-    BinTime = integer_to_binary(Time),
-    Payload = list_to_binary("payload" ++ integer_to_list(Time)),
-    Msg = #{
-        clientid => BinTime,
-        payload => Payload,
-        timestamp => Time
-    },
-    Offset = resolve_kafka_offset(),
-    %% ######################################
-    %% Send message
-    %% ######################################
-    emqx_bridge_v2:send_message(?TYPE, BridgeName, Msg, #{}),
-    %% ######################################
-    %% Check if message is sent to Kafka
-    %% ######################################
-    check_kafka_message_payload(Offset, Payload).
-
-resolve_kafka_offset() ->
-    KafkaTopic = emqx_bridge_kafka_impl_producer_SUITE:test_topic_one_partition(),
-    Partition = 0,
-    Hosts = emqx_bridge_kafka_impl_producer_SUITE:kafka_hosts(),
-    {ok, Offset0} = emqx_bridge_kafka_impl_producer_SUITE:resolve_kafka_offset(
-        Hosts, KafkaTopic, Partition
+t_bad_url(_Config) ->
+    ConnectorName = <<"test_connector">>,
+    ActionName = <<"test_action">>,
+    ActionConfig = bridge_v2_config(<<"test_connector">>),
+    ConnectorConfig0 = connector_config(),
+    ConnectorConfig = ConnectorConfig0#{<<"bootstrap_hosts">> := <<"bad_host:9092">>},
+    ?assertMatch({ok, _}, create_connector(ConnectorName, ConnectorConfig)),
+    ?assertMatch({ok, _}, create_action(ActionName, ActionConfig)),
+    ?assertMatch(
+        {ok, #{
+            resource_data :=
+                #{
+                    status := connecting,
+                    error := [#{reason := unresolvable_hostname}]
+                }
+        }},
+        emqx_connector:lookup(?TYPE, ConnectorName)
     ),
-    Offset0.
-
-check_kafka_message_payload(Offset, ExpectedPayload) ->
-    KafkaTopic = emqx_bridge_kafka_impl_producer_SUITE:test_topic_one_partition(),
-    Partition = 0,
-    Hosts = emqx_bridge_kafka_impl_producer_SUITE:kafka_hosts(),
-    {ok, {_, [KafkaMsg0]}} = brod:fetch(Hosts, KafkaTopic, Partition, Offset),
-    ?assertMatch(#kafka_message{value = ExpectedPayload}, KafkaMsg0).
-
-bridge_v2_config(ConnectorName) ->
-    #{
-        <<"connector">> => ConnectorName,
-        <<"enable">> => true,
-        <<"kafka">> => #{
-            <<"buffer">> => #{
-                <<"memory_overload_protection">> => false,
-                <<"mode">> => <<"memory">>,
-                <<"per_partition_limit">> => <<"2GB">>,
-                <<"segment_bytes">> => <<"100MB">>
-            },
-            <<"compression">> => <<"no_compression">>,
-            <<"kafka_header_value_encode_mode">> => <<"none">>,
-            <<"max_batch_bytes">> => <<"896KB">>,
-            <<"max_inflight">> => 10,
-            <<"message">> => #{
-                <<"key">> => <<"${.clientid}">>,
-                <<"timestamp">> => <<"${.timestamp}">>,
-                <<"value">> => <<"${.payload}">>
-            },
-            <<"partition_count_refresh_interval">> => <<"60s">>,
-            <<"partition_strategy">> => <<"random">>,
-            <<"query_mode">> => <<"sync">>,
-            <<"required_acks">> => <<"all_isr">>,
-            <<"sync_query_timeout">> => <<"5s">>,
-            <<"topic">> => emqx_bridge_kafka_impl_producer_SUITE:test_topic_one_partition()
-        },
-        <<"local_topic">> => <<"kafka_t/#">>,
-        <<"resource_opts">> => #{
-            <<"health_check_interval">> => <<"15s">>
-        }
-    }.
-
-connector_config() ->
-    #{
-        <<"authentication">> => <<"none">>,
-        <<"bootstrap_hosts">> => iolist_to_binary(kafka_hosts_string()),
-        <<"connect_timeout">> => <<"5s">>,
-        <<"enable">> => true,
-        <<"metadata_request_timeout">> => <<"5s">>,
-        <<"min_metadata_refresh_interval">> => <<"3s">>,
-        <<"socket_opts">> =>
-            #{
-                <<"recbuf">> => <<"1024KB">>,
-                <<"sndbuf">> => <<"1024KB">>,
-                <<"tcp_keepalive">> => <<"none">>
-            },
-        <<"ssl">> =>
-            #{
-                <<"ciphers">> => [],
-                <<"depth">> => 10,
-                <<"enable">> => false,
-                <<"hibernate_after">> => <<"5s">>,
-                <<"log_level">> => <<"notice">>,
-                <<"reuse_sessions">> => true,
-                <<"secure_renegotiate">> => true,
-                <<"verify">> => <<"verify_peer">>,
-                <<"versions">> => [<<"tlsv1.3">>, <<"tlsv1.2">>]
-            }
-    }.
-
-kafka_hosts_string() ->
-    KafkaHost = os:getenv("KAFKA_PLAIN_HOST", "kafka-1.emqx.net"),
-    KafkaPort = os:getenv("KAFKA_PLAIN_PORT", "9092"),
-    KafkaHost ++ ":" ++ KafkaPort.
+    ?assertMatch({ok, #{status := connecting}}, emqx_bridge_v2:lookup(?TYPE, ActionName)),
+    ok.
