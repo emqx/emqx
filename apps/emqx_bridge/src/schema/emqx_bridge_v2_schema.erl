@@ -39,6 +39,7 @@
 ]).
 
 -export([types/0, types_sc/0]).
+-export([resource_opts_fields/0, resource_opts_fields/1]).
 
 -export_type([action_type/0]).
 
@@ -136,6 +137,31 @@ types() ->
 -spec types_sc() -> ?ENUM([action_type()]).
 types_sc() ->
     hoconsc:enum(types()).
+
+resource_opts_fields() ->
+    resource_opts_fields(_Overrides = []).
+
+resource_opts_fields(Overrides) ->
+    ActionROFields = [
+        batch_size,
+        batch_time,
+        buffer_mode,
+        buffer_seg_bytes,
+        health_check_interval,
+        inflight_window,
+        max_buffer_bytes,
+        metrics_flush_interval,
+        query_mode,
+        request_ttl,
+        resume_interval,
+        start_after_created,
+        start_timeout,
+        worker_pool_size
+    ],
+    lists:filter(
+        fun({Key, _Sc}) -> lists:member(Key, ActionROFields) end,
+        emqx_resource_schema:create_opts(Overrides)
+    ).
 
 examples(Method) ->
     MergeFun =

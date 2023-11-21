@@ -30,6 +30,8 @@
 
 -export([connector_type_to_bridge_types/1]).
 
+-export([resource_opts_fields/0, resource_opts_fields/1]).
+
 -if(?EMQX_RELEASE_EDITION == ee).
 enterprise_api_schemas(Method) ->
     %% We *must* do this to ensure the module is really loaded, especially when we use
@@ -295,6 +297,24 @@ desc(connectors) ->
     ?DESC("desc_connectors");
 desc(_) ->
     undefined.
+
+resource_opts_fields() ->
+    resource_opts_fields(_Overrides = []).
+
+resource_opts_fields(Overrides) ->
+    %% Note: these don't include buffer-related configurations because buffer workers are
+    %% tied to the action.
+    ConnectorROFields = [
+        health_check_interval,
+        query_mode,
+        request_ttl,
+        start_after_created,
+        start_timeout
+    ],
+    lists:filter(
+        fun({Key, _Sc}) -> lists:member(Key, ConnectorROFields) end,
+        emqx_resource_schema:create_opts(Overrides)
+    ).
 
 %%======================================================================================
 %% Helper Functions
