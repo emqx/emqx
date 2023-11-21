@@ -10,8 +10,11 @@
 %% Test cases
 %%===========================================================================
 
+atoms() ->
+    [my_producer].
+
 pulsar_producer_validations_test() ->
-    Name = list_to_atom("my_producer"),
+    Name = hd(atoms()),
     Conf0 = pulsar_producer_hocon(),
     Conf1 =
         Conf0 ++
