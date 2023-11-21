@@ -32,9 +32,8 @@ bridge_v1_config_to_action_config(BridgeV1Conf, ConnectorName) ->
     Config0 = emqx_action_info:transform_bridge_v1_config_to_action_config(
         BridgeV1Conf, ConnectorName, schema_module(), kafka_producer
     ),
-    KafkaMap = emqx_utils_maps:deep_get([<<"parameters">>, <<"kafka">>], Config0, #{}),
-    Config1 = emqx_utils_maps:deep_remove([<<"parameters">>, <<"kafka">>], Config0),
-    Config2 = emqx_utils_maps:deep_merge(Config1, #{<<"parameters">> => KafkaMap}),
+    KafkaMap = maps:get(<<"kafka">>, BridgeV1Conf, #{}),
+    Config2 = emqx_utils_maps:deep_merge(Config0, #{<<"parameters">> => KafkaMap}),
     maps:with(producer_action_field_keys(), Config2).
 
 %%------------------------------------------------------------------------------------------

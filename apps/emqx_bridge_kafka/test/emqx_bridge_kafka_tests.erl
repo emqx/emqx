@@ -25,7 +25,7 @@ kafka_producer_test() ->
                     <<"kafka_producer">> :=
                         #{
                             <<"myproducer">> :=
-                                #{<<"parameters">> := #{}}
+                                #{<<"kafka">> := #{}}
                         }
                 }
         },
@@ -52,7 +52,7 @@ kafka_producer_test() ->
                         #{
                             <<"myproducer">> :=
                                 #{
-                                    <<"parameters">> := #{},
+                                    <<"kafka">> := #{},
                                     <<"local_topic">> := <<"mqtt/local">>
                                 }
                         }
@@ -68,7 +68,7 @@ kafka_producer_test() ->
                         #{
                             <<"myproducer">> :=
                                 #{
-                                    <<"parameters">> := #{},
+                                    <<"kafka">> := #{},
                                     <<"local_topic">> := <<"mqtt/local">>
                                 }
                         }
@@ -166,7 +166,7 @@ message_key_dispatch_validations_test() ->
     ?assertThrow(
         {_, [
             #{
-                path := "bridges.kafka_producer.myproducer.parameters",
+                path := "bridges.kafka_producer.myproducer.kafka",
                 reason := "Message key cannot be empty when `key_dispatch` strategy is used"
             }
         ]},
@@ -175,7 +175,7 @@ message_key_dispatch_validations_test() ->
     ?assertThrow(
         {_, [
             #{
-                path := "bridges.kafka_producer.myproducer.parameters",
+                path := "bridges.kafka_producer.myproducer.kafka",
                 reason := "Message key cannot be empty when `key_dispatch` strategy is used"
             }
         ]},
