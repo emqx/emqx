@@ -1246,8 +1246,10 @@ handle_info(
         {ok, Channel3} -> {ok, ?REPLY_EVENT(disconnected), Channel3};
         Shutdown -> Shutdown
     end;
-handle_info({sock_closed, Reason}, Channel = #channel{conn_state = disconnected}) ->
-    ?SLOG(error, #{msg => "unexpected_sock_close", reason => Reason}),
+handle_info({sock_closed, _Reason}, Channel = #channel{conn_state = disconnected}) ->
+    %% This can happen as a race:
+    %% EMQX closes socket and marks 'disconnected' but 'tcp_closed' or 'ssl_closed'
+    %% is already in process mailbox
     {ok, Channel};
 handle_info(clean_authz_cache, Channel) ->
     ok = emqx_authz_cache:empty_authz_cache(),
