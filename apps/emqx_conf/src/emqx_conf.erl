@@ -193,12 +193,7 @@ hotconf_schema_json() ->
 bridge_schema_json() ->
     Version = <<"0.1.0">>,
     SchemaInfo = #{title => <<"EMQX Data Bridge API Schema">>, version => Version},
-    put(emqx_bridge_schema_version, Version),
-    try
-        gen_api_schema_json_iodata(emqx_bridge_api, SchemaInfo)
-    after
-        erase(emqx_bridge_schema_version)
-    end.
+    gen_api_schema_json_iodata(emqx_bridge_api, SchemaInfo).
 
 %% TODO: remove it and also remove hocon_md.erl and friends.
 %% markdown generation from schema is a failure and we are moving to an interactive

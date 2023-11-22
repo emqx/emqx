@@ -126,7 +126,7 @@ fields(action) ->
 fields(actions) ->
     Fields =
         override(
-            emqx_bridge_kafka:producer_opts(),
+            emqx_bridge_kafka:producer_opts(action),
             bridge_v2_overrides()
         ) ++
             [

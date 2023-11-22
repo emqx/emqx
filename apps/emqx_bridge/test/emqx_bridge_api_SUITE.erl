@@ -1365,7 +1365,7 @@ t_create_with_bad_name(Config) ->
     ?assertMatch(
         #{
             <<"kind">> := <<"validation_error">>,
-            <<"reason">> := <<"only 0-9a-zA-Z_- is allowed in resource name", _/binary>>
+            <<"reason">> := <<"Invalid name format.", _/binary>>
         },
         Msg
     ),
