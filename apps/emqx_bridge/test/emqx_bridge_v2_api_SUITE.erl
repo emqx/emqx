@@ -1021,6 +1021,26 @@ t_action_types(Config) ->
     ?assert(lists:all(fun is_binary/1, Types), #{types => Types}),
     ok.
 
+t_bad_name(Config) ->
+    Name = <<"_bad_name">>,
+    Res = request_json(
+        post,
+        uri([?ROOT]),
+        ?KAFKA_BRIDGE(Name),
+        Config
+    ),
+    ?assertMatch({ok, 400, #{<<"message">> := _}}, Res),
+    {ok, 400, #{<<"message">> := Msg0}} = Res,
+    Msg = emqx_utils_json:decode(Msg0, [return_maps]),
+    ?assertMatch(
+        #{
+            <<"kind">> := <<"validation_error">>,
+            <<"reason">> := <<"Invalid name format.", _/binary>>
+        },
+        Msg
+    ),
+    ok.
+
 %%% helpers
 listen_on_random_port() ->
     SockOpts = [binary, {active, false}, {packet, raw}, {reuseaddr, true}, {backlog, 1000}],

@@ -372,7 +372,7 @@ schema("/connectors_probe") ->
                 case emqx_connector:remove(ConnectorType, ConnectorName) of
                     ok ->
                         ?NO_CONTENT;
-                    {error, {active_channels, Channels}} ->
+                    {error, {post_config_update, _HandlerMod, {active_channels, Channels}}} ->
                         ?BAD_REQUEST(
                             {<<"Cannot delete connector while there are active channels defined for this connector">>,
                                 Channels}

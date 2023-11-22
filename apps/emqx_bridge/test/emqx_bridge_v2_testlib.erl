@@ -312,6 +312,25 @@ create_rule_and_action_http(BridgeType, RuleTopic, Config, Opts) ->
             Error
     end.
 
+api_spec_schemas(Root) ->
+    Method = get,
+    Path = emqx_mgmt_api_test_util:api_path(["schemas", Root]),
+    Params = [],
+    AuthHeader = [],
+    Opts = #{return_all => true},
+    case emqx_mgmt_api_test_util:request_api(Method, Path, "", AuthHeader, Params, Opts) of
+        {ok, {{_, 200, _}, _, Res0}} ->
+            #{<<"components">> := #{<<"schemas">> := Schemas}} =
+                emqx_utils_json:decode(Res0, [return_maps]),
+            Schemas
+    end.
+
+bridges_api_spec_schemas() ->
+    api_spec_schemas("bridges").
+
+actions_api_spec_schemas() ->
+    api_spec_schemas("actions").
+
 %%------------------------------------------------------------------------------
 %% Testcases
 %%------------------------------------------------------------------------------

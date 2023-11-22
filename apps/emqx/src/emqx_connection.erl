@@ -552,13 +552,13 @@ handle_msg({quic, Data, _Stream, #{len := Len}}, State) when is_binary(Data) ->
     inc_counter(incoming_bytes, Len),
     ok = emqx_metrics:inc('bytes.received', Len),
     when_bytes_in(Len, Data, State);
-handle_msg(check_cache, #state{limiter_buffer = Cache} = State) ->
-    case queue:peek(Cache) of
+handle_msg(check_limiter_buffer, #state{limiter_buffer = Buffer} = State) ->
+    case queue:peek(Buffer) of
         empty ->
-            activate_socket(State);
+            handle_info(activate_socket, State);
         {value, #pending_req{need = Needs, data = Data, next = Next}} ->
-            State2 = State#state{limiter_buffer = queue:drop(Cache)},
-            check_limiter(Needs, Data, Next, [check_cache], State2)
+            State2 = State#state{limiter_buffer = queue:drop(Buffer)},
+            check_limiter(Needs, Data, Next, [check_limiter_buffer], State2)
     end;
 handle_msg(
     {incoming, Packet = ?CONNECT_PACKET(ConnPkt)},
@@ -1036,13 +1036,13 @@ check_limiter(
     Data,
     WhenOk,
     _Msgs,
-    #state{limiter_buffer = Cache} = State
+    #state{limiter_buffer = Buffer} = State
 ) ->
     %% if there has a retry timer,
-    %% cache the operation and execute it after the retry is over
-    %% the maximum length of the cache queue is equal to the active_n
+    %% Buffer the operation and execute it after the retry is over
+    %% the maximum length of the buffer queue is equal to the active_n
     New = #pending_req{need = Needs, data = Data, next = WhenOk},
-    {ok, State#state{limiter_buffer = queue:in(New, Cache)}}.
+    {ok, State#state{limiter_buffer = queue:in(New, Buffer)}}.
 
 %% try to perform a retry
 -spec retry_limiter(state()) -> _.
@@ -1053,7 +1053,7 @@ retry_limiter(#state{limiter = Limiter} = State) ->
         {ok, Limiter2} ->
             Next(
                 Data,
-                [check_cache],
+                [check_limiter_buffer],
                 State#state{
                     limiter = Limiter2,
                     limiter_timer = undefined
