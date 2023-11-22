@@ -211,9 +211,9 @@ action_info_modules() ->
     lists:usort(lists:flatten(ActionInfoModules) ++ hard_coded_action_info_modules()).
 
 action_info_modules(App) ->
-    case application:get_env(App, emqx_action_info_module) of
-        {ok, Module} ->
-            [Module];
+    case application:get_env(App, emqx_action_info_modules) of
+        {ok, Modules} ->
+            Modules;
         _ ->
             []
     end.
