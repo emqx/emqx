@@ -85,8 +85,9 @@ max_connections(#{max_connections := MaxConns}) ->
 %% Private functions
 %%------------------------------------------------------------------------------
 
-do_parse(Content) ->
+do_parse(Content0) ->
     try
+        Content = trim(Content0),
         [EncodedPayload, EncodedSignature] = binary:split(Content, <<".">>),
         Payload = base64:decode(EncodedPayload),
         Signature = base64:decode(EncodedSignature),
@@ -95,6 +96,13 @@ do_parse(Content) ->
         _:_ ->
             {error, bad_license_format}
     end.
+
+trim(Bin) ->
+    trim(trim(Bin, $\n), $\r).
+
+trim(Bin, C) ->
+    [OneValue] = lists:filter(fun(X) -> X =/= <<>> end, binary:split(Bin, <<C:8>>, [global])),
+    OneValue.
 
 verify_signature(Payload, Signature, Key) ->
     public_key:verify(Payload, ?DIGEST_TYPE, Signature, Key).
