@@ -77,7 +77,8 @@
 
 %% Callback to upgrade config after loaded from config file but before validation.
 upgrade_raw_conf(RawConf) ->
-    emqx_connector_schema:transform_bridges_v1_to_connectors_and_bridges_v2(RawConf).
+    RawConf1 = emqx_connector_schema:transform_bridges_v1_to_connectors_and_bridges_v2(RawConf),
+    emqx_otel_schema:upgrade_legacy_metrics(RawConf1).
 
 %% root config should not have a namespace
 namespace() -> undefined.

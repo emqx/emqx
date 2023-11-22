@@ -1,15 +1,44 @@
 emqx_otel_schema {
 
 opentelemetry.desc: "Open Telemetry Toolkit configuration"
+opentelemetry.label: "Open Telemetry"
+
+otel_logs.desc:
+"""Open Telemetry Logs configuration. If enabled, EMQX installs a log handler that formats events according to Open Telemetry log data model and
+exports them to the configured Open Telemetry collector or backend."""
+otel_logs.label: "Open Telemetry Logs"
+
+otel_metrics.desc: "Open Telemetry Metrics configuration."
+otel_metrics.label: "Open Telemetry Metrics"
+
+enable.desc: "Enable or disable Open Telemetry signal."
+enable.label: "Enable."
 
 exporter.desc: "Open Telemetry Exporter"
+exporter.label: "Exporter"
 
-enable.desc: "Enable or disable open telemetry metrics"
+max_queue_size.desc:
+"""The maximum queue size. After the size is reached Open Telemetry signals are dropped."""
+max_queue_size.label: "Max Queue Size"
 
-protocol.desc: "Open Telemetry Exporter Protocol"
+exporting_timeout.desc: "The time Open Telemetry signal export can run before it is cancelled."
+exporting_timeout.label: "Exporting Timeout"
 
-endpoint.desc: "Open Telemetry Exporter Endpoint"
+scheduled_delay.desc: "The delay interval between two consecutive exports of Open Telemetry signals."
+scheduled_delay.label: "Scheduled Delay Interval"
 
-interval.desc: "The interval of sending metrics to Open Telemetry Endpoint"
+exporter_endpoint.desc:
+"""The target URL to which the exporter is going to send Open Telemetry signal data."""
+exporter_endpoint.label: "Exporter Endpoint"
+
+exporter_protocol.desc: "The transport protocol of Open Telemetry Exporter"
+exporter_protocol.label: "Exporter Protocol"
+
+exporter_ssl.desc: "SSL configuration for the Open Telemetry exporter"
+exporter_ssl.label: "SSL Options"
+
+otel_log_handler_level.desc:
+"""The log level of the Open Telemetry log handler."""
+otel_log_handler_level.label: "Log Level"
 
 }
