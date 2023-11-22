@@ -62,7 +62,11 @@ storage_backend(#{
         storage => {emqx_ds_storage_bitfield_lts, #{}},
         n_shards => NShards,
         replication_factor => ReplicationFactor
-    }.
+    };
+storage_backend(#{
+    fdb := #{enable := true} = FDBConfig
+}) ->
+    FDBConfig#{backend => fdb}.
 
 %%--------------------------------------------------------------------
 

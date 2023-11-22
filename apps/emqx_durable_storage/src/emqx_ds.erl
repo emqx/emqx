@@ -86,8 +86,14 @@
 
 -type message_store_opts() :: #{}.
 
+-type generic_db_opts() ::
+    #{
+        backend := atom(),
+        _ => _
+    }.
+
 -type create_db_opts() ::
-    emqx_ds_replication_layer:builtin_db_opts().
+    emqx_ds_replication_layer:builtin_db_opts() | generic_db_opts().
 
 -type message_id() :: emqx_ds_replication_layer:message_id().
 
@@ -120,10 +126,11 @@
 %% @doc Different DBs are completely independent from each other. They
 %% could represent something like different tenants.
 -spec open_db(db(), create_db_opts()) -> ok.
-open_db(DB, Opts = #{backend := Backend}) when Backend =:= builtin ->
+open_db(DB, Opts = #{backend := Backend}) when Backend =:= builtin orelse Backend =:= fdb ->
     Module =
         case Backend of
-            builtin -> emqx_ds_replication_layer
+            builtin -> emqx_ds_replication_layer;
+            fdb -> emqx_fdb_ds
         end,
     persistent_term:put(?persistent_term(DB), Module),
     ?module(DB):open_db(DB, Opts).
