@@ -9,7 +9,7 @@
         telemetry,
         wolff
     ]},
-    {env, []},
+    {env, [{emqx_action_info_modules, [emqx_bridge_confluent_producer_action_info]}]},
     {modules, []},
     {links, []}
 ]}.
