@@ -74,9 +74,9 @@ jobs:
         otp:
           - ${{ inputs.otp_vsn }}
         os:
-          - macos-11
           - macos-12
           - macos-12-arm64
+          - macos-13
     runs-on: ${{ matrix.os }}
     steps:
     - uses: emqx/self-hosted-cleanup-action@v1.0.3
