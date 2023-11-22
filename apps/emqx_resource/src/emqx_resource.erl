@@ -812,11 +812,11 @@ validate_name(Name) ->
     ok.
 
 validate_name(<<>>, _Opts) ->
-    invalid_data("name cannot be empty string");
+    invalid_data("Name cannot be empty string");
 validate_name(Name, _Opts) when size(Name) >= 255 ->
-    invalid_data("name length must be less than 255");
+    invalid_data("Name length must be less than 255");
 validate_name(Name, Opts) ->
-    case re:run(Name, <<"^[-0-9a-zA-Z_]+$">>, [{capture, none}]) of
+    case re:run(Name, <<"^[0-9a-zA-Z][-0-9a-zA-Z_]*$">>, [{capture, none}]) of
         match ->
             case maps:get(atom_name, Opts, true) of
                 %% NOTE
@@ -827,7 +827,12 @@ validate_name(Name, Opts) ->
             end;
         nomatch ->
             invalid_data(
-                <<"only 0-9a-zA-Z_- is allowed in resource name, got: ", Name/binary>>
+                <<
+                    "Invalid name format. The name must begin with a letter or number "
+                    "(0-9, a-z, A-Z) and can only include underscores and hyphens as "
+                    "non-initial characters. Got: ",
+                    Name/binary
+                >>
             )
     end.
 

@@ -1034,10 +1034,8 @@ t_bad_name(Config) ->
     Msg = emqx_utils_json:decode(Msg0, [return_maps]),
     ?assertMatch(
         #{
-            <<"got">> := [<<"_bad_name">>],
             <<"kind">> := <<"validation_error">>,
-            <<"path">> := <<"actions.kafka_producer">>,
-            <<"reason">> := <<"invalid_map_key">>
+            <<"reason">> := <<"Invalid name format.", _/binary>>
         },
         Msg
     ),
