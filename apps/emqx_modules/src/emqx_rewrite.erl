@@ -158,6 +158,8 @@ match_and_rewrite(Topic, [{Filter, MP, Dest} | Rules], Binds) ->
         false -> match_and_rewrite(Topic, Rules, Binds)
     end.
 
+rewrite(SharedRecord = #share{topic = Topic}, MP, Dest, Binds) ->
+    SharedRecord#share{topic = rewrite(Topic, MP, Dest, Binds)};
 rewrite(Topic, MP, Dest, Binds) ->
     case re:run(Topic, MP, [{capture, all_but_first, list}]) of
         {match, Captured} ->

@@ -78,7 +78,6 @@ query_mode(_Config) ->
 -spec on_start(resource_id(), config()) -> {ok, state()}.
 on_start(InstanceId, Config) ->
     #{
-        authentication := _Auth,
         bridge_name := BridgeName,
         servers := Servers0,
         ssl := SSL
@@ -263,12 +262,14 @@ conn_opts(#{authentication := none}) ->
     #{};
 conn_opts(#{authentication := #{username := Username, password := Password}}) ->
     #{
-        auth_data => iolist_to_binary([Username, <<":">>, Password]),
+        %% TODO: teach `pulsar` to accept 0-arity closures as passwords.
+        auth_data => iolist_to_binary([Username, <<":">>, emqx_secret:unwrap(Password)]),
         auth_method_name => <<"basic">>
     };
 conn_opts(#{authentication := #{jwt := JWT}}) ->
     #{
-        auth_data => JWT,
+        %% TODO: teach `pulsar` to accept 0-arity closures as passwords.
+        auth_data => emqx_secret:unwrap(JWT),
         auth_method_name => <<"token">>
     }.
 

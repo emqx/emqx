@@ -27,50 +27,29 @@
 -export([
     get_response/0,
     put_request/0,
-    post_request/0
+    post_request/0,
+    examples/1
+]).
+
+%% Exported for mocking
+%% TODO: refactor emqx_bridge_v1_compatibility_layer_SUITE so we don't need to
+%% export this
+-export([
+    registered_api_schemas/1
 ]).
 
 -export([types/0, types_sc/0]).
 
--export([enterprise_api_schemas/1]).
+-export([
+    make_producer_action_schema/1,
+    make_consumer_action_schema/1,
+    top_level_common_action_keys/0
+]).
 
 -export_type([action_type/0]).
 
 %% Should we explicitly list them here so dialyzer may be more helpful?
 -type action_type() :: atom().
-
--if(?EMQX_RELEASE_EDITION == ee).
--spec enterprise_api_schemas(Method) -> [{_Type :: binary(), ?R_REF(module(), Method)}] when
-    Method :: string().
-enterprise_api_schemas(Method) ->
-    %% We *must* do this to ensure the module is really loaded, especially when we use
-    %% `call_hocon' from `nodetool' to generate initial configurations.
-    _ = emqx_bridge_v2_enterprise:module_info(),
-    case erlang:function_exported(emqx_bridge_v2_enterprise, api_schemas, 1) of
-        true -> emqx_bridge_v2_enterprise:api_schemas(Method);
-        false -> []
-    end.
-
-enterprise_fields_actions() ->
-    %% We *must* do this to ensure the module is really loaded, especially when we use
-    %% `call_hocon' from `nodetool' to generate initial configurations.
-    _ = emqx_bridge_v2_enterprise:module_info(),
-    case erlang:function_exported(emqx_bridge_v2_enterprise, fields, 1) of
-        true ->
-            emqx_bridge_v2_enterprise:fields(actions);
-        false ->
-            []
-    end.
-
--else.
-
--spec enterprise_api_schemas(Method) -> [{_Type :: binary(), ?R_REF(module(), Method)}] when
-    Method :: string().
-enterprise_api_schemas(_Method) -> [].
-
-enterprise_fields_actions() -> [].
-
--endif.
 
 %%======================================================================================
 %% For HTTP APIs
@@ -84,8 +63,18 @@ post_request() ->
     api_schema("post").
 
 api_schema(Method) ->
-    EE = ?MODULE:enterprise_api_schemas(Method),
-    hoconsc:union(bridge_api_union(EE)).
+    APISchemas = ?MODULE:registered_api_schemas(Method),
+    hoconsc:union(bridge_api_union(APISchemas)).
+
+registered_api_schemas(Method) ->
+    RegisteredSchemas = emqx_action_info:registered_schema_modules(),
+    [
+        api_ref(SchemaModule, atom_to_binary(BridgeV2Type), Method ++ "_bridge_v2")
+     || {BridgeV2Type, SchemaModule} <- RegisteredSchemas
+    ].
+
+api_ref(Module, Type, Method) ->
+    {Type, ref(Module, Method)}.
 
 bridge_api_union(Refs) ->
     Index = maps:from_list(Refs),
@@ -133,10 +122,20 @@ roots() ->
     end.
 
 fields(actions) ->
-    [] ++ enterprise_fields_actions().
+    registered_schema_fields();
+fields(resource_opts) ->
+    emqx_resource_schema:create_opts(_Overrides = []).
+
+registered_schema_fields() ->
+    [
+        Module:fields(action)
+     || {_BridgeV2Type, Module} <- emqx_action_info:registered_schema_modules()
+    ].
 
 desc(actions) ->
     ?DESC("desc_bridges_v2");
+desc(resource_opts) ->
+    ?DESC(emqx_resource_schema, "resource_opts");
 desc(_) ->
     undefined.
 
@@ -147,6 +146,55 @@ types() ->
 -spec types_sc() -> ?ENUM([action_type()]).
 types_sc() ->
     hoconsc:enum(types()).
+
+examples(Method) ->
+    MergeFun =
+        fun(Example, Examples) ->
+            maps:merge(Examples, Example)
+        end,
+    Fun =
+        fun(Module, Examples) ->
+            ConnectorExamples = erlang:apply(Module, bridge_v2_examples, [Method]),
+            lists:foldl(MergeFun, Examples, ConnectorExamples)
+        end,
+    SchemaModules = [Mod || {_, Mod} <- emqx_action_info:registered_schema_modules()],
+    lists:foldl(Fun, #{}, SchemaModules).
+
+top_level_common_action_keys() ->
+    [
+        <<"connector">>,
+        <<"description">>,
+        <<"enable">>,
+        <<"local_topic">>,
+        <<"parameters">>,
+        <<"resource_opts">>
+    ].
+
+%%======================================================================================
+%% Helper functions for making HOCON Schema
+%%======================================================================================
+
+make_producer_action_schema(ActionParametersRef) ->
+    [
+        {local_topic, mk(binary(), #{required => false, desc => ?DESC(mqtt_topic)})}
+        | make_consumer_action_schema(ActionParametersRef)
+    ].
+
+make_consumer_action_schema(ActionParametersRef) ->
+    [
+        {enable, mk(boolean(), #{desc => ?DESC("config_enable"), default => true})},
+        {connector,
+            mk(binary(), #{
+                desc => ?DESC(emqx_connector_schema, "connector_field"), required => true
+            })},
+        {description, emqx_schema:description_schema()},
+        {parameters, ActionParametersRef},
+        {resource_opts,
+            mk(ref(?MODULE, resource_opts), #{
+                default => #{},
+                desc => ?DESC(emqx_resource_schema, "resource_opts")
+            })}
+    ].
 
 -ifdef(TEST).
 -include_lib("hocon/include/hocon_types.hrl").
@@ -167,7 +215,7 @@ schema_homogeneous_test() ->
 
 is_bad_schema(#{type := ?MAP(_, ?R_REF(Module, TypeName))}) ->
     Fields = Module:fields(TypeName),
-    ExpectedFieldNames = common_field_names(),
+    ExpectedFieldNames = lists:map(fun binary_to_atom/1, top_level_common_action_keys()),
     MissingFileds = lists:filter(
         fun(Name) -> lists:keyfind(Name, 1, Fields) =:= false end, ExpectedFieldNames
     ),
@@ -181,10 +229,5 @@ is_bad_schema(#{type := ?MAP(_, ?R_REF(Module, TypeName))}) ->
                 missing_fields => MissingFileds
             }}
     end.
-
-common_field_names() ->
-    [
-        enable, description, local_topic, connector, resource_opts, parameters
-    ].
 
 -endif.

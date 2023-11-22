@@ -35,7 +35,7 @@
 %% ===================================================================
 -spec on_start(binary(), hoconsc:config(), proplists:proplist(), map()) ->
     {ok, binary(), map()} | {error, _}.
-on_start(InstId, #{bind_password := _} = Config, Options, State) ->
+on_start(InstId, #{method := #{bind_password := _}} = Config, Options, State) ->
     PoolName = pool_name(InstId),
     ?SLOG(info, #{
         msg => "starting_ldap_bind_worker",
@@ -108,15 +108,10 @@ on_query(
 connect(Conf) ->
     emqx_ldap:connect(Conf).
 
-prepare_template(Config, State) ->
-    do_prepare_template(maps:to_list(maps:with([bind_password], Config)), State).
-
-do_prepare_template([{bind_password, V} | T], State) ->
+prepare_template(#{method := #{bind_password := V}}, State) ->
     %% This is sensitive data
     %% to reduce match cases, here we reuse the existing sensitive filter key: bind_password
-    do_prepare_template(T, State#{bind_password => emqx_placeholder:preproc_tmpl(V)});
-do_prepare_template([], State) ->
-    State.
+    State#{bind_password => emqx_placeholder:preproc_tmpl(V)}.
 
 pool_name(InstId) ->
     <<InstId/binary, "-", ?POOL_NAME_SUFFIX>>.

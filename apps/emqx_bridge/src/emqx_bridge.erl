@@ -55,7 +55,6 @@
 ]).
 
 -export([config_key_path/0]).
--export([validate_bridge_name/1]).
 
 %% exported for `emqx_telemetry'
 -export([get_basic_usage_info/0]).
@@ -93,7 +92,8 @@
     T == iotdb;
     T == kinesis_producer;
     T == greptimedb;
-    T == azure_event_hub_producer
+    T == azure_event_hub_producer;
+    T == syskeeper_forwarder
 ).
 
 -define(ROOT_KEY, bridges).
@@ -268,7 +268,12 @@ config_key_path() ->
 pre_config_update([?ROOT_KEY], RawConf, RawConf) ->
     {ok, RawConf};
 pre_config_update([?ROOT_KEY], NewConf, _RawConf) ->
-    {ok, convert_certs(NewConf)}.
+    case multi_validate_bridge_names(NewConf) of
+        ok ->
+            {ok, convert_certs(NewConf)};
+        Error ->
+            Error
+    end.
 
 post_config_update([?ROOT_KEY], _Req, NewConf, OldConf, _AppEnv) ->
     #{added := Added, removed := Removed, changed := Updated} =
@@ -307,7 +312,7 @@ list() ->
             emqx:get_raw_config([bridges], #{})
         ),
     BridgeV2Bridges =
-        emqx_bridge_v2:list_and_transform_to_bridge_v1(),
+        emqx_bridge_v2:bridge_v1_list_and_transform(),
     BridgeV1Bridges ++ BridgeV2Bridges.
 %%BridgeV2Bridges = emqx_bridge_v2:list().
 
@@ -318,7 +323,7 @@ lookup(Id) ->
 lookup(Type, Name) ->
     case emqx_bridge_v2:is_bridge_v2_type(Type) of
         true ->
-            emqx_bridge_v2:lookup_and_transform_to_bridge_v1(Type, Name);
+            emqx_bridge_v2:bridge_v1_lookup_and_transform(Type, Name);
         false ->
             RawConf = emqx:get_raw_config([bridges, Type, Name], #{}),
             lookup(Type, Name, RawConf)
@@ -340,7 +345,7 @@ lookup(Type, Name, RawConf) ->
 get_metrics(Type, Name) ->
     case emqx_bridge_v2:is_bridge_v2_type(Type) of
         true ->
-            case emqx_bridge_v2:is_valid_bridge_v1(Type, Name) of
+            case emqx_bridge_v2:bridge_v1_is_valid(Type, Name) of
                 true ->
                     BridgeV2Type = emqx_bridge_v2:bridge_v2_type_to_connector_type(Type),
                     emqx_bridge_v2:get_metrics(BridgeV2Type, Name);
@@ -383,7 +388,7 @@ create(BridgeType0, BridgeName, RawConf) ->
     }),
     case emqx_bridge_v2:is_bridge_v2_type(BridgeType) of
         true ->
-            emqx_bridge_v2:split_bridge_v1_config_and_create(BridgeType, BridgeName, RawConf);
+            emqx_bridge_v2:bridge_v1_split_config_and_create(BridgeType, BridgeName, RawConf);
         false ->
             emqx_conf:update(
                 emqx_bridge:config_key_path() ++ [BridgeType, BridgeName],
@@ -657,17 +662,13 @@ get_basic_usage_info() ->
             InitialAcc
     end.
 
-validate_bridge_name(BridgeName0) ->
-    BridgeName = to_bin(BridgeName0),
-    case re:run(BridgeName, ?MAP_KEY_RE, [{capture, none}]) of
-        match ->
-            ok;
-        nomatch ->
-            {error, #{
-                kind => validation_error,
-                reason => bad_bridge_name,
-                value => BridgeName
-            }}
+validate_bridge_name(BridgeName) ->
+    try
+        _ = emqx_resource:validate_name(to_bin(BridgeName)),
+        ok
+    catch
+        throw:Error ->
+            {error, Error}
     end.
 
 to_bin(A) when is_atom(A) -> atom_to_binary(A, utf8);
@@ -675,3 +676,31 @@ to_bin(B) when is_binary(B) -> B.
 
 upgrade_type(Type) ->
     emqx_bridge_lib:upgrade_type(Type).
+
+multi_validate_bridge_names(Conf) ->
+    BridgeTypeAndNames =
+        [
+            {Type, Name}
+         || {Type, NameToConf} <- maps:to_list(Conf),
+            {Name, _Conf} <- maps:to_list(NameToConf)
+        ],
+    BadBridges =
+        lists:filtermap(
+            fun({Type, Name}) ->
+                case validate_bridge_name(Name) of
+                    ok -> false;
+                    _Error -> {true, #{type => Type, name => Name}}
+                end
+            end,
+            BridgeTypeAndNames
+        ),
+    case BadBridges of
+        [] ->
+            ok;
+        [_ | _] ->
+            {error, #{
+                kind => validation_error,
+                reason => bad_bridge_names,
+                bad_bridges => BadBridges
+            }}
+    end.

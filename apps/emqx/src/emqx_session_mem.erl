@@ -44,6 +44,8 @@
 %% State is stored in-memory in the process heap.
 -module(emqx_session_mem).
 
+-behaviour(emqx_session).
+
 -include("emqx.hrl").
 -include("emqx_mqtt.hrl").
 -include("emqx_session_mem.hrl").
@@ -314,7 +316,7 @@ unsubscribe(
             {error, ?RC_NO_SUBSCRIPTION_EXISTED}
     end.
 
--spec get_subscription(emqx_types:topic(), session()) ->
+-spec get_subscription(emqx_types:topic() | emqx_types:share(), session()) ->
     emqx_types:subopts() | undefined.
 get_subscription(Topic, #session{subscriptions = Subs}) ->
     maps:get(Topic, Subs, undefined).

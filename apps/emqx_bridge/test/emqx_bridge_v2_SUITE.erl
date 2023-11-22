@@ -20,6 +20,7 @@
 
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
+-include_lib("emqx_resource/include/emqx_resource.hrl").
 
 -import(emqx_common_test_helpers, [on_exit/1]).
 
@@ -43,13 +44,22 @@ con_schema() ->
         {
             con_type(),
             hoconsc:mk(
-                hoconsc:map(name, typerefl:map()),
+                hoconsc:map(name, hoconsc:ref(?MODULE, connector_config)),
                 #{
                     desc => <<"Test Connector Config">>,
                     required => false
                 }
             )
         }
+    ].
+
+fields(connector_config) ->
+    [
+        {enable, hoconsc:mk(typerefl:boolean(), #{})},
+        {resource_opts, hoconsc:mk(typerefl:map(), #{})},
+        {on_start_fun, hoconsc:mk(typerefl:binary(), #{})},
+        {on_get_status_fun, hoconsc:mk(typerefl:binary(), #{})},
+        {on_add_channel_fun, hoconsc:mk(typerefl:binary(), #{})}
     ].
 
 con_config() ->
@@ -112,6 +122,7 @@ setup_mocks() ->
 
     catch meck:new(emqx_connector_schema, MeckOpts),
     meck:expect(emqx_connector_schema, fields, 1, con_schema()),
+    meck:expect(emqx_connector_schema, connector_type_to_bridge_types, 1, [con_type()]),
 
     catch meck:new(emqx_connector_resource, MeckOpts),
     meck:expect(emqx_connector_resource, connector_to_resource_type, 1, con_mod()),
@@ -159,15 +170,7 @@ init_per_testcase(_TestCase, Config) ->
     ets:new(fun_table_name(), [named_table, public]),
     %% Create a fake connector
     {ok, _} = emqx_connector:create(con_type(), con_name(), con_config()),
-    [
-        {mocked_mods, [
-            emqx_connector_schema,
-            emqx_connector_resource,
-
-            emqx_bridge_v2
-        ]}
-        | Config
-    ].
+    Config.
 
 end_per_testcase(_TestCase, _Config) ->
     ets:delete(fun_table_name()),
@@ -264,17 +267,17 @@ t_create_dry_run_connector_does_not_exist(_) ->
     BridgeConf = (bridge_config())#{<<"connector">> => <<"connector_does_not_exist">>},
     {error, _} = emqx_bridge_v2:create_dry_run(bridge_type(), BridgeConf).
 
-t_is_valid_bridge_v1(_) ->
+t_bridge_v1_is_valid(_) ->
     {ok, _} = emqx_bridge_v2:create(bridge_type(), my_test_bridge, bridge_config()),
-    true = emqx_bridge_v2:is_valid_bridge_v1(bridge_v1_type, my_test_bridge),
+    true = emqx_bridge_v2:bridge_v1_is_valid(bridge_v1_type, my_test_bridge),
     %% Add another channel/bridge to the connector
     {ok, _} = emqx_bridge_v2:create(bridge_type(), my_test_bridge_2, bridge_config()),
-    false = emqx_bridge_v2:is_valid_bridge_v1(bridge_v1_type, my_test_bridge),
+    false = emqx_bridge_v2:bridge_v1_is_valid(bridge_v1_type, my_test_bridge),
     ok = emqx_bridge_v2:remove(bridge_type(), my_test_bridge),
-    true = emqx_bridge_v2:is_valid_bridge_v1(bridge_v1_type, my_test_bridge_2),
+    true = emqx_bridge_v2:bridge_v1_is_valid(bridge_v1_type, my_test_bridge_2),
     ok = emqx_bridge_v2:remove(bridge_type(), my_test_bridge_2),
     %% Non existing bridge is a valid Bridge V1
-    true = emqx_bridge_v2:is_valid_bridge_v1(bridge_v1_type, my_test_bridge),
+    true = emqx_bridge_v2:bridge_v1_is_valid(bridge_v1_type, my_test_bridge),
     ok.
 
 t_manual_health_check(_) ->
@@ -647,10 +650,12 @@ t_load_config_success(_Config) ->
         {ok, _},
         update_root_config(RootConf0)
     ),
+    BridgeTypeBin = bin(BridgeType),
+    BridgeNameBin = bin(BridgeName),
     ?assertMatch(
         {ok, #{
-            type := BridgeType,
-            name := BridgeName,
+            type := BridgeTypeBin,
+            name := BridgeNameBin,
             raw_config := #{},
             resource_data := #{}
         }},
@@ -665,8 +670,8 @@ t_load_config_success(_Config) ->
     ),
     ?assertMatch(
         {ok, #{
-            type := BridgeType,
-            name := BridgeName,
+            type := BridgeTypeBin,
+            name := BridgeNameBin,
             raw_config := #{<<"some_key">> := <<"new_value">>},
             resource_data := #{}
         }},
@@ -844,6 +849,51 @@ t_start_operation_when_on_add_channel_gives_error(_Config) ->
     ),
     ok.
 
+t_lookup_status_when_connecting(_Config) ->
+    ResponseETS = ets:new(response_ets, [public]),
+    ets:insert(ResponseETS, {on_get_status_value, ?status_connecting}),
+    OnGetStatusFun = wrap_fun(fun() ->
+        ets:lookup_element(ResponseETS, on_get_status_value, 2)
+    end),
+
+    ConnectorConfig = emqx_utils_maps:deep_merge(con_config(), #{
+        <<"on_get_status_fun">> => OnGetStatusFun,
+        <<"resource_opts">> => #{<<"start_timeout">> => 100}
+    }),
+    ConnectorName = ?FUNCTION_NAME,
+    ct:pal("connector config:\n  ~p", [ConnectorConfig]),
+    {ok, _} = emqx_connector:create(con_type(), ConnectorName, ConnectorConfig),
+
+    ActionName = my_test_action,
+    ChanStatusFun = wrap_fun(fun() -> ?status_disconnected end),
+    ActionConfig = (bridge_config())#{
+        <<"on_get_channel_status_fun">> => ChanStatusFun,
+        <<"connector">> => atom_to_binary(ConnectorName)
+    },
+    ct:pal("action config:\n  ~p", [ActionConfig]),
+    {ok, _} = emqx_bridge_v2:create(bridge_type(), ActionName, ActionConfig),
+
+    %% Top-level status is connecting if the connector status is connecting, but the
+    %% channel is not yet installed.  `resource_data.added_channels.$channel_id.status'
+    %% contains true internal status.
+    {ok, Res} = emqx_bridge_v2:lookup(bridge_type(), ActionName),
+    ?assertMatch(
+        #{
+            %% This is the action's public status
+            status := ?status_connecting,
+            resource_data :=
+                #{
+                    %% This is the connector's status
+                    status := ?status_connecting
+                }
+        },
+        Res
+    ),
+    #{resource_data := #{added_channels := Channels}} = Res,
+    [{_Id, ChannelData}] = maps:to_list(Channels),
+    ?assertMatch(#{status := ?status_disconnected}, ChannelData),
+    ok.
+
 %% Helper Functions
 
 wait_until(Fun) ->
@@ -860,3 +910,7 @@ wait_until(Fun, Timeout) when Timeout >= 0 ->
     end;
 wait_until(_, _) ->
     ct:fail("Wait until event did not happen").
+
+bin(Bin) when is_binary(Bin) -> Bin;
+bin(Str) when is_list(Str) -> list_to_binary(Str);
+bin(Atom) when is_atom(Atom) -> atom_to_binary(Atom, utf8).

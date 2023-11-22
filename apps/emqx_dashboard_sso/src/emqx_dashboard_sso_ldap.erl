@@ -96,7 +96,7 @@ parse_config(Config0) ->
 %% In this feature, the `bind_password` is fixed, so it should conceal from the swagger,
 %% but the connector still needs it, hence we should add it back here
 ensure_bind_password(Config) ->
-    Config#{bind_password => <<"${password}">>}.
+    Config#{method => #{type => bind, bind_password => <<"${password}">>}}.
 
 adjust_ldap_fields(Fields) ->
     lists:map(fun adjust_ldap_field/1, Fields).

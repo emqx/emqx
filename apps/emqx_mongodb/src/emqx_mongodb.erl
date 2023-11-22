@@ -145,7 +145,7 @@ mongo_fields() ->
         {srv_record, fun srv_record/1},
         {pool_size, fun emqx_connector_schema_lib:pool_size/1},
         {username, fun emqx_connector_schema_lib:username/1},
-        {password, fun emqx_connector_schema_lib:password/1},
+        {password, emqx_connector_schema_lib:password_field()},
         {use_legacy_protocol,
             hoconsc:mk(hoconsc:enum([auto, true, false]), #{
                 default => auto,
@@ -433,8 +433,8 @@ init_worker_options([{auth_source, V} | R], Acc) ->
     init_worker_options(R, [{auth_source, V} | Acc]);
 init_worker_options([{username, V} | R], Acc) ->
     init_worker_options(R, [{login, V} | Acc]);
-init_worker_options([{password, V} | R], Acc) ->
-    init_worker_options(R, [{password, emqx_secret:wrap(V)} | Acc]);
+init_worker_options([{password, Secret} | R], Acc) ->
+    init_worker_options(R, [{password, Secret} | Acc]);
 init_worker_options([{w_mode, V} | R], Acc) ->
     init_worker_options(R, [{w_mode, V} | Acc]);
 init_worker_options([{r_mode, V} | R], Acc) ->

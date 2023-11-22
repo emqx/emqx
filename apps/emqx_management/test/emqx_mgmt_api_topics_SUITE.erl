@@ -123,3 +123,35 @@ t_percent_topics(_Config) ->
     ),
 
     ok = emqtt:stop(Client).
+
+t_shared_topics(_Configs) ->
+    Node = atom_to_binary(node(), utf8),
+    RealTopic = <<"t/+">>,
+    Topic = <<"$share/g1/", RealTopic/binary>>,
+
+    {ok, Client} = emqtt:start_link(#{
+        username => <<"routes_username">>, clientid => <<"routes_cid">>
+    }),
+    {ok, _} = emqtt:connect(Client),
+    {ok, _, _} = emqtt:subscribe(Client, Topic),
+    {ok, _, _} = emqtt:subscribe(Client, RealTopic),
+
+    %% exact match with shared topic
+    Path = emqx_mgmt_api_test_util:api_path(["topics"]),
+    QS = uri_string:compose_query([
+        {"topic", Topic},
+        {"node", atom_to_list(node())}
+    ]),
+    Headers = emqx_mgmt_api_test_util:auth_header_(),
+    {ok, MatchResponse1} = emqx_mgmt_api_test_util:request_api(get, Path, QS, Headers),
+    MatchData = emqx_utils_json:decode(MatchResponse1, [return_maps]),
+    ?assertMatch(
+        #{<<"count">> := 1, <<"page">> := 1, <<"limit">> := 100},
+        maps:get(<<"meta">>, MatchData)
+    ),
+    ?assertMatch(
+        [#{<<"topic">> := Topic, <<"node">> := Node}],
+        maps:get(<<"data">>, MatchData)
+    ),
+
+    ok = emqtt:stop(Client).

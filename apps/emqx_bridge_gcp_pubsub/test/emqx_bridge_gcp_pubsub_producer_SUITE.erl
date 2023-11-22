@@ -13,8 +13,12 @@
 -include_lib("jose/include/jose_jwt.hrl").
 -include_lib("jose/include/jose_jws.hrl").
 
--define(BRIDGE_TYPE, gcp_pubsub).
--define(BRIDGE_TYPE_BIN, <<"gcp_pubsub">>).
+-define(ACTION_TYPE, gcp_pubsub_producer).
+-define(ACTION_TYPE_BIN, <<"gcp_pubsub_producer">>).
+-define(CONNECTOR_TYPE, gcp_pubsub_producer).
+-define(CONNECTOR_TYPE_BIN, <<"gcp_pubsub_producer">>).
+-define(BRIDGE_V1_TYPE, gcp_pubsub).
+-define(BRIDGE_V1_TYPE_BIN, <<"gcp_pubsub">>).
 
 -import(emqx_common_test_helpers, [on_exit/1]).
 
@@ -141,19 +145,24 @@ end_per_testcase(_TestCase, _Config) ->
 
 generate_config(Config0) ->
     #{
-        name := Name,
+        name := ActionName,
         config_string := ConfigString,
         pubsub_config := PubSubConfig,
         service_account_json := ServiceAccountJSON
     } = gcp_pubsub_config(Config0),
-    ResourceId = emqx_bridge_resource:resource_id(?BRIDGE_TYPE_BIN, Name),
-    BridgeId = emqx_bridge_resource:bridge_id(?BRIDGE_TYPE_BIN, Name),
+    %% FIXME
+    %% `emqx_bridge_resource:resource_id' requires an existing connector in the config.....
+    ConnectorName = <<"connector_", ActionName/binary>>,
+    ConnectorResourceId = <<"connector:", ?CONNECTOR_TYPE_BIN/binary, ":", ConnectorName/binary>>,
+    ActionResourceId = emqx_bridge_v2:id(?ACTION_TYPE_BIN, ActionName, ConnectorName),
+    BridgeId = emqx_bridge_resource:bridge_id(?BRIDGE_V1_TYPE_BIN, ActionName),
     [
-        {gcp_pubsub_name, Name},
+        {gcp_pubsub_name, ActionName},
         {gcp_pubsub_config, PubSubConfig},
         {gcp_pubsub_config_string, ConfigString},
         {service_account_json, ServiceAccountJSON},
-        {resource_id, ResourceId},
+        {connector_resource_id, ConnectorResourceId},
+        {action_resource_id, ActionResourceId},
         {bridge_id, BridgeId}
         | Config0
     ].
@@ -168,7 +177,7 @@ delete_all_bridges() ->
     ).
 
 delete_bridge(Config) ->
-    Type = ?BRIDGE_TYPE,
+    Type = ?BRIDGE_V1_TYPE,
     Name = ?config(gcp_pubsub_name, Config),
     ct:pal("deleting bridge ~p", [{Type, Name}]),
     emqx_bridge:remove(Type, Name).
@@ -177,7 +186,7 @@ create_bridge(Config) ->
     create_bridge(Config, _GCPPubSubConfigOverrides = #{}).
 
 create_bridge(Config, GCPPubSubConfigOverrides) ->
-    TypeBin = ?BRIDGE_TYPE_BIN,
+    TypeBin = ?BRIDGE_V1_TYPE_BIN,
     Name = ?config(gcp_pubsub_name, Config),
     GCPPubSubConfig0 = ?config(gcp_pubsub_config, Config),
     GCPPubSubConfig = emqx_utils_maps:deep_merge(GCPPubSubConfig0, GCPPubSubConfigOverrides),
@@ -190,7 +199,7 @@ create_bridge_http(Config) ->
     create_bridge_http(Config, _GCPPubSubConfigOverrides = #{}).
 
 create_bridge_http(Config, GCPPubSubConfigOverrides) ->
-    TypeBin = ?BRIDGE_TYPE_BIN,
+    TypeBin = ?BRIDGE_V1_TYPE_BIN,
     Name = ?config(gcp_pubsub_name, Config),
     GCPPubSubConfig0 = ?config(gcp_pubsub_config, Config),
     GCPPubSubConfig = emqx_utils_maps:deep_merge(GCPPubSubConfig0, GCPPubSubConfigOverrides),
@@ -225,7 +234,7 @@ create_bridge_http(Config, GCPPubSubConfigOverrides) ->
 
 create_rule_and_action_http(Config) ->
     GCPPubSubName = ?config(gcp_pubsub_name, Config),
-    BridgeId = emqx_bridge_resource:bridge_id(?BRIDGE_TYPE_BIN, GCPPubSubName),
+    BridgeId = emqx_bridge_resource:bridge_id(?BRIDGE_V1_TYPE_BIN, GCPPubSubName),
     Params = #{
         enable => true,
         sql => <<"SELECT * FROM \"t/topic\"">>,
@@ -382,9 +391,14 @@ assert_metrics(ExpectedMetrics, ResourceId) ->
     CurrentMetrics = current_metrics(ResourceId),
     TelemetryTable = get(telemetry_table),
     RecordedEvents = ets:tab2list(TelemetryTable),
-    ?assertEqual(ExpectedMetrics, Metrics, #{
-        current_metrics => CurrentMetrics, recorded_events => RecordedEvents
-    }),
+    ?retry(
+        _Sleep0 = 300,
+        _Attempts = 20,
+        ?assertEqual(ExpectedMetrics, Metrics, #{
+            current_metrics => CurrentMetrics,
+            recorded_events => RecordedEvents
+        })
+    ),
     ok.
 
 assert_empty_metrics(ResourceId) ->
@@ -535,8 +549,30 @@ install_telemetry_handler(TestCase) ->
     end),
     Tid.
 
+mk_res_id_filter(ResourceId) ->
+    fun(Event) ->
+        case Event of
+            #{metadata := #{resource_id := ResId}} when ResId =:= ResourceId ->
+                true;
+            _ ->
+                false
+        end
+    end.
+
 wait_until_gauge_is(GaugeName, ExpectedValue, Timeout) ->
-    Events = receive_all_events(GaugeName, Timeout),
+    wait_until_gauge_is(#{
+        gauge_name => GaugeName,
+        expected => ExpectedValue,
+        timeout => Timeout
+    }).
+
+wait_until_gauge_is(#{} = Opts) ->
+    GaugeName = maps:get(gauge_name, Opts),
+    ExpectedValue = maps:get(expected, Opts),
+    Timeout = maps:get(timeout, Opts),
+    MaxEvents = maps:get(max_events, Opts, 10),
+    FilterFn = maps:get(filter_fn, Opts, fun(_Event) -> true end),
+    Events = receive_all_events(GaugeName, Timeout, MaxEvents, FilterFn),
     case length(Events) > 0 andalso lists:last(Events) of
         #{measurements := #{gauge_set := ExpectedValue}} ->
             ok;
@@ -550,15 +586,36 @@ wait_until_gauge_is(GaugeName, ExpectedValue, Timeout) ->
             ct:pal("no ~p gauge events received!", [GaugeName])
     end.
 
-receive_all_events(EventName, Timeout) ->
-    receive_all_events(EventName, Timeout, _MaxEvents = 10, _Count = 0, _Acc = []).
+receive_all_events(EventName, Timeout, MaxEvents, FilterFn) ->
+    receive_all_events(EventName, Timeout, MaxEvents, FilterFn, _Count = 0, _Acc = []).
 
-receive_all_events(_EventName, _Timeout, MaxEvents, Count, Acc) when Count >= MaxEvents ->
+receive_all_events(_EventName, _Timeout, MaxEvents, _FilterFn, Count, Acc) when
+    Count >= MaxEvents
+->
     lists:reverse(Acc);
-receive_all_events(EventName, Timeout, MaxEvents, Count, Acc) ->
+receive_all_events(EventName, Timeout, MaxEvents, FilterFn, Count, Acc) ->
     receive
         {telemetry, #{name := [_, _, EventName]} = Event} ->
-            receive_all_events(EventName, Timeout, MaxEvents, Count + 1, [Event | Acc])
+            case FilterFn(Event) of
+                true ->
+                    receive_all_events(
+                        EventName,
+                        Timeout,
+                        MaxEvents,
+                        FilterFn,
+                        Count + 1,
+                        [Event | Acc]
+                    );
+                false ->
+                    receive_all_events(
+                        EventName,
+                        Timeout,
+                        MaxEvents,
+                        FilterFn,
+                        Count,
+                        Acc
+                    )
+            end
     after Timeout ->
         lists:reverse(Acc)
     end.
@@ -597,14 +654,14 @@ wait_n_events(TelemetryTable, ResourceId, NEvents, Timeout, EventName) ->
 %%------------------------------------------------------------------------------
 
 t_publish_success(Config) ->
-    ResourceId = ?config(resource_id, Config),
+    ActionResourceId = ?config(action_resource_id, Config),
     ServiceAccountJSON = ?config(service_account_json, Config),
     TelemetryTable = ?config(telemetry_table, Config),
     Topic = <<"t/topic">>,
     ?assertMatch({ok, _}, create_bridge(Config)),
     {ok, #{<<"id">> := RuleId}} = create_rule_and_action_http(Config),
     on_exit(fun() -> ok = emqx_rule_engine:delete_rule(RuleId) end),
-    assert_empty_metrics(ResourceId),
+    assert_empty_metrics(ActionResourceId),
     Payload = <<"payload">>,
     Message = emqx_message:make(Topic, Payload),
     emqx:publish(Message),
@@ -620,7 +677,7 @@ t_publish_success(Config) ->
         DecodedMessages
     ),
     %% to avoid test flakiness
-    wait_telemetry_event(TelemetryTable, success, ResourceId),
+    wait_telemetry_event(TelemetryTable, success, ActionResourceId),
     wait_until_gauge_is(queuing, 0, 500),
     wait_until_gauge_is(inflight, 0, 500),
     assert_metrics(
@@ -633,7 +690,7 @@ t_publish_success(Config) ->
             retried => 0,
             success => 1
         },
-        ResourceId
+        ActionResourceId
     ),
     ok.
 
@@ -662,12 +719,12 @@ t_publish_success_infinity_timeout(Config) ->
     ok.
 
 t_publish_success_local_topic(Config) ->
-    ResourceId = ?config(resource_id, Config),
+    ActionResourceId = ?config(action_resource_id, Config),
     ServiceAccountJSON = ?config(service_account_json, Config),
     TelemetryTable = ?config(telemetry_table, Config),
     LocalTopic = <<"local/topic">>,
     {ok, _} = create_bridge(Config, #{<<"local_topic">> => LocalTopic}),
-    assert_empty_metrics(ResourceId),
+    assert_empty_metrics(ActionResourceId),
     Payload = <<"payload">>,
     Message = emqx_message:make(LocalTopic, Payload),
     emqx:publish(Message),
@@ -682,7 +739,7 @@ t_publish_success_local_topic(Config) ->
         DecodedMessages
     ),
     %% to avoid test flakiness
-    wait_telemetry_event(TelemetryTable, success, ResourceId),
+    wait_telemetry_event(TelemetryTable, success, ActionResourceId),
     wait_until_gauge_is(queuing, 0, 500),
     wait_until_gauge_is(inflight, 0, 500),
     assert_metrics(
@@ -695,7 +752,7 @@ t_publish_success_local_topic(Config) ->
             retried => 0,
             success => 1
         },
-        ResourceId
+        ActionResourceId
     ),
     ok.
 
@@ -704,7 +761,7 @@ t_create_via_http(Config) ->
     ok.
 
 t_publish_templated(Config) ->
-    ResourceId = ?config(resource_id, Config),
+    ActionResourceId = ?config(action_resource_id, Config),
     ServiceAccountJSON = ?config(service_account_json, Config),
     TelemetryTable = ?config(telemetry_table, Config),
     Topic = <<"t/topic">>,
@@ -721,7 +778,7 @@ t_publish_templated(Config) ->
     ),
     {ok, #{<<"id">> := RuleId}} = create_rule_and_action_http(Config),
     on_exit(fun() -> ok = emqx_rule_engine:delete_rule(RuleId) end),
-    assert_empty_metrics(ResourceId),
+    assert_empty_metrics(ActionResourceId),
     Payload = <<"payload">>,
     Message =
         emqx_message:set_header(
@@ -747,7 +804,7 @@ t_publish_templated(Config) ->
         DecodedMessages
     ),
     %% to avoid test flakiness
-    wait_telemetry_event(TelemetryTable, success, ResourceId),
+    wait_telemetry_event(TelemetryTable, success, ActionResourceId),
     wait_until_gauge_is(queuing, 0, 500),
     wait_until_gauge_is(inflight, 0, 500),
     assert_metrics(
@@ -760,7 +817,7 @@ t_publish_templated(Config) ->
             retried => 0,
             success => 1
         },
-        ResourceId
+        ActionResourceId
     ),
     ok.
 
@@ -774,7 +831,7 @@ t_publish_success_batch(Config) ->
     end.
 
 test_publish_success_batch(Config) ->
-    ResourceId = ?config(resource_id, Config),
+    ActionResourceId = ?config(action_resource_id, Config),
     ServiceAccountJSON = ?config(service_account_json, Config),
     TelemetryTable = ?config(telemetry_table, Config),
     Topic = <<"t/topic">>,
@@ -796,7 +853,7 @@ test_publish_success_batch(Config) ->
     ),
     {ok, #{<<"id">> := RuleId}} = create_rule_and_action_http(Config),
     on_exit(fun() -> ok = emqx_rule_engine:delete_rule(RuleId) end),
-    assert_empty_metrics(ResourceId),
+    assert_empty_metrics(ActionResourceId),
     NumMessages = BatchSize * 2,
     Messages = [emqx_message:make(Topic, integer_to_binary(N)) || N <- lists:seq(1, NumMessages)],
     %% publish in parallel to avoid each client blocking and then
@@ -822,7 +879,7 @@ test_publish_success_batch(Config) ->
     wait_telemetry_event(
         TelemetryTable,
         success,
-        ResourceId,
+        ActionResourceId,
         #{timeout => 15_000, n_events => NumMessages}
     ),
     wait_until_gauge_is(queuing, 0, _Timeout = 400),
@@ -837,7 +894,7 @@ test_publish_success_batch(Config) ->
             retried => 0,
             success => NumMessages
         },
-        ResourceId
+        ActionResourceId
     ),
     ok.
 
@@ -1045,7 +1102,7 @@ t_jose_other_error(Config) ->
         fun(Res, Trace) ->
             ?assertMatch({ok, _}, Res),
             ?assertMatch(
-                [#{error := {invalid_private_key, {unknown, error}}}],
+                [#{error := {invalid_private_key, {unknown, error}}} | _],
                 ?of_kind(gcp_pubsub_connector_startup_error, Trace)
             ),
             ok
@@ -1054,7 +1111,7 @@ t_jose_other_error(Config) ->
     ok.
 
 t_publish_econnrefused(Config) ->
-    ResourceId = ?config(resource_id, Config),
+    ResourceId = ?config(connector_resource_id, Config),
     %% set pipelining to 1 so that one of the 2 requests is `pending'
     %% in ehttpc.
     {ok, _} = create_bridge(
@@ -1071,7 +1128,7 @@ t_publish_econnrefused(Config) ->
     do_econnrefused_or_timeout_test(Config, econnrefused).
 
 t_publish_timeout(Config) ->
-    ResourceId = ?config(resource_id, Config),
+    ActionResourceId = ?config(action_resource_id, Config),
     %% set pipelining to 1 so that one of the 2 requests is `pending'
     %% in ehttpc. also, we set the batch size to 1 to also ensure the
     %% requests are done separately.
@@ -1079,12 +1136,13 @@ t_publish_timeout(Config) ->
         <<"pipelining">> => 1,
         <<"resource_opts">> => #{
             <<"batch_size">> => 1,
-            <<"resume_interval">> => <<"1s">>
+            <<"resume_interval">> => <<"1s">>,
+            <<"metrics_flush_interval">> => <<"700ms">>
         }
     }),
     {ok, #{<<"id">> := RuleId}} = create_rule_and_action_http(Config),
     on_exit(fun() -> ok = emqx_rule_engine:delete_rule(RuleId) end),
-    assert_empty_metrics(ResourceId),
+    assert_empty_metrics(ActionResourceId),
     TestPid = self(),
     TimeoutHandler =
         fun(Req0, State) ->
@@ -1107,7 +1165,8 @@ t_publish_timeout(Config) ->
     do_econnrefused_or_timeout_test(Config, timeout).
 
 do_econnrefused_or_timeout_test(Config, Error) ->
-    ResourceId = ?config(resource_id, Config),
+    ActionResourceId = ?config(action_resource_id, Config),
+    ConnectorResourceId = ?config(connector_resource_id, Config),
     TelemetryTable = ?config(telemetry_table, Config),
     Topic = <<"t/topic">>,
     Payload = <<"payload">>,
@@ -1156,9 +1215,9 @@ do_econnrefused_or_timeout_test(Config, Error) ->
             case Error of
                 econnrefused ->
                     case ?of_kind(gcp_pubsub_request_failed, Trace) of
-                        [#{reason := Error, connector := ResourceId} | _] ->
+                        [#{reason := Error, connector := ConnectorResourceId} | _] ->
                             ok;
-                        [#{reason := {closed, _Msg}, connector := ResourceId} | _] ->
+                        [#{reason := {closed, _Msg}, connector := ConnectorResourceId} | _] ->
                             %% _Msg = "The connection was lost."
                             ok;
                         Trace0 ->
@@ -1182,7 +1241,7 @@ do_econnrefused_or_timeout_test(Config, Error) ->
             %% even waiting, hard to avoid flakiness... simpler to just sleep
             %% a bit until stabilization.
             ct:sleep(200),
-            CurrentMetrics = current_metrics(ResourceId),
+            CurrentMetrics = current_metrics(ActionResourceId),
             RecordedEvents = ets:tab2list(TelemetryTable),
             ct:pal("telemetry events: ~p", [RecordedEvents]),
             ?assertMatch(
@@ -1198,7 +1257,19 @@ do_econnrefused_or_timeout_test(Config, Error) ->
                 CurrentMetrics
             );
         timeout ->
-            wait_until_gauge_is(inflight, 0, _Timeout = 1_000),
+            wait_telemetry_event(
+                TelemetryTable,
+                late_reply,
+                ActionResourceId,
+                #{timeout => 5_000, n_events => 2}
+            ),
+            wait_until_gauge_is(#{
+                gauge_name => inflight,
+                expected => 0,
+                filter_fn => mk_res_id_filter(ActionResourceId),
+                timeout => 1_000,
+                max_events => 20
+            }),
             wait_until_gauge_is(queuing, 0, _Timeout = 1_000),
             assert_metrics(
                 #{
@@ -1211,7 +1282,7 @@ do_econnrefused_or_timeout_test(Config, Error) ->
                     success => 0,
                     late_reply => 2
                 },
-                ResourceId
+                ActionResourceId
             )
     end,
 
@@ -1334,7 +1405,8 @@ t_failure_no_body(Config) ->
     ok.
 
 t_unrecoverable_error(Config) ->
-    ResourceId = ?config(resource_id, Config),
+    ActionResourceId = ?config(action_resource_id, Config),
+    TelemetryTable = ?config(telemetry_table, Config),
     TestPid = self(),
     FailureNoBodyHandler =
         fun(Req0, State) ->
@@ -1358,7 +1430,7 @@ t_unrecoverable_error(Config) ->
     ok = emqx_bridge_http_connector_test_server:set_handler(FailureNoBodyHandler),
     Topic = <<"t/topic">>,
     {ok, _} = create_bridge(Config),
-    assert_empty_metrics(ResourceId),
+    assert_empty_metrics(ActionResourceId),
     {ok, #{<<"id">> := RuleId}} = create_rule_and_action_http(Config),
     on_exit(fun() -> ok = emqx_rule_engine:delete_rule(RuleId) end),
     Payload = <<"payload">>,
@@ -1386,6 +1458,7 @@ t_unrecoverable_error(Config) ->
     %% removed, this inflight should be 1, because we retry if
     %% the worker is killed.
     wait_until_gauge_is(inflight, 0, _Timeout = 400),
+    wait_telemetry_event(TelemetryTable, failed, ActionResourceId),
     assert_metrics(
         #{
             dropped => 0,
@@ -1398,7 +1471,7 @@ t_unrecoverable_error(Config) ->
             retried => 0,
             success => 0
         },
-        ResourceId
+        ActionResourceId
     ),
     ok.
 
@@ -1407,7 +1480,7 @@ t_stop(Config) ->
     {ok, _} = create_bridge(Config),
     ?check_trace(
         ?wait_async_action(
-            emqx_bridge_resource:stop(?BRIDGE_TYPE, Name),
+            emqx_bridge_resource:stop(?BRIDGE_V1_TYPE, Name),
             #{?snk_kind := gcp_pubsub_stop},
             5_000
         ),
@@ -1421,13 +1494,13 @@ t_stop(Config) ->
     ok.
 
 t_get_status_ok(Config) ->
-    ResourceId = ?config(resource_id, Config),
+    ResourceId = ?config(connector_resource_id, Config),
     {ok, _} = create_bridge(Config),
     ?assertEqual({ok, connected}, emqx_resource_manager:health_check(ResourceId)),
     ok.
 
 t_get_status_no_worker(Config) ->
-    ResourceId = ?config(resource_id, Config),
+    ResourceId = ?config(connector_resource_id, Config),
     {ok, _} = create_bridge(Config),
     emqx_common_test_helpers:with_mock(
         ehttpc,
@@ -1441,7 +1514,7 @@ t_get_status_no_worker(Config) ->
     ok.
 
 t_get_status_down(Config) ->
-    ResourceId = ?config(resource_id, Config),
+    ResourceId = ?config(connector_resource_id, Config),
     {ok, _} = create_bridge(Config),
     emqx_common_test_helpers:with_mock(
         ehttpc,
@@ -1457,7 +1530,7 @@ t_get_status_down(Config) ->
     ok.
 
 t_get_status_timeout_calling_workers(Config) ->
-    ResourceId = ?config(resource_id, Config),
+    ResourceId = ?config(connector_resource_id, Config),
     {ok, _} = create_bridge(Config),
     emqx_common_test_helpers:with_mock(
         ehttpc,
@@ -1520,7 +1593,7 @@ t_on_start_ehttpc_pool_start_failure(Config) ->
         ),
         fun(Trace) ->
             ?assertMatch(
-                [#{reason := some_error}],
+                [#{reason := some_error} | _],
                 ?of_kind(gcp_pubsub_ehttpc_pool_start_failure, Trace)
             ),
             ok
@@ -1668,7 +1741,7 @@ t_attributes(Config) ->
             ),
             %% ensure loading cluster override file doesn't mangle the attribute
             %% placeholders...
-            #{<<"bridges">> := #{?BRIDGE_TYPE_BIN := #{Name := RawConf}}} =
+            #{<<"actions">> := #{?ACTION_TYPE_BIN := #{Name := RawConf}}} =
                 emqx_config:read_override_conf(#{override_to => cluster}),
             ?assertEqual(
                 [
@@ -1689,7 +1762,7 @@ t_attributes(Config) ->
                         <<"value">> => <<"${.payload.value}">>
                     }
                 ],
-                maps:get(<<"attributes_template">>, RawConf)
+                emqx_utils_maps:deep_get([<<"parameters">>, <<"attributes_template">>], RawConf)
             ),
             ok
         end,

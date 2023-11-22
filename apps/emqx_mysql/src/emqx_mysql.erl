@@ -280,7 +280,10 @@ do_check_prepares(#{prepares := {error, _}} = State) ->
 %% ===================================================================
 
 connect(Options) ->
-    mysql:start_link(Options).
+    %% TODO: teach `tdengine` to accept 0-arity closures as passwords.
+    {value, {password, Secret}, Rest} = lists:keytake(password, 1, Options),
+    NOptions = [{password, emqx_secret:unwrap(Secret)} | Rest],
+    mysql:start_link(NOptions).
 
 init_prepare(State = #{query_templates := Templates}) ->
     case maps:size(Templates) of

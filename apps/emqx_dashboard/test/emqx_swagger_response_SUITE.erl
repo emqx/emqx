@@ -344,10 +344,9 @@ t_complex_type(_Config) ->
                 enum := [random, hash], type := string
             }},
             {<<"timeout">>, #{
-                example := infinity,
                 <<"oneOf">> := [
-                    #{example := infinity, type := string},
-                    #{type := integer}
+                    #{example := _, type := string},
+                    #{enum := [infinity], type := string}
                 ]
             }},
             {<<"bytesize">>, #{
@@ -376,9 +375,6 @@ t_complex_type(_Config) ->
                     all
                 ],
                 type := string
-            }},
-            {<<"fix_integer">>, #{
-                default := 100, enum := [100], type := integer
             }}
         ],
         Properties
@@ -414,7 +410,7 @@ t_ref_array_with_key(_Config) ->
                         {<<"percent_ex">>, #{
                             description => <<"percent example">>,
                             example => <<"12%">>,
-                            type => number
+                            type => string
                         }},
                         {<<"duration_ms_ex">>, #{
                             description => <<"duration ms example">>,
@@ -653,14 +649,14 @@ schema("/ref/complex_type") ->
                     {server, hoconsc:mk(emqx_schema:ip_port(), #{})},
                     {connect_timeout, hoconsc:mk(emqx_schema:timeout_duration(), #{})},
                     {pool_type, hoconsc:mk(hoconsc:enum([random, hash]), #{})},
-                    {timeout, hoconsc:mk(timeout(), #{})},
+                    {timeout,
+                        hoconsc:mk(hoconsc:union([infinity, emqx_schema:timeout_duration()]), #{})},
                     {bytesize, hoconsc:mk(emqx_schema:bytesize(), #{})},
                     {wordsize, hoconsc:mk(emqx_schema:wordsize(), #{})},
                     {maps, hoconsc:mk(map(), #{})},
                     {comma_separated_list, hoconsc:mk(emqx_schema:comma_separated_list(), #{})},
                     {comma_separated_atoms, hoconsc:mk(emqx_schema:comma_separated_atoms(), #{})},
-                    {log_level, hoconsc:mk(emqx_conf_schema:log_level(), #{})},
-                    {fix_integer, hoconsc:mk(typerefl:integer(100), #{})}
+                    {log_level, hoconsc:mk(emqx_conf_schema:log_level(), #{})}
                 ]
             }
         }
@@ -687,7 +683,7 @@ to_schema(Object) ->
 fields(good_ref) ->
     [
         {'webhook-host', mk(emqx_schema:ip_port(), #{default => <<"127.0.0.1:80">>})},
-        {log_dir, mk(emqx_schema:file(), #{example => "var/log/emqx"})},
+        {log_dir, mk(string(), #{example => "var/log/emqx"})},
         {tag, mk(binary(), #{desc => <<"tag">>})}
     ];
 fields(nest_ref) ->

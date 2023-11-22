@@ -29,6 +29,7 @@
 ).
 
 -include_lib("emqx/include/emqx.hrl").
+-include_lib("emqx/include/emqx_mqtt.hrl").
 -include_lib("eunit/include/eunit.hrl").
 
 all() -> emqx_common_test_helpers:all(?MODULE).
@@ -52,6 +53,27 @@ t_mount(_) ->
         mount(<<"device/1/">>, TopicFilters)
     ).
 
+t_mount_share(_) ->
+    T = {TopicFilter, Opts} = emqx_topic:parse(<<"$share/group/topic">>),
+    TopicFilters = [T],
+    ?assertEqual(TopicFilter, #share{group = <<"group">>, topic = <<"topic">>}),
+
+    %% should not mount share topic when make message.
+    Msg = emqx_message:make(<<"clientid">>, TopicFilter, <<"payload">>),
+
+    ?assertEqual(
+        TopicFilter,
+        mount(undefined, TopicFilter)
+    ),
+    ?assertEqual(
+        #share{group = <<"group">>, topic = <<"device/1/topic">>},
+        mount(<<"device/1/">>, TopicFilter)
+    ),
+    ?assertEqual(
+        [{#share{group = <<"group">>, topic = <<"device/1/topic">>}, Opts}],
+        mount(<<"device/1/">>, TopicFilters)
+    ).
+
 t_unmount(_) ->
     Msg = emqx_message:make(<<"clientid">>, <<"device/1/topic">>, <<"payload">>),
     ?assertEqual(<<"topic">>, unmount(undefined, <<"topic">>)),
@@ -60,6 +82,23 @@ t_unmount(_) ->
     ?assertEqual(Msg#message{topic = <<"topic">>}, unmount(<<"device/1/">>, Msg)),
     ?assertEqual(<<"device/1/topic">>, unmount(<<"device/2/">>, <<"device/1/topic">>)),
     ?assertEqual(Msg#message{topic = <<"device/1/topic">>}, unmount(<<"device/2/">>, Msg)).
+
+t_unmount_share(_) ->
+    {TopicFilter, _Opts} = emqx_topic:parse(<<"$share/group/topic">>),
+    MountedTopicFilter = #share{group = <<"group">>, topic = <<"device/1/topic">>},
+
+    ?assertEqual(TopicFilter, #share{group = <<"group">>, topic = <<"topic">>}),
+
+    %% should not unmount share topic when make message.
+    Msg = emqx_message:make(<<"clientid">>, TopicFilter, <<"payload">>),
+    ?assertEqual(
+        TopicFilter,
+        unmount(undefined, TopicFilter)
+    ),
+    ?assertEqual(
+        #share{group = <<"group">>, topic = <<"topic">>},
+        unmount(<<"device/1/">>, MountedTopicFilter)
+    ).
 
 t_replvar(_) ->
     ?assertEqual(undefined, replvar(undefined, #{})),

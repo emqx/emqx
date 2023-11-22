@@ -33,7 +33,7 @@
     ]
 ).
 
-%% minirest/dashbaord_swagger behaviour callbacks
+%% minirest/dashboard_swagger behaviour callbacks
 -export([
     api_spec/0,
     paths/0,
@@ -700,7 +700,7 @@ params_gateway_name_in_path() ->
     [
         {name,
             mk(
-                binary(),
+                hoconsc:enum(emqx_gateway_schema:gateway_names()),
                 #{
                     in => path,
                     desc => ?DESC(emqx_gateway_api, gateway_name)

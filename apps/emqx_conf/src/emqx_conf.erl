@@ -151,6 +151,9 @@ reset(Node, KeyPath, Opts) ->
 %% @doc Called from build script.
 %% TODO: move to a external escript after all refactoring is done
 dump_schema(Dir, SchemaModule) ->
+    %% TODO: Load all apps instead of only emqx_dashboard
+    %% as this will help schemas that searches for apps with
+    %% relevant schema definitions
     _ = application:load(emqx_dashboard),
     ok = emqx_dashboard_desc_cache:init(),
     lists:foreach(
@@ -305,149 +308,8 @@ hocon_schema_to_spec(?UNION(Types, _DisplayName), LocalModule) ->
 hocon_schema_to_spec(Atom, _LocalModule) when is_atom(Atom) ->
     {#{type => enum, symbols => [Atom]}, []}.
 
-typename_to_spec("user_id_type()", _Mod) ->
-    #{type => enum, symbols => [clientid, username]};
-typename_to_spec("term()", _Mod) ->
-    #{type => string};
-typename_to_spec("boolean()", _Mod) ->
-    #{type => boolean};
-typename_to_spec("binary()", _Mod) ->
-    #{type => string};
-typename_to_spec("float()", _Mod) ->
-    #{type => number};
-typename_to_spec("integer()", _Mod) ->
-    #{type => number};
-typename_to_spec("non_neg_integer()", _Mod) ->
-    #{type => number, minimum => 0};
-typename_to_spec("number()", _Mod) ->
-    #{type => number};
-typename_to_spec("string()", _Mod) ->
-    #{type => string};
-typename_to_spec("atom()", _Mod) ->
-    #{type => string};
-typename_to_spec("duration()", _Mod) ->
-    #{type => duration};
-typename_to_spec("timeout_duration()", _Mod) ->
-    #{type => duration};
-typename_to_spec("duration_s()", _Mod) ->
-    #{type => duration};
-typename_to_spec("timeout_duration_s()", _Mod) ->
-    #{type => duration};
-typename_to_spec("duration_ms()", _Mod) ->
-    #{type => duration};
-typename_to_spec("timeout_duration_ms()", _Mod) ->
-    #{type => duration};
-typename_to_spec("percent()", _Mod) ->
-    #{type => percent};
-typename_to_spec("file()", _Mod) ->
-    #{type => string};
-typename_to_spec("ip_port()", _Mod) ->
-    #{type => ip_port};
-typename_to_spec("url()", _Mod) ->
-    #{type => url};
-typename_to_spec("bytesize()", _Mod) ->
-    #{type => 'byteSize'};
-typename_to_spec("wordsize()", _Mod) ->
-    #{type => 'byteSize'};
-typename_to_spec("qos()", _Mod) ->
-    #{type => enum, symbols => [0, 1, 2]};
-typename_to_spec("comma_separated_list()", _Mod) ->
-    #{type => comma_separated_string};
-typename_to_spec("comma_separated_atoms()", _Mod) ->
-    #{type => comma_separated_string};
-typename_to_spec("pool_type()", _Mod) ->
-    #{type => enum, symbols => [random, hash]};
-typename_to_spec("log_level()", _Mod) ->
-    #{
-        type => enum,
-        symbols => [
-            debug,
-            info,
-            notice,
-            warning,
-            error,
-            critical,
-            alert,
-            emergency,
-            all
-        ]
-    };
-typename_to_spec("rate()", _Mod) ->
-    #{type => string};
-typename_to_spec("capacity()", _Mod) ->
-    #{type => string};
-typename_to_spec("burst_rate()", _Mod) ->
-    #{type => string};
-typename_to_spec("failure_strategy()", _Mod) ->
-    #{type => enum, symbols => [force, drop, throw]};
-typename_to_spec("initial()", _Mod) ->
-    #{type => string};
-typename_to_spec("map()", _Mod) ->
-    #{type => object};
-typename_to_spec("#{" ++ _, Mod) ->
-    typename_to_spec("map()", Mod);
-typename_to_spec(Name, Mod) ->
-    Spec = range(Name),
-    Spec1 = remote_module_type(Spec, Name, Mod),
-    Spec2 = typerefl_array(Spec1, Name, Mod),
-    Spec3 = integer(Spec2, Name),
-    default_type(Spec3).
-
-default_type(nomatch) -> #{type => string};
-default_type(Type) -> Type.
-
-range(Name) ->
-    case string:split(Name, "..") of
-        %% 1..10 1..inf -inf..10
-        [MinStr, MaxStr] ->
-            Schema = #{type => number},
-            Schema1 = add_integer_prop(Schema, minimum, MinStr),
-            add_integer_prop(Schema1, maximum, MaxStr);
-        _ ->
-            nomatch
-    end.
-
-%% Module:Type
-remote_module_type(nomatch, Name, Mod) ->
-    case string:split(Name, ":") of
-        [_Module, Type] -> typename_to_spec(Type, Mod);
-        _ -> nomatch
-    end;
-remote_module_type(Spec, _Name, _Mod) ->
-    Spec.
-
-%% [string()] or [integer()] or [xxx].
-typerefl_array(nomatch, Name, Mod) ->
-    case string:trim(Name, leading, "[") of
-        Name ->
-            nomatch;
-        Name1 ->
-            case string:trim(Name1, trailing, "]") of
-                Name1 ->
-                    notmatch;
-                Name2 ->
-                    Schema = typename_to_spec(Name2, Mod),
-                    #{type => array, items => Schema}
-            end
-    end;
-typerefl_array(Spec, _Name, _Mod) ->
-    Spec.
-
-%% integer(1)
-integer(nomatch, Name) ->
-    case string:to_integer(Name) of
-        {Int, []} -> #{type => enum, symbols => [Int], default => Int};
-        _ -> nomatch
-    end;
-integer(Spec, _Name) ->
-    Spec.
-
-add_integer_prop(Schema, Key, Value) ->
-    case string:to_integer(Value) of
-        {error, no_integer} -> Schema;
-        {Int, []} when Key =:= minimum -> Schema#{Key => Int};
-        {Int, []} -> Schema#{Key => Int}
-    end.
+typename_to_spec(TypeStr, Module) ->
+    emqx_conf_schema_types:readable_dashboard(Module, TypeStr).
 
 to_bin(List) when is_list(List) ->
     case io_lib:printable_list(List) of

@@ -652,6 +652,28 @@ t_connectors_probe(Config) ->
     ),
     ok.
 
+t_create_with_bad_name(Config) ->
+    ConnectorName = <<"test_哈哈">>,
+    Conf0 = ?KAFKA_CONNECTOR(ConnectorName),
+    %% Note: must contain SSL options to trigger original bug.
+    Cacertfile = emqx_common_test_helpers:app_path(
+        emqx,
+        filename:join(["etc", "certs", "cacert.pem"])
+    ),
+    Conf = Conf0#{<<"ssl">> => #{<<"cacertfile">> => Cacertfile}},
+    {ok, 400, #{
+        <<"code">> := <<"BAD_REQUEST">>,
+        <<"message">> := Msg0
+    }} = request_json(
+        post,
+        uri(["connectors"]),
+        Conf,
+        Config
+    ),
+    Msg = emqx_utils_json:decode(Msg0, [return_maps]),
+    ?assertMatch(#{<<"kind">> := <<"validation_error">>}, Msg),
+    ok.
+
 %%% helpers
 listen_on_random_port() ->
     SockOpts = [binary, {active, false}, {packet, raw}, {reuseaddr, true}, {backlog, 1000}],

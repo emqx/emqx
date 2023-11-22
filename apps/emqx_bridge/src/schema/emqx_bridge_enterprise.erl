@@ -82,6 +82,9 @@ schema_modules() ->
     ].
 
 examples(Method) ->
+    registered_examples(Method).
+
+registered_examples(Method) ->
     MergeFun =
         fun(Example, Examples) ->
             maps:merge(Examples, Example)

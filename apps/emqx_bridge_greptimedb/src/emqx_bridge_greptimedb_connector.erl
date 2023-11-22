@@ -147,13 +147,7 @@ fields(greptimedb) ->
         [
             {dbname, mk(binary(), #{required => true, desc => ?DESC("dbname")})},
             {username, mk(binary(), #{desc => ?DESC("username")})},
-            {password,
-                mk(binary(), #{
-                    desc => ?DESC("password"),
-                    format => <<"password">>,
-                    sensitive => true,
-                    converter => fun emqx_schema:password_converter/2
-                })}
+            {password, emqx_schema_secret:mk(#{desc => ?DESC("password")})}
         ] ++ emqx_connector_schema_lib:ssl_fields().
 
 server() ->
@@ -302,7 +296,8 @@ ssl_config(SSL = #{enable := true}) ->
 
 auth(#{username := Username, password := Password}) ->
     [
-        {auth, {basic, #{username => str(Username), password => str(Password)}}}
+        %% TODO: teach `greptimedb` to accept 0-arity closures as passwords.
+        {auth, {basic, #{username => str(Username), password => emqx_secret:unwrap(Password)}}}
     ];
 auth(_) ->
     [].

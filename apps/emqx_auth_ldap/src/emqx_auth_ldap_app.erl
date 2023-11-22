@@ -25,12 +25,10 @@
 start(_StartType, _StartArgs) ->
     ok = emqx_authz:register_source(?AUTHZ_TYPE, emqx_authz_ldap),
     ok = emqx_authn:register_provider(?AUTHN_TYPE, emqx_authn_ldap),
-    ok = emqx_authn:register_provider(?AUTHN_TYPE_BIND, emqx_authn_ldap_bind),
     {ok, Sup} = emqx_auth_ldap_sup:start_link(),
     {ok, Sup}.
 
 stop(_State) ->
     ok = emqx_authn:deregister_provider(?AUTHN_TYPE),
-    ok = emqx_authn:deregister_provider(?AUTHN_TYPE_BIND),
     ok = emqx_authz:unregister_source(?AUTHZ_TYPE),
     ok.

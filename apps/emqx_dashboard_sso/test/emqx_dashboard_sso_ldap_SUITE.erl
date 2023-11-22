@@ -10,9 +10,11 @@
 -include_lib("emqx_dashboard/include/emqx_dashboard.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 -include_lib("eunit/include/eunit.hrl").
+-include_lib("common_test/include/ct.hrl").
 
 -define(LDAP_HOST, "ldap").
 -define(LDAP_DEFAULT_PORT, 389).
+-define(LDAP_PASSWORD, <<"public">>).
 -define(LDAP_USER, <<"viewer1">>).
 -define(LDAP_USER_PASSWORD, <<"viewer1">>).
 -define(LDAP_BASE_DN, <<"ou=dashboard,dc=emqx,dc=io">>).
@@ -128,9 +130,19 @@ t_update({init, Config}) ->
     Config;
 t_update({'end', _Config}) ->
     ok;
-t_update(_) ->
+t_update(Config) ->
     Path = uri(["sso", "ldap"]),
-    {ok, 200, Result} = request(put, Path, ldap_config(#{<<"enable">> => <<"true">>})),
+    %% NOTE: this time verify that supplying password through file-based secret works.
+    PasswordFilename = filename:join([?config(priv_dir, Config), "passfile"]),
+    ok = file:write_file(PasswordFilename, ?LDAP_PASSWORD),
+    {ok, 200, Result} = request(
+        put,
+        Path,
+        ldap_config(#{
+            <<"enable">> => <<"true">>,
+            <<"password">> => iolist_to_binary(["file://", PasswordFilename])
+        })
+    ),
     check_running([<<"ldap">>]),
     ?assertMatch(#{backend := <<"ldap">>, enable := true}, decode_json(Result)),
     ?assertMatch([#{backend := <<"ldap">>, enable := true}], get_sso()),
@@ -287,7 +299,7 @@ ldap_config(Override) ->
             <<"base_dn">> => ?LDAP_BASE_DN,
             <<"filter">> => ?LDAP_FILTER_WITH_UID,
             <<"username">> => <<"cn=root,dc=emqx,dc=io">>,
-            <<"password">> => <<"public">>,
+            <<"password">> => ?LDAP_PASSWORD,
             <<"pool_size">> => 8
         },
         Override

@@ -447,7 +447,7 @@ health_check(ResId) ->
     emqx_resource_manager:health_check(ResId).
 
 -spec channel_health_check(resource_id(), channel_id()) ->
-    #{status := channel_status(), error := term(), any() => any()}.
+    #{status := resource_status(), error := term()}.
 channel_health_check(ResId, ChannelId) ->
     emqx_resource_manager:channel_health_check(ResId, ChannelId).
 
@@ -815,29 +815,21 @@ validate_name(<<>>, _Opts) ->
     invalid_data("name cannot be empty string");
 validate_name(Name, _Opts) when size(Name) >= 255 ->
     invalid_data("name length must be less than 255");
-validate_name(Name0, Opts) ->
-    Name = unicode:characters_to_list(Name0, utf8),
-    case lists:all(fun is_id_char/1, Name) of
-        true ->
+validate_name(Name, Opts) ->
+    case re:run(Name, <<"^[-0-9a-zA-Z_]+$">>, [{capture, none}]) of
+        match ->
             case maps:get(atom_name, Opts, true) of
-                % NOTE
-                % Rule may be created before bridge, thus not `list_to_existing_atom/1`,
-                % also it is infrequent user input anyway.
-                true -> list_to_atom(Name);
-                false -> Name0
+                %% NOTE
+                %% Rule may be created before bridge, thus not `list_to_existing_atom/1`,
+                %% also it is infrequent user input anyway.
+                true -> binary_to_atom(Name, utf8);
+                false -> Name
             end;
-        false ->
+        nomatch ->
             invalid_data(
-                <<"only 0-9a-zA-Z_- is allowed in resource name, got: ", Name0/binary>>
+                <<"only 0-9a-zA-Z_- is allowed in resource name, got: ", Name/binary>>
             )
     end.
 
 -spec invalid_data(binary()) -> no_return().
 invalid_data(Reason) -> throw(#{kind => validation_error, reason => Reason}).
-
-is_id_char(C) when C >= $0 andalso C =< $9 -> true;
-is_id_char(C) when C >= $a andalso C =< $z -> true;
-is_id_char(C) when C >= $A andalso C =< $Z -> true;
-is_id_char($_) -> true;
-is_id_char($-) -> true;
-is_id_char(_) -> false.

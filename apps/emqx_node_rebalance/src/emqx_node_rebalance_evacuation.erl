@@ -57,7 +57,7 @@
     migrate_to => migrate_to(),
     wait_health_check => number()
 }.
--type start_error() :: already_started.
+-type start_error() :: already_started | eviction_agent_busy.
 -type stats() :: #{
     initial_conns := non_neg_integer(),
     initial_sessions := non_neg_integer(),
@@ -102,9 +102,9 @@ callback_mode() -> handle_event_function.
 
 init([]) ->
     case emqx_node_rebalance_evacuation_persist:read(default_opts()) of
-        {ok, #{server_reference := ServerReference} = Opts} ->
+        {ok, Opts} ->
             ?SLOG(warning, #{msg => "restoring_evacuation_state", opts => Opts}),
-            case emqx_eviction_agent:enable(?MODULE, ServerReference) of
+            case enable_eviction_agent(Opts, _AllowConnections = false) of
                 ok ->
                     Data = init_data(#{}, Opts),
                     ok = warn_enabled(),
@@ -122,18 +122,26 @@ handle_event(
     {call, From},
     {start, #{wait_health_check := WaitHealthCheck} = Opts},
     disabled,
-    #{} = Data
+    Data
 ) ->
-    ?SLOG(warning, #{
-        msg => "node_evacuation_started",
-        opts => Opts
-    }),
-    NewData = init_data(Data, Opts),
-    ok = emqx_node_rebalance_evacuation_persist:save(Opts),
-    {next_state, waiting_health_check, NewData, [
-        {state_timeout, seconds(WaitHealthCheck), start_eviction},
-        {reply, From, ok}
-    ]};
+    case enable_eviction_agent(Opts, _AllowConnections = true) of
+        ok ->
+            ?SLOG(warning, #{
+                msg => "node_evacuation_started",
+                opts => Opts
+            }),
+            NewData = init_data(Data, Opts),
+            ok = emqx_node_rebalance_evacuation_persist:save(Opts),
+            {next_state, waiting_health_check, NewData, [
+                {state_timeout, seconds(WaitHealthCheck), start_eviction},
+                {reply, From, ok}
+            ]};
+        {error, eviction_agent_busy} ->
+            ?tp(warning, eviction_agent_busy, #{
+                data => Data
+            }),
+            {keep_state_and_data, [{reply, From, {error, eviction_agent_busy}}]}
+    end;
 handle_event({call, From}, {start, _Opts}, _State, #{}) ->
     {keep_state_and_data, [{reply, From, {error, already_started}}]};
 %% stop
@@ -168,9 +176,9 @@ handle_event(
     state_timeout,
     start_eviction,
     waiting_health_check,
-    #{server_reference := ServerReference} = Data
+    Data
 ) ->
-    case emqx_eviction_agent:enable(?MODULE, ServerReference) of
+    case enable_eviction_agent(Data, _AllowConnections = false) of
         ok ->
             ?tp(debug, eviction_agent_started, #{
                 data => Data
@@ -178,10 +186,8 @@ handle_event(
             {next_state, evicting_conns, Data, [
                 {state_timeout, 0, evict_conns}
             ]};
+        %% This should never happen
         {error, eviction_agent_busy} ->
-            ?tp(warning, eviction_agent_busy, #{
-                data => Data
-            }),
             {next_state, disabled, deinit(Data)}
     end;
 %% conn eviction
@@ -212,7 +218,7 @@ handle_event(
             NewData = Data#{current_conns => 0},
             ?SLOG(warning, #{msg => "node_evacuation_evict_conns_done"}),
             {next_state, waiting_takeover, NewData, [
-                {state_timeout, timer:seconds(WaitTakeover), evict_sessions}
+                {state_timeout, seconds(WaitTakeover), evict_sessions}
             ]}
     end;
 handle_event(
@@ -307,6 +313,9 @@ deinit(Data) ->
         [initial_conns, current_conns, initial_sessions, current_sessions] ++
             maps:keys(default_opts()),
     maps:without(Keys, Data).
+
+enable_eviction_agent(#{server_reference := ServerReference} = _Opts, AllowConnections) ->
+    emqx_eviction_agent:enable(?MODULE, ServerReference, #{allow_connections => AllowConnections}).
 
 warn_enabled() ->
     ?SLOG(warning, #{msg => "node_evacuation_enabled"}),

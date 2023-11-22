@@ -145,7 +145,7 @@ on_start(
     Options = [
         {url, URL},
         {user, maps:get(username, Config, "default")},
-        {key, emqx_secret:wrap(maps:get(password, Config, "public"))},
+        {key, maps:get(password, Config, emqx_secret:wrap("public"))},
         {database, DB},
         {auto_reconnect, ?AUTO_RECONNECT_INTERVAL},
         {pool_size, PoolSize},
@@ -243,6 +243,7 @@ connect(Options) ->
     URL = iolist_to_binary(emqx_http_lib:normalize(proplists:get_value(url, Options))),
     User = proplists:get_value(user, Options),
     Database = proplists:get_value(database, Options),
+    %% TODO: teach `clickhouse` to accept 0-arity closures as passwords.
     Key = emqx_secret:unwrap(proplists:get_value(key, Options)),
     Pool = proplists:get_value(pool, Options),
     PoolSize = proplists:get_value(pool_size, Options),

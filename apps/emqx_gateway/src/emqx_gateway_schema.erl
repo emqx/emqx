@@ -32,28 +32,28 @@
 -type duration() :: non_neg_integer().
 -type duration_s() :: non_neg_integer().
 -type bytesize() :: pos_integer().
--type comma_separated_list() :: list().
 
 -typerefl_from_string({ip_port/0, emqx_schema, to_ip_port}).
 -typerefl_from_string({duration/0, emqx_schema, to_duration}).
 -typerefl_from_string({duration_s/0, emqx_schema, to_duration_s}).
 -typerefl_from_string({bytesize/0, emqx_schema, to_bytesize}).
--typerefl_from_string({comma_separated_list/0, emqx_schema, to_comma_separated_list}).
 
 -reflect_type([
     duration/0,
     duration_s/0,
     bytesize/0,
-    comma_separated_list/0,
     ip_port/0
 ]).
 -elvis([{elvis_style, dont_repeat_yourself, disable}]).
+-elvis([{elvis_style, invalid_dynamic_call, disable}]).
 
 -export([namespace/0, roots/0, fields/1, desc/1, tags/0]).
 
 -export([proxy_protocol_opts/0]).
 
--export([mountpoint/0, mountpoint/1, gateway_common_options/0, gateway_schema/1]).
+-export([mountpoint/0, mountpoint/1, gateway_common_options/0, gateway_schema/1, gateway_names/0]).
+
+-export([ws_listener/0, wss_listener/0, ws_opts/2]).
 
 namespace() -> gateway.
 
@@ -126,6 +126,10 @@ fields(ssl_listener) ->
                     }
                 )}
         ];
+fields(ws_listener) ->
+    ws_listener() ++ ws_opts(<<>>, <<>>);
+fields(wss_listener) ->
+    wss_listener() ++ ws_opts(<<>>, <<>>);
 fields(udp_listener) ->
     [
         %% some special configs for udp listener
@@ -249,6 +253,134 @@ mountpoint(Default) ->
         }
     ).
 
+ws_listener() ->
+    [
+        {acceptors, sc(integer(), #{default => 16, desc => ?DESC(tcp_listener_acceptors)})}
+    ] ++
+        tcp_opts() ++
+        proxy_protocol_opts() ++
+        common_listener_opts().
+
+wss_listener() ->
+    ws_listener() ++
+        [
+            {ssl_options,
+                sc(
+                    hoconsc:ref(emqx_schema, "listener_wss_opts"),
+                    #{
+                        desc => ?DESC(ssl_listener_options),
+                        validator => fun emqx_schema:validate_server_ssl_opts/1
+                    }
+                )}
+        ].
+
+ws_opts(DefaultPath, DefaultSubProtocols) when
+    is_binary(DefaultPath), is_binary(DefaultSubProtocols)
+->
+    [
+        {"path",
+            sc(
+                string(),
+                #{
+                    default => DefaultPath,
+                    desc => ?DESC(fields_ws_opts_path)
+                }
+            )},
+        {"piggyback",
+            sc(
+                hoconsc:enum([single, multiple]),
+                #{
+                    default => single,
+                    desc => ?DESC(fields_ws_opts_piggyback)
+                }
+            )},
+        {"compress",
+            sc(
+                boolean(),
+                #{
+                    default => false,
+                    desc => ?DESC(fields_ws_opts_compress)
+                }
+            )},
+        {"idle_timeout",
+            sc(
+                duration(),
+                #{
+                    default => <<"7200s">>,
+                    desc => ?DESC(fields_ws_opts_idle_timeout)
+                }
+            )},
+        {"max_frame_size",
+            sc(
+                hoconsc:union([infinity, integer()]),
+                #{
+                    default => infinity,
+                    desc => ?DESC(fields_ws_opts_max_frame_size)
+                }
+            )},
+        {"fail_if_no_subprotocol",
+            sc(
+                boolean(),
+                #{
+                    default => true,
+                    desc => ?DESC(fields_ws_opts_fail_if_no_subprotocol)
+                }
+            )},
+        {"supported_subprotocols",
+            sc(
+                emqx_schema:comma_separated_list(),
+                #{
+                    default => DefaultSubProtocols,
+                    desc => ?DESC(fields_ws_opts_supported_subprotocols)
+                }
+            )},
+        {"check_origin_enable",
+            sc(
+                boolean(),
+                #{
+                    default => false,
+                    desc => ?DESC(fields_ws_opts_check_origin_enable)
+                }
+            )},
+        {"allow_origin_absence",
+            sc(
+                boolean(),
+                #{
+                    default => true,
+                    desc => ?DESC(fields_ws_opts_allow_origin_absence)
+                }
+            )},
+        {"check_origins",
+            sc(
+                emqx_schema:comma_separated_binary(),
+                #{
+                    default => <<"http://localhost:18083, http://127.0.0.1:18083">>,
+                    desc => ?DESC(fields_ws_opts_check_origins)
+                }
+            )},
+        {"proxy_address_header",
+            sc(
+                string(),
+                #{
+                    default => <<"x-forwarded-for">>,
+                    desc => ?DESC(fields_ws_opts_proxy_address_header)
+                }
+            )},
+        {"proxy_port_header",
+            sc(
+                string(),
+                #{
+                    default => <<"x-forwarded-port">>,
+                    desc => ?DESC(fields_ws_opts_proxy_port_header)
+                }
+            )},
+        {"deflate_opts",
+            sc(
+                ref(emqx_schema, "deflate_opts"),
+                #{}
+            )}
+    ].
+
 common_listener_opts() ->
     [
         {enable,
@@ -327,7 +459,7 @@ proxy_protocol_opts() ->
             sc(
                 duration(),
                 #{
-                    default => <<"15s">>,
+                    default => <<"3s">>,
                     desc => ?DESC(tcp_listener_proxy_protocol_timeout)
                 }
             )}
@@ -336,13 +468,21 @@ proxy_protocol_opts() ->
 %%--------------------------------------------------------------------
 %% dynamic schemas
 
-%% FIXME: don't hardcode the gateway names
-gateway_schema(stomp) -> emqx_stomp_schema:fields(stomp);
-gateway_schema(mqttsn) -> emqx_mqttsn_schema:fields(mqttsn);
-gateway_schema(coap) -> emqx_coap_schema:fields(coap);
-gateway_schema(lwm2m) -> emqx_lwm2m_schema:fields(lwm2m);
-gateway_schema(exproto) -> emqx_exproto_schema:fields(exproto).
+gateway_schema(Name) ->
+    case emqx_gateway_utils:find_gateway_definition(Name) of
+        {ok, #{config_schema_module := SchemaMod}} ->
+            SchemaMod:fields(Name);
+        {error, _} = Error ->
+            throw(Error)
+    end.
 
+gateway_names() ->
+    Definations = emqx_gateway_utils:find_gateway_definitions(),
+    [
+        Name
+     || #{name := Name} = Defination <- Definations,
+        emqx_gateway_utils:check_gateway_edition(Defination)
+    ].
 %%--------------------------------------------------------------------
 %% helpers
 

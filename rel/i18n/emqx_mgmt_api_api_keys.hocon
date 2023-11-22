@@ -30,4 +30,7 @@ format.desc:
 format.label:
 """Unique and format by [a-zA-Z0-9-_]"""
 
+role.desc:
+"""Role for this API"""
+
 }

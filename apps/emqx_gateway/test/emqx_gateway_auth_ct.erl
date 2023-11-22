@@ -45,7 +45,7 @@
 -include_lib("common_test/include/ct.hrl").
 -include_lib("emqx/include/emqx_placeholder.hrl").
 
--define(CALL(Msg), gen_server:call(?MODULE, {?FUNCTION_NAME, Msg})).
+-define(CALL(Msg), gen_server:call(?MODULE, {?FUNCTION_NAME, Msg}, 15000)).
 
 -define(AUTHN_HTTP_PORT, 37333).
 -define(AUTHN_HTTP_PATH, "/auth").

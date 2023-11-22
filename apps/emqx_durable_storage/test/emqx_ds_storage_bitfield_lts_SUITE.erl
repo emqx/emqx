@@ -15,7 +15,9 @@
 
 -define(DEFAULT_CONFIG, #{
     backend => builtin,
-    storage => {emqx_ds_storage_bitfield_lts, #{}}
+    storage => {emqx_ds_storage_bitfield_lts, #{}},
+    n_shards => 16,
+    replication_factor => 3
 }).
 
 -define(COMPACT_CONFIG, #{
@@ -23,7 +25,9 @@
     storage =>
         {emqx_ds_storage_bitfield_lts, #{
             bits_per_wildcard_level => 8
-        }}
+        }},
+    n_shards => 16,
+    replication_factor => 3
 }).
 
 %% Smoke test for opening and reopening the database
@@ -387,7 +391,7 @@ end_per_testcase(TC, _Config) ->
     ok = emqx_ds_storage_layer_sup:stop_shard(shard(TC)).
 
 shard(TC) ->
-    {?MODULE, TC}.
+    {?MODULE, atom_to_binary(TC)}.
 
 keyspace(TC) ->
     TC.

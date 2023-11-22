@@ -26,7 +26,7 @@ desc_type.label:
 
 local_topic.desc:
 """The MQTT topic filter to be forwarded to RocketMQ. All MQTT `PUBLISH` messages with the topic
-matching the `local_topic` will be forwarded.</br>
+matching the `local_topic` will be forwarded.<br/>
 NOTE: if the bridge is used as a rule action, `local_topic` should be left empty otherwise the messages will be duplicated."""
 
 local_topic.label:

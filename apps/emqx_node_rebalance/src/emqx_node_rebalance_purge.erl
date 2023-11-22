@@ -199,7 +199,7 @@ deinit(Data) ->
     maps:without(Keys, Data).
 
 multicall(Nodes, F, A) ->
-    case apply(emqx_node_rebalance_proto_v2, F, [Nodes | A]) of
+    case apply(emqx_node_rebalance_proto_v3, F, [Nodes | A]) of
         {Results, []} ->
             case lists:partition(fun is_ok/1, lists:zip(Nodes, Results)) of
                 {_OkResults, []} ->

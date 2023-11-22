@@ -19,7 +19,7 @@
 -include("emqx.hrl").
 
 -export([init/0]).
--export([is_store_enabled/0]).
+-export([is_persistence_enabled/0]).
 
 %% Message persistence
 -export([
@@ -28,9 +28,8 @@
 
 -define(PERSISTENT_MESSAGE_DB, emqx_persistent_message).
 
-%% FIXME
 -define(WHEN_ENABLED(DO),
-    case is_store_enabled() of
+    case is_persistence_enabled() of
         true -> DO;
         false -> {skipped, disabled}
     end
@@ -40,18 +39,30 @@
 
 init() ->
     ?WHEN_ENABLED(begin
-        ok = emqx_ds:open_db(?PERSISTENT_MESSAGE_DB, #{
-            backend => builtin,
-            storage => {emqx_ds_storage_bitfield_lts, #{}}
-        }),
+        Backend = storage_backend(),
+        ok = emqx_ds:open_db(?PERSISTENT_MESSAGE_DB, Backend),
         ok = emqx_persistent_session_ds_router:init_tables(),
         ok = emqx_persistent_session_ds:create_tables(),
         ok
     end).
 
--spec is_store_enabled() -> boolean().
-is_store_enabled() ->
-    emqx_config:get([persistent_session_store, ds]).
+-spec is_persistence_enabled() -> boolean().
+is_persistence_enabled() ->
+    emqx_config:get([session_persistence, enable]).
+
+-spec storage_backend() -> emqx_ds:create_db_opts().
+storage_backend() ->
+    storage_backend(emqx_config:get([session_persistence, storage])).
+
+storage_backend(#{
+    builtin := #{enable := true, n_shards := NShards, replication_factor := ReplicationFactor}
+}) ->
+    #{
+        backend => builtin,
+        storage => {emqx_ds_storage_bitfield_lts, #{}},
+        n_shards => NShards,
+        replication_factor => ReplicationFactor
+    }.
 
 %%--------------------------------------------------------------------
 

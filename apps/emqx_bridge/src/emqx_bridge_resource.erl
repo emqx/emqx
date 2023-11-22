@@ -130,7 +130,7 @@ reset_metrics(ResourceId) ->
         false ->
             emqx_resource:reset_metrics(ResourceId);
         true ->
-            case emqx_bridge_v2:is_valid_bridge_v1(Type, Name) of
+            case emqx_bridge_v2:bridge_v1_is_valid(Type, Name) of
                 true ->
                     BridgeV2Type = emqx_bridge_v2:bridge_v2_type_to_connector_type(Type),
                     emqx_bridge_v2:reset_metrics(BridgeV2Type, Name);
@@ -356,9 +356,10 @@ parse_confs(<<"iotdb">>, Name, Conf) ->
         authentication :=
             #{
                 username := Username,
-                password := Password
+                password := Secret
             }
     } = Conf,
+    Password = emqx_secret:unwrap(Secret),
     BasicToken = base64:encode(<<Username/binary, ":", Password/binary>>),
     %% This version atom correspond to the macro ?VSN_1_1_X in
     %% emqx_bridge_iotdb.hrl. It would be better to use the macro directly, but

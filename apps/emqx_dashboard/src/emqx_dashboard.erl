@@ -72,7 +72,7 @@ start_listeners(Listeners) ->
         base_path => emqx_dashboard_swagger:base_path(),
         modules => minirest_api:find_api_modules(apps()),
         authorization => Authorization,
-        log => fun emqx_dashboard_audit:log/1,
+        log => audit_log_fun(),
         security => [#{'basicAuth' => []}, #{'bearerAuth' => []}],
         swagger_global_spec => GlobalSpec,
         dispatch => dispatch(),
@@ -210,9 +210,19 @@ filter_false(K, V, S) -> [{K, V} | S].
 listener_name(Protocol) ->
     list_to_atom(atom_to_list(Protocol) ++ ":dashboard").
 
+-dialyzer({no_match, [audit_log_fun/0]}).
+
+audit_log_fun() ->
+    case emqx_release:edition() of
+        ee -> fun emqx_dashboard_audit:log/2;
+        ce -> undefined
+    end.
+
 -if(?EMQX_RELEASE_EDITION =/= ee).
+
 %% dialyzer complains about the `unauthorized_role' clause...
--dialyzer({no_match, [authorize/1]}).
+-dialyzer({no_match, [authorize/1, api_key_authorize/3]}).
+
 -endif.
 
 authorize(Req) ->
@@ -222,7 +232,7 @@ authorize(Req) ->
         {bearer, Token} ->
             case emqx_dashboard_admin:verify_token(Req, Token) of
                 {ok, Username} ->
-                    {ok, #{auth_type => jwt_token, username => Username}};
+                    {ok, #{auth_type => jwt_token, source => Username}};
                 {error, token_timeout} ->
                     {401, 'TOKEN_TIME_OUT', <<"Token expired, get new token by POST /login">>};
                 {error, not_found} ->
@@ -251,14 +261,16 @@ listeners() ->
 
 api_key_authorize(Req, Key, Secret) ->
     Path = cowboy_req:path(Req),
-    case emqx_mgmt_auth:authorize(Path, Key, Secret) of
+    case emqx_mgmt_auth:authorize(Path, Req, Key, Secret) of
         ok ->
-            {ok, #{auth_type => api_key, api_key => Key}};
+            {ok, #{auth_type => api_key, source => Key}};
         {error, <<"not_allowed">>} ->
             return_unauthorized(
                 ?BAD_API_KEY_OR_SECRET,
                 <<"Not allowed, Check api_key/api_secret">>
             );
+        {error, unauthorized_role} ->
+            {403, 'UNAUTHORIZED_ROLE', ?API_KEY_NOT_ALLOW_MSG};
         {error, _} ->
             return_unauthorized(
                 ?BAD_API_KEY_OR_SECRET,

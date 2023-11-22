@@ -10,10 +10,12 @@
 -include("emqx_connector.hrl").
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("stdlib/include/assert.hrl").
+-include_lib("common_test/include/ct.hrl").
 
 -define(APP, emqx_bridge_clickhouse).
 -define(CLICKHOUSE_HOST, "clickhouse").
 -define(CLICKHOUSE_RESOURCE_MOD, emqx_bridge_clickhouse_connector).
+-define(CLICKHOUSE_PASSWORD, "public").
 
 %% This test SUITE requires a running clickhouse instance. If you don't want to
 %% bring up the whole CI infrastuctucture with the `scripts/ct/run.sh` script
@@ -57,7 +59,7 @@ init_per_suite(Config) ->
                 clickhouse:start_link([
                     {url, clickhouse_url()},
                     {user, <<"default">>},
-                    {key, "public"},
+                    {key, ?CLICKHOUSE_PASSWORD},
                     {pool, tmp_pool}
                 ]),
             {ok, _, _} = clickhouse:query(Conn, <<"CREATE DATABASE IF NOT EXISTS mqtt">>, #{}),
@@ -91,6 +93,31 @@ t_lifecycle(_Config) ->
         <<"emqx_connector_clickhouse_SUITE">>,
         clickhouse_config()
     ).
+
+t_start_passfile(Config) ->
+    ResourceID = atom_to_binary(?FUNCTION_NAME),
+    PasswordFilename = filename:join(?config(priv_dir, Config), "passfile"),
+    ok = file:write_file(PasswordFilename, <<?CLICKHOUSE_PASSWORD>>),
+    InitialConfig = clickhouse_config(#{
+        password => iolist_to_binary(["file://", PasswordFilename])
+    }),
+    {ok, #{config := ResourceConfig}} =
+        emqx_resource:check_config(?CLICKHOUSE_RESOURCE_MOD, InitialConfig),
+    ?assertMatch(
+        {ok, #{status := connected}},
+        emqx_resource:create_local(
+            ResourceID,
+            ?CONNECTOR_RESOURCE_GROUP,
+            ?CLICKHOUSE_RESOURCE_MOD,
+            ResourceConfig,
+            #{}
+        )
+    ),
+    ?assertEqual(
+        ok,
+        emqx_resource:remove_local(ResourceID)
+    ),
+    ok.
 
 show(X) ->
     erlang:display(X),
@@ -168,12 +195,15 @@ perform_lifecycle_check(ResourceID, InitialConfig) ->
 % %%------------------------------------------------------------------------------
 
 clickhouse_config() ->
+    clickhouse_config(#{}).
+
+clickhouse_config(Overrides) ->
     Config =
         #{
             auto_reconnect => true,
             database => <<"mqtt">>,
             username => <<"default">>,
-            password => <<"public">>,
+            password => <<?CLICKHOUSE_PASSWORD>>,
             pool_size => 8,
             url => iolist_to_binary(
                 io_lib:format(
@@ -186,7 +216,7 @@ clickhouse_config() ->
             ),
             connect_timeout => <<"10s">>
         },
-    #{<<"config">> => Config}.
+    #{<<"config">> => maps:merge(Config, Overrides)}.
 
 test_query_no_params() ->
     {query, <<"SELECT 1">>}.

@@ -100,7 +100,7 @@ mk_config_listeners(N) ->
 
 t_cluster_routing(Config) ->
     Cluster = ?config(cluster, Config),
-    Clients = [C1, C2, C3] = [start_client(N) || N <- Cluster],
+    Clients = [C1, C2, C3] = lists:sort([start_client(N) || N <- Cluster]),
     Commands = [
         {fun publish/3, [C1, <<"a/b/c">>, <<"wontsee">>]},
         {fun publish/3, [C2, <<"a/b/d">>, <<"wontsee">>]},

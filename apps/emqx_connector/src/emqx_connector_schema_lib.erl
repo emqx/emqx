@@ -20,28 +20,26 @@
 -include_lib("hocon/include/hoconsc.hrl").
 
 -export([
+    pool_size/1,
     relational_db_fields/0,
     ssl_fields/0,
-    prepare_statement_fields/0
+    prepare_statement_fields/0,
+    password_field/0,
+    password_field/1
 ]).
 
 -export([
-    pool_size/1,
     database/1,
     username/1,
-    password/1,
-    password_required/1,
     auto_reconnect/1
 ]).
 
 -type database() :: binary().
--type pool_size() :: pos_integer().
 -type username() :: binary().
 -type password() :: binary().
 
 -reflect_type([
     database/0,
-    pool_size/0,
     username/0,
     password/0
 ]).
@@ -68,9 +66,18 @@ relational_db_fields() ->
         %% See emqx_resource.hrl
         {pool_size, fun pool_size/1},
         {username, fun username/1},
-        {password, fun password/1},
+        {password, password_field()},
         {auto_reconnect, fun auto_reconnect/1}
     ].
+
+-spec password_field() -> hocon_schema:field_schema().
+password_field() ->
+    password_field(#{}).
+
+-spec password_field(#{atom() => _}) -> hocon_schema:field_schema().
+password_field(Overrides) ->
+    Base = #{desc => ?DESC("password")},
+    emqx_schema_secret:mk(maps:merge(Base, Overrides)).
 
 prepare_statement_fields() ->
     [{prepare_statement, fun prepare_statement/1}].
@@ -96,22 +103,6 @@ username(type) -> binary();
 username(desc) -> ?DESC("username");
 username(required) -> false;
 username(_) -> undefined.
-
-password(type) -> binary();
-password(desc) -> ?DESC("password");
-password(required) -> false;
-password(format) -> <<"password">>;
-password(sensitive) -> true;
-password(converter) -> fun emqx_schema:password_converter/2;
-password(_) -> undefined.
-
-password_required(type) -> binary();
-password_required(desc) -> ?DESC("password");
-password_required(required) -> true;
-password_required(format) -> <<"password">>;
-password_required(sensitive) -> true;
-password_required(converter) -> fun emqx_schema:password_converter/2;
-password_required(_) -> undefined.
 
 auto_reconnect(type) -> boolean();
 auto_reconnect(desc) -> ?DESC("auto_reconnect");

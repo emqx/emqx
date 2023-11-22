@@ -816,7 +816,7 @@ to_schema(Body) ->
 fields(good_ref) ->
     [
         {'webhook-host', mk(emqx_schema:ip_port(), #{default => <<"127.0.0.1:80">>})},
-        {log_dir, mk(emqx_schema:file(), #{example => "var/log/emqx"})},
+        {log_dir, mk(string(), #{example => "var/log/emqx"})},
         {tag, mk(binary(), #{desc => <<"tag">>})}
     ];
 fields(nest_ref) ->

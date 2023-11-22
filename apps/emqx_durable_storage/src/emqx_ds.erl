@@ -35,7 +35,6 @@
 
 -export_type([
     create_db_opts/0,
-    builtin_db_opts/0,
     db/0,
     time/0,
     topic_filter/0,
@@ -87,14 +86,8 @@
 
 -type message_store_opts() :: #{}.
 
--type builtin_db_opts() ::
-    #{
-        backend := builtin,
-        storage := emqx_ds_storage_layer:prototype()
-    }.
-
 -type create_db_opts() ::
-    builtin_db_opts().
+    emqx_ds_replication_layer:builtin_db_opts().
 
 -type message_id() :: emqx_ds_replication_layer:message_id().
 

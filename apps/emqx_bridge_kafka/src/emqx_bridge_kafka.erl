@@ -100,7 +100,7 @@ values({post, connector}) ->
 values({post, KafkaType}) ->
     maps:merge(
         #{
-            name => <<"my_kafka_producer_bridge">>,
+            name => <<"my_kafka_producer_action">>,
             type => <<"kafka_producer">>
         },
         values({put, KafkaType})
@@ -283,11 +283,9 @@ fields(auth_username_password) ->
             })},
         {username, mk(binary(), #{required => true, desc => ?DESC(auth_sasl_username)})},
         {password,
-            mk(binary(), #{
+            emqx_connector_schema_lib:password_field(#{
                 required => true,
-                sensitive => true,
-                desc => ?DESC(auth_sasl_password),
-                converter => fun emqx_schema:password_converter/2
+                desc => ?DESC(auth_sasl_password)
             })}
     ];
 fields(auth_gssapi_kerberos) ->
@@ -526,7 +524,18 @@ fields(consumer_kafka_opts) ->
 fields(resource_opts) ->
     SupportedFields = [health_check_interval],
     CreationOpts = emqx_resource_schema:create_opts(_Overrides = []),
-    lists:filter(fun({Field, _}) -> lists:member(Field, SupportedFields) end, CreationOpts).
+    lists:filter(fun({Field, _}) -> lists:member(Field, SupportedFields) end, CreationOpts);
+fields(action_field) ->
+    {kafka_producer,
+        mk(
+            hoconsc:map(name, ref(emqx_bridge_kafka, kafka_producer_action)),
+            #{
+                desc => <<"Kafka Producer Action Config">>,
+                required => false
+            }
+        )};
+fields(action) ->
+    fields(action_field).
 
 desc("config_connector") ->
     ?DESC("desc_config");
@@ -601,7 +610,7 @@ producer_opts() ->
     ].
 
 %% Since e5.3.1, we want to rename the field 'kafka' to 'parameters'
-%% Hoever we need to keep it backward compatible for generated schema json (version 0.1.0)
+%% However we need to keep it backward compatible for generated schema json (version 0.1.0)
 %% since schema is data for the 'schemas' API.
 parameters_field() ->
     {Name, Alias} =

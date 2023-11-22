@@ -1,0 +1,18 @@
+emqx_bridge_gcp_pubsub_producer_schema {
+
+  action_parameters.desc:
+  """Action specific configs."""
+  action_parameters.label:
+  """Action"""
+
+  producer_action.desc:
+  """Action configs."""
+  producer_action.label:
+  """Action"""
+
+  config_connector.desc:
+  """Configuration for a GCP PubSub Producer Client."""
+  config_connector.label:
+  """GCP PubSub Producer Client Configuration"""
+
+}

@@ -17,7 +17,7 @@
 %% @doc The Registry Centre of Gateway
 -module(emqx_gateway_registry).
 
--include("include/emqx_gateway.hrl").
+-include("emqx_gateway.hrl").
 
 -behaviour(gen_server).
 

@@ -137,7 +137,8 @@ t_random_basic(Config) when is_list(Config) ->
     ClientId = <<"ClientId">>,
     Topic = <<"foo">>,
     Payload = <<"hello">>,
-    emqx:subscribe(Topic, #{qos => 2, share => <<"group1">>}),
+    Group = <<"group1">>,
+    emqx_broker:subscribe(emqx_topic:make_shared_record(Group, Topic), #{qos => 2}),
     MsgQoS2 = emqx_message:make(ClientId, 2, Topic, Payload),
     %% wait for the subscription to show up
     ct:sleep(200),
@@ -402,7 +403,7 @@ t_hash(Config) when is_list(Config) ->
     ok = ensure_config(hash_clientid, false),
     test_two_messages(hash_clientid).
 
-t_hash_clinetid(Config) when is_list(Config) ->
+t_hash_clientid(Config) when is_list(Config) ->
     ok = ensure_config(hash_clientid, false),
     test_two_messages(hash_clientid).
 
@@ -528,14 +529,15 @@ last_message(ExpectedPayload, Pids, Timeout) ->
 t_dispatch(Config) when is_list(Config) ->
     ok = ensure_config(random),
     Topic = <<"foo">>,
+    Group = <<"group1">>,
     ?assertEqual(
         {error, no_subscribers},
-        emqx_shared_sub:dispatch(<<"group1">>, Topic, #delivery{message = #message{}})
+        emqx_shared_sub:dispatch(Group, Topic, #delivery{message = #message{}})
     ),
-    emqx:subscribe(Topic, #{qos => 2, share => <<"group1">>}),
+    emqx_broker:subscribe(emqx_topic:make_shared_record(Group, Topic), #{qos => 2}),
     ?assertEqual(
         {ok, 1},
-        emqx_shared_sub:dispatch(<<"group1">>, Topic, #delivery{message = #message{}})
+        emqx_shared_sub:dispatch(Group, Topic, #delivery{message = #message{}})
     ).
 
 t_uncovered_func(Config) when is_list(Config) ->
@@ -991,37 +993,110 @@ t_session_kicked(Config) when is_list(Config) ->
     ?assertEqual([], collect_msgs(0)),
     ok.
 
-%% FIXME: currently doesn't work
-%% t_different_groups_same_topic({init, Config}) ->
-%%     TestName = atom_to_binary(?FUNCTION_NAME),
-%%     ClientId = <<TestName/binary, (integer_to_binary(erlang:unique_integer()))/binary>>,
-%%     {ok, C} = emqtt:start_link([{clientid, ClientId}, {proto_ver, v5}]),
-%%     {ok, _} = emqtt:connect(C),
-%%     [{client, C}, {clientid, ClientId} | Config];
-%% t_different_groups_same_topic({'end', Config}) ->
-%%     C = ?config(client, Config),
-%%     emqtt:stop(C),
-%%     ok;
-%% t_different_groups_same_topic(Config) when is_list(Config) ->
-%%     C = ?config(client, Config),
-%%     ClientId = ?config(clientid, Config),
-%%     %% Subscribe and unsubscribe to both $queue and $shared topics
-%%     Topic = <<"t/1">>,
-%%     SharedTopic0 = <<"$share/aa/", Topic/binary>>,
-%%     SharedTopic1 = <<"$share/bb/", Topic/binary>>,
-%%     {ok, _, [2]} = emqtt:subscribe(C, {SharedTopic0, 2}),
-%%     {ok, _, [2]} = emqtt:subscribe(C, {SharedTopic1, 2}),
+-define(UPDATE_SUB_QOS(ConnPid, Topic, QoS),
+    ?assertMatch({ok, _, [QoS]}, emqtt:subscribe(ConnPid, {Topic, QoS}))
+).
 
-%%     Message0 = emqx_message:make(ClientId, _QoS = 2, Topic, <<"hi">>),
-%%     emqx:publish(Message0),
-%%     ?assertMatch([ {publish, #{payload := <<"hi">>}}
-%%                  , {publish, #{payload := <<"hi">>}}
-%%                  ], collect_msgs(5_000), #{routes => ets:tab2list(emqx_route)}),
+t_different_groups_same_topic({init, Config}) ->
+    TestName = atom_to_binary(?FUNCTION_NAME),
+    ClientId = <<TestName/binary, (integer_to_binary(erlang:unique_integer()))/binary>>,
+    {ok, C} = emqtt:start_link([{clientid, ClientId}, {proto_ver, v5}]),
+    {ok, _} = emqtt:connect(C),
+    [{client, C}, {clientid, ClientId} | Config];
+t_different_groups_same_topic({'end', Config}) ->
+    C = ?config(client, Config),
+    emqtt:stop(C),
+    ok;
+t_different_groups_same_topic(Config) when is_list(Config) ->
+    C = ?config(client, Config),
+    ClientId = ?config(clientid, Config),
+    %% Subscribe and unsubscribe to different group `aa` and `bb` with same topic
+    GroupA = <<"aa">>,
+    GroupB = <<"bb">>,
+    Topic = <<"t/1">>,
 
-%%     {ok, _, [0]} = emqtt:unsubscribe(C, SharedTopic0),
-%%     {ok, _, [0]} = emqtt:unsubscribe(C, SharedTopic1),
+    SharedTopicGroupA = ?SHARE(GroupA, Topic),
+    ?UPDATE_SUB_QOS(C, SharedTopicGroupA, ?QOS_2),
+    SharedTopicGroupB = ?SHARE(GroupB, Topic),
+    ?UPDATE_SUB_QOS(C, SharedTopicGroupB, ?QOS_2),
 
-%%     ok.
+    ?retry(
+        _Sleep0 = 100,
+        _Attempts0 = 50,
+        begin
+            ?assertEqual(2, length(emqx_router:match_routes(Topic)))
+        end
+    ),
+
+    Message0 = emqx_message:make(ClientId, ?QOS_2, Topic, <<"hi">>),
+    emqx:publish(Message0),
+    ?assertMatch(
+        [
+            {publish, #{payload := <<"hi">>}},
+            {publish, #{payload := <<"hi">>}}
+        ],
+        collect_msgs(5_000),
+        #{routes => ets:tab2list(emqx_route)}
+    ),
+
+    {ok, _, [?RC_SUCCESS]} = emqtt:unsubscribe(C, SharedTopicGroupA),
+    {ok, _, [?RC_SUCCESS]} = emqtt:unsubscribe(C, SharedTopicGroupB),
+
+    ok.
+
+t_different_groups_update_subopts({init, Config}) ->
+    TestName = atom_to_binary(?FUNCTION_NAME),
+    ClientId = <<TestName/binary, (integer_to_binary(erlang:unique_integer()))/binary>>,
+    {ok, C} = emqtt:start_link([{clientid, ClientId}, {proto_ver, v5}]),
+    {ok, _} = emqtt:connect(C),
+    [{client, C}, {clientid, ClientId} | Config];
+t_different_groups_update_subopts({'end', Config}) ->
+    C = ?config(client, Config),
+    emqtt:stop(C),
+    ok;
+t_different_groups_update_subopts(Config) when is_list(Config) ->
+    C = ?config(client, Config),
+    ClientId = ?config(clientid, Config),
+    %% Subscribe and unsubscribe to different group `aa` and `bb` with same topic
+    Topic = <<"t/1">>,
+    GroupA = <<"aa">>,
+    GroupB = <<"bb">>,
+    SharedTopicGroupA = ?SHARE(GroupA, Topic),
+    SharedTopicGroupB = ?SHARE(GroupB, Topic),
+
+    Fun = fun(Group, QoS) ->
+        ?UPDATE_SUB_QOS(C, ?SHARE(Group, Topic), QoS),
+        ?assertMatch(
+            #{qos := QoS},
+            emqx_broker:get_subopts(ClientId, emqx_topic:make_shared_record(Group, Topic))
+        )
+    end,
+
+    [Fun(Group, QoS) || QoS <- [?QOS_0, ?QOS_1, ?QOS_2], Group <- [GroupA, GroupB]],
+
+    ?retry(
+        _Sleep0 = 100,
+        _Attempts0 = 50,
+        begin
+            ?assertEqual(2, length(emqx_router:match_routes(Topic)))
+        end
+    ),
+
+    Message0 = emqx_message:make(ClientId, _QoS = 2, Topic, <<"hi">>),
+    emqx:publish(Message0),
+    ?assertMatch(
+        [
+            {publish, #{payload := <<"hi">>}},
+            {publish, #{payload := <<"hi">>}}
+        ],
+        collect_msgs(5_000),
+        #{routes => ets:tab2list(emqx_route)}
+    ),
+
+    {ok, _, [?RC_SUCCESS]} = emqtt:unsubscribe(C, SharedTopicGroupA),
+    {ok, _, [?RC_SUCCESS]} = emqtt:unsubscribe(C, SharedTopicGroupB),
+
+    ok.
 
 t_queue_subscription({init, Config}) ->
     TestName = atom_to_binary(?FUNCTION_NAME),
@@ -1038,23 +1113,19 @@ t_queue_subscription({'end', Config}) ->
 t_queue_subscription(Config) when is_list(Config) ->
     C = ?config(client, Config),
     ClientId = ?config(clientid, Config),
-    %% Subscribe and unsubscribe to both $queue and $shared topics
+    %% Subscribe and unsubscribe to both $queue share and $share/<group> with same topic
     Topic = <<"t/1">>,
     QueueTopic = <<"$queue/", Topic/binary>>,
     SharedTopic = <<"$share/aa/", Topic/binary>>,
-    {ok, _, [?RC_GRANTED_QOS_2]} = emqtt:subscribe(C, {QueueTopic, 2}),
-    {ok, _, [?RC_GRANTED_QOS_2]} = emqtt:subscribe(C, {SharedTopic, 2}),
 
-    %% FIXME: we should actually see 2 routes, one for each group
-    %% ($queue and aa), but currently the latest subscription
-    %% overwrites the existing one.
+    ?UPDATE_SUB_QOS(C, QueueTopic, ?QOS_2),
+    ?UPDATE_SUB_QOS(C, SharedTopic, ?QOS_2),
+
     ?retry(
         _Sleep0 = 100,
         _Attempts0 = 50,
         begin
-            ct:pal("routes: ~p", [ets:tab2list(emqx_route)]),
-            %% FIXME: should ensure we have 2 subscriptions
-            [_] = emqx_router:lookup_routes(Topic)
+            ?assertEqual(2, length(emqx_router:match_routes(Topic)))
         end
     ),
 
@@ -1063,37 +1134,29 @@ t_queue_subscription(Config) when is_list(Config) ->
     emqx:publish(Message0),
     ?assertMatch(
         [
+            {publish, #{payload := <<"hi">>}},
             {publish, #{payload := <<"hi">>}}
-            %% FIXME: should receive one message from each group
-            %% , {publish, #{payload := <<"hi">>}}
         ],
-        collect_msgs(5_000)
+        collect_msgs(5_000),
+        #{routes => ets:tab2list(emqx_route)}
     ),
 
     {ok, _, [?RC_SUCCESS]} = emqtt:unsubscribe(C, QueueTopic),
-    %% FIXME: return code should be success instead of 17 ("no_subscription_existed")
-    {ok, _, [?RC_NO_SUBSCRIPTION_EXISTED]} = emqtt:unsubscribe(C, SharedTopic),
+    {ok, _, [?RC_SUCCESS]} = emqtt:unsubscribe(C, SharedTopic),
 
-    %% FIXME: this should eventually be true, but currently we leak
-    %% the previous group subscription...
-    %% ?retry(
-    %%     _Sleep0 = 100,
-    %%     _Attempts0 = 50,
-    %%    begin
-    %%     ct:pal("routes: ~p", [ets:tab2list(emqx_route)]),
-    %%     [] = emqx_router:lookup_routes(Topic)
-    %%    end
-    %%   ),
+    ?retry(
+        _Sleep0 = 100,
+        _Attempts0 = 50,
+        begin
+            ?assertEqual(0, length(emqx_router:match_routes(Topic)))
+        end
+    ),
     ct:sleep(500),
 
     Message1 = emqx_message:make(ClientId, _QoS = 2, Topic, <<"hello">>),
     emqx:publish(Message1),
-    %% FIXME: we should *not* receive any messages...
-    %% ?assertEqual([], collect_msgs(1_000), #{routes => ets:tab2list(emqx_route)}),
-    %% This is from the leaked group...
-    ?assertMatch([{publish, #{topic := Topic}}], collect_msgs(1_000), #{
-        routes => ets:tab2list(emqx_route)
-    }),
+    %% we should *not* receive any messages.
+    ?assertEqual([], collect_msgs(1_000), #{routes => ets:tab2list(emqx_route)}),
 
     ok.
 

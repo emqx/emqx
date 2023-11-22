@@ -627,7 +627,7 @@ create_bridge(BridgeType, BridgeName, Conf) ->
 update_bridge(BridgeType, BridgeName, Conf) ->
     case emqx_bridge_v2:is_bridge_v2_type(BridgeType) of
         true ->
-            case emqx_bridge_v2:is_valid_bridge_v1(BridgeType, BridgeName) of
+            case emqx_bridge_v2:bridge_v1_is_valid(BridgeType, BridgeName) of
                 true ->
                     create_or_update_bridge(BridgeType, BridgeName, Conf, 200);
                 false ->
@@ -900,14 +900,14 @@ format_resource(
         case emqx_bridge_v2:is_bridge_v2_type(Type) of
             true ->
                 %% The defaults are already filled in
-                downgrade_raw_conf(Type, RawConf);
+                RawConf;
             false ->
                 fill_defaults(Type, RawConf)
         end,
     redact(
         maps:merge(
             RawConfFull#{
-                type => downgrade_type(Type),
+                type => downgrade_type(Type, RawConf),
                 name => maps:get(<<"name">>, RawConf, BridgeName),
                 node => Node
             },
@@ -1157,26 +1157,10 @@ map_to_json(M0) ->
     end.
 
 non_compat_bridge_msg() ->
-    <<"bridge already exists as non Bridge V1 compatible Bridge V2 bridge">>.
+    <<"bridge already exists as non Bridge V1 compatible action">>.
 
 upgrade_type(Type) ->
     emqx_bridge_lib:upgrade_type(Type).
 
-downgrade_type(Type) ->
-    emqx_bridge_lib:downgrade_type(Type).
-
-%% TODO: move it to callback
-downgrade_raw_conf(kafka_producer, RawConf) ->
-    rename(<<"parameters">>, <<"kafka">>, RawConf);
-downgrade_raw_conf(azure_event_hub_producer, RawConf) ->
-    rename(<<"parameters">>, <<"kafka">>, RawConf);
-downgrade_raw_conf(_Type, RawConf) ->
-    RawConf.
-
-rename(OldKey, NewKey, Map) ->
-    case maps:find(OldKey, Map) of
-        {ok, Value} ->
-            maps:remove(OldKey, maps:put(NewKey, Value, Map));
-        error ->
-            Map
-    end.
+downgrade_type(Type, Conf) ->
+    emqx_bridge_lib:downgrade_type(Type, Conf).

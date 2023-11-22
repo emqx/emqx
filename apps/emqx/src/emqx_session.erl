@@ -176,6 +176,7 @@
     t().
 -callback open(clientinfo(), conninfo()) ->
     {_IsPresent :: true, t(), _ReplayContext} | false.
+-callback destroy(t() | clientinfo()) -> ok.
 
 %%--------------------------------------------------------------------
 %% Create a Session
@@ -247,7 +248,14 @@ get_mqtt_conf(Zone, Key) ->
 
 -spec destroy(clientinfo(), conninfo()) -> ok.
 destroy(ClientInfo, ConnInfo) ->
-    (choose_impl_mod(ConnInfo)):destroy(ClientInfo).
+    %% When destroying/discarding a session, the current `ClientInfo' might suggest an
+    %% implementation which does not correspond to the one previously used by this client.
+    %% An example of this is a client that first connects with `Session-Expiry-Interval' >
+    %% 0, and later reconnects with `Session-Expiry-Interval' = 0 and `clean_start' =
+    %% true.  So we may simply destroy sessions from all implementations, since the key
+    %% (ClientID) is the same.
+    Mods = choose_impl_candidates(ConnInfo),
+    lists:foreach(fun(Mod) -> Mod:destroy(ClientInfo) end, Mods).
 
 -spec destroy(t()) -> ok.
 destroy(Session) ->
@@ -259,7 +267,7 @@ destroy(Session) ->
 
 -spec subscribe(
     clientinfo(),
-    emqx_types:topic(),
+    emqx_types:topic() | emqx_types:share(),
     emqx_types:subopts(),
     t()
 ) ->
@@ -279,7 +287,7 @@ subscribe(ClientInfo, TopicFilter, SubOpts, Session) ->
 
 -spec unsubscribe(
     clientinfo(),
-    emqx_types:topic(),
+    emqx_types:topic() | emqx_types:share(),
     emqx_types:subopts(),
     t()
 ) ->
@@ -410,7 +418,13 @@ enrich_delivers(ClientInfo, [D | Rest], UpgradeQoS, Session) ->
     end.
 
 enrich_deliver(ClientInfo, {deliver, Topic, Msg}, UpgradeQoS, Session) ->
-    SubOpts = ?IMPL(Session):get_subscription(Topic, Session),
+    SubOpts =
+        case Msg of
+            #message{headers = #{redispatch_to := ?REDISPATCH_TO(Group, T)}} ->
+                ?IMPL(Session):get_subscription(emqx_topic:make_shared_record(Group, T), Session);
+            _ ->
+                ?IMPL(Session):get_subscription(Topic, Session)
+        end,
     enrich_message(ClientInfo, Msg, SubOpts, UpgradeQoS).
 
 enrich_message(
@@ -603,11 +617,11 @@ maybe_mock_impl_mod(_) ->
 
 -spec choose_impl_mod(conninfo()) -> module().
 choose_impl_mod(#{expiry_interval := EI}) ->
-    hd(choose_impl_candidates(EI, emqx_persistent_message:is_store_enabled())).
+    hd(choose_impl_candidates(EI, emqx_persistent_message:is_persistence_enabled())).
 
 -spec choose_impl_candidates(conninfo()) -> [module()].
 choose_impl_candidates(#{expiry_interval := EI}) ->
-    choose_impl_candidates(EI, emqx_persistent_message:is_store_enabled()).
+    choose_impl_candidates(EI, emqx_persistent_message:is_persistence_enabled()).
 
 choose_impl_candidates(_, _IsPSStoreEnabled = false) ->
     [emqx_session_mem];

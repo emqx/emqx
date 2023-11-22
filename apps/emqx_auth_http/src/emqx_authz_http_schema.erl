@@ -108,7 +108,7 @@ http_common_fields() ->
         ).
 
 headers(type) ->
-    typerefl:alias("map", list({binary(), binary()}));
+    typerefl:alias("map", list({binary(), binary()}), #{}, [binary(), binary()]);
 headers(desc) ->
     ?DESC(?FUNCTION_NAME);
 headers(converter) ->
@@ -121,7 +121,7 @@ headers(_) ->
     undefined.
 
 headers_no_content_type(type) ->
-    typerefl:alias("map", list({binary(), binary()}));
+    typerefl:alias("map", list({binary(), binary()}), #{}, [binary(), binary()]);
 headers_no_content_type(desc) ->
     ?DESC(?FUNCTION_NAME);
 headers_no_content_type(converter) ->

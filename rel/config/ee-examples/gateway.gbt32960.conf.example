@@ -1,0 +1,28 @@
+##--------------------------------------------------------------------
+## Gateway GB/T 32960
+##
+## Add a GB/T 32960 gateway
+##--------------------------------------------------------------------
+## Note: This is an example of how to configure this feature
+##       you should copy and paste the below data into the emqx.conf for working
+
+gateway.gbt32960 {
+
+    ## When publishing or subscribing, prefix all topics with a mountpoint string.
+    ## It's a way that you can use to implement isolation of message routing between different
+    ## gateway protocols
+    mountpoint = "gbt32960/"
+
+    ## Re-send time interval
+    retry_interval = "8s"
+
+    ## Re-send max times
+    max_retry_times = 3
+
+    ## Max message queue length
+    message_queue_len = 10
+
+    listeners.tcp.default {
+        bind = "0.0.0.0:7325"
+    }
+}

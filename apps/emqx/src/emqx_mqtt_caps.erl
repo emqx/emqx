@@ -102,16 +102,19 @@ do_check_pub(_Flags, _Caps) ->
 
 -spec check_sub(
     emqx_types:clientinfo(),
-    emqx_types:topic(),
+    emqx_types:topic() | emqx_types:share(),
     emqx_types:subopts()
 ) ->
     ok_or_error(emqx_types:reason_code()).
 check_sub(ClientInfo = #{zone := Zone}, Topic, SubOpts) ->
     Caps = emqx_config:get_zone_conf(Zone, [mqtt]),
     Flags = #{
+        %% TODO: qos check
+        %% (max_qos_allowed, Map) ->
+        %% max_qos_allowed => maps:get(max_qos_allowed, Caps, 2),
         topic_levels => emqx_topic:levels(Topic),
         is_wildcard => emqx_topic:wildcard(Topic),
-        is_shared => maps:is_key(share, SubOpts),
+        is_shared => erlang:is_record(Topic, share),
         is_exclusive => maps:get(is_exclusive, SubOpts, false)
     },
     do_check_sub(Flags, Caps, ClientInfo, Topic).
@@ -126,13 +129,19 @@ do_check_sub(#{is_shared := true}, #{shared_subscription := false}, _, _) ->
     {error, ?RC_SHARED_SUBSCRIPTIONS_NOT_SUPPORTED};
 do_check_sub(#{is_exclusive := true}, #{exclusive_subscription := false}, _, _) ->
     {error, ?RC_TOPIC_FILTER_INVALID};
-do_check_sub(#{is_exclusive := true}, #{exclusive_subscription := true}, ClientInfo, Topic) ->
+do_check_sub(#{is_exclusive := true}, #{exclusive_subscription := true}, ClientInfo, Topic) when
+    is_binary(Topic)
+->
     case emqx_exclusive_subscription:check_subscribe(ClientInfo, Topic) of
         deny ->
             {error, ?RC_QUOTA_EXCEEDED};
         _ ->
             ok
     end;
+%% for max_qos_allowed
+%% see: RC_GRANTED_QOS_0, RC_GRANTED_QOS_1, RC_GRANTED_QOS_2
+%% do_check_sub(_, _) ->
+%%     {ok, RC};
 do_check_sub(_Flags, _Caps, _, _) ->
     ok.
 
