@@ -58,7 +58,7 @@ storage_backend() ->
 %% `emqx_persistent_session_ds':
 -spec force_ds() -> boolean().
 force_ds() ->
-    emqx_config:get([session_persistence, force_ds]).
+    emqx_config:get([session_persistence, force_persistence]).
 
 storage_backend(#{
     builtin := #{enable := true, n_shards := NShards, replication_factor := ReplicationFactor}

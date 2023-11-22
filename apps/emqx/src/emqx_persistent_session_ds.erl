@@ -349,11 +349,11 @@ handle_timeout(
     Session = #{id := Id, inflight := Inflight0, receive_maximum := ReceiveMaximum}
 ) ->
     {Publishes, Inflight} = emqx_persistent_message_ds_replayer:poll(Id, Inflight0, ReceiveMaximum),
-    %% TODO: make these values configurable:
+    IdlePollInterval = emqx_config:get([session_persistence, idle_poll_interval]),
     Timeout =
         case Publishes of
             [] ->
-                100;
+                IdlePollInterval;
             [_ | _] ->
                 0
         end,
