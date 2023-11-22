@@ -71,14 +71,23 @@ fields("config_connector") ->
         emqx_bridge_gcp_pubsub:fields(connector_config) ++
         emqx_resource_schema:fields("resource_opts");
 %%=========================================
-%% HTTP API fields
+%% HTTP API fields: action
 %%=========================================
 fields("get_bridge_v2") ->
     emqx_bridge_schema:status_fields() ++ fields("post_bridge_v2");
 fields("post_bridge_v2") ->
     [type_field(), name_field() | fields("put_bridge_v2")];
 fields("put_bridge_v2") ->
-    fields(producer_action).
+    fields(producer_action);
+%%=========================================
+%% HTTP API fields: connector
+%%=========================================
+fields("get_connector") ->
+    emqx_bridge_schema:status_fields() ++ fields("post_connector");
+fields("post_connector") ->
+    [type_field(), name_field() | fields("put_connector")];
+fields("put_connector") ->
+    fields("config_connector").
 
 desc("config_connector") ->
     ?DESC("config_connector");

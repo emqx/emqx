@@ -117,6 +117,7 @@ schema_modules() ->
     [
         emqx_bridge_azure_event_hub,
         emqx_bridge_confluent_producer,
+        emqx_bridge_gcp_pubsub_producer_schema,
         emqx_bridge_kafka,
         emqx_bridge_syskeeper_connector,
         emqx_bridge_syskeeper_proxy
@@ -133,6 +134,11 @@ api_schemas(Method) ->
             emqx_bridge_confluent_producer, <<"confluent_producer">>, Method ++ "_connector"
         ),
         api_ref(emqx_bridge_kafka, <<"kafka_producer">>, Method ++ "_connector"),
+        api_ref(
+            emqx_bridge_gcp_pubsub_producer_schema,
+            <<"gcp_pubsub_producer">>,
+            Method ++ "_connector"
+        ),
         api_ref(emqx_bridge_syskeeper_connector, <<"syskeeper_forwarder">>, Method),
         api_ref(emqx_bridge_syskeeper_proxy, <<"syskeeper_proxy">>, Method)
     ].
