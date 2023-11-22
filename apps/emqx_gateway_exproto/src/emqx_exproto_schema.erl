@@ -28,7 +28,9 @@
 ]).
 
 %% config schema provides
--export([fields/1, desc/1]).
+-export([namespace/0, fields/1, desc/1]).
+
+namespace() -> "gateway".
 
 fields(exproto) ->
     [
