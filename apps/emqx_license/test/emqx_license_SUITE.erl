@@ -146,7 +146,7 @@ assert_on_nodes(Nodes, RunFun, CheckFun) ->
 
 t_update_value(_Config) ->
     ?assertMatch(
-        {error, [_ | _]},
+        {error, #{parse_results := [_ | _]}},
         emqx_license:update_key("invalid.license")
     ),
 

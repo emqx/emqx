@@ -7,17 +7,6 @@
 -compile(nowarn_export_all).
 -compile(export_all).
 
--define(DEFAULT_LICENSE_VALUES, [
-    "220111",
-    "0",
-    "10",
-    "Foo",
-    "contact@foo.com",
-    "20220111",
-    "100000",
-    "10"
-]).
-
 private_key() ->
     test_key("pvt.key").
 
@@ -75,6 +64,9 @@ make_license(Values) ->
     Signature = public_key:sign(Text, sha256, Key),
     EncodedSignature = base64:encode(Signature),
     iolist_to_binary([EncodedText, ".", EncodedSignature]).
+
+default_test_license() ->
+    make_license(#{}).
 
 default_license() ->
     emqx_license_schema:default_license().

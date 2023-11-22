@@ -21,6 +21,7 @@
 -export([
     parse/2,
     dump/1,
+    summary/1,
     customer_type/1,
     license_type/1,
     expiry_date/1,
@@ -69,6 +70,21 @@ dump(
         {expiry, Expiry}
     ].
 
+summary(
+    #{
+        deployment := Deployment,
+        date_start := DateStart,
+        max_connections := MaxConns
+    } = License
+) ->
+    DateExpiry = expiry_date(License),
+    #{
+        deployment => Deployment,
+        max_connections => MaxConns,
+        start_at => format_date(DateStart),
+        expiry_at => format_date(DateExpiry)
+    }.
+
 customer_type(#{customer_type := CType}) -> CType.
 
 license_type(#{type := Type}) -> Type.
@@ -87,22 +103,24 @@ max_connections(#{max_connections := MaxConns}) ->
 
 do_parse(Content0) ->
     try
-        Content = trim(Content0),
-        [EncodedPayload, EncodedSignature] = binary:split(Content, <<".">>),
-        Payload = base64:decode(EncodedPayload),
-        Signature = base64:decode(EncodedSignature),
-        {ok, {Payload, Signature}}
+        Content = normalize(Content0),
+        do_parse2(Content)
     catch
         _:_ ->
             {error, bad_license_format}
     end.
 
-trim(Bin) ->
-    trim(trim(Bin, $\n), $\r).
+do_parse2(<<>>) ->
+    {error, empty_string};
+do_parse2(Content) ->
+    [EncodedPayload, EncodedSignature] = binary:split(Content, <<".">>),
+    Payload = base64:decode(EncodedPayload),
+    Signature = base64:decode(EncodedSignature),
+    {ok, {Payload, Signature}}.
 
-trim(Bin, C) ->
-    [OneValue] = lists:filter(fun(X) -> X =/= <<>> end, binary:split(Bin, <<C:8>>, [global])),
-    OneValue.
+%% drop whitespaces and newlines (CRLF)
+normalize(Bin) ->
+    <<<<C>> || <<C>> <= Bin, C =/= $\s andalso C =/= $\n andalso C =/= $\r>>.
 
 verify_signature(Payload, Signature, Key) ->
     public_key:verify(Payload, ?DIGEST_TYPE, Signature, Key).
@@ -190,7 +208,7 @@ collect_fields(Fields) ->
         {FieldValues, []} ->
             {ok, maps:from_list(FieldValues)};
         {_, Errors} ->
-            {error, lists:reverse(Errors)}
+            {error, maps:from_list(Errors)}
     end.
 
 format_date({Year, Month, Day}) ->

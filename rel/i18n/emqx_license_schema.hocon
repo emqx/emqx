@@ -25,7 +25,15 @@ connection_low_watermark_field_deprecated.label:
 """deprecated use /license/setting instead"""
 
 key_field.desc:
-"""License string"""
+"""This configuration parameter is designated for the license key and supports two input formats:
+
+- Direct Key: Enter the secret key directly as a string value.
+- File Path: Specify the path to a file that contains the secret key. Ensure the path starts with <code>file://</code>.
+
+Note: An invalid license key or an incorrect file path may prevent EMQX from starting successfully.
+If a file path is used, EMQX attempts to reload the license key every 2 minutes.
+Any failure in reloading the license key will be recorded as an error level log message,
+without causing system downtime."""
 
 key_field.label:
 """License string"""

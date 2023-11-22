@@ -14,12 +14,17 @@
 all() ->
     emqx_common_test_helpers:all(?MODULE).
 
-init_per_suite(Config) ->
+init_per_suite(CtConfig) ->
     _ = application:load(emqx_conf),
+    ok = persistent_term:put(
+        emqx_license_test_pubkey,
+        emqx_license_test_lib:public_key_pem()
+    ),
     ok = emqx_common_test_helpers:start_apps([emqx_license], fun set_special_configs/1),
-    Config.
+    CtConfig.
 
 end_per_suite(_) ->
+    persistent_term:erase(emqx_license_test_pubkey),
     ok = emqx_common_test_helpers:stop_apps([emqx_license]).
 
 init_per_testcase(t_default_limits, Config) ->
@@ -35,7 +40,7 @@ end_per_testcase(_Case, _Config) ->
     ok.
 
 set_special_configs(emqx_license) ->
-    Config = #{key => emqx_license_test_lib:default_license()},
+    Config = #{key => emqx_license_test_lib:default_test_license()},
     emqx_config:put([license], Config);
 set_special_configs(_) ->
     ok.
@@ -100,7 +105,7 @@ t_update(_Config) ->
         emqx_license_checker:limits()
     ).
 
-t_update_by_timer(_Config) ->
+t_check_by_timer(_Config) ->
     ?check_trace(
         begin
             ?wait_async_action(
@@ -228,9 +233,110 @@ t_unknown_calls(_Config) ->
     some_msg = erlang:send(emqx_license_checker, some_msg),
     ?assertEqual(unknown, gen_server:call(emqx_license_checker, some_request)).
 
+t_refresh_no_change(Config) when is_list(Config) ->
+    {ok, License} = write_test_license(Config, ?FUNCTION_NAME, 1, 111),
+    #{} = emqx_license_checker:update(License),
+    ?check_trace(
+        begin
+            ?wait_async_action(
+                begin
+                    erlang:send(
+                        emqx_license_checker,
+                        refresh
+                    )
+                end,
+                #{?snk_kind := emqx_license_refresh_no_change},
+                1000
+            )
+        end,
+        fun(Trace) ->
+            ?assertMatch([_ | _], ?of_kind(emqx_license_refresh_no_change, Trace))
+        end
+    ).
+
+t_refresh_change(Config) when is_list(Config) ->
+    {ok, License} = write_test_license(Config, ?FUNCTION_NAME, 1, 111),
+    #{} = emqx_license_checker:update(License),
+    {ok, License2} = write_test_license(Config, ?FUNCTION_NAME, 2, 222),
+    ?check_trace(
+        begin
+            ?wait_async_action(
+                begin
+                    erlang:send(
+                        emqx_license_checker,
+                        refresh
+                    )
+                end,
+                #{?snk_kind := emqx_license_refresh_changed},
+                1000
+            )
+        end,
+        fun(Trace) ->
+            ?assertMatch(
+                [#{new_license := License2} | _], ?of_kind(emqx_license_refresh_changed, Trace)
+            )
+        end
+    ).
+
+t_refresh_failure(Config) when is_list(Config) ->
+    Filename = test_license_file_name(Config, ?FUNCTION_NAME),
+    {ok, License} = write_test_license(Config, ?FUNCTION_NAME, 1, 111),
+    Summary = emqx_license_parser:summary(License),
+    #{} = emqx_license_checker:update(License),
+    ok = file:write_file(Filename, <<"invalid license">>),
+    ?check_trace(
+        begin
+            ?wait_async_action(
+                begin
+                    erlang:send(
+                        emqx_license_checker,
+                        refresh
+                    )
+                end,
+                #{?snk_kind := emqx_license_refresh_failed},
+                1000
+            )
+        end,
+        fun(Trace) ->
+            ?assertMatch(
+                [#{continue_with_license := Summary} | _],
+                ?of_kind(emqx_license_refresh_failed, Trace)
+            )
+        end
+    ).
+
 %%------------------------------------------------------------------------------
 %% Tests
 %%------------------------------------------------------------------------------
+
+write_test_license(Config, Name, ExpireInDays, Connections) ->
+    {NowDate, _} = calendar:universal_time(),
+    DateTomorrow = calendar:gregorian_days_to_date(
+        calendar:date_to_gregorian_days(NowDate) + ExpireInDays
+    ),
+    Fields = [
+        "220111",
+        "1",
+        "0",
+        "Foo",
+        "contact@foo.com",
+        "bar",
+        format_date(DateTomorrow),
+        "1",
+        integer_to_list(Connections)
+    ],
+    FileName = test_license_file_name(Config, Name),
+    ok = write_license_file(FileName, Fields),
+    emqx_license_parser:parse(<<"file://", FileName/binary>>).
+
+test_license_file_name(Config, Name) ->
+    Dir = ?config(data_dir, Config),
+    iolist_to_binary(filename:join(Dir, atom_to_list(Name) ++ ".lic")).
+
+write_license_file(FileName, Fields) ->
+    EncodedLicense = emqx_license_test_lib:make_license(Fields),
+    ok = filelib:ensure_dir(FileName),
+    ok = file:write_file(FileName, EncodedLicense).
 
 mk_license(Fields) ->
     EncodedLicense = emqx_license_test_lib:make_license(Fields),
