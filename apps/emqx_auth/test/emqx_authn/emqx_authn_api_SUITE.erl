@@ -435,6 +435,19 @@ test_authenticator_position(PathPrefix) ->
         PathPrefix ++ [?CONF_NS]
     ).
 
+t_authenticator_users_not_found(_) ->
+    GlobalUser = #{user_id => <<"global_user">>, password => <<"p1">>},
+    {ok, 404, _} = request(
+        get,
+        uri([?CONF_NS, "password_based:built_in_database", "users"])
+    ),
+    {ok, 404, _} = request(
+        post,
+        uri([?CONF_NS, "password_based:built_in_database", "users"]),
+        GlobalUser
+    ),
+    ok.
+
 %% listener authn api is not supported since 5.1.0
 %% Don't support listener switch to global chain.
 ignore_switch_to_global_chain(_) ->

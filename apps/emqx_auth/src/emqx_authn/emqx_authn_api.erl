@@ -1111,10 +1111,7 @@ list_users(ChainName, AuthenticatorID, QueryString) ->
         {error, page_limit_invalid} ->
             {400, #{code => <<"INVALID_PARAMETER">>, message => <<"page_limit_invalid">>}};
         {error, Reason} ->
-            {400, #{
-                code => <<"INVALID_PARAMETER">>,
-                message => list_to_binary(io_lib:format("Reason ~p", [Reason]))
-            }};
+            serialize_error({user_error, Reason});
         Result ->
             {200, Result}
     end.
@@ -1175,6 +1172,16 @@ serialize_error({user_error, not_found}) ->
     {404, #{
         code => <<"NOT_FOUND">>,
         message => binfmt("User not found", [])
+    }};
+serialize_error({user_error, {not_found, {chain, ?GLOBAL}}}) ->
+    {404, #{
+        code => <<"NOT_FOUND">>,
+        message => <<"Authenticator not found in the 'global' scope">>
+    }};
+serialize_error({user_error, {not_found, {chain, Name}}}) ->
+    {400, #{
+        code => <<"BAD_REQUEST">>,
+        message => binfmt("No authentication has been created for listener ~p", [Name])
     }};
 serialize_error({user_error, already_exist}) ->
     {409, #{
