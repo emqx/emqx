@@ -181,7 +181,14 @@ values({producer, _PostgreSQLType}) ->
         <<"connector">> => <<"connector_pgsql_test">>,
         <<"parameters">> => #{
             <<"sql">> =>
-                <<"INSERT INTO client_events(clientid, event, created_at) VALUES (\n  ${clientid},\n  ${event},\n  TO_TIMESTAMP((${timestamp} :: bigint))\n)">>
+                <<
+                    "INSERT INTO client_events(clientid, event, created_at)"
+                    "VALUES (\n"
+                    "  ${clientid},\n"
+                    "  ${event},\n"
+                    "  TO_TIMESTAMP((${timestamp} :: bigint))\n"
+                    ")"
+                >>
         },
         <<"resource_opts">> => #{
             <<"batch_size">> => 1,
