@@ -46,7 +46,10 @@
     next_result/1, next_result/0,
     store_batch_result/0,
     make_iterator_result/1, make_iterator_result/0,
-    get_iterator_result/1
+    get_iterator_result/1,
+
+    ds_specific_stream/0,
+    ds_specific_iterator/0
 ]).
 
 %%================================================================================
@@ -63,9 +66,13 @@
 
 -type stream_rank() :: {term(), integer()}.
 
--opaque stream() :: emqx_ds_replication_layer:stream().
+-opaque iterator() :: ds_specific_iterator().
 
--opaque iterator() :: emqx_ds_replication_layer:iterator().
+-opaque stream() :: ds_specific_stream().
+
+-type ds_specific_iterator() :: term().
+
+-type ds_specific_stream() :: term().
 
 -type store_batch_result() :: ok | {error, _}.
 
@@ -113,9 +120,10 @@
 
 -callback store_batch(db(), [emqx_types:message()], message_store_opts()) -> store_batch_result().
 
--callback get_streams(db(), topic_filter(), time()) -> [{stream_rank(), stream()}].
+-callback get_streams(db(), topic_filter(), time()) -> [{stream_rank(), ds_specific_stream()}].
 
--callback make_iterator(db(), _Stream, topic_filter(), time()) -> make_iterator_result(_Iterator).
+-callback make_iterator(db(), ds_specific_stream(), topic_filter(), time()) ->
+    make_iterator_result(ds_specific_iterator()).
 
 -callback next(db(), Iterator, pos_integer()) -> next_result(Iterator).
 
