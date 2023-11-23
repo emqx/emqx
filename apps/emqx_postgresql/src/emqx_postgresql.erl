@@ -269,10 +269,7 @@ on_get_channel_status(
         ok ->
             connected;
         {error, undefined_table} ->
-            {error, {unhealthy_target, <<"Table does not exist">>}};
-        {error, _Reason} ->
-            %% do not log error, it is logged in prepare_sql_to_conn
-            connecting
+            {error, {unhealthy_target, <<"Table does not exist">>}}
     end.
 
 do_check_channel_sql(
