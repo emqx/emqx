@@ -47,7 +47,7 @@ fields(config) ->
 fields(action) ->
     {pgsql,
         hoconsc:mk(
-            hoconsc:map(name, hoconsc:ref(emqx_bridge_pgsql_schema, pgsql_action)),
+            hoconsc:map(name, hoconsc:ref(emqx_bridge_pgsql, pgsql_action)),
             #{
                 desc => <<"PostgreSQL Action Config">>,
                 required => false

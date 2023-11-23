@@ -19,4 +19,4 @@ action_type_name() -> pgsql.
 
 connector_type_name() -> pgsql.
 
-schema_module() -> emqx_bridge_pgsql_schema.
+schema_module() -> emqx_bridge_pgsql.
