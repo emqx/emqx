@@ -16,12 +16,14 @@ all() ->
     emqx_common_test_helpers:all(?MODULE).
 
 init_per_suite(Config) ->
+    emqx_license_test_lib:mock_parser(),
     _ = application:load(emqx_conf),
     emqx_config:save_schema_mod_and_names(emqx_license_schema),
     emqx_common_test_helpers:start_apps([emqx_license], fun set_special_configs/1),
     Config.
 
 end_per_suite(_) ->
+    emqx_license_test_lib:unmock_parser(),
     emqx_common_test_helpers:stop_apps([emqx_license]),
     ok.
 
@@ -103,17 +105,7 @@ setup_test(TestCase, Config) when
                     ),
                     ok;
                 (emqx_license) ->
-                    LicensePath = filename:join(emqx_license:license_dir(), "emqx.lic"),
-                    filelib:ensure_dir(LicensePath),
-                    ok = file:write_file(LicensePath, LicenseKey),
-                    LicConfig = #{type => file, file => LicensePath},
-                    emqx_config:put([license], LicConfig),
-                    RawConfig = #{<<"type">> => file, <<"file">> => LicensePath},
-                    emqx_config:put_raw([<<"license">>], RawConfig),
-                    ok = persistent_term:put(
-                        emqx_license_test_pubkey,
-                        emqx_license_test_lib:public_key_pem()
-                    ),
+                    set_special_configs(emqx_license),
                     ok;
                 (_) ->
                     ok
@@ -129,9 +121,9 @@ teardown_test(_TestCase, _Config) ->
     ok.
 
 set_special_configs(emqx_license) ->
-    Config = #{key => emqx_license_test_lib:default_license()},
+    Config = #{key => default},
     emqx_config:put([license], Config),
-    RawConfig = #{<<"key">> => emqx_license_test_lib:default_license()},
+    RawConfig = #{<<"key">> => <<"default">>},
     emqx_config:put_raw([<<"license">>], RawConfig);
 set_special_configs(_) ->
     ok.
@@ -150,7 +142,7 @@ t_update_value(_Config) ->
         emqx_license:update_key("invalid.license")
     ),
 
-    LicenseValue = emqx_license_test_lib:default_license(),
+    LicenseValue = emqx_license_test_lib:default_test_license(),
 
     ?assertMatch(
         {ok, #{}},

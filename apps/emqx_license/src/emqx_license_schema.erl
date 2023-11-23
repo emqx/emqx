@@ -38,8 +38,8 @@ tags() ->
 fields(key_license) ->
     [
         {key, #{
-            type => binary(),
-            default => default_license(),
+            type => hoconsc:union([default, binary()]),
+            default => <<"default">>,
             %% so it's not logged
             sensitive => true,
             required => true,

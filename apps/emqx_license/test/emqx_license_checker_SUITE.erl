@@ -16,15 +16,12 @@ all() ->
 
 init_per_suite(CtConfig) ->
     _ = application:load(emqx_conf),
-    ok = persistent_term:put(
-        emqx_license_test_pubkey,
-        emqx_license_test_lib:public_key_pem()
-    ),
+    emqx_license_test_lib:mock_parser(),
     ok = emqx_common_test_helpers:start_apps([emqx_license], fun set_special_configs/1),
     CtConfig.
 
 end_per_suite(_) ->
-    persistent_term:erase(emqx_license_test_pubkey),
+    emqx_license_test_lib:unmock_parser(),
     ok = emqx_common_test_helpers:stop_apps([emqx_license]).
 
 init_per_testcase(t_default_limits, Config) ->

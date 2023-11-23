@@ -59,6 +59,12 @@
     max_connections/1
 ]).
 
+%% for testing purpose
+-export([
+    default/0,
+    pubkey/0
+]).
+
 %%--------------------------------------------------------------------
 %% Behaviour
 %%--------------------------------------------------------------------
@@ -82,19 +88,18 @@
 %% API
 %%--------------------------------------------------------------------
 
--ifdef(TEST).
-pubkey() -> persistent_term:get(emqx_license_test_pubkey, ?PUBKEY).
--else.
 pubkey() -> ?PUBKEY.
--endif.
+default() -> emqx_license_schema:default_license().
 
 %% @doc Parse license key.
 %% If the license key is prefixed with "file://path/to/license/file",
 %% then the license key is read from the file.
--spec parse(string() | binary()) -> {ok, license()} | {error, map()}.
+-spec parse(default | string() | binary()) -> {ok, license()} | {error, map()}.
 parse(Content) ->
-    parse(iolist_to_binary(Content), pubkey()).
+    parse(to_bin(Content), ?MODULE:pubkey()).
 
+parse(<<"default">>, PubKey) ->
+    parse(?MODULE:default(), PubKey);
 parse(<<"file://", Path/binary>> = FileKey, PubKey) ->
     case file:read_file(Path) of
         {ok, Content} ->
@@ -159,3 +164,8 @@ do_parse(Content, Key, [Module | Modules], Errors) ->
                 #{module => Module, error => Error, stacktrace => Stacktrace} | Errors
             ])
     end.
+
+to_bin(A) when is_atom(A) ->
+    atom_to_binary(A);
+to_bin(L) ->
+    iolist_to_binary(L).

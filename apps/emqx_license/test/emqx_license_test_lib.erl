@@ -70,3 +70,13 @@ default_test_license() ->
 
 default_license() ->
     emqx_license_schema:default_license().
+
+mock_parser() ->
+    meck:new(emqx_license_parser, [non_strict, passthrough, no_history, no_link]),
+    meck:expect(emqx_license_parser, pubkey, fun() -> public_key_pem() end),
+    meck:expect(emqx_license_parser, default, fun() -> default_test_license() end),
+    ok.
+
+unmock_parser() ->
+    meck:unload(emqx_license_parser),
+    ok.
