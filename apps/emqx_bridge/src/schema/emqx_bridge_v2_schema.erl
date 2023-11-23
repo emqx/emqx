@@ -23,6 +23,7 @@
 -import(hoconsc, [mk/2, ref/2]).
 
 -export([roots/0, fields/1, desc/1, namespace/0, tags/0]).
+-export([make_producer_action_schema/1, make_consumer_action_schema/1]).
 
 -export([
     get_response/0,
@@ -40,6 +41,7 @@
 
 -export([types/0, types_sc/0]).
 -export([resource_opts_fields/0, resource_opts_fields/1]).
+-export([top_level_common_action_keys/0]).
 
 -export_type([action_type/0]).
 
@@ -125,6 +127,28 @@ registered_schema_fields() ->
      || {_BridgeV2Type, Module} <- emqx_action_info:registered_schema_modules()
     ].
 
+make_producer_action_schema(ActionParametersRef) ->
+    [
+        {local_topic, mk(binary(), #{required => false, desc => ?DESC(mqtt_topic)})}
+        | make_consumer_action_schema(ActionParametersRef)
+    ].
+
+make_consumer_action_schema(ActionParametersRef) ->
+    [
+        {enable, mk(boolean(), #{desc => ?DESC("config_enable"), default => true})},
+        {connector,
+            mk(binary(), #{
+                desc => ?DESC(emqx_connector_schema, "connector_field"), required => true
+            })},
+        {description, emqx_schema:description_schema()},
+        {parameters, ActionParametersRef},
+        {resource_opts,
+            mk(ref(?MODULE, resource_opts), #{
+                default => #{},
+                desc => ?DESC(emqx_resource_schema, "resource_opts")
+            })}
+    ].
+
 desc(actions) ->
     ?DESC("desc_bridges_v2");
 desc(_) ->
@@ -176,6 +200,16 @@ examples(Method) ->
     SchemaModules = [Mod || {_, Mod} <- emqx_action_info:registered_schema_modules()],
     lists:foldl(Fun, #{}, SchemaModules).
 
+top_level_common_action_keys() ->
+    [
+        <<"connector">>,
+        <<"description">>,
+        <<"enable">>,
+        <<"local_topic">>,
+        <<"parameters">>,
+        <<"resource_opts">>
+    ].
+
 -ifdef(TEST).
 -include_lib("hocon/include/hocon_types.hrl").
 schema_homogeneous_test() ->
@@ -196,17 +230,17 @@ schema_homogeneous_test() ->
 is_bad_schema(#{type := ?MAP(_, ?R_REF(Module, TypeName))}) ->
     Fields = Module:fields(TypeName),
     ExpectedFieldNames = common_field_names(),
-    MissingFileds = lists:filter(
+    MissingFields = lists:filter(
         fun(Name) -> lists:keyfind(Name, 1, Fields) =:= false end, ExpectedFieldNames
     ),
-    case MissingFileds of
+    case MissingFields of
         [] ->
             false;
         _ ->
             {true, #{
-                schema_modle => Module,
+                schema_module => Module,
                 type_name => TypeName,
-                missing_fields => MissingFileds
+                missing_fields => MissingFields
             }}
     end.
 

@@ -223,7 +223,7 @@ redis_config_base(Type, ServerKey) ->
         "sentinel" ->
             Host = ?REDIS_SENTINEL_HOST,
             Port = ?REDIS_SENTINEL_PORT,
-            MaybeSentinel = "    sentinel = mymaster\n",
+            MaybeSentinel = "    sentinel = mytcpmaster\n",
             MaybeDatabase = "    database = 1\n";
         "single" ->
             Host = ?REDIS_SINGLE_HOST,

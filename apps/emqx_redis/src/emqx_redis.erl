@@ -50,15 +50,15 @@ roots() ->
         {config, #{
             type => hoconsc:union(
                 [
-                    hoconsc:ref(?MODULE, cluster),
-                    hoconsc:ref(?MODULE, single),
-                    hoconsc:ref(?MODULE, sentinel)
+                    ?R_REF(redis_cluster),
+                    ?R_REF(redis_single),
+                    ?R_REF(redis_sentinel)
                 ]
             )
         }}
     ].
 
-fields(single) ->
+fields(redis_single) ->
     [
         {server, server()},
         {redis_type, #{
@@ -70,7 +70,7 @@ fields(single) ->
     ] ++
         redis_fields() ++
         emqx_connector_schema_lib:ssl_fields();
-fields(cluster) ->
+fields(redis_cluster) ->
     [
         {servers, servers()},
         {redis_type, #{
@@ -82,7 +82,7 @@ fields(cluster) ->
     ] ++
         lists:keydelete(database, 1, redis_fields()) ++
         emqx_connector_schema_lib:ssl_fields();
-fields(sentinel) ->
+fields(redis_sentinel) ->
     [
         {servers, servers()},
         {redis_type, #{
@@ -189,7 +189,11 @@ on_stop(InstId, _State) ->
     }),
     case emqx_resource:get_allocated_resources(InstId) of
         #{pool_name := PoolName, type := cluster} ->
-            eredis_cluster:stop_pool(PoolName);
+            case eredis_cluster:stop_pool(PoolName) of
+                {error, not_found} -> ok;
+                ok -> ok;
+                Error -> Error
+            end;
         #{pool_name := PoolName, type := _} ->
             emqx_resource_pool:stop(PoolName);
         _ ->
@@ -244,8 +248,17 @@ is_unrecoverable_error(_) ->
 on_get_status(_InstId, #{type := cluster, pool_name := PoolName}) ->
     case eredis_cluster:pool_exists(PoolName) of
         true ->
-            Health = eredis_cluster:ping_all(PoolName),
-            status_result(Health);
+            %% eredis_cluster has null slot even pool_exists when emqx start before redis cluster.
+            %% we need restart eredis_cluster pool when pool_worker(slot) is empty.
+            %% If the pool is empty, it means that there are no workers attempting to reconnect.
+            %% In this case, we can directly consider it as a disconnect and then proceed to reconnect.
+            case eredis_cluster_monitor:get_all_pools(PoolName) of
+                [] ->
+                    disconnected;
+                [_ | _] ->
+                    Health = eredis_cluster:ping_all(PoolName),
+                    status_result(Health)
+            end;
         false ->
             disconnected
     end;

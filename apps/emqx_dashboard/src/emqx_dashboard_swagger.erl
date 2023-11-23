@@ -843,7 +843,7 @@ parse_object_loop(PropList0, Module, Options) ->
     ),
     parse_object_loop(PropList, Module, Options, _Props = [], _Required = [], _Refs = []).
 
-parse_object_loop([], _Modlue, _Options, Props, Required, Refs) ->
+parse_object_loop([], _Module, _Options, Props, Required, Refs) ->
     {lists:reverse(Props), lists:usort(Required), Refs};
 parse_object_loop([{Name, Hocon} | Rest], Module, Options, Props, Required, Refs) ->
     NameBin = to_bin(Name),

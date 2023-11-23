@@ -56,6 +56,7 @@
 ).
 
 all() -> [{group, transports}, {group, rest}].
+suite() -> [{timetrap, {minutes, 20}}].
 
 groups() ->
     ResourceSpecificTCs = [t_create_delete_bridge],
@@ -149,9 +150,13 @@ end_per_suite(_Config) ->
     _ = application:stop(emqx_connector),
     ok.
 
-init_per_testcase(_Testcase, Config) ->
+init_per_testcase(Testcase, Config0) ->
+    emqx_logger:set_log_level(debug),
     ok = delete_all_rules(),
     ok = delete_all_bridges(),
+    UniqueNum = integer_to_binary(erlang:unique_integer()),
+    Name = <<(atom_to_binary(Testcase))/binary, UniqueNum/binary>>,
+    Config = [{bridge_name, Name} | Config0],
     case {?config(connector_type, Config), ?config(batch_mode, Config)} of
         {undefined, _} ->
             Config;
@@ -165,7 +170,13 @@ init_per_testcase(_Testcase, Config) ->
             IsBatch = (BatchMode =:= batch_on),
             BridgeConfig0 = maps:merge(RedisConnConfig, ?COMMON_REDIS_OPTS),
             BridgeConfig1 = BridgeConfig0#{<<"resource_opts">> => ResourceConfig},
-            [{bridge_config, BridgeConfig1}, {is_batch, IsBatch} | Config]
+            BridgeType = list_to_atom(atom_to_list(RedisType) ++ "_producer"),
+            [
+                {bridge_type, BridgeType},
+                {bridge_config, BridgeConfig1},
+                {is_batch, IsBatch}
+                | Config
+            ]
     end.
 
 end_per_testcase(_Testcase, Config) ->
@@ -176,7 +187,7 @@ end_per_testcase(_Testcase, Config) ->
     ok = delete_all_bridges().
 
 t_create_delete_bridge(Config) ->
-    Name = <<"mybridge">>,
+    Name = ?config(bridge_name, Config),
     Type = ?config(connector_type, Config),
     BridgeConfig = ?config(bridge_config, Config),
     IsBatch = ?config(is_batch, Config),
@@ -184,13 +195,11 @@ t_create_delete_bridge(Config) ->
         {ok, _},
         emqx_bridge:create(Type, Name, BridgeConfig)
     ),
-
     ResourceId = emqx_bridge_resource:resource_id(Type, Name),
-
     ?WAIT(
         {ok, connected},
         emqx_resource:health_check(ResourceId),
-        5
+        10
     ),
 
     RedisType = atom_to_binary(Type),
@@ -244,7 +253,7 @@ t_check_values(_Config) ->
     ).
 
 t_check_replay(Config) ->
-    Name = <<"toxic_bridge">>,
+    Name = ?config(bridge_name, Config),
     Type = <<"redis_single">>,
     Topic = <<"local_topic/test">>,
     ProxyName = "redis_single_tcp",
@@ -324,15 +333,15 @@ t_permanent_error(_Config) ->
     ),
     ok = emqx_bridge:remove(Type, Name).
 
-t_auth_username_password(_Config) ->
-    Name = <<"mybridge">>,
+t_auth_username_password(Config) ->
+    Name = ?config(bridge_name, Config),
     Type = <<"redis_single">>,
-    ResourceId = emqx_bridge_resource:resource_id(Type, Name),
     BridgeConfig = username_password_redis_bridge_config(),
     ?assertMatch(
         {ok, _},
         emqx_bridge:create(Type, Name, BridgeConfig)
     ),
+    ResourceId = emqx_bridge_resource:resource_id(Type, Name),
     ?WAIT(
         {ok, connected},
         emqx_resource:health_check(ResourceId),
@@ -340,16 +349,16 @@ t_auth_username_password(_Config) ->
     ),
     ok = emqx_bridge:remove(Type, Name).
 
-t_auth_error_username_password(_Config) ->
-    Name = <<"mybridge">>,
+t_auth_error_username_password(Config) ->
+    Name = ?config(bridge_name, Config),
     Type = <<"redis_single">>,
-    ResourceId = emqx_bridge_resource:resource_id(Type, Name),
     BridgeConfig0 = username_password_redis_bridge_config(),
     BridgeConfig = maps:merge(BridgeConfig0, #{<<"password">> => <<"wrong_password">>}),
     ?assertMatch(
         {ok, _},
         emqx_bridge:create(Type, Name, BridgeConfig)
     ),
+    ResourceId = emqx_bridge_resource:resource_id(Type, Name),
     ?WAIT(
         {ok, disconnected},
         emqx_resource:health_check(ResourceId),
@@ -361,16 +370,16 @@ t_auth_error_username_password(_Config) ->
     ),
     ok = emqx_bridge:remove(Type, Name).
 
-t_auth_error_password_only(_Config) ->
-    Name = <<"mybridge">>,
+t_auth_error_password_only(Config) ->
+    Name = ?config(bridge_name, Config),
     Type = <<"redis_single">>,
-    ResourceId = emqx_bridge_resource:resource_id(Type, Name),
     BridgeConfig0 = toxiproxy_redis_bridge_config(),
     BridgeConfig = maps:merge(BridgeConfig0, #{<<"password">> => <<"wrong_password">>}),
     ?assertMatch(
         {ok, _},
         emqx_bridge:create(Type, Name, BridgeConfig)
     ),
+    ResourceId = emqx_bridge_resource:resource_id(Type, Name),
     ?assertEqual(
         {ok, disconnected},
         emqx_resource:health_check(ResourceId)
@@ -382,7 +391,7 @@ t_auth_error_password_only(_Config) ->
     ok = emqx_bridge:remove(Type, Name).
 
 t_create_disconnected(Config) ->
-    Name = <<"toxic_bridge">>,
+    Name = ?config(bridge_name, Config),
     Type = <<"redis_single">>,
 
     ?check_trace(
@@ -450,10 +459,8 @@ check_resource_queries(ResourceId, BaseTopic, IsBatch) ->
 added_msgs(ResourceId, BaseTopic, Payload) ->
     lists:flatmap(
         fun(K) ->
-            {ok, Results} = emqx_resource:simple_sync_query(
-                ResourceId,
-                {cmd, [<<"LRANGE">>, K, <<"0">>, <<"-1">>]}
-            ),
+            Message = {cmd, [<<"LRANGE">>, K, <<"0">>, <<"-1">>]},
+            {ok, Results} = emqx_resource:simple_sync_query(ResourceId, Message),
             [El || El <- Results, El =:= Payload]
         end,
         [format_redis_key(BaseTopic, S) || S <- lists:seq(0, ?KEYSHARDS - 1)]
@@ -554,12 +561,12 @@ redis_connect_configs() ->
             tcp => #{
                 <<"servers">> => <<"redis-sentinel:26379">>,
                 <<"redis_type">> => <<"sentinel">>,
-                <<"sentinel">> => <<"mymaster">>
+                <<"sentinel">> => <<"mytcpmaster">>
             },
             tls => #{
                 <<"servers">> => <<"redis-sentinel-tls:26380">>,
                 <<"redis_type">> => <<"sentinel">>,
-                <<"sentinel">> => <<"mymaster">>,
+                <<"sentinel">> => <<"mytlsmaster">>,
                 <<"ssl">> => redis_connect_ssl_opts(redis_sentinel)
             }
         },

@@ -35,6 +35,8 @@
 
 -export([resource_opts_fields/0, resource_opts_fields/1]).
 
+-export([common_fields/0]).
+
 -if(?EMQX_RELEASE_EDITION == ee).
 enterprise_api_schemas(Method) ->
     %% We *must* do this to ensure the module is really loaded, especially when we use
@@ -65,7 +67,10 @@ enterprise_fields_connectors() -> [].
 -endif.
 
 connector_type_to_bridge_types(kafka_producer) -> [kafka, kafka_producer];
-connector_type_to_bridge_types(azure_event_hub_producer) -> [azure_event_hub_producer].
+connector_type_to_bridge_types(azure_event_hub_producer) -> [azure_event_hub_producer];
+connector_type_to_bridge_types(redis_single_producer) -> [redis_single_producer];
+connector_type_to_bridge_types(redis_sentinel_producer) -> [redis_sentinel_producer];
+connector_type_to_bridge_types(redis_cluster_producer) -> [redis_cluster_producer].
 
 actions_config_name() -> <<"actions">>.
 
@@ -110,7 +115,7 @@ split_bridge_to_connector_and_action(
                     BridgeType, BridgeV1Conf
                 );
             false ->
-                %% We do an automatic transfomation to get the connector config
+                %% We do an automatic transformation to get the connector config
                 %% if the callback is not defined.
                 %% Get connector fields from bridge config
                 lists:foldl(
@@ -350,6 +355,12 @@ desc(connectors) ->
     ?DESC("desc_connectors");
 desc(_) ->
     undefined.
+
+common_fields() ->
+    [
+        {enable, mk(boolean(), #{desc => ?DESC("config_enable"), default => true})},
+        {description, emqx_schema:description_schema()}
+    ].
 
 resource_opts_fields() ->
     resource_opts_fields(_Overrides = []).

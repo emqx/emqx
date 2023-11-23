@@ -25,6 +25,12 @@ resource_type(kafka_producer) ->
 %% We use AEH's Kafka interface.
 resource_type(azure_event_hub_producer) ->
     emqx_bridge_kafka_impl_producer;
+resource_type(redis_single_producer) ->
+    emqx_bridge_redis_connector;
+resource_type(redis_sentinel_producer) ->
+    emqx_bridge_redis_connector;
+resource_type(redis_cluster_producer) ->
+    emqx_bridge_redis_connector;
 resource_type(Type) ->
     error({unknown_connector_type, Type}).
 
@@ -56,6 +62,30 @@ connector_structs() ->
                     desc => <<"Azure Event Hub Connector Config">>,
                     required => false
                 }
+            )},
+        {redis_single_producer,
+            mk(
+                hoconsc:map(name, ref(emqx_bridge_redis_single_schema, "config_connector")),
+                #{
+                    desc => <<"Redis Single Connector Config">>,
+                    required => false
+                }
+            )},
+        {redis_sentinel_producer,
+            mk(
+                hoconsc:map(name, ref(emqx_bridge_redis_sentinel_schema, "config_connector")),
+                #{
+                    desc => <<"Redis Sentinel Connector Config">>,
+                    required => false
+                }
+            )},
+        {redis_cluster_producer,
+            mk(
+                hoconsc:map(name, ref(emqx_bridge_redis_cluster_schema, "config_connector")),
+                #{
+                    desc => <<"Redis Cluster Connector Config">>,
+                    required => false
+                }
             )}
     ].
 
@@ -74,7 +104,10 @@ examples(Method) ->
 schema_modules() ->
     [
         emqx_bridge_kafka,
-        emqx_bridge_azure_event_hub
+        emqx_bridge_azure_event_hub,
+        emqx_bridge_redis_single_schema,
+        emqx_bridge_redis_sentinel_schema,
+        emqx_bridge_redis_cluster_schema
     ].
 
 api_schemas(Method) ->
@@ -82,7 +115,16 @@ api_schemas(Method) ->
         %% We need to map the `type' field of a request (binary) to a
         %% connector schema module.
         api_ref(emqx_bridge_kafka, <<"kafka_producer">>, Method ++ "_connector"),
-        api_ref(emqx_bridge_azure_event_hub, <<"azure_event_hub_producer">>, Method ++ "_connector")
+        api_ref(
+            emqx_bridge_azure_event_hub, <<"azure_event_hub_producer">>, Method ++ "_connector"
+        ),
+        api_ref(emqx_bridge_redis_single_schema, <<"redis_single_producer">>, Method ++ "_single"),
+        api_ref(
+            emqx_bridge_redis_sentinel_schema, <<"redis_sentinel_producer">>, Method ++ "_sentinel"
+        ),
+        api_ref(
+            emqx_bridge_redis_cluster_schema, <<"redis_cluster_producer">>, Method ++ "_cluster"
+        )
     ].
 
 api_ref(Module, Type, Method) ->

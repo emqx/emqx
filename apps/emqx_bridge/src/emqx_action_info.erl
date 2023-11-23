@@ -69,7 +69,10 @@
 hard_coded_action_info_modules_ee() ->
     [
         emqx_bridge_kafka_action_info,
-        emqx_bridge_azure_event_hub_action_info
+        emqx_bridge_azure_event_hub_action_info,
+        emqx_bridge_redis_single_action_info,
+        emqx_bridge_redis_sentinel_action_info,
+        emqx_bridge_redis_cluster_action_info
     ].
 -else.
 hard_coded_action_info_modules_ee() ->

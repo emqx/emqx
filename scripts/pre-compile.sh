@@ -27,10 +27,20 @@ cd -P -- "$(dirname -- "${BASH_SOURCE[0]}")/.."
 
 I18N_REPO_BRANCH="v$(./pkg-vsn.sh "${PROFILE_STR}" | tr -d '.' | cut -c 1-2)"
 
+UPDATE_I18N=${UPDATE_I18N:-true}
 # download desc (i18n) translations
-curl -L --silent --show-error \
-     --output "apps/emqx_dashboard/priv/desc.zh.hocon" \
-     "https://raw.githubusercontent.com/emqx/emqx-i18n/${I18N_REPO_BRANCH}/desc.zh.hocon"
+if [ "$UPDATE_I18N" = "true" ]; then
+  echo "updating i18n file from emqx-i18n repo"
+  start=$(date +%s)
+  curl -L --silent --show-error \
+       --output "apps/emqx_dashboard/priv/desc.zh.hocon" \
+       "https://raw.githubusercontent.com/emqx/emqx-i18n/${I18N_REPO_BRANCH}/desc.zh.hocon"
+  end=$(date +%s)
+  duration=$(echo "$end $start" | awk '{print $1 - $2}')
+  echo "updated  i18n file using $duration seconds, set UPDATE_I18N=false to skip"
+else
+  echo "skipping update i18n file from emqx-i18n repo, set UPDATE_I18N=true to update"
+fi
 
 # TODO
 # make sbom a build artifcat

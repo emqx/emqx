@@ -9,8 +9,11 @@
 -import(hoconsc, [mk/2, enum/1, ref/1, ref/2]).
 
 -export([
-    conn_bridge_examples/1
+    conn_bridge_examples/1,
+    producer_action_parameters_keys/0
 ]).
+
+-export([type_name_fields/1, connector_fields/1]).
 
 -export([
     namespace/0,
@@ -100,6 +103,22 @@ namespace() -> "bridge_redis".
 
 roots() -> [].
 
+fields("action_" ++ Type) ->
+    producer_action(list_to_existing_atom(Type));
+fields(producer) ->
+    [
+        {local_topic,
+            mk(
+                binary(),
+                #{
+                    required => false,
+                    desc => ?DESC("desc_local_topic")
+                }
+            )}
+        | fields(action_parameters)
+    ];
+fields(action_parameters) ->
+    [{command_template, fun command_template/1}];
 fields("post_single") ->
     method_fields(post, redis_single);
 fields("post_sentinel") ->
@@ -141,22 +160,11 @@ method_fields(put, ConnectorType) ->
 
 redis_bridge_common_fields(Type) ->
     emqx_bridge_schema:common_bridge_fields() ++
-        [
-            {local_topic, mk(binary(), #{desc => ?DESC("local_topic")})},
-            {command_template, fun command_template/1}
-        ] ++
+        fields(producer) ++
         resource_fields(Type).
 
 connector_fields(Type) ->
-    RedisType = bridge_type_to_redis_conn_type(Type),
-    emqx_redis:fields(RedisType).
-
-bridge_type_to_redis_conn_type(redis_single) ->
-    single;
-bridge_type_to_redis_conn_type(redis_sentinel) ->
-    sentinel;
-bridge_type_to_redis_conn_type(redis_cluster) ->
-    cluster.
+    emqx_redis:fields(Type).
 
 type_name_fields(Type) ->
     [
@@ -164,11 +172,25 @@ type_name_fields(Type) ->
         {name, mk(binary(), #{required => true, desc => ?DESC("desc_name")})}
     ].
 
+producer_action(Type) ->
+    Schema =
+        emqx_bridge_v2_schema:make_producer_action_schema(
+            ?HOCON(
+                ?R_REF(action_parameters),
+                #{
+                    required => true,
+                    desc => ?DESC(producer_action)
+                }
+            )
+        ),
+    [ResourceOpts] = resource_fields(Type),
+    lists:keyreplace(resource_opts, 1, Schema, ResourceOpts).
+
 resource_fields(Type) ->
     [
         {resource_opts,
             mk(
-                ref("creation_opts_" ++ atom_to_list(Type)),
+                ?R_REF("creation_opts_" ++ atom_to_list(Type)),
                 #{
                     required => false,
                     default => #{},
@@ -185,6 +207,19 @@ resource_creation_fields("redis_cluster") ->
 resource_creation_fields(_) ->
     emqx_resource_schema:fields("creation_opts").
 
+producer_action_parameters_keys() ->
+    [
+        to_bin(K)
+     || {K, _} <- fields(action_parameters)
+    ].
+
+to_bin(L) when is_list(L) -> list_to_binary(L);
+to_bin(A) when is_atom(A) -> atom_to_binary(A, utf8).
+
+desc(action_parameters) ->
+    ?DESC("desc_action_parameters");
+desc(producer_action) ->
+    ?DESC("producer_action");
 desc("config") ->
     ?DESC("desc_config");
 desc(Method) when Method =:= "get"; Method =:= "put"; Method =:= "post" ->
@@ -197,6 +232,8 @@ desc(redis_cluster) ->
     ?DESC(emqx_redis, "cluster");
 desc("creation_opts_" ++ _Type) ->
     ?DESC(emqx_resource_schema, "creation_opts");
+desc("action_" ++ _Type) ->
+    ?DESC("desc_action_parameters");
 desc(_) ->
     undefined.
 
