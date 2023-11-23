@@ -8,9 +8,9 @@
 
 -import(hoconsc, [mk/2, enum/1, ref/1, ref/2]).
 
--export([
-    conn_bridge_examples/1
-]).
+-export([conn_bridge_examples/1]).
+
+-export([type_name_fields/1, connector_fields/1]).
 
 -export([
     namespace/0,
@@ -100,6 +100,8 @@ namespace() -> "bridge_redis".
 
 roots() -> [].
 
+fields(action_parameters) ->
+    [{command_template, fun command_template/1}];
 fields("post_single") ->
     method_fields(post, redis_single);
 fields("post_sentinel") ->
@@ -142,21 +144,13 @@ method_fields(put, ConnectorType) ->
 redis_bridge_common_fields(Type) ->
     emqx_bridge_schema:common_bridge_fields() ++
         [
-            {local_topic, mk(binary(), #{desc => ?DESC("local_topic")})},
-            {command_template, fun command_template/1}
+            {local_topic, mk(binary(), #{required => false, desc => ?DESC("desc_local_topic")})}
+            | fields(action_parameters)
         ] ++
         resource_fields(Type).
 
 connector_fields(Type) ->
-    RedisType = bridge_type_to_redis_conn_type(Type),
-    emqx_redis:fields(RedisType).
-
-bridge_type_to_redis_conn_type(redis_single) ->
-    single;
-bridge_type_to_redis_conn_type(redis_sentinel) ->
-    sentinel;
-bridge_type_to_redis_conn_type(redis_cluster) ->
-    cluster.
+    emqx_redis:fields(Type).
 
 type_name_fields(Type) ->
     [
@@ -168,7 +162,7 @@ resource_fields(Type) ->
     [
         {resource_opts,
             mk(
-                ref("creation_opts_" ++ atom_to_list(Type)),
+                ?R_REF("creation_opts_" ++ atom_to_list(Type)),
                 #{
                     required => false,
                     default => #{},
@@ -185,6 +179,8 @@ resource_creation_fields("redis_cluster") ->
 resource_creation_fields(_) ->
     emqx_resource_schema:fields("creation_opts").
 
+desc(action_parameters) ->
+    ?DESC("desc_action_parameters");
 desc("config") ->
     ?DESC("desc_config");
 desc(Method) when Method =:= "get"; Method =:= "put"; Method =:= "post" ->

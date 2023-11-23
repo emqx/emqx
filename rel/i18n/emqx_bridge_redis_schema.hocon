@@ -1,0 +1,41 @@
+emqx_bridge_redis_schema {
+redis_parameters.label:
+"""Redis Type Specific Parameters"""
+
+redis_parameters.desc:
+"""Set of parameters specific for the given type of this Redis connector, `redis_type` can be one of `single`, `cluster` or `sentinel`."""
+
+producer_action.desc:
+"""The parameters of the action."""
+producer_action.label:
+"""Action Parameters"""
+
+redis_type.label:
+"""Redis Type"""
+redis_type.desc:
+"""Single mode. Must be set to 'single' when Redis server is running in single mode.
+Sentinel mode. Must be set to 'sentinel' when Redis server is running in sentinel mode.
+Cluster mode. Must be set to 'cluster' when Redis server is running in clustered mode."""
+
+batch_size.label:
+"""Batch Size"""
+batch_size.desc:
+"""This parameter defines the upper limit of the batch count.
+Setting this value to 1 effectively disables batching, as it indicates that only one item will be processed per batch.
+Note on Redis Cluster Mode:
+In the context of Redis Cluster Mode, it is important to note that batching is not supported.
+Consequently, the batch_size is always set to 1,
+reflecting the mode inherent limitation in handling batch operations."""
+
+batch_time.desc:
+"""Maximum waiting interval when accumulating a batch at a low message rates for more efficient resource usage."""
+
+batch_time.label:
+"""Max batch wait time, disable when in Redis Cluster Mode."""
+
+redis_action.label:
+"""Redis Action"""
+redis_action.desc:
+"""Action to interact with a Redis connector."""
+
+}
