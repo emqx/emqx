@@ -1063,33 +1063,38 @@ bridge_v1_list_and_transform() ->
     Bridges = list_with_lookup_fun(fun bridge_v1_lookup_and_transform/2),
     [B || B <- Bridges, B =/= not_bridge_v1_compatible_error()].
 
-bridge_v1_lookup_and_transform(BridgeV1Type, Name) ->
-    case ?MODULE:bridge_v1_is_valid(BridgeV1Type, Name) of
-        true ->
-            Type = ?MODULE:bridge_v1_type_to_bridge_v2_type(BridgeV1Type),
-            case lookup(Type, Name) of
-                {ok, #{raw_config := #{<<"connector">> := ConnectorName}} = BridgeV2} ->
-                    ConnectorType = connector_type(Type),
+bridge_v1_lookup_and_transform(ActionType, Name) ->
+    case lookup(ActionType, Name) of
+        {ok, #{raw_config := #{<<"connector">> := ConnectorName}} = ActionConfig} ->
+            BridgeV1Type = ?MODULE:bridge_v2_type_to_bridge_v1_type(ActionType, ActionConfig),
+            case ?MODULE:bridge_v1_is_valid(BridgeV1Type, Name) of
+                true ->
+                    ConnectorType = connector_type(ActionType),
                     case emqx_connector:lookup(ConnectorType, ConnectorName) of
                         {ok, Connector} ->
                             bridge_v1_lookup_and_transform_helper(
-                                BridgeV1Type, Name, Type, BridgeV2, ConnectorType, Connector
+                                BridgeV1Type,
+                                Name,
+                                ActionType,
+                                ActionConfig,
+                                ConnectorType,
+                                Connector
                             );
                         Error ->
                             Error
                     end;
-                Error ->
-                    Error
+                false ->
+                    not_bridge_v1_compatible_error()
             end;
-        false ->
-            not_bridge_v1_compatible_error()
+        Error ->
+            Error
     end.
 
 not_bridge_v1_compatible_error() ->
     {error, not_bridge_v1_compatible}.
 
 bridge_v1_lookup_and_transform_helper(
-    BridgeV1Type, BridgeName, BridgeV2Type, BridgeV2, ConnectorType, Connector
+    BridgeV1Type, BridgeName, ActionType, Action, ConnectorType, Connector
 ) ->
     ConnectorRawConfig1 = maps:get(raw_config, Connector),
     ConnectorRawConfig2 = fill_defaults(
@@ -1098,10 +1103,10 @@ bridge_v1_lookup_and_transform_helper(
         <<"connectors">>,
         emqx_connector_schema
     ),
-    BridgeV2RawConfig1 = maps:get(raw_config, BridgeV2),
-    BridgeV2RawConfig2 = fill_defaults(
-        BridgeV2Type,
-        BridgeV2RawConfig1,
+    ActionRawConfig1 = maps:get(raw_config, Action),
+    ActionRawConfig2 = fill_defaults(
+        ActionType,
+        ActionRawConfig1,
         <<"actions">>,
         emqx_bridge_v2_schema
     ),
@@ -1110,7 +1115,7 @@ bridge_v1_lookup_and_transform_helper(
             emqx_action_info:has_custom_connector_action_config_to_bridge_v1_config(BridgeV1Type)
         of
             false ->
-                BridgeV1Config1 = maps:remove(<<"connector">>, BridgeV2RawConfig2),
+                BridgeV1Config1 = maps:remove(<<"connector">>, ActionRawConfig2),
                 %% Move parameters to the top level
                 ParametersMap = maps:get(<<"parameters">>, BridgeV1Config1, #{}),
                 BridgeV1Config2 = maps:remove(<<"parameters">>, BridgeV1Config1),
@@ -1118,13 +1123,13 @@ bridge_v1_lookup_and_transform_helper(
                 emqx_utils_maps:deep_merge(ConnectorRawConfig2, BridgeV1Config3);
             true ->
                 emqx_action_info:connector_action_config_to_bridge_v1_config(
-                    BridgeV1Type, ConnectorRawConfig2, BridgeV2RawConfig2
+                    BridgeV1Type, ConnectorRawConfig2, ActionRawConfig2
                 )
         end,
-    BridgeV1Tmp = maps:put(raw_config, BridgeV1ConfigFinal, BridgeV2),
+    BridgeV1Tmp = maps:put(raw_config, BridgeV1ConfigFinal, Action),
     BridgeV1 = maps:remove(status, BridgeV1Tmp),
-    BridgeV2Status = maps:get(status, BridgeV2, undefined),
-    BridgeV2Error = maps:get(error, BridgeV2, undefined),
+    BridgeV2Status = maps:get(status, Action, undefined),
+    BridgeV2Error = maps:get(error, Action, undefined),
     ResourceData1 = maps:get(resource_data, BridgeV1, #{}),
     %% Replace id in resouce data
     BridgeV1Id = <<"bridge:", (bin(BridgeV1Type))/binary, ":", (bin(BridgeName))/binary>>,
