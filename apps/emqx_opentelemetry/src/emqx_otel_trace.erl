@@ -78,7 +78,6 @@ start(Conf) ->
     ],
     set_trace_all(TraceAll),
     ok = application:set_env([{opentelemetry, OtelEnv}]),
-    _ = application:ensure_all_started(opentelemetry),
     Res = assert_started(opentelemetry:start_default_tracer_provider()),
     case Res of
         ok ->

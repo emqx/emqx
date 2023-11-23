@@ -25,12 +25,7 @@
             redbug,
             xmerl,
             {hocon, load},
-            telemetry,
-            {opentelemetry, load},
-            {opentelemetry_api, load},
-            {opentelemetry_experimental, load},
-            {opentelemetry_api_experimental, load},
-            {opentelemetry_exporter, load}
+            telemetry
         ],
     %% must always be of type `load'
     common_business_apps =>
