@@ -66,10 +66,8 @@ t_lifecycle(_Config) ->
     ).
 
 perform_lifecycle_check(ResourceId, InitialConfig) ->
-    x:show(initial_config, InitialConfig),
     {ok, #{config := CheckedConfig}} =
         emqx_resource:check_config(?PGSQL_RESOURCE_MOD, InitialConfig),
-    x:show(check_config_ok, CheckedConfig),
     {ok, #{
         state := #{pool_name := PoolName} = State,
         status := InitialStatus
