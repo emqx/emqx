@@ -313,7 +313,6 @@ list() ->
     BridgeV2Bridges =
         emqx_bridge_v2:bridge_v1_list_and_transform(),
     BridgeV1Bridges ++ BridgeV2Bridges.
-%%BridgeV2Bridges = emqx_bridge_v2:list().
 
 lookup(Id) ->
     {Type, Name} = emqx_bridge_resource:parse_bridge_id(Id),
