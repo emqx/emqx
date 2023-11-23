@@ -24,7 +24,20 @@
     format_error/1
 ]).
 
+%% HTTP API
+-export([
+    upload/2,
+    maybe_copy_and_import/2,
+    read_file/1,
+    delete_file/1,
+    list_files/0,
+    format_conf_errors/1,
+    format_db_errors/1
+]).
+
 -export([default_validate_mnesia_backup/1]).
+
+-export_type([import_res/0]).
 
 -ifdef(TEST).
 -compile(export_all).
@@ -80,17 +93,21 @@
         end
     end()
 ).
+-define(backup_path(_FileName_), filename:join(root_backup_dir(), _FileName_)).
 
 -type backup_file_info() :: #{
-    filename => binary(),
-    size => non_neg_integer(),
-    created_at => binary(),
-    node => node(),
+    filename := binary(),
+    size := non_neg_integer(),
+    created_at := binary(),
+    created_at_sec := integer(),
+    node := node(),
     atom() => _
 }.
 
 -type db_error_details() :: #{mria:table() => {error, _}}.
 -type config_error_details() :: #{emqx_utils_maps:config_path() => {error, _}}.
+-type import_res() ::
+    {ok, #{db_errors => db_error_details(), config_errors => config_error_details()}} | {error, _}.
 
 %%------------------------------------------------------------------------------
 %% APIs
@@ -120,15 +137,11 @@ export(Opts) ->
         file:del_dir_r(BackupName)
     end.
 
--spec import(file:filename_all()) ->
-    {ok, #{db_errors => db_error_details(), config_errors => config_error_details()}}
-    | {error, _}.
+-spec import(file:filename_all()) -> import_res().
 import(BackupFileName) ->
     import(BackupFileName, ?DEFAULT_OPTS).
 
--spec import(file:filename_all(), map()) ->
-    {ok, #{db_errors => db_error_details(), config_errors => config_error_details()}}
-    | {error, _}.
+-spec import(file:filename_all(), map()) -> import_res().
 import(BackupFileName, Opts) ->
     case is_import_allowed() of
         true ->
@@ -141,6 +154,74 @@ import(BackupFileName, Opts) ->
         false ->
             {error, not_core_node}
     end.
+
+-spec maybe_copy_and_import(node(), file:filename_all()) -> import_res().
+maybe_copy_and_import(FileNode, BackupFileName) when FileNode =:= node() ->
+    import(BackupFileName, #{});
+maybe_copy_and_import(FileNode, BackupFileName) ->
+    %% The file can be already present locally
+    case filelib:is_file(?backup_path(str(BackupFileName))) of
+        true ->
+            import(BackupFileName, #{});
+        false ->
+            copy_and_import(FileNode, BackupFileName)
+    end.
+
+-spec read_file(file:filename_all()) ->
+    {ok, #{filename => file:filename_all(), file => binary()}} | {error, _}.
+read_file(BackupFileName) ->
+    BackupFileNameStr = str(BackupFileName),
+    case validate_backup_name(BackupFileNameStr) of
+        ok ->
+            maybe_not_found(file:read_file(?backup_path(BackupFileName)));
+        Err ->
+            Err
+    end.
+
+-spec delete_file(file:filename_all()) -> ok | {error, _}.
+delete_file(BackupFileName) ->
+    BackupFileNameStr = str(BackupFileName),
+    case validate_backup_name(BackupFileNameStr) of
+        ok ->
+            maybe_not_found(file:delete(?backup_path(BackupFileName)));
+        Err ->
+            Err
+    end.
+
+-spec upload(file:filename_all(), binary()) -> ok | {error, _}.
+upload(BackupFileName, BackupFileContent) ->
+    BackupFileNameStr = str(BackupFileName),
+    FilePath = ?backup_path(BackupFileNameStr),
+    case filelib:is_file(FilePath) of
+        true ->
+            {error, {already_exists, BackupFileNameStr}};
+        false ->
+            do_upload(BackupFileNameStr, BackupFileContent)
+    end.
+
+-spec list_files() -> [backup_file_info()].
+list_files() ->
+    Filter =
+        fun(File) ->
+            case file:read_file_info(File, [{time, posix}]) of
+                {ok, #file_info{size = Size, ctime = CTimeSec}} ->
+                    BaseFilename = bin(filename:basename(File)),
+                    Info = #{
+                        filename => BaseFilename,
+                        size => Size,
+                        created_at => emqx_utils_calendar:epoch_to_rfc3339(CTimeSec, second),
+                        created_at_sec => CTimeSec,
+                        node => node()
+                    },
+                    {true, Info};
+                _ ->
+                    false
+            end
+        end,
+    lists:filtermap(Filter, backup_files()).
+
+backup_files() ->
+    filelib:wildcard(?backup_path("*" ++ ?TAR_SUFFIX)).
 
 format_error(not_core_node) ->
     str(
@@ -170,12 +251,82 @@ format_error({unsupported_version, ImportVersion}) ->
             [str(ImportVersion), str(emqx_release:version())]
         )
     );
+format_error({already_exists, BackupFileName}) ->
+    str(io_lib:format("Backup file \"~s\" already exists", [BackupFileName]));
 format_error(Reason) ->
     Reason.
+
+format_conf_errors(Errors) ->
+    Opts = #{print_fun => fun io_lib:format/2},
+    maps:values(maps:map(conf_error_formatter(Opts), Errors)).
+
+format_db_errors(Errors) ->
+    Opts = #{print_fun => fun io_lib:format/2},
+    maps:values(
+        maps:map(
+            fun(Tab, Err) -> maybe_print_mnesia_import_err(Tab, Err, Opts) end,
+            Errors
+        )
+    ).
 
 %%------------------------------------------------------------------------------
 %% Internal functions
 %%------------------------------------------------------------------------------
+
+copy_and_import(FileNode, BackupFileName) ->
+    case emqx_mgmt_data_backup_proto_v1:read_file(FileNode, BackupFileName, infinity) of
+        {ok, BackupFileContent} ->
+            case upload(BackupFileName, BackupFileContent) of
+                ok ->
+                    import(BackupFileName, #{});
+                Err ->
+                    Err
+            end;
+        Err ->
+            Err
+    end.
+
+%% compatibility with import API that uses lookup_file/1 and returns `not_found` reason
+maybe_not_found({error, enoent}) ->
+    {error, not_found};
+maybe_not_found(Other) ->
+    Other.
+
+do_upload(BackupFileNameStr, BackupFileContent) ->
+    FilePath = ?backup_path(BackupFileNameStr),
+    BackupDir = ?backup_path(filename:basename(BackupFileNameStr, ?TAR_SUFFIX)),
+    try
+        ok = validate_backup_name(BackupFileNameStr),
+        ok = file:write_file(FilePath, BackupFileContent),
+        ok = extract_backup(FilePath),
+        {ok, _} = validate_backup(BackupDir),
+        HoconFileName = filename:join(BackupDir, ?CLUSTER_HOCON_FILENAME),
+        case filelib:is_regular(HoconFileName) of
+            true ->
+                {ok, RawConf} = hocon:files([HoconFileName]),
+                RawConf1 = upgrade_raw_conf(emqx_conf:schema_module(), RawConf),
+                {ok, _} = validate_cluster_hocon(RawConf1),
+                ok;
+            false ->
+                %% cluster.hocon can be missing in the backup
+                ok
+        end,
+        ?SLOG(info, #{msg => "emqx_data_upload_success"})
+    catch
+        error:{badmatch, {error, Reason}}:Stack ->
+            ?SLOG(error, #{msg => "emqx_data_upload_failed", reason => Reason, stacktrace => Stack}),
+            {error, Reason};
+        Class:Reason:Stack ->
+            ?SLOG(error, #{
+                msg => "emqx_data_upload_failed",
+                exception => Class,
+                reason => Reason,
+                stacktrace => Stack
+            }),
+            {error, Reason}
+    after
+        file:del_dir_r(BackupDir)
+    end.
 
 prepare_new_backup(Opts) ->
     Ts = erlang:system_time(millisecond),
@@ -186,7 +337,7 @@ prepare_new_backup(Opts) ->
             [Y, M, D, HH, MM, SS, Ts rem 1000]
         )
     ),
-    BackupName = filename:join(root_backup_dir(), BackupBaseName),
+    BackupName = ?backup_path(BackupBaseName),
     BackupTarName = ?tar(BackupName),
     maybe_print("Exporting data to ~p...~n", [BackupTarName], Opts),
     {ok, TarDescriptor} = ?fmt_tar_err(erl_tar:open(BackupTarName, [write, compressed])),
@@ -208,13 +359,13 @@ do_export(BackupName, TarDescriptor, Opts) ->
     ok = ?fmt_tar_err(erl_tar:close(TarDescriptor)),
     {ok, #file_info{
         size = Size,
-        ctime = {{Y1, M1, D1}, {H1, MM1, S1}}
-    }} = file:read_file_info(BackupTarName),
-    CreatedAt = io_lib:format("~p-~p-~p ~p:~p:~p", [Y1, M1, D1, H1, MM1, S1]),
+        ctime = CTime
+    }} = file:read_file_info(BackupTarName, [{time, posix}]),
     {ok, #{
         filename => bin(BackupTarName),
         size => Size,
-        created_at => bin(CreatedAt),
+        created_at => emqx_utils_calendar:epoch_to_rfc3339(CTime, second),
+        created_at_sec => CTime,
         node => node()
     }}.
 
@@ -351,7 +502,7 @@ parse_version_no_patch(VersionBin) ->
     end.
 
 do_import(BackupFileName, Opts) ->
-    BackupDir = filename:join(root_backup_dir(), filename:basename(BackupFileName, ?TAR_SUFFIX)),
+    BackupDir = ?backup_path(filename:basename(BackupFileName, ?TAR_SUFFIX)),
     maybe_print("Importing data from ~p...~n", [BackupFileName], Opts),
     try
         ok = validate_backup_name(BackupFileName),
@@ -619,7 +770,7 @@ validate_cluster_hocon(RawConf) ->
 
 do_import_conf(RawConf, Opts) ->
     GenConfErrs = filter_errors(maps:from_list(import_generic_conf(RawConf))),
-    maybe_print_errors(GenConfErrs, Opts),
+    maybe_print_conf_errors(GenConfErrs, Opts),
     Errors =
         lists:foldl(
             fun(Module, ErrorsAcc) ->
@@ -634,7 +785,7 @@ do_import_conf(RawConf, Opts) ->
             GenConfErrs,
             sort_importer_modules(find_behaviours(emqx_config_backup))
         ),
-    maybe_print_errors(Errors, Opts),
+    maybe_print_conf_errors(Errors, Opts),
     Errors.
 
 sort_importer_modules(Modules) ->
@@ -677,17 +828,17 @@ maybe_print_changed(Changed, Opts) ->
         Changed
     ).
 
-maybe_print_errors(Errors, Opts) ->
-    maps:foreach(
-        fun(Path, Err) ->
-            maybe_print(
-                "Failed to import the following config path: ~p, reason: ~p~n",
-                [pretty_path(Path), Err],
-                Opts
-            )
-        end,
-        Errors
-    ).
+maybe_print_conf_errors(Errors, Opts) ->
+    maps:foreach(conf_error_formatter(Opts), Errors).
+
+conf_error_formatter(Opts) ->
+    fun(Path, Err) ->
+        maybe_print(
+            "Failed to import the following config path: ~p, reason: ~p~n",
+            [pretty_path(Path), Err],
+            Opts
+        )
+    end.
 
 filter_errors(Results) ->
     maps:filter(
@@ -727,7 +878,7 @@ lookup_file(FileName) ->
             %% Only lookup by basename, don't allow to lookup by file path
             case FileName =:= filename:basename(FileName) of
                 true ->
-                    FilePath = filename:join(root_backup_dir(), FileName),
+                    FilePath = ?backup_path(FileName),
                     case filelib:is_file(FilePath) of
                         true -> {ok, FilePath};
                         false -> {error, not_found}
