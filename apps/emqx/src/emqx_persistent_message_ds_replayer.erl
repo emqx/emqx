@@ -27,6 +27,7 @@
 -export_type([inflight/0, seqno/0]).
 
 -include_lib("emqx/include/logger.hrl").
+-include_lib("emqx_utils/include/emqx_message.hrl").
 -include("emqx_persistent_session_ds.hrl").
 
 -ifdef(TEST).
@@ -176,9 +177,12 @@ fetch(SessionId, Inflight0, [DSStream | Streams], N, Acc) when N > 0 ->
     #inflight{next_seqno = FirstSeqno, offset_ranges = Ranges} = Inflight0,
     ItBegin = get_last_iterator(DSStream, Ranges),
     {ok, ItEnd, Messages} = emqx_ds:next(?PERSISTENT_MESSAGE_DB, ItBegin, N),
-    {Publishes, UntilSeqno} = publish(FirstSeqno, Messages),
-    case range_size(FirstSeqno, UntilSeqno) of
-        Size when Size > 0 ->
+    case Messages of
+        [] ->
+            fetch(SessionId, Inflight0, Streams, N, Acc);
+        _ ->
+            {Publishes, UntilSeqno} = publish(FirstSeqno, Messages, _PreserveQoS0 = true),
+            Size = range_size(FirstSeqno, UntilSeqno),
             %% We need to preserve the iterator pointing to the beginning of the
             %% range, so that we can replay it if needed.
             Range0 = #ds_pubrange{
@@ -197,9 +201,7 @@ fetch(SessionId, Inflight0, [DSStream | Streams], N, Acc) when N > 0 ->
                 next_seqno = UntilSeqno,
                 offset_ranges = Ranges ++ [Range]
             },
-            fetch(SessionId, Inflight, Streams, N - Size, [Publishes | Acc]);
-        0 ->
-            fetch(SessionId, Inflight0, Streams, N, Acc)
+            fetch(SessionId, Inflight, Streams, N - Size, [Publishes | Acc])
     end;
 fetch(_SessionId, Inflight, _Streams, _N, Acc) ->
     Publishes = lists:append(lists:reverse(Acc)),
@@ -268,7 +270,7 @@ replay_range(
         end,
     MessagesReplay = [emqx_message:set_flag(dup, true, Msg) || Msg <- MessagesUnacked],
     %% Asserting that range is consistent with the message storage state.
-    {Replies, Until} = publish(FirstUnacked, MessagesReplay),
+    {Replies, Until} = publish(FirstUnacked, MessagesReplay, _PreserveQoS0 = false),
     %% Again, we need to keep the iterator pointing past the end of the
     %% range, so that we can pick up where we left off.
     Range = Range0#ds_pubrange{iterator = ItNext},
@@ -276,15 +278,18 @@ replay_range(
 replay_range(Range0 = #ds_pubrange{type = checkpoint}, _AckedUntil, Acc) ->
     {Range0, Acc}.
 
-publish(FirstSeqno, Messages) ->
-    lists:mapfoldl(
-        fun(Message, Seqno) ->
-            PacketId = seqno_to_packet_id(Seqno),
-            {{PacketId, Message}, next_seqno(Seqno)}
-        end,
-        FirstSeqno,
-        Messages
-    ).
+publish(FirstSeqNo, Messages, PreserveQos0) ->
+    do_publish(FirstSeqNo, Messages, PreserveQos0, []).
+
+do_publish(SeqNo, [], _, Acc) ->
+    {lists:reverse(Acc), SeqNo};
+do_publish(SeqNo, [#message{qos = 0} | Messages], false, Acc) ->
+    do_publish(SeqNo, Messages, false, Acc);
+do_publish(SeqNo, [#message{qos = 0} = Message | Messages], true, Acc) ->
+    do_publish(SeqNo, Messages, true, [{undefined, Message} | Acc]);
+do_publish(SeqNo, [Message | Messages], PreserveQos0, Acc) ->
+    PacketId = seqno_to_packet_id(SeqNo),
+    do_publish(next_seqno(SeqNo), Messages, PreserveQos0, [{PacketId, Message} | Acc]).
 
 -spec preserve_range(ds_pubrange()) -> ok.
 preserve_range(Range = #ds_pubrange{type = inflight}) ->

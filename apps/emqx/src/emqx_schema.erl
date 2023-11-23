@@ -1772,6 +1772,23 @@ fields("session_persistence") ->
                         <<"builtin">> => #{}
                     }
                 }
+            )},
+        {"idle_poll_interval",
+            sc(
+                timeout_duration(),
+                #{
+                    default => <<"100ms">>,
+                    desc => ?DESC(session_ds_idle_poll_interval)
+                }
+            )},
+        {"force_persistence",
+            sc(
+                boolean(),
+                #{
+                    default => false,
+                    %% Only for testing, shall remain hidden
+                    importance => ?IMPORTANCE_HIDDEN
+                }
             )}
     ];
 fields("session_storage_backend") ->

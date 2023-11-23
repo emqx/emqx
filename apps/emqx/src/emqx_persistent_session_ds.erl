@@ -274,12 +274,12 @@ get_subscription(TopicFilter, #{subscriptions := Subs}) ->
 %%--------------------------------------------------------------------
 
 -spec publish(emqx_types:packet_id(), emqx_types:message(), session()) ->
-    {ok, emqx_types:publish_result(), replies(), session()}
+    {ok, emqx_types:publish_result(), session()}
     | {error, emqx_types:reason_code()}.
 publish(_PacketId, Msg, Session) ->
     %% TODO: QoS2
     Result = emqx_broker:publish(Msg),
-    {ok, Result, [], Session}.
+    {ok, Result, Session}.
 
 %%--------------------------------------------------------------------
 %% Client -> Broker: PUBACK
@@ -338,7 +338,7 @@ pubcomp(_ClientInfo, _PacketId, _Session = #{}) ->
 -spec deliver(clientinfo(), [emqx_types:deliver()], session()) ->
     {ok, replies(), session()}.
 deliver(_ClientInfo, _Delivers, Session) ->
-    %% TODO: QoS0 and system messages end up here.
+    %% TODO: system messages end up here.
     {ok, [], Session}.
 
 -spec handle_timeout(clientinfo(), _Timeout, session()) ->
@@ -349,11 +349,11 @@ handle_timeout(
     Session = #{id := Id, inflight := Inflight0, receive_maximum := ReceiveMaximum}
 ) ->
     {Publishes, Inflight} = emqx_persistent_message_ds_replayer:poll(Id, Inflight0, ReceiveMaximum),
-    %% TODO: make these values configurable:
+    IdlePollInterval = emqx_config:get([session_persistence, idle_poll_interval]),
     Timeout =
         case Publishes of
             [] ->
-                100;
+                IdlePollInterval;
             [_ | _] ->
                 0
         end,

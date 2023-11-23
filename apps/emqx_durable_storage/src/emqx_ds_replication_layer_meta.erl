@@ -34,7 +34,8 @@
     drop_db/1,
     shard_leader/2,
     this_site/0,
-    set_leader/3
+    set_leader/3,
+    print_status/0
 ]).
 
 %% gen_server
@@ -99,6 +100,35 @@
 %%================================================================================
 %% API funcions
 %%================================================================================
+
+-spec print_status() -> ok.
+print_status() ->
+    io:format("THIS SITE:~n~s~n", [base64:encode(this_site())]),
+    io:format("~nSITES:~n", []),
+    Nodes = [node() | nodes()],
+    lists:foreach(
+        fun(#?NODE_TAB{site = Site, node = Node}) ->
+            Status =
+                case lists:member(Node, Nodes) of
+                    true -> up;
+                    false -> down
+                end,
+            io:format("~s    ~p    ~p~n", [base64:encode(Site), Node, Status])
+        end,
+        eval_qlc(mnesia:table(?NODE_TAB))
+    ),
+    io:format("~nSHARDS~n", []),
+    lists:foreach(
+        fun(#?SHARD_TAB{shard = {DB, Shard}, leader = Leader}) ->
+            Status =
+                case lists:member(Leader, Nodes) of
+                    true -> up;
+                    false -> down
+                end,
+            io:format("~p/~s    ~p    ~p~n", [DB, Shard, Leader, Status])
+        end,
+        eval_qlc(mnesia:table(?SHARD_TAB))
+    ).
 
 -spec this_site() -> site().
 this_site() ->
@@ -297,6 +327,7 @@ ensure_site() ->
             ok;
         _ ->
             Site = crypto:strong_rand_bytes(8),
+            logger:notice("Creating a new site with ID=~s", [base64:encode(Site)]),
             ok = filelib:ensure_dir(Filename),
             {ok, FD} = file:open(Filename, [write]),
             io:format(FD, "~p.", [Site]),

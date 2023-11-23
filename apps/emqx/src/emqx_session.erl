@@ -626,12 +626,18 @@ choose_impl_candidates(#{expiry_interval := EI}) ->
 choose_impl_candidates(_, _IsPSStoreEnabled = false) ->
     [emqx_session_mem];
 choose_impl_candidates(0, _IsPSStoreEnabled = true) ->
-    %% NOTE
-    %% If ExpiryInterval is 0, the natural choice is `emqx_session_mem`. Yet we still
-    %% need to look the existing session up in the `emqx_persistent_session_ds` store
-    %% first, because previous connection may have set ExpiryInterval to a non-zero
-    %% value.
-    [emqx_session_mem, emqx_persistent_session_ds];
+    case emqx_persistent_message:force_ds() of
+        false ->
+            %% NOTE
+            %% If ExpiryInterval is 0, the natural choice is
+            %% `emqx_session_mem'. Yet we still need to look the
+            %% existing session up in the `emqx_persistent_session_ds'
+            %% store first, because previous connection may have set
+            %% ExpiryInterval to a non-zero value.
+            [emqx_session_mem, emqx_persistent_session_ds];
+        true ->
+            [emqx_persistent_session_ds]
+    end;
 choose_impl_candidates(EI, _IsPSStoreEnabled = true) when EI > 0 ->
     [emqx_persistent_session_ds].
 
