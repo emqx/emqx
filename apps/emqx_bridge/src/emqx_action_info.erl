@@ -120,12 +120,15 @@ action_type_to_bridge_v1_type(ActionType, Conf) ->
     ActionInfoMap = info_map(),
     ActionTypeToBridgeV1Type = maps:get(action_type_to_bridge_v1_type, ActionInfoMap),
     case maps:get(ActionType, ActionTypeToBridgeV1Type, undefined) of
-        undefined -> ActionType;
-        BridgeV1TypeFun when is_function(BridgeV1TypeFun) -> BridgeV1TypeFun(get_confs(Conf));
-        BridgeV1Type -> BridgeV1Type
+        undefined ->
+            ActionType;
+        BridgeV1TypeFun when is_function(BridgeV1TypeFun) ->
+            BridgeV1TypeFun(get_confs(ActionType, Conf));
+        BridgeV1Type ->
+            BridgeV1Type
     end.
 
-get_confs(#{connector := ConnectorName, type := ActionType} = ActionConfig) ->
+get_confs(ActionType, #{<<"connector">> := ConnectorName} = ActionConfig) ->
     ConnectorType = action_type_to_connector_type(ActionType),
     ConnectorConfig = emqx_conf:get_raw([connectors, ConnectorType, ConnectorName]),
     {ActionConfig, ConnectorConfig}.

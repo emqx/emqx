@@ -139,6 +139,7 @@ create_bridge(Config, Overrides) ->
     ConnectorName = ?config(connector_name, Config),
     ConnectorType = ?config(connector_type, Config),
     ConnectorConfig = ?config(connector_config, Config),
+    ct:pal("creating connector with config: ~p", [ConnectorConfig]),
     {ok, _} =
         emqx_connector:create(ConnectorType, ConnectorName, ConnectorConfig),
 

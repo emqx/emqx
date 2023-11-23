@@ -368,3 +368,12 @@ t_parameters_key_api_spec(_Config) ->
     ?assert(is_map_key(<<"parameters">>, ActionProps), #{action_props => ActionProps}),
 
     ok.
+
+t_http_api_get(Config) ->
+    ?assertMatch({ok, _}, emqx_bridge_v2_testlib:create_bridge(Config)),
+    %% v1 api; no mangling of configs; has `kafka' top level config key
+    ?assertMatch(
+        {ok, {{_, 200, _}, _, [#{<<"kafka">> := _}]}},
+        emqx_bridge_testlib:list_bridges_api()
+    ),
+    ok.

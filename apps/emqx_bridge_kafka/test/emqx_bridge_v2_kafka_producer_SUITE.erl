@@ -369,3 +369,17 @@ t_parameters_key_api_spec(_Config) ->
     ?assert(is_map_key(<<"parameters">>, ActionProps), #{action_props => ActionProps}),
 
     ok.
+
+t_http_api_get(_Config) ->
+    ConnectorName = <<"test_connector">>,
+    ActionName = <<"test_action">>,
+    ActionConfig = bridge_v2_config(<<"test_connector">>),
+    ConnectorConfig = connector_config(),
+    ?assertMatch({ok, _}, create_connector(ConnectorName, ConnectorConfig)),
+    ?assertMatch({ok, _}, create_action(ActionName, ActionConfig)),
+    %% v1 api; no mangling of configs; has `kafka' top level config key
+    ?assertMatch(
+        {ok, {{_, 200, _}, _, [#{<<"kafka">> := _}]}},
+        emqx_bridge_testlib:list_bridges_api()
+    ),
+    ok.
