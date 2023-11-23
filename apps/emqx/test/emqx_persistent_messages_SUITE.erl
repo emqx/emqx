@@ -258,6 +258,31 @@ t_qos0(Config) ->
         emqtt:stop(Pub)
     end.
 
+t_publish_as_persistent(Config) ->
+    Sub = connect(<<?MODULE_STRING "1">>, true, 30),
+    Pub = connect(<<?MODULE_STRING "2">>, true, 30),
+    try
+        {ok, _, [1]} = emqtt:subscribe(Sub, <<"t/#">>, qos1),
+        Messages = [
+            {<<"t/1">>, <<"1">>, 0},
+            {<<"t/1">>, <<"2">>, 1},
+            {<<"t/1">>, <<"3">>, 2}
+        ],
+        [emqtt:publish(Pub, Topic, Payload, Qos) || {Topic, Payload, Qos} <- Messages],
+        ?assertMatch(
+            [
+                #{qos := 0, topic := <<"t/1">>, payload := <<"1">>},
+                #{qos := 1, topic := <<"t/1">>, payload := <<"2">>}
+                %% TODO: QoS 2
+                %% #{qos := 2, topic := <<"t/1">>, payload := <<"3">>}
+            ],
+            receive_messages(3)
+        )
+    after
+        emqtt:stop(Sub),
+        emqtt:stop(Pub)
+    end.
+
 %%
 
 connect(ClientId, CleanStart, EI) ->

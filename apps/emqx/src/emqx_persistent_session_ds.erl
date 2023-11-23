@@ -274,12 +274,12 @@ get_subscription(TopicFilter, #{subscriptions := Subs}) ->
 %%--------------------------------------------------------------------
 
 -spec publish(emqx_types:packet_id(), emqx_types:message(), session()) ->
-    {ok, emqx_types:publish_result(), replies(), session()}
+    {ok, emqx_types:publish_result(), session()}
     | {error, emqx_types:reason_code()}.
 publish(_PacketId, Msg, Session) ->
     %% TODO: QoS2
     Result = emqx_broker:publish(Msg),
-    {ok, Result, [], Session}.
+    {ok, Result, Session}.
 
 %%--------------------------------------------------------------------
 %% Client -> Broker: PUBACK
