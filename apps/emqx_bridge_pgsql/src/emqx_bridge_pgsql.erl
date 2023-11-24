@@ -67,7 +67,15 @@ fields(action_parameters) ->
     ] ++
         emqx_connector_schema_lib:prepare_statement_fields();
 fields(pgsql_action) ->
-    emqx_bridge_v2_schema:make_producer_action_schema(hoconsc:ref(?MODULE, action_parameters));
+    emqx_bridge_v2_schema:make_producer_action_schema(
+        hoconsc:mk(
+            hoconsc:ref(?MODULE, action_parameters),
+            #{
+                required => true,
+                desc => ?DESC("action_parameters")
+            }
+        )
+    );
 fields("put_bridge_v2") ->
     fields(pgsql_action);
 fields("get_bridge_v2") ->
