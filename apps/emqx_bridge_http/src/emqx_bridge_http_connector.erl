@@ -54,7 +54,7 @@
 %%=====================================================================
 %% Hocon schema
 
-namespace() -> "connector-http".
+namespace() -> "connector_http".
 
 roots() ->
     fields(config).

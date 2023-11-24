@@ -28,7 +28,7 @@
 -export([remove/2, remove/3]).
 -export([tombstone/2]).
 -export([reset/2, reset/3]).
--export([dump_schema/2]).
+-export([dump_schema/2, reformat_schema_dump/1]).
 -export([schema_module/0]).
 
 %% TODO: move to emqx_dashboard when we stop building api schema at build time
@@ -180,9 +180,263 @@ gen_schema_json(Dir, SchemaModule, Lang) ->
         include_importance_up_from => IncludeImportance,
         desc_resolver => make_desc_resolver(Lang)
     },
-    JsonMap = hocon_schema_json:gen(SchemaModule, Opts),
-    IoData = emqx_utils_json:encode(JsonMap, [pretty, force_utf8]),
-    ok = file:write_file(SchemaJsonFile, IoData).
+    StructsJsonArray = hocon_schema_json:gen(SchemaModule, Opts),
+    IoData = emqx_utils_json:encode(StructsJsonArray, [pretty, force_utf8]),
+    ok = file:write_file(SchemaJsonFile, IoData),
+    ok = gen_preformat_md_json_files(Dir, StructsJsonArray, Lang).
+
+gen_preformat_md_json_files(Dir, StructsJsonArray, Lang) ->
+    NestedStruct = reformat_schema_dump(StructsJsonArray),
+    %% write to files
+    NestedJsonFile = filename:join([Dir, "schmea-v2-" ++ Lang ++ ".json"]),
+    io:format(user, "===< Generating: ~s~n", [NestedJsonFile]),
+    ok = file:write_file(
+        NestedJsonFile, emqx_utils_json:encode(NestedStruct, [pretty, force_utf8])
+    ),
+    ok.
+
+%% @doc This function is exported for scripts/schema-dump-reformat.escript
+reformat_schema_dump(StructsJsonArray0) ->
+    %% prepare
+    StructsJsonArray = deduplicate_by_full_name(StructsJsonArray0),
+    #{fields := RootFields} = hd(StructsJsonArray),
+    RootNames0 = lists:map(fun(#{name := RootName}) -> RootName end, RootFields),
+    RootNames = lists:map(fun to_bin/1, RootNames0),
+    %% reformat
+    [Root | FlatStructs0] = lists:map(
+        fun(Struct) -> gen_flat_doc(RootNames, Struct) end, StructsJsonArray
+    ),
+    FlatStructs = [Root#{text => <<"root">>, hash => <<"root">>} | FlatStructs0],
+    gen_nested_doc(FlatStructs).
+
+deduplicate_by_full_name(Structs) ->
+    deduplicate_by_full_name(Structs, #{}, []).
+
+deduplicate_by_full_name([], _Seen, Acc) ->
+    lists:reverse(Acc);
+deduplicate_by_full_name([#{full_name := FullName} = H | T], Seen, Acc) ->
+    case maps:get(FullName, Seen, false) of
+        false ->
+            deduplicate_by_full_name(T, Seen#{FullName => H}, [H | Acc]);
+        H ->
+            %% Name clash, but identical, ignore
+            deduplicate_by_full_name(T, Seen, Acc);
+        _Different ->
+            %% ADD NAMESPACE!
+            throw({duplicate_full_name, FullName})
+    end.
+
+%% Ggenerate nested docs from root struct.
+%% Due to the fact that the same struct can be referenced by multiple fields,
+%% we need to generate a unique nested doc for each reference.
+%% The unique path to each type and is of the below format:
+%% - A a path starts either with 'T-' or 'V-'. T stands for type, V stands for value.
+%% - A path is a list of strings delimited by '-'.
+%%   - The letter S is used to separate struct name from field name.
+%%   - Field names are however NOT denoted by a leading 'F-'.
+%% For example:
+%% - T-root: the root struct;
+%% - T-foo-S-footype: the struct named "footype" in the foo field of root struct;
+%% - V-foo-S-footype-bar: the field named "bar" in the struct named "footype" in the foo field of root struct
+gen_nested_doc(Structs) ->
+    KeyByFullName = lists:foldl(
+        fun(#{hash := FullName} = Struct, Acc) ->
+            maps:put(FullName, Struct, Acc)
+        end,
+        #{},
+        Structs
+    ),
+    FindFn = fun(Hash) -> maps:get(Hash, KeyByFullName) end,
+    gen_nested_doc(hd(Structs), FindFn, []).
+
+gen_nested_doc(#{fields := Fields} = Struct, FindFn, Path) ->
+    TypeAnchor = make_type_anchor(Path),
+    ValueAnchor = fun(FieldName) -> make_value_anchor(Path, FieldName) end,
+    NewFields = lists:map(
+        fun(#{text := Name} = Field) ->
+            NewField = expand_field(Field, FindFn, Path),
+            NewField#{hash => ValueAnchor(Name)}
+        end,
+        Fields
+    ),
+    Struct#{
+        fields => NewFields,
+        hash => TypeAnchor
+    }.
+
+%% Make anchor for type.
+%% Start with "T-" to distinguish from value anchor.
+make_type_anchor([]) ->
+    <<"T-root">>;
+make_type_anchor(Path) ->
+    to_bin(["T-", lists:join("-", lists:reverse(Path))]).
+
+%% Value anchor is used to link to the field's struct.
+%% Start with "V-" to distinguish from type anchor.
+make_value_anchor(Path, FieldName) ->
+    to_bin(["V-", join_path_hash(Path, FieldName)]).
+
+%% Make a globally unique "hash" (the http anchor) for each struct field.
+join_path_hash([], Name) ->
+    Name;
+join_path_hash(Path, Name) ->
+    to_bin(lists:join("-", lists:reverse([Name | Path]))).
+
+%% Expand field's struct reference to nested doc.
+expand_field(#{text := Name, refs := References} = Field, FindFn, Path) ->
+    %% Add struct type name in path to make it unique.
+    NewReferences = lists:map(
+        fun(#{text := StructName} = Ref) ->
+            expand_ref(Ref, FindFn, [StructName, "S", Name | Path])
+        end,
+        References
+    ),
+    Field#{refs => NewReferences};
+expand_field(Field, _FindFn, _Path) ->
+    %% No reference, no need to expand.
+    Field.
+
+expand_ref(#{hash := FullName}, FindFn, Path) ->
+    Struct = FindFn(FullName),
+    gen_nested_doc(Struct, FindFn, Path).
+
+%% generate flat docs for each struct.
+%% using references to link to other structs.
+gen_flat_doc(RootNames, #{full_name := FullName, fields := Fields} = S) ->
+    ShortName = short_name(FullName),
+    case is_missing_namespace(ShortName, to_bin(FullName), RootNames) of
+        true ->
+            io:format(standard_error, "WARN: no_namespace_for: ~s~n", [FullName]);
+        false ->
+            ok
+    end,
+    #{
+        text => short_name(FullName),
+        hash => format_hash(FullName),
+        doc => maps:get(desc, S, <<"">>),
+        fields => format_fields(Fields)
+    }.
+
+format_fields([]) ->
+    [];
+format_fields([Field | Fields]) ->
+    [format_field(Field) | format_fields(Fields)].
+
+format_field(#{name := Name, aliases := Aliases, type := Type} = F) ->
+    L = [
+        {text, Name},
+        {type, format_type(Type)},
+        {refs, format_refs(Type)},
+        {aliases,
+            case Aliases of
+                [] -> undefined;
+                _ -> Aliases
+            end},
+        {default, maps:get(hocon, maps:get(default, F, #{}), undefined)},
+        {doc, maps:get(desc, F, undefined)}
+    ],
+    maps:from_list([{K, V} || {K, V} <- L, V =/= undefined]).
+
+format_refs(Type) ->
+    References = find_refs(Type),
+    case lists:map(fun format_ref/1, References) of
+        [] -> undefined;
+        L -> L
+    end.
+
+format_ref(FullName) ->
+    #{text => short_name(FullName), hash => format_hash(FullName)}.
+
+find_refs(Type) ->
+    lists:reverse(find_refs(Type, [])).
+
+%% go deep into union, array, and map to find references
+find_refs(#{kind := union, members := Members}, Acc) ->
+    lists:foldl(fun find_refs/2, Acc, Members);
+find_refs(#{kind := array, elements := Elements}, Acc) ->
+    find_refs(Elements, Acc);
+find_refs(#{kind := map, values := Values}, Acc) ->
+    find_refs(Values, Acc);
+find_refs(#{kind := struct, name := FullName}, Acc) ->
+    [FullName | Acc];
+find_refs(_, Acc) ->
+    Acc.
+
+format_type(#{kind := primitive, name := Name}) ->
+    format_primitive_type(Name);
+format_type(#{kind := singleton, name := Name}) ->
+    to_bin(["String(\"", to_bin(Name), "\")"]);
+format_type(#{kind := enum, symbols := Symbols}) ->
+    CommaSep = lists:join(",", lists:map(fun(S) -> to_bin(S) end, Symbols)),
+    to_bin(["Enum(", CommaSep, ")"]);
+format_type(#{kind := array, elements := ElementsType}) ->
+    to_bin(["Array(", format_type(ElementsType), ")"]);
+format_type(#{kind := union, members := MemberTypes} = U) ->
+    DN = maps:get(display_name, U, undefined),
+    case DN of
+        undefined ->
+            to_bin(["OneOf(", format_union_members(MemberTypes), ")"]);
+        Name ->
+            format_primitive_type(Name)
+    end;
+format_type(#{kind := struct, name := FullName}) ->
+    to_bin(["Struct(", short_name(FullName), ")"]);
+format_type(#{kind := map, name := Name, values := ValuesType}) ->
+    to_bin(["Map($", Name, "->", format_type(ValuesType), ")"]).
+
+format_union_members(Members) ->
+    format_union_members(Members, []).
+
+format_union_members([], Acc) ->
+    lists:join(",", lists:reverse(Acc));
+format_union_members([Member | Members], Acc) ->
+    NewAcc = [format_type(Member) | Acc],
+    format_union_members(Members, NewAcc).
+
+format_primitive_type(TypeStr) ->
+    Spec = emqx_conf_schema_types:readable_docgen(?MODULE, TypeStr),
+    to_bin(maps:get(type, Spec)).
+
+%% All types should have a namespace to avlid name clashing.
+is_missing_namespace(ShortName, FullName, RootNames) ->
+    case lists:member(ShortName, RootNames) of
+        true ->
+            false;
+        false ->
+            ShortName =:= FullName
+    end.
+
+%% Returns short name from full name, fullname delemited by colon(:).
+short_name(FullName) ->
+    case string:split(FullName, ":") of
+        [_, Name] -> to_bin(Name);
+        _ -> to_bin(FullName)
+    end.
+
+%% Returns the hash-anchor from full name, fullname delemited by colon(:).
+format_hash(FullName) ->
+    case string:split(FullName, ":") of
+        [Namespace, Name] ->
+            ok = warn_bad_namespace(Namespace),
+            iolist_to_binary([Namespace, "__", Name]);
+        _ ->
+            iolist_to_binary(FullName)
+    end.
+
+%% namespace should only have letters, numbers, and underscores.
+warn_bad_namespace(Namespace) ->
+    case re:run(Namespace, "^[a-zA-Z0-9_]+$", [{capture, none}]) of
+        nomatch ->
+            case erlang:get({bad_namespace, Namespace}) of
+                true ->
+                    ok;
+                _ ->
+                    erlang:put({bad_namespace, Namespace}, true),
+                    io:format(standard_error, "WARN: bad_namespace: ~s~n", [Namespace])
+            end;
+        _ ->
+            ok
+    end.
 
 %% TODO: move this function to emqx_dashboard when we stop generating this JSON at build time.
 hotconf_schema_json() ->
@@ -306,12 +560,7 @@ hocon_schema_to_spec(Atom, _LocalModule) when is_atom(Atom) ->
 typename_to_spec(TypeStr, Module) ->
     emqx_conf_schema_types:readable_dashboard(Module, TypeStr).
 
-to_bin(List) when is_list(List) ->
-    case io_lib:printable_list(List) of
-        true -> unicode:characters_to_binary(List);
-        false -> List
-    end;
+to_bin(List) when is_list(List) -> iolist_to_binary(List);
 to_bin(Boolean) when is_boolean(Boolean) -> Boolean;
 to_bin(Atom) when is_atom(Atom) -> atom_to_binary(Atom, utf8);
-to_bin(X) ->
-    X.
+to_bin(X) -> X.
