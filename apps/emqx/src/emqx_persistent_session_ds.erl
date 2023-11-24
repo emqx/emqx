@@ -142,13 +142,19 @@ open(#{clientid := ClientID} = _ClientInfo, ConnInfo) ->
     %% somehow isolate those idling not-yet-expired sessions into a separate process
     %% space, and move this call back into `emqx_cm` where it belongs.
     ok = emqx_cm:discard_session(ClientID),
-    case session_open(ClientID) of
-        Session0 = #{} ->
-            ensure_timers(),
-            ReceiveMaximum = receive_maximum(ConnInfo),
-            Session = Session0#{receive_maximum => ReceiveMaximum},
-            {true, Session, []};
+    case maps:get(clean_start, ConnInfo, false) of
         false ->
+            case session_open(ClientID) of
+                Session0 = #{} ->
+                    ensure_timers(),
+                    ReceiveMaximum = receive_maximum(ConnInfo),
+                    Session = Session0#{receive_maximum => ReceiveMaximum},
+                    {true, Session, []};
+                false ->
+                    false
+            end;
+        true ->
+            session_drop(ClientID),
             false
     end.
 
