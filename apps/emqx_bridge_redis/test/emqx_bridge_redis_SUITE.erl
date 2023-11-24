@@ -144,7 +144,7 @@ redis_checks() ->
     end.
 
 end_per_suite(_Config) ->
-    ok = delete_all_bridges(),
+    ok = emqx_bridge_v2_SUITE:delete_all_bridges_and_connectors(),
     ok = emqx_common_test_helpers:stop_apps([emqx_conf]),
     ok = emqx_connector_test_helpers:stop_apps([emqx_rule_engine, emqx_bridge, emqx_resource]),
     _ = application:stop(emqx_connector),
@@ -153,7 +153,7 @@ end_per_suite(_Config) ->
 init_per_testcase(Testcase, Config0) ->
     emqx_logger:set_log_level(debug),
     ok = delete_all_rules(),
-    ok = delete_all_bridges(),
+    ok = emqx_bridge_v2_SUITE:delete_all_bridges_and_connectors(),
     UniqueNum = integer_to_binary(erlang:unique_integer()),
     Name = <<(atom_to_binary(Testcase))/binary, UniqueNum/binary>>,
     Config = [{bridge_name, Name} | Config0],
@@ -184,9 +184,17 @@ end_per_testcase(_Testcase, Config) ->
     ProxyPort = ?config(proxy_port, Config),
     ok = snabbkaffe:stop(),
     emqx_common_test_helpers:reset_proxy(ProxyHost, ProxyPort),
-    ok = delete_all_bridges().
+    ok = emqx_bridge_v2_SUITE:delete_all_bridges_and_connectors().
 
 t_create_delete_bridge(Config) ->
+    Pid = erlang:whereis(eredis_sentinel),
+    ct:pal("t_create_detele_bridge:~p~n", [
+        #{
+            config => Config,
+            sentinel => Pid,
+            eredis_sentinel => Pid =/= undefined andalso erlang:process_info(Pid)
+        }
+    ]),
     Name = ?config(bridge_name, Config),
     Type = ?config(connector_type, Config),
     BridgeConfig = ?config(bridge_config, Config),
@@ -487,14 +495,6 @@ delete_all_rules() ->
             emqx_rule_engine:delete_rule(RuleId)
         end,
         emqx_rule_engine:get_rules()
-    ).
-
-delete_all_bridges() ->
-    lists:foreach(
-        fun(#{name := Name, type := Type}) ->
-            emqx_bridge:remove(Type, Name)
-        end,
-        emqx_bridge:list()
     ).
 
 all_test_hosts() ->

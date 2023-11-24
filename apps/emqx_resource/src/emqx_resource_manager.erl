@@ -682,7 +682,7 @@ stop_resource(#data{state = ResState, id = ResId} = Data) ->
     HasAllocatedResources = emqx_resource:has_allocated_resources(ResId),
     %% Before stop is called we remove all the channels from the resource
     NewData = remove_channels(Data),
-    case ResState =/= undefined orelse HasAllocatedResources of
+    case (not is_init_state(Data)) orelse HasAllocatedResources of
         true ->
             %% we clear the allocated resources after stop is successful
             emqx_resource:call_stop(NewData#data.id, NewData#data.mod, ResState);
@@ -692,6 +692,9 @@ stop_resource(#data{state = ResState, id = ResId} = Data) ->
     _ = maybe_clear_alarm(ResId),
     ok = emqx_metrics_worker:reset_metrics(?RES_METRICS, ResId),
     NewData#data{status = stopped}.
+
+is_init_state(#data{state = ResState, status = Status}) ->
+    ResState =:= undefined andalso Status =:= connecting.
 
 remove_channels(Data) ->
     Channels = maps:keys(Data#data.added_channels),
