@@ -483,11 +483,10 @@ t_failed_creation_then_fix(Config) ->
     {ok, {_, [KafkaMsg]}} = brod:fetch(kafka_hosts(), KafkaTopic, 0, Offset),
     ?assertMatch(#kafka_message{key = BinTime}, KafkaMsg),
     % %% TODO: refactor those into init/end per testcase
-    ok = ?PRODUCER:on_stop(ResourceId, State),
-    ?assertEqual([], supervisor:which_children(wolff_client_sup)),
-    ?assertEqual([], supervisor:which_children(wolff_producers_sup)),
     ok = emqx_bridge:remove(list_to_atom(Type), list_to_atom(Name)),
     delete_all_bridges(),
+    ?assertEqual([], supervisor:which_children(wolff_client_sup)),
+    ?assertEqual([], supervisor:which_children(wolff_producers_sup)),
     ok.
 
 t_custom_timestamp(_Config) ->

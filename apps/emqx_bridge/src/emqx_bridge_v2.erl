@@ -410,10 +410,10 @@ uninstall_bridge_v2(
     CreationOpts = emqx_resource:fetch_creation_opts(Config),
     ok = emqx_resource_buffer_worker_sup:stop_workers(BridgeV2Id, CreationOpts),
     ok = emqx_resource:clear_metrics(BridgeV2Id),
-    case combine_connector_and_bridge_v2_config(BridgeV2Type, BridgeName, Config) of
+    case validate_referenced_connectors(BridgeV2Type, ConnectorName, BridgeName) of
         {error, _} ->
             ok;
-        _CombinedConfig ->
+        ok ->
             %% Deinstall from connector
             ConnectorId = emqx_connector_resource:resource_id(
                 connector_type(BridgeV2Type), ConnectorName
@@ -1053,8 +1053,8 @@ bridge_v1_is_valid(BridgeV1Type, BridgeName) ->
 bridge_v1_type_to_bridge_v2_type(Type) ->
     emqx_action_info:bridge_v1_type_to_action_type(Type).
 
-bridge_v2_type_to_bridge_v1_type(Type, Conf) ->
-    emqx_action_info:action_type_to_bridge_v1_type(Type, Conf).
+bridge_v2_type_to_bridge_v1_type(ActionType, ActionConf) ->
+    emqx_action_info:action_type_to_bridge_v1_type(ActionType, ActionConf).
 
 is_bridge_v2_type(Type) ->
     emqx_action_info:is_action_type(Type).
@@ -1065,8 +1065,8 @@ bridge_v1_list_and_transform() ->
 
 bridge_v1_lookup_and_transform(ActionType, Name) ->
     case lookup(ActionType, Name) of
-        {ok, #{raw_config := #{<<"connector">> := ConnectorName}} = ActionConfig} ->
-            BridgeV1Type = ?MODULE:bridge_v2_type_to_bridge_v1_type(ActionType, ActionConfig),
+        {ok, #{raw_config := #{<<"connector">> := ConnectorName} = RawConfig} = ActionConfig} ->
+            BridgeV1Type = ?MODULE:bridge_v2_type_to_bridge_v1_type(ActionType, RawConfig),
             case ?MODULE:bridge_v1_is_valid(BridgeV1Type, Name) of
                 true ->
                     ConnectorType = connector_type(ActionType),
@@ -1244,6 +1244,8 @@ split_and_validate_bridge_v1_config(BridgeV1Type, BridgeName, RawConf, PreviousR
             #{bin(BridgeV2Type) => #{bin(BridgeName) => PreviousRawConf}},
             PreviousRawConf =/= undefined
         ),
+    %% [FIXME] this will loop through all connector types, instead pass the
+    %% connector type and just do it for that one
     Output = emqx_connector_schema:transform_bridges_v1_to_connectors_and_bridges_v2(
         FakeGlobalConfig
     ),

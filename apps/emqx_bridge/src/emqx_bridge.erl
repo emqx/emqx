@@ -237,9 +237,15 @@ send_to_matched_egress_bridges_loop(Topic, Msg, [Id | Ids]) ->
     send_to_matched_egress_bridges_loop(Topic, Msg, Ids).
 
 send_message(BridgeId, Message) ->
-    {BridgeType, BridgeName} = emqx_bridge_resource:parse_bridge_id(BridgeId),
-    ResId = emqx_bridge_resource:resource_id(BridgeType, BridgeName),
-    send_message(BridgeType, BridgeName, ResId, Message, #{}).
+    {BridgeV1Type, BridgeName} = emqx_bridge_resource:parse_bridge_id(BridgeId),
+    case emqx_bridge_v2:is_bridge_v2_type(BridgeV1Type) of
+        true ->
+            BridgeV2Type = emqx_bridge_v2:bridge_v1_type_to_bridge_v2_type(BridgeV1Type),
+            emqx_bridge_v2:send_message(BridgeV2Type, BridgeName, Message, #{});
+        false ->
+            ResId = emqx_bridge_resource:resource_id(BridgeV1Type, BridgeName),
+            send_message(BridgeV1Type, BridgeName, ResId, Message, #{})
+    end.
 
 send_message(BridgeType, BridgeName, ResId, Message, QueryOpts0) ->
     case emqx:get_config([?ROOT_KEY, BridgeType, BridgeName], not_found) of
@@ -377,8 +383,8 @@ disable_enable(Action, BridgeType0, BridgeName) when
             )
     end.
 
-create(BridgeType0, BridgeName, RawConf) ->
-    BridgeType = upgrade_type(BridgeType0),
+create(BridgeV1Type, BridgeName, RawConf) ->
+    BridgeType = upgrade_type(BridgeV1Type),
     ?SLOG(debug, #{
         bridge_action => create,
         bridge_type => BridgeType,
@@ -387,7 +393,7 @@ create(BridgeType0, BridgeName, RawConf) ->
     }),
     case emqx_bridge_v2:is_bridge_v2_type(BridgeType) of
         true ->
-            emqx_bridge_v2:bridge_v1_split_config_and_create(BridgeType, BridgeName, RawConf);
+            emqx_bridge_v2:bridge_v1_split_config_and_create(BridgeV1Type, BridgeName, RawConf);
         false ->
             emqx_conf:update(
                 emqx_bridge:config_key_path() ++ [BridgeType, BridgeName],
