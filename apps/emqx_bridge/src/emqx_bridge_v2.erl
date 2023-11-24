@@ -798,17 +798,24 @@ parse_id(Id) ->
     end.
 
 get_channels_for_connector(ConnectorId) ->
-    {ConnectorType, ConnectorName} = emqx_connector_resource:parse_connector_id(ConnectorId),
-    RootConf = maps:keys(emqx:get_config([?ROOT_KEY], #{})),
-    RelevantBridgeV2Types = [
-        Type
-     || Type <- RootConf,
-        connector_type(Type) =:= ConnectorType
-    ],
-    lists:flatten([
-        get_channels_for_connector(ConnectorName, BridgeV2Type)
-     || BridgeV2Type <- RelevantBridgeV2Types
-    ]).
+    try emqx_connector_resource:parse_connector_id(ConnectorId) of
+        {ConnectorType, ConnectorName} ->
+            RootConf = maps:keys(emqx:get_config([?ROOT_KEY], #{})),
+            RelevantBridgeV2Types = [
+                Type
+             || Type <- RootConf,
+                connector_type(Type) =:= ConnectorType
+            ],
+            lists:flatten([
+                get_channels_for_connector(ConnectorName, BridgeV2Type)
+             || BridgeV2Type <- RelevantBridgeV2Types
+            ])
+    catch
+        _:_ ->
+            %% ConnectorId is not a valid connector id so we assume the connector
+            %% has no channels (e.g. it is a a connector for authn or authz)
+            []
+    end.
 
 get_channels_for_connector(ConnectorName, BridgeV2Type) ->
     BridgeV2s = emqx:get_config([?ROOT_KEY, BridgeV2Type], #{}),

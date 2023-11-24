@@ -61,7 +61,7 @@ end_per_testcase(_, _Config) ->
 
 t_lifecycle(_Config) ->
     perform_lifecycle_check(
-        <<"connector:pgsql:emqx_postgresql_SUITE">>,
+        <<"emqx_postgresql_SUITE">>,
         pgsql_config()
     ).
 
