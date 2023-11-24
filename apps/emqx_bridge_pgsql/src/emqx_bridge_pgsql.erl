@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2023 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2022-2023 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
 
 -module(emqx_bridge_pgsql).
@@ -68,7 +68,6 @@ fields(action_parameters) ->
         emqx_connector_schema_lib:prepare_statement_fields();
 fields(pgsql_action) ->
     emqx_bridge_v2_schema:make_producer_action_schema(hoconsc:ref(?MODULE, action_parameters));
-%% TODO: All of these needs to be fixed
 fields("put_bridge_v2") ->
     fields(pgsql_action);
 fields("get_bridge_v2") ->

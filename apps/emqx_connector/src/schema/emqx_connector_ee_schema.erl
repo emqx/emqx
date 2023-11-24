@@ -29,17 +29,17 @@ resource_type(gcp_pubsub_producer) ->
     emqx_bridge_gcp_pubsub_impl_producer;
 resource_type(kafka_producer) ->
     emqx_bridge_kafka_impl_producer;
+resource_type(matrix) ->
+    emqx_postgresql;
 resource_type(mongodb) ->
     emqx_bridge_mongodb_connector;
+resource_type(pgsql) ->
+    emqx_postgresql;
 resource_type(syskeeper_forwarder) ->
     emqx_bridge_syskeeper_connector;
 resource_type(syskeeper_proxy) ->
     emqx_bridge_syskeeper_proxy_server;
-resource_type(pgsql) ->
-    emqx_postgresql;
 resource_type(timescale) ->
-    emqx_postgresql;
-resource_type(matrix) ->
     emqx_postgresql;
 resource_type(Type) ->
     error({unknown_connector_type, Type}).
@@ -159,12 +159,12 @@ schema_modules() ->
         emqx_bridge_confluent_producer,
         emqx_bridge_gcp_pubsub_producer_schema,
         emqx_bridge_kafka,
+        emqx_bridge_matrix,
         emqx_bridge_mongodb,
         emqx_bridge_syskeeper_connector,
         emqx_bridge_syskeeper_proxy,
-        emqx_postgresql_connector_schema,
         emqx_bridge_timescale,
-        emqx_bridge_matrix
+        emqx_postgresql_connector_schema
     ].
 
 api_schemas(Method) ->
@@ -183,12 +183,12 @@ api_schemas(Method) ->
             Method ++ "_connector"
         ),
         api_ref(emqx_bridge_kafka, <<"kafka_producer">>, Method ++ "_connector"),
+        api_ref(emqx_bridge_matrix, <<"matrix">>, Method ++ "_connector"),
         api_ref(emqx_bridge_mongodb, <<"mongodb">>, Method ++ "_connector"),
         api_ref(emqx_bridge_syskeeper_connector, <<"syskeeper_forwarder">>, Method),
         api_ref(emqx_bridge_syskeeper_proxy, <<"syskeeper_proxy">>, Method),
-        api_ref(emqx_postgresql_connector_schema, <<"pgsql">>, Method ++ "_connector"),
         api_ref(emqx_bridge_timescale, <<"timescale">>, Method ++ "_connector"),
-        api_ref(emqx_bridge_matrix, <<"matrix">>, Method ++ "_connector")
+        api_ref(emqx_postgresql_connector_schema, <<"pgsql">>, Method ++ "_connector")
     ].
 
 api_ref(Module, Type, Method) ->

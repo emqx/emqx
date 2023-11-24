@@ -43,12 +43,7 @@ fields("connection_fields") ->
         adjust_fields(emqx_connector_schema_lib:relational_db_fields()) ++
         emqx_connector_schema_lib:ssl_fields();
 fields("config_connector") ->
-    fields("connection_fields") ++ fields(enable_and_desc);
-fields(enable_and_desc) ->
-    [
-        {enable, hoconsc:mk(boolean(), #{desc => ?DESC("config_enable"), default => true})},
-        {description, emqx_schema:description_schema()}
-    ];
+    fields("connection_fields") ++ emqx_connector_schema:common_fields();
 fields(config) ->
     fields("config_connector") ++
         fields(action);
