@@ -63,18 +63,23 @@
 ).
 
 -if(?EMQX_RELEASE_EDITION == ee).
-bridge_to_resource_type(<<"mqtt">>) -> emqx_bridge_mqtt_connector;
-bridge_to_resource_type(mqtt) -> emqx_bridge_mqtt_connector;
-bridge_to_resource_type(<<"webhook">>) -> emqx_bridge_http_connector;
-bridge_to_resource_type(webhook) -> emqx_bridge_http_connector;
-bridge_to_resource_type(BridgeType) -> emqx_bridge_enterprise:resource_type(BridgeType).
+bridge_to_resource_type(BridgeType) when is_binary(BridgeType) ->
+    bridge_to_resource_type(binary_to_existing_atom(BridgeType, utf8));
+bridge_to_resource_type(mqtt) ->
+    emqx_bridge_mqtt_connector;
+bridge_to_resource_type(webhook) ->
+    emqx_bridge_http_connector;
+bridge_to_resource_type(BridgeType) ->
+    emqx_bridge_enterprise:resource_type(BridgeType).
 
 bridge_impl_module(BridgeType) -> emqx_bridge_enterprise:bridge_impl_module(BridgeType).
 -else.
-bridge_to_resource_type(<<"mqtt">>) -> emqx_bridge_mqtt_connector;
-bridge_to_resource_type(mqtt) -> emqx_bridge_mqtt_connector;
-bridge_to_resource_type(<<"webhook">>) -> emqx_bridge_http_connector;
-bridge_to_resource_type(webhook) -> emqx_bridge_http_connector.
+bridge_to_resource_type(BridgeType) when is_binary(Type) ->
+    bridge_to_resource_type(binary_to_existing_atom(Type, utf8));
+bridge_to_resource_type(mqtt) ->
+    emqx_bridge_mqtt_connector;
+bridge_to_resource_type(webhook) ->
+    emqx_bridge_http_connector.
 
 bridge_impl_module(_BridgeType) -> undefined.
 -endif.

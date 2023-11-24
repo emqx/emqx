@@ -137,7 +137,7 @@ param_path_id() ->
             #{
                 in => path,
                 required => true,
-                example => <<"webhook:webhook_example">>,
+                example => <<"http:my_http_connector">>,
                 desc => ?DESC("desc_param_path_id")
             }
         )}.

@@ -70,7 +70,7 @@ api_schemas(Method) ->
     [
         %% We need to map the `type' field of a request (binary) to a
         %% connector schema module.
-        api_ref(emqx_bridge_http_schema, <<"webhook">>, Method ++ "_connector")
+        api_ref(emqx_bridge_http_schema, <<"http">>, Method ++ "_connector")
     ].
 
 api_ref(Module, Type, Method) ->
@@ -96,7 +96,7 @@ schema_modules() ->
     [emqx_bridge_http_schema].
 -endif.
 
-connector_type_to_bridge_types(webhook) -> [webhook];
+connector_type_to_bridge_types(http) -> [http, webhook];
 connector_type_to_bridge_types(kafka_producer) -> [kafka, kafka_producer];
 connector_type_to_bridge_types(azure_event_hub_producer) -> [azure_event_hub_producer].
 
@@ -379,10 +379,11 @@ roots() ->
 
 fields(connectors) ->
     [
-        {webhook,
+        {http,
             mk(
                 hoconsc:map(name, ref(emqx_bridge_http_schema, "config_connector")),
                 #{
+                    alias => [webhook],
                     desc => <<"HTTP Connector Config">>,
                     required => false
                 }

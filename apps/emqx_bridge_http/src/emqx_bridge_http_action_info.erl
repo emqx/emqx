@@ -34,9 +34,9 @@
 
 bridge_v1_type_name() -> webhook.
 
-action_type_name() -> webhook.
+action_type_name() -> http.
 
-connector_type_name() -> webhook.
+connector_type_name() -> http.
 
 schema_module() -> emqx_bridge_http_schema.
 

@@ -62,6 +62,7 @@ end_per_testcase(t_get_basic_usage_info_1, _Config) ->
             ok = emqx_bridge:remove(BridgeType, BridgeName)
         end,
         [
+            %% Keep using the old bridge names to avoid breaking the tests
             {webhook, <<"basic_usage_info_webhook">>},
             {webhook, <<"basic_usage_info_webhook_disabled">>},
             {mqtt, <<"basic_usage_info_mqtt">>}
@@ -92,7 +93,7 @@ t_get_basic_usage_info_1(_Config) ->
         #{
             num_bridges => 3,
             count_by_type => #{
-                webhook => 1,
+                http => 1,
                 mqtt => 2
             }
         },
@@ -123,12 +124,13 @@ setup_fake_telemetry_data() ->
     HTTPConfig = #{
         url => <<"http://localhost:9901/messages/${topic}">>,
         enable => true,
-        local_topic => "emqx_webhook/#",
+        local_topic => "emqx_http/#",
         method => post,
         body => <<"${payload}">>,
         headers => #{},
         request_timeout => "15s"
     },
+    %% Keep use the old bridge names to test the backward compatibility
     {ok, _} = emqx_bridge_testlib:create_bridge_api(
         <<"webhook">>,
         <<"basic_usage_info_webhook">>,

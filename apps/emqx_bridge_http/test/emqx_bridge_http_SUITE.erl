@@ -577,7 +577,7 @@ t_path_not_found(Config) ->
             ok
         end,
         fun(Trace) ->
-            ?assertEqual([], ?of_kind(webhook_will_retry_async, Trace)),
+            ?assertEqual([], ?of_kind(http_will_retry_async, Trace)),
             ok
         end
     ),
@@ -618,7 +618,7 @@ t_too_many_requests(Config) ->
             ok
         end,
         fun(Trace) ->
-            ?assertMatch([_ | _], ?of_kind(webhook_will_retry_async, Trace)),
+            ?assertMatch([_ | _], ?of_kind(http_will_retry_async, Trace)),
             ok
         end
     ),
@@ -731,7 +731,8 @@ t_bridge_probes_header_atoms(Config) ->
 %% helpers
 
 do_send_message(Message) ->
-    emqx_bridge_v2:send_message(?BRIDGE_TYPE, ?BRIDGE_NAME, Message, #{}).
+    Type = emqx_bridge_v2:bridge_v1_type_to_bridge_v2_type(?BRIDGE_TYPE),
+    emqx_bridge_v2:send_message(Type, ?BRIDGE_NAME, Message, #{}).
 
 do_t_async_retries(TestCase, TestContext, Error, Fn) ->
     #{error_attempts := ErrorAttempts} = TestContext,

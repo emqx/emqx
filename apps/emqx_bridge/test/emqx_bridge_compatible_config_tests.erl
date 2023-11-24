@@ -84,7 +84,7 @@ up(#{<<"mqtt">> := MqttBridges0} = Bridges) ->
     Bridges#{<<"mqtt">> := MqttBridges};
 up(#{<<"webhook">> := WebhookBridges0} = Bridges) ->
     WebhookBridges = emqx_bridge_compatible_config:upgrade_pre_ee(
-        WebhookBridges0, fun emqx_bridge_compatible_config:webhook_maybe_upgrade/1
+        WebhookBridges0, fun emqx_bridge_compatible_config:http_maybe_upgrade/1
     ),
     Bridges#{<<"webhook">> := WebhookBridges}.
 

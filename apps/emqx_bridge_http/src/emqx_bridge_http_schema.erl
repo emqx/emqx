@@ -31,7 +31,7 @@
 %%======================================================================================
 %% Hocon Schema Definitions
 
-namespace() -> "bridge_webhook".
+namespace() -> "bridge_http".
 
 roots() -> [].
 
@@ -40,7 +40,7 @@ roots() -> [].
 %% see: emqx_bridge_schema:get_response/0, put_request/0, post_request/0
 fields("post") ->
     [
-        type_field(),
+        old_type_field(),
         name_field()
     ] ++ fields("config");
 fields("put") ->
@@ -55,15 +55,16 @@ fields("config") ->
 %% v2: configuration
 fields(action) ->
     %% XXX: Do we need to rename it to `http`?
-    {webhook,
+    {http,
         mk(
-            hoconsc:map(name, ref(?MODULE, webhook_action)),
+            hoconsc:map(name, ref(?MODULE, http_action)),
             #{
+                aliases => [webhook],
                 desc => <<"HTTP Action Config">>,
                 required => false
             }
         )};
-fields(webhook_action) ->
+fields(http_action) ->
     [
         {enable, mk(boolean(), #{desc => ?DESC("config_enable"), default => true})},
         {connector,
@@ -83,7 +84,7 @@ fields(webhook_action) ->
                     importance => ?IMPORTANCE_HIDDEN
                 }
             )},
-        %% Since e5.3.2, we split the webhook_bridge to two parts: a) connector. b) actions.
+        %% Since e5.3.2, we split the http bridge to two parts: a) connector. b) actions.
         %% some fields are moved to connector, some fields are moved to actions and composed into the
         %% `parameters` field.
         {parameters,
@@ -91,7 +92,7 @@ fields(webhook_action) ->
                 required => true,
                 desc => ?DESC(parameters_opts)
             })}
-    ] ++ webhook_resource_opts();
+    ] ++ http_resource_opts();
 fields(parameters_opts) ->
     [
         {path,
@@ -119,7 +120,7 @@ fields("put_" ++ Type) ->
 fields("get_" ++ Type) ->
     emqx_bridge_schema:status_fields() ++ fields("post_" ++ Type);
 fields("config_bridge_v2") ->
-    fields(webhook_action);
+    fields(http_action);
 fields("config_connector") ->
     [
         {enable,
@@ -165,7 +166,7 @@ basic_config() ->
                     default => true
                 }
             )}
-    ] ++ webhook_resource_opts() ++ connector_opts().
+    ] ++ http_resource_opts() ++ connector_opts().
 
 request_config() ->
     [
@@ -203,10 +204,21 @@ connector_url_headers() ->
 %%--------------------------------------------------------------------
 %% common funcs
 
+%% `webhook` is kept for backward compatibility.
+old_type_field() ->
+    {type,
+        mk(
+            enum([webhook, http]),
+            #{
+                required => true,
+                desc => ?DESC("desc_type")
+            }
+        )}.
+
 type_field() ->
     {type,
         mk(
-            webhook,
+            http,
             #{
                 required => true,
                 desc => ?DESC("desc_type")
@@ -290,7 +302,7 @@ request_timeout_field() ->
             }
         )}.
 
-webhook_resource_opts() ->
+http_resource_opts() ->
     [
         {resource_opts,
             mk(
@@ -333,8 +345,8 @@ mark_request_field_deperecated(Fields) ->
 bridge_v2_examples(Method) ->
     [
         #{
-            <<"webhook">> => #{
-                summary => <<"Webhook Action">>,
+            <<"http">> => #{
+                summary => <<"HTTP Action">>,
                 value => values({Method, bridge_v2})
             }
         }
@@ -343,8 +355,8 @@ bridge_v2_examples(Method) ->
 connector_examples(Method) ->
     [
         #{
-            <<"webhook">> => #{
-                summary => <<"Webhook Connector">>,
+            <<"http">> => #{
+                summary => <<"HTTP Connector">>,
                 value => values({Method, connector})
             }
         }
@@ -366,16 +378,16 @@ values({get, Type}) ->
 values({post, bridge_v2}) ->
     maps:merge(
         #{
-            name => <<"my_webhook_action">>,
-            type => <<"webhook">>
+            name => <<"my_http_action">>,
+            type => <<"http">>
         },
         values({put, bridge_v2})
     );
 values({post, connector}) ->
     maps:merge(
         #{
-            name => <<"my_webhook_connector">>,
-            type => <<"webhook">>
+            name => <<"my_http_connector">>,
+            type => <<"http">>
         },
         values({put, connector})
     );
@@ -386,7 +398,7 @@ values({put, connector}) ->
 values(bridge_v2) ->
     #{
         enable => true,
-        connector => <<"my_webhook_connector">>,
+        connector => <<"my_http_connector">>,
         parameters => #{
             path => <<"/room/${room_no}">>,
             method => <<"post">>,

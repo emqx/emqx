@@ -79,7 +79,7 @@ connector_impl_module(_ConnectorType) ->
 
 -endif.
 
-connector_to_resource_type_ce(webhook) ->
+connector_to_resource_type_ce(http) ->
     emqx_bridge_http_connector;
 connector_to_resource_type_ce(ConnectorType) ->
     error({no_bridge_v2, ConnectorType}).
@@ -275,7 +275,7 @@ remove(Type, Name, _Conf, _Opts) ->
 
 %% convert connector configs to what the connector modules want
 parse_confs(
-    <<"webhook">>,
+    <<"http">>,
     _Name,
     #{
         url := Url,

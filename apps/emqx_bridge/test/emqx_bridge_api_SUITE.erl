@@ -1389,7 +1389,7 @@ validate_resource_request_ttl(single, Timeout, Name) ->
         begin
             {ok, Res} =
                 ?wait_async_action(
-                    emqx_bridge_v2:send_message(<<"webhook">>, Name, SentData, #{}),
+                    do_send_message(?BRIDGE_TYPE_HTTP, Name, SentData),
                     #{?snk_kind := async_query},
                     1000
                 ),
@@ -1403,6 +1403,10 @@ validate_resource_request_ttl(single, Timeout, Name) ->
     );
 validate_resource_request_ttl(_Cluster, _Timeout, _Name) ->
     ignore.
+
+do_send_message(BridgeV1Type, Name, Message) ->
+    Type = emqx_bridge_v2:bridge_v1_type_to_bridge_v2_type(BridgeV1Type),
+    emqx_bridge_v2:send_message(Type, Name, Message, #{}).
 
 %%
 

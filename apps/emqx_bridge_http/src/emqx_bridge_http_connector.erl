@@ -46,7 +46,7 @@
     namespace/0
 ]).
 
-%% for other webhook-like connectors.
+%% for other http-like connectors.
 -export([redact_request/1]).
 
 -export([validate_method/1, join_paths/2]).
@@ -836,7 +836,7 @@ maybe_retry({error, Reason}, Context, ReplyFunAndArgs) ->
             true -> Context;
             false -> Context#{attempt := Attempt + 1}
         end,
-    ?tp(webhook_will_retry_async, #{}),
+    ?tp(http_will_retry_async, #{}),
     Worker = resolve_pool_worker(State, KeyOrNum),
     ok = ehttpc:request_async(
         Worker,
