@@ -208,7 +208,7 @@ consumer_config(TestCase, Config) ->
             "  resource_opts {\n"
             "    health_check_interval = \"1s\"\n"
             %% to fail and retry pulling faster
-            "    request_ttl = \"5s\"\n"
+            "    request_ttl = \"1s\"\n"
             "  }\n"
             "}\n",
             [
@@ -285,7 +285,7 @@ start_control_client() ->
             connect_timeout => 5_000,
             max_retries => 0,
             pool_size => 1,
-            resource_opts => #{request_ttl => 5_000},
+            resource_opts => #{request_ttl => 1_000},
             service_account_json => RawServiceAccount
         },
     PoolName = <<"control_connector">>,
@@ -1265,11 +1265,12 @@ t_multiple_pull_workers(Config) ->
                     <<"consumer">> => #{
                         %% reduce flakiness
                         <<"ack_deadline">> => <<"10m">>,
+                        <<"ack_retry_interval">> => <<"1s">>,
                         <<"consumer_workers_per_topic">> => NConsumers
                     },
                     <<"resource_opts">> => #{
                         %% reduce flakiness
-                        <<"request_ttl">> => <<"15s">>
+                        <<"request_ttl">> => <<"4s">>
                     }
                 }
             ),
@@ -1888,7 +1889,10 @@ t_connection_down_during_ack(Config) ->
 
             {{ok, _}, {ok, _}} =
                 ?wait_async_action(
-                    create_bridge(Config),
+                    create_bridge(
+                        Config,
+                        #{<<"consumer">> => #{<<"ack_retry_interval">> => <<"1s">>}}
+                    ),
                     #{?snk_kind := "gcp_pubsub_consumer_worker_subscription_ready"},
                     10_000
                 ),
@@ -2026,7 +2030,10 @@ t_connection_down_during_pull(Config) ->
 
             {{ok, _}, {ok, _}} =
                 ?wait_async_action(
-                    create_bridge(Config),
+                    create_bridge(
+                        Config,
+                        #{<<"consumer">> => #{<<"ack_retry_interval">> => <<"1s">>}}
+                    ),
                     #{?snk_kind := "gcp_pubsub_consumer_worker_subscription_ready"},
                     10_000
                 ),
