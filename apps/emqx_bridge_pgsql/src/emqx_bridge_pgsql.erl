@@ -176,15 +176,18 @@ values({put, PostgreSQLType}) ->
             enable => true,
             connector => <<"my_pgsql_connector">>,
             resource_opts => #{
-                health_check_interval => "32s"
+                batch_size => 1,
+                batch_time => <<"50ms">>,
+                inflight_window => 100,
+                max_buffer_bytes => <<"256MB">>,
+                request_ttl => <<"45s">>,
+                worker_pool_size => 16
             }
         },
         values({producer, PostgreSQLType})
     );
 values({producer, _PostgreSQLType}) ->
     #{
-        <<"enable">> => true,
-        <<"connector">> => <<"connector_pgsql_test">>,
         <<"parameters">> => #{
             <<"sql">> =>
                 <<
@@ -195,18 +198,6 @@ values({producer, _PostgreSQLType}) ->
                     "  TO_TIMESTAMP((${timestamp} :: bigint))\n"
                     ")"
                 >>
-        },
-        <<"resource_opts">> => #{
-            <<"batch_size">> => 1,
-            <<"batch_time">> => <<"0ms">>,
-            <<"health_check_interval">> => <<"15s">>,
-            <<"inflight_window">> => 100,
-            <<"max_buffer_bytes">> => <<"256MB">>,
-            <<"query_mode">> => <<"async">>,
-            <<"request_ttl">> => <<"45s">>,
-            <<"start_after_created">> => true,
-            <<"start_timeout">> => <<"5s">>,
-            <<"worker_pool_size">> => 16
         }
     }.
 
