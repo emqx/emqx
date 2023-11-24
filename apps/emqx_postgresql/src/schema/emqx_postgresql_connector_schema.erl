@@ -58,7 +58,6 @@ fields(action) ->
         )};
 fields(pgsql_action) ->
     emqx_bridge_v2_schema:make_producer_action_schema(hoconsc:ref(?MODULE, action_parameters));
-%% TODO: All of these needs to be fixed
 fields("put_bridge_v2") ->
     fields(pgsql_action);
 fields("get_bridge_v2") ->
