@@ -544,7 +544,7 @@ t_rule_engine_and_data_bridge_info(_Config) ->
         #{
             data_bridge =>
                 #{
-                    webhook => #{num => 1, num_linked_by_rules => 3},
+                    http => #{num => 1, num_linked_by_rules => 3},
                     mqtt => #{num => 2, num_linked_by_rules => 2}
                 },
             num_data_bridges => 3

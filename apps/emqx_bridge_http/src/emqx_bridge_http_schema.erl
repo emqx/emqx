@@ -54,19 +54,18 @@ fields("config") ->
 %%--------------------------------------------------------------------
 %% v2: configuration
 fields(action) ->
-    %% XXX: Do we need to rename it to `http`?
     {http,
         mk(
-            hoconsc:map(name, ref(?MODULE, http_action)),
+            hoconsc:map(name, ref(?MODULE, "http_action")),
             #{
                 aliases => [webhook],
                 desc => <<"HTTP Action Config">>,
                 required => false
             }
         )};
-fields(http_action) ->
+fields("http_action") ->
     [
-        {enable, mk(boolean(), #{desc => ?DESC("config_enable"), default => true})},
+        {enable, mk(boolean(), #{desc => ?DESC("config_enable_bridge"), default => true})},
         {connector,
             mk(binary(), #{
                 desc => ?DESC(emqx_connector_schema, "connector_field"), required => true
@@ -88,12 +87,12 @@ fields(http_action) ->
         %% some fields are moved to connector, some fields are moved to actions and composed into the
         %% `parameters` field.
         {parameters,
-            mk(ref(parameters_opts), #{
+            mk(ref("parameters_opts"), #{
                 required => true,
-                desc => ?DESC(parameters_opts)
+                desc => ?DESC("config_parameters_opts")
             })}
     ] ++ http_resource_opts();
-fields(parameters_opts) ->
+fields("parameters_opts") ->
     [
         {path,
             mk(
@@ -120,7 +119,7 @@ fields("put_" ++ Type) ->
 fields("get_" ++ Type) ->
     emqx_bridge_schema:status_fields() ++ fields("post_" ++ Type);
 fields("config_bridge_v2") ->
-    fields(http_action);
+    fields("http_action");
 fields("config_connector") ->
     [
         {enable,
@@ -150,6 +149,10 @@ desc(Method) when Method =:= "get"; Method =:= "put"; Method =:= "post" ->
     ["Configuration for WebHook using `", string:to_upper(Method), "` method."];
 desc("config_connector") ->
     ?DESC("desc_config");
+desc("http_action") ->
+    ?DESC("desc_config");
+desc("parameters_opts") ->
+    ?DESC("config_parameters_opts");
 desc(_) ->
     undefined.
 

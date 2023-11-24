@@ -80,7 +80,7 @@ worker_pool_size_test_() ->
         Conf = emqx_utils_maps:deep_put(
             [
                 <<"bridges">>,
-                <<"webhook">>,
+                <<"http">>,
                 <<"simple">>,
                 <<"resource_opts">>,
                 <<"worker_pool_size">>
@@ -88,7 +88,7 @@ worker_pool_size_test_() ->
             BaseConf,
             WorkerPoolSize
         ),
-        #{<<"bridges">> := #{<<"webhook">> := #{<<"simple">> := CheckedConf}}} = check(Conf),
+        #{<<"bridges">> := #{<<"http">> := #{<<"simple">> := CheckedConf}}} = check(Conf),
         #{<<"resource_opts">> := #{<<"worker_pool_size">> := WPS}} = CheckedConf,
         WPS
     end,
@@ -117,7 +117,7 @@ worker_pool_size_test_() ->
 %%===========================================================================
 
 parse_and_check_webhook_bridge(Hocon) ->
-    #{<<"bridges">> := #{<<"webhook">> := #{<<"simple">> := Conf}}} = check(parse(Hocon)),
+    #{<<"bridges">> := #{<<"http">> := #{<<"simple">> := Conf}}} = check(parse(Hocon)),
     Conf.
 
 parse(Hocon) ->

@@ -80,6 +80,12 @@ Template with variables is allowed in this option. For example, <code>/room/{$ro
 config_path.label:
 """URL Path"""
 
+config_parameters_opts.desc:
+"""The parameters for HTTP action."""
+
+config_parameters_opts.label:
+"""Parameters"""
+
 desc_config.desc:
 """Configuration for an HTTP bridge."""
 

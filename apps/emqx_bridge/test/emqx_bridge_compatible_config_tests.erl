@@ -21,7 +21,7 @@ empty_config_test() ->
     Conf1 = #{<<"bridges">> => #{}},
     Conf2 = #{<<"bridges">> => #{<<"webhook">> => #{}}},
     ?assertEqual(Conf1, check(Conf1)),
-    ?assertEqual(Conf2, check(Conf2)),
+    ?assertEqual(#{<<"bridges">> => #{<<"http">> => #{}}}, check(Conf2)),
     ok.
 
 %% ensure webhook config can be checked
@@ -33,7 +33,7 @@ webhook_config_test() ->
     ?assertMatch(
         #{
             <<"bridges">> := #{
-                <<"webhook">> := #{
+                <<"http">> := #{
                     <<"the_name">> :=
                         #{
                             <<"method">> := get,
@@ -48,7 +48,7 @@ webhook_config_test() ->
     ?assertMatch(
         #{
             <<"bridges">> := #{
-                <<"webhook">> := #{
+                <<"http">> := #{
                     <<"the_name">> :=
                         #{
                             <<"method">> := get,
@@ -61,7 +61,7 @@ webhook_config_test() ->
     ),
     #{
         <<"bridges">> := #{
-            <<"webhook">> := #{
+            <<"http">> := #{
                 <<"the_name">> :=
                     #{
                         <<"method">> := get,

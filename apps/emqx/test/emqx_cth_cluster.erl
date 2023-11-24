@@ -50,7 +50,7 @@
 -define(APPS_CLUSTERING, [gen_rpc, mria, ekka]).
 
 -define(TIMEOUT_NODE_START_MS, 15000).
--define(TIMEOUT_APPS_START_MS, 30000).
+-define(TIMEOUT_APPS_START_MS, 60000).
 -define(TIMEOUT_NODE_STOP_S, 15).
 
 %%
