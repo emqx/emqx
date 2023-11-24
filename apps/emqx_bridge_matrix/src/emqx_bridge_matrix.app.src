@@ -7,7 +7,7 @@
         stdlib,
         emqx_resource
     ]},
-    {env, [{emqx_action_info_module, emqx_bridge_matrix_action_info}]},
+    {env, [{emqx_action_info_modules, [emqx_bridge_matrix_action_info]}]},
     {modules, []},
     {links, []}
 ]}.

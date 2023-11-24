@@ -16,7 +16,7 @@ config_connector.label:
 """PostgreSQL Connector Config"""
 
 config_enable.desc:
-"""Enable (true) or disable (false) this Kafka bridge."""
+"""Enable (true) or disable (false) this PostgreSQL bridge."""
 
 config_enable.label:
 """Enable or Disable"""
