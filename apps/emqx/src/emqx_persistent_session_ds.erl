@@ -70,6 +70,8 @@
     do_ensure_all_iterators_closed/1
 ]).
 
+-export([print_session/1]).
+
 -ifdef(TEST).
 -export([
     session_open/1,
@@ -142,13 +144,19 @@ open(#{clientid := ClientID} = _ClientInfo, ConnInfo) ->
     %% somehow isolate those idling not-yet-expired sessions into a separate process
     %% space, and move this call back into `emqx_cm` where it belongs.
     ok = emqx_cm:discard_session(ClientID),
-    case session_open(ClientID) of
-        Session0 = #{} ->
-            ensure_timers(),
-            ReceiveMaximum = receive_maximum(ConnInfo),
-            Session = Session0#{receive_maximum => ReceiveMaximum},
-            {true, Session, []};
+    case maps:get(clean_start, ConnInfo, false) of
         false ->
+            case session_open(ClientID) of
+                Session0 = #{} ->
+                    ensure_timers(),
+                    ReceiveMaximum = receive_maximum(ConnInfo),
+                    Session = Session0#{receive_maximum => ReceiveMaximum},
+                    {true, Session, []};
+                false ->
+                    false
+            end;
+        true ->
+            session_drop(ClientID),
             false
     end.
 
@@ -219,6 +227,25 @@ info(await_rel_timeout, #{props := Conf}) ->
 -spec stats(session()) -> emqx_types:stats().
 stats(Session) ->
     info(?STATS_KEYS, Session).
+
+%% Debug/troubleshooting
+-spec print_session(emqx_types:client_id()) -> map() | undefined.
+print_session(ClientId) ->
+    catch ro_transaction(
+        fun() ->
+            case mnesia:read(?SESSION_TAB, ClientId) of
+                [Session] ->
+                    #{
+                        session => Session,
+                        streams => mnesia:read(?SESSION_STREAM_TAB, ClientId),
+                        pubranges => session_read_pubranges(ClientId),
+                        subscriptions => session_read_subscriptions(ClientId)
+                    };
+                [] ->
+                    undefined
+            end
+        end
+    ).
 
 %%--------------------------------------------------------------------
 %% Client -> Broker: SUBSCRIBE / UNSUBSCRIBE
@@ -557,7 +584,7 @@ session_drop(DSSessionId) ->
 
 -spec session_drop_subscriptions(id()) -> ok.
 session_drop_subscriptions(DSSessionId) ->
-    Subscriptions = session_read_subscriptions(DSSessionId),
+    Subscriptions = session_read_subscriptions(DSSessionId, write),
     lists:foreach(
         fun(#ds_sub{id = DSSubId} = DSSub) ->
             TopicFilter = subscription_id_to_topic_filter(DSSubId),
@@ -620,13 +647,27 @@ session_del_subscription(DSSessionId, TopicFilter) ->
 session_del_subscription(#ds_sub{id = DSSubId}) ->
     mnesia:delete(?SESSION_SUBSCRIPTIONS_TAB, DSSubId, write).
 
-session_read_subscriptions(DSSessionId) ->
+session_read_subscriptions(DSSessionID) ->
+    session_read_subscriptions(DSSessionID, read).
+
+session_read_subscriptions(DSSessionId, LockKind) ->
     MS = ets:fun2ms(
         fun(Sub = #ds_sub{id = {Sess, _}}) when Sess =:= DSSessionId ->
             Sub
         end
     ),
-    mnesia:select(?SESSION_SUBSCRIPTIONS_TAB, MS, read).
+    mnesia:select(?SESSION_SUBSCRIPTIONS_TAB, MS, LockKind).
+
+session_read_pubranges(DSSessionID) ->
+    session_read_pubranges(DSSessionID, read).
+
+session_read_pubranges(DSSessionId, LockKind) ->
+    MS = ets:fun2ms(
+        fun(#ds_pubrange{id = {Sess, First}}) when Sess =:= DSSessionId ->
+            {DSSessionId, First}
+        end
+    ),
+    mnesia:select(?SESSION_PUBRANGE_TAB, MS, LockKind).
 
 -spec new_subscription_id(id(), topic_filter()) -> {subscription_id(), integer()}.
 new_subscription_id(DSSessionId, TopicFilter) ->
@@ -729,12 +770,7 @@ session_drop_streams(DSSessionId) ->
 %% must be called inside a transaction
 -spec session_drop_pubranges(id()) -> ok.
 session_drop_pubranges(DSSessionId) ->
-    MS = ets:fun2ms(
-        fun(#ds_pubrange{id = {DSSessionId0, First}}) when DSSessionId0 =:= DSSessionId ->
-            {DSSessionId, First}
-        end
-    ),
-    RangeIds = mnesia:select(?SESSION_PUBRANGE_TAB, MS, write),
+    RangeIds = session_read_pubranges(DSSessionId, write),
     lists:foreach(
         fun(RangeId) ->
             mnesia:delete(?SESSION_PUBRANGE_TAB, RangeId, write)

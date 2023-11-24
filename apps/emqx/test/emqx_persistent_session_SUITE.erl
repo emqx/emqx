@@ -745,9 +745,6 @@ t_publish_while_client_is_gone(Config) ->
 
     ok = emqtt:disconnect(Client2).
 
-%% TODO: don't skip after QoS2 support is added to DS.
-t_clean_start_drops_subscriptions(init, Config) -> skip_ds_tc(Config);
-t_clean_start_drops_subscriptions('end', _Config) -> ok.
 t_clean_start_drops_subscriptions(Config) ->
     %% 1. A persistent session is started and disconnected.
     %% 2. While disconnected, a message is published and persisted.
@@ -773,13 +770,13 @@ t_clean_start_drops_subscriptions(Config) ->
         | Config
     ]),
     {ok, _} = emqtt:ConnFun(Client1),
-    {ok, _, [2]} = emqtt:subscribe(Client1, STopic, qos2),
+    {ok, _, [1]} = emqtt:subscribe(Client1, STopic, qos1),
 
     ok = emqtt:disconnect(Client1),
     maybe_kill_connection_process(ClientId, Config),
 
     %% 2.
-    ok = publish(Topic, Payload1),
+    ok = publish(Topic, Payload1, ?QOS_1),
 
     %% 3.
     {ok, Client2} = emqtt:start_link([
@@ -791,9 +788,10 @@ t_clean_start_drops_subscriptions(Config) ->
     ]),
     {ok, _} = emqtt:ConnFun(Client2),
     ?assertEqual(0, client_info(session_present, Client2)),
-    {ok, _, [2]} = emqtt:subscribe(Client2, STopic, qos2),
+    {ok, _, [1]} = emqtt:subscribe(Client2, STopic, qos1),
 
-    ok = publish(Topic, Payload2),
+    timer:sleep(100),
+    ok = publish(Topic, Payload2, ?QOS_1),
     [Msg1] = receive_messages(1),
     ?assertEqual({ok, iolist_to_binary(Payload2)}, maps:find(payload, Msg1)),
 
@@ -810,7 +808,7 @@ t_clean_start_drops_subscriptions(Config) ->
     ]),
     {ok, _} = emqtt:ConnFun(Client3),
 
-    ok = publish(Topic, Payload3),
+    ok = publish(Topic, Payload3, ?QOS_1),
     [Msg2] = receive_messages(1),
     ?assertEqual({ok, iolist_to_binary(Payload3)}, maps:find(payload, Msg2)),
 
