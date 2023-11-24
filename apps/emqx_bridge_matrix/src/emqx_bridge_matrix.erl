@@ -3,6 +3,8 @@
 %%--------------------------------------------------------------------
 -module(emqx_bridge_matrix).
 
+-include_lib("hocon/include/hoconsc.hrl").
+
 -export([
     conn_bridge_examples/1
 ]).
@@ -67,6 +69,8 @@ fields("post_connector") ->
 fields(Method) ->
     emqx_bridge_pgsql:fields(Method).
 
+desc("config_connector") ->
+    ?DESC(emqx_postgresql_connector_schema, "config_connector");
 desc(_) ->
     undefined.
 

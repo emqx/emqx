@@ -25,7 +25,8 @@
 
 -export([
     roots/0,
-    fields/1
+    fields/1,
+    desc/1
 ]).
 
 %% Examples
@@ -35,7 +36,7 @@
 ]).
 
 roots() ->
-    [{config, #{type => hoconsc:ref(?MODULE, config)}}].
+    [].
 
 fields("config_connector") ->
     [{server, server()}] ++
@@ -199,3 +200,8 @@ values(producer) ->
         },
         local_topic => <<"mqtt/local/topic">>
     }.
+
+desc("config_connector") ->
+    ?DESC("config_connector");
+desc(_) ->
+    undefined.

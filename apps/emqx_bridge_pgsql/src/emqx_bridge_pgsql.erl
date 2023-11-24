@@ -112,6 +112,12 @@ desc("config") ->
     ?DESC("desc_config");
 desc(Method) when Method =:= "get"; Method =:= "put"; Method =:= "post" ->
     ["Configuration for PostgreSQL using `", string:to_upper(Method), "` method."];
+desc(pgsql_action) ->
+    ?DESC("pgsql_action");
+desc(action_parameters) ->
+    ?DESC("action_parameters");
+desc("config_connector") ->
+    ?DESC(emqx_postgresql_connector_schema, "config_connector");
 desc(_) ->
     undefined.
 
