@@ -81,7 +81,7 @@ connector_examples(Method) ->
         #{
             <<"matrix">> => #{
                 summary => <<"Matrix Connector">>,
-                value => emqx_postgresql_connector_schema:values({Method, connector})
+                value => emqx_postgresql_connector_schema:values({Method, <<"matrix">>})
             }
         }
     ].

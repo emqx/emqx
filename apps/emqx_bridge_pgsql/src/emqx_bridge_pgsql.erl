@@ -18,7 +18,6 @@
     roots/0,
     fields/1,
     desc/1,
-    values/2,
     fields/2
 ]).
 
@@ -133,8 +132,8 @@ bridge_v2_examples(Method) ->
     [
         #{
             <<"pgsql">> => #{
-                summary => <<"PostgreSQL Producer Action">>,
-                value => values({Method, bridge_v2_producer})
+                summary => <<"PostgreSQL Action">>,
+                value => values({Method, pgsql})
             }
         }
     ].
@@ -143,7 +142,7 @@ conn_bridge_examples(Method) ->
     [
         #{
             <<"pgsql">> => #{
-                summary => <<"PostgreSQL Producer Bridge">>,
+                summary => <<"PostgreSQL Bridge">>,
                 value => values_conn_bridge_examples(Method, pgsql)
             }
         }
@@ -160,21 +159,17 @@ values({get, PostgreSQLType}) ->
                 }
             ]
         },
-        values({post, PostgreSQLType})
-    );
-values({post, PostgreSQLType}) ->
-    maps:merge(
-        #{
-            name => <<"my_pgsql_action">>,
-            type => PostgreSQLType
-        },
         values({put, PostgreSQLType})
     );
+values({post, PostgreSQLType}) ->
+    values({put, PostgreSQLType});
 values({put, PostgreSQLType}) ->
     maps:merge(
         #{
+            name => <<"my_action">>,
+            type => PostgreSQLType,
             enable => true,
-            connector => <<"my_pgsql_connector">>,
+            connector => <<"my_connector">>,
             resource_opts => #{
                 batch_size => 1,
                 batch_time => <<"50ms">>,
@@ -184,9 +179,9 @@ values({put, PostgreSQLType}) ->
                 worker_pool_size => 16
             }
         },
-        values({producer, PostgreSQLType})
+        values(parameters)
     );
-values({producer, _PostgreSQLType}) ->
+values(parameters) ->
     #{
         <<"parameters">> => #{
             <<"sql">> =>
@@ -201,6 +196,19 @@ values({producer, _PostgreSQLType}) ->
         }
     }.
 
+values_conn_bridge_examples(get, Type) ->
+    maps:merge(
+        #{
+            status => <<"connected">>,
+            node_status => [
+                #{
+                    node => <<"emqx@localhost">>,
+                    status => <<"connected">>
+                }
+            ]
+        },
+        values_conn_bridge_examples(post, Type)
+    );
 values_conn_bridge_examples(_Method, Type) ->
     #{
         enable => true,
@@ -222,6 +230,3 @@ values_conn_bridge_examples(_Method, Type) ->
             max_buffer_bytes => ?DEFAULT_BUFFER_BYTES
         }
     }.
-
-values(Method, Type) ->
-    values_conn_bridge_examples(Method, Type).

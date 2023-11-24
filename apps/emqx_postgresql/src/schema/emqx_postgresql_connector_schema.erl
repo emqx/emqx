@@ -99,8 +99,8 @@ connector_examples(Method) ->
     [
         #{
             <<"pgsql">> => #{
-                summary => <<"PostgreSQL Producer Connector">>,
-                value => values({Method, connector})
+                summary => <<"PostgreSQL Connector">>,
+                value => values({Method, pgsql})
             }
         }
     ].
@@ -119,93 +119,35 @@ values({get, PostgreSQLType}) ->
         },
         values({post, PostgreSQLType})
     );
-values({post, connector}) ->
-    maps:merge(
-        #{
-            name => <<"my_pgsql_connector">>,
-            type => <<"pgsql">>
-        },
-        values(common_config)
-    );
 values({post, PostgreSQLType}) ->
-    maps:merge(
-        #{
-            name => <<"my_pgsql_action">>,
-            type => <<"pgsql">>
-        },
-        values({put, PostgreSQLType})
-    );
-values({put, bridge_v2_producer}) ->
-    values(bridge_v2_producer);
-values({put, connector}) ->
-    values(common_config);
+    values({put, PostgreSQLType});
 values({put, PostgreSQLType}) ->
-    maps:merge(values(common_config), values(PostgreSQLType));
-values(bridge_v2_producer) ->
     maps:merge(
         #{
-            enable => true,
-            connector => <<"my_pgsql_connector">>,
-            resource_opts => #{
-                health_check_interval => "32s"
-            }
+            name => <<"my_action">>,
+            type => PostgreSQLType
         },
-        values(producer)
+        values(common)
     );
-values(common_config) ->
+values(common) ->
     #{
-        authentication => #{
-            mechanism => <<"plain">>,
-            username => <<"username">>,
-            password => <<"******">>
+        <<"database">> => <<"emqx_data">>,
+        <<"enable">> => true,
+        <<"password">> => <<"public">>,
+        <<"pool_size">> => 8,
+        <<"server">> => <<"127.0.0.1:5432">>,
+        <<"ssl">> => #{
+            <<"ciphers">> => [],
+            <<"depth">> => 10,
+            <<"enable">> => false,
+            <<"hibernate_after">> => <<"5s">>,
+            <<"log_level">> => <<"notice">>,
+            <<"reuse_sessions">> => true,
+            <<"secure_renegotiate">> => true,
+            <<"verify">> => <<"verify_peer">>,
+            <<"versions">> => [<<"tlsv1.3">>, <<"tlsv1.2">>]
         },
-        bootstrap_hosts => <<"localhost:9092">>,
-        connect_timeout => <<"5s">>,
-        enable => true,
-        metadata_request_timeout => <<"4s">>,
-        min_metadata_refresh_interval => <<"3s">>,
-        socket_opts => #{
-            sndbuf => <<"1024KB">>,
-            recbuf => <<"1024KB">>,
-            nodelay => true,
-            tcp_keepalive => <<"none">>
-        }
-    };
-values(producer) ->
-    #{
-        kafka => #{
-            topic => <<"kafka-topic">>,
-            message => #{
-                key => <<"${.clientid}">>,
-                value => <<"${.}">>,
-                timestamp => <<"${.timestamp}">>
-            },
-            max_batch_bytes => <<"896KB">>,
-            compression => <<"no_compression">>,
-            partition_strategy => <<"random">>,
-            required_acks => <<"all_isr">>,
-            partition_count_refresh_interval => <<"60s">>,
-            kafka_headers => <<"${pub_props}">>,
-            kafka_ext_headers => [
-                #{
-                    kafka_ext_header_key => <<"clientid">>,
-                    kafka_ext_header_value => <<"${clientid}">>
-                },
-                #{
-                    kafka_ext_header_key => <<"topic">>,
-                    kafka_ext_header_value => <<"${topic}">>
-                }
-            ],
-            kafka_header_value_encode_mode => none,
-            max_inflight => 10,
-            buffer => #{
-                mode => <<"hybrid">>,
-                per_partition_limit => <<"2GB">>,
-                segment_bytes => <<"100MB">>,
-                memory_overload_protection => true
-            }
-        },
-        local_topic => <<"mqtt/local/topic">>
+        <<"username">> => <<"postgres">>
     }.
 
 desc("config_connector") ->
