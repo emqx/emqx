@@ -1477,7 +1477,7 @@ t_pull_worker_death(Config) ->
 
             [PullWorkerPid | _] = get_pull_worker_pids(Config),
             Ref = monitor(process, PullWorkerPid),
-            sys:terminate(PullWorkerPid, die),
+            sys:terminate(PullWorkerPid, die, 20_000),
             receive
                 {'DOWN', Ref, process, PullWorkerPid, _} ->
                     ok
