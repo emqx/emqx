@@ -56,7 +56,7 @@
     deliver/3,
     replay/3,
     handle_timeout/3,
-    disconnect/1,
+    disconnect/2,
     terminate/2
 ]).
 
@@ -74,7 +74,7 @@
 
 -ifdef(TEST).
 -export([
-    session_open/1,
+    session_open/2,
     list_all_sessions/0,
     list_all_subscriptions/0,
     list_all_streams/0,
@@ -98,19 +98,22 @@
     id := id(),
     %% When the session was created
     created_at := timestamp(),
-    %% When the session should expire
-    expires_at := timestamp() | never,
+    %% When the client last disconnected
+    disconnected_at := timestamp() | never,
     %% Client’s Subscriptions.
     subscriptions := #{topic_filter() => subscription()},
     %% Inflight messages
     inflight := emqx_persistent_message_ds_replayer:inflight(),
     %% Receive maximum
     receive_maximum := pos_integer(),
+    %% Connection Info
+    conninfo := emqx_types:conninfo(),
     %%
     props := map()
 }.
 
 -type timestamp() :: emqx_utils_calendar:epoch_millisecond().
+-type millisecond() :: non_neg_integer().
 -type clientinfo() :: emqx_types:clientinfo().
 -type conninfo() :: emqx_session:conninfo().
 -type replies() :: emqx_session:replies().
@@ -122,6 +125,12 @@
     inflight_max,
     next_pkt_id
 ]).
+
+-define(IS_EXPIRED(NOW_MS, DISCONNECTED_AT, EI),
+    (is_number(DisconnectedAt) andalso
+        is_number(EI) andalso
+        (NowMS >= DisconnectedAt + EI))
+).
 
 -export_type([id/0]).
 
@@ -146,7 +155,7 @@ open(#{clientid := ClientID} = _ClientInfo, ConnInfo) ->
     ok = emqx_cm:discard_session(ClientID),
     case maps:get(clean_start, ConnInfo, false) of
         false ->
-            case session_open(ClientID) of
+            case session_open(ClientID, ConnInfo) of
                 Session0 = #{} ->
                     ensure_timers(),
                     ReceiveMaximum = receive_maximum(ConnInfo),
@@ -161,9 +170,13 @@ open(#{clientid := ClientID} = _ClientInfo, ConnInfo) ->
     end.
 
 ensure_session(ClientID, ConnInfo, Conf) ->
-    Session = session_ensure_new(ClientID, Conf),
+    Session = session_ensure_new(ClientID, ConnInfo, Conf),
     ReceiveMaximum = receive_maximum(ConnInfo),
-    Session#{subscriptions => #{}, receive_maximum => ReceiveMaximum}.
+    Session#{
+        conninfo => ConnInfo,
+        receive_maximum => ReceiveMaximum,
+        subscriptions => #{}
+    }.
 
 -spec destroy(session() | clientinfo()) -> ok.
 destroy(#{id := ClientID}) ->
@@ -399,8 +412,9 @@ replay(_ClientInfo, [], Session = #{inflight := Inflight0}) ->
 
 %%--------------------------------------------------------------------
 
--spec disconnect(session()) -> {shutdown, session()}.
-disconnect(Session = #{}) ->
+-spec disconnect(session(), emqx_types:conninfo()) -> {shutdown, session()}.
+disconnect(Session0, ConnInfo) ->
+    Session = session_set_disconnected_at_trans(Session0, ConnInfo, now_ms()),
     {shutdown, Session}.
 
 -spec terminate(Reason :: term(), session()) -> ok.
@@ -530,46 +544,79 @@ storage() ->
 %%
 %% Note: session API doesn't handle session takeovers, it's the job of
 %% the broker.
--spec session_open(id()) ->
+-spec session_open(id(), emqx_types:conninfo()) ->
     session() | false.
-session_open(SessionId) ->
-    ro_transaction(fun() ->
+session_open(SessionId, NewConnInfo) ->
+    NowMS = now_ms(),
+    transaction(fun() ->
         case mnesia:read(?SESSION_TAB, SessionId, write) of
-            [Record = #session{}] ->
-                Session = export_session(Record),
-                DSSubs = session_read_subscriptions(SessionId),
-                Subscriptions = export_subscriptions(DSSubs),
-                Inflight = emqx_persistent_message_ds_replayer:open(SessionId),
-                Session#{
-                    subscriptions => Subscriptions,
-                    inflight => Inflight
-                };
-            [] ->
+            [Record0 = #session{disconnected_at = DisconnectedAt, conninfo = ConnInfo}] ->
+                EI = expiry_interval(ConnInfo),
+                case ?IS_EXPIRED(NowMS, DisconnectedAt, EI) of
+                    true ->
+                        %% Should we drop the session now, or leave it to session GC?
+                        false;
+                    false ->
+                        %% new connection being established
+                        Record1 = Record0#session{conninfo = NewConnInfo},
+                        Record = session_set_disconnected_at(Record1, never),
+                        Session = export_session(Record),
+                        DSSubs = session_read_subscriptions(SessionId),
+                        Subscriptions = export_subscriptions(DSSubs),
+                        Inflight = emqx_persistent_message_ds_replayer:open(SessionId),
+                        Session#{
+                            conninfo => NewConnInfo,
+                            inflight => Inflight,
+                            subscriptions => Subscriptions
+                        }
+                end;
+            _ ->
                 false
         end
     end).
 
--spec session_ensure_new(id(), _Props :: map()) ->
+-spec session_ensure_new(id(), emqx_types:conninfo(), _Props :: map()) ->
     session().
-session_ensure_new(SessionId, Props) ->
+session_ensure_new(SessionId, ConnInfo, Props) ->
     transaction(fun() ->
         ok = session_drop_subscriptions(SessionId),
-        Session = export_session(session_create(SessionId, Props)),
+        Session = export_session(session_create(SessionId, ConnInfo, Props)),
         Session#{
             subscriptions => #{},
             inflight => emqx_persistent_message_ds_replayer:new()
         }
     end).
 
-session_create(SessionId, Props) ->
+session_create(SessionId, ConnInfo, Props) ->
     Session = #session{
         id = SessionId,
-        created_at = erlang:system_time(millisecond),
-        expires_at = never,
+        created_at = now_ms(),
+        disconnected_at = never,
+        conninfo = ConnInfo,
         props = Props
     },
     ok = mnesia:write(?SESSION_TAB, Session, write),
     Session.
+
+session_set_disconnected_at_trans(Session, NewConnInfo, DisconnectedAt) ->
+    #{id := SessionId} = Session,
+    transaction(fun() ->
+        case mnesia:read(?SESSION_TAB, SessionId, write) of
+            [#session{} = SessionRecord0] ->
+                SessionRecord = SessionRecord0#session{conninfo = NewConnInfo},
+                _ = session_set_disconnected_at(SessionRecord, DisconnectedAt),
+                ok;
+            _ ->
+                %% log and crash?
+                ok
+        end
+    end),
+    Session#{conninfo := NewConnInfo, disconnected_at := DisconnectedAt}.
+
+session_set_disconnected_at(SessionRecord0, DisconnectedAt) ->
+    SessionRecord = SessionRecord0#session{disconnected_at = DisconnectedAt},
+    ok = mnesia:write(?SESSION_TAB, SessionRecord, write),
+    SessionRecord.
 
 %% @doc Called when a client reconnects with `clean session=true' or
 %% during session GC
@@ -673,13 +720,16 @@ session_read_pubranges(DSSessionId, LockKind) ->
 new_subscription_id(DSSessionId, TopicFilter) ->
     %% Note: here we use _milliseconds_ to match with the timestamp
     %% field of `#message' record.
-    NowMS = erlang:system_time(millisecond),
+    NowMS = now_ms(),
     DSSubId = {DSSessionId, TopicFilter},
     {DSSubId, NowMS}.
 
 -spec subscription_id_to_topic_filter(subscription_id()) -> topic_filter().
 subscription_id_to_topic_filter({_DSSessionId, TopicFilter}) ->
     TopicFilter.
+
+now_ms() ->
+    erlang:system_time(millisecond).
 
 %%--------------------------------------------------------------------
 %% RPC targets (v1)
@@ -800,7 +850,7 @@ export_subscriptions(DSSubs) ->
     ).
 
 export_session(#session{} = Record) ->
-    export_record(Record, #session.id, [id, created_at, expires_at, props], #{}).
+    export_record(Record, #session.id, [id, created_at, disconnected_at, conninfo, props], #{}).
 
 export_subscription(#ds_sub{} = Record) ->
     export_record(Record, #ds_sub.start_time, [start_time, props, extra], #{}).
@@ -832,11 +882,16 @@ receive_maximum(ConnInfo) ->
     %% indicates that it's optional.
     maps:get(receive_maximum, ConnInfo, 65_535).
 
+-spec expiry_interval(conninfo()) -> millisecond().
+expiry_interval(ConnInfo) ->
+    maps:get(expiry_interval, ConnInfo, 0).
+
 -ifdef(TEST).
 list_all_sessions() ->
     DSSessionIds = mnesia:dirty_all_keys(?SESSION_TAB),
+    ConnInfo = #{},
     Sessions = lists:map(
-        fun(SessionID) -> {SessionID, session_open(SessionID)} end,
+        fun(SessionID) -> {SessionID, session_open(SessionID, ConnInfo)} end,
         DSSessionIds
     ),
     maps:from_list(Sessions).

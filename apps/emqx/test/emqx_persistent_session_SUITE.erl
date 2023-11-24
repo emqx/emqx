@@ -347,9 +347,46 @@ t_connect_discards_existing_client(Config) ->
     end.
 
 %% [MQTT-3.1.2-23]
-t_connect_session_expiry_interval(init, Config) -> skip_ds_tc(Config);
-t_connect_session_expiry_interval('end', _Config) -> ok.
 t_connect_session_expiry_interval(Config) ->
+    ConnFun = ?config(conn_fun, Config),
+    Topic = ?config(topic, Config),
+    STopic = ?config(stopic, Config),
+    Payload = <<"test message">>,
+    ClientId = ?config(client_id, Config),
+
+    {ok, Client1} = emqtt:start_link([
+        {clientid, ClientId},
+        {proto_ver, v5},
+        {properties, #{'Session-Expiry-Interval' => 30}}
+        | Config
+    ]),
+    {ok, _} = emqtt:ConnFun(Client1),
+    {ok, _, [?RC_GRANTED_QOS_1]} = emqtt:subscribe(Client1, STopic, ?QOS_1),
+    ok = emqtt:disconnect(Client1),
+
+    maybe_kill_connection_process(ClientId, Config),
+
+    publish(Topic, Payload, ?QOS_1),
+
+    {ok, Client2} = emqtt:start_link([
+        {clientid, ClientId},
+        {proto_ver, v5},
+        {properties, #{'Session-Expiry-Interval' => 30}},
+        {clean_start, false}
+        | Config
+    ]),
+    {ok, _} = emqtt:ConnFun(Client2),
+    [Msg | _] = receive_messages(1),
+    ?assertEqual({ok, iolist_to_binary(Topic)}, maps:find(topic, Msg)),
+    ?assertEqual({ok, iolist_to_binary(Payload)}, maps:find(payload, Msg)),
+    ?assertEqual({ok, ?QOS_1}, maps:find(qos, Msg)),
+    ok = emqtt:disconnect(Client2).
+
+%% [MQTT-3.1.2-23]
+%% TODO: un-skip after QoS 2 support is implemented in DS.
+t_connect_session_expiry_interval_qos2(init, Config) -> skip_ds_tc(Config);
+t_connect_session_expiry_interval_qos2('end', _Config) -> ok.
+t_connect_session_expiry_interval_qos2(Config) ->
     ConnFun = ?config(conn_fun, Config),
     Topic = ?config(topic, Config),
     STopic = ?config(stopic, Config),

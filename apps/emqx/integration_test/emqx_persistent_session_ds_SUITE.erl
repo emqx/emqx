@@ -221,9 +221,10 @@ t_session_subscription_idempotency(Config) ->
         end,
         fun(Trace) ->
             ct:pal("trace:\n  ~p", [Trace]),
+            ConnInfo = #{},
             ?assertMatch(
                 #{subscriptions := #{SubTopicFilter := #{}}},
-                erpc:call(Node1, emqx_persistent_session_ds, session_open, [ClientId])
+                erpc:call(Node1, emqx_persistent_session_ds, session_open, [ClientId, ConnInfo])
             )
         end
     ),
@@ -294,9 +295,10 @@ t_session_unsubscription_idempotency(Config) ->
         end,
         fun(Trace) ->
             ct:pal("trace:\n  ~p", [Trace]),
+            ConnInfo = #{},
             ?assertMatch(
                 #{subscriptions := Subs = #{}} when map_size(Subs) =:= 0,
-                erpc:call(Node1, emqx_persistent_session_ds, session_open, [ClientId])
+                erpc:call(Node1, emqx_persistent_session_ds, session_open, [ClientId, ConnInfo])
             ),
             ok
         end
@@ -385,5 +387,72 @@ do_t_session_discard(Params) ->
             ct:pal("trace:\n  ~p", [Trace]),
             ok
         end
+    ),
+    ok.
+
+t_session_expiration1(Config) ->
+    ClientId = atom_to_binary(?FUNCTION_NAME),
+    Opts = #{
+        clientid => ClientId,
+        sequence => [
+            {#{clean_start => false, properties => #{'Session-Expiry-Interval' => 30}}, #{}},
+            {#{clean_start => false, properties => #{'Session-Expiry-Interval' => 1}}, #{}},
+            {#{clean_start => false, properties => #{'Session-Expiry-Interval' => 30}}, #{}}
+        ]
+    },
+    do_t_session_expiration(Config, Opts).
+
+t_session_expiration2(Config) ->
+    ClientId = atom_to_binary(?FUNCTION_NAME),
+    Opts = #{
+        clientid => ClientId,
+        sequence => [
+            {#{clean_start => false, properties => #{'Session-Expiry-Interval' => 30}}, #{}},
+            {#{clean_start => false, properties => #{'Session-Expiry-Interval' => 30}}, #{
+                'Session-Expiry-Interval' => 1
+            }},
+            {#{clean_start => false, properties => #{'Session-Expiry-Interval' => 30}}, #{}}
+        ]
+    },
+    do_t_session_expiration(Config, Opts).
+
+do_t_session_expiration(_Config, Opts) ->
+    #{
+        clientid := ClientId,
+        sequence := [
+            {FirstConn, FirstDisconn},
+            {SecondConn, SecondDisconn},
+            {ThirdConn, ThirdDisconn}
+        ]
+    } = Opts,
+    CommonParams = #{proto_ver => v5, clientid => ClientId},
+    ?check_trace(
+        begin
+            Params0 = maps:merge(CommonParams, FirstConn),
+            Client0 = start_client(Params0),
+            {ok, _} = emqtt:connect(Client0),
+            Info0 = maps:from_list(emqtt:info(Client0)),
+            ?assertEqual(0, maps:get(session_present, Info0), #{info => Info0}),
+            emqtt:disconnect(Client0, ?RC_NORMAL_DISCONNECTION, FirstDisconn),
+
+            Params1 = maps:merge(CommonParams, SecondConn),
+            Client1 = start_client(Params1),
+            {ok, _} = emqtt:connect(Client1),
+            Info1 = maps:from_list(emqtt:info(Client1)),
+            ?assertEqual(1, maps:get(session_present, Info1), #{info => Info1}),
+            emqtt:disconnect(Client1, ?RC_NORMAL_DISCONNECTION, SecondDisconn),
+
+            ct:sleep(1_500),
+
+            Params2 = maps:merge(CommonParams, ThirdConn),
+            Client2 = start_client(Params2),
+            {ok, _} = emqtt:connect(Client2),
+            Info2 = maps:from_list(emqtt:info(Client2)),
+            ?assertEqual(0, maps:get(session_present, Info2), #{info => Info2}),
+            emqtt:disconnect(Client2, ?RC_NORMAL_DISCONNECTION, ThirdDisconn),
+
+            ok
+        end,
+        []
     ),
     ok.

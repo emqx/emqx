@@ -73,7 +73,8 @@
     id :: emqx_persistent_session_ds:id(),
     %% creation time
     created_at :: _Millisecond :: non_neg_integer(),
-    expires_at = never :: _Millisecond :: non_neg_integer() | never,
+    disconnected_at = never :: _Millisecond :: non_neg_integer() | never,
+    conninfo :: emqx_types:conninfo(),
     %% for future usage
     props = #{} :: map()
 }).

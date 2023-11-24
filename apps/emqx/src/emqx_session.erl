@@ -84,7 +84,7 @@
 -export([
     deliver/3,
     handle_timeout/3,
-    disconnect/2,
+    disconnect/3,
     terminate/3
 ]).
 
@@ -503,10 +503,10 @@ cancel_timer(Name, Timers) ->
 
 %%--------------------------------------------------------------------
 
--spec disconnect(clientinfo(), t()) ->
+-spec disconnect(clientinfo(), eqmx_types:conninfo(), t()) ->
     {idle | shutdown, t()}.
-disconnect(_ClientInfo, Session) ->
-    ?IMPL(Session):disconnect(Session).
+disconnect(_ClientInfo, ConnInfo, Session) ->
+    ?IMPL(Session):disconnect(Session, ConnInfo).
 
 -spec terminate(clientinfo(), Reason :: term(), t()) ->
     ok.
