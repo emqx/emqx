@@ -8,7 +8,7 @@
         emqx_resource,
         emqx_postgresql
     ]},
-    {env, []},
+    {env, [{emqx_action_info_modules, [emqx_bridge_pgsql_action_info]}]},
     {modules, []},
     {links, []}
 ]}.
