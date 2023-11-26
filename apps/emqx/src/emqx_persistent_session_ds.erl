@@ -239,6 +239,7 @@ print_session(ClientId) ->
                         session => Session,
                         streams => mnesia:read(?SESSION_STREAM_TAB, ClientId),
                         pubranges => session_read_pubranges(ClientId),
+                        markers => session_read_markers(ClientId),
                         subscriptions => session_read_subscriptions(ClientId)
                     };
                 [] ->
@@ -319,12 +320,13 @@ publish(_PacketId, Msg, Session) ->
     {ok, emqx_types:message(), replies(), session()}
     | {error, emqx_types:reason_code()}.
 puback(_ClientInfo, PacketId, Session = #{id := Id, inflight := Inflight0}) ->
-    case emqx_persistent_message_ds_replayer:commit_offset(Id, PacketId, Inflight0) of
+    case emqx_persistent_message_ds_replayer:commit_offset(Id, ack, PacketId, Inflight0) of
         {true, Inflight} ->
             %% TODO
             Msg = #message{},
             {ok, Msg, [], Session#{inflight => Inflight}};
         {false, _} ->
+            %% Invalid Packet Id
             {error, ?RC_PACKET_IDENTIFIER_NOT_FOUND}
     end.
 
@@ -335,9 +337,16 @@ puback(_ClientInfo, PacketId, Session = #{id := Id, inflight := Inflight0}) ->
 -spec pubrec(emqx_types:packet_id(), session()) ->
     {ok, emqx_types:message(), session()}
     | {error, emqx_types:reason_code()}.
-pubrec(_PacketId, _Session = #{}) ->
-    % TODO: stub
-    {error, ?RC_PACKET_IDENTIFIER_NOT_FOUND}.
+pubrec(PacketId, Session = #{id := Id, inflight := Inflight0}) ->
+    case emqx_persistent_message_ds_replayer:commit_marker(Id, rec, PacketId, Inflight0) of
+        {true, Inflight} ->
+            %% TODO
+            Msg = #message{},
+            {ok, Msg, Session#{inflight => Inflight}};
+        {false, _} ->
+            %% Invalid Packet Id
+            {error, ?RC_PACKET_IDENTIFIER_NOT_FOUND}
+    end.
 
 %%--------------------------------------------------------------------
 %% Client -> Broker: PUBREL
@@ -356,9 +365,16 @@ pubrel(_PacketId, Session = #{}) ->
 -spec pubcomp(clientinfo(), emqx_types:packet_id(), session()) ->
     {ok, emqx_types:message(), replies(), session()}
     | {error, emqx_types:reason_code()}.
-pubcomp(_ClientInfo, _PacketId, _Session = #{}) ->
-    % TODO: stub
-    {error, ?RC_PACKET_IDENTIFIER_NOT_FOUND}.
+pubcomp(_ClientInfo, PacketId, Session = #{id := Id, inflight := Inflight0}) ->
+    case emqx_persistent_message_ds_replayer:commit_offset(Id, comp, PacketId, Inflight0) of
+        {true, Inflight} ->
+            %% TODO
+            Msg = #message{},
+            {ok, Msg, [], Session#{inflight => Inflight}};
+        {false, _} ->
+            %% Invalid Packet Id
+            {error, ?RC_PACKET_IDENTIFIER_NOT_FOUND}
+    end.
 
 %%--------------------------------------------------------------------
 
@@ -375,7 +391,18 @@ handle_timeout(
     pull,
     Session = #{id := Id, inflight := Inflight0, receive_maximum := ReceiveMaximum}
 ) ->
-    {Publishes, Inflight} = emqx_persistent_message_ds_replayer:poll(Id, Inflight0, ReceiveMaximum),
+    {Publishes, Inflight} = emqx_persistent_message_ds_replayer:poll(
+        fun
+            (_Seqno, Message = #message{qos = ?QOS_0}) ->
+                {false, {undefined, Message}};
+            (Seqno, Message) ->
+                PacketId = emqx_persistent_message_ds_replayer:seqno_to_packet_id(Seqno),
+                {PacketId, Message}
+        end,
+        Id,
+        Inflight0,
+        ReceiveMaximum
+    ),
     IdlePollInterval = emqx_config:get([session_persistence, idle_poll_interval]),
     Timeout =
         case Publishes of
@@ -385,7 +412,7 @@ handle_timeout(
                 0
         end,
     ensure_timer(pull, Timeout),
-    {ok, Publishes, Session#{inflight => Inflight}};
+    {ok, Publishes, Session#{inflight := Inflight}};
 handle_timeout(_ClientInfo, get_streams, Session) ->
     renew_streams(Session),
     ensure_timer(get_streams),
@@ -394,7 +421,24 @@ handle_timeout(_ClientInfo, get_streams, Session) ->
 -spec replay(clientinfo(), [], session()) ->
     {ok, replies(), session()}.
 replay(_ClientInfo, [], Session = #{inflight := Inflight0}) ->
-    {Replies, Inflight} = emqx_persistent_message_ds_replayer:replay(Inflight0),
+    AckedUntil = emqx_persistent_message_ds_replayer:committed_until(ack, Inflight0),
+    RecUntil = emqx_persistent_message_ds_replayer:committed_until(rec, Inflight0),
+    CompUntil = emqx_persistent_message_ds_replayer:committed_until(comp, Inflight0),
+    ReplyFun = fun
+        (_Seqno, #message{qos = ?QOS_0}) ->
+            {false, []};
+        (Seqno, #message{qos = ?QOS_1}) when Seqno < AckedUntil ->
+            [];
+        (Seqno, #message{qos = ?QOS_2}) when Seqno < CompUntil ->
+            [];
+        (Seqno, #message{qos = ?QOS_2}) when Seqno < RecUntil ->
+            PacketId = emqx_persistent_message_ds_replayer:seqno_to_packet_id(Seqno),
+            {pubrel, PacketId};
+        (Seqno, Message) ->
+            PacketId = emqx_persistent_message_ds_replayer:seqno_to_packet_id(Seqno),
+            {PacketId, emqx_message:set_flag(dup, true, Message)}
+    end,
+    {Replies, Inflight} = emqx_persistent_message_ds_replayer:replay(ReplyFun, Inflight0),
     {ok, Replies, Session#{inflight := Inflight}}.
 
 %%--------------------------------------------------------------------
@@ -507,11 +551,22 @@ create_tables() ->
             {attributes, record_info(fields, ds_pubrange)}
         ]
     ),
+    ok = mria:create_table(
+        ?SESSION_MARKER_TAB,
+        [
+            {rlog_shard, ?DS_MRIA_SHARD},
+            {type, set},
+            {storage, storage()},
+            {record_name, ds_marker},
+            {attributes, record_info(fields, ds_marker)}
+        ]
+    ),
     ok = mria:wait_for_tables([
         ?SESSION_TAB,
         ?SESSION_SUBSCRIPTIONS_TAB,
         ?SESSION_STREAM_TAB,
-        ?SESSION_PUBRANGE_TAB
+        ?SESSION_PUBRANGE_TAB,
+        ?SESSION_MARKER_TAB
     ]),
     ok.
 
@@ -578,6 +633,7 @@ session_drop(DSSessionId) ->
     transaction(fun() ->
         ok = session_drop_subscriptions(DSSessionId),
         ok = session_drop_pubranges(DSSessionId),
+        ok = session_drop_markers(DSSessionId),
         ok = session_drop_streams(DSSessionId),
         ok = mnesia:delete(?SESSION_TAB, DSSessionId, write)
     end).
@@ -668,6 +724,17 @@ session_read_pubranges(DSSessionId, LockKind) ->
         end
     ),
     mnesia:select(?SESSION_PUBRANGE_TAB, MS, LockKind).
+
+session_read_markers(DSSessionID) ->
+    session_read_markers(DSSessionID, read).
+
+session_read_markers(DSSessionId, LockKind) ->
+    MS = ets:fun2ms(
+        fun(#ds_marker{id = {Sess, Name}}) when Sess =:= DSSessionId ->
+            {DSSessionId, Name}
+        end
+    ),
+    mnesia:select(?SESSION_MARKER_TAB, MS, LockKind).
 
 -spec new_subscription_id(id(), topic_filter()) -> {subscription_id(), integer()}.
 new_subscription_id(DSSessionId, TopicFilter) ->
@@ -776,6 +843,17 @@ session_drop_pubranges(DSSessionId) ->
             mnesia:delete(?SESSION_PUBRANGE_TAB, RangeId, write)
         end,
         RangeIds
+    ).
+
+%% must be called inside a transaction
+-spec session_drop_markers(id()) -> ok.
+session_drop_markers(DSSessionId) ->
+    MarkerIds = session_read_markers(DSSessionId, write),
+    lists:foreach(
+        fun(MarkerId) ->
+            mnesia:delete(?SESSION_MARKER_TAB, MarkerId, write)
+        end,
+        MarkerIds
     ).
 
 %%--------------------------------------------------------------------------------

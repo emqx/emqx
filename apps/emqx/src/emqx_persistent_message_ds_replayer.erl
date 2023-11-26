@@ -19,7 +19,13 @@
 -module(emqx_persistent_message_ds_replayer).
 
 %% API:
--export([new/0, open/1, next_packet_id/1, replay/1, commit_offset/3, poll/3, n_inflight/1]).
+-export([new/0, open/1, next_packet_id/1, n_inflight/1]).
+
+-export([poll/4, replay/2, commit_offset/4, commit_marker/4]).
+
+-export([seqno_to_packet_id/1, packet_id_to_seqno/2]).
+
+-export([committed_until/2]).
 
 %% internal exports:
 -export([]).
@@ -27,13 +33,19 @@
 -export_type([inflight/0, seqno/0]).
 
 -include_lib("emqx/include/logger.hrl").
--include_lib("emqx_utils/include/emqx_message.hrl").
 -include("emqx_persistent_session_ds.hrl").
 
 -ifdef(TEST).
 -include_lib("proper/include/proper.hrl").
 -include_lib("eunit/include/eunit.hrl").
 -endif.
+
+-define(EPOCH_SIZE, 16#10000).
+
+-define(ACK, 0).
+-define(COMP, 1).
+
+-define(TRACK_FLAG(WHICH), (1 bsl WHICH)).
 
 %%================================================================================
 %% Type declarations
@@ -42,14 +54,19 @@
 %% Note: sequence numbers are monotonic; they don't wrap around:
 -type seqno() :: non_neg_integer().
 
+-type track() :: ack | comp.
+-type marker() :: rec.
+
 -record(inflight, {
     next_seqno = 1 :: seqno(),
-    acked_until = 1 :: seqno(),
+    commits = #{ack => 1, comp => 1, rec => 1} :: #{track() | marker() => seqno()},
     %% Ranges are sorted in ascending order of their sequence numbers.
     offset_ranges = [] :: [ds_pubrange()]
 }).
 
 -opaque inflight() :: #inflight{}.
+
+-type reply_fun() :: fun((seqno(), emqx_types:message()) -> emqx_session:reply()).
 
 %%================================================================================
 %% API funcions
@@ -61,10 +78,12 @@ new() ->
 
 -spec open(emqx_persistent_session_ds:id()) -> inflight().
 open(SessionId) ->
-    Ranges = ro_transaction(fun() -> get_ranges(SessionId) end),
-    {AckedUntil, NextSeqno} = compute_inflight_range(Ranges),
+    {Ranges, RecUntil} = ro_transaction(
+        fun() -> {get_ranges(SessionId), get_marker(SessionId, rec)} end
+    ),
+    {Commits, NextSeqno} = compute_inflight_range(Ranges),
     #inflight{
-        acked_until = AckedUntil,
+        commits = Commits#{rec => RecUntil},
         next_seqno = NextSeqno,
         offset_ranges = Ranges
     }.
@@ -75,15 +94,30 @@ next_packet_id(Inflight0 = #inflight{next_seqno = LastSeqno}) ->
     {seqno_to_packet_id(LastSeqno), Inflight}.
 
 -spec n_inflight(inflight()) -> non_neg_integer().
-n_inflight(#inflight{next_seqno = NextSeqno, acked_until = AckedUntil}) ->
-    range_size(AckedUntil, NextSeqno).
+n_inflight(#inflight{offset_ranges = Ranges}) ->
+    %% TODO
+    %% This is not very efficient. Instead, we can take the maximum of
+    %% `range_size(AckedUntil, NextSeqno)` and `range_size(CompUntil, NextSeqno)`.
+    %% This won't be exact number but a pessimistic estimate, but this way we
+    %% will penalize clients that PUBACK QoS 1 messages but don't PUBCOMP QoS 2
+    %% messages for some reason. For that to work, we need to additionally track
+    %% actual `AckedUntil` / `CompUntil` during `commit_offset/4`.
+    lists:foldl(
+        fun
+            (#ds_pubrange{type = checkpoint}, N) ->
+                N;
+            (#ds_pubrange{type = inflight, id = {_, First}, until = Until}, N) ->
+                N + range_size(First, Until)
+        end,
+        0,
+        Ranges
+    ).
 
--spec replay(inflight()) ->
-    {emqx_session:replies(), inflight()}.
-replay(Inflight0 = #inflight{acked_until = AckedUntil, offset_ranges = Ranges0}) ->
+-spec replay(reply_fun(), inflight()) -> {emqx_session:replies(), inflight()}.
+replay(ReplyFun, Inflight0 = #inflight{offset_ranges = Ranges0}) ->
     {Ranges, Replies} = lists:mapfoldr(
         fun(Range, Acc) ->
-            replay_range(Range, AckedUntil, Acc)
+            replay_range(ReplyFun, Range, Acc)
         end,
         [],
         Ranges0
@@ -91,43 +125,50 @@ replay(Inflight0 = #inflight{acked_until = AckedUntil, offset_ranges = Ranges0})
     Inflight = Inflight0#inflight{offset_ranges = Ranges},
     {Replies, Inflight}.
 
--spec commit_offset(emqx_persistent_session_ds:id(), emqx_types:packet_id(), inflight()) ->
+-spec commit_offset(emqx_persistent_session_ds:id(), track(), emqx_types:packet_id(), inflight()) ->
     {_IsValidOffset :: boolean(), inflight()}.
 commit_offset(
     SessionId,
+    Track,
     PacketId,
-    Inflight0 = #inflight{
-        acked_until = AckedUntil, next_seqno = NextSeqno
-    }
+    Inflight0 = #inflight{commits = Commits}
 ) ->
-    case packet_id_to_seqno(NextSeqno, PacketId) of
-        Seqno when Seqno >= AckedUntil andalso Seqno < NextSeqno ->
+    case validate_commit(Track, PacketId, Inflight0) of
+        CommitUntil when is_integer(CommitUntil) ->
             %% TODO
-            %% We do not preserve `acked_until` in the database. Instead, we discard
+            %% We do not preserve `CommitUntil` in the database. Instead, we discard
             %% fully acked ranges from the database. In effect, this means that the
-            %% most recent `acked_until` the client has sent may be lost in case of a
+            %% most recent `CommitUntil` the client has sent may be lost in case of a
             %% crash or client loss.
-            Inflight1 = Inflight0#inflight{acked_until = next_seqno(Seqno)},
-            Inflight = discard_acked(SessionId, Inflight1),
+            Inflight1 = Inflight0#inflight{commits = Commits#{Track := CommitUntil}},
+            Inflight = discard_committed(SessionId, Inflight1),
             {true, Inflight};
-        OutOfRange ->
-            ?SLOG(warning, #{
-                msg => "out-of-order_ack",
-                acked_until => AckedUntil,
-                acked_seqno => OutOfRange,
-                next_seqno => NextSeqno,
-                packet_id => PacketId
-            }),
+        false ->
             {false, Inflight0}
     end.
 
--spec poll(emqx_persistent_session_ds:id(), inflight(), pos_integer()) ->
+-spec commit_marker(emqx_persistent_session_ds:id(), marker(), emqx_types:packet_id(), inflight()) ->
+    {_IsValidMarker :: boolean(), inflight()}.
+commit_marker(
+    SessionId,
+    Marker = rec,
+    PacketId,
+    Inflight0 = #inflight{commits = Commits}
+) ->
+    case validate_commit(Marker, PacketId, Inflight0) of
+        CommitUntil when is_integer(CommitUntil) ->
+            update_marker(SessionId, Marker, CommitUntil),
+            Inflight = Inflight0#inflight{commits = Commits#{Marker := CommitUntil}},
+            {true, Inflight};
+        false ->
+            {false, Inflight0}
+    end.
+
+-spec poll(reply_fun(), emqx_persistent_session_ds:id(), inflight(), pos_integer()) ->
     {emqx_session:replies(), inflight()}.
-poll(SessionId, Inflight0, WindowSize) when WindowSize > 0, WindowSize < 16#7fff ->
-    #inflight{next_seqno = NextSeqNo0, acked_until = AckedSeqno} =
-        Inflight0,
+poll(ReplyFun, SessionId, Inflight0, WindowSize) when WindowSize > 0, WindowSize < ?EPOCH_SIZE ->
     FetchThreshold = max(1, WindowSize div 2),
-    FreeSpace = AckedSeqno + WindowSize - NextSeqNo0,
+    FreeSpace = WindowSize - n_inflight(Inflight0),
     case FreeSpace >= FetchThreshold of
         false ->
             %% TODO: this branch is meant to avoid fetching data from
@@ -138,8 +179,22 @@ poll(SessionId, Inflight0, WindowSize) when WindowSize > 0, WindowSize < 16#7fff
         true ->
             %% TODO: Wrap this in `mria:async_dirty/2`?
             Streams = shuffle(get_streams(SessionId)),
-            fetch(SessionId, Inflight0, Streams, FreeSpace, [])
+            fetch(ReplyFun, SessionId, Inflight0, Streams, FreeSpace, [])
     end.
+
+-spec committed_until(track() | marker(), inflight()) -> seqno().
+committed_until(Track, #inflight{commits = Commits}) ->
+    maps:get(Track, Commits).
+
+-spec seqno_to_packet_id(seqno()) -> emqx_types:packet_id() | 0.
+seqno_to_packet_id(Seqno) ->
+    Seqno rem ?EPOCH_SIZE.
+
+%% Reconstruct session counter by adding most significant bits from
+%% the current counter to the packet id.
+-spec packet_id_to_seqno(emqx_types:packet_id(), inflight()) -> seqno().
+packet_id_to_seqno(PacketId, #inflight{next_seqno = NextSeqno}) ->
+    packet_id_to_seqno_(NextSeqno, PacketId).
 
 %%================================================================================
 %% Internal exports
@@ -150,18 +205,34 @@ poll(SessionId, Inflight0, WindowSize) when WindowSize > 0, WindowSize < 16#7fff
 %%================================================================================
 
 compute_inflight_range([]) ->
-    {1, 1};
+    {#{ack => 1, comp => 1}, 1};
 compute_inflight_range(Ranges) ->
     _RangeLast = #ds_pubrange{until = LastSeqno} = lists:last(Ranges),
-    RangesUnacked = lists:dropwhile(
-        fun(#ds_pubrange{type = T}) -> T == checkpoint end,
+    AckedUntil = find_committed_until(ack, Ranges),
+    CompUntil = find_committed_until(comp, Ranges),
+    Commits = #{
+        ack => emqx_maybe:define(AckedUntil, LastSeqno),
+        comp => emqx_maybe:define(CompUntil, LastSeqno)
+    },
+    {Commits, LastSeqno}.
+
+find_committed_until(Track, Ranges) ->
+    RangesUncommitted = lists:dropwhile(
+        fun(Range) ->
+            case Range of
+                #ds_pubrange{type = checkpoint} ->
+                    true;
+                #ds_pubrange{type = inflight} = Range ->
+                    not has_range_track(Track, Range)
+            end
+        end,
         Ranges
     ),
-    case RangesUnacked of
-        [#ds_pubrange{id = {_, AckedUntil}} | _] ->
-            {AckedUntil, LastSeqno};
+    case RangesUncommitted of
+        [#ds_pubrange{id = {_, CommittedUntil}} | _] ->
+            CommittedUntil;
         [] ->
-            {LastSeqno, LastSeqno}
+            undefined
     end.
 
 -spec get_ranges(emqx_persistent_session_ds:id()) -> [ds_pubrange()].
@@ -173,18 +244,18 @@ get_ranges(SessionId) ->
     ),
     mnesia:match_object(?SESSION_PUBRANGE_TAB, Pat, read).
 
-fetch(SessionId, Inflight0, [DSStream | Streams], N, Acc) when N > 0 ->
+fetch(ReplyFun, SessionId, Inflight0, [DSStream | Streams], N, Acc) when N > 0 ->
     #inflight{next_seqno = FirstSeqno, offset_ranges = Ranges} = Inflight0,
     ItBegin = get_last_iterator(DSStream, Ranges),
     {ok, ItEnd, Messages} = emqx_ds:next(?PERSISTENT_MESSAGE_DB, ItBegin, N),
     case Messages of
         [] ->
-            fetch(SessionId, Inflight0, Streams, N, Acc);
+            fetch(ReplyFun, SessionId, Inflight0, Streams, N, Acc);
         _ ->
-            {Publishes, UntilSeqno} = publish(FirstSeqno, Messages, _PreserveQoS0 = true),
-            Size = range_size(FirstSeqno, UntilSeqno),
             %% We need to preserve the iterator pointing to the beginning of the
             %% range, so that we can replay it if needed.
+            {Publishes, {UntilSeqno, Tracks}} = publish(ReplyFun, FirstSeqno, Messages),
+            Size = range_size(FirstSeqno, UntilSeqno),
             Range0 = #ds_pubrange{
                 id = {SessionId, FirstSeqno},
                 type = inflight,
@@ -192,29 +263,30 @@ fetch(SessionId, Inflight0, [DSStream | Streams], N, Acc) when N > 0 ->
                 stream = DSStream#ds_stream.ref,
                 iterator = ItBegin
             },
-            ok = preserve_range(Range0),
+            Range1 = update_range_tracks(Tracks, Range0),
+            ok = preserve_range(Range1),
             %% ...Yet we need to keep the iterator pointing past the end of the
             %% range, so that we can pick up where we left off: it will become
             %% `ItBegin` of the next range for this stream.
-            Range = Range0#ds_pubrange{iterator = ItEnd},
+            Range = keep_next_iterator(ItEnd, Range1),
             Inflight = Inflight0#inflight{
                 next_seqno = UntilSeqno,
                 offset_ranges = Ranges ++ [Range]
             },
-            fetch(SessionId, Inflight, Streams, N - Size, [Publishes | Acc])
+            fetch(ReplyFun, SessionId, Inflight, Streams, N - Size, [Publishes | Acc])
     end;
-fetch(_SessionId, Inflight, _Streams, _N, Acc) ->
+fetch(_ReplyFun, _SessionId, Inflight, _Streams, _N, Acc) ->
     Publishes = lists:append(lists:reverse(Acc)),
     {Publishes, Inflight}.
 
-discard_acked(
+discard_committed(
     SessionId,
-    Inflight0 = #inflight{acked_until = AckedUntil, offset_ranges = Ranges0}
+    Inflight0 = #inflight{commits = Commits, offset_ranges = Ranges0}
 ) ->
     %% TODO: This could be kept and incrementally updated in the inflight state.
     Checkpoints = find_checkpoints(Ranges0),
     %% TODO: Wrap this in `mria:async_dirty/2`?
-    Ranges = discard_acked_ranges(SessionId, AckedUntil, Checkpoints, Ranges0),
+    Ranges = discard_committed_ranges(SessionId, Commits, Checkpoints, Ranges0),
     Inflight0#inflight{offset_ranges = Ranges}.
 
 find_checkpoints(Ranges) ->
@@ -227,73 +299,189 @@ find_checkpoints(Ranges) ->
         Ranges
     ).
 
-discard_acked_ranges(
+discard_committed_ranges(
     SessionId,
-    AckedUntil,
+    Commits,
     Checkpoints,
-    [Range = #ds_pubrange{until = Until, stream = StreamRef} | Rest]
-) when Until =< AckedUntil ->
-    %% This range has been fully acked.
-    %% Either discard it completely, or preserve the iterator for the next range
-    %% over this stream (i.e. a checkpoint).
-    RangeKept =
-        case maps:get(StreamRef, Checkpoints) of
-            CP when CP > Until ->
-                discard_range(Range),
-                [];
-            Until ->
-                [checkpoint_range(Range)]
+    Ranges = [Range = #ds_pubrange{until = Until, stream = StreamRef} | Rest]
+) ->
+    case discard_committed_range(Commits, Range) of
+        discard ->
+            %% This range has been fully committed.
+            %% Either discard it completely, or preserve the iterator for the next range
+            %% over this stream (i.e. a checkpoint).
+            RangeKept =
+                case maps:get(StreamRef, Checkpoints) of
+                    CP when CP > Until ->
+                        discard_range(Range),
+                        [];
+                    Until ->
+                        [checkpoint_range(Range)]
+                end,
+            %% Since we're (intentionally) not using transactions here, it's important to
+            %% issue database writes in the same order in which ranges are stored: from
+            %% the oldest to the newest. This is also why we need to compute which ranges
+            %% should become checkpoints before we start writing anything.
+            RangeKept ++ discard_committed_ranges(SessionId, Commits, Checkpoints, Rest);
+        keep ->
+            %% This range has not been fully committed.
+            [Range | discard_committed_ranges(SessionId, Commits, Checkpoints, Rest)];
+        keep_all ->
+            %% The rest of ranges (if any) still have uncommitted messages.
+            Ranges;
+        TracksLeft ->
+            %% Only some track has been committed.
+            %% Preserve the uncommitted tracks in the database.
+            RangeKept = update_range_tracks(TracksLeft, Range),
+            preserve_range(restore_first_iterator(RangeKept)),
+            [RangeKept | discard_committed_ranges(SessionId, Commits, Checkpoints, Rest)]
+    end;
+discard_committed_ranges(_SessionId, _Commits, _Checkpoints, []) ->
+    [].
+
+discard_committed_range(_Commits, #ds_pubrange{type = checkpoint}) ->
+    discard;
+discard_committed_range(
+    #{ack := AckedUntil, comp := CompUntil},
+    #ds_pubrange{until = Until}
+) when Until > AckedUntil andalso Until > CompUntil ->
+    keep_all;
+discard_committed_range(
+    Commits,
+    Range = #ds_pubrange{until = Until}
+) ->
+    Tracks = get_range_tracks(Range),
+    case discard_tracks(Commits, Until, Tracks) of
+        0 ->
+            discard;
+        Tracks ->
+            keep;
+        TracksLeft ->
+            TracksLeft
+    end.
+
+discard_tracks(#{ack := AckedUntil, comp := CompUntil}, Until, Tracks) ->
+    TAck =
+        case Until > AckedUntil of
+            true -> ?TRACK_FLAG(?ACK) band Tracks;
+            false -> 0
         end,
-    %% Since we're (intentionally) not using transactions here, it's important to
-    %% issue database writes in the same order in which ranges are stored: from
-    %% the oldest to the newest. This is also why we need to compute which ranges
-    %% should become checkpoints before we start writing anything.
-    RangeKept ++ discard_acked_ranges(SessionId, AckedUntil, Checkpoints, Rest);
-discard_acked_ranges(_SessionId, _AckedUntil, _Checkpoints, Ranges) ->
-    %% The rest of ranges (if any) still have unacked messages.
-    Ranges.
+    TComp =
+        case Until > CompUntil of
+            true -> ?TRACK_FLAG(?COMP) band Tracks;
+            false -> 0
+        end,
+    TAck bor TComp.
 
 replay_range(
+    ReplyFun,
     Range0 = #ds_pubrange{type = inflight, id = {_, First}, until = Until, iterator = It},
-    AckedUntil,
     Acc
 ) ->
     Size = range_size(First, Until),
-    FirstUnacked = max(First, AckedUntil),
-    {ok, ItNext, Messages} = emqx_ds:next(?PERSISTENT_MESSAGE_DB, It, Size),
-    MessagesUnacked =
-        case FirstUnacked of
-            First ->
-                Messages;
-            _ ->
-                lists:nthtail(range_size(First, FirstUnacked), Messages)
-        end,
-    MessagesReplay = [emqx_message:set_flag(dup, true, Msg) || Msg <- MessagesUnacked],
+    {ok, ItNext, MessagesUnacked} = emqx_ds:next(?PERSISTENT_MESSAGE_DB, It, Size),
     %% Asserting that range is consistent with the message storage state.
-    {Replies, Until} = publish(FirstUnacked, MessagesReplay, _PreserveQoS0 = false),
+    {Replies, {Until, Tracks}} = publish(ReplyFun, First, MessagesUnacked),
     %% Again, we need to keep the iterator pointing past the end of the
     %% range, so that we can pick up where we left off.
-    Range = Range0#ds_pubrange{iterator = ItNext},
+    Range = keep_next_iterator(ItNext, ensure_range_tracks(Tracks, Range0)),
     {Range, Replies ++ Acc};
-replay_range(Range0 = #ds_pubrange{type = checkpoint}, _AckedUntil, Acc) ->
+replay_range(_ReplyFun, Range0 = #ds_pubrange{type = checkpoint}, Acc) ->
     {Range0, Acc}.
 
-publish(FirstSeqNo, Messages, PreserveQos0) ->
-    do_publish(FirstSeqNo, Messages, PreserveQos0, []).
+validate_commit(
+    Track,
+    PacketId,
+    Inflight = #inflight{commits = Commits, next_seqno = NextSeqno}
+) ->
+    Seqno = packet_id_to_seqno_(NextSeqno, PacketId),
+    CommittedUntil = maps:get(Track, Commits),
+    CommitNext = get_commit_next(Track, Inflight),
+    case Seqno >= CommittedUntil andalso Seqno < CommitNext of
+        true ->
+            next_seqno(Seqno);
+        false ->
+            ?SLOG(warning, #{
+                msg => "out-of-order_commit",
+                track => Track,
+                packet_id => PacketId,
+                commit_seqno => Seqno,
+                committed_until => CommittedUntil,
+                commit_next => CommitNext
+            }),
+            false
+    end.
 
-do_publish(SeqNo, [], _, Acc) ->
-    {lists:reverse(Acc), SeqNo};
-do_publish(SeqNo, [#message{qos = 0} | Messages], false, Acc) ->
-    do_publish(SeqNo, Messages, false, Acc);
-do_publish(SeqNo, [#message{qos = 0} = Message | Messages], true, Acc) ->
-    do_publish(SeqNo, Messages, true, [{undefined, Message} | Acc]);
-do_publish(SeqNo, [Message | Messages], PreserveQos0, Acc) ->
-    PacketId = seqno_to_packet_id(SeqNo),
-    do_publish(next_seqno(SeqNo), Messages, PreserveQos0, [{PacketId, Message} | Acc]).
+get_commit_next(ack, #inflight{next_seqno = NextSeqno}) ->
+    NextSeqno;
+get_commit_next(rec, #inflight{next_seqno = NextSeqno}) ->
+    NextSeqno;
+get_commit_next(comp, #inflight{commits = Commits}) ->
+    maps:get(rec, Commits).
+
+publish(ReplyFun, FirstSeqno, Messages) ->
+    lists:mapfoldl(
+        fun(Message, {Seqno, TAcc}) ->
+            case ReplyFun(Seqno, Message) of
+                {_Advance = false, Reply} ->
+                    {Reply, {Seqno, TAcc}};
+                Reply ->
+                    NextSeqno = next_seqno(Seqno),
+                    NextTAcc = add_msg_track(Message, TAcc),
+                    {Reply, {NextSeqno, NextTAcc}}
+            end
+        end,
+        {FirstSeqno, 0},
+        Messages
+    ).
+
+add_msg_track(Message, Tracks) ->
+    case emqx_message:qos(Message) of
+        1 -> ?TRACK_FLAG(?ACK) bor Tracks;
+        2 -> ?TRACK_FLAG(?COMP) bor Tracks;
+        _ -> Tracks
+    end.
+
+keep_next_iterator(ItNext, Range = #ds_pubrange{iterator = ItFirst, misc = Misc}) ->
+    Range#ds_pubrange{
+        iterator = ItNext,
+        %% We need to keep the first iterator around, in case we need to preserve
+        %% this range again, updating still uncommitted tracks it's part of.
+        misc = Misc#{iterator_first => ItFirst}
+    }.
+
+restore_first_iterator(Range = #ds_pubrange{misc = Misc = #{iterator_first := ItFirst}}) ->
+    Range#ds_pubrange{
+        iterator = ItFirst,
+        misc = maps:remove(iterator_first, Misc)
+    }.
+
+ensure_range_tracks(_Tracks, Range = #ds_pubrange{misc = #{?T_tracks := _Existing}}) ->
+    Range;
+ensure_range_tracks(Tracks, Range = #ds_pubrange{}) ->
+    update_range_tracks(Tracks, Range).
+
+update_range_tracks(?TRACK_FLAG(?ACK), Range = #ds_pubrange{misc = Misc}) ->
+    %% This is assumed as the default value for the tracks field.
+    Range#ds_pubrange{misc = maps:remove(?T_tracks, Misc)};
+update_range_tracks(Tracks, Range = #ds_pubrange{misc = Misc}) ->
+    Range#ds_pubrange{misc = Misc#{?T_tracks => Tracks}}.
+
+get_range_tracks(#ds_pubrange{misc = Misc}) ->
+    %% This is assumed as the default value for the tracks field.
+    maps:get(?T_tracks, Misc, ?TRACK_FLAG(?ACK)).
 
 -spec preserve_range(ds_pubrange()) -> ok.
 preserve_range(Range = #ds_pubrange{type = inflight}) ->
     mria:dirty_write(?SESSION_PUBRANGE_TAB, Range).
+
+has_range_track(Track, Range) ->
+    has_track(Track, get_range_tracks(Range)).
+
+has_track(ack, Tracks) ->
+    (?TRACK_FLAG(?ACK) band Tracks) > 0;
+has_track(comp, Tracks) ->
+    (?TRACK_FLAG(?COMP) band Tracks) > 0.
 
 -spec discard_range(ds_pubrange()) -> ok.
 discard_range(#ds_pubrange{id = RangeId}) ->
@@ -301,7 +489,7 @@ discard_range(#ds_pubrange{id = RangeId}) ->
 
 -spec checkpoint_range(ds_pubrange()) -> ds_pubrange().
 checkpoint_range(Range0 = #ds_pubrange{type = inflight}) ->
-    Range = Range0#ds_pubrange{type = checkpoint},
+    Range = Range0#ds_pubrange{type = checkpoint, misc = #{}},
     ok = mria:dirty_write(?SESSION_PUBRANGE_TAB, Range),
     Range;
 checkpoint_range(Range = #ds_pubrange{type = checkpoint}) ->
@@ -320,6 +508,19 @@ get_last_iterator(DSStream = #ds_stream{ref = StreamRef}, Ranges) ->
 get_streams(SessionId) ->
     mnesia:dirty_read(?SESSION_STREAM_TAB, SessionId).
 
+-spec get_marker(emqx_persistent_session_ds:id(), _Name) -> seqno().
+get_marker(SessionId, Name) ->
+    case mnesia:read(?SESSION_MARKER_TAB, {SessionId, Name}) of
+        [] ->
+            1;
+        [#ds_marker{until = Seqno}] ->
+            Seqno
+    end.
+
+-spec update_marker(emqx_persistent_session_ds:id(), _Name, seqno()) -> ok.
+update_marker(SessionId, Name, Until) ->
+    mria:dirty_write(?SESSION_MARKER_TAB, #ds_marker{id = {SessionId, Name}, until = Until}).
+
 next_seqno(Seqno) ->
     NextSeqno = Seqno + 1,
     case seqno_to_packet_id(NextSeqno) of
@@ -332,25 +533,14 @@ next_seqno(Seqno) ->
             NextSeqno
     end.
 
-%% Reconstruct session counter by adding most significant bits from
-%% the current counter to the packet id.
--spec packet_id_to_seqno(_Next :: seqno(), emqx_types:packet_id()) -> seqno().
-packet_id_to_seqno(NextSeqNo, PacketId) ->
-    Epoch = NextSeqNo bsr 16,
-    case packet_id_to_seqno_(Epoch, PacketId) of
-        N when N =< NextSeqNo ->
+packet_id_to_seqno_(NextSeqno, PacketId) ->
+    Epoch = NextSeqno bsr 16,
+    case (Epoch bsl 16) + PacketId of
+        N when N =< NextSeqno ->
             N;
-        _ ->
-            packet_id_to_seqno_(Epoch - 1, PacketId)
+        N ->
+            N - ?EPOCH_SIZE
     end.
-
--spec packet_id_to_seqno_(non_neg_integer(), emqx_types:packet_id()) -> seqno().
-packet_id_to_seqno_(Epoch, PacketId) ->
-    (Epoch bsl 16) + PacketId.
-
--spec seqno_to_packet_id(seqno()) -> emqx_types:packet_id() | 0.
-seqno_to_packet_id(Seqno) ->
-    Seqno rem 16#10000.
 
 range_size(FirstSeqno, UntilSeqno) ->
     %% This function assumes that gaps in the sequence ID occur _only_ when the
@@ -379,19 +569,19 @@ ro_transaction(Fun) ->
 %% This test only tests boundary conditions (to make sure property-based test didn't skip them):
 packet_id_to_seqno_test() ->
     %% Packet ID = 1; first epoch:
-    ?assertEqual(1, packet_id_to_seqno(1, 1)),
-    ?assertEqual(1, packet_id_to_seqno(10, 1)),
-    ?assertEqual(1, packet_id_to_seqno(1 bsl 16 - 1, 1)),
-    ?assertEqual(1, packet_id_to_seqno(1 bsl 16, 1)),
+    ?assertEqual(1, packet_id_to_seqno_(1, 1)),
+    ?assertEqual(1, packet_id_to_seqno_(10, 1)),
+    ?assertEqual(1, packet_id_to_seqno_(1 bsl 16 - 1, 1)),
+    ?assertEqual(1, packet_id_to_seqno_(1 bsl 16, 1)),
     %% Packet ID = 1; second and 3rd epochs:
-    ?assertEqual(1 bsl 16 + 1, packet_id_to_seqno(1 bsl 16 + 1, 1)),
-    ?assertEqual(1 bsl 16 + 1, packet_id_to_seqno(2 bsl 16, 1)),
-    ?assertEqual(2 bsl 16 + 1, packet_id_to_seqno(2 bsl 16 + 1, 1)),
+    ?assertEqual(1 bsl 16 + 1, packet_id_to_seqno_(1 bsl 16 + 1, 1)),
+    ?assertEqual(1 bsl 16 + 1, packet_id_to_seqno_(2 bsl 16, 1)),
+    ?assertEqual(2 bsl 16 + 1, packet_id_to_seqno_(2 bsl 16 + 1, 1)),
     %% Packet ID = 16#ffff:
     PID = 1 bsl 16 - 1,
-    ?assertEqual(PID, packet_id_to_seqno(PID, PID)),
-    ?assertEqual(PID, packet_id_to_seqno(1 bsl 16, PID)),
-    ?assertEqual(1 bsl 16 + PID, packet_id_to_seqno(2 bsl 16, PID)),
+    ?assertEqual(PID, packet_id_to_seqno_(PID, PID)),
+    ?assertEqual(PID, packet_id_to_seqno_(1 bsl 16, PID)),
+    ?assertEqual(1 bsl 16 + PID, packet_id_to_seqno_(2 bsl 16, PID)),
     ok.
 
 packet_id_to_seqno_test_() ->
@@ -406,8 +596,8 @@ packet_id_to_seqno_prop() ->
             SeqNo,
             seqno_gen(NextSeqNo),
             begin
-                PacketId = SeqNo rem 16#10000,
-                ?assertEqual(SeqNo, packet_id_to_seqno(NextSeqNo, PacketId)),
+                PacketId = seqno_to_packet_id(SeqNo),
+                ?assertEqual(SeqNo, packet_id_to_seqno_(NextSeqNo, PacketId)),
                 true
             end
         )
@@ -437,22 +627,37 @@ range_size_test_() ->
 compute_inflight_range_test_() ->
     [
         ?_assertEqual(
-            {1, 1},
+            {#{ack => 1, comp => 1}, 1},
             compute_inflight_range([])
         ),
         ?_assertEqual(
-            {12, 42},
+            {#{ack => 12, comp => 13}, 42},
             compute_inflight_range([
                 #ds_pubrange{id = {<<>>, 1}, until = 2, type = checkpoint},
                 #ds_pubrange{id = {<<>>, 4}, until = 8, type = checkpoint},
                 #ds_pubrange{id = {<<>>, 11}, until = 12, type = checkpoint},
-                #ds_pubrange{id = {<<>>, 12}, until = 13, type = inflight},
-                #ds_pubrange{id = {<<>>, 13}, until = 20, type = inflight},
-                #ds_pubrange{id = {<<>>, 20}, until = 42, type = inflight}
+                #ds_pubrange{
+                    id = {<<>>, 12},
+                    until = 13,
+                    type = inflight,
+                    misc = #{}
+                },
+                #ds_pubrange{
+                    id = {<<>>, 13},
+                    until = 20,
+                    type = inflight,
+                    misc = #{?T_tracks => ?TRACK_FLAG(?COMP)}
+                },
+                #ds_pubrange{
+                    id = {<<>>, 20},
+                    until = 42,
+                    type = inflight,
+                    misc = #{?T_tracks => ?TRACK_FLAG(?ACK) bor ?TRACK_FLAG(?COMP)}
+                }
             ])
         ),
         ?_assertEqual(
-            {13, 13},
+            {#{ack => 13, comp => 13}, 13},
             compute_inflight_range([
                 #ds_pubrange{id = {<<>>, 1}, until = 2, type = checkpoint},
                 #ds_pubrange{id = {<<>>, 4}, until = 8, type = checkpoint},

@@ -17,6 +17,7 @@
 -module(emqx_persistent_session_SUITE).
 
 -include_lib("stdlib/include/assert.hrl").
+-include_lib("emqx/include/asserts.hrl").
 -include_lib("common_test/include/ct.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 -include_lib("emqx/include/emqx_mqtt.hrl").
@@ -53,10 +54,10 @@ all() ->
 groups() ->
     TCs = emqx_common_test_helpers:all(?MODULE),
     TCsNonGeneric = [t_choose_impl],
+    TCGroups = [{group, tcp}, {group, quic}, {group, ws}],
     [
-        {persistence_disabled, [{group, no_kill_connection_process}]},
-        {persistence_enabled, [{group, no_kill_connection_process}]},
-        {no_kill_connection_process, [], [{group, tcp}, {group, quic}, {group, ws}]},
+        {persistence_disabled, TCGroups},
+        {persistence_enabled, TCGroups},
         {tcp, [], TCs},
         {quic, [], TCs -- TCsNonGeneric},
         {ws, [], TCs -- TCsNonGeneric}
@@ -74,7 +75,7 @@ init_per_group(persistence_enabled, Config) ->
         {persistence, ds}
         | Config
     ];
-init_per_group(Group, Config) when Group == tcp ->
+init_per_group(tcp, Config) ->
     Apps = emqx_cth_suite:start(
         [{emqx, ?config(emqx_config, Config)}],
         #{work_dir => emqx_cth_suite:work_dir(Config)}
@@ -85,7 +86,7 @@ init_per_group(Group, Config) when Group == tcp ->
         {group_apps, Apps}
         | Config
     ];
-init_per_group(Group, Config) when Group == ws ->
+init_per_group(ws, Config) ->
     Apps = emqx_cth_suite:start(
         [{emqx, ?config(emqx_config, Config)}],
         #{work_dir => emqx_cth_suite:work_dir(Config)}
@@ -99,7 +100,7 @@ init_per_group(Group, Config) when Group == ws ->
         {group_apps, Apps}
         | Config
     ];
-init_per_group(Group, Config) when Group == quic ->
+init_per_group(quic, Config) ->
     Apps = emqx_cth_suite:start(
         [
             {emqx,
@@ -118,11 +119,7 @@ init_per_group(Group, Config) when Group == quic ->
         {ssl, true},
         {group_apps, Apps}
         | Config
-    ];
-init_per_group(no_kill_connection_process, Config) ->
-    [{kill_connection_process, false} | Config];
-init_per_group(kill_connection_process, Config) ->
-    [{kill_connection_process, true} | Config].
+    ].
 
 get_listener_port(Type, Name) ->
     case emqx_config:get([listeners, Type, Name, bind]) of
@@ -194,6 +191,8 @@ receive_message_loop(Count, Deadline) ->
     receive
         {publish, Msg} ->
             [Msg | receive_message_loop(Count - 1, Deadline)];
+        {pubrel, Msg} ->
+            [{pubrel, Msg} | receive_message_loop(Count - 1, Deadline)];
         _Other ->
             receive_message_loop(Count, Deadline)
     after Timeout ->
@@ -201,38 +200,43 @@ receive_message_loop(Count, Deadline) ->
     end.
 
 maybe_kill_connection_process(ClientId, Config) ->
-    case ?config(kill_connection_process, Config) of
-        true ->
-            case emqx_cm:lookup_channels(ClientId) of
-                [] ->
-                    ok;
-                [ConnectionPid] ->
-                    ?assert(is_pid(ConnectionPid)),
-                    Ref = monitor(process, ConnectionPid),
-                    ConnectionPid ! die_if_test,
-                    receive
-                        {'DOWN', Ref, process, ConnectionPid, normal} -> ok
-                    after 3000 -> error(process_did_not_die)
-                    end,
-                    wait_for_cm_unregister(ClientId)
-            end;
-        false ->
-            ok
-    end.
-
-wait_for_cm_unregister(ClientId) ->
-    wait_for_cm_unregister(ClientId, 100).
-
-wait_for_cm_unregister(_ClientId, 0) ->
-    error(cm_did_not_unregister);
-wait_for_cm_unregister(ClientId, N) ->
+    Persistence = ?config(persistence, Config),
     case emqx_cm:lookup_channels(ClientId) of
         [] ->
             ok;
-        [_] ->
-            timer:sleep(100),
-            wait_for_cm_unregister(ClientId, N - 1)
+        [ConnectionPid] when Persistence == ds ->
+            Ref = monitor(process, ConnectionPid),
+            ConnectionPid ! die_if_test,
+            ?assertReceive(
+                {'DOWN', Ref, process, ConnectionPid, Reason} when
+                    Reason == normal orelse Reason == noproc,
+                3000
+            ),
+            wait_connection_process_unregistered(ClientId);
+        _ ->
+            ok
     end.
+
+wait_connection_process_dies(ClientId) ->
+    case emqx_cm:lookup_channels(ClientId) of
+        [] ->
+            ok;
+        [ConnectionPid] ->
+            Ref = monitor(process, ConnectionPid),
+            ?assertReceive(
+                {'DOWN', Ref, process, ConnectionPid, Reason} when
+                    Reason == normal orelse Reason == noproc,
+                3000
+            ),
+            wait_connection_process_unregistered(ClientId)
+    end.
+
+wait_connection_process_unregistered(ClientId) ->
+    ?retry(
+        _Timeout = 100,
+        _Retries = 20,
+        ?assertEqual([], emqx_cm:lookup_channels(ClientId))
+    ).
 
 messages(Topic, Payloads) ->
     messages(Topic, Payloads, ?QOS_2).
@@ -272,23 +276,7 @@ do_publish(Messages = [_ | _], PublishFun, WaitForUnregister) ->
                 lists:foreach(fun(Message) -> PublishFun(Client, Message) end, Messages),
                 ok = emqtt:disconnect(Client),
                 %% Snabbkaffe sometimes fails unless all processes are gone.
-                case WaitForUnregister of
-                    false ->
-                        ok;
-                    true ->
-                        case emqx_cm:lookup_channels(ClientID) of
-                            [] ->
-                                ok;
-                            [ConnectionPid] ->
-                                ?assert(is_pid(ConnectionPid)),
-                                Ref1 = monitor(process, ConnectionPid),
-                                receive
-                                    {'DOWN', Ref1, process, ConnectionPid, _} -> ok
-                                after 3000 -> error(process_did_not_die)
-                                end,
-                                wait_for_cm_unregister(ClientID)
-                        end
-                end
+                WaitForUnregister andalso wait_connection_process_dies(ClientID)
             end
         ),
     receive
@@ -438,7 +426,7 @@ t_cancel_on_disconnect(Config) ->
     {ok, _} = emqtt:ConnFun(Client1),
     ok = emqtt:disconnect(Client1, 0, #{'Session-Expiry-Interval' => 0}),
 
-    wait_for_cm_unregister(ClientId),
+    wait_connection_process_unregistered(ClientId),
 
     {ok, Client2} = emqtt:start_link([
         {clientid, ClientId},
@@ -470,7 +458,7 @@ t_persist_on_disconnect(Config) ->
     %% Strangely enough, the disconnect is reported as successful by emqtt.
     ok = emqtt:disconnect(Client1, 0, #{'Session-Expiry-Interval' => 30}),
 
-    wait_for_cm_unregister(ClientId),
+    wait_connection_process_unregistered(ClientId),
 
     {ok, Client2} = emqtt:start_link([
         {clientid, ClientId},
@@ -582,7 +570,7 @@ t_publish_many_while_client_is_gone_qos1(Config) ->
         {clientid, ClientId},
         {properties, #{'Session-Expiry-Interval' => 30}},
         {clean_start, true},
-        {auto_ack, false}
+        {auto_ack, never}
         | Config
     ]),
     {ok, _} = emqtt:ConnFun(Client1),
@@ -629,8 +617,7 @@ t_publish_many_while_client_is_gone_qos1(Config) ->
 
     ?assertEqual(
         get_topicwise_order(Pubs1),
-        get_topicwise_order(Msgs1),
-        Msgs1
+        get_topicwise_order(Msgs1)
     ),
 
     NAcked = 4,
@@ -688,21 +675,6 @@ t_publish_many_while_client_is_gone_qos1(Config) ->
 
     ok = emqtt:disconnect(Client2).
 
-get_topicwise_order(Msgs) ->
-    maps:groups_from_list(fun get_msgpub_topic/1, fun get_msgpub_payload/1, Msgs).
-
-get_msgpub_topic(#mqtt_msg{topic = Topic}) ->
-    Topic;
-get_msgpub_topic(#{topic := Topic}) ->
-    Topic.
-
-get_msgpub_payload(#mqtt_msg{payload = Payload}) ->
-    Payload;
-get_msgpub_payload(#{payload := Payload}) ->
-    Payload.
-
-t_publish_while_client_is_gone(init, Config) -> skip_ds_tc(Config);
-t_publish_while_client_is_gone('end', _Config) -> ok.
 t_publish_while_client_is_gone(Config) ->
     %% A persistent session should receive messages in its
     %% subscription even if the process owning the session dies.
@@ -744,6 +716,157 @@ t_publish_while_client_is_gone(Config) ->
     ?assertEqual({ok, 2}, maps:find(qos, Msg2)),
 
     ok = emqtt:disconnect(Client2).
+
+t_publish_many_while_client_is_gone(Config) ->
+    %% A persistent session should receive all of the still unacked messages
+    %% for its subscriptions after the client dies or reconnects, in addition
+    %% to PUBRELs for the messages it has PUBRECed. While client must send
+    %% PUBACKs and PUBRECs in order, those orders are independent of each other.
+    ClientId = ?config(client_id, Config),
+    ConnFun = ?config(conn_fun, Config),
+    ClientOpts = [
+        {proto_ver, v5},
+        {clientid, ClientId},
+        {properties, #{'Session-Expiry-Interval' => 30}},
+        {auto_ack, never}
+        | Config
+    ],
+
+    {ok, Client1} = emqtt:start_link([{clean_start, true} | ClientOpts]),
+    {ok, _} = emqtt:ConnFun(Client1),
+    {ok, _, [?QOS_1]} = emqtt:subscribe(Client1, <<"t/+/foo">>, ?QOS_1),
+    {ok, _, [?QOS_2]} = emqtt:subscribe(Client1, <<"msg/feed/#">>, ?QOS_2),
+    {ok, _, [?QOS_2]} = emqtt:subscribe(Client1, <<"loc/+/+/+">>, ?QOS_2),
+
+    Pubs1 = [
+        #mqtt_msg{topic = <<"t/42/foo">>, payload = <<"M1">>, qos = 1},
+        #mqtt_msg{topic = <<"t/42/foo">>, payload = <<"M2">>, qos = 1},
+        #mqtt_msg{topic = <<"msg/feed/me">>, payload = <<"M3">>, qos = 2},
+        #mqtt_msg{topic = <<"loc/1/2/42">>, payload = <<"M4">>, qos = 2},
+        #mqtt_msg{topic = <<"t/100/foo">>, payload = <<"M5">>, qos = 2},
+        #mqtt_msg{topic = <<"t/100/foo">>, payload = <<"M6">>, qos = 1},
+        #mqtt_msg{topic = <<"loc/3/4/5">>, payload = <<"M7">>, qos = 2},
+        #mqtt_msg{topic = <<"t/100/foo">>, payload = <<"M8">>, qos = 1},
+        #mqtt_msg{topic = <<"msg/feed/me">>, payload = <<"M9">>, qos = 2}
+    ],
+    ok = publish_many(Pubs1),
+    NPubs1 = length(Pubs1),
+
+    Msgs1 = receive_messages(NPubs1),
+    ct:pal("Msgs1 = ~p", [Msgs1]),
+    NMsgs1 = length(Msgs1),
+    ?assertEqual(NPubs1, NMsgs1),
+
+    ?assertEqual(
+        get_topicwise_order(Pubs1),
+        get_topicwise_order(Msgs1)
+    ),
+
+    %% PUBACK every QoS 1 message.
+    lists:foreach(
+        fun(PktId) -> ok = emqtt:puback(Client1, PktId) end,
+        [PktId || #{qos := 1, packet_id := PktId} <- Msgs1]
+    ),
+
+    %% PUBREC first `NRecs` QoS 2 messages.
+    NRecs = 3,
+    PubRecs1 = lists:sublist([PktId || #{qos := 2, packet_id := PktId} <- Msgs1], NRecs),
+    lists:foreach(
+        fun(PktId) -> ok = emqtt:pubrec(Client1, PktId) end,
+        PubRecs1
+    ),
+
+    %% Ensure that PUBACKs / PUBRECs are propagated to the channel.
+    pong = emqtt:ping(Client1),
+
+    %% Receive PUBRELs for the sent PUBRECs.
+    PubRels1 = receive_messages(NRecs),
+    ct:pal("PubRels1 = ~p", [PubRels1]),
+    ?assertEqual(
+        PubRecs1,
+        [PktId || {pubrel, #{packet_id := PktId}} <- PubRels1],
+        PubRels1
+    ),
+
+    ok = emqtt:disconnect(Client1),
+    maybe_kill_connection_process(ClientId, Config),
+
+    Pubs2 = [
+        #mqtt_msg{topic = <<"loc/3/4/5">>, payload = <<"M10">>, qos = 2},
+        #mqtt_msg{topic = <<"t/100/foo">>, payload = <<"M11">>, qos = 1},
+        #mqtt_msg{topic = <<"msg/feed/friend">>, payload = <<"M12">>, qos = 2}
+    ],
+    ok = publish_many(Pubs2),
+    NPubs2 = length(Pubs2),
+
+    {ok, Client2} = emqtt:start_link([{clean_start, false} | ClientOpts]),
+    {ok, _} = emqtt:ConnFun(Client2),
+
+    %% Try to receive _at most_ `NPubs` messages.
+    %% There shouldn't be that much unacked messages in the replay anyway,
+    %% but it's an easy number to pick.
+    NPubs = NPubs1 + NPubs2,
+    Msgs2 = receive_messages(NPubs, _Timeout = 2000),
+    ct:pal("Msgs2 = ~p", [Msgs2]),
+
+    %% We should again receive PUBRELs for the PUBRECs we sent earlier.
+    ?assertEqual(
+        get_msgs_essentials(PubRels1),
+        [get_msg_essentials(PubRel) || PubRel = {pubrel, _} <- Msgs2]
+    ),
+
+    %% We should receive duplicates only for QoS 2 messages where PUBRELs were
+    %% not sent, in the same order as the original messages.
+    Msgs2Dups = [get_msg_essentials(M) || M = #{dup := true} <- Msgs2],
+    ?assertEqual(
+        Msgs2Dups,
+        [M || M = #{qos := 2} <- Msgs2Dups]
+    ),
+    ?assertEqual(
+        get_msgs_essentials(pick_respective_msgs(Msgs2Dups, Msgs1)),
+        Msgs2Dups
+    ),
+
+    %% Now complete all yet incomplete QoS 2 message flows instead.
+    PubRecs2 = [PktId || #{qos := 2, packet_id := PktId} <- Msgs2],
+    lists:foreach(
+        fun(PktId) -> ok = emqtt:pubrec(Client2, PktId) end,
+        PubRecs2
+    ),
+
+    PubRels2 = receive_messages(length(PubRecs2)),
+    ct:pal("PubRels2 = ~p", [PubRels2]),
+    ?assertEqual(
+        PubRecs2,
+        [PktId || {pubrel, #{packet_id := PktId}} <- PubRels2],
+        PubRels2
+    ),
+
+    %% PUBCOMP every PUBREL.
+    PubComps = [PktId || {pubrel, #{packet_id := PktId}} <- PubRels1 ++ PubRels2],
+    lists:foreach(
+        fun(PktId) -> ok = emqtt:pubcomp(Client2, PktId) end,
+        PubComps
+    ),
+
+    %% Ensure that PUBCOMPs are propagated to the channel.
+    pong = emqtt:ping(Client2),
+
+    ok = emqtt:disconnect(Client2),
+    maybe_kill_connection_process(ClientId, Config),
+
+    {ok, Client3} = emqtt:start_link([{clean_start, false} | ClientOpts]),
+    {ok, _} = emqtt:ConnFun(Client3),
+
+    %% Only the last unacked QoS 1 message should be retransmitted.
+    Msgs3 = receive_messages(NPubs, _Timeout = 2000),
+    ct:pal("Msgs3 = ~p", [Msgs3]),
+    ?assertMatch(
+        [#{topic := <<"t/100/foo">>, payload := <<"M11">>, qos := 1, dup := true}],
+        Msgs3
+    ),
+
+    ok = emqtt:disconnect(Client3).
 
 t_clean_start_drops_subscriptions(Config) ->
     %% 1. A persistent session is started and disconnected.
@@ -795,6 +918,7 @@ t_clean_start_drops_subscriptions(Config) ->
     [Msg1] = receive_messages(1),
     ?assertEqual({ok, iolist_to_binary(Payload2)}, maps:find(payload, Msg1)),
 
+    pong = emqtt:ping(Client2),
     ok = emqtt:disconnect(Client2),
     maybe_kill_connection_process(ClientId, Config),
 
@@ -812,6 +936,7 @@ t_clean_start_drops_subscriptions(Config) ->
     [Msg2] = receive_messages(1),
     ?assertEqual({ok, iolist_to_binary(Payload3)}, maps:find(payload, Msg2)),
 
+    pong = emqtt:ping(Client3),
     ok = emqtt:disconnect(Client3).
 
 t_unsubscribe(Config) ->
@@ -874,6 +999,30 @@ t_multiple_subscription_matches(Config) ->
     ?assertEqual({ok, 2}, maps:find(qos, Msg1)),
     ?assertEqual({ok, 2}, maps:find(qos, Msg2)),
     ok = emqtt:disconnect(Client2).
+
+get_topicwise_order(Msgs) ->
+    maps:groups_from_list(fun get_msgpub_topic/1, fun get_msgpub_payload/1, Msgs).
+
+get_msgpub_topic(#mqtt_msg{topic = Topic}) ->
+    Topic;
+get_msgpub_topic(#{topic := Topic}) ->
+    Topic.
+
+get_msgpub_payload(#mqtt_msg{payload = Payload}) ->
+    Payload;
+get_msgpub_payload(#{payload := Payload}) ->
+    Payload.
+
+get_msg_essentials(Msg = #{}) ->
+    maps:with([packet_id, topic, payload, qos], Msg);
+get_msg_essentials({pubrel, Msg}) ->
+    {pubrel, maps:with([packet_id, reason_code], Msg)}.
+
+get_msgs_essentials(Msgs) ->
+    [get_msg_essentials(M) || M <- Msgs].
+
+pick_respective_msgs(MsgRefs, Msgs) ->
+    [M || M <- Msgs, Ref <- MsgRefs, maps:get(packet_id, M) =:= maps:get(packet_id, Ref)].
 
 skip_ds_tc(Config) ->
     case ?config(persistence, Config) of

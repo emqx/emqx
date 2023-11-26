@@ -22,7 +22,11 @@
 -define(SESSION_SUBSCRIPTIONS_TAB, emqx_ds_session_subscriptions).
 -define(SESSION_STREAM_TAB, emqx_ds_stream_tab).
 -define(SESSION_PUBRANGE_TAB, emqx_ds_pubrange_tab).
+-define(SESSION_MARKER_TAB, emqx_ds_marker_tab).
 -define(DS_MRIA_SHARD, emqx_ds_session_shard).
+
+%% Integer tags for `misc` maps keys.
+-define(T_tracks, 1).
 
 -record(ds_sub, {
     id :: emqx_persistent_session_ds:subscription_id(),
@@ -64,9 +68,26 @@
     %%   message in the range.
     iterator :: emqx_ds:iterator(),
     %% Reserved for future use.
-    misc = #{} :: map()
+    misc = #{} :: #{
+        %% What commit tracks this range is part of.
+        %% This is rarely stored: we only need to persist it when the range
+        %% contains QoS 2 messages.
+        ?T_tracks => non_neg_integer(),
+        _ => _
+    }
 }).
 -type ds_pubrange() :: #ds_pubrange{}.
+
+-record(ds_marker, {
+    id :: {
+        %% What session this marker belongs to.
+        _Session :: emqx_persistent_session_ds:id(),
+        %% Marker name.
+        _MarkerName
+    },
+    %% Where this marker is pointing to: the first seqno that is not marked.
+    until :: emqx_persistent_message_ds_replayer:seqno()
+}).
 
 -record(session, {
     %% same as clientid
