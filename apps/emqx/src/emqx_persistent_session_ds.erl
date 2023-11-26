@@ -153,19 +153,13 @@ open(#{clientid := ClientID} = _ClientInfo, ConnInfo) ->
     %% somehow isolate those idling not-yet-expired sessions into a separate process
     %% space, and move this call back into `emqx_cm` where it belongs.
     ok = emqx_cm:discard_session(ClientID),
-    case maps:get(clean_start, ConnInfo, false) of
+    case session_open(ClientID, ConnInfo) of
+        Session0 = #{} ->
+            ensure_timers(),
+            ReceiveMaximum = receive_maximum(ConnInfo),
+            Session = Session0#{receive_maximum => ReceiveMaximum},
+            {true, Session, []};
         false ->
-            case session_open(ClientID, ConnInfo) of
-                Session0 = #{} ->
-                    ensure_timers(),
-                    ReceiveMaximum = receive_maximum(ConnInfo),
-                    Session = Session0#{receive_maximum => ReceiveMaximum},
-                    {true, Session, []};
-                false ->
-                    false
-            end;
-        true ->
-            session_drop(ClientID),
             false
     end.
 
@@ -554,7 +548,7 @@ session_open(SessionId, NewConnInfo) ->
                 EI = expiry_interval(ConnInfo),
                 case ?IS_EXPIRED(NowMS, DisconnectedAt, EI) of
                     true ->
-                        %% Should we drop the session now, or leave it to session GC?
+                        session_drop(SessionId),
                         false;
                     false ->
                         %% new connection being established
@@ -831,8 +825,13 @@ session_drop_pubranges(DSSessionId) ->
 %%--------------------------------------------------------------------------------
 
 transaction(Fun) ->
-    {atomic, Res} = mria:transaction(?DS_MRIA_SHARD, Fun),
-    Res.
+    case mnesia:is_transaction() of
+        true ->
+            Fun();
+        false ->
+            {atomic, Res} = mria:transaction(?DS_MRIA_SHARD, Fun),
+            Res
+    end.
 
 ro_transaction(Fun) ->
     {atomic, Res} = mria:ro_transaction(?DS_MRIA_SHARD, Fun),
