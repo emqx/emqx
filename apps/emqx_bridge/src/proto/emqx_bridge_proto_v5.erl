@@ -34,7 +34,8 @@
     v2_start_bridge_to_node/3,
     v2_start_bridge_to_all_nodes/3,
     v2_list_bridges_on_nodes/1,
-    v2_lookup_from_all_nodes/3
+    v2_lookup_from_all_nodes/3,
+    v2_get_metrics_from_all_nodes/3
 ]).
 
 -include_lib("emqx/include/bpapi.hrl").
@@ -153,6 +154,17 @@ v2_lookup_from_all_nodes(Nodes, BridgeType, BridgeName) ->
         emqx_bridge_v2_api,
         lookup_from_local_node,
         [BridgeType, BridgeName],
+        ?TIMEOUT
+    ).
+
+-spec v2_get_metrics_from_all_nodes([node()], key(), key()) ->
+    emqx_rpc:erpc_multicall().
+v2_get_metrics_from_all_nodes(Nodes, ActionType, ActionName) ->
+    erpc:multicall(
+        Nodes,
+        emqx_bridge_v2_api,
+        get_metrics_from_local_node,
+        [ActionType, ActionName],
         ?TIMEOUT
     ).
 
