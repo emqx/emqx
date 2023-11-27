@@ -55,7 +55,6 @@
 ]).
 
 -export([config_key_path/0]).
--export([validate_bridge_name/1]).
 
 %% exported for `emqx_telemetry'
 -export([get_basic_usage_info/0]).
@@ -238,9 +237,15 @@ send_to_matched_egress_bridges_loop(Topic, Msg, [Id | Ids]) ->
     send_to_matched_egress_bridges_loop(Topic, Msg, Ids).
 
 send_message(BridgeId, Message) ->
-    {BridgeType, BridgeName} = emqx_bridge_resource:parse_bridge_id(BridgeId),
-    ResId = emqx_bridge_resource:resource_id(BridgeType, BridgeName),
-    send_message(BridgeType, BridgeName, ResId, Message, #{}).
+    {BridgeV1Type, BridgeName} = emqx_bridge_resource:parse_bridge_id(BridgeId),
+    case emqx_bridge_v2:is_bridge_v2_type(BridgeV1Type) of
+        true ->
+            ActionType = emqx_action_info:bridge_v1_type_to_action_type(BridgeV1Type),
+            emqx_bridge_v2:send_message(ActionType, BridgeName, Message, #{});
+        false ->
+            ResId = emqx_bridge_resource:resource_id(BridgeV1Type, BridgeName),
+            send_message(BridgeV1Type, BridgeName, ResId, Message, #{})
+    end.
 
 send_message(BridgeType, BridgeName, ResId, Message, QueryOpts0) ->
     case emqx:get_config([?ROOT_KEY, BridgeType, BridgeName], not_found) of
@@ -269,7 +274,12 @@ config_key_path() ->
 pre_config_update([?ROOT_KEY], RawConf, RawConf) ->
     {ok, RawConf};
 pre_config_update([?ROOT_KEY], NewConf, _RawConf) ->
-    {ok, convert_certs(NewConf)}.
+    case multi_validate_bridge_names(NewConf) of
+        ok ->
+            {ok, convert_certs(NewConf)};
+        Error ->
+            Error
+    end.
 
 post_config_update([?ROOT_KEY], _Req, NewConf, OldConf, _AppEnv) ->
     #{added := Added, removed := Removed, changed := Updated} =
@@ -310,7 +320,6 @@ list() ->
     BridgeV2Bridges =
         emqx_bridge_v2:bridge_v1_list_and_transform(),
     BridgeV1Bridges ++ BridgeV2Bridges.
-%%BridgeV2Bridges = emqx_bridge_v2:list().
 
 lookup(Id) ->
     {Type, Name} = emqx_bridge_resource:parse_bridge_id(Id),
@@ -374,8 +383,8 @@ disable_enable(Action, BridgeType0, BridgeName) when
             )
     end.
 
-create(BridgeType0, BridgeName, RawConf) ->
-    BridgeType = upgrade_type(BridgeType0),
+create(BridgeV1Type, BridgeName, RawConf) ->
+    BridgeType = upgrade_type(BridgeV1Type),
     ?SLOG(debug, #{
         bridge_action => create,
         bridge_type => BridgeType,
@@ -384,7 +393,7 @@ create(BridgeType0, BridgeName, RawConf) ->
     }),
     case emqx_bridge_v2:is_bridge_v2_type(BridgeType) of
         true ->
-            emqx_bridge_v2:bridge_v1_split_config_and_create(BridgeType, BridgeName, RawConf);
+            emqx_bridge_v2:bridge_v1_split_config_and_create(BridgeV1Type, BridgeName, RawConf);
         false ->
             emqx_conf:update(
                 emqx_bridge:config_key_path() ++ [BridgeType, BridgeName],
@@ -405,7 +414,7 @@ remove(BridgeType0, BridgeName) ->
     }),
     case emqx_bridge_v2:is_bridge_v2_type(BridgeType) of
         true ->
-            emqx_bridge_v2:remove(BridgeType, BridgeName);
+            emqx_bridge_v2:bridge_v1_remove(BridgeType0, BridgeName);
         false ->
             remove_v1(BridgeType, BridgeName)
     end.
@@ -658,17 +667,13 @@ get_basic_usage_info() ->
             InitialAcc
     end.
 
-validate_bridge_name(BridgeName0) ->
-    BridgeName = to_bin(BridgeName0),
-    case re:run(BridgeName, ?MAP_KEY_RE, [{capture, none}]) of
-        match ->
-            ok;
-        nomatch ->
-            {error, #{
-                kind => validation_error,
-                reason => bad_bridge_name,
-                value => BridgeName
-            }}
+validate_bridge_name(BridgeName) ->
+    try
+        _ = emqx_resource:validate_name(to_bin(BridgeName)),
+        ok
+    catch
+        throw:Error ->
+            {error, Error}
     end.
 
 to_bin(A) when is_atom(A) -> atom_to_binary(A, utf8);
@@ -676,3 +681,31 @@ to_bin(B) when is_binary(B) -> B.
 
 upgrade_type(Type) ->
     emqx_bridge_lib:upgrade_type(Type).
+
+multi_validate_bridge_names(Conf) ->
+    BridgeTypeAndNames =
+        [
+            {Type, Name}
+         || {Type, NameToConf} <- maps:to_list(Conf),
+            {Name, _Conf} <- maps:to_list(NameToConf)
+        ],
+    BadBridges =
+        lists:filtermap(
+            fun({Type, Name}) ->
+                case validate_bridge_name(Name) of
+                    ok -> false;
+                    _Error -> {true, #{type => Type, name => Name}}
+                end
+            end,
+            BridgeTypeAndNames
+        ),
+    case BadBridges of
+        [] ->
+            ok;
+        [_ | _] ->
+            {error, #{
+                kind => validation_error,
+                reason => bad_bridge_names,
+                bad_bridges => BadBridges
+            }}
+    end.

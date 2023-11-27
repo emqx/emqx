@@ -36,7 +36,7 @@
 
 -define(MQTT_HOST_OPTS, #{default_port => 1883}).
 
-namespace() -> "connector-mqtt".
+namespace() -> "connector_mqtt".
 
 roots() ->
     fields("config").

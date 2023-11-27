@@ -40,4 +40,17 @@ sql_template.desc:
 sql_template.label:
 """SQL Template"""
 
+pgsql_action.desc:
+"""Configuration for PostgreSQL Action"""
+
+pgsql_action.label:
+"""PostgreSQL Action Configuration"""
+
+
+action_parameters.desc:
+"""Configuration Parameters Specific to the PostgreSQL Action"""
+
+action_parameters.label:
+"""Action Parameters"""
+
 }

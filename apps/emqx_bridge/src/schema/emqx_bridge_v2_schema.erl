@@ -39,6 +39,13 @@
 ]).
 
 -export([types/0, types_sc/0]).
+-export([resource_opts_fields/0, resource_opts_fields/1]).
+
+-export([
+    make_producer_action_schema/1,
+    make_consumer_action_schema/1,
+    top_level_common_action_keys/0
+]).
 
 -export_type([action_type/0]).
 
@@ -116,7 +123,9 @@ roots() ->
     end.
 
 fields(actions) ->
-    registered_schema_fields().
+    registered_schema_fields();
+fields(resource_opts) ->
+    emqx_resource_schema:create_opts(_Overrides = []).
 
 registered_schema_fields() ->
     [
@@ -126,6 +135,8 @@ registered_schema_fields() ->
 
 desc(actions) ->
     ?DESC("desc_bridges_v2");
+desc(resource_opts) ->
+    ?DESC(emqx_resource_schema, "resource_opts");
 desc(_) ->
     undefined.
 
@@ -136,6 +147,31 @@ types() ->
 -spec types_sc() -> ?ENUM([action_type()]).
 types_sc() ->
     hoconsc:enum(types()).
+
+resource_opts_fields() ->
+    resource_opts_fields(_Overrides = []).
+
+resource_opts_fields(Overrides) ->
+    ActionROFields = [
+        batch_size,
+        batch_time,
+        buffer_mode,
+        buffer_seg_bytes,
+        health_check_interval,
+        inflight_window,
+        max_buffer_bytes,
+        metrics_flush_interval,
+        query_mode,
+        request_ttl,
+        resume_interval,
+        start_after_created,
+        start_timeout,
+        worker_pool_size
+    ],
+    lists:filter(
+        fun({Key, _Sc}) -> lists:member(Key, ActionROFields) end,
+        emqx_resource_schema:create_opts(Overrides)
+    ).
 
 examples(Method) ->
     MergeFun =
@@ -149,6 +185,42 @@ examples(Method) ->
         end,
     SchemaModules = [Mod || {_, Mod} <- emqx_action_info:registered_schema_modules()],
     lists:foldl(Fun, #{}, SchemaModules).
+
+top_level_common_action_keys() ->
+    [
+        <<"connector">>,
+        <<"description">>,
+        <<"enable">>,
+        <<"local_topic">>,
+        <<"parameters">>,
+        <<"resource_opts">>
+    ].
+
+%%======================================================================================
+%% Helper functions for making HOCON Schema
+%%======================================================================================
+
+make_producer_action_schema(ActionParametersRef) ->
+    [
+        {local_topic, mk(binary(), #{required => false, desc => ?DESC(mqtt_topic)})}
+        | make_consumer_action_schema(ActionParametersRef)
+    ].
+
+make_consumer_action_schema(ActionParametersRef) ->
+    [
+        {enable, mk(boolean(), #{desc => ?DESC("config_enable"), default => true})},
+        {connector,
+            mk(binary(), #{
+                desc => ?DESC(emqx_connector_schema, "connector_field"), required => true
+            })},
+        {description, emqx_schema:description_schema()},
+        {parameters, ActionParametersRef},
+        {resource_opts,
+            mk(ref(?MODULE, resource_opts), #{
+                default => #{},
+                desc => ?DESC(emqx_resource_schema, "resource_opts")
+            })}
+    ].
 
 -ifdef(TEST).
 -include_lib("hocon/include/hocon_types.hrl").
@@ -169,7 +241,7 @@ schema_homogeneous_test() ->
 
 is_bad_schema(#{type := ?MAP(_, ?R_REF(Module, TypeName))}) ->
     Fields = Module:fields(TypeName),
-    ExpectedFieldNames = common_field_names(),
+    ExpectedFieldNames = lists:map(fun binary_to_atom/1, top_level_common_action_keys()),
     MissingFileds = lists:filter(
         fun(Name) -> lists:keyfind(Name, 1, Fields) =:= false end, ExpectedFieldNames
     ),
@@ -183,10 +255,5 @@ is_bad_schema(#{type := ?MAP(_, ?R_REF(Module, TypeName))}) ->
                 missing_fields => MissingFileds
             }}
     end.
-
-common_field_names() ->
-    [
-        enable, description, local_topic, connector, resource_opts, parameters
-    ].
 
 -endif.

@@ -1,8 +1,9 @@
 {application, emqx_bridge_timescale, [
     {description, "EMQX Enterprise TimescaleDB Bridge"},
-    {vsn, "0.1.2"},
+    {vsn, "0.1.3"},
     {registered, []},
     {applications, [kernel, stdlib, emqx_resource]},
+    {env, [{emqx_action_info_module, emqx_bridge_timescale_action_info}]},
     {env, []},
     {modules, []},
     {links, []}

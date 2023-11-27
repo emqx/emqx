@@ -194,7 +194,7 @@ keys() ->
     emqx_config:get_root_names() -- hidden_roots().
 
 drop_hidden_roots(Conf) ->
-    lists:foldl(fun(K, Acc) -> maps:remove(K, Acc) end, Conf, hidden_roots()).
+    maps:without(hidden_roots(), Conf).
 
 hidden_roots() ->
     [
@@ -202,6 +202,7 @@ hidden_roots() ->
         <<"stats">>,
         <<"broker">>,
         <<"persistent_session_store">>,
+        <<"session_persistence">>,
         <<"plugins">>,
         <<"zones">>
     ].

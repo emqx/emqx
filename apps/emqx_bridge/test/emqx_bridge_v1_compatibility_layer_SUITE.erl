@@ -60,15 +60,7 @@ init_per_testcase(_TestCase, Config) ->
     ets:new(fun_table_name(), [named_table, public]),
     %% Create a fake connector
     {ok, _} = emqx_connector:create(con_type(), con_name(), con_config()),
-    [
-        {mocked_mods, [
-            emqx_connector_schema,
-            emqx_connector_resource,
-
-            emqx_bridge_v2
-        ]}
-        | Config
-    ].
+    Config.
 
 end_per_testcase(_TestCase, _Config) ->
     ets:delete(fun_table_name()),
@@ -150,7 +142,8 @@ con_schema() ->
 fields("connector") ->
     [
         {enable, hoconsc:mk(any(), #{})},
-        {resource_opts, hoconsc:mk(map(), #{})}
+        {resource_opts, hoconsc:mk(map(), #{})},
+        {ssl, hoconsc:ref(ssl)}
     ];
 fields("api_post") ->
     [
@@ -159,7 +152,9 @@ fields("api_post") ->
         {type, hoconsc:mk(bridge_type(), #{})},
         {send_to, hoconsc:mk(atom(), #{})}
         | fields("connector")
-    ].
+    ];
+fields(ssl) ->
+    emqx_schema:client_ssl_opts_schema(#{required => false}).
 
 con_config() ->
     #{
@@ -805,4 +800,28 @@ t_scenario_2(Config) ->
     ?assertMatch({ok, {{_, 200, _}, _, _}}, enable_rule_http(RuleId2)),
     ?assert(is_rule_enabled(RuleId2)),
 
+    ok.
+
+t_create_with_bad_name(_Config) ->
+    BadBridgeName = <<"test_哈哈">>,
+    %% Note: must contain SSL options to trigger bug.
+    Cacertfile = emqx_common_test_helpers:app_path(
+        emqx,
+        filename:join(["etc", "certs", "cacert.pem"])
+    ),
+    Opts = #{
+        name => BadBridgeName,
+        overrides => #{
+            <<"ssl">> =>
+                #{<<"cacertfile">> => Cacertfile}
+        }
+    },
+    {error,
+        {{_, 400, _}, _, #{
+            <<"code">> := <<"BAD_REQUEST">>,
+            <<"message">> := #{
+                <<"kind">> := <<"validation_error">>,
+                <<"reason">> := <<"Invalid name format.", _/binary>>
+            }
+        }}} = create_bridge_http_api_v1(Opts),
     ok.

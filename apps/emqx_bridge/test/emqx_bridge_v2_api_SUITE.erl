@@ -587,7 +587,7 @@ t_broken_bridge_config(Config) ->
                 <<"type">> := ?BRIDGE_TYPE,
                 <<"connector">> := <<"does_not_exist">>,
                 <<"status">> := <<"disconnected">>,
-                <<"error">> := <<"Pending installation">>
+                <<"error">> := <<"Not installed">>
             }
         ]},
         request_json(get, uri([?ROOT]), Config)
@@ -640,7 +640,7 @@ t_fix_broken_bridge_config(Config) ->
                 <<"type">> := ?BRIDGE_TYPE,
                 <<"connector">> := <<"does_not_exist">>,
                 <<"status">> := <<"disconnected">>,
-                <<"error">> := <<"Pending installation">>
+                <<"error">> := <<"Not installed">>
             }
         ]},
         request_json(get, uri([?ROOT]), Config)
@@ -1019,6 +1019,26 @@ t_action_types(Config) ->
     {ok, 200, Types} = Res,
     ?assert(is_list(Types), #{types => Types}),
     ?assert(lists:all(fun is_binary/1, Types), #{types => Types}),
+    ok.
+
+t_bad_name(Config) ->
+    Name = <<"_bad_name">>,
+    Res = request_json(
+        post,
+        uri([?ROOT]),
+        ?KAFKA_BRIDGE(Name),
+        Config
+    ),
+    ?assertMatch({ok, 400, #{<<"message">> := _}}, Res),
+    {ok, 400, #{<<"message">> := Msg0}} = Res,
+    Msg = emqx_utils_json:decode(Msg0, [return_maps]),
+    ?assertMatch(
+        #{
+            <<"kind">> := <<"validation_error">>,
+            <<"reason">> := <<"Invalid name format.", _/binary>>
+        },
+        Msg
+    ),
     ok.
 
 %%% helpers

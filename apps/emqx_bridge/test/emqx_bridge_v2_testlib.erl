@@ -139,6 +139,7 @@ create_bridge(Config, Overrides) ->
     ConnectorName = ?config(connector_name, Config),
     ConnectorType = ?config(connector_type, Config),
     ConnectorConfig = ?config(connector_config, Config),
+    ct:pal("creating connector with config: ~p", [ConnectorConfig]),
     {ok, _} =
         emqx_connector:create(ConnectorType, ConnectorName, ConnectorConfig),
 
@@ -311,6 +312,25 @@ create_rule_and_action_http(BridgeType, RuleTopic, Config, Opts) ->
         Error ->
             Error
     end.
+
+api_spec_schemas(Root) ->
+    Method = get,
+    Path = emqx_mgmt_api_test_util:api_path(["schemas", Root]),
+    Params = [],
+    AuthHeader = [],
+    Opts = #{return_all => true},
+    case emqx_mgmt_api_test_util:request_api(Method, Path, "", AuthHeader, Params, Opts) of
+        {ok, {{_, 200, _}, _, Res0}} ->
+            #{<<"components">> := #{<<"schemas">> := Schemas}} =
+                emqx_utils_json:decode(Res0, [return_maps]),
+            Schemas
+    end.
+
+bridges_api_spec_schemas() ->
+    api_spec_schemas("bridges").
+
+actions_api_spec_schemas() ->
+    api_spec_schemas("actions").
 
 %%------------------------------------------------------------------------------
 %% Testcases
@@ -532,18 +552,24 @@ t_on_get_status(Config, Opts) ->
         _Attempts = 20,
         ?assertEqual({ok, connected}, emqx_resource_manager:health_check(ResourceId))
     ),
-    emqx_common_test_helpers:with_failure(down, ProxyName, ProxyHost, ProxyPort, fun() ->
-        ct:sleep(500),
-        ?retry(
-            _Interval0 = 200,
-            _Attempts0 = 10,
-            ?assertEqual({ok, FailureStatus}, emqx_resource_manager:health_check(ResourceId))
-        )
-    end),
-    %% Check that it recovers itself.
-    ?retry(
-        _Sleep = 1_000,
-        _Attempts = 20,
-        ?assertEqual({ok, connected}, emqx_resource_manager:health_check(ResourceId))
-    ),
+    case ProxyHost of
+        undefined ->
+            ok;
+        _ ->
+            emqx_common_test_helpers:with_failure(down, ProxyName, ProxyHost, ProxyPort, fun() ->
+                ?retry(
+                    _Interval0 = 100,
+                    _Attempts0 = 20,
+                    ?assertEqual(
+                        {ok, FailureStatus}, emqx_resource_manager:health_check(ResourceId)
+                    )
+                )
+            end),
+            %% Check that it recovers itself.
+            ?retry(
+                _Sleep = 1_000,
+                _Attempts = 20,
+                ?assertEqual({ok, connected}, emqx_resource_manager:health_check(ResourceId))
+            )
+    end,
     ok.

@@ -114,7 +114,7 @@ init_per_suite(Config) ->
 
 end_per_suite(_Config) ->
     emqx_mgmt_api_test_util:end_suite(),
-    ok = emqx_common_test_helpers:stop_apps([emqx_bridge, emqx_conf]),
+    ok = emqx_common_test_helpers:stop_apps([emqx, emqx_postgresql, emqx_conf, emqx_bridge]),
     ok.
 
 init_per_testcase(_Testcase, Config) ->
@@ -147,7 +147,7 @@ common_init(Config0) ->
             ProxyPort = list_to_integer(os:getenv("PROXY_PORT", "8474")),
             emqx_common_test_helpers:reset_proxy(ProxyHost, ProxyPort),
             % Ensure enterprise bridge module is loaded
-            ok = emqx_common_test_helpers:start_apps([emqx_conf, emqx_bridge]),
+            ok = emqx_common_test_helpers:start_apps([emqx, emqx_postgresql, emqx_conf, emqx_bridge]),
             _ = emqx_bridge_enterprise:module_info(),
             emqx_mgmt_api_test_util:init_suite(),
             % Connect to pgsql directly and create the table
@@ -259,17 +259,16 @@ send_message(Config, Payload) ->
     BridgeID = emqx_bridge_resource:bridge_id(BridgeType, Name),
     emqx_bridge:send_message(BridgeID, Payload).
 
-query_resource(Config, Request) ->
+query_resource(Config, Msg = _Request) ->
     Name = ?config(pgsql_name, Config),
     BridgeType = ?config(pgsql_bridge_type, Config),
-    ResourceID = emqx_bridge_resource:resource_id(BridgeType, Name),
-    emqx_resource:query(ResourceID, Request, #{timeout => 1_000}).
+    emqx_bridge_v2:query(BridgeType, Name, Msg, #{timeout => 1_000}).
 
 query_resource_sync(Config, Request) ->
     Name = ?config(pgsql_name, Config),
     BridgeType = ?config(pgsql_bridge_type, Config),
-    ResourceID = emqx_bridge_resource:resource_id(BridgeType, Name),
-    emqx_resource_buffer_worker:simple_sync_query(ResourceID, Request).
+    ActionId = emqx_bridge_v2:id(BridgeType, Name),
+    emqx_resource_buffer_worker:simple_sync_query(ActionId, Request).
 
 query_resource_async(Config, Request) ->
     query_resource_async(Config, Request, _Opts = #{}).
@@ -279,9 +278,8 @@ query_resource_async(Config, Request, Opts) ->
     BridgeType = ?config(pgsql_bridge_type, Config),
     Ref = alias([reply]),
     AsyncReplyFun = fun(Result) -> Ref ! {result, Ref, Result} end,
-    ResourceID = emqx_bridge_resource:resource_id(BridgeType, Name),
     Timeout = maps:get(timeout, Opts, 500),
-    Return = emqx_resource:query(ResourceID, Request, #{
+    Return = emqx_bridge_v2:query(BridgeType, Name, Request, #{
         timeout => Timeout,
         async_reply_fun => {AsyncReplyFun, []}
     }),
@@ -441,13 +439,12 @@ t_get_status(Config) ->
 
     Name = ?config(pgsql_name, Config),
     BridgeType = ?config(pgsql_bridge_type, Config),
-    ResourceID = emqx_bridge_resource:resource_id(BridgeType, Name),
 
-    ?assertEqual({ok, connected}, emqx_resource_manager:health_check(ResourceID)),
+    ?assertMatch(#{status := connected}, emqx_bridge_v2:health_check(BridgeType, Name)),
     emqx_common_test_helpers:with_failure(down, ProxyName, ProxyHost, ProxyPort, fun() ->
         ?assertMatch(
-            {ok, Status} when Status =:= disconnected orelse Status =:= connecting,
-            emqx_resource_manager:health_check(ResourceID)
+            #{status := Status} when Status =:= disconnected orelse Status =:= connecting,
+            emqx_bridge_v2:health_check(BridgeType, Name)
         )
     end),
     ok.
@@ -655,7 +652,7 @@ t_nasty_sql_string(Config) ->
 t_missing_table(Config) ->
     Name = ?config(pgsql_name, Config),
     BridgeType = ?config(pgsql_bridge_type, Config),
-    ResourceID = emqx_bridge_resource:resource_id(BridgeType, Name),
+    % ResourceID = emqx_bridge_resource:resource_id(BridgeType, Name),
 
     ?check_trace(
         begin
@@ -665,21 +662,20 @@ t_missing_table(Config) ->
                 _Sleep = 1_000,
                 _Attempts = 20,
                 ?assertMatch(
-                    {ok, Status} when Status == connecting orelse Status == disconnected,
-                    emqx_resource_manager:health_check(ResourceID)
+                    #{status := Status} when Status == connecting orelse Status == disconnected,
+                    emqx_bridge_v2:health_check(BridgeType, Name)
                 )
             ),
             Val = integer_to_binary(erlang:unique_integer()),
             SentData = #{payload => Val, timestamp => 1668602148000},
-            Timeout = 1000,
             ?assertMatch(
                 {error, {resource_error, #{reason := unhealthy_target}}},
-                query_resource(Config, {send_message, SentData, [], Timeout})
+                query_resource(Config, {send_message, SentData})
             ),
             ok
         end,
         fun(Trace) ->
-            ?assertMatch([_], ?of_kind(pgsql_undefined_table, Trace)),
+            ?assertMatch([_ | _], ?of_kind(pgsql_undefined_table, Trace)),
             ok
         end
     ),
@@ -689,7 +685,7 @@ t_missing_table(Config) ->
 t_table_removed(Config) ->
     Name = ?config(pgsql_name, Config),
     BridgeType = ?config(pgsql_bridge_type, Config),
-    ResourceID = emqx_bridge_resource:resource_id(BridgeType, Name),
+    %%ResourceID = emqx_bridge_resource:resource_id(BridgeType, Name),
     ?check_trace(
         begin
             connect_and_create_table(Config),
@@ -697,13 +693,14 @@ t_table_removed(Config) ->
             ?retry(
                 _Sleep = 1_000,
                 _Attempts = 20,
-                ?assertEqual({ok, connected}, emqx_resource_manager:health_check(ResourceID))
+                ?assertMatch(#{status := connected}, emqx_bridge_v2:health_check(BridgeType, Name))
             ),
             connect_and_drop_table(Config),
             Val = integer_to_binary(erlang:unique_integer()),
             SentData = #{payload => Val, timestamp => 1668602148000},
-            case query_resource_sync(Config, {send_message, SentData, []}) of
-                {error, {unrecoverable_error, {error, error, <<"42P01">>, undefined_table, _, _}}} ->
+            ActionId = emqx_bridge_v2:id(BridgeType, Name),
+            case query_resource_sync(Config, {ActionId, SentData}) of
+                {error, {unrecoverable_error, _}} ->
                     ok;
                 ?RESOURCE_ERROR_M(not_connected, _) ->
                     ok;
@@ -720,7 +717,6 @@ t_table_removed(Config) ->
 t_concurrent_health_checks(Config) ->
     Name = ?config(pgsql_name, Config),
     BridgeType = ?config(pgsql_bridge_type, Config),
-    ResourceID = emqx_bridge_resource:resource_id(BridgeType, Name),
     ?check_trace(
         begin
             connect_and_create_table(Config),
@@ -728,11 +724,13 @@ t_concurrent_health_checks(Config) ->
             ?retry(
                 _Sleep = 1_000,
                 _Attempts = 20,
-                ?assertEqual({ok, connected}, emqx_resource_manager:health_check(ResourceID))
+                ?assertMatch(#{status := connected}, emqx_bridge_v2:health_check(BridgeType, Name))
             ),
             emqx_utils:pmap(
                 fun(_) ->
-                    ?assertEqual({ok, connected}, emqx_resource_manager:health_check(ResourceID))
+                    ?assertMatch(
+                        #{status := connected}, emqx_bridge_v2:health_check(BridgeType, Name)
+                    )
                 end,
                 lists:seq(1, 20)
             ),

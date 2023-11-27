@@ -1,0 +1,15 @@
+{application, emqx_bridge_confluent, [
+    {description, "EMQX Enterprise Confluent Connector and Action"},
+    {vsn, "0.1.0"},
+    {registered, []},
+    {applications, [
+        kernel,
+        stdlib,
+        emqx_resource,
+        telemetry,
+        wolff
+    ]},
+    {env, [{emqx_action_info_modules, [emqx_bridge_confluent_producer_action_info]}]},
+    {modules, []},
+    {links, []}
+]}.

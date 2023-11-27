@@ -199,8 +199,36 @@ t_create_with_bad_name(_Config) ->
     ?assertMatch(
         {error,
             {pre_config_update, emqx_bridge_app, #{
-                reason := bad_bridge_name,
+                reason := <<"Invalid name format.", _/binary>>,
                 kind := validation_error
+            }}},
+        emqx:update_config(Path, Conf)
+    ),
+    ok.
+
+t_create_with_bad_name_root(_Config) ->
+    BadBridgeName = <<"test_哈哈">>,
+    BridgeConf = #{
+        <<"bridge_mode">> => false,
+        <<"clean_start">> => true,
+        <<"keepalive">> => <<"60s">>,
+        <<"proto_ver">> => <<"v4">>,
+        <<"server">> => <<"127.0.0.1:1883">>,
+        <<"ssl">> =>
+            #{
+                %% needed to trigger pre_config_update
+                <<"certfile">> => cert_file("certfile"),
+                <<"enable">> => true
+            }
+    },
+    Conf = #{<<"mqtt">> => #{BadBridgeName => BridgeConf}},
+    Path = [bridges],
+    ?assertMatch(
+        {error,
+            {pre_config_update, _ConfigHandlerMod, #{
+                kind := validation_error,
+                reason := bad_bridge_names,
+                bad_bridges := [#{type := <<"mqtt">>, name := BadBridgeName}]
             }}},
         emqx:update_config(Path, Conf)
     ),

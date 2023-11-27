@@ -65,58 +65,6 @@ on:
         default: '5.2-3'
 
 jobs:
-  windows:
-    runs-on: windows-2019
-    if: inputs.profile == 'emqx'
-    strategy:
-      fail-fast: false
-      matrix:
-        profile: # for now only CE for windows
-          - emqx
-    steps:
-    - uses: actions/checkout@v3
-      with:
-        ref: ${{ github.event.inputs.ref }}
-        fetch-depth: 0
-
-    - uses: ilammy/msvc-dev-cmd@v1.12.0
-    - uses: erlef/setup-beam@v1.16.0
-      with:
-        otp-version: 25.3.2
-    - name: build
-      env:
-        PYTHON: python
-        DIAGNOSTIC: 1
-      run: |
-        # ensure crypto app (openssl)
-        erl -eval "erlang:display(crypto:info_lib())" -s init stop
-        make ${{ matrix.profile }}-tgz
-    - name: run emqx
-      timeout-minutes: 5
-      run: |
-        $ErrorActionPreference = "Stop"
-        ./_build/${{ matrix.profile }}/rel/emqx/bin/emqx start
-        Start-Sleep -s 10
-        $pingOutput = ./_build/${{ matrix.profile }}/rel/emqx/bin/emqx ping
-        if ($pingOutput = 'pong') {
-          echo "EMQX started OK"
-        } else {
-          echo "Failed to ping EMQX $pingOutput"
-          Exit 1
-        }
-        ./_build/${{ matrix.profile }}/rel/emqx/bin/emqx stop
-        echo "EMQX stopped"
-        ./_build/${{ matrix.profile }}/rel/emqx/bin/emqx install
-        echo "EMQX installed"
-        ./_build/${{ matrix.profile }}/rel/emqx/bin/emqx uninstall
-        echo "EMQX uninstalled"
-    - uses: actions/upload-artifact@v3
-      if: success()
-      with:
-        name: ${{ matrix.profile }}
-        path: _packages/${{ matrix.profile }}/
-        retention-days: 7
-
   mac:
     strategy:
       fail-fast: false
@@ -126,9 +74,9 @@ jobs:
         otp:
           - ${{ inputs.otp_vsn }}
         os:
-          - macos-11
           - macos-12
           - macos-12-arm64
+          - macos-13
     runs-on: ${{ matrix.os }}
     steps:
     - uses: emqx/self-hosted-cleanup-action@v1.0.3

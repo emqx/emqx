@@ -28,7 +28,7 @@
     fields/1
 ]).
 
-namespace() -> "authn-psk".
+namespace() -> "psk".
 
 roots() -> ["psk_authentication"].
 

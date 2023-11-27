@@ -15,8 +15,11 @@
 -export([
     start_link/0,
     enable/2,
+    enable/3,
+    default_options/0,
     disable/1,
     status/0,
+    enable_status/0,
     connection_count/0,
     all_channels_count/0,
     session_count/0,
@@ -51,7 +54,7 @@
     unhook/0
 ]).
 
--export_type([server_reference/0]).
+-export_type([server_reference/0, kind/0, options/0]).
 
 -define(CONN_MODULES, [
     emqx_connection, emqx_ws_connection, emqx_quic_connection, emqx_eviction_agent_channel
@@ -67,15 +70,31 @@
     connections := non_neg_integer(),
     sessions := non_neg_integer()
 }.
--type kind() :: atom().
+
+%% kind() is any() because it was not exported previously
+%% and bpapi checker remembered it as any()
+-type kind() :: any().
+-type options() :: #{
+    allow_connections => boolean()
+}.
 
 -spec start_link() -> startlink_ret().
 start_link() ->
     gen_server:start_link({local, ?MODULE}, ?MODULE, [], []).
 
+-spec default_options() -> options().
+default_options() ->
+    #{
+        allow_connections => false
+    }.
+
 -spec enable(kind(), server_reference()) -> ok_or_error(eviction_agent_busy).
 enable(Kind, ServerReference) ->
-    gen_server:call(?MODULE, {enable, Kind, ServerReference}).
+    gen_server:call(?MODULE, {enable, Kind, ServerReference, default_options()}).
+
+-spec enable(kind(), server_reference(), options()) -> ok_or_error(eviction_agent_busy).
+enable(Kind, ServerReference, #{} = Options) ->
+    gen_server:call(?MODULE, {enable, Kind, ServerReference, Options}).
 
 -spec disable(kind()) -> ok.
 disable(Kind) ->
@@ -84,16 +103,20 @@ disable(Kind) ->
 -spec status() -> status().
 status() ->
     case enable_status() of
-        {enabled, _Kind, _ServerReference} ->
+        {enabled, _Kind, _ServerReference, _Options} ->
             {enabled, stats()};
         disabled ->
             disabled
     end.
 
+-spec enable_status() -> disabled | {enabled, kind(), server_reference(), options()}.
+enable_status() ->
+    persistent_term:get(?MODULE, disabled).
+
 -spec evict_connections(pos_integer()) -> ok_or_error(disabled).
 evict_connections(N) ->
     case enable_status() of
-        {enabled, _Kind, ServerReference} ->
+        {enabled, _Kind, ServerReference, _Options} ->
             ok = do_evict_connections(N, ServerReference);
         disabled ->
             {error, disabled}
@@ -112,15 +135,16 @@ evict_sessions(N, Nodes, ConnState) when
     is_list(Nodes) andalso length(Nodes) > 0
 ->
     case enable_status() of
-        {enabled, _Kind, _ServerReference} ->
+        {enabled, _Kind, _ServerReference, _Options} ->
             ok = do_evict_sessions(N, Nodes, ConnState);
         disabled ->
             {error, disabled}
     end.
 
+-spec purge_sessions(non_neg_integer()) -> ok_or_error(disabled).
 purge_sessions(N) ->
     case enable_status() of
-        {enabled, _Kind, _ServerReference} ->
+        {enabled, _Kind, _ServerReference, _Options} ->
             ok = do_purge_sessions(N);
         disabled ->
             {error, disabled}
@@ -135,14 +159,14 @@ init([]) ->
     {ok, #{}}.
 
 %% enable
-handle_call({enable, Kind, ServerReference}, _From, St) ->
+handle_call({enable, Kind, ServerReference, Options}, _From, St) ->
     Reply =
         case enable_status() of
             disabled ->
-                ok = persistent_term:put(?MODULE, {enabled, Kind, ServerReference});
-            {enabled, Kind, _ServerReference} ->
-                ok = persistent_term:put(?MODULE, {enabled, Kind, ServerReference});
-            {enabled, _OtherKind, _ServerReference} ->
+                ok = persistent_term:put(?MODULE, {enabled, Kind, ServerReference, Options});
+            {enabled, Kind, _ServerReference, _Options} ->
+                ok = persistent_term:put(?MODULE, {enabled, Kind, ServerReference, Options});
+            {enabled, _OtherKind, _ServerReference, _Options} ->
                 {error, eviction_agent_busy}
         end,
     {reply, Reply, St};
@@ -152,10 +176,10 @@ handle_call({disable, Kind}, _From, St) ->
         case enable_status() of
             disabled ->
                 {error, disabled};
-            {enabled, Kind, _ServerReference} ->
+            {enabled, Kind, _ServerReference, _Options} ->
                 _ = persistent_term:erase(?MODULE),
                 ok;
-            {enabled, _OtherKind, _ServerReference} ->
+            {enabled, _OtherKind, _ServerReference, _Options} ->
                 {error, eviction_agent_busy}
         end,
     {reply, Reply, St};
@@ -180,8 +204,10 @@ code_change(_Vsn, State, _Extra) ->
 
 on_connect(_ConnInfo, _Props) ->
     case enable_status() of
-        {enabled, _Kind, _ServerReference} ->
+        {enabled, _Kind, _ServerReference, #{allow_connections := false}} ->
             {stop, {error, ?RC_USE_ANOTHER_SERVER}};
+        {enabled, _Kind, _ServerReference, _Options} ->
+            ignore;
         disabled ->
             ignore
     end.
@@ -192,7 +218,7 @@ on_connack(
     Props
 ) ->
     case enable_status() of
-        {enabled, _Kind, ServerReference} ->
+        {enabled, _Kind, ServerReference, _Options} ->
             {ok, Props#{'Server-Reference' => ServerReference}};
         disabled ->
             {ok, Props}
@@ -214,10 +240,10 @@ unhook() ->
     ok = emqx_hooks:del('client.connect', {?MODULE, on_connect}),
     ok = emqx_hooks:del('client.connack', {?MODULE, on_connack}).
 
-enable_status() ->
-    persistent_term:get(?MODULE, disabled).
+%%--------------------------------------------------------------------
+%% Internal funcs
+%%--------------------------------------------------------------------
 
-% connection management
 stats() ->
     #{
         connections => connection_count(),

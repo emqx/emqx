@@ -521,8 +521,9 @@ format_action(Actions) ->
 
 do_format_action({bridge, BridgeType, BridgeName, _ResId}) ->
     emqx_bridge_resource:bridge_id(BridgeType, BridgeName);
-do_format_action({bridge_v2, BridgeType, BridgeName}) ->
-    emqx_bridge_resource:bridge_id(emqx_bridge_lib:downgrade_type(BridgeType), BridgeName);
+do_format_action({bridge_v2, BridgeType0, BridgeName}) ->
+    BridgeType = try_downgrade(BridgeType0, BridgeName),
+    emqx_bridge_resource:bridge_id(BridgeType, BridgeName);
 do_format_action(#{mod := Mod, func := Func, args := Args}) ->
     #{
         function => printable_function_name(Mod, Func),
@@ -532,6 +533,25 @@ do_format_action(#{mod := Mod, func := Func}) ->
     #{
         function => printable_function_name(Mod, Func)
     }.
+
+try_downgrade(BridgeType, BridgeName) ->
+    Conf = try_get_conf(BridgeType, BridgeName),
+    try emqx_bridge_lib:downgrade_type(BridgeType, Conf) of
+        DowngradedBridgeType ->
+            DowngradedBridgeType
+    catch
+        error:{config_not_found, _} ->
+            BridgeType
+    end.
+
+try_get_conf(BridgeType, BridgeName) ->
+    try emqx_conf:get_raw([actions, BridgeType, BridgeName]) of
+        RawConf ->
+            RawConf
+    catch
+        error:{config_not_found, _} ->
+            #{}
+    end.
 
 printable_function_name(emqx_rule_actions, Func) ->
     Func;

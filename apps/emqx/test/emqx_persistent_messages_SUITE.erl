@@ -233,6 +233,56 @@ t_session_subscription_iterators(Config) ->
     ),
     ok.
 
+t_qos0(Config) ->
+    Sub = connect(<<?MODULE_STRING "1">>, true, 30),
+    Pub = connect(<<?MODULE_STRING "2">>, true, 0),
+    try
+        {ok, _, [1]} = emqtt:subscribe(Sub, <<"t/#">>, qos1),
+
+        Messages = [
+            {<<"t/1">>, <<"1">>, 0},
+            {<<"t/1">>, <<"2">>, 1},
+            {<<"t/1">>, <<"3">>, 0}
+        ],
+        [emqtt:publish(Pub, Topic, Payload, Qos) || {Topic, Payload, Qos} <- Messages],
+        ?assertMatch(
+            [
+                #{qos := 0, topic := <<"t/1">>, payload := <<"1">>},
+                #{qos := 1, topic := <<"t/1">>, payload := <<"2">>},
+                #{qos := 0, topic := <<"t/1">>, payload := <<"3">>}
+            ],
+            receive_messages(3)
+        )
+    after
+        emqtt:stop(Sub),
+        emqtt:stop(Pub)
+    end.
+
+t_publish_as_persistent(Config) ->
+    Sub = connect(<<?MODULE_STRING "1">>, true, 30),
+    Pub = connect(<<?MODULE_STRING "2">>, true, 30),
+    try
+        {ok, _, [1]} = emqtt:subscribe(Sub, <<"t/#">>, qos1),
+        Messages = [
+            {<<"t/1">>, <<"1">>, 0},
+            {<<"t/1">>, <<"2">>, 1},
+            {<<"t/1">>, <<"3">>, 2}
+        ],
+        [emqtt:publish(Pub, Topic, Payload, Qos) || {Topic, Payload, Qos} <- Messages],
+        ?assertMatch(
+            [
+                #{qos := 0, topic := <<"t/1">>, payload := <<"1">>},
+                #{qos := 1, topic := <<"t/1">>, payload := <<"2">>}
+                %% TODO: QoS 2
+                %% #{qos := 2, topic := <<"t/1">>, payload := <<"3">>}
+            ],
+            receive_messages(3)
+        )
+    after
+        emqtt:stop(Sub),
+        emqtt:stop(Pub)
+    end.
+
 %%
 
 connect(ClientId, CleanStart, EI) ->
@@ -273,7 +323,7 @@ consume(It) ->
     end.
 
 receive_messages(Count) ->
-    receive_messages(Count, []).
+    lists:reverse(receive_messages(Count, [])).
 
 receive_messages(0, Msgs) ->
     Msgs;
@@ -291,7 +341,7 @@ publish(Node, Message) ->
 app_specs() ->
     [
         emqx_durable_storage,
-        {emqx, "persistent_session_store {ds = true}"}
+        {emqx, "session_persistence {enable = true}"}
     ].
 
 cluster() ->
@@ -307,4 +357,6 @@ get_mqtt_port(Node, Type) ->
 
 clear_db() ->
     ok = emqx_ds:drop_db(?PERSISTENT_MESSAGE_DB),
+    mria:stop(),
+    ok = mnesia:delete_schema([node()]),
     ok.

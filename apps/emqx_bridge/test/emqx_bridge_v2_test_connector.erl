@@ -43,8 +43,8 @@ on_start(
 ) ->
     Fun = emqx_bridge_v2_SUITE:unwrap_fun(FunRef),
     Fun(Conf);
-on_start(_InstId, _Config) ->
-    {ok, #{}}.
+on_start(_InstId, Config) ->
+    {ok, Config}.
 
 on_add_channel(
     _InstId,

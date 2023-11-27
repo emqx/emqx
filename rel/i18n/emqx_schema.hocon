@@ -1555,4 +1555,20 @@ description.label:
 description.desc:
 """Descriptive text."""
 
+session_persistence_enable.desc:
+"""Use durable storage for client sessions persistence.
+If enabled, sessions configured to outlive client connections, along with their corresponding messages, will be durably stored and survive broker downtime."""
+
+session_persistence_storage.desc:
+"""Durable storage backend to use for session persistence."""
+
+session_storage_backend_enable.desc:
+"""Enable this backend."""
+
+session_builtin_n_shards.desc:
+"""Number of shards used for storing the messages."""
+
+session_storage_backend_builtin.desc:
+"""Builtin session storage backend utilizing embedded RocksDB key-value store."""
+
 }

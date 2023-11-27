@@ -18,7 +18,9 @@
     [
         emqtt_connect/1,
         emqtt_try_connect/1,
-        case_specific_node_name/3
+        case_specific_node_name/3,
+        stop_many/1,
+        get_mqtt_port/2
     ]
 ).
 
@@ -41,11 +43,13 @@ one_node_cases() ->
     emqx_common_test_helpers:all(?MODULE) -- two_nodes_cases().
 
 init_per_suite(Config) ->
-    ok = emqx_common_test_helpers:start_apps([]),
-    Config.
+    Apps = emqx_cth_suite:start([emqx], #{
+        work_dir => ?config(priv_dir, Config)
+    }),
+    [{apps, Apps} | Config].
 
-end_per_suite(_Config) ->
-    ok = emqx_common_test_helpers:stop_apps([]),
+end_per_suite(Config) ->
+    ok = emqx_cth_suite:stop(?config(apps, Config)),
     ok.
 
 init_per_group(one_node, Config) ->
@@ -78,7 +82,7 @@ init_per_testcase(TestCase, Config) ->
     Cluster = [{Node, Spec} || Node <- Nodes],
     ClusterNodes = emqx_cth_cluster:start(
         Cluster,
-        #{work_dir => ?config(priv_dir, Config)}
+        #{work_dir => emqx_cth_suite:work_dir(TestCase, Config)}
     ),
     ok = snabbkaffe:start_trace(),
     [{cluster_nodes, ClusterNodes} | Config].
@@ -128,20 +132,12 @@ case_specific_data_dir(Case, Config) ->
         PrivDir -> filename:join(PrivDir, atom_to_list(Case))
     end.
 
-get_mqtt_port(Node, Type) ->
-    {_IP, Port} = erpc:call(Node, emqx_config, get, [[listeners, Type, default, bind]]),
-    Port.
-
 %% to avoid it finishing too fast
 with_some_sessions(Node, Fn) ->
-    erpc:call(Node, fun() ->
-        emqx_common_test_helpers:with_mock(
-            emqx_eviction_agent,
-            all_channels_count,
-            fun() -> 100 end,
-            Fn
-        )
-    end).
+    Port = get_mqtt_port(Node, tcp),
+    Conns = emqtt_connect_many(Port, 100),
+    _ = erpc:call(Node, Fn),
+    ok = stop_many(Conns).
 
 drain_exits([ClientPid | Rest]) ->
     receive
@@ -189,6 +185,7 @@ t_agent_busy(Config) ->
     ok.
 
 t_already_started(Config) ->
+    process_flag(trap_exit, true),
     [Node] = ?config(cluster_nodes, Config),
     with_some_sessions(Node, fun() ->
         ok = emqx_node_rebalance_purge:start(opts(Config)),
@@ -216,6 +213,7 @@ t_not_started(Config) ->
     ).
 
 t_start(Config) ->
+    process_flag(trap_exit, true),
     [Node] = ?config(cluster_nodes, Config),
     Port = get_mqtt_port(Node, tcp),
 
@@ -233,6 +231,7 @@ t_start(Config) ->
     ok.
 
 t_non_persistence(Config) ->
+    process_flag(trap_exit, true),
     [Node] = ?config(cluster_nodes, Config),
     Port = get_mqtt_port(Node, tcp),
 
@@ -284,6 +283,7 @@ t_unknown_messages(Config) ->
 %%--------------------------------------------------------------------
 
 t_already_started_two(Config) ->
+    process_flag(trap_exit, true),
     [Node1, _Node2] = ?config(cluster_nodes, Config),
     with_some_sessions(Node1, fun() ->
         ok = emqx_node_rebalance_purge:start(opts(Config)),

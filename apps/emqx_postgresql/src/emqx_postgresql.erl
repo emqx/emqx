@@ -34,7 +34,11 @@
     on_stop/2,
     on_query/3,
     on_batch_query/3,
-    on_get_status/2
+    on_get_status/2,
+    on_add_channel/4,
+    on_remove_channel/3,
+    on_get_channels/1,
+    on_get_channel_status/3
 ]).
 
 -export([connect/1]).
@@ -136,10 +140,11 @@ on_start(
         {auto_reconnect, ?AUTO_RECONNECT_INTERVAL},
         {pool_size, PoolSize}
     ],
-    State = parse_prepare_sql(Config),
+    State1 = parse_prepare_sql(Config, <<"send_message">>),
+    State2 = State1#{installed_channels => #{}},
     case emqx_resource_pool:start(InstId, ?MODULE, Options ++ SslOpts) of
         ok ->
-            {ok, init_prepare(State#{pool_name => InstId, prepares => #{}})};
+            {ok, init_prepare(State2#{pool_name => InstId, prepares => #{}})};
         {error, Reason} ->
             ?tp(
                 pgsql_connector_start_failed,
@@ -148,12 +153,136 @@ on_start(
             {error, Reason}
     end.
 
-on_stop(InstId, _State) ->
+on_stop(InstId, State) ->
     ?SLOG(info, #{
         msg => "stopping_postgresql_connector",
         connector => InstId
     }),
+    close_connections(State),
     emqx_resource_pool:stop(InstId).
+
+close_connections(#{pool_name := PoolName} = _State) ->
+    WorkerPids = [Worker || {_WorkerName, Worker} <- ecpool:workers(PoolName)],
+    close_connections_with_worker_pids(WorkerPids),
+    ok.
+
+close_connections_with_worker_pids([WorkerPid | Rest]) ->
+    %% We ignore errors since any error probably means that the
+    %% connection is closed already.
+    try ecpool_worker:client(WorkerPid) of
+        {ok, Conn} ->
+            _ = epgsql:close(Conn),
+            close_connections_with_worker_pids(Rest);
+        _ ->
+            close_connections_with_worker_pids(Rest)
+    catch
+        _:_ ->
+            close_connections_with_worker_pids(Rest)
+    end;
+close_connections_with_worker_pids([]) ->
+    ok.
+
+on_add_channel(
+    _InstId,
+    #{
+        installed_channels := InstalledChannels
+    } = OldState,
+    ChannelId,
+    ChannelConfig
+) ->
+    %% The following will throw an exception if the bridge producers fails to start
+    {ok, ChannelState} = create_channel_state(ChannelId, OldState, ChannelConfig),
+    case ChannelState of
+        #{prepares := {error, Reason}} ->
+            {error, {unhealthy_target, Reason}};
+        _ ->
+            NewInstalledChannels = maps:put(ChannelId, ChannelState, InstalledChannels),
+            %% Update state
+            NewState = OldState#{installed_channels => NewInstalledChannels},
+            {ok, NewState}
+    end.
+
+create_channel_state(
+    ChannelId,
+    #{pool_name := PoolName} = _ConnectorState,
+    #{parameters := Parameters} = _ChannelConfig
+) ->
+    State1 = parse_prepare_sql(Parameters, ChannelId),
+    {ok,
+        init_prepare(State1#{
+            pool_name => PoolName,
+            prepare_statement => #{}
+        })}.
+
+on_remove_channel(
+    _InstId,
+    #{
+        installed_channels := InstalledChannels
+    } = OldState,
+    ChannelId
+) ->
+    %% Close prepared statements
+    ok = close_prepared_statement(ChannelId, OldState),
+    NewInstalledChannels = maps:remove(ChannelId, InstalledChannels),
+    %% Update state
+    NewState = OldState#{installed_channels => NewInstalledChannels},
+    {ok, NewState}.
+
+close_prepared_statement(ChannelId, #{pool_name := PoolName} = State) ->
+    WorkerPids = [Worker || {_WorkerName, Worker} <- ecpool:workers(PoolName)],
+    close_prepared_statement(WorkerPids, ChannelId, State),
+    ok.
+
+close_prepared_statement([WorkerPid | Rest], ChannelId, State) ->
+    %% We ignore errors since any error probably means that the
+    %% prepared statement doesn't exist.
+    try ecpool_worker:client(WorkerPid) of
+        {ok, Conn} ->
+            Statement = get_prepared_statement(ChannelId, State),
+            _ = epgsql:close(Conn, Statement),
+            close_prepared_statement(Rest, ChannelId, State);
+        _ ->
+            close_prepared_statement(Rest, ChannelId, State)
+    catch
+        _:_ ->
+            close_prepared_statement(Rest, ChannelId, State)
+    end;
+close_prepared_statement([], _ChannelId, _State) ->
+    ok.
+
+on_get_channel_status(
+    _ResId,
+    ChannelId,
+    #{
+        pool_name := PoolName,
+        installed_channels := Channels
+    } = _State
+) ->
+    ChannelState = maps:get(ChannelId, Channels),
+    case
+        do_check_channel_sql(
+            PoolName,
+            ChannelId,
+            ChannelState
+        )
+    of
+        ok ->
+            connected;
+        {error, undefined_table} ->
+            {error, {unhealthy_target, <<"Table does not exist">>}}
+    end.
+
+do_check_channel_sql(
+    PoolName,
+    ChannelId,
+    #{query_templates := ChannelQueryTemplates} = _ChannelState
+) ->
+    {SQL, _RowTemplate} = maps:get(ChannelId, ChannelQueryTemplates),
+    WorkerPids = [Worker || {_WorkerName, Worker} <- ecpool:workers(PoolName)],
+    validate_table_existence(WorkerPids, SQL).
+
+on_get_channels(ResId) ->
+    emqx_bridge_v2:get_channels_for_connector(ResId).
 
 on_query(InstId, {TypeOrKey, NameOrSQL}, State) ->
     on_query(InstId, {TypeOrKey, NameOrSQL, []}, State);
@@ -187,10 +316,10 @@ pgsql_query_type(_) ->
 on_batch_query(
     InstId,
     [{Key, _} = Request | _] = BatchReq,
-    #{pool_name := PoolName, query_templates := Templates, prepares := PrepStatements} = State
+    #{pool_name := PoolName} = State
 ) ->
     BinKey = to_bin(Key),
-    case maps:get(BinKey, Templates, undefined) of
+    case get_template(BinKey, State) of
         undefined ->
             Log = #{
                 connector => InstId,
@@ -201,7 +330,7 @@ on_batch_query(
             ?SLOG(error, Log),
             {error, {unrecoverable_error, batch_prepare_not_implemented}};
         {_Statement, RowTemplate} ->
-            PrepStatement = maps:get(BinKey, PrepStatements),
+            PrepStatement = get_prepared_statement(BinKey, State),
             Rows = [render_prepare_sql_row(RowTemplate, Data) || {_Key, Data} <- BatchReq],
             case on_sql_query(InstId, PoolName, execute_batch, PrepStatement, Rows) of
                 {error, _Error} = Result ->
@@ -223,14 +352,34 @@ proc_sql_params(query, SQLOrKey, Params, _State) ->
     {SQLOrKey, Params};
 proc_sql_params(prepared_query, SQLOrKey, Params, _State) ->
     {SQLOrKey, Params};
-proc_sql_params(TypeOrKey, SQLOrData, Params, #{query_templates := Templates}) ->
-    Key = to_bin(TypeOrKey),
-    case maps:get(Key, Templates, undefined) of
+proc_sql_params(TypeOrKey, SQLOrData, Params, State) ->
+    BinKey = to_bin(TypeOrKey),
+    case get_template(BinKey, State) of
         undefined ->
             {SQLOrData, Params};
         {_Statement, RowTemplate} ->
-            {Key, render_prepare_sql_row(RowTemplate, SQLOrData)}
+            {BinKey, render_prepare_sql_row(RowTemplate, SQLOrData)}
     end.
+
+get_template(Key, #{installed_channels := Channels} = _State) when is_map_key(Key, Channels) ->
+    BinKey = to_bin(Key),
+    ChannelState = maps:get(BinKey, Channels),
+    ChannelQueryTemplates = maps:get(query_templates, ChannelState),
+    maps:get(BinKey, ChannelQueryTemplates);
+get_template(Key, #{query_templates := Templates}) ->
+    BinKey = to_bin(Key),
+    maps:get(BinKey, Templates, undefined).
+
+get_prepared_statement(Key, #{installed_channels := Channels} = _State) when
+    is_map_key(Key, Channels)
+->
+    BinKey = to_bin(Key),
+    ChannelState = maps:get(BinKey, Channels),
+    ChannelPreparedStatements = maps:get(prepares, ChannelState),
+    maps:get(BinKey, ChannelPreparedStatements);
+get_prepared_statement(Key, #{prepares := PrepStatements}) ->
+    BinKey = to_bin(Key),
+    maps:get(BinKey, PrepStatements).
 
 on_sql_query(InstId, PoolName, Type, NameOrSQL, Data) ->
     try ecpool:pick_and_do(PoolName, {?MODULE, Type, [NameOrSQL, Data]}, no_handover) of
@@ -415,13 +564,13 @@ conn_opts([Opt = {ssl_opts, _} | Opts], Acc) ->
 conn_opts([_Opt | Opts], Acc) ->
     conn_opts(Opts, Acc).
 
-parse_prepare_sql(Config) ->
+parse_prepare_sql(Config, SQLID) ->
     Queries =
         case Config of
             #{prepare_statement := Qs} ->
                 Qs;
             #{sql := Query} ->
-                #{<<"send_message">> => Query};
+                #{SQLID => Query};
             #{} ->
                 #{}
         end,

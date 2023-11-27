@@ -555,7 +555,7 @@ t_page_read(_) ->
     ok = emqtt:disconnect(C1).
 
 t_only_for_coverage(_) ->
-    ?assertEqual("retainer", emqx_retainer_schema:namespace()),
+    ?assertEqual(retainer, emqx_retainer_schema:namespace()),
     ignored = gen_server:call(emqx_retainer, unexpected),
     ok = gen_server:cast(emqx_retainer, unexpected),
     unexpected = erlang:send(erlang:whereis(emqx_retainer), unexpected),

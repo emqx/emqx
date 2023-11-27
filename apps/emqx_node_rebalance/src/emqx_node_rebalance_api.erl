@@ -109,7 +109,8 @@ schema("/load_rebalance/availability_check") ->
             responses => #{
                 200 => response_schema(),
                 503 => error_codes([?NODE_EVACUATING], <<"Node Evacuating">>)
-            }
+            },
+            security => []
         }
     };
 schema("/load_rebalance/:node/start") ->
@@ -248,10 +249,10 @@ schema("/load_rebalance/:node/evacuation/stop") ->
     }}.
 
 '/load_rebalance/availability_check'(get, #{}) ->
-    case emqx_node_rebalance_status:local_status() of
-        disabled ->
+    case emqx_node_rebalance_status:availability_status() of
+        available ->
             {200, #{}};
-        _ ->
+        unavailable ->
             error_response(503, ?NODE_EVACUATING, <<"Node Evacuating">>)
     end.
 

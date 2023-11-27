@@ -17,7 +17,7 @@
     desc/1
 ]).
 
-%% emqx_bridge_enterprise "unofficial" API
+%% `emqx_bridge_v2_schema' "unofficial" API
 -export([
     bridge_v2_examples/1,
     conn_bridge_examples/1,
@@ -126,7 +126,7 @@ fields(action) ->
 fields(actions) ->
     Fields =
         override(
-            emqx_bridge_kafka:producer_opts(),
+            emqx_bridge_kafka:producer_opts(action),
             bridge_v2_overrides()
         ) ++
             [

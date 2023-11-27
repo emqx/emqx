@@ -119,7 +119,7 @@ trie_restore(Options, Dump) ->
     Trie.
 
 %% @doc Lookup the topic key. Create a new one, if not found.
--spec topic_key(trie(), threshold_fun(), [binary()]) -> msg_storage_key().
+-spec topic_key(trie(), threshold_fun(), [binary() | '']) -> msg_storage_key().
 topic_key(Trie, ThresholdFun, Tokens) ->
     do_topic_key(Trie, ThresholdFun, 0, ?PREFIX, Tokens, []).
 
@@ -363,12 +363,12 @@ emanating(#trie{trie = Tab}, State, ?EOT) ->
         [#trans{next = Next}] -> [{?EOT, Next}];
         [] -> []
     end;
-emanating(#trie{trie = Tab}, State, Bin) when is_binary(Bin) ->
+emanating(#trie{trie = Tab}, State, Token) when is_binary(Token); Token =:= '' ->
     [
         {Edge, Next}
      || #trans{key = {_, Edge}, next = Next} <-
             ets:lookup(Tab, {State, ?PLUS}) ++
-                ets:lookup(Tab, {State, Bin})
+                ets:lookup(Tab, {State, Token})
     ].
 
 %%================================================================================
@@ -533,6 +533,7 @@ topic_match_test() ->
         {S11, []} = test_key(T, ThresholdFun, [1, 1]),
         {S12, []} = test_key(T, ThresholdFun, [1, 2]),
         {S111, []} = test_key(T, ThresholdFun, [1, 1, 1]),
+        {S11e, []} = test_key(T, ThresholdFun, [1, 1, '']),
         %% Match concrete topics:
         assert_match_topics(T, [1], [{S1, []}]),
         assert_match_topics(T, [1, 1], [{S11, []}]),
@@ -540,14 +541,16 @@ topic_match_test() ->
         %% Match topics with +:
         assert_match_topics(T, [1, '+'], [{S11, []}, {S12, []}]),
         assert_match_topics(T, [1, '+', 1], [{S111, []}]),
+        assert_match_topics(T, [1, '+', ''], [{S11e, []}]),
         %% Match topics with #:
         assert_match_topics(T, [1, '#'],
                             [{S1, []},
                              {S11, []}, {S12, []},
-                             {S111, []}]),
+                             {S111, []}, {S11e, []}]),
         assert_match_topics(T, [1, 1, '#'],
                             [{S11, []},
-                             {S111, []}]),
+                             {S111, []},
+                             {S11e, []}]),
         %% Now add learned wildcards:
         {S21, []} = test_key(T, ThresholdFun, [2, 1]),
         {S22, []} = test_key(T, ThresholdFun, [2, 2]),
@@ -587,7 +590,10 @@ assert_match_topics(Trie, Filter0, Expected) ->
 
 %% erlfmt-ignore
 test_key(Trie, Threshold, Topic0) ->
-    Topic = [integer_to_binary(I) || I <- Topic0],
+    Topic = lists:map(fun('') -> '';
+                         (I) -> integer_to_binary(I)
+                      end,
+                      Topic0),
     Ret = topic_key(Trie, Threshold, Topic),
     %% Test idempotency:
     Ret1 = topic_key(Trie, Threshold, Topic),

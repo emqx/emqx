@@ -272,6 +272,22 @@ make_message() ->
         timestamp => Time
     }.
 
+bridge_api_spec_props_for_get() ->
+    #{
+        <<"bridge_azure_event_hub.get_producer">> :=
+            #{<<"properties">> := Props}
+    } =
+        emqx_bridge_v2_testlib:bridges_api_spec_schemas(),
+    Props.
+
+action_api_spec_props_for_get() ->
+    #{
+        <<"bridge_azure_event_hub.get_bridge_v2">> :=
+            #{<<"properties">> := Props}
+    } =
+        emqx_bridge_v2_testlib:actions_api_spec_schemas(),
+    Props.
+
 %%------------------------------------------------------------------------------
 %% Testcases
 %%------------------------------------------------------------------------------
@@ -339,5 +355,25 @@ t_same_name_azure_kafka_bridges(Config) ->
         fun(Trace) ->
             ?assertMatch([#{instance_id := AehResourceId}], ?of_kind(TracePoint, Trace))
         end
+    ),
+    ok.
+
+t_parameters_key_api_spec(_Config) ->
+    BridgeProps = bridge_api_spec_props_for_get(),
+    ?assert(is_map_key(<<"kafka">>, BridgeProps), #{bridge_props => BridgeProps}),
+    ?assertNot(is_map_key(<<"parameters">>, BridgeProps), #{bridge_props => BridgeProps}),
+
+    ActionProps = action_api_spec_props_for_get(),
+    ?assertNot(is_map_key(<<"kafka">>, ActionProps), #{action_props => ActionProps}),
+    ?assert(is_map_key(<<"parameters">>, ActionProps), #{action_props => ActionProps}),
+
+    ok.
+
+t_http_api_get(Config) ->
+    ?assertMatch({ok, _}, emqx_bridge_v2_testlib:create_bridge(Config)),
+    %% v1 api; no mangling of configs; has `kafka' top level config key
+    ?assertMatch(
+        {ok, {{_, 200, _}, _, [#{<<"kafka">> := _}]}},
+        emqx_bridge_testlib:list_bridges_api()
     ),
     ok.
