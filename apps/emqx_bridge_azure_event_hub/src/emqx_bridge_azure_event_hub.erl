@@ -31,8 +31,8 @@
 
 -import(hoconsc, [mk/2, enum/1, ref/2]).
 
--define(AEH_CONNECTOR_TYPE, azure_event_hub_producer).
--define(AEH_CONNECTOR_TYPE_BIN, <<"azure_event_hub_producer">>).
+-define(CONNECTOR_TYPE, azure_event_hub_producer).
+-define(CONNECTOR_TYPE_BIN, <<"azure_event_hub_producer">>).
 
 %%-------------------------------------------------------------------------------------------------
 %% `hocon_schema' API
@@ -42,18 +42,17 @@ namespace() -> "bridge_azure_event_hub".
 
 roots() -> ["config_producer"].
 
-fields("put_connector") ->
+fields(Field) when
+    Field == "get_connector";
+    Field == "put_connector";
+    Field == "post_connector"
+->
     Fields = override(
-        emqx_bridge_kafka:fields("put_connector"),
-        connector_overrides()
-    ),
-    override_documentations(Fields);
-fields("get_connector") ->
-    emqx_bridge_schema:status_fields() ++
-        fields("post_connector");
-fields("post_connector") ->
-    Fields = override(
-        emqx_bridge_kafka:fields("post_connector"),
+        emqx_connector_schema:api_fields(
+            Field,
+            ?CONNECTOR_TYPE,
+            emqx_bridge_kafka:kafka_connector_config_fields()
+        ),
         connector_overrides()
     ),
     override_documentations(Fields);
@@ -170,7 +169,7 @@ struct_names() ->
 bridge_v2_examples(Method) ->
     [
         #{
-            ?AEH_CONNECTOR_TYPE_BIN => #{
+            ?CONNECTOR_TYPE_BIN => #{
                 summary => <<"Azure Event Hub Action">>,
                 value => values({Method, bridge_v2})
             }
@@ -180,7 +179,7 @@ bridge_v2_examples(Method) ->
 connector_examples(Method) ->
     [
         #{
-            ?AEH_CONNECTOR_TYPE_BIN => #{
+            ?CONNECTOR_TYPE_BIN => #{
                 summary => <<"Azure Event Hub Connector">>,
                 value => values({Method, connector})
             }
@@ -197,6 +196,20 @@ conn_bridge_examples(Method) ->
         }
     ].
 
+values({get, connector}) ->
+    maps:merge(
+        #{
+            status => <<"connected">>,
+            node_status => [
+                #{
+                    node => <<"emqx@localhost">>,
+                    status => <<"connected">>
+                }
+            ],
+            actions => [<<"my_action">>]
+        },
+        values({post, connector})
+    );
 values({get, AEHType}) ->
     maps:merge(
         #{
@@ -217,7 +230,7 @@ values({post, bridge_v2}) ->
             enable => true,
             connector => <<"my_azure_event_hub_producer_connector">>,
             name => <<"my_azure_event_hub_producer_action">>,
-            type => ?AEH_CONNECTOR_TYPE_BIN
+            type => ?CONNECTOR_TYPE_BIN
         }
     );
 values({post, connector}) ->
@@ -225,7 +238,7 @@ values({post, connector}) ->
         values(common_config),
         #{
             name => <<"my_azure_event_hub_producer_connector">>,
-            type => ?AEH_CONNECTOR_TYPE_BIN,
+            type => ?CONNECTOR_TYPE_BIN,
             ssl => #{
                 enable => true,
                 server_name_indication => <<"auto">>,
@@ -358,7 +371,7 @@ connector_overrides() ->
             }
         ),
         type => mk(
-            ?AEH_CONNECTOR_TYPE,
+            ?CONNECTOR_TYPE,
             #{
                 required => true,
                 desc => ?DESC("connector_type")
@@ -414,7 +427,7 @@ bridge_v2_overrides() ->
             }),
         ssl => mk(ref(ssl_client_opts), #{default => #{<<"enable">> => true}}),
         type => mk(
-            ?AEH_CONNECTOR_TYPE,
+            ?CONNECTOR_TYPE,
             #{
                 required => true,
                 desc => ?DESC("bridge_v2_type")

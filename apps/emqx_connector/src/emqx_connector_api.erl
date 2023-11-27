@@ -637,14 +637,24 @@ format_resource(
     ).
 
 format_resource_data(ResData) ->
-    maps:fold(fun format_resource_data/3, #{}, maps:with([status, error], ResData)).
+    maps:fold(fun format_resource_data/3, #{}, maps:with([status, error, added_channels], ResData)).
 
 format_resource_data(error, undefined, Result) ->
     Result;
 format_resource_data(error, Error, Result) ->
     Result#{status_reason => emqx_utils:readable_error_msg(Error)};
+format_resource_data(added_channels, Channels, Result) ->
+    Result#{actions => lists:map(fun format_action/1, maps:keys(Channels))};
 format_resource_data(K, V, Result) ->
     Result#{K => V}.
+
+format_action(Action) ->
+    case string:split(Action, ":", all) of
+        [_Prefix, _Type, Name | _] ->
+            Name;
+        _ ->
+            Action
+    end.
 
 is_ok(ok) ->
     ok;

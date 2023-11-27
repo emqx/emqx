@@ -30,8 +30,8 @@
 
 -import(hoconsc, [mk/2, enum/1, ref/2]).
 
--define(CONFLUENT_CONNECTOR_TYPE, confluent_producer).
--define(CONFLUENT_CONNECTOR_TYPE_BIN, <<"confluent_producer">>).
+-define(CONNECTOR_TYPE, confluent_producer).
+-define(CONNECTOR_TYPE_BIN, <<"confluent_producer">>).
 
 %%-------------------------------------------------------------------------------------------------
 %% `hocon_schema' API
@@ -41,18 +41,17 @@ namespace() -> "confluent".
 
 roots() -> ["config_producer"].
 
-fields("put_connector") ->
+fields(Field) when
+    Field == "get_connector";
+    Field == "put_connector";
+    Field == "post_connector"
+->
     Fields = override(
-        emqx_bridge_kafka:fields("put_connector"),
-        connector_overrides()
-    ),
-    override_documentations(Fields);
-fields("get_connector") ->
-    emqx_bridge_schema:status_fields() ++
-        fields("post_connector");
-fields("post_connector") ->
-    Fields = override(
-        emqx_bridge_kafka:fields("post_connector"),
+        emqx_connector_schema:api_fields(
+            Field,
+            ?CONNECTOR_TYPE,
+            emqx_bridge_kafka:kafka_connector_config_fields()
+        ),
         connector_overrides()
     ),
     override_documentations(Fields);
@@ -155,7 +154,7 @@ struct_names() ->
 bridge_v2_examples(Method) ->
     [
         #{
-            ?CONFLUENT_CONNECTOR_TYPE_BIN => #{
+            ?CONNECTOR_TYPE_BIN => #{
                 summary => <<"Confluent Action">>,
                 value => values({Method, bridge_v2})
             }
@@ -165,13 +164,27 @@ bridge_v2_examples(Method) ->
 connector_examples(Method) ->
     [
         #{
-            ?CONFLUENT_CONNECTOR_TYPE_BIN => #{
+            ?CONNECTOR_TYPE_BIN => #{
                 summary => <<"Confluent Connector">>,
                 value => values({Method, connector})
             }
         }
     ].
 
+values({get, connector}) ->
+    maps:merge(
+        #{
+            status => <<"connected">>,
+            node_status => [
+                #{
+                    node => <<"emqx@localhost">>,
+                    status => <<"connected">>
+                }
+            ],
+            actions => [<<"my_action">>]
+        },
+        values({post, connector})
+    );
 values({get, ConfluentType}) ->
     maps:merge(
         #{
@@ -192,7 +205,7 @@ values({post, bridge_v2}) ->
             enable => true,
             connector => <<"my_confluent_producer_connector">>,
             name => <<"my_confluent_producer_action">>,
-            type => ?CONFLUENT_CONNECTOR_TYPE_BIN
+            type => ?CONNECTOR_TYPE_BIN
         }
     );
 values({post, connector}) ->
@@ -200,7 +213,7 @@ values({post, connector}) ->
         values(common_config),
         #{
             name => <<"my_confluent_producer_connector">>,
-            type => ?CONFLUENT_CONNECTOR_TYPE_BIN,
+            type => ?CONNECTOR_TYPE_BIN,
             ssl => #{
                 enable => true,
                 server_name_indication => <<"auto">>,
@@ -320,7 +333,7 @@ connector_overrides() ->
             }
         ),
         type => mk(
-            ?CONFLUENT_CONNECTOR_TYPE,
+            ?CONNECTOR_TYPE,
             #{
                 required => true,
                 desc => ?DESC("connector_type")
@@ -342,7 +355,7 @@ bridge_v2_overrides() ->
             }
         }),
         type => mk(
-            ?CONFLUENT_CONNECTOR_TYPE,
+            ?CONNECTOR_TYPE,
             #{
                 required => true,
                 desc => ?DESC("bridge_v2_type")

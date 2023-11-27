@@ -33,9 +33,12 @@
 ]).
 
 -export([
+    kafka_connector_config_fields/0,
     kafka_producer_converter/2,
     producer_strategy_key_validator/1
 ]).
+
+-define(CONNECTOR_TYPE, kafka_producer).
 
 %% -------------------------------------------------------------------------------------------------
 %% api
@@ -76,6 +79,20 @@ conn_bridge_examples(Method) ->
         }
     ].
 
+values({get, connector}) ->
+    maps:merge(
+        #{
+            status => <<"connected">>,
+            node_status => [
+                #{
+                    node => <<"emqx@localhost">>,
+                    status => <<"connected">>
+                }
+            ],
+            actions => [<<"my_action">>]
+        },
+        values({post, connector})
+    );
 values({get, KafkaType}) ->
     maps:merge(
         #{
@@ -247,6 +264,12 @@ namespace() -> "bridge_kafka".
 
 roots() -> ["config_consumer", "config_producer", "config_bridge_v2"].
 
+fields(Field) when
+    Field == "get_connector";
+    Field == "put_connector";
+    Field == "post_connector"
+->
+    emqx_connector_schema:api_fields(Field, ?CONNECTOR_TYPE, kafka_connector_config_fields());
 fields("post_" ++ Type) ->
     [type_field(Type), name_field() | fields("config_" ++ Type)];
 fields("put_" ++ Type) ->
@@ -560,9 +583,11 @@ desc(Name) ->
     ?DESC(Name).
 
 connector_config_fields() ->
+    emqx_connector_schema:common_fields() ++
+        kafka_connector_config_fields().
+
+kafka_connector_config_fields() ->
     [
-        {enable, mk(boolean(), #{desc => ?DESC("config_enable"), default => true})},
-        {description, emqx_schema:description_schema()},
         {bootstrap_hosts,
             mk(
                 binary(),
