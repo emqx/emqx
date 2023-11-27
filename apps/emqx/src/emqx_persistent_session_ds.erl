@@ -323,7 +323,7 @@ puback(_ClientInfo, PacketId, Session = #{id := Id, inflight := Inflight0}) ->
     case emqx_persistent_message_ds_replayer:commit_offset(Id, ack, PacketId, Inflight0) of
         {true, Inflight} ->
             %% TODO
-            Msg = #message{},
+            Msg = emqx_message:make(Id, <<>>, <<>>),
             {ok, Msg, [], Session#{inflight => Inflight}};
         {false, _} ->
             %% Invalid Packet Id
@@ -341,7 +341,7 @@ pubrec(PacketId, Session = #{id := Id, inflight := Inflight0}) ->
     case emqx_persistent_message_ds_replayer:commit_marker(Id, rec, PacketId, Inflight0) of
         {true, Inflight} ->
             %% TODO
-            Msg = #message{},
+            Msg = emqx_message:make(Id, <<>>, <<>>),
             {ok, Msg, Session#{inflight => Inflight}};
         {false, _} ->
             %% Invalid Packet Id
@@ -369,7 +369,7 @@ pubcomp(_ClientInfo, PacketId, Session = #{id := Id, inflight := Inflight0}) ->
     case emqx_persistent_message_ds_replayer:commit_offset(Id, comp, PacketId, Inflight0) of
         {true, Inflight} ->
             %% TODO
-            Msg = #message{},
+            Msg = emqx_message:make(Id, <<>>, <<>>),
             {ok, Msg, [], Session#{inflight => Inflight}};
         {false, _} ->
             %% Invalid Packet Id
