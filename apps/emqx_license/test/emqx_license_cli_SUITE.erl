@@ -24,15 +24,12 @@ end_per_suite(_) ->
     ok.
 
 init_per_testcase(_Case, Config) ->
-    ok = persistent_term:put(
-        emqx_license_test_pubkey,
-        emqx_license_test_lib:public_key_pem()
-    ),
+    emqx_license_test_lib:mock_parser(),
     {ok, _} = emqx_cluster_rpc:start_link(node(), emqx_cluster_rpc, 1000),
     Config.
 
 end_per_testcase(_Case, _Config) ->
-    persistent_term:erase(emqx_license_test_pubkey),
+    emqx_license_test_lib:unmock_parser(),
     ok.
 
 set_special_configs(emqx_license) ->

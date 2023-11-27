@@ -5,12 +5,15 @@
 -module(emqx_license_checker).
 
 -include("emqx_license.hrl").
+-include_lib("emqx/include/logger.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
 -behaviour(gen_server).
 
--define(CHECK_INTERVAL, 5000).
--define(EXPIRY_ALARM_CHECK_INTERVAL, 24 * 60 * 60).
+-define(CHECK_INTERVAL, timer:seconds(5)).
+-define(REFRESH_INTERVAL, timer:minutes(2)).
+-define(EXPIRY_ALARM_CHECK_INTERVAL, timer:hours(24)).
+
 -define(OK(EXPR),
     try
         _ = begin
@@ -56,7 +59,7 @@ start_link(LicenseFetcher) ->
 start_link(LicenseFetcher, CheckInterval) ->
     gen_server:start_link({local, ?MODULE}, ?MODULE, [LicenseFetcher, CheckInterval], []).
 
--spec update(emqx_license_parser:license()) -> ok.
+-spec update(emqx_license_parser:license()) -> map().
 update(License) ->
     gen_server:call(?MODULE, {update, License}, infinity).
 
@@ -94,15 +97,18 @@ init([LicenseFetcher, CheckInterval]) ->
                 check_license_interval => CheckInterval,
                 license => License
             }),
-            State = ensure_check_expiry_timer(State0),
+            State1 = ensure_refresh_timer(State0),
+            State = ensure_check_expiry_timer(State1),
             {ok, State};
         {error, Reason} ->
             {stop, Reason}
     end.
 
-handle_call({update, License}, _From, State) ->
+handle_call({update, License}, _From, #{license := Old} = State) ->
     ok = expiry_early_alarm(License),
-    {reply, check_license(License), State#{license => License}};
+    State1 = ensure_refresh_timer(State),
+    ok = log_new_license(Old, License),
+    {reply, check_license(License), State1#{license => License}};
 handle_call(dump, _From, #{license := License} = State) ->
     {reply, emqx_license_parser:dump(License), State};
 handle_call(purge, _From, State) ->
@@ -123,6 +129,10 @@ handle_info(check_expiry_alarm, #{license := License} = State) ->
     ok = expiry_early_alarm(License),
     NewState = ensure_check_expiry_timer(State),
     {noreply, NewState};
+handle_info(refresh, State0) ->
+    State1 = refresh(State0),
+    NewState = ensure_refresh_timer(State1),
+    {noreply, NewState};
 handle_info(_Msg, State) ->
     {noreply, State}.
 
@@ -130,22 +140,59 @@ handle_info(_Msg, State) ->
 %% Private functions
 %%------------------------------------------------------------------------------
 
+refresh(#{license := #{source := <<"file://", _/binary>> = Source} = License} = State) ->
+    case emqx_license_parser:parse(Source) of
+        {ok, License} ->
+            ?tp(emqx_license_refresh_no_change, #{}),
+            %% no change
+            State;
+        {ok, NewLicense} ->
+            ok = log_new_license(License, NewLicense),
+            %% ensure alarm is set or cleared
+            ok = expiry_early_alarm(NewLicense),
+            ?tp(emqx_license_refresh_changed, #{new_license => NewLicense}),
+            State#{license => NewLicense};
+        {error, Reason} ->
+            ?tp(
+                error,
+                emqx_license_refresh_failed,
+                Reason#{continue_with_license => emqx_license_parser:summary(License)}
+            ),
+            State
+    end;
+refresh(State) ->
+    State.
+
+log_new_license(Old, New) ->
+    ?SLOG(info, #{
+        msg => "new_license_loaded",
+        old_license => emqx_license_parser:summary(Old),
+        new_license => emqx_license_parser:summary(New)
+    }).
+
 ensure_check_license_timer(#{check_license_interval := CheckInterval} = State) ->
-    cancel_timer(State, timer),
-    State#{timer => erlang:send_after(CheckInterval, self(), check_license)}.
+    ok = cancel_timer(State, check_timer),
+    State#{check_timer => erlang:send_after(CheckInterval, self(), check_license)}.
 
 ensure_check_expiry_timer(State) ->
-    cancel_timer(State, expiry_alarm_timer),
+    ok = cancel_timer(State, expiry_alarm_timer),
     Ref = erlang:send_after(?EXPIRY_ALARM_CHECK_INTERVAL, self(), check_expiry_alarm),
     State#{expiry_alarm_timer => Ref}.
 
+%% refresh is to work with file:// license keys.
+ensure_refresh_timer(State) ->
+    ok = cancel_timer(State, refresh_timer),
+    Ref = erlang:send_after(?REFRESH_INTERVAL, self(), refresh),
+    State#{refresh_timer => Ref}.
+
 cancel_timer(State, Key) ->
-    _ =
-        case maps:find(Key, State) of
-            {ok, Ref} when is_reference(Ref) -> erlang:cancel_timer(Ref);
-            _ -> ok
-        end,
-    ok.
+    case maps:find(Key, State) of
+        {ok, Ref} when is_reference(Ref) ->
+            _ = erlang:cancel_timer(Ref),
+            ok;
+        _ ->
+            ok
+    end.
 
 check_license(License) ->
     DaysLeft = days_left(License),

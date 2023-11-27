@@ -54,7 +54,6 @@ schema("/license") ->
                 )
             }
         },
-        %% TODO(5.x): It's a update action, should use PUT instead
         post => #{
             tags => ?LICENSE_TAGS,
             summary => <<"Update license key">>,
