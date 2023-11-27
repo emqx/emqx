@@ -98,8 +98,8 @@
     id := id(),
     %% When the session was created
     created_at := timestamp(),
-    %% When the client last disconnected
-    disconnected_at := timestamp() | never,
+    %% When the client was last considered alive
+    last_alive_at := timestamp(),
     %% Client’s Subscriptions.
     subscriptions := #{topic_filter() => subscription()},
     %% Inflight messages
@@ -126,10 +126,10 @@
     next_pkt_id
 ]).
 
--define(IS_EXPIRED(NOW_MS, DISCONNECTED_AT, EI),
-    (is_number(DisconnectedAt) andalso
+-define(IS_EXPIRED(NOW_MS, LAST_ALIVE_AT, EI),
+    (is_number(LAST_ALIVE_AT) andalso
         is_number(EI) andalso
-        (NowMS >= DisconnectedAt + EI))
+        (NOW_MS >= LAST_ALIVE_AT + EI))
 ).
 
 -export_type([id/0]).
@@ -408,7 +408,7 @@ replay(_ClientInfo, [], Session = #{inflight := Inflight0}) ->
 
 -spec disconnect(session(), emqx_types:conninfo()) -> {shutdown, session()}.
 disconnect(Session0, ConnInfo) ->
-    Session = session_set_disconnected_at_trans(Session0, ConnInfo, now_ms()),
+    Session = session_set_last_alive_at_trans(Session0, ConnInfo, now_ms()),
     {shutdown, Session}.
 
 -spec terminate(Reason :: term(), session()) -> ok.
@@ -544,16 +544,16 @@ session_open(SessionId, NewConnInfo) ->
     NowMS = now_ms(),
     transaction(fun() ->
         case mnesia:read(?SESSION_TAB, SessionId, write) of
-            [Record0 = #session{disconnected_at = DisconnectedAt, conninfo = ConnInfo}] ->
+            [Record0 = #session{last_alive_at = LastAliveAt, conninfo = ConnInfo}] ->
                 EI = expiry_interval(ConnInfo),
-                case ?IS_EXPIRED(NowMS, DisconnectedAt, EI) of
+                case ?IS_EXPIRED(NowMS, LastAliveAt, EI) of
                     true ->
                         session_drop(SessionId),
                         false;
                     false ->
                         %% new connection being established
                         Record1 = Record0#session{conninfo = NewConnInfo},
-                        Record = session_set_disconnected_at(Record1, never),
+                        Record = session_set_last_alive_at(Record1, never),
                         Session = export_session(Record),
                         DSSubs = session_read_subscriptions(SessionId),
                         Subscriptions = export_subscriptions(DSSubs),
@@ -585,30 +585,30 @@ session_create(SessionId, ConnInfo, Props) ->
     Session = #session{
         id = SessionId,
         created_at = now_ms(),
-        disconnected_at = never,
+        last_alive_at = now_ms(),
         conninfo = ConnInfo,
         props = Props
     },
     ok = mnesia:write(?SESSION_TAB, Session, write),
     Session.
 
-session_set_disconnected_at_trans(Session, NewConnInfo, DisconnectedAt) ->
+session_set_last_alive_at_trans(Session, NewConnInfo, LastAliveAt) ->
     #{id := SessionId} = Session,
     transaction(fun() ->
         case mnesia:read(?SESSION_TAB, SessionId, write) of
             [#session{} = SessionRecord0] ->
                 SessionRecord = SessionRecord0#session{conninfo = NewConnInfo},
-                _ = session_set_disconnected_at(SessionRecord, DisconnectedAt),
+                _ = session_set_last_alive_at(SessionRecord, LastAliveAt),
                 ok;
             _ ->
                 %% log and crash?
                 ok
         end
     end),
-    Session#{conninfo := NewConnInfo, disconnected_at := DisconnectedAt}.
+    Session#{conninfo := NewConnInfo, last_alive_at := LastAliveAt}.
 
-session_set_disconnected_at(SessionRecord0, DisconnectedAt) ->
-    SessionRecord = SessionRecord0#session{disconnected_at = DisconnectedAt},
+session_set_last_alive_at(SessionRecord0, LastAliveAt) ->
+    SessionRecord = SessionRecord0#session{last_alive_at = LastAliveAt},
     ok = mnesia:write(?SESSION_TAB, SessionRecord, write),
     SessionRecord.
 
@@ -849,7 +849,7 @@ export_subscriptions(DSSubs) ->
     ).
 
 export_session(#session{} = Record) ->
-    export_record(Record, #session.id, [id, created_at, disconnected_at, conninfo, props], #{}).
+    export_record(Record, #session.id, [id, created_at, last_alive_at, conninfo, props], #{}).
 
 export_subscription(#ds_sub{} = Record) ->
     export_record(Record, #ds_sub.start_time, [start_time, props, extra], #{}).
