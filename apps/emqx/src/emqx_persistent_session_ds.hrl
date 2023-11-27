@@ -25,6 +25,9 @@
 -define(SESSION_MARKER_TAB, emqx_ds_marker_tab).
 -define(DS_MRIA_SHARD, emqx_ds_session_shard).
 
+-define(T_INFLIGHT, 1).
+-define(T_CHECKPOINT, 2).
+
 -record(ds_sub, {
     id :: emqx_persistent_session_ds:subscription_id(),
     start_time :: emqx_ds:time(),
@@ -57,7 +60,7 @@
     %% * Inflight range is a range of yet unacked messages from this stream.
     %% * Checkpoint range was already acked, its purpose is to keep track of the
     %%   very last iterator for this stream.
-    type :: inflight | checkpoint,
+    type :: ?T_INFLIGHT | ?T_CHECKPOINT,
     %% What commit tracks this range is part of.
     %% This is rarely stored: we only need to persist it when the range contains
     %% QoS 2 messages.
