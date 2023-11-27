@@ -648,13 +648,8 @@ format_resource_data(added_channels, Channels, Result) ->
 format_resource_data(K, V, Result) ->
     Result#{K => V}.
 
-format_action(Action) ->
-    case string:split(Action, ":", all) of
-        [_Prefix, _Type, Name | _] ->
-            Name;
-        _ ->
-            Action
-    end.
+format_action(ActionId) ->
+    element(2, emqx_bridge_v2:parse_id(ActionId)).
 
 is_ok(ok) ->
     ok;
