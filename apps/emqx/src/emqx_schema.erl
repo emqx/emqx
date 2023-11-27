@@ -1781,6 +1781,14 @@ fields("session_persistence") ->
                     desc => ?DESC(session_ds_idle_poll_interval)
                 }
             )},
+        {"last_alive_update_interval",
+            sc(
+                timeout_duration(),
+                #{
+                    default => <<"5000ms">>,
+                    desc => ?DESC(session_ds_last_alive_update_interval)
+                }
+            )},
         {"force_persistence",
             sc(
                 boolean(),
