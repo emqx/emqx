@@ -25,9 +25,6 @@
 -define(SESSION_MARKER_TAB, emqx_ds_marker_tab).
 -define(DS_MRIA_SHARD, emqx_ds_session_shard).
 
-%% Integer tags for `misc` maps keys.
--define(T_tracks, 1).
-
 -record(ds_sub, {
     id :: emqx_persistent_session_ds:subscription_id(),
     start_time :: emqx_ds:time(),
@@ -61,6 +58,10 @@
     %% * Checkpoint range was already acked, its purpose is to keep track of the
     %%   very last iterator for this stream.
     type :: inflight | checkpoint,
+    %% What commit tracks this range is part of.
+    %% This is rarely stored: we only need to persist it when the range contains
+    %% QoS 2 messages.
+    tracks = 0 :: non_neg_integer(),
     %% Meaning of this depends on the type of the range:
     %% * For inflight range, this is the iterator pointing to the first message in
     %%   the range.
@@ -68,13 +69,7 @@
     %%   message in the range.
     iterator :: emqx_ds:iterator(),
     %% Reserved for future use.
-    misc = #{} :: #{
-        %% What commit tracks this range is part of.
-        %% This is rarely stored: we only need to persist it when the range
-        %% contains QoS 2 messages.
-        ?T_tracks => non_neg_integer(),
-        _ => _
-    }
+    misc = #{} :: map()
 }).
 -type ds_pubrange() :: #ds_pubrange{}.
 
