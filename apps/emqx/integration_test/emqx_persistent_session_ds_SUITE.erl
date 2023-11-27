@@ -9,6 +9,7 @@
 -include_lib("stdlib/include/assert.hrl").
 -include_lib("common_test/include/ct.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
+-include_lib("emqx/include/asserts.hrl").
 -include_lib("emqx/include/emqx_mqtt.hrl").
 
 -import(emqx_common_test_helpers, [on_exit/1]).
@@ -221,9 +222,10 @@ t_session_subscription_idempotency(Config) ->
         end,
         fun(Trace) ->
             ct:pal("trace:\n  ~p", [Trace]),
+            ConnInfo = #{},
             ?assertMatch(
                 #{subscriptions := #{SubTopicFilter := #{}}},
-                erpc:call(Node1, emqx_persistent_session_ds, session_open, [ClientId])
+                erpc:call(Node1, emqx_persistent_session_ds, session_open, [ClientId, ConnInfo])
             )
         end
     ),
@@ -294,9 +296,10 @@ t_session_unsubscription_idempotency(Config) ->
         end,
         fun(Trace) ->
             ct:pal("trace:\n  ~p", [Trace]),
+            ConnInfo = #{},
             ?assertMatch(
                 #{subscriptions := Subs = #{}} when map_size(Subs) =:= 0,
-                erpc:call(Node1, emqx_persistent_session_ds, session_open, [ClientId])
+                erpc:call(Node1, emqx_persistent_session_ds, session_open, [ClientId, ConnInfo])
             ),
             ok
         end
@@ -385,5 +388,84 @@ do_t_session_discard(Params) ->
             ct:pal("trace:\n  ~p", [Trace]),
             ok
         end
+    ),
+    ok.
+
+t_session_expiration1(Config) ->
+    ClientId = atom_to_binary(?FUNCTION_NAME),
+    Opts = #{
+        clientid => ClientId,
+        sequence => [
+            {#{clean_start => false, properties => #{'Session-Expiry-Interval' => 30}}, #{}},
+            {#{clean_start => false, properties => #{'Session-Expiry-Interval' => 1}}, #{}},
+            {#{clean_start => false, properties => #{'Session-Expiry-Interval' => 30}}, #{}}
+        ]
+    },
+    do_t_session_expiration(Config, Opts).
+
+t_session_expiration2(Config) ->
+    ClientId = atom_to_binary(?FUNCTION_NAME),
+    Opts = #{
+        clientid => ClientId,
+        sequence => [
+            {#{clean_start => false, properties => #{'Session-Expiry-Interval' => 30}}, #{}},
+            {#{clean_start => false, properties => #{'Session-Expiry-Interval' => 30}}, #{
+                'Session-Expiry-Interval' => 1
+            }},
+            {#{clean_start => false, properties => #{'Session-Expiry-Interval' => 30}}, #{}}
+        ]
+    },
+    do_t_session_expiration(Config, Opts).
+
+do_t_session_expiration(_Config, Opts) ->
+    #{
+        clientid := ClientId,
+        sequence := [
+            {FirstConn, FirstDisconn},
+            {SecondConn, SecondDisconn},
+            {ThirdConn, ThirdDisconn}
+        ]
+    } = Opts,
+    CommonParams = #{proto_ver => v5, clientid => ClientId},
+    ?check_trace(
+        begin
+            Topic = <<"some/topic">>,
+            Params0 = maps:merge(CommonParams, FirstConn),
+            Client0 = start_client(Params0),
+            {ok, _} = emqtt:connect(Client0),
+            {ok, _, [?RC_GRANTED_QOS_2]} = emqtt:subscribe(Client0, Topic, ?QOS_2),
+            Subs0 = emqx_persistent_session_ds:list_all_subscriptions(),
+            ?assertEqual(1, map_size(Subs0), #{subs => Subs0}),
+            Info0 = maps:from_list(emqtt:info(Client0)),
+            ?assertEqual(0, maps:get(session_present, Info0), #{info => Info0}),
+            emqtt:disconnect(Client0, ?RC_NORMAL_DISCONNECTION, FirstDisconn),
+
+            Params1 = maps:merge(CommonParams, SecondConn),
+            Client1 = start_client(Params1),
+            {ok, _} = emqtt:connect(Client1),
+            Info1 = maps:from_list(emqtt:info(Client1)),
+            ?assertEqual(1, maps:get(session_present, Info1), #{info => Info1}),
+            Subs1 = emqtt:subscriptions(Client1),
+            ?assertEqual([], Subs1),
+            emqtt:disconnect(Client1, ?RC_NORMAL_DISCONNECTION, SecondDisconn),
+
+            ct:sleep(1_500),
+
+            Params2 = maps:merge(CommonParams, ThirdConn),
+            Client2 = start_client(Params2),
+            {ok, _} = emqtt:connect(Client2),
+            Info2 = maps:from_list(emqtt:info(Client2)),
+            ?assertEqual(0, maps:get(session_present, Info2), #{info => Info2}),
+            Subs2 = emqtt:subscriptions(Client2),
+            ?assertEqual([], Subs2),
+            emqtt:publish(Client2, Topic, <<"payload">>),
+            ?assertNotReceive({publish, #{topic := Topic}}),
+            %% ensure subscriptions are absent from table.
+            ?assertEqual(#{}, emqx_persistent_session_ds:list_all_subscriptions()),
+            emqtt:disconnect(Client2, ?RC_NORMAL_DISCONNECTION, ThirdDisconn),
+
+            ok
+        end,
+        []
     ),
     ok.
