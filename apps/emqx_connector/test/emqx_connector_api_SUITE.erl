@@ -175,7 +175,8 @@ groups() ->
     AllTCs = emqx_common_test_helpers:all(?MODULE),
     SingleOnlyTests = [
         t_connectors_probe,
-        t_fail_delete_with_action
+        t_fail_delete_with_action,
+        t_actions_field
     ],
     ClusterLaterJoinOnlyTCs = [
         % t_cluster_later_join_metrics
@@ -256,15 +257,6 @@ end_per_testcase(TestCase, Config) ->
     ok.
 
 -define(CONNECTOR_IMPL, dummy_connector_impl).
-init_mocks(t_fail_delete_with_action) ->
-    init_mocks(common),
-    meck:expect(?CONNECTOR_IMPL, on_add_channel, 4, {ok, connector_state}),
-    meck:expect(?CONNECTOR_IMPL, on_remove_channel, 3, {ok, connector_state}),
-    meck:expect(?CONNECTOR_IMPL, on_get_channel_status, 3, connected),
-    ok = meck:expect(?CONNECTOR_IMPL, on_get_channels, fun(ResId) ->
-        emqx_bridge_v2:get_channels_for_connector(ResId)
-    end),
-    ok;
 init_mocks(_TestCase) ->
     meck:new(emqx_connector_ee_schema, [passthrough, no_link]),
     meck:expect(emqx_connector_ee_schema, resource_type, 1, ?CONNECTOR_IMPL),
@@ -289,17 +281,25 @@ init_mocks(_TestCase) ->
             (_, _) -> connected
         end
     ),
+    meck:expect(?CONNECTOR_IMPL, on_add_channel, 4, {ok, connector_state}),
+    meck:expect(?CONNECTOR_IMPL, on_remove_channel, 3, {ok, connector_state}),
+    meck:expect(?CONNECTOR_IMPL, on_get_channel_status, 3, connected),
+    meck:expect(
+        ?CONNECTOR_IMPL,
+        on_get_channels,
+        fun(ResId) ->
+            emqx_bridge_v2:get_channels_for_connector(ResId)
+        end
+    ),
     [?CONNECTOR_IMPL, emqx_connector_ee_schema].
 
-clear_resources(t_fail_delete_with_action) ->
+clear_resources(_) ->
     lists:foreach(
         fun(#{type := Type, name := Name}) ->
             ok = emqx_bridge_v2:remove(Type, Name)
         end,
         emqx_bridge_v2:list()
     ),
-    clear_resources(common);
-clear_resources(_) ->
     lists:foreach(
         fun(#{type := Type, name := Name}) ->
             ok = emqx_connector:remove(Type, Name)
@@ -736,6 +736,62 @@ t_create_with_bad_name(Config) ->
     ),
     Msg = emqx_utils_json:decode(Msg0, [return_maps]),
     ?assertMatch(#{<<"kind">> := <<"validation_error">>}, Msg),
+    ok.
+
+t_actions_field(Config) ->
+    Name = ?CONNECTOR_NAME,
+    ?assertMatch(
+        {ok, 201, #{
+            <<"type">> := ?CONNECTOR_TYPE,
+            <<"name">> := Name,
+            <<"enable">> := true,
+            <<"status">> := <<"connected">>,
+            <<"node_status">> := [_ | _],
+            <<"actions">> := []
+        }},
+        request_json(
+            post,
+            uri(["connectors"]),
+            ?KAFKA_CONNECTOR(Name),
+            Config
+        )
+    ),
+    ConnectorID = emqx_connector_resource:connector_id(?CONNECTOR_TYPE, Name),
+    BridgeName = ?BRIDGE_NAME,
+    ?assertMatch(
+        {ok, 201, #{
+            <<"type">> := ?BRIDGE_TYPE,
+            <<"name">> := BridgeName,
+            <<"enable">> := true,
+            <<"status">> := <<"connected">>,
+            <<"node_status">> := [_ | _],
+            <<"connector">> := Name,
+            <<"kafka">> := #{},
+            <<"local_topic">> := _,
+            <<"resource_opts">> := _
+        }},
+        request_json(
+            post,
+            uri(["actions"]),
+            ?KAFKA_BRIDGE(?BRIDGE_NAME),
+            Config
+        )
+    ),
+    ?assertMatch(
+        {ok, 200, #{
+            <<"type">> := ?CONNECTOR_TYPE,
+            <<"name">> := Name,
+            <<"enable">> := true,
+            <<"status">> := <<"connected">>,
+            <<"node_status">> := [_ | _],
+            <<"actions">> := [BridgeName]
+        }},
+        request_json(
+            get,
+            uri(["connectors", ConnectorID]),
+            Config
+        )
+    ),
     ok.
 
 t_fail_delete_with_action(Config) ->

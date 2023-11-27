@@ -24,6 +24,8 @@
     connector_examples/1
 ]).
 
+-define(CONNECTOR_TYPE, gcp_pubsub_producer).
+
 %%-------------------------------------------------------------------------------------------------
 %% `hocon_schema' API
 %%-------------------------------------------------------------------------------------------------
@@ -68,8 +70,7 @@ fields(action_parameters) ->
 fields("config_connector") ->
     %% FIXME
     emqx_connector_schema:common_fields() ++
-        emqx_bridge_gcp_pubsub:fields(connector_config) ++
-        emqx_resource_schema:fields("resource_opts");
+        connector_config_fields();
 %%=========================================
 %% HTTP API fields: action
 %%=========================================
@@ -82,12 +83,16 @@ fields("put_bridge_v2") ->
 %%=========================================
 %% HTTP API fields: connector
 %%=========================================
-fields("get_connector") ->
-    emqx_bridge_schema:status_fields() ++ fields("post_connector");
-fields("post_connector") ->
-    [type_field(), name_field() | fields("put_connector")];
-fields("put_connector") ->
-    fields("config_connector").
+fields(Field) when
+    Field == "get_connector";
+    Field == "put_connector";
+    Field == "post_connector"
+->
+    emqx_connector_schema:api_fields(Field, ?CONNECTOR_TYPE, connector_config_fields()).
+
+connector_config_fields() ->
+    emqx_bridge_gcp_pubsub:fields(connector_config) ++
+        emqx_resource_schema:fields("resource_opts").
 
 desc("config_connector") ->
     ?DESC("config_connector");
@@ -177,7 +182,7 @@ action_example(put) ->
 
 connector_example(get) ->
     maps:merge(
-        connector_example(put),
+        connector_example(post),
         #{
             status => <<"connected">>,
             node_status => [
@@ -185,7 +190,8 @@ connector_example(get) ->
                     node => <<"emqx@localhost">>,
                     status => <<"connected">>
                 }
-            ]
+            ],
+            actions => [<<"my_action">>]
         }
     );
 connector_example(post) ->

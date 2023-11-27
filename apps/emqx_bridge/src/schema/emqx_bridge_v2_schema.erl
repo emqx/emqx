@@ -250,7 +250,7 @@ is_bad_schema(#{type := ?MAP(_, ?R_REF(Module, TypeName))}) ->
             false;
         _ ->
             {true, #{
-                schema_modle => Module,
+                schema_module => Module,
                 type_name => TypeName,
                 missing_fields => MissingFileds
             }}
