@@ -39,6 +39,7 @@
 {emqx_mgmt_api_plugins,2}.
 {emqx_mgmt_cluster,1}.
 {emqx_mgmt_cluster,2}.
+{emqx_mgmt_data_backup,1}.
 {emqx_mgmt_trace,1}.
 {emqx_mgmt_trace,2}.
 {emqx_node_rebalance,1}.
