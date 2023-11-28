@@ -399,8 +399,13 @@ handle_timeout(_ClientInfo, get_streams, Session) ->
     ensure_timer(get_streams),
     {ok, [], Session};
 handle_timeout(_ClientInfo, bump_last_alive_at, Session0) ->
-    NowMS = now_ms(),
-    Session = session_set_last_alive_at_trans(Session0, NowMS),
+    %% Note: we take a pessimistic approach here and assume that the client will be alive
+    %% until the next bump timeout.  With this, we avoid garbage collecting this session
+    %% too early in case the session/connection/node crashes earlier without having time
+    %% to commit the time.
+    BumpInterval = emqx_config:get([session_persistence, last_alive_update_interval]),
+    EstimatedLastAliveAt = now_ms() + BumpInterval,
+    Session = session_set_last_alive_at_trans(Session0, EstimatedLastAliveAt),
     ensure_timer(bump_last_alive_at),
     {ok, [], Session}.
 
