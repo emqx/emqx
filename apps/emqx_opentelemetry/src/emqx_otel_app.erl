@@ -24,7 +24,7 @@
 start(_StartType, _StartArgs) ->
     emqx_otel_config:add_handler(),
     ok = emqx_otel_config:add_otel_log_handler(),
-    ok = emqx_otel_trace:ensure_traces(emqx:get_config([opentelemetry, traces])),
+    ok = emqx_otel_trace:ensure_traces(emqx:get_config([opentelemetry])),
     emqx_otel_sup:start_link().
 
 stop(_State) ->

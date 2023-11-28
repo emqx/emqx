@@ -30,15 +30,27 @@
 upgrade_legacy_metrics(RawConf) ->
     case RawConf of
         #{<<"opentelemetry">> := Otel} ->
-            LegacyMetricsFields = [<<"enable">>, <<"exporter">>],
-            Otel1 = maps:without(LegacyMetricsFields, Otel),
-            Metrics = maps:with(LegacyMetricsFields, Otel),
-            case Metrics =:= #{} of
-                true ->
-                    RawConf;
-                false ->
-                    RawConf#{<<"opentelemetry">> => Otel1#{<<"metrics">> => Metrics}}
-            end;
+            Otel1 =
+                case maps:take(<<"enable">>, Otel) of
+                    {MetricsEnable, OtelConf} ->
+                        emqx_utils_maps:deep_put(
+                            [<<"metrics">>, <<"enable">>], OtelConf, MetricsEnable
+                        );
+                    error ->
+                        Otel
+                end,
+            Otel2 =
+                case Otel1 of
+                    #{<<"exporter">> := #{<<"interval">> := Interval} = Exporter} ->
+                        emqx_utils_maps:deep_put(
+                            [<<"metrics">>, <<"interval">>],
+                            Otel1#{<<"exporter">> => maps:remove(<<"interval">>, Exporter)},
+                            Interval
+                        );
+                    _ ->
+                        Otel1
+                end,
+            RawConf#{<<"opentelemetry">> => Otel2};
         _ ->
             RawConf
     end.
@@ -69,6 +81,13 @@ fields("opentelemetry") ->
                 #{
                     desc => ?DESC(otel_traces)
                 }
+            )},
+        {exporter,
+            ?HOCON(
+                ?R_REF("otel_exporter"),
+                #{
+                    desc => ?DESC(otel_exporter)
+                }
             )}
     ];
 fields("otel_metrics") ->
@@ -82,10 +101,15 @@ fields("otel_metrics") ->
                     desc => ?DESC(enable)
                 }
             )},
-        {exporter,
+        {interval,
             ?HOCON(
-                ?R_REF("otel_metrics_exporter"),
-                #{desc => ?DESC(exporter)}
+                emqx_schema:timeout_duration_ms(),
+                #{
+                    aliases => [scheduled_delay],
+                    default => <<"10s">>,
+                    desc => ?DESC(scheduled_delay),
+                    importance => ?IMPORTANCE_HIDDEN
+                }
             )}
     ];
 fields("otel_logs") ->
@@ -134,14 +158,6 @@ fields("otel_logs") ->
                     desc => ?DESC(scheduled_delay),
                     importance => ?IMPORTANCE_HIDDEN
                 }
-            )},
-        {exporter,
-            ?HOCON(
-                ?R_REF("otel_logs_exporter"),
-                #{
-                    desc => ?DESC(exporter),
-                    importance => ?IMPORTANCE_HIGH
-                }
             )}
     ];
 fields("otel_traces") ->
@@ -182,14 +198,6 @@ fields("otel_traces") ->
                     importance => ?IMPORTANCE_HIDDEN
                 }
             )},
-        {exporter,
-            ?HOCON(
-                ?R_REF("otel_traces_exporter"),
-                #{
-                    desc => ?DESC(exporter),
-                    importance => ?IMPORTANCE_HIGH
-                }
-            )},
         {filter,
             ?HOCON(
                 ?R_REF("trace_filter"),
@@ -199,42 +207,7 @@ fields("otel_traces") ->
                 }
             )}
     ];
-fields("otel_metrics_exporter") ->
-    exporter_fields(metrics);
-fields("otel_logs_exporter") ->
-    exporter_fields(logs);
-fields("ssl_opts") ->
-    Schema = emqx_schema:client_ssl_opts_schema(#{}),
-    lists:keydelete("enable", 1, Schema);
-fields("otel_traces_exporter") ->
-    exporter_fields(traces);
-fields("trace_filter") ->
-    %% More filters can be implemented in future, e.g. topic, clientid
-    [
-        {trace_all,
-            ?HOCON(
-                boolean(),
-                #{
-                    default => false,
-                    desc => ?DESC(trace_all),
-                    importance => ?IMPORTANCE_MEDIUM
-                }
-            )}
-    ].
-
-desc("opentelemetry") -> ?DESC(opentelemetry);
-desc("exporter") -> ?DESC(exporter);
-desc("otel_logs_exporter") -> ?DESC(exporter);
-desc("otel_metrics_exporter") -> ?DESC(exporter);
-desc("otel_traces_exporter") -> ?DESC(exporter);
-desc("otel_logs") -> ?DESC(otel_logs);
-desc("otel_metrics") -> ?DESC(otel_metrics);
-desc("otel_traces") -> ?DESC(otel_traces);
-desc("ssl_opts") -> ?DESC(exporter_ssl);
-desc("trace_filter") -> ?DESC(trace_filter);
-desc(_) -> undefined.
-
-exporter_fields(OtelSignal) ->
+fields("otel_exporter") ->
     [
         {endpoint,
             ?HOCON(
@@ -263,21 +236,29 @@ exporter_fields(OtelSignal) ->
                     importance => ?IMPORTANCE_LOW
                 }
             )}
-    ] ++ exporter_extra_fields(OtelSignal).
-
-%% Let's keep it in exporter config for metrics, as it is different from
-%% scheduled_delay_ms opt used for otel traces and logs
-exporter_extra_fields(metrics) ->
+    ];
+fields("ssl_opts") ->
+    Schema = emqx_schema:client_ssl_opts_schema(#{}),
+    lists:keydelete("enable", 1, Schema);
+fields("trace_filter") ->
+    %% More filters can be implemented in future, e.g. topic, clientid
     [
-        {interval,
+        {trace_all,
             ?HOCON(
-                emqx_schema:timeout_duration_ms(),
+                boolean(),
                 #{
-                    default => <<"10s">>,
-                    required => true,
-                    desc => ?DESC(scheduled_delay)
+                    default => false,
+                    desc => ?DESC(trace_all),
+                    importance => ?IMPORTANCE_MEDIUM
                 }
             )}
-    ];
-exporter_extra_fields(_OtelSignal) ->
-    [].
+    ].
+
+desc("opentelemetry") -> ?DESC(opentelemetry);
+desc("otel_exporter") -> ?DESC(otel_exporter);
+desc("otel_logs") -> ?DESC(otel_logs);
+desc("otel_metrics") -> ?DESC(otel_metrics);
+desc("otel_traces") -> ?DESC(otel_traces);
+desc("ssl_opts") -> ?DESC(exporter_ssl);
+desc("trace_filter") -> ?DESC(trace_filter);
+desc(_) -> undefined.

@@ -65,7 +65,7 @@ handle_info(_Msg, State) ->
 terminate(_Reason, _State) ->
     ok.
 
-setup(Conf = #{enable := true}) ->
+setup(Conf = #{metrics := #{enable := true}}) ->
     ensure_apps(Conf),
     create_metric_views();
 setup(_Conf) ->
@@ -73,7 +73,10 @@ setup(_Conf) ->
     ok.
 
 ensure_apps(Conf) ->
-    #{exporter := #{interval := ExporterInterval} = Exporter} = Conf,
+    #{
+        exporter := Exporter,
+        metrics := #{interval := ExporterInterval}
+    } = Conf,
 
     _ = opentelemetry_experimental:stop_default_metrics(),
     ok = application:set_env(

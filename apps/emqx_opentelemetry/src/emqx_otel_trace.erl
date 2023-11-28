@@ -55,26 +55,24 @@ toggle_registered(false = _Enable) ->
     ok.
 
 -spec ensure_traces(map()) -> ok | {error, term()}.
-ensure_traces(#{enable := true} = Conf) ->
+ensure_traces(#{traces := #{enable := true}} = Conf) ->
     start(Conf);
 ensure_traces(_Conf) ->
     ok.
 
 -spec start(map()) -> ok | {error, term()}.
-start(Conf) ->
-    _ = safe_stop_default_tracer(),
+start(#{traces := TracesConf, exporter := ExporterConf}) ->
     #{
-        exporter := Exporter,
         max_queue_size := MaxQueueSize,
         exporting_timeout := ExportingTimeout,
         scheduled_delay := ScheduledDelay,
         filter := #{trace_all := TraceAll}
-    } = Conf,
+    } = TracesConf,
     OtelEnv = [
         {bsp_scheduled_delay_ms, ScheduledDelay},
         {bsp_exporting_timeout_ms, ExportingTimeout},
         {bsp_max_queue_size, MaxQueueSize},
-        {traces_exporter, emqx_otel_config:otel_exporter(Exporter)}
+        {traces_exporter, emqx_otel_config:otel_exporter(ExporterConf)}
     ],
     set_trace_all(TraceAll),
     ok = application:set_env([{opentelemetry, OtelEnv}]),

@@ -85,30 +85,40 @@ otel_exporter(ExporterConf) ->
 
 %% Internal functions
 
-ensure_otel_metrics(#{metrics := MetricsConf}, #{metrics := MetricsConf}) ->
+ensure_otel_metrics(
+    #{metrics := MetricsConf, exporter := Exporter},
+    #{metrics := MetricsConf, exporter := Exporter}
+) ->
     ok;
-ensure_otel_metrics(#{metrics := #{enable := true} = MetricsConf}, _Old) ->
+ensure_otel_metrics(#{metrics := #{enable := true}} = Conf, _Old) ->
     _ = emqx_otel_metrics:stop_otel(),
-    emqx_otel_metrics:start_otel(MetricsConf);
+    emqx_otel_metrics:start_otel(Conf);
 ensure_otel_metrics(#{metrics := #{enable := false}}, _Old) ->
     emqx_otel_metrics:stop_otel();
 ensure_otel_metrics(_, _) ->
     ok.
 
-ensure_otel_logs(#{logs := LogsConf}, #{logs := LogsConf}) ->
+ensure_otel_logs(
+    #{logs := LogsConf, exporter := Exporter},
+    #{logs := LogsConf, exporter := Exporter}
+) ->
     ok;
-ensure_otel_logs(#{logs := #{enable := true} = LogsConf}, _OldConf) ->
+ensure_otel_logs(#{logs := #{enable := true}} = Conf, _OldConf) ->
     ok = remove_handler_if_present(?OTEL_LOG_HANDLER_ID),
-    HandlerConf = tr_handler_conf(LogsConf),
+    HandlerConf = tr_handler_conf(Conf),
     %% NOTE: should primary logger level be updated if it's higher than otel log level?
     logger:add_handler(?OTEL_LOG_HANDLER_ID, ?OTEL_LOG_HANDLER, HandlerConf);
 ensure_otel_logs(#{logs := #{enable := false}}, _OldConf) ->
     remove_handler_if_present(?OTEL_LOG_HANDLER_ID).
 
-ensure_otel_traces(#{traces := TracesConf}, #{traces := TracesConf}) ->
+ensure_otel_traces(
+    #{traces := TracesConf, exporter := Exporter},
+    #{traces := TracesConf, exporter := Exporter}
+) ->
     ok;
-ensure_otel_traces(#{traces := #{enable := true} = TracesConf}, _OldConf) ->
-    emqx_otel_trace:start(TracesConf);
+ensure_otel_traces(#{traces := #{enable := true}} = Conf, _OldConf) ->
+    _ = emqx_otel_trace:stop(),
+    emqx_otel_trace:start(Conf);
 ensure_otel_traces(#{traces := #{enable := false}}, _OldConf) ->
     emqx_otel_trace:stop().
 
@@ -120,14 +130,13 @@ remove_handler_if_present(HandlerId) ->
             ok
     end.
 
-tr_handler_conf(Conf) ->
+tr_handler_conf(#{logs := LogsConf, exporter := ExporterConf}) ->
     #{
         level := Level,
         max_queue_size := MaxQueueSize,
         exporting_timeout := ExportingTimeout,
-        scheduled_delay := ScheduledDelay,
-        exporter := ExporterConf
-    } = Conf,
+        scheduled_delay := ScheduledDelay
+    } = LogsConf,
     #{
         level => Level,
         config => #{

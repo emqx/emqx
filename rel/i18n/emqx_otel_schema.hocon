@@ -17,8 +17,8 @@ otel_traces.label: "Open Telemetry Traces"
 enable.desc: "Enable or disable Open Telemetry signal."
 enable.label: "Enable."
 
-exporter.desc: "Open Telemetry Exporter"
-exporter.label: "Exporter"
+otel_exporter.desc: "Open Telemetry Exporter"
+otel_exporter.label: "Exporter"
 
 max_queue_size.desc:
 """The maximum queue size. After the size is reached Open Telemetry signals are dropped."""
