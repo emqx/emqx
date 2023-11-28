@@ -345,6 +345,45 @@ t_subscribe(_) ->
         Topics
     ).
 
+t_subscribe_with_qos_opt(_) ->
+    Topics = [
+        {<<"abc">>, 0},
+        {<<"/abc">>, 1},
+        {<<"abc/d">>, 2}
+    ],
+    Fun = fun({Topic, Qos}, Channel, Token) ->
+        Payload = <<"123">>,
+        URI = pubsub_uri(binary_to_list(Topic), Token) ++ "&qos=" ++ integer_to_list(Qos),
+        Req = make_req(get, Payload, [{observe, 0}]),
+        {ok, content, _} = do_request(Channel, URI, Req),
+        ?LOGT("observer topic:~ts~n", [Topic]),
+
+        %% ensure subscribe succeed
+        timer:sleep(100),
+        [SubPid] = emqx:subscribers(Topic),
+        ?assert(is_pid(SubPid)),
+        ?assertEqual(Qos, maps:get(qos, emqx_broker:get_subopts(SubPid, Topic))),
+        %% publish a message
+        emqx:publish(emqx_message:make(Topic, Payload)),
+        {ok, content, Notify} = with_response(Channel),
+        ?LOGT("observer get Notif=~p", [Notify]),
+
+        #coap_content{payload = PayloadRecv} = Notify,
+
+        ?assertEqual(Payload, PayloadRecv)
+    end,
+
+    with_connection(Topics, Fun),
+
+    %% subscription removed if coap client disconnected
+    timer:sleep(100),
+    lists:foreach(
+        fun({Topic, _Qos}) ->
+            ?assertEqual([], emqx:subscribers(Topic))
+        end,
+        Topics
+    ).
+
 t_un_subscribe(_) ->
     %% can unsubscribe to a normal topic
     Topics = [
