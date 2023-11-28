@@ -111,7 +111,7 @@ groups() ->
     ].
 
 suite() ->
-    [{timetrap, {seconds, 60}}].
+    [{timetrap, {seconds, 120}}].
 
 init_per_suite(Config) ->
     Config.
@@ -1329,15 +1329,24 @@ t_cluster_later_join_metrics(Config) ->
             ok = erpc:call(OtherNode, ekka, join, [PrimaryNode]),
             %% Check metrics; shouldn't crash even if the bridge is not
             %% ready on the node that just joined the cluster.
+
+            %% assert: wait for the bridge to be ready on the other node.
+            fun
+                WaitConfSync(0) ->
+                    throw(waiting_config_sync_timeout);
+                WaitConfSync(N) ->
+                    timer:sleep(1000),
+                    case erpc:call(OtherNode, emqx_bridge, list, []) of
+                        [] -> WaitConfSync(N - 1);
+                        [_] -> ok
+                    end
+            end(
+                60
+            ),
             ?assertMatch(
                 {ok, 200, #{
                     <<"metrics">> := #{<<"success">> := _},
-                    %% TODO: Why the node2 returns {error, bridge_not_found}?
-                    %% ct:pal("node: ~p, bridges: ~p~n", [
-                    %%    OtherNode, erpc:call(OtherNode, emqx_bridge, list, [])
-                    %% ]),
-                    %%<<"node_metrics">> := [#{<<"metrics">> := #{}}, #{<<"metrics">> := #{}} | _]
-                    <<"node_metrics">> := [#{<<"metrics">> := #{}} | _]
+                    <<"node_metrics">> := [#{<<"metrics">> := #{}}, #{<<"metrics">> := #{}} | _]
                 }},
                 request_json(get, uri(["bridges", BridgeID, "metrics"]), Config)
             ),
