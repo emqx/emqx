@@ -52,11 +52,13 @@ jobs:
             v*)
               echo "profile=emqx" >> $GITHUB_OUTPUT
               echo "version=$(./pkg-vsn.sh emqx)" >> $GITHUB_OUTPUT
+              echo "ref_name=v$(./pkg-vsn.sh emqx)" >> "$GITHUB_ENV"
               echo "s3dir=emqx-ce" >> $GITHUB_OUTPUT
               ;;
             e*)
               echo "profile=emqx-enterprise" >> $GITHUB_OUTPUT
               echo "version=$(./pkg-vsn.sh emqx-enterprise)" >> $GITHUB_OUTPUT
+              echo "ref_name=e$(./pkg-vsn.sh emqx-enterprise)" >> "$GITHUB_ENV"
               echo "s3dir=emqx-ee" >> $GITHUB_OUTPUT
               ;;
           esac
@@ -64,14 +66,14 @@ jobs:
         run: |
           BUCKET=${{ secrets.AWS_S3_BUCKET }}
           OUTPUT_DIR=${{ steps.profile.outputs.s3dir }}
-          aws s3 cp --recursive s3://$BUCKET/$OUTPUT_DIR/${{ github.ref_name }} packages
+          aws s3 cp --recursive s3://$BUCKET/$OUTPUT_DIR/${{ env.ref_name }} packages
       - uses: alexellis/upload-assets@0.4.0
         env:
           GITHUB_TOKEN: ${{ github.token }}
         with:
           asset_paths: '["packages/*"]'
       - name: update to emqx.io
-        if: startsWith(github.ref_name, 'v') && ((github.event_name == 'release' && !github.event.release.prerelease) || inputs.publish_release_artefacts)
+        if: startsWith(env.ref_name, 'v') && ((github.event_name == 'release' && !github.event.release.prerelease) || inputs.publish_release_artefacts)
         run: |
           set -eux
           curl -w %{http_code} \
@@ -79,7 +81,7 @@ jobs:
                -H "Content-Type: application/json" \
                -H "token: ${{ secrets.EMQX_IO_TOKEN }}" \
                -X POST \
-               -d "{\"repo\":\"emqx/emqx\", \"tag\": \"${{ github.ref_name }}\" }" \
+               -d "{\"repo\":\"emqx/emqx\", \"tag\": \"${{ env.ref_name }}\" }" \
                ${{ secrets.EMQX_IO_RELEASE_API }}
       - name: Push to packagecloud.io
         if: (github.event_name == 'release' && !github.event.release.prerelease) || inputs.publish_release_artefacts
