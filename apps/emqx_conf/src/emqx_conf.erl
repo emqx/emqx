@@ -306,7 +306,7 @@ gen_flat_doc(RootNames, #{full_name := FullName, fields := Fields} = S) ->
     ShortName = short_name(FullName),
     case is_missing_namespace(ShortName, to_bin(FullName), RootNames) of
         true ->
-            io:format(standard_error, "WARN: no_namespace_for: ~s~n", [FullName]);
+            error({no_namespace, FullName, S});
         false ->
             ok
     end,
