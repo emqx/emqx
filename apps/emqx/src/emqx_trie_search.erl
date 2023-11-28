@@ -98,7 +98,7 @@
 
 -module(emqx_trie_search).
 
--export([make_key/2, filter/1]).
+-export([make_key/2, make_pat/2, filter/1]).
 -export([match/2, matches/3, get_id/1, get_topic/1]).
 -export_type([key/1, word/0, words/0, nextf/0, opts/0]).
 
@@ -126,6 +126,12 @@ make_key(Topic, ID) when is_binary(Topic) ->
     end;
 make_key(Words, ID) when is_list(Words) ->
     {Words, {ID}}.
+
+-spec make_pat(emqx_types:topic() | words() | '_', _ID | '_') -> _Pat.
+make_pat(Pattern = '_', ID) ->
+    {Pattern, {ID}};
+make_pat(Topic, ID) ->
+    make_key(Topic, ID).
 
 %% @doc Parse a topic filter into a list of words. Returns `false` if it's not a filter.
 -spec filter(emqx_types:topic()) -> words() | false.

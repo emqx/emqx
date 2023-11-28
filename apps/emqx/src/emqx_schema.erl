@@ -1395,7 +1395,7 @@ fields("broker_routing") ->
             sc(
                 hoconsc:enum([v1, v2]),
                 #{
-                    default => v1,
+                    default => v2,
                     'readOnly' => true,
                     desc => ?DESC(broker_routing_storage_schema)
                 }

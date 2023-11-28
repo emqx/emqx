@@ -25,6 +25,8 @@
     desc/1
 ]).
 
+-define(CONNECTOR_TYPE, mongodb).
+
 %%=================================================================================================
 %% hocon_schema API
 %%=================================================================================================
@@ -51,16 +53,18 @@ fields("config") ->
     ];
 fields("config_connector") ->
     emqx_connector_schema:common_fields() ++
-        [
-            {parameters,
-                mk(
-                    hoconsc:union([
-                        ref(emqx_mongodb, "connector_" ++ T)
-                     || T <- ["single", "sharded", "rs"]
-                    ]),
-                    #{required => true, desc => ?DESC("mongodb_parameters")}
-                )}
-        ] ++ emqx_mongodb:fields(mongodb);
+        fields("connection_fields");
+fields("connection_fields") ->
+    [
+        {parameters,
+            mk(
+                hoconsc:union([
+                    ref(emqx_mongodb, "connector_" ++ T)
+                 || T <- ["single", "sharded", "rs"]
+                ]),
+                #{required => true, desc => ?DESC("mongodb_parameters")}
+            )}
+    ] ++ emqx_mongodb:fields(mongodb);
 fields("creation_opts") ->
     %% so far, mongodb connector does not support batching
     %% but we cannot delete this field due to compatibility reasons
@@ -97,14 +101,12 @@ fields(mongodb_sharded) ->
     emqx_mongodb:fields(sharded) ++ fields("config");
 fields(mongodb_single) ->
     emqx_mongodb:fields(single) ++ fields("config");
-fields("post_connector") ->
-    type_and_name_fields(mongodb) ++
-        fields("config_connector");
-fields("put_connector") ->
-    fields("config_connector");
-fields("get_connector") ->
-    emqx_bridge_schema:status_fields() ++
-        fields("post_connector");
+fields(Field) when
+    Field == "get_connector";
+    Field == "put_connector";
+    Field == "post_connector"
+->
+    emqx_connector_schema:api_fields(Field, ?CONNECTOR_TYPE, fields("connection_fields"));
 fields("get_bridge_v2") ->
     emqx_bridge_schema:status_fields() ++
         fields("post_bridge_v2");
@@ -319,7 +321,8 @@ method_values(Type, get) ->
                     node => <<"emqx@localhost">>,
                     status => <<"connected">>
                 }
-            ]
+            ],
+            actions => [<<"my_action">>]
         }
     );
 method_values(_Type, put) ->

@@ -35,6 +35,13 @@
     b2i/1
 ]).
 
+-export([
+    parse_pager_params/1,
+    parse_qstring/2,
+    init_query_result/0,
+    accumulate_query_rows/4
+]).
+
 -ifdef(TEST).
 -export([paginate_test_format/1]).
 -endif.
@@ -444,6 +451,8 @@ accumulate_query_rows(
                 count => Count + length(SubRows),
                 rows => [{Node, SubRows} | RowsAcc]
             }};
+        NCursor when NCursor >= PageEnd + Limit ->
+            {enough, ResultAcc#{cursor => NCursor}};
         NCursor when NCursor >= PageEnd ->
             SubRows = lists:sublist(Rows, Limit - Count),
             {enough, ResultAcc#{

@@ -32,7 +32,7 @@ load() ->
         disable ->
             ok;
         _ ->
-            case feedvar(emqx_config:get([gateway, ocpp, json_schema_dir])) of
+            case feedvar(emqx_config:get([gateway, ocpp, json_schema_dir], undefined)) of
                 undefined ->
                     ok;
                 Dir ->

@@ -103,10 +103,24 @@ otel_config_schema() ->
 
 otel_config_example() ->
     #{
-        enable => true,
-        exporter =>
-            #{
+        logs => #{
+            enable => true,
+            exporter => #{
                 endpoint => "http://localhost:4317",
-                interval => "10s"
+                ssl_options => #{
+                    enable => false
+                }
+            },
+            level => warning
+        },
+        metrics => #{
+            enable => true,
+            exporter => #{
+                endpoint => "http://localhost:4317",
+                interval => "10s",
+                ssl_options => #{
+                    enable => false
+                }
             }
+        }
     }.

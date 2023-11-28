@@ -775,7 +775,7 @@ data(["import", Filename]) ->
             emqx_ctl:print("Data has been imported successfully.~n");
         {ok, _} ->
             emqx_ctl:print(
-                "Data has been imported, but some errors occurred, see the the log above.~n"
+                "Data has been imported, but some errors occurred, see the log above.~n"
             );
         {error, Reason} ->
             Reason1 = emqx_mgmt_data_backup:format_error(Reason),

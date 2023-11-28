@@ -1,9 +1,15 @@
 {application, emqx_opentelemetry, [
     {description, "OpenTelemetry for EMQX Broker"},
-    {vsn, "0.1.3"},
+    {vsn, "0.2.0"},
     {registered, []},
     {mod, {emqx_otel_app, []}},
-    {applications, [kernel, stdlib, emqx]},
+    {applications, [
+        kernel,
+        stdlib,
+        emqx,
+        %% otel metrics depend on emqx_mgmt_cache
+        emqx_management
+    ]},
     {env, []},
     {modules, []},
     {licenses, ["Apache 2.0"]},
