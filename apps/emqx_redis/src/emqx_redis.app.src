@@ -5,6 +5,7 @@
     {applications, [
         kernel,
         stdlib,
+        eredis,
         eredis_cluster,
         emqx_connector,
         emqx_resource
