@@ -54,7 +54,7 @@
 
 init(ClientInfo) ->
     ConnInfo = #{receive_maximum => 1, expiry_interval => 0},
-    SessionConf = emqx_session:get_session_conf(ClientInfo, ConnInfo),
+    SessionConf = emqx_session:get_session_conf(ClientInfo),
     #{
         registry => emqx_mqttsn_registry:init(),
         session => emqx_session_mem:create(ClientInfo, ConnInfo, SessionConf)

@@ -59,7 +59,7 @@
 
 -export([
     create/3,
-    open/2,
+    open/3,
     destroy/1
 ]).
 
@@ -152,24 +152,24 @@
 
 -spec create(clientinfo(), conninfo(), emqx_session:conf()) ->
     session().
-create(#{zone := Zone, clientid := ClientId}, #{expiry_interval := EI}, Conf) ->
+create(
+    #{zone := Zone, clientid := ClientId},
+    #{expiry_interval := EI, receive_maximum := ReceiveMax},
+    Conf
+) ->
     QueueOpts = get_mqueue_conf(Zone),
-    #session{
+    Session = #session{
         id = emqx_guid:gen(),
         clientid = ClientId,
         created_at = erlang:system_time(millisecond),
         is_persistent = EI > 0,
         subscriptions = #{},
-        inflight = emqx_inflight:new(maps:get(max_inflight, Conf)),
+        inflight = emqx_inflight:new(ReceiveMax),
         mqueue = emqx_mqueue:init(QueueOpts),
         next_pkt_id = 1,
-        awaiting_rel = #{},
-        max_subscriptions = maps:get(max_subscriptions, Conf),
-        max_awaiting_rel = maps:get(max_awaiting_rel, Conf),
-        upgrade_qos = maps:get(upgrade_qos, Conf),
-        retry_interval = maps:get(retry_interval, Conf),
-        await_rel_timeout = maps:get(await_rel_timeout, Conf)
-    }.
+        awaiting_rel = #{}
+    },
+    preserve_conf(Conf, Session).
 
 get_mqueue_conf(Zone) ->
     #{
@@ -195,14 +195,16 @@ destroy(_Session) ->
 %% Open a (possibly existing) Session
 %%--------------------------------------------------------------------
 
--spec open(clientinfo(), conninfo()) ->
+-spec open(clientinfo(), conninfo(), emqx_session:conf()) ->
     {_IsPresent :: true, session(), replayctx()} | _IsPresent :: false.
-open(ClientInfo = #{clientid := ClientId}, _ConnInfo) ->
+open(ClientInfo = #{clientid := ClientId}, ConnInfo, Conf) ->
     case emqx_cm:takeover_session_begin(ClientId) of
         {ok, SessionRemote, TakeoverState} ->
-            Session = resume(ClientInfo, SessionRemote),
+            Session0 = resume(ClientInfo, SessionRemote),
             case emqx_cm:takeover_session_end(TakeoverState) of
                 {ok, Pendings} ->
+                    Session1 = resize_inflight(ConnInfo, Session0),
+                    Session = preserve_conf(Conf, Session1),
                     clean_session(ClientInfo, Session, Pendings);
                 {error, _} ->
                     % TODO log error?
@@ -211,6 +213,20 @@ open(ClientInfo = #{clientid := ClientId}, _ConnInfo) ->
         none ->
             false
     end.
+
+resize_inflight(#{receive_maximum := ReceiveMax}, Session = #session{inflight = Inflight}) ->
+    Session#session{
+        inflight = emqx_inflight:resize(ReceiveMax, Inflight)
+    }.
+
+preserve_conf(Conf, Session = #session{}) ->
+    Session#session{
+        max_subscriptions = maps:get(max_subscriptions, Conf),
+        max_awaiting_rel = maps:get(max_awaiting_rel, Conf),
+        upgrade_qos = maps:get(upgrade_qos, Conf),
+        retry_interval = maps:get(retry_interval, Conf),
+        await_rel_timeout = maps:get(await_rel_timeout, Conf)
+    }.
 
 clean_session(ClientInfo, Session = #session{mqueue = Q}, Pendings) ->
     Q1 = emqx_mqueue:filter(fun emqx_session:should_keep/1, Q),

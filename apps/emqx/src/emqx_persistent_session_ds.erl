@@ -29,7 +29,7 @@
 %% Session API
 -export([
     create/3,
-    open/2,
+    open/3,
     destroy/1
 ]).
 
@@ -119,6 +119,8 @@
     conninfo := emqx_types:conninfo(),
     %% Timers
     timer() => reference(),
+    %% Upgrade QoS?
+    upgrade_qos := boolean(),
     %%
     props := map()
 }.
@@ -151,11 +153,12 @@
     session().
 create(#{clientid := ClientID}, ConnInfo, Conf) ->
     % TODO: expiration
-    ensure_timers(ensure_session(ClientID, ConnInfo, Conf)).
+    Session = ensure_timers(session_ensure_new(ClientID, ConnInfo)),
+    preserve_conf(ConnInfo, Conf, Session).
 
--spec open(clientinfo(), conninfo()) ->
+-spec open(clientinfo(), conninfo(), emqx_session:conf()) ->
     {_IsPresent :: true, session(), []} | false.
-open(#{clientid := ClientID} = _ClientInfo, ConnInfo) ->
+open(#{clientid := ClientID} = _ClientInfo, ConnInfo, Conf) ->
     %% NOTE
     %% The fact that we need to concern about discarding all live channels here
     %% is essentially a consequence of the in-memory session design, where we
@@ -165,20 +168,16 @@ open(#{clientid := ClientID} = _ClientInfo, ConnInfo) ->
     ok = emqx_cm:discard_session(ClientID),
     case session_open(ClientID, ConnInfo) of
         Session0 = #{} ->
-            ReceiveMaximum = receive_maximum(ConnInfo),
-            Session = Session0#{receive_maximum => ReceiveMaximum},
+            Session = preserve_conf(ConnInfo, Conf, Session0),
             {true, ensure_timers(Session), []};
         false ->
             false
     end.
 
-ensure_session(ClientID, ConnInfo, Conf) ->
-    Session = session_ensure_new(ClientID, ConnInfo, Conf),
-    ReceiveMaximum = receive_maximum(ConnInfo),
+preserve_conf(ConnInfo, Conf, Session) ->
     Session#{
-        conninfo => ConnInfo,
-        receive_maximum => ReceiveMaximum,
-        subscriptions => #{}
+        receive_maximum => receive_maximum(ConnInfo),
+        upgrade_qos => maps:get(upgrade_qos, Conf)
     }.
 
 -spec destroy(session() | clientinfo()) -> ok.
@@ -644,25 +643,24 @@ session_open(SessionId, NewConnInfo) ->
         end
     end).
 
--spec session_ensure_new(id(), emqx_types:conninfo(), _Props :: map()) ->
+-spec session_ensure_new(id(), emqx_types:conninfo()) ->
     session().
-session_ensure_new(SessionId, ConnInfo, Props) ->
+session_ensure_new(SessionId, ConnInfo) ->
     transaction(fun() ->
         ok = session_drop_subscriptions(SessionId),
-        Session = export_session(session_create(SessionId, ConnInfo, Props)),
+        Session = export_session(session_create(SessionId, ConnInfo)),
         Session#{
             subscriptions => #{},
             inflight => emqx_persistent_message_ds_replayer:new()
         }
     end).
 
-session_create(SessionId, ConnInfo, Props) ->
+session_create(SessionId, ConnInfo) ->
     Session = #session{
         id = SessionId,
         created_at = now_ms(),
         last_alive_at = now_ms(),
-        conninfo = ConnInfo,
-        props = Props
+        conninfo = ConnInfo
     },
     ok = mnesia:write(?SESSION_TAB, Session, write),
     Session.

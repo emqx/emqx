@@ -26,9 +26,9 @@
     %% Client’s Subscriptions.
     subscriptions :: map(),
     %% Max subscriptions allowed
-    max_subscriptions :: non_neg_integer() | infinity,
+    max_subscriptions = infinity :: non_neg_integer() | infinity,
     %% Upgrade QoS?
-    upgrade_qos :: boolean(),
+    upgrade_qos = false :: boolean(),
     %% Client <- Broker: QoS1/2 messages sent to the client but
     %% have not been unacked.
     inflight :: emqx_inflight:inflight(),
@@ -40,14 +40,14 @@
     %% Next packet id of the session
     next_pkt_id = 1 :: emqx_types:packet_id(),
     %% Retry interval for redelivering QoS1/2 messages (Unit: millisecond)
-    retry_interval :: timeout(),
+    retry_interval = 0 :: timeout(),
     %% Client -> Broker: QoS2 messages received from the client, but
     %% have not been completely acknowledged
     awaiting_rel :: map(),
     %% Maximum number of awaiting QoS2 messages allowed
-    max_awaiting_rel :: non_neg_integer() | infinity,
+    max_awaiting_rel = infinity :: non_neg_integer() | infinity,
     %% Awaiting PUBREL Timeout (Unit: millisecond)
-    await_rel_timeout :: timeout(),
+    await_rel_timeout = 0 :: timeout(),
     %% Created at
     created_at :: pos_integer()
 }).

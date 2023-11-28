@@ -102,7 +102,7 @@
 -export([should_keep/1]).
 
 % Tests only
--export([get_session_conf/2]).
+-export([get_session_conf/1]).
 
 -export_type([
     t/0,
@@ -137,8 +137,6 @@
 -type conf() :: #{
     %% Max subscriptions allowed
     max_subscriptions := non_neg_integer() | infinity,
-    %% Max inflight messages allowed
-    max_inflight := non_neg_integer(),
     %% Maximum number of awaiting QoS2 messages allowed
     max_awaiting_rel := non_neg_integer() | infinity,
     %% Upgrade QoS?
@@ -171,7 +169,7 @@
 
 -callback create(clientinfo(), conninfo(), conf()) ->
     t().
--callback open(clientinfo(), conninfo()) ->
+-callback open(clientinfo(), conninfo(), conf()) ->
     {_IsPresent :: true, t(), _ReplayContext} | false.
 -callback destroy(t() | clientinfo()) -> ok.
 
@@ -181,7 +179,7 @@
 
 -spec create(clientinfo(), conninfo()) -> t().
 create(ClientInfo, ConnInfo) ->
-    Conf = get_session_conf(ClientInfo, ConnInfo),
+    Conf = get_session_conf(ClientInfo),
     create(ClientInfo, ConnInfo, Conf).
 
 create(ClientInfo, ConnInfo, Conf) ->
@@ -198,12 +196,12 @@ create(Mod, ClientInfo, ConnInfo, Conf) ->
 -spec open(clientinfo(), conninfo()) ->
     {_IsPresent :: true, t(), _ReplayContext} | {_IsPresent :: false, t()}.
 open(ClientInfo, ConnInfo) ->
-    Conf = get_session_conf(ClientInfo, ConnInfo),
+    Conf = get_session_conf(ClientInfo),
     Mods = [Default | _] = choose_impl_candidates(ConnInfo),
     %% NOTE
     %% Try to look the existing session up in session stores corresponding to the given
     %% `Mods` in order, starting from the last one.
-    case try_open(Mods, ClientInfo, ConnInfo) of
+    case try_open(Mods, ClientInfo, ConnInfo, Conf) of
         {_IsPresent = true, _, _} = Present ->
             Present;
         false ->
@@ -212,24 +210,20 @@ open(ClientInfo, ConnInfo) ->
             {false, create(Default, ClientInfo, ConnInfo, Conf)}
     end.
 
-try_open([Mod | Rest], ClientInfo, ConnInfo) ->
-    case try_open(Rest, ClientInfo, ConnInfo) of
+try_open([Mod | Rest], ClientInfo, ConnInfo, Conf) ->
+    case try_open(Rest, ClientInfo, ConnInfo, Conf) of
         {_IsPresent = true, _, _} = Present ->
             Present;
         false ->
-            Mod:open(ClientInfo, ConnInfo)
+            Mod:open(ClientInfo, ConnInfo, Conf)
     end;
-try_open([], _ClientInfo, _ConnInfo) ->
+try_open([], _ClientInfo, _ConnInfo, _Conf) ->
     false.
 
--spec get_session_conf(clientinfo(), conninfo()) -> conf().
-get_session_conf(
-    #{zone := Zone},
-    #{receive_maximum := MaxInflight}
-) ->
+-spec get_session_conf(clientinfo()) -> conf().
+get_session_conf(_ClientInfo = #{zone := Zone}) ->
     #{
         max_subscriptions => get_mqtt_conf(Zone, max_subscriptions),
-        max_inflight => MaxInflight,
         max_awaiting_rel => get_mqtt_conf(Zone, max_awaiting_rel),
         upgrade_qos => get_mqtt_conf(Zone, upgrade_qos),
         retry_interval => get_mqtt_conf(Zone, retry_interval),
