@@ -192,9 +192,9 @@ sites() ->
     {ok, node()} | {error, no_leader_for_shard}.
 shard_leader(DB, Shard) ->
     case mnesia:dirty_read(?SHARD_TAB, {DB, Shard}) of
-        [#?SHARD_TAB{leader = Leader}] ->
+        [#?SHARD_TAB{leader = Leader}] when Leader =/= undefined ->
             {ok, Leader};
-        [] ->
+        _ ->
             {error, no_leader_for_shard}
     end.
 
@@ -314,7 +314,7 @@ ensure_tables() ->
         {rlog_shard, ?SHARD},
         {majority, Majority},
         {type, ordered_set},
-        {storage, ram_copies},
+        {storage, disc_copies},
         {record_name, ?SHARD_TAB},
         {attributes, record_info(fields, ?SHARD_TAB)}
     ]),
