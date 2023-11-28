@@ -16,27 +16,29 @@
 -module(emqx_utils_maps).
 
 -export([
-    deep_get/2,
-    deep_get/3,
-    deep_find/2,
-    deep_put/3,
-    deep_force_put/3,
-    deep_remove/2,
-    deep_merge/2,
+    best_effort_recursive_sum/3,
     binary_key_map/1,
-    safe_atom_key_map/1,
-    unsafe_atom_key_map/1,
-    jsonable_map/1,
-    jsonable_map/2,
     binary_string/1,
     deep_convert/3,
+    deep_find/2,
+    deep_force_put/3,
+    deep_get/2,
+    deep_get/3,
+    deep_merge/2,
+    deep_put/3,
+    deep_remove/2,
     diff_maps/2,
-    best_effort_recursive_sum/3,
     if_only_to_toggle_enable/2,
-    update_if_present/3,
+    indent/3,
+    jsonable_map/1,
+    jsonable_map/2,
+    key_comparer/1,
     put_if/4,
     rename/3,
-    key_comparer/1
+    safe_atom_key_map/1,
+    unindent/2,
+    unsafe_atom_key_map/1,
+    update_if_present/3
 ]).
 
 -export_type([config_key/0, config_key_path/0]).
@@ -332,3 +334,18 @@ key_comparer(K) ->
         (M1, M2) ->
             M1 < M2
     end.
+
+-spec indent(term(), [term()], map()) -> map().
+indent(IndentKey, PickKeys, Map) ->
+    maps:put(
+        IndentKey,
+        maps:with(PickKeys, Map),
+        maps:without(PickKeys, Map)
+    ).
+
+-spec unindent(term(), map()) -> map().
+unindent(Key, Map) ->
+    maps:merge(
+        maps:remove(Key, Map),
+        maps:get(Key, Map, #{})
+    ).

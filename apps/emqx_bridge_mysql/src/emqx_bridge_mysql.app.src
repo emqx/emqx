@@ -9,7 +9,7 @@
         emqx_resource,
         emqx_mysql
     ]},
-    {env, []},
+    {env, [{emqx_action_info_modules, [emqx_bridge_mysql_action_info]}]},
     {modules, []},
     {links, []}
 ]}.

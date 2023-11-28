@@ -31,7 +31,8 @@
     get_response/0,
     put_request/0,
     post_request/0,
-    examples/1
+    examples/1,
+    action_values/4
 ]).
 
 %% Exported for mocking
@@ -102,6 +103,54 @@ bridge_api_union(Refs) ->
                     maps:values(Index)
             end
     end.
+
+-type http_method() :: get | post | put.
+-type schema_example_map() :: #{atom() => term()}.
+
+-spec action_values(http_method(), atom(), atom(), schema_example_map()) -> schema_example_map().
+action_values(Method, ActionType, ConnectorType, ActionValues) ->
+    ActionTypeBin = atom_to_binary(ActionType),
+    ConnectorTypeBin = atom_to_binary(ConnectorType),
+    lists:foldl(
+        fun(M1, M2) ->
+            maps:merge(M1, M2)
+        end,
+        #{
+            enable => true,
+            description => <<"My example ", ActionTypeBin/binary, " action">>,
+            connector => <<ConnectorTypeBin/binary, "_connector">>,
+            resource_opts => #{
+                health_check_interval => "30s"
+            }
+        },
+        [
+            ActionValues,
+            method_values(Method, ActionType)
+        ]
+    ).
+
+-spec method_values(http_method(), atom()) -> schema_example_map().
+method_values(post, Type) ->
+    TypeBin = atom_to_binary(Type),
+    #{
+        name => <<TypeBin/binary, "_action">>,
+        type => TypeBin
+    };
+method_values(get, Type) ->
+    maps:merge(
+        method_values(post, Type),
+        #{
+            status => <<"connected">>,
+            node_status => [
+                #{
+                    node => <<"emqx@localhost">>,
+                    status => <<"connected">>
+                }
+            ]
+        }
+    );
+method_values(put, _Type) ->
+    #{}.
 
 %%======================================================================================
 %% HOCON Schema Callbacks

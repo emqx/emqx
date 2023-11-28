@@ -40,4 +40,14 @@ sql_template.desc:
 sql_template.label:
 """SQL Template"""
 
+action_parameters.label:
+"""Action Parameters"""
+action_parameters.desc:
+"""Additional parameters specific to this action type"""
+
+mysql_action.label:
+"""MySQL Action"""
+mysql_action.desc:
+"""Action to interact with a MySQL connector"""
+
 }
