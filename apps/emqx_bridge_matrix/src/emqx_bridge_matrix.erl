@@ -22,6 +22,8 @@
     connector_examples/1
 ]).
 
+-define(CONNECTOR_TYPE, matrix).
+
 %% -------------------------------------------------------------------------------------------------
 %% api
 
@@ -60,12 +62,12 @@ fields("get_bridge_v2") ->
     emqx_bridge_pgsql:fields(pgsql_action);
 fields("post_bridge_v2") ->
     emqx_bridge_pgsql:fields(pgsql_action);
-fields("put_connector") ->
-    emqx_bridge_pgsql:fields("config_connector");
-fields("get_connector") ->
-    emqx_bridge_pgsql:fields("config_connector");
-fields("post_connector") ->
-    emqx_bridge_pgsql:fields("config_connector");
+fields(Field) when
+    Field == "get_connector";
+    Field == "put_connector";
+    Field == "post_connector"
+->
+    emqx_postgresql_connector_schema:fields({Field, ?CONNECTOR_TYPE});
 fields(Method) ->
     emqx_bridge_pgsql:fields(Method).
 

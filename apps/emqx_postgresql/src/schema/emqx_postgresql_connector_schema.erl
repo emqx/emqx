@@ -24,6 +24,7 @@
 }).
 
 -export([
+    namespace/0,
     roots/0,
     fields/1,
     desc/1
@@ -34,6 +35,11 @@
     connector_examples/1,
     values/1
 ]).
+
+-define(CONNECTOR_TYPE, pgsql).
+
+namespace() ->
+    "connector_postgres".
 
 roots() ->
     [].
@@ -64,12 +70,18 @@ fields("get_bridge_v2") ->
     fields(pgsql_action);
 fields("post_bridge_v2") ->
     fields(pgsql_action);
-fields("put_connector") ->
-    fields("config_connector");
-fields("get_connector") ->
-    fields("config_connector");
-fields("post_connector") ->
-    fields("config_connector").
+fields(Field) when
+    Field == "get_connector";
+    Field == "put_connector";
+    Field == "post_connector"
+->
+    fields({Field, ?CONNECTOR_TYPE});
+fields({Field, Type}) when
+    Field == "get_connector";
+    Field == "put_connector";
+    Field == "post_connector"
+->
+    emqx_connector_schema:api_fields(Field, Type, fields("connection_fields")).
 
 server() ->
     Meta = #{desc => ?DESC("server")},
@@ -94,7 +106,7 @@ connector_examples(Method) ->
         #{
             <<"pgsql">> => #{
                 summary => <<"PostgreSQL Connector">>,
-                value => values({Method, pgsql})
+                value => values({Method, <<"pgsql">>})
             }
         }
     ].
@@ -109,20 +121,21 @@ values({get, PostgreSQLType}) ->
                     node => <<"emqx@localhost">>,
                     status => <<"connected">>
                 }
-            ]
+            ],
+            actions => [<<"my_action">>]
         },
         values({post, PostgreSQLType})
     );
 values({post, PostgreSQLType}) ->
-    values({put, PostgreSQLType});
-values({put, PostgreSQLType}) ->
     maps:merge(
         #{
-            name => <<"my_action">>,
+            name => <<"my_", PostgreSQLType/binary, "_connector">>,
             type => PostgreSQLType
         },
         values(common)
     );
+values({put, _PostgreSQLType}) ->
+    values(common);
 values(common) ->
     #{
         <<"database">> => <<"emqx_data">>,

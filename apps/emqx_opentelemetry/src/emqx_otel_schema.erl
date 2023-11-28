@@ -24,16 +24,48 @@
     desc/1
 ]).
 
+-export([upgrade_legacy_metrics/1]).
+
+%% Compatibility with the previous schema that defined only metric fields
+upgrade_legacy_metrics(RawConf) ->
+    case RawConf of
+        #{<<"opentelemetry">> := Otel} ->
+            LegacyMetricsFields = [<<"enable">>, <<"exporter">>],
+            Otel1 = maps:without(LegacyMetricsFields, Otel),
+            Metrics = maps:with(LegacyMetricsFields, Otel),
+            case Metrics =:= #{} of
+                true ->
+                    RawConf;
+                false ->
+                    RawConf#{<<"opentelemetry">> => Otel1#{<<"metrics">> => Metrics}}
+            end;
+        _ ->
+            RawConf
+    end.
+
 namespace() -> opentelemetry.
+
 roots() -> ["opentelemetry"].
 
 fields("opentelemetry") ->
     [
-        {exporter,
+        {metrics,
             ?HOCON(
-                ?R_REF("exporter"),
-                #{desc => ?DESC(exporter)}
+                ?R_REF("otel_metrics"),
+                #{
+                    desc => ?DESC(otel_metrics)
+                }
             )},
+        {logs,
+            ?HOCON(
+                ?R_REF("otel_logs"),
+                #{
+                    desc => ?DESC(otel_logs)
+                }
+            )}
+    ];
+fields("otel_metrics") ->
+    [
         {enable,
             ?HOCON(
                 boolean(),
@@ -42,41 +74,130 @@ fields("opentelemetry") ->
                     required => true,
                     desc => ?DESC(enable)
                 }
+            )},
+        {exporter,
+            ?HOCON(
+                ?R_REF("otel_metrics_exporter"),
+                #{desc => ?DESC(exporter)}
             )}
     ];
-fields("exporter") ->
+fields("otel_logs") ->
     [
-        {"protocol",
+        {level,
             ?HOCON(
-                %% http_protobuf is not support for metrics yet.
-                ?ENUM([grpc]),
+                emqx_conf_schema:log_level(),
                 #{
-                    mapping => "opentelemetry_exporter.otlp_protocol",
-                    desc => ?DESC(protocol),
-                    default => grpc,
+                    default => warning,
+                    desc => ?DESC(otel_log_handler_level),
+                    importance => ?IMPORTANCE_HIGH
+                }
+            )},
+        {enable,
+            ?HOCON(
+                boolean(),
+                #{
+                    default => false,
+                    desc => ?DESC(enable),
+                    importance => ?IMPORTANCE_HIGH
+                }
+            )},
+        {max_queue_size,
+            ?HOCON(
+                pos_integer(),
+                #{
+                    default => 2048,
+                    desc => ?DESC(max_queue_size),
                     importance => ?IMPORTANCE_HIDDEN
                 }
             )},
-        {"endpoint",
+        {exporting_timeout,
+            ?HOCON(
+                emqx_schema:timeout_duration_ms(),
+                #{
+                    default => <<"30s">>,
+                    desc => ?DESC(exporting_timeout),
+                    importance => ?IMPORTANCE_HIDDEN
+                }
+            )},
+        {scheduled_delay,
+            ?HOCON(
+                emqx_schema:timeout_duration_ms(),
+                #{
+                    default => <<"1s">>,
+                    desc => ?DESC(scheduled_delay),
+                    importance => ?IMPORTANCE_HIDDEN
+                }
+            )},
+        {exporter,
+            ?HOCON(
+                ?R_REF("otel_logs_exporter"),
+                #{
+                    desc => ?DESC(exporter),
+                    importance => ?IMPORTANCE_HIGH
+                }
+            )}
+    ];
+fields("otel_metrics_exporter") ->
+    exporter_fields(metrics);
+fields("otel_logs_exporter") ->
+    exporter_fields(logs);
+fields("ssl_opts") ->
+    Schema = emqx_schema:client_ssl_opts_schema(#{}),
+    lists:keydelete("enable", 1, Schema).
+
+desc("opentelemetry") -> ?DESC(opentelemetry);
+desc("exporter") -> ?DESC(exporter);
+desc("otel_logs_exporter") -> ?DESC(exporter);
+desc("otel_metrics_exporter") -> ?DESC(exporter);
+desc("otel_logs") -> ?DESC(otel_logs);
+desc("otel_metrics") -> ?DESC(otel_metrics);
+desc("ssl_opts") -> ?DESC(exporter_ssl);
+desc(_) -> undefined.
+
+exporter_fields(OtelSignal) ->
+    [
+        {endpoint,
             ?HOCON(
                 emqx_schema:url(),
                 #{
-                    mapping => "opentelemetry_exporter.otlp_endpoint",
-                    default => <<"http://localhost:4317">>,
-                    desc => ?DESC(endpoint)
+                    default => "http://localhost:4317",
+                    desc => ?DESC(exporter_endpoint),
+                    importance => ?IMPORTANCE_HIGH
                 }
             )},
-        {"interval",
+        {protocol,
+            ?HOCON(
+                %% http protobuf/json may be added in future
+                ?ENUM([grpc]),
+                #{
+                    default => grpc,
+                    desc => ?DESC(exporter_protocol),
+                    importance => ?IMPORTANCE_HIDDEN
+                }
+            )},
+        {ssl_options,
+            ?HOCON(
+                ?R_REF("ssl_opts"),
+                #{
+                    desc => ?DESC(exporter_ssl),
+                    importance => ?IMPORTANCE_LOW
+                }
+            )}
+    ] ++ exporter_extra_fields(OtelSignal).
+
+%% Let's keep it in exporter config for metrics, as it is different from
+%% scheduled_delay_ms opt used for otel traces and logs
+exporter_extra_fields(metrics) ->
+    [
+        {interval,
             ?HOCON(
                 emqx_schema:timeout_duration_ms(),
                 #{
                     default => <<"10s">>,
                     required => true,
-                    desc => ?DESC(interval)
+                    desc => ?DESC(scheduled_delay)
                 }
             )}
-    ].
-
-desc("opentelemetry") -> ?DESC(opentelemetry);
-desc("exporter") -> ?DESC(exporter);
-desc(_) -> undefined.
+    ];
+exporter_extra_fields(_OtelSignal) ->
+    [].

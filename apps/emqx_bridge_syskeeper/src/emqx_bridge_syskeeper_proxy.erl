@@ -22,6 +22,8 @@
     desc/1
 ]).
 
+-define(CONNECTOR_TYPE, syskeeper_proxy).
+
 -define(SYSKEEPER_HOST_OPTIONS, #{
     default_port => 9092
 }).
@@ -47,7 +49,8 @@ values(get) ->
                     node => <<"emqx@localhost">>,
                     status => <<"connected">>
                 }
-            ]
+            ],
+            actions => [<<"my_action">>]
         },
         values(post)
     );
@@ -74,9 +77,9 @@ namespace() -> "connector_syskeeper_proxy".
 roots() -> [].
 
 fields(config) ->
+    emqx_connector_schema:common_fields() ++ fields("connection_fields");
+fields("connection_fields") ->
     [
-        {enable, mk(boolean(), #{desc => ?DESC("config_enable"), default => true})},
-        {description, emqx_schema:description_schema()},
         {listen, listen()},
         {acceptors,
             mk(
@@ -89,12 +92,14 @@ fields(config) ->
                 #{desc => ?DESC(handshake_timeout), default => <<"10s">>}
             )}
     ];
-fields("post") ->
-    [type_field(), name_field() | fields(config)];
-fields("put") ->
-    fields(config);
-fields("get") ->
-    emqx_bridge_schema:status_fields() ++ fields("post").
+fields(Field) when
+    Field == "get";
+    Field == "post";
+    Field == "put"
+->
+    emqx_connector_schema:api_fields(
+        Field ++ "_connector", ?CONNECTOR_TYPE, fields("connection_fields")
+    ).
 
 desc(config) ->
     ?DESC("desc_config");
@@ -106,11 +111,3 @@ desc(_) ->
 listen() ->
     Meta = #{desc => ?DESC("listen")},
     emqx_schema:servers_sc(Meta, ?SYSKEEPER_HOST_OPTIONS).
-
-%% -------------------------------------------------------------------------------------------------
-
-type_field() ->
-    {type, mk(enum([syskeeper_proxy]), #{required => true, desc => ?DESC("desc_type")})}.
-
-name_field() ->
-    {name, mk(binary(), #{required => true, desc => ?DESC("desc_name")})}.

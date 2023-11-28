@@ -24,7 +24,7 @@
 
 %%======================================================================================
 %% Hocon Schema Definitions
-namespace() -> "bridge_webhook".
+namespace() -> "bridge_http".
 
 roots() -> [].
 

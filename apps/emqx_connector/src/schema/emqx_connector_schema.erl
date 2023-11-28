@@ -33,7 +33,12 @@
 -export([get_response/0, put_request/0, post_request/0]).
 
 -export([connector_type_to_bridge_types/1]).
--export([common_fields/0]).
+-export([
+    api_fields/3,
+    common_fields/0,
+    status_and_actions_fields/0,
+    type_and_name_fields/1
+]).
 
 -export([resource_opts_fields/0, resource_opts_fields/1]).
 
@@ -352,17 +357,85 @@ roots() ->
     end.
 
 fields(connectors) ->
-    [] ++ enterprise_fields_connectors().
+    [] ++ enterprise_fields_connectors();
+fields("node_status") ->
+    [
+        node_name(),
+        {"status", mk(status(), #{})},
+        {"status_reason",
+            mk(binary(), #{
+                required => false,
+                desc => ?DESC("desc_status_reason"),
+                example => <<"Connection refused">>
+            })}
+    ].
 
 desc(connectors) ->
     ?DESC("desc_connectors");
+desc("node_status") ->
+    ?DESC("desc_node_status");
 desc(_) ->
     undefined.
+
+api_fields("get_connector", Type, Fields) ->
+    lists:append(
+        [
+            type_and_name_fields(Type),
+            common_fields(),
+            status_and_actions_fields(),
+            Fields
+        ]
+    );
+api_fields("post_connector", Type, Fields) ->
+    lists:append(
+        [
+            type_and_name_fields(Type),
+            common_fields(),
+            Fields
+        ]
+    );
+api_fields("put_connector", _Type, Fields) ->
+    lists:append(
+        [
+            common_fields(),
+            Fields
+        ]
+    ).
 
 common_fields() ->
     [
         {enable, mk(boolean(), #{desc => ?DESC("config_enable"), default => true})},
         {description, emqx_schema:description_schema()}
+    ].
+
+type_and_name_fields(ConnectorType) ->
+    [
+        {type, mk(ConnectorType, #{required => true, desc => ?DESC("desc_type")})},
+        {name, mk(binary(), #{required => true, desc => ?DESC("desc_name")})}
+    ].
+
+status_and_actions_fields() ->
+    [
+        {"status", mk(status(), #{desc => ?DESC("desc_status")})},
+        {"status_reason",
+            mk(binary(), #{
+                required => false,
+                desc => ?DESC("desc_status_reason"),
+                example => <<"Connection refused">>
+            })},
+        {"node_status",
+            mk(
+                hoconsc:array(ref(?MODULE, "node_status")),
+                #{desc => ?DESC("desc_node_status")}
+            )},
+        {"actions",
+            mk(
+                hoconsc:array(binary()),
+                #{
+                    desc => ?DESC("connector_actions"),
+                    example => [<<"my_action">>]
+                }
+            )}
     ].
 
 resource_opts_fields() ->
@@ -422,11 +495,17 @@ is_bad_schema(#{type := ?MAP(_, ?R_REF(Module, TypeName))}) ->
             false;
         _ ->
             {true, #{
-                schema_modle => Module,
+                schema_module => Module,
                 type_name => TypeName,
                 missing_fields => MissingFileds
             }}
     end.
+
+status() ->
+    hoconsc:enum([connected, disconnected, connecting, inconsistent]).
+
+node_name() ->
+    {"node", mk(binary(), #{desc => ?DESC("desc_node_name"), example => "emqx@127.0.0.1"})}.
 
 common_field_names() ->
     [

@@ -52,6 +52,9 @@
     lookup_routes/1
 ]).
 
+%% Topics API
+-export([select/3]).
+
 -export([print_routes/1]).
 
 -export([
@@ -59,7 +62,10 @@
     foldr_routes/2
 ]).
 
--export([topics/0]).
+-export([
+    topics/0,
+    stats/1
+]).
 
 %% Exported for tests
 -export([has_route/2]).
@@ -219,6 +225,19 @@ mria_delete_route(v2, Topic, Dest) ->
 mria_delete_route(v1, Topic, Dest) ->
     mria_delete_route_v1(Topic, Dest).
 
+-spec select(Spec, _Limit :: pos_integer(), Continuation) ->
+    {[emqx_types:route()], Continuation} | '$end_of_table'
+when
+    Spec :: {_TopicPat, _DestPat},
+    Continuation :: term() | '$end_of_table'.
+select(MatchSpec, Limit, Cont) ->
+    select(get_schema_vsn(), MatchSpec, Limit, Cont).
+
+select(v2, MatchSpec, Limit, Cont) ->
+    select_v2(MatchSpec, Limit, Cont);
+select(v1, MatchSpec, Limit, Cont) ->
+    select_v1(MatchSpec, Limit, Cont).
+
 -spec topics() -> list(emqx_types:topic()).
 topics() ->
     topics(get_schema_vsn()).
@@ -227,6 +246,15 @@ topics(v2) ->
     list_topics_v2();
 topics(v1) ->
     list_topics_v1().
+
+-spec stats(n_routes) -> non_neg_integer().
+stats(Item) ->
+    stats(get_schema_vsn(), Item).
+
+stats(v2, Item) ->
+    get_stats_v2(Item);
+stats(v1, Item) ->
+    get_stats_v1(Item).
 
 %% @doc Print routes to a topic
 -spec print_routes(emqx_types:topic()) -> ok.
@@ -345,8 +373,16 @@ cleanup_routes_v1(Node) ->
         ]
     end).
 
+select_v1({MTopic, MDest}, Limit, undefined) ->
+    ets:match_object(?ROUTE_TAB, #route{topic = MTopic, dest = MDest}, Limit);
+select_v1(_Spec, _Limit, Cont) ->
+    ets:select(Cont).
+
 list_topics_v1() ->
     list_route_tab_topics().
+
+get_stats_v1(n_routes) ->
+    emqx_maybe:define(ets:info(?ROUTE_TAB, size), 0).
 
 list_route_tab_topics() ->
     mnesia:dirty_all_keys(?ROUTE_TAB).
@@ -436,10 +472,51 @@ get_dest_node({_, Node}) ->
 get_dest_node(Node) ->
     Node.
 
+select_v2(Spec, Limit, undefined) ->
+    Stream = mk_route_stream(Spec),
+    select_next(Limit, Stream);
+select_v2(_Spec, Limit, Stream) ->
+    select_next(Limit, Stream).
+
+select_next(N, Stream) ->
+    case emqx_utils_stream:consume(N, Stream) of
+        {Routes, SRest} ->
+            {Routes, SRest};
+        Routes ->
+            {Routes, '$end_of_table'}
+    end.
+
+mk_route_stream(Spec) ->
+    emqx_utils_stream:chain(
+        mk_route_stream(route, Spec),
+        mk_route_stream(filter, Spec)
+    ).
+
+mk_route_stream(route, Spec) ->
+    emqx_utils_stream:ets(fun(Cont) -> select_v1(Spec, 1, Cont) end);
+mk_route_stream(filter, {MTopic, MDest}) ->
+    emqx_utils_stream:map(
+        fun routeidx_to_route/1,
+        emqx_utils_stream:ets(
+            fun
+                (undefined) ->
+                    MatchSpec = #routeidx{entry = emqx_trie_search:make_pat(MTopic, MDest)},
+                    ets:match_object(?ROUTE_TAB_FILTERS, MatchSpec, 1);
+                (Cont) ->
+                    ets:match_object(Cont)
+            end
+        )
+    ).
+
 list_topics_v2() ->
     Pat = #routeidx{entry = '$1'},
     Filters = [emqx_topic_index:get_topic(K) || [K] <- ets:match(?ROUTE_TAB_FILTERS, Pat)],
     list_route_tab_topics() ++ Filters.
+
+get_stats_v2(n_routes) ->
+    NTopics = emqx_maybe:define(ets:info(?ROUTE_TAB, size), 0),
+    NWildcards = emqx_maybe:define(ets:info(?ROUTE_TAB_FILTERS, size), 0),
+    NTopics + NWildcards.
 
 fold_routes_v2(FunName, FoldFun, AccIn) ->
     FilterFoldFun = mk_filtertab_fold_fun(FoldFun),
@@ -448,6 +525,9 @@ fold_routes_v2(FunName, FoldFun, AccIn) ->
 
 mk_filtertab_fold_fun(FoldFun) ->
     fun(#routeidx{entry = K}, Acc) -> FoldFun(match_to_route(K), Acc) end.
+
+routeidx_to_route(#routeidx{entry = M}) ->
+    match_to_route(M).
 
 match_to_route(M) ->
     #route{topic = emqx_topic_index:get_topic(M), dest = emqx_topic_index:get_id(M)}.

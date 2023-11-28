@@ -63,7 +63,7 @@ max_mqueue_len() ->
     | dnstream_only
     | disable.
 message_format_checking() ->
-    conf(message_format_checking, all).
+    conf(message_format_checking, disable).
 
 uptopic(Action) ->
     Topic = upstream(topic),
