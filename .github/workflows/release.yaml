@@ -20,7 +20,14 @@ jobs:
   upload:
     runs-on: ubuntu-22.04
     permissions:
+      contents: write
+      checks: write
       packages: write
+      actions: read
+      issues: read
+      pull-requests: read
+      repository-projects: read
+      statuses: read
     strategy:
       fail-fast: false
     steps:
