@@ -583,10 +583,18 @@ get_referenced_hookpoints(Froms) ->
     ].
 
 get_egress_bridges(Actions) ->
-    [
-        emqx_bridge_resource:bridge_id(BridgeType, BridgeName)
-     || {bridge, BridgeType, BridgeName, _ResId} <- Actions
-    ].
+    lists:foldr(
+        fun
+            ({bridge, BridgeType, BridgeName, _ResId}, Acc) ->
+                [emqx_bridge_resource:bridge_id(BridgeType, BridgeName) | Acc];
+            ({bridge_v2, BridgeType, BridgeName}, Acc) ->
+                [emqx_bridge_resource:bridge_id(BridgeType, BridgeName) | Acc];
+            (_, Acc) ->
+                Acc
+        end,
+        [],
+        Actions
+    ).
 
 %% For allowing an external application to add extra "built-in" functions to the
 %% rule engine SQL like language. The module set by

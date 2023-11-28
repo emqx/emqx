@@ -31,8 +31,13 @@
     on_query/3,
     on_query_async/4,
     on_get_status/2,
-    reply_delegator/3
+    on_add_channel/4,
+    on_remove_channel/3,
+    on_get_channels/1,
+    on_get_channel_status/3
 ]).
+
+-export([reply_delegator/3]).
 
 -export([
     roots/0,
@@ -41,7 +46,7 @@
     namespace/0
 ]).
 
-%% for other webhook-like connectors.
+%% for other http-like connectors.
 -export([redact_request/1]).
 
 -export([validate_method/1, join_paths/2]).
@@ -251,6 +256,21 @@ start_pool(PoolName, PoolOpts) ->
             Error
     end.
 
+on_add_channel(
+    _InstId,
+    OldState,
+    ActionId,
+    ActionConfig
+) ->
+    InstalledActions = maps:get(installed_actions, OldState, #{}),
+    {ok, ActionState} = do_create_http_action(ActionConfig),
+    NewInstalledActions = maps:put(ActionId, ActionState, InstalledActions),
+    NewState = maps:put(installed_actions, NewInstalledActions, OldState),
+    {ok, NewState}.
+
+do_create_http_action(_ActionConfig = #{parameters := Params}) ->
+    {ok, preprocess_request(Params)}.
+
 on_stop(InstId, _State) ->
     ?SLOG(info, #{
         msg => "stopping_http_connector",
@@ -260,6 +280,16 @@ on_stop(InstId, _State) ->
     ?tp(emqx_connector_http_stopped, #{instance_id => InstId}),
     Res.
 
+on_remove_channel(
+    _InstId,
+    OldState = #{installed_actions := InstalledActions},
+    ActionId
+) ->
+    NewInstalledActions = maps:remove(ActionId, InstalledActions),
+    NewState = maps:put(installed_actions, NewInstalledActions, OldState),
+    {ok, NewState}.
+
+%% BridgeV1 entrypoint
 on_query(InstId, {send_message, Msg}, State) ->
     case maps:get(request, State, undefined) of
         undefined ->
@@ -273,6 +303,36 @@ on_query(InstId, {send_message, Msg}, State) ->
                 headers := Headers,
                 request_timeout := Timeout
             } = process_request(Request, Msg),
+            %% bridge buffer worker has retry, do not let ehttpc retry
+            Retry = 2,
+            ClientId = maps:get(clientid, Msg, undefined),
+            on_query(
+                InstId,
+                {ClientId, Method, {Path, Headers, Body}, Timeout, Retry},
+                State
+            )
+    end;
+%% BridgeV2 entrypoint
+on_query(
+    InstId,
+    {ActionId, Msg},
+    State = #{installed_actions := InstalledActions}
+) when is_binary(ActionId) ->
+    case {maps:get(request, State, undefined), maps:get(ActionId, InstalledActions, undefined)} of
+        {undefined, _} ->
+            ?SLOG(error, #{msg => "arg_request_not_found", connector => InstId}),
+            {error, arg_request_not_found};
+        {_, undefined} ->
+            ?SLOG(error, #{msg => "action_not_found", connector => InstId, action_id => ActionId}),
+            {error, action_not_found};
+        {Request, ActionState} ->
+            #{
+                method := Method,
+                path := Path,
+                body := Body,
+                headers := Headers,
+                request_timeout := Timeout
+            } = process_request_and_action(Request, ActionState, Msg),
             %% bridge buffer worker has retry, do not let ehttpc retry
             Retry = 2,
             ClientId = maps:get(clientid, Msg, undefined),
@@ -343,6 +403,7 @@ on_query(
             Result
     end.
 
+%% BridgeV1 entrypoint
 on_query_async(InstId, {send_message, Msg}, ReplyFunAndArgs, State) ->
     case maps:get(request, State, undefined) of
         undefined ->
@@ -356,6 +417,36 @@ on_query_async(InstId, {send_message, Msg}, ReplyFunAndArgs, State) ->
                 headers := Headers,
                 request_timeout := Timeout
             } = process_request(Request, Msg),
+            ClientId = maps:get(clientid, Msg, undefined),
+            on_query_async(
+                InstId,
+                {ClientId, Method, {Path, Headers, Body}, Timeout},
+                ReplyFunAndArgs,
+                State
+            )
+    end;
+%% BridgeV2 entrypoint
+on_query_async(
+    InstId,
+    {ActionId, Msg},
+    ReplyFunAndArgs,
+    State = #{installed_actions := InstalledActions}
+) when is_binary(ActionId) ->
+    case {maps:get(request, State, undefined), maps:get(ActionId, InstalledActions, undefined)} of
+        {undefined, _} ->
+            ?SLOG(error, #{msg => "arg_request_not_found", connector => InstId}),
+            {error, arg_request_not_found};
+        {_, undefined} ->
+            ?SLOG(error, #{msg => "action_not_found", connector => InstId, action_id => ActionId}),
+            {error, action_not_found};
+        {Request, ActionState} ->
+            #{
+                method := Method,
+                path := Path,
+                body := Body,
+                headers := Headers,
+                request_timeout := Timeout
+            } = process_request_and_action(Request, ActionState, Msg),
             ClientId = maps:get(clientid, Msg, undefined),
             on_query_async(
                 InstId,
@@ -411,6 +502,9 @@ resolve_pool_worker(#{pool_name := PoolName} = State, Key) ->
             ehttpc_pool:pick_worker(PoolName, Key)
     end.
 
+on_get_channels(ResId) ->
+    emqx_bridge_v2:get_channels_for_connector(ResId).
+
 on_get_status(_InstId, #{pool_name := PoolName, connect_timeout := Timeout} = State) ->
     case do_get_status(PoolName, Timeout) of
         ok ->
@@ -456,6 +550,14 @@ do_get_status(PoolName, Timeout) ->
             {error, timeout}
     end.
 
+on_get_channel_status(
+    InstId,
+    _ChannelId,
+    State
+) ->
+    %% XXX: Reuse the connector status
+    on_get_status(InstId, State).
+
 %%--------------------------------------------------------------------
 %% Internal functions
 %%--------------------------------------------------------------------
@@ -466,10 +568,10 @@ preprocess_request(Req) when map_size(Req) == 0 ->
 preprocess_request(
     #{
         method := Method,
-        path := Path,
-        headers := Headers
+        path := Path
     } = Req
 ) ->
+    Headers = maps:get(headers, Req, []),
     #{
         method => parse_template(to_bin(Method)),
         path => parse_template(Path),
@@ -528,6 +630,49 @@ maybe_parse_template(Key, Conf) ->
 
 parse_template(String) ->
     emqx_template:parse(String).
+
+process_request_and_action(Request, ActionState, Msg) ->
+    MethodTemplate = maps:get(method, ActionState),
+    Method = make_method(render_template_string(MethodTemplate, Msg)),
+    BodyTemplate = maps:get(body, ActionState),
+    Body = render_request_body(BodyTemplate, Msg),
+
+    PathPrefix = unicode:characters_to_list(render_template(maps:get(path, Request), Msg)),
+    PathSuffix = unicode:characters_to_list(render_template(maps:get(path, ActionState), Msg)),
+
+    Path =
+        case PathSuffix of
+            "" -> PathPrefix;
+            _ -> join_paths(PathPrefix, PathSuffix)
+        end,
+
+    HeadersTemplate1 = maps:get(headers, Request),
+    HeadersTemplate2 = maps:get(headers, ActionState),
+    Headers = merge_proplist(
+        render_headers(HeadersTemplate1, Msg),
+        render_headers(HeadersTemplate2, Msg)
+    ),
+    #{
+        method => Method,
+        path => Path,
+        body => Body,
+        headers => Headers,
+        request_timeout => maps:get(request_timeout, ActionState)
+    }.
+
+merge_proplist(Proplist1, Proplist2) ->
+    lists:foldl(
+        fun({K, V}, Acc) ->
+            case lists:keyfind(K, 1, Acc) of
+                false ->
+                    [{K, V} | Acc];
+                {K, _} = {K, V1} ->
+                    [{K, V1} | Acc]
+            end
+        end,
+        Proplist2,
+        Proplist1
+    ).
 
 process_request(
     #{
@@ -691,7 +836,7 @@ maybe_retry({error, Reason}, Context, ReplyFunAndArgs) ->
             true -> Context;
             false -> Context#{attempt := Attempt + 1}
         end,
-    ?tp(webhook_will_retry_async, #{}),
+    ?tp(http_will_retry_async, #{}),
     Worker = resolve_pool_worker(State, KeyOrNum),
     ok = ehttpc:request_async(
         Worker,

@@ -143,7 +143,7 @@ param_path_id() ->
             #{
                 in => path,
                 required => true,
-                example => <<"webhook:webhook_example">>,
+                example => <<"http:http_example">>,
                 desc => ?DESC("desc_param_path_id")
             }
         )}.
@@ -166,9 +166,9 @@ bridge_info_array_example(Method) ->
 bridge_info_examples(Method) ->
     maps:merge(
         #{
-            <<"webhook_example">> => #{
-                summary => <<"WebHook">>,
-                value => info_example(webhook, Method)
+            <<"http_example">> => #{
+                summary => <<"HTTP">>,
+                value => info_example(http, Method)
             },
             <<"mqtt_example">> => #{
                 summary => <<"MQTT Bridge">>,
@@ -201,7 +201,7 @@ method_example(Type, Method) when Method == get; Method == post ->
 method_example(_Type, put) ->
     #{}.
 
-info_example_basic(webhook) ->
+info_example_basic(http) ->
     #{
         enable => true,
         url => <<"http://localhost:9901/messages/${topic}">>,
@@ -212,7 +212,7 @@ info_example_basic(webhook) ->
         pool_size => 4,
         enable_pipelining => 100,
         ssl => #{enable => false},
-        local_topic => <<"emqx_webhook/#">>,
+        local_topic => <<"emqx_http/#">>,
         method => post,
         body => <<"${payload}">>,
         resource_opts => #{
@@ -650,7 +650,8 @@ create_or_update_bridge(BridgeType0, BridgeName, Conf, HttpStatusCode) ->
 
 get_metrics_from_local_node(BridgeType0, BridgeName) ->
     BridgeType = upgrade_type(BridgeType0),
-    format_metrics(emqx_bridge:get_metrics(BridgeType, BridgeName)).
+    MetricsResult = emqx_bridge:get_metrics(BridgeType, BridgeName),
+    format_metrics(MetricsResult).
 
 '/bridges/:id/enable/:enable'(put, #{bindings := #{id := Id, enable := Enable}}) ->
     ?TRY_PARSE_ID(
