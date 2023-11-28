@@ -18,6 +18,9 @@ case ${OTP_VSN} in
     25*)
         VERSION="3.19.0-emqx-9"
         ;;
+    26*)
+        VERSION="3.20.0-emqx-1"
+        ;;
     *)
         echo "Unsupporetd Erlang/OTP version $OTP_VSN"
         exit 1
