@@ -185,6 +185,8 @@ poll(ReplyFun, SessionId, Inflight0, WindowSize) when WindowSize > 0, WindowSize
             fetch(ReplyFun, SessionId, Inflight0, Streams, FreeSpace, [])
     end.
 
+%% Which seqno this track is committed until.
+%% "Until" means this is first seqno that is _not yet committed_ for this track.
 -spec committed_until(track() | marker(), inflight()) -> seqno().
 committed_until(Track, #inflight{commits = Commits}) ->
     maps:get(Track, Commits).
