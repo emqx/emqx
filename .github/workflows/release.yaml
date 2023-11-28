@@ -64,7 +64,7 @@ jobs:
         with:
           asset_paths: '["packages/*"]'
       - name: update to emqx.io
-        if: startsWith(github.ref_name, 'v') && ((github.event_name == 'release' && !github.event.prerelease) || inputs.publish_release_artefacts)
+        if: startsWith(github.ref_name, 'v') && ((github.event_name == 'release' && !github.event.release.prerelease) || inputs.publish_release_artefacts)
         run: |
           set -eux
           curl -w %{http_code} \
@@ -75,7 +75,7 @@ jobs:
                -d "{\"repo\":\"emqx/emqx\", \"tag\": \"${{ github.ref_name }}\" }" \
                ${{ secrets.EMQX_IO_RELEASE_API }}
       - name: Push to packagecloud.io
-        if: (github.event_name == 'release' && !github.event.prerelease) || inputs.publish_release_artefacts
+        if: (github.event_name == 'release' && !github.event.release.prerelease) || inputs.publish_release_artefacts
         env:
           PROFILE: ${{ steps.profile.outputs.profile }}
           VERSION: ${{ steps.profile.outputs.version }}
