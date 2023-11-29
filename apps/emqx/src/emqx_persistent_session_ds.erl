@@ -239,7 +239,7 @@ print_session(ClientId) ->
                         session => Session,
                         streams => mnesia:read(?SESSION_STREAM_TAB, ClientId),
                         pubranges => session_read_pubranges(ClientId),
-                        markers => session_read_markers(ClientId),
+                        offsets => session_read_offsets(ClientId),
                         subscriptions => session_read_subscriptions(ClientId)
                     };
                 [] ->
@@ -338,7 +338,7 @@ puback(_ClientInfo, PacketId, Session = #{id := Id, inflight := Inflight0}) ->
     {ok, emqx_types:message(), session()}
     | {error, emqx_types:reason_code()}.
 pubrec(PacketId, Session = #{id := Id, inflight := Inflight0}) ->
-    case emqx_persistent_message_ds_replayer:commit_marker(Id, rec, PacketId, Inflight0) of
+    case emqx_persistent_message_ds_replayer:commit_offset(Id, rec, PacketId, Inflight0) of
         {true, Inflight} ->
             %% TODO
             Msg = emqx_message:make(Id, <<>>, <<>>),
@@ -552,13 +552,13 @@ create_tables() ->
         ]
     ),
     ok = mria:create_table(
-        ?SESSION_MARKER_TAB,
+        ?SESSION_COMMITTED_OFFSET_TAB,
         [
             {rlog_shard, ?DS_MRIA_SHARD},
             {type, set},
             {storage, storage()},
-            {record_name, ds_marker},
-            {attributes, record_info(fields, ds_marker)}
+            {record_name, ds_committed_offset},
+            {attributes, record_info(fields, ds_committed_offset)}
         ]
     ),
     ok = mria:wait_for_tables([
@@ -566,7 +566,7 @@ create_tables() ->
         ?SESSION_SUBSCRIPTIONS_TAB,
         ?SESSION_STREAM_TAB,
         ?SESSION_PUBRANGE_TAB,
-        ?SESSION_MARKER_TAB
+        ?SESSION_COMMITTED_OFFSET_TAB
     ]),
     ok.
 
@@ -633,7 +633,7 @@ session_drop(DSSessionId) ->
     transaction(fun() ->
         ok = session_drop_subscriptions(DSSessionId),
         ok = session_drop_pubranges(DSSessionId),
-        ok = session_drop_markers(DSSessionId),
+        ok = session_drop_offsets(DSSessionId),
         ok = session_drop_streams(DSSessionId),
         ok = mnesia:delete(?SESSION_TAB, DSSessionId, write)
     end).
@@ -725,16 +725,16 @@ session_read_pubranges(DSSessionId, LockKind) ->
     ),
     mnesia:select(?SESSION_PUBRANGE_TAB, MS, LockKind).
 
-session_read_markers(DSSessionID) ->
-    session_read_markers(DSSessionID, read).
+session_read_offsets(DSSessionID) ->
+    session_read_offsets(DSSessionID, read).
 
-session_read_markers(DSSessionId, LockKind) ->
+session_read_offsets(DSSessionId, LockKind) ->
     MS = ets:fun2ms(
-        fun(#ds_marker{id = {Sess, Name}}) when Sess =:= DSSessionId ->
-            {DSSessionId, Name}
+        fun(#ds_committed_offset{id = {Sess, Type}}) when Sess =:= DSSessionId ->
+            {DSSessionId, Type}
         end
     ),
-    mnesia:select(?SESSION_MARKER_TAB, MS, LockKind).
+    mnesia:select(?SESSION_COMMITTED_OFFSET_TAB, MS, LockKind).
 
 -spec new_subscription_id(id(), topic_filter()) -> {subscription_id(), integer()}.
 new_subscription_id(DSSessionId, TopicFilter) ->
@@ -846,14 +846,14 @@ session_drop_pubranges(DSSessionId) ->
     ).
 
 %% must be called inside a transaction
--spec session_drop_markers(id()) -> ok.
-session_drop_markers(DSSessionId) ->
-    MarkerIds = session_read_markers(DSSessionId, write),
+-spec session_drop_offsets(id()) -> ok.
+session_drop_offsets(DSSessionId) ->
+    OffsetIds = session_read_offsets(DSSessionId, write),
     lists:foreach(
-        fun(MarkerId) ->
-            mnesia:delete(?SESSION_MARKER_TAB, MarkerId, write)
+        fun(OffsetId) ->
+            mnesia:delete(?SESSION_COMMITTED_OFFSET_TAB, OffsetId, write)
         end,
-        MarkerIds
+        OffsetIds
     ).
 
 %%--------------------------------------------------------------------------------

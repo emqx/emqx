@@ -22,7 +22,7 @@
 -define(SESSION_SUBSCRIPTIONS_TAB, emqx_ds_session_subscriptions).
 -define(SESSION_STREAM_TAB, emqx_ds_stream_tab).
 -define(SESSION_PUBRANGE_TAB, emqx_ds_pubrange_tab).
--define(SESSION_MARKER_TAB, emqx_ds_marker_tab).
+-define(SESSION_COMMITTED_OFFSET_TAB, emqx_ds_committed_offset_tab).
 -define(DS_MRIA_SHARD, emqx_ds_session_shard).
 
 -define(T_INFLIGHT, 1).
@@ -76,12 +76,12 @@
 }).
 -type ds_pubrange() :: #ds_pubrange{}.
 
--record(ds_marker, {
+-record(ds_committed_offset, {
     id :: {
         %% What session this marker belongs to.
         _Session :: emqx_persistent_session_ds:id(),
         %% Marker name.
-        _MarkerName
+        _CommitType
     },
     %% Where this marker is pointing to: the first seqno that is not marked.
     until :: emqx_persistent_message_ds_replayer:seqno()
