@@ -73,7 +73,7 @@ bridge_v1_config_to_connector_config(BridgeV1Conf) ->
 
 bridge_v1_config_to_action_config(BridgeV1Conf, ConnectorName) ->
     Parameters = maps:with(?PARAMETER_KEYS, BridgeV1Conf),
-    Parameters1 = Parameters#{<<"path">> => <<>>},
+    Parameters1 = Parameters#{<<"path">> => <<>>, <<"headers">> => #{}},
     CommonKeys = [<<"enable">>, <<"description">>],
     ActionConfig = maps:with(?ACTION_KEYS ++ CommonKeys, BridgeV1Conf),
     ActionConfig#{<<"parameters">> => Parameters1, <<"connector">> => ConnectorName}.
