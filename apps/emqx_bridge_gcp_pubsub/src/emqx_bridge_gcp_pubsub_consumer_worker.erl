@@ -237,7 +237,10 @@ handle_continue(?patch_subscription, State0) ->
             ),
             {noreply, State0};
         error ->
-            %% retry
+            %% retry; add a random delay for the case where multiple workers step on each
+            %% other's toes before retrying.
+            RandomMS = rand:uniform(500),
+            timer:sleep(RandomMS),
             {noreply, State0, {continue, ?patch_subscription}}
     end.
 

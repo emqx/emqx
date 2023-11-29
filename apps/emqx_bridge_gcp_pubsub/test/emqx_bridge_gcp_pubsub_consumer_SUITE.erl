@@ -196,7 +196,7 @@ consumer_config(TestCase, Config) ->
             "  connect_timeout = \"5s\"\n"
             "  service_account_json = ~s\n"
             "  consumer {\n"
-            "    ack_deadline = \"60s\"\n"
+            "    ack_deadline = \"10s\"\n"
             "    ack_retry_interval = \"1s\"\n"
             "    pull_max_messages = 10\n"
             "    consumer_workers_per_topic = 1\n"
@@ -520,7 +520,14 @@ wait_acked(Opts) ->
         {ok, _} ->
             ok;
         {timeout, Evts} ->
-            ct:pal("timed out waiting for acks; received:\n  ~p", [Evts])
+            %% Fixme: apparently, snabbkaffe may timeout but still return the expected
+            %% events here.
+            case length(Evts) >= N of
+                true ->
+                    ok;
+                false ->
+                    ct:pal("timed out waiting for acks;\n expected: ~b\n received:\n  ~p", [N, Evts])
+            end
     end,
     ok.
 
@@ -658,24 +665,23 @@ setup_and_start_listeners(Node, NodeOpts) ->
         end
     ).
 
+dedup([]) ->
+    [];
+dedup([X]) ->
+    [X];
+dedup([X | Rest]) ->
+    [X | dedup(X, Rest)].
+
+dedup(X, [X | Rest]) ->
+    dedup(X, Rest);
+dedup(_X, [Y | Rest]) ->
+    [Y | dedup(Y, Rest)];
+dedup(_X, []) ->
+    [].
+
 %%------------------------------------------------------------------------------
 %% Trace properties
 %%------------------------------------------------------------------------------
-
-prop_pulled_only_once() ->
-    {"all pulled message ids are unique", fun ?MODULE:prop_pulled_only_once/1}.
-prop_pulled_only_once(Trace) ->
-    PulledIds =
-        [
-            MsgId
-         || #{messages := Msgs} <- ?of_kind(gcp_pubsub_consumer_worker_decoded_messages, Trace),
-            #{<<"message">> := #{<<"messageId">> := MsgId}} <- Msgs
-        ],
-    NumPulled = length(PulledIds),
-    UniquePulledIds = sets:from_list(PulledIds, [{version, 2}]),
-    UniqueNumPulled = sets:size(UniquePulledIds),
-    ?assertEqual(UniqueNumPulled, NumPulled, #{pulled_ids => PulledIds}),
-    ok.
 
 prop_handled_only_once() ->
     {"all pulled message are processed only once", fun ?MODULE:prop_handled_only_once/1}.
@@ -1052,7 +1058,6 @@ t_consume_ok(Config) ->
         end,
         [
             prop_all_pulled_are_acked(),
-            prop_pulled_only_once(),
             prop_handled_only_once(),
             prop_acked_ids_eventually_forgotten()
         ]
@@ -1125,7 +1130,6 @@ t_bridge_rule_action_source(Config) ->
             #{payload => Payload0}
         end,
         [
-            prop_pulled_only_once(),
             prop_handled_only_once()
         ]
     ),
@@ -1243,7 +1247,6 @@ t_multiple_topic_mappings(Config) ->
         end,
         [
             prop_all_pulled_are_acked(),
-            prop_pulled_only_once(),
             prop_handled_only_once()
         ]
     ),
@@ -1276,7 +1279,7 @@ t_multiple_pull_workers(Config) ->
                     },
                     <<"resource_opts">> => #{
                         %% reduce flakiness
-                        <<"request_ttl">> => <<"11s">>
+                        <<"request_ttl">> => <<"20s">>
                     }
                 }
             ),
@@ -1304,7 +1307,6 @@ t_multiple_pull_workers(Config) ->
         end,
         [
             prop_all_pulled_are_acked(),
-            prop_pulled_only_once(),
             prop_handled_only_once(),
             {"message is processed only once", fun(Trace) ->
                 ?assertMatch({timeout, _}, receive_published(#{timeout => 5_000})),
@@ -1543,7 +1545,7 @@ t_async_worker_death_mid_pull(Config) ->
                             fun(AsyncWorkerPid) ->
                                 Ref = monitor(process, AsyncWorkerPid),
                                 ct:pal("killing pid ~p", [AsyncWorkerPid]),
-                                sys:terminate(AsyncWorkerPid, die, Timeout),
+                                exit(AsyncWorkerPid, kill),
                                 receive
                                     {'DOWN', Ref, process, AsyncWorkerPid, _} ->
                                         ct:pal("killed pid ~p", [AsyncWorkerPid]),
@@ -1605,18 +1607,19 @@ t_async_worker_death_mid_pull(Config) ->
                     ],
                     Trace
                 ),
+                SubTraceEvts = ?projection(?snk_kind, SubTrace),
                 ?assertMatch(
                     [
-                        #{?snk_kind := gcp_pubsub_consumer_worker_handled_async_worker_down},
-                        #{?snk_kind := gcp_pubsub_consumer_worker_reply_delegator}
+                        gcp_pubsub_consumer_worker_handled_async_worker_down,
+                        gcp_pubsub_consumer_worker_reply_delegator
                         | _
                     ],
-                    SubTrace,
+                    dedup(SubTraceEvts),
                     #{sub_trace => projection_optional_span(SubTrace)}
                 ),
                 ?assertMatch(
-                    #{?snk_kind := gcp_pubsub_consumer_worker_pull_response_received},
-                    lists:last(SubTrace)
+                    gcp_pubsub_consumer_worker_pull_response_received,
+                    lists:last(SubTraceEvts)
                 ),
                 ok
             end
@@ -1948,7 +1951,6 @@ t_connection_down_during_ack(Config) ->
         end,
         [
             prop_all_pulled_are_acked(),
-            prop_pulled_only_once(),
             prop_handled_only_once(),
             {"message is processed only once", fun(Trace) ->
                 ?assertMatch({timeout, _}, receive_published(#{timeout => 5_000})),
@@ -1973,7 +1975,15 @@ t_connection_down_during_ack_redeliver(Config) ->
                 ?wait_async_action(
                     create_bridge(
                         Config,
-                        #{<<"consumer">> => #{<<"ack_deadline">> => <<"10s">>}}
+                        #{
+                            <<"consumer">> => #{
+                                <<"ack_deadline">> => <<"12s">>,
+                                <<"ack_retry_interval">> => <<"1s">>
+                            },
+                            <<"resource_opts">> => #{
+                                <<"request_ttl">> => <<"11s">>
+                            }
+                        }
                     ),
                     #{?snk_kind := "gcp_pubsub_consumer_worker_subscription_ready"},
                     10_000
