@@ -168,7 +168,8 @@ basic_config() ->
                     desc => ?DESC("config_enable_bridge"),
                     default => true
                 }
-            )}
+            )},
+        {description, emqx_schema:description_schema()}
     ] ++ http_resource_opts() ++ connector_opts().
 
 request_config() ->
