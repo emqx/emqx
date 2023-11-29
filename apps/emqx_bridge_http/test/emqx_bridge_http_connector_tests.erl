@@ -175,7 +175,7 @@ check_atom_key(Conf) when is_map(Conf) ->
 
 %% erlfmt-ignore
 webhook_config_hocon() ->
-"""
+"
 bridges.webhook.a {
   body = \"${.}\"
   connect_timeout = 15s
@@ -209,4 +209,4 @@ bridges.webhook.a {
   }
   url = \"http://some.host:4000/api/echo\"
 }
-""".
+".

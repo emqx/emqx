@@ -12,7 +12,7 @@
 
 %% erlfmt-ignore
 aeh_producer_hocon() ->
-"""
+"
 bridges.azure_event_hub_producer.my_producer {
   enable = true
   authentication {
@@ -62,7 +62,7 @@ bridges.azure_event_hub_producer.my_producer {
     server_name_indication = auto
   }
 }
-""".
+".
 
 %%===========================================================================
 %% Helper functions

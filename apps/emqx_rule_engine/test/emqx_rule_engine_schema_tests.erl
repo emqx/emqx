@@ -24,7 +24,7 @@
 
 %% erlfmt-ignore
 republish_hocon0() ->
-"""
+"
 rule_engine.rules.my_rule {
   description = \"some desc\"
   metadata = {created_at = 1693918992079}
@@ -55,7 +55,7 @@ rule_engine.rules.my_rule {
     }
   ]
 }
-""".
+".
 
 %%===========================================================================
 %% Helper functions

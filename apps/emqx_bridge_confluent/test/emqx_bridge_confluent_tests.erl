@@ -12,7 +12,7 @@
 
 %% erlfmt-ignore
 confluent_producer_action_hocon() ->
-"""
+"
 actions.confluent_producer.my_producer {
   enable = true
   connector = my_connector
@@ -40,7 +40,7 @@ actions.confluent_producer.my_producer {
   }
   local_topic = \"t/confluent\"
 }
-""".
+".
 
 confluent_producer_connector_hocon() ->
     ""

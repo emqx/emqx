@@ -12,7 +12,7 @@
 
 %% erlfmt-ignore
 gcp_pubsub_producer_hocon() ->
-"""
+"
 bridges.gcp_pubsub.my_producer {
   attributes_template = [
     {key = \"${payload.key}\", value = fixed_value}
@@ -54,7 +54,7 @@ bridges.gcp_pubsub.my_producer {
     type = service_account
   }
 }
-""".
+".
 
 %%===========================================================================
 %% Helper functions

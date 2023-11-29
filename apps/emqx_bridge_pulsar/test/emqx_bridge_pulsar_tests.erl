@@ -73,7 +73,7 @@ check_atom_key(Conf) when is_map(Conf) ->
 
 %% erlfmt-ignore
 pulsar_producer_hocon() ->
-"""
+"
 bridges.pulsar_producer.my_producer {
   enable = true
   servers = \"localhost:6650\"
@@ -90,4 +90,4 @@ bridges.pulsar_producer.my_producer {
     server_name_indication = \"auto\"
   }
 }
-""".
+".
