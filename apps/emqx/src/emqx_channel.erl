@@ -423,6 +423,7 @@ handle_in(
             {ok, Channel}
     end;
 handle_in(
+    %% TODO: Why discard the Reason Code?
     ?PUBREC_PACKET(PacketId, _ReasonCode, Properties),
     Channel =
         #channel{clientinfo = ClientInfo, session = Session}
