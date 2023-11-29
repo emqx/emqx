@@ -28,6 +28,7 @@
 -callback event(EventName :: term(), Attributes :: term()) -> ok.
 
 -export([
+    provider/0,
     register_provider/1,
     unregister_provider/1,
     trace_process_publish/3,
@@ -71,6 +72,9 @@ unregister_provider(Module) ->
             {error, not_registered}
     end.
 
+-spec provider() -> module() | undefined.
+provider() ->
+    persistent_term:get(?PROVIDER, undefined).
 %%--------------------------------------------------------------------
 %% trace API
 %%--------------------------------------------------------------------

@@ -1,0 +1,6 @@
+certs
+hostname
+hosts
+otel-collector.json
+otel-collector-tls.json
+resolv.conf

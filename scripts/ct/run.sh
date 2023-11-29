@@ -243,6 +243,9 @@ for dep in ${CT_DEPS}; do
         ldap)
             FILES+=( '.ci/docker-compose-file/docker-compose-ldap.yaml' )
             ;;
+        otel)
+            FILES+=( '.ci/docker-compose-file/docker-compose-otel.yaml' )
+            ;;
         *)
             echo "unknown_ct_dependency $dep"
             exit 1
