@@ -66,10 +66,9 @@
 
 -opaque inflight() :: #inflight{}.
 
--type reply_fun() :: fun(
-    (seqno(), emqx_types:message()) ->
-        emqx_session:replies() | {_AdvanceSeqno :: false, emqx_session:replies()}
-).
+-type replies() :: reply() | [replies()].
+-type reply() :: emqx_session:reply() | fun((emqx_types:packet_id()) -> emqx_session:replies()).
+-type reply_fun() :: fun((seqno(), emqx_types:message()) -> replies()).
 
 %%================================================================================
 %% API funcions
@@ -422,26 +421,32 @@ get_commit_next(comp, #inflight{commits = Commits}) ->
 
 publish(ReplyFun, FirstSeqno, Messages) ->
     lists:mapfoldl(
-        fun(Message, {Seqno, TAcc}) ->
-            case ReplyFun(Seqno, Message) of
-                {_Advance = false, Reply} ->
-                    {Reply, {Seqno, TAcc}};
-                Reply ->
-                    NextSeqno = next_seqno(Seqno),
-                    NextTAcc = add_msg_track(Message, TAcc),
-                    {Reply, {NextSeqno, NextTAcc}}
-            end
+        fun(Message, Acc = {Seqno, _Tracks}) ->
+            Reply = ReplyFun(Seqno, Message),
+            publish_reply(Reply, Acc)
         end,
         {FirstSeqno, 0},
         Messages
     ).
 
-add_msg_track(Message, Tracks) ->
+publish_reply(Replies = [_ | _], Acc) ->
+    lists:mapfoldl(fun publish_reply/2, Acc, Replies);
+publish_reply(Reply, {Seqno, Tracks}) when is_function(Reply) ->
+    Pub = Reply(seqno_to_packet_id(Seqno)),
+    NextSeqno = next_seqno(Seqno),
+    NextTracks = add_pub_track(Pub, Tracks),
+    {Pub, {NextSeqno, NextTracks}};
+publish_reply(Reply, Acc) ->
+    {Reply, Acc}.
+
+add_pub_track({PacketId, Message}, Tracks) when is_integer(PacketId) ->
     case emqx_message:qos(Message) of
         1 -> ?TRACK_FLAG(?ACK) bor Tracks;
         2 -> ?TRACK_FLAG(?COMP) bor Tracks;
         _ -> Tracks
-    end.
+    end;
+add_pub_track(_Pub, Tracks) ->
+    Tracks.
 
 keep_next_iterator(ItNext, Range = #ds_pubrange{iterator = ItFirst, misc = Misc}) ->
     Range#ds_pubrange{

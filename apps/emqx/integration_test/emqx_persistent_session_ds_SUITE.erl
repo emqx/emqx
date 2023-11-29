@@ -262,10 +262,12 @@ t_session_subscription_idempotency(Config) ->
         end,
         fun(Trace) ->
             ct:pal("trace:\n  ~p", [Trace]),
-            ConnInfo = #{},
+            Session = erpc:call(
+                Node1, emqx_persistent_session_ds, session_open, [ClientId, _ConnInfo = #{}]
+            ),
             ?assertMatch(
-                #{subscriptions := #{SubTopicFilter := #{}}},
-                erpc:call(Node1, emqx_persistent_session_ds, session_open, [ClientId, ConnInfo])
+                #{SubTopicFilter := #{}},
+                emqx_session:info(subscriptions, Session)
             )
         end
     ),
@@ -336,10 +338,12 @@ t_session_unsubscription_idempotency(Config) ->
         end,
         fun(Trace) ->
             ct:pal("trace:\n  ~p", [Trace]),
-            ConnInfo = #{},
-            ?assertMatch(
-                #{subscriptions := Subs = #{}} when map_size(Subs) =:= 0,
-                erpc:call(Node1, emqx_persistent_session_ds, session_open, [ClientId, ConnInfo])
+            Session = erpc:call(
+                Node1, emqx_persistent_session_ds, session_open, [ClientId, _ConnInfo = #{}]
+            ),
+            ?assertEqual(
+                #{},
+                emqx_session:info(subscriptions, Session)
             ),
             ok
         end

@@ -96,7 +96,10 @@
 ]).
 
 % Foreign session implementations
--export([enrich_delivers/3]).
+-export([
+    enrich_delivers/3,
+    enrich_message/4
+]).
 
 % Utilities
 -export([should_keep/1]).

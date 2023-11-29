@@ -323,7 +323,8 @@ t_choose_impl(Config) ->
             ds -> emqx_persistent_session_ds
         end,
         emqx_connection:info({channel, {session, impl}}, sys:get_state(ChanPid))
-    ).
+    ),
+    ok = emqtt:disconnect(Client).
 
 t_connect_discards_existing_client(Config) ->
     ClientId = ?config(client_id, Config),
@@ -1009,8 +1010,6 @@ t_unsubscribe(Config) ->
     ?assertMatch([], [Sub || {ST, _} = Sub <- emqtt:subscriptions(Client), ST =:= STopic]),
     ok = emqtt:disconnect(Client).
 
-t_multiple_subscription_matches(init, Config) -> skip_ds_tc(Config);
-t_multiple_subscription_matches('end', _Config) -> ok.
 t_multiple_subscription_matches(Config) ->
     ConnFun = ?config(conn_fun, Config),
     Topic = ?config(topic, Config),
