@@ -510,8 +510,6 @@ t_persist_on_disconnect(Config) ->
     ?assertEqual(0, client_info(session_present, Client2)),
     ok = emqtt:disconnect(Client2).
 
-t_process_dies_session_expires(init, Config) -> skip_ds_tc(Config);
-t_process_dies_session_expires('end', _Config) -> ok.
 t_process_dies_session_expires(Config) ->
     %% Emulate an error in the connect process,
     %% or that the node of the process goes down.

@@ -63,6 +63,9 @@
 %% session table operations
 -export([create_tables/0]).
 
+%% internal export used by session GC process
+-export([destroy_session/1]).
+
 %% Remove me later (satisfy checks for an unused BPAPI)
 -export([
     do_open_iterator/3,
@@ -986,8 +989,16 @@ expiry_interval(ConnInfo) ->
 list_all_sessions() ->
     DSSessionIds = mnesia:dirty_all_keys(?SESSION_TAB),
     ConnInfo = #{},
-    Sessions = lists:map(
-        fun(SessionID) -> {SessionID, session_open(SessionID, ConnInfo)} end,
+    Sessions = lists:filtermap(
+        fun(SessionID) ->
+            Sess = session_open(SessionID, ConnInfo),
+            case Sess of
+                false ->
+                    false;
+                _ ->
+                    {true, {SessionID, Sess}}
+            end
+        end,
         DSSessionIds
     ),
     maps:from_list(Sessions).
