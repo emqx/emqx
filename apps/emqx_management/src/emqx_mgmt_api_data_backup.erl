@@ -204,7 +204,7 @@ data_export(post, _Request) ->
 data_import(post, #{body := #{<<"filename">> := FileName} = Body}) ->
     case safe_parse_node(Body) of
         {error, Msg} ->
-            {400, #{code => 'BAD_REQUEST', message => Msg}};
+            {400, #{code => ?BAD_REQUEST, message => Msg}};
         FileNode ->
             CoreNode = core_node(FileNode),
             response(
@@ -231,8 +231,10 @@ data_files(post, #{body := #{<<"filename">> := #{type := _} = File}}) ->
         ok ->
             {204};
         {error, Reason} ->
-            {400, #{code => 'BAD_REQUEST', message => emqx_mgmt_data_backup:format_error(Reason)}}
+            {400, #{code => ?BAD_REQUEST, message => emqx_mgmt_data_backup:format_error(Reason)}}
     end;
+data_files(post, #{body := _}) ->
+    {400, #{code => ?BAD_REQUEST, message => "Missing required parameter: filename"}};
 data_files(get, #{query_string := PageParams}) ->
     case emqx_mgmt_api:parse_pager_params(PageParams) of
         false ->
@@ -244,7 +246,7 @@ data_files(get, #{query_string := PageParams}) ->
 data_file_by_name(Method, #{bindings := #{filename := Filename}, query_string := QS}) ->
     case safe_parse_node(QS) of
         {error, Msg} ->
-            {400, #{code => 'BAD_REQUEST', message => Msg}};
+            {400, #{code => ?BAD_REQUEST, message => Msg}};
         Node ->
             case get_or_delete_file(Method, Filename, Node) of
                 {error, not_found} ->
