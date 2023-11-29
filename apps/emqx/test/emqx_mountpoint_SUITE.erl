@@ -58,9 +58,6 @@ t_mount_share(_) ->
     TopicFilters = [T],
     ?assertEqual(TopicFilter, #share{group = <<"group">>, topic = <<"topic">>}),
 
-    %% should not mount share topic when make message.
-    Msg = emqx_message:make(<<"clientid">>, TopicFilter, <<"payload">>),
-
     ?assertEqual(
         TopicFilter,
         mount(undefined, TopicFilter)
@@ -89,8 +86,6 @@ t_unmount_share(_) ->
 
     ?assertEqual(TopicFilter, #share{group = <<"group">>, topic = <<"topic">>}),
 
-    %% should not unmount share topic when make message.
-    Msg = emqx_message:make(<<"clientid">>, TopicFilter, <<"payload">>),
     ?assertEqual(
         TopicFilter,
         unmount(undefined, TopicFilter)

@@ -132,9 +132,6 @@ restart_node(Node, NodeSpec) ->
     Apps = maps:get(apps, NodeSpec),
     ok = erpc:call(Node, emqx_cth_suite, load_apps, [Apps]),
     _ = erpc:call(Node, emqx_cth_suite, start_apps, [Apps, NodeSpec]),
-    %% have to re-inject this so that we may stop the node succesfully at the
-    %% end....
-    ok = emqx_cth_cluster:set_node_opts(Node, NodeSpec),
     ok = snabbkaffe:forward_trace(Node),
     ?tp(notice, "node restarted", #{node => Node}),
     ?tp(restarted_node, #{}),

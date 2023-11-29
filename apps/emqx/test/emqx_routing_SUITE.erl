@@ -218,38 +218,41 @@ t_routing_schema_switch(VFrom, VTo, Config) ->
         ],
         #{work_dir => WorkDir}
     ),
-    % Verify that new nodes switched to schema v1/v2 in presence of v1/v2 routes respectively
     Nodes = [Node1, Node2, Node3],
-    ?assertEqual(
-        [{ok, VTo}, {ok, VTo}, {ok, VTo}],
-        erpc:multicall(Nodes, emqx_router, get_schema_vsn, [])
-    ),
-    % Wait for all nodes to agree on cluster state
-    ?retry(
-        500,
-        10,
-        ?assertMatch(
-            [{ok, [Node1, Node2, Node3]}],
-            lists:usort(erpc:multicall(Nodes, emqx, running_nodes, []))
-        )
-    ),
-    % Verify that routing works as expected
-    C2 = start_client(Node2),
-    ok = subscribe(C2, <<"a/+/d">>),
-    C3 = start_client(Node3),
-    ok = subscribe(C3, <<"d/e/f/#">>),
-    {ok, _} = publish(C1, <<"a/b/d">>, <<"hey-newbies">>),
-    {ok, _} = publish(C2, <<"a/b/c">>, <<"hi">>),
-    {ok, _} = publish(C3, <<"d/e/f/42">>, <<"hello">>),
-    ?assertReceive({pub, C2, #{topic := <<"a/b/d">>, payload := <<"hey-newbies">>}}),
-    ?assertReceive({pub, C1, #{topic := <<"a/b/c">>, payload := <<"hi">>}}),
-    ?assertReceive({pub, C1, #{topic := <<"d/e/f/42">>, payload := <<"hello">>}}),
-    ?assertReceive({pub, C3, #{topic := <<"d/e/f/42">>, payload := <<"hello">>}}),
-    ?assertNotReceive(_),
-    ok = emqtt:stop(C1),
-    ok = emqtt:stop(C2),
-    ok = emqtt:stop(C3),
-    ok = emqx_cth_cluster:stop(Nodes).
+    try
+        % Verify that new nodes switched to schema v1/v2 in presence of v1/v2 routes respectively
+        ?assertEqual(
+            [{ok, VTo}, {ok, VTo}, {ok, VTo}],
+            erpc:multicall(Nodes, emqx_router, get_schema_vsn, [])
+        ),
+        % Wait for all nodes to agree on cluster state
+        ?retry(
+            500,
+            10,
+            ?assertMatch(
+                [{ok, [Node1, Node2, Node3]}],
+                lists:usort(erpc:multicall(Nodes, emqx, running_nodes, []))
+            )
+        ),
+        % Verify that routing works as expected
+        C2 = start_client(Node2),
+        ok = subscribe(C2, <<"a/+/d">>),
+        C3 = start_client(Node3),
+        ok = subscribe(C3, <<"d/e/f/#">>),
+        {ok, _} = publish(C1, <<"a/b/d">>, <<"hey-newbies">>),
+        {ok, _} = publish(C2, <<"a/b/c">>, <<"hi">>),
+        {ok, _} = publish(C3, <<"d/e/f/42">>, <<"hello">>),
+        ?assertReceive({pub, C2, #{topic := <<"a/b/d">>, payload := <<"hey-newbies">>}}),
+        ?assertReceive({pub, C1, #{topic := <<"a/b/c">>, payload := <<"hi">>}}),
+        ?assertReceive({pub, C1, #{topic := <<"d/e/f/42">>, payload := <<"hello">>}}),
+        ?assertReceive({pub, C3, #{topic := <<"d/e/f/42">>, payload := <<"hello">>}}),
+        ?assertNotReceive(_),
+        ok = emqtt:stop(C1),
+        ok = emqtt:stop(C2),
+        ok = emqtt:stop(C3)
+    after
+        ok = emqx_cth_cluster:stop(Nodes)
+    end.
 
 %%
 
