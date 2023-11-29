@@ -130,7 +130,6 @@ end_per_testcase(TestCase, _Config) when
 ->
     ok = emqx_bridge_http_connector_test_server:stop(),
     persistent_term:erase({?MODULE, times_called}),
-    %emqx_bridge_testlib:delete_all_bridges(),
     emqx_bridge_v2_testlib:delete_all_bridges(),
     emqx_bridge_v2_testlib:delete_all_connectors(),
     emqx_common_test_helpers:call_janitor(),
