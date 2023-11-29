@@ -9,6 +9,9 @@
         stdlib,
         ecpool,
         emqx_resource,
+        eredis,
+        %% eredis_cluster has supervisor should be started before emqx_connector
+        %% otherwise the first start redis_cluster will fail.
         eredis_cluster,
         ehttpc,
         jose,

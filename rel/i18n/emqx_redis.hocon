@@ -47,4 +47,18 @@ single.desc:
 single.label:
 """Single Mode"""
 
+redis_cluster_connector.label:
+"""Redis Cluster Connector"""
+redis_cluster_connector.desc:
+"""Redis connector in cluster mode"""
+
+redis_sentinel_connector.label:
+"""Redis Sentinel Connector"""
+redis_sentinel_connector.desc:
+"""Redis connector in sentinel mode"""
+
+redis_single_connector.label:
+"""Redis Single Connector"""
+redis_single_connector.desc:
+"""Redis connector in sentinel mode"""
 }
