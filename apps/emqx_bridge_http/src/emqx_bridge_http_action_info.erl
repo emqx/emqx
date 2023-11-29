@@ -58,7 +58,7 @@ connector_action_config_to_bridge_v1_config(ConnectorConfig, ActionConfig) ->
     Url1 =
         case Path of
             <<>> -> Url;
-            _ -> emqx_bridge_http_connector:join_paths(Url, Path)
+            _ -> iolist_to_binary(emqx_bridge_http_connector:join_paths(Url, Path))
         end,
 
     BridgeV1Config4#{
@@ -73,7 +73,7 @@ bridge_v1_config_to_connector_config(BridgeV1Conf) ->
 
 bridge_v1_config_to_action_config(BridgeV1Conf, ConnectorName) ->
     Parameters = maps:with(?PARAMETER_KEYS, BridgeV1Conf),
-    Parameters1 = Parameters#{<<"path">> => <<>>},
+    Parameters1 = Parameters#{<<"path">> => <<>>, <<"headers">> => #{}},
     CommonKeys = [<<"enable">>, <<"description">>],
     ActionConfig = maps:with(?ACTION_KEYS ++ CommonKeys, BridgeV1Conf),
     ActionConfig#{<<"parameters">> => Parameters1, <<"connector">> => ConnectorName}.
