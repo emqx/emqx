@@ -21,7 +21,7 @@ empty_config_test() ->
     Conf1 = #{<<"bridges">> => #{}},
     Conf2 = #{<<"bridges">> => #{<<"webhook">> => #{}}},
     ?assertEqual(Conf1, check(Conf1)),
-    ?assertEqual(Conf2, check(Conf2)),
+    ?assertEqual(#{<<"bridges">> => #{<<"http">> => #{}}}, check(Conf2)),
     ok.
 
 %% ensure webhook config can be checked
@@ -33,7 +33,7 @@ webhook_config_test() ->
     ?assertMatch(
         #{
             <<"bridges">> := #{
-                <<"webhook">> := #{
+                <<"http">> := #{
                     <<"the_name">> :=
                         #{
                             <<"method">> := get,
@@ -48,7 +48,7 @@ webhook_config_test() ->
     ?assertMatch(
         #{
             <<"bridges">> := #{
-                <<"webhook">> := #{
+                <<"http">> := #{
                     <<"the_name">> :=
                         #{
                             <<"method">> := get,
@@ -61,7 +61,7 @@ webhook_config_test() ->
     ),
     #{
         <<"bridges">> := #{
-            <<"webhook">> := #{
+            <<"http">> := #{
                 <<"the_name">> :=
                     #{
                         <<"method">> := get,
@@ -84,7 +84,7 @@ up(#{<<"mqtt">> := MqttBridges0} = Bridges) ->
     Bridges#{<<"mqtt">> := MqttBridges};
 up(#{<<"webhook">> := WebhookBridges0} = Bridges) ->
     WebhookBridges = emqx_bridge_compatible_config:upgrade_pre_ee(
-        WebhookBridges0, fun emqx_bridge_compatible_config:webhook_maybe_upgrade/1
+        WebhookBridges0, fun emqx_bridge_compatible_config:http_maybe_upgrade/1
     ),
     Bridges#{<<"webhook">> := WebhookBridges}.
 

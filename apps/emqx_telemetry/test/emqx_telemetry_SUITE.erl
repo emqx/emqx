@@ -41,44 +41,32 @@ suite() ->
 apps() ->
     [
         emqx_conf,
-        emqx_management,
+        emqx_connector,
         emqx_retainer,
         emqx_auth,
         emqx_auth_redis,
         emqx_auth_mnesia,
         emqx_auth_postgresql,
         emqx_modules,
-        emqx_telemetry
+        emqx_telemetry,
+        emqx_bridge_http,
+        emqx_bridge,
+        emqx_rule_engine,
+        emqx_management
     ].
 
 init_per_suite(Config) ->
-    net_kernel:start(['master@127.0.0.1', longnames]),
-    ok = meck:new(emqx_authz_file, [non_strict, passthrough, no_history, no_link]),
-    meck:expect(
-        emqx_authz_file,
-        acl_conf_file,
-        fun() ->
-            emqx_common_test_helpers:deps_path(emqx_auth, "etc/acl.conf")
-        end
-    ),
-    ok = emqx_common_test_helpers:load_config(emqx_modules_schema, ?MODULES_CONF),
-    emqx_gateway_test_utils:load_all_gateway_apps(),
-    start_apps(),
-    Config.
+    WorkDir = ?config(priv_dir, Config),
+    Apps = emqx_cth_suite:start(apps(), #{work_dir => WorkDir}),
+    emqx_mgmt_api_test_util:init_suite(),
+    [{apps, Apps}, {work_dir, WorkDir} | Config].
 
-end_per_suite(_Config) ->
-    {ok, _} = emqx:update_config(
-        [authorization],
-        #{
-            <<"no_match">> => <<"allow">>,
-            <<"cache">> => #{<<"enable">> => <<"true">>},
-            <<"sources">> => []
-        }
-    ),
+end_per_suite(Config) ->
     mnesia:clear_table(cluster_rpc_commit),
     mnesia:clear_table(cluster_rpc_mfa),
-    stop_apps(),
-    meck:unload(emqx_authz_file),
+    Apps = ?config(apps, Config),
+    emqx_mgmt_api_test_util:end_suite(),
+    ok = emqx_cth_suite:stop(Apps),
     ok.
 
 init_per_testcase(t_get_telemetry_without_memsup, Config) ->
@@ -123,7 +111,6 @@ init_per_testcase(t_advanced_mqtt_features, Config) ->
     mock_advanced_mqtt_features(),
     Config;
 init_per_testcase(t_authn_authz_info, Config) ->
-    mock_httpc(),
     {ok, _} = emqx_cluster_rpc:start_link(node(), emqx_cluster_rpc, 1000),
     create_authn('mqtt:global', built_in_database),
     create_authn('tcp:default', redis),
@@ -141,14 +128,11 @@ init_per_testcase(t_send_after_enable, Config) ->
     mock_httpc(),
     Config;
 init_per_testcase(t_rule_engine_and_data_bridge_info, Config) ->
-    mock_httpc(),
     {ok, _} = emqx_cluster_rpc:start_link(node(), emqx_cluster_rpc, 1000),
-    emqx_common_test_helpers:start_apps([emqx_rule_engine, emqx_bridge]),
     ok = emqx_bridge_SUITE:setup_fake_telemetry_data(),
     ok = setup_fake_rule_engine_data(),
     Config;
 init_per_testcase(t_exhook_info, Config) ->
-    mock_httpc(),
     {ok, _} = emqx_cluster_rpc:start_link(node(), emqx_cluster_rpc, 1000),
     ExhookConf =
         #{
@@ -173,31 +157,8 @@ init_per_testcase(t_cluster_uuid, Config) ->
     Node = start_slave(n1),
     [{n1, Node} | Config];
 init_per_testcase(t_uuid_restored_from_file, Config) ->
-    mock_httpc(),
-    NodeUUID = <<"AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE">>,
-    ClusterUUID = <<"FFFFFFFF-GGGG-HHHH-IIII-JJJJJJJJJJJJ">>,
-    DataDir = emqx:data_dir(),
-    NodeUUIDFile = filename:join(DataDir, "node.uuid"),
-    ClusterUUIDFile = filename:join(DataDir, "cluster.uuid"),
-    file:delete(NodeUUIDFile),
-    file:delete(ClusterUUIDFile),
-    ok = file:write_file(NodeUUIDFile, NodeUUID),
-    ok = file:write_file(ClusterUUIDFile, ClusterUUID),
-
-    %% clear the UUIDs in the DB
-    {atomic, ok} = mria:clear_table(emqx_telemetry),
-    stop_apps(),
-    ok = emqx_common_test_helpers:load_config(emqx_modules_schema, ?MODULES_CONF),
-    start_apps(),
-    Node = start_slave(n1),
-    [
-        {n1, Node},
-        {node_uuid, NodeUUID},
-        {cluster_uuid, ClusterUUID}
-        | Config
-    ];
+    Config;
 init_per_testcase(t_uuid_saved_to_file, Config) ->
-    mock_httpc(),
     DataDir = emqx:data_dir(),
     NodeUUIDFile = filename:join(DataDir, "node.uuid"),
     ClusterUUIDFile = filename:join(DataDir, "cluster.uuid"),
@@ -205,7 +166,6 @@ init_per_testcase(t_uuid_saved_to_file, Config) ->
     file:delete(ClusterUUIDFile),
     Config;
 init_per_testcase(t_num_clients, Config) ->
-    mock_httpc(),
     ok = snabbkaffe:start_trace(),
     Config;
 init_per_testcase(_Testcase, Config) ->
@@ -227,7 +187,6 @@ end_per_testcase(t_advanced_mqtt_features, _Config) ->
     {atomic, ok} = mria:clear_table(emqx_delayed),
     ok;
 end_per_testcase(t_authn_authz_info, _Config) ->
-    meck:unload([httpc]),
     emqx_authz:update({delete, postgresql}, #{}),
     lists:foreach(
         fun(ChainName) ->
@@ -244,19 +203,8 @@ end_per_testcase(t_enable, _Config) ->
 end_per_testcase(t_send_after_enable, _Config) ->
     meck:unload([httpc, emqx_telemetry_config]);
 end_per_testcase(t_rule_engine_and_data_bridge_info, _Config) ->
-    meck:unload(httpc),
-    lists:foreach(
-        fun(App) ->
-            ok = application:stop(App)
-        end,
-        [
-            emqx_bridge,
-            emqx_rule_engine
-        ]
-    ),
     ok;
 end_per_testcase(t_exhook_info, _Config) ->
-    meck:unload(httpc),
     emqx_exhook_demo_svr:stop(),
     application:stop(emqx_exhook),
     ok;
@@ -264,21 +212,12 @@ end_per_testcase(t_cluster_uuid, Config) ->
     Node = proplists:get_value(n1, Config),
     ok = stop_slave(Node);
 end_per_testcase(t_num_clients, Config) ->
-    meck:unload([httpc]),
     ok = snabbkaffe:stop(),
     Config;
-end_per_testcase(t_uuid_restored_from_file, Config) ->
-    Node = ?config(n1, Config),
-    DataDir = emqx:data_dir(),
-    NodeUUIDFile = filename:join(DataDir, "node.uuid"),
-    ClusterUUIDFile = filename:join(DataDir, "cluster.uuid"),
-    ok = file:delete(NodeUUIDFile),
-    ok = file:delete(ClusterUUIDFile),
-    meck:unload([httpc]),
-    ok = stop_slave(Node),
-    ok;
 end_per_testcase(_Testcase, _Config) ->
-    meck:unload([httpc]),
+    case catch meck:unload([httpc]) of
+        _ -> ok
+    end,
     ok.
 
 %%------------------------------------------------------------------------------
@@ -315,19 +254,34 @@ t_cluster_uuid(Config) ->
 %% should attempt read UUID from file in data dir to keep UUIDs
 %% unique, in the event of a database purge.
 t_uuid_restored_from_file(Config) ->
-    ExpectedNodeUUID = ?config(node_uuid, Config),
-    ExpectedClusterUUID = ?config(cluster_uuid, Config),
+    %% Stop the emqx_telemetry application first
+    {atomic, ok} = mria:clear_table(emqx_telemetry),
+    application:stop(emqx_telemetry),
+
+    %% Rewrite the the uuid files
+    NodeUUID = <<"AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE">>,
+    ClusterUUID = <<"FFFFFFFF-GGGG-HHHH-IIII-JJJJJJJJJJJJ">>,
+    DataDir = ?config(work_dir, Config),
+    NodeUUIDFile = filename:join(DataDir, "node.uuid"),
+    ClusterUUIDFile = filename:join(DataDir, "cluster.uuid"),
+    ok = file:write_file(NodeUUIDFile, NodeUUID),
+    ok = file:write_file(ClusterUUIDFile, ClusterUUID),
+
+    %% Start the emqx_telemetry application again
+    application:start(emqx_telemetry),
+
+    %% Check the UUIDs
     ?assertEqual(
-        {ok, ExpectedNodeUUID},
+        {ok, NodeUUID},
         emqx_telemetry:get_node_uuid()
     ),
     ?assertEqual(
-        {ok, ExpectedClusterUUID},
+        {ok, ClusterUUID},
         emqx_telemetry:get_cluster_uuid()
     ),
     ok.
 
-t_uuid_saved_to_file(_Config) ->
+t_uuid_saved_to_file(Config) ->
     DataDir = emqx:data_dir(),
     NodeUUIDFile = filename:join(DataDir, "node.uuid"),
     ClusterUUIDFile = filename:join(DataDir, "cluster.uuid"),
@@ -337,9 +291,10 @@ t_uuid_saved_to_file(_Config) ->
 
     %% clear the UUIDs in the DB
     {atomic, ok} = mria:clear_table(emqx_telemetry),
-    stop_apps(),
-    ok = emqx_common_test_helpers:load_config(emqx_modules_schema, ?MODULES_CONF),
-    start_apps(),
+    application:stop(emqx_telemetry),
+
+    application:start(emqx_telemetry),
+
     {ok, NodeUUID} = emqx_telemetry:get_node_uuid(),
     {ok, ClusterUUID} = emqx_telemetry:get_cluster_uuid(),
     ?assertEqual(
@@ -578,6 +533,7 @@ t_mqtt_runtime_insights(_) ->
 
 t_rule_engine_and_data_bridge_info(_Config) ->
     {ok, TelemetryData} = emqx_telemetry:get_telemetry(),
+    ct:pal("telemetry data: ~p~n", [TelemetryData]),
     RuleInfo = get_value(rule_engine, TelemetryData),
     BridgeInfo = get_value(bridge, TelemetryData),
     ?assertEqual(
@@ -588,7 +544,7 @@ t_rule_engine_and_data_bridge_info(_Config) ->
         #{
             data_bridge =>
                 #{
-                    webhook => #{num => 1, num_linked_by_rules => 3},
+                    http => #{num => 1, num_linked_by_rules => 3},
                     mqtt => #{num => 2, num_linked_by_rules => 2}
                 },
             num_data_bridges => 3
@@ -811,14 +767,6 @@ setup_fake_rule_engine_data() ->
         ),
     ok.
 
-set_special_configs(emqx_auth) ->
-    {ok, _} = emqx:update_config([authorization, cache, enable], false),
-    {ok, _} = emqx:update_config([authorization, no_match], deny),
-    {ok, _} = emqx:update_config([authorization, sources], []),
-    ok;
-set_special_configs(_App) ->
-    ok.
-
 %% for some unknown reason, gen_rpc running locally or in CI might
 %% start with different `port_discovery' modes, which means that'll
 %% either be listening at the port in the config (`tcp_server_port',
@@ -887,9 +835,3 @@ leave_cluster() ->
 
 is_official_version(V) ->
     emqx_telemetry_config:is_official_version(V).
-
-start_apps() ->
-    emqx_common_test_helpers:start_apps(apps(), fun set_special_configs/1).
-
-stop_apps() ->
-    emqx_common_test_helpers:stop_apps(lists:reverse(apps())).

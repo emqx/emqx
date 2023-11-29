@@ -15,7 +15,8 @@
 -export([
     api_schemas/1,
     fields/1,
-    examples/1
+    %%examples/1
+    schema_modules/0
 ]).
 
 resource_type(Type) when is_binary(Type) ->
@@ -140,18 +141,6 @@ connector_structs() ->
                 }
             )}
     ].
-
-examples(Method) ->
-    MergeFun =
-        fun(Example, Examples) ->
-            maps:merge(Examples, Example)
-        end,
-    Fun =
-        fun(Module, Examples) ->
-            ConnectorExamples = erlang:apply(Module, connector_examples, [Method]),
-            lists:foldl(MergeFun, Examples, ConnectorExamples)
-        end,
-    lists:foldl(Fun, #{}, schema_modules()).
 
 schema_modules() ->
     [

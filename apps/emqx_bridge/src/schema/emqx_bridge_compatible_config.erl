@@ -21,7 +21,7 @@
 -export([
     upgrade_pre_ee/2,
     maybe_upgrade/1,
-    webhook_maybe_upgrade/1
+    http_maybe_upgrade/1
 ]).
 
 upgrade_pre_ee(undefined, _UpgradeFunc) ->
@@ -40,10 +40,10 @@ maybe_upgrade(#{<<"connector">> := _} = Config0) ->
 maybe_upgrade(NewVersion) ->
     NewVersion.
 
-webhook_maybe_upgrade(#{<<"direction">> := _} = Config0) ->
+http_maybe_upgrade(#{<<"direction">> := _} = Config0) ->
     Config1 = maps:remove(<<"direction">>, Config0),
     Config1#{<<"resource_opts">> => default_resource_opts()};
-webhook_maybe_upgrade(NewVersion) ->
+http_maybe_upgrade(NewVersion) ->
     NewVersion.
 
 binary_key({K, V}) ->
