@@ -67,11 +67,12 @@ jobs:
           BUCKET=${{ secrets.AWS_S3_BUCKET }}
           OUTPUT_DIR=${{ steps.profile.outputs.s3dir }}
           aws s3 cp --recursive s3://$BUCKET/$OUTPUT_DIR/${{ env.ref_name }} packages
-      - uses: alexellis/upload-assets@0.4.0
+      - uses: emqx/upload-assets@8d2083b4dbe3151b0b735572eaa153b6acb647fe # 0.5.0
         env:
           GITHUB_TOKEN: ${{ github.token }}
         with:
           asset_paths: '["packages/*"]'
+          tag_name: "${{ env.ref_name }}"
       - name: update to emqx.io
         if: startsWith(env.ref_name, 'v') && ((github.event_name == 'release' && !github.event.release.prerelease) || inputs.publish_release_artefacts)
         run: |
