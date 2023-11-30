@@ -162,13 +162,14 @@ roots() -> [{bridges, ?HOCON(?R_REF(bridges), #{importance => ?IMPORTANCE_LOW})}
 
 fields(bridges) ->
     [
-        {webhook,
+        {http,
             mk(
                 hoconsc:map(name, ref(emqx_bridge_http_schema, "config")),
                 #{
+                    aliases => [webhook],
                     desc => ?DESC("bridges_webhook"),
                     required => false,
-                    converter => fun webhook_bridge_converter/2
+                    converter => fun http_bridge_converter/2
                 }
             )},
         {mqtt,
@@ -243,7 +244,7 @@ status() ->
 node_name() ->
     {"node", mk(binary(), #{desc => ?DESC("desc_node_name"), example => "emqx@127.0.0.1"})}.
 
-webhook_bridge_converter(Conf0, _HoconOpts) ->
+http_bridge_converter(Conf0, _HoconOpts) ->
     emqx_bridge_compatible_config:upgrade_pre_ee(
-        Conf0, fun emqx_bridge_compatible_config:webhook_maybe_upgrade/1
+        Conf0, fun emqx_bridge_compatible_config:http_maybe_upgrade/1
     ).

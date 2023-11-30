@@ -43,7 +43,7 @@ jobs:
               ;;
           esac
       - uses: emqx/push-helm-action@v1.1
-        if: github.event_name == 'release' && !github.event.prerelease
+        if: github.event_name == 'release' && !github.event.release.prerelease
         with:
           charts_dir: "${{ github.workspace }}/deploy/charts/${{ steps.profile.outputs.profile }}"
           version: ${{ steps.profile.outputs.version }}

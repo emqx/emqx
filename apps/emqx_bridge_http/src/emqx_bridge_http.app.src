@@ -3,7 +3,7 @@
     {vsn, "0.1.5"},
     {registered, []},
     {applications, [kernel, stdlib, emqx_connector, emqx_resource, ehttpc]},
-    {env, []},
+    {env, [{emqx_action_info_modules, [emqx_bridge_http_action_info]}]},
     {modules, []},
     {links, []}
 ]}.

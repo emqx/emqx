@@ -89,7 +89,7 @@ hard_coded_action_info_modules_ee() ->
 -endif.
 
 hard_coded_action_info_modules_common() ->
-    [].
+    [emqx_bridge_http_action_info].
 
 hard_coded_action_info_modules() ->
     hard_coded_action_info_modules_common() ++ hard_coded_action_info_modules_ee().
