@@ -38,7 +38,7 @@
 %%    in `end_per_suite/1` or `end_per_group/2`) with the result from step 2.
 -module(emqx_cth_cluster).
 
--export([start/2]).
+-export([start/1, start/2, restart/2]).
 -export([stop/1, stop_node/1]).
 
 -export([start_bare_nodes/1, start_bare_nodes/2]).
@@ -109,7 +109,10 @@ when
     }.
 start(Nodes, ClusterOpts) ->
     NodeSpecs = mk_nodespecs(Nodes, ClusterOpts),
-    ct:pal("Starting cluster:\n  ~p", [NodeSpecs]),
+    start(NodeSpecs).
+
+start(NodeSpecs) ->
+    ct:pal("(Re)starting nodes:\n  ~p", [NodeSpecs]),
     % 1. Start bare nodes with only basic applications running
     ok = start_nodes_init(NodeSpecs, ?TIMEOUT_NODE_START_MS),
     % 2. Start applications needed to enable clustering
@@ -120,6 +123,11 @@ start(Nodes, ClusterOpts) ->
     % Cluster-joins are complete, so they shouldn't restart in the background anymore.
     _ = emqx_utils:pmap(fun run_node_phase_apps/1, NodeSpecs, ?TIMEOUT_APPS_START_MS),
     [Node || #{name := Node} <- NodeSpecs].
+
+restart(Node, Spec) ->
+    ct:pal("Stopping peer node ~p", [Node]),
+    ok = emqx_cth_peer:stop(Node),
+    start([Spec#{boot_type => restart}]).
 
 mk_nodespecs(Nodes, ClusterOpts) ->
     NodeSpecs = lists:zipwith(
@@ -358,8 +366,12 @@ start_apps(Node, #{apps := Apps} = Spec) ->
     ok.
 
 suite_opts(Spec) ->
-    maps:with([work_dir], Spec).
+    maps:with([work_dir, boot_type], Spec).
 
+maybe_join_cluster(_Node, #{boot_type := restart}) ->
+    %% when restart, the node should already be in the cluster
+    %% hence no need to (re)join
+    ok;
 maybe_join_cluster(_Node, #{role := replicant}) ->
     ok;
 maybe_join_cluster(Node, Spec) ->

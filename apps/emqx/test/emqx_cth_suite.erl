@@ -453,6 +453,9 @@ stop_apps(Apps) ->
 
 %%
 
+verify_clean_suite_state(#{boot_type := restart}) ->
+    %% when testing node restart, we do not need to verify clean state
+    ok;
 verify_clean_suite_state(#{work_dir := WorkDir}) ->
     {ok, []} = file:list_dir(WorkDir),
     false = emqx_schema_hooks:any_injections(),

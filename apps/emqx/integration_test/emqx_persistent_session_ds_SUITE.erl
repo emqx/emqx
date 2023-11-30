@@ -40,7 +40,7 @@ init_per_testcase(TestCase, Config) when
     Cluster = cluster(#{n => 1}),
     ClusterOpts = #{work_dir => emqx_cth_suite:work_dir(TestCase, Config)},
     NodeSpecs = emqx_cth_cluster:mk_nodespecs(Cluster, ClusterOpts),
-    Nodes = emqx_cth_cluster:start(Cluster, ClusterOpts),
+    Nodes = emqx_cth_cluster:start(NodeSpecs),
     [
         {cluster, Cluster},
         {node_specs, NodeSpecs},
@@ -116,24 +116,8 @@ start_client(Opts0 = #{}) ->
 
 restart_node(Node, NodeSpec) ->
     ?tp(will_restart_node, #{}),
-    ?tp(notice, "restarting node", #{node => Node}),
-    true = monitor_node(Node, true),
-    ok = erpc:call(Node, init, restart, []),
-    receive
-        {nodedown, Node} ->
-            ok
-    after 10_000 ->
-        ct:fail("node ~p didn't stop", [Node])
-    end,
-    ?tp(notice, "waiting for nodeup", #{node => Node}),
+    emqx_cth_cluster:restart(Node, NodeSpec),
     wait_nodeup(Node),
-    wait_gen_rpc_down(NodeSpec),
-    ?tp(notice, "restarting apps", #{node => Node}),
-    Apps = maps:get(apps, NodeSpec),
-    ok = erpc:call(Node, emqx_cth_suite, load_apps, [Apps]),
-    _ = erpc:call(Node, emqx_cth_suite, start_apps, [Apps, NodeSpec]),
-    ok = snabbkaffe:forward_trace(Node),
-    ?tp(notice, "node restarted", #{node => Node}),
     ?tp(restarted_node, #{}),
     ok.
 
