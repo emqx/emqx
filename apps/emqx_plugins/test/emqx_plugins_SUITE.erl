@@ -750,7 +750,7 @@ group_t_copy_plugin_to_a_new_node_single_node({init, Config}) ->
         | Config
     ];
 group_t_copy_plugin_to_a_new_node_single_node({'end', Config}) ->
-    CopyToNode = proplists:get_value(copy_to_node, Config),
+    CopyToNode = proplists:get_value(copy_to_node_name, Config),
     ok = emqx_common_test_helpers:stop_slave(CopyToNode),
     ok = file:del_dir_r(proplists:get_value(to_install_dir, Config)),
     ok;

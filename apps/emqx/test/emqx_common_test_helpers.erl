@@ -780,13 +780,7 @@ start_slave(Name, Opts) when is_map(Opts) ->
 %% Node stopping
 stop_slave(Node0) ->
     Node = node_name(Node0),
-    SlaveMod = get_peer_mod(Node),
-    erase_peer_mod(Node),
-    case SlaveMod:stop(Node) of
-        ok -> ok;
-        {ok, _} -> ok;
-        {error, not_started, _} -> ok
-    end.
+    emqx_cth_peer:stop(Node).
 
 %% EPMD starting
 start_epmd() ->
