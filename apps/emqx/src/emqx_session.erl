@@ -479,8 +479,6 @@ handle_timeout(ClientInfo, Timer, Session) ->
 
 -spec ensure_timer(custom_timer_name(), timeout(), timerset()) ->
     timerset().
-ensure_timer(Name, _Time, Timers = #{}) when is_map_key(Name, Timers) ->
-    Timers;
 ensure_timer(Name, Time, Timers = #{}) when Time > 0 ->
     TRef = emqx_utils:start_timer(Time, {?MODULE, Name}),
     Timers#{Name => TRef}.
