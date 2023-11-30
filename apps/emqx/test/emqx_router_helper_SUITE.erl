@@ -80,7 +80,7 @@ t_mnesia(_) ->
     ct:sleep(200).
 
 t_cleanup_membership_mnesia_down(_Config) ->
-    Slave = emqx_cth_cluster:node_name(?FUNCTION_NAME),
+    Slave = emqx_cth_cluster:node_name(node2),
     emqx_router:add_route(<<"a/b/c">>, Slave),
     emqx_router:add_route(<<"d/e/f">>, node()),
     ?assertMatch([_, _], emqx_router:topics()),
@@ -92,7 +92,7 @@ t_cleanup_membership_mnesia_down(_Config) ->
     ?assertEqual([<<"d/e/f">>], emqx_router:topics()).
 
 t_cleanup_membership_node_down(_Config) ->
-    Slave = emqx_cth_cluster:node_name(?FUNCTION_NAME),
+    Slave = emqx_cth_cluster:node_name(node3),
     emqx_router:add_route(<<"a/b/c">>, Slave),
     emqx_router:add_route(<<"d/e/f">>, node()),
     ?assertMatch([_, _], emqx_router:topics()),
@@ -104,7 +104,7 @@ t_cleanup_membership_node_down(_Config) ->
     ?assertEqual([<<"d/e/f">>], emqx_router:topics()).
 
 t_cleanup_monitor_node_down(_Config) ->
-    Slave = emqx_cth_cluster:start_bare_node(?FUNCTION_NAME, #{driver => ct_slave}),
+    [Slave] = emqx_cth_cluster:start_bare_nodes([node4]),
     emqx_router:add_route(<<"a/b/c">>, Slave),
     emqx_router:add_route(<<"d/e/f">>, node()),
     ?assertMatch([_, _], emqx_router:topics()),

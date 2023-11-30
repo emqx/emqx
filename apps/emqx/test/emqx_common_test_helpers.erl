@@ -1013,8 +1013,8 @@ set_envs(Node, Env) ->
     ).
 
 erl_flags() ->
-    %% One core and redirecting logs to master
-    ["+S", "1:1", "-master", atom_to_list(node())] ++ ebin_path().
+    %% One core
+    ["+S", "1:1"] ++ ebin_path().
 
 ebin_path() ->
     ["-pa" | lists:filter(fun is_lib/1, code:get_path())].

@@ -41,7 +41,7 @@
 -export([start/2]).
 -export([stop/1, stop_node/1]).
 
--export([start_bare_node/2]).
+-export([start_bare_nodes/1, start_bare_nodes/2]).
 
 -export([share_load_module/2]).
 -export([node_name/1, mk_nodespecs/2]).
@@ -283,23 +283,31 @@ allocate_listener_ports(Types, Spec) ->
     lists:foldl(fun maps:merge/2, #{}, [allocate_listener_port(Type, Spec) || Type <- Types]).
 
 start_nodes_init(Specs, Timeout) ->
+    Names = lists:map(fun(#{name := Name}) -> Name end, Specs),
+    Nodes = start_bare_nodes(Names, Timeout),
+    lists:foreach(fun node_init/1, Nodes).
+
+start_bare_nodes(Names) ->
+    start_bare_nodes(Names, ?TIMEOUT_NODE_START_MS).
+start_bare_nodes(Names, Timeout) ->
     Args = erl_flags(),
     Envs = [],
     Waits = lists:map(
-        fun(#{name := NodeName}) ->
-            WaitTag = {boot_complete, make_ref()},
+        fun(Name) ->
+            WaitTag = {boot_complete, Name},
             WaitBoot = {self(), WaitTag},
-            {ok, NodeName} = emqx_cth_peer:start(NodeName, Args, Envs, WaitBoot),
+            {ok, _} = emqx_cth_peer:start(Name, Args, Envs, WaitBoot),
             WaitTag
         end,
-        Specs
+        Names
     ),
     Deadline = erlang:monotonic_time() + erlang:convert_time_unit(Timeout, millisecond, nanosecond),
-    ok = wait_boot_complete(Waits, Deadline),
-    lists:foreach(fun(#{name := Node}) -> node_init(Node) end, Specs).
+    Nodes = wait_boot_complete(Waits, Deadline),
+    lists:foreach(fun(Node) -> pong = net_adm:ping(Node) end, Nodes),
+    Nodes.
 
 wait_boot_complete([], _) ->
-    ok;
+    [];
 wait_boot_complete(Waits, Deadline) ->
     case erlang:monotonic_time() > Deadline of
         true ->
@@ -308,9 +316,10 @@ wait_boot_complete(Waits, Deadline) ->
             ok
     end,
     receive
-        {{boot_complete, _Ref} = Wait, {started, _NodeName, _Pid}} ->
-            wait_boot_complete(Waits -- [Wait], Deadline);
-        {{boot_complete, _Ref}, Otherwise} ->
+        {{boot_complete, _Name} = Wait, {started, Node, _Pid}} ->
+            ct:pal("~p", [Wait]),
+            [Node | wait_boot_complete(Waits -- [Wait], Deadline)];
+        {{boot_complete, _Name}, Otherwise} ->
             error({unexpected, Otherwise})
     after 100 ->
         wait_boot_complete(Waits, Deadline)
@@ -402,20 +411,9 @@ listener_port(BasePort, wss) ->
 
 %%
 
--spec start_bare_node(atom(), map()) -> node().
-start_bare_node(Name, Spec) ->
-    Args = erl_flags(),
-    Envs = [],
-    {ok, NodeName} = emqx_cth_peer:start(Name, Args, Envs, ?TIMEOUT_NODE_START_MS),
-    init_bare_node(NodeName, Spec).
-
-init_bare_node(Node, _Spec) ->
-    pong = net_adm:ping(Node),
-    Node.
-
 erl_flags() ->
-    %% One core and redirecting logs to master
-    ["+S", "1:1", "-master", atom_to_list(node())] ++ ebin_path().
+    %% One core
+    ["+S", "1:1"] ++ ebin_path().
 
 ebin_path() ->
     ["-pa" | lists:filter(fun is_lib/1, code:get_path())].
