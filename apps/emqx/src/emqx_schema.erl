@@ -1802,6 +1802,7 @@ fields("session_persistence") ->
                 pos_integer(),
                 #{
                     default => 100,
+                    importance => ?IMPORTANCE_LOW,
                     desc => ?DESC(session_ds_session_gc_batch_size)
                 }
             )},
