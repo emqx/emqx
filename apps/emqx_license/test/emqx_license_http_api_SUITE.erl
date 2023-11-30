@@ -204,6 +204,17 @@ t_license_setting(_Config) ->
     ?assertEqual(0.5, emqx_config:get([license, connection_low_watermark])),
     ?assertEqual(0.55, emqx_config:get([license, connection_high_watermark])),
 
+    %% update
+    Low1 = <<"50%">>,
+    High1 = <<"100%">>,
+    UpdateRes1 = request(put, uri(["license", "setting"]), #{
+        <<"connection_low_watermark">> => Low1,
+        <<"connection_high_watermark">> => High1
+    }),
+    validate_setting(UpdateRes1, Low1, High1),
+    ?assertEqual(0.5, emqx_config:get([license, connection_low_watermark])),
+    ?assertEqual(1.0, emqx_config:get([license, connection_high_watermark])),
+
     %% update bad setting low >= high
     ?assertMatch(
         {ok, 400, _},

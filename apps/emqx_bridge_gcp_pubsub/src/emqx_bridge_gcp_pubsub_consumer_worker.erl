@@ -237,7 +237,10 @@ handle_continue(?patch_subscription, State0) ->
             ),
             {noreply, State0};
         error ->
-            %% retry
+            %% retry; add a random delay for the case where multiple workers step on each
+            %% other's toes before retrying.
+            RandomMS = rand:uniform(500),
+            timer:sleep(RandomMS),
             {noreply, State0, {continue, ?patch_subscription}}
     end.
 
@@ -478,7 +481,6 @@ do_pull_async(State0) ->
             Body = body(State0, pull),
             PreparedRequest = {prepared_request, {Method, Path, Body}},
             ReplyFunAndArgs = {fun ?MODULE:reply_delegator/4, [self(), pull_async, InstanceId]},
-            %% `ehttpc_pool'/`gproc_pool' might return `false' if there are no workers...
             Res = emqx_bridge_gcp_pubsub_client:query_async(
                 PreparedRequest,
                 ReplyFunAndArgs,

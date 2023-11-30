@@ -364,7 +364,7 @@ get_metrics(Type, Name) ->
 maybe_upgrade(mqtt, Config) ->
     emqx_bridge_compatible_config:maybe_upgrade(Config);
 maybe_upgrade(webhook, Config) ->
-    emqx_bridge_compatible_config:webhook_maybe_upgrade(Config);
+    emqx_bridge_compatible_config:http_maybe_upgrade(Config);
 maybe_upgrade(_Other, Config) ->
     Config.
 

@@ -18,10 +18,10 @@ config_direction.desc:
 config_direction.label:
 """Bridge Direction"""
 
-config_enable.desc:
+config_enable_bridge.desc:
 """Enable or disable this bridge"""
 
-config_enable.label:
+config_enable_bridge.label:
 """Enable Or Disable Bridge"""
 
 config_headers.desc:
@@ -70,6 +70,21 @@ is not allowed."""
 
 config_url.label:
 """HTTP Bridge"""
+
+config_path.desc:
+"""The URL path for this Action.<br/>
+This path will be appended to the Connector's <code>url</code> configuration to form the full
+URL address.
+Template with variables is allowed in this option. For example, <code>/room/{$room_no}</code>"""
+
+config_path.label:
+"""URL Path"""
+
+config_parameters_opts.desc:
+"""The parameters for HTTP action."""
+
+config_parameters_opts.label:
+"""Parameters"""
 
 desc_config.desc:
 """Configuration for an HTTP bridge."""

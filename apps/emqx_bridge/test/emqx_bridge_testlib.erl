@@ -92,7 +92,7 @@ end_per_testcase(_Testcase, Config) ->
 delete_all_bridges() ->
     lists:foreach(
         fun(#{name := Name, type := Type}) ->
-            emqx_bridge:remove(Type, Name)
+            ok = emqx_bridge:remove(Type, Name)
         end,
         emqx_bridge:list()
     ).

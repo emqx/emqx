@@ -464,6 +464,7 @@ apps_to_start() ->
         emqx_modules,
         emqx_gateway,
         emqx_exhook,
+        emqx_bridge_http,
         emqx_bridge,
         emqx_auto_subscribe,
 
