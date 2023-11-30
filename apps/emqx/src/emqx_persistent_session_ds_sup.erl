@@ -13,7 +13,7 @@
 %% See the License for the specific language governing permissions and
 %% limitations under the License.
 %%--------------------------------------------------------------------
--module(emqx_persistent_session_ds_gc_sup).
+-module(emqx_persistent_session_ds_sup).
 
 -behaviour(supervisor).
 

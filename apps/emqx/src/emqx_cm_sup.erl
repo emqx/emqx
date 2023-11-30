@@ -47,7 +47,7 @@ init([]) ->
     Locker = child_spec(emqx_cm_locker, 5000, worker),
     Registry = child_spec(emqx_cm_registry, 5000, worker),
     Manager = child_spec(emqx_cm, 5000, worker),
-    DSSessionGCSup = child_spec(emqx_persistent_session_ds_gc_sup, infinity, supervisor),
+    DSSessionGCSup = child_spec(emqx_persistent_session_ds_sup, infinity, supervisor),
     Children =
         [
             Banned,
