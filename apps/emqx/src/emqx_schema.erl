@@ -1789,6 +1789,23 @@ fields("session_persistence") ->
                     desc => ?DESC(session_ds_last_alive_update_interval)
                 }
             )},
+        {"session_gc_interval",
+            sc(
+                timeout_duration(),
+                #{
+                    default => <<"10m">>,
+                    desc => ?DESC(session_ds_session_gc_interval)
+                }
+            )},
+        {"session_gc_batch_size",
+            sc(
+                pos_integer(),
+                #{
+                    default => 100,
+                    importance => ?IMPORTANCE_LOW,
+                    desc => ?DESC(session_ds_session_gc_batch_size)
+                }
+            )},
         {"force_persistence",
             sc(
                 boolean(),
