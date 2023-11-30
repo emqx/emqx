@@ -185,7 +185,7 @@ mk_cluster(Name, Config, Opts) ->
             {emqx_bridge_v2_api_SUITE_1, Opts#{role => core, apps => Node1Apps}},
             {emqx_bridge_v2_api_SUITE_2, Opts#{role => core, apps => Node2Apps}}
         ],
-        #{work_dir => filename:join(?config(priv_dir, Config), Name)}
+        #{work_dir => emqx_cth_suite:work_dir(Name, Config)}
     ).
 
 end_per_group(Group, Config) when

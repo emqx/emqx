@@ -66,6 +66,7 @@
 -boot_mnesia({mnesia, [boot]}).
 
 -include_lib("emqx/include/logger.hrl").
+-include_lib("snabbkaffe/include/snabbkaffe.hrl").
 -include("emqx_conf.hrl").
 
 -ifdef(TEST).
@@ -384,6 +385,7 @@ catch_up(State) -> catch_up(State, false).
 catch_up(#{node := Node, retry_interval := RetryMs, is_leaving := false} = State, SkipResult) ->
     case transaction(fun ?MODULE:read_next_mfa/1, [Node]) of
         {atomic, caught_up} ->
+            ?tp(cluster_rpc_caught_up, #{}),
             ?TIMEOUT;
         {atomic, {still_lagging, NextId, MFA}} ->
             {Succeed, _} = apply_mfa(NextId, MFA, ?APPLY_KIND_REPLICATE),
