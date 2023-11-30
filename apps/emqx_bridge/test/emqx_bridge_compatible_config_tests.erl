@@ -126,7 +126,7 @@ check(Conf) when is_map(Conf) ->
 %% erlfmt-ignore
 %% this is config generated from v5.0.11
 webhook_v5011_hocon() ->
-"""
+"
 bridges{
   webhook {
     the_name{
@@ -143,7 +143,7 @@ bridges{
     }
   }
 }
-""".
+".
 
 full_webhook_v5011_hocon() ->
     ""
@@ -215,7 +215,7 @@ full_webhook_v5019_hocon() ->
 %% erlfmt-ignore
 %% this is a generated from v5.0.11
 mqtt_v5011_hocon() ->
-"""
+"
 bridges {
   mqtt {
     bridge_one {
@@ -257,12 +257,12 @@ bridges {
     }
   }
 }
-""".
+".
 
 %% erlfmt-ignore
 %% a more complete version
 mqtt_v5011_full_hocon() ->
-"""
+"
 bridges {
   mqtt {
     bridge_one {
@@ -330,4 +330,4 @@ bridges {
     }
   }
 }
-""".
+".

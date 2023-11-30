@@ -46,17 +46,17 @@ defmodule EMQXUmbrella.MixProject do
     # other exact versions, and not ranges.
     [
       {:lc, github: "emqx/lc", tag: "0.3.2", override: true},
-      {:redbug, "2.0.8"},
+      {:redbug, github: "emqx/redbug", tag: "2.0.10"},
       {:covertool, github: "zmstone/covertool", tag: "2.0.4.1", override: true},
       {:typerefl, github: "ieQu1/typerefl", tag: "0.9.1", override: true},
       {:ehttpc, github: "emqx/ehttpc", tag: "0.4.11", override: true},
       {:gproc, github: "emqx/gproc", tag: "0.9.0.1", override: true},
       {:jiffy, github: "emqx/jiffy", tag: "1.0.5", override: true},
       {:cowboy, github: "emqx/cowboy", tag: "2.9.2", override: true},
-      {:esockd, github: "emqx/esockd", tag: "5.9.7", override: true},
+      {:esockd, github: "emqx/esockd", tag: "5.9.8", override: true},
       {:rocksdb, github: "emqx/erlang-rocksdb", tag: "1.8.0-emqx-1", override: true},
       {:ekka, github: "emqx/ekka", tag: "0.15.16", override: true},
-      {:gen_rpc, github: "emqx/gen_rpc", tag: "3.2.1", override: true},
+      {:gen_rpc, github: "emqx/gen_rpc", tag: "3.2.2", override: true},
       {:grpc, github: "emqx/grpc-erl", tag: "0.6.8", override: true},
       {:minirest, github: "emqx/minirest", tag: "1.3.14", override: true},
       {:ecpool, github: "emqx/ecpool", tag: "0.5.4", override: true},
@@ -230,7 +230,7 @@ defmodule EMQXUmbrella.MixProject do
       {:influxdb, github: "emqx/influxdb-client-erl", tag: "1.1.11", override: true},
       {:wolff, github: "kafka4beam/wolff", tag: "1.8.0"},
       {:kafka_protocol, github: "kafka4beam/kafka_protocol", tag: "4.1.3", override: true},
-      {:brod_gssapi, github: "kafka4beam/brod_gssapi", tag: "v0.1.0"},
+      {:brod_gssapi, github: "kafka4beam/brod_gssapi", tag: "v0.1.1"},
       {:brod, github: "kafka4beam/brod", tag: "3.16.8"},
       {:snappyer, "1.2.9", override: true},
       {:crc32cer, "0.1.8", override: true},
@@ -823,7 +823,7 @@ defmodule EMQXUmbrella.MixProject do
 
   defp jq_dep() do
     if enable_jq?(),
-      do: [{:jq, github: "emqx/jq", tag: "v0.3.11", override: true}],
+      do: [{:jq, github: "emqx/jq", tag: "v0.3.12", override: true}],
       else: []
   end
 

@@ -399,7 +399,7 @@ do_install_package(FileName, Bin) ->
                 end,
             {400, #{
                 code => 'BAD_PLUGIN_INFO',
-                message => iolist_to_binary([Reason, ":", FileName])
+                message => iolist_to_binary([Reason, ": ", FileName])
             }}
     end.
 
@@ -445,7 +445,8 @@ install_package(FileName, Bin) ->
     case emqx_plugins:ensure_installed(PackageName) of
         {error, #{return := not_found}} = NotFound ->
             NotFound;
-        {error, _Reason} = Error ->
+        {error, Reason} = Error ->
+            ?SLOG(error, Reason#{msg => "failed_to_install_plugin"}),
             _ = file:delete(File),
             Error;
         Result ->

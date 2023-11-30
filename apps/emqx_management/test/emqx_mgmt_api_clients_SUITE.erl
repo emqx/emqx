@@ -214,7 +214,22 @@ t_kickout_clients(_) ->
     {ok, C3} = emqtt:start_link(#{clientid => ClientId3}),
     {ok, _} = emqtt:connect(C3),
 
-    timer:sleep(300),
+    emqx_common_test_helpers:wait_for(
+        ?FUNCTION_NAME,
+        ?LINE,
+        fun() ->
+            try
+                [_] = emqx_cm:lookup_channels(ClientId1),
+                [_] = emqx_cm:lookup_channels(ClientId2),
+                [_] = emqx_cm:lookup_channels(ClientId3),
+                true
+            catch
+                error:badmatch ->
+                    false
+            end
+        end,
+        2000
+    ),
 
     %% get /clients
     ClientsPath = emqx_mgmt_api_test_util:api_path(["clients"]),
@@ -233,6 +248,15 @@ t_kickout_clients(_) ->
     KickoutBody = [ClientId1, ClientId2, ClientId3],
     {ok, 204, _} = emqx_mgmt_api_test_util:request_api_with_body(post, KickoutPath, KickoutBody),
 
+    ReceiveExit = fun({ClientPid, ClientId}) ->
+        receive
+            {'EXIT', Pid, _} when Pid =:= ClientPid ->
+                ok
+        after 1000 ->
+            error({timeout, ClientId})
+        end
+    end,
+    lists:foreach(ReceiveExit, [{C1, ClientId1}, {C2, ClientId2}, {C3, ClientId3}]),
     {ok, Clients2} = emqx_mgmt_api_test_util:request_api(get, ClientsPath),
     ClientsResponse2 = emqx_utils_json:decode(Clients2, [return_maps]),
     ?assertMatch(#{<<"meta">> := #{<<"count">> := 0}}, ClientsResponse2).

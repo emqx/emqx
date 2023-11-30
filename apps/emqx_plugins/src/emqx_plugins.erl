@@ -83,7 +83,7 @@
 describe(NameVsn) -> read_plugin(NameVsn, #{fill_readme => true}).
 
 %% @doc Install a .tar.gz package placed in install_dir.
--spec ensure_installed(name_vsn()) -> ok | {error, any()}.
+-spec ensure_installed(name_vsn()) -> ok | {error, map()}.
 ensure_installed(NameVsn) ->
     case read_plugin(NameVsn, #{}) of
         {ok, _} ->

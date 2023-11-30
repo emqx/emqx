@@ -753,24 +753,15 @@ start_slave(Name, Opts) when is_map(Opts) ->
             case SlaveMod of
                 ct_slave ->
                     ct:pal("~p: node data dir: ~s", [Node, NodeDataDir]),
-                    ct_slave:start(
-                        Node,
-                        [
-                            {kill_if_fail, true},
-                            {monitor_master, true},
-                            {init_timeout, 20_000},
-                            {startup_timeout, 20_000},
-                            {erl_flags, erl_flags()},
-                            {env, [
-                                {"HOCON_ENV_OVERRIDE_PREFIX", "EMQX_"},
-                                {"EMQX_NODE__COOKIE", Cookie},
-                                {"EMQX_NODE__DATA_DIR", NodeDataDir}
-                            ]}
-                        ]
-                    );
+                    Envs = [
+                        {"HOCON_ENV_OVERRIDE_PREFIX", "EMQX_"},
+                        {"EMQX_NODE__COOKIE", Cookie},
+                        {"EMQX_NODE__DATA_DIR", NodeDataDir}
+                    ],
+                    emqx_cth_peer:start(Node, erl_flags(), Envs);
                 slave ->
-                    Env = " -env HOCON_ENV_OVERRIDE_PREFIX EMQX_",
-                    slave:start_link(host(), Name, ebin_path() ++ Env)
+                    Envs = [{"HOCON_ENV_OVERRIDE_PREFIX", "EMQX_"}],
+                    emqx_cth_peer:start(Node, ebin_path(), Envs)
             end
         end,
     case DoStart() of
@@ -789,13 +780,7 @@ start_slave(Name, Opts) when is_map(Opts) ->
 %% Node stopping
 stop_slave(Node0) ->
     Node = node_name(Node0),
-    SlaveMod = get_peer_mod(Node),
-    erase_peer_mod(Node),
-    case SlaveMod:stop(Node) of
-        ok -> ok;
-        {ok, _} -> ok;
-        {error, not_started, _} -> ok
-    end.
+    emqx_cth_peer:stop(Node).
 
 %% EPMD starting
 start_epmd() ->
@@ -1022,11 +1007,11 @@ set_envs(Node, Env) ->
     ).
 
 erl_flags() ->
-    %% One core and redirecting logs to master
-    "+S 1:1 -master " ++ atom_to_list(node()) ++ " " ++ ebin_path().
+    %% One core
+    ["+S", "1:1"] ++ ebin_path().
 
 ebin_path() ->
-    string:join(["-pa" | lists:filter(fun is_lib/1, code:get_path())], " ").
+    ["-pa" | lists:filter(fun is_lib/1, code:get_path())].
 
 is_lib(Path) ->
     string:prefix(Path, code:lib_dir()) =:= nomatch andalso

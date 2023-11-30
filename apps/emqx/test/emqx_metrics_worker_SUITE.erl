@@ -53,9 +53,9 @@ t_get_metrics(_) ->
     ?assertMatch(
         #{
             rate := #{
-                a := #{current := 0.0, max := 0.0, last5m := 0.0},
-                b := #{current := 0.0, max := 0.0, last5m := 0.0},
-                c := #{current := 0.0, max := 0.0, last5m := 0.0}
+                a := #{current := +0.0, max := +0.0, last5m := +0.0},
+                b := #{current := +0.0, max := +0.0, last5m := +0.0},
+                c := #{current := +0.0, max := +0.0, last5m := +0.0}
             },
             gauges := #{},
             counters := #{
@@ -118,9 +118,9 @@ t_clear_metrics(_Config) ->
     ?assertMatch(
         #{
             rate := #{
-                a := #{current := 0.0, max := 0.0, last5m := 0.0},
-                b := #{current := 0.0, max := 0.0, last5m := 0.0},
-                c := #{current := 0.0, max := 0.0, last5m := 0.0}
+                a := #{current := +0.0, max := +0.0, last5m := +0.0},
+                b := #{current := +0.0, max := +0.0, last5m := +0.0},
+                c := #{current := +0.0, max := +0.0, last5m := +0.0}
             },
             gauges := #{},
             slides := #{},
@@ -145,7 +145,7 @@ t_clear_metrics(_Config) ->
         #{
             counters => #{},
             gauges => #{},
-            rate => #{current => 0.0, last5m => 0.0, max => 0.0},
+            rate => #{current => +0.0, last5m => +0.0, max => +0.0},
             slides => #{}
         },
         emqx_metrics_worker:get_metrics(?NAME, Id)
@@ -160,9 +160,9 @@ t_reset_metrics(_) ->
     ?assertMatch(
         #{
             rate := #{
-                a := #{current := 0.0, max := 0.0, last5m := 0.0},
-                b := #{current := 0.0, max := 0.0, last5m := 0.0},
-                c := #{current := 0.0, max := 0.0, last5m := 0.0}
+                a := #{current := +0.0, max := +0.0, last5m := +0.0},
+                b := #{current := +0.0, max := +0.0, last5m := +0.0},
+                c := #{current := +0.0, max := +0.0, last5m := +0.0}
             },
             gauges := #{},
             counters := #{
