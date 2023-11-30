@@ -64,6 +64,8 @@ call_fold(Hookpoint, Req, AccFun, [ServerName | More]) ->
     case emqx_exhook_server:call(Hookpoint, Req, Server) of
         {ok, Resp} ->
             case AccFun(Req, Resp) of
+                {republish, NReq} ->
+                    {republish, NReq};
                 {stop, NReq} ->
                     {stop, NReq};
                 {ok, NReq} ->

@@ -294,6 +294,9 @@ message ValuedResponse {
     IGNORE = 1;
 
     STOP_AND_RETURN = 2;
+
+    // Republish message, used on the 'message.publish' hook
+    STOP_AND_REPUBLISH = 3;
   }
 
   ResponsedType type = 1;
