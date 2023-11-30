@@ -492,13 +492,13 @@ reset_timer(Name, Time, Channel) ->
 
 -spec cancel_timer(custom_timer_name(), timerset()) ->
     timerset().
-cancel_timer(Name, Timers) ->
-    case maps:take(Name, Timers) of
-        {TRef, NTimers} ->
+cancel_timer(Name, Timers0) ->
+    case maps:take(Name, Timers0) of
+        {TRef, Timers} ->
             ok = emqx_utils:cancel_timer(TRef),
-            NTimers;
+            Timers;
         error ->
-            Timers
+            Timers0
     end.
 
 %%--------------------------------------------------------------------
