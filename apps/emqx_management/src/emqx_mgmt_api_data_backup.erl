@@ -240,7 +240,8 @@ data_files(get, #{query_string := PageParams}) ->
         false ->
             {400, #{code => ?BAD_REQUEST, message => <<"page_limit_invalid">>}};
         #{page := Page, limit := Limit} = Pager ->
-            {200, #{data => list_backup_files(Page, Limit), meta => Pager}}
+            {Count, HasNext, Data} = list_backup_files(Page, Limit),
+            {200, #{data => Data, meta => Pager#{count => Count, hasnext => HasNext}}}
     end.
 
 data_file_by_name(Method, #{bindings := #{filename := Filename}, query_string := QS}) ->
@@ -295,7 +296,10 @@ response({error, Reason}) ->
 
 list_backup_files(Page, Limit) ->
     Start = Page * Limit - Limit + 1,
-    lists:sublist(list_backup_files(), Start, Limit).
+    AllFiles = list_backup_files(),
+    Count = length(AllFiles),
+    HasNext = Start + Limit - 1 < Count,
+    {Count, HasNext, lists:sublist(AllFiles, Start, Limit)}.
 
 list_backup_files() ->
     Nodes = emqx:running_nodes(),
