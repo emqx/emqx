@@ -96,7 +96,7 @@ defmodule EMQXUmbrella.MixProject do
       {:gpb, "4.19.9", override: true, runtime: false},
       {:hackney, github: "emqx/hackney", tag: "1.18.1-1", override: true},
       # set by hackney (dependency)
-      {:ssl_verify_fun, "1.1.6", override: true},
+      {:ssl_verify_fun, "1.1.7", override: true},
       {:uuid, github: "okeuday/uuid", tag: "v2.0.6", override: true},
       {:quickrand, github: "okeuday/quickrand", tag: "v2.0.6", override: true},
       {:opentelemetry_api,
