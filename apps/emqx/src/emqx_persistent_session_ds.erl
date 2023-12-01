@@ -646,7 +646,7 @@ session_open(SessionId, NewConnInfo) ->
     session().
 session_ensure_new(SessionId, ConnInfo) ->
     transaction(fun() ->
-        ok = session_drop_subscriptions(SessionId),
+        ok = session_drop_records(SessionId),
         Session = export_session(session_create(SessionId, ConnInfo)),
         Session#{
             subscriptions => subs_new(),
@@ -693,12 +693,16 @@ session_set_last_alive_at(SessionRecord0, LastAliveAt) ->
 -spec session_drop(id()) -> ok.
 session_drop(DSSessionId) ->
     transaction(fun() ->
-        ok = session_drop_subscriptions(DSSessionId),
-        ok = session_drop_pubranges(DSSessionId),
-        ok = session_drop_offsets(DSSessionId),
-        ok = session_drop_streams(DSSessionId),
+        ok = session_drop_records(DSSessionId),
         ok = mnesia:delete(?SESSION_TAB, DSSessionId, write)
     end).
+
+-spec session_drop_records(id()) -> ok.
+session_drop_records(DSSessionId) ->
+    ok = session_drop_subscriptions(DSSessionId),
+    ok = session_drop_pubranges(DSSessionId),
+    ok = session_drop_offsets(DSSessionId),
+    ok = session_drop_streams(DSSessionId).
 
 -spec session_drop_subscriptions(id()) -> ok.
 session_drop_subscriptions(DSSessionId) ->
