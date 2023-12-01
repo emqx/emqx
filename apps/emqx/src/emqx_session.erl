@@ -111,8 +111,7 @@
     reply/0,
     replies/0,
     common_timer_name/0,
-    custom_timer_name/0,
-    timerset/0
+    custom_timer_name/0
 ]).
 
 -type session_id() :: _TODO.
@@ -153,8 +152,6 @@
 -type t() ::
     emqx_session_mem:session()
     | emqx_persistent_session_ds:session().
-
--type timerset() :: #{custom_timer_name() => _TimerRef :: reference()}.
 
 -define(INFO_KEYS, [
     id,
@@ -477,19 +474,19 @@ handle_timeout(ClientInfo, Timer, Session) ->
 
 %%--------------------------------------------------------------------
 
--spec ensure_timer(custom_timer_name(), timeout(), timerset()) ->
-    timerset().
-ensure_timer(Name, Time, Timers = #{}) when Time > 0 ->
+-spec ensure_timer(custom_timer_name(), timeout(), map()) ->
+    map().
+ensure_timer(Name, Time, Timers = #{}) when Time >= 0 ->
     TRef = emqx_utils:start_timer(Time, {?MODULE, Name}),
     Timers#{Name => TRef}.
 
--spec reset_timer(custom_timer_name(), timeout(), timerset()) ->
-    timerset().
-reset_timer(Name, Time, Channel) ->
-    ensure_timer(Name, Time, cancel_timer(Name, Channel)).
+-spec reset_timer(custom_timer_name(), timeout(), map()) ->
+    map().
+reset_timer(Name, Time, Timers) ->
+    ensure_timer(Name, Time, cancel_timer(Name, Timers)).
 
--spec cancel_timer(custom_timer_name(), timerset()) ->
-    timerset().
+-spec cancel_timer(custom_timer_name(), map()) ->
+    map().
 cancel_timer(Name, Timers0) ->
     case maps:take(Name, Timers0) of
         {TRef, Timers} ->
