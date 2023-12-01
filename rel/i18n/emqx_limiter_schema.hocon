@@ -6,7 +6,7 @@ This is used to limit the connection rate for this node.
 Once the limit is reached, new connections will be deferred or refused.<br/>
 For example:<br/>
 - <code>1000/s</code> :: Only accepts 1000 connections per second<br/>
-- <code>1000/10s</code> :: Only accepts 1000 connections every 10 seconds"""
+- <code>1000/10s</code> :: Only accepts 1000 connections every 10 seconds."""
 max_conn_rate.label:
 """Maximum Connection Rate"""
 
