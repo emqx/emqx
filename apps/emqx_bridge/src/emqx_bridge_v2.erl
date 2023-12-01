@@ -260,11 +260,10 @@ create(BridgeType, BridgeName, RawConf) ->
         #{override_to => cluster}
     ).
 
-%% NOTE: This function can cause broken references from rules but it is only
-%% called directly from test cases.
-
 -spec remove(bridge_v2_type(), bridge_v2_name()) -> ok | {error, any()}.
 remove(BridgeType, BridgeName) ->
+    %% NOTE: This function can cause broken references from rules but it is only
+    %% called directly from test cases.
     ?SLOG(debug, #{
         brige_action => remove,
         bridge_version => 2,
