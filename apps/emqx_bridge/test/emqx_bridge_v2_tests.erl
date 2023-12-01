@@ -34,11 +34,8 @@ find_resource_opts_fields(SchemaMod, FieldName) ->
             get_resource_opts_subfields(ROSc)
     end.
 
-get_resource_opts_subfields(ScFn) when is_function(ScFn, 1) ->
-    get_resource_opts_subfields(ScFn(type));
-get_resource_opts_subfields(#{type := T = ?R_REF(_SchemaModRO, _FieldNameRO)}) ->
-    get_resource_opts_subfields(T);
-get_resource_opts_subfields(?R_REF(SchemaModRO, FieldNameRO)) ->
+get_resource_opts_subfields(Sc) ->
+    ?R_REF(SchemaModRO, FieldNameRO) = hocon_schema:field_schema(Sc, type),
     ROFields = non_deprecated_fields(hocon_schema:fields(SchemaModRO, FieldNameRO)),
     proplists:get_keys(ROFields).
 
