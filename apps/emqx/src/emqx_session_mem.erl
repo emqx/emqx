@@ -158,7 +158,7 @@ create(
     Conf
 ) ->
     QueueOpts = get_mqueue_conf(Zone),
-    Session = #session{
+    #session{
         id = emqx_guid:gen(),
         clientid = ClientId,
         created_at = erlang:system_time(millisecond),
@@ -167,9 +167,13 @@ create(
         inflight = emqx_inflight:new(ReceiveMax),
         mqueue = emqx_mqueue:init(QueueOpts),
         next_pkt_id = 1,
-        awaiting_rel = #{}
-    },
-    preserve_conf(Conf, Session).
+        awaiting_rel = #{},
+        max_subscriptions = maps:get(max_subscriptions, Conf),
+        max_awaiting_rel = maps:get(max_awaiting_rel, Conf),
+        upgrade_qos = maps:get(upgrade_qos, Conf),
+        retry_interval = maps:get(retry_interval, Conf),
+        await_rel_timeout = maps:get(await_rel_timeout, Conf)
+    }.
 
 get_mqueue_conf(Zone) ->
     #{
@@ -204,7 +208,7 @@ open(ClientInfo = #{clientid := ClientId}, ConnInfo, Conf) ->
             case emqx_cm:takeover_session_end(TakeoverState) of
                 {ok, Pendings} ->
                     Session1 = resize_inflight(ConnInfo, Session0),
-                    Session = preserve_conf(Conf, Session1),
+                    Session = apply_conf(Conf, Session1),
                     clean_session(ClientInfo, Session, Pendings);
                 {error, _} ->
                     % TODO log error?
@@ -219,7 +223,7 @@ resize_inflight(#{receive_maximum := ReceiveMax}, Session = #session{inflight = 
         inflight = emqx_inflight:resize(ReceiveMax, Inflight)
     }.
 
-preserve_conf(Conf, Session = #session{}) ->
+apply_conf(Conf, Session = #session{}) ->
     Session#session{
         max_subscriptions = maps:get(max_subscriptions, Conf),
         max_awaiting_rel = maps:get(max_awaiting_rel, Conf),
