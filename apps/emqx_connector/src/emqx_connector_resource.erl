@@ -382,9 +382,13 @@ safe_atom(Bin) when is_binary(Bin) -> binary_to_existing_atom(Bin, utf8);
 safe_atom(Atom) when is_atom(Atom) -> Atom.
 
 parse_opts(Conf, Opts0) ->
-    override_start_after_created(Conf, Opts0).
+    Opts1 = override_start_after_created(Conf, Opts0),
+    set_no_buffer_workers(Opts1).
 
 override_start_after_created(Config, Opts) ->
     Enabled = maps:get(enable, Config, true),
     StartAfterCreated = Enabled andalso maps:get(start_after_created, Opts, Enabled),
     Opts#{start_after_created => StartAfterCreated}.
+
+set_no_buffer_workers(Opts) ->
+    Opts#{spawn_buffer_workers => false}.
