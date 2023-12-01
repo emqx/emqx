@@ -42,8 +42,8 @@ t_cluster_query(_Config) ->
     ct:timetrap({seconds, 120}),
     snabbkaffe:fix_ct_logging(),
     [{Name, Opts}, {Name1, Opts1}] = cluster_specs(),
-    Node1 = emqx_common_test_helpers:start_slave(Name, Opts),
-    Node2 = emqx_common_test_helpers:start_slave(Name1, Opts1),
+    Node1 = emqx_common_test_helpers:start_peer(Name, Opts),
+    Node2 = emqx_common_test_helpers:start_peer(Name1, Opts1),
     try
         process_flag(trap_exit, true),
         ClientLs1 = [start_emqtt_client(Node1, I, 2883) || I <- lists:seq(1, 10)],
@@ -168,8 +168,8 @@ t_cluster_query(_Config) ->
         _ = lists:foreach(fun(C) -> emqtt:disconnect(C) end, ClientLs1),
         _ = lists:foreach(fun(C) -> emqtt:disconnect(C) end, ClientLs2)
     after
-        emqx_common_test_helpers:stop_slave(Node1),
-        emqx_common_test_helpers:stop_slave(Node2)
+        emqx_common_test_helpers:stop_peer(Node1),
+        emqx_common_test_helpers:stop_peer(Node2)
     end,
     ok.
 

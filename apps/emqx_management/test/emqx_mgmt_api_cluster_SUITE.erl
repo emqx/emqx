@@ -54,8 +54,6 @@ t_cluster_topology_api_empty_resp(_) ->
     ).
 
 t_cluster_topology_api_replicants(Config) ->
-    %% some time to stabilize
-    timer:sleep(3000),
     [Core1, Core2, Replicant] = _NodesList = ?config(cluster, Config),
     {200, Core1Resp} = rpc:call(Core1, emqx_mgmt_api_cluster, cluster_topology, [get, #{}]),
     {200, Core2Resp} = rpc:call(Core2, emqx_mgmt_api_cluster, cluster_topology, [get, #{}]),

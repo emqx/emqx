@@ -348,19 +348,11 @@ receive_published(Line) ->
 
 cluster(Config) ->
     PrivDataDir = ?config(priv_dir, Config),
-    PeerModule =
-        case os:getenv("IS_CI") of
-            false ->
-                slave;
-            _ ->
-                ct_slave
-        end,
     Cluster = emqx_common_test_helpers:emqx_cluster(
         [core, core],
         [
             {apps, ?APPS},
             {listener_ports, []},
-            {peer_mod, PeerModule},
             {priv_data_dir, PrivDataDir},
             {load_schema, true},
             {start_autocluster, true},
@@ -382,7 +374,7 @@ cluster(Config) ->
 
 start_cluster(Cluster) ->
     Nodes = [
-        emqx_common_test_helpers:start_slave(Name, Opts)
+        emqx_common_test_helpers:start_peer(Name, Opts)
      || {Name, Opts} <- Cluster
     ],
     NumNodes = length(Nodes),
@@ -390,7 +382,7 @@ start_cluster(Cluster) ->
         emqx_utils:pmap(
             fun(N) ->
                 ct:pal("stopping ~p", [N]),
-                ok = emqx_common_test_helpers:stop_slave(N)
+                ok = emqx_common_test_helpers:stop_peer(N)
             end,
             Nodes
         )

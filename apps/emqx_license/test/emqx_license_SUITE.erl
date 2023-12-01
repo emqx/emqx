@@ -112,7 +112,7 @@ setup_test(TestCase, Config) when
             end}
         ]
     ),
-    Nodes = [emqx_common_test_helpers:start_slave(Name, Opts) || {Name, Opts} <- Cluster],
+    Nodes = [emqx_common_test_helpers:start_peer(Name, Opts) || {Name, Opts} <- Cluster],
     [{nodes, Nodes}, {cluster, Cluster}, {old_license, LicenseKey}];
 setup_test(_TestCase, _Config) ->
     [].
