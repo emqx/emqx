@@ -50,11 +50,11 @@ init_per_suite(Conf) ->
     emqx_config:delete_override_conf_files(),
     emqx_config:erase(gateway),
     emqx_common_test_helpers:load_config(emqx_gateway_schema, ?CONF_DEFAULT),
-    emqx_mgmt_api_test_util:init_suite([emqx_conf, emqx_auth, emqx_auth_mnesia, emqx_gateway]),
+    emqx_mgmt_api_test_util:init_suite([grpc, emqx_conf, emqx_auth, emqx_auth_mnesia, emqx_gateway]),
     Conf.
 
 end_per_suite(Conf) ->
-    emqx_mgmt_api_test_util:end_suite([emqx_gateway, emqx_auth_mnesia, emqx_auth, emqx_conf]),
+    emqx_mgmt_api_test_util:end_suite([emqx_gateway, emqx_auth_mnesia, emqx_auth, emqx_conf, grpc]),
     Conf.
 
 init_per_testcase(t_gateway_fail, Config) ->
