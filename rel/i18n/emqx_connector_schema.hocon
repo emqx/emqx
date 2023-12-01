@@ -8,7 +8,7 @@ desc_connectors.label:
 
 
 connector_field.desc:
-"""Name of connector used to connect to the resource where the action is to be performed."""
+"""Name of the connector specified by the action, used for external resource selection."""
 
 connector_field.label:
 """Connector"""
