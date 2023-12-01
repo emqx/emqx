@@ -1069,20 +1069,12 @@ setup_and_start_listeners(Node, NodeOpts) ->
 
 cluster(Config) ->
     PrivDataDir = ?config(priv_dir, Config),
-    PeerModule =
-        case os:getenv("IS_CI") of
-            false ->
-                slave;
-            _ ->
-                ct_slave
-        end,
     ExtraEnvHandlerHook = setup_group_subscriber_spy_fn(),
     Cluster = emqx_common_test_helpers:emqx_cluster(
         [core, core],
         [
             {apps, [emqx_conf, emqx_rule_engine, emqx_bridge_kafka, emqx_bridge]},
             {listener_ports, []},
-            {peer_mod, PeerModule},
             {priv_data_dir, PrivDataDir},
             {load_schema, true},
             {start_autocluster, true},
@@ -1744,14 +1736,14 @@ t_cluster_group(Config) ->
         begin
             Nodes =
                 [_N1, N2 | _] = [
-                    emqx_common_test_helpers:start_slave(Name, Opts)
+                    emqx_common_test_helpers:start_peer(Name, Opts)
                  || {Name, Opts} <- Cluster
                 ],
             on_exit(fun() ->
                 emqx_utils:pmap(
                     fun(N) ->
                         ct:pal("stopping ~p", [N]),
-                        ok = emqx_common_test_helpers:stop_slave(N)
+                        ok = emqx_common_test_helpers:stop_peer(N)
                     end,
                     Nodes
                 )
@@ -1827,10 +1819,10 @@ t_node_joins_existing_cluster(Config) ->
         begin
             [{Name1, Opts1}, {Name2, Opts2} | _] = Cluster,
             ct:pal("starting ~p", [Name1]),
-            N1 = emqx_common_test_helpers:start_slave(Name1, Opts1),
+            N1 = emqx_common_test_helpers:start_peer(Name1, Opts1),
             on_exit(fun() ->
                 ct:pal("stopping ~p", [N1]),
-                ok = emqx_common_test_helpers:stop_slave(N1)
+                ok = emqx_common_test_helpers:stop_peer(N1)
             end),
             {{ok, _}, {ok, _}} =
                 ?wait_async_action(
@@ -1870,10 +1862,10 @@ t_node_joins_existing_cluster(Config) ->
                 30_000
             ),
             ct:pal("starting ~p", [Name2]),
-            N2 = emqx_common_test_helpers:start_slave(Name2, Opts2),
+            N2 = emqx_common_test_helpers:start_peer(Name2, Opts2),
             on_exit(fun() ->
                 ct:pal("stopping ~p", [N2]),
-                ok = emqx_common_test_helpers:stop_slave(N2)
+                ok = emqx_common_test_helpers:stop_peer(N2)
             end),
             Nodes = [N1, N2],
             wait_for_cluster_rpc(N2),
@@ -1963,7 +1955,7 @@ t_cluster_node_down(Config) ->
                 lists:map(
                     fun({Name, Opts}) ->
                         ct:pal("starting ~p", [Name]),
-                        emqx_common_test_helpers:start_slave(Name, Opts)
+                        emqx_common_test_helpers:start_peer(Name, Opts)
                     end,
                     Cluster
                 ),
@@ -1971,7 +1963,7 @@ t_cluster_node_down(Config) ->
                 emqx_utils:pmap(
                     fun(N) ->
                         ct:pal("stopping ~p", [N]),
-                        ok = emqx_common_test_helpers:stop_slave(N)
+                        ok = emqx_common_test_helpers:stop_peer(N)
                     end,
                     Nodes
                 )
@@ -2016,7 +2008,7 @@ t_cluster_node_down(Config) ->
             {TId, Pid} = start_async_publisher(Config, KafkaTopic),
 
             ct:pal("stopping node ~p", [N1]),
-            ok = emqx_common_test_helpers:stop_slave(N1),
+            ok = emqx_common_test_helpers:stop_peer(N1),
 
             %% Give some time for the consumers in remaining node to
             %% rebalance.

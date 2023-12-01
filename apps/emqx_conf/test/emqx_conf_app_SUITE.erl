@@ -222,16 +222,16 @@ assert_config_load_done(Nodes) ->
     ).
 
 stop_cluster(Nodes) ->
-    emqx_utils:pmap(fun emqx_common_test_helpers:stop_slave/1, Nodes).
+    emqx_utils:pmap(fun emqx_common_test_helpers:stop_peer/1, Nodes).
 
 start_cluster(Specs) ->
-    [emqx_common_test_helpers:start_slave(Name, Opts) || {Name, Opts} <- Specs].
+    [emqx_common_test_helpers:start_peer(Name, Opts) || {Name, Opts} <- Specs].
 
 start_cluster_async(Specs) ->
     [
         begin
             Opts1 = maps:remove(join_to, Opts),
-            spawn_link(fun() -> emqx_common_test_helpers:start_slave(Name, Opts1) end),
+            spawn_link(fun() -> emqx_common_test_helpers:start_peer(Name, Opts1) end),
             timer:sleep(7_000)
         end
      || {Name, Opts} <- Specs

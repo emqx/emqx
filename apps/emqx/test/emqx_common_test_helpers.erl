@@ -70,8 +70,8 @@
     emqx_cluster/2,
     start_ekka/0,
     start_epmd/0,
-    start_slave/2,
-    stop_slave/1,
+    start_peer/2,
+    stop_peer/1,
     listener_port/2
 ]).
 
@@ -734,13 +734,11 @@ emqx_cluster(Specs0, CommonOpts) ->
 
 %% Lower level starting API
 
--spec start_slave(shortname(), node_opts()) -> nodename().
-start_slave(Name, Opts) when is_list(Opts) ->
-    start_slave(Name, maps:from_list(Opts));
-start_slave(Name, Opts) when is_map(Opts) ->
-    SlaveMod = maps:get(peer_mod, Opts, ct_slave),
+-spec start_peer(shortname(), node_opts()) -> nodename().
+start_peer(Name, Opts) when is_list(Opts) ->
+    start_peer(Name, maps:from_list(Opts));
+start_peer(Name, Opts) when is_map(Opts) ->
     Node = node_name(Name),
-    put_peer_mod(Node, SlaveMod),
     Cookie = atom_to_list(erlang:get_cookie()),
     PrivDataDir = maps:get(priv_data_dir, Opts, "/tmp"),
     NodeDataDir = filename:join([
@@ -750,19 +748,13 @@ start_slave(Name, Opts) when is_map(Opts) ->
     ]),
     DoStart =
         fun() ->
-            case SlaveMod of
-                ct_slave ->
-                    ct:pal("~p: node data dir: ~s", [Node, NodeDataDir]),
-                    Envs = [
-                        {"HOCON_ENV_OVERRIDE_PREFIX", "EMQX_"},
-                        {"EMQX_NODE__COOKIE", Cookie},
-                        {"EMQX_NODE__DATA_DIR", NodeDataDir}
-                    ],
-                    emqx_cth_peer:start(Node, erl_flags(), Envs);
-                slave ->
-                    Envs = [{"HOCON_ENV_OVERRIDE_PREFIX", "EMQX_"}],
-                    emqx_cth_peer:start(Node, ebin_path(), Envs)
-            end
+            ct:pal("~p: node data dir: ~s", [Node, NodeDataDir]),
+            Envs = [
+                {"HOCON_ENV_OVERRIDE_PREFIX", "EMQX_"},
+                {"EMQX_NODE__COOKIE", Cookie},
+                {"EMQX_NODE__DATA_DIR", NodeDataDir}
+            ],
+            emqx_cth_peer:start(Node, erl_flags(), Envs)
         end,
     case DoStart() of
         {ok, _} ->
@@ -778,7 +770,7 @@ start_slave(Name, Opts) when is_map(Opts) ->
     Node.
 
 %% Node stopping
-stop_slave(Node0) ->
+stop_peer(Node0) ->
     Node = node_name(Node0),
     emqx_cth_peer:stop(Node).
 
@@ -939,7 +931,7 @@ setup_node(Node, Opts) when is_map(Opts) ->
                 ignore ->
                     ok;
                 Err ->
-                    stop_slave(Node),
+                    stop_peer(Node),
                     error({failed_to_join_cluster, #{node => Node, error => Err}})
             end
     end,
@@ -955,19 +947,6 @@ set_env_once(Var, Value) ->
             ok
     end,
     ok.
-
-put_peer_mod(Node, SlaveMod) ->
-    put({?MODULE, Node}, SlaveMod),
-    ok.
-
-get_peer_mod(Node) ->
-    case get({?MODULE, Node}) of
-        undefined -> ct_slave;
-        SlaveMod -> SlaveMod
-    end.
-
-erase_peer_mod(Node) ->
-    erase({?MODULE, Node}).
 
 node_name(Name) ->
     case string:tokens(atom_to_list(Name), "@") of

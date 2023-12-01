@@ -91,11 +91,7 @@
     %% Working directory
     %% If this directory is not empty, starting up the node applications will fail
     %% Default: "${ClusterOpts.work_dir}/${nodename}"
-    work_dir => file:name(),
-
-    % Tooling to manage nodes
-    % Default: `ct_slave`.
-    driver => ct_slave | slave
+    work_dir => file:name()
 }}.
 
 -spec start([nodespec()], ClusterOpts) ->
@@ -162,8 +158,7 @@ mk_init_nodespec(N, Name, NodeOpts, ClusterOpts) ->
         role => core,
         apps => [],
         base_port => BasePort,
-        work_dir => filename:join([WorkDir, Node]),
-        driver => ct_slave
+        work_dir => filename:join([WorkDir, Node])
     },
     maps:merge(Defaults, NodeOpts).
 
