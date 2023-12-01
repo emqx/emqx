@@ -548,9 +548,17 @@ schema("/bridges_probe") ->
         Id,
         case emqx_bridge_v2:is_bridge_v2_type(BridgeType) of
             true ->
-                BridgeV2Type = emqx_bridge_v2:bridge_v2_type_to_connector_type(BridgeType),
-                ok = emqx_bridge_v2:reset_metrics(BridgeV2Type, BridgeName),
-                ?NO_CONTENT;
+                try
+                    ConfRootKey = emqx_bridge_v2:get_conf_root_key_if_only_one(
+                        BridgeType, BridgeName
+                    ),
+                    BridgeV2Type = emqx_bridge_v2:bridge_v1_type_to_bridge_v2_type(BridgeType),
+                    ok = emqx_bridge_v2:reset_metrics(ConfRootKey, BridgeV2Type, BridgeName),
+                    ?NO_CONTENT
+                catch
+                    error:Reason ->
+                        ?BAD_REQUEST(Reason)
+                end;
             false ->
                 ok = emqx_bridge_resource:reset_metrics(
                     emqx_bridge_resource:resource_id(BridgeType, BridgeName)

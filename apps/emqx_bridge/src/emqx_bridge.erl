@@ -353,7 +353,13 @@ get_metrics(Type, Name) ->
             case emqx_bridge_v2:bridge_v1_is_valid(Type, Name) of
                 true ->
                     BridgeV2Type = emqx_bridge_v2:bridge_v2_type_to_connector_type(Type),
-                    emqx_bridge_v2:get_metrics(BridgeV2Type, Name);
+                    try
+                        ConfRootKey = emqx_bridge_v2:get_conf_root_key_if_only_one(Type, Name),
+                        emqx_bridge_v2:get_metrics(ConfRootKey, BridgeV2Type, Name)
+                    catch
+                        error:Reason ->
+                            {error, Reason}
+                    end;
                 false ->
                     {error, not_bridge_v1_compatible}
             end;

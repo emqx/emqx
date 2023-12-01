@@ -20,8 +20,13 @@
 -include_lib("emqx_resource/include/emqx_resource.hrl").
 
 -behaviour(emqx_resource).
+-behaviour(ecpool_worker).
+
+%% ecpool
+-export([connect/1]).
 
 -export([on_message_received/3]).
+-export([handle_disconnect/1]).
 
 %% callbacks of behaviour emqx_resource
 -export([
@@ -30,10 +35,24 @@
     on_stop/2,
     on_query/3,
     on_query_async/4,
-    on_get_status/2
+    on_get_status/2,
+    on_add_channel/4,
+    on_remove_channel/3,
+    on_get_channel_status/3,
+    on_get_channels/1
 ]).
 
 -export([on_async_result/2]).
+
+-type name() :: term().
+
+-type option() ::
+    {name, name()}
+    | {ingress, map()}
+    %% see `emqtt:option()`
+    | {client_opts, map()}.
+
+-include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
 -define(HEALTH_CHECK_TIMEOUT, 1000).
 -define(INGRESS, "I").
@@ -42,142 +61,205 @@
 %% ===================================================================
 %% When use this bridge as a data source, ?MODULE:on_message_received will be called
 %% if the bridge received msgs from the remote broker.
-on_message_received(Msg, HookPoint, ResId) ->
+
+on_message_received(Msg, HookPoints, ResId) ->
     emqx_resource_metrics:received_inc(ResId),
-    emqx_hooks:run(HookPoint, [Msg]).
+    lists:foreach(
+        fun(HookPoint) ->
+            emqx_hooks:run(HookPoint, [Msg])
+        end,
+        HookPoints
+    ),
+    ok.
 
 %% ===================================================================
 callback_mode() -> async_if_possible.
 
-on_start(ResourceId, Conf) ->
+on_start(ResourceId, #{server := Server} = Conf) ->
     ?SLOG(info, #{
         msg => "starting_mqtt_connector",
         connector => ResourceId,
         config => emqx_utils:redact(Conf)
     }),
-    case start_ingress(ResourceId, Conf) of
+    TopicToHandlerIndex = emqx_topic_index:new(),
+    StartConf = Conf#{topic_to_handler_index => TopicToHandlerIndex},
+    case start_mqtt_clients(ResourceId, StartConf) of
         {ok, Result1} ->
-            case start_egress(ResourceId, Conf) of
-                {ok, Result2} ->
-                    {ok, maps:merge(Result1, Result2)};
-                {error, Reason} ->
-                    _ = stop_ingress(Result1),
-                    {error, Reason}
-            end;
+            {ok, Result1#{
+                installed_channels => #{},
+                clean_start => maps:get(clean_start, Conf),
+                topic_to_handler_index => TopicToHandlerIndex,
+                server => Server
+            }};
         {error, Reason} ->
             {error, Reason}
     end.
 
-start_ingress(ResourceId, Conf) ->
-    ClientOpts = mk_client_opts(ResourceId, ?INGRESS, Conf),
-    case mk_ingress_config(ResourceId, Conf) of
-        Ingress = #{} ->
-            start_ingress(ResourceId, Ingress, ClientOpts);
-        undefined ->
-            {ok, #{}}
-    end.
-
-start_ingress(ResourceId, Ingress, ClientOpts) ->
-    PoolName = <<ResourceId/binary, ":ingress">>,
-    PoolSize = choose_ingress_pool_size(ResourceId, Ingress),
-    Options = [
-        {name, PoolName},
-        {pool_size, PoolSize},
-        {ingress, Ingress},
-        {client_opts, ClientOpts}
-    ],
-    ok = emqx_resource:allocate_resource(ResourceId, ingress_pool_name, PoolName),
-    case emqx_resource_pool:start(PoolName, emqx_bridge_mqtt_ingress, Options) of
-        ok ->
-            {ok, #{ingress_pool_name => PoolName}};
-        {error, {start_pool_failed, _, Reason}} ->
-            {error, Reason}
-    end.
-
-choose_ingress_pool_size(<<?TEST_ID_PREFIX, _/binary>>, _) ->
-    1;
-choose_ingress_pool_size(
-    ResourceId,
-    #{remote := #{topic := RemoteTopic}, pool_size := PoolSize}
+on_add_channel(
+    _InstId,
+    #{
+        installed_channels := InstalledChannels,
+        clean_start := CleanStart
+    } = OldState,
+    ChannelId,
+    #{config_root := actions} = ChannelConfig
 ) ->
-    case emqx_topic:parse(RemoteTopic) of
-        {#share{} = _Filter, _SubOpts} ->
-            % NOTE: this is shared subscription, many workers may subscribe
-            PoolSize;
-        {_Filter, #{}} when PoolSize > 1 ->
-            % NOTE: this is regular subscription, only one worker should subscribe
+    %% Publisher channel
+    %% make a warning if clean_start is set to false
+    case CleanStart of
+        false ->
+            ?tp(
+                mqtt_clean_start_egress_action_warning,
+                #{
+                    channel_id => ChannelId,
+                    resource_id => _InstId
+                }
+            ),
             ?SLOG(warning, #{
-                msg => "mqtt_bridge_ingress_pool_size_ignored",
-                connector => ResourceId,
-                reason =>
-                    "Remote topic filter is not a shared subscription, "
-                    "ingress pool will start with a single worker",
-                config_pool_size => PoolSize,
-                pool_size => 1
-            }),
-            1;
-        {_Filter, #{}} when PoolSize == 1 ->
-            1
-    end.
+                msg => "mqtt_publisher_clean_start_false",
+                reason => "clean_start is set to false when using MQTT publisher action, " ++
+                    "which may cause unexpected behavior. " ++
+                    "For example, if the client ID is already subscribed to topics, " ++
+                    "we might receive messages that are unhanded.",
+                channel => ChannelId,
+                config => emqx_utils:redact(ChannelConfig)
+            });
+        true ->
+            ok
+    end,
+    ChannelState0 = maps:get(parameters, ChannelConfig),
+    ChannelState = emqx_bridge_mqtt_egress:config(ChannelState0),
+    NewInstalledChannels = maps:put(ChannelId, ChannelState, InstalledChannels),
+    NewState = OldState#{installed_channels => NewInstalledChannels},
+    {ok, NewState};
+on_add_channel(
+    _ResourceId,
+    #{
+        installed_channels := InstalledChannels,
+        pool_name := PoolName,
+        topic_to_handler_index := TopicToHandlerIndex,
+        server := Server
+    } = OldState,
+    ChannelId,
+    #{hookpoints := HookPoints} = ChannelConfig
+) ->
+    %% Add ingress channel
+    ChannelState0 = maps:get(parameters, ChannelConfig),
+    ChannelState1 = ChannelState0#{
+        hookpoints => HookPoints,
+        server => Server,
+        config_root => sources
+    },
+    ChannelState2 = mk_ingress_config(ChannelId, ChannelState1, TopicToHandlerIndex),
+    ok = emqx_bridge_mqtt_ingress:subscribe_channel(PoolName, ChannelState2),
+    NewInstalledChannels = maps:put(ChannelId, ChannelState2, InstalledChannels),
+    NewState = OldState#{installed_channels => NewInstalledChannels},
+    {ok, NewState}.
 
-start_egress(ResourceId, Conf) ->
-    % NOTE
-    % We are ignoring the user configuration here because there's currently no reliable way
-    % to ensure proper session recovery according to the MQTT spec.
-    ClientOpts = maps:put(clean_start, true, mk_client_opts(ResourceId, ?EGRESS, Conf)),
-    case mk_egress_config(Conf) of
-        Egress = #{} ->
-            start_egress(ResourceId, Egress, ClientOpts);
-        undefined ->
-            {ok, #{}}
-    end.
+on_remove_channel(
+    _InstId,
+    #{
+        installed_channels := InstalledChannels,
+        pool_name := PoolName,
+        topic_to_handler_index := TopicToHandlerIndex
+    } = OldState,
+    ChannelId
+) ->
+    ChannelState = maps:get(ChannelId, InstalledChannels),
+    case ChannelState of
+        #{
+            config_root := sources
+        } ->
+            emqx_bridge_mqtt_ingress:unsubscribe_channel(
+                PoolName, ChannelState, ChannelId, TopicToHandlerIndex
+            ),
+            ok;
+        _ ->
+            ok
+    end,
+    NewInstalledChannels = maps:remove(ChannelId, InstalledChannels),
+    %% Update state
+    NewState = OldState#{installed_channels => NewInstalledChannels},
+    {ok, NewState}.
 
-start_egress(ResourceId, Egress, ClientOpts) ->
-    PoolName = <<ResourceId/binary, ":egress">>,
-    PoolSize = maps:get(pool_size, Egress),
+on_get_channel_status(
+    _ResId,
+    ChannelId,
+    #{
+        installed_channels := Channels
+    } = _State
+) when is_map_key(ChannelId, Channels) ->
+    %% The channel should be ok as long as the MQTT client is ok
+    connected.
+
+on_get_channels(ResId) ->
+    emqx_bridge_v2:get_channels_for_connector(ResId).
+
+start_mqtt_clients(ResourceId, Conf) ->
+    ClientOpts = mk_client_opts(ResourceId, Conf),
+    start_mqtt_clients(ResourceId, Conf, ClientOpts).
+
+start_mqtt_clients(ResourceId, StartConf, ClientOpts) ->
+    PoolName = <<ResourceId/binary>>,
+    #{
+        pool_size := PoolSize
+    } = StartConf,
     Options = [
         {name, PoolName},
         {pool_size, PoolSize},
         {client_opts, ClientOpts}
     ],
-    ok = emqx_resource:allocate_resource(ResourceId, egress_pool_name, PoolName),
-    case emqx_resource_pool:start(PoolName, emqx_bridge_mqtt_egress, Options) of
+    ok = emqx_resource:allocate_resource(ResourceId, pool_name, PoolName),
+    case emqx_resource_pool:start(PoolName, ?MODULE, Options) of
         ok ->
-            {ok, #{
-                egress_pool_name => PoolName,
-                egress_config => emqx_bridge_mqtt_egress:config(Egress)
-            }};
+            {ok, #{pool_name => PoolName}};
         {error, {start_pool_failed, _, Reason}} ->
             {error, Reason}
     end.
 
-on_stop(ResourceId, _State) ->
+on_stop(ResourceId, State) ->
     ?SLOG(info, #{
         msg => "stopping_mqtt_connector",
         connector => ResourceId
     }),
+    %% on_stop can be called with State = undefined
+    StateMap =
+        case State of
+            Map when is_map(State) ->
+                Map;
+            _ ->
+                #{}
+        end,
+    case maps:get(topic_to_handler_index, StateMap, undefined) of
+        undefined ->
+            ok;
+        TopicToHandlerIndex ->
+            emqx_topic_index:delete(TopicToHandlerIndex)
+    end,
     Allocated = emqx_resource:get_allocated_resources(ResourceId),
-    ok = stop_ingress(Allocated),
-    ok = stop_egress(Allocated).
+    ok = stop_helper(Allocated).
 
-stop_ingress(#{ingress_pool_name := PoolName}) ->
-    emqx_resource_pool:stop(PoolName);
-stop_ingress(#{}) ->
-    ok.
-
-stop_egress(#{egress_pool_name := PoolName}) ->
-    emqx_resource_pool:stop(PoolName);
-stop_egress(#{}) ->
-    ok.
+stop_helper(#{pool_name := PoolName}) ->
+    emqx_resource_pool:stop(PoolName).
 
 on_query(
     ResourceId,
-    {send_message, Msg},
-    #{egress_pool_name := PoolName, egress_config := Config}
+    {ChannelId, Msg},
+    #{pool_name := PoolName} = State
 ) ->
-    ?TRACE("QUERY", "send_msg_to_remote_node", #{message => Msg, connector => ResourceId}),
-    handle_send_result(with_egress_client(PoolName, send, [Msg, Config]));
-on_query(ResourceId, {send_message, Msg}, #{}) ->
+    ?TRACE(
+        "QUERY",
+        "send_msg_to_remote_node",
+        #{
+            message => Msg,
+            connector => ResourceId,
+            channel_id => ChannelId
+        }
+    ),
+    Channels = maps:get(installed_channels, State),
+    ChannelConfig = maps:get(ChannelId, Channels),
+    handle_send_result(with_egress_client(PoolName, send, [Msg, ChannelConfig]));
+on_query(ResourceId, {_ChannelId, Msg}, #{}) ->
     ?SLOG(error, #{
         msg => "forwarding_unavailable",
         connector => ResourceId,
@@ -187,13 +269,15 @@ on_query(ResourceId, {send_message, Msg}, #{}) ->
 
 on_query_async(
     ResourceId,
-    {send_message, Msg},
+    {ChannelId, Msg},
     CallbackIn,
-    #{egress_pool_name := PoolName, egress_config := Config}
+    #{pool_name := PoolName} = State
 ) ->
     ?TRACE("QUERY", "async_send_msg_to_remote_node", #{message => Msg, connector => ResourceId}),
     Callback = {fun on_async_result/2, [CallbackIn]},
-    Result = with_egress_client(PoolName, send_async, [Msg, Callback, Config]),
+    Channels = maps:get(installed_channels, State),
+    ChannelConfig = maps:get(ChannelId, Channels),
+    Result = with_egress_client(PoolName, send_async, [Msg, Callback, ChannelConfig]),
     case Result of
         ok ->
             ok;
@@ -202,7 +286,7 @@ on_query_async(
         {error, Reason} ->
             {error, classify_error(Reason)}
     end;
-on_query_async(ResourceId, {send_message, Msg}, _Callback, #{}) ->
+on_query_async(ResourceId, {_ChannelId, Msg}, _Callback, #{}) ->
     ?SLOG(error, #{
         msg => "forwarding_unavailable",
         connector => ResourceId,
@@ -251,7 +335,7 @@ classify_error(Reason) ->
     {unrecoverable_error, Reason}.
 
 on_get_status(_ResourceId, State) ->
-    Pools = maps:to_list(maps:with([ingress_pool_name, egress_pool_name], State)),
+    Pools = maps:to_list(maps:with([pool_name], State)),
     Workers = [{Pool, Worker} || {Pool, PN} <- Pools, {_Name, Worker} <- ecpool:workers(PN)],
     try emqx_utils:pmap(fun get_status/1, Workers, ?HEALTH_CHECK_TIMEOUT) of
         Statuses ->
@@ -261,12 +345,10 @@ on_get_status(_ResourceId, State) ->
             connecting
     end.
 
-get_status({Pool, Worker}) ->
+get_status({_Pool, Worker}) ->
     case ecpool_worker:client(Worker) of
-        {ok, Client} when Pool == ingress_pool_name ->
+        {ok, Client} ->
             emqx_bridge_mqtt_ingress:status(Client);
-        {ok, Client} when Pool == egress_pool_name ->
-            emqx_bridge_mqtt_egress:status(Client);
         {error, _} ->
             disconnected
     end.
@@ -284,30 +366,19 @@ combine_status(Statuses) ->
     end.
 
 mk_ingress_config(
-    ResourceId,
-    #{
-        ingress := Ingress = #{remote := _},
-        server := Server,
-        hookpoint := HookPoint
-    }
+    ChannelId,
+    IngressChannelConfig,
+    TopicToHandlerIndex
 ) ->
-    Ingress#{
-        server => Server,
-        on_message_received => {?MODULE, on_message_received, [HookPoint, ResourceId]}
-    };
-mk_ingress_config(ResourceId, #{ingress := #{remote := _}} = Conf) ->
-    error({no_hookpoint_provided, ResourceId, Conf});
-mk_ingress_config(_ResourceId, #{}) ->
-    undefined.
-
-mk_egress_config(#{egress := Egress = #{remote := _}}) ->
-    Egress;
-mk_egress_config(#{}) ->
-    undefined.
+    HookPoints = maps:get(hookpoints, IngressChannelConfig, []),
+    NewConf = IngressChannelConfig#{
+        on_message_received => {?MODULE, on_message_received, [HookPoints, ChannelId]},
+        ingress_list => [IngressChannelConfig]
+    },
+    emqx_bridge_mqtt_ingress:config(NewConf, ChannelId, TopicToHandlerIndex).
 
 mk_client_opts(
     ResourceId,
-    ClientScope,
     Config = #{
         server := Server,
         keepalive := KeepAlive,
@@ -327,14 +398,15 @@ mk_client_opts(
             % A load balancing server (such as haproxy) is often set up before the emqx broker server.
             % When the load balancing server enables mqtt connection packet inspection,
             % non-standard mqtt connection packets might be filtered out by LB.
-            bridge_mode
+            bridge_mode,
+            topic_to_handler_index
         ],
         Config
     ),
     Name = parse_id_to_name(ResourceId),
     mk_client_opt_password(Options#{
         hosts => [HostPort],
-        clientid => clientid(Name, ClientScope, Config),
+        clientid => clientid(Name, Config),
         connect_timeout => 30,
         keepalive => ms_to_s(KeepAlive),
         force_ping => true,
@@ -357,9 +429,75 @@ mk_client_opt_password(Options) ->
 ms_to_s(Ms) ->
     erlang:ceil(Ms / 1000).
 
-clientid(Name, ClientScope, _Conf = #{clientid_prefix := Prefix}) when
+clientid(Name, _Conf = #{clientid_prefix := Prefix}) when
     is_binary(Prefix) andalso Prefix =/= <<>>
 ->
-    emqx_bridge_mqtt_lib:clientid_base([Prefix, $:, Name, ClientScope]);
-clientid(Name, ClientScope, _Conf) ->
-    emqx_bridge_mqtt_lib:clientid_base([Name, ClientScope]).
+    emqx_bridge_mqtt_lib:clientid_base([Prefix, $:, Name]);
+clientid(Name, _Conf) ->
+    emqx_bridge_mqtt_lib:clientid_base([Name]).
+
+%% @doc Start an ingress bridge worker.
+-spec connect([option() | {ecpool_worker_id, pos_integer()}]) ->
+    {ok, pid()} | {error, _Reason}.
+connect(Options) ->
+    WorkerId = proplists:get_value(ecpool_worker_id, Options),
+    ?SLOG(debug, #{
+        msg => "ingress_client_starting",
+        options => emqx_utils:redact(Options)
+    }),
+    Name = proplists:get_value(name, Options),
+    WorkerId = proplists:get_value(ecpool_worker_id, Options),
+    WorkerId = proplists:get_value(ecpool_worker_id, Options),
+    ClientOpts = proplists:get_value(client_opts, Options),
+    case emqtt:start_link(mk_client_opts(Name, WorkerId, ClientOpts)) of
+        {ok, Pid} ->
+            connect(Pid, Name);
+        {error, Reason} = Error ->
+            ?SLOG(error, #{
+                msg => "client_start_failed",
+                config => emqx_utils:redact(ClientOpts),
+                reason => Reason
+            }),
+            Error
+    end.
+
+mk_client_opts(
+    Name,
+    WorkerId,
+    ClientOpts = #{
+        clientid := ClientId,
+        topic_to_handler_index := TopicToHandlerIndex
+    }
+) ->
+    ClientOpts#{
+        clientid := mk_clientid(WorkerId, ClientId),
+        msg_handler => mk_client_event_handler(Name, TopicToHandlerIndex)
+    }.
+
+mk_clientid(WorkerId, ClientId) ->
+    iolist_to_binary([ClientId, $: | integer_to_list(WorkerId)]).
+
+mk_client_event_handler(Name, TopicToHandlerIndex) ->
+    #{
+        publish => {fun emqx_bridge_mqtt_ingress:handle_publish/3, [Name, TopicToHandlerIndex]},
+        disconnected => {fun ?MODULE:handle_disconnect/1, []}
+    }.
+
+-spec connect(pid(), name()) ->
+    {ok, pid()} | {error, _Reason}.
+connect(Pid, Name) ->
+    case emqtt:connect(Pid) of
+        {ok, _Props} ->
+            {ok, Pid};
+        {error, Reason} = Error ->
+            ?SLOG(warning, #{
+                msg => "ingress_client_connect_failed",
+                reason => Reason,
+                name => Name
+            }),
+            _ = catch emqtt:stop(Pid),
+            Error
+    end.
+
+handle_disconnect(_Reason) ->
+    ok.

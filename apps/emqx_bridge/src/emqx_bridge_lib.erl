@@ -82,7 +82,8 @@ external_ids(Type, Name) ->
 get_conf(BridgeType, BridgeName) ->
     case emqx_bridge_v2:is_bridge_v2_type(BridgeType) of
         true ->
-            emqx_conf:get_raw([actions, BridgeType, BridgeName]);
+            ConfRootName = emqx_bridge_v2:get_conf_root_key_if_only_one(BridgeType, BridgeName),
+            emqx_conf:get_raw([ConfRootName, BridgeType, BridgeName]);
         false ->
             undefined
     end.

@@ -1,4 +1,4 @@
-%%--------------------------------------------------------------------
+%%-------------------------------------------------------------------
 %% Copyright (c) 2020-2023 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
@@ -28,6 +28,10 @@
     fields/1,
     desc/1,
     parse_server/1
+]).
+
+-export([
+    connector_examples/1
 ]).
 
 -import(emqx_schema, [mk_duration/2]).
@@ -61,6 +65,39 @@ fields("config") ->
                     }
                 )}
         ];
+fields("config_connector") ->
+    [
+        {enable,
+            mk(
+                boolean(),
+                #{
+                    desc => <<"Enable or disable this connector">>,
+                    default => true
+                }
+            )},
+        {description, emqx_schema:description_schema()},
+        {resource_opts,
+            mk(
+                hoconsc:ref(creation_opts),
+                #{
+                    required => false,
+                    desc => ?DESC(emqx_resource_schema, "creation_opts")
+                }
+            )},
+        {pool_size, fun egress_pool_size/1}
+        % {ingress,
+        %     mk(
+        %         hoconsc:array(
+        %             hoconsc:ref(connector_ingress)
+        %         ),
+        %         #{
+        %             required => {false, recursively},
+        %             desc => ?DESC("ingress_desc")
+        %         }
+        %     )}
+    ] ++ fields("server_configs");
+fields(creation_opts) ->
+    emqx_connector_schema:resource_opts_fields();
 fields("server_configs") ->
     [
         {mode,
@@ -131,6 +168,7 @@ fields("server_configs") ->
 fields("ingress") ->
     [
         {pool_size, fun ingress_pool_size/1},
+        %% array
         {remote,
             mk(
                 ref(?MODULE, "ingress_remote"),
@@ -141,6 +179,22 @@ fields("ingress") ->
                 ref(?MODULE, "ingress_local"),
                 #{
                     desc => ?DESC("ingress_local")
+                }
+            )}
+    ];
+fields(connector_ingress) ->
+    [
+        {remote,
+            mk(
+                ref(?MODULE, "ingress_remote"),
+                #{desc => ?DESC("ingress_remote")}
+            )},
+        {local,
+            mk(
+                ref(?MODULE, "ingress_local"),
+                #{
+                    desc => ?DESC("ingress_local"),
+                    importance => ?IMPORTANCE_HIDDEN
                 }
             )}
     ];
@@ -269,7 +323,15 @@ fields("egress_remote") ->
                     desc => ?DESC("payload")
                 }
             )}
-    ].
+    ];
+fields("get_connector") ->
+    fields("config_connector");
+fields("post_connector") ->
+    fields("config_connector");
+fields("put_connector") ->
+    fields("config_connector");
+fields(What) ->
+    error({emqx_bridge_mqtt_connector_schema, missing_field_handler, What}).
 
 ingress_pool_size(desc) ->
     ?DESC("ingress_pool_size");
@@ -304,3 +366,6 @@ qos() ->
 parse_server(Str) ->
     #{hostname := Host, port := Port} = emqx_schema:parse_server(Str, ?MQTT_HOST_OPTS),
     {Host, Port}.
+
+connector_examples(_Method) ->
+    [#{}].

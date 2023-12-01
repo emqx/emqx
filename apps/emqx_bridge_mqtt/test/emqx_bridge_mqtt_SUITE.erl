@@ -238,7 +238,8 @@ t_conf_bridge_authn_passfile(Config) ->
             post,
             uri(["bridges"]),
             ?SERVER_CONF(<<>>, <<"file://im/pretty/sure/theres/no/such/file">>)#{
-                <<"name">> => <<"t_conf_bridge_authn_no_passfile">>
+                <<"name">> => <<"t_conf_bridge_authn_no_passfile">>,
+                <<"ingress">> => ?INGRESS_CONF#{<<"pool_size">> => 1}
             }
         ),
     ?assertMatch({match, _}, re:run(Reason, <<"failed_to_read_secret_file">>)).
@@ -397,32 +398,25 @@ t_mqtt_conn_bridge_ingress_shared_subscription(_) ->
     {ok, 204, <<>>} = request(delete, uri(["bridges", BridgeID]), []),
     ok.
 
-t_mqtt_egress_bridge_ignores_clean_start(_) ->
+t_mqtt_egress_bridge_warns_clean_start(_) ->
     BridgeName = atom_to_binary(?FUNCTION_NAME),
-    BridgeID = create_bridge(
-        ?SERVER_CONF#{
-            <<"name">> => BridgeName,
-            <<"egress">> => ?EGRESS_CONF,
-            <<"clean_start">> => false
-        }
-    ),
+    Action = fun() ->
+        BridgeID = create_bridge(
+            ?SERVER_CONF#{
+                <<"name">> => BridgeName,
+                <<"egress">> => ?EGRESS_CONF,
+                <<"clean_start">> => false
+            }
+        ),
 
-    ResourceID = emqx_bridge_resource:resource_id(BridgeID),
-    {ok, _Group, #{state := #{egress_pool_name := EgressPoolName}}} =
-        emqx_resource_manager:lookup_cached(ResourceID),
-    ClientInfo = ecpool:pick_and_do(
-        EgressPoolName,
-        {emqx_bridge_mqtt_egress, info, []},
-        no_handover
+        %% delete the bridge
+        {ok, 204, <<>>} = request(delete, uri(["bridges", BridgeID]), [])
+    end,
+    ?wait_async_action(
+        Action(),
+        #{?snk_kind := mqtt_clean_start_egress_action_warning},
+        10000
     ),
-    ?assertMatch(
-        #{clean_start := true},
-        maps:from_list(ClientInfo)
-    ),
-
-    %% delete the bridge
-    {ok, 204, <<>>} = request(delete, uri(["bridges", BridgeID]), []),
-
     ok.
 
 t_mqtt_conn_bridge_ingress_downgrades_qos_2(_) ->
