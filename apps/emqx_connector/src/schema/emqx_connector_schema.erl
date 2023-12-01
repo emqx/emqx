@@ -40,7 +40,13 @@
     type_and_name_fields/1
 ]).
 
--export([resource_opts_fields/0, resource_opts_fields/1]).
+-export([
+    common_resource_opts_subfields/0,
+    common_resource_opts_subfields_bin/0,
+    resource_opts_fields/0,
+    resource_opts_fields/1,
+    resource_opts_ref/2
+]).
 
 -export([examples/1]).
 
@@ -178,14 +184,19 @@ split_bridge_to_connector_and_action(
                 %% Get connector fields from bridge config
                 lists:foldl(
                     fun({ConnectorFieldName, _Spec}, ToTransformSoFar) ->
-                        case maps:is_key(to_bin(ConnectorFieldName), BridgeV1Conf) of
+                        ConnectorFieldNameBin = to_bin(ConnectorFieldName),
+                        case maps:is_key(ConnectorFieldNameBin, BridgeV1Conf) of
                             true ->
-                                NewToTransform = maps:put(
-                                    to_bin(ConnectorFieldName),
-                                    maps:get(to_bin(ConnectorFieldName), BridgeV1Conf),
+                                PrevFieldConfig =
+                                    project_to_connector_resource_opts(
+                                        ConnectorFieldNameBin,
+                                        maps:get(ConnectorFieldNameBin, BridgeV1Conf)
+                                    ),
+                                maps:put(
+                                    ConnectorFieldNameBin,
+                                    PrevFieldConfig,
                                     ToTransformSoFar
-                                ),
-                                NewToTransform;
+                                );
                             false ->
                                 ToTransformSoFar
                         end
@@ -212,6 +223,12 @@ split_bridge_to_connector_and_action(
                 )
         end,
     {BridgeType, BridgeName, ActionMap, ConnectorName, ConnectorMap}.
+
+project_to_connector_resource_opts(<<"resource_opts">>, OldResourceOpts) ->
+    Subfields = common_resource_opts_subfields_bin(),
+    maps:with(Subfields, OldResourceOpts);
+project_to_connector_resource_opts(_, OldConfig) ->
+    OldConfig.
 
 transform_bridge_v1_config_to_action_config(
     BridgeV1Conf, ConnectorName, ConnectorConfSchemaMod, ConnectorConfSchemaName
@@ -497,19 +514,33 @@ status_and_actions_fields() ->
             )}
     ].
 
+resource_opts_ref(Module, RefName) ->
+    [
+        {resource_opts,
+            mk(
+                ref(Module, RefName),
+                emqx_resource_schema:resource_opts_meta()
+            )}
+    ].
+
+common_resource_opts_subfields() ->
+    [
+        health_check_interval,
+        query_mode,
+        start_after_created,
+        start_timeout
+    ].
+
+common_resource_opts_subfields_bin() ->
+    lists:map(fun atom_to_binary/1, common_resource_opts_subfields()).
+
 resource_opts_fields() ->
     resource_opts_fields(_Overrides = []).
 
 resource_opts_fields(Overrides) ->
     %% Note: these don't include buffer-related configurations because buffer workers are
     %% tied to the action.
-    ConnectorROFields = [
-        health_check_interval,
-        query_mode,
-        request_ttl,
-        start_after_created,
-        start_timeout
-    ],
+    ConnectorROFields = common_resource_opts_subfields(),
     lists:filter(
         fun({Key, _Sc}) -> lists:member(Key, ConnectorROFields) end,
         emqx_resource_schema:create_opts(Overrides)
