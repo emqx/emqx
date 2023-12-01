@@ -23,6 +23,7 @@ options:
                      release-51
                      release-52
                      release-53
+                     release-54
                      NOTE: this option should be used when --dryrun.
 
   --dryrun:          Do not actually create the git tag.
@@ -37,7 +38,7 @@ options:
 For 5.X series the current working branch must be 'release-5X'
       --.--[  master  ]---------------------------.-----------.---
          \\                                      /
-          \`---[release-53]----(v5.3.1 | e5.3.1)
+          \`---[release-54]----(v5.4.0 | e5.4.0)
 EOF
 }
 
@@ -135,6 +136,12 @@ rel_branch() {
             ;;
         e5.3.*)
             echo 'release-53'
+            ;;
+        v5.4.*)
+            echo 'release-54'
+            ;;
+        e5.4.*)
+            echo 'release-54'
             ;;
         *)
             logerr "Unsupported version tag $TAG"
