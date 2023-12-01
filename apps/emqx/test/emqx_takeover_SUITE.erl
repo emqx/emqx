@@ -145,15 +145,16 @@ assert_messages_missed(Ls1, Ls2) ->
 
 assert_messages_order([], []) ->
     ok;
-assert_messages_order([Msg | Ls1], [#{payload := No} | Ls2]) ->
-    case emqx_message:payload(Msg) == No of
-        false ->
+assert_messages_order([Msg | Expected], Received) ->
+    %% Account for duplicate messages:
+    case lists:splitwith(fun(#{payload := P}) -> emqx_message:payload(Msg) == P end, Received) of
+        {[], [#{payload := Mismatch} | _]} ->
             ct:fail("Message order is not correct, expected: ~p, received: ~p", [
-                emqx_message:payload(Msg), No
+                emqx_message:payload(Msg), Mismatch
             ]),
             error;
-        true ->
-            assert_messages_order(Ls1, Ls2)
+        {_Matching, Rest} ->
+            assert_messages_order(Expected, Rest)
     end.
 
 messages(Offset, Cnt) ->
