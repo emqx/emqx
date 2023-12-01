@@ -234,8 +234,16 @@ t_pmap_late_reply(_) ->
 
 t_flattermap(_) ->
     ?assertEqual(
+        [42],
+        emqx_utils:flattermap(fun identity/1, [42])
+    ),
+    ?assertEqual(
         [42, 42],
-        emqx_utils:flattermap(fun duplicate/1, 42)
+        emqx_utils:flattermap(fun duplicate/1, [42])
+    ),
+    ?assertEqual(
+        [],
+        emqx_utils:flattermap(fun nil/1, [42])
     ),
     ?assertEqual(
         [1, 1, 2, 2, 3, 3],
@@ -243,23 +251,16 @@ t_flattermap(_) ->
     ),
     ?assertEqual(
         [],
-        emqx_utils:flattermap(fun nil/1, 42)
-    ),
-    ?assertEqual(
-        [],
         emqx_utils:flattermap(fun nil/1, [1, 2, 3])
     ),
     ?assertEqual(
-        42,
-        emqx_utils:flattermap(fun identity/1, [42])
-    ),
-    ?assertEqual(
-        [1, 3, 5],
+        [1, 2, 2, 4, 5, 5],
         emqx_utils:flattermap(
             fun(X) ->
-                case X rem 2 of
+                case X rem 3 of
                     0 -> [];
-                    1 -> X
+                    1 -> X;
+                    2 -> [X, X]
                 end
             end,
             [1, 2, 3, 4, 5]
