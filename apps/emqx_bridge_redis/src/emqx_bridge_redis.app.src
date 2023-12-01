@@ -9,7 +9,9 @@
         emqx_resource,
         emqx_redis
     ]},
-    {env, []},
+    {env, [
+        {emqx_action_info_modules, [emqx_bridge_redis_action_info]}
+    ]},
     {modules, []},
     {links, []}
 ]}.

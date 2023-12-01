@@ -103,17 +103,28 @@ schema_modules() ->
     [emqx_bridge_http_schema].
 -endif.
 
-connector_type_to_bridge_types(azure_event_hub_producer) -> [azure_event_hub_producer];
-connector_type_to_bridge_types(confluent_producer) -> [confluent_producer];
-connector_type_to_bridge_types(gcp_pubsub_producer) -> [gcp_pubsub, gcp_pubsub_producer];
-connector_type_to_bridge_types(http) -> [http, webhook];
-connector_type_to_bridge_types(kafka_producer) -> [kafka, kafka_producer];
-connector_type_to_bridge_types(matrix) -> [matrix];
-connector_type_to_bridge_types(mongodb) -> [mongodb, mongodb_rs, mongodb_sharded, mongodb_single];
-connector_type_to_bridge_types(pgsql) -> [pgsql];
-connector_type_to_bridge_types(syskeeper_forwarder) -> [syskeeper_forwarder];
-connector_type_to_bridge_types(syskeeper_proxy) -> [];
-connector_type_to_bridge_types(timescale) -> [timescale].
+connector_type_to_bridge_types(azure_event_hub_producer) ->
+    [azure_event_hub_producer];
+connector_type_to_bridge_types(confluent_producer) ->
+    [confluent_producer];
+connector_type_to_bridge_types(gcp_pubsub_producer) ->
+    [gcp_pubsub, gcp_pubsub_producer];
+connector_type_to_bridge_types(kafka_producer) ->
+    [kafka, kafka_producer];
+connector_type_to_bridge_types(matrix) ->
+    [matrix];
+connector_type_to_bridge_types(mongodb) ->
+    [mongodb, mongodb_rs, mongodb_sharded, mongodb_single];
+connector_type_to_bridge_types(pgsql) ->
+    [pgsql];
+connector_type_to_bridge_types(syskeeper_forwarder) ->
+    [syskeeper_forwarder];
+connector_type_to_bridge_types(syskeeper_proxy) ->
+    [];
+connector_type_to_bridge_types(timescale) ->
+    [timescale];
+connector_type_to_bridge_types(redis) ->
+    [redis, redis_single, redis_sentinel, redis_cluster].
 
 actions_config_name() -> <<"actions">>.
 
@@ -158,7 +169,7 @@ split_bridge_to_connector_and_action(
                     BridgeType, BridgeV1Conf
                 );
             false ->
-                %% We do an automatic transfomation to get the connector config
+                %% We do an automatic transformation to get the connector config
                 %% if the callback is not defined.
                 %% Get connector fields from bridge config
                 lists:foldl(

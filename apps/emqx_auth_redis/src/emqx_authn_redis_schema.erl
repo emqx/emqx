@@ -64,12 +64,8 @@ refs(_) ->
         expected => "single | cluster | sentinel"
     }).
 
-fields(redis_single) ->
-    common_fields() ++ emqx_redis:fields(single);
-fields(redis_cluster) ->
-    common_fields() ++ emqx_redis:fields(cluster);
-fields(redis_sentinel) ->
-    common_fields() ++ emqx_redis:fields(sentinel).
+fields(Type) ->
+    common_fields() ++ emqx_redis:fields(Type).
 
 desc(redis_single) ->
     ?DESC(single);

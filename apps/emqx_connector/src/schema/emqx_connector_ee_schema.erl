@@ -42,6 +42,8 @@ resource_type(syskeeper_proxy) ->
     emqx_bridge_syskeeper_proxy_server;
 resource_type(timescale) ->
     emqx_postgresql;
+resource_type(redis) ->
+    emqx_bridge_redis_connector;
 resource_type(Type) ->
     error({unknown_connector_type, Type}).
 
@@ -139,6 +141,14 @@ connector_structs() ->
                     desc => <<"Matrix Connector Config">>,
                     required => false
                 }
+            )},
+        {redis,
+            mk(
+                hoconsc:map(name, ref(emqx_bridge_redis_schema, "config_connector")),
+                #{
+                    desc => <<"Redis Connector Config">>,
+                    required => false
+                }
             )}
     ].
 
@@ -153,7 +163,8 @@ schema_modules() ->
         emqx_bridge_syskeeper_connector,
         emqx_bridge_syskeeper_proxy,
         emqx_bridge_timescale,
-        emqx_postgresql_connector_schema
+        emqx_postgresql_connector_schema,
+        emqx_bridge_redis_schema
     ].
 
 api_schemas(Method) ->
@@ -177,7 +188,8 @@ api_schemas(Method) ->
         api_ref(emqx_bridge_syskeeper_connector, <<"syskeeper_forwarder">>, Method),
         api_ref(emqx_bridge_syskeeper_proxy, <<"syskeeper_proxy">>, Method),
         api_ref(emqx_bridge_timescale, <<"timescale">>, Method ++ "_connector"),
-        api_ref(emqx_postgresql_connector_schema, <<"pgsql">>, Method ++ "_connector")
+        api_ref(emqx_postgresql_connector_schema, <<"pgsql">>, Method ++ "_connector"),
+        api_ref(emqx_bridge_redis_schema, <<"redis">>, Method ++ "_connector")
     ].
 
 api_ref(Module, Type, Method) ->
