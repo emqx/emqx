@@ -407,6 +407,8 @@ handle_timeout(
     ?TIMER_PULL,
     Session0 = #{id := Id, inflight := Inflight0, receive_maximum := ReceiveMaximum}
 ) ->
+    MaxBatchSize = emqx_config:get([session_persistence, max_batch_size]),
+    BatchSize = min(ReceiveMaximum, MaxBatchSize),
     {Publishes, Inflight} = emqx_persistent_message_ds_replayer:poll(
         fun
             (_Seqno, Message = #message{qos = ?QOS_0}) ->
@@ -417,7 +419,7 @@ handle_timeout(
         end,
         Id,
         Inflight0,
-        ReceiveMaximum
+        BatchSize
     ),
     IdlePollInterval = emqx_config:get([session_persistence, idle_poll_interval]),
     Timeout =
