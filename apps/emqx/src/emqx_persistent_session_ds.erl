@@ -56,12 +56,15 @@
     deliver/3,
     replay/3,
     handle_timeout/3,
-    disconnect/1,
+    disconnect/2,
     terminate/2
 ]).
 
 %% session table operations
 -export([create_tables/0]).
+
+%% internal export used by session GC process
+-export([destroy_session/1]).
 
 %% Remove me later (satisfy checks for an unused BPAPI)
 -export([
@@ -74,7 +77,7 @@
 
 -ifdef(TEST).
 -export([
-    session_open/1,
+    session_open/2,
     list_all_sessions/0,
     list_all_subscriptions/0,
     list_all_streams/0,
@@ -98,22 +101,26 @@
     id := id(),
     %% When the session was created
     created_at := timestamp(),
-    %% When the session should expire
-    expires_at := timestamp() | never,
+    %% When the client was last considered alive
+    last_alive_at := timestamp(),
     %% Client’s Subscriptions.
     subscriptions := #{topic_filter() => subscription()},
     %% Inflight messages
     inflight := emqx_persistent_message_ds_replayer:inflight(),
     %% Receive maximum
     receive_maximum := pos_integer(),
+    %% Connection Info
+    conninfo := emqx_types:conninfo(),
     %%
     props := map()
 }.
 
 -type timestamp() :: emqx_utils_calendar:epoch_millisecond().
+-type millisecond() :: non_neg_integer().
 -type clientinfo() :: emqx_types:clientinfo().
 -type conninfo() :: emqx_session:conninfo().
 -type replies() :: emqx_session:replies().
+-type timer() :: pull | get_streams | bump_last_alive_at.
 
 -define(STATS_KEYS, [
     subscriptions_cnt,
@@ -122,6 +129,12 @@
     inflight_max,
     next_pkt_id
 ]).
+
+-define(IS_EXPIRED(NOW_MS, LAST_ALIVE_AT, EI),
+    (is_number(LAST_ALIVE_AT) andalso
+        is_number(EI) andalso
+        (NOW_MS >= LAST_ALIVE_AT + EI))
+).
 
 -export_type([id/0]).
 
@@ -144,26 +157,24 @@ open(#{clientid := ClientID} = _ClientInfo, ConnInfo) ->
     %% somehow isolate those idling not-yet-expired sessions into a separate process
     %% space, and move this call back into `emqx_cm` where it belongs.
     ok = emqx_cm:discard_session(ClientID),
-    case maps:get(clean_start, ConnInfo, false) of
+    case session_open(ClientID, ConnInfo) of
+        Session0 = #{} ->
+            ensure_timers(),
+            ReceiveMaximum = receive_maximum(ConnInfo),
+            Session = Session0#{receive_maximum => ReceiveMaximum},
+            {true, Session, []};
         false ->
-            case session_open(ClientID) of
-                Session0 = #{} ->
-                    ensure_timers(),
-                    ReceiveMaximum = receive_maximum(ConnInfo),
-                    Session = Session0#{receive_maximum => ReceiveMaximum},
-                    {true, Session, []};
-                false ->
-                    false
-            end;
-        true ->
-            session_drop(ClientID),
             false
     end.
 
 ensure_session(ClientID, ConnInfo, Conf) ->
-    Session = session_ensure_new(ClientID, Conf),
+    Session = session_ensure_new(ClientID, ConnInfo, Conf),
     ReceiveMaximum = receive_maximum(ConnInfo),
-    Session#{subscriptions => #{}, receive_maximum => ReceiveMaximum}.
+    Session#{
+        conninfo => ConnInfo,
+        receive_maximum => ReceiveMaximum,
+        subscriptions => #{}
+    }.
 
 -spec destroy(session() | clientinfo()) -> ok.
 destroy(#{id := ClientID}) ->
@@ -239,6 +250,7 @@ print_session(ClientId) ->
                         session => Session,
                         streams => mnesia:read(?SESSION_STREAM_TAB, ClientId),
                         pubranges => session_read_pubranges(ClientId),
+                        offsets => session_read_offsets(ClientId),
                         subscriptions => session_read_subscriptions(ClientId)
                     };
                 [] ->
@@ -319,12 +331,13 @@ publish(_PacketId, Msg, Session) ->
     {ok, emqx_types:message(), replies(), session()}
     | {error, emqx_types:reason_code()}.
 puback(_ClientInfo, PacketId, Session = #{id := Id, inflight := Inflight0}) ->
-    case emqx_persistent_message_ds_replayer:commit_offset(Id, PacketId, Inflight0) of
+    case emqx_persistent_message_ds_replayer:commit_offset(Id, ack, PacketId, Inflight0) of
         {true, Inflight} ->
             %% TODO
-            Msg = #message{},
+            Msg = emqx_message:make(Id, <<>>, <<>>),
             {ok, Msg, [], Session#{inflight => Inflight}};
         {false, _} ->
+            %% Invalid Packet Id
             {error, ?RC_PACKET_IDENTIFIER_NOT_FOUND}
     end.
 
@@ -335,9 +348,16 @@ puback(_ClientInfo, PacketId, Session = #{id := Id, inflight := Inflight0}) ->
 -spec pubrec(emqx_types:packet_id(), session()) ->
     {ok, emqx_types:message(), session()}
     | {error, emqx_types:reason_code()}.
-pubrec(_PacketId, _Session = #{}) ->
-    % TODO: stub
-    {error, ?RC_PACKET_IDENTIFIER_NOT_FOUND}.
+pubrec(PacketId, Session = #{id := Id, inflight := Inflight0}) ->
+    case emqx_persistent_message_ds_replayer:commit_offset(Id, rec, PacketId, Inflight0) of
+        {true, Inflight} ->
+            %% TODO
+            Msg = emqx_message:make(Id, <<>>, <<>>),
+            {ok, Msg, Session#{inflight => Inflight}};
+        {false, _} ->
+            %% Invalid Packet Id
+            {error, ?RC_PACKET_IDENTIFIER_NOT_FOUND}
+    end.
 
 %%--------------------------------------------------------------------
 %% Client -> Broker: PUBREL
@@ -356,9 +376,16 @@ pubrel(_PacketId, Session = #{}) ->
 -spec pubcomp(clientinfo(), emqx_types:packet_id(), session()) ->
     {ok, emqx_types:message(), replies(), session()}
     | {error, emqx_types:reason_code()}.
-pubcomp(_ClientInfo, _PacketId, _Session = #{}) ->
-    % TODO: stub
-    {error, ?RC_PACKET_IDENTIFIER_NOT_FOUND}.
+pubcomp(_ClientInfo, PacketId, Session = #{id := Id, inflight := Inflight0}) ->
+    case emqx_persistent_message_ds_replayer:commit_offset(Id, comp, PacketId, Inflight0) of
+        {true, Inflight} ->
+            %% TODO
+            Msg = emqx_message:make(Id, <<>>, <<>>),
+            {ok, Msg, [], Session#{inflight => Inflight}};
+        {false, _} ->
+            %% Invalid Packet Id
+            {error, ?RC_PACKET_IDENTIFIER_NOT_FOUND}
+    end.
 
 %%--------------------------------------------------------------------
 
@@ -375,7 +402,18 @@ handle_timeout(
     pull,
     Session = #{id := Id, inflight := Inflight0, receive_maximum := ReceiveMaximum}
 ) ->
-    {Publishes, Inflight} = emqx_persistent_message_ds_replayer:poll(Id, Inflight0, ReceiveMaximum),
+    {Publishes, Inflight} = emqx_persistent_message_ds_replayer:poll(
+        fun
+            (_Seqno, Message = #message{qos = ?QOS_0}) ->
+                {false, {undefined, Message}};
+            (Seqno, Message) ->
+                PacketId = emqx_persistent_message_ds_replayer:seqno_to_packet_id(Seqno),
+                {PacketId, Message}
+        end,
+        Id,
+        Inflight0,
+        ReceiveMaximum
+    ),
     IdlePollInterval = emqx_config:get([session_persistence, idle_poll_interval]),
     Timeout =
         case Publishes of
@@ -385,22 +423,50 @@ handle_timeout(
                 0
         end,
     ensure_timer(pull, Timeout),
-    {ok, Publishes, Session#{inflight => Inflight}};
+    {ok, Publishes, Session#{inflight := Inflight}};
 handle_timeout(_ClientInfo, get_streams, Session) ->
     renew_streams(Session),
     ensure_timer(get_streams),
+    {ok, [], Session};
+handle_timeout(_ClientInfo, bump_last_alive_at, Session0) ->
+    %% Note: we take a pessimistic approach here and assume that the client will be alive
+    %% until the next bump timeout.  With this, we avoid garbage collecting this session
+    %% too early in case the session/connection/node crashes earlier without having time
+    %% to commit the time.
+    BumpInterval = emqx_config:get([session_persistence, last_alive_update_interval]),
+    EstimatedLastAliveAt = now_ms() + BumpInterval,
+    Session = session_set_last_alive_at_trans(Session0, EstimatedLastAliveAt),
+    ensure_timer(bump_last_alive_at),
     {ok, [], Session}.
 
 -spec replay(clientinfo(), [], session()) ->
     {ok, replies(), session()}.
 replay(_ClientInfo, [], Session = #{inflight := Inflight0}) ->
-    {Replies, Inflight} = emqx_persistent_message_ds_replayer:replay(Inflight0),
+    AckedUntil = emqx_persistent_message_ds_replayer:committed_until(ack, Inflight0),
+    RecUntil = emqx_persistent_message_ds_replayer:committed_until(rec, Inflight0),
+    CompUntil = emqx_persistent_message_ds_replayer:committed_until(comp, Inflight0),
+    ReplyFun = fun
+        (_Seqno, #message{qos = ?QOS_0}) ->
+            {false, []};
+        (Seqno, #message{qos = ?QOS_1}) when Seqno < AckedUntil ->
+            [];
+        (Seqno, #message{qos = ?QOS_2}) when Seqno < CompUntil ->
+            [];
+        (Seqno, #message{qos = ?QOS_2}) when Seqno < RecUntil ->
+            PacketId = emqx_persistent_message_ds_replayer:seqno_to_packet_id(Seqno),
+            {pubrel, PacketId};
+        (Seqno, Message) ->
+            PacketId = emqx_persistent_message_ds_replayer:seqno_to_packet_id(Seqno),
+            {PacketId, emqx_message:set_flag(dup, true, Message)}
+    end,
+    {Replies, Inflight} = emqx_persistent_message_ds_replayer:replay(ReplyFun, Inflight0),
     {ok, Replies, Session#{inflight := Inflight}}.
 
 %%--------------------------------------------------------------------
 
--spec disconnect(session()) -> {shutdown, session()}.
-disconnect(Session = #{}) ->
+-spec disconnect(session(), emqx_types:conninfo()) -> {shutdown, session()}.
+disconnect(Session0, ConnInfo) ->
+    Session = session_set_last_alive_at_trans(Session0, ConnInfo, now_ms()),
     {shutdown, Session}.
 
 -spec terminate(Reason :: term(), session()) -> ok.
@@ -507,11 +573,22 @@ create_tables() ->
             {attributes, record_info(fields, ds_pubrange)}
         ]
     ),
+    ok = mria:create_table(
+        ?SESSION_COMMITTED_OFFSET_TAB,
+        [
+            {rlog_shard, ?DS_MRIA_SHARD},
+            {type, set},
+            {storage, storage()},
+            {record_name, ds_committed_offset},
+            {attributes, record_info(fields, ds_committed_offset)}
+        ]
+    ),
     ok = mria:wait_for_tables([
         ?SESSION_TAB,
         ?SESSION_SUBSCRIPTIONS_TAB,
         ?SESSION_STREAM_TAB,
-        ?SESSION_PUBRANGE_TAB
+        ?SESSION_PUBRANGE_TAB,
+        ?SESSION_COMMITTED_OFFSET_TAB
     ]),
     ok.
 
@@ -530,46 +607,83 @@ storage() ->
 %%
 %% Note: session API doesn't handle session takeovers, it's the job of
 %% the broker.
--spec session_open(id()) ->
+-spec session_open(id(), emqx_types:conninfo()) ->
     session() | false.
-session_open(SessionId) ->
-    ro_transaction(fun() ->
+session_open(SessionId, NewConnInfo) ->
+    NowMS = now_ms(),
+    transaction(fun() ->
         case mnesia:read(?SESSION_TAB, SessionId, write) of
-            [Record = #session{}] ->
-                Session = export_session(Record),
-                DSSubs = session_read_subscriptions(SessionId),
-                Subscriptions = export_subscriptions(DSSubs),
-                Inflight = emqx_persistent_message_ds_replayer:open(SessionId),
-                Session#{
-                    subscriptions => Subscriptions,
-                    inflight => Inflight
-                };
-            [] ->
+            [Record0 = #session{last_alive_at = LastAliveAt, conninfo = ConnInfo}] ->
+                EI = expiry_interval(ConnInfo),
+                case ?IS_EXPIRED(NowMS, LastAliveAt, EI) of
+                    true ->
+                        session_drop(SessionId),
+                        false;
+                    false ->
+                        %% new connection being established
+                        Record1 = Record0#session{conninfo = NewConnInfo},
+                        Record = session_set_last_alive_at(Record1, NowMS),
+                        Session = export_session(Record),
+                        DSSubs = session_read_subscriptions(SessionId),
+                        Subscriptions = export_subscriptions(DSSubs),
+                        Inflight = emqx_persistent_message_ds_replayer:open(SessionId),
+                        Session#{
+                            conninfo => NewConnInfo,
+                            inflight => Inflight,
+                            subscriptions => Subscriptions
+                        }
+                end;
+            _ ->
                 false
         end
     end).
 
--spec session_ensure_new(id(), _Props :: map()) ->
+-spec session_ensure_new(id(), emqx_types:conninfo(), _Props :: map()) ->
     session().
-session_ensure_new(SessionId, Props) ->
+session_ensure_new(SessionId, ConnInfo, Props) ->
     transaction(fun() ->
         ok = session_drop_subscriptions(SessionId),
-        Session = export_session(session_create(SessionId, Props)),
+        Session = export_session(session_create(SessionId, ConnInfo, Props)),
         Session#{
             subscriptions => #{},
             inflight => emqx_persistent_message_ds_replayer:new()
         }
     end).
 
-session_create(SessionId, Props) ->
+session_create(SessionId, ConnInfo, Props) ->
     Session = #session{
         id = SessionId,
-        created_at = erlang:system_time(millisecond),
-        expires_at = never,
+        created_at = now_ms(),
+        last_alive_at = now_ms(),
+        conninfo = ConnInfo,
         props = Props
     },
     ok = mnesia:write(?SESSION_TAB, Session, write),
     Session.
+
+session_set_last_alive_at_trans(Session, LastAliveAt) ->
+    #{conninfo := ConnInfo} = Session,
+    session_set_last_alive_at_trans(Session, ConnInfo, LastAliveAt).
+
+session_set_last_alive_at_trans(Session, NewConnInfo, LastAliveAt) ->
+    #{id := SessionId} = Session,
+    transaction(fun() ->
+        case mnesia:read(?SESSION_TAB, SessionId, write) of
+            [#session{} = SessionRecord0] ->
+                SessionRecord = SessionRecord0#session{conninfo = NewConnInfo},
+                _ = session_set_last_alive_at(SessionRecord, LastAliveAt),
+                ok;
+            _ ->
+                %% log and crash?
+                ok
+        end
+    end),
+    Session#{conninfo := NewConnInfo, last_alive_at := LastAliveAt}.
+
+session_set_last_alive_at(SessionRecord0, LastAliveAt) ->
+    SessionRecord = SessionRecord0#session{last_alive_at = LastAliveAt},
+    ok = mnesia:write(?SESSION_TAB, SessionRecord, write),
+    SessionRecord.
 
 %% @doc Called when a client reconnects with `clean session=true' or
 %% during session GC
@@ -578,6 +692,7 @@ session_drop(DSSessionId) ->
     transaction(fun() ->
         ok = session_drop_subscriptions(DSSessionId),
         ok = session_drop_pubranges(DSSessionId),
+        ok = session_drop_offsets(DSSessionId),
         ok = session_drop_streams(DSSessionId),
         ok = mnesia:delete(?SESSION_TAB, DSSessionId, write)
     end).
@@ -669,17 +784,31 @@ session_read_pubranges(DSSessionId, LockKind) ->
     ),
     mnesia:select(?SESSION_PUBRANGE_TAB, MS, LockKind).
 
+session_read_offsets(DSSessionID) ->
+    session_read_offsets(DSSessionID, read).
+
+session_read_offsets(DSSessionId, LockKind) ->
+    MS = ets:fun2ms(
+        fun(#ds_committed_offset{id = {Sess, Type}}) when Sess =:= DSSessionId ->
+            {DSSessionId, Type}
+        end
+    ),
+    mnesia:select(?SESSION_COMMITTED_OFFSET_TAB, MS, LockKind).
+
 -spec new_subscription_id(id(), topic_filter()) -> {subscription_id(), integer()}.
 new_subscription_id(DSSessionId, TopicFilter) ->
     %% Note: here we use _milliseconds_ to match with the timestamp
     %% field of `#message' record.
-    NowMS = erlang:system_time(millisecond),
+    NowMS = now_ms(),
     DSSubId = {DSSessionId, TopicFilter},
     {DSSubId, NowMS}.
 
 -spec subscription_id_to_topic_filter(subscription_id()) -> topic_filter().
 subscription_id_to_topic_filter({_DSSessionId, TopicFilter}) ->
     TopicFilter.
+
+now_ms() ->
+    erlang:system_time(millisecond).
 
 %%--------------------------------------------------------------------
 %% RPC targets (v1)
@@ -778,11 +907,27 @@ session_drop_pubranges(DSSessionId) ->
         RangeIds
     ).
 
+%% must be called inside a transaction
+-spec session_drop_offsets(id()) -> ok.
+session_drop_offsets(DSSessionId) ->
+    OffsetIds = session_read_offsets(DSSessionId, write),
+    lists:foreach(
+        fun(OffsetId) ->
+            mnesia:delete(?SESSION_COMMITTED_OFFSET_TAB, OffsetId, write)
+        end,
+        OffsetIds
+    ).
+
 %%--------------------------------------------------------------------------------
 
 transaction(Fun) ->
-    {atomic, Res} = mria:transaction(?DS_MRIA_SHARD, Fun),
-    Res.
+    case mnesia:is_transaction() of
+        true ->
+            Fun();
+        false ->
+            {atomic, Res} = mria:transaction(?DS_MRIA_SHARD, Fun),
+            Res
+    end.
 
 ro_transaction(Fun) ->
     {atomic, Res} = mria:ro_transaction(?DS_MRIA_SHARD, Fun),
@@ -800,7 +945,7 @@ export_subscriptions(DSSubs) ->
     ).
 
 export_session(#session{} = Record) ->
-    export_record(Record, #session.id, [id, created_at, expires_at, props], #{}).
+    export_record(Record, #session.id, [id, created_at, last_alive_at, conninfo, props], #{}).
 
 export_subscription(#ds_sub{} = Record) ->
     export_record(Record, #ds_sub.start_time, [start_time, props, extra], #{}).
@@ -814,13 +959,17 @@ export_record(_, _, [], Acc) ->
 %% effects. Add `CBM:init' callback to the session behavior?
 ensure_timers() ->
     ensure_timer(pull),
-    ensure_timer(get_streams).
+    ensure_timer(get_streams),
+    ensure_timer(bump_last_alive_at).
 
--spec ensure_timer(pull | get_streams) -> ok.
+-spec ensure_timer(timer()) -> ok.
+ensure_timer(bump_last_alive_at = Type) ->
+    BumpInterval = emqx_config:get([session_persistence, last_alive_update_interval]),
+    ensure_timer(Type, BumpInterval);
 ensure_timer(Type) ->
     ensure_timer(Type, 100).
 
--spec ensure_timer(pull | get_streams, non_neg_integer()) -> ok.
+-spec ensure_timer(timer(), non_neg_integer()) -> ok.
 ensure_timer(Type, Timeout) ->
     _ = emqx_utils:start_timer(Timeout, {emqx_session, Type}),
     ok.
@@ -832,11 +981,24 @@ receive_maximum(ConnInfo) ->
     %% indicates that it's optional.
     maps:get(receive_maximum, ConnInfo, 65_535).
 
+-spec expiry_interval(conninfo()) -> millisecond().
+expiry_interval(ConnInfo) ->
+    maps:get(expiry_interval, ConnInfo, 0).
+
 -ifdef(TEST).
 list_all_sessions() ->
     DSSessionIds = mnesia:dirty_all_keys(?SESSION_TAB),
-    Sessions = lists:map(
-        fun(SessionID) -> {SessionID, session_open(SessionID)} end,
+    ConnInfo = #{},
+    Sessions = lists:filtermap(
+        fun(SessionID) ->
+            Sess = session_open(SessionID, ConnInfo),
+            case Sess of
+                false ->
+                    false;
+                _ ->
+                    {true, {SessionID, Sess}}
+            end
+        end,
         DSSessionIds
     ),
     maps:from_list(Sessions).

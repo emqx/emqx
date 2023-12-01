@@ -24,7 +24,7 @@
 
 %% erlfmt-ignore
 -define(BASE_CONF,
-    """
+    "
     log {
        console {
          enable = true
@@ -36,7 +36,7 @@
          path = \"log/emqx.log\"
        }
     }
-    """).
+    ").
 
 all() ->
     emqx_common_test_helpers:all(?MODULE).

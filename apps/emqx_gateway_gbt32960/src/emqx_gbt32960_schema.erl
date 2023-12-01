@@ -4,12 +4,18 @@
 
 -module(emqx_gbt32960_schema).
 
+-behaviour(hocon_schema).
+
 -include("emqx_gbt32960.hrl").
 -include_lib("hocon/include/hoconsc.hrl").
 -include_lib("typerefl/include/types.hrl").
 
 %% config schema provides
--export([fields/1, desc/1]).
+-export([namespace/0, roots/0, fields/1, desc/1]).
+
+namespace() -> "gateway_gbt32960".
+
+roots() -> [].
 
 fields(gbt32960) ->
     [

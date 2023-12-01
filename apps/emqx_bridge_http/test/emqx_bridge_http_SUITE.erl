@@ -39,18 +39,33 @@ all() ->
 groups() ->
     [].
 
-init_per_suite(_Config) ->
-    emqx_common_test_helpers:render_and_load_app_config(emqx_conf),
-    ok = emqx_mgmt_api_test_util:init_suite([emqx_conf, emqx_bridge, emqx_rule_engine]),
-    ok = emqx_connector_test_helpers:start_apps([emqx_resource]),
-    {ok, _} = application:ensure_all_started(emqx_connector),
-    [].
+init_per_suite(Config0) ->
+    Config =
+        case os:getenv("DEBUG_CASE") of
+            [_ | _] = DebugCase ->
+                CaseName = list_to_atom(DebugCase),
+                [{debug_case, CaseName} | Config0];
+            _ ->
+                Config0
+        end,
+    Apps = emqx_cth_suite:start(
+        [
+            emqx,
+            emqx_conf,
+            emqx_connector,
+            emqx_bridge_http,
+            emqx_bridge,
+            emqx_rule_engine
+        ],
+        #{work_dir => emqx_cth_suite:work_dir(Config)}
+    ),
+    emqx_mgmt_api_test_util:init_suite(),
+    [{apps, Apps} | Config].
 
-end_per_suite(_Config) ->
-    ok = emqx_mgmt_api_test_util:end_suite([emqx_rule_engine, emqx_bridge, emqx_conf]),
-    ok = emqx_connector_test_helpers:stop_apps([emqx_resource]),
-    _ = application:stop(emqx_connector),
-    _ = application:stop(emqx_bridge),
+end_per_suite(Config) ->
+    Apps = ?config(apps, Config),
+    emqx_mgmt_api_test_util:end_suite(),
+    ok = emqx_cth_suite:stop(Apps),
     ok.
 
 suite() ->
@@ -115,7 +130,8 @@ end_per_testcase(TestCase, _Config) when
 ->
     ok = emqx_bridge_http_connector_test_server:stop(),
     persistent_term:erase({?MODULE, times_called}),
-    emqx_bridge_testlib:delete_all_bridges(),
+    emqx_bridge_v2_testlib:delete_all_bridges(),
+    emqx_bridge_v2_testlib:delete_all_connectors(),
     emqx_common_test_helpers:call_janitor(),
     ok;
 end_per_testcase(_TestCase, Config) ->
@@ -123,7 +139,8 @@ end_per_testcase(_TestCase, Config) ->
         undefined -> ok;
         Server -> stop_http_server(Server)
     end,
-    emqx_bridge_testlib:delete_all_bridges(),
+    emqx_bridge_v2_testlib:delete_all_bridges(),
+    emqx_bridge_v2_testlib:delete_all_connectors(),
     emqx_common_test_helpers:call_janitor(),
     ok.
 
@@ -420,7 +437,7 @@ t_send_async_connection_timeout(Config) ->
     ),
     NumberOfMessagesToSend = 10,
     [
-        emqx_bridge:send_message(BridgeID, #{<<"id">> => Id})
+        do_send_message(#{<<"id">> => Id})
      || Id <- lists:seq(1, NumberOfMessagesToSend)
     ],
     %% Make sure server receives all messages
@@ -431,7 +448,7 @@ t_send_async_connection_timeout(Config) ->
 
 t_async_free_retries(Config) ->
     #{port := Port} = ?config(http_server, Config),
-    BridgeID = make_bridge(#{
+    _BridgeID = make_bridge(#{
         port => Port,
         pool_size => 1,
         query_mode => "sync",
@@ -445,7 +462,7 @@ t_async_free_retries(Config) ->
     Fn = fun(Get, Error) ->
         ?assertMatch(
             {ok, 200, _, _},
-            emqx_bridge:send_message(BridgeID, #{<<"hello">> => <<"world">>}),
+            do_send_message(#{<<"hello">> => <<"world">>}),
             #{error => Error}
         ),
         ?assertEqual(ExpectedAttempts, Get(), #{error => Error})
@@ -456,7 +473,7 @@ t_async_free_retries(Config) ->
 
 t_async_common_retries(Config) ->
     #{port := Port} = ?config(http_server, Config),
-    BridgeID = make_bridge(#{
+    _BridgeID = make_bridge(#{
         port => Port,
         pool_size => 1,
         query_mode => "sync",
@@ -471,7 +488,7 @@ t_async_common_retries(Config) ->
     FnSucceed = fun(Get, Error) ->
         ?assertMatch(
             {ok, 200, _, _},
-            emqx_bridge:send_message(BridgeID, #{<<"hello">> => <<"world">>}),
+            do_send_message(#{<<"hello">> => <<"world">>}),
             #{error => Error, attempts => Get()}
         ),
         ?assertEqual(ExpectedAttempts, Get(), #{error => Error})
@@ -479,7 +496,7 @@ t_async_common_retries(Config) ->
     FnFail = fun(Get, Error) ->
         ?assertMatch(
             Error,
-            emqx_bridge:send_message(BridgeID, #{<<"hello">> => <<"world">>}),
+            do_send_message(#{<<"hello">> => <<"world">>}),
             #{error => Error, attempts => Get()}
         ),
         ?assertEqual(ExpectedAttempts, Get(), #{error => Error})
@@ -559,7 +576,7 @@ t_path_not_found(Config) ->
             ok
         end,
         fun(Trace) ->
-            ?assertEqual([], ?of_kind(webhook_will_retry_async, Trace)),
+            ?assertEqual([], ?of_kind(http_will_retry_async, Trace)),
             ok
         end
     ),
@@ -600,7 +617,7 @@ t_too_many_requests(Config) ->
             ok
         end,
         fun(Trace) ->
-            ?assertMatch([_ | _], ?of_kind(webhook_will_retry_async, Trace)),
+            ?assertMatch([_ | _], ?of_kind(http_will_retry_async, Trace)),
             ok
         end
     ),
@@ -711,6 +728,11 @@ t_bridge_probes_header_atoms(Config) ->
     ok.
 
 %% helpers
+
+do_send_message(Message) ->
+    Type = emqx_bridge_v2:bridge_v1_type_to_bridge_v2_type(?BRIDGE_TYPE),
+    emqx_bridge_v2:send_message(Type, ?BRIDGE_NAME, Message, #{}).
+
 do_t_async_retries(TestCase, TestContext, Error, Fn) ->
     #{error_attempts := ErrorAttempts} = TestContext,
     PTKey = {?MODULE, TestCase, attempts},

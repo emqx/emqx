@@ -10,7 +10,11 @@
 -define(DEFAULT_MOUNTPOINT, <<"ocpp/">>).
 
 %% config schema provides
--export([fields/1, desc/1]).
+-export([namespace/0, roots/0, fields/1, desc/1]).
+
+namespace() -> "gateway_ocpp".
+
+roots() -> [].
 
 fields(ocpp) ->
     [

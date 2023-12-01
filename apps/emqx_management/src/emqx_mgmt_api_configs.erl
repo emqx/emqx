@@ -57,7 +57,7 @@
 
 %% erlfmt-ignore
 -define(SYSMON_EXAMPLE,
-    <<"""
+    <<"
     sysmon {
       os {
         cpu_check_interval = 60s
@@ -78,7 +78,7 @@
         process_low_watermark = 60%
         }
     }
-    """>>
+    ">>
 ).
 
 api_spec() ->

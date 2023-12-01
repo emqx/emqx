@@ -233,7 +233,7 @@ t_session_subscription_iterators(Config) ->
     ),
     ok.
 
-t_qos0(Config) ->
+t_qos0(_Config) ->
     Sub = connect(<<?MODULE_STRING "1">>, true, 30),
     Pub = connect(<<?MODULE_STRING "2">>, true, 0),
     try
@@ -258,7 +258,7 @@ t_qos0(Config) ->
         emqtt:stop(Pub)
     end.
 
-t_publish_as_persistent(Config) ->
+t_publish_as_persistent(_Config) ->
     Sub = connect(<<?MODULE_STRING "1">>, true, 30),
     Pub = connect(<<?MODULE_STRING "2">>, true, 30),
     try
@@ -272,9 +272,8 @@ t_publish_as_persistent(Config) ->
         ?assertMatch(
             [
                 #{qos := 0, topic := <<"t/1">>, payload := <<"1">>},
-                #{qos := 1, topic := <<"t/1">>, payload := <<"2">>}
-                %% TODO: QoS 2
-                %% #{qos := 2, topic := <<"t/1">>, payload := <<"3">>}
+                #{qos := 1, topic := <<"t/1">>, payload := <<"2">>},
+                #{qos := 2, topic := <<"t/1">>, payload := <<"3">>}
             ],
             receive_messages(3)
         )

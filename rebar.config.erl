@@ -16,7 +16,7 @@ do(Dir, CONFIG) ->
 
 assert_otp() ->
     Oldest = 24,
-    Latest = 25,
+    Latest = 26,
     OtpRelease = list_to_integer(erlang:system_info(otp_release)),
     case OtpRelease < Oldest orelse OtpRelease > Latest of
         true ->
@@ -42,7 +42,7 @@ quicer() ->
     {quicer, {git, "https://github.com/emqx/quic.git", {tag, "0.0.303"}}}.
 
 jq() ->
-    {jq, {git, "https://github.com/emqx/jq", {tag, "v0.3.11"}}}.
+    {jq, {git, "https://github.com/emqx/jq", {tag, "v0.3.12"}}}.
 
 deps(Config) ->
     {deps, OldDeps} = lists:keyfind(deps, 1, Config),
@@ -53,7 +53,10 @@ deps(Config) ->
     lists:keystore(deps, 1, Config, {deps, OldDeps ++ MoreDeps}).
 
 overrides() ->
-    [{add, [{extra_src_dirs, [{"etc", [{recursive, true}]}]}]}] ++ snabbkaffe_overrides().
+    [
+        {add, [{extra_src_dirs, [{"etc", [{recursive, true}]}]}]},
+        {add, jesse, [{erl_opts, [nowarn_match_float_zero]}]}
+    ] ++ snabbkaffe_overrides().
 
 %% Temporary workaround for a rebar3 erl_opts duplication
 %% bug. Ideally, we want to set this define globally

@@ -7,17 +7,6 @@
 -compile(nowarn_export_all).
 -compile(export_all).
 
--define(DEFAULT_LICENSE_VALUES, [
-    "220111",
-    "0",
-    "10",
-    "Foo",
-    "contact@foo.com",
-    "20220111",
-    "100000",
-    "10"
-]).
-
 private_key() ->
     test_key("pvt.key").
 
@@ -76,5 +65,18 @@ make_license(Values) ->
     EncodedSignature = base64:encode(Signature),
     iolist_to_binary([EncodedText, ".", EncodedSignature]).
 
+default_test_license() ->
+    make_license(#{}).
+
 default_license() ->
     emqx_license_schema:default_license().
+
+mock_parser() ->
+    meck:new(emqx_license_parser, [non_strict, passthrough, no_history, no_link]),
+    meck:expect(emqx_license_parser, pubkey, fun() -> public_key_pem() end),
+    meck:expect(emqx_license_parser, default, fun() -> default_test_license() end),
+    ok.
+
+unmock_parser() ->
+    meck:unload(emqx_license_parser),
+    ok.

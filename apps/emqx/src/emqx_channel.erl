@@ -423,6 +423,7 @@ handle_in(
             {ok, Channel}
     end;
 handle_in(
+    %% TODO: Why discard the Reason Code?
     ?PUBREC_PACKET(PacketId, _ReasonCode, Properties),
     Channel =
         #channel{clientinfo = ClientInfo, session = Session}
@@ -1204,12 +1205,13 @@ handle_info(
         #channel{
             conn_state = ConnState,
             clientinfo = ClientInfo,
+            conninfo = ConnInfo,
             session = Session
         }
 ) when
     ConnState =:= connected orelse ConnState =:= reauthenticating
 ->
-    {Intent, Session1} = emqx_session:disconnect(ClientInfo, Session),
+    {Intent, Session1} = emqx_session:disconnect(ClientInfo, ConnInfo, Session),
     Channel1 = ensure_disconnected(Reason, maybe_publish_will_msg(Channel)),
     Channel2 = Channel1#channel{session = Session1},
     case maybe_shutdown(Reason, Intent, Channel2) of
@@ -1321,7 +1323,8 @@ handle_timeout(
         {ok, Replies, NSession} ->
             handle_out(publish, Replies, Channel#channel{session = NSession})
     end;
-handle_timeout(_TRef, expire_session, Channel) ->
+handle_timeout(_TRef, expire_session, Channel = #channel{session = Session}) ->
+    ok = emqx_session:destroy(Session),
     shutdown(expired, Channel);
 handle_timeout(
     _TRef,

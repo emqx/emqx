@@ -63,6 +63,7 @@ init_per_suite(Config) ->
         end,
     emqx_common_test_helpers:boot_modules(all),
     emqx_common_test_helpers:start_apps([]),
+    emqx_logger:set_log_level(debug),
     [{dist_pid, DistPid} | Config].
 
 end_per_suite(Config) ->
@@ -574,7 +575,7 @@ t_local(Config) when is_list(Config) ->
         <<"sticky_group">> => sticky
     },
 
-    Node = start_slave('local_shared_sub_testtesttest', 21999),
+    Node = start_slave('local_shared_sub_local_1', 21999),
     ok = ensure_group_config(GroupConfig),
     ok = ensure_group_config(Node, GroupConfig),
 
@@ -627,7 +628,7 @@ t_remote(Config) when is_list(Config) ->
         <<"sticky_group">> => sticky
     },
 
-    Node = start_slave('remote_shared_sub_testtesttest', 21999),
+    Node = start_slave('remote_shared_sub_remote_1', 21999),
     ok = ensure_group_config(GroupConfig),
     ok = ensure_group_config(Node, GroupConfig),
 
@@ -676,7 +677,7 @@ t_local_fallback(Config) when is_list(Config) ->
     Topic = <<"local_foo/bar">>,
     ClientId1 = <<"ClientId1">>,
     ClientId2 = <<"ClientId2">>,
-    Node = start_slave('local_fallback_shared_sub_test', 11888),
+    Node = start_slave('local_fallback_shared_sub_1', 11888),
 
     {ok, ConnPid1} = emqtt:start_link([{clientid, ClientId1}]),
     {ok, _} = emqtt:connect(ConnPid1),
@@ -1253,34 +1254,24 @@ recv_msgs(Count, Msgs) ->
     end.
 
 start_slave(Name, Port) ->
-    {ok, Node} = ct_slave:start(
-        list_to_atom(atom_to_list(Name) ++ "@" ++ host()),
-        [
-            {kill_if_fail, true},
-            {monitor_master, true},
-            {init_timeout, 10000},
-            {startup_timeout, 10000},
-            {erl_flags, ebin_path()}
-        ]
+    {ok, Node} = emqx_cth_peer:start_link(
+        Name,
+        ebin_path()
     ),
-
     pong = net_adm:ping(Node),
     setup_node(Node, Port),
     Node.
 
 stop_slave(Node) ->
     rpc:call(Node, mria, leave, []),
-    ct_slave:stop(Node).
+    emqx_cth_peer:stop(Node).
 
 host() ->
     [_, Host] = string:tokens(atom_to_list(node()), "@"),
     Host.
 
 ebin_path() ->
-    string:join(["-pa" | lists:filter(fun is_lib/1, code:get_path())], " ").
-
-is_lib(Path) ->
-    string:prefix(Path, code:lib_dir()) =:= nomatch.
+    ["-pa" | code:get_path()].
 
 setup_node(Node, Port) ->
     EnvHandler =

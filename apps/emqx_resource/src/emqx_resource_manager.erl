@@ -1228,6 +1228,11 @@ channel_status({connecting, Error}) ->
         status => connecting,
         error => Error
     };
+channel_status(?status_disconnected) ->
+    #{
+        status => ?status_disconnected,
+        error => <<"Disconnected for unknown reason">>
+    };
 channel_status(connecting) ->
     #{
         status => connecting,

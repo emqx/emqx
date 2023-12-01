@@ -1,6 +1,8 @@
 Fixes <issue-or-jira-number>
 
-<!-- Make sure to target release-5[0-9] branch if this PR is intended to fix the issues for the release candidate. -->
+Release version: v/e5.?
+
+## Summary
 
 ## PR Checklist
 Please convert it to a draft if any of the following conditions are not met. Reviewers may skip over until all the items are checked:

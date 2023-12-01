@@ -3468,7 +3468,7 @@ t_get_basic_usage_info_1(_Config) ->
             referenced_bridges =>
                 #{
                     mqtt => 1,
-                    webhook => 3
+                    http => 3
                 }
         },
         emqx_rule_engine:get_basic_usage_info()

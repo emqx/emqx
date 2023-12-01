@@ -38,8 +38,8 @@ tags() ->
 fields(key_license) ->
     [
         {key, #{
-            type => binary(),
-            default => default_license(),
+            type => hoconsc:union([default, binary()]),
+            default => <<"default">>,
             %% so it's not logged
             sensitive => true,
             required => true,
@@ -72,10 +72,16 @@ check_license_watermark(Conf) ->
         undefined ->
             true;
         Low ->
-            High = hocon_maps:get("license.connection_high_watermark", Conf),
-            case High =/= undefined andalso High > Low of
-                true -> true;
-                false -> {bad_license_watermark, #{high => High, low => Low}}
+            case hocon_maps:get("license.connection_high_watermark", Conf) of
+                undefined ->
+                    {bad_license_watermark, #{high => undefined, low => Low}};
+                High ->
+                    {ok, HighFloat} = emqx_schema:to_percent(High),
+                    {ok, LowFloat} = emqx_schema:to_percent(Low),
+                    case HighFloat > LowFloat of
+                        true -> true;
+                        false -> {bad_license_watermark, #{high => High, low => Low}}
+                    end
             end
     end.
 

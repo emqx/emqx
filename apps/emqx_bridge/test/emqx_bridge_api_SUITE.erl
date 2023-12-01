@@ -73,13 +73,15 @@
 -define(HTTP_BRIDGE(URL), ?HTTP_BRIDGE(URL, ?BRIDGE_NAME)).
 
 -define(APPSPECS, [
-    emqx_conf,
     emqx,
+    emqx_conf,
     emqx_auth,
     emqx_auth_mnesia,
     emqx_management,
-    {emqx_rule_engine, "rule_engine { rules {} }"},
-    {emqx_bridge, "bridges {}"}
+    emqx_connector,
+    emqx_bridge_http,
+    {emqx_bridge, "actions {}\n bridges {}"},
+    {emqx_rule_engine, "rule_engine { rules {} }"}
 ]).
 
 -define(APPSPEC_DASHBOARD,
@@ -108,7 +110,7 @@ groups() ->
     ].
 
 suite() ->
-    [{timetrap, {seconds, 60}}].
+    [{timetrap, {seconds, 120}}].
 
 init_per_suite(Config) ->
     Config.
@@ -117,10 +119,10 @@ end_per_suite(_Config) ->
     ok.
 
 init_per_group(cluster = Name, Config) ->
-    Nodes = [NodePrimary | _] = mk_cluster(Config),
+    Nodes = [NodePrimary | _] = mk_cluster(Name, Config),
     init_api([{group, Name}, {cluster_nodes, Nodes}, {node, NodePrimary} | Config]);
 init_per_group(cluster_later_join = Name, Config) ->
-    Nodes = [NodePrimary | _] = mk_cluster(Config, #{join_to => undefined}),
+    Nodes = [NodePrimary | _] = mk_cluster(Name, Config, #{join_to => undefined}),
     init_api([{group, Name}, {cluster_nodes, Nodes}, {node, NodePrimary} | Config]);
 init_per_group(_Name, Config) ->
     WorkDir = emqx_cth_suite:work_dir(Config),
@@ -132,10 +134,10 @@ init_api(Config) ->
     {ok, App} = erpc:call(APINode, emqx_common_test_http, create_default_app, []),
     [{api, App} | Config].
 
-mk_cluster(Config) ->
-    mk_cluster(Config, #{}).
+mk_cluster(Name, Config) ->
+    mk_cluster(Name, Config, #{}).
 
-mk_cluster(Config, Opts) ->
+mk_cluster(Name, Config, Opts) ->
     Node1Apps = ?APPSPECS ++ [?APPSPEC_DASHBOARD],
     Node2Apps = ?APPSPECS,
     emqx_cth_cluster:start(
@@ -143,7 +145,7 @@ mk_cluster(Config, Opts) ->
             {emqx_bridge_api_SUITE1, Opts#{role => core, apps => Node1Apps}},
             {emqx_bridge_api_SUITE2, Opts#{role => core, apps => Node2Apps}}
         ],
-        #{work_dir => emqx_cth_suite:work_dir(Config)}
+        #{work_dir => emqx_cth_suite:work_dir(Name, Config)}
     ).
 
 end_per_group(Group, Config) when
@@ -159,7 +161,7 @@ init_per_testcase(t_broken_bpapi_vsn, Config) ->
     meck:new(emqx_bpapi, [passthrough]),
     meck:expect(emqx_bpapi, supported_version, 1, -1),
     meck:expect(emqx_bpapi, supported_version, 2, -1),
-    init_per_testcase(commong, Config);
+    init_per_testcase(common, Config);
 init_per_testcase(t_old_bpapi_vsn, Config) ->
     meck:new(emqx_bpapi, [passthrough]),
     meck:expect(emqx_bpapi, supported_version, 1, 1),
@@ -185,6 +187,18 @@ end_per_testcase(_, Config) ->
     ok.
 
 clear_resources() ->
+    lists:foreach(
+        fun(#{type := Type, name := Name}) ->
+            ok = emqx_bridge_v2:remove(Type, Name)
+        end,
+        emqx_bridge_v2:list()
+    ),
+    lists:foreach(
+        fun(#{type := Type, name := Name}) ->
+            ok = emqx_connector:remove(Type, Name)
+        end,
+        emqx_connector:list()
+    ),
     lists:foreach(
         fun(#{type := Type, name := Name}) ->
             ok = emqx_bridge:remove(Type, Name)
@@ -407,10 +421,7 @@ t_http_crud_apis(Config) ->
         Config
     ),
     ?assertMatch(
-        #{
-            <<"reason">> := <<"unknown_fields">>,
-            <<"unknown">> := <<"curl">>
-        },
+        #{<<"reason">> := <<"required_field">>},
         json(maps:get(<<"message">>, PutFail2))
     ),
     {ok, 400, _} = request_json(
@@ -419,11 +430,15 @@ t_http_crud_apis(Config) ->
         ?HTTP_BRIDGE(<<"localhost:1234/foo">>, Name),
         Config
     ),
-    {ok, 400, _} = request_json(
+    {ok, 400, PutFail3} = request_json(
         put,
         uri(["bridges", BridgeID]),
         ?HTTP_BRIDGE(<<"htpp://localhost:12341234/foo">>, Name),
         Config
+    ),
+    ?assertMatch(
+        #{<<"kind">> := <<"validation_error">>},
+        json(maps:get(<<"message">>, PutFail3))
     ),
 
     %% delete the bridge
@@ -463,7 +478,7 @@ t_http_crud_apis(Config) ->
     ),
 
     %% Create non working bridge
-    BrokenURL = ?URL(Port + 1, "/foo"),
+    BrokenURL = ?URL(Port + 1, "foo"),
     {ok, 201, BrokenBridge} = request(
         post,
         uri(["bridges"]),
@@ -471,6 +486,7 @@ t_http_crud_apis(Config) ->
         fun json/1,
         Config
     ),
+
     ?assertMatch(
         #{
             <<"type">> := ?BRIDGE_TYPE_HTTP,
@@ -1307,7 +1323,9 @@ t_cluster_later_join_metrics(Config) ->
     Name = ?BRIDGE_NAME,
     BridgeParams = ?HTTP_BRIDGE(URL1, Name),
     BridgeID = emqx_bridge_resource:bridge_id(?BRIDGE_TYPE_HTTP, Name),
+
     ?check_trace(
+        #{timetrap => 15_000},
         begin
             %% Create a bridge on only one of the nodes.
             ?assertMatch({ok, 201, _}, request_json(post, uri(["bridges"]), BridgeParams, Config)),
@@ -1319,8 +1337,26 @@ t_cluster_later_join_metrics(Config) ->
                 }},
                 request_json(get, uri(["bridges", BridgeID, "metrics"]), Config)
             ),
+
+            ct:print("node joining cluster"),
             %% Now join the other node join with the api node.
             ok = erpc:call(OtherNode, ekka, join, [PrimaryNode]),
+            %% Hack / workaround for the fact that `emqx_machine_boot' doesn't restart the
+            %% applications, in particular `emqx_conf' doesn't restart and synchronize the
+            %% transaction id.  It's also unclear at the moment why the equivalent test in
+            %% `emqx_bridge_v2_api_SUITE' doesn't need this hack.
+            ok = erpc:call(OtherNode, application, stop, [emqx_conf]),
+            ok = erpc:call(OtherNode, application, start, [emqx_conf]),
+            ct:print("node joined cluster"),
+
+            %% assert: wait for the bridge to be ready on the other node.
+            {_, {ok, _}} =
+                ?wait_async_action(
+                    {emqx_cluster_rpc, OtherNode} ! wake_up,
+                    #{?snk_kind := cluster_rpc_caught_up, ?snk_meta := #{node := OtherNode}},
+                    10_000
+                ),
+
             %% Check metrics; shouldn't crash even if the bridge is not
             %% ready on the node that just joined the cluster.
             ?assertMatch(
@@ -1373,17 +1409,16 @@ t_create_with_bad_name(Config) ->
 
 validate_resource_request_ttl(single, Timeout, Name) ->
     SentData = #{payload => <<"Hello EMQX">>, timestamp => 1668602148000},
-    BridgeID = emqx_bridge_resource:bridge_id(?BRIDGE_TYPE_HTTP, Name),
-    ResId = emqx_bridge_resource:resource_id(<<"webhook">>, Name),
+    _BridgeID = emqx_bridge_resource:bridge_id(?BRIDGE_TYPE_HTTP, Name),
     ?check_trace(
         begin
             {ok, Res} =
                 ?wait_async_action(
-                    emqx_bridge:send_message(BridgeID, SentData),
+                    do_send_message(?BRIDGE_TYPE_HTTP, Name, SentData),
                     #{?snk_kind := async_query},
                     1000
                 ),
-            ?assertMatch({ok, #{id := ResId, query_opts := #{timeout := Timeout}}}, Res)
+            ?assertMatch({ok, #{id := _ResId, query_opts := #{timeout := Timeout}}}, Res)
         end,
         fun(Trace0) ->
             Trace = ?of_kind(async_query, Trace0),
@@ -1393,6 +1428,10 @@ validate_resource_request_ttl(single, Timeout, Name) ->
     );
 validate_resource_request_ttl(_Cluster, _Timeout, _Name) ->
     ignore.
+
+do_send_message(BridgeV1Type, Name, Message) ->
+    Type = emqx_bridge_v2:bridge_v1_type_to_bridge_v2_type(BridgeV1Type),
+    emqx_bridge_v2:send_message(Type, Name, Message, #{}).
 
 %%
 

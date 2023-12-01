@@ -24,6 +24,7 @@
 }).
 
 -export([
+    namespace/0,
     roots/0,
     fields/1,
     desc/1
@@ -36,6 +37,9 @@
 ]).
 
 -define(CONNECTOR_TYPE, pgsql).
+
+namespace() ->
+    "connector_postgres".
 
 roots() ->
     [].

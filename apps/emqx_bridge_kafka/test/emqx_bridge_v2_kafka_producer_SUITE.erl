@@ -22,6 +22,7 @@
 -include_lib("common_test/include/ct.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 -include_lib("brod/include/brod.hrl").
+-include_lib("emqx_resource/include/emqx_resource.hrl").
 
 -import(emqx_common_test_helpers, [on_exit/1]).
 
@@ -35,6 +36,14 @@ all() ->
     emqx_common_test_helpers:all(?MODULE).
 
 init_per_suite(Config) ->
+    ProxyHost = os:getenv("PROXY_HOST", "toxiproxy"),
+    ProxyPort = list_to_integer(os:getenv("PROXY_PORT", "8474")),
+    KafkaHost = os:getenv("KAFKA_PLAIN_HOST", "toxiproxy.emqx.net"),
+    KafkaPort = list_to_integer(os:getenv("KAFKA_PLAIN_PORT", "9292")),
+    ProxyName = "kafka_plain",
+    DirectKafkaHost = os:getenv("KAFKA_DIRECT_PLAIN_HOST", "kafka-1.emqx.net"),
+    DirectKafkaPort = list_to_integer(os:getenv("KAFKA_DIRECT_PLAIN_PORT", "9092")),
+    emqx_common_test_helpers:reset_proxy(ProxyHost, ProxyPort),
     Apps = emqx_cth_suite:start(
         [
             emqx,
@@ -50,17 +59,34 @@ init_per_suite(Config) ->
     ),
     {ok, _} = emqx_common_test_http:create_default_app(),
     emqx_bridge_kafka_impl_producer_SUITE:wait_until_kafka_is_up(),
-    [{apps, Apps} | Config].
+    [
+        {apps, Apps},
+        {proxy_host, ProxyHost},
+        {proxy_port, ProxyPort},
+        {proxy_name, ProxyName},
+        {kafka_host, KafkaHost},
+        {kafka_port, KafkaPort},
+        {direct_kafka_host, DirectKafkaHost},
+        {direct_kafka_port, DirectKafkaPort}
+        | Config
+    ].
 
 end_per_suite(Config) ->
     Apps = ?config(apps, Config),
+    ProxyHost = ?config(proxy_host, Config),
+    ProxyPort = ?config(proxy_port, Config),
+    emqx_common_test_helpers:reset_proxy(ProxyHost, ProxyPort),
     emqx_cth_suite:stop(Apps),
     ok.
 
 init_per_testcase(_TestCase, Config) ->
     Config.
 
-end_per_testcase(_TestCase, _Config) ->
+end_per_testcase(_TestCase, Config) ->
+    ProxyHost = ?config(proxy_host, Config),
+    ProxyPort = ?config(proxy_port, Config),
+    emqx_common_test_helpers:reset_proxy(ProxyHost, ProxyPort),
+    emqx_bridge_v2_testlib:delete_all_bridges_and_connectors(),
     emqx_common_test_helpers:call_janitor(60_000),
     ok.
 
@@ -69,6 +95,13 @@ end_per_testcase(_TestCase, _Config) ->
 %%-------------------------------------------------------------------------------------
 
 check_send_message_with_bridge(BridgeName) ->
+    #{offset := Offset, payload := Payload} = send_message(BridgeName),
+    %% ######################################
+    %% Check if message is sent to Kafka
+    %% ######################################
+    check_kafka_message_payload(Offset, Payload).
+
+send_message(ActionName) ->
     %% ######################################
     %% Create Kafka message
     %% ######################################
@@ -84,11 +117,8 @@ check_send_message_with_bridge(BridgeName) ->
     %% ######################################
     %% Send message
     %% ######################################
-    emqx_bridge_v2:send_message(?TYPE, BridgeName, Msg, #{}),
-    %% ######################################
-    %% Check if message is sent to Kafka
-    %% ######################################
-    check_kafka_message_payload(Offset, Payload).
+    emqx_bridge_v2:send_message(?TYPE, ActionName, Msg, #{}),
+    #{offset => Offset, payload => Payload}.
 
 resolve_kafka_offset() ->
     KafkaTopic = emqx_bridge_kafka_impl_producer_SUITE:test_topic_one_partition(),
@@ -105,6 +135,14 @@ check_kafka_message_payload(Offset, ExpectedPayload) ->
     Hosts = emqx_bridge_kafka_impl_producer_SUITE:kafka_hosts(),
     {ok, {_, [KafkaMsg0]}} = brod:fetch(Hosts, KafkaTopic, Partition, Offset),
     ?assertMatch(#kafka_message{value = ExpectedPayload}, KafkaMsg0).
+
+action_config(ConnectorName) ->
+    action_config(ConnectorName, _Overrides = #{}).
+
+action_config(ConnectorName, Overrides) ->
+    Cfg0 = bridge_v2_config(ConnectorName),
+    Cfg1 = emqx_utils_maps:rename(<<"kafka">>, <<"parameters">>, Cfg0),
+    emqx_utils_maps:deep_merge(Cfg1, Overrides).
 
 bridge_v2_config(ConnectorName) ->
     #{
@@ -131,7 +169,9 @@ bridge_v2_config(ConnectorName) ->
             <<"query_mode">> => <<"sync">>,
             <<"required_acks">> => <<"all_isr">>,
             <<"sync_query_timeout">> => <<"5s">>,
-            <<"topic">> => emqx_bridge_kafka_impl_producer_SUITE:test_topic_one_partition()
+            <<"topic">> => list_to_binary(
+                emqx_bridge_kafka_impl_producer_SUITE:test_topic_one_partition()
+            )
         },
         <<"local_topic">> => <<"kafka_t/#">>,
         <<"resource_opts">> => #{
@@ -140,32 +180,37 @@ bridge_v2_config(ConnectorName) ->
     }.
 
 connector_config() ->
-    #{
-        <<"authentication">> => <<"none">>,
-        <<"bootstrap_hosts">> => iolist_to_binary(kafka_hosts_string()),
-        <<"connect_timeout">> => <<"5s">>,
-        <<"enable">> => true,
-        <<"metadata_request_timeout">> => <<"5s">>,
-        <<"min_metadata_refresh_interval">> => <<"3s">>,
-        <<"socket_opts">> =>
-            #{
-                <<"recbuf">> => <<"1024KB">>,
-                <<"sndbuf">> => <<"1024KB">>,
-                <<"tcp_keepalive">> => <<"none">>
-            },
-        <<"ssl">> =>
-            #{
-                <<"ciphers">> => [],
-                <<"depth">> => 10,
-                <<"enable">> => false,
-                <<"hibernate_after">> => <<"5s">>,
-                <<"log_level">> => <<"notice">>,
-                <<"reuse_sessions">> => true,
-                <<"secure_renegotiate">> => true,
-                <<"verify">> => <<"verify_peer">>,
-                <<"versions">> => [<<"tlsv1.3">>, <<"tlsv1.2">>]
-            }
-    }.
+    connector_config(_Overrides = #{}).
+
+connector_config(Overrides) ->
+    Defaults =
+        #{
+            <<"authentication">> => <<"none">>,
+            <<"bootstrap_hosts">> => iolist_to_binary(kafka_hosts_string()),
+            <<"connect_timeout">> => <<"5s">>,
+            <<"enable">> => true,
+            <<"metadata_request_timeout">> => <<"5s">>,
+            <<"min_metadata_refresh_interval">> => <<"3s">>,
+            <<"socket_opts">> =>
+                #{
+                    <<"recbuf">> => <<"1024KB">>,
+                    <<"sndbuf">> => <<"1024KB">>,
+                    <<"tcp_keepalive">> => <<"none">>
+                },
+            <<"ssl">> =>
+                #{
+                    <<"ciphers">> => [],
+                    <<"depth">> => 10,
+                    <<"enable">> => false,
+                    <<"hibernate_after">> => <<"5s">>,
+                    <<"log_level">> => <<"notice">>,
+                    <<"reuse_sessions">> => true,
+                    <<"secure_renegotiate">> => true,
+                    <<"verify">> => <<"verify_peer">>,
+                    <<"versions">> => [<<"tlsv1.3">>, <<"tlsv1.2">>]
+                }
+        },
+    emqx_utils_maps:deep_merge(Defaults, Overrides).
 
 kafka_hosts_string() ->
     KafkaHost = os:getenv("KAFKA_PLAIN_HOST", "kafka-1.emqx.net"),
@@ -350,13 +395,13 @@ t_bad_url(_Config) ->
         {ok, #{
             resource_data :=
                 #{
-                    status := connecting,
+                    status := ?status_disconnected,
                     error := [#{reason := unresolvable_hostname}]
                 }
         }},
         emqx_connector:lookup(?TYPE, ConnectorName)
     ),
-    ?assertMatch({ok, #{status := connecting}}, emqx_bridge_v2:lookup(?TYPE, ActionName)),
+    ?assertMatch({ok, #{status := ?status_disconnected}}, emqx_bridge_v2:lookup(?TYPE, ActionName)),
     ok.
 
 t_parameters_key_api_spec(_Config) ->
@@ -381,5 +426,155 @@ t_http_api_get(_Config) ->
     ?assertMatch(
         {ok, {{_, 200, _}, _, [#{<<"kafka">> := _}]}},
         emqx_bridge_testlib:list_bridges_api()
+    ),
+    ok.
+
+t_create_connector_while_connection_is_down(Config) ->
+    ProxyName = ?config(proxy_name, Config),
+    ProxyHost = ?config(proxy_host, Config),
+    ProxyPort = ?config(proxy_port, Config),
+    KafkaHost = ?config(kafka_host, Config),
+    KafkaPort = ?config(kafka_port, Config),
+    Host = iolist_to_binary([KafkaHost, ":", integer_to_binary(KafkaPort)]),
+    ?check_trace(
+        begin
+            Type = ?TYPE,
+            ConnectorConfig = connector_config(#{
+                <<"bootstrap_hosts">> => Host,
+                <<"resource_opts">> =>
+                    #{<<"health_check_interval">> => <<"500ms">>}
+            }),
+            ConnectorName = <<"c1">>,
+            ConnectorId = emqx_connector_resource:resource_id(Type, ConnectorName),
+            ConnectorParams = [
+                {connector_config, ConnectorConfig},
+                {connector_name, ConnectorName},
+                {connector_type, Type}
+            ],
+            ActionName = ConnectorName,
+            ActionId = emqx_bridge_v2:id(?TYPE, ActionName, ConnectorName),
+            ActionConfig = action_config(
+                ConnectorName
+            ),
+            ActionParams = [
+                {action_config, ActionConfig},
+                {action_name, ActionName},
+                {action_type, Type}
+            ],
+            Disconnected = atom_to_binary(?status_disconnected),
+            %% Initially, the connection cannot be stablished.  Messages are not buffered,
+            %% hence the status is `?status_disconnected'.
+            emqx_common_test_helpers:with_failure(down, ProxyName, ProxyHost, ProxyPort, fun() ->
+                {ok, {{_, 201, _}, _, #{<<"status">> := Disconnected}}} =
+                    emqx_bridge_v2_testlib:create_connector_api(ConnectorParams),
+                {ok, {{_, 201, _}, _, #{<<"status">> := Disconnected}}} =
+                    emqx_bridge_v2_testlib:create_action_api(ActionParams),
+                #{offset := Offset1} = send_message(ActionName),
+                #{offset := Offset2} = send_message(ActionName),
+                #{offset := Offset3} = send_message(ActionName),
+                ?assertEqual([Offset1], lists:usort([Offset1, Offset2, Offset3])),
+                ?assertEqual(3, emqx_resource_metrics:matched_get(ActionId)),
+                ?assertEqual(3, emqx_resource_metrics:failed_get(ActionId)),
+                ?assertEqual(0, emqx_resource_metrics:queuing_get(ActionId)),
+                ?assertEqual(0, emqx_resource_metrics:inflight_get(ActionId)),
+                ?assertEqual(0, emqx_resource_metrics:dropped_get(ActionId)),
+                ok
+            end),
+            %% Let the connector and action recover
+            Connected = atom_to_binary(?status_connected),
+            ?retry(
+                _Sleep0 = 1_100,
+                _Attempts0 = 10,
+                begin
+                    _ = emqx_resource:health_check(ConnectorId),
+                    _ = emqx_resource:health_check(ActionId),
+                    ?assertMatch(
+                        {ok, #{
+                            status := ?status_connected,
+                            resource_data :=
+                                #{
+                                    status := ?status_connected,
+                                    added_channels :=
+                                        #{
+                                            ActionId := #{
+                                                status := ?status_connected
+                                            }
+                                        }
+                                }
+                        }},
+                        emqx_bridge_v2:lookup(Type, ActionName),
+                        #{action_id => ActionId}
+                    ),
+                    ?assertMatch(
+                        {ok, {{_, 200, _}, _, #{<<"status">> := Connected}}},
+                        emqx_bridge_v2_testlib:get_action_api(ActionParams)
+                    )
+                end
+            ),
+            %% Now the connection drops again; this time, status should be
+            %% `?status_connecting' to avoid destroying wolff_producers and their replayq
+            %% buffers.
+            Connecting = atom_to_binary(?status_connecting),
+            emqx_common_test_helpers:with_failure(down, ProxyName, ProxyHost, ProxyPort, fun() ->
+                ?retry(
+                    _Sleep0 = 1_100,
+                    _Attempts0 = 10,
+                    begin
+                        _ = emqx_resource:health_check(ConnectorId),
+                        _ = emqx_resource:health_check(ActionId),
+                        ?assertMatch(
+                            {ok, #{
+                                status := ?status_connecting,
+                                resource_data :=
+                                    #{
+                                        status := ?status_connecting,
+                                        added_channels :=
+                                            #{
+                                                ActionId := #{
+                                                    status := ?status_connecting
+                                                }
+                                            }
+                                    }
+                            }},
+                            emqx_bridge_v2:lookup(Type, ActionName),
+                            #{action_id => ActionId}
+                        ),
+                        ?assertMatch(
+                            {ok, {{_, 200, _}, _, #{<<"status">> := Connecting}}},
+                            emqx_bridge_v2_testlib:get_action_api(ActionParams)
+                        )
+                    end
+                ),
+                %% This should get enqueued by wolff producers.
+                spawn_link(fun() -> send_message(ActionName) end),
+                PreviousMatched = 3,
+                PreviousFailed = 3,
+                ?retry(
+                    _Sleep2 = 100,
+                    _Attempts2 = 10,
+                    ?assertEqual(PreviousMatched + 1, emqx_resource_metrics:matched_get(ActionId))
+                ),
+                ?assertEqual(PreviousFailed, emqx_resource_metrics:failed_get(ActionId)),
+                ?assertEqual(1, emqx_resource_metrics:queuing_get(ActionId)),
+                ?assertEqual(0, emqx_resource_metrics:inflight_get(ActionId)),
+                ?assertEqual(0, emqx_resource_metrics:dropped_get(ActionId)),
+                ?assertEqual(0, emqx_resource_metrics:success_get(ActionId)),
+                ok
+            end),
+            ?retry(
+                _Sleep2 = 600,
+                _Attempts2 = 20,
+                begin
+                    _ = emqx_resource:health_check(ConnectorId),
+                    _ = emqx_resource:health_check(ActionId),
+                    ?assertEqual(1, emqx_resource_metrics:success_get(ActionId), #{
+                        metrics => emqx_bridge_v2:get_metrics(Type, ActionName)
+                    }),
+                    ok
+                end
+            ),
+            ok
+        end,
+        []
     ),
     ok.

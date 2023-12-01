@@ -12,7 +12,7 @@
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 -include_lib("hocon/include/hoconsc.hrl").
 
--export([roots/0, fields/1, desc/1, connector_examples/1]).
+-export([namespace/0, roots/0, fields/1, desc/1, connector_examples/1]).
 
 %% `emqx_resource' API
 -export([
@@ -44,6 +44,8 @@
 
 %% -------------------------------------------------------------------------------------------------
 %% api
+namespace() -> "syskeeper_forwarder".
+
 connector_examples(Method) ->
     [
         #{

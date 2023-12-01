@@ -1111,7 +1111,7 @@ is_channel_id(Id) ->
 %% Check if channel is installed in the connector state.
 %% There is no need to query the conncector if the channel is not
 %% installed as the query will fail anyway.
-pre_query_channel_check({Id, _} = _Request, Channels) when
+pre_query_channel_check({Id, _} = _Request, Channels, QueryOpts) when
     is_map_key(Id, Channels)
 ->
     ChannelStatus = maps:get(Id, Channels),
@@ -1119,18 +1119,25 @@ pre_query_channel_check({Id, _} = _Request, Channels) when
         true ->
             ok;
         false ->
-            maybe_throw_channel_not_installed(Id)
+            maybe_throw_channel_not_installed(Id, QueryOpts)
     end;
-pre_query_channel_check({Id, _} = _Request, _Channels) ->
-    maybe_throw_channel_not_installed(Id);
-pre_query_channel_check(_Request, _Channels) ->
+pre_query_channel_check({Id, _} = _Request, _Channels, QueryOpts) ->
+    maybe_throw_channel_not_installed(Id, QueryOpts);
+pre_query_channel_check(_Request, _Channels, _QueryOpts) ->
     ok.
 
-maybe_throw_channel_not_installed(Id) ->
-    %% Fail with a recoverable error if the channel is not installed
-    %% so that the operation can be retried. It is emqx_resource_manager's
-    %% responsibility to ensure that the channel installation is retried.
+maybe_throw_channel_not_installed(Id, QueryOpts) ->
+    %% Fail with a recoverable error if the channel is not installed and there are buffer
+    %% workers involved so that the operation can be retried.  Otherwise, this is
+    %% unrecoverable.  It is emqx_resource_manager's responsibility to ensure that the
+    %% channel installation is retried.
+    IsSimpleQuery = maps:get(simple_query, QueryOpts, false),
     case is_channel_id(Id) of
+        true when IsSimpleQuery ->
+            error(
+                {unrecoverable_error,
+                    iolist_to_binary(io_lib:format("channel: \"~s\" not operational", [Id]))}
+            );
         true ->
             error(
                 {recoverable_error,
@@ -1191,7 +1198,7 @@ apply_query_fun(
         ?APPLY_RESOURCE(
             call_query,
             begin
-                pre_query_channel_check(Request, Channels),
+                pre_query_channel_check(Request, Channels, QueryOpts),
                 Mod:on_query(extract_connector_id(Id), Request, ResSt)
             end,
             Request
@@ -1222,7 +1229,7 @@ apply_query_fun(
             AsyncWorkerMRef = undefined,
             InflightItem = ?INFLIGHT_ITEM(Ref, Query, IsRetriable, AsyncWorkerMRef),
             ok = inflight_append(InflightTID, InflightItem),
-            pre_query_channel_check(Request, Channels),
+            pre_query_channel_check(Request, Channels, QueryOpts),
             Result = Mod:on_query_async(
                 extract_connector_id(Id), Request, {ReplyFun, [ReplyContext]}, ResSt
             ),
@@ -1249,7 +1256,7 @@ apply_query_fun(
         ?APPLY_RESOURCE(
             call_batch_query,
             begin
-                pre_query_channel_check(FirstRequest, Channels),
+                pre_query_channel_check(FirstRequest, Channels, QueryOpts),
                 Mod:on_batch_query(extract_connector_id(Id), Requests, ResSt)
             end,
             Batch
@@ -1291,7 +1298,7 @@ apply_query_fun(
             AsyncWorkerMRef = undefined,
             InflightItem = ?INFLIGHT_ITEM(Ref, Batch, IsRetriable, AsyncWorkerMRef),
             ok = inflight_append(InflightTID, InflightItem),
-            pre_query_channel_check(FirstRequest, Channels),
+            pre_query_channel_check(FirstRequest, Channels, QueryOpts),
             Result = Mod:on_batch_query_async(
                 extract_connector_id(Id), Requests, {ReplyFun, [ReplyContext]}, ResSt
             ),

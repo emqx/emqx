@@ -21,7 +21,7 @@ empty_config_test() ->
     Conf1 = #{<<"bridges">> => #{}},
     Conf2 = #{<<"bridges">> => #{<<"webhook">> => #{}}},
     ?assertEqual(Conf1, check(Conf1)),
-    ?assertEqual(Conf2, check(Conf2)),
+    ?assertEqual(#{<<"bridges">> => #{<<"http">> => #{}}}, check(Conf2)),
     ok.
 
 %% ensure webhook config can be checked
@@ -33,7 +33,7 @@ webhook_config_test() ->
     ?assertMatch(
         #{
             <<"bridges">> := #{
-                <<"webhook">> := #{
+                <<"http">> := #{
                     <<"the_name">> :=
                         #{
                             <<"method">> := get,
@@ -48,7 +48,7 @@ webhook_config_test() ->
     ?assertMatch(
         #{
             <<"bridges">> := #{
-                <<"webhook">> := #{
+                <<"http">> := #{
                     <<"the_name">> :=
                         #{
                             <<"method">> := get,
@@ -61,7 +61,7 @@ webhook_config_test() ->
     ),
     #{
         <<"bridges">> := #{
-            <<"webhook">> := #{
+            <<"http">> := #{
                 <<"the_name">> :=
                     #{
                         <<"method">> := get,
@@ -84,7 +84,7 @@ up(#{<<"mqtt">> := MqttBridges0} = Bridges) ->
     Bridges#{<<"mqtt">> := MqttBridges};
 up(#{<<"webhook">> := WebhookBridges0} = Bridges) ->
     WebhookBridges = emqx_bridge_compatible_config:upgrade_pre_ee(
-        WebhookBridges0, fun emqx_bridge_compatible_config:webhook_maybe_upgrade/1
+        WebhookBridges0, fun emqx_bridge_compatible_config:http_maybe_upgrade/1
     ),
     Bridges#{<<"webhook">> := WebhookBridges}.
 
@@ -126,7 +126,7 @@ check(Conf) when is_map(Conf) ->
 %% erlfmt-ignore
 %% this is config generated from v5.0.11
 webhook_v5011_hocon() ->
-"""
+"
 bridges{
   webhook {
     the_name{
@@ -143,7 +143,7 @@ bridges{
     }
   }
 }
-""".
+".
 
 full_webhook_v5011_hocon() ->
     ""
@@ -215,7 +215,7 @@ full_webhook_v5019_hocon() ->
 %% erlfmt-ignore
 %% this is a generated from v5.0.11
 mqtt_v5011_hocon() ->
-"""
+"
 bridges {
   mqtt {
     bridge_one {
@@ -257,12 +257,12 @@ bridges {
     }
   }
 }
-""".
+".
 
 %% erlfmt-ignore
 %% a more complete version
 mqtt_v5011_full_hocon() ->
-"""
+"
 bridges {
   mqtt {
     bridge_one {
@@ -330,4 +330,4 @@ bridges {
     }
   }
 }
-""".
+".

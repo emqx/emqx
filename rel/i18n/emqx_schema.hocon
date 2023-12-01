@@ -1571,4 +1571,10 @@ session_builtin_n_shards.desc:
 session_storage_backend_builtin.desc:
 """Builtin session storage backend utilizing embedded RocksDB key-value store."""
 
+session_ds_session_gc_interval.desc:
+"""The interval at which session garbage collection is executed for persistent sessions."""
+
+session_ds_session_gc_batch_size.desc:
+"""The size of each batch of expired persistent sessions to be garbage collected per iteration."""
+
 }
