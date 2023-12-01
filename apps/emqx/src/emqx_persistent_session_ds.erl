@@ -438,8 +438,10 @@ handle_timeout(_ClientInfo, ?TIMER_BUMP_LAST_ALIVE_AT, Session0) ->
     BumpInterval = emqx_config:get([session_persistence, last_alive_update_interval]),
     EstimatedLastAliveAt = now_ms() + BumpInterval,
     Session = session_set_last_alive_at_trans(Session0, EstimatedLastAliveAt),
-    BumpInterval = emqx_config:get([session_persistence, last_alive_update_interval]),
-    {ok, [], emqx_session:ensure_timer(?TIMER_BUMP_LAST_ALIVE_AT, BumpInterval, Session)}.
+    {ok, [], emqx_session:ensure_timer(?TIMER_BUMP_LAST_ALIVE_AT, BumpInterval, Session)};
+handle_timeout(_ClientInfo, expire_awaiting_rel, Session) ->
+    %% TODO: stub
+    {ok, [], Session}.
 
 -spec replay(clientinfo(), [], session()) ->
     {ok, replies(), session()}.
