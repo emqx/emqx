@@ -27,11 +27,21 @@ cd -P -- "$(dirname -- "${BASH_SOURCE[0]}")/.."
 
 I18N_REPO_BRANCH="v$(./pkg-vsn.sh "${PROFILE_STR}" | tr -d '.' | cut -c 1-2)"
 
+DOWNLOAD_I18N_TRANSLATIONS=${DOWNLOAD_I18N_TRANSLATIONS:-true}
 # download desc (i18n) translations
-curl -L --silent --show-error \
-     --output "apps/emqx_dashboard/priv/desc.zh.hocon" \
-     "https://raw.githubusercontent.com/emqx/emqx-i18n/${I18N_REPO_BRANCH}/desc.zh.hocon"
+if [ "$DOWNLOAD_I18N_TRANSLATIONS" = "true" ]; then
+  echo "downloading i18n translation from emqx/emqx-i18n"
+  start=$(date +%s)
+  curl -L --silent --show-error \
+       --output "apps/emqx_dashboard/priv/desc.zh.hocon" \
+       "https://raw.githubusercontent.com/emqx/emqx-i18n/${I18N_REPO_BRANCH}/desc.zh.hocon"
+  end=$(date +%s)
+  duration=$(echo "$end $start" | awk '{print $1 - $2}')
+  echo "downloaded i18n translation in $duration seconds, set DOWNLOAD_I18N_TRANSLATIONS=false to skip"
+else
+  echo "skipping to download i18n translation from emqx/emqx-i18n, set DOWNLOAD_I18N_TRANSLATIONS=true to update"
+fi
 
 # TODO
-# make sbom a build artifcat
+# make sbom a build artifact
 # ./scripts/update-bom.sh "$PROFILE_STR" ./rel

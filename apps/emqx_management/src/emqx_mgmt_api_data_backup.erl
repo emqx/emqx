@@ -204,7 +204,7 @@ data_export(post, _Request) ->
 data_import(post, #{body := #{<<"filename">> := FileName} = Body}) ->
     case safe_parse_node(Body) of
         {error, Msg} ->
-            {400, #{code => 'BAD_REQUEST', message => Msg}};
+            {400, #{code => ?BAD_REQUEST, message => Msg}};
         FileNode ->
             CoreNode = core_node(FileNode),
             response(
@@ -231,20 +231,23 @@ data_files(post, #{body := #{<<"filename">> := #{type := _} = File}}) ->
         ok ->
             {204};
         {error, Reason} ->
-            {400, #{code => 'BAD_REQUEST', message => emqx_mgmt_data_backup:format_error(Reason)}}
+            {400, #{code => ?BAD_REQUEST, message => emqx_mgmt_data_backup:format_error(Reason)}}
     end;
+data_files(post, #{body := _}) ->
+    {400, #{code => ?BAD_REQUEST, message => "Missing required parameter: filename"}};
 data_files(get, #{query_string := PageParams}) ->
     case emqx_mgmt_api:parse_pager_params(PageParams) of
         false ->
             {400, #{code => ?BAD_REQUEST, message => <<"page_limit_invalid">>}};
         #{page := Page, limit := Limit} = Pager ->
-            {200, #{data => list_backup_files(Page, Limit), meta => Pager}}
+            {Count, HasNext, Data} = list_backup_files(Page, Limit),
+            {200, #{data => Data, meta => Pager#{count => Count, hasnext => HasNext}}}
     end.
 
 data_file_by_name(Method, #{bindings := #{filename := Filename}, query_string := QS}) ->
     case safe_parse_node(QS) of
         {error, Msg} ->
-            {400, #{code => 'BAD_REQUEST', message => Msg}};
+            {400, #{code => ?BAD_REQUEST, message => Msg}};
         Node ->
             case get_or_delete_file(Method, Filename, Node) of
                 {error, not_found} ->
@@ -293,7 +296,10 @@ response({error, Reason}) ->
 
 list_backup_files(Page, Limit) ->
     Start = Page * Limit - Limit + 1,
-    lists:sublist(list_backup_files(), Start, Limit).
+    AllFiles = list_backup_files(),
+    Count = length(AllFiles),
+    HasNext = Start + Limit - 1 < Count,
+    {Count, HasNext, lists:sublist(AllFiles, Start, Limit)}.
 
 list_backup_files() ->
     Nodes = emqx:running_nodes(),

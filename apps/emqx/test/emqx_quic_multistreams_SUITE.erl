@@ -669,22 +669,21 @@ t_multi_streams_packet_malform(Config) ->
     case quicer:send(MalformStream, <<0, 0, 0, 0, 0, 0, 0, 0, 0, 0>>) of
         {ok, 10} -> ok;
         {error, cancelled} -> ok;
-        {error, stm_send_error, aborted} -> ok
+        {error, stm_send_error, aborted} -> ok;
+        {error, closed} -> ok
     end,
 
     ?assert(is_list(emqtt:info(C))),
-
-    {error, stm_send_error, _} =
+    {error, closed} =
         snabbkaffe:retry(
             10000,
             10,
             fun() ->
-                {error, stm_send_error, _} = quicer:send(
+                {error, closed} = quicer:send(
                     MalformStream, <<1, 2, 3, 4, 5, 6, 7, 8, 9, 0>>
                 )
             end
         ),
-
     ?assert(is_list(emqtt:info(C))),
 
     ok = emqtt:disconnect(C).
@@ -770,9 +769,9 @@ t_multi_streams_packet_too_large(Config) ->
     timeout = recv_pub(1),
     ?assert(is_list(emqtt:info(C))),
 
-    %% Connection could be kept
-    {error, stm_send_error, _} = quicer:send(via_stream(PubVia), <<1>>),
-    {error, stm_send_error, _} = quicer:send(via_stream(PubVia2), <<1>>),
+    %% Connection could be kept but data stream are closed!
+    {error, closed} = quicer:send(via_stream(PubVia), <<1>>),
+    {error, closed} = quicer:send(via_stream(PubVia2), <<1>>),
     %% We could send data over new stream
     {ok, PubVia3} = emqtt:start_data_stream(C, []),
     ok = emqtt:publish_async(

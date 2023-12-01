@@ -80,22 +80,32 @@ t_list_backups(Config) ->
     [{ok, _} = export_backup(?NODE2_PORT, Auth) || _ <- lists:seq(1, 10)],
 
     {ok, RespBody} = list_backups(?NODE1_PORT, Auth, <<"1">>, <<"100">>),
-    #{<<"data">> := Data, <<"meta">> := _} = emqx_utils_json:decode(RespBody),
+    #{<<"data">> := Data, <<"meta">> := #{<<"count">> := 20, <<"hasnext">> := false}} = emqx_utils_json:decode(
+        RespBody
+    ),
     ?assertEqual(20, length(Data)),
 
     {ok, EmptyRespBody} = list_backups(?NODE2_PORT, Auth, <<"2">>, <<"100">>),
-    #{<<"data">> := EmptyData, <<"meta">> := _} = emqx_utils_json:decode(EmptyRespBody),
+    #{<<"data">> := EmptyData, <<"meta">> := #{<<"count">> := 20, <<"hasnext">> := false}} = emqx_utils_json:decode(
+        EmptyRespBody
+    ),
     ?assertEqual(0, length(EmptyData)),
 
     {ok, RespBodyP1} = list_backups(?NODE3_PORT, Auth, <<"1">>, <<"10">>),
     {ok, RespBodyP2} = list_backups(?NODE3_PORT, Auth, <<"2">>, <<"10">>),
     {ok, RespBodyP3} = list_backups(?NODE3_PORT, Auth, <<"3">>, <<"10">>),
 
-    #{<<"data">> := DataP1, <<"meta">> := _} = emqx_utils_json:decode(RespBodyP1),
+    #{<<"data">> := DataP1, <<"meta">> := #{<<"count">> := 20, <<"hasnext">> := true}} = emqx_utils_json:decode(
+        RespBodyP1
+    ),
     ?assertEqual(10, length(DataP1)),
-    #{<<"data">> := DataP2, <<"meta">> := _} = emqx_utils_json:decode(RespBodyP2),
+    #{<<"data">> := DataP2, <<"meta">> := #{<<"count">> := 20, <<"hasnext">> := false}} = emqx_utils_json:decode(
+        RespBodyP2
+    ),
     ?assertEqual(10, length(DataP2)),
-    #{<<"data">> := DataP3, <<"meta">> := _} = emqx_utils_json:decode(RespBodyP3),
+    #{<<"data">> := DataP3, <<"meta">> := #{<<"count">> := 20, <<"hasnext">> := false}} = emqx_utils_json:decode(
+        RespBodyP3
+    ),
     ?assertEqual(0, length(DataP3)),
 
     ?assertEqual(Data, DataP1 ++ DataP2).
