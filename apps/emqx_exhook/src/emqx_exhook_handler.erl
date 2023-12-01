@@ -229,10 +229,11 @@ on_session_terminated(ClientInfo, Reason, _SessInfo) ->
 
 on_message_publish(#message{topic = <<"$SYS/", _/binary>>}) ->
     ok;
-on_message_publish(#message{headers = #{?EXHOOK_REPUB := true}}) ->
+on_message_publish(#message{headers = #{?EXHOOK_REPUB := true}, id = Id, topic = T}) ->
+    ?SLOG(debug, #{msg => "exhook_republished_msg_detected_and_ignored", id => Id, topic => T}),
     ok;
-on_message_publish(Message0) ->
-    Req = #{message => message(Message0)},
+on_message_publish(RawMessage) ->
+    Req = #{message => message(RawMessage)},
     case
         call_fold(
             'message.publish',
@@ -240,11 +241,11 @@ on_message_publish(Message0) ->
             fun emqx_exhook_handler:merge_responsed_message/2
         )
     of
-        {Res, #{message := Message1}} ->
-            maybe_republish_new_message(Message1, Message0),
-            {res(Res), assign_to_message(Res, Message1, Message0)};
+        {Res, #{message := RespMessage}} ->
+            ok = maybe_republish_new_message(Res, RespMessage, RawMessage),
+            {res(Res), assign_to_message(Res, RespMessage, RawMessage)};
         _ ->
-            {ok, Message0}
+            {ok, RawMessage}
     end.
 
 on_message_dropped(#message{topic = <<"$SYS/", _/binary>>}, _By, _Reason) ->
@@ -400,6 +401,7 @@ res(stop) -> stop;
 res(republish) -> stop.
 
 maybe_republish_new_message(
+    republish,
     _InMessage = #{
         qos := Qos,
         topic := Topic,
@@ -409,7 +411,10 @@ maybe_republish_new_message(
 ) ->
     NMsg0 = Message#message{qos = Qos, topic = Topic, payload = Payload},
     NMsg1 = emqx_message:set_header(?EXHOOK_REPUB, true, NMsg0),
-    emqx:publish(NMsg1).
+    _ = emqx_broker:safe_publish(NMsg1),
+    ok;
+maybe_republish_new_message(_StopOrOk, _, _) ->
+    ok.
 
 assign_to_message(
     Res,

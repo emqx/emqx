@@ -48,7 +48,8 @@ cast(Hookpoint, Req, [ServerName | More]) ->
 
 -spec call_fold(atom(), term(), function()) ->
     {ok, term()}
-    | {stop, term()}.
+    | {stop, term()}
+    | {republish, term()}.
 call_fold(Hookpoint, Req, AccFun) ->
     case emqx_exhook_mgr:running() of
         [] ->
