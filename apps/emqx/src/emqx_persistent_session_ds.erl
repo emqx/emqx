@@ -152,9 +152,8 @@
 -spec create(clientinfo(), conninfo(), emqx_session:conf()) ->
     session().
 create(#{clientid := ClientID}, ConnInfo, Conf) ->
-    % TODO: expiration
-    Session = ensure_timers(session_ensure_new(ClientID, ConnInfo)),
-    preserve_conf(ConnInfo, Conf, Session).
+    Session = session_ensure_new(ClientID, ConnInfo),
+    apply_conf(ConnInfo, Conf, ensure_timers(Session)).
 
 -spec open(clientinfo(), conninfo(), emqx_session:conf()) ->
     {_IsPresent :: true, session(), []} | false.
@@ -168,13 +167,13 @@ open(#{clientid := ClientID} = _ClientInfo, ConnInfo, Conf) ->
     ok = emqx_cm:discard_session(ClientID),
     case session_open(ClientID, ConnInfo) of
         Session0 = #{} ->
-            Session = preserve_conf(ConnInfo, Conf, Session0),
+            Session = apply_conf(ConnInfo, Conf, Session0),
             {true, ensure_timers(Session), []};
         false ->
             false
     end.
 
-preserve_conf(ConnInfo, Conf, Session) ->
+apply_conf(ConnInfo, Conf, Session) ->
     Session#{
         receive_maximum => receive_maximum(ConnInfo),
         props => Conf
@@ -399,7 +398,7 @@ deliver(_ClientInfo, _Delivers, Session) ->
     {ok, replies(), session()} | {ok, replies(), timeout(), session()}.
 handle_timeout(
     ClientInfo,
-    pull,
+    ?TIMER_PULL,
     Session0 = #{
         id := Id,
         inflight := Inflight0,
@@ -411,14 +410,9 @@ handle_timeout(
     MaxBatchSize = emqx_config:get([session_persistence, max_batch_size]),
     BatchSize = min(ReceiveMaximum, MaxBatchSize),
     UpgradeQoS = maps:get(upgrade_qos, Conf),
-    ReplyFun = make_reply_fun(ClientInfo, Subs, UpgradeQoS, fun
-        (_Seqno, Message = #message{qos = ?QOS_0}) ->
-            {undefined, Message};
-        (_Seqno, Message) ->
-            fun(PacketId) -> {PacketId, Message} end
-    end),
+    PreprocFun = make_preproc_fun(ClientInfo, Subs, UpgradeQoS),
     {Publishes, Inflight} = emqx_persistent_message_ds_replayer:poll(
-        ReplyFun,
+        PreprocFun,
         Id,
         Inflight0,
         BatchSize
@@ -455,22 +449,8 @@ replay(
     Session = #{inflight := Inflight0, subscriptions := Subs, props := Conf}
 ) ->
     UpgradeQoS = maps:get(upgrade_qos, Conf),
-    AckedUntil = emqx_persistent_message_ds_replayer:committed_until(ack, Inflight0),
-    RecUntil = emqx_persistent_message_ds_replayer:committed_until(rec, Inflight0),
-    CompUntil = emqx_persistent_message_ds_replayer:committed_until(comp, Inflight0),
-    ReplyFun = make_reply_fun(ClientInfo, Subs, UpgradeQoS, fun
-        (_Seqno, #message{qos = ?QOS_0}) ->
-            [];
-        (Seqno, #message{qos = ?QOS_1}) when Seqno < AckedUntil ->
-            fun(_) -> [] end;
-        (Seqno, #message{qos = ?QOS_2}) when Seqno < CompUntil ->
-            fun(_) -> [] end;
-        (Seqno, #message{qos = ?QOS_2}) when Seqno < RecUntil ->
-            fun(PacketId) -> {pubrel, PacketId} end;
-        (_Seqno, Message) ->
-            fun(PacketId) -> {PacketId, emqx_message:set_flag(dup, true, Message)} end
-    end),
-    {Replies, Inflight} = emqx_persistent_message_ds_replayer:replay(ReplyFun, Inflight0),
+    PreprocFun = make_preproc_fun(ClientInfo, Subs, UpgradeQoS),
+    {Replies, Inflight} = emqx_persistent_message_ds_replayer:replay(PreprocFun, Inflight0),
     {ok, Replies, Session#{inflight := Inflight}}.
 
 %%--------------------------------------------------------------------
@@ -486,22 +466,16 @@ terminate(_Reason, _Session = #{}) ->
 
 %%--------------------------------------------------------------------
 
-make_reply_fun(ClientInfo, Subs, UpgradeQoS, InnerFun) ->
-    fun(Seqno, Message0 = #message{topic = Topic}) ->
+make_preproc_fun(ClientInfo, Subs, UpgradeQoS) ->
+    fun(Message = #message{topic = Topic}) ->
         emqx_utils:flattermap(
             fun(Match) ->
-                emqx_utils:flattermap(
-                    fun(Message) -> InnerFun(Seqno, Message) end,
-                    enrich_message(ClientInfo, Message0, Match, Subs, UpgradeQoS)
-                )
+                #{props := SubOpts} = subs_get_match(Match, Subs),
+                emqx_session:enrich_message(ClientInfo, Message, SubOpts, UpgradeQoS)
             end,
             subs_matches(Topic, Subs)
         )
     end.
-
-enrich_message(ClientInfo, Message, SubMatch, Subs, UpgradeQoS) ->
-    #{props := SubOpts} = subs_get_match(SubMatch, Subs),
-    emqx_session:enrich_message(ClientInfo, Message, SubOpts, UpgradeQoS).
 
 %%--------------------------------------------------------------------
 
