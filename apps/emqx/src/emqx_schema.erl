@@ -1773,6 +1773,22 @@ fields("session_persistence") ->
                     }
                 }
             )},
+        {"max_batch_size",
+            sc(
+                pos_integer(),
+                #{
+                    default => 1000,
+                    desc => ?DESC(session_ds_max_batch_size)
+                }
+            )},
+        {"min_batch_size",
+            sc(
+                pos_integer(),
+                #{
+                    default => 100,
+                    desc => ?DESC(session_ds_min_batch_size)
+                }
+            )},
         {"idle_poll_interval",
             sc(
                 timeout_duration(),

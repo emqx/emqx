@@ -69,7 +69,7 @@ make_iterator(Node, DB, Shard, Stream, TopicFilter, StartTime) ->
     | {ok, end_of_stream}
     | {error, _}.
 next(Node, DB, Shard, Iter, BatchSize) ->
-    erpc:call(Node, emqx_ds_replication_layer, do_next_v1, [DB, Shard, Iter, BatchSize]).
+    emqx_rpc:call(Shard, Node, emqx_ds_replication_layer, do_next_v1, [DB, Shard, Iter, BatchSize]).
 
 -spec store_batch(
     node(),
@@ -80,7 +80,9 @@ next(Node, DB, Shard, Iter, BatchSize) ->
 ) ->
     emqx_ds:store_batch_result().
 store_batch(Node, DB, Shard, Batch, Options) ->
-    erpc:call(Node, emqx_ds_replication_layer, do_store_batch_v1, [DB, Shard, Batch, Options]).
+    emqx_rpc:call(Shard, Node, emqx_ds_replication_layer, do_store_batch_v1, [
+        DB, Shard, Batch, Options
+    ]).
 
 %%================================================================================
 %% behavior callbacks
