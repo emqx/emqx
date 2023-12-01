@@ -573,7 +573,7 @@ fields_tcp_opts_buffer.label:
 """TCP user-space buffer"""
 
 server_ssl_opts_schema_honor_cipher_order.desc:
-"""An important security setting, it forces the cipher to be set based
+"""An important security setting. It forces the cipher to be set based
  on the server-specified order instead of the client-specified order,
  hence enforcing the (usually more properly configured) security
  ordering of the server administrator."""
@@ -1012,13 +1012,13 @@ fields_ws_opts_supported_subprotocols.label:
 
 broker_shared_subscription_strategy.desc:
 """Dispatch strategy for shared subscription.
-  - `random`: dispatch the message to a random selected subscriber
-  - `round_robin`: select the subscribers in a round-robin manner
-  - `round_robin_per_group`: select the subscribers in round-robin fashion within each shared subscriber group
-  - `local`: select random local subscriber otherwise select random cluster-wide
-  - `sticky`: always use the last selected subscriber to dispatch, until the subscriber disconnects.
-  - `hash_clientid`: select the subscribers by hashing the `clientIds`
-  - `hash_topic`: select the subscribers by hashing the source topic"""
+ - `random`: Randomly select a subscriber for dispatch;
+ - `round_robin`: Messages from a single publisher are dispatched to subscribers in turn;
+ - `round_robin_per_group`: All messages are dispatched to subscribers in turn;
+ - `local`: Randomly select a subscriber on the current node, if there are no subscribers on the current node, then randomly select within the cluster;
+ - `sticky`: Continuously dispatch messages to the initially selected subscriber until their session ends;
+ - `hash_clientid`: Hash the publisher's client ID to select a subscriber;
+ - `hash_topic`: Hash the publishing topic to select a subscriber."""
 
 fields_deflate_opts_mem_level.desc:
 """Specifies the size of the compression state.<br/>
