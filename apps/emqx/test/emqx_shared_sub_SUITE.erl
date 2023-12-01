@@ -63,7 +63,6 @@ init_per_suite(Config) ->
         end,
     emqx_common_test_helpers:boot_modules(all),
     emqx_common_test_helpers:start_apps([]),
-    emqx_logger:set_log_level(debug),
     [{dist_pid, DistPid} | Config].
 
 end_per_suite(Config) ->
