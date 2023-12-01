@@ -24,7 +24,6 @@
 
 -export([
     bridge_v2_examples/1,
-    %%conn_bridge_examples/1,
     connector_examples/1
 ]).
 
@@ -169,7 +168,7 @@ basic_config() ->
                 }
             )},
         {description, emqx_schema:description_schema()}
-    ] ++ http_resource_opts() ++ connector_opts().
+    ] ++ connector_opts().
 
 request_config() ->
     [
@@ -321,7 +320,7 @@ http_resource_opts() ->
 connector_opts() ->
     mark_request_field_deperecated(
         proplists:delete(max_retries, emqx_bridge_http_connector:fields(config))
-    ).
+    ) ++ http_resource_opts().
 
 mark_request_field_deperecated(Fields) ->
     lists:map(
