@@ -115,13 +115,19 @@ start(NodeSpecs) ->
     % 2. Start applications needed to enable clustering
     % Generally, this causes some applications to restart, but we deliberately don't
     % start them yet.
-    _ = lists:foreach(fun run_node_phase_cluster/1, NodeSpecs),
+    ShouldAppearInRunningNodes = lists:map(fun run_node_phase_cluster/1, NodeSpecs),
+    IsClustered = lists:member(true, ShouldAppearInRunningNodes),
     % 3. Start applications after cluster is formed
     % Cluster-joins are complete, so they shouldn't restart in the background anymore.
     _ = emqx_utils:pmap(fun run_node_phase_apps/1, NodeSpecs, ?TIMEOUT_APPS_START_MS),
     Nodes = [Node || #{name := Node} <- NodeSpecs],
     %% 4. Wait for the nodes to cluster
-    ok = wait_clustered(Nodes, ?TIMEOUT_CLUSTER_WAIT_MS),
+    case IsClustered of
+        true ->
+            ok = wait_clustered(Nodes, ?TIMEOUT_CLUSTER_WAIT_MS);
+        false ->
+            ok
+    end,
     Nodes.
 
 %% Wait until all nodes see all nodes as mria running nodes
@@ -377,11 +383,11 @@ node_init(Node) ->
     ok = snabbkaffe:forward_trace(Node),
     ok.
 
+%% Returns 'true' if this node should appear in running nodes list.
 run_node_phase_cluster(Spec = #{name := Node}) ->
     ok = load_apps(Node, Spec),
     ok = start_apps_clustering(Node, Spec),
-    ok = maybe_join_cluster(Node, Spec),
-    ok.
+    maybe_join_cluster(Node, Spec).
 
 run_node_phase_apps(Spec = #{name := Node}) ->
     ok = start_apps(Node, Spec),
@@ -405,18 +411,20 @@ start_apps(Node, #{apps := Apps} = Spec) ->
 suite_opts(Spec) ->
     maps:with([work_dir, boot_type], Spec).
 
+%% Returns 'true' if this node should appear in the cluster.
 maybe_join_cluster(_Node, #{boot_type := restart}) ->
     %% when restart, the node should already be in the cluster
     %% hence no need to (re)join
-    ok;
+    true;
 maybe_join_cluster(_Node, #{role := replicant}) ->
-    ok;
+    true;
 maybe_join_cluster(Node, Spec) ->
     case get_cluster_seeds(Spec) of
         [JoinTo | _] ->
-            ok = join_cluster(Node, JoinTo);
+            ok = join_cluster(Node, JoinTo),
+            true;
         [] ->
-            ok
+            false
     end.
 
 join_cluster(Node, JoinTo) ->
