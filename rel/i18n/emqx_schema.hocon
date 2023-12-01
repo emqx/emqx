@@ -1580,13 +1580,13 @@ session_ds_session_gc_batch_size.desc:
 session_ds_max_batch_size.desc:
 """This value affects the flow control for the persistent sessions.
 The session queries the DB for the new messages in batches.
-Size of the batch doesn't exceed this value or `RecieveMaximum`, whichever is smaller."""
+Size of the batch doesn't exceed this value or `ReceiveMaximum`, whichever is smaller."""
 
 session_ds_min_batch_size.desc:
 """This value affects the flow control for the persistent sessions.
 The session will query the DB for the new messages when the value of `FreeSpace` variable is larger than this value or `ReceiveMaximum` / 2, whichever is smaller.
 
-FreeSpace is calculated as `ReceiveMaximum` for the session - number of inflight messages."""
+`FreeSpace` is calculated as `ReceiveMaximum` for the session - number of inflight messages."""
 
 
 }
