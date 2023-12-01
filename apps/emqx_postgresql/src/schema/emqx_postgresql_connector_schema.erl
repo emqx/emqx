@@ -49,7 +49,11 @@ fields("connection_fields") ->
         adjust_fields(emqx_connector_schema_lib:relational_db_fields()) ++
         emqx_connector_schema_lib:ssl_fields();
 fields("config_connector") ->
-    fields("connection_fields") ++ emqx_connector_schema:common_fields();
+    fields("connection_fields") ++
+        emqx_connector_schema:common_fields() ++
+        emqx_connector_schema:resource_opts_ref(?MODULE, resource_opts);
+fields(resource_opts) ->
+    emqx_connector_schema:resource_opts_fields();
 fields(config) ->
     fields("config_connector") ++
         fields(action);
@@ -159,5 +163,7 @@ values(common) ->
 
 desc("config_connector") ->
     ?DESC("config_connector");
+desc(resource_opts) ->
+    ?DESC(emqx_resource_schema, "resource_opts");
 desc(_) ->
     undefined.
