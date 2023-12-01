@@ -58,15 +58,15 @@ on:
       otp_vsn:
         required: false
         type: string
-        default: '25.3.2-2'
+        default: '26.1.2-2'
       elixir_vsn:
         required: false
         type: string
-        default: '1.14.5'
+        default: '1.15.7'
       builder_vsn:
         required: false
         type: string
-        default: '5.2-3'
+        default: '5.2-8'
 
 permissions:
   contents: read

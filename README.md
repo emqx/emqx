@@ -95,7 +95,9 @@ For more organised improvement proposals, you can send pull requests to [EIP](ht
 
 The `master` branch tracks the latest version 5. For version 4.4 checkout the `main-v4.4` branch.
 
-EMQX 4.4 requires OTP 24. EMQX 5.0 and 5.1 can be built with OTP 24 or 25.
+EMQX 4.4 requires OTP 24.
+EMQX 5.0 ~ 5.3 can be built with OTP 24 or 25.
+EMQX 5.4 and newer can be built with OTP 24 or 25.
 
 ```bash
 git clone https://github.com/emqx/emqx.git

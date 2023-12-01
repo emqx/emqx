@@ -14,7 +14,7 @@ jobs:
     if: github.repository_owner == 'emqx'
     runs-on: ${{ endsWith(github.repository, '/emqx') && 'ubuntu-22.04' || fromJSON('["self-hosted","ephemeral","linux","x64"]') }}
     container:
-      image: "ghcr.io/emqx/emqx-builder/${{ matrix.builder }}:${{ matrix.elixir }}-${{ matrix.otp }}-${{ matrix.os }}"
+      image: "ghcr.io/emqx/emqx-builder/${{ matrix.builder }}-${{ matrix.os }}"
 
     strategy:
       fail-fast: false
@@ -22,8 +22,6 @@ jobs:
         profile:
           - ['emqx', 'master']
           - ['emqx-enterprise', 'release-54']
-        otp:
-          - 25.3.2-2
         arch:
           - x64
         os:
@@ -31,9 +29,7 @@ jobs:
           - ubuntu22.04
           - amzn2023
         builder:
-          - 5.2-3
-        elixir:
-          - 1.14.5
+          - 5.2-8:1.15.7-26.1.2-2
 
     defaults:
       run:
@@ -98,7 +94,7 @@ jobs:
         branch:
           - master
         otp:
-          - 25.3.2-2
+          - 26.1.2-2
         os:
           - macos-12-arm64
 
