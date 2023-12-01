@@ -103,6 +103,10 @@ schema_modules() ->
     [emqx_bridge_http_schema].
 -endif.
 
+%% @doc Return old bridge(v1) and/or connector(v2) type
+%% from the latest connector type name.
+connector_type_to_bridge_types(http) ->
+    [webhook, http];
 connector_type_to_bridge_types(azure_event_hub_producer) ->
     [azure_event_hub_producer];
 connector_type_to_bridge_types(confluent_producer) ->
