@@ -52,6 +52,7 @@
 -define(TIMEOUT_NODE_START_MS, 15000).
 -define(TIMEOUT_APPS_START_MS, 30000).
 -define(TIMEOUT_NODE_STOP_S, 15).
+-define(TIMEOUT_CLUSTER_WAIT_MS, timer:seconds(10)).
 
 %%
 
@@ -118,7 +119,42 @@ start(NodeSpecs) ->
     % 3. Start applications after cluster is formed
     % Cluster-joins are complete, so they shouldn't restart in the background anymore.
     _ = emqx_utils:pmap(fun run_node_phase_apps/1, NodeSpecs, ?TIMEOUT_APPS_START_MS),
-    [Node || #{name := Node} <- NodeSpecs].
+    Nodes = [Node || #{name := Node} <- NodeSpecs],
+    %% 4. Wait for the nodes to cluster
+    ok = wait_clustered(Nodes, ?TIMEOUT_CLUSTER_WAIT_MS),
+    Nodes.
+
+%% Wait until all nodes see all nodes as mria running nodes
+wait_clustered(Nodes, Timeout) ->
+    Check = fun(Node) ->
+        Running = erpc:call(Node, mria, running_nodes, []),
+        case Nodes -- Running of
+            [] ->
+                true;
+            NotRunning ->
+                {false, NotRunning}
+        end
+    end,
+    wait_clustered(Nodes, Check, deadline(Timeout)).
+
+wait_clustered([], _Check, _Deadline) ->
+    ok;
+wait_clustered([Node | Nodes] = All, Check, Deadline) ->
+    IsOverdue = is_overdue(Deadline),
+    case Check(Node) of
+        true ->
+            wait_clustered(Nodes, Check, Deadline);
+        {false, NodesNotRunnging} when IsOverdue ->
+            error(
+                {timeout, #{
+                    checking_from_node => Node,
+                    nodes_not_running => NodesNotRunnging
+                }}
+            );
+        {false, Nodes} ->
+            timer:sleep(100),
+            wait_clustered(All, Check, Deadline)
+    end.
 
 restart(Node, Spec) ->
     ct:pal("Stopping peer node ~p", [Node]),
@@ -304,15 +340,21 @@ start_bare_nodes(Names, Timeout) ->
         end,
         Names
     ),
-    Deadline = erlang:monotonic_time() + erlang:convert_time_unit(Timeout, millisecond, nanosecond),
+    Deadline = deadline(Timeout),
     Nodes = wait_boot_complete(Waits, Deadline),
     lists:foreach(fun(Node) -> pong = net_adm:ping(Node) end, Nodes),
     Nodes.
 
+deadline(Timeout) ->
+    erlang:monotonic_time() + erlang:convert_time_unit(Timeout, millisecond, nanosecond).
+
+is_overdue(Deadline) ->
+    erlang:monotonic_time() > Deadline.
+
 wait_boot_complete([], _) ->
     [];
 wait_boot_complete(Waits, Deadline) ->
-    case erlang:monotonic_time() > Deadline of
+    case is_overdue(Deadline) of
         true ->
             error({timeout, Waits});
         false ->
