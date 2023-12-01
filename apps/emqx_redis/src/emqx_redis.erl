@@ -20,7 +20,7 @@
 -include_lib("hocon/include/hoconsc.hrl").
 -include_lib("emqx/include/logger.hrl").
 
--export([roots/0, fields/1, redis_fields/0, desc/1]).
+-export([namespace/0, roots/0, fields/1, redis_fields/0, desc/1]).
 
 -behaviour(emqx_resource).
 
@@ -45,6 +45,8 @@
 }).
 
 %%=====================================================================
+namespace() -> "redis".
+
 roots() ->
     [
         {config, #{
