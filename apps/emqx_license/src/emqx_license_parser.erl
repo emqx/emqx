@@ -32,7 +32,14 @@
 
 -type license_type() :: ?OFFICIAL | ?TRIAL.
 
--type license() :: #{module := module(), data := license_data()}.
+-type license() :: #{
+    %% the parser module which parsed the license
+    module := module(),
+    %% the parse result
+    data := license_data(),
+    %% the source of the license, e.g. "file://path/to/license/file" or "******" for license key
+    source := binary()
+}.
 
 -export_type([
     license_data/0,
@@ -45,10 +52,17 @@
     parse/1,
     parse/2,
     dump/1,
+    summary/1,
     customer_type/1,
     license_type/1,
     expiry_date/1,
     max_connections/1
+]).
+
+%% for testing purpose
+-export([
+    default/0,
+    pubkey/0
 ]).
 
 %%--------------------------------------------------------------------
@@ -58,6 +72,9 @@
 -callback parse(string() | binary(), binary()) -> {ok, license_data()} | {error, term()}.
 
 -callback dump(license_data()) -> list({atom(), term()}).
+
+%% provide a summary map for logging purposes
+-callback summary(license_data()) -> map().
 
 -callback customer_type(license_data()) -> customer_type().
 
@@ -71,25 +88,47 @@
 %% API
 %%--------------------------------------------------------------------
 
--ifdef(TEST).
--spec parse(string() | binary()) -> {ok, license()} | {error, term()}.
-parse(Content) ->
-    PubKey = persistent_term:get(emqx_license_test_pubkey, ?PUBKEY),
-    parse(Content, PubKey).
--else.
--spec parse(string() | binary()) -> {ok, license()} | {error, term()}.
-parse(Content) ->
-    parse(Content, ?PUBKEY).
--endif.
+pubkey() -> ?PUBKEY.
+default() -> emqx_license_schema:default_license().
 
-parse(Content, Pem) ->
-    [PemEntry] = public_key:pem_decode(Pem),
+%% @doc Parse license key.
+%% If the license key is prefixed with "file://path/to/license/file",
+%% then the license key is read from the file.
+-spec parse(default | string() | binary()) -> {ok, license()} | {error, map()}.
+parse(Content) ->
+    parse(to_bin(Content), ?MODULE:pubkey()).
+
+parse(<<"default">>, PubKey) ->
+    parse(?MODULE:default(), PubKey);
+parse(<<"file://", Path/binary>> = FileKey, PubKey) ->
+    case file:read_file(Path) of
+        {ok, Content} ->
+            case parse(Content, PubKey) of
+                {ok, License} ->
+                    {ok, License#{source => FileKey}};
+                {error, Reason} ->
+                    {error, Reason#{
+                        license_file => Path
+                    }}
+            end;
+        {error, Reason} ->
+            {error, #{
+                license_file => Path,
+                read_error => Reason
+            }}
+    end;
+parse(Content, PubKey) ->
+    [PemEntry] = public_key:pem_decode(PubKey),
     Key = public_key:pem_entry_decode(PemEntry),
     do_parse(iolist_to_binary(Content), Key, ?LICENSE_PARSE_MODULES, []).
 
 -spec dump(license()) -> list({atom(), term()}).
 dump(#{module := Module, data := LicenseData}) ->
     Module:dump(LicenseData).
+
+-spec summary(license()) -> map().
+summary(#{module := Module, data := Data}) ->
+    Module:summary(Data).
 
 -spec customer_type(license()) -> customer_type().
 customer_type(#{module := Module, data := LicenseData}) ->
@@ -112,14 +151,21 @@ max_connections(#{module := Module, data := LicenseData}) ->
 %%--------------------------------------------------------------------
 
 do_parse(_Content, _Key, [], Errors) ->
-    {error, lists:reverse(Errors)};
+    {error, #{parse_results => lists:reverse(Errors)}};
 do_parse(Content, Key, [Module | Modules], Errors) ->
     try Module:parse(Content, Key) of
         {ok, LicenseData} ->
-            {ok, #{module => Module, data => LicenseData}};
+            {ok, #{module => Module, data => LicenseData, source => <<"******">>}};
         {error, Error} ->
-            do_parse(Content, Key, Modules, [{Module, Error} | Errors])
+            do_parse(Content, Key, Modules, [#{module => Module, error => Error} | Errors])
     catch
         _Class:Error:Stacktrace ->
-            do_parse(Content, Key, Modules, [{Module, {Error, Stacktrace}} | Errors])
+            do_parse(Content, Key, Modules, [
+                #{module => Module, error => Error, stacktrace => Stacktrace} | Errors
+            ])
     end.
+
+to_bin(A) when is_atom(A) ->
+    atom_to_binary(A);
+to_bin(L) ->
+    iolist_to_binary(L).

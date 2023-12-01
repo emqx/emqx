@@ -37,8 +37,7 @@ gateway_name.desc:
 """Gateway Name"""
 
 gateway_name_in_qs.desc:
-"""Gateway Name.<br/>
-It's enum with `stomp`, `mqttsn`, `coap`, `lwm2m`, `exproto`"""
+"""Gateway Name"""
 
 gateway_node_status.desc:
 """The status of the gateway on each node in the cluster"""

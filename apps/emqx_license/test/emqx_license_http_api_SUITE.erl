@@ -19,6 +19,7 @@ all() ->
     emqx_common_test_helpers:all(?MODULE).
 
 init_per_suite(Config) ->
+    emqx_license_test_lib:mock_parser(),
     _ = application:load(emqx_conf),
     emqx_config:save_schema_mod_and_names(emqx_license_schema),
     emqx_common_test_helpers:start_apps([emqx_license, emqx_dashboard], fun set_special_configs/1),
@@ -31,7 +32,7 @@ end_per_suite(_) ->
     emqx_config:put([license], Config),
     RawConfig = #{<<"key">> => LicenseKey},
     emqx_config:put_raw([<<"license">>], RawConfig),
-    persistent_term:erase(emqx_license_test_pubkey),
+    emqx_license_test_lib:unmock_parser(),
     ok.
 
 set_special_configs(emqx_dashboard) ->
@@ -48,10 +49,6 @@ set_special_configs(emqx_license) ->
         <<"connection_high_watermark">> => <<"80%">>
     },
     emqx_config:put_raw([<<"license">>], RawConfig),
-    ok = persistent_term:put(
-        emqx_license_test_pubkey,
-        emqx_license_test_lib:public_key_pem()
-    ),
     ok;
 set_special_configs(_) ->
     ok.
@@ -111,6 +108,19 @@ t_license_info(_Config) ->
         },
         emqx_utils_json:decode(Payload, [return_maps])
     ),
+    ok.
+
+t_set_default_license(_Config) ->
+    NewKey = <<"default">>,
+    Res = request(
+        post,
+        uri(["license"]),
+        #{key => NewKey}
+    ),
+    ?assertMatch({ok, 200, _}, Res),
+    {ok, 200, Payload} = Res,
+    %% assert that it's not the string "default" returned
+    ?assertMatch(#{<<"customer">> := _}, emqx_utils_json:decode(Payload, [return_maps])),
     ok.
 
 t_license_upload_key_success(_Config) ->

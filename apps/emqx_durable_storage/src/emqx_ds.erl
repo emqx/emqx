@@ -35,7 +35,6 @@
 
 -export_type([
     create_db_opts/0,
-    builtin_db_opts/0,
     db/0,
     time/0,
     topic_filter/0,
@@ -47,7 +46,10 @@
     next_result/1, next_result/0,
     store_batch_result/0,
     make_iterator_result/1, make_iterator_result/0,
-    get_iterator_result/1
+    get_iterator_result/1,
+
+    ds_specific_stream/0,
+    ds_specific_iterator/0
 ]).
 
 %%================================================================================
@@ -64,9 +66,13 @@
 
 -type stream_rank() :: {term(), integer()}.
 
--opaque stream() :: emqx_ds_replication_layer:stream().
+-opaque iterator() :: ds_specific_iterator().
 
--opaque iterator() :: emqx_ds_replication_layer:iterator().
+-opaque stream() :: ds_specific_stream().
+
+-type ds_specific_iterator() :: term().
+
+-type ds_specific_stream() :: term().
 
 -type store_batch_result() :: ok | {error, _}.
 
@@ -87,14 +93,14 @@
 
 -type message_store_opts() :: #{}.
 
--type builtin_db_opts() ::
+-type generic_db_opts() ::
     #{
-        backend := builtin,
-        storage := emqx_ds_storage_layer:prototype()
+        backend := atom(),
+        _ => _
     }.
 
 -type create_db_opts() ::
-    builtin_db_opts().
+    emqx_ds_replication_layer:builtin_db_opts() | generic_db_opts().
 
 -type message_id() :: emqx_ds_replication_layer:message_id().
 
@@ -114,9 +120,10 @@
 
 -callback store_batch(db(), [emqx_types:message()], message_store_opts()) -> store_batch_result().
 
--callback get_streams(db(), topic_filter(), time()) -> [{stream_rank(), stream()}].
+-callback get_streams(db(), topic_filter(), time()) -> [{stream_rank(), ds_specific_stream()}].
 
--callback make_iterator(db(), _Stream, topic_filter(), time()) -> make_iterator_result(_Iterator).
+-callback make_iterator(db(), ds_specific_stream(), topic_filter(), time()) ->
+    make_iterator_result(ds_specific_iterator()).
 
 -callback next(db(), Iterator, pos_integer()) -> next_result(Iterator).
 
@@ -127,10 +134,11 @@
 %% @doc Different DBs are completely independent from each other. They
 %% could represent something like different tenants.
 -spec open_db(db(), create_db_opts()) -> ok.
-open_db(DB, Opts = #{backend := Backend}) when Backend =:= builtin ->
+open_db(DB, Opts = #{backend := Backend}) when Backend =:= builtin orelse Backend =:= fdb ->
     Module =
         case Backend of
-            builtin -> emqx_ds_replication_layer
+            builtin -> emqx_ds_replication_layer;
+            fdb -> emqx_fdb_ds
         end,
     persistent_term:put(?persistent_term(DB), Module),
     ?module(DB):open_db(DB, Opts).

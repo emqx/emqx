@@ -146,6 +146,35 @@ create_bridge(Config, Overrides) ->
     ct:pal("creating bridge with config: ~p", [BridgeConfig]),
     emqx_bridge_v2:create(BridgeType, BridgeName, BridgeConfig).
 
+maybe_json_decode(X) ->
+    case emqx_utils_json:safe_decode(X, [return_maps]) of
+        {ok, Decoded} -> Decoded;
+        {error, _} -> X
+    end.
+
+request(Method, Path, Params) ->
+    AuthHeader = emqx_mgmt_api_test_util:auth_header_(),
+    Opts = #{return_all => true},
+    case emqx_mgmt_api_test_util:request_api(Method, Path, "", AuthHeader, Params, Opts) of
+        {ok, {Status, Headers, Body0}} ->
+            Body = maybe_json_decode(Body0),
+            {ok, {Status, Headers, Body}};
+        {error, {Status, Headers, Body0}} ->
+            Body =
+                case emqx_utils_json:safe_decode(Body0, [return_maps]) of
+                    {ok, Decoded0 = #{<<"message">> := Msg0}} ->
+                        Msg = maybe_json_decode(Msg0),
+                        Decoded0#{<<"message">> := Msg};
+                    {ok, Decoded0} ->
+                        Decoded0;
+                    {error, _} ->
+                        Body0
+                end,
+            {error, {Status, Headers, Body}};
+        Error ->
+            Error
+    end.
+
 list_bridges_api() ->
     Params = [],
     Path = emqx_mgmt_api_test_util:api_path(["actions"]),
@@ -207,6 +236,50 @@ create_bridge_api(Config, Overrides) ->
                 Error
         end,
     ct:pal("bridge create result: ~p", [Res]),
+    Res.
+
+create_connector_api(Config) ->
+    create_connector_api(Config, _Overrides = #{}).
+
+create_connector_api(Config, Overrides) ->
+    ConnectorConfig0 = ?config(connector_config, Config),
+    ConnectorName = ?config(connector_name, Config),
+    ConnectorType = ?config(connector_type, Config),
+    Method = post,
+    Path = emqx_mgmt_api_test_util:api_path(["connectors"]),
+    ConnectorConfig = emqx_utils_maps:deep_merge(ConnectorConfig0, Overrides),
+    Params = ConnectorConfig#{<<"type">> => ConnectorType, <<"name">> => ConnectorName},
+    ct:pal("creating connector (http):\n  ~p", [Params]),
+    Res = request(Method, Path, Params),
+    ct:pal("connector create (http) result:\n  ~p", [Res]),
+    Res.
+
+create_action_api(Config) ->
+    create_action_api(Config, _Overrides = #{}).
+
+create_action_api(Config, Overrides) ->
+    ActionName = ?config(action_name, Config),
+    ActionType = ?config(action_type, Config),
+    ActionConfig0 = ?config(action_config, Config),
+    ActionConfig = emqx_utils_maps:deep_merge(ActionConfig0, Overrides),
+    Params = ActionConfig#{<<"type">> => ActionType, <<"name">> => ActionName},
+    Method = post,
+    Path = emqx_mgmt_api_test_util:api_path(["actions"]),
+    ct:pal("creating action (http):\n  ~p", [Params]),
+    Res = request(Method, Path, Params),
+    ct:pal("action create (http) result:\n  ~p", [Res]),
+    Res.
+
+get_action_api(Config) ->
+    ActionName = ?config(action_name, Config),
+    ActionType = ?config(action_type, Config),
+    ActionId = emqx_bridge_resource:bridge_id(ActionType, ActionName),
+    Params = [],
+    Method = get,
+    Path = emqx_mgmt_api_test_util:api_path(["actions", ActionId]),
+    ct:pal("getting action (http)"),
+    Res = request(Method, Path, Params),
+    ct:pal("get action (http) result:\n  ~p", [Res]),
     Res.
 
 update_bridge_api(Config) ->
@@ -552,18 +625,24 @@ t_on_get_status(Config, Opts) ->
         _Attempts = 20,
         ?assertEqual({ok, connected}, emqx_resource_manager:health_check(ResourceId))
     ),
-    emqx_common_test_helpers:with_failure(down, ProxyName, ProxyHost, ProxyPort, fun() ->
-        ct:sleep(500),
-        ?retry(
-            _Interval0 = 200,
-            _Attempts0 = 10,
-            ?assertEqual({ok, FailureStatus}, emqx_resource_manager:health_check(ResourceId))
-        )
-    end),
-    %% Check that it recovers itself.
-    ?retry(
-        _Sleep = 1_000,
-        _Attempts = 20,
-        ?assertEqual({ok, connected}, emqx_resource_manager:health_check(ResourceId))
-    ),
+    case ProxyHost of
+        undefined ->
+            ok;
+        _ ->
+            emqx_common_test_helpers:with_failure(down, ProxyName, ProxyHost, ProxyPort, fun() ->
+                ?retry(
+                    _Interval0 = 100,
+                    _Attempts0 = 20,
+                    ?assertEqual(
+                        {ok, FailureStatus}, emqx_resource_manager:health_check(ResourceId)
+                    )
+                )
+            end),
+            %% Check that it recovers itself.
+            ?retry(
+                _Sleep = 1_000,
+                _Attempts = 20,
+                ?assertEqual({ok, connected}, emqx_resource_manager:health_check(ResourceId))
+            )
+    end,
     ok.

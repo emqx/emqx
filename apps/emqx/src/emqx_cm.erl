@@ -91,6 +91,7 @@
     clean_down/1,
     mark_channel_connected/1,
     mark_channel_disconnected/1,
+    is_channel_connected/1,
     get_connected_client_count/0
 ]).
 

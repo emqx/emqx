@@ -21,6 +21,7 @@
 -include_lib("hocon/include/hoconsc.hrl").
 -include_lib("emqx/include/logger.hrl").
 -include_lib("emqx_utils/include/emqx_utils_api.hrl").
+-include_lib("emqx_bridge/include/emqx_bridge.hrl").
 
 -import(hoconsc, [mk/2, array/1, enum/1]).
 -import(emqx_utils, [redact/1]).
@@ -37,6 +38,8 @@
 -export([
     '/actions'/2,
     '/actions/:id'/2,
+    '/actions/:id/metrics'/2,
+    '/actions/:id/metrics/reset'/2,
     '/actions/:id/enable/:enable'/2,
     '/actions/:id/:operation'/2,
     '/nodes/:node/actions/:id/:operation'/2,
@@ -44,8 +47,8 @@
     '/action_types'/2
 ]).
 
-%% BpAPI
--export([lookup_from_local_node/2]).
+%% BpAPI / RPC Targets
+-export([lookup_from_local_node/2, get_metrics_from_local_node/2]).
 
 -define(BRIDGE_NOT_FOUND(BRIDGE_TYPE, BRIDGE_NAME),
     ?NOT_FOUND(
@@ -80,6 +83,10 @@ paths() ->
         "/actions/:id/enable/:enable",
         "/actions/:id/:operation",
         "/nodes/:node/actions/:id/:operation",
+        %% Caveat: metrics paths must come *after* `/:operation', otherwise minirest will
+        %% try to match the latter first, trying to interpret `metrics' as an operation...
+        "/actions/:id/metrics",
+        "/actions/:id/metrics/reset",
         "/actions_probe",
         "/action_types"
     ].
@@ -244,6 +251,34 @@ schema("/actions/:id") ->
                 ),
                 404 => error_schema('NOT_FOUND', "Bridge not found"),
                 503 => error_schema('SERVICE_UNAVAILABLE', "Service unavailable")
+            }
+        }
+    };
+schema("/actions/:id/metrics") ->
+    #{
+        'operationId' => '/actions/:id/metrics',
+        get => #{
+            tags => [<<"actions">>],
+            summary => <<"Get action metrics">>,
+            description => ?DESC("desc_bridge_metrics"),
+            parameters => [param_path_id()],
+            responses => #{
+                200 => emqx_bridge_schema:metrics_fields(),
+                404 => error_schema('NOT_FOUND', "Action not found")
+            }
+        }
+    };
+schema("/actions/:id/metrics/reset") ->
+    #{
+        'operationId' => '/actions/:id/metrics/reset',
+        put => #{
+            tags => [<<"actions">>],
+            summary => <<"Reset action metrics">>,
+            description => ?DESC("desc_api6"),
+            parameters => [param_path_id()],
+            responses => #{
+                204 => <<"Reset success">>,
+                404 => error_schema('NOT_FOUND', "Action not found")
             }
         }
     };
@@ -429,6 +464,19 @@ schema("/action_types") ->
         end
     ).
 
+'/actions/:id/metrics'(get, #{bindings := #{id := Id}}) ->
+    ?TRY_PARSE_ID(Id, get_metrics_from_all_nodes(BridgeType, BridgeName)).
+
+'/actions/:id/metrics/reset'(put, #{bindings := #{id := Id}}) ->
+    ?TRY_PARSE_ID(
+        Id,
+        begin
+            ActionType = emqx_bridge_v2:bridge_v2_type_to_connector_type(BridgeType),
+            ok = emqx_bridge_v2:reset_metrics(ActionType, BridgeName),
+            ?NO_CONTENT
+        end
+    ).
+
 '/actions/:id/enable/:enable'(put, #{bindings := #{id := Id, enable := Enable}}) ->
     ?TRY_PARSE_ID(
         Id,
@@ -566,6 +614,18 @@ lookup_from_all_nodes(BridgeType, BridgeName, SuccCode) ->
             {SuccCode, format_bridge_info([R || {ok, R} <- Results])};
         {ok, [{error, not_found} | _]} ->
             ?BRIDGE_NOT_FOUND(BridgeType, BridgeName);
+        {error, Reason} ->
+            ?INTERNAL_ERROR(Reason)
+    end.
+
+get_metrics_from_all_nodes(ActionType, ActionName) ->
+    Nodes = emqx:running_nodes(),
+    Result = maybe_unwrap(
+        emqx_bridge_proto_v5:v2_get_metrics_from_all_nodes(Nodes, ActionType, ActionName)
+    ),
+    case Result of
+        Metrics when is_list(Metrics) ->
+            {200, format_bridge_metrics(lists:zip(Nodes, Metrics))};
         {error, Reason} ->
             ?INTERNAL_ERROR(Reason)
     end.
@@ -720,11 +780,16 @@ aggregate_status(AllStatus) ->
         false -> inconsistent
     end.
 
+%% RPC Target
 lookup_from_local_node(BridgeType, BridgeName) ->
     case emqx_bridge_v2:lookup(BridgeType, BridgeName) of
         {ok, Res} -> {ok, format_resource(Res, node())};
         Error -> Error
     end.
+
+%% RPC Target
+get_metrics_from_local_node(ActionType, ActionName) ->
+    format_metrics(emqx_bridge_v2:get_metrics(ActionType, ActionName)).
 
 %% resource
 format_resource(
@@ -749,6 +814,123 @@ format_resource(
             },
             format_bridge_status_and_error(#{status => Status, error => Error})
         )
+    ).
+
+format_metrics(#{
+    counters := #{
+        'dropped' := Dropped,
+        'dropped.other' := DroppedOther,
+        'dropped.expired' := DroppedExpired,
+        'dropped.queue_full' := DroppedQueueFull,
+        'dropped.resource_not_found' := DroppedResourceNotFound,
+        'dropped.resource_stopped' := DroppedResourceStopped,
+        'matched' := Matched,
+        'retried' := Retried,
+        'late_reply' := LateReply,
+        'failed' := SentFailed,
+        'success' := SentSucc,
+        'received' := Rcvd
+    },
+    gauges := Gauges,
+    rate := #{
+        matched := #{current := Rate, last5m := Rate5m, max := RateMax}
+    }
+}) ->
+    Queued = maps:get('queuing', Gauges, 0),
+    SentInflight = maps:get('inflight', Gauges, 0),
+    ?METRICS(
+        Dropped,
+        DroppedOther,
+        DroppedExpired,
+        DroppedQueueFull,
+        DroppedResourceNotFound,
+        DroppedResourceStopped,
+        Matched,
+        Queued,
+        Retried,
+        LateReply,
+        SentFailed,
+        SentInflight,
+        SentSucc,
+        Rate,
+        Rate5m,
+        RateMax,
+        Rcvd
+    );
+format_metrics(_Metrics) ->
+    %% Empty metrics: can happen when a node joins another and a
+    %% bridge is not yet replicated to it, so the counters map is
+    %% empty.
+    empty_metrics().
+
+empty_metrics() ->
+    ?METRICS(
+        _Dropped = 0,
+        _DroppedOther = 0,
+        _DroppedExpired = 0,
+        _DroppedQueueFull = 0,
+        _DroppedResourceNotFound = 0,
+        _DroppedResourceStopped = 0,
+        _Matched = 0,
+        _Queued = 0,
+        _Retried = 0,
+        _LateReply = 0,
+        _SentFailed = 0,
+        _SentInflight = 0,
+        _SentSucc = 0,
+        _Rate = 0,
+        _Rate5m = 0,
+        _RateMax = 0,
+        _Rcvd = 0
+    ).
+
+format_bridge_metrics(Bridges) ->
+    NodeMetrics = lists:filtermap(
+        fun
+            ({Node, Metrics}) when is_map(Metrics) ->
+                {true, #{node => Node, metrics => Metrics}};
+            ({Node, _}) ->
+                {true, #{node => Node, metrics => empty_metrics()}}
+        end,
+        Bridges
+    ),
+    #{
+        metrics => aggregate_metrics(NodeMetrics),
+        node_metrics => NodeMetrics
+    }.
+
+aggregate_metrics(AllMetrics) ->
+    InitMetrics = ?EMPTY_METRICS,
+    lists:foldl(fun aggregate_metrics/2, InitMetrics, AllMetrics).
+
+aggregate_metrics(
+    #{
+        metrics := ?metrics(
+            M1, M2, M3, M4, M5, M6, M7, M8, M9, M10, M11, M12, M13, M14, M15, M16, M17
+        )
+    },
+    ?metrics(
+        N1, N2, N3, N4, N5, N6, N7, N8, N9, N10, N11, N12, N13, N14, N15, N16, N17
+    )
+) ->
+    ?METRICS(
+        M1 + N1,
+        M2 + N2,
+        M3 + N3,
+        M4 + N4,
+        M5 + N5,
+        M6 + N6,
+        M7 + N7,
+        M8 + N8,
+        M9 + N9,
+        M10 + N10,
+        M11 + N11,
+        M12 + N12,
+        M13 + N13,
+        M14 + N14,
+        M15 + N15,
+        M16 + N16,
+        M17 + N17
     ).
 
 format_bridge_status_and_error(Data) ->

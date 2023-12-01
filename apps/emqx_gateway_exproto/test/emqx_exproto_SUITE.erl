@@ -636,18 +636,18 @@ close({dtls, Sock}) ->
 %% Server-Opts
 
 socketopts(tcp) ->
-    #{tcp => tcp_opts()};
+    #{tcp_options => tcp_opts()};
 socketopts(ssl) ->
     #{
-        tcp => tcp_opts(),
-        ssl => ssl_opts()
+        tcp_options => tcp_opts(),
+        ssl_options => ssl_opts()
     };
 socketopts(udp) ->
-    #{udp => udp_opts()};
+    #{udp_options => udp_opts()};
 socketopts(dtls) ->
     #{
-        udp => udp_opts(),
-        dtls => dtls_opts()
+        udp_options => udp_opts(),
+        dtls_options => dtls_opts()
     }.
 
 tcp_opts() ->

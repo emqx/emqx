@@ -362,9 +362,10 @@ parse_confs(<<"iotdb">>, Name, Conf) ->
         authentication :=
             #{
                 username := Username,
-                password := Password
+                password := Secret
             }
     } = Conf,
+    Password = emqx_secret:unwrap(Secret),
     BasicToken = base64:encode(<<Username/binary, ":", Password/binary>>),
     %% This version atom correspond to the macro ?VSN_1_1_X in
     %% emqx_bridge_iotdb.hrl. It would be better to use the macro directly, but

@@ -60,15 +60,7 @@ init_per_testcase(_TestCase, Config) ->
     ets:new(fun_table_name(), [named_table, public]),
     %% Create a fake connector
     {ok, _} = emqx_connector:create(con_type(), con_name(), con_config()),
-    [
-        {mocked_mods, [
-            emqx_connector_schema,
-            emqx_connector_resource,
-
-            emqx_bridge_v2
-        ]}
-        | Config
-    ].
+    Config.
 
 end_per_testcase(_TestCase, _Config) ->
     ets:delete(fun_table_name()),

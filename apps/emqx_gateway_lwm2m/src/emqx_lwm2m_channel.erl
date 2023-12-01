@@ -15,6 +15,7 @@
 %%--------------------------------------------------------------------
 
 -module(emqx_lwm2m_channel).
+-behaviour(emqx_gateway_channel).
 
 -include("emqx_lwm2m.hrl").
 -include_lib("emqx/include/emqx.hrl").

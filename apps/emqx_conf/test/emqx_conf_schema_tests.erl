@@ -20,7 +20,7 @@
 
 %% erlfmt-ignore
 -define(BASE_CONF,
-    """
+    "
              node {
                 name = \"emqx1@127.0.0.1\"
                 cookie = \"emqxsecretcookie\"
@@ -34,7 +34,7 @@
                 static.seeds = ~p
                 core_nodes = ~p
              }
-    """).
+    ").
 
 array_nodes_test() ->
     ensure_acl_conf(),
@@ -70,7 +70,7 @@ array_nodes_test() ->
 
 %% erlfmt-ignore
 -define(OUTDATED_LOG_CONF,
-    """
+    "
 log.console_handler {
   burst_limit {
     enable = true
@@ -124,7 +124,7 @@ log.file_handlers {
     time_offset = \"+01:00\"
   }
 }
-    """
+    "
 ).
 -define(FORMATTER(TimeOffset),
     {emqx_logger_textfmt, #{
@@ -196,7 +196,7 @@ validate_log(Conf) ->
 
 %% erlfmt-ignore
 -define(FILE_LOG_BASE_CONF,
-    """
+    "
     log.file.default {
         enable = true
         file = \"log/xx-emqx.log\"
@@ -206,7 +206,7 @@ validate_log(Conf) ->
         rotation_size = ~s
         time_offset = \"+01:00\"
       }
-    """
+    "
 ).
 
 file_log_infinity_rotation_size_test_() ->
@@ -249,7 +249,7 @@ file_log_infinity_rotation_size_test_() ->
 
 %% erlfmt-ignore
 -define(KERNEL_LOG_CONF,
-    """
+    "
     log.console {
        enable = true
        formatter = text
@@ -269,7 +269,7 @@ file_log_infinity_rotation_size_test_() ->
         enable = true
         file = \"log/my-emqx.log\"
       }
-    """
+    "
 ).
 
 log_test() ->
@@ -279,7 +279,7 @@ log_test() ->
 log_rotation_count_limit_test() ->
     ensure_acl_conf(),
     Format =
-    """
+    "
     log.file {
     enable = true
     path = \"log/emqx.log\"
@@ -288,7 +288,7 @@ log_rotation_count_limit_test() ->
     rotation = {count = ~w}
     rotation_size = \"1024MB\"
     }
-    """,
+    ",
     BaseConf = to_bin(?BASE_CONF, ["emqx1@127.0.0.1", "emqx1@127.0.0.1"]),
     lists:foreach(fun({Conf, Count}) ->
         Conf0 = <<BaseConf/binary, Conf/binary>>,
@@ -320,7 +320,7 @@ log_rotation_count_limit_test() ->
 
 %% erlfmt-ignore
 -define(BASE_AUTHN_ARRAY,
-    """
+    "
         authentication = [
           {backend = \"http\"
           body {password = \"${password}\", username = \"${username}\"}
@@ -335,7 +335,7 @@ log_rotation_count_limit_test() ->
           url = \"~ts\"
         }
         ]
-    """
+    "
 ).
 
 -define(ERROR(Error),
@@ -396,13 +396,13 @@ authn_validations_test() ->
 
 %% erlfmt-ignore
 -define(LISTENERS,
-    """
+    "
         listeners.ssl.default.bind = 9999
         listeners.wss.default.bind = 9998
         listeners.wss.default.ssl_options.cacertfile = \"mytest/certs/cacert.pem\"
         listeners.wss.new.bind = 9997
         listeners.wss.new.websocket.mqtt_path = \"/my-mqtt\"
-    """
+    "
 ).
 
 listeners_test() ->

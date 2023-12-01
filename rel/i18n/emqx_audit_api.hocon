@@ -1,0 +1,57 @@
+emqx_audit_api {
+
+audit_get.desc:
+"""Get audit logs based on filter API, empowers users to efficiently
+access the desired audit trail data and facilitates auditing, compliance,
+troubleshooting, and security analysis"""
+
+audit_get.label:
+"List audit logs"
+
+filter_node.desc:
+"Filter logs based on the node name to which the logs are created."
+
+filter_from.desc:
+""""Filter logs based on source type, valid values include:
+`dashboard`: Dashboard request logs, requiring the use of a jwt_token.
+`rest_api`: API KEY request logs.
+`cli`: The emqx command line logs.
+`erlang_console`: The emqx remote_console run function logs."""
+
+filter_source.desc:
+""""Filter logs based on source, Possible values are:
+The login username when logs are generated from the dashboard.
+The API Keys when logs are generated from the REST API.
+empty string when logs are generated from CLI, Erlang console."""
+
+filter_source_ip.desc:
+"Filter logs based on source ip when logs are generated from dashboard and REST API."
+
+filter_operation_id.desc:
+"Filter log with swagger's operation_id when logs are generated from dashboard and REST API."
+
+filter_operation_type.desc:
+"Filter logs with operation type."
+
+filter_operation_result.desc:
+"Filter logs with operation result."
+
+filter_http_status_code.desc:
+"Filter The HTTP API with response code when logs are generated from dashboard and REST API."
+
+filter_http_method.desc:
+"Filter The HTTP API Request with method when logs are generated from dashboard and REST API."
+
+filter_gte_duration_ms.desc:
+"Filter logs with a duration greater than or equal to given microseconds."
+
+filter_lte_duration_ms.desc:
+"Filter logs with a duration less than or equal to given microseconds."
+
+filter_gte_created_at.desc:
+"Filter logs with a creation time greater than or equal to the given timestamp, rfc3339 or timestamp(millisecond)"
+
+filter_lte_created_at.desc:
+"Filter logs with a creation time less than or equal to the given timestamp, rfc3339 or timestamp(millisecond)"
+
+}

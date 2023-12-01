@@ -97,7 +97,13 @@ init(#{
         partition_key => PartitionKey,
         stream_name => StreamName
     },
-    New =
+    %% TODO: teach `erlcloud` to to accept 0-arity closures as passwords.
+    ok = erlcloud_config:configure(
+        to_str(AwsAccessKey),
+        to_str(emqx_secret:unwrap(AwsSecretAccessKey)),
+        Host,
+        Port,
+        Scheme,
         fun(AccessKeyID, SecretAccessKey, HostAddr, HostPort, ConnectionScheme) ->
             Config0 = erlcloud_kinesis:new(
                 AccessKeyID,
@@ -107,9 +113,7 @@ init(#{
                 ConnectionScheme ++ "://"
             ),
             Config0#aws_config{retry_num = MaxRetries}
-        end,
-    erlcloud_config:configure(
-        to_str(AwsAccessKey), to_str(AwsSecretAccessKey), Host, Port, Scheme, New
+        end
     ),
     % check the connection
     case erlcloud_kinesis:list_streams() of

@@ -40,6 +40,7 @@ set_special_configs(_) ->
 %%------------------------------------------------------------------------------
 
 t_parse(_Config) ->
+    Parser = emqx_license_parser_v20220101,
     ?assertMatch({ok, _}, emqx_license_parser:parse(sample_license(), public_key_pem())),
 
     %% invalid version
@@ -61,10 +62,7 @@ t_parse(_Config) ->
     ),
     ?assertMatch({error, _}, Res1),
     {error, Err1} = Res1,
-    ?assertEqual(
-        invalid_version,
-        proplists:get_value(emqx_license_parser_v20220101, Err1)
-    ),
+    ?assertMatch(#{error := invalid_version}, find_error(Parser, Err1)),
 
     %% invalid field number
     Res2 = emqx_license_parser:parse(
@@ -87,9 +85,9 @@ t_parse(_Config) ->
     ),
     ?assertMatch({error, _}, Res2),
     {error, Err2} = Res2,
-    ?assertEqual(
-        unexpected_number_of_fields,
-        proplists:get_value(emqx_license_parser_v20220101, Err2)
+    ?assertMatch(
+        #{error := unexpected_number_of_fields},
+        find_error(Parser, Err2)
     ),
 
     Res3 = emqx_license_parser:parse(
@@ -110,14 +108,17 @@ t_parse(_Config) ->
     ),
     ?assertMatch({error, _}, Res3),
     {error, Err3} = Res3,
-    ?assertEqual(
-        [
-            {type, invalid_license_type},
-            {customer_type, invalid_customer_type},
-            {date_start, invalid_date},
-            {days, invalid_int_value}
-        ],
-        proplists:get_value(emqx_license_parser_v20220101, Err3)
+    ?assertMatch(
+        #{
+            error :=
+                #{
+                    type := invalid_license_type,
+                    customer_type := invalid_customer_type,
+                    date_start := invalid_date,
+                    days := invalid_int_value
+                }
+        },
+        find_error(Parser, Err3)
     ),
 
     Res4 = emqx_license_parser:parse(
@@ -139,14 +140,17 @@ t_parse(_Config) ->
     ?assertMatch({error, _}, Res4),
     {error, Err4} = Res4,
 
-    ?assertEqual(
-        [
-            {type, invalid_license_type},
-            {customer_type, invalid_customer_type},
-            {date_start, invalid_date},
-            {days, invalid_int_value}
-        ],
-        proplists:get_value(emqx_license_parser_v20220101, Err4)
+    ?assertMatch(
+        #{
+            error :=
+                #{
+                    type := invalid_license_type,
+                    customer_type := invalid_customer_type,
+                    date_start := invalid_date,
+                    days := invalid_int_value
+                }
+        },
+        find_error(Parser, Err4)
     ),
 
     %% invalid signature
@@ -189,14 +193,14 @@ t_parse(_Config) ->
     ),
     ?assertMatch({error, _}, Res5),
     {error, Err5} = Res5,
-    ?assertEqual(
-        invalid_signature,
-        proplists:get_value(emqx_license_parser_v20220101, Err5)
+    ?assertMatch(
+        #{error := invalid_signature},
+        find_error(Parser, Err5)
     ),
 
     %% totally invalid strings as license
     ?assertMatch(
-        {error, [_ | _]},
+        {error, #{parse_results := [#{error := bad_license_format}]}},
         emqx_license_parser:parse(
             <<"badlicense">>,
             public_key_pem()
@@ -204,7 +208,7 @@ t_parse(_Config) ->
     ),
 
     ?assertMatch(
-        {error, [_ | _]},
+        {error, #{parse_results := [#{error := bad_license_format}]}},
         emqx_license_parser:parse(
             <<"bad.license">>,
             public_key_pem()
@@ -249,6 +253,20 @@ t_expiry_date(_Config) ->
 
     ?assertEqual({2295, 10, 27}, emqx_license_parser:expiry_date(License)).
 
+t_empty_string(_Config) ->
+    ?assertMatch(
+        {error, #{
+            parse_results := [
+                #{
+                    error := empty_string,
+                    module := emqx_license_parser_v20220101
+                }
+                | _
+            ]
+        }},
+        emqx_license_parser:parse(<<>>)
+    ).
+
 %%------------------------------------------------------------------------------
 %% Helpers
 %%------------------------------------------------------------------------------
@@ -270,3 +288,10 @@ sample_license() ->
             "10"
         ]
     ).
+
+find_error(Module, #{parse_results := Results}) ->
+    find_error(Module, Results);
+find_error(Module, [#{module := Module} = Result | _Results]) ->
+    Result;
+find_error(Module, [_Result | Results]) ->
+    find_error(Module, Results).

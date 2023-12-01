@@ -2,7 +2,7 @@
 {application, emqx_rule_engine, [
     {description, "EMQX Rule Engine"},
     % strict semver, bump manually!
-    {vsn, "5.0.29"},
+    {vsn, "5.0.30"},
     {modules, []},
     {registered, [emqx_rule_engine_sup, emqx_rule_engine]},
     {applications, [
@@ -13,7 +13,11 @@
         uuid,
         emqx,
         emqx_utils,
-        emqx_ctl
+        emqx_ctl,
+        %% rule_engine should wait for bridge connector start,
+        %% it's will check action/connector ref's exist.
+        emqx_bridge,
+        emqx_connector
     ]},
     {mod, {emqx_rule_engine_app, []}},
     {env, []},

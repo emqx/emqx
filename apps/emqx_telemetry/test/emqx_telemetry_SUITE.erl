@@ -817,7 +817,7 @@ stop_slave(Node) ->
     % This line don't work!!
     %emqx_cluster_rpc:fast_forward_to_commit(Node, 100),
     rpc:call(Node, ?MODULE, leave_cluster, []),
-    ok = slave:stop(Node),
+    ok = emqx_cth_peer:stop(Node),
     ?assertEqual([node()], mria:running_nodes()),
     ?assertEqual([], nodes()),
     _ = application:stop(mria),

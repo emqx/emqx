@@ -124,7 +124,13 @@
             emqx_ft,
             emqx_gcp_device,
             emqx_dashboard_rbac,
-            emqx_dashboard_sso
+            emqx_dashboard_sso,
+            emqx_audit,
+            emqx_gateway_gbt32960,
+            emqx_gateway_ocpp,
+            emqx_gateway_jt808,
+            emqx_bridge_syskeeper,
+            emqx_bridge_confluent
         ],
     %% must always be of type `load'
     ce_business_apps =>

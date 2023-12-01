@@ -34,17 +34,9 @@ namespace() -> "authz".
 
 type() -> ?AUTHZ_TYPE.
 
-fields(redis_single) ->
+fields(Type) ->
     emqx_authz_schema:authz_common_fields(?AUTHZ_TYPE) ++
-        emqx_redis:fields(single) ++
-        [{cmd, cmd()}];
-fields(redis_sentinel) ->
-    emqx_authz_schema:authz_common_fields(?AUTHZ_TYPE) ++
-        emqx_redis:fields(sentinel) ++
-        [{cmd, cmd()}];
-fields(redis_cluster) ->
-    emqx_authz_schema:authz_common_fields(?AUTHZ_TYPE) ++
-        emqx_redis:fields(cluster) ++
+        emqx_redis:fields(Type) ++
         [{cmd, cmd()}].
 
 desc(redis_single) ->

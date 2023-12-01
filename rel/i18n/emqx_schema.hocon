@@ -1530,7 +1530,7 @@ sys_event_messages.desc:
 
 broker_routing_storage_schema.desc:
 """Routing storage schema.
-Set <code>v1</code> to leave the default.
+Set <code>v1</code> to use the former schema.
 <code>v2</code> is introduced in 5.2. It enables routing through 2 separate tables, one for topic filter and one for regular topic subscriptions. This schema should increase both subscription and routing performance at the cost of slight increase in memory consumption per subscription.
 NOTE: Schema <code>v2</code> is still experimental.
 NOTE: Full non-rolling cluster restart is needed after altering this option for it to take any effect."""
@@ -1554,5 +1554,27 @@ description.label:
 """Description"""
 description.desc:
 """Descriptive text."""
+
+session_persistence_enable.desc:
+"""Use durable storage for client sessions persistence.
+If enabled, sessions configured to outlive client connections, along with their corresponding messages, will be durably stored and survive broker downtime."""
+
+session_persistence_storage.desc:
+"""Durable storage backend to use for session persistence."""
+
+session_storage_backend_enable.desc:
+"""Enable this backend."""
+
+session_builtin_n_shards.desc:
+"""Number of shards used for storing the messages."""
+
+session_storage_backend_builtin.desc:
+"""Builtin session storage backend utilizing embedded RocksDB key-value store."""
+
+session_ds_session_gc_interval.desc:
+"""The interval at which session garbage collection is executed for persistent sessions."""
+
+session_ds_session_gc_batch_size.desc:
+"""The size of each batch of expired persistent sessions to be garbage collected per iteration."""
 
 }

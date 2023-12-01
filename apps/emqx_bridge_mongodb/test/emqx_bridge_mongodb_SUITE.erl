@@ -11,6 +11,8 @@
 -include_lib("common_test/include/ct.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
+-import(emqx_utils_conv, [bin/1]).
+
 %%------------------------------------------------------------------------------
 %% CT boilerplate
 %%------------------------------------------------------------------------------
@@ -96,14 +98,27 @@ init_per_group(Type = single, Config) ->
         true ->
             ok = start_apps(),
             emqx_mgmt_api_test_util:init_suite(),
-            {Name, MongoConfig} = mongo_config(MongoHost, MongoPort, Type, Config),
+            %% NOTE: `mongo-single` has auth enabled, see `credentials.env`.
+            AuthSource = bin(os:getenv("MONGO_AUTHSOURCE", "admin")),
+            Username = bin(os:getenv("MONGO_USERNAME", "")),
+            Password = bin(os:getenv("MONGO_PASSWORD", "")),
+            Passfile = filename:join(?config(priv_dir, Config), "passfile"),
+            ok = file:write_file(Passfile, Password),
+            NConfig = [
+                {mongo_authsource, AuthSource},
+                {mongo_username, Username},
+                {mongo_password, Password},
+                {mongo_passfile, Passfile}
+                | Config
+            ],
+            {Name, MongoConfig} = mongo_config(MongoHost, MongoPort, Type, NConfig),
             [
                 {mongo_host, MongoHost},
                 {mongo_port, MongoPort},
                 {mongo_config, MongoConfig},
                 {mongo_type, Type},
                 {mongo_name, Name}
-                | Config
+                | NConfig
             ];
         false ->
             {skip, no_mongo}
@@ -117,18 +132,29 @@ init_per_suite(Config) ->
 
 end_per_suite(_Config) ->
     emqx_mgmt_api_test_util:end_suite(),
-    ok = emqx_common_test_helpers:stop_apps([emqx_mongodb, emqx_bridge, emqx_rule_engine, emqx_conf]),
+    ok = emqx_common_test_helpers:stop_apps(
+        [
+            emqx_management,
+            emqx_bridge_mongodb,
+            emqx_mongodb,
+            emqx_bridge,
+            emqx_connector,
+            emqx_rule_engine,
+            emqx_conf
+        ]
+    ),
     ok.
 
 init_per_testcase(_Testcase, Config) ->
-    catch clear_db(Config),
+    clear_db(Config),
     delete_bridge(Config),
     snabbkaffe:start_trace(),
     Config.
 
 end_per_testcase(_Testcase, Config) ->
-    catch clear_db(Config),
+    clear_db(Config),
     delete_bridge(Config),
+    [] = emqx_connector:list(),
     snabbkaffe:stop(),
     ok.
 
@@ -142,9 +168,17 @@ start_apps() ->
     %% we want to make sure they are loaded before
     %% ekka start in emqx_common_test_helpers:start_apps/1
     emqx_common_test_helpers:render_and_load_app_config(emqx_conf),
-    ok = emqx_common_test_helpers:start_apps([
-        emqx_conf, emqx_rule_engine, emqx_bridge, emqx_mongodb
-    ]).
+    ok = emqx_common_test_helpers:start_apps(
+        [
+            emqx_conf,
+            emqx_rule_engine,
+            emqx_connector,
+            emqx_bridge,
+            emqx_mongodb,
+            emqx_bridge_mongodb,
+            emqx_management
+        ]
+    ).
 
 ensure_loaded() ->
     _ = application:load(emqtt),
@@ -175,19 +209,20 @@ mongo_config(MongoHost, MongoPort0, rs = Type, Config) ->
     Name = atom_to_binary(?MODULE),
     ConfigString =
         io_lib:format(
-            "bridges.mongodb_rs.~s {\n"
-            "  enable = true\n"
-            "  collection = mycol\n"
-            "  replica_set_name = rs0\n"
-            "  servers = [~p]\n"
-            "  w_mode = safe\n"
-            "  use_legacy_protocol = auto\n"
-            "  database = mqtt\n"
-            "  resource_opts = {\n"
-            "    query_mode = ~s\n"
-            "    worker_pool_size = 1\n"
-            "  }\n"
-            "}",
+            "bridges.mongodb_rs.~s {"
+            "\n   enable = true"
+            "\n   collection = mycol"
+            "\n   replica_set_name = rs0"
+            "\n   servers = [~p]"
+            "\n   w_mode = safe"
+            "\n   use_legacy_protocol = auto"
+            "\n   database = mqtt"
+            "\n   mongo_type = rs"
+            "\n   resource_opts = {"
+            "\n     query_mode = ~s"
+            "\n     worker_pool_size = 1"
+            "\n   }"
+            "\n }",
             [
                 Name,
                 Servers,
@@ -202,18 +237,19 @@ mongo_config(MongoHost, MongoPort0, sharded = Type, Config) ->
     Name = atom_to_binary(?MODULE),
     ConfigString =
         io_lib:format(
-            "bridges.mongodb_sharded.~s {\n"
-            "  enable = true\n"
-            "  collection = mycol\n"
-            "  servers = [~p]\n"
-            "  w_mode = safe\n"
-            "  use_legacy_protocol = auto\n"
-            "  database = mqtt\n"
-            "  resource_opts = {\n"
-            "    query_mode = ~s\n"
-            "    worker_pool_size = 1\n"
-            "  }\n"
-            "}",
+            "bridges.mongodb_sharded.~s {"
+            "\n   enable = true"
+            "\n   collection = mycol"
+            "\n   servers = [~p]"
+            "\n   w_mode = safe"
+            "\n   use_legacy_protocol = auto"
+            "\n   database = mqtt"
+            "\n   mongo_type = sharded"
+            "\n   resource_opts = {"
+            "\n     query_mode = ~s"
+            "\n     worker_pool_size = 1"
+            "\n   }"
+            "\n }",
             [
                 Name,
                 Servers,
@@ -228,21 +264,28 @@ mongo_config(MongoHost, MongoPort0, single = Type, Config) ->
     Name = atom_to_binary(?MODULE),
     ConfigString =
         io_lib:format(
-            "bridges.mongodb_single.~s {\n"
-            "  enable = true\n"
-            "  collection = mycol\n"
-            "  server = ~p\n"
-            "  w_mode = safe\n"
-            "  use_legacy_protocol = auto\n"
-            "  database = mqtt\n"
-            "  resource_opts = {\n"
-            "    query_mode = ~s\n"
-            "    worker_pool_size = 1\n"
-            "  }\n"
-            "}",
+            "bridges.mongodb_single.~s {"
+            "\n   enable = true"
+            "\n   collection = mycol"
+            "\n   server = ~p"
+            "\n   w_mode = safe"
+            "\n   use_legacy_protocol = auto"
+            "\n   database = mqtt"
+            "\n   auth_source = ~s"
+            "\n   username = ~s"
+            "\n   password = \"file://~s\""
+            "\n   mongo_type = single"
+            "\n   resource_opts = {"
+            "\n     query_mode = ~s"
+            "\n     worker_pool_size = 1"
+            "\n   }"
+            "\n }",
             [
                 Name,
                 Server,
+                ?config(mongo_authsource, Config),
+                ?config(mongo_username, Config),
+                ?config(mongo_passfile, Config),
                 QueryMode
             ]
         ),
@@ -269,13 +312,17 @@ create_bridge(Config, Overrides) ->
 delete_bridge(Config) ->
     Type = mongo_type_bin(?config(mongo_type, Config)),
     Name = ?config(mongo_name, Config),
-    emqx_bridge:remove(Type, Name).
+    emqx_bridge:check_deps_and_remove(Type, Name, [connector, rule_actions]).
 
 create_bridge_http(Params) ->
     Path = emqx_mgmt_api_test_util:api_path(["bridges"]),
     AuthHeader = emqx_mgmt_api_test_util:auth_header_(),
-    case emqx_mgmt_api_test_util:request_api(post, Path, "", AuthHeader, Params) of
-        {ok, Res} -> {ok, emqx_utils_json:decode(Res, [return_maps])};
+    case
+        emqx_mgmt_api_test_util:request_api(post, Path, "", AuthHeader, Params, #{
+            return_all => true
+        })
+    of
+        {ok, {{_, 201, _}, _, Body}} -> {ok, emqx_utils_json:decode(Body, [return_maps])};
         Error -> Error
     end.
 
@@ -284,8 +331,24 @@ clear_db(Config) ->
     Host = ?config(mongo_host, Config),
     Port = ?config(mongo_port, Config),
     Server = Host ++ ":" ++ integer_to_list(Port),
-    #{<<"database">> := Db, <<"collection">> := Collection} = ?config(mongo_config, Config),
-    {ok, Client} = mongo_api:connect(Type, [Server], [], [{database, Db}, {w_mode, unsafe}]),
+    #{
+        <<"database">> := Db,
+        <<"collection">> := Collection
+    } = ?config(mongo_config, Config),
+    WorkerOpts = [
+        {database, Db},
+        {w_mode, unsafe}
+        | lists:flatmap(
+            fun
+                ({mongo_authsource, AS}) -> [{auth_source, AS}];
+                ({mongo_username, User}) -> [{login, User}];
+                ({mongo_password, Pass}) -> [{password, Pass}];
+                (_) -> []
+            end,
+            Config
+        )
+    ],
+    {ok, Client} = mongo_api:connect(Type, [Server], [], WorkerOpts),
     {true, _} = mongo_api:delete(Client, Collection, _Selector = #{}),
     mongo_api:disconnect(Client).
 
@@ -386,13 +449,21 @@ t_setup_via_config_and_publish(Config) ->
     ok.
 
 t_setup_via_http_api_and_publish(Config) ->
-    Type = mongo_type_bin(?config(mongo_type, Config)),
+    Type = ?config(mongo_type, Config),
     Name = ?config(mongo_name, Config),
     MongoConfig0 = ?config(mongo_config, Config),
-    MongoConfig = MongoConfig0#{
+    MongoConfig1 = MongoConfig0#{
         <<"name">> => Name,
-        <<"type">> => Type
+        <<"type">> => mongo_type_bin(Type)
     },
+    MongoConfig =
+        case Type of
+            single ->
+                %% NOTE: using literal password with HTTP API requests.
+                MongoConfig1#{<<"password">> => ?config(mongo_password, Config)};
+            _ ->
+                MongoConfig1
+        end,
     ?assertMatch(
         {ok, _},
         create_bridge_http(MongoConfig)
@@ -519,8 +590,8 @@ t_get_status_server_selection_too_short(Config) ->
     ok.
 
 t_use_legacy_protocol_option(Config) ->
-    ResourceID = resource_id(Config),
     {ok, _} = create_bridge(Config, #{<<"use_legacy_protocol">> => <<"true">>}),
+    ResourceID = resource_id(Config),
     ?retry(
         _Interval0 = 200,
         _NAttempts0 = 20,

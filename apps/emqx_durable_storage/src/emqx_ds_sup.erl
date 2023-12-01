@@ -29,8 +29,15 @@ start_link() ->
 %% behaviour callbacks
 %%================================================================================
 
+-dialyzer({nowarn_function, init/1}).
 init([]) ->
-    Children = [storage_layer_sup()],
+    %% TODO: technically, we don't need rocksDB for the alternative
+    %% backends. But right now we have any:
+    Children =
+        case mria:rocksdb_backend_available() of
+            true -> [meta(), storage_layer_sup()];
+            false -> []
+        end,
     SupFlags = #{
         strategy => one_for_all,
         intensity => 0,
@@ -41,6 +48,15 @@ init([]) ->
 %%================================================================================
 %% Internal functions
 %%================================================================================
+
+meta() ->
+    #{
+        id => emqx_ds_replication_layer_meta,
+        start => {emqx_ds_replication_layer_meta, start_link, []},
+        restart => permanent,
+        type => worker,
+        shutdown => 5000
+    }.
 
 storage_layer_sup() ->
     #{

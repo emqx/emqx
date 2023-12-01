@@ -185,7 +185,8 @@ fields(meta) ->
 schema_with_example(Type, Example) ->
     hoconsc:mk(Type, #{examples => #{<<"example">> => Example}}).
 
--spec schema_with_examples(hocon_schema:type(), map()) -> hocon_schema:field_schema_map().
+-spec schema_with_examples(hocon_schema:type(), map() | list(tuple())) ->
+    hocon_schema:field_schema_map().
 schema_with_examples(Type, Examples) ->
     hoconsc:mk(Type, #{examples => #{<<"examples">> => Examples}}).
 
@@ -843,7 +844,7 @@ parse_object_loop(PropList0, Module, Options) ->
     ),
     parse_object_loop(PropList, Module, Options, _Props = [], _Required = [], _Refs = []).
 
-parse_object_loop([], _Modlue, _Options, Props, Required, Refs) ->
+parse_object_loop([], _Module, _Options, Props, Required, Refs) ->
     {lists:reverse(Props), lists:usort(Required), Refs};
 parse_object_loop([{Name, Hocon} | Rest], Module, Options, Props, Required, Refs) ->
     NameBin = to_bin(Name),

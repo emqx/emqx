@@ -1,11 +1,15 @@
 emqx_connector_schema {
 
+config_enable.desc:
+"""Enable (true) or disable (false) this connector."""
+
+config_enable.label:
+"""Enable or Disable"""
+
 desc_connectors.desc:
 """Connectors that are used to connect to external systems"""
-
 desc_connectors.label:
 """Connectors"""
-
 
 connector_field.desc:
 """Name of the connector specified by the action, used for external resource selection."""
@@ -13,4 +17,54 @@ connector_field.desc:
 connector_field.label:
 """Connector"""
 
+desc_name.desc:
+"""The name of the connector."""
+
+desc_name.label:
+"""Connector Name"""
+
+desc_type.desc:
+"""The type of the connector."""
+
+desc_type.label:
+"""Connector Type"""
+
+config_enable.desc:
+"""Enable (true) or disable (false) this connector."""
+config_enable.label:
+"""Enable or Disable"""
+
+desc_node_name.desc:
+"""The node name."""
+
+desc_node_name.label:
+"""Node Name"""
+
+desc_node_status.desc:
+"""Node status."""
+
+desc_node_status.label:
+"""Node Status"""
+
+desc_status.desc:
+"""The status of the connector<br/>
+- <code>connecting</code>: the initial state before any health probes were made.<br/>
+- <code>connected</code>: when the connector passes the health probes.<br/>
+- <code>disconnected</code>: when the connector can not pass health probes.<br/>
+- <code>inconsistent</code>: When not all the nodes are at the same status."""
+
+desc_status.label:
+"""Connector Status"""
+
+desc_status_reason.desc:
+"""This is the reason given in case a connector is failing to connect."""
+
+desc_status_reason.label:
+"""Failure reason"""
+
+connector_actions.desc:
+"""List of actions added to this connector."""
+
+connector_actions.label:
+"""Actions"""
 }

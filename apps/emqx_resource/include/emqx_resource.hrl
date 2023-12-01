@@ -111,6 +111,10 @@
     | {error, {recoverable_error, term()}}
     | {error, term()}.
 
+-type action_resource_id() :: resource_id().
+-type connector_resource_id() :: resource_id().
+-type message_tag() :: action_resource_id().
+
 -define(WORKER_POOL_SIZE, 16).
 
 -define(DEFAULT_BUFFER_BYTES, 256 * 1024 * 1024).

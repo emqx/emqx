@@ -418,6 +418,9 @@ get_otp_version() ->
     end.
 
 read_otp_version() ->
+    string:trim(do_read_otp_version()).
+
+do_read_otp_version() ->
     ReleasesDir = filename:join([code:root_dir(), "releases"]),
     Filename = filename:join([ReleasesDir, emqx_app:get_release(), "BUILD_INFO"]),
     case file:read_file(Filename) of

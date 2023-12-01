@@ -33,9 +33,12 @@
 ]).
 
 -export([
+    kafka_connector_config_fields/0,
     kafka_producer_converter/2,
     producer_strategy_key_validator/1
 ]).
+
+-define(CONNECTOR_TYPE, kafka_producer).
 
 %% -------------------------------------------------------------------------------------------------
 %% api
@@ -76,6 +79,20 @@ conn_bridge_examples(Method) ->
         }
     ].
 
+values({get, connector}) ->
+    maps:merge(
+        #{
+            status => <<"connected">>,
+            node_status => [
+                #{
+                    node => <<"emqx@localhost">>,
+                    status => <<"connected">>
+                }
+            ],
+            actions => [<<"my_action">>]
+        },
+        values({post, connector})
+    );
 values({get, KafkaType}) ->
     maps:merge(
         #{
@@ -112,16 +129,15 @@ values({put, connector}) ->
 values({put, KafkaType}) ->
     maps:merge(values(common_config), values(KafkaType));
 values(bridge_v2_producer) ->
-    maps:merge(
-        #{
-            enable => true,
-            connector => <<"my_kafka_producer_connector">>,
-            resource_opts => #{
-                health_check_interval => "32s"
-            }
-        },
-        values(producer)
-    );
+    #{
+        enable => true,
+        connector => <<"my_kafka_producer_connector">>,
+        parameters => values(producer_values),
+        local_topic => <<"mqtt/local/topic">>,
+        resource_opts => #{
+            health_check_interval => "32s"
+        }
+    };
 values(common_config) ->
     #{
         authentication => #{
@@ -143,39 +159,41 @@ values(common_config) ->
     };
 values(producer) ->
     #{
-        kafka => #{
-            topic => <<"kafka-topic">>,
-            message => #{
-                key => <<"${.clientid}">>,
-                value => <<"${.}">>,
-                timestamp => <<"${.timestamp}">>
-            },
-            max_batch_bytes => <<"896KB">>,
-            compression => <<"no_compression">>,
-            partition_strategy => <<"random">>,
-            required_acks => <<"all_isr">>,
-            partition_count_refresh_interval => <<"60s">>,
-            kafka_headers => <<"${pub_props}">>,
-            kafka_ext_headers => [
-                #{
-                    kafka_ext_header_key => <<"clientid">>,
-                    kafka_ext_header_value => <<"${clientid}">>
-                },
-                #{
-                    kafka_ext_header_key => <<"topic">>,
-                    kafka_ext_header_value => <<"${topic}">>
-                }
-            ],
-            kafka_header_value_encode_mode => none,
-            max_inflight => 10,
-            buffer => #{
-                mode => <<"hybrid">>,
-                per_partition_limit => <<"2GB">>,
-                segment_bytes => <<"100MB">>,
-                memory_overload_protection => true
-            }
-        },
+        kafka => values(producer_values),
         local_topic => <<"mqtt/local/topic">>
+    };
+values(producer_values) ->
+    #{
+        topic => <<"kafka-topic">>,
+        message => #{
+            key => <<"${.clientid}">>,
+            value => <<"${.}">>,
+            timestamp => <<"${.timestamp}">>
+        },
+        max_batch_bytes => <<"896KB">>,
+        compression => <<"no_compression">>,
+        partition_strategy => <<"random">>,
+        required_acks => <<"all_isr">>,
+        partition_count_refresh_interval => <<"60s">>,
+        kafka_headers => <<"${pub_props}">>,
+        kafka_ext_headers => [
+            #{
+                kafka_ext_header_key => <<"clientid">>,
+                kafka_ext_header_value => <<"${clientid}">>
+            },
+            #{
+                kafka_ext_header_key => <<"topic">>,
+                kafka_ext_header_value => <<"${topic}">>
+            }
+        ],
+        kafka_header_value_encode_mode => none,
+        max_inflight => 10,
+        buffer => #{
+            mode => <<"hybrid">>,
+            per_partition_limit => <<"2GB">>,
+            segment_bytes => <<"100MB">>,
+            memory_overload_protection => true
+        }
     };
 values(consumer) ->
     #{
@@ -246,6 +264,16 @@ namespace() -> "bridge_kafka".
 
 roots() -> ["config_consumer", "config_producer", "config_bridge_v2"].
 
+fields(Field) when
+    Field == "get_connector";
+    Field == "put_connector";
+    Field == "post_connector"
+->
+    emqx_connector_schema:api_fields(
+        Field,
+        ?CONNECTOR_TYPE,
+        kafka_connector_config_fields()
+    );
 fields("post_" ++ Type) ->
     [type_field(Type), name_field() | fields("config_" ++ Type)];
 fields("put_" ++ Type) ->
@@ -283,11 +311,9 @@ fields(auth_username_password) ->
             })},
         {username, mk(binary(), #{required => true, desc => ?DESC(auth_sasl_username)})},
         {password,
-            mk(binary(), #{
+            emqx_connector_schema_lib:password_field(#{
                 required => true,
-                sensitive => true,
-                desc => ?DESC(auth_sasl_password),
-                converter => fun emqx_schema:password_converter/2
+                desc => ?DESC(auth_sasl_password)
             })}
     ];
 fields(auth_gssapi_kerberos) ->
@@ -486,8 +512,7 @@ fields(consumer_opts) ->
         {value_encoding_mode,
             mk(enum([none, base64]), #{
                 default => none, desc => ?DESC(consumer_value_encoding_mode)
-            })},
-        {resource_opts, mk(ref(resource_opts), #{default => #{}})}
+            })}
     ];
 fields(consumer_topic_mapping) ->
     [
@@ -561,9 +586,11 @@ desc(Name) ->
     ?DESC(Name).
 
 connector_config_fields() ->
+    emqx_connector_schema:common_fields() ++
+        kafka_connector_config_fields().
+
+kafka_connector_config_fields() ->
     [
-        {enable, mk(boolean(), #{desc => ?DESC("config_enable"), default => true})},
-        {description, emqx_schema:description_schema()},
         {bootstrap_hosts,
             mk(
                 binary(),
@@ -599,7 +626,7 @@ connector_config_fields() ->
             })},
         {socket_opts, mk(ref(socket_opts), #{required => false, desc => ?DESC(socket_opts)})},
         {ssl, mk(ref(ssl_client_opts), #{})}
-    ].
+    ] ++ [resource_opts()].
 
 producer_opts(ActionOrBridgeV1) ->
     [
@@ -607,12 +634,14 @@ producer_opts(ActionOrBridgeV1) ->
         %% for egress bridges with this config, the published messages
         %% will be forwarded to such bridges.
         {local_topic, mk(binary(), #{required => false, desc => ?DESC(mqtt_topic)})},
-        parameters_field(ActionOrBridgeV1),
-        {resource_opts, mk(ref(resource_opts), #{default => #{}, desc => ?DESC(resource_opts)})}
-    ].
+        parameters_field(ActionOrBridgeV1)
+    ] ++ [resource_opts() || ActionOrBridgeV1 =:= action].
+
+resource_opts() ->
+    {resource_opts, mk(ref(resource_opts), #{default => #{}, desc => ?DESC(resource_opts)})}.
 
 %% Since e5.3.1, we want to rename the field 'kafka' to 'parameters'
-%% Hoever we need to keep it backward compatible for generated schema json (version 0.1.0)
+%% However we need to keep it backward compatible for generated schema json (version 0.1.0)
 %% since schema is data for the 'schemas' API.
 parameters_field(ActionOrBridgeV1) ->
     {Name, Alias} =

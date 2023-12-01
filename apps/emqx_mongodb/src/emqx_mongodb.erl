@@ -68,19 +68,10 @@ roots() ->
         }}
     ].
 
-fields(single) ->
+fields("connector_rs") ->
     [
         {mongo_type, #{
-            type => single,
-            default => single,
-            desc => ?DESC("single_mongo_type")
-        }},
-        {server, server()},
-        {w_mode, fun w_mode/1}
-    ] ++ mongo_fields();
-fields(rs) ->
-    [
-        {mongo_type, #{
+            required => true,
             type => rs,
             default => rs,
             desc => ?DESC("rs_mongo_type")
@@ -89,17 +80,51 @@ fields(rs) ->
         {w_mode, fun w_mode/1},
         {r_mode, fun r_mode/1},
         {replica_set_name, fun replica_set_name/1}
-    ] ++ mongo_fields();
-fields(sharded) ->
+    ];
+fields("connector_sharded") ->
     [
         {mongo_type, #{
+            required => true,
             type => sharded,
             default => sharded,
             desc => ?DESC("sharded_mongo_type")
         }},
         {servers, servers()},
         {w_mode, fun w_mode/1}
-    ] ++ mongo_fields();
+    ];
+fields("connector_single") ->
+    [
+        {mongo_type, #{
+            required => true,
+            type => single,
+            default => single,
+            desc => ?DESC("single_mongo_type")
+        }},
+        {server, server()},
+        {w_mode, fun w_mode/1}
+    ];
+fields(Type) when Type =:= rs; Type =:= single; Type =:= sharded ->
+    fields("connector_" ++ atom_to_list(Type)) ++ fields(mongodb);
+fields(mongodb) ->
+    [
+        {srv_record, fun srv_record/1},
+        {pool_size, fun emqx_connector_schema_lib:pool_size/1},
+        {username, fun emqx_connector_schema_lib:username/1},
+        {password, emqx_connector_schema_lib:password_field()},
+        {use_legacy_protocol,
+            hoconsc:mk(hoconsc:enum([auto, true, false]), #{
+                default => auto,
+                desc => ?DESC("use_legacy_protocol")
+            })},
+        {auth_source, #{
+            type => binary(),
+            required => false,
+            desc => ?DESC("auth_source")
+        }},
+        {database, fun emqx_connector_schema_lib:database/1},
+        {topology, #{type => hoconsc:ref(?MODULE, topology), required => false}}
+    ] ++
+        emqx_connector_schema_lib:ssl_fields();
 fields(topology) ->
     [
         {pool_size,
@@ -129,6 +154,12 @@ fields(topology) ->
         {min_heartbeat_frequency_ms, duration("min_heartbeat_period")}
     ].
 
+desc("connector_single") ->
+    ?DESC("desc_single");
+desc("connector_rs") ->
+    ?DESC("desc_rs");
+desc("connector_sharded") ->
+    ?DESC("desc_sharded");
 desc(single) ->
     ?DESC("desc_single");
 desc(rs) ->
@@ -139,27 +170,6 @@ desc(topology) ->
     ?DESC("desc_topology");
 desc(_) ->
     undefined.
-
-mongo_fields() ->
-    [
-        {srv_record, fun srv_record/1},
-        {pool_size, fun emqx_connector_schema_lib:pool_size/1},
-        {username, fun emqx_connector_schema_lib:username/1},
-        {password, fun emqx_connector_schema_lib:password/1},
-        {use_legacy_protocol,
-            hoconsc:mk(hoconsc:enum([auto, true, false]), #{
-                default => auto,
-                desc => ?DESC("use_legacy_protocol")
-            })},
-        {auth_source, #{
-            type => binary(),
-            required => false,
-            desc => ?DESC("auth_source")
-        }},
-        {database, fun emqx_connector_schema_lib:database/1},
-        {topology, #{type => hoconsc:ref(?MODULE, topology), required => false}}
-    ] ++
-        emqx_connector_schema_lib:ssl_fields().
 
 %% ===================================================================
 
@@ -236,7 +246,7 @@ on_stop(InstId, _State) ->
 
 on_query(
     InstId,
-    {send_message, Document},
+    {_ChannelId, Document},
     #{pool_name := PoolName, collection := Collection} = State
 ) ->
     Request = {insert, Collection, Document},
@@ -433,8 +443,8 @@ init_worker_options([{auth_source, V} | R], Acc) ->
     init_worker_options(R, [{auth_source, V} | Acc]);
 init_worker_options([{username, V} | R], Acc) ->
     init_worker_options(R, [{login, V} | Acc]);
-init_worker_options([{password, V} | R], Acc) ->
-    init_worker_options(R, [{password, emqx_secret:wrap(V)} | Acc]);
+init_worker_options([{password, Secret} | R], Acc) ->
+    init_worker_options(R, [{password, Secret} | Acc]);
 init_worker_options([{w_mode, V} | R], Acc) ->
     init_worker_options(R, [{w_mode, V} | Acc]);
 init_worker_options([{r_mode, V} | R], Acc) ->

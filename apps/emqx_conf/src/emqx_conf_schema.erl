@@ -77,7 +77,8 @@
 
 %% Callback to upgrade config after loaded from config file but before validation.
 upgrade_raw_conf(RawConf) ->
-    emqx_connector_schema:transform_bridges_v1_to_connectors_and_bridges_v2(RawConf).
+    RawConf1 = emqx_connector_schema:transform_bridges_v1_to_connectors_and_bridges_v2(RawConf),
+    emqx_otel_schema:upgrade_legacy_metrics(RawConf1).
 
 namespace() -> emqx.
 
@@ -1189,37 +1190,44 @@ tr_prometheus_collectors(Conf) ->
         emqx_prometheus,
         emqx_prometheus_mria
         %% builtin vm collectors
-        | tr_vm_dist_collector(Conf) ++
-            tr_mnesia_collector(Conf) ++
-            tr_vm_statistics_collector(Conf) ++
-            tr_vm_system_info_collector(Conf) ++
-            tr_vm_memory_collector(Conf) ++
-            tr_vm_msacc_collector(Conf)
+        | prometheus_collectors(Conf)
     ].
 
-tr_vm_dist_collector(Conf) ->
-    Enabled = conf_get("prometheus.vm_dist_collector", Conf, disabled),
-    collector_enabled(Enabled, prometheus_vm_dist_collector).
+prometheus_collectors(Conf) ->
+    case conf_get("prometheus.enable_basic_auth", Conf, undefined) of
+        %% legacy
+        undefined ->
+            tr_collector("prometheus.vm_dist_collector", prometheus_vm_dist_collector, Conf) ++
+                tr_collector("prometheus.mnesia_collector", prometheus_mnesia_collector, Conf) ++
+                tr_collector(
+                    "prometheus.vm_statistics_collector", prometheus_vm_statistics_collector, Conf
+                ) ++
+                tr_collector(
+                    "prometheus.vm_system_info_collector", prometheus_vm_system_info_collector, Conf
+                ) ++
+                tr_collector("prometheus.vm_memory_collector", prometheus_vm_memory_collector, Conf) ++
+                tr_collector("prometheus.vm_msacc_collector", prometheus_vm_msacc_collector, Conf);
+        %% new
+        _ ->
+            tr_collector("prometheus.collectors.vm_dist", prometheus_vm_dist_collector, Conf) ++
+                tr_collector("prometheus.collectors.mnesia", prometheus_mnesia_collector, Conf) ++
+                tr_collector(
+                    "prometheus.collectors.vm_statistics", prometheus_vm_statistics_collector, Conf
+                ) ++
+                tr_collector(
+                    "prometheus.collectors.vm_system_info",
+                    prometheus_vm_system_info_collector,
+                    Conf
+                ) ++
+                tr_collector(
+                    "prometheus.collectors.vm_memory", prometheus_vm_memory_collector, Conf
+                ) ++
+                tr_collector("prometheus.collectors.vm_msacc", prometheus_vm_msacc_collector, Conf)
+    end.
 
-tr_mnesia_collector(Conf) ->
-    Enabled = conf_get("prometheus.mnesia_collector", Conf, disabled),
-    collector_enabled(Enabled, prometheus_mnesia_collector).
-
-tr_vm_statistics_collector(Conf) ->
-    Enabled = conf_get("prometheus.vm_statistics_collector", Conf, disabled),
-    collector_enabled(Enabled, prometheus_vm_statistics_collector).
-
-tr_vm_system_info_collector(Conf) ->
-    Enabled = conf_get("prometheus.vm_system_info_collector", Conf, disabled),
-    collector_enabled(Enabled, prometheus_vm_system_info_collector).
-
-tr_vm_memory_collector(Conf) ->
-    Enabled = conf_get("prometheus.vm_memory_collector", Conf, disabled),
-    collector_enabled(Enabled, prometheus_vm_memory_collector).
-
-tr_vm_msacc_collector(Conf) ->
-    Enabled = conf_get("prometheus.vm_msacc_collector", Conf, disabled),
-    collector_enabled(Enabled, prometheus_vm_msacc_collector).
+tr_collector(Key, Collect, Conf) ->
+    Enabled = conf_get(Key, Conf, disabled),
+    collector_enabled(Enabled, Collect).
 
 collector_enabled(enabled, Collector) -> [Collector];
 collector_enabled(disabled, _) -> [].

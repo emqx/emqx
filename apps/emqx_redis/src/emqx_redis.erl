@@ -20,7 +20,7 @@
 -include_lib("hocon/include/hoconsc.hrl").
 -include_lib("emqx/include/logger.hrl").
 
--export([roots/0, fields/1]).
+-export([namespace/0, roots/0, fields/1, redis_fields/0, desc/1]).
 
 -behaviour(emqx_resource).
 
@@ -45,60 +45,53 @@
 }).
 
 %%=====================================================================
+namespace() -> "redis".
+
 roots() ->
     [
         {config, #{
             type => hoconsc:union(
                 [
-                    hoconsc:ref(?MODULE, cluster),
-                    hoconsc:ref(?MODULE, single),
-                    hoconsc:ref(?MODULE, sentinel)
+                    ?R_REF(redis_cluster),
+                    ?R_REF(redis_single),
+                    ?R_REF(redis_sentinel)
                 ]
             )
         }}
     ].
 
-fields(single) ->
-    [
-        {server, server()},
-        {redis_type, #{
-            type => single,
-            default => single,
-            required => false,
-            desc => ?DESC("single")
-        }}
-    ] ++
+fields(redis_single) ->
+    fields(redis_single_connector) ++
         redis_fields() ++
         emqx_connector_schema_lib:ssl_fields();
-fields(cluster) ->
+fields(redis_single_connector) ->
     [
-        {servers, servers()},
-        {redis_type, #{
-            type => cluster,
-            default => cluster,
-            required => false,
-            desc => ?DESC("cluster")
-        }}
-    ] ++
+        {server, server()},
+        redis_type(single)
+    ];
+fields(redis_cluster) ->
+    fields(redis_cluster_connector) ++
         lists:keydelete(database, 1, redis_fields()) ++
         emqx_connector_schema_lib:ssl_fields();
-fields(sentinel) ->
+fields(redis_cluster_connector) ->
     [
         {servers, servers()},
-        {redis_type, #{
-            type => sentinel,
-            default => sentinel,
-            required => false,
-            desc => ?DESC("sentinel")
-        }},
+        redis_type(cluster)
+    ];
+fields(redis_sentinel) ->
+    fields(redis_sentinel_connector) ++
+        redis_fields() ++
+        emqx_connector_schema_lib:ssl_fields();
+fields(redis_sentinel_connector) ->
+    [
+        {servers, servers()},
+        redis_type(sentinel),
         {sentinel, #{
             type => string(),
             required => true,
             desc => ?DESC("sentinel_desc")
         }}
-    ] ++
-        redis_fields() ++
-        emqx_connector_schema_lib:ssl_fields().
+    ].
 
 server() ->
     Meta = #{desc => ?DESC("server")},
@@ -108,64 +101,52 @@ servers() ->
     Meta = #{desc => ?DESC("servers")},
     emqx_schema:servers_sc(Meta, ?REDIS_HOST_OPTIONS).
 
+desc(redis_cluster_connector) ->
+    ?DESC(redis_cluster_connector);
+desc(redis_single_connector) ->
+    ?DESC(redis_single_connector);
+desc(redis_sentinel_connector) ->
+    ?DESC(redis_sentinel_connector);
+desc(_) ->
+    undefined.
+
 %% ===================================================================
+
+redis_type(Type) ->
+    {redis_type, #{
+        type => Type,
+        default => Type,
+        required => false,
+        desc => ?DESC(Type)
+    }}.
 
 callback_mode() -> always_sync.
 
-on_start(
-    InstId,
-    #{
-        redis_type := Type,
-        pool_size := PoolSize,
-        ssl := SSL
-    } = Config
-) ->
+on_start(InstId, Config0) ->
     ?SLOG(info, #{
         msg => "starting_redis_connector",
         connector => InstId,
-        config => emqx_utils:redact(Config)
+        config => emqx_utils:redact(Config0)
     }),
-    ConfKey =
-        case Type of
-            single -> server;
-            _ -> servers
-        end,
-    Servers0 = maps:get(ConfKey, Config),
-    Servers1 = lists:map(
-        fun(#{hostname := Host, port := Port}) ->
-            {Host, Port}
-        end,
-        emqx_schema:parse_servers(Servers0, ?REDIS_HOST_OPTIONS)
-    ),
-    Servers = [{servers, Servers1}],
-    Database =
-        case Type of
-            cluster -> [];
-            _ -> [{database, maps:get(database, Config)}]
-        end,
+    Config = config(Config0),
+    #{pool_size := PoolSize, ssl := SSL, redis_type := Type} = Config,
+    Options = ssl_options(SSL) ++ [{sentinel, maps:get(sentinel, Config, undefined)}],
     Opts =
         [
-            {pool_size, PoolSize},
             {username, maps:get(username, Config, undefined)},
-            {password, eredis_secret:wrap(maps:get(password, Config, ""))},
+            {password, maps:get(password, Config, "")},
+            {servers, servers(Config)},
+            {options, Options},
+            {pool_size, PoolSize},
             {auto_reconnect, ?AUTO_RECONNECT_INTERVAL}
-        ] ++ Database ++ Servers,
-    Options =
-        case maps:get(enable, SSL) of
-            true ->
-                [
-                    {ssl, true},
-                    {ssl_options, emqx_tls_lib:to_client_opts(SSL)}
-                ];
-            false ->
-                [{ssl, false}]
-        end ++ [{sentinel, maps:get(sentinel, Config, undefined)}],
+        ] ++ database(Config),
+
     State = #{pool_name => InstId, type => Type},
     ok = emqx_resource:allocate_resource(InstId, type, Type),
     ok = emqx_resource:allocate_resource(InstId, pool_name, InstId),
     case Type of
         cluster ->
-            case eredis_cluster:start_pool(InstId, Opts ++ [{options, Options}]) of
+            case eredis_cluster:start_pool(InstId, Opts) of
                 {ok, _} ->
                     {ok, State};
                 {ok, _, _} ->
@@ -174,13 +155,21 @@ on_start(
                     {error, Reason}
             end;
         _ ->
-            case emqx_resource_pool:start(InstId, ?MODULE, Opts ++ [{options, Options}]) of
+            case emqx_resource_pool:start(InstId, ?MODULE, Opts) of
                 ok ->
                     {ok, State};
                 {error, Reason} ->
                     {error, Reason}
             end
     end.
+
+ssl_options(SSL = #{enable := true}) ->
+    [
+        {ssl, true},
+        {ssl_options, emqx_tls_lib:to_client_opts(SSL)}
+    ];
+ssl_options(#{enable := false}) ->
+    [{ssl, false}].
 
 on_stop(InstId, _State) ->
     ?SLOG(info, #{
@@ -189,7 +178,11 @@ on_stop(InstId, _State) ->
     }),
     case emqx_resource:get_allocated_resources(InstId) of
         #{pool_name := PoolName, type := cluster} ->
-            eredis_cluster:stop_pool(PoolName);
+            case eredis_cluster:stop_pool(PoolName) of
+                {error, not_found} -> ok;
+                ok -> ok;
+                Error -> Error
+            end;
         #{pool_name := PoolName, type := _} ->
             emqx_resource_pool:stop(PoolName);
         _ ->
@@ -244,8 +237,17 @@ is_unrecoverable_error(_) ->
 on_get_status(_InstId, #{type := cluster, pool_name := PoolName}) ->
     case eredis_cluster:pool_exists(PoolName) of
         true ->
-            Health = eredis_cluster:ping_all(PoolName),
-            status_result(Health);
+            %% eredis_cluster has null slot even pool_exists when emqx start before redis cluster.
+            %% we need restart eredis_cluster pool when pool_worker(slot) is empty.
+            %% If the pool is empty, it means that there are no workers attempting to reconnect.
+            %% In this case, we can directly consider it as a disconnect and then proceed to reconnect.
+            case eredis_cluster_monitor:get_all_pools(PoolName) of
+                [] ->
+                    disconnected;
+                [_ | _] ->
+                    Health = eredis_cluster:ping_all(PoolName),
+                    status_result(Health)
+            end;
         false ->
             disconnected
     end;
@@ -289,6 +291,28 @@ wrap_qp_result(Results) when is_list(Results) ->
     end.
 
 %% ===================================================================
+%% parameters for connector
+config(#{parameters := #{} = Param} = Config) ->
+    maps:merge(maps:remove(parameters, Config), Param);
+%% is for authn/authz
+config(Config) ->
+    Config.
+
+servers(#{server := Server}) ->
+    servers(Server);
+servers(#{servers := Servers}) ->
+    servers(Servers);
+servers(Servers) ->
+    lists:map(
+        fun(#{hostname := Host, port := Port}) ->
+            {Host, Port}
+        end,
+        emqx_schema:parse_servers(Servers, ?REDIS_HOST_OPTIONS)
+    ).
+
+database(#{redis_type := cluster}) -> [];
+database(#{database := Database}) -> [{database, Database}].
+
 connect(Opts) ->
     eredis:start_link(Opts).
 
@@ -296,7 +320,7 @@ redis_fields() ->
     [
         {pool_size, fun emqx_connector_schema_lib:pool_size/1},
         {username, fun emqx_connector_schema_lib:username/1},
-        {password, fun emqx_connector_schema_lib:password/1},
+        {password, emqx_connector_schema_lib:password_field()},
         {database, #{
             type => non_neg_integer(),
             default => 0,

@@ -87,7 +87,7 @@
     deliver/3,
     replay/3,
     handle_timeout/3,
-    disconnect/1,
+    disconnect/2,
     terminate/2
 ]).
 
@@ -316,7 +316,7 @@ unsubscribe(
             {error, ?RC_NO_SUBSCRIPTION_EXISTED}
     end.
 
--spec get_subscription(emqx_types:topic(), session()) ->
+-spec get_subscription(emqx_types:topic() | emqx_types:share(), session()) ->
     emqx_types:subopts() | undefined.
 get_subscription(Topic, #session{subscriptions = Subs}) ->
     maps:get(Topic, Subs, undefined).
@@ -725,8 +725,8 @@ append(L1, L2) -> L1 ++ L2.
 
 %%--------------------------------------------------------------------
 
--spec disconnect(session()) -> {idle, session()}.
-disconnect(Session = #session{}) ->
+-spec disconnect(session(), emqx_types:conninfo()) -> {idle, session()}.
+disconnect(Session = #session{}, _ConnInfo) ->
     % TODO: isolate expiry timer / timeout handling here?
     {idle, Session}.
 

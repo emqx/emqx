@@ -22,7 +22,7 @@
 
 -export([
     action_type_to_connector_type/1,
-    action_type_to_bridge_v1_type/1,
+    action_type_to_bridge_v1_type/2,
     bridge_v1_type_to_action_type/1,
     is_action_type/1,
     registered_schema_modules/0,
@@ -35,7 +35,12 @@
     transform_bridge_v1_config_to_action_config/4
 ]).
 
--callback bridge_v1_type_name() -> atom().
+-callback bridge_v1_type_name() ->
+    atom()
+    | {
+        fun(({ActionConfig :: map(), ConnectorConfig :: map()}) -> Type :: atom()),
+        TypeList :: [atom()]
+    }.
 -callback action_type_name() -> atom().
 -callback connector_type_name() -> atom().
 -callback schema_module() -> atom().
@@ -68,8 +73,16 @@
 -if(?EMQX_RELEASE_EDITION == ee).
 hard_coded_action_info_modules_ee() ->
     [
+        emqx_bridge_azure_event_hub_action_info,
+        emqx_bridge_confluent_producer_action_info,
+        emqx_bridge_gcp_pubsub_producer_action_info,
         emqx_bridge_kafka_action_info,
-        emqx_bridge_azure_event_hub_action_info
+        emqx_bridge_matrix_action_info,
+        emqx_bridge_mongodb_action_info,
+        emqx_bridge_pgsql_action_info,
+        emqx_bridge_syskeeper_action_info,
+        emqx_bridge_timescale_action_info,
+        emqx_bridge_redis_action_info
     ].
 -else.
 hard_coded_action_info_modules_ee() ->
@@ -106,15 +119,29 @@ bridge_v1_type_to_action_type(Type) ->
         ActionType -> ActionType
     end.
 
-action_type_to_bridge_v1_type(Bin) when is_binary(Bin) ->
-    action_type_to_bridge_v1_type(binary_to_existing_atom(Bin));
-action_type_to_bridge_v1_type(Type) ->
+action_type_to_bridge_v1_type(Bin, Conf) when is_binary(Bin) ->
+    action_type_to_bridge_v1_type(binary_to_existing_atom(Bin), Conf);
+action_type_to_bridge_v1_type(ActionType, ActionConf) ->
     ActionInfoMap = info_map(),
     ActionTypeToBridgeV1Type = maps:get(action_type_to_bridge_v1_type, ActionInfoMap),
-    case maps:get(Type, ActionTypeToBridgeV1Type, undefined) of
-        undefined -> Type;
-        BridgeV1Type -> BridgeV1Type
+    case maps:get(ActionType, ActionTypeToBridgeV1Type, undefined) of
+        undefined ->
+            ActionType;
+        BridgeV1TypeFun when is_function(BridgeV1TypeFun) ->
+            case get_confs(ActionType, ActionConf) of
+                {ConnectorConfig, ActionConfig} -> BridgeV1TypeFun({ConnectorConfig, ActionConfig});
+                undefined -> ActionType
+            end;
+        BridgeV1Type ->
+            BridgeV1Type
     end.
+
+get_confs(ActionType, #{<<"connector">> := ConnectorName} = ActionConfig) ->
+    ConnectorType = action_type_to_connector_type(ActionType),
+    ConnectorConfig = emqx_conf:get_raw([connectors, ConnectorType, ConnectorName]),
+    {ConnectorConfig, ActionConfig};
+get_confs(_, _) ->
+    undefined.
 
 %% This function should return true for all inputs that are bridge V1 types for
 %% bridges that have been refactored to bridge V2s, and for all all bridge V2
@@ -232,37 +259,56 @@ get_info_map(Module) ->
     %% Force the module to get loaded
     _ = code:ensure_loaded(Module),
     ActionType = Module:action_type_name(),
-    BridgeV1Type =
+    {BridgeV1TypeOrFun, BridgeV1Types} =
         case erlang:function_exported(Module, bridge_v1_type_name, 0) of
             true ->
-                Module:bridge_v1_type_name();
+                case Module:bridge_v1_type_name() of
+                    {_BridgeV1TypeFun, _BridgeV1Types} = BridgeV1TypeTuple ->
+                        BridgeV1TypeTuple;
+                    BridgeV1Type0 ->
+                        {BridgeV1Type0, [BridgeV1Type0]}
+                end;
             false ->
-                Module:action_type_name()
+                {ActionType, [ActionType]}
         end,
     #{
-        action_type_names => #{
-            ActionType => true,
-            BridgeV1Type => true
-        },
-        bridge_v1_type_to_action_type => #{
-            BridgeV1Type => ActionType,
-            %% Alias the bridge V1 type to the action type
-            ActionType => ActionType
-        },
+        action_type_names =>
+            lists:foldl(
+                fun(BridgeV1Type, M) ->
+                    M#{BridgeV1Type => true}
+                end,
+                #{ActionType => true},
+                BridgeV1Types
+            ),
+        bridge_v1_type_to_action_type =>
+            lists:foldl(
+                fun(BridgeV1Type, M) ->
+                    %% Alias the bridge V1 type to the action type
+                    M#{BridgeV1Type => ActionType}
+                end,
+                #{ActionType => ActionType},
+                BridgeV1Types
+            ),
         action_type_to_bridge_v1_type => #{
-            ActionType => BridgeV1Type
+            ActionType => BridgeV1TypeOrFun
         },
-        action_type_to_connector_type => #{
-            ActionType => Module:connector_type_name(),
-            %% Alias the bridge V1 type to the action type
-            BridgeV1Type => Module:connector_type_name()
-        },
+        action_type_to_connector_type =>
+            lists:foldl(
+                fun(BridgeV1Type, M) ->
+                    M#{BridgeV1Type => Module:connector_type_name()}
+                end,
+                #{ActionType => Module:connector_type_name()},
+                BridgeV1Types
+            ),
         action_type_to_schema_module => #{
             ActionType => Module:schema_module()
         },
-        action_type_to_info_module => #{
-            ActionType => Module,
-            %% Alias the bridge V1 type to the action type
-            BridgeV1Type => Module
-        }
+        action_type_to_info_module =>
+            lists:foldl(
+                fun(BridgeV1Type, M) ->
+                    M#{BridgeV1Type => Module}
+                end,
+                #{ActionType => Module},
+                BridgeV1Types
+            )
     }.

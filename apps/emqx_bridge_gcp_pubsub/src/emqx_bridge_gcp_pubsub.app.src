@@ -1,6 +1,6 @@
 {application, emqx_bridge_gcp_pubsub, [
     {description, "EMQX Enterprise GCP Pub/Sub Bridge"},
-    {vsn, "0.1.10"},
+    {vsn, "0.1.11"},
     {registered, []},
     {applications, [
         kernel,
@@ -8,7 +8,7 @@
         emqx_resource,
         ehttpc
     ]},
-    {env, []},
+    {env, [{emqx_action_info_modules, [emqx_bridge_gcp_pubsub_producer_action_info]}]},
     {modules, []},
     {links, []}
 ]}.

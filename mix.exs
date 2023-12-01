@@ -46,25 +46,25 @@ defmodule EMQXUmbrella.MixProject do
     # other exact versions, and not ranges.
     [
       {:lc, github: "emqx/lc", tag: "0.3.2", override: true},
-      {:redbug, "2.0.8"},
+      {:redbug, github: "emqx/redbug", tag: "2.0.10"},
       {:covertool, github: "zmstone/covertool", tag: "2.0.4.1", override: true},
       {:typerefl, github: "ieQu1/typerefl", tag: "0.9.1", override: true},
       {:ehttpc, github: "emqx/ehttpc", tag: "0.4.11", override: true},
       {:gproc, github: "emqx/gproc", tag: "0.9.0.1", override: true},
       {:jiffy, github: "emqx/jiffy", tag: "1.0.5", override: true},
       {:cowboy, github: "emqx/cowboy", tag: "2.9.2", override: true},
-      {:esockd, github: "emqx/esockd", tag: "5.9.7", override: true},
+      {:esockd, github: "emqx/esockd", tag: "5.9.8", override: true},
       {:rocksdb, github: "emqx/erlang-rocksdb", tag: "1.8.0-emqx-1", override: true},
       {:ekka, github: "emqx/ekka", tag: "0.15.16", override: true},
-      {:gen_rpc, github: "emqx/gen_rpc", tag: "3.2.1", override: true},
+      {:gen_rpc, github: "emqx/gen_rpc", tag: "3.2.2", override: true},
       {:grpc, github: "emqx/grpc-erl", tag: "0.6.8", override: true},
-      {:minirest, github: "emqx/minirest", tag: "1.3.13", override: true},
+      {:minirest, github: "emqx/minirest", tag: "1.3.14", override: true},
       {:ecpool, github: "emqx/ecpool", tag: "0.5.4", override: true},
       {:replayq, github: "emqx/replayq", tag: "0.3.7", override: true},
       {:pbkdf2, github: "emqx/erlang-pbkdf2", tag: "2.0.4", override: true},
       # maybe forbid to fetch quicer
       {:emqtt,
-       github: "emqx/emqtt", tag: "1.9.1", override: true, system_env: maybe_no_quic_env()},
+       github: "emqx/emqtt", tag: "1.9.7", override: true, system_env: maybe_no_quic_env()},
       {:rulesql, github: "emqx/rulesql", tag: "0.1.7"},
       {:observer_cli, "1.7.1"},
       {:system_monitor, github: "ieQu1/system_monitor", tag: "3.0.3"},
@@ -102,31 +102,31 @@ defmodule EMQXUmbrella.MixProject do
       {:opentelemetry_api,
        github: "emqx/opentelemetry-erlang",
        sparse: "apps/opentelemetry_api",
-       tag: "v1.3.2-emqx",
+       tag: "v1.4.2-emqx",
        override: true,
        runtime: false},
       {:opentelemetry,
        github: "emqx/opentelemetry-erlang",
        sparse: "apps/opentelemetry",
-       tag: "v1.3.2-emqx",
+       tag: "v1.4.2-emqx",
        override: true,
        runtime: false},
       {:opentelemetry_api_experimental,
        github: "emqx/opentelemetry-erlang",
        sparse: "apps/opentelemetry_api_experimental",
-       tag: "v1.3.2-emqx",
+       tag: "v1.4.2-emqx",
        override: true,
        runtime: false},
       {:opentelemetry_experimental,
        github: "emqx/opentelemetry-erlang",
        sparse: "apps/opentelemetry_experimental",
-       tag: "v1.3.2-emqx",
+       tag: "v1.4.2-emqx",
        override: true,
        runtime: false},
       {:opentelemetry_exporter,
        github: "emqx/opentelemetry-erlang",
        sparse: "apps/opentelemetry_exporter",
-       tag: "v1.3.2-emqx",
+       tag: "v1.4.2-emqx",
        override: true,
        runtime: false}
     ] ++
@@ -183,6 +183,7 @@ defmodule EMQXUmbrella.MixProject do
   defp enterprise_umbrella_apps() do
     MapSet.new([
       :emqx_bridge_kafka,
+      :emqx_bridge_confluent,
       :emqx_bridge_gcp_pubsub,
       :emqx_bridge_cassandra,
       :emqx_bridge_opents,
@@ -214,7 +215,12 @@ defmodule EMQXUmbrella.MixProject do
       :emqx_bridge_azure_event_hub,
       :emqx_gcp_device,
       :emqx_dashboard_rbac,
-      :emqx_dashboard_sso
+      :emqx_dashboard_sso,
+      :emqx_audit,
+      :emqx_gateway_gbt32960,
+      :emqx_gateway_ocpp,
+      :emqx_gateway_jt808,
+      :emqx_bridge_syskeeper
     ])
   end
 
@@ -224,7 +230,7 @@ defmodule EMQXUmbrella.MixProject do
       {:influxdb, github: "emqx/influxdb-client-erl", tag: "1.1.11", override: true},
       {:wolff, github: "kafka4beam/wolff", tag: "1.8.0"},
       {:kafka_protocol, github: "kafka4beam/kafka_protocol", tag: "4.1.3", override: true},
-      {:brod_gssapi, github: "kafka4beam/brod_gssapi", tag: "v0.1.0"},
+      {:brod_gssapi, github: "kafka4beam/brod_gssapi", tag: "v0.1.1"},
       {:brod, github: "kafka4beam/brod", tag: "3.16.8"},
       {:snappyer, "1.2.9", override: true},
       {:crc32cer, "0.1.8", override: true},
@@ -329,6 +335,8 @@ defmodule EMQXUmbrella.MixProject do
             :emqx_gateway_lwm2m,
             :emqx_gateway_exproto,
             :emqx_dashboard,
+            :emqx_dashboard_sso,
+            :emqx_audit,
             :emqx_resource,
             :emqx_connector,
             :emqx_exhook,
@@ -815,14 +823,14 @@ defmodule EMQXUmbrella.MixProject do
 
   defp jq_dep() do
     if enable_jq?(),
-      do: [{:jq, github: "emqx/jq", tag: "v0.3.11", override: true}],
+      do: [{:jq, github: "emqx/jq", tag: "v0.3.12", override: true}],
       else: []
   end
 
   defp quicer_dep() do
     if enable_quicer?(),
       # in conflict with emqx and emqtt
-      do: [{:quicer, github: "emqx/quic", tag: "0.0.202", override: true}],
+      do: [{:quicer, github: "emqx/quic", tag: "0.0.303", override: true}],
       else: []
   end
 

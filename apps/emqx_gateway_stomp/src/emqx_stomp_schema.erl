@@ -37,7 +37,7 @@ fields(stomp_frame) ->
                 non_neg_integer(),
                 #{
                     default => 10,
-                    desc => ?DESC(stom_frame_max_headers)
+                    desc => ?DESC(stomp_frame_max_headers)
                 }
             )},
         {max_headers_length,
@@ -53,7 +53,7 @@ fields(stomp_frame) ->
                 integer(),
                 #{
                     default => 65536,
-                    desc => ?DESC(stom_frame_max_body_length)
+                    desc => ?DESC(stomp_frame_max_body_length)
                 }
             )}
     ].

@@ -84,7 +84,7 @@
 -export([
     deliver/3,
     handle_timeout/3,
-    disconnect/2,
+    disconnect/3,
     terminate/3
 ]).
 
@@ -267,7 +267,7 @@ destroy(Session) ->
 
 -spec subscribe(
     clientinfo(),
-    emqx_types:topic(),
+    emqx_types:topic() | emqx_types:share(),
     emqx_types:subopts(),
     t()
 ) ->
@@ -287,7 +287,7 @@ subscribe(ClientInfo, TopicFilter, SubOpts, Session) ->
 
 -spec unsubscribe(
     clientinfo(),
-    emqx_types:topic(),
+    emqx_types:topic() | emqx_types:share(),
     emqx_types:subopts(),
     t()
 ) ->
@@ -418,7 +418,13 @@ enrich_delivers(ClientInfo, [D | Rest], UpgradeQoS, Session) ->
     end.
 
 enrich_deliver(ClientInfo, {deliver, Topic, Msg}, UpgradeQoS, Session) ->
-    SubOpts = ?IMPL(Session):get_subscription(Topic, Session),
+    SubOpts =
+        case Msg of
+            #message{headers = #{redispatch_to := ?REDISPATCH_TO(Group, T)}} ->
+                ?IMPL(Session):get_subscription(emqx_topic:make_shared_record(Group, T), Session);
+            _ ->
+                ?IMPL(Session):get_subscription(Topic, Session)
+        end,
     enrich_message(ClientInfo, Msg, SubOpts, UpgradeQoS).
 
 enrich_message(
@@ -497,10 +503,10 @@ cancel_timer(Name, Timers) ->
 
 %%--------------------------------------------------------------------
 
--spec disconnect(clientinfo(), t()) ->
+-spec disconnect(clientinfo(), eqmx_types:conninfo(), t()) ->
     {idle | shutdown, t()}.
-disconnect(_ClientInfo, Session) ->
-    ?IMPL(Session):disconnect(Session).
+disconnect(_ClientInfo, ConnInfo, Session) ->
+    ?IMPL(Session):disconnect(Session, ConnInfo).
 
 -spec terminate(clientinfo(), Reason :: term(), t()) ->
     ok.
@@ -611,21 +617,27 @@ maybe_mock_impl_mod(_) ->
 
 -spec choose_impl_mod(conninfo()) -> module().
 choose_impl_mod(#{expiry_interval := EI}) ->
-    hd(choose_impl_candidates(EI, emqx_persistent_message:is_store_enabled())).
+    hd(choose_impl_candidates(EI, emqx_persistent_message:is_persistence_enabled())).
 
 -spec choose_impl_candidates(conninfo()) -> [module()].
 choose_impl_candidates(#{expiry_interval := EI}) ->
-    choose_impl_candidates(EI, emqx_persistent_message:is_store_enabled()).
+    choose_impl_candidates(EI, emqx_persistent_message:is_persistence_enabled()).
 
 choose_impl_candidates(_, _IsPSStoreEnabled = false) ->
     [emqx_session_mem];
 choose_impl_candidates(0, _IsPSStoreEnabled = true) ->
-    %% NOTE
-    %% If ExpiryInterval is 0, the natural choice is `emqx_session_mem`. Yet we still
-    %% need to look the existing session up in the `emqx_persistent_session_ds` store
-    %% first, because previous connection may have set ExpiryInterval to a non-zero
-    %% value.
-    [emqx_session_mem, emqx_persistent_session_ds];
+    case emqx_persistent_message:force_ds() of
+        false ->
+            %% NOTE
+            %% If ExpiryInterval is 0, the natural choice is
+            %% `emqx_session_mem'. Yet we still need to look the
+            %% existing session up in the `emqx_persistent_session_ds'
+            %% store first, because previous connection may have set
+            %% ExpiryInterval to a non-zero value.
+            [emqx_session_mem, emqx_persistent_session_ds];
+        true ->
+            [emqx_persistent_session_ds]
+    end;
 choose_impl_candidates(EI, _IsPSStoreEnabled = true) when EI > 0 ->
     [emqx_persistent_session_ds].
 

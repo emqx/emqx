@@ -134,7 +134,7 @@ start(
 
 -spec stop(resource_id()) -> ok | {error, term()}.
 stop(ResourceId) ->
-    ?tp(gcp_pubsub_stop, #{resource_id => ResourceId}),
+    ?tp(gcp_pubsub_stop, #{instance_id => ResourceId, resource_id => ResourceId}),
     ?SLOG(info, #{
         msg => "stopping_gcp_pubsub_bridge",
         connector => ResourceId

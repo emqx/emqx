@@ -41,6 +41,12 @@
 -export([types/0, types_sc/0]).
 -export([resource_opts_fields/0, resource_opts_fields/1]).
 
+-export([
+    make_producer_action_schema/1,
+    make_consumer_action_schema/1,
+    top_level_common_action_keys/0
+]).
+
 -export_type([action_type/0]).
 
 %% Should we explicitly list them here so dialyzer may be more helpful?
@@ -117,7 +123,9 @@ roots() ->
     end.
 
 fields(actions) ->
-    registered_schema_fields().
+    registered_schema_fields();
+fields(resource_opts) ->
+    emqx_resource_schema:create_opts(_Overrides = []).
 
 registered_schema_fields() ->
     [
@@ -127,6 +135,8 @@ registered_schema_fields() ->
 
 desc(actions) ->
     ?DESC("desc_bridges_v2");
+desc(resource_opts) ->
+    ?DESC(emqx_resource_schema, "resource_opts");
 desc(_) ->
     undefined.
 
@@ -176,6 +186,42 @@ examples(Method) ->
     SchemaModules = [Mod || {_, Mod} <- emqx_action_info:registered_schema_modules()],
     lists:foldl(Fun, #{}, SchemaModules).
 
+top_level_common_action_keys() ->
+    [
+        <<"connector">>,
+        <<"description">>,
+        <<"enable">>,
+        <<"local_topic">>,
+        <<"parameters">>,
+        <<"resource_opts">>
+    ].
+
+%%======================================================================================
+%% Helper functions for making HOCON Schema
+%%======================================================================================
+
+make_producer_action_schema(ActionParametersRef) ->
+    [
+        {local_topic, mk(binary(), #{required => false, desc => ?DESC(mqtt_topic)})}
+        | make_consumer_action_schema(ActionParametersRef)
+    ].
+
+make_consumer_action_schema(ActionParametersRef) ->
+    [
+        {enable, mk(boolean(), #{desc => ?DESC("config_enable"), default => true})},
+        {connector,
+            mk(binary(), #{
+                desc => ?DESC(emqx_connector_schema, "connector_field"), required => true
+            })},
+        {description, emqx_schema:description_schema()},
+        {parameters, ActionParametersRef},
+        {resource_opts,
+            mk(ref(?MODULE, resource_opts), #{
+                default => #{},
+                desc => ?DESC(emqx_resource_schema, "resource_opts")
+            })}
+    ].
+
 -ifdef(TEST).
 -include_lib("hocon/include/hocon_types.hrl").
 schema_homogeneous_test() ->
@@ -195,24 +241,19 @@ schema_homogeneous_test() ->
 
 is_bad_schema(#{type := ?MAP(_, ?R_REF(Module, TypeName))}) ->
     Fields = Module:fields(TypeName),
-    ExpectedFieldNames = common_field_names(),
-    MissingFileds = lists:filter(
+    ExpectedFieldNames = lists:map(fun binary_to_atom/1, top_level_common_action_keys()),
+    MissingFields = lists:filter(
         fun(Name) -> lists:keyfind(Name, 1, Fields) =:= false end, ExpectedFieldNames
     ),
-    case MissingFileds of
+    case MissingFields of
         [] ->
             false;
         _ ->
             {true, #{
-                schema_modle => Module,
+                schema_module => Module,
                 type_name => TypeName,
-                missing_fields => MissingFileds
+                missing_fields => MissingFields
             }}
     end.
-
-common_field_names() ->
-    [
-        enable, description, local_topic, connector, resource_opts, parameters
-    ].
 
 -endif.

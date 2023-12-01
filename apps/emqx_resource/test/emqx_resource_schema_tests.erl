@@ -134,7 +134,7 @@ check(Conf) when is_map(Conf) ->
 %% erlfmt-ignore
 webhook_bridge_health_check_hocon(HealthCheckInterval) ->
 io_lib:format(
-"""
+"
 bridges.webhook.simple {
   url = \"http://localhost:4000\"
   body = \"body\"
@@ -142,5 +142,5 @@ bridges.webhook.simple {
     health_check_interval = \"~s\"
   }
 }
-""",
+",
 [HealthCheckInterval]).

@@ -12,7 +12,9 @@
 
 %% emqx_bridge_enterprise "callbacks"
 -export([
-    conn_bridge_examples/1
+    bridge_v2_examples/1,
+    conn_bridge_examples/1,
+    connector_examples/1
 ]).
 
 %% hocon_schema callbacks
@@ -23,14 +25,19 @@
     desc/1
 ]).
 
+-define(CONNECTOR_TYPE, mongodb).
+
 %%=================================================================================================
 %% hocon_schema API
 %%=================================================================================================
 
+%% [TODO] Namespace should be different depending on whether this is used for a
+%% connector, an action or a legacy bridge type.
 namespace() ->
     "bridge_mongodb".
 
 roots() ->
+    %% ???
     [].
 
 fields("config") ->
@@ -44,6 +51,20 @@ fields("config") ->
                 #{required => true, desc => ?DESC(emqx_resource_schema, "creation_opts")}
             )}
     ];
+fields("config_connector") ->
+    emqx_connector_schema:common_fields() ++
+        fields("connection_fields");
+fields("connection_fields") ->
+    [
+        {parameters,
+            mk(
+                hoconsc:union([
+                    ref(emqx_mongodb, "connector_" ++ T)
+                 || T <- ["single", "sharded", "rs"]
+                ]),
+                #{required => true, desc => ?DESC("mongodb_parameters")}
+            )}
+    ] ++ emqx_mongodb:fields(mongodb);
 fields("creation_opts") ->
     %% so far, mongodb connector does not support batching
     %% but we cannot delete this field due to compatibility reasons
@@ -55,12 +76,45 @@ fields("creation_opts") ->
             desc => ?DESC("batch_size")
         }}
     ]);
+fields(action) ->
+    {mongodb,
+        mk(
+            hoconsc:map(name, ref(?MODULE, mongodb_action)),
+            #{desc => <<"MongoDB Action Config">>, required => false}
+        )};
+fields(mongodb_action) ->
+    emqx_bridge_v2_schema:make_producer_action_schema(
+        mk(ref(?MODULE, action_parameters), #{
+            required => true, desc => ?DESC(action_parameters)
+        })
+    );
+fields(action_parameters) ->
+    [
+        {collection, mk(binary(), #{desc => ?DESC("collection"), default => <<"mqtt">>})},
+        {payload_template, mk(binary(), #{required => false, desc => ?DESC("payload_template")})}
+    ];
+fields(resource_opts) ->
+    fields("creation_opts");
 fields(mongodb_rs) ->
     emqx_mongodb:fields(rs) ++ fields("config");
 fields(mongodb_sharded) ->
     emqx_mongodb:fields(sharded) ++ fields("config");
 fields(mongodb_single) ->
     emqx_mongodb:fields(single) ++ fields("config");
+fields(Field) when
+    Field == "get_connector";
+    Field == "put_connector";
+    Field == "post_connector"
+->
+    emqx_connector_schema:api_fields(Field, ?CONNECTOR_TYPE, fields("connection_fields"));
+fields("get_bridge_v2") ->
+    emqx_bridge_schema:status_fields() ++
+        fields("post_bridge_v2");
+fields("post_bridge_v2") ->
+    type_and_name_fields(mongodb) ++
+        fields(mongodb_action);
+fields("put_bridge_v2") ->
+    fields(mongodb_action);
 fields("post_rs") ->
     fields(mongodb_rs) ++ type_and_name_fields(mongodb_rs);
 fields("post_sharded") ->
@@ -86,6 +140,16 @@ fields("get_single") ->
         fields(mongodb_single) ++
         type_and_name_fields(mongodb_single).
 
+bridge_v2_examples(Method) ->
+    [
+        #{
+            <<"mongodb">> => #{
+                summary => <<"MongoDB Action">>,
+                value => action_values(Method)
+            }
+        }
+    ].
+
 conn_bridge_examples(Method) ->
     [
         #{
@@ -108,16 +172,46 @@ conn_bridge_examples(Method) ->
         }
     ].
 
+connector_examples(Method) ->
+    [
+        #{
+            <<"mongodb_rs">> => #{
+                summary => <<"MongoDB Replica Set Connector">>,
+                value => connector_values(mongodb_rs, Method)
+            }
+        },
+        #{
+            <<"mongodb_sharded">> => #{
+                summary => <<"MongoDB Sharded Connector">>,
+                value => connector_values(mongodb_sharded, Method)
+            }
+        },
+        #{
+            <<"mongodb_single">> => #{
+                summary => <<"MongoDB Standalone Connector">>,
+                value => connector_values(mongodb_single, Method)
+            }
+        }
+    ].
+
+desc("config_connector") ->
+    ?DESC("desc_config");
 desc("config") ->
     ?DESC("desc_config");
 desc("creation_opts") ->
     ?DESC(emqx_resource_schema, "creation_opts");
+desc(resource_opts) ->
+    ?DESC(emqx_resource_schema, "resource_opts");
 desc(mongodb_rs) ->
     ?DESC(mongodb_rs_conf);
 desc(mongodb_sharded) ->
     ?DESC(mongodb_sharded_conf);
 desc(mongodb_single) ->
     ?DESC(mongodb_single_conf);
+desc(mongodb_action) ->
+    ?DESC(mongodb_action);
+desc(action_parameters) ->
+    ?DESC(action_parameters);
 desc(Method) when Method =:= "get"; Method =:= "put"; Method =:= "post" ->
     ["Configuration for MongoDB using `", string:to_upper(Method), "` method."];
 desc(_) ->
@@ -133,49 +227,103 @@ type_and_name_fields(MongoType) ->
         {name, mk(binary(), #{required => true, desc => ?DESC("desc_name")})}
     ].
 
-values(mongodb_rs = MongoType, Method) ->
-    TypeOpts = #{
+connector_values(Type, Method) ->
+    lists:foldl(
+        fun(M1, M2) ->
+            maps:merge(M1, M2)
+        end,
+        #{
+            description => <<"My example connector">>,
+            parameters => mongo_type_opts(Type)
+        },
+        [
+            common_values(),
+            method_values(mongodb, Method)
+        ]
+    ).
+
+action_values(Method) ->
+    maps:merge(
+        method_values(mongodb, Method),
+        #{
+            description => <<"My example action">>,
+            enable => true,
+            connector => <<"my_mongodb_connector">>,
+            parameters => #{
+                collection => <<"mycol">>
+            }
+        }
+    ).
+
+values(MongoType, Method) ->
+    maps:merge(
+        mongo_type_opts(MongoType),
+        bridge_values(MongoType, Method)
+    ).
+
+mongo_type_opts(mongodb_rs) ->
+    #{
+        mongo_type => <<"rs">>,
         servers => <<"localhost:27017, localhost:27018">>,
         w_mode => <<"safe">>,
         r_mode => <<"safe">>,
         replica_set_name => <<"rs">>
-    },
-    values(common, MongoType, Method, TypeOpts);
-values(mongodb_sharded = MongoType, Method) ->
-    TypeOpts = #{
+    };
+mongo_type_opts(mongodb_sharded) ->
+    #{
+        mongo_type => <<"sharded">>,
         servers => <<"localhost:27017, localhost:27018">>,
         w_mode => <<"safe">>
-    },
-    values(common, MongoType, Method, TypeOpts);
-values(mongodb_single = MongoType, Method) ->
-    TypeOpts = #{
+    };
+mongo_type_opts(mongodb_single) ->
+    #{
+        mongo_type => <<"single">>,
         server => <<"localhost:27017">>,
         w_mode => <<"safe">>
-    },
-    values(common, MongoType, Method, TypeOpts).
+    }.
 
-values(common, MongoType, Method, TypeOpts) ->
-    MongoTypeBin = atom_to_binary(MongoType),
-    Common = #{
-        name => <<MongoTypeBin/binary, "_demo">>,
-        type => MongoTypeBin,
+bridge_values(Type, _Method) ->
+    %% [FIXME] _Method makes a difference since PUT doesn't allow name and type
+    %% for connectors.
+    TypeBin = atom_to_binary(Type),
+    maps:merge(
+        #{
+            name => <<TypeBin/binary, "_demo">>,
+            type => TypeBin,
+            collection => <<"mycol">>
+        },
+        common_values()
+    ).
+
+common_values() ->
+    #{
         enable => true,
-        collection => <<"mycol">>,
         database => <<"mqtt">>,
         srv_record => false,
         pool_size => 8,
         username => <<"myuser">>,
         password => <<"******">>
-    },
-    MethodVals = method_values(MongoType, Method),
-    Vals0 = maps:merge(MethodVals, Common),
-    maps:merge(Vals0, TypeOpts).
+    }.
 
-method_values(MongoType, _) ->
-    ConnectorType =
-        case MongoType of
-            mongodb_rs -> <<"rs">>;
-            mongodb_sharded -> <<"sharded">>;
-            mongodb_single -> <<"single">>
-        end,
-    #{mongo_type => ConnectorType}.
+method_values(Type, post) ->
+    TypeBin = atom_to_binary(Type),
+    #{
+        name => <<TypeBin/binary, "_demo">>,
+        type => TypeBin
+    };
+method_values(Type, get) ->
+    maps:merge(
+        method_values(Type, post),
+        #{
+            status => <<"connected">>,
+            node_status => [
+                #{
+                    node => <<"emqx@localhost">>,
+                    status => <<"connected">>
+                }
+            ],
+            actions => [<<"my_action">>]
+        }
+    );
+method_values(_Type, put) ->
+    #{}.

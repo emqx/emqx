@@ -76,6 +76,8 @@ t_check_sub(_) ->
     ),
     ?assertEqual(
         {error, ?RC_SHARED_SUBSCRIPTIONS_NOT_SUPPORTED},
-        emqx_mqtt_caps:check_sub(ClientInfo, <<"topic">>, SubOpts#{share => true})
+        emqx_mqtt_caps:check_sub(
+            ClientInfo, #share{group = <<"group">>, topic = <<"topic">>}, SubOpts
+        )
     ),
     emqx_config:put([zones], OldConf).

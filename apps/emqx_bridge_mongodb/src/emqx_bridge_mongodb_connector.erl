@@ -6,19 +6,19 @@
 
 -behaviour(emqx_resource).
 
--include_lib("emqx_connector/include/emqx_connector_tables.hrl").
--include_lib("emqx_resource/include/emqx_resource.hrl").
--include_lib("typerefl/include/types.hrl").
--include_lib("emqx/include/logger.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
 %% `emqx_resource' API
 -export([
+    on_remove_channel/3,
     callback_mode/0,
-    on_start/2,
-    on_stop/2,
+    on_add_channel/4,
+    on_get_channel_status/3,
+    on_get_channels/1,
+    on_get_status/2,
     on_query/3,
-    on_get_status/2
+    on_start/2,
+    on_stop/2
 ]).
 
 %%========================================================================================
@@ -27,44 +27,94 @@
 
 callback_mode() -> emqx_mongodb:callback_mode().
 
-on_start(InstanceId, Config) ->
+on_add_channel(
+    _InstanceId,
+    #{channels := Channels} = OldState,
+    ChannelId,
+    #{parameters := Parameters} = ChannelConfig0
+) ->
+    PayloadTemplate0 = maps:get(payload_template, Parameters, undefined),
+    PayloadTemplate = preprocess_template(PayloadTemplate0),
+    CollectionTemplateSource = maps:get(collection, Parameters),
+    CollectionTemplate = preprocess_template(CollectionTemplateSource),
+    ChannelConfig = maps:merge(
+        Parameters,
+        ChannelConfig0#{
+            payload_template => PayloadTemplate,
+            collection_template => CollectionTemplate
+        }
+    ),
+    NewState = OldState#{channels => maps:put(ChannelId, ChannelConfig, Channels)},
+    {ok, NewState}.
+
+on_get_channel_status(InstanceId, _ChannelId, State) ->
+    case on_get_status(InstanceId, State) of
+        connected ->
+            connected;
+        _ ->
+            connecting
+    end.
+
+on_get_channels(InstanceId) ->
+    emqx_bridge_v2:get_channels_for_connector(InstanceId).
+
+on_get_status(InstanceId, _State = #{connector_state := ConnectorState}) ->
+    emqx_mongodb:on_get_status(InstanceId, ConnectorState).
+
+on_query(InstanceId, {Channel, Message0}, #{channels := Channels, connector_state := ConnectorState}) ->
+    #{
+        payload_template := PayloadTemplate,
+        collection_template := CollectionTemplate
+    } = ChannelState0 = maps:get(Channel, Channels),
+    ChannelState = ChannelState0#{
+        collection => emqx_placeholder:proc_tmpl(CollectionTemplate, Message0)
+    },
+    Message = render_message(PayloadTemplate, Message0),
+    Res = emqx_mongodb:on_query(
+        InstanceId,
+        {Channel, Message},
+        maps:merge(ConnectorState, ChannelState)
+    ),
+    ?tp(mongo_bridge_connector_on_query_return, #{instance_id => InstanceId, result => Res}),
+    Res;
+on_query(InstanceId, Request, _State = #{connector_state := ConnectorState}) ->
+    emqx_mongodb:on_query(InstanceId, Request, ConnectorState).
+
+on_remove_channel(_InstanceId, #{channels := Channels} = State, ChannelId) ->
+    NewState = State#{channels => maps:remove(ChannelId, Channels)},
+    {ok, NewState}.
+
+on_start(InstanceId, Config0) ->
+    Config = config_transform(Config0),
     case emqx_mongodb:on_start(InstanceId, Config) of
         {ok, ConnectorState} ->
-            PayloadTemplate0 = maps:get(payload_template, Config, undefined),
-            PayloadTemplate = preprocess_template(PayloadTemplate0),
-            CollectionTemplateSource = maps:get(collection, Config),
-            CollectionTemplate = preprocess_template(CollectionTemplateSource),
             State = #{
-                payload_template => PayloadTemplate,
-                collection_template => CollectionTemplate,
-                connector_state => ConnectorState
+                connector_state => ConnectorState,
+                channels => #{}
             },
             {ok, State};
         Error ->
             Error
     end.
 
+config_transform(#{parameters := #{mongo_type := MongoType} = Parameters} = Config) ->
+    maps:put(
+        type,
+        connector_type(MongoType),
+        maps:merge(
+            maps:remove(parameters, Config),
+            Parameters
+        )
+    ).
+
+connector_type(rs) -> mongodb_rs;
+connector_type(sharded) -> mongodb_sharded;
+connector_type(single) -> mongodb_single.
+
 on_stop(InstanceId, _State = #{connector_state := ConnectorState}) ->
-    emqx_mongodb:on_stop(InstanceId, ConnectorState).
-
-on_query(InstanceId, {send_message, Message0}, State) ->
-    #{
-        payload_template := PayloadTemplate,
-        collection_template := CollectionTemplate,
-        connector_state := ConnectorState
-    } = State,
-    NewConnectorState = ConnectorState#{
-        collection => emqx_placeholder:proc_tmpl(CollectionTemplate, Message0)
-    },
-    Message = render_message(PayloadTemplate, Message0),
-    Res = emqx_mongodb:on_query(InstanceId, {send_message, Message}, NewConnectorState),
-    ?tp(mongo_bridge_connector_on_query_return, #{result => Res}),
-    Res;
-on_query(InstanceId, Request, _State = #{connector_state := ConnectorState}) ->
-    emqx_mongodb:on_query(InstanceId, Request, ConnectorState).
-
-on_get_status(InstanceId, _State = #{connector_state := ConnectorState}) ->
-    emqx_mongodb:on_get_status(InstanceId, ConnectorState).
+    ok = emqx_mongodb:on_stop(InstanceId, ConnectorState),
+    ?tp(mongodb_stopped, #{instance_id => InstanceId}),
+    ok.
 
 %%========================================================================================
 %% Helper fns

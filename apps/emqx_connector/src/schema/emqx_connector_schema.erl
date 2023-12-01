@@ -24,7 +24,8 @@
 
 -export([
     transform_bridges_v1_to_connectors_and_bridges_v2/1,
-    transform_bridge_v1_config_to_action_config/4
+    transform_bridge_v1_config_to_action_config/4,
+    top_level_common_connector_keys/0
 ]).
 
 -export([roots/0, fields/1, desc/1, namespace/0, tags/0]).
@@ -32,6 +33,12 @@
 -export([get_response/0, put_request/0, post_request/0]).
 
 -export([connector_type_to_bridge_types/1]).
+-export([
+    api_fields/3,
+    common_fields/0,
+    status_and_actions_fields/0,
+    type_and_name_fields/1
+]).
 
 -export([resource_opts_fields/0, resource_opts_fields/1]).
 
@@ -96,9 +103,32 @@ schema_modules() ->
     [emqx_bridge_http_schema].
 -endif.
 
-connector_type_to_bridge_types(http) -> [http, webhook];
-connector_type_to_bridge_types(kafka_producer) -> [kafka, kafka_producer];
-connector_type_to_bridge_types(azure_event_hub_producer) -> [azure_event_hub_producer].
+%% @doc Return old bridge(v1) and/or connector(v2) type
+%% from the latest connector type name.
+connector_type_to_bridge_types(http) ->
+    [webhook, http];
+connector_type_to_bridge_types(azure_event_hub_producer) ->
+    [azure_event_hub_producer];
+connector_type_to_bridge_types(confluent_producer) ->
+    [confluent_producer];
+connector_type_to_bridge_types(gcp_pubsub_producer) ->
+    [gcp_pubsub, gcp_pubsub_producer];
+connector_type_to_bridge_types(kafka_producer) ->
+    [kafka, kafka_producer];
+connector_type_to_bridge_types(matrix) ->
+    [matrix];
+connector_type_to_bridge_types(mongodb) ->
+    [mongodb, mongodb_rs, mongodb_sharded, mongodb_single];
+connector_type_to_bridge_types(pgsql) ->
+    [pgsql];
+connector_type_to_bridge_types(syskeeper_forwarder) ->
+    [syskeeper_forwarder];
+connector_type_to_bridge_types(syskeeper_proxy) ->
+    [];
+connector_type_to_bridge_types(timescale) ->
+    [timescale];
+connector_type_to_bridge_types(redis) ->
+    [redis, redis_single, redis_sentinel, redis_cluster].
 
 actions_config_name() -> <<"actions">>.
 
@@ -143,7 +173,7 @@ split_bridge_to_connector_and_action(
                     BridgeType, BridgeV1Conf
                 );
             false ->
-                %% We do an automatic transfomation to get the connector config
+                %% We do an automatic transformation to get the connector config
                 %% if the callback is not defined.
                 %% Get connector fields from bridge config
                 lists:foldl(
@@ -191,17 +221,20 @@ transform_bridge_v1_config_to_action_config(
         BridgeV1Conf, ConnectorName, ConnectorFields
     ).
 
-transform_bridge_v1_config_to_action_config(
-    BridgeV1Conf, ConnectorName, ConnectorFields
-) ->
-    TopKeys = [
+top_level_common_connector_keys() ->
+    [
         <<"enable">>,
         <<"connector">>,
         <<"local_topic">>,
         <<"resource_opts">>,
         <<"description">>,
         <<"parameters">>
-    ],
+    ].
+
+transform_bridge_v1_config_to_action_config(
+    BridgeV1Conf, ConnectorName, ConnectorFields
+) ->
+    TopKeys = top_level_common_connector_keys(),
     TopKeysMap = maps:from_keys(TopKeys, true),
     %% Remove connector fields
     ActionMap0 = lists:foldl(
@@ -290,8 +323,9 @@ transform_old_style_bridges_to_connector_and_actions_of_type(
                 RawConfigSoFar1
             ),
             %% Add action
+            ActionType = emqx_action_info:bridge_v1_type_to_action_type(to_bin(BridgeType)),
             RawConfigSoFar3 = emqx_utils_maps:deep_put(
-                [actions_config_name(), to_bin(maybe_rename(BridgeType)), BridgeName],
+                [actions_config_name(), to_bin(ActionType), BridgeName],
                 RawConfigSoFar2,
                 ActionMap
             ),
@@ -309,12 +343,6 @@ transform_bridges_v1_to_connectors_and_bridges_v2(RawConfig) ->
         ConnectorFields
     ),
     NewRawConf.
-
-%% v1 uses 'kafka' as bridge type v2 uses 'kafka_producer'
-maybe_rename(kafka) ->
-    kafka_producer;
-maybe_rename(Name) ->
-    Name.
 
 %%======================================================================================
 %% HOCON Schema Callbacks
@@ -388,12 +416,86 @@ fields(connectors) ->
                     required => false
                 }
             )}
-    ] ++ enterprise_fields_connectors().
+    ] ++ enterprise_fields_connectors();
+fields("node_status") ->
+    [
+        node_name(),
+        {"status", mk(status(), #{})},
+        {"status_reason",
+            mk(binary(), #{
+                required => false,
+                desc => ?DESC("desc_status_reason"),
+                example => <<"Connection refused">>
+            })}
+    ].
 
 desc(connectors) ->
     ?DESC("desc_connectors");
+desc("node_status") ->
+    ?DESC("desc_node_status");
 desc(_) ->
     undefined.
+
+api_fields("get_connector", Type, Fields) ->
+    lists:append(
+        [
+            type_and_name_fields(Type),
+            common_fields(),
+            status_and_actions_fields(),
+            Fields
+        ]
+    );
+api_fields("post_connector", Type, Fields) ->
+    lists:append(
+        [
+            type_and_name_fields(Type),
+            common_fields(),
+            Fields
+        ]
+    );
+api_fields("put_connector", _Type, Fields) ->
+    lists:append(
+        [
+            common_fields(),
+            Fields
+        ]
+    ).
+
+common_fields() ->
+    [
+        {enable, mk(boolean(), #{desc => ?DESC("config_enable"), default => true})},
+        {description, emqx_schema:description_schema()}
+    ].
+
+type_and_name_fields(ConnectorType) ->
+    [
+        {type, mk(ConnectorType, #{required => true, desc => ?DESC("desc_type")})},
+        {name, mk(binary(), #{required => true, desc => ?DESC("desc_name")})}
+    ].
+
+status_and_actions_fields() ->
+    [
+        {"status", mk(status(), #{desc => ?DESC("desc_status")})},
+        {"status_reason",
+            mk(binary(), #{
+                required => false,
+                desc => ?DESC("desc_status_reason"),
+                example => <<"Connection refused">>
+            })},
+        {"node_status",
+            mk(
+                hoconsc:array(ref(?MODULE, "node_status")),
+                #{desc => ?DESC("desc_node_status")}
+            )},
+        {"actions",
+            mk(
+                hoconsc:array(binary()),
+                #{
+                    desc => ?DESC("connector_actions"),
+                    example => [<<"my_action">>]
+                }
+            )}
+    ].
 
 resource_opts_fields() ->
     resource_opts_fields(_Overrides = []).
@@ -452,11 +554,17 @@ is_bad_schema(#{type := ?MAP(_, ?R_REF(Module, TypeName))}) ->
             false;
         _ ->
             {true, #{
-                schema_modle => Module,
+                schema_module => Module,
                 type_name => TypeName,
                 missing_fields => MissingFileds
             }}
     end.
+
+status() ->
+    hoconsc:enum([connected, disconnected, connecting, inconsistent]).
+
+node_name() ->
+    {"node", mk(binary(), #{desc => ?DESC("desc_node_name"), example => "emqx@127.0.0.1"})}.
 
 common_field_names() ->
     [

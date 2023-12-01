@@ -15,7 +15,11 @@
 
 -import(
     emqx_eviction_agent_test_helpers,
-    [emqtt_connect/0, emqtt_connect/1, emqtt_connect/2, emqtt_connect_for_publish/1]
+    [
+        emqtt_connect/0, emqtt_connect/1, emqtt_connect/2,
+        emqtt_connect_for_publish/1,
+        case_specific_node_name/1
+    ]
 ).
 
 -define(assertPrinted(Printed, Code),
@@ -29,11 +33,19 @@ all() ->
     emqx_common_test_helpers:all(?MODULE).
 
 init_per_suite(Config) ->
-    emqx_common_test_helpers:start_apps([emqx_eviction_agent]),
-    Config.
+    Apps = emqx_cth_suite:start(
+        [
+            emqx,
+            emqx_eviction_agent
+        ],
+        #{
+            work_dir => emqx_cth_suite:work_dir(Config)
+        }
+    ),
+    [{apps, Apps} | Config].
 
-end_per_suite(_Config) ->
-    emqx_common_test_helpers:stop_apps([emqx_eviction_agent]).
+end_per_suite(Config) ->
+    ok = emqx_cth_suite:stop(?config(apps, Config)).
 
 init_per_testcase(Case, Config) ->
     _ = emqx_eviction_agent:disable(test_eviction),
@@ -41,10 +53,17 @@ init_per_testcase(Case, Config) ->
     start_slave(Case, Config).
 
 start_slave(t_explicit_session_takeover, Config) ->
+    NodeNames =
+        [
+            t_explicit_session_takeover_donor,
+            t_explicit_session_takeover_recipient
+        ],
     ClusterNodes = emqx_eviction_agent_test_helpers:start_cluster(
-        [{evacuate_test1, 2883}, {evacuate_test2, 3883}],
-        [emqx_eviction_agent]
+        Config,
+        NodeNames,
+        [emqx_conf, emqx, emqx_eviction_agent]
     ),
+    ok = snabbkaffe:start_trace(),
     [{evacuate_nodes, ClusterNodes} | Config];
 start_slave(_Case, Config) ->
     Config.
@@ -56,8 +75,7 @@ end_per_testcase(TestCase, Config) ->
 
 stop_slave(t_explicit_session_takeover, Config) ->
     emqx_eviction_agent_test_helpers:stop_cluster(
-        ?config(evacuate_nodes, Config),
-        [emqx_eviction_agent]
+        ?config(evacuate_nodes, Config)
     );
 stop_slave(_Case, _Config) ->
     ok.
@@ -77,13 +95,16 @@ t_enable_disable(_Config) ->
     {ok, C0} = emqtt_connect(),
     ok = emqtt:disconnect(C0),
 
+    %% Enable
     ok = emqx_eviction_agent:enable(test_eviction, undefined),
 
+    %% Can't enable with different kind
     ?assertMatch(
         {error, eviction_agent_busy},
         emqx_eviction_agent:enable(bar, undefined)
     ),
 
+    %% Enable with the same kind but different server ref
     ?assertMatch(
         ok,
         emqx_eviction_agent:enable(test_eviction, <<"srv">>)
@@ -99,6 +120,39 @@ t_enable_disable(_Config) ->
         emqtt_connect()
     ),
 
+    %% Enable with the same kind and server ref and explicit options
+    ?assertMatch(
+        ok,
+        emqx_eviction_agent:enable(test_eviction, <<"srv">>, #{allow_connections => false})
+    ),
+
+    ?assertMatch(
+        {enabled, #{}},
+        emqx_eviction_agent:status()
+    ),
+
+    ?assertMatch(
+        {error, {use_another_server, #{}}},
+        emqtt_connect()
+    ),
+
+    %% Enable with the same kind and server ref and permissive options
+    ?assertMatch(
+        ok,
+        emqx_eviction_agent:enable(test_eviction, <<"srv">>, #{allow_connections => true})
+    ),
+
+    ?assertMatch(
+        {enabled, #{}},
+        emqx_eviction_agent:status()
+    ),
+
+    ?assertMatch(
+        {ok, _},
+        emqtt_connect()
+    ),
+
+    %% Can't enable using different kind
     ?assertMatch(
         {error, eviction_agent_busy},
         emqx_eviction_agent:disable(bar)

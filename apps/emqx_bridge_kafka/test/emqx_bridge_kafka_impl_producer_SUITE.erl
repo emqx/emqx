@@ -28,13 +28,8 @@
 ).
 
 -include_lib("eunit/include/eunit.hrl").
--include_lib("emqx/include/emqx.hrl").
--include_lib("emqx_dashboard/include/emqx_dashboard.hrl").
 
 -define(HOST, "http://127.0.0.1:18083").
-
-%% -define(API_VERSION, "v5").
-
 -define(BASE_PATH, "/api/v5").
 
 %% NOTE: it's "kafka", but not "kafka_producer"
@@ -48,13 +43,6 @@
 %%------------------------------------------------------------------------------
 
 all() ->
-    case code:get_object_code(cthr) of
-        {Module, Code, Filename} ->
-            {module, Module} = code:load_binary(Module, Filename, Code),
-            ok;
-        error ->
-            error
-    end,
     All0 = emqx_common_test_helpers:all(?MODULE),
     All = All0 -- matrix_cases(),
     Groups = lists:map(fun({G, _, _}) -> {group, G} end, groups()),
@@ -105,23 +93,12 @@ init_per_suite(Config0) ->
             emqx_connector,
             emqx_bridge_kafka,
             emqx_bridge,
-            emqx_rule_engine
+            emqx_rule_engine,
+            {emqx_dashboard, "dashboard.listeners.http { enable = true, bind = 18083 }"}
         ],
         #{work_dir => emqx_cth_suite:work_dir(Config)}
     ),
-    emqx_mgmt_api_test_util:init_suite(),
     wait_until_kafka_is_up(),
-    %% Wait until bridges API is up
-    (fun WaitUntilRestApiUp() ->
-        case http_get(["bridges"]) of
-            {ok, 200, _Res} ->
-                ok;
-            Val ->
-                ct:pal("REST API for bridges not up. Wait and try again. Response: ~p", [Val]),
-                timer:sleep(1000),
-                WaitUntilRestApiUp()
-        end
-    end)(),
     [{apps, Apps} | Config].
 
 end_per_suite(Config) ->
@@ -183,6 +160,7 @@ t_query_mode_async(CtConfig) ->
 t_publish(matrix) ->
     {publish, [
         [tcp, none, key_dispatch, sync],
+        [ssl, plain_passfile, random, sync],
         [ssl, scram_sha512, random, async],
         [ssl, kerberos, random, sync]
     ]};
@@ -200,9 +178,15 @@ t_publish(Config) ->
         end,
     Auth1 =
         case Auth of
-            none -> "none";
-            scram_sha512 -> valid_sasl_scram512_settings();
-            kerberos -> valid_sasl_kerberos_settings()
+            none ->
+                "none";
+            plain_passfile ->
+                Passfile = filename:join(?config(priv_dir, Config), "passfile"),
+                valid_sasl_plain_passfile_settings(Passfile);
+            scram_sha512 ->
+                valid_sasl_scram512_settings();
+            kerberos ->
+                valid_sasl_kerberos_settings()
         end,
     ConnCfg = #{
         "bootstrap_hosts" => Hosts,
@@ -499,11 +483,10 @@ t_failed_creation_then_fix(Config) ->
     {ok, {_, [KafkaMsg]}} = brod:fetch(kafka_hosts(), KafkaTopic, 0, Offset),
     ?assertMatch(#kafka_message{key = BinTime}, KafkaMsg),
     % %% TODO: refactor those into init/end per testcase
-    ok = ?PRODUCER:on_stop(ResourceId, State),
-    ?assertEqual([], supervisor:which_children(wolff_client_sup)),
-    ?assertEqual([], supervisor:which_children(wolff_producers_sup)),
     ok = emqx_bridge:remove(list_to_atom(Type), list_to_atom(Name)),
     delete_all_bridges(),
+    ?assertEqual([], supervisor:which_children(wolff_client_sup)),
+    ?assertEqual([], supervisor:which_children(wolff_producers_sup)),
     ok.
 
 t_custom_timestamp(_Config) ->
@@ -1018,112 +1001,89 @@ hocon_config(Args, ConfigTemplateFun) ->
     ),
     Hocon.
 
-%% erlfmt-ignore
 hocon_config_template() ->
-"""
-bridges.kafka.{{ bridge_name }} {
-  bootstrap_hosts = \"{{ kafka_hosts_string }}\"
-  enable = true
-  authentication = {{{ authentication }}}
-  ssl = {{{ ssl }}}
-  local_topic = \"{{ local_topic }}\"
-  kafka = {
-    message = {
-      key = \"${clientid}\"
-      value = \"${.payload}\"
-      timestamp = \"${timestamp}\"
-    }
-    buffer = {
-      memory_overload_protection = false
-    }
-    partition_strategy = {{ partition_strategy }}
-    topic = \"{{ kafka_topic }}\"
-    query_mode = {{ query_mode }}
-  }
-  metadata_request_timeout = 5s
-  min_metadata_refresh_interval = 3s
-  socket_opts {
-    nodelay = true
-  }
-  connect_timeout = 5s
-}
-""".
+    "bridges.kafka.{{ bridge_name }} {"
+    "\n   bootstrap_hosts = \"{{ kafka_hosts_string }}\""
+    "\n   enable = true"
+    "\n   authentication = {{{ authentication }}}"
+    "\n   ssl = {{{ ssl }}}"
+    "\n   local_topic = \"{{ local_topic }}\""
+    "\n   kafka = {"
+    "\n     message = {"
+    "\n       key = \"${clientid}\""
+    "\n       value = \"${.payload}\""
+    "\n       timestamp = \"${timestamp}\""
+    "\n     }"
+    "\n     buffer = {"
+    "\n       memory_overload_protection = false"
+    "\n     }"
+    "\n     partition_strategy = {{ partition_strategy }}"
+    "\n     topic = \"{{ kafka_topic }}\""
+    "\n     query_mode = {{ query_mode }}"
+    "\n   }"
+    "\n   metadata_request_timeout = 5s"
+    "\n   min_metadata_refresh_interval = 3s"
+    "\n   socket_opts {"
+    "\n     nodelay = true"
+    "\n   }"
+    "\n   connect_timeout = 5s"
+    "\n }".
 
-%% erlfmt-ignore
 hocon_config_template_with_headers() ->
-"""
-bridges.kafka.{{ bridge_name }} {
-  bootstrap_hosts = \"{{ kafka_hosts_string }}\"
-  enable = true
-  authentication = {{{ authentication }}}
-  ssl = {{{ ssl }}}
-  local_topic = \"{{ local_topic }}\"
-  kafka = {
-    message = {
-      key = \"${clientid}\"
-      value = \"${.payload}\"
-      timestamp = \"${timestamp}\"
-    }
-    buffer = {
-      memory_overload_protection = false
-    }
-    kafka_headers = \"{{ kafka_headers }}\"
-    kafka_header_value_encode_mode: json
-    kafka_ext_headers: {{{ kafka_ext_headers }}}
-    partition_strategy = {{ partition_strategy }}
-    topic = \"{{ kafka_topic }}\"
-    query_mode = {{ query_mode }}
-  }
-  metadata_request_timeout = 5s
-  min_metadata_refresh_interval = 3s
-  socket_opts {
-    nodelay = true
-  }
-  connect_timeout = 5s
-}
-""".
+    "bridges.kafka.{{ bridge_name }} {"
+    "\n   bootstrap_hosts = \"{{ kafka_hosts_string }}\""
+    "\n   enable = true"
+    "\n   authentication = {{{ authentication }}}"
+    "\n   ssl = {{{ ssl }}}"
+    "\n   local_topic = \"{{ local_topic }}\""
+    "\n   kafka = {"
+    "\n     message = {"
+    "\n       key = \"${clientid}\""
+    "\n       value = \"${.payload}\""
+    "\n       timestamp = \"${timestamp}\""
+    "\n     }"
+    "\n     buffer = {"
+    "\n       memory_overload_protection = false"
+    "\n     }"
+    "\n     kafka_headers = \"{{ kafka_headers }}\""
+    "\n     kafka_header_value_encode_mode: json"
+    "\n     kafka_ext_headers: {{{ kafka_ext_headers }}}"
+    "\n     partition_strategy = {{ partition_strategy }}"
+    "\n     topic = \"{{ kafka_topic }}\""
+    "\n     query_mode = {{ query_mode }}"
+    "\n   }"
+    "\n   metadata_request_timeout = 5s"
+    "\n   min_metadata_refresh_interval = 3s"
+    "\n   socket_opts {"
+    "\n     nodelay = true"
+    "\n   }"
+    "\n   connect_timeout = 5s"
+    "\n }".
 
-%% erlfmt-ignore
 hocon_config_template_authentication("none") ->
     "none";
 hocon_config_template_authentication(#{"mechanism" := _}) ->
-"""
-{
-    mechanism = {{ mechanism }}
-    password = {{ password }}
-    username = {{ username }}
-}
-""";
+    "{"
+    "\n     mechanism = {{ mechanism }}"
+    "\n     password = \"{{ password }}\""
+    "\n     username = \"{{ username }}\""
+    "\n }";
 hocon_config_template_authentication(#{"kerberos_principal" := _}) ->
-"""
-{
-    kerberos_principal = \"{{ kerberos_principal }}\"
-    kerberos_keytab_file = \"{{ kerberos_keytab_file }}\"
-}
-""".
+    "{"
+    "\n     kerberos_principal = \"{{ kerberos_principal }}\""
+    "\n     kerberos_keytab_file = \"{{ kerberos_keytab_file }}\""
+    "\n }".
 
-%% erlfmt-ignore
 hocon_config_template_ssl(Map) when map_size(Map) =:= 0 ->
-"""
-{
-    enable = false
-}
-""";
+    "{ enable = false }";
 hocon_config_template_ssl(#{"enable" := "false"}) ->
-"""
-{
-    enable = false
-}
-""";
+    "{ enable = false }";
 hocon_config_template_ssl(#{"enable" := "true"}) ->
-"""
-{
-    enable = true
-    cacertfile = \"{{{cacertfile}}}\"
-    certfile = \"{{{certfile}}}\"
-    keyfile = \"{{{keyfile}}}\"
-}
-""".
+    "{      enable = true"
+    "\n     cacertfile = \"{{{cacertfile}}}\""
+    "\n     certfile = \"{{{certfile}}}\""
+    "\n     keyfile = \"{{{keyfile}}}\""
+    "\n }".
 
 kafka_hosts_string(tcp, none) ->
     kafka_hosts_string();
@@ -1195,6 +1155,13 @@ valid_sasl_kerberos_settings() ->
     #{
         "kerberos_principal" => "rig@KDC.EMQX.NET",
         "kerberos_keytab_file" => shared_secret(rig_keytab)
+    }.
+
+valid_sasl_plain_passfile_settings(Passfile) ->
+    Auth = valid_sasl_plain_settings(),
+    ok = file:write_file(Passfile, maps:get("password", Auth)),
+    Auth#{
+        "password" := "file://" ++ Passfile
     }.
 
 kafka_hosts() ->

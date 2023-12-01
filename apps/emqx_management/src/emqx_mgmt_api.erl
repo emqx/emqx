@@ -35,6 +35,13 @@
     b2i/1
 ]).
 
+-export([
+    parse_pager_params/1,
+    parse_qstring/2,
+    init_query_result/0,
+    accumulate_query_rows/4
+]).
+
 -ifdef(TEST).
 -export([paginate_test_format/1]).
 -endif.
@@ -341,11 +348,11 @@ do_select(
         try
             case maps:get(continuation, QueryState, undefined) of
                 undefined ->
-                    ets:select(Tab, Ms, Limit);
+                    ets:select_reverse(Tab, Ms, Limit);
                 Continuation ->
                     %% XXX: Repair is necessary because we pass Continuation back
                     %% and forth through the nodes in the `do_cluster_query`
-                    ets:select(ets:repair_continuation(Continuation, Ms))
+                    ets:select_reverse(ets:repair_continuation(Continuation, Ms))
             end
         catch
             exit:_ = Exit ->
@@ -444,6 +451,8 @@ accumulate_query_rows(
                 count => Count + length(SubRows),
                 rows => [{Node, SubRows} | RowsAcc]
             }};
+        NCursor when NCursor >= PageEnd + Limit ->
+            {enough, ResultAcc#{cursor => NCursor}};
         NCursor when NCursor >= PageEnd ->
             SubRows = lists:sublist(Rows, Limit - Count),
             {enough, ResultAcc#{

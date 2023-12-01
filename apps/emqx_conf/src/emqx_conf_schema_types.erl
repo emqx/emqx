@@ -265,6 +265,12 @@ readable("port_number()") ->
     Result = try_range("1..65535"),
     true = is_map(Result),
     Result;
+readable("secret()") ->
+    #{
+        swagger => #{type => string, example => <<"R4ND0M/S∃CЯ∃T"/utf8>>},
+        dashboard => #{type => string},
+        docgen => #{type => "String", example => <<"R4ND0M/S∃CЯ∃T"/utf8>>}
+    };
 readable(TypeStr0) ->
     case string:split(TypeStr0, ":") of
         [ModuleStr, TypeStr] ->

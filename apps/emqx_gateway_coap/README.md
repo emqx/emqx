@@ -5,7 +5,7 @@ with [Publish-Subscribe Broker for the CoAP](https://datatracker.ietf.org/doc/ht
 
 ## Quick Start
 
-In EMQX 5.0, CoAP gateways can be configured and enabled through the Dashboard.
+In EMQX 5.0, CoAP gateway can be configured and enabled through the Dashboard.
 
 It can also be enabled via the HTTP API or emqx.conf, e.g. In emqx.conf:
 

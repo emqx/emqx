@@ -38,12 +38,13 @@ groups() ->
     ].
 
 init_per_suite(Config) ->
-    ok = emqx_common_test_helpers:start_apps([emqx_eviction_agent, emqx_node_rebalance]),
-    Config.
+    Apps = emqx_cth_suite:start([emqx, emqx_eviction_agent, emqx_node_rebalance], #{
+        work_dir => ?config(priv_dir, Config)
+    }),
+    [{apps, Apps} | Config].
 
-end_per_suite(_Config) ->
-    ok = emqx_common_test_helpers:stop_apps([emqx_eviction_agent, emqx_node_rebalance]),
-    ok.
+end_per_suite(Config) ->
+    emqx_cth_suite:stop(?config(apps, Config)).
 
 init_per_group(local, Config) ->
     [{cluster, false} | Config];
@@ -56,9 +57,13 @@ end_per_group(_Group, _Config) ->
 init_per_testcase(Case, Config) ->
     case ?config(cluster, Config) of
         true ->
-            ClusterNodes = emqx_eviction_agent_test_helpers:start_cluster(
-                [{case_specific_node_name(?MODULE, Case), 2883}],
-                [emqx_eviction_agent, emqx_node_rebalance]
+            ClusterNodes = emqx_cth_cluster:start(
+                [
+                    {case_specific_node_name(?MODULE, Case), #{
+                        apps => [emqx, emqx_eviction_agent, emqx_node_rebalance]
+                    }}
+                ],
+                #{work_dir => emqx_cth_suite:work_dir(Case, Config)}
             ),
             [{cluster_nodes, ClusterNodes} | Config];
         false ->
@@ -68,10 +73,7 @@ init_per_testcase(Case, Config) ->
 end_per_testcase(_Case, Config) ->
     case ?config(cluster, Config) of
         true ->
-            emqx_eviction_agent_test_helpers:stop_cluster(
-                ?config(cluster_nodes, Config),
-                [emqx_eviction_agent, emqx_node_rebalance]
-            );
+            emqx_cth_cluster:stop(?config(cluster_nodes, Config));
         false ->
             ok
     end.
@@ -94,7 +96,13 @@ t_enable_disable(_Config) ->
     ),
 
     ?assertEqual(
-        {error, already_enabled},
+        {error, invalid_coordinator},
+        emqx_node_rebalance_agent:enable(self(), other_rebalance)
+    ),
+
+    %% Options update
+    ?assertEqual(
+        ok,
         emqx_node_rebalance_agent:enable(self())
     ),
 
@@ -150,7 +158,7 @@ t_unknown_messages(_Config) ->
 t_rebalance_agent_coordinator_fail(Config) ->
     process_flag(trap_exit, true),
 
-    [{Node, _}] = ?config(cluster_nodes, Config),
+    [Node] = ?config(cluster_nodes, Config),
 
     CoordinatorPid = spawn_link(
         fun() ->
@@ -189,7 +197,7 @@ t_rebalance_agent_coordinator_fail(Config) ->
 t_rebalance_agent_fail(Config) ->
     process_flag(trap_exit, true),
 
-    [{Node, _}] = ?config(cluster_nodes, Config),
+    [Node] = ?config(cluster_nodes, Config),
 
     CoordinatorPid = spawn_link(
         fun() ->

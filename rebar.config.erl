@@ -16,7 +16,7 @@ do(Dir, CONFIG) ->
 
 assert_otp() ->
     Oldest = 24,
-    Latest = 25,
+    Latest = 26,
     OtpRelease = list_to_integer(erlang:system_info(otp_release)),
     case OtpRelease < Oldest orelse OtpRelease > Latest of
         true ->
@@ -39,10 +39,10 @@ bcrypt() ->
     {bcrypt, {git, "https://github.com/emqx/erlang-bcrypt.git", {tag, "0.6.1"}}}.
 
 quicer() ->
-    {quicer, {git, "https://github.com/emqx/quic.git", {tag, "0.0.202"}}}.
+    {quicer, {git, "https://github.com/emqx/quic.git", {tag, "0.0.303"}}}.
 
 jq() ->
-    {jq, {git, "https://github.com/emqx/jq", {tag, "v0.3.11"}}}.
+    {jq, {git, "https://github.com/emqx/jq", {tag, "v0.3.12"}}}.
 
 deps(Config) ->
     {deps, OldDeps} = lists:keyfind(deps, 1, Config),
@@ -53,7 +53,10 @@ deps(Config) ->
     lists:keystore(deps, 1, Config, {deps, OldDeps ++ MoreDeps}).
 
 overrides() ->
-    [{add, [{extra_src_dirs, [{"etc", [{recursive, true}]}]}]}] ++ snabbkaffe_overrides().
+    [
+        {add, [{extra_src_dirs, [{"etc", [{recursive, true}]}]}]},
+        {add, jesse, [{erl_opts, [nowarn_match_float_zero]}]}
+    ] ++ snabbkaffe_overrides().
 
 %% Temporary workaround for a rebar3 erl_opts duplication
 %% bug. Ideally, we want to set this define globally
@@ -79,6 +82,7 @@ is_enterprise(ce) -> false;
 is_enterprise(ee) -> true.
 
 is_community_umbrella_app("apps/emqx_bridge_kafka") -> false;
+is_community_umbrella_app("apps/emqx_bridge_confluent") -> false;
 is_community_umbrella_app("apps/emqx_bridge_gcp_pubsub") -> false;
 is_community_umbrella_app("apps/emqx_bridge_cassandra") -> false;
 is_community_umbrella_app("apps/emqx_bridge_opents") -> false;
@@ -110,6 +114,11 @@ is_community_umbrella_app("apps/emqx_bridge_azure_event_hub") -> false;
 is_community_umbrella_app("apps/emqx_gcp_device") -> false;
 is_community_umbrella_app("apps/emqx_dashboard_rbac") -> false;
 is_community_umbrella_app("apps/emqx_dashboard_sso") -> false;
+is_community_umbrella_app("apps/emqx_audit") -> false;
+is_community_umbrella_app("apps/emqx_gateway_gbt32960") -> false;
+is_community_umbrella_app("apps/emqx_gateway_ocpp") -> false;
+is_community_umbrella_app("apps/emqx_gateway_jt808") -> false;
+is_community_umbrella_app("apps/emqx_bridge_syskeeper") -> false;
 is_community_umbrella_app(_) -> true.
 
 is_jq_supported() ->

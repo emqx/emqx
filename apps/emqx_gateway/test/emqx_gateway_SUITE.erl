@@ -74,13 +74,7 @@ end_per_testcase(_TestCase, _Config) ->
 %%--------------------------------------------------------------------
 
 t_registered_gateway(_) ->
-    [
-        {coap, #{cbkmod := emqx_gateway_coap}},
-        {exproto, #{cbkmod := emqx_gateway_exproto}},
-        {lwm2m, #{cbkmod := emqx_gateway_lwm2m}},
-        {mqttsn, #{cbkmod := emqx_gateway_mqttsn}},
-        {stomp, #{cbkmod := emqx_gateway_stomp}}
-    ] = emqx_gateway:registered_gateway().
+    [{coap, #{cbkmod := emqx_gateway_coap}} | _] = emqx_gateway:registered_gateway().
 
 t_load_unload_list_lookup(_) ->
     {ok, _} = emqx_gateway:load(?GWNAME, #{idle_timeout => 1000}),
