@@ -136,16 +136,9 @@ create(ResId, Group, ResourceType, Config, Opts) ->
     % Create metrics for the resource
     ok = emqx_resource:create_metrics(ResId),
     QueryMode = emqx_resource:query_mode(ResourceType, Config, Opts),
-    case QueryMode of
-        %% the resource has built-in buffer, so there is no need for resource workers
-        simple_sync_internal_buffer ->
-            ok;
-        simple_async_internal_buffer ->
-            ok;
-        %% The resource is a consumer resource, so there is no need for resource workers
-        no_queries ->
-            ok;
-        _ ->
+    SpawnBufferWorkers = maps:get(spawn_buffer_workers, Opts, true),
+    case SpawnBufferWorkers andalso lists:member(QueryMode, [sync, async]) of
+        true ->
             %% start resource workers as the query type requires them
             ok = emqx_resource_buffer_worker_sup:start_workers(ResId, Opts),
             case maps:get(start_after_created, Opts, ?START_AFTER_CREATED) of
@@ -153,7 +146,9 @@ create(ResId, Group, ResourceType, Config, Opts) ->
                     wait_for_ready(ResId, maps:get(start_timeout, Opts, ?START_TIMEOUT));
                 false ->
                     ok
-            end
+            end;
+        false ->
+            ok
     end.
 
 %% @doc Called from `emqx_resource` when doing a dry run for creating a resource instance.

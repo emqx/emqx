@@ -17,6 +17,7 @@
 -module(emqx_connector_dummy_impl).
 
 -export([
+    query_mode/1,
     callback_mode/0,
     on_start/2,
     on_stop/2,
@@ -24,6 +25,7 @@
     on_get_channel_status/3
 ]).
 
+query_mode(_) -> error(unexpected).
 callback_mode() -> error(unexpected).
 on_start(_, _) -> error(unexpected).
 on_stop(_, _) -> error(unexpected).

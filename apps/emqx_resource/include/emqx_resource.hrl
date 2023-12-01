@@ -101,7 +101,10 @@
     max_buffer_bytes => pos_integer(),
     query_mode => query_mode(),
     resume_interval => pos_integer(),
-    inflight_window => pos_integer()
+    inflight_window => pos_integer(),
+    %% Only for `emqx_resource_manager' usage.  If false, prevents spawning buffer
+    %% workers, regardless of resource query mode.
+    spawn_buffer_workers => boolean()
 }.
 -type query_result() ::
     ok
