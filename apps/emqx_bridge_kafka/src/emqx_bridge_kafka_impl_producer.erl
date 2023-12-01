@@ -81,11 +81,24 @@ on_start(InstId, Config) ->
     ClientId = InstId,
     emqx_resource:allocate_resource(InstId, ?kafka_client_id, ClientId),
     ok = ensure_client(ClientId, Hosts, ClientConfig),
-    %% Check if this is a dry run
-    {ok, #{
-        client_id => ClientId,
-        installed_bridge_v2s => #{}
-    }}.
+    %% Note: we must return `{error, _}' here if the client cannot connect so that the
+    %% connector will immediately enter the `?status_disconnected' state, and then avoid
+    %% giving the impression that channels/actions may be added immediately and start
+    %% buffering, which won't happen if it's `?status_connecting'.  That would lead to
+    %% data loss, since Kafka Producer uses wolff's internal buffering, which is started
+    %% only when its producers start.
+    case check_client_connectivity(ClientId) of
+        ok ->
+            {ok, #{
+                client_id => ClientId,
+                installed_bridge_v2s => #{}
+            }};
+        {error, {find_client, Reason}} ->
+            %% Race condition?  Crash?  We just checked it with `ensure_client'...
+            {error, Reason};
+        {error, {connectivity, Reason}} ->
+            {error, Reason}
+    end.
 
 on_add_channel(
     InstId,
@@ -478,14 +491,18 @@ on_get_status(
     _InstId,
     #{client_id := ClientId} = State
 ) ->
-    case wolff_client_sup:find_client(ClientId) of
-        {ok, Pid} ->
-            case wolff_client:check_connectivity(Pid) of
-                ok -> ?status_connected;
-                {error, Error} -> {?status_connecting, State, Error}
-            end;
-        {error, _Reason} ->
-            ?status_connecting
+    %% Note: we must avoid returning `?status_disconnected' here if the connector ever was
+    %% connected.  If the connector ever connected, wolff producers might have been
+    %% sucessfully started, and returning `?status_disconnected' will make resource
+    %% manager try to restart the producers / connector, thus potentially dropping data
+    %% held in wolff producer's replayq.
+    case check_client_connectivity(ClientId) of
+        ok ->
+            ?status_connected;
+        {error, {find_client, _Error}} ->
+            ?status_connecting;
+        {error, {connectivity, Error}} ->
+            {?status_connecting, State, Error}
     end.
 
 on_get_channel_status(
@@ -496,13 +513,19 @@ on_get_channel_status(
         installed_bridge_v2s := Channels
     } = _State
 ) ->
+    %% Note: we must avoid returning `?status_disconnected' here. Returning
+    %% `?status_disconnected' will make resource manager try to restart the producers /
+    %% connector, thus potentially dropping data held in wolff producer's replayq.  The
+    %% only exception is if the topic does not exist ("unhealthy target").
     #{kafka_topic := KafkaTopic} = maps:get(ChannelId, Channels),
     try
         ok = check_topic_and_leader_connections(ClientId, KafkaTopic),
         ?status_connected
     catch
-        throw:#{reason := restarting} ->
-            ?status_connecting
+        throw:{unhealthy_target, Msg} ->
+            throw({unhealthy_target, Msg});
+        K:E ->
+            {?status_connecting, {K, E}}
     end.
 
 check_topic_and_leader_connections(ClientId, KafkaTopic) ->
@@ -522,6 +545,21 @@ check_topic_and_leader_connections(ClientId, KafkaTopic) ->
                 kafka_client => ClientId,
                 kafka_topic => KafkaTopic
             })
+    end.
+
+-spec check_client_connectivity(wolff:client_id()) ->
+    ok | {error, {connectivity | find_client, term()}}.
+check_client_connectivity(ClientId) ->
+    case wolff_client_sup:find_client(ClientId) of
+        {ok, Pid} ->
+            case wolff_client:check_connectivity(Pid) of
+                ok ->
+                    ok;
+                {error, Error} ->
+                    {error, {connectivity, Error}}
+            end;
+        {error, Reason} ->
+            {error, {find_client, Reason}}
     end.
 
 check_if_healthy_leaders(ClientId, ClientPid, KafkaTopic) when is_pid(ClientPid) ->

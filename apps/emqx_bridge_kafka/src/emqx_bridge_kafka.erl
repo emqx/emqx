@@ -269,7 +269,11 @@ fields(Field) when
     Field == "put_connector";
     Field == "post_connector"
 ->
-    emqx_connector_schema:api_fields(Field, ?CONNECTOR_TYPE, kafka_connector_config_fields());
+    emqx_connector_schema:api_fields(
+        Field,
+        ?CONNECTOR_TYPE,
+        kafka_connector_config_fields()
+    );
 fields("post_" ++ Type) ->
     [type_field(Type), name_field() | fields("config_" ++ Type)];
 fields("put_" ++ Type) ->
@@ -508,8 +512,7 @@ fields(consumer_opts) ->
         {value_encoding_mode,
             mk(enum([none, base64]), #{
                 default => none, desc => ?DESC(consumer_value_encoding_mode)
-            })},
-        {resource_opts, mk(ref(resource_opts), #{default => #{}})}
+            })}
     ];
 fields(consumer_topic_mapping) ->
     [
@@ -623,7 +626,7 @@ kafka_connector_config_fields() ->
             })},
         {socket_opts, mk(ref(socket_opts), #{required => false, desc => ?DESC(socket_opts)})},
         {ssl, mk(ref(ssl_client_opts), #{})}
-    ].
+    ] ++ [resource_opts()].
 
 producer_opts(ActionOrBridgeV1) ->
     [
@@ -631,9 +634,11 @@ producer_opts(ActionOrBridgeV1) ->
         %% for egress bridges with this config, the published messages
         %% will be forwarded to such bridges.
         {local_topic, mk(binary(), #{required => false, desc => ?DESC(mqtt_topic)})},
-        parameters_field(ActionOrBridgeV1),
-        {resource_opts, mk(ref(resource_opts), #{default => #{}, desc => ?DESC(resource_opts)})}
-    ].
+        parameters_field(ActionOrBridgeV1)
+    ] ++ [resource_opts() || ActionOrBridgeV1 =:= action].
+
+resource_opts() ->
+    {resource_opts, mk(ref(resource_opts), #{default => #{}, desc => ?DESC(resource_opts)})}.
 
 %% Since e5.3.1, we want to rename the field 'kafka' to 'parameters'
 %% However we need to keep it backward compatible for generated schema json (version 0.1.0)
