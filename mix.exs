@@ -51,7 +51,7 @@ defmodule EMQXUmbrella.MixProject do
       {:typerefl, github: "ieQu1/typerefl", tag: "0.9.1", override: true},
       {:ehttpc, github: "emqx/ehttpc", tag: "0.4.11", override: true},
       {:gproc, github: "emqx/gproc", tag: "0.9.0.1", override: true},
-      {:jiffy, github: "emqx/jiffy", tag: "1.0.5", override: true},
+      {:jiffy, github: "emqx/jiffy", tag: "1.0.6", override: true},
       {:cowboy, github: "emqx/cowboy", tag: "2.9.2", override: true},
       {:esockd, github: "emqx/esockd", tag: "5.9.9", override: true},
       {:rocksdb, github: "emqx/erlang-rocksdb", tag: "1.8.0-emqx-1", override: true},
