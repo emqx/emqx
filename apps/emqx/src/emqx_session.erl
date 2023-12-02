@@ -606,8 +606,8 @@ maybe_mock_impl_mod({Mock, _State}) when is_atom(Mock) ->
     Mock.
 -else.
 -spec maybe_mock_impl_mod(_Session) -> no_return().
-maybe_mock_impl_mod(_) ->
-    error(noimpl).
+maybe_mock_impl_mod(Session) ->
+    error(noimpl, [Session]).
 -endif.
 
 -spec choose_impl_mod(conninfo()) -> module().
