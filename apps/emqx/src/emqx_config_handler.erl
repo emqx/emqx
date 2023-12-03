@@ -84,6 +84,7 @@
     ok | {ok, Result :: any()} | {error, Reason :: term()}.
 
 -type state() :: #{handlers := any()}.
+-type config_key_path() :: emqx_utils_maps:config_key_path().
 
 start_link() ->
     gen_server:start_link({local, ?MODULE}, ?MODULE, {}, []).
@@ -91,21 +92,21 @@ start_link() ->
 stop() ->
     gen_server:stop(?MODULE).
 
--spec update_config(module(), emqx_config:config_key_path(), emqx_config:update_args()) ->
+-spec update_config(module(), config_key_path(), emqx_config:update_args()) ->
     {ok, emqx_config:update_result()} | {error, emqx_config:update_error()}.
 update_config(SchemaModule, ConfKeyPath, UpdateArgs) ->
     %% force convert the path to a list of atoms, as there maybe some wildcard names/ids in the path
     AtomKeyPath = [atom(Key) || Key <- ConfKeyPath],
     gen_server:call(?MODULE, {change_config, SchemaModule, AtomKeyPath, UpdateArgs}, infinity).
 
--spec add_handler(emqx_config:config_key_path(), handler_name()) ->
+-spec add_handler(config_key_path(), handler_name()) ->
     ok | {error, {conflict, list()}}.
 add_handler(ConfKeyPath, HandlerName) ->
     assert_callback_function(HandlerName),
     gen_server:call(?MODULE, {add_handler, ConfKeyPath, HandlerName}).
 
 %% @doc Remove handler asynchronously
--spec remove_handler(emqx_config:config_key_path()) -> ok.
+-spec remove_handler(config_key_path()) -> ok.
 remove_handler(ConfKeyPath) ->
     gen_server:cast(?MODULE, {remove_handler, ConfKeyPath}).
 
@@ -764,7 +765,7 @@ assert_callback_function(Mod) ->
     end,
     ok.
 
--spec schema(module(), emqx_utils_maps:config_key_path()) -> hocon_schema:schema().
+-spec schema(module(), config_key_path()) -> hocon_schema:schema().
 schema(SchemaModule, [RootKey | _]) ->
     Roots = hocon_schema:roots(SchemaModule),
     {Field, Translations} =

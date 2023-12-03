@@ -83,7 +83,7 @@ index_score(Index, Tokens) ->
 %% Returns `undefined' if there are no indices with score `> 0'.
 %%
 %% @see index_score/2
--spec select_index(emqx:words(), list(index())) -> index() | undefined.
+-spec select_index(emqx_types:words(), list(index())) -> index() | undefined.
 select_index(Tokens, Indices) ->
     select_index(Tokens, Indices, 0, undefined).
 

@@ -112,7 +112,7 @@
 -spec connect(
     limiter_id(),
     limiter_type(),
-    hocons:config() | undefined
+    hocon:config() | undefined
 ) ->
     {ok, emqx_htb_limiter:limiter()} | {error, _}.
 %% undefined is the default situation, no limiter setting by default
@@ -128,7 +128,7 @@ connect(Id, Type, Cfg) ->
         maps:get(Type, Cfg, undefined)
     ).
 
--spec add_bucket(limiter_id(), limiter_type(), hocons:config() | undefined) -> ok.
+-spec add_bucket(limiter_id(), limiter_type(), hocon:config() | undefined) -> ok.
 add_bucket(_Id, _Type, undefined) ->
     ok;
 %% a bucket with an infinity rate shouldn't be added to this server, because it is always full
@@ -153,7 +153,7 @@ name(Type) ->
 restart(Type) ->
     ?CALL(Type).
 
--spec update_config(limiter_type(), hocons:config()) -> ok | {error, _}.
+-spec update_config(limiter_type(), hocon:config()) -> ok | {error, _}.
 update_config(Type, Config) ->
     ?CALL(Type, {update_config, Type, Config}).
 
@@ -166,7 +166,7 @@ whereis(Type) ->
 %% Starts the server
 %% @end
 %%--------------------------------------------------------------------
--spec start_link(limiter_type(), hocons:config()) -> _.
+-spec start_link(limiter_type(), hocon:config()) -> _.
 start_link(Type, Cfg) ->
     gen_server:start_link({local, name(Type)}, ?MODULE, [Type, Cfg], []).
 
@@ -500,7 +500,7 @@ init_tree(Type, #{rate := Rate} = Cfg) ->
         buckets => #{}
     }.
 
--spec make_root(hocons:confg()) -> root().
+-spec make_root(hocon:config()) -> root().
 make_root(#{rate := Rate, burst := Burst}) ->
     #{
         rate => Rate,
@@ -554,7 +554,7 @@ do_del_bucket(Id, #{type := Type, buckets := Buckets} = State) ->
             State#{buckets := maps:remove(Id, Buckets)}
     end.
 
--spec get_initial_val(hocons:config()) -> decimal().
+-spec get_initial_val(hocon:config()) -> decimal().
 get_initial_val(
     #{
         initial := Initial,

@@ -40,7 +40,7 @@ introduced_in() ->
     "5.0.0".
 
 -spec lookup_by_clientid([node()], emqx_gateway_cm:gateway_name(), emqx_types:clientid()) ->
-    emqx_rpc:multicall_return([pid()]).
+    emqx_rpc:multicall_result([pid()]).
 lookup_by_clientid(Nodes, GwName, ClientId) ->
     rpc:multicall(Nodes, emqx_gateway_cm, do_lookup_by_clientid, [GwName, ClientId]).
 

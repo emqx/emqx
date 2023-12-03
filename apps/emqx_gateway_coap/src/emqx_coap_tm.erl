@@ -40,7 +40,7 @@
     token :: token() | undefined,
     observe :: 0 | 1 | undefined | observed,
     state :: atom(),
-    timers :: maps:map(),
+    timers :: map(),
     transport :: emqx_coap_transport:transport()
 }).
 -type state_machine() :: #state_machine{}.

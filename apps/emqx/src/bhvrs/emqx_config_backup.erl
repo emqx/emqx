@@ -19,6 +19,6 @@
 -callback import_config(RawConf :: map()) ->
     {ok, #{
         root_key => emqx_utils_maps:config_key(),
-        changed => [emqx_utils_maps:config_path()]
+        changed => [emqx_utils_maps:config_key_path()]
     }}
     | {error, #{root_key => emqx_utils_maps:config_key(), reason => term()}}.

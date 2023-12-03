@@ -28,7 +28,12 @@
 
 -export_type([
     client/0,
-    headers/0
+    headers/0,
+    key/0,
+    upload_id/0,
+    etag/0,
+    part_number/0,
+    config/0
 ]).
 
 -type headers() :: #{binary() | string() => iodata()}.

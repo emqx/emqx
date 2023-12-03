@@ -774,7 +774,6 @@ init(Options) ->
     {ok, Registry} = emqx_gateway_cm_registry:start_link(GwName),
 
     %% Start locker process
-    LockerName = lockername(GwName),
     {ok, _LockerPid} = ekka_locker:start_link(lockername(GwName)),
 
     %% Interval update stats

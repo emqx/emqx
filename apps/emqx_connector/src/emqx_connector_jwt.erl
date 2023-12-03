@@ -33,8 +33,9 @@
 -type jwt() :: binary().
 -type wrapped_jwk() :: fun(() -> jose_jwk:key()).
 -type jwk() :: jose_jwk:key().
+-type duration() :: non_neg_integer().
 -type jwt_config() :: #{
-    expiration := timer:time(),
+    expiration := duration(),
     resource_id := resource_id(),
     table := ets:table(),
     jwk := wrapped_jwk() | jwk(),

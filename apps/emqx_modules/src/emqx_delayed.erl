@@ -86,7 +86,7 @@
 -export_type([with_id_return/0, with_id_return/1]).
 
 -type state() :: #{
-    publish_timer := maybe(timer:tref()),
+    publish_timer := maybe(reference()),
     publish_at := non_neg_integer(),
     stats_timer := maybe(reference()),
     stats_fun := maybe(fun((pos_integer()) -> ok))

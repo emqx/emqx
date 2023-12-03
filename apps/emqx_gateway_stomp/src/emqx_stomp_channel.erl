@@ -69,7 +69,7 @@
     %% Channel State
     conn_state :: conn_state(),
     %% Heartbeat
-    heartbeat :: emqx_stomp_heartbeat:heartbeat(),
+    heartbeat :: undefined | emqx_stomp_heartbeat:heartbeat(),
     %% Subscriptions
     subscriptions = [],
     %% Timer

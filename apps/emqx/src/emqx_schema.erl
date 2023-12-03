@@ -3373,7 +3373,7 @@ naive_env_interpolation("$" ++ Maybe = Original) ->
             filename:join([Path, Tail]);
         error ->
             ?SLOG(warning, #{
-                msg => "failed_to_resolve_env_variable",
+                msg => "cannot_resolve_env_variable",
                 env => Env,
                 original => Original
             }),

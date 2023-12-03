@@ -30,6 +30,6 @@ evict_session_channel(Node, ClientId, ConnInfo, ClientInfo) ->
     rpc:call(Node, emqx_eviction_agent, evict_session_channel, [ClientId, ConnInfo, ClientInfo]).
 
 %% Introduced in v2:
--spec all_channels_count([node()], time:time()) -> emqx_rpc:erpc_multicall(non_neg_integer()).
+-spec all_channels_count([node()], timeout()) -> emqx_rpc:erpc_multicall(non_neg_integer()).
 all_channels_count(Nodes, Timeout) ->
     erpc:multicall(Nodes, emqx_eviction_agent, all_local_channels_count, [], Timeout).

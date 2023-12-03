@@ -49,7 +49,7 @@ trans(ClientId, Fun) ->
             {error, client_id_unavailable}
     end.
 
--spec lock(emqx_types:clientid()) -> {boolean, [node() | {node(), any()}]}.
+-spec lock(emqx_types:clientid()) -> {boolean(), [node() | {node(), any()}]}.
 lock(ClientId) ->
     ekka_locker:acquire(?MODULE, ClientId, strategy()).
 
