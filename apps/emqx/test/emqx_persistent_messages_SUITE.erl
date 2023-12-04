@@ -32,10 +32,6 @@ all() ->
     emqx_common_test_helpers:all(?MODULE).
 
 init_per_suite(Config) ->
-    %% avoid inter-suite flakiness...
-    %% TODO: remove after other suites start to use `emx_cth_suite'
-    application:stop(emqx),
-    application:stop(emqx_durable_storage),
     Config.
 
 end_per_suite(_Config) ->
@@ -46,7 +42,6 @@ init_per_testcase(t_session_subscription_iterators = TestCase, Config) ->
     Nodes = emqx_cth_cluster:start(Cluster, #{work_dir => emqx_cth_suite:work_dir(TestCase, Config)}),
     [{nodes, Nodes} | Config];
 init_per_testcase(TestCase, Config) ->
-    ok = emqx_ds:drop_db(?PERSISTENT_MESSAGE_DB),
     Apps = emqx_cth_suite:start(
         app_specs(),
         #{work_dir => emqx_cth_suite:work_dir(TestCase, Config)}
@@ -61,7 +56,6 @@ end_per_testcase(t_session_subscription_iterators, Config) ->
 end_per_testcase(_TestCase, Config) ->
     Apps = proplists:get_value(apps, Config, []),
     emqx_common_test_helpers:call_janitor(60_000),
-    clear_db(),
     emqx_cth_suite:stop(Apps),
     ok.
 
@@ -310,6 +304,49 @@ t_publish_empty_topic_levels(_Config) ->
         emqtt:stop(Pub)
     end.
 
+t_unsubscribe_one_client(_Config) ->
+    Sub = connect(<<?MODULE_STRING "1">>, true, 30),
+    Pub = connect(<<?MODULE_STRING "2">>, true, 30),
+    try
+        {ok, _, [?RC_GRANTED_QOS_1]} = emqtt:subscribe(Pub, <<"t/1">>, qos1),
+        {ok, _, [?RC_GRANTED_QOS_1]} = emqtt:subscribe(Sub, <<"t/1">>, qos1),
+        {ok, _, [?RC_GRANTED_QOS_1]} = emqtt:subscribe(Pub, <<"t/2/+">>, qos1),
+        {ok, _, [?RC_GRANTED_QOS_1]} = emqtt:subscribe(Sub, <<"t/2/+">>, qos1),
+        Messages = [
+            {<<"t/1">>, <<"1">>},
+            {<<"t/2/foo">>, <<"2">>},
+            {<<"t/2/foo">>, <<"3">>}
+        ],
+        [emqtt:publish(Pub, Topic, Payload, ?QOS_1) || {Topic, Payload} <- Messages],
+        Received1 = receive_messages(length(Messages) * 2, 1_500),
+        ?assertMatch(
+            [
+                #{topic := <<"t/1">>, payload := <<"1">>},
+                #{topic := <<"t/1">>, payload := <<"1">>},
+                #{topic := <<"t/2/foo">>, payload := <<"2">>},
+                #{topic := <<"t/2/foo">>, payload := <<"2">>},
+                #{topic := <<"t/2/foo">>, payload := <<"3">>},
+                #{topic := <<"t/2/foo">>, payload := <<"3">>}
+            ],
+            lists:sort(emqx_utils_maps:key_comparer(payload), Received1)
+        ),
+        {ok, _, [?RC_SUCCESS]} = emqtt:unsubscribe(Sub, <<"t/1">>),
+        {ok, _, [?RC_SUCCESS]} = emqtt:unsubscribe(Sub, <<"t/2/+">>),
+        [emqtt:publish(Pub, Topic, Payload, ?QOS_1) || {Topic, Payload} <- Messages],
+        Received2 = receive_messages(length(Messages) * 2, 1_500),
+        ?assertMatch(
+            [
+                #{topic := <<"t/1">>, payload := <<"1">>, client_pid := Pub},
+                #{topic := <<"t/2/foo">>, payload := <<"2">>, client_pid := Pub},
+                #{topic := <<"t/2/foo">>, payload := <<"3">>, client_pid := Pub}
+            ],
+            lists:sort(emqx_utils_maps:key_comparer(payload), Received2)
+        )
+    after
+        emqtt:stop(Sub),
+        emqtt:stop(Pub)
+    end.
+
 %%
 
 connect(ClientId, CleanStart, EI) ->
@@ -384,9 +421,3 @@ cluster() ->
 get_mqtt_port(Node, Type) ->
     {_IP, Port} = erpc:call(Node, emqx_config, get, [[listeners, Type, default, bind]]),
     Port.
-
-clear_db() ->
-    ok = emqx_ds:drop_db(?PERSISTENT_MESSAGE_DB),
-    mria:stop(),
-    ok = mnesia:delete_schema([node()]),
-    ok.
