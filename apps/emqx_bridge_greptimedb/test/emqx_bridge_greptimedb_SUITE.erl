@@ -938,14 +938,15 @@ t_write_failure(Config) ->
         emqx_common_test_helpers:with_failure(down, ProxyName, ProxyHost, ProxyPort, fun() ->
             case QueryMode of
                 sync ->
-                    ?wait_async_action(
-                        ?assertMatch(
-                            {error, {resource_error, #{reason := timeout}}},
-                            send_message(Config, SentData)
-                        ),
-                        #{?snk_kind := greptimedb_connector_do_query_failure, action := nack},
-                        16_000
-                    );
+                    {_, {ok, _}} =
+                        ?wait_async_action(
+                            ?assertMatch(
+                                {error, {resource_error, #{reason := timeout}}},
+                                send_message(Config, SentData)
+                            ),
+                            #{?snk_kind := handle_async_reply, action := nack},
+                            1_000
+                        );
                 async ->
                     ?wait_async_action(
                         ?assertEqual(ok, send_message(Config, SentData)),
@@ -957,9 +958,12 @@ t_write_failure(Config) ->
         fun(Trace0) ->
             case QueryMode of
                 sync ->
-                    ?assertMatch(
-                        [#{error := _} | _],
-                        ?of_kind(greptimedb_connector_do_query_failure, Trace0)
+                    Trace = ?of_kind(handle_async_reply, Trace0),
+                    ?assertMatch([_ | _], Trace),
+                    [#{result := Result} | _] = Trace,
+                    ?assert(
+                        not emqx_bridge_greptimedb_connector:is_unrecoverable_error(Result),
+                        #{got => Result}
                     );
                 async ->
                     Trace = ?of_kind(handle_async_reply, Trace0),
