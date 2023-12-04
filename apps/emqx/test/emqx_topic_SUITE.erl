@@ -115,6 +115,12 @@ t_sys_match(_) ->
     true = match(<<"a/b/$c">>, <<"a/b/#">>),
     true = match(<<"a/b/$c">>, <<"a/#">>).
 
+t_match_tokens(_) ->
+    true = match(emqx_topic:tokens(<<"a/b/c">>), words(<<"a/+/c">>)),
+    true = match(emqx_topic:tokens(<<"a//c">>), words(<<"a/+/c">>)),
+    false = match(emqx_topic:tokens(<<"a//c/">>), words(<<"a/+/c">>)),
+    true = match(emqx_topic:tokens(<<"a//c/">>), words(<<"a/+/c/#">>)).
+
 t_match_perf(_) ->
     true = match(<<"a/b/ccc">>, <<"a/#">>),
     Name = <<"/abkc/19383/192939/akakdkkdkak/xxxyyuya/akakak">>,

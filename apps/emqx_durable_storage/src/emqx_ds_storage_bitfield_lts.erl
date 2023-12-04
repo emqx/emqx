@@ -368,7 +368,7 @@ check_message(
     #{?tag := ?IT, ?start_time := StartTime, ?topic_filter := TopicFilter},
     #message{timestamp = Timestamp, topic = Topic}
 ) when Timestamp >= StartTime ->
-    emqx_topic:match(emqx_topic:words(Topic), TopicFilter);
+    emqx_topic:match(emqx_topic:tokens(Topic), TopicFilter);
 check_message(_Cutoff, _It, _Msg) ->
     false.
 
@@ -378,7 +378,7 @@ format_key(KeyMapper, Key) ->
 
 -spec make_key(s(), emqx_types:message()) -> {binary(), [binary()]}.
 make_key(#s{keymappers = KeyMappers, trie = Trie}, #message{timestamp = Timestamp, topic = TopicBin}) ->
-    Tokens = emqx_topic:tokens(TopicBin),
+    Tokens = emqx_topic:words(TopicBin),
     {TopicIndex, Varying} = emqx_ds_lts:topic_key(Trie, fun threshold_fun/1, Tokens),
     VaryingHashes = [hash_topic_level(I) || I <- Varying],
     KeyMapper = array:get(length(Varying), KeyMappers),
