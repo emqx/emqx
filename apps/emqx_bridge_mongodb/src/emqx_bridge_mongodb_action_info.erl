@@ -54,7 +54,15 @@ bridge_v1_config_to_connector_config(BridgeV1Config) ->
     ConnectorTopLevelKeys = schema_keys("config_connector"),
     ConnectorKeys = maps:keys(BridgeV1Config) -- (ActionKeys -- ConnectorTopLevelKeys),
     ConnectorParametersKeys = ConnectorKeys -- ConnectorTopLevelKeys,
-    make_config_map(ConnectorKeys, ConnectorParametersKeys, BridgeV1Config).
+    ConnConfig0 = make_config_map(ConnectorKeys, ConnectorParametersKeys, BridgeV1Config),
+    emqx_utils_maps:update_if_present(
+        <<"resource_opts">>,
+        fun(ResourceOpts) ->
+            CommonROSubfields = emqx_connector_schema:common_resource_opts_subfields_bin(),
+            maps:with(CommonROSubfields, ResourceOpts)
+        end,
+        ConnConfig0
+    ).
 
 make_config_map(PickKeys, IndentKeys, Config) ->
     Conf0 = maps:with(PickKeys, Config),
