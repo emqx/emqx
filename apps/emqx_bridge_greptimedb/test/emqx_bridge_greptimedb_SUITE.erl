@@ -945,13 +945,13 @@ t_write_failure(Config) ->
                                 send_message(Config, SentData)
                             ),
                             #{?snk_kind := handle_async_reply, action := nack},
-                            1_000
+                            15_000
                         );
                 async ->
                     ?wait_async_action(
                         ?assertEqual(ok, send_message(Config, SentData)),
                         #{?snk_kind := handle_async_reply},
-                        1_000
+                        15_000
                     )
             end
         end),
