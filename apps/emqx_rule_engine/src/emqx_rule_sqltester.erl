@@ -27,7 +27,7 @@
 test(#{sql := Sql, context := Context}) ->
     case emqx_rule_sqlparser:parse(Sql) of
         {ok, Select} ->
-            InTopic = maps:get(topic, Context, <<>>),
+            InTopic = get_in_topic(Context),
             EventTopics = emqx_rule_sqlparser:select_from(Select),
             case lists:all(fun is_publish_topic/1, EventTopics) of
                 true ->
@@ -37,8 +37,13 @@ test(#{sql := Sql, context := Context}) ->
                         false -> {error, nomatch}
                     end;
                 false ->
-                    %% the rule is for both publish and events, test it directly
-                    test_rule(Sql, Select, Context, EventTopics)
+                    case lists:member(InTopic, EventTopics) of
+                        true ->
+                            %% the rule is for both publish and events, test it directly
+                            test_rule(Sql, Select, Context, EventTopics);
+                        false ->
+                            {error, nomatch}
+                    end
             end;
         {error, Reason} ->
             ?SLOG(debug, #{
@@ -92,15 +97,12 @@ flatten([D | L]) when is_list(D) ->
     [D0 || {ok, D0} <- D] ++ flatten(L).
 
 fill_default_values(Event, Context) ->
-    maps:merge(envs_examp(Event), Context).
+    maps:merge(envs_examp(Event, Context), Context).
 
-envs_examp(EventTopic) ->
-    EventName = emqx_rule_events:event_name(EventTopic),
-    emqx_rule_maps:atom_key_map(
-        maps:from_list(
-            emqx_rule_events:columns_with_exam(EventName)
-        )
-    ).
+envs_examp(EventTopic, Context) ->
+    EventName = maps:get(event, Context, emqx_rule_events:event_name(EventTopic)),
+    Env = maps:from_list(emqx_rule_events:columns_with_exam(EventName)),
+    emqx_rule_maps:atom_key_map(Env).
 
 is_test_runtime_env_atom() ->
     'emqx_rule_sqltester:is_test_runtime_env'.
@@ -118,3 +120,26 @@ is_test_runtime_env() ->
         true -> true;
         _ -> false
     end.
+
+%% Most events have the original `topic' input, but their own topic (i.e.: `$events/...')
+%% is different from `topic'.
+get_in_topic(Context) ->
+    case maps:find(event_topic, Context) of
+        {ok, EventTopic} ->
+            EventTopic;
+        error ->
+            case maps:find(event, Context) of
+                {ok, Event} ->
+                    maybe_infer_in_topic(Context, Event);
+                error ->
+                    maps:get(topic, Context, <<>>)
+            end
+    end.
+
+maybe_infer_in_topic(Context, 'message.publish') ->
+    %% This is special because the common use in the frontend is to select this event, but
+    %% test the input `topic' field against MQTT topic filters in the `FROM' clause rather
+    %% than the corresponding `$events/message_publish'.
+    maps:get(topic, Context, <<>>);
+maybe_infer_in_topic(_Context, Event) ->
+    emqx_rule_events:event_topic(Event).

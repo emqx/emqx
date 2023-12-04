@@ -216,7 +216,7 @@ t_ctx_delivery_dropped(_) ->
 
 t_mongo_date_function_should_return_string_in_test_env(_) ->
     SQL =
-        <<"SELECT mongo_date() as mongo_date FROM \"t/1\"">>,
+        <<"SELECT mongo_date() as mongo_date FROM \"$events/client_check_authz_complete\"">>,
     Context =
         #{
             action => <<"publish">>,

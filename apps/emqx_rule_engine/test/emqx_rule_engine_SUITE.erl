@@ -1990,7 +1990,10 @@ t_sqlparse_event_1(_Config) ->
         emqx_rule_sqltester:test(
             #{
                 sql => Sql,
-                context => #{topic => <<"t/tt">>}
+                context => #{
+                    topic => <<"t/tt">>,
+                    event => 'session.subscribed'
+                }
             }
         )
     ).
@@ -2004,7 +2007,10 @@ t_sqlparse_event_2(_Config) ->
         emqx_rule_sqltester:test(
             #{
                 sql => Sql,
-                context => #{clientid => <<"abc">>}
+                context => #{
+                    clientid => <<"abc">>,
+                    event => 'client.connected'
+                }
             }
         )
     ).
