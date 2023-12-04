@@ -35,7 +35,8 @@
     if_only_to_toggle_enable/2,
     update_if_present/3,
     put_if/4,
-    rename/3
+    rename/3,
+    key_comparer/1
 ]).
 
 -export_type([config_key/0, config_key_path/0]).
@@ -317,4 +318,17 @@ rename(OldKey, NewKey, Map) ->
             maps:put(NewKey, Value, maps:remove(OldKey, Map));
         error ->
             Map
+    end.
+
+-spec key_comparer(K) -> fun((M, M) -> boolean()) when M :: #{K => _V}.
+key_comparer(K) ->
+    fun
+        (#{K := V1}, #{K := V2}) ->
+            V1 < V2;
+        (#{K := _}, _) ->
+            false;
+        (_, #{K := _}) ->
+            true;
+        (M1, M2) ->
+            M1 < M2
     end.
