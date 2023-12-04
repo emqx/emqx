@@ -69,7 +69,7 @@ init_per_suite(Config) ->
     emqx_gateway_test_utils:load_all_gateway_apps(),
     init_gateway_conf(),
     emqx_mgmt_api_test_util:init_suite([
-        emqx_conf, emqx_auth, emqx_auth_http, emqx_gateway
+        grpc, emqx_conf, emqx_auth, emqx_auth_http, emqx_gateway
     ]),
     meck:new(emqx_authz_file, [non_strict, passthrough, no_history, no_link]),
     meck:expect(emqx_authz_file, create, fun(S) -> S end),
@@ -83,7 +83,7 @@ end_per_suite(Config) ->
     ok = emqx_authz_test_lib:restore_authorizers(),
     emqx_config:erase(gateway),
     emqx_mgmt_api_test_util:end_suite([
-        emqx_gateway, emqx_auth_http, emqx_auth, emqx_conf
+        emqx_gateway, emqx_auth_http, emqx_auth, emqx_conf, grpc
     ]),
     Config.
 
