@@ -797,11 +797,29 @@ t_bad_timestamp(Config) ->
             #{?snk_kind := greptimedb_connector_send_query_error},
             10_000
         ),
-        fun(Result, _Trace) ->
+        fun(Result, Trace) ->
             ?assertMatch({_, {ok, _}}, Result),
             {Return, {ok, _}} = Result,
             IsBatch = BatchSize > 1,
             case {QueryMode, IsBatch} of
+                {async, true} ->
+                    ?assertEqual(ok, Return),
+                    ?assertMatch(
+                        [#{error := points_trans_failed}],
+                        ?of_kind(greptimedb_connector_send_query_error, Trace)
+                    );
+                {async, false} ->
+                    ?assertEqual(ok, Return),
+                    ?assertMatch(
+                        [
+                            #{
+                                error := [
+                                    {error, {bad_timestamp, <<"bad_timestamp">>}}
+                                ]
+                            }
+                        ],
+                        ?of_kind(greptimedb_connector_send_query_error, Trace)
+                    );
                 {sync, false} ->
                     ?assertEqual(
                         {error, [
