@@ -958,11 +958,12 @@ t_cascade_delete_actions(Config) ->
         },
         Config
     ),
-    {ok, 400, _} = request(
+    {ok, 400, Body} = request(
         delete,
         uri([?ROOT, BridgeID]),
         Config
     ),
+    ?assertMatch(#{<<"rules">> := [_ | _]}, emqx_utils_json:decode(Body, [return_maps])),
     {ok, 200, [_]} = request_json(get, uri([?ROOT]), Config),
     %% Cleanup
     {ok, 204, _} = request(

@@ -621,9 +621,10 @@ t_check_dependent_actions_on_delete(Config) ->
         Config
     ),
     %% deleting the bridge should fail because there is a rule that depends on it
-    {ok, 400, _} = request(
+    {ok, 400, Body} = request(
         delete, uri(["bridges", BridgeID]) ++ "?also_delete_dep_actions=false", Config
     ),
+    ?assertMatch(#{<<"rules">> := [_ | _]}, emqx_utils_json:decode(Body, [return_maps])),
     %% delete the rule first
     {ok, 204, <<>>} = request(delete, uri(["rules", RuleId]), Config),
     %% then delete the bridge is OK
