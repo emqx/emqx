@@ -382,9 +382,7 @@ prop_message_publish() ->
                     ExpectedOutMsg =
                         case emqx_message:from(Msg) of
                             <<"baduser">> ->
-                                MsgMap =
-                                    #{headers := Headers} =
-                                    emqx_message:to_map(Msg),
+                                MsgMap = #{headers := Headers} = emqx_message:to_map(Msg),
                                 emqx_message:from_map(
                                     MsgMap#{
                                         qos => 0,
@@ -394,14 +392,21 @@ prop_message_publish() ->
                                     }
                                 );
                             <<"gooduser">> = From ->
-                                MsgMap =
-                                    #{headers := Headers} =
-                                    emqx_message:to_map(Msg),
+                                MsgMap = #{headers := Headers} = emqx_message:to_map(Msg),
                                 emqx_message:from_map(
                                     MsgMap#{
                                         topic => From,
                                         payload => From,
                                         headers => maps:put(allow_publish, true, Headers)
+                                    }
+                                );
+                            <<"want_republish">> ->
+                                MsgMap = #{headers := Headers} = emqx_message:to_map(Msg),
+                                emqx_message:from_map(
+                                    MsgMap#{
+                                        topic => <<"republish">>,
+                                        payload => <<"republish">>,
+                                        headers => maps:put(allow_publish, false, Headers)
                                     }
                                 );
                             _ ->
@@ -415,7 +420,16 @@ prop_message_publish() ->
                             message => from_message(Msg),
                             meta => Meta
                         },
-                    ?assertEqual(Expected, Resp)
+                    ?assertEqual(Expected, Resp),
+
+                    %% the republish message will be dropped
+                    case emqx_message:from(Msg) of
+                        <<"want_republish">> ->
+                            {'on_message_dropped', Drop} = emqx_exhook_demo_svr:take(),
+                            ?assertEqual(<<"no_subscribers">>, maps:get(reason, Drop, <<"">>));
+                        _ ->
+                            ok
+                    end
             end,
             true
         end
@@ -660,7 +674,7 @@ inject_magic_into(Key, Object) ->
     end.
 
 castspell() ->
-    L = [<<"baduser">>, <<"gooduser">>, <<"normaluser">>, muggles],
+    L = [<<"baduser">>, <<"gooduser">>, <<"want_republish">>, <<"normaluser">>, muggles],
     lists:nth(rand:uniform(length(L)), L).
 
 request_meta() ->
