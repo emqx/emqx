@@ -43,17 +43,28 @@ start_link(Name, Args, Envs, Timeout) when is_atom(Name) ->
 
 do_start(Name0, Args, Envs, Timeout, Func) when is_atom(Name0) ->
     {Name, Host} = parse_node_name(Name0),
-    {ok, Pid, Node} = peer:Func(#{
-        name => Name,
-        host => Host,
-        args => Args,
-        env => Envs,
-        wait_boot => Timeout,
-        longnames => true,
-        shutdown => {halt, 1000}
-    }),
-    true = register(Node, Pid),
-    {ok, Node}.
+    %% Create exclusive current directory for the node.  Some configurations, like plugin
+    %% installation directory, are the same for the whole cluster, and nodes on the same
+    %% machine will step on each other's toes...
+    {ok, Cwd} = file:get_cwd(),
+    NodeCwd = filename:join([Cwd, Name]),
+    ok = filelib:ensure_dir(filename:join([NodeCwd, "dummy"])),
+    try
+        file:set_cwd(NodeCwd),
+        {ok, Pid, Node} = peer:Func(#{
+            name => Name,
+            host => Host,
+            args => Args,
+            env => Envs,
+            wait_boot => Timeout,
+            longnames => true,
+            shutdown => {halt, 1000}
+        }),
+        true = register(Node, Pid),
+        {ok, Node}
+    after
+        file:set_cwd(Cwd)
+    end.
 
 stop(Node) when is_atom(Node) ->
     Pid = whereis(Node),
