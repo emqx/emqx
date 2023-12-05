@@ -399,17 +399,13 @@ do_t_session_discard(Params) ->
             %% Store some matching messages so that streams and iterators are created.
             ok = emqtt:publish(Client0, <<"t/1">>, <<"1">>),
             ok = emqtt:publish(Client0, <<"t/2">>, <<"2">>),
-            ?retry(
-                _Sleep0 = 100,
-                _Attempts0 = 50,
-                true = map_size(emqx_persistent_session_ds:list_all_streams()) > 0
-            ),
+            ?assert(map_size(emqx_persistent_session_ds:list_all_subscriptions()) > 0),
             ok = emqtt:stop(Client0),
             ?tp(notice, "disconnected", #{}),
 
             ?tp(notice, "reconnecting", #{}),
-            %% we still have streams
-            ?assert(map_size(emqx_persistent_session_ds:list_all_streams()) > 0),
+            %% we still have subscriptions
+            ?assert(map_size(emqx_persistent_session_ds:list_all_subscriptions()) > 0),
             Client1 = start_client(ReconnectOpts),
             {ok, _} = emqtt:connect(Client1),
             ?assertEqual([], emqtt:subscriptions(Client1)),
@@ -421,7 +417,6 @@ do_t_session_discard(Params) ->
             end,
             ?assertEqual(#{}, emqx_persistent_session_ds:list_all_subscriptions()),
             ?assertEqual([], emqx_persistent_session_ds_router:topics()),
-            ?assertEqual(#{}, emqx_persistent_session_ds:list_all_streams()),
             ?assertEqual(#{}, emqx_persistent_session_ds:list_all_pubranges()),
             ok = emqtt:stop(Client1),
             ?tp(notice, "disconnected", #{}),
@@ -516,7 +511,7 @@ do_t_session_expiration(_Config, Opts) ->
 
 t_session_gc(Config) ->
     GCInterval = ?config(gc_interval, Config),
-    [Node1, Node2, Node3] = Nodes = ?config(nodes, Config),
+    [Node1, Node2, _Node3] = Nodes = ?config(nodes, Config),
     CoreNodes = [Node1, Node2],
     [
         Port1,

@@ -20,7 +20,6 @@
 
 -define(SESSION_TAB, emqx_ds_session).
 -define(SESSION_SUBSCRIPTIONS_TAB, emqx_ds_session_subscriptions).
--define(SESSION_STREAM_TAB, emqx_ds_stream_tab).
 -define(SESSION_PUBRANGE_TAB, emqx_ds_pubrange_tab).
 -define(SESSION_COMMITTED_OFFSET_TAB, emqx_ds_committed_offset_tab).
 -define(DS_MRIA_SHARD, emqx_ds_session_shard).
@@ -35,15 +34,6 @@
     extra = #{} :: map()
 }).
 -type ds_sub() :: #ds_sub{}.
-
--record(ds_stream, {
-    session :: emqx_persistent_session_ds:id(),
-    ref :: _StreamRef,
-    stream :: emqx_ds:stream(),
-    rank :: emqx_ds:stream_rank(),
-    beginning :: emqx_ds:iterator()
-}).
--type ds_stream() :: #ds_stream{}.
 
 -record(ds_pubrange, {
     id :: {

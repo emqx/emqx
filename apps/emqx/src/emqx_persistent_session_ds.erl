@@ -80,7 +80,6 @@
     session_open/2,
     list_all_sessions/0,
     list_all_subscriptions/0,
-    list_all_streams/0,
     list_all_pubranges/0
 ]).
 -endif.
@@ -113,6 +112,8 @@
     last_alive_at := timestamp(),
     %% Client’s Subscriptions.
     subscriptions := subscriptions(),
+    %% A set of streams reflecting the client’s subscriptions.
+    streams := streams(),
     %% Inflight messages
     inflight := emqx_persistent_message_ds_replayer:inflight(),
     %% Receive maximum
@@ -123,6 +124,13 @@
     timer() => reference(),
     %%
     props := map()
+}.
+
+-type streams() :: #{_StreamRef => stream()}.
+-type stream() :: #{
+    stream := emqx_ds:stream(),
+    rank := emqx_ds:stream_rank(),
+    beginning := emqx_ds:iterator()
 }.
 
 -type timestamp() :: emqx_utils_calendar:epoch_millisecond().
@@ -167,7 +175,8 @@ open(#{clientid := ClientID} = _ClientInfo, ConnInfo, Conf) ->
     ok = emqx_cm:discard_session(ClientID),
     case session_open(ClientID, ConnInfo) of
         Session0 = #{} ->
-            Session = apply_conf(ConnInfo, Conf, Session0),
+            Session1 = apply_conf(ConnInfo, Conf, Session0),
+            Session = renew_streams(Session1#{streams => #{}}),
             {true, ensure_timers(Session), []};
         false ->
             false
@@ -251,7 +260,6 @@ print_session(ClientId) ->
                 [Session] ->
                     #{
                         session => Session,
-                        streams => mnesia:read(?SESSION_STREAM_TAB, ClientId),
                         pubranges => session_read_pubranges(ClientId),
                         offsets => session_read_offsets(ClientId),
                         subscriptions => session_read_subscriptions(ClientId)
@@ -277,12 +285,14 @@ subscribe(
         Subscription = #{} ->
             NSubscription = update_subscription(TopicFilter, Subscription, SubOpts, ID),
             NSubs = subs_insert(TopicFilter, NSubscription, Subs),
-            {ok, Session#{subscriptions := NSubs}};
+            NSession = Session#{subscriptions := NSubs},
+            {ok, renew_streams(NSession)};
         undefined ->
             % TODO: max_subscriptions
             Subscription = add_subscription(TopicFilter, SubOpts, ID),
             NSubs = subs_insert(TopicFilter, Subscription, Subs),
-            {ok, Session#{subscriptions := NSubs}}
+            NSession = Session#{subscriptions := NSubs},
+            {ok, renew_streams(NSession)}
     end.
 
 -spec unsubscribe(topic_filter(), session()) ->
@@ -294,8 +304,8 @@ unsubscribe(
     case subs_lookup(TopicFilter, Subs) of
         _Subscription = #{props := SubOpts} ->
             ok = del_subscription(TopicFilter, ID),
-            NSubs = subs_delete(TopicFilter, Subs),
-            {ok, Session#{subscriptions := NSubs}, SubOpts};
+            NSession = Session#{subscriptions := subs_delete(TopicFilter, Subs)},
+            {ok, renew_streams(NSession), SubOpts};
         undefined ->
             {error, ?RC_NO_SUBSCRIPTION_EXISTED}
     end.
@@ -403,6 +413,7 @@ handle_timeout(
         id := Id,
         inflight := Inflight0,
         subscriptions := Subs,
+        streams := Streams,
         props := Conf,
         receive_maximum := ReceiveMaximum
     }
@@ -414,6 +425,7 @@ handle_timeout(
     {Publishes, Inflight} = emqx_persistent_message_ds_replayer:poll(
         PreprocFun,
         Id,
+        Streams,
         Inflight0,
         BatchSize
     ),
@@ -427,8 +439,8 @@ handle_timeout(
         end,
     Session = emqx_session:ensure_timer(?TIMER_PULL, Timeout, Session0#{inflight := Inflight}),
     {ok, Publishes, Session};
-handle_timeout(_ClientInfo, ?TIMER_GET_STREAMS, Session) ->
-    renew_streams(Session),
+handle_timeout(_ClientInfo, ?TIMER_GET_STREAMS, Session0) ->
+    Session = renew_streams(Session0),
     {ok, [], emqx_session:ensure_timer(?TIMER_GET_STREAMS, 100, Session)};
 handle_timeout(_ClientInfo, ?TIMER_BUMP_LAST_ALIVE_AT, Session0) ->
     %% Note: we take a pessimistic approach here and assume that the client will be alive
@@ -560,16 +572,6 @@ create_tables() ->
         ]
     ),
     ok = mria:create_table(
-        ?SESSION_STREAM_TAB,
-        [
-            {rlog_shard, ?DS_MRIA_SHARD},
-            {type, bag},
-            {storage, storage()},
-            {record_name, ds_stream},
-            {attributes, record_info(fields, ds_stream)}
-        ]
-    ),
-    ok = mria:create_table(
         ?SESSION_PUBRANGE_TAB,
         [
             {rlog_shard, ?DS_MRIA_SHARD},
@@ -592,7 +594,6 @@ create_tables() ->
     ok = mria:wait_for_tables([
         ?SESSION_TAB,
         ?SESSION_SUBSCRIPTIONS_TAB,
-        ?SESSION_STREAM_TAB,
         ?SESSION_PUBRANGE_TAB,
         ?SESSION_COMMITTED_OFFSET_TAB
     ]),
@@ -652,6 +653,7 @@ session_ensure_new(SessionId, ConnInfo) ->
         Session = export_session(session_create(SessionId, ConnInfo)),
         Session#{
             subscriptions => subs_new(),
+            streams => #{},
             inflight => emqx_persistent_message_ds_replayer:new()
         }
     end).
@@ -703,8 +705,7 @@ session_drop(DSSessionId) ->
 session_drop_records(DSSessionId) ->
     ok = session_drop_subscriptions(DSSessionId),
     ok = session_drop_pubranges(DSSessionId),
-    ok = session_drop_offsets(DSSessionId),
-    ok = session_drop_streams(DSSessionId).
+    ok = session_drop_offsets(DSSessionId).
 
 -spec session_drop_subscriptions(id()) -> ok.
 session_drop_subscriptions(DSSessionId) ->
@@ -843,67 +844,61 @@ do_ensure_all_iterators_closed(_DSSessionID) ->
 %% Reading batches
 %%--------------------------------------------------------------------
 
--spec renew_streams(session()) -> ok.
-renew_streams(#{id := SessionId, subscriptions := Subscriptions}) ->
-    transaction(fun() ->
-        ExistingStreams = mnesia:read(?SESSION_STREAM_TAB, SessionId, write),
-        subs_fold(
-            fun(TopicFilter, #{start_time := StartTime}, Streams) ->
-                TopicFilterWords = emqx_topic:words(TopicFilter),
-                renew_topic_streams(SessionId, TopicFilterWords, StartTime, Streams)
-            end,
-            ExistingStreams,
-            Subscriptions
-        )
-    end),
-    ok.
+-spec renew_streams(session()) -> session().
+renew_streams(Session = #{subscriptions := Subscriptions, streams := ExistingStreams}) ->
+    % TODO: Drop ranges over outdated streams.
+    RenewedStreams = subs_fold(
+        fun(TopicFilter, #{start_time := StartTime}, Acc) ->
+            TopicFilterWords = emqx_topic:words(TopicFilter),
+            renew_topic_streams(TopicFilterWords, StartTime, ExistingStreams, Acc)
+        end,
+        #{},
+        Subscriptions
+    ),
+    Session#{streams := RenewedStreams}.
 
--spec renew_topic_streams(id(), topic_filter_words(), emqx_ds:time(), _Acc :: [ds_stream()]) -> ok.
-renew_topic_streams(DSSessionId, TopicFilter, StartTime, ExistingStreams) ->
+-spec renew_topic_streams(topic_filter_words(), emqx_ds:time(), streams(), Acc :: streams()) ->
+    streams().
+renew_topic_streams(TopicFilter, StartTime, ExistingStreams, Acc0) ->
     TopicStreams = emqx_ds:get_streams(?PERSISTENT_MESSAGE_DB, TopicFilter, StartTime),
     lists:foldl(
-        fun({Rank, Stream}, Streams) ->
-            case lists:keymember(Stream, #ds_stream.stream, Streams) of
+        fun({Rank, DSStream}, Acc) ->
+            StreamRef = make_stream_ref(DSStream),
+            case maps:is_key(StreamRef, Acc) orelse maps:find(StreamRef, ExistingStreams) of
                 true ->
-                    Streams;
-                false ->
-                    StreamRef = length(Streams) + 1,
-                    DSStream = session_store_stream(
-                        DSSessionId,
-                        StreamRef,
-                        Stream,
+                    Acc;
+                {ok, Stream} ->
+                    Acc#{StreamRef => Stream};
+                error ->
+                    Stream = make_topic_stream(
+                        DSStream,
                         Rank,
                         TopicFilter,
                         StartTime
                     ),
-                    [DSStream | Streams]
+                    Acc#{StreamRef => Stream}
             end
         end,
-        ExistingStreams,
+        Acc0,
         TopicStreams
     ).
 
-session_store_stream(DSSessionId, StreamRef, Stream, Rank, TopicFilter, StartTime) ->
+-spec make_stream_ref(emqx_ds:stream()) -> _StreamRef.
+make_stream_ref(DSStream) ->
+    crypto:hash(md5, term_to_binary(DSStream)).
+
+make_topic_stream(Stream, Rank, TopicFilter, StartTime) ->
     {ok, ItBegin} = emqx_ds:make_iterator(
         ?PERSISTENT_MESSAGE_DB,
         Stream,
         TopicFilter,
         StartTime
     ),
-    DSStream = #ds_stream{
-        session = DSSessionId,
-        ref = StreamRef,
-        stream = Stream,
-        rank = Rank,
-        beginning = ItBegin
-    },
-    mnesia:write(?SESSION_STREAM_TAB, DSStream, write),
-    DSStream.
-
-%% must be called inside a transaction
--spec session_drop_streams(id()) -> ok.
-session_drop_streams(DSSessionId) ->
-    mnesia:delete(?SESSION_STREAM_TAB, DSSessionId, write).
+    #{
+        stream => Stream,
+        rank => Rank,
+        beginning => ItBegin
+    }.
 
 %% must be called inside a transaction
 -spec session_drop_pubranges(id()) -> ok.
@@ -1052,29 +1047,6 @@ list_all_subscriptions() ->
         DSSubIds
     ),
     maps:from_list(Subscriptions).
-
-list_all_streams() ->
-    DSStreamIds = mnesia:dirty_all_keys(?SESSION_STREAM_TAB),
-    DSStreams = lists:map(
-        fun(DSStreamId) ->
-            Records = mnesia:dirty_read(?SESSION_STREAM_TAB, DSStreamId),
-            ExtDSStreams =
-                lists:map(
-                    fun(Record) ->
-                        export_record(
-                            Record,
-                            #ds_stream.session,
-                            [session, topic_filter, stream, rank],
-                            #{}
-                        )
-                    end,
-                    Records
-                ),
-            {DSStreamId, ExtDSStreams}
-        end,
-        DSStreamIds
-    ),
-    maps:from_list(DSStreams).
 
 list_all_pubranges() ->
     DSPubranges = mnesia:dirty_match_object(?SESSION_PUBRANGE_TAB, #ds_pubrange{_ = '_'}),

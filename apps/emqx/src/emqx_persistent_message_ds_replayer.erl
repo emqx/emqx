@@ -21,7 +21,7 @@
 %% API:
 -export([new/0, open/1, next_packet_id/1, n_inflight/1]).
 
--export([poll/4, replay/2, commit_offset/4]).
+-export([poll/5, replay/2, commit_offset/4]).
 
 -export([seqno_to_packet_id/1, packet_id_to_seqno/2]).
 
@@ -74,6 +74,9 @@
 -type replies() :: [emqx_session:reply()].
 
 -type preproc_fun() :: fun((message()) -> message() | [message()]).
+
+-type stream() :: #{beginning => emqx_ds:iterator(), _ => _}.
+-type streams() :: #{_StreamRef => stream()}.
 
 %%================================================================================
 %% API funcions
@@ -170,9 +173,11 @@ commit_offset(
             {false, Inflight0}
     end.
 
--spec poll(preproc_fun(), emqx_persistent_session_ds:id(), inflight(), pos_integer()) ->
+-spec poll(preproc_fun(), emqx_persistent_session_ds:id(), streams(), inflight(), pos_integer()) ->
     {emqx_session:replies(), inflight()}.
-poll(PreprocFun, SessionId, Inflight0, WindowSize) when WindowSize > 0, WindowSize < ?EPOCH_SIZE ->
+poll(PreprocFun, SessionId, Streams, Inflight0, WindowSize) when
+    WindowSize > 0, WindowSize < ?EPOCH_SIZE
+->
     MinBatchSize = emqx_config:get([session_persistence, min_batch_size]),
     FetchThreshold = min(MinBatchSize, ceil(WindowSize / 2)),
     FreeSpace = WindowSize - n_inflight(Inflight0),
@@ -185,8 +190,7 @@ poll(PreprocFun, SessionId, Inflight0, WindowSize) when WindowSize > 0, WindowSi
             {[], Inflight0};
         true ->
             %% TODO: Wrap this in `mria:async_dirty/2`?
-            Streams = shuffle(get_streams(SessionId)),
-            fetch(PreprocFun, SessionId, Inflight0, Streams, FreeSpace, [])
+            fetch(PreprocFun, SessionId, Inflight0, shuffle_streams(Streams), FreeSpace, [])
     end.
 
 %% Which seqno this track is committed until.
@@ -253,9 +257,9 @@ get_ranges(SessionId) ->
     ),
     mnesia:match_object(?SESSION_PUBRANGE_TAB, Pat, read).
 
-fetch(PreprocFun, SessionId, Inflight0, [DSStream | Streams], N, Acc) when N > 0 ->
+fetch(PreprocFun, SessionId, Inflight0, [{StreamRef, _} = Stream | Streams], N, Acc) when N > 0 ->
     #inflight{next_seqno = FirstSeqno, offset_ranges = Ranges} = Inflight0,
-    ItBegin = get_last_iterator(DSStream, Ranges),
+    ItBegin = get_last_iterator(Stream, Ranges),
     {ok, ItEnd, Messages} = emqx_ds:next(?PERSISTENT_MESSAGE_DB, ItBegin, N),
     case Messages of
         [] ->
@@ -270,7 +274,7 @@ fetch(PreprocFun, SessionId, Inflight0, [DSStream | Streams], N, Acc) when N > 0
                 type = ?T_INFLIGHT,
                 tracks = compute_pub_tracks(Publishes),
                 until = UntilSeqno,
-                stream = DSStream#ds_stream.ref,
+                stream = StreamRef,
                 iterator = ItBegin
             },
             ok = preserve_range(Range0),
@@ -545,17 +549,17 @@ checkpoint_range(Range = #ds_pubrange{type = ?T_CHECKPOINT}) ->
     %% This range should have been checkpointed already.
     Range.
 
-get_last_iterator(DSStream = #ds_stream{ref = StreamRef}, Ranges) ->
+get_last_iterator({StreamRef, #{beginning := ItBegin}}, Ranges) ->
     case lists:keyfind(StreamRef, #ds_pubrange.stream, lists:reverse(Ranges)) of
         false ->
-            DSStream#ds_stream.beginning;
+            ItBegin;
         #ds_pubrange{iterator = ItNext} ->
             ItNext
     end.
 
--spec get_streams(emqx_persistent_session_ds:id()) -> [ds_stream()].
-get_streams(SessionId) ->
-    mnesia:dirty_read(?SESSION_STREAM_TAB, SessionId).
+-spec shuffle_streams(#{StreamRef => stream()}) -> [{StreamRef, stream()}].
+shuffle_streams(Streams) ->
+    shuffle(maps:to_list(Streams)).
 
 -spec get_committed_offset(emqx_persistent_session_ds:id(), _Name) -> seqno().
 get_committed_offset(SessionId, Name) ->
