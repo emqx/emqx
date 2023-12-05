@@ -67,7 +67,7 @@ t_session_init(_) ->
     Session = emqx_session_mem:create(
         ClientInfo,
         ConnInfo,
-        emqx_session:get_session_conf(ClientInfo, ConnInfo)
+        emqx_session:get_session_conf(ClientInfo)
     ),
     ?assertEqual(#{}, emqx_session_mem:info(subscriptions, Session)),
     ?assertEqual(0, emqx_session_mem:info(subscriptions_cnt, Session)),
@@ -531,7 +531,7 @@ session(InitFields) when is_map(InitFields) ->
     Session = emqx_session_mem:create(
         ClientInfo,
         ConnInfo,
-        emqx_session:get_session_conf(ClientInfo, ConnInfo)
+        emqx_session:get_session_conf(ClientInfo)
     ),
     maps:fold(
         fun(Field, Value, SessionAcc) ->
