@@ -106,6 +106,6 @@ desc_param_path_operation_on_node.desc:
 """Operation can be one of: 'start'."""
 
 desc_param_path_operation_on_node.label:
-"""Node Operation """
+"""Node Operation"""
 
 }

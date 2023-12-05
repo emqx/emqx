@@ -27,12 +27,12 @@ all() ->
 
 init_per_suite(Config) ->
     emqx_mgmt_api_test_util:init_suite(),
-    Slave = emqx_common_test_helpers:start_slave(some_node, []),
-    [{slave, Slave} | Config].
+    Peer = emqx_common_test_helpers:start_peer(node1, []),
+    [{peer, Peer} | Config].
 
 end_per_suite(Config) ->
-    Slave = ?config(slave, Config),
-    emqx_common_test_helpers:stop_slave(Slave),
+    Peer = ?config(peer, Config),
+    emqx_common_test_helpers:stop_peer(Peer),
     mria:clear_table(?ROUTE_TAB),
     emqx_mgmt_api_test_util:end_suite().
 
@@ -80,18 +80,18 @@ t_nodes_api(Config) ->
     %% get topics/:topic
     %% We add another route here to ensure that the response handles
     %% multiple routes for a single topic
-    Slave = ?config(slave, Config),
-    ok = emqx_router:add_route(Topic, Slave),
+    Peer = ?config(peer, Config),
+    ok = emqx_router:add_route(Topic, Peer),
     RoutePath = emqx_mgmt_api_test_util:api_path(["topics", Topic]),
     {ok, RouteResponse} = emqx_mgmt_api_test_util:request_api(get, RoutePath),
-    ok = emqx_router:delete_route(Topic, Slave),
+    ok = emqx_router:delete_route(Topic, Peer),
 
     [
         #{<<"topic">> := Topic, <<"node">> := Node1},
         #{<<"topic">> := Topic, <<"node">> := Node2}
     ] = emqx_utils_json:decode(RouteResponse, [return_maps]),
 
-    ?assertEqual(lists:usort([Node, atom_to_binary(Slave)]), lists:usort([Node1, Node2])),
+    ?assertEqual(lists:usort([Node, atom_to_binary(Peer)]), lists:usort([Node1, Node2])),
 
     ok = emqtt:stop(Client).
 

@@ -77,7 +77,9 @@ namespace() -> "connector_syskeeper_proxy".
 roots() -> [].
 
 fields(config) ->
-    emqx_connector_schema:common_fields() ++ fields("connection_fields");
+    emqx_connector_schema:common_fields() ++
+        fields("connection_fields") ++
+        emqx_connector_schema:resource_opts_ref(?MODULE, connector_resource_opts);
 fields("connection_fields") ->
     [
         {listen, listen()},
@@ -92,6 +94,8 @@ fields("connection_fields") ->
                 #{desc => ?DESC(handshake_timeout), default => <<"10s">>}
             )}
     ];
+fields(connector_resource_opts) ->
+    emqx_connector_schema:resource_opts_fields();
 fields(Field) when
     Field == "get";
     Field == "post";
@@ -103,6 +107,8 @@ fields(Field) when
 
 desc(config) ->
     ?DESC("desc_config");
+desc(connector_resource_opts) ->
+    ?DESC(emqx_resource_schema, "resource_opts");
 desc(Method) when Method =:= "get"; Method =:= "put"; Method =:= "post" ->
     ["Configuration for Syskeeper Proxy using `", string:to_upper(Method), "` method."];
 desc(_) ->

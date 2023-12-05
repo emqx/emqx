@@ -1211,7 +1211,7 @@ handle_info(
 ) when
     ConnState =:= connected orelse ConnState =:= reauthenticating
 ->
-    {Intent, Session1} = emqx_session:disconnect(ClientInfo, ConnInfo, Session),
+    {Intent, Session1} = session_disconnect(ClientInfo, ConnInfo, Session),
     Channel1 = ensure_disconnected(Reason, maybe_publish_will_msg(Channel)),
     Channel2 = Channel1#channel{session = Session1},
     case maybe_shutdown(Reason, Intent, Channel2) of
@@ -2190,6 +2190,11 @@ ensure_disconnected(
     ChanPid = self(),
     emqx_cm:mark_channel_disconnected(ChanPid),
     Channel#channel{conninfo = NConnInfo, conn_state = disconnected}.
+
+session_disconnect(ClientInfo, ConnInfo, Session) when Session /= undefined ->
+    emqx_session:disconnect(ClientInfo, ConnInfo, Session);
+session_disconnect(_ClientInfo, _ConnInfo, undefined) ->
+    {shutdown, undefined}.
 
 %%--------------------------------------------------------------------
 %% Maybe Publish will msg

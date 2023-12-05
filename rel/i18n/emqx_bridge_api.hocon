@@ -95,6 +95,6 @@ desc_param_path_operation_on_node.desc:
 """Operations can be one of: stop, restart"""
 
 desc_param_path_operation_on_node.label:
-"""Node Operation """
+"""Node Operation"""
 
 }

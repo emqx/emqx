@@ -129,8 +129,8 @@ t_multiple_nodes_api(_) ->
     Seq2 = list_to_atom(atom_to_list(?MODULE) ++ "2"),
     Cluster = [{Name, Opts}, {Name1, Opts1}] = cluster([{core, Seq1}, {core, Seq2}]),
     ct:pal("Starting ~p", [Cluster]),
-    Node1 = emqx_common_test_helpers:start_slave(Name, Opts),
-    Node2 = emqx_common_test_helpers:start_slave(Name1, Opts1),
+    Node1 = emqx_common_test_helpers:start_peer(Name, Opts),
+    Node2 = emqx_common_test_helpers:start_peer(Name1, Opts1),
     try
         {200, NodesList} = rpc:call(Node1, emqx_mgmt_api_nodes, nodes, [get, #{}]),
         All = [Node1, Node2],
@@ -148,8 +148,8 @@ t_multiple_nodes_api(_) ->
         ]),
         ?assertMatch(#{node := Node1}, Node11)
     after
-        emqx_common_test_helpers:stop_slave(Node1),
-        emqx_common_test_helpers:stop_slave(Node2)
+        emqx_common_test_helpers:stop_peer(Node1),
+        emqx_common_test_helpers:stop_peer(Node2)
     end,
     ok.
 

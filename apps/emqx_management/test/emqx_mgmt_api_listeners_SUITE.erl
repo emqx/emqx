@@ -194,8 +194,8 @@ t_api_listeners_list_not_ready(Config) when is_list(Config) ->
     snabbkaffe:fix_ct_logging(),
     Cluster = [{Name, Opts}, {Name1, Opts1}] = cluster([core, core]),
     ct:pal("Starting ~p", [Cluster]),
-    Node1 = emqx_common_test_helpers:start_slave(Name, Opts),
-    Node2 = emqx_common_test_helpers:start_slave(Name1, Opts1),
+    Node1 = emqx_common_test_helpers:start_peer(Name, Opts),
+    Node2 = emqx_common_test_helpers:start_peer(Name1, Opts1),
     try
         L1 = get_tcp_listeners(Node1),
 
@@ -214,8 +214,8 @@ t_api_listeners_list_not_ready(Config) when is_list(Config) ->
         ?assert(length(L1) > length(L2), Comment),
         ?assertEqual(length(L2), length(L3), Comment)
     after
-        emqx_common_test_helpers:stop_slave(Node1),
-        emqx_common_test_helpers:stop_slave(Node2)
+        emqx_common_test_helpers:stop_peer(Node1),
+        emqx_common_test_helpers:stop_peer(Node2)
     end.
 
 t_clear_certs(Config) when is_list(Config) ->

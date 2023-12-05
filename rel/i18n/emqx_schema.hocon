@@ -573,7 +573,7 @@ fields_tcp_opts_buffer.label:
 """TCP user-space buffer"""
 
 server_ssl_opts_schema_honor_cipher_order.desc:
-"""An important security setting, it forces the cipher to be set based
+"""An important security setting. It forces the cipher to be set based
  on the server-specified order instead of the client-specified order,
  hence enforcing the (usually more properly configured) security
  ordering of the server administrator."""
@@ -1012,13 +1012,13 @@ fields_ws_opts_supported_subprotocols.label:
 
 broker_shared_subscription_strategy.desc:
 """Dispatch strategy for shared subscription.
-  - `random`: dispatch the message to a random selected subscriber
-  - `round_robin`: select the subscribers in a round-robin manner
-  - `round_robin_per_group`: select the subscribers in round-robin fashion within each shared subscriber group
-  - `local`: select random local subscriber otherwise select random cluster-wide
-  - `sticky`: always use the last selected subscriber to dispatch, until the subscriber disconnects.
-  - `hash_clientid`: select the subscribers by hashing the `clientIds`
-  - `hash_topic`: select the subscribers by hashing the source topic"""
+ - `random`: Randomly select a subscriber for dispatch;
+ - `round_robin`: Messages from a single publisher are dispatched to subscribers in turn;
+ - `round_robin_per_group`: All messages are dispatched to subscribers in turn;
+ - `local`: Randomly select a subscriber on the current node, if there are no subscribers on the current node, then randomly select within the cluster;
+ - `sticky`: Continuously dispatch messages to the initially selected subscriber until their session ends;
+ - `hash_clientid`: Hash the publisher's client ID to select a subscriber;
+ - `hash_topic`: Hash the publishing topic to select a subscriber."""
 
 fields_deflate_opts_mem_level.desc:
 """Specifies the size of the compression state.<br/>
@@ -1386,7 +1386,7 @@ However it's no longer useful because the shared-subscrption messages in a expir
 base_listener_enable_authn.desc:
 """Set <code>true</code> (default) to enable client authentication on this listener, the authentication
 process goes through the configured authentication chain.
-When set to <code>false</code> to allow any clients with or without authentication information such as username or password to log in.
+When set to <code>false</code>, any client (with or without username/password) is allowed to connect.
 When set to <code>quick_deny_anonymous</code>, it behaves like when set to <code>true</code>, but clients will be
 denied immediately without going through any authenticators if <code>username</code> is not provided. This is useful to fence off
 anonymous clients early."""
@@ -1576,5 +1576,17 @@ session_ds_session_gc_interval.desc:
 
 session_ds_session_gc_batch_size.desc:
 """The size of each batch of expired persistent sessions to be garbage collected per iteration."""
+
+session_ds_max_batch_size.desc:
+"""This value affects the flow control for the persistent sessions.
+The session queries the DB for the new messages in batches.
+Size of the batch doesn't exceed this value or `ReceiveMaximum`, whichever is smaller."""
+
+session_ds_min_batch_size.desc:
+"""This value affects the flow control for the persistent sessions.
+The session will query the DB for the new messages when the value of `FreeSpace` variable is larger than this value or `ReceiveMaximum` / 2, whichever is smaller.
+
+`FreeSpace` is calculated as `ReceiveMaximum` for the session - number of inflight messages."""
+
 
 }

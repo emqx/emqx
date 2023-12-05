@@ -115,7 +115,7 @@ t_create_remove(_) ->
             ?assertNot(is_process_alive(Pid))
         end,
         fun(Trace) ->
-            ?assertEqual([], ?of_kind("inconsistent_state", Trace)),
+            ?assertEqual([], ?of_kind("inconsistent_status", Trace)),
             ?assertEqual([], ?of_kind("inconsistent_cache", Trace))
         end
     ).
@@ -174,7 +174,7 @@ t_create_remove_local(_) ->
             ?assertNot(is_process_alive(Pid))
         end,
         fun(Trace) ->
-            ?assertEqual([], ?of_kind("inconsistent_state", Trace)),
+            ?assertEqual([], ?of_kind("inconsistent_status", Trace)),
             ?assertEqual([], ?of_kind("inconsistent_cache", Trace))
         end
     ).
@@ -219,7 +219,7 @@ t_do_not_start_after_created(_) ->
             ?assertNot(is_process_alive(Pid2))
         end,
         fun(Trace) ->
-            ?assertEqual([], ?of_kind("inconsistent_state", Trace)),
+            ?assertEqual([], ?of_kind("inconsistent_status", Trace)),
             ?assertEqual([], ?of_kind("inconsistent_cache", Trace))
         end
     ).
@@ -855,7 +855,7 @@ t_healthy_timeout(_) ->
             ?assertEqual(ok, emqx_resource:remove_local(?ID))
         end,
         fun(Trace) ->
-            ?assertEqual([], ?of_kind("inconsistent_state", Trace)),
+            ?assertEqual([], ?of_kind("inconsistent_status", Trace)),
             ?assertEqual([], ?of_kind("inconsistent_cache", Trace))
         end
     ).
@@ -894,7 +894,7 @@ t_healthy(_) ->
             ?assertEqual(ok, emqx_resource:remove_local(?ID))
         end,
         fun(Trace) ->
-            ?assertEqual([], ?of_kind("inconsistent_state", Trace)),
+            ?assertEqual([], ?of_kind("inconsistent_status", Trace)),
             ?assertEqual([], ?of_kind("inconsistent_cache", Trace))
         end
     ).
@@ -1006,7 +1006,7 @@ t_stop_start(_) ->
         end,
 
         fun(Trace) ->
-            ?assertEqual([], ?of_kind("inconsistent_state", Trace)),
+            ?assertEqual([], ?of_kind("inconsistent_status", Trace)),
             ?assertEqual([], ?of_kind("inconsistent_cache", Trace))
         end
     ).
@@ -1064,7 +1064,7 @@ t_stop_start_local(_) ->
             ?assert(is_process_alive(Pid1))
         end,
         fun(Trace) ->
-            ?assertEqual([], ?of_kind("inconsistent_state", Trace)),
+            ?assertEqual([], ?of_kind("inconsistent_status", Trace)),
             ?assertEqual([], ?of_kind("inconsistent_cache", Trace))
         end
     ).
@@ -1269,7 +1269,7 @@ t_health_check_disconnected(_) ->
             )
         end,
         fun(Trace) ->
-            ?assertEqual([], ?of_kind("inconsistent_state", Trace)),
+            ?assertEqual([], ?of_kind("inconsistent_status", Trace)),
             ?assertEqual([], ?of_kind("inconsistent_cache", Trace))
         end
     ).

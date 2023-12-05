@@ -74,14 +74,16 @@ check_topic([]) ->
 check_topic(Path) ->
     {ok, emqx_http_lib:uri_decode(iolist_to_binary(lists:join(<<"/">>, Path)))}.
 
-get_sub_opts(#coap_message{options = Opts} = Msg) ->
-    SubOpts = maps:fold(fun parse_sub_opts/3, #{}, Opts),
+get_sub_opts(Msg) ->
+    SubOpts = maps:fold(
+        fun parse_sub_opts/3, #{}, emqx_coap_message:get_option(uri_query, Msg, #{})
+    ),
     case SubOpts of
         #{qos := _} ->
-            maps:merge(SubOpts, ?SUBOPTS);
+            maps:merge(?SUBOPTS, SubOpts);
         _ ->
             CfgType = emqx_conf:get([gateway, coap, subscribe_qos], ?QOS_0),
-            maps:merge(SubOpts, ?SUBOPTS#{qos => type_to_qos(CfgType, Msg)})
+            maps:merge(?SUBOPTS#{qos => type_to_qos(CfgType, Msg)}, SubOpts)
     end.
 
 parse_sub_opts(<<"qos">>, V, Opts) ->
