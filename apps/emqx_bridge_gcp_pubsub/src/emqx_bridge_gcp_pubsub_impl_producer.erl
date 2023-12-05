@@ -58,7 +58,7 @@ query_mode(_Config) -> async.
 on_start(InstanceId, Config0) ->
     ?SLOG(info, #{
         msg => "starting_gcp_pubsub_bridge",
-        config => Config0
+        instance_id => InstanceId
     }),
     Config = maps:update_with(service_account_json, fun emqx_utils_maps:binary_key_map/1, Config0),
     #{
