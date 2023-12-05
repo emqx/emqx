@@ -16,6 +16,32 @@
 -module(emqx_bridge_v2_tests).
 
 -include_lib("eunit/include/eunit.hrl").
+-include_lib("hocon/include/hoconsc.hrl").
+
+%%------------------------------------------------------------------------------
+%% Helper fns
+%%------------------------------------------------------------------------------
+
+non_deprecated_fields(Fields) ->
+    [K || {K, Schema} <- Fields, not hocon_schema:is_deprecated(Schema)].
+
+find_resource_opts_fields(SchemaMod, FieldName) ->
+    Fields = hocon_schema:fields(SchemaMod, FieldName),
+    case lists:keyfind(resource_opts, 1, Fields) of
+        false ->
+            undefined;
+        {resource_opts, ROSc} ->
+            get_resource_opts_subfields(ROSc)
+    end.
+
+get_resource_opts_subfields(Sc) ->
+    ?R_REF(SchemaModRO, FieldNameRO) = hocon_schema:field_schema(Sc, type),
+    ROFields = non_deprecated_fields(hocon_schema:fields(SchemaModRO, FieldNameRO)),
+    proplists:get_keys(ROFields).
+
+%%------------------------------------------------------------------------------
+%% Testcases
+%%------------------------------------------------------------------------------
 
 resource_opts_union_connector_actions_test() ->
     %% The purpose of this test is to ensure we have split `resource_opts' fields
@@ -37,5 +63,47 @@ resource_opts_union_connector_actions_test() ->
     ),
     ok.
 
-non_deprecated_fields(Fields) ->
-    [K || {K, Schema} <- Fields, not hocon_schema:is_deprecated(Schema)].
+connector_resource_opts_test() ->
+    %% The purpose of this test is to ensure that all connectors have the `resource_opts'
+    %% field with at least some sub-fields that should always be present.
+    %% These are used by `emqx_resource_manager' itself to manage the resource lifecycle.
+    MinimumROFields = [
+        health_check_interval,
+        query_mode,
+        start_after_created,
+        start_timeout
+    ],
+    ConnectorSchemasRefs =
+        lists:map(
+            fun({Type, #{type := ?MAP(_, ?R_REF(SchemaMod, FieldName))}}) ->
+                {Type, find_resource_opts_fields(SchemaMod, FieldName)}
+            end,
+            emqx_connector_schema:fields(connectors)
+        ),
+    ConnectorsMissingRO = [Type || {Type, undefined} <- ConnectorSchemasRefs],
+    ConnectorsMissingROSubfields =
+        lists:filtermap(
+            fun
+                ({_Type, undefined}) ->
+                    false;
+                ({Type, Fs}) ->
+                    case MinimumROFields -- Fs of
+                        [] ->
+                            false;
+                        MissingFields ->
+                            {true, {Type, MissingFields}}
+                    end
+            end,
+            ConnectorSchemasRefs
+        ),
+    ?assertEqual(
+        #{
+            missing_resource_opts_field => #{},
+            missing_subfields => #{}
+        },
+        #{
+            missing_resource_opts_field => maps:from_keys(ConnectorsMissingRO, true),
+            missing_subfields => maps:from_list(ConnectorsMissingROSubfields)
+        }
+    ),
+    ok.

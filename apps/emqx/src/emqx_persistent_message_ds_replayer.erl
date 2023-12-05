@@ -169,7 +169,8 @@ commit_offset(
 -spec poll(reply_fun(), emqx_persistent_session_ds:id(), inflight(), pos_integer()) ->
     {emqx_session:replies(), inflight()}.
 poll(ReplyFun, SessionId, Inflight0, WindowSize) when WindowSize > 0, WindowSize < ?EPOCH_SIZE ->
-    FetchThreshold = max(1, WindowSize div 2),
+    MinBatchSize = emqx_config:get([session_persistence, min_batch_size]),
+    FetchThreshold = min(MinBatchSize, ceil(WindowSize / 2)),
     FreeSpace = WindowSize - n_inflight(Inflight0),
     case FreeSpace >= FetchThreshold of
         false ->

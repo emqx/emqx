@@ -163,11 +163,11 @@ t_remove_fail({'init', Config}) ->
     meck:expect(?CONNECTOR, on_add_channel, 4, {ok, connector_state}),
     meck:expect(?CONNECTOR, on_stop, 2, ok),
     meck:expect(?CONNECTOR, on_get_status, 2, connected),
-    [{mocked_mods, [?CONNECTOR, emqx_connector_ee_schema]} | Config];
-t_remove_fail({'end', Config}) ->
-    MockedMods = ?config(mocked_mods, Config),
-    meck:unload(MockedMods),
+    meck:expect(?CONNECTOR, query_mode, 1, simple_async_internal_buffer),
     Config;
+t_remove_fail({'end', _Config}) ->
+    meck:unload(),
+    ok;
 t_remove_fail(_Config) ->
     ?assertEqual(
         [],
@@ -200,7 +200,20 @@ t_remove_fail(_Config) ->
             {_, {?CONNECTOR, on_add_channel, _}, {ok, connector_state}},
             {_, {?CONNECTOR, on_get_channels, [_]}, _}
         ],
-        meck:history(?CONNECTOR)
+        lists:filter(
+            fun({_, {?CONNECTOR, Fun, _Args}, _}) ->
+                lists:member(
+                    Fun, [
+                        callback_mode,
+                        on_start,
+                        on_get_channels,
+                        on_get_status,
+                        on_add_channel
+                    ]
+                )
+            end,
+            meck:history(?CONNECTOR)
+        )
     ),
     ok.
 
@@ -267,6 +280,33 @@ t_create_with_bad_name_root_path(_Config) ->
             }}},
         emqx:update_config(Path, Conf)
     ),
+    ok.
+
+t_no_buffer_workers({'init', Config}) ->
+    meck:new(emqx_connector_ee_schema, [passthrough]),
+    meck:expect(emqx_connector_ee_schema, resource_type, 1, ?CONNECTOR),
+    meck:new(?CONNECTOR, [non_strict]),
+    meck:expect(?CONNECTOR, callback_mode, 0, async_if_possible),
+    meck:expect(?CONNECTOR, on_start, 2, {ok, connector_state}),
+    meck:expect(?CONNECTOR, on_get_channels, 1, []),
+    meck:expect(?CONNECTOR, on_add_channel, 4, {ok, connector_state}),
+    meck:expect(?CONNECTOR, on_stop, 2, ok),
+    meck:expect(?CONNECTOR, on_get_status, 2, connected),
+    meck:expect(?CONNECTOR, query_mode, 1, sync),
+    [
+        {path, [connectors, kafka_producer, no_bws]}
+        | Config
+    ];
+t_no_buffer_workers({'end', Config}) ->
+    Path = ?config(path, Config),
+    {ok, _} = emqx:remove_config(Path),
+    meck:unload(),
+    ok;
+t_no_buffer_workers(Config) ->
+    Path = ?config(path, Config),
+    ConnConfig = connector_config(),
+    ?assertMatch({ok, _}, emqx:update_config(Path, ConnConfig)),
+    ?assertEqual([], supervisor:which_children(emqx_resource_buffer_worker_sup)),
     ok.
 
 %% helpers

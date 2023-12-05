@@ -110,3 +110,22 @@ best_effort_recursive_sum_test_() ->
             )
         )
     ].
+
+key_comparer_test() ->
+    Comp = emqx_utils_maps:key_comparer(foo),
+    ?assertEqual(
+        [
+            #{},
+            #{baz => 42},
+            #{foo => 1},
+            #{foo => 42},
+            #{foo => bar, baz => 42}
+        ],
+        lists:sort(Comp, [
+            #{foo => 42},
+            #{baz => 42},
+            #{foo => bar, baz => 42},
+            #{foo => 1},
+            #{}
+        ])
+    ).

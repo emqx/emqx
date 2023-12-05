@@ -154,7 +154,7 @@ init_per_testcase(t_exhook_info, Config) ->
     emqx_common_test_helpers:start_apps([emqx_exhook]),
     Config;
 init_per_testcase(t_cluster_uuid, Config) ->
-    Node = start_slave(n1),
+    Node = start_peer(n1),
     [{n1, Node} | Config];
 init_per_testcase(t_uuid_restored_from_file, Config) ->
     Config;
@@ -210,7 +210,7 @@ end_per_testcase(t_exhook_info, _Config) ->
     ok;
 end_per_testcase(t_cluster_uuid, Config) ->
     Node = proplists:get_value(n1, Config),
-    ok = stop_slave(Node);
+    ok = stop_peer(Node);
 end_per_testcase(t_num_clients, Config) ->
     ok = snabbkaffe:stop(),
     Config;
@@ -782,7 +782,7 @@ find_gen_rpc_port() ->
     {ok, {_, Port}} = inet:sockname(EPort),
     Port.
 
-start_slave(Name) ->
+start_peer(Name) ->
     Port = find_gen_rpc_port(),
     TestNode = node(),
     Handler =
@@ -811,11 +811,9 @@ start_slave(Name) ->
         apps => [emqx, emqx_conf, emqx_retainer, emqx_modules, emqx_telemetry]
     },
 
-    emqx_common_test_helpers:start_slave(Name, Opts).
+    emqx_common_test_helpers:start_peer(Name, Opts).
 
-stop_slave(Node) ->
-    % This line don't work!!
-    %emqx_cluster_rpc:fast_forward_to_commit(Node, 100),
+stop_peer(Node) ->
     rpc:call(Node, ?MODULE, leave_cluster, []),
     ok = emqx_cth_peer:stop(Node),
     ?assertEqual([node()], mria:running_nodes()),

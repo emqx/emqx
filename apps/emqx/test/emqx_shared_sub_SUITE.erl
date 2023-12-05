@@ -63,7 +63,6 @@ init_per_suite(Config) ->
         end,
     emqx_common_test_helpers:boot_modules(all),
     emqx_common_test_helpers:start_apps([]),
-    emqx_logger:set_log_level(debug),
     [{dist_pid, DistPid} | Config].
 
 end_per_suite(Config) ->
@@ -575,7 +574,7 @@ t_local(Config) when is_list(Config) ->
         <<"sticky_group">> => sticky
     },
 
-    Node = start_slave('local_shared_sub_local_1', 21999),
+    Node = start_peer('local_shared_sub_local_1', 21999),
     ok = ensure_group_config(GroupConfig),
     ok = ensure_group_config(Node, GroupConfig),
 
@@ -606,7 +605,7 @@ t_local(Config) when is_list(Config) ->
 
     emqtt:stop(ConnPid1),
     emqtt:stop(ConnPid2),
-    stop_slave(Node),
+    stop_peer(Node),
 
     ?assertEqual(local, emqx_shared_sub:strategy(<<"local_group">>)),
     ?assertEqual(local, RemoteLocalGroupStrategy),
@@ -628,7 +627,7 @@ t_remote(Config) when is_list(Config) ->
         <<"sticky_group">> => sticky
     },
 
-    Node = start_slave('remote_shared_sub_remote_1', 21999),
+    Node = start_peer('remote_shared_sub_remote_1', 21999),
     ok = ensure_group_config(GroupConfig),
     ok = ensure_group_config(Node, GroupConfig),
 
@@ -664,7 +663,7 @@ t_remote(Config) when is_list(Config) ->
     after
         emqtt:stop(ConnPidLocal),
         emqtt:stop(ConnPidRemote),
-        stop_slave(Node)
+        stop_peer(Node)
     end.
 
 t_local_fallback(Config) when is_list(Config) ->
@@ -677,7 +676,7 @@ t_local_fallback(Config) when is_list(Config) ->
     Topic = <<"local_foo/bar">>,
     ClientId1 = <<"ClientId1">>,
     ClientId2 = <<"ClientId2">>,
-    Node = start_slave('local_fallback_shared_sub_1', 11888),
+    Node = start_peer('local_fallback_shared_sub_1', 11888),
 
     {ok, ConnPid1} = emqtt:start_link([{clientid, ClientId1}]),
     {ok, _} = emqtt:connect(ConnPid1),
@@ -693,7 +692,7 @@ t_local_fallback(Config) when is_list(Config) ->
     {true, UsedSubPid2} = last_message(<<"hello2">>, [ConnPid1], 2_000),
 
     emqtt:stop(ConnPid1),
-    stop_slave(Node),
+    stop_peer(Node),
 
     ?assertEqual(UsedSubPid1, UsedSubPid2),
     ok.
@@ -1253,7 +1252,7 @@ recv_msgs(Count, Msgs) ->
         Msgs
     end.
 
-start_slave(Name, Port) ->
+start_peer(Name, Port) ->
     {ok, Node} = emqx_cth_peer:start_link(
         Name,
         ebin_path()
@@ -1262,7 +1261,7 @@ start_slave(Name, Port) ->
     setup_node(Node, Port),
     Node.
 
-stop_slave(Node) ->
+stop_peer(Node) ->
     rpc:call(Node, mria, leave, []),
     emqx_cth_peer:stop(Node).
 

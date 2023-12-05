@@ -91,13 +91,11 @@ match([H | T1], [H | T2]) ->
     match(T1, T2);
 match([_H | T1], ['+' | T2]) ->
     match(T1, T2);
+match([<<>> | T1], ['' | T2]) ->
+    match(T1, T2);
 match(_, ['#']) ->
     true;
-match([_H1 | _], [_H2 | _]) ->
-    false;
-match([_H1 | _], []) ->
-    false;
-match([], [_H | _T2]) ->
+match(_, _) ->
     false.
 
 -spec match_share(Name, Filter) -> boolean() when

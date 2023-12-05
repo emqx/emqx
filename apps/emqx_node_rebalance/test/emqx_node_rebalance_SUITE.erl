@@ -136,7 +136,7 @@ t_rebalance_node_crash(Config) ->
     ?assertWaitEvent(
         begin
             ok = rpc:call(DonorNode, emqx_node_rebalance, start, [Opts]),
-            emqx_common_test_helpers:stop_slave(RecipientNode)
+            emqx_common_test_helpers:stop_peer(RecipientNode)
         end,
         #{?snk_kind := emqx_node_rebalance_started},
         1000

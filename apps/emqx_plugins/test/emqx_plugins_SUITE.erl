@@ -628,11 +628,11 @@ group_t_copy_plugin_to_a_new_node({init, Config}) ->
                 load_schema => false
             }
         ),
-    CopyFromNode = emqx_common_test_helpers:start_slave(
+    CopyFromNode = emqx_common_test_helpers:start_peer(
         CopyFrom, maps:remove(join_to, CopyFromOpts)
     ),
     ok = rpc:call(CopyFromNode, emqx_plugins, put_config, [install_dir, FromInstallDir]),
-    CopyToNode = emqx_common_test_helpers:start_slave(CopyTo, maps:remove(join_to, CopyToOpts)),
+    CopyToNode = emqx_common_test_helpers:start_peer(CopyTo, maps:remove(join_to, CopyToOpts)),
     ok = rpc:call(CopyToNode, emqx_plugins, put_config, [install_dir, ToInstallDir]),
     NameVsn = filename:basename(Package, ?PACKAGE_SUFFIX),
     ok = rpc:call(CopyFromNode, emqx_plugins, ensure_installed, [NameVsn]),
@@ -662,8 +662,8 @@ group_t_copy_plugin_to_a_new_node({'end', Config}) ->
     ok = rpc:call(CopyToNode, emqx_config, delete_override_conf_files, []),
     rpc:call(CopyToNode, ekka, leave, []),
     rpc:call(CopyFromNode, ekka, leave, []),
-    ok = emqx_common_test_helpers:stop_slave(CopyToNode),
-    ok = emqx_common_test_helpers:stop_slave(CopyFromNode),
+    ok = emqx_common_test_helpers:stop_peer(CopyToNode),
+    ok = emqx_common_test_helpers:stop_peer(CopyFromNode),
     ok = file:del_dir_r(proplists:get_value(to_install_dir, Config)),
     ok = file:del_dir_r(proplists:get_value(from_install_dir, Config));
 group_t_copy_plugin_to_a_new_node(Config) ->
@@ -737,7 +737,6 @@ group_t_copy_plugin_to_a_new_node_single_node({init, Config}) ->
                 end,
                 priv_data_dir => PrivDataDir,
                 schema_mod => emqx_conf_schema,
-                peer_mod => slave,
                 load_schema => true
             }
         ),
@@ -751,7 +750,7 @@ group_t_copy_plugin_to_a_new_node_single_node({init, Config}) ->
     ];
 group_t_copy_plugin_to_a_new_node_single_node({'end', Config}) ->
     CopyToNode = proplists:get_value(copy_to_node_name, Config),
-    ok = emqx_common_test_helpers:stop_slave(CopyToNode),
+    ok = emqx_common_test_helpers:stop_peer(CopyToNode),
     ok = file:del_dir_r(proplists:get_value(to_install_dir, Config)),
     ok;
 group_t_copy_plugin_to_a_new_node_single_node(Config) ->
@@ -762,7 +761,7 @@ group_t_copy_plugin_to_a_new_node_single_node(Config) ->
     %% Start the node for the first time. The plugin should start
     %% successfully even if it's not extracted yet.  Simply starting
     %% the node would crash if not working properly.
-    CopyToNode = emqx_common_test_helpers:start_slave(CopyTo, CopyToOpts),
+    CopyToNode = emqx_common_test_helpers:start_peer(CopyTo, CopyToOpts),
     ct:pal("~p config:\n  ~p", [
         CopyToNode, erpc:call(CopyToNode, emqx_plugins, get_config, [[], #{}])
     ]),
@@ -805,11 +804,10 @@ group_t_cluster_leave({init, Config}) ->
                 end,
                 priv_data_dir => PrivDataDir,
                 schema_mod => emqx_conf_schema,
-                peer_mod => slave,
                 load_schema => true
             }
         ),
-    Nodes = [emqx_common_test_helpers:start_slave(Name, Opts) || {Name, Opts} <- Cluster],
+    Nodes = [emqx_common_test_helpers:start_peer(Name, Opts) || {Name, Opts} <- Cluster],
     [
         {to_install_dir, ToInstallDir},
         {cluster, Cluster},
@@ -820,7 +818,7 @@ group_t_cluster_leave({init, Config}) ->
     ];
 group_t_cluster_leave({'end', Config}) ->
     Nodes = proplists:get_value(nodes, Config),
-    [ok = emqx_common_test_helpers:stop_slave(N) || N <- Nodes],
+    [ok = emqx_common_test_helpers:stop_peer(N) || N <- Nodes],
     ok = file:del_dir_r(proplists:get_value(to_install_dir, Config)),
     ok;
 group_t_cluster_leave(Config) ->

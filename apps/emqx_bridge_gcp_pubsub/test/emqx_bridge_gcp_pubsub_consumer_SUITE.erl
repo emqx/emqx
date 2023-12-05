@@ -588,7 +588,6 @@ cluster(Config) ->
         [
             {apps, [emqx_conf, emqx_rule_engine, emqx_bridge]},
             {listener_ports, []},
-            {peer_mod, slave},
             {priv_data_dir, PrivDataDir},
             {load_schema, true},
             {start_autocluster, true},
@@ -611,7 +610,7 @@ start_cluster(Cluster) ->
     Nodes = lists:map(
         fun({Name, Opts}) ->
             ct:pal("starting ~p", [Name]),
-            emqx_common_test_helpers:start_slave(Name, Opts)
+            emqx_common_test_helpers:start_peer(Name, Opts)
         end,
         Cluster
     ),
@@ -620,7 +619,7 @@ start_cluster(Cluster) ->
         emqx_utils:pmap(
             fun(N) ->
                 ct:pal("stopping ~p", [N]),
-                emqx_common_test_helpers:stop_slave(N)
+                emqx_common_test_helpers:stop_peer(N)
             end,
             Nodes
         )

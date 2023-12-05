@@ -53,7 +53,8 @@ fields("config") ->
     ];
 fields("config_connector") ->
     emqx_connector_schema:common_fields() ++
-        fields("connection_fields");
+        fields("connection_fields") ++
+        emqx_connector_schema:resource_opts_ref(?MODULE, connector_resource_opts);
 fields("connection_fields") ->
     [
         {parameters,
@@ -93,6 +94,8 @@ fields(action_parameters) ->
         {collection, mk(binary(), #{desc => ?DESC("collection"), default => <<"mqtt">>})},
         {payload_template, mk(binary(), #{required => false, desc => ?DESC("payload_template")})}
     ];
+fields(connector_resource_opts) ->
+    emqx_connector_schema:resource_opts_fields();
 fields(resource_opts) ->
     fields("creation_opts");
 fields(mongodb_rs) ->
@@ -201,6 +204,8 @@ desc("config") ->
 desc("creation_opts") ->
     ?DESC(emqx_resource_schema, "creation_opts");
 desc(resource_opts) ->
+    ?DESC(emqx_resource_schema, "resource_opts");
+desc(connector_resource_opts) ->
     ?DESC(emqx_resource_schema, "resource_opts");
 desc(mongodb_rs) ->
     ?DESC(mongodb_rs_conf);

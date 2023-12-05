@@ -50,9 +50,9 @@ end_per_suite(Config) ->
 init_per_testcase(Case, Config) ->
     _ = emqx_eviction_agent:disable(test_eviction),
     ok = snabbkaffe:start_trace(),
-    start_slave(Case, Config).
+    start_peer(Case, Config).
 
-start_slave(t_explicit_session_takeover, Config) ->
+start_peer(t_explicit_session_takeover, Config) ->
     NodeNames =
         [
             t_explicit_session_takeover_donor,
@@ -65,19 +65,19 @@ start_slave(t_explicit_session_takeover, Config) ->
     ),
     ok = snabbkaffe:start_trace(),
     [{evacuate_nodes, ClusterNodes} | Config];
-start_slave(_Case, Config) ->
+start_peer(_Case, Config) ->
     Config.
 
 end_per_testcase(TestCase, Config) ->
     emqx_eviction_agent:disable(test_eviction),
     ok = snabbkaffe:stop(),
-    stop_slave(TestCase, Config).
+    stop_peer(TestCase, Config).
 
-stop_slave(t_explicit_session_takeover, Config) ->
+stop_peer(t_explicit_session_takeover, Config) ->
     emqx_eviction_agent_test_helpers:stop_cluster(
         ?config(evacuate_nodes, Config)
     );
-stop_slave(_Case, _Config) ->
+stop_peer(_Case, _Config) ->
     ok.
 
 %%--------------------------------------------------------------------

@@ -12,13 +12,6 @@ batch_time.desc:
 batch_time.label:
 """Max batch wait time"""
 
-buffer_mode.desc:
-"""Buffer operation mode.
-<code>memory_only</mode>: Buffer all messages in memory.<code>volatile_offload</code>: Buffer message in memory first, when up to certain limit (see <code>buffer_seg_bytes</code> config for more information), then start offloading messages to disk"""
-
-buffer_mode.label:
-"""Buffer Mode"""
-
 buffer_seg_bytes.desc:
 """Applicable when buffer mode is set to <code>volatile_offload</code>.
 This value is to specify the size of each on-disk buffer file."""

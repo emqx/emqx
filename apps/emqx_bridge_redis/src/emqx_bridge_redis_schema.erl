@@ -51,6 +51,7 @@ fields("config_connector") ->
                 )}
         ] ++
         emqx_redis:redis_fields() ++
+        emqx_connector_schema:resource_opts_ref(?MODULE, resource_opts) ++
         emqx_connector_schema_lib:ssl_fields();
 fields(action) ->
     {?TYPE,
