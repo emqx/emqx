@@ -551,8 +551,8 @@ schema("/action_types") ->
 '/action_types'(get, _Request) ->
     ?OK(emqx_bridge_v2_schema:types()).
 
-maybe_deobfuscate_bridge_probe(#{<<"type">> := BridgeType, <<"name">> := BridgeName} = Params) ->
-    case emqx_bridge:lookup(BridgeType, BridgeName) of
+maybe_deobfuscate_bridge_probe(#{<<"type">> := ActionType, <<"name">> := BridgeName} = Params) ->
+    case emqx_bridge_v2:lookup(ActionType, BridgeName) of
         {ok, #{raw_config := RawConf}} ->
             %% TODO check if RawConf optained above is compatible with the commented out code below
             %% RawConf = emqx:get_raw_config([bridges, BridgeType, BridgeName], #{}),
