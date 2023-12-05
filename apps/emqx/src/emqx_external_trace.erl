@@ -15,17 +15,19 @@
 %%--------------------------------------------------------------------
 -module(emqx_external_trace).
 
--callback trace_process_publish(Packet, Channel, fun((Packet, Channel) -> Res)) -> Res when
+-callback trace_process_publish(Packet, ChannelInfo, fun((Packet) -> Res)) -> Res when
     Packet :: emqx_types:packet(),
-    Channel :: emqx_channel:channel(),
+    ChannelInfo :: channel_info(),
     Res :: term().
 
--callback start_trace_send(list(emqx_types:deliver()), emqx_channel:channel()) ->
+-callback start_trace_send(list(emqx_types:deliver()), channel_info()) ->
     list(emqx_types:deliver()).
 
 -callback end_trace_send(emqx_types:packet() | [emqx_types:packet()]) -> ok.
 
 -callback event(EventName :: term(), Attributes :: term()) -> ok.
+
+-type channel_info() :: #{atom() => _}.
 
 -export([
     provider/0,
@@ -37,6 +39,8 @@
     event/1,
     event/2
 ]).
+
+-export_type([channel_info/0]).
 
 -define(PROVIDER, {?MODULE, trace_provider}).
 
@@ -79,17 +83,17 @@ provider() ->
 %% trace API
 %%--------------------------------------------------------------------
 
--spec trace_process_publish(Packet, Channel, fun((Packet, Channel) -> Res)) -> Res when
+-spec trace_process_publish(Packet, ChannelInfo, fun((Packet) -> Res)) -> Res when
     Packet :: emqx_types:packet(),
-    Channel :: emqx_channel:channel(),
+    ChannelInfo :: channel_info(),
     Res :: term().
-trace_process_publish(Packet, Channel, ProcessFun) ->
-    ?with_provider(?FUNCTION_NAME(Packet, Channel, ProcessFun), ProcessFun(Packet, Channel)).
+trace_process_publish(Packet, ChannelInfo, ProcessFun) ->
+    ?with_provider(?FUNCTION_NAME(Packet, ChannelInfo, ProcessFun), ProcessFun(Packet)).
 
--spec start_trace_send(list(emqx_types:deliver()), emqx_channel:channel()) ->
+-spec start_trace_send(list(emqx_types:deliver()), channel_info()) ->
     list(emqx_types:deliver()).
-start_trace_send(Delivers, Channel) ->
-    ?with_provider(?FUNCTION_NAME(Delivers, Channel), Delivers).
+start_trace_send(Delivers, ChannelInfo) ->
+    ?with_provider(?FUNCTION_NAME(Delivers, ChannelInfo), Delivers).
 
 -spec end_trace_send(emqx_types:packet() | [emqx_types:packet()]) -> ok.
 end_trace_send(Packets) ->

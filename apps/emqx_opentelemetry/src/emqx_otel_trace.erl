@@ -94,17 +94,17 @@ stop() ->
 %% trace API
 %%--------------------------------------------------------------------
 
--spec trace_process_publish(Packet, Channel, fun((Packet, Channel) -> Res)) -> Res when
+-spec trace_process_publish(Packet, ChannelInfo, fun((Packet) -> Res)) -> Res when
     Packet :: emqx_types:packet(),
-    Channel :: emqx_channel:channel(),
+    ChannelInfo :: emqx_external_trace:channel_info(),
     Res :: term().
-trace_process_publish(Packet, Channel, ProcessFun) ->
+trace_process_publish(Packet, ChannelInfo, ProcessFun) ->
     case maybe_init_ctx(Packet) of
         false ->
-            ProcessFun(Packet, Channel);
+            ProcessFun(Packet);
         RootCtx ->
             RootCtx1 = otel_ctx:set_value(RootCtx, ?IS_ENABLED, true),
-            Attrs = maps:merge(packet_attributes(Packet), channel_attributes(Channel)),
+            Attrs = maps:merge(packet_attributes(Packet), channel_attributes(ChannelInfo)),
             SpanCtx = otel_tracer:start_span(RootCtx1, ?current_tracer, process_message, #{
                 attributes => Attrs
             }),
@@ -113,22 +113,22 @@ trace_process_publish(Packet, Channel, ProcessFun) ->
             Packet1 = put_ctx_to_packet(Ctx, Packet),
             _ = otel_ctx:attach(Ctx),
             try
-                ProcessFun(Packet1, Channel)
+                ProcessFun(Packet1)
             after
                 _ = ?end_span(),
                 clear()
             end
     end.
 
--spec start_trace_send(list(emqx_types:deliver()), emqx_channel:channel()) ->
+-spec start_trace_send(list(emqx_types:deliver()), emqx_external_trace:channel_info()) ->
     list(emqx_types:deliver()).
-start_trace_send(Delivers, Channel) ->
+start_trace_send(Delivers, ChannelInfo) ->
     lists:map(
         fun({deliver, Topic, Msg} = Deliver) ->
             case get_ctx_from_msg(Msg) of
                 Ctx when is_map(Ctx) ->
                     Attrs = maps:merge(
-                        msg_attributes(Msg), sub_channel_attributes(Channel)
+                        msg_attributes(Msg), sub_channel_attributes(ChannelInfo)
                     ),
                     StartOpts = #{attributes => Attrs},
                     SpanCtx = otel_tracer:start_span(
@@ -216,11 +216,11 @@ msg_attributes(Msg) ->
 packet_attributes(#mqtt_packet{variable = Packet}) ->
     #{'messaging.destination.name' => emqx_packet:info(topic_name, Packet)}.
 
-channel_attributes(Channel) ->
-    #{'messaging.client_id' => emqx_channel:info(clientid, Channel)}.
+channel_attributes(ChannelInfo) ->
+    #{'messaging.client_id' => maps:get(clientid, ChannelInfo, undefined)}.
 
-sub_channel_attributes(Channel) ->
-    channel_attributes(Channel).
+sub_channel_attributes(ChannelInfo) ->
+    channel_attributes(ChannelInfo).
 
 put_ctx_to_msg(OtelCtx, Msg = #message{extra = Extra}) when is_map(Extra) ->
     Msg#message{extra = Extra#{?EMQX_OTEL_CTX => OtelCtx}};
