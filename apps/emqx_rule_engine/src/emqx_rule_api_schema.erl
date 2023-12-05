@@ -172,44 +172,58 @@ fields("node_metrics") ->
     [{"node", sc(binary(), #{desc => ?DESC("node_node"), example => "emqx@127.0.0.1"})}] ++
         fields("metrics");
 fields("ctx_pub") ->
+    Event = 'message.publish',
     [
-        {"event_type", event_type_sc(message_publish)},
+        {"event_type", event_type_sc(Event)},
+        {"event", event_sc(Event)},
         {"id", sc(binary(), #{desc => ?DESC("event_id")})}
         | msg_event_common_fields()
     ];
 fields("ctx_sub") ->
+    Event = 'session.subscribed',
     [
-        {"event_type", event_type_sc(session_subscribed)}
+        {"event_type", event_type_sc(Event)},
+        {"event", event_sc(Event)}
         | msg_event_common_fields()
     ];
 fields("ctx_unsub") ->
+    Event = 'session.unsubscribed',
     [
-        {"event_type", event_type_sc(session_unsubscribed)}
-        | proplists:delete("event_type", fields("ctx_sub"))
+        {"event_type", event_type_sc(Event)},
+        {"event", event_sc(Event)}
+        | without(["event_type", "event_topic", "event"], fields("ctx_sub"))
     ];
 fields("ctx_delivered") ->
+    Event = 'message.delivered',
     [
-        {"event_type", event_type_sc(message_delivered)},
+        {"event_type", event_type_sc(Event)},
+        {"event", event_sc(Event)},
         {"id", sc(binary(), #{desc => ?DESC("event_id")})},
         {"from_clientid", sc(binary(), #{desc => ?DESC("event_from_clientid")})},
         {"from_username", sc(binary(), #{desc => ?DESC("event_from_username")})}
         | msg_event_common_fields()
     ];
 fields("ctx_acked") ->
+    Event = 'message.acked',
     [
-        {"event_type", event_type_sc(message_acked)}
-        | proplists:delete("event_type", fields("ctx_delivered"))
+        {"event_type", event_type_sc(Event)},
+        {"event", event_sc(Event)}
+        | without(["event_type", "event_topic", "event"], fields("ctx_delivered"))
     ];
 fields("ctx_dropped") ->
+    Event = 'message.dropped',
     [
-        {"event_type", event_type_sc(message_dropped)},
+        {"event_type", event_type_sc(Event)},
+        {"event", event_sc(Event)},
         {"id", sc(binary(), #{desc => ?DESC("event_id")})},
         {"reason", sc(binary(), #{desc => ?DESC("event_ctx_dropped")})}
         | msg_event_common_fields()
     ];
 fields("ctx_connected") ->
+    Event = 'client.connected',
     [
-        {"event_type", event_type_sc(client_connected)},
+        {"event_type", event_type_sc(Event)},
+        {"event", event_sc(Event)},
         {"clientid", sc(binary(), #{desc => ?DESC("event_clientid")})},
         {"username", sc(binary(), #{desc => ?DESC("event_username")})},
         {"mountpoint", sc(binary(), #{desc => ?DESC("event_mountpoint")})},
@@ -227,8 +241,10 @@ fields("ctx_connected") ->
             })}
     ];
 fields("ctx_disconnected") ->
+    Event = 'client.disconnected',
     [
-        {"event_type", event_type_sc(client_disconnected)},
+        {"event_type", event_type_sc(Event)},
+        {"event", event_sc(Event)},
         {"clientid", sc(binary(), #{desc => ?DESC("event_clientid")})},
         {"username", sc(binary(), #{desc => ?DESC("event_username")})},
         {"reason", sc(binary(), #{desc => ?DESC("event_ctx_disconnected_reason")})},
@@ -240,8 +256,10 @@ fields("ctx_disconnected") ->
             })}
     ];
 fields("ctx_connack") ->
+    Event = 'client.connack',
     [
-        {"event_type", event_type_sc(client_connack)},
+        {"event_type", event_type_sc(Event)},
+        {"event", event_sc(Event)},
         {"reason_code", sc(binary(), #{desc => ?DESC("event_ctx_connack_reason_code")})},
         {"clientid", sc(binary(), #{desc => ?DESC("event_clientid")})},
         {"clean_start", sc(boolean(), #{desc => ?DESC("event_clean_start"), default => true})},
@@ -258,8 +276,10 @@ fields("ctx_connack") ->
             })}
     ];
 fields("ctx_check_authz_complete") ->
+    Event = 'client.check_authz_complete',
     [
-        {"event_type", event_type_sc(client_check_authz_complete)},
+        {"event_type", event_type_sc(Event)},
+        {"event", event_sc(Event)},
         {"clientid", sc(binary(), #{desc => ?DESC("event_clientid")})},
         {"username", sc(binary(), #{desc => ?DESC("event_username")})},
         {"peerhost", sc(binary(), #{desc => ?DESC("event_peerhost")})},
@@ -269,8 +289,11 @@ fields("ctx_check_authz_complete") ->
         {"result", sc(binary(), #{desc => ?DESC("event_result")})}
     ];
 fields("ctx_bridge_mqtt") ->
+    Event = '$bridges/mqtt:*',
+    EventBin = atom_to_binary(Event),
     [
-        {"event_type", event_type_sc('$bridges/mqtt:*')},
+        {"event_type", event_type_sc(Event)},
+        {"event", event_sc(EventBin)},
         {"id", sc(binary(), #{desc => ?DESC("event_id")})},
         {"payload", sc(binary(), #{desc => ?DESC("event_payload")})},
         {"topic", sc(binary(), #{desc => ?DESC("event_topic")})},
@@ -281,8 +304,10 @@ fields("ctx_bridge_mqtt") ->
         qos()
     ];
 fields("ctx_delivery_dropped") ->
+    Event = 'delivery.dropped',
     [
-        {"event_type", event_type_sc(delivery_dropped)},
+        {"event_type", event_type_sc(Event)},
+        {"event", event_sc(Event)},
         {"id", sc(binary(), #{desc => ?DESC("event_id")})},
         {"reason", sc(binary(), #{desc => ?DESC("event_ctx_dropped")})},
         {"from_clientid", sc(binary(), #{desc => ?DESC("event_from_clientid")})},
@@ -309,7 +334,21 @@ sc(Type, Meta) -> hoconsc:mk(Type, Meta).
 ref(Field) -> hoconsc:ref(?MODULE, Field).
 
 event_type_sc(Event) ->
-    sc(Event, #{desc => ?DESC("event_event_type"), required => true}).
+    EventType = event_to_event_type(Event),
+    sc(EventType, #{desc => ?DESC("event_event_type"), required => true}).
+
+-spec event_to_event_type(atom()) -> atom().
+event_to_event_type(Event) ->
+    binary_to_atom(binary:replace(atom_to_binary(Event), <<".">>, <<"_">>)).
+
+event_sc(Event) when is_binary(Event) ->
+    %% only exception is `$bridges/...'.
+    sc(binary(), #{default => Event, importance => ?IMPORTANCE_HIDDEN});
+event_sc(Event) ->
+    sc(Event, #{default => Event, importance => ?IMPORTANCE_HIDDEN}).
+
+without(FieldNames, Fields) ->
+    lists:foldl(fun proplists:delete/2, Fields, FieldNames).
 
 publish_received_at_sc() ->
     sc(integer(), #{desc => ?DESC("event_publish_received_at")}).
