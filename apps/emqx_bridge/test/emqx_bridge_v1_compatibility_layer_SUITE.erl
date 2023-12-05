@@ -21,6 +21,7 @@
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
 -include_lib("typerefl/include/types.hrl").
+-include_lib("emqx/include/asserts.hrl").
 
 -import(emqx_common_test_helpers, [on_exit/1]).
 
@@ -108,6 +109,14 @@ setup_mocks() ->
         fun(Method) -> [{bridge_type_bin(), hoconsc:ref(?MODULE, "api_" ++ Method)}] end
     ),
 
+    catch meck:new(emqx_bridge_schema, MeckOpts),
+    meck:expect(
+        emqx_bridge_schema,
+        enterprise_api_schemas,
+        1,
+        fun(Method) -> [{bridge_type_bin(), hoconsc:ref(?MODULE, "api_" ++ Method)}] end
+    ),
+
     ok.
 
 con_mod() ->
@@ -142,7 +151,9 @@ con_schema() ->
 fields("connector") ->
     [
         {enable, hoconsc:mk(any(), #{})},
+        {password, emqx_schema_secret:mk(#{required => false})},
         {resource_opts, hoconsc:mk(map(), #{})},
+        {on_start_fun, hoconsc:mk(binary(), #{})},
         {ssl, hoconsc:ref(ssl)}
     ];
 fields("api_post") ->
@@ -457,6 +468,29 @@ update_rule_http(RuleId, Params) ->
 enable_rule_http(RuleId) ->
     Params = #{<<"enable">> => true},
     update_rule_http(RuleId, Params).
+
+probe_bridge_http_api_v1(Opts) ->
+    Name = maps:get(name, Opts),
+    Overrides = maps:get(overrides, Opts, #{}),
+    BridgeConfig0 = emqx_utils_maps:deep_merge(bridge_config(), Overrides),
+    BridgeConfig = maps:without([<<"connector">>], BridgeConfig0),
+    Params = BridgeConfig#{<<"type">> => bridge_type_bin(), <<"name">> => Name},
+    Path = emqx_mgmt_api_test_util:api_path(["bridges_probe"]),
+    ct:pal("probe bridge (http v1) (~p):\n  ~p", [#{name => Name}, Params]),
+    Res = request(post, Path, Params),
+    ct:pal("probe bridge (http v1) (~p) result:\n  ~p", [#{name => Name}, Res]),
+    Res.
+
+probe_action_http_api_v2(Opts) ->
+    Name = maps:get(name, Opts),
+    Overrides = maps:get(overrides, Opts, #{}),
+    BridgeConfig = emqx_utils_maps:deep_merge(bridge_config(), Overrides),
+    Params = BridgeConfig#{<<"type">> => bridge_type_bin(), <<"name">> => Name},
+    Path = emqx_mgmt_api_test_util:api_path(["actions_probe"]),
+    ct:pal("probe action (http v2) (~p):\n  ~p", [#{name => Name}, Params]),
+    Res = request(post, Path, Params),
+    ct:pal("probe action (http v2) (~p) result:\n  ~p", [#{name => Name}, Res]),
+    Res.
 
 %%------------------------------------------------------------------------------
 %% Test cases
@@ -824,4 +858,64 @@ t_create_with_bad_name(_Config) ->
                 <<"reason">> := <<"Invalid name format.", _/binary>>
             }
         }}} = create_bridge_http_api_v1(Opts),
+    ok.
+
+t_obfuscated_secrets_probe(_Config) ->
+    Name = <<"bridgev2">>,
+    Me = self(),
+    ets:new(emqx_bridge_v2_SUITE:fun_table_name(), [named_table, public]),
+    OnStartFun = emqx_bridge_v2_SUITE:wrap_fun(fun(Conf) ->
+        Me ! {on_start, Conf},
+        {ok, Conf}
+    end),
+    OriginalPassword = <<"supersecret">>,
+    Overrides = #{<<"password">> => OriginalPassword, <<"on_start_fun">> => OnStartFun},
+    %% Using the real password, like when creating the bridge for the first time.
+    ?assertMatch(
+        {ok, {{_, 204, _}, _, _}},
+        probe_bridge_http_api_v1(#{name => Name, overrides => Overrides})
+    ),
+
+    %% Check that we still can probe created bridges that use passwords.
+    ?assertMatch(
+        {ok, {{_, 201, _}, _, #{}}},
+        create_bridge_http_api_v1(#{name => Name, overrides => Overrides})
+    ),
+    %% Password is obfuscated
+    ?assertMatch(
+        {ok, {{_, 200, _}, _, #{<<"password">> := <<"******">>}}},
+        get_bridge_http_api_v1(Name)
+    ),
+    %% still using the password
+    ?assertMatch(
+        {ok, {{_, 204, _}, _, _}},
+        probe_bridge_http_api_v1(#{name => Name, overrides => Overrides})
+    ),
+    %% now with obfuscated password (loading the UI again)
+    ?assertMatch(
+        {ok, {{_, 204, _}, _, _}},
+        probe_bridge_http_api_v1(#{
+            name => Name,
+            overrides => Overrides#{<<"password">> => <<"******">>}
+        })
+    ),
+    ?assertMatch(
+        {ok, {{_, 204, _}, _, _}},
+        probe_action_http_api_v2(#{
+            name => Name,
+            overrides => Overrides#{<<"password">> => <<"******">>}
+        })
+    ),
+
+    %% We have to check that the connector was started with real passwords during dry runs
+    StartConfs = [Conf || {on_start, Conf} <- ?drainMailbox()],
+    Passwords = lists:map(fun(#{password := P}) -> P end, StartConfs),
+    ?assert(lists:all(fun is_function/1, Passwords), #{passwords => Passwords}),
+    UnwrappedPasswords = [F() || F <- Passwords],
+    ?assertEqual(
+        [OriginalPassword],
+        lists:usort(UnwrappedPasswords),
+        #{passwords => UnwrappedPasswords}
+    ),
+
     ok.

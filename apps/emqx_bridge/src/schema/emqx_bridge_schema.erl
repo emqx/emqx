@@ -35,6 +35,9 @@
     metrics_fields/0
 ]).
 
+%% for testing only
+-export([enterprise_api_schemas/1]).
+
 %%======================================================================================
 %% Hocon Schema Definitions
 
@@ -57,7 +60,7 @@ api_schema(Method) ->
             {<<"mqtt">>, emqx_bridge_mqtt_schema}
         ]
     ],
-    EE = enterprise_api_schemas(Method),
+    EE = ?MODULE:enterprise_api_schemas(Method),
     hoconsc:union(bridge_api_union(Broker ++ EE)).
 
 bridge_api_union(Refs) ->
