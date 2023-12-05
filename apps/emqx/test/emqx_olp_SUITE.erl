@@ -26,14 +26,13 @@
 all() -> emqx_common_test_helpers:all(?MODULE).
 
 init_per_suite(Config) ->
-    emqx_common_test_helpers:boot_modules(all),
-    emqx_common_test_helpers:start_apps([]),
+    Apps = emqx_cth_suite:start([emqx], #{work_dir => emqx_cth_suite:work_dir(Config)}),
     OldSch = erlang:system_flag(schedulers_online, 1),
-    [{old_sch, OldSch} | Config].
+    [{apps, Apps}, {old_sch, OldSch} | Config].
 
 end_per_suite(Config) ->
     erlang:system_flag(schedulers_online, ?config(old_sch, Config)),
-    emqx_common_test_helpers:stop_apps([]).
+    emqx_cth_suite:stop(?config(apps, Config)).
 
 init_per_testcase(_, Config) ->
     emqx_common_test_helpers:boot_modules(all),
