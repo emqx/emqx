@@ -44,14 +44,33 @@ groups() ->
     ].
 
 init_per_suite(Config) ->
-    application:load(emqx),
-    emqx_config:save_schema_mod_and_names(emqx_schema),
-    emqx_common_test_helpers:boot_modules(all),
     Config.
 
 end_per_suite(_Config) ->
     ok.
 
+init_per_group(openssl, Config) ->
+    DataDir = ?config(data_dir, Config),
+    ListenerConf = #{
+        bind => <<"0.0.0.0:8883">>,
+        max_connections => 512000,
+        ssl_options => #{
+            keyfile => filename(DataDir, "server.key"),
+            certfile => filename(DataDir, "server.pem"),
+            cacertfile => filename(DataDir, "ca.pem"),
+            ocsp => #{
+                enable_ocsp_stapling => true,
+                issuer_pem => filename(DataDir, "ocsp-issuer.pem"),
+                responder_url => <<"http://127.0.0.1:9877">>
+            }
+        }
+    },
+    Conf = #{listeners => #{ssl => #{default => ListenerConf}}},
+    Apps = emqx_cth_suite:start(
+        [{emqx, #{config => Conf}}],
+        #{work_dir => emqx_cth_suite:work_dir(Config)}
+    ),
+    [{group_apps, Apps} | Config];
 init_per_group(tls12, Config) ->
     [{tls_vsn, "-tls1_2"} | Config];
 init_per_group(tls13, Config) ->
@@ -63,24 +82,14 @@ init_per_group(without_status_request, Config) ->
 init_per_group(_Group, Config) ->
     Config.
 
+end_per_group(openssl, Config) ->
+    emqx_cth_suite:stop(?config(group_apps, Config));
 end_per_group(_Group, _Config) ->
     ok.
 
 init_per_testcase(t_openssl_client, Config) ->
     ct:timetrap({seconds, 30}),
-    DataDir = ?config(data_dir, Config),
-    Handler = fun(_) -> ok end,
     {OCSPResponderPort, OCSPOSPid} = setup_openssl_ocsp(Config),
-    ConfFilePath = filename:join([DataDir, "openssl_listeners.conf"]),
-    emqx_common_test_helpers:start_apps(
-        [],
-        Handler,
-        #{
-            extra_mustache_vars => #{test_data_dir => DataDir},
-            conf_file_path => ConfFilePath
-        }
-    ),
-    ct:sleep(1_000),
     [
         {ocsp_responder_port, OCSPResponderPort},
         {ocsp_responder_os_pid, OCSPOSPid}
@@ -107,15 +116,25 @@ init_per_testcase(TestCase, Config) when
                     {ok, {{"HTTP/1.0", 200, 'OK'}, [], <<"ocsp response">>}}
                 end
             ),
-            emqx_mgmt_api_test_util:init_suite([emqx_conf]),
+            Apps = emqx_cth_suite:start(
+                [
+                    emqx_conf,
+                    emqx,
+                    emqx_management,
+                    {emqx_dashboard, "dashboard.listeners.http { enable = true, bind = 18083 }"}
+                ],
+                #{work_dir => emqx_cth_suite:work_dir(TestCase, Config)}
+            ),
+            _ = emqx_common_test_http:create_default_app(),
             snabbkaffe:start_trace(),
-            Config;
+            [{tc_apps, Apps} | Config];
         false ->
             [{skip_does_not_apply, true} | Config]
     end;
-init_per_testcase(t_ocsp_responder_error_responses, Config) ->
+init_per_testcase(TC, Config) ->
     ct:timetrap({seconds, 30}),
     TestPid = self(),
+    DataDir = ?config(data_dir, Config),
     ok = meck:new(emqx_ocsp_cache, [non_strict, passthrough, no_history, no_link]),
     meck:expect(
         emqx_ocsp_cache,
@@ -123,90 +142,44 @@ init_per_testcase(t_ocsp_responder_error_responses, Config) ->
         fun(URL, _HTTPTimeout) ->
             ct:pal("ocsp http request ~p", [URL]),
             TestPid ! {http_get, URL},
-            persistent_term:get({?MODULE, http_response})
+            persistent_term:get(
+                {?MODULE, http_response},
+                {ok, {{"HTTP/1.0", 200, 'OK'}, [], <<"ocsp response">>}}
+            )
         end
     ),
-    DataDir = ?config(data_dir, Config),
-    Type = ssl,
-    Name = test_ocsp,
-    ListenerOpts = #{
-        ssl_options =>
-            #{
-                certfile => filename:join(DataDir, "server.pem"),
-                ocsp => #{
-                    enable_ocsp_stapling => true,
-                    responder_url => <<"http://localhost:9877/">>,
-                    issuer_pem => filename:join(DataDir, "ocsp-issuer.pem"),
-                    refresh_http_timeout => <<"15s">>,
-                    refresh_interval => <<"1s">>
-                }
-            }
-    },
-    Conf = #{listeners => #{Type => #{Name => ListenerOpts}}},
-    ConfBin = emqx_utils_maps:binary_key_map(Conf),
-    CheckedConf = hocon_tconf:check_plain(emqx_schema, ConfBin, #{
-        required => false, atom_keys => false
-    }),
-    Conf2 = emqx_utils_maps:unsafe_atom_key_map(CheckedConf),
-    ListenerOpts2 = emqx_utils_maps:deep_get([listeners, Type, Name], Conf2),
-    emqx_config:put_listener_conf(Type, Name, [], ListenerOpts2),
-    snabbkaffe:start_trace(),
-    _Heir = spawn_dummy_heir(),
-    {ok, CachePid} = emqx_ocsp_cache:start_link(),
-    [
-        {cache_pid, CachePid}
-        | Config
-    ];
-init_per_testcase(_TestCase, Config) ->
-    ct:timetrap({seconds, 10}),
-    TestPid = self(),
-    ok = meck:new(emqx_ocsp_cache, [non_strict, passthrough, no_history, no_link]),
-    meck:expect(
-        emqx_ocsp_cache,
-        http_get,
-        fun(URL, _HTTPTimeout) ->
-            TestPid ! {http_get, URL},
-            {ok, {{"HTTP/1.0", 200, 'OK'}, [], <<"ocsp response">>}}
-        end
-    ),
-    snabbkaffe:start_trace(),
-    _Heir = spawn_dummy_heir(),
-    {ok, CachePid} = emqx_ocsp_cache:start_link(),
-    DataDir = ?config(data_dir, Config),
-    Type = ssl,
-    Name = test_ocsp,
     ResponderURL = <<"http://localhost:9877/">>,
-    ListenerOpts = #{
-        ssl_options =>
-            #{
-                certfile => filename:join(DataDir, "server.pem"),
-                ocsp => #{
-                    enable_ocsp_stapling => true,
-                    responder_url => ResponderURL,
-                    issuer_pem => filename:join(DataDir, "ocsp-issuer.pem"),
-                    refresh_http_timeout => <<"15s">>,
-                    refresh_interval => <<"1s">>
-                }
+    ListenerConf = #{
+        enable => false,
+        bind => 0,
+        ssl_options => #{
+            certfile => filename(DataDir, "server.pem"),
+            ocsp => #{
+                enable_ocsp_stapling => true,
+                responder_url => ResponderURL,
+                issuer_pem => filename(DataDir, "ocsp-issuer.pem"),
+                refresh_http_timeout => <<"15s">>,
+                refresh_interval => <<"1s">>
             }
+        }
     },
-    Conf = #{listeners => #{Type => #{Name => ListenerOpts}}},
-    ConfBin = emqx_utils_maps:binary_key_map(Conf),
-    CheckedConf = hocon_tconf:check_plain(emqx_schema, ConfBin, #{
-        required => false, atom_keys => false
-    }),
-    Conf2 = emqx_utils_maps:unsafe_atom_key_map(CheckedConf),
-    ListenerOpts2 = emqx_utils_maps:deep_get([listeners, Type, Name], Conf2),
-    emqx_config:put_listener_conf(Type, Name, [], ListenerOpts2),
+    Conf = #{listeners => #{ssl => #{test_ocsp => ListenerConf}}},
+    Apps = emqx_cth_suite:start(
+        [{emqx, #{config => Conf}}],
+        #{work_dir => emqx_cth_suite:work_dir(TC, Config)}
+    ),
+    snabbkaffe:start_trace(),
     [
-        {cache_pid, CachePid},
-        {responder_url, ResponderURL}
+        {responder_url, ResponderURL},
+        {tc_apps, Apps}
         | Config
     ].
 
+filename(Dir, Name) ->
+    unicode:characters_to_binary(filename:join(Dir, Name)).
+
 end_per_testcase(t_openssl_client, Config) ->
-    OCSPResponderOSPid = ?config(ocsp_responder_os_pid, Config),
-    catch kill_pid(OCSPResponderOSPid),
-    emqx_common_test_helpers:stop_apps([]),
+    catch kill_pid(?config(ocsp_responder_os_pid, Config)),
     ok;
 end_per_testcase(TestCase, Config) when
     TestCase =:= t_update_listener;
@@ -217,43 +190,18 @@ end_per_testcase(TestCase, Config) when
         true ->
             ok;
         false ->
-            emqx_mgmt_api_test_util:end_suite([emqx_conf]),
-            meck:unload([emqx_ocsp_cache]),
-            ok
+            end_per_testcase(common, Config)
     end;
-end_per_testcase(t_ocsp_responder_error_responses, Config) ->
-    CachePid = ?config(cache_pid, Config),
-    catch gen_server:stop(CachePid),
-    meck:unload([emqx_ocsp_cache]),
-    persistent_term:erase({?MODULE, http_response}),
-    ok;
 end_per_testcase(_TestCase, Config) ->
-    CachePid = ?config(cache_pid, Config),
-    catch gen_server:stop(CachePid),
+    snabbkaffe:stop(),
+    emqx_cth_suite:stop(?config(tc_apps, Config)),
+    persistent_term:erase({?MODULE, http_response}),
     meck:unload([emqx_ocsp_cache]),
     ok.
 
 %%--------------------------------------------------------------------
 %% Helper functions
 %%--------------------------------------------------------------------
-
-%% The real cache makes `emqx_kernel_sup' the heir to its ETS table.
-%% In some tests, we don't start the full supervision tree, so we need
-%% this dummy process.
-spawn_dummy_heir() ->
-    {_, {ok, _}} =
-        ?wait_async_action(
-            spawn_link(fun() ->
-                true = register(emqx_kernel_sup, self()),
-                ?tp(heir_name_registered, #{}),
-                receive
-                    stop -> ok
-                end
-            end),
-            #{?snk_kind := heir_name_registered},
-            1_000
-        ),
-    ok.
 
 does_module_exist(Mod) ->
     case erlang:module_loaded(Mod) of
@@ -416,11 +364,6 @@ do_ensure_port_open(Port, N) when N > 0 ->
             do_ensure_port_open(Port, N - 1)
     end.
 
-get_sni_fun(ListenerID) ->
-    #{opts := Opts} = emqx_listeners:find_by_id(ListenerID),
-    SSLOpts = proplists:get_value(ssl_options, Opts),
-    proplists:get_value(sni_fun, SSLOpts).
-
 openssl_version() ->
     Res0 = string:trim(os:cmd("openssl version"), trailing),
     [_, Res] = string:split(Res0, " "),
@@ -516,9 +459,7 @@ t_request_ocsp_response(_Config) ->
         end
     ).
 
-t_request_ocsp_response_restart_cache(Config) ->
-    process_flag(trap_exit, true),
-    CachePid = ?config(cache_pid, Config),
+t_request_ocsp_response_restart_cache(_Config) ->
     ListenerID = <<"ssl:test_ocsp">>,
     ?check_trace(
         begin
@@ -526,6 +467,7 @@ t_request_ocsp_response_restart_cache(Config) ->
             {ok, _} = emqx_ocsp_cache:fetch_response(ListenerID),
             ?wait_async_action(
                 begin
+                    CachePid = whereis(emqx_ocsp_cache),
                     Ref = monitor(process, CachePid),
                     exit(CachePid, kill),
                     receive
@@ -533,9 +475,7 @@ t_request_ocsp_response_restart_cache(Config) ->
                             ok
                     after 1_000 ->
                         error(cache_not_killed)
-                    end,
-                    {ok, _} = emqx_ocsp_cache:start_link(),
-                    ok
+                    end
                 end,
                 #{?snk_kind := ocsp_cache_init}
             ),
