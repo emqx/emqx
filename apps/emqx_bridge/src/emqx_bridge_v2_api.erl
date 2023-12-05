@@ -91,12 +91,15 @@ paths() ->
         "/action_types"
     ].
 
-error_schema(Code, Message) when is_atom(Code) ->
-    error_schema([Code], Message);
-error_schema(Codes, Message) when is_list(Message) ->
-    error_schema(Codes, list_to_binary(Message));
-error_schema(Codes, Message) when is_list(Codes) andalso is_binary(Message) ->
-    emqx_dashboard_swagger:error_codes(Codes, Message).
+error_schema(Code, Message) ->
+    error_schema(Code, Message, _ExtraFields = []).
+
+error_schema(Code, Message, ExtraFields) when is_atom(Code) ->
+    error_schema([Code], Message, ExtraFields);
+error_schema(Codes, Message, ExtraFields) when is_list(Message) ->
+    error_schema(Codes, list_to_binary(Message), ExtraFields);
+error_schema(Codes, Message, ExtraFields) when is_list(Codes) andalso is_binary(Message) ->
+    ExtraFields ++ emqx_dashboard_swagger:error_codes(Codes, Message).
 
 get_response_body_schema() ->
     emqx_dashboard_swagger:schema_with_examples(
@@ -247,7 +250,8 @@ schema("/actions/:id") ->
                 204 => <<"Bridge deleted">>,
                 400 => error_schema(
                     'BAD_REQUEST',
-                    "Cannot delete bridge while active rules are defined for this bridge"
+                    "Cannot delete bridge while active rules are defined for this bridge",
+                    [{rules, mk(array(string()), #{desc => "Dependent Rule IDs"})}]
                 ),
                 404 => error_schema('NOT_FOUND', "Bridge not found"),
                 503 => error_schema('SERVICE_UNAVAILABLE', "Service unavailable")
@@ -445,15 +449,12 @@ schema("/action_types") ->
                         reason := rules_depending_on_this_bridge,
                         rule_ids := RuleIds
                     }} ->
-                        RuleIdLists = [binary_to_list(iolist_to_binary(X)) || X <- RuleIds],
-                        RulesStr = string:join(RuleIdLists, ", "),
-                        Msg = io_lib:format(
-                            "Cannot delete bridge while active rules are depending on it: ~s\n"
-                            "Append ?also_delete_dep_actions=true to the request URL to delete "
-                            "rule actions that depend on this bridge as well.",
-                            [RulesStr]
+                        Msg0 = ?ERROR_MSG(
+                            'BAD_REQUEST',
+                            bin("Cannot delete action while active rules are depending on it")
                         ),
-                        ?BAD_REQUEST(iolist_to_binary(Msg));
+                        Msg = Msg0#{rules => RuleIds},
+                        {400, Msg};
                     {error, timeout} ->
                         ?SERVICE_UNAVAILABLE(<<"request timeout">>);
                     {error, Reason} ->
