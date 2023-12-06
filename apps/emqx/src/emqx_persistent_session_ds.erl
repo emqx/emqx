@@ -29,7 +29,7 @@
 %% Session API
 -export([
     create/3,
-    open/2,
+    open/3,
     destroy/1
 ]).
 
@@ -102,6 +102,8 @@
 -define(TIMER_BUMP_LAST_ALIVE_AT, timer_bump_last_alive_at).
 -type timer() :: ?TIMER_PULL | ?TIMER_GET_STREAMS | ?TIMER_BUMP_LAST_ALIVE_AT.
 
+-type subscriptions() :: emqx_topic_gbt:t(nil(), subscription()).
+
 -type session() :: #{
     %% Client ID
     id := id(),
@@ -110,7 +112,7 @@
     %% When the client was last considered alive
     last_alive_at := timestamp(),
     %% Client’s Subscriptions.
-    subscriptions := #{topic_filter() => subscription()},
+    subscriptions := subscriptions(),
     %% Inflight messages
     inflight := emqx_persistent_message_ds_replayer:inflight(),
     %% Receive maximum
@@ -150,12 +152,12 @@
 -spec create(clientinfo(), conninfo(), emqx_session:conf()) ->
     session().
 create(#{clientid := ClientID}, ConnInfo, Conf) ->
-    % TODO: expiration
-    ensure_timers(ensure_session(ClientID, ConnInfo, Conf)).
+    Session = session_ensure_new(ClientID, ConnInfo),
+    apply_conf(ConnInfo, Conf, ensure_timers(Session)).
 
--spec open(clientinfo(), conninfo()) ->
+-spec open(clientinfo(), conninfo(), emqx_session:conf()) ->
     {_IsPresent :: true, session(), []} | false.
-open(#{clientid := ClientID} = _ClientInfo, ConnInfo) ->
+open(#{clientid := ClientID} = _ClientInfo, ConnInfo, Conf) ->
     %% NOTE
     %% The fact that we need to concern about discarding all live channels here
     %% is essentially a consequence of the in-memory session design, where we
@@ -165,20 +167,16 @@ open(#{clientid := ClientID} = _ClientInfo, ConnInfo) ->
     ok = emqx_cm:discard_session(ClientID),
     case session_open(ClientID, ConnInfo) of
         Session0 = #{} ->
-            ReceiveMaximum = receive_maximum(ConnInfo),
-            Session = Session0#{receive_maximum => ReceiveMaximum},
+            Session = apply_conf(ConnInfo, Conf, Session0),
             {true, ensure_timers(Session), []};
         false ->
             false
     end.
 
-ensure_session(ClientID, ConnInfo, Conf) ->
-    Session = session_ensure_new(ClientID, ConnInfo, Conf),
-    ReceiveMaximum = receive_maximum(ConnInfo),
+apply_conf(ConnInfo, Conf, Session) ->
     Session#{
-        conninfo => ConnInfo,
-        receive_maximum => ReceiveMaximum,
-        subscriptions => #{}
+        receive_maximum => receive_maximum(ConnInfo),
+        props => Conf
     }.
 
 -spec destroy(session() | clientinfo()) -> ok.
@@ -204,10 +202,10 @@ info(created_at, #{created_at := CreatedAt}) ->
     CreatedAt;
 info(is_persistent, #{}) ->
     true;
-info(subscriptions, #{subscriptions := Iters}) ->
-    maps:map(fun(_, #{props := SubOpts}) -> SubOpts end, Iters);
-info(subscriptions_cnt, #{subscriptions := Iters}) ->
-    maps:size(Iters);
+info(subscriptions, #{subscriptions := Subs}) ->
+    subs_to_map(Subs);
+info(subscriptions_cnt, #{subscriptions := Subs}) ->
+    subs_size(Subs);
 info(subscriptions_max, #{props := Conf}) ->
     maps:get(max_subscriptions, Conf);
 info(upgrade_qos, #{props := Conf}) ->
@@ -274,41 +272,40 @@ subscribe(
     TopicFilter,
     SubOpts,
     Session = #{id := ID, subscriptions := Subs}
-) when is_map_key(TopicFilter, Subs) ->
-    Subscription = maps:get(TopicFilter, Subs),
-    NSubscription = update_subscription(TopicFilter, Subscription, SubOpts, ID),
-    {ok, Session#{subscriptions := Subs#{TopicFilter => NSubscription}}};
-subscribe(
-    TopicFilter,
-    SubOpts,
-    Session = #{id := ID, subscriptions := Subs}
 ) ->
-    % TODO: max_subscriptions
-    Subscription = add_subscription(TopicFilter, SubOpts, ID),
-    {ok, Session#{subscriptions := Subs#{TopicFilter => Subscription}}}.
+    case subs_lookup(TopicFilter, Subs) of
+        Subscription = #{} ->
+            NSubscription = update_subscription(TopicFilter, Subscription, SubOpts, ID),
+            NSubs = subs_insert(TopicFilter, NSubscription, Subs),
+            {ok, Session#{subscriptions := NSubs}};
+        undefined ->
+            % TODO: max_subscriptions
+            Subscription = add_subscription(TopicFilter, SubOpts, ID),
+            NSubs = subs_insert(TopicFilter, Subscription, Subs),
+            {ok, Session#{subscriptions := NSubs}}
+    end.
 
 -spec unsubscribe(topic_filter(), session()) ->
     {ok, session(), emqx_types:subopts()} | {error, emqx_types:reason_code()}.
 unsubscribe(
     TopicFilter,
     Session = #{id := ID, subscriptions := Subs}
-) when is_map_key(TopicFilter, Subs) ->
-    Subscription = maps:get(TopicFilter, Subs),
-    SubOpts = maps:get(props, Subscription),
-    ok = del_subscription(TopicFilter, ID),
-    {ok, Session#{subscriptions := maps:remove(TopicFilter, Subs)}, SubOpts};
-unsubscribe(
-    _TopicFilter,
-    _Session = #{}
 ) ->
-    {error, ?RC_NO_SUBSCRIPTION_EXISTED}.
+    case subs_lookup(TopicFilter, Subs) of
+        _Subscription = #{props := SubOpts} ->
+            ok = del_subscription(TopicFilter, ID),
+            NSubs = subs_delete(TopicFilter, Subs),
+            {ok, Session#{subscriptions := NSubs}, SubOpts};
+        undefined ->
+            {error, ?RC_NO_SUBSCRIPTION_EXISTED}
+    end.
 
 -spec get_subscription(topic_filter(), session()) ->
     emqx_types:subopts() | undefined.
 get_subscription(TopicFilter, #{subscriptions := Subs}) ->
-    case maps:get(TopicFilter, Subs, undefined) of
-        Subscription = #{} ->
-            maps:get(props, Subscription);
+    case subs_lookup(TopicFilter, Subs) of
+        _Subscription = #{props := SubOpts} ->
+            SubOpts;
         undefined ->
             undefined
     end.
@@ -328,9 +325,6 @@ publish(_PacketId, Msg, Session) ->
 %%--------------------------------------------------------------------
 %% Client -> Broker: PUBACK
 %%--------------------------------------------------------------------
-
-%% FIXME: parts of the commit offset function are mocked
--dialyzer({nowarn_function, puback/3}).
 
 -spec puback(clientinfo(), emqx_types:packet_id(), session()) ->
     {ok, emqx_types:message(), replies(), session()}
@@ -403,20 +397,22 @@ deliver(_ClientInfo, _Delivers, Session) ->
 -spec handle_timeout(clientinfo(), _Timeout, session()) ->
     {ok, replies(), session()} | {ok, replies(), timeout(), session()}.
 handle_timeout(
-    _ClientInfo,
+    ClientInfo,
     ?TIMER_PULL,
-    Session0 = #{id := Id, inflight := Inflight0, receive_maximum := ReceiveMaximum}
+    Session0 = #{
+        id := Id,
+        inflight := Inflight0,
+        subscriptions := Subs,
+        props := Conf,
+        receive_maximum := ReceiveMaximum
+    }
 ) ->
     MaxBatchSize = emqx_config:get([session_persistence, max_batch_size]),
     BatchSize = min(ReceiveMaximum, MaxBatchSize),
+    UpgradeQoS = maps:get(upgrade_qos, Conf),
+    PreprocFun = make_preproc_fun(ClientInfo, Subs, UpgradeQoS),
     {Publishes, Inflight} = emqx_persistent_message_ds_replayer:poll(
-        fun
-            (_Seqno, Message = #message{qos = ?QOS_0}) ->
-                {false, {undefined, Message}};
-            (Seqno, Message) ->
-                PacketId = emqx_persistent_message_ds_replayer:seqno_to_packet_id(Seqno),
-                {PacketId, Message}
-        end,
+        PreprocFun,
         Id,
         Inflight0,
         BatchSize
@@ -442,30 +438,21 @@ handle_timeout(_ClientInfo, ?TIMER_BUMP_LAST_ALIVE_AT, Session0) ->
     BumpInterval = emqx_config:get([session_persistence, last_alive_update_interval]),
     EstimatedLastAliveAt = now_ms() + BumpInterval,
     Session = session_set_last_alive_at_trans(Session0, EstimatedLastAliveAt),
-    BumpInterval = emqx_config:get([session_persistence, last_alive_update_interval]),
-    {ok, [], emqx_session:ensure_timer(?TIMER_BUMP_LAST_ALIVE_AT, BumpInterval, Session)}.
+    {ok, [], emqx_session:ensure_timer(?TIMER_BUMP_LAST_ALIVE_AT, BumpInterval, Session)};
+handle_timeout(_ClientInfo, expire_awaiting_rel, Session) ->
+    %% TODO: stub
+    {ok, [], Session}.
 
 -spec replay(clientinfo(), [], session()) ->
     {ok, replies(), session()}.
-replay(_ClientInfo, [], Session = #{inflight := Inflight0}) ->
-    AckedUntil = emqx_persistent_message_ds_replayer:committed_until(ack, Inflight0),
-    RecUntil = emqx_persistent_message_ds_replayer:committed_until(rec, Inflight0),
-    CompUntil = emqx_persistent_message_ds_replayer:committed_until(comp, Inflight0),
-    ReplyFun = fun
-        (_Seqno, #message{qos = ?QOS_0}) ->
-            {false, []};
-        (Seqno, #message{qos = ?QOS_1}) when Seqno < AckedUntil ->
-            [];
-        (Seqno, #message{qos = ?QOS_2}) when Seqno < CompUntil ->
-            [];
-        (Seqno, #message{qos = ?QOS_2}) when Seqno < RecUntil ->
-            PacketId = emqx_persistent_message_ds_replayer:seqno_to_packet_id(Seqno),
-            {pubrel, PacketId};
-        (Seqno, Message) ->
-            PacketId = emqx_persistent_message_ds_replayer:seqno_to_packet_id(Seqno),
-            {PacketId, emqx_message:set_flag(dup, true, Message)}
-    end,
-    {Replies, Inflight} = emqx_persistent_message_ds_replayer:replay(ReplyFun, Inflight0),
+replay(
+    ClientInfo,
+    [],
+    Session = #{inflight := Inflight0, subscriptions := Subs, props := Conf}
+) ->
+    UpgradeQoS = maps:get(upgrade_qos, Conf),
+    PreprocFun = make_preproc_fun(ClientInfo, Subs, UpgradeQoS),
+    {Replies, Inflight} = emqx_persistent_message_ds_replayer:replay(PreprocFun, Inflight0),
     {ok, Replies, Session#{inflight := Inflight}}.
 
 %%--------------------------------------------------------------------
@@ -478,6 +465,19 @@ disconnect(Session0, ConnInfo) ->
 -spec terminate(Reason :: term(), session()) -> ok.
 terminate(_Reason, _Session = #{}) ->
     ok.
+
+%%--------------------------------------------------------------------
+
+make_preproc_fun(ClientInfo, Subs, UpgradeQoS) ->
+    fun(Message = #message{topic = Topic}) ->
+        emqx_utils:flattermap(
+            fun(Match) ->
+                #{props := SubOpts} = subs_get_match(Match, Subs),
+                emqx_session:enrich_message(ClientInfo, Message, SubOpts, UpgradeQoS)
+            end,
+            subs_matches(Topic, Subs)
+        )
+    end.
 
 %%--------------------------------------------------------------------
 
@@ -644,25 +644,24 @@ session_open(SessionId, NewConnInfo) ->
         end
     end).
 
--spec session_ensure_new(id(), emqx_types:conninfo(), _Props :: map()) ->
+-spec session_ensure_new(id(), emqx_types:conninfo()) ->
     session().
-session_ensure_new(SessionId, ConnInfo, Props) ->
+session_ensure_new(SessionId, ConnInfo) ->
     transaction(fun() ->
-        ok = session_drop_subscriptions(SessionId),
-        Session = export_session(session_create(SessionId, ConnInfo, Props)),
+        ok = session_drop_records(SessionId),
+        Session = export_session(session_create(SessionId, ConnInfo)),
         Session#{
-            subscriptions => #{},
+            subscriptions => subs_new(),
             inflight => emqx_persistent_message_ds_replayer:new()
         }
     end).
 
-session_create(SessionId, ConnInfo, Props) ->
+session_create(SessionId, ConnInfo) ->
     Session = #session{
         id = SessionId,
         created_at = now_ms(),
         last_alive_at = now_ms(),
-        conninfo = ConnInfo,
-        props = Props
+        conninfo = ConnInfo
     },
     ok = mnesia:write(?SESSION_TAB, Session, write),
     Session.
@@ -696,12 +695,16 @@ session_set_last_alive_at(SessionRecord0, LastAliveAt) ->
 -spec session_drop(id()) -> ok.
 session_drop(DSSessionId) ->
     transaction(fun() ->
-        ok = session_drop_subscriptions(DSSessionId),
-        ok = session_drop_pubranges(DSSessionId),
-        ok = session_drop_offsets(DSSessionId),
-        ok = session_drop_streams(DSSessionId),
+        ok = session_drop_records(DSSessionId),
         ok = mnesia:delete(?SESSION_TAB, DSSessionId, write)
     end).
+
+-spec session_drop_records(id()) -> ok.
+session_drop_records(DSSessionId) ->
+    ok = session_drop_subscriptions(DSSessionId),
+    ok = session_drop_pubranges(DSSessionId),
+    ok = session_drop_offsets(DSSessionId),
+    ok = session_drop_streams(DSSessionId).
 
 -spec session_drop_subscriptions(id()) -> ok.
 session_drop_subscriptions(DSSessionId) ->
@@ -844,7 +847,7 @@ do_ensure_all_iterators_closed(_DSSessionID) ->
 renew_streams(#{id := SessionId, subscriptions := Subscriptions}) ->
     transaction(fun() ->
         ExistingStreams = mnesia:read(?SESSION_STREAM_TAB, SessionId, write),
-        maps:fold(
+        subs_fold(
             fun(TopicFilter, #{start_time := StartTime}, Streams) ->
                 TopicFilterWords = emqx_topic:words(TopicFilter),
                 renew_topic_streams(SessionId, TopicFilterWords, StartTime, Streams)
@@ -926,6 +929,43 @@ session_drop_offsets(DSSessionId) ->
 
 %%--------------------------------------------------------------------------------
 
+subs_new() ->
+    emqx_topic_gbt:new().
+
+subs_lookup(TopicFilter, Subs) ->
+    emqx_topic_gbt:lookup(TopicFilter, [], Subs, undefined).
+
+subs_insert(TopicFilter, Subscription, Subs) ->
+    emqx_topic_gbt:insert(TopicFilter, [], Subscription, Subs).
+
+subs_delete(TopicFilter, Subs) ->
+    emqx_topic_gbt:delete(TopicFilter, [], Subs).
+
+subs_matches(Topic, Subs) ->
+    emqx_topic_gbt:matches(Topic, Subs, []).
+
+subs_get_match(M, Subs) ->
+    emqx_topic_gbt:get_record(M, Subs).
+
+subs_size(Subs) ->
+    emqx_topic_gbt:size(Subs).
+
+subs_to_map(Subs) ->
+    subs_fold(
+        fun(TopicFilter, #{props := Props}, Acc) -> Acc#{TopicFilter => Props} end,
+        #{},
+        Subs
+    ).
+
+subs_fold(Fun, AccIn, Subs) ->
+    emqx_topic_gbt:fold(
+        fun(Key, Sub, Acc) -> Fun(emqx_topic_gbt:get_topic(Key), Sub, Acc) end,
+        AccIn,
+        Subs
+    ).
+
+%%--------------------------------------------------------------------------------
+
 transaction(Fun) ->
     case mnesia:is_transaction() of
         true ->
@@ -944,9 +984,9 @@ ro_transaction(Fun) ->
 export_subscriptions(DSSubs) ->
     lists:foldl(
         fun(DSSub = #ds_sub{id = {_DSSessionId, TopicFilter}}, Acc) ->
-            Acc#{TopicFilter => export_subscription(DSSub)}
+            subs_insert(TopicFilter, export_subscription(DSSub), Acc)
         end,
-        #{},
+        subs_new(),
         DSSubs
     ).
 

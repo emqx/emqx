@@ -262,7 +262,7 @@ t_publish_as_persistent(_Config) ->
     Sub = connect(<<?MODULE_STRING "1">>, true, 30),
     Pub = connect(<<?MODULE_STRING "2">>, true, 30),
     try
-        {ok, _, [1]} = emqtt:subscribe(Sub, <<"t/#">>, qos1),
+        {ok, _, [?RC_GRANTED_QOS_2]} = emqtt:subscribe(Sub, <<"t/#">>, qos2),
         Messages = [
             {<<"t/1">>, <<"1">>, 0},
             {<<"t/1">>, <<"2">>, 1},

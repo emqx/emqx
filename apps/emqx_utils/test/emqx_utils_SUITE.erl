@@ -20,6 +20,7 @@
 -compile(nowarn_export_all).
 
 -include_lib("eunit/include/eunit.hrl").
+-include_lib("emqx/include/asserts.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
 -define(SOCKOPTS, [
@@ -87,13 +88,13 @@ t_pipeline(_) ->
 t_start_timer(_) ->
     TRef = emqx_utils:start_timer(1, tmsg),
     timer:sleep(2),
-    ?assertEqual([{timeout, TRef, tmsg}], drain()),
+    ?assertEqual([{timeout, TRef, tmsg}], ?drainMailbox()),
     ok = emqx_utils:cancel_timer(TRef).
 
 t_cancel_timer(_) ->
     Timer = emqx_utils:start_timer(0, foo),
     ok = emqx_utils:cancel_timer(Timer),
-    ?assertEqual([], drain()),
+    ?assertEqual([], ?drainMailbox()),
     ok = emqx_utils:cancel_timer(undefined).
 
 t_proc_name(_) ->
@@ -152,16 +153,6 @@ t_check(_) ->
         {shutdown, #{reason => message_queue_too_long, value => 11, max => 10}},
         emqx_utils:check_oom(Policy)
     ).
-
-drain() ->
-    drain([]).
-
-drain(Acc) ->
-    receive
-        Msg -> drain([Msg | Acc])
-    after 0 ->
-        lists:reverse(Acc)
-    end.
 
 t_rand_seed(_) ->
     ?assert(is_tuple(emqx_utils:rand_seed())).
@@ -240,3 +231,47 @@ t_pmap_late_reply(_) ->
         []
     ),
     ok.
+
+t_flattermap(_) ->
+    ?assertEqual(
+        [42],
+        emqx_utils:flattermap(fun identity/1, [42])
+    ),
+    ?assertEqual(
+        [42, 42],
+        emqx_utils:flattermap(fun duplicate/1, [42])
+    ),
+    ?assertEqual(
+        [],
+        emqx_utils:flattermap(fun nil/1, [42])
+    ),
+    ?assertEqual(
+        [1, 1, 2, 2, 3, 3],
+        emqx_utils:flattermap(fun duplicate/1, [1, 2, 3])
+    ),
+    ?assertEqual(
+        [],
+        emqx_utils:flattermap(fun nil/1, [1, 2, 3])
+    ),
+    ?assertEqual(
+        [1, 2, 2, 4, 5, 5],
+        emqx_utils:flattermap(
+            fun(X) ->
+                case X rem 3 of
+                    0 -> [];
+                    1 -> X;
+                    2 -> [X, X]
+                end
+            end,
+            [1, 2, 3, 4, 5]
+        )
+    ).
+
+duplicate(X) ->
+    [X, X].
+
+nil(_) ->
+    [].
+
+identity(X) ->
+    X.

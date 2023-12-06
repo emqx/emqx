@@ -60,6 +60,7 @@
     safe_filename/1,
     diff_lists/3,
     merge_lists/3,
+    flattermap/2,
     tcp_keepalive_opts/4,
     format/1,
     format_mfal/1,
@@ -1001,6 +1002,28 @@ search(ExpectValue, KeyFunc, [Item | List]) ->
         true -> Item;
         false -> search(ExpectValue, KeyFunc, List)
     end.
+
+%% @doc Maps over a list of terms and flattens the result, giving back a flat
+%% list of terms. It's similar to `lists:flatmap/2`, but it also works on a
+%% single term as `Fun` output (thus, the wordplay on "flatter").
+%% The purpose of this function is to adapt to `Fun`s that return either a `[]`
+%% or a term, and to avoid costs of list construction and flattening when
+%% dealing with large lists.
+-spec flattermap(Fun, [X]) -> [X] when
+    Fun :: fun((X) -> [X] | X).
+flattermap(_Fun, []) ->
+    [];
+flattermap(Fun, [X | Xs]) ->
+    flatcomb(Fun(X), flattermap(Fun, Xs)).
+
+flatcomb([], Zs) ->
+    Zs;
+flatcomb(Ys = [_ | _], []) ->
+    Ys;
+flatcomb(Ys = [_ | _], Zs = [_ | _]) ->
+    Ys ++ Zs;
+flatcomb(Y, Zs) ->
+    [Y | Zs].
 
 -ifdef(TEST).
 -include_lib("eunit/include/eunit.hrl").

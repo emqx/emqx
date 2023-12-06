@@ -323,7 +323,8 @@ t_choose_impl(Config) ->
             ds -> emqx_persistent_session_ds
         end,
         emqx_connection:info({channel, {session, impl}}, sys:get_state(ChanPid))
-    ).
+    ),
+    ok = emqtt:disconnect(Client).
 
 t_connect_discards_existing_client(Config) ->
     ClientId = ?config(client_id, Config),
@@ -389,9 +390,6 @@ t_connect_session_expiry_interval(Config) ->
     ok = emqtt:disconnect(Client2).
 
 %% [MQTT-3.1.2-23]
-%% TODO: un-skip after QoS 2 support is implemented in DS.
-t_connect_session_expiry_interval_qos2(init, Config) -> skip_ds_tc(Config);
-t_connect_session_expiry_interval_qos2('end', _Config) -> ok.
 t_connect_session_expiry_interval_qos2(Config) ->
     ConnFun = ?config(conn_fun, Config),
     Topic = ?config(topic, Config),
@@ -1009,8 +1007,6 @@ t_unsubscribe(Config) ->
     ?assertMatch([], [Sub || {ST, _} = Sub <- emqtt:subscriptions(Client), ST =:= STopic]),
     ok = emqtt:disconnect(Client).
 
-t_multiple_subscription_matches(init, Config) -> skip_ds_tc(Config);
-t_multiple_subscription_matches('end', _Config) -> ok.
 t_multiple_subscription_matches(Config) ->
     ConnFun = ?config(conn_fun, Config),
     Topic = ?config(topic, Config),

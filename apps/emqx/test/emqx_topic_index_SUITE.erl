@@ -40,7 +40,7 @@ groups() ->
 init_per_group(ets, Config) ->
     [{index_module, emqx_topic_index} | Config];
 init_per_group(gb_tree, Config) ->
-    [{index_module, emqx_topic_gbt} | Config].
+    [{index_module, emqx_topic_gbt_pterm} | Config].
 
 end_per_group(_Group, _Config) ->
     ok.
