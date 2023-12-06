@@ -192,7 +192,7 @@ on_session_subscribed(ClientInfo, Topic, SubOpts) ->
     Req = #{
         clientinfo => clientinfo(ClientInfo),
         topic => emqx_topic:maybe_format_share(Topic),
-        subopts => maps:with([qos, rh, rap, nl], SubOpts)
+        subopts => subopts(SubOpts)
     },
     cast('session.subscribed', Req).
 
@@ -200,6 +200,7 @@ on_session_unsubscribed(ClientInfo, Topic, _SubOpts) ->
     Req = #{
         clientinfo => clientinfo(ClientInfo),
         topic => emqx_topic:maybe_format_share(Topic)
+        %% no subopts when unsub
     },
     cast('session.unsubscribed', Req).
 
@@ -416,13 +417,18 @@ enrich_header(Headers, Message) ->
     end.
 
 topicfilters(Tfs) when is_list(Tfs) ->
-    GetQos = fun(SubOpts) ->
-        maps:get(qos, SubOpts, 0)
-    end,
     [
-        #{name => emqx_topic:maybe_format_share(Topic), qos => GetQos(SubOpts)}
+        #{name => emqx_topic:maybe_format_share(Topic), subopts => subopts(SubOpts)}
      || {Topic, SubOpts} <- Tfs
     ].
+
+subopts(SubOpts) ->
+    #{
+        qos => maps:get(qos, SubOpts, 0),
+        rh => maps:get(rh, SubOpts, 0),
+        rap => maps:get(rap, SubOpts, 0),
+        nl => maps:get(nl, SubOpts, 0)
+    }.
 
 ntoa({0, 0, 0, 0, 0, 16#ffff, AB, CD}) ->
     list_to_binary(inet_parse:ntoa({AB bsr 8, AB rem 256, CD bsr 8, CD rem 256}));

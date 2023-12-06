@@ -530,7 +530,10 @@ properties(M) when is_map(M) ->
     ).
 
 topicfilters(Tfs) when is_list(Tfs) ->
-    [#{name => Topic, qos => Qos} || {Topic, #{qos := Qos}} <- Tfs].
+    [
+        #{name => emqx_topic:maybe_format_share(Topic), subopts => subopts(SubOpts)}
+     || {Topic, SubOpts} <- Tfs
+    ].
 
 %% @private
 stringfy(Term) when is_binary(Term) ->
