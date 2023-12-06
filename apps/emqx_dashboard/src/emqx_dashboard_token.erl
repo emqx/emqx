@@ -119,7 +119,7 @@ do_sign(#?ADMIN{username = Username} = User, Password) ->
     {_, Token} = jose_jws:compact(Signed),
     Role = emqx_dashboard_admin:role(User),
     JWTRec = format(Token, Username, Role, ExpTime),
-    _ = mria:transaction(?DASHBOARD_SHARD, fun mnesia:write/1, [JWTRec]),
+    _ = mria:sync_transaction(?DASHBOARD_SHARD, fun mnesia:write/1, [JWTRec]),
     {ok, Role, Token}.
 
 -spec do_verify(_, Token :: binary()) ->
@@ -141,7 +141,7 @@ do_verify(Req, Token) ->
 
 do_destroy(Token) ->
     Fun = fun mnesia:delete/1,
-    {atomic, ok} = mria:transaction(?DASHBOARD_SHARD, Fun, [{?TAB, Token}]),
+    {atomic, ok} = mria:sync_transaction(?DASHBOARD_SHARD, Fun, [{?TAB, Token}]),
     ok.
 
 do_destroy_by_username(Username) ->
@@ -266,7 +266,7 @@ check_rbac(_Req, JWT) ->
 save_new_jwt(OldJWT) ->
     #?ADMIN_JWT{exptime = _ExpTime, extra = _Extra, username = Username} = OldJWT,
     NewJWT = OldJWT#?ADMIN_JWT{exptime = jwt_expiration_time()},
-    {atomic, Res} = mria:transaction(
+    {atomic, Res} = mria:sync_transaction(
         ?DASHBOARD_SHARD,
         fun mnesia:write/1,
         [NewJWT]

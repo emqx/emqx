@@ -338,7 +338,7 @@ generate_unique_name(NamePrefix, ApiKey) ->
     <<NamePrefix/binary, (hash_string_from_seed(ApiKey, ?DEFAULT_HASH_LEN))/binary>>.
 
 trans(Fun, Args) ->
-    case mria:transaction(?COMMON_SHARD, Fun, Args) of
+    case mria:sync_transaction(?COMMON_SHARD, Fun, Args) of
         {atomic, Res} -> {ok, Res};
         {aborted, Error} -> {error, Error}
     end.
