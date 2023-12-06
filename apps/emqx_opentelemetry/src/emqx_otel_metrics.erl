@@ -65,7 +65,7 @@ handle_info(_Msg, State) ->
 terminate(_Reason, _State) ->
     ok.
 
-setup(Conf = #{enable := true}) ->
+setup(Conf = #{metrics := #{enable := true}}) ->
     ensure_apps(Conf),
     create_metric_views();
 setup(_Conf) ->
@@ -73,11 +73,10 @@ setup(_Conf) ->
     ok.
 
 ensure_apps(Conf) ->
-    #{exporter := #{interval := ExporterInterval} = Exporter} = Conf,
-    {ok, _} = application:ensure_all_started(opentelemetry_exporter),
-    {ok, _} = application:ensure_all_started(opentelemetry),
-    {ok, _} = application:ensure_all_started(opentelemetry_experimental),
-    {ok, _} = application:ensure_all_started(opentelemetry_api_experimental),
+    #{
+        exporter := Exporter,
+        metrics := #{interval := ExporterInterval}
+    } = Conf,
 
     _ = opentelemetry_experimental:stop_default_metrics(),
     ok = application:set_env(
@@ -102,12 +101,12 @@ cleanup() ->
 
 safe_stop_default_metrics() ->
     try
-        _ = opentelemetry_experimental:stop_default_metrics()
+        _ = opentelemetry_experimental:stop_default_metrics(),
+        ok
     catch
         %% noramal scenario, metrics supervisor is not started
         exit:{noproc, _} -> ok
-    end,
-    ok.
+    end.
 
 create_metric_views() ->
     Meter = opentelemetry_experimental:get_meter(),

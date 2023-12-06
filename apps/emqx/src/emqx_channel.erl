@@ -398,8 +398,15 @@ handle_in(?PACKET(_), Channel = #channel{conn_state = ConnState}) when
     handle_out(disconnect, ?RC_PROTOCOL_ERROR, Channel);
 handle_in(Packet = ?PUBLISH_PACKET(_QoS), Channel) ->
     case emqx_packet:check(Packet) of
-        ok -> process_publish(Packet, Channel);
-        {error, ReasonCode} -> handle_out(disconnect, ReasonCode, Channel)
+        ok ->
+            emqx_external_trace:trace_process_publish(
+                Packet,
+                %% More info can be added in future, but for now only clientid is used
+                trace_info(Channel),
+                fun(PacketWithTrace) -> process_publish(PacketWithTrace, Channel) end
+            );
+        {error, ReasonCode} ->
+            handle_out(disconnect, ReasonCode, Channel)
     end;
 handle_in(
     ?PUBACK_PACKET(PacketId, _ReasonCode, Properties),
@@ -921,7 +928,11 @@ handle_deliver(
     Messages = emqx_session:enrich_delivers(ClientInfo, Delivers1, Session),
     NSession = emqx_session_mem:enqueue(ClientInfo, Messages, Session),
     {ok, Channel#channel{session = NSession}};
-handle_deliver(
+handle_deliver(Delivers, Channel) ->
+    Delivers1 = emqx_external_trace:start_trace_send(Delivers, trace_info(Channel)),
+    do_handle_deliver(Delivers1, Channel).
+
+do_handle_deliver(
     Delivers,
     Channel = #channel{
         session = Session,
@@ -1428,6 +1439,10 @@ run_terminate_hook(Reason, #channel{clientinfo = ClientInfo, session = Session})
 overload_protection(_, #channel{clientinfo = #{zone := Zone}}) ->
     emqx_olp:backoff(Zone),
     ok.
+
+trace_info(Channel) ->
+    %% More info can be added in future, but for now only clientid is used
+    maps:from_list(info([clientid], Channel)).
 
 %%--------------------------------------------------------------------
 %% Enrich MQTT Connect Info

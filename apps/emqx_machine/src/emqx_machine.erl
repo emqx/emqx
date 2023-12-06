@@ -50,6 +50,7 @@ start() ->
     start_sysmon(),
     configure_shard_transports(),
     set_mnesia_extra_diagnostic_checks(),
+    emqx_otel_app:configure_otel_deps(),
     ekka:start(),
     ok.
 
