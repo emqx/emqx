@@ -96,8 +96,6 @@
 -record(state, {
     %% Gateway Name
     gwname :: gateway_name(),
-    %% ClientId Locker for CM
-    locker :: pid(),
     %% ClientId Registry server
     registry :: pid(),
     chan_pmon :: emqx_pmon:pmon()
@@ -776,7 +774,8 @@ init(Options) ->
     {ok, Registry} = emqx_gateway_cm_registry:start_link(GwName),
 
     %% Start locker process
-    {ok, Locker} = ekka_locker:start_link(lockername(GwName)),
+    LockerName = lockername(GwName),
+    {ok, _LockerPid} = ekka_locker:start_link(lockername(GwName)),
 
     %% Interval update stats
     %% TODO: v0.2
@@ -784,7 +783,6 @@ init(Options) ->
 
     {ok, #state{
         gwname = GwName,
-        locker = Locker,
         registry = Registry,
         chan_pmon = emqx_pmon:new()
     }}.
@@ -812,9 +810,9 @@ handle_info(
 handle_info(_Info, State) ->
     {noreply, State}.
 
-terminate(_Reason, #state{registry = Registry, locker = Locker}) ->
+terminate(_Reason, #state{registry = Registry, gwname = GwName}) ->
     _ = gen_server:stop(Registry),
-    _ = ekka_locker:stop(Locker),
+    _ = ekka_locker:stop(lockername(GwName)),
     ok.
 
 code_change(_OldVsn, State, _Extra) ->
