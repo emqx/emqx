@@ -27,7 +27,15 @@
 -export([]).
 
 %% behavior callbacks:
--export([create/4, open/5, store_batch/4, get_streams/4, make_iterator/5, next/4]).
+-export([
+    create/4,
+    open/5,
+    store_batch/4,
+    get_streams/4,
+    make_iterator/5,
+    update_iterator/4,
+    next/4
+]).
 
 %% internal exports:
 -export([]).
@@ -95,6 +103,17 @@ make_iterator(_Shard, _Data, #stream{}, TopicFilter, StartTime) ->
     {ok, #it{
         topic_filter = TopicFilter,
         start_time = StartTime
+    }}.
+
+update_iterator(_Shard, _Data, OldIter, DSKey) ->
+    #it{
+        topic_filter = TopicFilter,
+        start_time = StartTime
+    } = OldIter,
+    {ok, #it{
+        topic_filter = TopicFilter,
+        start_time = StartTime,
+        last_seen_message_key = DSKey
     }}.
 
 next(_Shard, #s{db = DB, cf = CF}, It0, BatchSize) ->

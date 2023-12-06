@@ -27,6 +27,7 @@
     store_batch/3,
     get_streams/3,
     make_iterator/4,
+    update_iterator/3,
     next/3
 ]).
 
@@ -36,6 +37,7 @@
     do_store_batch_v1/4,
     do_get_streams_v1/4,
     do_make_iterator_v1/5,
+    do_update_iterator_v2/4,
     do_next_v1/4
 ]).
 
@@ -170,6 +172,30 @@ make_iterator(DB, Stream, TopicFilter, StartTime) ->
             Err
     end.
 
+-spec update_iterator(
+    emqx_ds:db(),
+    iterator(),
+    emqx_ds:message_key()
+) ->
+    emqx_ds:make_iterator_result(iterator()).
+update_iterator(DB, OldIter, DSKey) ->
+    #{?tag := ?IT, ?shard := Shard, ?enc := StorageIter} = OldIter,
+    Node = node_of_shard(DB, Shard),
+    case
+        emqx_ds_proto_v2:update_iterator(
+            Node,
+            DB,
+            Shard,
+            StorageIter,
+            DSKey
+        )
+    of
+        {ok, Iter} ->
+            {ok, #{?tag => ?IT, ?shard => Shard, ?enc => Iter}};
+        Err = {error, _} ->
+            Err
+    end.
+
 -spec next(emqx_ds:db(), iterator(), pos_integer()) -> emqx_ds:next_result(iterator()).
 next(DB, Iter0, BatchSize) ->
     #{?tag := ?IT, ?shard := Shard, ?enc := StorageIter0} = Iter0,
@@ -235,6 +261,18 @@ do_get_streams_v1(DB, Shard, TopicFilter, StartTime) ->
     {ok, emqx_ds_storage_layer:iterator()} | {error, _}.
 do_make_iterator_v1(DB, Shard, Stream, TopicFilter, StartTime) ->
     emqx_ds_storage_layer:make_iterator({DB, Shard}, Stream, TopicFilter, StartTime).
+
+-spec do_update_iterator_v2(
+    emqx_ds:db(),
+    emqx_ds_storage_layer:shard_id(),
+    emqx_ds_storage_layer:iterator(),
+    emqx_ds:message_key()
+) ->
+    {ok, emqx_ds_storage_layer:iterator()} | {error, _}.
+do_update_iterator_v2(DB, Shard, OldIter, DSKey) ->
+    emqx_ds_storage_layer:update_iterator(
+        {DB, Shard}, OldIter, DSKey
+    ).
 
 -spec do_next_v1(
     emqx_ds:db(),

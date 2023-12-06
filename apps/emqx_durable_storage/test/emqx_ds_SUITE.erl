@@ -130,6 +130,31 @@ t_04_restart(_Config) ->
     {ok, Iter, Batch} = iterate(DB, Iter0, 1),
     ?assertEqual(Msgs, [Msg || {_Key, Msg} <- Batch], {Iter0, Iter}).
 
+%% Check that we can create iterators directly from DS keys.
+t_05_update_iterator(_Config) ->
+    DB = ?FUNCTION_NAME,
+    ?assertMatch(ok, emqx_ds:open_db(DB, opts())),
+    TopicFilter = ['#'],
+    StartTime = 0,
+    Msgs = [
+        message(<<"foo/bar">>, <<"1">>, 0),
+        message(<<"foo">>, <<"2">>, 1),
+        message(<<"bar/bar">>, <<"3">>, 2)
+    ],
+    ?assertMatch(ok, emqx_ds:store_batch(DB, Msgs)),
+    [{_, Stream}] = emqx_ds:get_streams(DB, TopicFilter, StartTime),
+    {ok, Iter0} = emqx_ds:make_iterator(DB, Stream, TopicFilter, StartTime),
+    Res0 = emqx_ds:next(DB, Iter0, 1),
+    ?assertMatch({ok, _OldIter, [{_Key0, _Msg0}]}, Res0),
+    {ok, OldIter, [{Key0, Msg0}]} = Res0,
+    Res1 = emqx_ds:update_iterator(DB, OldIter, Key0),
+    ?assertMatch({ok, _Iter1}, Res1),
+    {ok, Iter1} = Res1,
+    {ok, FinalIter, Batch} = iterate(DB, Iter1, 1),
+    AllMsgs = [Msg0 | [Msg || {_Key, Msg} <- Batch]],
+    ?assertEqual(Msgs, AllMsgs, #{from_key => Iter1, final_iter => FinalIter}),
+    ok.
+
 message(Topic, Payload, PublishedAt) ->
     #message{
         topic = Topic,
