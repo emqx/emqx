@@ -429,7 +429,8 @@ handle_timeout(
     {ok, Publishes, Session};
 handle_timeout(_ClientInfo, ?TIMER_GET_STREAMS, Session) ->
     renew_streams(Session),
-    {ok, [], emqx_session:ensure_timer(?TIMER_GET_STREAMS, 100, Session)};
+    Interval = emqx_config:get([session_persistence, renew_streams_interval]),
+    {ok, [], emqx_session:ensure_timer(?TIMER_GET_STREAMS, Interval, Session)};
 handle_timeout(_ClientInfo, ?TIMER_BUMP_LAST_ALIVE_AT, Session0) ->
     %% Note: we take a pessimistic approach here and assume that the client will be alive
     %% until the next bump timeout.  With this, we avoid garbage collecting this session
