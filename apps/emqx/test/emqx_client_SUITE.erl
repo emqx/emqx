@@ -83,14 +83,14 @@ groups() ->
     ].
 
 init_per_suite(Config) ->
-    emqx_common_test_helpers:boot_modules(all),
-    emqx_common_test_helpers:start_apps([]),
-    emqx_config:put_listener_conf(ssl, default, [ssl_options, verify], verify_peer),
-    emqx_listeners:restart_listener('ssl:default'),
-    Config.
+    Apps = emqx_cth_suite:start(
+        [{emqx, "listeners.ssl.default.ssl_options.verify = verify_peer"}],
+        #{work_dir => emqx_cth_suite:work_dir(Config)}
+    ),
+    [{apps, Apps} | Config].
 
-end_per_suite(_Config) ->
-    emqx_common_test_helpers:stop_apps([]).
+end_per_suite(Config) ->
+    emqx_cth_suite:stop(?config(apps, Config)).
 
 init_per_testcase(_Case, Config) ->
     Config.

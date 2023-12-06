@@ -34,20 +34,14 @@
 all() -> emqx_common_test_helpers:all(?MODULE).
 
 init_per_suite(Config) ->
-    emqx_common_test_helpers:boot_modules(all),
-    emqx_common_test_helpers:start_apps([]),
-    ok = ekka:start(),
-    OldConf = emqx:get_config([zones], #{}),
-    emqx_config:put_zone_conf(default, [mqtt, exclusive_subscription], true),
-    timer:sleep(50),
-    [{old_conf, OldConf} | Config].
+    Apps = emqx_cth_suite:start(
+        [{emqx, "mqtt.exclusive_subscription = true"}],
+        #{work_dir => emqx_cth_suite:work_dir(Config)}
+    ),
+    [{apps, Apps} | Config].
 
 end_per_suite(Config) ->
-    emqx_config:put([zones], proplists:get_value(old_conf, Config)),
-    ekka:stop(),
-    mria:stop(),
-    mria_mnesia:delete_schema(),
-    emqx_common_test_helpers:stop_apps([]).
+    emqx_cth_suite:stop(proplists:get_value(apps, Config)).
 
 end_per_testcase(_TestCase, _Config) ->
     emqx_exclusive_subscription:clear().
