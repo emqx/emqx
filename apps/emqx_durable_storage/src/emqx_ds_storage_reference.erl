@@ -125,7 +125,7 @@ do_next(TopicFilter, StartTime, IT, Action, NLeft, Key0, Acc) ->
             Msg = #message{topic = Topic, timestamp = TS} = binary_to_term(Blob),
             case emqx_topic:match(Topic, TopicFilter) andalso TS >= StartTime of
                 true ->
-                    do_next(TopicFilter, StartTime, IT, next, NLeft - 1, Key, [Msg | Acc]);
+                    do_next(TopicFilter, StartTime, IT, next, NLeft - 1, Key, [{Key, Msg} | Acc]);
                 false ->
                     do_next(TopicFilter, StartTime, IT, next, NLeft, Key, Acc)
             end;

@@ -101,7 +101,7 @@ t_03_smoke_iterate(_Config) ->
     [{_, Stream}] = emqx_ds:get_streams(DB, TopicFilter, StartTime),
     {ok, Iter0} = emqx_ds:make_iterator(DB, Stream, TopicFilter, StartTime),
     {ok, Iter, Batch} = iterate(DB, Iter0, 1),
-    ?assertEqual(Msgs, Batch, {Iter0, Iter}).
+    ?assertEqual(Msgs, [Msg || {_Key, Msg} <- Batch], {Iter0, Iter}).
 
 %% Verify that iterators survive restart of the application. This is
 %% an important property, since the lifetime of the iterators is tied
@@ -128,7 +128,7 @@ t_04_restart(_Config) ->
     ok = emqx_ds:open_db(DB, opts()),
     %% The old iterator should be still operational:
     {ok, Iter, Batch} = iterate(DB, Iter0, 1),
-    ?assertEqual(Msgs, Batch, {Iter0, Iter}).
+    ?assertEqual(Msgs, [Msg || {_Key, Msg} <- Batch], {Iter0, Iter}).
 
 message(Topic, Payload, PublishedAt) ->
     #message{

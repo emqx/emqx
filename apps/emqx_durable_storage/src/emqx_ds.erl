@@ -43,6 +43,7 @@
     stream_rank/0,
     iterator/0,
     message_id/0,
+    message_key/0,
     next_result/1, next_result/0,
     store_batch_result/0,
     make_iterator_result/1, make_iterator_result/0,
@@ -74,6 +75,8 @@
 
 -type ds_specific_stream() :: term().
 
+-type message_key() :: binary().
+
 -type store_batch_result() :: ok | {error, _}.
 
 -type make_iterator_result(Iterator) :: {ok, Iterator} | {error, _}.
@@ -81,7 +84,7 @@
 -type make_iterator_result() :: make_iterator_result(iterator()).
 
 -type next_result(Iterator) ::
-    {ok, Iterator, [emqx_types:message()]} | {ok, end_of_stream} | {error, _}.
+    {ok, Iterator, [{message_key(), emqx_types:message()}]} | {ok, end_of_stream} | {error, _}.
 
 -type next_result() :: next_result(iterator()).
 

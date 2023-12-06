@@ -329,7 +329,7 @@ traverse_interval(ITHandle, Filter, Cutoff, Key, Val, It0, Acc0, N) ->
             Msg = deserialize(Val),
             case check_message(Cutoff, It, Msg) of
                 true ->
-                    Acc = [Msg | Acc0],
+                    Acc = [{Key, Msg} | Acc0],
                     traverse_interval(ITHandle, Filter, Cutoff, It, Acc, N - 1);
                 false ->
                     traverse_interval(ITHandle, Filter, Cutoff, It, Acc0, N);

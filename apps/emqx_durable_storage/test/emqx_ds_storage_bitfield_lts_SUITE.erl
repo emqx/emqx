@@ -64,7 +64,8 @@ t_iterate(_Config) ->
         begin
             [{_Rank, Stream}] = emqx_ds_storage_layer:get_streams(?SHARD, parse_topic(Topic), 0),
             {ok, It} = emqx_ds_storage_layer:make_iterator(?SHARD, Stream, parse_topic(Topic), 0),
-            {ok, NextIt, Messages} = emqx_ds_storage_layer:next(?SHARD, It, 100),
+            {ok, NextIt, MessagesAndKeys} = emqx_ds_storage_layer:next(?SHARD, It, 100),
+            Messages = [Msg || {_DSKey, Msg} <- MessagesAndKeys],
             ?assertEqual(
                 lists:map(fun integer_to_binary/1, Timestamps),
                 payloads(Messages)
@@ -249,7 +250,7 @@ dump_stream(Shard, Stream, TopicFilter, StartTime) ->
                 {ok, _NextIt, []} ->
                     [];
                 {ok, NextIt, Batch} ->
-                    Batch ++ F(NextIt, N - 1)
+                    [Msg || {_DSKey, Msg} <- Batch] ++ F(NextIt, N - 1)
             end
     end,
     MaxIterations = 1000000,
