@@ -195,7 +195,7 @@ store_batch(DB, Msgs) ->
 %% replay. This function returns stream together with its
 %% "coordinate": `stream_rank()'.
 %%
-%% Stream rank is a tuple of two integers, let's call them X and Y. If
+%% Stream rank is a tuple of two terms, let's call them X and Y. If
 %% X coordinate of two streams is different, they are independent and
 %% can be replayed in parallel. If it's the same, then the stream with
 %% smaller Y coordinate should be replayed first. If Y coordinates are
