@@ -368,6 +368,8 @@ message ConnInfo {
   string proto_ver = 7;
 
   uint32 keepalive = 8;
+
+  uint32 peerport = 9;
 }
 
 message ClientInfo {
@@ -397,6 +399,8 @@ message ClientInfo {
 
   // subject of client TLS cert
   string dn = 12;
+
+  uint32 peerport = 13;
 }
 
 message Message {

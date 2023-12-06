@@ -294,7 +294,7 @@ conninfo(
     ConnInfo =
         #{
             clientid := ClientId,
-            peername := {Peerhost, _},
+            peername := {Peerhost, PeerPort},
             sockname := {_, SockPort}
         }
 ) ->
@@ -307,6 +307,7 @@ conninfo(
         clientid => ClientId,
         username => maybe(Username),
         peerhost => ntoa(Peerhost),
+        peerport => PeerPort,
         sockport => SockPort,
         proto_name => ProtoName,
         proto_ver => stringfy(ProtoVer),
@@ -319,6 +320,7 @@ clientinfo(
             clientid := ClientId,
             username := Username,
             peerhost := PeerHost,
+            peerport := PeerPort,
             sockport := SockPort,
             protocol := Protocol,
             mountpoint := Mountpoiont
@@ -330,6 +332,7 @@ clientinfo(
         username => maybe(Username),
         password => maybe(maps:get(password, ClientInfo, undefined)),
         peerhost => ntoa(PeerHost),
+        peerport => PeerPort,
         sockport => SockPort,
         protocol => stringfy(Protocol),
         mountpoint => maybe(Mountpoiont),

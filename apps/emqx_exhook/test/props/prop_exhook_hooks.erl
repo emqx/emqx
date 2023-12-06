@@ -496,6 +496,9 @@ nodestr() ->
 peerhost(#{peername := {Host, _}}) ->
     ntoa(Host).
 
+peerport(#{peername := {_, Port}}) ->
+    Port.
+
 sockport(#{sockname := {_, Port}}) ->
     Port.
 
@@ -564,6 +567,7 @@ from_conninfo(ConnInfo) ->
         clientid => maps:get(clientid, ConnInfo),
         username => maybe(maps:get(username, ConnInfo, <<>>)),
         peerhost => peerhost(ConnInfo),
+        peerport => peerport(ConnInfo),
         sockport => sockport(ConnInfo),
         proto_name => maps:get(proto_name, ConnInfo),
         proto_ver => stringfy(maps:get(proto_ver, ConnInfo)),
@@ -577,6 +581,7 @@ from_clientinfo(ClientInfo) ->
         username => maybe(maps:get(username, ClientInfo, <<>>)),
         password => maybe(maps:get(password, ClientInfo, <<>>)),
         peerhost => ntoa(maps:get(peerhost, ClientInfo)),
+        peerport => maps:get(peerport, ClientInfo),
         sockport => maps:get(sockport, ClientInfo),
         protocol => stringfy(maps:get(protocol, ClientInfo)),
         mountpoint => maybe(maps:get(mountpoint, ClientInfo, <<>>)),
