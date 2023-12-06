@@ -154,7 +154,7 @@ fields("cluster") ->
             )},
         {"discovery_strategy",
             sc(
-                hoconsc:enum([manual, static, dns, etcd, k8s, mcast]),
+                hoconsc:enum([manual, static, dns, etcd, k8s]),
                 #{
                     default => manual,
                     desc => ?DESC(cluster_discovery_strategy),
@@ -208,11 +208,6 @@ fields("cluster") ->
                 ?R_REF(cluster_static),
                 #{}
             )},
-        {"mcast",
-            sc(
-                ?R_REF(cluster_mcast),
-                #{importance => ?IMPORTANCE_HIDDEN}
-            )},
         {"dns",
             sc(
                 ?R_REF(cluster_dns),
@@ -247,81 +242,6 @@ fields(cluster_static) ->
                 #{
                     default => [],
                     desc => ?DESC(cluster_static_seeds),
-                    'readOnly' => true
-                }
-            )}
-    ];
-fields(cluster_mcast) ->
-    [
-        {"addr",
-            sc(
-                string(),
-                #{
-                    default => <<"239.192.0.1">>,
-                    desc => ?DESC(cluster_mcast_addr),
-                    'readOnly' => true
-                }
-            )},
-        {"ports",
-            sc(
-                hoconsc:array(integer()),
-                #{
-                    default => [4369, 4370],
-                    'readOnly' => true,
-                    desc => ?DESC(cluster_mcast_ports)
-                }
-            )},
-        {"iface",
-            sc(
-                string(),
-                #{
-                    default => <<"0.0.0.0">>,
-                    desc => ?DESC(cluster_mcast_iface),
-                    'readOnly' => true
-                }
-            )},
-        {"ttl",
-            sc(
-                range(0, 255),
-                #{
-                    default => 255,
-                    desc => ?DESC(cluster_mcast_ttl),
-                    'readOnly' => true
-                }
-            )},
-        {"loop",
-            sc(
-                boolean(),
-                #{
-                    default => true,
-                    desc => ?DESC(cluster_mcast_loop),
-                    'readOnly' => true
-                }
-            )},
-        {"sndbuf",
-            sc(
-                emqx_schema:bytesize(),
-                #{
-                    default => <<"16KB">>,
-                    desc => ?DESC(cluster_mcast_sndbuf),
-                    'readOnly' => true
-                }
-            )},
-        {"recbuf",
-            sc(
-                emqx_schema:bytesize(),
-                #{
-                    default => <<"16KB">>,
-                    desc => ?DESC(cluster_mcast_recbuf),
-                    'readOnly' => true
-                }
-            )},
-        {"buffer",
-            sc(
-                emqx_schema:bytesize(),
-                #{
-                    default => <<"32KB">>,
-                    desc => ?DESC(cluster_mcast_buffer),
                     'readOnly' => true
                 }
             )}
@@ -1100,8 +1020,6 @@ desc("cluster") ->
     ?DESC("desc_cluster");
 desc(cluster_static) ->
     ?DESC("desc_cluster_static");
-desc(cluster_mcast) ->
-    ?DESC("desc_cluster_mcast");
 desc(cluster_dns) ->
     ?DESC("desc_cluster_dns");
 desc(cluster_etcd) ->
@@ -1423,17 +1341,6 @@ map(Name, Type) -> hoconsc:map(Name, Type).
 
 cluster_options(static, Conf) ->
     [{seeds, conf_get("cluster.static.seeds", Conf, [])}];
-cluster_options(mcast, Conf) ->
-    {ok, Addr} = inet:parse_address(conf_get("cluster.mcast.addr", Conf)),
-    {ok, Iface} = inet:parse_address(conf_get("cluster.mcast.iface", Conf)),
-    Ports = conf_get("cluster.mcast.ports", Conf),
-    [
-        {addr, Addr},
-        {ports, Ports},
-        {iface, Iface},
-        {ttl, conf_get("cluster.mcast.ttl", Conf, 1)},
-        {loop, conf_get("cluster.mcast.loop", Conf, true)}
-    ];
 cluster_options(dns, Conf) ->
     [
         {name, conf_get("cluster.dns.name", Conf)},

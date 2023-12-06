@@ -174,7 +174,6 @@ libcoap
 lifecycle
 localhost
 lwm
-mcast
 mnesia
 mountpoint
 mqueue
