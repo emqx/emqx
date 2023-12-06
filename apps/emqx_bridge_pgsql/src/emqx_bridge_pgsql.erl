@@ -13,13 +13,15 @@
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 -include_lib("emqx_resource/include/emqx_resource.hrl").
 
+%% `hocon_schema' API
 -export([
     namespace/0,
     roots/0,
     fields/1,
-    desc/1,
-    fields/2
+    desc/1
 ]).
+%% for sharing with other actions
+-export([fields/3]).
 
 %% Examples
 -export([
@@ -33,9 +35,7 @@
     values_conn_bridge_examples/2
 ]).
 
--define(PGSQL_HOST_OPTIONS, #{
-    default_port => ?PGSQL_DEFAULT_PORT
-}).
+-define(ACTION_TYPE, pgsql).
 
 %% Hocon Schema Definitions
 namespace() -> "bridge_pgsql".
@@ -81,7 +81,7 @@ fields("put_bridge_v2") ->
 fields("get_bridge_v2") ->
     fields(pgsql_action);
 fields("post_bridge_v2") ->
-    fields(pgsql_action);
+    fields("post", pgsql, pgsql_action);
 fields("config") ->
     [
         {enable, hoconsc:mk(boolean(), #{desc => ?DESC("config_enable"), default => true})},
@@ -99,14 +99,14 @@ fields("config") ->
         (emqx_postgresql:fields(config) --
             emqx_connector_schema_lib:prepare_statement_fields());
 fields("post") ->
-    fields("post", pgsql);
+    fields("post", ?ACTION_TYPE, "config");
 fields("put") ->
     fields("config");
 fields("get") ->
     emqx_bridge_schema:status_fields() ++ fields("post").
 
-fields("post", Type) ->
-    [type_field(Type), name_field() | fields("config")].
+fields("post", Type, StructName) ->
+    [type_field(Type), name_field() | fields(StructName)].
 
 type_field(Type) ->
     {type, hoconsc:mk(hoconsc:enum([Type]), #{required => true, desc => ?DESC("desc_type")})}.
