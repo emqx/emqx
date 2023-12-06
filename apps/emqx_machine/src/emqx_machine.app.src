@@ -6,7 +6,13 @@
     {vsn, "0.2.17"},
     {modules, []},
     {registered, []},
-    {applications, [kernel, stdlib, emqx_ctl, system_monitor, covertool]},
+    {applications, [kernel, stdlib, emqx_ctl, covertool]},
+    %% system_monitor is loaded but not booted,
+    %% emqx_machine.erl makes the decision when to start
+    %% the app after certain config injection.
+    %% it's a included_application because otherwise dialyzer
+    %% would report unknown functions
+    {included_applications, [system_monitor]},
     {mod, {emqx_machine_app, []}},
     {env, []},
     {licenses, ["Apache-2.0"]},
