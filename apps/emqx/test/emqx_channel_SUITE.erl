@@ -72,6 +72,22 @@ t_chan_info(_) ->
         conn_state := connected,
         clientinfo := ClientInfo
     } = emqx_channel:info(channel()),
+    ?assertMatch(
+        #{
+            zone := default,
+            listener := {tcp, default},
+            protocol := mqtt,
+            peerhost := {127, 0, 0, 1},
+            peerport := 3456,
+            sockport := 1883,
+            clientid := <<"clientid">>,
+            username := <<"username">>,
+            is_superuser := false,
+            is_bridge := false,
+            mountpoint := undefined
+        },
+        ClientInfo
+    ),
     ?assertEqual(clientinfo(), ClientInfo).
 
 t_chan_caps(_) ->
@@ -1063,7 +1079,8 @@ clientinfo(InitProps) ->
             listener => {tcp, default},
             protocol => mqtt,
             peerhost => {127, 0, 0, 1},
-            sockport => 3456,
+            peerport => 3456,
+            sockport => 1883,
             clientid => <<"clientid">>,
             username => <<"username">>,
             is_superuser => false,
