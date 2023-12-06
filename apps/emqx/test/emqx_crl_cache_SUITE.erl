@@ -7,7 +7,8 @@
 -compile(export_all).
 -compile(nowarn_export_all).
 
--include_lib("eunit/include/eunit.hrl").
+-include_lib("stdlib/include/assert.hrl").
+-include_lib("emqx/include/asserts.hrl").
 -include_lib("common_test/include/ct.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
@@ -34,14 +35,9 @@ all() ->
     emqx_common_test_helpers:all(?MODULE).
 
 init_per_suite(Config) ->
-    application:load(emqx),
-    {ok, _} = application:ensure_all_started(ssl),
-    emqx_config:save_schema_mod_and_names(emqx_schema),
-    emqx_common_test_helpers:boot_modules(all),
     Config.
 
 end_per_suite(_Config) ->
-    emqx_config:erase_all(),
     ok.
 
 init_per_testcase(TestCase, Config) when
@@ -50,76 +46,78 @@ init_per_testcase(TestCase, Config) when
     TestCase =:= t_revoked
 ->
     ct:timetrap({seconds, 30}),
-    DataDir = ?config(data_dir, Config),
-    CRLFile = filename:join([DataDir, "intermediate-revoked.crl.pem"]),
-    {ok, CRLPem} = file:read_file(CRLFile),
-    [{'CertificateList', CRLDer, not_encrypted}] = public_key:pem_decode(CRLPem),
     ok = snabbkaffe:start_trace(),
+    DataDir = ?config(data_dir, Config),
+    {CRLPem, CRLDer} = read_crl(filename:join(DataDir, "intermediate-revoked.crl.pem")),
     ServerPid = start_crl_server(CRLPem),
     IsCached = lists:member(TestCase, [t_filled_cache, t_revoked]),
-    ok = setup_crl_options(Config, #{is_cached => IsCached}),
+    Apps = start_emqx_with_crl_cache(#{is_cached => IsCached}, TestCase, Config),
     [
         {crl_pem, CRLPem},
         {crl_der, CRLDer},
-        {http_server, ServerPid}
+        {http_server, ServerPid},
+        {tc_apps, Apps}
         | Config
     ];
-init_per_testcase(t_revoke_then_refresh, Config) ->
+init_per_testcase(t_revoke_then_refresh = TestCase, Config) ->
     ct:timetrap({seconds, 120}),
-    DataDir = ?config(data_dir, Config),
-    CRLFileNotRevoked = filename:join([DataDir, "intermediate-not-revoked.crl.pem"]),
-    {ok, CRLPemNotRevoked} = file:read_file(CRLFileNotRevoked),
-    [{'CertificateList', CRLDerNotRevoked, not_encrypted}] = public_key:pem_decode(
-        CRLPemNotRevoked
-    ),
-    CRLFileRevoked = filename:join([DataDir, "intermediate-revoked.crl.pem"]),
-    {ok, CRLPemRevoked} = file:read_file(CRLFileRevoked),
-    [{'CertificateList', CRLDerRevoked, not_encrypted}] = public_key:pem_decode(CRLPemRevoked),
     ok = snabbkaffe:start_trace(),
+    DataDir = ?config(data_dir, Config),
+    {CRLPemNotRevoked, CRLDerNotRevoked} =
+        read_crl(filename:join(DataDir, "intermediate-not-revoked.crl.pem")),
+    {CRLPemRevoked, CRLDerRevoked} =
+        read_crl(filename:join(DataDir, "intermediate-revoked.crl.pem")),
     ServerPid = start_crl_server(CRLPemNotRevoked),
-    ExtraVars = #{refresh_interval => <<"10s">>},
-    ok = setup_crl_options(Config, #{is_cached => true, extra_vars => ExtraVars}),
+    Apps = start_emqx_with_crl_cache(
+        #{is_cached => true, overrides => #{crl_cache => #{refresh_interval => <<"10s">>}}},
+        TestCase,
+        Config
+    ),
     [
         {crl_pem_not_revoked, CRLPemNotRevoked},
         {crl_der_not_revoked, CRLDerNotRevoked},
         {crl_pem_revoked, CRLPemRevoked},
         {crl_der_revoked, CRLDerRevoked},
-        {http_server, ServerPid}
+        {http_server, ServerPid},
+        {tc_apps, Apps}
         | Config
     ];
-init_per_testcase(t_cache_overflow, Config) ->
+init_per_testcase(t_cache_overflow = TestCase, Config) ->
     ct:timetrap({seconds, 120}),
-    DataDir = ?config(data_dir, Config),
-    CRLFileRevoked = filename:join([DataDir, "intermediate-revoked.crl.pem"]),
-    {ok, CRLPemRevoked} = file:read_file(CRLFileRevoked),
     ok = snabbkaffe:start_trace(),
+    DataDir = ?config(data_dir, Config),
+    {CRLPemRevoked, _} = read_crl(filename:join(DataDir, "intermediate-revoked.crl.pem")),
     ServerPid = start_crl_server(CRLPemRevoked),
-    ExtraVars = #{cache_capacity => <<"2">>},
-    ok = setup_crl_options(Config, #{is_cached => false, extra_vars => ExtraVars}),
+    Apps = start_emqx_with_crl_cache(
+        #{is_cached => false, overrides => #{crl_cache => #{capacity => 2}}},
+        TestCase,
+        Config
+    ),
     [
-        {http_server, ServerPid}
+        {http_server, ServerPid},
+        {tc_apps, Apps}
         | Config
     ];
-init_per_testcase(t_not_cached_and_unreachable, Config) ->
+init_per_testcase(TestCase, Config) when
+    TestCase =:= t_not_cached_and_unreachable;
+    TestCase =:= t_update_config
+->
     ct:timetrap({seconds, 30}),
-    DataDir = ?config(data_dir, Config),
-    CRLFile = filename:join([DataDir, "intermediate-revoked.crl.pem"]),
-    {ok, CRLPem} = file:read_file(CRLFile),
-    [{'CertificateList', CRLDer, not_encrypted}] = public_key:pem_decode(CRLPem),
     ok = snabbkaffe:start_trace(),
-    application:stop(cowboy),
-    ok = setup_crl_options(Config, #{is_cached => false}),
+    DataDir = ?config(data_dir, Config),
+    {CRLPem, CRLDer} = read_crl(filename:join(DataDir, "intermediate-revoked.crl.pem")),
+    Apps = start_emqx_with_crl_cache(#{is_cached => false}, TestCase, Config),
     [
         {crl_pem, CRLPem},
-        {crl_der, CRLDer}
+        {crl_der, CRLDer},
+        {tc_apps, Apps}
         | Config
     ];
-init_per_testcase(t_refresh_config, Config) ->
+init_per_testcase(t_refresh_config = TestCase, Config) ->
     ct:timetrap({seconds, 30}),
+    ok = snabbkaffe:start_trace(),
     DataDir = ?config(data_dir, Config),
-    CRLFile = filename:join([DataDir, "intermediate-revoked.crl.pem"]),
-    {ok, CRLPem} = file:read_file(CRLFile),
-    [{'CertificateList', CRLDer, not_encrypted}] = public_key:pem_decode(CRLPem),
+    {CRLPem, CRLDer} = read_crl(filename:join(DataDir, "intermediate-revoked.crl.pem")),
     TestPid = self(),
     ok = meck:new(emqx_crl_cache, [non_strict, passthrough, no_history, no_link]),
     meck:expect(
@@ -131,42 +129,49 @@ init_per_testcase(t_refresh_config, Config) ->
             {ok, {{"HTTP/1.0", 200, "OK"}, [], CRLPem}}
         end
     ),
-    ok = snabbkaffe:start_trace(),
-    ok = setup_crl_options(Config, #{is_cached => false}),
+    Apps = start_emqx_with_crl_cache(#{is_cached => false}, TestCase, Config),
     [
         {crl_pem, CRLPem},
-        {crl_der, CRLDer}
+        {crl_der, CRLDer},
+        {tc_apps, Apps}
         | Config
     ];
 init_per_testcase(TestCase, Config) when
     TestCase =:= t_update_listener;
     TestCase =:= t_validations
 ->
+    ct:timetrap({seconds, 30}),
+    ok = snabbkaffe:start_trace(),
     %% when running emqx standalone tests, we can't use those
     %% features.
-    case does_module_exist(emqx_mgmt_api_test_util) of
+    case does_module_exist(emqx_management) of
         true ->
-            ct:timetrap({seconds, 30}),
             DataDir = ?config(data_dir, Config),
-            PrivDir = ?config(priv_dir, Config),
             CRLFile = filename:join([DataDir, "intermediate-revoked.crl.pem"]),
             {ok, CRLPem} = file:read_file(CRLFile),
-            ok = snabbkaffe:start_trace(),
             ServerPid = start_crl_server(CRLPem),
-            ConfFilePath = filename:join([DataDir, "emqx_just_verify.conf"]),
-            emqx_mgmt_api_test_util:init_suite(
-                [emqx_conf],
-                fun emqx_mgmt_api_test_util:set_special_configs/1,
-                #{
-                    extra_mustache_vars => #{
-                        test_data_dir => DataDir,
-                        test_priv_dir => PrivDir
-                    },
-                    conf_file_path => ConfFilePath
+            ListenerConf = #{
+                enable => true,
+                ssl_options => #{
+                    keyfile => filename:join(DataDir, "server.key.pem"),
+                    certfile => filename:join(DataDir, "server.cert.pem"),
+                    cacertfile => filename:join(DataDir, "ca-chain.cert.pem"),
+                    verify => verify_peer,
+                    enable_crl_check => false
                 }
+            },
+            Apps = emqx_cth_suite:start(
+                [
+                    {emqx_conf, #{config => #{listeners => #{ssl => #{default => ListenerConf}}}}},
+                    emqx,
+                    emqx_management,
+                    {emqx_dashboard, "dashboard.listeners.http { enable = true, bind = 18083 }"}
+                ],
+                #{work_dir => emqx_cth_suite:work_dir(TestCase, Config)}
             ),
             [
-                {http_server, ServerPid}
+                {http_server, ServerPid},
+                {tc_apps, Apps}
                 | Config
             ];
         false ->
@@ -174,10 +179,9 @@ init_per_testcase(TestCase, Config) when
     end;
 init_per_testcase(_TestCase, Config) ->
     ct:timetrap({seconds, 30}),
+    ok = snabbkaffe:start_trace(),
     DataDir = ?config(data_dir, Config),
-    CRLFile = filename:join([DataDir, "intermediate-revoked.crl.pem"]),
-    {ok, CRLPem} = file:read_file(CRLFile),
-    [{'CertificateList', CRLDer, not_encrypted}] = public_key:pem_decode(CRLPem),
+    {CRLPem, CRLDer} = read_crl(filename:join(DataDir, "intermediate-revoked.crl.pem")),
     TestPid = self(),
     ok = meck:new(emqx_crl_cache, [non_strict, passthrough, no_history, no_link]),
     meck:expect(
@@ -189,53 +193,17 @@ init_per_testcase(_TestCase, Config) ->
             {ok, {{"HTTP/1.0", 200, 'OK'}, [], CRLPem}}
         end
     ),
-    ok = snabbkaffe:start_trace(),
     [
         {crl_pem, CRLPem},
         {crl_der, CRLDer}
         | Config
     ].
 
-end_per_testcase(TestCase, Config) when
-    TestCase =:= t_cache;
-    TestCase =:= t_filled_cache;
-    TestCase =:= t_revoked
-->
-    ServerPid = ?config(http_server, Config),
-    emqx_crl_cache_http_server:stop(ServerPid),
-    emqx_common_test_helpers:stop_apps([]),
-    clear_listeners(),
-    application:stop(cowboy),
-    clear_crl_cache(),
-    ok = snabbkaffe:stop(),
-    ok;
-end_per_testcase(TestCase, Config) when
-    TestCase =:= t_revoke_then_refresh;
-    TestCase =:= t_cache_overflow
-->
-    ServerPid = ?config(http_server, Config),
-    emqx_crl_cache_http_server:stop(ServerPid),
-    emqx_common_test_helpers:stop_apps([]),
-    clear_listeners(),
-    clear_crl_cache(),
-    application:stop(cowboy),
-    ok = snabbkaffe:stop(),
-    ok;
-end_per_testcase(t_not_cached_and_unreachable, _Config) ->
-    emqx_common_test_helpers:stop_apps([]),
-    clear_listeners(),
-    clear_crl_cache(),
-    ok = snabbkaffe:stop(),
-    ok;
-end_per_testcase(t_refresh_config, _Config) ->
-    meck:unload([emqx_crl_cache]),
-    clear_crl_cache(),
-    emqx_common_test_helpers:stop_apps([]),
-    clear_listeners(),
-    clear_crl_cache(),
-    application:stop(cowboy),
-    ok = snabbkaffe:stop(),
-    ok;
+read_crl(Filename) ->
+    {ok, PEM} = file:read_file(Filename),
+    [{'CertificateList', DER, not_encrypted}] = public_key:pem_decode(PEM),
+    {PEM, DER}.
+
 end_per_testcase(TestCase, Config) when
     TestCase =:= t_update_listener;
     TestCase =:= t_validations
@@ -245,18 +213,20 @@ end_per_testcase(TestCase, Config) when
         true ->
             ok;
         false ->
-            ServerPid = ?config(http_server, Config),
-            emqx_crl_cache_http_server:stop(ServerPid),
-            emqx_mgmt_api_test_util:end_suite([emqx_conf]),
-            clear_listeners(),
-            ok = snabbkaffe:stop(),
-            clear_crl_cache(),
-            ok
+            end_per_testcase(common, Config)
     end;
-end_per_testcase(_TestCase, _Config) ->
-    meck:unload([emqx_crl_cache]),
-    clear_crl_cache(),
+end_per_testcase(_TestCase, Config) ->
     ok = snabbkaffe:stop(),
+    clear_crl_cache(),
+    _ = emqx_maybe:apply(
+        fun emqx_crl_cache_http_server:stop/1,
+        proplists:get_value(http_server, Config)
+    ),
+    _ = emqx_maybe:apply(
+        fun emqx_cth_suite:stop/1,
+        proplists:get_value(tc_apps, Config)
+    ),
+    catch meck:unload([emqx_crl_cache]),
     ok.
 
 %%--------------------------------------------------------------------
@@ -277,11 +247,6 @@ does_module_exist(Mod) ->
                     false
             end
     end.
-
-clear_listeners() ->
-    emqx_config:put([listeners], #{}),
-    emqx_config:put_raw([<<"listeners">>], #{}),
-    ok.
 
 assert_http_get(URL) ->
     receive
@@ -341,61 +306,41 @@ clear_crl_cache() ->
     ensure_ssl_manager_alive(),
     ok.
 
-force_cacertfile(Cacertfile) ->
-    {SSLListeners0, OtherListeners} = lists:partition(
-        fun(#{proto := Proto}) -> Proto =:= ssl end,
-        emqx:get_env(listeners)
-    ),
-    SSLListeners =
-        lists:map(
-            fun(Listener = #{opts := Opts0}) ->
-                SSLOpts0 = proplists:get_value(ssl_options, Opts0),
-                %% it injects some garbage...
-                SSLOpts1 = lists:keydelete(cacertfile, 1, lists:keydelete(cacertfile, 1, SSLOpts0)),
-                SSLOpts2 = [{cacertfile, Cacertfile} | SSLOpts1],
-                Opts1 = lists:keyreplace(ssl_options, 1, Opts0, {ssl_options, SSLOpts2}),
-                Listener#{opts => Opts1}
-            end,
-            SSLListeners0
-        ),
-    application:set_env(emqx, listeners, SSLListeners ++ OtherListeners),
-    ok.
-
-setup_crl_options(Config, #{is_cached := IsCached} = Opts) ->
+start_emqx_with_crl_cache(#{is_cached := IsCached} = Opts, TC, Config) ->
     DataDir = ?config(data_dir, Config),
-    ConfFilePath = filename:join([DataDir, "emqx.conf"]),
-    Defaults = #{
-        refresh_interval => <<"11m">>,
-        cache_capacity => <<"100">>,
-        test_data_dir => DataDir
-    },
-    ExtraVars0 = maps:get(extra_vars, Opts, #{}),
-    ExtraVars = maps:merge(Defaults, ExtraVars0),
-    emqx_common_test_helpers:start_apps(
-        [],
-        fun(_) -> ok end,
-        #{
-            extra_mustache_vars => ExtraVars,
-            conf_file_path => ConfFilePath
+    Overrides = maps:get(overrides, Opts, #{}),
+    ListenerConf = #{
+        enable => true,
+        ssl_options => #{
+            keyfile => filename:join(DataDir, "server.key.pem"),
+            certfile => filename:join(DataDir, "server.cert.pem"),
+            cacertfile => filename:join(DataDir, "ca-chain.cert.pem"),
+            verify => verify_peer,
+            enable_crl_check => true
         }
+    },
+    Conf = #{
+        listeners => #{ssl => #{default => ListenerConf}},
+        crl_cache => #{
+            refresh_interval => <<"11m">>,
+            http_timeout => <<"17s">>,
+            capacity => 100
+        }
+    },
+    Apps = emqx_cth_suite:start(
+        [{emqx, #{config => emqx_utils_maps:deep_merge(Conf, Overrides)}}],
+        #{work_dir => emqx_cth_suite:work_dir(TC, Config)}
     ),
     case IsCached of
         true ->
             %% wait the cache to be filled
             emqx_crl_cache:refresh(?DEFAULT_URL),
-            receive
-                {http_get, <<?DEFAULT_URL>>} -> ok
-            after 1_000 ->
-                ct:pal("mailbox: ~p", [process_info(self(), messages)]),
-                error(crl_cache_not_filled)
-            end;
+            ?assertReceive({http_get, <<?DEFAULT_URL>>});
         false ->
             %% ensure cache is empty
-            clear_crl_cache(),
             ok
     end,
-    drain_msgs(),
-    ok.
+    Apps.
 
 start_crl_server(CRLPem) ->
     application:ensure_all_started(cowboy),
@@ -494,31 +439,21 @@ t_init_empty_urls(_Config) ->
     ok.
 
 t_update_config(_Config) ->
-    emqx_config:save_schema_mod_and_names(emqx_schema),
-    emqx_config_handler:start_link(),
-    {ok, Pid} = emqx_crl_cache:start_link(),
     Conf = #{
-        refresh_interval => <<"5m">>,
-        http_timeout => <<"10m">>,
-        capacity => 123
+        <<"refresh_interval">> => <<"5m">>,
+        <<"http_timeout">> => <<"10m">>,
+        <<"capacity">> => 123
     },
     ?assertMatch({ok, _}, emqx:update_config([<<"crl_cache">>], Conf)),
-    State = sys:get_state(Pid),
+    State = emqx_crl_cache:info(),
     ?assertEqual(
         #{
             refresh_interval => timer:minutes(5),
             http_timeout => timer:minutes(10),
-            capacity => 123
+            cache_capacity => 123
         },
-        #{
-            refresh_interval => element(3, State),
-            http_timeout => element(4, State),
-            capacity => element(7, State)
-        }
-    ),
-    emqx_config:erase(<<"crl_cache">>),
-    emqx_config_handler:stop(),
-    ok.
+        maps:with([refresh_interval, http_timeout, cache_capacity], State)
+    ).
 
 t_manual_refresh(Config) ->
     CRLDer = ?config(crl_der, Config),
