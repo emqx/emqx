@@ -15,7 +15,7 @@ do(Dir, CONFIG) ->
     end.
 
 assert_otp() ->
-    Oldest = 24,
+    Oldest = 25,
     Latest = 26,
     OtpRelease = list_to_integer(erlang:system_info(otp_release)),
     case OtpRelease < Oldest orelse OtpRelease > Latest of

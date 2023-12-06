@@ -23,6 +23,8 @@ _build
 .rebar3
 rebar3.crashdump
 .DS_Store
+# emqx_ds_replication_layer_meta:ensure_site/0
+data
 etc/gen.emqx.conf
 compile_commands.json
 cuttlefish
@@ -69,3 +71,5 @@ bom.json
 ct_run*/
 apps/emqx_conf/etc/emqx.conf.all.rendered*
 rebar-git-cache.tar
+# build docker image locally
+.docker_image_tag
