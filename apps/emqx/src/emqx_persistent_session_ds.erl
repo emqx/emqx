@@ -783,16 +783,21 @@ session_read_subscriptions(DSSessionId, LockKind) ->
     ),
     mnesia:select(?SESSION_SUBSCRIPTIONS_TAB, MS, LockKind).
 
-session_read_pubranges(DSSessionID) ->
-    session_read_pubranges(DSSessionID, read).
-
-session_read_pubranges(DSSessionId, LockKind) ->
+session_read_pubrange_ids(DSSessionId, LockKind) ->
     MS = ets:fun2ms(
         fun(#ds_pubrange{id = {Sess, First}}) when Sess =:= DSSessionId ->
             {DSSessionId, First}
         end
     ),
     mnesia:select(?SESSION_PUBRANGE_TAB, MS, LockKind).
+
+session_read_pubranges(DSSessionId) ->
+    MS = ets:fun2ms(
+        fun(#ds_pubrange{id = {Sess, _}} = Range) when Sess =:= DSSessionId ->
+            Range
+        end
+    ),
+    mnesia:select(?SESSION_PUBRANGE_TAB, MS, read).
 
 session_read_offsets(DSSessionID) ->
     session_read_offsets(DSSessionID, read).
@@ -903,7 +908,7 @@ make_topic_stream(Stream, Rank, TopicFilter, StartTime) ->
 %% must be called inside a transaction
 -spec session_drop_pubranges(id()) -> ok.
 session_drop_pubranges(DSSessionId) ->
-    RangeIds = session_read_pubranges(DSSessionId, write),
+    RangeIds = session_read_pubrange_ids(DSSessionId, write),
     lists:foreach(
         fun(RangeId) ->
             mnesia:delete(?SESSION_PUBRANGE_TAB, RangeId, write)
