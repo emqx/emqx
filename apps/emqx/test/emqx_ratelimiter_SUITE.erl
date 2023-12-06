@@ -47,23 +47,23 @@ all() ->
     emqx_common_test_helpers:all(?MODULE).
 
 init_per_suite(Config) ->
-    load_conf(),
-    emqx_common_test_helpers:start_apps([?APP]),
-    Config.
+    Apps = emqx_cth_suite:start([emqx], #{work_dir => emqx_cth_suite:work_dir(Config)}),
+    ok = load_conf(),
+    [{apps, Apps} | Config].
 
-end_per_suite(_Config) ->
-    emqx_common_test_helpers:stop_apps([?APP]).
+end_per_suite(Config) ->
+    emqx_cth_suite:stop(?config(apps, Config)).
 
 init_per_testcase(_TestCase, Config) ->
-    emqx_config:erase(limiter),
-    load_conf(),
+    ok = emqx_config:erase(limiter),
+    ok = load_conf(),
     Config.
 
 end_per_testcase(_TestCase, Config) ->
     Config.
 
 load_conf() ->
-    ok = emqx_common_test_helpers:load_config(emqx_limiter_schema, ?BASE_CONF).
+    emqx_common_test_helpers:load_config(emqx_limiter_schema, ?BASE_CONF).
 
 init_config() ->
     emqx_config:init_load(emqx_limiter_schema, ?BASE_CONF).

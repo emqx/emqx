@@ -19,7 +19,6 @@
 -compile(export_all).
 -compile(nowarn_export_all).
 
--include_lib("emqx/include/emqx.hrl").
 -include_lib("emqx/include/emqx_mqtt.hrl").
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
@@ -59,31 +58,17 @@ groups() ->
     ].
 
 init_per_group(tcp, Config) ->
-    emqx_common_test_helpers:start_apps([]),
-    [{port, 1883}, {conn_fun, connect} | Config];
+    Apps = emqx_cth_suite:start([emqx], #{work_dir => emqx_cth_suite:work_dir(Config)}),
+    [{port, 1883}, {conn_fun, connect}, {group_apps, Apps} | Config];
 init_per_group(quic, Config) ->
-    UdpPort = 1884,
-    emqx_common_test_helpers:start_apps([]),
-    emqx_common_test_helpers:ensure_quic_listener(?MODULE, UdpPort),
-    [{port, UdpPort}, {conn_fun, quic_connect} | Config];
-init_per_group(_, Config) ->
-    emqx_common_test_helpers:stop_apps([]),
-    Config.
+    Apps = emqx_cth_suite:start(
+        [{emqx, "listeners.quic.test { enable = true, bind = 1884 }"}],
+        #{work_dir => emqx_cth_suite:work_dir(Config)}
+    ),
+    [{port, 1884}, {conn_fun, quic_connect}, {group_apps, Apps} | Config].
 
-end_per_group(quic, _Config) ->
-    emqx_config:put([listeners, quic], #{}),
-    ok;
-end_per_group(_Group, _Config) ->
-    ok.
-
-init_per_suite(Config) ->
-    %% Start Apps
-    emqx_common_test_helpers:boot_modules(all),
-    emqx_common_test_helpers:start_apps([]),
-    Config.
-
-end_per_suite(_Config) ->
-    emqx_common_test_helpers:stop_apps([]).
+end_per_group(_Group, Config) ->
+    emqx_cth_suite:stop(?config(group_apps, Config)).
 
 init_per_testcase(TestCase, Config) ->
     case erlang:function_exported(?MODULE, TestCase, 2) of
