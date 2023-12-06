@@ -46,6 +46,7 @@ log_meta(Meta, Req) ->
         true ->
             undefined;
         false ->
+            Code = maps:get(code, Meta),
             Meta1 = #{
                 time => logger:timestamp(),
                 from => from(Meta),
@@ -56,8 +57,8 @@ log_meta(Meta, Req) ->
                 %% method for http filter api.
                 http_method => Method,
                 http_request => http_request(Meta),
-                http_status_code => maps:get(code, Meta),
-                operation_result => operation_result(Meta),
+                http_status_code => Code,
+                operation_result => operation_result(Code, Meta),
                 node => node()
             },
             Meta2 = maps:without([req_start, req_end, method, headers, body, bindings, code], Meta),
@@ -105,8 +106,9 @@ operation_type(Meta) ->
 http_request(Meta) ->
     maps:with([method, headers, bindings, body], Meta).
 
-operation_result(#{failure := _}) -> failure;
-operation_result(_) -> success.
+operation_result(Code, _) when Code >= 300 -> failure;
+operation_result(_, #{failure := _}) -> failure;
+operation_result(_, _) -> success.
 
 level(get, _Code) -> debug;
 level(_, Code) when Code >= 200 andalso Code < 300 -> info;

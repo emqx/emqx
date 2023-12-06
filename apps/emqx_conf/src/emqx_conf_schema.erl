@@ -1520,7 +1520,8 @@ ensure_file_handlers(Conf, _Opts) ->
 
 convert_rotation(undefined, _Opts) -> undefined;
 convert_rotation(#{} = Rotation, _Opts) -> maps:get(<<"count">>, Rotation, 10);
-convert_rotation(Count, _Opts) when is_integer(Count) -> Count.
+convert_rotation(Count, _Opts) when is_integer(Count) -> Count;
+convert_rotation(Count, _Opts) -> throw({"bad_rotation", Count}).
 
 ensure_unicode_path(undefined, _) ->
     undefined;
