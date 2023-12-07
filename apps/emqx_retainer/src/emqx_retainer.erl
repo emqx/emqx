@@ -307,7 +307,7 @@ clean(Context) ->
     Mod = get_backend_module(),
     Mod:clean(Context).
 
--spec update_config(state(), hocons:config(), hocons:config()) -> state().
+-spec update_config(state(), hocon:config(), hocon:config()) -> state().
 update_config(State, Conf, OldConf) ->
     update_config(
         maps:get(enable, Conf),
@@ -317,7 +317,7 @@ update_config(State, Conf, OldConf) ->
         OldConf
     ).
 
--spec update_config(boolean(), boolean(), state(), hocons:config(), hocons:config()) -> state().
+-spec update_config(boolean(), boolean(), state(), hocon:config(), hocon:config()) -> state().
 update_config(false, _, State, _, _) ->
     disable_retainer(State);
 update_config(true, false, State, NewConf, _) ->

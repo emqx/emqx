@@ -20,6 +20,8 @@
 %% module if it integrated with emqx_gateway_conn module
 -module(emqx_gateway_channel).
 
+-export_type([gen_server_from/0]).
+
 -type channel() :: any().
 
 %%--------------------------------------------------------------------

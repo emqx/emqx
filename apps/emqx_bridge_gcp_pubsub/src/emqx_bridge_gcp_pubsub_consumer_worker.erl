@@ -30,12 +30,13 @@
 -type bridge_name() :: atom() | binary().
 -type ack_id() :: binary().
 -type message_id() :: binary().
+-type duration() :: non_neg_integer().
 -type config() :: #{
     ack_deadline := emqx_schema:timeout_duration_s(),
     ack_retry_interval := emqx_schema:timeout_duration_ms(),
     client := emqx_bridge_gcp_pubsub_client:state(),
     ecpool_worker_id => non_neg_integer(),
-    forget_interval := timer:time(),
+    forget_interval := duration(),
     hookpoint := binary(),
     instance_id := binary(),
     mqtt_config => emqx_bridge_gcp_pubsub_impl_consumer:mqtt_config(),
@@ -52,7 +53,7 @@
     async_workers := #{pid() => reference()},
     client := emqx_bridge_gcp_pubsub_client:state(),
     ecpool_worker_id := non_neg_integer(),
-    forget_interval := timer:time(),
+    forget_interval := duration(),
     hookpoint := binary(),
     instance_id := binary(),
     mqtt_config := emqx_bridge_gcp_pubsub_impl_consumer:mqtt_config(),

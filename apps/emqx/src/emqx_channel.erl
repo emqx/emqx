@@ -96,7 +96,7 @@
     %% Authentication Data Cache
     auth_cache :: maybe(map()),
     %% Quota checkers
-    quota :: emqx_limiter_container:limiter(),
+    quota :: emqx_limiter_container:container(),
     %% Timers
     timers :: #{atom() => disabled | maybe(reference())},
     %% Conn State

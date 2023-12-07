@@ -131,7 +131,7 @@ stats(#channel{subscriptions = Subs}) ->
 %% Init the channel
 %%--------------------------------------------------------------------
 
--spec init(emqx_exproto_types:conninfo(), map()) -> channel().
+-spec init(emqx_types:conninfo(), map()) -> channel().
 init(
     ConnInfo = #{
         socktype := Socktype,

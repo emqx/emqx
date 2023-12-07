@@ -3,7 +3,7 @@
     {description, "EMQX Modules"},
     {vsn, "5.0.24"},
     {modules, []},
-    {applications, [kernel, stdlib, emqx, emqx_ctl]},
+    {applications, [kernel, stdlib, emqx, emqx_ctl, observer_cli]},
     {mod, {emqx_modules_app, []}},
     {registered, [emqx_modules_sup]},
     {env, []}

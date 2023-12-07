@@ -34,7 +34,8 @@
 
 -export_type([
     start_opts/0,
-    start_error/0
+    start_error/0,
+    migrate_to/0
 ]).
 
 -ifdef(TEST).

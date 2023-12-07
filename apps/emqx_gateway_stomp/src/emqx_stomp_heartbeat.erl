@@ -27,6 +27,8 @@
     interval/2
 ]).
 
+-export_type([heartbeat/0]).
+
 -record(heartbeater, {interval, statval, repeat}).
 
 -type name() :: incoming | outgoing.

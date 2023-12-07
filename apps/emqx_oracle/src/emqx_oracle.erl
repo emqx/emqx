@@ -66,7 +66,7 @@
 % be sync for now.
 callback_mode() -> always_sync.
 
--spec on_start(binary(), hoconsc:config()) -> {ok, state()} | {error, _}.
+-spec on_start(binary(), hocon:config()) -> {ok, state()} | {error, _}.
 on_start(
     InstId,
     #{

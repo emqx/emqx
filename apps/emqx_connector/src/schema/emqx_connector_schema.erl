@@ -18,7 +18,10 @@
 -include_lib("typerefl/include/types.hrl").
 -include_lib("hocon/include/hoconsc.hrl").
 -include_lib("emqx/include/logger.hrl").
+
+-ifdef(TEST).
 -include_lib("eunit/include/eunit.hrl").
+-endif.
 
 -import(hoconsc, [mk/2, ref/2]).
 
@@ -557,6 +560,12 @@ to_bin(Bin) when is_binary(Bin) ->
 to_bin(Something) ->
     Something.
 
+node_name() ->
+    {"node", mk(binary(), #{desc => ?DESC("desc_node_name"), example => "emqx@127.0.0.1"})}.
+
+status() ->
+    hoconsc:enum([connected, disconnected, connecting, inconsistent]).
+
 -ifdef(TEST).
 -include_lib("hocon/include/hocon_types.hrl").
 schema_homogeneous_test() ->
@@ -590,12 +599,6 @@ is_bad_schema(#{type := ?MAP(_, ?R_REF(Module, TypeName))}) ->
                 missing_fields => MissingFileds
             }}
     end.
-
-status() ->
-    hoconsc:enum([connected, disconnected, connecting, inconsistent]).
-
-node_name() ->
-    {"node", mk(binary(), #{desc => ?DESC("desc_node_name"), example => "emqx@127.0.0.1"})}.
 
 common_field_names() ->
     [

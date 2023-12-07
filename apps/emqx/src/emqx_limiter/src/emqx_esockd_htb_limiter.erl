@@ -25,7 +25,7 @@
     module := ?MODULE,
     id := emqx_limiter_schema:limiter_id(),
     type := emqx_limiter_schema:limiter_type(),
-    bucket := hocons:config()
+    bucket := hocon:config()
 }.
 
 %%--------------------------------------------------------------------
@@ -35,7 +35,7 @@
 -spec new_create_options(
     emqx_limiter_schema:limiter_id(),
     emqx_limiter_schema:limiter_type(),
-    hocons:config()
+    hocon:config()
 ) -> create_options().
 new_create_options(Id, Type, BucketCfg) ->
     #{module => ?MODULE, id => Id, type => Type, bucket => BucketCfg}.

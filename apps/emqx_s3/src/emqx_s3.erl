@@ -82,7 +82,7 @@ update_profile(ProfileId, ProfileConfig) when ?IS_PROFILE_ID(ProfileId) ->
     emqx_s3_profile_conf:update_config(ProfileId, ProfileConfig).
 
 -spec start_uploader(profile_id(), emqx_s3_uploader:opts()) ->
-    supervisor:start_ret() | {error, profile_not_found}.
+    emqx_types:startlink_ret() | {error, profile_not_found}.
 start_uploader(ProfileId, Opts) when ?IS_PROFILE_ID(ProfileId) ->
     emqx_s3_profile_uploader_sup:start_uploader(ProfileId, Opts).
 

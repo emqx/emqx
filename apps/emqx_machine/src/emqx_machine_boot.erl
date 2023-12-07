@@ -36,9 +36,6 @@
 %% If any of these applications crash, the entire EMQX node shuts down:
 -define(BASIC_PERMANENT_APPS, [mria, ekka, esockd, emqx]).
 
-%% These apps should NOT be (re)started automatically:
--define(EXCLUDED_APPS, [system_monitor, observer_cli, jq]).
-
 %% These apps are optional, they may or may not be present in the
 %% release, depending on the build flags:
 -define(OPTIONAL_APPS, [bcrypt, observer]).
@@ -157,7 +154,7 @@ basic_reboot_apps() ->
 excluded_apps() ->
     %% Optional apps _should_ be (re)started automatically, but only
     %% when they are found in the release:
-    ?EXCLUDED_APPS ++ [App || App <- ?OPTIONAL_APPS, not is_app(App)].
+    [App || App <- ?OPTIONAL_APPS, not is_app(App)].
 
 is_app(Name) ->
     case application:load(Name) of

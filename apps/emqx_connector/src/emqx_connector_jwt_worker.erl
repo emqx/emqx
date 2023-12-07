@@ -41,10 +41,12 @@
 -include_lib("jose/include/jose_jwk.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
+-type duration() :: non_neg_integer().
+
 -type config() :: #{
     private_key := binary(),
     resource_id := resource_id(),
-    expiration := timer:time(),
+    expiration := duration(),
     table := ets:table(),
     iss := binary(),
     sub := binary(),
@@ -54,9 +56,9 @@
 }.
 -type jwt() :: binary().
 -type state() :: #{
-    refresh_timer := undefined | timer:tref() | reference(),
+    refresh_timer := undefined | reference(),
     resource_id := resource_id(),
-    expiration := timer:time(),
+    expiration := duration(),
     table := ets:table(),
     jwt := undefined | jwt(),
     %% only undefined during startup
@@ -221,7 +223,7 @@ censor_secret(undefined) ->
 censor_secret(_Secret) ->
     "******".
 
--spec cancel_timer(undefined | timer:tref() | reference()) -> ok.
+-spec cancel_timer(undefined | reference() | reference()) -> ok.
 cancel_timer(undefined) ->
     ok;
 cancel_timer(TRef) ->

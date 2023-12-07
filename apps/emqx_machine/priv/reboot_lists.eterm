@@ -24,8 +24,15 @@
             runtime_tools,
             redbug,
             xmerl,
+            %% has no application/2 callback
             {hocon, load},
-            telemetry
+            telemetry,
+            observer_cli,
+            covertool,
+            tools,
+            observer,
+            {system_monitor, load},
+            jq
         ],
     %% must always be of type `load'
     common_business_apps =>
@@ -33,11 +40,6 @@
             emqx,
             emqx_conf,
             esasl,
-            observer_cli,
-            tools,
-            covertool,
-            %% started by emqx_machine
-            system_monitor,
             emqx_utils,
             emqx_durable_storage,
             emqx_http_lib,
@@ -79,9 +81,7 @@
             emqx_plugins,
             emqx_opentelemetry,
             quicer,
-            bcrypt,
-            jq,
-            observer
+            bcrypt
         ],
     %% must always be of type `load'
     ee_business_apps =>

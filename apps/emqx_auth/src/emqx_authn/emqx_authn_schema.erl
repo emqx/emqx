@@ -21,7 +21,9 @@
 -include("emqx_authn.hrl").
 -include("emqx_authn_chains.hrl").
 
+-ifdef(TEST).
 -include_lib("eunit/include/eunit.hrl").
+-endif.
 
 -behaviour(emqx_schema_hooks).
 -export([

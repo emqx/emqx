@@ -191,7 +191,7 @@ push_err(Line, Err, S = #s{errors = Errs}) ->
 push_target(Target, S = #s{targets = Targets}) ->
     S#s{targets = [Target | Targets]}.
 
--spec api_and_version(module()) -> {ok, emqx_bpapi:api(), emqx_bpapi:version()} | error.
+-spec api_and_version(module()) -> {ok, emqx_bpapi:api(), emqx_bpapi:api_version()} | error.
 api_and_version(Module) ->
     Opts = [{capture, all_but_first, list}],
     case re:run(atom_to_list(Module), "(.*)_proto_v([0-9]+)$", Opts) of
