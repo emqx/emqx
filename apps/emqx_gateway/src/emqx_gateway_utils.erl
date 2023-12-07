@@ -89,17 +89,17 @@
 
 -elvis([{elvis_style, god_modules, disable}]).
 
--spec childspec(supervisor:worker(), Mod :: atom()) ->
+-spec childspec(worker | supervisor, Mod :: atom()) ->
     supervisor:child_spec().
 childspec(Type, Mod) ->
     childspec(Mod, Type, Mod, []).
 
--spec childspec(supervisor:worker(), Mod :: atom(), Args :: list()) ->
+-spec childspec(worker | supervisor, Mod :: atom(), Args :: list()) ->
     supervisor:child_spec().
 childspec(Type, Mod, Args) ->
     childspec(Mod, Type, Mod, Args).
 
--spec childspec(atom(), supervisor:worker(), Mod :: atom(), Args :: list()) ->
+-spec childspec(atom(), worker | supervisor, Mod :: atom(), Args :: list()) ->
     supervisor:child_spec().
 childspec(Id, Type, Mod, Args) ->
     #{
@@ -121,7 +121,7 @@ supervisor_ret({error, {Reason, Child}}) ->
 supervisor_ret(Ret) ->
     Ret.
 
--spec find_sup_child(Sup :: pid() | atom(), ChildId :: supervisor:child_id()) ->
+-spec find_sup_child(Sup :: pid() | atom(), ChildId :: term()) ->
     false
     | {ok, pid()}.
 find_sup_child(Sup, ChildId) ->

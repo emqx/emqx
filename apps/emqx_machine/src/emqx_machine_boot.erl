@@ -36,9 +36,6 @@
 %% If any of these applications crash, the entire EMQX node shuts down:
 -define(BASIC_PERMANENT_APPS, [mria, ekka, esockd, emqx]).
 
-%% These apps should NOT be (re)started automatically:
--define(EXCLUDED_APPS, [system_monitor, observer_cli, jq]).
-
 %% These apps are optional, they may or may not be present in the
 %% release, depending on the build flags:
 -define(OPTIONAL_APPS, [bcrypt, observer]).
@@ -69,9 +66,7 @@ stop_apps() ->
     ?SLOG(notice, #{msg => "stopping_emqx_apps"}),
     _ = emqx_alarm_handler:unload(),
     ok = emqx_conf_app:unset_config_loaded(),
-    lists:foreach(fun stop_one_app/1, lists:reverse(sorted_reboot_apps())),
-    %% Mute otel deps application.
-    ok = emqx_otel_app:stop_deps().
+    lists:foreach(fun stop_one_app/1, lists:reverse(sorted_reboot_apps())).
 
 %% Those port apps are terminated after the main apps
 %% Don't need to stop when reboot.
@@ -159,7 +154,7 @@ basic_reboot_apps() ->
 excluded_apps() ->
     %% Optional apps _should_ be (re)started automatically, but only
     %% when they are found in the release:
-    ?EXCLUDED_APPS ++ [App || App <- ?OPTIONAL_APPS, not is_app(App)].
+    [App || App <- ?OPTIONAL_APPS, not is_app(App)].
 
 is_app(Name) ->
     case application:load(Name) of

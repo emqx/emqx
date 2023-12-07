@@ -93,7 +93,7 @@ t_custom_shard_transports(_Config) ->
     Shard = test_shard,
     %% the config keys are binaries
     ShardBin = atom_to_binary(Shard),
-    DefaultTransport = gen_rpc,
+    DefaultTransport = distr,
     ?assertEqual(DefaultTransport, mria_config:shard_transport(Shard)),
     application:set_env(emqx_machine, custom_shard_transports, #{ShardBin => distr}),
     emqx_machine:start(),

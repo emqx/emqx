@@ -38,13 +38,18 @@
     unsubscribe/2
 ]).
 
+%% TODO:
+%% The spec should be :: grpc_cowboy_h:error_response()
+%% But there is no such module as grpc_cowboy_h
+-type error_response() :: term().
+
 %%--------------------------------------------------------------------
 %% gRPC ConnectionAdapter service
 %%--------------------------------------------------------------------
 
 -spec send(emqx_exproto_pb:send_bytes_request(), grpc:metadata()) ->
     {ok, emqx_exproto_pb:code_response(), grpc:metadata()}
-    | {error, grpc_cowboy_h:error_response()}.
+    | {error, error_response()}.
 send(Req = #{conn := Conn, bytes := Bytes}, Md) ->
     ?SLOG(debug, #{
         msg => "recv_grpc_function_call",
@@ -55,7 +60,7 @@ send(Req = #{conn := Conn, bytes := Bytes}, Md) ->
 
 -spec close(emqx_exproto_pb:close_socket_request(), grpc:metadata()) ->
     {ok, emqx_exproto_pb:code_response(), grpc:metadata()}
-    | {error, grpc_cowboy_h:error_response()}.
+    | {error, error_response()}.
 close(Req = #{conn := Conn}, Md) ->
     ?SLOG(debug, #{
         msg => "recv_grpc_function_call",
@@ -66,7 +71,7 @@ close(Req = #{conn := Conn}, Md) ->
 
 -spec authenticate(emqx_exproto_pb:authenticate_request(), grpc:metadata()) ->
     {ok, emqx_exproto_pb:code_response(), grpc:metadata()}
-    | {error, grpc_cowboy_h:error_response()}.
+    | {error, error_response()}.
 authenticate(
     Req = #{
         conn := Conn,
@@ -89,7 +94,7 @@ authenticate(
 
 -spec start_timer(emqx_exproto_pb:timer_request(), grpc:metadata()) ->
     {ok, emqx_exproto_pb:code_response(), grpc:metadata()}
-    | {error, grpc_cowboy_h:error_response()}.
+    | {error, error_response()}.
 start_timer(Req = #{conn := Conn, type := Type, interval := Interval}, Md) when
     Type =:= 'KEEPALIVE' andalso Interval > 0
 ->
@@ -111,7 +116,7 @@ start_timer(Req, Md) ->
 
 -spec publish(emqx_exproto_pb:publish_request(), grpc:metadata()) ->
     {ok, emqx_exproto_pb:code_response(), grpc:metadata()}
-    | {error, grpc_cowboy_h:error_response()}.
+    | {error, error_response()}.
 publish(Req = #{conn := Conn, topic := Topic, qos := Qos, payload := Payload}, Md) when
     ?IS_QOS(Qos)
 ->
@@ -132,7 +137,7 @@ publish(Req, Md) ->
 
 -spec raw_publish(emqx_exproto_pb:raw_publish_request(), grpc:metadata()) ->
     {ok, emqx_exproto_pb:code_response(), grpc:metadata()}
-    | {error, grpc_stream:error_response()}.
+    | {error, error_response()}.
 raw_publish(Req = #{topic := Topic, qos := Qos, payload := Payload}, Md) ->
     ?SLOG(debug, #{
         msg => "recv_grpc_function_call",
@@ -145,7 +150,7 @@ raw_publish(Req = #{topic := Topic, qos := Qos, payload := Payload}, Md) ->
 
 -spec subscribe(emqx_exproto_pb:subscribe_request(), grpc:metadata()) ->
     {ok, emqx_exproto_pb:code_response(), grpc:metadata()}
-    | {error, grpc_cowboy_h:error_response()}.
+    | {error, error_response()}.
 subscribe(Req = #{conn := Conn, topic := Topic, qos := Qos}, Md) when
     ?IS_QOS(Qos)
 ->
@@ -165,7 +170,7 @@ subscribe(Req, Md) ->
 
 -spec unsubscribe(emqx_exproto_pb:unsubscribe_request(), grpc:metadata()) ->
     {ok, emqx_exproto_pb:code_response(), grpc:metadata()}
-    | {error, grpc_cowboy_h:error_response()}.
+    | {error, error_response()}.
 unsubscribe(Req = #{conn := Conn, topic := Topic}, Md) ->
     ?SLOG(debug, #{
         msg => "recv_grpc_function_call",

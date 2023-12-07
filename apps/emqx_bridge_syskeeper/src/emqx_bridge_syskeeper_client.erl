@@ -25,9 +25,11 @@
 
 -include("emqx_bridge_syskeeper.hrl").
 
+-type duration() :: non_neg_integer().
+
 -type state() :: #{
     ack_mode := need_ack | no_ack,
-    ack_timeout := timer:time(),
+    ack_timeout := duration(),
     socket := undefined | inet:socket(),
     frame_state := emqx_bridge_syskeeper_frame:state(),
     last_error := undefined | tuple()

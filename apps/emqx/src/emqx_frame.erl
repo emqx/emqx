@@ -960,6 +960,8 @@ serialize_properties(Props) when is_map(Props) ->
 
 serialize_property(_, Disabled) when Disabled =:= disabled; Disabled =:= undefined ->
     <<>>;
+serialize_property(internal_extra, _) ->
+    <<>>;
 serialize_property('Payload-Format-Indicator', Val) ->
     <<16#01, Val>>;
 serialize_property('Message-Expiry-Interval', Val) ->

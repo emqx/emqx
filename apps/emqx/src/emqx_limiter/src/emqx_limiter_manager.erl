@@ -77,7 +77,7 @@
 start_server(Type) ->
     emqx_limiter_server_sup:start(Type).
 
--spec start_server(limiter_type(), hocons:config()) -> _.
+-spec start_server(limiter_type(), hocon:config()) -> _.
 start_server(Type, Cfg) ->
     emqx_limiter_server_sup:start(Type, Cfg).
 

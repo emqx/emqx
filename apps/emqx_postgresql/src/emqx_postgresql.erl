@@ -100,7 +100,7 @@ adjust_fields(Fields) ->
 %% ===================================================================
 callback_mode() -> always_sync.
 
--spec on_start(binary(), hoconsc:config()) -> {ok, state()} | {error, _}.
+-spec on_start(binary(), hocon:config()) -> {ok, state()} | {error, _}.
 on_start(
     InstId,
     #{
@@ -383,11 +383,12 @@ get_prepared_statement(Key, #{prepares := PrepStatements}) ->
 
 on_sql_query(InstId, PoolName, Type, NameOrSQL, Data) ->
     try ecpool:pick_and_do(PoolName, {?MODULE, Type, [NameOrSQL, Data]}, no_handover) of
-        {error, Reason} = Result ->
+        {error, Reason} ->
             ?tp(
                 pgsql_connector_query_return,
                 #{error => Reason}
             ),
+            TranslatedError = translate_to_log_context(Reason),
             ?SLOG(
                 error,
                 maps:merge(
@@ -397,7 +398,7 @@ on_sql_query(InstId, PoolName, Type, NameOrSQL, Data) ->
                         type => Type,
                         sql => NameOrSQL
                     },
-                    translate_to_log_context(Reason)
+                    TranslatedError
                 )
             ),
             case Reason of
@@ -406,9 +407,9 @@ on_sql_query(InstId, PoolName, Type, NameOrSQL, Data) ->
                 ecpool_empty ->
                     {error, {recoverable_error, Reason}};
                 {error, error, _, undefined_table, _, _} ->
-                    {error, {unrecoverable_error, Reason}};
+                    {error, {unrecoverable_error, export_error(TranslatedError)}};
                 _ ->
-                    Result
+                    {error, export_error(TranslatedError)}
             end;
         Result ->
             ?tp(
@@ -593,15 +594,16 @@ init_prepare(State = #{}) ->
         {ok, PrepStatements} ->
             State#{prepares => PrepStatements};
         Error ->
+            TranslatedError = translate_to_log_context(Error),
             ?SLOG(
                 error,
                 maps:merge(
                     #{msg => <<"postgresql_init_prepare_statement_failed">>},
-                    translate_to_log_context(Error)
+                    TranslatedError
                 )
             ),
             %% mark the prepares failed
-            State#{prepares => Error}
+            State#{prepares => {error, export_error(TranslatedError)}}
     end.
 
 prepare_sql(#{query_templates := Templates, pool_name := PoolName}) ->
@@ -652,14 +654,15 @@ prepare_sql_to_conn(Conn, [{Key, {SQL, _RowTemplate}} | Rest], Statements) when 
                 ),
             ?SLOG(error, LogMsg),
             {error, undefined_table};
-        {error, Error} = Other ->
+        {error, Error} ->
+            TranslatedError = translate_to_log_context(Error),
             LogMsg =
                 maps:merge(
                     LogMeta#{msg => "postgresql_parse_failed"},
-                    translate_to_log_context(Error)
+                    TranslatedError
                 ),
             ?SLOG(error, LogMsg),
-            Other
+            {error, export_error(TranslatedError)}
     end.
 
 to_bin(Bin) when is_binary(Bin) ->
@@ -674,17 +677,21 @@ handle_result({error, {unrecoverable_error, _Error}} = Res) ->
 handle_result({error, disconnected}) ->
     {error, {recoverable_error, disconnected}};
 handle_result({error, Error}) ->
-    {error, {unrecoverable_error, Error}};
+    TranslatedError = translate_to_log_context(Error),
+    {error, {unrecoverable_error, export_error(TranslatedError)}};
 handle_result(Res) ->
     Res.
 
 handle_batch_result([{ok, Count} | Rest], Acc) ->
     handle_batch_result(Rest, Acc + Count);
 handle_batch_result([{error, Error} | _Rest], _Acc) ->
-    {error, {unrecoverable_error, Error}};
+    TranslatedError = translate_to_log_context(Error),
+    {error, {unrecoverable_error, export_error(TranslatedError)}};
 handle_batch_result([], Acc) ->
     {ok, Acc}.
 
+translate_to_log_context({error, Reason}) ->
+    translate_to_log_context(Reason);
 translate_to_log_context(#error{} = Reason) ->
     #error{
         severity = Severity,
@@ -702,3 +709,19 @@ translate_to_log_context(#error{} = Reason) ->
     };
 translate_to_log_context(Reason) ->
     #{reason => Reason}.
+
+export_error(#{
+    driver_severity := Severity,
+    driver_error_codename := Codename,
+    driver_error_code := Code
+}) ->
+    %% Extra information has already been logged.
+    #{
+        error_code => Code,
+        error_codename => Codename,
+        severity => Severity
+    };
+export_error(#{reason := Reason}) ->
+    Reason;
+export_error(Error) ->
+    Error.

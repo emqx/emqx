@@ -98,7 +98,7 @@
 #+W w
 
 ## Sets time warp mode: no_time_warp | single_time_warp | multi_time_warp
-#+C no_time_warp
++C multi_time_warp
 
 ## Prevents loading information about source filenames and line numbers.
 #+L

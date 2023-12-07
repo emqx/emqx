@@ -207,7 +207,7 @@ t_to_map(_) ->
         {topic, <<"topic">>},
         {payload, <<"payload">>},
         {timestamp, emqx_message:timestamp(Msg)},
-        {extra, []}
+        {extra, #{}}
     ],
     ?assertEqual(List, emqx_message:to_list(Msg)),
     ?assertEqual(maps:from_list(List), emqx_message:to_map(Msg)).
@@ -223,7 +223,7 @@ t_from_map(_) ->
         topic => <<"topic">>,
         payload => <<"payload">>,
         timestamp => emqx_message:timestamp(Msg),
-        extra => []
+        extra => #{}
     },
     ?assertEqual(Map, emqx_message:to_map(Msg)),
     ?assertEqual(Msg, emqx_message:from_map(emqx_message:to_map(Msg))).

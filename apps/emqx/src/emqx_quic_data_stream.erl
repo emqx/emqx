@@ -124,7 +124,7 @@ send_complete(_Stream, false, S) ->
 send_complete(_Stream, true = _IsCanceled, S) ->
     {ok, S}.
 
--spec send_shutdown_complete(stream_handle(), error_code(), cb_state()) -> cb_ret().
+-spec send_shutdown_complete(stream_handle(), IsGraceful :: boolean(), cb_state()) -> cb_ret().
 send_shutdown_complete(_Stream, _Flags, S) ->
     {ok, S}.
 
@@ -321,7 +321,7 @@ serialize_packet(Packet, Serialize) ->
 -spec init_state(
     quicer:stream_handle(),
     quicer:connection_handle(),
-    quicer:new_stream_props()
+    non_neg_integer()
 ) ->
     % @TODO
     map().

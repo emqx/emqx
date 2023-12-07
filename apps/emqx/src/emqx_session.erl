@@ -114,7 +114,9 @@
     reply/0,
     replies/0,
     common_timer_name/0,
-    custom_timer_name/0
+    custom_timer_name/0,
+    session_id/0,
+    session/0
 ]).
 
 -type session_id() :: _TODO.
@@ -149,6 +151,8 @@
     %% Awaiting PUBREL Timeout (Unit: millisecond)
     await_rel_timeout := timeout()
 }.
+
+-type session() :: t().
 
 -type t() ::
     emqx_session_mem:session()

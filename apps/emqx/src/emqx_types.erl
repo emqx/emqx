@@ -114,6 +114,8 @@
 
 -export_type([takeover_data/0]).
 
+-export_type([startlink_ret/0]).
+
 -type proto_ver() ::
     ?MQTT_PROTO_V3
     | ?MQTT_PROTO_V4

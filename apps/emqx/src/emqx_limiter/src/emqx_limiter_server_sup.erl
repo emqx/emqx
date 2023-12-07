@@ -47,7 +47,7 @@ start(Type) ->
     Spec = make_child(Type),
     supervisor:start_child(?MODULE, Spec).
 
--spec start(emqx_limiter_schema:limiter_type(), hocons:config()) -> _.
+-spec start(emqx_limiter_schema:limiter_type(), hocon:config()) -> _.
 start(Type, Cfg) ->
     Spec = make_child(Type, Cfg),
     supervisor:start_child(?MODULE, Spec).

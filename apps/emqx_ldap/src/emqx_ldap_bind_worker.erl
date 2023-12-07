@@ -33,7 +33,7 @@
 -define(POOL_NAME_SUFFIX, "bind_worker").
 
 %% ===================================================================
--spec on_start(binary(), hoconsc:config(), proplists:proplist(), map()) ->
+-spec on_start(binary(), hocon:config(), proplists:proplist(), map()) ->
     {ok, binary(), map()} | {error, _}.
 on_start(InstId, #{method := #{bind_password := _}} = Config, Options, State) ->
     PoolName = pool_name(InstId),

@@ -15,7 +15,7 @@
 
 -export([init/1]).
 
--spec start_link(emqx_s3:profile_id(), emqx_s3:profile_config()) -> supervisor:start_ret().
+-spec start_link(emqx_s3:profile_id(), emqx_s3:profile_config()) -> emqx_types:startlink_ret().
 start_link(ProfileId, ProfileConfig) ->
     supervisor:start_link(?MODULE, [ProfileId, ProfileConfig]).
 

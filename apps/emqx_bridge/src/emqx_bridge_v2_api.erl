@@ -91,12 +91,15 @@ paths() ->
         "/action_types"
     ].
 
-error_schema(Code, Message) when is_atom(Code) ->
-    error_schema([Code], Message);
-error_schema(Codes, Message) when is_list(Message) ->
-    error_schema(Codes, list_to_binary(Message));
-error_schema(Codes, Message) when is_list(Codes) andalso is_binary(Message) ->
-    emqx_dashboard_swagger:error_codes(Codes, Message).
+error_schema(Code, Message) ->
+    error_schema(Code, Message, _ExtraFields = []).
+
+error_schema(Code, Message, ExtraFields) when is_atom(Code) ->
+    error_schema([Code], Message, ExtraFields);
+error_schema(Codes, Message, ExtraFields) when is_list(Message) ->
+    error_schema(Codes, list_to_binary(Message), ExtraFields);
+error_schema(Codes, Message, ExtraFields) when is_list(Codes) andalso is_binary(Message) ->
+    ExtraFields ++ emqx_dashboard_swagger:error_codes(Codes, Message).
 
 get_response_body_schema() ->
     emqx_dashboard_swagger:schema_with_examples(
@@ -247,7 +250,8 @@ schema("/actions/:id") ->
                 204 => <<"Bridge deleted">>,
                 400 => error_schema(
                     'BAD_REQUEST',
-                    "Cannot delete bridge while active rules are defined for this bridge"
+                    "Cannot delete bridge while active rules are defined for this bridge",
+                    [{rules, mk(array(string()), #{desc => "Dependent Rule IDs"})}]
                 ),
                 404 => error_schema('NOT_FOUND', "Bridge not found"),
                 503 => error_schema('SERVICE_UNAVAILABLE', "Service unavailable")
@@ -445,15 +449,12 @@ schema("/action_types") ->
                         reason := rules_depending_on_this_bridge,
                         rule_ids := RuleIds
                     }} ->
-                        RuleIdLists = [binary_to_list(iolist_to_binary(X)) || X <- RuleIds],
-                        RulesStr = string:join(RuleIdLists, ", "),
-                        Msg = io_lib:format(
-                            "Cannot delete bridge while active rules are depending on it: ~s\n"
-                            "Append ?also_delete_dep_actions=true to the request URL to delete "
-                            "rule actions that depend on this bridge as well.",
-                            [RulesStr]
+                        Msg0 = ?ERROR_MSG(
+                            'BAD_REQUEST',
+                            bin("Cannot delete action while active rules are depending on it")
                         ),
-                        ?BAD_REQUEST(iolist_to_binary(Msg));
+                        Msg = Msg0#{rules => RuleIds},
+                        {400, Msg};
                     {error, timeout} ->
                         ?SERVICE_UNAVAILABLE(<<"request timeout">>);
                     {error, Reason} ->
@@ -550,8 +551,8 @@ schema("/action_types") ->
 '/action_types'(get, _Request) ->
     ?OK(emqx_bridge_v2_schema:types()).
 
-maybe_deobfuscate_bridge_probe(#{<<"type">> := BridgeType, <<"name">> := BridgeName} = Params) ->
-    case emqx_bridge:lookup(BridgeType, BridgeName) of
+maybe_deobfuscate_bridge_probe(#{<<"type">> := ActionType, <<"name">> := BridgeName} = Params) ->
+    case emqx_bridge_v2:lookup(ActionType, BridgeName) of
         {ok, #{raw_config := RawConf}} ->
             %% TODO check if RawConf optained above is compatible with the commented out code below
             %% RawConf = emqx:get_raw_config([bridges, BridgeType, BridgeName], #{}),
@@ -798,11 +799,12 @@ format_resource(
         name := Name,
         status := Status,
         error := Error,
-        raw_config := RawConf,
+        raw_config := RawConf0,
         resource_data := _ResourceData
     },
     Node
 ) ->
+    RawConf = fill_defaults(Type, RawConf0),
     redact(
         maps:merge(
             RawConf#{
@@ -932,6 +934,20 @@ aggregate_metrics(
         M16 + N16,
         M17 + N17
     ).
+
+fill_defaults(Type, RawConf) ->
+    PackedConf = pack_bridge_conf(Type, RawConf),
+    FullConf = emqx_config:fill_defaults(emqx_bridge_v2_schema, PackedConf, #{}),
+    unpack_bridge_conf(Type, FullConf).
+
+pack_bridge_conf(Type, RawConf) ->
+    #{<<"actions">> => #{bin(Type) => #{<<"foo">> => RawConf}}}.
+
+unpack_bridge_conf(Type, PackedConf) ->
+    TypeBin = bin(Type),
+    #{<<"actions">> := Bridges} = PackedConf,
+    #{<<"foo">> := RawConf} = maps:get(TypeBin, Bridges),
+    RawConf.
 
 format_bridge_status_and_error(Data) ->
     maps:fold(fun format_resource_data/3, #{}, maps:with([status, error], Data)).

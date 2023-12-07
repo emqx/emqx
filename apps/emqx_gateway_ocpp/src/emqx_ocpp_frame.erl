@@ -39,8 +39,11 @@
 -export_type([
     parse_state/0,
     parse_result/0,
-    frame/0
+    frame/0,
+    serialize_options/0
 ]).
+
+-type serialize_options() :: emqx_gateway_frame:serialize_options().
 
 -dialyzer({nowarn_function, [format/1]}).
 
@@ -114,7 +117,7 @@ parse(
         },
         <<>>, Parser}.
 
--spec serialize_opts() -> emqx_gateway_frame:serialize_options().
+-spec serialize_opts() -> serialize_options().
 serialize_opts() ->
     #{}.
 

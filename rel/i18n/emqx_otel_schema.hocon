@@ -11,11 +11,14 @@ otel_logs.label: "Open Telemetry Logs"
 otel_metrics.desc: "Open Telemetry Metrics configuration."
 otel_metrics.label: "Open Telemetry Metrics"
 
+otel_traces.desc: "Open Telemetry Traces configuration."
+otel_traces.label: "Open Telemetry Traces"
+
 enable.desc: "Enable or disable Open Telemetry signal."
 enable.label: "Enable."
 
-exporter.desc: "Open Telemetry Exporter"
-exporter.label: "Exporter"
+otel_exporter.desc: "Open Telemetry Exporter"
+otel_exporter.label: "Exporter"
 
 max_queue_size.desc:
 """The maximum queue size. After the size is reached Open Telemetry signals are dropped."""
@@ -40,5 +43,14 @@ exporter_ssl.label: "SSL Options"
 otel_log_handler_level.desc:
 """The log level of the Open Telemetry log handler."""
 otel_log_handler_level.label: "Log Level"
+
+trace_filter.desc: "Open Telemetry Trace Filter configuration"
+trace_filter.label: "Trace Filter"
+
+trace_all.desc:
+"""If enabled, all published messages are traced, a new trace ID is generated if it can't be extracted from the message.
+Otherwise, only messages published with trace context are traced. Disabled by default."""
+trace_all.label: "Trace All"
+
 
 }

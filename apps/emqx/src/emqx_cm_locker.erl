@@ -23,9 +23,7 @@
 
 -export([
     trans/2,
-    trans/3,
     lock/1,
-    lock/2,
     unlock/1
 ]).
 
@@ -33,19 +31,14 @@
 start_link() ->
     ekka_locker:start_link(?MODULE).
 
--spec trans(emqx_types:clientid(), fun(([node()]) -> any())) -> any().
-trans(ClientId, Fun) ->
-    trans(ClientId, Fun, undefined).
-
 -spec trans(
     maybe(emqx_types:clientid()),
-    fun(([node()]) -> any()),
-    ekka_locker:piggyback()
+    fun(([node()]) -> any())
 ) -> any().
-trans(undefined, Fun, _Piggyback) ->
+trans(undefined, Fun) ->
     Fun([]);
-trans(ClientId, Fun, Piggyback) ->
-    case lock(ClientId, Piggyback) of
+trans(ClientId, Fun) ->
+    case lock(ClientId) of
         {true, Nodes} ->
             try
                 Fun(Nodes)
@@ -56,13 +49,9 @@ trans(ClientId, Fun, Piggyback) ->
             {error, client_id_unavailable}
     end.
 
--spec lock(emqx_types:clientid()) -> ekka_locker:lock_result().
+-spec lock(emqx_types:clientid()) -> {boolean(), [node() | {node(), any()}]}.
 lock(ClientId) ->
     ekka_locker:acquire(?MODULE, ClientId, strategy()).
-
--spec lock(emqx_types:clientid(), ekka_locker:piggyback()) -> ekka_locker:lock_result().
-lock(ClientId, Piggyback) ->
-    ekka_locker:acquire(?MODULE, ClientId, strategy(), Piggyback).
 
 -spec unlock(emqx_types:clientid()) -> {boolean(), [node()]}.
 unlock(ClientId) ->

@@ -95,7 +95,7 @@ to_audit(#{from := erlang_console, function := F, args := Args}) ->
         http_method = <<"">>,
         http_request = <<"">>,
         duration_ms = 0,
-        args = iolist_to_binary(io_lib:format("~p: ~p~n", [F, Args]))
+        args = iolist_to_binary(io_lib:format("~p: ~ts", [F, Args]))
     }.
 
 log(_Level, undefined, _Handler) ->
@@ -141,7 +141,7 @@ handle_continue(setup, State) ->
     NewState = State#{role => mria_rlog:role()},
     ?AUDIT(alert, #{
         cmd => emqx,
-        args => ["start"],
+        args => [<<"start">>],
         version => emqx_release:version(),
         from => cli,
         duration_ms => 0

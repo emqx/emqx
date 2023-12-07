@@ -274,16 +274,17 @@ t_write_failure(Config) ->
         health_check_resource_down(Config),
         case QueryMode of
             sync ->
-                case EnableBatch of
-                    true ->
-                        %% append to batch always returns ok
-                        ?assertMatch(ok, send_message(Config, Data));
-                    false ->
-                        ?assertMatch(
-                            {error, {cannot_list_shards, {<<?STREAM>>, econnrefused}}},
-                            send_message(Config, Data)
-                        )
-                end;
+                %% Error (call timeout) is expected for both with_batch and without_batch.
+                %% `health_check_resource_down(Config)` above calls health check and asserts
+                %% that resource is already down.
+                %% So, emqx_resource_manager updates it state to disconnected before returning health_check result.
+                %% After that, emqx_resource_buffer_worker reads resource state and doesn't even attempt calling
+                %% hstreamdb connector, since it is disconnected, see: emqx_resource_buffer_worker.erl:1163:
+                %%   ```
+                %%     do_call_query(_QM, _Id, _Index, _Ref, _Query, _QueryOpts, _Data) ->
+                %%         ?RESOURCE_ERROR(not_connected, "resource not connected").
+                %%   ```
+                ?assertMatch({error, _}, send_message(Config, Data));
             async ->
                 %% TODO: async mode is not supported yet,
                 %% but it will return ok if calling emqx_resource_buffer_worker:async_query/3,

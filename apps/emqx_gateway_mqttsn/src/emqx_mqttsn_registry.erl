@@ -32,6 +32,8 @@
     lookup_topic_id/2
 ]).
 
+-export_type([registry/0]).
+
 -define(PKEY(Id), {mqttsn, predef_topics, Id}).
 
 -type registry() :: #{

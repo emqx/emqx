@@ -29,6 +29,8 @@
     is_empty/1
 ]).
 
+-export_type([grpc_client_state/0]).
+
 -define(CONN_HANDLER_MOD, emqx_exproto_v_1_connection_handler_client).
 -define(CONN_UNARY_HANDLER_MOD, emqx_exproto_v_1_connection_unary_handler_client).
 

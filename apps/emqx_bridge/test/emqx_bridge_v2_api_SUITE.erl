@@ -304,7 +304,7 @@ t_bridges_lifecycle(Config) ->
             <<"status">> := <<"connected">>,
             <<"node_status">> := [_ | _],
             <<"connector">> := ?CONNECTOR_NAME,
-            <<"kafka">> := #{},
+            <<"parameters">> := #{},
             <<"local_topic">> := _,
             <<"resource_opts">> := _
         }},
@@ -958,11 +958,12 @@ t_cascade_delete_actions(Config) ->
         },
         Config
     ),
-    {ok, 400, _} = request(
+    {ok, 400, Body} = request(
         delete,
         uri([?ROOT, BridgeID]),
         Config
     ),
+    ?assertMatch(#{<<"rules">> := [_ | _]}, emqx_utils_json:decode(Body, [return_maps])),
     {ok, 200, [_]} = request_json(get, uri([?ROOT]), Config),
     %% Cleanup
     {ok, 204, _} = request(
@@ -1134,6 +1135,19 @@ t_cluster_later_join_metrics(Config) ->
             ok
         end,
         []
+    ),
+    ok.
+
+t_raw_config_response_defaults(Config) ->
+    Params = maps:remove(<<"enable">>, ?KAFKA_BRIDGE(?BRIDGE_NAME)),
+    ?assertMatch(
+        {ok, 201, #{<<"enable">> := true}},
+        request_json(
+            post,
+            uri([?ROOT]),
+            Params,
+            Config
+        )
     ),
     ok.
 

@@ -610,11 +610,12 @@ format_resource(
     #{
         type := Type,
         name := ConnectorName,
-        raw_config := RawConf,
+        raw_config := RawConf0,
         resource_data := ResourceData
     },
     Node
 ) ->
+    RawConf = fill_defaults(Type, RawConf0),
     redact(
         maps:merge(
             RawConf#{
@@ -637,6 +638,20 @@ format_resource_data(added_channels, Channels, Result) ->
     Result#{actions => lists:map(fun format_action/1, maps:keys(Channels))};
 format_resource_data(K, V, Result) ->
     Result#{K => V}.
+
+fill_defaults(Type, RawConf) ->
+    PackedConf = pack_connector_conf(Type, RawConf),
+    FullConf = emqx_config:fill_defaults(emqx_connector_schema, PackedConf, #{}),
+    unpack_connector_conf(Type, FullConf).
+
+pack_connector_conf(Type, RawConf) ->
+    #{<<"connectors">> => #{bin(Type) => #{<<"foo">> => RawConf}}}.
+
+unpack_connector_conf(Type, PackedConf) ->
+    TypeBin = bin(Type),
+    #{<<"connectors">> := Bridges} = PackedConf,
+    #{<<"foo">> := RawConf} = maps:get(TypeBin, Bridges),
+    RawConf.
 
 format_action(ActionId) ->
     element(2, emqx_bridge_v2:parse_id(ActionId)).

@@ -79,6 +79,12 @@
 
 -export([clamp/3, redact/1, redact/2, is_redacted/2, is_redacted/3]).
 
+-export_type([
+    readable_error_msg/1
+]).
+
+-type readable_error_msg(_Error) :: binary().
+
 -type maybe(T) :: undefined | T.
 
 -dialyzer({nowarn_function, [nolink_apply/2]}).
@@ -435,7 +441,7 @@ pmap(Fun, List, Timeout) when
 nolink_apply(Fun) -> nolink_apply(Fun, infinity).
 
 %% @doc Same as `nolink_apply/1', with a timeout.
--spec nolink_apply(function(), timer:timeout()) -> term().
+-spec nolink_apply(function(), timeout()) -> term().
 nolink_apply(Fun, Timeout) when is_function(Fun, 0) ->
     Caller = self(),
     ResRef = alias([reply]),
@@ -760,6 +766,9 @@ do_is_redacted(K, ?REDACT_VAL, Fun) ->
     Fun(K);
 do_is_redacted(K, <<?REDACT_VAL>>, Fun) ->
     Fun(K);
+do_is_redacted(_K, V, _Fun) when is_function(V, 0) ->
+    %% already wrapped by `emqx_secret' or other module
+    true;
 do_is_redacted(_K, _V, _Fun) ->
     false.
 

@@ -17,7 +17,7 @@
 
 -export([init/1]).
 
--spec init(hocons:config()) -> {Module :: atom(), Config :: term()}.
+-spec init(hocon:config()) -> {Module :: atom(), Config :: term()}.
 init(Config) ->
     do_init(Config).
 

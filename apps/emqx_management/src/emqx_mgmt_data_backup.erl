@@ -105,7 +105,7 @@
 }.
 
 -type db_error_details() :: #{mria:table() => {error, _}}.
--type config_error_details() :: #{emqx_utils_maps:config_path() => {error, _}}.
+-type config_error_details() :: #{emqx_utils_maps:config_key_path() => {error, _}}.
 -type import_res() ::
     {ok, #{db_errors => db_error_details(), config_errors => config_error_details()}} | {error, _}.
 

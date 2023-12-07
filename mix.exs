@@ -51,20 +51,20 @@ defmodule EMQXUmbrella.MixProject do
       {:typerefl, github: "ieQu1/typerefl", tag: "0.9.1", override: true},
       {:ehttpc, github: "emqx/ehttpc", tag: "0.4.11", override: true},
       {:gproc, github: "emqx/gproc", tag: "0.9.0.1", override: true},
-      {:jiffy, github: "emqx/jiffy", tag: "1.0.5", override: true},
+      {:jiffy, github: "emqx/jiffy", tag: "1.0.6", override: true},
       {:cowboy, github: "emqx/cowboy", tag: "2.9.2", override: true},
-      {:esockd, github: "emqx/esockd", tag: "5.9.8", override: true},
-      {:rocksdb, github: "emqx/erlang-rocksdb", tag: "1.8.0-emqx-1", override: true},
-      {:ekka, github: "emqx/ekka", tag: "0.15.16", override: true},
+      {:esockd, github: "emqx/esockd", tag: "5.9.9", override: true},
+      {:rocksdb, github: "emqx/erlang-rocksdb", tag: "1.8.0-emqx-2", override: true},
+      {:ekka, github: "emqx/ekka", tag: "0.17.0", override: true},
       {:gen_rpc, github: "emqx/gen_rpc", tag: "3.3.0", override: true},
-      {:grpc, github: "emqx/grpc-erl", tag: "0.6.8", override: true},
-      {:minirest, github: "emqx/minirest", tag: "1.3.14", override: true},
+      {:grpc, github: "emqx/grpc-erl", tag: "0.6.12", override: true},
+      {:minirest, github: "emqx/minirest", tag: "1.3.15", override: true},
       {:ecpool, github: "emqx/ecpool", tag: "0.5.4", override: true},
       {:replayq, github: "emqx/replayq", tag: "0.3.7", override: true},
       {:pbkdf2, github: "emqx/erlang-pbkdf2", tag: "2.0.4", override: true},
       # maybe forbid to fetch quicer
       {:emqtt,
-       github: "emqx/emqtt", tag: "1.9.7", override: true, system_env: maybe_no_quic_env()},
+       github: "emqx/emqtt", tag: "1.10.1", override: true, system_env: maybe_no_quic_env()},
       {:rulesql, github: "emqx/rulesql", tag: "0.1.7"},
       {:observer_cli, "1.7.1"},
       {:system_monitor, github: "ieQu1/system_monitor", tag: "3.0.3"},
@@ -72,7 +72,7 @@ defmodule EMQXUmbrella.MixProject do
       # in conflict by emqtt and hocon
       {:getopt, "1.0.2", override: true},
       {:snabbkaffe, github: "kafka4beam/snabbkaffe", tag: "1.0.8", override: true},
-      {:hocon, github: "emqx/hocon", tag: "0.40.0", override: true},
+      {:hocon, github: "emqx/hocon", tag: "0.40.1", override: true},
       {:emqx_http_lib, github: "emqx/emqx_http_lib", tag: "0.5.3", override: true},
       {:esasl, github: "emqx/esasl", tag: "0.2.0"},
       {:jose, github: "potatosalad/erlang-jose", tag: "1.11.2"},
@@ -96,39 +96,9 @@ defmodule EMQXUmbrella.MixProject do
       {:gpb, "4.19.9", override: true, runtime: false},
       {:hackney, github: "emqx/hackney", tag: "1.18.1-1", override: true},
       # set by hackney (dependency)
-      {:ssl_verify_fun, "1.1.6", override: true},
+      {:ssl_verify_fun, "1.1.7", override: true},
       {:uuid, github: "okeuday/uuid", tag: "v2.0.6", override: true},
-      {:quickrand, github: "okeuday/quickrand", tag: "v2.0.6", override: true},
-      {:opentelemetry_api,
-       github: "emqx/opentelemetry-erlang",
-       sparse: "apps/opentelemetry_api",
-       tag: "v1.4.2-emqx",
-       override: true,
-       runtime: false},
-      {:opentelemetry,
-       github: "emqx/opentelemetry-erlang",
-       sparse: "apps/opentelemetry",
-       tag: "v1.4.2-emqx",
-       override: true,
-       runtime: false},
-      {:opentelemetry_api_experimental,
-       github: "emqx/opentelemetry-erlang",
-       sparse: "apps/opentelemetry_api_experimental",
-       tag: "v1.4.2-emqx",
-       override: true,
-       runtime: false},
-      {:opentelemetry_experimental,
-       github: "emqx/opentelemetry-erlang",
-       sparse: "apps/opentelemetry_experimental",
-       tag: "v1.4.2-emqx",
-       override: true,
-       runtime: false},
-      {:opentelemetry_exporter,
-       github: "emqx/opentelemetry-erlang",
-       sparse: "apps/opentelemetry_exporter",
-       tag: "v1.4.2-emqx",
-       override: true,
-       runtime: false}
+      {:quickrand, github: "okeuday/quickrand", tag: "v2.0.6", override: true}
     ] ++
       emqx_apps(profile_info, version) ++
       enterprise_deps(profile_info) ++ bcrypt_dep() ++ jq_dep() ++ quicer_dep()
@@ -830,7 +800,7 @@ defmodule EMQXUmbrella.MixProject do
   defp quicer_dep() do
     if enable_quicer?(),
       # in conflict with emqx and emqtt
-      do: [{:quicer, github: "emqx/quic", tag: "0.0.303", override: true}],
+      do: [{:quicer, github: "emqx/quic", tag: "0.0.308", override: true}],
       else: []
   end
 

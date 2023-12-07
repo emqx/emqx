@@ -604,7 +604,11 @@ t_missing_data(Config) ->
         #{
             result :=
                 {error,
-                    {unrecoverable_error, {error, error, <<"23502">>, not_null_violation, _, _}}}
+                    {unrecoverable_error, #{
+                        error_code := <<"23502">>,
+                        error_codename := not_null_violation,
+                        severity := error
+                    }}}
         },
         Event
     ),

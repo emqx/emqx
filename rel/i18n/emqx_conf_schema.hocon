@@ -7,12 +7,6 @@ When drop mode is activated or deactivated, a message is printed in the logs."""
 common_handler_drop_mode_qlen.label:
 """Queue Length before Entering Drop Mode"""
 
-cluster_mcast_addr.desc:
-"""Multicast IPv4 address."""
-
-cluster_mcast_addr.label:
-"""Cluster Multicast Address"""
-
 desc_cluster_dns.desc:
 """Service discovery via DNS SRV records."""
 
@@ -32,12 +26,6 @@ Note: contents of this file are secret, so it's necessary to set permissions to 
 
 rpc_keyfile.label:
 """RPC Keyfile"""
-
-cluster_mcast_recbuf.desc:
-"""Size of the kernel-level buffer for incoming datagrams."""
-
-cluster_mcast_recbuf.label:
-"""Cluster Muticast Sendbuf"""
 
 cluster_autoheal.desc:
 """If <code>true</code>, the node will try to heal network partitions automatically."""
@@ -208,12 +196,6 @@ Otherwise, the client might opt for IPv4, even if the server is on IPv6."""
 rpc_ipv6_only.label:
 """Use IPv6 Only"""
 
-cluster_mcast_buffer.desc:
-"""Size of the user-level buffer."""
-
-cluster_mcast_buffer.label:
-"""Cluster Muticast Buffer"""
-
 rpc_authentication_timeout.desc:
 """Timeout for the remote node authentication."""
 
@@ -225,12 +207,6 @@ cluster_call_retry_interval.desc:
 
 cluster_call_retry_interval.label:
 """Cluster Call Retry Interval"""
-
-cluster_mcast_sndbuf.desc:
-"""Size of the kernel-level buffer for outgoing datagrams."""
-
-cluster_mcast_sndbuf.label:
-"""Cluster Muticast Sendbuf"""
 
 rpc_driver.desc:
 """Transport protocol used for inter-broker communication"""
@@ -405,12 +381,6 @@ rpc_socket_sndbuf.desc:
 rpc_socket_sndbuf.label:
 """RPC Socket Sndbuf"""
 
-cluster_mcast_ttl.desc:
-"""Time-to-live (TTL) for the outgoing UDP datagrams."""
-
-cluster_mcast_ttl.label:
-"""Cluster Multicast TTL"""
-
 log_file_handler_file.desc:
 """Name the log file."""
 
@@ -434,12 +404,6 @@ desc_cluster_k8s.desc:
 
 desc_cluster_k8s.label:
 """Cluster Kubernetes"""
-
-desc_cluster_mcast.desc:
-"""Service discovery via UDP multicast."""
-
-desc_cluster_mcast.label:
-"""Cluster Multicast"""
 
 rpc_cacertfile.desc:
 """Path to certification authority TLS certificate file used to validate <code>rpc.certfile</code>.<br/>
@@ -504,12 +468,6 @@ cluster_etcd_prefix.desc:
 
 cluster_etcd_prefix.label:
 """Cluster Etcd Prefix"""
-
-cluster_mcast_iface.desc:
-"""Local IP address the node discovery service needs to bind to."""
-
-cluster_mcast_iface.label:
-"""Cluster Multicast Interface"""
 
 log_burst_limit_window_time.desc:
 """See <code>max_count</code>."""
@@ -582,13 +540,6 @@ desc_cluster_call.desc:
 
 desc_cluster_call.label:
 """Cluster Call"""
-
-cluster_mcast_ports.desc:
-"""List of UDP ports used for service discovery.<br/>
-Note: probe messages are broadcast to all the specified ports."""
-
-cluster_mcast_ports.label:
-"""Cluster Multicast Ports"""
 
 log_overload_kill_mem_size.desc:
 """Maximum memory size that the log handler process is allowed to use."""
@@ -694,12 +645,6 @@ node_crash_dump_file.desc:
 node_crash_dump_file.label:
 """Crash Dump File"""
 
-cluster_mcast_loop.desc:
-"""If <code>true</code>, loop UDP datagrams back to the local socket."""
-
-cluster_mcast_loop.label:
-"""Cluster Multicast Loop"""
-
 rpc_socket_keepalive_interval.desc:
 """The interval between keepalive messages."""
 
@@ -803,9 +748,7 @@ cluster_discovery_strategy.desc:
 - static: Configure static nodes list by setting <code>seeds</code> in config file.<br/>
 - dns: Use DNS A record to discover peer nodes.<br/>
 - etcd: Use etcd to discover peer nodes.<br/>
-- k8s: Use Kubernetes API to discover peer pods.
-- mcast: Deprecated since 5.1, will be removed in 5.2.
-  This supports discovery via UDP multicast."""
+- k8s: Use Kubernetes API to discover peer pods."""
 
 cluster_discovery_strategy.label:
 """Cluster Discovery Strategy"""

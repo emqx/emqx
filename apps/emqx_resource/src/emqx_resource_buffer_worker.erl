@@ -80,8 +80,9 @@
 -type queue_query() :: ?QUERY(reply_fun(), request(), HasBeenSent :: boolean(), expire_at()).
 -type request() :: term().
 -type request_from() :: undefined | gen_statem:from().
--type request_ttl() :: infinity | timer:time().
--type health_check_interval() :: timer:time().
+-type timeout_ms() :: emqx_schema:timeout_duration_ms().
+-type request_ttl() :: emqx_schema:timeout_duration_ms().
+-type health_check_interval() :: pos_integer().
 -type state() :: blocked | running.
 -type inflight_key() :: integer().
 -type counters() :: #{
@@ -101,13 +102,13 @@
     inflight_tid := inflight_table(),
     async_workers := #{pid() => reference()},
     batch_size := pos_integer(),
-    batch_time := timer:time(),
+    batch_time := timeout_ms(),
     counters := counters(),
-    metrics_flush_interval := timer:time(),
+    metrics_flush_interval := timeout_ms(),
     queue := replayq:q(),
-    resume_interval := timer:time(),
-    tref := undefined | {timer:tref() | reference(), reference()},
-    metrics_tref := undefined | {timer:tref() | reference(), reference()}
+    resume_interval := timeout_ms(),
+    tref := undefined | {reference(), reference()},
+    metrics_tref := undefined | {reference(), reference()}
 }.
 
 callback_mode() -> [state_functions, state_enter].
@@ -2032,7 +2033,7 @@ replayq_opts(Id, Index, Opts) ->
 %% timeout is <= resume interval and the buffer worker is ever
 %% blocked, than all queued requests will basically fail without being
 %% attempted.
--spec default_resume_interval(request_ttl(), health_check_interval()) -> timer:time().
+-spec default_resume_interval(request_ttl(), health_check_interval()) -> timeout_ms().
 default_resume_interval(_RequestTTL = infinity, HealthCheckInterval) ->
     max(1, HealthCheckInterval);
 default_resume_interval(RequestTTL, HealthCheckInterval) ->
