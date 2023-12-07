@@ -766,7 +766,7 @@ t_actions_field(Config) ->
             <<"status">> := <<"connected">>,
             <<"node_status">> := [_ | _],
             <<"connector">> := Name,
-            <<"kafka">> := #{},
+            <<"parameters">> := #{},
             <<"local_topic">> := _,
             <<"resource_opts">> := _
         }},
@@ -821,7 +821,7 @@ t_fail_delete_with_action(Config) ->
             <<"status">> := <<"connected">>,
             <<"node_status">> := [_ | _],
             <<"connector">> := Name,
-            <<"kafka">> := #{},
+            <<"parameters">> := #{},
             <<"local_topic">> := _,
             <<"resource_opts">> := _
         }},

@@ -23,6 +23,7 @@
 ]).
 
 -define(CONNECTOR_TYPE, matrix).
+-define(ACTION_TYPE, matrix).
 
 %% -------------------------------------------------------------------------------------------------
 %% api
@@ -44,7 +45,7 @@ namespace() -> "bridge_matrix".
 roots() -> [].
 
 fields("post") ->
-    emqx_bridge_pgsql:fields("post", matrix);
+    emqx_bridge_pgsql:fields("post", ?ACTION_TYPE, "config");
 fields("config_connector") ->
     emqx_bridge_pgsql:fields("config_connector");
 fields(action) ->
@@ -61,7 +62,7 @@ fields("put_bridge_v2") ->
 fields("get_bridge_v2") ->
     emqx_bridge_pgsql:fields(pgsql_action);
 fields("post_bridge_v2") ->
-    emqx_bridge_pgsql:fields(pgsql_action);
+    emqx_bridge_pgsql:fields("post", ?ACTION_TYPE, pgsql_action);
 fields(Field) when
     Field == "get_connector";
     Field == "put_connector";

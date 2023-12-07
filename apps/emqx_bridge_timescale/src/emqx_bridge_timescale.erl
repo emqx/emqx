@@ -23,6 +23,7 @@
 ]).
 
 -define(CONNECTOR_TYPE, timescale).
+-define(ACTION_TYPE, timescale).
 
 %% -------------------------------------------------------------------------------------------------
 %% api
@@ -44,7 +45,7 @@ namespace() -> "bridge_timescale".
 roots() -> [].
 
 fields("post") ->
-    emqx_bridge_pgsql:fields("post", timescale);
+    emqx_bridge_pgsql:fields("post", ?ACTION_TYPE, "config");
 fields("config_connector") ->
     emqx_postgresql_connector_schema:fields("config_connector");
 fields(action) ->
@@ -61,7 +62,7 @@ fields("put_bridge_v2") ->
 fields("get_bridge_v2") ->
     emqx_bridge_pgsql:fields(pgsql_action);
 fields("post_bridge_v2") ->
-    emqx_bridge_pgsql:fields(pgsql_action);
+    emqx_bridge_pgsql:fields("post", ?ACTION_TYPE, pgsql_action);
 fields(Field) when
     Field == "get_connector";
     Field == "put_connector";

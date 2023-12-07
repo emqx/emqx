@@ -799,11 +799,12 @@ format_resource(
         name := Name,
         status := Status,
         error := Error,
-        raw_config := RawConf,
+        raw_config := RawConf0,
         resource_data := _ResourceData
     },
     Node
 ) ->
+    RawConf = fill_defaults(Type, RawConf0),
     redact(
         maps:merge(
             RawConf#{
@@ -933,6 +934,20 @@ aggregate_metrics(
         M16 + N16,
         M17 + N17
     ).
+
+fill_defaults(Type, RawConf) ->
+    PackedConf = pack_bridge_conf(Type, RawConf),
+    FullConf = emqx_config:fill_defaults(emqx_bridge_v2_schema, PackedConf, #{}),
+    unpack_bridge_conf(Type, FullConf).
+
+pack_bridge_conf(Type, RawConf) ->
+    #{<<"actions">> => #{bin(Type) => #{<<"foo">> => RawConf}}}.
+
+unpack_bridge_conf(Type, PackedConf) ->
+    TypeBin = bin(Type),
+    #{<<"actions">> := Bridges} = PackedConf,
+    #{<<"foo">> := RawConf} = maps:get(TypeBin, Bridges),
+    RawConf.
 
 format_bridge_status_and_error(Data) ->
     maps:fold(fun format_resource_data/3, #{}, maps:with([status, error], Data)).
