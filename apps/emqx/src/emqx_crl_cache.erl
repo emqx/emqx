@@ -59,12 +59,14 @@
 -define(DEFAULT_CACHE_CAPACITY, 100).
 -define(CONF_KEY_PATH, [crl_cache]).
 
+-type duration() :: non_neg_integer().
+
 -record(state, {
-    refresh_timers = #{} :: #{binary() => timer:tref()},
-    refresh_interval = timer:minutes(15) :: timer:time(),
-    http_timeout = ?HTTP_TIMEOUT :: timer:time(),
+    refresh_timers = #{} :: #{binary() => reference()},
+    refresh_interval = timer:minutes(15) :: duration(),
+    http_timeout = ?HTTP_TIMEOUT :: duration(),
     %% keeps track of URLs by insertion time
-    insertion_times = gb_trees:empty() :: gb_trees:tree(timer:time(), url()),
+    insertion_times = gb_trees:empty() :: gb_trees:tree(duration(), url()),
     %% the set of cached URLs, for testing if an URL is already
     %% registered.
     cached_urls = sets:new([{version, 2}]) :: sets:set(url()),

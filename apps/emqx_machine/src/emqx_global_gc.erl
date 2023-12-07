@@ -43,7 +43,8 @@
 start_link() ->
     gen_server:start_link({local, ?MODULE}, ?MODULE, [], []).
 
--spec run() -> {ok, timer:time()}.
+%% @doc Run global garbage collection and return the time (in milliseconds) spent.
+-spec run() -> {ok, non_neg_integer()}.
 run() -> gen_server:call(?MODULE, run, infinity).
 
 -spec stop() -> ok.

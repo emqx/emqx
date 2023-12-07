@@ -53,7 +53,7 @@
 -record(channel, {chid, pid}).
 
 %% @doc Start the global channel registry for the given gateway name.
--spec start_link(gateway_name()) -> gen_server:startlink_ret().
+-spec start_link(gateway_name()) -> emqx_types:startlink_ret().
 start_link(Name) ->
     gen_server:start_link(?MODULE, [Name], []).
 

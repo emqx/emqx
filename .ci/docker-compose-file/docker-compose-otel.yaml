@@ -1,0 +1,69 @@
+version: '3.9'
+
+services:
+  jaeger-all-in-one:
+    image: jaegertracing/all-in-one:1.51.0
+    container_name: jaeger.emqx.net
+    hostname: jaeger.emqx.net
+    networks:
+      - emqx_bridge
+    restart: always
+#    ports:
+#      - "16686:16686"
+    user: "${DOCKER_USER:-root}"
+
+  # Collector
+  otel-collector:
+    image: otel/opentelemetry-collector:0.90.0
+    container_name: otel-collector.emqx.net
+    hostname: otel-collector.emqx.net
+    networks:
+      - emqx_bridge
+    restart: always
+    command: ["--config=/etc/otel-collector-config.yaml", "${OTELCOL_ARGS}"]
+    volumes:
+      - ./otel:/etc/
+#    ports:
+#      - "1888:1888"   # pprof extension
+#      - "8888:8888"   # Prometheus metrics exposed by the collector
+#      - "8889:8889"   # Prometheus exporter metrics
+#      - "13133:13133" # health_check extension
+#      - "4317:4317"   # OTLP gRPC receiver
+#      - "4318:4318"   # OTLP http receiver
+#      - "55679:55679" # zpages extension
+    depends_on:
+      - jaeger-all-in-one
+    user: "${DOCKER_USER:-root}"
+
+
+# Collector
+  otel-collector-tls:
+    image: otel/opentelemetry-collector:0.90.0
+    container_name: otel-collector-tls.emqx.net
+    hostname: otel-collector-tls.emqx.net
+    networks:
+      - emqx_bridge
+    restart: always
+    command: ["--config=/etc/otel-collector-config-tls.yaml", "${OTELCOL_ARGS}"]
+    volumes:
+      - ./otel:/etc/
+      - ./certs:/etc/certs
+ #   ports:
+ #     - "14317:4317"   # OTLP gRPC receiver
+    depends_on:
+      - jaeger-all-in-one
+    user: "${DOCKER_USER:-root}"
+
+#networks:
+#  emqx_bridge:
+#    driver: bridge
+#    name: emqx_bridge
+#    enable_ipv6: true
+#    ipam:
+#      driver: default
+#      config:
+#        - subnet: 172.100.239.0/24
+#          gateway: 172.100.239.1
+#        - subnet: 2001:3200:3200::/64
+#          gateway: 2001:3200:3200::1
+#

@@ -16,7 +16,7 @@
 
 -export([init/1]).
 
--spec start_link() -> supervisor:start_ret().
+-spec start_link() -> emqx_types:startlink_ret().
 start_link() ->
     supervisor:start_link({local, ?MODULE}, ?MODULE, []).
 

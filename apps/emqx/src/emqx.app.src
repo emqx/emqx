@@ -11,6 +11,7 @@
         gproc,
         gen_rpc,
         mria,
+        ekka,
         esockd,
         cowboy,
         sasl,

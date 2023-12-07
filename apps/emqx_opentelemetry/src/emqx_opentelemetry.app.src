@@ -8,7 +8,12 @@
         stdlib,
         emqx,
         %% otel metrics depend on emqx_mgmt_cache
-        emqx_management
+        emqx_management,
+        opentelemetry_exporter,
+        opentelemetry,
+        opentelemetry_experimental,
+        opentelemetry_api,
+        opentelemetry_api_experimental
     ]},
     {env, []},
     {modules, []},

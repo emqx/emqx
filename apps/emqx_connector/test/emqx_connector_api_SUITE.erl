@@ -766,7 +766,7 @@ t_actions_field(Config) ->
             <<"status">> := <<"connected">>,
             <<"node_status">> := [_ | _],
             <<"connector">> := Name,
-            <<"kafka">> := #{},
+            <<"parameters">> := #{},
             <<"local_topic">> := _,
             <<"resource_opts">> := _
         }},
@@ -821,7 +821,7 @@ t_fail_delete_with_action(Config) ->
             <<"status">> := <<"connected">>,
             <<"node_status">> := [_ | _],
             <<"connector">> := Name,
-            <<"kafka">> := #{},
+            <<"parameters">> := #{},
             <<"local_topic">> := _,
             <<"resource_opts">> := _
         }},
@@ -842,6 +842,19 @@ t_fail_delete_with_action(Config) ->
                     " defined for this connector\">>,", _/binary>>
         }},
         request_json(delete, uri(["connectors", ConnectorID]), Config)
+    ),
+    ok.
+
+t_raw_config_response_defaults(Config) ->
+    Params = maps:without([<<"enable">>, <<"resource_opts">>], ?KAFKA_CONNECTOR(?CONNECTOR_NAME)),
+    ?assertMatch(
+        {ok, 201, #{<<"enable">> := true, <<"resource_opts">> := #{}}},
+        request_json(
+            post,
+            uri(["connectors"]),
+            Params,
+            Config
+        )
     ),
     ok.
 

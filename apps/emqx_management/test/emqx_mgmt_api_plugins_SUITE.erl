@@ -27,6 +27,8 @@
 
 -define(CLUSTER_API_SERVER(PORT), ("http://127.0.0.1:" ++ (integer_to_list(PORT)))).
 
+-import(emqx_common_test_helpers, [on_exit/1]).
+
 all() ->
     emqx_common_test_helpers:all(?MODULE).
 
@@ -66,8 +68,9 @@ init_per_testcase(_TestCase, Config) ->
 end_per_testcase(t_cluster_update_order, Config) ->
     Cluster = ?config(cluster, Config),
     emqx_cth_cluster:stop(Cluster),
-    ok;
+    end_per_testcase(common, Config);
 end_per_testcase(_TestCase, _Config) ->
+    emqx_common_test_helpers:call_janitor(),
     ok.
 
 t_plugins(Config) ->
@@ -136,10 +139,14 @@ t_install_plugin_matching_exisiting_name(Config) ->
 t_bad_plugin(Config) ->
     DemoShDir = proplists:get_value(demo_sh_dir, Config),
     PackagePathOrig = get_demo_plugin_package(DemoShDir),
+    BackupPath = filename:join(["/tmp", [filename:basename(PackagePathOrig), ".backup"]]),
+    {ok, _} = file:copy(PackagePathOrig, BackupPath),
+    on_exit(fun() -> {ok, _} = file:rename(BackupPath, PackagePathOrig) end),
     PackagePath = filename:join([
         filename:dirname(PackagePathOrig),
         "bad_plugin-1.0.0.tar.gz"
     ]),
+    on_exit(fun() -> file:delete(PackagePath) end),
     ct:pal("package_location:~p orig:~p", [PackagePath, PackagePathOrig]),
     %% rename plugin tarball
     file:copy(PackagePathOrig, PackagePath),
@@ -358,7 +365,7 @@ cluster(TestCase, Config) ->
             {Node1Name, #{role => core, apps => Node1Apps, join_to => Node1}},
             {emqx_mgmt_api_plugins_SUITE2, #{role => core, apps => Node2Apps, join_to => Node1}}
         ],
-        #{work_dir => filename:join(?config(priv_dir, Config), TestCase)}
+        #{work_dir => emqx_cth_suite:work_dir(TestCase, Config)}
     ).
 
 app_specs(_Config) ->

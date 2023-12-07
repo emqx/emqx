@@ -15,7 +15,7 @@ do(Dir, CONFIG) ->
     end.
 
 assert_otp() ->
-    Oldest = 24,
+    Oldest = 25,
     Latest = 26,
     OtpRelease = list_to_integer(erlang:system_info(otp_release)),
     case OtpRelease < Oldest orelse OtpRelease > Latest of
@@ -39,7 +39,7 @@ bcrypt() ->
     {bcrypt, {git, "https://github.com/emqx/erlang-bcrypt.git", {tag, "0.6.1"}}}.
 
 quicer() ->
-    {quicer, {git, "https://github.com/emqx/quic.git", {tag, "0.0.303"}}}.
+    {quicer, {git, "https://github.com/emqx/quic.git", {tag, "0.0.308"}}}.
 
 jq() ->
     {jq, {git, "https://github.com/emqx/jq", {tag, "v0.3.12"}}}.

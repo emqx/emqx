@@ -468,7 +468,7 @@ fill_defaults(Conf) ->
     Conf1 = emqx_config:fill_defaults(Conf),
     filter_cluster_conf(Conf1).
 
--define(ALL_STRATEGY, [<<"manual">>, <<"static">>, <<"dns">>, <<"etcd">>, <<"k8s">>, <<"mcast">>]).
+-define(ALL_STRATEGY, [<<"manual">>, <<"static">>, <<"dns">>, <<"etcd">>, <<"k8s">>]).
 
 filter_cluster_conf(#{<<"cluster">> := #{<<"discovery_strategy">> := Strategy} = Cluster} = Conf) ->
     Cluster1 = maps:without(lists:delete(Strategy, ?ALL_STRATEGY), Cluster),

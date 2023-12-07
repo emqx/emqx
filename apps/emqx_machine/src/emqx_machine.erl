@@ -47,9 +47,10 @@ start() ->
             os:set_signal(sigterm, handle)
     end,
     ok = set_backtrace_depth(),
-    start_sysmon(),
+    ok = start_sysmon(),
     configure_shard_transports(),
     set_mnesia_extra_diagnostic_checks(),
+    emqx_otel_app:configure_otel_deps(),
     ekka:start(),
     ok.
 

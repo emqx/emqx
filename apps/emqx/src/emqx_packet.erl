@@ -452,9 +452,15 @@ to_message(
     Headers
 ) ->
     Msg = emqx_message:make(ClientId, QoS, Topic, Payload),
+    {Extra, Props1} =
+        case maps:take(internal_extra, Props) of
+            error -> {#{}, Props};
+            ExtraProps -> ExtraProps
+        end,
     Msg#message{
         flags = #{dup => Dup, retain => Retain},
-        headers = Headers#{properties => Props}
+        headers = Headers#{properties => Props1},
+        extra = Extra
     }.
 
 -spec will_msg(#mqtt_packet_connect{}) -> emqx_types:message().

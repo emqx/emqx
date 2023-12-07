@@ -339,11 +339,25 @@ audit_log(Level, From, Log) ->
             try
                 apply(Mod, Fun, [Level, From, normalize_audit_log_args(Log)])
             catch
+                _:{aborted, {no_exists, emqx_audit}} ->
+                    case Log of
+                        #{cmd := cluster, args := ["leave"]} ->
+                            ok;
+                        _ ->
+                            ?LOG_ERROR(#{
+                                msg => "ctl_command_crashed",
+                                reason => "emqx_audit table not found",
+                                log => normalize_audit_log_args(Log),
+                                from => From
+                            })
+                    end;
                 _:Reason:Stacktrace ->
                     ?LOG_ERROR(#{
                         msg => "ctl_command_crashed",
                         stacktrace => Stacktrace,
-                        reason => Reason
+                        reason => Reason,
+                        log => normalize_audit_log_args(Log),
+                        from => From
                     })
             end
     end.

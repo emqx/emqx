@@ -24,7 +24,7 @@
 
 -type id() :: {?MODULE, emqx_s3:profile_id()}.
 
--spec start_link(emqx_s3:profile_id()) -> supervisor:start_ret().
+-spec start_link(emqx_s3:profile_id()) -> emqx_types:startlink_ret().
 start_link(ProfileId) ->
     supervisor:start_link(?VIA_GPROC(id(ProfileId)), ?MODULE, [ProfileId]).
 
@@ -44,7 +44,7 @@ id(ProfileId) ->
     {?MODULE, ProfileId}.
 
 -spec start_uploader(emqx_s3:profile_id(), emqx_s3_uploader:opts()) ->
-    supervisor:start_ret() | {error, profile_not_found}.
+    emqx_types:startlink_ret() | {error, profile_not_found}.
 start_uploader(ProfileId, Opts) ->
     try supervisor:start_child(?VIA_GPROC(id(ProfileId)), [Opts]) of
         Result -> Result

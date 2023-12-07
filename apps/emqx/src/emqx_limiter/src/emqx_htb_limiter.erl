@@ -32,7 +32,7 @@
     make_future/1,
     available/1
 ]).
--export_type([local_limiter/0]).
+-export_type([local_limiter/0, limiter/0]).
 
 %% a token bucket limiter which may or not contains a reference to another limiter,
 %% and can be used in a client alone

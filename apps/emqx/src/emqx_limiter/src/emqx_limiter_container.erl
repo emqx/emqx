@@ -70,7 +70,7 @@
 -spec get_limiter_by_types(
     limiter_id() | {atom(), atom()},
     list(limiter_type()),
-    #{limiter_type() => hocons:config()}
+    #{limiter_type() => hocon:config()}
 ) -> container().
 get_limiter_by_types({Type, Listener}, Types, BucketCfgs) ->
     Id = emqx_listeners:listener_id(Type, Listener),

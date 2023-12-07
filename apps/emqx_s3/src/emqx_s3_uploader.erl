@@ -33,7 +33,12 @@
     format_status/2
 ]).
 
--export_type([opts/0]).
+-export_type([opts/0, config/0]).
+
+-type config() :: #{
+    min_part_size => pos_integer(),
+    max_part_size => pos_integer()
+}.
 
 -type opts() :: #{
     key := string(),

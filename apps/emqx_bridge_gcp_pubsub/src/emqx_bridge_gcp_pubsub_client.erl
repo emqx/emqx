@@ -27,6 +27,7 @@
 
 -type service_account_json() :: emqx_bridge_gcp_pubsub:service_account_json().
 -type project_id() :: binary().
+-type duration() :: non_neg_integer().
 -type config() :: #{
     connect_timeout := emqx_schema:duration_ms(),
     max_retries := non_neg_integer(),
@@ -35,12 +36,12 @@
     any() => term()
 }.
 -opaque state() :: #{
-    connect_timeout := timer:time(),
+    connect_timeout := duration(),
     jwt_config := emqx_connector_jwt:jwt_config(),
     max_retries := non_neg_integer(),
     pool_name := binary(),
     project_id := project_id(),
-    request_ttl := infinity | timer:time()
+    request_ttl := erlang:timeout()
 }.
 -type headers() :: [{binary(), iodata()}].
 -type body() :: iodata().
@@ -414,7 +415,7 @@ reply_delegator(ResourceId, ReplyFunAndArgs, Response) ->
     Result = handle_response(Response, ResourceId, _QueryMode = async),
     emqx_resource:apply_reply_fun(ReplyFunAndArgs, Result).
 
--spec do_get_status(resource_id(), timer:time()) -> boolean().
+-spec do_get_status(resource_id(), duration()) -> boolean().
 do_get_status(ResourceId, Timeout) ->
     Workers = [Worker || {_WorkerName, Worker} <- ehttpc:workers(ResourceId)],
     DoPerWorker =

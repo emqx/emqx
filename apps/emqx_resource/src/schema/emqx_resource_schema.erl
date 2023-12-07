@@ -47,7 +47,8 @@ fields("resource_opts") ->
 fields("creation_opts") ->
     create_opts([]).
 
--spec create_opts([{atom(), hocon_schema:field_schema_map()}]) -> [{atom(), hocon_schema:field()}].
+-spec create_opts([{atom(), hocon_schema:field_schema()}]) ->
+    [{atom(), hocon_schema:field_schema()}].
 create_opts(Overrides) ->
     override(
         [

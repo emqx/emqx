@@ -114,7 +114,7 @@ add_user(Username, Password, Role, Desc) when is_binary(Username), is_binary(Pas
     end.
 
 do_add_user(Username, Password, Role, Desc) ->
-    Res = mria:transaction(?DASHBOARD_SHARD, fun add_user_/4, [Username, Password, Role, Desc]),
+    Res = mria:sync_transaction(?DASHBOARD_SHARD, fun add_user_/4, [Username, Password, Role, Desc]),
     return(Res).
 
 %% 0-9 or A-Z or a-z or $_
@@ -191,7 +191,7 @@ force_add_user(Username, Password, Role, Desc) ->
             description = Desc
         })
     end,
-    case mria:transaction(?DASHBOARD_SHARD, AddFun) of
+    case mria:sync_transaction(?DASHBOARD_SHARD, AddFun) of
         {atomic, ok} -> ok;
         {aborted, Reason} -> {error, Reason}
     end.
@@ -227,7 +227,7 @@ remove_user(Username) ->
             _ -> mnesia:delete({?ADMIN, Username})
         end
     end,
-    case return(mria:transaction(?DASHBOARD_SHARD, Trans)) of
+    case return(mria:sync_transaction(?DASHBOARD_SHARD, Trans)) of
         {ok, Result} ->
             _ = emqx_dashboard_token:destroy_by_username(Username),
             {ok, Result};
@@ -242,7 +242,11 @@ update_user(Username, Role, Desc) ->
         ok ->
             case
                 return(
-                    mria:transaction(?DASHBOARD_SHARD, fun update_user_/3, [Username, Role, Desc])
+                    mria:sync_transaction(
+                        ?DASHBOARD_SHARD,
+                        fun update_user_/3,
+                        [Username, Role, Desc]
+                    )
                 )
             of
                 {ok, {true, Result}} ->
@@ -324,7 +328,7 @@ update_pwd(Username, Fun) ->
                 end,
             mnesia:write(Fun(User))
         end,
-    return(mria:transaction(?DASHBOARD_SHARD, Trans)).
+    return(mria:sync_transaction(?DASHBOARD_SHARD, Trans)).
 
 -spec lookup_user(dashboard_username()) -> [emqx_admin()].
 lookup_user(Username) ->

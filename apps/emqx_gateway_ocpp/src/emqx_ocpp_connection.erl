@@ -72,13 +72,13 @@
     %% Piggyback
     piggyback :: single | multiple,
     %% Limiter
-    limiter :: maybe(emqx_limiter:limiter()),
+    limiter :: maybe(emqx_htb_limiter:limiter()),
     %% Limit Timer
     limit_timer :: maybe(reference()),
     %% Parse State
     parse_state :: emqx_ocpp_frame:parse_state(),
     %% Serialize options
-    serialize :: emqx_ocpp_frame:serialize_opts(),
+    serialize :: emqx_ocpp_frame:serialize_options(),
     %% Channel
     channel :: emqx_ocpp_channel:channel(),
     %% GC State
@@ -268,7 +268,7 @@ init_state_and_channel([Req, Opts, _WsOpts], _State = undefined) ->
         ws_cookie => WsCookie,
         conn_mod => ?MODULE
     },
-    Limiter = undeined,
+    Limiter = undefined,
     ActiveN = emqx_gateway_utils:active_n(Opts),
     Piggyback = emqx_utils_maps:deep_get([websocket, piggyback], Opts, multiple),
     ParseState = emqx_ocpp_frame:initial_parse_state(#{}),

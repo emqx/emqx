@@ -88,7 +88,7 @@ keyspace(_) -> undefined.
 
 callback_mode() -> async_if_possible.
 
--spec on_start(binary(), hoconsc:config()) -> {ok, state()} | {error, _}.
+-spec on_start(binary(), hocon:config()) -> {ok, state()} | {error, _}.
 on_start(
     InstId,
     #{

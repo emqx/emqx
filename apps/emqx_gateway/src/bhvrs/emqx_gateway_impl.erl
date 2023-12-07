@@ -16,6 +16,8 @@
 
 -module(emqx_gateway_impl).
 
+-export_type([state/0]).
+
 -include("emqx_gateway.hrl").
 
 -type state() :: map().

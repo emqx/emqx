@@ -36,8 +36,8 @@
     payload :: emqx_types:payload(),
     %% Timestamp (Unit: millisecond)
     timestamp :: integer(),
-    %% not used so far, for future extension
-    extra = [] :: term()
+    %% Miscellaneous extensions, currently used for OpenTelemetry context propagation
+    extra = #{} :: term()
 }).
 
 -endif.

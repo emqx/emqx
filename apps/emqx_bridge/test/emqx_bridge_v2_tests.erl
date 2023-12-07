@@ -25,8 +25,8 @@
 non_deprecated_fields(Fields) ->
     [K || {K, Schema} <- Fields, not hocon_schema:is_deprecated(Schema)].
 
-find_resource_opts_fields(SchemaMod, FieldName) ->
-    Fields = hocon_schema:fields(SchemaMod, FieldName),
+find_resource_opts_fields(SchemaMod, StructName) ->
+    Fields = hocon_schema:fields(SchemaMod, StructName),
     case lists:keyfind(resource_opts, 1, Fields) of
         false ->
             undefined;
@@ -35,8 +35,8 @@ find_resource_opts_fields(SchemaMod, FieldName) ->
     end.
 
 get_resource_opts_subfields(Sc) ->
-    ?R_REF(SchemaModRO, FieldNameRO) = hocon_schema:field_schema(Sc, type),
-    ROFields = non_deprecated_fields(hocon_schema:fields(SchemaModRO, FieldNameRO)),
+    ?R_REF(SchemaModRO, StructNameRO) = hocon_schema:field_schema(Sc, type),
+    ROFields = non_deprecated_fields(hocon_schema:fields(SchemaModRO, StructNameRO)),
     proplists:get_keys(ROFields).
 
 %%------------------------------------------------------------------------------
@@ -106,4 +106,34 @@ connector_resource_opts_test() ->
             missing_subfields => maps:from_list(ConnectorsMissingROSubfields)
         }
     ),
+    ok.
+
+actions_api_spec_post_fields_test() ->
+    ?UNION(Union) = emqx_bridge_v2_schema:post_request(),
+    Schemas =
+        lists:map(
+            fun(?R_REF(SchemaMod, StructName)) ->
+                {SchemaMod, hocon_schema:fields(SchemaMod, StructName)}
+            end,
+            hoconsc:union_members(Union)
+        ),
+    MinimalFields0 =
+        [
+            binary_to_atom(F)
+         || F <- emqx_bridge_v2_schema:top_level_common_action_keys(),
+            F =/= <<"local_topic">>
+        ],
+    MinimalFields = [type, name | MinimalFields0],
+    MissingFields =
+        lists:filtermap(
+            fun({SchemaMod, FieldSchemas}) ->
+                Missing = MinimalFields -- proplists:get_keys(FieldSchemas),
+                case Missing of
+                    [] -> false;
+                    _ -> {true, {SchemaMod, Missing}}
+                end
+            end,
+            Schemas
+        ),
+    ?assertEqual(#{}, maps:from_list(MissingFields)),
     ok.
