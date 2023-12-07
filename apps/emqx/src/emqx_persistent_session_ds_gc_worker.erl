@@ -82,7 +82,7 @@ try_gc() ->
     CoreNodes = mria_membership:running_core_nodelist(),
     Res = global:trans(
         {?MODULE, self()},
-        fun() -> ?tp_span(ds_session_gc, #{}, start_gc()) end,
+        fun() -> ?tp_span(debug, ds_session_gc, #{}, start_gc()) end,
         CoreNodes,
         %% Note: we set retries to 1 here because, in rare occasions, GC might start at the
         %% same time in more than one node, and each one will abort the other.  By allowing
