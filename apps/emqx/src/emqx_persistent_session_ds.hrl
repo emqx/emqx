@@ -27,6 +27,8 @@
 
 -define(DS_MRIA_SHARD, emqx_ds_session_shard).
 
+-define(SESSION_STREAM_SEQ, emqx_ds_stream_seq).
+
 -define(T_INFLIGHT, 1).
 -define(T_CHECKPOINT, 2).
 
@@ -43,6 +45,8 @@
     ref :: _StreamRef,
     stream :: emqx_ds:stream(),
     rank :: emqx_ds:stream_rank(),
+    topic_filter :: emqx_types:topic(),
+    start_time :: emqx_ds:time(),
     beginning :: emqx_ds:iterator()
 }).
 -type ds_stream() :: #ds_stream{}.

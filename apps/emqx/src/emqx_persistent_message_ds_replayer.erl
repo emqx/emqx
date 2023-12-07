@@ -21,7 +21,7 @@
 %% API:
 -export([new/0, open/1, next_packet_id/1, n_inflight/1]).
 
--export([poll/4, replay/2, commit_offset/4]).
+-export([poll/4, replay/3, commit_offset/4]).
 
 -export([seqno_to_packet_id/1, packet_id_to_seqno/2]).
 
@@ -73,7 +73,7 @@
 -type message() :: emqx_types:message().
 -type replies() :: [emqx_session:reply()].
 
--type preproc_fun() :: fun((message()) -> message() | [message()]).
+-type preproc_fun() :: fun((ds_stream(), message()) -> message() | [message()]).
 
 %%================================================================================
 %% API funcions
@@ -120,11 +120,17 @@ n_inflight(#inflight{offset_ranges = Ranges}) ->
         Ranges
     ).
 
--spec replay(preproc_fun(), inflight()) -> {emqx_session:replies(), inflight()}.
-replay(PreprocFunFun, Inflight0 = #inflight{offset_ranges = Ranges0, commits = Commits}) ->
+-spec replay(preproc_fun(), emqx_persistent_session_ds:id(), inflight()) ->
+    {emqx_session:replies(), inflight()}.
+replay(
+    PreprocFun,
+    SessionId,
+    Inflight0 = #inflight{offset_ranges = Ranges0, commits = Commits}
+) ->
+    Streams = get_streams(SessionId),
     {Ranges, Replies} = lists:mapfoldr(
         fun(Range, Acc) ->
-            replay_range(PreprocFunFun, Commits, Range, Acc)
+            replay_range(PreprocFun, Streams, Commits, Range, Acc)
         end,
         [],
         Ranges0
@@ -263,7 +269,7 @@ fetch(PreprocFun, SessionId, Inflight0, [DSStream | Streams], N, Acc) when N > 0
         _ ->
             %% We need to preserve the iterator pointing to the beginning of the
             %% range, so that we can replay it if needed.
-            {Publishes, UntilSeqno} = publish_fetch(PreprocFun, FirstSeqno, Messages),
+            {Publishes, UntilSeqno} = publish_fetch(PreprocFun, DSStream, FirstSeqno, Messages),
             Size = range_size(FirstSeqno, UntilSeqno),
             Range0 = #ds_pubrange{
                 id = {SessionId, FirstSeqno},
@@ -380,19 +386,23 @@ discard_tracks(#{ack := AckedUntil, comp := CompUntil}, Until, Tracks) ->
 
 replay_range(
     PreprocFun,
+    Streams,
     Commits,
-    Range0 = #ds_pubrange{type = ?T_INFLIGHT, id = {_, First}, until = Until, iterator = It},
+    Range0 = #ds_pubrange{
+        type = ?T_INFLIGHT, id = {_, First}, until = Until, stream = Ref, iterator = It
+    },
     Acc
 ) ->
     Size = range_size(First, Until),
+    Stream = lists:keyfind(Ref, #ds_stream.ref, Streams),
     {ok, ItNext, MessagesUnacked} = emqx_ds:next(?PERSISTENT_MESSAGE_DB, It, Size),
     %% Asserting that range is consistent with the message storage state.
-    {Replies, Until} = publish_replay(PreprocFun, Commits, First, MessagesUnacked),
+    {Replies, Until} = publish_replay(PreprocFun, Stream, Commits, First, MessagesUnacked),
     %% Again, we need to keep the iterator pointing past the end of the
     %% range, so that we can pick up where we left off.
     Range = keep_next_iterator(ItNext, Range0),
     {Range, Replies ++ Acc};
-replay_range(_PreprocFun, _Commits, Range0 = #ds_pubrange{type = ?T_CHECKPOINT}, Acc) ->
+replay_range(_PreprocFun, _Streams, _Commits, Range0 = #ds_pubrange{type = ?T_CHECKPOINT}, Acc) ->
     {Range0, Acc}.
 
 validate_commit(
@@ -425,10 +435,10 @@ get_commit_next(rec, #inflight{next_seqno = NextSeqno}) ->
 get_commit_next(comp, #inflight{commits = Commits}) ->
     maps:get(rec, Commits).
 
-publish_fetch(PreprocFun, FirstSeqno, Messages) ->
+publish_fetch(PreprocFun, Stream, FirstSeqno, Messages) ->
     flatmapfoldl(
         fun(MessageIn, Acc) ->
-            Message = PreprocFun(MessageIn),
+            Message = PreprocFun(Stream, MessageIn),
             publish_fetch(Message, Acc)
         end,
         FirstSeqno,
@@ -443,21 +453,21 @@ publish_fetch(#message{} = Message, Seqno) ->
 publish_fetch(Messages, Seqno) ->
     flatmapfoldl(fun publish_fetch/2, Seqno, Messages).
 
-publish_replay(PreprocFun, Commits, FirstSeqno, Messages) ->
+publish_replay(PreprocFun, Stream, Commits, FirstSeqno, Messages) ->
     #{ack := AckedUntil, comp := CompUntil, rec := RecUntil} = Commits,
     flatmapfoldl(
         fun(MessageIn, Acc) ->
-            Message = PreprocFun(MessageIn),
-            publish_replay(Message, AckedUntil, CompUntil, RecUntil, Acc)
+            Message = PreprocFun(Stream, MessageIn),
+            publish_replay_msg(Message, AckedUntil, CompUntil, RecUntil, Acc)
         end,
         FirstSeqno,
         Messages
     ).
 
-publish_replay(#message{qos = ?QOS_0}, _, _, _, Seqno) ->
+publish_replay_msg(#message{qos = ?QOS_0}, _, _, _, Seqno) ->
     %% QoS 0 (at most once) messages should not be replayed.
     {[], Seqno};
-publish_replay(#message{qos = Qos} = Message, AckedUntil, CompUntil, RecUntil, Seqno) ->
+publish_replay_msg(#message{qos = Qos} = Message, AckedUntil, CompUntil, RecUntil, Seqno) ->
     case Qos of
         ?QOS_1 when Seqno < AckedUntil ->
             %% This message has already been acked, so we can skip it.
@@ -480,12 +490,10 @@ publish_replay(#message{qos = Qos} = Message, AckedUntil, CompUntil, RecUntil, S
             Pub = {PacketId, emqx_message:set_flag(dup, true, Message)},
             {Pub, next_seqno(Seqno)}
     end;
-publish_replay([], _, _, _, Seqno) ->
-    {[], Seqno};
-publish_replay(Messages, AckedUntil, CompUntil, RecUntil, Seqno) ->
+publish_replay_msg(Messages, AckedUntil, CompUntil, RecUntil, Seqno) ->
     flatmapfoldl(
         fun(Message, Acc) ->
-            publish_replay(Message, AckedUntil, CompUntil, RecUntil, Acc)
+            publish_replay_msg(Message, AckedUntil, CompUntil, RecUntil, Acc)
         end,
         Seqno,
         Messages

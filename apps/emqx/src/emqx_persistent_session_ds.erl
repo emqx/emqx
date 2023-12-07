@@ -88,7 +88,6 @@
 %% an atom, in theory (?).
 -type id() :: binary().
 -type topic_filter() :: emqx_types:topic().
--type topic_filter_words() :: emqx_ds:topic_filter().
 -type subscription_id() :: {id(), topic_filter()}.
 -type subscription() :: #{
     start_time := emqx_ds:time(),
@@ -101,7 +100,7 @@
 -define(TIMER_BUMP_LAST_ALIVE_AT, timer_bump_last_alive_at).
 -type timer() :: ?TIMER_PULL | ?TIMER_GET_STREAMS | ?TIMER_BUMP_LAST_ALIVE_AT.
 
--type subscriptions() :: emqx_topic_gbt:t(nil(), subscription()).
+-type subscriptions() :: #{topic_filter() => subscription()}.
 
 -type session() :: #{
     %% Client ID
@@ -202,7 +201,7 @@ info(created_at, #{created_at := CreatedAt}) ->
 info(is_persistent, #{}) ->
     true;
 info(subscriptions, #{subscriptions := Subs}) ->
-    subs_to_map(Subs);
+    Subs;
 info(subscriptions_cnt, #{subscriptions := Subs}) ->
     subs_size(Subs);
 info(subscriptions_max, #{props := Conf}) ->
@@ -270,31 +269,33 @@ print_session(ClientId) ->
 subscribe(
     TopicFilter,
     SubOpts,
-    Session = #{id := ID, subscriptions := Subs}
+    Session0 = #{id := ID, subscriptions := Subs}
 ) ->
-    case subs_lookup(TopicFilter, Subs) of
-        Subscription = #{} ->
-            NSubscription = update_subscription(TopicFilter, Subscription, SubOpts, ID),
-            NSubs = subs_insert(TopicFilter, NSubscription, Subs),
-            {ok, Session#{subscriptions := NSubs}};
-        undefined ->
-            % TODO: max_subscriptions
-            Subscription = add_subscription(TopicFilter, SubOpts, ID),
-            NSubs = subs_insert(TopicFilter, Subscription, Subs),
-            {ok, Session#{subscriptions := NSubs}}
-    end.
+    Session =
+        case subs_lookup(TopicFilter, Subs) of
+            Subscription0 = #{} ->
+                Subscription = update_subscription(TopicFilter, Subscription0, SubOpts, ID),
+                Session0#{subscriptions := subs_insert(TopicFilter, Subscription, Subs)};
+            undefined ->
+                % TODO: max_subscriptions
+                Subscription = add_subscription(TopicFilter, SubOpts, ID),
+                Session0#{subscriptions := subs_insert(TopicFilter, Subscription, Subs)}
+        end,
+    ok = renew_streams(Session),
+    {ok, Session}.
 
 -spec unsubscribe(topic_filter(), session()) ->
     {ok, session(), emqx_types:subopts()} | {error, emqx_types:reason_code()}.
 unsubscribe(
     TopicFilter,
-    Session = #{id := ID, subscriptions := Subs}
+    Session0 = #{id := ID, subscriptions := Subs}
 ) ->
     case subs_lookup(TopicFilter, Subs) of
         _Subscription = #{props := SubOpts} ->
             ok = del_subscription(TopicFilter, ID),
-            NSubs = subs_delete(TopicFilter, Subs),
-            {ok, Session#{subscriptions := NSubs}, SubOpts};
+            Session = Session0#{subscriptions := subs_delete(TopicFilter, Subs)},
+            ok = renew_streams(Session),
+            {ok, Session, SubOpts};
         undefined ->
             {error, ?RC_NO_SUBSCRIPTION_EXISTED}
     end.
@@ -448,11 +449,11 @@ handle_timeout(_ClientInfo, expire_awaiting_rel, Session) ->
 replay(
     ClientInfo,
     [],
-    Session = #{inflight := Inflight0, subscriptions := Subs, props := Conf}
+    Session = #{id := Id, inflight := Inflight0, subscriptions := Subs, props := Conf}
 ) ->
     UpgradeQoS = maps:get(upgrade_qos, Conf),
     PreprocFun = make_preproc_fun(ClientInfo, Subs, UpgradeQoS),
-    {Replies, Inflight} = emqx_persistent_message_ds_replayer:replay(PreprocFun, Inflight0),
+    {Replies, Inflight} = emqx_persistent_message_ds_replayer:replay(PreprocFun, Id, Inflight0),
     {ok, Replies, Session#{inflight := Inflight}}.
 
 %%--------------------------------------------------------------------
@@ -469,14 +470,13 @@ terminate(_Reason, _Session = #{}) ->
 %%--------------------------------------------------------------------
 
 make_preproc_fun(ClientInfo, Subs, UpgradeQoS) ->
-    fun(Message = #message{topic = Topic}) ->
-        emqx_utils:flattermap(
-            fun(Match) ->
-                #{props := SubOpts} = subs_get_match(Match, Subs),
-                emqx_session:enrich_message(ClientInfo, Message, SubOpts, UpgradeQoS)
-            end,
-            subs_matches(Topic, Subs)
-        )
+    fun(#ds_stream{topic_filter = TopicFilter}, Message) ->
+        case subs_lookup(TopicFilter, Subs) of
+            #{props := SubOpts} ->
+                emqx_session:enrich_message(ClientInfo, Message, SubOpts, UpgradeQoS);
+            undefined ->
+                []
+        end
     end.
 
 %%--------------------------------------------------------------------
@@ -854,61 +854,72 @@ do_ensure_all_iterators_closed(_DSSessionID) ->
 %%--------------------------------------------------------------------
 
 -spec renew_streams(session()) -> ok.
-renew_streams(#{id := SessionId, subscriptions := Subscriptions}) ->
+renew_streams(Session = #{id := SessionId}) ->
+    SubscriptionStreams = get_subscription_streams(Session),
     transaction(fun() ->
         ExistingStreams = mnesia:read(?SESSION_STREAM_TAB, SessionId, write),
-        subs_fold(
-            fun(TopicFilter, #{start_time := StartTime}, Streams) ->
-                TopicFilterWords = emqx_topic:words(TopicFilter),
-                renew_topic_streams(SessionId, TopicFilterWords, StartTime, Streams)
+        CurrentStreams = lists:map(
+            fun(SubscriptionStream) ->
+                case find_existing_stream(SubscriptionStream, ExistingStreams) of
+                    {value, Stream} ->
+                        %% Stream already exists in mnesia, continue.
+                        Stream;
+                    false ->
+                        %% Stream does not exist in mnesia yet, store it.
+                        session_store_stream(SessionId, SubscriptionStream)
+                end
             end,
-            ExistingStreams,
-            Subscriptions
-        )
-    end),
-    ok.
+            SubscriptionStreams
+        ),
+        OrphanedStreams = ExistingStreams -- CurrentStreams,
+        lists:foreach(fun session_delete_stream/1, OrphanedStreams)
+    end).
 
--spec renew_topic_streams(id(), topic_filter_words(), emqx_ds:time(), _Acc :: [ds_stream()]) -> ok.
-renew_topic_streams(DSSessionId, TopicFilter, StartTime, ExistingStreams) ->
-    TopicStreams = emqx_ds:get_streams(?PERSISTENT_MESSAGE_DB, TopicFilter, StartTime),
-    lists:foldl(
-        fun({Rank, Stream}, Streams) ->
-            case lists:keymember(Stream, #ds_stream.stream, Streams) of
-                true ->
-                    Streams;
-                false ->
-                    StreamRef = length(Streams) + 1,
-                    DSStream = session_store_stream(
-                        DSSessionId,
-                        StreamRef,
-                        Stream,
-                        Rank,
-                        TopicFilter,
-                        StartTime
-                    ),
-                    [DSStream | Streams]
-            end
-        end,
-        ExistingStreams,
-        TopicStreams
+-spec get_subscription_streams(session()) ->
+    [{topic_filter(), emqx_ds:time(), {emqx_ds:stream_rank(), emqx_ds:stream()}}].
+get_subscription_streams(#{subscriptions := Subscriptions}) ->
+    subs_fold(fun get_subscription_streams/3, [], Subscriptions).
+
+get_subscription_streams(TopicFilter, #{start_time := StartTime}, AccIn) ->
+    TopicFilterWords = emqx_topic:words(TopicFilter),
+    Streams = emqx_ds:get_streams(?PERSISTENT_MESSAGE_DB, TopicFilterWords, StartTime),
+    [{TopicFilter, StartTime, Stream} || Stream <- Streams] ++ AccIn.
+
+find_existing_stream(SubscriptionStream, Existing) ->
+    lists:search(
+        fun(DSStream) -> streams_match(SubscriptionStream, DSStream) end,
+        Existing
     ).
 
-session_store_stream(DSSessionId, StreamRef, Stream, Rank, TopicFilter, StartTime) ->
+streams_match(
+    {TopicFilter, StartTime, {_Rank, Stream}},
+    #ds_stream{topic_filter = TopicFilter, start_time = StartTime, stream = Stream}
+) ->
+    true;
+streams_match(_, _) ->
+    false.
+
+session_store_stream(DSSessionId, {TopicFilter, StartTime, {Rank, Stream}}) ->
     {ok, ItBegin} = emqx_ds:make_iterator(
         ?PERSISTENT_MESSAGE_DB,
         Stream,
-        TopicFilter,
+        emqx_topic:words(TopicFilter),
         StartTime
     ),
     DSStream = #ds_stream{
         session = DSSessionId,
-        ref = StreamRef,
+        ref = emqx_persistent_sequence:next({?SESSION_STREAM_SEQ, DSSessionId}),
         stream = Stream,
         rank = Rank,
+        topic_filter = TopicFilter,
+        start_time = StartTime,
         beginning = ItBegin
     },
     mnesia:write(?SESSION_STREAM_TAB, DSStream, write),
     DSStream.
+
+session_delete_stream(DSStream) ->
+    mnesia:delete_object(?SESSION_STREAM_TAB, DSStream, write).
 
 %% must be called inside a transaction
 -spec session_drop_streams(id()) -> ok.
@@ -940,39 +951,22 @@ session_drop_offsets(DSSessionId) ->
 %%--------------------------------------------------------------------------------
 
 subs_new() ->
-    emqx_topic_gbt:new().
+    #{}.
 
 subs_lookup(TopicFilter, Subs) ->
-    emqx_topic_gbt:lookup(TopicFilter, [], Subs, undefined).
-
-subs_insert(TopicFilter, Subscription, Subs) ->
-    emqx_topic_gbt:insert(TopicFilter, [], Subscription, Subs).
-
-subs_delete(TopicFilter, Subs) ->
-    emqx_topic_gbt:delete(TopicFilter, [], Subs).
-
-subs_matches(Topic, Subs) ->
-    emqx_topic_gbt:matches(Topic, Subs, []).
-
-subs_get_match(M, Subs) ->
-    emqx_topic_gbt:get_record(M, Subs).
+    maps:get(TopicFilter, Subs, undefined).
 
 subs_size(Subs) ->
-    emqx_topic_gbt:size(Subs).
+    maps:size(Subs).
 
-subs_to_map(Subs) ->
-    subs_fold(
-        fun(TopicFilter, #{props := Props}, Acc) -> Acc#{TopicFilter => Props} end,
-        #{},
-        Subs
-    ).
+subs_insert(TopicFilter, Subscription, Subs) ->
+    Subs#{TopicFilter => Subscription}.
+
+subs_delete(TopicFilter, Subs) ->
+    maps:remove(TopicFilter, Subs).
 
 subs_fold(Fun, AccIn, Subs) ->
-    emqx_topic_gbt:fold(
-        fun(Key, Sub, Acc) -> Fun(emqx_topic_gbt:get_topic(Key), Sub, Acc) end,
-        AccIn,
-        Subs
-    ).
+    maps:fold(Fun, AccIn, Subs).
 
 %%--------------------------------------------------------------------------------
 

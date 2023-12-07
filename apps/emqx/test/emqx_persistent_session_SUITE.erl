@@ -563,7 +563,7 @@ t_process_dies_session_expires(Config) ->
     ?assertEqual(0, client_info(session_present, Client2)),
 
     %% We should not receive the pending message
-    ?assertEqual([], receive_messages(1)),
+    ?assertEqual([], receive_messages(1, 5_000)),
 
     emqtt:disconnect(Client2).
 
