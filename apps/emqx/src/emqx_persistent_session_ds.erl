@@ -18,7 +18,6 @@
 
 -behaviour(emqx_session).
 
--include("emqx.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 -include_lib("stdlib/include/ms_transform.hrl").
 
@@ -590,12 +589,23 @@ create_tables() ->
             {attributes, record_info(fields, ds_committed_offset)}
         ]
     ),
+    ok = mria:create_table(
+        ?SESSION_SEQUENCE_TAB,
+        [
+            {rlog_shard, ?DS_MRIA_SHARD},
+            {type, set},
+            {storage, storage()},
+            {record_name, ds_sequence},
+            {attributes, record_info(fields, ds_sequence)}
+        ]
+    ),
     ok = mria:wait_for_tables([
         ?SESSION_TAB,
         ?SESSION_SUBSCRIPTIONS_TAB,
         ?SESSION_STREAM_TAB,
         ?SESSION_PUBRANGE_TAB,
-        ?SESSION_COMMITTED_OFFSET_TAB
+        ?SESSION_COMMITTED_OFFSET_TAB,
+        ?SESSION_SEQUENCE_TAB
     ]),
     ok.
 

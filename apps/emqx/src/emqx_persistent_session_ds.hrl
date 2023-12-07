@@ -23,6 +23,8 @@
 -define(SESSION_STREAM_TAB, emqx_ds_stream_tab).
 -define(SESSION_PUBRANGE_TAB, emqx_ds_pubrange_tab).
 -define(SESSION_COMMITTED_OFFSET_TAB, emqx_ds_committed_offset_tab).
+-define(SESSION_SEQUENCE_TAB, emqx_ds_sequence).
+
 -define(DS_MRIA_SHARD, emqx_ds_session_shard).
 
 -define(T_INFLIGHT, 1).
@@ -86,6 +88,8 @@
     %% Where this marker is pointing to: the first seqno that is not marked.
     until :: emqx_persistent_message_ds_replayer:seqno()
 }).
+
+-record(ds_sequence, {name :: term(), next :: non_neg_integer()}).
 
 -record(session, {
     %% same as clientid
