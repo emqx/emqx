@@ -47,13 +47,15 @@
     handle_info/2
 ]).
 
+-export_type([cb_state/0, cb_ret/0]).
+
 -type cb_state() :: #{
     %% connecion owner pid
     conn_pid := pid(),
     %% Pid of ctrl stream
     ctrl_pid := undefined | pid(),
     %% quic connecion handle
-    conn := undefined | quicer:conneciton_handle(),
+    conn := undefined | quicer:connection_handle(),
     %% Data streams that handoff from this process
     %% these streams could die/close without effecting the connecion/session.
     %@TODO type?
@@ -85,7 +87,7 @@ init(#{stream_opts := SOpts} = S) when is_list(SOpts) ->
 init(ConnOpts) when is_map(ConnOpts) ->
     {ok, init_cb_state(ConnOpts)}.
 
--spec closed(quicer:conneciton_handle(), quicer:conn_closed_props(), cb_state()) ->
+-spec closed(quicer:connection_handle(), quicer:conn_closed_props(), cb_state()) ->
     {stop, normal, cb_state()}.
 closed(_Conn, #{is_peer_acked := _} = Prop, S) ->
     ?SLOG(debug, Prop),
