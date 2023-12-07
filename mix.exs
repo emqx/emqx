@@ -64,7 +64,7 @@ defmodule EMQXUmbrella.MixProject do
       {:pbkdf2, github: "emqx/erlang-pbkdf2", tag: "2.0.4", override: true},
       # maybe forbid to fetch quicer
       {:emqtt,
-       github: "emqx/emqtt", tag: "1.10.0", override: true, system_env: maybe_no_quic_env()},
+       github: "emqx/emqtt", tag: "1.10.1", override: true, system_env: maybe_no_quic_env()},
       {:rulesql, github: "emqx/rulesql", tag: "0.1.7"},
       {:observer_cli, "1.7.1"},
       {:system_monitor, github: "ieQu1/system_monitor", tag: "3.0.3"},
@@ -800,7 +800,7 @@ defmodule EMQXUmbrella.MixProject do
   defp quicer_dep() do
     if enable_quicer?(),
       # in conflict with emqx and emqtt
-      do: [{:quicer, github: "emqx/quic", tag: "0.0.303", override: true}],
+      do: [{:quicer, github: "emqx/quic", tag: "0.0.308", override: true}],
       else: []
   end
 
