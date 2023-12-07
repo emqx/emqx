@@ -659,7 +659,6 @@ session_open(SessionId, NewConnInfo) ->
     session().
 session_ensure_new(SessionId, ConnInfo) ->
     transaction(fun() ->
-        ok = session_drop_records(SessionId),
         Session = export_session(session_create(SessionId, ConnInfo)),
         Session#{
             subscriptions => subs_new(),
