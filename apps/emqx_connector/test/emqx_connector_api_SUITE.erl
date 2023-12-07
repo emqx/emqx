@@ -845,6 +845,19 @@ t_fail_delete_with_action(Config) ->
     ),
     ok.
 
+t_raw_config_response_defaults(Config) ->
+    Params = maps:without([<<"enable">>, <<"resource_opts">>], ?KAFKA_CONNECTOR(?CONNECTOR_NAME)),
+    ?assertMatch(
+        {ok, 201, #{<<"enable">> := true, <<"resource_opts">> := #{}}},
+        request_json(
+            post,
+            uri(["connectors"]),
+            Params,
+            Config
+        )
+    ),
+    ok.
+
 %%% helpers
 listen_on_random_port() ->
     SockOpts = [binary, {active, false}, {packet, raw}, {reuseaddr, true}, {backlog, 1000}],
