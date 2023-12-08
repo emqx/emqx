@@ -113,8 +113,8 @@ n_inflight(#inflight{offset_ranges = Ranges}) ->
         fun
             (#ds_pubrange{type = ?T_CHECKPOINT}, N) ->
                 N;
-            (#ds_pubrange{type = ?T_INFLIGHT, id = {_, First}, until = Until}, N) ->
-                N + range_size(First, Until)
+            (#ds_pubrange{type = ?T_INFLIGHT} = Range, N) ->
+                N + range_size(Range)
         end,
         0,
         Ranges
@@ -186,7 +186,9 @@ poll(PreprocFun, SessionId, Inflight0, WindowSize) when WindowSize > 0, WindowSi
         true ->
             %% TODO: Wrap this in `mria:async_dirty/2`?
             Streams = shuffle(get_streams(SessionId)),
-            {Publihes, Inflight} = fetch(PreprocFun, SessionId, Inflight0, Streams, FreeSpace, []),
+            Checkpoints = find_checkpoints(Inflight0#inflight.offset_ranges),
+            {Publihes, Inflight} =
+                fetch(PreprocFun, SessionId, Inflight0, Checkpoints, Streams, FreeSpace, []),
             %% Discard now irrelevant QoS0-only ranges, if any.
             {Publihes, discard_committed(SessionId, Inflight)}
     end.
@@ -240,7 +242,7 @@ find_committed_until(Track, Ranges) ->
         Ranges
     ),
     case RangesUncommitted of
-        [#ds_pubrange{id = {_, CommittedUntil}} | _] ->
+        [#ds_pubrange{id = {_, CommittedUntil, _StreamRef}} | _] ->
             CommittedUntil;
         [] ->
             undefined
@@ -251,28 +253,27 @@ get_ranges(SessionId) ->
     Pat = erlang:make_tuple(
         record_info(size, ds_pubrange),
         '_',
-        [{1, ds_pubrange}, {#ds_pubrange.id, {SessionId, '_'}}]
+        [{1, ds_pubrange}, {#ds_pubrange.id, {SessionId, '_', '_'}}]
     ),
     mnesia:match_object(?SESSION_PUBRANGE_TAB, Pat, read).
 
-fetch(PreprocFun, SessionId, Inflight0, [DSStream | Streams], N, Acc) when N > 0 ->
+fetch(PreprocFun, SessionId, Inflight0, CPs, [Stream | Streams], N, Acc) when N > 0 ->
     #inflight{next_seqno = FirstSeqno, offset_ranges = Ranges} = Inflight0,
-    ItBegin = get_last_iterator(DSStream, Ranges),
+    ItBegin = get_last_iterator(Stream, CPs),
     {ok, ItEnd, Messages} = emqx_ds:next(?PERSISTENT_MESSAGE_DB, ItBegin, N),
     case Messages of
         [] ->
-            fetch(PreprocFun, SessionId, Inflight0, Streams, N, Acc);
+            fetch(PreprocFun, SessionId, Inflight0, CPs, Streams, N, Acc);
         _ ->
             %% We need to preserve the iterator pointing to the beginning of the
             %% range, so that we can replay it if needed.
             {Publishes, UntilSeqno} = publish_fetch(PreprocFun, FirstSeqno, Messages),
             Size = range_size(FirstSeqno, UntilSeqno),
             Range0 = #ds_pubrange{
-                id = {SessionId, FirstSeqno},
+                id = {SessionId, FirstSeqno, Stream#ds_stream.ref},
                 type = ?T_INFLIGHT,
                 tracks = compute_pub_tracks(Publishes),
                 until = UntilSeqno,
-                stream = DSStream#ds_stream.ref,
                 iterator = ItBegin
             },
             ok = preserve_range(Range0),
@@ -284,9 +285,9 @@ fetch(PreprocFun, SessionId, Inflight0, [DSStream | Streams], N, Acc) when N > 0
                 next_seqno = UntilSeqno,
                 offset_ranges = Ranges ++ [Range]
             },
-            fetch(PreprocFun, SessionId, Inflight, Streams, N - Size, [Publishes | Acc])
+            fetch(PreprocFun, SessionId, Inflight, CPs, Streams, N - Size, [Publishes | Acc])
     end;
-fetch(_ReplyFun, _SessionId, Inflight, _Streams, _N, Acc) ->
+fetch(_PreprocFun, _SessionId, Inflight, _CPs, _Streams, _N, Acc) ->
     Publishes = lists:append(lists:reverse(Acc)),
     {Publishes, Inflight}.
 
@@ -302,7 +303,7 @@ discard_committed(
 
 find_checkpoints(Ranges) ->
     lists:foldl(
-        fun(#ds_pubrange{stream = StreamRef} = Range, Acc) ->
+        fun(#ds_pubrange{id = {_SessionId, _, StreamRef}} = Range, Acc) ->
             %% For each stream, remember the last range over this stream.
             Acc#{StreamRef => Range}
         end,
@@ -314,7 +315,7 @@ discard_committed_ranges(
     SessionId,
     Commits,
     Checkpoints,
-    Ranges = [Range = #ds_pubrange{stream = StreamRef} | Rest]
+    Ranges = [Range = #ds_pubrange{id = {_SessionId, _, StreamRef}} | Rest]
 ) ->
     case discard_committed_range(Commits, Range) of
         discard ->
@@ -383,7 +384,9 @@ discard_tracks(#{ack := AckedUntil, comp := CompUntil}, Until, Tracks) ->
 replay_range(
     PreprocFun,
     Commits,
-    Range0 = #ds_pubrange{type = ?T_INFLIGHT, id = {_, First}, until = Until, iterator = It},
+    Range0 = #ds_pubrange{
+        type = ?T_INFLIGHT, id = {_, First, _StreamRef}, until = Until, iterator = It
+    },
     Acc
 ) ->
     Size = range_size(First, Until),
@@ -547,10 +550,10 @@ checkpoint_range(Range = #ds_pubrange{type = ?T_CHECKPOINT}) ->
     %% This range should have been checkpointed already.
     Range.
 
-get_last_iterator(DSStream = #ds_stream{ref = StreamRef}, Ranges) ->
-    case lists:keyfind(StreamRef, #ds_pubrange.stream, lists:reverse(Ranges)) of
-        false ->
-            DSStream#ds_stream.beginning;
+get_last_iterator(Stream = #ds_stream{ref = StreamRef}, Checkpoints) ->
+    case maps:get(StreamRef, Checkpoints, none) of
+        none ->
+            Stream#ds_stream.beginning;
         #ds_pubrange{iterator = ItNext} ->
             ItNext
     end.
@@ -594,6 +597,9 @@ packet_id_to_seqno_(NextSeqno, PacketId) ->
         N ->
             N - ?EPOCH_SIZE
     end.
+
+range_size(#ds_pubrange{id = {_, First, _StreamRef}, until = Until}) ->
+    range_size(First, Until).
 
 range_size(FirstSeqno, UntilSeqno) ->
     %% This function assumes that gaps in the sequence ID occur _only_ when the
@@ -699,23 +705,23 @@ compute_inflight_range_test_() ->
         ?_assertEqual(
             {#{ack => 12, comp => 13}, 42},
             compute_inflight_range([
-                #ds_pubrange{id = {<<>>, 1}, until = 2, type = ?T_CHECKPOINT},
-                #ds_pubrange{id = {<<>>, 4}, until = 8, type = ?T_CHECKPOINT},
-                #ds_pubrange{id = {<<>>, 11}, until = 12, type = ?T_CHECKPOINT},
+                #ds_pubrange{id = {<<>>, 1, 0}, until = 2, type = ?T_CHECKPOINT},
+                #ds_pubrange{id = {<<>>, 4, 0}, until = 8, type = ?T_CHECKPOINT},
+                #ds_pubrange{id = {<<>>, 11, 0}, until = 12, type = ?T_CHECKPOINT},
                 #ds_pubrange{
-                    id = {<<>>, 12},
+                    id = {<<>>, 12, 0},
                     until = 13,
                     type = ?T_INFLIGHT,
                     tracks = ?TRACK_FLAG(?ACK)
                 },
                 #ds_pubrange{
-                    id = {<<>>, 13},
+                    id = {<<>>, 13, 0},
                     until = 20,
                     type = ?T_INFLIGHT,
                     tracks = ?TRACK_FLAG(?COMP)
                 },
                 #ds_pubrange{
-                    id = {<<>>, 20},
+                    id = {<<>>, 20, 0},
                     until = 42,
                     type = ?T_INFLIGHT,
                     tracks = ?TRACK_FLAG(?ACK) bor ?TRACK_FLAG(?COMP)
@@ -725,10 +731,10 @@ compute_inflight_range_test_() ->
         ?_assertEqual(
             {#{ack => 13, comp => 13}, 13},
             compute_inflight_range([
-                #ds_pubrange{id = {<<>>, 1}, until = 2, type = ?T_CHECKPOINT},
-                #ds_pubrange{id = {<<>>, 4}, until = 8, type = ?T_CHECKPOINT},
-                #ds_pubrange{id = {<<>>, 11}, until = 12, type = ?T_CHECKPOINT},
-                #ds_pubrange{id = {<<>>, 12}, until = 13, type = ?T_CHECKPOINT}
+                #ds_pubrange{id = {<<>>, 1, 0}, until = 2, type = ?T_CHECKPOINT},
+                #ds_pubrange{id = {<<>>, 4, 0}, until = 8, type = ?T_CHECKPOINT},
+                #ds_pubrange{id = {<<>>, 11, 0}, until = 12, type = ?T_CHECKPOINT},
+                #ds_pubrange{id = {<<>>, 12, 0}, until = 13, type = ?T_CHECKPOINT}
             ])
         )
     ].
