@@ -97,6 +97,8 @@ The following table lists the configurable parameters of the emqx chart and thei
 | `ingress.mqtt.ingressClassName` | Set the ingress class for MQTT | |
 | `metrics.enable` | If set to true, [prometheus-operator](https://github.com/prometheus-operator/prometheus-operator) needs to be installed, and emqx_prometheus needs to enable | false |
 | `metrics.type` | Now we only supported "prometheus" | "prometheus" |
+| `metrics.serviceMonitor.targetLabels` | TargetLabels transfers labels from the Kubernetes Service onto the created metrics. All labels set in selector.matchLabels are automatically transferred. | "[]" |
+| `metrics.serviceMonitor.namespaceSelector` | Selector to select which namespaces the Kubernetes Endpoints objects are discovered from. | "{}" |
 | `ssl.enabled` | Enable SSL support | false |
 | `ssl.useExisting` | Use existing certificate or let cert-manager generate one | false |
 | `ssl.existingName` | Name of existing certificate | emqx-tls |

@@ -243,6 +243,9 @@ containerSecurityContext:
 metrics:
   enabled: false
   type: prometheus
+  serviceMonitor:
+    targetLabels: []
+    namespaceSelector: {}
 
 ssl:
   enabled: false

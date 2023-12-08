@@ -30,9 +30,19 @@ spec:
         name: {{ include "emqx.fullname" . }}-basic-auth
         key: username
   jobLabel: {{ .Release.Name }}-scraping
+  {{- if .Values.metrics.serviceMonitor.targetLabels }}
+  targetLabels:
+  {{- range .Values.metrics.serviceMonitor.targetLabels }}
+    - {{ . }}
+  {{- end }}
+  {{- end }}
+  {{- if .Values.metrics.serviceMonitor.namespaceSelector }}
+  {{- toYaml .Values.controller.metrics.serviceMonitor.namespaceSelector | nindent 2 }}
+  {{- else }}
   namespaceSelector:
     matchNames:
       -  {{ .Release.Namespace }}
+  {{- end }}
   selector:
     matchLabels:
       app.kubernetes.io/name: {{ include "emqx.name" . }}
