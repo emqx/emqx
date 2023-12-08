@@ -30,7 +30,7 @@ start_link() ->
 start_shard(Shard, Options) ->
     supervisor:start_child(?SUP, shard_child_spec(Shard, Options)).
 
--spec stop_shard(emqx_ds:shard()) -> ok | {error, _}.
+-spec stop_shard(emqx_ds_storage_layer:shard_id()) -> ok | {error, _}.
 stop_shard(Shard) ->
     ok = supervisor:terminate_child(?SUP, Shard),
     ok = supervisor:delete_child(?SUP, Shard).

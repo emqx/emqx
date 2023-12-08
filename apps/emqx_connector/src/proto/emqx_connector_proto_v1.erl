@@ -42,7 +42,7 @@ list_connectors_on_nodes(Nodes) ->
 -type key() :: atom() | binary() | [byte()].
 
 -spec lookup_from_all_nodes([node()], key(), key()) ->
-    emqx_rpc:erpc_multicall().
+    emqx_rpc:erpc_multicall(term()).
 lookup_from_all_nodes(Nodes, ConnectorType, ConnectorName) ->
     erpc:multicall(
         Nodes,
@@ -64,7 +64,7 @@ start_connector_to_node(Node, ConnectorType, ConnectorName) ->
     ).
 
 -spec start_connectors_to_all_nodes([node()], key(), key()) ->
-    emqx_rpc:erpc_multicall().
+    emqx_rpc:erpc_multicall(term()).
 start_connectors_to_all_nodes(Nodes, ConnectorType, ConnectorName) ->
     erpc:multicall(
         Nodes,

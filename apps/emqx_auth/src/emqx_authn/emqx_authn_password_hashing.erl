@@ -201,7 +201,8 @@ gen_salt(#{name := Other}) when Other =/= plain, Other =/= bcrypt ->
     <<X:128/big-unsigned-integer>> = crypto:strong_rand_bytes(16),
     iolist_to_binary(io_lib:format("~32.16.0b", [X])).
 
--spec hash(algorithm_rw(), emqx_passwd:password()) -> {emqx_passwd:hash(), emqx_passwd:salt()}.
+-spec hash(algorithm_rw(), emqx_passwd:password()) ->
+    {emqx_passwd:password_hash(), emqx_passwd:salt()}.
 hash(#{name := bcrypt, salt_rounds := _} = Algorithm, Password) ->
     Salt0 = gen_salt(Algorithm),
     Hash = emqx_passwd:hash({bcrypt, Salt0}, Password),
@@ -231,7 +232,7 @@ hash(#{name := Other, salt_position := SaltPosition} = Algorithm, Password) ->
 -spec check_password(
     algorithm(),
     emqx_passwd:salt(),
-    emqx_passwd:hash(),
+    emqx_passwd:password_hash(),
     emqx_passwd:password()
 ) -> boolean().
 check_password(#{name := bcrypt}, _Salt, PasswordHash, Password) ->

@@ -28,8 +28,7 @@
 %% API funcions
 %%================================================================================
 
--spec drop_db([node()], emqx_ds:db()) ->
-    [{ok, ok} | erpc:caught_call_exception()].
+-spec drop_db([node()], emqx_ds:db()) -> [emqx_rpc:erpc(ok)].
 drop_db(Node, DB) ->
     erpc:multicall(Node, emqx_ds_replication_layer, do_drop_db_v1, [DB]).
 
@@ -65,7 +64,7 @@ make_iterator(Node, DB, Shard, Stream, TopicFilter, StartTime) ->
     emqx_ds_storage_layer:iterator(),
     pos_integer()
 ) ->
-    {ok, emqx_ds_storage_layer:iterator(), [emqx_types:messages()]}
+    {ok, emqx_ds_storage_layer:iterator(), [emqx_types:message()]}
     | {ok, end_of_stream}
     | {error, _}.
 next(Node, DB, Shard, Iter, BatchSize) ->

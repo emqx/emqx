@@ -23,7 +23,7 @@
 -type state() :: #{
     pulsar_client_id := pulsar_client_id(),
     producers := pulsar_producers:producers(),
-    sync_timeout := infinity | time:time(),
+    sync_timeout := erlang:timeout(),
     message_template := message_template()
 }.
 -type buffer_mode() :: memory | disk | hybrid.
@@ -43,8 +43,8 @@
     bridge_name := atom(),
     buffer := #{
         mode := buffer_mode(),
-        per_partition_limit := emqx_schema:byte_size(),
-        segment_bytes := emqx_schema:byte_size(),
+        per_partition_limit := emqx_schema:bytesize(),
+        segment_bytes := emqx_schema:bytesize(),
         memory_overload_protection := boolean()
     },
     compression := compression_mode(),

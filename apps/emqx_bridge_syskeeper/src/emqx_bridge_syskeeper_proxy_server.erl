@@ -31,7 +31,7 @@
     socket := inet:socket(),
     frame_state :=
         undefined
-        | emqx_bridge_sysk_frame:state(),
+        | emqx_bridge_syskeeper_frame:state(),
     buffer := binary(),
     conf := map()
 }.
