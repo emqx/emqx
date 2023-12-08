@@ -43,12 +43,12 @@
 
 %% API
 %% @doc Adds a new config handler to emqx_config_handler.
--spec add_handler(emqx_config:config_key_path(), module()) -> ok.
+-spec add_handler(emqx_utils_maps:config_key_path(), module()) -> ok.
 add_handler(ConfKeyPath, HandlerName) ->
     emqx_config_handler:add_handler(ConfKeyPath, HandlerName).
 
 %% @doc remove config handler from emqx_config_handler.
--spec remove_handler(emqx_config:config_key_path()) -> ok.
+-spec remove_handler(emqx_utils_maps:config_key_path()) -> ok.
 remove_handler(ConfKeyPath) ->
     emqx_config_handler:remove_handler(ConfKeyPath).
 

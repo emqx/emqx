@@ -11,11 +11,17 @@
 -export([iteration_options/1]).
 -export([default_iteration_options/0]).
 
+-export_type([
+    backend_config/0,
+    iteration_options/0
+]).
+
 -type backend_config() ::
-    {emqx_ds_message_storage_bitmask, emqx_ds_message_storage_bitmask:options()}
+    {emqx_ds_message_storage_bitmask, emqx_ds_storage_bitfield_lts:options()}
     | {module(), _Options}.
 
--export_type([backend_config/0]).
+-type keyspace() :: atom().
+-type iteration_options() :: map().
 
 %%================================================================================
 %% API funcions
@@ -23,7 +29,7 @@
 
 -define(APP, emqx_ds).
 
--spec keyspace_config(emqx_ds:keyspace()) -> backend_config().
+-spec keyspace_config(keyspace()) -> backend_config().
 keyspace_config(Keyspace) ->
     DefaultKeyspaceConfig = application:get_env(
         ?APP,
@@ -33,8 +39,8 @@ keyspace_config(Keyspace) ->
     Keyspaces = application:get_env(?APP, keyspace_config, #{}),
     maps:get(Keyspace, Keyspaces, DefaultKeyspaceConfig).
 
--spec iteration_options(emqx_ds:keyspace()) ->
-    emqx_ds_message_storage_bitmask:iteration_options().
+-spec iteration_options(keyspace()) ->
+    iteration_options().
 iteration_options(Keyspace) ->
     case keyspace_config(Keyspace) of
         {emqx_ds_message_storage_bitmask, Config} ->
@@ -43,7 +49,7 @@ iteration_options(Keyspace) ->
             default_iteration_options()
     end.
 
--spec default_iteration_options() -> emqx_ds_message_storage_bitmask:iteration_options().
+-spec default_iteration_options() -> iteration_options().
 default_iteration_options() ->
     {emqx_ds_message_storage_bitmask, Config} = default_keyspace_config(),
     maps:get(iteration, Config).
@@ -60,7 +66,7 @@ default_keyspace_config() ->
         }
     }}.
 
--spec db_options(emqx_ds:keyspace()) -> emqx_ds_storage_layer:db_options().
+-spec db_options(keyspace()) -> emqx_ds_storage_layer:options().
 db_options(Keyspace) ->
     DefaultDBOptions = application:get_env(?APP, default_db_options, []),
     Keyspaces = application:get_env(?APP, keyspace_config, #{}),

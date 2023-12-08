@@ -32,7 +32,9 @@
 -type clientid() :: {clientid, binary()}.
 -type who() :: username() | clientid() | all.
 
--type rule() :: {emqx_authz_rule:permission(), emqx_authz_rule:action(), emqx_types:topic()}.
+-type rule() :: {
+    emqx_authz_rule:permission(), emqx_authz_rule:action_precompile(), emqx_types:topic()
+}.
 -type rules() :: [rule()].
 
 -record(emqx_acl, {
@@ -223,7 +225,7 @@ do_get_rules(Key) ->
 do_authorize(_Client, _PubSub, _Topic, []) ->
     nomatch;
 do_authorize(Client, PubSub, Topic, [{Permission, Action, TopicFilter} | Tail]) ->
-    Rule = emqx_authz_rule:compile({Permission, all, Action, [TopicFilter]}),
+    Rule = emqx_authz_rule:compile(Permission, all, Action, [TopicFilter]),
     case emqx_authz_rule:match(Client, PubSub, Topic, Rule) of
         {matched, Permission} -> {matched, Permission};
         nomatch -> do_authorize(Client, PubSub, Topic, Tail)

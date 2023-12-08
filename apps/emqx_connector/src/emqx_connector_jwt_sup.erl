@@ -48,7 +48,7 @@ init([]) ->
 %% `emqx_connector_jwt_sup:ensure_jwt/1' to ensure that a JWT has
 %% been stored, if synchronization is needed.
 -spec ensure_worker_present(worker_id(), map()) ->
-    {ok, supervisor:child()} | {error, term()}.
+    {ok, pid()} | {error, term()}.
 ensure_worker_present(Id, Config) ->
     ChildSpec = jwt_worker_child_spec(Id, Config),
     case supervisor:start_child(?MODULE, ChildSpec) of

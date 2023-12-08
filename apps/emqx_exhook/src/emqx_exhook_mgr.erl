@@ -72,6 +72,10 @@
     import_config/1
 ]).
 
+-export_type([
+    server_name/0
+]).
+
 %% Running servers
 -type state() :: #{servers := servers()}.
 

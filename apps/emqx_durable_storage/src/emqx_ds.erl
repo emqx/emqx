@@ -43,6 +43,7 @@
     stream_rank/0,
     iterator/0,
     message_id/0,
+    message_store_opts/0,
     next_result/1, next_result/0,
     store_batch_result/0,
     make_iterator_result/1, make_iterator_result/0,

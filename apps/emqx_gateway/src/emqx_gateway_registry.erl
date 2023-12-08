@@ -42,6 +42,8 @@
     code_change/3
 ]).
 
+-export_type([descriptor/0]).
+
 -record(state, {
     reged = #{} :: #{gateway_name() => descriptor()}
 }).

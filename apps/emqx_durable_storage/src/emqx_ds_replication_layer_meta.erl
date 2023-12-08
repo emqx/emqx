@@ -280,7 +280,7 @@ in_sync_replicas_trans(DB, Shard) ->
             {error, no_shard}
     end.
 
--spec set_leader_trans(emqx_ds:ds(), emqx_ds_replication_layer:shard_id(), node()) ->
+-spec set_leader_trans(emqx_ds:db(), emqx_ds_replication_layer:shard_id(), node()) ->
     ok.
 set_leader_trans(DB, Shard, Node) ->
     [Record0] = mnesia:wread({?SHARD_TAB, {DB, Shard}}),
