@@ -85,6 +85,12 @@
 ]).
 -endif.
 
+-export_type([
+    id/0,
+    subscription_id/0,
+    session/0
+]).
+
 %% Currently, this is the clientid.  We avoid `emqx_types:clientid()' because that can be
 %% an atom, in theory (?).
 -type id() :: binary().
@@ -144,8 +150,6 @@
         is_number(EI) andalso
         (NOW_MS >= LAST_ALIVE_AT + EI))
 ).
-
--export_type([id/0]).
 
 %%
 
@@ -243,7 +247,7 @@ stats(Session) ->
     info(?STATS_KEYS, Session).
 
 %% Debug/troubleshooting
--spec print_session(emqx_types:client_id()) -> map() | undefined.
+-spec print_session(emqx_types:clientid()) -> map() | undefined.
 print_session(ClientId) ->
     catch ro_transaction(
         fun() ->

@@ -72,7 +72,7 @@
 %% BACKW: v4.3.0
 -export([upgrade_retained_delayed_counter_type/0]).
 
--export_type([metric_idx/0]).
+-export_type([metric_idx/0, metric_name/0]).
 
 -compile({inline, [inc/1, inc/2, dec/1, dec/2]}).
 -compile({inline, [inc_recv/1, inc_sent/1]}).
@@ -438,7 +438,7 @@ update_counter(Name, Value) ->
 %% Inc received/sent metrics
 %%--------------------------------------------------------------------
 
--spec inc_msg(emqx_types:massage()) -> ok.
+-spec inc_msg(emqx_types:message()) -> ok.
 inc_msg(Msg) ->
     case Msg#message.qos of
         0 -> inc('messages.qos0.received');

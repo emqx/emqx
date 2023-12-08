@@ -32,7 +32,7 @@
     retry_list/2
 ]).
 
--export_type([container/0, check_result/0]).
+-export_type([limiter/0, container/0, check_result/0, limiter_type/0]).
 
 -type container() ::
     infinity
@@ -51,7 +51,7 @@
 -type limiter_id() :: emqx_limiter_schema:limiter_id().
 -type limiter_type() :: emqx_limiter_schema:limiter_type().
 -type limiter() :: emqx_htb_limiter:limiter().
--type retry_context() :: emqx_htb_limiter:retry_context().
+-type retry_context() :: emqx_htb_limiter:retry_context(limiter()).
 -type millisecond() :: non_neg_integer().
 -type check_result() ::
     {ok, container()}

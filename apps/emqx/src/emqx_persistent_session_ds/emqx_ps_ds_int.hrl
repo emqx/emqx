@@ -24,7 +24,7 @@
     dest :: emqx_persistent_session_ds:id()
 }).
 -record(ps_routeidx, {
-    entry :: emqx_topic_index:key(emqx_persistent_session_ds_router:dest()),
+    entry :: '$1' | emqx_topic_index:key(emqx_persistent_session_ds_router:dest()),
     unused = [] :: nil()
 }).
 

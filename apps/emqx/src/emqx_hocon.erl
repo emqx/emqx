@@ -138,7 +138,7 @@ compact_errors(SchemaModule, Error, Stacktrace) ->
     }}.
 
 %% @doc This is only used in static check scripts in the CI.
--spec load_and_check(module(), filename:filename_all()) -> {ok, term()} | {error, any()}.
+-spec load_and_check(module(), file:name_all()) -> {ok, term()} | {error, any()}.
 load_and_check(SchemaModule, File) ->
     try
         do_load_and_check(SchemaModule, File)

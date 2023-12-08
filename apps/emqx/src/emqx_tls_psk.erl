@@ -20,6 +20,7 @@
 
 %% SSL PSK Callbacks
 -export([lookup/3]).
+-export_type([psk_identity/0]).
 
 -type psk_identity() :: string().
 -type psk_user_state() :: term().

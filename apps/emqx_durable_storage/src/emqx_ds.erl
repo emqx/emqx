@@ -42,6 +42,7 @@
     stream/0,
     stream_rank/0,
     iterator/0,
+    iterator_id/0,
     message_id/0,
     message_store_opts/0,
     next_result/1, next_result/0,
@@ -66,6 +67,9 @@
 -type topic_filter() :: list(binary() | '+' | '#' | '').
 
 -type stream_rank() :: {term(), integer()}.
+
+%% TODO: Not implemented
+-type iterator_id() :: term().
 
 -opaque iterator() :: ds_specific_iterator().
 

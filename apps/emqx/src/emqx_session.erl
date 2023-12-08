@@ -111,6 +111,7 @@
     t/0,
     conf/0,
     conninfo/0,
+    clientinfo/0,
     reply/0,
     replies/0,
     common_timer_name/0,
@@ -499,7 +500,7 @@ cancel_timer(Name, Timers0) ->
 
 %%--------------------------------------------------------------------
 
--spec disconnect(clientinfo(), eqmx_types:conninfo(), t()) ->
+-spec disconnect(clientinfo(), conninfo(), t()) ->
     {idle | shutdown, t()}.
 disconnect(_ClientInfo, ConnInfo, Session) ->
     ?IMPL(Session):disconnect(Session, ConnInfo).

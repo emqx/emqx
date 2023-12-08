@@ -30,8 +30,8 @@
 -export([init/1]).
 
 -type startchild_ret() ::
-    {ok, supervisor:child()}
-    | {ok, supervisor:child(), term()}
+    {ok, pid()}
+    | {ok, pid(), term()}
     | {error, term()}.
 
 -define(SUP, ?MODULE).
@@ -52,7 +52,7 @@ start_child(ChildSpec) when is_map(ChildSpec) ->
 start_child(Mod, Type) ->
     start_child(child_spec(Mod, Type)).
 
--spec stop_child(supervisor:child_id()) -> ok | {error, term()}.
+-spec stop_child(atom()) -> ok | {error, term()}.
 stop_child(ChildId) ->
     case supervisor:terminate_child(?SUP, ChildId) of
         ok -> supervisor:delete_child(?SUP, ChildId);

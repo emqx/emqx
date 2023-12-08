@@ -19,11 +19,14 @@
 -export([format/2]).
 -export([format_meta_map/1]).
 
+%% logger_formatter:config/0 is not exported.
+-type config() :: map().
+
 %%%-----------------------------------------------------------------
 %%% API
 -spec format(LogEvent, Config) -> unicode:chardata() when
     LogEvent :: logger:log_event(),
-    Config :: logger:config().
+    Config :: config().
 format(
     #{level := debug, meta := Meta = #{trace_tag := Tag}, msg := Msg},
     #{payload_encode := PEncode}

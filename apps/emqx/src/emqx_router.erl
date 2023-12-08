@@ -91,7 +91,7 @@
 -type dest() :: node() | {group(), node()}.
 
 -record(routeidx, {
-    entry :: emqx_topic_index:key(dest()),
+    entry :: '$1' | emqx_topic_index:key(dest()),
     unused = [] :: nil()
 }).
 
