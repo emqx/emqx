@@ -143,7 +143,7 @@ on_client_authorize(ClientInfo, Action, Topic, Result) ->
     Req = #{
         clientinfo => clientinfo(ClientInfo),
         type => Type,
-        topic => emqx_topic:maybe_format_share(Topic),
+        topic => emqx_topic:get_shared_real_topic(Topic),
         result => Bool
     },
     case
