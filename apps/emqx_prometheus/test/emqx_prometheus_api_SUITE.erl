@@ -80,29 +80,42 @@ set_special_configs(_App, _) ->
 %%--------------------------------------------------------------------
 %% Cases
 %%--------------------------------------------------------------------
+%% we return recommend config for prometheus even if prometheus is legacy.
 t_legacy_prometheus_api(_) ->
     Path = emqx_mgmt_api_test_util:api_path(["prometheus"]),
     Auth = emqx_mgmt_api_test_util:auth_header_(),
     {ok, Response} = emqx_mgmt_api_test_util:request_api(get, Path, "", Auth),
 
+    OldConf = emqx:get_raw_config([prometheus]),
     Conf = emqx_utils_json:decode(Response, [return_maps]),
+    %% Always return new config.
     ?assertMatch(
         #{
-            <<"push_gateway_server">> := _,
-            <<"interval">> := _,
-            <<"enable">> := _,
-            <<"vm_statistics_collector">> := _,
-            <<"vm_system_info_collector">> := _,
-            <<"vm_memory_collector">> := _,
-            <<"vm_msacc_collector">> := _,
-            <<"headers">> := _
+            <<"collectors">> :=
+                #{
+                    <<"mnesia">> := <<"disabled">>,
+                    <<"vm_dist">> := <<"disabled">>,
+                    <<"vm_memory">> := <<"disabled">>,
+                    <<"vm_msacc">> := <<"disabled">>,
+                    <<"vm_statistics">> := <<"disabled">>,
+                    <<"vm_system_info">> := <<"disabled">>
+                },
+            <<"enable_basic_auth">> := false,
+            <<"push_gateway">> :=
+                #{
+                    <<"enable">> := true,
+                    <<"headers">> := #{<<"Authorization">> := <<"some-authz-tokens">>},
+                    <<"interval">> := <<"1s">>,
+                    <<"job_name">> := <<"${name}~${host}">>,
+                    <<"url">> := <<"http://127.0.0.1:9091">>
+                }
         },
         Conf
     ),
-    #{<<"enable">> := Enable} = Conf,
+    #{<<"push_gateway">> := #{<<"enable">> := Enable}} = Conf,
     ?assertEqual(Enable, undefined =/= erlang:whereis(emqx_prometheus)),
 
-    NewConf = Conf#{
+    NewConf = OldConf#{
         <<"interval">> => <<"2s">>,
         <<"vm_statistics_collector">> => <<"enabled">>,
         <<"headers">> => #{
@@ -113,7 +126,7 @@ t_legacy_prometheus_api(_) ->
     {ok, Response2} = emqx_mgmt_api_test_util:request_api(put, Path, "", Auth, NewConf),
 
     Conf2 = emqx_utils_json:decode(Response2, [return_maps]),
-    ?assertMatch(NewConf, Conf2),
+    ?assertEqual(NewConf, Conf2),
 
     EnvCollectors = application:get_env(prometheus, collectors, []),
     PromCollectors = prometheus_registry:collectors(default),
@@ -153,11 +166,11 @@ t_legacy_prometheus_api(_) ->
         emqx_config:get([prometheus])
     ),
 
-    NewConf1 = Conf#{<<"enable">> => (not Enable)},
+    NewConf1 = OldConf#{<<"enable">> => (not Enable)},
     {ok, _Response3} = emqx_mgmt_api_test_util:request_api(put, Path, "", Auth, NewConf1),
     ?assertEqual((not Enable), undefined =/= erlang:whereis(emqx_prometheus)),
 
-    ConfWithoutScheme = Conf#{<<"push_gateway_server">> => "127.0.0.1:8081"},
+    ConfWithoutScheme = OldConf#{<<"push_gateway_server">> => "127.0.0.1:8081"},
     ?assertMatch(
         {error, {"HTTP/1.1", 400, _}},
         emqx_mgmt_api_test_util:request_api(put, Path, "", Auth, ConfWithoutScheme)
@@ -267,8 +280,7 @@ t_stats_no_auth_api(_) ->
     %% undefined is legacy prometheus
     case emqx:get_config([prometheus, enable_basic_auth], undefined) of
         true ->
-            {ok, _} = emqx:update_config([prometheus, enable_basic_auth], false),
-            emqx_dashboard_listener:regenerate_minirest_dispatch();
+            {ok, _} = emqx:update_config([prometheus, enable_basic_auth], false);
         _ ->
             ok
     end,
@@ -278,6 +290,7 @@ t_stats_no_auth_api(_) ->
 
 t_stats_auth_api(_) ->
     {ok, _} = emqx:update_config([prometheus, enable_basic_auth], true),
+    emqx_dashboard_listener:regenerate_minirest_dispatch(),
     Auth = emqx_mgmt_api_test_util:auth_header_(),
     JsonAuth = [{"accept", "application/json"}, Auth],
     request_stats(JsonAuth, Auth),

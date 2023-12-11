@@ -23,6 +23,7 @@
 -export([pre_config_update/3, post_config_update/5]).
 -export([update/1]).
 -export([conf/0, is_push_gateway_server_enabled/1]).
+-export([to_recommend_type/1]).
 
 update(Config) ->
     case
@@ -60,7 +61,8 @@ pre_config_update(?PROMETHEUS, MergeConf, OriginConf) ->
 to_recommend_type(Conf) ->
     #{
         <<"push_gateway">> => to_push_gateway(Conf),
-        <<"collectors">> => to_collectors(Conf)
+        <<"collectors">> => to_collectors(Conf),
+        <<"enable_basic_auth">> => false
     }.
 
 to_push_gateway(Conf) ->
@@ -123,7 +125,7 @@ update_push_gateway(Prometheus) ->
     end.
 
 update_auth(#{enable_basic_auth := New}, #{enable_basic_auth := Old}) when New =/= Old ->
-    emqx_dashboard_listener:regenerate_minirest_dispatch(),
+    emqx_dashboard_listener:delay_job(regenerate),
     ok;
 update_auth(_, _) ->
     ok.
