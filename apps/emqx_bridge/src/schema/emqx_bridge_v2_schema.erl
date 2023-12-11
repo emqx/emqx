@@ -177,7 +177,7 @@ roots() ->
 fields(actions) ->
     registered_schema_fields();
 fields(resource_opts) ->
-    emqx_resource_schema:create_opts(_Overrides = []).
+    resource_opts_fields(_Overrides = []).
 
 registered_schema_fields() ->
     [
