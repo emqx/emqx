@@ -248,20 +248,19 @@ connector_example(RedisType, post) ->
     maps:merge(
         connector_example(RedisType, put),
         #{
-            type => <<"redis_single_producer">>,
+            type => <<"redis">>,
             name => <<"my_connector">>
         }
     );
 connector_example(RedisType, put) ->
     #{
         enable => true,
-        desc => <<"My redis ", (atom_to_binary(RedisType))/binary, " connector">>,
+        description => <<"My redis ", (atom_to_binary(RedisType))/binary, " connector">>,
         parameters => connector_parameter(RedisType),
         pool_size => 8,
         database => 1,
         username => <<"test">>,
         password => <<"******">>,
-        auto_reconnect => true,
         ssl => #{enable => false}
     }.
 
