@@ -533,7 +533,6 @@ resource_opts_ref(Module, RefName) ->
 common_resource_opts_subfields() ->
     [
         health_check_interval,
-        query_mode,
         start_after_created,
         start_timeout
     ].
