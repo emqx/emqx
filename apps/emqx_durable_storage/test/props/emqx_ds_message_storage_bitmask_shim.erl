@@ -11,9 +11,6 @@
 -export([store/2]).
 -export([iterate/2]).
 
--type topic() :: list(binary()).
--type time() :: integer().
-
 -opaque t() :: ets:tid().
 
 -export_type([t/0]).

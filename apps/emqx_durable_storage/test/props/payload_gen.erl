@@ -61,7 +61,7 @@
 }.
 
 %% For performance reasons we treat regular lists as streams, see `next/1'
--opaque cont(Data) ::
+-type cont(Data) ::
     fun(() -> stream(Data))
     | stream(Data).
 
@@ -78,11 +78,11 @@
     chunk_size :: non_neg_integer()
 }).
 
--opaque chunk_state() :: #chunk_state{}.
+-type chunk_state() :: #chunk_state{}.
 
 -record(interleave_state, {streams :: [{Tag :: term(), Stream :: term()}]}).
 
--opaque interleave_state() :: #interleave_state{}.
+-type interleave_state() :: #interleave_state{}.
 
 %% =============================================================================
 %% API functions

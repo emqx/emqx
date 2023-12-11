@@ -281,7 +281,7 @@ t_uuid_restored_from_file(Config) ->
     ),
     ok.
 
-t_uuid_saved_to_file(Config) ->
+t_uuid_saved_to_file(_Config) ->
     DataDir = emqx:data_dir(),
     NodeUUIDFile = filename:join(DataDir, "node.uuid"),
     ClusterUUIDFile = filename:join(DataDir, "cluster.uuid"),
