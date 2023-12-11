@@ -1112,40 +1112,25 @@ bridge_v1_lookup_and_transform(ActionType, Name) ->
 not_bridge_v1_compatible_error() ->
     {error, not_bridge_v1_compatible}.
 
+connector_raw_config(Connector, ConnectorType) ->
+    get_raw_with_defaults(Connector, ConnectorType, <<"connectors">>, emqx_connector_schema).
+
+action_raw_config(Action, ActionType) ->
+    get_raw_with_defaults(Action, ActionType, <<"actions">>, emqx_bridge_v2_schema).
+
+get_raw_with_defaults(Config, Type, TopLevelConf, SchemaModule) ->
+    RawConfig = maps:get(raw_config, Config),
+    fill_defaults(Type, RawConfig, TopLevelConf, SchemaModule).
+
 bridge_v1_lookup_and_transform_helper(
     BridgeV1Type, BridgeName, ActionType, Action, ConnectorType, Connector
 ) ->
-    ConnectorRawConfig1 = maps:get(raw_config, Connector),
-    ConnectorRawConfig2 = fill_defaults(
-        ConnectorType,
-        ConnectorRawConfig1,
-        <<"connectors">>,
-        emqx_connector_schema
+    ConnectorRawConfig = connector_raw_config(Connector, ConnectorType),
+    ActionRawConfig = action_raw_config(Action, ActionType),
+    BridgeV1Config = emqx_action_info:connector_action_config_to_bridge_v1_config(
+        BridgeV1Type, ConnectorRawConfig, ActionRawConfig
     ),
-    ActionRawConfig1 = maps:get(raw_config, Action),
-    ActionRawConfig2 = fill_defaults(
-        ActionType,
-        ActionRawConfig1,
-        <<"actions">>,
-        emqx_bridge_v2_schema
-    ),
-    BridgeV1ConfigFinal =
-        case
-            emqx_action_info:has_custom_connector_action_config_to_bridge_v1_config(BridgeV1Type)
-        of
-            false ->
-                BridgeV1Config1 = maps:remove(<<"connector">>, ActionRawConfig2),
-                %% Move parameters to the top level
-                ParametersMap = maps:get(<<"parameters">>, BridgeV1Config1, #{}),
-                BridgeV1Config2 = maps:remove(<<"parameters">>, BridgeV1Config1),
-                BridgeV1Config3 = emqx_utils_maps:deep_merge(BridgeV1Config2, ParametersMap),
-                emqx_utils_maps:deep_merge(ConnectorRawConfig2, BridgeV1Config3);
-            true ->
-                emqx_action_info:connector_action_config_to_bridge_v1_config(
-                    BridgeV1Type, ConnectorRawConfig2, ActionRawConfig2
-                )
-        end,
-    BridgeV1Tmp = maps:put(raw_config, BridgeV1ConfigFinal, Action),
+    BridgeV1Tmp = maps:put(raw_config, BridgeV1Config, Action),
     BridgeV1 = maps:remove(status, BridgeV1Tmp),
     BridgeV2Status = maps:get(status, Action, undefined),
     BridgeV2Error = maps:get(error, Action, undefined),

@@ -26,6 +26,7 @@
     bridge_v1_type_to_action_type/1,
     is_action_type/1,
     registered_schema_modules/0,
+    connector_action_config_to_bridge_v1_config/2,
     connector_action_config_to_bridge_v1_config/3,
     has_custom_connector_action_config_to_bridge_v1_config/1,
     bridge_v1_config_to_connector_config/2,
@@ -168,8 +169,22 @@ has_custom_connector_action_config_to_bridge_v1_config(ActionOrBridgeType) ->
 
 connector_action_config_to_bridge_v1_config(ActionOrBridgeType, ConnectorConfig, ActionConfig) ->
     Module = get_action_info_module(ActionOrBridgeType),
-    %% should only be called if defined
-    Module:connector_action_config_to_bridge_v1_config(ConnectorConfig, ActionConfig).
+    case erlang:function_exported(Module, connector_action_config_to_bridge_v1_config, 2) of
+        true ->
+            Module:connector_action_config_to_bridge_v1_config(ConnectorConfig, ActionConfig);
+        false ->
+            connector_action_config_to_bridge_v1_config(ConnectorConfig, ActionConfig)
+    end.
+
+connector_action_config_to_bridge_v1_config(ConnectorConfig, ActionConfig) ->
+    Merged = emqx_utils_maps:deep_merge(
+        maps:without(
+            [<<"connector">>],
+            emqx_utils_maps:unindent(<<"parameters">>, ActionConfig)
+        ),
+        emqx_utils_maps:unindent(<<"parameters">>, ConnectorConfig)
+    ),
+    maps:without([<<"description">>], Merged).
 
 has_custom_bridge_v1_config_to_connector_config(ActionOrBridgeType) ->
     Module = get_action_info_module(ActionOrBridgeType),
