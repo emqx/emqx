@@ -62,7 +62,7 @@
 ).
 
 -define(TRY_PARSE_ID(ID, EXPR),
-    try emqx_bridge_resource:parse_bridge_id(Id, #{atom_name => false}) of
+    try emqx_bridge_v2:parse_id(Id) of
         {BridgeType, BridgeName} ->
             EXPR
     catch

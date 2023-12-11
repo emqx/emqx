@@ -77,6 +77,7 @@
 -export([
     id/2,
     id/3,
+    connector_id/2,
     bridge_v1_is_valid/2,
     extract_connector_id_from_bridge_v2_id/1
 ]).
@@ -850,6 +851,15 @@ connector_type(Type) ->
 
 bridge_v2_type_to_connector_type(Type) ->
     emqx_action_info:action_type_to_connector_type(Type).
+
+connector_id(BridgeType, BridgeName) ->
+    case lookup_conf(BridgeType, BridgeName) of
+        #{connector := ConnectorName} ->
+            ConnectorType = bin(connector_type(BridgeType)),
+            <<"connector:", (bin(ConnectorType))/binary, ":", (bin(ConnectorName))/binary>>;
+        {error, Reason} ->
+            throw(Reason)
+    end.
 
 %%====================================================================
 %% Data backup API
