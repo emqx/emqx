@@ -1148,6 +1148,14 @@ error_if_channel_is_not_installed(Id, QueryOpts) ->
             ok
     end.
 
+do_call_query(QM, Id, Index, Ref, Query, #{query_mode := ReqQM} = QueryOpts, Resource) when
+    ReqQM =:= simple_sync_internal_buffer; ReqQM =:= simple_async_internal_buffer
+->
+    %% The query overrides the query mode of the resource, send even in disconnected state
+    ?tp(simple_query_override, #{query_mode => ReqQM}),
+    #{mod := Mod, state := ResSt, callback_mode := CBM, added_channels := Channels} = Resource,
+    CallMode = call_mode(QM, CBM),
+    apply_query_fun(CallMode, Mod, Id, Index, Ref, Query, ResSt, Channels, QueryOpts);
 do_call_query(QM, Id, Index, Ref, Query, QueryOpts, #{query_mode := ResQM} = Resource) when
     ResQM =:= simple_sync_internal_buffer; ResQM =:= simple_async_internal_buffer
 ->
