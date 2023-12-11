@@ -345,7 +345,7 @@ indent(IndentKey, PickKeys, Map) ->
 
 -spec unindent(term(), map()) -> map().
 unindent(Key, Map) ->
-    maps:merge(
+    deep_merge(
         maps:remove(Key, Map),
         maps:get(Key, Map, #{})
     ).

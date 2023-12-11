@@ -170,5 +170,9 @@ map_indent_unindent_test_() ->
         ?_assertEqual(
             #{a => 1, b => 2},
             unindent(c, M)
+        ),
+        ?_assertEqual(
+            #{a => #{c => 3, d => 4}},
+            unindent(b, #{a => #{c => 3}, b => #{a => #{d => 4}}})
         )
     ].
