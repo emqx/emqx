@@ -1122,14 +1122,14 @@ pre_query_channel_check({Id, _} = _Request, Channels, QueryOpts) when
         true ->
             ok;
         false ->
-            maybe_throw_channel_not_installed(Id, QueryOpts)
+            error_if_channel_is_not_installed(Id, QueryOpts)
     end;
 pre_query_channel_check({Id, _} = _Request, _Channels, QueryOpts) ->
-    maybe_throw_channel_not_installed(Id, QueryOpts);
+    error_if_channel_is_not_installed(Id, QueryOpts);
 pre_query_channel_check(_Request, _Channels, _QueryOpts) ->
     ok.
 
-maybe_throw_channel_not_installed(Id, QueryOpts) ->
+error_if_channel_is_not_installed(Id, QueryOpts) ->
     %% Fail with a recoverable error if the channel is not installed and there are buffer
     %% workers involved so that the operation can be retried.  Otherwise, this is
     %% unrecoverable.  It is emqx_resource_manager's responsibility to ensure that the
@@ -1137,15 +1137,13 @@ maybe_throw_channel_not_installed(Id, QueryOpts) ->
     IsSimpleQuery = maps:get(simple_query, QueryOpts, false),
     case is_channel_id(Id) of
         true when IsSimpleQuery ->
-            error(
+            {error,
                 {unrecoverable_error,
-                    iolist_to_binary(io_lib:format("channel: \"~s\" not operational", [Id]))}
-            );
+                    iolist_to_binary(io_lib:format("channel: \"~s\" not operational", [Id]))}};
         true ->
-            error(
+            {error,
                 {recoverable_error,
-                    iolist_to_binary(io_lib:format("channel: \"~s\" not operational", [Id]))}
-            );
+                    iolist_to_binary(io_lib:format("channel: \"~s\" not operational", [Id]))}};
         false ->
             ok
     end.
@@ -1201,8 +1199,12 @@ apply_query_fun(
         ?APPLY_RESOURCE(
             call_query,
             begin
-                pre_query_channel_check(Request, Channels, QueryOpts),
-                Mod:on_query(extract_connector_id(Id), Request, ResSt)
+                case pre_query_channel_check(Request, Channels, QueryOpts) of
+                    ok ->
+                        Mod:on_query(extract_connector_id(Id), Request, ResSt);
+                    Error ->
+                        Error
+                end
             end,
             Request
         ),
@@ -1232,11 +1234,15 @@ apply_query_fun(
             AsyncWorkerMRef = undefined,
             InflightItem = ?INFLIGHT_ITEM(Ref, Query, IsRetriable, AsyncWorkerMRef),
             ok = inflight_append(InflightTID, InflightItem),
-            pre_query_channel_check(Request, Channels, QueryOpts),
-            Result = Mod:on_query_async(
-                extract_connector_id(Id), Request, {ReplyFun, [ReplyContext]}, ResSt
-            ),
-            {async_return, Result}
+            case pre_query_channel_check(Request, Channels, QueryOpts) of
+                ok ->
+                    Result = Mod:on_query_async(
+                        extract_connector_id(Id), Request, {ReplyFun, [ReplyContext]}, ResSt
+                    ),
+                    {async_return, Result};
+                Error ->
+                    maybe_reply_to(Error, QueryOpts)
+            end
         end,
         Request
     );
@@ -1259,8 +1265,12 @@ apply_query_fun(
         ?APPLY_RESOURCE(
             call_batch_query,
             begin
-                pre_query_channel_check(FirstRequest, Channels, QueryOpts),
-                Mod:on_batch_query(extract_connector_id(Id), Requests, ResSt)
+                case pre_query_channel_check(FirstRequest, Channels, QueryOpts) of
+                    ok ->
+                        Mod:on_batch_query(extract_connector_id(Id), Requests, ResSt);
+                    Error ->
+                        Error
+                end
             end,
             Batch
         ),
@@ -1301,11 +1311,15 @@ apply_query_fun(
             AsyncWorkerMRef = undefined,
             InflightItem = ?INFLIGHT_ITEM(Ref, Batch, IsRetriable, AsyncWorkerMRef),
             ok = inflight_append(InflightTID, InflightItem),
-            pre_query_channel_check(FirstRequest, Channels, QueryOpts),
-            Result = Mod:on_batch_query_async(
-                extract_connector_id(Id), Requests, {ReplyFun, [ReplyContext]}, ResSt
-            ),
-            {async_return, Result}
+            case pre_query_channel_check(FirstRequest, Channels, QueryOpts) of
+                ok ->
+                    Result = Mod:on_batch_query_async(
+                        extract_connector_id(Id), Requests, {ReplyFun, [ReplyContext]}, ResSt
+                    ),
+                    {async_return, Result};
+                Error ->
+                    maybe_reply_to(Error, QueryOpts)
+            end
         end,
         Batch
     ).
