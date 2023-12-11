@@ -343,13 +343,8 @@ handle_call(reset, _From, State) ->
     _ = mria:clear_table(?CLUSTER_COMMIT),
     _ = mria:clear_table(?CLUSTER_MFA),
     {reply, ok, State, {continue, ?CATCH_UP}};
-handle_call(?INITIATE(MFA), _From, State = #{node := Node}) ->
-    case transaction(fun ?MODULE:init_mfa/2, [Node, MFA]) of
-        {atomic, {ok, TnxId, Result}} ->
-            {reply, {ok, TnxId, Result}, State, {continue, ?CATCH_UP}};
-        {aborted, Error} ->
-            {reply, {init_failure, Error}, State, {continue, ?CATCH_UP}}
-    end;
+handle_call(?INITIATE(MFA), _From, State) ->
+    do_initiate(MFA, State, 1, #{});
 handle_call(skip_failed_commit, _From, State = #{node := Node}) ->
     Timeout = catch_up(State, true),
     {atomic, LatestId} = transaction(fun ?MODULE:get_node_tnx_id/1, [Node]),
@@ -465,11 +460,40 @@ get_oldest_mfa_id() ->
         Id -> Id
     end.
 
+do_initiate(_MFA, State, Count, Failure) when Count > 10 ->
+    %% refuse to initiate cluster call from this node
+    %% because it's likely that the caller is based on
+    %% a stale view event we retry 10 time.
+    Error = stale_view_of_cluster_msg(Failure, Count),
+    {reply, {init_failure, Error}, State, {continue, ?CATCH_UP}};
+do_initiate(MFA, State = #{node := Node}, Count, Failure0) ->
+    case transaction(fun ?MODULE:init_mfa/2, [Node, MFA]) of
+        {atomic, {ok, TnxId, Result}} ->
+            {reply, {ok, TnxId, Result}, State, {continue, ?CATCH_UP}};
+        {atomic, {retry, Failure1}} when Failure0 =:= Failure1 ->
+            %% Useless retry, so we return early.
+            Error = stale_view_of_cluster_msg(Failure0, Count),
+            {reply, {init_failure, Error}, State, {continue, ?CATCH_UP}};
+        {atomic, {retry, Failure1}} ->
+            catch_up(State),
+            do_initiate(MFA, State, Count + 1, Failure1);
+        {aborted, Error} ->
+            {reply, {init_failure, Error}, State, {continue, ?CATCH_UP}}
+    end.
+
+stale_view_of_cluster_msg(Meta, Count) ->
+    Reason = Meta#{
+        msg => stale_view_of_cluster_state,
+        retry_times => Count
+    },
+    ?SLOG(warning, Reason),
+    Reason.
+
 %% The entry point of a config change transaction.
 init_mfa(Node, MFA) ->
     mnesia:write_lock_table(?CLUSTER_MFA),
     LatestId = get_cluster_tnx_id(),
-    MyTnxId = get_node_tnx_id(node()),
+    MyTnxId = get_node_tnx_id(Node),
     case MyTnxId =:= LatestId of
         true ->
             TnxId = LatestId + 1,
@@ -486,16 +510,8 @@ init_mfa(Node, MFA) ->
                 {false, Error} -> mnesia:abort(Error)
             end;
         false ->
-            %% refuse to initiate cluster call from this node
-            %% because it's likely that the caller is based on
-            %% a stale view.
-            Reason = #{
-                msg => stale_view_of_cluster_state,
-                cluster_tnx_id => LatestId,
-                node_tnx_id => MyTnxId
-            },
-            ?SLOG(warning, Reason),
-            mnesia:abort({error, Reason})
+            Meta = #{cluster_tnx_id => LatestId, node_tnx_id => MyTnxId},
+            {retry, Meta}
     end.
 
 transaction(Func, Args) ->
