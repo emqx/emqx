@@ -773,7 +773,6 @@ t_missing_table(Config) ->
             ),
             Val = integer_to_binary(erlang:unique_integer()),
             SentData = #{payload => Val, timestamp => 1668602148000},
-            %Timeout = 1000,
             ResourceID = emqx_bridge_v2:id(BridgeType, Name),
             Request = {ResourceID, SentData},
             Result =

@@ -129,7 +129,7 @@ fields(action) ->
     {mysql,
         mk(
             hoconsc:map(name, ref(?MODULE, mysql_action)),
-            #{desc => <<"MySQL Action Config">>, required => false}
+            #{desc => ?DESC("mysql_action"), required => false}
         )};
 fields(mysql_action) ->
     emqx_bridge_v2_schema:make_producer_action_schema(
