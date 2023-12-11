@@ -28,7 +28,6 @@
     registered_schema_modules/0,
     connector_action_config_to_bridge_v1_config/2,
     connector_action_config_to_bridge_v1_config/3,
-    has_custom_connector_action_config_to_bridge_v1_config/1,
     bridge_v1_config_to_connector_config/2,
     has_custom_bridge_v1_config_to_connector_config/1,
     bridge_v1_config_to_action_config/3,
@@ -162,10 +161,6 @@ registered_schema_modules() ->
     InfoMap = info_map(),
     Schemas = maps:get(action_type_to_schema_module, InfoMap),
     maps:to_list(Schemas).
-
-has_custom_connector_action_config_to_bridge_v1_config(ActionOrBridgeType) ->
-    Module = get_action_info_module(ActionOrBridgeType),
-    erlang:function_exported(Module, connector_action_config_to_bridge_v1_config, 2).
 
 connector_action_config_to_bridge_v1_config(ActionOrBridgeType, ConnectorConfig, ActionConfig) ->
     Module = get_action_info_module(ActionOrBridgeType),
