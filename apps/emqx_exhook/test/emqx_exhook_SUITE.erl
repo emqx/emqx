@@ -118,6 +118,7 @@ t_access_failed_if_no_server_running(Config) ->
         clientid => <<"user-id-1">>,
         username => <<"usera">>,
         peerhost => {127, 0, 0, 1},
+        peerport => 3456,
         sockport => 1883,
         protocol => mqtt,
         mountpoint => undefined
@@ -301,6 +302,7 @@ t_simulated_handler(_) ->
         clientid => <<"user-id-1">>,
         username => <<"usera">>,
         peerhost => {127, 0, 0, 1},
+        peerport => 3456,
         sockport => 1883,
         protocol => mqtt,
         mountpoint => undefined
