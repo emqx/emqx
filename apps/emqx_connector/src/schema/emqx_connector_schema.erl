@@ -28,7 +28,8 @@
 -export([
     transform_bridges_v1_to_connectors_and_bridges_v2/1,
     transform_bridge_v1_config_to_action_config/4,
-    top_level_common_connector_keys/0
+    top_level_common_connector_keys/0,
+    project_to_connector_resource_opts/1
 ]).
 
 -export([roots/0, fields/1, desc/1, namespace/0, tags/0]).
@@ -195,7 +196,7 @@ split_bridge_to_connector_and_action(
                         case maps:is_key(ConnectorFieldNameBin, BridgeV1Conf) of
                             true ->
                                 PrevFieldConfig =
-                                    project_to_connector_resource_opts(
+                                    maybe_project_to_connector_resource_opts(
                                         ConnectorFieldNameBin,
                                         maps:get(ConnectorFieldNameBin, BridgeV1Conf)
                                     ),
@@ -231,11 +232,14 @@ split_bridge_to_connector_and_action(
         end,
     {BridgeType, BridgeName, ActionMap, ConnectorName, ConnectorMap}.
 
-project_to_connector_resource_opts(<<"resource_opts">>, OldResourceOpts) ->
-    Subfields = common_resource_opts_subfields_bin(),
-    maps:with(Subfields, OldResourceOpts);
-project_to_connector_resource_opts(_, OldConfig) ->
+maybe_project_to_connector_resource_opts(<<"resource_opts">>, OldResourceOpts) ->
+    project_to_connector_resource_opts(OldResourceOpts);
+maybe_project_to_connector_resource_opts(_, OldConfig) ->
     OldConfig.
+
+project_to_connector_resource_opts(OldResourceOpts) ->
+    Subfields = common_resource_opts_subfields_bin(),
+    maps:with(Subfields, OldResourceOpts).
 
 transform_bridge_v1_config_to_action_config(
     BridgeV1Conf, ConnectorName, ConnectorConfSchemaMod, ConnectorConfSchemaName

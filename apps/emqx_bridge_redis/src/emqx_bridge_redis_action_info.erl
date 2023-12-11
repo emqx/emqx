@@ -43,7 +43,12 @@ bridge_v1_config_to_action_config(BridgeV1Config, ConnectorName) ->
     ActionTopLevelKeys = schema_keys(?SCHEMA_MODULE:fields(redis_action)),
     ActionParametersKeys = schema_keys(emqx_bridge_redis:fields(action_parameters)),
     ActionKeys = ActionTopLevelKeys ++ ActionParametersKeys,
-    ActionConfig = make_config_map(ActionKeys, ActionParametersKeys, BridgeV1Config),
+    ActionConfig0 = make_config_map(ActionKeys, ActionParametersKeys, BridgeV1Config),
+    ActionConfig = emqx_utils_maps:update_if_present(
+        <<"resource_opts">>,
+        fun emqx_bridge_v2_schema:project_to_actions_resource_opts/1,
+        ActionConfig0
+    ),
     ActionConfig#{<<"connector">> => ConnectorName}.
 
 bridge_v1_config_to_connector_config(BridgeV1Config) ->
@@ -57,7 +62,12 @@ bridge_v1_config_to_connector_config(BridgeV1Config) ->
         (maps:keys(BridgeV1Config) -- (ActionKeys -- ConnectorTopLevelKeys)) ++
             [<<"redis_type">>],
     ConnectorParametersKeys = ConnectorKeys -- ConnectorTopLevelKeys,
-    make_config_map(ConnectorKeys, ConnectorParametersKeys, BridgeV1Config).
+    ConnectorConfig0 = make_config_map(ConnectorKeys, ConnectorParametersKeys, BridgeV1Config),
+    emqx_utils_maps:update_if_present(
+        <<"resource_opts">>,
+        fun emqx_connector_schema:project_to_connector_resource_opts/1,
+        ConnectorConfig0
+    ).
 
 %%------------------------------------------------------------------------------------------
 %% Internal helper fns

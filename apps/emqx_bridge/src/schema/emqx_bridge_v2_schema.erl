@@ -48,7 +48,8 @@
 -export([
     make_producer_action_schema/1,
     make_consumer_action_schema/1,
-    top_level_common_action_keys/0
+    top_level_common_action_keys/0,
+    project_to_actions_resource_opts/1
 ]).
 
 -export_type([action_type/0]).
@@ -203,8 +204,8 @@ types_sc() ->
 resource_opts_fields() ->
     resource_opts_fields(_Overrides = []).
 
-resource_opts_fields(Overrides) ->
-    ActionROFields = [
+common_resource_opts_subfields() ->
+    [
         batch_size,
         batch_time,
         buffer_mode,
@@ -219,7 +220,13 @@ resource_opts_fields(Overrides) ->
         start_after_created,
         start_timeout,
         worker_pool_size
-    ],
+    ].
+
+common_resource_opts_subfields_bin() ->
+    lists:map(fun atom_to_binary/1, common_resource_opts_subfields()).
+
+resource_opts_fields(Overrides) ->
+    ActionROFields = common_resource_opts_subfields(),
     lists:filter(
         fun({Key, _Sc}) -> lists:member(Key, ActionROFields) end,
         emqx_resource_schema:create_opts(Overrides)
@@ -273,6 +280,10 @@ make_consumer_action_schema(ActionParametersRef) ->
                 desc => ?DESC(emqx_resource_schema, "resource_opts")
             })}
     ].
+
+project_to_actions_resource_opts(OldResourceOpts) ->
+    Subfields = common_resource_opts_subfields_bin(),
+    maps:with(Subfields, OldResourceOpts).
 
 -ifdef(TEST).
 -include_lib("hocon/include/hocon_types.hrl").
