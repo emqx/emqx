@@ -217,8 +217,6 @@ common_resource_opts_subfields() ->
         query_mode,
         request_ttl,
         resume_interval,
-        start_after_created,
-        start_timeout,
         worker_pool_size
     ].
 
