@@ -63,6 +63,8 @@
 -export([certs_dir/2]).
 -endif.
 
+-export_type([listener_id/0]).
+
 -type listener_id() :: atom() | binary().
 -define(ROOT_KEY, listeners).
 -define(CONF_KEY_PATH, [?ROOT_KEY, '?', '?']).

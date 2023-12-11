@@ -30,6 +30,8 @@
 -export([get_topic/1]).
 -export([get_record/2]).
 
+-export_type([key/1]).
+
 -type key(ID) :: emqx_trie_search:key(ID).
 -type match(ID) :: key(ID).
 -type words() :: emqx_trie_search:words().

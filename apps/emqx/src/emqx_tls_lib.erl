@@ -44,6 +44,9 @@
     to_client_opts/2
 ]).
 
+%% ssl:tls_version/0 is not exported.
+-type tls_version() :: tlsv1 | 'tlsv1.1' | 'tlsv1.2' | 'tlsv1.3'.
+
 -include("logger.hrl").
 
 -define(IS_TRUE(Val), ((Val =:= true) orelse (Val =:= <<"true">>))).
@@ -123,8 +126,8 @@
 %% @doc Validate a given list of desired tls versions.
 %% raise an error exception if non of them are available.
 %% The input list can be a string/binary of comma separated versions.
--spec integral_versions(tls | dtls, undefined | string() | binary() | [ssl:tls_version()]) ->
-    [ssl:tls_version()].
+-spec integral_versions(tls | dtls, undefined | string() | binary() | [tls_version()]) ->
+    [tls_version()].
 integral_versions(Type, undefined) ->
     available_versions(Type);
 integral_versions(Type, []) ->
@@ -164,7 +167,7 @@ all_ciphers() ->
     all_ciphers(available_versions(all)).
 
 %% @hidden Return a list of (openssl string format) cipher suites.
--spec all_ciphers([ssl:tls_version()]) -> [string()].
+-spec all_ciphers([tls_version()]) -> [string()].
 all_ciphers(['tlsv1.3']) ->
     %% When it's only tlsv1.3 wanted, use 'exclusive' here
     %% because 'all' returns legacy cipher suites too,
@@ -212,7 +215,7 @@ do_selected_ciphers(_) ->
     ?SELECTED_CIPHERS.
 
 %% @doc Ensure version & cipher-suites integrity.
--spec integral_ciphers([ssl:tls_version()], binary() | string() | [string()]) -> [string()].
+-spec integral_ciphers([tls_version()], binary() | string() | [string()]) -> [string()].
 integral_ciphers(Versions, Ciphers) when Ciphers =:= [] orelse Ciphers =:= undefined ->
     %% not configured
     integral_ciphers(Versions, selected_ciphers(Versions));

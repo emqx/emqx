@@ -680,6 +680,8 @@ to_schema(Object) ->
         post => #{responses => #{200 => Object, 201 => Object}}
     }.
 
+namespace() -> undefined.
+
 fields(good_ref) ->
     [
         {'webhook-host', mk(emqx_schema:ip_port(), #{default => <<"127.0.0.1:80">>})},

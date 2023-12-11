@@ -562,7 +562,8 @@ dialyzer(Config) ->
     AppsToExclude = AppNames -- KnownApps,
 
     Extra =
-        [bcrypt || provide_bcrypt_dep()] ++
+        [os_mon, system_monitor, covertool] ++
+            [bcrypt || provide_bcrypt_dep()] ++
             [jq || is_jq_supported()] ++
             [quicer || is_quicer_supported()],
     NewDialyzerConfig =
