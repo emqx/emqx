@@ -36,9 +36,7 @@
 namespace() ->
     "bridge_mongodb".
 
-roots() ->
-    %% ???
-    [].
+roots() -> [].
 
 fields("config") ->
     [

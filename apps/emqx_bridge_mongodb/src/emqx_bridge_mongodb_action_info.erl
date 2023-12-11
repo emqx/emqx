@@ -31,9 +31,9 @@ connector_action_config_to_bridge_v1_config(ConnectorConfig, ActionConfig) ->
         maps:merge(
             maps:without(
                 [<<"connector">>],
-                map_unindent(<<"parameters">>, ActionConfig)
+                emqx_utils_maps:unindent(<<"parameters">>, ActionConfig)
             ),
-            map_unindent(<<"parameters">>, ConnectorConfig)
+            emqx_utils_maps:unindent(<<"parameters">>, ConnectorConfig)
         )
     ).
 
@@ -66,7 +66,7 @@ bridge_v1_config_to_connector_config(BridgeV1Config) ->
 
 make_config_map(PickKeys, IndentKeys, Config) ->
     Conf0 = maps:with(PickKeys, Config),
-    map_indent(<<"parameters">>, IndentKeys, Conf0).
+    emqx_utils_maps:indent(<<"parameters">>, IndentKeys, Conf0).
 
 bridge_v1_type_name() ->
     {fun ?MODULE:bridge_v1_type_name_fun/1, bridge_v1_type_names()}.
@@ -85,19 +85,6 @@ bridge_v1_type_name_fun({#{<<"parameters">> := #{<<"mongo_type">> := MongoType}}
 v1_type(<<"rs">>) -> mongodb_rs;
 v1_type(<<"sharded">>) -> mongodb_sharded;
 v1_type(<<"single">>) -> mongodb_single.
-
-map_unindent(Key, Map) ->
-    maps:merge(
-        maps:get(Key, Map),
-        maps:remove(Key, Map)
-    ).
-
-map_indent(IndentKey, PickKeys, Map) ->
-    maps:put(
-        IndentKey,
-        maps:with(PickKeys, Map),
-        maps:without(PickKeys, Map)
-    ).
 
 schema_keys(Name) ->
     [bin(Key) || Key <- proplists:get_keys(?SCHEMA_MODULE:fields(Name))].
