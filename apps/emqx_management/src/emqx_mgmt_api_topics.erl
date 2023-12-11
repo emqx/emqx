@@ -115,7 +115,9 @@ do_list(Params) ->
         {200, format_list_response(Pager, QResult)}
     catch
         throw:{error, page_limit_invalid} ->
-            {400, #{code => <<"INVALID_PARAMETER">>, message => <<"page_limit_invalid">>}}
+            {400, #{code => <<"INVALID_PARAMETER">>, message => <<"page_limit_invalid">>}};
+        error:{invalid_topic_filter, _} ->
+            {400, #{code => <<"INVALID_PARAMTER">>, message => <<"topic_filter_invalid">>}}
     end.
 
 lookup(#{topic := Topic}) ->
