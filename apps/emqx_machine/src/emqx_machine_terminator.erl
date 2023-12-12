@@ -69,7 +69,7 @@ graceful() ->
 graceful_wait() ->
     ?AUDIT(alert, #{
         cmd => emqx,
-        args => ["stop"],
+        args => [<<"stop">>],
         version => emqx_release:version(),
         from => cli,
         duration_ms => element(1, erlang:statistics(wall_clock))
