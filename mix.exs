@@ -214,12 +214,12 @@ defmodule EMQXUmbrella.MixProject do
        github: "emqx/credentials-obfuscation", tag: "v3.2.0", override: true},
       {:rabbit_common,
        github: "emqx/rabbitmq-server",
-       tag: "v3.11.13-emqx",
+       tag: "v3.11.13.2",
        sparse: "deps/rabbit_common",
        override: true},
       {:amqp_client,
        github: "emqx/rabbitmq-server",
-       tag: "v3.11.13-emqx",
+       tag: "v3.11.13.2",
        sparse: "deps/amqp_client",
        override: true}
     ]
