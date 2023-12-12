@@ -48,8 +48,10 @@
 -export([
     client_ssl/0,
     client_ssl/1,
-    client_ssl_twoway/0,
-    client_ssl_twoway/1,
+    client_mtls/0,
+    client_mtls/1,
+    ssl_verify_fun_allow_any_host/0,
+    ssl_verify_fun_allow_any_host_impl/3,
     ensure_mnesia_stopped/0,
     ensure_quic_listener/2,
     ensure_quic_listener/3,
@@ -430,11 +432,11 @@ flush(Msgs) ->
     after 0 -> lists:reverse(Msgs)
     end.
 
-client_ssl_twoway() ->
-    client_ssl_twoway(default).
+client_mtls() ->
+    client_mtls(default).
 
-client_ssl_twoway(TLSVsn) ->
-    client_certs() ++ ciphers(TLSVsn).
+client_mtls(TLSVsn) ->
+    ssl_verify_fun_allow_any_host() ++ client_certs() ++ ciphers(TLSVsn).
 
 %% Paths prepended to cert filenames
 client_certs() ->
@@ -1421,3 +1423,24 @@ group_path(Config) ->
         _:_ ->
             []
     end.
+
+%% almost verify_none equivalent, but only ignores 'hostname_check_failed'
+ssl_verify_fun_allow_any_host_impl(_Cert, Event, State) ->
+    case Event of
+        valid ->
+            {valid, State};
+        valid_peer ->
+            {valid, State};
+        {bad_cert, hostname_check_failed} ->
+            {valid, State};
+        {bad_cert, _} ->
+            {fail, Event};
+        {extension, _} ->
+            {unknown, State}
+    end.
+
+ssl_verify_fun_allow_any_host() ->
+    [
+        {verify, verify_peer},
+        {verify_fun, {fun ?MODULE:ssl_verify_fun_allow_any_host_impl/3, _State = #{}}}
+    ].
