@@ -845,6 +845,39 @@ t_fail_delete_with_action(Config) ->
     ),
     ok.
 
+t_list_disabled_channels(Config) ->
+    ConnectorParams = ?KAFKA_CONNECTOR(?CONNECTOR_NAME),
+    ?assertMatch(
+        {ok, 201, _},
+        request_json(
+            post,
+            uri(["connectors"]),
+            ConnectorParams,
+            Config
+        )
+    ),
+    ActionName = ?BRIDGE_NAME,
+    ActionParams = (?KAFKA_BRIDGE(ActionName))#{<<"enable">> := true},
+    ?assertMatch(
+        {ok, 201, #{<<"enable">> := true}},
+        request_json(
+            post,
+            uri(["actions"]),
+            ActionParams,
+            Config
+        )
+    ),
+    ConnectorID = emqx_connector_resource:connector_id(?CONNECTOR_TYPE, ?CONNECTOR_NAME),
+    ?assertMatch(
+        {ok, 200, #{<<"actions">> := [ActionName]}},
+        request_json(
+            get,
+            uri(["connectors", ConnectorID]),
+            Config
+        )
+    ),
+    ok.
+
 t_raw_config_response_defaults(Config) ->
     Params = maps:without([<<"enable">>, <<"resource_opts">>], ?KAFKA_CONNECTOR(?CONNECTOR_NAME)),
     ?assertMatch(
