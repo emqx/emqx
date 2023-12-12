@@ -910,13 +910,13 @@ t_cascade_delete_actions(Config) ->
     {ok, 200, []} = request_json(get, uri([?ROOT]), Config),
     %% then we add a a bridge, using POST
     %% POST /actions/ will create a bridge
-    BridgeID = emqx_bridge_resource:bridge_id(?BRIDGE_TYPE, ?BRIDGE_NAME),
     {ok, 201, _} = request(
         post,
         uri([?ROOT]),
         ?KAFKA_BRIDGE(?BRIDGE_NAME),
         Config
     ),
+    BridgeID = emqx_bridge_resource:bridge_id(?BRIDGE_TYPE, ?BRIDGE_NAME),
     {ok, 201, #{<<"id">> := RuleId}} = request_json(
         post,
         uri(["rules"]),

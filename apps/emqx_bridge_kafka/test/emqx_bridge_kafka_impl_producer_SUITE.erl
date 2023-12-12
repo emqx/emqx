@@ -563,7 +563,7 @@ t_nonexistent_topic(_Config) ->
             error := {unhealthy_target, <<"Unknown topic or partition: undefined-test-topic">>}
         },
         emqx_bridge_v2:health_check(
-            ?BRIDGE_TYPE_V2, list_to_atom(Name)
+            list_to_atom(?BRIDGE_TYPE_V2), list_to_atom(Name)
         )
     ),
     ok = emqx_bridge:remove(list_to_atom(Type), list_to_atom(Name)),

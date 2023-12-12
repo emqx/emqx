@@ -61,12 +61,14 @@
 
 %% Don't turn bridge_name to atom, it's maybe not a existing atom.
 -define(TRY_PARSE_ID(ID, EXPR),
-    try emqx_bridge_resource:parse_bridge_id(Id, #{atom_name => false}) of
+    try emqx_bridge_resource:parse_bridge_id(ID, #{atom_name => false}) of
         {BridgeType, BridgeName} ->
             EXPR
     catch
         throw:#{reason := Reason} ->
-            ?NOT_FOUND(<<"Invalid bridge ID, ", Reason/binary>>)
+            ?NOT_FOUND(<<"Invalid bridge ID, ", Reason/binary>>);
+        error:{badkey, Key} ->
+            ?NOT_FOUND(<<"Invalid bridge type, ", (atom_to_binary(Key))/binary>>)
     end
 ).
 
@@ -461,9 +463,9 @@ schema("/bridges_probe") ->
         }
     }.
 
-'/bridges'(post, #{body := #{<<"type">> := BridgeType0, <<"name">> := BridgeName} = Conf0}) ->
-    BridgeType = upgrade_type(BridgeType0),
-    case emqx_bridge:lookup(BridgeType, BridgeName) of
+'/bridges'(post, #{body := #{<<"type">> := BridgeType, <<"name">> := BridgeName} = Conf0}) ->
+    ActionType = upgrade_type(BridgeType),
+    case emqx_bridge:lookup(ActionType, BridgeName) of
         {ok, _} ->
             ?BAD_REQUEST('ALREADY_EXISTS', <<"bridge already exists">>);
         {error, not_bridge_v1_compatible} ->
@@ -642,11 +644,13 @@ update_bridge(BridgeType, BridgeName, Conf) ->
             create_or_update_bridge(BridgeType, BridgeName, Conf, 200)
     end.
 
-create_or_update_bridge(BridgeType0, BridgeName, Conf, HttpStatusCode) ->
-    BridgeType = upgrade_type(BridgeType0),
+create_or_update_bridge(BridgeType, BridgeName, Conf, HttpStatusCode) ->
     case emqx_bridge:create(BridgeType, BridgeName, Conf) of
         {ok, _} ->
-            lookup_from_all_nodes(BridgeType, BridgeName, HttpStatusCode);
+            %% lookup_from_all_nodes is implemented to accept action type which
+            %% is coming from ?TRY_PARSE_ID
+            ActionType = upgrade_type(BridgeType),
+            lookup_from_all_nodes(ActionType, BridgeName, HttpStatusCode);
         {error, {pre_config_update, _HandlerMod, Reason}} when is_map(Reason) ->
             ?BAD_REQUEST(map_to_json(redact(Reason)));
         {error, Reason} when is_map(Reason) ->
@@ -1166,7 +1170,7 @@ non_compat_bridge_msg() ->
     <<"bridge already exists as non Bridge V1 compatible action">>.
 
 upgrade_type(Type) ->
-    emqx_bridge_lib:upgrade_type(Type).
+    emqx_bridge_lib:maybe_upgrade_type(Type).
 
 downgrade_type(Type, Conf) ->
-    emqx_bridge_lib:downgrade_type(Type, Conf).
+    emqx_bridge_lib:maybe_downgrade_type(Type, Conf).

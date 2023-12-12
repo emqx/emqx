@@ -794,7 +794,7 @@ parse_id(Id) ->
         [<<"action">>, Type, Name | _] ->
             {Type, Name};
         _X ->
-            error({error, iolist_to_binary(io_lib:format("Invalid id: ~p", [Id]))})
+            error({error, {bridge_id_invalid, Id}})
     end.
 
 get_channels_for_connector(ConnectorId) ->
@@ -1409,72 +1409,49 @@ bridge_v1_remove(
 ) ->
     Error.
 
-bridge_v1_check_deps_and_remove(BridgeV1Type, BridgeName, RemoveDeps) ->
-    BridgeV2Type = ?MODULE:bridge_v1_type_to_bridge_v2_type(BridgeV1Type),
-    bridge_v1_check_deps_and_remove(
-        BridgeV2Type,
-        BridgeName,
-        RemoveDeps,
-        lookup_conf(BridgeV2Type, BridgeName)
-    ).
-
 %% Bridge v1 delegated-removal in 3 steps:
 %% 1. Delete rule actions if RmoveDeps has 'rule_actions'
 %% 2. Delete self (the bridge v2), also delete its channel in the connector
 %% 3. Delete the connector if the connector has no more channel left and if 'connector' is in RemoveDeps
-bridge_v1_check_deps_and_remove(
-    BridgeType,
-    BridgeName,
-    RemoveDeps,
-    #{connector := ConnectorName}
-) ->
-    RemoveConnector = lists:member(connector, RemoveDeps),
-    case emqx_bridge_lib:maybe_withdraw_rule_action(BridgeType, BridgeName, RemoveDeps) of
+bridge_v1_check_deps_and_remove(BridgeV1Type, BridgeName, RemoveDeps) ->
+    BridgeV2Type = ?MODULE:bridge_v1_type_to_bridge_v2_type(BridgeV1Type),
+    case emqx_bridge_lib:maybe_withdraw_rule_action(BridgeV2Type, BridgeName, RemoveDeps) of
         ok ->
-            case remove(BridgeType, BridgeName) of
-                ok when RemoveConnector ->
-                    maybe_delete_channels(BridgeType, BridgeName, ConnectorName);
+            #{connector := ConnectorName} = lookup_conf(BridgeV2Type, BridgeName),
+            case remove(BridgeV2Type, BridgeName) of
                 ok ->
-                    ok;
+                    ConnectorType = connector_type(BridgeV2Type),
+                    case
+                        lists:member(connector, RemoveDeps) andalso
+                            not connector_has_channels(ConnectorType, ConnectorName)
+                    of
+                        true -> delete_connector(ConnectorType, ConnectorName);
+                        false -> ok
+                    end;
                 {error, Reason} ->
                     {error, Reason}
             end;
         {error, Reason} ->
             {error, Reason}
-    end;
-bridge_v1_check_deps_and_remove(_BridgeType, _BridgeName, _RemoveDeps, Error) ->
-    %% TODO: the connector is gone, for whatever reason, maybe call remove/2 anyway?
-    Error.
+    end.
 
-maybe_delete_channels(BridgeType, BridgeName, ConnectorName) ->
-    case connector_has_channels(BridgeType, ConnectorName) of
-        true ->
+delete_connector(ConnectorType, ConnectorName) ->
+    case emqx_connector:remove(ConnectorType, ConnectorName) of
+        ok ->
             ok;
-        false ->
-            ConnectorType = connector_type(BridgeType),
-            case emqx_connector:remove(ConnectorType, ConnectorName) of
-                ok ->
-                    ok;
-                {error, Reason} ->
-                    ?SLOG(error, #{
-                        msg => failed_to_delete_connector,
-                        bridge_type => BridgeType,
-                        bridge_name => BridgeName,
-                        connector_name => ConnectorName,
-                        reason => Reason
-                    }),
-                    {error, Reason}
-            end
+        {error, Reason} ->
+            ?SLOG(error, #{
+                msg => failed_to_delete_connector,
+                connector_type => ConnectorType,
+                connector_name => ConnectorName,
+                reason => Reason
+            }),
+            {error, Reason}
     end.
 
-connector_has_channels(BridgeV2Type, ConnectorName) ->
-    ConnectorType = connector_type(BridgeV2Type),
-    case emqx_connector_resource:get_channels(ConnectorType, ConnectorName) of
-        {ok, []} ->
-            false;
-        _ ->
-            true
-    end.
+connector_has_channels(ConnectorType, ConnectorName) ->
+    {ok, Channels} = emqx_connector_resource:get_channels(ConnectorType, ConnectorName),
+    length(Channels) =/= 0.
 
 bridge_v1_id_to_connector_resource_id(BridgeId) ->
     case binary:split(BridgeId, <<":">>) of

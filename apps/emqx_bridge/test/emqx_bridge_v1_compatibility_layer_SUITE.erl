@@ -117,6 +117,12 @@ setup_mocks() ->
         fun(Method) -> [{bridge_type_bin(), hoconsc:ref(?MODULE, "api_" ++ Method)}] end
     ),
 
+    catch meck:new(emqx_action_info, MeckOpts),
+    meck:expect(emqx_action_info, is_action_type, 1, true),
+    meck:expect(emqx_action_info, action_type_to_connector_type, 1, con_type()),
+    meck:expect(emqx_action_info, action_type_to_bridge_v1_type, 2, bridge_type()),
+    meck:expect(emqx_action_info, bridge_v1_type_to_action_type, 1, bridge_type()),
+
     ok.
 
 con_mod() ->

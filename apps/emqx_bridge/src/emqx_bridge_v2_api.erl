@@ -66,7 +66,7 @@
         {BridgeType, BridgeName} ->
             EXPR
     catch
-        throw:#{reason := Reason} ->
+        error:{error, {bridge_id_invalid, Reason}} ->
             ?NOT_FOUND(<<"Invalid bridge ID, ", Reason/binary>>)
     end
 ).

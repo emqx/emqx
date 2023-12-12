@@ -17,10 +17,17 @@
 
 -export([
     maybe_withdraw_rule_action/3,
-    upgrade_type/1,
-    downgrade_type/2,
+    maybe_upgrade_type/1,
+    maybe_downgrade_type/2,
     get_conf/2
 ]).
+
+-define(IS_ACTION_TYPE(TYPE, EXPR),
+    case emqx_action_info:is_action_type(TYPE) of
+        false -> TYPE;
+        true -> EXPR
+    end
+).
 
 %% @doc A bridge can be used as a rule action.
 %% The bridge-ID in rule-engine's world is the action-ID.
@@ -53,30 +60,42 @@ maybe_withdraw_rule_action_loop([BridgeId | More], DeleteActions) ->
             }}
     end.
 
-%% @doc Kafka producer bridge renamed from 'kafka' to 'kafka_bridge' since 5.3.1.
-upgrade_type(Type) when is_atom(Type) ->
-    emqx_bridge_v2:bridge_v1_type_to_bridge_v2_type(Type);
-upgrade_type(Type) when is_binary(Type) ->
-    atom_to_binary(emqx_bridge_v2:bridge_v1_type_to_bridge_v2_type(Type));
-upgrade_type(Type) when is_list(Type) ->
-    atom_to_list(emqx_bridge_v2:bridge_v1_type_to_bridge_v2_type(list_to_binary(Type))).
+%% @doc Kafka producer bridge renamed from 'kafka' to 'kafka_producer' since
+%% 5.3.1.
+maybe_upgrade_type(Type) when is_atom(Type) ->
+    ?IS_ACTION_TYPE(Type, do_upgrade_type(Type));
+maybe_upgrade_type(Type0) when is_binary(Type0) ->
+    Type = binary_to_existing_atom(Type0),
+    atom_to_binary(?IS_ACTION_TYPE(Type, do_upgrade_type(Type)));
+maybe_upgrade_type(Type0) when is_list(Type0) ->
+    Type = list_to_existing_atom(Type0),
+    atom_to_list(?IS_ACTION_TYPE(Type, do_upgrade_type(Type))).
 
-%% @doc Kafka producer bridge type renamed from 'kafka' to 'kafka_bridge' since 5.3.1
-downgrade_type(Type, Conf) when is_atom(Type) ->
-    emqx_bridge_v2:bridge_v2_type_to_bridge_v1_type(Type, Conf);
-downgrade_type(Type, Conf) when is_binary(Type) ->
-    atom_to_binary(emqx_bridge_v2:bridge_v2_type_to_bridge_v1_type(Type, Conf));
-downgrade_type(Type, Conf) when is_list(Type) ->
-    atom_to_list(emqx_bridge_v2:bridge_v2_type_to_bridge_v1_type(list_to_binary(Type), Conf)).
+do_upgrade_type(Type) ->
+    emqx_bridge_v2:bridge_v1_type_to_bridge_v2_type(Type).
 
-%% A rule might be referencing an old version bridge type name
-%% i.e. 'kafka' instead of 'kafka_producer' so we need to try both
+%% @doc Kafka producer bridge type renamed from 'kafka' to 'kafka_producer'
+%% since 5.3.1
+maybe_downgrade_type(Type, Conf) when is_atom(Type) ->
+    ?IS_ACTION_TYPE(Type, do_downgrade_type(Type, Conf));
+maybe_downgrade_type(Type0, Conf) when is_binary(Type0) ->
+    Type = binary_to_existing_atom(Type0),
+    atom_to_binary(?IS_ACTION_TYPE(Type, do_downgrade_type(Type, Conf)));
+maybe_downgrade_type(Type0, Conf) when is_list(Type0) ->
+    Type = list_to_existing_atom(Type0),
+    atom_to_list(?IS_ACTION_TYPE(Type, do_downgrade_type(Type, Conf))).
+
+do_downgrade_type(Type, Conf) ->
+    emqx_bridge_v2:bridge_v2_type_to_bridge_v1_type(Type, Conf).
+
+%% A rule might be referencing an old version bridge type name i.e. 'kafka'
+%% instead of 'kafka_producer' so we need to try both
 external_ids(Type, Name) ->
-    case downgrade_type(Type, get_conf(Type, Name)) of
+    case maybe_downgrade_type(Type, get_conf(Type, Name)) of
         Type ->
             [external_id(Type, Name)];
-        Type0 ->
-            [external_id(Type0, Name), external_id(Type, Name)]
+        BridgeV1Type ->
+            [external_id(BridgeV1Type, Name), external_id(Type, Name)]
     end.
 
 get_conf(BridgeType, BridgeName) ->

@@ -15,7 +15,7 @@
     bridge_v1_config_to_action_config/2
 ]).
 
-bridge_v1_type_name() -> kafka.
+bridge_v1_type_name() -> [kafka, kafka_producer].
 
 action_type_name() -> kafka_producer.
 

@@ -14,7 +14,7 @@
     bridge_v1_config_to_action_config/2
 ]).
 
-bridge_v1_type_name() -> gcp_pubsub.
+bridge_v1_type_name() -> [gcp_pubsub, gcp_pubsub_producer].
 
 action_type_name() -> gcp_pubsub_producer.
 
