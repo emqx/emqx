@@ -324,6 +324,14 @@ location_report_28bytes() ->
 binary_to_hex_string(Data) ->
     lists:flatten([io_lib:format("~2.16.0B ", [X]) || <<X:8>> <= Data]).
 
+receive_msg() ->
+    receive
+        {deliver, Topic, #message{payload = Payload}} ->
+            {Topic, Payload}
+    after 100 ->
+        {error, timeout}
+    end.
+
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%% test cases %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
 t_case00_register(_) ->
@@ -2677,11 +2685,3 @@ t_case34_dl_0x8805_single_mm_data_ctrl(_Config) ->
     {error, timeout} = gen_tcp:recv(Socket, 0, 500),
 
     ok = gen_tcp:close(Socket).
-
-receive_msg() ->
-    receive
-        {deliver, Topic, #message{payload = Payload}} ->
-            {Topic, Payload}
-    after 100 ->
-        {error, timeout}
-    end.
