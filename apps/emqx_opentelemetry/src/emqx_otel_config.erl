@@ -155,7 +155,7 @@ ssl_opts(Endpoint, SSLOpts) ->
             []
     end.
 
-is_ssl(<<"https://", _/binary>> = _Endpoint) ->
+is_ssl(<<"https://", _/binary>>) ->
     true;
-is_ssl(_Endpoint) ->
+is_ssl(<<"http://", _/binary>>) ->
     false.

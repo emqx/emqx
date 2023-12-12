@@ -261,9 +261,10 @@ request_dashboard(Method, Url, Auth) ->
 request_dashboard(Method, Url, QueryParams, Auth) ->
     Request = {Url ++ "?" ++ QueryParams, [Auth]},
     do_request_dashboard(Method, Request).
-do_request_dashboard(Method, Request) ->
+
+do_request_dashboard(Method, {Url, _} = Request) ->
     ct:pal("Method: ~p, Request: ~p", [Method, Request]),
-    case httpc:request(Method, Request, [], []) of
+    case httpc:request(Method, Request, maybe_ssl(Url), []) of
         {error, socket_closed_remotely} ->
             {error, socket_closed_remotely};
         {ok, {{"HTTP/1.1", Code, _}, _Headers, Return}} when
@@ -275,6 +276,9 @@ do_request_dashboard(Method, Request) ->
         {error, Reason} ->
             {error, Reason}
     end.
+
+maybe_ssl("http://" ++ _) -> [];
+maybe_ssl("https://" ++ _) -> [{ssl, [{verify, verify_none}]}].
 
 auth_header_() ->
     auth_header_(<<"admin">>, <<"public">>).

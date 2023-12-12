@@ -1008,7 +1008,8 @@ do_t_update_listener(Config) ->
         {ssl, true},
         {ssl_opts, [
             {certfile, ClientCert},
-            {keyfile, ClientKey}
+            {keyfile, ClientKey},
+            {verify, verify_none}
         ]},
         {port, 8883}
     ]),
