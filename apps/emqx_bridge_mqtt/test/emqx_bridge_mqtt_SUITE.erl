@@ -230,19 +230,18 @@ t_conf_bridge_authn_passfile(Config) ->
     ?assertReceive(
         {authenticate, #{username := Username2, password := Password2}}
     ),
-    ?assertMatch(
-        {ok, 201, #{
-            <<"status">> := <<"disconnected">>,
-            <<"status_reason">> := <<"#{msg => failed_to_read_secret_file", _/bytes>>
-        }},
+    {ok, 201, #{
+        <<"status">> := <<"disconnected">>,
+        <<"status_reason">> := Reason
+    }} =
         request_json(
             post,
             uri(["bridges"]),
             ?SERVER_CONF(<<>>, <<"file://im/pretty/sure/theres/no/such/file">>)#{
                 <<"name">> => <<"t_conf_bridge_authn_no_passfile">>
             }
-        )
-    ).
+        ),
+    ?assertMatch({match, _}, re:run(Reason, <<"failed_to_read_secret_file">>)).
 
 hook_authenticate() ->
     emqx_hooks:add('client.authenticate', {?MODULE, authenticate, [self()]}, ?HP_HIGHEST).
