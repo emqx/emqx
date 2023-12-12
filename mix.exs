@@ -97,6 +97,7 @@ defmodule EMQXUmbrella.MixProject do
       {:hackney, github: "emqx/hackney", tag: "1.18.1-1", override: true},
       # set by hackney (dependency)
       {:ssl_verify_fun, "1.1.7", override: true},
+      {:rfc3339, github: "emqx/rfc3339", tag: "0.2.3", override: true},
       {:uuid, github: "okeuday/uuid", tag: "v2.0.6", override: true},
       {:quickrand, github: "okeuday/quickrand", tag: "v2.0.6", override: true}
     ] ++
