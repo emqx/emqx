@@ -589,13 +589,23 @@ pick_connectors_by_id(Type, Name, ConnectorsAllNodes) ->
 format_connector_info([FirstConnector | _] = Connectors) ->
     Res = maps:remove(node, FirstConnector),
     NodeStatus = node_status(Connectors),
-    redact(Res#{
+    StatusReason = first_status_reason(Connectors),
+    Info0 = Res#{
         status => aggregate_status(NodeStatus),
         node_status => NodeStatus
-    }).
+    },
+    Info = emqx_utils_maps:put_if(Info0, status_reason, StatusReason, StatusReason =/= undefined),
+    redact(Info).
 
 node_status(Connectors) ->
     [maps:with([node, status, status_reason], B) || B <- Connectors].
+
+first_status_reason(Connectors) ->
+    StatusReasons = [Reason || #{status_reason := Reason} <- Connectors, Reason =/= undefined],
+    case StatusReasons of
+        [Reason | _] -> Reason;
+        _ -> undefined
+    end.
 
 aggregate_status(AllStatus) ->
     Head = fun([A | _]) -> A end,
