@@ -86,7 +86,7 @@
 -opaque iterator() ::
     #{
         ?tag := ?IT,
-        ?shard := emqx_ds_replication_layer:shard_id(),
+        ?stream := stream(),
         ?enc := emqx_ds_storage_layer:iterator()
     }.
 
@@ -198,7 +198,7 @@ make_iterator(DB, Stream, TopicFilter, StartTime) ->
     Node = node_of_shard(DB, Shard),
     case emqx_ds_proto_v3:make_iterator(Node, DB, Shard, StorageStream, TopicFilter, StartTime) of
         {ok, Iter} ->
-            {ok, #{?tag => ?IT, ?shard => Shard, ?enc => Iter}};
+            {ok, #{?tag => ?IT, ?stream => Stream, ?enc => Iter}};
         Err = {error, _} ->
             Err
     end.
@@ -210,7 +210,7 @@ make_iterator(DB, Stream, TopicFilter, StartTime) ->
 ) ->
     emqx_ds:make_iterator_result(iterator()).
 update_iterator(DB, OldIter, DSKey) ->
-    #{?tag := ?IT, ?shard := Shard, ?enc := StorageIter} = OldIter,
+    #{?tag := ?IT, ?stream := #{?tag := ?STREAM, ?shard := Shard}, ?enc := StorageIter} = OldIter,
     Node = node_of_shard(DB, Shard),
     case
         emqx_ds_proto_v3:update_iterator(
@@ -222,14 +222,14 @@ update_iterator(DB, OldIter, DSKey) ->
         )
     of
         {ok, Iter} ->
-            {ok, #{?tag => ?IT, ?shard => Shard, ?enc => Iter}};
+            {ok, OldIter#{?enc := Iter}};
         Err = {error, _} ->
             Err
     end.
 
 -spec next(emqx_ds:db(), iterator(), pos_integer()) -> emqx_ds:next_result(iterator()).
 next(DB, Iter0, BatchSize) ->
-    #{?tag := ?IT, ?shard := Shard, ?enc := StorageIter0} = Iter0,
+    #{?tag := ?IT, ?stream := #{?tag := ?STREAM, ?shard := Shard}, ?enc := StorageIter0} = Iter0,
     Node = node_of_shard(DB, Shard),
     %% TODO: iterator can contain information that is useful for
     %% reconstructing messages sent over the network. For example,
