@@ -29,7 +29,8 @@
     update_config/2,
     add_generation/1,
     list_generations_with_lifetimes/1,
-    drop_generation/2
+    drop_generation/2,
+    last_seen_key/2
 ]).
 
 %% gen_server
@@ -49,6 +50,9 @@
     prototype/0,
     post_creation_context/0
 ]).
+
+%% for testing
+-export([implements_last_seen_key/1]).
 
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
@@ -185,7 +189,10 @@
 
 -callback post_creation_actions(post_creation_context()) -> _Data.
 
--optional_callbacks([post_creation_actions/1]).
+-callback last_seen_key(shard_id(), _Data, _Iter) ->
+    emqx_ds:message_key() | undefined.
+
+-optional_callbacks([post_creation_actions/1, last_seen_key/3]).
 
 %%================================================================================
 %% API for the replication layer
@@ -327,6 +334,21 @@ list_generations_with_lifetimes(ShardId) ->
 -spec drop_generation(shard_id(), gen_id()) -> ok.
 drop_generation(ShardId, GenId) ->
     gen_server:call(?REF(ShardId), #call_drop_generation{gen_id = GenId}, infinity).
+
+-spec last_seen_key(shard_id(), iterator()) ->
+    emqx_ds:message_key() | undefined.
+last_seen_key(Shard, #{?tag := ?IT, ?generation := GenId, ?enc := GenIter}) ->
+    #{module := Mod, data := GenData} = generation_get(Shard, GenId),
+    case ?MODULE:implements_last_seen_key(Mod) of
+        true ->
+            Mod:last_seen_key(Shard, GenData, GenIter);
+        false ->
+            undefined
+    end.
+
+%% for testing
+implements_last_seen_key(Mod) ->
+    erlang:function_exported(Mod, last_seen_key, 3).
 
 %%================================================================================
 %% gen_server for the shard

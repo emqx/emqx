@@ -35,7 +35,8 @@
     next/3,
     node_of_shard/2,
     shard_of_message/3,
-    maybe_set_myself_as_leader/2
+    maybe_set_myself_as_leader/2,
+    last_seen_key/2
 ]).
 
 %% internal exports:
@@ -48,7 +49,8 @@
     do_next_v1/4,
     do_add_generation_v2/1,
     do_list_generations_with_lifetimes_v3/2,
-    do_drop_generation_v3/3
+    do_drop_generation_v3/3,
+    do_last_seen_key_v3/3
 ]).
 
 -export_type([shard_id/0, builtin_db_opts/0, stream/0, iterator/0, message_id/0, batch/0]).
@@ -282,6 +284,12 @@ maybe_set_myself_as_leader(DB, Shard) ->
             ok
     end.
 
+-spec last_seen_key(emqx_ds:db(), iterator()) -> emqx_ds:message_key() | undefined.
+last_seen_key(DB, Iter) ->
+    #{?tag := ?IT, ?stream := #{?tag := ?STREAM, ?shard := Shard}, ?enc := StorageIter0} = Iter,
+    Node = node_of_shard(DB, Shard),
+    emqx_ds_proto_v3:last_seen_key(Node, DB, Shard, StorageIter0).
+
 %%================================================================================
 %% behavior callbacks
 %%================================================================================
@@ -340,6 +348,15 @@ do_update_iterator_v2(DB, Shard, OldIter, DSKey) ->
     emqx_ds_storage_layer:update_iterator(
         {DB, Shard}, OldIter, DSKey
     ).
+
+-spec do_last_seen_key_v3(
+    emqx_ds:db(),
+    emqx_ds_replication_layer:shard_id(),
+    emqx_ds_storage_layer:iterator()
+) ->
+    emqx_ds:message_key() | undefined.
+do_last_seen_key_v3(DB, Shard, Iter) ->
+    emqx_ds_storage_layer:last_seen_key({DB, Shard}, Iter).
 
 -spec do_next_v1(
     emqx_ds:db(),

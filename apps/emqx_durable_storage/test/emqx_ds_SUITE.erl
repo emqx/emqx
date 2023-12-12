@@ -307,6 +307,38 @@ t_08_smoke_list_drop_generation(_Config) ->
     ),
     ok.
 
+t_09_last_seen_key(_Config) ->
+    DB = ?FUNCTION_NAME,
+    ?assertMatch(ok, emqx_ds:open_db(DB, opts())),
+    TopicFilter = ['#'],
+    StartTime = 0,
+    Msgs = [
+        message(<<"foo/bar">>, <<"1">>, 0),
+        message(<<"foo">>, <<"2">>, 1),
+        message(<<"bar/bar">>, <<"3">>, 2)
+    ],
+    ?assertMatch(ok, emqx_ds:store_batch(DB, Msgs)),
+    [{_, Stream}] = emqx_ds:get_streams(DB, TopicFilter, StartTime),
+    {ok, Iter0} = emqx_ds:make_iterator(DB, Stream, TopicFilter, StartTime),
+    ?assertEqual(undefined, emqx_ds:last_seen_key(DB, Iter0)),
+    {ok, Iter1, [{Key0, _Msg0}]} = emqx_ds:next(DB, Iter0, 1),
+    ?assertEqual(Key0, emqx_ds:last_seen_key(DB, Iter1)),
+    {ok, Iter2, Msgs2} = emqx_ds:next(DB, Iter0, 3),
+    {Key1, _Msg2} = lists:last(Msgs2),
+    ?assertEqual(Key1, emqx_ds:last_seen_key(DB, Iter2)),
+    emqx_common_test_helpers:with_mock(
+        emqx_ds_storage_layer,
+        implements_last_seen_key,
+        fun(_Mod) -> false end,
+        fun() ->
+            ?assertEqual(undefined, emqx_ds:last_seen_key(DB, Iter0)),
+            ?assertEqual(undefined, emqx_ds:last_seen_key(DB, Iter1)),
+            ?assertEqual(undefined, emqx_ds:last_seen_key(DB, Iter2)),
+            ok
+        end
+    ),
+    ok.
+
 t_drop_generation_with_never_used_iterator(_Config) ->
     %% This test checks how the iterator behaves when:
     %%   1) it's created at generation 1 and not consumed from.

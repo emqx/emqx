@@ -30,7 +30,8 @@
 
     %% introduced in v3
     list_generations_with_lifetimes/3,
-    drop_generation/4
+    drop_generation/4,
+    last_seen_key/4
 ]).
 
 %% behavior callbacks:
@@ -138,6 +139,18 @@ list_generations_with_lifetimes(Node, DB, Shard) ->
     ok | {error, _}.
 drop_generation(Node, DB, Shard, GenId) ->
     erpc:call(Node, emqx_ds_replication_layer, do_drop_generation_v3, [DB, Shard, GenId]).
+
+-spec last_seen_key(
+    node(),
+    emqx_ds:db(),
+    emqx_ds_replication_layer:shard_id(),
+    emqx_ds_storage_layer:iterator()
+) ->
+    emqx_ds:message_key() | undefined.
+last_seen_key(Node, DB, Shard, Iter) ->
+    erpc:call(Node, emqx_ds_replication_layer, do_last_seen_key_v3, [
+        DB, Shard, Iter
+    ]).
 
 %%================================================================================
 %% behavior callbacks

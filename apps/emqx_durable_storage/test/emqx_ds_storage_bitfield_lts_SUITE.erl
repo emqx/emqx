@@ -207,6 +207,22 @@ t_replay(_Config) ->
     ?assert(check(?SHARD, <<"#">>, 0, Messages)),
     ok.
 
+t_last_seen_key(_Config) ->
+    Topic = <<"some/topic">>,
+    Timestamps = lists:seq(1, 10),
+    Batch1 = [
+        make_message(PublishedAt, Topic, integer_to_binary(PublishedAt))
+     || PublishedAt <- Timestamps
+    ],
+    ok = emqx_ds_storage_layer:store_batch(?SHARD, Batch1, []),
+    [{_Rank, Stream}] = emqx_ds_storage_layer:get_streams(?SHARD, parse_topic(Topic), 0),
+    {ok, It} = emqx_ds_storage_layer:make_iterator(?SHARD, Stream, parse_topic(Topic), 0),
+    ?assertEqual(undefined, emqx_ds_storage_layer:last_seen_key(?SHARD, It)),
+    {ok, NextIt, MessagesAndKeys} = emqx_ds_storage_layer:next(?SHARD, It, 100),
+    {LastReturnedKey, _Msg} = lists:last(MessagesAndKeys),
+    ?assertEqual(LastReturnedKey, emqx_ds_storage_layer:last_seen_key(?SHARD, NextIt)),
+    ok.
+
 check(Shard, TopicFilter, StartTime, ExpectedMessages) ->
     ExpectedFiltered = lists:filter(
         fun(#message{topic = Topic, timestamp = TS}) ->

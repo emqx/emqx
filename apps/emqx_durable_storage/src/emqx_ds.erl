@@ -35,7 +35,7 @@
 -export([store_batch/2, store_batch/3]).
 
 %% Message replay API:
--export([get_streams/3, make_iterator/4, update_iterator/3, next/3]).
+-export([get_streams/3, make_iterator/4, update_iterator/3, next/3, last_seen_key/2]).
 
 %% Misc. API:
 -export([]).
@@ -180,9 +180,12 @@
 
 -callback next(db(), Iterator, pos_integer()) -> next_result(Iterator).
 
+-callback last_seen_key(db(), ds_specific_iterator()) -> message_key() | undefined.
+
 -optional_callbacks([
     list_generations_with_lifetimes/1,
-    drop_generation/2
+    drop_generation/2,
+    last_seen_key/2
 ]).
 
 %%================================================================================
@@ -306,6 +309,15 @@ update_iterator(DB, OldIter, DSKey) ->
 -spec next(db(), iterator(), pos_integer()) -> next_result().
 next(DB, Iter, BatchSize) ->
     ?module(DB):next(DB, Iter, BatchSize).
+
+-spec last_seen_key(db(), iterator()) -> message_key() | undefined.
+last_seen_key(DB, Iter) ->
+    case erlang:function_exported(?module(DB), last_seen_key, 2) of
+        true ->
+            ?module(DB):last_seen_key(DB, Iter);
+        false ->
+            undefined
+    end.
 
 %%================================================================================
 %% Internal exports

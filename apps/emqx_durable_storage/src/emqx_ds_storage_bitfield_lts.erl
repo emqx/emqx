@@ -33,7 +33,8 @@
     make_iterator/5,
     update_iterator/4,
     next/4,
-    post_creation_actions/1
+    post_creation_actions/1,
+    last_seen_key/3
 ]).
 
 %% internal exports:
@@ -288,6 +289,21 @@ update_iterator(
     DSKey
 ) ->
     {ok, OldIter#{?last_seen_key => DSKey}}.
+
+-spec last_seen_key(
+    emqx_ds_storage_layer:shard_id(),
+    s(),
+    iterator()
+) -> emqx_ds:message_key() | undefined.
+last_seen_key(
+    _Shard,
+    _Data,
+    #{?tag := ?IT, ?last_seen_key := LastSeenKey}
+) ->
+    case LastSeenKey of
+        <<>> -> undefined;
+        _ -> LastSeenKey
+    end.
 
 next(_Shard, Schema = #s{ts_offset = TSOffset}, It, BatchSize) ->
     %% Compute safe cutoff time.

@@ -35,7 +35,8 @@
     get_streams/4,
     make_iterator/5,
     update_iterator/4,
-    next/4
+    next/4,
+    last_seen_key/3
 ]).
 
 %% internal exports:
@@ -136,6 +137,12 @@ next(_Shard, #s{db = DB, cf = CF}, It0, BatchSize) ->
     rocksdb:iterator_close(ITHandle),
     It = It0#it{last_seen_message_key = Key},
     {ok, It, lists:reverse(Messages)}.
+
+last_seen_key(_Shard, _Data, #it{last_seen_message_key = LastSeenKey}) ->
+    case LastSeenKey of
+        first -> undefined;
+        _ -> LastSeenKey
+    end.
 
 %%================================================================================
 %% Internal functions
