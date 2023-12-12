@@ -10,7 +10,6 @@
 -export([
     bridge_v1_config_to_action_config/2,
     bridge_v1_config_to_connector_config/1,
-    connector_action_config_to_bridge_v1_config/2,
     action_type_name/0,
     bridge_v1_type_name/0,
     connector_type_name/0,
@@ -25,20 +24,6 @@
 -import(emqx_utils_conv, [bin/1]).
 
 -define(SCHEMA_MODULE, emqx_bridge_mongodb).
-
-connector_action_config_to_bridge_v1_config(ConnectorConfig, ActionConfig) ->
-    fix_v1_type(
-        maps:merge(
-            maps:without(
-                [<<"connector">>],
-                emqx_utils_maps:unindent(<<"parameters">>, ActionConfig)
-            ),
-            emqx_utils_maps:unindent(<<"parameters">>, ConnectorConfig)
-        )
-    ).
-
-fix_v1_type(#{<<"mongo_type">> := MongoType} = Conf) ->
-    Conf#{<<"type">> => v1_type(MongoType)}.
 
 bridge_v1_config_to_action_config(BridgeV1Config, ConnectorName) ->
     ActionTopLevelKeys = schema_keys(mongodb_action),

@@ -913,7 +913,7 @@ format_resource(
     redact(
         maps:merge(
             RawConfFull#{
-                type => downgrade_type(Type, RawConf),
+                type => downgrade_type(Type, emqx_bridge_lib:get_conf(Type, BridgeName)),
                 name => maps:get(<<"name">>, RawConf, BridgeName),
                 node => Node
             },
