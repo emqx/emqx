@@ -108,7 +108,7 @@ fields("otel_metrics") ->
                     aliases => [scheduled_delay],
                     default => <<"10s">>,
                     desc => ?DESC(scheduled_delay),
-                    importance => ?IMPORTANCE_HIDDEN
+                    importance => ?IMPORTANCE_MEDIUM
                 }
             )}
     ];
@@ -156,7 +156,7 @@ fields("otel_logs") ->
                 #{
                     default => <<"1s">>,
                     desc => ?DESC(scheduled_delay),
-                    importance => ?IMPORTANCE_HIDDEN
+                    importance => ?IMPORTANCE_MEDIUM
                 }
             )}
     ];
@@ -195,7 +195,7 @@ fields("otel_traces") ->
                 #{
                     default => <<"5s">>,
                     desc => ?DESC(scheduled_delay),
-                    importance => ?IMPORTANCE_HIDDEN
+                    importance => ?IMPORTANCE_MEDIUM
                 }
             )},
         {filter,
@@ -230,16 +230,14 @@ fields("otel_exporter") ->
             )},
         {ssl_options,
             ?HOCON(
-                ?R_REF("ssl_opts"),
+                ?R_REF(emqx_schema, "ssl_client_opts"),
                 #{
                     desc => ?DESC(exporter_ssl),
+                    default => #{<<"enable">> => false},
                     importance => ?IMPORTANCE_LOW
                 }
             )}
     ];
-fields("ssl_opts") ->
-    Schema = emqx_schema:client_ssl_opts_schema(#{}),
-    lists:keydelete("enable", 1, Schema);
 fields("trace_filter") ->
     %% More filters can be implemented in future, e.g. topic, clientid
     [
@@ -259,6 +257,5 @@ desc("otel_exporter") -> ?DESC(otel_exporter);
 desc("otel_logs") -> ?DESC(otel_logs);
 desc("otel_metrics") -> ?DESC(otel_metrics);
 desc("otel_traces") -> ?DESC(otel_traces);
-desc("ssl_opts") -> ?DESC(exporter_ssl);
 desc("trace_filter") -> ?DESC(trace_filter);
 desc(_) -> undefined.
