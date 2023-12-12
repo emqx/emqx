@@ -29,5 +29,6 @@
 -define(shard, 2).
 -define(enc, 3).
 -define(batch_messages, 2).
+-define(stream, 4).
 
 -endif.
