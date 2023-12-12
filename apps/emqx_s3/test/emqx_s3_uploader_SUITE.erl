@@ -64,13 +64,13 @@ groups() ->
 
         {tcp_cases, [
             t_config_switch,
-            t_config_switch_http_settings,
             t_too_large,
             t_no_profile
         ]},
 
         {tls_cases, [
-            t_tls_error
+            t_tls_error,
+            t_config_switch_http_settings
         ]},
 
         {noconn_errors, [{group, transport_errors}]},
