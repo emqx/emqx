@@ -108,7 +108,7 @@ fields("otel_metrics") ->
                     aliases => [scheduled_delay],
                     default => <<"10s">>,
                     desc => ?DESC(scheduled_delay),
-                    importance => ?IMPORTANCE_HIDDEN
+                    importance => ?IMPORTANCE_MEDIUM
                 }
             )}
     ];
@@ -156,7 +156,7 @@ fields("otel_logs") ->
                 #{
                     default => <<"1s">>,
                     desc => ?DESC(scheduled_delay),
-                    importance => ?IMPORTANCE_HIDDEN
+                    importance => ?IMPORTANCE_MEDIUM
                 }
             )}
     ];
@@ -195,7 +195,7 @@ fields("otel_traces") ->
                 #{
                     default => <<"5s">>,
                     desc => ?DESC(scheduled_delay),
-                    importance => ?IMPORTANCE_HIDDEN
+                    importance => ?IMPORTANCE_MEDIUM
                 }
             )},
         {filter,
