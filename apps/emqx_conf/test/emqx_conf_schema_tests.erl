@@ -358,7 +358,7 @@ authn_validations_test() ->
     Headers0 = authentication_headers(Res0),
     ?assertEqual(<<"application/json">>, maps:get(<<"content-type">>, Headers0)),
     %% accept from converter
-    ?assertEqual(<<"application/json">>, maps:get(<<"accept">>, Headers0)),
+    ?assertNot(maps:is_key(<<"accept">>, Headers0)),
 
     OKHttp = to_bin(?BASE_AUTHN_ARRAY, [post, false, <<"http://127.0.0.1:8080">>]),
     Conf1 = <<BaseConf/binary, OKHttp/binary>>,
@@ -366,7 +366,7 @@ authn_validations_test() ->
     {_, Res1} = hocon_tconf:map_translate(emqx_conf_schema, ConfMap1, #{format => richmap}),
     Headers1 = authentication_headers(Res1),
     ?assertEqual(<<"application/json">>, maps:get(<<"content-type">>, Headers1), Headers1),
-    ?assertEqual(<<"application/json">>, maps:get(<<"accept">>, Headers1), Headers1),
+    ?assertNot(maps:is_key(<<"accept">>, Headers1)),
 
     DisableSSLWithHttps = to_bin(?BASE_AUTHN_ARRAY, [post, false, <<"https://127.0.0.1:8080">>]),
     Conf2 = <<BaseConf/binary, DisableSSLWithHttps/binary>>,
@@ -382,16 +382,16 @@ authn_validations_test() ->
     {_, Res3} = hocon_tconf:map_translate(emqx_conf_schema, ConfMap3, #{format => richmap}),
     Headers3 = authentication_headers(Res3),
     %% remove the content-type header when get method
-    ?assertEqual(false, maps:is_key(<<"content-type">>, Headers3), Headers3),
-    ?assertEqual(<<"application/json">>, maps:get(<<"accept">>, Headers3), Headers3),
+    ?assertNot(maps:is_key(<<"content-type">>, Headers3), Headers3),
+    ?assertNot(maps:is_key(<<"accept">>, Headers3), Headers3),
 
     BadHeaderWithTuple = binary:replace(BadHeader, [<<"[">>, <<"]">>], <<"">>, [global]),
     Conf4 = <<BaseConf/binary, BadHeaderWithTuple/binary>>,
     {ok, ConfMap4} = hocon:binary(Conf4, #{format => richmap}),
     {_, Res4} = hocon_tconf:map_translate(emqx_conf_schema, ConfMap4, #{}),
     Headers4 = authentication_headers(Res4),
-    ?assertEqual(false, maps:is_key(<<"content-type">>, Headers4), Headers4),
-    ?assertEqual(<<"application/json">>, maps:get(<<"accept">>, Headers4), Headers4),
+    ?assertNot(maps:is_key(<<"content-type">>, Headers4), Headers4),
+    ?assertNot(maps:is_key(<<"accept">>, Headers4), Headers4),
     ok.
 
 %% erlfmt-ignore
