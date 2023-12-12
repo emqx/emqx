@@ -85,7 +85,10 @@ fields({Field, Type}) when
     Field == "put_connector";
     Field == "post_connector"
 ->
-    emqx_connector_schema:api_fields(Field, Type, fields("connection_fields")).
+    Fields =
+        fields("connection_fields") ++
+            emqx_connector_schema:resource_opts_ref(?MODULE, resource_opts),
+    emqx_connector_schema:api_fields(Field, Type, Fields).
 
 server() ->
     Meta = #{desc => ?DESC("server")},
