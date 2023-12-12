@@ -124,7 +124,7 @@ perform_lifecycle_check(PoolName, InitialConfig) ->
     ?assertEqual({error, not_found}, emqx_resource:get_instance(PoolName)).
 
 t_tls_verify_none(Config) ->
-    PoolName = <<"emqx_bridge_influxdb_connector_SUITE">>,
+    PoolName = <<"testpool-1">>,
     Host = ?config(influxdb_tls_host, Config),
     Port = ?config(influxdb_tls_port, Config),
     InitialConfig = influxdb_config(Host, Port, true, <<"verify_none">>),
@@ -135,7 +135,7 @@ t_tls_verify_none(Config) ->
     ok.
 
 t_tls_verify_peer(Config) ->
-    PoolName = <<"emqx_bridge_influxdb_connector_SUITE">>,
+    PoolName = <<"testpool-2">>,
     Host = ?config(influxdb_tls_host, Config),
     Port = ?config(influxdb_tls_port, Config),
     InitialConfig = influxdb_config(Host, Port, true, <<"verify_peer">>),
@@ -157,7 +157,11 @@ perform_tls_opts_check(PoolName, InitialConfig, VerifyReturn) ->
         to_client_opts,
         fun(Opts) ->
             Verify = {verify_fun, {custom_verify(), {return, VerifyReturn}}},
-            [Verify | meck:passthrough([Opts])]
+            [
+                Verify,
+                {cacerts, public_key:cacerts_get()}
+                | meck:passthrough([Opts])
+            ]
         end
     ),
     try
