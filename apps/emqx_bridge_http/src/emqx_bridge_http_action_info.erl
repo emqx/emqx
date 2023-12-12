@@ -67,7 +67,7 @@ connector_action_config_to_bridge_v1_config(ConnectorConfig, ActionConfig) ->
     }.
 
 bridge_v1_config_to_connector_config(BridgeV1Conf) ->
-    %% To statisfy the emqx_bridge_api_SUITE:t_http_crud_apis/1
+    %% To satisfy the emqx_bridge_api_SUITE:t_http_crud_apis/1
     ok = validate_webhook_url(maps:get(<<"url">>, BridgeV1Conf, undefined)),
     maps:without(?REMOVED_KEYS ++ ?ACTION_KEYS ++ ?PARAMETER_KEYS, BridgeV1Conf).
 
