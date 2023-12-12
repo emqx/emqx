@@ -516,7 +516,7 @@ do_t_session_expiration(_Config, Opts) ->
 
 t_session_gc(Config) ->
     GCInterval = ?config(gc_interval, Config),
-    [Node1, Node2, Node3] = Nodes = ?config(nodes, Config),
+    [Node1, Node2, _Node3] = Nodes = ?config(nodes, Config),
     CoreNodes = [Node1, Node2],
     [
         Port1,
