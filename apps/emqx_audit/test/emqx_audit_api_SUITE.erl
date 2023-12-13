@@ -208,6 +208,8 @@ t_cli(_Config) ->
 
 t_max_size(_Config) ->
     {ok, _} = emqx:update_config([log, audit, max_filter_size], 999),
+    %% Make sure this process is using latest max_filter_size.
+    ?assertEqual(ignore, gen_server:call(emqx_audit, whatever)),
     SizeFun =
         fun() ->
             AuditPath = emqx_mgmt_api_test_util:api_path(["audit"]),
@@ -297,6 +299,9 @@ wait_for_dirty_write_log_done(Prev, RemainMs) ->
     SleepMs = 100,
     ct:sleep(SleepMs),
     case mnesia:table_info(emqx_audit, size) of
-        Prev -> Prev;
-        New -> wait_for_dirty_write_log_done(New, RemainMs - SleepMs)
+        Prev ->
+            ct:sleep(SleepMs * 2),
+            Prev;
+        New ->
+            wait_for_dirty_write_log_done(New, RemainMs - SleepMs)
     end.
