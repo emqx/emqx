@@ -416,7 +416,7 @@ handle_info({sock_closed, Reason}, Channel = #channel{conn_state = disconnected}
     log(error, #{msg => "unexpected_sock_closed", reason => Reason}, Channel),
     {ok, Channel};
 handle_info(Info, Channel) ->
-    log(error, #{msg => "unexpected_info}", info => Info}, Channel),
+    log(error, #{msg => "unexpected_info", info => Info}, Channel),
     {ok, Channel}.
 
 %%--------------------------------------------------------------------

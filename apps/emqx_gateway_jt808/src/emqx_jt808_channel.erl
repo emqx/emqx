@@ -48,7 +48,7 @@
     %% AuthCode
     authcode :: undefined | anonymous | binary(),
     %% Keepalive
-    keepalive,
+    keepalive :: maybe(emqx_keepalive:keepalive()),
     %% Msg SN
     msg_sn,
     %% Down Topic
@@ -188,7 +188,7 @@ init(
         conn_state = idle,
         timers = #{},
         authcode = undefined,
-        keepalive = maps:get(keepalive, Options, ?DEFAULT_KEEPALIVE),
+        keepalive = undefined,
         msg_sn = 0,
         % TODO: init rsa_key from user input
         dn_topic = maps:get(dn_topic, ProtoConf, ?DEFAULT_DN_TOPIC),
@@ -475,6 +475,9 @@ handle_info(
 handle_info({sock_closed, Reason}, Channel = #channel{conn_state = disconnected}) ->
     log(error, #{msg => "unexpected_sock_closed", reason => Reason}, Channel),
     {ok, Channel};
+handle_info({keepalive, start, Interval}, Channel) ->
+    NChannel = Channel#channel{keepalive = emqx_keepalive:init(Interval)},
+    {ok, ensure_timer(alive_timer, NChannel)};
 handle_info(Info, Channel) ->
     log(error, #{msg => "unexpected_info", info => Info}, Channel),
     {ok, Channel}.
