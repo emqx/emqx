@@ -102,7 +102,7 @@ endif
 
 # Allow user-set GROUPS environment variable
 ifneq ($(GROUPS),)
-GROUPS_ARG := --groups $(GROUPS)
+GROUPS_ARG := --group $(GROUPS)
 endif
 
 ifeq ($(ENABLE_COVER_COMPILE),1)

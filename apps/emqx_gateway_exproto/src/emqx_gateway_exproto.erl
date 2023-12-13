@@ -143,11 +143,11 @@ start_grpc_server(GwName, Options = #{bind := ListenOn}) ->
             false ->
                 [];
             true ->
+                Opts1 = maps:get(ssl, Options, #{}),
+                Opts2 = maps:without([handshake_timeout], Opts1),
+                SSLOpts = emqx_tls_lib:to_server_opts(tls, Opts2),
                 [
-                    {ssl_options,
-                        maps:to_list(
-                            maps:without([enable, handshake_timeout], maps:get(ssl, Options, #{}))
-                        )}
+                    {ssl_options, SSLOpts}
                 ]
         end,
     ListenOnStr = emqx_listeners:format_bind(ListenOn),
@@ -205,7 +205,8 @@ start_grpc_client_channel(
             SvrAddr = compose_http_uri(http, Host, Port),
             grpc_client_sup:create_channel_pool(GwName, SvrAddr, #{});
         true ->
-            SslOpts = maps:to_list(maps:get(ssl, Options, #{})),
+            Opts1 = maps:get(ssl, Options, #{}),
+            SslOpts = [{nodelay, true} | emqx_tls_lib:to_client_opts(Opts1)],
             ClientOpts = #{
                 gun_opts =>
                     #{
@@ -213,7 +214,6 @@ start_grpc_client_channel(
                         transport_opts => SslOpts
                     }
             },
-
             SvrAddr = compose_http_uri(https, Host, Port),
             grpc_client_sup:create_channel_pool(GwName, SvrAddr, ClientOpts)
     end;
