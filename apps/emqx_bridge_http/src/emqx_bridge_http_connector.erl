@@ -565,12 +565,8 @@ preprocess_request(undefined) ->
     undefined;
 preprocess_request(Req) when map_size(Req) == 0 ->
     undefined;
-preprocess_request(
-    #{
-        method := Method,
-        path := Path
-    } = Req
-) ->
+preprocess_request(#{method := Method} = Req) ->
+    Path = maps:get(path, Req, <<>>),
     Headers = maps:get(headers, Req, []),
     #{
         method => parse_template(to_bin(Method)),
