@@ -33,7 +33,7 @@
     {<<"gte_created_at">>, timestamp},
     {<<"lte_created_at">>, timestamp},
     {<<"gte_duration_ms">>, timestamp},
-    {<<"lte_duration_ms">>, timestamp}
+    {<<"lte_duration_ms">>, integer}
 ]).
 -define(DISABLE_MSG, <<"Audit is disabled">>).
 
@@ -290,16 +290,16 @@ gen_match_spec([{http_status_code, '=:=', T} | Qs], Audit, Conn) ->
 gen_match_spec([{http_method, '=:=', T} | Qs], Audit, Conn) ->
     gen_match_spec(Qs, Audit#?AUDIT{http_method = T}, Conn);
 gen_match_spec([{created_at, Hold, T} | Qs], Audit, Conn) ->
-    gen_match_spec(Qs, Audit#?AUDIT{created_at = '$1'}, [{'$1', Hold, T} | Conn]);
+    gen_match_spec(Qs, Audit#?AUDIT{created_at = '$1'}, [{Hold, '$1', T} | Conn]);
 gen_match_spec([{created_at, Hold1, T1, Hold2, T2} | Qs], Audit, Conn) ->
     gen_match_spec(Qs, Audit#?AUDIT{created_at = '$1'}, [
-        {'$1', Hold1, T1}, {'$1', Hold2, T2} | Conn
+        {Hold1, '$1', T1}, {Hold2, '$1', T2} | Conn
     ]);
 gen_match_spec([{duration_ms, Hold, T} | Qs], Audit, Conn) ->
-    gen_match_spec(Qs, Audit#?AUDIT{duration_ms = '$2'}, [{'$2', Hold, T} | Conn]);
+    gen_match_spec(Qs, Audit#?AUDIT{duration_ms = '$2'}, [{Hold, '$2', T} | Conn]);
 gen_match_spec([{duration_ms, Hold1, T1, Hold2, T2} | Qs], Audit, Conn) ->
     gen_match_spec(Qs, Audit#?AUDIT{duration_ms = '$2'}, [
-        {'$2', Hold1, T1}, {'$2', Hold2, T2} | Conn
+        {Hold1, '$2', T1}, {Hold2, '$2', T2} | Conn
     ]).
 
 format(Audit) ->

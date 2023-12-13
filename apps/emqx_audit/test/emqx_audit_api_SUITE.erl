@@ -109,7 +109,7 @@ t_disabled(_) ->
     Size1 = mnesia:table_info(emqx_audit, size),
 
     {ok, Logs} = emqx_mgmt_api_configs_SUITE:get_config("log"),
-    Logs1 = emqx_utils_maps:deep_put([<<"audit">>, <<"max_filter_size">>], Logs, 100),
+    Logs1 = emqx_utils_maps:deep_put([<<"audit">>, <<"max_filter_size">>], Logs, 199),
     NewLogs = emqx_utils_maps:deep_put([<<"audit">>, <<"enable">>], Logs1, false),
     {ok, _} = emqx_mgmt_api_configs_SUITE:update_config("log", NewLogs),
     {ok, GetLog1} = emqx_mgmt_api_configs_SUITE:get_config("log"),
@@ -139,6 +139,11 @@ t_disabled(_) ->
     ok.
 
 t_cli(_Config) ->
+    Size = mnesia:table_info(emqx_audit, size),
+    TimeInt = erlang:system_time(millisecond) - 10,
+    Time = integer_to_list(TimeInt),
+    DateStr = calendar:system_time_to_rfc3339(TimeInt, [{unit, millisecond}]),
+    Date = emqx_http_lib:uri_encode(DateStr),
     ok = emqx_ctl:run_command(["conf", "show", "log"]),
     AuditPath = emqx_mgmt_api_test_util:api_path(["audit"]),
     AuthHeader = emqx_mgmt_api_test_util:auth_header_(),
@@ -160,7 +165,7 @@ t_cli(_Config) ->
         Data
     ),
 
-    %% check filter
+    %% check cli filter
     {ok, Res1} = emqx_mgmt_api_test_util:request_api(get, AuditPath, "from=cli", AuthHeader),
     #{<<"data">> := Data1} = emqx_utils_json:decode(Res1, [return_maps]),
     ?assertEqual(Data, Data1),
@@ -168,10 +173,41 @@ t_cli(_Config) ->
         get, AuditPath, "from=erlang_console", AuthHeader
     ),
     ?assertMatch(#{<<"data">> := []}, emqx_utils_json:decode(Res2, [return_maps])),
+
+    %% check created_at filter
+    {ok, Res3} = emqx_mgmt_api_test_util:request_api(
+        get, AuditPath, "gte_created_at=" ++ Time, AuthHeader
+    ),
+    #{<<"data">> := Data3} = emqx_utils_json:decode(Res3, [return_maps]),
+    ?assertEqual(1, erlang:length(Data3)),
+    {ok, Res31} = emqx_mgmt_api_test_util:request_api(
+        get, AuditPath, "gte_created_at=" ++ Date, AuthHeader
+    ),
+    ?assertEqual(Res3, Res31),
+    {ok, Res4} = emqx_mgmt_api_test_util:request_api(
+        get, AuditPath, "lte_created_at=" ++ Time, AuthHeader
+    ),
+    #{<<"data">> := Data4} = emqx_utils_json:decode(Res4, [return_maps]),
+    ?assertEqual(Size, erlang:length(Data4)),
+    {ok, Res41} = emqx_mgmt_api_test_util:request_api(
+        get, AuditPath, "lte_created_at=" ++ Date, AuthHeader
+    ),
+    ?assertEqual(Res4, Res41),
+
+    %% check duration_ms filter
+    {ok, Res5} = emqx_mgmt_api_test_util:request_api(
+        get, AuditPath, "gte_duration_ms=0", AuthHeader
+    ),
+    #{<<"data">> := Data5} = emqx_utils_json:decode(Res5, [return_maps]),
+    ?assertEqual(Size + 1, erlang:length(Data5)),
+    {ok, Res6} = emqx_mgmt_api_test_util:request_api(
+        get, AuditPath, "lte_duration_ms=-1", AuthHeader
+    ),
+    ?assertMatch(#{<<"data">> := []}, emqx_utils_json:decode(Res6, [return_maps])),
     ok.
 
 t_max_size(_Config) ->
-    {ok, _} = emqx:update_config([log, audit, max_filter_size], 1000),
+    {ok, _} = emqx:update_config([log, audit, max_filter_size], 999),
     SizeFun =
         fun() ->
             AuditPath = emqx_mgmt_api_test_util:api_path(["audit"]),
@@ -188,9 +224,14 @@ t_max_size(_Config) ->
         end,
         lists:duplicate(100, 1)
     ),
-    timer:sleep(110),
+    LogCount = wait_for_dirty_write_log_done(1500),
     Size1 = SizeFun(),
-    ?assert(Size1 - InitSize >= 100, {Size1, InitSize}),
+    ?assert(Size1 - InitSize >= 100, #{
+        api => Size1,
+        init => InitSize,
+        log_size => LogCount,
+        config => emqx:get_config([log, audit, max_filter_size])
+    }),
     {ok, _} = emqx:update_config([log, audit, max_filter_size], 10),
     %% wait for clean_expired
     timer:sleep(250),
@@ -246,3 +287,16 @@ kickout_clients() ->
     {ok, Clients2} = emqx_mgmt_api_test_util:request_api(get, ClientsPath),
     ClientsResponse2 = emqx_utils_json:decode(Clients2, [return_maps]),
     ?assertMatch(#{<<"data">> := []}, ClientsResponse2).
+
+wait_for_dirty_write_log_done(MaxMs) ->
+    Size = mnesia:table_info(emqx_audit, size),
+    wait_for_dirty_write_log_done(Size, MaxMs).
+
+wait_for_dirty_write_log_done(Size, RemainMs) when RemainMs =< 0 -> Size;
+wait_for_dirty_write_log_done(Prev, RemainMs) ->
+    SleepMs = 100,
+    ct:sleep(SleepMs),
+    case mnesia:table_info(emqx_audit, size) of
+        Prev -> Prev;
+        New -> wait_for_dirty_write_log_done(New, RemainMs - SleepMs)
+    end.
