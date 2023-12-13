@@ -21,6 +21,8 @@
 %% so all the calls are simply passed through.
 -module(emqx_ds).
 
+-include_lib("typerefl/include/types.hrl").
+
 %% Management API:
 -export([
     open_db/2,
@@ -35,7 +37,7 @@
 -export([store_batch/2, store_batch/3]).
 
 %% Message replay API:
--export([get_streams/3, make_iterator/4, update_iterator/3, next/3, last_seen_key/2]).
+-export([get_streams/3, make_iterator/4, update_iterator/3, next/3, next/4, last_seen_key/2]).
 
 %% Misc. API:
 -export([]).
@@ -44,7 +46,6 @@
     create_db_opts/0,
     db/0,
     time/0,
-    topic_filter/0,
     topic/0,
     stream/0,
     rank_x/0,
@@ -56,6 +57,7 @@
     message_key/0,
     message_store_opts/0,
     next_result/1, next_result/0,
+    next_opts/0,
     store_batch_result/0,
     make_iterator_result/1, make_iterator_result/0,
     get_iterator_result/1,
@@ -111,6 +113,8 @@
 
 -type next_result() :: next_result(iterator()).
 
+-type next_opts() :: #{use_cache => boolean()}.
+
 %% Timestamp
 %% Earliest possible timestamp is 0.
 %% TODO granularity?  Currently, we should always use milliseconds, as that's the unit we
@@ -150,6 +154,10 @@
 -define(persistent_term(DB), {emqx_ds_db_backend, DB}).
 
 -define(module(DB), (persistent_term:get(?persistent_term(DB)))).
+
+-export([to_topic_filter/1]).
+-typerefl_from_string({topic_filter/0, emqx_ds, to_topic_filter}).
+-reflect_type([topic_filter/0]).
 
 %%================================================================================
 %% Behavior callbacks
@@ -308,7 +316,12 @@ update_iterator(DB, OldIter, DSKey) ->
 
 -spec next(db(), iterator(), pos_integer()) -> next_result().
 next(DB, Iter, BatchSize) ->
-    ?module(DB):next(DB, Iter, BatchSize).
+    Opts = #{use_cache => false},
+    next(DB, Iter, BatchSize, Opts).
+
+-spec next(db(), iterator(), pos_integer(), next_opts()) -> next_result().
+next(DB, Iter, BatchSize, Opts) ->
+    ?module(DB):next(DB, Iter, BatchSize, Opts).
 
 -spec last_seen_key(db(), iterator()) -> message_key() | undefined.
 last_seen_key(DB, Iter) ->
@@ -322,6 +335,16 @@ last_seen_key(DB, Iter) ->
 %%================================================================================
 %% Internal exports
 %%================================================================================
+
+to_topic_filter(TopicStr) ->
+    TopicBin = unicode:characters_to_binary(TopicStr),
+    try
+        emqx_topic:validate(filter, TopicBin),
+        {ok, emqx_topic:words(TopicBin)}
+    catch
+        error:Reason ->
+            {error, Reason}
+    end.
 
 %%================================================================================
 %% Internal functions

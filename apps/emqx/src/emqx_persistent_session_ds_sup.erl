@@ -55,7 +55,8 @@ do_init(_Opts) ->
     },
     CoreChildren = [
         worker(session_gc_worker, emqx_persistent_session_ds_gc_worker, []),
-        worker(message_gc_worker, emqx_persistent_message_ds_gc_worker, [])
+        worker(message_gc_worker, emqx_persistent_message_ds_gc_worker, []),
+        worker(persistent_message_cache, emqx_ds_cache, [emqx_persistent_message:cache_opts()])
     ],
     Children =
         case mria_rlog:role() of

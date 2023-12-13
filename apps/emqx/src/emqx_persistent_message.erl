@@ -18,7 +18,8 @@
 
 -include("emqx.hrl").
 
--export([init/0]).
+-export([init/0, cache_opts/0]).
+-export([add_handler/0, remove_handler/0]).
 -export([is_persistence_enabled/0, force_ds/0]).
 
 %% Message persistence
@@ -45,6 +46,26 @@ init() ->
         ok = emqx_persistent_session_ds:create_tables(),
         ok
     end).
+
+add_handler() ->
+    ?WHEN_ENABLED(begin
+        RootKey = session_persistence,
+        Keys = [cache_prefetch_topic_filters, cache_gc_interval],
+        Paths = [[RootKey, Key] || Key <- Keys],
+        lists:foreach(
+            fun(Path) ->
+                emqx_config_handler:add_handler(Path, emqx_persistent_session_ds)
+            end,
+            Paths
+        )
+    end).
+
+remove_handler() ->
+    ?WHEN_ENABLED(
+        emqx_config_handler:remove_handler(
+            [session_persistence, cache_prefetch_topic_filters]
+        )
+    ).
 
 -spec is_persistence_enabled() -> boolean().
 is_persistence_enabled() ->
@@ -103,3 +124,14 @@ has_subscribers(#message{topic = Topic}) ->
     emqx_persistent_session_ds_router:has_any_route(Topic).
 
 %%
+
+cache_opts() ->
+    TopicFilters = emqx_config:get([session_persistence, cache_prefetch_topic_filters]),
+    BatchSize = emqx_config:get([session_persistence, max_batch_size]),
+    GCInterval = emqx_config:get([session_persistence, cache_gc_interval]),
+    #{
+        db => ?PERSISTENT_MESSAGE_DB,
+        batch_size => BatchSize,
+        gc_interval => GCInterval,
+        topic_filters => TopicFilters
+    }.

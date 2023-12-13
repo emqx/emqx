@@ -33,6 +33,7 @@
     make_iterator/4,
     update_iterator/3,
     next/3,
+    next/4,
     node_of_shard/2,
     shard_of_message/3,
     maybe_set_myself_as_leader/2,
@@ -231,6 +232,27 @@ update_iterator(DB, OldIter, DSKey) ->
 
 -spec next(emqx_ds:db(), iterator(), pos_integer()) -> emqx_ds:next_result(iterator()).
 next(DB, Iter0, BatchSize) ->
+    Opts = #{use_cache => false},
+    next(DB, Iter0, BatchSize, Opts).
+
+-spec next(emqx_ds:db(), iterator(), pos_integer(), emqx_ds:next_opts()) ->
+    emqx_ds:next_result(iterator()).
+next(DB, Iter0, BatchSize, _Opts = #{use_cache := true}) ->
+    #{?tag := ?IT, ?stream := Stream} = Iter0,
+    LastSeenKey = last_seen_key(DB, Iter0),
+    case emqx_ds_cache:try_fetch_cache(DB, Stream, LastSeenKey, BatchSize) of
+        false ->
+            do_next(DB, Iter0, BatchSize);
+        {ok, end_of_stream} ->
+            {ok, end_of_stream};
+        {ok, NewLastSeenKey, Batch} ->
+            {ok, Iter} = update_iterator(DB, Iter0, NewLastSeenKey),
+            {ok, Iter, Batch}
+    end;
+next(DB, Iter0, BatchSize, _Opts) ->
+    do_next(DB, Iter0, BatchSize).
+
+do_next(DB, Iter0, BatchSize) ->
     #{?tag := ?IT, ?stream := #{?tag := ?STREAM, ?shard := Shard}, ?enc := StorageIter0} = Iter0,
     Node = node_of_shard(DB, Shard),
     %% TODO: iterator can contain information that is useful for

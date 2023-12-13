@@ -11,6 +11,7 @@
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 -include_lib("emqx/include/asserts.hrl").
 -include_lib("emqx/include/emqx_mqtt.hrl").
+-include_lib("emqx/src/emqx_persistent_session_ds.hrl").
 
 -import(emqx_common_test_helpers, [on_exit/1]).
 
@@ -498,9 +499,7 @@ do_t_session_expiration(_Config, Opts) ->
     ok.
 
 t_session_gc(Config) ->
-    GCInterval = ?config(gc_interval, Config),
     [Node1, Node2, _Node3] = Nodes = ?config(nodes, Config),
-    CoreNodes = [Node1, Node2],
     [
         Port1,
         Port2,
@@ -600,5 +599,120 @@ t_session_gc(Config) ->
             ok
         end,
         []
+    ),
+    ok.
+
+t_update_cache_config_root(_Config) ->
+    ?check_trace(
+        begin
+            Path = [session_persistence],
+            Raw0 = emqx:get_raw_config(Path),
+            on_exit(fun() -> emqx:update_config(Path, Raw0, #{}) end),
+            Raw1 = Raw0#{
+                <<"cache_prefetch_topic_filters">> => [<<"a/1">>, <<"b/2">>],
+                <<"cache_gc_interval">> => <<"121s">>
+            },
+            {ok, _} = emqx:update_config(Path, Raw1, #{}),
+            ?retry(
+                _Sleep0 = 100,
+                _Retries = 10,
+                ?assertMatch(
+                    #{
+                        topic_filters := [<<"a/1">>, <<"b/2">>],
+                        gc_interval := 121_000
+                    },
+                    emqx_ds_cache:get_info(?PERSISTENT_MESSAGE_DB)
+                )
+            ),
+            Raw2 = Raw1#{<<"cache_prefetch_topic_filters">> => [<<"b/2">>, <<"c/3">>]},
+            {ok, _} = emqx:update_config(Path, Raw2, #{}),
+            ?retry(
+                _Sleep0 = 100,
+                _Retries = 10,
+                ?assertMatch(
+                    #{
+                        topic_filters := [<<"b/2">>, <<"c/3">>],
+                        gc_interval := 121_000
+                    },
+                    emqx_ds_cache:get_info(?PERSISTENT_MESSAGE_DB)
+                )
+            ),
+            ok
+        end,
+        fun(Trace) ->
+            ?assertMatch(
+                [
+                    [[<<"a">>, <<"1">>], [<<"b">>, <<"2">>]],
+                    [[<<"c">>, <<"3">>]]
+                ],
+                ?projection(topic_filters, ?of_kind(ds_cache_add_cached, Trace))
+            ),
+            ?assertMatch(
+                [
+                    [],
+                    [[<<"a">>, <<"1">>]]
+                ],
+                ?projection(topic_filters, ?of_kind(ds_cache_remove_cached, Trace))
+            ),
+            ok
+        end
+    ),
+    ok.
+
+t_update_cache_config_specific_path(_Config) ->
+    ?check_trace(
+        begin
+            Path = [session_persistence],
+            Raw0 = emqx:get_raw_config(Path),
+            on_exit(fun() -> emqx:update_config(Path, Raw0, #{}) end),
+
+            Path1 = [session_persistence, cache_prefetch_topic_filters],
+            {ok, _} = emqx:update_config(Path1, [<<"a/1">>, <<"b/2">>], #{}),
+            ?retry(
+                _Sleep0 = 100,
+                _Retries = 10,
+                ?assertMatch(
+                    #{topic_filters := [<<"a/1">>, <<"b/2">>]},
+                    emqx_ds_cache:get_info(?PERSISTENT_MESSAGE_DB)
+                )
+            ),
+            {ok, _} = emqx:update_config(Path1, [<<"b/2">>, <<"c/3">>], #{}),
+            ?retry(
+                _Sleep0 = 100,
+                _Retries = 10,
+                ?assertMatch(
+                    #{topic_filters := [<<"b/2">>, <<"c/3">>]},
+                    emqx_ds_cache:get_info(?PERSISTENT_MESSAGE_DB)
+                )
+            ),
+            Path2 = [session_persistence, cache_gc_interval],
+            {ok, _} = emqx:update_config(Path2, <<"121s">>, #{}),
+            ?retry(
+                _Sleep0 = 100,
+                _Retries = 10,
+                ?assertMatch(
+                    #{gc_interval := 121_000},
+                    emqx_ds_cache:get_info(?PERSISTENT_MESSAGE_DB)
+                )
+            ),
+            ok
+        end,
+        fun(Trace) ->
+            ?assertMatch(
+                [
+                    [[<<"a">>, <<"1">>], [<<"b">>, <<"2">>]],
+                    [[<<"c">>, <<"3">>]]
+                ],
+                ?projection(topic_filters, ?of_kind(ds_cache_add_cached, Trace))
+            ),
+            ?assertMatch(
+                [
+                    [],
+                    [[<<"a">>, <<"1">>]]
+                ],
+                ?projection(topic_filters, ?of_kind(ds_cache_remove_cached, Trace))
+            ),
+            ok
+        end
     ),
     ok.

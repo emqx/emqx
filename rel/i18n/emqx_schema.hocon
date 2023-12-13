@@ -1618,5 +1618,10 @@ The session will query the DB for the new messages when the value of `FreeSpace`
 session_ds_message_retention_period.desc:
 """The minimum amount of time that messages should be retained for.  After messages have been in storage for at least this period of time, they'll be dropped."""
 
+session_ds_cache_prefetch_topic_filters.desc:
+"""List of topic filters that should be cached.  The filters in this list will be fetched periodically and the latest results will be kept in the cache to serve persistent sessions."""
+
+session_ds_cache_gc_interval.desc:
+"""The interval at which cache garbage collection is executed for persistent sessions.  Cache entries older than this interval will be evicted from the cache when the GC process runs."""
 
 }

@@ -1871,6 +1871,24 @@ fields("session_persistence") ->
                     desc => ?DESC(session_ds_message_retention_period)
                 }
             )},
+        {"cache_prefetch_topic_filters",
+            sc(
+                hoconsc:array(emqx_ds:topic_filter()),
+                #{
+                    default => [],
+                    importance => ?IMPORTANCE_LOW,
+                    desc => ?DESC(session_ds_cache_prefetch_topic_filters)
+                }
+            )},
+        {"cache_gc_interval",
+            sc(
+                timeout_duration(),
+                #{
+                    default => <<"60s">>,
+                    importance => ?IMPORTANCE_LOW,
+                    desc => ?DESC(session_ds_cache_gc_interval)
+                }
+            )},
         {"force_persistence",
             sc(
                 boolean(),
