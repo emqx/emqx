@@ -120,6 +120,7 @@ fields("get_sentinel") ->
     method_fields(get, redis_sentinel);
 fields("get_cluster") ->
     method_fields(get, redis_cluster);
+%% old bridge v1 schema
 fields(Type) when
     Type == redis_single orelse Type == redis_sentinel orelse Type == redis_cluster
 ->
@@ -147,7 +148,7 @@ redis_bridge_common_fields(Type) ->
             {local_topic, mk(binary(), #{required => false, desc => ?DESC("desc_local_topic")})}
             | fields(action_parameters)
         ] ++
-        resource_fields(Type).
+        v1_resource_fields(Type).
 
 connector_fields(Type) ->
     emqx_redis:fields(Type).
@@ -158,7 +159,7 @@ type_name_fields(Type) ->
         {name, mk(binary(), #{required => true, desc => ?DESC("desc_name")})}
     ].
 
-resource_fields(Type) ->
+v1_resource_fields(Type) ->
     [
         {resource_opts,
             mk(

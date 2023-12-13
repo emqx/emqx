@@ -69,13 +69,23 @@ connector_action_config_to_bridge_v1_config(ConnectorConfig, ActionConfig) ->
 bridge_v1_config_to_connector_config(BridgeV1Conf) ->
     %% To satisfy the emqx_bridge_api_SUITE:t_http_crud_apis/1
     ok = validate_webhook_url(maps:get(<<"url">>, BridgeV1Conf, undefined)),
-    maps:without(?REMOVED_KEYS ++ ?ACTION_KEYS ++ ?PARAMETER_KEYS, BridgeV1Conf).
+    ConnectorConfig0 = maps:without(?REMOVED_KEYS ++ ?ACTION_KEYS ++ ?PARAMETER_KEYS, BridgeV1Conf),
+    emqx_utils_maps:update_if_present(
+        <<"resource_opts">>,
+        fun emqx_connector_schema:project_to_connector_resource_opts/1,
+        ConnectorConfig0
+    ).
 
 bridge_v1_config_to_action_config(BridgeV1Conf, ConnectorName) ->
     Parameters = maps:with(?PARAMETER_KEYS, BridgeV1Conf),
     Parameters1 = Parameters#{<<"path">> => <<>>, <<"headers">> => #{}},
     CommonKeys = [<<"enable">>, <<"description">>],
-    ActionConfig = maps:with(?ACTION_KEYS ++ CommonKeys, BridgeV1Conf),
+    ActionConfig0 = maps:with(?ACTION_KEYS ++ CommonKeys, BridgeV1Conf),
+    ActionConfig = emqx_utils_maps:update_if_present(
+        <<"resource_opts">>,
+        fun emqx_bridge_v2_schema:project_to_actions_resource_opts/1,
+        ActionConfig0
+    ),
     ActionConfig#{<<"parameters">> => Parameters1, <<"connector">> => ConnectorName}.
 
 %%--------------------------------------------------------------------
