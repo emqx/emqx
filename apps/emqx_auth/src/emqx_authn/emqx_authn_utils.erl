@@ -281,12 +281,12 @@ parse_url(Url) ->
     end.
 
 convert_headers(Headers) ->
-    maps:merge(default_headers(), transform_header_name(Headers)).
+    transform_header_name(Headers).
 
 convert_headers_no_content_type(Headers) ->
     maps:without(
         [<<"content-type">>],
-        maps:merge(default_headers_no_content_type(), transform_header_name(Headers))
+        transform_header_name(Headers)
     ).
 
 default_headers() ->
