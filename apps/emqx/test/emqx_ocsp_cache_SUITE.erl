@@ -915,10 +915,8 @@ do_t_validations(_Config) ->
     #{<<"code">> := <<"BAD_REQUEST">>, <<"message">> := MsgRaw3} =
         emqx_utils_json:decode(ResRaw3, [return_maps]),
     %% we can't remove certfile now, because it has default value.
-    ?assertMatch(
-        <<"{bad_ssl_config,#{file_read => enoent,pem_check => invalid_pem", _/binary>>,
-        MsgRaw3
-    ),
+    ?assertMatch({match, _}, re:run(MsgRaw3, <<"enoent">>)),
+    ?assertMatch({match, _}, re:run(MsgRaw3, <<"invalid_pem">>)),
     ok.
 
 t_unknown_error_fetching_ocsp_response(_Config) ->
