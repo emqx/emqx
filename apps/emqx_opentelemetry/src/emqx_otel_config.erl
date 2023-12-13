@@ -150,7 +150,8 @@ tr_handler_conf(#{logs := LogsConf, exporter := ExporterConf}) ->
 ssl_opts(Endpoint, SSLOpts) ->
     case is_ssl(Endpoint) of
         true ->
-            emqx_tls_lib:to_client_opts(SSLOpts);
+            %% force enable ssl
+            emqx_tls_lib:to_client_opts(SSLOpts#{enable => true});
         false ->
             []
     end.
