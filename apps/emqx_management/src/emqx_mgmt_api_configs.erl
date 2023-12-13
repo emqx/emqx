@@ -354,8 +354,12 @@ configs(get, #{query_string := QueryStr, headers := Headers}, _Req) ->
     end;
 configs(put, #{body := Conf, query_string := #{<<"mode">> := Mode}}, _Req) ->
     case emqx_conf_cli:load_config(Conf, #{mode => Mode, log => none}) of
-        ok -> {200};
-        {error, Msg} -> {400, #{<<"content-type">> => <<"text/plain">>}, Msg}
+        ok ->
+            {200};
+        {error, MsgList} ->
+            JsonFun = fun(K, V) -> {K, emqx_utils_maps:binary_string(V)} end,
+            JsonMap = emqx_utils_maps:jsonable_map(maps:from_list(MsgList), JsonFun),
+            {400, #{<<"content-type">> => <<"text/plain">>}, JsonMap}
     end.
 
 find_suitable_accept(Headers, Preferences) when is_list(Preferences), length(Preferences) > 0 ->

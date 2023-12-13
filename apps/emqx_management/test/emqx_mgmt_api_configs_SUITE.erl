@@ -70,7 +70,7 @@ t_update(_Config) ->
     %% update failed
     ErrorSysMon = emqx_utils_maps:deep_put([<<"vm">>, <<"busy_port">>], SysMon, "123"),
     ?assertMatch(
-        {error, {"HTTP/1.1", 400, _}},
+        {error, {"HTTP/1.1", 400, "Bad Request"}},
         update_config(<<"sysmon">>, ErrorSysMon)
     ),
     {ok, SysMon2} = get_config(<<"sysmon">>),
@@ -328,6 +328,18 @@ t_configs_key(_Config) ->
     Log1 = emqx_utils_maps:deep_put([<<"log">>, <<"console">>, <<"level">>], Log, <<"error">>),
     ?assertEqual([], update_configs_with_binary(iolist_to_binary(hocon_pp:do(Log1, #{})))),
     ?assertEqual(<<"error">>, read_conf([<<"log">>, <<"console">>, <<"level">>])),
+    BadLog = emqx_utils_maps:deep_put([<<"log">>, <<"console">>, <<"level">>], Log, <<"erro1r">>),
+    {error, Error} = update_configs_with_binary(iolist_to_binary(hocon_pp:do(BadLog, #{}))),
+    ExpectError = #{
+        <<"log">> =>
+            #{
+                <<"kind">> => <<"validation_error">>,
+                <<"path">> => <<"log.console.level">>,
+                <<"reason">> => <<"unable_to_convert_to_enum_symbol">>,
+                <<"value">> => <<"erro1r">>
+            }
+    },
+    ?assertEqual(ExpectError, emqx_utils_json:decode(Error, [return_maps])),
     ok.
 
 t_get_configs_in_different_accept(_Config) ->
@@ -348,7 +360,7 @@ t_get_configs_in_different_accept(_Config) ->
         end
     end,
 
-    %% returns text/palin if text/plain is acceptable
+    %% returns text/plain if text/plain is acceptable
     ?assertMatch({200, "text/plain", _}, Request(<<"text/plain">>)),
     ?assertMatch({200, "text/plain", _}, Request(<<"*/*">>)),
     ?assertMatch(
@@ -416,9 +428,14 @@ update_configs_with_binary(Bin) ->
     Auth = emqx_mgmt_api_test_util:auth_header_(),
     Headers = [{"accept", "text/plain"}, Auth],
     case httpc:request(put, {Path, Headers, "text/plain", Bin}, [], []) of
-        {ok, {_, _, Res}} -> Res;
-        {ok, Res} -> Res;
-        Error -> Error
+        {ok, {{"HTTP/1.1", Code, _}, _Headers, Body}} when
+            Code >= 200 andalso Code =< 299
+        ->
+            Body;
+        {ok, {{"HTTP/1.1", _Code, _}, _Headers, Body}} ->
+            {error, Body};
+        Error ->
+            Error
     end.
 
 update_config(Name, Change) ->
