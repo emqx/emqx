@@ -115,8 +115,8 @@ info(clientid, #channel{clientinfo = #{clientid := ClientId}}) ->
     ClientId;
 info(clientinfo, #channel{clientinfo = ClientInfo}) ->
     ClientInfo;
-info(session, _) ->
-    #{};
+info(session, #channel{session = Session}) ->
+    Session;
 info(conn_state, #channel{conn_state = ConnState}) ->
     ConnState;
 info(authcode, #channel{authcode = AuthCode}) ->
@@ -254,7 +254,7 @@ do_handle_in(Frame = ?MSG(?MC_AUTH), Channel) ->
         )
     of
         {ok, _NFrame, NChannel} ->
-            _NChannel = process_connect(Frame, ensure_connected(NChannel))
+            _ = process_connect(Frame, ensure_connected(NChannel))
     end;
 do_handle_in(Frame = ?MSG(?MC_HEARTBEAT), Channel) ->
     handle_out({?MS_GENERAL_RESPONSE, 0, ?MC_HEARTBEAT}, msgsn(Frame), Channel);
@@ -614,7 +614,7 @@ process_connect(
     Channel = #channel{
         ctx = Ctx,
         conninfo = ConnInfo,
-        clientinfo = ClientInfo
+        clientinfo = ClientInfo = #{clientid := ClientId}
     }
 ) ->
     SessFun = fun(_, _) -> #{} end,
@@ -630,9 +630,10 @@ process_connect(
         {ok, #{session := Session}} ->
             NChannel = Channel#channel{session = Session},
             %% Auto subscribe downlink topics
-            autosubcribe(NChannel),
+            ok = autosubcribe(NChannel),
             _ = start_keepalive(?DEFAULT_KEEPALIVE, NChannel),
             _ = run_hooks(Ctx, 'client.connack', [ConnInfo, connection_accepted, #{}]),
+            _ = emqx_gateway_ctx:insert_channel_info(Ctx, ClientId, info(NChannel), undefined),
             authack({0, MsgSn, NChannel});
         {error, Reason} ->
             log(
@@ -655,12 +656,7 @@ ensure_connected(
 ) ->
     NConnInfo = ConnInfo#{connected_at => erlang:system_time(millisecond)},
     ok = run_hooks(Ctx, 'client.connected', [ClientInfo, NConnInfo]),
-    prepare_adapter_topic(
-        Channel#channel{
-            conninfo = NConnInfo,
-            conn_state = connected
-        }
-    ).
+    prepare_adapter_topic(Channel#channel{conninfo = NConnInfo, conn_state = connected}).
 
 %% Ensure disconnected
 ensure_disconnected(
