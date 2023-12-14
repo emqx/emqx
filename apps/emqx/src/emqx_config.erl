@@ -135,7 +135,8 @@
     %%   save the updated config to the emqx_override.conf file
     %%   defaults to `true`
     persistent => boolean(),
-    override_to => local | cluster
+    override_to => local | cluster,
+    lazy_evaluator => fun((function()) -> term())
 }.
 -type update_args() :: {update_cmd(), Opts :: update_opts()}.
 -type update_stage() :: pre_config_update | post_config_update.
@@ -616,14 +617,14 @@ save_to_override_conf(true, RawConf, Opts) ->
         undefined ->
             ok;
         FileName ->
-            backup_and_write(FileName, hocon_pp:do(RawConf, #{}))
+            backup_and_write(FileName, hocon_pp:do(RawConf, Opts))
     end;
-save_to_override_conf(false, RawConf, _Opts) ->
+save_to_override_conf(false, RawConf, Opts) ->
     case cluster_hocon_file() of
         undefined ->
             ok;
         FileName ->
-            backup_and_write(FileName, hocon_pp:do(RawConf, #{}))
+            backup_and_write(FileName, hocon_pp:do(RawConf, Opts))
     end.
 
 %% @private This is the same human-readable timestamp format as

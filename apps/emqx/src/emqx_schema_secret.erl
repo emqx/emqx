@@ -23,7 +23,7 @@
 -export([mk/1]).
 
 %% HOCON Schema API
--export([convert_secret/2]).
+-export([convert_secret/2, source/1]).
 
 %% @doc Secret value.
 -type t() :: binary().

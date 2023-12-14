@@ -208,7 +208,13 @@ start_backend_services() ->
 update_config(Backend, UpdateReq) ->
     %% we always make sure the valid configuration will update successfully,
     %% ignore the runtime error during its update
-    case emqx_conf:update(?MOD_KEY_PATH(Backend), UpdateReq, #{override_to => cluster}) of
+    case
+        emqx_conf:update(
+            ?MOD_KEY_PATH(Backend),
+            UpdateReq,
+            #{override_to => cluster, lazy_evaluator => fun emqx_schema_secret:source/1}
+        )
+    of
         {ok, _UpdateResult} ->
             case lookup(Backend) of
                 undefined ->
