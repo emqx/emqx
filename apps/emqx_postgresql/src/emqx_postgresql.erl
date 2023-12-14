@@ -159,7 +159,9 @@ on_stop(InstId, State) ->
         connector => InstId
     }),
     close_connections(State),
-    emqx_resource_pool:stop(InstId).
+    Res = emqx_resource_pool:stop(InstId),
+    ?tp(postgres_stopped, #{instance_id => InstId}),
+    Res.
 
 close_connections(#{pool_name := PoolName} = _State) ->
     WorkerPids = [Worker || {_WorkerName, Worker} <- ecpool:workers(PoolName)],
@@ -301,6 +303,7 @@ on_query(
     Type = pgsql_query_type(TypeOrKey),
     {NameOrSQL2, Data} = proc_sql_params(TypeOrKey, NameOrSQL, Params, State),
     Res = on_sql_query(InstId, PoolName, Type, NameOrSQL2, Data),
+    ?tp(postgres_bridge_connector_on_query_return, #{instance_id => InstId, result => Res}),
     handle_result(Res).
 
 pgsql_query_type(sql) ->

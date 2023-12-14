@@ -58,10 +58,10 @@ init_per_group(Type = rs, Config) ->
     MongoPort = list_to_integer(os:getenv("MONGO_RS_PORT", "27017")),
     case emqx_common_test_helpers:is_tcp_server_available(MongoHost, MongoPort) of
         true ->
-            ok = start_apps(),
-            emqx_mgmt_api_test_util:init_suite(),
+            Apps = start_apps(Config),
             {Name, MongoConfig} = mongo_config(MongoHost, MongoPort, Type, Config),
             [
+                {apps, Apps},
                 {mongo_host, MongoHost},
                 {mongo_port, MongoPort},
                 {mongo_config, MongoConfig},
@@ -77,10 +77,10 @@ init_per_group(Type = sharded, Config) ->
     MongoPort = list_to_integer(os:getenv("MONGO_SHARDED_PORT", "27017")),
     case emqx_common_test_helpers:is_tcp_server_available(MongoHost, MongoPort) of
         true ->
-            ok = start_apps(),
-            emqx_mgmt_api_test_util:init_suite(),
+            Apps = start_apps(Config),
             {Name, MongoConfig} = mongo_config(MongoHost, MongoPort, Type, Config),
             [
+                {apps, Apps},
                 {mongo_host, MongoHost},
                 {mongo_port, MongoPort},
                 {mongo_config, MongoConfig},
@@ -96,8 +96,7 @@ init_per_group(Type = single, Config) ->
     MongoPort = list_to_integer(os:getenv("MONGO_SINGLE_PORT", "27017")),
     case emqx_common_test_helpers:is_tcp_server_available(MongoHost, MongoPort) of
         true ->
-            ok = start_apps(),
-            emqx_mgmt_api_test_util:init_suite(),
+            Apps = start_apps(Config),
             %% NOTE: `mongo-single` has auth enabled, see `credentials.env`.
             AuthSource = bin(os:getenv("MONGO_AUTHSOURCE", "admin")),
             Username = bin(os:getenv("MONGO_USERNAME", "")),
@@ -113,6 +112,7 @@ init_per_group(Type = single, Config) ->
             ],
             {Name, MongoConfig} = mongo_config(MongoHost, MongoPort, Type, NConfig),
             [
+                {apps, Apps},
                 {mongo_host, MongoHost},
                 {mongo_port, MongoPort},
                 {mongo_config, MongoConfig},
@@ -124,6 +124,14 @@ init_per_group(Type = single, Config) ->
             {skip, no_mongo}
     end.
 
+end_per_group(Type, Config) when
+    Type =:= rs;
+    Type =:= sharded;
+    Type =:= single
+->
+    Apps = ?config(apps, Config),
+    emqx_cth_suite:stop(Apps),
+    ok;
 end_per_group(_Type, _Config) ->
     ok.
 
@@ -131,18 +139,6 @@ init_per_suite(Config) ->
     Config.
 
 end_per_suite(_Config) ->
-    emqx_mgmt_api_test_util:end_suite(),
-    ok = emqx_common_test_helpers:stop_apps(
-        [
-            emqx_management,
-            emqx_bridge_mongodb,
-            emqx_mongodb,
-            emqx_bridge,
-            emqx_connector,
-            emqx_rule_engine,
-            emqx_conf
-        ]
-    ),
     ok.
 
 init_per_testcase(_Testcase, Config) ->
@@ -162,23 +158,22 @@ end_per_testcase(_Testcase, Config) ->
 %% Helper fns
 %%------------------------------------------------------------------------------
 
-start_apps() ->
-    ensure_loaded(),
-    %% some configs in emqx_conf app are mandatory,
-    %% we want to make sure they are loaded before
-    %% ekka start in emqx_common_test_helpers:start_apps/1
-    emqx_common_test_helpers:render_and_load_app_config(emqx_conf),
-    ok = emqx_common_test_helpers:start_apps(
+start_apps(Config) ->
+    Apps = emqx_cth_suite:start(
         [
+            emqx,
             emqx_conf,
-            emqx_rule_engine,
             emqx_connector,
             emqx_bridge,
-            emqx_mongodb,
             emqx_bridge_mongodb,
-            emqx_management
-        ]
-    ).
+            emqx_rule_engine,
+            emqx_management,
+            {emqx_dashboard, "dashboard.listeners.http { enable = true, bind = 18083 }"}
+        ],
+        #{work_dir => emqx_cth_suite:work_dir(Config)}
+    ),
+    {ok, _Api} = emqx_common_test_http:create_default_app(),
+    Apps.
 
 ensure_loaded() ->
     _ = application:load(emqtt),
@@ -221,6 +216,15 @@ mongo_config(MongoHost, MongoPort0, rs = Type, Config) ->
             "\n   resource_opts = {"
             "\n     query_mode = ~s"
             "\n     worker_pool_size = 1"
+            "\n     health_check_interval = 15s"
+            "\n     start_timeout = 5s"
+            "\n     start_after_created = true"
+            "\n     request_ttl = 45s"
+            "\n     inflight_window = 100"
+            "\n     max_buffer_bytes = 256MB"
+            "\n     buffer_mode = memory_only"
+            "\n     metrics_flush_interval = 5s"
+            "\n     resume_interval = 15s"
             "\n   }"
             "\n }",
             [
@@ -248,6 +252,15 @@ mongo_config(MongoHost, MongoPort0, sharded = Type, Config) ->
             "\n   resource_opts = {"
             "\n     query_mode = ~s"
             "\n     worker_pool_size = 1"
+            "\n     health_check_interval = 15s"
+            "\n     start_timeout = 5s"
+            "\n     start_after_created = true"
+            "\n     request_ttl = 45s"
+            "\n     inflight_window = 100"
+            "\n     max_buffer_bytes = 256MB"
+            "\n     buffer_mode = memory_only"
+            "\n     metrics_flush_interval = 5s"
+            "\n     resume_interval = 15s"
             "\n   }"
             "\n }",
             [
@@ -278,6 +291,15 @@ mongo_config(MongoHost, MongoPort0, single = Type, Config) ->
             "\n   resource_opts = {"
             "\n     query_mode = ~s"
             "\n     worker_pool_size = 1"
+            "\n     health_check_interval = 15s"
+            "\n     start_timeout = 5s"
+            "\n     start_after_created = true"
+            "\n     request_ttl = 45s"
+            "\n     inflight_window = 100"
+            "\n     max_buffer_bytes = 256MB"
+            "\n     buffer_mode = memory_only"
+            "\n     metrics_flush_interval = 5s"
+            "\n     resume_interval = 15s"
             "\n   }"
             "\n }",
             [

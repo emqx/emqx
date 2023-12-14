@@ -100,11 +100,18 @@ init_per_group(timescale, Config0) ->
 init_per_group(_Group, Config) ->
     Config.
 
-end_per_group(Group, Config) when Group =:= with_batch; Group =:= without_batch ->
-    connect_and_drop_table(Config),
+end_per_group(Group, Config) when
+    Group =:= with_batch;
+    Group =:= without_batch;
+    Group =:= matrix;
+    Group =:= timescale
+->
+    Apps = ?config(apps, Config),
     ProxyHost = ?config(proxy_host, Config),
     ProxyPort = ?config(proxy_port, Config),
+    connect_and_drop_table(Config),
     emqx_common_test_helpers:reset_proxy(ProxyHost, ProxyPort),
+    ok = emqx_cth_suite:stop(Apps),
     ok;
 end_per_group(_Group, _Config) ->
     ok.
@@ -113,8 +120,6 @@ init_per_suite(Config) ->
     Config.
 
 end_per_suite(_Config) ->
-    emqx_mgmt_api_test_util:end_suite(),
-    ok = emqx_common_test_helpers:stop_apps([emqx, emqx_postgresql, emqx_conf, emqx_bridge]),
     ok.
 
 init_per_testcase(_Testcase, Config) ->
@@ -147,14 +152,31 @@ common_init(Config0) ->
             ProxyPort = list_to_integer(os:getenv("PROXY_PORT", "8474")),
             emqx_common_test_helpers:reset_proxy(ProxyHost, ProxyPort),
             % Ensure enterprise bridge module is loaded
-            ok = emqx_common_test_helpers:start_apps([emqx, emqx_postgresql, emqx_conf, emqx_bridge]),
-            _ = emqx_bridge_enterprise:module_info(),
-            emqx_mgmt_api_test_util:init_suite(),
+            Apps = emqx_cth_suite:start(
+                [
+                    emqx,
+                    emqx_conf,
+                    emqx_connector,
+                    emqx_bridge,
+                    emqx_bridge_pgsql,
+                    emqx_rule_engine,
+                    emqx_management,
+                    {emqx_dashboard, "dashboard.listeners.http { enable = true, bind = 18083 }"}
+                ],
+                #{work_dir => emqx_cth_suite:work_dir(Config0)}
+            ),
+            {ok, _Api} = emqx_common_test_http:create_default_app(),
+
+            %% ok = emqx_common_test_helpers:start_apps([emqx, emqx_postgresql, emqx_conf, emqx_bridge]),
+            %% _ = emqx_bridge_enterprise:module_info(),
+            %% emqx_mgmt_api_test_util:init_suite(),
+
             % Connect to pgsql directly and create the table
             connect_and_create_table(Config0),
             {Name, PGConf} = pgsql_config(BridgeType, Config0),
             Config =
                 [
+                    {apps, Apps},
                     {pgsql_config, PGConf},
                     {pgsql_bridge_type, BridgeType},
                     {pgsql_name, Name},
@@ -198,6 +220,16 @@ pgsql_config(BridgeType, Config) ->
             "\n     request_ttl = 500ms"
             "\n     batch_size = ~b"
             "\n     query_mode = ~s"
+            "\n     worker_pool_size = 1"
+            "\n     health_check_interval = 15s"
+            "\n     start_after_created = true"
+            "\n     start_timeout = 5s"
+            "\n     inflight_window = 100"
+            "\n     max_buffer_bytes = 256MB"
+            "\n     buffer_seg_bytes = 10MB"
+            "\n     buffer_mode = memory_only"
+            "\n     metrics_flush_interval = 5s"
+            "\n     resume_interval = 15s"
             "\n   }"
             "\n   ssl = {"
             "\n     enable = ~w"
@@ -217,6 +249,9 @@ pgsql_config(BridgeType, Config) ->
             ]
         ),
     {Name, parse_and_check(ConfigString, BridgeType, Name)}.
+
+default_sql() ->
+    ?SQL_BRIDGE.
 
 create_passfile(BridgeType, Config) ->
     Filename = binary_to_list(BridgeType) ++ ".passfile",
@@ -689,14 +724,13 @@ t_missing_table(Config) ->
 t_table_removed(Config) ->
     Name = ?config(pgsql_name, Config),
     BridgeType = ?config(pgsql_bridge_type, Config),
-    %%ResourceID = emqx_bridge_resource:resource_id(BridgeType, Name),
     ?check_trace(
         begin
             connect_and_create_table(Config),
             ?assertMatch({ok, _}, create_bridge(Config)),
             ?retry(
-                _Sleep = 1_000,
-                _Attempts = 20,
+                _Sleep = 100,
+                _Attempts = 200,
                 ?assertMatch(#{status := connected}, emqx_bridge_v2:health_check(BridgeType, Name))
             ),
             connect_and_drop_table(Config),
