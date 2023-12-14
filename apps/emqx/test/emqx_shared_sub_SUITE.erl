@@ -739,11 +739,16 @@ t_qos1_random_dispatch_if_all_members_are_down(Config) when is_list(Config) ->
     ?assert(is_process_alive(Pid2)),
 
     {ok, _} = emqtt:publish(ConnPub, Topic, <<"hello11">>, 1),
-    ct:sleep(100),
-    Msgs1 = emqx_mqueue:to_list(get_mqueue(Pid1)),
-    Msgs2 = emqx_mqueue:to_list(get_mqueue(Pid2)),
-    %% assert the message is in mqueue (because socket is closed)
-    ?assertMatch([#message{payload = <<"hello11">>}], Msgs1 ++ Msgs2),
+    ?retry(
+        100,
+        10,
+        begin
+            Msgs1 = emqx_mqueue:to_list(get_mqueue(Pid1)),
+            Msgs2 = emqx_mqueue:to_list(get_mqueue(Pid2)),
+            %% assert the message is in mqueue (because socket is closed)
+            ?assertMatch([#message{payload = <<"hello11">>}], Msgs1 ++ Msgs2)
+        end
+    ),
     emqtt:stop(ConnPub),
     ok.
 
