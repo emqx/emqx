@@ -50,15 +50,15 @@ schema("/prometheus") ->
                 description => ?DESC(get_prom_conf_info),
                 tags => ?TAGS,
                 responses =>
-                    #{200 => prometheus_setting_schema()}
+                    #{200 => prometheus_setting_response()}
             },
         put =>
             #{
                 description => ?DESC(update_prom_conf_info),
                 tags => ?TAGS,
-                'requestBody' => prometheus_setting_schema(),
+                'requestBody' => prometheus_setting_request(),
                 responses =>
-                    #{200 => prometheus_setting_schema()}
+                    #{200 => prometheus_setting_response()}
             }
     };
 schema("/prometheus/stats") ->
@@ -84,7 +84,13 @@ security() ->
 %%--------------------------------------------------------------------
 
 setting(get, _Params) ->
-    {200, emqx:get_raw_config([<<"prometheus">>], #{})};
+    Raw = emqx:get_raw_config([<<"prometheus">>], #{}),
+    Conf =
+        case emqx_prometheus_schema:is_recommend_type(Raw) of
+            true -> Raw;
+            false -> emqx_prometheus_config:to_recommend_type(Raw)
+        end,
+    {200, Conf};
 setting(put, #{body := Body}) ->
     case emqx_prometheus_config:update(Body) of
         {ok, NewConfig} ->
@@ -112,7 +118,7 @@ stats(get, #{headers := Headers}) ->
 %% Internal funcs
 %%--------------------------------------------------------------------
 
-prometheus_setting_schema() ->
+prometheus_setting_request() ->
     [{prometheus, #{type := Setting}}] = emqx_prometheus_schema:roots(),
     emqx_dashboard_swagger:schema_with_examples(
         Setting,
@@ -120,6 +126,14 @@ prometheus_setting_schema() ->
             recommend_setting_example(),
             legacy_setting_example()
         ]
+    ).
+
+%% Always return recommend setting
+prometheus_setting_response() ->
+    {_, #{value := Example}} = recommend_setting_example(),
+    emqx_dashboard_swagger:schema_with_example(
+        ?R_REF(emqx_prometheus_schema, recommend_setting),
+        Example
     ).
 
 legacy_setting_example() ->

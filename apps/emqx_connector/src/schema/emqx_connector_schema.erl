@@ -28,7 +28,8 @@
 -export([
     transform_bridges_v1_to_connectors_and_bridges_v2/1,
     transform_bridge_v1_config_to_action_config/4,
-    top_level_common_connector_keys/0
+    top_level_common_connector_keys/0,
+    project_to_connector_resource_opts/1
 ]).
 
 -export([roots/0, fields/1, desc/1, namespace/0, tags/0]).
@@ -36,9 +37,11 @@
 -export([get_response/0, put_request/0, post_request/0]).
 
 -export([connector_type_to_bridge_types/1]).
+
 -export([
     api_fields/3,
     common_fields/0,
+    connector_values/3,
     status_and_actions_fields/0,
     type_and_name_fields/1
 ]).
@@ -128,16 +131,18 @@ connector_type_to_bridge_types(matrix) ->
     [matrix];
 connector_type_to_bridge_types(mongodb) ->
     [mongodb, mongodb_rs, mongodb_sharded, mongodb_single];
+connector_type_to_bridge_types(mysql) ->
+    [mysql];
 connector_type_to_bridge_types(pgsql) ->
     [pgsql];
+connector_type_to_bridge_types(redis) ->
+    [redis, redis_single, redis_sentinel, redis_cluster];
 connector_type_to_bridge_types(syskeeper_forwarder) ->
     [syskeeper_forwarder];
 connector_type_to_bridge_types(syskeeper_proxy) ->
     [];
 connector_type_to_bridge_types(timescale) ->
-    [timescale];
-connector_type_to_bridge_types(redis) ->
-    [redis, redis_single, redis_sentinel, redis_cluster].
+    [timescale].
 
 actions_config_name() -> <<"actions">>.
 
@@ -191,7 +196,7 @@ split_bridge_to_connector_and_action(
                         case maps:is_key(ConnectorFieldNameBin, BridgeV1Conf) of
                             true ->
                                 PrevFieldConfig =
-                                    project_to_connector_resource_opts(
+                                    maybe_project_to_connector_resource_opts(
                                         ConnectorFieldNameBin,
                                         maps:get(ConnectorFieldNameBin, BridgeV1Conf)
                                     ),
@@ -227,11 +232,14 @@ split_bridge_to_connector_and_action(
         end,
     {BridgeType, BridgeName, ActionMap, ConnectorName, ConnectorMap}.
 
-project_to_connector_resource_opts(<<"resource_opts">>, OldResourceOpts) ->
-    Subfields = common_resource_opts_subfields_bin(),
-    maps:with(Subfields, OldResourceOpts);
-project_to_connector_resource_opts(_, OldConfig) ->
+maybe_project_to_connector_resource_opts(<<"resource_opts">>, OldResourceOpts) ->
+    project_to_connector_resource_opts(OldResourceOpts);
+maybe_project_to_connector_resource_opts(_, OldConfig) ->
     OldConfig.
+
+project_to_connector_resource_opts(OldResourceOpts) ->
+    Subfields = common_resource_opts_subfields_bin(),
+    maps:with(Subfields, OldResourceOpts).
 
 transform_bridge_v1_config_to_action_config(
     BridgeV1Conf, ConnectorName, ConnectorConfSchemaMod, ConnectorConfSchemaName
@@ -529,7 +537,6 @@ resource_opts_ref(Module, RefName) ->
 common_resource_opts_subfields() ->
     [
         health_check_interval,
-        query_mode,
         start_after_created,
         start_timeout
     ].
@@ -548,6 +555,48 @@ resource_opts_fields(Overrides) ->
         fun({Key, _Sc}) -> lists:member(Key, ConnectorROFields) end,
         emqx_resource_schema:create_opts(Overrides)
     ).
+
+-type http_method() :: get | post | put.
+-type schema_example_map() :: #{atom() => term()}.
+
+-spec connector_values(http_method(), atom(), schema_example_map()) -> schema_example_map().
+connector_values(Method, Type, ConnectorValues) ->
+    TypeBin = atom_to_binary(Type),
+    lists:foldl(
+        fun(M1, M2) ->
+            maps:merge(M1, M2)
+        end,
+        #{
+            description => <<"My example ", TypeBin/binary, " connector">>
+        },
+        [
+            ConnectorValues,
+            method_values(Method, Type)
+        ]
+    ).
+
+method_values(post, Type) ->
+    TypeBin = atom_to_binary(Type),
+    #{
+        name => <<TypeBin/binary, "_connector">>,
+        type => TypeBin
+    };
+method_values(get, Type) ->
+    maps:merge(
+        method_values(post, Type),
+        #{
+            status => <<"connected">>,
+            node_status => [
+                #{
+                    node => <<"emqx@localhost">>,
+                    status => <<"connected">>
+                }
+            ],
+            actions => [<<"my_action">>]
+        }
+    );
+method_values(put, _Type) ->
+    #{}.
 
 %%======================================================================================
 %% Helper Functions

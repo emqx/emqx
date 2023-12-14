@@ -37,6 +37,7 @@ type() -> ?AUTHZ_TYPE.
 fields(mysql) ->
     emqx_authz_schema:authz_common_fields(?AUTHZ_TYPE) ++
         emqx_mysql:fields(config) ++
+        emqx_connector_schema_lib:prepare_statement_fields() ++
         [{query, query()}].
 
 desc(mysql) ->

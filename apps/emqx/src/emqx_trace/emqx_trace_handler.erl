@@ -125,7 +125,7 @@ uninstall(HandlerId) ->
             name => binary(),
             type => topic | clientid | ip_address,
             id => atom(),
-            filter => emqx_types:topic() | emqx_types:clienetid() | emqx_trace:ip_address(),
+            filter => emqx_types:topic() | emqx_types:clientid() | emqx_trace:ip_address(),
             level => logger:level(),
             dst => file:filename() | console | unknown
         }

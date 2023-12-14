@@ -262,7 +262,6 @@ t_write_failure(Config) ->
     ProxyPort = ?config(proxy_port, Config),
     ProxyHost = ?config(proxy_host, Config),
     QueryMode = ?config(query_mode, Config),
-    EnableBatch = ?config(enable_batch, Config),
     Data = rand_data(),
     {{ok, _}, {ok, _}} =
         ?wait_async_action(

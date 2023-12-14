@@ -16,10 +16,6 @@
 
 -module(emqx_authz_rule).
 
--include_lib("emqx/include/logger.hrl").
--include_lib("emqx/include/emqx_placeholder.hrl").
--include("emqx_authz.hrl").
-
 -ifdef(TEST).
 -compile(export_all).
 -compile(nowarn_export_all).
@@ -29,8 +25,15 @@
 -export([
     match/4,
     matches/4,
-    compile/1
+    compile/1,
+    compile/4
 ]).
+
+-export_type([action/0, action_precompile/0]).
+
+-include_lib("emqx/include/logger.hrl").
+-include_lib("emqx/include/emqx_placeholder.hrl").
+-include("emqx_authz.hrl").
 
 -type permission() :: allow | deny.
 
@@ -73,8 +76,24 @@
     topic_condition/0
 ]).
 
+-type action_precompile() ::
+    subscribe
+    | publish
+    | {subscribe, list()}
+    | {publish, list()}
+    | all.
+
+-type topic_filter() :: emqx_types:topic().
+
+-type rule_precompile() :: {permission(), who_condition(), action_precompile(), [topic_filter()]}.
+
 -define(IS_PERMISSION(Permission), (Permission =:= allow orelse Permission =:= deny)).
 
+-spec compile(permission(), who_condition(), action_precompile(), [topic_filter()]) -> rule().
+compile(Permission, Who, Action, TopicFilters) ->
+    compile({Permission, Who, Action, TopicFilters}).
+
+-spec compile({permission(), all} | rule_precompile()) -> rule().
 compile({Permission, all}) when
     ?IS_PERMISSION(Permission)
 ->

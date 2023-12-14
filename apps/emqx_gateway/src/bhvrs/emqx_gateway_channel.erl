@@ -20,7 +20,7 @@
 %% module if it integrated with emqx_gateway_conn module
 -module(emqx_gateway_channel).
 
--export_type([gen_server_from/0]).
+-export_type([gen_server_from/0, channel/0]).
 
 -type channel() :: any().
 
@@ -39,7 +39,7 @@
 %% Init
 
 %% @doc Initialize the channel state
--callback init(emqx_types:conniinfo(), map()) -> channel().
+-callback init(emqx_types:conninfo(), map()) -> channel().
 
 %%--------------------------------------------------------------------
 %% Handles
@@ -49,8 +49,8 @@
 -type gen_server_from() :: {pid(), Tag :: term()}.
 
 -type reply() ::
-    {outgoing, emqx_gateway_frame:packet()}
-    | {outgoing, [emqx_gateway_frame:packet()]}
+    {outgoing, emqx_gateway_frame:frame()}
+    | {outgoing, [emqx_gateway_frame:frame()]}
     | {event, conn_state() | updated}
     | {close, Reason :: atom()}.
 

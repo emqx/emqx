@@ -34,6 +34,8 @@ resource_type(matrix) ->
     emqx_postgresql;
 resource_type(mongodb) ->
     emqx_bridge_mongodb_connector;
+resource_type(mysql) ->
+    emqx_bridge_mysql_connector;
 resource_type(pgsql) ->
     emqx_postgresql;
 resource_type(syskeeper_forwarder) ->
@@ -94,11 +96,43 @@ connector_structs() ->
                     required => false
                 }
             )},
+        {matrix,
+            mk(
+                hoconsc:map(name, ref(emqx_bridge_matrix, "config_connector")),
+                #{
+                    desc => <<"Matrix Connector Config">>,
+                    required => false
+                }
+            )},
         {mongodb,
             mk(
                 hoconsc:map(name, ref(emqx_bridge_mongodb, "config_connector")),
                 #{
                     desc => <<"MongoDB Connector Config">>,
+                    required => false
+                }
+            )},
+        {mysql,
+            mk(
+                hoconsc:map(name, ref(emqx_bridge_mysql, "config_connector")),
+                #{
+                    desc => <<"MySQL Connector Config">>,
+                    required => false
+                }
+            )},
+        {pgsql,
+            mk(
+                hoconsc:map(name, ref(emqx_bridge_pgsql, "config_connector")),
+                #{
+                    desc => <<"PostgreSQL Connector Config">>,
+                    required => false
+                }
+            )},
+        {redis,
+            mk(
+                hoconsc:map(name, ref(emqx_bridge_redis_schema, "config_connector")),
+                #{
+                    desc => <<"Redis Connector Config">>,
                     required => false
                 }
             )},
@@ -118,35 +152,11 @@ connector_structs() ->
                     required => false
                 }
             )},
-        {pgsql,
-            mk(
-                hoconsc:map(name, ref(emqx_bridge_pgsql, "config_connector")),
-                #{
-                    desc => <<"PostgreSQL Connector Config">>,
-                    required => false
-                }
-            )},
         {timescale,
             mk(
                 hoconsc:map(name, ref(emqx_bridge_timescale, "config_connector")),
                 #{
                     desc => <<"Timescale Connector Config">>,
-                    required => false
-                }
-            )},
-        {matrix,
-            mk(
-                hoconsc:map(name, ref(emqx_bridge_matrix, "config_connector")),
-                #{
-                    desc => <<"Matrix Connector Config">>,
-                    required => false
-                }
-            )},
-        {redis,
-            mk(
-                hoconsc:map(name, ref(emqx_bridge_redis_schema, "config_connector")),
-                #{
-                    desc => <<"Redis Connector Config">>,
                     required => false
                 }
             )}
@@ -160,6 +170,7 @@ schema_modules() ->
         emqx_bridge_kafka,
         emqx_bridge_matrix,
         emqx_bridge_mongodb,
+        emqx_bridge_mysql,
         emqx_bridge_syskeeper_connector,
         emqx_bridge_syskeeper_proxy,
         emqx_bridge_timescale,
@@ -185,6 +196,7 @@ api_schemas(Method) ->
         api_ref(emqx_bridge_kafka, <<"kafka_producer">>, Method ++ "_connector"),
         api_ref(emqx_bridge_matrix, <<"matrix">>, Method ++ "_connector"),
         api_ref(emqx_bridge_mongodb, <<"mongodb">>, Method ++ "_connector"),
+        api_ref(emqx_bridge_mysql, <<"mysql">>, Method ++ "_connector"),
         api_ref(emqx_bridge_syskeeper_connector, <<"syskeeper_forwarder">>, Method),
         api_ref(emqx_bridge_syskeeper_proxy, <<"syskeeper_proxy">>, Method),
         api_ref(emqx_bridge_timescale, <<"timescale">>, Method ++ "_connector"),

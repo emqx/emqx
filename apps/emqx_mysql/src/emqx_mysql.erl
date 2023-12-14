@@ -36,7 +36,13 @@
 %% ecpool connect & reconnect
 -export([connect/1, prepare_sql_to_conn/2]).
 
--export([prepare_sql/2]).
+-export([
+    init_prepare/1,
+    prepare_sql/2,
+    parse_prepare_sql/1,
+    parse_prepare_sql/2,
+    unprepare_sql/1
+]).
 
 -export([roots/0, fields/1]).
 
@@ -51,9 +57,10 @@
     #{
         pool_name := binary(),
         prepares := ok | {error, _},
-        templates := #{{atom(), batch | prepstmt} => template()}
+        templates := #{{atom(), batch | prepstmt} => template()},
+        query_templates := map()
     }.
-
+-export_type([state/0]).
 %%=====================================================================
 %% Hocon schema
 roots() ->
@@ -62,8 +69,7 @@ roots() ->
 fields(config) ->
     [{server, server()}] ++
         add_default_username(emqx_connector_schema_lib:relational_db_fields(), []) ++
-        emqx_connector_schema_lib:ssl_fields() ++
-        emqx_connector_schema_lib:prepare_statement_fields().
+        emqx_connector_schema_lib:ssl_fields().
 
 add_default_username([{username, OrigUsernameFn} | Tail], Head) ->
     Head ++ [{username, add_default_fn(OrigUsernameFn, <<"root">>)} | Tail];
@@ -267,7 +273,7 @@ do_check_prepares(
     );
 do_check_prepares(#{prepares := ok}) ->
     ok;
-do_check_prepares(#{prepares := {error, _}} = State) ->
+do_check_prepares(#{prepares := {error, _}, query_templates := _} = State) ->
     %% retry to prepare
     case prepare_sql(State) of
         ok ->
@@ -275,7 +281,9 @@ do_check_prepares(#{prepares := {error, _}} = State) ->
             {ok, State#{prepares => ok}};
         {error, Reason} ->
             {error, Reason}
-    end.
+    end;
+do_check_prepares(_NoTemplates) ->
+    ok.
 
 %% ===================================================================
 
@@ -323,15 +331,17 @@ prepare_sql(Templates, PoolName) ->
     end.
 
 do_prepare_sql(Templates, PoolName) ->
-    Conns =
-        [
-            begin
-                {ok, Conn} = ecpool_worker:client(Worker),
-                Conn
-            end
-         || {_Name, Worker} <- ecpool:workers(PoolName)
-        ],
+    Conns = get_connections_from_pool(PoolName),
     prepare_sql_to_conn_list(Conns, Templates).
+
+get_connections_from_pool(PoolName) ->
+    [
+        begin
+            {ok, Conn} = ecpool_worker:client(Worker),
+            Conn
+        end
+     || {_Name, Worker} <- ecpool:workers(PoolName)
+    ].
 
 prepare_sql_to_conn_list([], _Templates) ->
     ok;
@@ -369,6 +379,18 @@ prepare_sql_to_conn(Conn, [{{Key, prepstmt}, {SQL, _RowTemplate}} | Rest]) ->
 prepare_sql_to_conn(Conn, [{_Key, _Template} | Rest]) ->
     prepare_sql_to_conn(Conn, Rest).
 
+unprepare_sql(#{query_templates := Templates, pool_name := PoolName}) ->
+    ecpool:remove_reconnect_callback(PoolName, {?MODULE, prepare_sql_to_conn}),
+    lists:foreach(
+        fun(Conn) ->
+            lists:foreach(
+                fun(Template) -> unprepare_sql_to_conn(Conn, Template) end,
+                maps:to_list(Templates)
+            )
+        end,
+        get_connections_from_pool(PoolName)
+    ).
+
 unprepare_sql_to_conn(Conn, {{Key, prepstmt}, _}) ->
     mysql:unprepare(Conn, Key);
 unprepare_sql_to_conn(Conn, Key) when is_atom(Key) ->
@@ -377,12 +399,15 @@ unprepare_sql_to_conn(_Conn, _) ->
     ok.
 
 parse_prepare_sql(Config) ->
+    parse_prepare_sql(send_message, Config).
+
+parse_prepare_sql(Key, Config) ->
     Queries =
         case Config of
             #{prepare_statement := Qs} ->
                 Qs;
             #{sql := Query} ->
-                #{send_message => Query};
+                #{Key => Query};
             _ ->
                 #{}
         end,
@@ -436,7 +461,9 @@ proc_sql_params(TypeOrKey, SQLOrData, Params, #{query_templates := Templates}) -
                 {emqx_jsonish, SQLOrData}
             ),
             {TypeOrKey, Row}
-    end.
+    end;
+proc_sql_params(_TypeOrKey, SQLOrData, Params, _State) ->
+    {SQLOrData, Params}.
 
 on_batch_insert(InstId, BatchReqs, {InsertPart, RowTemplate}, State) ->
     Rows = [render_row(RowTemplate, Msg) || {_, Msg} <- BatchReqs],

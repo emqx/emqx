@@ -1047,6 +1047,13 @@ t_bridges_probe(Config) ->
         ?HTTP_BRIDGE(URL),
         Config
     ),
+    %% with descriptions is ok.
+    {ok, 204, <<>>} = request(
+        post,
+        uri(["bridges_probe"]),
+        (?HTTP_BRIDGE(URL))#{<<"description">> => <<"Test Description">>},
+        Config
+    ),
 
     ?assertMatch(
         {ok, 400, #{

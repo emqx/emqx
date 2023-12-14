@@ -46,6 +46,8 @@
     quote_mysql/1
 ]).
 
+-export_type([tmpl_token/0]).
+
 -define(PH_VAR_THIS, '$this').
 
 %% To match any pattern starts with '$' and followed by '{', and closed by a '}' char:

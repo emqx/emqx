@@ -111,6 +111,7 @@
     t/0,
     conf/0,
     conninfo/0,
+    clientinfo/0,
     reply/0,
     replies/0,
     common_timer_name/0,
@@ -174,11 +175,19 @@
 %% Behaviour
 %% -------------------------------------------------------------------
 
+-if(?OTP_RELEASE < 26).
+-callback create(clientinfo(), conninfo(), conf()) ->
+    term().
+-callback open(clientinfo(), conninfo(), conf()) ->
+    term().
+-callback destroy(t() | clientinfo()) -> ok.
+-else.
 -callback create(clientinfo(), conninfo(), conf()) ->
     t().
 -callback open(clientinfo(), conninfo(), conf()) ->
     {_IsPresent :: true, t(), _ReplayContext} | false.
 -callback destroy(t() | clientinfo()) -> ok.
+-endif.
 
 %%--------------------------------------------------------------------
 %% Create a Session
@@ -499,7 +508,7 @@ cancel_timer(Name, Timers0) ->
 
 %%--------------------------------------------------------------------
 
--spec disconnect(clientinfo(), eqmx_types:conninfo(), t()) ->
+-spec disconnect(clientinfo(), conninfo(), t()) ->
     {idle | shutdown, t()}.
 disconnect(_ClientInfo, ConnInfo, Session) ->
     ?IMPL(Session):disconnect(Session, ConnInfo).

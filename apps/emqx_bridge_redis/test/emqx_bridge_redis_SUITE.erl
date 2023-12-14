@@ -123,10 +123,19 @@ wait_for_ci_redis(Checks, Config) ->
             ProxyHost = os:getenv("PROXY_HOST", ?PROXY_HOST),
             ProxyPort = list_to_integer(os:getenv("PROXY_PORT", ?PROXY_PORT)),
             emqx_common_test_helpers:reset_proxy(ProxyHost, ProxyPort),
-            ok = emqx_common_test_helpers:start_apps([
-                emqx_conf, emqx_resource, emqx_connector, emqx_bridge, emqx_rule_engine
-            ]),
+            Apps = emqx_cth_suite:start(
+                [
+                    emqx,
+                    emqx_conf,
+                    emqx_resource,
+                    emqx_connector,
+                    emqx_bridge,
+                    emqx_rule_engine
+                ],
+                #{work_dir => emqx_cth_suite:work_dir(Config)}
+            ),
             [
+                {apps, Apps},
                 {proxy_host, ProxyHost},
                 {proxy_port, ProxyPort}
                 | Config
@@ -143,11 +152,9 @@ redis_checks() ->
             1
     end.
 
-end_per_suite(_Config) ->
-    ok = emqx_bridge_v2_SUITE:delete_all_bridges_and_connectors(),
-    ok = emqx_common_test_helpers:stop_apps([emqx_conf]),
-    ok = emqx_connector_test_helpers:stop_apps([emqx_rule_engine, emqx_bridge, emqx_resource]),
-    _ = application:stop(emqx_connector),
+end_per_suite(Config) ->
+    Apps = ?config(apps, Config),
+    emqx_cth_suite:stop(Apps),
     ok.
 
 init_per_testcase(Testcase, Config0) ->

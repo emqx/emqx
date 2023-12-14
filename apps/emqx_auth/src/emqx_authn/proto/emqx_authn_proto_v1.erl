@@ -31,7 +31,7 @@ introduced_in() ->
     "5.0.0".
 
 -spec lookup_from_all_nodes([node()], atom(), binary()) ->
-    emqx_rpc:erpc_multicall().
+    emqx_rpc:erpc_multicall(term()).
 lookup_from_all_nodes(Nodes, ChainName, AuthenticatorID) ->
     erpc:multicall(
         Nodes, emqx_authn_api, lookup_from_local_node, [ChainName, AuthenticatorID], ?TIMEOUT

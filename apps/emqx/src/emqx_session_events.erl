@@ -34,7 +34,7 @@
 
 %%
 
--spec handle_event(emqx_session:client_info(), event()) ->
+-spec handle_event(emqx_session:clientinfo(), event()) ->
     ok.
 handle_event(ClientInfo, {expired, Msg}) ->
     ok = emqx_hooks:run('delivery.dropped', [ClientInfo, Msg, expired]),

@@ -92,7 +92,7 @@
         ?enc := emqx_ds_storage_layer:iterator()
     }.
 
--type message_id() :: emqx_ds_storage_layer:message_id().
+-type message_id() :: emqx_ds:message_id().
 
 -define(batch_messages, 2).
 
@@ -245,7 +245,7 @@ do_store_batch_v1(DB, Shard, #{?tag := ?BATCH, ?batch_messages := Messages}, Opt
     emqx_ds_storage_layer:store_batch({DB, Shard}, Messages, Options).
 
 -spec do_get_streams_v1(
-    emqx_ds:db(), emqx_ds_replicationi_layer:shard_id(), emqx_ds:topic_filter(), emqx_ds:time()
+    emqx_ds:db(), emqx_ds_replication_layer:shard_id(), emqx_ds:topic_filter(), emqx_ds:time()
 ) ->
     [{integer(), emqx_ds_storage_layer:stream()}].
 do_get_streams_v1(DB, Shard, TopicFilter, StartTime) ->
@@ -253,7 +253,7 @@ do_get_streams_v1(DB, Shard, TopicFilter, StartTime) ->
 
 -spec do_make_iterator_v1(
     emqx_ds:db(),
-    emqx_ds_storage_layer:shard_id(),
+    emqx_ds_replication_layer:shard_id(),
     emqx_ds_storage_layer:stream(),
     emqx_ds:topic_filter(),
     emqx_ds:time()
@@ -264,11 +264,11 @@ do_make_iterator_v1(DB, Shard, Stream, TopicFilter, StartTime) ->
 
 -spec do_update_iterator_v2(
     emqx_ds:db(),
-    emqx_ds_storage_layer:shard_id(),
+    emqx_ds_replication_layer:shard_id(),
     emqx_ds_storage_layer:iterator(),
     emqx_ds:message_key()
 ) ->
-    {ok, emqx_ds_storage_layer:iterator()} | {error, _}.
+    emqx_ds:make_iterator_result(emqx_ds_storage_layer:iterator()).
 do_update_iterator_v2(DB, Shard, OldIter, DSKey) ->
     emqx_ds_storage_layer:update_iterator(
         {DB, Shard}, OldIter, DSKey

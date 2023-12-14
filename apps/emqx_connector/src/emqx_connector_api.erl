@@ -589,13 +589,23 @@ pick_connectors_by_id(Type, Name, ConnectorsAllNodes) ->
 format_connector_info([FirstConnector | _] = Connectors) ->
     Res = maps:remove(node, FirstConnector),
     NodeStatus = node_status(Connectors),
-    redact(Res#{
+    StatusReason = first_status_reason(Connectors),
+    Info0 = Res#{
         status => aggregate_status(NodeStatus),
         node_status => NodeStatus
-    }).
+    },
+    Info = emqx_utils_maps:put_if(Info0, status_reason, StatusReason, StatusReason =/= undefined),
+    redact(Info).
 
 node_status(Connectors) ->
     [maps:with([node, status, status_reason], B) || B <- Connectors].
+
+first_status_reason(Connectors) ->
+    StatusReasons = [Reason || #{status_reason := Reason} <- Connectors, Reason =/= undefined],
+    case StatusReasons of
+        [Reason | _] -> Reason;
+        _ -> undefined
+    end.
 
 aggregate_status(AllStatus) ->
     Head = fun([A | _]) -> A end,
@@ -611,10 +621,11 @@ format_resource(
         type := Type,
         name := ConnectorName,
         raw_config := RawConf0,
-        resource_data := ResourceData
+        resource_data := ResourceData0
     },
     Node
 ) ->
+    ResourceData = lookup_channels(Type, ConnectorName, ResourceData0),
     RawConf = fill_defaults(Type, RawConf0),
     redact(
         maps:merge(
@@ -627,14 +638,23 @@ format_resource(
         )
     ).
 
+lookup_channels(Type, Name, ResourceData0) ->
+    ConnectorResId = emqx_connector_resource:resource_id(Type, Name),
+    case emqx_resource:get_channels(ConnectorResId) of
+        {ok, Channels} ->
+            ResourceData0#{channels => maps:from_list(Channels)};
+        {error, not_found} ->
+            ResourceData0#{channels => #{}}
+    end.
+
 format_resource_data(ResData) ->
-    maps:fold(fun format_resource_data/3, #{}, maps:with([status, error, added_channels], ResData)).
+    maps:fold(fun format_resource_data/3, #{}, maps:with([status, error, channels], ResData)).
 
 format_resource_data(error, undefined, Result) ->
     Result;
 format_resource_data(error, Error, Result) ->
     Result#{status_reason => emqx_utils:readable_error_msg(Error)};
-format_resource_data(added_channels, Channels, Result) ->
+format_resource_data(channels, Channels, Result) ->
     Result#{actions => lists:map(fun format_action/1, maps:keys(Channels))};
 format_resource_data(K, V, Result) ->
     Result#{K => V}.

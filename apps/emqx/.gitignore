@@ -1,0 +1,2 @@
+# See: emqx_common_test_helpers:copy_acl_conf/0
+etc/acl.conf

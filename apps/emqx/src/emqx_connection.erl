@@ -979,7 +979,7 @@ handle_cast(Req, State) ->
 %% rate limit
 
 -type limiter_type() :: emqx_limiter_container:limiter_type().
--type limiter() :: emqx_limiter_container:limiter().
+-type limiter() :: emqx_limiter_container:container().
 -type check_succ_handler() ::
     fun((any(), list(any()), state()) -> _).
 

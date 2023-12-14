@@ -55,8 +55,7 @@ fields(mysql) ->
         {password_hash_algorithm, fun emqx_authn_password_hashing:type_ro/1},
         {query, fun query/1},
         {query_timeout, fun query_timeout/1}
-    ] ++ emqx_authn_schema:common_fields() ++
-        proplists:delete(prepare_statement, emqx_mysql:fields(config)).
+    ] ++ emqx_authn_schema:common_fields() ++ emqx_mysql:fields(config).
 
 desc(mysql) ->
     ?DESC(mysql);

@@ -36,7 +36,7 @@
 %% Internal API
 -export([exporter/1]).
 
--export_type([export/0]).
+-export_type([export/0, exporter_conf/0]).
 
 -type storage() :: emqx_ft_storage_fs:storage() | undefined.
 -type transfer() :: emqx_ft:transfer().

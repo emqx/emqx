@@ -78,7 +78,7 @@ groups() ->
     ].
 
 suite() ->
-    [{timetrap, {seconds, 30}}].
+    [{timetrap, {seconds, 60}}].
 
 common_tests() ->
     emqx_common_test_helpers:all(?MODULE).
