@@ -200,18 +200,18 @@ start_grpc_client_channel(
                     }}
                 )
         end,
-    case emqx_utils_maps:deep_get([ssl_options, enable], Options, false) of
+    SSLOpts = emqx_utils_maps:deep_get([ssl_options], Options, #{}),
+    case maps:get(enable, SSLOpts, false) of
         false ->
             SvrAddr = compose_http_uri(http, Host, Port),
             grpc_client_sup:create_channel_pool(GwName, SvrAddr, #{});
         true ->
-            Opts1 = maps:get(ssl, Options, #{}),
-            SslOpts = [{nodelay, true} | emqx_tls_lib:to_client_opts(Opts1)],
+            SSLOpts1 = [{nodelay, true} | emqx_tls_lib:to_client_opts(SSLOpts)],
             ClientOpts = #{
                 gun_opts =>
                     #{
                         transport => ssl,
-                        transport_opts => SslOpts
+                        transport_opts => SSLOpts1
                     }
             },
             SvrAddr = compose_http_uri(https, Host, Port),
