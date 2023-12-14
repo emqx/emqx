@@ -224,8 +224,9 @@ t_max_size(_Config) ->
         fun(_) ->
             ok = emqx_ctl:run_command(["conf", "show", "log"])
         end,
-        lists:duplicate(100, 1)
+        lists:duplicate(110, 1)
     ),
+    _ = mnesia:dump_log(),
     LogCount = wait_for_dirty_write_log_done(1500),
     Size1 = SizeFun(),
     ?assert(Size1 - InitSize >= 100, #{
