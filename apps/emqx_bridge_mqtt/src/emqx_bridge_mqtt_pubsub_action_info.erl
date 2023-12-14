@@ -1,5 +1,17 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2022-2023 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2020-2023 EMQ Technologies Co., Ltd. All Rights Reserved.
+%%
+%% Licensed under the Apache License, Version 2.0 (the "License");
+%% you may not use this file except in compliance with the License.
+%% You may obtain a copy of the License at
+%%
+%%     http://www.apache.org/licenses/LICENSE-2.0
+%%
+%% Unless required by applicable law or agreed to in writing, software
+%% distributed under the License is distributed on an "AS IS" BASIS,
+%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+%% See the License for the specific language governing permissions and
+%% limitations under the License.
 %%--------------------------------------------------------------------
 
 -module(emqx_bridge_mqtt_pubsub_action_info).
@@ -50,7 +62,7 @@ make_connector_config_from_bridge_v1_config(Config) ->
     ConnectorConfigMap2 = maps:put(<<"resource_opts">>, ResourceOptsMap2, ConnectorConfigMap),
     IngressMap0 = maps:get(<<"ingress">>, Config, #{}),
     EgressMap = maps:get(<<"egress">>, Config, #{}),
-    % %% Move pool_size to the top level
+    %% Move pool_size to the top level
     PoolSizeIngress = maps:get(<<"pool_size">>, IngressMap0, undefined),
     PoolSize =
         case PoolSizeIngress of
@@ -60,19 +72,11 @@ make_connector_config_from_bridge_v1_config(Config) ->
             _ ->
                 PoolSizeIngress
         end,
-    % IngressMap1 = maps:remove(<<"pool_size">>, IngressMap0),
     %% Remove ingress part from the config
     ConnectorConfigMap3 = maps:remove(<<"ingress">>, ConnectorConfigMap2),
     %% Remove egress part from the config
     ConnectorConfigMap4 = maps:remove(<<"egress">>, ConnectorConfigMap3),
     ConnectorConfigMap5 = maps:put(<<"pool_size">>, PoolSize, ConnectorConfigMap4),
-    % ConnectorConfigMap4 =
-    %     case IngressMap1 =:= #{} of
-    %         true ->
-    %             ConnectorConfigMap3;
-    %         false ->
-    %             maps:put(<<"ingress">>, [IngressMap1], ConnectorConfigMap3)
-    %     end,
     ConnectorConfigMap5.
 
 bridge_v1_config_to_action_config(BridgeV1Config, ConnectorName) ->
