@@ -62,7 +62,10 @@ t_run_check(_) ->
                 error(version_mismatch)
             end,
         BpapiDumps = filelib:wildcard(
-            filename:join(emqx_bpapi_static_checks:dumps_dir(), "*.bpapi")
+            filename:join(
+                emqx_bpapi_static_checks:dumps_dir(),
+                "*" ++ emqx_bpapi_static_checks:dump_file_extension()
+            )
         ),
         logger:info("Backplane API dump files: ~p", [BpapiDumps]),
         ?assert(emqx_bpapi_static_checks:check_compat(BpapiDumps))
