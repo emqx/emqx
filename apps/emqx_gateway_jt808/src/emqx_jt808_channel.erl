@@ -255,21 +255,27 @@ do_handle_in(Frame = ?MSG(?MC_REGISTER), Channel0) ->
                 end,
             handle_out({?MS_REGISTER_ACK, ResCode}, MsgSn, Channel0)
     end;
-do_handle_in(Frame = ?MSG(?MC_AUTH), Channel) ->
+do_handle_in(Frame = ?MSG(?MC_AUTH), Channel0) ->
+    #{<<"header">> := #{<<"msg_sn">> := MsgSn}} = Frame,
     case
         emqx_utils:pipeline(
             [
                 fun enrich_clientinfo/2,
                 fun enrich_conninfo/2,
-                fun set_log_meta/2,
-                fun auth_connect/2
+                fun set_log_meta/2
             ],
             Frame,
-            Channel
+            Channel0
         )
     of
-        {ok, _NFrame, NChannel} ->
-            _ = process_connect(Frame, ensure_connected(NChannel))
+        {ok, _NFrame, Channel} ->
+            case authenticate(Frame, Channel) of
+                true ->
+                    NChannel = process_connect(Frame, ensure_connected(Channel)),
+                    authack({0, MsgSn, NChannel});
+                false ->
+                    authack({1, MsgSn, Channel})
+            end
     end;
 do_handle_in(Frame = ?MSG(?MC_HEARTBEAT), Channel) ->
     handle_out({?MS_GENERAL_RESPONSE, 0, ?MC_HEARTBEAT}, msgsn(Frame), Channel);
@@ -630,7 +636,7 @@ maybe_fix_mountpoint(ClientInfo = #{mountpoint := Mountpoint}) ->
     ClientInfo#{mountpoint := Mountpoint1}.
 
 process_connect(
-    _Frame = #{<<"header">> := #{<<"msg_sn">> := MsgSn}},
+    _Frame,
     Channel = #channel{
         ctx = Ctx,
         conninfo = ConnInfo,
@@ -656,7 +662,7 @@ process_connect(
             _ = emqx_gateway_ctx:insert_channel_info(
                 Ctx, ClientId, info(NChannel), stats(NChannel)
             ),
-            authack({0, MsgSn, NChannel});
+            NChannel;
         {error, Reason} ->
             log(
                 error,
@@ -852,9 +858,6 @@ is_driver_id_req_exist(#channel{inflight = Inflight}) ->
     % if there is a MS_REQ_DRIVER_ID (0x8702) command in re-tx queue
     Key = get_msg_ack(?MC_DRIVER_ID_REPORT, none),
     emqx_inflight:contain(Key, Inflight).
-
-auth_connect(Frame, Channel) ->
-    {ok, Channel#channel{auth = authenticate(Frame, Channel)}}.
 
 authenticate(_AuthFrame, #channel{authcode = anonymous}) ->
     true;
