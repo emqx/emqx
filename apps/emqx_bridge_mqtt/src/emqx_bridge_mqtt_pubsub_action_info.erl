@@ -171,8 +171,11 @@ check_and_simplify_bridge_v1_config(#{
 }) ->
     %% We should crash beacuse we don't support upgrading when ingress and egress exist at the same time
     error(
-        {unsupported_config,
-            <<"Upgrade not supported when ingress and egress exist in the same MQTT bridge. Please divide the egress and ingress part to separate bridges in the configuration.">>}
+        {unsupported_config, <<
+            "Upgrade not supported when ingress and egress exist in the "
+            "same MQTT bridge. Please divide the egress and ingress part "
+            "to separate bridges in the configuration."
+        >>}
     );
 check_and_simplify_bridge_v1_config(SimplifiedConfig) ->
     SimplifiedConfig.
