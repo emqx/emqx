@@ -968,7 +968,8 @@ t_rule_pointing_to_non_operational_channel(_Config) ->
                         counters :=
                             #{
                                 matched := 1,
-                                'actions.failed' := 1
+                                'actions.failed' := 1,
+                                'actions.failed.unknown' := 1
                             }
                     },
                     emqx_metrics_worker:get_metrics(rule_metrics, RuleId)
