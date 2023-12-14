@@ -264,11 +264,11 @@ do_make_iterator_v1(DB, Shard, Stream, TopicFilter, StartTime) ->
 
 -spec do_update_iterator_v2(
     emqx_ds:db(),
-    emqx_ds_storage_layer:shard_id(),
+    emqx_ds_replication_layer:shard_id(),
     emqx_ds_storage_layer:iterator(),
     emqx_ds:message_key()
 ) ->
-    {ok, emqx_ds_storage_layer:iterator()} | {error, _}.
+    emqx_ds:make_iterator_result(emqx_ds_storage_layer:iterator()).
 do_update_iterator_v2(DB, Shard, OldIter, DSKey) ->
     emqx_ds_storage_layer:update_iterator(
         {DB, Shard}, OldIter, DSKey
