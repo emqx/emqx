@@ -220,7 +220,7 @@ error_desc('SERVICE_UNAVAILABLE') ->
 roots() ->
     [].
 
--spec fields(hocon_schema:name()) -> [hoconsc:field()].
+-spec fields(hocon_schema:name()) -> [hocon_schema:field()].
 fields(client_id) ->
     [
         {clientid,

@@ -108,6 +108,7 @@ clientinfo() ->
         {zone, zone()},
         {protocol, protocol()},
         {peerhost, ip()},
+        {peerport, port()},
         {sockport, port()},
         {clientid, clientid()},
         {username, username()},

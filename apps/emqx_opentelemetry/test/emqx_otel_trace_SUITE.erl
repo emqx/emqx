@@ -29,7 +29,7 @@
 %% How to run it locally:
 %%  1. Uncomment networks in .ci/docker-compose-file/docker-compose-otel.yaml,
 %%     Uncomment OTLP gRPC ports mappings for otel-collector and otel-collector-tls services.
-%%     Uncomment jaeger-all-in-one prots maooing.
+%%     Uncomment jaeger-all-in-one ports mapping.
 %%  2. Start deps services:
 %%     DOCKER_USER="$(id -u)" docker-compose -f .ci/docker-compose-file/docker-compose-otel.yaml up
 %%  3. Run tests with special env variables:

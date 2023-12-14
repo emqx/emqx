@@ -48,7 +48,15 @@ fields("get") ->
 %%--- v1 bridges config file
 %% see: emqx_bridge_schema:fields(bridges)
 fields("config") ->
-    basic_config() ++ request_config();
+    basic_config() ++
+        request_config() ++
+        emqx_connector_schema:resource_opts_ref(?MODULE, "v1_resource_opts");
+fields("v1_resource_opts") ->
+    UnsupportedOpts = [enable_batch, batch_size, batch_time],
+    lists:filter(
+        fun({K, _V}) -> not lists:member(K, UnsupportedOpts) end,
+        emqx_resource_schema:fields("creation_opts")
+    );
 %%--------------------------------------------------------------------
 %% v2: configuration
 fields(action) ->
@@ -89,7 +97,13 @@ fields("http_action") ->
                 required => true,
                 desc => ?DESC("config_parameters_opts")
             })}
-    ] ++ http_resource_opts();
+    ] ++ emqx_connector_schema:resource_opts_ref(?MODULE, action_resource_opts);
+fields(action_resource_opts) ->
+    UnsupportedOpts = [batch_size, batch_time],
+    lists:filter(
+        fun({K, _V}) -> not lists:member(K, UnsupportedOpts) end,
+        emqx_bridge_v2_schema:resource_opts_fields()
+    );
 fields("parameters_opts") ->
     [
         {path,
@@ -129,20 +143,20 @@ fields("config_connector") ->
                 }
             )},
         {description, emqx_schema:description_schema()}
-    ] ++ connector_url_headers() ++ connector_opts();
-%%--------------------------------------------------------------------
-%% v1/v2
-fields("resource_opts") ->
-    UnsupportedOpts = [enable_batch, batch_size, batch_time],
-    lists:filter(
-        fun({K, _V}) -> not lists:member(K, UnsupportedOpts) end,
-        emqx_resource_schema:fields("creation_opts")
-    ).
+    ] ++ connector_url_headers() ++
+        connector_opts() ++
+        emqx_connector_schema:resource_opts_ref(?MODULE, connector_resource_opts);
+fields(connector_resource_opts) ->
+    emqx_connector_schema:resource_opts_fields().
 
 desc("config") ->
     ?DESC("desc_config");
-desc("resource_opts") ->
+desc("v1_resource_opts") ->
     ?DESC(emqx_resource_schema, "creation_opts");
+desc(connector_resource_opts) ->
+    ?DESC(emqx_resource_schema, "resource_opts");
+desc(action_resource_opts) ->
+    ?DESC(emqx_resource_schema, "resource_opts");
 desc(Method) when Method =:= "get"; Method =:= "put"; Method =:= "post" ->
     ["Configuration for WebHook using `", string:to_upper(Method), "` method."];
 desc("config_connector") ->
@@ -304,23 +318,10 @@ request_timeout_field() ->
             }
         )}.
 
-http_resource_opts() ->
-    [
-        {resource_opts,
-            mk(
-                ref(?MODULE, "resource_opts"),
-                #{
-                    required => false,
-                    default => #{},
-                    desc => ?DESC(emqx_resource_schema, <<"resource_opts">>)
-                }
-            )}
-    ].
-
 connector_opts() ->
     mark_request_field_deperecated(
         proplists:delete(max_retries, emqx_bridge_http_connector:fields(config))
-    ) ++ http_resource_opts().
+    ).
 
 mark_request_field_deperecated(Fields) ->
     lists:map(

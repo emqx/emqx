@@ -104,8 +104,7 @@ connect(Pid, Name) ->
 config(#{remote := RC = #{}} = Conf) ->
     Conf#{remote => emqx_bridge_mqtt_msg:parse(RC)}.
 
--spec send(pid(), message(), egress()) ->
-    ok.
+-spec send(pid(), message(), egress()) -> ok.
 send(Pid, MsgIn, Egress) ->
     emqtt:publish(Pid, export_msg(MsgIn, Egress)).
 

@@ -19,7 +19,7 @@
 -behaviour(hocon_schema).
 
 %% API
--export([paths/0, api_spec/0, schema/1, fields/1]).
+-export([paths/0, api_spec/0, schema/1, namespace/0, fields/1]).
 -export([init_per_suite/1, end_per_suite/1]).
 -export([t_in_path/1, t_in_query/1, t_in_mix/1, t_without_in/1, t_ref/1, t_public_ref/1]).
 -export([t_require/1, t_query_enum/1, t_nullable/1, t_method/1, t_api_spec/1]).
@@ -561,6 +561,8 @@ schema("/method/ok") ->
     );
 schema("/method/error") ->
     #{operationId => test, bar => #{200 => <<"ok">>}}.
+
+namespace() -> undefined.
 
 fields(page) ->
     [

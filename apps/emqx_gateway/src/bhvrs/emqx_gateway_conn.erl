@@ -73,7 +73,7 @@
     %% Parse State
     parse_state :: emqx_gateway_frame:parse_state(),
     %% Serialize options
-    serialize :: emqx_gateway_frame:serialize_opts(),
+    serialize :: emqx_gateway_frame:serialize_options(),
     %% Channel State
     channel :: emqx_gateway_channel:channel(),
     %% GC State

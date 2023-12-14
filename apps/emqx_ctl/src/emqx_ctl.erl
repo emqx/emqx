@@ -336,30 +336,42 @@ audit_log(Level, From, Log) ->
         {error, _} ->
             ignore;
         {ok, {Mod, Fun}} ->
-            try
-                apply(Mod, Fun, [Level, From, normalize_audit_log_args(Log)])
-            catch
-                _:{aborted, {no_exists, emqx_audit}} ->
-                    case Log of
-                        #{cmd := cluster, args := ["leave"]} ->
-                            ok;
-                        _ ->
-                            ?LOG_ERROR(#{
-                                msg => "ctl_command_crashed",
-                                reason => "emqx_audit table not found",
-                                log => normalize_audit_log_args(Log),
-                                from => From
-                            })
-                    end;
-                _:Reason:Stacktrace ->
+            case prune_unnecessary_log(Log) of
+                false -> ok;
+                {ok, Log1} -> apply_audit_command(Log1, Mod, Fun, Level, From)
+            end
+    end.
+
+apply_audit_command(Log, Mod, Fun, Level, From) ->
+    try
+        apply(Mod, Fun, [Level, From, Log])
+    catch
+        _:{aborted, {no_exists, emqx_audit}} ->
+            case Log of
+                #{cmd := cluster, args := [<<"leave">>]} ->
+                    ok;
+                _ ->
                     ?LOG_ERROR(#{
                         msg => "ctl_command_crashed",
-                        stacktrace => Stacktrace,
-                        reason => Reason,
-                        log => normalize_audit_log_args(Log),
+                        reason => "emqx_audit table not found",
+                        log => Log,
                         from => From
                     })
-            end
+            end;
+        _:Reason:Stacktrace ->
+            ?LOG_ERROR(#{
+                msg => "ctl_command_crashed",
+                stacktrace => Stacktrace,
+                reason => Reason,
+                log => Log,
+                from => From
+            })
+    end.
+
+prune_unnecessary_log(Log) ->
+    case normalize_audit_log_args(Log) of
+        #{args := [<<"emqx:is_running()">>]} -> false;
+        Log1 -> {ok, Log1}
     end.
 
 audit_level(ok, _Duration) -> info;

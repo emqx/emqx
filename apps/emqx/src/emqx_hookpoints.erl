@@ -125,12 +125,12 @@ when
 -callback 'client.subscribe'(emqx_types:clientinfo(), emqx_types:properties(), TopicFilters) ->
     fold_callback_result(TopicFilters)
 when
-    TopicFilters :: list({emqx_topic:topic(), map()}).
+    TopicFilters :: list({emqx_types:topic(), map()}).
 
 -callback 'client.unsubscribe'(emqx_types:clientinfo(), emqx_types:properties(), TopicFilters) ->
     fold_callback_result(TopicFilters)
 when
-    TopicFilters :: list({emqx_topic:topic(), map()}).
+    TopicFilters :: list({emqx_types:topic(), map()}).
 
 -callback 'client.timeout'(_TimerReference :: reference(), _Msg :: term(), Replies) ->
     fold_callback_result(Replies)

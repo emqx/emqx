@@ -64,8 +64,7 @@ fields(action_parameters) ->
                 binary(),
                 #{desc => ?DESC("sql_template"), default => default_sql(), format => <<"sql">>}
             )}
-    ] ++
-        emqx_connector_schema_lib:prepare_statement_fields();
+    ];
 fields(pgsql_action) ->
     emqx_bridge_v2_schema:make_producer_action_schema(
         hoconsc:mk(

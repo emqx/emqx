@@ -181,12 +181,12 @@ fields(hasnext) ->
 fields(meta) ->
     fields(page) ++ fields(limit) ++ fields(count) ++ fields(hasnext).
 
--spec schema_with_example(hocon_schema:type(), term()) -> hocon_schema:field_schema_map().
+-spec schema_with_example(hocon_schema:type(), term()) -> hocon_schema:field_schema().
 schema_with_example(Type, Example) ->
     hoconsc:mk(Type, #{examples => #{<<"example">> => Example}}).
 
 -spec schema_with_examples(hocon_schema:type(), map() | list(tuple())) ->
-    hocon_schema:field_schema_map().
+    hocon_schema:field_schema().
 schema_with_examples(Type, Examples) ->
     hoconsc:mk(Type, #{examples => #{<<"examples">> => Examples}}).
 

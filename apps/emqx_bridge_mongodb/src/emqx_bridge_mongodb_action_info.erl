@@ -10,7 +10,6 @@
 -export([
     bridge_v1_config_to_action_config/2,
     bridge_v1_config_to_connector_config/1,
-    connector_action_config_to_bridge_v1_config/2,
     action_type_name/0,
     bridge_v1_type_name/0,
     connector_type_name/0,
@@ -25,20 +24,6 @@
 -import(emqx_utils_conv, [bin/1]).
 
 -define(SCHEMA_MODULE, emqx_bridge_mongodb).
-
-connector_action_config_to_bridge_v1_config(ConnectorConfig, ActionConfig) ->
-    fix_v1_type(
-        maps:merge(
-            maps:without(
-                [<<"connector">>],
-                map_unindent(<<"parameters">>, ActionConfig)
-            ),
-            map_unindent(<<"parameters">>, ConnectorConfig)
-        )
-    ).
-
-fix_v1_type(#{<<"mongo_type">> := MongoType} = Conf) ->
-    Conf#{<<"type">> => v1_type(MongoType)}.
 
 bridge_v1_config_to_action_config(BridgeV1Config, ConnectorName) ->
     ActionTopLevelKeys = schema_keys(mongodb_action),
@@ -66,7 +51,7 @@ bridge_v1_config_to_connector_config(BridgeV1Config) ->
 
 make_config_map(PickKeys, IndentKeys, Config) ->
     Conf0 = maps:with(PickKeys, Config),
-    map_indent(<<"parameters">>, IndentKeys, Conf0).
+    emqx_utils_maps:indent(<<"parameters">>, IndentKeys, Conf0).
 
 bridge_v1_type_name() ->
     {fun ?MODULE:bridge_v1_type_name_fun/1, bridge_v1_type_names()}.
@@ -85,19 +70,6 @@ bridge_v1_type_name_fun({#{<<"parameters">> := #{<<"mongo_type">> := MongoType}}
 v1_type(<<"rs">>) -> mongodb_rs;
 v1_type(<<"sharded">>) -> mongodb_sharded;
 v1_type(<<"single">>) -> mongodb_single.
-
-map_unindent(Key, Map) ->
-    maps:merge(
-        maps:get(Key, Map),
-        maps:remove(Key, Map)
-    ).
-
-map_indent(IndentKey, PickKeys, Map) ->
-    maps:put(
-        IndentKey,
-        maps:with(PickKeys, Map),
-        maps:without(PickKeys, Map)
-    ).
 
 schema_keys(Name) ->
     [bin(Key) || Key <- proplists:get_keys(?SCHEMA_MODULE:fields(Name))].

@@ -164,7 +164,6 @@ t_old_conf_disabled_exporter(_Config) ->
     ?assertNot(erlang:is_map_key(interval, maps:get(exporter, OtelConf))).
 
 t_old_conf_exporter(_Config) ->
-    io:format(user, "TC running: ~p~n", [?FUNCTION_NAME]),
     OtelConf = emqx:get_config([opentelemetry]),
     ?assertMatch(
         #{

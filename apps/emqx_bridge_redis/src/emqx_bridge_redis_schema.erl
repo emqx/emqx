@@ -51,8 +51,10 @@ fields("config_connector") ->
                 )}
         ] ++
         emqx_redis:redis_fields() ++
-        emqx_connector_schema:resource_opts_ref(?MODULE, resource_opts) ++
+        emqx_connector_schema:resource_opts_ref(?MODULE, connector_resource_opts) ++
         emqx_connector_schema_lib:ssl_fields();
+fields(connector_resource_opts) ->
+    emqx_connector_schema:resource_opts_fields();
 fields(action) ->
     {?TYPE,
         ?HOCON(
@@ -74,15 +76,7 @@ fields(redis_action) ->
                 }
             )
         ),
-    ResOpts =
-        {resource_opts,
-            ?HOCON(
-                ?R_REF(resource_opts),
-                #{
-                    required => true,
-                    desc => ?DESC(emqx_resource_schema, resource_opts)
-                }
-            )},
+    [ResOpts] = emqx_connector_schema:resource_opts_ref(?MODULE, action_resource_opts),
     RedisType =
         {redis_type,
             ?HOCON(
@@ -90,8 +84,8 @@ fields(redis_action) ->
                 #{required => true, desc => ?DESC(redis_type)}
             )},
     [RedisType | lists:keyreplace(resource_opts, 1, Schema, ResOpts)];
-fields(resource_opts) ->
-    emqx_resource_schema:create_opts([
+fields(action_resource_opts) ->
+    emqx_bridge_v2_schema:resource_opts_fields([
         {batch_size, #{desc => ?DESC(batch_size)}},
         {batch_time, #{desc => ?DESC(batch_time)}}
     ]);
@@ -124,6 +118,10 @@ desc(redis_action) ->
     ?DESC(redis_action);
 desc(resource_opts) ->
     ?DESC(emqx_resource_schema, resource_opts);
+desc(connector_resource_opts) ->
+    ?DESC(emqx_resource_schema, "resource_opts");
+desc(action_resource_opts) ->
+    ?DESC(emqx_resource_schema, "resource_opts");
 desc(_Name) ->
     undefined.
 
@@ -248,20 +246,19 @@ connector_example(RedisType, post) ->
     maps:merge(
         connector_example(RedisType, put),
         #{
-            type => <<"redis_single_producer">>,
+            type => <<"redis">>,
             name => <<"my_connector">>
         }
     );
 connector_example(RedisType, put) ->
     #{
         enable => true,
-        desc => <<"My redis ", (atom_to_binary(RedisType))/binary, " connector">>,
+        description => <<"My redis ", (atom_to_binary(RedisType))/binary, " connector">>,
         parameters => connector_parameter(RedisType),
         pool_size => 8,
         database => 1,
         username => <<"test">>,
         password => <<"******">>,
-        auto_reconnect => true,
         ssl => #{enable => false}
     }.
 

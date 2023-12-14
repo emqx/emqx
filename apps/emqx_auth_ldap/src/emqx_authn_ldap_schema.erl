@@ -55,7 +55,7 @@ fields(ldap) ->
         [
             {method,
                 ?HOCON(
-                    hoconsc:union([?R_REF(hash_method), ?R_REF(bind_method)]),
+                    hoconsc:union(fun method_union_member_selector/1),
                     #{desc => ?DESC(method)}
                 )}
         ];
@@ -87,6 +87,26 @@ desc(bind_method) ->
     ?DESC(bind_method);
 desc(_) ->
     undefined.
+
+method_union_member_selector(all_union_members) ->
+    [?R_REF(hash_method), ?R_REF(bind_method)];
+method_union_member_selector({value, Val}) ->
+    Val2 =
+        case is_map(Val) of
+            true -> emqx_utils_maps:binary_key_map(Val);
+            false -> Val
+        end,
+    case Val2 of
+        #{<<"type">> := <<"bind">>} ->
+            [?R_REF(bind_method)];
+        #{<<"type">> := <<"hash">>} ->
+            [?R_REF(hash_method)];
+        _ ->
+            throw(#{
+                field_name => method,
+                expected => [bind_method, hash_method]
+            })
+    end.
 
 method_type(Type) ->
     ?HOCON(?ENUM([Type]), #{desc => ?DESC(?FUNCTION_NAME), default => Type}).

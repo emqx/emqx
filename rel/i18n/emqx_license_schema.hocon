@@ -42,11 +42,11 @@ key_field.label:
 license_root.desc:
 """Defines the EMQX Enterprise license.
 
+EMQX Enterprise is initially provided with a default trial license.
+This license, issued in December 2023, is valid for a period of 5 years.
+It supports up to 25 concurrent connections, catering to early-stage development and testing needs.
 
-The default license has 100 connections limit, it is issued on 2023-01-09 and valid for 5 years (1825 days).
-
-EMQX comes with a default trial license.  For production use, please
-visit https://www.emqx.com/apply-licenses/emqx to apply."""
+For deploying EMQX Enterprise in a production environment, a different license is required. You can apply for a production license by visiting https://www.emqx.com/apply-licenses/emqx?version=5"""
 
 license_root.label:
 """License"""

@@ -31,7 +31,8 @@
     get_response/0,
     put_request/0,
     post_request/0,
-    examples/1
+    examples/1,
+    action_values/4
 ]).
 
 %% Exported for mocking
@@ -47,7 +48,8 @@
 -export([
     make_producer_action_schema/1,
     make_consumer_action_schema/1,
-    top_level_common_action_keys/0
+    top_level_common_action_keys/0,
+    project_to_actions_resource_opts/1
 ]).
 
 -export_type([action_type/0]).
@@ -103,6 +105,54 @@ bridge_api_union(Refs) ->
             end
     end.
 
+-type http_method() :: get | post | put.
+-type schema_example_map() :: #{atom() => term()}.
+
+-spec action_values(http_method(), atom(), atom(), schema_example_map()) -> schema_example_map().
+action_values(Method, ActionType, ConnectorType, ActionValues) ->
+    ActionTypeBin = atom_to_binary(ActionType),
+    ConnectorTypeBin = atom_to_binary(ConnectorType),
+    lists:foldl(
+        fun(M1, M2) ->
+            maps:merge(M1, M2)
+        end,
+        #{
+            enable => true,
+            description => <<"My example ", ActionTypeBin/binary, " action">>,
+            connector => <<ConnectorTypeBin/binary, "_connector">>,
+            resource_opts => #{
+                health_check_interval => "30s"
+            }
+        },
+        [
+            ActionValues,
+            method_values(Method, ActionType)
+        ]
+    ).
+
+-spec method_values(http_method(), atom()) -> schema_example_map().
+method_values(post, Type) ->
+    TypeBin = atom_to_binary(Type),
+    #{
+        name => <<TypeBin/binary, "_action">>,
+        type => TypeBin
+    };
+method_values(get, Type) ->
+    maps:merge(
+        method_values(post, Type),
+        #{
+            status => <<"connected">>,
+            node_status => [
+                #{
+                    node => <<"emqx@localhost">>,
+                    status => <<"connected">>
+                }
+            ]
+        }
+    );
+method_values(put, _Type) ->
+    #{}.
+
 %%======================================================================================
 %% HOCON Schema Callbacks
 %%======================================================================================
@@ -128,7 +178,7 @@ roots() ->
 fields(actions) ->
     registered_schema_fields();
 fields(resource_opts) ->
-    emqx_resource_schema:create_opts(_Overrides = []).
+    resource_opts_fields(_Overrides = []).
 
 registered_schema_fields() ->
     [
@@ -154,8 +204,8 @@ types_sc() ->
 resource_opts_fields() ->
     resource_opts_fields(_Overrides = []).
 
-resource_opts_fields(Overrides) ->
-    ActionROFields = [
+common_resource_opts_subfields() ->
+    [
         batch_size,
         batch_time,
         buffer_mode,
@@ -167,10 +217,14 @@ resource_opts_fields(Overrides) ->
         query_mode,
         request_ttl,
         resume_interval,
-        start_after_created,
-        start_timeout,
         worker_pool_size
-    ],
+    ].
+
+common_resource_opts_subfields_bin() ->
+    lists:map(fun atom_to_binary/1, common_resource_opts_subfields()).
+
+resource_opts_fields(Overrides) ->
+    ActionROFields = common_resource_opts_subfields(),
     lists:filter(
         fun({Key, _Sc}) -> lists:member(Key, ActionROFields) end,
         emqx_resource_schema:create_opts(Overrides)
@@ -224,6 +278,10 @@ make_consumer_action_schema(ActionParametersRef) ->
                 desc => ?DESC(emqx_resource_schema, "resource_opts")
             })}
     ].
+
+project_to_actions_resource_opts(OldResourceOpts) ->
+    Subfields = common_resource_opts_subfields_bin(),
+    maps:with(Subfields, OldResourceOpts).
 
 -ifdef(TEST).
 -include_lib("hocon/include/hocon_types.hrl").

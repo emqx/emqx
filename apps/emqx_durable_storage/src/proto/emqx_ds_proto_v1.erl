@@ -34,8 +34,7 @@
 %% API funcions
 %%================================================================================
 
--spec drop_db([node()], emqx_ds:db()) ->
-    [{ok, ok} | erpc:caught_call_exception()].
+-spec drop_db([node()], emqx_ds:db()) -> [emqx_rpc:erpc(ok)].
 drop_db(Node, DB) ->
     erpc:multicall(Node, emqx_ds_replication_layer, do_drop_db_v1, [DB]).
 

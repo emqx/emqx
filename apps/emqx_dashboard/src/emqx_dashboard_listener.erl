@@ -24,6 +24,7 @@
 -export([add_handler/0, remove_handler/0]).
 -export([pre_config_update/3, post_config_update/5]).
 -export([regenerate_minirest_dispatch/0]).
+-export([delay_job/1]).
 
 -behaviour(gen_server).
 
@@ -68,7 +69,7 @@ handle_call(_Request, _From, State) ->
 handle_cast(_Request, State) ->
     {noreply, State, hibernate}.
 
-handle_info(i18n_lang_changed, _State) ->
+handle_info(regenerate, _State) ->
     NewState = regenerate_minirest_dispatch(),
     {noreply, NewState, hibernate};
 handle_info({update_listeners, OldListeners, NewListeners}, _State) ->
@@ -146,7 +147,7 @@ remove_sensitive_data(Conf0) ->
     end.
 
 post_config_update(_, {change_i18n_lang, _}, _NewConf, _OldConf, _AppEnvs) ->
-    delay_job(i18n_lang_changed);
+    delay_job(regenerate);
 post_config_update(_, _Req, NewConf, OldConf, _AppEnvs) ->
     OldHttp = get_listener(http, OldConf),
     OldHttps = get_listener(https, OldConf),

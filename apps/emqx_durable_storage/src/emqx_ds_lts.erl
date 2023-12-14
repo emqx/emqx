@@ -24,7 +24,12 @@
 %% Debug:
 -export([trie_next/3, trie_insert/3, dump_to_dot/2]).
 
--export_type([options/0, static_key/0, trie/0]).
+-export_type([
+    options/0,
+    static_key/0,
+    trie/0,
+    msg_storage_key/0
+]).
 
 -include_lib("stdlib/include/ms_transform.hrl").
 

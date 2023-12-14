@@ -39,6 +39,10 @@
     shutdown => Timeout
 }).
 
+%% TODO: export_type:
+%% grpc_client_sup:options/0
+-type grpc_client_sup_options() :: map().
+
 %%--------------------------------------------------------------------
 %%  Supervisor APIs & Callbacks
 %%--------------------------------------------------------------------
@@ -59,7 +63,7 @@ init([]) ->
 -spec start_grpc_client_channel(
     binary(),
     uri_string:uri_string(),
-    grpc_client_sup:options()
+    grpc_client_sup_options()
 ) -> {ok, pid()} | {error, term()}.
 start_grpc_client_channel(Name, SvrAddr, Options) ->
     grpc_client_sup:create_channel_pool(Name, SvrAddr, Options).

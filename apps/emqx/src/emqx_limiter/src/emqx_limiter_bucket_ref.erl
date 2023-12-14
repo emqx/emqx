@@ -51,7 +51,7 @@
 %%--------------------------------------------------------------------
 %%  API
 %%--------------------------------------------------------------------
--spec new(counters:countres_ref(), index(), rate()) -> bucket_ref().
+-spec new(counters:counters_ref(), index(), rate()) -> bucket_ref().
 new(Counter, Index, Rate) ->
     #{
         counter => Counter,

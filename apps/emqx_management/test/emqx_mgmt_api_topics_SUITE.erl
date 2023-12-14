@@ -155,3 +155,20 @@ t_shared_topics(_Configs) ->
     ),
 
     ok = emqtt:stop(Client).
+
+t_shared_topics_invalid(_Config) ->
+    %% no real topic
+    InvalidShareTopicFilter = <<"$share/group">>,
+    Path = emqx_mgmt_api_test_util:api_path(["topics"]),
+    QS = uri_string:compose_query([
+        {"topic", InvalidShareTopicFilter},
+        {"node", atom_to_list(node())}
+    ]),
+    Headers = emqx_mgmt_api_test_util:auth_header_(),
+    {error, {{_, 400, _}, _RespHeaders, Body}} = emqx_mgmt_api_test_util:request_api(
+        get, Path, QS, Headers, [], #{return_all => true}
+    ),
+    ?assertMatch(
+        #{<<"code">> := <<"INVALID_PARAMTER">>, <<"message">> := <<"topic_filter_invalid">>},
+        emqx_utils_json:decode(Body, [return_maps])
+    ).

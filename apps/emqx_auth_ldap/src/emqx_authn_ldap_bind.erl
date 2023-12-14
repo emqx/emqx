@@ -52,7 +52,7 @@ authenticate(
                 {ok, #{result := ok}} ->
                     {ok, #{is_superuser => false}};
                 {ok, #{result := 'invalidCredentials'}} ->
-                    ?TRACE_AUTHN_PROVIDER(error, "ldap_bind_failed", #{
+                    ?TRACE_AUTHN_PROVIDER(info, "ldap_bind_failed", #{
                         resource => ResourceId,
                         reason => 'invalidCredentials'
                     }),

@@ -213,7 +213,7 @@ caps(#channel{clientinfo = #{zone := Zone}}) ->
 -spec init(emqx_types:conninfo(), opts()) -> channel().
 init(
     ConnInfo = #{
-        peername := {PeerHost, _Port},
+        peername := {PeerHost, PeerPort},
         sockname := {_Host, SockPort}
     },
     #{
@@ -237,6 +237,7 @@ init(
             listener => ListenerId,
             protocol => Protocol,
             peerhost => PeerHost,
+            peerport => PeerPort,
             sockport => SockPort,
             clientid => undefined,
             username => undefined,

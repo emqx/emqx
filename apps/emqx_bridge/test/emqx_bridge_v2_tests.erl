@@ -69,7 +69,6 @@ connector_resource_opts_test() ->
     %% These are used by `emqx_resource_manager' itself to manage the resource lifecycle.
     MinimumROFields = [
         health_check_interval,
-        query_mode,
         start_after_created,
         start_timeout
     ],

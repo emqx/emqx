@@ -148,6 +148,9 @@ message ClientAuthorizeRequest {
 
   AuthorizeReqType type = 2;
 
+  // In ClientAuthorizeRequest.
+  // Only "real-topic" will be serialized in gRPC request when shared-sub.
+  // For example, when client subscribes to `$share/group/t/1`, the real topic is `t/1`.
   string topic = 3;
 
   bool result = 4;
@@ -368,6 +371,8 @@ message ConnInfo {
   string proto_ver = 7;
 
   uint32 keepalive = 8;
+
+  uint32 peerport = 9;
 }
 
 message ClientInfo {
@@ -397,6 +402,8 @@ message ClientInfo {
 
   // subject of client TLS cert
   string dn = 12;
+
+  uint32 peerport = 13;
 }
 
 message Message {
@@ -452,7 +459,14 @@ message TopicFilter {
 
   string name = 1;
 
-  uint32 qos = 2;
+  // Deprecated
+  // Since EMQX 5.4.0, we have deprecated the 'qos' field in the `TopicFilter` structure.
+  // A new field named 'subopts,' has been added to encompass all subscription options.
+  // Please see the `SubOpts` structure for details.
+  reserved 2;
+  reserved "qos";
+
+  SubOpts subopts = 3;
 }
 
 message SubOpts {
@@ -460,11 +474,20 @@ message SubOpts {
   // The QoS level
   uint32 qos = 1;
 
-  // deprecated
+  // Deprecated
   reserved 2;
   reserved "share";
-  // The group name for shared subscription
-  // string share = 2;
+  // Since EMQX 5.4.0, we have deprecated the 'share' field in the `SubOpts` structure.
+  // The group name of shared subscription will be serialized with topic.
+  // hooks:
+  //     "client.subscribe":
+  //         ClientSubscribeRequest.TopicFilter.name = "$share/group/topic/1"
+  //     "client.unsubscribe":
+  //         ClientUnsubscribeRequest.TopicFilter.name = "$share/group/topic/1"
+  //     "session.subscribed":
+  //         SessionSubscribedRequest.topic = "$share/group/topic/1"
+  //     "session.unsubscribed":
+  //         SessionUnsubscribedRequest.topic = "$share/group/topic/1"
 
   // The Retain Handling option (MQTT v5.0)
   //

@@ -56,6 +56,7 @@
 -export_type([filefrag/1]).
 -export_type([filefrag/0]).
 -export_type([transferinfo/0]).
+-export_type([segmentinfo/0]).
 
 -export_type([file_error/0]).
 
@@ -104,7 +105,7 @@
     type := 'local',
     enable := true,
     segments := segments(),
-    exporter := emqx_ft_storage_exporter:exporter()
+    exporter := emqx_ft_storage_exporter:exporter_conf()
 }.
 
 -type file_error() ::
