@@ -16,7 +16,7 @@
 
 -module(emqx_bpapi_static_checks).
 
--export([run/0, dump/1, dump/0, check_compat/1, versions_file/0, dumps_dir/0]).
+-export([run/0, dump/1, dump/0, check_compat/1, versions_file/0, dumps_dir/0, dump_file_extension/0]).
 
 %% Using an undocumented API here :(
 -include_lib("dialyzer/src/dialyzer.hrl").
@@ -90,7 +90,7 @@
 run() ->
     case dump() of
         true ->
-            Dumps = filelib:wildcard(dumps_dir() ++ "/*.bpapi"),
+            Dumps = filelib:wildcard(dumps_dir() ++ "/*" ++ dump_file_extension()),
             case Dumps of
                 [] ->
                     logger:error("No BPAPI dumps are found in ~s, abort", [dumps_dir()]),
@@ -293,7 +293,7 @@ prepare(#{reldir := RelDir, plt := PLT}) ->
     xref:add_release(?XREF, RelDir),
     %% Now to the dialyzer stuff:
     logger:info("Loading PLT...", []),
-    dialyzer_plt:from_file(PLT).
+    load_plt(PLT).
 
 %% erlfmt-ignore
 find_remote_calls(_Opts) ->
@@ -331,7 +331,7 @@ is_bpapi_call({Module, _Function, _Arity}) ->
 
 -spec dump_api(fulldump()) -> ok.
 dump_api(Term = #{api := _, signatures := _, release := Release}) ->
-    Filename = filename:join(dumps_dir(), Release ++ ".bpapi"),
+    Filename = filename:join(dumps_dir(), Release ++ dump_file_extension()),
     ok = filelib:ensure_dir(Filename),
     file:write_file(Filename, io_lib:format("~0p.~n", [Term])).
 
@@ -436,3 +436,18 @@ emqx_app_dir() ->
 
 project_root_dir() ->
     filename:dirname(filename:dirname(emqx_app_dir())).
+
+-if(?OTP_RELEASE >= 26).
+load_plt(File) ->
+    dialyzer_cplt:from_file(File).
+
+dump_file_extension() ->
+    %% OTP26 changes the internal format for the types:
+    ".bpapi2".
+-else.
+load_plt(File) ->
+    dialyzer_plt:from_file(File).
+
+dump_file_extension() ->
+    ".bpapi".
+-endif.
