@@ -599,7 +599,14 @@ toxiproxy_redis_bridge_config() ->
             <<"worker_pool_size">> => <<"1">>,
             <<"batch_size">> => integer_to_binary(?BATCH_SIZE),
             <<"health_check_interval">> => <<"1s">>,
-            <<"start_timeout">> => <<"15s">>
+            <<"max_buffer_bytes">> => <<"256MB">>,
+            <<"buffer_seg_bytes">> => <<"10MB">>,
+            <<"request_ttl">> => <<"45s">>,
+            <<"inflight_window">> => <<"100">>,
+            <<"resume_interval">> => <<"1s">>,
+            <<"metrics_flush_interval">> => <<"1s">>,
+            <<"start_after_created">> => true,
+            <<"start_timeout">> => <<"5s">>
         }
     },
     maps:merge(Conf0, ?COMMON_REDIS_OPTS).
@@ -611,7 +618,14 @@ username_password_redis_bridge_config() ->
             <<"worker_pool_size">> => <<"1">>,
             <<"batch_size">> => integer_to_binary(?BATCH_SIZE),
             <<"health_check_interval">> => <<"1s">>,
-            <<"start_timeout">> => <<"15s">>
+            <<"max_buffer_bytes">> => <<"256MB">>,
+            <<"buffer_seg_bytes">> => <<"10MB">>,
+            <<"request_ttl">> => <<"45s">>,
+            <<"inflight_window">> => <<"100">>,
+            <<"resume_interval">> => <<"15s">>,
+            <<"metrics_flush_interval">> => <<"1s">>,
+            <<"start_after_created">> => true,
+            <<"start_timeout">> => <<"5s">>
         }
     },
     Conf1 = maps:merge(Conf0, ?COMMON_REDIS_OPTS),

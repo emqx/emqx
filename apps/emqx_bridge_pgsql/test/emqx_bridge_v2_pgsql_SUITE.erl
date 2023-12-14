@@ -12,7 +12,7 @@
 %% See the License for the specific language governing permissions and
 %% limitations under the License.
 %%--------------------------------------------------------------------
--module(emqx_bridge_v2_mongodb_SUITE).
+-module(emqx_bridge_v2_pgsql_SUITE).
 
 -compile(nowarn_export_all).
 -compile(export_all).
@@ -20,10 +20,10 @@
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
 
--define(BRIDGE_TYPE, mongodb).
--define(BRIDGE_TYPE_BIN, <<"mongodb">>).
--define(CONNECTOR_TYPE, mongodb).
--define(CONNECTOR_TYPE_BIN, <<"mongodb">>).
+-define(BRIDGE_TYPE, pgsql).
+-define(BRIDGE_TYPE_BIN, <<"pgsql">>).
+-define(CONNECTOR_TYPE, pgsql).
+-define(CONNECTOR_TYPE_BIN, <<"pgsql">>).
 
 -import(emqx_common_test_helpers, [on_exit/1]).
 -import(emqx_utils_conv, [bin/1]).
@@ -36,9 +36,9 @@ all() ->
     emqx_common_test_helpers:all(?MODULE).
 
 init_per_suite(Config) ->
-    MongoHost = os:getenv("MONGO_SINGLE_HOST", "mongo"),
-    MongoPort = list_to_integer(os:getenv("MONGO_SINGLE_PORT", "27017")),
-    case emqx_common_test_helpers:is_tcp_server_available(MongoHost, MongoPort) of
+    PostgresHost = os:getenv("PGSQL_TCP_HOST", "toxiproxy"),
+    PostgresPort = list_to_integer(os:getenv("PGSQL_TCP_PORT", "5432")),
+    case emqx_common_test_helpers:is_tcp_server_available(PostgresHost, PostgresPort) of
         true ->
             Apps = emqx_cth_suite:start(
                 [
@@ -46,7 +46,7 @@ init_per_suite(Config) ->
                     emqx_conf,
                     emqx_connector,
                     emqx_bridge,
-                    emqx_bridge_mongodb,
+                    emqx_bridge_pgsql,
                     emqx_rule_engine,
                     emqx_management,
                     {emqx_dashboard, "dashboard.listeners.http { enable = true, bind = 18083 }"}
@@ -54,19 +54,24 @@ init_per_suite(Config) ->
                 #{work_dir => emqx_cth_suite:work_dir(Config)}
             ),
             {ok, Api} = emqx_common_test_http:create_default_app(),
-            [
+            NConfig = [
                 {apps, Apps},
                 {api, Api},
-                {mongo_host, MongoHost},
-                {mongo_port, MongoPort}
+                {pgsql_host, PostgresHost},
+                {pgsql_port, PostgresPort},
+                {enable_tls, false},
+                {postgres_host, PostgresHost},
+                {postgres_port, PostgresPort}
                 | Config
-            ];
+            ],
+            emqx_bridge_pgsql_SUITE:connect_and_create_table(NConfig),
+            NConfig;
         false ->
             case os:getenv("IS_CI") of
                 "yes" ->
-                    throw(no_mongo);
+                    throw(no_postgres);
                 _ ->
-                    {skip, no_mongo}
+                    {skip, no_postgres}
             end
     end.
 
@@ -84,16 +89,14 @@ common_init_per_testcase(TestCase, Config) ->
     emqx_config:delete_override_conf_files(),
     UniqueNum = integer_to_binary(erlang:unique_integer()),
     Name = iolist_to_binary([atom_to_binary(TestCase), UniqueNum]),
-    AuthSource = bin(os:getenv("MONGO_AUTHSOURCE", "admin")),
-    Username = bin(os:getenv("MONGO_USERNAME", "")),
-    Password = bin(os:getenv("MONGO_PASSWORD", "")),
+    Username = <<"root">>,
+    Password = <<"public">>,
     Passfile = filename:join(?config(priv_dir, Config), "passfile"),
     ok = file:write_file(Passfile, Password),
     NConfig = [
-        {mongo_authsource, AuthSource},
-        {mongo_username, Username},
-        {mongo_password, Password},
-        {mongo_passfile, Passfile}
+        {postgres_username, Username},
+        {postgres_password, Password},
+        {postgres_passfile, Passfile}
         | Config
     ],
     ConnectorConfig = connector_config(Name, NConfig),
@@ -114,6 +117,7 @@ end_per_testcase(_Testcase, Config) ->
         true ->
             ok;
         false ->
+            emqx_bridge_pgsql_SUITE:connect_and_clear_table(Config),
             emqx_bridge_v2_testlib:delete_all_bridges_and_connectors(),
             emqx_common_test_helpers:call_janitor(60_000),
             ok = snabbkaffe:stop(),
@@ -125,26 +129,18 @@ end_per_testcase(_Testcase, Config) ->
 %%------------------------------------------------------------------------------
 
 connector_config(Name, Config) ->
-    MongoHost = ?config(mongo_host, Config),
-    MongoPort = ?config(mongo_port, Config),
-    AuthSource = ?config(mongo_authsource, Config),
-    Username = ?config(mongo_username, Config),
-    PassFile = ?config(mongo_passfile, Config),
+    PostgresHost = ?config(postgres_host, Config),
+    PostgresPort = ?config(postgres_port, Config),
+    Username = ?config(postgres_username, Config),
+    PassFile = ?config(postgres_passfile, Config),
     InnerConfigMap0 =
         #{
             <<"enable">> => true,
             <<"database">> => <<"mqtt">>,
-            <<"parameters">> =>
-                #{
-                    <<"mongo_type">> => <<"single">>,
-                    <<"server">> => iolist_to_binary([MongoHost, ":", integer_to_binary(MongoPort)]),
-                    <<"w_mode">> => <<"safe">>
-                },
+            <<"server">> => iolist_to_binary([PostgresHost, ":", integer_to_binary(PostgresPort)]),
             <<"pool_size">> => 8,
-            <<"srv_record">> => false,
             <<"username">> => Username,
             <<"password">> => iolist_to_binary(["file://", PassFile]),
-            <<"auth_source">> => AuthSource,
             <<"resource_opts">> => #{
                 <<"health_check_interval">> => <<"15s">>,
                 <<"start_after_created">> => true,
@@ -170,8 +166,8 @@ bridge_config(Name, ConnectorId) ->
             <<"enable">> => true,
             <<"connector">> => ConnectorId,
             <<"parameters">> =>
-                #{},
-            <<"local_topic">> => <<"t/mongo">>,
+                #{<<"sql">> => emqx_bridge_pgsql_SUITE:default_sql()},
+            <<"local_topic">> => <<"t/postgres">>,
             <<"resource_opts">> => #{
                 <<"batch_size">> => 1,
                 <<"batch_time">> => <<"0ms">>,
@@ -202,26 +198,13 @@ parse_and_check_bridge_config(InnerConfigMap, Name) ->
     hocon_tconf:check_plain(emqx_bridge_v2_schema, RawConf, #{required => false, atom_key => false}),
     InnerConfigMap.
 
-shared_secret_path() ->
-    os:getenv("CI_SHARED_SECRET_PATH", "/var/lib/secret").
-
-shared_secret(client_keyfile) ->
-    filename:join([shared_secret_path(), "client.key"]);
-shared_secret(client_certfile) ->
-    filename:join([shared_secret_path(), "client.crt"]);
-shared_secret(client_cacertfile) ->
-    filename:join([shared_secret_path(), "ca.crt"]);
-shared_secret(rig_keytab) ->
-    filename:join([shared_secret_path(), "rig.keytab"]).
-
 make_message() ->
-    Time = erlang:unique_integer(),
-    BinTime = integer_to_binary(Time),
+    ClientId = emqx_guid:to_hexstr(emqx_guid:gen()),
     Payload = emqx_guid:to_hexstr(emqx_guid:gen()),
     #{
-        clientid => BinTime,
+        clientid => ClientId,
         payload => Payload,
-        timestamp => Time
+        timestamp => 1668602148000
     }.
 
 %%------------------------------------------------------------------------------
@@ -229,7 +212,7 @@ make_message() ->
 %%------------------------------------------------------------------------------
 
 t_start_stop(Config) ->
-    emqx_bridge_v2_testlib:t_start_stop(Config, mongodb_stopped),
+    emqx_bridge_v2_testlib:t_start_stop(Config, postgres_stopped),
     ok.
 
 t_create_via_http(Config) ->
@@ -244,7 +227,7 @@ t_sync_query(Config) ->
     ok = emqx_bridge_v2_testlib:t_sync_query(
         Config,
         fun make_message/0,
-        fun(Res) -> ?assertEqual(ok, Res) end,
-        mongo_bridge_connector_on_query_return
+        fun(Res) -> ?assertMatch({ok, _}, Res) end,
+        postgres_bridge_connector_on_query_return
     ),
     ok.
