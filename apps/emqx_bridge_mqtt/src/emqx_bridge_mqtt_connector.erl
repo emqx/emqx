@@ -234,7 +234,7 @@ on_stop(ResourceId, State) ->
         undefined ->
             ok;
         TopicToHandlerIndex ->
-            emqx_topic_index:delete(TopicToHandlerIndex)
+            ets:delete(TopicToHandlerIndex)
     end,
     Allocated = emqx_resource:get_allocated_resources(ResourceId),
     ok = stop_helper(Allocated).
