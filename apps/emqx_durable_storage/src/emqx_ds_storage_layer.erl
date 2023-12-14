@@ -18,7 +18,15 @@
 -behaviour(gen_server).
 
 %% Replication layer API:
--export([open_shard/2, drop_shard/1, store_batch/3, get_streams/3, make_iterator/4, next/3]).
+-export([
+    open_shard/2,
+    drop_shard/1,
+    store_batch/3,
+    get_streams/3,
+    make_iterator/4,
+    update_iterator/3,
+    next/3
+]).
 
 %% gen_server
 -export([start_link/2, init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2]).
@@ -182,6 +190,27 @@ make_iterator(
 ) ->
     #{module := Mod, data := GenData} = generation_get(Shard, GenId),
     case Mod:make_iterator(Shard, GenData, Stream, TopicFilter, StartTime) of
+        {ok, Iter} ->
+            {ok, #{
+                ?tag => ?IT,
+                ?generation => GenId,
+                ?enc => Iter
+            }};
+        {error, _} = Err ->
+            Err
+    end.
+
+-spec update_iterator(
+    shard_id(), iterator(), emqx_ds:message_key()
+) ->
+    emqx_ds:make_iterator_result(iterator()).
+update_iterator(
+    Shard,
+    #{?tag := ?IT, ?generation := GenId, ?enc := OldIter},
+    DSKey
+) ->
+    #{module := Mod, data := GenData} = generation_get(Shard, GenId),
+    case Mod:update_iterator(Shard, GenData, OldIter, DSKey) of
         {ok, Iter} ->
             {ok, #{
                 ?tag => ?IT,

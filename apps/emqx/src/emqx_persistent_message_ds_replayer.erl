@@ -431,7 +431,7 @@ get_commit_next(comp, #inflight{commits = Commits}) ->
 
 publish_fetch(PreprocFun, FirstSeqno, Messages) ->
     flatmapfoldl(
-        fun(MessageIn, Acc) ->
+        fun({_DSKey, MessageIn}, Acc) ->
             Message = PreprocFun(MessageIn),
             publish_fetch(Message, Acc)
         end,
@@ -450,7 +450,7 @@ publish_fetch(Messages, Seqno) ->
 publish_replay(PreprocFun, Commits, FirstSeqno, Messages) ->
     #{ack := AckedUntil, comp := CompUntil, rec := RecUntil} = Commits,
     flatmapfoldl(
-        fun(MessageIn, Acc) ->
+        fun({_DSKey, MessageIn}, Acc) ->
             Message = PreprocFun(MessageIn),
             publish_replay(Message, AckedUntil, CompUntil, RecUntil, Acc)
         end,

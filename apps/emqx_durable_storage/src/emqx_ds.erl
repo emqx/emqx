@@ -28,7 +28,7 @@
 -export([store_batch/2, store_batch/3]).
 
 %% Message replay API:
--export([get_streams/3, make_iterator/4, next/3]).
+-export([get_streams/3, make_iterator/4, update_iterator/3, next/3]).
 
 %% Misc. API:
 -export([]).
@@ -43,6 +43,7 @@
     stream_rank/0,
     iterator/0,
     message_id/0,
+    message_key/0,
     next_result/1, next_result/0,
     store_batch_result/0,
     make_iterator_result/1, make_iterator_result/0,
@@ -74,6 +75,8 @@
 
 -type ds_specific_stream() :: term().
 
+-type message_key() :: binary().
+
 -type store_batch_result() :: ok | {error, _}.
 
 -type make_iterator_result(Iterator) :: {ok, Iterator} | {error, _}.
@@ -81,7 +84,7 @@
 -type make_iterator_result() :: make_iterator_result(iterator()).
 
 -type next_result(Iterator) ::
-    {ok, Iterator, [emqx_types:message()]} | {ok, end_of_stream} | {error, _}.
+    {ok, Iterator, [{message_key(), emqx_types:message()}]} | {ok, end_of_stream} | {error, _}.
 
 -type next_result() :: next_result(iterator()).
 
@@ -123,6 +126,9 @@
 -callback get_streams(db(), topic_filter(), time()) -> [{stream_rank(), ds_specific_stream()}].
 
 -callback make_iterator(db(), ds_specific_stream(), topic_filter(), time()) ->
+    make_iterator_result(ds_specific_iterator()).
+
+-callback update_iterator(db(), ds_specific_iterator(), message_key()) ->
     make_iterator_result(ds_specific_iterator()).
 
 -callback next(db(), Iterator, pos_integer()) -> next_result(Iterator).
@@ -211,6 +217,11 @@ get_streams(DB, TopicFilter, StartTime) ->
 -spec make_iterator(db(), stream(), topic_filter(), time()) -> make_iterator_result().
 make_iterator(DB, Stream, TopicFilter, StartTime) ->
     ?module(DB):make_iterator(DB, Stream, TopicFilter, StartTime).
+
+-spec update_iterator(db(), iterator(), message_key()) ->
+    make_iterator_result().
+update_iterator(DB, OldIter, DSKey) ->
+    ?module(DB):update_iterator(DB, OldIter, DSKey).
 
 -spec next(db(), iterator(), pos_integer()) -> next_result().
 next(DB, Iter, BatchSize) ->
