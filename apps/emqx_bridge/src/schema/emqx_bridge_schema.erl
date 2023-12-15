@@ -31,8 +31,9 @@
 
 -export([
     common_bridge_fields/0,
+    metrics_fields/0,
     status_fields/0,
-    metrics_fields/0
+    type_and_name_fields/1
 ]).
 
 %% for testing only
@@ -154,6 +155,12 @@ metrics_fields() ->
                 hoconsc:array(ref(?MODULE, "node_metrics")),
                 #{desc => ?DESC("desc_node_metrics")}
             )}
+    ].
+
+type_and_name_fields(ConnectorType) ->
+    [
+        {type, mk(ConnectorType, #{required => true, desc => ?DESC("desc_type")})},
+        {name, mk(binary(), #{required => true, desc => ?DESC("desc_name")})}
     ].
 
 %%======================================================================================
