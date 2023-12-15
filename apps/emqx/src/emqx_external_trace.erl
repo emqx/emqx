@@ -25,8 +25,6 @@
 
 -callback end_trace_send(emqx_types:packet() | [emqx_types:packet()]) -> ok.
 
--callback event(EventName :: term(), Attributes :: term()) -> ok.
-
 -type channel_info() :: #{atom() => _}.
 
 -export([
@@ -35,9 +33,7 @@
     unregister_provider/1,
     trace_process_publish/3,
     start_trace_send/2,
-    end_trace_send/1,
-    event/1,
-    event/2
+    end_trace_send/1
 ]).
 
 -export_type([channel_info/0]).
@@ -79,6 +75,7 @@ unregister_provider(Module) ->
 -spec provider() -> module() | undefined.
 provider() ->
     persistent_term:get(?PROVIDER, undefined).
+
 %%--------------------------------------------------------------------
 %% trace API
 %%--------------------------------------------------------------------
@@ -98,13 +95,6 @@ start_trace_send(Delivers, ChannelInfo) ->
 -spec end_trace_send(emqx_types:packet() | [emqx_types:packet()]) -> ok.
 end_trace_send(Packets) ->
     ?with_provider(?FUNCTION_NAME(Packets), ok).
-
-event(Name) ->
-    event(Name, #{}).
-
--spec event(term(), term()) -> ok.
-event(Name, Attributes) ->
-    ?with_provider(?FUNCTION_NAME(Name, Attributes), ok).
 
 %%--------------------------------------------------------------------
 %% Internal functions

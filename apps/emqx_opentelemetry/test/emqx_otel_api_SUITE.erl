@@ -25,6 +25,29 @@
 -define(OTEL_API_PATH, emqx_mgmt_api_test_util:api_path(["opentelemetry"])).
 -define(CONF_PATH, [opentelemetry]).
 
+-define(CACERT, <<
+    "-----BEGIN CERTIFICATE-----\n"
+    "MIIDUTCCAjmgAwIBAgIJAPPYCjTmxdt/MA0GCSqGSIb3DQEBCwUAMD8xCzAJBgNV\n"
+    "BAYTAkNOMREwDwYDVQQIDAhoYW5nemhvdTEMMAoGA1UECgwDRU1RMQ8wDQYDVQQD\n"
+    "DAZSb290Q0EwHhcNMjAwNTA4MDgwNjUyWhcNMzAwNTA2MDgwNjUyWjA/MQswCQYD\n"
+    "VQQGEwJDTjERMA8GA1UECAwIaGFuZ3pob3UxDDAKBgNVBAoMA0VNUTEPMA0GA1UE\n"
+    "AwwGUm9vdENBMIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAzcgVLex1\n"
+    "EZ9ON64EX8v+wcSjzOZpiEOsAOuSXOEN3wb8FKUxCdsGrsJYB7a5VM/Jot25Mod2\n"
+    "juS3OBMg6r85k2TWjdxUoUs+HiUB/pP/ARaaW6VntpAEokpij/przWMPgJnBF3Ur\n"
+    "MjtbLayH9hGmpQrI5c2vmHQ2reRZnSFbY+2b8SXZ+3lZZgz9+BaQYWdQWfaUWEHZ\n"
+    "uDaNiViVO0OT8DRjCuiDp3yYDj3iLWbTA/gDL6Tf5XuHuEwcOQUrd+h0hyIphO8D\n"
+    "tsrsHZ14j4AWYLk1CPA6pq1HIUvEl2rANx2lVUNv+nt64K/Mr3RnVQd9s8bK+TXQ\n"
+    "KGHd2Lv/PALYuwIDAQABo1AwTjAdBgNVHQ4EFgQUGBmW+iDzxctWAWxmhgdlE8Pj\n"
+    "EbQwHwYDVR0jBBgwFoAUGBmW+iDzxctWAWxmhgdlE8PjEbQwDAYDVR0TBAUwAwEB\n"
+    "/zANBgkqhkiG9w0BAQsFAAOCAQEAGbhRUjpIred4cFAFJ7bbYD9hKu/yzWPWkMRa\n"
+    "ErlCKHmuYsYk+5d16JQhJaFy6MGXfLgo3KV2itl0d+OWNH0U9ULXcglTxy6+njo5\n"
+    "CFqdUBPwN1jxhzo9yteDMKF4+AHIxbvCAJa17qcwUKR5MKNvv09C6pvQDJLzid7y\n"
+    "E2dkgSuggik3oa0427KvctFf8uhOV94RvEDyqvT5+pgNYZ2Yfga9pD/jjpoHEUlo\n"
+    "88IGU8/wJCx3Ds2yc8+oBg/ynxG8f/HmCC1ET6EHHoe2jlo8FpU/SgGtghS1YL30\n"
+    "IWxNsPrUP+XsZpBJy/mvOhE5QXo6Y35zDqqj8tI7AGmAWu22jg==\n"
+    "-----END CERTIFICATE-----"
+>>).
+
 all() ->
     emqx_common_test_helpers:all(?MODULE).
 
@@ -250,3 +273,23 @@ t_put_valid(Config) ->
         %% alias check
         ?assertEqual(15_321, emqx:get_config(?CONF_PATH ++ [metrics, interval]))
     ).
+
+t_put_cert(Config) ->
+    Auth = ?config(auth, Config),
+    Path = ?OTEL_API_PATH,
+    SSL = #{<<"enable">> => true, <<"cacertfile">> => ?CACERT},
+    SSLDisabled = #{<<"enable">> => false, <<"cacertfile">> => ?CACERT},
+    Conf = #{<<"exporter">> => #{<<"ssl_options">> => SSL}},
+    Conf1 = #{<<"exporter">> => #{<<"ssl_options">> => SSLDisabled}},
+    {ok, Body} = emqx_mgmt_api_test_util:request_api(put, Path, "", Auth, Conf),
+    #{<<"exporter">> := #{<<"ssl_options">> := #{<<"cacertfile">> := CaFile}}} = emqx_utils_json:decode(
+        Body
+    ),
+    ct:pal("CA certfile: ~p", [CaFile]),
+    ?assert(filelib:is_file(CaFile)),
+    {ok, Body1} = emqx_mgmt_api_test_util:request_api(put, Path, "", Auth, Conf1),
+    #{<<"exporter">> := #{<<"ssl_options">> := #{<<"cacertfile">> := CaFile1}}} = emqx_utils_json:decode(
+        Body1
+    ),
+    ct:pal("CA certfile1: ~p", [CaFile1]),
+    ?assertNot(filelib:is_file(CaFile1)).
