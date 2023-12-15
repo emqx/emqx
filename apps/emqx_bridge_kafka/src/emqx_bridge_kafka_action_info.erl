@@ -15,6 +15,8 @@
     bridge_v1_config_to_action_config/2
 ]).
 
+%% FIXME this should only be `kafka` but needed to make things work for
+%% now.
 bridge_v1_type_name() -> [kafka, kafka_producer].
 
 action_type_name() -> kafka_producer.

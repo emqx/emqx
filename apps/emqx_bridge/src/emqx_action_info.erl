@@ -266,6 +266,7 @@ get_info_map(Module) ->
                     {_BridgeV1TypeFun, _BridgeV1Types} = BridgeV1TypeTuple ->
                         BridgeV1TypeTuple;
                     [BridgeV1Type | _] = BridgeV1Types0 ->
+                        %% FIXME currently needed for kafka and gcp_pubsub
                         {BridgeV1Type, BridgeV1Types0};
                     BridgeV1Type ->
                         {BridgeV1Type, [BridgeV1Type]}
