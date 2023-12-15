@@ -132,3 +132,16 @@ t_update_listeners(_Config) ->
 
     {200, [UpdatedListener]} = request(get, "/gateways/ocpp/listeners"),
     ?assertMatch(#{websocket := #{path := <<"/ocpp2">>}}, UpdatedListener).
+
+t_enable_disable_gw_ocpp(_Config) ->
+    AssertEnabled = fun(Enabled) ->
+        {200, R} = request(get, "/gateways/ocpp"),
+        E = maps:get(enable, R),
+        ?assertEqual(E, Enabled),
+        timer:sleep(500),
+        ?assertEqual(E, emqx:get_config([gateway, ocpp, enable]))
+    end,
+    ?assertEqual({204, #{}}, request(put, "/gateways/ocpp/enable/false", <<>>)),
+    AssertEnabled(false),
+    ?assertEqual({204, #{}}, request(put, "/gateways/ocpp/enable/true", <<>>)),
+    AssertEnabled(true).
