@@ -89,7 +89,7 @@ feedvar(Path) ->
     binary_to_list(
         emqx_placeholder:proc_tmpl(
             emqx_placeholder:preproc_tmpl(Path),
-            #{application_priv => code:priv_dir(emqx_ocpp)}
+            #{application_priv => code:priv_dir(emqx_gateway_ocpp)}
         )
     ).
 
