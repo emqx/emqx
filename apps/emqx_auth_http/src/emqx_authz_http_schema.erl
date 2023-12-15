@@ -113,7 +113,7 @@ headers(desc) ->
     ?DESC(?FUNCTION_NAME);
 headers(converter) ->
     fun(Headers) ->
-        maps:to_list(maps:merge(default_headers(), transform_header_name(Headers)))
+        maps:to_list(transform_header_name(Headers))
     end;
 headers(default) ->
     default_headers();
@@ -129,7 +129,7 @@ headers_no_content_type(converter) ->
         maps:to_list(
             maps:without(
                 [<<"content-type">>],
-                maps:merge(default_headers_no_content_type(), transform_header_name(Headers))
+                transform_header_name(Headers)
             )
         )
     end;
