@@ -761,8 +761,8 @@ is_bridge_enabled_v1(BridgeType, BridgeName) ->
     end.
 
 is_bridge_enabled_v2(BridgeV1Type, BridgeName) ->
-    BridgeV2Type = emqx_bridge_v2:bridge_v1_type_to_bridge_v2_type(BridgeV1Type),
-    try emqx:get_config([actions, BridgeV2Type, binary_to_existing_atom(BridgeName)]) of
+    ActionType = emqx_bridge_v2:bridge_v1_type_to_action_type(BridgeV1Type),
+    try emqx:get_config([actions, ActionType, binary_to_existing_atom(BridgeName)]) of
         ConfMap ->
             maps:get(enable, ConfMap, true)
     catch

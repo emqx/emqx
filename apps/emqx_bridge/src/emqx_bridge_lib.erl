@@ -72,7 +72,7 @@ maybe_upgrade_type(Type0) when is_list(Type0) ->
     atom_to_list(?IS_ACTION_TYPE(Type, do_upgrade_type(Type))).
 
 do_upgrade_type(Type) ->
-    emqx_bridge_v2:bridge_v1_type_to_bridge_v2_type(Type).
+    emqx_bridge_v2:bridge_v1_type_to_action_type(Type).
 
 %% @doc Kafka producer bridge type renamed from 'kafka' to 'kafka_producer'
 %% since 5.3.1
@@ -86,7 +86,7 @@ maybe_downgrade_type(Type0, Conf) when is_list(Type0) ->
     atom_to_list(?IS_ACTION_TYPE(Type, do_downgrade_type(Type, Conf))).
 
 do_downgrade_type(Type, Conf) ->
-    emqx_bridge_v2:bridge_v2_type_to_bridge_v1_type(Type, Conf).
+    emqx_bridge_v2:action_type_to_bridge_v1_type(Type, Conf).
 
 %% A rule might be referencing an old version bridge type name i.e. 'kafka'
 %% instead of 'kafka_producer' so we need to try both

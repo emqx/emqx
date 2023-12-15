@@ -1438,7 +1438,7 @@ validate_resource_request_ttl(_Cluster, _Timeout, _Name) ->
     ignore.
 
 do_send_message(BridgeV1Type, Name, Message) ->
-    Type = emqx_bridge_v2:bridge_v1_type_to_bridge_v2_type(BridgeV1Type),
+    Type = emqx_bridge_v2:bridge_v1_type_to_action_type(BridgeV1Type),
     emqx_bridge_v2:send_message(Type, Name, Message, #{}).
 
 %%

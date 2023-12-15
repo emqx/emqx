@@ -730,7 +730,7 @@ t_bridge_probes_header_atoms(Config) ->
 %% helpers
 
 do_send_message(Message) ->
-    Type = emqx_bridge_v2:bridge_v1_type_to_bridge_v2_type(?BRIDGE_TYPE),
+    Type = emqx_bridge_v2:bridge_v1_type_to_action_type(?BRIDGE_TYPE),
     emqx_bridge_v2:send_message(Type, ?BRIDGE_NAME, Message, #{}).
 
 do_t_async_retries(TestCase, TestContext, Error, Fn) ->
