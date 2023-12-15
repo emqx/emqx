@@ -240,7 +240,6 @@ send_message(BridgeId, Message) ->
     {BridgeType, BridgeName} = emqx_bridge_resource:parse_bridge_id(BridgeId),
     case emqx_bridge_v2:is_bridge_v2_type(BridgeType) of
         true ->
-            %ActionType = emqx_action_info:bridge_v1_type_to_action_type(BridgeV1Type),
             emqx_bridge_v2:send_message(BridgeType, BridgeName, Message, #{});
         false ->
             ResId = emqx_bridge_resource:resource_id(BridgeType, BridgeName),

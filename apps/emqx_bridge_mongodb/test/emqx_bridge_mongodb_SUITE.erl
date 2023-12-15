@@ -150,10 +150,7 @@ init_per_testcase(_Testcase, Config) ->
 
 end_per_testcase(_Testcase, Config) ->
     clear_db(Config),
-    delete_bridge(Config),
-    [emqx_bridge_v2:remove(T, N) || #{type := T, name := N} <- emqx_bridge_v2:list()],
-    [emqx_connector:remove(T, N) || #{type := T, name := N} <- emqx_connector:list()],
-    [emqx_bridge:remove(T, N) || #{type := T, name := N} <- emqx_bridge:list()],
+    emqx_bridge_v2_testlib:delete_all_bridges_and_connectors(),
     snabbkaffe:stop(),
     ok.
 
