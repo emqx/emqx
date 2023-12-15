@@ -143,6 +143,24 @@ readable("epoch_millisecond()") ->
             ]
         }
     };
+readable("epoch_microsecond()") ->
+    %% only for swagger
+    #{
+        swagger => #{
+            <<"oneOf">> => [
+                #{
+                    type => integer,
+                    example => 1640995200000000,
+                    description => <<"epoch-microsecond">>
+                },
+                #{
+                    type => string,
+                    example => <<"2022-01-01T00:00:00.000000Z">>,
+                    format => <<"date-time">>
+                }
+            ]
+        }
+    };
 readable("duration()") ->
     #{
         swagger => #{type => string, example => <<"12m">>},

@@ -29,6 +29,7 @@
 %% API
 -export([
     to_epoch_millisecond/1,
+    to_epoch_microsecond/1,
     to_epoch_second/1,
     human_readable_duration_string/1
 ]).
@@ -54,6 +55,7 @@
 %% so the maximum date can reach 9999-12-31 which is ample.
 -define(MAXIMUM_EPOCH, 253402214400).
 -define(MAXIMUM_EPOCH_MILLI, 253402214400_000).
+-define(MAXIMUM_EPOCH_MICROS, 253402214400_000_000).
 
 -define(DATE_PART, [
     year,
@@ -75,13 +77,16 @@
 
 -reflect_type([
     epoch_millisecond/0,
-    epoch_second/0
+    epoch_second/0,
+    epoch_microsecond/0
 ]).
 
 -type epoch_second() :: non_neg_integer().
 -type epoch_millisecond() :: non_neg_integer().
+-type epoch_microsecond() :: non_neg_integer().
 -typerefl_from_string({epoch_second/0, ?MODULE, to_epoch_second}).
 -typerefl_from_string({epoch_millisecond/0, ?MODULE, to_epoch_millisecond}).
+-typerefl_from_string({epoch_microsecond/0, ?MODULE, to_epoch_microsecond}).
 
 %%--------------------------------------------------------------------
 %% Epoch <-> RFC 3339
@@ -92,6 +97,9 @@ to_epoch_second(DateTime) ->
 
 to_epoch_millisecond(DateTime) ->
     to_epoch(DateTime, millisecond).
+
+to_epoch_microsecond(DateTime) ->
+    to_epoch(DateTime, microsecond).
 
 to_epoch(DateTime, Unit) ->
     try
@@ -130,6 +138,14 @@ validate_epoch(Epoch, _Unit) when Epoch < 0 ->
 validate_epoch(Epoch, second) when Epoch =< ?MAXIMUM_EPOCH ->
     {ok, Epoch};
 validate_epoch(Epoch, millisecond) when Epoch =< ?MAXIMUM_EPOCH_MILLI ->
+    {ok, Epoch};
+%% http api use millisecond but we should transform to microsecond
+validate_epoch(Epoch, microsecond) when
+    Epoch >= ?MAXIMUM_EPOCH andalso
+        Epoch =< ?MAXIMUM_EPOCH_MILLI
+->
+    {ok, Epoch * 1000};
+validate_epoch(Epoch, microsecond) when Epoch =< ?MAXIMUM_EPOCH_MICROS ->
     {ok, Epoch};
 validate_epoch(_Epoch, _Unit) ->
     {error, bad_epoch}.
