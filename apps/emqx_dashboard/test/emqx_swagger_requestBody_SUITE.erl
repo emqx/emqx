@@ -315,6 +315,8 @@ t_none_ref(_Config) ->
     ),
     ok.
 
+namespace() -> undefined.
+
 t_sub_fields(_Config) ->
     Spec = #{
         post => #{

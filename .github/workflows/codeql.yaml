@@ -20,7 +20,7 @@ jobs:
       actions: read
       security-events: write
     container:
-      image: ghcr.io/emqx/emqx-builder/5.2-3:1.14.5-25.3.2-2-ubuntu22.04
+      image: ghcr.io/emqx/emqx-builder/5.2-8:1.15.7-26.1.2-2-ubuntu22.04
 
     strategy:
       fail-fast: false

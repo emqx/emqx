@@ -26,7 +26,7 @@ jobs:
   prepare:
     runs-on: ubuntu-latest
     if: github.repository_owner == 'emqx'
-    container: ghcr.io/emqx/emqx-builder/5.2-3:1.14.5-25.3.2-2-ubuntu20.04
+    container: ghcr.io/emqx/emqx-builder/5.2-8:1.15.7-26.1.2-2-ubuntu20.04
     outputs:
       BENCH_ID: ${{ steps.prepare.outputs.BENCH_ID }}
       PACKAGE_FILE: ${{ steps.package_file.outputs.PACKAGE_FILE }}

@@ -79,7 +79,7 @@ defmodule EMQXUmbrella.MixProject do
       # in conflict by ehttpc and emqtt
       {:gun, github: "emqx/gun", tag: "1.3.9", override: true},
       # in conflict by emqx_connector and system_monitor
-      {:epgsql, github: "emqx/epgsql", tag: "4.7.0.1", override: true},
+      {:epgsql, github: "emqx/epgsql", tag: "4.7.1.1", override: true},
       # in conflict by emqx and observer_cli
       {:recon, github: "ferd/recon", tag: "2.5.1", override: true},
       {:jsx, github: "talentdeficit/jsx", tag: "v3.1.0", override: true},
@@ -97,6 +97,7 @@ defmodule EMQXUmbrella.MixProject do
       {:hackney, github: "emqx/hackney", tag: "1.18.1-1", override: true},
       # set by hackney (dependency)
       {:ssl_verify_fun, "1.1.7", override: true},
+      {:rfc3339, github: "emqx/rfc3339", tag: "0.2.3", override: true},
       {:uuid, github: "okeuday/uuid", tag: "v2.0.6", override: true},
       {:quickrand, github: "okeuday/quickrand", tag: "v2.0.6", override: true}
     ] ++
@@ -214,12 +215,12 @@ defmodule EMQXUmbrella.MixProject do
        github: "emqx/credentials-obfuscation", tag: "v3.2.0", override: true},
       {:rabbit_common,
        github: "emqx/rabbitmq-server",
-       tag: "v3.11.13-emqx",
+       tag: "v3.11.13.2",
        sparse: "deps/rabbit_common",
        override: true},
       {:amqp_client,
        github: "emqx/rabbitmq-server",
-       tag: "v3.11.13-emqx",
+       tag: "v3.11.13.2",
        sparse: "deps/amqp_client",
        override: true}
     ]

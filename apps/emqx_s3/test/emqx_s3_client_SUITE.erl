@@ -129,7 +129,7 @@ t_url(Config) ->
 
     ?assertMatch(
         {ok, {{_StatusLine, 200, "OK"}, _Headers, "data"}},
-        httpc:request(Url)
+        httpc:request(get, {Url, []}, [{ssl, [{verify, verify_none}]}], [])
     ).
 
 t_no_acl(Config) ->

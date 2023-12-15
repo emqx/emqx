@@ -387,7 +387,8 @@ assert_successful_connection(Config, ClientNum) ->
         {ssl, true},
         {ssl_opts, [
             {certfile, ClientCert},
-            {keyfile, ClientKey}
+            {keyfile, ClientKey},
+            {verify, verify_none}
         ]},
         {port, 8883}
     ]),
@@ -601,7 +602,8 @@ t_cache(Config) ->
         {ssl, true},
         {ssl_opts, [
             {certfile, ClientCert},
-            {keyfile, ClientKey}
+            {keyfile, ClientKey},
+            {verify, verify_none}
         ]},
         {port, 8883}
     ]),
@@ -619,7 +621,8 @@ t_cache(Config) ->
         {ssl, true},
         {ssl_opts, [
             {certfile, ClientCert},
-            {keyfile, ClientKey}
+            {keyfile, ClientKey},
+            {verify, verify_none}
         ]},
         {port, 8883}
     ]),
@@ -829,7 +832,8 @@ t_filled_cache(Config) ->
         {ssl, true},
         {ssl_opts, [
             {certfile, ClientCert},
-            {keyfile, ClientKey}
+            {keyfile, ClientKey},
+            {verify, verify_none}
         ]},
         {port, 8883}
     ]),
@@ -853,7 +857,8 @@ t_not_cached_and_unreachable(Config) ->
         {ssl, true},
         {ssl_opts, [
             {certfile, ClientCert},
-            {keyfile, ClientKey}
+            {keyfile, ClientKey},
+            {verify, verify_none}
         ]},
         {port, 8883}
     ]),
@@ -871,7 +876,8 @@ t_revoked(Config) ->
         {ssl, true},
         {ssl_opts, [
             {certfile, ClientCert},
-            {keyfile, ClientKey}
+            {keyfile, ClientKey},
+            {verify, verify_none}
         ]},
         {port, 8883}
     ]),
@@ -893,7 +899,8 @@ t_revoke_then_refresh(Config) ->
         {ssl, true},
         {ssl_opts, [
             {certfile, ClientCert},
-            {keyfile, ClientKey}
+            {keyfile, ClientKey},
+            {verify, verify_none}
         ]},
         {port, 8883}
     ]),
@@ -916,7 +923,8 @@ t_revoke_then_refresh(Config) ->
         {ssl, true},
         {ssl_opts, [
             {certfile, ClientCert},
-            {keyfile, ClientKey}
+            {keyfile, ClientKey},
+            {verify, verify_none}
         ]},
         {port, 8883}
     ]),
@@ -961,7 +969,8 @@ do_t_update_listener(Config) ->
         {ssl, true},
         {ssl_opts, [
             {certfile, ClientCert},
-            {keyfile, ClientKey}
+            {keyfile, ClientKey},
+            {verify, verify_none}
         ]},
         {port, 8883}
     ]),
@@ -999,7 +1008,8 @@ do_t_update_listener(Config) ->
         {ssl, true},
         {ssl_opts, [
             {certfile, ClientCert},
-            {keyfile, ClientKey}
+            {keyfile, ClientKey},
+            {verify, verify_none}
         ]},
         {port, 8883}
     ]),

@@ -180,7 +180,7 @@ set_special_cfg(_, _, _, _) ->
 
 listener_confs(Type) ->
     Default = #{bind => 7993, acceptors => 8},
-    #{Type => #{'default' => maps:merge(Default, socketopts(Type))}}.
+    #{Type => #{'default' => maps:merge(Default, server_socketopts(Type))}}.
 
 default_config() ->
     ?CONF_DEFAULT.
@@ -593,11 +593,11 @@ open(udp) ->
     {ok, Sock} = gen_udp:open(0, ?TCPOPTS),
     {udp, Sock};
 open(ssl) ->
-    SslOpts = maps:to_list(client_ssl_opts()),
+    SslOpts = client_ssl_opts(),
     {ok, SslSock} = ssl:connect("127.0.0.1", 7993, ?TCPOPTS ++ SslOpts),
     {ssl, SslSock};
 open(dtls) ->
-    SslOpts = maps:to_list(client_ssl_opts()),
+    SslOpts = client_ssl_opts(),
     {ok, SslSock} = ssl:connect("127.0.0.1", 7993, ?DTLSOPTS ++ SslOpts),
     {dtls, SslSock}.
 
@@ -635,24 +635,24 @@ close({dtls, Sock}) ->
 %%--------------------------------------------------------------------
 %% Server-Opts
 
-socketopts(tcp) ->
-    #{tcp_options => tcp_opts()};
-socketopts(ssl) ->
+server_socketopts(tcp) ->
+    #{tcp_options => server_tcp_opts()};
+server_socketopts(ssl) ->
     #{
-        tcp_options => tcp_opts(),
-        ssl_options => ssl_opts()
+        tcp_options => server_tcp_opts(),
+        ssl_options => server_ssl_opts()
     };
-socketopts(udp) ->
-    #{udp_options => udp_opts()};
-socketopts(dtls) ->
+server_socketopts(udp) ->
+    #{udp_options => server_udp_opts()};
+server_socketopts(dtls) ->
     #{
-        udp_options => udp_opts(),
-        dtls_options => dtls_opts()
+        udp_options => server_udp_opts(),
+        dtls_options => server_dtls_opts()
     }.
 
-tcp_opts() ->
+server_tcp_opts() ->
     maps:merge(
-        udp_opts(),
+        server_udp_opts(),
         #{
             send_timeout => 15000,
             send_timeout_close => true,
@@ -661,7 +661,7 @@ tcp_opts() ->
         }
     ).
 
-udp_opts() ->
+server_udp_opts() ->
     #{
         recbuf => 1024,
         sndbuf => 1024,
@@ -669,7 +669,7 @@ udp_opts() ->
         reuseaddr => true
     }.
 
-ssl_opts() ->
+server_ssl_opts() ->
     Certs = certs("key.pem", "cert.pem", "cacert.pem"),
     maps:merge(
         Certs,
@@ -684,14 +684,15 @@ ssl_opts() ->
         }
     ).
 
-dtls_opts() ->
-    maps:merge(ssl_opts(), #{versions => ['dtlsv1.2', 'dtlsv1']}).
+server_dtls_opts() ->
+    maps:merge(server_ssl_opts(), #{versions => ['dtlsv1.2', 'dtlsv1']}).
 
 %%--------------------------------------------------------------------
 %% Client-Opts
 
 client_ssl_opts() ->
-    certs("client-key.pem", "client-cert.pem", "cacert.pem").
+    OptsWithCerts = certs("client-key.pem", "client-cert.pem", "cacert.pem"),
+    [{verify, verify_none} | maps:to_list(OptsWithCerts)].
 
 certs(Key, Cert, CACert) ->
     CertsPath = emqx_common_test_helpers:deps_path(emqx, "etc/certs"),
