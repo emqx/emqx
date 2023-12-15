@@ -59,7 +59,11 @@ all() -> [{group, transports}, {group, rest}].
 suite() -> [{timetrap, {minutes, 20}}].
 
 groups() ->
-    ResourceSpecificTCs = [t_create_delete_bridge],
+    ResourceSpecificTCs = [
+        t_create_delete_bridge,
+        t_create_via_http,
+        t_start_stop
+    ],
     TCs = emqx_common_test_helpers:all(?MODULE) -- ResourceSpecificTCs,
     TypeGroups = [
         {group, redis_single},
@@ -130,10 +134,13 @@ wait_for_ci_redis(Checks, Config) ->
                     emqx_resource,
                     emqx_connector,
                     emqx_bridge,
-                    emqx_rule_engine
+                    emqx_rule_engine,
+                    emqx_management,
+                    {emqx_dashboard, "dashboard.listeners.http { enable = true, bind = 18083 }"}
                 ],
                 #{work_dir => emqx_cth_suite:work_dir(Config)}
             ),
+            {ok, _Api} = emqx_common_test_http:create_default_app(),
             [
                 {apps, Apps},
                 {proxy_host, ProxyHost},
@@ -177,9 +184,8 @@ init_per_testcase(Testcase, Config0) ->
             IsBatch = (BatchMode =:= batch_on),
             BridgeConfig0 = maps:merge(RedisConnConfig, ?COMMON_REDIS_OPTS),
             BridgeConfig1 = BridgeConfig0#{<<"resource_opts">> => ResourceConfig},
-            BridgeType = list_to_atom(atom_to_list(RedisType) ++ "_producer"),
             [
-                {bridge_type, BridgeType},
+                {bridge_type, RedisType},
                 {bridge_config, BridgeConfig1},
                 {is_batch, IsBatch}
                 | Config
@@ -424,6 +430,14 @@ t_create_disconnected(Config) ->
         end
     ),
     ok = emqx_bridge:remove(Type, Name).
+
+t_create_via_http(Config) ->
+    ok = emqx_bridge_testlib:t_create_via_http(Config),
+    ok.
+
+t_start_stop(Config) ->
+    ok = emqx_bridge_testlib:t_start_stop(Config, redis_bridge_stopped),
+    ok.
 
 %%------------------------------------------------------------------------------
 %% Helper functions

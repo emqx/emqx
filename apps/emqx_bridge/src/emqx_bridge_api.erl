@@ -620,8 +620,8 @@ lookup_from_all_nodes(BridgeType, BridgeName, SuccCode) ->
             ?INTERNAL_ERROR(Reason)
     end.
 
-lookup_from_local_node(BridgeType, BridgeName) ->
-    case emqx_bridge:lookup(BridgeType, BridgeName) of
+lookup_from_local_node(ActionType, ActionName) ->
+    case emqx_bridge:lookup(ActionType, ActionName) of
         {ok, Res} -> {ok, format_resource(Res, node())};
         Error -> Error
     end.
