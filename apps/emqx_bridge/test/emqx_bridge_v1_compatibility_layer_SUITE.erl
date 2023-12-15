@@ -89,7 +89,7 @@ setup_mocks() ->
 
     catch meck:new(emqx_bridge_v2, MeckOpts),
     meck:expect(emqx_bridge_v2, bridge_v2_type_to_connector_type, 1, con_type()),
-    meck:expect(emqx_bridge_v2, bridge_v1_type_to_bridge_v2_type, 1, bridge_type()),
+    meck:expect(emqx_bridge_v2, bridge_v1_type_to_action_type, 1, bridge_type()),
     IsBridgeV2TypeFun = fun(Type) ->
         BridgeV2Type = bridge_type(),
         BridgeV2TypeBin = bridge_type_bin(),
