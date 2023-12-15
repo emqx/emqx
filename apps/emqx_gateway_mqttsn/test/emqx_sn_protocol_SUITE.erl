@@ -176,6 +176,18 @@ t_connect(_) ->
     ?assertEqual(<<3, ?SN_CONNACK, 0>>, receive_response(Socket)),
 
     send_disconnect_msg(Socket, undefined),
+    %% assert: mqttsn gateway will ack disconnect msg with DISCONNECT packet
+    ?assertEqual(<<2, ?SN_DISCONNECT>>, receive_response(Socket)),
+    gen_udp:close(Socket).
+
+t_first_disconnect(_) ->
+    SockName = {'mqttsn:udp:default', 1884},
+    ?assertEqual(true, lists:keymember(SockName, 1, esockd:listeners())),
+
+    {ok, Socket} = gen_udp:open(0, [binary]),
+    send_disconnect_msg(Socket, undefined),
+
+    %% assert: mqttsn gateway will ack disconnect msg with DISCONNECT packet
     ?assertEqual(<<2, ?SN_DISCONNECT>>, receive_response(Socket)),
     gen_udp:close(Socket).
 
@@ -1217,7 +1229,7 @@ t_will_case01(_) ->
     ?assertEqual(<<2, ?SN_DISCONNECT>>, receive_response(Socket)),
 
     send_disconnect_msg(Socket, undefined),
-    ?assertEqual(udp_receive_timeout, receive_response(Socket)),
+    ?assertEqual(<<2, ?SN_DISCONNECT>>, receive_response(Socket)),
 
     gen_udp:close(Socket).
 
@@ -1244,7 +1256,7 @@ t_will_test2(_) ->
     receive_response(Socket),
 
     send_disconnect_msg(Socket, undefined),
-    ?assertEqual(udp_receive_timeout, receive_response(Socket)),
+    ?assertEqual(<<2, ?SN_DISCONNECT>>, receive_response(Socket)),
 
     gen_udp:close(Socket).
 
@@ -1265,7 +1277,7 @@ t_will_test3(_) ->
     ?assertEqual(<<2, ?SN_DISCONNECT>>, receive_response(Socket)),
 
     send_disconnect_msg(Socket, undefined),
-    ?assertEqual(udp_receive_timeout, receive_response(Socket)),
+    ?assertEqual(<<2, ?SN_DISCONNECT>>, receive_response(Socket)),
 
     gen_udp:close(Socket).
 
@@ -1294,7 +1306,7 @@ t_will_test4(_) ->
     receive_response(Socket),
 
     send_disconnect_msg(Socket, undefined),
-    ?assertEqual(udp_receive_timeout, receive_response(Socket)),
+    ?assertEqual(<<2, ?SN_DISCONNECT>>, receive_response(Socket)),
 
     gen_udp:close(Socket).
 
