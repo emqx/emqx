@@ -190,6 +190,7 @@ service:
   ## Provide any additional annotations which may be required. Evaluated as a template
   ##
   annotations: {}
+  labels: {}
 
 nodeSelector: {}
 
