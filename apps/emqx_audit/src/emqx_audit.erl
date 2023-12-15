@@ -119,7 +119,7 @@ log_to_db(Log) ->
     Audit0 = to_audit(Log),
     Audit = Audit0#?AUDIT{
         node = node(),
-        created_at = erlang:system_time(millisecond)
+        created_at = erlang:system_time(microsecond)
     },
     mria:dirty_write(?AUDIT, Audit).
 

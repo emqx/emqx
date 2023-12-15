@@ -32,7 +32,7 @@
     {<<"http_method">>, atom},
     {<<"gte_created_at">>, timestamp},
     {<<"lte_created_at">>, timestamp},
-    {<<"gte_duration_ms">>, timestamp},
+    {<<"gte_duration_ms">>, integer},
     {<<"lte_duration_ms">>, integer}
 ]).
 -define(DISABLE_MSG, <<"Audit is disabled">>).
@@ -130,14 +130,14 @@ schema("/audit") ->
                         desc => ?DESC(filter_lte_duration_ms)
                     })},
                 {gte_created_at,
-                    ?HOCON(emqx_utils_calendar:epoch_millisecond(), #{
+                    ?HOCON(emqx_utils_calendar:epoch_microsecond(), #{
                         in => query,
                         required => false,
                         example => <<"2023-10-15T00:00:00.820384+08:00">>,
                         desc => ?DESC(filter_gte_created_at)
                     })},
                 {lte_created_at,
-                    ?HOCON(emqx_utils_calendar:epoch_millisecond(), #{
+                    ?HOCON(emqx_utils_calendar:epoch_microsecond(), #{
                         in => query,
                         example => <<"2023-10-16T00:00:00.820384+08:00">>,
                         required => false,
@@ -170,7 +170,7 @@ fields(audit) ->
     [
         {created_at,
             ?HOCON(
-                emqx_utils_calendar:epoch_millisecond(),
+                emqx_utils_calendar:epoch_microsecond(),
                 #{
                     desc => "The time when the log is created"
                 }

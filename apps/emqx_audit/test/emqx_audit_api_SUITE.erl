@@ -140,9 +140,9 @@ t_disabled(_) ->
 
 t_cli(_Config) ->
     Size = mnesia:table_info(emqx_audit, size),
-    TimeInt = erlang:system_time(millisecond) - 10,
+    TimeInt = erlang:system_time(microsecond) - 1000,
     Time = integer_to_list(TimeInt),
-    DateStr = calendar:system_time_to_rfc3339(TimeInt, [{unit, millisecond}]),
+    DateStr = calendar:system_time_to_rfc3339(TimeInt, [{unit, microsecond}]),
     Date = emqx_http_lib:uri_encode(DateStr),
     ok = emqx_ctl:run_command(["conf", "show", "log"]),
     AuditPath = emqx_mgmt_api_test_util:api_path(["audit"]),
@@ -164,7 +164,11 @@ t_cli(_Config) ->
         ],
         Data
     ),
-
+    %% check create at is valid
+    [#{<<"created_at">> := CreateAtRaw}] = Data,
+    CreateAt = calendar:rfc3339_to_system_time(binary_to_list(CreateAtRaw), [{unit, microsecond}]),
+    ?assert(CreateAt > TimeInt, CreateAtRaw),
+    ?assert(CreateAt < TimeInt + 5000000, CreateAtRaw),
     %% check cli filter
     {ok, Res1} = emqx_mgmt_api_test_util:request_api(get, AuditPath, "from=cli", AuthHeader),
     #{<<"data">> := Data1} = emqx_utils_json:decode(Res1, [return_maps]),
@@ -174,25 +178,41 @@ t_cli(_Config) ->
     ),
     ?assertMatch(#{<<"data">> := []}, emqx_utils_json:decode(Res2, [return_maps])),
 
-    %% check created_at filter
+    %% check created_at filter microsecond
     {ok, Res3} = emqx_mgmt_api_test_util:request_api(
         get, AuditPath, "gte_created_at=" ++ Time, AuthHeader
     ),
     #{<<"data">> := Data3} = emqx_utils_json:decode(Res3, [return_maps]),
     ?assertEqual(1, erlang:length(Data3)),
+    %% check created_at filter rfc3339
     {ok, Res31} = emqx_mgmt_api_test_util:request_api(
         get, AuditPath, "gte_created_at=" ++ Date, AuthHeader
     ),
     ?assertEqual(Res3, Res31),
+    %% check created_at filter millisecond
+    TimeMs = integer_to_list(TimeInt div 1000),
+    {ok, Res32} = emqx_mgmt_api_test_util:request_api(
+        get, AuditPath, "gte_created_at=" ++ TimeMs, AuthHeader
+    ),
+    ?assertEqual(Res3, Res32),
+
+    %% check created_at filter microsecond
     {ok, Res4} = emqx_mgmt_api_test_util:request_api(
         get, AuditPath, "lte_created_at=" ++ Time, AuthHeader
     ),
     #{<<"data">> := Data4} = emqx_utils_json:decode(Res4, [return_maps]),
     ?assertEqual(Size, erlang:length(Data4)),
+
+    %% check created_at filter rfc3339
     {ok, Res41} = emqx_mgmt_api_test_util:request_api(
         get, AuditPath, "lte_created_at=" ++ Date, AuthHeader
     ),
     ?assertEqual(Res4, Res41),
+    %% check created_at filter millisecond
+    {ok, Res42} = emqx_mgmt_api_test_util:request_api(
+        get, AuditPath, "lte_created_at=" ++ TimeMs, AuthHeader
+    ),
+    ?assertEqual(Res4, Res42),
 
     %% check duration_ms filter
     {ok, Res5} = emqx_mgmt_api_test_util:request_api(
@@ -224,7 +244,7 @@ t_max_size(_Config) ->
         fun(_) ->
             ok = emqx_ctl:run_command(["conf", "show", "log"])
         end,
-        lists:duplicate(110, 1)
+        lists:duplicate(100, 1)
     ),
     _ = mnesia:dump_log(),
     LogCount = wait_for_dirty_write_log_done(1500),
