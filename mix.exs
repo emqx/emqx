@@ -98,11 +98,12 @@ defmodule EMQXUmbrella.MixProject do
       # set by hackney (dependency)
       {:ssl_verify_fun, "1.1.7", override: true},
       {:rfc3339, github: "emqx/rfc3339", tag: "0.2.3", override: true},
+      {:bcrypt, github: "emqx/erlang-bcrypt", tag: "0.6.1", override: true},
       {:uuid, github: "okeuday/uuid", tag: "v2.0.6", override: true},
       {:quickrand, github: "okeuday/quickrand", tag: "v2.0.6", override: true}
     ] ++
       emqx_apps(profile_info, version) ++
-      enterprise_deps(profile_info) ++ bcrypt_dep() ++ jq_dep() ++ quicer_dep()
+      enterprise_deps(profile_info) ++ jq_dep() ++ quicer_dep()
   end
 
   defp emqx_apps(profile_info, version) do
@@ -374,10 +375,8 @@ defmodule EMQXUmbrella.MixProject do
     %{
       mnesia_rocksdb: enable_rocksdb?(),
       quicer: enable_quicer?(),
-      bcrypt: enable_bcrypt?(),
       jq: enable_jq?(),
-      observer: is_app?(:observer),
-      os_mon: enable_os_mon?()
+      observer: is_app?(:observer)
     }
     |> Enum.reject(&elem(&1, 1))
     |> Enum.map(&elem(&1, 0))
@@ -786,12 +785,6 @@ defmodule EMQXUmbrella.MixProject do
   defp emqx_schema_mod(:enterprise), do: :emqx_enterprise_schema
   defp emqx_schema_mod(:community), do: :emqx_conf_schema
 
-  defp bcrypt_dep() do
-    if enable_bcrypt?(),
-      do: [{:bcrypt, github: "emqx/erlang-bcrypt", tag: "0.6.1", override: true}],
-      else: []
-  end
-
   defp jq_dep() do
     if enable_jq?(),
       do: [{:jq, github: "emqx/jq", tag: "v0.3.12", override: true}],
@@ -805,35 +798,25 @@ defmodule EMQXUmbrella.MixProject do
       else: []
   end
 
-  defp enable_bcrypt?() do
-    not win32?()
-  end
-
-  defp enable_os_mon?() do
-    not win32?()
-  end
-
   defp enable_jq?() do
     not Enum.any?([
-      build_without_jq?(),
-      win32?()
-    ]) or "1" == System.get_env("BUILD_WITH_JQ")
+      build_without_jq?()
+    ])
   end
 
   defp enable_quicer?() do
-    not Enum.any?([
-      build_without_quic?(),
-      win32?(),
-      centos6?(),
-      macos?()
-    ]) or "1" == System.get_env("BUILD_WITH_QUIC")
+    "1" == System.get_env("BUILD_WITH_QUIC") or
+      not Enum.any?([
+        macos?(),
+        build_without_quic?()
+      ])
   end
 
   defp enable_rocksdb?() do
     not Enum.any?([
-      build_without_rocksdb?(),
-      raspbian?()
-    ]) or "1" == System.get_env("BUILD_WITH_ROCKSDB")
+      raspbian?(),
+      build_without_rocksdb?()
+    ])
   end
 
   defp pkg_vsn() do
@@ -846,19 +829,6 @@ defmodule EMQXUmbrella.MixProject do
   defp os_cmd(script, args) do
     {str, 0} = System.cmd("bash", [script | args])
     String.trim(str)
-  end
-
-  defp win32?(),
-    do: match?({:win_32, _}, :os.type())
-
-  defp centos6?() do
-    case File.read("/etc/centos-release") do
-      {:ok, "CentOS release 6" <> _} ->
-        true
-
-      _ ->
-        false
-    end
   end
 
   defp macos?() do

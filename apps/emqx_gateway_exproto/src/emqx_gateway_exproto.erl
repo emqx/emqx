@@ -166,7 +166,7 @@ start_grpc_server(GwName, Options = #{bind := ListenOn}) ->
                 {badconf, #{
                     key => server,
                     value => Options,
-                    reason => illegal_grpc_server_confs
+                    reason => invalid_grpc_server_confs
                 }}
             )
     end;
@@ -175,7 +175,7 @@ start_grpc_server(_GwName, Options) ->
         {badconf, #{
             key => server,
             value => Options,
-            reason => illegal_grpc_server_confs
+            reason => invalid_grpc_server_confs
         }}
     ).
 
@@ -196,7 +196,7 @@ start_grpc_client_channel(
                     {badconf, #{
                         key => address,
                         value => Address,
-                        reason => illegal_grpc_address
+                        reason => invalid_grpc_address
                     }}
                 )
         end,
@@ -222,7 +222,7 @@ start_grpc_client_channel(_GwName, Options) ->
         {badconf, #{
             key => handler,
             value => Options,
-            reason => ililegal_grpc_client_confs
+            reason => invalid_grpc_client_confs
         }}
     ).
 
