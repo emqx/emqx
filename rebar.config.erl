@@ -35,9 +35,6 @@ assert_otp() ->
             ok
     end.
 
-bcrypt() ->
-    {bcrypt, {git, "https://github.com/emqx/erlang-bcrypt.git", {tag, "0.6.1"}}}.
-
 quicer() ->
     {quicer, {git, "https://github.com/emqx/quic.git", {tag, "0.0.308"}}}.
 
@@ -47,8 +44,7 @@ jq() ->
 deps(Config) ->
     {deps, OldDeps} = lists:keyfind(deps, 1, Config),
     MoreDeps =
-        [bcrypt() || provide_bcrypt_dep()] ++
-            [jq() || is_jq_supported()] ++
+        [jq() || is_jq_supported()] ++
             [quicer() || is_quicer_supported()],
     lists:keystore(deps, 1, Config, {deps, OldDeps ++ MoreDeps}).
 
@@ -121,45 +117,41 @@ is_community_umbrella_app("apps/emqx_gateway_jt808") -> false;
 is_community_umbrella_app("apps/emqx_bridge_syskeeper") -> false;
 is_community_umbrella_app(_) -> true.
 
+%% BUILD_WITHOUT_JQ
+%% BUILD_WITHOUT_QUIC
+%% BUILD_WITHOUT_ROCKSDB
+is_build_without(Name) ->
+    "1" =:= os:getenv("BUILD_WITHOUT_" ++ Name).
+
+%% BUILD_WITH_QUIC
+is_build_with(Name) ->
+    "1" =:= os:getenv("BUILD_WITH_" ++ Name).
+
 is_jq_supported() ->
-    not (false =/= os:getenv("BUILD_WITHOUT_JQ") orelse
-        is_win32()) orelse
-        "1" == os:getenv("BUILD_WITH_JQ").
+    not is_build_without("JQ").
 
 is_quicer_supported() ->
-    not (false =/= os:getenv("BUILD_WITHOUT_QUIC") orelse
-        is_macos() orelse
-        is_win32() orelse is_centos_6()) orelse
-        "1" == os:getenv("BUILD_WITH_QUIC").
+    %% for ones who want to build QUIC on macos
+    %% export BUILD_WITH_QUIC=1
+    is_build_with("QUIC") orelse
+        is_quicer_supported(os:type()).
+
+is_quicer_supported({unix, darwin}) ->
+    %% no quic on macos so far
+    false;
+is_quicer_supported(_) ->
+    not is_build_without("QUIC").
 
 is_rocksdb_supported() ->
-    not (false =/= os:getenv("BUILD_WITHOUT_ROCKSDB") orelse
-        is_raspbian()) orelse
-        "1" == os:getenv("BUILD_WITH_ROCKSDB").
+    %% there is no way one can build rocksdb on raspbian
+    %% so no need to check is_build_with
+    Distro = os_cmd("./scripts/get-distro.sh"),
+    is_rocksdb_supported(Distro).
 
-is_macos() ->
-    {unix, darwin} =:= os:type().
-
-is_centos_6() ->
-    %% reason:
-    %% glibc is too old
-    case file:read_file("/etc/centos-release") of
-        {ok, <<"CentOS release 6", _/binary>>} ->
-            true;
-        _ ->
-            false
-    end.
-
-is_raspbian() ->
-    case os_cmd("./scripts/get-distro.sh") of
-        "raspbian" ++ _ ->
-            true;
-        _ ->
-            false
-    end.
-
-is_win32() ->
-    win32 =:= element(1, os:type()).
+is_rocksdb_supported("respbian" ++ _) ->
+    false;
+is_rocksdb_supported(_) ->
+    not is_build_without("ROCKSDB").
 
 project_app_dirs() ->
     project_app_dirs(get_edition_from_profile_env()).
@@ -421,14 +413,12 @@ relx_apps(ReleaseType, Edition) ->
             [{App, load} || App <- BusinessApps]),
     lists:foldl(fun proplists:delete/2, Apps, excluded_apps(ReleaseType)).
 
-excluded_apps(ReleaseType) ->
+excluded_apps(_ReleaseType) ->
     OptionalApps = [
         {quicer, is_quicer_supported()},
-        {bcrypt, provide_bcrypt_release(ReleaseType)},
         {jq, is_jq_supported()},
         {observer, is_app(observer)},
-        {mnesia_rocksdb, is_rocksdb_supported()},
-        {os_mon, provide_os_mon_release()}
+        {mnesia_rocksdb, is_rocksdb_supported()}
     ],
     [App || {App, false} <- OptionalApps].
 
@@ -531,15 +521,6 @@ is_debug(VarName) ->
         _ -> true
     end.
 
-provide_bcrypt_dep() ->
-    not is_win32().
-
-provide_os_mon_release() ->
-    not is_win32().
-
-provide_bcrypt_release(ReleaseType) ->
-    provide_bcrypt_dep() andalso ReleaseType =:= cloud.
-
 erl_opts_i() ->
     [{i, "apps"}] ++
         [{i, Dir} || Dir <- filelib:wildcard(filename:join(["apps", "*", "include"]))].
@@ -562,8 +543,7 @@ dialyzer(Config) ->
     AppsToExclude = AppNames -- KnownApps,
 
     Extra =
-        [os_mon, system_monitor, tools, covertool] ++
-            [bcrypt || provide_bcrypt_dep()] ++
+        [system_monitor, tools, covertool] ++
             [jq || is_jq_supported()] ++
             [quicer || is_quicer_supported()],
     NewDialyzerConfig =
