@@ -855,8 +855,8 @@ bridge_v2_type_to_connector_type(Type) ->
 connector_id(BridgeType, BridgeName) ->
     case lookup_conf(BridgeType, BridgeName) of
         #{connector := ConnectorName} ->
-            ConnectorType = bin(connector_type(BridgeType)),
-            <<"connector:", (bin(ConnectorType))/binary, ":", (bin(ConnectorName))/binary>>;
+            ConnectorType = connector_type(BridgeType),
+            emqx_connector_resource:resource_id(ConnectorType, ConnectorName);
         {error, Reason} ->
             throw(Reason)
     end.
