@@ -895,25 +895,19 @@ aggregate_metrics(
 
 format_resource(
     #{
-        type := Type,
+        type := ActionType,
         name := BridgeName,
         raw_config := RawConf,
         resource_data := ResourceData
     },
     Node
 ) ->
-    RawConfFull =
-        case emqx_bridge_v2:is_bridge_v2_type(Type) of
-            true ->
-                %% The defaults are already filled in
-                RawConf;
-            false ->
-                fill_defaults(Type, RawConf)
-        end,
+    BridgeV1Type = downgrade_type(ActionType, emqx_bridge_lib:get_conf(ActionType, BridgeName)),
+    RawConfFull = fill_defaults(BridgeV1Type, RawConf),
     redact(
         maps:merge(
             RawConfFull#{
-                type => downgrade_type(Type, emqx_bridge_lib:get_conf(Type, BridgeName)),
+                type => BridgeV1Type,
                 name => maps:get(<<"name">>, RawConf, BridgeName),
                 node => Node
             },

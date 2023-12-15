@@ -36,7 +36,7 @@
 ]).
 
 %% for testing only
--export([enterprise_api_schemas/1]).
+-export([enterprise_api_schemas/1, enterprise_fields_bridges/0]).
 
 %%======================================================================================
 %% Hocon Schema Definitions
@@ -191,7 +191,7 @@ fields(bridges) ->
                     end
                 }
             )}
-    ] ++ enterprise_fields_bridges();
+    ] ++ ?MODULE:enterprise_fields_bridges();
 fields("metrics") ->
     [
         {"dropped", mk(integer(), #{desc => ?DESC("metric_dropped")})},
