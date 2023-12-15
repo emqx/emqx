@@ -1459,8 +1459,10 @@ delete_connector(ConnectorType, ConnectorName) ->
     end.
 
 connector_has_channels(ConnectorType, ConnectorName) ->
-    {ok, Channels} = emqx_connector_resource:get_channels(ConnectorType, ConnectorName),
-    length(Channels) =/= 0.
+    case emqx_connector_resource:get_channels(ConnectorType, ConnectorName) of
+        {ok, [_ | _]} -> true;
+        _ -> false
+    end.
 
 bridge_v1_id_to_connector_resource_id(BridgeId) ->
     case binary:split(BridgeId, <<":">>) of
