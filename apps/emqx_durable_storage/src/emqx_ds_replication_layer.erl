@@ -23,8 +23,8 @@
 -export([
     list_shards/1,
     open_db/2,
-    update_db_config/2,
     add_generation/1,
+    add_generation/2,
     drop_db/1,
     store_batch/3,
     get_streams/3,
@@ -41,7 +41,7 @@
     do_make_iterator_v1/5,
     do_update_iterator_v2/4,
     do_next_v1/4,
-    do_add_generation_v1/1
+    do_add_generation_v2/1
 ]).
 
 -export_type([shard_id/0, builtin_db_opts/0, stream/0, iterator/0, message_id/0, batch/0]).
@@ -124,15 +124,15 @@ open_db(DB, CreateOpts) ->
         MyShards
     ).
 
--spec update_db_config(emqx_ds:db(), builtin_db_opts()) -> ok | {error, _}.
-update_db_config(DB, CreateOpts) ->
-    emqx_ds_replication_layer_meta:update_db_config(DB, CreateOpts).
-
 -spec add_generation(emqx_ds:db()) -> ok | {error, _}.
 add_generation(DB) ->
     Nodes = emqx_ds_replication_layer_meta:leader_nodes(DB),
-    _ = emqx_ds_proto_v1:add_generation(Nodes, DB),
+    _ = emqx_ds_proto_v2:add_generation(Nodes, DB),
     ok.
+
+-spec add_generation(emqx_ds:db(), builtin_db_opts()) -> ok | {error, _}.
+add_generation(DB, CreateOpts) ->
+    emqx_ds_replication_layer_meta:update_db_config(DB, CreateOpts).
 
 -spec drop_db(emqx_ds:db()) -> ok | {error, _}.
 drop_db(DB) ->
@@ -297,8 +297,8 @@ do_update_iterator_v2(DB, Shard, OldIter, DSKey) ->
 do_next_v1(DB, Shard, Iter, BatchSize) ->
     emqx_ds_storage_layer:next({DB, Shard}, Iter, BatchSize).
 
--spec do_add_generation_v1(emqx_ds:db()) -> ok | {error, _}.
-do_add_generation_v1(DB) ->
+-spec do_add_generation_v2(emqx_ds:db()) -> ok | {error, _}.
+do_add_generation_v2(DB) ->
     MyShards = emqx_ds_replication_layer_meta:my_owned_shards(DB),
 
     lists:foreach(

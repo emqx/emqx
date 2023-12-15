@@ -470,15 +470,15 @@ filter_shards(DB, Predicte) ->
         ShardId
     end).
 
-filter_shards(DB, Predicte, Maper) ->
+filter_shards(DB, Predicate, Mapper) ->
     eval_qlc(
         qlc:q([
-            Maper(Shard)
+            Mapper(Shard)
          || #?SHARD_TAB{shard = {D, _}} = Shard <- mnesia:table(
                 ?SHARD_TAB
             ),
             D =:= DB,
-            Predicte(Shard)
+            Predicate(Shard)
         ])
     ).
 

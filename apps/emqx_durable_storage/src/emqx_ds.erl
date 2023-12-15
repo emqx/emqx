@@ -22,7 +22,7 @@
 -module(emqx_ds).
 
 %% Management API:
--export([open_db/2, update_db_config/2, add_generation/1, drop_db/1]).
+-export([open_db/2, add_generation/2, add_generation/1, drop_db/1]).
 
 %% Message storage API:
 -export([store_batch/2, store_batch/3]).
@@ -124,9 +124,9 @@
 
 -callback open_db(db(), create_db_opts()) -> ok | {error, _}.
 
--callback update_db_config(db(), create_db_opts()) -> ok | {error, _}.
-
 -callback add_generation(db()) -> ok | {error, _}.
+
+-callback add_generation(db(), create_db_opts()) -> ok | {error, _}.
 
 -callback drop_db(db()) -> ok | {error, _}.
 
@@ -158,23 +158,13 @@ open_db(DB, Opts = #{backend := Backend}) when Backend =:= builtin orelse Backen
     persistent_term:put(?persistent_term(DB), Module),
     ?module(DB):open_db(DB, Opts).
 
--spec update_db_config(db(), create_db_opts()) -> ok.
-update_db_config(DB, Opts) ->
-    case persistent_term:get(?persistent_term(DB), undefined) of
-        undefined ->
-            ok;
-        Module ->
-            Module:update_db_config(DB, Opts)
-    end.
-
 -spec add_generation(db()) -> ok.
 add_generation(DB) ->
-    case persistent_term:get(?persistent_term(DB), undefined) of
-        undefined ->
-            ok;
-        Module ->
-            Module:add_generation(DB)
-    end.
+    ?module(DB):add_generation(DB).
+
+-spec add_generation(db(), create_db_opts()) -> ok.
+add_generation(DB, Opts) ->
+    ?module(DB):add_generation(DB, Opts).
 
 %% @doc TODO: currently if one or a few shards are down, they won't be
 

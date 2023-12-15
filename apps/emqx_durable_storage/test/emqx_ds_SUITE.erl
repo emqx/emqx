@@ -155,7 +155,7 @@ t_05_update_iterator(_Config) ->
     ?assertEqual(Msgs, AllMsgs, #{from_key => Iter1, final_iter => FinalIter}),
     ok.
 
-t_05_update(_Config) ->
+t_05_update_config(_Config) ->
     DB = ?FUNCTION_NAME,
     ?assertMatch(ok, emqx_ds:open_db(DB, opts())),
     TopicFilter = ['#'],
@@ -180,7 +180,7 @@ t_05_update(_Config) ->
                     {false, TimeAcc, [Msgs | MsgAcc]};
                 (Datas, {Any, TimeAcc, MsgAcc}) ->
                     timer:sleep(500),
-                    ?assertMatch(ok, emqx_ds:update_db_config(DB, opts())),
+                    ?assertMatch(ok, emqx_ds:add_generation(DB, opts())),
                     timer:sleep(500),
                     StartTime = emqx_message:timestamp_now(),
                     Msgs = ToMsgs(Datas),
@@ -269,7 +269,8 @@ fetch_all(DB, TopicFilter, StartTime) ->
     lists:foldl(
         fun({_, Stream}, Acc) ->
             {ok, Iter0} = emqx_ds:make_iterator(DB, Stream, TopicFilter, StartTime),
-            {ok, _, Msgs} = iterate(DB, Iter0, StartTime),
+            {ok, _, Msgs0} = iterate(DB, Iter0, StartTime),
+            Msgs = lists:map(fun({_, Msg}) -> Msg end, Msgs0),
             Acc ++ Msgs
         end,
         [],

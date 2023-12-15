@@ -27,7 +27,8 @@
     next/5,
 
     %% introduced in v2
-    update_iterator/5
+    update_iterator/5,
+    add_generation/2
 ]).
 
 %% behavior callbacks:
@@ -109,6 +110,11 @@ update_iterator(Node, DB, Shard, OldIter, DSKey) ->
     erpc:call(Node, emqx_ds_replication_layer, do_update_iterator_v2, [
         DB, Shard, OldIter, DSKey
     ]).
+
+-spec add_generation([node()], emqx_ds:db()) ->
+    [{ok, ok} | erpc:caught_call_exception()].
+add_generation(Node, DB) ->
+    erpc:multicall(Node, emqx_ds_replication_layer, do_add_generation_v2, [DB]).
 
 %%================================================================================
 %% behavior callbacks

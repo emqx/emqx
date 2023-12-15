@@ -265,8 +265,6 @@ add_generation(ShardId) ->
 %% gen_server for the shard
 %%================================================================================
 
--define(REF(ShardId), {via, gproc, {n, l, {?MODULE, ShardId}}}).
-
 -spec start_link(shard_id(), emqx_ds:builtin_db_options()) ->
     {ok, pid()}.
 start_link(Shard = {_, _}, Options) ->
