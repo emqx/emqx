@@ -28,8 +28,7 @@ Quicer = {quicer, {git, "https://github.com/emqx/quic.git", {tag, "0.0.308"}}}.
 
 Dialyzer = fun(Config) ->
     {dialyzer, OldDialyzerConfig} = lists:keyfind(dialyzer, 1, Config),
-    {plt_extra_apps, OldExtra} = lists:keyfind(plt_extra_apps, 1, OldDialyzerConfig),
-    Extra = OldExtra ++ [quicer || IsQuicSupp()],
+    Extra = [quicer || IsQuicSupp()],
     NewDialyzerConfig = [{plt_extra_apps, Extra} | OldDialyzerConfig],
     lists:keystore(
         dialyzer,
