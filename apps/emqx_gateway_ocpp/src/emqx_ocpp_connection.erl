@@ -250,7 +250,7 @@ init_state_and_channel([Req, Opts, _WsOpts], _State = undefined) ->
             cowboy_req:parse_cookies(Req)
         catch
             error:badarg ->
-                ?SLOG(error, #{msg => "illegal_cookie"}),
+                ?SLOG(error, #{msg => "bad_cookie"}),
                 undefined;
             Error:Reason ->
                 ?SLOG(error, #{
