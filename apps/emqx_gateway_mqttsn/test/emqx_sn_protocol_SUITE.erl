@@ -1229,7 +1229,7 @@ t_will_case01(_) ->
     ?assertEqual(<<2, ?SN_DISCONNECT>>, receive_response(Socket)),
 
     send_disconnect_msg(Socket, undefined),
-    ?assertEqual(udp_receive_timeout, receive_response(Socket)),
+    ?assertEqual(<<2, ?SN_DISCONNECT>>, receive_response(Socket)),
 
     gen_udp:close(Socket).
 
@@ -1256,7 +1256,7 @@ t_will_test2(_) ->
     receive_response(Socket),
 
     send_disconnect_msg(Socket, undefined),
-    ?assertEqual(udp_receive_timeout, receive_response(Socket)),
+    ?assertEqual(<<2, ?SN_DISCONNECT>>, receive_response(Socket)),
 
     gen_udp:close(Socket).
 
@@ -1277,7 +1277,7 @@ t_will_test3(_) ->
     ?assertEqual(<<2, ?SN_DISCONNECT>>, receive_response(Socket)),
 
     send_disconnect_msg(Socket, undefined),
-    ?assertEqual(udp_receive_timeout, receive_response(Socket)),
+    ?assertEqual(<<2, ?SN_DISCONNECT>>, receive_response(Socket)),
 
     gen_udp:close(Socket).
 
@@ -1306,7 +1306,7 @@ t_will_test4(_) ->
     receive_response(Socket),
 
     send_disconnect_msg(Socket, undefined),
-    ?assertEqual(udp_receive_timeout, receive_response(Socket)),
+    ?assertEqual(<<2, ?SN_DISCONNECT>>, receive_response(Socket)),
 
     gen_udp:close(Socket).
 
