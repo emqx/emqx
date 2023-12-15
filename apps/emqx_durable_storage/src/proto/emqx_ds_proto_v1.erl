@@ -24,7 +24,8 @@
     store_batch/5,
     get_streams/5,
     make_iterator/6,
-    next/5
+    next/5,
+    add_generation/2
 ]).
 
 %% behavior callbacks:
@@ -88,6 +89,11 @@ store_batch(Node, DB, Shard, Batch, Options) ->
     emqx_rpc:call(Shard, Node, emqx_ds_replication_layer, do_store_batch_v1, [
         DB, Shard, Batch, Options
     ]).
+
+-spec add_generation([node()], emqx_ds:db()) ->
+    [{ok, ok} | erpc:caught_call_exception()].
+add_generation(Node, DB) ->
+    erpc:multicall(Node, emqx_ds_replication_layer, do_add_generation_v1, [DB]).
 
 %%================================================================================
 %% behavior callbacks

@@ -50,7 +50,7 @@ t_00_smoke_open_drop(_Config) ->
     lists:foreach(
         fun(Shard) ->
             ?assertEqual(
-                {ok, [Site]}, emqx_ds_replication_layer_meta:replica_set(DB, Shard)
+                {ok, []}, emqx_ds_replication_layer_meta:replica_set(DB, Shard)
             ),
             ?assertEqual(
                 [Site], emqx_ds_replication_layer_meta:in_sync_replicas(DB, Shard)
@@ -155,6 +155,127 @@ t_05_update_iterator(_Config) ->
     ?assertEqual(Msgs, AllMsgs, #{from_key => Iter1, final_iter => FinalIter}),
     ok.
 
+t_05_update(_Config) ->
+    DB = ?FUNCTION_NAME,
+    ?assertMatch(ok, emqx_ds:open_db(DB, opts())),
+    TopicFilter = ['#'],
+
+    DataSet = update_data_set(),
+
+    ToMsgs = fun(Datas) ->
+        lists:map(
+            fun({Topic, Payload}) ->
+                message(Topic, Payload, emqx_message:timestamp_now())
+            end,
+            Datas
+        )
+    end,
+
+    {_, StartTimes, MsgsList} =
+        lists:foldl(
+            fun
+                (Datas, {true, TimeAcc, MsgAcc}) ->
+                    Msgs = ToMsgs(Datas),
+                    ?assertMatch(ok, emqx_ds:store_batch(DB, Msgs)),
+                    {false, TimeAcc, [Msgs | MsgAcc]};
+                (Datas, {Any, TimeAcc, MsgAcc}) ->
+                    timer:sleep(500),
+                    ?assertMatch(ok, emqx_ds:update_db_config(DB, opts())),
+                    timer:sleep(500),
+                    StartTime = emqx_message:timestamp_now(),
+                    Msgs = ToMsgs(Datas),
+                    ?assertMatch(ok, emqx_ds:store_batch(DB, Msgs)),
+                    {Any, [StartTime | TimeAcc], [Msgs | MsgAcc]}
+            end,
+            {true, [emqx_message:timestamp_now()], []},
+            DataSet
+        ),
+
+    Checker = fun({StartTime, Msgs0}, Acc) ->
+        Msgs = Msgs0 ++ Acc,
+        Batch = fetch_all(DB, TopicFilter, StartTime),
+        ?assertEqual(Msgs, Batch, {StartTime}),
+        Msgs
+    end,
+    lists:foldl(Checker, [], lists:zip(StartTimes, MsgsList)).
+
+t_06_add_generation(_Config) ->
+    DB = ?FUNCTION_NAME,
+    ?assertMatch(ok, emqx_ds:open_db(DB, opts())),
+    TopicFilter = ['#'],
+
+    DataSet = update_data_set(),
+
+    ToMsgs = fun(Datas) ->
+        lists:map(
+            fun({Topic, Payload}) ->
+                message(Topic, Payload, emqx_message:timestamp_now())
+            end,
+            Datas
+        )
+    end,
+
+    {_, StartTimes, MsgsList} =
+        lists:foldl(
+            fun
+                (Datas, {true, TimeAcc, MsgAcc}) ->
+                    Msgs = ToMsgs(Datas),
+                    ?assertMatch(ok, emqx_ds:store_batch(DB, Msgs)),
+                    {false, TimeAcc, [Msgs | MsgAcc]};
+                (Datas, {Any, TimeAcc, MsgAcc}) ->
+                    timer:sleep(500),
+                    ?assertMatch(ok, emqx_ds:add_generation(DB)),
+                    timer:sleep(500),
+                    StartTime = emqx_message:timestamp_now(),
+                    Msgs = ToMsgs(Datas),
+                    ?assertMatch(ok, emqx_ds:store_batch(DB, Msgs)),
+                    {Any, [StartTime | TimeAcc], [Msgs | MsgAcc]}
+            end,
+            {true, [emqx_message:timestamp_now()], []},
+            DataSet
+        ),
+
+    Checker = fun({StartTime, Msgs0}, Acc) ->
+        Msgs = Msgs0 ++ Acc,
+        Batch = fetch_all(DB, TopicFilter, StartTime),
+        ?assertEqual(Msgs, Batch, {StartTime}),
+        Msgs
+    end,
+    lists:foldl(Checker, [], lists:zip(StartTimes, MsgsList)).
+
+update_data_set() ->
+    [
+        [
+            {<<"foo/bar">>, <<"1">>}
+        ],
+
+        [
+            {<<"foo">>, <<"2">>}
+        ],
+
+        [
+            {<<"bar/bar">>, <<"3">>}
+        ]
+    ].
+
+fetch_all(DB, TopicFilter, StartTime) ->
+    Streams0 = emqx_ds:get_streams(DB, TopicFilter, StartTime),
+    Streams = lists:sort(
+        fun({{_, A}, _}, {{_, B}, _}) ->
+            A < B
+        end,
+        Streams0
+    ),
+    lists:foldl(
+        fun({_, Stream}, Acc) ->
+            {ok, Iter0} = emqx_ds:make_iterator(DB, Stream, TopicFilter, StartTime),
+            {ok, _, Msgs} = iterate(DB, Iter0, StartTime),
+            Acc ++ Msgs
+        end,
+        [],
+        Streams
+    ).
+
 message(Topic, Payload, PublishedAt) ->
     #message{
         topic = Topic,
@@ -172,6 +293,8 @@ iterate(DB, It0, BatchSize, Acc) ->
             {ok, It, Acc};
         {ok, It, Msgs} ->
             iterate(DB, It, BatchSize, Acc ++ Msgs);
+        {ok, end_of_stream} ->
+            {ok, It0, Acc};
         Ret ->
             Ret
     end.

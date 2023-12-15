@@ -22,7 +22,7 @@
 -module(emqx_ds).
 
 %% Management API:
--export([open_db/2, drop_db/1]).
+-export([open_db/2, update_db_config/2, add_generation/1, drop_db/1]).
 
 %% Message storage API:
 -export([store_batch/2, store_batch/3]).
@@ -95,7 +95,7 @@
 
 %% Timestamp
 %% Earliest possible timestamp is 0.
-%% TODO granularity?  Currently, we should always use micro second, as that's the unit we
+%% TODO granularity?  Currently, we should always use milliseconds, as that's the unit we
 %% use in emqx_guid.  Otherwise, the iterators won't match the message timestamps.
 -type time() :: non_neg_integer().
 
@@ -123,6 +123,10 @@
 %%================================================================================
 
 -callback open_db(db(), create_db_opts()) -> ok | {error, _}.
+
+-callback update_db_config(db(), create_db_opts()) -> ok | {error, _}.
+
+-callback add_generation(db()) -> ok | {error, _}.
 
 -callback drop_db(db()) -> ok | {error, _}.
 
@@ -153,6 +157,24 @@ open_db(DB, Opts = #{backend := Backend}) when Backend =:= builtin orelse Backen
         end,
     persistent_term:put(?persistent_term(DB), Module),
     ?module(DB):open_db(DB, Opts).
+
+-spec update_db_config(db(), create_db_opts()) -> ok.
+update_db_config(DB, Opts) ->
+    case persistent_term:get(?persistent_term(DB), undefined) of
+        undefined ->
+            ok;
+        Module ->
+            Module:update_db_config(DB, Opts)
+    end.
+
+-spec add_generation(db()) -> ok.
+add_generation(DB) ->
+    case persistent_term:get(?persistent_term(DB), undefined) of
+        undefined ->
+            ok;
+        Module ->
+            Module:add_generation(DB)
+    end.
 
 %% @doc TODO: currently if one or a few shards are down, they won't be
 

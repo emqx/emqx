@@ -25,7 +25,9 @@
     get_streams/3,
     make_iterator/4,
     update_iterator/3,
-    next/3
+    next/3,
+    update_config/2,
+    add_generation/1
 ]).
 
 %% gen_server
@@ -46,6 +48,8 @@
 ]).
 
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
+
+-define(REF(ShardId), {via, gproc, {n, l, {?MODULE, ShardId}}}).
 
 %%================================================================================
 %% Type declarations
@@ -249,13 +253,21 @@ next(Shard, Iter = #{?tag := ?IT, ?generation := GenId, ?enc := GenIter0}, Batch
             Error
     end.
 
+-spec update_config(shard_id(), emqx_ds:builtin_db_opts()) -> ok.
+update_config(ShardId, Options) ->
+    gen_server:call(?REF(ShardId), {?FUNCTION_NAME, Options}, infinity).
+
+-spec add_generation(shard_id()) -> ok.
+add_generation(ShardId) ->
+    gen_server:call(?REF(ShardId), add_generation, infinity).
+
 %%================================================================================
 %% gen_server for the shard
 %%================================================================================
 
 -define(REF(ShardId), {via, gproc, {n, l, {?MODULE, ShardId}}}).
 
--spec start_link(shard_id(), options()) ->
+-spec start_link(shard_id(), emqx_ds:builtin_db_options()) ->
     {ok, pid()}.
 start_link(Shard = {_, _}, Options) ->
     gen_server:start_link(?REF(Shard), ?MODULE, {Shard, Options}, []).
@@ -300,6 +312,18 @@ init({ShardId, Options}) ->
     commit_metadata(S),
     {ok, S}.
 
+handle_call({update_config, Options}, _From, #s{schema = Schema} = S0) ->
+    Prototype = maps:get(storage, Options),
+    S1 = S0#s{schema = Schema#{prototype := Prototype}},
+    Since = emqx_message:timestamp_now(),
+    S = add_generation(S1, Since),
+    commit_metadata(S),
+    {reply, ok, S};
+handle_call(add_generation, _From, S0) ->
+    Since = emqx_message:timestamp_now(),
+    S = add_generation(S0, Since),
+    commit_metadata(S),
+    {reply, ok, S};
 handle_call(#call_create_generation{since = Since}, _From, S0) ->
     S = add_generation(S0, Since),
     commit_metadata(S),
@@ -342,11 +366,13 @@ open_shard(ShardId, DB, CFRefs, ShardSchema) ->
 -spec add_generation(server_state(), emqx_ds:time()) -> server_state().
 add_generation(S0, Since) ->
     #s{shard_id = ShardId, db = DB, schema = Schema0, shard = Shard0, cf_refs = CFRefs0} = S0,
-    {GenId, Schema, NewCFRefs} = new_generation(ShardId, DB, Schema0, Since),
+    Schema1 = update_last_until(Schema0, Since),
+    Shard1 = update_last_until(Shard0, Since),
+    {GenId, Schema, NewCFRefs} = new_generation(ShardId, DB, Schema1, Since),
     CFRefs = NewCFRefs ++ CFRefs0,
     Key = {generation, GenId},
     Generation = open_generation(ShardId, DB, CFRefs, GenId, maps:get(Key, Schema)),
-    Shard = Shard0#{Key => Generation},
+    Shard = Shard1#{current_generation := GenId, Key => Generation},
     S0#s{
         cf_refs = CFRefs,
         schema = Schema,
@@ -425,6 +451,13 @@ rocksdb_open(Shard, Options) ->
 -spec db_dir(shard_id()) -> file:filename().
 db_dir({DB, ShardId}) ->
     filename:join([emqx:data_dir(), atom_to_list(DB), binary_to_list(ShardId)]).
+
+-spec update_last_until(Schema, emqx_ds:time()) -> Schema when Schema :: shard_schema() | shard().
+update_last_until(Schema, Until) ->
+    #{current_generation := GenId} = Schema,
+    GenData0 = maps:get({generation, GenId}, Schema),
+    GenData = GenData0#{until := Until},
+    Schema#{{generation, GenId} := GenData}.
 
 %%--------------------------------------------------------------------------------
 %% Schema access
