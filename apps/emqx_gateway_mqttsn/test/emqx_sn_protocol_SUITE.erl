@@ -66,7 +66,6 @@
 -elvis([{elvis_style, dont_repeat_yourself, disable}]).
 
 -define(CONF_DEFAULT, <<
-    "\n"
     "gateway.mqttsn {\n"
     "  gateway_id = 1\n"
     "  broadcast = true\n"
@@ -86,6 +85,14 @@
     "  listeners.udp.default {\n"
     "    bind = 1884\n"
     "  }\n"
+    "  listeners.dtls.default {\n"
+    "    bind = 1885\n"
+    "    dtls_options {\n"
+    "      cacertfile = \"${certdir}ca.crt\"\n"
+    "      certfile = \"${certdir}dtls.server.crt\"\n"
+    "      keyfile = \"${certdir}dtls.server.key\"\n"
+    "    }\n"
+    "  }\n"
     "}\n"
 >>).
 
@@ -97,9 +104,13 @@ all() ->
     emqx_common_test_helpers:all(?MODULE).
 
 init_per_suite(Config) ->
+    ConfTemplate = emqx_template:parse(?CONF_DEFAULT),
+    Conf = emqx_template:render_strict(ConfTemplate, #{
+        certdir => ?config(data_dir, Config)
+    }),
     Apps = emqx_cth_suite:start(
         [
-            {emqx_conf, ?CONF_DEFAULT},
+            {emqx_conf, Conf},
             emqx_gateway,
             emqx_auth,
             emqx_management,
@@ -190,6 +201,25 @@ t_first_disconnect(_) ->
     %% assert: mqttsn gateway will ack disconnect msg with DISCONNECT packet
     ?assertEqual(<<2, ?SN_DISCONNECT>>, receive_response(Socket)),
     gen_udp:close(Socket).
+
+t_connect_dtls(Config) ->
+    SockName = {'mqttsn:dtls:default', 1885},
+    ?assertEqual(true, lists:keymember(SockName, 1, esockd:listeners())),
+
+    ClientOpts = [
+        binary,
+        {active, false},
+        {protocol, dtls},
+        {cacertfile, filename:join(?config(data_dir, Config), "ca.crt")}
+        | emqx_common_test_helpers:ssl_verify_fun_allow_any_host()
+    ],
+    {ok, Socket} = ssl:connect(?HOST, 1885, ClientOpts, 1000),
+    ok = ssl:send(Socket, make_connect_msg(<<"client_id_test1">>, 1)),
+    ?assertEqual({ok, <<3, ?SN_CONNACK, 0>>}, ssl:recv(Socket, 0, 1000)),
+
+    ok = ssl:send(Socket, make_disconnect_msg(undefined)),
+    ?assertEqual({ok, <<2, ?SN_DISCONNECT>>}, ssl:recv(Socket, 0, 1000)),
+    ssl:close(Socket).
 
 t_subscribe(_) ->
     Dup = 0,
@@ -2444,10 +2474,7 @@ send_searchgw_msg(Socket) ->
     Radius = 0,
     ok = gen_udp:send(Socket, ?HOST, ?PORT, <<Length:8, MsgType:8, Radius:8>>).
 
-send_connect_msg(Socket, ClientId) ->
-    send_connect_msg(Socket, ClientId, 1).
-
-send_connect_msg(Socket, ClientId, CleanSession) when
+make_connect_msg(ClientId, CleanSession) when
     CleanSession == 0;
     CleanSession == 1
 ->
@@ -2460,9 +2487,14 @@ send_connect_msg(Socket, ClientId, CleanSession) when
     TopicIdType = 0,
     ProtocolId = 1,
     Duration = 10,
-    Packet =
-        <<Length:8, MsgType:8, Dup:1, QoS:2, Retain:1, Will:1, CleanSession:1, TopicIdType:2,
-            ProtocolId:8, Duration:16, ClientId/binary>>,
+    <<Length:8, MsgType:8, Dup:1, QoS:2, Retain:1, Will:1, CleanSession:1, TopicIdType:2,
+        ProtocolId:8, Duration:16, ClientId/binary>>.
+
+send_connect_msg(Socket, ClientId) ->
+    send_connect_msg(Socket, ClientId, 1).
+
+send_connect_msg(Socket, ClientId, CleanSession) ->
+    Packet = make_connect_msg(ClientId, CleanSession),
     ok = gen_udp:send(Socket, ?HOST, ?PORT, Packet).
 
 send_connect_msg_with_will(Socket, Duration, ClientId) ->
@@ -2724,15 +2756,17 @@ send_pingreq_msg(Socket, ClientId) ->
     ?LOG("send_pingreq_msg ClientId=~p", [ClientId]),
     ok = gen_udp:send(Socket, ?HOST, ?PORT, PingReqPacket).
 
-send_disconnect_msg(Socket, Duration) ->
+make_disconnect_msg(Duration) ->
     Length = 2,
     Length2 = 4,
     MsgType = ?SN_DISCONNECT,
-    DisConnectPacket =
-        case Duration of
-            undefined -> <<Length:8, MsgType:8>>;
-            Other -> <<Length2:8, MsgType:8, Other:16>>
-        end,
+    case Duration of
+        undefined -> <<Length:8, MsgType:8>>;
+        Other -> <<Length2:8, MsgType:8, Other:16>>
+    end.
+
+send_disconnect_msg(Socket, Duration) ->
+    DisConnectPacket = make_disconnect_msg(Duration),
     ?LOG("send_disconnect_msg Duration=~p", [Duration]),
     ok = gen_udp:send(Socket, ?HOST, ?PORT, DisConnectPacket).
 
