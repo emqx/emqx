@@ -88,9 +88,9 @@
     "  listeners.dtls.default {\n"
     "    bind = 1885\n"
     "    dtls_options {\n"
-    "      cacertfile = \"${certdir}ca.crt\"\n"
-    "      certfile = \"${certdir}dtls.server.crt\"\n"
-    "      keyfile = \"${certdir}dtls.server.key\"\n"
+    "      cacertfile = \"${cacertfile}\"\n"
+    "      certfile = \"${certfile}\"\n"
+    "      keyfile = \"${keyfile}\"\n"
     "    }\n"
     "  }\n"
     "}\n"
@@ -104,10 +104,19 @@ all() ->
     emqx_common_test_helpers:all(?MODULE).
 
 init_per_suite(Config) ->
-    ConfTemplate = emqx_template:parse(?CONF_DEFAULT),
-    Conf = emqx_template:render_strict(ConfTemplate, #{
-        certdir => ?config(data_dir, Config)
-    }),
+    PrivDir = ?config(priv_dir, Config),
+    Root = emqx_cth_tls:gen_cert(#{key => ec, issuer => root}),
+    Server = emqx_cth_tls:gen_cert(#{key => ec, issuer => Root}),
+    {CACertfile, _} = emqx_cth_tls:write_cert(PrivDir, Root),
+    {Certfile, Keyfile} = emqx_cth_tls:write_cert(PrivDir, Server),
+    Conf = emqx_template:render_strict(
+        emqx_template:parse(?CONF_DEFAULT),
+        #{
+            cacertfile => CACertfile,
+            certfile => Certfile,
+            keyfile => Keyfile
+        }
+    ),
     Apps = emqx_cth_suite:start(
         [
             {emqx_conf, Conf},
@@ -119,7 +128,7 @@ init_per_suite(Config) ->
         #{work_dir => emqx_cth_suite:work_dir(Config)}
     ),
     emqx_common_test_http:create_default_app(),
-    [{suite_apps, Apps} | Config].
+    [{suite_apps, Apps}, {cacertfile, CACertfile} | Config].
 
 end_per_suite(Config) ->
     {ok, _} = emqx:remove_config([gateway, mqttsn]),
@@ -210,7 +219,7 @@ t_connect_dtls(Config) ->
         binary,
         {active, false},
         {protocol, dtls},
-        {cacertfile, filename:join(?config(data_dir, Config), "ca.crt")}
+        {cacertfile, ?config(cacertfile, Config)}
         | emqx_common_test_helpers:ssl_verify_fun_allow_any_host()
     ],
     {ok, Socket} = ssl:connect(?HOST, 1885, ClientOpts, 1000),
