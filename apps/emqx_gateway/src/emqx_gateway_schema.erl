@@ -174,11 +174,7 @@ fields(dtls_opts) ->
             reuse_sessions => true,
             versions => dtls_all_available
         },
-        %% NOTE
-        %% Although dTLS listener is started through `esockd`, it doesn't really support stuff
-        %% more tightly related to `emqx_listeners` (`enable_crl_check`, `oscp`) and plain TLS
-        %% (`gc_after_handshake`).
-        _IsRanchListener = true
+        _IsRanchListener = false
     ).
 
 desc(gateway) ->

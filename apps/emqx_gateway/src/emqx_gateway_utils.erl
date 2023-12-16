@@ -273,7 +273,7 @@ merge_default(Udp, Options) ->
             udp ->
                 {udp_options, default_udp_options()};
             dtls ->
-                {udp_options, default_udp_options()};
+                {dtls_options, default_udp_options()};
             tcp ->
                 {tcp_options, default_tcp_options()};
             ssl ->
@@ -525,9 +525,10 @@ esockd_opts(Type, Opts0) when ?IS_ESOCKD_LISTENER(Type) ->
             udp ->
                 Opts2#{udp_options => sock_opts(udp_options, Opts0)};
             dtls ->
+                UDPOpts = sock_opts(udp_options, Opts0),
+                DTLSOpts = ssl_opts(dtls_options, Opts0),
                 Opts2#{
-                    udp_options => sock_opts(udp_options, Opts0),
-                    dtls_options => ssl_opts(dtls_options, Opts0)
+                    dtls_options => UDPOpts ++ DTLSOpts
                 }
         end
     ).
@@ -541,12 +542,41 @@ sock_opts(Name, Opts) ->
     ).
 
 ssl_opts(Name, Opts) ->
-    Type =
-        case Name of
-            ssl_options -> tls;
-            dtls_options -> dtls
-        end,
-    emqx_tls_lib:to_server_opts(Type, maps:get(Name, Opts, #{})).
+    SSLOpts = maps:get(Name, Opts, #{}),
+    emqx_utils:run_fold(
+        [
+            fun ssl_opts_crl_config/2,
+            fun ssl_opts_drop_unsupported/2,
+            fun ssl_server_opts/2
+        ],
+        SSLOpts,
+        Name
+    ).
+
+ssl_opts_crl_config(#{enable_crl_check := true} = SSLOpts, _Name) ->
+    HTTPTimeout = emqx_config:get([crl_cache, http_timeout], timer:seconds(15)),
+    NSSLOpts = maps:remove(enable_crl_check, SSLOpts),
+    NSSLOpts#{
+        %% `crl_check => true' doesn't work
+        crl_check => peer,
+        crl_cache => {emqx_ssl_crl_cache, {internal, [{http, HTTPTimeout}]}}
+    };
+ssl_opts_crl_config(SSLOpts, _Name) ->
+    %% NOTE: Removing this because DTLS doesn't like any unknown options.
+    maps:remove(enable_crl_check, SSLOpts).
+
+ssl_opts_drop_unsupported(SSLOpts, ssl_options) ->
+    %% TODO: Support OCSP stapling
+    maps:without([ocsp], SSLOpts);
+ssl_opts_drop_unsupported(SSLOpts, dtls_options) ->
+    %% TODO: Support OCSP stapling
+    %% NOTE: Removing those because DTLS doesn't like any unknown options.
+    maps:without([ocsp, gc_after_handshake], SSLOpts).
+
+ssl_server_opts(SSLOpts, ssl_options) ->
+    emqx_tls_lib:to_server_opts(tls, SSLOpts);
+ssl_server_opts(SSLOpts, dtls_options) ->
+    emqx_tls_lib:to_server_opts(dtls, SSLOpts).
 
 ranch_opts(Type, ListenOn, Opts) ->
     NumAcceptors = maps:get(acceptors, Opts, 4),
