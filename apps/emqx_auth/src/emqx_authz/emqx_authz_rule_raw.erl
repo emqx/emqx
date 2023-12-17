@@ -51,11 +51,18 @@ parse_rule(
         Action = validate_rule_action(ActionType, RuleRaw),
         {ok, {Permission, Action, Topics}}
     catch
-        throw:ValidationError ->
-            {error, ValidationError}
+        throw:{Invalid, Which} ->
+            {error, #{
+                reason => Invalid,
+                value => Which
+            }}
     end;
 parse_rule(RuleRaw) ->
-    {error, {invalid_rule, RuleRaw}}.
+    {error, #{
+        reason => invalid_rule,
+        value => RuleRaw,
+        explain => "missing 'permission' or 'action' field"
+    }}.
 
 -spec format_rule({
     emqx_authz_rule:permission(),
@@ -88,7 +95,7 @@ validate_rule_topics(#{<<"topic">> := TopicRaw}) when is_binary(TopicRaw) ->
 validate_rule_topics(#{<<"topics">> := TopicsRaw}) when is_list(TopicsRaw) ->
     lists:map(fun validate_rule_topic/1, TopicsRaw);
 validate_rule_topics(RuleRaw) ->
-    throw({invalid_topics, RuleRaw}).
+    throw({missing_topic_or_topics, RuleRaw}).
 
 validate_rule_topic(<<"eq ", TopicRaw/binary>>) ->
     {eq, validate_rule_topic(TopicRaw)};
@@ -98,8 +105,8 @@ validate_rule_permission(<<"allow">>) -> allow;
 validate_rule_permission(<<"deny">>) -> deny;
 validate_rule_permission(PermissionRaw) -> throw({invalid_permission, PermissionRaw}).
 
-validate_rule_action_type(<<"publish">>) -> publish;
-validate_rule_action_type(<<"subscribe">>) -> subscribe;
+validate_rule_action_type(P) when P =:= <<"pub">> orelse P =:= <<"publish">> -> publish;
+validate_rule_action_type(S) when S =:= <<"sub">> orelse S =:= <<"subscribe">> -> subscribe;
 validate_rule_action_type(<<"all">>) -> all;
 validate_rule_action_type(ActionRaw) -> throw({invalid_action, ActionRaw}).
 
@@ -152,7 +159,7 @@ validate_rule_qos_atomic(<<"2">>) -> 2;
 validate_rule_qos_atomic(0) -> 0;
 validate_rule_qos_atomic(1) -> 1;
 validate_rule_qos_atomic(2) -> 2;
-validate_rule_qos_atomic(_) -> throw(invalid_qos).
+validate_rule_qos_atomic(QoS) -> throw({invalid_qos, QoS}).
 
 validate_rule_retain(<<"0">>) -> false;
 validate_rule_retain(<<"1">>) -> true;

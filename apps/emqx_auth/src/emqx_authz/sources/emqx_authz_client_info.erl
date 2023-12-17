@@ -34,6 +34,10 @@
     authorize/4
 ]).
 
+-define(IS_V1(Rules), is_map(Rules)).
+-define(IS_V2(Rules), is_list(Rules)).
+
+%% For v1
 -define(RULE_NAMES, [
     {[pub, <<"pub">>], publish},
     {[sub, <<"sub">>], subscribe},
@@ -55,10 +59,46 @@ update(Source) ->
 
 destroy(_Source) -> ok.
 
+%% @doc Authorize based on cllientinfo enriched with `acl' data.
+%% e.g. From JWT.
+%%
+%% Supproted rules formats are:
+%%
+%% v1: (always deny when no match)
+%%
+%%    #{
+%%        pub => [TopicFilter],
+%%        sub => [TopicFilter],
+%%        all => [TopicFilter]
+%%    }
+%%
+%% v2: (rules are checked in sequence, passthrough when no match)
+%%
+%%    [{
+%%        Permission :: emqx_authz_rule:permission(),
+%%        Action :: emqx_authz_rule:action_condition(),
+%%        Topics :: emqx_authz_rule:topic_condition()
+%%     }]
+%%
+%%  which is compiled from raw rules like below by emqx_authz_rule_raw
+%%
+%%    [
+%%        #{
+%%            permission := allow | deny
+%%            action := pub | sub | all
+%%            topic => TopicFilter,
+%%            topics => [TopicFilter] %% when 'topic' is not provided
+%%            qos => 0 | 1 | 2 | [0, 1, 2]
+%%            retain => true | false | all %% only for pub action
+%%        }
+%%    ]
+%%
 authorize(#{acl := Acl} = Client, PubSub, Topic, _Source) ->
     case check(Acl) of
-        {ok, Rules} when is_map(Rules) ->
-            do_authorize(Client, PubSub, Topic, Rules);
+        {ok, Rules} when ?IS_V2(Rules) ->
+            authorize_v2(Client, PubSub, Topic, Rules);
+        {ok, Rules} when ?IS_V1(Rules) ->
+            authorize_v1(Client, PubSub, Topic, Rules);
         {error, MatchResult} ->
             MatchResult
     end;
@@ -69,7 +109,7 @@ authorize(_Client, _PubSub, _Topic, _Source) ->
 %% Internal functions
 %%--------------------------------------------------------------------
 
-check(#{expire := Expire, rules := Rules}) when is_map(Rules) ->
+check(#{expire := Expire, rules := Rules}) ->
     Now = erlang:system_time(second),
     case Expire of
         N when is_integer(N) andalso N > Now -> {ok, Rules};
@@ -83,13 +123,13 @@ check(#{rules := Rules}) ->
 check(#{}) ->
     {error, nomatch}.
 
-do_authorize(Client, PubSub, Topic, AclRules) ->
-    do_authorize(Client, PubSub, Topic, AclRules, ?RULE_NAMES).
+authorize_v1(Client, PubSub, Topic, AclRules) ->
+    authorize_v1(Client, PubSub, Topic, AclRules, ?RULE_NAMES).
 
-do_authorize(_Client, _PubSub, _Topic, _AclRules, []) ->
+authorize_v1(_Client, _PubSub, _Topic, _AclRules, []) ->
     {matched, deny};
-do_authorize(Client, PubSub, Topic, AclRules, [{Keys, Action} | RuleNames]) ->
-    TopicFilters = get_topic_filters(Keys, AclRules, []),
+authorize_v1(Client, PubSub, Topic, AclRules, [{Keys, Action} | RuleNames]) ->
+    TopicFilters = get_topic_filters_v1(Keys, AclRules, []),
     case
         emqx_authz_rule:match(
             Client,
@@ -99,13 +139,16 @@ do_authorize(Client, PubSub, Topic, AclRules, [{Keys, Action} | RuleNames]) ->
         )
     of
         {matched, Permission} -> {matched, Permission};
-        nomatch -> do_authorize(Client, PubSub, Topic, AclRules, RuleNames)
+        nomatch -> authorize_v1(Client, PubSub, Topic, AclRules, RuleNames)
     end.
 
-get_topic_filters([], _Rules, Default) ->
+get_topic_filters_v1([], _Rules, Default) ->
     Default;
-get_topic_filters([Key | Keys], Rules, Default) ->
+get_topic_filters_v1([Key | Keys], Rules, Default) ->
     case Rules of
         #{Key := Value} -> Value;
-        #{} -> get_topic_filters(Keys, Rules, Default)
+        #{} -> get_topic_filters_v1(Keys, Rules, Default)
     end.
+
+authorize_v2(Client, PubSub, Topic, Rules) ->
+    emqx_authz_rule:matches(Client, PubSub, Topic, Rules).
