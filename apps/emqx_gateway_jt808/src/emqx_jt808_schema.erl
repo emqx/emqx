@@ -62,13 +62,32 @@ fields(anonymous_true) ->
     [
         {allow_anonymous,
             sc(hoconsc:union([true]), #{desc => ?DESC(allow_anonymous), required => true})}
-    ];
+    ] ++ fields_reg_auth_required(false);
 fields(anonymous_false) ->
     [
         {allow_anonymous,
-            sc(hoconsc:union([false]), #{desc => ?DESC(allow_anonymous), required => true})},
-        {registry, fun registry_url/1},
-        {authentication, fun authentication_url/1}
+            sc(hoconsc:union([false]), #{desc => ?DESC(allow_anonymous), required => true})}
+    ] ++ fields_reg_auth_required(true).
+
+fields_reg_auth_required(Required) ->
+    [
+        {registry,
+            sc(binary(), #{
+                desc => ?DESC(registry_url),
+                validator => [?NOT_EMPTY("the value of the field 'registry' cannot be empty")],
+                required => Required
+            })},
+        {authentication,
+            sc(
+                binary(),
+                #{
+                    desc => ?DESC(authentication_url),
+                    validator => [
+                        ?NOT_EMPTY("the value of the field 'authentication' cannot be empty")
+                    ],
+                    required => Required
+                }
+            )}
     ].
 
 jt808_frame_max_length(type) ->
@@ -81,18 +100,6 @@ jt808_frame_max_length(required) ->
     false;
 jt808_frame_max_length(_) ->
     undefined.
-
-registry_url(type) -> binary();
-registry_url(desc) -> ?DESC(?FUNCTION_NAME);
-registry_url(validator) -> [?NOT_EMPTY("the value of the field 'url' cannot be empty")];
-registry_url(required) -> false;
-registry_url(_) -> undefined.
-
-authentication_url(type) -> binary();
-authentication_url(desc) -> ?DESC(?FUNCTION_NAME);
-authentication_url(validator) -> [?NOT_EMPTY("the value of the field 'url' cannot be empty")];
-authentication_url(required) -> false;
-authentication_url(_) -> undefined.
 
 up_topic(type) -> binary();
 up_topic(desc) -> ?DESC(?FUNCTION_NAME);
