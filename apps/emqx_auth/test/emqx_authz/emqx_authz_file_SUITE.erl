@@ -100,7 +100,7 @@ t_rich_actions(_Config) ->
 t_no_rich_actions(_Config) ->
     _ = emqx_authz:set_feature_available(rich_actions, false),
     ?assertMatch(
-        {error, {pre_config_update, emqx_authz, {invalid_authorization_action, _}}},
+        {error, {pre_config_update, emqx_authz, #{reason := invalid_authorization_action}}},
         emqx_authz:update(?CMD_REPLACE, [
             ?RAW_SOURCE#{
                 <<"rules">> =>

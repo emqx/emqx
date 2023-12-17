@@ -106,9 +106,15 @@ compile({Permission, Who, Action, TopicFilters}) when
      || Topic <- TopicFilters
     ]};
 compile({Permission, _Who, _Action, _TopicFilter}) when not ?IS_PERMISSION(Permission) ->
-    throw({invalid_authorization_permission, Permission});
+    throw(#{
+        reason => invalid_authorization_permission,
+        value => Permission
+    });
 compile(BadRule) ->
-    throw({invalid_authorization_rule, BadRule}).
+    throw(#{
+        reason => invalid_authorization_rule,
+        value => BadRule
+    }).
 
 compile_action(Action) ->
     compile_action(emqx_authz:feature_available(rich_actions), Action).
@@ -133,7 +139,10 @@ compile_action(true = _RichActionsOn, {Action, Opts}) when
         retain => retain_from_opts(Opts)
     };
 compile_action(_RichActionsOn, Action) ->
-    throw({invalid_authorization_action, Action}).
+    throw(#{
+        reason => invalid_authorization_action,
+        value => Action
+    }).
 
 qos_from_opts(Opts) ->
     try
@@ -152,20 +161,29 @@ qos_from_opts(Opts) ->
                 )
         end
     catch
-        bad_qos ->
-            throw({invalid_authorization_qos, Opts})
+        {bad_qos, QoS} ->
+            throw(#{
+                reason => invalid_authorization_qos,
+                qos => QoS
+            })
     end.
 
 validate_qos(QoS) when is_integer(QoS), QoS >= 0, QoS =< 2 ->
     QoS;
-validate_qos(_) ->
-    throw(bad_qos).
+validate_qos(QoS) ->
+    throw({bad_qos, QoS}).
 
 retain_from_opts(Opts) ->
     case proplists:get_value(retain, Opts, ?DEFAULT_RULE_RETAIN) of
-        all -> all;
-        Retain when is_boolean(Retain) -> Retain;
-        _ -> throw({invalid_authorization_retain, Opts})
+        all ->
+            all;
+        Retain when is_boolean(Retain) ->
+            Retain;
+        Value ->
+            throw(#{
+                reason => invalid_authorization_retain,
+                value => Value
+            })
     end.
 
 compile_who(all) ->
@@ -193,7 +211,10 @@ compile_who({'and', L}) when is_list(L) ->
 compile_who({'or', L}) when is_list(L) ->
     {'or', [compile_who(Who) || Who <- L]};
 compile_who(Who) ->
-    throw({invalid_who, Who}).
+    throw(#{
+        reason => invalid_client_match_condition,
+        identifier => Who
+    }).
 
 compile_topic("eq " ++ Topic) ->
     {eq, emqx_topic:words(bin(Topic))};
@@ -254,8 +275,16 @@ match_action(#{action_type := subscribe, qos := QoS}, #{action_type := subscribe
     match_qos(QoS, QoSCond);
 match_action(#{action_type := subscribe, qos := QoS}, #{action_type := all, qos := QoSCond}) ->
     match_qos(QoS, QoSCond);
-match_action(_, _) ->
+match_action(_, PubSubCond) ->
+    true = is_pubsub_cond(PubSubCond),
     false.
+
+is_pubsub_cond(publish) ->
+    true;
+is_pubsub_cond(subscribe) ->
+    true;
+is_pubsub_cond(#{action_type := A}) ->
+    is_pubsub_cond(A).
 
 match_pubsub(publish, publish) -> true;
 match_pubsub(subscribe, subscribe) -> true;

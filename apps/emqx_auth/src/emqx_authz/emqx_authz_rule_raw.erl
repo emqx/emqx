@@ -37,7 +37,7 @@
         emqx_authz_rule:action_condition(),
         emqx_authz_rule:topic_condition()
     }}
-    | {error, term()}.
+    | {error, map()}.
 parse_rule(
     #{
         <<"permission">> := PermissionRaw,

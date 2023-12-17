@@ -408,8 +408,7 @@ init_metrics(Source) ->
     {stop, #{result => deny, from => ?MODULE}}.
 authorize_deny(
     #{
-        username := Username,
-        peerhost := IpAddress
+        username := Username
     } = _Client,
     _PubSub,
     Topic,
@@ -419,13 +418,15 @@ authorize_deny(
     ?SLOG(warning, #{
         msg => "authorization_not_initialized",
         username => Username,
-        ipaddr => IpAddress,
         topic => Topic,
         source => ?MODULE
     }),
     {stop, #{result => deny, from => ?MODULE}}.
 
-%% @doc Check AuthZ
+%% @doc Check AuthZ.
+%% DefaultResult is always ignored in this callback because the final decision
+%% is to be made by `emqx_access_control' module after all authorization
+%% sources are exhausted.
 -spec authorize(
     emqx_types:clientinfo(),
     emqx_types:pubsub(),
@@ -434,77 +435,36 @@ authorize_deny(
     sources()
 ) ->
     authz_result().
-authorize(
-    #{
-        username := Username,
-        peerhost := IpAddress
-    } = Client,
-    PubSub,
-    Topic,
-    DefaultResult,
-    Sources
-) ->
+authorize(Client, PubSub, Topic, _DefaultResult, Sources) ->
     case maps:get(is_superuser, Client, false) of
         true ->
-            log_allowed(#{
-                username => Username,
-                ipaddr => IpAddress,
-                topic => Topic,
-                is_superuser => true
-            }),
             emqx_metrics:inc(?METRIC_SUPERUSER),
             {stop, #{result => allow, from => superuser}};
         false ->
-            authorize_non_superuser(Client, PubSub, Topic, DefaultResult, Sources)
+            authorize_non_superuser(Client, PubSub, Topic, Sources)
     end.
 
-authorize_non_superuser(
-    #{
-        username := Username,
-        peerhost := IpAddress
-    } = Client,
-    PubSub,
-    Topic,
-    _DefaultResult,
-    Sources
-) ->
+authorize_non_superuser(Client, PubSub, Topic, Sources) ->
     case do_authorize(Client, PubSub, Topic, sources_with_defaults(Sources)) of
         {{matched, allow}, AuthzSource} ->
-            log_allowed(#{
-                username => Username,
-                ipaddr => IpAddress,
-                topic => Topic,
-                source => AuthzSource
-            }),
             emqx_metrics_worker:inc(authz_metrics, AuthzSource, allow),
             emqx_metrics:inc(?METRIC_ALLOW),
-            {stop, #{result => allow, from => AuthzSource}};
+            {stop, #{result => allow, from => source_for_logging(AuthzSource, Client)}};
         {{matched, deny}, AuthzSource} ->
-            ?SLOG(warning, #{
-                msg => "authorization_permission_denied",
-                username => Username,
-                ipaddr => IpAddress,
-                topic => Topic,
-                source => AuthzSource
-            }),
             emqx_metrics_worker:inc(authz_metrics, AuthzSource, deny),
             emqx_metrics:inc(?METRIC_DENY),
-            {stop, #{result => deny, from => AuthzSource}};
+            {stop, #{result => deny, from => source_for_logging(AuthzSource, Client)}};
         nomatch ->
             ?tp(authz_non_superuser, #{result => nomatch}),
-            ?SLOG(info, #{
-                msg => "authorization_failed_nomatch",
-                username => Username,
-                ipaddr => IpAddress,
-                topic => Topic,
-                reason => "no-match rule"
-            }),
             emqx_metrics:inc(?METRIC_NOMATCH),
+            %% return ignore here because there might be other hook callbacks
             ignore
     end.
 
-log_allowed(Meta) ->
-    ?SLOG(info, Meta#{msg => "authorization_permission_allowed"}).
+source_for_logging(client_info, #{acl := Acl}) ->
+    maps:get(source_for_logging, Acl, client_info);
+source_for_logging(Type, _) ->
+    Type.
 
 do_authorize(_Client, _PubSub, _Topic, []) ->
     nomatch;
@@ -512,8 +472,7 @@ do_authorize(Client, PubSub, Topic, [#{enable := false} | Rest]) ->
     do_authorize(Client, PubSub, Topic, Rest);
 do_authorize(
     #{
-        username := Username,
-        peerhost := IpAddress
+        username := Username
     } = Client,
     PubSub,
     Topic,
@@ -527,9 +486,8 @@ do_authorize(
             ?TRACE("AUTHZ", "authorization_module_nomatch", #{
                 module => Module,
                 username => Username,
-                ipaddr => IpAddress,
                 topic => Topic,
-                pub_sub => PubSub
+                action => emqx_access_control:format_action(PubSub)
             }),
             do_authorize(Client, PubSub, Topic, Tail);
         %% {matched, allow | deny | ignore}
@@ -537,18 +495,16 @@ do_authorize(
             ?TRACE("AUTHZ", "authorization_module_match_ignore", #{
                 module => Module,
                 username => Username,
-                ipaddr => IpAddress,
                 topic => Topic,
-                pub_sub => PubSub
+                action => emqx_access_control:format_action(PubSub)
             }),
             do_authorize(Client, PubSub, Topic, Tail);
         ignore ->
             ?TRACE("AUTHZ", "authorization_module_ignore", #{
                 module => Module,
                 username => Username,
-                ipaddr => IpAddress,
                 topic => Topic,
-                pub_sub => PubSub
+                action => emqx_access_control:format_action(PubSub)
             }),
             do_authorize(Client, PubSub, Topic, Tail);
         %% {matched, allow | deny}

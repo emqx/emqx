@@ -24,9 +24,13 @@
 -define(DEFAULT_ACTION_QOS, 0).
 -define(DEFAULT_ACTION_RETAIN, false).
 
+-define(AUTHZ_SUBSCRIBE_MATCH_MAP(QOS), #{action_type := subscribe, qos := QOS}).
 -define(AUTHZ_SUBSCRIBE(QOS), #{action_type => subscribe, qos => QOS}).
 -define(AUTHZ_SUBSCRIBE, ?AUTHZ_SUBSCRIBE(?DEFAULT_ACTION_QOS)).
 
+-define(AUTHZ_PUBLISH_MATCH_MAP(QOS, RETAIN), #{
+    action_type := publish, qos := QOS, retain := RETAIN
+}).
 -define(AUTHZ_PUBLISH(QOS, RETAIN), #{action_type => publish, qos => QOS, retain => RETAIN}).
 -define(AUTHZ_PUBLISH(QOS), ?AUTHZ_PUBLISH(QOS, ?DEFAULT_ACTION_RETAIN)).
 -define(AUTHZ_PUBLISH, ?AUTHZ_PUBLISH(?DEFAULT_ACTION_QOS)).
