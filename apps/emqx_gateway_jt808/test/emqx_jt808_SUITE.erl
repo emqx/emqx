@@ -38,43 +38,35 @@
 %% <<"jt808/000123456789/000123456789/dn">>
 -define(JT808_DN_TOPIC, <<?JT808_MOUNTPOINT, ?JT808_PHONE, "/dn">>).
 
--define(CONF_DEFAULT, <<
-    "\n"
-    "gateway.jt808 {\n"
-    "    listeners.tcp.default {\n"
-    "      bind = "
-    ?PORT_STR
-    "\n"
-    "    }\n"
-    "    proto {\n"
-    "      allow_anonymous = false\n"
-    "      registry = "
-    "\""
-    ?PROTO_REG_SERVER_HOST
-    ?PROTO_REG_REGISTRY_PATH
-    "\"\n"
-    "      authentication = "
-    "\""
-    ?PROTO_REG_SERVER_HOST
-    ?PROTO_REG_AUTH_PATH
-    "\"\n"
-    "    }\n"
-    "}\n"
->>).
+%% erlfmt-ignore
+-define(CONF_DEFAULT, <<"
+gateway.jt808 {
+  listeners.tcp.default {
+    bind = ", ?PORT_STR, "
+  }
+  proto {
+    auth {
+      allow_anonymous = false
+      registry = \"", ?PROTO_REG_SERVER_HOST, ?PROTO_REG_REGISTRY_PATH, "\"
+      authentication = \"", ?PROTO_REG_SERVER_HOST, ?PROTO_REG_AUTH_PATH, "\"
+    }
+  }
+}
+">>).
 
--define(CONF_ANONYMOUS, <<
-    "\n"
-    "gateway.jt808 {\n"
-    "    listeners.tcp.default {\n"
-    "      bind = "
-    ?PORT_STR
-    "\n"
-    "    }\n"
-    "    proto {\n"
-    "      allow_anonymous = true\n"
-    "    }\n"
-    "}\n"
->>).
+%% erlfmt-ignore
+-define(CONF_ANONYMOUS, <<"
+gateway.jt808 {
+  listeners.tcp.default {
+    bind = ", ?PORT_STR, "
+  }
+  proto {
+    auth {
+        allow_anonymous = true
+    }
+  }
+}
+">>).
 
 all() ->
     emqx_common_test_helpers:all(?MODULE).

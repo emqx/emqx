@@ -153,7 +153,7 @@ init(
     Options = #{
         ctx := Ctx,
         message_queue_len := MessageQueueLen,
-        proto := ProtoConf
+        proto := #{auth := Auth} = ProtoConf
     }
 ) ->
     % TODO: init rsa_key from user input
@@ -193,7 +193,7 @@ init(
         % TODO: init rsa_key from user input
         dn_topic = maps:get(dn_topic, ProtoConf, ?DEFAULT_DN_TOPIC),
         up_topic = maps:get(up_topic, ProtoConf, ?DEFAULT_UP_TOPIC),
-        auth = emqx_jt808_auth:init(ProtoConf),
+        auth = emqx_jt808_auth:init(Auth),
         inflight = emqx_inflight:new(128),
         mqueue = queue:new(),
         max_mqueue_len = MessageQueueLen,
