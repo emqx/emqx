@@ -16,7 +16,7 @@
 
 init(#{allow_anonymous := true}) ->
     #auth{registry = undefined, authentication = undefined, allow_anonymous = true};
-init(#{registry := Reg, authentication := Auth, allow_anonymous := Anonymous}) ->
+init(#{allow_anonymous := Anonymous = false, registry := Reg, authentication := Auth}) ->
     #auth{registry = Reg, authentication = Auth, allow_anonymous = Anonymous}.
 
 register(_RegFrame, #auth{registry = undefined, allow_anonymous = true}) ->

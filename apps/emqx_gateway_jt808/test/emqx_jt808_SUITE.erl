@@ -38,43 +38,35 @@
 %% <<"jt808/000123456789/000123456789/dn">>
 -define(JT808_DN_TOPIC, <<?JT808_MOUNTPOINT, ?JT808_PHONE, "/dn">>).
 
--define(CONF_DEFAULT, <<
-    "\n"
-    "gateway.jt808 {\n"
-    "    listeners.tcp.default {\n"
-    "      bind = "
-    ?PORT_STR
-    "\n"
-    "    }\n"
-    "    proto {\n"
-    "      allow_anonymous = false\n"
-    "      registry = "
-    "\""
-    ?PROTO_REG_SERVER_HOST
-    ?PROTO_REG_REGISTRY_PATH
-    "\"\n"
-    "      authentication = "
-    "\""
-    ?PROTO_REG_SERVER_HOST
-    ?PROTO_REG_AUTH_PATH
-    "\"\n"
-    "    }\n"
-    "}\n"
->>).
+%% erlfmt-ignore
+-define(CONF_DEFAULT, <<"
+gateway.jt808 {
+  listeners.tcp.default {
+    bind = ", ?PORT_STR, "
+  }
+  proto {
+    auth {
+      allow_anonymous = false
+      registry = \"", ?PROTO_REG_SERVER_HOST, ?PROTO_REG_REGISTRY_PATH, "\"
+      authentication = \"", ?PROTO_REG_SERVER_HOST, ?PROTO_REG_AUTH_PATH, "\"
+    }
+  }
+}
+">>).
 
--define(CONF_ANONYMOUS, <<
-    "\n"
-    "gateway.jt808 {\n"
-    "    listeners.tcp.default {\n"
-    "      bind = "
-    ?PORT_STR
-    "\n"
-    "    }\n"
-    "    proto {\n"
-    "      allow_anonymous = true\n"
-    "    }\n"
-    "}\n"
->>).
+%% erlfmt-ignore
+-define(CONF_ANONYMOUS, <<"
+gateway.jt808 {
+  listeners.tcp.default {
+    bind = ", ?PORT_STR, "
+  }
+  proto {
+    auth {
+      allow_anonymous = true
+    }
+  }
+}
+">>).
 
 all() ->
     emqx_common_test_helpers:all(?MODULE).
@@ -87,6 +79,12 @@ end_per_suite(_Config) ->
 
 init_per_testcase(Case = t_case02_anonymous_register_and_auth, Config) ->
     Apps = boot_apps(Case, ?CONF_ANONYMOUS, Config),
+    [{suite_apps, Apps} | Config];
+init_per_testcase(Case, Config) when
+    Case =:= t_create_ALLOW_invalid_auth_config;
+    Case =:= t_create_DISALLOW_invalid_auth_config
+->
+    Apps = boot_apps(Case, <<>>, Config),
     [{suite_apps, Apps} | Config];
 init_per_testcase(Case, Config) ->
     Apps = boot_apps(Case, ?CONF_DEFAULT, Config),
@@ -2685,3 +2683,74 @@ t_case34_dl_0x8805_single_mm_data_ctrl(_Config) ->
     {error, timeout} = gen_tcp:recv(Socket, 0, 500),
 
     ok = gen_tcp:close(Socket).
+
+t_create_ALLOW_invalid_auth_config(_Config) ->
+    test_invalid_config(create, true).
+
+t_create_DISALLOW_invalid_auth_config(_Config) ->
+    test_invalid_config(create, false).
+
+t_update_ALLOW_invalid_auth_config(_Config) ->
+    test_invalid_config(update, true).
+
+t_update_DISALLOW_invalid_auth_config(_Config) ->
+    test_invalid_config(update, false).
+
+test_invalid_config(CreateOrUpdate, AnonymousAllowed) ->
+    InvalidConfig = raw_jt808_config(AnonymousAllowed),
+    UpdateResult = create_or_update(CreateOrUpdate, InvalidConfig),
+    ?assertMatch(
+        {error, #{
+            kind := validation_error,
+            reason := matched_no_union_member,
+            path := "gateway.jt808.proto.auth"
+        }},
+        UpdateResult
+    ).
+
+create_or_update(create, InvalidConfig) ->
+    emqx_gateway_conf:load_gateway(jt808, InvalidConfig);
+create_or_update(update, InvalidConfig) ->
+    emqx_gateway_conf:update_gateway(jt808, InvalidConfig).
+
+%% Allow: allow anonymous connection, registry and authentication URL not required.
+raw_jt808_config(Allow = true) ->
+    AuthConfig = #{
+        <<"auth">> => #{
+            <<"allow_anonymous">> => Allow,
+            %% registry and authentication `NOT REQUIRED`, but can be configured
+            <<"registry">> => <<?PROTO_REG_SERVER_HOST, ?PROTO_REG_REGISTRY_PATH>>,
+            <<"authentication">> => <<?PROTO_REG_SERVER_HOST, ?PROTO_REG_AUTH_PATH>>,
+            <<"BADKEY_registry_url">> => <<?PROTO_REG_SERVER_HOST, ?PROTO_REG_REGISTRY_PATH>>
+        }
+    },
+    emqx_utils_maps:deep_merge(raw_jt808_config(), #{<<"proto">> => AuthConfig});
+%% DisAllow: required registry and authentication URL configuration to auth client.
+raw_jt808_config(DisAllow = false) ->
+    AuthConfig = #{
+        <<"auth">> => #{
+            <<"allow_anonymous">> => DisAllow
+            %% registry and authentication are required but missed here
+            %%
+            %% <<"registry">> => <<?PROTO_REG_SERVER_HOST, ?PROTO_REG_REGISTRY_PATH>>,
+            %% <<"authentication">> => <<?PROTO_REG_SERVER_HOST, ?PROTO_REG_AUTH_PATH>>
+        }
+    },
+    emqx_utils_maps:deep_merge(raw_jt808_config(), #{<<"proto">> => AuthConfig}).
+
+raw_jt808_config() ->
+    #{
+        <<"enable">> => true,
+        <<"enable_stats">> => true,
+        <<"frame">> => #{<<"max_length">> => 8192},
+        <<"idle_timeout">> => <<"30s">>,
+        <<"max_retry_times">> => 3,
+        <<"message_queue_len">> => 10,
+        <<"mountpoint">> => <<"jt808/${clientid}/">>,
+        <<"proto">> =>
+            #{
+                <<"dn_topic">> => <<"jt808/${clientid}/${phone}/dn">>,
+                <<"up_topic">> => <<"jt808/${clientid}/${phone}/up">>
+            },
+        <<"retry_interval">> => <<"8s">>
+    }.
