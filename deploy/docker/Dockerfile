@@ -1,4 +1,4 @@
-ARG BUILD_FROM=ghcr.io/emqx/emqx-builder/5.2-8:1.15.7-26.1.2-2-debian11
+ARG BUILD_FROM=ghcr.io/emqx/emqx-builder/5.2-9:1.15.7-26.1.2-3-debian11
 ARG RUN_FROM=public.ecr.aws/debian/debian:11-slim
 FROM ${BUILD_FROM} AS builder
 ARG DEBUG=0

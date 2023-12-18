@@ -27,15 +27,15 @@ on:
       builder:
         required: false
         type: string
-        default: 'ghcr.io/emqx/emqx-builder/5.2-8:1.15.7-26.1.2-2-ubuntu22.04'
+        default: 'ghcr.io/emqx/emqx-builder/5.2-9:1.15.7-26.1.2-3-ubuntu22.04'
       builder_vsn:
         required: false
         type: string
-        default: '5.2-8'
+        default: '5.2-9'
       otp_vsn:
         required: false
         type: string
-        default: '26.1.2-2'
+        default: '26.1.2-3'
       elixir_vsn:
         required: false
         type: string
@@ -51,9 +51,9 @@ jobs:
       fail-fast: false
       matrix:
         profile:
-          - ["emqx", "26.1.2-2", "ubuntu22.04", "elixir", "x64"]
-          - ["emqx", "26.1.2-2", "ubuntu22.04", "elixir", "arm64"]
-          - ["emqx-enterprise", "26.1.2-2", "ubuntu22.04", "erlang", "x64"]
+          - ["emqx", "26.1.2-3", "ubuntu22.04", "elixir", "x64"]
+          - ["emqx", "26.1.2-3", "ubuntu22.04", "elixir", "arm64"]
+          - ["emqx-enterprise", "26.1.2-3", "ubuntu22.04", "erlang", "x64"]
 
     container: "ghcr.io/emqx/emqx-builder/${{ inputs.builder_vsn }}:${{ inputs.elixir_vsn }}-${{ matrix.profile[1] }}-${{ matrix.profile[2] }}"
 

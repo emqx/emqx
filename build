@@ -387,9 +387,9 @@ docker_cleanup() {
 
 ## Build the default docker image based on debian 11.
 make_docker() {
-    local EMQX_BUILDER_VERSION="${EMQX_BUILDER_VERSION:-5.2-8}"
+    local EMQX_BUILDER_VERSION="${EMQX_BUILDER_VERSION:-5.2-9}"
     local EMQX_BUILDER_PLATFORM="${EMQX_BUILDER_PLATFORM:-debian11}"
-    local EMQX_BUILDER_OTP="${EMQX_BUILDER_OTP:-26.1.2-2}"
+    local EMQX_BUILDER_OTP="${EMQX_BUILDER_OTP:-26.1.2-3}"
     local EMQX_BUILDER_ELIXIR="${EMQX_BUILDER_ELIXIR:-1.15.7}"
     local EMQX_BUILDER=${EMQX_BUILDER:-ghcr.io/emqx/emqx-builder/${EMQX_BUILDER_VERSION}:${EMQX_BUILDER_ELIXIR}-${EMQX_BUILDER_OTP}-${EMQX_BUILDER_PLATFORM}}
     local EMQX_RUNNER="${EMQX_RUNNER:-${EMQX_DEFAULT_RUNNER}}"
