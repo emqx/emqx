@@ -31,6 +31,8 @@
 
 -define(WORKER_POOL_SIZE, 4).
 
+-define(ACTION_TYPE, mysql).
+
 -import(emqx_common_test_helpers, [on_exit/1]).
 
 %%------------------------------------------------------------------------------
@@ -45,7 +47,14 @@ all() ->
 
 groups() ->
     TCs = emqx_common_test_helpers:all(?MODULE),
-    NonBatchCases = [t_write_timeout, t_uninitialized_prepared_statement],
+    NonBatchCases = [
+        t_write_timeout,
+        t_uninitialized_prepared_statement,
+        t_non_batch_update_is_allowed
+    ],
+    OnlyBatchCases = [
+        t_batch_update_is_forbidden
+    ],
     BatchingGroups = [
         {group, with_batch},
         {group, without_batch}
@@ -57,7 +66,7 @@ groups() ->
         {async, BatchingGroups},
         {sync, BatchingGroups},
         {with_batch, TCs -- NonBatchCases},
-        {without_batch, TCs}
+        {without_batch, TCs -- OnlyBatchCases}
     ].
 
 init_per_group(tcp, Config) ->
@@ -103,6 +112,8 @@ end_per_group(_Group, _Config) ->
     ok.
 
 init_per_suite(Config) ->
+    emqx_common_test_helpers:clear_screen(),
+
     Config.
 
 end_per_suite(_Config) ->
@@ -151,6 +162,9 @@ common_init(Config0) ->
                     {mysql_config, MysqlConfig},
                     {mysql_bridge_type, BridgeType},
                     {mysql_name, Name},
+                    {bridge_type, BridgeType},
+                    {bridge_name, Name},
+                    {bridge_config, MysqlConfig},
                     {proxy_host, ProxyHost},
                     {proxy_port, ProxyPort}
                     | Config0
@@ -872,5 +886,93 @@ t_nested_payload_template(Config) ->
     ?assertEqual(
         {ok, [<<"payload">>], [[Value]]},
         connect_and_get_payload(Config)
+    ),
+    ok.
+
+t_batch_update_is_forbidden(Config) ->
+    ?check_trace(
+        begin
+            Overrides = #{
+                <<"sql">> =>
+                    <<
+                        "UPDATE mqtt_test "
+                        "SET arrived = FROM_UNIXTIME(${timestamp}/1000) "
+                        "WHERE payload = ${payload.value}"
+                    >>
+            },
+            ProbeRes = emqx_bridge_testlib:probe_bridge_api(Config, Overrides),
+            ?assertMatch({error, {{_, 400, _}, _, _Body}}, ProbeRes),
+            {error, {{_, 400, _}, _, ProbeBodyRaw}} = ProbeRes,
+            ?assertEqual(
+                match,
+                re:run(
+                    ProbeBodyRaw,
+                    <<"UPDATE statements are not supported for batch operations">>,
+                    [global, {capture, none}]
+                )
+            ),
+            CreateRes = emqx_bridge_testlib:create_bridge_api(Config, Overrides),
+            ?assertMatch(
+                {ok, {{_, 201, _}, _, #{<<"status">> := <<"disconnected">>}}},
+                CreateRes
+            ),
+            {ok, {{_, 201, _}, _, #{<<"status_reason">> := Reason}}} = CreateRes,
+            ?assertEqual(
+                match,
+                re:run(
+                    Reason,
+                    <<"UPDATE statements are not supported for batch operations">>,
+                    [global, {capture, none}]
+                )
+            ),
+            ok
+        end,
+        []
+    ),
+    ok.
+
+t_non_batch_update_is_allowed(Config) ->
+    ?check_trace(
+        begin
+            BridgeName = ?config(bridge_name, Config),
+            Overrides = #{
+                <<"resource_opts">> => #{<<"metrics_flush_interval">> => <<"500ms">>},
+                <<"sql">> =>
+                    <<
+                        "UPDATE mqtt_test "
+                        "SET arrived = FROM_UNIXTIME(${timestamp}/1000) "
+                        "WHERE payload = ${payload.value}"
+                    >>
+            },
+            ProbeRes = emqx_bridge_testlib:probe_bridge_api(Config, Overrides),
+            ?assertMatch({ok, {{_, 204, _}, _, _Body}}, ProbeRes),
+            ?assertMatch(
+                {ok, {{_, 201, _}, _, #{<<"status">> := <<"connected">>}}},
+                emqx_bridge_testlib:create_bridge_api(Config, Overrides)
+            ),
+            {ok, #{
+                <<"id">> := RuleId,
+                <<"from">> := [Topic]
+            }} = create_rule_and_action_http(Config),
+            Payload = emqx_utils_json:encode(#{value => <<"aaaa">>}),
+            Message = emqx_message:make(Topic, Payload),
+            {_, {ok, _}} =
+                ?wait_async_action(
+                    emqx:publish(Message),
+                    #{?snk_kind := mysql_connector_query_return},
+                    10_000
+                ),
+            ActionId = emqx_bridge_v2:id(?ACTION_TYPE, BridgeName),
+            ?assertEqual(1, emqx_resource_metrics:matched_get(ActionId)),
+            ?retry(
+                _Sleep0 = 200,
+                _Attempts0 = 10,
+                ?assertEqual(1, emqx_resource_metrics:success_get(ActionId))
+            ),
+
+            ?assertEqual(1, emqx_metrics_worker:get(rule_metrics, RuleId, 'actions.success')),
+            ok
+        end,
+        []
     ),
     ok.
