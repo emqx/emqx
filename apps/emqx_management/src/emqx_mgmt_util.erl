@@ -61,10 +61,8 @@ kmg(Byte) ->
 kmg(F, S) ->
     iolist_to_binary(io_lib:format("~.2f~ts", [F, S])).
 
-ntoa({0, 0, 0, 0, 0, 16#ffff, AB, CD}) ->
-    inet_parse:ntoa({AB bsr 8, AB rem 256, CD bsr 8, CD rem 256});
-ntoa(IP) ->
-    inet_parse:ntoa(IP).
+ntoa(Ip) ->
+    emqx_utils:ntoa(Ip).
 
 merge_maps(Default, New) ->
     maps:fold(

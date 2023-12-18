@@ -178,11 +178,13 @@ t_bad_file_source(_) ->
     BadContent = ?SOURCE_FILE(<<"{allow,{username,\"bar\"}, publish, [\"test\"]}">>),
     BadContentErr = {bad_acl_file_content, {1, erl_parse, ["syntax error before: ", []]}},
     BadRule = ?SOURCE_FILE(<<"{allow,{username,\"bar\"},publish}.">>),
-    BadRuleErr = {invalid_authorization_rule, {allow, {username, "bar"}, publish}},
+    BadRuleErr = #{
+        reason => invalid_authorization_rule, value => {allow, {username, "bar"}, publish}
+    },
     BadPermission = ?SOURCE_FILE(<<"{not_allow,{username,\"bar\"},publish,[\"test\"]}.">>),
-    BadPermissionErr = {invalid_authorization_permission, not_allow},
+    BadPermissionErr = #{reason => invalid_authorization_permission, value => not_allow},
     BadAction = ?SOURCE_FILE(<<"{allow,{username,\"bar\"},pubsub,[\"test\"]}.">>),
-    BadActionErr = {invalid_authorization_action, pubsub},
+    BadActionErr = #{reason => invalid_authorization_action, value => pubsub},
     lists:foreach(
         fun({Source, Error}) ->
             File = emqx_authz_file:acl_conf_file(),

@@ -176,7 +176,7 @@ t_compile_ce(_Config) ->
     _ = emqx_authz:set_feature_available(rich_actions, false),
 
     ?assertThrow(
-        {invalid_authorization_action, _},
+        #{reason := invalid_authorization_action},
         emqx_authz_rule:compile(
             {allow, {username, "test"}, {all, [{qos, 2}, {retain, true}]}, ["topic/test"]}
         )
@@ -676,34 +676,34 @@ t_match(_) ->
 
 t_invalid_rule(_) ->
     ?assertThrow(
-        {invalid_authorization_permission, _},
+        #{reason := invalid_authorization_permission},
         emqx_authz_rule:compile({allawww, all, all, ["topic/test"]})
     ),
 
     ?assertThrow(
-        {invalid_authorization_rule, _},
+        #{reason := invalid_authorization_rule},
         emqx_authz_rule:compile(ooops)
     ),
 
     ?assertThrow(
-        {invalid_authorization_qos, _},
+        #{reason := invalid_authorization_qos},
         emqx_authz_rule:compile({allow, {username, "test"}, {publish, [{qos, 3}]}, ["topic/test"]})
     ),
 
     ?assertThrow(
-        {invalid_authorization_retain, _},
+        #{reason := invalid_authorization_retain},
         emqx_authz_rule:compile(
             {allow, {username, "test"}, {publish, [{retain, 'FALSE'}]}, ["topic/test"]}
         )
     ),
 
     ?assertThrow(
-        {invalid_authorization_action, _},
+        #{reason := invalid_authorization_action},
         emqx_authz_rule:compile({allow, all, unsubscribe, ["topic/test"]})
     ),
 
     ?assertThrow(
-        {invalid_who, _},
+        #{reason := invalid_client_match_condition},
         emqx_authz_rule:compile({allow, who, all, ["topic/test"]})
     ).
 
