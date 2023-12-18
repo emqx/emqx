@@ -82,9 +82,13 @@ on_start(InstId, Config) ->
     end.
 
 on_stop(InstId, #{conn_st := RedisConnSt}) ->
-    emqx_redis:on_stop(InstId, RedisConnSt);
+    Res = emqx_redis:on_stop(InstId, RedisConnSt),
+    ?tp(redis_bridge_stopped, #{instance_id => InstId}),
+    Res;
 on_stop(InstId, undefined = _State) ->
-    emqx_redis:on_stop(InstId, undefined).
+    Res = emqx_redis:on_stop(InstId, undefined),
+    ?tp(redis_bridge_stopped, #{instance_id => InstId}),
+    Res.
 
 on_get_status(InstId, #{conn_st := RedisConnSt}) ->
     emqx_redis:on_get_status(InstId, RedisConnSt).

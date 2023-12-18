@@ -50,7 +50,6 @@ fields("config_connector") ->
                     #{required => true, desc => ?DESC(redis_parameters)}
                 )}
         ] ++
-        emqx_redis:redis_fields() ++
         emqx_connector_schema:resource_opts_ref(?MODULE, connector_resource_opts) ++
         emqx_connector_schema_lib:ssl_fields();
 fields(connector_resource_opts) ->

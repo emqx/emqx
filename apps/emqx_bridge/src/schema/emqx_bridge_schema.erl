@@ -37,7 +37,7 @@
 ]).
 
 %% for testing only
--export([enterprise_api_schemas/1]).
+-export([enterprise_api_schemas/1, enterprise_fields_bridges/0]).
 
 %%======================================================================================
 %% Hocon Schema Definitions
@@ -175,11 +175,10 @@ roots() -> [{bridges, ?HOCON(?R_REF(bridges), #{importance => ?IMPORTANCE_LOW})}
 
 fields(bridges) ->
     [
-        {http,
+        {webhook,
             mk(
                 hoconsc:map(name, ref(emqx_bridge_http_schema, "config")),
                 #{
-                    aliases => [webhook],
                     desc => ?DESC("bridges_webhook"),
                     required => false,
                     converter => fun http_bridge_converter/2
@@ -198,7 +197,7 @@ fields(bridges) ->
                     end
                 }
             )}
-    ] ++ enterprise_fields_bridges();
+    ] ++ ?MODULE:enterprise_fields_bridges();
 fields("metrics") ->
     [
         {"dropped", mk(integer(), #{desc => ?DESC("metric_dropped")})},

@@ -235,11 +235,10 @@ mongodb_structs() ->
 
 kafka_structs() ->
     [
-        {kafka_producer,
+        {kafka,
             mk(
                 hoconsc:map(name, ref(emqx_bridge_kafka, kafka_producer)),
                 #{
-                    aliases => [kafka],
                     desc => <<"Kafka Producer Bridge Config">>,
                     required => false,
                     converter => fun kafka_producer_converter/2

@@ -106,7 +106,9 @@ setup_mocks() ->
         emqx_bridge_v2_schema,
         registered_api_schemas,
         1,
-        fun(Method) -> [{bridge_type_bin(), hoconsc:ref(?MODULE, "api_" ++ Method)}] end
+        fun(Method) ->
+            [{bridge_type_bin(), hoconsc:ref(?MODULE, "api_v2_" ++ Method)}]
+        end
     ),
 
     catch meck:new(emqx_bridge_schema, MeckOpts),
@@ -114,7 +116,24 @@ setup_mocks() ->
         emqx_bridge_schema,
         enterprise_api_schemas,
         1,
-        fun(Method) -> [{bridge_type_bin(), hoconsc:ref(?MODULE, "api_" ++ Method)}] end
+        fun(Method) ->
+            [{bridge_type_bin(), hoconsc:ref(?MODULE, "api_v1_" ++ Method)}]
+        end
+    ),
+    meck:expect(
+        emqx_bridge_schema,
+        enterprise_fields_bridges,
+        0,
+        fun() ->
+            [
+                {
+                    bridge_type_bin(),
+                    hoconsc:mk(
+                        hoconsc:map(name, hoconsc:ref(?MODULE, v1_bridge)), #{}
+                    )
+                }
+            ]
+        end
     ),
 
     ok.
@@ -156,7 +175,7 @@ fields("connector") ->
         {on_start_fun, hoconsc:mk(binary(), #{})},
         {ssl, hoconsc:ref(ssl)}
     ];
-fields("api_post") ->
+fields("api_v2_post") ->
     [
         {connector, hoconsc:mk(binary(), #{})},
         {name, hoconsc:mk(binary(), #{})},
@@ -164,6 +183,20 @@ fields("api_post") ->
         {send_to, hoconsc:mk(atom(), #{})}
         | fields("connector")
     ];
+fields("api_v1_post") ->
+    ConnectorFields = proplists:delete(resource_opts, fields("connector")),
+    [
+        {connector, hoconsc:mk(binary(), #{})},
+        {name, hoconsc:mk(binary(), #{})},
+        {type, hoconsc:mk(bridge_type(), #{})},
+        {send_to, hoconsc:mk(atom(), #{})},
+        {resource_opts, hoconsc:mk(hoconsc:ref(?MODULE, v1_resource_opts), #{})}
+        | ConnectorFields
+    ];
+fields(v1_bridge) ->
+    lists:foldl(fun proplists:delete/2, fields("api_v1_post"), [name, type]);
+fields(v1_resource_opts) ->
+    emqx_resource_schema:create_opts(_Overrides = []);
 fields(ssl) ->
     emqx_schema:client_ssl_opts_schema(#{required => false}).
 
@@ -333,9 +366,11 @@ get_connector_http(Name) ->
 create_bridge_http_api_v1(Opts) ->
     Name = maps:get(name, Opts),
     Overrides = maps:get(overrides, Opts, #{}),
+    OverrideFn = maps:get(override_fn, Opts, fun(X) -> X end),
     BridgeConfig0 = emqx_utils_maps:deep_merge(bridge_config(), Overrides),
     BridgeConfig = maps:without([<<"connector">>], BridgeConfig0),
-    Params = BridgeConfig#{<<"type">> => bridge_type_bin(), <<"name">> => Name},
+    Params0 = BridgeConfig#{<<"type">> => bridge_type_bin(), <<"name">> => Name},
+    Params = OverrideFn(Params0),
     Path = emqx_mgmt_api_test_util:api_path(["bridges"]),
     ct:pal("creating bridge (http v1): ~p", [Params]),
     Res = request(post, Path, Params),
@@ -916,6 +951,32 @@ t_obfuscated_secrets_probe(_Config) ->
         [OriginalPassword],
         lists:usort(UnwrappedPasswords),
         #{passwords => UnwrappedPasswords}
+    ),
+
+    ok.
+
+t_v1_api_fill_defaults(_Config) ->
+    %% Ensure only one sub-field is used, but we get back the defaults filled in.
+    BridgeName = ?FUNCTION_NAME,
+    OverrideFn = fun(Params) ->
+        ResourceOpts = #{<<"resume_interval">> => 100},
+        maps:put(<<"resource_opts">>, ResourceOpts, Params)
+    end,
+    ?assertMatch(
+        {ok,
+            {{_, 201, _}, _, #{
+                <<"resource_opts">> :=
+                    #{
+                        <<"resume_interval">> := _,
+                        <<"query_mode">> := _,
+                        <<"inflight_window">> := _,
+                        <<"start_timeout">> := _,
+                        <<"start_after_created">> := _,
+                        <<"max_buffer_bytes">> := _,
+                        <<"batch_size">> := _
+                    }
+            }}},
+        create_bridge_http_api_v1(#{name => BridgeName, override_fn => OverrideFn})
     ),
 
     ok.

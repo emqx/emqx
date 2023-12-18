@@ -29,14 +29,12 @@ connector_type_name() -> redis.
 schema_module() -> ?SCHEMA_MODULE.
 
 connector_action_config_to_bridge_v1_config(ConnectorConfig, ActionConfig) ->
-    fix_v1_type(
-        maps:merge(
-            maps:without(
-                [<<"connector">>],
-                map_unindent(<<"parameters">>, ActionConfig)
-            ),
-            map_unindent(<<"parameters">>, ConnectorConfig)
-        )
+    maps:merge(
+        maps:without(
+            [<<"connector">>],
+            map_unindent(<<"parameters">>, ActionConfig)
+        ),
+        map_unindent(<<"parameters">>, ConnectorConfig)
     ).
 
 bridge_v1_config_to_action_config(BridgeV1Config, ConnectorName) ->
@@ -76,9 +74,6 @@ bridge_v1_type_name() ->
     {fun ?MODULE:bridge_v1_type_name_fun/1, bridge_v1_type_names()}.
 bridge_v1_type_name_fun({#{<<"parameters">> := #{<<"redis_type">> := Type}}, _}) ->
     v1_type(Type).
-
-fix_v1_type(#{<<"redis_type">> := RedisType} = Conf) ->
-    Conf#{<<"type">> => v1_type(RedisType)}.
 
 v1_type(<<"single">>) -> redis_single;
 v1_type(<<"sentinel">>) -> redis_sentinel;
