@@ -28,8 +28,7 @@
 -export([
     trace_process_publish/3,
     start_trace_send/2,
-    end_trace_send/1,
-    event/2
+    end_trace_send/1
 ]).
 
 -include_lib("emqx/include/emqx.hrl").
@@ -37,7 +36,6 @@
 -include_lib("opentelemetry_api/include/otel_tracer.hrl").
 
 -define(EMQX_OTEL_CTX, otel_ctx).
--define(IS_ENABLED, emqx_enable).
 -define(USER_PROPERTY, 'User-Property').
 
 -define(TRACE_ALL_KEY, {?MODULE, trace_all}).
@@ -103,12 +101,11 @@ trace_process_publish(Packet, ChannelInfo, ProcessFun) ->
         false ->
             ProcessFun(Packet);
         RootCtx ->
-            RootCtx1 = otel_ctx:set_value(RootCtx, ?IS_ENABLED, true),
             Attrs = maps:merge(packet_attributes(Packet), channel_attributes(ChannelInfo)),
-            SpanCtx = otel_tracer:start_span(RootCtx1, ?current_tracer, process_message, #{
+            SpanCtx = otel_tracer:start_span(RootCtx, ?current_tracer, process_message, #{
                 attributes => Attrs
             }),
-            Ctx = otel_tracer:set_current_span(RootCtx1, SpanCtx),
+            Ctx = otel_tracer:set_current_span(RootCtx, SpanCtx),
             %% put ctx to packet, so it can be further propagated
             Packet1 = put_ctx_to_packet(Ctx, Packet),
             _ = otel_ctx:attach(Ctx),
@@ -158,17 +155,6 @@ end_trace_send(Packets) ->
         end,
         packets_list(Packets)
     ).
-
-%% NOTE: adds an event only within an active span (Otel Ctx must be set in the calling process dict)
--spec event(opentelemetry:event_name(), opentelemetry:attributes_map()) -> ok.
-event(Name, Attributes) ->
-    case otel_ctx:get_value(?IS_ENABLED, false) of
-        true ->
-            ?add_event(Name, Attributes),
-            ok;
-        false ->
-            ok
-    end.
 
 %%--------------------------------------------------------------------
 %% Internal functions

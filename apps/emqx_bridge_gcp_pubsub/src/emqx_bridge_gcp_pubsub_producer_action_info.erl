@@ -27,10 +27,14 @@ bridge_v1_config_to_action_config(BridgeV1Config, ConnectorName) ->
     ParamsKeys = producer_action_parameters_field_keys(),
     Config1 = maps:with(CommonActionKeys, BridgeV1Config),
     Params = maps:with(ParamsKeys, BridgeV1Config),
-    Config1#{
-        <<"connector">> => ConnectorName,
-        <<"parameters">> => Params
-    }.
+    emqx_utils_maps:update_if_present(
+        <<"resource_opts">>,
+        fun emqx_bridge_v2_schema:project_to_actions_resource_opts/1,
+        Config1#{
+            <<"connector">> => ConnectorName,
+            <<"parameters">> => Params
+        }
+    ).
 
 %%------------------------------------------------------------------------------------------
 %% Internal helper fns

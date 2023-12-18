@@ -44,15 +44,17 @@ bridge_v1_config_to_action_config(BridgeV1Config, ConnectorName) ->
     ActionParametersKeys = schema_keys(action_parameters),
     ActionKeys = ActionTopLevelKeys ++ ActionParametersKeys,
     ActionConfig = make_config_map(ActionKeys, ActionParametersKeys, BridgeV1Config),
-    ActionConfig#{<<"connector">> => ConnectorName}.
+    emqx_utils_maps:update_if_present(
+        <<"resource_opts">>,
+        fun emqx_bridge_v2_schema:project_to_actions_resource_opts/1,
+        ActionConfig#{<<"connector">> => ConnectorName}
+    ).
 
 bridge_v1_config_to_connector_config(BridgeV1Config) ->
     ConnectorKeys = schema_keys("config_connector"),
-    ResourceOptsKeys = schema_keys(connector_resource_opts),
-    maps:update_with(
+    emqx_utils_maps:update_if_present(
         <<"resource_opts">>,
-        fun(ResourceOpts) -> maps:with(ResourceOptsKeys, ResourceOpts) end,
-        #{},
+        fun emqx_connector_schema:project_to_connector_resource_opts/1,
         maps:with(ConnectorKeys, BridgeV1Config)
     ).
 

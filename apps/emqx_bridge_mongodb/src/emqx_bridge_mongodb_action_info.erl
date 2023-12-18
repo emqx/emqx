@@ -30,7 +30,11 @@ bridge_v1_config_to_action_config(BridgeV1Config, ConnectorName) ->
     ActionParametersKeys = schema_keys(action_parameters),
     ActionKeys = ActionTopLevelKeys ++ ActionParametersKeys,
     ActionConfig = make_config_map(ActionKeys, ActionParametersKeys, BridgeV1Config),
-    ActionConfig#{<<"connector">> => ConnectorName}.
+    emqx_utils_maps:update_if_present(
+        <<"resource_opts">>,
+        fun emqx_bridge_v2_schema:project_to_actions_resource_opts/1,
+        ActionConfig#{<<"connector">> => ConnectorName}
+    ).
 
 bridge_v1_config_to_connector_config(BridgeV1Config) ->
     ActionTopLevelKeys = schema_keys(mongodb_action),
@@ -42,10 +46,7 @@ bridge_v1_config_to_connector_config(BridgeV1Config) ->
     ConnConfig0 = make_config_map(ConnectorKeys, ConnectorParametersKeys, BridgeV1Config),
     emqx_utils_maps:update_if_present(
         <<"resource_opts">>,
-        fun(ResourceOpts) ->
-            CommonROSubfields = emqx_connector_schema:common_resource_opts_subfields_bin(),
-            maps:with(CommonROSubfields, ResourceOpts)
-        end,
+        fun emqx_connector_schema:project_to_connector_resource_opts/1,
         ConnConfig0
     ).
 

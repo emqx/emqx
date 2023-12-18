@@ -22,7 +22,7 @@ kafka_producer_test() ->
         #{
             <<"bridges">> :=
                 #{
-                    <<"kafka_producer">> :=
+                    <<"kafka">> :=
                         #{
                             <<"myproducer">> :=
                                 #{<<"kafka">> := #{}}
@@ -35,7 +35,7 @@ kafka_producer_test() ->
         #{
             <<"bridges">> :=
                 #{
-                    <<"kafka_producer">> :=
+                    <<"kafka">> :=
                         #{
                             <<"myproducer">> :=
                                 #{<<"local_topic">> := _}
@@ -48,7 +48,7 @@ kafka_producer_test() ->
         #{
             <<"bridges">> :=
                 #{
-                    <<"kafka_producer">> :=
+                    <<"kafka">> :=
                         #{
                             <<"myproducer">> :=
                                 #{
@@ -64,7 +64,7 @@ kafka_producer_test() ->
         #{
             <<"bridges">> :=
                 #{
-                    <<"kafka_producer">> :=
+                    <<"kafka">> :=
                         #{
                             <<"myproducer">> :=
                                 #{
@@ -166,7 +166,7 @@ message_key_dispatch_validations_test() ->
     ?assertThrow(
         {_, [
             #{
-                path := "bridges.kafka_producer.myproducer.kafka",
+                path := "bridges.kafka.myproducer.kafka",
                 reason := "Message key cannot be empty when `key_dispatch` strategy is used"
             }
         ]},
@@ -175,7 +175,7 @@ message_key_dispatch_validations_test() ->
     ?assertThrow(
         {_, [
             #{
-                path := "bridges.kafka_producer.myproducer.kafka",
+                path := "bridges.kafka.myproducer.kafka",
                 reason := "Message key cannot be empty when `key_dispatch` strategy is used"
             }
         ]},

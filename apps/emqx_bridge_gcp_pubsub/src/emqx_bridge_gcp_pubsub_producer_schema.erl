@@ -59,9 +59,18 @@ fields(producer_action) ->
         )
     );
 fields(action_parameters) ->
-    UnsupportedFields = [local_topic],
-    lists:filter(
-        fun({Key, _Schema}) -> not lists:member(Key, UnsupportedFields) end,
+    lists:map(
+        fun
+            ({local_topic, Sc}) ->
+                Override = #{
+                    %% to please dialyzer...
+                    type => hocon_schema:field_schema(Sc, type),
+                    importance => ?IMPORTANCE_HIDDEN
+                },
+                {local_topic, hocon_schema:override(Sc, Override)};
+            (Field) ->
+                Field
+        end,
         emqx_bridge_gcp_pubsub:fields(producer)
     );
 %%=========================================

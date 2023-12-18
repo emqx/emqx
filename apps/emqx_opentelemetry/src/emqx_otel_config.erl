@@ -17,14 +17,17 @@
 
 -behaviour(emqx_config_handler).
 
+-include_lib("emqx/include/logger.hrl").
+
 -define(OPTL, [opentelemetry]).
+-define(CERTS_PATH, filename:join(["opentelemetry", "exporter"])).
 
 -define(OTEL_EXPORTER, opentelemetry_exporter).
 -define(OTEL_LOG_HANDLER, otel_log_handler).
 -define(OTEL_LOG_HANDLER_ID, opentelemetry_handler).
 
 -export([add_handler/0, remove_handler/0]).
--export([post_config_update/5]).
+-export([pre_config_update/3, post_config_update/5]).
 -export([update/1]).
 -export([add_otel_log_handler/0, remove_otel_log_handler/0]).
 -export([otel_exporter/1]).
@@ -50,6 +53,11 @@ add_handler() ->
 remove_handler() ->
     ok = emqx_config_handler:remove_handler(?OPTL),
     ok.
+
+pre_config_update(?OPTL, RawConf, RawConf) ->
+    {ok, RawConf};
+pre_config_update(?OPTL, NewRawConf, _RawConf) ->
+    {ok, convert_certs(NewRawConf)}.
 
 post_config_update(?OPTL, _Req, Old, Old, _AppEnvs) ->
     ok;
@@ -84,6 +92,31 @@ otel_exporter(ExporterConf) ->
     }}.
 
 %% Internal functions
+
+convert_certs(#{<<"exporter">> := ExporterConf} = NewRawConf) ->
+    NewRawConf#{<<"exporter">> => convert_exporter_certs(ExporterConf)};
+convert_certs(#{exporter := ExporterConf} = NewRawConf) ->
+    NewRawConf#{exporter => convert_exporter_certs(ExporterConf)};
+convert_certs(NewRawConf) ->
+    NewRawConf.
+
+convert_exporter_certs(#{<<"ssl_options">> := SSLOpts} = ExporterConf) ->
+    ExporterConf#{<<"ssl_options">> => do_convert_certs(SSLOpts)};
+convert_exporter_certs(#{ssl_options := SSLOpts} = ExporterConf) ->
+    ExporterConf#{ssl_options => do_convert_certs(SSLOpts)};
+convert_exporter_certs(ExporterConf) ->
+    ExporterConf.
+
+do_convert_certs(SSLOpts) ->
+    case emqx_tls_lib:ensure_ssl_files(?CERTS_PATH, SSLOpts) of
+        {ok, undefined} ->
+            SSLOpts;
+        {ok, SSLOpts1} ->
+            SSLOpts1;
+        {error, Reason} ->
+            ?SLOG(error, Reason#{msg => "bad_ssl_config", name => "opentelemetry_exporter"}),
+            throw({bad_ssl_config, Reason})
+    end.
 
 ensure_otel_metrics(
     #{metrics := MetricsConf, exporter := Exporter},

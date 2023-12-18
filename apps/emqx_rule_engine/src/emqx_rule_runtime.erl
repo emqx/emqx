@@ -580,7 +580,8 @@ inc_action_metrics(RuleId, Result) ->
 do_inc_action_metrics(RuleId, {error, {recoverable_error, _}}) ->
     emqx_metrics_worker:inc(rule_metrics, RuleId, 'actions.failed.out_of_service');
 do_inc_action_metrics(RuleId, {error, {unrecoverable_error, _}}) ->
-    emqx_metrics_worker:inc(rule_metrics, RuleId, 'actions.failed');
+    emqx_metrics_worker:inc(rule_metrics, RuleId, 'actions.failed'),
+    emqx_metrics_worker:inc(rule_metrics, RuleId, 'actions.failed.unknown');
 do_inc_action_metrics(RuleId, R) ->
     case is_ok_result(R) of
         false ->

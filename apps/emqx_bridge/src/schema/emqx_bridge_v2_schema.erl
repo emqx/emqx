@@ -46,6 +46,10 @@
 -export([resource_opts_fields/0, resource_opts_fields/1]).
 
 -export([
+    api_fields/3
+]).
+
+-export([
     make_producer_action_schema/1,
     make_consumer_action_schema/1,
     top_level_common_action_keys/0,
@@ -152,6 +156,24 @@ method_values(get, Type) ->
     );
 method_values(put, _Type) ->
     #{}.
+
+api_fields("get_bridge_v2", Type, Fields) ->
+    lists:append(
+        [
+            emqx_bridge_schema:type_and_name_fields(Type),
+            emqx_bridge_schema:status_fields(),
+            Fields
+        ]
+    );
+api_fields("post_bridge_v2", Type, Fields) ->
+    lists:append(
+        [
+            emqx_bridge_schema:type_and_name_fields(Type),
+            Fields
+        ]
+    );
+api_fields("put_bridge_v2", _Type, Fields) ->
+    Fields.
 
 %%======================================================================================
 %% HOCON Schema Callbacks
