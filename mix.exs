@@ -200,7 +200,7 @@ defmodule EMQXUmbrella.MixProject do
     [
       {:hstreamdb_erl, github: "hstreamdb/hstreamdb_erl", tag: "0.4.5+v0.16.1"},
       {:influxdb, github: "emqx/influxdb-client-erl", tag: "1.1.11", override: true},
-      {:wolff, github: "kafka4beam/wolff", tag: "1.8.0"},
+      {:wolff, github: "kafka4beam/wolff", tag: "1.9.1"},
       {:kafka_protocol, github: "kafka4beam/kafka_protocol", tag: "4.1.3", override: true},
       {:brod_gssapi, github: "kafka4beam/brod_gssapi", tag: "v0.1.1"},
       {:brod, github: "kafka4beam/brod", tag: "3.16.8"},
