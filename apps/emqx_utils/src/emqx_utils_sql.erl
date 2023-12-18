@@ -28,7 +28,7 @@
 
 -export_type([value/0]).
 
--type statement_type() :: select | insert | delete.
+-type statement_type() :: select | insert | delete | update.
 -type value() :: null | binary() | number() | boolean() | [value()].
 
 -dialyzer({no_improper_lists, [escape_mysql/4, escape_prepend/4]}).
@@ -38,6 +38,7 @@ get_statement_type(Query) ->
     KnownTypes = #{
         <<"select">> => select,
         <<"insert">> => insert,
+        <<"update">> => update,
         <<"delete">> => delete
     },
     case re:run(Query, <<"^\\s*([a-zA-Z]+)">>, [{capture, all_but_first, binary}]) of
