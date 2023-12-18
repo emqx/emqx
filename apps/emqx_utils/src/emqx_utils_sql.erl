@@ -38,7 +38,8 @@ get_statement_type(Query) ->
     KnownTypes = #{
         <<"select">> => select,
         <<"insert">> => insert,
-        <<"delete">> => delete
+        <<"delete">> => delete,
+        <<"call">> => call
     },
     case re:run(Query, <<"^\\s*([a-zA-Z]+)">>, [{capture, all_but_first, binary}]) of
         {match, [Token]} ->

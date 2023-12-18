@@ -436,6 +436,8 @@ parse_batch_sql(Key, Query, Acc) ->
             end;
         select ->
             Acc;
+        call ->
+            Acc;
         Otherwise ->
             ?SLOG(error, #{
                 msg => "invalid sql statement type",
