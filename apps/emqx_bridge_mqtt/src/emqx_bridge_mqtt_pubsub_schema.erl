@@ -91,7 +91,7 @@ fields("get_connector") ->
 fields("get_bridge_v2") ->
     fields("mqtt_publisher_action");
 fields("post_bridge_v2") ->
-    fields("mqtt_publisher_action");
+    fields("mqtt_publisher_action") ++ emqx_bridge_schema:type_and_name_fields(mqtt);
 fields("put_bridge_v2") ->
     fields("mqtt_publisher_action");
 fields(What) ->
