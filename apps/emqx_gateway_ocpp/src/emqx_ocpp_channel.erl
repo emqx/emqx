@@ -524,9 +524,13 @@ handle_out(Type, Data, Channel) ->
 %%--------------------------------------------------------------------
 
 apply_frame(Frames, Channel) when is_list(Frames) ->
-    {Outgoings, NChannel} = lists:foldl(fun apply_frame/2, {[], Channel}, Frames),
+    {Outgoings, NChannel} = lists:foldl(fun do_apply_frame/2, {[], Channel}, Frames),
     {lists:reverse(Outgoings), NChannel};
-apply_frame(?IS_BootNotification_RESP(Payload), {Outgoings, Channel}) ->
+apply_frame(Frames, Channel) ->
+    ?SLOG(error, #{msg => "unexpected_frame_list", frames => Frames, channel => Channel}),
+    Channel.
+
+do_apply_frame(?IS_BootNotification_RESP(Payload), {Outgoings, Channel}) ->
     case maps:get(<<"status">>, Payload) of
         <<"Accepted">> ->
             Intv = maps:get(<<"interval">>, Payload),
@@ -535,8 +539,9 @@ apply_frame(?IS_BootNotification_RESP(Payload), {Outgoings, Channel}) ->
         _ ->
             {Outgoings, Channel}
     end;
-apply_frame(_, Channel) ->
-    Channel.
+do_apply_frame(Frame, Acc = {_Outgoings, Channel}) ->
+    ?SLOG(error, #{msg => "unexpected_frame", frame => Frame, channel => Channel}),
+    Acc.
 
 %%--------------------------------------------------------------------
 %% Handle call
