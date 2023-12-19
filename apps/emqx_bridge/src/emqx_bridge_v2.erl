@@ -939,7 +939,12 @@ id_with_root_name(RootName, BridgeType, BridgeName) ->
             )
     end.
 
-id_with_root_name(RootName, BridgeType, BridgeName, ConnectorName) ->
+id_with_root_name(RootName0, BridgeType, BridgeName, ConnectorName) ->
+    RootName =
+        case bin(RootName0) of
+            <<"actions">> -> <<"action">>;
+            <<"sources">> -> <<"source">>
+        end,
     ConnectorType = bin(connector_type(BridgeType)),
     <<
         (bin(RootName))/binary,
