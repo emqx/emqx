@@ -35,13 +35,18 @@ on_add_channel(
 ) ->
     ChannelConfig1 = emqx_utils_maps:unindent(parameters, ChannelConfig0),
     QueryTemplates = emqx_mysql:parse_prepare_sql(ChannelId, ChannelConfig1),
-    ChannelConfig2 = maps:merge(ChannelConfig1, QueryTemplates),
-    ChannelConfig = set_prepares(ChannelConfig2, ConnectorState),
-    State = State0#{
-        channels => maps:put(ChannelId, ChannelConfig, Channels),
-        connector_state => ConnectorState
-    },
-    {ok, State}.
+    case validate_sql_type(ChannelId, ChannelConfig1, QueryTemplates) of
+        ok ->
+            ChannelConfig2 = maps:merge(ChannelConfig1, QueryTemplates),
+            ChannelConfig = set_prepares(ChannelConfig2, ConnectorState),
+            State = State0#{
+                channels => maps:put(ChannelId, ChannelConfig, Channels),
+                connector_state => ConnectorState
+            },
+            {ok, State};
+        {error, Error} ->
+            {error, Error}
+    end.
 
 on_get_channel_status(_InstanceId, ChannelId, #{channels := Channels}) ->
     case maps:get(ChannelId, Channels) of
@@ -116,11 +121,13 @@ on_batch_query(InstanceId, BatchRequest, _State = #{connector_state := Connector
 
 on_remove_channel(
     _InstanceId, #{channels := Channels, connector_state := ConnectorState} = State, ChannelId
-) ->
+) when is_map_key(ChannelId, Channels) ->
     ChannelConfig = maps:get(ChannelId, Channels),
     emqx_mysql:unprepare_sql(maps:merge(ChannelConfig, ConnectorState)),
     NewState = State#{channels => maps:remove(ChannelId, Channels)},
-    {ok, NewState}.
+    {ok, NewState};
+on_remove_channel(_InstanceId, State, _ChannelId) ->
+    {ok, State}.
 
 -spec on_start(binary(), hocon:config()) ->
     {ok, #{connector_state := emqx_mysql:state(), channels := map()}} | {error, _}.
@@ -148,3 +155,43 @@ set_prepares(ChannelConfig, ConnectorState) ->
     #{prepares := Prepares} =
         emqx_mysql:init_prepare(maps:merge(ConnectorState, ChannelConfig)),
     ChannelConfig#{prepares => Prepares}.
+
+validate_sql_type(ChannelId, ChannelConfig, #{query_templates := QueryTemplates}) ->
+    Batch =
+        case emqx_utils_maps:deep_get([resource_opts, batch_size], ChannelConfig) of
+            N when N > 1 -> batch;
+            _ -> single
+        end,
+    BatchKey = {ChannelId, batch},
+    SingleKey = {ChannelId, prepstmt},
+    case {QueryTemplates, Batch} of
+        {#{BatchKey := _}, batch} ->
+            ok;
+        {#{SingleKey := _}, single} ->
+            ok;
+        {_, batch} ->
+            %% try to provide helpful info
+            SQL = maps:get(sql, ChannelConfig),
+            Type = emqx_utils_sql:get_statement_type(SQL),
+            ErrorContext0 = #{
+                reason => failed_to_prepare_statement,
+                statement_type => Type,
+                operation_type => Batch
+            },
+            ErrorContext = emqx_utils_maps:put_if(
+                ErrorContext0,
+                hint,
+                <<"UPDATE statements are not supported for batch operations">>,
+                Type =:= update
+            ),
+            {error, ErrorContext};
+        _ ->
+            SQL = maps:get(sql, ChannelConfig),
+            Type = emqx_utils_sql:get_statement_type(SQL),
+            ErrorContext = #{
+                reason => failed_to_prepare_statement,
+                statement_type => Type,
+                operation_type => Batch
+            },
+            {error, ErrorContext}
+    end.

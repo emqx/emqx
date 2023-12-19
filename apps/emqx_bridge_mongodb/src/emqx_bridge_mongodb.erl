@@ -26,6 +26,7 @@
 ]).
 
 -define(CONNECTOR_TYPE, mongodb).
+-define(ACTION_TYPE, mongodb).
 
 %%=================================================================================================
 %% hocon_schema API
@@ -107,21 +108,22 @@ fields(Field) when
     Field == "put_connector";
     Field == "post_connector"
 ->
-    emqx_connector_schema:api_fields(Field, ?CONNECTOR_TYPE, fields("connection_fields"));
-fields("get_bridge_v2") ->
-    emqx_bridge_schema:status_fields() ++
-        fields("post_bridge_v2");
-fields("post_bridge_v2") ->
-    type_and_name_fields(mongodb) ++
-        fields(mongodb_action);
-fields("put_bridge_v2") ->
-    fields(mongodb_action);
+    Fields =
+        fields("connection_fields") ++
+            emqx_connector_schema:resource_opts_ref(?MODULE, connector_resource_opts),
+    emqx_connector_schema:api_fields(Field, ?CONNECTOR_TYPE, Fields);
+fields(Field) when
+    Field == "get_bridge_v2";
+    Field == "post_bridge_v2";
+    Field == "put_bridge_v2"
+->
+    emqx_bridge_v2_schema:api_fields(Field, ?ACTION_TYPE, fields(mongodb_action));
 fields("post_rs") ->
-    fields(mongodb_rs) ++ type_and_name_fields(mongodb_rs);
+    fields(mongodb_rs) ++ emqx_bridge_schema:type_and_name_fields(mongodb_rs);
 fields("post_sharded") ->
-    fields(mongodb_sharded) ++ type_and_name_fields(mongodb_sharded);
+    fields(mongodb_sharded) ++ emqx_bridge_schema:type_and_name_fields(mongodb_sharded);
 fields("post_single") ->
-    fields(mongodb_single) ++ type_and_name_fields(mongodb_single);
+    fields(mongodb_single) ++ emqx_bridge_schema:type_and_name_fields(mongodb_single);
 fields("put_rs") ->
     fields(mongodb_rs);
 fields("put_sharded") ->
@@ -131,22 +133,24 @@ fields("put_single") ->
 fields("get_rs") ->
     emqx_bridge_schema:status_fields() ++
         fields(mongodb_rs) ++
-        type_and_name_fields(mongodb_rs);
+        emqx_bridge_schema:type_and_name_fields(mongodb_rs);
 fields("get_sharded") ->
     emqx_bridge_schema:status_fields() ++
         fields(mongodb_sharded) ++
-        type_and_name_fields(mongodb_sharded);
+        emqx_bridge_schema:type_and_name_fields(mongodb_sharded);
 fields("get_single") ->
     emqx_bridge_schema:status_fields() ++
         fields(mongodb_single) ++
-        type_and_name_fields(mongodb_single).
+        emqx_bridge_schema:type_and_name_fields(mongodb_single).
 
 bridge_v2_examples(Method) ->
     [
         #{
             <<"mongodb">> => #{
                 summary => <<"MongoDB Action">>,
-                value => action_values(Method)
+                value => emqx_bridge_v2_schema:action_values(
+                    Method, mongodb, mongodb, #{parameters => #{collection => <<"mycol">>}}
+                )
             }
         }
     ].
@@ -178,19 +182,25 @@ connector_examples(Method) ->
         #{
             <<"mongodb_rs">> => #{
                 summary => <<"MongoDB Replica Set Connector">>,
-                value => connector_values(mongodb_rs, Method)
+                value => emqx_connector_schema:connector_values(
+                    Method, mongodb_rs, #{parameters => connector_values()}
+                )
             }
         },
         #{
             <<"mongodb_sharded">> => #{
                 summary => <<"MongoDB Sharded Connector">>,
-                value => connector_values(mongodb_sharded, Method)
+                value => emqx_connector_schema:connector_values(
+                    Method, mongodb_sharded, #{parameters => connector_values()}
+                )
             }
         },
         #{
             <<"mongodb_single">> => #{
                 summary => <<"MongoDB Standalone Connector">>,
-                value => connector_values(mongodb_single, Method)
+                value => emqx_connector_schema:connector_values(
+                    Method, mongodb_single, #{parameters => connector_values()}
+                )
             }
         }
     ].
@@ -223,40 +233,6 @@ desc(_) ->
 %%=================================================================================================
 %% Internal fns
 %%=================================================================================================
-
-type_and_name_fields(MongoType) ->
-    [
-        {type, mk(MongoType, #{required => true, desc => ?DESC("desc_type")})},
-        {name, mk(binary(), #{required => true, desc => ?DESC("desc_name")})}
-    ].
-
-connector_values(Type, Method) ->
-    lists:foldl(
-        fun(M1, M2) ->
-            maps:merge(M1, M2)
-        end,
-        #{
-            description => <<"My example connector">>,
-            parameters => mongo_type_opts(Type)
-        },
-        [
-            common_values(),
-            method_values(mongodb, Method)
-        ]
-    ).
-
-action_values(Method) ->
-    maps:merge(
-        method_values(mongodb, Method),
-        #{
-            description => <<"My example action">>,
-            enable => true,
-            connector => <<"my_mongodb_connector">>,
-            parameters => #{
-                collection => <<"mycol">>
-            }
-        }
-    ).
 
 values(MongoType, Method) ->
     maps:merge(
@@ -295,10 +271,10 @@ bridge_values(Type, _Method) ->
             type => TypeBin,
             collection => <<"mycol">>
         },
-        common_values()
+        connector_values()
     ).
 
-common_values() ->
+connector_values() ->
     #{
         enable => true,
         database => <<"mqtt">>,
@@ -307,26 +283,3 @@ common_values() ->
         username => <<"myuser">>,
         password => <<"******">>
     }.
-
-method_values(Type, post) ->
-    TypeBin = atom_to_binary(Type),
-    #{
-        name => <<TypeBin/binary, "_demo">>,
-        type => TypeBin
-    };
-method_values(Type, get) ->
-    maps:merge(
-        method_values(Type, post),
-        #{
-            status => <<"connected">>,
-            node_status => [
-                #{
-                    node => <<"emqx@localhost">>,
-                    status => <<"connected">>
-                }
-            ],
-            actions => [<<"my_action">>]
-        }
-    );
-method_values(_Type, put) ->
-    #{}.

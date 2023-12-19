@@ -122,7 +122,9 @@ fields("get_cluster") ->
     method_fields(get, redis_cluster);
 %% old bridge v1 schema
 fields(Type) when
-    Type == redis_single orelse Type == redis_sentinel orelse Type == redis_cluster
+    Type == redis_single;
+    Type == redis_sentinel;
+    Type == redis_cluster
 ->
     redis_bridge_common_fields(Type) ++
         connector_fields(Type);

@@ -82,9 +82,13 @@ on_start(InstId, Config) ->
     end.
 
 on_stop(InstId, #{conn_st := RedisConnSt}) ->
-    emqx_redis:on_stop(InstId, RedisConnSt);
+    Res = emqx_redis:on_stop(InstId, RedisConnSt),
+    ?tp(redis_bridge_stopped, #{instance_id => InstId}),
+    Res;
 on_stop(InstId, undefined = _State) ->
-    emqx_redis:on_stop(InstId, undefined).
+    Res = emqx_redis:on_stop(InstId, undefined),
+    ?tp(redis_bridge_stopped, #{instance_id => InstId}),
+    Res.
 
 on_get_status(InstId, #{conn_st := RedisConnSt}) ->
     emqx_redis:on_get_status(InstId, RedisConnSt).
@@ -98,7 +102,7 @@ on_query(InstId, {cmd, Cmd}, #{conn_st := RedisConnSt}) ->
     Result = query(InstId, {cmd, Cmd}, RedisConnSt),
     ?tp(
         redis_bridge_connector_send_done,
-        #{cmd => Cmd, batch => false, mode => sync, result => Result}
+        #{instance_id => InstId, cmd => Cmd, batch => false, mode => sync, result => Result}
     ),
     Result;
 on_query(
@@ -115,7 +119,7 @@ on_query(
             Result = query(InstId, {cmd, Cmd}, RedisConnSt),
             ?tp(
                 redis_bridge_connector_send_done,
-                #{cmd => Cmd, batch => false, mode => sync, result => Result}
+                #{instance_id => InstId, cmd => Cmd, batch => false, mode => sync, result => Result}
             ),
             Result;
         Error ->
@@ -135,6 +139,7 @@ on_batch_query(
             ?tp(
                 redis_bridge_connector_send_done,
                 #{
+                    instance_id => InstId,
                     batch_data => BatchData,
                     batch_size => length(BatchData),
                     batch => true,

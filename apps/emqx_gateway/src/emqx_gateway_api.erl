@@ -786,7 +786,7 @@ examples_gateway_confs() ->
         ocpp_gateway =>
             #{
                 summary => <<"A simple OCPP gateway config">>,
-                vaule =>
+                value =>
                     #{
                         enable => true,
                         name => <<"ocpp">>,
@@ -926,7 +926,7 @@ examples_update_gateway_confs() ->
         ocpp_gateway =>
             #{
                 summary => <<"A simple OCPP gateway config">>,
-                vaule =>
+                value =>
                     #{
                         enable => true,
                         enable_stats => true,

@@ -290,7 +290,11 @@ transform_bridge_v1_config_to_action_config(
     TopMap = maps:with(TopKeys, ActionMap1),
     RestMap = maps:without(TopKeys, ActionMap1),
     %% Other parameters should be stuffed into `parameters'
-    emqx_utils_maps:deep_merge(TopMap, #{<<"parameters">> => RestMap}).
+    emqx_utils_maps:update_if_present(
+        <<"resource_opts">>,
+        fun emqx_bridge_v2_schema:project_to_actions_resource_opts/1,
+        emqx_utils_maps:deep_merge(TopMap, #{<<"parameters">> => RestMap})
+    ).
 
 generate_connector_name(ConnectorsMap, BridgeName, Attempt) ->
     ConnectorNameList =

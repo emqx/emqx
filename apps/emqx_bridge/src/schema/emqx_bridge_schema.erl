@@ -31,12 +31,13 @@
 
 -export([
     common_bridge_fields/0,
+    metrics_fields/0,
     status_fields/0,
-    metrics_fields/0
+    type_and_name_fields/1
 ]).
 
 %% for testing only
--export([enterprise_api_schemas/1]).
+-export([enterprise_api_schemas/1, enterprise_fields_bridges/0]).
 
 %%======================================================================================
 %% Hocon Schema Definitions
@@ -156,6 +157,12 @@ metrics_fields() ->
             )}
     ].
 
+type_and_name_fields(ConnectorType) ->
+    [
+        {type, mk(ConnectorType, #{required => true, desc => ?DESC("desc_type")})},
+        {name, mk(binary(), #{required => true, desc => ?DESC("desc_name")})}
+    ].
+
 %%======================================================================================
 %% For config files
 
@@ -168,11 +175,10 @@ roots() -> [{bridges, ?HOCON(?R_REF(bridges), #{importance => ?IMPORTANCE_LOW})}
 
 fields(bridges) ->
     [
-        {http,
+        {webhook,
             mk(
                 hoconsc:map(name, ref(emqx_bridge_http_schema, "config")),
                 #{
-                    aliases => [webhook],
                     desc => ?DESC("bridges_webhook"),
                     required => false,
                     converter => fun http_bridge_converter/2
@@ -191,7 +197,7 @@ fields(bridges) ->
                     end
                 }
             )}
-    ] ++ enterprise_fields_bridges();
+    ] ++ ?MODULE:enterprise_fields_bridges();
 fields("metrics") ->
     [
         {"dropped", mk(integer(), #{desc => ?DESC("metric_dropped")})},

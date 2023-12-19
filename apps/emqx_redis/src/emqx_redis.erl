@@ -62,25 +62,22 @@ roots() ->
 
 fields(redis_single) ->
     fields(redis_single_connector) ++
-        redis_fields() ++
         emqx_connector_schema_lib:ssl_fields();
 fields(redis_single_connector) ->
     [
         {server, server()},
         redis_type(single)
-    ];
+    ] ++ redis_fields();
 fields(redis_cluster) ->
     fields(redis_cluster_connector) ++
-        lists:keydelete(database, 1, redis_fields()) ++
         emqx_connector_schema_lib:ssl_fields();
 fields(redis_cluster_connector) ->
     [
         {servers, servers()},
         redis_type(cluster)
-    ];
+    ] ++ lists:keydelete(database, 1, redis_fields());
 fields(redis_sentinel) ->
     fields(redis_sentinel_connector) ++
-        redis_fields() ++
         emqx_connector_schema_lib:ssl_fields();
 fields(redis_sentinel_connector) ->
     [
@@ -91,7 +88,7 @@ fields(redis_sentinel_connector) ->
             required => true,
             desc => ?DESC("sentinel_desc")
         }}
-    ].
+    ] ++ redis_fields().
 
 server() ->
     Meta = #{desc => ?DESC("server")},

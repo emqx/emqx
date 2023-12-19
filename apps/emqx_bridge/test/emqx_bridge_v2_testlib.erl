@@ -216,12 +216,8 @@ create_bridge_api(Config, Overrides) ->
     BridgeName = ?config(bridge_name, Config),
     BridgeConfig0 = ?config(bridge_config, Config),
     BridgeConfig = emqx_utils_maps:deep_merge(BridgeConfig0, Overrides),
-    ConnectorName = ?config(connector_name, Config),
-    ConnectorType = ?config(connector_type, Config),
-    ConnectorConfig = ?config(connector_config, Config),
 
-    {ok, _Connector} =
-        emqx_connector:create(ConnectorType, ConnectorName, ConnectorConfig),
+    {ok, {{_, 201, _}, _, _}} = create_connector_api(Config),
 
     Params = BridgeConfig#{<<"type">> => BridgeType, <<"name">> => BridgeName},
     Path = emqx_mgmt_api_test_util:api_path(["actions"]),

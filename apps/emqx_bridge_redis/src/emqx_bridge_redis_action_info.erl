@@ -29,14 +29,12 @@ connector_type_name() -> redis.
 schema_module() -> ?SCHEMA_MODULE.
 
 connector_action_config_to_bridge_v1_config(ConnectorConfig, ActionConfig) ->
-    fix_v1_type(
-        maps:merge(
-            maps:without(
-                [<<"connector">>],
-                map_unindent(<<"parameters">>, ActionConfig)
-            ),
-            map_unindent(<<"parameters">>, ConnectorConfig)
-        )
+    maps:merge(
+        maps:without(
+            [<<"connector">>],
+            map_unindent(<<"parameters">>, ActionConfig)
+        ),
+        map_unindent(<<"parameters">>, ConnectorConfig)
     ).
 
 bridge_v1_config_to_action_config(BridgeV1Config, ConnectorName) ->
@@ -44,12 +42,11 @@ bridge_v1_config_to_action_config(BridgeV1Config, ConnectorName) ->
     ActionParametersKeys = schema_keys(emqx_bridge_redis:fields(action_parameters)),
     ActionKeys = ActionTopLevelKeys ++ ActionParametersKeys,
     ActionConfig0 = make_config_map(ActionKeys, ActionParametersKeys, BridgeV1Config),
-    ActionConfig = emqx_utils_maps:update_if_present(
+    emqx_utils_maps:update_if_present(
         <<"resource_opts">>,
         fun emqx_bridge_v2_schema:project_to_actions_resource_opts/1,
-        ActionConfig0
-    ),
-    ActionConfig#{<<"connector">> => ConnectorName}.
+        ActionConfig0#{<<"connector">> => ConnectorName}
+    ).
 
 bridge_v1_config_to_connector_config(BridgeV1Config) ->
     ActionTopLevelKeys = schema_keys(?SCHEMA_MODULE:fields(redis_action)),
@@ -77,9 +74,6 @@ bridge_v1_type_name() ->
     {fun ?MODULE:bridge_v1_type_name_fun/1, bridge_v1_type_names()}.
 bridge_v1_type_name_fun({#{<<"parameters">> := #{<<"redis_type">> := Type}}, _}) ->
     v1_type(Type).
-
-fix_v1_type(#{<<"redis_type">> := RedisType} = Conf) ->
-    Conf#{<<"type">> => v1_type(RedisType)}.
 
 v1_type(<<"single">>) -> redis_single;
 v1_type(<<"sentinel">>) -> redis_sentinel;

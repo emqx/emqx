@@ -443,6 +443,12 @@ handle_in(
 handle_in(?SN_ADVERTISE_MSG(_GwId, _Radius), Channel) ->
     % ignore
     shutdown(normal, Channel);
+%% Ack DISCONNECT even if it is not connected
+handle_in(
+    ?SN_DISCONNECT_MSG(_Duration),
+    Channel = #channel{conn_state = idle}
+) ->
+    handle_out(disconnect, normal, Channel);
 handle_in(
     Publish =
         ?SN_PUBLISH_MSG(

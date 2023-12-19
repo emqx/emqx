@@ -160,12 +160,12 @@ fields("put") ->
     fields("config");
 fields("get") ->
     emqx_bridge_schema:status_fields() ++ fields("post");
-fields("get_bridge_v2") ->
-    emqx_bridge_schema:status_fields() ++ fields("post_bridge_v2");
-fields("post_bridge_v2") ->
-    [type_field(), name_field() | fields(mysql_action)];
-fields("put_bridge_v2") ->
-    fields(mysql_action);
+fields(Field) when
+    Field == "get_bridge_v2";
+    Field == "post_bridge_v2";
+    Field == "put_bridge_v2"
+->
+    emqx_bridge_v2_schema:api_fields(Field, ?ACTION_TYPE, fields(mysql_action));
 fields(Field) when
     Field == "get_connector";
     Field == "put_connector";

@@ -453,7 +453,12 @@ channel_health_check(ResId, ChannelId) ->
 
 -spec get_channels(resource_id()) -> {ok, [{binary(), map()}]} | {error, term()}.
 get_channels(ResId) ->
-    emqx_resource_manager:get_channels(ResId).
+    case emqx_resource_manager:lookup_cached(ResId) of
+        {error, not_found} ->
+            {error, not_found};
+        {ok, _Group, _ResourceData = #{mod := Mod}} ->
+            {ok, emqx_resource:call_get_channels(ResId, Mod)}
+    end.
 
 set_resource_status_connecting(ResId) ->
     emqx_resource_manager:set_resource_status_connecting(ResId).
