@@ -378,6 +378,8 @@ client_call(GwName, ClientId, Req) ->
     of
         undefined ->
             {error, not_found};
+        ignored ->
+            {error, ignored};
         Res ->
             Res
     catch
