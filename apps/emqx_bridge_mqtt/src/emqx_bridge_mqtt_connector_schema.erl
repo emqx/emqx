@@ -338,6 +338,8 @@ egress_pool_size(Prop) ->
 
 desc("server_configs") ->
     ?DESC("server_configs");
+desc("config_connector") ->
+    ?DESC("config_connector");
 desc("ingress") ->
     ?DESC("ingress_desc");
 desc("ingress_remote") ->
@@ -350,6 +352,8 @@ desc("egress_remote") ->
     ?DESC("egress_remote");
 desc("egress_local") ->
     ?DESC("egress_local");
+desc(resource_opts) ->
+    ?DESC(emqx_resource_schema, <<"resource_opts">>);
 desc(_) ->
     undefined.
 

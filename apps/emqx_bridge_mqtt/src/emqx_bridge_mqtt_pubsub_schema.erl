@@ -107,6 +107,10 @@ desc("config") ->
     ?DESC("desc_config");
 desc(action_resource_opts) ->
     ?DESC(emqx_resource_schema, "creation_opts");
+desc(action_parameters) ->
+    ?DESC(action_parameters);
+desc(ingress_parameters) ->
+    ?DESC(ingress_parameters);
 desc(Method) when Method =:= "get"; Method =:= "put"; Method =:= "post" ->
     ["Configuration for WebHook using `", string:to_upper(Method), "` method."];
 desc("config_connector") ->
@@ -115,6 +119,10 @@ desc("http_action") ->
     ?DESC("desc_config");
 desc("parameters_opts") ->
     ?DESC("config_parameters_opts");
+desc("mqtt_publisher_action") ->
+    ?DESC("mqtt_publisher_action");
+desc("mqtt_subscriber_source") ->
+    ?DESC("mqtt_subscriber_source");
 desc(_) ->
     undefined.
 
