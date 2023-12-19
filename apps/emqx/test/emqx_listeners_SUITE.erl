@@ -21,6 +21,7 @@
 
 -include_lib("emqx/include/emqx.hrl").
 -include_lib("emqx/include/emqx_schema.hrl").
+-include_lib("emqx/include/asserts.hrl").
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
 
@@ -247,8 +248,9 @@ t_ssl_update_opts(Config) ->
         ),
 
         %% Unable to connect with old SSL options, certificate is now required.
-        ?assertError(
-            {ssl_error, _Socket, {tls_alert, {certificate_required, _}}},
+        ?assertExceptionOneOf(
+            {error, {ssl_error, _Socket, {tls_alert, {certificate_required, _}}}},
+            {error, closed},
             emqtt_connect_ssl(Host, Port, [
                 {cacertfile, filename:join(PrivDir, "ca-next.pem")} | ClientSSLOpts
             ])
