@@ -80,11 +80,11 @@ fields(ingress_parameters) ->
     Fields0 = emqx_bridge_mqtt_connector_schema:fields("ingress"),
     Fields1 = proplists:delete(pool_size, Fields0),
     Fields1;
-fields("resource_opts") ->
+fields(action_resource_opts) ->
     UnsupportedOpts = [enable_batch, batch_size, batch_time],
     lists:filter(
         fun({K, _V}) -> not lists:member(K, UnsupportedOpts) end,
-        emqx_resource_schema:fields("creation_opts")
+        emqx_bridge_v2_schema:resource_opts_fields()
     );
 fields("get_connector") ->
     emqx_bridge_mqtt_connector_schema:fields("config_connector");
@@ -105,7 +105,7 @@ fields(What) ->
 
 desc("config") ->
     ?DESC("desc_config");
-desc("resource_opts") ->
+desc(action_resource_opts) ->
     ?DESC(emqx_resource_schema, "creation_opts");
 desc(Method) when Method =:= "get"; Method =:= "put"; Method =:= "post" ->
     ["Configuration for WebHook using `", string:to_upper(Method), "` method."];
