@@ -224,17 +224,11 @@ split_bridge_to_connector_and_action(
                                             ConnectorFieldNameBin,
                                             maps:get(ConnectorFieldNameBin, BridgeV1Conf)
                                         ),
-                                    NewToTransform0 = maps:put(
+                                    maps:put(
                                         ConnectorFieldNameBin,
                                         PrevFieldConfig,
                                         ToTransformSoFar
-                                    ),
-                                    NewToTransform1 = maps:put(
-                                        to_bin(ConnectorFieldName),
-                                        maps:get(to_bin(ConnectorFieldName), BridgeV1Conf),
-                                        NewToTransform0
-                                    ),
-                                    NewToTransform1;
+                                    );
                                 false ->
                                     ToTransformSoFar
                             end
@@ -269,7 +263,7 @@ split_bridge_to_connector_and_action(
                     transform_bridge_v1_config_to_action_config(
                         BridgeV1Conf, ConnectorName, ConnectorFields
                     ),
-                {ActionMap0, OrgActionType}
+                {ActionMap0, OrgActionType, action}
         end,
     {BridgeType, BridgeName, ActionMap, ActionType, ActionOrSource, ConnectorName, ConnectorMap,
         ConnectorType}.
