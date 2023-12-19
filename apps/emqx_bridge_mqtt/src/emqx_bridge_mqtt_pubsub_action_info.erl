@@ -52,13 +52,8 @@ make_connector_config_from_bridge_v1_config(Config) ->
      || {FieldName, _} <- ConnectorConfigSchema
     ],
     ConnectorConfigMap = maps:with(ConnectorTopFields, Config),
-    ResourceOptsSchema = emqx_bridge_mqtt_connector_schema:fields(creation_opts),
-    ResourceOptsTopFields = [
-        erlang:atom_to_binary(FieldName, utf8)
-     || {FieldName, _} <- ResourceOptsSchema
-    ],
     ResourceOptsMap = maps:get(<<"resource_opts">>, ConnectorConfigMap, #{}),
-    ResourceOptsMap2 = maps:with(ResourceOptsTopFields, ResourceOptsMap),
+    ResourceOptsMap2 = emqx_connector_schema:project_to_connector_resource_opts(ResourceOptsMap),
     ConnectorConfigMap2 = maps:put(<<"resource_opts">>, ResourceOptsMap2, ConnectorConfigMap),
     IngressMap0 = maps:get(<<"ingress">>, Config, #{}),
     EgressMap = maps:get(<<"egress">>, Config, #{}),
@@ -190,7 +185,13 @@ connector_action_config_to_bridge_v1_config(
     Params = maps:get(<<"parameters">>, ActionConfig, #{}),
     ResourceOptsConnector = maps:get(<<"resource_opts">>, ConnectorConfig, #{}),
     ResourceOptsAction = maps:get(<<"resource_opts">>, ActionConfig, #{}),
-    ResourceOpts = maps:merge(ResourceOptsConnector, ResourceOptsAction),
+    ResourceOpts0 = maps:merge(ResourceOptsConnector, ResourceOptsAction),
+    V1ResourceOptsFields =
+        lists:map(
+            fun({Field, _}) -> atom_to_binary(Field) end,
+            emqx_bridge_mqtt_schema:fields("creation_opts")
+        ),
+    ResourceOpts = maps:with(V1ResourceOptsFields, ResourceOpts0),
     %% Check the direction of the action
     Direction =
         case maps:get(<<"remote">>, Params) of
@@ -212,11 +213,15 @@ connector_action_config_to_bridge_v1_config(
                 #{<<"egress">> => Parms3};
             {<<"publisher">>, LocalT} ->
                 #{
-                    <<"egress">> => Parms3,
-                    <<"local">> =>
-                        #{
-                            <<"topic">> => LocalT
-                        }
+                    <<"egress">> =>
+                        maps:merge(
+                            Parms3, #{
+                                <<"local">> =>
+                                    #{
+                                        <<"topic">> => LocalT
+                                    }
+                            }
+                        )
                 };
             {<<"subscriber">>, _} ->
                 #{<<"ingress">> => Parms3}

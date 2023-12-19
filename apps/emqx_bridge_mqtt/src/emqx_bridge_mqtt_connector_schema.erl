@@ -76,14 +76,6 @@ fields("config_connector") ->
                 }
             )},
         {description, emqx_schema:description_schema()},
-        {resource_opts,
-            mk(
-                hoconsc:ref(creation_opts),
-                #{
-                    required => false,
-                    desc => ?DESC(emqx_resource_schema, "creation_opts")
-                }
-            )},
         {pool_size, fun egress_pool_size/1}
         % {ingress,
         %     mk(
@@ -95,8 +87,9 @@ fields("config_connector") ->
         %             desc => ?DESC("ingress_desc")
         %         }
         %     )}
-    ] ++ fields("server_configs");
-fields(creation_opts) ->
+    ] ++ emqx_connector_schema:resource_opts_ref(?MODULE, resource_opts) ++
+        fields("server_configs");
+fields(resource_opts) ->
     emqx_connector_schema:resource_opts_fields();
 fields("server_configs") ->
     [
