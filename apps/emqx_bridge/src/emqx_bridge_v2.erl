@@ -1345,13 +1345,13 @@ get_conf_root_key_if_only_one(BridgeType, BridgeName) ->
     LookUpConfSources = lookup_conf(?ROOT_KEY_SOURCES, BridgeType, BridgeName),
     case {LookUpConfActions, LookUpConfSources} of
         {{error, bridge_not_found}, {error, bridge_not_found}} ->
-            error({action_or_soruces_not_found, BridgeType, BridgeName});
+            error({action_or_source_not_found, BridgeType, BridgeName});
         {{error, bridge_not_found}, _Conf} ->
             ?ROOT_KEY_SOURCES;
         {_Conf, {error, bridge_not_found}} ->
             ?ROOT_KEY_ACTIONS;
         {_Conf1, _Conf2} ->
-            error({name_clash_action_soruces, BridgeType, BridgeName})
+            error({name_clash_action_source, BridgeType, BridgeName})
     end.
 
 lookup_conf(RootName, Type, Name) ->
