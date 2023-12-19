@@ -186,12 +186,92 @@ t_ssl_password_cert(Config) ->
         ssl:close(SSLSocket)
     end).
 
+t_ssl_update_opts(Config) ->
+    PrivDir = ?config(priv_dir, Config),
+    CACertfile = filename:join(PrivDir, "ca.pem"),
+    Host = "127.0.0.1",
+    Port = emqx_common_test_helpers:select_free_port(ssl),
+    Conf = #{
+        <<"enable">> => true,
+        <<"bind">> => format_bind({Host, Port}),
+        <<"ssl_options">> => #{
+            <<"cacertfile">> => CACertfile,
+            <<"certfile">> => filename:join(PrivDir, "server.pem"),
+            <<"keyfile">> => filename:join(PrivDir, "server.key"),
+            <<"verify">> => verify_none
+        }
+    },
+    ClientSSLOpts = [
+        {verify, verify_peer},
+        {cacertfile, CACertfile},
+        {customize_hostname_check, [{match_fun, fun(_, _) -> true end}]}
+    ],
+    with_listener(ssl, updated, Conf, fun() ->
+        ClientOpts1 = #{
+            hosts => [{Host, Port}],
+            ssl => true,
+            ssl_opts => ClientSSLOpts
+        },
+        C1 = emqtt_connect(ClientOpts1),
+
+        %% Change the listener SSL configuration.
+        %% 1. Another set of (password protected) cert/key files.
+        %% 2. Require peer certificate.
+        {ok, _} = emqx:update_config(
+            [listeners, ssl, updated],
+            {update, #{
+                <<"ssl_options">> => #{
+                    <<"password">> => ?SERVER_KEY_PASSWORD,
+                    <<"cacertfile">> => CACertfile,
+                    <<"certfile">> => filename:join(PrivDir, "server-password.pem"),
+                    <<"keyfile">> => filename:join(PrivDir, "server-password.key"),
+                    <<"verify">> => verify_peer,
+                    <<"fail_if_no_peer_cert">> => true
+                }
+            }}
+        ),
+
+        %% Unable to connect with old SSL options, certificate is now required.
+        ?assertError(
+            {ssl_error, _Socket, {tls_alert, {certificate_required, _}}},
+            emqtt_connect(ClientOpts1)
+        ),
+
+        ClientOpts2 = ClientOpts1#{
+            ssl_opts := [
+                {certfile, filename:join(PrivDir, "client.pem")},
+                {keyfile, filename:join(PrivDir, "client.key")}
+                | ClientSSLOpts
+            ]
+        },
+        C2 = emqtt_connect(ClientOpts2),
+
+        %% Both pre- and post-update clients should be alive.
+        ?assertEqual(pong, emqtt:ping(C1)),
+        ?assertEqual(pong, emqtt:ping(C2)),
+        %% TODO
+        %% Would be nice to verify that the server picked up new cert/key pair.
+        %% However, there's no usable API for that in `emqtt` at the moment.
+        %% ?assertEqual(<<"server">>, esockd_peercert:common_name(Cert1)),
+        %% ?assertEqual(<<"server-password">>, esockd_peercert:common_name(Cert2)),
+        ok = emqtt:stop(C1),
+        ok = emqtt:stop(C2)
+    end).
+
 with_listener(Type, Name, Config, Then) ->
     {ok, _} = emqx:update_config([listeners, Type, Name], {create, Config}),
     try
         Then()
     after
         emqx:update_config([listeners, Type, Name], ?TOMBSTONE_CONFIG_CHANGE_REQ)
+    end.
+
+emqtt_connect(Options) ->
+    {ok, Client} = emqtt:start_link(Options),
+    true = erlang:unlink(Client),
+    case emqtt:connect(Client) of
+        {ok, _} -> Client;
+        {error, Reason} -> error(Reason)
     end.
 
 t_format_bind(_) ->
