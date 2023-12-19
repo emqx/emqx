@@ -188,18 +188,7 @@ end_per_testcase(_, Config) ->
     ok.
 
 clear_resources() ->
-    lists:foreach(
-        fun(#{type := Type, name := Name}) ->
-            ok = emqx_bridge_v2:remove(Type, Name)
-        end,
-        emqx_bridge_v2:list()
-    ),
-    lists:foreach(
-        fun(#{type := Type, name := Name}) ->
-            ok = emqx_connector:remove(Type, Name)
-        end,
-        emqx_connector:list()
-    ),
+    emqx_bridge_v2_testlib:delete_all_bridges_and_connectors(),
     lists:foreach(
         fun(#{type := Type, name := Name}) ->
             ok = emqx_bridge:remove(Type, Name)
@@ -1026,9 +1015,11 @@ t_with_redact_update(Config) ->
     BridgeConf = emqx_utils:redact(Template),
     BridgeID = emqx_bridge_resource:bridge_id(Type, Name),
     {ok, 200, _} = request(put, uri(["bridges", BridgeID]), BridgeConf, Config),
+    %% bridge is migrated after creation
+    ConfigRootKey = connectors,
     ?assertEqual(
         Password,
-        get_raw_config([bridges, Type, Name, password], Config)
+        get_raw_config([ConfigRootKey, Type, Name, password], Config)
     ),
 
     %% probe with new password; should not be considered redacted

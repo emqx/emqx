@@ -46,6 +46,7 @@
     %% The remove/2 function is only for internal use as it may create
     %% rules with broken dependencies
     remove/2,
+    remove/3,
     %% The following is the remove function that is called by the HTTP API
     %% It also checks for rule action dependencies and optionally removes
     %% them

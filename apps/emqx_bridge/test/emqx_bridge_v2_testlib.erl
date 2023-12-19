@@ -96,9 +96,15 @@ delete_all_bridges_and_connectors() ->
 delete_all_bridges() ->
     lists:foreach(
         fun(#{name := Name, type := Type}) ->
-            emqx_bridge_v2:remove(Type, Name)
+            emqx_bridge_v2:remove(actions, Type, Name)
         end,
-        emqx_bridge_v2:list()
+        emqx_bridge_v2:list(actions)
+    ),
+    lists:foreach(
+        fun(#{name := Name, type := Type}) ->
+            emqx_bridge_v2:remove(sources, Type, Name)
+        end,
+        emqx_bridge_v2:list(sources)
     ).
 
 delete_all_connectors() ->
