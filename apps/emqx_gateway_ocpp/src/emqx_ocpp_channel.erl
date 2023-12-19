@@ -186,10 +186,10 @@ info(timers, #channel{timers = Timers}) ->
 
 -spec stats(channel()) -> emqx_types:stats().
 stats(#channel{mqueue = MQueue}) ->
-    %% XXX:
+    %% XXX: A fake stats for managed by emqx_management
     SessionStats = [
-        {subscriptions_cnt, 0},
-        {subscriptions_max, 0},
+        {subscriptions_cnt, 1},
+        {subscriptions_max, 1},
         {inflight_cnt, 0},
         {inflight_max, 0},
         {mqueue_len, queue:len(MQueue)},
