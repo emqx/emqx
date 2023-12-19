@@ -101,7 +101,14 @@ namespace() -> "bridge_redis".
 roots() -> [].
 
 fields(action_parameters) ->
-    [{command_template, fun command_template/1}];
+    [
+        command_template(),
+        {redis_type,
+            ?HOCON(
+                ?ENUM([single, sentinel, cluster]),
+                #{required => true, desc => ?DESC(redis_type)}
+            )}
+    ];
 fields("post_single") ->
     method_fields(post, redis_single);
 fields("post_sentinel") ->
@@ -147,8 +154,8 @@ method_fields(put, ConnectorType) ->
 redis_bridge_common_fields(Type) ->
     emqx_bridge_schema:common_bridge_fields() ++
         [
-            {local_topic, mk(binary(), #{required => false, desc => ?DESC("desc_local_topic")})}
-            | fields(action_parameters)
+            {local_topic, mk(binary(), #{required => false, desc => ?DESC("desc_local_topic")})},
+            command_template()
         ] ++
         v1_resource_fields(Type).
 
@@ -222,3 +229,6 @@ is_command_template_valid(CommandSegments) ->
                 "the value of the field 'command_template' should be a nonempty "
                 "list of strings (templates for Redis command and arguments)"}
     end.
+
+command_template() ->
+    {command_template, fun command_template/1}.

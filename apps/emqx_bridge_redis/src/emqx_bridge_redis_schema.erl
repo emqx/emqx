@@ -76,13 +76,7 @@ fields(redis_action) ->
             )
         ),
     [ResOpts] = emqx_connector_schema:resource_opts_ref(?MODULE, action_resource_opts),
-    RedisType =
-        {redis_type,
-            ?HOCON(
-                ?ENUM([single, sentinel, cluster]),
-                #{required => true, desc => ?DESC(redis_type)}
-            )},
-    [RedisType | lists:keyreplace(resource_opts, 1, Schema, ResOpts)];
+    lists:keyreplace(resource_opts, 1, Schema, ResOpts);
 fields(action_resource_opts) ->
     emqx_bridge_v2_schema:resource_opts_fields([
         {batch_size, #{desc => ?DESC(batch_size)}},
@@ -130,7 +124,7 @@ resource_opts_converter(Conf, _Opts) ->
     maps:map(
         fun(_Name, SubConf) ->
             case SubConf of
-                #{<<"redis_type">> := <<"cluster">>} ->
+                #{<<"parameters">> := #{<<"redis_type">> := <<"cluster">>}} ->
                     ResOpts = maps:get(<<"resource_opts">>, SubConf, #{}),
                     %% cluster don't support batch
                     SubConf#{
@@ -218,12 +212,12 @@ action_example(RedisType, get) ->
     );
 action_example(RedisType, put) ->
     #{
-        redis_type => RedisType,
         enable => true,
         connector => <<"my_connector_name">>,
         description => <<"My action">>,
         parameters => #{
-            command_template => [<<"LPUSH">>, <<"MSGS">>, <<"${payload}">>]
+            command_template => [<<"LPUSH">>, <<"MSGS">>, <<"${payload}">>],
+            redis_type => RedisType
         },
         resource_opts => #{batch_size => 1}
     }.

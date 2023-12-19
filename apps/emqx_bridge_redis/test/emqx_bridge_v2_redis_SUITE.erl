@@ -229,7 +229,10 @@ action_config(Name, Path, ConnectorId) ->
             <<"enable">> => true,
             <<"connector">> => ConnectorId,
             <<"parameters">> =>
-                #{<<"command_template">> => [<<"RPUSH">>, <<"MSGS/${topic}">>, <<"${payload}">>]},
+                #{
+                    <<"command_template">> => [<<"RPUSH">>, <<"MSGS/${topic}">>, <<"${payload}">>],
+                    <<"redis_type">> => atom_to_binary(RedisType)
+                },
             <<"local_topic">> => <<"t/redis">>,
             <<"resource_opts">> => #{
                 <<"batch_size">> => 1,
@@ -246,17 +249,8 @@ action_config(Name, Path, ConnectorId) ->
                 <<"worker_pool_size">> => <<"1">>
             }
         },
-    PerTypeCfg = per_type_action_config(RedisType),
-    InnerConfigMap0 = emqx_utils_maps:deep_merge(CommonCfg, PerTypeCfg),
-    InnerConfigMap = serde_roundtrip(InnerConfigMap0),
+    InnerConfigMap = serde_roundtrip(CommonCfg),
     parse_and_check_bridge_config(InnerConfigMap, Name).
-
-per_type_action_config(single) ->
-    #{<<"redis_type">> => <<"single">>};
-per_type_action_config(sentinel) ->
-    #{<<"redis_type">> => <<"sentinel">>};
-per_type_action_config(cluster) ->
-    #{<<"redis_type">> => <<"cluster">>}.
 
 %% check it serializes correctly
 serde_roundtrip(InnerConfigMap0) ->
