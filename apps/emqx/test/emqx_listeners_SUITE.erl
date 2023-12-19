@@ -207,12 +207,7 @@ t_ssl_update_opts(Config) ->
         {customize_hostname_check, [{match_fun, fun(_, _) -> true end}]}
     ],
     with_listener(ssl, updated, Conf, fun() ->
-        ClientOpts1 = #{
-            hosts => [{Host, Port}],
-            ssl => true,
-            ssl_opts => ClientSSLOpts
-        },
-        C1 = emqtt_connect(ClientOpts1),
+        C1 = emqtt_connect_ssl(Host, Port, ClientSSLOpts),
 
         %% Change the listener SSL configuration.
         %% 1. Another set of (password protected) cert/key files.
@@ -234,17 +229,14 @@ t_ssl_update_opts(Config) ->
         %% Unable to connect with old SSL options, certificate is now required.
         ?assertError(
             {ssl_error, _Socket, {tls_alert, {certificate_required, _}}},
-            emqtt_connect(ClientOpts1)
+            emqtt_connect_ssl(Host, Port, ClientSSLOpts)
         ),
 
-        ClientOpts2 = ClientOpts1#{
-            ssl_opts := [
-                {certfile, filename:join(PrivDir, "client.pem")},
-                {keyfile, filename:join(PrivDir, "client.key")}
-                | ClientSSLOpts
-            ]
-        },
-        C2 = emqtt_connect(ClientOpts2),
+        C2 = emqtt_connect_ssl(Host, Port, [
+            {certfile, filename:join(PrivDir, "client.pem")},
+            {keyfile, filename:join(PrivDir, "client.key")}
+            | ClientSSLOpts
+        ]),
 
         %% Both pre- and post-update clients should be alive.
         ?assertEqual(pong, emqtt:ping(C1)),
@@ -258,6 +250,68 @@ t_ssl_update_opts(Config) ->
         ok = emqtt:stop(C2)
     end).
 
+t_wss_update_opts(Config) ->
+    PrivDir = ?config(priv_dir, Config),
+    CACertfile = filename:join(PrivDir, "ca.pem"),
+    Host = "127.0.0.1",
+    Port = emqx_common_test_helpers:select_free_port(ssl),
+    Conf = #{
+        <<"enable">> => true,
+        <<"bind">> => format_bind({Host, Port}),
+        <<"ssl_options">> => #{
+            <<"cacertfile">> => CACertfile,
+            <<"certfile">> => filename:join(PrivDir, "server.pem"),
+            <<"keyfile">> => filename:join(PrivDir, "server.key"),
+            <<"verify">> => verify_none
+        }
+    },
+    ClientSSLOpts = [
+        {verify, verify_peer},
+        {cacertfile, CACertfile},
+        {customize_hostname_check, [{match_fun, fun(_, _) -> true end}]}
+    ],
+    with_listener(wss, updated, Conf, fun() ->
+        %% Start a client.
+        C1 = emqtt_connect_wss(Host, Port, ClientSSLOpts),
+
+        %% Change the listener SSL configuration.
+        %% 1. Another set of (password protected) cert/key files.
+        %% 2. Require peer certificate.
+        {ok, _} = emqx:update_config(
+            [listeners, wss, updated],
+            {update, #{
+                <<"ssl_options">> => #{
+                    <<"password">> => ?SERVER_KEY_PASSWORD,
+                    <<"cacertfile">> => CACertfile,
+                    <<"certfile">> => filename:join(PrivDir, "server-password.pem"),
+                    <<"keyfile">> => filename:join(PrivDir, "server-password.key"),
+                    <<"verify">> => verify_peer,
+                    <<"fail_if_no_peer_cert">> => true
+                }
+            }}
+        ),
+
+        %% Unable to connect with old SSL options, certificate is now required.
+        ?assertError(
+            %% Due to a bug `emqtt` does not instantly report that socket was closed.
+            timeout,
+            emqtt_connect_wss(Host, Port, ClientSSLOpts)
+        ),
+
+        % C2 = emqx_cth_mqttws:connect(Host, Port, [
+        C2 = emqtt_connect_wss(Host, Port, [
+            {certfile, filename:join(PrivDir, "client.pem")},
+            {keyfile, filename:join(PrivDir, "client.key")}
+            | ClientSSLOpts
+        ]),
+
+        %% Both pre- and post-update clients should be alive.
+        ?assertEqual(pong, emqtt:ping(C1)),
+        ?assertEqual(pong, emqtt:ping(C2)),
+        ok = emqtt:stop(C1),
+        ok = emqtt:stop(C2)
+    end).
+
 with_listener(Type, Name, Config, Then) ->
     {ok, _} = emqx:update_config([listeners, Type, Name], {create, Config}),
     try
@@ -266,12 +320,35 @@ with_listener(Type, Name, Config, Then) ->
         emqx:update_config([listeners, Type, Name], ?TOMBSTONE_CONFIG_CHANGE_REQ)
     end.
 
-emqtt_connect(Options) ->
-    {ok, Client} = emqtt:start_link(Options),
-    true = erlang:unlink(Client),
-    case emqtt:connect(Client) of
-        {ok, _} -> Client;
-        {error, Reason} -> error(Reason)
+emqtt_connect_ssl(Host, Port, SSLOpts) ->
+    emqtt_connect(fun emqtt:connect/1, #{
+        hosts => [{Host, Port}],
+        connect_timeout => 1,
+        ssl => true,
+        ssl_opts => SSLOpts
+    }).
+
+emqtt_connect_wss(Host, Port, SSLOpts) ->
+    emqtt_connect(fun emqtt:ws_connect/1, #{
+        hosts => [{Host, Port}],
+        connect_timeout => 1,
+        ws_transport_options => [
+            {protocols, [http]},
+            {transport, tls},
+            {tls_opts, SSLOpts}
+        ]
+    }).
+
+emqtt_connect(Connect, Opts) ->
+    case emqtt:start_link(Opts) of
+        {ok, Client} ->
+            true = erlang:unlink(Client),
+            case Connect(Client) of
+                {ok, _} -> Client;
+                {error, Reason} -> error(Reason, [Opts])
+            end;
+        {error, Reason} ->
+            error(Reason, [Opts])
     end.
 
 t_format_bind(_) ->
