@@ -188,7 +188,7 @@ gen_schema_json(Dir, SchemaModule, Lang) ->
 gen_preformat_md_json_files(Dir, StructsJsonArray, Lang) ->
     NestedStruct = reformat_schema_dump(StructsJsonArray),
     %% write to files
-    NestedJsonFile = filename:join([Dir, "schmea-v2-" ++ Lang ++ ".json"]),
+    NestedJsonFile = filename:join([Dir, "schema-v2-" ++ Lang ++ ".json"]),
     io:format(user, "===< Generating: ~s~n", [NestedJsonFile]),
     ok = file:write_file(
         NestedJsonFile, emqx_utils_json:encode(NestedStruct, [pretty, force_utf8])
