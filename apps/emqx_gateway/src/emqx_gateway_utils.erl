@@ -528,7 +528,8 @@ esockd_opts(Type, Opts0) when ?IS_ESOCKD_LISTENER(Type) ->
                 UDPOpts = sock_opts(udp_options, Opts0),
                 DTLSOpts = ssl_opts(dtls_options, Opts0),
                 Opts2#{
-                    dtls_options => UDPOpts ++ DTLSOpts
+                    udp_options => UDPOpts,
+                    dtls_options => DTLSOpts
                 }
         end
     ).
@@ -565,13 +566,9 @@ ssl_opts_crl_config(SSLOpts, _Name) ->
     %% NOTE: Removing this because DTLS doesn't like any unknown options.
     maps:remove(enable_crl_check, SSLOpts).
 
-ssl_opts_drop_unsupported(SSLOpts, ssl_options) ->
+ssl_opts_drop_unsupported(SSLOpts, _Name) ->
     %% TODO: Support OCSP stapling
-    maps:without([ocsp], SSLOpts);
-ssl_opts_drop_unsupported(SSLOpts, dtls_options) ->
-    %% TODO: Support OCSP stapling
-    %% NOTE: Removing those because DTLS doesn't like any unknown options.
-    maps:without([ocsp, gc_after_handshake], SSLOpts).
+    maps:without([ocsp], SSLOpts).
 
 ssl_server_opts(SSLOpts, ssl_options) ->
     emqx_tls_lib:to_server_opts(tls, SSLOpts);
@@ -665,7 +662,7 @@ default_tcp_options() ->
     ].
 
 default_udp_options() ->
-    [binary].
+    [].
 
 default_subopts() ->
     %% Retain Handling
