@@ -18,7 +18,8 @@ main(_) ->
     halt(1).
 
 reformat(Json) ->
-    emqx_conf:reformat_schema_dump(fix(Json)).
+    %% NOTE: Assuming schema would contain no types needing localized typedocs.
+    emqx_conf:reformat_schema_dump(fix(Json), _Lang = "en").
 
 %% fix old type specs to make them compatible with new type specs
 fix(#{
