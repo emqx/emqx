@@ -197,6 +197,10 @@ subscriptions(get, #{
         case emqx_gateway_http:list_client_subscriptions(GwName, ClientId) of
             {error, not_found} ->
                 return_http_error(404, "client process not found");
+            {error, ignored} ->
+                return_http_error(
+                    400, "get subscriptions failed: unsupported"
+                );
             {error, Reason} ->
                 return_http_error(400, Reason);
             {ok, Subs} ->
@@ -222,7 +226,13 @@ subscriptions(post, #{
                     )
                 of
                     {error, not_found} ->
-                        return_http_error(404, "client process not found");
+                        return_http_error(
+                            404, "client process not found"
+                        );
+                    {error, ignored} ->
+                        return_http_error(
+                            400, "subscribe failed: unsupported"
+                        );
                     {error, Reason} ->
                         return_http_error(400, Reason);
                     {ok, {NTopic, NSubOpts}} ->
@@ -241,8 +251,14 @@ subscriptions(delete, #{
     with_gateway(Name0, fun(GwName, _) ->
         case lookup_topic(GwName, ClientId, Topic) of
             {ok, _} ->
-                _ = emqx_gateway_http:client_unsubscribe(GwName, ClientId, Topic),
-                {204};
+                case emqx_gateway_http:client_unsubscribe(GwName, ClientId, Topic) of
+                    {error, ignored} ->
+                        return_http_error(
+                            400, "unsubscribe failed: unsupported"
+                        );
+                    _ ->
+                        {204}
+                end;
             {error, not_found} ->
                 return_http_error(404, "Resource not found")
         end

@@ -186,10 +186,10 @@ info(timers, #channel{timers = Timers}) ->
 
 -spec stats(channel()) -> emqx_types:stats().
 stats(#channel{mqueue = MQueue}) ->
-    %% XXX:
+    %% XXX: A fake stats for managed by emqx_management
     SessionStats = [
-        {subscriptions_cnt, 0},
-        {subscriptions_max, 0},
+        {subscriptions_cnt, 1},
+        {subscriptions_max, 1},
         {inflight_cnt, 0},
         {inflight_max, 0},
         {mqueue_len, queue:len(MQueue)},
@@ -524,9 +524,13 @@ handle_out(Type, Data, Channel) ->
 %%--------------------------------------------------------------------
 
 apply_frame(Frames, Channel) when is_list(Frames) ->
-    {Outgoings, NChannel} = lists:foldl(fun apply_frame/2, {[], Channel}, Frames),
+    {Outgoings, NChannel} = lists:foldl(fun do_apply_frame/2, {[], Channel}, Frames),
     {lists:reverse(Outgoings), NChannel};
-apply_frame(?IS_BootNotification_RESP(Payload), {Outgoings, Channel}) ->
+apply_frame(Frames, Channel) ->
+    ?SLOG(error, #{msg => "unexpected_frame_list", frames => Frames, channel => Channel}),
+    Channel.
+
+do_apply_frame(?IS_BootNotification_RESP(Payload), {Outgoings, Channel}) ->
     case maps:get(<<"status">>, Payload) of
         <<"Accepted">> ->
             Intv = maps:get(<<"interval">>, Payload),
@@ -535,8 +539,9 @@ apply_frame(?IS_BootNotification_RESP(Payload), {Outgoings, Channel}) ->
         _ ->
             {Outgoings, Channel}
     end;
-apply_frame(_, Channel) ->
-    Channel.
+do_apply_frame(Frame, Acc = {_Outgoings, Channel}) ->
+    ?SLOG(error, #{msg => "unexpected_frame", frame => Frame, channel => Channel}),
+    Acc.
 
 %%--------------------------------------------------------------------
 %% Handle call
