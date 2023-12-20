@@ -1086,7 +1086,8 @@ bridge_v1_lookup_and_transform(ActionType, Name) ->
     case lookup(ActionType, Name) of
         {ok, #{raw_config := #{<<"connector">> := ConnectorName} = RawConfig} = ActionConfig} ->
             BridgeV1Type = ?MODULE:bridge_v2_type_to_bridge_v1_type(ActionType, RawConfig),
-            case ?MODULE:bridge_v1_is_valid(BridgeV1Type, Name) of
+            HasBridgeV1Equivalent = has_bridge_v1_equivalent(ActionType),
+            case HasBridgeV1Equivalent andalso ?MODULE:bridge_v1_is_valid(BridgeV1Type, Name) of
                 true ->
                     ConnectorType = connector_type(ActionType),
                     case emqx_connector:lookup(ConnectorType, ConnectorName) of
@@ -1111,6 +1112,12 @@ bridge_v1_lookup_and_transform(ActionType, Name) ->
 
 not_bridge_v1_compatible_error() ->
     {error, not_bridge_v1_compatible}.
+
+has_bridge_v1_equivalent(ActionType) ->
+    case emqx_action_info:bridge_v1_type_name(ActionType) of
+        {ok, _} -> true;
+        {error, no_v1_equivalent} -> false
+    end.
 
 connector_raw_config(Connector, ConnectorType) ->
     get_raw_with_defaults(Connector, ConnectorType, <<"connectors">>, emqx_connector_schema).

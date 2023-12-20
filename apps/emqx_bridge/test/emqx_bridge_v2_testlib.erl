@@ -343,6 +343,42 @@ probe_bridge_api(BridgeType, BridgeName, BridgeConfig) ->
     ct:pal("bridge probe result: ~p", [Res]),
     Res.
 
+list_bridges_http_api_v1() ->
+    Path = emqx_mgmt_api_test_util:api_path(["bridges"]),
+    ct:pal("list bridges (http v1)"),
+    Res = request(get, Path, _Params = []),
+    ct:pal("list bridges (http v1) result:\n  ~p", [Res]),
+    Res.
+
+list_actions_http_api() ->
+    Path = emqx_mgmt_api_test_util:api_path(["actions"]),
+    ct:pal("list actions (http v2)"),
+    Res = request(get, Path, _Params = []),
+    ct:pal("list actions (http v2) result:\n  ~p", [Res]),
+    Res.
+
+list_connectors_http_api() ->
+    Path = emqx_mgmt_api_test_util:api_path(["connectors"]),
+    ct:pal("list connectors"),
+    Res = request(get, Path, _Params = []),
+    ct:pal("list connectors result:\n  ~p", [Res]),
+    Res.
+
+update_rule_http(RuleId, Params) ->
+    Path = emqx_mgmt_api_test_util:api_path(["rules", RuleId]),
+    ct:pal("update rule ~p:\n  ~p", [RuleId, Params]),
+    Res = request(put, Path, Params),
+    ct:pal("update rule ~p result:\n  ~p", [RuleId, Res]),
+    Res.
+
+enable_rule_http(RuleId) ->
+    Params = #{<<"enable">> => true},
+    update_rule_http(RuleId, Params).
+
+is_rule_enabled(RuleId) ->
+    {ok, #{enable := Enable}} = emqx_rule_engine:get_rule(RuleId),
+    Enable.
+
 try_decode_error(Body0) ->
     case emqx_utils_json:safe_decode(Body0, [return_maps]) of
         {ok, #{<<"message">> := Msg0} = Body1} ->
