@@ -22,7 +22,7 @@
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
 
--import(emqx_gateway_auth_ct, [init_gateway_conf/0, with_resource/3]).
+-import(emqx_gateway_auth_ct, [with_resource/3]).
 
 -define(checkMatch(Guard),
     (fun(Expr) ->
@@ -54,44 +54,33 @@ groups() ->
     emqx_gateway_auth_ct:init_groups(?MODULE, ?AUTHNS).
 
 init_per_group(AuthName, Conf) ->
-    {ok, _} = emqx_cluster_rpc:start_link(node(), emqx_cluster_rpc, 1000),
-    ok = emqx_authz_test_lib:reset_authorizers(),
-    emqx_gateway_auth_ct:start_auth(AuthName),
-    timer:sleep(500),
-    Conf.
+    Apps = emqx_cth_suite:start(
+        [
+            {emqx_conf, "authorization { no_match = deny, cache { enable = false } }"},
+            emqx_auth,
+            emqx_auth_http,
+            {emqx_gateway, emqx_gateway_auth_ct:list_gateway_conf()}
+            | emqx_gateway_test_utils:all_gateway_apps()
+        ],
+        #{work_dir => emqx_cth_suite:work_dir(Conf)}
+    ),
+    ok = emqx_gateway_auth_ct:start_auth(AuthName),
+    [{group_apps, Apps} | Conf].
 
 end_per_group(AuthName, Conf) ->
-    emqx_gateway_auth_ct:stop_auth(AuthName),
+    ok = emqx_gateway_auth_ct:stop_auth(AuthName),
+    ok = emqx_cth_suite:stop(?config(group_apps, Conf)),
     Conf.
 
 init_per_suite(Config) ->
-    emqx_config:erase(gateway),
-    emqx_gateway_test_utils:load_all_gateway_apps(),
-    init_gateway_conf(),
-    emqx_mgmt_api_test_util:init_suite([
-        grpc, emqx_conf, emqx_auth, emqx_auth_http, emqx_gateway
-    ]),
-    meck:new(emqx_authz_file, [non_strict, passthrough, no_history, no_link]),
-    meck:expect(emqx_authz_file, create, fun(S) -> S end),
-    application:ensure_all_started(cowboy),
-    emqx_gateway_auth_ct:start(),
-    Config.
+    {ok, Apps1} = application:ensure_all_started(grpc),
+    {ok, Apps2} = application:ensure_all_started(cowboy),
+    {ok, _} = emqx_gateway_auth_ct:start(),
+    [{suite_apps, Apps1 ++ Apps2} | Config].
 
 end_per_suite(Config) ->
-    meck:unload(emqx_authz_file),
-    emqx_gateway_auth_ct:stop(),
-    ok = emqx_authz_test_lib:restore_authorizers(),
-    emqx_config:erase(gateway),
-    emqx_mgmt_api_test_util:end_suite([
-        emqx_gateway, emqx_auth_http, emqx_auth, emqx_conf, grpc
-    ]),
-    Config.
-
-init_per_testcase(_Case, Config) ->
-    {ok, _} = emqx_cluster_rpc:start_link(node(), emqx_cluster_rpc, 1000),
-    Config.
-
-end_per_testcase(_Case, Config) ->
+    ok = emqx_gateway_auth_ct:stop(),
+    ok = emqx_cth_suite:stop_apps(?config(suite_apps, Config)),
     Config.
 
 %%------------------------------------------------------------------------------

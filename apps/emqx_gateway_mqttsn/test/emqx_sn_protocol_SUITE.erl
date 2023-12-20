@@ -85,6 +85,12 @@
     "  listeners.udp.default {\n"
     "    bind = 1884\n"
     "  }\n"
+    "}\n"
+>>).
+
+-define(CONF_DTLS, <<
+    "\n"
+    "gateway.mqttsn {"
     "  listeners.dtls.default {\n"
     "    bind = 1885\n"
     "    dtls_options {\n"
@@ -110,7 +116,7 @@ init_per_suite(Config) ->
     {CACertfile, _} = emqx_cth_tls:write_cert(PrivDir, Root),
     {Certfile, Keyfile} = emqx_cth_tls:write_cert(PrivDir, Server),
     Conf = emqx_template:render_strict(
-        emqx_template:parse(?CONF_DEFAULT),
+        emqx_template:parse([?CONF_DEFAULT, ?CONF_DTLS]),
         #{
             cacertfile => CACertfile,
             certfile => Certfile,
