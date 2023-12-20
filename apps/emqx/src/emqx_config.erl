@@ -94,6 +94,7 @@
 
 -export([ensure_atom_conf_path/2]).
 -export([load_config_files/2]).
+-export([upgrade_raw_conf/2]).
 
 -ifdef(TEST).
 -export([erase_all/0, backup_and_write/2]).

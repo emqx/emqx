@@ -813,6 +813,9 @@ to_schema(Body) ->
         post => #{requestBody => Body, responses => #{200 => <<"ok">>}}
     }.
 
+%% Don't warning hocon callback namespace/0 undef.
+namespace() -> atom_to_list(?MODULE).
+
 fields(good_ref) ->
     [
         {'webhook-host', mk(emqx_schema:ip_port(), #{default => <<"127.0.0.1:80">>})},
