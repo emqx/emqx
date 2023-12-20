@@ -77,6 +77,7 @@
 -export([
     id/2,
     id/3,
+    connector_id/2,
     bridge_v1_is_valid/2,
     extract_connector_id_from_bridge_v2_id/1
 ]).
@@ -110,9 +111,9 @@
     bridge_v1_check_deps_and_remove/3,
     bridge_v1_split_config_and_create/3,
     bridge_v1_create_dry_run/2,
-    bridge_v1_type_to_bridge_v2_type/1,
+    bridge_v1_type_to_action_type/1,
     %% Exception from the naming convention:
-    bridge_v2_type_to_bridge_v1_type/2,
+    action_type_to_bridge_v1_type/2,
     bridge_v1_id_to_connector_resource_id/1,
     bridge_v1_enable_disable/3,
     bridge_v1_restart/2,
@@ -793,7 +794,7 @@ parse_id(Id) ->
         [<<"action">>, Type, Name | _] ->
             {Type, Name};
         _X ->
-            error({error, iolist_to_binary(io_lib:format("Invalid id: ~p", [Id]))})
+            error({error, {bridge_id_invalid, Id}})
     end.
 
 get_channels_for_connector(ConnectorId) ->
@@ -850,6 +851,15 @@ connector_type(Type) ->
 
 bridge_v2_type_to_connector_type(Type) ->
     emqx_action_info:action_type_to_connector_type(Type).
+
+connector_id(BridgeType, BridgeName) ->
+    case lookup_conf(BridgeType, BridgeName) of
+        #{connector := ConnectorName} ->
+            ConnectorType = connector_type(BridgeType),
+            emqx_connector_resource:resource_id(ConnectorType, ConnectorName);
+        {error, Reason} ->
+            throw(Reason)
+    end.
 
 %%====================================================================
 %% Data backup API
@@ -1052,13 +1062,13 @@ unpack_bridge_conf(Type, PackedConf, TopLevelConf) ->
 %% * The corresponding bridge v2 should exist
 %% * The connector for the bridge v2 should have exactly one channel
 bridge_v1_is_valid(BridgeV1Type, BridgeName) ->
-    BridgeV2Type = ?MODULE:bridge_v1_type_to_bridge_v2_type(BridgeV1Type),
-    case lookup_conf(BridgeV2Type, BridgeName) of
+    ActionType = ?MODULE:bridge_v1_type_to_action_type(BridgeV1Type),
+    case lookup_conf(ActionType, BridgeName) of
         {error, _} ->
             %% If the bridge v2 does not exist, it is a valid bridge v1
             true;
         #{connector := ConnectorName} ->
-            ConnectorType = connector_type(BridgeV2Type),
+            ConnectorType = connector_type(ActionType),
             ConnectorResourceId = emqx_connector_resource:resource_id(ConnectorType, ConnectorName),
             {ok, Channels} = emqx_resource:get_channels(ConnectorResourceId),
             case Channels of
@@ -1069,10 +1079,10 @@ bridge_v1_is_valid(BridgeV1Type, BridgeName) ->
             end
     end.
 
-bridge_v1_type_to_bridge_v2_type(Type) ->
+bridge_v1_type_to_action_type(Type) ->
     emqx_action_info:bridge_v1_type_to_action_type(Type).
 
-bridge_v2_type_to_bridge_v1_type(ActionType, ActionConf) ->
+action_type_to_bridge_v1_type(ActionType, ActionConf) ->
     emqx_action_info:action_type_to_bridge_v1_type(ActionType, ActionConf).
 
 is_bridge_v2_type(Type) ->
@@ -1085,7 +1095,7 @@ bridge_v1_list_and_transform() ->
 bridge_v1_lookup_and_transform(ActionType, Name) ->
     case lookup(ActionType, Name) of
         {ok, #{raw_config := #{<<"connector">> := ConnectorName} = RawConfig} = ActionConfig} ->
-            BridgeV1Type = ?MODULE:bridge_v2_type_to_bridge_v1_type(ActionType, RawConfig),
+            BridgeV1Type = ?MODULE:action_type_to_bridge_v1_type(ActionType, RawConfig),
             case ?MODULE:bridge_v1_is_valid(BridgeV1Type, Name) of
                 true ->
                     ConnectorType = connector_type(ActionType),
@@ -1165,9 +1175,9 @@ lookup_conf(Type, Name) ->
     end.
 
 bridge_v1_split_config_and_create(BridgeV1Type, BridgeName, RawConf) ->
-    BridgeV2Type = ?MODULE:bridge_v1_type_to_bridge_v2_type(BridgeV1Type),
+    ActionType = ?MODULE:bridge_v1_type_to_action_type(BridgeV1Type),
     %% Check if the bridge v2 exists
-    case lookup_conf(BridgeV2Type, BridgeName) of
+    case lookup_conf(ActionType, BridgeName) of
         {error, _} ->
             %% If the bridge v2 does not exist, it is a valid bridge v1
             PreviousRawConf = undefined,
@@ -1180,7 +1190,7 @@ bridge_v1_split_config_and_create(BridgeV1Type, BridgeName, RawConf) ->
                     %% Using remove + create as update, hence do not delete deps.
                     RemoveDeps = [],
                     PreviousRawConf = emqx:get_raw_config(
-                        [?ROOT_KEY, BridgeV2Type, BridgeName], undefined
+                        [?ROOT_KEY, ActionType, BridgeName], undefined
                     ),
                     %% To avoid losing configurations. We have to make sure that no crash occurs
                     %% during deletion and creation of configurations.
@@ -1266,8 +1276,8 @@ do_connector_and_bridge_create(
 split_and_validate_bridge_v1_config(BridgeV1Type, BridgeName, RawConf, PreviousRawConf) ->
     %% Create fake global config for the transformation and then call
     %% `emqx_connector_schema:transform_bridges_v1_to_connectors_and_bridges_v2/1'
-    BridgeV2Type = ?MODULE:bridge_v1_type_to_bridge_v2_type(BridgeV1Type),
-    ConnectorType = connector_type(BridgeV2Type),
+    ActionType = ?MODULE:bridge_v1_type_to_action_type(BridgeV1Type),
+    ConnectorType = connector_type(ActionType),
     %% Needed to avoid name conflicts
     CurrentConnectorsConfig = emqx:get_raw_config([connectors], #{}),
     FakeGlobalConfig0 = #{
@@ -1282,7 +1292,7 @@ split_and_validate_bridge_v1_config(BridgeV1Type, BridgeName, RawConf, PreviousR
         emqx_utils_maps:put_if(
             FakeGlobalConfig0,
             bin(?ROOT_KEY),
-            #{bin(BridgeV2Type) => #{bin(BridgeName) => PreviousRawConf}},
+            #{bin(ActionType) => #{bin(BridgeName) => PreviousRawConf}},
             PreviousRawConf =/= undefined
         ),
     %% [FIXME] this will loop through all connector types, instead pass the
@@ -1294,7 +1304,7 @@ split_and_validate_bridge_v1_config(BridgeV1Type, BridgeName, RawConf, PreviousR
         emqx_utils_maps:deep_get(
             [
                 bin(?ROOT_KEY),
-                bin(BridgeV2Type),
+                bin(ActionType),
                 bin(BridgeName)
             ],
             Output
@@ -1302,7 +1312,7 @@ split_and_validate_bridge_v1_config(BridgeV1Type, BridgeName, RawConf, PreviousR
     ConnectorName = emqx_utils_maps:deep_get(
         [
             bin(?ROOT_KEY),
-            bin(BridgeV2Type),
+            bin(ActionType),
             bin(BridgeName),
             <<"connector">>
         ],
@@ -1325,7 +1335,7 @@ split_and_validate_bridge_v1_config(BridgeV1Type, BridgeName, RawConf, PreviousR
             }
         },
         <<"actions">> => #{
-            bin(BridgeV2Type) => #{
+            bin(ActionType) => #{
                 bin(BridgeName) => NewBridgeV2RawConf
             }
         }
@@ -1342,7 +1352,7 @@ split_and_validate_bridge_v1_config(BridgeV1Type, BridgeName, RawConf, PreviousR
                 connector_type => ConnectorType,
                 connector_name => ConnectorName,
                 connector_conf => NewConnectorRawConf,
-                bridge_v2_type => BridgeV2Type,
+                bridge_v2_type => ActionType,
                 bridge_v2_name => BridgeName,
                 bridge_v2_conf => NewBridgeV2RawConf
             }
@@ -1373,7 +1383,7 @@ bridge_v1_create_dry_run(BridgeType, RawConfig0) ->
 
 %% Only called by test cases (may create broken references)
 bridge_v1_remove(BridgeV1Type, BridgeName) ->
-    ActionType = ?MODULE:bridge_v1_type_to_bridge_v2_type(BridgeV1Type),
+    ActionType = ?MODULE:bridge_v1_type_to_action_type(BridgeV1Type),
     bridge_v1_remove(
         ActionType,
         BridgeName,
@@ -1399,85 +1409,73 @@ bridge_v1_remove(
 ) ->
     Error.
 
-bridge_v1_check_deps_and_remove(BridgeV1Type, BridgeName, RemoveDeps) ->
-    BridgeV2Type = ?MODULE:bridge_v1_type_to_bridge_v2_type(BridgeV1Type),
-    bridge_v1_check_deps_and_remove(
-        BridgeV2Type,
-        BridgeName,
-        RemoveDeps,
-        lookup_conf(BridgeV2Type, BridgeName)
-    ).
-
 %% Bridge v1 delegated-removal in 3 steps:
 %% 1. Delete rule actions if RmoveDeps has 'rule_actions'
 %% 2. Delete self (the bridge v2), also delete its channel in the connector
 %% 3. Delete the connector if the connector has no more channel left and if 'connector' is in RemoveDeps
-bridge_v1_check_deps_and_remove(
-    BridgeType,
-    BridgeName,
-    RemoveDeps,
-    #{connector := ConnectorName}
-) ->
-    RemoveConnector = lists:member(connector, RemoveDeps),
-    case emqx_bridge_lib:maybe_withdraw_rule_action(BridgeType, BridgeName, RemoveDeps) of
+bridge_v1_check_deps_and_remove(BridgeV1Type, BridgeName, RemoveDeps) ->
+    ActionType = ?MODULE:bridge_v1_type_to_action_type(BridgeV1Type),
+    bridge_v1_check_deps_and_remove(
+        ActionType,
+        BridgeName,
+        RemoveDeps,
+        lookup_conf(ActionType, BridgeName)
+    ).
+
+bridge_v1_check_deps_and_remove(ActionType, BridgeName, RemoveDeps, #{connector := ConnectorName}) ->
+    case emqx_bridge_lib:maybe_withdraw_rule_action(ActionType, BridgeName, RemoveDeps) of
         ok ->
-            case remove(BridgeType, BridgeName) of
-                ok when RemoveConnector ->
-                    maybe_delete_channels(BridgeType, BridgeName, ConnectorName);
+            case remove(ActionType, BridgeName) of
                 ok ->
-                    ok;
+                    ConnectorType = connector_type(ActionType),
+                    case
+                        lists:member(connector, RemoveDeps) andalso
+                            not connector_has_channels(ConnectorType, ConnectorName)
+                    of
+                        true -> delete_connector(ConnectorType, ConnectorName);
+                        false -> ok
+                    end;
                 {error, Reason} ->
                     {error, Reason}
             end;
         {error, Reason} ->
             {error, Reason}
     end;
-bridge_v1_check_deps_and_remove(_BridgeType, _BridgeName, _RemoveDeps, Error) ->
-    %% TODO: the connector is gone, for whatever reason, maybe call remove/2 anyway?
+bridge_v1_check_deps_and_remove(_, _, _, Error) ->
     Error.
 
-maybe_delete_channels(BridgeType, BridgeName, ConnectorName) ->
-    case connector_has_channels(BridgeType, ConnectorName) of
-        true ->
+delete_connector(ConnectorType, ConnectorName) ->
+    case emqx_connector:remove(ConnectorType, ConnectorName) of
+        ok ->
             ok;
-        false ->
-            ConnectorType = connector_type(BridgeType),
-            case emqx_connector:remove(ConnectorType, ConnectorName) of
-                ok ->
-                    ok;
-                {error, Reason} ->
-                    ?SLOG(error, #{
-                        msg => failed_to_delete_connector,
-                        bridge_type => BridgeType,
-                        bridge_name => BridgeName,
-                        connector_name => ConnectorName,
-                        reason => Reason
-                    }),
-                    {error, Reason}
-            end
+        {error, Reason} ->
+            ?SLOG(error, #{
+                msg => failed_to_delete_connector,
+                connector_type => ConnectorType,
+                connector_name => ConnectorName,
+                reason => Reason
+            }),
+            {error, Reason}
     end.
 
-connector_has_channels(BridgeV2Type, ConnectorName) ->
-    ConnectorType = connector_type(BridgeV2Type),
+connector_has_channels(ConnectorType, ConnectorName) ->
     case emqx_connector_resource:get_channels(ConnectorType, ConnectorName) of
-        {ok, []} ->
-            false;
-        _ ->
-            true
+        {ok, [_ | _]} -> true;
+        _ -> false
     end.
 
 bridge_v1_id_to_connector_resource_id(BridgeId) ->
     case binary:split(BridgeId, <<":">>) of
         [Type, Name] ->
-            BridgeV2Type = bin(bridge_v1_type_to_bridge_v2_type(Type)),
+            ActionType = bin(bridge_v1_type_to_action_type(Type)),
             ConnectorName =
-                case lookup_conf(BridgeV2Type, Name) of
+                case lookup_conf(ActionType, Name) of
                     #{connector := Con} ->
                         Con;
                     {error, Reason} ->
                         throw(Reason)
                 end,
-            ConnectorType = bin(connector_type(BridgeV2Type)),
+            ConnectorType = bin(connector_type(ActionType)),
             <<"connector:", ConnectorType/binary, ":", ConnectorName/binary>>
     end.
 
@@ -1497,14 +1495,14 @@ bridge_v1_enable_disable(Action, BridgeType, BridgeName) ->
 bridge_v1_enable_disable_helper(_Op, _BridgeType, _BridgeName, {error, bridge_not_found}) ->
     {error, bridge_not_found};
 bridge_v1_enable_disable_helper(enable, BridgeType, BridgeName, #{connector := ConnectorName}) ->
-    BridgeV2Type = ?MODULE:bridge_v1_type_to_bridge_v2_type(BridgeType),
-    ConnectorType = connector_type(BridgeV2Type),
+    ActionType = ?MODULE:bridge_v1_type_to_action_type(BridgeType),
+    ConnectorType = connector_type(ActionType),
     {ok, _} = emqx_connector:disable_enable(enable, ConnectorType, ConnectorName),
-    emqx_bridge_v2:disable_enable(enable, BridgeV2Type, BridgeName);
+    ?MODULE:disable_enable(enable, ActionType, BridgeName);
 bridge_v1_enable_disable_helper(disable, BridgeType, BridgeName, #{connector := ConnectorName}) ->
-    BridgeV2Type = emqx_bridge_v2:bridge_v1_type_to_bridge_v2_type(BridgeType),
-    ConnectorType = connector_type(BridgeV2Type),
-    {ok, _} = emqx_bridge_v2:disable_enable(disable, BridgeV2Type, BridgeName),
+    ActionType = ?MODULE:bridge_v1_type_to_action_type(BridgeType),
+    ConnectorType = connector_type(ActionType),
+    {ok, _} = ?MODULE:disable_enable(disable, ActionType, BridgeName),
     emqx_connector:disable_enable(disable, ConnectorType, ConnectorName).
 
 bridge_v1_restart(BridgeV1Type, Name) ->
@@ -1526,13 +1524,13 @@ bridge_v1_start(BridgeV1Type, Name) ->
     bridge_v1_operation_helper(BridgeV1Type, Name, ConnectorOpFun, true).
 
 bridge_v1_operation_helper(BridgeV1Type, Name, ConnectorOpFun, DoHealthCheck) ->
-    BridgeV2Type = ?MODULE:bridge_v1_type_to_bridge_v2_type(BridgeV1Type),
-    case emqx_bridge_v2:bridge_v1_is_valid(BridgeV1Type, Name) of
+    ActionType = ?MODULE:bridge_v1_type_to_action_type(BridgeV1Type),
+    case ?MODULE:bridge_v1_is_valid(BridgeV1Type, Name) of
         true ->
             connector_operation_helper_with_conf(
-                BridgeV2Type,
+                ActionType,
                 Name,
-                lookup_conf(BridgeV2Type, Name),
+                lookup_conf(ActionType, Name),
                 ConnectorOpFun,
                 DoHealthCheck
             );

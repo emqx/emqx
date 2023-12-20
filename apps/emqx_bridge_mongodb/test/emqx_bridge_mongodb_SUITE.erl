@@ -32,7 +32,8 @@ group_tests() ->
         t_collection_template,
         t_mongo_date_rule_engine_functions,
         t_get_status_server_selection_too_short,
-        t_use_legacy_protocol_option
+        t_use_legacy_protocol_option,
+        t_query_action_type_fails
     ].
 
 groups() ->
@@ -149,8 +150,7 @@ init_per_testcase(_Testcase, Config) ->
 
 end_per_testcase(_Testcase, Config) ->
     clear_db(Config),
-    delete_bridge(Config),
-    [] = emqx_connector:list(),
+    emqx_bridge_v2_testlib:delete_all_bridges_and_connectors(),
     snabbkaffe:stop(),
     ok.
 
@@ -334,7 +334,12 @@ create_bridge(Config, Overrides) ->
 delete_bridge(Config) ->
     Type = mongo_type_bin(?config(mongo_type, Config)),
     Name = ?config(mongo_name, Config),
-    emqx_bridge:check_deps_and_remove(Type, Name, [connector, rule_actions]).
+    case emqx_bridge:lookup(Type, Name) of
+        {ok, _} ->
+            emqx_bridge:check_deps_and_remove(Type, Name, [connector, rule_actions]);
+        {error, _} ->
+            ok
+    end.
 
 create_bridge_http(Params) ->
     Path = emqx_mgmt_api_test_util:api_path(["bridges"]),
@@ -432,6 +437,12 @@ resource_id(Config) ->
     Name = ?config(mongo_name, Config),
     Type = mongo_type_bin(Type0),
     emqx_bridge_resource:resource_id(Type, Name).
+
+bridge_id(Config) ->
+    Type0 = ?config(mongo_type, Config),
+    Name = ?config(mongo_name, Config),
+    Type = mongo_type_bin(Type0),
+    emqx_bridge_resource:bridge_id(Type, Name).
 
 get_worker_pids(Config) ->
     ResourceID = resource_id(Config),
@@ -636,4 +647,25 @@ t_use_legacy_protocol_option(Config) ->
     LegacyOptions1 = maps:from_list([{Pid, mc_utils:use_legacy_protocol(Pid)} || Pid <- WorkerPids1]),
     ?assertEqual(Expected1, LegacyOptions1),
 
+    ok.
+
+t_query_action_type_fails(Config) ->
+    ?assertMatch(
+        {ok, _},
+        create_bridge(Config)
+    ),
+    AuthHeader = emqx_mgmt_api_test_util:auth_header_(),
+    GoodBridgeId = bridge_id(Config),
+    GoodPath = emqx_mgmt_api_test_util:api_path(["bridges", GoodBridgeId]),
+    ?assertMatch(
+        {ok, _},
+        emqx_mgmt_api_test_util:request_api(get, GoodPath, AuthHeader)
+    ),
+    BridgeName = ?config(mongo_name, Config),
+    BadBridgeId = emqx_bridge_resource:bridge_id(mongodb, BridgeName),
+    BadPath = emqx_mgmt_api_test_util:api_path(["bridges", BadBridgeId]),
+    ?assertMatch(
+        {error, {_, 404, _}},
+        emqx_mgmt_api_test_util:request_api(get, BadPath, AuthHeader)
+    ),
     ok.

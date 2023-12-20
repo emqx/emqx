@@ -115,7 +115,7 @@ parse_bridge_id(<<"bridge:", ID/binary>>, Opts) ->
     parse_bridge_id(ID, Opts);
 parse_bridge_id(BridgeId, Opts) ->
     {Type, Name} = emqx_resource:parse_resource_id(BridgeId, Opts),
-    {emqx_bridge_lib:upgrade_type(Type), Name}.
+    {emqx_bridge_lib:maybe_upgrade_type(Type), Name}.
 
 bridge_hookpoint(BridgeId) ->
     <<"$bridges/", (bin(BridgeId))/binary>>.
@@ -260,13 +260,13 @@ recreate(Type, Name, Conf0, Opts) ->
         parse_opts(Conf, Opts)
     ).
 
-create_dry_run(Type0, Conf0) ->
-    Type = emqx_bridge_lib:upgrade_type(Type0),
-    case emqx_bridge_v2:is_bridge_v2_type(Type) of
+create_dry_run(BridgeV1Type, Conf0) ->
+    BridgeV2Type = emqx_bridge_lib:maybe_upgrade_type(BridgeV1Type),
+    case emqx_bridge_v2:is_bridge_v2_type(BridgeV2Type) of
         false ->
-            create_dry_run_bridge_v1(Type, Conf0);
+            create_dry_run_bridge_v1(BridgeV1Type, Conf0);
         true ->
-            emqx_bridge_v2:bridge_v1_create_dry_run(Type, Conf0)
+            emqx_bridge_v2:bridge_v1_create_dry_run(BridgeV1Type, Conf0)
     end.
 
 create_dry_run_bridge_v1(Type, Conf0) ->

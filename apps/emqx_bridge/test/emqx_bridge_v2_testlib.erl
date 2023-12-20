@@ -119,14 +119,15 @@ parse_and_check(BridgeType, BridgeName, ConfigString) ->
 bridge_id(Config) ->
     BridgeType = ?config(bridge_type, Config),
     BridgeName = ?config(bridge_name, Config),
-    BridgeId = emqx_bridge_resource:bridge_id(BridgeType, BridgeName),
-    ConnectorId = emqx_bridge_resource:resource_id(BridgeType, BridgeName),
-    <<"action:", BridgeId/binary, ":", ConnectorId/binary>>.
+    emqx_bridge_v2:id(BridgeType, BridgeName).
 
 resource_id(Config) ->
     BridgeType = ?config(bridge_type, Config),
     BridgeName = ?config(bridge_name, Config),
-    emqx_bridge_resource:resource_id(BridgeType, BridgeName).
+    resource_id(BridgeType, BridgeName).
+
+resource_id(BridgeType, BridgeName) ->
+    emqx_bridge_v2:connector_id(BridgeType, BridgeName).
 
 create_bridge(Config) ->
     create_bridge(Config, _Overrides = #{}).
@@ -527,7 +528,7 @@ t_start_stop(Config, StopTracePoint) ->
 
             ?assertMatch({ok, _}, emqx_bridge_v2:create(BridgeType, BridgeName, BridgeConfig)),
 
-            ResourceId = emqx_bridge_resource:resource_id(BridgeType, BridgeName),
+            ResourceId = resource_id(BridgeType, BridgeName),
 
             %% Since the connection process is async, we give it some time to
             %% stabilize and avoid flakiness.
@@ -593,7 +594,7 @@ t_start_stop(Config, StopTracePoint) ->
             ok
         end,
         fun(Trace) ->
-            ResourceId = emqx_bridge_resource:resource_id(BridgeType, BridgeName),
+            ResourceId = resource_id(BridgeType, BridgeName),
             %% one for each probe, one for real
             ?assertMatch(
                 [_, _, #{instance_id := ResourceId}],

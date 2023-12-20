@@ -37,6 +37,7 @@
 
 -callback bridge_v1_type_name() ->
     atom()
+    | [atom()]
     | {
         fun(({ActionConfig :: map(), ConnectorConfig :: map()}) -> Type :: atom()),
         TypeList :: [atom()]
@@ -65,9 +66,12 @@
 ]).
 
 %% ====================================================================
-%% Hadcoded list of info modules for actions
-%% TODO: Remove this list once we have made sure that all relevants
-%% apps are loaded before this module is called.
+%% FIXME: Hard-coded list of info modules for actions. Remove this list once we
+%% have made sure that all relevant apps are loaded before this module is
+%% called.
+%% Alternative idea: every-time an `emqx_action_info` implementation is loaded
+%% (-on_load(...)) calls emqx_action_info:add_action_info_module which updates
+%% the cache.
 %% ====================================================================
 
 -if(?EMQX_RELEASE_EDITION == ee).
@@ -100,37 +104,28 @@ hard_coded_action_info_modules() ->
 %% API
 %% ====================================================================
 
-action_type_to_connector_type(Type) when not is_atom(Type) ->
-    action_type_to_connector_type(binary_to_existing_atom(iolist_to_binary(Type)));
+query_info_map(NS, Key) when is_binary(Key) ->
+    query_info_map(NS, binary_to_existing_atom(Key));
+query_info_map(NS, Key) ->
+    maps:get(Key, maps:get(NS, info_map())).
+
+query_info_map(NS, Key, Default) when is_binary(Key) ->
+    query_info_map(NS, binary_to_existing_atom(Key), Default);
+query_info_map(NS, Key, Default) ->
+    maps:get(Key, maps:get(NS, info_map()), Default).
+
 action_type_to_connector_type(Type) ->
-    ActionInfoMap = info_map(),
-    ActionTypeToConnectorTypeMap = maps:get(action_type_to_connector_type, ActionInfoMap),
-    case maps:get(Type, ActionTypeToConnectorTypeMap, undefined) of
-        undefined -> Type;
-        ConnectorType -> ConnectorType
-    end.
+    query_info_map(?FUNCTION_NAME, Type).
 
-bridge_v1_type_to_action_type(Bin) when is_binary(Bin) ->
-    bridge_v1_type_to_action_type(binary_to_existing_atom(Bin));
 bridge_v1_type_to_action_type(Type) ->
-    ActionInfoMap = info_map(),
-    BridgeV1TypeToActionType = maps:get(bridge_v1_type_to_action_type, ActionInfoMap),
-    case maps:get(Type, BridgeV1TypeToActionType, undefined) of
-        undefined -> Type;
-        ActionType -> ActionType
-    end.
+    query_info_map(?FUNCTION_NAME, Type).
 
-action_type_to_bridge_v1_type(Bin, Conf) when is_binary(Bin) ->
-    action_type_to_bridge_v1_type(binary_to_existing_atom(Bin), Conf);
 action_type_to_bridge_v1_type(ActionType, ActionConf) ->
-    ActionInfoMap = info_map(),
-    ActionTypeToBridgeV1Type = maps:get(action_type_to_bridge_v1_type, ActionInfoMap),
-    case maps:get(ActionType, ActionTypeToBridgeV1Type, undefined) of
-        undefined ->
-            ActionType;
+    case query_info_map(?FUNCTION_NAME, ActionType) of
         BridgeV1TypeFun when is_function(BridgeV1TypeFun) ->
             case get_confs(ActionType, ActionConf) of
                 {ConnectorConfig, ActionConfig} -> BridgeV1TypeFun({ConnectorConfig, ActionConfig});
+                % FIXME
                 undefined -> ActionType
             end;
         BridgeV1Type ->
@@ -147,15 +142,8 @@ get_confs(_, _) ->
 %% This function should return true for all inputs that are bridge V1 types for
 %% bridges that have been refactored to bridge V2s, and for all all bridge V2
 %% types. For everything else the function should return false.
-is_action_type(Bin) when is_binary(Bin) ->
-    is_action_type(binary_to_existing_atom(Bin));
 is_action_type(Type) ->
-    ActionInfoMap = info_map(),
-    ActionTypes = maps:get(action_type_names, ActionInfoMap),
-    case maps:get(Type, ActionTypes, undefined) of
-        undefined -> false;
-        _ -> true
-    end.
+    query_info_map(action_type_names, Type, undefined) =/= undefined.
 
 registered_schema_modules() ->
     InfoMap = info_map(),
@@ -259,9 +247,10 @@ action_info_modules(App) ->
 initial_info_map() ->
     #{
         action_type_names => #{},
-        bridge_v1_type_to_action_type => #{},
-        action_type_to_bridge_v1_type => #{},
-        action_type_to_connector_type => #{},
+        % [FIXME] remove 'mqtt/http' once implemented
+        bridge_v1_type_to_action_type => #{mqtt => mqtt, http => http},
+        action_type_to_bridge_v1_type => #{mqtt => mqtt, http => http},
+        action_type_to_connector_type => #{mqtt => mqtt, http => http},
         action_type_to_schema_module => #{},
         action_type_to_info_module => #{}
     }.
@@ -276,8 +265,11 @@ get_info_map(Module) ->
                 case Module:bridge_v1_type_name() of
                     {_BridgeV1TypeFun, _BridgeV1Types} = BridgeV1TypeTuple ->
                         BridgeV1TypeTuple;
-                    BridgeV1Type0 ->
-                        {BridgeV1Type0, [BridgeV1Type0]}
+                    [BridgeV1Type | _] = BridgeV1Types0 ->
+                        %% FIXME currently needed for kafka and gcp_pubsub
+                        {BridgeV1Type, BridgeV1Types0};
+                    BridgeV1Type ->
+                        {BridgeV1Type, [BridgeV1Type]}
                 end;
             false ->
                 {ActionType, [ActionType]}
@@ -297,7 +289,7 @@ get_info_map(Module) ->
                     %% Alias the bridge V1 type to the action type
                     M#{BridgeV1Type => ActionType}
                 end,
-                #{ActionType => ActionType},
+                #{},
                 BridgeV1Types
             ),
         action_type_to_bridge_v1_type => #{

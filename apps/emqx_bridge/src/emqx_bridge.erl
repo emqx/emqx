@@ -237,14 +237,13 @@ send_to_matched_egress_bridges_loop(Topic, Msg, [Id | Ids]) ->
     send_to_matched_egress_bridges_loop(Topic, Msg, Ids).
 
 send_message(BridgeId, Message) ->
-    {BridgeV1Type, BridgeName} = emqx_bridge_resource:parse_bridge_id(BridgeId),
-    case emqx_bridge_v2:is_bridge_v2_type(BridgeV1Type) of
+    {BridgeType, BridgeName} = emqx_bridge_resource:parse_bridge_id(BridgeId),
+    case emqx_bridge_v2:is_bridge_v2_type(BridgeType) of
         true ->
-            ActionType = emqx_action_info:bridge_v1_type_to_action_type(BridgeV1Type),
-            emqx_bridge_v2:send_message(ActionType, BridgeName, Message, #{});
+            emqx_bridge_v2:send_message(BridgeType, BridgeName, Message, #{});
         false ->
-            ResId = emqx_bridge_resource:resource_id(BridgeV1Type, BridgeName),
-            send_message(BridgeV1Type, BridgeName, ResId, Message, #{})
+            ResId = emqx_bridge_resource:resource_id(BridgeType, BridgeName),
+            send_message(BridgeType, BridgeName, ResId, Message, #{})
     end.
 
 send_message(BridgeType, BridgeName, ResId, Message, QueryOpts0) ->
@@ -433,12 +432,12 @@ remove_v1(BridgeType0, BridgeName) ->
             {error, Reason}
     end.
 
-check_deps_and_remove(BridgeType0, BridgeName, RemoveDeps) ->
-    BridgeType = upgrade_type(BridgeType0),
+check_deps_and_remove(BridgeV1Type, BridgeName, RemoveDeps) ->
+    BridgeType = upgrade_type(BridgeV1Type),
     case emqx_bridge_v2:is_bridge_v2_type(BridgeType) of
         true ->
             emqx_bridge_v2:bridge_v1_check_deps_and_remove(
-                BridgeType,
+                BridgeV1Type,
                 BridgeName,
                 RemoveDeps
             );
@@ -680,7 +679,7 @@ to_bin(A) when is_atom(A) -> atom_to_binary(A, utf8);
 to_bin(B) when is_binary(B) -> B.
 
 upgrade_type(Type) ->
-    emqx_bridge_lib:upgrade_type(Type).
+    emqx_bridge_lib:maybe_upgrade_type(Type).
 
 multi_validate_bridge_names(Conf) ->
     BridgeTypeAndNames =

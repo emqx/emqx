@@ -139,7 +139,7 @@ setup_mocks() ->
         bridge_v2_type_to_connector_type,
         fun(Type) when Type =:= BridgeType; Type =:= BridgeTypeBin -> con_type() end
     ),
-    meck:expect(emqx_bridge_v2, bridge_v1_type_to_bridge_v2_type, 1, bridge_type()),
+    meck:expect(emqx_bridge_v2, bridge_v1_type_to_action_type, 1, bridge_type()),
 
     meck:expect(emqx_bridge_v2, is_bridge_v2_type, fun(Type) -> Type =:= BridgeType end),
     ok.
