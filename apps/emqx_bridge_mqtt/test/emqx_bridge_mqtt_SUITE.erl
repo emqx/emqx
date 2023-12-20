@@ -410,13 +410,16 @@ t_mqtt_egress_bridge_warns_clean_start(_) ->
         ),
 
         %% delete the bridge
-        {ok, 204, <<>>} = request(delete, uri(["bridges", BridgeID]), [])
+        {ok, 204, <<>>} = request(delete, uri(["bridges", BridgeID]), []),
+
+        ok
     end,
-    ?wait_async_action(
-        Action(),
-        #{?snk_kind := mqtt_clean_start_egress_action_warning},
-        10000
-    ),
+    {ok, {ok, _}} =
+        ?wait_async_action(
+            Action(),
+            #{?snk_kind := mqtt_clean_start_egress_action_warning},
+            10000
+        ),
     ok.
 
 t_mqtt_conn_bridge_ingress_downgrades_qos_2(_) ->
