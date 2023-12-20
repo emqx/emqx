@@ -10,8 +10,8 @@
 -include_lib("common_test/include/ct.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
--define(BRIDGE_TYPE, confluent_producer).
--define(BRIDGE_TYPE_BIN, <<"confluent_producer">>).
+-define(ACTION_TYPE, confluent_producer).
+-define(ACTION_TYPE_BIN, <<"confluent_producer">>).
 -define(CONNECTOR_TYPE, confluent_producer).
 -define(CONNECTOR_TYPE_BIN, <<"confluent_producer">>).
 -define(KAFKA_BRIDGE_TYPE, kafka_producer).
@@ -93,7 +93,7 @@ common_init_per_testcase(TestCase, Config) ->
             {connector_type, ?CONNECTOR_TYPE},
             {connector_name, Name},
             {connector_config, ConnectorConfig},
-            {bridge_type, ?BRIDGE_TYPE},
+            {bridge_type, ?ACTION_TYPE},
             {bridge_name, Name},
             {bridge_config, BridgeConfig}
             | Config
@@ -212,7 +212,7 @@ serde_roundtrip(InnerConfigMap0) ->
     InnerConfigMap.
 
 parse_and_check_bridge_config(InnerConfigMap, Name) ->
-    TypeBin = ?BRIDGE_TYPE_BIN,
+    TypeBin = ?ACTION_TYPE_BIN,
     RawConf = #{<<"bridges">> => #{TypeBin => #{Name => InnerConfigMap}}},
     hocon_tconf:check_plain(emqx_bridge_v2_schema, RawConf, #{required => false, atom_key => false}),
     InnerConfigMap.
@@ -339,5 +339,45 @@ t_same_name_confluent_kafka_bridges(Config) ->
         fun(Trace) ->
             ?assertMatch([#{instance_id := AehResourceId}], ?of_kind(TracePoint, Trace))
         end
+    ),
+    ok.
+
+t_list_v1_bridges(Config) ->
+    ?check_trace(
+        begin
+            {ok, _} = emqx_bridge_v2_testlib:create_bridge_api(Config),
+
+            ?assertMatch(
+                {error, no_v1_equivalent},
+                emqx_action_info:bridge_v1_type_name(confluent_producer)
+            ),
+
+            ?assertMatch(
+                {ok, {{_, 200, _}, _, []}}, emqx_bridge_v2_testlib:list_bridges_http_api_v1()
+            ),
+            ?assertMatch(
+                {ok, {{_, 200, _}, _, [_]}}, emqx_bridge_v2_testlib:list_actions_http_api()
+            ),
+            ?assertMatch(
+                {ok, {{_, 200, _}, _, [_]}}, emqx_bridge_v2_testlib:list_connectors_http_api()
+            ),
+
+            RuleTopic = <<"t/c">>,
+            {ok, #{<<"id">> := RuleId0}} =
+                emqx_bridge_v2_testlib:create_rule_and_action_http(
+                    ?ACTION_TYPE_BIN,
+                    RuleTopic,
+                    Config,
+                    #{overrides => #{enable => true}}
+                ),
+            ?assert(emqx_bridge_v2_testlib:is_rule_enabled(RuleId0)),
+            ?assertMatch(
+                {ok, {{_, 200, _}, _, _}}, emqx_bridge_v2_testlib:enable_rule_http(RuleId0)
+            ),
+            ?assert(emqx_bridge_v2_testlib:is_rule_enabled(RuleId0)),
+
+            ok
+        end,
+        []
     ),
     ok.
