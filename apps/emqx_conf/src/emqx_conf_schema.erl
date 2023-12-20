@@ -596,7 +596,7 @@ fields("node") ->
                 #{
                     mapping => "mria.shard_transport",
                     importance => ?IMPORTANCE_HIDDEN,
-                    default => gen_rpc,
+                    default => distr,
                     desc => ?DESC(db_default_shard_transport)
                 }
             )},
