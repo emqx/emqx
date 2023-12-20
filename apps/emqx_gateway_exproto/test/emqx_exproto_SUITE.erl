@@ -663,9 +663,11 @@ tcp_opts() ->
 
 udp_opts() ->
     #{
-        recbuf => 1024,
-        sndbuf => 1024,
-        buffer => 1024,
+        %% NOTE
+        %% Making those too small will lead to inability to accept connections.
+        recbuf => 2048,
+        sndbuf => 2048,
+        buffer => 2048,
         reuseaddr => true
     }.
 
