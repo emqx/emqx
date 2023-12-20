@@ -112,7 +112,7 @@ update_iterator(Node, DB, Shard, OldIter, DSKey) ->
     ]).
 
 -spec add_generation([node()], emqx_ds:db()) ->
-    [{ok, ok} | erpc:caught_call_exception()].
+    [{ok, ok} | {error, _}].
 add_generation(Node, DB) ->
     erpc:multicall(Node, emqx_ds_replication_layer, do_add_generation_v2, [DB]).
 

@@ -253,7 +253,7 @@ next(Shard, Iter = #{?tag := ?IT, ?generation := GenId, ?enc := GenIter0}, Batch
             Error
     end.
 
--spec update_config(shard_id(), emqx_ds:builtin_db_opts()) -> ok.
+-spec update_config(shard_id(), emqx_ds:create_db_opts()) -> ok.
 update_config(ShardId, Options) ->
     gen_server:call(?REF(ShardId), {?FUNCTION_NAME, Options}, infinity).
 
@@ -265,7 +265,7 @@ add_generation(ShardId) ->
 %% gen_server for the shard
 %%================================================================================
 
--spec start_link(shard_id(), emqx_ds:builtin_db_options()) ->
+-spec start_link(shard_id(), emqx_ds:create_db_opts()) ->
     {ok, pid()}.
 start_link(Shard = {_, _}, Options) ->
     gen_server:start_link(?REF(Shard), ?MODULE, {Shard, Options}, []).
