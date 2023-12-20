@@ -1282,10 +1282,6 @@ t_multiple_pull_workers(Config) ->
                         <<"ack_deadline">> => <<"10m">>,
                         <<"ack_retry_interval">> => <<"1s">>,
                         <<"consumer_workers_per_topic">> => NConsumers
-                    },
-                    <<"resource_opts">> => #{
-                        %% reduce flakiness
-                        <<"request_ttl">> => <<"20s">>
                     }
                 }
             ),
