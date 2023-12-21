@@ -43,6 +43,7 @@
     lookup/2,
     lookup/3,
     create/3,
+    create/4,
     %% The remove/2 function is only for internal use as it may create
     %% rules with broken dependencies
     remove/2,
@@ -50,7 +51,8 @@
     %% The following is the remove function that is called by the HTTP API
     %% It also checks for rule action dependencies and optionally removes
     %% them
-    check_deps_and_remove/3
+    check_deps_and_remove/3,
+    check_deps_and_remove/4
 ]).
 
 %% Operations
@@ -62,9 +64,11 @@
     send_message/4,
     query/4,
     start/2,
+    start/3,
     reset_metrics/2,
     reset_metrics/3,
     create_dry_run/2,
+    create_dry_run/3,
     get_metrics/2,
     get_metrics/3
 ]).
@@ -150,6 +154,10 @@
 -type bridge_v2_type() :: binary() | atom() | [byte()].
 -type bridge_v2_name() :: binary() | atom() | [byte()].
 
+-type root_cfg_key() :: ?ROOT_KEY_ACTIONS | ?ROOT_KEY_SOURCES.
+
+-export_type([root_cfg_key/0]).
+
 %%====================================================================
 
 %%====================================================================
@@ -212,7 +220,7 @@ unload_bridges(ConfRooKey) ->
 lookup(Type, Name) ->
     lookup(?ROOT_KEY_ACTIONS, Type, Name).
 
--spec lookup(sources | actions, bridge_v2_type(), bridge_v2_name()) ->
+-spec lookup(root_cfg_key(), bridge_v2_type(), bridge_v2_name()) ->
     {ok, bridge_v2_info()} | {error, not_found}.
 lookup(ConfRootName, Type, Name) ->
     case emqx:get_raw_config([ConfRootName, Type, Name], not_found) of
@@ -315,6 +323,11 @@ remove(ConfRootKey, BridgeType, BridgeName) ->
 
 -spec check_deps_and_remove(bridge_v2_type(), bridge_v2_name(), boolean()) -> ok | {error, any()}.
 check_deps_and_remove(BridgeType, BridgeName, AlsoDeleteActions) ->
+    check_deps_and_remove(?ROOT_KEY_ACTIONS, BridgeType, BridgeName, AlsoDeleteActions).
+
+-spec check_deps_and_remove(root_cfg_key(), bridge_v2_type(), bridge_v2_name(), boolean()) ->
+    ok | {error, any()}.
+check_deps_and_remove(ConfRooKey, BridgeType, BridgeName, AlsoDeleteActions) ->
     AlsoDelete =
         case AlsoDeleteActions of
             true -> [rule_actions];
@@ -328,7 +341,7 @@ check_deps_and_remove(BridgeType, BridgeName, AlsoDeleteActions) ->
         )
     of
         ok ->
-            remove(BridgeType, BridgeName);
+            remove(ConfRooKey, BridgeType, BridgeName);
         {error, Reason} ->
             {error, Reason}
     end.
@@ -539,11 +552,14 @@ disable_enable(ConfRootKey, Action, BridgeType, BridgeName) when ?ENABLE_OR_DISA
 %% is something else than connected after starting the connector or if an
 %% error occurred when the connector was started.
 -spec start(term(), term()) -> ok | {error, Reason :: term()}.
-start(BridgeV2Type, Name) ->
+start(ActionOrSourceType, Name) ->
+    start(?ROOT_KEY_ACTIONS, ActionOrSourceType, Name).
+
+-spec start(root_cfg_key(), term(), term()) -> ok | {error, Reason :: term()}.
+start(ConfRootKey, BridgeV2Type, Name) ->
     ConnectorOpFun = fun(ConnectorType, ConnectorName) ->
         emqx_connector_resource:start(ConnectorType, ConnectorName)
     end,
-    ConfRootKey = ?ROOT_KEY_ACTIONS,
     connector_operation_helper(ConfRootKey, BridgeV2Type, Name, ConnectorOpFun, true).
 
 connector_operation_helper(ConfRootKey, BridgeV2Type, Name, ConnectorOpFun, DoHealthCheck) ->
@@ -694,10 +710,15 @@ health_check(ConfRootKey, BridgeType, BridgeName) ->
     end.
 
 -spec create_dry_run(bridge_v2_type(), Config :: map()) -> ok | {error, term()}.
-create_dry_run(Type, Conf0) ->
+create_dry_run(Type, Conf) ->
+    create_dry_run(?ROOT_KEY_ACTIONS, Type, Conf).
+
+-spec create_dry_run(root_cfg_key(), bridge_v2_type(), Config :: map()) -> ok | {error, term()}.
+create_dry_run(ConfRootKey, Type, Conf0) ->
     Conf1 = maps:without([<<"name">>], Conf0),
     TypeBin = bin(Type),
-    RawConf = #{<<"actions">> => #{TypeBin => #{<<"temp_name">> => Conf1}}},
+    ConfRootKeyBin = bin(ConfRootKey),
+    RawConf = #{ConfRootKeyBin => #{TypeBin => #{<<"temp_name">> => Conf1}}},
     %% Check config
     try
         _ =
@@ -722,6 +743,9 @@ create_dry_run(Type, Conf0) ->
     end.
 
 create_dry_run_helper(BridgeType, ConnectorRawConf, BridgeV2RawConf) ->
+    create_dry_run_helper(?ROOT_KEY_ACTIONS, BridgeType, ConnectorRawConf, BridgeV2RawConf).
+
+create_dry_run_helper(ConfRootKey, BridgeType, ConnectorRawConf, BridgeV2RawConf) ->
     BridgeName = iolist_to_binary([?TEST_ID_PREFIX, emqx_utils:gen_id(8)]),
     ConnectorType = connector_type(BridgeType),
     OnReadyCallback =
@@ -730,7 +754,7 @@ create_dry_run_helper(BridgeType, ConnectorRawConf, BridgeV2RawConf) ->
             ChannelTestId = id(BridgeType, BridgeName, ConnectorName),
             Conf = emqx_utils_maps:unsafe_atom_key_map(BridgeV2RawConf),
             AugmentedConf = augment_channel_config(
-                ?ROOT_KEY_ACTIONS,
+                ConfRootKey,
                 BridgeType,
                 BridgeName,
                 Conf
@@ -756,6 +780,8 @@ create_dry_run_helper(BridgeType, ConnectorRawConf, BridgeV2RawConf) ->
 get_metrics(Type, Name) ->
     get_metrics(?ROOT_KEY_ACTIONS, Type, Name).
 
+-spec get_metrics(root_cfg_key(), bridge_v2_type(), bridge_v2_name()) ->
+    emqx_metrics_worker:metrics().
 get_metrics(ConfRootKey, Type, Name) ->
     emqx_resource:get_metrics(id_with_root_name(ConfRootKey, Type, Name)).
 

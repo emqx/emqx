@@ -160,8 +160,9 @@ end_per_group(_, Config) ->
 
 init_per_testcase(t_broken_bpapi_vsn, Config) ->
     meck:new(emqx_bpapi, [passthrough]),
-    meck:expect(emqx_bpapi, supported_version, 1, -1),
     meck:expect(emqx_bpapi, supported_version, 2, -1),
+    meck:new(emqx_bridge_api, [passthrough]),
+    meck:expect(emqx_bridge_api, supported_versions, 1, []),
     init_per_testcase(common, Config);
 init_per_testcase(t_old_bpapi_vsn, Config) ->
     meck:new(emqx_bpapi, [passthrough]),
@@ -173,10 +174,10 @@ init_per_testcase(_, Config) ->
     [{port, Port}, {sock, Sock}, {acceptor, Acceptor} | Config].
 
 end_per_testcase(t_broken_bpapi_vsn, Config) ->
-    meck:unload([emqx_bpapi]),
+    meck:unload(),
     end_per_testcase(common, Config);
 end_per_testcase(t_old_bpapi_vsn, Config) ->
-    meck:unload([emqx_bpapi]),
+    meck:unload(),
     end_per_testcase(common, Config);
 end_per_testcase(_, Config) ->
     Sock = ?config(sock, Config),

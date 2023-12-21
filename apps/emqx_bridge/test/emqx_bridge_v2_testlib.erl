@@ -308,21 +308,11 @@ update_bridge_api(Config, Overrides) ->
 op_bridge_api(Op, BridgeType, BridgeName) ->
     BridgeId = emqx_bridge_resource:bridge_id(BridgeType, BridgeName),
     Path = emqx_mgmt_api_test_util:api_path(["actions", BridgeId, Op]),
-    AuthHeader = emqx_mgmt_api_test_util:auth_header_(),
-    Opts = #{return_all => true},
     ct:pal("calling bridge ~p (via http): ~p", [BridgeId, Op]),
-    Res =
-        case emqx_mgmt_api_test_util:request_api(post, Path, "", AuthHeader, "", Opts) of
-            {ok, {Status = {_, 204, _}, Headers, Body}} ->
-                {ok, {Status, Headers, Body}};
-            {ok, {Status, Headers, Body}} ->
-                {ok, {Status, Headers, emqx_utils_json:decode(Body, [return_maps])}};
-            {error, {Status, Headers, Body}} ->
-                {error, {Status, Headers, emqx_utils_json:decode(Body, [return_maps])}};
-            Error ->
-                Error
-        end,
-    ct:pal("bridge op result: ~p", [Res]),
+    Method = post,
+    Params = [],
+    Res = request(Method, Path, Params),
+    ct:pal("bridge op result:\n  ~p", [Res]),
     Res.
 
 probe_bridge_api(Config) ->
