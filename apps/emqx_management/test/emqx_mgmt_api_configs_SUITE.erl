@@ -378,8 +378,13 @@ t_get_configs_in_different_accept(_Config) ->
     ?assertMatch({400, "application/json", _}, Request(<<"application/xml">>)).
 
 t_create_webhook_v1_bridges_api({'init', Config}) ->
-    application:ensure_all_started(emqx_connector),
-    application:ensure_all_started(emqx_bridge),
+    lists:foreach(
+        fun(App) ->
+            _ = application:stop(App),
+            {ok, [App]} = application:ensure_all_started(App)
+        end,
+        [emqx_connector, emqx_bridge]
+    ),
     Config;
 t_create_webhook_v1_bridges_api({'end', _}) ->
     application:stop(emqx_bridge),
