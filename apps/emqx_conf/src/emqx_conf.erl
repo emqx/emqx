@@ -323,10 +323,12 @@ format_fields(Fields, DescResolver) ->
     [format_field(F, DescResolver) || F <- Fields].
 
 format_field(#{name := Name, aliases := Aliases, type := Type} = F, DescResolver) ->
+    TypeDoc = format_type_desc(Type, DescResolver),
     L = [
         {text, Name},
         {type, format_type(Type)},
-        {typedoc, format_type_desc(Type, DescResolver)},
+        %% TODO: Make it into a separate field.
+        %% {typedoc, format_type_desc(Type, DescResolver)},
         {refs, format_refs(Type)},
         {aliases,
             case Aliases of
@@ -334,7 +336,7 @@ format_field(#{name := Name, aliases := Aliases, type := Type} = F, DescResolver
                 _ -> Aliases
             end},
         {default, maps:get(hocon, maps:get(default, F, #{}), undefined)},
-        {doc, maps:get(desc, F, undefined)}
+        {doc, join_format([maps:get(desc, F, undefined), TypeDoc])}
     ],
     maps:from_list([{K, V} || {K, V} <- L, V =/= undefined]).
 
@@ -576,6 +578,14 @@ hocon_schema_to_spec(Atom, _LocalModule) when is_atom(Atom) ->
 
 typename_to_spec(TypeStr, Module) ->
     emqx_conf_schema_types:readable_dashboard(Module, TypeStr).
+
+join_format(Snippets) ->
+    case [S || S <- Snippets, S =/= undefined] of
+        [] ->
+            undefined;
+        NonEmpty ->
+            to_bin(lists:join("<br/>", NonEmpty))
+    end.
 
 to_bin(List) when is_list(List) -> iolist_to_binary(List);
 to_bin(Boolean) when is_boolean(Boolean) -> Boolean;
