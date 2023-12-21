@@ -11,8 +11,8 @@
     action_type_name/0,
     connector_type_name/0,
     schema_module/0,
-    bridge_v1_config_to_action_config/2,
     connector_action_config_to_bridge_v1_config/2,
+    bridge_v1_config_to_action_config/2,
     bridge_v1_config_to_connector_config/1,
     bridge_v1_type_name_fun/1
 ]).
@@ -28,14 +28,25 @@ connector_type_name() -> redis.
 
 schema_module() -> ?SCHEMA_MODULE.
 
+%% redis_cluster don't have batch options
 connector_action_config_to_bridge_v1_config(ConnectorConfig, ActionConfig) ->
-    maps:merge(
+    Config0 = emqx_utils_maps:deep_merge(
         maps:without(
             [<<"connector">>],
-            map_unindent(<<"parameters">>, ActionConfig)
+            emqx_utils_maps:unindent(<<"parameters">>, ActionConfig)
         ),
-        map_unindent(<<"parameters">>, ConnectorConfig)
-    ).
+        emqx_utils_maps:unindent(<<"parameters">>, ConnectorConfig)
+    ),
+    Config1 =
+        case Config0 of
+            #{<<"resource_opts">> := ResOpts0, <<"redis_type">> := Type} ->
+                Schema = emqx_bridge_redis:fields("creation_opts_redis_" ++ binary_to_list(Type)),
+                ResOpts = maps:with(schema_keys(Schema), ResOpts0),
+                Config0#{<<"resource_opts">> => ResOpts};
+            _ ->
+                Config0
+        end,
+    maps:without([<<"description">>], Config1).
 
 bridge_v1_config_to_action_config(BridgeV1Config, ConnectorName) ->
     ActionTopLevelKeys = schema_keys(?SCHEMA_MODULE:fields(redis_action)),
@@ -81,22 +92,9 @@ v1_type(<<"cluster">>) -> redis_cluster.
 
 bridge_v1_type_names() -> [redis_single, redis_sentinel, redis_cluster].
 
-map_unindent(Key, Map) ->
-    maps:merge(
-        maps:get(Key, Map),
-        maps:remove(Key, Map)
-    ).
-
-map_indent(IndentKey, PickKeys, Map) ->
-    maps:put(
-        IndentKey,
-        maps:with(PickKeys, Map),
-        maps:without(PickKeys, Map)
-    ).
-
 schema_keys(Schema) ->
     [bin(Key) || {Key, _} <- Schema].
 
 make_config_map(PickKeys, IndentKeys, Config) ->
     Conf0 = maps:with(PickKeys, Config),
-    map_indent(<<"parameters">>, IndentKeys, Conf0).
+    emqx_utils_maps:indent(<<"parameters">>, IndentKeys, Conf0).

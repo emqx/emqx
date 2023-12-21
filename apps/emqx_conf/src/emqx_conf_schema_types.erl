@@ -16,6 +16,8 @@
 
 -module(emqx_conf_schema_types).
 
+-include_lib("hocon/include/hocon_types.hrl").
+
 -export([readable/2]).
 -export([readable_swagger/2, readable_dashboard/2, readable_docgen/2]).
 
@@ -165,37 +167,37 @@ readable("duration()") ->
     #{
         swagger => #{type => string, example => <<"12m">>},
         dashboard => #{type => duration},
-        docgen => #{type => "String", example => <<"12m">>}
+        docgen => #{type => "Duration", example => <<"12m">>, desc => ?DESC(duration)}
     };
 readable("duration_s()") ->
     #{
         swagger => #{type => string, example => <<"1h">>},
         dashboard => #{type => duration},
-        docgen => #{type => "String", example => <<"1h">>}
+        docgen => #{type => "Duration(s)", example => <<"1h">>, desc => ?DESC(duration)}
     };
 readable("duration_ms()") ->
     #{
         swagger => #{type => string, example => <<"32s">>},
         dashboard => #{type => duration},
-        docgen => #{type => "String", example => <<"32s">>}
+        docgen => #{type => "Duration", example => <<"32s">>, desc => ?DESC(duration)}
     };
 readable("timeout_duration()") ->
     #{
         swagger => #{type => string, example => <<"12m">>},
         dashboard => #{type => duration},
-        docgen => #{type => "String", example => <<"12m">>}
+        docgen => #{type => "Duration", example => <<"12m">>, desc => ?DESC(duration)}
     };
 readable("timeout_duration_s()") ->
     #{
         swagger => #{type => string, example => <<"1h">>},
         dashboard => #{type => duration},
-        docgen => #{type => "String", example => <<"1h">>}
+        docgen => #{type => "Duration(s)", example => <<"1h">>, desc => ?DESC(duration)}
     };
 readable("timeout_duration_ms()") ->
     #{
         swagger => #{type => string, example => <<"32s">>},
         dashboard => #{type => duration},
-        docgen => #{type => "String", example => <<"32s">>}
+        docgen => #{type => "Duration", example => <<"32s">>, desc => ?DESC(duration)}
     };
 readable("percent()") ->
     #{
@@ -219,13 +221,13 @@ readable("bytesize()") ->
     #{
         swagger => #{type => string, example => <<"32MB">>},
         dashboard => #{type => 'byteSize'},
-        docgen => #{type => "String", example => <<"32MB">>}
+        docgen => #{type => "Bytesize", example => <<"32MB">>, desc => ?DESC(bytesize)}
     };
 readable("wordsize()") ->
     #{
         swagger => #{type => string, example => <<"1024KB">>},
         dashboard => #{type => 'wordSize'},
-        docgen => #{type => "String", example => <<"1024KB">>}
+        docgen => #{type => "Bytesize", example => <<"1024KB">>, desc => ?DESC(bytesize)}
     };
 readable("map(" ++ Map) ->
     [$) | _MapArgs] = lists:reverse(Map),
@@ -287,7 +289,11 @@ readable("secret()") ->
     #{
         swagger => #{type => string, example => <<"R4ND0M/S∃CЯ∃T"/utf8>>},
         dashboard => #{type => string},
-        docgen => #{type => "String", example => <<"R4ND0M/S∃CЯ∃T"/utf8>>}
+        docgen => #{
+            type => "Secret",
+            example => <<"R4ND0M/S∃CЯ∃T"/utf8>>,
+            desc => ?DESC(secret)
+        }
     };
 readable(TypeStr0) ->
     case string:split(TypeStr0, ":") of

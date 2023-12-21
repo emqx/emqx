@@ -286,9 +286,16 @@ update_config_cluster(
     check_res(Key, emqx_authn:merge_config(Conf), Conf, Opts);
 update_config_cluster(Key, NewConf, #{mode := merge} = Opts) ->
     Merged = merge_conf(Key, NewConf),
-    check_res(Key, emqx_conf:update([Key], Merged, ?OPTIONS), NewConf, Opts);
+    Request = make_request(Key, Merged),
+    check_res(Key, emqx_conf:update([Key], Request, ?OPTIONS), NewConf, Opts);
 update_config_cluster(Key, Value, #{mode := replace} = Opts) ->
-    check_res(Key, emqx_conf:update([Key], Value, ?OPTIONS), Value, Opts).
+    Request = make_request(Key, Value),
+    check_res(Key, emqx_conf:update([Key], Request, ?OPTIONS), Value, Opts).
+
+make_request(Key, Value) when Key =:= <<"connectors">> orelse Key =:= <<"actions">> ->
+    {force_update, Value};
+make_request(_Key, Value) ->
+    Value.
 
 -define(LOCAL_OPTIONS, #{rawconf_with_defaults => true, persistent => false}).
 update_config_local(
@@ -305,9 +312,11 @@ update_config_local(
     check_res(node(), Key, emqx_authn:merge_config_local(Conf, ?LOCAL_OPTIONS), Conf, Opts);
 update_config_local(Key, NewConf, #{mode := merge} = Opts) ->
     Merged = merge_conf(Key, NewConf),
-    check_res(node(), Key, emqx:update_config([Key], Merged, ?LOCAL_OPTIONS), NewConf, Opts);
+    Request = make_request(Key, Merged),
+    check_res(node(), Key, emqx:update_config([Key], Request, ?LOCAL_OPTIONS), NewConf, Opts);
 update_config_local(Key, Value, #{mode := replace} = Opts) ->
-    check_res(node(), Key, emqx:update_config([Key], Value, ?LOCAL_OPTIONS), Value, Opts).
+    Request = make_request(Key, Value),
+    check_res(node(), Key, emqx:update_config([Key], Request, ?LOCAL_OPTIONS), Value, Opts).
 
 check_res(Key, Res, Conf, Opts) -> check_res(cluster, Key, Res, Conf, Opts).
 check_res(Node, Key, {ok, _}, _Conf, Opts) ->
