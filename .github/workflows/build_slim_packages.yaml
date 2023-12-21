@@ -51,8 +51,8 @@ jobs:
       fail-fast: false
       matrix:
         profile:
-          - ["emqx", "26.1.2-2", "ubuntu20.04", "elixir"]
-          - ["emqx-enterprise", "26.1.2-2", "ubuntu20.04", "erlang"]
+          - ["emqx", "26.1.2-2", "ubuntu22.04", "elixir"]
+          - ["emqx-enterprise", "26.1.2-2", "ubuntu22.04", "erlang"]
 
     container: "ghcr.io/emqx/emqx-builder/${{ inputs.builder_vsn }}:${{ inputs.elixir_vsn }}-${{ matrix.profile[1] }}-${{ matrix.profile[2] }}"
 
