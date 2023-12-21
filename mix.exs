@@ -49,7 +49,7 @@ defmodule EMQXUmbrella.MixProject do
       {:redbug, github: "emqx/redbug", tag: "2.0.10"},
       {:covertool, github: "zmstone/covertool", tag: "2.0.4.1", override: true},
       {:typerefl, github: "ieQu1/typerefl", tag: "0.9.1", override: true},
-      {:ehttpc, github: "emqx/ehttpc", tag: "0.4.11", override: true},
+      {:ehttpc, github: "emqx/ehttpc", tag: "0.4.12", override: true},
       {:gproc, github: "emqx/gproc", tag: "0.9.0.1", override: true},
       {:jiffy, github: "emqx/jiffy", tag: "1.0.6", override: true},
       {:cowboy, github: "emqx/cowboy", tag: "2.9.2", override: true},
@@ -77,7 +77,7 @@ defmodule EMQXUmbrella.MixProject do
       {:esasl, github: "emqx/esasl", tag: "0.2.0"},
       {:jose, github: "potatosalad/erlang-jose", tag: "1.11.2"},
       # in conflict by ehttpc and emqtt
-      {:gun, github: "emqx/gun", tag: "1.3.9", override: true},
+      {:gun, github: "emqx/gun", tag: "1.3.10", override: true},
       # in conflict by emqx_connector and system_monitor
       {:epgsql, github: "emqx/epgsql", tag: "4.7.1.1", override: true},
       # in conflict by emqx and observer_cli
