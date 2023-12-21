@@ -20,7 +20,6 @@
 -compile(nowarn_export_all).
 
 -include_lib("eunit/include/eunit.hrl").
--include_lib("emqx/include/emqx_hooks.hrl").
 -include_lib("emqx/include/emqx.hrl").
 -include_lib("emqx/include/emqx_mqtt.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
@@ -43,14 +42,6 @@
 
 -define(TCPOPTS, [binary, {active, false}]).
 -define(DTLSOPTS, [binary, {active, false}, {protocol, dtls}]).
-
--define(PORT, 7993).
-
--define(DEFAULT_CLIENT, #{
-    proto_name => <<"demo">>,
-    proto_ver => <<"v0.1">>,
-    clientid => <<"test_client_1">>
-}).
 
 %%--------------------------------------------------------------------
 -define(CONF_DEFAULT, <<
@@ -126,15 +117,33 @@ init_per_group(_, Cfg) ->
 
 init_per_group(LisType, ServiceName, Scheme, Cfg) ->
     Svrs = emqx_exproto_echo_svr:start(Scheme),
-    application:load(emqx_gateway_exproto),
-    emqx_common_test_helpers:start_apps(
-        [emqx_conf, emqx_auth, emqx_gateway],
-        fun(App) ->
-            set_special_cfg(App, LisType, ServiceName, Scheme)
-        end
+    Addrs = lists:flatten(io_lib:format("~s://127.0.0.1:9001", [Scheme])),
+    GWConfig = #{
+        server => #{bind => 9100},
+        idle_timeout => 5000,
+        mountpoint => <<"ct/">>,
+        handler => #{
+            address => Addrs,
+            service_name => ServiceName,
+            ssl_options => #{enable => Scheme == https}
+        },
+        listeners => listener_confs(LisType)
+    },
+    Apps = emqx_cth_suite:start(
+        [
+            emqx_conf,
+            emqx_auth,
+            {emqx_gateway, #{
+                config =>
+                    #{gateway => #{exproto => GWConfig}}
+            }},
+            emqx_gateway_exproto
+        ],
+        #{work_dir => emqx_cth_suite:work_dir(Cfg)}
     ),
     [
         {servers, Svrs},
+        {apps, Apps},
         {listener_type, LisType},
         {service_name, ServiceName},
         {grpc_client_scheme, Scheme}
@@ -142,8 +151,7 @@ init_per_group(LisType, ServiceName, Scheme, Cfg) ->
     ].
 
 end_per_group(_, Cfg) ->
-    emqx_config:erase(gateway),
-    emqx_common_test_helpers:stop_apps([emqx_gateway, emqx_auth, emqx_conf]),
+    ok = emqx_cth_suite:stop(proplists:get_value(apps, Cfg)),
     emqx_exproto_echo_svr:stop(proplists:get_value(servers, Cfg)).
 
 init_per_testcase(TestCase, Cfg) when
@@ -159,28 +167,13 @@ init_per_testcase(_TestCase, Cfg) ->
 end_per_testcase(_TestCase, _Cfg) ->
     ok.
 
-set_special_cfg(emqx_gateway, LisType, ServiceName, Scheme) ->
-    Addrs = lists:flatten(io_lib:format("~s://127.0.0.1:9001", [Scheme])),
-    emqx_config:put(
-        [gateway, exproto],
-        #{
-            server => #{bind => 9100},
-            idle_timeout => 5000,
-            mountpoint => <<"ct/">>,
-            handler => #{
-                address => Addrs,
-                service_name => ServiceName,
-                ssl_options => #{enable => Scheme == https}
-            },
-            listeners => listener_confs(LisType)
-        }
-    );
-set_special_cfg(_, _, _, _) ->
-    ok.
-
 listener_confs(Type) ->
-    Default = #{bind => 7993, acceptors => 8},
-    #{Type => #{'default' => maps:merge(Default, server_socketopts(Type))}}.
+    Default = #{
+        bind => 7993,
+        max_connections => 64,
+        access_rules => ["allow all"]
+    },
+    #{Type => #{'default' => maps:merge(Default, socketopts(Type))}}.
 
 default_config() ->
     ?CONF_DEFAULT.
@@ -635,24 +628,29 @@ close({dtls, Sock}) ->
 %%--------------------------------------------------------------------
 %% Server-Opts
 
-server_socketopts(tcp) ->
-    #{tcp_options => server_tcp_opts()};
-server_socketopts(ssl) ->
+socketopts(tcp) ->
     #{
-        tcp_options => server_tcp_opts(),
-        ssl_options => server_ssl_opts()
+        acceptors => 8,
+        tcp_options => tcp_opts()
     };
-server_socketopts(udp) ->
-    #{udp_options => server_udp_opts()};
-server_socketopts(dtls) ->
+socketopts(ssl) ->
     #{
-        udp_options => server_udp_opts(),
-        dtls_options => server_dtls_opts()
+        acceptors => 8,
+        tcp_options => tcp_opts(),
+        ssl_options => ssl_opts()
+    };
+socketopts(udp) ->
+    #{udp_options => udp_opts()};
+socketopts(dtls) ->
+    #{
+        acceptors => 8,
+        udp_options => udp_opts(),
+        dtls_options => dtls_opts()
     }.
 
-server_tcp_opts() ->
+tcp_opts() ->
     maps:merge(
-        server_udp_opts(),
+        udp_opts(),
         #{
             send_timeout => 15000,
             send_timeout_close => true,
@@ -661,15 +659,17 @@ server_tcp_opts() ->
         }
     ).
 
-server_udp_opts() ->
+udp_opts() ->
     #{
-        recbuf => 1024,
-        sndbuf => 1024,
-        buffer => 1024,
+        %% NOTE
+        %% Making those too small will lead to inability to accept connections.
+        recbuf => 2048,
+        sndbuf => 2048,
+        buffer => 2048,
         reuseaddr => true
     }.
 
-server_ssl_opts() ->
+ssl_opts() ->
     Certs = certs("key.pem", "cert.pem", "cacert.pem"),
     maps:merge(
         Certs,
@@ -684,8 +684,8 @@ server_ssl_opts() ->
         }
     ).
 
-server_dtls_opts() ->
-    maps:merge(server_ssl_opts(), #{versions => ['dtlsv1.2', 'dtlsv1']}).
+dtls_opts() ->
+    maps:merge(ssl_opts(), #{versions => ['dtlsv1.2', 'dtlsv1']}).
 
 %%--------------------------------------------------------------------
 %% Client-Opts

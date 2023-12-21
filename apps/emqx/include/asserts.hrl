@@ -83,6 +83,28 @@
     end)()
 ).
 
+-define(assertExceptionOneOf(CT1, CT2, EXPR),
+    (fun() ->
+        X__Attrs = [
+            {module, ?MODULE},
+            {line, ?LINE},
+            {expression, (??EXPR)},
+            {pattern, "[ " ++ (??CT1) ++ ", " ++ (??CT2) ++ " ]"}
+        ],
+        X__Exc =
+            try (EXPR) of
+                X__V -> erlang:error({assertException, [{unexpected_success, X__V} | X__Attrs]})
+            catch
+                X__C:X__T:X__S -> {X__C, X__T, X__S}
+            end,
+        case {element(1, X__Exc), element(2, X__Exc)} of
+            CT1 -> ok;
+            CT2 -> ok;
+            _ -> erlang:error({assertException, [{unexpected_exception, X__Exc} | X__Attrs]})
+        end
+    end)()
+).
+
 -define(retrying(CONFIG, NUM_RETRIES, TEST_BODY_FN), begin
     __TEST_CASE = ?FUNCTION_NAME,
     (fun

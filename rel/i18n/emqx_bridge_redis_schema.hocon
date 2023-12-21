@@ -10,13 +10,6 @@ producer_action.desc:
 producer_action.label:
 """Action Parameters"""
 
-redis_type.label:
-"""Redis Type"""
-redis_type.desc:
-"""Single mode. Must be set to 'single' when Redis server is running in single mode.
-Sentinel mode. Must be set to 'sentinel' when Redis server is running in sentinel mode.
-Cluster mode. Must be set to 'cluster' when Redis server is running in clustered mode."""
-
 batch_size.label:
 """Batch Size"""
 batch_size.desc:

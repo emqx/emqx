@@ -33,27 +33,27 @@
 
 -define(HEARTBEAT, <<$\n>>).
 
--define(CONF_DEFAULT, <<
-    "\n"
-    "gateway.ocpp {\n"
-    "  mountpoint = \"ocpp/\"\n"
-    "  default_heartbeat_interval = \"60s\"\n"
-    "  heartbeat_checking_times_backoff = 1\n"
-    "  message_format_checking = disable\n"
-    "  upstream {\n"
-    "    topic = \"cp/${clientid}\"\n"
-    "    reply_topic = \"cp/${clientid}/Reply\"\n"
-    "    error_topic = \"cp/${clientid}/Reply\"\n"
-    "  }\n"
-    "  dnstream {\n"
-    "    topic = \"cs/${clientid}\"\n"
-    "  }\n"
-    "  listeners.ws.default {\n"
-    "      bind = \"0.0.0.0:33033\"\n"
-    "      websocket.path = \"/ocpp\"\n"
-    "  }\n"
-    "}\n"
->>).
+%% erlfmt-ignore
+-define(CONF_DEFAULT, <<"
+    gateway.ocpp {
+      mountpoint = \"ocpp/\"
+      default_heartbeat_interval = \"60s\"
+      heartbeat_checking_times_backoff = 1
+      message_format_checking = disable
+      upstream {
+        topic = \"cp/${clientid}\"
+        reply_topic = \"cp/${clientid}/Reply\"
+        error_topic = \"cp/${clientid}/Reply\"
+      }
+      dnstream {
+        topic = \"cs/${clientid}\"
+      }
+      listeners.ws.default {
+          bind = \"0.0.0.0:33033\"
+          websocket.path = \"/ocpp\"
+      }
+    }
+">>).
 
 all() -> emqx_common_test_helpers:all(?MODULE).
 

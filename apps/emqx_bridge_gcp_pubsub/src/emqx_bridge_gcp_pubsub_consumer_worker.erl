@@ -566,6 +566,7 @@ do_acknowledge(State0) ->
     Path = path(State1, ack),
     Body = body(State1, ack, #{ack_ids => AckIds}),
     PreparedRequest = {prepared_request, {Method, Path, Body}},
+    ?tp(gcp_pubsub_consumer_worker_will_acknowledge, #{acks => PendingAcks}),
     Res = emqx_bridge_gcp_pubsub_client:query_sync(PreparedRequest, Client),
     case Res of
         {error, Reason} ->

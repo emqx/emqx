@@ -315,8 +315,6 @@ t_none_ref(_Config) ->
     ),
     ok.
 
-namespace() -> undefined.
-
 t_sub_fields(_Config) ->
     Spec = #{
         post => #{
@@ -814,6 +812,9 @@ to_schema(Body) ->
         operationId => test,
         post => #{requestBody => Body, responses => #{200 => <<"ok">>}}
     }.
+
+%% Don't warning hocon callback namespace/0 undef.
+namespace() -> atom_to_list(?MODULE).
 
 fields(good_ref) ->
     [

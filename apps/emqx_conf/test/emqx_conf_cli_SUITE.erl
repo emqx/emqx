@@ -40,7 +40,7 @@ t_load_config(Config) ->
     ConfBin = hocon_pp:do(#{<<"authorization">> => #{<<"sources">> => []}}, #{}),
     ConfFile = prepare_conf_file(?FUNCTION_NAME, ConfBin, Config),
     ok = emqx_conf_cli:conf(["load", "--replace", ConfFile]),
-    ?assertEqual(#{<<"sources">> => []}, emqx_conf:get_raw([Authz])),
+    ?assertMatch(#{<<"sources">> := []}, emqx_conf:get_raw([Authz])),
 
     ConfBin0 = hocon_pp:do(#{<<"authorization">> => Conf#{<<"sources">> => []}}, #{}),
     ConfFile0 = prepare_conf_file(?FUNCTION_NAME, ConfBin0, Config),
@@ -73,6 +73,10 @@ t_conflict_mix_conf(Config) ->
             AuthNInit = emqx_conf:get_raw([authentication]),
             Redis = #{
                 <<"backend">> => <<"redis">>,
+                <<"database">> => 0,
+                <<"password_hash_algorithm">> =>
+                    #{<<"name">> => <<"sha256">>, <<"salt_position">> => <<"prefix">>},
+                <<"pool_size">> => 8,
                 <<"cmd">> => <<"HMGET mqtt_user:${username} password_hash salt">>,
                 <<"enable">> => false,
                 <<"mechanism">> => <<"password_based">>,
@@ -85,10 +89,15 @@ t_conflict_mix_conf(Config) ->
             ConfFile = prepare_conf_file(?FUNCTION_NAME, ConfBin, Config),
             %% init with redis sources
             ok = emqx_conf_cli:conf(["load", "--replace", ConfFile]),
-            ?assertMatch([Redis], emqx_conf:get_raw([authentication])),
+            [RedisRaw] = emqx_conf:get_raw([authentication]),
+            ?assertEqual(
+                maps:to_list(Redis),
+                maps:to_list(maps:remove(<<"ssl">>, RedisRaw)),
+                {Redis, RedisRaw}
+            ),
             %% change redis type from single to cluster
             %% the server field will become servers field
-            RedisCluster = maps:remove(<<"server">>, Redis#{
+            RedisCluster = maps:without([<<"server">>, <<"database">>], Redis#{
                 <<"redis_type">> => cluster,
                 <<"servers">> => [<<"127.0.0.1:6379">>]
             }),

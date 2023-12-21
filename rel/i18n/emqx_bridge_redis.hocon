@@ -1,5 +1,12 @@
 emqx_bridge_redis {
 
+redis_type.label:
+"""Redis Type"""
+redis_type.desc:
+"""Single mode. Must be set to 'single' when Redis server is running in single mode.
+Sentinel mode. Must be set to 'sentinel' when Redis server is running in sentinel mode.
+Cluster mode. Must be set to 'cluster' when Redis server is running in clustered mode."""
+
 command_template.desc:
 """Redis command template used to export messages. Each list element stands for a command name or its argument.
 For example, to push payloads in a Redis list by key `msgs`, the elements should be the following:

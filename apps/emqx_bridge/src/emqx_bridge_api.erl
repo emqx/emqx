@@ -621,6 +621,7 @@ lookup_from_all_nodes(BridgeType, BridgeName, SuccCode) ->
     end.
 
 lookup_from_local_node(ActionType, ActionName) ->
+    %% TODO: BUG: shouldn't accept an action type here, only V1 types....
     case emqx_bridge:lookup(ActionType, ActionName) of
         {ok, Res} -> {ok, format_resource(Res, node())};
         Error -> Error

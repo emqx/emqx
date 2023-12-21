@@ -233,7 +233,10 @@ load_config(Bin, Opts) when is_binary(Bin) ->
             {error, Reason}
     end.
 
-load_config_from_raw(RawConf, Opts) ->
+load_config_from_raw(RawConf0, Opts) ->
+    SchemaMod = emqx_conf:schema_module(),
+    RawConf1 = emqx_config:upgrade_raw_conf(SchemaMod, RawConf0),
+    RawConf = emqx_config:fill_defaults(RawConf1),
     case check_config(RawConf) of
         ok ->
             Error =
@@ -452,8 +455,21 @@ sorted_fold(Func, Conf) ->
         Error -> {error, Error}
     end.
 
-to_sorted_list(Conf) ->
-    lists:keysort(1, maps:to_list(Conf)).
+to_sorted_list(Conf0) ->
+    %% connectors > actions/bridges > rule_engine
+    Keys = [<<"connectors">>, <<"actions">>, <<"bridges">>, <<"rule_engine">>],
+    {HighPriorities, Conf1} = split_high_priority_conf(Keys, Conf0, []),
+    HighPriorities ++ lists:keysort(1, maps:to_list(Conf1)).
+
+split_high_priority_conf([], Conf0, Acc) ->
+    {lists:reverse(Acc), Conf0};
+split_high_priority_conf([Key | Keys], Conf0, Acc) ->
+    case maps:take(Key, Conf0) of
+        error ->
+            split_high_priority_conf(Keys, Conf0, Acc);
+        {Value, Conf1} ->
+            split_high_priority_conf(Keys, Conf1, [{Key, Value} | Acc])
+    end.
 
 merge_conf(Key, NewConf) ->
     OldConf = emqx_conf:get_raw([Key]),

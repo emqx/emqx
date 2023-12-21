@@ -103,12 +103,18 @@ assert_fields_exist(Ks, Map) ->
         end,
         Ks
     ).
+
 load_all_gateway_apps() ->
-    application:load(emqx_gateway_stomp),
-    application:load(emqx_gateway_mqttsn),
-    application:load(emqx_gateway_coap),
-    application:load(emqx_gateway_lwm2m),
-    application:load(emqx_gateway_exproto).
+    emqx_cth_suite:load_apps(all_gateway_apps()).
+
+all_gateway_apps() ->
+    [
+        emqx_gateway_stomp,
+        emqx_gateway_mqttsn,
+        emqx_gateway_coap,
+        emqx_gateway_lwm2m,
+        emqx_gateway_exproto
+    ].
 
 %%--------------------------------------------------------------------
 %% http

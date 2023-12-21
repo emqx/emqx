@@ -24,6 +24,7 @@
     action_type_to_connector_type/1,
     action_type_to_bridge_v1_type/2,
     bridge_v1_type_to_action_type/1,
+    bridge_v1_type_name/1,
     is_action_type/1,
     registered_schema_modules/0,
     connector_action_config_to_bridge_v1_config/2,
@@ -143,6 +144,20 @@ get_confs(ActionType, #{<<"connector">> := ConnectorName} = ActionConfig) ->
     {ConnectorConfig, ActionConfig};
 get_confs(_, _) ->
     undefined.
+
+%% We need this hack because of the bugs introduced by associating v2/action/source types
+%% with v1 types unconditionally, like `mongodb' being a "valid" V1 bridge type, or
+%% `confluent_producer', which has no v1 equivalent....
+bridge_v1_type_name(ActionTypeBin) when is_binary(ActionTypeBin) ->
+    bridge_v1_type_name(binary_to_existing_atom(ActionTypeBin));
+bridge_v1_type_name(ActionType) ->
+    Module = get_action_info_module(ActionType),
+    case erlang:function_exported(Module, bridge_v1_type_name, 0) of
+        true ->
+            {ok, Module:bridge_v1_type_name()};
+        false ->
+            {error, no_v1_equivalent}
+    end.
 
 %% This function should return true for all inputs that are bridge V1 types for
 %% bridges that have been refactored to bridge V2s, and for all all bridge V2

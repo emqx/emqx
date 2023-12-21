@@ -174,7 +174,7 @@ fields(dtls_opts) ->
             reuse_sessions => true,
             versions => dtls_all_available
         },
-        false
+        _IsRanchListener = false
     ).
 
 desc(gateway) ->
