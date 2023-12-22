@@ -348,7 +348,7 @@ schema("/connectors_probe") ->
         case emqx_connector:lookup(ConnectorType, ConnectorName) of
             {ok, _} ->
                 RawConf = emqx:get_raw_config([connectors, ConnectorType, ConnectorName], #{}),
-                Conf = deobfuscate(Conf1, RawConf),
+                Conf = emqx_utils:deobfuscate(Conf1, RawConf),
                 update_connector(ConnectorType, ConnectorName, Conf);
             {error, not_found} ->
                 ?CONNECTOR_NOT_FOUND(ConnectorType, ConnectorName)
@@ -409,7 +409,7 @@ maybe_deobfuscate_connector_probe(
     case emqx_connector:lookup(ConnectorType, ConnectorName) of
         {ok, _} ->
             RawConf = emqx:get_raw_config([connectors, ConnectorType, ConnectorName], #{}),
-            deobfuscate(Params, RawConf);
+            emqx_utils:deobfuscate(Params, RawConf);
         _ ->
             %% A connector may be probed before it's created, so not finding it here is fine
             Params
@@ -779,27 +779,6 @@ maybe_unwrap(RpcMulticallResult) ->
 
 redact(Term) ->
     emqx_utils:redact(Term).
-
-deobfuscate(NewConf, OldConf) ->
-    maps:fold(
-        fun(K, V, Acc) ->
-            case maps:find(K, OldConf) of
-                error ->
-                    Acc#{K => V};
-                {ok, OldV} when is_map(V), is_map(OldV) ->
-                    Acc#{K => deobfuscate(V, OldV)};
-                {ok, OldV} ->
-                    case emqx_utils:is_redacted(K, V) of
-                        true ->
-                            Acc#{K => OldV};
-                        _ ->
-                            Acc#{K => V}
-                    end
-            end
-        end,
-        #{},
-        NewConf
-    ).
 
 map_to_json(M0) ->
     %% When dealing with Hocon validation errors, `value' might contain non-serializable

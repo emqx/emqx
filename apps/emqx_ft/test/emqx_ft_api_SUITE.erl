@@ -22,6 +22,8 @@
 -include_lib("common_test/include/ct.hrl").
 -include_lib("stdlib/include/assert.hrl").
 
+-define(SECRET_ACCESS_KEY, <<"fake_secret_access_key">>).
+
 -import(emqx_dashboard_api_test_helpers, [host/0, uri/1]).
 
 all() -> emqx_common_test_helpers:all(?MODULE).
@@ -335,6 +337,7 @@ t_configure(Config) ->
         <<"host">> => <<"localhost">>,
         <<"port">> => 9000,
         <<"bucket">> => <<"emqx">>,
+        <<"secret_access_key">> => ?SECRET_ACCESS_KEY,
         <<"transport_options">> => #{
             <<"ssl">> => #{
                 <<"enable">> => true,
@@ -343,25 +346,7 @@ t_configure(Config) ->
             }
         }
     },
-    ?assertMatch(
-        {ok, 200, #{
-            <<"enable">> := true,
-            <<"storage">> := #{
-                <<"local">> := #{
-                    <<"exporter">> := #{
-                        <<"s3">> := #{
-                            <<"transport_options">> := #{
-                                <<"ssl">> := #{
-                                    <<"enable">> := true,
-                                    <<"certfile">> := <<"/", _CertFilepath/bytes>>,
-                                    <<"keyfile">> := <<"/", _KeyFilepath/bytes>>
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }},
+    {ok, 200, GetConfigJson} =
         request_json(
             put,
             uri(["file_transfer"]),
@@ -376,7 +361,28 @@ t_configure(Config) ->
                 }
             },
             Config
-        )
+        ),
+    ?assertMatch(
+        #{
+            <<"enable">> := true,
+            <<"storage">> := #{
+                <<"local">> := #{
+                    <<"exporter">> := #{
+                        <<"s3">> := #{
+                            <<"transport_options">> := #{
+                                <<"ssl">> := #{
+                                    <<"enable">> := true,
+                                    <<"certfile">> := <<"/", _CertFilepath/bytes>>,
+                                    <<"keyfile">> := <<"/", _KeyFilepath/bytes>>
+                                }
+                            },
+                            <<"secret_access_key">> := <<"******">>
+                        }
+                    }
+                }
+            }
+        },
+        GetConfigJson
     ),
     ?assertMatch(
         {ok, 400, _},
@@ -405,22 +411,46 @@ t_configure(Config) ->
         request_json(
             put,
             uri(["file_transfer"]),
-            #{
-                <<"enable">> => true,
-                <<"storage">> => #{
-                    <<"local">> => #{
-                        <<"exporter">> => #{
-                            <<"s3">> => emqx_utils_maps:deep_put(
-                                [<<"transport_options">>, <<"ssl">>, <<"enable">>],
-                                S3Exporter,
-                                false
-                            )
+            emqx_utils_maps:deep_merge(
+                GetConfigJson,
+                #{
+                    <<"enable">> => true,
+                    <<"storage">> => #{
+                        <<"local">> => #{
+                            <<"exporter">> => #{
+                                <<"s3">> => emqx_utils_maps:deep_put(
+                                    [<<"transport_options">>, <<"ssl">>, <<"enable">>],
+                                    S3Exporter,
+                                    false
+                                )
+                            }
                         }
                     }
                 }
-            },
+            ),
             Config
         )
+    ),
+    %% put secret as ******, check the secret is unchanged
+    ?assertMatch(
+        #{
+            <<"storage">> :=
+                #{
+                    <<"local">> :=
+                        #{
+                            <<"enable">> := true,
+                            <<"exporter">> :=
+                                #{
+                                    <<"s3">> :=
+                                        #{
+                                            <<"enable">> := true,
+                                            <<"secret_access_key">> := ?SECRET_ACCESS_KEY
+                                        }
+                                }
+                        }
+                }
+        },
+        get_ft_config(Config)
     ),
     ok.
 
@@ -500,3 +530,7 @@ reset_ft_config(Config, Enable) ->
         },
     {ok, _} = rpc:call(Node, emqx_ft_conf, update, [LocalConfig]),
     ok.
+
+get_ft_config(Config) ->
+    [Node | _] = test_nodes(Config),
+    rpc:call(Node, emqx_ft_conf, get_raw, []).

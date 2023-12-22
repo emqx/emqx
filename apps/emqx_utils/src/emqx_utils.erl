@@ -78,6 +78,7 @@
 ]).
 
 -export([clamp/3, redact/1, redact/2, is_redacted/2, is_redacted/3]).
+-export([deobfuscate/2]).
 
 -export_type([
     readable_error_msg/1
@@ -753,6 +754,27 @@ redact_v([{str, Bin}]) when is_binary(Bin) ->
     [{str, <<?REDACT_VAL>>}];
 redact_v(_V) ->
     ?REDACT_VAL.
+
+deobfuscate(NewConf, OldConf) ->
+    maps:fold(
+        fun(K, V, Acc) ->
+            case maps:find(K, OldConf) of
+                error ->
+                    Acc#{K => V};
+                {ok, OldV} when is_map(V), is_map(OldV) ->
+                    Acc#{K => deobfuscate(V, OldV)};
+                {ok, OldV} ->
+                    case is_redacted(K, V) of
+                        true ->
+                            Acc#{K => OldV};
+                        _ ->
+                            Acc#{K => V}
+                    end
+            end
+        end,
+        #{},
+        NewConf
+    ).
 
 is_redacted(K, V) ->
     do_is_redacted(K, V, fun is_sensitive_key/1).
