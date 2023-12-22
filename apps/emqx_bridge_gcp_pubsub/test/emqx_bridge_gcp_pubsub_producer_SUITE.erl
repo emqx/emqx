@@ -1543,7 +1543,7 @@ t_get_status_down(Config) ->
 
 t_get_status_timeout_calling_workers(Config) ->
     ResourceId = ?config(connector_resource_id, Config),
-    {ok, _} = create_bridge(Config),
+    {ok, _} = create_bridge(Config, #{<<"connect_timeout">> => <<"1s">>}),
     emqx_common_test_helpers:with_mock(
         ehttpc,
         health_check,
