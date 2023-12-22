@@ -495,7 +495,7 @@ schema("/bridges_probe") ->
         case emqx_bridge:lookup(BridgeType, BridgeName) of
             {ok, #{raw_config := RawConf}} ->
                 %% TODO will the maybe_upgrade step done by emqx_bridge:lookup cause any problems
-                Conf = deobfuscate(Conf1, RawConf),
+                Conf = emqx_utils:deobfuscate(Conf1, RawConf),
                 update_bridge(BridgeType, BridgeName, Conf);
             {error, not_found} ->
                 ?BRIDGE_NOT_FOUND(BridgeType, BridgeName);
@@ -587,9 +587,9 @@ maybe_deobfuscate_bridge_probe(#{<<"type">> := BridgeType0, <<"name">> := Bridge
     BridgeType = upgrade_type(BridgeType0),
     case emqx_bridge:lookup(BridgeType, BridgeName) of
         {ok, #{raw_config := RawConf}} ->
-            %% TODO check if RawConf optained above is compatible with the commented out code below
+            %% TODO check if RawConf obtained above is compatible with the commented out code below
             %% RawConf = emqx:get_raw_config([bridges, BridgeType, BridgeName], #{}),
-            deobfuscate(Params, RawConf);
+            emqx_utils:deobfuscate(Params, RawConf);
         _ ->
             %% A bridge may be probed before it's created, so not finding it here is fine
             Params
@@ -1122,27 +1122,6 @@ supported_versions(_Call) -> [1, 2, 3, 4, 5].
 
 redact(Term) ->
     emqx_utils:redact(Term).
-
-deobfuscate(NewConf, OldConf) ->
-    maps:fold(
-        fun(K, V, Acc) ->
-            case maps:find(K, OldConf) of
-                error ->
-                    Acc#{K => V};
-                {ok, OldV} when is_map(V), is_map(OldV) ->
-                    Acc#{K => deobfuscate(V, OldV)};
-                {ok, OldV} ->
-                    case emqx_utils:is_redacted(K, V) of
-                        true ->
-                            Acc#{K => OldV};
-                        _ ->
-                            Acc#{K => V}
-                    end
-            end
-        end,
-        #{},
-        NewConf
-    ).
 
 map_to_json(M0) ->
     %% When dealing with Hocon validation errors, `value' might contain non-serializable
