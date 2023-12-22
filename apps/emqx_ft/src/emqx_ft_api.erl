@@ -178,7 +178,9 @@ check_ft_enabled(Params, _Meta) ->
 '/file_transfer'(get, _Meta) ->
     {200, format_config(emqx_ft_conf:get())};
 '/file_transfer'(put, #{body := ConfigIn}) ->
-    case emqx_ft_conf:update(ConfigIn) of
+    OldConf = emqx_ft_conf:get_raw(),
+    UpdateConf = emqx_utils:deobfuscate(ConfigIn, OldConf),
+    case emqx_ft_conf:update(UpdateConf) of
         {ok, #{config := Config}} ->
             {200, format_config(Config)};
         {error, Error = #{kind := validation_error}} ->
@@ -199,7 +201,11 @@ format_page(#{items := Files}) ->
 
 format_config(Config) ->
     Schema = emqx_hocon:make_schema(emqx_ft_schema:fields(file_transfer)),
-    hocon_tconf:make_serializable(Schema, emqx_utils_maps:binary_key_map(Config), #{}).
+    hocon_tconf:make_serializable(
+        Schema,
+        emqx_utils_maps:binary_key_map(Config),
+        #{obfuscate_sensitive_values => true}
+    ).
 
 format_validation_error(Error) ->
     emqx_logger_jsonfmt:best_effort_json(Error).

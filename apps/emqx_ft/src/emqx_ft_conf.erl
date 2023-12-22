@@ -37,7 +37,8 @@
     load/0,
     unload/0,
     get/0,
-    update/1
+    update/1,
+    get_raw/0
 ]).
 
 %% callbacks for emqx_config_handler
@@ -111,6 +112,9 @@ unload() ->
 -spec get() -> emqx_config:config().
 get() ->
     emqx_config:get([file_transfer]).
+
+get_raw() ->
+    emqx:get_raw_config([file_transfer], #{}).
 
 -spec update(emqx_config:config()) -> {ok, emqx_config:update_result()} | {error, term()}.
 update(Config) ->
