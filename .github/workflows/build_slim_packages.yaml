@@ -43,7 +43,7 @@ on:
 
 jobs:
   linux:
-    runs-on: ${{ endsWith(github.repository, '/emqx') && 'ubuntu-22.04' || fromJSON('["self-hosted","ephemeral","linux","x64"]') }}
+    runs-on: ${{ github.repository_owner == 'emqx' && fromJSON(format('["self-hosted","ephemeral","linux",{0}]'), ${{ matrix.profile[3] }}) || 'ubuntu-22.04' }}
     env:
       EMQX_NAME: ${{ matrix.profile[0] }}
 
@@ -51,8 +51,9 @@ jobs:
       fail-fast: false
       matrix:
         profile:
-          - ["emqx", "26.1.2-2", "ubuntu22.04", "elixir"]
-          - ["emqx-enterprise", "26.1.2-2", "ubuntu22.04", "erlang"]
+          - ["emqx", "26.1.2-2", "ubuntu22.04", "elixir", "x64"]
+          - ["emqx", "26.1.2-2", "ubuntu22.04", "elixir", "arm64"]
+          - ["emqx-enterprise", "26.1.2-2", "ubuntu22.04", "erlang", "x64"]
 
     container: "ghcr.io/emqx/emqx-builder/${{ inputs.builder_vsn }}:${{ inputs.elixir_vsn }}-${{ matrix.profile[1] }}-${{ matrix.profile[2] }}"
 
