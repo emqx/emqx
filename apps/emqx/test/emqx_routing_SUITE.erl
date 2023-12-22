@@ -22,6 +22,7 @@
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
 -include_lib("emqx/include/asserts.hrl").
+-include_lib("emqx/include/emqx_router.hrl").
 
 all() ->
     [
@@ -33,7 +34,8 @@ all() ->
 
 groups() ->
     TCs = [
-        t_cluster_routing
+        t_cluster_routing,
+        t_slow_rlog_routing_consistency
     ],
     [
         {routing_schema_v1, [], TCs},
@@ -53,10 +55,19 @@ init_per_group(GroupName, Config) ->
 end_per_group(_GroupName, Config) ->
     emqx_cth_cluster:stop(?config(cluster, Config)).
 
+init_per_testcase(t_slow_rlog_routing_consistency = TC, Config) ->
+    [Core1, _Core2, _Replicant] = ?config(cluster, Config),
+    MnesiaHook = rpc:call(Core1, persistent_term, get, [{mnesia_hook, post_commit}]),
+    WorkDir = filename:join([?config(priv_dir, Config), ?MODULE, TC]),
+    [{original_mnesia_hook, MnesiaHook}, {work_dir, WorkDir} | Config];
 init_per_testcase(TC, Config) ->
     WorkDir = filename:join([?config(priv_dir, Config), ?MODULE, TC]),
     [{work_dir, WorkDir} | Config].
 
+end_per_testcase(t_slow_rlog_routing_consistency = _TC, Config) ->
+    [Core1, Core2, _Replicant] = ?config(cluster, Config),
+    MnesiaHook = ?config(original_mnesia_hook, Config),
+    ok = register_mria_hook(MnesiaHook, [Core1, Core2]);
 end_per_testcase(_TC, _Config) ->
     ok.
 
@@ -154,6 +165,48 @@ t_cluster_routing(Config) ->
             Deliveries
         )
     ).
+
+t_slow_rlog_routing_consistency(Config) ->
+    [Core1, Core2, Replicant] = ?config(cluster, Config),
+    ClientId = atom_to_binary(?FUNCTION_NAME),
+    Topic = <<"t/", ClientId/binary>>,
+    Self = self(),
+    ?assertEqual(ok, rpc:call(Replicant, emqx_broker, do_subscribe, [Topic, Self, #{}])),
+    %% Wait for normal route replication (must be fast enough)
+    emqx_common_test_helpers:wait_for(
+        ?FUNCTION_NAME,
+        ?LINE,
+        fun() ->
+            rpc:call(Replicant, emqx_router, has_route, [Topic, Replicant])
+        end,
+        2_000
+    ),
+    DelayMs = 3_000,
+    slowdown_mria_rlog(?config(original_mnesia_hook, Config), [Core1, Core2], DelayMs),
+    {ok, _} = rpc:call(Replicant, mnesia_subscr, subscribe, [Self, {table, ?ROUTE_TAB, simple}]),
+    UnSubSubFun = fun() ->
+        %% Unsubscribe must remove a route, but the effect
+        %% is expected to be delayed on the replicant node
+        ok = emqx_broker:do_unsubscribe(Topic, Self, #{}),
+        %% Wait a little (less than introduced delay),
+        %% just to reduce the risk of delete/add routes ops being re-ordered
+        timer:sleep(100),
+        %% Subscribe must add a route again, even though the previosus
+        %% route may be still present on the replicant at the time of
+        %% this re-subscription
+        ok = emqx_broker:do_subscribe(Topic, Self, #{})
+    end,
+    ?assertEqual(ok, erpc:call(Replicant, UnSubSubFun)),
+    receive
+        %% Can't match route record, since table name =/= record name,
+        {mnesia_table_event, {write, {?ROUTE_TAB, Topic, Replicant}, _}} ->
+            %% Event is reported before Mnesia writes a record, need to wait again...
+            timer:sleep(100),
+            ?assert(rpc:call(Replicant, emqx_router, has_route, [Topic, Replicant]))
+    after DelayMs * 3 ->
+        ct:pal("Received messages: ~p", [process_info(Self, messages)]),
+        ct:fail("quick re-subscribe failed to add a route")
+    end.
 
 start_client(Node) ->
     Self = self(),
@@ -259,3 +312,20 @@ t_routing_schema_switch(VFrom, VTo, Config) ->
 get_mqtt_tcp_port(Node) ->
     {_, Port} = erpc:call(Node, emqx_config, get, [[listeners, tcp, default, bind]]),
     Port.
+
+slowdown_mria_rlog(MnesiaHook, Nodes, DelayMs) ->
+    MnesiaHook1 = fun(Tid, CommitData) ->
+        spawn(fun() ->
+            timer:sleep(DelayMs),
+            MnesiaHook(Tid, CommitData)
+        end),
+        ok
+    end,
+    register_mria_hook(MnesiaHook1, Nodes).
+
+register_mria_hook(MnesiaHook, Nodes) ->
+    [ok, ok] = [
+        rpc:call(N, mnesia_hook, register_hook, [post_commit, MnesiaHook])
+     || N <- Nodes
+    ],
+    ok.

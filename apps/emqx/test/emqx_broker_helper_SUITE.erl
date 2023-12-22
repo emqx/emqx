@@ -65,8 +65,8 @@ t_shard_seq(_) ->
 t_shards_num(_) ->
     ?assertEqual(emqx_vm:schedulers() * 32, emqx_broker_helper:shards_num()).
 
-t_get_sub_shard(_) ->
-    ?assertEqual(0, emqx_broker_helper:get_sub_shard(self(), <<"topic">>)).
+t_get_sub_shard_and_seq(_) ->
+    ?assertMatch({0, _}, emqx_broker_helper:get_sub_shard_and_seq(self(), <<"topic">>)).
 
 t_terminate(_) ->
     ?assertEqual(ok, gen_server:stop(emqx_broker_helper)).

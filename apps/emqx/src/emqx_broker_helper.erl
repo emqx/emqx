@@ -28,7 +28,7 @@
     register_sub/2,
     lookup_subid/1,
     lookup_subpid/1,
-    get_sub_shard/2,
+    get_sub_shard_and_seq/2,
     create_seq/1,
     reclaim_seq/1
 ]).
@@ -79,11 +79,11 @@ lookup_subid(SubPid) when is_pid(SubPid) ->
 lookup_subpid(SubId) ->
     emqx_utils_ets:lookup_value(?SUBID, SubId).
 
--spec get_sub_shard(pid(), emqx_types:topic()) -> non_neg_integer().
-get_sub_shard(SubPid, Topic) ->
+-spec get_sub_shard_and_seq(pid(), emqx_types:topic()) -> {non_neg_integer(), non_neg_integer()}.
+get_sub_shard_and_seq(SubPid, Topic) ->
     case create_seq(Topic) of
-        Seq when Seq =< ?SHARD -> 0;
-        _ -> erlang:phash2(SubPid, shards_num()) + 1
+        Seq when Seq =< ?SHARD -> {0, Seq};
+        Seq1 -> {erlang:phash2(SubPid, shards_num()) + 1, Seq1}
     end.
 
 -spec shards_num() -> pos_integer().

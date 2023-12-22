@@ -160,15 +160,20 @@ do_subscribe(Topic, SubPid, SubOpts) ->
 do_subscribe2(Topic, SubPid, SubOpts) when is_binary(Topic) ->
     %% FIXME: subscribe shard bug
     %% https://emqx.atlassian.net/browse/EMQX-10214
-    case emqx_broker_helper:get_sub_shard(SubPid, Topic) of
+    {Shard, Seq} = emqx_broker_helper:get_sub_shard_and_seq(SubPid, Topic),
+    IsFirst = Seq =:= 1,
+    case Shard of
         0 ->
             true = ets:insert(?SUBSCRIBER, {Topic, SubPid}),
             true = ets:insert(?SUBOPTION, {{Topic, SubPid}, SubOpts}),
-            call(pick(Topic), {subscribe, Topic});
+            case IsFirst of
+                true -> call(pick(Topic), {subscribe, Topic});
+                false -> ok
+            end;
         I ->
             true = ets:insert(?SUBSCRIBER, {{shard, Topic, I}, SubPid}),
             true = ets:insert(?SUBOPTION, {{Topic, SubPid}, maps:put(shard, I, SubOpts)}),
-            call(pick({Topic, I}), {subscribe, Topic, I})
+            call(pick({Topic, I}), {subscribe, Topic, I, IsFirst})
     end;
 do_subscribe2(Topic = #share{group = Group, topic = RealTopic}, SubPid, SubOpts) when
     is_binary(RealTopic)
@@ -502,14 +507,17 @@ init([Pool, Id]) ->
 handle_call({subscribe, Topic}, _From, State) ->
     Ok = emqx_router:do_add_route(Topic),
     {reply, Ok, State};
-handle_call({subscribe, Topic, I}, _From, State) ->
+handle_call({subscribe, Topic, I, IsFirst}, _From, State) ->
     Shard = {Topic, I},
     Ok =
         case get(Shard) of
             undefined ->
                 _ = put(Shard, true),
                 true = ets:insert(?SUBSCRIBER, {Topic, {shard, I}}),
-                cast(pick(Topic), {subscribe, Topic});
+                case IsFirst of
+                    true -> cast(pick(Topic), {subscribe, Topic});
+                    false -> ok
+                end;
             true ->
                 ok
         end,
