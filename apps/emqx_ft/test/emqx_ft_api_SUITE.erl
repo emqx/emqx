@@ -277,24 +277,32 @@ t_ft_disabled(Config) ->
         )
     ).
 
-t_configure(Config) ->
+t_configure_1(Config) ->
+    Uri = uri(["file_transfer"]),
+    test_configure(Uri, Config).
+
+t_configure_2(Config) ->
+    Uri = uri(["configs/file_transfer"]),
+    test_configure(Uri, Config).
+
+test_configure(Uri, Config) ->
     ?assertMatch(
         {ok, 200, #{<<"enable">> := true, <<"storage">> := #{}}},
-        request_json(get, uri(["file_transfer"]), Config)
+        request_json(get, Uri, Config)
     ),
     ?assertMatch(
         {ok, 200, #{<<"enable">> := false}},
-        request_json(put, uri(["file_transfer"]), #{<<"enable">> => false}, Config)
+        request_json(put, Uri, #{<<"enable">> => false}, Config)
     ),
     ?assertMatch(
         {ok, 200, #{<<"enable">> := false}},
-        request_json(get, uri(["file_transfer"]), Config)
+        request_json(get, Uri, Config)
     ),
     ?assertMatch(
         {ok, 200, #{}},
         request_json(
             put,
-            uri(["file_transfer"]),
+            Uri,
             #{
                 <<"enable">> => true,
                 <<"storage">> => emqx_ft_test_helpers:local_storage(Config)
@@ -306,7 +314,7 @@ t_configure(Config) ->
         {ok, 400, _},
         request(
             put,
-            uri(["file_transfer"]),
+            Uri,
             #{
                 <<"enable">> => true,
                 <<"storage">> => #{
@@ -321,7 +329,7 @@ t_configure(Config) ->
         {ok, 400, _},
         request(
             put,
-            uri(["file_transfer"]),
+            Uri,
             #{
                 <<"enable">> => true,
                 <<"storage">> => #{
@@ -349,7 +357,7 @@ t_configure(Config) ->
     {ok, 200, GetConfigJson} =
         request_json(
             put,
-            uri(["file_transfer"]),
+            Uri,
             #{
                 <<"enable">> => true,
                 <<"storage">> => #{
@@ -388,7 +396,7 @@ t_configure(Config) ->
         {ok, 400, _},
         request_json(
             put,
-            uri(["file_transfer"]),
+            Uri,
             #{
                 <<"enable">> => true,
                 <<"storage">> => #{
@@ -410,7 +418,7 @@ t_configure(Config) ->
         {ok, 200, #{}},
         request_json(
             put,
-            uri(["file_transfer"]),
+            Uri,
             emqx_utils_maps:deep_merge(
                 GetConfigJson,
                 #{
@@ -492,7 +500,12 @@ request_json(Method, Url, Config) ->
     request_json(Method, Url, [], Config).
 
 json(Body) when is_binary(Body) ->
-    emqx_utils_json:decode(Body, [return_maps]).
+    try
+        emqx_utils_json:decode(Body, [return_maps])
+    catch
+        _:_ ->
+            error({bad_json, Body})
+    end.
 
 query(Params) ->
     KVs = lists:map(fun({K, V}) -> uri_encode(K) ++ "=" ++ uri_encode(V) end, maps:to_list(Params)),
