@@ -34,7 +34,7 @@
 
 -define(PREFIX, "/configs/").
 -define(PREFIX_RESET, "/configs_reset/").
--define(ERR_MSG(MSG), list_to_binary(io_lib:format("~p", [MSG]))).
+-define(ERR_MSG(MSG), list_to_binary(io_lib:format("~0p", [MSG]))).
 -define(OPTS, #{rawconf_with_defaults => true, override_to => cluster}).
 -define(TAGS, ["Configs"]).
 
@@ -267,7 +267,7 @@ schema(Path) ->
             'requestBody' => Schema,
             responses => #{
                 200 => Schema,
-                400 => emqx_dashboard_swagger:error_codes(['UPDATE_FAILED']),
+                400 => emqx_dashboard_swagger:error_codes(['UPDATE_FAILED', 'INVALID_CONFIG']),
                 403 => emqx_dashboard_swagger:error_codes(['UPDATE_FAILED'])
             }
         }
@@ -287,17 +287,36 @@ fields(Field) ->
 
 %%%==============================================================================================
 %% HTTP API Callbacks
-config(get, _Params, Req) ->
-    [Path] = conf_path(Req),
-    {200, get_raw_config(Path)};
-config(put, #{body := NewConf}, Req) ->
+config(Method, Data, Req) ->
     Path = conf_path(Req),
+    do_config(Path, Method, Data).
+
+do_config([<<"file_transfer">> | Path], Method, Data) ->
+    [] =/= Path andalso throw("file_transfer does no support deep config get/put"),
+    forward_file_transfer(Method, Data);
+do_config([ConfigRoot | Path], get, _Params) ->
+    [] =/= Path andalso throw("deep config get is not supported"),
+    {200, get_raw_config(ConfigRoot)};
+do_config(Path, put, #{body := NewConf}) ->
     case emqx_conf:update(Path, NewConf, ?OPTS) of
         {ok, #{raw_config := RawConf}} ->
             {200, RawConf};
         {error, Reason} ->
             {400, #{code => 'UPDATE_FAILED', message => ?ERR_MSG(Reason)}}
     end.
+
+%% @private file_transfer config update reside in this module
+%% because it's needed to generate hotconf schema for dashboard UI rendering.
+%% As a result of adding "file_transfer" root key to the root keys list
+%% there is also a configs/file_transfer http path handler to be implemented.
+%% Here we simply forward the call to the file_transfer API module.
+-if(?EMQX_RELEASE_EDITION == ee).
+forward_file_transfer(Method, Data) ->
+    emqx_ft_api:'/file_transfer'(Method, Data).
+-else.
+forward_file_transfer(_Method, _Data) ->
+    {400, #{code => 'BAD_REQUEST', message => <<"not supported">>}}.
+-endif.
 
 global_zone_configs(get, _Params, _Req) ->
     {200, get_zones()};
