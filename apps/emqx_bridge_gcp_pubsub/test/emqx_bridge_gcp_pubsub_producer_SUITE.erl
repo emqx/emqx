@@ -310,7 +310,7 @@ gcp_pubsub_config(Config) ->
         io_lib:format(
             "bridges.gcp_pubsub.~s {\n"
             "  enable = true\n"
-            "  connect_timeout = 1s\n"
+            "  connect_timeout = 5s\n"
             "  service_account_json = ~s\n"
             "  payload_template = ~p\n"
             "  pubsub_topic = ~s\n"
@@ -1404,8 +1404,23 @@ t_failure_no_body(Config) ->
     ),
     ok.
 
+kill_gun_process(EhttpcPid) ->
+    State = ehttpc:get_state(EhttpcPid, minimal),
+    GunPid = maps:get(client, State),
+    true = is_pid(GunPid),
+    _ = exit(GunPid, kill),
+    ok.
+
+kill_gun_processes(ConnectorResourceId) ->
+    Pool = ehttpc:workers(ConnectorResourceId),
+    Workers = lists:map(fun({_, Pid}) -> Pid end, Pool),
+    %% assert there is at least one pool member
+    ?assertMatch([_ | _], Workers),
+    lists:foreach(fun(Pid) -> kill_gun_process(Pid) end, Workers).
+
 t_unrecoverable_error(Config) ->
     ActionResourceId = ?config(action_resource_id, Config),
+    ConnectorResourceId = ?config(connector_resource_id, Config),
     TelemetryTable = ?config(telemetry_table, Config),
     TestPid = self(),
     FailureNoBodyHandler =
@@ -1415,10 +1430,7 @@ t_unrecoverable_error(Config) ->
             %% kill the gun process while it's waiting for the
             %% response so we provoke an `{error, _}' response from
             %% ehttpc.
-            lists:foreach(
-                fun(Pid) -> exit(Pid, kill) end,
-                [Pid || {_, Pid, _, _} <- supervisor:which_children(gun_sup)]
-            ),
+            ok = kill_gun_processes(ConnectorResourceId),
             Rep = cowboy_req:reply(
                 200,
                 #{<<"content-type">> => <<"application/json">>},

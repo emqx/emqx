@@ -175,19 +175,11 @@
 %% Behaviour
 %% -------------------------------------------------------------------
 
--if(?OTP_RELEASE < 26).
--callback create(clientinfo(), conninfo(), conf()) ->
-    term().
--callback open(clientinfo(), conninfo(), conf()) ->
-    term().
--callback destroy(t() | clientinfo()) -> ok.
--else.
 -callback create(clientinfo(), conninfo(), conf()) ->
     t().
 -callback open(clientinfo(), conninfo(), conf()) ->
     {_IsPresent :: true, t(), _ReplayContext} | false.
 -callback destroy(t() | clientinfo()) -> ok.
--endif.
 
 %%--------------------------------------------------------------------
 %% Create a Session

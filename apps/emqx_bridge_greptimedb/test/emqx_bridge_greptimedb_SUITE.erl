@@ -25,12 +25,19 @@ groups() ->
     TCs = emqx_common_test_helpers:all(?MODULE),
     [
         {with_batch, [
-            {group, sync_query}
+            {group, sync_query},
+            {group, async_query}
         ]},
         {without_batch, [
-            {group, sync_query}
+            {group, sync_query},
+            {group, async_query}
         ]},
         {sync_query, [
+            {group, grpcv1_tcp}
+            %% uncomment tls when we are ready
+            %% {group, grpcv1_tls}
+        ]},
+        {async_query, [
             {group, grpcv1_tcp}
             %% uncomment tls when we are ready
             %% {group, grpcv1_tls}
@@ -130,6 +137,8 @@ init_per_group(GreptimedbType, Config0) when
     end;
 init_per_group(sync_query, Config) ->
     [{query_mode, sync} | Config];
+init_per_group(async_query, Config) ->
+    [{query_mode, async} | Config];
 init_per_group(with_batch, Config) ->
     [{batch_size, 100} | Config];
 init_per_group(without_batch, Config) ->
@@ -420,6 +429,9 @@ t_start_ok(Config) ->
     ?check_trace(
         begin
             case QueryMode of
+                async ->
+                    ?assertMatch(ok, send_message(Config, SentData)),
+                    ct:sleep(500);
                 sync ->
                     ?assertMatch({ok, _}, send_message(Config, SentData))
             end,
@@ -666,6 +678,9 @@ t_const_timestamp(Config) ->
         <<"timestamp">> => erlang:system_time(millisecond)
     },
     case QueryMode of
+        async ->
+            ?assertMatch(ok, send_message(Config, SentData)),
+            ct:sleep(500);
         sync ->
             ?assertMatch({ok, _}, send_message(Config, SentData))
     end,
@@ -709,9 +724,12 @@ t_boolean_variants(Config) ->
             },
             case QueryMode of
                 sync ->
-                    ?assertMatch({ok, _}, send_message(Config, SentData))
+                    ?assertMatch({ok, _}, send_message(Config, SentData));
+                async ->
+                    ?assertMatch(ok, send_message(Config, SentData))
             end,
             case QueryMode of
+                async -> ct:sleep(500);
                 sync -> ok
             end,
             PersistedData = query_by_clientid(atom_to_binary(?FUNCTION_NAME), ClientId, Config),
@@ -779,11 +797,29 @@ t_bad_timestamp(Config) ->
             #{?snk_kind := greptimedb_connector_send_query_error},
             10_000
         ),
-        fun(Result, _Trace) ->
+        fun(Result, Trace) ->
             ?assertMatch({_, {ok, _}}, Result),
             {Return, {ok, _}} = Result,
             IsBatch = BatchSize > 1,
             case {QueryMode, IsBatch} of
+                {async, true} ->
+                    ?assertEqual(ok, Return),
+                    ?assertMatch(
+                        [#{error := points_trans_failed}],
+                        ?of_kind(greptimedb_connector_send_query_error, Trace)
+                    );
+                {async, false} ->
+                    ?assertEqual(ok, Return),
+                    ?assertMatch(
+                        [
+                            #{
+                                error := [
+                                    {error, {bad_timestamp, <<"bad_timestamp">>}}
+                                ]
+                            }
+                        ],
+                        ?of_kind(greptimedb_connector_send_query_error, Trace)
+                    );
                 {sync, false} ->
                     ?assertEqual(
                         {error, [
@@ -907,17 +943,34 @@ t_write_failure(Config) ->
                             {error, {resource_error, #{reason := timeout}}},
                             send_message(Config, SentData)
                         ),
-                        #{?snk_kind := greptimedb_connector_do_query_failure, action := nack},
-                        16_000
+                        #{?snk_kind := handle_async_reply, action := nack},
+                        1_000
+                    );
+                async ->
+                    ?wait_async_action(
+                        ?assertEqual(ok, send_message(Config, SentData)),
+                        #{?snk_kind := handle_async_reply},
+                        1_000
                     )
             end
         end),
-        fun(Trace) ->
+        fun(Trace0) ->
             case QueryMode of
                 sync ->
-                    ?assertMatch(
-                        [#{error := _} | _],
-                        ?of_kind(greptimedb_connector_do_query_failure, Trace)
+                    Trace = ?of_kind(handle_async_reply, Trace0),
+                    ?assertMatch([_ | _], Trace),
+                    [#{result := Result} | _] = Trace,
+                    ?assert(
+                        not emqx_bridge_greptimedb_connector:is_unrecoverable_error(Result),
+                        #{got => Result}
+                    );
+                async ->
+                    Trace = ?of_kind(handle_async_reply, Trace0),
+                    ?assertMatch([_ | _], Trace),
+                    [#{result := Result} | _] = Trace,
+                    ?assert(
+                        not emqx_bridge_greptimedb_connector:is_unrecoverable_error(Result),
+                        #{got => Result}
                     )
             end,
             ok
@@ -1029,6 +1082,23 @@ t_authentication_error_on_send_message(Config0) ->
             ?assertMatch(
                 {error, {unrecoverable_error, <<"authorization failure">>}},
                 send_message(Config, SentData)
+            );
+        async ->
+            ?check_trace(
+                begin
+                    ?wait_async_action(
+                        ?assertEqual(ok, send_message(Config, SentData)),
+                        #{?snk_kind := handle_async_reply},
+                        1_000
+                    )
+                end,
+                fun(Trace) ->
+                    ?assertMatch(
+                        [#{error := <<"authorization failure">>} | _],
+                        ?of_kind(greptimedb_connector_do_query_failure, Trace)
+                    ),
+                    ok
+                end
             )
     end,
     ok.

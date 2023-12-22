@@ -115,7 +115,7 @@ init_per_group(quic, Config) ->
     [
         {port, get_listener_port(quic, test)},
         {conn_fun, quic_connect},
-        {ssl_opts, emqx_common_test_helpers:client_ssl_twoway()},
+        {ssl_opts, emqx_common_test_helpers:client_mtls()},
         {ssl, true},
         {group_apps, Apps}
         | Config

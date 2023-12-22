@@ -26,16 +26,13 @@
 all() -> emqx_common_test_helpers:all(?MODULE).
 
 init_per_suite(Config) ->
-    emqx_common_test_helpers:start_apps([emqx]),
+    Apps = emqx_cth_suite:start([emqx], #{work_dir => emqx_cth_suite:work_dir(Config)}),
     [mnesia:dirty_write(Rec) || Rec <- fake_records()],
-    Config.
+    [{apps, Apps} | Config].
 
-end_per_suite(_Config) ->
+end_per_suite(Config) ->
     meck:unload(),
-    [mnesia:dirty_delete({?TAB, Key}) || #?TAB{key = Key} <- fake_records()],
-    emqx_bpapi:announce(emqx),
-    emqx_common_test_helpers:stop_apps([emqx]),
-    ok.
+    emqx_cth_suite:stop(?config(apps, Config)).
 
 t_max_supported_version(_Config) ->
     ?assertMatch(3, emqx_bpapi:supported_version('fake-node2@localhost', api2)),

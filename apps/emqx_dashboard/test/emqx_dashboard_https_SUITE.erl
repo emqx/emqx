@@ -198,8 +198,25 @@ t_verify_cacertfile(_Config) ->
         VerifyPeerConf1,
         naive_env_interpolation(<<"${EMQX_ETC_DIR}/certs/cacert.pem">>)
     ),
-    validate_https(VerifyPeerConf2, MaxConnection, DefaultSSLCert, verify_peer),
-    ok.
+    %% we always test client with verify_none and no client cert is sent
+    %% since the server is configured with verify_peer
+    %% hence the expected observation on the client side is an error
+    ErrorReason =
+        try
+            validate_https(VerifyPeerConf2, MaxConnection, DefaultSSLCert, verify_peer)
+        catch
+            error:{https_client_error, Reason} ->
+                Reason
+        end,
+    %% There seems to be a race-condition causing the return value to vary a bit
+    case ErrorReason of
+        socket_closed_remotely ->
+            ok;
+        {ssl_error, _SslSock, {tls_alert, {certificate_required, _}}} ->
+            ok;
+        Other ->
+            throw({unexpected, Other})
+    end.
 
 t_bad_certfile(_Config) ->
     Conf = #{
@@ -219,9 +236,12 @@ t_bad_certfile(_Config) ->
 validate_https(Conf, MaxConnection, SSLCert, Verify) ->
     emqx_common_test_helpers:load_config(emqx_dashboard_schema, Conf),
     emqx_mgmt_api_test_util:init_suite([emqx_management], fun(X) -> X end),
-    assert_ranch_options(MaxConnection, SSLCert, Verify),
-    assert_https_request(),
-    emqx_mgmt_api_test_util:end_suite([emqx_management]).
+    try
+        assert_ranch_options(MaxConnection, SSLCert, Verify),
+        assert_https_request()
+    after
+        emqx_mgmt_api_test_util:end_suite([emqx_management])
+    end.
 
 assert_ranch_options(MaxConnections0, SSLCert, Verify) ->
     Middlewares = [emqx_dashboard_middleware, cowboy_router, cowboy_handler],
@@ -286,10 +306,10 @@ assert_https_request() ->
     lists:foreach(
         fun(Path) ->
             ApiPath = https_api_path([Path]),
-            ?assertMatch(
-                {ok, _},
-                emqx_dashboard_SUITE:request_dashboard(get, ApiPath, Headers)
-            )
+            case emqx_dashboard_SUITE:request_dashboard(get, ApiPath, Headers) of
+                {ok, _} -> ok;
+                {error, Reason} -> error({https_client_error, Reason})
+            end
         end,
         ?OVERVIEWS
     ).

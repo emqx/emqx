@@ -7,7 +7,7 @@ REBAR = $(CURDIR)/rebar3
 BUILD = $(CURDIR)/build
 SCRIPTS = $(CURDIR)/scripts
 export EMQX_RELUP ?= true
-export EMQX_DEFAULT_BUILDER = ghcr.io/emqx/emqx-builder/5.1-4:1.14.5-25.3.2-2-debian11
+export EMQX_DEFAULT_BUILDER = ghcr.io/emqx/emqx-builder/5.2-8:1.15.7-26.1.2-2-debian11
 export EMQX_DEFAULT_RUNNER = public.ecr.aws/debian/debian:11-slim
 export EMQX_REL_FORM ?= tgz
 export QUICER_DOWNLOAD_FROM_RELEASE = 1
@@ -102,7 +102,7 @@ endif
 
 # Allow user-set GROUPS environment variable
 ifneq ($(GROUPS),)
-GROUPS_ARG := --groups $(GROUPS)
+GROUPS_ARG := --group $(GROUPS)
 endif
 
 ifeq ($(ENABLE_COVER_COMPILE),1)

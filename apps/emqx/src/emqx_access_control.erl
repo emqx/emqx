@@ -22,7 +22,8 @@
 
 -export([
     authenticate/1,
-    authorize/3
+    authorize/3,
+    format_action/1
 ]).
 
 -ifdef(TEST).
@@ -152,6 +153,7 @@ do_authorize(ClientInfo, Action, Topic) ->
     case run_hooks('client.authorize', [ClientInfo, Action, Topic], Default) of
         AuthzResult = #{result := Result} when Result == allow; Result == deny ->
             From = maps:get(from, AuthzResult, unknown),
+            ok = log_result(ClientInfo, Topic, Action, From, NoMatch),
             emqx_hooks:run(
                 'client.check_authz_complete',
                 [ClientInfo, Action, Topic, Result, From]
@@ -169,6 +171,42 @@ do_authorize(ClientInfo, Action, Topic) ->
             ),
             deny
     end.
+
+log_result(#{username := Username}, Topic, Action, From, Result) ->
+    LogMeta = fun() ->
+        #{
+            username => Username,
+            topic => Topic,
+            action => format_action(Action),
+            source => format_from(From)
+        }
+    end,
+    case Result of
+        allow -> ?SLOG(info, (LogMeta())#{msg => "authorization_permission_allowed"});
+        deny -> ?SLOG(warning, (LogMeta())#{msg => "authorization_permission_denied"})
+    end.
+
+%% @private Format authorization rules source.
+format_from(default) ->
+    "'authorization.no_match' config";
+format_from(unknown) ->
+    "'client.authorize' hook callback";
+format_from(Type) ->
+    Type.
+
+%% @doc Format enriched action info for logging.
+format_action(?AUTHZ_SUBSCRIBE_MATCH_MAP(QoS)) ->
+    "SUBSCRIBE(" ++ format_qos(QoS) ++ ")";
+format_action(?AUTHZ_PUBLISH_MATCH_MAP(QoS, Retain)) ->
+    "PUBLISH(" ++ format_qos(QoS) ++ "," ++ format_retain_flag(Retain) ++ ")".
+
+format_qos(QoS) ->
+    "Q" ++ integer_to_list(QoS).
+
+format_retain_flag(true) ->
+    "R1";
+format_retain_flag(false) ->
+    "R0".
 
 -compile({inline, [run_hooks/3]}).
 run_hooks(Name, Args, Acc) ->

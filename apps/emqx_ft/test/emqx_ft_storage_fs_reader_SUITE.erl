@@ -125,6 +125,7 @@ t_bad_messages(Config) ->
     ).
 
 t_nonexistent_file(_Config) ->
+    erlang:process_flag(trap_exit, true),
     ?assertEqual(
         {error, enoent},
         emqx_ft_storage_fs_reader:start_link(self(), "/a/b/c/bar")

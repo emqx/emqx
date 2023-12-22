@@ -24,7 +24,15 @@
 -export([]).
 
 %% behavior callbacks:
--export([create/4, open/5, store_batch/4, get_streams/4, make_iterator/5, next/4]).
+-export([
+    create/4,
+    open/5,
+    store_batch/4,
+    get_streams/4,
+    make_iterator/5,
+    update_iterator/4,
+    next/4
+]).
 
 %% internal exports:
 -export([format_key/2]).
@@ -236,6 +244,20 @@ make_iterator(
         ?last_seen_key => <<>>
     }}.
 
+-spec update_iterator(
+    emqx_ds_storage_layer:shard_id(),
+    s(),
+    iterator(),
+    emqx_ds:message_key()
+) -> {ok, iterator()}.
+update_iterator(
+    _Shard,
+    _Data,
+    #{?tag := ?IT} = OldIter,
+    DSKey
+) ->
+    {ok, OldIter#{?last_seen_key => DSKey}}.
+
 next(_Shard, Schema = #s{ts_offset = TSOffset}, It, BatchSize) ->
     %% Compute safe cutoff time.
     %% It's the point in time where the last complete epoch ends, so we need to know
@@ -329,7 +351,7 @@ traverse_interval(ITHandle, Filter, Cutoff, Key, Val, It0, Acc0, N) ->
             Msg = deserialize(Val),
             case check_message(Cutoff, It, Msg) of
                 true ->
-                    Acc = [Msg | Acc0],
+                    Acc = [{Key, Msg} | Acc0],
                     traverse_interval(ITHandle, Filter, Cutoff, It, Acc, N - 1);
                 false ->
                     traverse_interval(ITHandle, Filter, Cutoff, It, Acc0, N);

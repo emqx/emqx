@@ -27,7 +27,15 @@
 -export([]).
 
 %% behavior callbacks:
--export([create/4, open/5, store_batch/4, get_streams/4, make_iterator/5, next/4]).
+-export([
+    create/4,
+    open/5,
+    store_batch/4,
+    get_streams/4,
+    make_iterator/5,
+    update_iterator/4,
+    next/4
+]).
 
 %% internal exports:
 -export([]).
@@ -97,6 +105,17 @@ make_iterator(_Shard, _Data, #stream{}, TopicFilter, StartTime) ->
         start_time = StartTime
     }}.
 
+update_iterator(_Shard, _Data, OldIter, DSKey) ->
+    #it{
+        topic_filter = TopicFilter,
+        start_time = StartTime
+    } = OldIter,
+    {ok, #it{
+        topic_filter = TopicFilter,
+        start_time = StartTime,
+        last_seen_message_key = DSKey
+    }}.
+
 next(_Shard, #s{db = DB, cf = CF}, It0, BatchSize) ->
     #it{topic_filter = TopicFilter, start_time = StartTime, last_seen_message_key = Key0} = It0,
     {ok, ITHandle} = rocksdb:iterator(DB, CF, []),
@@ -125,7 +144,7 @@ do_next(TopicFilter, StartTime, IT, Action, NLeft, Key0, Acc) ->
             Msg = #message{topic = Topic, timestamp = TS} = binary_to_term(Blob),
             case emqx_topic:match(Topic, TopicFilter) andalso TS >= StartTime of
                 true ->
-                    do_next(TopicFilter, StartTime, IT, next, NLeft - 1, Key, [Msg | Acc]);
+                    do_next(TopicFilter, StartTime, IT, next, NLeft - 1, Key, [{Key, Msg} | Acc]);
                 false ->
                     do_next(TopicFilter, StartTime, IT, next, NLeft, Key, Acc)
             end;

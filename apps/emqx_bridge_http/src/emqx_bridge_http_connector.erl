@@ -205,7 +205,9 @@ on_start(
             http ->
                 {tcp, []};
             https ->
-                SSLOpts = emqx_tls_lib:to_client_opts(maps:get(ssl, Config)),
+                SSLConf = maps:get(ssl, Config),
+                %% force enable ssl
+                SSLOpts = emqx_tls_lib:to_client_opts(SSLConf#{enable => true}),
                 {tls, SSLOpts}
         end,
     NTransportOpts = emqx_utils:ipv6_probe(TransportOpts),

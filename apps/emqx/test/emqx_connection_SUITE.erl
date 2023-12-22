@@ -57,10 +57,10 @@ init_per_suite(Config) ->
     ok = meck:expect(emqx_alarm, deactivate, fun(_) -> ok end),
     ok = meck:expect(emqx_alarm, deactivate, fun(_, _) -> ok end),
 
-    emqx_common_test_helpers:start_apps([]),
-    Config.
+    Apps = emqx_cth_suite:start([emqx], #{work_dir => emqx_cth_suite:work_dir(Config)}),
+    [{apps, Apps} | Config].
 
-end_per_suite(_Config) ->
+end_per_suite(Config) ->
     ok = meck:unload(emqx_transport),
     catch meck:unload(emqx_channel),
     ok = meck:unload(emqx_cm),
@@ -68,8 +68,8 @@ end_per_suite(_Config) ->
     ok = meck:unload(emqx_metrics),
     ok = meck:unload(emqx_hooks),
     ok = meck:unload(emqx_alarm),
-    emqx_common_test_helpers:stop_apps([]),
-    ok.
+
+    emqx_cth_suite:stop(proplists:get_value(apps, Config)).
 
 init_per_testcase(TestCase, Config) when
     TestCase =/= t_ws_pingreq_before_connected

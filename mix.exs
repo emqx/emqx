@@ -49,7 +49,7 @@ defmodule EMQXUmbrella.MixProject do
       {:redbug, github: "emqx/redbug", tag: "2.0.10"},
       {:covertool, github: "zmstone/covertool", tag: "2.0.4.1", override: true},
       {:typerefl, github: "ieQu1/typerefl", tag: "0.9.1", override: true},
-      {:ehttpc, github: "emqx/ehttpc", tag: "0.4.11", override: true},
+      {:ehttpc, github: "emqx/ehttpc", tag: "0.4.12", override: true},
       {:gproc, github: "emqx/gproc", tag: "0.9.0.1", override: true},
       {:jiffy, github: "emqx/jiffy", tag: "1.0.6", override: true},
       {:cowboy, github: "emqx/cowboy", tag: "2.9.2", override: true},
@@ -77,9 +77,9 @@ defmodule EMQXUmbrella.MixProject do
       {:esasl, github: "emqx/esasl", tag: "0.2.0"},
       {:jose, github: "potatosalad/erlang-jose", tag: "1.11.2"},
       # in conflict by ehttpc and emqtt
-      {:gun, github: "emqx/gun", tag: "1.3.9", override: true},
+      {:gun, github: "emqx/gun", tag: "1.3.10", override: true},
       # in conflict by emqx_connector and system_monitor
-      {:epgsql, github: "emqx/epgsql", tag: "4.7.0.1", override: true},
+      {:epgsql, github: "emqx/epgsql", tag: "4.7.1.1", override: true},
       # in conflict by emqx and observer_cli
       {:recon, github: "ferd/recon", tag: "2.5.1", override: true},
       {:jsx, github: "talentdeficit/jsx", tag: "v3.1.0", override: true},
@@ -97,11 +97,13 @@ defmodule EMQXUmbrella.MixProject do
       {:hackney, github: "emqx/hackney", tag: "1.18.1-1", override: true},
       # set by hackney (dependency)
       {:ssl_verify_fun, "1.1.7", override: true},
+      {:rfc3339, github: "emqx/rfc3339", tag: "0.2.3", override: true},
+      {:bcrypt, github: "emqx/erlang-bcrypt", tag: "0.6.1", override: true},
       {:uuid, github: "okeuday/uuid", tag: "v2.0.6", override: true},
       {:quickrand, github: "okeuday/quickrand", tag: "v2.0.6", override: true}
     ] ++
       emqx_apps(profile_info, version) ++
-      enterprise_deps(profile_info) ++ bcrypt_dep() ++ jq_dep() ++ quicer_dep()
+      enterprise_deps(profile_info) ++ jq_dep() ++ quicer_dep()
   end
 
   defp emqx_apps(profile_info, version) do
@@ -198,7 +200,7 @@ defmodule EMQXUmbrella.MixProject do
     [
       {:hstreamdb_erl, github: "hstreamdb/hstreamdb_erl", tag: "0.4.5+v0.16.1"},
       {:influxdb, github: "emqx/influxdb-client-erl", tag: "1.1.11", override: true},
-      {:wolff, github: "kafka4beam/wolff", tag: "1.8.0"},
+      {:wolff, github: "kafka4beam/wolff", tag: "1.9.1"},
       {:kafka_protocol, github: "kafka4beam/kafka_protocol", tag: "4.1.3", override: true},
       {:brod_gssapi, github: "kafka4beam/brod_gssapi", tag: "v0.1.1"},
       {:brod, github: "kafka4beam/brod", tag: "3.16.8"},
@@ -206,7 +208,7 @@ defmodule EMQXUmbrella.MixProject do
       {:crc32cer, "0.1.8", override: true},
       {:supervisor3, "1.1.12", override: true},
       {:opentsdb, github: "emqx/opentsdb-client-erl", tag: "v0.5.1", override: true},
-      {:greptimedb, github: "GreptimeTeam/greptimedb-client-erl", tag: "v0.1.2", override: true},
+      {:greptimedb, github: "GreptimeTeam/greptimedb-client-erl", tag: "v0.1.6", override: true},
       # The following two are dependencies of rabbit_common. They are needed here to
       # make mix not complain about conflicting versions
       {:thoas, github: "emqx/thoas", tag: "v1.0.0", override: true},
@@ -214,12 +216,12 @@ defmodule EMQXUmbrella.MixProject do
        github: "emqx/credentials-obfuscation", tag: "v3.2.0", override: true},
       {:rabbit_common,
        github: "emqx/rabbitmq-server",
-       tag: "v3.11.13-emqx",
+       tag: "v3.11.13.2",
        sparse: "deps/rabbit_common",
        override: true},
       {:amqp_client,
        github: "emqx/rabbitmq-server",
-       tag: "v3.11.13-emqx",
+       tag: "v3.11.13.2",
        sparse: "deps/amqp_client",
        override: true}
     ]
@@ -373,10 +375,8 @@ defmodule EMQXUmbrella.MixProject do
     %{
       mnesia_rocksdb: enable_rocksdb?(),
       quicer: enable_quicer?(),
-      bcrypt: enable_bcrypt?(),
       jq: enable_jq?(),
-      observer: is_app?(:observer),
-      os_mon: enable_os_mon?()
+      observer: is_app?(:observer)
     }
     |> Enum.reject(&elem(&1, 1))
     |> Enum.map(&elem(&1, 0))
@@ -785,12 +785,6 @@ defmodule EMQXUmbrella.MixProject do
   defp emqx_schema_mod(:enterprise), do: :emqx_enterprise_schema
   defp emqx_schema_mod(:community), do: :emqx_conf_schema
 
-  defp bcrypt_dep() do
-    if enable_bcrypt?(),
-      do: [{:bcrypt, github: "emqx/erlang-bcrypt", tag: "0.6.1", override: true}],
-      else: []
-  end
-
   defp jq_dep() do
     if enable_jq?(),
       do: [{:jq, github: "emqx/jq", tag: "v0.3.12", override: true}],
@@ -804,35 +798,25 @@ defmodule EMQXUmbrella.MixProject do
       else: []
   end
 
-  defp enable_bcrypt?() do
-    not win32?()
-  end
-
-  defp enable_os_mon?() do
-    not win32?()
-  end
-
   defp enable_jq?() do
     not Enum.any?([
-      build_without_jq?(),
-      win32?()
-    ]) or "1" == System.get_env("BUILD_WITH_JQ")
+      build_without_jq?()
+    ])
   end
 
   defp enable_quicer?() do
-    not Enum.any?([
-      build_without_quic?(),
-      win32?(),
-      centos6?(),
-      macos?()
-    ]) or "1" == System.get_env("BUILD_WITH_QUIC")
+    "1" == System.get_env("BUILD_WITH_QUIC") or
+      not Enum.any?([
+        macos?(),
+        build_without_quic?()
+      ])
   end
 
   defp enable_rocksdb?() do
     not Enum.any?([
-      build_without_rocksdb?(),
-      raspbian?()
-    ]) or "1" == System.get_env("BUILD_WITH_ROCKSDB")
+      raspbian?(),
+      build_without_rocksdb?()
+    ])
   end
 
   defp pkg_vsn() do
@@ -845,19 +829,6 @@ defmodule EMQXUmbrella.MixProject do
   defp os_cmd(script, args) do
     {str, 0} = System.cmd("bash", [script | args])
     String.trim(str)
-  end
-
-  defp win32?(),
-    do: match?({:win_32, _}, :os.type())
-
-  defp centos6?() do
-    case File.read("/etc/centos-release") do
-      {:ok, "CentOS release 6" <> _} ->
-        true
-
-      _ ->
-        false
-    end
   end
 
   defp macos?() do

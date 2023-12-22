@@ -1039,9 +1039,10 @@ reason({shutdown, Reason}) when is_atom(Reason) -> Reason;
 reason({Error, _}) when is_atom(Error) -> Error;
 reason(_) -> internal_error.
 
-ntoa(undefined) -> undefined;
-ntoa({IpAddr, Port}) -> iolist_to_binary([inet:ntoa(IpAddr), ":", integer_to_list(Port)]);
-ntoa(IpAddr) -> iolist_to_binary(inet:ntoa(IpAddr)).
+ntoa(undefined) ->
+    undefined;
+ntoa(IpOrIpPort) ->
+    iolist_to_binary(emqx_utils:ntoa(IpOrIpPort)).
 
 event_name(?BRIDGE_HOOKPOINT(_) = Bridge) -> Bridge;
 event_name(<<"$events/client_connected">>) -> 'client.connected';

@@ -49,31 +49,11 @@
 all() -> emqx_common_test_helpers:all(?SUITE).
 
 init_per_suite(Config) ->
-    DistPid =
-        case net_kernel:nodename() of
-            ignored ->
-                %% calling `net_kernel:start' without `epmd'
-                %% running will result in a failure.
-                emqx_common_test_helpers:start_epmd(),
-                {ok, Pid} = net_kernel:start(['master@127.0.0.1', longnames]),
-                ct:pal("start epmd, node name: ~p", [node()]),
-                Pid;
-            _ ->
-                undefined
-        end,
-    emqx_common_test_helpers:boot_modules(all),
-    emqx_common_test_helpers:start_apps([]),
-    [{dist_pid, DistPid} | Config].
+    Apps = emqx_cth_suite:start([emqx], #{work_dir => emqx_cth_suite:work_dir(Config)}),
+    [{apps, Apps} | Config].
 
 end_per_suite(Config) ->
-    DistPid = ?config(dist_pid, Config),
-    case DistPid of
-        Pid when is_pid(Pid) ->
-            net_kernel:stop();
-        _ ->
-            ok
-    end,
-    emqx_common_test_helpers:stop_apps([]).
+    emqx_cth_suite:stop(?config(apps, Config)).
 
 init_per_testcase(Case, Config) ->
     try
@@ -759,11 +739,16 @@ t_qos1_random_dispatch_if_all_members_are_down(Config) when is_list(Config) ->
     ?assert(is_process_alive(Pid2)),
 
     {ok, _} = emqtt:publish(ConnPub, Topic, <<"hello11">>, 1),
-    ct:sleep(100),
-    Msgs1 = emqx_mqueue:to_list(get_mqueue(Pid1)),
-    Msgs2 = emqx_mqueue:to_list(get_mqueue(Pid2)),
-    %% assert the message is in mqueue (because socket is closed)
-    ?assertMatch([#message{payload = <<"hello11">>}], Msgs1 ++ Msgs2),
+    ?retry(
+        100,
+        10,
+        begin
+            Msgs1 = emqx_mqueue:to_list(get_mqueue(Pid1)),
+            Msgs2 = emqx_mqueue:to_list(get_mqueue(Pid2)),
+            %% assert the message is in mqueue (because socket is closed)
+            ?assertMatch([#message{payload = <<"hello11">>}], Msgs1 ++ Msgs2)
+        end
+    ),
     emqtt:stop(ConnPub),
     ok.
 

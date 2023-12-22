@@ -586,11 +586,11 @@ open(udp) ->
     {ok, Sock} = gen_udp:open(0, ?TCPOPTS),
     {udp, Sock};
 open(ssl) ->
-    SslOpts = maps:to_list(client_ssl_opts()),
+    SslOpts = client_ssl_opts(),
     {ok, SslSock} = ssl:connect("127.0.0.1", 7993, ?TCPOPTS ++ SslOpts),
     {ssl, SslSock};
 open(dtls) ->
-    SslOpts = maps:to_list(client_ssl_opts()),
+    SslOpts = client_ssl_opts(),
     {ok, SslSock} = ssl:connect("127.0.0.1", 7993, ?DTLSOPTS ++ SslOpts),
     {dtls, SslSock}.
 
@@ -691,7 +691,8 @@ dtls_opts() ->
 %% Client-Opts
 
 client_ssl_opts() ->
-    certs("client-key.pem", "client-cert.pem", "cacert.pem").
+    OptsWithCerts = certs("client-key.pem", "client-cert.pem", "cacert.pem"),
+    [{verify, verify_none} | maps:to_list(OptsWithCerts)].
 
 certs(Key, Cert, CACert) ->
     CertsPath = emqx_common_test_helpers:deps_path(emqx, "etc/certs"),

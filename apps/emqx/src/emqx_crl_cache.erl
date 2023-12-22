@@ -24,7 +24,8 @@
     register_der_crls/2,
     refresh/1,
     evict/1,
-    update_config/1
+    update_config/1,
+    info/0
 ]).
 
 %% gen_server callbacks
@@ -103,6 +104,11 @@ update_config(Conf) ->
 -spec register_der_crls(url(), [public_key:der_encoded()]) -> ok.
 register_der_crls(URL, CRLs) when is_list(CRLs) ->
     gen_server:cast(?MODULE, {register_der_crls, URL, CRLs}).
+
+-spec info() -> #{atom() => _}.
+info() ->
+    [state | State] = tuple_to_list(sys:get_state(?MODULE)),
+    maps:from_list(lists:zip(record_info(fields, state), State)).
 
 %%--------------------------------------------------------------------
 %% gen_server behaviour

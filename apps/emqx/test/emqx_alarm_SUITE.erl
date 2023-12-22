@@ -19,29 +19,25 @@
 -compile(export_all).
 -compile(nowarn_export_all).
 
--include_lib("emqx/include/emqx.hrl").
--include_lib("emqx/include/emqx_mqtt.hrl").
 -include_lib("eunit/include/eunit.hrl").
 
 all() -> emqx_common_test_helpers:all(?MODULE).
 
-init_per_testcase(t_size_limit, Config) ->
-    emqx_common_test_helpers:boot_modules(all),
-    emqx_common_test_helpers:start_apps([]),
-    {ok, _} = emqx:update_config([alarm], #{
-        <<"size_limit">> => 2
-    }),
-    Config;
-init_per_testcase(_, Config) ->
-    emqx_common_test_helpers:boot_modules(all),
-    emqx_common_test_helpers:start_apps([]),
-    {ok, _} = emqx:update_config([alarm], #{
-        <<"validity_period">> => <<"1s">>
-    }),
-    Config.
+init_per_testcase(t_size_limit = TC, Config) ->
+    Apps = emqx_cth_suite:start(
+        [{emqx, "alarm.size_limit = 2"}],
+        #{work_dir => emqx_cth_suite:work_dir(TC, Config)}
+    ),
+    [{apps, Apps} | Config];
+init_per_testcase(TC, Config) ->
+    Apps = emqx_cth_suite:start(
+        [{emqx, "alarm.validity_period = \"1s\""}],
+        #{work_dir => emqx_cth_suite:work_dir(TC, Config)}
+    ),
+    [{apps, Apps} | Config].
 
-end_per_testcase(_, _Config) ->
-    emqx_common_test_helpers:stop_apps([]).
+end_per_testcase(_, Config) ->
+    emqx_cth_suite:stop(proplists:get_value(apps, Config)).
 
 t_alarm(_) ->
     ok = emqx_alarm:activate(unknown_alarm),

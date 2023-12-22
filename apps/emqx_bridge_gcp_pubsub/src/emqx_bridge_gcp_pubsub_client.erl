@@ -428,7 +428,8 @@ do_get_status(ResourceId, Timeout) ->
                         msg => "ehttpc_health_check_failed",
                         connector => ResourceId,
                         reason => Reason,
-                        worker => Worker
+                        worker => Worker,
+                        wait_time => Timeout
                     }),
                     false
             end

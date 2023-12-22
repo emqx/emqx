@@ -50,20 +50,18 @@
         %% What session this range belongs to.
         _Session :: emqx_persistent_session_ds:id(),
         %% Where this range starts.
-        _First :: emqx_persistent_message_ds_replayer:seqno()
+        _First :: emqx_persistent_message_ds_replayer:seqno(),
+        %% Which stream this range is over.
+        _StreamRef
     },
     %% Where this range ends: the first seqno that is not included in the range.
     until :: emqx_persistent_message_ds_replayer:seqno(),
-    %% Which stream this range is over.
-    stream :: _StreamRef,
     %% Type of a range:
     %% * Inflight range is a range of yet unacked messages from this stream.
     %% * Checkpoint range was already acked, its purpose is to keep track of the
     %%   very last iterator for this stream.
     type :: ?T_INFLIGHT | ?T_CHECKPOINT,
     %% What commit tracks this range is part of.
-    %% This is rarely stored: we only need to persist it when the range contains
-    %% QoS 2 messages.
     tracks = 0 :: non_neg_integer(),
     %% Meaning of this depends on the type of the range:
     %% * For inflight range, this is the iterator pointing to the first message in

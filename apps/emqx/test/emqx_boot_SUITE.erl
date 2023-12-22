@@ -23,6 +23,13 @@
 
 all() -> emqx_common_test_helpers:all(?MODULE).
 
+init_per_suite(Config) ->
+    ok = application:load(emqx),
+    Config.
+
+end_per_suite(_) ->
+    ok = application:unload(emqx).
+
 t_is_enabled(_) ->
     try
         ok = application:set_env(emqx, boot_modules, all),

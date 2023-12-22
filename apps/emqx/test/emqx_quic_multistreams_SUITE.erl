@@ -144,19 +144,35 @@ groups() ->
     ].
 
 init_per_suite(Config) ->
-    emqx_common_test_helpers:start_apps([]),
-    UdpPort = 14567,
-    start_emqx_quic(UdpPort),
-    %% Turn off force_shutdown policy.
-    ShutdownPolicy = emqx_config:get_zone_conf(default, [force_shutdown]),
-    ct:pal("force shutdown config: ~p", [ShutdownPolicy]),
-    emqx_config:put_zone_conf(default, [force_shutdown], ShutdownPolicy#{enable := false}),
-    [{shutdown_policy, ShutdownPolicy}, {port, UdpPort}, {pub_qos, 0}, {sub_qos, 0} | Config].
+    Apps = start_emqx(Config),
+    [{port, 14567}, {pub_qos, 0}, {sub_qos, 0}, {apps, Apps} | Config].
 
 end_per_suite(Config) ->
-    emqx_config:put_zone_conf(default, [force_shutdown], ?config(shutdown_policy, Config)),
-    emqx_common_test_helpers:stop_apps([]),
-    ok.
+    emqx_cth_suite:stop(?config(apps, Config)).
+
+start_emqx(Config) ->
+    emqx_cth_suite:start(
+        [mk_emqx_spec()],
+        #{work_dir => emqx_cth_suite:work_dir(Config)}
+    ).
+
+stop_emqx(Config) ->
+    emqx_cth_suite:stop(?config(apps, Config)).
+
+restart_emqx(Config) ->
+    ok = stop_emqx(Config),
+    emqx_cth_suite:start(
+        [mk_emqx_spec()],
+        #{work_dir => emqx_cth_suite:work_dir(Config), boot_type => restart}
+    ).
+
+mk_emqx_spec() ->
+    {emqx,
+        %% Turn off force_shutdown policy.
+        "force_shutdown.enable = false"
+        "\n listeners.quic.default {"
+        "\n   enable = true, bind = 14567, acceptors = 16, idle_timeout_ms = 15000"
+        "\n }"}.
 
 init_per_group(pub_qos0, Config) ->
     [{pub_qos, 0} | Config];
@@ -188,11 +204,6 @@ init_per_group(_, Config) ->
     Config.
 
 end_per_group(_, Config) ->
-    Config.
-
-init_per_testcase(_, Config) ->
-    emqx_common_test_helpers:start_apps([]),
-    start_emqx_quic(?config(port, Config)),
     Config.
 
 t_quic_sock(Config) ->
@@ -1582,9 +1593,13 @@ t_multi_streams_remote_shutdown(Config) ->
 
     {quic, _Conn, _Ctrlstream} = proplists:get_value(socket, emqtt:info(C)),
 
-    ok = stop_emqx(),
-    %% Client should be closed
-    assert_client_die(C, 100, 200).
+    ok = stop_emqx(Config),
+    try
+        %% Client should be closed
+        assert_client_die(C, 100, 200)
+    after
+        restart_emqx(Config)
+    end.
 
 t_multi_streams_remote_shutdown_with_reconnect(Config) ->
     erlang:process_flag(trap_exit, true),
@@ -1636,10 +1651,8 @@ t_multi_streams_remote_shutdown_with_reconnect(Config) ->
 
     {quic, _Conn, _Ctrlstream} = proplists:get_value(socket, emqtt:info(C)),
 
-    ok = stop_emqx(),
+    _Apps = restart_emqx(Config),
 
-    timer:sleep(200),
-    start_emqx_quic(?config(port, Config)),
     ?assert(is_list(emqtt:info(C))),
     emqtt:stop(C).
 
@@ -2027,16 +2040,6 @@ calc_pkt_id(1, Id) ->
     Id;
 calc_pkt_id(2, Id) ->
     Id.
-
--spec start_emqx_quic(inet:port_number()) -> ok.
-start_emqx_quic(UdpPort) ->
-    emqx_common_test_helpers:start_apps([]),
-    application:ensure_all_started(quicer),
-    emqx_common_test_helpers:ensure_quic_listener(?MODULE, UdpPort).
-
--spec stop_emqx() -> ok.
-stop_emqx() ->
-    emqx_common_test_helpers:stop_apps([]).
 
 %% select a random port picked by OS
 -spec select_port() -> inet:port_number().

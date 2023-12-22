@@ -1,7 +1,31 @@
 emqx_authn_jwt_schema {
 
 acl_claim_name.desc:
-"""JWT claim name to use for getting ACL rules."""
+"""The JWT claim designated for accessing ACL (Access Control List) rules can be specified,
+such as using the `acl` claim. A typical decoded JWT with this claim might appear as:
+`{"username": "user1", "acl": ...}`.
+
+Supported ACL Rule Formats:
+
+- Object Format:
+  Utilizes action types pub (publish), sub (subscribe), or all (both publish and subscribe).
+  The value is a list of topic filters.
+  Example: `{"pub": ["topic1"], "sub": [], "all": ["${username}/#"]}`.
+  This example signifies that the token owner can publish to topic1 and perform both publish and subscribe
+  actions on topics starting with their username.
+  Note: In this format, if no topic matches, the action is denied, and the authorization process terminates.
+
+- Array Format (resembles File-Based ACL Rules):
+  Example: `[{"permission": "allow", "action": "all", "topic": "${username}/#"}]`.
+  Additionally, the `pub` or `publish` action rules can be extended with `qos` and `retain` field,
+  and `sub` or `subscribe` action rules can be extended with a `qos` field.
+  Note: Here, if no rule matches, the action is not immediately denied.
+  The process continues to other configured authorization sources,
+  and ultimately falls back to the default permission in config `authorization.no_match`.
+
+The ACL claim utilizes MQTT topic wildcard matching rules for publishing or subscribing.
+A special syntax for the 'subscribe' action allows the use of `eq` for an exact match.
+For instance, `eq t/#` permits or denies subscription to `t/#`, but not to `t/1`."""
 
 acl_claim_name.label:
 """ACL claim name"""

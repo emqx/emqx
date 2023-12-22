@@ -78,7 +78,7 @@ end_per_testcase(_TestCase, _Config) ->
 %%------------------------------------------------------------------------------
 
 t_topic_rules(_Config) ->
-    Payload = #{
+    JWT = #{
         <<"exp">> => erlang:system_time(second) + 60,
         <<"acl">> => #{
             <<"pub">> => [
@@ -99,7 +99,47 @@ t_topic_rules(_Config) ->
         },
         <<"username">> => <<"username">>
     },
-    JWT = generate_jws(Payload),
+    test_topic_rules(JWT).
+
+t_topic_rules_v2(_Config) ->
+    JWT = #{
+        <<"exp">> => erlang:system_time(second) + 60,
+        <<"acl">> => [
+            #{
+                <<"permission">> => <<"allow">>,
+                <<"action">> => <<"pub">>,
+                <<"topics">> => [
+                    <<"eq testpub1/${username}">>,
+                    <<"testpub2/${clientid}">>,
+                    <<"testpub3/#">>
+                ]
+            },
+            #{
+                <<"permission">> => <<"allow">>,
+                <<"action">> => <<"sub">>,
+                <<"topics">> =>
+                    [
+                        <<"eq testsub1/${username}">>,
+                        <<"testsub2/${clientid}">>,
+                        <<"testsub3/#">>
+                    ]
+            },
+            #{
+                <<"permission">> => <<"allow">>,
+                <<"action">> => <<"all">>,
+                <<"topics">> => [
+                    <<"eq testall1/${username}">>,
+                    <<"testall2/${clientid}">>,
+                    <<"testall3/#">>
+                ]
+            }
+        ],
+        <<"username">> => <<"username">>
+    },
+    test_topic_rules(JWT).
+
+test_topic_rules(JWTInput) ->
+    JWT = generate_jws(JWTInput),
 
     {ok, C} = emqtt:start_link(
         [
@@ -348,6 +388,64 @@ t_check_undefined_expire(_Config) ->
     ?assertMatch(
         {matched, deny},
         emqx_authz_client_info:authorize(Client, ?AUTHZ_SUBSCRIBE, <<"a/bar">>, undefined)
+    ).
+
+t_invalid_rule(_Config) ->
+    emqx_logger:set_log_level(debug),
+    MakeJWT = fun(Acl) ->
+        generate_jws(#{
+            <<"exp">> => erlang:system_time(second) + 60,
+            <<"username">> => <<"username">>,
+            <<"acl">> => Acl
+        })
+    end,
+    InvalidAclList =
+        [
+            %% missing action
+            [#{<<"permission">> => <<"invalid">>}],
+            %% missing topic or topics
+            [#{<<"permission">> => <<"allow">>, <<"action">> => <<"pub">>}],
+            %% invlaid permission, must be allow | deny
+            [
+                #{
+                    <<"permission">> => <<"invalid">>,
+                    <<"action">> => <<"pub">>,
+                    <<"topic">> => <<"t">>
+                }
+            ],
+            %% invalid action, must be pub | sub | all
+            [
+                #{
+                    <<"permission">> => <<"allow">>,
+                    <<"action">> => <<"invalid">>,
+                    <<"topic">> => <<"t">>
+                }
+            ],
+            %% invalid qos
+            [
+                #{
+                    <<"permission">> => <<"allow">>,
+                    <<"action">> => <<"pub">>,
+                    <<"topics">> => [<<"t">>],
+                    <<"qos">> => 3
+                }
+            ]
+        ],
+    lists:foreach(
+        fun(InvalidAcl) ->
+            {ok, C} = emqtt:start_link(
+                [
+                    {clean_start, true},
+                    {proto_ver, v5},
+                    {clientid, <<"clientid">>},
+                    {username, <<"username">>},
+                    {password, MakeJWT(InvalidAcl)}
+                ]
+            ),
+            unlink(C),
+            ?assertMatch({error, {bad_username_or_password, _}}, emqtt:connect(C))
+        end,
+        InvalidAclList
     ).
 
 %%------------------------------------------------------------------------------

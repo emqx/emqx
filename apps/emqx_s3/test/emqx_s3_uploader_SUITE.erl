@@ -64,13 +64,13 @@ groups() ->
 
         {tcp_cases, [
             t_config_switch,
-            t_config_switch_http_settings,
             t_too_large,
             t_no_profile
         ]},
 
         {tls_cases, [
-            t_tls_error
+            t_tls_error,
+            t_config_switch_http_settings
         ]},
 
         {noconn_errors, [{group, transport_errors}]},
@@ -205,7 +205,8 @@ t_signed_url_download(_Config) ->
         emqx_s3_client:uri(Client, Key)
     end),
 
-    {ok, {_, _, Body}} = httpc:request(get, {SignedUrl, []}, [], []),
+    HttpOpts = [{ssl, [{verify, verify_none}]}],
+    {ok, {_, _, Body}} = httpc:request(get, {SignedUrl, []}, HttpOpts, []),
 
     ?assertEqual(
         iolist_to_binary(Data),
@@ -222,7 +223,8 @@ t_signed_nonascii_url_download(_Config) ->
         emqx_s3_client:uri(Client, Key)
     end),
 
-    {ok, {_, _, Body}} = httpc:request(get, {SignedUrl, []}, [], []),
+    HttpOpts = [{ssl, [{verify, verify_none}]}],
+    {ok, {_, _, Body}} = httpc:request(get, {SignedUrl, []}, HttpOpts, []),
 
     ?assertEqual(
         iolist_to_binary(Data),
