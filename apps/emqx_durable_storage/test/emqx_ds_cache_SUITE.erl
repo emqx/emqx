@@ -200,11 +200,12 @@ t_key_deleted_while_iterating(_Config) ->
             TopicFilter = emqx_topic:words(TopicFilterBin),
             ok = open_db(DB, #{batch_size => 5, topic_filters => [TopicFilter]}),
             NowMS = now_ms(),
-            Msgs = [
-                message(<<"some/topic">>, <<"1">>, NowMS + 60_000),
-                message(<<"some/topic">>, <<"2">>, NowMS + 60_001),
-                message(<<"some/topic">>, <<"2">>, NowMS + 60_002)
-            ],
+            Msgs =
+                [Msg1 | _] = [
+                    message(<<"some/topic">>, <<"1">>, NowMS + 60_000),
+                    message(<<"some/topic">>, <<"2">>, NowMS + 60_001),
+                    message(<<"some/topic">>, <<"2">>, NowMS + 60_002)
+                ],
             {ok, {ok, _}} =
                 ?wait_async_action(
                     emqx_ds:store_batch(DB, Msgs),
@@ -215,8 +216,12 @@ t_key_deleted_while_iterating(_Config) ->
             {ok, Iter0} = emqx_ds:make_iterator(DB, Stream, TopicFilter, NowMS),
             {ok, Iter1, Batch1} = emqx_ds:next(DB, Iter0, 1, #{use_cache => false}),
             {ok, _Iter2, Batch2} = emqx_ds:next(DB, Iter1, 2, #{use_cache => true}),
+            %% We don't report a cache miss in this case, as this case is equivalent to
+            %% when the client is up to date with the stream and it's the cache that needs
+            %% to fetch more.
+            %% TODO: what to do if the client started from an old key and it got GC'ed?
             Fetched = [Msg || {_DSKey, Msg} <- Batch1 ++ Batch2],
-            ?assertEqual(Msgs, Fetched),
+            ?assertEqual([Msg1], Fetched),
             ok
         end,
         fun(Trace) ->

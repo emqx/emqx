@@ -232,6 +232,10 @@ handle_info(_Info, State) ->
     message
 }).
 -type entry() :: #entry{}.
+%% TODO: change this hack
+-record(tracked, {
+    stream :: {tracked, emqx_ds:stream()}
+}).
 
 -spec create_table() -> ets:tid().
 create_table() ->
@@ -241,6 +245,15 @@ create_table() ->
         {keypos, #entry.key},
         {read_concurrency, true}
     ]).
+
+is_tracked(DB, Stream) ->
+    ets:member(?cache(DB), {tracked, Stream}).
+
+mark_tracked(DB, Stream) ->
+    ets:insert(?cache(DB), #tracked{stream = {tracked, Stream}}).
+
+mark_untracked(DB, Stream) ->
+    ets:delete(?cache(DB), {tracked, Stream}).
 
 -spec fetch_cache(emqx_ds:db(), emqx_ds:stream(), undefined | emqx_ds:message_key(), pos_integer()) ->
     cache_fetch_result().
@@ -255,7 +268,7 @@ fetch_cache(DB, Stream, LastSeenKey, BatchSize) ->
                 expected_seqno => Seqno + 1,
                 last_seen_key => LastSeenKey
             }),
-            do_fetch_cache(Next, DB, Stream, Seqno + 1, BatchSize, _Acc = []);
+            do_fetch_cache(Next, DB, Stream, LastSeenKey, Seqno + 1, BatchSize, _Acc = []);
         _ ->
             %% race condition: previous key doesn't match; GC may have run.
             false
@@ -265,39 +278,48 @@ fetch_cache(DB, Stream, LastSeenKey, BatchSize) ->
     '$end_of_table' | ?EOS_KEY(emqx_ds:stream()) | ?KEY(emqx_ds:stream(), emqx_ds:message_key()),
     emqx_ds:db(),
     emqx_ds:stream(),
+    emqx_ds:message_key(),
     seqno(),
     _Remaining :: pos_integer(),
     [{emqx_ds:message_key(), emqx_types:message()}]
 ) ->
     cache_fetch_result().
-do_fetch_cache('$end_of_table' = Key, _DB, Stream, _ExpectedSeqno, _Remaining, Acc) ->
-    with_last_key(Acc, Stream, Key);
-do_fetch_cache(?EOS_KEY(Stream) = Key, _DB, Stream, _ExpectedSeqno, _Remaining, Acc) ->
-    with_last_key(Acc, Stream, Key);
-do_fetch_cache(Key, _DB, Stream, _ExpectedSeqno, Remaining, Acc) when Remaining =< 0 ->
-    with_last_key(Acc, Stream, Key);
-do_fetch_cache(Key, DB, Stream, ExpectedSeqno, Remaining, Acc) ->
+do_fetch_cache('$end_of_table' = Key, DB, Stream, OrigLastSeenKey, _ExpectedSeqno, _Remaining, Acc) ->
+    with_last_key(Acc, DB, Stream, Key, OrigLastSeenKey);
+do_fetch_cache(
+    ?EOS_KEY(Stream) = Key, DB, Stream, OrigLastSeenKey, _ExpectedSeqno, _Remaining, Acc
+) ->
+    with_last_key(Acc, DB, Stream, Key, OrigLastSeenKey);
+do_fetch_cache(Key, DB, Stream, OrigLastSeenKey, _ExpectedSeqno, Remaining, Acc) when
+    Remaining =< 0
+->
+    with_last_key(Acc, DB, Stream, Key, OrigLastSeenKey);
+do_fetch_cache(Key, DB, Stream, OrigLastSeenKey, ExpectedSeqno, Remaining, Acc) ->
     ?tp(ds_cache_lookup_enter, #{key => Key, stream => Stream, seqno => ExpectedSeqno}),
     case ets:lookup(?cache(DB), Key) of
         [#entry{key = ?KEY(Stream, DSKey), seqno = ExpectedSeqno, message = Message}] ->
             NextKey = ets:next(?cache(DB), Key),
             NewAcc = [{DSKey, Message} | Acc],
-            do_fetch_cache(NextKey, DB, Stream, ExpectedSeqno + 1, Remaining - 1, NewAcc);
+            do_fetch_cache(
+                NextKey, DB, Stream, OrigLastSeenKey, ExpectedSeqno + 1, Remaining - 1, NewAcc
+            );
         _ ->
             %% Either:
             %%   i)   There's no entry;
             %%   ii)  The streams don't match;
             %%   iii) The seqnos don't match.
-            with_last_key(Acc, Stream, Key)
+            with_last_key(Acc, DB, Stream, Key, OrigLastSeenKey)
     end.
 
 -spec with_last_key(
     [{emqx_ds:message_key(), emqx_types:message()}],
+    emqx_ds:db(),
     emqx_ds:stream(),
-    '$end_of_table' | ?EOS_KEY(emqx_ds:stream()) | ?KEY(emqx_ds:stream(), emqx_ds:message_key())
+    '$end_of_table' | ?EOS_KEY(emqx_ds:stream()) | ?KEY(emqx_ds:stream(), emqx_ds:message_key()),
+    emqx_ds:message_key()
 ) ->
     cache_fetch_result().
-with_last_key(Acc, Stream, Key) ->
+with_last_key(Acc, DB, Stream, Key, OrigLastSeenKey) ->
     case Acc of
         [{LastKey, _} | _] ->
             Batch = lists:reverse(Acc),
@@ -310,7 +332,12 @@ with_last_key(Acc, Stream, Key) ->
             %% Possible if entry was removed just before we started iterating, or if only
             %% the last seen key of the iterator is contained in the cache.
             ?tp(ds_cache_empty_result, #{}),
-            false
+            case is_tracked(DB, Stream) of
+                true ->
+                    {ok, OrigLastSeenKey, []};
+                false ->
+                    false
+            end
     end.
 
 -spec insert_end_of_stream(emqx_ds:db(), timestamp(), seqno(), emqx_ds:stream()) -> ok.
@@ -466,7 +493,14 @@ handle_add_cached_topic_filters(TopicFilters, State0) ->
 
 -spec handle_remove_cached_topic_filters([emqx_ds:topic_filter()], state()) -> state().
 handle_remove_cached_topic_filters(TopicFilters, State0) ->
-    #{iterators := Iterators0} = State0,
+    #{db := DB, iterators := Iterators0} = State0,
+    Streams = [
+        Stream
+     || TopicFilter <- TopicFilters,
+        {ok, StreamsToIt} <- [maps:find(TopicFilter, Iterators0)],
+        Stream <- maps:keys(StreamsToIt)
+    ],
+    lists:foreach(fun(Stream) -> mark_untracked(DB, Stream) end, Streams),
     Iterators = maps:without(TopicFilters, Iterators0),
     State0#{iterators := Iterators}.
 
