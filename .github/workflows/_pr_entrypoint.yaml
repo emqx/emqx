@@ -38,6 +38,7 @@ jobs:
         run: |
           git config --global --add safe.directory "$GITHUB_WORKSPACE"
       - name: Run gitlint
+        if: ${{ ! contains(github.event.pull_request.labels.*.name, 'skip_sanity_checks') }}
         env:
           BEFORE_REF: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.event.before }}
           AFTER_REF: ${{ github.sha }}
@@ -45,10 +46,12 @@ jobs:
           pip install gitlint
           gitlint --commits $BEFORE_REF..$AFTER_REF --config .github/workflows/.gitlint
       - name: Run shellcheck
+        if: ${{ ! contains(github.event.pull_request.labels.*.name, 'skip_sanity_checks') }}
         run: |
           DEBIAN_FRONTEND=noninteractive apt-get update -qy && apt-get install -qy shellcheck
           ./scripts/shellcheck.sh
       - name: Run shell tests
+        if: ${{ ! contains(github.event.pull_request.labels.*.name, 'skip_sanity_checks') }}
         run: |
           DEBIAN_FRONTEND=noninteractive apt-get update -qy && apt-get install -qy shelltestrunner
           scripts/shelltest/run_tests.sh
@@ -65,9 +68,11 @@ jobs:
             -ignore 'value "emqx-enterprise" in "exclude"' \
             -ignore 'value "emqx-enterprise-elixir" in "exclude"'
       - name: Check line-break at EOF
+        if: ${{ ! contains(github.event.pull_request.labels.*.name, 'skip_sanity_checks') }}
         run: |
           ./scripts/check-nl-at-eof.sh
       - name: Check apps version
+        if: ${{ ! contains(github.event.pull_request.labels.*.name, 'skip_sanity_checks') }}
         run: |
           ./scripts/apps-version-check.sh
       - name: Setup mix
@@ -77,12 +82,14 @@ jobs:
         run: |
           mix local.hex --force --if-missing && mix local.rebar --force --if-missing
       - name: Check formatting
+        if: ${{ ! contains(github.event.pull_request.labels.*.name, 'skip_sanity_checks') }}
         env:
           MIX_ENV: emqx-enterprise
           PROFILE: emqx-enterprise
         run: |
           ./scripts/check-format.sh
       - name: Run elvis check
+        if: ${{ ! contains(github.event.pull_request.labels.*.name, 'skip_sanity_checks') }}
         run: |
           ./scripts/elvis-check.sh $GITHUB_BASE_REF
       - name: Generate CT Matrix
@@ -112,6 +119,20 @@ jobs:
           echo "ct-docker=${CT_DOCKER}" | tee -a $GITHUB_OUTPUT
           echo "version-emqx=$(./pkg-vsn.sh emqx)" | tee -a $GITHUB_OUTPUT
           echo "version-emqx-enterprise=$(./pkg-vsn.sh emqx-enterprise)" | tee -a $GITHUB_OUTPUT
+
+  sanity_checks_passed:
+    needs:
+      - sanity-checks
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+    steps:
+      - run: |
+          echo "Sanity checks skipped!!!"
+          exit 1
+        if: ${{ contains(github.event.pull_request.labels.*.name, 'skip_sanity_checks') }}
+      - run: echo "All sanity checks passed"
+        if: ${{ ! contains(github.event.pull_request.labels.*.name, 'skip_sanity_checks') }}
 
   compile:
     runs-on: ${{ endsWith(github.repository, '/emqx') && 'ubuntu-22.04' || fromJSON('["self-hosted","ephemeral-xl","linux","x64"]') }}
