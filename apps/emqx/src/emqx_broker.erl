@@ -384,7 +384,6 @@ subscriber_down(SubPid) ->
         fun(Topic) ->
             case lookup_value(?SUBOPTION, {Topic, SubPid}) of
                 SubOpts when is_map(SubOpts) ->
-                    _ = emqx_broker_helper:reclaim_seq(Topic),
                     true = ets:delete(?SUBOPTION, {Topic, SubPid}),
                     do_unsubscribe2(Topic, SubPid, SubOpts);
                 undefined ->
