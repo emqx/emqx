@@ -68,6 +68,11 @@
 ]).
 
 -export([
+    ssl_verify_fun_allow_any_host/0,
+    ssl_verify_fun_allow_any_host_impl/3
+]).
+
+-export([
     emqx_cluster/1,
     emqx_cluster/2,
     start_ekka/0,

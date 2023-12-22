@@ -136,6 +136,9 @@ setup_mocks() ->
         end
     ),
 
+    catch meck:new(emqx_action_info, MeckOpts),
+    meck:expect(emqx_action_info, bridge_v1_type_name, 1, {ok, bridge_type()}),
+
     ok.
 
 con_mod() ->

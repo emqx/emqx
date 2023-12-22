@@ -28,7 +28,7 @@
 -export([remove/2, remove/3]).
 -export([tombstone/2]).
 -export([reset/2, reset/3]).
--export([dump_schema/2, reformat_schema_dump/1]).
+-export([dump_schema/2, reformat_schema_dump/2]).
 -export([schema_module/0]).
 
 %% TODO: move to emqx_dashboard when we stop building api schema at build time
@@ -186,9 +186,9 @@ gen_schema_json(Dir, SchemaModule, Lang) ->
     ok = gen_preformat_md_json_files(Dir, StructsJsonArray, Lang).
 
 gen_preformat_md_json_files(Dir, StructsJsonArray, Lang) ->
-    NestedStruct = reformat_schema_dump(StructsJsonArray),
+    NestedStruct = reformat_schema_dump(StructsJsonArray, Lang),
     %% write to files
-    NestedJsonFile = filename:join([Dir, "schmea-v2-" ++ Lang ++ ".json"]),
+    NestedJsonFile = filename:join([Dir, "schema-v2-" ++ Lang ++ ".json"]),
     io:format(user, "===< Generating: ~s~n", [NestedJsonFile]),
     ok = file:write_file(
         NestedJsonFile, emqx_utils_json:encode(NestedStruct, [pretty, force_utf8])
@@ -196,15 +196,17 @@ gen_preformat_md_json_files(Dir, StructsJsonArray, Lang) ->
     ok.
 
 %% @doc This function is exported for scripts/schema-dump-reformat.escript
-reformat_schema_dump(StructsJsonArray0) ->
+reformat_schema_dump(StructsJsonArray0, Lang) ->
     %% prepare
+    DescResolver = make_desc_resolver(Lang),
     StructsJsonArray = deduplicate_by_full_name(StructsJsonArray0),
     #{fields := RootFields} = hd(StructsJsonArray),
     RootNames0 = lists:map(fun(#{name := RootName}) -> RootName end, RootFields),
     RootNames = lists:map(fun to_bin/1, RootNames0),
     %% reformat
     [Root | FlatStructs0] = lists:map(
-        fun(Struct) -> gen_flat_doc(RootNames, Struct) end, StructsJsonArray
+        fun(Struct) -> gen_flat_doc(RootNames, Struct, DescResolver) end,
+        StructsJsonArray
     ),
     FlatStructs = [Root#{text => <<"root">>, hash => <<"root">>} | FlatStructs0],
     gen_nested_doc(FlatStructs).
@@ -302,7 +304,7 @@ expand_ref(#{hash := FullName}, FindFn, Path) ->
 
 %% generate flat docs for each struct.
 %% using references to link to other structs.
-gen_flat_doc(RootNames, #{full_name := FullName, fields := Fields} = S) ->
+gen_flat_doc(RootNames, #{full_name := FullName, fields := Fields} = S, DescResolver) ->
     ShortName = short_name(FullName),
     case is_missing_namespace(ShortName, to_bin(FullName), RootNames) of
         true ->
@@ -314,18 +316,19 @@ gen_flat_doc(RootNames, #{full_name := FullName, fields := Fields} = S) ->
         text => short_name(FullName),
         hash => format_hash(FullName),
         doc => maps:get(desc, S, <<"">>),
-        fields => format_fields(Fields)
+        fields => format_fields(Fields, DescResolver)
     }.
 
-format_fields([]) ->
-    [];
-format_fields([Field | Fields]) ->
-    [format_field(Field) | format_fields(Fields)].
+format_fields(Fields, DescResolver) ->
+    [format_field(F, DescResolver) || F <- Fields].
 
-format_field(#{name := Name, aliases := Aliases, type := Type} = F) ->
+format_field(#{name := Name, aliases := Aliases, type := Type} = F, DescResolver) ->
+    TypeDoc = format_type_desc(Type, DescResolver),
     L = [
         {text, Name},
         {type, format_type(Type)},
+        %% TODO: Make it into a separate field.
+        %% {typedoc, format_type_desc(Type, DescResolver)},
         {refs, format_refs(Type)},
         {aliases,
             case Aliases of
@@ -333,7 +336,7 @@ format_field(#{name := Name, aliases := Aliases, type := Type} = F) ->
                 _ -> Aliases
             end},
         {default, maps:get(hocon, maps:get(default, F, #{}), undefined)},
-        {doc, maps:get(desc, F, undefined)}
+        {doc, join_format([maps:get(desc, F, undefined), TypeDoc])}
     ],
     maps:from_list([{K, V} || {K, V} <- L, V =/= undefined]).
 
@@ -393,9 +396,25 @@ format_union_members([Member | Members], Acc) ->
     NewAcc = [format_type(Member) | Acc],
     format_union_members(Members, NewAcc).
 
+format_type_desc(#{kind := primitive, name := Name}, DescResolver) ->
+    format_primitive_type_desc(Name, DescResolver);
+format_type_desc(#{}, _DescResolver) ->
+    undefined.
+
 format_primitive_type(TypeStr) ->
-    Spec = emqx_conf_schema_types:readable_docgen(?MODULE, TypeStr),
+    Spec = get_primitive_typespec(TypeStr),
     to_bin(maps:get(type, Spec)).
+
+format_primitive_type_desc(TypeStr, DescResolver) ->
+    case get_primitive_typespec(TypeStr) of
+        #{desc := Desc} ->
+            DescResolver(Desc);
+        #{} ->
+            undefined
+    end.
+
+get_primitive_typespec(TypeStr) ->
+    emqx_conf_schema_types:readable_docgen(?MODULE, TypeStr).
 
 %% All types should have a namespace to avlid name clashing.
 is_missing_namespace(ShortName, FullName, RootNames) ->
@@ -559,6 +578,14 @@ hocon_schema_to_spec(Atom, _LocalModule) when is_atom(Atom) ->
 
 typename_to_spec(TypeStr, Module) ->
     emqx_conf_schema_types:readable_dashboard(Module, TypeStr).
+
+join_format(Snippets) ->
+    case [S || S <- Snippets, S =/= undefined] of
+        [] ->
+            undefined;
+        NonEmpty ->
+            to_bin(lists:join("<br/>", NonEmpty))
+    end.
 
 to_bin(List) when is_list(List) -> iolist_to_binary(List);
 to_bin(Boolean) when is_boolean(Boolean) -> Boolean;

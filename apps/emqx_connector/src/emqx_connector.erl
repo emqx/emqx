@@ -107,6 +107,8 @@ config_key_path() ->
 
 pre_config_update([?ROOT_KEY], RawConf, RawConf) ->
     {ok, RawConf};
+pre_config_update([?ROOT_KEY], {force_update, NewConf}, RawConf) ->
+    pre_config_update([?ROOT_KEY], NewConf, RawConf);
 pre_config_update([?ROOT_KEY], NewConf, _RawConf) ->
     case multi_validate_connector_names(NewConf) of
         ok ->
@@ -135,23 +137,16 @@ pre_config_update(Path, Conf, _OldConfig) when is_map(Conf) ->
 operation_to_enable(disable) -> false;
 operation_to_enable(enable) -> true.
 
+post_config_update([?ROOT_KEY], {force_update, _}, NewConf, OldConf, _AppEnv) ->
+    #{added := Added, removed := Removed, changed := Updated} =
+        diff_confs(NewConf, OldConf),
+    perform_connector_changes(Removed, Added, Updated);
 post_config_update([?ROOT_KEY], _Req, NewConf, OldConf, _AppEnv) ->
     #{added := Added, removed := Removed, changed := Updated} =
         diff_confs(NewConf, OldConf),
     case ensure_no_channels(Removed) of
         ok ->
-            %% The config update will be failed if any task in `perform_connector_changes` failed.
-            Result = perform_connector_changes([
-                #{action => fun emqx_connector_resource:remove/4, data => Removed},
-                #{
-                    action => fun emqx_connector_resource:create/4,
-                    data => Added,
-                    on_exception_fn => fun emqx_connector_resource:remove/4
-                },
-                #{action => fun emqx_connector_resource:update/4, data => Updated}
-            ]),
-            ?tp(connector_post_config_update_done, #{}),
-            Result;
+            perform_connector_changes(Removed, Added, Updated);
         {error, Error} ->
             {error, Error}
     end;
@@ -174,6 +169,20 @@ post_config_update([?ROOT_KEY, Type, Name], _Req, NewConf, OldConf, _AppEnvs) ->
     ok = emqx_connector_resource:update(Type, Name, {OldConf, NewConf}, ResOpts),
     ?tp(connector_post_config_update_done, #{}),
     ok.
+
+%% The config update will be failed if any task in `perform_connector_changes` failed.
+perform_connector_changes(Removed, Added, Updated) ->
+    Result = perform_connector_changes([
+        #{action => fun emqx_connector_resource:remove/4, data => Removed},
+        #{
+            action => fun emqx_connector_resource:create/4,
+            data => Added,
+            on_exception_fn => fun emqx_connector_resource:remove/4
+        },
+        #{action => fun emqx_connector_resource:update/4, data => Updated}
+    ]),
+    ?tp(connector_post_config_update_done, #{}),
+    Result.
 
 list() ->
     maps:fold(

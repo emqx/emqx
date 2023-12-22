@@ -416,7 +416,7 @@ uninstall_bridge_v2(
         {error, _} ->
             ok;
         ok ->
-            %% Deinstall from connector
+            %% uninstall from connector
             ConnectorId = emqx_connector_resource:resource_id(
                 connector_type(BridgeV2Type), ConnectorName
             ),
@@ -869,6 +869,8 @@ config_key_path() ->
 config_key_path_leaf() ->
     [?ROOT_KEY, '?', '?'].
 
+pre_config_update(_, {force_update, Conf}, _OldConf) ->
+    {ok, Conf};
 %% NOTE: We depend on the `emqx_bridge:pre_config_update/3` to restart/stop the
 %%       underlying resources.
 pre_config_update(_, {_Oper, _, _}, undefined) ->
@@ -882,55 +884,15 @@ pre_config_update(_Path, Conf, _OldConfig) when is_map(Conf) ->
 operation_to_enable(disable) -> false;
 operation_to_enable(enable) -> true.
 
+%% A public API that can trigger this is:
+%% bin/emqx ctl conf load data/configs/cluster.hocon
+post_config_update([?ROOT_KEY], {force_update, _Req}, NewConf, OldConf, _AppEnv) ->
+    do_post_config_update(NewConf, OldConf, #{validate_referenced_connectors => false});
 %% This top level handler will be triggered when the actions path is updated
 %% with calls to emqx_conf:update([actions], BridgesConf, #{}).
 %%
-%% A public API that can trigger this is:
-%% bin/emqx ctl conf load data/configs/cluster.hocon
 post_config_update([?ROOT_KEY], _Req, NewConf, OldConf, _AppEnv) ->
-    #{added := Added, removed := Removed, changed := Updated} =
-        diff_confs(NewConf, OldConf),
-    %% new and updated bridges must have their connector references validated
-    UpdatedConfigs =
-        lists:map(
-            fun({{Type, BridgeName}, {_Old, New}}) ->
-                {Type, BridgeName, New}
-            end,
-            maps:to_list(Updated)
-        ),
-    AddedConfigs =
-        lists:map(
-            fun({{Type, BridgeName}, AddedConf}) ->
-                {Type, BridgeName, AddedConf}
-            end,
-            maps:to_list(Added)
-        ),
-    ToValidate = UpdatedConfigs ++ AddedConfigs,
-    case multi_validate_referenced_connectors(ToValidate) of
-        ok ->
-            %% The config update will be failed if any task in `perform_bridge_changes` failed.
-            RemoveFun = fun uninstall_bridge_v2/3,
-            CreateFun = fun install_bridge_v2/3,
-            UpdateFun = fun(Type, Name, {OldBridgeConf, Conf}) ->
-                uninstall_bridge_v2(Type, Name, OldBridgeConf),
-                install_bridge_v2(Type, Name, Conf)
-            end,
-            Result = perform_bridge_changes([
-                #{action => RemoveFun, data => Removed},
-                #{
-                    action => CreateFun,
-                    data => Added,
-                    on_exception_fn => fun emqx_bridge_resource:remove/4
-                },
-                #{action => UpdateFun, data => Updated}
-            ]),
-            ok = unload_message_publish_hook(),
-            ok = load_message_publish_hook(NewConf),
-            ?tp(bridge_post_config_update_done, #{}),
-            Result;
-        {error, Error} ->
-            {error, Error}
-    end;
+    do_post_config_update(NewConf, OldConf, #{validate_referenced_connectors => true});
 post_config_update([?ROOT_KEY, BridgeType, BridgeName], '$remove', _, _OldConf, _AppEnvs) ->
     Conf = emqx:get_config([?ROOT_KEY, BridgeType, BridgeName]),
     ok = uninstall_bridge_v2(BridgeType, BridgeName, Conf),
@@ -966,6 +928,50 @@ post_config_update([?ROOT_KEY, BridgeType, BridgeName], _Req, NewConf, OldConf, 
             reload_message_publish_hook(Bridges),
             ?tp(bridge_post_config_update_done, #{}),
             ok;
+        {error, Error} ->
+            {error, Error}
+    end.
+
+do_post_config_update(NewConf, OldConf, #{validate_referenced_connectors := NeedValidate}) ->
+    #{added := Added, removed := Removed, changed := Updated} =
+        diff_confs(NewConf, OldConf),
+    UpdatedConfigs =
+        lists:map(
+            fun({{Type, BridgeName}, {_Old, New}}) ->
+                {Type, BridgeName, New}
+            end,
+            maps:to_list(Updated)
+        ),
+    AddedConfigs =
+        lists:map(
+            fun({{Type, BridgeName}, AddedConf}) ->
+                {Type, BridgeName, AddedConf}
+            end,
+            maps:to_list(Added)
+        ),
+    ToValidate = UpdatedConfigs ++ AddedConfigs,
+    case multi_validate_referenced_connectors(NeedValidate, ToValidate) of
+        ok ->
+            %% The config update will be failed if any task in `perform_bridge_changes` failed.
+            RemoveFun = fun uninstall_bridge_v2/3,
+            CreateFun = fun install_bridge_v2/3,
+            UpdateFun = fun(Type, Name, {OldBridgeConf, Conf}) ->
+                uninstall_bridge_v2(Type, Name, OldBridgeConf),
+                install_bridge_v2(Type, Name, Conf)
+            end,
+            Result = perform_bridge_changes([
+                #{action => RemoveFun, data => Removed},
+                #{
+                    action => CreateFun,
+                    data => Added,
+                    on_exception_fn => fun emqx_bridge_resource:remove/4
+                },
+                #{action => UpdateFun, data => Updated}
+            ]),
+            ok = unload_message_publish_hook(),
+            ok = load_message_publish_hook(NewConf),
+            ?tp(bridge_post_config_update_done, #{}),
+            Result;
         {error, Error} ->
             {error, Error}
     end.
@@ -1086,7 +1092,8 @@ bridge_v1_lookup_and_transform(ActionType, Name) ->
     case lookup(ActionType, Name) of
         {ok, #{raw_config := #{<<"connector">> := ConnectorName} = RawConfig} = ActionConfig} ->
             BridgeV1Type = ?MODULE:bridge_v2_type_to_bridge_v1_type(ActionType, RawConfig),
-            case ?MODULE:bridge_v1_is_valid(BridgeV1Type, Name) of
+            HasBridgeV1Equivalent = has_bridge_v1_equivalent(ActionType),
+            case HasBridgeV1Equivalent andalso ?MODULE:bridge_v1_is_valid(BridgeV1Type, Name) of
                 true ->
                     ConnectorType = connector_type(ActionType),
                     case emqx_connector:lookup(ConnectorType, ConnectorName) of
@@ -1111,6 +1118,12 @@ bridge_v1_lookup_and_transform(ActionType, Name) ->
 
 not_bridge_v1_compatible_error() ->
     {error, not_bridge_v1_compatible}.
+
+has_bridge_v1_equivalent(ActionType) ->
+    case emqx_action_info:bridge_v1_type_name(ActionType) of
+        {ok, _} -> true;
+        {error, no_v1_equivalent} -> false
+    end.
 
 connector_raw_config(Connector, ConnectorType) ->
     get_raw_with_defaults(Connector, ConnectorType, <<"connectors">>, emqx_connector_schema).
@@ -1593,7 +1606,9 @@ to_connector(ConnectorNameBin, BridgeType) ->
             throw(not_found)
     end.
 
-multi_validate_referenced_connectors(Configs) ->
+multi_validate_referenced_connectors(false, _Configs) ->
+    ok;
+multi_validate_referenced_connectors(true, Configs) ->
     Pipeline =
         lists:map(
             fun({Type, BridgeName, #{connector := ConnectorName}}) ->

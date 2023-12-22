@@ -233,7 +233,10 @@ load_config(Bin, Opts) when is_binary(Bin) ->
             {error, Reason}
     end.
 
-load_config_from_raw(RawConf, Opts) ->
+load_config_from_raw(RawConf0, Opts) ->
+    SchemaMod = emqx_conf:schema_module(),
+    RawConf1 = emqx_config:upgrade_raw_conf(SchemaMod, RawConf0),
+    RawConf = emqx_config:fill_defaults(RawConf1),
     case check_config(RawConf) of
         ok ->
             Error =
@@ -283,9 +286,16 @@ update_config_cluster(
     check_res(Key, emqx_authn:merge_config(Conf), Conf, Opts);
 update_config_cluster(Key, NewConf, #{mode := merge} = Opts) ->
     Merged = merge_conf(Key, NewConf),
-    check_res(Key, emqx_conf:update([Key], Merged, ?OPTIONS), NewConf, Opts);
+    Request = make_request(Key, Merged),
+    check_res(Key, emqx_conf:update([Key], Request, ?OPTIONS), NewConf, Opts);
 update_config_cluster(Key, Value, #{mode := replace} = Opts) ->
-    check_res(Key, emqx_conf:update([Key], Value, ?OPTIONS), Value, Opts).
+    Request = make_request(Key, Value),
+    check_res(Key, emqx_conf:update([Key], Request, ?OPTIONS), Value, Opts).
+
+make_request(Key, Value) when Key =:= <<"connectors">> orelse Key =:= <<"actions">> ->
+    {force_update, Value};
+make_request(_Key, Value) ->
+    Value.
 
 -define(LOCAL_OPTIONS, #{rawconf_with_defaults => true, persistent => false}).
 update_config_local(
@@ -302,9 +312,11 @@ update_config_local(
     check_res(node(), Key, emqx_authn:merge_config_local(Conf, ?LOCAL_OPTIONS), Conf, Opts);
 update_config_local(Key, NewConf, #{mode := merge} = Opts) ->
     Merged = merge_conf(Key, NewConf),
-    check_res(node(), Key, emqx:update_config([Key], Merged, ?LOCAL_OPTIONS), NewConf, Opts);
+    Request = make_request(Key, Merged),
+    check_res(node(), Key, emqx:update_config([Key], Request, ?LOCAL_OPTIONS), NewConf, Opts);
 update_config_local(Key, Value, #{mode := replace} = Opts) ->
-    check_res(node(), Key, emqx:update_config([Key], Value, ?LOCAL_OPTIONS), Value, Opts).
+    Request = make_request(Key, Value),
+    check_res(node(), Key, emqx:update_config([Key], Request, ?LOCAL_OPTIONS), Value, Opts).
 
 check_res(Key, Res, Conf, Opts) -> check_res(cluster, Key, Res, Conf, Opts).
 check_res(Node, Key, {ok, _}, _Conf, Opts) ->
@@ -452,8 +464,21 @@ sorted_fold(Func, Conf) ->
         Error -> {error, Error}
     end.
 
-to_sorted_list(Conf) ->
-    lists:keysort(1, maps:to_list(Conf)).
+to_sorted_list(Conf0) ->
+    %% connectors > actions/bridges > rule_engine
+    Keys = [<<"connectors">>, <<"actions">>, <<"bridges">>, <<"rule_engine">>],
+    {HighPriorities, Conf1} = split_high_priority_conf(Keys, Conf0, []),
+    HighPriorities ++ lists:keysort(1, maps:to_list(Conf1)).
+
+split_high_priority_conf([], Conf0, Acc) ->
+    {lists:reverse(Acc), Conf0};
+split_high_priority_conf([Key | Keys], Conf0, Acc) ->
+    case maps:take(Key, Conf0) of
+        error ->
+            split_high_priority_conf(Keys, Conf0, Acc);
+        {Value, Conf1} ->
+            split_high_priority_conf(Keys, Conf1, [{Key, Value} | Acc])
+    end.
 
 merge_conf(Key, NewConf) ->
     OldConf = emqx_conf:get_raw([Key]),

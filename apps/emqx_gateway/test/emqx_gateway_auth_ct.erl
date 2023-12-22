@@ -238,8 +238,11 @@ http_authz_config() ->
 init_gateway_conf() ->
     ok = emqx_common_test_helpers:load_config(
         emqx_gateway_schema,
-        merge_conf([X:default_config() || X <- ?CONFS], [])
+        merge_conf(list_gateway_conf(), [])
     ).
+
+list_gateway_conf() ->
+    [X:default_config() || X <- ?CONFS].
 
 merge_conf([Conf | T], Acc) ->
     case re:run(Conf, "\s*gateway\\.(.*)", [global, {capture, all_but_first, list}, dotall]) of

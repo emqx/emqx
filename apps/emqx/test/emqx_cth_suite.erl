@@ -58,7 +58,6 @@
 -module(emqx_cth_suite).
 
 -include_lib("common_test/include/ct.hrl").
--include_lib("emqx/include/emqx_access_control.hrl").
 
 -export([start/2]).
 -export([stop/1]).
