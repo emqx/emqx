@@ -190,7 +190,7 @@ t_normalize_rules(_Config) ->
 
     ?assertException(
         error,
-        {invalid_rule, _},
+        #{reason := invalid_rule},
         emqx_authz_mnesia:store_rules(
             {username, <<"username">>},
             [[<<"allow">>, <<"publish">>, <<"t">>]]
@@ -199,16 +199,22 @@ t_normalize_rules(_Config) ->
 
     ?assertException(
         error,
-        {invalid_action, _},
+        #{reason := invalid_action},
         emqx_authz_mnesia:store_rules(
             {username, <<"username">>},
-            [#{<<"permission">> => <<"allow">>, <<"action">> => <<"pub">>, <<"topic">> => <<"t">>}]
+            [
+                #{
+                    <<"permission">> => <<"allow">>,
+                    <<"action">> => <<"badaction">>,
+                    <<"topic">> => <<"t">>
+                }
+            ]
         )
     ),
 
     ?assertException(
         error,
-        {invalid_permission, _},
+        #{reason := invalid_permission},
         emqx_authz_mnesia:store_rules(
             {username, <<"username">>},
             [

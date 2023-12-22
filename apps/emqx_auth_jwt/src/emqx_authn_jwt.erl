@@ -219,14 +219,24 @@ verify(undefined, _, _, _) ->
 verify(JWT, JWKs, VerifyClaims, AclClaimName) ->
     case do_verify(JWT, JWKs, VerifyClaims) of
         {ok, Extra} ->
-            {ok, acl(Extra, AclClaimName)};
+            try
+                {ok, acl(Extra, AclClaimName)}
+            catch
+                throw:{bad_acl_rule, Reason} ->
+                    %% it's a invalid token, so ok to log
+                    ?TRACE_AUTHN_PROVIDER("bad_acl_rule", Reason#{jwt => JWT}),
+                    {error, bad_username_or_password}
+            end;
         {error, {missing_claim, Claim}} ->
+            %% it's a invalid token, so it's ok to log
             ?TRACE_AUTHN_PROVIDER("missing_jwt_claim", #{jwt => JWT, claim => Claim}),
             {error, bad_username_or_password};
         {error, invalid_signature} ->
+            %% it's a invalid token, so it's ok to log
             ?TRACE_AUTHN_PROVIDER("invalid_jwt_signature", #{jwks => JWKs, jwt => JWT}),
             ignore;
         {error, {claims, Claims}} ->
+            %% it's a invalid token, so it's ok to log
             ?TRACE_AUTHN_PROVIDER("invalid_jwt_claims", #{jwt => JWT, claims => Claims}),
             {error, bad_username_or_password}
     end.
@@ -237,7 +247,8 @@ acl(Claims, AclClaimName) ->
             #{AclClaimName := Rules} ->
                 #{
                     acl => #{
-                        rules => Rules,
+                        rules => parse_rules(Rules),
+                        source_for_logging => jwt,
                         expire => maps:get(<<"exp">>, Claims, undefined)
                     }
                 };
@@ -362,4 +373,25 @@ binary_to_number(Bin) ->
                 {Val, <<>>} -> {ok, Val};
                 _ -> false
             end
+    end.
+
+%% Pars rules which can be in two different formats:
+%% 1. #{<<"pub">> => [<<"a/b">>, <<"c/d">>], <<"sub">> => [...], <<"all">> => [...]}
+%% 2. [#{<<"permission">> => <<"allow">>, <<"action">> => <<"publish">>, <<"topic">> => <<"a/b">>}, ...]
+parse_rules(Rules) when is_map(Rules) ->
+    Rules;
+parse_rules(Rules) when is_list(Rules) ->
+    lists:map(fun parse_rule/1, Rules).
+
+parse_rule(Rule) ->
+    case emqx_authz_rule_raw:parse_rule(Rule) of
+        {ok, {Permission, Action, Topics}} ->
+            try
+                emqx_authz_rule:compile({Permission, all, Action, Topics})
+            catch
+                throw:Reason ->
+                    throw({bad_acl_rule, Reason})
+            end;
+        {error, Reason} ->
+            throw({bad_acl_rule, Reason})
     end.

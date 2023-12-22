@@ -132,7 +132,7 @@ maps_key_take([K | Ks], M, Acc) ->
 
 validate_listener_name(Name) ->
     try
-        {match, _} = re:run(Name, "^[0-9a-zA-Z_-]+$"),
+        {match, _} = re:run(Name, "^[a-zA-Z][0-9a-zA-Z_-]*$"),
         ok
     catch
         _:_ ->
@@ -140,7 +140,7 @@ validate_listener_name(Name) ->
                 {badconf, #{
                     key => name,
                     value => Name,
-                    reason => illegal_listener_name
+                    reason => bad_listener_name
                 }}
             )
     end.

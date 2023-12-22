@@ -1,7 +1,7 @@
 %% -*- mode: erlang -*-
 {application, emqx_auth_jwt, [
     {description, "EMQX JWT Authentication and Authorization"},
-    {vsn, "0.1.1"},
+    {vsn, "0.2.0"},
     {registered, []},
     {mod, {emqx_auth_jwt_app, []}},
     {applications, [

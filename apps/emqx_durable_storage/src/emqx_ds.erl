@@ -22,13 +22,13 @@
 -module(emqx_ds).
 
 %% Management API:
--export([open_db/2, drop_db/1]).
+-export([open_db/2, add_generation/2, add_generation/1, drop_db/1]).
 
 %% Message storage API:
 -export([store_batch/2, store_batch/3]).
 
 %% Message replay API:
--export([get_streams/3, make_iterator/4, next/3]).
+-export([get_streams/3, make_iterator/4, update_iterator/3, next/3]).
 
 %% Misc. API:
 -export([]).
@@ -44,6 +44,7 @@
     iterator/0,
     iterator_id/0,
     message_id/0,
+    message_key/0,
     message_store_opts/0,
     next_result/1, next_result/0,
     store_batch_result/0,
@@ -79,6 +80,8 @@
 
 -type ds_specific_stream() :: term().
 
+-type message_key() :: binary().
+
 -type store_batch_result() :: ok | {error, _}.
 
 -type make_iterator_result(Iterator) :: {ok, Iterator} | {error, _}.
@@ -86,13 +89,13 @@
 -type make_iterator_result() :: make_iterator_result(iterator()).
 
 -type next_result(Iterator) ::
-    {ok, Iterator, [emqx_types:message()]} | {ok, end_of_stream} | {error, _}.
+    {ok, Iterator, [{message_key(), emqx_types:message()}]} | {ok, end_of_stream} | {error, _}.
 
 -type next_result() :: next_result(iterator()).
 
 %% Timestamp
 %% Earliest possible timestamp is 0.
-%% TODO granularity?  Currently, we should always use micro second, as that's the unit we
+%% TODO granularity?  Currently, we should always use milliseconds, as that's the unit we
 %% use in emqx_guid.  Otherwise, the iterators won't match the message timestamps.
 -type time() :: non_neg_integer().
 
@@ -121,6 +124,10 @@
 
 -callback open_db(db(), create_db_opts()) -> ok | {error, _}.
 
+-callback add_generation(db()) -> ok | {error, _}.
+
+-callback add_generation(db(), create_db_opts()) -> ok | {error, _}.
+
 -callback drop_db(db()) -> ok | {error, _}.
 
 -callback store_batch(db(), [emqx_types:message()], message_store_opts()) -> store_batch_result().
@@ -128,6 +135,9 @@
 -callback get_streams(db(), topic_filter(), time()) -> [{stream_rank(), ds_specific_stream()}].
 
 -callback make_iterator(db(), ds_specific_stream(), topic_filter(), time()) ->
+    make_iterator_result(ds_specific_iterator()).
+
+-callback update_iterator(db(), ds_specific_iterator(), message_key()) ->
     make_iterator_result(ds_specific_iterator()).
 
 -callback next(db(), Iterator, pos_integer()) -> next_result(Iterator).
@@ -147,6 +157,14 @@ open_db(DB, Opts = #{backend := Backend}) when Backend =:= builtin orelse Backen
         end,
     persistent_term:put(?persistent_term(DB), Module),
     ?module(DB):open_db(DB, Opts).
+
+-spec add_generation(db()) -> ok.
+add_generation(DB) ->
+    ?module(DB):add_generation(DB).
+
+-spec add_generation(db(), create_db_opts()) -> ok.
+add_generation(DB, Opts) ->
+    ?module(DB):add_generation(DB, Opts).
 
 %% @doc TODO: currently if one or a few shards are down, they won't be
 
@@ -200,7 +218,7 @@ store_batch(DB, Msgs) ->
 %% replay. This function returns stream together with its
 %% "coordinate": `stream_rank()'.
 %%
-%% Stream rank is a tuple of two integers, let's call them X and Y. If
+%% Stream rank is a tuple of two terms, let's call them X and Y. If
 %% X coordinate of two streams is different, they are independent and
 %% can be replayed in parallel. If it's the same, then the stream with
 %% smaller Y coordinate should be replayed first. If Y coordinates are
@@ -216,6 +234,11 @@ get_streams(DB, TopicFilter, StartTime) ->
 -spec make_iterator(db(), stream(), topic_filter(), time()) -> make_iterator_result().
 make_iterator(DB, Stream, TopicFilter, StartTime) ->
     ?module(DB):make_iterator(DB, Stream, TopicFilter, StartTime).
+
+-spec update_iterator(db(), iterator(), message_key()) ->
+    make_iterator_result().
+update_iterator(DB, OldIter, DSKey) ->
+    ?module(DB):update_iterator(DB, OldIter, DSKey).
 
 -spec next(db(), iterator(), pos_integer()) -> next_result().
 next(DB, Iter, BatchSize) ->

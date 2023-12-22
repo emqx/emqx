@@ -64,7 +64,8 @@
     tcp_keepalive_opts/4,
     format/1,
     format_mfal/1,
-    call_first_defined/1
+    call_first_defined/1,
+    ntoa/1
 ]).
 
 -export([
@@ -1052,6 +1053,15 @@ flatcomb(Ys = [_ | _], Zs = [_ | _]) ->
     Ys ++ Zs;
 flatcomb(Y, Zs) ->
     [Y | Zs].
+
+%% @doc Format IP address tuple or {IP, Port} tuple to string.
+ntoa({IP, Port}) ->
+    ntoa(IP) ++ ":" ++ integer_to_list(Port);
+ntoa({0, 0, 0, 0, 0, 16#ffff, AB, CD}) ->
+    %% v6 piggyback v4
+    inet_parse:ntoa({AB bsr 8, AB rem 256, CD bsr 8, CD rem 256});
+ntoa(IP) ->
+    inet_parse:ntoa(IP).
 
 -ifdef(TEST).
 -include_lib("eunit/include/eunit.hrl").

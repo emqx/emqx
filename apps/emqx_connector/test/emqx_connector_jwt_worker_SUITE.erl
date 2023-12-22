@@ -308,7 +308,7 @@ t_lookup_badarg(_Config) ->
     ok.
 
 t_start_supervised_worker(_Config) ->
-    {ok, _} = emqx_connector_jwt_sup:start_link(),
+    {ok, Sup} = emqx_connector_jwt_sup:start_link(),
     Config = #{resource_id := ResourceId, table := TId} = generate_config(),
     {ok, Pid} = emqx_connector_jwt_sup:ensure_worker_present(ResourceId, Config),
     Ref = emqx_connector_jwt_worker:ensure_jwt(Pid),
@@ -333,7 +333,7 @@ t_start_supervised_worker(_Config) ->
     ?assertEqual({error, not_found}, emqx_connector_jwt:lookup_jwt(TId, ResourceId)),
     %% ensure the specs are removed from the supervision tree.
     ?assertEqual([], supervisor:which_children(emqx_connector_jwt_sup)),
-    ok.
+    ok = stop_jwt_sup(Sup).
 
 t_start_supervised_worker_already_started(_Config) ->
     {ok, _} = emqx_connector_jwt_sup:start_link(),
@@ -344,17 +344,28 @@ t_start_supervised_worker_already_started(_Config) ->
     ok.
 
 t_start_supervised_worker_already_present(_Config) ->
-    {ok, _} = emqx_connector_jwt_sup:start_link(),
+    {ok, Sup} = emqx_connector_jwt_sup:start_link(),
     Config = #{resource_id := ResourceId} = generate_config(),
     {ok, Pid0} = emqx_connector_jwt_sup:ensure_worker_present(ResourceId, Config),
     Ref = monitor(process, Pid0),
     exit(Pid0, kill),
     receive
         {'DOWN', Ref, process, Pid0, killed} -> ok
-    after 1_000 -> error(worker_didnt_stop)
     end,
     {ok, Pid1} = emqx_connector_jwt_sup:ensure_worker_present(ResourceId, Config),
     ?assertNotEqual(Pid0, Pid1),
+    ?assert(is_process_alive(Pid1)),
+    ok = stop_jwt_sup(Sup).
+
+stop_jwt_sup(Sup) ->
+    Ref = monitor(process, Sup),
+    unlink(Sup),
+    exit(Sup, shutdown),
+    receive
+        {'DOWN', Ref, process, Sup, shutdown} -> ok
+    after 1000 ->
+        error(timeout)
+    end,
     ok.
 
 t_unknown_requests(_Config) ->

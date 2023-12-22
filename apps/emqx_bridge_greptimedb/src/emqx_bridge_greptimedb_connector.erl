@@ -21,8 +21,11 @@
     on_stop/2,
     on_query/3,
     on_batch_query/3,
+    on_query_async/4,
+    on_batch_query_async/4,
     on_get_status/2
 ]).
+-export([reply_callback/2]).
 
 -export([
     roots/0,
@@ -57,7 +60,7 @@
 
 %% -------------------------------------------------------------------------------------------------
 %% resource callback
-callback_mode() -> always_sync.
+callback_mode() -> async_if_possible.
 
 on_start(InstId, Config) ->
     %% InstID as pool would be handled by greptimedb client
@@ -106,6 +109,49 @@ on_batch_query(InstId, BatchData, _State = #{write_syntax := SyntaxLines, client
             ?tp(
                 greptimedb_connector_send_query_error,
                 #{batch => true, mode => sync, error => Reason}
+            ),
+            {error, {unrecoverable_error, Reason}}
+    end.
+
+on_query_async(
+    InstId,
+    {send_message, Data},
+    {ReplyFun, Args},
+    _State = #{write_syntax := SyntaxLines, client := Client}
+) ->
+    case data_to_points(Data, SyntaxLines) of
+        {ok, Points} ->
+            ?tp(
+                greptimedb_connector_send_query,
+                #{points => Points, batch => false, mode => async}
+            ),
+            do_async_query(InstId, Client, Points, {ReplyFun, Args});
+        {error, ErrorPoints} = Err ->
+            ?tp(
+                greptimedb_connector_send_query_error,
+                #{batch => false, mode => async, error => ErrorPoints}
+            ),
+            log_error_points(InstId, ErrorPoints),
+            Err
+    end.
+
+on_batch_query_async(
+    InstId,
+    BatchData,
+    {ReplyFun, Args},
+    #{write_syntax := SyntaxLines, client := Client}
+) ->
+    case parse_batch_data(InstId, BatchData, SyntaxLines) of
+        {ok, Points} ->
+            ?tp(
+                greptimedb_connector_send_query,
+                #{points => Points, batch => true, mode => async}
+            ),
+            do_async_query(InstId, Client, Points, {ReplyFun, Args});
+        {error, Reason} ->
+            ?tp(
+                greptimedb_connector_send_query_error,
+                #{batch => true, mode => async, error => Reason}
             ),
             {error, {unrecoverable_error, Reason}}
     end.
@@ -343,6 +389,31 @@ do_query(InstId, Client, Points) ->
                     {error, {recoverable_error, Reason}}
             end
     end.
+
+do_async_query(InstId, Client, Points, ReplyFunAndArgs) ->
+    ?SLOG(info, #{
+        msg => "greptimedb_write_point_async",
+        connector => InstId,
+        points => Points
+    }),
+    WrappedReplyFunAndArgs = {fun ?MODULE:reply_callback/2, [ReplyFunAndArgs]},
+    ok = greptimedb:async_write_batch(Client, Points, WrappedReplyFunAndArgs).
+
+reply_callback(ReplyFunAndArgs, {error, {unauth, _, _}}) ->
+    ?tp(greptimedb_connector_do_query_failure, #{error => <<"authorization failure">>}),
+    Result = {error, {unrecoverable_error, <<"authorization failure">>}},
+    emqx_resource:apply_reply_fun(ReplyFunAndArgs, Result);
+reply_callback(ReplyFunAndArgs, {error, Reason} = Error) ->
+    case is_unrecoverable_error(Error) of
+        true ->
+            Result = {error, {unrecoverable_error, Reason}},
+            emqx_resource:apply_reply_fun(ReplyFunAndArgs, Result);
+        false ->
+            Result = {error, {recoverable_error, Reason}},
+            emqx_resource:apply_reply_fun(ReplyFunAndArgs, Result)
+    end;
+reply_callback(ReplyFunAndArgs, Result) ->
+    emqx_resource:apply_reply_fun(ReplyFunAndArgs, Result).
 
 %% -------------------------------------------------------------------------------------------------
 %% Tags & Fields Config Trans

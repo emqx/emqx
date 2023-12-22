@@ -258,6 +258,75 @@ t_qos0(_Config) ->
         emqtt:stop(Pub)
     end.
 
+t_qos0_only_many_streams(_Config) ->
+    ClientId = <<?MODULE_STRING "_sub">>,
+    Sub = connect(ClientId, true, 30),
+    Pub = connect(<<?MODULE_STRING "_pub">>, true, 0),
+    [ConnPid] = emqx_cm:lookup_channels(ClientId),
+    try
+        {ok, _, [1]} = emqtt:subscribe(Sub, <<"t/#">>, qos1),
+
+        [
+            emqtt:publish(Pub, Topic, Payload, ?QOS_0)
+         || {Topic, Payload} <- [
+                {<<"t/1">>, <<"foo">>},
+                {<<"t/2">>, <<"bar">>},
+                {<<"t/3">>, <<"baz">>}
+            ]
+        ],
+        ?assertMatch(
+            [_, _, _],
+            receive_messages(3)
+        ),
+
+        Inflight0 = get_session_inflight(ConnPid),
+
+        [
+            emqtt:publish(Pub, Topic, Payload, ?QOS_0)
+         || {Topic, Payload} <- [
+                {<<"t/2">>, <<"foo">>},
+                {<<"t/2">>, <<"bar">>},
+                {<<"t/1">>, <<"baz">>}
+            ]
+        ],
+        ?assertMatch(
+            [_, _, _],
+            receive_messages(3)
+        ),
+
+        [
+            emqtt:publish(Pub, Topic, Payload, ?QOS_0)
+         || {Topic, Payload} <- [
+                {<<"t/3">>, <<"foo">>},
+                {<<"t/3">>, <<"bar">>},
+                {<<"t/2">>, <<"baz">>}
+            ]
+        ],
+        ?assertMatch(
+            [_, _, _],
+            receive_messages(3)
+        ),
+
+        ?assertMatch(
+            #{pubranges := [_, _, _]},
+            emqx_persistent_session_ds:print_session(ClientId)
+        ),
+
+        Inflight1 = get_session_inflight(ConnPid),
+
+        %% TODO: Kinda stupid way to verify that the runtime state is not growing.
+        ?assert(
+            erlang:external_size(Inflight1) - erlang:external_size(Inflight0) < 16,
+            Inflight1
+        )
+    after
+        emqtt:stop(Sub),
+        emqtt:stop(Pub)
+    end.
+
+get_session_inflight(ConnPid) ->
+    emqx_connection:info({channel, {session, inflight}}, sys:get_state(ConnPid)).
+
 t_publish_as_persistent(_Config) ->
     Sub = connect(<<?MODULE_STRING "1">>, true, 30),
     Pub = connect(<<?MODULE_STRING "2">>, true, 30),
@@ -343,8 +412,8 @@ consume(It) ->
     case emqx_ds:next(?PERSISTENT_MESSAGE_DB, It, 100) of
         {ok, _NIt, _Msgs = []} ->
             [];
-        {ok, NIt, Msgs} ->
-            Msgs ++ consume(NIt);
+        {ok, NIt, MsgsAndKeys} ->
+            [Msg || {_DSKey, Msg} <- MsgsAndKeys] ++ consume(NIt);
         {ok, end_of_stream} ->
             []
     end.

@@ -25,12 +25,21 @@
 all() -> emqx_common_test_helpers:all(?MODULE).
 
 init_per_suite(Config) ->
-    emqx_common_test_helpers:boot_modules(all),
-    emqx_common_test_helpers:start_apps([]),
-    Config.
+    WorkDir = emqx_cth_suite:work_dir(Config),
+    Apps = emqx_cth_suite:start(
+        [
+            {emqx, #{
+                override_env => [
+                    {cluster_override_conf_file, filename:join(WorkDir, "cluster_override.conf")}
+                ]
+            }}
+        ],
+        #{work_dir => WorkDir}
+    ),
+    [{apps, Apps} | Config].
 
-end_per_suite(_Config) ->
-    emqx_common_test_helpers:stop_apps([]).
+end_per_suite(Config) ->
+    emqx_cth_suite:stop(?config(apps, Config)).
 
 init_per_testcase(TestCase, Config) ->
     try

@@ -113,7 +113,7 @@ schema("/clients") ->
                         in => query,
                         required => false,
                         desc => <<"Node name">>,
-                        example => atom_to_list(node())
+                        example => <<"emqx@127.0.0.1">>
                     })},
                 {username,
                     hoconsc:mk(binary(), #{
@@ -196,10 +196,16 @@ schema("/clients") ->
                     })}
             ],
             responses => #{
-                200 => [
-                    {data, hoconsc:mk(hoconsc:array(hoconsc:ref(?MODULE, client)), #{})},
-                    {meta, hoconsc:mk(hoconsc:ref(emqx_dashboard_swagger, meta), #{})}
-                ],
+                200 =>
+                    emqx_dashboard_swagger:schema_with_example(?R_REF(clients), #{
+                        <<"data">> => [client_example()],
+                        <<"meta">> => #{
+                            <<"count">> => 1,
+                            <<"limit">> => 50,
+                            <<"page">> => 1,
+                            <<"hasnext">> => false
+                        }
+                    }),
                 400 =>
                     emqx_dashboard_swagger:error_codes(
                         ['INVALID_PARAMETER'], <<"Invalid parameters">>
@@ -230,7 +236,10 @@ schema("/clients/:clientid") ->
             tags => ?TAGS,
             parameters => [{clientid, hoconsc:mk(binary(), #{in => path})}],
             responses => #{
-                200 => hoconsc:mk(hoconsc:ref(?MODULE, client), #{}),
+                200 => emqx_dashboard_swagger:schema_with_example(
+                    ?R_REF(client),
+                    client_example()
+                ),
                 404 => emqx_dashboard_swagger:error_codes(
                     ['CLIENTID_NOT_FOUND'], <<"Client ID not found">>
                 )
@@ -367,7 +376,10 @@ schema("/clients/:clientid/keepalive") ->
             parameters => [{clientid, hoconsc:mk(binary(), #{in => path})}],
             'requestBody' => hoconsc:mk(hoconsc:ref(?MODULE, keepalive)),
             responses => #{
-                200 => hoconsc:mk(hoconsc:ref(?MODULE, client), #{}),
+                200 => emqx_dashboard_swagger:schema_with_example(
+                    ?R_REF(client),
+                    client_example()
+                ),
                 404 => emqx_dashboard_swagger:error_codes(
                     ['CLIENTID_NOT_FOUND'], <<"Client ID not found">>
                 )
@@ -375,6 +387,11 @@ schema("/clients/:clientid/keepalive") ->
         }
     }.
 
+fields(clients) ->
+    [
+        {data, hoconsc:mk(hoconsc:array(?REF(client)), #{})},
+        {meta, hoconsc:mk(hoconsc:ref(emqx_dashboard_swagger, meta), #{})}
+    ];
 fields(client) ->
     [
         {awaiting_rel_cnt,
@@ -978,3 +995,58 @@ format_authz_cache({{PubSub, Topic}, {AuthzResult, Timestamp}}) ->
 to_topic_info(Data) ->
     M = maps:with([<<"topic">>, <<"qos">>, <<"nl">>, <<"rap">>, <<"rh">>], Data),
     emqx_utils_maps:safe_atom_key_map(M).
+
+client_example() ->
+    #{
+        <<"recv_oct">> => 49,
+        <<"expiry_interval">> => 0,
+        <<"created_at">> => <<"2024-01-01T12:34:56.789+08:00">>,
+        <<"awaiting_rel_max">> => 100,
+        <<"send_msg">> => 0,
+        <<"enable_authn">> => true,
+        <<"send_msg.qos2">> => 0,
+        <<"peerport">> => 52571,
+        <<"connected_at">> => <<"2024-01-01T12:34:56.789+08:00">>,
+        <<"send_msg.dropped.too_large">> => 0,
+        <<"inflight_cnt">> => 0,
+        <<"keepalive">> => 60,
+        <<"node">> => <<"emqx@127.0.0.1">>,
+        <<"send_cnt">> => 4,
+        <<"recv_msg.dropped.await_pubrel_timeout">> => 0,
+        <<"recv_msg.dropped">> => 0,
+        <<"inflight_max">> => 32,
+        <<"proto_name">> => <<"MQTT">>,
+        <<"send_msg.dropped.expired">> => 0,
+        <<"awaiting_rel_cnt">> => 0,
+        <<"mqueue_max">> => 1000,
+        <<"send_oct">> => 31,
+        <<"send_msg.dropped.queue_full">> => 0,
+        <<"mqueue_len">> => 0,
+        <<"heap_size">> => 610,
+        <<"is_persistent">> => false,
+        <<"send_msg.qos0">> => 0,
+        <<"clean_start">> => true,
+        <<"mountpoint">> => <<"null">>,
+        <<"proto_ver">> => 5,
+        <<"ip_address">> => <<"127.0.0.1">>,
+        <<"mqueue_dropped">> => 0,
+        <<"port">> => 52571,
+        <<"listener">> => <<"tcp:default">>,
+        <<"recv_msg.qos2">> => 0,
+        <<"recv_msg.qos1">> => 0,
+        <<"is_bridge">> => false,
+        <<"subscriptions_cnt">> => 1,
+        <<"username">> => null,
+        <<"send_msg.dropped">> => 0,
+        <<"send_pkt">> => 4,
+        <<"subscriptions_max">> => <<"infinity">>,
+        <<"send_msg.qos1">> => 0,
+        <<"connected">> => true,
+        <<"reductions">> => 6836,
+        <<"mailbox_len">> => 0,
+        <<"clientid">> => "01",
+        <<"recv_msg">> => 0,
+        <<"recv_pkt">> => 4,
+        <<"recv_cnt">> => 4,
+        <<"recv_msg.qos0">> => 0
+    }.

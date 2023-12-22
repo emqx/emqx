@@ -17,17 +17,17 @@ env:
 jobs:
   sanity-checks:
     runs-on: ubuntu-22.04
-    container: "ghcr.io/emqx/emqx-builder/5.2-3:1.14.5-25.3.2-2-ubuntu22.04"
+    container: "ghcr.io/emqx/emqx-builder/5.2-8:1.15.7-26.1.2-2-ubuntu22.04"
     outputs:
       ct-matrix: ${{ steps.matrix.outputs.ct-matrix }}
       ct-host: ${{ steps.matrix.outputs.ct-host }}
       ct-docker: ${{ steps.matrix.outputs.ct-docker }}
       version-emqx: ${{ steps.matrix.outputs.version-emqx }}
       version-emqx-enterprise: ${{ steps.matrix.outputs.version-emqx-enterprise }}
-      builder: "ghcr.io/emqx/emqx-builder/5.2-3:1.14.5-25.3.2-2-ubuntu22.04"
-      builder_vsn: "5.2-3"
-      otp_vsn: "25.3.2-2"
-      elixir_vsn: "1.14.5"
+      builder: "ghcr.io/emqx/emqx-builder/5.2-8:1.15.7-26.1.2-2-ubuntu22.04"
+      builder_vsn: "5.2-8"
+      otp_vsn: "26.1.2-2"
+      elixir_vsn: "1.15.7"
 
     steps:
       - uses: actions/checkout@v3
@@ -92,14 +92,14 @@ jobs:
           MATRIX="$(echo "${APPS}" | jq -c '
             [
               (.[] | select(.profile == "emqx") | . + {
-                builder: "5.2-3",
-                otp: "25.3.2-2",
-                elixir: "1.14.5"
+                builder: "5.2-8",
+                otp: "26.1.2-2",
+                elixir: "1.15.7"
               }),
               (.[] | select(.profile == "emqx-enterprise") | . + {
-                builder: "5.2-3",
-                otp: ["25.3.2-2"][],
-                elixir: "1.14.5"
+                builder: "5.2-8",
+                otp: ["26.1.2-2"][],
+                elixir: "1.15.7"
               })
             ]
           ')"

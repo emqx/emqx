@@ -35,8 +35,6 @@ end_per_suite(Config) ->
     emqx_cth_suite:stop(?config(apps, Config)).
 
 init_per_testcase(_, Config) ->
-    emqx_common_test_helpers:boot_modules(all),
-    emqx_common_test_helpers:start_apps([]),
     emqx_olp:enable(),
     case wait_for(fun() -> lc_sup:whereis_runq_flagman() end, 10) of
         true -> ok;

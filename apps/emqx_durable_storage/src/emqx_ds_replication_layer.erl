@@ -23,10 +23,13 @@
 -export([
     list_shards/1,
     open_db/2,
+    add_generation/1,
+    add_generation/2,
     drop_db/1,
     store_batch/3,
     get_streams/3,
     make_iterator/4,
+    update_iterator/3,
     next/3
 ]).
 
@@ -36,7 +39,9 @@
     do_store_batch_v1/4,
     do_get_streams_v1/4,
     do_make_iterator_v1/5,
-    do_next_v1/4
+    do_update_iterator_v2/4,
+    do_next_v1/4,
+    do_add_generation_v2/1
 ]).
 
 -export_type([shard_id/0, builtin_db_opts/0, stream/0, iterator/0, message_id/0, batch/0]).
@@ -119,6 +124,16 @@ open_db(DB, CreateOpts) ->
         MyShards
     ).
 
+-spec add_generation(emqx_ds:db()) -> ok | {error, _}.
+add_generation(DB) ->
+    Nodes = emqx_ds_replication_layer_meta:leader_nodes(DB),
+    _ = emqx_ds_proto_v2:add_generation(Nodes, DB),
+    ok.
+
+-spec add_generation(emqx_ds:db(), builtin_db_opts()) -> ok | {error, _}.
+add_generation(DB, CreateOpts) ->
+    emqx_ds_replication_layer_meta:update_db_config(DB, CreateOpts).
+
 -spec drop_db(emqx_ds:db()) -> ok | {error, _}.
 drop_db(DB) ->
     Nodes = list_nodes(),
@@ -164,6 +179,30 @@ make_iterator(DB, Stream, TopicFilter, StartTime) ->
     #{?tag := ?STREAM, ?shard := Shard, ?enc := StorageStream} = Stream,
     Node = node_of_shard(DB, Shard),
     case emqx_ds_proto_v1:make_iterator(Node, DB, Shard, StorageStream, TopicFilter, StartTime) of
+        {ok, Iter} ->
+            {ok, #{?tag => ?IT, ?shard => Shard, ?enc => Iter}};
+        Err = {error, _} ->
+            Err
+    end.
+
+-spec update_iterator(
+    emqx_ds:db(),
+    iterator(),
+    emqx_ds:message_key()
+) ->
+    emqx_ds:make_iterator_result(iterator()).
+update_iterator(DB, OldIter, DSKey) ->
+    #{?tag := ?IT, ?shard := Shard, ?enc := StorageIter} = OldIter,
+    Node = node_of_shard(DB, Shard),
+    case
+        emqx_ds_proto_v2:update_iterator(
+            Node,
+            DB,
+            Shard,
+            StorageIter,
+            DSKey
+        )
+    of
         {ok, Iter} ->
             {ok, #{?tag => ?IT, ?shard => Shard, ?enc => Iter}};
         Err = {error, _} ->
@@ -236,6 +275,18 @@ do_get_streams_v1(DB, Shard, TopicFilter, StartTime) ->
 do_make_iterator_v1(DB, Shard, Stream, TopicFilter, StartTime) ->
     emqx_ds_storage_layer:make_iterator({DB, Shard}, Stream, TopicFilter, StartTime).
 
+-spec do_update_iterator_v2(
+    emqx_ds:db(),
+    emqx_ds_replication_layer:shard_id(),
+    emqx_ds_storage_layer:iterator(),
+    emqx_ds:message_key()
+) ->
+    emqx_ds:make_iterator_result(emqx_ds_storage_layer:iterator()).
+do_update_iterator_v2(DB, Shard, OldIter, DSKey) ->
+    emqx_ds_storage_layer:update_iterator(
+        {DB, Shard}, OldIter, DSKey
+    ).
+
 -spec do_next_v1(
     emqx_ds:db(),
     emqx_ds_replication_layer:shard_id(),
@@ -245,6 +296,17 @@ do_make_iterator_v1(DB, Shard, Stream, TopicFilter, StartTime) ->
     emqx_ds:next_result(emqx_ds_storage_layer:iterator()).
 do_next_v1(DB, Shard, Iter, BatchSize) ->
     emqx_ds_storage_layer:next({DB, Shard}, Iter, BatchSize).
+
+-spec do_add_generation_v2(emqx_ds:db()) -> ok | {error, _}.
+do_add_generation_v2(DB) ->
+    MyShards = emqx_ds_replication_layer_meta:my_owned_shards(DB),
+
+    lists:foreach(
+        fun(ShardId) ->
+            emqx_ds_storage_layer:add_generation({DB, ShardId})
+        end,
+        MyShards
+    ).
 
 %%================================================================================
 %% Internal functions

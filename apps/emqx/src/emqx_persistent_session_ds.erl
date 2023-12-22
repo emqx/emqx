@@ -214,8 +214,8 @@ info(subscriptions_max, #{props := Conf}) ->
     maps:get(max_subscriptions, Conf);
 info(upgrade_qos, #{props := Conf}) ->
     maps:get(upgrade_qos, Conf);
-% info(inflight, #sessmem{inflight = Inflight}) ->
-%     Inflight;
+info(inflight, #{inflight := Inflight}) ->
+    Inflight;
 info(inflight_cnt, #{inflight := Inflight}) ->
     emqx_persistent_message_ds_replayer:n_inflight(Inflight);
 info(inflight_max, #{receive_maximum := ReceiveMaximum}) ->
@@ -433,7 +433,8 @@ handle_timeout(
     {ok, Publishes, Session};
 handle_timeout(_ClientInfo, ?TIMER_GET_STREAMS, Session) ->
     renew_streams(Session),
-    {ok, [], emqx_session:ensure_timer(?TIMER_GET_STREAMS, 100, Session)};
+    Interval = emqx_config:get([session_persistence, renew_streams_interval]),
+    {ok, [], emqx_session:ensure_timer(?TIMER_GET_STREAMS, Interval, Session)};
 handle_timeout(_ClientInfo, ?TIMER_BUMP_LAST_ALIVE_AT, Session0) ->
     %% Note: we take a pessimistic approach here and assume that the client will be alive
     %% until the next bump timeout.  With this, we avoid garbage collecting this session
@@ -791,8 +792,8 @@ session_read_pubranges(DSSessionID) ->
 
 session_read_pubranges(DSSessionId, LockKind) ->
     MS = ets:fun2ms(
-        fun(#ds_pubrange{id = {Sess, First}}) when Sess =:= DSSessionId ->
-            {DSSessionId, First}
+        fun(#ds_pubrange{id = ID}) when element(1, ID) =:= DSSessionId ->
+            ID
         end
     ),
     mnesia:select(?SESSION_PUBRANGE_TAB, MS, LockKind).
@@ -1083,10 +1084,15 @@ list_all_streams() ->
 list_all_pubranges() ->
     DSPubranges = mnesia:dirty_match_object(?SESSION_PUBRANGE_TAB, #ds_pubrange{_ = '_'}),
     lists:foldl(
-        fun(Record = #ds_pubrange{id = {SessionId, First}}, Acc) ->
-            Range = export_record(
-                Record, #ds_pubrange.until, [until, stream, type, iterator], #{first => First}
-            ),
+        fun(Record = #ds_pubrange{id = {SessionId, First, StreamRef}}, Acc) ->
+            Range = #{
+                session => SessionId,
+                stream => StreamRef,
+                first => First,
+                until => Record#ds_pubrange.until,
+                type => Record#ds_pubrange.type,
+                iterator => Record#ds_pubrange.iterator
+            },
             maps:put(SessionId, maps:get(SessionId, Acc, []) ++ [Range], Acc)
         end,
         #{},

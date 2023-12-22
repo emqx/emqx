@@ -1805,6 +1805,14 @@ fields("session_persistence") ->
                     desc => ?DESC(session_ds_last_alive_update_interval)
                 }
             )},
+        {"renew_streams_interval",
+            sc(
+                timeout_duration(),
+                #{
+                    default => <<"5000ms">>,
+                    importance => ?IMPORTANCE_HIDDEN
+                }
+            )},
         {"session_gc_interval",
             sc(
                 timeout_duration(),

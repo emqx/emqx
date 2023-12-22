@@ -10,6 +10,7 @@
         stdlib,
         gproc,
         gen_rpc,
+        mnesia,
         mria,
         ekka,
         esockd,
@@ -17,7 +18,12 @@
         sasl,
         lc,
         hocon,
-        emqx_durable_storage
+        emqx_durable_storage,
+        bcrypt,
+        pbkdf2,
+        emqx_http_lib,
+        recon,
+        os_mon
     ]},
     {mod, {emqx_app, []}},
     {env, []},

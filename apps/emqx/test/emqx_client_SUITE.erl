@@ -83,14 +83,14 @@ groups() ->
     ].
 
 init_per_suite(Config) ->
-    emqx_common_test_helpers:boot_modules(all),
-    emqx_common_test_helpers:start_apps([]),
-    emqx_config:put_listener_conf(ssl, default, [ssl_options, verify], verify_peer),
-    emqx_listeners:restart_listener('ssl:default'),
-    Config.
+    Apps = emqx_cth_suite:start(
+        [{emqx, "listeners.ssl.default.ssl_options.verify = verify_peer"}],
+        #{work_dir => emqx_cth_suite:work_dir(Config)}
+    ),
+    [{apps, Apps} | Config].
 
-end_per_suite(_Config) ->
-    emqx_common_test_helpers:stop_apps([]).
+end_per_suite(Config) ->
+    emqx_cth_suite:stop(?config(apps, Config)).
 
 init_per_testcase(_Case, Config) ->
     Config.
@@ -395,7 +395,7 @@ t_peercert_preserved_before_connected(_) ->
         ?HP_HIGHEST
     ),
     ClientId = atom_to_binary(?FUNCTION_NAME),
-    SslConf = emqx_common_test_helpers:client_ssl_twoway(default),
+    SslConf = emqx_common_test_helpers:client_mtls(default),
     {ok, Client} = emqtt:start_link([
         {port, 8883},
         {clientid, ClientId},
@@ -455,7 +455,7 @@ tls_certcn_as_clientid(TLSVsn) ->
 tls_certcn_as_clientid(TLSVsn, RequiredTLSVsn) ->
     CN = <<"Client">>,
     emqx_config:put_zone_conf(default, [mqtt, peer_cert_as_clientid], cn),
-    SslConf = emqx_common_test_helpers:client_ssl_twoway(TLSVsn),
+    SslConf = emqx_common_test_helpers:client_mtls(TLSVsn),
     {ok, Client} = emqtt:start_link([{port, 8883}, {ssl, true}, {ssl_opts, SslConf}]),
     {ok, _} = emqtt:connect(Client),
     #{clientinfo := #{clientid := CN}} = emqx_cm:get_chan_info(CN),

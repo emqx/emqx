@@ -61,7 +61,7 @@ erlang_ls.config
 .envrc
 # elixir
 mix.lock
-apps/emqx/test/emqx_static_checks_data/master.bpapi
+apps/emqx/test/emqx_static_checks_data/master.bpapi2
 # rendered configurations
 *.conf.rendered
 *.conf.rendered.*

@@ -3,7 +3,7 @@ inputs:
   profile: # emqx, emqx-enterprise
     required: true
     type: string
-  otp: # 25.3.2-2
+  otp:
     required: true
     type: string
   os:
