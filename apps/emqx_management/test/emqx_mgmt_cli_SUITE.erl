@@ -46,11 +46,57 @@ t_broker(_Config) ->
     ok.
 
 t_cluster(_Config) ->
+    SelfNode = node(),
+    FakeNode = 'fake@127.0.0.1',
+    MFA = {io, format, [""]},
+    meck:new(mria_mnesia, [non_strict, passthrough, no_link]),
+    meck:expect(mria_mnesia, running_nodes, 0, [SelfNode, FakeNode]),
+    {atomic, {ok, TnxId, _}} =
+        mria:transaction(
+            emqx_cluster_rpc_shard,
+            fun emqx_cluster_rpc:init_mfa/2,
+            [SelfNode, MFA]
+        ),
+    emqx_cluster_rpc:maybe_init_tnx_id(FakeNode, TnxId),
+    ?assertMatch(
+        {atomic, [
+            #{
+                node := SelfNode,
+                mfa := MFA,
+                created_at := _,
+                tnx_id := TnxId,
+                initiator := SelfNode
+            },
+            #{
+                node := FakeNode,
+                mfa := MFA,
+                created_at := _,
+                tnx_id := TnxId,
+                initiator := SelfNode
+            }
+        ]},
+        emqx_cluster_rpc:status()
+    ),
     %% cluster join <Node>        # Join the cluster
     %% cluster leave              # Leave the cluster
     %% cluster force-leave <Node> # Force the node leave from cluster
     %% cluster status             # Cluster status
     emqx_ctl:run_command(["cluster", "status"]),
+
+    emqx_ctl:run_command(["cluster", "force-leave", atom_to_list(FakeNode)]),
+    ?assertMatch(
+        {atomic, [
+            #{
+                node := SelfNode,
+                mfa := MFA,
+                created_at := _,
+                tnx_id := TnxId,
+                initiator := SelfNode
+            }
+        ]},
+        emqx_cluster_rpc:status()
+    ),
+    meck:unload(mria_mnesia),
     ok.
 
 t_clients(_Config) ->

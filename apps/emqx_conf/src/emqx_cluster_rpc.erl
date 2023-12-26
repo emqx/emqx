@@ -30,6 +30,7 @@
     skip_failed_commit/1,
     fast_forward_to_commit/2,
     on_mria_stop/1,
+    force_leave_clean/1,
     wait_for_cluster_rpc/0,
     maybe_init_tnx_id/2
 ]).
@@ -44,6 +45,7 @@
     read_next_mfa/1,
     trans_query/1,
     trans_status/0,
+    on_leave_clean/1,
     on_leave_clean/0,
     get_commit_lag/0,
     get_commit_lag/1
@@ -220,7 +222,10 @@ status() ->
     transaction(fun ?MODULE:trans_status/0, []).
 
 on_leave_clean() ->
-    mnesia:delete({?CLUSTER_COMMIT, node()}).
+    on_leave_clean(node()).
+
+on_leave_clean(Node) ->
+    mnesia:delete({?CLUSTER_COMMIT, Node}).
 
 -spec latest_tnx_id() -> pos_integer().
 latest_tnx_id() ->
@@ -300,6 +305,12 @@ on_mria_stop(leave) ->
     gen_server:call(?MODULE, on_leave);
 on_mria_stop(_) ->
     ok.
+
+force_leave_clean(Node) ->
+    case transaction(fun ?MODULE:on_leave_clean/1, [Node]) of
+        {atomic, ok} -> ok;
+        {aborted, Reason} -> {error, Reason}
+    end.
 
 wait_for_cluster_rpc() ->
     %% Workaround for https://github.com/emqx/mria/issues/94:
