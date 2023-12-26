@@ -137,7 +137,7 @@ to negotiate protocol version:
 protocol version supported by the remote node
 `Node`. `emqx_bpapi:supported_version(ProtocolId)` returns maximum
 protocol version that is supported by all nodes in the cluster. It can
-be useful when the protocol involves multicalls or multicasts.
+be useful when the protocol involves multi-calls or multi-casts.
 
 The business logic can assume that the supported protocol version is
 not going to change on the remote node, while it is running. So it is

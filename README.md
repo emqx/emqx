@@ -34,7 +34,7 @@ docker run -d --name emqx -p 1883:1883 -p 8083:8083 -p 8084:8084 -p 8883:8883 -p
 
 Next, please follow the [Deploy with Docker](https://www.emqx.io/docs/en/v5.1/deploy/install-docker.html) guide for further instructions.
 
-#### Run EMQX cluster on kubernetes
+#### Run EMQX cluster on Kubernetes
 
 Please consult official [EMQX Operator](https://github.com/emqx/emqx-operator/blob/main/docs/en_US/getting-started/getting-started.md) documentation for details.
 
