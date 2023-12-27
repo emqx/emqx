@@ -24,40 +24,15 @@
     desc/1
 ]).
 
--export([upgrade_legacy_metrics/1]).
-
-%% Compatibility with the previous schema that defined only metric fields
-upgrade_legacy_metrics(RawConf) ->
-    case RawConf of
-        #{<<"opentelemetry">> := Otel} ->
-            Otel1 =
-                case maps:take(<<"enable">>, Otel) of
-                    {MetricsEnable, OtelConf} ->
-                        emqx_utils_maps:deep_put(
-                            [<<"metrics">>, <<"enable">>], OtelConf, MetricsEnable
-                        );
-                    error ->
-                        Otel
-                end,
-            Otel2 =
-                case Otel1 of
-                    #{<<"exporter">> := #{<<"interval">> := Interval} = Exporter} ->
-                        emqx_utils_maps:deep_put(
-                            [<<"metrics">>, <<"interval">>],
-                            Otel1#{<<"exporter">> => maps:remove(<<"interval">>, Exporter)},
-                            Interval
-                        );
-                    _ ->
-                        Otel1
-                end,
-            RawConf#{<<"opentelemetry">> => Otel2};
-        _ ->
-            RawConf
-    end.
-
 namespace() -> opentelemetry.
 
-roots() -> ["opentelemetry"].
+roots() ->
+    [
+        {"opentelemetry",
+            ?HOCON(?R_REF("opentelemetry"), #{
+                converter => fun legacy_metrics_converter/2
+            })}
+    ].
 
 fields("opentelemetry") ->
     [
@@ -259,3 +234,27 @@ desc("otel_metrics") -> ?DESC(otel_metrics);
 desc("otel_traces") -> ?DESC(otel_traces);
 desc("trace_filter") -> ?DESC(trace_filter);
 desc(_) -> undefined.
+
+%% Compatibility with the previous schema that defined only metrics fields
+legacy_metrics_converter(OtelConf, _Opts) when is_map(OtelConf) ->
+    Otel1 =
+        case maps:take(<<"enable">>, OtelConf) of
+            {MetricsEnable, OtelConf1} ->
+                emqx_utils_maps:deep_put(
+                    [<<"metrics">>, <<"enable">>], OtelConf1, MetricsEnable
+                );
+            error ->
+                OtelConf
+        end,
+    case Otel1 of
+        #{<<"exporter">> := #{<<"interval">> := Interval} = Exporter} ->
+            emqx_utils_maps:deep_put(
+                [<<"metrics">>, <<"interval">>],
+                Otel1#{<<"exporter">> => maps:remove(<<"interval">>, Exporter)},
+                Interval
+            );
+        _ ->
+            Otel1
+    end;
+legacy_metrics_converter(Conf, _Opts) ->
+    Conf.
