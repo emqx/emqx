@@ -45,6 +45,8 @@
     do_delete_route/2
 ]).
 
+-export([do_batch/1]).
+
 -export([cleanup_routes/1]).
 
 -export([
@@ -85,6 +87,8 @@
     init_schema/0,
     deinit_schema/0
 ]).
+
+-export_type([dest/0]).
 
 -type group() :: binary().
 
@@ -173,12 +177,12 @@ do_add_route(Topic) when is_binary(Topic) ->
 -spec do_add_route(emqx_types:topic(), dest()) -> ok | {error, term()}.
 do_add_route(Topic, Dest) when is_binary(Topic) ->
     ok = emqx_router_helper:monitor(Dest),
-    mria_insert_route(get_schema_vsn(), Topic, Dest).
+    mria_insert_route(get_schema_vsn(), Topic, Dest, single).
 
-mria_insert_route(v2, Topic, Dest) ->
-    mria_insert_route_v2(Topic, Dest);
-mria_insert_route(v1, Topic, Dest) ->
-    mria_insert_route_v1(Topic, Dest).
+mria_insert_route(v2, Topic, Dest, Ctx) ->
+    mria_insert_route_v2(Topic, Dest, Ctx);
+mria_insert_route(v1, Topic, Dest, Ctx) ->
+    mria_insert_route_v1(Topic, Dest, Ctx).
 
 %% @doc Take a real topic (not filter) as input, return the matching topics and topic
 %% filters associated with route destination.
@@ -225,12 +229,60 @@ do_delete_route(Topic) when is_binary(Topic) ->
 
 -spec do_delete_route(emqx_types:topic(), dest()) -> ok | {error, term()}.
 do_delete_route(Topic, Dest) ->
-    mria_delete_route(get_schema_vsn(), Topic, Dest).
+    mria_delete_route(get_schema_vsn(), Topic, Dest, single).
 
-mria_delete_route(v2, Topic, Dest) ->
-    mria_delete_route_v2(Topic, Dest);
-mria_delete_route(v1, Topic, Dest) ->
-    mria_delete_route_v1(Topic, Dest).
+mria_delete_route(v2, Topic, Dest, Ctx) ->
+    mria_delete_route_v2(Topic, Dest, Ctx);
+mria_delete_route(v1, Topic, Dest, Ctx) ->
+    mria_delete_route_v1(Topic, Dest, Ctx).
+
+do_batch(Batch) ->
+    Nodes = batch_get_dest_nodes(Batch),
+    ok = lists:foreach(fun emqx_router_helper:monitor/1, Nodes),
+    mria_batch(get_schema_vsn(), Batch).
+
+mria_batch(v2, Batch) ->
+    mria_batch_v2(Batch);
+mria_batch(v1, Batch) ->
+    mria_batch_v1(Batch).
+
+mria_batch_v2(Batch) ->
+    mria:async_dirty(?ROUTE_SHARD, fun mria_batch_run/2, [v2, Batch]).
+
+mria_batch_v1(Batch) ->
+    {atomic, Res} = mria:transaction(?ROUTE_SHARD, fun mria_batch_run/2, [v1, Batch]),
+    Res.
+
+mria_batch_run(SchemaVsn, Batch) ->
+    maps:fold(
+        fun({Topic, Dest}, Op, Errors) ->
+            case mria_batch_operation(SchemaVsn, Op, Topic, Dest) of
+                ok ->
+                    Errors;
+                Error ->
+                    Errors#{{Topic, Dest} => Error}
+            end
+        end,
+        #{},
+        Batch
+    ).
+
+mria_batch_operation(SchemaVsn, add, Topic, Dest) ->
+    mria_insert_route(SchemaVsn, Topic, Dest, batch);
+mria_batch_operation(SchemaVsn, delete, Topic, Dest) ->
+    mria_delete_route(SchemaVsn, Topic, Dest, batch).
+
+batch_get_dest_nodes(Batch) ->
+    maps:fold(
+        fun
+            ({_Topic, Dest}, add, Acc) ->
+                ordsets:add_element(get_dest_node(Dest), Acc);
+            (_, delete, Acc) ->
+                Acc
+        end,
+        ordsets:new(),
+        Batch
+    ).
 
 -spec select(Spec, _Limit :: pos_integer(), Continuation) ->
     {[emqx_types:route()], Continuation} | '$end_of_table'
@@ -305,43 +357,51 @@ pick(Topic) ->
 %% Schema v1
 %% --------------------------------------------------------------------
 
-mria_insert_route_v1(Topic, Dest) ->
+mria_insert_route_v1(Topic, Dest, Ctx) ->
     Route = #route{topic = Topic, dest = Dest},
     case emqx_topic:wildcard(Topic) of
         true ->
-            mria_route_tab_insert_update_trie(Route);
+            mria_route_tab_insert_update_trie(Route, Ctx);
         false ->
-            mria_route_tab_insert(Route)
+            mria_route_tab_insert(Route, Ctx)
     end.
 
-mria_route_tab_insert_update_trie(Route) ->
+mria_route_tab_insert_update_trie(Route, single) ->
     emqx_router_utils:maybe_trans(
         fun emqx_router_utils:insert_trie_route/2,
         [?ROUTE_TAB, Route],
         ?ROUTE_SHARD
-    ).
+    );
+mria_route_tab_insert_update_trie(Route, batch) ->
+    emqx_router_utils:insert_trie_route(?ROUTE_TAB, Route).
 
-mria_route_tab_insert(Route) ->
-    mria:dirty_write(?ROUTE_TAB, Route).
+mria_route_tab_insert(Route, single) ->
+    mria:dirty_write(?ROUTE_TAB, Route);
+mria_route_tab_insert(Route, batch) ->
+    mnesia:write(?ROUTE_TAB, Route, write).
 
-mria_delete_route_v1(Topic, Dest) ->
+mria_delete_route_v1(Topic, Dest, Ctx) ->
     Route = #route{topic = Topic, dest = Dest},
     case emqx_topic:wildcard(Topic) of
         true ->
-            mria_route_tab_delete_update_trie(Route);
+            mria_route_tab_delete_update_trie(Route, Ctx);
         false ->
-            mria_route_tab_delete(Route)
+            mria_route_tab_delete(Route, Ctx)
     end.
 
-mria_route_tab_delete_update_trie(Route) ->
+mria_route_tab_delete_update_trie(Route, single) ->
     emqx_router_utils:maybe_trans(
         fun emqx_router_utils:delete_trie_route/2,
         [?ROUTE_TAB, Route],
         ?ROUTE_SHARD
-    ).
+    );
+mria_route_tab_delete_update_trie(Route, batch) ->
+    emqx_router_utils:delete_trie_route(?ROUTE_TAB, Route).
 
-mria_route_tab_delete(Route) ->
-    mria:dirty_delete_object(?ROUTE_TAB, Route).
+mria_route_tab_delete(Route, single) ->
+    mria:dirty_delete_object(?ROUTE_TAB, Route);
+mria_route_tab_delete(Route, batch) ->
+    mnesia:delete_object(?ROUTE_TAB, Route, write).
 
 match_routes_v1(Topic) ->
     lookup_route_tab(Topic) ++
@@ -410,23 +470,33 @@ fold_routes_v1(FunName, FoldFun, AccIn) ->
 %% topics. Writes go to only one of the two tables at a time.
 %% --------------------------------------------------------------------
 
-mria_insert_route_v2(Topic, Dest) ->
+mria_insert_route_v2(Topic, Dest, Ctx) ->
     case emqx_trie_search:filter(Topic) of
         Words when is_list(Words) ->
             K = emqx_topic_index:make_key(Words, Dest),
-            mria:dirty_write(?ROUTE_TAB_FILTERS, #routeidx{entry = K});
+            mria_filter_tab_insert(K, Ctx);
         false ->
-            mria_route_tab_insert(#route{topic = Topic, dest = Dest})
+            mria_route_tab_insert(#route{topic = Topic, dest = Dest}, Ctx)
     end.
 
-mria_delete_route_v2(Topic, Dest) ->
+mria_filter_tab_insert(K, single) ->
+    mria:dirty_write(?ROUTE_TAB_FILTERS, #routeidx{entry = K});
+mria_filter_tab_insert(K, batch) ->
+    mnesia:write(?ROUTE_TAB_FILTERS, #routeidx{entry = K}, write).
+
+mria_delete_route_v2(Topic, Dest, Ctx) ->
     case emqx_trie_search:filter(Topic) of
         Words when is_list(Words) ->
             K = emqx_topic_index:make_key(Words, Dest),
-            mria:dirty_delete(?ROUTE_TAB_FILTERS, K);
+            mria_filter_tab_delete(K, Ctx);
         false ->
-            mria_route_tab_delete(#route{topic = Topic, dest = Dest})
+            mria_route_tab_delete(#route{topic = Topic, dest = Dest}, Ctx)
     end.
+
+mria_filter_tab_delete(K, single) ->
+    mria:dirty_delete(?ROUTE_TAB_FILTERS, K);
+mria_filter_tab_delete(K, batch) ->
+    mnesia:delete(?ROUTE_TAB_FILTERS, K, write).
 
 match_routes_v2(Topic) ->
     lookup_route_tab(Topic) ++
