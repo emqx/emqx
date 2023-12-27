@@ -419,7 +419,7 @@ do_publish(Key = {Ts, _Id}, Now, Acc) when Ts =< Now ->
                         ignore_delayed_message_publish,
                         #{
                             reason => "client is banned",
-                            clienid => Msg#message.from
+                            clientid => Msg#message.from
                         }
                     ),
                     ok

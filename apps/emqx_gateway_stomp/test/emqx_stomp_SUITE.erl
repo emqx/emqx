@@ -797,7 +797,7 @@ test_frame_error(Frame, AssertFun) ->
         AssertFun(Sock)
     end).
 
-t_rest_clienit_info(_) ->
+t_rest_clientid_info(_) ->
     with_connection(fun(Sock) ->
         send_connection_frame(Sock, <<"guest">>, <<"guest">>),
         ?assertMatch({ok, #stomp_frame{command = <<"CONNECTED">>}}, recv_a_frame(Sock)),

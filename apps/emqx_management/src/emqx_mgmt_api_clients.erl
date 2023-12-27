@@ -221,7 +221,7 @@ schema("/clients/kickout/bulk") ->
             tags => ?TAGS,
             'requestBody' => emqx_dashboard_swagger:schema_with_example(
                 hoconsc:array(binary()),
-                ["emqx_clienid_985bb09d", "emqx_clientid_211cc01c"]
+                ["emqx_clientid_985bb09d", "emqx_clientid_211cc01c"]
             ),
             responses => #{
                 204 => <<"Kick out clients successfully">>
@@ -452,7 +452,7 @@ fields(client) ->
         {is_bridge,
             hoconsc:mk(boolean(), #{
                 desc =>
-                    <<"Indicates whether the client is connectedvia bridge">>
+                    <<"Indicates whether the client is connected via bridge">>
             })},
         {keepalive,
             hoconsc:mk(integer(), #{
@@ -605,7 +605,7 @@ kickout_clients(post, #{body := ClientIDs}) ->
             {204};
         {error, Reason} ->
             Message = list_to_binary(io_lib:format("~p", [Reason])),
-            {500, #{code => <<"UNKNOW_ERROR">>, message => Message}}
+            {500, #{code => <<"UNKNOWN_ERROR">>, message => Message}}
     end.
 
 client(get, #{bindings := Bindings}) ->
@@ -660,7 +660,7 @@ set_keepalive(put, #{bindings := #{clientid := ClientID}, body := Body}) ->
             case emqx_mgmt:set_keepalive(ClientID, Interval) of
                 ok -> lookup(#{clientid => ClientID});
                 {error, not_found} -> {404, ?CLIENTID_NOT_FOUND};
-                {error, Reason} -> {400, #{code => 'PARAMS_ERROR', message => Reason}}
+                {error, Reason} -> {400, #{code => 'PARAM_ERROR', message => Reason}}
             end
     end.
 
@@ -728,7 +728,7 @@ get_authz_cache(#{clientid := ClientID}) ->
             {404, ?CLIENTID_NOT_FOUND};
         {error, Reason} ->
             Message = list_to_binary(io_lib:format("~p", [Reason])),
-            {500, #{code => <<"UNKNOW_ERROR">>, message => Message}};
+            {500, #{code => <<"UNKNOWN_ERROR">>, message => Message}};
         Caches ->
             Response = [format_authz_cache(Cache) || Cache <- Caches],
             {200, Response}
@@ -742,7 +742,7 @@ clean_authz_cache(#{clientid := ClientID}) ->
             {404, ?CLIENTID_NOT_FOUND};
         {error, Reason} ->
             Message = list_to_binary(io_lib:format("~p", [Reason])),
-            {500, #{code => <<"UNKNOW_ERROR">>, message => Message}}
+            {500, #{code => <<"UNKNOWN_ERROR">>, message => Message}}
     end.
 
 subscribe(#{clientid := ClientID, topic := Topic} = Sub) ->
@@ -752,7 +752,7 @@ subscribe(#{clientid := ClientID, topic := Topic} = Sub) ->
             {404, ?CLIENTID_NOT_FOUND};
         {error, Reason} ->
             Message = list_to_binary(io_lib:format("~p", [Reason])),
-            {500, #{code => <<"UNKNOW_ERROR">>, message => Message}};
+            {500, #{code => <<"UNKNOWN_ERROR">>, message => Message}};
         {ok, SubInfo} ->
             {200, SubInfo}
     end.

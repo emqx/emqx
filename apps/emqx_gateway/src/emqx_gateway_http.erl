@@ -509,7 +509,7 @@ codestr(400) -> 'BAD_REQUEST';
 codestr(404) -> 'RESOURCE_NOT_FOUND';
 codestr(405) -> 'METHOD_NOT_ALLOWED';
 codestr(409) -> 'NOT_SUPPORT';
-codestr(500) -> 'UNKNOW_ERROR';
+codestr(500) -> 'UNKNOWN_ERROR';
 codestr(501) -> 'NOT_IMPLEMENTED'.
 
 fmtstr(Fmt, Args) ->
