@@ -22,8 +22,7 @@
 -include_lib("common_test/include/ct.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
-%% Backward compatibility suite for `upgrade_raw_conf/1`,
-%% expected callback is `emqx_otel_schema:upgrade_legacy_metrics/1`
+%% Backward compatibility suite for legacy metrics converter
 
 -define(OLD_CONF_ENABLED, <<
     "\n"
