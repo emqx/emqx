@@ -81,7 +81,7 @@ mk_client_opts(WorkerId, ClientOpts = #{clientid := ClientId}) ->
     ClientOpts#{clientid := mk_clientid(WorkerId, ClientId)}.
 
 mk_clientid(WorkerId, ClientId) ->
-    iolist_to_binary([ClientId, $: | integer_to_list(WorkerId)]).
+    emqx_bridge_mqtt_lib:bytes23(ClientId, WorkerId).
 
 connect(Pid, Name) ->
     case emqtt:connect(Pid) of

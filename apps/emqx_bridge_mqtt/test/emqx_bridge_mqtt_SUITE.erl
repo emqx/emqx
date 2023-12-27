@@ -495,7 +495,6 @@ t_mqtt_conn_bridge_egress(_) ->
             <<"egress">> => ?EGRESS_CONF
         }
     ),
-    ResourceID = emqx_bridge_resource:resource_id(?TYPE_MQTT, ?BRIDGE_NAME_EGRESS),
 
     %% we now test if the bridge works as expected
     LocalTopic = <<?EGRESS_LOCAL_TOPIC, "/1">>,
@@ -509,11 +508,6 @@ t_mqtt_conn_bridge_egress(_) ->
         emqx:publish(emqx_message:make(LocalTopic, Payload)),
         #{?snk_kind := buffer_worker_flush_ack}
     ),
-
-    %% we should receive a message on the "remote" broker, with specified topic
-    Msg = assert_mqtt_msg_received(RemoteTopic, Payload),
-    Size = byte_size(ResourceID),
-    ?assertMatch(<<ResourceID:Size/binary, _/binary>>, Msg#message.from),
 
     %% verify the metrics of the bridge
     ?retry(
@@ -538,7 +532,6 @@ t_mqtt_conn_bridge_egress_no_payload_template(_) ->
             <<"egress">> => ?EGRESS_CONF_NO_PAYLOAD_TEMPLATE
         }
     ),
-    ResourceID = emqx_bridge_resource:resource_id(?TYPE_MQTT, ?BRIDGE_NAME_EGRESS),
 
     %% we now test if the bridge works as expected
     LocalTopic = <<?EGRESS_LOCAL_TOPIC, "/1">>,
@@ -555,8 +548,6 @@ t_mqtt_conn_bridge_egress_no_payload_template(_) ->
 
     %% we should receive a message on the "remote" broker, with specified topic
     Msg = assert_mqtt_msg_received(RemoteTopic),
-    %% the MapMsg is all fields outputed by Rule-Engine. it's a binary coded json here.
-    ?assertMatch(<<ResourceID:(byte_size(ResourceID))/binary, _/binary>>, Msg#message.from),
     ?assertMatch(#{<<"payload">> := Payload}, emqx_utils_json:decode(Msg#message.payload)),
 
     %% verify the metrics of the bridge
@@ -575,15 +566,29 @@ t_mqtt_conn_bridge_egress_no_payload_template(_) ->
 
     ok.
 
-t_egress_custom_clientid_prefix(_Config) ->
+t_egress_short_clientid(_Config) ->
+    %% Name is short, expect the actual client ID in use is hashed from
+    %% <name>E<nodename-hash>:<pool_worker_id>
+    Name = "abc01234",
+    BaseId = emqx_bridge_mqtt_lib:clientid_base([Name, "E"]),
+    ExpectedClientId = iolist_to_binary([BaseId, $:, "1"]),
+    test_egress_clientid(Name, ExpectedClientId).
+
+t_egress_long_clientid(_Config) ->
+    %% Expect the actual client ID in use is hashed from
+    %% <name>E<nodename-hash>:<pool_worker_id>
+    Name = "abc01234567890123456789",
+    BaseId = emqx_bridge_mqtt_lib:clientid_base([Name, "E"]),
+    ExpectedClientId = emqx_bridge_mqtt_lib:bytes23(BaseId, 1),
+    test_egress_clientid(Name, ExpectedClientId).
+
+test_egress_clientid(Name, ExpectedClientId) ->
     BridgeIDEgress = create_bridge(
         ?SERVER_CONF#{
-            <<"clientid_prefix">> => <<"my-custom-prefix">>,
-            <<"name">> => ?BRIDGE_NAME_EGRESS,
-            <<"egress">> => ?EGRESS_CONF
+            <<"name">> => Name,
+            <<"egress">> => (?EGRESS_CONF)#{<<"pool_size">> => 1}
         }
     ),
-    ResourceID = emqx_bridge_resource:resource_id(?TYPE_MQTT, ?BRIDGE_NAME_EGRESS),
     LocalTopic = <<?EGRESS_LOCAL_TOPIC, "/1">>,
     RemoteTopic = <<?EGRESS_REMOTE_TOPIC, "/", LocalTopic/binary>>,
     Payload = <<"hello">>,
@@ -592,8 +597,7 @@ t_egress_custom_clientid_prefix(_Config) ->
     emqx:publish(emqx_message:make(LocalTopic, Payload)),
 
     Msg = assert_mqtt_msg_received(RemoteTopic, Payload),
-    Size = byte_size(ResourceID),
-    ?assertMatch(<<"my-custom-prefix:", _ResouceID:Size/binary, _/binary>>, Msg#message.from),
+    ?assertEqual(ExpectedClientId, Msg#message.from),
 
     {ok, 204, <<>>} = request(delete, uri(["bridges", BridgeIDEgress]), []),
     ok.
@@ -843,7 +847,6 @@ t_mqtt_conn_bridge_egress_reconnect(_) ->
             <<"name">> => ?BRIDGE_NAME_EGRESS,
             <<"egress">> => ?EGRESS_CONF,
             <<"resource_opts">> => #{
-                <<"worker_pool_size">> => 2,
                 <<"query_mode">> => <<"sync">>,
                 %% using a long time so we can test recovery
                 <<"request_ttl">> => <<"15s">>,
@@ -949,7 +952,6 @@ t_mqtt_conn_bridge_egress_async_reconnect(_) ->
             <<"name">> => ?BRIDGE_NAME_EGRESS,
             <<"egress">> => ?EGRESS_CONF,
             <<"resource_opts">> => #{
-                <<"worker_pool_size">> => 2,
                 <<"query_mode">> => <<"async">>,
                 %% using a long time so we can test recovery
                 <<"request_ttl">> => <<"15s">>,
