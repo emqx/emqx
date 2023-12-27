@@ -1553,7 +1553,11 @@ t_get_status_timeout_calling_workers(Config) ->
             end
         end,
         fun() ->
-            ?assertEqual({ok, disconnected}, emqx_resource_manager:health_check(ResourceId)),
+            ?retry(
+                _Sleep0 = 100,
+                _Attempts0 = 20,
+                ?assertEqual({ok, disconnected}, emqx_resource_manager:health_check(ResourceId))
+            ),
             ok
         end
     ),
