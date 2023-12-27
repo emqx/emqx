@@ -115,10 +115,19 @@ cluster(["leave"]) ->
             emqx_ctl:print("Failed to leave the cluster: ~0p~n", [Error])
     end;
 cluster(["force-leave", SNode]) ->
-    case mria:force_leave(ekka_node:parse_name(SNode)) of
+    Node = ekka_node:parse_name(SNode),
+    case mria:force_leave(Node) of
         ok ->
-            emqx_ctl:print("Remove the node from cluster successfully.~n"),
-            cluster(["status"]);
+            case emqx_cluster_rpc:force_leave_clean(Node) of
+                ok ->
+                    emqx_ctl:print("Remove the node from cluster successfully.~n"),
+                    cluster(["status"]);
+                {error, Reason} ->
+                    emqx_ctl:print(
+                        "Failed to remove the node from cluster_rpc.~n~p~n",
+                        [Reason]
+                    )
+            end;
         ignore ->
             emqx_ctl:print("Ignore.~n");
         {error, Error} ->
