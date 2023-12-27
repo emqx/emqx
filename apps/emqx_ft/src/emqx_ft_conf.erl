@@ -36,7 +36,6 @@
 -export([
     load/0,
     unload/0,
-    get/0,
     update/1,
     get_raw/0
 ]).
@@ -108,10 +107,6 @@ load() ->
 unload() ->
     ok = emqx_conf:remove_handler([file_transfer]),
     maybe_stop().
-
--spec get() -> emqx_config:config().
-get() ->
-    emqx_config:get([file_transfer]).
 
 get_raw() ->
     emqx:get_raw_config([file_transfer], #{}).

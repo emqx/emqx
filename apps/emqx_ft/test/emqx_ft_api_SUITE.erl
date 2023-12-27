@@ -277,17 +277,37 @@ t_ft_disabled(Config) ->
         )
     ).
 
-t_configure_1(Config) ->
+t_configure_file_transfer(Config) ->
     Uri = uri(["file_transfer"]),
     test_configure(Uri, Config).
 
-t_configure_2(Config) ->
+t_configure_config_file_transfer(Config) ->
     Uri = uri(["configs/file_transfer"]),
     test_configure(Uri, Config).
 
 test_configure(Uri, Config) ->
     ?assertMatch(
-        {ok, 200, #{<<"enable">> := true, <<"storage">> := #{}}},
+        {ok, 200, #{
+            <<"enable">> := true,
+            <<"storage">> :=
+                #{
+                    <<"local">> :=
+                        #{
+                            <<"enable">> := true,
+                            <<"segments">> :=
+                                #{
+                                    <<"gc">> :=
+                                        #{
+                                            %% Match keep the raw conf
+                                            %% 1h is not change to 3600000
+                                            <<"interval">> := <<"1h">>,
+                                            <<"maximum_segments_ttl">> := <<"24h">>,
+                                            <<"minimum_segments_ttl">> := <<"5m">>
+                                        }
+                                }
+                        }
+                }
+        }},
         request_json(get, Uri, Config)
     ),
     ?assertMatch(
@@ -298,14 +318,43 @@ test_configure(Uri, Config) ->
         {ok, 200, #{<<"enable">> := false}},
         request_json(get, Uri, Config)
     ),
+    Storage0 = emqx_ft_test_helpers:local_storage(Config),
+    Storage = emqx_utils_maps:deep_put(
+        [
+            <<"local">>,
+            <<"segments">>,
+            <<"gc">>,
+            <<"maximum_segments_ttl">>
+        ],
+        Storage0,
+        <<"10m">>
+    ),
     ?assertMatch(
-        {ok, 200, #{}},
+        {ok, 200, #{
+            <<"storage">> :=
+                #{
+                    <<"local">> :=
+                        #{
+                            <<"segments">> :=
+                                #{
+                                    <<"gc">> :=
+                                        #{
+                                            <<"interval">> := <<"1h">>,
+                                            %% Match keep the raw conf
+                                            %% 10m is not change to 600,000
+                                            <<"maximum_segments_ttl">> := <<"10m">>,
+                                            <<"minimum_segments_ttl">> := <<"5m">>
+                                        }
+                                }
+                        }
+                }
+        }},
         request_json(
             put,
             Uri,
             #{
                 <<"enable">> => true,
-                <<"storage">> => emqx_ft_test_helpers:local_storage(Config)
+                <<"storage">> => Storage
             },
             Config
         )
@@ -537,7 +586,14 @@ reset_ft_config(Config, Enable) ->
             <<"enable">> => Enable,
             <<"storage">> => #{
                 <<"local">> => #{
-                    <<"enable">> => true
+                    <<"enable">> => true,
+                    <<"segments">> => #{
+                        <<"gc">> => #{
+                            <<"interval">> => <<"1h">>,
+                            <<"maximum_segments_ttl">> => "24h",
+                            <<"minimum_segments_ttl">> => "5m"
+                        }
+                    }
                 }
             }
         },
