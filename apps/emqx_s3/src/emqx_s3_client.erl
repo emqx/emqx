@@ -388,7 +388,7 @@ with_path_and_query_only(Url, Fun) ->
 
 %% Users provide headers as a map, but erlcloud expects a list of tuples with string keys and values.
 headers_user_to_erlcloud_request(UserHeaders) ->
-    [{to_list_string(K), V} || {K, V} <- maps:to_list(UserHeaders)].
+    [{string:to_lower(to_list_string(K)), V} || {K, V} <- maps:to_list(UserHeaders)].
 
 %% Ehttpc returns operates on headers as a list of tuples with binary keys.
 %% Erlcloud expects a list of tuples with string values and lowcase string keys
@@ -409,6 +409,8 @@ to_binary(Val) when is_binary(Val) -> Val.
 
 to_list_string(Val) when is_binary(Val) ->
     binary_to_list(Val);
+to_list_string(Val) when is_atom(Val) ->
+    atom_to_list(Val);
 to_list_string(Val) when is_list(Val) ->
     Val.
 
