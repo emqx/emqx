@@ -51,7 +51,8 @@
     common_resource_opts_subfields_bin/0,
     resource_opts_fields/0,
     resource_opts_fields/1,
-    resource_opts_ref/2
+    resource_opts_ref/2,
+    resource_opts_ref/3
 ]).
 
 -export([examples/1]).
@@ -528,13 +529,23 @@ status_and_actions_fields() ->
                 }
             )}
     ].
-
 resource_opts_ref(Module, RefName) ->
+    resource_opts_ref(Module, RefName, undefined).
+
+resource_opts_ref(Module, RefName, ConverterFun) ->
+    Meta =
+        case ConverterFun of
+            undefined ->
+                emqx_resource_schema:resource_opts_meta();
+            _ ->
+                M = emqx_resource_schema:resource_opts_meta(),
+                M#{converter => ConverterFun}
+        end,
     [
         {resource_opts,
             mk(
                 ref(Module, RefName),
-                emqx_resource_schema:resource_opts_meta()
+                Meta
             )}
     ].
 
