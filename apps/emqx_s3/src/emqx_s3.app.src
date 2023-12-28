@@ -8,8 +8,7 @@
         stdlib,
         gproc,
         erlcloud,
-        ehttpc,
-        emqx_bridge_http
+        ehttpc
     ]},
     {mod, {emqx_s3_app, []}}
 ]}.
