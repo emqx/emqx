@@ -594,7 +594,7 @@ fields("node") ->
             sc(
                 hoconsc:enum([gen_rpc, distr]),
                 #{
-                    mapping => "mria.shard_transport",
+                    mapping => "mria.shardp_transport",
                     importance => ?IMPORTANCE_HIDDEN,
                     default => distr,
                     desc => ?DESC(db_default_shard_transport)

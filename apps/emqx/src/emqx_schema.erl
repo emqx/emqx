@@ -1810,7 +1810,7 @@ fields("session_persistence") ->
             sc(
                 pos_integer(),
                 #{
-                    default => 1000,
+                    default => 100,
                     desc => ?DESC(session_ds_max_batch_size)
                 }
             )},

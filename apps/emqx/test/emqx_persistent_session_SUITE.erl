@@ -36,7 +36,7 @@ all() ->
         % NOTE
         % Tests are disabled while existing session persistence impl is being
         % phased out.
-        {group, persistence_disabled},
+        %{group, persistence_disabled},
         {group, persistence_enabled}
     ].
 
@@ -71,7 +71,11 @@ init_per_group(persistence_disabled, Config) ->
     ];
 init_per_group(persistence_enabled, Config) ->
     [
-        {emqx_config, "session_persistence { enable = true }"},
+        {emqx_config,
+            "session_persistence {\n"
+            "  enable = true\n"
+            "  renew_streams_interval = 100ms\n"
+            "}"},
         {persistence, ds}
         | Config
     ];

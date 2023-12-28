@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2023 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2023-2024 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -26,7 +26,7 @@
 
 -export([create_tables/0]).
 
--export([open/1, create_new/1, delete/1, commit/1, print_session/1]).
+-export([open/1, create_new/1, delete/1, commit/1, print_session/1, list_sessions/0]).
 -export([get_created_at/1, set_created_at/2]).
 -export([get_last_alive_at/1, set_last_alive_at/2]).
 -export([get_conninfo/1, set_conninfo/2]).
@@ -38,7 +38,7 @@
 %% internal exports:
 -export([]).
 
--export_type([t/0, seqno_type/0]).
+-export_type([t/0, subscriptions/0, seqno_type/0, stream_key/0]).
 
 -include("emqx_persistent_session_ds.hrl").
 
@@ -46,12 +46,11 @@
 %% Type declarations
 %%================================================================================
 
+-type subscriptions() :: emqx_topic_gbt:t(_SubId, emqx_persistent_session_ds:subscription()).
+
 %% Generic key-value wrapper that is used for exporting arbitrary
 %% terms to mnesia:
--record(kv, {
-    k :: term(),
-    v :: map()
-}).
+-record(kv, {k, v}).
 
 %% Persistent map.
 %%
@@ -62,9 +61,9 @@
 %% It should be possible to make frequent changes to the pmap without
 %% stressing Mria.
 %%
-%% It's implemented as two maps: `clean' and `dirty'. Updates are made
-%% to the `dirty' area. `pmap_commit' function saves the updated
-%% entries to Mnesia and moves them to the `clean' area.
+%% It's implemented as three maps: `clean', `dirty' and `tombstones'.
+%% Updates are made to the `dirty' area. `pmap_commit' function saves
+%% the updated entries to Mnesia and moves them to the `clean' area.
 -record(pmap, {table, clean, dirty, tombstones}).
 
 -type pmap(K, V) ::
@@ -87,15 +86,17 @@
         ?conninfo => emqx_types:conninfo()
     }.
 
--type seqno_type() :: next | acked | pubrel.
+-type seqno_type() :: term().
+
+-type stream_key() :: {emqx_ds:rank_x(), _SubId}.
 
 -opaque t() :: #{
     id := emqx_persistent_session_ds:id(),
     dirty := boolean(),
     metadata := metadata(),
-    subscriptions := emqx_persistent_session_ds:subscriptions(),
+    subscriptions := subscriptions(),
     seqnos := pmap(seqno_type(), emqx_persistent_session_ds:seqno()),
-    streams := pmap(emqx_ds:stream(), emqx_persistent_message_ds_replayer:stream_state()),
+    streams := pmap(emqx_ds:stream(), emqx_persistent_session_ds:stream_state()),
     ranks := pmap(term(), integer())
 }.
 
@@ -104,7 +105,7 @@
 -define(stream_tab, emqx_ds_session_streams).
 -define(seqno_tab, emqx_ds_session_seqnos).
 -define(rank_tab, emqx_ds_session_ranks).
--define(bag_tables, [?stream_tab, ?seqno_tab, ?rank_tab]).
+-define(bag_tables, [?stream_tab, ?seqno_tab, ?rank_tab, ?subscription_tab]).
 
 %%================================================================================
 %% API funcions
@@ -125,7 +126,7 @@ create_tables() ->
     [create_kv_bag_table(Table) || Table <- ?bag_tables],
     mria:wait_for_tables([?session_tab | ?bag_tables]).
 
--spec open(emqx_persistent_session_ds:session_id()) -> {ok, t()} | undefined.
+-spec open(emqx_persistent_session_ds:id()) -> {ok, t()} | undefined.
 open(SessionId) ->
     ro_transaction(fun() ->
         case kv_restore(?session_tab, SessionId) of
@@ -150,13 +151,13 @@ print_session(SessionId) ->
     case open(SessionId) of
         undefined ->
             undefined;
-        #{
+        {ok, #{
             metadata := Metadata,
             subscriptions := SubsGBT,
             streams := Streams,
             seqnos := Seqnos,
             ranks := Ranks
-        } ->
+        }} ->
             Subs = emqx_topic_gbt:fold(
                 fun(Key, Sub, Acc) -> maps:put(Key, Sub, Acc) end,
                 #{},
@@ -170,6 +171,10 @@ print_session(SessionId) ->
                 ranks => Ranks#pmap.clean
             }
     end.
+
+-spec list_sessions() -> [emqx_persistent_session_ds:id()].
+list_sessions() ->
+    mnesia:dirty_all_keys(?session_tab).
 
 -spec delete(emqx_persistent_session_ds:id()) -> ok.
 delete(Id) ->
@@ -187,7 +192,6 @@ commit(
     Rec = #{
         id := SessionId,
         metadata := Metadata,
-        subscriptions := Subs,
         streams := Streams,
         seqnos := SeqNos,
         ranks := Ranks
@@ -196,10 +200,9 @@ commit(
     transaction(fun() ->
         kv_persist(?session_tab, SessionId, Metadata),
         Rec#{
-            subscriptions => pmap_commit(SessionId, Subs),
             streams => pmap_commit(SessionId, Streams),
             seqnos => pmap_commit(SessionId, SeqNos),
-            ranksz => pmap_commit(SessionId, Ranks),
+            ranks => pmap_commit(SessionId, Ranks),
             dirty => false
         }
     end).
@@ -247,18 +250,16 @@ set_conninfo(Val, Rec) ->
 
 %%
 
--spec get_stream(emqx_persistent_session_ds:stream(), t()) ->
-    emqx_persistent_message_ds_replayer:stream_state() | undefined.
+-spec get_stream(stream_key(), t()) ->
+    emqx_persistent_session_ds:stream_state() | undefined.
 get_stream(Key, Rec) ->
     gen_get(streams, Key, Rec).
 
--spec put_stream(
-    emqx_persistent_session_ds:stream(), emqx_persistent_message_ds_replayer:stream_state(), t()
-) -> t().
+-spec put_stream(stream_key(), emqx_persistent_session_ds:stream_state(), t()) -> t().
 put_stream(Key, Val, Rec) ->
     gen_put(streams, Key, Val, Rec).
 
--spec del_stream(emqx_persistent_session_ds:stream(), t()) -> t().
+-spec del_stream(stream_key(), t()) -> t().
 del_stream(Key, Rec) ->
     gen_del(stream, Key, Rec).
 
@@ -296,12 +297,12 @@ fold_ranks(Fun, Acc, Rec) ->
 
 %%
 
--spec get_subscriptions(t()) -> emqx_persistent_session_ds:subscriptions().
+-spec get_subscriptions(t()) -> subscriptions().
 get_subscriptions(#{subscriptions := Subs}) ->
     Subs.
 
 -spec put_subscription(
-    emqx_persistent_session_ds:subscription_id(),
+    emqx_persistent_session_ds:topic_filter(),
     _SubId,
     emqx_persistent_session_ds:subscription(),
     t()
@@ -474,7 +475,7 @@ kv_bag_persist(Tab, SessionId, Key, Val0) ->
     kv_bag_delete(Tab, SessionId, Key),
     %% Write data to mnesia:
     Val = encoder(encode, Tab, Val0),
-    mnesia:write(Tab, #kv{k = SessionId, v = {Key, Val}}).
+    mnesia:write(Tab, #kv{k = SessionId, v = {Key, Val}}, write).
 
 kv_bag_restore(Tab, SessionId) ->
     [{K, encoder(decode, Tab, V)} || #kv{v = {K, V}} <- mnesia:read(Tab, SessionId)].

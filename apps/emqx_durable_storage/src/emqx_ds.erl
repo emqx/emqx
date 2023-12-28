@@ -47,6 +47,8 @@
     topic_filter/0,
     topic/0,
     stream/0,
+    rank_x/0,
+    rank_y/0,
     stream_rank/0,
     iterator/0,
     iterator_id/0,
@@ -77,7 +79,11 @@
 %% Parsed topic filter.
 -type topic_filter() :: list(binary() | '+' | '#' | '').
 
--type stream_rank() :: {term(), integer()}.
+-type rank_x() :: term().
+
+-type rank_y() :: integer().
+
+-type stream_rank() :: {rank_x(), rank_y()}.
 
 %% TODO: Not implemented
 -type iterator_id() :: term().

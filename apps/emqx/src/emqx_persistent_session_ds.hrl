@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2023 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2023-2024 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -25,66 +25,27 @@
 -define(SESSION_COMMITTED_OFFSET_TAB, emqx_ds_committed_offset_tab).
 -define(DS_MRIA_SHARD, emqx_ds_session_shard).
 
--define(T_INFLIGHT, 1).
--define(T_CHECKPOINT, 2).
-
--record(ds_sub, {
-    id :: emqx_persistent_session_ds:subscription_id(),
-    start_time :: emqx_ds:time(),
-    props = #{} :: map(),
-    extra = #{} :: map()
-}).
--type ds_sub() :: #ds_sub{}.
-
--record(ds_stream, {
-    session :: emqx_persistent_session_ds:id(),
-    ref :: _StreamRef,
-    stream :: emqx_ds:stream(),
-    rank :: emqx_ds:stream_rank(),
-    beginning :: emqx_ds:iterator()
-}).
--type ds_stream() :: #ds_stream{}.
-
--record(ds_pubrange, {
-    id :: {
-        %% What session this range belongs to.
-        _Session :: emqx_persistent_session_ds:id(),
-        %% Where this range starts.
-        _First :: emqx_persistent_message_ds_replayer:seqno(),
-        %% Which stream this range is over.
-        _StreamRef
-    },
-    %% Where this range ends: the first seqno that is not included in the range.
-    until :: emqx_persistent_message_ds_replayer:seqno(),
-    %% Type of a range:
-    %% * Inflight range is a range of yet unacked messages from this stream.
-    %% * Checkpoint range was already acked, its purpose is to keep track of the
-    %%   very last iterator for this stream.
-    type :: ?T_INFLIGHT | ?T_CHECKPOINT,
-    %% What commit tracks this range is part of.
-    tracks = 0 :: non_neg_integer(),
-    %% Meaning of this depends on the type of the range:
-    %% * For inflight range, this is the iterator pointing to the first message in
-    %%   the range.
-    %% * For checkpoint range, this is the iterator pointing right past the last
-    %%   message in the range.
-    iterator :: emqx_ds:iterator(),
-    %% Reserved for future use.
-    misc = #{} :: map()
-}).
--type ds_pubrange() :: #ds_pubrange{}.
-
--record(ds_committed_offset, {
-    id :: {
-        %% What session this marker belongs to.
-        _Session :: emqx_persistent_session_ds:id(),
-        %% Marker name.
-        _CommitType
-    },
-    %% Where this marker is pointing to: the first seqno that is not marked.
-    until :: emqx_persistent_message_ds_replayer:seqno()
+%% State of the stream:
+-record(ifs, {
+    rank_y :: emqx_ds:rank_y(),
+    %% Iterator at the end of the last batch:
+    it_end :: emqx_ds:iterator() | undefined | end_of_stream,
+    %% Size of the last batch:
+    batch_size :: pos_integer() | undefined,
+    %% Key that points at the beginning of the batch:
+    batch_begin_key :: binary() | undefined,
+    %% Number of messages collected in the last batch:
+    batch_n_messages :: pos_integer() | undefined,
+    %% Session sequence number at the time when the batch was fetched:
+    first_seqno_qos1 :: emqx_persistent_session_ds:seqno() | undefined,
+    first_seqno_qos2 :: emqx_persistent_session_ds:seqno() | undefined,
+    %% Sequence numbers that the client must PUBACK or PUBREL
+    %% before we can consider the batch to be fully replayed:
+    last_seqno_qos1 :: emqx_persistent_session_ds:seqno() | undefined,
+    last_seqno_qos2 :: emqx_persistent_session_ds:seqno() | undefined
 }).
 
+%% TODO: remove
 -record(session, {
     %% same as clientid
     id :: emqx_persistent_session_ds:id(),
