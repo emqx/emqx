@@ -141,4 +141,5 @@ pbkdf2(MacFun, Password, Salt, Iterations, DKLength) ->
     pbkdf2:pbkdf2(MacFun, Password, Salt, Iterations, DKLength).
 
 hex(X) when is_binary(X) ->
-    pbkdf2:to_hex(X).
+    %% TODO: change to binary:encode_hex(X, lowercase) when OTP version is always > 25
+    string:lowercase(binary:encode_hex(X)).
