@@ -176,13 +176,13 @@ check_ft_enabled(Params, _Meta) ->
     end.
 
 '/file_transfer'(get, _Meta) ->
-    {200, format_config(emqx_ft_conf:get())};
+    {200, format_config(emqx_ft_conf:get_raw())};
 '/file_transfer'(put, #{body := ConfigIn}) ->
     OldConf = emqx_ft_conf:get_raw(),
     UpdateConf = emqx_utils:deobfuscate(ConfigIn, OldConf),
     case emqx_ft_conf:update(UpdateConf) of
-        {ok, #{config := Config}} ->
-            {200, format_config(Config)};
+        {ok, #{raw_config := RawConfig}} ->
+            {200, format_config(RawConfig)};
         {error, Error = #{kind := validation_error}} ->
             {400, error_msg('INVALID_CONFIG', format_validation_error(Error))};
         {error, Error} ->
@@ -199,13 +199,11 @@ format_page(#{items := Files}) ->
         <<"files">> => lists:map(fun format_file_info/1, Files)
     }.
 
-format_config(Config) ->
-    Schema = emqx_hocon:make_schema(emqx_ft_schema:fields(file_transfer)),
-    hocon_tconf:make_serializable(
-        Schema,
-        emqx_utils_maps:binary_key_map(Config),
-        #{obfuscate_sensitive_values => true}
-    ).
+format_config(RawConf) ->
+    RootKey = <<"file_transfer">>,
+    Opts = #{obfuscate_sensitive_values => true, make_serializable => true},
+    Conf = emqx_config:fill_defaults(emqx_ft_schema, #{RootKey => RawConf}, Opts),
+    maps:get(RootKey, Conf).
 
 format_validation_error(Error) ->
     emqx_logger_jsonfmt:best_effort_json(Error).
