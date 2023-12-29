@@ -32,7 +32,7 @@ docker run -d --name emqx -p 1883:1883 -p 8083:8083 -p 8883:8883 -p 8084:8084 -p
 
 Чтобы ознакомиться с функциональностью EMQX, пожалуйста, следуйте [руководству по началу работы](https://www.emqx.io/docs/en/v5.0/getting-started/getting-started.html#start-emqx).
 
-#### Запуск кластера EMQX на kubernetes
+#### Запуск кластера EMQX на Kubernetes
 
 [Документация по EMQX Operator](https://github.com/emqx/emqx-operator/blob/main/docs/en_US/getting-started/getting-started.md).
 

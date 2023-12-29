@@ -585,7 +585,7 @@ t_connack_max_qos_allowed(Config) ->
 
     process_flag(trap_exit, false).
 
-t_connack_assigned_clienid(Config) ->
+t_connack_assigned_clientid(Config) ->
     ConnFun = ?config(conn_fun, Config),
     {ok, Client1} = emqtt:start_link([{proto_ver, v5} | Config]),
     {ok, _} = emqtt:ConnFun(Client1),

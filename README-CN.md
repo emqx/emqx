@@ -60,7 +60,7 @@ EMQX Cloud 文档：[docs.emqx.com/zh/cloud/latest/](https://docs.emqx.com/zh/cl
 - 访问 [EMQ 问答社区](https://askemq.com/) 以获取帮助，也可以分享您的想法或项目。
 - 添加小助手微信号 `emqmkt`，加入 EMQ 微信技术交流群。
 - 加入我们的 [Discord](https://discord.gg/xYGf3fQnES)，参于实时讨论。
-- 关注我们的 [bilibili](https://space.bilibili.com/522222081)，获取最新物联网技术分享。
+- 关注我们的 [Bilibili](https://space.bilibili.com/522222081)，获取最新物联网技术分享。
 - 关注我们的 [微博](https://weibo.com/emqtt) 或 [Twitter](https://twitter.com/EMQTech)，获取 EMQ 最新资讯。
 
 ## 相关资源

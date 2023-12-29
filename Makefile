@@ -316,9 +316,10 @@ $(foreach tt,$(ALL_ELIXIR_TGZS),$(eval $(call gen-elixir-tgz-target,$(tt))))
 .PHONY: fmt
 fmt: $(REBAR)
 	@$(SCRIPTS)/erlfmt -w 'apps/*/{src,include,priv,test,integration_test}/**/*.{erl,hrl,app.src,eterm}'
+	@$(SCRIPTS)/erlfmt -w '**/*.escript' --exclude-files '_build/**'
+	@$(SCRIPTS)/erlfmt -w '**/rebar.config'
 	@$(SCRIPTS)/erlfmt -w 'rebar.config.erl'
-	@$(SCRIPTS)/erlfmt -w '$(SCRIPTS)/**/*.escript'
-	@$(SCRIPTS)/erlfmt -w 'bin/**/*.escript'
+	@$(SCRIPTS)/erlfmt -w 'bin/nodetool'
 	@mix format
 
 .PHONY: clean-test-cluster-config

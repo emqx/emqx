@@ -12,7 +12,8 @@
 
 main(Args) ->
     case os:type() of
-        {win32, nt} -> ok;
+        {win32, nt} ->
+            ok;
         _nix ->
             case init:get_argument(start_epmd) of
                 {ok, [["true"]]} ->
@@ -44,22 +45,31 @@ do(Args) ->
     ok = do_with_halt(Args, "mnesia_dir", fun create_mnesia_dir/2),
     ok = do_with_halt(Args, "chkconfig", fun("-config", X) -> chkconfig(X) end),
     ok = do_with_halt(Args, "chkconfig", fun chkconfig/1),
-    Args1 = do_with_ret(Args, "-name",
-                        fun(TargetName) ->
-                                ThisNode = this_node_name(longnames, TargetName),
-                                {ok, _} = net_kernel:start([ThisNode, longnames]),
-                                put(target_node, nodename(TargetName))
-                        end),
-    Args2 = do_with_ret(Args1, "-sname",
-                        fun(TargetName) ->
-                                ThisNode = this_node_name(shortnames, TargetName),
-                                {ok, _} = net_kernel:start([ThisNode, shortnames]),
-                                put(target_node, nodename(TargetName))
-                        end),
-    RestArgs = do_with_ret(Args2, "-setcookie",
-                           fun(Cookie) ->
-                                   erlang:set_cookie(node(), list_to_atom(Cookie))
-                           end),
+    Args1 = do_with_ret(
+        Args,
+        "-name",
+        fun(TargetName) ->
+            ThisNode = this_node_name(longnames, TargetName),
+            {ok, _} = net_kernel:start([ThisNode, longnames]),
+            put(target_node, nodename(TargetName))
+        end
+    ),
+    Args2 = do_with_ret(
+        Args1,
+        "-sname",
+        fun(TargetName) ->
+            ThisNode = this_node_name(shortnames, TargetName),
+            {ok, _} = net_kernel:start([ThisNode, shortnames]),
+            put(target_node, nodename(TargetName))
+        end
+    ),
+    RestArgs = do_with_ret(
+        Args2,
+        "-setcookie",
+        fun(Cookie) ->
+            erlang:set_cookie(node(), list_to_atom(Cookie))
+        end
+    ),
 
     [application:start(App) || App <- [crypto, public_key, ssl]],
     TargetNode = get(target_node),
@@ -95,9 +105,11 @@ do(Args) ->
                 ok ->
                     ok;
                 {badrpc, timeout} ->
-                    io:format("EMQX is still shutting down, it failed to stop gracefully "
-                              "within the configured timeout of: ~ps\n",
-                              [erlang:convert_time_unit(?SHUTDOWN_TIMEOUT_MS, millisecond, second)]),
+                    io:format(
+                        "EMQX is still shutting down, it failed to stop gracefully "
+                        "within the configured timeout of: ~ps\n",
+                        [erlang:convert_time_unit(?SHUTDOWN_TIMEOUT_MS, millisecond, second)]
+                    ),
                     halt(1);
                 {badrpc, nodedown} ->
                     %% nodetool commands are always executed after a ping
@@ -106,8 +118,15 @@ do(Args) ->
                     ok
             end;
         ["rpc", Module, Function | RpcArgs] ->
-            case rpc:call(TargetNode, list_to_atom(Module), list_to_atom(Function),
-                          [RpcArgs], 60000) of
+            case
+                rpc:call(
+                    TargetNode,
+                    list_to_atom(Module),
+                    list_to_atom(Function),
+                    [RpcArgs],
+                    60000
+                )
+            of
                 ok ->
                     ok;
                 {error, cmd_not_found} ->
@@ -122,7 +141,11 @@ do(Args) ->
                     halt(1)
             end;
         ["rpc_infinity", Module, Function | RpcArgs] ->
-            case rpc:call(TargetNode, list_to_atom(Module), list_to_atom(Function), [RpcArgs], infinity) of
+            case
+                rpc:call(
+                    TargetNode, list_to_atom(Module), list_to_atom(Function), [RpcArgs], infinity
+                )
+            of
                 ok ->
                     ok;
                 {badrpc, Reason} ->
@@ -132,8 +155,15 @@ do(Args) ->
                     halt(1)
             end;
         ["rpcterms", Module, Function | ArgsAsString] ->
-            case rpc:call(TargetNode, list_to_atom(Module), list_to_atom(Function),
-                          consult(lists:flatten(ArgsAsString)), 60000) of
+            case
+                rpc:call(
+                    TargetNode,
+                    list_to_atom(Module),
+                    list_to_atom(Function),
+                    consult(lists:flatten(ArgsAsString)),
+                    60000
+                )
+            of
                 {badrpc, Reason} ->
                     io:format("RPC to ~p failed: ~p\n", [TargetNode, Reason]),
                     halt(1);
@@ -153,7 +183,9 @@ do(Args) ->
             end;
         Other ->
             io:format("Other: ~p~n", [Other]),
-            io:format("Usage: nodetool chkconfig|getpid|ping|stop|rpc|rpc_infinity|rpcterms|eval|cold_eval [Terms] [RPC]\n")
+            io:format(
+                "Usage: nodetool chkconfig|getpid|ping|stop|rpc|rpc_infinity|rpcterms|eval|cold_eval [Terms] [RPC]\n"
+            )
     end,
     net_kernel:stop().
 
@@ -173,22 +205,22 @@ parse_eval_args(Args) ->
     % shells may process args into more than one, and end up stripping
     % spaces, so this converts all of that to a single string to parse
     String = binary_to_list(
-                list_to_binary(
-                join(Args," ")
-                )
-            ),
+        list_to_binary(
+            join(Args, " ")
+        )
+    ),
 
     % then just as a convenience to users, if they forgot a trailing
     % '.' add it for them.
     Normalized =
         case lists:reverse(String) of
-        [$. | _] -> String;
-        R -> lists:reverse([$. | R])
+            [$. | _] -> String;
+            R -> lists:reverse([$. | R])
         end,
 
     % then scan and parse the string
     {ok, Scanned, _} = erl_scan:string(Normalized),
-    {ok, Parsed } = erl_parse:parse_exprs(Scanned),
+    {ok, Parsed} = erl_parse:parse_exprs(Scanned),
     Parsed.
 
 do_with_ret(Args, Name, Handler) ->
@@ -207,7 +239,8 @@ do_with_halt(Args, Name, Handler) ->
         false ->
             ok;
         {Args1, _Rest} ->
-            erlang:apply(Handler, Args1), %% should halt
+            %% should halt
+            erlang:apply(Handler, Args1),
             io:format(standard_error, "~s handler did not halt", [Name]),
             halt(?LINE)
     end.
@@ -218,7 +251,9 @@ take_args(Args, OptName, 0) ->
 take_args(Args, OptName, OptArity) ->
     take_args(Args, OptName, OptArity, _Scanned = []).
 
-take_args([], _, _, _) -> false; %% no such option
+%% no such option
+take_args([], _, _, _) ->
+    false;
 take_args([Name | Rest], Name, Arity, Scanned) ->
     length(Rest) >= Arity orelse error({not_enough_args_for, Name}),
     {Result, Tail} = lists:split(Arity, Rest),
@@ -282,16 +317,24 @@ chkconfig(File) ->
                 {error, Problems} ->
                     lists:foreach(fun print_issue/1, Problems),
                     %% halt(1) if any problems were errors
-                    halt(case [x || {error, _} <- Problems] of
-                             [] -> 0;
-                             _  -> 1
-                         end)
+                    halt(
+                        case [x || {error, _} <- Problems] of
+                            [] -> 0;
+                            _ -> 1
+                        end
+                    )
             end;
         {error, {Line, Mod, Term}} ->
-            io:format(standard_error, ["Error on line ", file:format_error({Line, Mod, Term}), "\n"], []),
+            io:format(
+                standard_error, ["Error on line ", file:format_error({Line, Mod, Term}), "\n"], []
+            ),
             halt(1);
         {error, Error} ->
-            io:format(standard_error, ["Error reading config file: ", File, " ", file:format_error(Error), "\n"], []),
+            io:format(
+                standard_error,
+                ["Error reading config file: ", File, " ", file:format_error(Error), "\n"],
+                []
+            ),
             halt(1)
     end.
 
@@ -304,7 +347,8 @@ check_license(Config) ->
     %% start but will not be able to receive connections due to connection limits.
     %% It may receive license updates from the cluster further.
     case emqx_license:read_license(Config) of
-        {ok, _} -> ok;
+        {ok, _} ->
+            ok;
         {error, Error} ->
             io:format(standard_error, "Error reading license: ~p~n", [Error]),
             halt(1)
@@ -315,7 +359,7 @@ check_license(Config) ->
 %%
 consult(Str) when is_list(Str) ->
     consult([], Str, []);
-consult(Bin) when is_binary(Bin)->
+consult(Bin) when is_binary(Bin) ->
     consult([], binary_to_list(Bin), []).
 
 consult(Cont, Str, Acc) ->
@@ -349,7 +393,7 @@ validate([Terms]) ->
 
 %% Some initial and basic checks for the app.config file
 get_validation_funs() ->
-    [ ].
+    [].
 
 print_issue({warning, Warning}) ->
     io:format(standard_error, "Warning in app.config: ~s~n", [Warning]);
@@ -363,7 +407,7 @@ print_issue({error, Error}) ->
 %% for most unicode use cases anyway.
 join([], Sep) when is_list(Sep) ->
     [];
-join([H|T], Sep) ->
+join([H | T], Sep) ->
     H ++ lists:append([Sep ++ X || X <- T]).
 
 add_libs_dir() ->
@@ -375,9 +419,11 @@ add_libs_dir() ->
             Release = lists:keyfind(CurrentVsn, 3, Releases),
             {release, _Name, _AppVsn, _ErtsVsn, Libs, _State} = Release,
             lists:foreach(
-              fun({Name, Vsn, _}) ->
-                      add_lib_dir(RootDir, Name, Vsn)
-              end, Libs);
+                fun({Name, Vsn, _}) ->
+                    add_lib_dir(RootDir, Name, Vsn)
+                end,
+                Libs
+            );
         {error, Reason} ->
             %% rel file was been deleted by release handler
             error({failed_to_read_RELEASES_file, RelFile, Reason})
@@ -405,7 +451,8 @@ add_lib_dir(RootDir, Name, Vsn) ->
             %% See `emqx_gateway_schema:fields(gateway)`
             is_emqx_application(Name) andalso ensure_application_load(Name),
             ok;
-        {error, _} -> error(LibDir)
+        {error, _} ->
+            error(LibDir)
     end.
 
 is_emqx_application(Name) when is_atom(Name) ->
