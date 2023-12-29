@@ -139,6 +139,7 @@ subscribe(Topic, SubId, SubOpts0) when ?IS_TOPIC(Topic), ?IS_SUBID(SubId), is_ma
         %% New
         false ->
             ok = emqx_broker_helper:register_sub(SubPid, SubId),
+            true = ets:insert(?SUBSCRIPTION, {SubPid, Topic}),
             do_subscribe(Topic, SubPid, with_subid(SubId, SubOpts));
         %% Existed
         true ->
@@ -153,28 +154,30 @@ with_subid(undefined, SubOpts) ->
 with_subid(SubId, SubOpts) ->
     maps:put(subid, SubId, SubOpts).
 
-do_subscribe(Topic, SubPid, SubOpts) ->
-    true = ets:insert(?SUBSCRIPTION, {SubPid, Topic}),
-    do_subscribe2(Topic, SubPid, SubOpts).
-
-do_subscribe2(Topic, SubPid, SubOpts) when is_binary(Topic) ->
+do_subscribe(Topic, SubPid, SubOpts) when is_binary(Topic) ->
     %% FIXME: subscribe shard bug
     %% https://emqx.atlassian.net/browse/EMQX-10214
-    case emqx_broker_helper:get_sub_shard(SubPid, Topic) of
-        0 ->
-            true = ets:insert(?SUBSCRIBER, {Topic, SubPid}),
-            true = ets:insert(?SUBOPTION, {{Topic, SubPid}, SubOpts}),
-            call(pick(Topic), {subscribe, Topic});
-        I ->
-            true = ets:insert(?SUBSCRIBER, {{shard, Topic, I}, SubPid}),
-            true = ets:insert(?SUBOPTION, {{Topic, SubPid}, maps:put(shard, I, SubOpts)}),
-            call(pick({Topic, I}), {subscribe, Topic, I})
-    end;
-do_subscribe2(Topic = #share{group = Group, topic = RealTopic}, SubPid, SubOpts) when
+    I = emqx_broker_helper:get_sub_shard(SubPid, Topic),
+    true = ets:insert(?SUBOPTION, {{Topic, SubPid}, with_shard_idx(I, SubOpts)}),
+    %% NOTE
+    %% We are relying on the local state to minimize global routing state changes,
+    %% thus it's important that some operations on ETS tables on the same topic
+    %% should not be interleaved: `ets:member/2` + `ets:insert/2` that are part of
+    %% broker's `subscribe` codepath, and `ets:delete_object/2` that's part of
+    %% `unsubscribe` codepath. So we have to pick a worker according to the topic,
+    %% but not shard. If there are topics with high number of shards, then the
+    %% load across the pool will be unbalanced.
+    call(pick(Topic), {subscribe, Topic, SubPid, I});
+do_subscribe(Topic = #share{group = Group, topic = RealTopic}, SubPid, SubOpts) when
     is_binary(RealTopic)
 ->
     true = ets:insert(?SUBOPTION, {{Topic, SubPid}, SubOpts}),
     emqx_shared_sub:subscribe(Group, RealTopic, SubPid).
+
+with_shard_idx(0, SubOpts) ->
+    SubOpts;
+with_shard_idx(I, SubOpts) ->
+    maps:put(shard, I, SubOpts).
 
 %%--------------------------------------------------------------------
 %% Unsubscribe API
@@ -204,15 +207,20 @@ do_unsubscribe2(Topic, SubPid, SubOpts) when
     is_binary(Topic), is_pid(SubPid), is_map(SubOpts)
 ->
     _ = emqx_broker_helper:reclaim_seq(Topic),
-    case maps:get(shard, SubOpts, 0) of
-        0 ->
-            true = ets:delete_object(?SUBSCRIBER, {Topic, SubPid}),
-            emqx_exclusive_subscription:unsubscribe(Topic, SubOpts),
-            cast(pick(Topic), {unsubscribed, Topic});
-        I ->
-            true = ets:delete_object(?SUBSCRIBER, {{shard, Topic, I}, SubPid}),
-            cast(pick({Topic, I}), {unsubscribed, Topic, I})
-    end;
+    I = maps:get(shard, SubOpts, 0),
+    case I of
+        0 -> emqx_exclusive_subscription:unsubscribe(Topic, SubOpts);
+        _ -> ok
+    end,
+    %% NOTE
+    %% We are relying on the local state to minimize global routing state changes,
+    %% thus it's important that some operations on ETS tables on the same topic
+    %% should not be interleaved: `ets:member/2` + `ets:insert/2` that are part of
+    %% broker's `subscribe` codepath, and `ets:delete_object/2` that's part of
+    %% `unsubscribe` codepath. So we have to pick a worker according to the topic,
+    %% but not shard. If there are topics with high number of shards, then the
+    %% load across the pool will be unbalanced.
+    cast(pick(Topic), {unsubscribed, Topic, SubPid, I});
 do_unsubscribe2(#share{group = Group, topic = Topic}, SubPid, _SubOpts) when
     is_binary(Group), is_binary(Topic), is_pid(SubPid)
 ->
@@ -387,7 +395,6 @@ subscriber_down(SubPid) ->
         fun(Topic) ->
             case lookup_value(?SUBOPTION, {Topic, SubPid}) of
                 SubOpts when is_map(SubOpts) ->
-                    _ = emqx_broker_helper:reclaim_seq(Topic),
                     true = ets:delete(?SUBOPTION, {Topic, SubPid}),
                     do_unsubscribe2(Topic, SubPid, SubOpts);
                 undefined ->
@@ -499,49 +506,38 @@ init([Pool, Id]) ->
     true = gproc_pool:connect_worker(Pool, {Pool, Id}),
     {ok, #{pool => Pool, id => Id}}.
 
-handle_call({subscribe, Topic}, _From, State) ->
-    Ok = emqx_router:do_add_route(Topic),
-    {reply, Ok, State};
-handle_call({subscribe, Topic, I}, _From, State) ->
-    Shard = {Topic, I},
-    Ok =
-        case get(Shard) of
-            undefined ->
-                _ = put(Shard, true),
-                true = ets:insert(?SUBSCRIBER, {Topic, {shard, I}}),
-                cast(pick(Topic), {subscribe, Topic});
-            true ->
-                ok
-        end,
-    {reply, Ok, State};
+handle_call({subscribe, Topic, SubPid, 0}, _From, State) ->
+    Existed = ets:member(?SUBSCRIBER, Topic),
+    true = ets:insert(?SUBSCRIBER, {Topic, SubPid}),
+    Result = maybe_add_route(Existed, Topic),
+    {reply, Result, State};
+handle_call({subscribe, Topic, SubPid, I}, _From, State) ->
+    Existed = ets:member(?SUBSCRIBER, Topic),
+    true = ets:insert(?SUBSCRIBER, [
+        {Topic, {shard, I}},
+        {{shard, Topic, I}, SubPid}
+    ]),
+    Result = maybe_add_route(Existed, Topic),
+    {reply, Result, State};
 handle_call(Req, _From, State) ->
     ?SLOG(error, #{msg => "unexpected_call", call => Req}),
     {reply, ignored, State}.
 
-handle_cast({subscribe, Topic}, State) ->
-    case emqx_router:do_add_route(Topic) of
-        ok -> ok;
-        {error, Reason} -> ?SLOG(error, #{msg => "failed_to_add_route", reason => Reason})
-    end,
+handle_cast({unsubscribed, Topic, SubPid, 0}, State) ->
+    true = ets:delete_object(?SUBSCRIBER, {Topic, SubPid}),
+    Exists = ets:member(?SUBSCRIBER, Topic),
+    _Result = maybe_delete_route(Exists, Topic),
     {noreply, State};
-handle_cast({unsubscribed, Topic}, State) ->
-    case ets:member(?SUBSCRIBER, Topic) of
-        false ->
-            _ = emqx_router:do_delete_route(Topic),
-            ok;
-        true ->
-            ok
-    end,
-    {noreply, State};
-handle_cast({unsubscribed, Topic, I}, State) ->
+handle_cast({unsubscribed, Topic, SubPid, I}, State) ->
+    true = ets:delete_object(?SUBSCRIBER, {{shard, Topic, I}, SubPid}),
     case ets:member(?SUBSCRIBER, {shard, Topic, I}) of
         false ->
-            _ = erase({Topic, I}),
-            true = ets:delete_object(?SUBSCRIBER, {Topic, {shard, I}}),
-            cast(pick(Topic), {unsubscribed, Topic});
+            ets:delete_object(?SUBSCRIBER, {Topic, {shard, I}});
         true ->
-            ok
+            true
     end,
+    Exists = ets:member(?SUBSCRIBER, Topic),
+    _Result = maybe_delete_route(Exists, Topic),
     {noreply, State};
 handle_cast(Msg, State) ->
     ?SLOG(error, #{msg => "unexpected_cast", cast => Msg}),
@@ -598,3 +594,15 @@ do_dispatch({shard, I}, Topic, Msg) ->
         0,
         subscribers({shard, Topic, I})
     ).
+
+%%
+
+maybe_add_route(_Existed = false, Topic) ->
+    emqx_router:do_add_route(Topic);
+maybe_add_route(_Existed = true, _Topic) ->
+    ok.
+
+maybe_delete_route(_Exists = false, Topic) ->
+    emqx_router:do_delete_route(Topic);
+maybe_delete_route(_Exists = true, _Topic) ->
+    ok.
