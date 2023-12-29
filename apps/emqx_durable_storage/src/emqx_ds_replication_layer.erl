@@ -24,7 +24,7 @@
     list_shards/1,
     open_db/2,
     add_generation/1,
-    add_generation/2,
+    update_db_config/2,
     drop_db/1,
     store_batch/3,
     get_streams/3,
@@ -130,8 +130,8 @@ add_generation(DB) ->
     _ = emqx_ds_proto_v2:add_generation(Nodes, DB),
     ok.
 
--spec add_generation(emqx_ds:db(), builtin_db_opts()) -> ok | {error, _}.
-add_generation(DB, CreateOpts) ->
+-spec update_db_config(emqx_ds:db(), builtin_db_opts()) -> ok | {error, _}.
+update_db_config(DB, CreateOpts) ->
     emqx_ds_replication_layer_meta:update_db_config(DB, CreateOpts).
 
 -spec drop_db(emqx_ds:db()) -> ok | {error, _}.
