@@ -180,7 +180,7 @@ t_05_update_config(_Config) ->
                     {false, TimeAcc, [Msgs | MsgAcc]};
                 (Datas, {Any, TimeAcc, MsgAcc}) ->
                     timer:sleep(500),
-                    ?assertMatch(ok, emqx_ds:add_generation(DB, opts())),
+                    ?assertMatch(ok, emqx_ds:update_db_config(DB, opts())),
                     timer:sleep(500),
                     StartTime = emqx_message:timestamp_now(),
                     Msgs = ToMsgs(Datas),
