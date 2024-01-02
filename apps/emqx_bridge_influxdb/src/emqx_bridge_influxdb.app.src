@@ -8,7 +8,7 @@
         emqx_resource,
         influxdb
     ]},
-    {env, []},
+    {env, [{emqx_action_info_modules, [emqx_bridge_influxdb_action_info]}]},
     {modules, []},
     {links, []}
 ]}.

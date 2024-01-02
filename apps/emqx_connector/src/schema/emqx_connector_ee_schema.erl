@@ -34,6 +34,8 @@ resource_type(matrix) ->
     emqx_postgresql;
 resource_type(mongodb) ->
     emqx_bridge_mongodb_connector;
+resource_type(influxdb) ->
+    emqx_bridge_influxdb_connector;
 resource_type(mysql) ->
     emqx_bridge_mysql_connector;
 resource_type(pgsql) ->
@@ -112,6 +114,14 @@ connector_structs() ->
                     required => false
                 }
             )},
+        {influxdb,
+            mk(
+                hoconsc:map(name, ref(emqx_bridge_influxdb, "config_connector")),
+                #{
+                    desc => <<"InfluxDB Connector Config">>,
+                    required => false
+                }
+            )},
         {mysql,
             mk(
                 hoconsc:map(name, ref(emqx_bridge_mysql, "config_connector")),
@@ -170,6 +180,7 @@ schema_modules() ->
         emqx_bridge_kafka,
         emqx_bridge_matrix,
         emqx_bridge_mongodb,
+        emqx_bridge_influxdb,
         emqx_bridge_mysql,
         emqx_bridge_syskeeper_connector,
         emqx_bridge_syskeeper_proxy,
@@ -196,6 +207,7 @@ api_schemas(Method) ->
         api_ref(emqx_bridge_kafka, <<"kafka_producer">>, Method ++ "_connector"),
         api_ref(emqx_bridge_matrix, <<"matrix">>, Method ++ "_connector"),
         api_ref(emqx_bridge_mongodb, <<"mongodb">>, Method ++ "_connector"),
+        api_ref(emqx_bridge_influxdb, <<"influxdb">>, Method ++ "_connector"),
         api_ref(emqx_bridge_mysql, <<"mysql">>, Method ++ "_connector"),
         api_ref(emqx_bridge_syskeeper_connector, <<"syskeeper_forwarder">>, Method),
         api_ref(emqx_bridge_syskeeper_proxy, <<"syskeeper_proxy">>, Method),
