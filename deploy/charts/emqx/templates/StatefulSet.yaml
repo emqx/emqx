@@ -102,22 +102,22 @@ spec:
           {{- end }}
           ports:
           - name: mqtt
-            containerPort: {{ .Values.emqxConfig.EMQX_LISTENERS__TCP__DEFAULT__BIND | default 1883 }}
+            containerPort: {{ splitList ":" ( .Values.emqxConfig.EMQX_LISTENERS__TCP__DEFAULT__BIND | default "1883" ) | last }}
           - name: mqttssl
-            containerPort: {{ .Values.emqxConfig.EMQX_LISTENERS__SSL__DEFAULT__BIND | default 8883 }}
+            containerPort: {{ splitList ":" ( .Values.emqxConfig.EMQX_LISTENERS__SSL__DEFAULT__BIND | default "8883" ) | last }}
           - name: ws
-            containerPort: {{ .Values.emqxConfig.EMQX_LISTENERS__WS__DEFAULT__BIND | default 8083 }}
+            containerPort: {{ splitList ":" ( .Values.emqxConfig.EMQX_LISTENERS__WS__DEFAULT__BIND | default "8083" ) | last }}
           - name: wss
-            containerPort: {{ .Values.emqxConfig.EMQX_LISTENERS__WSS__DEFAULT__BIND | default 8084 }}
+            containerPort: {{ splitList ":" ( .Values.emqxConfig.EMQX_LISTENERS__WSS__DEFAULT__BIND | default "8084" ) | last }}
           - name: dashboard
-            containerPort: {{ .Values.emqxConfig.EMQX_DASHBOARD__LISTENERS__HTTP__BIND | default 18083 }}
+            containerPort: {{ splitList ":" ( .Values.emqxConfig.EMQX_DASHBOARD__LISTENERS__HTTP__BIND | default "18083" ) | last }}
           {{- if not (empty .Values.emqxConfig.EMQX_LISTENERS__TCP__INTERNAL__BIND) }}
           - name: internalmqtt
-            containerPort: {{ .Values.emqxConfig.EMQX_LISTENERS__TCP__INTERNAL__BIND }}
+            containerPort: {{ splitList ":" .Values.emqxConfig.EMQX_LISTENERS__TCP__INTERNAL__BIND | last }}
           {{- end }}
           {{- if not (empty .Values.emqxConfig.EMQX_DASHBOARD__LISTENERS__HTTPS__BIND) }}
           - name: dashboardtls
-            containerPort: {{ .Values.emqxConfig.EMQX_DASHBOARD__LISTENERS__HTTPS__BIND }}
+            containerPort: {{ splitList ":" .Values.emqxConfig.EMQX_DASHBOARD__LISTENERS__HTTPS__BIND | last }}
           {{- end }}
           - name: ekka
             containerPort: 4370
@@ -152,14 +152,14 @@ spec:
           readinessProbe:
             httpGet:
               path: /status
-              port: {{ .Values.emqxConfig.EMQX_DASHBOARD__LISTENERS__HTTP__BIND | default 18083 }}
+              port: {{ splitList ":" ( .Values.emqxConfig.EMQX_DASHBOARD__LISTENERS__HTTP__BIND | default "18083" ) | last }}
             initialDelaySeconds: 10
             periodSeconds: 5
             failureThreshold: 30
           livenessProbe:
             httpGet:
               path: /status
-              port: {{ .Values.emqxConfig.EMQX_DASHBOARD__LISTENERS__HTTP__BIND | default 18083 }}
+              port: {{ splitList ":" ( .Values.emqxConfig.EMQX_DASHBOARD__LISTENERS__HTTP__BIND | default "18083" ) | last }}
             initialDelaySeconds: 60
             periodSeconds: 30
             failureThreshold: 10
