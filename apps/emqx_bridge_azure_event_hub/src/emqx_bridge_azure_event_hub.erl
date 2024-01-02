@@ -25,7 +25,7 @@
 ]).
 
 %% emqx_connector_resource behaviour callbacks
--export([connector_config/1]).
+-export([connector_config/2]).
 
 -export([producer_converter/2, host_opts/0]).
 
@@ -326,7 +326,7 @@ values(producer) ->
 %% `emqx_connector_resource' API
 %%-------------------------------------------------------------------------------------------------
 
-connector_config(Config) ->
+connector_config(Config, _) ->
     %% Default port for AEH is 9093
     BootstrapHosts0 = maps:get(bootstrap_hosts, Config),
     BootstrapHosts = emqx_schema:parse_servers(

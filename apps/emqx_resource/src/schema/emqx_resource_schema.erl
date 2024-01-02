@@ -23,7 +23,7 @@
 
 -export([namespace/0, roots/0, fields/1, desc/1]).
 
--export([create_opts/1, resource_opts_meta/0]).
+-export([create_opts/1, resource_opts_meta/0, override/2]).
 
 %% range interval in ms
 -define(HEALTH_CHECK_INTERVAL_RANGE_MIN, 1).

@@ -84,7 +84,8 @@ hard_coded_action_info_modules_ee() ->
         emqx_bridge_pgsql_action_info,
         emqx_bridge_syskeeper_action_info,
         emqx_bridge_timescale_action_info,
-        emqx_bridge_redis_action_info
+        emqx_bridge_redis_action_info,
+        emqx_bridge_iotdb_action_info
     ].
 -else.
 hard_coded_action_info_modules_ee() ->

@@ -302,54 +302,18 @@ parse_confs(
                 method => undefined
             }
     };
-parse_confs(<<"iotdb">>, Name, Conf) ->
-    %% [FIXME] this has no place here, it's used in parse_confs/3, which should
-    %% rather delegate to a behavior callback than implementing domain knowledge
-    %% here (reversed dependency)
-    InsertTabletPathV1 = <<"rest/v1/insertTablet">>,
-    InsertTabletPathV2 = <<"rest/v2/insertTablet">>,
-    #{
-        base_url := BaseURL,
-        authentication :=
-            #{
-                username := Username,
-                password := Password
-            }
-    } = Conf,
-    BasicToken = base64:encode(<<Username/binary, ":", Password/binary>>),
-    %% This version atom correspond to the macro ?VSN_1_1_X in
-    %% emqx_connector_iotdb.hrl. It would be better to use the macro directly, but
-    %% this cannot be done without introducing a dependency on the
-    %% emqx_iotdb_connector app (which is an EE app).
-    DefaultIOTDBConnector = 'v1.1.x',
-    Version = maps:get(iotdb_version, Conf, DefaultIOTDBConnector),
-    InsertTabletPath =
-        case Version of
-            DefaultIOTDBConnector -> InsertTabletPathV2;
-            _ -> InsertTabletPathV1
-        end,
-    WebhookConfig =
-        Conf#{
-            method => <<"post">>,
-            url => <<BaseURL/binary, InsertTabletPath/binary>>,
-            headers => [
-                {<<"Content-type">>, <<"application/json">>},
-                {<<"Authorization">>, BasicToken}
-            ]
-        },
-    parse_confs(
-        <<"webhook">>,
-        Name,
-        WebhookConfig
-    );
-parse_confs(ConnectorType, _Name, Config) ->
-    connector_config(ConnectorType, Config).
+parse_confs(ConnectorType, Name, Config) ->
+    connector_config(ConnectorType, Name, Config).
 
-connector_config(ConnectorType, Config) ->
+connector_config(ConnectorType, Name, Config) ->
     Mod = connector_impl_module(ConnectorType),
-    case erlang:function_exported(Mod, connector_config, 1) of
+    case erlang:function_exported(Mod, connector_config, 2) of
         true ->
-            Mod:connector_config(Config);
+            Mod:connector_config(Config, #{
+                type => ConnectorType,
+                name => Name,
+                parse_confs => fun parse_confs/3
+            });
         false ->
             Config
     end.

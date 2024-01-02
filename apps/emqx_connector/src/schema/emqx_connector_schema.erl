@@ -142,7 +142,9 @@ connector_type_to_bridge_types(syskeeper_forwarder) ->
 connector_type_to_bridge_types(syskeeper_proxy) ->
     [];
 connector_type_to_bridge_types(timescale) ->
-    [timescale].
+    [timescale];
+connector_type_to_bridge_types(iotdb) ->
+    [iotdb].
 
 actions_config_name() -> <<"actions">>.
 

@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2023 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2023-2024 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
 -module(emqx_bridge_iotdb).
 
@@ -8,7 +8,12 @@
 -include_lib("hocon/include/hoconsc.hrl").
 -include_lib("emqx_resource/include/emqx_resource.hrl").
 
--import(hoconsc, [mk/2, enum/1, ref/2]).
+-import(hoconsc, [mk/2, enum/1, ref/2, array/1]).
+
+-export([
+    bridge_v2_examples/1,
+    conn_bridge_examples/1
+]).
 
 %% hocon_schema API
 -export([
@@ -18,8 +23,8 @@
     desc/1
 ]).
 
-%% emqx_bridge_enterprise "unofficial" API
--export([conn_bridge_examples/1]).
+-define(CONNECTOR_TYPE, iotdb).
+-define(ACTION_TYPE, ?CONNECTOR_TYPE).
 
 %%-------------------------------------------------------------------------------------------------
 %% `hocon_schema' API
@@ -29,24 +34,140 @@ namespace() -> "bridge_iotdb".
 
 roots() -> [].
 
-fields("config") ->
-    basic_config() ++ request_config();
-fields("post") ->
-    [
-        type_field(),
-        name_field()
-    ] ++ fields("config");
-fields("put") ->
-    fields("config");
-fields("get") ->
-    emqx_bridge_schema:status_fields() ++ fields("post");
-fields("creation_opts") ->
+%%-------------------------------------------------------------------------------------------------
+%% v2 schema
+%%-------------------------------------------------------------------------------------------------
+
+fields(action) ->
+    {iotdb,
+        mk(
+            hoconsc:map(name, ref(?MODULE, action_config)),
+            #{
+                desc => <<"IoTDB Action Config">>,
+                required => false
+            }
+        )};
+fields(action_config) ->
+    emqx_resource_schema:override(
+        emqx_bridge_v2_schema:make_producer_action_schema(
+            mk(
+                ref(?MODULE, action_parameters),
+                #{
+                    required => true, desc => ?DESC("action_parameters")
+                }
+            )
+        ),
+        [
+            {resource_opts,
+                mk(ref(?MODULE, action_resource_opts), #{
+                    default => #{},
+                    desc => ?DESC(emqx_resource_schema, "resource_opts")
+                })}
+        ]
+    );
+fields(action_resource_opts) ->
     lists:filter(
         fun({K, _V}) ->
             not lists:member(K, unsupported_opts())
         end,
-        emqx_resource_schema:fields("creation_opts")
+        emqx_bridge_v2_schema:resource_opts_fields()
     );
+fields(action_parameters) ->
+    [
+        {is_aligned,
+            mk(
+                boolean(),
+                #{
+                    desc => ?DESC("config_is_aligned"),
+                    default => false
+                }
+            )},
+        {device_id,
+            mk(
+                binary(),
+                #{
+                    desc => ?DESC("config_device_id")
+                }
+            )},
+        {iotdb_version,
+            mk(
+                hoconsc:enum([?VSN_1_1_X, ?VSN_1_0_X, ?VSN_0_13_X]),
+                #{
+                    desc => ?DESC("config_iotdb_version"),
+                    default => ?VSN_1_1_X
+                }
+            )},
+        {data,
+            mk(
+                array(ref(?MODULE, action_parameters_data)),
+                #{
+                    desc => ?DESC("action_parameters_data")
+                }
+            )}
+    ] ++
+        proplists_without(
+            [path, method, body, headers, request_timeout],
+            emqx_bridge_http_schema:fields("parameters_opts")
+        );
+fields(action_parameters_data) ->
+    [
+        {timestamp,
+            mk(
+                binary(),
+                #{
+                    desc => ?DESC("config_parameters_timestamp"),
+                    default => <<"now">>
+                }
+            )},
+        {measurement,
+            mk(
+                binary(),
+                #{
+                    required => true,
+                    desc => ?DESC("config_parameters_measurement")
+                }
+            )},
+        {data_type,
+            mk(
+                binary(),
+                #{
+                    required => true,
+                    desc => ?DESC("config_parameters_data_type"),
+                    validator => fun(Type) ->
+                        lists:member(Type, [
+                            <<"TEXT">>,
+                            <<"BOOLEAN">>,
+                            <<"INT32">>,
+                            <<"INT64">>,
+                            <<"FLOAT">>,
+                            <<"DOUBLE">>
+                        ])
+                    end
+                }
+            )},
+        {value,
+            mk(
+                binary(),
+                #{
+                    required => true,
+                    desc => ?DESC("config_parameters_value")
+                }
+            )}
+    ];
+fields("post_bridge_v2") ->
+    emqx_bridge_schema:type_and_name_fields(enum([iotdb])) ++ fields(action_config);
+fields("put_bridge_v2") ->
+    fields(action_config);
+fields("get_bridge_v2") ->
+    emqx_bridge_schema:status_fields() ++ fields("post_bridge_v2");
+%%-------------------------------------------------------------------------------------------------
+%% v1 schema
+%%-------------------------------------------------------------------------------------------------
+
+fields("config") ->
+    basic_config() ++ request_config();
+fields("creation_opts") ->
+    proplists_without(unsupported_opts(), emqx_resource_schema:fields("creation_opts"));
 fields(auth_basic) ->
     [
         {username, mk(binary(), #{required => true, desc => ?DESC("config_auth_basic_username")})},
@@ -55,22 +176,28 @@ fields(auth_basic) ->
                 required => true,
                 desc => ?DESC("config_auth_basic_password")
             })}
-    ].
+    ];
+fields("post") ->
+    emqx_bridge_schema:type_and_name_fields(enum([iotdb])) ++ fields("config");
+fields("put") ->
+    fields("config");
+fields("get") ->
+    emqx_bridge_schema:status_fields() ++ fields("post").
 
 desc("config") ->
     ?DESC("desc_config");
-desc("creation_opts") ->
-    ?DESC(emqx_resource_schema, "creation_opts");
-desc("post") ->
-    ["Configuration for IoTDB using `POST` method."];
-desc(Name) ->
-    lists:member(Name, struct_names()) orelse throw({missing_desc, Name}),
-    ?DESC(Name).
-
-struct_names() ->
-    [
-        auth_basic
-    ].
+desc(action_config) ->
+    ?DESC("desc_config");
+desc(action_parameters) ->
+    ?DESC("action_parameters");
+desc(action_parameters_data) ->
+    ?DESC("action_parameters_data");
+desc(auth_basic) ->
+    "Basic Authentication";
+desc(Method) when Method =:= "get"; Method =:= "put"; Method =:= "post" ->
+    ["Configuration for IoTDB using `", string:to_upper(Method), "` method."];
+desc(_) ->
+    undefined.
 
 basic_config() ->
     [
@@ -160,30 +287,43 @@ unsupported_opts() ->
         batch_time
     ].
 
-%%======================================================================================
+%%-------------------------------------------------------------------------------------------------
+%% v2 examples
+%%-------------------------------------------------------------------------------------------------
 
-type_field() ->
-    {type,
-        mk(
-            hoconsc:enum([iotdb]),
-            #{
-                required => true,
-                desc => ?DESC("desc_type")
-            }
-        )}.
+bridge_v2_examples(Method) ->
+    [
+        #{
+            <<"iotdb">> =>
+                #{
+                    summary => <<"Apache IoTDB Bridge">>,
+                    value => emqx_bridge_v2_schema:action_values(
+                        Method, ?ACTION_TYPE, ?CONNECTOR_TYPE, action_values()
+                    )
+                }
+        }
+    ].
 
-name_field() ->
-    {name,
-        mk(
-            binary(),
-            #{
-                required => true,
-                desc => ?DESC("desc_name")
-            }
-        )}.
+action_values() ->
+    #{
+        parameters => #{
+            data => [
+                #{
+                    timestamp => now,
+                    measurement => <<"status">>,
+                    data_type => <<"BOOLEAN">>,
+                    value => <<"${st}">>
+                }
+            ],
+            is_aligned => false,
+            device_id => <<"${clientid}">>,
+            iotdb_version => ?VSN_1_1_X
+        }
+    }.
 
-%%======================================================================================
-
+%%-------------------------------------------------------------------------------------------------
+%% v1 examples
+%%-------------------------------------------------------------------------------------------------
 conn_bridge_examples(Method) ->
     [
         #{

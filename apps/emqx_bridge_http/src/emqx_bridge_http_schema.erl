@@ -133,17 +133,8 @@ fields("get_" ++ Type) ->
 fields("config_bridge_v2") ->
     fields("http_action");
 fields("config_connector") ->
-    [
-        {enable,
-            mk(
-                boolean(),
-                #{
-                    desc => <<"Enable or disable this connector">>,
-                    default => true
-                }
-            )},
-        {description, emqx_schema:description_schema()}
-    ] ++ connector_url_headers() ++
+    emqx_connector_schema:common_fields() ++
+        connector_url_headers() ++
         connector_opts() ++
         emqx_connector_schema:resource_opts_ref(?MODULE, connector_resource_opts);
 fields(connector_resource_opts) ->
