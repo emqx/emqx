@@ -760,7 +760,11 @@ deobfuscate(NewConf, OldConf) ->
         fun(K, V, Acc) ->
             case maps:find(K, OldConf) of
                 error ->
-                    Acc#{K => V};
+                    case is_redacted(K, V) of
+                        %% don't put redacted value into new config
+                        true -> Acc;
+                        false -> Acc#{K => V}
+                    end;
                 {ok, OldV} when is_map(V), is_map(OldV) ->
                     Acc#{K => deobfuscate(V, OldV)};
                 {ok, OldV} ->
@@ -878,6 +882,25 @@ redact2_test_() ->
 
     Keys = [secret, passcode],
     [{case_name(atom, Key), fun() -> Case(Key, Checker) end} || Key <- Keys].
+
+deobfuscate_test() ->
+    NewConf0 = #{foo => <<"bar0">>, password => <<"123456">>},
+    ?assertEqual(NewConf0, deobfuscate(NewConf0, #{foo => <<"bar">>, password => <<"654321">>})),
+
+    NewConf1 = #{foo => <<"bar1">>, password => <<?REDACT_VAL>>},
+    ?assertEqual(
+        #{foo => <<"bar1">>, password => <<"654321">>},
+        deobfuscate(NewConf1, #{foo => <<"bar">>, password => <<"654321">>})
+    ),
+
+    %% Don't have password before and ignore to put redact_val into new config
+    NewConf2 = #{foo => <<"bar2">>, password => ?REDACT_VAL},
+    ?assertEqual(#{foo => <<"bar2">>}, deobfuscate(NewConf2, #{foo => <<"bar">>})),
+
+    %% Don't have password before and should allow put non-redact-val into new config
+    NewConf3 = #{foo => <<"bar3">>, password => <<"123456">>},
+    ?assertEqual(NewConf3, deobfuscate(NewConf3, #{foo => <<"bar">>})),
+    ok.
 
 redact_is_authorization_test_() ->
     Types = [string, binary],
