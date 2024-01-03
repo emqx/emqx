@@ -27,6 +27,11 @@
 
 -include("emqx_persistent_session_ds.hrl").
 
+-ifdef(TEST).
+-include_lib("proper/include/proper.hrl").
+-include_lib("eunit/include/eunit.hrl").
+-endif.
+
 %% Session API
 -export([
     create/3,
@@ -216,12 +221,12 @@ info(retry_interval, #{props := Conf}) ->
     maps:get(retry_interval, Conf);
 % info(mqueue, #sessmem{mqueue = MQueue}) ->
 %     MQueue;
-% info(mqueue_len, #sessmem{mqueue = MQueue}) ->
-%     emqx_mqueue:len(MQueue);
+info(mqueue_len, #{inflight := Inflight}) ->
+    emqx_persistent_session_ds_inflight:n_buffered(Inflight);
 % info(mqueue_max, #sessmem{mqueue = MQueue}) ->
 %     emqx_mqueue:max_len(MQueue);
-% info(mqueue_dropped, #sessmem{mqueue = MQueue}) ->
-%     emqx_mqueue:dropped(MQueue);
+info(mqueue_dropped, _Session) ->
+    0;
 %% info(next_pkt_id, #{s := S}) ->
 %%     {PacketId, _} = emqx_persistent_message_ds_replayer:next_packet_id(S),
 %%     PacketId;
@@ -750,6 +755,11 @@ drain_buffer(Session = #{inflight := Inflight0}) ->
     ((STREAM#ifs.last_seqno_qos1 =< COMMITTEDQOS1 orelse STREAM#ifs.last_seqno_qos1 =:= undefined) andalso
      (STREAM#ifs.last_seqno_qos2 =< COMMITTEDQOS2 orelse STREAM#ifs.last_seqno_qos2 =:= undefined))).
 
+%% erlfmt-ignore
+-define(last_replayed(STREAM, NEXTQOS1, NEXTQOS2),
+    ((STREAM#ifs.last_seqno_qos1 == NEXTQOS1 orelse STREAM#ifs.last_seqno_qos1 =:= undefined) andalso
+     (STREAM#ifs.last_seqno_qos2 == NEXTQOS2 orelse STREAM#ifs.last_seqno_qos2 =:= undefined))).
+
 -spec find_replay_streams(session()) ->
     [{emqx_persistent_session_ds_state:stream_key(), stream_state()}].
 find_replay_streams(#{s := S}) ->
@@ -1002,9 +1012,6 @@ commit_seqno(Track, PacketId, Session = #{id := SessionId, s := S}) ->
     seqno().
 packet_id_to_seqno(PacketId, S) ->
     NextSeqNo = emqx_persistent_session_ds_state:get_seqno(?next(packet_id_to_qos(PacketId)), S),
-    packet_id_to_seqno_(PacketId, NextSeqNo).
-
-packet_id_to_seqno_(PacketId, NextSeqNo) ->
     Epoch = NextSeqNo bsr 15,
     SeqNo = (Epoch bsl 15) + (PacketId bsr 1),
     case SeqNo =< NextSeqNo of
@@ -1059,6 +1066,74 @@ list_all_sessions() ->
 
 %%%% Proper generators:
 
-%%%% Unit tests:
+%% Generate a sequence number that smaller than the given `NextSeqNo'
+%% number by at most `?EPOCH_SIZE':
+seqno_gen(NextSeqNo) ->
+    WindowSize = ?EPOCH_SIZE - 1,
+    Min = max(0, NextSeqNo - WindowSize),
+    Max = max(0, NextSeqNo - 1),
+    range(Min, Max).
+
+%% Generate a sequence number:
+next_seqno_gen() ->
+    ?LET(
+        {Epoch, Offset},
+        {non_neg_integer(), non_neg_integer()},
+        Epoch bsl 15 + Offset
+    ).
+
+%%%% Property-based tests:
+
+%% erlfmt-ignore
+packet_id_to_seqno_prop() ->
+    ?FORALL(
+        {Qos, NextSeqNo}, {oneof([?QOS_1, ?QOS_2]), next_seqno_gen()},
+        ?FORALL(
+            ExpectedSeqNo, seqno_gen(NextSeqNo),
+            begin
+                PacketId = seqno_to_packet_id(Qos, ExpectedSeqNo),
+                SeqNo = packet_id_to_seqno(PacketId, NextSeqNo),
+                ?WHENFAIL(
+                    begin
+                        io:format(user, " *** PacketID = ~p~n", [PacketId]),
+                        io:format(user, " *** SeqNo = ~p -> ~p~n", [ExpectedSeqNo, SeqNo]),
+                        io:format(user, " *** NextSeqNo = ~p~n", [NextSeqNo])
+                    end,
+                    PacketId < 16#10000 andalso SeqNo =:= ExpectedSeqNo
+                )
+            end)).
+
+inc_seqno_prop() ->
+    ?FORALL(
+        {Qos, SeqNo},
+        {oneof([?QOS_1, ?QOS_2]), next_seqno_gen()},
+        begin
+            NewSeqNo = inc_seqno(Qos, SeqNo),
+            PacketId = seqno_to_packet_id(Qos, NewSeqNo),
+            ?WHENFAIL(
+                begin
+                    io:format(user, " *** SeqNo = ~p -> ~p~n", [SeqNo, NewSeqNo]),
+                    io:format(user, " *** PacketId = ~p~n", [PacketId])
+                end,
+                PacketId > 0 andalso PacketId < 16#10000
+            )
+        end
+    ).
+
+seqno_proper_test_() ->
+    Props = [packet_id_to_seqno_prop(), inc_seqno_prop()],
+    Opts = [{numtests, 10000}, {to_file, user}],
+    {timeout, 30,
+        {setup,
+            fun() ->
+                meck:new(emqx_persistent_session_ds_state, [no_history]),
+                ok = meck:expect(emqx_persistent_session_ds_state, get_seqno, fun(_Track, Seqno) ->
+                    Seqno
+                end)
+            end,
+            fun(_) ->
+                meck:unload(emqx_persistent_session_ds_state)
+            end,
+            [?_assert(proper:quickcheck(Prop, Opts)) || Prop <- Props]}}.
 
 -endif.

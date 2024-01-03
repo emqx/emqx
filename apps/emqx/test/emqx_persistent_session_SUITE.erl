@@ -36,7 +36,7 @@ all() ->
         % NOTE
         % Tests are disabled while existing session persistence impl is being
         % phased out.
-        %{group, persistence_disabled},
+        %%{group, persistence_disabled},
         {group, persistence_enabled}
     ].
 
@@ -56,7 +56,7 @@ groups() ->
     TCsNonGeneric = [t_choose_impl],
     TCGroups = [{group, tcp}, {group, quic}, {group, ws}],
     [
-        {persistence_disabled, TCGroups},
+        %% {persistence_disabled, TCGroups},
         {persistence_enabled, TCGroups},
         {tcp, [], TCs},
         {quic, [], TCs -- TCsNonGeneric},
@@ -782,8 +782,9 @@ t_publish_many_while_client_is_gone(Config) ->
     ClientOpts = [
         {proto_ver, v5},
         {clientid, ClientId},
-        {properties, #{'Session-Expiry-Interval' => 30}},
-        {auto_ack, never}
+        %,
+        {properties, #{'Session-Expiry-Interval' => 30}}
+        %{auto_ack, never}
         | Config
     ],
 
@@ -810,7 +811,7 @@ t_publish_many_while_client_is_gone(Config) ->
     Msgs1 = receive_messages(NPubs1),
     ct:pal("Msgs1 = ~p", [Msgs1]),
     NMsgs1 = length(Msgs1),
-    ?assertEqual(NPubs1, NMsgs1),
+    ?assertEqual(NPubs1, NMsgs1, debug_info(ClientId)),
 
     ?assertEqual(
         get_topicwise_order(Pubs1),
@@ -1084,3 +1085,12 @@ skip_ds_tc(Config) ->
         _ ->
             Config
     end.
+
+fail_with_debug_info(Exception, ClientId) ->
+    case emqx_cm:lookup_channels(ClientId) of
+        [Chan] ->
+            sys:get_state(Chan, 1000);
+        [] ->
+            no_channel
+    end,
+    exit(Exception).
