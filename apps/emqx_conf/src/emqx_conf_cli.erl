@@ -35,7 +35,7 @@
 -define(CLUSTER_CALL, cluster_call).
 -define(CONF, conf).
 -define(AUDIT_MOD, audit).
--define(UPDATE_READONLY_KEYS_PROHIBITED, "update_readonly_keys_prohibited").
+-define(UPDATE_READONLY_KEYS_PROHIBITED, <<"update_readonly_keys_prohibited">>).
 
 -dialyzer({no_match, [load/0]}).
 
