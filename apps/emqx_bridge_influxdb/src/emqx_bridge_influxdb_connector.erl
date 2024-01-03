@@ -38,6 +38,8 @@
     desc/1
 ]).
 
+-export([transform_bridge_v1_config_to_connector_config/1]).
+
 -export([precision_field/0, server_field/0]).
 
 %% only for test
@@ -63,7 +65,7 @@ callback_mode() -> async_if_possible.
 
 on_add_channel(
     _InstanceId,
-    #{channels := Channels} = OldState,
+    #{channels := Channels, client := Client} = OldState,
     ChannelId,
     #{parameters := Parameters} = ChannelConfig0
 ) ->
@@ -72,10 +74,13 @@ on_add_channel(
     ChannelConfig = maps:merge(
         Parameters,
         ChannelConfig0#{
+            channel_client => influxdb:update_precision(Client, Precision),
             write_syntax => to_config(WriteSytaxTmpl, Precision)
         }
     ),
-    {ok, OldState#{channels => maps:put(ChannelId, ChannelConfig, Channels)}}.
+    {ok, OldState#{
+        channels => maps:put(ChannelId, ChannelConfig, Channels)
+    }}.
 
 on_remove_channel(_InstanceId, #{channels := Channels} = State, ChannelId) ->
     NewState = State#{channels => maps:remove(ChannelId, Channels)},
@@ -108,8 +113,9 @@ on_stop(InstId, _State) ->
             ok
     end.
 
-on_query(InstId, {Channel, Message}, #{channels := ChannelConf, client := Client}) ->
+on_query(InstId, {Channel, Message}, #{channels := ChannelConf}) ->
     #{write_syntax := SyntaxLines} = maps:get(Channel, ChannelConf),
+    #{channel_client := Client} = maps:get(Channel, ChannelConf),
     case data_to_points(Message, SyntaxLines) of
         {ok, Points} ->
             ?tp(
@@ -128,9 +134,10 @@ on_query(InstId, {Channel, Message}, #{channels := ChannelConf, client := Client
 
 %% Once a Batched Data trans to points failed.
 %% This batch query failed
-on_batch_query(InstId, BatchData, #{channels := ChannelConf, client := Client}) ->
+on_batch_query(InstId, BatchData, #{channels := ChannelConf}) ->
     [{Channel, _} | _] = BatchData,
     #{write_syntax := SyntaxLines} = maps:get(Channel, ChannelConf),
+    #{channel_client := Client} = maps:get(Channel, ChannelConf),
     case parse_batch_data(InstId, BatchData, SyntaxLines) of
         {ok, Points} ->
             ?tp(
@@ -150,9 +157,10 @@ on_query_async(
     InstId,
     {Channel, Message},
     {ReplyFun, Args},
-    #{channels := ChannelConf, client := Client}
+    #{channels := ChannelConf}
 ) ->
     #{write_syntax := SyntaxLines} = maps:get(Channel, ChannelConf),
+    #{channel_client := Client} = maps:get(Channel, ChannelConf),
     case data_to_points(Message, SyntaxLines) of
         {ok, Points} ->
             ?tp(
@@ -173,10 +181,11 @@ on_batch_query_async(
     InstId,
     BatchData,
     {ReplyFun, Args},
-    #{channels := ChannelConf, client := Client}
+    #{channels := ChannelConf}
 ) ->
     [{Channel, _} | _] = BatchData,
     #{write_syntax := SyntaxLines} = maps:get(Channel, ChannelConf),
+    #{channel_client := Client} = maps:get(Channel, ChannelConf),
     case parse_batch_data(InstId, BatchData, SyntaxLines) of
         {ok, Points} ->
             ?tp(
@@ -199,6 +208,22 @@ on_get_status(_InstId, #{client := Client}) ->
         false ->
             disconnected
     end.
+
+transform_bridge_v1_config_to_connector_config(BridgeV1Config) ->
+    IndentKeys = [username, password, database, token, bucket, org],
+    ConnConfig0 = maps:without([write_syntax, precision], BridgeV1Config),
+    ConnConfig1 =
+        case emqx_utils_maps:indent(parameters, IndentKeys, ConnConfig0) of
+            #{parameters := #{database := _} = Params} = Conf ->
+                Conf#{parameters => Params#{influxdb_type => influxdb_api_v1}};
+            #{parameters := #{bucket := _} = Params} = Conf ->
+                Conf#{parameters => Params#{influxdb_type => influxdb_api_v2}}
+        end,
+    emqx_utils_maps:update_if_present(
+        resource_opts,
+        fun emqx_connector_schema:project_to_connector_resource_opts/1,
+        ConnConfig1
+    ).
 
 %% -------------------------------------------------------------------------------------------------
 %% schema

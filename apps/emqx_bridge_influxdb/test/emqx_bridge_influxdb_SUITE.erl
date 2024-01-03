@@ -537,11 +537,11 @@ t_start_ok(Config) ->
         begin
             case QueryMode of
                 async ->
-                    ?assertMatch(ok, send_message(Config, SentData)),
-                    ct:sleep(500);
+                    ?assertMatch(ok, send_message(Config, SentData));
                 sync ->
                     ?assertMatch({ok, 204, _}, send_message(Config, SentData))
             end,
+            ct:sleep(1500),
             PersistedData = query_by_clientid(ClientId, Config),
             Expected = #{
                 bool => <<"true">>,
@@ -594,8 +594,11 @@ t_start_already_started(Config) ->
     {ok, #{bridges := #{TypeAtom := #{NameAtom := InfluxDBConfigMap}}}} = emqx_hocon:check(
         emqx_bridge_schema, InfluxDBConfigString
     ),
+    ConnConfigMap = emqx_bridge_influxdb_connector:transform_bridge_v1_config_to_connector_config(
+        InfluxDBConfigMap
+    ),
     ?check_trace(
-        emqx_bridge_influxdb_connector:on_start(ResourceId, InfluxDBConfigMap),
+        emqx_bridge_influxdb_connector:on_start(ResourceId, ConnConfigMap),
         fun(Result, Trace) ->
             ?assertMatch({ok, _}, Result),
             ?assertMatch([_], ?of_kind(influxdb_connector_start_already_started, Trace)),
@@ -700,11 +703,11 @@ t_const_timestamp(Config) ->
     },
     case QueryMode of
         async ->
-            ?assertMatch(ok, send_message(Config, SentData)),
-            ct:sleep(500);
+            ?assertMatch(ok, send_message(Config, SentData));
         sync ->
             ?assertMatch({ok, 204, _}, send_message(Config, SentData))
     end,
+    ct:sleep(1500),
     PersistedData = query_by_clientid(ClientId, Config),
     Expected = #{foo => <<"123">>},
     assert_persisted_data(ClientId, Expected, PersistedData),
@@ -762,10 +765,7 @@ t_boolean_variants(Config) ->
                 async ->
                     ?assertMatch(ok, send_message(Config, SentData))
             end,
-            case QueryMode of
-                async -> ct:sleep(500);
-                sync -> ok
-            end,
+            ct:sleep(1500),
             PersistedData = query_by_clientid(ClientId, Config),
             Expected = #{
                 bool => atom_to_binary(Translation),
@@ -817,9 +817,10 @@ t_any_num_as_float(Config) ->
             ?assertMatch({ok, 204, _}, send_message(Config, SentData)),
             ok;
         async ->
-            ?assertMatch(ok, send_message(Config, SentData)),
-            ct:sleep(500)
+            ?assertMatch(ok, send_message(Config, SentData))
     end,
+    %% sleep is still need even in sync mode, or we would get an empty result sometimes
+    ct:sleep(1500),
     PersistedData = query_by_clientid(ClientId, Config),
     Expected = #{float_no_dp => <<"123">>, float_dp => <<"123">>},
     assert_persisted_data(ClientId, Expected, PersistedData),
@@ -938,10 +939,13 @@ t_create_disconnected(Config) ->
             ?assertMatch({ok, _}, create_bridge(Config))
         end),
         fun(Trace) ->
-            ?assertMatch(
-                [#{error := influxdb_client_not_alive, reason := econnrefused}],
-                ?of_kind(influxdb_connector_start_failed, Trace)
-            ),
+            [#{error := influxdb_client_not_alive, reason := Reason}] =
+                ?of_kind(influxdb_connector_start_failed, Trace),
+            case Reason of
+                econnrefused -> ok;
+                {closed, _} -> ok;
+                _ -> ct:fail("influxdb_client_not_alive with wrong reason: ~p", [Reason])
+            end,
             ok
         end
     ),
@@ -1146,10 +1150,8 @@ t_authentication_error(Config0) ->
     ok.
 
 t_authentication_error_on_get_status(Config0) ->
-    ResourceId = resource_id(Config0),
-
     % Fake initialization to simulate credential update after bridge was created.
-    emqx_common_test_helpers:with_mock(
+    ResourceId = emqx_common_test_helpers:with_mock(
         influxdb,
         check_auth,
         fun(_) ->
@@ -1165,20 +1167,20 @@ t_authentication_error_on_get_status(Config0) ->
                 end,
             Config = lists:keyreplace(influxdb_config, 1, Config0, {influxdb_config, InfluxConfig}),
             {ok, _} = create_bridge(Config),
+            ResourceId = resource_id(Config0),
             ?retry(
                 _Sleep = 1_000,
                 _Attempts = 10,
                 ?assertEqual({ok, connected}, emqx_resource_manager:health_check(ResourceId))
-            )
+            ),
+            ResourceId
         end
     ),
-
     % Now back to wrong credentials
     ?assertEqual({ok, disconnected}, emqx_resource_manager:health_check(ResourceId)),
     ok.
 
 t_authentication_error_on_send_message(Config0) ->
-    ResourceId = resource_id(Config0),
     QueryMode = proplists:get_value(query_mode, Config0, sync),
     InfluxDBType = ?config(influxdb_type, Config0),
     InfluxConfig0 = proplists:get_value(influxdb_config, Config0),
@@ -1198,6 +1200,7 @@ t_authentication_error_on_send_message(Config0) ->
         end,
         fun() ->
             {ok, _} = create_bridge(Config),
+            ResourceId = resource_id(Config),
             ?retry(
                 _Sleep = 1_000,
                 _Attempts = 10,

@@ -61,11 +61,10 @@ connector_type_name() -> influxdb.
 
 schema_module() -> ?SCHEMA_MODULE.
 
-bridge_v1_type_name_fun({#{<<"parameters">> := #{<<"influxdb_type">> := Type}}, _}) ->
-    v1_type(Type).
-
-v1_type(<<"influxdb_api_v1">>) -> influxdb_api_v1;
-v1_type(<<"influxdb_api_v2">>) -> influxdb_api_v2.
+bridge_v1_type_name_fun({#{<<"parameters">> := #{<<"database">> := _}}, _}) ->
+    influxdb_api_v1;
+bridge_v1_type_name_fun({#{<<"parameters">> := #{<<"bucket">> := _}}, _}) ->
+    influxdb_api_v2.
 
 make_config_map(PickKeys, IndentKeys, Config) ->
     Conf0 = maps:with(PickKeys, Config),
