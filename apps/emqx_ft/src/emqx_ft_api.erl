@@ -125,7 +125,8 @@ schema("/file_transfer") ->
             responses => #{
                 200 => ?SCHEMA_CONFIG,
                 400 => emqx_dashboard_swagger:error_codes(
-                    ['INVALID_CONFIG'], error_desc('INVALID_CONFIG')
+                    ['UPDATE_FAILED', 'INVALID_CONFIG'],
+                    error_desc('INVALID_CONFIG')
                 )
             }
         }
@@ -175,19 +176,9 @@ check_ft_enabled(Params, _Meta) ->
             {503, error_msg('SERVICE_UNAVAILABLE')}
     end.
 
-'/file_transfer'(get, _Meta) ->
-    {200, format_config(emqx_ft_conf:get())};
-'/file_transfer'(put, #{body := ConfigIn}) ->
-    OldConf = emqx_ft_conf:get_raw(),
-    UpdateConf = emqx_utils:deobfuscate(ConfigIn, OldConf),
-    case emqx_ft_conf:update(UpdateConf) of
-        {ok, #{config := Config}} ->
-            {200, format_config(Config)};
-        {error, Error = #{kind := validation_error}} ->
-            {400, error_msg('INVALID_CONFIG', format_validation_error(Error))};
-        {error, Error} ->
-            {400, error_msg('INVALID_CONFIG', emqx_utils:format(Error))}
-    end.
+%% Forward /file_transfer to /configs/file_transfer
+'/file_transfer'(Method, Data) ->
+    emqx_mgmt_api_configs:request_config([<<"file_transfer">>], Method, Data).
 
 format_page(#{items := Files, cursor := Cursor}) ->
     #{
@@ -198,17 +189,6 @@ format_page(#{items := Files}) ->
     #{
         <<"files">> => lists:map(fun format_file_info/1, Files)
     }.
-
-format_config(Config) ->
-    Schema = emqx_hocon:make_schema(emqx_ft_schema:fields(file_transfer)),
-    hocon_tconf:make_serializable(
-        Schema,
-        emqx_utils_maps:binary_key_map(Config),
-        #{obfuscate_sensitive_values => true}
-    ).
-
-format_validation_error(Error) ->
-    emqx_logger_jsonfmt:best_effort_json(Error).
 
 error_msg(Code) ->
     #{code => Code, message => error_desc(Code)}.
