@@ -33,7 +33,8 @@
     has_custom_bridge_v1_config_to_connector_config/1,
     bridge_v1_config_to_action_config/3,
     has_custom_bridge_v1_config_to_action_config/1,
-    transform_bridge_v1_config_to_action_config/4
+    transform_bridge_v1_config_to_action_config/4,
+    action_convert_from_connector/3
 ]).
 
 -callback bridge_v1_type_name() ->
@@ -142,8 +143,10 @@ action_type_to_bridge_v1_type(ActionType, ActionConf) ->
 
 get_confs(ActionType, #{<<"connector">> := ConnectorName} = ActionConfig) ->
     ConnectorType = action_type_to_connector_type(ActionType),
-    ConnectorConfig = emqx_conf:get_raw([connectors, ConnectorType, ConnectorName]),
-    {ConnectorConfig, ActionConfig};
+    case emqx_conf:get_raw([connectors, ConnectorType, ConnectorName], undefined) of
+        undefined -> undefined;
+        ConnectorConfig -> {ConnectorConfig, ActionConfig}
+    end;
 get_confs(_, _) ->
     undefined.
 
@@ -186,6 +189,15 @@ connector_action_config_to_bridge_v1_config(ActionOrBridgeType, ConnectorConfig,
             Module:connector_action_config_to_bridge_v1_config(ConnectorConfig, ActionConfig);
         false ->
             connector_action_config_to_bridge_v1_config(ConnectorConfig, ActionConfig)
+    end.
+
+action_convert_from_connector(ActionOrBridgeType, ConnectorConfig, ActionConfig) ->
+    Module = get_action_info_module(ActionOrBridgeType),
+    case erlang:function_exported(Module, action_convert_from_connector, 2) of
+        true ->
+            Module:action_convert_from_connector(ConnectorConfig, ActionConfig);
+        false ->
+            ActionConfig
     end.
 
 connector_action_config_to_bridge_v1_config(ConnectorConfig, ActionConfig) ->

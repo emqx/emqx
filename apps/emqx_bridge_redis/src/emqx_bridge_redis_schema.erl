@@ -145,21 +145,9 @@ resource_opts_converter(Conf, _Opts) ->
 bridge_v2_examples(Method) ->
     [
         #{
-            <<"redis_single_producer">> => #{
-                summary => <<"Redis Single Producer Action">>,
+            <<"redis">> => #{
+                summary => <<"Redis Action">>,
                 value => action_example(single, Method)
-            }
-        },
-        #{
-            <<"redis_sentinel_producer">> => #{
-                summary => <<"Redis Sentinel Producer Action">>,
-                value => action_example(sentinel, Method)
-            }
-        },
-        #{
-            <<"redis_cluster_producer">> => #{
-                summary => <<"Redis Cluster Producer Action">>,
-                value => action_example(cluster, Method)
             }
         }
     ].

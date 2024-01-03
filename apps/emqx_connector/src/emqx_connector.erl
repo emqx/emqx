@@ -50,6 +50,7 @@
 ]).
 
 -define(ROOT_KEY, connectors).
+-define(ENABLE_OR_DISABLE(A), (A =:= disable orelse A =:= enable)).
 
 load() ->
     Connectors = emqx:get_config([?ROOT_KEY], #{}),
@@ -107,22 +108,24 @@ config_key_path() ->
 
 pre_config_update([?ROOT_KEY], RawConf, RawConf) ->
     {ok, RawConf};
-pre_config_update([?ROOT_KEY], {force_update, NewConf}, RawConf) ->
-    pre_config_update([?ROOT_KEY], NewConf, RawConf);
 pre_config_update([?ROOT_KEY], NewConf, _RawConf) ->
     case multi_validate_connector_names(NewConf) of
-        ok ->
-            {ok, convert_certs(NewConf)};
-        Error ->
-            Error
+        ok -> {ok, convert_certs(NewConf)};
+        Error -> Error
     end;
-pre_config_update(_, {_Oper, _, _}, undefined) ->
-    {error, connector_not_found};
-pre_config_update(_, {Oper, _Type, _Name}, OldConfig) ->
+pre_config_update([?ROOT_KEY, Type, Name], Oper, undefined)
+    when ?ENABLE_OR_DISABLE(Oper) ->
+    {error,  #{
+        reason => <<"connector_not_found">>,
+        connector_name => Name,
+        connector_type => Type
+    }};
+pre_config_update([?ROOT_KEY, _Type, _Name], Oper, OldConfig)
+    when ?ENABLE_OR_DISABLE(Oper) ->
     %% to save the 'enable' to the config files
     {ok, OldConfig#{<<"enable">> => operation_to_enable(Oper)}};
-pre_config_update(Path, Conf, _OldConfig) when is_map(Conf) ->
-    case validate_connector_name_in_config(Path) of
+pre_config_update([?ROOT_KEY, _Type, Name] = Path, Conf = #{}, _OldConfig) ->
+    case validate_connector_name(Name) of
         ok ->
             case emqx_connector_ssl:convert_certs(filename:join(Path), Conf) of
                 {error, Reason} ->
@@ -137,18 +140,11 @@ pre_config_update(Path, Conf, _OldConfig) when is_map(Conf) ->
 operation_to_enable(disable) -> false;
 operation_to_enable(enable) -> true.
 
-post_config_update([?ROOT_KEY], {force_update, _}, NewConf, OldConf, _AppEnv) ->
-    #{added := Added, removed := Removed, changed := Updated} =
-        diff_confs(NewConf, OldConf),
-    perform_connector_changes(Removed, Added, Updated);
 post_config_update([?ROOT_KEY], _Req, NewConf, OldConf, _AppEnv) ->
-    #{added := Added, removed := Removed, changed := Updated} =
-        diff_confs(NewConf, OldConf),
+    #{added := Added, removed := Removed, changed := Updated} = diff_confs(NewConf, OldConf),
     case ensure_no_channels(Removed) of
-        ok ->
-            perform_connector_changes(Removed, Added, Updated);
-        {error, Error} ->
-            {error, Error}
+        ok -> perform_connector_changes(Removed, Added, Updated);
+        {error, Error} -> {error, Error}
     end;
 post_config_update([?ROOT_KEY, Type, Name], '$remove', _, _OldConf, _AppEnvs) ->
     case emqx_connector_resource:get_channels(Type, Name) of
@@ -159,11 +155,13 @@ post_config_update([?ROOT_KEY, Type, Name], '$remove', _, _OldConf, _AppEnvs) ->
         {ok, Channels} ->
             {error, {active_channels, Channels}}
     end;
+%% create a new connector
 post_config_update([?ROOT_KEY, Type, Name], _Req, NewConf, undefined, _AppEnvs) ->
     ResOpts = emqx_resource:fetch_creation_opts(NewConf),
     ok = emqx_connector_resource:create(Type, Name, NewConf, ResOpts),
     ?tp(connector_post_config_update_done, #{}),
     ok;
+%% update an existing connector
 post_config_update([?ROOT_KEY, Type, Name], _Req, NewConf, OldConf, _AppEnvs) ->
     ResOpts = emqx_resource:fetch_creation_opts(NewConf),
     ok = emqx_connector_resource:update(Type, Name, {OldConf, NewConf}, ResOpts),
@@ -226,12 +224,10 @@ lookup(Type, Name, RawConf) ->
 get_metrics(Type, Name) ->
     emqx_resource:get_metrics(emqx_connector_resource:resource_id(Type, Name)).
 
-disable_enable(Action, ConnectorType, ConnectorName) when
-    Action =:= disable; Action =:= enable
-->
+disable_enable(Action, ConnectorType, ConnectorName) when ?ENABLE_OR_DISABLE(Action) ->
     emqx_conf:update(
         config_key_path() ++ [ConnectorType, ConnectorName],
-        {Action, ConnectorType, ConnectorName},
+        Action,
         #{override_to => cluster}
     ).
 
@@ -250,7 +246,7 @@ create(ConnectorType, ConnectorName, RawConf) ->
 
 remove(ConnectorType, ConnectorName) ->
     ?SLOG(debug, #{
-        brige_action => remove,
+        bridge_action => remove,
         connector_type => ConnectorType,
         connector_name => ConnectorName
     }),
@@ -293,6 +289,7 @@ import_config(RawConf) ->
     ConnectorsConf = maps:get(<<"connectors">>, RawConf, #{}),
     OldConnectorsConf = emqx:get_raw_config(RootKeyPath, #{}),
     MergedConf = merge_confs(OldConnectorsConf, ConnectorsConf),
+    %% using merge strategy, deletions should not be performed within the post_config_update/5.
     case emqx_conf:update(RootKeyPath, MergedConf, #{override_to => cluster}) of
         {ok, #{raw_config := NewRawConf}} ->
             {ok, #{root_key => ?ROOT_KEY, changed => changed_paths(OldConnectorsConf, NewRawConf)}};
@@ -488,14 +485,6 @@ validate_connector_name(ConnectorName) ->
     catch
         throw:Error ->
             {error, Error}
-    end.
-
-validate_connector_name_in_config(Path) ->
-    case Path of
-        [?ROOT_KEY, _ConnectorType, ConnectorName] ->
-            validate_connector_name(ConnectorName);
-        _ ->
-            ok
     end.
 
 multi_validate_connector_names(Conf) ->
