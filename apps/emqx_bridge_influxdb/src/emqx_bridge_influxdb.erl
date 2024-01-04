@@ -165,7 +165,7 @@ roots() -> [].
 
 fields("config_connector") ->
     emqx_connector_schema:common_fields() ++
-        connection_fields() ++
+        emqx_bridge_influxdb_connector:fields("connector") ++
         emqx_connector_schema:resource_opts_ref(?MODULE, connector_resource_opts);
 fields("post_api_v1") ->
     method_fields(post, influxdb_api_v1);
@@ -204,7 +204,7 @@ fields(Field) when
     Field == "post_connector"
 ->
     Fields =
-        connection_fields() ++
+        emqx_bridge_influxdb_connector:fields("connector") ++
             emqx_connector_schema:resource_opts_ref(?MODULE, connector_resource_opts),
     emqx_connector_schema:api_fields(Field, ?CONNECTOR_TYPE, Fields);
 fields(Field) when
@@ -218,19 +218,6 @@ fields(Type) when
 ->
     influxdb_bridge_common_fields() ++
         connector_fields(Type).
-
-connection_fields() ->
-    [
-        emqx_bridge_influxdb_connector:server_field(),
-        {parameters,
-            mk(
-                hoconsc:union([
-                    ref(emqx_bridge_influxdb_connector, "connector_" ++ T)
-                 || T <- ["influxdb_api_v1", "influxdb_api_v2"]
-                ]),
-                #{required => true, desc => ?DESC("influxdb_parameters")}
-            )}
-    ] ++ emqx_connector_schema_lib:ssl_fields().
 
 method_fields(post, ConnectorType) ->
     influxdb_bridge_common_fields() ++
@@ -274,6 +261,8 @@ desc(influxdb_action) ->
     ?DESC(influxdb_action);
 desc(action_parameters) ->
     ?DESC(action_parameters);
+desc(parameters) ->
+    ?DESC("influxdb_parameters");
 desc("config_connector") ->
     ?DESC("desc_config");
 desc(connector_resource_opts) ->

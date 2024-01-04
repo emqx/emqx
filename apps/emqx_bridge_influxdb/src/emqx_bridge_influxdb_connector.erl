@@ -40,7 +40,7 @@
 
 -export([transform_bridge_v1_config_to_connector_config/1]).
 
--export([precision_field/0, server_field/0]).
+-export([precision_field/0]).
 
 %% only for test
 -export([is_unrecoverable_error/1]).
@@ -232,28 +232,30 @@ namespace() -> connector_influxdb.
 roots() ->
     [
         {config, #{
-            type => hoconsc:union(
-                [
-                    hoconsc:ref(?MODULE, influxdb_api_v1),
-                    hoconsc:ref(?MODULE, influxdb_api_v2)
-                ]
-            )
+            type => hoconsc:ref(?MODULE, "connector")
         }}
     ].
 
-fields(common) ->
+fields("connector") ->
     [
         server_field(),
-        precision_field()
-    ];
+        parameter_field()
+    ] ++ emqx_connector_schema_lib:ssl_fields();
 fields("connector_influxdb_api_v1") ->
     [influxdb_type_field(influxdb_api_v1) | influxdb_api_v1_fields()];
 fields("connector_influxdb_api_v2") ->
     [influxdb_type_field(influxdb_api_v2) | influxdb_api_v2_fields()];
+%% ============ begin: schema for old bridge configs ============
 fields(influxdb_api_v1) ->
-    fields(common) ++ influxdb_api_v1_fields() ++ emqx_connector_schema_lib:ssl_fields();
+    fields(common) ++ influxdb_api_v1_fields();
 fields(influxdb_api_v2) ->
-    fields(common) ++ influxdb_api_v2_fields() ++ emqx_connector_schema_lib:ssl_fields().
+    fields(common) ++ influxdb_api_v2_fields();
+fields(common) ->
+    [
+        server_field(),
+        precision_field()
+    ] ++ emqx_connector_schema_lib:ssl_fields().
+%% ============ end: schema for old bridge configs ============
 
 influxdb_type_field(Type) ->
     {influxdb_type, #{
@@ -262,6 +264,7 @@ influxdb_type_field(Type) ->
         default => Type,
         desc => ?DESC(atom_to_list(Type))
     }}.
+
 server_field() ->
     {server, server()}.
 
@@ -274,6 +277,16 @@ precision_field() ->
         mk(enum([ns, us, ms, s]), #{
             required => false, default => ms, desc => ?DESC("precision")
         })}.
+
+parameter_field() ->
+    {parameters,
+        mk(
+            hoconsc:union([
+                ref(?MODULE, "connector_" ++ T)
+             || T <- ["influxdb_api_v1", "influxdb_api_v2"]
+            ]),
+            #{required => true, desc => ?DESC("influxdb_parameters")}
+        )}.
 
 influxdb_api_v1_fields() ->
     [
@@ -300,10 +313,14 @@ server() ->
 
 desc(common) ->
     ?DESC("common");
+desc(parameters) ->
+    ?DESC("influxdb_parameters");
 desc(influxdb_api_v1) ->
     ?DESC("influxdb_api_v1");
 desc(influxdb_api_v2) ->
     ?DESC("influxdb_api_v2");
+desc("connector") ->
+    ?DESC("connector");
 desc("connector_influxdb_api_v1") ->
     ?DESC("influxdb_api_v1");
 desc("connector_influxdb_api_v2") ->
@@ -411,8 +428,7 @@ client_config(
         {host, str(Host)},
         {port, Port},
         {pool_size, erlang:system_info(schedulers)},
-        {pool, InstId},
-        {precision, atom_to_binary(maps:get(precision, Config, ms), utf8)}
+        {pool, InstId}
     ] ++ protocol_config(Config).
 
 %% api v1 config

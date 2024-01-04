@@ -943,6 +943,7 @@ t_create_disconnected(Config) ->
                 ?of_kind(influxdb_connector_start_failed, Trace),
             case Reason of
                 econnrefused -> ok;
+                closed -> ok;
                 {closed, _} -> ok;
                 _ -> ct:fail("influxdb_client_not_alive with wrong reason: ~p", [Reason])
             end,
