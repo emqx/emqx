@@ -274,6 +274,10 @@ desc(influxdb_action) ->
     ?DESC(influxdb_action);
 desc(action_parameters) ->
     ?DESC(action_parameters);
+desc("config_connector") ->
+    ?DESC("desc_config");
+desc(connector_resource_opts) ->
+    ?DESC(emqx_resource_schema, "resource_opts");
 desc(_) ->
     undefined.
 
