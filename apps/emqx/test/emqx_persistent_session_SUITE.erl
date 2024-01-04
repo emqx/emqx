@@ -811,7 +811,8 @@ t_publish_many_while_client_is_gone(Config) ->
     Msgs1 = receive_messages(NPubs1),
     ct:pal("Msgs1 = ~p", [Msgs1]),
     NMsgs1 = length(Msgs1),
-    ?assertEqual(NPubs1, NMsgs1, debug_info(ClientId)),
+    NPubs1 =:= NMsgs1 orelse
+        throw_with_debug_info({NPubs1, '==', NMsgs1}, ClientId),
 
     ?assertEqual(
         get_topicwise_order(Pubs1),
@@ -1086,11 +1087,15 @@ skip_ds_tc(Config) ->
             Config
     end.
 
-fail_with_debug_info(Exception, ClientId) ->
-    case emqx_cm:lookup_channels(ClientId) of
-        [Chan] ->
-            sys:get_state(Chan, 1000);
-        [] ->
-            no_channel
-    end,
-    exit(Exception).
+throw_with_debug_info(Error, ClientId) ->
+    Info =
+        case emqx_cm:lookup_channels(ClientId) of
+            [Pid] ->
+                #{channel := ChanState} = emqx_connection:get_state(Pid),
+                SessionState = emqx_channel:info(session_state, ChanState),
+                maps:update_with(s, fun emqx_persistent_session_ds_state:format/1, SessionState);
+            [] ->
+                no_channel
+        end,
+    ct:pal("!!! Assertion failed: ~p~nState:~n~p", [Error, Info]),
+    exit(Error).

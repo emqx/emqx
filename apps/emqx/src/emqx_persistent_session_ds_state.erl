@@ -26,10 +26,11 @@
 
 -export([create_tables/0]).
 
--export([open/1, create_new/1, delete/1, commit/1, print_session/1, list_sessions/0]).
+-export([open/1, create_new/1, delete/1, commit/1, format/1, print_session/1, list_sessions/0]).
 -export([get_created_at/1, set_created_at/2]).
 -export([get_last_alive_at/1, set_last_alive_at/2]).
 -export([get_conninfo/1, set_conninfo/2]).
+-export([new_subid/1]).
 -export([get_stream/2, put_stream/3, del_stream/2, fold_streams/3]).
 -export([get_seqno/2, put_seqno/3]).
 -export([get_rank/2, put_rank/3, del_rank/2, fold_ranks/3]).
@@ -38,7 +39,7 @@
 %% internal exports:
 -export([]).
 
--export_type([t/0, subscriptions/0, seqno_type/0, stream_key/0]).
+-export_type([t/0, subscriptions/0, seqno_type/0, stream_key/0, rank_key/0]).
 
 -include("emqx_persistent_session_ds.hrl").
 
@@ -78,17 +79,17 @@
 -define(created_at, created_at).
 -define(last_alive_at, last_alive_at).
 -define(conninfo, conninfo).
+-define(last_subid, last_subid).
 
 -type metadata() ::
     #{
         ?created_at => emqx_persistent_session_ds:timestamp(),
         ?last_alive_at => emqx_persistent_session_ds:timestamp(),
-        ?conninfo => emqx_types:conninfo()
+        ?conninfo => emqx_types:conninfo(),
+        ?last_subid => integer()
     }.
 
 -type seqno_type() :: term().
-
--type stream_key() :: {emqx_ds:rank_x(), _SubId}.
 
 -opaque t() :: #{
     id := emqx_persistent_session_ds:id(),
@@ -151,26 +152,30 @@ print_session(SessionId) ->
     case open(SessionId) of
         undefined ->
             undefined;
-        {ok, #{
-            metadata := Metadata,
-            subscriptions := SubsGBT,
-            streams := Streams,
-            seqnos := Seqnos,
-            ranks := Ranks
-        }} ->
-            Subs = emqx_topic_gbt:fold(
-                fun(Key, Sub, Acc) -> maps:put(Key, Sub, Acc) end,
-                #{},
-                SubsGBT
-            ),
-            #{
-                session => Metadata,
-                subscriptions => Subs,
-                streams => Streams#pmap.clean,
-                seqnos => Seqnos#pmap.clean,
-                ranks => Ranks#pmap.clean
-            }
+        {ok, Session} ->
+            format(Session)
     end.
+
+-spec format(t()) -> map().
+format(#{
+    metadata := Metadata,
+    subscriptions := SubsGBT,
+    streams := Streams,
+    seqnos := Seqnos,
+    ranks := Ranks
+}) ->
+    Subs = emqx_topic_gbt:fold(
+        fun(Key, Sub, Acc) -> maps:put(Key, Sub, Acc) end,
+        #{},
+        SubsGBT
+    ),
+    #{
+        metadata => Metadata,
+        subscriptions => Subs,
+        streams => pmap_format(Streams),
+        seqnos => pmap_format(Seqnos),
+        ranks => pmap_format(Ranks)
+    }.
 
 -spec list_sessions() -> [emqx_persistent_session_ds:id()].
 list_sessions() ->
@@ -248,52 +253,14 @@ get_conninfo(Rec) ->
 set_conninfo(Val, Rec) ->
     set_meta(?conninfo, Val, Rec).
 
-%%
-
--spec get_stream(stream_key(), t()) ->
-    emqx_persistent_session_ds:stream_state() | undefined.
-get_stream(Key, Rec) ->
-    gen_get(streams, Key, Rec).
-
--spec put_stream(stream_key(), emqx_persistent_session_ds:stream_state(), t()) -> t().
-put_stream(Key, Val, Rec) ->
-    gen_put(streams, Key, Val, Rec).
-
--spec del_stream(stream_key(), t()) -> t().
-del_stream(Key, Rec) ->
-    gen_del(stream, Key, Rec).
-
--spec fold_streams(fun(), Acc, t()) -> Acc.
-fold_streams(Fun, Acc, Rec) ->
-    gen_fold(streams, Fun, Acc, Rec).
-
-%%
-
--spec get_seqno(seqno_type(), t()) -> emqx_persistent_session_ds:seqno() | undefined.
-get_seqno(Key, Rec) ->
-    gen_get(seqnos, Key, Rec).
-
--spec put_seqno(seqno_type(), emqx_persistent_session_ds:seqno(), t()) -> t().
-put_seqno(Key, Val, Rec) ->
-    gen_put(seqnos, Key, Val, Rec).
-
-%%
-
--spec get_rank(term(), t()) -> integer() | undefined.
-get_rank(Key, Rec) ->
-    gen_get(ranks, Key, Rec).
-
--spec put_rank(term(), integer(), t()) -> t().
-put_rank(Key, Val, Rec) ->
-    gen_put(ranks, Key, Val, Rec).
-
--spec del_rank(term(), t()) -> t().
-del_rank(Key, Rec) ->
-    gen_del(ranks, Key, Rec).
-
--spec fold_ranks(fun(), Acc, t()) -> Acc.
-fold_ranks(Fun, Acc, Rec) ->
-    gen_fold(ranks, Fun, Acc, Rec).
+-spec new_subid(t()) -> {emqx_persistent_session_ds:subscription_id(), t()}.
+new_subid(Rec) ->
+    LastSubId =
+        case get_meta(?last_subid, Rec) of
+            undefined -> 0;
+            N when is_integer(N) -> N
+        end,
+    {LastSubId, set_meta(?last_subid, LastSubId + 1, Rec)}.
 
 %%
 
@@ -321,6 +288,57 @@ del_subscription(TopicFilter, SubId, Rec = #{id := Id, subscriptions := Subs0}) 
     transaction(fun() -> kv_bag_delete(?subscription_tab, Id, Key) end),
     Subs = emqx_topic_gbt:delete(TopicFilter, SubId, Subs0),
     Rec#{subscriptions => Subs}.
+
+%%
+
+-type stream_key() :: {emqx_persistent_session_ds:subscription_id(), emqx_ds:stream()}.
+
+-spec get_stream(stream_key(), t()) ->
+    emqx_persistent_session_ds:stream_state() | undefined.
+get_stream(Key, Rec) ->
+    gen_get(streams, Key, Rec).
+
+-spec put_stream(stream_key(), emqx_persistent_session_ds:stream_state(), t()) -> t().
+put_stream(Key, Val, Rec) ->
+    gen_put(streams, Key, Val, Rec).
+
+-spec del_stream(stream_key(), t()) -> t().
+del_stream(Key, Rec) ->
+    gen_del(streams, Key, Rec).
+
+-spec fold_streams(fun(), Acc, t()) -> Acc.
+fold_streams(Fun, Acc, Rec) ->
+    gen_fold(streams, Fun, Acc, Rec).
+
+%%
+
+-spec get_seqno(seqno_type(), t()) -> emqx_persistent_session_ds:seqno() | undefined.
+get_seqno(Key, Rec) ->
+    gen_get(seqnos, Key, Rec).
+
+-spec put_seqno(seqno_type(), emqx_persistent_session_ds:seqno(), t()) -> t().
+put_seqno(Key, Val, Rec) ->
+    gen_put(seqnos, Key, Val, Rec).
+
+%%
+
+-type rank_key() :: {emqx_persistent_session_ds:subscription_id(), emqx_ds:rank_x()}.
+
+-spec get_rank(rank_key(), t()) -> integer() | undefined.
+get_rank(Key, Rec) ->
+    gen_get(ranks, Key, Rec).
+
+-spec put_rank(rank_key(), integer(), t()) -> t().
+put_rank(Key, Val, Rec) ->
+    gen_put(ranks, Key, Val, Rec).
+
+-spec del_rank(rank_key(), t()) -> t().
+del_rank(Key, Rec) ->
+    gen_del(ranks, Key, Rec).
+
+-spec fold_ranks(fun(), Acc, t()) -> Acc.
+fold_ranks(Fun, Acc, Rec) ->
+    gen_fold(ranks, Fun, Acc, Rec).
 
 %%================================================================================
 %% Internal functions
@@ -444,6 +462,10 @@ pmap_commit(
         tombstones = #{},
         clean = maps:merge(Clean, Dirty)
     }.
+
+-spec pmap_format(pmap(_K, _V)) -> map().
+pmap_format(#pmap{clean = Clean, dirty = Dirty}) ->
+    maps:merge(Clean, Dirty).
 
 %% Functions dealing with set tables:
 

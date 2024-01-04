@@ -27,6 +27,7 @@
 
 %% State of the stream:
 -record(ifs, {
+    rank_x :: emqx_ds:rank_x(),
     rank_y :: emqx_ds:rank_y(),
     %% Iterator at the end of the last batch:
     it_end :: emqx_ds:iterator() | undefined | end_of_stream,
