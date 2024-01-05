@@ -66,7 +66,7 @@ t_lifecycle(Config) ->
     Port = ?config(influxdb_tcp_port, Config),
     perform_lifecycle_check(
         <<"emqx_bridge_influxdb_connector_SUITE">>,
-        influxdb_config(Host, Port, false, <<"verify_none">>)
+        influxdb_connector_config(Host, Port, false, <<"verify_none">>)
     ).
 
 perform_lifecycle_check(PoolName, InitialConfig) ->
@@ -76,6 +76,7 @@ perform_lifecycle_check(PoolName, InitialConfig) ->
     % expects this
     FullConfig = CheckedConfig#{write_syntax => influxdb_write_syntax()},
     {ok, #{
+        id := ResourceId,
         state := #{client := #{pool := ReturnedPoolName}} = State,
         status := InitialStatus
     }} = emqx_resource:create_local(
@@ -93,8 +94,18 @@ perform_lifecycle_check(PoolName, InitialConfig) ->
     }} =
         emqx_resource:get_instance(PoolName),
     ?assertEqual({ok, connected}, emqx_resource:health_check(PoolName)),
+    %% install actions to the connector
+    ActionConfig = influxdb_action_config(),
+    ChannelId = <<"test_channel">>,
+    ?assertEqual(
+        ok,
+        emqx_resource_manager:add_channel(
+            ResourceId, ChannelId, ActionConfig
+        )
+    ),
+    ?assertMatch(#{status := connected}, emqx_resource:channel_health_check(ResourceId, ChannelId)),
     % % Perform query as further check that the resource is working as expected
-    ?assertMatch({ok, 204, _}, emqx_resource:query(PoolName, test_query())),
+    ?assertMatch({ok, 204, _}, emqx_resource:query(PoolName, test_query(ChannelId))),
     ?assertEqual(ok, emqx_resource:stop(PoolName)),
     % Resource will be listed still, but state will be changed and healthcheck will fail
     % as the worker no longer exists.
@@ -116,7 +127,15 @@ perform_lifecycle_check(PoolName, InitialConfig) ->
     {ok, ?CONNECTOR_RESOURCE_GROUP, #{status := InitialStatus}} =
         emqx_resource:get_instance(PoolName),
     ?assertEqual({ok, connected}, emqx_resource:health_check(PoolName)),
-    ?assertMatch({ok, 204, _}, emqx_resource:query(PoolName, test_query())),
+    ChannelId = <<"test_channel">>,
+    ?assertEqual(
+        ok,
+        emqx_resource_manager:add_channel(
+            ResourceId, ChannelId, ActionConfig
+        )
+    ),
+    ?assertMatch(#{status := connected}, emqx_resource:channel_health_check(ResourceId, ChannelId)),
+    ?assertMatch({ok, 204, _}, emqx_resource:query(PoolName, test_query(ChannelId))),
     % Stop and remove the resource in one go.
     ?assertEqual(ok, emqx_resource:remove_local(PoolName)),
     ?assertEqual({error, not_found}, ecpool:stop_sup_pool(ReturnedPoolName)),
@@ -127,7 +146,7 @@ t_tls_verify_none(Config) ->
     PoolName = <<"testpool-1">>,
     Host = ?config(influxdb_tls_host, Config),
     Port = ?config(influxdb_tls_port, Config),
-    InitialConfig = influxdb_config(Host, Port, true, <<"verify_none">>),
+    InitialConfig = influxdb_connector_config(Host, Port, true, <<"verify_none">>),
     ValidStatus = perform_tls_opts_check(PoolName, InitialConfig, valid),
     ?assertEqual(connected, ValidStatus),
     InvalidStatus = perform_tls_opts_check(PoolName, InitialConfig, fail),
@@ -138,7 +157,7 @@ t_tls_verify_peer(Config) ->
     PoolName = <<"testpool-2">>,
     Host = ?config(influxdb_tls_host, Config),
     Port = ?config(influxdb_tls_port, Config),
-    InitialConfig = influxdb_config(Host, Port, true, <<"verify_peer">>),
+    InitialConfig = influxdb_connector_config(Host, Port, true, <<"verify_peer">>),
     %% This works without a CA-cert & friends since we are using a mock
     ValidStatus = perform_tls_opts_check(PoolName, InitialConfig, valid),
     ?assertEqual(connected, ValidStatus),
@@ -191,19 +210,30 @@ perform_tls_opts_check(PoolName, InitialConfig, VerifyReturn) ->
 % %% Helpers
 % %%------------------------------------------------------------------------------
 
-influxdb_config(Host, Port, SslEnabled, Verify) ->
+influxdb_connector_config(Host, Port, SslEnabled, Verify) ->
     Server = list_to_binary(io_lib:format("~s:~b", [Host, Port])),
-    ResourceConfig = #{
-        <<"bucket">> => <<"mqtt">>,
-        <<"org">> => <<"emqx">>,
-        <<"token">> => <<"abcdefg">>,
+    ConnectorConf = #{
+        <<"parameters">> => #{
+            <<"influxdb_type">> => <<"influxdb_api_v2">>,
+            <<"bucket">> => <<"mqtt">>,
+            <<"org">> => <<"emqx">>,
+            <<"token">> => <<"abcdefg">>
+        },
         <<"server">> => Server,
         <<"ssl">> => #{
             <<"enable">> => SslEnabled,
             <<"verify">> => Verify
         }
     },
-    #{<<"config">> => ResourceConfig}.
+    #{<<"config">> => ConnectorConf}.
+
+influxdb_action_config() ->
+    #{
+        parameters => #{
+            write_syntax => influxdb_write_syntax(),
+            precision => ms
+        }
+    }.
 
 custom_verify() ->
     fun
@@ -227,8 +257,8 @@ influxdb_write_syntax() ->
         }
     ].
 
-test_query() ->
-    {send_message, #{
+test_query(ChannelId) ->
+    {ChannelId, #{
         <<"clientid">> => <<"something">>,
         <<"payload">> => #{bool => true},
         <<"topic">> => <<"connector_test">>,

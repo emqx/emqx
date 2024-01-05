@@ -11,7 +11,6 @@
 -import(hoconsc, [mk/2, enum/1, ref/2]).
 
 -export([
-    conn_bridge_examples/1,
     write_syntax_type/0
 ]).
 
@@ -22,10 +21,20 @@
     desc/1
 ]).
 
+%% Examples
+-export([
+    bridge_v2_examples/1,
+    conn_bridge_examples/1,
+    connector_examples/1
+]).
+
 -type write_syntax() :: list().
 -reflect_type([write_syntax/0]).
 -typerefl_from_string({write_syntax/0, ?MODULE, to_influx_lines}).
 -export([to_influx_lines/1]).
+
+-define(CONNECTOR_TYPE, influxdb).
+-define(ACTION_TYPE, influxdb).
 
 %% -------------------------------------------------------------------------------------------------
 %% api
@@ -33,6 +42,7 @@
 write_syntax_type() ->
     typerefl:alias("string", write_syntax()).
 
+%% Examples
 conn_bridge_examples(Method) ->
     [
         #{
@@ -49,25 +59,80 @@ conn_bridge_examples(Method) ->
         }
     ].
 
+bridge_v2_examples(Method) ->
+    WriteExample =
+        <<"${topic},clientid=${clientid} ", "payload=${payload},",
+            "${clientid}_int_value=${payload.int_key}i,", "bool=${payload.bool}">>,
+    ParamsExample = #{
+        parameters => #{
+            write_syntax => WriteExample, precision => ms
+        }
+    },
+    [
+        #{
+            <<"influxdb">> => #{
+                summary => <<"InfluxDB Action">>,
+                value => emqx_bridge_v2_schema:action_values(
+                    Method, influxdb, influxdb, ParamsExample
+                )
+            }
+        }
+    ].
+
+connector_examples(Method) ->
+    [
+        #{
+            <<"influxdb_api_v1">> => #{
+                summary => <<"InfluxDB HTTP API V1 Connector">>,
+                value => emqx_connector_schema:connector_values(
+                    Method, influxdb, connector_values(influxdb_api_v1)
+                )
+            }
+        },
+        #{
+            <<"influxdb_api_v2">> => #{
+                summary => <<"InfluxDB HTTP API V2 Connector">>,
+                value => emqx_connector_schema:connector_values(
+                    Method, influxdb, connector_values(influxdb_api_v2)
+                )
+            }
+        }
+    ].
+
+connector_values(Type) ->
+    maps:merge(basic_connector_values(), #{parameters => connector_values_v(Type)}).
+
+connector_values_v(influxdb_api_v2) ->
+    #{
+        influxdb_type => influxdb_api_v2,
+        bucket => <<"example_bucket">>,
+        org => <<"examlpe_org">>,
+        token => <<"example_token">>
+    };
+connector_values_v(influxdb_api_v1) ->
+    #{
+        influxdb_type => influxdb_api_v1,
+        database => <<"example_database">>,
+        username => <<"example_username">>,
+        password => <<"******">>
+    }.
+
+basic_connector_values() ->
+    #{
+        enable => true,
+        server => <<"127.0.0.1:8086">>,
+        ssl => #{enable => false}
+    }.
+
 values(Protocol, get) ->
     values(Protocol, post);
 values("influxdb_api_v2", post) ->
     SupportUint = <<"uint_value=${payload.uint_key}u,">>,
-    TypeOpts = #{
-        bucket => <<"example_bucket">>,
-        org => <<"examlpe_org">>,
-        token => <<"example_token">>,
-        server => <<"127.0.0.1:8086">>
-    },
+    TypeOpts = connector_values_v(influxdb_api_v2),
     values(common, "influxdb_api_v2", SupportUint, TypeOpts);
 values("influxdb_api_v1", post) ->
     SupportUint = <<>>,
-    TypeOpts = #{
-        database => <<"example_database">>,
-        username => <<"example_username">>,
-        password => <<"******">>,
-        server => <<"127.0.0.1:8086">>
-    },
+    TypeOpts = connector_values_v(influxdb_api_v1),
     values(common, "influxdb_api_v1", SupportUint, TypeOpts);
 values(Protocol, put) ->
     values(Protocol, post).
@@ -98,6 +163,10 @@ namespace() -> "bridge_influxdb".
 
 roots() -> [].
 
+fields("config_connector") ->
+    emqx_connector_schema:common_fields() ++
+        emqx_bridge_influxdb_connector:fields("connector") ++
+        emqx_connector_schema:resource_opts_ref(?MODULE, connector_resource_opts);
 fields("post_api_v1") ->
     method_fields(post, influxdb_api_v1);
 fields("post_api_v2") ->
@@ -110,6 +179,40 @@ fields("get_api_v1") ->
     method_fields(get, influxdb_api_v1);
 fields("get_api_v2") ->
     method_fields(get, influxdb_api_v2);
+fields(action) ->
+    {influxdb,
+        mk(
+            hoconsc:map(name, ref(?MODULE, influxdb_action)),
+            #{desc => <<"InfluxDB Action Config">>, required => false}
+        )};
+fields(influxdb_action) ->
+    emqx_bridge_v2_schema:make_producer_action_schema(
+        mk(ref(?MODULE, action_parameters), #{
+            required => true, desc => ?DESC(action_parameters)
+        })
+    );
+fields(action_parameters) ->
+    [
+        {write_syntax, fun write_syntax/1},
+        emqx_bridge_influxdb_connector:precision_field()
+    ];
+fields(connector_resource_opts) ->
+    emqx_connector_schema:resource_opts_fields();
+fields(Field) when
+    Field == "get_connector";
+    Field == "put_connector";
+    Field == "post_connector"
+->
+    Fields =
+        emqx_bridge_influxdb_connector:fields("connector") ++
+            emqx_connector_schema:resource_opts_ref(?MODULE, connector_resource_opts),
+    emqx_connector_schema:api_fields(Field, ?CONNECTOR_TYPE, Fields);
+fields(Field) when
+    Field == "get_bridge_v2";
+    Field == "post_bridge_v2";
+    Field == "put_bridge_v2"
+->
+    emqx_bridge_v2_schema:api_fields(Field, ?ACTION_TYPE, fields(influxdb_action));
 fields(Type) when
     Type == influxdb_api_v1 orelse Type == influxdb_api_v2
 ->
@@ -154,6 +257,14 @@ desc(influxdb_api_v1) ->
     ?DESC(emqx_bridge_influxdb_connector, "influxdb_api_v1");
 desc(influxdb_api_v2) ->
     ?DESC(emqx_bridge_influxdb_connector, "influxdb_api_v2");
+desc(influxdb_action) ->
+    ?DESC(influxdb_action);
+desc(action_parameters) ->
+    ?DESC(action_parameters);
+desc("config_connector") ->
+    ?DESC("desc_config");
+desc(connector_resource_opts) ->
+    ?DESC(emqx_resource_schema, "resource_opts");
 desc(_) ->
     undefined.
 

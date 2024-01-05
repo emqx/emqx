@@ -47,4 +47,19 @@ Please note that a placeholder for an integer value must be annotated with a suf
 write_syntax.label:
 """Write Syntax"""
 
+action_parameters.label:
+"""Action Parameters"""
+action_parameters.desc:
+"""Additional parameters specific to this action type"""
+
+connector.label:
+"""InfluxDB Connector"""
+connector.desc:
+"""InfluxDB Connector Configs"""
+
+influxdb_action.label:
+"""InfluxDB Action"""
+influxdb_action.desc:
+"""Action to interact with a InfluxDB connector"""
+
 }
