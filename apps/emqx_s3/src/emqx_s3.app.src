@@ -1,6 +1,6 @@
 {application, emqx_s3, [
     {description, "EMQX S3"},
-    {vsn, "5.0.12"},
+    {vsn, "5.0.13"},
     {modules, []},
     {registered, [emqx_s3_sup]},
     {applications, [
@@ -8,8 +8,7 @@
         stdlib,
         gproc,
         erlcloud,
-        ehttpc,
-        emqx_bridge_http
+        ehttpc
     ]},
     {mod, {emqx_s3_app, []}}
 ]}.

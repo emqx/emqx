@@ -394,6 +394,7 @@ test_configure(Uri, Config) ->
         <<"host">> => <<"localhost">>,
         <<"port">> => 9000,
         <<"bucket">> => <<"emqx">>,
+        <<"url_expire_time">> => <<"2h">>,
         <<"secret_access_key">> => ?SECRET_ACCESS_KEY,
         <<"transport_options">> => #{
             <<"ssl">> => #{
@@ -433,6 +434,8 @@ test_configure(Uri, Config) ->
                                     <<"keyfile">> := <<"/", _KeyFilepath/bytes>>
                                 }
                             },
+                            %% ensure 2h is unchanged
+                            <<"url_expire_time">> := <<"2h">>,
                             <<"secret_access_key">> := <<"******">>
                         }
                     }

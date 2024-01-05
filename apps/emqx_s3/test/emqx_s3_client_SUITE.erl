@@ -142,6 +142,22 @@ t_no_acl(Config) ->
 
     ok = emqx_s3_client:put_object(Client, Key, <<"data">>).
 
+t_extra_headers(Config0) ->
+    Config = [{extra_headers, #{'Content-Type' => <<"application/json">>}} | Config0],
+    Key = ?config(key, Config),
+
+    Client = client(Config),
+    Data = #{foo => bar},
+    ok = emqx_s3_client:put_object(Client, Key, emqx_utils_json:encode(Data)),
+
+    Url = emqx_s3_client:uri(Client, Key),
+
+    {ok, {{_StatusLine, 200, "OK"}, _Headers, Content}} = httpc:request(Url),
+    ?_assertEqual(
+        Data,
+        emqx_utils_json:decode(Content)
+    ).
+
 %%--------------------------------------------------------------------
 %% Helpers
 %%--------------------------------------------------------------------
@@ -154,17 +170,22 @@ client(Config) ->
 
 profile_config(Config) ->
     ProfileConfig0 = emqx_s3_test_helpers:base_config(?config(conn_type, Config)),
-    ProfileConfig1 = maps:put(
-        bucket,
-        ?config(bucket, Config),
-        ProfileConfig0
-    ),
-    ProfileConfig2 = emqx_utils_maps:deep_put(
-        [transport_options, pool_type],
-        ProfileConfig1,
-        ?config(pool_type, Config)
-    ),
-    ProfileConfig2.
+    maps:fold(
+        fun inject_config/3,
+        ProfileConfig0,
+        #{
+            bucket => ?config(bucket, Config),
+            [transport_options, pool_type] => ?config(pool_type, Config),
+            [transport_options, headers] => ?config(extra_headers, Config)
+        }
+    ).
+
+inject_config(_Key, undefined, ProfileConfig) ->
+    ProfileConfig;
+inject_config(KeyPath, Value, ProfileConfig) when is_list(KeyPath) ->
+    emqx_utils_maps:deep_put(KeyPath, ProfileConfig, Value);
+inject_config(Key, Value, ProfileConfig) ->
+    maps:put(Key, Value, ProfileConfig).
 
 data(Size) ->
     iolist_to_binary([$a || _ <- lists:seq(1, Size)]).

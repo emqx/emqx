@@ -81,7 +81,7 @@ mk_client_opts(Name, WorkerId, Ingress, ClientOpts = #{clientid := ClientId}) ->
     }.
 
 mk_clientid(WorkerId, ClientId) ->
-    iolist_to_binary([ClientId, $: | integer_to_list(WorkerId)]).
+    emqx_bridge_mqtt_lib:bytes23(ClientId, WorkerId).
 
 mk_client_event_handler(Name, Ingress = #{}) ->
     IngressVars = maps:with([server], Ingress),
