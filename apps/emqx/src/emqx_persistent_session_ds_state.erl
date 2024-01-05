@@ -41,6 +41,7 @@
 
 -export_type([t/0, subscriptions/0, seqno_type/0, stream_key/0, rank_key/0]).
 
+-include("emqx_mqtt.hrl").
 -include("emqx_persistent_session_ds.hrl").
 
 %%================================================================================
@@ -89,7 +90,13 @@
         ?last_subid => integer()
     }.
 
--type seqno_type() :: term().
+-type seqno_type() ::
+    ?next(?QOS_1)
+    | ?dup(?QOS_1)
+    | ?committed(?QOS_1)
+    | ?next(?QOS_2)
+    | ?dup(?QOS_2)
+    | ?committed(?QOS_2).
 
 -opaque t() :: #{
     id := emqx_persistent_session_ds:id(),

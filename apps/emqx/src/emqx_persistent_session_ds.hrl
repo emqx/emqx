@@ -25,25 +25,40 @@
 -define(SESSION_COMMITTED_OFFSET_TAB, emqx_ds_committed_offset_tab).
 -define(DS_MRIA_SHARD, emqx_ds_session_shard).
 
-%% State of the stream:
+%%%%% Session sequence numbers:
+
+%%
+%%   -----|----------|----------|------> seqno
+%%        |          |          |
+%%   committed      dup       next
+
+%% Seqno becomes committed after receiving PUBACK for QoS1 or PUBCOMP
+%% for QoS2.
+-define(committed(QOS), {0, QOS}).
+%% Seqno becomes dup:
+%%
+%% 1. After broker sends QoS1 message to the client
+%% 2. After it receives PUBREC from the client for the QoS2 message
+-define(dup(QOS), {1, QOS}).
+%% Last seqno assigned to some message (that may reside in the
+%% mqueue):
+-define(next(QOS), {0, QOS}).
+
+%%%%% State of the stream:
 -record(ifs, {
     rank_x :: emqx_ds:rank_x(),
     rank_y :: emqx_ds:rank_y(),
     %% Iterator at the end of the last batch:
-    it_end :: emqx_ds:iterator() | undefined | end_of_stream,
-    %% Size of the last batch:
-    batch_size :: pos_integer() | undefined,
+    it_end :: emqx_ds:iterator() | end_of_stream,
     %% Key that points at the beginning of the batch:
     batch_begin_key :: binary() | undefined,
-    %% Number of messages collected in the last batch:
-    batch_n_messages :: pos_integer() | undefined,
+    batch_size = 0 :: non_neg_integer(),
     %% Session sequence number at the time when the batch was fetched:
-    first_seqno_qos1 :: emqx_persistent_session_ds:seqno() | undefined,
-    first_seqno_qos2 :: emqx_persistent_session_ds:seqno() | undefined,
-    %% Sequence numbers that the client must PUBACK or PUBREL
-    %% before we can consider the batch to be fully replayed:
-    last_seqno_qos1 :: emqx_persistent_session_ds:seqno() | undefined,
-    last_seqno_qos2 :: emqx_persistent_session_ds:seqno() | undefined
+    first_seqno_qos1 = 0 :: emqx_persistent_session_ds:seqno(),
+    first_seqno_qos2 = 0 :: emqx_persistent_session_ds:seqno(),
+    %% Number of messages collected in the last batch:
+    last_seqno_qos1 = 0 :: emqx_persistent_session_ds:seqno(),
+    last_seqno_qos2 = 0 :: emqx_persistent_session_ds:seqno()
 }).
 
 %% TODO: remove

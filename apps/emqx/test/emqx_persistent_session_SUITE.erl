@@ -713,8 +713,8 @@ t_publish_many_while_client_is_gone_qos1(Config) ->
 
     ct:pal("Msgs2 = ~p", [Msgs2]),
 
-    ?assert(NMsgs2 < NPubs, Msgs2),
-    ?assert(NMsgs2 > NPubs2, Msgs2),
+    ?assert(NMsgs2 =< NPubs, {NMsgs2, '=<', NPubs}),
+    ?assert(NMsgs2 > NPubs2, {NMsgs2, '>', NPubs2}),
     ?assert(NMsgs2 >= NPubs - NAcked, Msgs2),
     NSame = NMsgs2 - NPubs2,
     ?assert(
@@ -782,9 +782,8 @@ t_publish_many_while_client_is_gone(Config) ->
     ClientOpts = [
         {proto_ver, v5},
         {clientid, ClientId},
-        %,
-        {properties, #{'Session-Expiry-Interval' => 30}}
-        %{auto_ack, never}
+        {properties, #{'Session-Expiry-Interval' => 30}},
+        {auto_ack, never}
         | Config
     ],
 
@@ -811,12 +810,12 @@ t_publish_many_while_client_is_gone(Config) ->
     Msgs1 = receive_messages(NPubs1),
     ct:pal("Msgs1 = ~p", [Msgs1]),
     NMsgs1 = length(Msgs1),
-    NPubs1 =:= NMsgs1 orelse
-        throw_with_debug_info({NPubs1, '==', NMsgs1}, ClientId),
+    ?assertEqual(NPubs1, NMsgs1, emqx_persistent_session_ds:print_session(ClientId)),
 
     ?assertEqual(
         get_topicwise_order(Pubs1),
-        get_topicwise_order(Msgs1)
+        get_topicwise_order(Msgs1),
+        emqx_persistent_session_ds:print_session(ClientId)
     ),
 
     %% PUBACK every QoS 1 message.
@@ -1088,14 +1087,6 @@ skip_ds_tc(Config) ->
     end.
 
 throw_with_debug_info(Error, ClientId) ->
-    Info =
-        case emqx_cm:lookup_channels(ClientId) of
-            [Pid] ->
-                #{channel := ChanState} = emqx_connection:get_state(Pid),
-                SessionState = emqx_channel:info(session_state, ChanState),
-                maps:update_with(s, fun emqx_persistent_session_ds_state:format/1, SessionState);
-            [] ->
-                no_channel
-        end,
+    Info = emqx_persistent_session_ds:print_session(ClientId),
     ct:pal("!!! Assertion failed: ~p~nState:~n~p", [Error, Info]),
     exit(Error).
