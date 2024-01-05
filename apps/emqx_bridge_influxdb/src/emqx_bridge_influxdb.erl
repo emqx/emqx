@@ -261,8 +261,6 @@ desc(influxdb_action) ->
     ?DESC(influxdb_action);
 desc(action_parameters) ->
     ?DESC(action_parameters);
-desc(parameters) ->
-    ?DESC("influxdb_parameters");
 desc("config_connector") ->
     ?DESC("desc_config");
 desc(connector_resource_opts) ->

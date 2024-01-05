@@ -315,6 +315,8 @@ desc(common) ->
     ?DESC("common");
 desc(parameters) ->
     ?DESC("influxdb_parameters");
+desc("influxdb_parameters") ->
+    ?DESC("influxdb_parameters");
 desc(influxdb_api_v1) ->
     ?DESC("influxdb_api_v1");
 desc(influxdb_api_v2) ->
