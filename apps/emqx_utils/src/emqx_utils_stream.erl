@@ -20,6 +20,7 @@
 -export([
     empty/0,
     list/1,
+    mqueue/1,
     map/2,
     chain/2
 ]).
@@ -58,6 +59,18 @@ list([]) ->
     empty();
 list([X | Rest]) ->
     fun() -> [X | list(Rest)] end.
+
+%% @doc Make a stream out of process message queue.
+-spec mqueue(timeout()) -> stream(any()).
+mqueue(Timeout) ->
+    fun() ->
+        receive
+            X ->
+                [X | mqueue(Timeout)]
+        after Timeout ->
+            []
+        end
+    end.
 
 %% @doc Make a stream by applying a function to each element of the underlying stream.
 -spec map(fun((X) -> Y), stream(X)) -> stream(Y).
