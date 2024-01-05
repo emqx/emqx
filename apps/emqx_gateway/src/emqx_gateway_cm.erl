@@ -501,7 +501,7 @@ kick_session(GwName, ClientId) ->
         [] ->
             {error, not_found};
         ChanPids ->
-            ChanPids > 1 andalso
+            length(ChanPids) > 1 andalso
                 begin
                     ?SLOG(
                         warning,
