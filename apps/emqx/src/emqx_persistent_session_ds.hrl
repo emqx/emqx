@@ -42,16 +42,16 @@
 -define(dup(QOS), {1, QOS}).
 %% Last seqno assigned to some message (that may reside in the
 %% mqueue):
--define(next(QOS), {0, QOS}).
+-define(next(QOS), {2, QOS}).
 
 %%%%% State of the stream:
 -record(ifs, {
     rank_x :: emqx_ds:rank_x(),
     rank_y :: emqx_ds:rank_y(),
-    %% Iterator at the end of the last batch:
+    %% Iterator at the beginning and end of the last batch:
+    it_begin :: emqx_ds:iterator() | undefined,
     it_end :: emqx_ds:iterator() | end_of_stream,
     %% Key that points at the beginning of the batch:
-    batch_begin_key :: binary() | undefined,
     batch_size = 0 :: non_neg_integer(),
     %% Session sequence number at the time when the batch was fetched:
     first_seqno_qos1 = 0 :: emqx_persistent_session_ds:seqno(),

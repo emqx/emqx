@@ -477,20 +477,13 @@ replay(ClientInfo, [], Session0 = #{s := S0}) ->
 
 -spec replay_batch(stream_state(), session(), clientinfo()) -> session().
 replay_batch(Ifs0, Session, ClientInfo) ->
-    #ifs{
-        batch_begin_key = BatchBeginMsgKey,
-        batch_size = BatchSize,
-        it_end = ItEnd
-    } = Ifs0,
-    %% TODO: retry
-    {ok, ItBegin} = emqx_ds:update_iterator(?PERSISTENT_MESSAGE_DB, ItEnd, BatchBeginMsgKey),
-    Ifs1 = Ifs0#ifs{it_end = ItBegin},
-    {Ifs, Inflight} = enqueue_batch(true, BatchSize, Ifs1, Session, ClientInfo),
+    #ifs{batch_size = BatchSize} = Ifs0,
+    %% TODO: retry on errors:
+    {Ifs, Inflight} = enqueue_batch(true, BatchSize, Ifs0, Session, ClientInfo),
     %% Assert:
-    Ifs =:= Ifs1 orelse
-        ?SLOG(warning, #{
-            msg => "replay_inconsistency",
-            expected => Ifs1,
+    Ifs =:= Ifs0 orelse
+        ?tp(warning, emqx_persistent_session_ds_replay_inconsistency, #{
+            expected => Ifs0,
             got => Ifs
         }),
     Session#{inflight => Inflight}.
@@ -645,7 +638,6 @@ new_batch({StreamKey, Ifs0}, BatchSize, Session = #{s := S0}, ClientInfo) ->
         first_seqno_qos1 = SN1,
         first_seqno_qos2 = SN2,
         batch_size = 0,
-        batch_begin_key = undefined,
         last_seqno_qos1 = SN1,
         last_seqno_qos2 = SN2
     },
@@ -657,10 +649,16 @@ new_batch({StreamKey, Ifs0}, BatchSize, Session = #{s := S0}, ClientInfo) ->
 
 enqueue_batch(IsReplay, BatchSize, Ifs0, Session = #{inflight := Inflight0}, ClientInfo) ->
     #ifs{
-        it_end = It0,
+        it_begin = ItBegin,
+        it_end = ItEnd,
         first_seqno_qos1 = FirstSeqnoQos1,
         first_seqno_qos2 = FirstSeqnoQos2
     } = Ifs0,
+    It0 =
+        case IsReplay of
+            true -> ItBegin;
+            false -> ItEnd
+        end,
     case emqx_ds:next(?PERSISTENT_MESSAGE_DB, It0, BatchSize) of
         {ok, It, []} ->
             %% No new messages; just update the end iterator:
@@ -668,13 +666,13 @@ enqueue_batch(IsReplay, BatchSize, Ifs0, Session = #{inflight := Inflight0}, Cli
         {ok, end_of_stream} ->
             %% No new messages; just update the end iterator:
             {Ifs0#ifs{it_end = end_of_stream}, Inflight0};
-        {ok, It, [{BatchBeginMsgKey, _} | _] = Messages} ->
+        {ok, It, Messages} ->
             {Inflight, LastSeqnoQos1, LastSeqnoQos2} = process_batch(
                 IsReplay, Session, ClientInfo, FirstSeqnoQos1, FirstSeqnoQos2, Messages, Inflight0
             ),
             Ifs = Ifs0#ifs{
+                it_begin = It0,
                 it_end = It,
-                batch_begin_key = BatchBeginMsgKey,
                 %% TODO: it should be possible to avoid calling
                 %% length here by diffing size of inflight before
                 %% and after inserting messages:
@@ -852,30 +850,30 @@ commit_seqno(Track, PacketId, Session = #{id := SessionId, s := S}) ->
     SeqNo = packet_id_to_seqno(PacketId, S),
     case Track of
         puback ->
-            Old = ?committed(?QOS_1),
-            Next = ?next(?QOS_1);
+            MinTrack = ?committed(?QOS_1),
+            MaxTrack = ?next(?QOS_1);
         pubrec ->
-            Old = ?dup(?QOS_2),
-            Next = ?next(?QOS_2);
+            MinTrack = ?dup(?QOS_2),
+            MaxTrack = ?next(?QOS_2);
         pubcomp ->
-            Old = ?committed(?QOS_2),
-            Next = ?next(?QOS_2)
+            MinTrack = ?committed(?QOS_2),
+            MaxTrack = ?next(?QOS_2)
     end,
-    NextSeqNo = emqx_persistent_session_ds_state:get_seqno(Next, S),
-    PrevSeqNo = emqx_persistent_session_ds_state:get_seqno(Old, S),
-    case PrevSeqNo =< SeqNo andalso SeqNo =< NextSeqNo of
+    Min = emqx_persistent_session_ds_state:get_seqno(MinTrack, S),
+    Max = emqx_persistent_session_ds_state:get_seqno(MaxTrack, S),
+    case Min =< SeqNo andalso SeqNo =< Max of
         true ->
             %% TODO: we pass a bogus message into the hook:
             Msg = emqx_message:make(SessionId, <<>>, <<>>),
-            {ok, Msg, Session#{s => emqx_persistent_session_ds_state:put_seqno(Old, SeqNo, S)}};
+            {ok, Msg, Session#{s => emqx_persistent_session_ds_state:put_seqno(MinTrack, SeqNo, S)}};
         false ->
             ?SLOG(warning, #{
                 msg => "out-of-order_commit",
                 track => Track,
                 packet_id => PacketId,
-                commit_seqno => SeqNo,
-                prev => PrevSeqNo,
-                next => NextSeqNo
+                seqno => SeqNo,
+                min => Min,
+                max => Max
             }),
             {error, ?RC_PACKET_IDENTIFIER_NOT_FOUND}
     end.

@@ -66,14 +66,13 @@
 %% It's implemented as three maps: `clean', `dirty' and `tombstones'.
 %% Updates are made to the `dirty' area. `pmap_commit' function saves
 %% the updated entries to Mnesia and moves them to the `clean' area.
--record(pmap, {table, clean, dirty, tombstones}).
+-record(pmap, {table, cache, dirty}).
 
 -type pmap(K, V) ::
     #pmap{
         table :: atom(),
-        clean :: #{K => V},
-        dirty :: #{K => V},
-        tombstones :: #{K => _}
+        cache :: #{K => V},
+        dirty :: #{K => dirty | del}
     }.
 
 %% Session metadata:
@@ -409,70 +408,56 @@ pmap_open(Table, SessionId) ->
     Clean = maps:from_list(kv_bag_restore(Table, SessionId)),
     #pmap{
         table = Table,
-        clean = Clean,
-        dirty = #{},
-        tombstones = #{}
+        cache = Clean,
+        dirty = #{}
     }.
 
 -spec pmap_get(K, pmap(K, V)) -> V | undefined.
-pmap_get(K, #pmap{dirty = Dirty, clean = Clean}) ->
-    case Dirty of
-        #{K := V} ->
-            V;
-        _ ->
-            case Clean of
-                #{K := V} -> V;
-                _ -> undefined
-            end
-    end.
+pmap_get(K, #pmap{cache = Cache}) ->
+    maps:get(K, Cache, undefined).
 
 -spec pmap_put(K, V, pmap(K, V)) -> pmap(K, V).
-pmap_put(K, V, Pmap = #pmap{dirty = Dirty, clean = Clean, tombstones = Tombstones}) ->
+pmap_put(K, V, Pmap = #pmap{dirty = Dirty, cache = Cache}) ->
     Pmap#pmap{
-        dirty = maps:put(K, V, Dirty),
-        clean = maps:remove(K, Clean),
-        tombstones = maps:remove(K, Tombstones)
+        cache = maps:put(K, V, Cache),
+        dirty = Dirty#{K => dirty}
     }.
 
 -spec pmap_del(K, pmap(K, V)) -> pmap(K, V).
 pmap_del(
     Key,
-    Pmap = #pmap{dirty = Dirty, clean = Clean, tombstones = Tombstones}
+    Pmap = #pmap{dirty = Dirty, cache = Cache}
 ) ->
-    %% Update the caches:
     Pmap#pmap{
-        dirty = maps:remove(Key, Dirty),
-        clean = maps:remove(Key, Clean),
-        tombstones = Tombstones#{Key => del}
+        cache = maps:remove(Key, Cache),
+        dirty = Dirty#{Key => del}
     }.
 
 -spec pmap_fold(fun((K, V, A) -> A), A, pmap(K, V)) -> A.
-pmap_fold(Fun, Acc0, #pmap{clean = Clean, dirty = Dirty}) ->
-    Acc1 = maps:fold(Fun, Acc0, Dirty),
-    maps:fold(Fun, Acc1, Clean).
+pmap_fold(Fun, Acc, #pmap{cache = Cache}) ->
+    maps:fold(Fun, Acc, Cache).
 
 -spec pmap_commit(emqx_persistent_session_ds:id(), pmap(K, V)) -> pmap(K, V).
 pmap_commit(
-    SessionId, Pmap = #pmap{table = Tab, dirty = Dirty, clean = Clean, tombstones = Tombstones}
+    SessionId, Pmap = #pmap{table = Tab, dirty = Dirty, cache = Cache}
 ) ->
-    %% Commit deletions:
-    maps:foreach(fun(K, _) -> kv_bag_delete(Tab, SessionId, K) end, Tombstones),
-    %% Replace all records in the bag with the entries from the dirty area:
     maps:foreach(
-        fun(K, V) ->
-            kv_bag_persist(Tab, SessionId, K, V)
+        fun
+            (K, del) ->
+                kv_bag_delete(Tab, SessionId, K);
+            (K, dirty) ->
+                V = maps:get(K, Cache),
+                kv_bag_persist(Tab, SessionId, K, V)
         end,
         Dirty
     ),
     Pmap#pmap{
-        dirty = #{},
-        tombstones = #{},
-        clean = maps:merge(Clean, Dirty)
+        dirty = #{}
     }.
 
 -spec pmap_format(pmap(_K, _V)) -> map().
-pmap_format(#pmap{clean = Clean, dirty = Dirty}) ->
-    maps:merge(Clean, Dirty).
+pmap_format(#pmap{cache = Cache}) ->
+    Cache.
 
 %% Functions dealing with set tables:
 

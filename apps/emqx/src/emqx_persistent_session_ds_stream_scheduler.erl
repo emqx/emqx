@@ -217,8 +217,8 @@ remove_fully_replayed_streams(S0) ->
     ).
 
 compare_streams(
-    #ifs{first_seqno_qos1 = A1, first_seqno_qos2 = A2},
-    #ifs{first_seqno_qos1 = B1, first_seqno_qos2 = B2}
+    {_KeyA, #ifs{first_seqno_qos1 = A1, first_seqno_qos2 = A2}},
+    {_KeyB, #ifs{first_seqno_qos1 = B1, first_seqno_qos2 = B2}}
 ) ->
     case A1 =:= B1 of
         true ->
