@@ -42,7 +42,7 @@ init([]) ->
     SyncerPool = emqx_pool_sup:spec(syncer_pool_sup, [
         router_syncer_pool,
         hash,
-        emqx:get_config([node, syncer_pool_size], emqx_vm:schedulers() * 2),
+        PoolSize,
         {emqx_router_syncer, start_link, []}
     ]),
 

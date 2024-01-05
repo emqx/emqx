@@ -45,6 +45,11 @@
     do_delete_route/2
 ]).
 
+%% Mria Activity RPC targets
+% -export([
+%     mria_insert_route/2
+% ]).
+
 -export([do_batch/1]).
 
 -export([cleanup_routes/1]).
@@ -236,9 +241,14 @@ mria_delete_route(v2, Topic, Dest, Ctx) ->
 mria_delete_route(v1, Topic, Dest, Ctx) ->
     mria_delete_route_v1(Topic, Dest, Ctx).
 
+-spec do_batch(Batch) -> Errors when
+    %% Operation :: {add, ...} | {delete, ...}.
+    Batch :: #{Route => _Operation :: tuple()},
+    Errors :: #{Route => _Error},
+    Route :: {emqx_types:topic(), dest()}.
 do_batch(Batch) ->
     Nodes = batch_get_dest_nodes(Batch),
-    ok = lists:foreach(fun emqx_router_helper:monitor/1, Nodes),
+    ok = lists:foreach(fun emqx_router_helper:monitor/1, ordsets:to_list(Nodes)),
     mria_batch(get_schema_vsn(), Batch).
 
 mria_batch(v2, Batch) ->
@@ -256,7 +266,7 @@ mria_batch_v1(Batch) ->
 mria_batch_run(SchemaVsn, Batch) ->
     maps:fold(
         fun({Topic, Dest}, Op, Errors) ->
-            case mria_batch_operation(SchemaVsn, Op, Topic, Dest) of
+            case mria_batch_operation(SchemaVsn, batch_get_action(Op), Topic, Dest) of
                 ok ->
                     Errors;
                 Error ->
@@ -274,15 +284,20 @@ mria_batch_operation(SchemaVsn, delete, Topic, Dest) ->
 
 batch_get_dest_nodes(Batch) ->
     maps:fold(
-        fun
-            ({_Topic, Dest}, add, Acc) ->
-                ordsets:add_element(get_dest_node(Dest), Acc);
-            (_, delete, Acc) ->
-                Acc
+        fun({_Topic, Dest}, Op, Acc) ->
+            case batch_get_action(Op) of
+                add ->
+                    ordsets:add_element(get_dest_node(Dest), Acc);
+                delete ->
+                    Acc
+            end
         end,
         ordsets:new(),
         Batch
     ).
+
+batch_get_action(Op) ->
+    element(1, Op).
 
 -spec select(Spec, _Limit :: pos_integer(), Continuation) ->
     {[emqx_types:route()], Continuation} | '$end_of_table'
