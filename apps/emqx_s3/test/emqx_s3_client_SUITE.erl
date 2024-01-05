@@ -152,7 +152,8 @@ t_extra_headers(Config0) ->
 
     Url = emqx_s3_client:uri(Client, Key),
 
-    {ok, {{_StatusLine, 200, "OK"}, _Headers, Content}} = httpc:request(Url),
+    {ok, {{_StatusLine, 200, "OK"}, _Headers, Content}} =
+        httpc:request(get, {Url, []}, [{ssl, [{verify, verify_none}]}], []),
     ?_assertEqual(
         Data,
         emqx_utils_json:decode(Content)
