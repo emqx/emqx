@@ -52,7 +52,12 @@ groups() ->
     [
         {parallel, [parallel], [t_create, t_update, t_delete, t_authorize, t_create_unexpired_app]},
         {parallel, [parallel], ?EE_CASES},
-        {sequence, [], [t_bootstrap_file, t_bootstrap_file_with_role, t_create_failed]}
+        {sequence, [], [
+            t_application_start_with_non_exist_file,
+            t_bootstrap_file,
+            t_bootstrap_file_with_role,
+            t_create_failed
+        ]}
     ].
 
 init_per_suite(Config) ->
@@ -61,6 +66,18 @@ init_per_suite(Config) ->
 
 end_per_suite(_) ->
     emqx_mgmt_api_test_util:end_suite([emqx_conf, emqx_management]).
+
+t_application_start_with_non_exist_file(_) ->
+    application:stop(emqx_management),
+
+    Original = emqx_config:get_raw([api_key, bootstrap_file]),
+    update_file(<<"non-exist-file">>),
+
+    %% assert: start the application succeed with a non-exist bootstrap_file
+    ok = application:start(emqx_management),
+
+    update_file(Original),
+    ok.
 
 t_bootstrap_file(_) ->
     TestPath = <<"/api/v5/status">>,

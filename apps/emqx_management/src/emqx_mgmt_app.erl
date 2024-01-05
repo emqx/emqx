@@ -28,13 +28,9 @@
 -include("emqx_mgmt.hrl").
 
 start(_Type, _Args) ->
-    case emqx_mgmt_auth:init_bootstrap_file() of
-        ok ->
-            emqx_conf:add_handler([api_key], emqx_mgmt_auth),
-            emqx_mgmt_sup:start_link();
-        {error, Reason} ->
-            {error, Reason}
-    end.
+    _ = emqx_mgmt_auth:init_bootstrap_file(),
+    emqx_conf:add_handler([api_key], emqx_mgmt_auth),
+    emqx_mgmt_sup:start_link().
 
 stop(_State) ->
     emqx_conf:remove_handler([api_key]),
