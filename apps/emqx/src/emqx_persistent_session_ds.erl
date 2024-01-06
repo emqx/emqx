@@ -290,7 +290,7 @@ subscribe(
             %% router and iterator information can be reconstructed
             %% from this table, if needed.
             ok = emqx_persistent_session_ds_router:do_add_route(TopicFilter, ID),
-            {SubId, S1} = emqx_persistent_session_ds_state:new_subid(S0),
+            {SubId, S1} = emqx_persistent_session_ds_state:new_id(S0),
             Subscription = #{
                 start_time => now_ms(),
                 props => SubOpts,
@@ -314,10 +314,10 @@ unsubscribe(
     TopicFilter,
     Session = #{id := ID, s := S0}
 ) ->
-    %% TODO: drop streams and messages from the buffer
     case subs_lookup(TopicFilter, S0) of
-        #{props := SubOpts, id := _SubId} ->
-            S = emqx_persistent_session_ds_state:del_subscription(TopicFilter, [], S0),
+        #{props := SubOpts, id := SubId} ->
+            S1 = emqx_persistent_session_ds_state:del_subscription(TopicFilter, [], S0),
+            S = emqx_persistent_session_ds_stream_scheduler:del_subscription(SubId, S1),
             ?tp_span(
                 persistent_session_ds_subscription_route_delete,
                 #{session_id => ID},
@@ -662,11 +662,13 @@ enqueue_batch(IsReplay, BatchSize, Ifs0, Session = #{inflight := Inflight0}, Cli
     case emqx_ds:next(?PERSISTENT_MESSAGE_DB, It0, BatchSize) of
         {ok, It, []} ->
             %% No new messages; just update the end iterator:
+            logger:warning(#{msg => "batch_empty"}),
             {Ifs0#ifs{it_end = It}, Inflight0};
         {ok, end_of_stream} ->
             %% No new messages; just update the end iterator:
             {Ifs0#ifs{it_end = end_of_stream}, Inflight0};
-        {ok, It, Messages} ->
+        {ok, It, [{K, _} | _] = Messages} ->
+            logger:warning(#{msg => "batch", it => K, msgs => length(Messages)}),
             {Inflight, LastSeqnoQos1, LastSeqnoQos2} = process_batch(
                 IsReplay, Session, ClientInfo, FirstSeqnoQos1, FirstSeqnoQos2, Messages, Inflight0
             ),

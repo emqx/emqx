@@ -17,7 +17,7 @@
 
 %% API:
 -export([find_new_streams/1, find_replay_streams/1]).
--export([renew_streams/1]).
+-export([renew_streams/1, del_subscription/2]).
 
 %% behavior callbacks:
 -export([]).
@@ -113,12 +113,31 @@ renew_streams(S0) ->
         emqx_persistent_session_ds_state:get_subscriptions(S1)
     ).
 
+-spec del_subscription(
+    emqx_persistent_session_ds:subscription_id(), emqx_persistent_session_ds_state:t()
+) ->
+    emqx_persistent_session_ds_state:t().
+del_subscription(SubId, S0) ->
+    emqx_persistent_session_ds_state:fold_streams(
+        fun(Key, _, Acc) ->
+            case Key of
+                {SubId, _Stream} ->
+                    emqx_persistent_session_ds_state:del_stream(Key, Acc);
+                _ ->
+                    Acc
+            end
+        end,
+        S0,
+        S0
+    ).
+
 %%================================================================================
 %% Internal functions
 %%================================================================================
 
 ensure_iterator(TopicFilter, StartTime, SubId, {{RankX, RankY}, Stream}, S) ->
-    Key = {SubId, Stream},
+    %% TODO: use next_id to enumerate streams
+    Key = {SubId, term_to_binary(Stream)},
     case emqx_persistent_session_ds_state:get_stream(Key, S) of
         undefined ->
             {ok, Iterator} = emqx_ds:make_iterator(
@@ -127,6 +146,7 @@ ensure_iterator(TopicFilter, StartTime, SubId, {{RankX, RankY}, Stream}, S) ->
             NewStreamState = #ifs{
                 rank_x = RankX,
                 rank_y = RankY,
+                it_begin = Iterator,
                 it_end = Iterator
             },
             emqx_persistent_session_ds_state:put_stream(Key, NewStreamState, S);

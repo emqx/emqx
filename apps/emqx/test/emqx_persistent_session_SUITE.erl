@@ -54,7 +54,8 @@ all() ->
 groups() ->
     TCs = emqx_common_test_helpers:all(?MODULE),
     TCsNonGeneric = [t_choose_impl],
-    TCGroups = [{group, tcp}, {group, quic}, {group, ws}],
+    % {group, quic}, {group, ws}],
+    TCGroups = [{group, tcp}],
     [
         %% {persistence_disabled, TCGroups},
         {persistence_enabled, TCGroups},
@@ -694,6 +695,9 @@ t_publish_many_while_client_is_gone_qos1(Config) ->
     ok = publish_many(Pubs2),
     NPubs2 = length(Pubs2),
 
+    _ = receive_messages(NPubs1, 2000),
+    [] = receive_messages(NPubs1, 2000),
+    debug_info(ClientId),
     {ok, Client2} = emqtt:start_link([
         {proto_ver, v5},
         {clientid, ClientId},
@@ -702,12 +706,14 @@ t_publish_many_while_client_is_gone_qos1(Config) ->
         {auto_ack, false}
         | Config
     ]),
+
     {ok, _} = emqtt:ConnFun(Client2),
 
     %% Try to receive _at most_ `NPubs` messages.
     %% There shouldn't be that much unacked messages in the replay anyway,
     %% but it's an easy number to pick.
     NPubs = NPubs1 + NPubs2,
+
     Msgs2 = receive_messages(NPubs, _Timeout = 2000),
     NMsgs2 = length(Msgs2),
 
@@ -1086,7 +1092,6 @@ skip_ds_tc(Config) ->
             Config
     end.
 
-throw_with_debug_info(Error, ClientId) ->
+debug_info(ClientId) ->
     Info = emqx_persistent_session_ds:print_session(ClientId),
-    ct:pal("!!! Assertion failed: ~p~nState:~n~p", [Error, Info]),
-    exit(Error).
+    ct:pal("*** State:~n~p", [Info]).

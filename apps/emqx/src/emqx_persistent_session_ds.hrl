@@ -34,15 +34,19 @@
 
 %% Seqno becomes committed after receiving PUBACK for QoS1 or PUBCOMP
 %% for QoS2.
--define(committed(QOS), {0, QOS}).
+-define(committed(QOS), QOS).
 %% Seqno becomes dup:
 %%
-%% 1. After broker sends QoS1 message to the client
-%% 2. After it receives PUBREC from the client for the QoS2 message
--define(dup(QOS), {1, QOS}).
-%% Last seqno assigned to some message (that may reside in the
-%% mqueue):
--define(next(QOS), {2, QOS}).
+%% 1. After broker sends QoS1 message to the client. Upon session
+%% reconnect, QoS1 messages with seqno in the committed..dup range are
+%% retransmitted with DUP flag.
+%%
+%% 2. After it receives PUBREC from the client for the QoS2 message.
+%% Upon session reconnect, PUBREL for QoS2 messages with seqno in
+%% committed..dup are retransmitted.
+-define(dup(QOS), (10 + QOS)).
+%% Last seqno assigned to a message.
+-define(next(QOS), (20 + QOS)).
 
 %%%%% State of the stream:
 -record(ifs, {

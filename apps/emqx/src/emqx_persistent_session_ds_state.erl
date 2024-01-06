@@ -30,7 +30,7 @@
 -export([get_created_at/1, set_created_at/2]).
 -export([get_last_alive_at/1, set_last_alive_at/2]).
 -export([get_conninfo/1, set_conninfo/2]).
--export([new_subid/1]).
+-export([new_id/1]).
 -export([get_stream/2, put_stream/3, del_stream/2, fold_streams/3]).
 -export([get_seqno/2, put_seqno/3]).
 -export([get_rank/2, put_rank/3, del_rank/2, fold_ranks/3]).
@@ -43,6 +43,7 @@
 
 -include("emqx_mqtt.hrl").
 -include("emqx_persistent_session_ds.hrl").
+-include_lib("snabbkaffe/include/trace.hrl").
 
 %%================================================================================
 %% Type declarations
@@ -79,14 +80,15 @@
 -define(created_at, created_at).
 -define(last_alive_at, last_alive_at).
 -define(conninfo, conninfo).
--define(last_subid, last_subid).
+%% Unique integer used to create unique identities
+-define(last_id, last_id).
 
 -type metadata() ::
     #{
         ?created_at => emqx_persistent_session_ds:timestamp(),
         ?last_alive_at => emqx_persistent_session_ds:timestamp(),
         ?conninfo => emqx_types:conninfo(),
-        ?last_subid => integer()
+        ?last_id => integer()
     }.
 
 -type seqno_type() ::
@@ -112,7 +114,7 @@
 -define(stream_tab, emqx_ds_session_streams).
 -define(seqno_tab, emqx_ds_session_seqnos).
 -define(rank_tab, emqx_ds_session_ranks).
--define(bag_tables, [?stream_tab, ?seqno_tab, ?rank_tab, ?subscription_tab]).
+-define(pmap_tables, [?stream_tab, ?seqno_tab, ?rank_tab, ?subscription_tab]).
 
 %%================================================================================
 %% API funcions
@@ -130,8 +132,8 @@ create_tables() ->
             {attributes, record_info(fields, kv)}
         ]
     ),
-    [create_kv_bag_table(Table) || Table <- ?bag_tables],
-    mria:wait_for_tables([?session_tab | ?bag_tables]).
+    [create_kv_pmap_table(Table) || Table <- ?pmap_tables],
+    mria:wait_for_tables([?session_tab | ?pmap_tables]).
 
 -spec open(emqx_persistent_session_ds:id()) -> {ok, t()} | undefined.
 open(SessionId) ->
@@ -191,7 +193,7 @@ list_sessions() ->
 delete(Id) ->
     transaction(
         fun() ->
-            [kv_delete(Table, Id) || Table <- ?bag_tables],
+            [kv_pmap_delete(Table, Id) || Table <- ?pmap_tables],
             mnesia:delete(?session_tab, Id, write)
         end
     ).
@@ -259,14 +261,14 @@ get_conninfo(Rec) ->
 set_conninfo(Val, Rec) ->
     set_meta(?conninfo, Val, Rec).
 
--spec new_subid(t()) -> {emqx_persistent_session_ds:subscription_id(), t()}.
-new_subid(Rec) ->
-    LastSubId =
-        case get_meta(?last_subid, Rec) of
+-spec new_id(t()) -> {emqx_persistent_session_ds:subscription_id(), t()}.
+new_id(Rec) ->
+    LastId =
+        case get_meta(?last_id, Rec) of
             undefined -> 0;
             N when is_integer(N) -> N
         end,
-    {LastSubId, set_meta(?last_subid, LastSubId + 1, Rec)}.
+    {LastId, set_meta(?last_id, LastId + 1, Rec)}.
 
 %%
 
@@ -283,7 +285,7 @@ get_subscriptions(#{subscriptions := Subs}) ->
 put_subscription(TopicFilter, SubId, Subscription, Rec = #{id := Id, subscriptions := Subs0}) ->
     %% Note: currently changes to the subscriptions are persisted immediately.
     Key = {TopicFilter, SubId},
-    transaction(fun() -> kv_bag_persist(?subscription_tab, Id, Key, Subscription) end),
+    transaction(fun() -> kv_pmap_persist(?subscription_tab, Id, Key, Subscription) end),
     Subs = emqx_topic_gbt:insert(TopicFilter, SubId, Subscription, Subs0),
     Rec#{subscriptions => Subs}.
 
@@ -291,13 +293,13 @@ put_subscription(TopicFilter, SubId, Subscription, Rec = #{id := Id, subscriptio
 del_subscription(TopicFilter, SubId, Rec = #{id := Id, subscriptions := Subs0}) ->
     %% Note: currently the subscriptions are persisted immediately.
     Key = {TopicFilter, SubId},
-    transaction(fun() -> kv_bag_delete(?subscription_tab, Id, Key) end),
+    transaction(fun() -> kv_pmap_delete(?subscription_tab, Id, Key) end),
     Subs = emqx_topic_gbt:delete(TopicFilter, SubId, Subs0),
     Rec#{subscriptions => Subs}.
 
 %%
 
--type stream_key() :: {emqx_persistent_session_ds:subscription_id(), emqx_ds:stream()}.
+-type stream_key() :: {emqx_persistent_session_ds:subscription_id(), binary()}.
 
 -spec get_stream(stream_key(), t()) ->
     emqx_persistent_session_ds:stream_state() | undefined.
@@ -390,7 +392,7 @@ gen_del(Field, Key, Rec) ->
 %%
 
 read_subscriptions(SessionId) ->
-    Records = kv_bag_restore(?subscription_tab, SessionId),
+    Records = kv_pmap_restore(?subscription_tab, SessionId),
     lists:foldl(
         fun({{TopicFilter, SubId}, Subscription}, Acc) ->
             emqx_topic_gbt:insert(TopicFilter, SubId, Subscription, Acc)
@@ -405,7 +407,7 @@ read_subscriptions(SessionId) ->
 %% This functtion should be ran in a transaction.
 -spec pmap_open(atom(), emqx_persistent_session_ds:id()) -> pmap(_K, _V).
 pmap_open(Table, SessionId) ->
-    Clean = maps:from_list(kv_bag_restore(Table, SessionId)),
+    Clean = maps:from_list(kv_pmap_restore(Table, SessionId)),
     #pmap{
         table = Table,
         cache = Clean,
@@ -444,10 +446,10 @@ pmap_commit(
     maps:foreach(
         fun
             (K, del) ->
-                kv_bag_delete(Tab, SessionId, K);
+                kv_pmap_delete(Tab, SessionId, K);
             (K, dirty) ->
                 V = maps:get(K, Cache),
-                kv_bag_persist(Tab, SessionId, K, V)
+                kv_pmap_persist(Tab, SessionId, K, V)
         end,
         Dirty
     ),
@@ -465,47 +467,43 @@ kv_persist(Tab, SessionId, Val0) ->
     Val = encoder(encode, Tab, Val0),
     mnesia:write(Tab, #kv{k = SessionId, v = Val}, write).
 
-kv_delete(Table, Namespace) ->
-    mnesia:delete({Table, Namespace}).
-
 kv_restore(Tab, SessionId) ->
     [encoder(decode, Tab, V) || #kv{v = V} <- mnesia:read(Tab, SessionId)].
 
 %% Functions dealing with bags:
 
 %% @doc Create a mnesia table for the PMAP:
--spec create_kv_bag_table(atom()) -> ok.
-create_kv_bag_table(Table) ->
+-spec create_kv_pmap_table(atom()) -> ok.
+create_kv_pmap_table(Table) ->
     mria:create_table(Table, [
-        {type, bag},
+        {type, ordered_set},
         {rlog_shard, ?DS_MRIA_SHARD},
         {storage, rocksdb_copies},
         {record_name, kv},
         {attributes, record_info(fields, kv)}
     ]).
 
-kv_bag_persist(Tab, SessionId, Key, Val0) ->
-    %% Remove the previous entry corresponding to the key:
-    kv_bag_delete(Tab, SessionId, Key),
+kv_pmap_persist(Tab, SessionId, Key, Val0) ->
     %% Write data to mnesia:
     Val = encoder(encode, Tab, Val0),
-    mnesia:write(Tab, #kv{k = SessionId, v = {Key, Val}}, write).
+    mnesia:write(Tab, #kv{k = {SessionId, Key}, v = Val}, write).
 
-kv_bag_restore(Tab, SessionId) ->
-    [{K, encoder(decode, Tab, V)} || #kv{v = {K, V}} <- mnesia:read(Tab, SessionId)].
+kv_pmap_restore(Table, SessionId) ->
+    MS = [{#kv{k = {SessionId, '_'}, _ = '_'}, [], ['$_']}],
+    Objs = mnesia:select(Table, MS, read),
+    [{K, encoder(decode, Table, V)} || #kv{k = {_, K}, v = V} <- Objs].
 
-kv_bag_delete(Table, SessionId, Key) ->
+kv_pmap_delete(Table, SessionId) ->
+    MS = [{#kv{k = {SessionId, '$1'}, _ = '_'}, [], ['$1']}],
+    Keys = mnesia:select(Table, MS, read),
+    [mnesia:delete(Table, {SessionId, K}, write) || K <- Keys],
+    ok.
+
+kv_pmap_delete(Table, SessionId, Key) ->
     %% Note: this match spec uses a fixed primary key, so it doesn't
     %% require a table scan, and the transaction doesn't grab the
     %% whole table lock:
-    MS = [{#kv{k = SessionId, v = {Key, '_'}}, [], ['$_']}],
-    Objs = mnesia:select(Table, MS, write),
-    lists:foreach(
-        fun(Obj) ->
-            mnesia:delete_object(Table, Obj, write)
-        end,
-        Objs
-    ).
+    mnesia:delete(Table, {SessionId, Key}, write).
 
 %%
 
