@@ -17,6 +17,7 @@
 
 -include_lib("emqx/include/emqx_mqtt.hrl").
 -include_lib("emqx/include/logger.hrl").
+-include_lib("emqx_resource/include/emqx_resource.hrl").
 
 -behaviour(emqx_resource).
 
@@ -35,6 +36,8 @@
 -export([on_async_result/2]).
 
 -define(HEALTH_CHECK_TIMEOUT, 1000).
+-define(INGRESS, "I").
+-define(EGRESS, "E").
 
 %% ===================================================================
 %% When use this bridge as a data source, ?MODULE:on_message_received will be called
@@ -66,7 +69,7 @@ on_start(ResourceId, Conf) ->
     end.
 
 start_ingress(ResourceId, Conf) ->
-    ClientOpts = mk_client_opts(ResourceId, "ingress", Conf),
+    ClientOpts = mk_client_opts(ResourceId, ?INGRESS, Conf),
     case mk_ingress_config(ResourceId, Conf) of
         Ingress = #{} ->
             start_ingress(ResourceId, Ingress, ClientOpts);
@@ -91,6 +94,8 @@ start_ingress(ResourceId, Ingress, ClientOpts) ->
             {error, Reason}
     end.
 
+choose_ingress_pool_size(<<?TEST_ID_PREFIX, _/binary>>, _) ->
+    1;
 choose_ingress_pool_size(
     ResourceId,
     #{remote := #{topic := RemoteTopic}, pool_size := PoolSize}
@@ -119,7 +124,7 @@ start_egress(ResourceId, Conf) ->
     % NOTE
     % We are ignoring the user configuration here because there's currently no reliable way
     % to ensure proper session recovery according to the MQTT spec.
-    ClientOpts = maps:put(clean_start, true, mk_client_opts(ResourceId, "egress", Conf)),
+    ClientOpts = maps:put(clean_start, true, mk_client_opts(ResourceId, ?EGRESS, Conf)),
     case mk_egress_config(Conf) of
         Egress = #{} ->
             start_egress(ResourceId, Egress, ClientOpts);
@@ -326,15 +331,22 @@ mk_client_opts(
         ],
         Config
     ),
+    Name = parse_id_to_name(ResourceId),
     mk_client_opt_password(Options#{
         hosts => [HostPort],
-        clientid => clientid(ResourceId, ClientScope, Config),
+        clientid => clientid(Name, ClientScope, Config),
         connect_timeout => 30,
         keepalive => ms_to_s(KeepAlive),
         force_ping => true,
         ssl => EnableSsl,
         ssl_opts => maps:to_list(maps:remove(enable, Ssl))
     }).
+
+parse_id_to_name(<<?TEST_ID_PREFIX, Name/binary>>) ->
+    Name;
+parse_id_to_name(Id) ->
+    {_Type, Name} = emqx_bridge_resource:parse_bridge_id(Id, #{atom_name => false}),
+    Name.
 
 mk_client_opt_password(Options = #{password := Secret}) ->
     %% TODO: Teach `emqtt` to accept 0-arity closures as passwords.
@@ -345,7 +357,9 @@ mk_client_opt_password(Options) ->
 ms_to_s(Ms) ->
     erlang:ceil(Ms / 1000).
 
-clientid(Id, ClientScope, _Conf = #{clientid_prefix := Prefix}) when is_binary(Prefix) ->
-    iolist_to_binary([Prefix, ":", Id, ":", ClientScope, ":", atom_to_list(node())]);
-clientid(Id, ClientScope, _Conf) ->
-    iolist_to_binary([Id, ":", ClientScope, ":", atom_to_list(node())]).
+clientid(Name, ClientScope, _Conf = #{clientid_prefix := Prefix}) when
+    is_binary(Prefix) andalso Prefix =/= <<>>
+->
+    emqx_bridge_mqtt_lib:clientid_base([Prefix, $:, Name, ClientScope]);
+clientid(Name, ClientScope, _Conf) ->
+    emqx_bridge_mqtt_lib:clientid_base([Name, ClientScope]).

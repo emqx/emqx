@@ -165,7 +165,7 @@ t_load_readonly(Config) ->
             ConfBin0 = hocon_pp:do(Base1#{KeyBin => Conf}, #{}),
             ConfFile0 = prepare_conf_file(?FUNCTION_NAME, ConfBin0, Config),
             ?assertEqual(
-                {error, "update_readonly_keys_prohibited"},
+                {error, <<"update_readonly_keys_prohibited">>},
                 emqx_conf_cli:conf(["load", ConfFile0])
             ),
             %% reload etc/emqx.conf changed readonly keys

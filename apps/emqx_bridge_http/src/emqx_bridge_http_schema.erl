@@ -97,7 +97,10 @@ fields("http_action") ->
                 required => true,
                 desc => ?DESC("config_parameters_opts")
             })}
-    ] ++ emqx_connector_schema:resource_opts_ref(?MODULE, action_resource_opts);
+    ] ++
+        emqx_connector_schema:resource_opts_ref(
+            ?MODULE, action_resource_opts, fun legacy_action_resource_opts_converter/2
+        );
 fields(action_resource_opts) ->
     UnsupportedOpts = [batch_size, batch_time],
     lists:filter(
@@ -341,6 +344,13 @@ mark_request_field_deperecated(Fields) ->
         end,
         Fields
     ).
+
+legacy_action_resource_opts_converter(Conf, _Opts) when is_map(Conf) ->
+    %% In e5.3.0, we accidentally added `start_after_created` and `start_timeout` to the action resource opts.
+    %% Since e5.4.0, we have removed them. This function is used to convert the old config to the new one.
+    maps:without([<<"start_after_created">>, <<"start_timeout">>], Conf);
+legacy_action_resource_opts_converter(Conf, _Opts) ->
+    Conf.
 
 %%--------------------------------------------------------------------
 %% Examples

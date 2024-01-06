@@ -44,17 +44,6 @@ spec:
     {{- else if eq .Values.service.type "ClusterIP" }}
     nodePort: null
     {{- end }}
-    {{- if not (empty .Values.emqxConfig.EMQX_LISTENERS__TCP__INTERNAL__BIND) }}
-  - name: internalmqtt
-    port: {{ .Values.service.internalmqtt | default 11883 }}
-    protocol: TCP
-    targetPort: internalmqtt
-    {{- if and (or (eq .Values.service.type "NodePort") (eq .Values.service.type "LoadBalancer")) (not (empty .Values.service.nodePorts.internalmqtt)) }}
-    nodePort: {{ .Values.service.nodePorts.internalmqtt }}
-    {{- else if eq .Values.service.type "ClusterIP" }}
-    nodePort: null
-    {{- end }}
-    {{ end }}
   - name: mqttssl
     port: {{ .Values.service.mqttssl | default 8883 }}
     protocol: TCP
@@ -127,12 +116,6 @@ spec:
     port: {{ .Values.service.mqtt | default 1883 }}
     protocol: TCP
     targetPort: mqtt
-    {{- if not (empty .Values.emqxConfig.EMQX_LISTENERS__TCP__INTERNAL__BIND) }}
-  - name: internalmqtt
-    port: {{ .Values.service.internalmqtt | default 11883 }}
-    protocol: TCP
-    targetPort: internalmqtt
-    {{ end }}
   - name: mqttssl
     port: {{ .Values.service.mqttssl | default 8883 }}
     protocol: TCP

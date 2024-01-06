@@ -331,7 +331,7 @@ t_configs_key(_Config) ->
         Log
     ),
     Log1 = emqx_utils_maps:deep_put([<<"log">>, <<"console">>, <<"level">>], Log, <<"error">>),
-    ?assertEqual([], update_configs_with_binary(iolist_to_binary(hocon_pp:do(Log1, #{})))),
+    ?assertEqual(<<>>, update_configs_with_binary(iolist_to_binary(hocon_pp:do(Log1, #{})))),
     ?assertEqual(<<"error">>, read_conf([<<"log">>, <<"console">>, <<"level">>])),
     BadLog = emqx_utils_maps:deep_put([<<"log">>, <<"console">>, <<"level">>], Log, <<"erro1r">>),
     {error, Error} = update_configs_with_binary(iolist_to_binary(hocon_pp:do(BadLog, #{}))),
@@ -345,6 +345,17 @@ t_configs_key(_Config) ->
             }
     },
     ?assertEqual(ExpectError, emqx_utils_json:decode(Error, [return_maps])),
+    ReadOnlyConf = #{
+        <<"cluster">> =>
+            #{
+                <<"autoclean">> => <<"23h">>,
+                <<"autoheal">> => true,
+                <<"discovery_strategy">> => <<"manual">>
+            }
+    },
+    ReadOnlyBin = iolist_to_binary(hocon_pp:do(ReadOnlyConf, #{})),
+    {error, ReadOnlyError} = update_configs_with_binary(ReadOnlyBin),
+    ?assertEqual(<<"update_readonly_keys_prohibited">>, ReadOnlyError),
     ok.
 
 t_get_configs_in_different_accept(_Config) ->
@@ -394,7 +405,7 @@ t_create_webhook_v1_bridges_api(Config) ->
     WebHookFile = filename:join(?config(data_dir, Config), "webhook_v1.conf"),
     ?assertMatch({ok, _}, hocon:files([WebHookFile])),
     {ok, WebHookBin} = file:read_file(WebHookFile),
-    ?assertEqual([], update_configs_with_binary(WebHookBin)),
+    ?assertEqual(<<>>, update_configs_with_binary(WebHookBin)),
     Actions =
         #{
             <<"http">> =>
@@ -531,7 +542,7 @@ update_configs_with_binary(Bin) ->
     Path = emqx_mgmt_api_test_util:api_path(["configs"]),
     Auth = emqx_mgmt_api_test_util:auth_header_(),
     Headers = [{"accept", "text/plain"}, Auth],
-    case httpc:request(put, {Path, Headers, "text/plain", Bin}, [], []) of
+    case httpc:request(put, {Path, Headers, "text/plain", Bin}, [], [{body_format, binary}]) of
         {ok, {{"HTTP/1.1", Code, _}, _Headers, Body}} when
             Code >= 200 andalso Code =< 299
         ->

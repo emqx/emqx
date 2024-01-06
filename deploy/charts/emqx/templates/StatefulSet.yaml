@@ -111,10 +111,6 @@ spec:
             containerPort: {{ splitList ":" ( .Values.emqxConfig.EMQX_LISTENERS__WSS__DEFAULT__BIND | default "8084" ) | last }}
           - name: dashboard
             containerPort: {{ splitList ":" ( .Values.emqxConfig.EMQX_DASHBOARD__LISTENERS__HTTP__BIND | default "18083" ) | last }}
-          {{- if not (empty .Values.emqxConfig.EMQX_LISTENERS__TCP__INTERNAL__BIND) }}
-          - name: internalmqtt
-            containerPort: {{ splitList ":" .Values.emqxConfig.EMQX_LISTENERS__TCP__INTERNAL__BIND | last }}
-          {{- end }}
           {{- if not (empty .Values.emqxConfig.EMQX_DASHBOARD__LISTENERS__HTTPS__BIND) }}
           - name: dashboardtls
             containerPort: {{ splitList ":" .Values.emqxConfig.EMQX_DASHBOARD__LISTENERS__HTTPS__BIND | last }}

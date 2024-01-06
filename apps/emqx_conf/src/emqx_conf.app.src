@@ -1,6 +1,6 @@
 {application, emqx_conf, [
     {description, "EMQX configuration management"},
-    {vsn, "0.1.33"},
+    {vsn, "0.1.34"},
     {registered, []},
     {mod, {emqx_conf_app, []}},
     {applications, [kernel, stdlib, emqx_ctl]},
