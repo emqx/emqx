@@ -589,6 +589,63 @@ t_device_id(Config) ->
     iotdb_reset(Config, ConfiguredDevice),
     ok.
 
+t_template(Config) ->
+    %% Create without data  configured
+    ?assertMatch({ok, _}, emqx_bridge_v2_testlib:create_bridge(Config)),
+    ResourceId = emqx_bridge_v2_testlib:resource_id(Config),
+    BridgeId = emqx_bridge_v2_testlib:bridge_id(Config),
+    ?retry(
+        _Sleep = 1_000,
+        _Attempts = 20,
+        ?assertEqual({ok, connected}, emqx_resource_manager:health_check(ResourceId))
+    ),
+    TemplateDeviceId = <<"root.deviceWithTemplate">>,
+    DeviceId = <<"root.deviceWithoutTemplate">>,
+    Topic = <<"some/random/topic">>,
+    iotdb_reset(Config, DeviceId),
+    iotdb_reset(Config, TemplateDeviceId),
+    Payload1 = make_iotdb_payload(DeviceId, "test", "BOOLEAN", true),
+    MessageF1 = make_message_fun(Topic, Payload1),
+
+    is_success_check(
+        emqx_resource:simple_sync_query(ResourceId, {BridgeId, MessageF1()})
+    ),
+
+    {ok, {{_, 200, _}, _, Res1_1}} = iotdb_query(Config, <<"select * from ", DeviceId/binary>>),
+    ?assertMatch(#{<<"values">> := [[true]]}, emqx_utils_json:decode(Res1_1)),
+
+    iotdb_reset(Config, DeviceId),
+    iotdb_reset(Config, TemplateDeviceId),
+
+    %% reconfigure with data template
+    {ok, _} =
+        emqx_bridge_v2_testlib:update_bridge_api(Config, #{
+            <<"parameters">> => #{
+                <<"device_id">> => TemplateDeviceId,
+                <<"data">> => [
+                    #{
+                        <<"measurement">> => <<"${payload.measurement}">>,
+                        <<"data_type">> => "TEXT",
+                        <<"value">> => <<"${payload.device_id}">>
+                    }
+                ]
+            }
+        }),
+
+    is_success_check(
+        emqx_resource:simple_sync_query(ResourceId, {BridgeId, MessageF1()})
+    ),
+
+    {ok, {{_, 200, _}, _, Res2_2}} = iotdb_query(
+        Config, <<"select * from ", TemplateDeviceId/binary>>
+    ),
+
+    ?assertMatch(#{<<"values">> := [[<<DeviceId/binary>>]]}, emqx_utils_json:decode(Res2_2)),
+
+    iotdb_reset(Config, DeviceId),
+    iotdb_reset(Config, TemplateDeviceId),
+    ok.
+
 is_empty(null) -> true;
 is_empty([]) -> true;
 is_empty([[]]) -> true;

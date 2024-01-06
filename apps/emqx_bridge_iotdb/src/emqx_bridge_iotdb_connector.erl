@@ -147,6 +147,8 @@ fields("get") ->
 
 desc(config) ->
     ?DESC("desc_config");
+desc(auth_basic) ->
+    "Basic Authentication";
 desc(Method) when Method =:= "get"; Method =:= "put"; Method =:= "post" ->
     ["Configuration for IoTDB using `", string:to_upper(Method), "` method."];
 desc(_) ->

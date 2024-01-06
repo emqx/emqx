@@ -192,6 +192,10 @@ desc(action_parameters) ->
     ?DESC("action_parameters");
 desc(action_parameters_data) ->
     ?DESC("action_parameters_data");
+desc(action_resource_opts) ->
+    "Action Resource Options";
+desc("creation_opts") ->
+    "Creation Options";
 desc(auth_basic) ->
     "Basic Authentication";
 desc(Method) when Method =:= "get"; Method =:= "put"; Method =:= "post" ->
