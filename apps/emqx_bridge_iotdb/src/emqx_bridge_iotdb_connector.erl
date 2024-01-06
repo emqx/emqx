@@ -495,10 +495,11 @@ convert_float(undefined) ->
 make_iotdb_insert_request(DataList, IsAligned, DeviceId, IotDBVsn) ->
     InitAcc = #{timestamps => [], measurements => [], dtypes => [], values => []},
     Rows = replace_dtypes(aggregate_rows(DataList, InitAcc), IotDBVsn),
-    maps:merge(Rows, #{
-        iotdb_field_key(is_aligned, IotDBVsn) => IsAligned,
-        iotdb_field_key(device_id, IotDBVsn) => DeviceId
-    }).
+    {ok,
+        maps:merge(Rows, #{
+            iotdb_field_key(is_aligned, IotDBVsn) => IsAligned,
+            iotdb_field_key(device_id, IotDBVsn) => DeviceId
+        })}.
 
 replace_dtypes(Rows0, IotDBVsn) ->
     {Types, Rows} = maps:take(dtypes, Rows0),
@@ -582,8 +583,8 @@ to_list(Data) -> [Data].
 
 %% If device_id is missing from the channel data, try to find it from the payload
 device_id(Message, Payloads, Channel) ->
-    case maps:get(device_id, Channel, <<>>) of
-        <<>> ->
+    case maps:get(device_id, Channel, []) of
+        [] ->
             maps:get(<<"device_id">>, hd(Payloads), undefined);
         DeviceIdTkn ->
             emqx_placeholder:proc_tmpl(DeviceIdTkn, Message)
@@ -629,17 +630,26 @@ preproc_data_template(DataList) ->
 try_render_message({ChannelId, Msg}, Channels) ->
     case maps:find(ChannelId, Channels) of
         {ok, Channel} ->
-            {ok, render_channel_message(Channel, Msg)};
+            render_channel_message(Channel, Msg);
         _ ->
             {error, {unrecoverable_error, {invalid_channel_id, ChannelId}}}
     end.
 
 render_channel_message(#{is_aligned := IsAligned, iotdb_version := IoTDBVsn} = Channel, Message) ->
     Payloads = to_list(parse_payload(get_payload(Message))),
-    DataTemplate = get_data_template(Channel, Payloads),
-    DataList = proc_data(DataTemplate, Message),
-    DeviceId = device_id(Message, Payloads, Channel),
-    make_iotdb_insert_request(DataList, IsAligned, DeviceId, IoTDBVsn).
+    case device_id(Message, Payloads, Channel) of
+        undefined ->
+            {error, device_id_missing};
+        DeviceId ->
+            case get_data_template(Channel, Payloads) of
+                [] ->
+                    {error, invalid_data};
+                DataTemplate ->
+                    DataList = proc_data(DataTemplate, Message),
+
+                    make_iotdb_insert_request(DataList, IsAligned, DeviceId, IoTDBVsn)
+            end
+    end.
 
 %% Get the message template.
 %% In order to be compatible with 4.4, the template version has higher priority

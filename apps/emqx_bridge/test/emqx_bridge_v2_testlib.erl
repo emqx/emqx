@@ -478,11 +478,13 @@ t_async_query(Config, MakeMessageFun, IsSuccessCheck, TracePoint) ->
                 ?assertEqual({ok, connected}, emqx_resource_manager:health_check(ResourceId))
             ),
             BridgeId = bridge_id(Config),
+            BridgeType = ?config(bridge_type, Config),
+            BridgeName = ?config(bridge_name, Config),
             Message = {BridgeId, MakeMessageFun()},
             ?assertMatch(
                 {ok, {ok, _}},
                 ?wait_async_action(
-                    emqx_resource:query(ResourceId, Message, #{
+                    emqx_bridge_v2:query(BridgeType, BridgeName, Message, #{
                         async_reply_fun => {ReplyFun, [self()]}
                     }),
                     #{?snk_kind := TracePoint, instance_id := ResourceId},

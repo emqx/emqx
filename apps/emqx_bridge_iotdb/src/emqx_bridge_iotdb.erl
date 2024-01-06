@@ -316,7 +316,7 @@ action_values() ->
                 }
             ],
             is_aligned => false,
-            device_id => <<"${clientid}">>,
+            device_id => <<"my_device">>,
             iotdb_version => ?VSN_1_1_X
         }
     }.
