@@ -27,6 +27,7 @@
 
 -export_type([]).
 
+-include_lib("emqx/include/logger.hrl").
 -include("emqx_mqtt.hrl").
 -include("emqx_persistent_session_ds.hrl").
 
@@ -136,10 +137,13 @@ del_subscription(SubId, S0) ->
 %%================================================================================
 
 ensure_iterator(TopicFilter, StartTime, SubId, {{RankX, RankY}, Stream}, S) ->
-    %% TODO: use next_id to enumerate streams
-    Key = {SubId, term_to_binary(Stream)},
+    %% TODO: hash collisions
+    Key = {SubId, erlang:phash2(Stream)},
     case emqx_persistent_session_ds_state:get_stream(Key, S) of
         undefined ->
+            ?SLOG(debug, #{
+                '$msg' => new_stream, key => Key, stream => Stream
+            }),
             {ok, Iterator} = emqx_ds:make_iterator(
                 ?PERSISTENT_MESSAGE_DB, Stream, TopicFilter, StartTime
             ),
@@ -226,7 +230,15 @@ remove_fully_replayed_streams(S0) ->
     emqx_persistent_session_ds_state:fold_streams(
         fun(Key = {SubId, _Stream}, #ifs{rank_x = RankX, rank_y = RankY}, Acc) ->
             case emqx_persistent_session_ds_state:get_rank({SubId, RankX}, Acc) of
+                undefined ->
+                    Acc;
                 MinRankY when RankY < MinRankY ->
+                    ?SLOG(debug, #{
+                        msg => del_fully_preplayed_stream,
+                        key => Key,
+                        rank => {RankX, RankY},
+                        min => MinRankY
+                    }),
                     emqx_persistent_session_ds_state:del_stream(Key, Acc);
                 _ ->
                     Acc

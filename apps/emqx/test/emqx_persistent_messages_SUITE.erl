@@ -318,11 +318,6 @@ t_qos0_only_many_streams(_Config) ->
             receive_messages(3)
         ),
 
-        ?assertMatch(
-            #{pubranges := [_, _, _]},
-            emqx_persistent_session_ds:print_session(ClientId)
-        ),
-
         Inflight1 = get_session_inflight(ConnPid),
 
         %% TODO: Kinda stupid way to verify that the runtime state is not growing.

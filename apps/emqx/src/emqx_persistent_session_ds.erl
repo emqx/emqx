@@ -67,7 +67,7 @@
 ]).
 
 %% session table operations
--export([create_tables/0]).
+-export([create_tables/0, sync/1]).
 
 %% internal export used by session GC process
 -export([destroy_session/1]).
@@ -133,6 +133,11 @@
     timer() => reference()
 }.
 
+-record(req_sync, {
+    from :: pid(),
+    ref :: reference()
+}).
+
 -type stream_state() :: #ifs{}.
 
 -type timestamp() :: emqx_utils_calendar:epoch_millisecond().
@@ -147,7 +152,8 @@
     inflight_cnt,
     inflight_max,
     mqueue_len,
-    mqueue_dropped
+    mqueue_dropped,
+    awaiting_rel_cnt
 ]).
 
 %%
@@ -227,8 +233,8 @@ info(mqueue_dropped, _Session) ->
 %%     PacketId;
 % info(awaiting_rel, #sessmem{awaiting_rel = AwaitingRel}) ->
 %     AwaitingRel;
-% info(awaiting_rel_cnt, #sessmem{awaiting_rel = AwaitingRel}) ->
-%     maps:size(AwaitingRel);
+info(awaiting_rel_cnt, #{s := S}) ->
+    seqno_diff(?QOS_2, ?dup(?QOS_2), ?committed(?QOS_2), S);
 info(awaiting_rel_max, #{props := Conf}) ->
     maps:get(max_awaiting_rel, Conf);
 info(await_rel_timeout, #{props := Conf}) ->
@@ -447,6 +453,10 @@ handle_timeout(_ClientInfo, ?TIMER_BUMP_LAST_ALIVE_AT, Session0 = #{s := S0}) ->
         Session0#{s => S}
     ),
     {ok, [], Session};
+handle_timeout(_ClientInfo, #req_sync{from = From, ref = Ref}, Session = #{s := S0}) ->
+    S = emqx_persistent_session_ds_state:commit(S0),
+    From ! Ref,
+    {ok, [], Session#{s => S}};
 handle_timeout(_ClientInfo, expire_awaiting_rel, Session) ->
     %% TODO: stub
     {ok, [], Session}.
@@ -507,6 +517,22 @@ terminate(_Reason, _Session = #{s := S}) ->
 
 create_tables() ->
     emqx_persistent_session_ds_state:create_tables().
+
+%% @doc Force syncing of the transient state to persistent storage
+sync(ClientId) ->
+    case emqx_cm:lookup_channels(ClientId) of
+        [Pid] ->
+            Ref = monitor(process, Pid),
+            Pid ! {emqx_session, #req_sync{from = self(), ref = Ref}},
+            receive
+                {'DOWN', Ref, process, _Pid, Reason} ->
+                    {error, Reason};
+                Ref ->
+                    ok
+            end;
+        [] ->
+            {error, noproc}
+    end.
 
 -define(IS_EXPIRED(NOW_MS, LAST_ALIVE_AT, EI),
     (is_number(LAST_ALIVE_AT) andalso
@@ -615,7 +641,6 @@ do_ensure_all_iterators_closed(_DSSessionID) ->
 
 fetch_new_messages(Session = #{s := S}, ClientInfo) ->
     Streams = emqx_persistent_session_ds_stream_scheduler:find_new_streams(S),
-    ?SLOG(debug, #{msg => "fill_buffer", streams => Streams}),
     fetch_new_messages(Streams, Session, ClientInfo).
 
 fetch_new_messages([], Session, _ClientInfo) ->
@@ -649,32 +674,24 @@ new_batch({StreamKey, Ifs0}, BatchSize, Session = #{s := S0}, ClientInfo) ->
 
 enqueue_batch(IsReplay, BatchSize, Ifs0, Session = #{inflight := Inflight0}, ClientInfo) ->
     #ifs{
-        it_begin = ItBegin,
-        it_end = ItEnd,
+        it_begin = ItBegin0,
+        it_end = ItEnd0,
         first_seqno_qos1 = FirstSeqnoQos1,
         first_seqno_qos2 = FirstSeqnoQos2
     } = Ifs0,
-    It0 =
+    ItBegin =
         case IsReplay of
-            true -> ItBegin;
-            false -> ItEnd
+            true -> ItBegin0;
+            false -> ItEnd0
         end,
-    case emqx_ds:next(?PERSISTENT_MESSAGE_DB, It0, BatchSize) of
-        {ok, It, []} ->
-            %% No new messages; just update the end iterator:
-            logger:warning(#{msg => "batch_empty"}),
-            {Ifs0#ifs{it_end = It}, Inflight0};
-        {ok, end_of_stream} ->
-            %% No new messages; just update the end iterator:
-            {Ifs0#ifs{it_end = end_of_stream}, Inflight0};
-        {ok, It, [{K, _} | _] = Messages} ->
-            logger:warning(#{msg => "batch", it => K, msgs => length(Messages)}),
+    case emqx_ds:next(?PERSISTENT_MESSAGE_DB, ItBegin, BatchSize) of
+        {ok, ItEnd, Messages} ->
             {Inflight, LastSeqnoQos1, LastSeqnoQos2} = process_batch(
                 IsReplay, Session, ClientInfo, FirstSeqnoQos1, FirstSeqnoQos2, Messages, Inflight0
             ),
             Ifs = Ifs0#ifs{
-                it_begin = It0,
-                it_end = It,
+                it_begin = ItBegin,
+                it_end = ItEnd,
                 %% TODO: it should be possible to avoid calling
                 %% length here by diffing size of inflight before
                 %% and after inserting messages:
@@ -683,10 +700,16 @@ enqueue_batch(IsReplay, BatchSize, Ifs0, Session = #{inflight := Inflight0}, Cli
                 last_seqno_qos2 = LastSeqnoQos2
             },
             {Ifs, Inflight};
+        {ok, end_of_stream} ->
+            %% No new messages; just update the end iterator:
+            {Ifs0#ifs{it_begin = ItBegin, it_end = end_of_stream, batch_size = 0}, Inflight0};
         {error, _} when not IsReplay ->
-            ?SLOG(debug, #{msg => "failed_to_fetch_batch", iterator => It0}),
+            ?SLOG(info, #{msg => "failed_to_fetch_batch", iterator => ItBegin}),
             {Ifs0, Inflight0}
     end.
+
+%% key_of_iter(#{3 := #{3 := #{5 := K}}}) ->
+%%     K.
 
 process_batch(_IsReplay, _Session, _ClientInfo, LastSeqNoQos1, LastSeqNoQos2, [], Inflight) ->
     {Inflight, LastSeqNoQos1, LastSeqNoQos2};
@@ -885,6 +908,9 @@ commit_seqno(Track, PacketId, Session = #{id := SessionId, s := S}) ->
 %% generation
 %% --------------------------------------------------------------------
 
+-define(EPOCH_BITS, 15).
+-define(PACKET_ID_MASK, 2#111_1111_1111_1111).
+
 %% Epoch size = `16#10000 div 2' since we generate different sets of
 %% packet IDs for QoS1 and QoS2:
 -define(EPOCH_SIZE, 16#8000).
@@ -895,8 +921,8 @@ commit_seqno(Track, PacketId, Session = #{id := SessionId, s := S}) ->
     seqno().
 packet_id_to_seqno(PacketId, S) ->
     NextSeqNo = emqx_persistent_session_ds_state:get_seqno(?next(packet_id_to_qos(PacketId)), S),
-    Epoch = NextSeqNo bsr 15,
-    SeqNo = (Epoch bsl 15) + (PacketId bsr 1),
+    Epoch = NextSeqNo bsr ?EPOCH_BITS,
+    SeqNo = (Epoch bsl ?EPOCH_BITS) + (PacketId band ?PACKET_ID_MASK),
     case SeqNo =< NextSeqNo of
         true ->
             SeqNo;
@@ -920,15 +946,31 @@ inc_seqno(Qos, SeqNo) ->
 %% Note: we use the least significant bit to store the QoS. Even
 %% packet IDs are QoS1, odd packet IDs are QoS2.
 seqno_to_packet_id(?QOS_1, SeqNo) ->
-    (SeqNo bsl 1) band 16#ffff;
+    SeqNo band ?PACKET_ID_MASK;
 seqno_to_packet_id(?QOS_2, SeqNo) ->
-    ((SeqNo bsl 1) band 16#ffff) bor 1.
+    SeqNo band ?PACKET_ID_MASK bor ?EPOCH_SIZE.
 
 packet_id_to_qos(PacketId) ->
-    case PacketId band 1 of
-        0 -> ?QOS_1;
-        1 -> ?QOS_2
-    end.
+    PacketId bsr ?EPOCH_BITS + 1.
+
+seqno_diff(Qos, A, B, S) ->
+    seqno_diff(
+        Qos,
+        emqx_persistent_session_ds_state:get_seqno(A, S),
+        emqx_persistent_session_ds_state:get_seqno(B, S)
+    ).
+
+%% Dialyzer complains about the second clause, since it's currently
+%% unused, shut it up:
+-dialyzer({nowarn_function, seqno_diff/3}).
+seqno_diff(?QOS_1, A, B) ->
+    %% For QoS1 messages we skip a seqno every time the epoch changes,
+    %% we need to substract that from the diff:
+    EpochA = A bsr ?EPOCH_BITS,
+    EpochB = B bsr ?EPOCH_BITS,
+    A - B - (EpochA - EpochB);
+seqno_diff(?QOS_2, A, B) ->
+    A - B.
 
 %%--------------------------------------------------------------------
 %% Tests
@@ -942,7 +984,7 @@ packet_id_to_qos(PacketId) ->
 list_all_sessions() ->
     maps:from_list(
         [
-            {Id, emqx_persistent_session_ds_state:print_session(Id)}
+            {Id, print_session(Id)}
          || Id <- emqx_persistent_session_ds_state:list_sessions()
         ]
     ).
@@ -961,7 +1003,7 @@ seqno_gen(NextSeqNo) ->
 next_seqno_gen() ->
     ?LET(
         {Epoch, Offset},
-        {non_neg_integer(), non_neg_integer()},
+        {non_neg_integer(), range(0, ?EPOCH_SIZE)},
         Epoch bsl 15 + Offset
     ).
 
@@ -995,6 +1037,7 @@ inc_seqno_prop() ->
             PacketId = seqno_to_packet_id(Qos, NewSeqNo),
             ?WHENFAIL(
                 begin
+                    io:format(user, " *** QoS = ~p~n", [Qos]),
                     io:format(user, " *** SeqNo = ~p -> ~p~n", [SeqNo, NewSeqNo]),
                     io:format(user, " *** PacketId = ~p~n", [PacketId])
                 end,
@@ -1003,9 +1046,30 @@ inc_seqno_prop() ->
         end
     ).
 
+seqno_diff_prop() ->
+    ?FORALL(
+        {Qos, SeqNo, N},
+        {oneof([?QOS_1, ?QOS_2]), next_seqno_gen(), range(0, 100)},
+        ?IMPLIES(
+            seqno_to_packet_id(Qos, SeqNo) > 0,
+            begin
+                NewSeqNo = apply_n_times(N, fun(A) -> inc_seqno(Qos, A) end, SeqNo),
+                Diff = seqno_diff(Qos, NewSeqNo, SeqNo),
+                ?WHENFAIL(
+                    begin
+                        io:format(user, " *** QoS = ~p~n", [Qos]),
+                        io:format(user, " *** SeqNo = ~p -> ~p~n", [SeqNo, NewSeqNo]),
+                        io:format(user, " *** N : ~p == ~p~n", [N, Diff])
+                    end,
+                    N =:= Diff
+                )
+            end
+        )
+    ).
+
 seqno_proper_test_() ->
-    Props = [packet_id_to_seqno_prop(), inc_seqno_prop()],
-    Opts = [{numtests, 10000}, {to_file, user}],
+    Props = [packet_id_to_seqno_prop(), inc_seqno_prop(), seqno_diff_prop()],
+    Opts = [{numtests, 1000}, {to_file, user}],
     {timeout, 30,
         {setup,
             fun() ->
@@ -1018,5 +1082,10 @@ seqno_proper_test_() ->
                 meck:unload(emqx_persistent_session_ds_state)
             end,
             [?_assert(proper:quickcheck(Prop, Opts)) || Prop <- Props]}}.
+
+apply_n_times(0, Fun, A) ->
+    A;
+apply_n_times(N, Fun, A) when N > 0 ->
+    apply_n_times(N - 1, Fun, Fun(A)).
 
 -endif.

@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2023 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2023-2024 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -104,58 +104,27 @@ now_ms() ->
     erlang:system_time(millisecond).
 
 start_gc() ->
-    do_gc(more).
-
-zombie_session_ms() ->
-    NowMS = now_ms(),
     GCInterval = emqx_config:get([session_persistence, session_gc_interval]),
     BumpInterval = emqx_config:get([session_persistence, last_alive_update_interval]),
     TimeThreshold = max(GCInterval, BumpInterval) * 3,
-    ets:fun2ms(
-        fun(
-            #session{
-                id = DSSessionId,
-                last_alive_at = LastAliveAt,
-                conninfo = #{expiry_interval := EI}
-            }
-        ) when
-            LastAliveAt + EI + TimeThreshold =< NowMS
-        ->
-            DSSessionId
-        end
-    ).
+    MinLastAlive = now_ms() - TimeThreshold,
+    gc_loop(MinLastAlive, emqx_persistent_session_ds_state:make_session_iterator()).
 
-do_gc(more) ->
+gc_loop(MinLastAlive, It0) ->
     GCBatchSize = emqx_config:get([session_persistence, session_gc_batch_size]),
-    MS = zombie_session_ms(),
-    {atomic, Next} = mria:transaction(?DS_MRIA_SHARD, fun() ->
-        Res = mnesia:select(?SESSION_TAB, MS, GCBatchSize, write),
-        case Res of
-            '$end_of_table' ->
-                done;
-            {[], Cont} ->
-                %% since `GCBatchsize' is just a "recommendation" for `select', we try only
-                %% _once_ the continuation and then stop if it yields nothing, to avoid a
-                %% dead loop.
-                case mnesia:select(Cont) of
-                    '$end_of_table' ->
-                        done;
-                    {[], _Cont} ->
-                        done;
-                    {DSSessionIds0, _Cont} ->
-                        do_gc_(DSSessionIds0),
-                        more
-                end;
-            {DSSessionIds0, _Cont} ->
-                do_gc_(DSSessionIds0),
-                more
-        end
-    end),
-    do_gc(Next);
-do_gc(done) ->
-    ok.
+    case emqx_persistent_session_ds_state:session_iterator_next(It0, GCBatchSize) of
+        {[], _} ->
+            ok;
+        {Sessions, It} ->
+            do_gc([
+                Key
+             || {Key, #{last_alive_at := LastAliveAt}} <- Sessions,
+                LastAliveAt < MinLastAlive
+            ]),
+            gc_loop(MinLastAlive, It)
+    end.
 
-do_gc_(DSSessionIds) ->
+do_gc(DSSessionIds) ->
     lists:foreach(fun emqx_persistent_session_ds:destroy_session/1, DSSessionIds),
     ?tp(ds_session_gc_cleaned, #{session_ids => DSSessionIds}),
     ok.

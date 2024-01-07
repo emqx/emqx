@@ -36,20 +36,24 @@
 -export([get_rank/2, put_rank/3, del_rank/2, fold_ranks/3]).
 -export([get_subscriptions/1, put_subscription/4, del_subscription/3]).
 
-%% internal exports:
--export([]).
+-export([make_session_iterator/0, session_iterator_next/2]).
 
--export_type([t/0, subscriptions/0, seqno_type/0, stream_key/0, rank_key/0]).
+-export_type([
+    t/0, metadata/0, subscriptions/0, seqno_type/0, stream_key/0, rank_key/0, session_iterator/0
+]).
 
 -include("emqx_mqtt.hrl").
 -include("emqx_persistent_session_ds.hrl").
 -include_lib("snabbkaffe/include/trace.hrl").
+-include_lib("stdlib/include/qlc.hrl").
 
 %%================================================================================
 %% Type declarations
 %%================================================================================
 
 -type subscriptions() :: emqx_topic_gbt:t(_SubId, emqx_persistent_session_ds:subscription()).
+
+-opaque session_iterator() :: emqx_persistent_session_ds:id() | '$end_of_table'.
 
 %% Generic key-value wrapper that is used for exporting arbitrary
 %% terms to mnesia:
@@ -116,6 +120,14 @@
 -define(rank_tab, emqx_ds_session_ranks).
 -define(pmap_tables, [?stream_tab, ?seqno_tab, ?rank_tab, ?subscription_tab]).
 
+-ifndef(TEST).
+-define(set_dirty, dirty => true).
+-define(unset_dirty, dirty => false).
+-else.
+-define(set_dirty, dirty => true, '_' => do_seqno()).
+-define(unset_dirty, dirty => false, '_' => do_seqno()).
+-endif.
+
 %%================================================================================
 %% API funcions
 %%================================================================================
@@ -126,7 +138,7 @@ create_tables() ->
         ?session_tab,
         [
             {rlog_shard, ?DS_MRIA_SHARD},
-            {type, set},
+            {type, ordered_set},
             {storage, rocksdb_copies},
             {record_name, kv},
             {attributes, record_info(fields, kv)}
@@ -210,15 +222,17 @@ commit(
         ranks := Ranks
     }
 ) ->
-    transaction(fun() ->
-        kv_persist(?session_tab, SessionId, Metadata),
-        Rec#{
-            streams => pmap_commit(SessionId, Streams),
-            seqnos => pmap_commit(SessionId, SeqNos),
-            ranks => pmap_commit(SessionId, Ranks),
-            dirty => false
-        }
-    end).
+    check_sequence(
+        transaction(fun() ->
+            kv_persist(?session_tab, SessionId, Metadata),
+            Rec#{
+                streams => pmap_commit(SessionId, Streams),
+                seqnos => pmap_commit(SessionId, SeqNos),
+                ranks => pmap_commit(SessionId, Ranks),
+                ?unset_dirty
+            }
+        end)
+    ).
 
 -spec create_new(emqx_persistent_session_ds:id()) -> t().
 create_new(SessionId) ->
@@ -231,7 +245,7 @@ create_new(SessionId) ->
             streams => pmap_open(?stream_tab, SessionId),
             seqnos => pmap_open(?seqno_tab, SessionId),
             ranks => pmap_open(?rank_tab, SessionId),
-            dirty => true
+            ?set_dirty
         }
     end).
 
@@ -299,7 +313,7 @@ del_subscription(TopicFilter, SubId, Rec = #{id := Id, subscriptions := Subs0}) 
 
 %%
 
--type stream_key() :: {emqx_persistent_session_ds:subscription_id(), binary()}.
+-type stream_key() :: {emqx_persistent_session_ds:subscription_id(), _StreamId}.
 
 -spec get_stream(stream_key(), t()) ->
     emqx_persistent_session_ds:stream_state() | undefined.
@@ -348,6 +362,26 @@ del_rank(Key, Rec) ->
 fold_ranks(Fun, Acc, Rec) ->
     gen_fold(ranks, Fun, Acc, Rec).
 
+-spec make_session_iterator() -> session_iterator().
+make_session_iterator() ->
+    case mnesia:dirty_first(?session_tab) of
+        '$end_of_table' ->
+            '$end_of_table';
+        Key ->
+            {true, Key}
+    end.
+
+-spec session_iterator_next(session_iterator(), pos_integer()) ->
+    {[{emqx_persistent_session_ds:id(), metadata()}], session_iterator()}.
+session_iterator_next(Cursor, 0) ->
+    {[], Cursor};
+session_iterator_next('$end_of_table', _N) ->
+    {[], '$end_of_table'};
+session_iterator_next(Cursor0, N) ->
+    ThisVal = [{Cursor0, Metadata} || Metadata <- mnesia:dirty_read(?session_tab, Cursor0)],
+    {NextVals, Cursor} = session_iterator_next(Cursor0, N - 1),
+    {ThisVal ++ NextVals, Cursor}.
+
 %%================================================================================
 %% Internal functions
 %%================================================================================
@@ -365,28 +399,32 @@ get_meta(K, #{metadata := Meta}) ->
     maps:get(K, Meta, undefined).
 
 set_meta(K, V, Rec = #{metadata := Meta}) ->
-    Rec#{metadata => maps:put(K, V, Meta), dirty => true}.
+    check_sequence(Rec#{metadata => maps:put(K, V, Meta), ?set_dirty}).
 
 %%
 
 gen_get(Field, Key, Rec) ->
+    check_sequence(Rec),
     pmap_get(Key, maps:get(Field, Rec)).
 
 gen_fold(Field, Fun, Acc, Rec) ->
+    check_sequence(Rec),
     pmap_fold(Fun, Acc, maps:get(Field, Rec)).
 
 gen_put(Field, Key, Val, Rec) ->
+    check_sequence(Rec),
     maps:update_with(
         Field,
         fun(PMap) -> pmap_put(Key, Val, PMap) end,
-        Rec#{dirty => true}
+        Rec#{?set_dirty}
     ).
 
 gen_del(Field, Key, Rec) ->
+    check_sequence(Rec),
     maps:update_with(
         Field,
         fun(PMap) -> pmap_del(Key, PMap) end,
-        Rec#{dirty => true}
+        Rec#{?set_dirty}
     ).
 
 %%
@@ -519,3 +557,24 @@ transaction(Fun) ->
 ro_transaction(Fun) ->
     {atomic, Res} = mria:ro_transaction(?DS_MRIA_SHARD, Fun),
     Res.
+
+-compile({inline, check_sequence/1}).
+
+-ifdef(TEST).
+do_seqno() ->
+    case erlang:get(?MODULE) of
+        undefined ->
+            put(?MODULE, 0),
+            0;
+        N ->
+            put(?MODULE, N + 1),
+            N + 1
+    end.
+
+check_sequence(A = #{'_' := N}) ->
+    N = erlang:get(?MODULE),
+    A.
+-else.
+check_sequence(A) ->
+    A.
+-endif.

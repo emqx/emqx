@@ -409,27 +409,26 @@ do_t_session_discard(Params) ->
             ?retry(
                 _Sleep0 = 100,
                 _Attempts0 = 50,
-                true = map_size(emqx_persistent_session_ds:list_all_streams()) > 0
+                #{} = emqx_persistent_session_ds_state:print_session(ClientId)
             ),
             ok = emqtt:stop(Client0),
             ?tp(notice, "disconnected", #{}),
 
             ?tp(notice, "reconnecting", #{}),
-            %% we still have streams
-            ?assert(map_size(emqx_persistent_session_ds:list_all_streams()) > 0),
+            %% we still have the session:
+            ?assertMatch(#{}, emqx_persistent_session_ds_state:print_session(ClientId)),
             Client1 = start_client(ReconnectOpts),
             {ok, _} = emqtt:connect(Client1),
             ?assertEqual([], emqtt:subscriptions(Client1)),
             case is_persistent_connect_opts(ReconnectOpts) of
                 true ->
-                    ?assertMatch(#{ClientId := _}, emqx_persistent_session_ds:list_all_sessions());
+                    ?assertMatch(#{}, emqx_persistent_session_ds_state:print_session(ClientId));
                 false ->
-                    ?assertEqual(#{}, emqx_persistent_session_ds:list_all_sessions())
+                    ?assertEqual(
+                        undefined, emqx_persistent_session_ds_state:print_session(ClientId)
+                    )
             end,
-            ?assertEqual(#{}, emqx_persistent_session_ds:list_all_subscriptions()),
             ?assertEqual([], emqx_persistent_session_ds_router:topics()),
-            ?assertEqual(#{}, emqx_persistent_session_ds:list_all_streams()),
-            ?assertEqual(#{}, emqx_persistent_session_ds:list_all_pubranges()),
             ok = emqtt:stop(Client1),
             ?tp(notice, "disconnected", #{}),
 
@@ -486,7 +485,7 @@ do_t_session_expiration(_Config, Opts) ->
             Client0 = start_client(Params0),
             {ok, _} = emqtt:connect(Client0),
             {ok, _, [?RC_GRANTED_QOS_2]} = emqtt:subscribe(Client0, Topic, ?QOS_2),
-            Subs0 = emqx_persistent_session_ds:list_all_subscriptions(),
+            #{subscriptions := Subs0} = emqx_persistent_session_ds:print_session(ClientId),
             ?assertEqual(1, map_size(Subs0), #{subs => Subs0}),
             Info0 = maps:from_list(emqtt:info(Client0)),
             ?assertEqual(0, maps:get(session_present, Info0), #{info => Info0}),

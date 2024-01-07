@@ -42,8 +42,8 @@
 %% retransmitted with DUP flag.
 %%
 %% 2. After it receives PUBREC from the client for the QoS2 message.
-%% Upon session reconnect, PUBREL for QoS2 messages with seqno in
-%% committed..dup are retransmitted.
+%% Upon session reconnect, PUBREL messages for QoS2 messages with
+%% seqno in committed..dup are retransmitted.
 -define(dup(QOS), (10 + QOS)).
 %% Last seqno assigned to a message.
 -define(next(QOS), (20 + QOS)).
@@ -63,18 +63,6 @@
     %% Number of messages collected in the last batch:
     last_seqno_qos1 = 0 :: emqx_persistent_session_ds:seqno(),
     last_seqno_qos2 = 0 :: emqx_persistent_session_ds:seqno()
-}).
-
-%% TODO: remove
--record(session, {
-    %% same as clientid
-    id :: emqx_persistent_session_ds:id(),
-    %% creation time
-    created_at :: _Millisecond :: non_neg_integer(),
-    last_alive_at :: _Millisecond :: non_neg_integer(),
-    conninfo :: emqx_types:conninfo(),
-    %% for future usage
-    props = #{} :: map()
 }).
 
 -endif.
