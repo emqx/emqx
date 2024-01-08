@@ -24,10 +24,9 @@
     put_authz_cache/3,
     cleanup_authz_cache/0,
     empty_authz_cache/0,
-    dump_authz_cache/0,
     get_cache_max_size/0,
     get_cache_ttl/0,
-    is_enabled/0,
+    is_enabled/1,
     drain_cache/0,
     drain_cache/1
 ]).
@@ -53,9 +52,20 @@ cache_k(PubSub, Topic) -> {PubSub, Topic}.
 cache_v(AuthzResult) -> {AuthzResult, time_now()}.
 drain_k() -> {?MODULE, drain_timestamp}.
 
--spec is_enabled() -> boolean().
-is_enabled() ->
-    emqx:get_config([authorization, cache, enable], false).
+%% @doc Check if the authz cache is enabled for the given topic.
+-spec is_enabled(emqx_types:topic()) -> boolean().
+is_enabled(Topic) ->
+    case emqx:get_config([authorization, cache]) of
+        #{enable := true, excludes := Filters} ->
+            not is_excluded(Topic, Filters);
+        #{enable := IsEnabled} ->
+            IsEnabled
+    end.
+
+is_excluded(_Topic, []) ->
+    false;
+is_excluded(Topic, [Filter | Filters]) ->
+    emqx_topic:match(Topic, Filter) orelse is_excluded(Topic, Filters).
 
 -spec get_cache_max_size() -> integer().
 get_cache_max_size() ->
@@ -153,14 +163,15 @@ get_cache_size() ->
         Size -> Size
     end.
 
-dump_authz_cache() ->
-    map_authz_cache(fun(Cache) -> Cache end).
-
 map_authz_cache(Fun) ->
+    map_authz_cache(Fun, erlang:get()).
+
+map_authz_cache(Fun, Dict) ->
     [
         Fun(R)
-     || R = {{?authz_action, _T}, _Authz} <- erlang:get()
+     || R = {{?authz_action, _T}, _Authz} <- Dict
     ].
+
 foreach_authz_cache(Fun) ->
     _ = map_authz_cache(Fun),
     ok.

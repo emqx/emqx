@@ -920,6 +920,12 @@ fields_cache_ttl.desc:
 fields_cache_ttl.label:
 """Time to live for the cached data."""
 
+fields_authz_cache_excludes.label:
+"""Excludes"""
+
+fields_authz_cache_excludes.desc:
+"""Exclude caching ACL check results for topics matching the given patterns."""
+
 sys_topics.desc:
 """System topics configuration."""
 

@@ -20,11 +20,13 @@
 -compile(nowarn_export_all).
 
 -include_lib("eunit/include/eunit.hrl").
+-include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
 all() -> emqx_common_test_helpers:all(?MODULE).
 
 init_per_suite(Config) ->
     Apps = emqx_cth_suite:start([emqx], #{work_dir => emqx_cth_suite:work_dir(Config)}),
+    emqx_config:put([authorization, cache, excludes], [<<"nocache/#">>]),
     [{apps, Apps} | Config].
 
 end_per_suite(Config) ->
@@ -34,24 +36,27 @@ end_per_suite(Config) ->
 %% Test cases
 %%--------------------------------------------------------------------
 
+t_cache_exclude(_) ->
+    ClientId = <<"test-id1">>,
+    {ok, Client} = emqtt:start_link([{clientid, ClientId}]),
+    {ok, _} = emqtt:connect(Client),
+    {ok, _, _} = emqtt:subscribe(Client, <<"nocache/+/#">>, 0),
+    emqtt:publish(Client, <<"nocache/1">>, <<"{\"x\":1}">>, 0),
+    Caches = list_cache(ClientId),
+    ?assertEqual([], Caches),
+    emqtt:stop(Client).
+
 t_clean_authz_cache(_) ->
     {ok, Client} = emqtt:start_link([{clientid, <<"emqx_c">>}]),
     {ok, _} = emqtt:connect(Client),
     {ok, _, _} = emqtt:subscribe(Client, <<"t2">>, 0),
     emqtt:publish(Client, <<"t1">>, <<"{\"x\":1}">>, 0),
-    ct:sleep(100),
-    ClientPid =
-        case emqx_cm:lookup_channels(<<"emqx_c">>) of
-            Pids when is_list(Pids) ->
-                lists:last(Pids);
-            _ ->
-                {error, not_found}
-        end,
-    Caches = gen_server:call(ClientPid, list_authz_cache),
+    ClientPid = find_client_pid(<<"emqx_c">>),
+    Caches = list_cache(ClientPid),
     ct:log("authz caches: ~p", [Caches]),
     ?assert(length(Caches) > 0),
     erlang:send(ClientPid, clean_authz_cache),
-    ?assertEqual(0, length(gen_server:call(ClientPid, list_authz_cache))),
+    ?assertEqual([], list_cache(ClientPid)),
     emqtt:stop(Client).
 
 t_drain_authz_cache(_) ->
@@ -59,22 +64,30 @@ t_drain_authz_cache(_) ->
     {ok, _} = emqtt:connect(Client),
     {ok, _, _} = emqtt:subscribe(Client, <<"t2">>, 0),
     emqtt:publish(Client, <<"t1">>, <<"{\"x\":1}">>, 0),
-    ct:sleep(100),
-    ClientPid =
-        case emqx_cm:lookup_channels(<<"emqx_c">>) of
-            [Pid] when is_pid(Pid) ->
-                Pid;
-            Pids when is_list(Pids) ->
-                lists:last(Pids);
-            _ ->
-                {error, not_found}
-        end,
-    Caches = gen_server:call(ClientPid, list_authz_cache),
+    ClientPid = find_client_pid(<<"emqx_c">>),
+    Caches = list_cache(ClientPid),
     ct:log("authz caches: ~p", [Caches]),
     ?assert(length(Caches) > 0),
     emqx_authz_cache:drain_cache(),
-    ?assertEqual(0, length(gen_server:call(ClientPid, list_authz_cache))),
+    ?assertEqual([], list_cache(ClientPid)),
     ct:sleep(100),
     {ok, _, _} = emqtt:subscribe(Client, <<"t2">>, 0),
-    ?assert(length(gen_server:call(ClientPid, list_authz_cache)) > 0),
+    ?assert(length(list_cache(ClientPid)) > 0),
     emqtt:stop(Client).
+
+list_cache(ClientId) when is_binary(ClientId) ->
+    ClientPid = find_client_pid(ClientId),
+    list_cache(ClientPid);
+list_cache(ClientPid) ->
+    gen_server:call(ClientPid, list_authz_cache).
+
+find_client_pid(ClientId) ->
+    ?retry(_Inteval = 100, _Attempts = 10, do_find_client_pid(ClientId)).
+
+do_find_client_pid(ClientId) ->
+    case emqx_cm:lookup_channels(ClientId) of
+        Pids when is_list(Pids) ->
+            lists:last(Pids);
+        _ ->
+            throw({not_found, ClientId})
+    end.

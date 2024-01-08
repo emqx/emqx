@@ -439,9 +439,9 @@ fields("stats") ->
     ];
 fields("authorization") ->
     authz_fields();
-fields("authz_cache") ->
+fields(authz_cache) ->
     [
-        {"enable",
+        {enable,
             sc(
                 boolean(),
                 #{
@@ -450,7 +450,7 @@ fields("authz_cache") ->
                     desc => ?DESC(fields_cache_enable)
                 }
             )},
-        {"max_size",
+        {max_size,
             sc(
                 range(1, 1048576),
                 #{
@@ -458,14 +458,19 @@ fields("authz_cache") ->
                     desc => ?DESC(fields_cache_max_size)
                 }
             )},
-        {"ttl",
+        {ttl,
             sc(
                 duration(),
                 #{
                     default => <<"1m">>,
                     desc => ?DESC(fields_cache_ttl)
                 }
-            )}
+            )},
+        {excludes,
+            sc(hoconsc:array(string()), #{
+                default => [],
+                desc => ?DESC(fields_authz_cache_excludes)
+            })}
     ];
 fields("mqtt") ->
     mqtt_general() ++ mqtt_session();
@@ -1994,7 +1999,7 @@ desc("authorization") ->
     "Settings for client authorization.";
 desc("mqtt") ->
     "Global MQTT configuration.";
-desc("authz_cache") ->
+desc(authz_cache) ->
     "Settings for the authorization cache.";
 desc("zone") ->
     "A `Zone` defines a set of configuration items (such as the maximum number of connections)"
@@ -2556,7 +2561,7 @@ authz_fields() ->
             )},
         {"cache",
             sc(
-                ref(?MODULE, "authz_cache"),
+                ref(?MODULE, authz_cache),
                 #{}
             )}
     ].

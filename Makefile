@@ -317,7 +317,7 @@ $(foreach tt,$(ALL_ELIXIR_TGZS),$(eval $(call gen-elixir-tgz-target,$(tt))))
 fmt: $(REBAR)
 	@$(SCRIPTS)/erlfmt -w 'apps/*/{src,include,priv,test,integration_test}/**/*.{erl,hrl,app.src,eterm}'
 	@$(SCRIPTS)/erlfmt -w '**/*.escript' --exclude-files '_build/**'
-	@$(SCRIPTS)/erlfmt -w '**/rebar.config'
+	@$(SCRIPTS)/erlfmt -w '**/rebar.config' --exclude-files '_build/**'
 	@$(SCRIPTS)/erlfmt -w 'rebar.config.erl'
 	@$(SCRIPTS)/erlfmt -w 'bin/nodetool'
 	@mix format
