@@ -105,8 +105,12 @@ fields(action_parameters) ->
         command_template(),
         {redis_type,
             ?HOCON(
-                ?ENUM([single, sentinel, cluster]),
-                #{required => true, desc => ?DESC(redis_type)}
+                ?ENUM([single, sentinel, cluster]), #{
+                    required => false,
+                    desc => ?DESC(redis_type),
+                    hidden => true,
+                    importance => ?IMPORTANCE_HIDDEN
+                }
             )}
     ];
 fields("post_single") ->

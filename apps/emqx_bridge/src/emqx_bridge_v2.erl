@@ -151,21 +151,10 @@
 %%====================================================================
 
 load() ->
-    reinit_bridges(),
     load_bridges(),
     load_message_publish_hook(),
     ok = emqx_config_handler:add_handler(config_key_path_leaf(), emqx_bridge_v2),
     ok = emqx_config_handler:add_handler(config_key_path(), emqx_bridge_v2),
-    ok.
-
-reinit_bridges() ->
-    %% todo
-    Bridges = emqx:get_raw_config([?ROOT_KEY], #{}),
-    try
-        actions_convert_from_connectors(Bridges)
-    catch
-        _:_ -> ok
-    end,
     ok.
 
 load_bridges() ->
@@ -456,8 +445,8 @@ combine_connector_and_bridge_v2_config(
         _:_ ->
             alarm_connector_not_found(BridgeV2Type, BridgeName, ConnectorName),
             {error, #{
-                reason => "connector_not_found",
-                type => BridgeV2Type,
+                reason => <<"connector_not_found_or_wrong_type">>,
+                bridge_type => BridgeV2Type,
                 bridge_name => BridgeName,
                 connector_name => ConnectorName
             }}
@@ -882,19 +871,14 @@ config_key_path() -> [?ROOT_KEY].
 config_key_path_leaf() -> [?ROOT_KEY, '?', '?'].
 
 %% enable or disable action
-pre_config_update([?ROOT_KEY, Type, Name], Oper, undefined) when ?ENABLE_OR_DISABLE(Oper) ->
-    {error, #{
-        bridge_name => Name,
-        bridge_type => Type,
-        reason => <<"bridge_not_found">>
-    }};
+pre_config_update([?ROOT_KEY, _Type, _Name], Oper, undefined) when ?ENABLE_OR_DISABLE(Oper) ->
+    {error, bridge_not_found};
 pre_config_update([?ROOT_KEY, _Type, _Name], Oper, OldAction) when ?ENABLE_OR_DISABLE(Oper) ->
     {ok, OldAction#{<<"enable">> => operation_to_enable(Oper)}};
-
 %% Updates a single action from a specific HTTP API.
 %% If the connector is not found, the update operation fails.
-pre_config_update([?ROOT_KEY, ActionType, _Name], Conf = #{}, _OldConf) ->
-    action_convert_from_connector(ActionType, Conf);
+pre_config_update([?ROOT_KEY, Type, Name], Conf = #{}, _OldConf) ->
+    action_convert_from_connector(Type, Name, Conf);
 %% Batch updates actions when importing a configuration or executing a CLI command.
 %% Update succeeded even if the connector is not found, alarm in post_config_update
 pre_config_update([?ROOT_KEY], Conf = #{}, _OldConfs) ->
@@ -932,7 +916,6 @@ post_config_update([?ROOT_KEY, BridgeType, BridgeName], _Req, NewConf, OldConf, 
     reload_message_publish_hook(Bridges),
     ?tp(bridge_post_config_update_done, #{}),
     ok;
-
 %% This top level handler will be triggered when the actions path is updated
 %% with calls to emqx_conf:update([actions], BridgesConf, #{}).
 %% such as import_config/1
@@ -947,7 +930,7 @@ post_config_update([?ROOT_KEY], _Req, NewConf, OldConf, _AppEnv) ->
     UpdateFun = fun(Type, Name, {OldBridgeConf, Conf}) ->
         uninstall_bridge_v2(Type, Name, OldBridgeConf),
         install_bridge_v2(Type, Name, Conf)
-                end,
+    end,
     Result = perform_bridge_changes([
         #{action => RemoveFun, data => Removed},
         #{
@@ -1578,10 +1561,10 @@ referenced_connectors_exist(BridgeType, ConnectorNameBin, BridgeName) ->
 
 actions_convert_from_connectors(Conf) ->
     maps:map(
-        fun({ActionType, Actions}) ->
+        fun(ActionType, Actions) ->
             maps:map(
-                fun(_Name, Action) ->
-                    case action_convert_from_connector(ActionType, Action) of
+                fun(ActionName, Action) ->
+                    case action_convert_from_connector(ActionType, ActionName, Action) of
                         {ok, NewAction} -> NewAction;
                         {error, _} -> Action
                     end
@@ -1592,15 +1575,16 @@ actions_convert_from_connectors(Conf) ->
         Conf
     ).
 
-action_convert_from_connector(ActionType, Action = #{<<"connector">> := ConnectorName}) ->
-    case get_connector_info(ConnectorName, ActionType) of
+action_convert_from_connector(Type, Name, Action = #{<<"connector">> := ConnectorName}) ->
+    case get_connector_info(ConnectorName, Type) of
         {ok, Connector} ->
-            Action1 = emqx_action_info:action_convert_from_connector(ActionType, Connector, Action),
+            Action1 = emqx_action_info:action_convert_from_connector(Type, Connector, Action),
             {ok, Action1};
         {error, not_found} ->
             {error, #{
-                reason => "connector_not_found",
-                type => ActionType,
+                bridge_name => Name,
+                reason => <<"connector_not_found_or_wrong_type">>,
+                bridge_type => Type,
                 connector_name => ConnectorName
             }}
     end.

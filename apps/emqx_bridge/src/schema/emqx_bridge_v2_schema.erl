@@ -309,20 +309,30 @@ project_to_actions_resource_opts(OldResourceOpts) ->
 
 actions_convert_from_connectors(RawConf = #{<<"actions">> := Actions}) ->
     Actions1 =
-        maps:map(fun(ActionType, ActionMap) ->
-            maps:map(fun(_ActionName, Action) ->
-            #{<<"connector">> := ConnName} = Action,
-            ConnType = atom_to_binary(emqx_bridge_v2:connector_type(ActionType)),
-            ConnPath = [<<"connectors">>, ConnType, ConnName],
-            case emqx_utils_maps:deep_find(ConnPath, RawConf) of
-                {ok, ConnConf} ->
-                    emqx_action_info:action_convert_from_connector(ActionType, ConnConf, Action);
-                {not_found, _KeyPath, _Data} -> Action
-            end
-                 end, ActionMap)
-             end, Actions),
+        maps:map(
+            fun(ActionType, ActionMap) ->
+                maps:map(
+                    fun(_ActionName, Action) ->
+                        #{<<"connector">> := ConnName} = Action,
+                        ConnType = atom_to_binary(emqx_bridge_v2:connector_type(ActionType)),
+                        ConnPath = [<<"connectors">>, ConnType, ConnName],
+                        case emqx_utils_maps:deep_find(ConnPath, RawConf) of
+                            {ok, ConnConf} ->
+                                emqx_action_info:action_convert_from_connector(
+                                    ActionType, ConnConf, Action
+                                );
+                            {not_found, _KeyPath, _Data} ->
+                                Action
+                        end
+                    end,
+                    ActionMap
+                )
+            end,
+            Actions
+        ),
     maps:put(<<"actions">>, Actions1, RawConf);
-actions_convert_from_connectors(RawConf) -> RawConf.
+actions_convert_from_connectors(RawConf) ->
+    RawConf.
 
 -ifdef(TEST).
 -include_lib("hocon/include/hocon_types.hrl").

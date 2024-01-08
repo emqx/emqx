@@ -80,7 +80,6 @@ upgrade_raw_conf(Raw0) ->
     Raw1 = emqx_connector_schema:transform_bridges_v1_to_connectors_and_bridges_v2(Raw0),
     emqx_bridge_v2_schema:actions_convert_from_connectors(Raw1).
 
-
 namespace() -> emqx.
 
 tags() ->

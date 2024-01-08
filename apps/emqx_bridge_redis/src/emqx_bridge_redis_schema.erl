@@ -13,8 +13,7 @@
     namespace/0,
     roots/0,
     fields/1,
-    desc/1,
-    resource_opts_converter/2
+    desc/1
 ]).
 
 %% `emqx_bridge_v2_schema' "unofficial" API
@@ -60,7 +59,6 @@ fields(action) ->
             ?MAP(name, ?R_REF(redis_action)),
             #{
                 desc => <<"Redis Action Config">>,
-                converter => fun ?MODULE:resource_opts_converter/2,
                 required => false
             }
         )};
@@ -118,26 +116,6 @@ desc(action_resource_opts) ->
 desc(_Name) ->
     undefined.
 
-resource_opts_converter(undefined, _Opts) ->
-    undefined;
-resource_opts_converter(Conf, _Opts) ->
-    maps:map(
-        fun(_Name, SubConf) ->
-            case SubConf of
-                #{<<"parameters">> := #{<<"redis_type">> := <<"cluster">>}} ->
-                    ResOpts = maps:get(<<"resource_opts">>, SubConf, #{}),
-                    %% cluster don't support batch
-                    SubConf#{
-                        <<"resource_opts">> =>
-                            ResOpts#{<<"batch_size">> => 1, <<"batch_time">> => <<"0ms">>}
-                    };
-                _ ->
-                    SubConf
-            end
-        end,
-        Conf
-    ).
-
 %%-------------------------------------------------------------------------------------------------
 %% `emqx_bridge_v2_schema' "unofficial" API
 %%-------------------------------------------------------------------------------------------------
@@ -147,7 +125,7 @@ bridge_v2_examples(Method) ->
         #{
             <<"redis">> => #{
                 summary => <<"Redis Action">>,
-                value => action_example(single, Method)
+                value => action_example(Method)
             }
         }
     ].
@@ -177,17 +155,17 @@ connector_examples(Method) ->
 conn_bridge_examples(Method) ->
     emqx_bridge_redis:conn_bridge_examples(Method).
 
-action_example(RedisType, post) ->
+action_example(post) ->
     maps:merge(
-        action_example(RedisType, put),
+        action_example(put),
         #{
             type => <<"redis">>,
             name => <<"my_action">>
         }
     );
-action_example(RedisType, get) ->
+action_example(get) ->
     maps:merge(
-        action_example(RedisType, put),
+        action_example(put),
         #{
             status => <<"connected">>,
             node_status => [
@@ -198,14 +176,13 @@ action_example(RedisType, get) ->
             ]
         }
     );
-action_example(RedisType, put) ->
+action_example(put) ->
     #{
         enable => true,
         connector => <<"my_connector_name">>,
         description => <<"My action">>,
         parameters => #{
-            command_template => [<<"LPUSH">>, <<"MSGS">>, <<"${payload}">>],
-            redis_type => RedisType
+            command_template => [<<"LPUSH">>, <<"MSGS">>, <<"${payload}">>]
         },
         resource_opts => #{batch_size => 1}
     }.
@@ -236,20 +213,33 @@ connector_example(RedisType, put) ->
         enable => true,
         description => <<"My redis ", (atom_to_binary(RedisType))/binary, " connector">>,
         parameters => connector_parameter(RedisType),
-        pool_size => 8,
-        database => 1,
-        username => <<"test">>,
-        password => <<"******">>,
         ssl => #{enable => false}
     }.
 
 connector_parameter(single) ->
-    #{redis_type => single, server => <<"127.0.0.1:6379">>};
+    #{
+        redis_type => single,
+        server => <<"127.0.0.1:6379">>,
+        pool_size => 8,
+        database => 1,
+        username => <<"test">>,
+        password => <<"******">>
+    };
 connector_parameter(cluster) ->
-    #{redis_type => cluster, servers => <<"127.0.0.1:6379,127.0.0.2:6379">>};
+    #{
+        redis_type => cluster,
+        servers => <<"127.0.0.1:6379,127.0.0.2:6379">>,
+        pool_size => 8,
+        username => <<"test">>,
+        password => <<"******">>
+    };
 connector_parameter(sentinel) ->
     #{
         redis_type => sentinel,
         servers => <<"127.0.0.1:6379,127.0.0.2:6379">>,
-        sentinel => <<"myredismaster">>
+        sentinel => <<"myredismaster">>,
+        pool_size => 8,
+        database => 1,
+        username => <<"test">>,
+        password => <<"******">>
     }.

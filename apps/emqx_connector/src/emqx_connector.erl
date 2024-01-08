@@ -113,15 +113,13 @@ pre_config_update([?ROOT_KEY], NewConf, _RawConf) ->
         ok -> {ok, convert_certs(NewConf)};
         Error -> Error
     end;
-pre_config_update([?ROOT_KEY, Type, Name], Oper, undefined)
-    when ?ENABLE_OR_DISABLE(Oper) ->
-    {error,  #{
-        reason => <<"connector_not_found">>,
-        connector_name => Name,
-        connector_type => Type
-    }};
-pre_config_update([?ROOT_KEY, _Type, _Name], Oper, OldConfig)
-    when ?ENABLE_OR_DISABLE(Oper) ->
+pre_config_update([?ROOT_KEY, _Type, _Name], Oper, undefined) when
+    ?ENABLE_OR_DISABLE(Oper)
+->
+    {error, connector_not_found};
+pre_config_update([?ROOT_KEY, _Type, _Name], Oper, OldConfig) when
+    ?ENABLE_OR_DISABLE(Oper)
+->
     %% to save the 'enable' to the config files
     {ok, OldConfig#{<<"enable">> => operation_to_enable(Oper)}};
 pre_config_update([?ROOT_KEY, _Type, Name] = Path, Conf = #{}, _OldConfig) ->
