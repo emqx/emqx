@@ -139,8 +139,8 @@ fast_close({ConnOwner, Conn, _ConnInfo}) when is_pid(ConnOwner) ->
     _ = quicer:async_shutdown_connection(Conn, ?QUIC_CONNECTION_SHUTDOWN_FLAG_NONE, 0),
     ok;
 fast_close({quic, _Conn, Stream, _Info}) ->
-    %% Force flush
-    _ = quicer:async_shutdown_stream(Stream),
+    %% Force flush, cutoff time 3s
+    _ = quicer:shutdown_stream(Stream, 3000),
     %% @FIXME Since we shutdown the control stream, we shutdown the connection as well
     %% *BUT* Msquic does not flush the send buffer if we shutdown the connection after
     %% gracefully shutdown the stream.
