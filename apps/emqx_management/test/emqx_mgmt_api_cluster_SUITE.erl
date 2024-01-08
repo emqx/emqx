@@ -35,11 +35,17 @@ end_per_suite(_) ->
 init_per_testcase(TC = t_cluster_topology_api_replicants, Config0) ->
     Config = [{tc_name, TC} | Config0],
     [{cluster, cluster(Config)} | setup(Config)];
+init_per_testcase(TC = t_cluster_invite_api_timeout, Config0) ->
+    Config = [{tc_name, TC} | Config0],
+    [{cluster, cluster(Config)} | setup(Config)];
 init_per_testcase(_TC, Config) ->
     emqx_mgmt_api_test_util:init_suite(?APPS),
     Config.
 
 end_per_testcase(t_cluster_topology_api_replicants, Config) ->
+    emqx_cth_cluster:stop(?config(cluster, Config)),
+    cleanup(Config);
+end_per_testcase(t_cluster_invite_api_timeout, Config) ->
     emqx_cth_cluster:stop(?config(cluster, Config)),
     cleanup(Config);
 end_per_testcase(_TC, _Config) ->
@@ -77,12 +83,94 @@ t_cluster_topology_api_replicants(Config) ->
      || Resp <- [lists:sort(R) || R <- [Core1Resp, Core2Resp, ReplResp]]
     ].
 
+t_cluster_invite_api_timeout(Config) ->
+    %% assert the cluster is created
+    [Core1, Core2, Replicant] = _NodesList = ?config(cluster, Config),
+    {200, Core1Resp} = rpc:call(Core1, emqx_mgmt_api_cluster, cluster_topology, [get, #{}]),
+    ?assertMatch(
+        [
+            #{
+                core_node := Core1,
+                replicant_nodes :=
+                    [#{node := Replicant, streams := _}]
+            },
+            #{
+                core_node := Core2,
+                replicant_nodes :=
+                    [#{node := Replicant, streams := _}]
+            }
+        ],
+        lists:sort(Core1Resp)
+    ),
+
+    %% force leave the core2
+    {204} = rpc:call(
+        Core1,
+        emqx_mgmt_api_cluster,
+        force_leave,
+        [delete, #{bindings => #{node => atom_to_binary(Core2)}}]
+    ),
+
+    %% assert the cluster is updated
+    {200, Core1Resp2} = rpc:call(Core1, emqx_mgmt_api_cluster, cluster_topology, [get, #{}]),
+    ?assertMatch(
+        [
+            #{
+                core_node := Core1,
+                replicant_nodes :=
+                    [#{node := Replicant, streams := _}]
+            }
+        ],
+        lists:sort(Core1Resp2)
+    ),
+
+    %% assert timeout parameter checking
+    Invite = fun(Node, Timeout) ->
+        Node1 = atom_to_binary(Node),
+        rpc:call(
+            Core1,
+            emqx_mgmt_api_cluster,
+            invite_node,
+            [put, #{bindings => #{node => Node1}, body => #{<<"timeout">> => Timeout}}]
+        )
+    end,
+    ?assertMatch(
+        {400, #{code := 'BAD_REQUEST', message := <<"timeout must be integer">>}},
+        Invite(Core2, not_a_integer_timeout)
+    ),
+    ?assertMatch(
+        {400, #{code := 'BAD_REQUEST', message := <<"timeout can't less than 5000ms">>}},
+        Invite(Core2, 3000)
+    ),
+
+    %% assert cluster is updated after invite
+    ?assertMatch(
+        {200},
+        Invite(Core2, 15000)
+    ),
+    {200, Core1Resp3} = rpc:call(Core1, emqx_mgmt_api_cluster, cluster_topology, [get, #{}]),
+    ?assertMatch(
+        [
+            #{
+                core_node := Core1,
+                replicant_nodes :=
+                    [#{node := Replicant, streams := _}]
+            },
+            #{
+                core_node := Core2,
+                replicant_nodes := _
+            }
+        ],
+        lists:sort(Core1Resp3)
+    ).
+
 cluster(Config) ->
+    NodeSpec = #{apps => ?APPS},
     Nodes = emqx_cth_cluster:start(
         [
-            {data_backup_core1, #{role => core, apps => ?APPS}},
-            {data_backup_core2, #{role => core, apps => ?APPS}},
-            {data_backup_replicant, #{role => replicant, apps => ?APPS}}
+            {data_backup_core1, NodeSpec#{role => core}},
+            {data_backup_core2, NodeSpec#{role => core}},
+            {data_backup_replicant, NodeSpec#{role => replicant}}
         ],
         #{work_dir => work_dir(Config)}
     ),

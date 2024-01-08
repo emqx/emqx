@@ -31,6 +31,8 @@
     connected_replicants/0
 ]).
 
+-define(DEFAULT_INVITE_TIMEOUT, 15000).
+
 namespace() -> "cluster".
 
 api_spec() ->
@@ -77,6 +79,7 @@ schema("/cluster/:node/invite") ->
             desc => ?DESC(invite_node),
             tags => [<<"Cluster">>],
             parameters => [hoconsc:ref(node)],
+            'requestBody' => hoconsc:ref(timeout),
             responses => #{
                 200 => <<"ok">>,
                 400 => emqx_dashboard_swagger:error_codes(['BAD_REQUEST'])
@@ -131,6 +134,14 @@ fields(core_replicants) ->
                 #{desc => <<"Core node name">>, example => <<"emqx-core@127.0.0.1">>}
             )},
         {replicant_nodes, ?HOCON(?ARRAY(?REF(replicant_info)))}
+    ];
+fields(timeout) ->
+    [
+        {timeout,
+            ?HOCON(
+                non_neg_integer(),
+                #{desc => <<"Timeout in milliseconds">>, example => <<"15000">>}
+            )}
     ].
 
 validate_node(Node) ->
@@ -188,17 +199,24 @@ running_cores() ->
     Running = emqx:running_nodes(),
     lists:filter(fun(C) -> lists:member(C, Running) end, emqx:cluster_nodes(cores)).
 
-invite_node(put, #{bindings := #{node := Node0}}) ->
+invite_node(put, #{bindings := #{node := Node0}, body := Body}) ->
     Node = ekka_node:parse_name(binary_to_list(Node0)),
-    case emqx_mgmt_cluster_proto_v1:invite_node(Node, node()) of
-        ok ->
-            {200};
-        ignore ->
-            {400, #{code => 'BAD_REQUEST', message => <<"Can't invite self">>}};
-        {badrpc, Error} ->
-            {400, #{code => 'BAD_REQUEST', message => error_message(Error)}};
-        {error, Error} ->
-            {400, #{code => 'BAD_REQUEST', message => error_message(Error)}}
+    case maps:get(<<"timeout">>, Body, ?DEFAULT_INVITE_TIMEOUT) of
+        T when not is_integer(T) ->
+            {400, #{code => 'BAD_REQUEST', message => <<"timeout must be integer">>}};
+        T when T < 5000 ->
+            {400, #{code => 'BAD_REQUEST', message => <<"timeout can't less than 5000ms">>}};
+        Timeout ->
+            case emqx_mgmt_cluster_proto_v3:invite_node(Node, node(), Timeout) of
+                ok ->
+                    {200};
+                ignore ->
+                    {400, #{code => 'BAD_REQUEST', message => <<"Can't invite self">>}};
+                {badrpc, Error} ->
+                    {400, #{code => 'BAD_REQUEST', message => error_message(Error)}};
+                {error, Error} ->
+                    {400, #{code => 'BAD_REQUEST', message => error_message(Error)}}
+            end
     end.
 
 force_leave(delete, #{bindings := #{node := Node0}}) ->
