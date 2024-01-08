@@ -699,6 +699,14 @@ list_clients(QString) ->
     case Result of
         {error, page_limit_invalid} ->
             {400, #{code => <<"INVALID_PARAMETER">>, message => <<"page_limit_invalid">>}};
+        {error, invalid_query_string_param, {Key, ExpectedType, AcutalValue}} ->
+            Message = list_to_binary(
+                io_lib:format(
+                    "the ~s parameter expected type is ~s, but the got value is ~s",
+                    [Key, ExpectedType, emqx_utils_conv:str(AcutalValue)]
+                )
+            ),
+            {400, #{code => <<"INVALID_PARAMETER">>, message => Message}};
         {error, Node, {badrpc, R}} ->
             Message = list_to_binary(io_lib:format("bad rpc call ~p, Reason ~p", [Node, R])),
             {500, #{code => <<"NODE_DOWN">>, message => Message}};
