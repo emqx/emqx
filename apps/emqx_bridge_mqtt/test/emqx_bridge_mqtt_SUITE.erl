@@ -564,17 +564,17 @@ t_mqtt_conn_bridge_egress_no_payload_template(_) ->
 
 t_egress_short_clientid(_Config) ->
     %% Name is short, expect the actual client ID in use is hashed from
-    %% <name>E<nodename-hash>:<pool_worker_id>
-    Name = "abc01234",
-    BaseId = emqx_bridge_mqtt_lib:clientid_base([Name, "E"]),
+    %% <name><nodename-hash>:<pool_worker_id>
+    Name = <<"abc01234">>,
+    BaseId = emqx_bridge_mqtt_lib:clientid_base([Name]),
     ExpectedClientId = iolist_to_binary([BaseId, $:, "1"]),
     test_egress_clientid(Name, ExpectedClientId).
 
 t_egress_long_clientid(_Config) ->
     %% Expect the actual client ID in use is hashed from
-    %% <name>E<nodename-hash>:<pool_worker_id>
-    Name = "abc01234567890123456789",
-    BaseId = emqx_bridge_mqtt_lib:clientid_base([Name, "E"]),
+    %% <name><nodename-hash>:<pool_worker_id>
+    Name = <<"abc012345678901234567890">>,
+    BaseId = emqx_bridge_mqtt_lib:clientid_base([Name]),
     ExpectedClientId = emqx_bridge_mqtt_lib:bytes23(BaseId, 1),
     test_egress_clientid(Name, ExpectedClientId).
 
@@ -1049,7 +1049,8 @@ create_bridge(Config = #{<<"type">> := Type, <<"name">> := Name}) ->
             <<"type">> := Type,
             <<"name">> := Name
         },
-        emqx_utils_json:decode(Bridge)
+        emqx_utils_json:decode(Bridge),
+        #{expected_type => Type, expected_name => Name}
     ),
     emqx_bridge_resource:bridge_id(Type, Name).
 

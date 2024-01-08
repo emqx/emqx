@@ -38,6 +38,7 @@
 
 -import(hoconsc, [mk/2, ref/2]).
 
+-define(CONNECTOR_TYPE, mqtt).
 -define(MQTT_HOST_OPTS, #{default_port => 1883}).
 
 namespace() -> "connector_mqtt".
@@ -66,28 +67,10 @@ fields("config") ->
                 )}
         ];
 fields("config_connector") ->
-    [
-        {enable,
-            mk(
-                boolean(),
-                #{
-                    desc => <<"Enable or disable this connector">>,
-                    default => true
-                }
-            )},
-        {description, emqx_schema:description_schema()},
-        {pool_size, fun egress_pool_size/1}
-        % {ingress,
-        %     mk(
-        %         hoconsc:array(
-        %             hoconsc:ref(connector_ingress)
-        %         ),
-        %         #{
-        %             required => {false, recursively},
-        %             desc => ?DESC("ingress_desc")
-        %         }
-        %     )}
-    ] ++ emqx_connector_schema:resource_opts_ref(?MODULE, resource_opts) ++
+    emqx_connector_schema:common_fields() ++ fields("specific_connector_config");
+fields("specific_connector_config") ->
+    [{pool_size, fun egress_pool_size/1}] ++
+        emqx_connector_schema:resource_opts_ref(?MODULE, resource_opts) ++
         fields("server_configs");
 fields(resource_opts) ->
     emqx_connector_schema:resource_opts_fields();
@@ -317,12 +300,13 @@ fields("egress_remote") ->
                 }
             )}
     ];
-fields("get_connector") ->
-    fields("config_connector");
-fields("post_connector") ->
-    fields("config_connector");
-fields("put_connector") ->
-    fields("config_connector");
+fields(Field) when
+    Field == "get_connector";
+    Field == "put_connector";
+    Field == "post_connector"
+->
+    Fields = fields("specific_connector_config"),
+    emqx_connector_schema:api_fields(Field, ?CONNECTOR_TYPE, Fields);
 fields(What) ->
     error({emqx_bridge_mqtt_connector_schema, missing_field_handler, What}).
 

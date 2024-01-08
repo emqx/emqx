@@ -94,7 +94,7 @@ bridge_v1_config_to_action_config_helper(
     ),
     LocalTopicMap = maps:get(<<"local">>, EgressMap0, #{}),
     LocalTopic = maps:get(<<"topic">>, LocalTopicMap, undefined),
-    EgressMap1 = maps:remove(<<"local">>, EgressMap0),
+    EgressMap1 = maps:without([<<"local">>, <<"pool_size">>], EgressMap0),
     %% Add parameters field (Egress map) to the action config
     ConfigMap2 = maps:put(<<"parameters">>, EgressMap1, ConfigMap1),
     ConfigMap3 =

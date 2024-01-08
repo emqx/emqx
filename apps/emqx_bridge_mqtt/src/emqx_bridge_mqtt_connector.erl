@@ -414,10 +414,8 @@ mk_client_opts(
         ssl_opts => maps:to_list(maps:remove(enable, Ssl))
     }).
 
-parse_id_to_name(<<?TEST_ID_PREFIX, Name/binary>>) ->
-    Name;
 parse_id_to_name(Id) ->
-    {_Type, Name} = emqx_bridge_resource:parse_bridge_id(Id, #{atom_name => false}),
+    {_Type, Name} = emqx_connector_resource:parse_connector_id(Id, #{atom_name => false}),
     Name.
 
 mk_client_opt_password(Options = #{password := Secret}) ->
@@ -447,7 +445,6 @@ connect(Options) ->
     }),
     Name = proplists:get_value(name, Options),
     WorkerId = proplists:get_value(ecpool_worker_id, Options),
-    WorkerId = proplists:get_value(ecpool_worker_id, Options),
     ClientOpts = proplists:get_value(client_opts, Options),
     case emqtt:start_link(mk_client_opts(Name, WorkerId, ClientOpts)) of
         {ok, Pid} ->
@@ -475,7 +472,7 @@ mk_client_opts(
     }.
 
 mk_clientid(WorkerId, ClientId) ->
-    iolist_to_binary([ClientId, $: | integer_to_list(WorkerId)]).
+    emqx_bridge_mqtt_lib:bytes23([ClientId], WorkerId).
 
 mk_client_event_handler(Name, TopicToHandlerIndex) ->
     #{
