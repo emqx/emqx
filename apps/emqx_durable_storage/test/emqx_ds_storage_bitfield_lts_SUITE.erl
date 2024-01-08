@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2022-2023 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2022-2024 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
 -module(emqx_ds_storage_bitfield_lts_SUITE).
 
@@ -378,6 +378,7 @@ suite() -> [{timetrap, {seconds, 20}}].
 
 init_per_suite(Config) ->
     {ok, _} = application:ensure_all_started(emqx_durable_storage),
+    emqx_ds_sup:ensure_workers(),
     Config.
 
 end_per_suite(_Config) ->
