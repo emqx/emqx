@@ -491,7 +491,7 @@ t_slow_rlog_routing_consistency(Config) ->
     ClientId = atom_to_binary(?FUNCTION_NAME),
     Topic = <<"t/", ClientId/binary>>,
     Self = self(),
-    ?assertEqual(ok, rpc:call(Replicant, emqx_broker, do_subscribe, [Topic, Self, #{}])),
+    _Result = rpc:call(Replicant, emqx_broker, dispatch_subscribe, [Topic, Self, #{}]),
     %% Wait for normal route replication (must be fast enough)
     emqx_common_test_helpers:wait_for(
         ?FUNCTION_NAME,
@@ -514,7 +514,7 @@ t_slow_rlog_routing_consistency(Config) ->
         %% Subscribe must add a route again, even though the previosus
         %% route may be still present on the replicant at the time of
         %% this re-subscription
-        ok = emqx_broker:do_subscribe(Topic, Self, #{})
+        ok = emqx_broker:wait_result(emqx_broker:dispatch_subscribe(Topic, Self, #{}))
     end,
     ?assertEqual(ok, erpc:call(Replicant, UnSubSubFun)),
     receive
