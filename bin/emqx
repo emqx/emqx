@@ -988,6 +988,7 @@ fi
 
 diagnose_boot_failure_and_die() {
     local ps_line
+    local app_status
     ps_line="$(find_emqx_process)"
     if [ -z "$ps_line" ]; then
         echo "Find more information in the latest log file: ${EMQX_LOG_DIR}/erlang.log.*"
@@ -999,9 +1000,9 @@ diagnose_boot_failure_and_die() {
         pipe_shutdown
         exit 2
     fi
-    if ! relx_nodetool 'eval' 'true = emqx:is_running()' > /dev/null; then
+    app_status="$(relx_nodetool 'eval' 'emqx:is_running()')"
+    if [ "$app_status" != 'true' ]; then
         logerr "$NAME node is started, but failed to complete the boot sequence in time."
-        echo "Please collect the logs in ${EMQX_LOG_DIR} and report a bug to EMQX team at https://github.com/emqx/emqx/issues/new/choose"
         pipe_shutdown
         exit 3
     fi
