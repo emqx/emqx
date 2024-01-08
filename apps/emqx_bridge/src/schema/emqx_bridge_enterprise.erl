@@ -124,7 +124,7 @@ resource_type(sqlserver) -> emqx_bridge_sqlserver_connector;
 resource_type(opents) -> emqx_bridge_opents_connector;
 resource_type(pulsar_producer) -> emqx_bridge_pulsar_impl_producer;
 resource_type(oracle) -> emqx_oracle;
-resource_type(iotdb) -> emqx_bridge_iotdb_impl;
+resource_type(iotdb) -> emqx_bridge_iotdb_connector;
 resource_type(rabbitmq) -> emqx_bridge_rabbitmq_connector;
 resource_type(kinesis_producer) -> emqx_bridge_kinesis_impl_producer;
 resource_type(greptimedb) -> emqx_bridge_greptimedb_connector;

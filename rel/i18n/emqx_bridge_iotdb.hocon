@@ -70,4 +70,52 @@ desc_name.desc:
 
 desc_name.label:
 """Bridge Name"""
+
+config_parameters_timestamp.desc:
+"""Timestamp. Placeholders in format of ${var} is supported, the final value can be:</br>
+- now: use the `now_ms` which is contained in the payload as timestamp
+- now_ms: same as above
+- now_us: use the `now_us` which is contained in the payload as timestamp
+- now_ns: use the `now_ns` which is contained in the payload as timestamp
+- any other: use the value directly as the timestamp"""
+
+config_parameters_timestamp.label:
+"""Timestamp"""
+
+config_parameters_measurement.desc:
+"""Measurement. Placeholders in format of ${var} is supported"""
+
+config_parameters_measurement.label:
+"""Measurement"""
+
+config_parameters_data_type.desc:
+"""Data Type, can be:</br>
+- TEXT
+- BOOLEAN
+- INT32
+- INT64
+- FLOAT
+- DOUBLE"""
+
+config_parameters_data_type.label:
+"""Data type"""
+
+config_parameters_value.desc:
+"""Value. Placeholders in format of ${var} is supported"""
+
+config_parameters_value.label:
+"""Value"""
+
+action_parameters_data.desc:
+"""IoTDB action parameter data"""
+
+action_parameters_data.label:
+"""Parameter Data"""
+
+action_parameters.desc:
+"""IoTDB action parameters"""
+
+action_parameters.label:
+"""Parameters"""
+
 }

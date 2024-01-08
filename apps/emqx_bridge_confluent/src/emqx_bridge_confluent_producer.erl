@@ -24,7 +24,7 @@
 ]).
 
 %% emqx_connector_resource behaviour callbacks
--export([connector_config/1]).
+-export([connector_config/2]).
 
 -export([host_opts/0]).
 
@@ -288,7 +288,7 @@ values(action) ->
 %% `emqx_connector_resource' API
 %%-------------------------------------------------------------------------------------------------
 
-connector_config(Config) ->
+connector_config(Config, _) ->
     %% Default port for Confluent is 9092
     BootstrapHosts0 = maps:get(bootstrap_hosts, Config),
     BootstrapHosts = emqx_schema:parse_servers(
