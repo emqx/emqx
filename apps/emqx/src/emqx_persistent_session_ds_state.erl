@@ -159,7 +159,7 @@ open(SessionId) ->
                     streams => pmap_open(?stream_tab, SessionId),
                     seqnos => pmap_open(?seqno_tab, SessionId),
                     ranks => pmap_open(?rank_tab, SessionId),
-                    dirty => false
+                    ?unset_dirty
                 },
                 {ok, Rec};
             [] ->
@@ -222,17 +222,16 @@ commit(
         ranks := Ranks
     }
 ) ->
-    check_sequence(
-        transaction(fun() ->
-            kv_persist(?session_tab, SessionId, Metadata),
-            Rec#{
-                streams => pmap_commit(SessionId, Streams),
-                seqnos => pmap_commit(SessionId, SeqNos),
-                ranks => pmap_commit(SessionId, Ranks),
-                ?unset_dirty
-            }
-        end)
-    ).
+    check_sequence(Rec),
+    transaction(fun() ->
+        kv_persist(?session_tab, SessionId, Metadata),
+        Rec#{
+            streams => pmap_commit(SessionId, Streams),
+            seqnos => pmap_commit(SessionId, SeqNos),
+            ranks => pmap_commit(SessionId, Ranks),
+            ?unset_dirty
+        }
+    end).
 
 -spec create_new(emqx_persistent_session_ds:id()) -> t().
 create_new(SessionId) ->

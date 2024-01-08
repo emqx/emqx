@@ -216,31 +216,7 @@ t_session_subscription_iterators(Config) ->
                 messages => [Message1, Message2, Message3, Message4]
             }
         end,
-        fun(Trace) ->
-            ct:pal("trace:\n  ~p", [Trace]),
-            case ?of_kind(ds_session_subscription_added, Trace) of
-                [] ->
-                    %% Since `emqx_durable_storage' is a dependency of `emqx', it gets
-                    %% compiled in "prod" mode when running emqx standalone tests.
-                    ok;
-                [_ | _] ->
-                    ?assertMatch(
-                        [
-                            #{?snk_kind := ds_session_subscription_added},
-                            #{?snk_kind := ds_session_subscription_present}
-                        ],
-                        ?of_kind(
-                            [
-                                ds_session_subscription_added,
-                                ds_session_subscription_present
-                            ],
-                            Trace
-                        )
-                    ),
-                    ok
-            end,
-            ok
-        end
+        []
     ),
     ok.
 

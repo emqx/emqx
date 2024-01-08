@@ -20,7 +20,7 @@
 
 -include("emqx.hrl").
 -include_lib("emqx/include/logger.hrl").
--include_lib("snabbkaffe/include/snabbkaffe.hrl").
+-include_lib("snabbkaffe/include/trace.hrl").
 -include_lib("stdlib/include/ms_transform.hrl").
 
 -include("emqx_mqtt.hrl").
@@ -188,7 +188,7 @@ destroy(#{clientid := ClientID}) ->
     destroy_session(ClientID).
 
 destroy_session(ClientID) ->
-    session_drop(ClientID).
+    session_drop(ClientID, destroy).
 
 %%--------------------------------------------------------------------
 %% Info, Stats
@@ -321,18 +321,27 @@ unsubscribe(
     Session = #{id := ID, s := S0}
 ) ->
     case subs_lookup(TopicFilter, S0) of
-        #{props := SubOpts, id := SubId} ->
-            S1 = emqx_persistent_session_ds_state:del_subscription(TopicFilter, [], S0),
-            S = emqx_persistent_session_ds_stream_scheduler:del_subscription(SubId, S1),
-            ?tp_span(
-                persistent_session_ds_subscription_route_delete,
-                #{session_id => ID},
-                ok = emqx_persistent_session_ds_router:do_delete_route(TopicFilter, ID)
-            ),
-            {ok, Session#{s => S}, SubOpts};
         undefined ->
-            {error, ?RC_NO_SUBSCRIPTION_EXISTED}
+            {error, ?RC_NO_SUBSCRIPTION_EXISTED};
+        Subscription = #{props := SubOpts} ->
+            S = do_unsubscribe(ID, TopicFilter, Subscription, S0),
+            {ok, Session#{s => S}, SubOpts}
     end.
+
+-spec do_unsubscribe(id(), topic_filter(), subscription(), emqx_persistent_session_ds_state:t()) ->
+    emqx_persistent_session_ds_state:t().
+do_unsubscribe(SessionId, TopicFilter, #{id := SubId}, S0) ->
+    ?tp(persistent_session_ds_subscription_delete, #{
+        session_id => SessionId, topic_filter => TopicFilter
+    }),
+    S1 = emqx_persistent_session_ds_state:del_subscription(TopicFilter, [], S0),
+    S = emqx_persistent_session_ds_stream_scheduler:del_subscription(SubId, S1),
+    ?tp_span(
+        persistent_session_ds_subscription_route_delete,
+        #{session_id => SessionId, topic_filter => TopicFilter},
+        ok = emqx_persistent_session_ds_router:do_delete_route(TopicFilter, SessionId)
+    ),
+    S.
 
 -spec get_subscription(topic_filter(), session()) ->
     emqx_types:subopts() | undefined.
@@ -534,12 +543,6 @@ sync(ClientId) ->
             {error, noproc}
     end.
 
--define(IS_EXPIRED(NOW_MS, LAST_ALIVE_AT, EI),
-    (is_number(LAST_ALIVE_AT) andalso
-        is_number(EI) andalso
-        (NOW_MS >= LAST_ALIVE_AT + EI))
-).
-
 %% @doc Called when a client connects. This function looks up a
 %% session or returns `false` if previous one couldn't be found.
 %%
@@ -553,11 +556,12 @@ session_open(SessionId, NewConnInfo) ->
         {ok, S0} ->
             EI = expiry_interval(emqx_persistent_session_ds_state:get_conninfo(S0)),
             LastAliveAt = emqx_persistent_session_ds_state:get_last_alive_at(S0),
-            case ?IS_EXPIRED(NowMS, LastAliveAt, EI) of
+            case NowMS >= LastAliveAt + EI of
                 true ->
-                    emqx_persistent_session_ds_state:delete(SessionId),
+                    session_drop(SessionId, expired),
                     false;
                 false ->
+                    ?tp(open_session, #{ei => EI, now => NowMS, laa => LastAliveAt}),
                     %% New connection being established
                     S1 = emqx_persistent_session_ds_state:set_conninfo(NewConnInfo, S0),
                     S2 = emqx_persistent_session_ds_state:set_last_alive_at(NowMS, S1),
@@ -608,9 +612,22 @@ session_ensure_new(Id, ConnInfo, Conf) ->
 
 %% @doc Called when a client reconnects with `clean session=true' or
 %% during session GC
--spec session_drop(id()) -> ok.
-session_drop(ID) ->
-    emqx_persistent_session_ds_state:delete(ID).
+-spec session_drop(id(), _Reason) -> ok.
+session_drop(ID, Reason) ->
+    case emqx_persistent_session_ds_state:open(ID) of
+        {ok, S0} ->
+            ?tp(debug, drop_persistent_session, #{client_id => ID, reason => Reason}),
+            _S = subs_fold(
+                fun(TopicFilter, Subscription, S) ->
+                    do_unsubscribe(ID, TopicFilter, Subscription, S)
+                end,
+                S0,
+                S0
+            ),
+            emqx_persistent_session_ds_state:delete(ID);
+        undefined ->
+            ok
+    end.
 
 now_ms() ->
     erlang:system_time(millisecond).
@@ -1083,7 +1100,7 @@ seqno_proper_test_() ->
             end,
             [?_assert(proper:quickcheck(Prop, Opts)) || Prop <- Props]}}.
 
-apply_n_times(0, Fun, A) ->
+apply_n_times(0, _Fun, A) ->
     A;
 apply_n_times(N, Fun, A) when N > 0 ->
     apply_n_times(N - 1, Fun, Fun(A)).

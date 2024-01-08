@@ -85,6 +85,7 @@ end_per_testcase(TestCase, Config) when
     Nodes = ?config(nodes, Config),
     emqx_common_test_helpers:call_janitor(60_000),
     ok = emqx_cth_cluster:stop(Nodes),
+    snabbkaffe:stop(),
     ok;
 end_per_testcase(_TestCase, _Config) ->
     emqx_common_test_helpers:call_janitor(60_000),
@@ -164,10 +165,19 @@ is_persistent_connect_opts(#{properties := #{'Session-Expiry-Interval' := EI}}) 
     EI > 0.
 
 list_all_sessions(Node) ->
-    erpc:call(Node, emqx_persistent_session_ds, list_all_sessions, []).
+    erpc:call(Node, emqx_persistent_session_ds_state, list_sessions, []).
 
 list_all_subscriptions(Node) ->
-    erpc:call(Node, emqx_persistent_session_ds, list_all_subscriptions, []).
+    Sessions = list_all_sessions(Node),
+    lists:flatmap(
+        fun(ClientId) ->
+            #{s := #{subscriptions := Subs}} = erpc:call(
+                Node, emqx_persistent_session_ds, print_session, [ClientId]
+            ),
+            maps:to_list(Subs)
+        end,
+        Sessions
+    ).
 
 list_all_pubranges(Node) ->
     erpc:call(Node, emqx_persistent_session_ds, list_all_pubranges, []).
@@ -485,7 +495,7 @@ do_t_session_expiration(_Config, Opts) ->
             Client0 = start_client(Params0),
             {ok, _} = emqtt:connect(Client0),
             {ok, _, [?RC_GRANTED_QOS_2]} = emqtt:subscribe(Client0, Topic, ?QOS_2),
-            #{subscriptions := Subs0} = emqx_persistent_session_ds:print_session(ClientId),
+            #{s := #{subscriptions := Subs0}} = emqx_persistent_session_ds:print_session(ClientId),
             ?assertEqual(1, map_size(Subs0), #{subs => Subs0}),
             Info0 = maps:from_list(emqtt:info(Client0)),
             ?assertEqual(0, maps:get(session_present, Info0), #{info => Info0}),
@@ -512,7 +522,8 @@ do_t_session_expiration(_Config, Opts) ->
             emqtt:publish(Client2, Topic, <<"payload">>),
             ?assertNotReceive({publish, #{topic := Topic}}),
             %% ensure subscriptions are absent from table.
-            ?assertEqual(#{}, emqx_persistent_session_ds:list_all_subscriptions()),
+            #{s := #{subscriptions := Subs3}} = emqx_persistent_session_ds:print_session(ClientId),
+            ?assertEqual([], maps:to_list(Subs3)),
             emqtt:disconnect(Client2, ?RC_NORMAL_DISCONNECTION, ThirdDisconn),
 
             ok
@@ -580,10 +591,8 @@ t_session_gc(Config) ->
             ),
             ?assertMatch({ok, _}, Res0),
             {ok, #{?snk_meta := #{time := T0}}} = Res0,
-            Sessions0 = list_all_sessions(Node1),
-            Subs0 = list_all_subscriptions(Node1),
-            ?assertEqual(3, map_size(Sessions0), #{sessions => Sessions0}),
-            ?assertEqual(3, map_size(Subs0), #{subs => Subs0}),
+            ?assertMatch([_, _, _], list_all_sessions(Node1), sessions),
+            ?assertMatch([_, _, _], list_all_subscriptions(Node1), subscriptions),
 
             %% Now we disconnect 2 of them; only those should be GC'ed.
             ?assertMatch(
@@ -628,11 +637,8 @@ t_session_gc(Config) ->
                     4 * GCInterval + 1_000
                 )
             ),
-            Sessions1 = list_all_sessions(Node1),
-            Subs1 = list_all_subscriptions(Node1),
-            ?assertEqual(1, map_size(Sessions1), #{sessions => Sessions1}),
-            ?assertEqual(1, map_size(Subs1), #{subs => Subs1}),
-
+            ?assertMatch([_], list_all_sessions(Node1), sessions),
+            ?assertMatch([_], list_all_subscriptions(Node1), subscriptions),
             ok
         end,
         [
