@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2020-2023 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2020-2024 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -25,7 +25,7 @@
 -export([api_spec/0, paths/0, schema/1, namespace/0, fields/1]).
 
 -export([
-    lookup_retained_warp/2,
+    '/messages'/2,
     with_topic_warp/2,
     config/2
 ]).
@@ -69,17 +69,24 @@ schema(?PREFIX) ->
     };
 schema(?PREFIX ++ "/messages") ->
     #{
-        'operationId' => lookup_retained_warp,
+        'operationId' => '/messages',
         get => #{
             tags => ?TAGS,
             description => ?DESC(list_retained_api),
-            parameters => page_params(),
+            parameters => parameters(query, false, query_match_topic) ++ page_params(),
             responses => #{
                 200 => [
                     {data, mk(array(ref(message_summary)), #{desc => ?DESC(retained_list)})},
                     {meta, mk(hoconsc:ref(emqx_dashboard_swagger, meta))}
                 ],
                 400 => error_codes(['BAD_REQUEST'], ?DESC(unsupported_backend))
+            }
+        },
+        delete => #{
+            tags => ?TAGS,
+            description => ?DESC(delete_messages),
+            responses => #{
+                204 => <<>>
             }
         }
     };
@@ -118,12 +125,15 @@ conf_schema() ->
     ref(emqx_retainer_schema, "retainer").
 
 parameters() ->
+    parameters(path, true, topic).
+
+parameters(In, Required, Desc) ->
     [
         {topic,
             mk(binary(), #{
-                in => path,
-                required => true,
-                desc => ?DESC(topic)
+                in => In,
+                required => Required,
+                desc => ?DESC(Desc)
             })}
     ].
 
@@ -142,8 +152,10 @@ fields(message) ->
         | fields(message_summary)
     ].
 
-lookup_retained_warp(Type, Params) ->
-    check_backend(Type, Params, fun lookup_retained/2).
+'/messages'(get, Params) ->
+    check_backend(get, Params, fun lookup_retained/2);
+'/messages'(delete, Params) ->
+    delete_messages(delete, Params).
 
 with_topic_warp(Type, Params) ->
     check_backend(Type, Params, fun with_topic/2).
@@ -168,7 +180,9 @@ config(put, #{body := Body}) ->
 lookup_retained(get, #{query_string := Qs}) ->
     Page = maps:get(<<"page">>, Qs, 1),
     Limit = maps:get(<<"limit">>, Qs, emqx_mgmt:default_row_limit()),
-    {ok, Msgs} = emqx_retainer_mnesia:page_read(undefined, undefined, Page, Limit),
+    Topic = maps:get(<<"topic">>, Qs, undefined),
+    ct:print("Qs:~p~n", [Qs]),
+    {ok, Msgs} = emqx_retainer_mnesia:page_read(undefined, Topic, Page, Limit),
     {200, #{
         data => [format_message(Msg) || Msg <- Msgs],
         meta => #{page => Page, limit => Limit, count => emqx_retainer_mnesia:size(?TAB_MESSAGE)}
@@ -198,6 +212,10 @@ with_topic(delete, #{bindings := Bindings}) ->
             emqx_retainer_mnesia:delete_message(undefined, Topic),
             {204}
     end.
+
+delete_messages(delete, _) ->
+    emqx_retainer:clean(),
+    {204}.
 
 format_message(#message{
     id = ID,

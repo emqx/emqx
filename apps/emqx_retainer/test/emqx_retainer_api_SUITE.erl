@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2020-2023 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2020-2024 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -25,7 +25,9 @@
 
 -define(CLUSTER_RPC_SHARD, emqx_cluster_rpc_shard).
 
--import(emqx_mgmt_api_test_util, [request_api/2, request_api/5, api_path/1, auth_header_/0]).
+-import(emqx_mgmt_api_test_util, [
+    request_api/2, request_api/4, request_api/5, api_path/1, auth_header_/0
+]).
 
 all() ->
     emqx_common_test_helpers:all(?MODULE).
@@ -307,6 +309,37 @@ t_change_storage_type(_Config) ->
     emqtt:stop(C1),
 
     ok.
+
+t_match_and_clean(_) ->
+    {ok, C1} = emqtt:start_link([{clean_start, true}, {proto_ver, v5}]),
+    {ok, _} = emqtt:connect(C1),
+    emqx_retainer:clean(),
+    timer:sleep(300),
+
+    _ = [
+        emqtt:publish(C1, <<P/binary, "/", S/binary>>, <<"retained">>, [{qos, 0}, {retain, true}])
+     || P <- [<<"t">>, <<"f">>], S <- [<<"1">>, <<"2">>, <<"3">>]
+    ],
+
+    timer:sleep(1000),
+
+    API = api_path(["mqtt", "retainer", "messages"]),
+    {ok, LookupJson} = request_api(get, API, "topic=t/%2B", auth_header_()),
+    LookupResult = decode_json(LookupJson),
+
+    Expected = lists:usort([<<"t/1">>, <<"t/2">>, <<"t/3">>]),
+    ?assertMatch(
+        Expected,
+        lists:usort([Topic || #{topic := Topic} <- maps:get(data, LookupResult)])
+    ),
+
+    CleanAPI = api_path(["mqtt", "retainer", "messages"]),
+    {ok, []} = request_api(delete, CleanAPI),
+
+    {ok, LookupJson2} = request_api(get, API),
+    ?assertMatch(#{data := []}, decode_json(LookupJson2)),
+
+    ok = emqtt:disconnect(C1).
 
 %%--------------------------------------------------------------------
 %% HTTP Request

@@ -27,8 +27,13 @@ list_retained_api.desc:
 list_retained_api.label:
 """List retained messages."""
 
+delete_messages.desc:
+"""Delete all retained messages"""
+delete_messages.label:
+"""Delete Retained Messages"""
+
 lookup_api.desc:
-"""Lookup a message by a topic without wildcards."""
+"""Lookup a message by a topic without wildcards, ."""
 lookup_api.label:
 """Lookup a message"""
 
@@ -55,6 +60,9 @@ retained_list.desc:
 
 topic.desc:
 """Topic."""
+
+query_match_topic.desc:
+"""Topic filter, supports wildcards, omit this to match all messages."""
 
 unsupported_backend.desc:
 """Unsupported backend."""
