@@ -27,6 +27,9 @@
     conn_bridge_examples/1
 ]).
 
+-define(ACTION_TYPE, mqtt).
+-define(SOURCE_TYPE, mqtt).
+
 %%======================================================================================
 %% Hocon Schema Definitions
 namespace() -> "bridge_mqtt_publisher".
@@ -86,14 +89,18 @@ fields(action_resource_opts) ->
         fun({K, _V}) -> not lists:member(K, UnsupportedOpts) end,
         emqx_bridge_v2_schema:resource_opts_fields()
     );
-fields("get_connector") ->
-    emqx_bridge_mqtt_connector_schema:fields("config_connector");
-fields("get_bridge_v2") ->
-    fields("mqtt_publisher_action");
-fields("post_bridge_v2") ->
-    fields("mqtt_publisher_action") ++ emqx_bridge_schema:type_and_name_fields(mqtt);
-fields("put_bridge_v2") ->
-    fields("mqtt_publisher_action");
+fields(Field) when
+    Field == "get_bridge_v2";
+    Field == "post_bridge_v2";
+    Field == "put_bridge_v2"
+->
+    emqx_bridge_v2_schema:api_fields(Field, ?ACTION_TYPE, fields("mqtt_publisher_action"));
+fields(Field) when
+    Field == "get_source";
+    Field == "post_source";
+    Field == "put_source"
+->
+    emqx_bridge_v2_schema:api_fields(Field, ?SOURCE_TYPE, fields("mqtt_subscriber_source"));
 fields(What) ->
     error({emqx_bridge_mqtt_pubsub_schema, missing_field_handler, What}).
 %% v2: api schema

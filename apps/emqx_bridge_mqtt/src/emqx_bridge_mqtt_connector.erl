@@ -237,7 +237,9 @@ on_stop(ResourceId, State) ->
             ets:delete(TopicToHandlerIndex)
     end,
     Allocated = emqx_resource:get_allocated_resources(ResourceId),
-    ok = stop_helper(Allocated).
+    ok = stop_helper(Allocated),
+    ?tp(mqtt_connector_stopped, #{instance_id => ResourceId}),
+    ok.
 
 stop_helper(#{pool_name := PoolName}) ->
     emqx_resource_pool:stop(PoolName).

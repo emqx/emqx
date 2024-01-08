@@ -28,21 +28,31 @@
 -export([roots/0, fields/1, desc/1, namespace/0, tags/0]).
 
 -export([
-    get_response/0,
-    put_request/0,
-    post_request/0,
-    examples/1,
+    actions_get_response/0,
+    actions_put_request/0,
+    actions_post_request/0,
+    actions_examples/1,
     action_values/4
+]).
+
+-export([
+    sources_get_response/0,
+    sources_put_request/0,
+    sources_post_request/0,
+    sources_examples/1,
+    source_values/4
 ]).
 
 %% Exported for mocking
 %% TODO: refactor emqx_bridge_v1_compatibility_layer_SUITE so we don't need to
 %% export this
 -export([
-    registered_api_schemas/1
+    registered_actions_api_schemas/1,
+    registered_sources_api_schemas/1
 ]).
 
--export([types/0, types_sc/0]).
+-export([action_types/0, action_types_sc/0]).
+-export([source_types/0, source_types_sc/0]).
 -export([resource_opts_fields/0, resource_opts_fields/1]).
 
 -export([
@@ -58,32 +68,139 @@
 
 -export([actions_convert_from_connectors/1]).
 
--export_type([action_type/0]).
+-export_type([action_type/0, source_type/0]).
 
 %% Should we explicitly list them here so dialyzer may be more helpful?
 -type action_type() :: atom().
+-type source_type() :: atom().
+-type http_method() :: get | post | put.
+-type schema_example_map() :: #{atom() => term()}.
 
 %%======================================================================================
 %% For HTTP APIs
-get_response() ->
-    api_schema("get").
+%%======================================================================================
 
-put_request() ->
-    api_schema("put").
+%%---------------------------------------------
+%% Actions
+%%---------------------------------------------
 
-post_request() ->
-    api_schema("post").
+actions_get_response() ->
+    actions_api_schema("get").
 
-api_schema(Method) ->
-    APISchemas = ?MODULE:registered_api_schemas(Method),
+actions_put_request() ->
+    actions_api_schema("put").
+
+actions_post_request() ->
+    actions_api_schema("post").
+
+actions_api_schema(Method) ->
+    APISchemas = ?MODULE:registered_actions_api_schemas(Method),
     hoconsc:union(bridge_api_union(APISchemas)).
 
-registered_api_schemas(Method) ->
+registered_actions_api_schemas(Method) ->
     RegisteredSchemas = emqx_action_info:registered_schema_modules_actions(),
     [
         api_ref(SchemaModule, atom_to_binary(BridgeV2Type), Method ++ "_bridge_v2")
      || {BridgeV2Type, SchemaModule} <- RegisteredSchemas
     ].
+
+-spec action_values(http_method(), atom(), atom(), schema_example_map()) -> schema_example_map().
+action_values(Method, ActionType, ConnectorType, ActionValues) ->
+    ActionTypeBin = atom_to_binary(ActionType),
+    ConnectorTypeBin = atom_to_binary(ConnectorType),
+    lists:foldl(
+        fun(M1, M2) ->
+            maps:merge(M1, M2)
+        end,
+        #{
+            enable => true,
+            description => <<"My example ", ActionTypeBin/binary, " action">>,
+            connector => <<ConnectorTypeBin/binary, "_connector">>,
+            resource_opts => #{
+                health_check_interval => "30s"
+            }
+        },
+        [
+            ActionValues,
+            method_values(action, Method, ActionType)
+        ]
+    ).
+
+actions_examples(Method) ->
+    MergeFun =
+        fun(Example, Examples) ->
+            maps:merge(Examples, Example)
+        end,
+    Fun =
+        fun(Module, Examples) ->
+            ConnectorExamples = erlang:apply(Module, bridge_v2_examples, [Method]),
+            lists:foldl(MergeFun, Examples, ConnectorExamples)
+        end,
+    SchemaModules = [Mod || {_, Mod} <- emqx_action_info:registered_schema_modules_actions()],
+    lists:foldl(Fun, #{}, SchemaModules).
+
+%%---------------------------------------------
+%% Sources
+%%---------------------------------------------
+
+sources_get_response() ->
+    sources_api_schema("get").
+
+sources_put_request() ->
+    sources_api_schema("put").
+
+sources_post_request() ->
+    sources_api_schema("post").
+
+sources_api_schema(Method) ->
+    APISchemas = ?MODULE:registered_sources_api_schemas(Method),
+    hoconsc:union(bridge_api_union(APISchemas)).
+
+registered_sources_api_schemas(Method) ->
+    RegisteredSchemas = emqx_action_info:registered_schema_modules_sources(),
+    [
+        api_ref(SchemaModule, atom_to_binary(BridgeV2Type), Method ++ "_source")
+     || {BridgeV2Type, SchemaModule} <- RegisteredSchemas
+    ].
+
+-spec source_values(http_method(), atom(), atom(), schema_example_map()) -> schema_example_map().
+source_values(Method, SourceType, ConnectorType, SourceValues) ->
+    SourceTypeBin = atom_to_binary(SourceType),
+    ConnectorTypeBin = atom_to_binary(ConnectorType),
+    lists:foldl(
+        fun(M1, M2) ->
+            maps:merge(M1, M2)
+        end,
+        #{
+            enable => true,
+            description => <<"My example ", SourceTypeBin/binary, " source">>,
+            connector => <<ConnectorTypeBin/binary, "_connector">>,
+            resource_opts => #{
+                health_check_interval => "30s"
+            }
+        },
+        [
+            SourceValues,
+            method_values(source, Method, SourceType)
+        ]
+    ).
+
+sources_examples(Method) ->
+    MergeFun =
+        fun(Example, Examples) ->
+            maps:merge(Examples, Example)
+        end,
+    Fun =
+        fun(Module, Examples) ->
+            ConnectorExamples = erlang:apply(Module, bridge_v2_examples, [Method]),
+            lists:foldl(MergeFun, Examples, ConnectorExamples)
+        end,
+    SchemaModules = [Mod || {_, Mod} <- emqx_action_info:registered_schema_modules_sources()],
+    lists:foldl(Fun, #{}, SchemaModules).
+
+%%---------------------------------------------
+%% Common helpers
+%%---------------------------------------------
 
 api_ref(Module, Type, Method) ->
     {Type, ref(Module, Method)}.
@@ -111,41 +228,17 @@ bridge_api_union(Refs) ->
             end
     end.
 
--type http_method() :: get | post | put.
--type schema_example_map() :: #{atom() => term()}.
-
--spec action_values(http_method(), atom(), atom(), schema_example_map()) -> schema_example_map().
-action_values(Method, ActionType, ConnectorType, ActionValues) ->
-    ActionTypeBin = atom_to_binary(ActionType),
-    ConnectorTypeBin = atom_to_binary(ConnectorType),
-    lists:foldl(
-        fun(M1, M2) ->
-            maps:merge(M1, M2)
-        end,
-        #{
-            enable => true,
-            description => <<"My example ", ActionTypeBin/binary, " action">>,
-            connector => <<ConnectorTypeBin/binary, "_connector">>,
-            resource_opts => #{
-                health_check_interval => "30s"
-            }
-        },
-        [
-            ActionValues,
-            method_values(Method, ActionType)
-        ]
-    ).
-
--spec method_values(http_method(), atom()) -> schema_example_map().
-method_values(post, Type) ->
+-spec method_values(action | source, http_method(), atom()) -> schema_example_map().
+method_values(Kind, post, Type) ->
+    KindBin = atom_to_binary(Kind),
     TypeBin = atom_to_binary(Type),
     #{
-        name => <<TypeBin/binary, "_action">>,
+        name => <<TypeBin/binary, "_", KindBin/binary>>,
         type => TypeBin
     };
-method_values(get, Type) ->
+method_values(Kind, get, Type) ->
     maps:merge(
-        method_values(post, Type),
+        method_values(Kind, post, Type),
         #{
             status => <<"connected">>,
             node_status => [
@@ -156,7 +249,7 @@ method_values(get, Type) ->
             ]
         }
     );
-method_values(put, _Type) ->
+method_values(_Kind, put, _Type) ->
     #{}.
 
 api_fields("get_bridge_v2", Type, Fields) ->
@@ -175,16 +268,33 @@ api_fields("post_bridge_v2", Type, Fields) ->
         ]
     );
 api_fields("put_bridge_v2", _Type, Fields) ->
+    Fields;
+api_fields("get_source", Type, Fields) ->
+    lists:append(
+        [
+            emqx_bridge_schema:type_and_name_fields(Type),
+            emqx_bridge_schema:status_fields(),
+            Fields
+        ]
+    );
+api_fields("post_source", Type, Fields) ->
+    lists:append(
+        [
+            emqx_bridge_schema:type_and_name_fields(Type),
+            Fields
+        ]
+    );
+api_fields("put_source", _Type, Fields) ->
     Fields.
 
 %%======================================================================================
 %% HOCON Schema Callbacks
 %%======================================================================================
 
-namespace() -> "actions".
+namespace() -> "actions_and_sources".
 
 tags() ->
-    [<<"Actions">>].
+    [<<"Actions">>, <<"Sources">>].
 
 -dialyzer({nowarn_function, roots/0}).
 
@@ -231,13 +341,21 @@ desc(resource_opts) ->
 desc(_) ->
     undefined.
 
--spec types() -> [action_type()].
-types() ->
+-spec action_types() -> [action_type()].
+action_types() ->
     proplists:get_keys(?MODULE:fields(actions)).
 
--spec types_sc() -> ?ENUM([action_type()]).
-types_sc() ->
-    hoconsc:enum(types()).
+-spec action_types_sc() -> ?ENUM([action_type()]).
+action_types_sc() ->
+    hoconsc:enum(action_types()).
+
+-spec source_types() -> [source_type()].
+source_types() ->
+    proplists:get_keys(?MODULE:fields(sources)).
+
+-spec source_types_sc() -> ?ENUM([source_type()]).
+source_types_sc() ->
+    hoconsc:enum(source_types()).
 
 resource_opts_fields() ->
     resource_opts_fields(_Overrides = []).
@@ -267,19 +385,6 @@ resource_opts_fields(Overrides) ->
         fun({Key, _Sc}) -> lists:member(Key, ActionROFields) end,
         emqx_resource_schema:create_opts(Overrides)
     ).
-
-examples(Method) ->
-    MergeFun =
-        fun(Example, Examples) ->
-            maps:merge(Examples, Example)
-        end,
-    Fun =
-        fun(Module, Examples) ->
-            ConnectorExamples = erlang:apply(Module, bridge_v2_examples, [Method]),
-            lists:foldl(MergeFun, Examples, ConnectorExamples)
-        end,
-    SchemaModules = [Mod || {_, Mod} <- emqx_action_info:registered_schema_modules_actions()],
-    lists:foldl(Fun, #{}, SchemaModules).
 
 top_level_common_action_keys() ->
     [

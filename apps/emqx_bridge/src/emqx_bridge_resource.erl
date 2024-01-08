@@ -23,6 +23,7 @@
     bridge_to_resource_type/1,
     resource_id/1,
     resource_id/2,
+    resource_id/3,
     bridge_id/2,
     parse_bridge_id/1,
     parse_bridge_id/2,
@@ -62,6 +63,9 @@
         ?IS_BI_DIR_BRIDGE(TYPE)
 ).
 
+-define(ROOT_KEY_ACTIONS, actions).
+-define(ROOT_KEY_SOURCES, sources).
+
 -if(?EMQX_RELEASE_EDITION == ee).
 bridge_to_resource_type(BridgeType) when is_binary(BridgeType) ->
     bridge_to_resource_type(binary_to_existing_atom(BridgeType, utf8));
@@ -85,21 +89,27 @@ bridge_impl_module(_BridgeType) -> undefined.
 -endif.
 
 resource_id(BridgeId) when is_binary(BridgeId) ->
+    resource_id_for_kind(?ROOT_KEY_ACTIONS, BridgeId).
+
+resource_id(BridgeType, BridgeName) ->
+    resource_id(?ROOT_KEY_ACTIONS, BridgeType, BridgeName).
+
+resource_id(ConfRootKey, BridgeType, BridgeName) ->
+    BridgeId = bridge_id(BridgeType, BridgeName),
+    resource_id_for_kind(ConfRootKey, BridgeId).
+
+resource_id_for_kind(ConfRootKey, BridgeId) when is_binary(BridgeId) ->
     case binary:split(BridgeId, <<":">>) of
         [Type, _Name] ->
             case emqx_bridge_v2:is_bridge_v2_type(Type) of
                 true ->
-                    emqx_bridge_v2:bridge_v1_id_to_connector_resource_id(BridgeId);
+                    emqx_bridge_v2:bridge_v1_id_to_connector_resource_id(ConfRootKey, BridgeId);
                 false ->
                     <<"bridge:", BridgeId/binary>>
             end;
         _ ->
             invalid_data(<<"should be of pattern {type}:{name}, but got ", BridgeId/binary>>)
     end.
-
-resource_id(BridgeType, BridgeName) ->
-    BridgeId = bridge_id(BridgeType, BridgeName),
-    resource_id(BridgeId).
 
 bridge_id(BridgeType, BridgeName) ->
     Name = bin(BridgeName),

@@ -108,7 +108,7 @@ connector_resource_opts_test() ->
     ok.
 
 actions_api_spec_post_fields_test() ->
-    ?UNION(Union) = emqx_bridge_v2_schema:post_request(),
+    ?UNION(Union) = emqx_bridge_v2_schema:actions_post_request(),
     Schemas =
         lists:map(
             fun(?R_REF(SchemaMod, StructName)) ->

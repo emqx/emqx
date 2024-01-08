@@ -91,6 +91,7 @@
     id/2,
     id/3,
     bridge_v1_is_valid/2,
+    bridge_v1_is_valid/3,
     extract_connector_id_from_bridge_v2_id/1
 ]).
 
@@ -128,6 +129,7 @@
     %% Exception from the naming convention:
     bridge_v2_type_to_bridge_v1_type/2,
     bridge_v1_id_to_connector_resource_id/1,
+    bridge_v1_id_to_connector_resource_id/2,
     bridge_v1_enable_disable/3,
     bridge_v1_restart/2,
     bridge_v1_stop/2,
@@ -567,7 +569,7 @@ connector_operation_helper(ConfRootKey, BridgeV2Type, Name, ConnectorOpFun, DoHe
         ConfRootKey,
         BridgeV2Type,
         Name,
-        lookup_conf(BridgeV2Type, Name),
+        lookup_conf(ConfRootKey, BridgeV2Type, Name),
         ConnectorOpFun,
         DoHealthCheck
     ).
@@ -1191,8 +1193,11 @@ unpack_bridge_conf(Type, PackedConf, TopLevelConf) ->
 %% * The corresponding bridge v2 should exist
 %% * The connector for the bridge v2 should have exactly one channel
 bridge_v1_is_valid(BridgeV1Type, BridgeName) ->
+    bridge_v1_is_valid(?ROOT_KEY_ACTIONS, BridgeV1Type, BridgeName).
+
+bridge_v1_is_valid(ConfRootKey, BridgeV1Type, BridgeName) ->
     BridgeV2Type = ?MODULE:bridge_v1_type_to_bridge_v2_type(BridgeV1Type),
-    case lookup_conf(BridgeV2Type, BridgeName) of
+    case lookup_conf(ConfRootKey, BridgeV2Type, BridgeName) of
         {error, _} ->
             %% If the bridge v2 does not exist, it is a valid bridge v1
             true;
@@ -1241,17 +1246,20 @@ bridge_v1_list_and_transform() ->
 
 bridge_v1_lookup_and_transform(ActionType, Name) ->
     case lookup_actions_or_sources(ActionType, Name) of
-        {ok, ConfRootName,
+        {ok, ConfRootKey,
             #{raw_config := #{<<"connector">> := ConnectorName} = RawConfig} = ActionConfig} ->
             BridgeV1Type = ?MODULE:bridge_v2_type_to_bridge_v1_type(ActionType, RawConfig),
             HasBridgeV1Equivalent = has_bridge_v1_equivalent(ActionType),
-            case HasBridgeV1Equivalent andalso ?MODULE:bridge_v1_is_valid(BridgeV1Type, Name) of
+            case
+                HasBridgeV1Equivalent andalso
+                    ?MODULE:bridge_v1_is_valid(ConfRootKey, BridgeV1Type, Name)
+            of
                 true ->
                     ConnectorType = connector_type(ActionType),
                     case emqx_connector:lookup(ConnectorType, ConnectorName) of
                         {ok, Connector} ->
                             bridge_v1_lookup_and_transform_helper(
-                                ConfRootName,
+                                ConfRootKey,
                                 BridgeV1Type,
                                 Name,
                                 ActionType,
@@ -1718,11 +1726,14 @@ connector_has_channels(BridgeV2Type, ConnectorName) ->
     end.
 
 bridge_v1_id_to_connector_resource_id(BridgeId) ->
+    bridge_v1_id_to_connector_resource_id(?ROOT_KEY_ACTIONS, BridgeId).
+
+bridge_v1_id_to_connector_resource_id(ConfRootKey, BridgeId) ->
     case binary:split(BridgeId, <<":">>) of
         [Type, Name] ->
             BridgeV2Type = bin(bridge_v1_type_to_bridge_v2_type(Type)),
             ConnectorName =
-                case lookup_conf(BridgeV2Type, Name) of
+                case lookup_conf(ConfRootKey, BridgeV2Type, Name) of
                     #{connector := Con} ->
                         Con;
                     {error, Reason} ->
