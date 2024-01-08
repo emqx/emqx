@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2023 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2023-2024 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -109,6 +109,7 @@ list_shards(DB) ->
 
 -spec open_db(emqx_ds:db(), builtin_db_opts()) -> ok | {error, _}.
 open_db(DB, CreateOpts) ->
+    ok = emqx_ds_sup:ensure_workers(),
     Opts = emqx_ds_replication_layer_meta:open_db(DB, CreateOpts),
     MyShards = emqx_ds_replication_layer_meta:my_shards(DB),
     lists:foreach(
