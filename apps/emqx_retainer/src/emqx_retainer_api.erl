@@ -181,7 +181,6 @@ lookup_retained(get, #{query_string := Qs}) ->
     Page = maps:get(<<"page">>, Qs, 1),
     Limit = maps:get(<<"limit">>, Qs, emqx_mgmt:default_row_limit()),
     Topic = maps:get(<<"topic">>, Qs, undefined),
-    ct:print("Qs:~p~n", [Qs]),
     {ok, Msgs} = emqx_retainer_mnesia:page_read(undefined, Topic, Page, Limit),
     {200, #{
         data => [format_message(Msg) || Msg <- Msgs],

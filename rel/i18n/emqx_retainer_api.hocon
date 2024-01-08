@@ -33,7 +33,7 @@ delete_messages.label:
 """Delete Retained Messages"""
 
 lookup_api.desc:
-"""Lookup a message by a topic without wildcards, ."""
+"""Lookup a message by a topic without wildcards."""
 lookup_api.label:
 """Lookup a message"""
 
