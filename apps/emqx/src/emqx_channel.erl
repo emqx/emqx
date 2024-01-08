@@ -501,7 +501,8 @@ handle_in(SubPkt = ?SUBSCRIBE_PACKET(PacketId, Properties, _TopicFilters0), Chan
         )
     of
         TFChecked when is_list(TFChecked) ->
-            {ReasonCodes, NChannel} = process_pending_subscribe(TFChecked, Channel),
+            {RCAwaits, NChannel} = process_pending_subscribe(TFChecked, Channel),
+            ReasonCodes = [await_subscribe_reason_code(RC) || RC <- RCAwaits],
             handle_out(suback, {PacketId, ReasonCodes}, NChannel)
     catch
         throw:{disconnect, RC} ->
@@ -797,6 +798,13 @@ do_subscribe(
             %% TODO && FIXME (EMQX-11216): QoS as ReasonCode(max granted QoS) for now
             RC = QoS,
             {RC, Channel#channel{session = NSession}};
+        {ok, AwaitIn, NSession} ->
+            RC = QoS,
+            AwaitRC = fun() ->
+                ok = AwaitIn(),
+                RC
+            end,
+            {AwaitRC, Channel#channel{session = NSession}};
         {error, RC} ->
             ?SLOG(
                 warning,
@@ -809,6 +817,10 @@ do_subscribe(
             {RC, Channel}
     end.
 
+await_subscribe_reason_code(RC) when is_integer(RC) ->
+    RC;
+await_subscribe_reason_code(Await) when is_function(Await) ->
+    Await().
 
 %%--------------------------------------------------------------------
 %% Process Unsubscribe
