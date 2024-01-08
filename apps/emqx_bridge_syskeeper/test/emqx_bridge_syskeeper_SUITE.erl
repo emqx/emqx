@@ -110,7 +110,6 @@ syskeeper_config(Config) ->
             "  connector = ~ts\n"
             "  parameters = {\n"
             "    target_topic = \"${topic}\"\n"
-            "    target_qos = -1\n"
             "    template = \"${payload}\"\n"
             "  },\n"
             "  resource_opts = {\n"

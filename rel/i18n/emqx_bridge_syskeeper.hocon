@@ -37,7 +37,7 @@ target_topic.label:
 """Target Topic"""
 
 target_qos.desc:
-"""The QoS for the forwarded message, -1 is for the original topic"""
+"""The QoS for the forwarded message, to reuse the original qos this value can be omitted"""
 
 target_qos.label:
 """Target QoS"""

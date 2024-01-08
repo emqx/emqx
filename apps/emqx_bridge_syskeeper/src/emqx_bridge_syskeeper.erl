@@ -61,7 +61,6 @@ values(put) ->
         connector => <<"syskeeper_forwarder">>,
         parameters => #{
             target_topic => <<"${topic}">>,
-            target_qos => <<"-1">>,
             template => <<"${payload}">>
         },
         resource_opts => #{
@@ -117,8 +116,8 @@ fields("parameters") ->
             )},
         {target_qos,
             mk(
-                range(-1, 2),
-                #{desc => ?DESC("target_qos"), default => -1}
+                range(1, 2),
+                #{desc => ?DESC("target_qos"), required => false}
             )},
         {template,
             mk(
