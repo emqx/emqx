@@ -193,7 +193,7 @@ on_provider_loaded(#{meta := #{cluster_name := Name}} = Req, Md) ->
     | {error, grpc_cowboy_h:error_response()}.
 on_provider_unloaded(Req, Md) ->
     ?MODULE:in({?FUNCTION_NAME, Req}),
-    %io:format("fun: ~p, req: ~0p~n", [?FUNCTION_NAME, Req]),
+    %% io:format("fun: ~p, req: ~0p~n", [?FUNCTION_NAME, Req]),
     {ok, #{}, Md}.
 
 -spec on_client_connect(emqx_exhook_pb:client_connect_request(), grpc:metadata()) ->
@@ -201,7 +201,7 @@ on_provider_unloaded(Req, Md) ->
     | {error, grpc_cowboy_h:error_response()}.
 on_client_connect(Req, Md) ->
     ?MODULE:in({?FUNCTION_NAME, Req}),
-    %io:format("fun: ~p, req: ~0p~n", [?FUNCTION_NAME, Req]),
+    %% io:format("fun: ~p, req: ~0p~n", [?FUNCTION_NAME, Req]),
     {ok, #{}, Md}.
 
 -spec on_client_connack(emqx_exhook_pb:client_connack_request(), grpc:metadata()) ->
@@ -209,7 +209,7 @@ on_client_connect(Req, Md) ->
     | {error, grpc_cowboy_h:error_response()}.
 on_client_connack(Req, Md) ->
     ?MODULE:in({?FUNCTION_NAME, Req}),
-    %io:format("fun: ~p, req: ~0p~n", [?FUNCTION_NAME, Req]),
+    %% io:format("fun: ~p, req: ~0p~n", [?FUNCTION_NAME, Req]),
     {ok, #{}, Md}.
 
 -spec on_client_connected(emqx_exhook_pb:client_connected_request(), grpc:metadata()) ->
@@ -217,7 +217,7 @@ on_client_connack(Req, Md) ->
     | {error, grpc_cowboy_h:error_response()}.
 on_client_connected(Req, Md) ->
     ?MODULE:in({?FUNCTION_NAME, Req}),
-    %io:format("fun: ~p, req: ~0p~n", [?FUNCTION_NAME, Req]),
+    %% io:format("fun: ~p, req: ~0p~n", [?FUNCTION_NAME, Req]),
     {ok, #{}, Md}.
 
 -spec on_client_disconnected(emqx_exhook_pb:client_disconnected_request(), grpc:metadata()) ->
@@ -225,7 +225,7 @@ on_client_connected(Req, Md) ->
     | {error, grpc_cowboy_h:error_response()}.
 on_client_disconnected(Req, Md) ->
     ?MODULE:in({?FUNCTION_NAME, Req}),
-    %io:format("fun: ~p, req: ~0p~n", [?FUNCTION_NAME, Req]),
+    %% io:format("fun: ~p, req: ~0p~n", [?FUNCTION_NAME, Req]),
     {ok, #{}, Md}.
 
 -spec on_client_authenticate(emqx_exhook_pb:client_authenticate_request(), grpc:metadata()) ->
@@ -233,7 +233,7 @@ on_client_disconnected(Req, Md) ->
     | {error, grpc_cowboy_h:error_response()}.
 on_client_authenticate(#{clientinfo := #{username := Username}} = Req, Md) ->
     ?MODULE:in({?FUNCTION_NAME, Req}),
-    %io:format("fun: ~p, req: ~0p~n", [?FUNCTION_NAME, Req]),
+    %% io:format("fun: ~p, req: ~0p~n", [?FUNCTION_NAME, Req]),
     %% some cases for testing
     case Username of
         <<"baduser">> ->
@@ -266,7 +266,7 @@ on_client_authenticate(#{clientinfo := #{username := Username}} = Req, Md) ->
     | {error, grpc_cowboy_h:error_response()}.
 on_client_authorize(#{clientinfo := #{username := Username}} = Req, Md) ->
     ?MODULE:in({?FUNCTION_NAME, Req}),
-    %io:format("fun: ~p, req: ~0p~n", [?FUNCTION_NAME, Req]),
+    %% io:format("fun: ~p, req: ~0p~n", [?FUNCTION_NAME, Req]),
     %% some cases for testing
     case Username of
         <<"baduser">> ->
@@ -299,7 +299,7 @@ on_client_authorize(#{clientinfo := #{username := Username}} = Req, Md) ->
     | {error, grpc_cowboy_h:error_response()}.
 on_client_subscribe(Req, Md) ->
     ?MODULE:in({?FUNCTION_NAME, Req}),
-    %io:format("fun: ~p, req: ~0p~n", [?FUNCTION_NAME, Req]),
+    %% io:format("fun: ~p, req: ~0p~n", [?FUNCTION_NAME, Req]),
     {ok, #{}, Md}.
 
 -spec on_client_unsubscribe(emqx_exhook_pb:client_unsubscribe_request(), grpc:metadata()) ->
@@ -307,7 +307,7 @@ on_client_subscribe(Req, Md) ->
     | {error, grpc_cowboy_h:error_response()}.
 on_client_unsubscribe(Req, Md) ->
     ?MODULE:in({?FUNCTION_NAME, Req}),
-    %io:format("fun: ~p, req: ~0p~n", [?FUNCTION_NAME, Req]),
+    %% io:format("fun: ~p, req: ~0p~n", [?FUNCTION_NAME, Req]),
     {ok, #{}, Md}.
 
 -spec on_session_created(emqx_exhook_pb:session_created_request(), grpc:metadata()) ->
@@ -315,7 +315,7 @@ on_client_unsubscribe(Req, Md) ->
     | {error, grpc_cowboy_h:error_response()}.
 on_session_created(Req, Md) ->
     ?MODULE:in({?FUNCTION_NAME, Req}),
-    %io:format("fun: ~p, req: ~0p~n", [?FUNCTION_NAME, Req]),
+    %% io:format("fun: ~p, req: ~0p~n", [?FUNCTION_NAME, Req]),
     {ok, #{}, Md}.
 
 -spec on_session_subscribed(emqx_exhook_pb:session_subscribed_request(), grpc:metadata()) ->
@@ -323,7 +323,7 @@ on_session_created(Req, Md) ->
     | {error, grpc_cowboy_h:error_response()}.
 on_session_subscribed(Req, Md) ->
     ?MODULE:in({?FUNCTION_NAME, Req}),
-    %io:format("fun: ~p, req: ~0p~n", [?FUNCTION_NAME, Req]),
+    %% io:format("fun: ~p, req: ~0p~n", [?FUNCTION_NAME, Req]),
     {ok, #{}, Md}.
 
 -spec on_session_unsubscribed(emqx_exhook_pb:session_unsubscribed_request(), grpc:metadata()) ->
@@ -331,7 +331,7 @@ on_session_subscribed(Req, Md) ->
     | {error, grpc_cowboy_h:error_response()}.
 on_session_unsubscribed(Req, Md) ->
     ?MODULE:in({?FUNCTION_NAME, Req}),
-    %io:format("fun: ~p, req: ~0p~n", [?FUNCTION_NAME, Req]),
+    %% io:format("fun: ~p, req: ~0p~n", [?FUNCTION_NAME, Req]),
     {ok, #{}, Md}.
 
 -spec on_session_resumed(emqx_exhook_pb:session_resumed_request(), grpc:metadata()) ->
@@ -339,7 +339,7 @@ on_session_unsubscribed(Req, Md) ->
     | {error, grpc_cowboy_h:error_response()}.
 on_session_resumed(Req, Md) ->
     ?MODULE:in({?FUNCTION_NAME, Req}),
-    %io:format("fun: ~p, req: ~0p~n", [?FUNCTION_NAME, Req]),
+    %% io:format("fun: ~p, req: ~0p~n", [?FUNCTION_NAME, Req]),
     {ok, #{}, Md}.
 
 -spec on_session_discarded(emqx_exhook_pb:session_discarded_request(), grpc:metadata()) ->
@@ -347,7 +347,7 @@ on_session_resumed(Req, Md) ->
     | {error, grpc_cowboy_h:error_response()}.
 on_session_discarded(Req, Md) ->
     ?MODULE:in({?FUNCTION_NAME, Req}),
-    %io:format("fun: ~p, req: ~0p~n", [?FUNCTION_NAME, Req]),
+    %% io:format("fun: ~p, req: ~0p~n", [?FUNCTION_NAME, Req]),
     {ok, #{}, Md}.
 
 -spec on_session_takenover(emqx_exhook_pb:session_takenover_request(), grpc:metadata()) ->
@@ -355,7 +355,7 @@ on_session_discarded(Req, Md) ->
     | {error, grpc_cowboy_h:error_response()}.
 on_session_takenover(Req, Md) ->
     ?MODULE:in({?FUNCTION_NAME, Req}),
-    %io:format("fun: ~p, req: ~0p~n", [?FUNCTION_NAME, Req]),
+    %% io:format("fun: ~p, req: ~0p~n", [?FUNCTION_NAME, Req]),
     {ok, #{}, Md}.
 
 -spec on_session_terminated(emqx_exhook_pb:session_terminated_request(), grpc:metadata()) ->
@@ -363,7 +363,7 @@ on_session_takenover(Req, Md) ->
     | {error, grpc_cowboy_h:error_response()}.
 on_session_terminated(Req, Md) ->
     ?MODULE:in({?FUNCTION_NAME, Req}),
-    %io:format("fun: ~p, req: ~0p~n", [?FUNCTION_NAME, Req]),
+    %% io:format("fun: ~p, req: ~0p~n", [?FUNCTION_NAME, Req]),
     {ok, #{}, Md}.
 
 -spec on_message_publish(emqx_exhook_pb:message_publish_request(), grpc:metadata()) ->
@@ -371,7 +371,7 @@ on_session_terminated(Req, Md) ->
     | {error, grpc_cowboy_h:error_response()}.
 on_message_publish(#{message := #{from := From} = Msg} = Req, Md) ->
     ?MODULE:in({?FUNCTION_NAME, Req}),
-    %io:format("fun: ~p, req: ~0p~n", [?FUNCTION_NAME, Req]),
+    %% io:format("fun: ~p, req: ~0p~n", [?FUNCTION_NAME, Req]),
     %% some cases for testing
     case From of
         <<"baduser">> ->
@@ -394,6 +394,17 @@ on_message_publish(#{message := #{from := From} = Msg} = Req, Md) ->
             {ok,
                 #{
                     type => 'STOP_AND_RETURN',
+                    value => {message, NMsg}
+                },
+                Md};
+        <<"want_republish">> ->
+            NMsg = deny(Msg#{
+                topic => <<"republish">>,
+                payload => <<"republish">>
+            }),
+            {ok,
+                #{
+                    type => 'STOP_AND_REPUBLISH',
                     value => {message, NMsg}
                 },
                 Md};
@@ -422,7 +433,7 @@ allow(Msg) ->
     | {error, grpc_cowboy_h:error_response()}.
 on_message_delivered(Req, Md) ->
     ?MODULE:in({?FUNCTION_NAME, Req}),
-    %io:format("fun: ~p, req: ~0p~n", [?FUNCTION_NAME, Req]),
+    %% io:format("fun: ~p, req: ~0p~n", [?FUNCTION_NAME, Req]),
     {ok, #{}, Md}.
 
 -spec on_message_dropped(emqx_exhook_pb:message_dropped_request(), grpc:metadata()) ->
@@ -430,7 +441,7 @@ on_message_delivered(Req, Md) ->
     | {error, grpc_cowboy_h:error_response()}.
 on_message_dropped(Req, Md) ->
     ?MODULE:in({?FUNCTION_NAME, Req}),
-    %io:format("fun: ~p, req: ~0p~n", [?FUNCTION_NAME, Req]),
+    %% io:format("fun: ~p, req: ~0p~n", [?FUNCTION_NAME, Req]),
     {ok, #{}, Md}.
 
 -spec on_message_acked(emqx_exhook_pb:message_acked_request(), grpc:metadata()) ->
@@ -438,5 +449,5 @@ on_message_dropped(Req, Md) ->
     | {error, grpc_cowboy_h:error_response()}.
 on_message_acked(Req, Md) ->
     ?MODULE:in({?FUNCTION_NAME, Req}),
-    %io:format("fun: ~p, req: ~0p~n", [?FUNCTION_NAME, Req]),
+    %% io:format("fun: ~p, req: ~0p~n", [?FUNCTION_NAME, Req]),
     {ok, #{}, Md}.

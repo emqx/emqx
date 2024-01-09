@@ -56,7 +56,6 @@
     stringfy/1,
     merge_responsed_bool/2,
     merge_responsed_message/2,
-    assign_to_message/2,
     clientinfo/1,
     request_meta/0
 ]).
@@ -70,6 +69,8 @@
 ).
 
 -elvis([{elvis_style, god_modules, disable}]).
+
+-define(EXHOOK_REPUB, exhook_republished).
 
 %%--------------------------------------------------------------------
 %% Clients
@@ -229,8 +230,11 @@ on_session_terminated(ClientInfo, Reason, _SessInfo) ->
 
 on_message_publish(#message{topic = <<"$SYS/", _/binary>>}) ->
     ok;
-on_message_publish(Message) ->
-    Req = #{message => message(Message)},
+on_message_publish(#message{headers = #{?EXHOOK_REPUB := true}, id = Id, topic = T}) ->
+    ?SLOG(debug, #{msg => "exhook_republished_msg_detected_and_ignored", id => Id, topic => T}),
+    ok;
+on_message_publish(RawMessage) ->
+    Req = #{message => message(RawMessage)},
     case
         call_fold(
             'message.publish',
@@ -238,10 +242,11 @@ on_message_publish(Message) ->
             fun emqx_exhook_handler:merge_responsed_message/2
         )
     of
-        {StopOrOk, #{message := NMessage}} ->
-            {StopOrOk, assign_to_message(NMessage, Message)};
+        {Res, #{message := RespMessage}} ->
+            ok = maybe_republish_new_message(Res, RespMessage, RawMessage),
+            {res(Res), assign_to_message(Res, RespMessage, RawMessage)};
         _ ->
-            {ok, Message}
+            {ok, RawMessage}
     end.
 
 on_message_dropped(#message{topic = <<"$SYS/", _/binary>>}, _By, _Reason) ->
@@ -395,7 +400,28 @@ bin(V) when is_binary(V) -> V;
 bin(V) when is_atom(V) -> atom_to_binary(V);
 bin(V) when is_list(V) -> iolist_to_binary(V).
 
+res(ok) -> ok;
+res(stop) -> stop;
+res(republish) -> stop.
+
+maybe_republish_new_message(
+    republish,
+    _InMessage = #{
+        qos := Qos,
+        topic := Topic,
+        payload := Payload
+    },
+    Message
+) ->
+    NMsg0 = Message#message{qos = Qos, topic = Topic, payload = Payload},
+    NMsg1 = emqx_message:set_header(?EXHOOK_REPUB, true, NMsg0),
+    _ = emqx_broker:safe_publish(NMsg1),
+    ok;
+maybe_republish_new_message(_StopOrOk, _, _) ->
+    ok.
+
 assign_to_message(
+    Res,
     InMessage = #{
         qos := Qos,
         topic := Topic,
@@ -404,9 +430,11 @@ assign_to_message(
     Message
 ) ->
     NMsg = Message#message{qos = Qos, topic = Topic, payload = Payload},
-    enrich_header(maps:get(headers, InMessage, #{}), NMsg).
+    enrich_header(Res, maps:get(headers, InMessage, #{}), NMsg).
 
-enrich_header(Headers, Message) ->
+enrich_header(republish, _Headers, Message) ->
+    emqx_message:set_header(allow_publish, false, Message);
+enrich_header(_, Headers, Message) ->
     case maps:get(<<"allow_publish">>, Headers, undefined) of
         <<"false">> ->
             emqx_message:set_header(allow_publish, false, Message);
@@ -457,7 +485,7 @@ merge_responsed_bool(_Req, #{type := 'IGNORE'}) ->
 merge_responsed_bool(Req, #{type := Type, value := {bool_result, NewBool}}) when
     is_boolean(NewBool)
 ->
-    {ret(Type), Req#{result => NewBool}};
+    {ret(boolean, Type), Req#{result => NewBool}};
 merge_responsed_bool(_Req, Resp) ->
     ?SLOG(warning, #{msg => "unknown_responsed_value", resp => Resp}),
     ignore.
@@ -465,13 +493,16 @@ merge_responsed_bool(_Req, Resp) ->
 merge_responsed_message(_Req, #{type := 'IGNORE'}) ->
     ignore;
 merge_responsed_message(Req, #{type := Type, value := {message, NMessage}}) ->
-    {ret(Type), Req#{message => NMessage}};
+    {ret(message, Type), Req#{message => NMessage}};
 merge_responsed_message(_Req, Resp) ->
     ?SLOG(warning, #{msg => "unknown_responsed_value", resp => Resp}),
     ignore.
 
-ret('CONTINUE') -> ok;
-ret('STOP_AND_RETURN') -> stop.
+ret(_, 'CONTINUE') -> ok;
+ret(_, 'STOP_AND_RETURN') -> stop;
+ret(_, 'STOP_AND_REPUBLISH') -> republish;
+ret(boolean, 'STOP_AND_REPUBLISH') -> error({error, 'invalid_responsed_type'});
+ret(message, 'STOP_AND_REPUBLISH') -> republish.
 
 request_meta() ->
     #{

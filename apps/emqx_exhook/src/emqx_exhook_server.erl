@@ -218,37 +218,34 @@ do_init(ChannName, ReqOpts) ->
 
 %% @private
 resolve_hookspec(HookSpecs) when is_list(HookSpecs) ->
-    MessageHooks = message_hooks(),
-    AvailableHooks = available_hooks(),
-    lists:foldr(
-        fun(HookSpec, Acc) ->
-            case maps:get(name, HookSpec, undefined) of
-                undefined ->
-                    Acc;
-                Name0 ->
-                    Name =
-                        try
-                            binary_to_existing_atom(Name0, utf8)
-                        catch
-                            T:R:_ -> {T, R}
-                        end,
-                    case {lists:member(Name, AvailableHooks), lists:member(Name, MessageHooks)} of
-                        {false, _} ->
-                            error({unknown_hookpoint, Name0});
-                        {true, false} ->
-                            Acc#{Name => #{}};
-                        {true, true} ->
-                            Acc#{
-                                Name => #{
-                                    topics => maps:get(topics, HookSpec, [])
-                                }
+    FoldFun = fun(HookSpec, Acc) ->
+        case HookSpec of
+            #{name := Name0} ->
+                Name = atom_hook_name(Name0),
+                case {is_available_hook(Name), is_message_hook(Name)} of
+                    {false, _} ->
+                        error({unknown_hookpoint, Name0});
+                    {true, false} ->
+                        Acc#{Name => #{}};
+                    {true, true} ->
+                        Acc#{
+                            Name => #{
+                                topics => maps:get(topics, HookSpec, [])
                             }
-                    end
-            end
-        end,
-        #{},
-        HookSpecs
-    ).
+                        }
+                end;
+            _ ->
+                Acc
+        end
+    end,
+    lists:foldr(FoldFun, #{}, HookSpecs).
+
+atom_hook_name(Name) ->
+    try
+        binary_to_existing_atom(Name, utf8)
+    catch
+        T:R:_ -> {T, R}
+    end.
 
 ensure_metrics(Prefix, HookSpecs) ->
     Keys = [
@@ -328,37 +325,43 @@ call(Hookpoint, Req, #{
         undefined ->
             ignore;
         Opts ->
-            NeedCall =
-                case lists:member(Hookpoint, message_hooks()) of
-                    false ->
-                        true;
-                    _ ->
-                        #{message := #{topic := Topic}} = Req,
-                        match_topic_filter(Topic, maps:get(topics, Opts, []))
-                end,
-            case NeedCall of
+            case need_call(Hookpoint, Req, Opts) of
                 false ->
                     ignore;
-                _ ->
+                true ->
                     inc_metrics(Prefix, Hookpoint),
                     GrpcFun = hk2func(Hookpoint),
                     do_call(ChannName, Hookpoint, GrpcFun, Req, ReqOpts)
             end
     end.
 
-%% @private
+%%--------------------------------------------------------------------
+%% Internal funcs
+%%--------------------------------------------------------------------
+
+need_call(Hookpoint, Req, Opts) ->
+    case is_message_hook(Hookpoint) of
+        true ->
+            match_message_hooks_topics(Req, Opts);
+        _ ->
+            %% all hooks except message hooks always need to be called
+            true
+    end.
+
+match_message_hooks_topics(#{message := #{topic := Topic}} = _Req, Opts) ->
+    do_match_message_hooks_topics(Topic, maps:get(topics, Opts, [])).
+
+do_match_message_hooks_topics(_, []) ->
+    true;
+do_match_message_hooks_topics(TopicName, TopicFilter) ->
+    lists:any(fun(F) -> emqx_topic:match(TopicName, F) end, TopicFilter).
+
 inc_metrics(IncFun, Name) when is_function(IncFun) ->
     %% BACKW: e4.2.0-e4.2.2
     {env, [Prefix | _]} = erlang:fun_info(IncFun, env),
     inc_metrics(Prefix, Name);
 inc_metrics(Prefix, Name) when is_list(Prefix) ->
     emqx_metrics:inc(list_to_atom(Prefix ++ atom_to_list(Name))).
-
--compile({inline, [match_topic_filter/2]}).
-match_topic_filter(_, []) ->
-    true;
-match_topic_filter(TopicName, TopicFilter) ->
-    lists:any(fun(F) -> emqx_topic:match(TopicName, F) end, TopicFilter).
 
 -ifdef(TEST).
 -define(CALL_PB_CLIENT(ChanneName, Fun, Req, Options),
@@ -433,10 +436,6 @@ update_metrics(Hookpoint, ChannName, Fun) ->
 failed_action(#{options := Opts}) ->
     maps:get(failed_action, Opts).
 
-%%--------------------------------------------------------------------
-%% Internal funcs
-%%--------------------------------------------------------------------
-
 -compile({inline, [hk2func/1]}).
 hk2func('client.connect') -> 'on_client_connect';
 hk2func('client.connack') -> 'on_client_connack';
@@ -458,6 +457,9 @@ hk2func('message.delivered') -> 'on_message_delivered';
 hk2func('message.acked') -> 'on_message_acked';
 hk2func('message.dropped') -> 'on_message_dropped'.
 
+is_message_hook(Name) ->
+    lists:member(Name, message_hooks()).
+
 -compile({inline, [message_hooks/0]}).
 message_hooks() ->
     [
@@ -466,6 +468,9 @@ message_hooks() ->
         'message.acked',
         'message.dropped'
     ].
+
+is_available_hook(Name) ->
+    lists:member(Name, available_hooks()).
 
 -compile({inline, [available_hooks/0]}).
 available_hooks() ->
