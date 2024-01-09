@@ -189,6 +189,30 @@ t_messages(_) ->
 
     ok = emqtt:disconnect(C1).
 
+t_delete_messages_via_topic(_) ->
+    clear_all_record(),
+    emqx_delayed:load(),
+
+    OriginTopic = <<"t/a">>,
+    Topic = <<"$delayed/123/", OriginTopic/binary>>,
+
+    publish_a_delayed_message(Topic),
+    publish_a_delayed_message(Topic),
+
+    %% assert: delayed messages are saved
+    ?assertMatch([_, _], get_messages(2)),
+
+    %% delete these messages via topic
+    TopicInUrl = uri_string:quote(OriginTopic),
+    {ok, 204, _} = request(
+        delete,
+        uri(["mqtt", "delayed", "messages", TopicInUrl])
+    ),
+
+    %% assert: messages are deleted
+    ?assertEqual([], get_messages(0)),
+    ok.
+
 t_large_payload(_) ->
     clear_all_record(),
     emqx_delayed:load(),
@@ -246,3 +270,14 @@ get_messages(Len) ->
         )
     ),
     Msgs.
+
+publish_a_delayed_message(Topic) ->
+    {ok, C1} = emqtt:start_link([{clean_start, true}]),
+    {ok, _} = emqtt:connect(C1),
+    emqtt:publish(
+        C1,
+        Topic,
+        <<"This is a delayed messages">>,
+        [{qos, 1}]
+    ),
+    ok = emqtt:disconnect(C1).

@@ -65,6 +65,16 @@ msgid_not_found.desc:
 msgid_not_found.label:
 """Message ID not found"""
 
+bad_topic_name.desc:
+"""Bad Topic Name"""
+bad_topic_name.label:
+"""Bad Topic Name"""
+
+no_delayed_message.desc:
+"""Not found delayed message for this topic"""
+no_delayed_message.label:
+"""Not found delayed message for this topic"""
+
 node.desc:
 """The node where message from"""
 node.label:
