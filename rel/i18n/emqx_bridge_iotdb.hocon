@@ -89,7 +89,8 @@ config_parameters_measurement.label:
 """Measurement"""
 
 config_parameters_data_type.desc:
-"""Data Type, can be:</br>
+"""Data Type, an enumerated or a string. </br>
+For string placeholders in format of ${var} is supported, the final value can be:</br>
 - TEXT
 - BOOLEAN
 - INT32

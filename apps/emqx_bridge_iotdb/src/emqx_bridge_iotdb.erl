@@ -113,7 +113,7 @@ fields(action_parameters_data) ->
     [
         {timestamp,
             mk(
-                binary(),
+                hoconsc:union([now, now_ms, now_ns, now_us, binary()]),
                 #{
                     desc => ?DESC("config_parameters_timestamp"),
                     default => <<"now">>
@@ -129,20 +129,10 @@ fields(action_parameters_data) ->
             )},
         {data_type,
             mk(
-                binary(),
+                hoconsc:union([text, boolean, int32, int64, float, double, binary()]),
                 #{
                     required => true,
-                    desc => ?DESC("config_parameters_data_type"),
-                    validator => fun(Type) ->
-                        lists:member(Type, [
-                            <<"TEXT">>,
-                            <<"BOOLEAN">>,
-                            <<"INT32">>,
-                            <<"INT64">>,
-                            <<"FLOAT">>,
-                            <<"DOUBLE">>
-                        ])
-                    end
+                    desc => ?DESC("config_parameters_data_type")
                 }
             )},
         {value,
