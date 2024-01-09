@@ -702,7 +702,7 @@ list_clients(QString) ->
         {error, invalid_query_string_param, {Key, ExpectedType, AcutalValue}} ->
             Message = list_to_binary(
                 io_lib:format(
-                    "the ~s parameter expected type is ~s, but the got value is ~s",
+                    "the ~s parameter expected type is ~s, but the value is ~s",
                     [Key, ExpectedType, emqx_utils_conv:str(AcutalValue)]
                 )
             ),
