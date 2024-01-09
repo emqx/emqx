@@ -83,7 +83,7 @@
 
 -define(SPECIAL_LANG_MSGID, <<"$msgid">>).
 
--define(MAX_ROW_LIMIT, 1000).
+-define(MAX_ROW_LIMIT, 10000).
 -define(DEFAULT_ROW, 100).
 
 -type request() :: #{bindings => map(), query_string => map(), body => map()}.
