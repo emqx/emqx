@@ -140,13 +140,13 @@ t_public_ref(_Config) ->
     ExpectRefs = [
         #{
             <<"public.limit">> => #{
-                description => <<"Results per page(max 1000)">>,
+                description => <<"Results per page(max 10000)">>,
                 in => query,
                 name => limit,
                 example => 50,
                 schema => #{
                     default => 100,
-                    maximum => 1000,
+                    maximum => 10000,
                     minimum => 1,
                     type => integer
                 }
