@@ -219,9 +219,8 @@ on_add_channel(
     #{
         parameters := #{
             target_topic := TargetTopic,
-            target_qos := TargetQoS,
             template := Template
-        }
+        } = Parameters
     }
 ) ->
     case maps:is_key(ChannelId, Channels) of
@@ -229,7 +228,7 @@ on_add_channel(
             {error, already_exists};
         _ ->
             Channel = #{
-                target_qos => TargetQoS,
+                target_qos => maps:get(target_qos, Parameters, undefined),
                 target_topic => emqx_placeholder:preproc_tmpl(TargetTopic),
                 template => emqx_placeholder:preproc_tmpl(Template)
             },
@@ -335,7 +334,7 @@ render_message(#{id := Id, qos := QoS, clientid := From} = Data, #{
         id => emqx_guid:from_hexstr(Id),
         qos :=
             case TargetQoS of
-                -1 ->
+                undefined ->
                     QoS;
                 _ ->
                     TargetQoS
