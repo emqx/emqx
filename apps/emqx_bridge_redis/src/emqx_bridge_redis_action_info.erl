@@ -14,7 +14,8 @@
     connector_action_config_to_bridge_v1_config/2,
     bridge_v1_config_to_action_config/2,
     bridge_v1_config_to_connector_config/1,
-    bridge_v1_type_name_fun/1
+    bridge_v1_type_name_fun/1,
+    action_convert_from_connector/2
 ]).
 
 -import(emqx_utils_conv, [bin/1]).
@@ -47,6 +48,23 @@ connector_action_config_to_bridge_v1_config(ConnectorConfig, ActionConfig) ->
                 Config0
         end,
     maps:without([<<"description">>], Config1).
+
+action_convert_from_connector(ConnectorConfig, ActionConfig) ->
+    case ConnectorConfig of
+        #{<<"parameters">> := #{<<"redis_type">> := <<"redis_cluster">>}} ->
+            emqx_utils_maps:update_if_present(
+                <<"resource_opts">>,
+                fun(Opts) ->
+                    Opts#{
+                        <<"batch_size">> => 1,
+                        <<"batch_time">> => <<"0ms">>
+                    }
+                end,
+                ActionConfig
+            );
+        _ ->
+            ActionConfig
+    end.
 
 bridge_v1_config_to_action_config(BridgeV1Config, ConnectorName) ->
     ActionTopLevelKeys = schema_keys(?SCHEMA_MODULE:fields(redis_action)),

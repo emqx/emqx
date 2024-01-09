@@ -239,6 +239,11 @@ load_config_from_raw(RawConf0, Opts) ->
     RawConf = emqx_config:fill_defaults(RawConf1),
     case check_config(RawConf) of
         ok ->
+            %% It has been ensured that the connector is always the first configuration to be updated.
+            %% However, when deleting the connector, we need to clean up the dependent actions first;
+            %% otherwise, the deletion will fail.
+            %% notice: we can't create a action before connector.
+            uninstall_actions(RawConf, Opts),
             Error =
                 lists:filtermap(
                     fun({K, V}) ->
@@ -272,6 +277,29 @@ load_config_from_raw(RawConf0, Opts) ->
             {error, Errors}
     end.
 
+uninstall_actions(#{<<"actions">> := New}, #{mode := replace}) ->
+    Old = emqx_conf:get_raw([<<"actions">>], #{}),
+    #{removed := Removed} = emqx_bridge_v2:diff_confs(New, Old),
+    maps:foreach(
+        fun({Type, Name}, _) ->
+            case emqx_bridge_v2:remove(Type, Name) of
+                ok ->
+                    ok;
+                {error, Reason} ->
+                    ?SLOG(error, #{
+                        msg => "failed_to_remove_action",
+                        type => Type,
+                        name => Name,
+                        error => Reason
+                    })
+            end
+        end,
+        Removed
+    );
+%% we don't delete things when in merge mode or without actions key.
+uninstall_actions(_RawConf, _) ->
+    ok.
+
 update_config_cluster(
     ?EMQX_AUTHORIZATION_CONFIG_ROOT_NAME_BINARY = Key,
     Conf,
@@ -286,16 +314,9 @@ update_config_cluster(
     check_res(Key, emqx_authn:merge_config(Conf), Conf, Opts);
 update_config_cluster(Key, NewConf, #{mode := merge} = Opts) ->
     Merged = merge_conf(Key, NewConf),
-    Request = make_request(Key, Merged),
-    check_res(Key, emqx_conf:update([Key], Request, ?OPTIONS), NewConf, Opts);
+    check_res(Key, emqx_conf:update([Key], Merged, ?OPTIONS), NewConf, Opts);
 update_config_cluster(Key, Value, #{mode := replace} = Opts) ->
-    Request = make_request(Key, Value),
-    check_res(Key, emqx_conf:update([Key], Request, ?OPTIONS), Value, Opts).
-
-make_request(Key, Value) when Key =:= <<"connectors">> orelse Key =:= <<"actions">> ->
-    {force_update, Value};
-make_request(_Key, Value) ->
-    Value.
+    check_res(Key, emqx_conf:update([Key], Value, ?OPTIONS), Value, Opts).
 
 -define(LOCAL_OPTIONS, #{rawconf_with_defaults => true, persistent => false}).
 update_config_local(
@@ -312,11 +333,9 @@ update_config_local(
     check_res(node(), Key, emqx_authn:merge_config_local(Conf, ?LOCAL_OPTIONS), Conf, Opts);
 update_config_local(Key, NewConf, #{mode := merge} = Opts) ->
     Merged = merge_conf(Key, NewConf),
-    Request = make_request(Key, Merged),
-    check_res(node(), Key, emqx:update_config([Key], Request, ?LOCAL_OPTIONS), NewConf, Opts);
+    check_res(node(), Key, emqx:update_config([Key], Merged, ?LOCAL_OPTIONS), NewConf, Opts);
 update_config_local(Key, Value, #{mode := replace} = Opts) ->
-    Request = make_request(Key, Value),
-    check_res(node(), Key, emqx:update_config([Key], Request, ?LOCAL_OPTIONS), Value, Opts).
+    check_res(node(), Key, emqx:update_config([Key], Value, ?LOCAL_OPTIONS), Value, Opts).
 
 check_res(Key, Res, Conf, Opts) -> check_res(cluster, Key, Res, Conf, Opts).
 check_res(Node, Key, {ok, _}, _Conf, Opts) ->
@@ -442,6 +461,7 @@ filter_readonly_config(Raw) ->
     end.
 
 reload_config(AllConf, Opts) ->
+    uninstall_actions(AllConf, Opts),
     Fold = fun({Key, Conf}, Acc) ->
         case update_config_local(Key, Conf, Opts) of
             ok ->

@@ -610,7 +610,7 @@ t_load_no_matching_connector(_Config) ->
                 bridge_name := my_test_bridge_update,
                 connector_name := <<"unknown">>,
                 bridge_type := _,
-                reason := "connector_not_found_or_wrong_type"
+                reason := <<"connector_not_found_or_wrong_type">>
             }}},
         update_root_config(RootConf0)
     ),
@@ -627,7 +627,7 @@ t_load_no_matching_connector(_Config) ->
                 bridge_name := my_test_bridge_new,
                 connector_name := <<"unknown">>,
                 bridge_type := _,
-                reason := "connector_not_found_or_wrong_type"
+                reason := <<"connector_not_found_or_wrong_type">>
             }}},
         update_root_config(RootConf1)
     ),
@@ -696,11 +696,11 @@ t_create_no_matching_connector(_Config) ->
     Conf = (bridge_config())#{<<"connector">> => <<"wrong_connector_name">>},
     ?assertMatch(
         {error,
-            {post_config_update, _HandlerMod, #{
+            {pre_config_update, _HandlerMod, #{
                 bridge_name := _,
                 connector_name := _,
                 bridge_type := _,
-                reason := "connector_not_found_or_wrong_type"
+                reason := <<"connector_not_found_or_wrong_type">>
             }}},
         emqx_bridge_v2:create(bridge_type(), my_test_bridge, Conf)
     ),
@@ -716,11 +716,11 @@ t_create_wrong_connector_type(_Config) ->
     Conf = bridge_config(),
     ?assertMatch(
         {error,
-            {post_config_update, _HandlerMod, #{
+            {pre_config_update, _HandlerMod, #{
                 bridge_name := _,
                 connector_name := _,
                 bridge_type := wrong_type,
-                reason := "connector_not_found_or_wrong_type"
+                reason := <<"connector_not_found_or_wrong_type">>
             }}},
         emqx_bridge_v2:create(wrong_type, my_test_bridge, Conf)
     ),
@@ -732,11 +732,11 @@ t_update_connector_not_found(_Config) ->
     BadConf = Conf#{<<"connector">> => <<"wrong_connector_name">>},
     ?assertMatch(
         {error,
-            {post_config_update, _HandlerMod, #{
+            {pre_config_update, _HandlerMod, #{
                 bridge_name := _,
                 connector_name := _,
                 bridge_type := _,
-                reason := "connector_not_found_or_wrong_type"
+                reason := <<"connector_not_found_or_wrong_type">>
             }}},
         emqx_bridge_v2:create(bridge_type(), my_test_bridge, BadConf)
     ),
