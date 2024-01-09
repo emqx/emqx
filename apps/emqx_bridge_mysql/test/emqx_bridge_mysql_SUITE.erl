@@ -50,7 +50,8 @@ groups() ->
     NonBatchCases = [
         t_write_timeout,
         t_uninitialized_prepared_statement,
-        t_non_batch_update_is_allowed
+        t_non_batch_update_is_allowed,
+        t_undefined_field_in_sql
     ],
     OnlyBatchCases = [
         t_batch_update_is_forbidden
@@ -801,27 +802,13 @@ t_missing_table(Config) ->
                     sync ->
                         query_resource(Config, Request);
                     async ->
-                        {_, Ref} = query_resource_async(Config, Request),
-                        {ok, Res} = receive_result(Ref, 2_000),
+                        {Res, _Ref} = query_resource_async(Config, Request),
                         Res
                 end,
-
-            BatchSize = ?config(batch_size, Config),
-            IsBatch = BatchSize > 1,
-            case IsBatch of
-                true ->
-                    ?assertMatch(
-                        {error,
-                            {unrecoverable_error,
-                                {1146, <<"42S02">>, <<"Table 'mqtt.mqtt_test' doesn't exist">>}}},
-                        Result
-                    );
-                false ->
-                    ?assertMatch(
-                        {error, undefined_table},
-                        Result
-                    )
-            end,
+            ?assertMatch(
+                {error, {resource_error, #{reason := unhealthy_target}}},
+                Result
+            ),
             ok
         end,
         fun(Trace) ->
@@ -969,6 +956,34 @@ t_non_batch_update_is_allowed(Config) ->
             ),
 
             ?assertEqual(1, emqx_metrics_worker:get(rule_metrics, RuleId, 'actions.success')),
+            ok
+        end,
+        []
+    ),
+    ok.
+
+t_undefined_field_in_sql(Config) ->
+    ?check_trace(
+        begin
+            Overrides = #{
+                <<"sql">> =>
+                    <<
+                        "INSERT INTO mqtt_test(wrong_column, arrived) "
+                        "VALUES (${payload}, FROM_UNIXTIME(${timestamp}/1000))"
+                    >>
+            },
+            ProbeRes = emqx_bridge_testlib:probe_bridge_api(Config, Overrides),
+            ?assertMatch({error, {{_, 400, _}, _, _BodyRaw}}, ProbeRes),
+            {error, {{_, 400, _}, _, BodyRaw}} = ProbeRes,
+            ?assertEqual(
+                match,
+                re:run(
+                    BodyRaw,
+                    <<"Unknown column 'wrong_column' in 'field list'">>,
+                    [{capture, none}]
+                ),
+                #{body => BodyRaw}
+            ),
             ok
         end,
         []
