@@ -393,7 +393,15 @@ t_handle_in_subscribe(_) ->
     Replies = [{outgoing, ?SUBACK_PACKET(1, [?QOS_0])}, {event, updated}],
     {ok, Replies, _Chan} = emqx_channel:handle_in(Subscribe, Channel).
 
-t_handle_in_subscribe_multiple(_) ->
+t_handle_in_subscribe_multiple(Config) ->
+    ok = emqx_config:put([broker, routing, batch_sync, enable_on], none),
+    handle_in_subscribe_multiple(Config).
+
+t_handle_in_subscribe_multiple_batch(Config) ->
+    ok = emqx_config:put([broker, routing, batch_sync, enable_on], all),
+    handle_in_subscribe_multiple(Config).
+
+handle_in_subscribe_multiple(_) ->
     Channel = channel(#{conn_state => connected}),
     HookSubscribe = {?MODULE, hook_handle_in_subscribe_multiple, []},
     ok = emqx_hooks:add('client.subscribe', HookSubscribe, ?HP_HIGHEST),
