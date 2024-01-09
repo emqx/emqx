@@ -91,7 +91,15 @@ publish(ClientInfo, MsgId, Msg, Session) ->
     with_sess(?FUNCTION_NAME, [ClientInfo, MsgId, Msg], Session).
 
 subscribe(ClientInfo, Topic, SubOpts, Session) ->
-    with_sess(?FUNCTION_NAME, [ClientInfo, Topic, SubOpts], Session).
+    case with_sess(?FUNCTION_NAME, [ClientInfo, Topic, SubOpts], Session) of
+        {ok, NSession} ->
+            {ok, NSession};
+        {ok, Await, NSession} ->
+            ok = Await(),
+            {ok, NSession};
+        {error, Reason} ->
+            {error, Reason}
+    end.
 
 unsubscribe(ClientInfo, Topic, SubOpts, Session) ->
     with_sess(?FUNCTION_NAME, [ClientInfo, Topic, SubOpts], Session).
