@@ -30,32 +30,52 @@ all() ->
         {group, routing_schema_v1},
         {group, routing_schema_v2},
         t_routing_schema_switch_v1,
-        t_routing_schema_switch_v2,
-        t_concurrent_routing_updates
+        t_routing_schema_switch_v2
     ].
 
 groups() ->
-    TCs = [
+    GroupVsn = [
+        {group, batch_sync_on},
+        {group, batch_sync_off}
+    ],
+    GroupBase = [
+        {group, cluster},
+        t_concurrent_routing_updates
+    ],
+    ClusterTCs = [
         t_cluster_routing,
         t_slow_rlog_routing_consistency
     ],
     [
-        {routing_schema_v1, [], TCs},
-        {routing_schema_v2, [], TCs}
+        {routing_schema_v1, [], GroupVsn},
+        {routing_schema_v2, [], GroupVsn},
+        {batch_sync_on, [], GroupBase},
+        {batch_sync_off, [], GroupBase},
+        {cluster, [], ClusterTCs}
     ].
 
-init_per_group(GroupName, Config) ->
-    WorkDir = filename:join([?config(priv_dir, Config), ?MODULE, GroupName]),
+init_per_group(routing_schema_v1, Config) ->
+    [{emqx_config, "broker.routing.storage_schema = v1"} | Config];
+init_per_group(routing_schema_v2, Config) ->
+    [{emqx_config, "broker.routing.storage_schema = v2"} | Config];
+init_per_group(batch_sync_on, Config) ->
+    [{emqx_config, "broker.routing.batch_sync.enable = true"} | Config];
+init_per_group(batch_sync_off, Config) ->
+    [{emqx_config, "broker.routing.batch_sync.enable = false"} | Config];
+init_per_group(cluster, Config) ->
+    WorkDir = emqx_cth_suite:work_dir(Config),
     NodeSpecs = [
-        {emqx_routing_SUITE1, #{apps => [mk_emqx_appspec(GroupName, 1)], role => core}},
-        {emqx_routing_SUITE2, #{apps => [mk_emqx_appspec(GroupName, 2)], role => core}},
-        {emqx_routing_SUITE3, #{apps => [mk_emqx_appspec(GroupName, 3)], role => replicant}}
+        {emqx_routing_SUITE1, #{apps => [mk_emqx_appspec(1, Config)], role => core}},
+        {emqx_routing_SUITE2, #{apps => [mk_emqx_appspec(2, Config)], role => core}},
+        {emqx_routing_SUITE3, #{apps => [mk_emqx_appspec(3, Config)], role => replicant}}
     ],
     Nodes = emqx_cth_cluster:start(NodeSpecs, #{work_dir => WorkDir}),
     [{cluster, Nodes} | Config].
 
-end_per_group(_GroupName, Config) ->
-    emqx_cth_cluster:stop(?config(cluster, Config)).
+end_per_group(cluster, Config) ->
+    emqx_cth_cluster:stop(?config(cluster, Config));
+end_per_group(_, _Config) ->
+    ok.
 
 init_per_testcase(TC, Config) ->
     emqx_common_test_helpers:init_per_testcase(?MODULE, TC, Config).
@@ -63,9 +83,9 @@ init_per_testcase(TC, Config) ->
 end_per_testcase(TC, Config) ->
     emqx_common_test_helpers:end_per_testcase(?MODULE, TC, Config).
 
-mk_emqx_appspec(GroupName, N) ->
+mk_emqx_appspec(N, Config) ->
     {emqx, #{
-        config => mk_config(GroupName, N),
+        config => mk_config(N, Config),
         after_start => fun() ->
             % NOTE
             % This one is actually defined on `emqx_conf_schema` level, but used
@@ -79,24 +99,28 @@ mk_genrpc_appspec() ->
         override_env => [{port_discovery, stateless}]
     }}.
 
-mk_config(GroupName, N) ->
-    #{
-        broker => mk_config_broker(GroupName),
-        listeners => mk_config_listeners(N)
-    }.
+mk_config(N, ConfigOrVsn) ->
+    emqx_cth_suite:merge_config(
+        mk_config_broker(ConfigOrVsn),
+        mk_config_listeners(N)
+    ).
 
-mk_config_broker(Vsn) when Vsn == routing_schema_v1; Vsn == v1 ->
-    #{routing => #{storage_schema => v1}};
-mk_config_broker(Vsn) when Vsn == routing_schema_v2; Vsn == v2 ->
-    #{routing => #{storage_schema => v2}}.
+mk_config_broker(v1) ->
+    "broker.routing.storage_schema = v1";
+mk_config_broker(v2) ->
+    "broker.routing.storage_schema = v2";
+mk_config_broker(CTConfig) ->
+    string:join(proplists:get_all_values(emqx_config, CTConfig), "\n").
 
 mk_config_listeners(N) ->
     Port = 1883 + N,
     #{
-        tcp => #{default => #{bind => "127.0.0.1:" ++ integer_to_list(Port)}},
-        ssl => #{default => #{enable => false}},
-        ws => #{default => #{enable => false}},
-        wss => #{default => #{enable => false}}
+        listeners => #{
+            tcp => #{default => #{bind => "127.0.0.1:" ++ integer_to_list(Port)}},
+            ssl => #{default => #{enable => false}},
+            ws => #{default => #{enable => false}},
+            wss => #{default => #{enable => false}}
+        }
     }.
 
 %%
@@ -202,12 +226,15 @@ t_concurrent_routing_updates(init, Config) ->
     Apps = emqx_cth_suite:start(
         [
             {emqx, #{
-                config => #{broker => #{routing => #{storage_schema => v2}}},
+                config => mk_config_broker(Config),
+                %% NOTE
+                %% Artificially increasing pool workers contention by forcing small pool size.
                 before_start => fun() ->
                     % NOTE
                     % This one is actually defined on `emqx_conf_schema` level, but used
                     % in `emqx_broker`. Thus we have to resort to this ugly hack.
-                    emqx_config:force_put([node, broker_pool_size], 2)
+                    emqx_config:force_put([node, broker_pool_size], 2),
+                    emqx_app:set_config_loader(?MODULE)
                 end
             }}
         ],
@@ -331,7 +358,7 @@ t_routing_schema_switch(VFrom, VTo, WorkDir) ->
     [Node1] = emqx_cth_cluster:start(
         [
             {routing_schema_switch1, #{
-                apps => [mk_genrpc_appspec(), mk_emqx_appspec(VTo, 1)]
+                apps => [mk_genrpc_appspec(), mk_emqx_appspec(1, VTo)]
             }}
         ],
         #{work_dir => WorkDir}
@@ -344,12 +371,12 @@ t_routing_schema_switch(VFrom, VTo, WorkDir) ->
     [Node2, Node3] = emqx_cth_cluster:start(
         [
             {routing_schema_switch2, #{
-                apps => [mk_genrpc_appspec(), mk_emqx_appspec(VFrom, 2)],
+                apps => [mk_genrpc_appspec(), mk_emqx_appspec(2, VFrom)],
                 base_port => 20000,
                 join_to => Node1
             }},
             {routing_schema_switch3, #{
-                apps => [mk_genrpc_appspec(), mk_emqx_appspec(VFrom, 3)],
+                apps => [mk_genrpc_appspec(), mk_emqx_appspec(3, VFrom)],
                 base_port => 20100,
                 join_to => Node1
             }}

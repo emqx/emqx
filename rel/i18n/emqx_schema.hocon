@@ -1541,6 +1541,10 @@ Set <code>v1</code> to use the former schema.
 NOTE: Schema <code>v2</code> is still experimental.
 NOTE: Full non-rolling cluster restart is needed after altering this option for it to take any effect."""
 
+broker_routing_batch_sync_enable.desc:
+"""Use separate process pool to synchronize subscriptions with the global routing table in a batched manner.
+Especially useful in clusters interconnected through links with non-negligible latency, but might help in other scenarios by ensuring that the broker pool has less chance being overloaded."""
+
 broker_perf_trie_compaction.desc:
 """Enable trie path compaction.
 Enabling it significantly improves wildcard topic subscribe rate, if wildcard topics have unique prefixes like: 'sensor/{{id}}/+/', where ID is unique per subscriber.

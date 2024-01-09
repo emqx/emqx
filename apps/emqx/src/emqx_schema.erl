@@ -1404,6 +1404,22 @@ fields("broker_routing") ->
                     'readOnly' => true,
                     desc => ?DESC(broker_routing_storage_schema)
                 }
+            )},
+        {"batch_sync",
+            sc(
+                ref("broker_routing_batch_sync"),
+                #{importance => ?IMPORTANCE_HIDDEN}
+            )}
+    ];
+fields("broker_routing_batch_sync") ->
+    [
+        {"enable",
+            sc(
+                boolean(),
+                #{
+                    default => false,
+                    desc => ?DESC(broker_routing_batch_sync_enabled)
+                }
             )}
     ];
 fields("shared_subscription_group") ->

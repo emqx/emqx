@@ -604,11 +604,21 @@ do_dispatch({shard, I}, Topic, Msg) ->
 %%
 
 maybe_add_route(_Existed = false, Topic, ReplyTo) ->
-    emqx_router_syncer:push(add, Topic, node(), #{reply => ReplyTo});
+    add_route(emqx_config:get([broker, routing, batch_sync, enable]), Topic, ReplyTo);
 maybe_add_route(_Existed = true, _Topic, _ReplyTo) ->
     ok.
 
+add_route(_BatchSync = true, Topic, ReplyTo) ->
+    emqx_router_syncer:push(add, Topic, node(), #{reply => ReplyTo});
+add_route(_BatchSync = false, Topic, _ReplyTo) ->
+    emqx_router:do_add_route(Topic, node()).
+
 maybe_delete_route(_Exists = false, Topic) ->
-    emqx_router_syncer:push(delete, Topic, node(), #{});
+    delete_route(emqx_config:get([broker, routing, batch_sync, enable]), Topic);
 maybe_delete_route(_Exists = true, _Topic) ->
     ok.
+
+delete_route(_BatchSync = true, Topic) ->
+    emqx_router_syncer:push(delete, Topic, node(), #{});
+delete_route(_BatchSync = false, Topic) ->
+    emqx_router:do_delete_route(Topic, node()).
