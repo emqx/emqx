@@ -14,6 +14,12 @@
 -define(BRIDGE_TYPE, gcp_pubsub_consumer).
 -define(BRIDGE_TYPE_BIN, <<"gcp_pubsub_consumer">>).
 -define(REPUBLISH_TOPIC, <<"republish/t">>).
+-define(PREPARED_REQUEST(METHOD, PATH, BODY),
+    {prepared_request, {METHOD, PATH, BODY}, #{request_ttl => 1_000}}
+).
+-define(PREPARED_REQUEST_PAT(METHOD, PATH, BODY),
+    {prepared_request, {METHOD, PATH, BODY}, _}
+).
 
 -import(emqx_common_test_helpers, [on_exit/1]).
 
@@ -40,11 +46,13 @@ init_per_suite(Config) ->
                     emqx_conf,
                     emqx_bridge_gcp_pubsub,
                     emqx_bridge,
-                    emqx_rule_engine
+                    emqx_rule_engine,
+                    emqx_management,
+                    {emqx_dashboard, "dashboard.listeners.http { enable = true, bind = 18083 }"}
                 ],
                 #{work_dir => emqx_cth_suite:work_dir(Config)}
             ),
-            emqx_mgmt_api_test_util:init_suite(),
+            {ok, _Api} = emqx_common_test_http:create_default_app(),
             HostPort = GCPEmulatorHost ++ ":" ++ GCPEmulatorPortStr,
             true = os:putenv("PUBSUB_EMULATOR_HOST", HostPort),
             Client = start_control_client(),
@@ -71,7 +79,6 @@ end_per_suite(Config) ->
     Apps = ?config(apps, Config),
     Client = ?config(client, Config),
     stop_control_client(Client),
-    emqx_mgmt_api_test_util:end_suite(),
     emqx_cth_suite:stop(Apps),
     os:unsetenv("PUBSUB_EMULATOR_HOST"),
     ok.
@@ -266,7 +273,7 @@ ensure_topic(Config, Topic) ->
     Path = <<"/v1/projects/", ProjectId/binary, "/topics/", Topic/binary>>,
     Body = <<"{}">>,
     Res = emqx_bridge_gcp_pubsub_client:query_sync(
-        {prepared_request, {Method, Path, Body}},
+        ?PREPARED_REQUEST(Method, Path, Body),
         Client
     ),
     case Res of
@@ -285,7 +292,6 @@ start_control_client() ->
             connect_timeout => 5_000,
             max_retries => 0,
             pool_size => 1,
-            resource_opts => #{request_ttl => 1_000},
             service_account_json => RawServiceAccount
         },
     PoolName = <<"control_connector">>,
@@ -317,7 +323,7 @@ pubsub_publish(Config, Topic, Messages0) ->
         ),
     Body = emqx_utils_json:encode(#{<<"messages">> => Messages}),
     {ok, _} = emqx_bridge_gcp_pubsub_client:query_sync(
-        {prepared_request, {Method, Path, Body}},
+        ?PREPARED_REQUEST(Method, Path, Body),
         Client
     ),
     ok.
@@ -329,7 +335,7 @@ delete_topic(Config, Topic) ->
     Path = <<"/v1/projects/", ProjectId/binary, "/topics/", Topic/binary>>,
     Body = <<>>,
     {ok, _} = emqx_bridge_gcp_pubsub_client:query_sync(
-        {prepared_request, {Method, Path, Body}},
+        ?PREPARED_REQUEST(Method, Path, Body),
         Client
     ),
     ok.
@@ -341,7 +347,7 @@ delete_subscription(Config, SubscriptionId) ->
     Path = <<"/v1/projects/", ProjectId/binary, "/subscriptions/", SubscriptionId/binary>>,
     Body = <<>>,
     {ok, _} = emqx_bridge_gcp_pubsub_client:query_sync(
-        {prepared_request, {Method, Path, Body}},
+        ?PREPARED_REQUEST(Method, Path, Body),
         Client
     ),
     ok.
@@ -1994,7 +2000,7 @@ t_connection_down_during_ack_redeliver(Config) ->
             emqx_common_test_helpers:with_mock(
                 emqx_bridge_gcp_pubsub_client,
                 query_sync,
-                fun(PreparedRequest = {prepared_request, {_Method, Path, _Body}}, Client) ->
+                fun(PreparedRequest = ?PREPARED_REQUEST_PAT(_Method, Path, _Body), Client) ->
                     case re:run(Path, <<":acknowledge$">>) of
                         {match, _} ->
                             ct:sleep(800),
@@ -2162,7 +2168,7 @@ t_permission_denied_topic_check(Config) ->
             emqx_common_test_helpers:with_mock(
                 emqx_bridge_gcp_pubsub_client,
                 query_sync,
-                fun(PreparedRequest = {prepared_request, {Method, Path, _Body}}, Client) ->
+                fun(PreparedRequest = ?PREPARED_REQUEST_PAT(Method, Path, _Body), Client) ->
                     RE = iolist_to_binary(["/topics/", PubSubTopic, "$"]),
                     case {Method =:= get, re:run(Path, RE)} of
                         {true, {match, _}} ->
@@ -2201,7 +2207,7 @@ t_permission_denied_worker(Config) ->
             emqx_common_test_helpers:with_mock(
                 emqx_bridge_gcp_pubsub_client,
                 query_sync,
-                fun(PreparedRequest = {prepared_request, {Method, _Path, _Body}}, Client) ->
+                fun(PreparedRequest = ?PREPARED_REQUEST_PAT(Method, _Path, _Body), Client) ->
                     case Method =:= put of
                         true ->
                             permission_denied_response();
@@ -2237,7 +2243,7 @@ t_unauthenticated_topic_check(Config) ->
             emqx_common_test_helpers:with_mock(
                 emqx_bridge_gcp_pubsub_client,
                 query_sync,
-                fun(PreparedRequest = {prepared_request, {Method, Path, _Body}}, Client) ->
+                fun(PreparedRequest = ?PREPARED_REQUEST_PAT(Method, Path, _Body), Client) ->
                     RE = iolist_to_binary(["/topics/", PubSubTopic, "$"]),
                     case {Method =:= get, re:run(Path, RE)} of
                         {true, {match, _}} ->
@@ -2276,7 +2282,7 @@ t_unauthenticated_worker(Config) ->
             emqx_common_test_helpers:with_mock(
                 emqx_bridge_gcp_pubsub_client,
                 query_sync,
-                fun(PreparedRequest = {prepared_request, {Method, _Path, _Body}}, Client) ->
+                fun(PreparedRequest = ?PREPARED_REQUEST_PAT(Method, _Path, _Body), Client) ->
                     case Method =:= put of
                         true ->
                             unauthenticated_response();

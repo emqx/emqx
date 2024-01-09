@@ -32,7 +32,8 @@
     attributes_template := #{emqx_placeholder:tmpl_token() => emqx_placeholder:tmpl_token()},
     ordering_key_template := emqx_placeholder:tmpl_token(),
     payload_template := emqx_placeholder:tmpl_token(),
-    pubsub_topic := binary()
+    pubsub_topic := binary(),
+    request_ttl := infinity | emqx_schema:duration_ms()
 }.
 -type headers() :: emqx_bridge_gcp_pubsub_client:headers().
 -type body() :: emqx_bridge_gcp_pubsub_client:body().
@@ -102,14 +103,18 @@ on_get_status(_InstanceId, #{client := Client} = _State) ->
     {ok, map()}
     | {error, {recoverable_error, term()}}
     | {error, term()}.
-on_query(ResourceId, {MessageTag, Selected}, State) ->
+on_query(ResourceId, {MessageTag, Selected}, ConnectorState) ->
     Requests = [{MessageTag, Selected}],
     ?TRACE(
         "QUERY_SYNC",
         "gcp_pubsub_received",
-        #{requests => Requests, connector => ResourceId, state => State}
+        #{
+            requests => Requests,
+            connector => ResourceId,
+            state => emqx_utils:redact(ConnectorState)
+        }
     ),
-    do_send_requests_sync(State, Requests, ResourceId).
+    do_send_requests_sync(ConnectorState, Requests, ResourceId).
 
 -spec on_query_async(
     connector_resource_id(),
@@ -117,15 +122,19 @@ on_query(ResourceId, {MessageTag, Selected}, State) ->
     {ReplyFun :: function(), Args :: list()},
     connector_state()
 ) -> {ok, pid()} | {error, no_pool_worker_available}.
-on_query_async(ResourceId, {MessageTag, Selected}, ReplyFunAndArgs, State) ->
+on_query_async(ResourceId, {MessageTag, Selected}, ReplyFunAndArgs, ConnectorState) ->
     Requests = [{MessageTag, Selected}],
     ?TRACE(
         "QUERY_ASYNC",
         "gcp_pubsub_received",
-        #{requests => Requests, connector => ResourceId, state => State}
+        #{
+            requests => Requests,
+            connector => ResourceId,
+            state => emqx_utils:redact(ConnectorState)
+        }
     ),
     ?tp(gcp_pubsub_producer_async, #{instance_id => ResourceId, requests => Requests}),
-    do_send_requests_async(State, Requests, ReplyFunAndArgs).
+    do_send_requests_async(ConnectorState, Requests, ReplyFunAndArgs).
 
 -spec on_batch_query(
     connector_resource_id(),
@@ -135,13 +144,17 @@ on_query_async(ResourceId, {MessageTag, Selected}, ReplyFunAndArgs, State) ->
     {ok, map()}
     | {error, {recoverable_error, term()}}
     | {error, term()}.
-on_batch_query(ResourceId, Requests, State) ->
+on_batch_query(ResourceId, Requests, ConnectorState) ->
     ?TRACE(
         "QUERY_SYNC",
         "gcp_pubsub_received",
-        #{requests => Requests, connector => ResourceId, state => State}
+        #{
+            requests => Requests,
+            connector => ResourceId,
+            state => emqx_utils:redact(ConnectorState)
+        }
     ),
-    do_send_requests_sync(State, Requests, ResourceId).
+    do_send_requests_sync(ConnectorState, Requests, ResourceId).
 
 -spec on_batch_query_async(
     connector_resource_id(),
@@ -149,14 +162,18 @@ on_batch_query(ResourceId, Requests, State) ->
     {ReplyFun :: function(), Args :: list()},
     connector_state()
 ) -> {ok, pid()} | {error, no_pool_worker_available}.
-on_batch_query_async(ResourceId, Requests, ReplyFunAndArgs, State) ->
+on_batch_query_async(ResourceId, Requests, ReplyFunAndArgs, ConnectorState) ->
     ?TRACE(
         "QUERY_ASYNC",
         "gcp_pubsub_received",
-        #{requests => Requests, connector => ResourceId, state => State}
+        #{
+            requests => Requests,
+            connector => ResourceId,
+            state => emqx_utils:redact(ConnectorState)
+        }
     ),
     ?tp(gcp_pubsub_producer_async, #{instance_id => ResourceId, requests => Requests}),
-    do_send_requests_async(State, Requests, ReplyFunAndArgs).
+    do_send_requests_async(ConnectorState, Requests, ReplyFunAndArgs).
 
 -spec on_add_channel(
     connector_resource_id(),
@@ -207,13 +224,17 @@ install_channel(ActionConfig) ->
             ordering_key_template := OrderingKeyTemplate,
             payload_template := PayloadTemplate,
             pubsub_topic := PubSubTopic
+        },
+        resource_opts := #{
+            request_ttl := RequestTTL
         }
     } = ActionConfig,
     #{
         attributes_template => preproc_attributes(AttributesTemplate),
         ordering_key_template => emqx_placeholder:preproc_tmpl(OrderingKeyTemplate),
         payload_template => emqx_placeholder:preproc_tmpl(PayloadTemplate),
-        pubsub_topic => PubSubTopic
+        pubsub_topic => PubSubTopic,
+        request_ttl => RequestTTL
     }.
 
 -spec do_send_requests_sync(
@@ -231,7 +252,7 @@ do_send_requests_sync(ConnectorState, Requests, InstanceId) ->
     %% is it safe to assume the tag is the same???  And not empty???
     [{MessageTag, _} | _] = Requests,
     #{installed_actions := InstalledActions} = ConnectorState,
-    ChannelState = maps:get(MessageTag, InstalledActions),
+    ChannelState = #{request_ttl := RequestTTL} = maps:get(MessageTag, InstalledActions),
     Payloads =
         lists:map(
             fun({_MessageTag, Selected}) ->
@@ -242,7 +263,8 @@ do_send_requests_sync(ConnectorState, Requests, InstanceId) ->
     Body = to_pubsub_request(Payloads),
     Path = publish_path(ConnectorState, ChannelState),
     Method = post,
-    Request = {prepared_request, {Method, Path, Body}},
+    ReqOpts = #{request_ttl => RequestTTL},
+    Request = {prepared_request, {Method, Path, Body}, ReqOpts},
     Result = emqx_bridge_gcp_pubsub_client:query_sync(Request, Client),
     QueryMode = sync,
     handle_result(Result, Request, QueryMode, InstanceId).
@@ -257,7 +279,7 @@ do_send_requests_async(ConnectorState, Requests, ReplyFunAndArgs0) ->
     %% is it safe to assume the tag is the same???  And not empty???
     [{MessageTag, _} | _] = Requests,
     #{installed_actions := InstalledActions} = ConnectorState,
-    ChannelState = maps:get(MessageTag, InstalledActions),
+    ChannelState = #{request_ttl := RequestTTL} = maps:get(MessageTag, InstalledActions),
     Payloads =
         lists:map(
             fun({_MessageTag, Selected}) ->
@@ -268,7 +290,8 @@ do_send_requests_async(ConnectorState, Requests, ReplyFunAndArgs0) ->
     Body = to_pubsub_request(Payloads),
     Path = publish_path(ConnectorState, ChannelState),
     Method = post,
-    Request = {prepared_request, {Method, Path, Body}},
+    ReqOpts = #{request_ttl => RequestTTL},
+    Request = {prepared_request, {Method, Path, Body}, ReqOpts},
     ReplyFunAndArgs = {fun ?MODULE:reply_delegator/2, [ReplyFunAndArgs0]},
     emqx_bridge_gcp_pubsub_client:query_async(
         Request, ReplyFunAndArgs, Client

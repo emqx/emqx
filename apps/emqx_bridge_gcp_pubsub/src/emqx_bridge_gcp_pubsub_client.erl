@@ -21,7 +21,7 @@
 ]).
 -export([reply_delegator/3]).
 
--export([get_topic/2]).
+-export([get_topic/3]).
 
 -export([get_jwt_authorization_header/1]).
 
@@ -31,7 +31,7 @@
 -type config() :: #{
     connect_timeout := emqx_schema:duration_ms(),
     max_retries := non_neg_integer(),
-    resource_opts := #{request_ttl := infinity | emqx_schema:duration_ms(), any() => term()},
+    resource_opts := #{atom() => term()},
     service_account_json := service_account_json(),
     any() => term()
 }.
@@ -40,8 +40,7 @@
     jwt_config := emqx_connector_jwt:jwt_config(),
     max_retries := non_neg_integer(),
     pool_name := binary(),
-    project_id := project_id(),
-    request_ttl := erlang:timeout()
+    project_id := project_id()
 }.
 -type headers() :: [{binary(), iodata()}].
 -type body() :: iodata().
@@ -49,6 +48,7 @@
 -type method() :: get | post | put | patch.
 -type path() :: binary().
 -type prepared_request() :: {method(), path(), body()}.
+-type request_opts() :: #{request_ttl := emqx_schema:duration_ms() | infinity}.
 -type topic() :: binary().
 
 -export_type([
@@ -73,8 +73,7 @@ start(
     #{
         connect_timeout := ConnectTimeout,
         max_retries := MaxRetries,
-        pool_size := PoolSize,
-        resource_opts := #{request_ttl := RequestTTL}
+        pool_size := PoolSize
     } = Config
 ) ->
     {Transport, HostPort} = get_transport(),
@@ -106,8 +105,7 @@ start(
         jwt_config => JWTConfig,
         max_retries => MaxRetries,
         pool_name => ResourceId,
-        project_id => ProjectId,
-        request_ttl => RequestTTL
+        project_id => ProjectId
     },
     ?tp(
         gcp_pubsub_on_start_before_starting_pool,
@@ -151,26 +149,26 @@ stop(ResourceId) ->
     end.
 
 -spec query_sync(
-    {prepared_request, prepared_request()},
+    {prepared_request, prepared_request(), request_opts()},
     state()
 ) ->
     {ok, map()} | {error, {recoverable_error, term()} | term()}.
-query_sync({prepared_request, PreparedRequest = {_Method, _Path, _Body}}, State) ->
+query_sync({prepared_request, PreparedRequest = {_Method, _Path, _Body}, ReqOpts}, State) ->
     PoolName = maps:get(pool_name, State),
     ?TRACE(
         "QUERY_SYNC",
         "gcp_pubsub_received",
         #{requests => PreparedRequest, connector => PoolName, state => State}
     ),
-    do_send_requests_sync(State, {prepared_request, PreparedRequest}).
+    do_send_requests_sync(State, {prepared_request, PreparedRequest, ReqOpts}).
 
 -spec query_async(
-    {prepared_request, prepared_request()},
+    {prepared_request, prepared_request(), request_opts()},
     {ReplyFun :: function(), Args :: list()},
     state()
 ) -> {ok, pid()} | {error, no_pool_worker_available}.
 query_async(
-    {prepared_request, PreparedRequest = {_Method, _Path, _Body}},
+    {prepared_request, PreparedRequest = {_Method, _Path, _Body}, ReqOpts},
     ReplyFunAndArgs,
     State
 ) ->
@@ -180,7 +178,7 @@ query_async(
         "gcp_pubsub_received",
         #{requests => PreparedRequest, connector => PoolName, state => State}
     ),
-    do_send_requests_async(State, {prepared_request, PreparedRequest}, ReplyFunAndArgs).
+    do_send_requests_async(State, {prepared_request, PreparedRequest, ReqOpts}, ReplyFunAndArgs).
 
 -spec get_status(state()) -> connected | disconnected.
 get_status(#{connect_timeout := Timeout, pool_name := PoolName} = State) ->
@@ -199,13 +197,13 @@ get_status(#{connect_timeout := Timeout, pool_name := PoolName} = State) ->
 %% API
 %%-------------------------------------------------------------------------------------------------
 
--spec get_topic(topic(), state()) -> {ok, map()} | {error, term()}.
-get_topic(Topic, ConnectorState) ->
+-spec get_topic(topic(), state(), request_opts()) -> {ok, map()} | {error, term()}.
+get_topic(Topic, ConnectorState, ReqOpts) ->
     #{project_id := ProjectId} = ConnectorState,
     Method = get,
     Path = <<"/v1/projects/", ProjectId/binary, "/topics/", Topic/binary>>,
     Body = <<>>,
-    PreparedRequest = {prepared_request, {Method, Path, Body}},
+    PreparedRequest = {prepared_request, {Method, Path, Body}, ReqOpts},
     ?MODULE:query_sync(PreparedRequest, ConnectorState).
 
 %%-------------------------------------------------------------------------------------------------
@@ -277,19 +275,19 @@ get_jwt_authorization_header(JWTConfig) ->
 
 -spec do_send_requests_sync(
     state(),
-    {prepared_request, prepared_request()}
+    {prepared_request, prepared_request(), request_opts()}
 ) ->
     {ok, map()} | {error, {recoverable_error, term()} | term()}.
-do_send_requests_sync(State, {prepared_request, {Method, Path, Body}}) ->
+do_send_requests_sync(State, {prepared_request, {Method, Path, Body}, ReqOpts}) ->
     #{
         pool_name := PoolName,
-        max_retries := MaxRetries,
-        request_ttl := RequestTTL
+        max_retries := MaxRetries
     } = State,
+    #{request_ttl := RequestTTL} = ReqOpts,
     ?tp(
         gcp_pubsub_bridge_do_send_requests,
         #{
-            request => {prepared_request, {Method, Path, Body}},
+            request => {prepared_request, {Method, Path, Body}, ReqOpts},
             query_mode => sync,
             resource_id => PoolName
         }
@@ -306,20 +304,18 @@ do_send_requests_sync(State, {prepared_request, {Method, Path, Body}}) ->
 
 -spec do_send_requests_async(
     state(),
-    {prepared_request, prepared_request()},
+    {prepared_request, prepared_request(), request_opts()},
     {ReplyFun :: function(), Args :: list()}
 ) -> {ok, pid()} | {error, no_pool_worker_available}.
 do_send_requests_async(
-    State, {prepared_request, {Method, Path, Body}}, ReplyFunAndArgs
+    State, {prepared_request, {Method, Path, Body}, ReqOpts}, ReplyFunAndArgs
 ) ->
-    #{
-        pool_name := PoolName,
-        request_ttl := RequestTTL
-    } = State,
+    #{pool_name := PoolName} = State,
+    #{request_ttl := RequestTTL} = ReqOpts,
     ?tp(
         gcp_pubsub_bridge_do_send_requests,
         #{
-            request => {prepared_request, {Method, Path, Body}},
+            request => {prepared_request, {Method, Path, Body}, ReqOpts},
             query_mode => async,
             resource_id => PoolName
         }
