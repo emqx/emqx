@@ -43,7 +43,7 @@ on:
 
 jobs:
   linux:
-    runs-on: ${{ github.repository_owner == 'emqx' && fromJSON(format('["self-hosted","ephemeral","linux",{0}]'), ${{ matrix.profile[3] }}) || 'ubuntu-22.04' }}
+    runs-on: ${{ github.repository_owner == 'emqx' && fromJSON(format('["self-hosted","ephemeral","linux",{0}]', matrix.profile[3])) || 'ubuntu-22.04' }}
     env:
       EMQX_NAME: ${{ matrix.profile[0] }}
 
