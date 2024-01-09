@@ -99,8 +99,8 @@
 %% String might contain zero or more of placeholders in the form of `${var}`,
 %% where `var` is a _location_ (possibly deeply nested) of some value in the
 %% bindings map.
-%% String might contain special escaped form `$${...}` which interpreted as a
-%% literal `${...}`.
+%% String might contain special escaped form `${$}` which interpreted as a
+%% literal `$`.
 -spec parse(String :: unicode:chardata()) ->
     t().
 parse(String) ->
