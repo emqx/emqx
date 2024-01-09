@@ -289,13 +289,6 @@ t_handle_in_puback_id_not_found(_) ->
 % ?assertEqual(#{puback_in => 1}, emqx_channel:info(pub_stats, Channel)).
 
 t_bad_receive_maximum(_) ->
-    ok = meck:expect(
-        emqx_cm,
-        open_session,
-        fun(true, _ClientInfo, _ConnInfo) ->
-            {ok, #{session => session(), present => false}}
-        end
-    ),
     emqx_config:put_zone_conf(default, [mqtt, response_information], test),
     C1 = channel(#{conn_state => idle}),
     {shutdown, protocol_error, _, _} =
@@ -305,13 +298,6 @@ t_bad_receive_maximum(_) ->
         ).
 
 t_override_client_receive_maximum(_) ->
-    ok = meck:expect(
-        emqx_cm,
-        open_session,
-        fun(true, _ClientInfo, _ConnInfo) ->
-            {ok, #{session => session(), present => false}}
-        end
-    ),
     emqx_config:put_zone_conf(default, [mqtt, response_information], test),
     emqx_config:put_zone_conf(default, [mqtt, max_inflight], 0),
     C1 = channel(#{conn_state => idle}),
@@ -491,13 +477,6 @@ t_handle_in_expected_packet(_) ->
         emqx_channel:handle_in(packet, channel()).
 
 t_process_connect(_) ->
-    ok = meck:expect(
-        emqx_cm,
-        open_session,
-        fun(true, _ClientInfo, _ConnInfo) ->
-            {ok, #{session => session(), present => false}}
-        end
-    ),
     {ok, [{event, connected}, {connack, ?CONNACK_PACKET(?RC_SUCCESS)}], _Chan} =
         emqx_channel:process_connect(#{}, channel(#{conn_state => idle})).
 
@@ -634,13 +613,6 @@ t_handle_out_connack_sucess(_) ->
     ?assertEqual(connected, emqx_channel:info(conn_state, Channel)).
 
 t_handle_out_connack_response_information(_) ->
-    ok = meck:expect(
-        emqx_cm,
-        open_session,
-        fun(true, _ClientInfo, _ConnInfo) ->
-            {ok, #{session => session(), present => false}}
-        end
-    ),
     emqx_config:put_zone_conf(default, [mqtt, response_information], test),
     IdleChannel = channel(#{conn_state => idle}),
     {ok,
@@ -654,13 +626,6 @@ t_handle_out_connack_response_information(_) ->
     ).
 
 t_handle_out_connack_not_response_information(_) ->
-    ok = meck:expect(
-        emqx_cm,
-        open_session,
-        fun(true, _ClientInfo, _ConnInfo) ->
-            {ok, #{session => session(), present => false}}
-        end
-    ),
     emqx_config:put_zone_conf(default, [mqtt, response_information], test),
     IdleChannel = channel(#{conn_state => idle}),
     {ok, [{event, connected}, {connack, ?CONNACK_PACKET(?RC_SUCCESS, 0, AckProps)}], _} =
@@ -1047,13 +1012,6 @@ t_ws_cookie_init(_) ->
 t_flapping_detect(_) ->
     emqx_config:put_zone_conf(default, [flapping_detect, window_time], 60000),
     Parent = self(),
-    ok = meck:expect(
-        emqx_cm,
-        open_session,
-        fun(true, _ClientInfo, _ConnInfo) ->
-            {ok, #{session => session(), present => false}}
-        end
-    ),
     ok = meck:expect(emqx_flapping, detect, fun(_) -> Parent ! flapping_detect end),
     IdleChannel = channel(
         clientinfo(#{
