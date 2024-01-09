@@ -51,6 +51,7 @@ groups() ->
         t_write_timeout,
         t_uninitialized_prepared_statement,
         t_non_batch_update_is_allowed,
+        t_delete_with_undefined_field_in_sql,
         t_undefined_field_in_sql
     ],
     OnlyBatchCases = [
@@ -983,6 +984,33 @@ t_undefined_field_in_sql(Config) ->
                     [{capture, none}]
                 ),
                 #{body => BodyRaw}
+            ),
+            ok
+        end,
+        []
+    ),
+    ok.
+
+t_delete_with_undefined_field_in_sql(Config) ->
+    ?check_trace(
+        begin
+            Name = ?config(bridge_name, Config),
+            Type = ?config(bridge_type, Config),
+            Overrides = #{
+                <<"sql">> =>
+                    <<
+                        "INSERT INTO mqtt_test(wrong_column, arrived) "
+                        "VALUES (${payload}, FROM_UNIXTIME(${timestamp}/1000))"
+                    >>
+            },
+            ?assertMatch(
+                {ok, {{_, 201, _}, _, #{<<"status">> := Status}}} when
+                    Status =:= <<"connecting">> orelse Status =:= <<"disconnected">>,
+                emqx_bridge_testlib:create_bridge_api(Config, Overrides)
+            ),
+            ?assertMatch(
+                {ok, {{_, 204, _}, _, _}},
+                emqx_bridge_testlib:delete_bridge_http_api_v1(#{type => Type, name => Name})
             ),
             ok
         end,

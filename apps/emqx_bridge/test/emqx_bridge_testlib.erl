@@ -184,6 +184,15 @@ update_bridge_api(Config, Overrides) ->
     ct:pal("bridge update result: ~p", [Res]),
     Res.
 
+delete_bridge_http_api_v1(Opts) ->
+    #{type := Type, name := Name} = Opts,
+    BridgeId = emqx_bridge_resource:bridge_id(Type, Name),
+    Path = emqx_mgmt_api_test_util:api_path(["bridges", BridgeId]),
+    ct:pal("deleting bridge (http v1)"),
+    Res = emqx_bridge_v2_testlib:request(delete, Path, _Params = []),
+    ct:pal("bridge delete (http v1) result:\n  ~p", [Res]),
+    Res.
+
 op_bridge_api(Op, BridgeType, BridgeName) ->
     BridgeId = emqx_bridge_resource:bridge_id(BridgeType, BridgeName),
     Path = emqx_mgmt_api_test_util:api_path(["bridges", BridgeId, Op]),
