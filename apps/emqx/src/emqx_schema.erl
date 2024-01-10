@@ -1413,12 +1413,14 @@ fields("broker_routing") ->
     ];
 fields("broker_routing_batch_sync") ->
     [
-        {"enable",
+        {"enable_on",
             sc(
-                boolean(),
+                hoconsc:enum([none, core, replicant, all]),
                 #{
-                    default => false,
-                    desc => ?DESC(broker_routing_batch_sync_enabled)
+                    %% TODO
+                    %% Make `replicant` the default value after initial release.
+                    default => none,
+                    desc => ?DESC(broker_routing_batch_sync_enable_on)
                 }
             )}
     ];

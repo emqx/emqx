@@ -604,21 +604,35 @@ do_dispatch({shard, I}, Topic, Msg) ->
 %%
 
 maybe_add_route(_Existed = false, Topic, ReplyTo) ->
-    add_route(emqx_config:get([broker, routing, batch_sync, enable]), Topic, ReplyTo);
+    sync_route(add, Topic, #{reply => ReplyTo});
 maybe_add_route(_Existed = true, _Topic, _ReplyTo) ->
     ok.
 
-add_route(_BatchSync = true, Topic, ReplyTo) ->
-    emqx_router_syncer:push(add, Topic, node(), #{reply => ReplyTo});
-add_route(_BatchSync = false, Topic, _ReplyTo) ->
-    emqx_router:do_add_route(Topic, node()).
-
 maybe_delete_route(_Exists = false, Topic) ->
-    delete_route(emqx_config:get([broker, routing, batch_sync, enable]), Topic);
+    sync_route(delete, Topic, #{});
 maybe_delete_route(_Exists = true, _Topic) ->
     ok.
 
-delete_route(_BatchSync = true, Topic) ->
-    emqx_router_syncer:push(delete, Topic, node(), #{});
-delete_route(_BatchSync = false, Topic) ->
+sync_route(Action, Topic, ReplyTo) ->
+    EnabledOn = emqx_config:get([broker, routing, batch_sync, enable_on]),
+    case EnabledOn of
+        all ->
+            push_sync_route(Action, Topic, ReplyTo);
+        none ->
+            regular_sync_route(Action, Topic);
+        Role ->
+            case mria_config:whoami() of
+                Role ->
+                    push_sync_route(Action, Topic, ReplyTo);
+                _Disabled ->
+                    regular_sync_route(Action, Topic)
+            end
+    end.
+
+push_sync_route(Action, Topic, Opts) ->
+    emqx_router_syncer:push(Action, Topic, node(), Opts).
+
+regular_sync_route(add, Topic) ->
+    emqx_router:do_add_route(Topic, node());
+regular_sync_route(delete, Topic) ->
     emqx_router:do_delete_route(Topic, node()).

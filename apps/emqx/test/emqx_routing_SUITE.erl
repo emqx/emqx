@@ -36,6 +36,7 @@ all() ->
 groups() ->
     GroupVsn = [
         {group, batch_sync_on},
+        {group, batch_sync_replicants},
         {group, batch_sync_off}
     ],
     GroupBase = [
@@ -50,6 +51,7 @@ groups() ->
         {routing_schema_v1, [], GroupVsn},
         {routing_schema_v2, [], GroupVsn},
         {batch_sync_on, [], GroupBase},
+        {batch_sync_replicants, [], GroupBase},
         {batch_sync_off, [], GroupBase},
         {cluster, [], ClusterTCs}
     ].
@@ -59,9 +61,11 @@ init_per_group(routing_schema_v1, Config) ->
 init_per_group(routing_schema_v2, Config) ->
     [{emqx_config, "broker.routing.storage_schema = v2"} | Config];
 init_per_group(batch_sync_on, Config) ->
-    [{emqx_config, "broker.routing.batch_sync.enable = true"} | Config];
+    [{emqx_config, "broker.routing.batch_sync.enable_on = all"} | Config];
+init_per_group(batch_sync_replicants, Config) ->
+    [{emqx_config, "broker.routing.batch_sync.enable_on = replicant"} | Config];
 init_per_group(batch_sync_off, Config) ->
-    [{emqx_config, "broker.routing.batch_sync.enable = false"} | Config];
+    [{emqx_config, "broker.routing.batch_sync.enable_on = none"} | Config];
 init_per_group(cluster, Config) ->
     WorkDir = emqx_cth_suite:work_dir(Config),
     NodeSpecs = [
