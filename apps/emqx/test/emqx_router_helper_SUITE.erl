@@ -35,16 +35,32 @@ all() ->
 groups() ->
     TCs = emqx_common_test_helpers:all(?MODULE),
     [
-        {routing_schema_v1, [], TCs},
-        {routing_schema_v2, [], TCs}
+        {routing_schema_v1, [], [
+            {mria_match_delete, [], TCs},
+            {fallback, [], TCs}
+        ]},
+        {routing_schema_v2, [], [
+            {mria_match_delete, [], TCs},
+            {fallback, [], TCs}
+        ]}
     ].
 
+init_per_group(fallback, Config) ->
+    ok = mock_mria_match_delete(),
+    Config;
+init_per_group(mria_match_delete, Config) ->
+    Config;
 init_per_group(GroupName, Config) ->
     WorkDir = filename:join([?config(priv_dir, Config), ?MODULE, GroupName]),
     AppSpecs = [{emqx, mk_config(GroupName)}],
     Apps = emqx_cth_suite:start(AppSpecs, #{work_dir => WorkDir}),
     [{group_name, GroupName}, {group_apps, Apps} | Config].
 
+end_per_group(fallback, _Config) ->
+    unmock_mria_match_delete(),
+    ok;
+end_per_group(mria_match_delete, _Config) ->
+    ok;
 end_per_group(_GroupName, Config) ->
     ok = emqx_cth_suite:stop(?config(group_apps, Config)).
 
@@ -58,6 +74,13 @@ mk_config(routing_schema_v2) ->
         config => "broker.routing.storage_schema = v2",
         override_env => [{boot_modules, [broker]}]
     }.
+
+mock_mria_match_delete() ->
+    ok = meck:new(mria, [no_link, passthrough]),
+    ok = meck:expect(mria, match_delete, fun(_, _) -> {error, unsupported_otp_version} end).
+
+unmock_mria_match_delete() ->
+    ok = meck:unload(mria).
 
 init_per_testcase(_TestCase, Config) ->
     ok = snabbkaffe:start_trace(),
