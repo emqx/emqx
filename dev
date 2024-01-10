@@ -398,12 +398,22 @@ boot() {
         else
             EPMD_ARGS_ELIXIR="-no_op true"
         fi
+        local OTP_VSN USER_MOD_ARG
+        OTP_VSN=$(./scripts/get-otp-vsn.sh)
+        case "$OTP_VSN" in
+          25*)
+            USER_MOD_ARG='-user Elixir.IEx.CLI'
+            ;;
+          *)
+            USER_MOD_ARG='-user elixir'
+            ;;
+        esac
 
         # shellcheck disable=SC2086
         env APPS="$APPS" iex \
           -$ERL_NAME_ARG "$EMQX_NODE_NAME" \
           --erl "$EPMD_ARGS_ELIXIR" \
-          --erl '-user Elixir.IEx.CLI' \
+          --erl "$USER_MOD_ARG" \
           --erl '-proto_dist ekka' \
           --vm-args "$ARGS_FILE" \
           --erl-config "$CONF_FILE" \
