@@ -101,8 +101,11 @@ fields(Field) when
     Field == "post";
     Field == "put"
 ->
+    Fields =
+        fields("connection_fields") ++
+            emqx_connector_schema:resource_opts_ref(?MODULE, connector_resource_opts),
     emqx_connector_schema:api_fields(
-        Field ++ "_connector", ?CONNECTOR_TYPE, fields("connection_fields")
+        Field ++ "_connector", ?CONNECTOR_TYPE, Fields
     ).
 
 desc(config) ->

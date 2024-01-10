@@ -116,7 +116,7 @@ fields("parameters") ->
             )},
         {target_qos,
             mk(
-                range(1, 2),
+                range(0, 2),
                 #{desc => ?DESC("target_qos"), required => false}
             )},
         {template,
