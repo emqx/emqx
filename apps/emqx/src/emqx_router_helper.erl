@@ -55,7 +55,7 @@
 
 -record(routing_node, {name, const = unused}).
 
--define(LOCK, {?MODULE, cleanup_routes}).
+-define(LOCK(NODE), {?MODULE, cleanup_routes, NODE}).
 
 -dialyzer({nowarn_function, [cleanup_routes/1]}).
 
@@ -101,6 +101,12 @@ monitor(Node) when is_atom(Node) ->
 
 init([]) ->
     process_flag(trap_exit, true),
+    %% Make sure no other node can do late routes cleanup when this node is up.
+    true = global:set_lock({?LOCK(node()), self()}),
+    %% Cleaning routes makes sense here if this node is being restarted
+    %% and somehow manages to win the lock first, disallowing other nodes
+    %% to cleanup its old routes when they detected it was down.
+    _ = cleanup_routes(node()),
     ok = ekka:monitor(membership),
     _ = mria:wait_for_tables([?ROUTING_NODE]),
     {ok, _} = mnesia:subscribe({table, ?ROUTING_NODE, simple}),
@@ -148,12 +154,17 @@ handle_info({mnesia_table_event, Event}, State) ->
 handle_info({nodedown, Node}, State = #{nodes := Nodes}) ->
     case mria_rlog:role() of
         core ->
-            % TODO
-            % Node may flap, do we need to wait for any pending cleanups in `init/1`
-            % on the flapping node?
             global:trans(
-                {?LOCK, self()},
-                fun() -> cleanup_routes(Node) end
+                {?LOCK(Node), self()},
+                fun() -> cleanup_routes(Node) end,
+                %% Need to acquire the lock on replicants too,
+                %% since replicants participate in locking (see init/1).
+                [node() | nodes()],
+                %% It's important to do limited retries (not infinity).
+                %% Otherwise, if a down node comes back in a short time
+                %% and wins the lock in init/1,
+                %% emqx_route_helepr on another node can desparetly retry it indefinitely.
+                1
             ),
             ok = mria:dirty_delete(?ROUTING_NODE, Node);
         replicant ->

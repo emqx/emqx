@@ -54,7 +54,8 @@ init_per_group(GroupName, Config) ->
     WorkDir = filename:join([?config(priv_dir, Config), ?MODULE, GroupName]),
     AppSpecs = [{emqx, mk_config(GroupName)}],
     Apps = emqx_cth_suite:start(AppSpecs, #{work_dir => WorkDir}),
-    [{group_name, GroupName}, {group_apps, Apps} | Config].
+    Config1 = [{group_name, GroupName}, {group_apps, Apps} | Config],
+    init_cluster(Config1).
 
 end_per_group(fallback, _Config) ->
     unmock_mria_match_delete(),
@@ -62,7 +63,8 @@ end_per_group(fallback, _Config) ->
 end_per_group(mria_match_delete, _Config) ->
     ok;
 end_per_group(_GroupName, Config) ->
-    ok = emqx_cth_suite:stop(?config(group_apps, Config)).
+    ok = emqx_cth_suite:stop(?config(group_apps, Config)),
+    ok = emqx_cth_cluster:stop(?config(cluster, Config)).
 
 mk_config(routing_schema_v1) ->
     #{
@@ -75,6 +77,19 @@ mk_config(routing_schema_v2) ->
         override_env => [{boot_modules, [broker]}]
     }.
 
+init_cluster(Config) ->
+    GroupName = ?config(group_name, Config),
+    WorkDir = filename:join([?config(priv_dir, Config), ?MODULE, GroupName]),
+    AppSpecs = [{emqx, mk_config(GroupName)}],
+    NodeSpecs = [
+        {emqx_router_helper_SUITE1, #{apps => AppSpecs, role => core}},
+        {emqx_router_helper_SUITE2, #{apps => AppSpecs, role => core}},
+        {emqx_router_helper_SUITE3, #{apps => AppSpecs, role => replicant}}
+    ],
+    NodeSpecs1 = emqx_cth_cluster:mk_nodespecs(NodeSpecs, #{work_dir => WorkDir}),
+    Nodes = emqx_cth_cluster:start(NodeSpecs1),
+    [{cluster, Nodes}, {node_specs, NodeSpecs1} | Config].
+
 mock_mria_match_delete() ->
     ok = meck:new(mria, [no_link, passthrough]),
     ok = meck:expect(mria, match_delete, fun(_, _) -> {error, unsupported_otp_version} end).
@@ -82,13 +97,13 @@ mock_mria_match_delete() ->
 unmock_mria_match_delete() ->
     ok = meck:unload(mria).
 
-init_per_testcase(_TestCase, Config) ->
+init_per_testcase(TestCase, Config) ->
     ok = snabbkaffe:start_trace(),
-    Config.
+    emqx_common_test_helpers:init_per_testcase(?MODULE, TestCase, Config).
 
-end_per_testcase(_TestCase, _Config) ->
+end_per_testcase(TestCase, Config) ->
     ok = snabbkaffe:stop(),
-    ok.
+    emqx_common_test_helpers:end_per_testcase(?MODULE, TestCase, Config).
 
 t_monitor(_) ->
     ok = emqx_router_helper:monitor({undefined, node()}),
@@ -103,37 +118,37 @@ t_mnesia(_) ->
     ct:sleep(200).
 
 t_cleanup_membership_mnesia_down(_Config) ->
-    Slave = emqx_cth_cluster:node_name(node2),
-    emqx_router:add_route(<<"a/b/c">>, Slave),
+    Peer = emqx_cth_cluster:node_name(node2),
+    emqx_router:add_route(<<"a/b/c">>, Peer),
     emqx_router:add_route(<<"d/e/f">>, node()),
     ?assertMatch([_, _], emqx_router:topics()),
-    ?wait_async_action(
-        ?ROUTER_HELPER ! {membership, {mnesia, down, Slave}},
-        #{?snk_kind := emqx_router_helper_cleanup_done, node := Slave},
+    {_, {ok, _}} = ?wait_async_action(
+        ?ROUTER_HELPER ! {membership, {mnesia, down, Peer}},
+        #{?snk_kind := emqx_router_helper_cleanup_done, node := Peer},
         1_000
     ),
     ?assertEqual([<<"d/e/f">>], emqx_router:topics()).
 
 t_cleanup_membership_node_down(_Config) ->
-    Slave = emqx_cth_cluster:node_name(node3),
-    emqx_router:add_route(<<"a/b/c">>, Slave),
+    Peer = emqx_cth_cluster:node_name(node3),
+    emqx_router:add_route(<<"a/b/c">>, Peer),
     emqx_router:add_route(<<"d/e/f">>, node()),
     ?assertMatch([_, _], emqx_router:topics()),
-    ?wait_async_action(
-        ?ROUTER_HELPER ! {membership, {node, down, Slave}},
-        #{?snk_kind := emqx_router_helper_cleanup_done, node := Slave},
+    {_, {ok, _}} = ?wait_async_action(
+        ?ROUTER_HELPER ! {membership, {node, down, Peer}},
+        #{?snk_kind := emqx_router_helper_cleanup_done, node := Peer},
         1_000
     ),
     ?assertEqual([<<"d/e/f">>], emqx_router:topics()).
 
 t_cleanup_monitor_node_down(_Config) ->
-    [Slave] = emqx_cth_cluster:start_bare_nodes([node4]),
-    emqx_router:add_route(<<"a/b/c">>, Slave),
+    [Peer] = emqx_cth_cluster:start_bare_nodes([node4]),
+    emqx_router:add_route(<<"a/b/c">>, Peer),
     emqx_router:add_route(<<"d/e/f">>, node()),
     ?assertMatch([_, _], emqx_router:topics()),
-    ?wait_async_action(
-        emqx_cth_cluster:stop([Slave]),
-        #{?snk_kind := emqx_router_helper_cleanup_done, node := Slave},
+    {_, {ok, _}} = ?wait_async_action(
+        emqx_cth_cluster:stop([Peer]),
+        #{?snk_kind := emqx_router_helper_cleanup_done, node := Peer},
         1_000
     ),
     ?assertEqual([<<"d/e/f">>], emqx_router:topics()).
@@ -142,3 +157,86 @@ t_message(_) ->
     ?ROUTER_HELPER ! testing,
     gen_server:cast(?ROUTER_HELPER, testing),
     gen_server:call(?ROUTER_HELPER, testing).
+
+t_cleanup_routes_race(init, Config) ->
+    [Core1, Core2, _Repl] = ?config(cluster, Config),
+    lists:foreach(
+        fun(N) -> mock_router_helper(N, 4000) end,
+        [Core1, Core2]
+    ),
+    Config;
+t_cleanup_routes_race('end', Config) ->
+    [Core1, Core2, _Repl] = ?config(cluster, Config),
+    lists:foreach(
+        fun unmock_router_helper/1,
+        [Core1, Core2]
+    ).
+
+t_cleanup_routes_race(Config) ->
+    ?check_trace(
+        begin
+            [Core1, Core2, Replicant] = Nodes = ?config(cluster, Config),
+            [_, _, ReplSpec] = ?config(node_specs, Config),
+            Topic = <<"t/test/must_be_cleaned/", (binary:encode_hex(rand:bytes(8)))/binary>>,
+            Topic1 = <<"t/testmust_NOT_be_cleaned/", (binary:encode_hex(rand:bytes(8)))/binary>>,
+            ok = rpc:call(Replicant, emqx_router, do_add_route, [Topic]),
+            wait_for_route(Replicant, Topic, Replicant),
+            {ok, SubRef} = snabbkaffe:subscribe(
+                ?match_event(#{?snk_kind := emqx_router_helper_cleanup_done}),
+                %% Wait for 2 core nodes.
+                _NEvents = 2,
+                _Timeout = infinity
+            ),
+
+            emqx_cth_cluster:restart(Replicant, ReplSpec),
+            ok = rpc:call(Replicant, emqx_router, do_add_route, [Topic1]),
+
+            %% wait for Mria route replication,
+            %% cannot poll has_route, because late cleanup may wipe it away
+            %% if the test is about to fail due to a race
+            timer:sleep(1000),
+            ?assertMatch({ok, _}, snabbkaffe:receive_events(SubRef)),
+
+            ExpectedRoutes = [
+                {Core1, false, true},
+                {Core2, false, true},
+                {Replicant, false, true}
+            ],
+            Routes = [
+                {N, rpc:call(N, emqx_router, has_route, [Topic, Replicant]),
+                    rpc:call(N, emqx_router, has_route, [Topic1, Replicant])}
+             || N <- Nodes
+            ],
+            ?assertEqual(ExpectedRoutes, Routes)
+        end,
+        []
+    ).
+
+mock_router_helper(Node, Delay) ->
+    ok = rpc:call(
+        Node,
+        meck,
+        new,
+        [emqx_router_helper, [no_link, no_history, unstick, passthrough]]
+    ),
+    MockFun = fun
+        ({nodedown, DownNode}, State) ->
+            timer:sleep(Delay),
+            meck:passthrough([{nodedown, DownNode}, State]);
+        (Msg, State) ->
+            meck:passthrough([Msg, State])
+    end,
+    ok = rpc:call(Node, meck, expect, [emqx_router_helper, handle_info, MockFun]).
+
+unmock_router_helper(Node) ->
+    rpc:call(Node, meck, unload, [emqx_router_helper]).
+
+wait_for_route(Node, Topic, Dest) ->
+    emqx_common_test_helpers:wait_for(
+        ?FUNCTION_NAME,
+        ?LINE,
+        fun() ->
+            rpc:call(Node, emqx_router, has_route, [Topic, Dest])
+        end,
+        2_000
+    ).
