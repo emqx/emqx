@@ -70,7 +70,8 @@ t_api(_) ->
         <<"cache">> => #{
             <<"enable">> => false,
             <<"max_size">> => 32,
-            <<"ttl">> => <<"60s">>
+            <<"ttl">> => <<"60s">>,
+            <<"excludes">> => [<<"nocache/#">>]
         }
     },
 
@@ -90,7 +91,9 @@ t_api(_) ->
 
     {ok, 200, Result2} = request(put, uri(["authorization", "settings"]), Settings2),
     {ok, 200, Result2} = request(get, uri(["authorization", "settings"]), []),
-    ?assertEqual(Settings2, emqx_utils_json:decode(Result2)),
+    Cache = maps:get(<<"cache">>, Settings2),
+    ExpectedSettings2 = Settings2#{<<"cache">> => Cache#{<<"excludes">> => []}},
+    ?assertEqual(ExpectedSettings2, emqx_utils_json:decode(Result2)),
 
     ok.
 

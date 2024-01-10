@@ -2317,7 +2317,7 @@ shutdown(Reason, Reply, Packet, Channel) ->
     {shutdown, Reason, Reply, Packet, Channel}.
 
 %% process exits with {shutdown, #{shutdown_count := Kind}} will trigger
-%% make the connection supervisor (esockd) keep a shutdown-counter groupd by Kind
+%% the connection supervisor (esockd) to keep a shutdown-counter grouped by Kind
 shutdown_count(Kind, Reason) when is_map(Reason) ->
     Reason#{shutdown_count => Kind};
 shutdown_count(Kind, Reason) ->

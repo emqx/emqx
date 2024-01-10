@@ -18,6 +18,7 @@
 -compile(nowarn_export_all).
 
 -include_lib("eunit/include/eunit.hrl").
+-include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
 all() ->
     emqx_common_test_helpers:all(?MODULE).
@@ -86,8 +87,11 @@ t_clients(_) ->
             timeout
         end,
     ?assertEqual(ok, Kick),
-    AfterKickoutResponse2 = emqx_mgmt_api_test_util:request_api(get, Client2Path),
-    ?assertEqual({error, {"HTTP/1.1", 404, "Not Found"}}, AfterKickoutResponse2),
+    %% Client info is cleared after DOWN event
+    ?retry(_Interval = 100, _Attempts = 5, begin
+        AfterKickoutResponse2 = emqx_mgmt_api_test_util:request_api(get, Client2Path),
+        ?assertEqual(AfterKickoutResponse2, {error, {"HTTP/1.1", 404, "Not Found"}})
+    end),
 
     %% get /clients/:clientid/authorization/cache should have no authz cache
     Client1AuthzCachePath = emqx_mgmt_api_test_util:api_path([

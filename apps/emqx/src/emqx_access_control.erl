@@ -102,7 +102,7 @@ authorize(ClientInfo, Action, <<"$delayed/", Data/binary>> = RawTopic) ->
     end;
 authorize(ClientInfo, Action, Topic) ->
     Result =
-        case emqx_authz_cache:is_enabled() of
+        case emqx_authz_cache:is_enabled(Topic) of
             true -> check_authorization_cache(ClientInfo, Action, Topic);
             false -> do_authorize(ClientInfo, Action, Topic)
         end,
