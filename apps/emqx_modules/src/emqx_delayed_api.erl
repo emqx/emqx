@@ -27,7 +27,8 @@
 -export([
     status/2,
     delayed_messages/2,
-    delayed_message/2
+    delayed_message/2,
+    delayed_message_topic/2
 ]).
 
 -export([
@@ -51,6 +52,9 @@
 -define(MESSAGE_ID_SCHEMA_ERROR, 'MESSAGE_ID_SCHEMA_ERROR').
 -define(INVALID_NODE, 'INVALID_NODE').
 
+-define(INVALID_TOPIC, 'INVALID_TOPIC_NAME').
+-define(MESSAGE_NOT_FOUND, 'MESSAGE_NOT_FOUND').
+
 api_spec() ->
     emqx_dashboard_swagger:spec(?MODULE, #{check_schema => true}).
 
@@ -58,6 +62,7 @@ paths() ->
     [
         "/mqtt/delayed",
         "/mqtt/delayed/messages",
+        "/mqtt/delayed/messages/:topic",
         "/mqtt/delayed/messages/:node/:msgid"
     ].
 
@@ -83,6 +88,32 @@ schema("/mqtt/delayed") ->
                 400 => emqx_dashboard_swagger:error_codes(
                     [?BAD_REQUEST],
                     ?DESC(illegality_limit)
+                )
+            }
+        }
+    };
+schema("/mqtt/delayed/messages/:topic") ->
+    #{
+        'operationId' => delayed_message_topic,
+        delete => #{
+            tags => ?API_TAG_MQTT,
+            description => ?DESC(delete_api),
+            parameters => [
+                {topic,
+                    mk(
+                        binary(),
+                        #{in => path, desc => ?DESC(topic)}
+                    )}
+            ],
+            responses => #{
+                204 => <<"Delete delayed message success">>,
+                400 => emqx_dashboard_swagger:error_codes(
+                    [?INVALID_TOPIC],
+                    ?DESC(bad_topic_name)
+                ),
+                404 => emqx_dashboard_swagger:error_codes(
+                    [?MESSAGE_NOT_FOUND],
+                    ?DESC(no_delayed_message)
                 )
             }
         }
@@ -223,6 +254,19 @@ delayed_message(delete, #{bindings := #{node := NodeBin, msgid := HexId}}) ->
         end
     ).
 
+delayed_message_topic(delete, #{bindings := #{topic := Topic}}) ->
+    MaybeTopic = make_maybe(Topic, invalid_topic_name, fun validate_topic_name/1),
+    with_maybe(
+        [MaybeTopic],
+        fun(TopicName) ->
+            case emqx_delayed:delete_delayed_messages_by_topic_name(TopicName) of
+                ok ->
+                    {204};
+                {error, not_found} ->
+                    {404, generate_http_code_map(message_not_found, TopicName)}
+            end
+        end
+    ).
 %%--------------------------------------------------------------------
 %% internal function
 %%--------------------------------------------------------------------
@@ -279,6 +323,12 @@ generate_http_code_map(not_found, Id) ->
         message =>
             iolist_to_binary(io_lib:format("Message ID ~s not found", [Id]))
     };
+generate_http_code_map(message_not_found, Topic) ->
+    #{
+        code => ?MESSAGE_NOT_FOUND,
+        message =>
+            iolist_to_binary(io_lib:format("Not found messages for ~s", [Topic]))
+    };
 generate_http_code_map(invalid_node, Node) ->
     #{
         code => ?INVALID_NODE,
@@ -293,6 +343,14 @@ make_maybe(X, Error, Fun) ->
     catch
         _:_ ->
             {left, X, Error}
+    end.
+
+validate_topic_name(Topic) ->
+    case emqx_topic:wildcard(Topic) of
+        true ->
+            error(badarg);
+        false ->
+            Topic
     end.
 
 with_maybe(Maybes, Cont) ->

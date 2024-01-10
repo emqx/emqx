@@ -58,6 +58,7 @@
     get_delayed_message/2,
     delete_delayed_message/1,
     delete_delayed_message/2,
+    delete_delayed_messages_by_topic_name/1,
     clear_all/0,
     %% rpc target
     clear_all_local/0,
@@ -95,6 +96,13 @@
 %% sync ms with record change
 -define(QUERY_MS(Id), [{{delayed_message, {'_', Id}, '_', '_'}, [], ['$_']}]).
 -define(DELETE_MS(Id), [{{delayed_message, {'$1', Id}, '_', '_'}, [], ['$1']}]).
+-define(DELETE_BY_TOPIC_MS(Topic), [
+    {
+        {delayed_message, '$1', '_', {message, '_', '_', '_', '_', '_', Topic, '_', '_', '_'}},
+        [],
+        ['$1']
+    }
+]).
 
 -define(TAB, ?MODULE).
 -define(SERVER, ?MODULE).
@@ -266,6 +274,15 @@ delete_delayed_message(Node, Id) when Node =:= node() ->
     delete_delayed_message(Id);
 delete_delayed_message(Node, Id) ->
     emqx_delayed_proto_v2:delete_delayed_message(Node, Id).
+
+-spec delete_delayed_messages_by_topic_name(binary()) -> with_id_return().
+delete_delayed_messages_by_topic_name(TopicName) when is_binary(TopicName) ->
+    case ets:select(?TAB, ?DELETE_BY_TOPIC_MS(TopicName)) of
+        [] ->
+            {error, not_found};
+        Rows ->
+            lists:foreach(fun(Key) -> mria:dirty_delete(?TAB, Key) end, Rows)
+    end.
 
 -spec clear_all() -> ok.
 clear_all() ->
