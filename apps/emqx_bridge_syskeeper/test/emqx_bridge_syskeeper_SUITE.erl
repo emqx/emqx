@@ -38,7 +38,8 @@ groups() ->
         t_setup_proxy_via_http_api,
         t_setup_forwarder_via_config,
         t_setup_forwarder_via_http_api,
-        t_get_status
+        t_get_status,
+        t_list_v1_bridges_forwarder
     ],
     Write = TCs -- Lifecycle,
     BatchingGroups = [{group, with_batch}, {group, without_batch}],
@@ -69,17 +70,19 @@ init_per_suite(Config) ->
         [
             emqx_conf,
             emqx_connector,
+            emqx_bridge_syskeeper,
             emqx_bridge,
-            emqx_bridge_syskeeper
+            emqx_rule_engine,
+            emqx_management,
+            {emqx_dashboard, "dashboard.listeners.http { enable = true, bind = 18083 }"}
         ],
         #{work_dir => emqx_cth_suite:work_dir(Config)}
     ),
-    emqx_mgmt_api_test_util:init_suite(),
+    {ok, _Api} = emqx_common_test_http:create_default_app(),
     [{apps, Apps} | Config].
 
 end_per_suite(Config) ->
     Apps = ?config(apps, Config),
-    emqx_mgmt_api_test_util:end_suite(),
     ok = emqx_cth_suite:stop(Apps),
     ok.
 
@@ -189,7 +192,7 @@ create_bridge(Type, Name, Conf) ->
 delete_bridge(Type, Name) ->
     emqx_bridge_v2:remove(Type, Name).
 
-create_both_bridge(Config) ->
+create_both_bridges(Config) ->
     {ProxyName, ProxyConf} = syskeeper_proxy_config(Config),
     {ConnectorName, ConnectorConf} = syskeeper_connector_config(Config),
     {Name, Conf} = syskeeper_config(Config),
@@ -203,7 +206,8 @@ create_both_bridge(Config) ->
         create_connectors(syskeeper_forwarder, ConnectorName, ConnectorConf)
     ),
     timer:sleep(1000),
-    ?assertMatch({ok, _}, create_bridge(syskeeper_forwarder, Name, Conf)).
+    ?assertMatch({ok, _}, create_bridge(syskeeper_forwarder, Name, Conf)),
+    Name.
 
 create_bridge_http(Params) ->
     call_create_http("actions", Params).
@@ -334,7 +338,7 @@ t_setup_forwarder_via_http_api(Config) ->
     ).
 
 t_get_status(Config) ->
-    create_both_bridge(Config),
+    create_both_bridges(Config),
     ?assertMatch(
         #{status := connected}, emqx_bridge_v2:health_check(syskeeper_forwarder, ?SYSKEEPER_NAME)
     ),
@@ -349,7 +353,7 @@ t_get_status(Config) ->
     ).
 
 t_write_failure(Config) ->
-    create_both_bridge(Config),
+    create_both_bridges(Config),
     delete_connectors(syskeeper_proxy, ?SYSKEEPER_PROXY_NAME),
     SentData = make_message(),
     Result =
@@ -361,7 +365,7 @@ t_write_failure(Config) ->
     ?assertMatch({{error, {resource_error, _}}, _}, Result).
 
 t_invalid_data(Config) ->
-    create_both_bridge(Config),
+    create_both_bridges(Config),
     {_, {ok, #{result := Result}}} =
         ?wait_async_action(
             send_message(Config, #{}),
@@ -372,7 +376,7 @@ t_invalid_data(Config) ->
 
 t_forward(Config) ->
     emqx_broker:subscribe(?TOPIC),
-    create_both_bridge(Config),
+    create_both_bridges(Config),
     SentData = make_message(),
     {_, {ok, #{result := _Result}}} =
         ?wait_async_action(
@@ -386,4 +390,44 @@ t_forward(Config) ->
         ?assertMatch({ok, _}, receive_msg())
     ),
     emqx_broker:unsubscribe(?TOPIC),
+    ok.
+
+t_list_v1_bridges_forwarder(Config) ->
+    ?check_trace(
+        begin
+            Name = create_both_bridges(Config),
+
+            ?assertMatch(
+                {ok, {{_, 200, _}, _, []}}, emqx_bridge_v2_testlib:list_bridges_http_api_v1()
+            ),
+            ?assertMatch(
+                {ok, {{_, 200, _}, _, [_]}}, emqx_bridge_v2_testlib:list_actions_http_api()
+            ),
+            ?assertMatch(
+                {ok, {{_, 200, _}, _, [_, _]}}, emqx_bridge_v2_testlib:list_connectors_http_api()
+            ),
+
+            RuleTopic = <<"t/c">>,
+            {ok, #{<<"id">> := RuleId0}} =
+                emqx_bridge_v2_testlib:create_rule_and_action_http(
+                    <<"syskeeper_forwarder">>,
+                    RuleTopic,
+                    [{bridge_name, Name} | Config],
+                    #{overrides => #{enable => true}}
+                ),
+            ?assert(emqx_bridge_v2_testlib:is_rule_enabled(RuleId0)),
+            ?assertMatch(
+                {ok, {{_, 200, _}, _, _}}, emqx_bridge_v2_testlib:enable_rule_http(RuleId0)
+            ),
+            ?assert(emqx_bridge_v2_testlib:is_rule_enabled(RuleId0)),
+
+            ?assertMatch(
+                {error, no_v1_equivalent},
+                emqx_action_info:bridge_v1_type_name(syskeeper_forwarder)
+            ),
+
+            ok
+        end,
+        []
+    ),
     ok.
