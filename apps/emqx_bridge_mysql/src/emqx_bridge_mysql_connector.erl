@@ -39,11 +39,23 @@ on_add_channel(
         ok ->
             ChannelConfig2 = maps:merge(ChannelConfig1, QueryTemplates),
             ChannelConfig = set_prepares(ChannelConfig2, ConnectorState),
-            State = State0#{
-                channels => maps:put(ChannelId, ChannelConfig, Channels),
-                connector_state => ConnectorState
-            },
-            {ok, State};
+            case maps:get(prepares, ChannelConfig) of
+                {error, {Code, ErrState, Msg}} ->
+                    Context = #{
+                        code => Code,
+                        state => ErrState,
+                        message => Msg
+                    },
+                    {error, {prepare_statement, Context}};
+                {error, undefined_table} ->
+                    {error, {unhealthy_target, <<"Undefined table">>}};
+                _ ->
+                    State = State0#{
+                        channels => maps:put(ChannelId, ChannelConfig, Channels),
+                        connector_state => ConnectorState
+                    },
+                    {ok, State}
+            end;
         {error, Error} ->
             {error, Error}
     end.
