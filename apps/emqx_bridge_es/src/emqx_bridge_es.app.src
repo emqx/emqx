@@ -1,0 +1,23 @@
+%% -*- mode: erlang -*-
+{application, emqx_bridge_es, [
+    {description, "EMQX Enterprise Elastic Search Bridge"},
+    {vsn, "0.1.0"},
+    {modules, [
+        emqx_bridge_es,
+        emqx_bridge_es_connector
+    ]},
+    {registered, []},
+    {applications, [
+        kernel,
+        stdlib,
+        emqx_resource,
+        emqx_connector
+    ]},
+    {env, []},
+    {licenses, ["Business Source License 1.1"]},
+    {maintainers, ["EMQX Team <contact@emqx.io>"]},
+    {links, [
+        {"Homepage", "https://emqx.io/"},
+        {"Github", "https://github.com/emqx/emqx"}
+    ]}
+]}.

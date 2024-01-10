@@ -50,6 +50,8 @@ resource_type(redis) ->
     emqx_bridge_redis_connector;
 resource_type(iotdb) ->
     emqx_bridge_iotdb_connector;
+resource_type(elasticsearch) ->
+    emqx_bridge_es_connector;
 resource_type(Type) ->
     error({unknown_connector_type, Type}).
 
@@ -62,6 +64,8 @@ connector_impl_module(confluent_producer) ->
     emqx_bridge_confluent_producer;
 connector_impl_module(iotdb) ->
     emqx_bridge_iotdb_connector;
+connector_impl_module(elasticsearch) ->
+    emqx_bridge_es_connector;
 connector_impl_module(_ConnectorType) ->
     undefined.
 
@@ -181,6 +185,14 @@ connector_structs() ->
                     desc => <<"IoTDB Connector Config">>,
                     required => false
                 }
+            )},
+        {elasticsearch,
+            mk(
+                hoconsc:map(name, ref(emqx_bridge_es_connector, config)),
+                #{
+                    desc => <<"Elastis Search Connector Config">>,
+                    required => false
+                }
             )}
     ].
 
@@ -199,7 +211,8 @@ schema_modules() ->
         emqx_bridge_timescale,
         emqx_postgresql_connector_schema,
         emqx_bridge_redis_schema,
-        emqx_bridge_iotdb_connector
+        emqx_bridge_iotdb_connector,
+        emqx_bridge_es_connector
     ].
 
 api_schemas(Method) ->
@@ -227,7 +240,8 @@ api_schemas(Method) ->
         api_ref(emqx_bridge_timescale, <<"timescale">>, Method ++ "_connector"),
         api_ref(emqx_postgresql_connector_schema, <<"pgsql">>, Method ++ "_connector"),
         api_ref(emqx_bridge_redis_schema, <<"redis">>, Method ++ "_connector"),
-        api_ref(emqx_bridge_iotdb_connector, <<"iotdb">>, Method)
+        api_ref(emqx_bridge_iotdb_connector, <<"iotdb">>, Method),
+        api_ref(emqx_bridge_es_connector, <<"elasticsearch">>, Method)
     ].
 
 api_ref(Module, Type, Method) ->

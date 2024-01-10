@@ -90,7 +90,7 @@ connector_example_values() ->
         enable => true,
         authentication => #{
             <<"username">> => <<"root">>,
-            <<"password">> => <<"*****">>
+            <<"password">> => <<"******">>
         },
         base_url => <<"http://iotdb.local:18080/">>,
         connect_timeout => <<"15s">>,
@@ -109,7 +109,10 @@ roots() ->
     [{config, #{type => hoconsc:ref(?MODULE, config)}}].
 
 fields(config) ->
-    proplists_without([url, headers], emqx_bridge_http_schema:fields("config_connector")) ++
+    proplists_without(
+        [url, request, retry_interval, headers],
+        emqx_bridge_http_schema:fields("config_connector")
+    ) ++
         fields("connection_fields");
 fields("connection_fields") ->
     [
@@ -206,7 +209,7 @@ on_start(InstanceId, Config) ->
             ?SLOG(error, #{
                 msg => "failed_to_start_iotdb_bridge",
                 instance_id => InstanceId,
-                base_url => maps:get(request, Config, <<>>),
+                request => maps:get(request, Config, <<>>),
                 reason => Reason
             }),
             throw(failed_to_start_iotdb_bridge)

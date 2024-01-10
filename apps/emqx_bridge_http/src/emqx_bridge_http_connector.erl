@@ -317,7 +317,7 @@ on_query(InstId, {send_message, Msg}, State) ->
 %% BridgeV2 entrypoint
 on_query(
     InstId,
-    {ActionId, Msg},
+    {ActionId, MsgAndBody},
     State = #{installed_actions := InstalledActions}
 ) when is_binary(ActionId) ->
     case {maps:get(request, State, undefined), maps:get(ActionId, InstalledActions, undefined)} of
@@ -334,10 +334,10 @@ on_query(
                 body := Body,
                 headers := Headers,
                 request_timeout := Timeout
-            } = process_request_and_action(Request, ActionState, Msg),
+            } = process_request_and_action(Request, ActionState, MsgAndBody),
             %% bridge buffer worker has retry, do not let ehttpc retry
             Retry = 2,
-            ClientId = maps:get(clientid, Msg, undefined),
+            ClientId = clientid(MsgAndBody),
             on_query(
                 InstId,
                 {ClientId, Method, {Path, Headers, Body}, Timeout, Retry},
@@ -430,7 +430,7 @@ on_query_async(InstId, {send_message, Msg}, ReplyFunAndArgs, State) ->
 %% BridgeV2 entrypoint
 on_query_async(
     InstId,
-    {ActionId, Msg},
+    {ActionId, MsgAndBody},
     ReplyFunAndArgs,
     State = #{installed_actions := InstalledActions}
 ) when is_binary(ActionId) ->
@@ -448,8 +448,8 @@ on_query_async(
                 body := Body,
                 headers := Headers,
                 request_timeout := Timeout
-            } = process_request_and_action(Request, ActionState, Msg),
-            ClientId = maps:get(clientid, Msg, undefined),
+            } = process_request_and_action(Request, ActionState, MsgAndBody),
+            ClientId = clientid(MsgAndBody),
             on_query_async(
                 InstId,
                 {ClientId, Method, {Path, Headers, Body}, Timeout},
@@ -629,12 +629,9 @@ maybe_parse_template(Key, Conf) ->
 parse_template(String) ->
     emqx_template:parse(String).
 
-process_request_and_action(Request, ActionState, Msg) ->
+process_request_and_action(Request, ActionState, {Msg, Body}) ->
     MethodTemplate = maps:get(method, ActionState),
     Method = make_method(render_template_string(MethodTemplate, Msg)),
-    BodyTemplate = maps:get(body, ActionState),
-    Body = render_request_body(BodyTemplate, Msg),
-
     PathPrefix = unicode:characters_to_list(render_template(maps:get(path, Request), Msg)),
     PathSuffix = unicode:characters_to_list(render_template(maps:get(path, ActionState), Msg)),
 
@@ -656,7 +653,11 @@ process_request_and_action(Request, ActionState, Msg) ->
         body => Body,
         headers => Headers,
         request_timeout => maps:get(request_timeout, ActionState)
-    }.
+    };
+process_request_and_action(Request, ActionState, Msg) ->
+    BodyTemplate = maps:get(body, ActionState),
+    Body = render_request_body(BodyTemplate, Msg),
+    process_request_and_action(Request, ActionState, {Msg, Body}).
 
 merge_proplist(Proplist1, Proplist2) ->
     lists:foldl(
@@ -732,7 +733,7 @@ formalize_request(_Method, BasePath, {Path, Headers}) ->
 %% because an HTTP server may handle paths like
 %% "/a/b/c/", "/a/b/c" and "/a//b/c" differently.
 %%
-%% So we try to avoid unneccessary path normalization.
+%% So we try to avoid unnecessary path normalization.
 %%
 %% See also: `join_paths_test_/0`
 join_paths(Path1, Path2) ->
@@ -875,6 +876,9 @@ redact_request({Path, Headers}) ->
     {Path, Headers};
 redact_request({Path, Headers, _Body}) ->
     {Path, Headers, <<"******">>}.
+
+clientid({Msg, _Body}) -> clientid(Msg);
+clientid(Msg) -> maps:get(clientid, Msg, undefined).
 
 -ifdef(TEST).
 -include_lib("eunit/include/eunit.hrl").
