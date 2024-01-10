@@ -246,8 +246,6 @@ mria_delete_route(v1, Topic, Dest, Ctx) ->
 
 -spec do_batch(batch()) -> #{batch_route() => _Error}.
 do_batch(Batch) ->
-    Nodes = batch_get_dest_nodes(Batch),
-    ok = lists:foreach(fun emqx_router_helper:monitor/1, ordsets:to_list(Nodes)),
     mria_batch(get_schema_vsn(), Batch).
 
 mria_batch(v2, Batch) ->
@@ -265,20 +263,6 @@ mria_batch_v1(Batch) ->
         Error ->
             Error
     end.
-
-batch_get_dest_nodes(Batch) ->
-    maps:fold(
-        fun({_Topic, Dest}, Op, Acc) ->
-            case batch_get_action(Op) of
-                add ->
-                    ordsets:add_element(get_dest_node(Dest), Acc);
-                delete ->
-                    Acc
-            end
-        end,
-        ordsets:new(),
-        Batch
-    ).
 
 batch_get_action(Op) ->
     element(1, Op).
