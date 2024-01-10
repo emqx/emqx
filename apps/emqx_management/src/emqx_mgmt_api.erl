@@ -206,14 +206,19 @@ cluster_query(Tab, QString, QSchema, MsFun, FmtFun, Options) ->
         false ->
             {error, page_limit_invalid};
         Meta ->
-            {_CodCnt, NQString} = parse_qstring(QString, QSchema),
-            Nodes = emqx:running_nodes(),
-            ResultAcc = init_query_result(),
-            QueryState = init_query_state(Tab, NQString, MsFun, Meta, Options),
-            NResultAcc = do_cluster_query(
-                Nodes, QueryState, ResultAcc
-            ),
-            format_query_result(FmtFun, Meta, NResultAcc)
+            try
+                {_CodCnt, NQString} = parse_qstring(QString, QSchema),
+                Nodes = emqx:running_nodes(),
+                ResultAcc = init_query_result(),
+                QueryState = init_query_state(Tab, NQString, MsFun, Meta, Options),
+                NResultAcc = do_cluster_query(
+                    Nodes, QueryState, ResultAcc
+                ),
+                format_query_result(FmtFun, Meta, NResultAcc)
+            catch
+                throw:{bad_value_type, {Key, ExpectedType, AcutalValue}} ->
+                    {error, invalid_query_string_param, {Key, ExpectedType, AcutalValue}}
+            end
     end.
 
 %% @private

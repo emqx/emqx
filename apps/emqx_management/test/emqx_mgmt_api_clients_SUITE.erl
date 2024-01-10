@@ -167,6 +167,23 @@ t_clients(_) ->
     AfterKickoutResponse1 = emqx_mgmt_api_test_util:request_api(get, Client1Path),
     ?assertEqual({error, {"HTTP/1.1", 404, "Not Found"}}, AfterKickoutResponse1).
 
+t_clients_bad_value_type(_) ->
+    %% get /clients
+    AuthHeader = [emqx_common_test_http:default_auth_header()],
+    ClientsPath = emqx_mgmt_api_test_util:api_path(["clients"]),
+    QsString = cow_qs:qs([{<<"ip_address">>, <<"127.0.0.1:8080">>}]),
+    {ok, 400, Resp} = emqx_mgmt_api_test_util:request_api(
+        get, ClientsPath, QsString, AuthHeader, [], #{compatible_mode => true}
+    ),
+    ?assertMatch(
+        #{
+            <<"code">> := <<"INVALID_PARAMETER">>,
+            <<"message">> :=
+                <<"the ip_address parameter expected type is ip, but the value is 127.0.0.1:8080">>
+        },
+        emqx_utils_json:decode(Resp, [return_maps])
+    ).
+
 t_authz_cache(_) ->
     ClientId = <<"client_authz">>,
 
