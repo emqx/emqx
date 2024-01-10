@@ -24,15 +24,9 @@
 -include("types.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
-%% Mnesia bootstrap
--export([mnesia/1]).
-
--boot_mnesia({mnesia, [boot]}).
-
 %% API
 -export([
-    start_link/0,
-    monitor/1
+    start_link/0
 ]).
 
 %% Internal export
@@ -48,30 +42,7 @@
     code_change/3
 ]).
 
-%% Internal exports (RPC)
--export([
-    cleanup_routes/1
-]).
-
--record(routing_node, {name, const = unused}).
-
 -define(LOCK(NODE), {?MODULE, cleanup_routes, NODE}).
-
--dialyzer({nowarn_function, [cleanup_routes/1]}).
-
-%%--------------------------------------------------------------------
-%% Mnesia bootstrap
-%%--------------------------------------------------------------------
-
-mnesia(boot) ->
-    ok = mria:create_table(?ROUTING_NODE, [
-        {type, set},
-        {rlog_shard, ?ROUTE_SHARD},
-        {storage, ram_copies},
-        {record_name, routing_node},
-        {attributes, record_info(fields, routing_node)},
-        {storage_properties, [{ets, [{read_concurrency, true}]}]}
-    ]).
 
 %%--------------------------------------------------------------------
 %% API
@@ -81,19 +52,6 @@ mnesia(boot) ->
 -spec start_link() -> startlink_ret().
 start_link() ->
     gen_server:start_link({local, ?MODULE}, ?MODULE, [], []).
-
-%% @doc Monitor routing node
--spec monitor(node() | {binary(), node()}) -> ok.
-monitor({_Group, Node}) ->
-    monitor(Node);
-monitor(Node) when is_atom(Node) ->
-    case
-        ekka:is_member(Node) orelse
-            ets:member(?ROUTING_NODE, Node)
-    of
-        true -> ok;
-        false -> mria:dirty_write(?ROUTING_NODE, #routing_node{name = Node})
-    end.
 
 %%--------------------------------------------------------------------
 %% gen_server callbacks
@@ -107,24 +65,11 @@ init([]) ->
     %% and somehow manages to win the lock first, disallowing other nodes
     %% to cleanup its old routes when they detected it was down.
     _ = cleanup_routes(node()),
+    %% NOTE: it solely relies on `ekka:monitor/1` (which uses `mria:monitor/3`)
+    %% to properly get notified about down nodes (both cores and replicants).
     ok = ekka:monitor(membership),
-    _ = mria:wait_for_tables([?ROUTING_NODE]),
-    {ok, _} = mnesia:subscribe({table, ?ROUTING_NODE, simple}),
-    Nodes = lists:foldl(
-        fun(Node, Acc) ->
-            case ekka:is_member(Node) of
-                true ->
-                    Acc;
-                false ->
-                    true = erlang:monitor_node(Node, true),
-                    [Node | Acc]
-            end
-        end,
-        [],
-        mnesia:dirty_all_keys(?ROUTING_NODE)
-    ),
     ok = emqx_stats:update_interval(route_stats, fun ?MODULE:stats_fun/0),
-    {ok, #{nodes => Nodes}, hibernate}.
+    {ok, #{}, hibernate}.
 
 handle_call(Req, _From, State) ->
     ?SLOG(error, #{msg => "unexpected_call", call => Req}),
@@ -134,24 +79,7 @@ handle_cast(Msg, State) ->
     ?SLOG(error, #{msg => "unexpected_cast", cast => Msg}),
     {noreply, State}.
 
-handle_info(
-    {mnesia_table_event, {write, {?ROUTING_NODE, Node, _}, _}},
-    State = #{nodes := Nodes}
-) ->
-    case ekka:is_member(Node) orelse lists:member(Node, Nodes) of
-        true ->
-            {noreply, State};
-        false ->
-            true = erlang:monitor_node(Node, true),
-            {noreply, State#{nodes := [Node | Nodes]}}
-    end;
-handle_info({mnesia_table_event, {delete, {?ROUTING_NODE, _Node}, _}}, State) ->
-    %% ignore
-    {noreply, State};
-handle_info({mnesia_table_event, Event}, State) ->
-    ?SLOG(debug, #{msg => "unexpected_mnesia_table_event", event => Event}),
-    {noreply, State};
-handle_info({nodedown, Node}, State = #{nodes := Nodes}) ->
+handle_info({nodedown, Node}, State) ->
     case mria_rlog:role() of
         core ->
             global:trans(
@@ -160,18 +88,17 @@ handle_info({nodedown, Node}, State = #{nodes := Nodes}) ->
                 %% Need to acquire the lock on replicants too,
                 %% since replicants participate in locking (see init/1).
                 [node() | nodes()],
-                %% It's important to do limited retries (not infinity).
+                %% It's important to do a limited number of retries (not infinity).
                 %% Otherwise, if a down node comes back in a short time
                 %% and wins the lock in init/1,
-                %% emqx_route_helepr on another node can desparetly retry it indefinitely.
-                1
-            ),
-            ok = mria:dirty_delete(?ROUTING_NODE, Node);
+                %% emqx_router_helepr on another node can desparetly retry it indefinitely.
+                2
+            );
         replicant ->
             ok
     end,
     ?tp(emqx_router_helper_cleanup_done, #{node => Node}),
-    {noreply, State#{nodes := lists:delete(Node, Nodes)}, hibernate};
+    {noreply, State, hibernate};
 handle_info({membership, {mnesia, down, Node}}, State) ->
     handle_info({nodedown, Node}, State);
 handle_info({membership, {node, down, Node}}, State) ->
@@ -185,8 +112,7 @@ handle_info(Info, State) ->
 terminate(_Reason, _State) ->
     try
         ok = ekka:unmonitor(membership),
-        emqx_stats:cancel_update(route_stats),
-        mnesia:unsubscribe({table, ?ROUTING_NODE, simple})
+        emqx_stats:cancel_update(route_stats)
     catch
         exit:{noproc, {gen_server, call, [mria_membership, _]}} ->
             ?SLOG(warning, #{msg => "mria_membership_down"}),

@@ -105,14 +105,7 @@ end_per_testcase(TestCase, Config) ->
     ok = snabbkaffe:stop(),
     emqx_common_test_helpers:end_per_testcase(?MODULE, TestCase, Config).
 
-t_monitor(_) ->
-    ok = emqx_router_helper:monitor({undefined, node()}),
-    emqx_router_helper:monitor(undefined).
-
 t_mnesia(_) ->
-    ?ROUTER_HELPER ! {mnesia_table_event, {delete, {?ROUTING_NODE, node()}, undefined}},
-    ?ROUTER_HELPER ! {mnesia_table_event, testing},
-    ?ROUTER_HELPER ! {mnesia_table_event, {write, {?ROUTING_NODE, node()}, undefined}},
     ?ROUTER_HELPER ! {membership, testing},
     ?ROUTER_HELPER ! {membership, {mnesia, down, node()}},
     ct:sleep(200).
