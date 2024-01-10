@@ -43,6 +43,7 @@
     project_id := emqx_bridge_gcp_pubsub_client:project_id(),
     pull_max_messages := non_neg_integer(),
     pull_retry_interval := emqx_schema:timeout_duration_ms(),
+    request_ttl := emqx_schema:duration_ms() | infinity,
     subscription_id => subscription_id(),
     topic => emqx_bridge_gcp_pubsub_client:topic()
 }.
@@ -62,6 +63,7 @@
     pull_max_messages := non_neg_integer(),
     pull_retry_interval := emqx_schema:timeout_duration_ms(),
     pull_timer := undefined | reference(),
+    request_ttl := emqx_schema:duration_ms() | infinity,
     %% In order to avoid re-processing the same message twice due to race conditions
     %% between acknlowledging a message and receiving a duplicate pulled message, we need
     %% to keep the seen message IDs for a while...
@@ -159,6 +161,7 @@ connect(Opts0) ->
         project_id := ProjectId,
         pull_max_messages := PullMaxMessages,
         pull_retry_interval := PullRetryInterval,
+        request_ttl := RequestTTL,
         topic_mapping := TopicMapping
     } = Opts,
     TopicMappingList = lists:keysort(1, maps:to_list(TopicMapping)),
@@ -178,6 +181,7 @@ connect(Opts0) ->
         project_id => ProjectId,
         pull_max_messages => PullMaxMessages,
         pull_retry_interval => PullRetryInterval,
+        request_ttl => RequestTTL,
         topic => Topic,
         subscription_id => subscription_id(BridgeName, Topic)
     },
@@ -348,13 +352,15 @@ ensure_subscription_exists(State) ->
     #{
         client := Client,
         instance_id := InstanceId,
+        request_ttl := RequestTTL,
         subscription_id := SubscriptionId,
         topic := Topic
     } = State,
     Method = put,
     Path = path(State, create),
     Body = body(State, create),
-    PreparedRequest = {prepared_request, {Method, Path, Body}},
+    ReqOpts = #{request_ttl => RequestTTL},
+    PreparedRequest = {prepared_request, {Method, Path, Body}, ReqOpts},
     Res = emqx_bridge_gcp_pubsub_client:query_sync(PreparedRequest, Client),
     case Res of
         {error, #{status_code := 409}} ->
@@ -432,12 +438,14 @@ patch_subscription(State) ->
         client := Client,
         instance_id := InstanceId,
         subscription_id := SubscriptionId,
+        request_ttl := RequestTTL,
         topic := Topic
     } = State,
     Method1 = patch,
     Path1 = path(State, create),
     Body1 = body(State, patch_subscription),
-    PreparedRequest1 = {prepared_request, {Method1, Path1, Body1}},
+    ReqOpts = #{request_ttl => RequestTTL},
+    PreparedRequest1 = {prepared_request, {Method1, Path1, Body1}, ReqOpts},
     Res = emqx_bridge_gcp_pubsub_client:query_sync(PreparedRequest1, Client),
     case Res of
         {ok, _} ->
@@ -475,12 +483,14 @@ do_pull_async(State0) ->
         begin
             #{
                 client := Client,
-                instance_id := InstanceId
+                instance_id := InstanceId,
+                request_ttl := RequestTTL
             } = State0,
             Method = post,
             Path = path(State0, pull),
             Body = body(State0, pull),
-            PreparedRequest = {prepared_request, {Method, Path, Body}},
+            ReqOpts = #{request_ttl => RequestTTL},
+            PreparedRequest = {prepared_request, {Method, Path, Body}, ReqOpts},
             ReplyFunAndArgs = {fun ?MODULE:reply_delegator/4, [self(), pull_async, InstanceId]},
             Res = emqx_bridge_gcp_pubsub_client:query_async(
                 PreparedRequest,
@@ -559,13 +569,15 @@ do_acknowledge(State0) ->
     #{
         client := Client,
         forget_interval := ForgetInterval,
+        request_ttl := RequestTTL,
         pending_acks := PendingAcks
     } = State1,
     AckIds = maps:values(PendingAcks),
     Method = post,
     Path = path(State1, ack),
     Body = body(State1, ack, #{ack_ids => AckIds}),
-    PreparedRequest = {prepared_request, {Method, Path, Body}},
+    ReqOpts = #{request_ttl => RequestTTL},
+    PreparedRequest = {prepared_request, {Method, Path, Body}, ReqOpts},
     ?tp(gcp_pubsub_consumer_worker_will_acknowledge, #{acks => PendingAcks}),
     Res = emqx_bridge_gcp_pubsub_client:query_sync(PreparedRequest, Client),
     case Res of
@@ -593,12 +605,14 @@ do_acknowledge(State0) ->
 -spec do_get_subscription(state()) -> {ok, emqx_utils_json:json_term()} | {error, term()}.
 do_get_subscription(State) ->
     #{
-        client := Client
+        client := Client,
+        request_ttl := RequestTTL
     } = State,
     Method = get,
     Path = path(State, get_subscription),
     Body = body(State, get_subscription),
-    PreparedRequest = {prepared_request, {Method, Path, Body}},
+    ReqOpts = #{request_ttl => RequestTTL},
+    PreparedRequest = {prepared_request, {Method, Path, Body}, ReqOpts},
     Res = emqx_bridge_gcp_pubsub_client:query_sync(PreparedRequest, Client),
     case Res of
         {error, Reason} ->

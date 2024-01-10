@@ -160,10 +160,12 @@ start_consumers(InstanceId, Client, Config) ->
         instance_id => InstanceId,
         pool_size => PoolSize,
         project_id => ProjectId,
-        pull_retry_interval => RequestTTL
+        pull_retry_interval => RequestTTL,
+        request_ttl => RequestTTL
     },
     ConsumerOpts = maps:to_list(ConsumerConfig),
-    case validate_pubsub_topics(TopicMapping, Client) of
+    ReqOpts = #{request_ttl => RequestTTL},
+    case validate_pubsub_topics(TopicMapping, Client, ReqOpts) of
         ok ->
             ok;
         {error, not_found} ->
@@ -235,23 +237,23 @@ convert_topic_mapping(TopicMappingList) ->
         TopicMappingList
     ).
 
-validate_pubsub_topics(TopicMapping, Client) ->
+validate_pubsub_topics(TopicMapping, Client, ReqOpts) ->
     PubSubTopics = maps:keys(TopicMapping),
-    do_validate_pubsub_topics(Client, PubSubTopics).
+    do_validate_pubsub_topics(Client, PubSubTopics, ReqOpts).
 
-do_validate_pubsub_topics(Client, [Topic | Rest]) ->
-    case check_for_topic_existence(Topic, Client) of
+do_validate_pubsub_topics(Client, [Topic | Rest], ReqOpts) ->
+    case check_for_topic_existence(Topic, Client, ReqOpts) of
         ok ->
-            do_validate_pubsub_topics(Client, Rest);
+            do_validate_pubsub_topics(Client, Rest, ReqOpts);
         {error, _} = Err ->
             Err
     end;
-do_validate_pubsub_topics(_Client, []) ->
+do_validate_pubsub_topics(_Client, [], _ReqOpts) ->
     %% we already validate that the mapping is not empty in the config schema.
     ok.
 
-check_for_topic_existence(Topic, Client) ->
-    Res = emqx_bridge_gcp_pubsub_client:get_topic(Topic, Client),
+check_for_topic_existence(Topic, Client, ReqOpts) ->
+    Res = emqx_bridge_gcp_pubsub_client:get_topic(Topic, Client, ReqOpts),
     case Res of
         {ok, _} ->
             ok;

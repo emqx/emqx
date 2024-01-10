@@ -80,6 +80,8 @@ fields("config_connector") ->
     %% FIXME
     emqx_connector_schema:common_fields() ++
         connector_config_fields();
+fields(connector_resource_opts) ->
+    emqx_connector_schema:resource_opts_fields();
 %%=========================================
 %% HTTP API fields: action
 %%=========================================
@@ -101,7 +103,7 @@ fields(Field) when
 
 connector_config_fields() ->
     emqx_bridge_gcp_pubsub:fields(connector_config) ++
-        emqx_resource_schema:fields("resource_opts").
+        emqx_connector_schema:resource_opts_ref(?MODULE, connector_resource_opts).
 
 desc("config_connector") ->
     ?DESC("config_connector");
@@ -109,6 +111,8 @@ desc(action_parameters) ->
     ?DESC(action_parameters);
 desc(producer_action) ->
     ?DESC(producer_action);
+desc(connector_resource_opts) ->
+    ?DESC(emqx_resource_schema, "resource_opts");
 desc(_Name) ->
     undefined.
 
