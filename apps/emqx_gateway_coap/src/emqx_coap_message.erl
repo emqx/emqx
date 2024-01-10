@@ -6,7 +6,7 @@
 %% Copyright (c) 2015 Petr Gotthard <petr.gotthard@centrum.cz>
 
 %%--------------------------------------------------------------------
-%% Copyright (c) 2017-2023 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2017-2024 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -41,6 +41,11 @@
     get_option/2,
     get_option/3,
     set_payload_block/3, set_payload_block/4
+]).
+
+-export([
+    extract_uri_query/1,
+    query_params_mapping_table/0
 ]).
 
 -include("emqx_coap.hrl").
@@ -111,6 +116,12 @@ get_option(Option, Msg) ->
 get_option(Option, #coap_message{options = Options}, Def) ->
     maps:get(Option, Options, Def).
 
+extract_uri_query(Msg = #coap_message{}) ->
+    expand_short_param_name(get_option(uri_query, Msg, #{})).
+
+query_params_mapping_table() ->
+    ?QUERY_PARAMS_MAPPING.
+
 set_payload(Payload, Msg) when is_binary(Payload) ->
     Msg#coap_message{payload = Payload};
 set_payload(Payload, Msg) when is_list(Payload) ->
@@ -149,3 +160,17 @@ to_options(Opts) when is_map(Opts) ->
     Opts;
 to_options(Opts) ->
     maps:from_list(Opts).
+
+expand_short_param_name(Queries) when is_map(Queries) ->
+    lists:foldl(
+        fun({Short, Long}, Acc) ->
+            case maps:take(Short, Acc) of
+                error ->
+                    Acc;
+                {Value, Acc1} ->
+                    maps:put(Long, Value, Acc1)
+            end
+        end,
+        Queries,
+        ?QUERY_PARAMS_MAPPING
+    ).

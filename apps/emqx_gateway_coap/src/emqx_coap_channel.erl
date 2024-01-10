@@ -386,7 +386,7 @@ check_auth_state(Msg, #channel{connection_required = true} = Channel) ->
         true ->
             call_session(handle_request, Msg, Channel);
         false ->
-            URIQuery = emqx_coap_message:get_option(uri_query, Msg, #{}),
+            URIQuery = emqx_coap_message:extract_uri_query(Msg),
             case maps:get(<<"token">>, URIQuery, undefined) of
                 undefined ->
                     ?SLOG(debug, #{msg => "token_required_in_conn_mode", message => Msg});
@@ -430,7 +430,7 @@ check_token(
 ) ->
     IsDeleteConn = is_delete_connection_request(Msg),
     #{clientid := ClientId} = ClientInfo,
-    case emqx_coap_message:get_option(uri_query, Msg) of
+    case emqx_coap_message:extract_uri_query(Msg) of
         #{
             <<"clientid">> := ClientId,
             <<"token">> := Token
@@ -742,7 +742,7 @@ process_connection(
     Channel = #channel{conn_state = idle},
     Iter
 ) ->
-    Queries = emqx_coap_message:get_option(uri_query, Req),
+    Queries = emqx_coap_message:extract_uri_query(Req),
     case
         emqx_utils:pipeline(
             [
@@ -775,7 +775,7 @@ process_connection(
 ) when
     ConnState == connected
 ->
-    Queries = emqx_coap_message:get_option(uri_query, Req),
+    Queries = emqx_coap_message:extract_uri_query(Req),
     ErrMsg0 =
         case Queries of
             #{<<"clientid">> := ClientId} ->
@@ -793,7 +793,7 @@ process_connection(
         Channel
     );
 process_connection({close, Msg}, _, Channel, _) ->
-    Queries = emqx_coap_message:get_option(uri_query, Msg),
+    Queries = emqx_coap_message:extract_uri_query(Msg),
     case maps:get(<<"clientid">>, Queries, undefined) of
         undefined ->
             ok;

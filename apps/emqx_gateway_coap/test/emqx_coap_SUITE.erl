@@ -151,6 +151,30 @@ t_connection(_) ->
     end,
     do(Action).
 
+t_connection_with_short_param_name(_) ->
+    Action = fun(Channel) ->
+        %% connection
+        Token = connection(Channel, true),
+
+        timer:sleep(100),
+        ?assertNotEqual(
+            [],
+            emqx_gateway_cm_registry:lookup_channels(coap, <<"client1">>)
+        ),
+
+        %% heartbeat
+        {ok, changed, _} = send_heartbeat(Token, true),
+
+        disconnection(Channel, Token, true),
+
+        timer:sleep(100),
+        ?assertEqual(
+            [],
+            emqx_gateway_cm_registry:lookup_channels(coap, <<"client1">>)
+        )
+    end,
+    do(Action).
+
 t_heartbeat(Config) ->
     Heartbeat = ?config(new_heartbeat, Config),
     Action = fun(Channel) ->
@@ -583,36 +607,67 @@ t_connectionless_pubsub(_) ->
 %% helpers
 
 send_heartbeat(Token) ->
-    HeartURI =
-        ?MQTT_PREFIX ++
-            "/connection?clientid=client1&token=" ++
-            Token,
+    send_heartbeat(Token, false).
 
-    ?LOGT("send heartbeat request:~ts~n", [HeartURI]),
-    er_coap_client:request(put, HeartURI).
+send_heartbeat(Token, ShortenParamName) ->
+    Prefix = ?MQTT_PREFIX ++ "/connection",
+    Queries = #{
+        "clientid" => <<"client1">>,
+        "token" => Token
+    },
+    URI = compose_uri(Prefix, Queries, ShortenParamName),
+    ?LOGT("send heartbeat request:~ts~n", [URI]),
+    er_coap_client:request(put, URI).
 
 connection(Channel) ->
-    URI =
-        ?MQTT_PREFIX ++
-            "/connection?clientid=client1&username=admin&password=public",
+    connection(Channel, false).
+
+connection(Channel, ShortenParamName) ->
+    Prefix = ?MQTT_PREFIX ++ "/connection",
+    Queries = #{
+        "clientid" => <<"client1">>,
+        "username" => <<"admin">>,
+        "password" => <<"public">>
+    },
+    URI = compose_uri(Prefix, Queries, ShortenParamName),
     Req = make_req(post),
     {ok, created, Data} = do_request(Channel, URI, Req),
     #coap_content{payload = BinToken} = Data,
     binary_to_list(BinToken).
 
 disconnection(Channel, Token) ->
-    %% delete
-    URI = ?MQTT_PREFIX ++ "/connection?clientid=client1&token=" ++ Token,
+    disconnection(Channel, Token, false).
+
+disconnection(Channel, Token, ShortenParamName) ->
+    Prefix = ?MQTT_PREFIX ++ "/connection",
+    Queries = #{
+        "clientid" => <<"client1">>,
+        "token" => Token
+    },
+    URI = compose_uri(Prefix, Queries, ShortenParamName),
     Req = make_req(delete),
     {ok, deleted, _} = do_request(Channel, URI, Req).
 
-observe(Channel, Token, true) ->
-    URI = ?PS_PREFIX ++ "/coap/observe?clientid=client1&token=" ++ Token,
+observe(Channel, Token, Observe) ->
+    observe(Channel, Token, Observe, false).
+
+observe(Channel, Token, true, ShortenParamName) ->
+    Prefix = ?PS_PREFIX ++ "/coap/observe",
+    Queries = #{
+        "clientid" => <<"client1">>,
+        "token" => Token
+    },
+    URI = compose_uri(Prefix, Queries, ShortenParamName),
     Req = make_req(get, <<>>, [{observe, 0}]),
     {ok, content, _Data} = do_request(Channel, URI, Req),
     ok;
-observe(Channel, Token, false) ->
-    URI = ?PS_PREFIX ++ "/coap/observe?clientid=client1&token=" ++ Token,
+observe(Channel, Token, false, ShortenParamName) ->
+    Prefix = ?PS_PREFIX ++ "/coap/observe",
+    Queries = #{
+        "clientid" => <<"client1">>,
+        "token" => Token
+    },
+    URI = compose_uri(Prefix, Queries, ShortenParamName),
     Req = make_req(get, <<>>, [{observe, 1}]),
     {ok, nocontent, _Data} = do_request(Channel, URI, Req),
     ok.
@@ -620,8 +675,16 @@ observe(Channel, Token, false) ->
 pubsub_uri(Topic) when is_list(Topic) ->
     ?PS_PREFIX ++ "/" ++ Topic.
 
-pubsub_uri(Topic, Token) when is_list(Topic), is_list(Token) ->
-    ?PS_PREFIX ++ "/" ++ Topic ++ "?clientid=client1&token=" ++ Token.
+pubsub_uri(Topic, Token) ->
+    pubsub_uri(Topic, Token, false).
+
+pubsub_uri(Topic, Token, ShortenParamName) when is_list(Topic), is_list(Token) ->
+    Prefix = ?PS_PREFIX ++ "/" ++ Topic,
+    Queries = #{
+        "clientid" => <<"client1">>,
+        "token" => Token
+    },
+    compose_uri(Prefix, Queries, ShortenParamName).
 
 make_req(Method) ->
     make_req(Method, <<>>).
@@ -701,3 +764,28 @@ get_field(type, #coap_message{type = Type}) ->
     Type;
 get_field(method, #coap_message{method = Method}) ->
     Method.
+
+compose_uri(URI, Queries, ShortenParamName) ->
+    Queries1 = shorten_param_name(ShortenParamName, Queries),
+    case maps:size(Queries1) of
+        0 ->
+            URI;
+        _ ->
+            URI ++ "?" ++ uri_string:compose_query(maps:to_list(Queries1))
+    end.
+
+shorten_param_name(false, Queries) ->
+    Queries;
+shorten_param_name(true, Queries) ->
+    lists:foldl(
+        fun({Short, Long}, Acc) ->
+            case maps:take(Long, Acc) of
+                error ->
+                    Acc;
+                {Value, Acc1} ->
+                    maps:put(Short, Value, Acc1)
+            end
+        end,
+        Queries,
+        emqx_coap_message:query_params_mapping_table()
+    ).
