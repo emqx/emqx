@@ -125,10 +125,10 @@ n_inflight(#inflight{n_inflight = NInflight}) ->
     NInflight.
 
 %% https://docs.oasis-open.org/mqtt/mqtt/v5.0/os/mqtt-v5.0-os.html#_Flow_Control
--spec inc_send_quota(t()) -> {non_neg_integer(), t()}.
+-spec inc_send_quota(t()) -> t().
 inc_send_quota(Rec = #inflight{n_inflight = NInflight0}) ->
     NInflight = max(NInflight0 - 1, 0),
-    {NInflight, Rec#inflight{n_inflight = NInflight}}.
+    Rec#inflight{n_inflight = NInflight}.
 
 %%================================================================================
 %% Internal functions

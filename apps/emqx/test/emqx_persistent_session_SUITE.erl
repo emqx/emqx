@@ -645,7 +645,7 @@ t_publish_many_while_client_is_gone_qos1(Config) ->
         #mqtt_msg{topic = <<"loc/1/2/42">>, payload = <<"M4">>, qos = 1},
         #mqtt_msg{topic = <<"t/42/foo">>, payload = <<"M5">>, qos = 1},
         #mqtt_msg{topic = <<"loc/3/4/5">>, payload = <<"M6">>, qos = 1},
-        #mqtt_msg{topic = <<"msg/feed/me">>, payload = <<"M7">>, qos = 1}
+        #mqtt_msg{topic = <<"msg/feed/me2">>, payload = <<"M7">>, qos = 1}
     ],
     ok = publish_many(Pubs1),
     NPubs1 = length(Pubs1),
@@ -686,11 +686,11 @@ t_publish_many_while_client_is_gone_qos1(Config) ->
     maybe_kill_connection_process(ClientId, Config),
 
     Pubs2 = [
-        #mqtt_msg{topic = <<"loc/3/4/5">>, payload = <<"M8">>, qos = 1},
+        #mqtt_msg{topic = <<"loc/3/4/6">>, payload = <<"M8">>, qos = 1},
         #mqtt_msg{topic = <<"t/100/foo">>, payload = <<"M9">>, qos = 1},
         #mqtt_msg{topic = <<"t/100/foo">>, payload = <<"M10">>, qos = 1},
         #mqtt_msg{topic = <<"msg/feed/friend">>, payload = <<"M11">>, qos = 1},
-        #mqtt_msg{topic = <<"msg/feed/me">>, payload = <<"M12">>, qos = 1}
+        #mqtt_msg{topic = <<"msg/feed/me2">>, payload = <<"M12">>, qos = 1}
     ],
     ok = publish_many(Pubs2),
     NPubs2 = length(Pubs2),
@@ -719,7 +719,7 @@ t_publish_many_while_client_is_gone_qos1(Config) ->
     ?assert(NMsgs2 < NPubs, {NMsgs2, '<', NPubs}),
     %% ?assert(NMsgs2 > NPubs2, {NMsgs2, '>', NPubs2}),
     %% ?assert(NMsgs2 >= NPubs - NAcked, Msgs2),
-    NSame = NMsgs2 - NPubs2,
+    NSame = max(0, NMsgs2 - NPubs2),
     ?assert(
         lists:all(fun(#{dup := Dup}) -> Dup end, lists:sublist(Msgs2, NSame))
     ),

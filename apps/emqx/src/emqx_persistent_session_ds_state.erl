@@ -367,7 +367,7 @@ make_session_iterator() ->
         '$end_of_table' ->
             '$end_of_table';
         Key ->
-            {true, Key}
+            Key
     end.
 
 -spec session_iterator_next(session_iterator(), pos_integer()) ->
@@ -377,8 +377,11 @@ session_iterator_next(Cursor, 0) ->
 session_iterator_next('$end_of_table', _N) ->
     {[], '$end_of_table'};
 session_iterator_next(Cursor0, N) ->
-    ThisVal = [{Cursor0, Metadata} || Metadata <- mnesia:dirty_read(?session_tab, Cursor0)],
-    {NextVals, Cursor} = session_iterator_next(Cursor0, N - 1),
+    ThisVal = [
+        {Cursor0, Metadata}
+     || #kv{v = Metadata} <- mnesia:dirty_read(?session_tab, Cursor0)
+    ],
+    {NextVals, Cursor} = session_iterator_next(mnesia:dirty_next(?session_tab, Cursor0), N - 1),
     {ThisVal ++ NextVals, Cursor}.
 
 %%================================================================================

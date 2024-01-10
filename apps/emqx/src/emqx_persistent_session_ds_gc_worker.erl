@@ -113,18 +113,25 @@ start_gc() ->
 gc_loop(MinLastAlive, It0) ->
     GCBatchSize = emqx_config:get([session_persistence, session_gc_batch_size]),
     case emqx_persistent_session_ds_state:session_iterator_next(It0, GCBatchSize) of
-        {[], _} ->
+        {[], _It} ->
             ok;
         {Sessions, It} ->
-            do_gc([
-                Key
-             || {Key, #{last_alive_at := LastAliveAt}} <- Sessions,
-                LastAliveAt < MinLastAlive
-            ]),
+            [
+                do_gc(SessionId, MinLastAlive, LastAliveAt, EI)
+             || {SessionId, #{last_alive_at := LastAliveAt, conninfo := #{expiry_interval := EI}}} <-
+                    Sessions
+            ],
             gc_loop(MinLastAlive, It)
     end.
 
-do_gc(DSSessionIds) ->
-    lists:foreach(fun emqx_persistent_session_ds:destroy_session/1, DSSessionIds),
-    ?tp(ds_session_gc_cleaned, #{session_ids => DSSessionIds}),
+do_gc(SessionId, MinLastAlive, LastAliveAt, EI) when LastAliveAt + EI < MinLastAlive ->
+    emqx_persistent_session_ds:destroy_session(SessionId),
+    ?tp(error, ds_session_gc_cleaned, #{
+        session_id => SessionId,
+        last_alive_at => LastAliveAt,
+        expiry_interval => EI,
+        min_last_alive => MinLastAlive
+    }),
+    ok;
+do_gc(_SessionId, _MinLastAliveAt, _LastAliveAt, _EI) ->
     ok.

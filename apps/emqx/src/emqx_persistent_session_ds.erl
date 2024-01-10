@@ -331,10 +331,10 @@ unsubscribe(
 -spec do_unsubscribe(id(), topic_filter(), subscription(), emqx_persistent_session_ds_state:t()) ->
     emqx_persistent_session_ds_state:t().
 do_unsubscribe(SessionId, TopicFilter, #{id := SubId}, S0) ->
+    S1 = emqx_persistent_session_ds_state:del_subscription(TopicFilter, [], S0),
     ?tp(persistent_session_ds_subscription_delete, #{
         session_id => SessionId, topic_filter => TopicFilter
     }),
-    S1 = emqx_persistent_session_ds_state:del_subscription(TopicFilter, [], S0),
     S = emqx_persistent_session_ds_stream_scheduler:del_subscription(SubId, S1),
     ?tp_span(
         persistent_session_ds_subscription_route_delete,
@@ -510,9 +510,12 @@ replay_batch(Ifs0, Session, ClientInfo) ->
 %%--------------------------------------------------------------------
 
 -spec disconnect(session(), emqx_types:conninfo()) -> {shutdown, session()}.
-disconnect(Session = #{s := S0}, _ConnInfo) ->
+disconnect(Session = #{s := S0}, ConnInfo) ->
+    OldConnInfo = emqx_persistent_session_ds_state:get_conninfo(S0),
+    NewConnInfo = maps:merge(OldConnInfo, maps:with([expiry_interval], ConnInfo)),
     S1 = emqx_persistent_session_ds_state:set_last_alive_at(now_ms(), S0),
-    S = emqx_persistent_session_ds_state:commit(S1),
+    S2 = emqx_persistent_session_ds_state:set_conninfo(NewConnInfo, S1),
+    S = emqx_persistent_session_ds_state:commit(S2),
     {shutdown, Session#{s => S}}.
 
 -spec terminate(Reason :: term(), session()) -> ok.
@@ -861,7 +864,7 @@ ensure_timers(Session0) ->
 
 -spec inc_send_quota(session()) -> session().
 inc_send_quota(Session = #{inflight := Inflight0}) ->
-    {_NInflight, Inflight} = emqx_persistent_session_ds_inflight:inc_send_quota(Inflight0),
+    Inflight = emqx_persistent_session_ds_inflight:inc_send_quota(Inflight0),
     pull_now(Session#{inflight => Inflight}).
 
 -spec pull_now(session()) -> session().

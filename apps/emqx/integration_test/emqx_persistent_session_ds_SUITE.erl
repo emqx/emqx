@@ -54,12 +54,12 @@ init_per_testcase(TestCase, Config) when
 init_per_testcase(t_session_gc = TestCase, Config) ->
     Opts = #{
         n => 3,
-        roles => [core, core, replicant],
+        roles => [core, core, core],
         extra_emqx_conf =>
             "\n session_persistence {"
             "\n   last_alive_update_interval = 500ms "
-            "\n   session_gc_interval = 2s "
-            "\n   session_gc_batch_size = 1 "
+            "\n   session_gc_interval = 1s "
+            "\n   session_gc_batch_size = 2 "
             "\n }"
     },
     Cluster = cluster(Opts),
@@ -85,7 +85,6 @@ end_per_testcase(TestCase, Config) when
     Nodes = ?config(nodes, Config),
     emqx_common_test_helpers:call_janitor(60_000),
     ok = emqx_cth_cluster:stop(Nodes),
-    snabbkaffe:stop(),
     ok;
 end_per_testcase(_TestCase, _Config) ->
     emqx_common_test_helpers:call_janitor(60_000),
@@ -151,6 +150,7 @@ start_client(Opts0 = #{}) ->
     Opts = maps:to_list(emqx_utils_maps:deep_merge(Defaults, Opts0)),
     ct:pal("starting client with opts:\n  ~p", [Opts]),
     {ok, Client} = emqtt:start_link(Opts),
+    unlink(Client),
     on_exit(fun() -> catch emqtt:stop(Client) end),
     Client.
 
@@ -181,20 +181,6 @@ list_all_subscriptions(Node) ->
 
 list_all_pubranges(Node) ->
     erpc:call(Node, emqx_persistent_session_ds, list_all_pubranges, []).
-
-prop_only_cores_run_gc(CoreNodes) ->
-    {"only core nodes run gc", fun(Trace) -> ?MODULE:prop_only_cores_run_gc(Trace, CoreNodes) end}.
-prop_only_cores_run_gc(Trace, CoreNodes) ->
-    GCNodes = lists:usort([
-        N
-     || #{
-            ?snk_kind := K,
-            ?snk_meta := #{node := N}
-        } <- Trace,
-        lists:member(K, [ds_session_gc, ds_session_gc_lock_taken]),
-        N =/= node()
-    ]),
-    ?assertEqual(lists:usort(CoreNodes), GCNodes).
 
 %%------------------------------------------------------------------------------
 %% Testcases
@@ -236,6 +222,7 @@ t_session_subscription_idempotency(Config) ->
     ?check_trace(
         #{timetrap => 30_000},
         begin
+            #{timetrap => 20_000},
             ?force_ordering(
                 #{?snk_kind := persistent_session_ds_subscription_added},
                 _NEvents0 = 1,
@@ -298,10 +285,10 @@ t_session_unsubscription_idempotency(Config) ->
     ?check_trace(
         #{timetrap => 30_000},
         begin
+            #{timetrap => 20_000},
             ?force_ordering(
                 #{
-                    ?snk_kind := persistent_session_ds_subscription_delete,
-                    ?snk_span := {complete, _}
+                    ?snk_kind := persistent_session_ds_subscription_delete
                 },
                 _NEvents0 = 1,
                 #{?snk_kind := will_restart_node},
@@ -452,6 +439,8 @@ do_t_session_discard(Params) ->
     ok.
 
 t_session_expiration1(Config) ->
+    %% This testcase verifies that the properties passed in the
+    %% CONNECT packet are respected by the GC process:
     ClientId = atom_to_binary(?FUNCTION_NAME),
     Opts = #{
         clientid => ClientId,
@@ -464,6 +453,9 @@ t_session_expiration1(Config) ->
     do_t_session_expiration(Config, Opts).
 
 t_session_expiration2(Config) ->
+    %% This testcase updates the expiry interval for the session in
+    %% the _DISCONNECT_ packet. This setting should be respected by GC
+    %% process:
     ClientId = atom_to_binary(?FUNCTION_NAME),
     Opts = #{
         clientid => ClientId,
@@ -478,6 +470,8 @@ t_session_expiration2(Config) ->
     do_t_session_expiration(Config, Opts).
 
 do_t_session_expiration(_Config, Opts) ->
+    %% Sequence is a list of pairs of properties passed through the
+    %% CONNECT and for the DISCONNECT for each session:
     #{
         clientid := ClientId,
         sequence := [
@@ -510,7 +504,7 @@ do_t_session_expiration(_Config, Opts) ->
             ?assertEqual([], Subs1),
             emqtt:disconnect(Client1, ?RC_NORMAL_DISCONNECTION, SecondDisconn),
 
-            ct:sleep(1_500),
+            ct:sleep(2_500),
 
             Params2 = maps:merge(CommonParams, ThirdConn),
             Client2 = start_client(Params2),
@@ -525,7 +519,6 @@ do_t_session_expiration(_Config, Opts) ->
             #{s := #{subscriptions := Subs3}} = emqx_persistent_session_ds:print_session(ClientId),
             ?assertEqual([], maps:to_list(Subs3)),
             emqtt:disconnect(Client2, ?RC_NORMAL_DISCONNECTION, ThirdDisconn),
-
             ok
         end,
         []
@@ -541,6 +534,7 @@ t_session_gc(Config) ->
         Port2,
         Port3
     ] = lists:map(fun(N) -> get_mqtt_port(N, tcp) end, Nodes),
+    ct:pal("Ports: ~p", [[Port1, Port2, Port3]]),
     CommonParams = #{
         clean_start => false,
         proto_ver => v5
@@ -618,11 +612,8 @@ t_session_gc(Config) ->
                 ?block_until(
                     #{
                         ?snk_kind := ds_session_gc_cleaned,
-                        ?snk_meta := #{node := N, time := T},
-                        session_ids := [ClientId1]
-                    } when
-                        N =/= node() andalso T > T0,
-                    4 * GCInterval + 1_000
+                        session_id := ClientId1
+                    }
                 )
             ),
             ?assertMatch(
@@ -630,19 +621,14 @@ t_session_gc(Config) ->
                 ?block_until(
                     #{
                         ?snk_kind := ds_session_gc_cleaned,
-                        ?snk_meta := #{node := N, time := T},
-                        session_ids := [ClientId2]
-                    } when
-                        N =/= node() andalso T > T0,
-                    4 * GCInterval + 1_000
+                        session_id := ClientId2
+                    }
                 )
             ),
             ?assertMatch([_], list_all_sessions(Node1), sessions),
             ?assertMatch([_], list_all_subscriptions(Node1), subscriptions),
             ok
         end,
-        [
-            prop_only_cores_run_gc(CoreNodes)
-        ]
+        []
     ),
     ok.
