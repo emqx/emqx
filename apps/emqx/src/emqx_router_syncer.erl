@@ -16,6 +16,7 @@
 
 -module(emqx_router_syncer).
 
+-include_lib("emqx/include/logger.hrl").
 -include_lib("snabbkaffe/include/trace.hrl").
 
 -behaviour(gen_server).
@@ -24,6 +25,8 @@
 
 -export([push/4]).
 -export([wait/1]).
+
+-export([stats/0]).
 
 -export([
     init/1,
@@ -39,6 +42,16 @@
 
 -define(MAX_BATCH_SIZE, 1000).
 -define(MIN_SYNC_INTERVAL, 1).
+
+%% How long (ms) to idle after observing a batch sync error?
+%% Should help to avoid excessive retries in situations when errors are caused by
+%% conditions that take some time to resolve (e.g. restarting an upstream core node).
+-define(ERROR_DELAY, 10).
+
+%% How soon (ms) to retry last failed batch sync attempt?
+%% Only matter in absence of new operations, otherwise batch sync is triggered as
+%% soon as `?ERROR_DELAY` is over.
+-define(ERROR_RETRY_INTERVAL, 500).
 
 -define(PRIO_HI, 1).
 -define(PRIO_LO, 2).
@@ -117,16 +130,36 @@ mk_push_context(_) ->
 
 %%
 
+-type stats() :: #{
+    size := non_neg_integer(),
+    n_add := non_neg_integer(),
+    n_delete := non_neg_integer(),
+    prio_highest := non_neg_integer() | undefined,
+    prio_lowest := non_neg_integer() | undefined
+}.
+
+-spec stats() -> [stats()].
+stats() ->
+    Workers = gproc_pool:active_workers(?POOL),
+    [gen_server:call(Pid, stats, infinity) || {_Name, Pid} <- Workers].
+
+%%
+
 init([Pool, Id]) ->
     true = gproc_pool:connect_worker(Pool, {Pool, Id}),
     {ok, #{stash => stash_new()}}.
 
+handle_call(stats, _From, State = #{stash := Stash}) ->
+    {reply, stash_stats(Stash), State};
 handle_call(_Call, _From, State) ->
     {reply, ignored, State}.
 
 handle_cast(_Msg, State) ->
     {noreply, State}.
 
+handle_info({timeout, _TRef, retry}, State) ->
+    NState = run_batch_loop([], maps:remove(retry_timer, State)),
+    {noreply, NState};
 handle_info(Push = ?PUSH(_, _), State) ->
     %% NOTE: Wait a bit to collect potentially overlapping operations.
     ok = timer:sleep(?MIN_SYNC_INTERVAL),
@@ -142,25 +175,40 @@ run_batch_loop(Incoming, State = #{stash := Stash0}) ->
     Stash1 = stash_add(Incoming, Stash0),
     Stash2 = stash_drain(Stash1),
     {Batch, Stash3} = mk_batch(Stash2),
-    ?tp_ignore_side_effects_in_prod(router_syncer_new_batch, #{
-        size => maps:size(Batch),
-        stashed => maps:size(Stash3),
-        n_add => maps:size(maps:filter(fun(_, ?ROUTEOP(A)) -> A == add end, Batch)),
-        n_delete => maps:size(maps:filter(fun(_, ?ROUTEOP(A)) -> A == delete end, Batch)),
-        prio_highest => maps:fold(fun(_, ?ROUTEOP(_, P), M) -> min(P, M) end, none, Batch),
-        prio_lowest => maps:fold(fun(_, ?ROUTEOP(_, P), M) -> max(P, M) end, 0, Batch)
-    }),
-    %% TODO: retry if error?
-    Errors = run_batch(Batch),
-    ok = send_replies(Errors, Batch),
-    NState = State#{stash := Stash3},
-    %% TODO: postpone if only ?PRIO_BG operations left?
-    case is_stash_empty(Stash3) of
-        true ->
-            NState;
-        false ->
-            run_batch_loop([], NState)
+    ?tp_ignore_side_effects_in_prod(router_syncer_new_batch, batch_stats(Batch, Stash3)),
+    case run_batch(Batch) of
+        Status = #{} ->
+            ok = send_replies(Status, Batch),
+            NState = cancel_retry_timer(State#{stash := Stash3}),
+            %% TODO: postpone if only ?PRIO_BG operations left?
+            case is_stash_empty(Stash3) of
+                true ->
+                    NState;
+                false ->
+                    run_batch_loop([], NState)
+            end;
+        BatchError ->
+            ?SLOG(warning, #{
+                msg => "router_batch_sync_failed",
+                reason => BatchError,
+                batch => batch_stats(Batch, Stash3)
+            }),
+            NState = State#{stash := Stash2},
+            ok = timer:sleep(?ERROR_DELAY),
+            ensure_retry_timer(NState)
     end.
+
+ensure_retry_timer(State = #{retry_timer := _TRef}) ->
+    State;
+ensure_retry_timer(State) ->
+    TRef = emqx_utils:start_timer(?ERROR_RETRY_INTERVAL, retry),
+    State#{retry_timer => TRef}.
+
+cancel_retry_timer(State = #{retry_timer := TRef}) ->
+    ok = emqx_utils:cancel_timer(TRef),
+    maps:remove(retry_timer, State);
+cancel_retry_timer(State) ->
+    State.
 
 %%
 
@@ -222,7 +270,7 @@ replyctx_send(Result, {MRef, Pid}) ->
 %%
 
 run_batch(Batch) when map_size(Batch) > 0 ->
-    emqx_router:do_batch(Batch);
+    catch emqx_router:do_batch(Batch);
 run_batch(_Empty) ->
     #{}.
 
@@ -272,6 +320,23 @@ merge_route_op(?ROUTEOP(_Action1, _Prio1, Ctx1), ?ROUTEOP(_Action2, _Prio2, Ctx2
     _ = replyctx_send(ok, Ctx1),
     _ = replyctx_send(ok, Ctx2),
     undefined.
+
+%%
+
+batch_stats(Batch, Stash) ->
+    BatchStats = stash_stats(Batch),
+    BatchStats#{
+        stashed => maps:size(Stash)
+    }.
+
+stash_stats(Stash) ->
+    #{
+        size => maps:size(Stash),
+        n_add => maps:size(maps:filter(fun(_, ?ROUTEOP(A)) -> A == add end, Stash)),
+        n_delete => maps:size(maps:filter(fun(_, ?ROUTEOP(A)) -> A == delete end, Stash)),
+        prio_highest => maps:fold(fun(_, ?ROUTEOP(_, P), M) -> min(P, M) end, none, Stash),
+        prio_lowest => maps:fold(fun(_, ?ROUTEOP(_, P), M) -> max(P, M) end, 0, Stash)
+    }.
 
 %%
 

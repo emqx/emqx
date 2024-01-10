@@ -39,21 +39,21 @@ groups() ->
         {group, batch_sync_replicants},
         {group, batch_sync_off}
     ],
-    GroupBase = [
-        {group, cluster},
-        t_concurrent_routing_updates
-    ],
     ClusterTCs = [
         t_cluster_routing,
         t_slow_rlog_routing_consistency
     ],
+    SingleTCs = [t_concurrent_routing_updates],
+    BatchSyncTCs = lists:duplicate(5, t_concurrent_routing_updates_with_errors),
     [
         {routing_schema_v1, [], GroupVsn},
         {routing_schema_v2, [], GroupVsn},
-        {batch_sync_on, [], GroupBase},
-        {batch_sync_replicants, [], GroupBase},
-        {batch_sync_off, [], GroupBase},
-        {cluster, [], ClusterTCs}
+        {batch_sync_on, [], [{group, cluster}, {group, single_batch_on}]},
+        {batch_sync_replicants, [], [{group, cluster}, {group, single}]},
+        {batch_sync_off, [], [{group, cluster}, {group, single}]},
+        {cluster, [], ClusterTCs},
+        {single_batch_on, [], SingleTCs ++ BatchSyncTCs},
+        {single, [], SingleTCs}
     ].
 
 init_per_group(routing_schema_v1, Config) ->
@@ -74,10 +74,38 @@ init_per_group(cluster, Config) ->
         {emqx_routing_SUITE3, #{apps => [mk_emqx_appspec(3, Config)], role => replicant}}
     ],
     Nodes = emqx_cth_cluster:start(NodeSpecs, #{work_dir => WorkDir}),
-    [{cluster, Nodes} | Config].
+    [{cluster, Nodes} | Config];
+init_per_group(GroupName, Config) when
+    GroupName =:= single_batch_on;
+    GroupName =:= single
+->
+    WorkDir = emqx_cth_suite:work_dir(?FUNCTION_NAME, Config),
+    Apps = emqx_cth_suite:start(
+        [
+            {emqx, #{
+                config => mk_config_broker(Config),
+                %% NOTE
+                %% Artificially increasing pool workers contention by forcing small pool size.
+                before_start => fun() ->
+                    % NOTE
+                    % This one is actually defined on `emqx_conf_schema` level, but used
+                    % in `emqx_broker`. Thus we have to resort to this ugly hack.
+                    emqx_config:force_put([node, broker_pool_size], 2),
+                    emqx_app:set_config_loader(?MODULE)
+                end
+            }}
+        ],
+        #{work_dir => WorkDir}
+    ),
+    [{group_apps, Apps} | Config].
 
 end_per_group(cluster, Config) ->
     emqx_cth_cluster:stop(?config(cluster, Config));
+end_per_group(GroupName, Config) when
+    GroupName =:= single_batch_on;
+    GroupName =:= single
+->
+    emqx_cth_suite:stop(?config(group_apps, Config));
 end_per_group(_, _Config) ->
     ok.
 
@@ -226,29 +254,10 @@ unsubscribe(C, Topic) ->
 ]).
 
 t_concurrent_routing_updates(init, Config) ->
-    WorkDir = emqx_cth_suite:work_dir(?FUNCTION_NAME, Config),
-    Apps = emqx_cth_suite:start(
-        [
-            {emqx, #{
-                config => mk_config_broker(Config),
-                %% NOTE
-                %% Artificially increasing pool workers contention by forcing small pool size.
-                before_start => fun() ->
-                    % NOTE
-                    % This one is actually defined on `emqx_conf_schema` level, but used
-                    % in `emqx_broker`. Thus we have to resort to this ugly hack.
-                    emqx_config:force_put([node, broker_pool_size], 2),
-                    emqx_app:set_config_loader(?MODULE)
-                end
-            }}
-        ],
-        #{work_dir => WorkDir}
-    ),
     ok = snabbkaffe:start_trace(),
-    [{tc_apps, Apps} | Config];
-t_concurrent_routing_updates('end', Config) ->
-    ok = snabbkaffe:stop(),
-    ok = emqx_cth_suite:stop(?config(tc_apps, Config)).
+    Config;
+t_concurrent_routing_updates('end', _Config) ->
+    ok = snabbkaffe:stop().
 
 t_concurrent_routing_updates(_Config) ->
     NClients = 400,
@@ -266,6 +275,51 @@ t_concurrent_routing_updates(_Config) ->
     ?assertEqual(lists:sort(Topics), lists:sort(emqx_router:topics())),
     ok = lists:foreach(fun stop_concurrent_client/1, Clients),
     ok = timer:sleep(1000),
+    ct:pal("Trace: ~p", [?of_kind(router_syncer_new_batch, snabbkaffe:collect_trace())]),
+    ?assertEqual([], ets:tab2list(?SUBSCRIBER)),
+    ?assertEqual([], emqx_router:topics()).
+
+t_concurrent_routing_updates_with_errors(init, Config) ->
+    ok = snabbkaffe:start_trace(),
+    ok = meck:new(emqx_router, [passthrough, no_history]),
+    Config;
+t_concurrent_routing_updates_with_errors('end', _Config) ->
+    ok = meck:unload(emqx_router),
+    ok = snabbkaffe:stop().
+
+t_concurrent_routing_updates_with_errors(_Config) ->
+    NClients = 100,
+    NRTopics = 80,
+    MCommands = 6,
+    PSyncError = 0.1,
+    Port = get_mqtt_tcp_port(node()),
+    %% Crash the batch sync operation with some small probability.
+    ok = meck:expect(emqx_router, mria_batch_run, fun(Vsn, Batch) ->
+        case rand:uniform() < PSyncError of
+            false -> meck:passthrough([Vsn, Batch]);
+            true -> error(overload)
+        end
+    end),
+    Clients = [
+        spawn_link(?MODULE, run_concurrent_client, [I, Port, MCommands, NRTopics])
+     || I <- lists:seq(1, NClients)
+    ],
+    ok = lists:foreach(fun ping_concurrent_client/1, Clients),
+    0 = ?retry(
+        _Interval = 500,
+        _NTimes = 10,
+        0 = lists:sum([S || #{size := S} <- emqx_router_syncer:stats()])
+    ),
+    Subscribers = ets:tab2list(?SUBSCRIBER),
+    Topics = maps:keys(maps:from_list(Subscribers)),
+    ?assertEqual(lists:sort(Topics), lists:sort(emqx_router:topics())),
+    ok = lists:foreach(fun stop_concurrent_client/1, Clients),
+    ok = timer:sleep(100),
+    0 = ?retry(
+        500,
+        10,
+        0 = lists:sum([S || #{size := S} <- emqx_router_syncer:stats()])
+    ),
     ct:pal("Trace: ~p", [?of_kind(router_syncer_new_batch, snabbkaffe:collect_trace())]),
     ?assertEqual([], ets:tab2list(?SUBSCRIBER)),
     ?assertEqual([], emqx_router:topics()).
