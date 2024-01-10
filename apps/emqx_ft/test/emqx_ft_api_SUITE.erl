@@ -428,7 +428,7 @@ test_configure(Uri, Config) ->
                     <<"exporter">> := #{
                         <<"s3">> := #{
                             <<"transport_options">> := #{
-                                <<"ssl">> := #{
+                                <<"ssl">> := SSL = #{
                                     <<"enable">> := true,
                                     <<"certfile">> := <<"/", _CertFilepath/bytes>>,
                                     <<"keyfile">> := <<"/", _KeyFilepath/bytes>>
@@ -441,7 +441,7 @@ test_configure(Uri, Config) ->
                     }
                 }
             }
-        },
+        } when not is_map_key(<<"password">>, SSL),
         GetConfigJson
     ),
     ?assertMatch(
