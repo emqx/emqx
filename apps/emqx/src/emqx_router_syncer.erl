@@ -89,7 +89,14 @@ push(Action, Topic, Dest, Opts) ->
 -spec wait(_WaitRef :: reference()) ->
     ok | {error, _Reason}.
 wait(MRef) ->
-    %% FIXME: timeouts
+    %% NOTE
+    %% No timeouts here because (as in `emqx_broker:call/2` case) callers do not
+    %% really expect this to fail with timeout exception. However, waiting
+    %% indefinitely is not the best option since it blocks the caller from receiving
+    %% other messages, so for instance channel (connection) process may not be able
+    %% to react to socket close event in time. Better option would probably be to
+    %% introduce cancellable operation, which will be able to check if the caller
+    %% would still be interested in the result.
     receive
         {MRef, Result} ->
             Result
