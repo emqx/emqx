@@ -303,6 +303,8 @@ update_listener(Type, Name, OldConf, NewConf) ->
         ok ->
             ok = maybe_unregister_ocsp_stapling_refresh(Type, Name, NewConf),
             ok;
+        {skip, Error} when Type =:= quic ->
+            {error, {rollbacked, Error}};
         {error, _Reason} ->
             restart_listener(Type, Name, OldConf, NewConf)
     end.
@@ -411,49 +413,10 @@ do_start_listener(Type, Name, Id, Opts) when ?COWBOY_LISTENER(Type) ->
     end;
 %% Start MQTT/QUIC listener
 do_start_listener(quic, Name, Id, #{bind := Bind} = Opts) ->
-    ListenOn =
-        case Bind of
-            {Addr, Port} when tuple_size(Addr) == 4 ->
-                %% IPv4
-                lists:flatten(io_lib:format("~ts:~w", [inet:ntoa(Addr), Port]));
-            {Addr, Port} when tuple_size(Addr) == 8 ->
-                %% IPv6
-                lists:flatten(io_lib:format("[~ts]:~w", [inet:ntoa(Addr), Port]));
-            Port ->
-                Port
-        end,
-
+    ListenOn = quic_listen_on(Bind),
     case [A || {quicer, _, _} = A <- application:which_applications()] of
         [_] ->
-            DefAcceptors = erlang:system_info(schedulers_online) * 8,
-            SSLOpts = maps:get(ssl_options, Opts, #{}),
-            ListenOpts =
-                [
-                    {certfile, emqx_schema:naive_env_interpolation(maps:get(certfile, SSLOpts))},
-                    {keyfile, emqx_schema:naive_env_interpolation(maps:get(keyfile, SSLOpts))},
-                    {alpn, ["mqtt"]},
-                    {conn_acceptors, lists:max([DefAcceptors, maps:get(acceptors, Opts, 0)])},
-                    {keep_alive_interval_ms, maps:get(keep_alive_interval, Opts, 0)},
-                    {idle_timeout_ms, maps:get(idle_timeout, Opts, 0)},
-                    {handshake_idle_timeout_ms, maps:get(handshake_idle_timeout, Opts, 10000)},
-                    {server_resumption_level, maps:get(server_resumption_level, Opts, 2)},
-                    {verify, maps:get(verify, SSLOpts, verify_none)}
-                ] ++
-                    case maps:get(cacertfile, SSLOpts, undefined) of
-                        undefined ->
-                            [];
-                        <<>> ->
-                            [];
-                        "" ->
-                            [];
-                        CaCertFile ->
-                            [{cacertfile, emqx_schema:naive_env_interpolation(CaCertFile)}]
-                    end ++
-                    case maps:get(password, SSLOpts, undefined) of
-                        undefined -> [];
-                        Password -> [{password, str(Password)}]
-                    end ++
-                    optional_quic_listener_opts(Opts),
+            ListenOpts = to_quicer_listener_opts(Opts),
             Limiter = limiter(Opts),
             ConnectionOpts = #{
                 conn_callback => emqx_quic_connection,
@@ -470,7 +433,7 @@ do_start_listener(quic, Name, Id, #{bind := Bind} = Opts) ->
             quicer:spawn_listener(
                 Id,
                 ListenOn,
-                {maps:from_list(ListenOpts), ConnectionOpts, StreamOpts}
+                {ListenOpts, ConnectionOpts, StreamOpts}
             );
         [] ->
             {ok, {skipped, quic_app_missing}}
@@ -506,6 +469,31 @@ do_update_listener(Type, Name, OldConf, NewConf) when
     ok = ranch:set_protocol_options(Id, WsOpts),
     %% No-op if the listener was not suspended.
     ranch:resume_listener(Id);
+do_update_listener(quic = Type, Name, _OldConf, NewConf) ->
+    case quicer:listener(listener_id(Type, Name)) of
+        {ok, ListenerPid} ->
+            case quicer_listener:reload(ListenerPid, to_quicer_listener_opts(NewConf)) of
+                ok ->
+                    ok;
+                {error, _} = Error ->
+                    %% @TODO: prefer: case quicer_listener:reload(ListenerPid, to_quicer_listener_opts(OldConf)) of
+                    case quicer_listener:unlock(ListenerPid, 3000) of
+                        ok ->
+                            ?ELOG("Failed to reload QUIC listener ~p, but Rollback success\n", [
+                                Error
+                            ]),
+                            {skip, Error};
+                        RestoreErr ->
+                            ?ELOG(
+                                "Failed to reload QUIC listener ~p, and Rollback failed as well\n",
+                                [Error]
+                            ),
+                            {error, {rollback_fail, RestoreErr}}
+                    end
+            end;
+        E ->
+            E
+    end;
 do_update_listener(_Type, _Name, _OldConf, _NewConf) ->
     {error, not_supported}.
 
@@ -897,18 +885,16 @@ get_ssl_options(_) ->
 
 %% @doc Get QUIC optional settings for low level tunings.
 %% @see quicer:quic_settings()
--spec optional_quic_listener_opts(map()) -> proplists:proplist().
+-spec optional_quic_listener_opts(map()) -> map().
 optional_quic_listener_opts(Conf) when is_map(Conf) ->
-    maps:to_list(
-        maps:filter(
-            fun(Name, _V) ->
-                lists:member(
-                    Name,
-                    quic_listener_optional_settings()
-                )
-            end,
-            Conf
-        )
+    maps:filter(
+        fun(Name, _V) ->
+            lists:member(
+                Name,
+                quic_listener_optional_settings()
+            )
+        end,
+        Conf
     ).
 
 -spec quic_listener_optional_settings() -> [atom()].
@@ -991,3 +977,44 @@ default_max_conn() ->
 ensure_max_conns(<<"infinity">>) -> <<"infinity">>;
 ensure_max_conns(MaxConn) when is_binary(MaxConn) -> binary_to_integer(MaxConn);
 ensure_max_conns(MaxConn) -> MaxConn.
+
+-spec quic_listen_on(X :: any()) -> quicer:listen_on().
+quic_listen_on(Bind) ->
+    case Bind of
+        {Addr, Port} when tuple_size(Addr) == 4 ->
+            %% IPv4
+            lists:flatten(io_lib:format("~ts:~w", [inet:ntoa(Addr), Port]));
+        {Addr, Port} when tuple_size(Addr) == 8 ->
+            %% IPv6
+            lists:flatten(io_lib:format("[~ts]:~w", [inet:ntoa(Addr), Port]));
+        Port ->
+            Port
+    end.
+
+-spec to_quicer_listener_opts(map()) -> quicer:listener_opts().
+to_quicer_listener_opts(Opts) ->
+    DefAcceptors = erlang:system_info(schedulers_online) * 8,
+    SSLOpts = maps:from_list(ssl_opts(Opts)),
+    Opts1 = maps:filter(
+        fun
+            (cacertfile, undefined) -> fasle;
+            (password, undefined) -> fasle;
+            (_, _) -> true
+        end,
+        Opts
+    ),
+    Opts2 = maps:merge(
+        Opts#{
+            alpn => ["mqtt"],
+            conn_acceptors => max(DefAcceptors, maps:get(acceptors, Opts1, 0)),
+            %% @NOTE: Backward compatibility START
+            server_resumption_level => maps:get(server_resumption_level, Opts, 2),
+            idle_timeout_ms => maps:get(idle_timeout, Opts, 0),
+            keep_alive_interval_ms => maps:get(keep_alive_interval, Opts, 0),
+            handshake_idle_timeout_ms => maps:get(handshake_idle_timeout, Opts, 10000)
+            %% @NOTE: Backward compatibility END
+        },
+        SSLOpts
+    ),
+    %% @NOTE: Optional options take precedence over required options
+    maps:merge(Opts2, optional_quic_listener_opts(Opts)).

@@ -363,6 +363,188 @@ t_wss_update_opts(Config) ->
         ok = emqtt:stop(C3)
     end).
 
+t_quic_update_opts(Config) ->
+    ListenerType = quic,
+    ConnectFun = connect_fun(ListenerType),
+    PrivDir = ?config(priv_dir, Config),
+    Host = "127.0.0.1",
+    Port = emqx_common_test_helpers:select_free_port(ListenerType),
+    Conf = #{
+        <<"enable">> => true,
+        <<"bind">> => format_bind({Host, Port}),
+        <<"ssl_options">> => #{
+            <<"cacertfile">> => filename:join(PrivDir, "ca.pem"),
+            <<"password">> => ?SERVER_KEY_PASSWORD,
+            <<"certfile">> => filename:join(PrivDir, "server-password.pem"),
+            <<"keyfile">> => filename:join(PrivDir, "server-password.key"),
+            <<"verify">> => verify_none
+        }
+    },
+    ClientSSLOpts = [
+        {verify, verify_peer},
+        {customize_hostname_check, [{match_fun, fun(_, _) -> true end}]}
+    ],
+    with_listener(ListenerType, updated, Conf, fun() ->
+        %% Client connects successfully.
+        C1 = ConnectFun(Host, Port, [
+            {cacertfile, filename:join(PrivDir, "ca.pem")} | ClientSSLOpts
+        ]),
+
+        %% Change the listener SSL configuration: another set of cert/key files.
+        {ok, _} = emqx:update_config(
+            [listeners, ListenerType, updated],
+            {update, #{
+                <<"ssl_options">> => #{
+                    <<"cacertfile">> => filename:join(PrivDir, "ca-next.pem"),
+                    <<"certfile">> => filename:join(PrivDir, "server.pem"),
+                    <<"keyfile">> => filename:join(PrivDir, "server.key")
+                }
+            }}
+        ),
+
+        %% Unable to connect with old SSL options, server's cert is signed by another CA.
+        ?assertError(
+            {transport_down, #{error := _, status := Status}} when
+                (Status =:= bad_certificate orelse
+                    Status =:= cert_untrusted_root orelse
+                    Status =:= handshake_failure),
+            ConnectFun(Host, Port, [
+                {cacertfile, filename:join(PrivDir, "ca.pem")} | ClientSSLOpts
+            ])
+        ),
+
+        C2 = ConnectFun(Host, Port, [
+            {cacertfile, filename:join(PrivDir, "ca-next.pem")} | ClientSSLOpts
+        ]),
+
+        %% Change the listener SSL configuration: require peer certificate.
+        {ok, _} = emqx:update_config(
+            [listeners, ListenerType, updated],
+            {update, #{
+                <<"ssl_options">> => #{
+                    <<"verify">> => verify_peer,
+                    <<"fail_if_no_peer_cert">> => true
+                }
+            }}
+        ),
+
+        %% Unable to connect with old SSL options, certificate is now required.
+        ?assertExceptionOneOf(
+            {exit, _},
+            {error, _},
+            ConnectFun(Host, Port, [
+                {cacertfile, filename:join(PrivDir, "ca-next.pem")} | ClientSSLOpts
+            ])
+        ),
+
+        C3 = ConnectFun(Host, Port, [
+            {cacertfile, filename:join(PrivDir, "ca-next.pem")},
+            {certfile, filename:join(PrivDir, "client.pem")},
+            {keyfile, filename:join(PrivDir, "client.key")}
+            | ClientSSLOpts
+        ]),
+
+        %% Both pre- and post-update clients should be alive.
+        ?assertEqual(pong, emqtt:ping(C1)),
+        ?assertEqual(pong, emqtt:ping(C2)),
+        ?assertEqual(pong, emqtt:ping(C3)),
+
+        ok = emqtt:stop(C1),
+        ok = emqtt:stop(C2),
+        ok = emqtt:stop(C3)
+    end).
+
+t_quic_update_opts_fail(Config) ->
+    ListenerType = quic,
+    ConnectFun = connect_fun(ListenerType),
+    PrivDir = ?config(priv_dir, Config),
+    Host = "127.0.0.1",
+    Port = emqx_common_test_helpers:select_free_port(ListenerType),
+    Conf = #{
+        <<"enable">> => true,
+        <<"bind">> => format_bind({Host, Port}),
+        <<"ssl_options">> => #{
+            <<"cacertfile">> => filename:join(PrivDir, "ca.pem"),
+            <<"password">> => ?SERVER_KEY_PASSWORD,
+            <<"certfile">> => filename:join(PrivDir, "server-password.pem"),
+            <<"keyfile">> => filename:join(PrivDir, "server-password.key"),
+            <<"verify">> => verify_none
+        }
+    },
+    ClientSSLOpts = [
+        {verify, verify_peer},
+        {customize_hostname_check, [{match_fun, fun(_, _) -> true end}]}
+    ],
+    with_listener(ListenerType, updated, Conf, fun() ->
+        %% GIVEN: an working Listener that client could connect to.
+        C1 = ConnectFun(Host, Port, [
+            {cacertfile, filename:join(PrivDir, "ca.pem")} | ClientSSLOpts
+        ]),
+
+        %% WHEN: reload the listener with invalid SSL options (certfile and keyfile missmatch).
+        UpdateResult1 = emqx:update_config(
+            [listeners, ListenerType, updated],
+            {update, #{
+                <<"ssl_options">> => #{
+                    <<"cacertfile">> => filename:join(PrivDir, "ca-next.pem"),
+                    <<"certfile">> => filename:join(PrivDir, "server.pem"),
+                    <<"keyfile">> => filename:join(PrivDir, "server-password.key")
+                }
+            }}
+        ),
+
+        %% THEN: Reload failed but old listener is rollbacked.
+        ?assertMatch(
+            {error, {post_config_update, emqx_listeners, {{rollbacked, {error, tls_error}}, _}}},
+            UpdateResult1
+        ),
+
+        %% THEN: Client with old TLS options could still connect
+        C2 = ConnectFun(Host, Port, [
+            {cacertfile, filename:join(PrivDir, "ca.pem")} | ClientSSLOpts
+        ]),
+
+        %% WHEN: Change the listener SSL configuration again
+        UpdateResult2 = emqx:update_config(
+            [listeners, ListenerType, updated],
+            {update, #{
+                <<"ssl_options">> => #{
+                    <<"cacertfile">> => filename:join(PrivDir, "ca-next.pem"),
+                    <<"certfile">> => filename:join(PrivDir, "server.pem"),
+                    <<"keyfile">> => filename:join(PrivDir, "server.key")
+                }
+            }}
+        ),
+        %% THEN: update should success
+        ?assertMatch({ok, _}, UpdateResult2),
+
+        %% THEN: Client with old TLS options could not connect
+        %% Unable to connect with old SSL options, server's cert is signed by another CA.
+        ?assertError(
+            {transport_down, #{error := _, status := Status}} when
+                (Status =:= bad_certificate orelse
+                    Status =:= cert_untrusted_root orelse
+                    Status =:= handshake_failure),
+            ConnectFun(Host, Port, [
+                {cacertfile, filename:join(PrivDir, "ca.pem")} | ClientSSLOpts
+            ])
+        ),
+
+        %% THEN: Client with new TLS options could connect
+        C3 = ConnectFun(Host, Port, [
+            {cacertfile, filename:join(PrivDir, "ca-next.pem")} | ClientSSLOpts
+        ]),
+
+        %% Both pre- and post-update clients should be alive.
+        ?assertEqual(pong, emqtt:ping(C1)),
+        ?assertEqual(pong, emqtt:ping(C2)),
+        ?assertEqual(pong, emqtt:ping(C3)),
+
+        ok = emqtt:stop(C1),
+        ok = emqtt:stop(C2),
+        ok = emqtt:stop(C3)
+    end).
+
 with_listener(Type, Name, Config, Then) ->
     {ok, _} = emqx:update_config([listeners, Type, Name], {create, Config}),
     try
@@ -373,6 +555,14 @@ with_listener(Type, Name, Config, Then) ->
 
 emqtt_connect_ssl(Host, Port, SSLOpts) ->
     emqtt_connect(fun emqtt:connect/1, #{
+        hosts => [{Host, Port}],
+        connect_timeout => 1,
+        ssl => true,
+        ssl_opts => SSLOpts
+    }).
+
+emqtt_connect_quic(Host, Port, SSLOpts) ->
+    emqtt_connect(fun emqtt:quic_connect/1, #{
         hosts => [{Host, Port}],
         connect_timeout => 1,
         ssl => true,
@@ -440,3 +630,10 @@ generate_tls_certs(Config) ->
 
 format_bind(Bind) ->
     iolist_to_binary(emqx_listeners:format_bind(Bind)).
+
+connect_fun(ssl) ->
+    fun emqtt_connect_ssl/3;
+connect_fun(quic) ->
+    fun emqtt_connect_quic/3;
+connect_fun(wss) ->
+    fun emqtt_connect_wss/3.
