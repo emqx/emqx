@@ -221,8 +221,10 @@ replyctx_send(Result, {MRef, Pid}) ->
 
 %%
 
-run_batch(Batch) ->
-    emqx_router:do_batch(Batch).
+run_batch(Batch) when map_size(Batch) > 0 ->
+    emqx_router:do_batch(Batch);
+run_batch(_Empty) ->
+    #{}.
 
 %%
 
