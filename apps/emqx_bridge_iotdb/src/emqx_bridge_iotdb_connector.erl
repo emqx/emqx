@@ -376,7 +376,7 @@ preproc_data(
                 maps:get(<<"timestamp">>, Data, <<"now">>)
             ),
             measurement => emqx_placeholder:preproc_tmpl(Measurement),
-            data_type => DataType,
+            data_type => emqx_placeholder:preproc_tmpl(DataType),
             value => maybe_preproc_tmpl(Value)
         }
         | Acc
@@ -409,10 +409,11 @@ proc_data(PreProcessedData, Msg) ->
             #{
                 timestamp := TimestampTkn,
                 measurement := Measurement,
-                data_type := DataType,
+                data_type := DataType0,
                 value := ValueTkn
             }
         ) ->
+            DataType = emqx_placeholder:proc_tmpl(DataType0, Msg),
             #{
                 timestamp => iot_timestamp(TimestampTkn, Msg, Nows),
                 measurement => emqx_placeholder:proc_tmpl(Measurement, Msg),
@@ -610,6 +611,12 @@ eval_response_body(Body, Resp) ->
     end.
 
 preproc_data_template(DataList) ->
+    Atom2Bin = fun
+        (Atom, Converter) when is_atom(Atom) ->
+            Converter(Atom);
+        (Bin, _) ->
+            Bin
+    end,
     lists:map(
         fun(
             #{
@@ -620,9 +627,18 @@ preproc_data_template(DataList) ->
             }
         ) ->
             #{
-                timestamp => emqx_placeholder:preproc_tmpl(Timestamp),
+                timestamp => emqx_placeholder:preproc_tmpl(
+                    Atom2Bin(Timestamp, fun erlang:atom_to_binary/1)
+                ),
                 measurement => emqx_placeholder:preproc_tmpl(Measurement),
-                data_type => DataType,
+                data_type => emqx_placeholder:preproc_tmpl(
+                    Atom2Bin(
+                        DataType,
+                        fun(Atom) ->
+                            erlang:list_to_binary(string:uppercase(erlang:atom_to_list(Atom)))
+                        end
+                    )
+                ),
                 value => emqx_placeholder:preproc_tmpl(Value)
             }
         end,
