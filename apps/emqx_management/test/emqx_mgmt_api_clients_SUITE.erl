@@ -179,7 +179,7 @@ t_clients_bad_value_type(_) ->
         #{
             <<"code">> := <<"INVALID_PARAMETER">>,
             <<"message">> :=
-                <<"the ip_address parameter expected type is ip, but the got value is 127.0.0.1:8080">>
+                <<"the ip_address parameter expected type is ip, but the value is 127.0.0.1:8080">>
         },
         emqx_utils_json:decode(Resp, [return_maps])
     ).
