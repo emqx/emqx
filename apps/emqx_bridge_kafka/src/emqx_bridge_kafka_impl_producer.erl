@@ -135,7 +135,7 @@ create_producers_for_bridge_v2(
     KafkaHeadersTokens = preproc_kafka_headers(maps:get(kafka_headers, KafkaConfig, undefined)),
     KafkaExtHeadersTokens = preproc_ext_headers(maps:get(kafka_ext_headers, KafkaConfig, [])),
     KafkaHeadersValEncodeMode = maps:get(kafka_header_value_encode_mode, KafkaConfig, none),
-    {_BridgeType, BridgeName} = emqx_bridge_v2:parse_id(BridgeV2Id),
+    #{name := BridgeName} = emqx_bridge_v2:parse_id(BridgeV2Id),
     TestIdStart = string:find(BridgeV2Id, ?TEST_ID_PREFIX),
     IsDryRun =
         case TestIdStart of

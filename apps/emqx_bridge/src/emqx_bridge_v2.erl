@@ -54,6 +54,7 @@
     check_deps_and_remove/3,
     check_deps_and_remove/4
 ]).
+-export([lookup_action/2, lookup_source/2]).
 
 %% Operations
 
@@ -221,6 +222,12 @@ unload_bridges(ConfRooKey) ->
 -spec lookup(bridge_v2_type(), bridge_v2_name()) -> {ok, bridge_v2_info()} | {error, not_found}.
 lookup(Type, Name) ->
     lookup(?ROOT_KEY_ACTIONS, Type, Name).
+
+lookup_action(Type, Name) ->
+    lookup(?ROOT_KEY_ACTIONS, Type, Name).
+
+lookup_source(Type, Name) ->
+    lookup(?ROOT_KEY_SOURCES, Type, Name).
 
 -spec lookup(root_cfg_key(), bridge_v2_type(), bridge_v2_name()) ->
     {ok, bridge_v2_info()} | {error, not_found}.
@@ -900,9 +907,11 @@ do_get_matched_bridge_id(Topic, Filter, BType, BName, Acc) ->
 parse_id(Id) ->
     case binary:split(Id, <<":">>, [global]) of
         [Type, Name] ->
-            {Type, Name};
+            #{kind => undefined, type => Type, name => Name};
         [<<"action">>, Type, Name | _] ->
-            {Type, Name};
+            #{kind => action, type => Type, name => Name};
+        [<<"source">>, Type, Name | _] ->
+            #{kind => source, type => Type, name => Name};
         _X ->
             error({error, iolist_to_binary(io_lib:format("Invalid id: ~p", [Id]))})
     end.

@@ -442,6 +442,23 @@ try_decode_error(Body0) ->
             Body0
     end.
 
+create_rule_api(Opts) ->
+    #{
+        sql := SQL,
+        actions := RuleActions
+    } = Opts,
+    Params = #{
+        enable => true,
+        sql => SQL,
+        actions => RuleActions
+    },
+    Path = emqx_mgmt_api_test_util:api_path(["rules"]),
+    ct:pal("create rule:\n  ~p", [Params]),
+    Method = post,
+    Res = request(Method, Path, Params),
+    ct:pal("create rule results:\n  ~p", [Res]),
+    Res.
+
 create_rule_and_action_http(BridgeType, RuleTopic, Config) ->
     create_rule_and_action_http(BridgeType, RuleTopic, Config, _Opts = #{}).
 

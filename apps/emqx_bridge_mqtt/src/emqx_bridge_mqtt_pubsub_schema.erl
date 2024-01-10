@@ -82,6 +82,7 @@ fields("mqtt_subscriber_source") ->
 fields(ingress_parameters) ->
     Fields0 = emqx_bridge_mqtt_connector_schema:fields("ingress"),
     Fields1 = proplists:delete(pool_size, Fields0),
+    %% FIXME: should we make `local` hidden?
     Fields1;
 fields(action_resource_opts) ->
     UnsupportedOpts = [enable_batch, batch_size, batch_time],
@@ -120,8 +121,6 @@ desc(ingress_parameters) ->
     ?DESC(ingress_parameters);
 desc(Method) when Method =:= "get"; Method =:= "put"; Method =:= "post" ->
     ["Configuration for WebHook using `", string:to_upper(Method), "` method."];
-desc("config_connector") ->
-    ?DESC("desc_config");
 desc("http_action") ->
     ?DESC("desc_config");
 desc("parameters_opts") ->
