@@ -22,8 +22,7 @@
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
-
--define(CLUSTER_RPC_SHARD, emqx_cluster_rpc_shard).
+-include_lib("emqx/include/asserts.hrl").
 
 -import(emqx_mgmt_api_test_util, [
     request_api/2, request_api/4, request_api/5, api_path/1, auth_header_/0
@@ -33,25 +32,38 @@ all() ->
     emqx_common_test_helpers:all(?MODULE).
 
 init_per_suite(Config) ->
-    application:load(emqx_conf),
-    ok = ekka:start(),
-    ok = mria_rlog:wait_for_shards([?CLUSTER_RPC_SHARD], infinity),
-    emqx_retainer_SUITE:load_conf(),
-    emqx_mgmt_api_test_util:init_suite([emqx_retainer, emqx_conf]),
+    Apps = emqx_cth_suite:start(
+        [
+            emqx_conf,
+            emqx,
+            emqx_retainer,
+            emqx_management,
+            {emqx_dashboard, "dashboard.listeners.http { enable = true, bind = 18083 }"}
+        ],
+        #{
+            work_dir => emqx_cth_suite:work_dir(Config)
+        }
+    ),
+    _ = emqx_common_test_http:create_default_app(),
     %% make sure no "$SYS/#" topics
-    emqx_conf:update([sys_topics], raw_systopic_conf(), #{override_to => cluster}),
-    Config.
+    _ = emqx_conf:update([sys_topics], raw_systopic_conf(), #{override_to => cluster}),
+    [{apps, Apps} | Config].
 
 end_per_suite(Config) ->
-    ekka:stop(),
-    mria:stop(),
-    mria_mnesia:delete_schema(),
-    emqx_mgmt_api_test_util:end_suite([emqx_retainer, emqx_conf]),
-    Config.
+    emqx_common_test_http:delete_default_app(),
+    emqx_cth_suite:stop(?config(apps, Config)).
 
 init_per_testcase(_, Config) ->
-    {ok, _} = emqx_cluster_rpc:start_link(),
-    Config.
+    snabbkaffe:start_trace(),
+    emqx_retainer:clean(),
+    {ok, C} = emqtt:start_link([{clean_start, true}, {proto_ver, v5}]),
+    {ok, _} = emqtt:connect(C),
+    [{client, C} | Config].
+
+end_per_testcase(_, Config) ->
+    ok = emqtt:disconnect(?config(client, Config)),
+    snabbkaffe:stop(),
+    ok.
 
 %%------------------------------------------------------------------------------
 %% Test Cases
@@ -65,7 +77,6 @@ t_config(_Config) ->
         #{
             backend := _,
             enable := _,
-            flow_control := _,
             max_payload_size := _,
             msg_clear_interval := _,
             msg_expiry_interval := _
@@ -90,28 +101,22 @@ t_config(_Config) ->
     UpdateConf(false),
     UpdateConf(true).
 
-t_messages(_) ->
-    {ok, C1} = emqtt:start_link([{clean_start, true}, {proto_ver, v5}]),
-    {ok, _} = emqtt:connect(C1),
-    emqx_retainer:clean(),
+t_messages1(Config) ->
+    C = ?config(client, Config),
 
     Each = fun(I) ->
         emqtt:publish(
-            C1,
+            C,
             <<"retained/", (I + 60)>>,
             <<"retained">>,
             [{qos, 0}, {retain, true}]
         )
     end,
 
-    ?check_trace(
-        {ok, {ok, _}} =
-            ?wait_async_action(
-                lists:foreach(Each, lists:seq(1, 5)),
-                #{?snk_kind := message_retained, topic := <<"retained/A">>},
-                500
-            ),
-        []
+    ?assertWaitEvent(
+        lists:foreach(Each, lists:seq(1, 5)),
+        #{?snk_kind := message_retained, topic := <<"retained/A">>},
+        500
     ),
 
     {ok, MsgsJson} = request_api(get, api_path(["mqtt", "retainer", "messages"])),
@@ -133,32 +138,120 @@ t_messages(_) ->
             from_username := _
         },
         First
+    ).
+
+t_messages2(Config) ->
+    C = ?config(client, Config),
+
+    ok = lists:foreach(
+        fun(Topic) ->
+            ?assertWaitEvent(
+                emqtt:publish(C, Topic, <<"retained">>, [{qos, 0}, {retain, true}]),
+                #{?snk_kind := message_retained, topic := Topic},
+                500
+            )
+        end,
+        [<<"c">>, <<"c/1">>, <<"c/1/1">>]
     ),
 
-    ok = emqtt:disconnect(C1).
+    {ok, MsgsJson} = request_api(get, api_path(["mqtt", "retainer", "messages?topic=c"])),
 
-t_messages_page(_) ->
-    {ok, C1} = emqtt:start_link([{clean_start, true}, {proto_ver, v5}]),
-    {ok, _} = emqtt:connect(C1),
-    emqx_retainer:clean(),
+    #{data := Msgs, meta := _} = decode_json(MsgsJson),
+
+    ?assertEqual(1, length(Msgs)).
+
+t_message1(Config) ->
+    C = ?config(client, Config),
+
+    ?assertWaitEvent(
+        emqtt:publish(C, <<"c/1">>, <<"retained">>, [{qos, 0}, {retain, true}]),
+        #{?snk_kind := message_retained, topic := <<"c/1">>},
+        500
+    ),
+
+    ?assertMatch(
+        {error, {_, 404, _}},
+        request_api(
+            get,
+            api_path(["mqtt", "retainer", "message", "c"])
+        )
+    ),
+
+    {ok, Json} =
+        request_api(
+            get,
+            api_path(["mqtt", "retainer", "message", "c%2F1"])
+        ),
+
+    ?assertMatch(
+        #{
+            topic := <<"c/1">>,
+            payload := <<"cmV0YWluZWQ=">>
+        },
+        decode_json(Json)
+    ).
+
+t_message2(Config) ->
+    C = ?config(client, Config),
+
+    ?assertWaitEvent(
+        emqtt:publish(C, <<"c">>, <<"retained">>, [{qos, 0}, {retain, true}]),
+        #{?snk_kind := message_retained, topic := <<"c">>},
+        500
+    ),
+
+    ?assertMatch(
+        {error, {_, 404, _}},
+        request_api(
+            get,
+            api_path(["mqtt", "retainer", "message", "c%2F%2B"])
+        )
+    ),
+
+    {ok, Json0} =
+        request_api(
+            get,
+            api_path(["mqtt", "retainer", "message", "c"])
+        ),
+
+    ?assertMatch(
+        #{
+            topic := <<"c">>,
+            payload := <<"cmV0YWluZWQ=">>
+        },
+        decode_json(Json0)
+    ),
+
+    {ok, Json1} =
+        request_api(
+            get,
+            api_path(["mqtt", "retainer", "message", "c%2F%23"])
+        ),
+
+    ?assertMatch(
+        #{
+            topic := <<"c">>,
+            payload := <<"cmV0YWluZWQ=">>
+        },
+        decode_json(Json1)
+    ).
+
+t_messages_page(Config) ->
+    C = ?config(client, Config),
 
     Each = fun(I) ->
         emqtt:publish(
-            C1,
+            C,
             <<"retained/", (I + 60)>>,
             <<"retained">>,
             [{qos, 0}, {retain, true}]
         )
     end,
 
-    ?check_trace(
-        {ok, {ok, _}} =
-            ?wait_async_action(
-                lists:foreach(Each, lists:seq(1, 5)),
-                #{?snk_kind := message_retained, topic := <<"retained/A">>},
-                500
-            ),
-        []
+    ?assertWaitEvent(
+        lists:foreach(Each, lists:seq(1, 5)),
+        #{?snk_kind := message_retained, topic := <<"retained/A">>},
+        500
     ),
     Page = 4,
 
@@ -187,17 +280,13 @@ t_messages_page(_) ->
             from_username := _
         },
         OnlyOne
-    ),
+    ).
 
-    ok = emqtt:disconnect(C1).
-
-t_lookup_and_delete(_) ->
-    {ok, C1} = emqtt:start_link([{clean_start, true}, {proto_ver, v5}]),
-    {ok, _} = emqtt:connect(C1),
-    emqx_retainer:clean(),
+t_lookup_and_delete(Config) ->
+    C = ?config(client, Config),
     timer:sleep(300),
 
-    emqtt:publish(C1, <<"retained/api">>, <<"retained">>, [{qos, 0}, {retain, true}]),
+    emqtt:publish(C, <<"retained/api">>, <<"retained">>, [{qos, 0}, {retain, true}]),
     timer:sleep(300),
 
     API = api_path(["mqtt", "retainer", "message", "retained%2Fapi"]),
@@ -220,9 +309,7 @@ t_lookup_and_delete(_) ->
     {ok, []} = request_api(delete, API),
 
     {error, {"HTTP/1.1", 404, "Not Found"}} = request_api(get, API),
-    {error, {"HTTP/1.1", 404, "Not Found"}} = request_api(delete, API),
-
-    ok = emqtt:disconnect(C1).
+    {error, {"HTTP/1.1", 404, "Not Found"}} = request_api(delete, API).
 
 t_change_storage_type(_Config) ->
     Path = api_path(["mqtt", "retainer"]),
@@ -310,14 +397,12 @@ t_change_storage_type(_Config) ->
 
     ok.
 
-t_match_and_clean(_) ->
-    {ok, C1} = emqtt:start_link([{clean_start, true}, {proto_ver, v5}]),
-    {ok, _} = emqtt:connect(C1),
-    emqx_retainer:clean(),
+t_match_and_clean(Config) ->
+    C = ?config(client, Config),
     timer:sleep(300),
 
     _ = [
-        emqtt:publish(C1, <<P/binary, "/", S/binary>>, <<"retained">>, [{qos, 0}, {retain, true}])
+        emqtt:publish(C, <<P/binary, "/", S/binary>>, <<"retained">>, [{qos, 0}, {retain, true}])
      || P <- [<<"t">>, <<"f">>], S <- [<<"1">>, <<"2">>, <<"3">>]
     ],
 
@@ -337,20 +422,16 @@ t_match_and_clean(_) ->
     {ok, []} = request_api(delete, CleanAPI),
 
     {ok, LookupJson2} = request_api(get, API),
-    ?assertMatch(#{data := []}, decode_json(LookupJson2)),
-
-    ok = emqtt:disconnect(C1).
-
-%%--------------------------------------------------------------------
-%% HTTP Request
-%%--------------------------------------------------------------------
-decode_json(Data) ->
-    BinJson = emqx_utils_json:decode(Data, [return_maps]),
-    emqx_utils_maps:unsafe_atom_key_map(BinJson).
+    ?assertMatch(#{data := []}, decode_json(LookupJson2)).
 
 %%--------------------------------------------------------------------
 %% Internal funcs
 %%--------------------------------------------------------------------
+
+decode_json(Data) ->
+    BinJson = emqx_utils_json:decode(Data, [return_maps]),
+    emqx_utils_maps:unsafe_atom_key_map(BinJson).
+
 raw_systopic_conf() ->
     #{
         <<"sys_event_messages">> =>

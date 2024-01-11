@@ -328,15 +328,15 @@ search_table(Tokens, Now) ->
 search_table(undefined, Tokens, Now) ->
     Ms = make_message_match_spec(Tokens, Now),
     ets:table(?TAB_MESSAGE, [{traverse, {select, Ms}}]);
-search_table(Index, Tokens, Now) ->
-    Ms = make_index_match_spec(Index, Tokens, Now),
+search_table(Index, FilterTokens, Now) ->
+    {Ms, IsExactMs} = make_index_match_spec(Index, FilterTokens, Now),
     Topics = [
         emqx_retainer_index:restore_topic(Key)
      || #retained_index{key = Key} <- ets:select(?TAB_INDEX, Ms)
     ],
     RetainedMsgQH = qlc:q([
         ets:lookup(?TAB_MESSAGE, TopicTokens)
-     || TopicTokens <- Topics
+     || TopicTokens <- Topics, match(IsExactMs, TopicTokens, FilterTokens)
     ]),
     qlc:q([
         RetainedMsg
@@ -347,6 +347,9 @@ search_table(Index, Tokens, Now) ->
         ] <- RetainedMsgQH,
         (ExpiryTime == 0) or (ExpiryTime > Now)
     ]).
+
+match(_IsExactMs = true, _TopicTokens, _FilterTokens) -> true;
+match(_IsExactMs = false, TopicTokens, FilterTokens) -> emqx_topic:match(TopicTokens, FilterTokens).
 
 clear_batch(Indices, QC) ->
     {Result, Rows} = qlc_next_answers(QC, ?CLEAR_BATCH_SIZE),
@@ -421,9 +424,9 @@ make_message_match_spec(Tokens, NowMs) ->
     [{MsHd, [{'orelse', {'=:=', '$3', 0}, {'>', '$3', NowMs}}], ['$_']}].
 
 make_index_match_spec(Index, Tokens, NowMs) ->
-    Cond = emqx_retainer_index:condition(Index, Tokens),
+    {Cond, IsExact} = emqx_retainer_index:condition(Index, Tokens),
     MsHd = #retained_index{key = Cond, expiry_time = '$3'},
-    [{MsHd, [{'orelse', {'=:=', '$3', 0}, {'>', '$3', NowMs}}], ['$_']}].
+    {[{MsHd, [{'orelse', {'=:=', '$3', 0}, {'>', '$3', NowMs}}], ['$_']}], IsExact}.
 
 is_table_full() ->
     Limit = emqx:get_config([retainer, backend, max_retained_messages]),
