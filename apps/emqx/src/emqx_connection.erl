@@ -638,8 +638,11 @@ handle_msg({event, disconnected}, State = #state{channel = Channel}) ->
     emqx_cm:set_chan_info(ClientId, info(State)),
     {ok, State};
 handle_msg({event, _Other}, State = #state{channel = Channel}) ->
-    ClientId = emqx_channel:info(clientid, Channel),
-    emqx_cm:insert_channel_info(ClientId, info(State), stats(State)),
+    case emqx_channel:info(clientid, Channel) of
+        %% ClientId is yet unknown (i.e. connect packet is not received yet)
+        undefined -> ok;
+        ClientId -> emqx_cm:insert_channel_info(ClientId, info(State), stats(State))
+    end,
     {ok, State};
 handle_msg({timeout, TRef, TMsg}, State) ->
     handle_timeout(TRef, TMsg, State);
