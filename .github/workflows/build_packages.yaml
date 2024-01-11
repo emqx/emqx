@@ -54,7 +54,7 @@ on:
       otp_vsn:
         required: false
         type: string
-        default: '26.1.2-3'
+        default: '26.2.1-2'
       elixir_vsn:
         required: false
         type: string
@@ -62,7 +62,7 @@ on:
       builder_vsn:
         required: false
         type: string
-        default: '5.2-9'
+        default: '5.3-2'
 
 jobs:
   mac:
