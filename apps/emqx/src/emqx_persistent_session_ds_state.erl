@@ -120,7 +120,7 @@
 -define(rank_tab, emqx_ds_session_ranks).
 -define(pmap_tables, [?stream_tab, ?seqno_tab, ?rank_tab, ?subscription_tab]).
 
--ifndef(TEST).
+-ifndef(CHECK_SEQNO).
 -define(set_dirty, dirty => true).
 -define(unset_dirty, dirty => false).
 -else.
@@ -562,7 +562,7 @@ ro_transaction(Fun) ->
 
 -compile({inline, check_sequence/1}).
 
--ifdef(TEST).
+-ifdef(CHECK_SEQNO).
 do_seqno() ->
     case erlang:get(?MODULE) of
         undefined ->
