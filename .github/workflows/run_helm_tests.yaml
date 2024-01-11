@@ -172,7 +172,7 @@ jobs:
         path: paho.mqtt.testing
     - name: install pytest
       run: |
-        pip install pytest==7.1.2 pytest-retry==1.3.0
+        pip install -r source/.ci/docker-compose-file/python/requirements.txt
         echo "$HOME/.local/bin" >> $GITHUB_PATH
     - name: run paho test
       timeout-minutes: 10

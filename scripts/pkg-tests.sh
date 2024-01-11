@@ -91,7 +91,7 @@ emqx_prepare(){
         *)
             ;;
     esac
-    pip3 install pytest
+    pip3 install -r "$CODE_PATH/scripts/pytest.requirements.txt"
 }
 
 emqx_test(){

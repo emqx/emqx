@@ -8,7 +8,9 @@ on:
   schedule:
     - cron: '25 21 * * 6'
   push:
-    branches: [ "master" ]
+    branches:
+      - master
+      - 'release-5[0-9]'
   workflow_dispatch:
 
 permissions: read-all
