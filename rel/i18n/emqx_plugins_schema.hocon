@@ -22,9 +22,9 @@ install_dir.label:
 """Install Directory"""
 
 name_vsn.desc:
-"""The {name}-{version} of the plugin.<br/>
-It should match the plugin application name-version as the for the plugin release package name<br/>
-For example: my_plugin-0.1.0."""
+"""The `{name}-{version}` of the plugin.<br/>
+It should match the plugin application name-version as plugin release package name<br/>
+For example: `my_plugin-0.1.0`."""
 
 name_vsn.label:
 """Name-Version"""
