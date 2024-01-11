@@ -329,6 +329,12 @@ generate_http_code_map(message_not_found, Topic) ->
         message =>
             iolist_to_binary(io_lib:format("Not found messages for ~s", [Topic]))
     };
+generate_http_code_map(invalid_topic_name, Topic) ->
+    #{
+        code => ?INVALID_TOPIC,
+        message =>
+            iolist_to_binary(io_lib:format("The topic name ~s is invalid", [Topic]))
+    };
 generate_http_code_map(invalid_node, Node) ->
     #{
         code => ?INVALID_NODE,
