@@ -173,7 +173,9 @@ collect_mf(_Registry, Callback) ->
     Metrics = emqx_metrics:all(),
     Stats = emqx_stats:getstats(),
     VMData = emqx_vm_data(),
+    LicenseData = emqx_license_data(),
     ClusterData = emqx_cluster_data(),
+    _ = [add_collect_family(Name, LicenseData, Callback, gauge) || Name <- emqx_license()],
     _ = [add_collect_family(Name, Stats, Callback, gauge) || Name <- emqx_stats:names()],
     _ = [add_collect_family(Name, VMData, Callback, gauge) || Name <- emqx_vm()],
     _ = [add_collect_family(Name, ClusterData, Callback, gauge) || Name <- emqx_cluster()],
@@ -192,7 +194,9 @@ collect(<<"json">>) ->
     Metrics = emqx_metrics:all(),
     Stats = emqx_stats:getstats(),
     VMData = emqx_vm_data(),
+    LicenseData = emqx_license_data(),
     #{
+        license => maps:from_list([collect_stats(Name, LicenseData) || Name <- emqx_license()]),
         stats => maps:from_list([collect_stats(Name, Stats) || Name <- emqx_stats:names()]),
         metrics => maps:from_list([collect_stats(Name, VMData) || Name <- emqx_vm()]),
         packets => maps:from_list([collect_stats(Name, Metrics) || Name <- emqx_metrics_packets()]),
@@ -506,7 +510,6 @@ emqx_collect(emqx_authentication_failure, Stats) ->
     counter_metric(?C('authentication.failure', Stats));
 %%--------------------------------------------------------------------
 %% VM
-
 emqx_collect(emqx_vm_cpu_use, VMData) ->
     gauge_metric(?C(cpu_use, VMData));
 emqx_collect(emqx_vm_cpu_idle, VMData) ->
@@ -522,7 +525,11 @@ emqx_collect(emqx_vm_used_memory, VMData) ->
 emqx_collect(emqx_cluster_nodes_running, ClusterData) ->
     gauge_metric(?C(nodes_running, ClusterData));
 emqx_collect(emqx_cluster_nodes_stopped, ClusterData) ->
-    gauge_metric(?C(nodes_stopped, ClusterData)).
+    gauge_metric(?C(nodes_stopped, ClusterData));
+%%--------------------------------------------------------------------
+%% License
+emqx_collect(emqx_license_expiry_at, LicenseData) ->
+    gauge_metric(?C(expiry_at, LicenseData)).
 
 %%--------------------------------------------------------------------
 %% Indicators
@@ -685,6 +692,16 @@ emqx_cluster_data() ->
     [
         {nodes_running, length(Running)},
         {nodes_stopped, length(Stopped)}
+    ].
+
+emqx_license() ->
+    [
+        emqx_license_expiry_at
+    ].
+
+emqx_license_data() ->
+    [
+        {expiry_at, emqx_license_checker:expiry_epoch()}
     ].
 
 %% deprecated_since 5.0.10, remove this when 5.1.x
