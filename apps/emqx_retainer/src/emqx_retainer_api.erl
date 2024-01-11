@@ -181,15 +181,27 @@ lookup_retained(get, #{query_string := Qs}) ->
     Page = maps:get(<<"page">>, Qs, 1),
     Limit = maps:get(<<"limit">>, Qs, emqx_mgmt:default_row_limit()),
     Topic = maps:get(<<"topic">>, Qs, undefined),
-    {ok, Msgs} = emqx_retainer_mnesia:page_read(undefined, Topic, Page, Limit),
+    {ok, HasNext, Msgs} = emqx_retainer_mnesia:page_read(undefined, Topic, Page, Limit),
+    Meta =
+        case Topic of
+            undefined ->
+                #{count => emqx_retainer_mnesia:size(?TAB_MESSAGE)};
+            _ ->
+                #{}
+        end,
     {200, #{
         data => [format_message(Msg) || Msg <- Msgs],
-        meta => #{page => Page, limit => Limit, count => emqx_retainer_mnesia:size(?TAB_MESSAGE)}
+        meta =>
+            Meta#{
+                page => Page,
+                limit => Limit,
+                hasnext => HasNext
+            }
     }}.
 
 with_topic(get, #{bindings := Bindings}) ->
     Topic = maps:get(topic, Bindings),
-    {ok, Msgs} = emqx_retainer_mnesia:page_read(undefined, Topic, 1, 1),
+    {ok, _, Msgs} = emqx_retainer_mnesia:page_read(undefined, Topic, 1, 1),
     case Msgs of
         [H | _] ->
             {200, format_detail_message(H)};
@@ -202,12 +214,12 @@ with_topic(get, #{bindings := Bindings}) ->
 with_topic(delete, #{bindings := Bindings}) ->
     Topic = maps:get(topic, Bindings),
     case emqx_retainer_mnesia:page_read(undefined, Topic, 1, 1) of
-        {ok, []} ->
+        {ok, _, []} ->
             {404, #{
                 code => <<"NOT_FOUND">>,
                 message => <<"Viewed message doesn't exist">>
             }};
-        {ok, _} ->
+        {ok, _, _} ->
             emqx_retainer_mnesia:delete_message(undefined, Topic),
             {204}
     end.
