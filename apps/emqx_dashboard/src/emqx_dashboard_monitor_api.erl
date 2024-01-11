@@ -151,7 +151,11 @@ monitor_current(get, #{bindings := Bindings}) ->
     RawNode = maps:get(node, Bindings, <<"all">>),
     emqx_utils_api:with_node_or_cluster(RawNode, fun current_rate/1).
 
+-spec current_rate(atom()) ->
+    {error, term()}
+    | {ok, Result :: map()}.
 current_rate(Node) ->
+    %% Node :: 'all' or `NodeName`
     case emqx_dashboard_monitor:current_rate(Node) of
         {badrpc, _} = BadRpc ->
             {error, BadRpc};
