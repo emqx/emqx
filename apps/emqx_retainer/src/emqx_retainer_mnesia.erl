@@ -231,20 +231,18 @@ page_read(_, Topic, Page, Limit) ->
             false ->
                 more
         end,
-    PageRows =
-        case SkipResult of
-            closed ->
-                [];
-            more ->
-                case qlc_next_answers(Cursor, Limit) of
-                    {closed, Rows} ->
-                        Rows;
-                    {more, Rows} ->
-                        qlc:delete_cursor(Cursor),
-                        Rows
-                end
-        end,
-    {ok, PageRows}.
+    case SkipResult of
+        closed ->
+            {ok, false, []};
+        more ->
+            case qlc_next_answers(Cursor, Limit) of
+                {closed, Rows} ->
+                    {ok, false, Rows};
+                {more, Rows} ->
+                    qlc:delete_cursor(Cursor),
+                    {ok, true, Rows}
+            end
+    end.
 
 clean(_) ->
     _ = mria:clear_table(?TAB_MESSAGE),

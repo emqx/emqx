@@ -133,7 +133,7 @@ t_store_and_clean(_) ->
     ),
     timer:sleep(100),
 
-    {ok, List} = emqx_retainer:page_read(<<"retained">>, 1, 10),
+    {ok, _, List} = emqx_retainer:page_read(<<"retained">>, 1, 10),
     ?assertEqual(1, length(List)),
     ?assertMatch(
         {ok, [#message{payload = <<"this is a retained message">>}]},
@@ -159,7 +159,7 @@ t_store_and_clean(_) ->
     ),
 
     ok = emqx_retainer:clean(),
-    {ok, List2} = emqx_retainer:page_read(<<"retained">>, 1, 10),
+    {ok, _, List2} = emqx_retainer:page_read(<<"retained">>, 1, 10),
     ?assertEqual(0, length(List2)),
     ?assertMatch(
         {ok, []},
@@ -486,12 +486,12 @@ t_clear_expired(_) ->
         ),
         timer:sleep(1000),
 
-        {ok, List} = emqx_retainer:page_read(<<"retained/+">>, 1, 10),
+        {ok, _, List} = emqx_retainer:page_read(<<"retained/+">>, 1, 10),
         ?assertEqual(5, erlang:length(List)),
 
         timer:sleep(4500),
 
-        {ok, List2} = emqx_retainer:page_read(<<"retained/+">>, 1, 10),
+        {ok, _, List2} = emqx_retainer:page_read(<<"retained/+">>, 1, 10),
         ?assertEqual(0, erlang:length(List2)),
 
         ok = emqtt:disconnect(C1)
@@ -522,7 +522,7 @@ t_max_payload_size(_) ->
         ),
 
         timer:sleep(500),
-        {ok, List} = emqx_retainer:page_read(<<"retained/+">>, 1, 10),
+        {ok, _, List} = emqx_retainer:page_read(<<"retained/+">>, 1, 10),
         ?assertEqual(1, erlang:length(List)),
 
         ok = emqtt:disconnect(C1)
@@ -546,10 +546,10 @@ t_page_read(_) ->
     lists:foreach(Fun, lists:seq(1, 9)),
     timer:sleep(200),
 
-    {ok, List} = emqx_retainer:page_read(<<"retained/+">>, 1, 5),
+    {ok, _, List} = emqx_retainer:page_read(<<"retained/+">>, 1, 5),
     ?assertEqual(5, length(List)),
 
-    {ok, List2} = emqx_retainer:page_read(<<"retained/+">>, 2, 5),
+    {ok, _, List2} = emqx_retainer:page_read(<<"retained/+">>, 2, 5),
     ?assertEqual(4, length(List2)),
 
     ok = emqtt:disconnect(C1).
