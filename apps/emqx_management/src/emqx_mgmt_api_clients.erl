@@ -938,7 +938,8 @@ format_channel_info(WhichNode, {_, ClientInfo0, ClientStats}) ->
             upgrade_qos,
             zone,
             %% session_id, defined in emqx_session.erl
-            id
+            id,
+            acl
         ],
     TimesKeys = [created_at, connected_at, disconnected_at],
     %% format timestamp to rfc3339
