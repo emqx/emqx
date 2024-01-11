@@ -22,6 +22,7 @@
 -include_lib("emqx/include/logger.hrl").
 -include_lib("emqx_utils/include/emqx_utils_api.hrl").
 -include_lib("emqx_bridge/include/emqx_bridge.hrl").
+-include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
 -import(hoconsc, [mk/2, array/1, enum/1]).
 
@@ -564,6 +565,7 @@ schema("/bridges_probe") ->
         {ok, #{body := #{<<"type">> := BridgeType} = Params}} ->
             Params1 = maybe_deobfuscate_bridge_probe(Params),
             Params2 = maps:remove(<<"type">>, Params1),
+            ?tp(bridge_v1_api_dry_run, #{params => Params2}),
             case emqx_bridge_resource:create_dry_run(BridgeType, Params2) of
                 ok ->
                     ?NO_CONTENT;

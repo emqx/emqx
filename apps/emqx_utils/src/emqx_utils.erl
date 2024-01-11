@@ -793,9 +793,9 @@ do_is_redacted(K, ?REDACT_VAL, Fun) ->
     Fun(K);
 do_is_redacted(K, <<?REDACT_VAL>>, Fun) ->
     Fun(K);
-do_is_redacted(_K, V, _Fun) when is_function(V, 0) ->
-    %% already wrapped by `emqx_secret' or other module
-    true;
+do_is_redacted(K, WrappedFun, Fun) when is_function(WrappedFun, 0) ->
+    %% wrapped by `emqx_secret' or other module
+    do_is_redacted(K, WrappedFun(), Fun);
 do_is_redacted(_K, _V, _Fun) ->
     false.
 
