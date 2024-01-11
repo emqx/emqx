@@ -41,7 +41,11 @@
 -define(POOL, router_syncer_pool).
 
 -define(MAX_BATCH_SIZE, 1000).
--define(MIN_SYNC_INTERVAL, 1).
+
+%% How long to idle (ms) after receiving a new operation before triggering batch sync?
+%% Zero effectively just schedules out the process, so that it has a chance to receive
+%% more operations, and introduce no minimum delay.
+-define(MIN_SYNC_INTERVAL, 0).
 
 %% How long (ms) to idle after observing a batch sync error?
 %% Should help to avoid excessive retries in situations when errors are caused by
