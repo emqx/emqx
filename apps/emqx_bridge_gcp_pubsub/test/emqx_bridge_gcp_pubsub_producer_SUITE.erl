@@ -1898,3 +1898,40 @@ t_bad_attributes(Config) ->
         end
     ),
     ok.
+
+t_deprecated_connector_resource_opts(Config) ->
+    ?check_trace(
+        begin
+            ServiceAccountJSON = ?config(service_account_json, Config),
+            AllResOpts = #{
+                <<"batch_size">> => 1,
+                <<"batch_time">> => <<"0ms">>,
+                <<"buffer_mode">> => <<"memory_only">>,
+                <<"buffer_seg_bytes">> => <<"10MB">>,
+                <<"health_check_interval">> => <<"15s">>,
+                <<"inflight_window">> => 100,
+                <<"max_buffer_bytes">> => <<"256MB">>,
+                <<"metrics_flush_interval">> => <<"1s">>,
+                <<"query_mode">> => <<"sync">>,
+                <<"request_ttl">> => <<"45s">>,
+                <<"resume_interval">> => <<"15s">>,
+                <<"start_after_created">> => true,
+                <<"start_timeout">> => <<"5s">>,
+                <<"worker_pool_size">> => <<"1">>
+            },
+            RawConnectorConfig = #{
+                <<"enable">> => true,
+                <<"service_account_json">> => ServiceAccountJSON,
+                <<"resource_opts">> => AllResOpts
+            },
+            ?assertMatch(
+                {ok, _},
+                emqx:update_config([connectors, ?CONNECTOR_TYPE, c], RawConnectorConfig, #{})
+            ),
+            ok
+        end,
+        fun(_Trace) ->
+            ok
+        end
+    ),
+    ok.

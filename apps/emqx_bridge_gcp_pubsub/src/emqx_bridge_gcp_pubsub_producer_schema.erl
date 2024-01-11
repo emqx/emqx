@@ -81,7 +81,20 @@ fields("config_connector") ->
     emqx_connector_schema:common_fields() ++
         connector_config_fields();
 fields(connector_resource_opts) ->
-    emqx_connector_schema:resource_opts_fields();
+    %% for backwards compatibility...
+    Fields = proplists:get_keys(emqx_connector_schema:resource_opts_fields()),
+    AllFields = proplists:get_keys(emqx_resource_schema:create_opts([])),
+    DeprecatedFields = AllFields -- Fields,
+    Overrides = lists:map(
+        fun(Field) ->
+            {Field, #{
+                importance => ?IMPORTANCE_HIDDEN,
+                deprecated => {since, "5.5.0"}
+            }}
+        end,
+        DeprecatedFields
+    ),
+    emqx_resource_schema:create_opts(Overrides);
 %%=========================================
 %% HTTP API fields: action
 %%=========================================
