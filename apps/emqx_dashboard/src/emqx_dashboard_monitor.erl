@@ -268,6 +268,9 @@ merge_cluster_rate(Node, Cluster) ->
                 NCluster#{retained_msg_count => V};
             (license_quota, V, NCluster) ->
                 NCluster#{license_quota => V};
+            %% for cluster sample, ignore node_uptime
+            (node_uptime, _V, NCluster) ->
+                NCluster;
             (Key, Value, NCluster) ->
                 ClusterValue = maps:get(Key, NCluster, 0),
                 NCluster#{Key => Value + ClusterValue}
@@ -427,7 +430,8 @@ stats(dropped) -> emqx_metrics:val('messages.dropped').
 non_rate_value() ->
     #{
         retained_msg_count => emqx_retainer:retained_count(),
-        license_quota => license_quota()
+        license_quota => license_quota(),
+        node_uptime => emqx_sys:uptime()
     }.
 
 license_quota() ->
