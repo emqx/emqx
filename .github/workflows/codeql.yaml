@@ -4,9 +4,6 @@ on:
   schedule:
     - cron: '33 14 * * 4'
   workflow_dispatch:
-    inputs:
-      ref:
-        required: false
 
 permissions:
   contents: read
@@ -25,13 +22,18 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        language: [ 'cpp', 'python' ]
+        branch:
+          - master
+          - release-54
+        language:
+          - cpp
+          - python
 
     steps:
     - name: Checkout repository
       uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11 # v4.1.1
       with:
-        ref: ${{ github.event.inputs.ref }}
+        ref: ${{ matrix.branch }}
 
     - name: Ensure git safe dir
       run: |
