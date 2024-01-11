@@ -30,14 +30,14 @@ jobs:
         include: ${{ fromJson(inputs.ct-matrix) }}
     container: "ghcr.io/emqx/emqx-builder/${{ matrix.builder }}:${{ matrix.elixir }}-${{ matrix.otp }}-ubuntu22.04"
     steps:
-      - uses: actions/download-artifact@v3
+      - uses: actions/download-artifact@6b208ae046db98c579e8a3aa621ab581ff575935 # v4.1.1
         with:
           name: ${{ matrix.profile }}
       - name: extract artifact
         run: |
           unzip -o -q ${{ matrix.profile }}.zip
           git config --global --add safe.directory "$GITHUB_WORKSPACE"
-      - uses: actions/cache@v3
+      - uses: actions/cache@704facf57e6136b1bc63b828d79edcd491f0ee84 # v3.3.2
         with:
           path: "emqx_dialyzer_${{ matrix.otp }}_plt"
           key: rebar3-dialyzer-plt-${{ matrix.profile }}-${{ matrix.otp }}-${{ hashFiles('rebar.*', 'apps/*/rebar.*') }}

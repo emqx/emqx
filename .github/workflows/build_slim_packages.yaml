@@ -41,6 +41,9 @@ on:
         type: string
         default: '1.15.7'
 
+permissions:
+  contents: read
+
 jobs:
   linux:
     runs-on: ${{ github.repository_owner == 'emqx' && fromJSON(format('["self-hosted","ephemeral","linux","{0}"]', matrix.profile[4])) || 'ubuntu-22.04' }}
@@ -58,7 +61,7 @@ jobs:
     container: "ghcr.io/emqx/emqx-builder/${{ inputs.builder_vsn }}:${{ inputs.elixir_vsn }}-${{ matrix.profile[1] }}-${{ matrix.profile[2] }}"
 
     steps:
-    - uses: actions/checkout@v3
+    - uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11 # v4.1.1
       with:
         fetch-depth: 0
     - name: Work around https://github.com/actions/checkout/issues/766
@@ -85,12 +88,12 @@ jobs:
       run: |
         make ${EMQX_NAME}-elixir-pkg
         ./scripts/pkg-tests.sh ${EMQX_NAME}-elixir-pkg
-    - uses: actions/upload-artifact@v3
+    - uses: actions/upload-artifact@c7d193f32edcb7bfad88892161225aeda64e9392 # v4.0.0
       with:
         name: "${{ matrix.profile[0] }}-${{ matrix.profile[1] }}-${{ matrix.profile[2] }}"
         path: _packages/${{ matrix.profile[0] }}/*
         retention-days: 7
-    - uses: actions/upload-artifact@v3
+    - uses: actions/upload-artifact@c7d193f32edcb7bfad88892161225aeda64e9392 # v4.0.0
       with:
         name: "${{ matrix.profile[0] }}_schema_dump"
         path: |
@@ -114,7 +117,7 @@ jobs:
       EMQX_NAME: ${{ matrix.profile }}
 
     steps:
-    - uses: actions/checkout@v3
+    - uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11 # v4.1.1
     - uses: ./.github/actions/package-macos
       with:
         profile: ${{ matrix.profile }}
@@ -124,7 +127,7 @@ jobs:
         apple_developer_identity: ${{ secrets.APPLE_DEVELOPER_IDENTITY }}
         apple_developer_id_bundle: ${{ secrets.APPLE_DEVELOPER_ID_BUNDLE }}
         apple_developer_id_bundle_password: ${{ secrets.APPLE_DEVELOPER_ID_BUNDLE_PASSWORD }}
-    - uses: actions/upload-artifact@v3
+    - uses: actions/upload-artifact@c7d193f32edcb7bfad88892161225aeda64e9392 # v4.0.0
       with:
         name: ${{ matrix.os }}
         path: _packages/**/*

@@ -14,6 +14,9 @@ on:
 env:
   IS_CI: "yes"
 
+permissions:
+  contents: read
+
 jobs:
   sanity-checks:
     runs-on: ubuntu-22.04
@@ -30,7 +33,7 @@ jobs:
       elixir_vsn: "1.15.7"
 
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11 # v4.1.1
         with:
           ref: ${{ github.event.inputs.ref }}
           fetch-depth: 0
@@ -125,7 +128,7 @@ jobs:
           - emqx-enterprise
 
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11 # v4.1.1
         with:
           fetch-depth: 0
       - name: Work around https://github.com/actions/checkout/issues/766
@@ -141,7 +144,7 @@ jobs:
           echo "PROFILE=${PROFILE}" | tee -a .env
           echo "PKG_VSN=$(./pkg-vsn.sh ${PROFILE})" | tee -a .env
           zip -ryq -x@.github/workflows/.zipignore $PROFILE.zip .
-      - uses: actions/upload-artifact@v3
+      - uses: actions/upload-artifact@c7d193f32edcb7bfad88892161225aeda64e9392 # v4.0.0
         with:
           name: ${{ matrix.profile }}
           path: ${{ matrix.profile }}.zip

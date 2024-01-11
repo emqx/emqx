@@ -36,8 +36,8 @@ jobs:
       EMQX_IMAGE_OLD_VERSION_TAG: ${{ matrix.profile[1] }}
 
     steps:
-      - uses: actions/checkout@v3
-      - uses: actions/download-artifact@v3
+      - uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11 # v4.1.1
+      - uses: actions/download-artifact@6b208ae046db98c579e8a3aa621ab581ff575935 # v4.1.1
         with:
           name: ${{ env.EMQX_NAME }}-docker
           path: /tmp
@@ -83,8 +83,8 @@ jobs:
           - mnesia
           - rlog
     steps:
-      - uses: actions/checkout@v3
-      - uses: actions/download-artifact@v3
+      - uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11 # v4.1.1
+      - uses: actions/download-artifact@6b208ae046db98c579e8a3aa621ab581ff575935 # v4.1.1
         with:
           name: ${{ env.EMQX_NAME }}-docker
           path: /tmp

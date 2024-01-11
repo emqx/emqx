@@ -64,6 +64,9 @@ on:
         type: string
         default: '5.3-2'
 
+permissions:
+  contents: read
+
 jobs:
   mac:
     strategy:
@@ -80,7 +83,7 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
     - uses: emqx/self-hosted-cleanup-action@v1.0.3
-    - uses: actions/checkout@v3
+    - uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11 # v4.1.1
       with:
         ref: ${{ github.event.inputs.ref }}
         fetch-depth: 0
@@ -93,7 +96,7 @@ jobs:
         apple_developer_identity: ${{ secrets.APPLE_DEVELOPER_IDENTITY }}
         apple_developer_id_bundle: ${{ secrets.APPLE_DEVELOPER_ID_BUNDLE }}
         apple_developer_id_bundle_password: ${{ secrets.APPLE_DEVELOPER_ID_BUNDLE_PASSWORD }}
-    - uses: actions/upload-artifact@v3
+    - uses: actions/upload-artifact@c7d193f32edcb7bfad88892161225aeda64e9392 # v4.0.0
       if: success()
       with:
         name: ${{ matrix.profile }}
@@ -149,7 +152,7 @@ jobs:
         shell: bash
 
     steps:
-    - uses: actions/checkout@v3
+    - uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11 # v4.1.1
       with:
         ref: ${{ github.event.inputs.ref }}
         fetch-depth: 0
@@ -190,7 +193,7 @@ jobs:
           ./scripts/pkg-tests.sh "${PROFILE}-tgz"
           ./scripts/pkg-tests.sh "${PROFILE}-pkg"
         fi
-    - uses: actions/upload-artifact@v3
+    - uses: actions/upload-artifact@c7d193f32edcb7bfad88892161225aeda64e9392 # v4.0.0
       with:
         name: ${{ matrix.profile }}
         path: _packages/${{ matrix.profile }}/
@@ -208,7 +211,7 @@ jobs:
         profile:
           - ${{ inputs.profile }}
     steps:
-    - uses: actions/download-artifact@v3
+    - uses: actions/download-artifact@6b208ae046db98c579e8a3aa621ab581ff575935 # v4.1.1
       with:
         name: ${{ matrix.profile }}
         path: packages/${{ matrix.profile }}
@@ -224,7 +227,7 @@ jobs:
           echo "$(cat $var.sha256) $var" | sha256sum -c || exit 1
         done
         cd -
-    - uses: aws-actions/configure-aws-credentials@v2
+    - uses: aws-actions/configure-aws-credentials@010d0da01d0b5a38af31e9c3470dbfdabdecca3a # v4.0.1
       with:
         aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
         aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
