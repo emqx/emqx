@@ -30,6 +30,7 @@
     start_link/2,
     update/1,
     dump/0,
+    expiry_epoch/0,
     purge/0,
     limits/0,
     print_warnings/1
@@ -66,6 +67,10 @@ update(License) ->
 -spec dump() -> [{atom(), term()}].
 dump() ->
     gen_server:call(?MODULE, dump, infinity).
+
+-spec expiry_epoch() -> integer().
+expiry_epoch() ->
+    gen_server:call(?MODULE, expiry_epoch, infinity).
 
 -spec limits() -> {ok, limits()} | {error, any()}.
 limits() ->
@@ -111,6 +116,9 @@ handle_call({update, License}, _From, #{license := Old} = State) ->
     {reply, check_license(License), State1#{license => License}};
 handle_call(dump, _From, #{license := License} = State) ->
     {reply, emqx_license_parser:dump(License), State};
+handle_call(expiry_epoch, _From, #{license := License} = State) ->
+    ExpiryEpoch = date_to_expiry_epoch(emqx_license_parser:expiry_date(License)),
+    {reply, ExpiryEpoch, State};
 handle_call(purge, _From, State) ->
     _ = ets:delete_all_objects(?LICENSE_TAB),
     {reply, ok, State};
@@ -233,6 +241,11 @@ small_customer_overdue(_CType, _DaysLeft) -> false.
 %% never restrict official license
 non_official_license_overdue(?OFFICIAL, _) -> false;
 non_official_license_overdue(_, DaysLeft) -> DaysLeft < 0.
+
+%% 62167219200 =:= calendar:datetime_to_gregorian_seconds({{1970, 1, 1}, {0, 0, 0}}).
+-define(EPOCH_START, 62167219200).
+date_to_expiry_epoch({Y, M, D}) ->
+    calendar:datetime_to_gregorian_seconds({{Y, M, D}, {0, 0, 0}}) - ?EPOCH_START.
 
 apply_limits(Limits) ->
     ets:insert(?LICENSE_TAB, {limits, Limits}).
