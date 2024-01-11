@@ -14,6 +14,8 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
+-ifndef(EMQX_COAP_HRL).
+
 -define(APP, emqx_coap).
 -define(DEFAULT_COAP_PORT, 5683).
 -define(DEFAULT_COAPS_PORT, 5684).
@@ -79,3 +81,14 @@
 }).
 
 -type coap_message() :: #coap_message{}.
+
+-define(QUERY_PARAMS_MAPPING, [
+    {<<"c">>, <<"clientid">>},
+    {<<"t">>, <<"token">>},
+    {<<"u">>, <<"username">>},
+    {<<"p">>, <<"password">>},
+    {<<"q">>, <<"qos">>},
+    {<<"r">>, <<"retain">>}
+]).
+
+-endif.

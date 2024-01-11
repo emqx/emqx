@@ -76,7 +76,7 @@ check_topic(Path) ->
 
 get_sub_opts(Msg) ->
     SubOpts = maps:fold(
-        fun parse_sub_opts/3, #{}, emqx_coap_message:get_option(uri_query, Msg, #{})
+        fun parse_sub_opts/3, #{}, emqx_coap_message:extract_uri_query(Msg)
     ),
     case SubOpts of
         #{qos := _} ->
@@ -110,28 +110,24 @@ type_to_qos(coap, #coap_message{type = Type}) ->
     end.
 
 get_publish_opts(Msg) ->
-    case emqx_coap_message:get_option(uri_query, Msg) of
-        undefined ->
-            #{};
-        Qs ->
-            maps:fold(
-                fun
-                    (<<"retain">>, V, Acc) ->
-                        Val = V =:= <<"true">>,
-                        Acc#{retain => Val};
-                    (<<"expiry">>, V, Acc) ->
-                        Val = erlang:binary_to_integer(V),
-                        Acc#{expiry_interval => Val};
-                    (<<"qos">>, V, Acc) ->
-                        Val = erlang:binary_to_integer(V),
-                        Acc#{qos => Val};
-                    (_, _, Acc) ->
-                        Acc
-                end,
-                #{},
-                Qs
-            )
-    end.
+    Qs = emqx_coap_message:extract_uri_query(Msg),
+    maps:fold(
+        fun
+            (<<"retain">>, V, Acc) ->
+                Val = V =:= <<"true">>,
+                Acc#{retain => Val};
+            (<<"expiry">>, V, Acc) ->
+                Val = erlang:binary_to_integer(V),
+                Acc#{expiry_interval => Val};
+            (<<"qos">>, V, Acc) ->
+                Val = erlang:binary_to_integer(V),
+                Acc#{qos => Val};
+            (_, _, Acc) ->
+                Acc
+        end,
+        #{},
+        Qs
+    ).
 
 get_publish_qos(Msg, PublishOpts) ->
     case PublishOpts of
