@@ -81,7 +81,12 @@ t_get_set_chan_info(_) ->
     true = emqx_cm:set_chan_info(<<"clientid">>, Info1),
     ?assertEqual(Info1, emqx_cm:get_chan_info(<<"clientid">>)),
     ok = emqx_cm:unregister_channel(<<"clientid">>),
-    ?assertEqual(undefined, emqx_cm:get_chan_info(<<"clientid">>)).
+    ?assertEqual(undefined, emqx_cm:get_chan_info(<<"clientid">>)),
+
+    ?assertError(
+        function_clause,
+        emqx_cm:insert_channel_info(undefined, #{}, [])
+    ).
 
 t_get_set_chan_stats(_) ->
     Stats = [{recv_oct, 10}, {send_oct, 8}],
@@ -93,6 +98,12 @@ t_get_set_chan_stats(_) ->
     Stats1 = [{recv_oct, 10} | Stats],
     true = emqx_cm:set_chan_stats(<<"clientid">>, Stats1),
     ?assertEqual(Stats1, emqx_cm:get_chan_stats(<<"clientid">>)),
+
+    ?assertError(
+        function_clause,
+        emqx_cm:set_chan_stats(undefined, [])
+    ),
+
     ok = emqx_cm:unregister_channel(<<"clientid">>),
     ?assertEqual(undefined, emqx_cm:get_chan_stats(<<"clientid">>)).
 

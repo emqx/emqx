@@ -133,6 +133,10 @@
 %% Server name
 -define(CM, ?MODULE).
 
+-define(IS_CLIENTID(CLIENTID),
+    (is_binary(CLIENTID) orelse (is_atom(CLIENTID) andalso CLIENTID =/= undefined))
+).
+
 %% linting overrides
 -elvis([
     {elvis_style, invalid_dynamic_call, #{ignore => [emqx_cm]}},
@@ -154,7 +158,7 @@ start_link() ->
     emqx_types:infos(),
     emqx_types:stats()
 ) -> ok.
-insert_channel_info(ClientId, Info, Stats) ->
+insert_channel_info(ClientId, Info, Stats) when ?IS_CLIENTID(ClientId) ->
     Chan = {ClientId, self()},
     true = ets:insert(?CHAN_INFO_TAB, {Chan, Info, Stats}),
     ?tp(debug, insert_channel_info, #{clientid => ClientId}),
@@ -168,7 +172,9 @@ insert_channel_info(ClientId, Info, Stats) ->
 %% the conn_mod first for taking up the clientid access right.
 %%
 %% Note that: It should be called on a lock transaction
-register_channel(ClientId, ChanPid, #{conn_mod := ConnMod}) when is_pid(ChanPid) ->
+register_channel(ClientId, ChanPid, #{conn_mod := ConnMod}) when
+    is_pid(ChanPid) andalso ?IS_CLIENTID(ClientId)
+->
     Chan = {ClientId, ChanPid},
     %% cast (for process monitor) before inserting ets tables
     cast({registered, Chan}),
@@ -180,7 +186,7 @@ register_channel(ClientId, ChanPid, #{conn_mod := ConnMod}) when is_pid(ChanPid)
 
 %% @doc Unregister a channel.
 -spec unregister_channel(emqx_types:clientid()) -> ok.
-unregister_channel(ClientId) when is_binary(ClientId) ->
+unregister_channel(ClientId) when ?IS_CLIENTID(ClientId) ->
     true = do_unregister_channel({ClientId, self()}),
     ok.
 
@@ -215,7 +221,7 @@ get_chan_info(ClientId, ChanPid) ->
 
 %% @doc Update infos of the channel.
 -spec set_chan_info(emqx_types:clientid(), emqx_types:attrs()) -> boolean().
-set_chan_info(ClientId, Info) when is_binary(ClientId) ->
+set_chan_info(ClientId, Info) when ?IS_CLIENTID(ClientId) ->
     Chan = {ClientId, self()},
     try
         ets:update_element(?CHAN_INFO_TAB, Chan, {2, Info})
@@ -245,12 +251,12 @@ get_chan_stats(ClientId, ChanPid) ->
 
 %% @doc Set channel's stats.
 -spec set_chan_stats(emqx_types:clientid(), emqx_types:stats()) -> boolean().
-set_chan_stats(ClientId, Stats) when is_binary(ClientId) ->
+set_chan_stats(ClientId, Stats) when ?IS_CLIENTID(ClientId) ->
     set_chan_stats(ClientId, self(), Stats).
 
 -spec set_chan_stats(emqx_types:clientid(), chan_pid(), emqx_types:stats()) ->
     boolean().
-set_chan_stats(ClientId, ChanPid, Stats) ->
+set_chan_stats(ClientId, ChanPid, Stats) when ?IS_CLIENTID(ClientId) ->
     Chan = {ClientId, ChanPid},
     try
         ets:update_element(?CHAN_INFO_TAB, Chan, {3, Stats})
