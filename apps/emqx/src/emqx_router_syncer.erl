@@ -184,7 +184,12 @@ run_batch_loop(Incoming, State = #{stash := Stash0}) ->
         Status = #{} ->
             ok = send_replies(Status, Batch),
             NState = cancel_retry_timer(State#{stash := Stash3}),
-            %% TODO: postpone if only ?PRIO_BG operations left?
+            %% NOTE
+            %% We could postpone batches where only `?PRIO_BG` operations left, which
+            %% would allow to do less work in situations when there are intermittently
+            %% reconnecting clients with moderately unique subscriptions. However, this
+            %% would also require us to forego the idempotency of batch syncs (see
+            %% `merge_route_op/2`).
             case is_stash_empty(Stash3) of
                 true ->
                     NState;
