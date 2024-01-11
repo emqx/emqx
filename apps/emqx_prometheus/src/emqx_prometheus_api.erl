@@ -181,7 +181,7 @@ recommend_setting_example() ->
 prometheus_data_schema() ->
     #{
         description =>
-            <<"Get Prometheus Data. Note that support for JSON output is deprecated and will be removed in v5.2.">>,
+            <<"Get Prometheus Data.">>,
         content =>
             [
                 {'text/plain', #{schema => #{type => string}}},

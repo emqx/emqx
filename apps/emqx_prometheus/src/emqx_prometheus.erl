@@ -24,6 +24,7 @@
 
 -include("emqx_prometheus.hrl").
 
+-include_lib("public_key/include/public_key.hrl").
 -include_lib("prometheus/include/prometheus_model.hrl").
 -include_lib("emqx/include/logger.hrl").
 
@@ -32,6 +33,7 @@
     [
         create_mf/5,
         gauge_metric/1,
+        gauge_metrics/1,
         counter_metric/1
     ]
 ).
@@ -175,7 +177,10 @@ collect_mf(_Registry, Callback) ->
     VMData = emqx_vm_data(),
     LicenseData = emqx_license_data(),
     ClusterData = emqx_cluster_data(),
+    CertsData = emqx_certs_data(),
+    %% TODO: license expiry epoch and cert expiry epoch should be cached
     _ = [add_collect_family(Name, LicenseData, Callback, gauge) || Name <- emqx_license()],
+    _ = [add_collect_family(Name, CertsData, Callback, gauge) || Name <- emqx_certs()],
     _ = [add_collect_family(Name, Stats, Callback, gauge) || Name <- emqx_stats:names()],
     _ = [add_collect_family(Name, VMData, Callback, gauge) || Name <- emqx_vm()],
     _ = [add_collect_family(Name, ClusterData, Callback, gauge) || Name <- emqx_cluster()],
@@ -195,8 +200,13 @@ collect(<<"json">>) ->
     Stats = emqx_stats:getstats(),
     VMData = emqx_vm_data(),
     LicenseData = emqx_license_data(),
+    %% TODO: FIXME!
+    %% emqx_metrics_olp()),
+    %% emqx_metrics_acl()),
+    %% emqx_metrics_authn()),
     #{
         license => maps:from_list([collect_stats(Name, LicenseData) || Name <- emqx_license()]),
+        certs => collect_certs_json(emqx_certs_data()),
         stats => maps:from_list([collect_stats(Name, Stats) || Name <- emqx_stats:names()]),
         metrics => maps:from_list([collect_stats(Name, VMData) || Name <- emqx_vm()]),
         packets => maps:from_list([collect_stats(Name, Metrics) || Name <- emqx_metrics_packets()]),
@@ -223,10 +233,7 @@ collect_metrics(Name, Metrics) ->
     emqx_collect(Name, Metrics).
 
 add_collect_family(Name, Data, Callback, Type) ->
-    Callback(create_schema(Name, <<"">>, Data, Type)).
-
-create_schema(Name, Help, Data, Type) ->
-    create_mf(Name, Help, Type, ?MODULE, Data).
+    Callback(create_mf(Name, _Help = <<"">>, Type, ?MODULE, Data)).
 
 %%--------------------------------------------------------------------
 %% Collector
@@ -529,7 +536,11 @@ emqx_collect(emqx_cluster_nodes_stopped, ClusterData) ->
 %%--------------------------------------------------------------------
 %% License
 emqx_collect(emqx_license_expiry_at, LicenseData) ->
-    gauge_metric(?C(expiry_at, LicenseData)).
+    gauge_metric(?C(expiry_at, LicenseData));
+%%--------------------------------------------------------------------
+%% Certs
+emqx_collect(emqx_cert_expiry_at, CertsData) ->
+    gauge_metrics(CertsData).
 
 %%--------------------------------------------------------------------
 %% Indicators
@@ -703,6 +714,120 @@ emqx_license_data() ->
     [
         {expiry_at, emqx_license_checker:expiry_epoch()}
     ].
+
+emqx_certs() ->
+    [
+        emqx_cert_expiry_at
+    ].
+
+-define(LISTENER_TYPES, [ssl, wss, quic]).
+
+-spec emqx_certs_data() ->
+    [_Point :: {[Label], Epoch}]
+when
+    Label :: TypeLabel | NameLabel | CertTypeLabel,
+    TypeLabel :: {listener_type, ssl | wss | quic},
+    NameLabel :: {listener_name, atom()},
+    CertTypeLabel :: {cert_type, cacertfile | certfile},
+    Epoch :: non_neg_integer().
+emqx_certs_data() ->
+    case emqx_config:get([listeners], undefined) of
+        undefined ->
+            [];
+        AllListeners when is_map(AllListeners) ->
+            lists:foldl(
+                fun(ListenerType, PointsAcc) ->
+                    PointsAcc ++
+                        points_of_listeners(ListenerType, AllListeners)
+                end,
+                _PointsInitAcc = [],
+                ?LISTENER_TYPES
+            )
+    end.
+
+points_of_listeners(Type, AllListeners) ->
+    do_points_of_listeners(Type, maps:get(Type, AllListeners, undefined)).
+
+-define(CERT_TYPES, [cacertfile, certfile]).
+
+-spec do_points_of_listeners(Type, TypeOfListeners) ->
+    [_Point :: {[{LabelKey, LabelValue}], Epoch}]
+when
+    Type :: ssl | wss | quic,
+    TypeOfListeners :: #{ListenerName :: atom() => ListenerConf :: map()} | undefined,
+    LabelKey :: atom(),
+    LabelValue :: atom(),
+    Epoch :: non_neg_integer().
+do_points_of_listeners(_, undefined) ->
+    [];
+do_points_of_listeners(ListenerType, TypeOfListeners) ->
+    lists:foldl(
+        fun(Name, PointsAcc) ->
+            lists:foldl(
+                fun(CertType, AccIn) ->
+                    case
+                        emqx_utils_maps:deep_get(
+                            [Name, ssl_options, CertType], TypeOfListeners, undefined
+                        )
+                    of
+                        undefined -> AccIn;
+                        Path -> [gen_point(ListenerType, Name, CertType, Path) | AccIn]
+                    end
+                end,
+                [],
+                ?CERT_TYPES
+            ) ++ PointsAcc
+        end,
+        [],
+        maps:keys(TypeOfListeners)
+    ).
+
+gen_point(Type, Name, CertType, Path) ->
+    {
+        %% Labels: [{_Labelkey, _LabelValue}]
+        [
+            {listener_type, Type},
+            {listener_name, Name},
+            {cert_type, CertType}
+        ],
+        %% Value
+        cert_expiry_at_from_path(Path)
+    }.
+
+collect_certs_json(CertsData) ->
+    lists:foldl(
+        fun({Labels, Data}, AccIn) ->
+            [(maps:from_list(Labels))#{emqx_cert_expiry_at => Data} | AccIn]
+        end,
+        _InitAcc = [],
+        CertsData
+    ).
+
+%% TODO: cert manager for more generic utils functions
+cert_expiry_at_from_path(Path0) ->
+    Path = emqx_schema:naive_env_interpolation(Path0),
+    {ok, PemBin} = file:read_file(Path),
+    [CertEntry | _] = public_key:pem_decode(PemBin),
+    Cert = public_key:pem_entry_decode(CertEntry),
+    {'utcTime', NotAfterUtc} =
+        Cert#'Certificate'.'tbsCertificate'#'TBSCertificate'.validity#'Validity'.'notAfter',
+    utc_time_to_epoch(NotAfterUtc).
+
+utc_time_to_epoch(UtcTime) ->
+    date_to_expiry_epoch(utc_time_to_datetime(UtcTime)).
+
+utc_time_to_datetime(Str) ->
+    {ok, [Year, Month, Day, Hour, Minute, Second], _} = io_lib:fread(
+        "~2d~2d~2d~2d~2d~2dZ", Str
+    ),
+    %% Alwoys Assuming YY is in 2000
+    {{2000 + Year, Month, Day}, {Hour, Minute, Second}}.
+
+%% 62167219200 =:= calendar:datetime_to_gregorian_seconds({{1970, 1, 1}, {0, 0, 0}}).
+-define(EPOCH_START, 62167219200).
+-spec date_to_expiry_epoch(calendar:datetime()) -> Seconds :: non_neg_integer().
+date_to_expiry_epoch(DateTime) ->
+    calendar:datetime_to_gregorian_seconds(DateTime) - ?EPOCH_START.
 
 %% deprecated_since 5.0.10, remove this when 5.1.x
 do_start() ->
