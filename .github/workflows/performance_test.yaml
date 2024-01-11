@@ -32,7 +32,7 @@ jobs:
       PACKAGE_FILE: ${{ steps.package_file.outputs.PACKAGE_FILE }}
 
     steps:
-    - uses: actions/checkout@v3
+    - uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11 # v4.1.1
       with:
         fetch-depth: 0
         ref: ${{ github.event.inputs.ref }}
@@ -52,7 +52,7 @@ jobs:
       id: package_file
       run: |
         echo "PACKAGE_FILE=$(find _packages/emqx -name 'emqx-*.deb' | head -n 1 | xargs basename)" >> $GITHUB_OUTPUT
-    - uses: actions/upload-artifact@v3
+    - uses: actions/upload-artifact@c7d193f32edcb7bfad88892161225aeda64e9392 # v4.0.0
       with:
         name: emqx-ubuntu20.04
         path: _packages/emqx/${{ steps.package_file.outputs.PACKAGE_FILE }}
@@ -66,23 +66,23 @@ jobs:
 
     steps:
     - name: Configure AWS Credentials
-      uses: aws-actions/configure-aws-credentials@v2
+      uses: aws-actions/configure-aws-credentials@010d0da01d0b5a38af31e9c3470dbfdabdecca3a # v4.0.1
       with:
         aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_PERF_TEST }}
         aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY_PERF_TEST }}
         aws-region: eu-west-1
     - name: Checkout tf-emqx-performance-test
-      uses: actions/checkout@v3
+      uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11 # v4.1.1
       with:
         repository: emqx/tf-emqx-performance-test
         path: tf-emqx-performance-test
         ref: v0.2.3
-    - uses: actions/download-artifact@v3
+    - uses: actions/download-artifact@6b208ae046db98c579e8a3aa621ab581ff575935 # v4.1.1
       with:
         name: emqx-ubuntu20.04
         path: tf-emqx-performance-test/
     - name: Setup Terraform
-      uses: hashicorp/setup-terraform@v2
+      uses: hashicorp/setup-terraform@a1502cd9e758c50496cc9ac5308c4843bcd56d36 # v3.0.0
       with:
         terraform_wrapper: false
     - name: run scenario
@@ -105,7 +105,7 @@ jobs:
         terraform destroy -auto-approve
         aws s3 sync --exclude '*' --include '*.tar.gz' s3://$TF_VAR_s3_bucket_name/$TF_VAR_bench_id .
     - name: Send notification to Slack
-      uses: slackapi/slack-github-action@v1.24.0
+      uses: slackapi/slack-github-action@e28cf165c92ffef168d23c5c9000cffc8a25e117 # v1.24.0
       with:
         payload-file-path: "./tf-emqx-performance-test/slack-payload.json"
     - name: terraform destroy
@@ -113,13 +113,13 @@ jobs:
       working-directory: ./tf-emqx-performance-test
       run: |
         terraform destroy -auto-approve
-    - uses: actions/upload-artifact@v3
+    - uses: actions/upload-artifact@c7d193f32edcb7bfad88892161225aeda64e9392 # v4.0.0
       if: success()
       with:
         name: metrics
         path: |
           "./tf-emqx-performance-test/*.tar.gz"
-    - uses: actions/upload-artifact@v3
+    - uses: actions/upload-artifact@c7d193f32edcb7bfad88892161225aeda64e9392 # v4.0.0
       if: failure()
       with:
         name: terraform
@@ -137,23 +137,23 @@ jobs:
 
     steps:
     - name: Configure AWS Credentials
-      uses: aws-actions/configure-aws-credentials@v2
+      uses: aws-actions/configure-aws-credentials@010d0da01d0b5a38af31e9c3470dbfdabdecca3a # v4.0.1
       with:
         aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_PERF_TEST }}
         aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY_PERF_TEST }}
         aws-region: eu-west-1
     - name: Checkout tf-emqx-performance-test
-      uses: actions/checkout@v3
+      uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11 # v4.1.1
       with:
         repository: emqx/tf-emqx-performance-test
         path: tf-emqx-performance-test
         ref: v0.2.3
-    - uses: actions/download-artifact@v3
+    - uses: actions/download-artifact@6b208ae046db98c579e8a3aa621ab581ff575935 # v4.1.1
       with:
         name: emqx-ubuntu20.04
         path: tf-emqx-performance-test/
     - name: Setup Terraform
-      uses: hashicorp/setup-terraform@v2
+      uses: hashicorp/setup-terraform@a1502cd9e758c50496cc9ac5308c4843bcd56d36 # v3.0.0
       with:
         terraform_wrapper: false
     - name: run scenario
@@ -176,7 +176,7 @@ jobs:
         terraform destroy -auto-approve
         aws s3 sync --exclude '*' --include '*.tar.gz' s3://$TF_VAR_s3_bucket_name/$TF_VAR_bench_id .
     - name: Send notification to Slack
-      uses: slackapi/slack-github-action@v1.24.0
+      uses: slackapi/slack-github-action@e28cf165c92ffef168d23c5c9000cffc8a25e117 # v1.24.0
       with:
         payload-file-path: "./tf-emqx-performance-test/slack-payload.json"
     - name: terraform destroy
@@ -184,13 +184,13 @@ jobs:
       working-directory: ./tf-emqx-performance-test
       run: |
         terraform destroy -auto-approve
-    - uses: actions/upload-artifact@v3
+    - uses: actions/upload-artifact@c7d193f32edcb7bfad88892161225aeda64e9392 # v4.0.0
       if: success()
       with:
         name: metrics
         path: |
           "./tf-emqx-performance-test/*.tar.gz"
-    - uses: actions/upload-artifact@v3
+    - uses: actions/upload-artifact@c7d193f32edcb7bfad88892161225aeda64e9392 # v4.0.0
       if: failure()
       with:
         name: terraform
@@ -209,23 +209,23 @@ jobs:
 
     steps:
     - name: Configure AWS Credentials
-      uses: aws-actions/configure-aws-credentials@v2
+      uses: aws-actions/configure-aws-credentials@010d0da01d0b5a38af31e9c3470dbfdabdecca3a # v4.0.1
       with:
         aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_PERF_TEST }}
         aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY_PERF_TEST }}
         aws-region: eu-west-1
     - name: Checkout tf-emqx-performance-test
-      uses: actions/checkout@v3
+      uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11 # v4.1.1
       with:
         repository: emqx/tf-emqx-performance-test
         path: tf-emqx-performance-test
         ref: v0.2.3
-    - uses: actions/download-artifact@v3
+    - uses: actions/download-artifact@6b208ae046db98c579e8a3aa621ab581ff575935 # v4.1.1
       with:
         name: emqx-ubuntu20.04
         path: tf-emqx-performance-test/
     - name: Setup Terraform
-      uses: hashicorp/setup-terraform@v2
+      uses: hashicorp/setup-terraform@a1502cd9e758c50496cc9ac5308c4843bcd56d36 # v3.0.0
       with:
         terraform_wrapper: false
     - name: run scenario
@@ -249,7 +249,7 @@ jobs:
         terraform destroy -auto-approve
         aws s3 sync --exclude '*' --include '*.tar.gz' s3://$TF_VAR_s3_bucket_name/$TF_VAR_bench_id .
     - name: Send notification to Slack
-      uses: slackapi/slack-github-action@v1.24.0
+      uses: slackapi/slack-github-action@e28cf165c92ffef168d23c5c9000cffc8a25e117 # v1.24.0
       with:
         payload-file-path: "./tf-emqx-performance-test/slack-payload.json"
     - name: terraform destroy
@@ -257,13 +257,13 @@ jobs:
       working-directory: ./tf-emqx-performance-test
       run: |
         terraform destroy -auto-approve
-    - uses: actions/upload-artifact@v3
+    - uses: actions/upload-artifact@c7d193f32edcb7bfad88892161225aeda64e9392 # v4.0.0
       if: success()
       with:
         name: metrics
         path: |
           "./tf-emqx-performance-test/*.tar.gz"
-    - uses: actions/upload-artifact@v3
+    - uses: actions/upload-artifact@c7d193f32edcb7bfad88892161225aeda64e9392 # v4.0.0
       if: failure()
       with:
         name: terraform
@@ -283,23 +283,23 @@ jobs:
 
     steps:
     - name: Configure AWS Credentials
-      uses: aws-actions/configure-aws-credentials@v2
+      uses: aws-actions/configure-aws-credentials@010d0da01d0b5a38af31e9c3470dbfdabdecca3a # v4.0.1
       with:
         aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_PERF_TEST }}
         aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY_PERF_TEST }}
         aws-region: eu-west-1
     - name: Checkout tf-emqx-performance-test
-      uses: actions/checkout@v3
+      uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11 # v4.1.1
       with:
         repository: emqx/tf-emqx-performance-test
         path: tf-emqx-performance-test
         ref: v0.2.3
-    - uses: actions/download-artifact@v3
+    - uses: actions/download-artifact@6b208ae046db98c579e8a3aa621ab581ff575935 # v4.1.1
       with:
         name: emqx-ubuntu20.04
         path: tf-emqx-performance-test/
     - name: Setup Terraform
-      uses: hashicorp/setup-terraform@v2
+      uses: hashicorp/setup-terraform@a1502cd9e758c50496cc9ac5308c4843bcd56d36 # v3.0.0
       with:
         terraform_wrapper: false
     - name: run scenario
@@ -322,7 +322,7 @@ jobs:
         terraform destroy -auto-approve
         aws s3 sync --exclude '*' --include '*.tar.gz' s3://$TF_VAR_s3_bucket_name/$TF_VAR_bench_id .
     - name: Send notification to Slack
-      uses: slackapi/slack-github-action@v1.24.0
+      uses: slackapi/slack-github-action@e28cf165c92ffef168d23c5c9000cffc8a25e117 # v1.24.0
       with:
         payload-file-path: "./tf-emqx-performance-test/slack-payload.json"
     - name: terraform destroy
@@ -330,13 +330,13 @@ jobs:
       working-directory: ./tf-emqx-performance-test
       run: |
         terraform destroy -auto-approve
-    - uses: actions/upload-artifact@v3
+    - uses: actions/upload-artifact@c7d193f32edcb7bfad88892161225aeda64e9392 # v4.0.0
       if: success()
       with:
         name: metrics
         path: |
           "./tf-emqx-performance-test/*.tar.gz"
-    - uses: actions/upload-artifact@v3
+    - uses: actions/upload-artifact@c7d193f32edcb7bfad88892161225aeda64e9392 # v4.0.0
       if: failure()
       with:
         name: terraform

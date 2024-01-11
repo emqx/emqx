@@ -8,7 +8,7 @@ inputs:
 runs:
   using: composite
   steps:
-    - uses: actions/download-artifact@v3
+    - uses: actions/download-artifact@6b208ae046db98c579e8a3aa621ab581ff575935 # v4.1.1
       with:
         name: emqx-docker
         path: /tmp
@@ -19,19 +19,19 @@ runs:
       run: |
         EMQX_DOCKER_IMAGE_TAG=$(docker load < /tmp/emqx-docker-${PKG_VSN}.tar.gz | sed 's/Loaded image: //g')
         echo "_EMQX_DOCKER_IMAGE_TAG=$EMQX_DOCKER_IMAGE_TAG" >> $GITHUB_ENV
-    - uses: actions/checkout@v3
+    - uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11 # v4.1.1
       with:
         repository: emqx/emqx-fvt
         ref: broker-autotest-v5
         path: scripts
-    - uses: actions/setup-java@v3
+    - uses: actions/setup-java@387ac29b308b003ca37ba93a6cab5eb57c8f5f93 # v4.0.0
       with:
         java-version: '8.0.282' # The JDK version to make available on the path.
         java-package: jdk # (jre, jdk, or jdk+fx) - defaults to jdk
         architecture: x64 # (x64 or x86) - defaults to x64
         # https://github.com/actions/setup-java/blob/main/docs/switching-to-v2.md
         distribution: 'zulu'
-    - uses: actions/download-artifact@v3
+    - uses: actions/download-artifact@6b208ae046db98c579e8a3aa621ab581ff575935 # v4.1.1
       with:
         name: apache-jmeter.tgz
     - name: install jmeter

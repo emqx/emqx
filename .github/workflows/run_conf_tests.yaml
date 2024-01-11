@@ -25,7 +25,7 @@ jobs:
           - emqx
           - emqx-enterprise
     steps:
-      - uses: actions/download-artifact@v3
+      - uses: actions/download-artifact@6b208ae046db98c579e8a3aa621ab581ff575935 # v4.1.1
         with:
           name: ${{ matrix.profile }}
       - name: extract artifact
@@ -40,9 +40,9 @@ jobs:
         if: failure()
         run: |
           cat _build/${{ matrix.profile }}/rel/emqx/logs/erlang.log.*
-      - uses: actions/upload-artifact@v3
+      - uses: actions/upload-artifact@c7d193f32edcb7bfad88892161225aeda64e9392 # v4.0.0
         if: failure()
         with:
-          name: logs-${{ matrix.profile }}
+          name: conftest-logs-${{ matrix.profile }}
           path: _build/${{ matrix.profile }}/rel/emqx/logs
           retention-days: 7

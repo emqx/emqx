@@ -25,7 +25,7 @@ jobs:
       run:
         shell: bash
     steps:
-    - uses: actions/download-artifact@v3
+    - uses: actions/download-artifact@6b208ae046db98c579e8a3aa621ab581ff575935 # v4.1.1
       with:
         name: emqx-enterprise
     - name: extract artifact
@@ -45,10 +45,10 @@ jobs:
       run: |
         export PROFILE='emqx-enterprise'
         make emqx-enterprise-tgz
-    - uses: actions/upload-artifact@v3
+    - uses: actions/upload-artifact@c7d193f32edcb7bfad88892161225aeda64e9392 # v4.0.0
       name: Upload built emqx and test scenario
       with:
-        name: emqx_built
+        name: relup_tests_emqx_built
         path: |
           _upgrade_base
           _packages
@@ -72,10 +72,10 @@ jobs:
       run:
         shell: bash
     steps:
-    - uses: erlef/setup-beam@v1.16.0
+    - uses: erlef/setup-beam@a34c98fd51e370b4d4981854aba1eb817ce4e483 # v1.17.0
       with:
         otp-version: 26.2.1
-    - uses: actions/checkout@v3
+    - uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11 # v4.1.1
       with:
         repository: hawk/lux
         ref: lux-2.8.1
@@ -88,10 +88,10 @@ jobs:
         ./configure
         make
         echo "$(pwd)/bin" >> $GITHUB_PATH
-    - uses: actions/download-artifact@v3
+    - uses: actions/download-artifact@6b208ae046db98c579e8a3aa621ab581ff575935 # v4.1.1
       name: Download built emqx and test scenario
       with:
-        name: emqx_built
+        name: relup_tests_emqx_built
         path: .
     - name: run relup test
       run: |
@@ -111,11 +111,11 @@ jobs:
           docker logs node2.emqx.io | tee lux_logs/emqx2.log
           exit 1
         fi
-    - uses: actions/upload-artifact@v3
+    - uses: actions/upload-artifact@c7d193f32edcb7bfad88892161225aeda64e9392 # v4.0.0
       name: Save debug data
       if: failure()
       with:
-        name: debug_data
+        name: relup_test_run_debug_data
         path: |
           lux_logs
         retention-days: 3

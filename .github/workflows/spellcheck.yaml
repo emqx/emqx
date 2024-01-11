@@ -19,10 +19,10 @@ jobs:
         - emqx-enterprise
     runs-on: ${{ endsWith(github.repository, '/emqx') && 'ubuntu-22.04' || fromJSON('["self-hosted","ephemeral","linux","x64"]') }}
     steps:
-      - uses: actions/download-artifact@v3
+      - uses: actions/download-artifact@6b208ae046db98c579e8a3aa621ab581ff575935 # v4.1.1
         with:
-          name: "${{ matrix.profile }}_schema_dump"
-          path: /tmp/
+          pattern: "${{ matrix.profile }}-schema-dump-*-x64"
+          merge-multiple: true
       - name: Run spellcheck
         run: |
-          bash /tmp/scripts/spellcheck/spellcheck.sh /tmp/_build/docgen/${{ matrix.profile }}/schema-en.json
+          bash scripts/spellcheck/spellcheck.sh _build/docgen/${{ matrix.profile }}/schema-en.json

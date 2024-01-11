@@ -15,7 +15,7 @@ jobs:
     runs-on: ${{ endsWith(github.repository, '/emqx') && 'ubuntu-22.04' || fromJSON('["self-hosted","ephemeral","linux","x64"]') }}
     container: ${{ inputs.builder }}
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11 # v4.1.1
       - run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
       - run: make ensure-rebar3
       - run: ./scripts/check-deps-integrity.escript
@@ -36,7 +36,7 @@ jobs:
           MIX_ENV: emqx-enterprise
           PROFILE: emqx-enterprise
       - name: Upload produced lock files
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@c7d193f32edcb7bfad88892161225aeda64e9392 # v4.0.0
         if: failure()
         with:
           name: produced_lock_files
