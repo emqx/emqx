@@ -945,6 +945,7 @@ t_create_disconnected(Config) ->
                 econnrefused -> ok;
                 closed -> ok;
                 {closed, _} -> ok;
+                {shutdown, closed} -> ok;
                 _ -> ct:fail("influxdb_client_not_alive with wrong reason: ~p", [Reason])
             end,
             ok
