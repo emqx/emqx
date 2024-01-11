@@ -57,6 +57,30 @@ t_to_index_key(_Config) ->
             [1, 4],
             [<<"a">>, <<"b">>, <<"c">>]
         )
+    ),
+
+    ?assertEqual(
+        {[1, 2, 3], {[<<"a">>], []}},
+        emqx_retainer_index:to_index_key(
+            [1, 2, 3],
+            [<<"a">>]
+        )
+    ),
+
+    ?assertEqual(
+        {[3, 5], {[<<"b">>], [<<"x">>, <<"a">>, <<"y">>]}},
+        emqx_retainer_index:to_index_key(
+            [3, 5],
+            [<<"x">>, <<"a">>, <<"b">>, <<"y">>]
+        )
+    ),
+
+    ?assertEqual(
+        {[3, 5], {[<<"b">>, <<"z">>], [<<"x">>, <<"a">>, <<"y">>]}},
+        emqx_retainer_index:to_index_key(
+            [3, 5],
+            [<<"x">>, <<"a">>, <<"b">>, <<"y">>, <<"z">>]
+        )
     ).
 
 t_index_score(_Config) ->
@@ -148,7 +172,7 @@ t_condition(_Config) ->
 
 t_condition_index(_Config) ->
     ?assertEqual(
-        {[2, 3], {[<<"a">>, <<"b">>], ['_', '_']}},
+        {{[2, 3], {[<<"a">>, <<"b">>], ['_', '_']}}, true},
         emqx_retainer_index:condition(
             [2, 3],
             ['+', <<"a">>, <<"b">>, '+']
@@ -156,7 +180,7 @@ t_condition_index(_Config) ->
     ),
 
     ?assertEqual(
-        {[3, 4], {[<<"b">>, '_'], ['_', <<"a">>]}},
+        {{[3, 4], {[<<"b">>, '_'], ['_', <<"a">>]}}, true},
         emqx_retainer_index:condition(
             [3, 4],
             ['+', <<"a">>, <<"b">>, '+']
@@ -164,7 +188,7 @@ t_condition_index(_Config) ->
     ),
 
     ?assertEqual(
-        {[3, 5], {[<<"b">> | '_'], ['_', <<"a">>, '_']}},
+        {{[3, 5], {[<<"b">>], ['_', <<"a">>, '_']}}, true},
         emqx_retainer_index:condition(
             [3, 5],
             ['+', <<"a">>, <<"b">>, '+']
@@ -172,7 +196,7 @@ t_condition_index(_Config) ->
     ),
 
     ?assertEqual(
-        {[3, 5], {[<<"b">> | '_'], ['_', <<"a">> | '_']}},
+        {{[3, 5], {[<<"b">> | '_'], ['_', <<"a">> | '_']}}, false},
         emqx_retainer_index:condition(
             [3, 5],
             ['+', <<"a">>, <<"b">>, '#']
@@ -180,7 +204,7 @@ t_condition_index(_Config) ->
     ),
 
     ?assertEqual(
-        {[3, 4], {[<<"b">> | '_'], ['_', <<"a">> | '_']}},
+        {{[3, 4], {[<<"b">> | '_'], ['_', <<"a">> | '_']}}, false},
         emqx_retainer_index:condition(
             [3, 4],
             ['+', <<"a">>, <<"b">>, '#']
@@ -188,7 +212,7 @@ t_condition_index(_Config) ->
     ),
 
     ?assertEqual(
-        {[1], {[<<"a">>], '_'}},
+        {{[1], {[<<"a">>], '_'}}, true},
         emqx_retainer_index:condition(
             [1],
             [<<"a">>, '#']
@@ -196,12 +220,38 @@ t_condition_index(_Config) ->
     ),
 
     ?assertEqual(
-        {[1, 2, 3], {['', <<"saya">>, '_'], []}},
+        {{[1, 2, 3], {['', <<"saya">>, '_'], []}}, true},
         emqx_retainer_index:condition(
             [1, 2, 3],
             ['', <<"saya">>, '+']
         )
+    ),
+
+    ?assertEqual(
+        {{[1, 2, 3], {[<<"c">>], []}}, true},
+        emqx_retainer_index:condition(
+            [1, 2, 3],
+            [<<"c">>]
+        )
+    ),
+
+    ?assertEqual(
+        {{[1, 2, 3], {[<<"c">> | '_'], '_'}}, false},
+        emqx_retainer_index:condition(
+            [1, 2, 3],
+            [<<"c">>, '#']
+        )
+    ),
+
+    ?assertEqual(
+        {{[1], {['_'], '_'}}, true},
+        emqx_retainer_index:condition(
+            [1],
+            ['+', '#']
+        )
     ).
+
+% {[2],[[<<48>>,<<48>>]],['+','+','#']}
 
 t_restore_topic(_Config) ->
     ?assertEqual(
@@ -222,5 +272,12 @@ t_restore_topic(_Config) ->
         [<<"x">>, <<"a">>, <<"b">>, <<"y">>],
         emqx_retainer_index:restore_topic(
             {[3, 5], {[<<"b">>], [<<"x">>, <<"a">>, <<"y">>]}}
+        )
+    ),
+
+    ?assertEqual(
+        [<<"a">>],
+        emqx_retainer_index:restore_topic(
+            {[1, 2, 3], {[<<"a">>], []}}
         )
     ).
