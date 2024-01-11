@@ -173,7 +173,9 @@ handle_call(current_rate, _From, State = #state{last = Last}) ->
     NowTime = erlang:system_time(millisecond),
     NowSamplers = sample(NowTime),
     Rate = cal_rate(NowSamplers, Last),
-    {reply, {ok, Rate}, State};
+    NonRateValue = non_rate_value(),
+    Samples = maps:merge(Rate, NonRateValue),
+    {reply, {ok, Samples}, State};
 handle_call(_Request, _From, State = #state{}) ->
     {reply, ok, State}.
 
@@ -409,3 +411,21 @@ stats(received_bytes) -> emqx_metrics:val('bytes.received');
 stats(sent) -> emqx_metrics:val('messages.sent');
 stats(sent_bytes) -> emqx_metrics:val('bytes.sent');
 stats(dropped) -> emqx_metrics:val('messages.dropped').
+
+%% -------------------------------------------------------------------------------------------------
+%% Retained && License Quota
+
+%% the non rate values should be same on all nodes
+non_rate_value() ->
+    #{
+        retained_msg_count => emqx_retainer:retained_count(),
+        license_quota => license_quota()
+    }.
+
+license_quota() ->
+    case emqx_license_checker:limits() of
+        {ok, #{max_connections := Quota}} ->
+            Quota;
+        {error, no_license} ->
+            0
+    end.
