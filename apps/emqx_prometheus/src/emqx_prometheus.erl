@@ -121,7 +121,7 @@ handle_info(_Msg, State) ->
     {noreply, State}.
 
 push_to_push_gateway(Url, Headers) when is_list(Headers) ->
-    Data = prometheus_text_format:format(),
+    Data = prometheus_text_format:format(?PROMETHEUS_DEFAULT_REGISTRY),
     case httpc:request(post, {Url, Headers, "text/plain", Data}, ?HTTP_OPTIONS, []) of
         {ok, {{"HTTP/1.1", 200, _}, _RespHeaders, _RespBody}} ->
             ok;
@@ -168,10 +168,10 @@ join_url(Url, JobName0) ->
             }),
     lists:concat([Url, "/metrics/job/", unicode:characters_to_list(JobName1)]).
 
-deregister_cleanup(_Registry) ->
+deregister_cleanup(?PROMETHEUS_DEFAULT_REGISTRY) ->
     ok.
 
-collect_mf(_Registry, Callback) ->
+collect_mf(?PROMETHEUS_DEFAULT_REGISTRY, Callback) ->
     Metrics = emqx_metrics:all(),
     Stats = emqx_stats:getstats(),
     VMData = emqx_vm_data(),
@@ -192,6 +192,8 @@ collect_mf(_Registry, Callback) ->
     _ = [add_collect_family(Name, Metrics, Callback, counter) || Name <- emqx_metrics_olp()],
     _ = [add_collect_family(Name, Metrics, Callback, counter) || Name <- emqx_metrics_acl()],
     _ = [add_collect_family(Name, Metrics, Callback, counter) || Name <- emqx_metrics_authn()],
+    ok;
+collect_mf(_Registry, _Callback) ->
     ok.
 
 %% @private
@@ -216,7 +218,7 @@ collect(<<"json">>) ->
         session => maps:from_list([collect_stats(Name, Metrics) || Name <- emqx_metrics_session()])
     };
 collect(<<"prometheus">>) ->
-    prometheus_text_format:format().
+    prometheus_text_format:format(?PROMETHEUS_DEFAULT_REGISTRY).
 
 %% @private
 collect_stats(Name, Stats) ->
@@ -809,6 +811,7 @@ cert_expiry_at_from_path(Path0) ->
     {ok, PemBin} = file:read_file(Path),
     [CertEntry | _] = public_key:pem_decode(PemBin),
     Cert = public_key:pem_entry_decode(CertEntry),
+    %% TODO: Not fully tested for all certs type
     {'utcTime', NotAfterUtc} =
         Cert#'Certificate'.'tbsCertificate'#'TBSCertificate'.validity#'Validity'.'notAfter',
     utc_time_to_epoch(NotAfterUtc).

@@ -101,7 +101,7 @@ post_config_update(_ConfPath, _Req, _NewConf, _OldConf, _AppEnvs) ->
     ok.
 
 update_prometheus(AppEnvs) ->
-    PrevCollectors = prometheus_registry:collectors(default),
+    PrevCollectors = all_collectors(),
     CurCollectors = proplists:get_value(collectors, proplists:get_value(prometheus, AppEnvs)),
     lists:foreach(
         fun prometheus_registry:deregister_collector/1,
@@ -112,6 +112,15 @@ update_prometheus(AppEnvs) ->
         CurCollectors -- PrevCollectors
     ),
     application:set_env(AppEnvs).
+
+all_collectors() ->
+    lists:foldl(
+        fun(Registry, AccIn) ->
+            prometheus_registry:collectors(Registry) ++ AccIn
+        end,
+        _InitAcc = [],
+        ?PROMETHEUS_ALL_REGISTRYS
+    ).
 
 update_push_gateway(Prometheus) ->
     case is_push_gateway_server_enabled(Prometheus) of

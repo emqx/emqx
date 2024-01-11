@@ -28,7 +28,8 @@
 
 -export([
     setting/2,
-    stats/2
+    stats/2,
+    auth/2
 ]).
 
 -define(TAGS, [<<"Monitor">>]).
@@ -39,6 +40,7 @@ api_spec() ->
 paths() ->
     [
         "/prometheus",
+        "/prometheus/auth",
         "/prometheus/stats"
     ].
 
@@ -59,6 +61,18 @@ schema("/prometheus") ->
                 'requestBody' => prometheus_setting_request(),
                 responses =>
                     #{200 => prometheus_setting_response()}
+            }
+    };
+schema("/prometheus/auth") ->
+    #{
+        'operationId' => auth,
+        get =>
+            #{
+                description => ?DESC(get_prom_auth_data),
+                tags => ?TAGS,
+                security => security(),
+                responses =>
+                    #{200 => prometheus_data_schema()}
             }
     };
 schema("/prometheus/stats") ->
@@ -107,6 +121,20 @@ stats(get, #{headers := Headers}) ->
             _ -> <<"prometheus">>
         end,
     Data = emqx_prometheus:collect(Type),
+    case Type of
+        <<"json">> ->
+            {200, Data};
+        <<"prometheus">> ->
+            {200, #{<<"content-type">> => <<"text/plain">>}, Data}
+    end.
+
+auth(get, #{headers := Headers}) ->
+    Type =
+        case maps:get(<<"accept">>, Headers, <<"text/plain">>) of
+            <<"application/json">> -> <<"json">>;
+            _ -> <<"prometheus">>
+        end,
+    Data = emqx_prometheus_auth:collect(Type),
     case Type of
         <<"json">> ->
             {200, Data};

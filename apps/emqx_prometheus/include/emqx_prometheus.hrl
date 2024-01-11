@@ -16,3 +16,15 @@
 
 -define(APP, emqx_prometheus).
 -define(PROMETHEUS, [prometheus]).
+
+-define(PROMETHEUS_DEFAULT_REGISTRY, default).
+-define(PROMETHEUS_AUTH_REGISTRY, '/prometheus/auth').
+-define(PROMETHEUS_AUTH_COLLECTOR, emqx_prometheus_auth).
+-define(PROMETHEUS_DATA_INTEGRATION_REGISTRY, '/prometheus/data_integration').
+-define(PROMETHEUS_DATA_INTEGRATION_COLLECTOR, emqx_prometheus_data_integration).
+
+-define(PROMETHEUS_ALL_REGISTRYS, [
+    ?PROMETHEUS_DEFAULT_REGISTRY,
+    ?PROMETHEUS_AUTH_REGISTRY,
+    ?PROMETHEUS_DATA_INTEGRATION_REGISTRY
+]).

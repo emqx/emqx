@@ -1106,6 +1106,7 @@ tr_prometheus_collectors(Conf) ->
         prometheus_summary,
         %% emqx collectors
         emqx_prometheus,
+        {'/prometheus/auth', emqx_prometheus_auth},
         emqx_prometheus_mria
         %% builtin vm collectors
         | prometheus_collectors(Conf)
