@@ -18,6 +18,7 @@
 {emqx_dashboard,1}.
 {emqx_delayed,1}.
 {emqx_delayed,2}.
+{emqx_delayed,3}.
 {emqx_ds,1}.
 {emqx_ds,2}.
 {emqx_eviction_agent,1}.
