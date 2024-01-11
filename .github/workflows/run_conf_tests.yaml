@@ -43,6 +43,6 @@ jobs:
       - uses: actions/upload-artifact@c7d193f32edcb7bfad88892161225aeda64e9392 # v4.0.0
         if: failure()
         with:
-          name: logs-${{ matrix.profile }}
+          name: conftest-logs-${{ matrix.profile }}
           path: _build/${{ matrix.profile }}/rel/emqx/logs
           retention-days: 7

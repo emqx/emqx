@@ -48,7 +48,7 @@ jobs:
     - uses: actions/upload-artifact@c7d193f32edcb7bfad88892161225aeda64e9392 # v4.0.0
       name: Upload built emqx and test scenario
       with:
-        name: emqx_built
+        name: relup_tests_emqx_built
         path: |
           _upgrade_base
           _packages
@@ -91,7 +91,7 @@ jobs:
     - uses: actions/download-artifact@6b208ae046db98c579e8a3aa621ab581ff575935 # v4.1.1
       name: Download built emqx and test scenario
       with:
-        name: emqx_built
+        name: relup_tests_emqx_built
         path: .
     - name: run relup test
       run: |
@@ -115,7 +115,7 @@ jobs:
       name: Save debug data
       if: failure()
       with:
-        name: debug_data
+        name: relup_test_run_debug_data
         path: |
           lux_logs
         retention-days: 3

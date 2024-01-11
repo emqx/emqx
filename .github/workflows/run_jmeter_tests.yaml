@@ -89,7 +89,7 @@ jobs:
     - uses: actions/upload-artifact@c7d193f32edcb7bfad88892161225aeda64e9392 # v4.0.0
       if: always()
       with:
-        name: jmeter_logs
+        name: jmeter_logs-advanced_feat-${{ matrix.scripts_type }}
         path: ./jmeter_logs
         retention-days: 3
 
@@ -156,7 +156,7 @@ jobs:
     - uses: actions/upload-artifact@c7d193f32edcb7bfad88892161225aeda64e9392 # v4.0.0
       if: always()
       with:
-        name: jmeter_logs
+        name: jmeter_logs-pgsql_authn_authz-${{ matrix.scripts_type }}_${{ matrix.pgsql_tag }}
         path: ./jmeter_logs
         retention-days: 3
 
@@ -216,7 +216,7 @@ jobs:
     - uses: actions/upload-artifact@c7d193f32edcb7bfad88892161225aeda64e9392 # v4.0.0
       if: always()
       with:
-        name: jmeter_logs
+        name: jmeter_logs-mysql_authn_authz-${{ matrix.scripts_type }}_${{ matrix.mysql_tag }}
         path: ./jmeter_logs
         retention-days: 3
 
@@ -268,7 +268,7 @@ jobs:
     - uses: actions/upload-artifact@c7d193f32edcb7bfad88892161225aeda64e9392 # v4.0.0
       if: always()
       with:
-        name: jmeter_logs
+        name: jmeter_logs-JWT_authn-${{ matrix.scripts_type }}
         path: ./jmeter_logs
         retention-days: 3
 
@@ -312,6 +312,6 @@ jobs:
     - uses: actions/upload-artifact@c7d193f32edcb7bfad88892161225aeda64e9392 # v4.0.0
       if: always()
       with:
-        name: jmeter_logs
+        name: jmeter_logs-built_in_database_authn_authz-${{ matrix.scripts_type }}
         path: ./jmeter_logs
         retention-days: 3

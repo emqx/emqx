@@ -90,12 +90,13 @@ jobs:
         ./scripts/pkg-tests.sh ${EMQX_NAME}-elixir-pkg
     - uses: actions/upload-artifact@c7d193f32edcb7bfad88892161225aeda64e9392 # v4.0.0
       with:
-        name: "${{ matrix.profile[0] }}-${{ matrix.profile[1] }}-${{ matrix.profile[2] }}"
+        name: "${{ matrix.profile[0] }}-${{ matrix.profile[1] }}-${{ matrix.profile[2] }}-${{ matrix.profile[3] }}-${{ matrix.profile[4] }}"
         path: _packages/${{ matrix.profile[0] }}/*
         retention-days: 7
+        compression-level: 0
     - uses: actions/upload-artifact@c7d193f32edcb7bfad88892161225aeda64e9392 # v4.0.0
       with:
-        name: "${{ matrix.profile[0] }}_schema_dump"
+        name: "${{ matrix.profile[0] }}-schema-dump-${{ matrix.profile[1] }}-${{ matrix.profile[2] }}-${{ matrix.profile[3] }}-${{ matrix.profile[4] }}"
         path: |
           scripts/spellcheck
           _build/docgen/${{ matrix.profile[0] }}/schema-en.json
