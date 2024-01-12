@@ -211,6 +211,25 @@ t_delete_messages_via_topic(_) ->
 
     %% assert: messages are deleted
     ?assertEqual([], get_messages(0)),
+
+    %% assert: return 400 if the topic parameter is invalid
+    TopicFilter = uri_string:quote(<<"t/#">>),
+    ?assertMatch(
+        {ok, 400, _},
+        request(
+            delete,
+            uri(["mqtt", "delayed", "messages", TopicFilter])
+        )
+    ),
+
+    %% assert: return 404 if no messages found for the topic
+    ?assertMatch(
+        {ok, 404, _},
+        request(
+            delete,
+            uri(["mqtt", "delayed", "messages", TopicInUrl])
+        )
+    ),
     ok.
 
 t_large_payload(_) ->

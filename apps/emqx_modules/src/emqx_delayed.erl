@@ -65,6 +65,11 @@
     cluster_list/1
 ]).
 
+%% exports for internal rpc
+-export([
+    do_delete_delayed_messages_by_topic_name/1
+]).
+
 %% exports for query
 -export([
     qs2ms/2,
@@ -277,6 +282,37 @@ delete_delayed_message(Node, Id) ->
 
 -spec delete_delayed_messages_by_topic_name(binary()) -> with_id_return().
 delete_delayed_messages_by_topic_name(TopicName) when is_binary(TopicName) ->
+    Nodes = emqx:running_nodes(),
+    Result = emqx_delayed_proto_v3:delete_delayed_messages_by_topic_name(Nodes, TopicName),
+    case
+        lists:any(
+            fun
+                ({ok, ok}) -> true;
+                (_) -> false
+            end,
+            Result
+        )
+    of
+        true ->
+            ok;
+        false ->
+            Errors = lists:filter(
+                fun
+                    ({ok, {error, not_found}}) -> false;
+                    (_) -> true
+                end,
+                Result
+            ),
+            case Errors of
+                [] ->
+                    {error, not_found};
+                [Exception | _] ->
+                    {error, Exception}
+            end
+    end.
+
+-spec do_delete_delayed_messages_by_topic_name(binary()) -> with_id_return().
+do_delete_delayed_messages_by_topic_name(TopicName) when is_binary(TopicName) ->
     case ets:select(?TAB, ?DELETE_BY_TOPIC_MS(TopicName)) of
         [] ->
             {error, not_found};
