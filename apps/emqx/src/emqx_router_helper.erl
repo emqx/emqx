@@ -66,7 +66,7 @@ init([]) ->
     process_flag(trap_exit, true),
     %% Make sure no other node can do late routes cleanup when this node is up.
     %% Despite Retries = infinity, it is to set the lock eventually,
-    %% even if some of the nodes are not responding (down).
+    %% even if some of the core nodes are not responding (down).
     %% In the worst case, the time needed to detect a down node should be:
     %% `NetTickTime + NetTickTime / NetTickIntensity`.
     true = global:set_lock({?LOCK(node()), self()}, locking_nodes(), infinity),
@@ -139,12 +139,11 @@ locking_nodes() ->
 locking_nodes(core) ->
     mria_mnesia:running_nodes();
 locking_nodes(replicant) ->
-    %% No reliable source to get the list of core nodes, unfortunately.
-    %% mria_membership:running_core_nodelist/0` is not absolutely suitable,
+    %% `mria_membership:running_core_nodelist/0` is not absolutely suitable,
     %% because it inserts nodes asynchronously (one by one after doing pings).
-    %% So it can return empty/not full, especially when it's called in `emqx_router_helper:init/1`.
-    %% Setting the lock on all the nodes for now, until Mria has a better API.
-    [node() | nodes()].
+    %% So it can return empty/not full list, especially when it's called
+    %% in `emqx_router_helper:init/1`.
+    mria:async_dirty(?ROUTE_SHARD, fun mria_mnesia:running_nodes/0, []).
 
 cleanup_routes(Node) ->
     case mria_rlog:role() of
@@ -155,7 +154,7 @@ cleanup_routes(Node) ->
                 %% Can acquire the lock only on running cores,
                 %% The node being cleaned is anyway either already down or is expected
                 %% to release its lock. And if the node is back, it will try to re-acquire
-                %% the lock on all the core nodes, preventing them from re-cleaning its routes
+                %% the lock on all core nodes, preventing them from re-cleaning its routes
                 %% when it is up and running.
                 locking_nodes(core),
                 %% It's important to do a limited number of retries (not infinity).
@@ -175,7 +174,10 @@ cleanup_routes(Node) ->
             %% Mnesia (or Mria) is down locally,
             %% but emqx_router_helper is still running and holds the lock,
             %% remove it so that other healthy nodes can do cleanup.
-            global:del_lock({?LOCK(Node), self()}, locking_nodes(replicant));
+            %% Note: it will attempt to remove the lock on all connected visible nodes.
+            %% `locking_nodes/1` is not used, because Mria can be already down and its behavior
+            %% would be undefined.
+            global:del_lock({?LOCK(Node), self()});
         _ ->
             ok
     end,

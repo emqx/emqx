@@ -178,7 +178,8 @@ t_cleanup_routes_race(Config) ->
                 ?match_event(#{?snk_kind := emqx_router_helper_cleanup_done}),
                 %% Wait for 2 core nodes.
                 _NEvents = 2,
-                _Timeout = infinity
+                _Timeout = infinity,
+                _BackInTime = 0
             ),
 
             emqx_cth_cluster:restart(Replicant, ReplSpec),
@@ -201,6 +202,46 @@ t_cleanup_routes_race(Config) ->
              || N <- Nodes
             ],
             ?assertEqual(ExpectedRoutes, Routes)
+        end,
+        []
+    ).
+
+t_cleanup_routes_repl_mria_failure('init', Config) ->
+    Config;
+t_cleanup_routes_repl_mria_failure('end', Config) ->
+    [_, _, Replicant] = ?config(cluster, Config),
+    [_, _, ReplSpec] = ?config(node_specs, Config),
+    %% Restart it as we have crashed Mria intentionally
+    emqx_cth_cluster:restart(Replicant, ReplSpec),
+    ok.
+
+t_cleanup_routes_repl_mria_failure(Config) ->
+    ?check_trace(
+        begin
+            [Core1, Core2, Replicant] = ?config(cluster, Config),
+            Topic = <<"t/test/must_be_cleaned/", (binary:encode_hex(rand:bytes(8)))/binary>>,
+            ok = rpc:call(Replicant, emqx_router, do_add_route, [Topic]),
+            wait_for_route(Replicant, Topic, Replicant),
+            {ok, SubRef} = snabbkaffe:subscribe(
+                ?match_event(
+                    #{
+                        ?snk_kind := emqx_router_helper_cleanup_done,
+                        ?snk_meta := #{node := N}
+                    } when N =/= Replicant
+                ),
+                %% Wait for 2 core nodes.
+                _NEvents = 2,
+                _Timeout = infinity,
+                _BackInTime = 0
+            ),
+
+            %% Simulate some crashes
+            _ = rpc:call(Replicant, mnesia, stop, []),
+            _ = rpc:call(Replicant, mria, stop, []),
+
+            ?assertMatch({ok, _}, snabbkaffe:receive_events(SubRef)),
+            ?assertNot(rpc:call(Core1, emqx_router, has_route, [Topic, Replicant])),
+            ?assertNot(rpc:call(Core2, emqx_router, has_route, [Topic, Replicant]))
         end,
         []
     ).
