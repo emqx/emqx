@@ -20,10 +20,7 @@ options:
   -h|--help:         Print this usage.
 
   -b|--base:         Specify the current release base branch, can be one of
-                     release-51
-                     release-52
-                     release-53
-                     release-54
+                     release-55
                      NOTE: this option should be used when --dryrun.
 
   --dryrun:          Do not actually create the git tag.
@@ -38,7 +35,7 @@ options:
 For 5.X series the current working branch must be 'release-5X'
       --.--[  master  ]---------------------------.-----------.---
          \\                                      /
-          \`---[release-54]----(v5.4.0 | e5.4.0)
+          \`---[release-5X]----(v5.4.0 | e5.4.0)
 EOF
 }
 
@@ -119,29 +116,11 @@ done
 rel_branch() {
     local tag="$1"
     case "$tag" in
-        v5.1.*)
-            echo 'release-51'
+        v5.5.*)
+            echo 'release-55'
             ;;
-        e5.1.*)
-            echo 'release-51'
-            ;;
-        v5.2.*)
-            echo 'release-52'
-            ;;
-        e5.2.*)
-            echo 'release-52'
-            ;;
-        v5.3.*)
-            echo 'release-53'
-            ;;
-        e5.3.*)
-            echo 'release-53'
-            ;;
-        v5.4.*)
-            echo 'release-54'
-            ;;
-        e5.4.*)
-            echo 'release-54'
+        e5.5.*)
+            echo 'release-55'
             ;;
         *)
             logerr "Unsupported version tag $TAG"
