@@ -47,6 +47,7 @@
         connect_timeout := pos_integer(),
         pool_type := random | hash,
         pool_size := pos_integer(),
+        iotdb_version := atom(),
         request => undefined | map(),
         atom() => _
     }.
@@ -57,6 +58,7 @@
         connect_timeout := pos_integer(),
         pool_type := random | hash,
         channels := map(),
+        iotdb_version := atom(),
         request => undefined | map(),
         atom() => _
     }.
@@ -88,6 +90,7 @@ connector_example_values() ->
         name => <<"iotdb_connector">>,
         type => iotdb,
         enable => true,
+        iotdb_version => ?VSN_1_1_X,
         authentication => #{
             <<"username">> => <<"root">>,
             <<"password">> => <<"*****">>
@@ -119,6 +122,14 @@ fields("connection_fields") ->
                 #{
                     required => true,
                     desc => ?DESC(emqx_bridge_iotdb, "config_base_url")
+                }
+            )},
+        {iotdb_version,
+            mk(
+                hoconsc:enum([?VSN_1_1_X, ?VSN_1_0_X, ?VSN_0_13_X]),
+                #{
+                    desc => ?DESC(emqx_bridge_iotdb, "iotdb_version"),
+                    default => ?VSN_1_1_X
                 }
             )},
         {authentication,
@@ -190,7 +201,7 @@ proplists_without(Keys, List) ->
 callback_mode() -> async_if_possible.
 
 -spec on_start(manager_id(), config()) -> {ok, state()} | no_return().
-on_start(InstanceId, Config) ->
+on_start(InstanceId, #{iotdb_version := Version} = Config) ->
     %% [FIXME] The configuration passed in here is pre-processed and transformed
     %% in emqx_bridge_resource:parse_confs/2.
     case emqx_bridge_http_connector:on_start(InstanceId, Config) of
@@ -201,7 +212,7 @@ on_start(InstanceId, Config) ->
                 request => maps:get(request, State, <<>>)
             }),
             ?tp(iotdb_bridge_started, #{instance_id => InstanceId}),
-            {ok, State#{channels => #{}}};
+            {ok, State#{iotdb_version => Version, channels => #{}}};
         {error, Reason} ->
             ?SLOG(error, #{
                 msg => "failed_to_start_iotdb_bridge",
@@ -231,7 +242,11 @@ on_get_status(InstanceId, State) ->
     {ok, pos_integer(), [term()], term()}
     | {ok, pos_integer(), [term()]}
     | {error, term()}.
-on_query(InstanceId, {ChannelId, _Message} = Req, #{channels := Channels} = State) ->
+on_query(
+    InstanceId,
+    {ChannelId, _Message} = Req,
+    #{iotdb_version := IoTDBVsn, channels := Channels} = State
+) ->
     ?tp(iotdb_bridge_on_query, #{instance_id => InstanceId}),
     ?SLOG(debug, #{
         msg => "iotdb_bridge_on_query_called",
@@ -240,7 +255,7 @@ on_query(InstanceId, {ChannelId, _Message} = Req, #{channels := Channels} = Stat
         state => emqx_utils:redact(State)
     }),
 
-    case try_render_message(Req, Channels) of
+    case try_render_message(Req, IoTDBVsn, Channels) of
         {ok, IoTDBPayload} ->
             handle_response(
                 emqx_bridge_http_connector:on_query(
@@ -254,7 +269,10 @@ on_query(InstanceId, {ChannelId, _Message} = Req, #{channels := Channels} = Stat
 -spec on_query_async(manager_id(), {send_message, map()}, {function(), [term()]}, state()) ->
     {ok, pid()} | {error, empty_request}.
 on_query_async(
-    InstanceId, {ChannelId, _Message} = Req, ReplyFunAndArgs0, #{channels := Channels} = State
+    InstanceId,
+    {ChannelId, _Message} = Req,
+    ReplyFunAndArgs0,
+    #{iotdb_version := IoTDBVsn, channels := Channels} = State
 ) ->
     ?tp(iotdb_bridge_on_query_async, #{instance_id => InstanceId}),
     ?SLOG(debug, #{
@@ -263,7 +281,7 @@ on_query_async(
         send_message => Req,
         state => emqx_utils:redact(State)
     }),
-    case try_render_message(Req, Channels) of
+    case try_render_message(Req, IoTDBVsn, Channels) of
         {ok, IoTDBPayload} ->
             ReplyFunAndArgs =
                 {
@@ -282,10 +300,10 @@ on_query_async(
 
 on_add_channel(
     InstanceId,
-    #{channels := Channels} = OldState0,
+    #{iotdb_version := Version, channels := Channels} = OldState0,
     ChannelId,
     #{
-        parameters := #{iotdb_version := Version, data := Data} = Parameter
+        parameters := #{data := Data} = Parameter
     }
 ) ->
     case maps:is_key(ChannelId, Channels) of
@@ -495,18 +513,18 @@ convert_float(Str) when is_binary(Str) ->
 convert_float(undefined) ->
     null.
 
-make_iotdb_insert_request(DataList, IsAligned, DeviceId, IotDBVsn) ->
+make_iotdb_insert_request(DataList, IsAligned, DeviceId, IoTDBVsn) ->
     InitAcc = #{timestamps => [], measurements => [], dtypes => [], values => []},
-    Rows = replace_dtypes(aggregate_rows(DataList, InitAcc), IotDBVsn),
+    Rows = replace_dtypes(aggregate_rows(DataList, InitAcc), IoTDBVsn),
     {ok,
         maps:merge(Rows, #{
-            iotdb_field_key(is_aligned, IotDBVsn) => IsAligned,
-            iotdb_field_key(device_id, IotDBVsn) => DeviceId
+            iotdb_field_key(is_aligned, IoTDBVsn) => IsAligned,
+            iotdb_field_key(device_id, IoTDBVsn) => DeviceId
         })}.
 
-replace_dtypes(Rows0, IotDBVsn) ->
+replace_dtypes(Rows0, IoTDBVsn) ->
     {Types, Rows} = maps:take(dtypes, Rows0),
-    Rows#{iotdb_field_key(data_types, IotDBVsn) => Types}.
+    Rows#{iotdb_field_key(data_types, IoTDBVsn) => Types}.
 
 aggregate_rows(DataList, InitAcc) ->
     lists:foldr(
@@ -645,15 +663,15 @@ preproc_data_template(DataList) ->
         DataList
     ).
 
-try_render_message({ChannelId, Msg}, Channels) ->
+try_render_message({ChannelId, Msg}, IoTDBVsn, Channels) ->
     case maps:find(ChannelId, Channels) of
         {ok, Channel} ->
-            render_channel_message(Channel, Msg);
+            render_channel_message(Channel, IoTDBVsn, Msg);
         _ ->
             {error, {unrecoverable_error, {invalid_channel_id, ChannelId}}}
     end.
 
-render_channel_message(#{is_aligned := IsAligned, iotdb_version := IoTDBVsn} = Channel, Message) ->
+render_channel_message(#{is_aligned := IsAligned} = Channel, IoTDBVsn, Message) ->
     Payloads = to_list(parse_payload(get_payload(Message))),
     case device_id(Message, Payloads, Channel) of
         undefined ->

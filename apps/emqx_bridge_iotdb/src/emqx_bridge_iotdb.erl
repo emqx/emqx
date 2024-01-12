@@ -89,14 +89,6 @@ fields(action_parameters) ->
                     desc => ?DESC("config_device_id")
                 }
             )},
-        {iotdb_version,
-            mk(
-                hoconsc:enum([?VSN_1_1_X, ?VSN_1_0_X, ?VSN_0_13_X]),
-                #{
-                    desc => ?DESC("config_iotdb_version"),
-                    default => ?VSN_1_1_X
-                }
-            )},
         {data,
             mk(
                 array(ref(?MODULE, action_parameters_data)),
@@ -310,8 +302,7 @@ action_values() ->
                 }
             ],
             is_aligned => false,
-            device_id => <<"my_device">>,
-            iotdb_version => ?VSN_1_1_X
+            device_id => <<"my_device">>
         }
     }.
 

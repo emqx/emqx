@@ -255,7 +255,6 @@ is_error_check(Reason) ->
     end.
 
 action_config(Name, Config) ->
-    Version = ?config(iotdb_version, Config),
     Type = ?config(bridge_type, Config),
     ConfigString =
         io_lib:format(
@@ -263,15 +262,13 @@ action_config(Name, Config) ->
             "  enable = true\n"
             "  connector = \"~s\"\n"
             "  parameters = {\n"
-            "     iotdb_version = \"~s\"\n"
             "     data = []\n"
             "  }\n"
             "}\n",
             [
                 Type,
                 Name,
-                Name,
-                Version
+                Name
             ]
         ),
     ct:pal("ActionConfig:~ts~n", [ConfigString]),
@@ -281,12 +278,14 @@ connector_config(Name, Config) ->
     Host = ?config(bridge_host, Config),
     Port = ?config(bridge_port, Config),
     Type = ?config(bridge_type, Config),
+    Version = ?config(iotdb_version, Config),
     ServerURL = iotdb_server_url(Host, Port),
     ConfigString =
         io_lib:format(
             "connectors.~s.~s {\n"
             "  enable = true\n"
             "  base_url = \"~s\"\n"
+            "  iotdb_version = \"~s\"\n"
             "  authentication = {\n"
             "     username = \"root\"\n"
             "     password = \"root\"\n"
@@ -295,7 +294,8 @@ connector_config(Name, Config) ->
             [
                 Type,
                 Name,
-                ServerURL
+                ServerURL,
+                Version
             ]
         ),
     ct:pal("ConnectorConfig:~ts~n", [ConfigString]),
