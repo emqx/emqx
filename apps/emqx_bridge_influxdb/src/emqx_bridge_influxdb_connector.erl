@@ -599,8 +599,17 @@ to_kv_config(KVfields) ->
 
 to_maps_config(K, V, Res) ->
     NK = emqx_placeholder:preproc_tmpl(bin(K)),
-    NV = emqx_placeholder:preproc_tmpl(bin(V)),
-    Res#{NK => NV}.
+    Res#{NK => preproc_quoted(V)}.
+
+preproc_quoted({quoted, V}) ->
+    {quoted, emqx_placeholder:preproc_tmpl(bin(V))};
+preproc_quoted(V) ->
+    emqx_placeholder:preproc_tmpl(bin(V)).
+
+proc_quoted({quoted, V}, Data, TransOpts) ->
+    {quoted, emqx_placeholder:proc_tmpl(V, Data, TransOpts)};
+proc_quoted(V, Data, TransOpts) ->
+    emqx_placeholder:proc_tmpl(V, Data, TransOpts).
 
 %% -------------------------------------------------------------------------------------------------
 %% Tags & Fields Data Trans
@@ -722,12 +731,14 @@ maps_config_to_data(K, V, {Data, Res}) ->
     KTransOptions = #{return => rawlist, var_trans => fun key_filter/1},
     VTransOptions = #{return => rawlist, var_trans => fun data_filter/1},
     NK = emqx_placeholder:proc_tmpl(K, Data, KTransOptions),
-    NV = emqx_placeholder:proc_tmpl(V, Data, VTransOptions),
+    NV = proc_quoted(V, Data, VTransOptions),
     case {NK, NV} of
         {[undefined], _} ->
             {Data, Res};
         %% undefined value in normal format [undefined] or int/uint format [undefined, <<"i">>]
         {_, [undefined | _]} ->
+            {Data, Res};
+        {_, {quoted, [undefined | _]}} ->
             {Data, Res};
         _ ->
             {Data, Res#{
@@ -735,6 +746,8 @@ maps_config_to_data(K, V, {Data, Res}) ->
             }}
     end.
 
+value_type({quoted, ValList}, _) ->
+    {string_list, ValList};
 value_type([Int, <<"i">>], mixed) when is_integer(Int) ->
     {int, Int};
 value_type([UInt, <<"u">>], mixed) when is_integer(UInt) ->
@@ -778,7 +791,7 @@ value_type([Str], literal) when is_binary(Str) ->
             maybe_convert_to_float_str(Str)
     end;
 value_type(Str, _) ->
-    list_to_binary(Str).
+    Str.
 
 tmpl_type([{str, _}]) ->
     literal;

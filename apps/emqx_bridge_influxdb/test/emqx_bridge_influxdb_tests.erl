@@ -102,27 +102,51 @@
         #{
             measurement => "m7",
             tags => [{"tag", "tag7"}, {"tag_a", "\"tag7a\""}, {"tag_b", "tag7b"}],
-            fields => [{"field", "field7"}, {"field_a", "field7a"}, {"field_b", "field7b"}],
+            fields => [
+                {"field", {quoted, "field7"}},
+                {"field_a", "field7a"},
+                {"field_b", {quoted, "field7b"}}
+            ],
             timestamp => undefined
         }},
     {"m8,tag=tag8,tag_a=\"tag8a\",tag_b=tag8b field=\"field8\",field_a=field8a,field_b=\"field8b\" ${timestamp8}",
         #{
             measurement => "m8",
             tags => [{"tag", "tag8"}, {"tag_a", "\"tag8a\""}, {"tag_b", "tag8b"}],
-            fields => [{"field", "field8"}, {"field_a", "field8a"}, {"field_b", "field8b"}],
+            fields => [
+                {"field", {quoted, "field8"}},
+                {"field_a", "field8a"},
+                {"field_b", {quoted, "field8b"}}
+            ],
             timestamp => "${timestamp8}"
         }},
+    {
+        "m8a,tag=tag8,tag_a=\"${tag8a}\",tag_b=tag8b field=\"${field8}\","
+        "field_a=field8a,field_b=\"${field8b}\" ${timestamp8}",
+        #{
+            measurement => "m8a",
+            tags => [{"tag", "tag8"}, {"tag_a", "\"${tag8a}\""}, {"tag_b", "tag8b"}],
+            fields => [
+                {"field", {quoted, "${field8}"}},
+                {"field_a", "field8a"},
+                {"field_b", {quoted, "${field8b}"}}
+            ],
+            timestamp => "${timestamp8}"
+        }
+    },
     {"m9,tag=tag9,tag_a=\"tag9a\",tag_b=tag9b field=\"field9\",field_a=field9a,field_b=\"\" ${timestamp9}",
         #{
             measurement => "m9",
             tags => [{"tag", "tag9"}, {"tag_a", "\"tag9a\""}, {"tag_b", "tag9b"}],
-            fields => [{"field", "field9"}, {"field_a", "field9a"}, {"field_b", ""}],
+            fields => [
+                {"field", {quoted, "field9"}}, {"field_a", "field9a"}, {"field_b", {quoted, ""}}
+            ],
             timestamp => "${timestamp9}"
         }},
     {"m10 field=\"\" ${timestamp10}", #{
         measurement => "m10",
         tags => [],
-        fields => [{"field", ""}],
+        fields => [{"field", {quoted, ""}}],
         timestamp => "${timestamp10}"
     }}
 ]).
@@ -177,19 +201,19 @@
     {"m2,tag=tag2 field=\"field \\\"2\\\",\n\"", #{
         measurement => "m2",
         tags => [{"tag", "tag2"}],
-        fields => [{"field", "field \"2\",\n"}],
+        fields => [{"field", {quoted, "field \"2\",\n"}}],
         timestamp => undefined
     }},
     {"m\\ 3 field=\"field3\" ${payload.timestamp\\ 3}", #{
         measurement => "m 3",
         tags => [],
-        fields => [{"field", "field3"}],
+        fields => [{"field", {quoted, "field3"}}],
         timestamp => "${payload.timestamp 3}"
     }},
     {"m4 field=\"\\\"field\\\\4\\\"\"", #{
         measurement => "m4",
         tags => [],
-        fields => [{"field", "\"field\\4\""}],
+        fields => [{"field", {quoted, "\"field\\4\""}}],
         timestamp => undefined
     }},
     {
@@ -208,7 +232,11 @@
         #{
             measurement => "m6",
             tags => [{"tag", "tag6"}, {"tag_a", "tag6a"}, {"tag_b", "tag6b"}],
-            fields => [{"field", "field6"}, {"field_a", "field6a"}, {"field_b", "field6b"}],
+            fields => [
+                {"field", {quoted, "field6"}},
+                {"field_a", {quoted, "field6a"}},
+                {"field_b", {quoted, "field6b"}}
+            ],
             timestamp => undefined
         }},
     {
@@ -217,7 +245,11 @@
         #{
             measurement => "  m7  ",
             tags => [{"tag", " tag,7 "}, {"tag_a", "\"tag7a\""}, {"tag_b,tag1", "tag7b"}],
-            fields => [{"field", "field7"}, {"field_a", "field7a"}, {"field_b", "field7b\\\n"}],
+            fields => [
+                {"field", {quoted, "field7"}},
+                {"field_a", "field7a"},
+                {"field_b", {quoted, "field7b\\\n"}}
+            ],
             timestamp => undefined
         }
     },
@@ -227,7 +259,11 @@
         #{
             measurement => "m8",
             tags => [{"tag", "tag8"}, {"tag_a", "\"tag8a\""}, {"tag_b", "tag8b"}],
-            fields => [{"field", "field8"}, {"field_a", "field8a"}, {"field_b", "\"field\" = 8b"}],
+            fields => [
+                {"field", {quoted, "field8"}},
+                {"field_a", "field8a"},
+                {"field_b", {quoted, "\"field\" = 8b"}}
+            ],
             timestamp => "${timestamp8}"
         }
     },
@@ -235,14 +271,18 @@
         #{
             measurement => "m\\9",
             tags => [{"tag", "tag9"}, {"tag_a", "\"tag9a\""}, {"tag_b", "tag9b"}],
-            fields => [{"field=field", "field9"}, {"field_a", "field9a"}, {"field_b", ""}],
+            fields => [
+                {"field=field", {quoted, "field9"}},
+                {"field_a", "field9a"},
+                {"field_b", {quoted, ""}}
+            ],
             timestamp => "${timestamp9}"
         }},
     {"m\\,10 \"field\\\\\"=\"\" ${timestamp10}", #{
         measurement => "m,10",
         tags => [],
         %% backslash should not be un-escaped in tag key
-        fields => [{"\"field\\\\\"", ""}],
+        fields => [{"\"field\\\\\"", {quoted, ""}}],
         timestamp => "${timestamp10}"
     }}
 ]).
@@ -257,19 +297,19 @@
     {" m2,tag=tag2   field=\"field \\\"2\\\",\n\"  ", #{
         measurement => "m2",
         tags => [{"tag", "tag2"}],
-        fields => [{"field", "field \"2\",\n"}],
+        fields => [{"field", {quoted, "field \"2\",\n"}}],
         timestamp => undefined
     }},
     {"  m\\ 3   field=\"field3\"   ${payload.timestamp\\ 3}  ", #{
         measurement => "m 3",
         tags => [],
-        fields => [{"field", "field3"}],
+        fields => [{"field", {quoted, "field3"}}],
         timestamp => "${payload.timestamp 3}"
     }},
     {"   m4       field=\"\\\"field\\\\4\\\"\"    ", #{
         measurement => "m4",
         tags => [],
-        fields => [{"field", "\"field\\4\""}],
+        fields => [{"field", {quoted, "\"field\\4\""}}],
         timestamp => undefined
     }},
     {
@@ -288,7 +328,11 @@
         #{
             measurement => "m6",
             tags => [{"tag", "tag6"}, {"tag_a", "tag6a"}, {"tag_b", "tag6b"}],
-            fields => [{"field", "field6"}, {"field_a", "field6a"}, {"field_b", "field6b"}],
+            fields => [
+                {"field", {quoted, "field6"}},
+                {"field_a", {quoted, "field6a"}},
+                {"field_b", {quoted, "field6b"}}
+            ],
             timestamp => undefined
         }}
 ]).
