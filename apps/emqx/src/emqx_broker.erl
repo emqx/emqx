@@ -621,10 +621,10 @@ sync_route(Action, Topic, ReplyTo) ->
         none ->
             regular_sync_route(Action, Topic);
         Role ->
-            case mria_config:whoami() of
-                Role ->
+            case Role =:= mria_config:whoami() of
+                true ->
                     push_sync_route(Action, Topic, ReplyTo);
-                _Disabled ->
+                false ->
                     regular_sync_route(Action, Topic)
             end
     end.
