@@ -40,7 +40,7 @@
 start_link() ->
     gen_server:start_link({local, ?MODULE}, ?MODULE, [], []).
 
--spec invite_async(atom()) -> ok | ignore | {badrpc, any()}.
+-spec invite_async(atom()) -> ok | ignore | {error, {already_started, pid()}}.
 invite_async(Node) ->
     JoinTo = node(),
     case Node =/= JoinTo of
