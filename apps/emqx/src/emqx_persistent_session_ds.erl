@@ -373,7 +373,7 @@ publish(_PacketId, Msg, Session) ->
     {ok, emqx_types:message(), replies(), session()}
     | {error, emqx_types:reason_code()}.
 puback(_ClientInfo, PacketId, Session0) ->
-    case commit_seqno(puback, PacketId, Session0) of
+    case update_seqno(puback, PacketId, Session0) of
         {ok, Msg, Session} ->
             {ok, Msg, [], inc_send_quota(Session)};
         Error ->
@@ -388,7 +388,7 @@ puback(_ClientInfo, PacketId, Session0) ->
     {ok, emqx_types:message(), session()}
     | {error, emqx_types:reason_code()}.
 pubrec(PacketId, Session0) ->
-    case commit_seqno(pubrec, PacketId, Session0) of
+    case update_seqno(pubrec, PacketId, Session0) of
         {ok, Msg, Session} ->
             {ok, Msg, Session};
         Error = {error, _} ->
@@ -413,7 +413,7 @@ pubrel(_PacketId, Session = #{}) ->
     {ok, emqx_types:message(), replies(), session()}
     | {error, emqx_types:reason_code()}.
 pubcomp(_ClientInfo, PacketId, Session0) ->
-    case commit_seqno(pubcomp, PacketId, Session0) of
+    case update_seqno(pubcomp, PacketId, Session0) of
         {ok, Msg, Session} ->
             {ok, Msg, [], inc_send_quota(Session)};
         Error = {error, _} ->
@@ -540,6 +540,7 @@ sync(ClientId) ->
                 {'DOWN', Ref, process, _Pid, Reason} ->
                     {error, Reason};
                 Ref ->
+                    demonitor(Ref, [flush]),
                     ok
             end;
         [] ->
@@ -767,7 +768,7 @@ process_batch(
                     SeqNoQos2 = inc_seqno(?QOS_2, SeqNoQos20)
             end,
             {
-                case Msg#message.qos of
+                case Qos of
                     ?QOS_0 when IsReplay ->
                         %% We ignore QoS 0 messages during replay:
                         Acc;
@@ -895,9 +896,9 @@ bump_interval() ->
 %% SeqNo tracking
 %% --------------------------------------------------------------------
 
--spec commit_seqno(puback | pubrec | pubcomp, emqx_types:packet_id(), session()) ->
+-spec update_seqno(puback | pubrec | pubcomp, emqx_types:packet_id(), session()) ->
     {ok, emqx_types:message(), session()} | {error, _}.
-commit_seqno(Track, PacketId, Session = #{id := SessionId, s := S}) ->
+update_seqno(Track, PacketId, Session = #{id := SessionId, s := S}) ->
     SeqNo = packet_id_to_seqno(PacketId, S),
     case Track of
         puback ->

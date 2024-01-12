@@ -126,7 +126,7 @@ gc_loop(MinLastAlive, It0) ->
 
 do_gc(SessionId, MinLastAlive, LastAliveAt, EI) when LastAliveAt + EI < MinLastAlive ->
     emqx_persistent_session_ds:destroy_session(SessionId),
-    ?tp(error, ds_session_gc_cleaned, #{
+    ?tp(debug, ds_session_gc_cleaned, #{
         session_id => SessionId,
         last_alive_at => LastAliveAt,
         expiry_interval => EI,

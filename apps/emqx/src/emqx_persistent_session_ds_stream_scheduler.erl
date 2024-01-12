@@ -142,7 +142,7 @@ ensure_iterator(TopicFilter, StartTime, SubId, {{RankX, RankY}, Stream}, S) ->
     case emqx_persistent_session_ds_state:get_stream(Key, S) of
         undefined ->
             ?SLOG(debug, #{
-                '$msg' => new_stream, key => Key, stream => Stream
+                msg => new_stream, key => Key, stream => Stream
             }),
             {ok, Iterator} = emqx_ds:make_iterator(
                 ?PERSISTENT_MESSAGE_DB, Stream, TopicFilter, StartTime

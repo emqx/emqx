@@ -31,7 +31,7 @@
 %%   -----|----------|-----|-----|------> seqno
 %%        |          |     |     |
 %%   committed      dup   rec   next
-%                        (Qos2)
+%%                       (Qos2)
 
 %% Seqno becomes committed after receiving PUBACK for QoS1 or PUBCOMP
 %% for QoS2.
@@ -41,23 +41,26 @@
 %% committed..dup range are retransmitted with DUP flag.
 %%
 -define(dup(QOS), (10 + QOS)).
+%% Rec flag is specific for the QoS2. It contains seqno of the last
+%% PUBREC received from the client. When the session reconnects,
+%% PUBREL packages for the dup..rec range are retransmitted.
 -define(rec, 22).
-%% Last seqno assigned to a message.
+%% Last seqno assigned to a message (it may not be sent yet).
 -define(next(QOS), (30 + QOS)).
 
 %%%%% State of the stream:
 -record(ifs, {
     rank_x :: emqx_ds:rank_x(),
     rank_y :: emqx_ds:rank_y(),
-    %% Iterator at the beginning and end of the last batch:
+    %% Iterators at the beginning and the end of the last batch:
     it_begin :: emqx_ds:iterator() | undefined,
     it_end :: emqx_ds:iterator() | end_of_stream,
-    %% Key that points at the beginning of the batch:
+    %% Size of the last batch:
     batch_size = 0 :: non_neg_integer(),
-    %% Session sequence number at the time when the batch was fetched:
+    %% Session sequence numbers at the time when the batch was fetched:
     first_seqno_qos1 = 0 :: emqx_persistent_session_ds:seqno(),
     first_seqno_qos2 = 0 :: emqx_persistent_session_ds:seqno(),
-    %% Number of messages collected in the last batch:
+    %% Sequence numbers that have to be committed for the batch:
     last_seqno_qos1 = 0 :: emqx_persistent_session_ds:seqno(),
     last_seqno_qos2 = 0 :: emqx_persistent_session_ds:seqno()
 }).

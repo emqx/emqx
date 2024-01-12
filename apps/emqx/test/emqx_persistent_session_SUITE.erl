@@ -554,7 +554,7 @@ t_process_dies_session_expires(Config) ->
 
     ok = publish(Topic, Payload),
 
-    timer:sleep(1100),
+    timer:sleep(2000),
 
     {ok, Client2} = emqtt:start_link([
         {proto_ver, v5},

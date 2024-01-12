@@ -68,9 +68,10 @@
 %% It should be possible to make frequent changes to the pmap without
 %% stressing Mria.
 %%
-%% It's implemented as three maps: `clean', `dirty' and `tombstones'.
-%% Updates are made to the `dirty' area. `pmap_commit' function saves
-%% the updated entries to Mnesia and moves them to the `clean' area.
+%% It's implemented as two maps: `cache', and `dirty'. `cache' stores
+%% the data, and `dirty' contains information about dirty and deleted
+%% keys. When `commit/1' is called, dirty keys are dumped to the
+%% tables, and deleted keys are removed from the tables.
 -record(pmap, {table, cache, dirty}).
 
 -type pmap(K, V) ::
@@ -530,9 +531,9 @@ kv_pmap_persist(Tab, SessionId, Key, Val0) ->
     mnesia:write(Tab, #kv{k = {SessionId, Key}, v = Val}, write).
 
 kv_pmap_restore(Table, SessionId) ->
-    MS = [{#kv{k = {SessionId, '_'}, _ = '_'}, [], ['$_']}],
+    MS = [{#kv{k = {SessionId, '$1'}, v = '$2'}, [], [{{'$1', '$2'}}]}],
     Objs = mnesia:select(Table, MS, read),
-    [{K, encoder(decode, Table, V)} || #kv{k = {_, K}, v = V} <- Objs].
+    [{K, encoder(decode, Table, V)} || {K, V} <- Objs].
 
 kv_pmap_delete(Table, SessionId) ->
     MS = [{#kv{k = {SessionId, '$1'}, _ = '_'}, [], ['$1']}],

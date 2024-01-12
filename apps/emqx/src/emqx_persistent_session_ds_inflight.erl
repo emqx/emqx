@@ -18,9 +18,6 @@
 %% API:
 -export([new/1, push/2, pop/1, n_buffered/2, n_inflight/1, inc_send_quota/1, receive_maximum/1]).
 
-%% behavior callbacks:
--export([]).
-
 %% internal exports:
 -export([]).
 
