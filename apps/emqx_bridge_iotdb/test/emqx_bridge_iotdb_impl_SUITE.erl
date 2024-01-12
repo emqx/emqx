@@ -646,6 +646,29 @@ t_template(Config) ->
     iotdb_reset(Config, TemplateDeviceId),
     ok.
 
+t_sync_query_case(Config) ->
+    DeviceId = iotdb_device(Config),
+    Payload = make_iotdb_payload(DeviceId, "temp", "InT32", "36"),
+    MakeMessageFun = make_message_fun(iotdb_topic(Config), Payload),
+    ok = emqx_bridge_v2_testlib:t_sync_query(
+        Config, MakeMessageFun, fun is_success_check/1, iotdb_bridge_on_query
+    ),
+    Query = <<"select temp from ", DeviceId/binary>>,
+    {ok, {{_, 200, _}, _, IoTDBResult}} = iotdb_query(Config, Query),
+    ?assertMatch(
+        #{<<"values">> := [[36]]},
+        emqx_utils_json:decode(IoTDBResult)
+    ).
+
+t_sync_query_invalid_type(Config) ->
+    DeviceId = iotdb_device(Config),
+    Payload = make_iotdb_payload(DeviceId, "temp", "IxT32", "36"),
+    MakeMessageFun = make_message_fun(iotdb_topic(Config), Payload),
+    IsInvalidType = fun(Result) -> ?assertMatch({error, {invalid_type, _}}, Result) end,
+    ok = emqx_bridge_v2_testlib:t_sync_query(
+        Config, MakeMessageFun, IsInvalidType, iotdb_bridge_on_query
+    ).
+
 is_empty(null) -> true;
 is_empty([]) -> true;
 is_empty([[]]) -> true;

@@ -128,7 +128,7 @@ fields("connection_fields") ->
             mk(
                 hoconsc:enum([?VSN_1_1_X, ?VSN_1_0_X, ?VSN_0_13_X]),
                 #{
-                    desc => ?DESC(emqx_bridge_iotdb, "iotdb_version"),
+                    desc => ?DESC(emqx_bridge_iotdb, "config_iotdb_version"),
                     default => ?VSN_1_1_X
                 }
             )},
@@ -422,25 +422,41 @@ proc_data(PreProcessedData, Msg) ->
         now_us => erlang:convert_time_unit(NowNS, nanosecond, microsecond),
         now_ns => NowNS
     },
-    lists:map(
-        fun(
-            #{
-                timestamp := TimestampTkn,
-                measurement := Measurement,
-                data_type := DataType0,
-                value := ValueTkn
-            }
-        ) ->
-            DataType = emqx_placeholder:proc_tmpl(DataType0, Msg),
-            #{
-                timestamp => iot_timestamp(TimestampTkn, Msg, Nows),
-                measurement => emqx_placeholder:proc_tmpl(Measurement, Msg),
-                data_type => DataType,
-                value => proc_value(DataType, ValueTkn, Msg)
-            }
-        end,
-        PreProcessedData
-    ).
+    proc_data(PreProcessedData, Msg, Nows, []).
+
+proc_data(
+    [
+        #{
+            timestamp := TimestampTkn,
+            measurement := Measurement,
+            data_type := DataType0,
+            value := ValueTkn
+        }
+        | T
+    ],
+    Msg,
+    Nows,
+    Acc
+) ->
+    DataType = list_to_binary(
+        string:uppercase(binary_to_list(emqx_placeholder:proc_tmpl(DataType0, Msg)))
+    ),
+    case proc_value(DataType, ValueTkn, Msg) of
+        {ok, Value} ->
+            proc_data(T, Msg, Nows, [
+                #{
+                    timestamp => iot_timestamp(TimestampTkn, Msg, Nows),
+                    measurement => emqx_placeholder:proc_tmpl(Measurement, Msg),
+                    data_type => DataType,
+                    value => Value
+                }
+                | Acc
+            ]);
+        Error ->
+            Error
+    end;
+proc_data([], _Msg, _Nows, Acc) ->
+    {ok, lists:reverse(Acc)}.
 
 iot_timestamp(Timestamp, _, _) when is_integer(Timestamp) ->
     Timestamp;
@@ -459,16 +475,19 @@ iot_timestamp(Timestamp, _) when is_binary(Timestamp) ->
     binary_to_integer(Timestamp).
 
 proc_value(<<"TEXT">>, ValueTkn, Msg) ->
-    case emqx_placeholder:proc_tmpl(ValueTkn, Msg) of
-        <<"undefined">> -> null;
-        Val -> Val
-    end;
+    {ok,
+        case emqx_placeholder:proc_tmpl(ValueTkn, Msg) of
+            <<"undefined">> -> null;
+            Val -> Val
+        end};
 proc_value(<<"BOOLEAN">>, ValueTkn, Msg) ->
-    convert_bool(replace_var(ValueTkn, Msg));
+    {ok, convert_bool(replace_var(ValueTkn, Msg))};
 proc_value(Int, ValueTkn, Msg) when Int =:= <<"INT32">>; Int =:= <<"INT64">> ->
-    convert_int(replace_var(ValueTkn, Msg));
+    {ok, convert_int(replace_var(ValueTkn, Msg))};
 proc_value(Int, ValueTkn, Msg) when Int =:= <<"FLOAT">>; Int =:= <<"DOUBLE">> ->
-    convert_float(replace_var(ValueTkn, Msg)).
+    {ok, convert_float(replace_var(ValueTkn, Msg))};
+proc_value(Type, _, _) ->
+    {error, {invalid_type, Type}}.
 
 replace_var(Tokens, Data) when is_list(Tokens) ->
     [Val] = emqx_placeholder:proc_tmpl(Tokens, Data, #{return => rawlist}),
@@ -630,9 +649,9 @@ eval_response_body(Body, Resp) ->
 
 preproc_data_template(DataList) ->
     Atom2Bin = fun
-        (Atom, Converter) when is_atom(Atom) ->
-            Converter(Atom);
-        (Bin, _) ->
+        (Atom) when is_atom(Atom) ->
+            erlang:atom_to_binary(Atom);
+        (Bin) ->
             Bin
     end,
     lists:map(
@@ -645,18 +664,9 @@ preproc_data_template(DataList) ->
             }
         ) ->
             #{
-                timestamp => emqx_placeholder:preproc_tmpl(
-                    Atom2Bin(Timestamp, fun erlang:atom_to_binary/1)
-                ),
+                timestamp => emqx_placeholder:preproc_tmpl(Atom2Bin(Timestamp)),
                 measurement => emqx_placeholder:preproc_tmpl(Measurement),
-                data_type => emqx_placeholder:preproc_tmpl(
-                    Atom2Bin(
-                        DataType,
-                        fun(Atom) ->
-                            erlang:list_to_binary(string:uppercase(erlang:atom_to_list(Atom)))
-                        end
-                    )
-                ),
+                data_type => emqx_placeholder:preproc_tmpl(Atom2Bin(DataType)),
                 value => emqx_placeholder:preproc_tmpl(Value)
             }
         end,
@@ -681,9 +691,12 @@ render_channel_message(#{is_aligned := IsAligned} = Channel, IoTDBVsn, Message) 
                 [] ->
                     {error, invalid_data};
                 DataTemplate ->
-                    DataList = proc_data(DataTemplate, Message),
-
-                    make_iotdb_insert_request(DataList, IsAligned, DeviceId, IoTDBVsn)
+                    case proc_data(DataTemplate, Message) of
+                        {ok, DataList} ->
+                            make_iotdb_insert_request(DataList, IsAligned, DeviceId, IoTDBVsn);
+                        Error ->
+                            Error
+                    end
             end
     end.
 
