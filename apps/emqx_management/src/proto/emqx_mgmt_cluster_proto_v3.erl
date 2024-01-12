@@ -30,7 +30,7 @@ introduced_in() ->
     "5.5.0".
 
 -spec invite_node(node(), node(), timeout()) -> ok | ignore | {error, term()} | emqx_rpc:badrpc().
-invite_node(Node, Self, Timeout) when is_integer(Timeout) ->
+invite_node(Node, Self, Timeout) when is_integer(Timeout); Timeout =:= infinity ->
     rpc:call(Node, emqx_mgmt_api_cluster, join, [Self], Timeout).
 
 -spec connected_replicants([node()]) -> emqx_rpc:multicall_result().

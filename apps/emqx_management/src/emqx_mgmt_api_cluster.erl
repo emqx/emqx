@@ -26,6 +26,8 @@
     cluster_info/2,
     cluster_topology/2,
     invite_node/2,
+    invite_node_async/2,
+    get_invitation_view/2,
     force_leave/2,
     join/1,
     connected_replicants/0
@@ -42,7 +44,9 @@ paths() ->
     [
         "/cluster",
         "/cluster/topology",
+        "/cluster/invitation",
         "/cluster/:node/invite",
+        "/cluster/:node/invite_async",
         "/cluster/:node/force_leave"
     ].
 
@@ -72,6 +76,20 @@ schema("/cluster/topology") ->
             }
         }
     };
+schema("/cluster/invitation") ->
+    #{
+        'operationId' => get_invitation_view,
+        get => #{
+            desc => ?DESC(get_invitation_view),
+            tags => [<<"Cluster">>],
+            responses => #{
+                200 => ?HOCON(
+                    ?REF(invitation_view),
+                    #{desc => <<"Get invitation progress created by async operation">>}
+                )
+            }
+        }
+    };
 schema("/cluster/:node/invite") ->
     #{
         'operationId' => invite_node,
@@ -80,6 +98,19 @@ schema("/cluster/:node/invite") ->
             tags => [<<"Cluster">>],
             parameters => [hoconsc:ref(node)],
             'requestBody' => hoconsc:ref(timeout),
+            responses => #{
+                200 => <<"ok">>,
+                400 => emqx_dashboard_swagger:error_codes(['BAD_REQUEST'])
+            }
+        }
+    };
+schema("/cluster/:node/invite_async") ->
+    #{
+        'operationId' => invite_node_async,
+        put => #{
+            desc => ?DESC(invite_node_async),
+            tags => [<<"Cluster">>],
+            parameters => [hoconsc:ref(node)],
             responses => #{
                 200 => <<"ok">>,
                 400 => emqx_dashboard_swagger:error_codes(['BAD_REQUEST'])
@@ -141,6 +172,61 @@ fields(timeout) ->
             ?HOCON(
                 non_neg_integer(),
                 #{desc => <<"Timeout in milliseconds">>, example => <<"15000">>}
+            )}
+    ];
+fields(invitation_view) ->
+    [
+        {succeed,
+            ?HOCON(
+                ?ARRAY(?REF(node_invitation_succeed)),
+                #{desc => <<"A list of information about nodes that were successfully invited">>}
+            )},
+        {in_progress,
+            ?HOCON(
+                ?ARRAY(?REF(node_invitation_in_progress)),
+                #{desc => <<"A list of information about nodes that are processing invitations">>}
+            )},
+        {failed,
+            ?HOCON(
+                ?ARRAY(?REF(node_invitation_failed)),
+                #{desc => <<"A list of information about nodes that failed to be invited">>}
+            )}
+    ];
+fields(node_invitation_failed) ->
+    fields(node_invitation_succeed) ++
+        [
+            {reason,
+                ?HOCON(
+                    binary(),
+                    #{desc => <<"Failed reason">>, example => <<"Bad RPC to target node">>}
+                )}
+        ];
+fields(node_invitation_succeed) ->
+    fields(node_invitation_in_progress) ++
+        [
+            {finished_at,
+                ?HOCON(
+                    emqx_utils_calendar:epoch_millisecond(),
+                    #{
+                        desc => <<"The end time of the invitation task, in millisecond">>,
+                        example => <<"1705044829915">>
+                    }
+                )}
+        ];
+fields(node_invitation_in_progress) ->
+    [
+        {node,
+            ?HOCON(
+                binary(),
+                #{desc => <<"Node name">>, example => <<"emqx2@127.0.0.1">>}
+            )},
+        {started_at,
+            ?HOCON(
+                emqx_utils_calendar:epoch_millisecond(),
+                #{
+                    desc => <<"The start time of the invitation task, in millisecond">>,
+                    example => <<"1705044829915">>
+                }
             )}
     ].
 
@@ -219,6 +305,23 @@ invite_node(put, #{bindings := #{node := Node0}, body := Body}) ->
             end
     end.
 
+invite_node_async(put, #{bindings := #{node := Node0}}) ->
+    Node = ekka_node:parse_name(binary_to_list(Node0)),
+    case emqx_mgmt_cluster:invite_async(Node) of
+        ok ->
+            {200};
+        ignore ->
+            {400, #{code => 'BAD_REQUEST', message => <<"Can't invite self">>}};
+        {error, {already_started, _Pid}} ->
+            {400, #{
+                code => 'BAD_REQUEST',
+                message => <<"The invitation task already created for this node">>
+            }}
+    end.
+
+get_invitation_view(get, _) ->
+    {200, format_invitation_view(emqx_mgmt_cluster:invitation_view())}.
+
 force_leave(delete, #{bindings := #{node := Node0}}) ->
     Node = ekka_node:parse_name(binary_to_list(Node0)),
     case ekka:force_leave(Node) of
@@ -240,3 +343,27 @@ connected_replicants() ->
 
 error_message(Msg) ->
     iolist_to_binary(io_lib:format("~p", [Msg])).
+
+format_invitation_view(#{
+    succeed := Succeed,
+    in_progress := InProgress,
+    failed := Failed
+}) ->
+    #{
+        succeed => format_invitation_info(Succeed),
+        in_progress => format_invitation_info(InProgress),
+        failed => format_invitation_info(Failed)
+    }.
+
+format_invitation_info(L) when is_list(L) ->
+    lists:map(
+        fun(Info) ->
+            Info1 = emqx_utils_maps:update_if_present(
+                started_at, fun emqx_utils_calendar:epoch_to_rfc3339/1, Info
+            ),
+            emqx_utils_maps:update_if_present(
+                finished_at, fun emqx_utils_calendar:epoch_to_rfc3339/1, Info1
+            )
+        end,
+        L
+    ).
