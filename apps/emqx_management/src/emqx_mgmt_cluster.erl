@@ -169,7 +169,7 @@ state_to_invitation_view(State) ->
                 true ->
                     {[Ret | SuccAcc], FailedAcc};
                 false ->
-                    {SuccAcc, [Ret#{reason => Result} | FailedAcc]}
+                    {SuccAcc, [Ret#{reason => format_error_reason(Result)} | FailedAcc]}
             end
         end,
         {[], []},
@@ -194,3 +194,6 @@ is_succeed_result(Result) ->
         _ ->
             false
     end.
+
+format_error_reason(Term) ->
+    iolist_to_binary(io_lib:format("~p", [Msg])).
