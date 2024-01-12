@@ -32,11 +32,18 @@ start_link() ->
 init([]) ->
     %% Broker pool
     PoolSize = emqx:get_config([node, broker_pool_size], emqx_vm:schedulers() * 2),
-    BrokerPool = emqx_pool_sup:spec([
+    BrokerPool = emqx_pool_sup:spec(broker_pool_sup, [
         broker_pool,
         hash,
         PoolSize,
         {emqx_broker, start_link, []}
+    ]),
+
+    SyncerPool = emqx_pool_sup:spec(syncer_pool_sup, [
+        router_syncer_pool,
+        hash,
+        PoolSize,
+        {emqx_router_syncer, start_link, []}
     ]),
 
     %% Shared subscription
@@ -59,4 +66,4 @@ init([]) ->
         modules => [emqx_broker_helper]
     },
 
-    {ok, {{one_for_all, 0, 1}, [BrokerPool, SharedSub, Helper]}}.
+    {ok, {{one_for_all, 0, 1}, [SyncerPool, BrokerPool, SharedSub, Helper]}}.
