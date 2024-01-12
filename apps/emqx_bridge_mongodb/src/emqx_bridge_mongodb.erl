@@ -86,7 +86,8 @@ fields(mongodb_action) ->
     emqx_bridge_v2_schema:make_producer_action_schema(
         mk(ref(?MODULE, action_parameters), #{
             required => true, desc => ?DESC(action_parameters)
-        })
+        }),
+        #{resource_opts_ref => ref(?MODULE, action_resource_opts)}
     );
 fields(action_parameters) ->
     [
@@ -95,6 +96,14 @@ fields(action_parameters) ->
     ];
 fields(connector_resource_opts) ->
     emqx_connector_schema:resource_opts_fields();
+fields(action_resource_opts) ->
+    emqx_bridge_v2_schema:resource_opts_fields([
+        {batch_size, #{
+            importance => ?IMPORTANCE_HIDDEN,
+            converter => fun(_, _) -> 1 end,
+            desc => ?DESC("batch_size")
+        }}
+    ]);
 fields(resource_opts) ->
     fields("creation_opts");
 fields(mongodb_rs) ->
@@ -212,6 +221,8 @@ desc("config") ->
 desc("creation_opts") ->
     ?DESC(emqx_resource_schema, "creation_opts");
 desc(resource_opts) ->
+    ?DESC(emqx_resource_schema, "resource_opts");
+desc(action_resource_opts) ->
     ?DESC(emqx_resource_schema, "resource_opts");
 desc(connector_resource_opts) ->
     ?DESC(emqx_resource_schema, "resource_opts");
