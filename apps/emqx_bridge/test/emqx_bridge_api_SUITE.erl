@@ -19,6 +19,7 @@
 -compile(export_all).
 
 -import(emqx_mgmt_api_test_util, [uri/1]).
+-import(emqx_common_test_helpers, [on_exit/1]).
 
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
@@ -882,7 +883,7 @@ start_stop_inconsistent_bridge(Type, Config) ->
         )
     end),
 
-    emqx_common_test_helpers:on_exit(fun() ->
+    on_exit(fun() ->
         erpc:call(Node, fun() ->
             meck:unload([emqx_bridge_resource])
         end)
@@ -999,6 +1000,8 @@ t_reset_bridges(Config) ->
     {ok, 200, []} = request_json(get, uri(["bridges"]), Config).
 
 t_with_redact_update(Config) ->
+    ok = snabbkaffe:start_trace(),
+    on_exit(fun() -> ok = snabbkaffe:stop() end),
     Name = <<"redact_update">>,
     Type = <<"mqtt">>,
     Password = <<"123456">>,
@@ -1027,6 +1030,28 @@ t_with_redact_update(Config) ->
         Password,
         get_raw_config([bridges, Type, Name, password], Config)
     ),
+
+    %% probe with new password; should not be considered redacted
+    {_, {ok, #{params := UsedParams}}} =
+        ?wait_async_action(
+            request(
+                post,
+                uri(["bridges_probe"]),
+                Template#{<<"password">> := <<"newpassword">>},
+                Config
+            ),
+            #{?snk_kind := bridge_v1_api_dry_run},
+            1_000
+        ),
+    UsedPassword0 = maps:get(<<"password">>, UsedParams),
+    %% the password field schema makes
+    %% `emqx_dashboard_swagger:filter_check_request_and_translate_body' wrap the password.
+    %% hack: this fails with `badfun' in CI only, due to cover compile, if not evaluated
+    %% in the original node...
+    PrimaryNode = ?config(node, Config),
+    erpc:call(PrimaryNode, fun() -> ?assertEqual(<<"newpassword">>, UsedPassword0()) end),
+    ok = snabbkaffe:stop(),
+
     ok.
 
 t_bridges_probe(Config) ->
@@ -1149,7 +1174,7 @@ t_bridges_probe(Config) ->
         Config
     ),
 
-    emqx_common_test_helpers:on_exit(fun() ->
+    on_exit(fun() ->
         delete_user_auth(Chain, AuthenticatorID, User, Config)
     end),
 

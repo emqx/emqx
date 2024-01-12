@@ -23,6 +23,8 @@ is_redacted_test_() ->
         ?_assertNot(emqx_utils:is_redacted(password, <<>>)),
         ?_assertNot(emqx_utils:is_redacted(password, undefined)),
         ?_assert(emqx_utils:is_redacted(password, <<"******">>)),
-        ?_assert(emqx_utils:is_redacted(password, fun() -> <<"secretpass">> end)),
-        ?_assert(emqx_utils:is_redacted(password, emqx_secret:wrap(<<"secretpass">>)))
+        ?_assertNot(emqx_utils:is_redacted(password, fun() -> <<"secretpass">> end)),
+        ?_assertNot(emqx_utils:is_redacted(password, emqx_secret:wrap(<<"secretpass">>))),
+        ?_assert(emqx_utils:is_redacted(password, fun() -> <<"******">> end)),
+        ?_assert(emqx_utils:is_redacted(password, emqx_secret:wrap(<<"******">>)))
     ].
