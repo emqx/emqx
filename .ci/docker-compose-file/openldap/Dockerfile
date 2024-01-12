@@ -1,4 +1,4 @@
-FROM docker.io/zmstone/openldap:2.5.16
+FROM docker.io/zmstone/openldap:2.5.16@sha256:a813922115a1d1f1b974399595921d1778fae22b3f1ee15dcfa8cfa89700dbc7
 
 COPY .ci/docker-compose-file/openldap/slapd.conf /usr/local/etc/openldap/slapd.conf
 COPY apps/emqx_ldap/test/data/emqx.io.ldif /usr/local/etc/openldap/schema/emqx.io.ldif
