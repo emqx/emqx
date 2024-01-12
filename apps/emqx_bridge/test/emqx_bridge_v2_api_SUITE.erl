@@ -255,6 +255,8 @@ init_mocks() ->
             meck:expect(emqx_connector_ee_schema, resource_type, 1, ?CONNECTOR_IMPL),
             ok;
         ce ->
+            meck:new(emqx_connector_resource, [passthrough, no_link]),
+            meck:expect(emqx_connector_resource, connector_to_resource_type, 1, ?CONNECTOR_IMPL),
             ok
     end,
     meck:new(?CONNECTOR_IMPL, [non_strict, no_link]),
@@ -363,9 +365,13 @@ request_json(Method, URLLike, Body, Config) ->
     request(Method, URLLike, Body, fun json/1, Config).
 
 operation_path(node, Oper, BridgeID, Config) ->
-    uri(["nodes", ?config(node, Config), ?ACTIONS_ROOT, BridgeID, Oper]);
-operation_path(cluster, Oper, BridgeID, _Config) ->
-    uri([?ACTIONS_ROOT, BridgeID, Oper]).
+    [_SingleOrCluster, Kind | _] = group_path(Config),
+    #{api_root_key := APIRootKey} = get_common_values(Kind, <<"unused">>),
+    uri(["nodes", ?config(node, Config), APIRootKey, BridgeID, Oper]);
+operation_path(cluster, Oper, BridgeID, Config) ->
+    [_SingleOrCluster, Kind | _] = group_path(Config),
+    #{api_root_key := APIRootKey} = get_common_values(Kind, <<"unused">>),
+    uri([APIRootKey, BridgeID, Oper]).
 
 enable_path(Enable, BridgeID) ->
     uri([?ACTIONS_ROOT, BridgeID, "enable", Enable]).
@@ -935,7 +941,9 @@ t_start_bridge_unknown_node(Config) ->
 t_start_bridge_node(matrix) ->
     [
         [single, actions],
-        [cluster, actions]
+        [single, sources],
+        [cluster, actions],
+        [cluster, sources]
     ];
 t_start_bridge_node(Config) ->
     do_start_bridge(node, Config).
@@ -943,19 +951,28 @@ t_start_bridge_node(Config) ->
 t_start_bridge_cluster(matrix) ->
     [
         [single, actions],
-        [cluster, actions]
+        [single, sources],
+        [cluster, actions],
+        [cluster, sources]
     ];
 t_start_bridge_cluster(Config) ->
     do_start_bridge(cluster, Config).
 
 do_start_bridge(TestType, Config) ->
-    %% assert we there's no bridges at first
-    {ok, 200, []} = request_json(get, uri([?ACTIONS_ROOT]), Config),
-
+    [_SingleOrCluster, Kind | _] = group_path(Config),
     Name = atom_to_binary(TestType),
+    #{
+        api_root_key := APIRootKey,
+        type := Type,
+        default_connector_name := DefaultConnectorName,
+        create_config_fn := CreateConfigFn
+    } = get_common_values(Kind, Name),
+    %% assert we there's no bridges at first
+    {ok, 200, []} = request_json(get, uri([APIRootKey]), Config),
+
     ?assertMatch(
         {ok, 201, #{
-            <<"type">> := ?ACTION_TYPE,
+            <<"type">> := Type,
             <<"name">> := Name,
             <<"enable">> := true,
             <<"status">> := <<"connected">>,
@@ -963,25 +980,25 @@ do_start_bridge(TestType, Config) ->
         }},
         request_json(
             post,
-            uri([?ACTIONS_ROOT]),
-            ?KAFKA_BRIDGE(Name),
+            uri([APIRootKey]),
+            CreateConfigFn(#{name => Name}),
             Config
         )
     ),
 
-    BridgeID = emqx_bridge_resource:bridge_id(?ACTION_TYPE, Name),
+    BridgeID = emqx_bridge_resource:bridge_id(Type, Name),
 
     %% start again
     {ok, 204, <<>>} = request(post, {operation, TestType, start, BridgeID}, Config),
     ?assertMatch(
         {ok, 200, #{<<"status">> := <<"connected">>}},
-        request_json(get, uri([?ACTIONS_ROOT, BridgeID]), Config)
+        request_json(get, uri([APIRootKey, BridgeID]), Config)
     ),
     %% start a started bridge
     {ok, 204, <<>>} = request(post, {operation, TestType, start, BridgeID}, Config),
     ?assertMatch(
         {ok, 200, #{<<"status">> := <<"connected">>}},
-        request_json(get, uri([?ACTIONS_ROOT, BridgeID]), Config)
+        request_json(get, uri([APIRootKey, BridgeID]), Config)
     ),
 
     {ok, 400, _} = request(post, {operation, TestType, invalidop, BridgeID}, Config),
@@ -994,8 +1011,8 @@ do_start_bridge(TestType, Config) ->
         Config
     ),
 
-    connector_operation(Config, ?ACTION_TYPE, ?ACTION_CONNECTOR_NAME, stop),
-    connector_operation(Config, ?ACTION_TYPE, ?ACTION_CONNECTOR_NAME, start),
+    connector_operation(Config, Type, DefaultConnectorName, stop),
+    connector_operation(Config, Type, DefaultConnectorName, start),
 
     {ok, 400, _} = request(post, {operation, TestType, start, BridgeID}, Config),
 
@@ -1012,8 +1029,8 @@ do_start_bridge(TestType, Config) ->
     {ok, 204, <<>>} = request(post, {operation, TestType, start, BridgeID}, Config),
 
     %% delete the bridge
-    {ok, 204, <<>>} = request(delete, uri([?ACTIONS_ROOT, BridgeID]), Config),
-    {ok, 200, []} = request_json(get, uri([?ACTIONS_ROOT]), Config),
+    {ok, 204, <<>>} = request(delete, uri([APIRootKey, BridgeID]), Config),
+    {ok, 200, []} = request_json(get, uri([APIRootKey]), Config),
 
     %% Fail parse-id check
     {ok, 404, _} = request(post, {operation, TestType, start, <<"wreckbook_fugazi">>}, Config),
@@ -1268,14 +1285,21 @@ t_action_types(Config) ->
 t_bad_name(matrix) ->
     [
         [single, actions],
-        [cluster, actions]
+        [single, sources],
+        [cluster, actions],
+        [cluster, sources]
     ];
 t_bad_name(Config) ->
+    [_SingleOrCluster, Kind | _] = group_path(Config),
     Name = <<"_bad_name">>,
+    #{
+        api_root_key := APIRootKey,
+        create_config_fn := CreateConfigFn
+    } = get_common_values(Kind, Name),
     Res = request_json(
         post,
-        uri([?ACTIONS_ROOT]),
-        ?KAFKA_BRIDGE(Name),
+        uri([APIRootKey]),
+        CreateConfigFn(#{}),
         Config
     ),
     ?assertMatch({ok, 400, #{<<"message">> := _}}, Res),
@@ -1446,15 +1470,23 @@ t_cluster_later_join_metrics(Config) ->
 t_raw_config_response_defaults(matrix) ->
     [
         [single, actions],
-        [cluster, actions]
+        [single, sources],
+        [cluster, actions],
+        [cluster, sources]
     ];
 t_raw_config_response_defaults(Config) ->
-    Params = maps:remove(<<"enable">>, ?KAFKA_BRIDGE(?BRIDGE_NAME)),
+    [_SingleOrCluster, Kind | _] = group_path(Config),
+    Name = atom_to_binary(?FUNCTION_NAME),
+    #{
+        api_root_key := APIRootKey,
+        create_config_fn := CreateConfigFn
+    } = get_common_values(Kind, Name),
+    Params = maps:remove(<<"enable">>, CreateConfigFn(#{})),
     ?assertMatch(
         {ok, 201, #{<<"enable">> := true}},
         request_json(
             post,
-            uri([?ACTIONS_ROOT]),
+            uri([APIRootKey]),
             Params,
             Config
         )
