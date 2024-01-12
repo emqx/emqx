@@ -786,7 +786,7 @@ handle_update(ConfRootKey, Id, Conf0) ->
 handle_delete(ConfRootKey, Id, QueryStringOpts) ->
     ?TRY_PARSE_ID(
         Id,
-        case emqx_bridge_v2:lookup(BridgeType, BridgeName) of
+        case emqx_bridge_v2:lookup(ConfRootKey, BridgeType, BridgeName) of
             {ok, _} ->
                 AlsoDeleteActions =
                     case maps:get(<<"also_delete_dep_actions">>, QueryStringOpts, <<"false">>) of
