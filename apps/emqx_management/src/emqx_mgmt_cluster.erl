@@ -196,4 +196,4 @@ is_succeed_result(Result) ->
     end.
 
 format_error_reason(Term) ->
-    iolist_to_binary(io_lib:format("~p", [Msg])).
+    iolist_to_binary(io_lib:format("~p", [Term])).
