@@ -101,6 +101,7 @@
     | ?committed(?QOS_1)
     | ?next(?QOS_2)
     | ?dup(?QOS_2)
+    | ?rec
     | ?committed(?QOS_2).
 
 -opaque t() :: #{

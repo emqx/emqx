@@ -234,7 +234,7 @@ info(mqueue_dropped, _Session) ->
 % info(awaiting_rel, #sessmem{awaiting_rel = AwaitingRel}) ->
 %     AwaitingRel;
 info(awaiting_rel_cnt, #{s := S}) ->
-    seqno_diff(?QOS_2, ?dup(?QOS_2), ?committed(?QOS_2), S);
+    seqno_diff(?QOS_2, ?rec, ?committed(?QOS_2), S);
 info(awaiting_rel_max, #{props := Conf}) ->
     maps:get(max_awaiting_rel, Conf);
 info(await_rel_timeout, #{props := Conf}) ->
@@ -602,6 +602,7 @@ session_ensure_new(Id, ConnInfo, Conf) ->
             ?committed(?QOS_1),
             ?next(?QOS_2),
             ?dup(?QOS_2),
+            ?rec,
             ?committed(?QOS_2)
         ]
     ),
@@ -742,6 +743,7 @@ process_batch(
     Comm2 = emqx_persistent_session_ds_state:get_seqno(?committed(?QOS_2), S),
     Dup1 = emqx_persistent_session_ds_state:get_seqno(?dup(?QOS_1), S),
     Dup2 = emqx_persistent_session_ds_state:get_seqno(?dup(?QOS_2), S),
+    Rec = emqx_persistent_session_ds_state:get_seqno(?rec, S),
     Subs = emqx_persistent_session_ds_state:get_subscriptions(S),
     Msgs = [
         Msg
@@ -784,11 +786,18 @@ process_batch(
                     ?QOS_2 when SeqNoQos2 =< Comm2 ->
                         %% QoS2 message has been PUBCOMP'ed by the client, ignore:
                         Acc;
-                    ?QOS_2 when SeqNoQos2 =< Dup2 ->
+                    ?QOS_2 when SeqNoQos2 =< Rec ->
                         %% QoS2 message has been PUBREC'ed by the client, resend PUBREL:
                         emqx_persistent_session_ds_inflight:push({pubrel, SeqNoQos2}, Acc);
+                    ?QOS_2 when SeqNoQos2 =< Dup2 ->
+                        %% QoS2 message has been sent, but we haven't received PUBREC.
+                        %%
+                        %% TODO: According to the MQTT standard 4.3.3:
+                        %% DUP flag is never set for QoS2 messages? We
+                        %% do so for mem sessions, though.
+                        Msg1 = emqx_message:set_flag(dup, true, Msg),
+                        emqx_persistent_session_ds_inflight:push({SeqNoQos2, Msg1}, Acc);
                     ?QOS_2 ->
-                        %% MQTT standard 4.3.3: DUP flag is never set for QoS2 messages:
                         emqx_persistent_session_ds_inflight:push({SeqNoQos2, Msg}, Acc)
                 end,
                 SeqNoQos1,
@@ -821,13 +830,10 @@ do_drain_buffer(Inflight0, S0, Acc) ->
             case Msg#message.qos of
                 ?QOS_0 ->
                     do_drain_buffer(Inflight, S0, [{undefined, Msg} | Acc]);
-                ?QOS_1 ->
-                    S = emqx_persistent_session_ds_state:put_seqno(?dup(?QOS_1), SeqNo, S0),
-                    Publish = {seqno_to_packet_id(?QOS_1, SeqNo), Msg},
-                    do_drain_buffer(Inflight, S, [Publish | Acc]);
-                ?QOS_2 ->
-                    Publish = {seqno_to_packet_id(?QOS_2, SeqNo), Msg},
-                    do_drain_buffer(Inflight, S0, [Publish | Acc])
+                Qos ->
+                    S = emqx_persistent_session_ds_state:put_seqno(?dup(Qos), SeqNo, S0),
+                    Publish = {seqno_to_packet_id(Qos, SeqNo), Msg},
+                    do_drain_buffer(Inflight, S, [Publish | Acc])
             end
     end.
 
@@ -898,7 +904,7 @@ commit_seqno(Track, PacketId, Session = #{id := SessionId, s := S}) ->
             MinTrack = ?committed(?QOS_1),
             MaxTrack = ?next(?QOS_1);
         pubrec ->
-            MinTrack = ?dup(?QOS_2),
+            MinTrack = ?rec,
             MaxTrack = ?next(?QOS_2);
         pubcomp ->
             MinTrack = ?committed(?QOS_2),

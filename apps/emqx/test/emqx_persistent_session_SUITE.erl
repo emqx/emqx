@@ -36,7 +36,7 @@ all() ->
         % NOTE
         % Tests are disabled while existing session persistence impl is being
         % phased out.
-        %%{group, persistence_disabled},
+        {group, persistence_disabled},
         {group, persistence_enabled}
     ].
 
@@ -54,10 +54,9 @@ all() ->
 groups() ->
     TCs = emqx_common_test_helpers:all(?MODULE),
     TCsNonGeneric = [t_choose_impl],
-    % {group, quic}, {group, ws}],
-    TCGroups = [{group, tcp}],
+    TCGroups = [{group, tcp}, {group, quic}, {group, ws}],
     [
-        %% {persistence_disabled, TCGroups},
+        {persistence_disabled, TCGroups},
         {persistence_enabled, TCGroups},
         {tcp, [], TCs},
         {quic, [], TCs -- TCsNonGeneric},
@@ -677,6 +676,7 @@ t_publish_many_while_client_is_gone_qos1(Config) ->
     ),
 
     NAcked = 4,
+    ?assert(NMsgs1 >= NAcked),
     [ok = emqtt:puback(Client1, PktId) || #{packet_id := PktId} <- lists:sublist(Msgs1, NAcked)],
 
     %% Ensure that PUBACKs are propagated to the channel.
@@ -690,17 +690,18 @@ t_publish_many_while_client_is_gone_qos1(Config) ->
         #mqtt_msg{topic = <<"t/100/foo">>, payload = <<"M9">>, qos = 1},
         #mqtt_msg{topic = <<"t/100/foo">>, payload = <<"M10">>, qos = 1},
         #mqtt_msg{topic = <<"msg/feed/friend">>, payload = <<"M11">>, qos = 1},
-        #mqtt_msg{topic = <<"msg/feed/me2">>, payload = <<"M12">>, qos = 1}
+        #mqtt_msg{topic = <<"msg/feed/me">>, payload = <<"M12">>, qos = 1}
     ],
     ok = publish_many(Pubs2),
     NPubs2 = length(Pubs2),
 
+    %% Now reconnect with auto ack to make sure all streams are
+    %% replayed till the end:
     {ok, Client2} = emqtt:start_link([
         {proto_ver, v5},
         {clientid, ClientId},
         {properties, #{'Session-Expiry-Interval' => 30}},
-        {clean_start, false},
-        {auto_ack, false}
+        {clean_start, false}
         | Config
     ]),
 
@@ -717,9 +718,9 @@ t_publish_many_while_client_is_gone_qos1(Config) ->
     ct:pal("Msgs2 = ~p", [Msgs2]),
 
     ?assert(NMsgs2 < NPubs, {NMsgs2, '<', NPubs}),
-    %% ?assert(NMsgs2 > NPubs2, {NMsgs2, '>', NPubs2}),
-    %% ?assert(NMsgs2 >= NPubs - NAcked, Msgs2),
-    NSame = max(0, NMsgs2 - NPubs2),
+    ?assert(NMsgs2 > NPubs2, {NMsgs2, '>', NPubs2}),
+    ?assert(NMsgs2 >= NPubs - NAcked, Msgs2),
+    NSame = NMsgs2 - NPubs2,
     ?assert(
         lists:all(fun(#{dup := Dup}) -> Dup end, lists:sublist(Msgs2, NSame))
     ),
@@ -780,6 +781,11 @@ t_publish_many_while_client_is_gone(Config) ->
     %% for its subscriptions after the client dies or reconnects, in addition
     %% to PUBRELs for the messages it has PUBRECed. While client must send
     %% PUBACKs and PUBRECs in order, those orders are independent of each other.
+    %%
+    %% Developer's note: for simplicity we publish all messages to the
+    %% same topic, since persistent session ds may reorder messages
+    %% that belong to different streams, and this particular test is
+    %% very sensitive the order.
     ClientId = ?config(client_id, Config),
     ConnFun = ?config(conn_fun, Config),
     ClientOpts = [
@@ -792,20 +798,18 @@ t_publish_many_while_client_is_gone(Config) ->
 
     {ok, Client1} = emqtt:start_link([{clean_start, true} | ClientOpts]),
     {ok, _} = emqtt:ConnFun(Client1),
-    {ok, _, [?QOS_1]} = emqtt:subscribe(Client1, <<"t/+/foo">>, ?QOS_1),
-    {ok, _, [?QOS_2]} = emqtt:subscribe(Client1, <<"msg/feed/#">>, ?QOS_2),
-    {ok, _, [?QOS_2]} = emqtt:subscribe(Client1, <<"loc/+/+/+">>, ?QOS_2),
+    {ok, _, [?QOS_2]} = emqtt:subscribe(Client1, <<"t">>, ?QOS_2),
 
     Pubs1 = [
-        #mqtt_msg{topic = <<"t/42/foo">>, payload = <<"M1">>, qos = 1},
-        #mqtt_msg{topic = <<"t/42/foo">>, payload = <<"M2">>, qos = 1},
-        #mqtt_msg{topic = <<"msg/feed/me">>, payload = <<"M3">>, qos = 2},
-        #mqtt_msg{topic = <<"loc/1/2/42">>, payload = <<"M4">>, qos = 2},
-        #mqtt_msg{topic = <<"t/100/foo">>, payload = <<"M5">>, qos = 2},
-        #mqtt_msg{topic = <<"t/100/foo">>, payload = <<"M6">>, qos = 1},
-        #mqtt_msg{topic = <<"loc/3/4/5">>, payload = <<"M7">>, qos = 2},
-        #mqtt_msg{topic = <<"t/100/foo">>, payload = <<"M8">>, qos = 1},
-        #mqtt_msg{topic = <<"msg/feed/me">>, payload = <<"M9">>, qos = 2}
+        #mqtt_msg{topic = <<"t">>, payload = <<"M1">>, qos = 1},
+        #mqtt_msg{topic = <<"t">>, payload = <<"M2">>, qos = 1},
+        #mqtt_msg{topic = <<"t">>, payload = <<"M3">>, qos = 2},
+        #mqtt_msg{topic = <<"t">>, payload = <<"M4">>, qos = 2},
+        #mqtt_msg{topic = <<"t">>, payload = <<"M5">>, qos = 2},
+        #mqtt_msg{topic = <<"t">>, payload = <<"M6">>, qos = 1},
+        #mqtt_msg{topic = <<"t">>, payload = <<"M7">>, qos = 2},
+        #mqtt_msg{topic = <<"t">>, payload = <<"M8">>, qos = 1},
+        #mqtt_msg{topic = <<"t">>, payload = <<"M9">>, qos = 2}
     ],
     ok = publish_many(Pubs1),
     NPubs1 = length(Pubs1),
@@ -827,7 +831,7 @@ t_publish_many_while_client_is_gone(Config) ->
         [PktId || #{qos := 1, packet_id := PktId} <- Msgs1]
     ),
 
-    %% PUBREC first `NRecs` QoS 2 messages.
+    %% PUBREC first `NRecs` QoS 2 messages (up to "M5")
     NRecs = 3,
     PubRecs1 = lists:sublist([PktId || #{qos := 2, packet_id := PktId} <- Msgs1], NRecs),
     lists:foreach(
@@ -851,9 +855,9 @@ t_publish_many_while_client_is_gone(Config) ->
     maybe_kill_connection_process(ClientId, Config),
 
     Pubs2 = [
-        #mqtt_msg{topic = <<"loc/3/4/5">>, payload = <<"M10">>, qos = 2},
-        #mqtt_msg{topic = <<"t/100/foo">>, payload = <<"M11">>, qos = 1},
-        #mqtt_msg{topic = <<"msg/feed/friend">>, payload = <<"M12">>, qos = 2}
+        #mqtt_msg{topic = <<"t">>, payload = <<"M10">>, qos = 2},
+        #mqtt_msg{topic = <<"t">>, payload = <<"M11">>, qos = 1},
+        #mqtt_msg{topic = <<"t">>, payload = <<"M12">>, qos = 2}
     ],
     ok = publish_many(Pubs2),
     NPubs2 = length(Pubs2),
@@ -886,8 +890,8 @@ t_publish_many_while_client_is_gone(Config) ->
         Msgs2Dups
     ),
 
-    %% Now complete all yet incomplete QoS 2 message flows instead.
-    PubRecs2 = [PktId || #{qos := 2, packet_id := PktId} <- Msgs2],
+    %% Ack more messages:
+    PubRecs2 = lists:sublist([PktId || #{qos := 2, packet_id := PktId} <- Msgs2], 2),
     lists:foreach(
         fun(PktId) -> ok = emqtt:pubrec(Client2, PktId) end,
         PubRecs2
@@ -903,6 +907,7 @@ t_publish_many_while_client_is_gone(Config) ->
 
     %% PUBCOMP every PUBREL.
     PubComps = [PktId || {pubrel, #{packet_id := PktId}} <- PubRels1 ++ PubRels2],
+    ct:pal("PubComps: ~p", [PubComps]),
     lists:foreach(
         fun(PktId) -> ok = emqtt:pubcomp(Client2, PktId) end,
         PubComps
@@ -910,19 +915,19 @@ t_publish_many_while_client_is_gone(Config) ->
 
     %% Ensure that PUBCOMPs are propagated to the channel.
     pong = emqtt:ping(Client2),
-
+    %% Reconnect for the last time
     ok = disconnect_client(Client2),
     maybe_kill_connection_process(ClientId, Config),
 
     {ok, Client3} = emqtt:start_link([{clean_start, false} | ClientOpts]),
     {ok, _} = emqtt:ConnFun(Client3),
 
-    %% Only the last unacked QoS 1 message should be retransmitted.
+    %% Check that the messages are retransmitted with DUP=1:
     Msgs3 = receive_messages(NPubs, _Timeout = 2000),
     ct:pal("Msgs3 = ~p", [Msgs3]),
     ?assertMatch(
-        [#{topic := <<"t/100/foo">>, payload := <<"M11">>, qos := 1, dup := true}],
-        Msgs3
+        [<<"M10">>, <<"M11">>, <<"M12">>],
+        [I || #{payload := I} <- Msgs3]
     ),
 
     ok = disconnect_client(Client3).

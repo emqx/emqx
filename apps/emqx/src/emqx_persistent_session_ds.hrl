@@ -28,25 +28,22 @@
 %%%%% Session sequence numbers:
 
 %%
-%%   -----|----------|----------|------> seqno
-%%        |          |          |
-%%   committed      dup       next
+%%   -----|----------|-----|-----|------> seqno
+%%        |          |     |     |
+%%   committed      dup   rec   next
+%                        (Qos2)
 
 %% Seqno becomes committed after receiving PUBACK for QoS1 or PUBCOMP
 %% for QoS2.
 -define(committed(QOS), QOS).
-%% Seqno becomes dup:
+%% Seqno becomes dup after broker sends QoS1 or QoS2 message to the
+%% client. Upon session reconnect, messages with seqno in the
+%% committed..dup range are retransmitted with DUP flag.
 %%
-%% 1. After broker sends QoS1 message to the client. Upon session
-%% reconnect, QoS1 messages with seqno in the committed..dup range are
-%% retransmitted with DUP flag.
-%%
-%% 2. After it receives PUBREC from the client for the QoS2 message.
-%% Upon session reconnect, PUBREL messages for QoS2 messages with
-%% seqno in committed..dup are retransmitted.
 -define(dup(QOS), (10 + QOS)).
+-define(rec, 22).
 %% Last seqno assigned to a message.
--define(next(QOS), (20 + QOS)).
+-define(next(QOS), (30 + QOS)).
 
 %%%%% State of the stream:
 -record(ifs, {
