@@ -69,7 +69,7 @@ jobs:
       - uses: actions/upload-artifact@c7d193f32edcb7bfad88892161225aeda64e9392 # v4.0.0
         if: success()
         with:
-          name: ${{ matrix.profile[0] }}
+          name: ${{ matrix.profile[0] }}-${{ matrix.os }}
           path: _packages/${{ matrix.profile[0] }}/
           retention-days: 7
       - name: Send notification to Slack
@@ -114,7 +114,7 @@ jobs:
       - uses: actions/upload-artifact@c7d193f32edcb7bfad88892161225aeda64e9392 # v4.0.0
         if: success()
         with:
-          name: ${{ matrix.profile }}
+          name: ${{ matrix.profile }}-${{ matrix.os }}
           path: _packages/${{ matrix.profile }}/
           retention-days: 7
       - name: Send notification to Slack

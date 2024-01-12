@@ -6,6 +6,9 @@
 set -x
 set +e
 
+# shellcheck disable=SC3028 disable=SC3054
+SCRIPT_DIR="$( dirname -- "$( readlink -f -- "$0"; )"; )"
+
 EMQX_TEST_DB_BACKEND=$1
 if [ "$EMQX_TEST_DB_BACKEND" = "rlog" ]
 then
@@ -20,7 +23,7 @@ fi
 apk update && apk add git curl
 git clone -b develop-5.0 https://github.com/emqx/paho.mqtt.testing.git /paho.mqtt.testing
 
-pip install pytest==7.1.2 pytest-retry==1.3.0
+pip install -r "$SCRIPT_DIR/requirements.txt"
 
 pytest --retries 3 -v /paho.mqtt.testing/interoperability/test_client/V5/test_connect.py -k test_basic --host "$TARGET_HOST"
 RESULT=$?
