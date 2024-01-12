@@ -190,7 +190,7 @@ connector_structs() ->
             mk(
                 hoconsc:map(name, ref(emqx_bridge_es_connector, config)),
                 #{
-                    desc => <<"Elastis Search Connector Config">>,
+                    desc => <<"ElasticSearch Connector Config">>,
                     required => false
                 }
             )}

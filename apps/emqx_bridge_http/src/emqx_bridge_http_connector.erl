@@ -317,7 +317,7 @@ on_query(InstId, {send_message, Msg}, State) ->
 %% BridgeV2 entrypoint
 on_query(
     InstId,
-    {ActionId, MsgAndBody},
+    {ActionId, Msg},
     State = #{installed_actions := InstalledActions}
 ) when is_binary(ActionId) ->
     case {maps:get(request, State, undefined), maps:get(ActionId, InstalledActions, undefined)} of
@@ -334,10 +334,10 @@ on_query(
                 body := Body,
                 headers := Headers,
                 request_timeout := Timeout
-            } = process_request_and_action(Request, ActionState, MsgAndBody),
+            } = process_request_and_action(Request, ActionState, Msg),
             %% bridge buffer worker has retry, do not let ehttpc retry
             Retry = 2,
-            ClientId = clientid(MsgAndBody),
+            ClientId = clientid(Msg),
             on_query(
                 InstId,
                 {ClientId, Method, {Path, Headers, Body}, Timeout, Retry},
@@ -430,7 +430,7 @@ on_query_async(InstId, {send_message, Msg}, ReplyFunAndArgs, State) ->
 %% BridgeV2 entrypoint
 on_query_async(
     InstId,
-    {ActionId, MsgAndBody},
+    {ActionId, Msg},
     ReplyFunAndArgs,
     State = #{installed_actions := InstalledActions}
 ) when is_binary(ActionId) ->
@@ -448,8 +448,8 @@ on_query_async(
                 body := Body,
                 headers := Headers,
                 request_timeout := Timeout
-            } = process_request_and_action(Request, ActionState, MsgAndBody),
-            ClientId = clientid(MsgAndBody),
+            } = process_request_and_action(Request, ActionState, Msg),
+            ClientId = clientid(Msg),
             on_query_async(
                 InstId,
                 {ClientId, Method, {Path, Headers, Body}, Timeout},
@@ -629,7 +629,7 @@ maybe_parse_template(Key, Conf) ->
 parse_template(String) ->
     emqx_template:parse(String).
 
-process_request_and_action(Request, ActionState, {Msg, Body}) ->
+process_request_and_action(Request, ActionState, Msg) ->
     MethodTemplate = maps:get(method, ActionState),
     Method = make_method(render_template_string(MethodTemplate, Msg)),
     PathPrefix = unicode:characters_to_list(render_template(maps:get(path, Request), Msg)),
@@ -647,17 +647,15 @@ process_request_and_action(Request, ActionState, {Msg, Body}) ->
         render_headers(HeadersTemplate1, Msg),
         render_headers(HeadersTemplate2, Msg)
     ),
+    BodyTemplate = maps:get(body, ActionState),
+    Body = render_request_body(BodyTemplate, Msg),
     #{
         method => Method,
         path => Path,
         body => Body,
         headers => Headers,
         request_timeout => maps:get(request_timeout, ActionState)
-    };
-process_request_and_action(Request, ActionState, Msg) ->
-    BodyTemplate = maps:get(body, ActionState),
-    Body = render_request_body(BodyTemplate, Msg),
-    process_request_and_action(Request, ActionState, {Msg, Body}).
+    }.
 
 merge_proplist(Proplist1, Proplist2) ->
     lists:foldl(
@@ -877,7 +875,6 @@ redact_request({Path, Headers}) ->
 redact_request({Path, Headers, _Body}) ->
     {Path, Headers, <<"******">>}.
 
-clientid({Msg, _Body}) -> clientid(Msg);
 clientid(Msg) -> maps:get(clientid, Msg, undefined).
 
 -ifdef(TEST).

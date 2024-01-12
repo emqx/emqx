@@ -25,15 +25,15 @@ fields(action) ->
         ?HOCON(
             ?MAP(action_name, ?R_REF(action_config)),
             #{
-                desc => <<"ElasticSearch Action Config">>,
-                required => false
+                required => false,
+                desc => ?DESC(elasticsearch)
             }
         )};
 fields(action_config) ->
     emqx_resource_schema:override(
-        emqx_bridge_v2_schema:make_producer_action_schema(
+        emqx_bridge_v2_schema:make_consumer_action_schema(
             ?HOCON(
-                ?R_REF(action_parameters),
+                ?UNION(fun action_union_member_selector/1),
                 #{
                     required => true, desc => ?DESC("action_parameters")
                 }
@@ -54,200 +54,28 @@ fields(action_resource_opts) ->
         end,
         emqx_bridge_v2_schema:resource_opts_fields()
     );
-fields(action_parameters) ->
+fields(action_create) ->
     [
-        {target,
-            ?HOCON(
-                binary(),
-                #{
-                    desc => ?DESC("config_target"),
-                    required => false
-                }
-            )},
-        {require_alias,
-            ?HOCON(
-                boolean(),
-                #{
-                    required => false,
-                    default => false,
-                    desc => ?DESC("config_require_alias")
-                }
-            )},
-        {routing,
-            ?HOCON(
-                binary(),
-                #{
-                    required => false,
-                    desc => ?DESC("config_routing")
-                }
-            )},
-        {wait_for_active_shards,
-            ?HOCON(
-                ?UNION([pos_integer(), all]),
-                #{
-                    required => false,
-                    desc => ?DESC("config_wait_for_active_shards")
-                }
-            )},
-        {data,
-            ?HOCON(
-                ?ARRAY(
-                    ?UNION(
-                        [
-                            ?R_REF(create),
-                            ?R_REF(delete),
-                            ?R_REF(index),
-                            ?R_REF(update)
-                        ]
-                    )
-                ),
-                #{
-                    desc => ?DESC("action_parameters_data")
-                }
-            )}
-    ] ++
-        lists:filter(
-            fun({K, _}) ->
-                not lists:member(K, [path, method, body, headers, request_timeout])
-            end,
-            emqx_bridge_http_schema:fields("parameters_opts")
-        );
-fields(Action) when Action =:= create; Action =:= index ->
-    [
-        {action,
-            ?HOCON(
-                Action,
-                #{
-                    desc => atom_to_binary(Action),
-                    required => true
-                }
-            )},
-        {'_index',
-            ?HOCON(
-                binary(),
-                #{
-                    required => false,
-                    desc => ?DESC("config_parameters_index")
-                }
-            )},
-        {'_id',
-            ?HOCON(
-                binary(),
-                #{
-                    required => false,
-                    desc => ?DESC("config_parameters_id")
-                }
-            )},
-        {require_alias,
-            ?HOCON(
-                binary(),
-                #{
-                    required => false,
-                    desc => ?DESC("config_parameters_require_alias")
-                }
-            )},
-        {fields,
-            ?HOCON(
-                binary(),
-                #{
-                    required => true,
-                    desc => ?DESC("config_parameters_fields")
-                }
-            )}
+        action(create),
+        index(),
+        id(false),
+        doc(true),
+        routing(),
+        require_alias(),
+        overwrite()
+        | http_common_opts()
     ];
-fields(delete) ->
+fields(action_delete) ->
+    [action(delete), index(), id(true), routing() | http_common_opts()];
+fields(action_update) ->
     [
-        {action,
-            ?HOCON(
-                delete,
-                #{
-                    desc => <<"Delete">>,
-                    required => true
-                }
-            )},
-        {'_index',
-            ?HOCON(
-                binary(),
-                #{
-                    required => false,
-                    desc => ?DESC("config_parameters_index")
-                }
-            )},
-        {'_id',
-            ?HOCON(
-                binary(),
-                #{
-                    required => true,
-                    desc => ?DESC("config_parameters_id")
-                }
-            )},
-        {require_alias,
-            ?HOCON(
-                binary(),
-                #{
-                    required => false,
-                    desc => ?DESC("config_parameters_require_alias")
-                }
-            )}
-    ];
-fields(update) ->
-    [
-        {action,
-            ?HOCON(
-                update,
-                #{
-                    desc => <<"Update">>,
-                    required => true
-                }
-            )},
-        {doc_as_upsert,
-            ?HOCON(
-                binary(),
-                #{
-                    required => false,
-                    desc => ?DESC("config_parameters_doc_as_upsert")
-                }
-            )},
-        {upsert,
-            ?HOCON(
-                binary(),
-                #{
-                    required => false,
-                    desc => ?DESC("config_parameters_upsert")
-                }
-            )},
-        {'_index',
-            ?HOCON(
-                binary(),
-                #{
-                    required => false,
-                    desc => ?DESC("config_parameters_index")
-                }
-            )},
-        {'_id',
-            ?HOCON(
-                binary(),
-                #{
-                    required => true,
-                    desc => ?DESC("config_parameters_id")
-                }
-            )},
-        {require_alias,
-            ?HOCON(
-                binary(),
-                #{
-                    required => false,
-                    desc => ?DESC("config_parameters_require_alias")
-                }
-            )},
-        {fields,
-            ?HOCON(
-                binary(),
-                #{
-                    required => true,
-                    desc => ?DESC("config_parameters_fields")
-                }
-            )}
+        action(update),
+        index(),
+        id(true),
+        doc(true),
+        routing(),
+        require_alias()
+        | http_common_opts()
     ];
 fields("post_bridge_v2") ->
     emqx_bridge_schema:type_and_name_fields(elasticsearch) ++ fields(action_config);
@@ -255,6 +83,111 @@ fields("put_bridge_v2") ->
     fields(action_config);
 fields("get_bridge_v2") ->
     emqx_bridge_schema:status_fields() ++ fields("post_bridge_v2").
+
+action_union_member_selector(all_union_members) ->
+    [
+        ?R_REF(action_create),
+        ?R_REF(action_delete),
+        ?R_REF(action_update)
+    ];
+action_union_member_selector({value, Value}) ->
+    case Value of
+        #{<<"action">> := <<"create">>} ->
+            [?R_REF(action_create)];
+        #{<<"action">> := <<"delete">>} ->
+            [?R_REF(action_delete)];
+        #{<<"action">> := <<"update">>} ->
+            [?R_REF(action_update)];
+        _ ->
+            Expected = "create | delete | update",
+            throw(#{
+                field_name => action,
+                expected => Expected
+            })
+    end.
+
+action(Action) ->
+    {action,
+        ?HOCON(
+            Action,
+            #{
+                required => true,
+                desc => atom_to_binary(Action)
+            }
+        )}.
+
+overwrite() ->
+    {overwrite,
+        ?HOCON(
+            boolean(),
+            #{
+                required => false,
+                default => true,
+                desc => ?DESC("config_overwrite")
+            }
+        )}.
+
+index() ->
+    {index,
+        ?HOCON(
+            binary(),
+            #{
+                required => true,
+                example => <<"${payload.index}">>,
+                desc => ?DESC("config_parameters_index")
+            }
+        )}.
+
+id(Required) ->
+    {id,
+        ?HOCON(
+            binary(),
+            #{
+                required => Required,
+                example => <<"${payload.id}">>,
+                desc => ?DESC("config_parameters_id")
+            }
+        )}.
+
+doc(Required) ->
+    {doc,
+        ?HOCON(
+            binary(),
+            #{
+                required => Required,
+                example => <<"${payload.doc}">>,
+                desc => ?DESC("config_parameters_doc")
+            }
+        )}.
+
+http_common_opts() ->
+    lists:filter(
+        fun({K, _}) ->
+            not lists:member(K, [path, method, body, headers, request_timeout])
+        end,
+        emqx_bridge_http_schema:fields("parameters_opts")
+    ).
+
+routing() ->
+    {routing,
+        ?HOCON(
+            binary(),
+            #{
+                required => false,
+                example => <<"${payload.routing}">>,
+                desc => ?DESC("config_routing")
+            }
+        )}.
+
+require_alias() ->
+    {require_alias,
+        ?HOCON(
+            boolean(),
+            #{
+                required => false,
+                desc => ?DESC("config_require_alias")
+            }
+        )}.
 
 bridge_v2_examples(Method) ->
     [
@@ -272,34 +205,10 @@ bridge_v2_examples(Method) ->
 action_values() ->
     #{
         parameters => #{
-            target => <<"${target_index}">>,
-            data => [
-                #{
-                    action => index,
-                    '_index' => <<"${index}">>,
-                    fields => <<"${fields}">>,
-                    require_alias => <<"${require_alias}">>
-                },
-                #{
-                    action => create,
-                    '_index' => <<"${index}">>,
-                    fields => <<"${fields}">>
-                },
-                #{
-                    action => delete,
-                    '_index' => <<"${index}">>,
-                    '_id' => <<"${id}">>
-                },
-                #{
-                    action => update,
-                    '_index' => <<"${index}">>,
-                    '_id' => <<"${id}">>,
-                    fields => <<"${fields}">>,
-                    require_alias => false,
-                    doc_as_upsert => <<"${doc_as_upsert}">>,
-                    upsert => <<"${upsert}">>
-                }
-            ]
+            action => create,
+            index => <<"${payload.index}">>,
+            overwrite => true,
+            doc => <<"${payload.doc}">>
         }
     }.
 
@@ -309,4 +218,10 @@ unsupported_opts() ->
         batch_time
     ].
 
+desc(elasticsearch) -> ?DESC(elasticsearch);
+desc(action_config) -> ?DESC(action_config);
+desc(action_create) -> ?DESC(action_create);
+desc(action_delete) -> ?DESC(action_delete);
+desc(action_update) -> ?DESC(action_update);
+desc(action_resource_opts) -> ?DESC(action_resource_opts);
 desc(_) -> undefined.
