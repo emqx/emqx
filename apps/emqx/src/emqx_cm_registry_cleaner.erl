@@ -1,0 +1,139 @@
+%%--------------------------------------------------------------------
+%% Copyright (c) 2024 EMQ Technologies Co., Ltd. All Rights Reserved.
+%%
+%% Licensed under the Apache License, Version 2.0 (the "License");
+%% you may not use this file except in compliance with the License.
+%% You may obtain a copy of the License at
+%%
+%%     http://www.apache.org/licenses/LICENSE-2.0
+%%
+%% Unless required by applicable law or agreed to in writing, software
+%% distributed under the License is distributed on an "AS IS" BASIS,
+%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+%% See the License for the specific language governing permissions and
+%% limitations under the License.
+%%--------------------------------------------------------------------
+
+%% @doc This module implements the global session registry history cleaner.
+-module(emqx_cm_registry_cleaner).
+-behaviour(gen_server).
+
+-export([start_link/0]).
+
+%% gen_server callbacks
+-export([
+    init/1,
+    handle_call/3,
+    handle_cast/2,
+    handle_info/2,
+    terminate/2,
+    code_change/3
+]).
+
+-include("emqx_cm.hrl").
+
+start_link() ->
+    gen_server:start_link({local, ?MODULE}, ?MODULE, [], []).
+
+init(_) ->
+    case mria_config:whoami() =:= core of
+        true ->
+            ok = send_delay_start(),
+            {ok, #{next_clientid => undefined}};
+        false ->
+            ignore
+    end.
+
+handle_call(_Request, _From, State) ->
+    {reply, ok, State}.
+
+handle_cast(_Msg, State) ->
+    {noreply, State}.
+
+handle_info(start, #{next_clientid := NextClientId} = State) ->
+    case is_hist_enabled() of
+        true ->
+            NewNext =
+                case cleanup_one_chunk(NextClientId) of
+                    '$end_of_table' ->
+                        ok = send_delay_start(),
+                        undefined;
+                    Id ->
+                        _ = erlang:garbage_collect(),
+                        Id
+                end,
+            {noreply, State#{next_clientid := NewNext}};
+        false ->
+            %% if not enabled, dealy and check again
+            %% because it might be enabled from online config change while waiting
+            ok = send_delay_start(),
+            {noreply, State}
+    end;
+handle_info(_Info, State) ->
+    {noreply, State}.
+
+terminate(_Reason, _State) ->
+    ok.
+
+code_change(_OldVsn, State, _Extra) ->
+    {ok, State}.
+
+cleanup_one_chunk(NextClientId) ->
+    Retain = retain_duration(),
+    Now = now_ts(),
+    IsExpired = fun(#channel{pid = Ts}) ->
+        is_integer(Ts) andalso (Ts < Now - Retain)
+    end,
+    cleanup_loop(NextClientId, 10000, IsExpired).
+
+cleanup_loop(ClientId, 0, _IsExpired) ->
+    ClientId;
+cleanup_loop('$end_of_table', _Count, _IsExpired) ->
+    '$end_of_table';
+cleanup_loop(undefined, Count, IsExpired) ->
+    cleanup_loop(mnesia:dirty_first(?CHAN_REG_TAB), Count, IsExpired);
+cleanup_loop(ClientId, Count, IsExpired) ->
+    Recods = mnesia:dirty_read(?CHAN_REG_TAB, ClientId),
+    Next = mnesia:dirty_next(?CHAN_REG_TAB, ClientId),
+    lists:foreach(
+        fun(R) ->
+            case IsExpired(R) of
+                true ->
+                    mria:dirty_delete_object(?CHAN_REG_TAB, R);
+                false ->
+                    ok
+            end
+        end,
+        Recods
+    ),
+    cleanup_loop(Next, Count - 1, IsExpired).
+
+is_hist_enabled() ->
+    retain_duration() > 0.
+
+%% Return the session registration history retain duration in seconds.
+-spec retain_duration() -> non_neg_integer().
+retain_duration() ->
+    emqx:get_config([broker, session_registration_history_retain]).
+
+cleanup_delay() ->
+    Default = timer:minutes(2),
+    case retain_duration() of
+        0 ->
+            %% prepare for online config change
+            Default;
+        RetainSeconds ->
+            Min = max(1, timer:seconds(RetainSeconds div 4)),
+            min(Min, Default)
+    end.
+
+send_delay_start() ->
+    Delay = cleanup_delay(),
+    ok = send_delay_start(Delay).
+
+send_delay_start(Delay) ->
+    _ = erlang:send_after(Delay, self(), start),
+    ok.
+
+now_ts() ->
+    erlang:system_time(seconds).

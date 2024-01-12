@@ -182,7 +182,7 @@
 -define(DEFAULT_MULTIPLIER, 1.5).
 -define(DEFAULT_BACKOFF, 0.75).
 
-namespace() -> broker.
+namespace() -> emqx.
 
 tags() ->
     [<<"EMQX">>].
@@ -230,7 +230,7 @@ roots(high) ->
         );
 roots(medium) ->
     [
-        {"broker",
+        {broker,
             sc(
                 ref("broker"),
                 #{
@@ -1347,24 +1347,43 @@ fields("deflate_opts") ->
     ];
 fields("broker") ->
     [
-        {"enable_session_registry",
+        {enable_session_registry,
             sc(
                 boolean(),
                 #{
                     default => true,
+                    importance => ?IMPORTANCE_HIGH,
                     desc => ?DESC(broker_enable_session_registry)
                 }
             )},
-        {"session_locking_strategy",
+        {session_registration_history_retain,
+            sc(
+                duration_s(),
+                #{
+                    default => <<"0s">>,
+                    importance => ?IMPORTANCE_LOW,
+                    desc => ?DESC("broker_session_registration_history_retain")
+                }
+            )},
+        {session_locking_strategy,
             sc(
                 hoconsc:enum([local, leader, quorum, all]),
                 #{
                     default => quorum,
+                    importance => ?IMPORTANCE_HIDDEN,
                     desc => ?DESC(broker_session_locking_strategy)
                 }
             )},
-        shared_subscription_strategy(),
-        {"shared_dispatch_ack_enabled",
+        %% moved to under mqtt root
+        {shared_subscription_strategy,
+            sc(
+                string(),
+                #{
+                    deprecated => {since, "5.1.0"},
+                    importance => ?IMPORTANCE_HIDDEN
+                }
+            )},
+        {shared_dispatch_ack_enabled,
             sc(
                 boolean(),
                 #{
@@ -1374,7 +1393,7 @@ fields("broker") ->
                     desc => ?DESC(broker_shared_dispatch_ack_enabled)
                 }
             )},
-        {"route_batch_clean",
+        {route_batch_clean,
             sc(
                 boolean(),
                 #{
@@ -1383,18 +1402,18 @@ fields("broker") ->
                     importance => ?IMPORTANCE_HIDDEN
                 }
             )},
-        {"perf",
+        {perf,
             sc(
                 ref("broker_perf"),
                 #{importance => ?IMPORTANCE_HIDDEN}
             )},
-        {"routing",
+        {routing,
             sc(
                 ref("broker_routing"),
                 #{importance => ?IMPORTANCE_HIDDEN}
             )},
         %% FIXME: Need new design for shared subscription group
-        {"shared_subscription_group",
+        {shared_subscription_group,
             sc(
                 map(name, ref("shared_subscription_group")),
                 #{
@@ -3640,7 +3659,22 @@ mqtt_general() ->
                     desc => ?DESC(mqtt_shared_subscription)
                 }
             )},
-        shared_subscription_strategy(),
+        {"shared_subscription_strategy",
+            sc(
+                hoconsc:enum([
+                    random,
+                    round_robin,
+                    round_robin_per_group,
+                    sticky,
+                    local,
+                    hash_topic,
+                    hash_clientid
+                ]),
+                #{
+                    default => round_robin,
+                    desc => ?DESC(mqtt_shared_subscription_strategy)
+                }
+            )},
         {"exclusive_subscription",
             sc(
                 boolean(),
@@ -3845,24 +3879,6 @@ mqtt_session() ->
                 }
             )}
     ].
-
-shared_subscription_strategy() ->
-    {"shared_subscription_strategy",
-        sc(
-            hoconsc:enum([
-                random,
-                round_robin,
-                round_robin_per_group,
-                sticky,
-                local,
-                hash_topic,
-                hash_clientid
-            ]),
-            #{
-                default => round_robin,
-                desc => ?DESC(broker_shared_subscription_strategy)
-            }
-        )}.
 
 default_mem_check_interval() ->
     case emqx_os_mon:is_os_check_supported() of
