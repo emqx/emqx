@@ -23,7 +23,7 @@ fi
 apk update && apk add git curl
 git clone -b develop-5.0 https://github.com/emqx/paho.mqtt.testing.git /paho.mqtt.testing
 
-pip install -r "$SCRIPT_DIR/requirements.txt"
+pip install --require-hashes -r "$SCRIPT_DIR/requirements.txt"
 
 pytest --retries 3 -v /paho.mqtt.testing/interoperability/test_client/V5/test_connect.py -k test_basic --host "$TARGET_HOST"
 RESULT=$?
