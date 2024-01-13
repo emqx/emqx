@@ -45,14 +45,14 @@ invite_async(Node) ->
     JoinTo = node(),
     case Node =/= JoinTo of
         true ->
-            gen_server:call(?MODULE, {invite_async, Node, JoinTo});
+            gen_server:call(?MODULE, {invite_async, Node, JoinTo}, infinity);
         false ->
             ignore
     end.
 
 -spec invitation_view() -> map().
 invitation_view() ->
-    gen_server:call(?MODULE, invitation_view).
+    gen_server:call(?MODULE, invitation_view, infinity).
 
 %%--------------------------------------------------------------------
 %% gen_server callbacks
@@ -196,4 +196,4 @@ is_succeed_result(Result) ->
     end.
 
 format_error_reason(Term) ->
-    iolist_to_binary(io_lib:format("~p", [Term])).
+    iolist_to_binary(io_lib:format("~0p", [Term])).

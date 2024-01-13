@@ -27,7 +27,7 @@
     cluster_topology/2,
     invite_node/2,
     invite_node_async/2,
-    get_invitation_view/2,
+    get_invitation_status/2,
     force_leave/2,
     join/1,
     connected_replicants/0
@@ -179,7 +179,7 @@ fields(invitation_view) ->
         {succeed,
             ?HOCON(
                 ?ARRAY(?REF(node_invitation_succeed)),
-                #{desc => <<"A list of information about nodes that were successfully invited">>}
+                #{desc => <<"A list of information about nodes which are successfully invited">>}
             )},
         {in_progress,
             ?HOCON(
@@ -198,7 +198,7 @@ fields(node_invitation_failed) ->
             {reason,
                 ?HOCON(
                     binary(),
-                    #{desc => <<"Failed reason">>, example => <<"Bad RPC to target node">>}
+                    #{desc => <<"Failure reason">>, example => <<"Bad RPC to target node">>}
                 )}
         ];
 fields(node_invitation_succeed) ->
@@ -208,7 +208,7 @@ fields(node_invitation_succeed) ->
                 ?HOCON(
                     emqx_utils_calendar:epoch_millisecond(),
                     #{
-                        desc => <<"The end time of the invitation task, in millisecond">>,
+                        desc => <<"The time of the async invitation result is received, millisecond precision epoch">>,
                         example => <<"1705044829915">>
                     }
                 )}
@@ -224,7 +224,7 @@ fields(node_invitation_in_progress) ->
             ?HOCON(
                 emqx_utils_calendar:epoch_millisecond(),
                 #{
-                    desc => <<"The start time of the invitation task, in millisecond">>,
+                    desc => <<"The start timestamp of the invitation, millisecond precision epoch">>,
                     example => <<"1705044829915">>
                 }
             )}
@@ -289,15 +289,15 @@ invite_node(put, #{bindings := #{node := Node0}, body := Body}) ->
     Node = ekka_node:parse_name(binary_to_list(Node0)),
     case maps:get(<<"timeout">>, Body, ?DEFAULT_INVITE_TIMEOUT) of
         T when not is_integer(T) ->
-            {400, #{code => 'BAD_REQUEST', message => <<"timeout must be integer">>}};
+            {400, #{code => 'BAD_REQUEST', message => <<"timeout must be an integer">>}};
         T when T < 5000 ->
-            {400, #{code => 'BAD_REQUEST', message => <<"timeout can't less than 5000ms">>}};
+            {400, #{code => 'BAD_REQUEST', message => <<"timeout cannot be less than 5000ms">>}};
         Timeout ->
             case emqx_mgmt_cluster_proto_v3:invite_node(Node, node(), Timeout) of
                 ok ->
                     {200};
                 ignore ->
-                    {400, #{code => 'BAD_REQUEST', message => <<"Can't invite self">>}};
+                    {400, #{code => 'BAD_REQUEST', message => <<"Cannot invite self">>}};
                 {badrpc, Error} ->
                     {400, #{code => 'BAD_REQUEST', message => error_message(Error)}};
                 {error, Error} ->

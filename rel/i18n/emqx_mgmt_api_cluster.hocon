@@ -16,9 +16,9 @@ invite_node.label:
 """Invite node to cluster"""
 
 invite_node_async.desc:
-"""Asynchronously invite the target node to join the cluster"""
+"""Send a join invitation to a node to join the cluster but do not wait for the join result. Join status can be retrieved with `GET api/<version>/invitation`"""
 invite_node_async.label:
-"""Asynchronously invite the target node to join the cluster"""
+"""Asynchronously invite"""
 
 force_remove_node.desc:
 """Force leave node from cluster"""
