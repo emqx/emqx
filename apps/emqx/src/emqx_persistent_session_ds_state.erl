@@ -550,17 +550,23 @@ kv_pmap_delete(Table, SessionId, Key) ->
 %%
 
 transaction(Fun) ->
-    case mnesia:is_transaction() of
-        true ->
-            Fun();
-        false ->
-            {atomic, Res} = mria:transaction(?DS_MRIA_SHARD, Fun),
-            Res
-    end.
+    mria:async_dirty(?DS_MRIA_SHARD, Fun).
 
 ro_transaction(Fun) ->
-    {atomic, Res} = mria:ro_transaction(?DS_MRIA_SHARD, Fun),
-    Res.
+    mria:async_dirty(?DS_MRIA_SHARD, Fun).
+
+%% transaction(Fun) ->
+%%     case mnesia:is_transaction() of
+%%         true ->
+%%             Fun();
+%%         false ->
+%%             {atomic, Res} = mria:transaction(?DS_MRIA_SHARD, Fun),
+%%             Res
+%%     end.
+
+%% ro_transaction(Fun) ->
+%%     {atomic, Res} = mria:ro_transaction(?DS_MRIA_SHARD, Fun),
+%%     Res.
 
 -compile({inline, check_sequence/1}).
 
