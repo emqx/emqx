@@ -428,16 +428,20 @@ stats(dropped) -> emqx_metrics:val('messages.dropped').
 
 %% the non rate values should be same on all nodes
 non_rate_value() ->
-    #{
+    (license_quota())#{
         retained_msg_count => emqx_retainer:retained_count(),
-        license_quota => license_quota(),
         node_uptime => emqx_sys:uptime()
     }.
 
+-if(?EMQX_RELEASE_EDITION == ee).
 license_quota() ->
     case emqx_license_checker:limits() of
         {ok, #{max_connections := Quota}} ->
-            Quota;
+            #{license_quota => Quota};
         {error, no_license} ->
-            0
+            #{license_quota => 0}
     end.
+-else.
+license_quota() ->
+    #{}.
+-endif.
