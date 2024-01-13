@@ -19,6 +19,7 @@
 -behaviour(minirest_api).
 
 -include_lib("hocon/include/hoconsc.hrl").
+-include_lib("emqx/include/logger.hrl").
 
 -export([
     api_spec/0,
@@ -115,36 +116,39 @@ setting(put, #{body := Body}) ->
     end.
 
 stats(get, #{headers := Headers}) ->
-    Type =
-        case maps:get(<<"accept">>, Headers, <<"text/plain">>) of
-            <<"application/json">> -> <<"json">>;
-            _ -> <<"prometheus">>
-        end,
-    Data = emqx_prometheus:collect(Type),
-    case Type of
-        <<"json">> ->
-            {200, Data};
-        <<"prometheus">> ->
-            {200, #{<<"content-type">> => <<"text/plain">>}, Data}
-    end.
+    collect(emqx_prometheus, Headers).
 
 auth(get, #{headers := Headers}) ->
-    Type =
-        case maps:get(<<"accept">>, Headers, <<"text/plain">>) of
-            <<"application/json">> -> <<"json">>;
-            _ -> <<"prometheus">>
-        end,
-    Data = emqx_prometheus_auth:collect(Type),
-    case Type of
-        <<"json">> ->
-            {200, Data};
-        <<"prometheus">> ->
-            {200, #{<<"content-type">> => <<"text/plain">>}, Data}
-    end.
+    collect(emqx_prometheus_auth, Headers).
 
 %%--------------------------------------------------------------------
 %% Internal funcs
 %%--------------------------------------------------------------------
+
+collect(Module, Headers) ->
+    Type = response_type(Headers),
+    Data =
+        case erlang:function_exported(Module, collect, 1) of
+            true ->
+                erlang:apply(Module, collect, [Type]);
+            false ->
+                ?SLOG(error, #{
+                    msg => "prometheus callback module not found, empty data responded",
+                    module_name => Module
+                }),
+                <<>>
+        end,
+    gen_response(Type, Data).
+
+response_type(#{<<"accept">> := <<"application/json">>}) ->
+    <<"json">>;
+response_type(_) ->
+    <<"prometheus">>.
+
+gen_response(<<"json">>, Data) ->
+    {200, Data};
+gen_response(<<"prometheus">>, Data) ->
+    {200, #{<<"content-type">> => <<"text/plain">>}, Data}.
 
 prometheus_setting_request() ->
     [{prometheus, #{type := Setting}}] = emqx_prometheus_schema:roots(),
