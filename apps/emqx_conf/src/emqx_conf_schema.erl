@@ -1107,6 +1107,7 @@ tr_prometheus_collectors(Conf) ->
         %% emqx collectors
         emqx_prometheus,
         {'/prometheus/auth', emqx_prometheus_auth},
+        {'/prometheus/data_integration', emqx_prometheus_data_integration},
         emqx_prometheus_mria
         %% builtin vm collectors
         | prometheus_collectors(Conf)

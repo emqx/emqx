@@ -30,7 +30,8 @@
 -export([
     setting/2,
     stats/2,
-    auth/2
+    auth/2,
+    data_integration/2
 ]).
 
 -define(TAGS, [<<"Monitor">>]).
@@ -42,7 +43,8 @@ paths() ->
     [
         "/prometheus",
         "/prometheus/auth",
-        "/prometheus/stats"
+        "/prometheus/stats",
+        "/prometheus/data_integration"
     ].
 
 schema("/prometheus") ->
@@ -87,6 +89,18 @@ schema("/prometheus/stats") ->
                 responses =>
                     #{200 => prometheus_data_schema()}
             }
+    };
+schema("/prometheus/data_integration") ->
+    #{
+        'operationId' => data_integration,
+        get =>
+            #{
+                description => ?DESC(get_prom_data_integration_data),
+                tags => ?TAGS,
+                security => security(),
+                responses =>
+                    #{200 => prometheus_data_schema()}
+            }
     }.
 
 security() ->
@@ -120,6 +134,9 @@ stats(get, #{headers := Headers}) ->
 
 auth(get, #{headers := Headers}) ->
     collect(emqx_prometheus_auth, Headers).
+
+data_integration(get, #{headers := Headers}) ->
+    collect(emqx_prometheus_data_integration, Headers).
 
 %%--------------------------------------------------------------------
 %% Internal funcs
