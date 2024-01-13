@@ -21,7 +21,7 @@
 %% APIs
 -export([start_link/0]).
 
--export([invite_async/1, invitation_view/0]).
+-export([invite_async/1, invitation_status/0]).
 
 %% gen_server callbacks
 -export([
@@ -42,17 +42,19 @@ start_link() ->
 
 -spec invite_async(atom()) -> ok | ignore | {error, {already_started, pid()}}.
 invite_async(Node) ->
-    JoinTo = node(),
+    %% Proxy the invitation task to the leader node
+    JoinTo = mria_membership:leader(),
     case Node =/= JoinTo of
         true ->
-            gen_server:call(?MODULE, {invite_async, Node, JoinTo}, infinity);
+            gen_server:call({?MODULE, JoinTo}, {invite_async, Node, JoinTo}, infinity);
         false ->
             ignore
     end.
 
--spec invitation_view() -> map().
-invitation_view() ->
-    gen_server:call(?MODULE, invitation_view, infinity).
+-spec invitation_status() -> map().
+invitation_status() ->
+    Leader = mria_membership:leader(),
+    gen_server:call({?MODULE, Leader}, invitation_status, infinity).
 
 %%--------------------------------------------------------------------
 %% gen_server callbacks
@@ -71,8 +73,8 @@ handle_call({invite_async, Node, JoinTo}, _From, State) ->
         WorkerPid ->
             {reply, {error, {already_started, WorkerPid}}, State}
     end;
-handle_call(invitation_view, _From, State) ->
-    {reply, state_to_invitation_view(State), State};
+handle_call(invitation_status, _From, State) ->
+    {reply, state_to_invitation_status(State), State};
 handle_call(_Request, _From, State) ->
     Reply = ok,
     {reply, Reply, State}.
@@ -155,7 +157,7 @@ find_node_name_via_worker_pid(WorkerPid, {Key, Task, I}) ->
             find_node_name_via_worker_pid(WorkerPid, maps:next(I))
     end.
 
-state_to_invitation_view(State) ->
+state_to_invitation_status(State) ->
     History = maps:get(history, State, #{}),
     {Succ, Failed} = lists:foldl(
         fun({Node, Task}, {SuccAcc, FailedAcc}) ->

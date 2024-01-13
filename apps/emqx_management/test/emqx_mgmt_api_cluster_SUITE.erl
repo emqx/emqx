@@ -141,11 +141,11 @@ t_cluster_invite_api_timeout(Config) ->
         )
     end,
     ?assertMatch(
-        {400, #{code := 'BAD_REQUEST', message := <<"timeout must be integer">>}},
+        {400, #{code := 'BAD_REQUEST', message := <<"timeout must be an integer">>}},
         Invite(Core2, not_a_integer_timeout)
     ),
     ?assertMatch(
-        {400, #{code := 'BAD_REQUEST', message := <<"timeout can't less than 5000ms">>}},
+        {400, #{code := 'BAD_REQUEST', message := <<"timeout cannot be less than 5000ms">>}},
         Invite(Core2, 3000)
     ),
 
@@ -240,7 +240,7 @@ t_cluster_invite_async(Config) ->
     %% assert: core2 is in_progress status
     ?assertMatch(
         {200, #{in_progress := [#{node := Core2}]}},
-        rpc:call(Core1, emqx_mgmt_api_cluster, get_invitation_view, [get, #{}])
+        rpc:call(Core1, emqx_mgmt_api_cluster, get_invitation_status, [get, #{}])
     ),
 
     %% waiting the async invitation_succeed
@@ -295,7 +295,7 @@ waiting_the_async_invitation_succeed(Node, TargetNode, N) ->
         in_progress := InProgress,
         succeed := Succeed,
         failed := Failed
-    }} = rpc:call(Node, emqx_mgmt_api_cluster, get_invitation_view, [get, #{}]),
+    }} = rpc:call(Node, emqx_mgmt_api_cluster, get_invitation_status, [get, #{}]),
     case find_node_info_list(TargetNode, InProgress) of
         error ->
             case find_node_info_list(TargetNode, Succeed) of

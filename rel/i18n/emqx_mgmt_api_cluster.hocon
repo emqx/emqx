@@ -25,4 +25,9 @@ force_remove_node.desc:
 force_remove_node.label:
 """Force leave node from cluster"""
 
+get_invitation_status.desc:
+"""Get the execution status of all asynchronous invite node tasks"""
+get_invitation_status.label:
+"""Get status of all invitation tasks"""
+
 }

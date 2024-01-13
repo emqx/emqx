@@ -78,13 +78,13 @@ schema("/cluster/topology") ->
     };
 schema("/cluster/invitation") ->
     #{
-        'operationId' => get_invitation_view,
+        'operationId' => get_invitation_status,
         get => #{
-            desc => ?DESC(get_invitation_view),
+            desc => ?DESC(get_invitation_status),
             tags => [<<"Cluster">>],
             responses => #{
                 200 => ?HOCON(
-                    ?REF(invitation_view),
+                    ?REF(invitation_status),
                     #{desc => <<"Get invitation progress created by async operation">>}
                 )
             }
@@ -174,7 +174,7 @@ fields(timeout) ->
                 #{desc => <<"Timeout in milliseconds">>, example => <<"15000">>}
             )}
     ];
-fields(invitation_view) ->
+fields(invitation_status) ->
     [
         {succeed,
             ?HOCON(
@@ -208,7 +208,8 @@ fields(node_invitation_succeed) ->
                 ?HOCON(
                     emqx_utils_calendar:epoch_millisecond(),
                     #{
-                        desc => <<"The time of the async invitation result is received, millisecond precision epoch">>,
+                        desc =>
+                            <<"The time of the async invitation result is received, millisecond precision epoch">>,
                         example => <<"1705044829915">>
                     }
                 )}
@@ -224,7 +225,8 @@ fields(node_invitation_in_progress) ->
             ?HOCON(
                 emqx_utils_calendar:epoch_millisecond(),
                 #{
-                    desc => <<"The start timestamp of the invitation, millisecond precision epoch">>,
+                    desc =>
+                        <<"The start timestamp of the invitation, millisecond precision epoch">>,
                     example => <<"1705044829915">>
                 }
             )}
@@ -319,8 +321,8 @@ invite_node_async(put, #{bindings := #{node := Node0}}) ->
             }}
     end.
 
-get_invitation_view(get, _) ->
-    {200, format_invitation_view(emqx_mgmt_cluster:invitation_view())}.
+get_invitation_status(get, _) ->
+    {200, format_invitation_status(emqx_mgmt_cluster:invitation_status())}.
 
 force_leave(delete, #{bindings := #{node := Node0}}) ->
     Node = ekka_node:parse_name(binary_to_list(Node0)),
@@ -344,7 +346,7 @@ connected_replicants() ->
 error_message(Msg) ->
     iolist_to_binary(io_lib:format("~p", [Msg])).
 
-format_invitation_view(#{
+format_invitation_status(#{
     succeed := Succeed,
     in_progress := InProgress,
     failed := Failed
