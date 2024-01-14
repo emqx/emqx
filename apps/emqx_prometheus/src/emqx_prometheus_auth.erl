@@ -96,9 +96,25 @@ collect_mf(_, _) ->
 %% @private
 collect(<<"json">>) ->
     %% TODO
-    #{};
+    #{
+        emqx_authn => collect_auth_data(authn),
+        emqx_authz => collect_auth_data(authz),
+        emqx_banned => collect_banned_data()
+    };
 collect(<<"prometheus">>) ->
     prometheus_text_format:format(?PROMETHEUS_AUTH_REGISTRY).
+
+collect_auth_data(AuthDataType) ->
+    maps:fold(
+        fun(K, V, Acc) ->
+            zip_auth_metrics(AuthDataType, K, V, Acc)
+        end,
+        [],
+        auth_data(AuthDataType)
+    ).
+
+collect_banned_data() ->
+    #{emqx_banned_count => banned_count_data()}.
 
 add_collect_family(Name, Data, Callback, Type) ->
     Callback(create_mf(Name, _Help = <<"">>, Type, ?MODULE, Data)).
@@ -398,3 +414,67 @@ boolean_to_number(false) -> 0.
 
 status_to_number(connected) -> 1;
 status_to_number(stopped) -> 0.
+
+zip_auth_metrics(AuthDataType, K, V, Acc) ->
+    LabelK = label_key(AuthDataType),
+    UserOrRuleD = user_rule_data(AuthDataType),
+    do_zip_auth_metrics(LabelK, UserOrRuleD, K, V, Acc).
+
+do_zip_auth_metrics(LabelK, UserOrRuleD, Key, Points, [] = _AccIn) ->
+    lists:foldl(
+        fun({[{K, LabelV}], Metric}, AccIn2) when K =:= LabelK ->
+            %% for initialized empty AccIn
+            %% The following fields will be put into Result
+            %% For Authn:
+            %%     `id`, `emqx_authn_users_count`
+            %% For Authz:
+            %%     `type`, `emqx_authz_rules_count`
+            Point = (users_or_rule_count(LabelK, LabelV, UserOrRuleD))#{
+                LabelK => LabelV, Key => Metric
+            },
+            [Point | AccIn2]
+        end,
+        [],
+        Points
+    );
+do_zip_auth_metrics(LabelK, _UserOrRuleD, Key, Points, AllResultedAcc) ->
+    ThisKeyResult = lists:foldl(
+        fun({[{K, Id}], Metric}, AccIn2) when K =:= LabelK ->
+            [#{LabelK => Id, Key => Metric} | AccIn2]
+        end,
+        [],
+        Points
+    ),
+    lists:zipwith(
+        fun(AllResulted, ThisKeyMetricOut) ->
+            maps:merge(AllResulted, ThisKeyMetricOut)
+        end,
+        AllResultedAcc,
+        ThisKeyResult
+    ).
+
+auth_data(authn) -> authn_data();
+auth_data(authz) -> authz_data().
+
+label_key(authn) -> id;
+label_key(authz) -> type.
+
+user_rule_data(authn) -> authn_users_count_data();
+user_rule_data(authz) -> authz_rules_count_data().
+
+users_or_rule_count(id, Id, #{emqx_authn_users_count := Points} = _AuthnUsersD) ->
+    case lists:keyfind([{id, Id}], 1, Points) of
+        {_, Metric} ->
+            #{emqx_authn_users_count => Metric};
+        false ->
+            #{}
+    end;
+users_or_rule_count(type, Type, #{emqx_authz_rules_count := Points} = _AuthzRulesD) ->
+    case lists:keyfind([{type, Type}], 1, Points) of
+        {_, Metric} ->
+            #{emqx_authz_rules_count => Metric};
+        false ->
+            #{}
+    end;
+users_or_rule_count(_, _, _) ->
+    #{}.
