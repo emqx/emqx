@@ -244,6 +244,7 @@ non_official_license_overdue(_, DaysLeft) -> DaysLeft < 0.
 
 %% 62167219200 =:= calendar:datetime_to_gregorian_seconds({{1970, 1, 1}, {0, 0, 0}}).
 -define(EPOCH_START, 62167219200).
+-spec date_to_expiry_epoch(calendar:date()) -> Seconds :: non_neg_integer().
 date_to_expiry_epoch({Y, M, D}) ->
     calendar:datetime_to_gregorian_seconds({{Y, M, D}, {0, 0, 0}}) - ?EPOCH_START.
 
