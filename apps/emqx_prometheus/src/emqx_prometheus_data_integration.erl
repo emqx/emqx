@@ -295,6 +295,7 @@ actions_exec_count_data() ->
 %%====================
 %% Schema Registry
 
+-if(?EMQX_RELEASE_EDITION == ee).
 schema_registry() ->
     [
         emqx_schema_registry_count
@@ -304,6 +305,13 @@ schema_registry_data() ->
     #{
         emqx_schema_registry_count => erlang:map_size(emqx_schema_registry:list_schemas())
     }.
+-else.
+schema_registry() ->
+    [].
+
+schema_registry_data() ->
+    #{}.
+-endif.
 
 %%====================
 %% Connectors
