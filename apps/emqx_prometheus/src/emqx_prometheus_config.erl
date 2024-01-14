@@ -25,6 +25,10 @@
 -export([conf/0, is_push_gateway_server_enabled/1]).
 -export([to_recommend_type/1]).
 
+-ifdef(TEST).
+-export([all_collectors/0]).
+-endif.
+
 update(Config) ->
     case
         emqx_conf:update(

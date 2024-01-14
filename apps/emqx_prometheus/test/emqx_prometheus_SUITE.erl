@@ -103,13 +103,16 @@ init_group() ->
     ok = mria_rlog:wait_for_shards([?CLUSTER_RPC_SHARD], infinity),
     meck:new(emqx_alarm, [non_strict, passthrough, no_link]),
     meck:expect(emqx_alarm, activate, 3, ok),
-    meck:expect(emqx_alarm, deactivate, 3, ok).
+    meck:expect(emqx_alarm, deactivate, 3, ok),
+    meck:new(emqx_license_checker, [non_strict, passthrough, no_link]),
+    meck:expect(emqx_license_checker, expiry_epoch, fun() -> 1859673600 end).
 
 end_group() ->
     ekka:stop(),
     mria:stop(),
     mria_mnesia:delete_schema(),
     meck:unload(emqx_alarm),
+    meck:unload(emqx_license_checker),
     emqx_common_test_helpers:stop_apps([emqx_prometheus]).
 
 end_per_group(_Group, Config) ->
