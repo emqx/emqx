@@ -44,21 +44,19 @@ prop_consistency() ->
     ?FORALL(
         Cmds,
         commands(?MODULE),
-        ?TRAPEXIT(
-            begin
-                init(),
-                {_History, State, Result} = run_commands(?MODULE, Cmds),
-                clean(),
-                ?WHENFAIL(
-                    io:format(
-                        user,
-                        "Operations: ~p~nState: ~p\nResult: ~p~n",
-                        [Cmds, State, Result]
-                    ),
-                    aggregate(command_names(Cmds), Result =:= ok)
-                )
-            end
-        )
+        begin
+            init(),
+            {_History, State, Result} = run_commands(?MODULE, Cmds),
+            clean(),
+            ?WHENFAIL(
+                io:format(
+                    user,
+                    "Operations: ~p~nState: ~p\nResult: ~p~n",
+                    [Cmds, State, Result]
+                ),
+                aggregate(command_names(Cmds), Result =:= ok)
+            )
+        end
     ).
 
 %%================================================================================
