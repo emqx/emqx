@@ -330,14 +330,8 @@ connectors() ->
 
 connectors_data() ->
     #{
-        emqx_connector_count =>
-            lists:foldl(
-                fun(List, AccIn) -> erlang:length(List) + AccIn end,
-                0,
-                [
-                    emqx_connector:list(), emqx_bridge:list(), emqx_bridge_v2:list()
-                ]
-            )
+        %% Both Bridge V1 and V2
+        emqx_connector_count => erlang:length(emqx_bridge:list())
     }.
 
 %%========================================
