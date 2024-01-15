@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2022-2024 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2024 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -95,7 +95,6 @@ collect_mf(_, _) ->
 
 %% @private
 collect(<<"json">>) ->
-    %% TODO
     #{
         emqx_authn => collect_auth_data(authn),
         emqx_authz => collect_auth_data(authz),
