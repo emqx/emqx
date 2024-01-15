@@ -25,6 +25,8 @@
     open_db/2,
     add_generation/1,
     update_db_config/2,
+    list_generations_with_lifetimes/1,
+    drop_generation/2,
     drop_db/1,
     store_batch/3,
     get_streams/3,
@@ -41,7 +43,9 @@
     do_make_iterator_v1/5,
     do_update_iterator_v2/4,
     do_next_v1/4,
-    do_add_generation_v2/1
+    do_add_generation_v2/1,
+    do_list_generations_with_lifetimes_v3/2,
+    do_drop_generation_v3/3
 ]).
 
 -export_type([shard_id/0, builtin_db_opts/0, stream/0, iterator/0, message_id/0, batch/0]).
@@ -104,6 +108,8 @@
     ?batch_messages := [emqx_types:message()]
 }.
 
+-type generation_rank() :: {shard_id(), term()}.
+
 %%================================================================================
 %% API functions
 %%================================================================================
@@ -134,6 +140,32 @@ add_generation(DB) ->
 -spec update_db_config(emqx_ds:db(), builtin_db_opts()) -> ok | {error, _}.
 update_db_config(DB, CreateOpts) ->
     emqx_ds_replication_layer_meta:update_db_config(DB, CreateOpts).
+
+-spec list_generations_with_lifetimes(emqx_ds:db()) ->
+    #{generation_rank() => emqx_ds:generation_info()}.
+list_generations_with_lifetimes(DB) ->
+    Shards = list_shards(DB),
+    lists:foldl(
+        fun(Shard, GensAcc) ->
+            Node = node_of_shard(DB, Shard),
+            maps:fold(
+                fun(GenId, Data, AccInner) ->
+                    AccInner#{{Shard, GenId} => Data}
+                end,
+                GensAcc,
+                emqx_ds_proto_v3:list_generations_with_lifetimes(Node, DB, Shard)
+            )
+        end,
+        #{},
+        Shards
+    ).
+
+-spec drop_generation(emqx_ds:db(), generation_rank()) -> ok | {error, _}.
+drop_generation(DB, {Shard, GenId}) ->
+    %% TODO: drop generation in all nodes in the replica set, not only in the leader,
+    %% after we have proper replication in place.
+    Node = node_of_shard(DB, Shard),
+    emqx_ds_proto_v3:drop_generation(Node, DB, Shard, GenId).
 
 -spec drop_db(emqx_ds:db()) -> ok | {error, _}.
 drop_db(DB) ->
@@ -301,13 +333,22 @@ do_next_v1(DB, Shard, Iter, BatchSize) ->
 -spec do_add_generation_v2(emqx_ds:db()) -> ok | {error, _}.
 do_add_generation_v2(DB) ->
     MyShards = emqx_ds_replication_layer_meta:my_owned_shards(DB),
-
     lists:foreach(
         fun(ShardId) ->
             emqx_ds_storage_layer:add_generation({DB, ShardId})
         end,
         MyShards
     ).
+
+-spec do_list_generations_with_lifetimes_v3(emqx_ds:db(), shard_id()) ->
+    #{emqx_ds:ds_specific_generation_rank() => emqx_ds:generation_info()}.
+do_list_generations_with_lifetimes_v3(DB, ShardId) ->
+    emqx_ds_storage_layer:list_generations_with_lifetimes({DB, ShardId}).
+
+-spec do_drop_generation_v3(emqx_ds:db(), shard_id(), emqx_ds_storage_layer:gen_id()) ->
+    ok | {error, _}.
+do_drop_generation_v3(DB, ShardId, GenId) ->
+    emqx_ds_storage_layer:drop_generation({DB, ShardId}, GenId).
 
 %%================================================================================
 %% Internal functions

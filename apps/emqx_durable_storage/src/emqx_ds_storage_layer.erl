@@ -27,7 +27,9 @@
     update_iterator/3,
     next/3,
     update_config/2,
-    add_generation/1
+    add_generation/1,
+    list_generations_with_lifetimes/1,
+    drop_generation/2
 ]).
 
 %% gen_server
@@ -44,7 +46,8 @@
     iterator/0,
     shard_id/0,
     options/0,
-    prototype/0
+    prototype/0,
+    post_creation_context/0
 ]).
 
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
@@ -95,11 +98,18 @@
 
 %%%% Generation:
 
+-define(GEN_KEY(GEN_ID), {generation, GEN_ID}).
+
 -type generation(Data) :: #{
     %% Module that handles data for the generation:
     module := module(),
     %% Module-specific data defined at generation creation time:
     data := Data,
+    %% Column families used by this generation
+    cf_refs := cf_refs(),
+    %% Time at which this was created.  Might differ from `since', in particular for the
+    %% first generation.
+    created_at := emqx_ds:time(),
     %% When should this generation become active?
     %% This generation should only contain messages timestamped no earlier than that.
     %% The very first generation will have `since` equal 0.
@@ -121,7 +131,7 @@
     %% This data is used to create new generation:
     prototype := prototype(),
     %% Generations:
-    {generation, gen_id()} => GenData
+    ?GEN_KEY(gen_id()) => GenData
 }.
 
 %% Shard schema (persistent):
@@ -131,6 +141,18 @@
 -type shard() :: shard(generation()).
 
 -type options() :: map().
+
+-type post_creation_context() ::
+    #{
+        shard_id := emqx_ds_storage_layer:shard_id(),
+        db := rocksdb:db_handle(),
+        new_gen_id := emqx_ds_storage_layer:gen_id(),
+        old_gen_id := emqx_ds_storage_layer:gen_id(),
+        new_cf_refs := cf_refs(),
+        old_cf_refs := cf_refs(),
+        new_gen_runtime_data := _NewData,
+        old_gen_runtime_data := _OldData
+    }.
 
 %%================================================================================
 %% Generation callbacks
@@ -145,6 +167,9 @@
 -callback open(shard_id(), rocksdb:db_handle(), gen_id(), cf_refs(), _Schema) ->
     _Data.
 
+-callback drop(shard_id(), rocksdb:db_handle(), gen_id(), cf_refs(), _RuntimeData) ->
+    ok | {error, _Reason}.
+
 -callback store_batch(shard_id(), _Data, [emqx_types:message()], emqx_ds:message_store_opts()) ->
     emqx_ds:store_batch_result().
 
@@ -157,9 +182,16 @@
 -callback next(shard_id(), _Data, Iter, pos_integer()) ->
     {ok, Iter, [emqx_types:message()]} | {error, _}.
 
+-callback post_creation_actions(post_creation_context()) -> _Data.
+
+-optional_callbacks([post_creation_actions/1]).
+
 %%================================================================================
 %% API for the replication layer
 %%================================================================================
+
+-record(call_list_generations_with_lifetimes, {}).
+-record(call_drop_generation, {gen_id :: gen_id()}).
 
 -spec open_shard(shard_id(), options()) -> ok.
 open_shard(Shard, Options) ->
@@ -188,18 +220,25 @@ store_batch(Shard, Messages, Options) ->
     [{integer(), stream()}].
 get_streams(Shard, TopicFilter, StartTime) ->
     Gens = generations_since(Shard, StartTime),
+    ?tp(get_streams_all_gens, #{gens => Gens}),
     lists:flatmap(
         fun(GenId) ->
-            #{module := Mod, data := GenData} = generation_get(Shard, GenId),
-            Streams = Mod:get_streams(Shard, GenData, TopicFilter, StartTime),
-            [
-                {GenId, #{
-                    ?tag => ?STREAM,
-                    ?generation => GenId,
-                    ?enc => Stream
-                }}
-             || Stream <- Streams
-            ]
+            ?tp(get_streams_get_gen, #{gen_id => GenId}),
+            case generation_get_safe(Shard, GenId) of
+                {ok, #{module := Mod, data := GenData}} ->
+                    Streams = Mod:get_streams(Shard, GenData, TopicFilter, StartTime),
+                    [
+                        {GenId, #{
+                            ?tag => ?STREAM,
+                            ?generation => GenId,
+                            ?enc => Stream
+                        }}
+                     || Stream <- Streams
+                    ];
+                {error, not_found} ->
+                    %% race condition: generation was dropped before getting its streams?
+                    []
+            end
         end,
         Gens
     ).
@@ -209,16 +248,20 @@ get_streams(Shard, TopicFilter, StartTime) ->
 make_iterator(
     Shard, #{?tag := ?STREAM, ?generation := GenId, ?enc := Stream}, TopicFilter, StartTime
 ) ->
-    #{module := Mod, data := GenData} = generation_get(Shard, GenId),
-    case Mod:make_iterator(Shard, GenData, Stream, TopicFilter, StartTime) of
-        {ok, Iter} ->
-            {ok, #{
-                ?tag => ?IT,
-                ?generation => GenId,
-                ?enc => Iter
-            }};
-        {error, _} = Err ->
-            Err
+    case generation_get_safe(Shard, GenId) of
+        {ok, #{module := Mod, data := GenData}} ->
+            case Mod:make_iterator(Shard, GenData, Stream, TopicFilter, StartTime) of
+                {ok, Iter} ->
+                    {ok, #{
+                        ?tag => ?IT,
+                        ?generation => GenId,
+                        ?enc => Iter
+                    }};
+                {error, _} = Err ->
+                    Err
+            end;
+        {error, not_found} ->
+            {error, end_of_stream}
     end.
 
 -spec update_iterator(
@@ -230,33 +273,42 @@ update_iterator(
     #{?tag := ?IT, ?generation := GenId, ?enc := OldIter},
     DSKey
 ) ->
-    #{module := Mod, data := GenData} = generation_get(Shard, GenId),
-    case Mod:update_iterator(Shard, GenData, OldIter, DSKey) of
-        {ok, Iter} ->
-            {ok, #{
-                ?tag => ?IT,
-                ?generation => GenId,
-                ?enc => Iter
-            }};
-        {error, _} = Err ->
-            Err
+    case generation_get_safe(Shard, GenId) of
+        {ok, #{module := Mod, data := GenData}} ->
+            case Mod:update_iterator(Shard, GenData, OldIter, DSKey) of
+                {ok, Iter} ->
+                    {ok, #{
+                        ?tag => ?IT,
+                        ?generation => GenId,
+                        ?enc => Iter
+                    }};
+                {error, _} = Err ->
+                    Err
+            end;
+        {error, not_found} ->
+            {error, end_of_stream}
     end.
 
 -spec next(shard_id(), iterator(), pos_integer()) ->
     emqx_ds:next_result(iterator()).
 next(Shard, Iter = #{?tag := ?IT, ?generation := GenId, ?enc := GenIter0}, BatchSize) ->
-    #{module := Mod, data := GenData} = generation_get(Shard, GenId),
-    Current = generation_current(Shard),
-    case Mod:next(Shard, GenData, GenIter0, BatchSize) of
-        {ok, _GenIter, []} when GenId < Current ->
-            %% This is a past generation. Storage layer won't write
-            %% any more messages here. The iterator reached the end:
-            %% the stream has been fully replayed.
-            {ok, end_of_stream};
-        {ok, GenIter, Batch} ->
-            {ok, Iter#{?enc := GenIter}, Batch};
-        Error = {error, _} ->
-            Error
+    case generation_get_safe(Shard, GenId) of
+        {ok, #{module := Mod, data := GenData}} ->
+            Current = generation_current(Shard),
+            case Mod:next(Shard, GenData, GenIter0, BatchSize) of
+                {ok, _GenIter, []} when GenId < Current ->
+                    %% This is a past generation. Storage layer won't write
+                    %% any more messages here. The iterator reached the end:
+                    %% the stream has been fully replayed.
+                    {ok, end_of_stream};
+                {ok, GenIter, Batch} ->
+                    {ok, Iter#{?enc := GenIter}, Batch};
+                Error = {error, _} ->
+                    Error
+            end;
+        {error, not_found} ->
+            %% generation was possibly dropped by GC
+            {ok, end_of_stream}
     end.
 
 -spec update_config(shard_id(), emqx_ds:create_db_opts()) -> ok.
@@ -266,6 +318,21 @@ update_config(ShardId, Options) ->
 -spec add_generation(shard_id()) -> ok.
 add_generation(ShardId) ->
     gen_server:call(?REF(ShardId), add_generation, infinity).
+
+-spec list_generations_with_lifetimes(shard_id()) ->
+    #{
+        gen_id() => #{
+            created_at := emqx_ds:time(),
+            since := emqx_ds:time(),
+            until := undefined | emqx_ds:time()
+        }
+    }.
+list_generations_with_lifetimes(ShardId) ->
+    gen_server:call(?REF(ShardId), #call_list_generations_with_lifetimes{}, infinity).
+
+-spec drop_generation(shard_id(), gen_id()) -> ok.
+drop_generation(ShardId, GenId) ->
+    gen_server:call(?REF(ShardId), #call_drop_generation{gen_id = GenId}, infinity).
 
 %%================================================================================
 %% gen_server for the shard
@@ -328,6 +395,13 @@ handle_call(add_generation, _From, S0) ->
     S = add_generation(S0, Since),
     commit_metadata(S),
     {reply, ok, S};
+handle_call(#call_list_generations_with_lifetimes{}, _From, S) ->
+    Generations = handle_list_generations_with_lifetimes(S),
+    {reply, Generations, S};
+handle_call(#call_drop_generation{gen_id = GenId}, _From, S0) ->
+    {Reply, S} = handle_drop_generation(S0, GenId),
+    commit_metadata(S),
+    {reply, Reply, S};
 handle_call(#call_create_generation{since = Since}, _From, S0) ->
     S = add_generation(S0, Since),
     commit_metadata(S),
@@ -359,7 +433,7 @@ open_shard(ShardId, DB, CFRefs, ShardSchema) ->
     %% Transform generation schemas to generation runtime data:
     maps:map(
         fun
-            ({generation, GenId}, GenSchema) ->
+            (?GEN_KEY(GenId), GenSchema) ->
                 open_generation(ShardId, DB, CFRefs, GenId, GenSchema);
             (_K, Val) ->
                 Val
@@ -372,16 +446,94 @@ add_generation(S0, Since) ->
     #s{shard_id = ShardId, db = DB, schema = Schema0, shard = Shard0, cf_refs = CFRefs0} = S0,
     Schema1 = update_last_until(Schema0, Since),
     Shard1 = update_last_until(Shard0, Since),
+
+    #{current_generation := OldGenId, prototype := {CurrentMod, _ModConf}} = Schema0,
+    OldKey = ?GEN_KEY(OldGenId),
+    #{OldKey := OldGenSchema} = Schema0,
+    #{cf_refs := OldCFRefs} = OldGenSchema,
+    #{OldKey := #{module := OldMod, data := OldGenData}} = Shard0,
+
     {GenId, Schema, NewCFRefs} = new_generation(ShardId, DB, Schema1, Since),
+
     CFRefs = NewCFRefs ++ CFRefs0,
-    Key = {generation, GenId},
-    Generation = open_generation(ShardId, DB, CFRefs, GenId, maps:get(Key, Schema)),
+    Key = ?GEN_KEY(GenId),
+    Generation0 =
+        #{data := NewGenData0} =
+        open_generation(ShardId, DB, CFRefs, GenId, maps:get(Key, Schema)),
+
+    %% When the new generation's module is the same as the last one, we might want to
+    %% perform actions like inheriting some of the previous (meta)data.
+    NewGenData =
+        run_post_creation_actions(
+            #{
+                shard_id => ShardId,
+                db => DB,
+                new_gen_id => GenId,
+                old_gen_id => OldGenId,
+                new_cf_refs => NewCFRefs,
+                old_cf_refs => OldCFRefs,
+                new_gen_runtime_data => NewGenData0,
+                old_gen_runtime_data => OldGenData,
+                new_module => CurrentMod,
+                old_module => OldMod
+            }
+        ),
+    Generation = Generation0#{data := NewGenData},
+
     Shard = Shard1#{current_generation := GenId, Key => Generation},
     S0#s{
         cf_refs = CFRefs,
         schema = Schema,
         shard = Shard
     }.
+
+-spec handle_list_generations_with_lifetimes(server_state()) -> #{gen_id() => map()}.
+handle_list_generations_with_lifetimes(#s{schema = ShardSchema}) ->
+    maps:fold(
+        fun
+            (?GEN_KEY(GenId), GenSchema, Acc) ->
+                Acc#{GenId => export_generation(GenSchema)};
+            (_Key, _Value, Acc) ->
+                Acc
+        end,
+        #{},
+        ShardSchema
+    ).
+
+-spec export_generation(generation_schema()) -> map().
+export_generation(GenSchema) ->
+    maps:with([created_at, since, until], GenSchema).
+
+-spec handle_drop_generation(server_state(), gen_id()) ->
+    {ok | {error, current_generation}, server_state()}.
+handle_drop_generation(#s{schema = #{current_generation := GenId}} = S0, GenId) ->
+    {{error, current_generation}, S0};
+handle_drop_generation(#s{schema = Schema} = S0, GenId) when
+    not is_map_key(?GEN_KEY(GenId), Schema)
+->
+    {{error, not_found}, S0};
+handle_drop_generation(S0, GenId) ->
+    #s{
+        shard_id = ShardId,
+        db = DB,
+        schema = #{?GEN_KEY(GenId) := GenSchema} = OldSchema,
+        shard = OldShard,
+        cf_refs = OldCFRefs
+    } = S0,
+    #{module := Mod, cf_refs := GenCFRefs} = GenSchema,
+    #{?GEN_KEY(GenId) := #{data := RuntimeData}} = OldShard,
+    case Mod:drop(ShardId, DB, GenId, GenCFRefs, RuntimeData) of
+        ok ->
+            CFRefs = OldCFRefs -- GenCFRefs,
+            Shard = maps:remove(?GEN_KEY(GenId), OldShard),
+            Schema = maps:remove(?GEN_KEY(GenId), OldSchema),
+            S = S0#s{
+                cf_refs = CFRefs,
+                shard = Shard,
+                schema = Schema
+            },
+            {ok, S}
+    end.
 
 -spec open_generation(shard_id(), rocksdb:db_handle(), cf_refs(), gen_id(), generation_schema()) ->
     generation().
@@ -409,10 +561,17 @@ new_generation(ShardId, DB, Schema0, Since) ->
     #{current_generation := PrevGenId, prototype := {Mod, ModConf}} = Schema0,
     GenId = PrevGenId + 1,
     {GenData, NewCFRefs} = Mod:create(ShardId, DB, GenId, ModConf),
-    GenSchema = #{module => Mod, data => GenData, since => Since, until => undefined},
+    GenSchema = #{
+        module => Mod,
+        data => GenData,
+        cf_refs => NewCFRefs,
+        created_at => emqx_message:timestamp_now(),
+        since => Since,
+        until => undefined
+    },
     Schema = Schema0#{
         current_generation => GenId,
-        {generation, GenId} => GenSchema
+        ?GEN_KEY(GenId) => GenSchema
     },
     {GenId, Schema, NewCFRefs}.
 
@@ -461,9 +620,26 @@ db_dir(BaseDir, {DB, ShardId}) ->
 -spec update_last_until(Schema, emqx_ds:time()) -> Schema when Schema :: shard_schema() | shard().
 update_last_until(Schema, Until) ->
     #{current_generation := GenId} = Schema,
-    GenData0 = maps:get({generation, GenId}, Schema),
+    GenData0 = maps:get(?GEN_KEY(GenId), Schema),
     GenData = GenData0#{until := Until},
-    Schema#{{generation, GenId} := GenData}.
+    Schema#{?GEN_KEY(GenId) := GenData}.
+
+run_post_creation_actions(
+    #{
+        new_module := Mod,
+        old_module := Mod,
+        new_gen_runtime_data := NewGenData
+    } = Context
+) ->
+    case erlang:function_exported(Mod, post_creation_actions, 1) of
+        true ->
+            Mod:post_creation_actions(Context);
+        false ->
+            NewGenData
+    end;
+run_post_creation_actions(#{new_gen_runtime_data := NewGenData}) ->
+    %% Different implementation modules
+    NewGenData.
 
 %%--------------------------------------------------------------------------------
 %% Schema access
@@ -476,15 +652,24 @@ generation_current(Shard) ->
 
 -spec generation_get(shard_id(), gen_id()) -> generation().
 generation_get(Shard, GenId) ->
-    #{{generation, GenId} := GenData} = get_schema_runtime(Shard),
+    {ok, GenData} = generation_get_safe(Shard, GenId),
     GenData.
+
+-spec generation_get_safe(shard_id(), gen_id()) -> {ok, generation()} | {error, not_found}.
+generation_get_safe(Shard, GenId) ->
+    case get_schema_runtime(Shard) of
+        #{?GEN_KEY(GenId) := GenData} ->
+            {ok, GenData};
+        #{} ->
+            {error, not_found}
+    end.
 
 -spec generations_since(shard_id(), emqx_ds:time()) -> [gen_id()].
 generations_since(Shard, Since) ->
     Schema = get_schema_runtime(Shard),
     maps:fold(
         fun
-            ({generation, GenId}, #{until := Until}, Acc) when Until >= Since ->
+            (?GEN_KEY(GenId), #{until := Until}, Acc) when Until >= Since ->
                 [GenId | Acc];
             (_K, _V, Acc) ->
                 Acc

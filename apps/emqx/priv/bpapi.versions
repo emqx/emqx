@@ -22,6 +22,7 @@
 {emqx_delayed,3}.
 {emqx_ds,1}.
 {emqx_ds,2}.
+{emqx_ds,3}.
 {emqx_eviction_agent,1}.
 {emqx_eviction_agent,2}.
 {emqx_exhook,1}.
