@@ -175,11 +175,9 @@ collect_mf(?PROMETHEUS_DEFAULT_REGISTRY, Callback) ->
     Metrics = emqx_metrics:all(),
     Stats = emqx_stats:getstats(),
     VMData = emqx_vm_data(),
-    LicenseData = emqx_license_data(),
     ClusterData = emqx_cluster_data(),
     CertsData = emqx_certs_data(),
     %% TODO: license expiry epoch and cert expiry epoch should be cached
-    _ = [add_collect_family(Name, LicenseData, Callback, gauge) || Name <- emqx_license()],
     _ = [add_collect_family(Name, CertsData, Callback, gauge) || Name <- emqx_certs()],
     _ = [add_collect_family(Name, Stats, Callback, gauge) || Name <- emqx_stats:names()],
     _ = [add_collect_family(Name, VMData, Callback, gauge) || Name <- emqx_vm()],
@@ -192,6 +190,7 @@ collect_mf(?PROMETHEUS_DEFAULT_REGISTRY, Callback) ->
     _ = [add_collect_family(Name, Metrics, Callback, counter) || Name <- emqx_metrics_olp()],
     _ = [add_collect_family(Name, Metrics, Callback, counter) || Name <- emqx_metrics_acl()],
     _ = [add_collect_family(Name, Metrics, Callback, counter) || Name <- emqx_metrics_authn()],
+    ok = maybe_collect_family_license(Callback),
     ok;
 collect_mf(_Registry, _Callback) ->
     ok.
@@ -201,13 +200,11 @@ collect(<<"json">>) ->
     Metrics = emqx_metrics:all(),
     Stats = emqx_stats:getstats(),
     VMData = emqx_vm_data(),
-    LicenseData = emqx_license_data(),
     %% TODO: FIXME!
     %% emqx_metrics_olp()),
     %% emqx_metrics_acl()),
     %% emqx_metrics_authn()),
-    #{
-        license => maps:from_list([collect_stats(Name, LicenseData) || Name <- emqx_license()]),
+    (maybe_collect_license())#{
         certs => collect_certs_json(emqx_certs_data()),
         stats => maps:from_list([collect_stats(Name, Stats) || Name <- emqx_stats:names()]),
         metrics => maps:from_list([collect_stats(Name, VMData) || Name <- emqx_vm()]),
@@ -236,6 +233,24 @@ collect_metrics(Name, Metrics) ->
 
 add_collect_family(Name, Data, Callback, Type) ->
     Callback(create_mf(Name, _Help = <<"">>, Type, ?MODULE, Data)).
+
+-if(?EMQX_RELEASE_EDITION == ee).
+maybe_collect_family_license(Callback) ->
+    LicenseData = emqx_license_data(),
+    _ = [add_collect_family(Name, LicenseData, Callback, gauge) || Name <- emqx_license()],
+    ok.
+
+maybe_collect_license() ->
+    LicenseData = emqx_license_data(),
+    #{license => maps:from_list([collect_stats(Name, LicenseData) || Name <- emqx_license()])}.
+
+-else.
+maybe_collect_family_license(_) ->
+    ok.
+
+maybe_collect_license() ->
+    #{}.
+-endif.
 
 %%--------------------------------------------------------------------
 %% Collector
@@ -707,6 +722,7 @@ emqx_cluster_data() ->
         {nodes_stopped, length(Stopped)}
     ].
 
+-if(?EMQX_RELEASE_EDITION == ee).
 emqx_license() ->
     [
         emqx_license_expiry_at
@@ -716,6 +732,9 @@ emqx_license_data() ->
     [
         {expiry_at, emqx_license_checker:expiry_epoch()}
     ].
+-else.
+
+-endif.
 
 emqx_certs() ->
     [

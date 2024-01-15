@@ -86,11 +86,10 @@ collect_mf(?PROMETHEUS_DATA_INTEGRATION_REGISTRY, Callback) ->
     Rules = emqx_rule_engine:get_rules(),
     _ = [add_collect_family(Name, rules_data(Rules), Callback, gauge) || Name <- rules()],
     _ = [add_collect_family(Name, actions_data(Rules), Callback, gauge) || Name <- actions()],
-    _ = [add_collect_family(Name, schema_registry_data(), Callback, gauge) || Name <- schema_registry()],
     _ = [add_collect_family(Name, connectors_data(), Callback, gauge) || Name <- connectors()],
     _ = [add_collect_family(Name, rule_specific_data(Rules), Callback, gauge) || Name <- rule_specific()],
     _ = [add_collect_family(Name, action_specific_data(), Callback, gauge) || Name <- action_specific()],
-
+    ok = maybe_collect_family_schema_registry(Callback),
     ok;
 collect_mf(_, _) ->
     ok.
@@ -107,6 +106,18 @@ add_collect_family(Name, Data, Callback, Type) ->
 
 collect_metrics(Name, Metrics) ->
     collect_di(Name, Metrics).
+
+-if(?EMQX_RELEASE_EDITION == ee).
+maybe_collect_family_schema_registry(Callback) ->
+    _ = [
+        add_collect_family(Name, schema_registry_data(), Callback, gauge)
+     || Name <- schema_registry()
+    ],
+    ok.
+-else.
+maybe_collect_family_schema_registry(_) ->
+    ok.
+-endif.
 
 %%--------------------------------------------------------------------
 %% Collector
@@ -306,11 +317,7 @@ schema_registry_data() ->
         emqx_schema_registry_count => erlang:map_size(emqx_schema_registry:list_schemas())
     }.
 -else.
-schema_registry() ->
-    [].
 
-schema_registry_data() ->
-    #{}.
 -endif.
 
 %%====================
