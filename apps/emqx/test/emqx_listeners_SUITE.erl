@@ -444,14 +444,45 @@ t_quic_update_opts(Config) ->
             | ClientSSLOpts
         ]),
 
+        %% Change the listener port
+        NewPort = emqx_common_test_helpers:select_free_port(ListenerType),
+        {ok, _} = emqx:update_config(
+            [listeners, ListenerType, updated],
+            {update, #{
+                <<"bind">> => format_bind({Host, NewPort})
+            }}
+        ),
+
+        %% Connect to old port fail
+        ?assertExceptionOneOf(
+            {exit, _},
+            {error, _},
+            ConnectFun(Host, Port, [
+                {cacertfile, filename:join(PrivDir, "ca-next.pem")},
+                {certfile, filename:join(PrivDir, "client.pem")},
+                {keyfile, filename:join(PrivDir, "client.key")}
+                | ClientSSLOpts
+            ])
+        ),
+
+        %% Connect to new port successfully.
+        C4 = ConnectFun(Host, NewPort, [
+            {cacertfile, filename:join(PrivDir, "ca-next.pem")},
+            {certfile, filename:join(PrivDir, "client.pem")},
+            {keyfile, filename:join(PrivDir, "client.key")}
+            | ClientSSLOpts
+        ]),
+
         %% Both pre- and post-update clients should be alive.
         ?assertEqual(pong, emqtt:ping(C1)),
         ?assertEqual(pong, emqtt:ping(C2)),
         ?assertEqual(pong, emqtt:ping(C3)),
+        ?assertEqual(pong, emqtt:ping(C4)),
 
         ok = emqtt:stop(C1),
         ok = emqtt:stop(C2),
-        ok = emqtt:stop(C3)
+        ok = emqtt:stop(C3),
+        ok = emqtt:stop(C4)
     end).
 
 t_quic_update_opts_fail(Config) ->
