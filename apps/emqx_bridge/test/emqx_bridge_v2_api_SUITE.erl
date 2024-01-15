@@ -451,11 +451,8 @@ source_config_base() ->
         <<"connector">> => ?SOURCE_CONNECTOR_NAME,
         <<"parameters">> =>
             #{
-                <<"remote">> =>
-                    #{
-                        <<"topic">> => <<"remote/topic">>,
-                        <<"qos">> => 2
-                    }
+                <<"topic">> => <<"remote/topic">>,
+                <<"qos">> => 2
             },
         <<"resource_opts">> => #{
             <<"batch_size">> => 1,

@@ -127,8 +127,9 @@ on_add_channel(
         true ->
             ok
     end,
-    ChannelState0 = maps:get(parameters, ChannelConfig),
-    ChannelState = emqx_bridge_mqtt_egress:config(ChannelState0),
+    RemoteParams0 = maps:get(parameters, ChannelConfig),
+    {LocalParams, RemoteParams} = take(local, RemoteParams0, #{}),
+    ChannelState = emqx_bridge_mqtt_egress:config(#{remote => RemoteParams, local => LocalParams}),
     NewInstalledChannels = maps:put(ChannelId, ChannelState, InstalledChannels),
     NewState = OldState#{installed_channels => NewInstalledChannels},
     {ok, NewState};
@@ -144,15 +145,18 @@ on_add_channel(
     #{hookpoints := HookPoints} = ChannelConfig
 ) ->
     %% Add ingress channel
-    ChannelState0 = maps:get(parameters, ChannelConfig),
-    ChannelState1 = ChannelState0#{
+    RemoteParams0 = maps:get(parameters, ChannelConfig),
+    {LocalParams, RemoteParams} = take(local, RemoteParams0, #{}),
+    ChannelState0 = #{
         hookpoints => HookPoints,
         server => Server,
-        config_root => sources
+        config_root => sources,
+        local => LocalParams,
+        remote => RemoteParams
     },
-    ChannelState2 = mk_ingress_config(ChannelId, ChannelState1, TopicToHandlerIndex),
-    ok = emqx_bridge_mqtt_ingress:subscribe_channel(PoolName, ChannelState2),
-    NewInstalledChannels = maps:put(ChannelId, ChannelState2, InstalledChannels),
+    ChannelState1 = mk_ingress_config(ChannelId, ChannelState0, TopicToHandlerIndex),
+    ok = emqx_bridge_mqtt_ingress:subscribe_channel(PoolName, ChannelState1),
+    NewInstalledChannels = maps:put(ChannelId, ChannelState1, InstalledChannels),
     NewState = OldState#{installed_channels => NewInstalledChannels},
     {ok, NewState}.
 
@@ -500,3 +504,11 @@ connect(Pid, Name) ->
 
 handle_disconnect(_Reason) ->
     ok.
+
+take(Key, Map0, Default) ->
+    case maps:take(Key, Map0) of
+        {Value, Map} ->
+            {Value, Map};
+        error ->
+            {Default, Map0}
+    end.

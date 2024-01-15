@@ -95,8 +95,11 @@ bridge_v1_config_to_action_config_helper(
     LocalTopicMap = maps:get(<<"local">>, EgressMap0, #{}),
     LocalTopic = maps:get(<<"topic">>, LocalTopicMap, undefined),
     EgressMap1 = maps:without([<<"local">>, <<"pool_size">>], EgressMap0),
+    LocalParams = maps:get(<<"local">>, EgressMap0, #{}),
+    EgressMap2 = emqx_utils_maps:unindent(<<"remote">>, EgressMap1),
+    EgressMap = maps:put(<<"local">>, LocalParams, EgressMap2),
     %% Add parameters field (Egress map) to the action config
-    ConfigMap2 = maps:put(<<"parameters">>, EgressMap1, ConfigMap1),
+    ConfigMap2 = maps:put(<<"parameters">>, EgressMap, ConfigMap1),
     ConfigMap3 =
         case LocalTopic of
             undefined ->
@@ -107,7 +110,7 @@ bridge_v1_config_to_action_config_helper(
     {action, mqtt, ConfigMap3};
 bridge_v1_config_to_action_config_helper(
     #{
-        <<"ingress">> := IngressMap
+        <<"ingress">> := IngressMap0
     } = Config,
     ConnectorName
 ) ->
@@ -117,9 +120,12 @@ bridge_v1_config_to_action_config_helper(
     ConfigMap1 = general_action_conf_map_from_bridge_v1_config(
         Config, ConnectorName, SchemaFields, ResourceOptsSchemaFields
     ),
-    IngressMap1 = maps:remove(<<"pool_size">>, IngressMap),
+    IngressMap1 = maps:without([<<"pool_size">>, <<"local">>], IngressMap0),
+    LocalParams = maps:get(<<"local">>, IngressMap0, #{}),
+    IngressMap2 = emqx_utils_maps:unindent(<<"remote">>, IngressMap1),
+    IngressMap = maps:put(<<"local">>, LocalParams, IngressMap2),
     %% Add parameters field (Egress map) to the action config
-    ConfigMap2 = maps:put(<<"parameters">>, IngressMap1, ConfigMap1),
+    ConfigMap2 = maps:put(<<"parameters">>, IngressMap, ConfigMap1),
     {source, mqtt, ConfigMap2};
 bridge_v1_config_to_action_config_helper(
     _Config,
@@ -182,7 +188,7 @@ check_and_simplify_bridge_v1_config(SimplifiedConfig) ->
 connector_action_config_to_bridge_v1_config(
     ConnectorConfig, ActionConfig
 ) ->
-    Params = maps:get(<<"parameters">>, ActionConfig, #{}),
+    Params0 = maps:get(<<"parameters">>, ActionConfig, #{}),
     ResourceOptsConnector = maps:get(<<"resource_opts">>, ConnectorConfig, #{}),
     ResourceOptsAction = maps:get(<<"resource_opts">>, ActionConfig, #{}),
     ResourceOpts0 = maps:merge(ResourceOptsConnector, ResourceOptsAction),
@@ -194,37 +200,54 @@ connector_action_config_to_bridge_v1_config(
     ResourceOpts = maps:with(V1ResourceOptsFields, ResourceOpts0),
     %% Check the direction of the action
     Direction =
-        case maps:get(<<"remote">>, Params) of
-            #{<<"retain">> := _} ->
-                %% Only source has retain
+        case is_map_key(<<"retain">>, Params0) of
+            %% Only source has retain
+            true ->
                 <<"publisher">>;
-            _ ->
+            false ->
                 <<"subscriber">>
         end,
-    Parms2 = maps:remove(<<"direction">>, Params),
+    Params1 = maps:remove(<<"direction">>, Params0),
+    Params = maps:remove(<<"local">>, Params1),
+    %% hidden; for backwards compatibility
+    LocalParams = maps:get(<<"local">>, Params1, #{}),
     DefaultPoolSize = emqx_connector_schema_lib:pool_size(default),
     PoolSize = maps:get(<<"pool_size">>, ConnectorConfig, DefaultPoolSize),
-    Parms3 = maps:put(<<"pool_size">>, PoolSize, Parms2),
     ConnectorConfig2 = maps:remove(<<"pool_size">>, ConnectorConfig),
     LocalTopic = maps:get(<<"local_topic">>, ActionConfig, undefined),
     BridgeV1Conf0 =
         case {Direction, LocalTopic} of
             {<<"publisher">>, undefined} ->
-                #{<<"egress">> => Parms3};
+                #{
+                    <<"egress">> =>
+                        #{
+                            <<"pool_size">> => PoolSize,
+                            <<"remote">> => Params,
+                            <<"local">> => LocalParams
+                        }
+                };
             {<<"publisher">>, LocalT} ->
                 #{
                     <<"egress">> =>
-                        maps:merge(
-                            Parms3, #{
-                                <<"local">> =>
-                                    #{
-                                        <<"topic">> => LocalT
-                                    }
-                            }
-                        )
+                        #{
+                            <<"pool_size">> => PoolSize,
+                            <<"remote">> => Params,
+                            <<"local">> =>
+                                maps:merge(
+                                    LocalParams,
+                                    #{<<"topic">> => LocalT}
+                                )
+                        }
                 };
             {<<"subscriber">>, _} ->
-                #{<<"ingress">> => Parms3}
+                #{
+                    <<"ingress">> =>
+                        #{
+                            <<"pool_size">> => PoolSize,
+                            <<"remote">> => Params,
+                            <<"local">> => LocalParams
+                        }
+                }
         end,
     BridgeV1Conf1 = maps:merge(BridgeV1Conf0, ConnectorConfig2),
     BridgeV1Conf2 = BridgeV1Conf1#{

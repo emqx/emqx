@@ -178,11 +178,13 @@ config(#{ingress_list := IngressList} = Conf, Name, TopicToHandlerIndex) ->
     ],
     Conf#{ingress_list => NewIngressList}.
 
-fix_remote_config(#{remote := RC, local := LC}, BridgeName, TopicToHandlerIndex, Conf) ->
-    FixedConf = Conf#{
-        remote => parse_remote(RC, BridgeName),
-        local => emqx_bridge_mqtt_msg:parse(LC)
+fix_remote_config(#{remote := RC}, BridgeName, TopicToHandlerIndex, Conf) ->
+    FixedConf0 = Conf#{
+        remote => parse_remote(RC, BridgeName)
     },
+    FixedConf = emqx_utils_maps:update_if_present(
+        local, fun emqx_bridge_mqtt_msg:parse/1, FixedConf0
+    ),
     insert_to_topic_to_handler_index(FixedConf, TopicToHandlerIndex, BridgeName),
     FixedConf.
 

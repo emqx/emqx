@@ -108,11 +108,8 @@ source_config(Overrides0) ->
             <<"connector">> => <<"please override">>,
             <<"parameters">> =>
                 #{
-                    <<"remote">> =>
-                        #{
-                            <<"topic">> => <<"remote/topic">>,
-                            <<"qos">> => 2
-                        }
+                    <<"topic">> => <<"remote/topic">>,
+                    <<"qos">> => 2
                 },
             <<"resource_opts">> => #{
                 <<"batch_size">> => 1,
@@ -197,7 +194,7 @@ t_receive_via_rule(Config) ->
             Hookpoint = hookpoint(Config),
             RepublishTopic = <<"rep/t">>,
             RemoteTopic = emqx_utils_maps:deep_get(
-                [<<"parameters">>, <<"remote">>, <<"topic">>],
+                [<<"parameters">>, <<"topic">>],
                 SourceConfig
             ),
             RuleOpts = #{

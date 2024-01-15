@@ -56,10 +56,18 @@ fields("mqtt_publisher_action") ->
         )
     );
 fields(action_parameters) ->
-    Fields0 = emqx_bridge_mqtt_connector_schema:fields("egress"),
-    Fields1 = proplists:delete(pool_size, Fields0),
-    Fields2 = proplists:delete(local, Fields1),
-    Fields2;
+    [
+        %% for backwards compatibility
+        {local,
+            mk(
+                ref(emqx_bridge_mqtt_connector_schema, "egress_local"),
+                #{
+                    default => #{},
+                    importance => ?IMPORTANCE_HIDDEN
+                }
+            )}
+        | emqx_bridge_mqtt_connector_schema:fields("egress_remote")
+    ];
 fields(source) ->
     {mqtt,
         mk(
@@ -71,8 +79,8 @@ fields(source) ->
         )};
 fields("mqtt_subscriber_source") ->
     emqx_bridge_v2_schema:make_consumer_action_schema(
-        hoconsc:mk(
-            hoconsc:ref(?MODULE, ingress_parameters),
+        mk(
+            ref(?MODULE, ingress_parameters),
             #{
                 required => true,
                 desc => ?DESC("source_parameters")
@@ -80,10 +88,18 @@ fields("mqtt_subscriber_source") ->
         )
     );
 fields(ingress_parameters) ->
-    Fields0 = emqx_bridge_mqtt_connector_schema:fields("ingress"),
-    Fields1 = proplists:delete(pool_size, Fields0),
-    %% FIXME: should we make `local` hidden?
-    Fields1;
+    [
+        %% for backwards compatibility
+        {local,
+            mk(
+                ref(emqx_bridge_mqtt_connector_schema, "ingress_local"),
+                #{
+                    default => #{},
+                    importance => ?IMPORTANCE_HIDDEN
+                }
+            )}
+        | emqx_bridge_mqtt_connector_schema:fields("ingress_remote")
+    ];
 fields(action_resource_opts) ->
     UnsupportedOpts = [enable_batch, batch_size, batch_time],
     lists:filter(
