@@ -384,7 +384,7 @@ merge_acc_with_rules(Id, RuleMetrics, PointsAcc) ->
     ).
 
 rule_point(Id, V) ->
-    {[{rule_id, Id}], V}.
+    {[{id, Id}], V}.
 
 get_metric(#{id := Id} = _Rule) ->
     case emqx_metrics_worker:get_metrics(rule_metrics, Id) of
@@ -448,14 +448,14 @@ action_specific_data() ->
 merge_acc_with_bridges(Id, BridgeMetrics, PointsAcc) ->
     maps:fold(
         fun(K, V, AccIn) ->
-            AccIn#{K => [bridge_point(Id, V) | ?MG(K, AccIn)]}
+            AccIn#{K => [action_point(Id, V) | ?MG(K, AccIn)]}
         end,
         PointsAcc,
         BridgeMetrics
     ).
 
-bridge_point(Id, V) ->
-    {[{action_id, Id}], V}.
+action_point(Id, V) ->
+    {[{id, Id}], V}.
 
 get_bridge_metric(Type, Name) ->
     case emqx_bridge:get_metrics(Type, Name) of
