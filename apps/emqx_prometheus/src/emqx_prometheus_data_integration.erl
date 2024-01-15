@@ -103,7 +103,7 @@ collect(<<"json">>) ->
     Rules = emqx_rule_engine:get_rules(),
     Bridges = emqx_bridge:list(),
     #{
-        data_integration_overview => collect_data_integration(overview, {Rules, Bridges}),
+        data_integration_overview => collect_data_integration_overview(Rules, Bridges),
         rules => collect_data_integration(rules, Rules),
         actions => collect_data_integration(actions, Bridges),
         connectors => collect_data_integration(connectors, Bridges)
@@ -111,15 +111,17 @@ collect(<<"json">>) ->
 collect(<<"prometheus">>) ->
     prometheus_text_format:format(?PROMETHEUS_DATA_INTEGRATION_REGISTRY).
 
-%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%%====================
+%% API Helpers
 
 add_collect_family(Name, Data, Callback, Type) ->
+    %% TODO: help document from Name
     Callback(create_mf(Name, _Help = <<"">>, Type, ?MODULE, Data)).
 
 collect_metrics(Name, Metrics) ->
     collect_di(Name, Metrics).
 
-collect_data_integration(overview, {Rules, Bridges}) ->
+collect_data_integration_overview(Rules, Bridges) ->
     RulesD = rules_data(Rules),
     ActionsD = actions_data(Rules),
     ConnectorsD = connectors_data(Bridges),
@@ -129,30 +131,15 @@ collect_data_integration(overview, {Rules, Bridges}) ->
     M3 = lists:foldl(fun(K, AccIn) -> AccIn#{K => ?MG(K, ConnectorsD)} end, #{}, connectors()),
     M4 = maybe_collect_schema_registry(),
 
-    lists:foldl(fun(M, AccIn) -> maps:merge(M, AccIn) end, #{}, [M1, M2, M3, M4]);
-collect_data_integration(Type = rules, Rules) ->
+    lists:foldl(fun(M, AccIn) -> maps:merge(M, AccIn) end, #{}, [M1, M2, M3, M4]).
+
+collect_data_integration(Type, DataSeed) ->
     maps:fold(
         fun(K, V, Acc) ->
             zip_metrics(Type, K, V, Acc)
         end,
         [],
-        di_data(Type, Rules)
-    );
-collect_data_integration(Type = actions, Rules) ->
-    maps:fold(
-        fun(K, V, Acc) ->
-            zip_metrics(Type, K, V, Acc)
-        end,
-        [],
-        di_data(Type, Rules)
-    );
-collect_data_integration(Type = connectors, Bridges) ->
-    maps:fold(
-        fun(K, V, Acc) ->
-            zip_metrics(Type, K, V, Acc)
-        end,
-        [],
-        di_data(Type, Bridges)
+        di_data(Type, DataSeed)
     ).
 
 -if(?EMQX_RELEASE_EDITION == ee).
