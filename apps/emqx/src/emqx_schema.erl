@@ -1404,6 +1404,24 @@ fields("broker_routing") ->
                     'readOnly' => true,
                     desc => ?DESC(broker_routing_storage_schema)
                 }
+            )},
+        {"batch_sync",
+            sc(
+                ref("broker_routing_batch_sync"),
+                #{importance => ?IMPORTANCE_HIDDEN}
+            )}
+    ];
+fields("broker_routing_batch_sync") ->
+    [
+        {"enable_on",
+            sc(
+                hoconsc:enum([none, core, replicant, all]),
+                #{
+                    %% TODO
+                    %% Make `replicant` the default value after initial release.
+                    default => none,
+                    desc => ?DESC(broker_routing_batch_sync_enable_on)
+                }
             )}
     ];
 fields("shared_subscription_group") ->

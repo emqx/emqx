@@ -167,7 +167,13 @@ do_subscribe(Topic, SubPid, SubOpts) when is_binary(Topic) ->
     %% `unsubscribe` codepath. So we have to pick a worker according to the topic,
     %% but not shard. If there are topics with high number of shards, then the
     %% load across the pool will be unbalanced.
-    call(pick(Topic), {subscribe, Topic, SubPid, I});
+    Sync = call(pick(Topic), {subscribe, Topic, SubPid, I}),
+    case Sync of
+        ok ->
+            ok;
+        Ref when is_reference(Ref) ->
+            emqx_router_syncer:wait(Ref)
+    end;
 do_subscribe(Topic = #share{group = Group, topic = RealTopic}, SubPid, SubOpts) when
     is_binary(RealTopic)
 ->
@@ -491,8 +497,8 @@ safe_update_stats(Tab, Stat, MaxStat) ->
 call(Broker, Req) ->
     gen_server:call(Broker, Req, infinity).
 
-cast(Broker, Msg) ->
-    gen_server:cast(Broker, Msg).
+cast(Broker, Req) ->
+    gen_server:cast(Broker, Req).
 
 %% Pick a broker
 pick(Topic) ->
@@ -506,18 +512,18 @@ init([Pool, Id]) ->
     true = gproc_pool:connect_worker(Pool, {Pool, Id}),
     {ok, #{pool => Pool, id => Id}}.
 
-handle_call({subscribe, Topic, SubPid, 0}, _From, State) ->
+handle_call({subscribe, Topic, SubPid, 0}, {From, _Tag}, State) ->
     Existed = ets:member(?SUBSCRIBER, Topic),
     true = ets:insert(?SUBSCRIBER, {Topic, SubPid}),
-    Result = maybe_add_route(Existed, Topic),
+    Result = maybe_add_route(Existed, Topic, From),
     {reply, Result, State};
-handle_call({subscribe, Topic, SubPid, I}, _From, State) ->
+handle_call({subscribe, Topic, SubPid, I}, {From, _Tag}, State) ->
     Existed = ets:member(?SUBSCRIBER, Topic),
     true = ets:insert(?SUBSCRIBER, [
         {Topic, {shard, I}},
         {{shard, Topic, I}, SubPid}
     ]),
-    Result = maybe_add_route(Existed, Topic),
+    Result = maybe_add_route(Existed, Topic, From),
     {reply, Result, State};
 handle_call(Req, _From, State) ->
     ?SLOG(error, #{msg => "unexpected_call", call => Req}),
@@ -597,12 +603,36 @@ do_dispatch({shard, I}, Topic, Msg) ->
 
 %%
 
-maybe_add_route(_Existed = false, Topic) ->
-    emqx_router:do_add_route(Topic);
-maybe_add_route(_Existed = true, _Topic) ->
+maybe_add_route(_Existed = false, Topic, ReplyTo) ->
+    sync_route(add, Topic, #{reply => ReplyTo});
+maybe_add_route(_Existed = true, _Topic, _ReplyTo) ->
     ok.
 
 maybe_delete_route(_Exists = false, Topic) ->
-    emqx_router:do_delete_route(Topic);
+    sync_route(delete, Topic, #{});
 maybe_delete_route(_Exists = true, _Topic) ->
     ok.
+
+sync_route(Action, Topic, ReplyTo) ->
+    EnabledOn = emqx_config:get([broker, routing, batch_sync, enable_on]),
+    case EnabledOn of
+        all ->
+            push_sync_route(Action, Topic, ReplyTo);
+        none ->
+            regular_sync_route(Action, Topic);
+        Role ->
+            case Role =:= mria_config:whoami() of
+                true ->
+                    push_sync_route(Action, Topic, ReplyTo);
+                false ->
+                    regular_sync_route(Action, Topic)
+            end
+    end.
+
+push_sync_route(Action, Topic, Opts) ->
+    emqx_router_syncer:push(Action, Topic, node(), Opts).
+
+regular_sync_route(add, Topic) ->
+    emqx_router:do_add_route(Topic, node());
+regular_sync_route(delete, Topic) ->
+    emqx_router:do_delete_route(Topic, node()).

@@ -73,3 +73,12 @@ chain_list_map_test() ->
         ["1", "2", "3", "4", "5", "6"],
         emqx_utils_stream:consume(S)
     ).
+
+mqueue_test() ->
+    _ = erlang:send_after(1, self(), 1),
+    _ = erlang:send_after(100, self(), 2),
+    _ = erlang:send_after(20, self(), 42),
+    ?assertEqual(
+        [1, 42, 2],
+        emqx_utils_stream:consume(emqx_utils_stream:mqueue(400))
+    ).

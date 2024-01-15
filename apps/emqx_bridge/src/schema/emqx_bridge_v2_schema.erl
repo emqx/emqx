@@ -50,8 +50,8 @@
 ]).
 
 -export([
-    make_producer_action_schema/1,
-    make_consumer_action_schema/1,
+    make_producer_action_schema/1, make_producer_action_schema/2,
+    make_consumer_action_schema/1, make_consumer_action_schema/2,
     top_level_common_action_keys/0,
     project_to_actions_resource_opts/1
 ]).
@@ -282,12 +282,19 @@ top_level_common_action_keys() ->
 %%======================================================================================
 
 make_producer_action_schema(ActionParametersRef) ->
+    make_producer_action_schema(ActionParametersRef, _Opts = #{}).
+
+make_producer_action_schema(ActionParametersRef, Opts) ->
     [
         {local_topic, mk(binary(), #{required => false, desc => ?DESC(mqtt_topic)})}
-        | make_consumer_action_schema(ActionParametersRef)
+        | make_consumer_action_schema(ActionParametersRef, Opts)
     ].
 
 make_consumer_action_schema(ActionParametersRef) ->
+    make_consumer_action_schema(ActionParametersRef, _Opts = #{}).
+
+make_consumer_action_schema(ActionParametersRef, Opts) ->
+    ResourceOptsRef = maps:get(resource_opts_ref, Opts, ref(?MODULE, resource_opts)),
     [
         {enable, mk(boolean(), #{desc => ?DESC("config_enable"), default => true})},
         {connector,
@@ -297,7 +304,7 @@ make_consumer_action_schema(ActionParametersRef) ->
         {description, emqx_schema:description_schema()},
         {parameters, ActionParametersRef},
         {resource_opts,
-            mk(ref(?MODULE, resource_opts), #{
+            mk(ResourceOptsRef, #{
                 default => #{},
                 desc => ?DESC(emqx_resource_schema, "resource_opts")
             })}
