@@ -297,3 +297,5 @@ Syskeeper
 msacc
 now_us
 ns
+elasticsearch
+ElasticSearch

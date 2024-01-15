@@ -147,7 +147,9 @@ connector_type_to_bridge_types(syskeeper_proxy) ->
 connector_type_to_bridge_types(timescale) ->
     [timescale];
 connector_type_to_bridge_types(iotdb) ->
-    [iotdb].
+    [iotdb];
+connector_type_to_bridge_types(elasticsearch) ->
+    [elasticsearch].
 
 actions_config_name() -> <<"actions">>.
 

@@ -1,0 +1,144 @@
+emqx_bridge_es {
+
+elasticsearch.desc:
+"""Elasticsearch Bridge"""
+elasticsearch.label:
+"""ElasticSearch"""
+
+config_enable.desc:
+"""Enable or disable this bridge"""
+
+config_enable.label:
+"""Enable Or Disable Bridge"""
+
+config_authentication.desc:
+"""Authentication configuration"""
+
+config_authentication.label:
+"""Authentication"""
+
+auth_basic.desc:
+"""Parameters for basic authentication."""
+
+auth_basic.label:
+"""Basic auth params"""
+
+config_auth_basic_username.desc:
+"""The username as configured at the IoTDB REST interface"""
+
+config_auth_basic_username.label:
+  """HTTP Basic Auth Username"""
+
+config_auth_basic_password.desc:
+"""The password as configured at the IoTDB REST interface"""
+
+config_auth_basic_password.label:
+"""HTTP Basic Auth Password"""
+
+config_base_url.desc:
+"""The base URL of the external ElasticSearch service's REST interface."""
+config_base_url.label:
+"""ElasticSearch REST Service Base URL"""
+
+config_target.desc:
+"""Name of the data stream, index, or index alias to perform bulk actions on"""
+
+config_target.label:
+"""Target"""
+
+config_require_alias.desc:
+"""If true, the request’s actions must target an index alias. Defaults to false"""
+config_require_alias.label:
+"""Require Alias"""
+
+config_routing.desc:
+"""Custom value used to route operations to a specific shard."""
+config_routing.label:
+"""Routing"""
+
+config_wait_for_active_shards.desc:
+"""The number of shard copies that must be active before proceeding with the operation.
+Set to all or any positive integer up to the total number of shards in the index (number_of_replicas+1).
+Default: 1, the primary shard"""
+
+config_max_retries.desc:
+"""HTTP request max retry times if failed."""
+
+config_max_retries.label:
+"""HTTP Request Max Retries"""
+
+desc_config.desc:
+"""Configuration for Apache IoTDB bridge."""
+
+desc_config.label:
+"""IoTDB Bridge Configuration"""
+
+desc_name.desc:
+"""Bridge name, used as a human-readable description of the bridge."""
+
+desc_name.label:
+"""Bridge Name"""
+
+config_parameters_index.desc:
+"""Name of index, or index alias to perform the action on.
+This parameter is required."""
+
+config_parameters_index.label:
+"""_index"""
+
+config_parameters_id.desc:
+"""The document ID. If no ID is specified, a document ID is automatically generated."""
+config_parameters_id.label:
+"""_id"""
+
+config_parameters_require_alias.desc:
+"""If true, the action must target an index alias. Defaults to false."""
+config_parameters_require_alias.label:
+"""_require_alias"""
+
+config_parameters_doc.desc:
+"""JSON document"""
+config_parameters_doc.label:
+"""doc"""
+
+action_parameters.desc:
+"""ElasticSearch action parameters"""
+
+action_parameters.label:
+"""Parameters"""
+
+config_overwrite.desc:
+"""Set to false If a document with the specified _id already exists(conflict), the operation will fail."""
+
+config_overwrite.label:
+"""overwrite"""
+
+action_config.desc:
+"""ElasticSearch Action Configuration"""
+action_config.label:
+"""ElasticSearch Action Config"""
+
+action_create.desc:
+"""Adds a JSON document to the specified index and makes it searchable.
+If the target is an index and the document already exists,
+the request updates the document and increments its version."""
+action_create.label:
+"""Create Doc"""
+
+action_delete.desc:
+"""Removes a JSON document from the specified index."""
+action_delete.label:
+"""Delete Doc"""
+
+action_update.desc:
+"""Updates a document using the specified doc."""
+action_update.label:
+"""Update Doc"""
+
+action_resource_opts.desc:
+"""Resource options."""
+
+action_resource_opts.label:
+"""Resource Options"""
+
+}

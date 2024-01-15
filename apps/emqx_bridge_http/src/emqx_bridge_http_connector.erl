@@ -337,7 +337,7 @@ on_query(
             } = process_request_and_action(Request, ActionState, Msg),
             %% bridge buffer worker has retry, do not let ehttpc retry
             Retry = 2,
-            ClientId = maps:get(clientid, Msg, undefined),
+            ClientId = clientid(Msg),
             on_query(
                 InstId,
                 {ClientId, Method, {Path, Headers, Body}, Timeout, Retry},
@@ -449,7 +449,7 @@ on_query_async(
                 headers := Headers,
                 request_timeout := Timeout
             } = process_request_and_action(Request, ActionState, Msg),
-            ClientId = maps:get(clientid, Msg, undefined),
+            ClientId = clientid(Msg),
             on_query_async(
                 InstId,
                 {ClientId, Method, {Path, Headers, Body}, Timeout},
@@ -632,9 +632,6 @@ parse_template(String) ->
 process_request_and_action(Request, ActionState, Msg) ->
     MethodTemplate = maps:get(method, ActionState),
     Method = make_method(render_template_string(MethodTemplate, Msg)),
-    BodyTemplate = maps:get(body, ActionState),
-    Body = render_request_body(BodyTemplate, Msg),
-
     PathPrefix = unicode:characters_to_list(render_template(maps:get(path, Request), Msg)),
     PathSuffix = unicode:characters_to_list(render_template(maps:get(path, ActionState), Msg)),
 
@@ -650,6 +647,8 @@ process_request_and_action(Request, ActionState, Msg) ->
         render_headers(HeadersTemplate1, Msg),
         render_headers(HeadersTemplate2, Msg)
     ),
+    BodyTemplate = maps:get(body, ActionState),
+    Body = render_request_body(BodyTemplate, Msg),
     #{
         method => Method,
         path => Path,
@@ -732,7 +731,7 @@ formalize_request(_Method, BasePath, {Path, Headers}) ->
 %% because an HTTP server may handle paths like
 %% "/a/b/c/", "/a/b/c" and "/a//b/c" differently.
 %%
-%% So we try to avoid unneccessary path normalization.
+%% So we try to avoid unnecessary path normalization.
 %%
 %% See also: `join_paths_test_/0`
 join_paths(Path1, Path2) ->
@@ -875,6 +874,8 @@ redact_request({Path, Headers}) ->
     {Path, Headers};
 redact_request({Path, Headers, _Body}) ->
     {Path, Headers, <<"******">>}.
+
+clientid(Msg) -> maps:get(clientid, Msg, undefined).
 
 -ifdef(TEST).
 -include_lib("eunit/include/eunit.hrl").

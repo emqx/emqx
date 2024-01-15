@@ -361,11 +361,16 @@ is_bad_schema(#{type := ?MAP(_, ?R_REF(Module, TypeName))}) ->
         [] ->
             false;
         _ ->
-            {true, #{
-                schema_module => Module,
-                type_name => TypeName,
-                missing_fields => MissingFields
-            }}
+            %% elasticsearch is new and doesn't have local_topic
+            case MissingFields of
+                [local_topic] when Module =:= emqx_bridge_es -> false;
+                _ ->
+                    {true, #{
+                        schema_module => Module,
+                        type_name => TypeName,
+                        missing_fields => MissingFields
+                    }}
+            end
     end.
 
 -endif.
