@@ -49,7 +49,7 @@
 -export([lookup_from_local_node/2]).
 -export([get_metrics_from_local_node/2]).
 
-%% only for testting/mocking
+%% only for testing/mocking
 -export([supported_versions/1]).
 
 -define(BPAPI_NAME, emqx_bridge).
