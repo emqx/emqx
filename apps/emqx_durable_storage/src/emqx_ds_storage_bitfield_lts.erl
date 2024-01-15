@@ -27,6 +27,7 @@
 -export([
     create/4,
     open/5,
+    drop/5,
     store_batch/4,
     get_streams/4,
     make_iterator/5,
@@ -198,6 +199,21 @@ open(_Shard, DBHandle, GenId, CFRefs, Schema) ->
         keymappers = KeymapperCache,
         ts_offset = TSOffsetBits
     }.
+
+-spec drop(
+    emqx_ds_storage_layer:shard_id(),
+    rocksdb:db_handle(),
+    emqx_ds_storage_layer:gen_id(),
+    emqx_ds_storage_layer:cf_refs(),
+    s()
+) ->
+    ok.
+drop(_Shard, DBHandle, GenId, CFRefs, #s{}) ->
+    {_, DataCF} = lists:keyfind(data_cf(GenId), 1, CFRefs),
+    {_, TrieCF} = lists:keyfind(trie_cf(GenId), 1, CFRefs),
+    ok = rocksdb:drop_column_family(DBHandle, DataCF),
+    ok = rocksdb:drop_column_family(DBHandle, TrieCF),
+    ok.
 
 -spec store_batch(
     emqx_ds_storage_layer:shard_id(), s(), [emqx_types:message()], emqx_ds:message_store_opts()

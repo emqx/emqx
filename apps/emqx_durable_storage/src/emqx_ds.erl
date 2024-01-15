@@ -22,7 +22,14 @@
 -module(emqx_ds).
 
 %% Management API:
--export([open_db/2, update_db_config/2, add_generation/1, drop_db/1]).
+-export([
+    open_db/2,
+    update_db_config/2,
+    add_generation/1,
+    list_generations_with_lifetimes/1,
+    drop_generation/2,
+    drop_db/1
+]).
 
 %% Message storage API:
 -export([store_batch/2, store_batch/3]).
@@ -52,7 +59,10 @@
     get_iterator_result/1,
 
     ds_specific_stream/0,
-    ds_specific_iterator/0
+    ds_specific_iterator/0,
+    ds_specific_generation_rank/0,
+    generation_rank/0,
+    generation_info/0
 ]).
 
 %%================================================================================
@@ -79,6 +89,8 @@
 -type ds_specific_iterator() :: term().
 
 -type ds_specific_stream() :: term().
+
+-type ds_specific_generation_rank() :: term().
 
 -type message_key() :: binary().
 
@@ -114,6 +126,17 @@
 
 -type get_iterator_result(Iterator) :: {ok, Iterator} | undefined.
 
+%% An opaque term identifying a generation.  Each implementation will possibly add
+%% information to this term to match its inner structure (e.g.: by embedding the shard id,
+%% in the case of `emqx_ds_replication_layer').
+-opaque generation_rank() :: ds_specific_generation_rank().
+
+-type generation_info() :: #{
+    created_at := time(),
+    since := time(),
+    until := time() | undefined
+}.
+
 -define(persistent_term(DB), {emqx_ds_db_backend, DB}).
 
 -define(module(DB), (persistent_term:get(?persistent_term(DB)))).
@@ -128,6 +151,11 @@
 
 -callback update_db_config(db(), create_db_opts()) -> ok | {error, _}.
 
+-callback list_generations_with_lifetimes(db()) ->
+    #{generation_rank() => generation_info()}.
+
+-callback drop_generation(db(), generation_rank()) -> ok | {error, _}.
+
 -callback drop_db(db()) -> ok | {error, _}.
 
 -callback store_batch(db(), [emqx_types:message()], message_store_opts()) -> store_batch_result().
@@ -141,6 +169,11 @@
     make_iterator_result(ds_specific_iterator()).
 
 -callback next(db(), Iterator, pos_integer()) -> next_result(Iterator).
+
+-optional_callbacks([
+    list_generations_with_lifetimes/1,
+    drop_generation/2
+]).
 
 %%================================================================================
 %% API funcions
@@ -165,6 +198,26 @@ add_generation(DB) ->
 -spec update_db_config(db(), create_db_opts()) -> ok.
 update_db_config(DB, Opts) ->
     ?module(DB):update_db_config(DB, Opts).
+
+-spec list_generations_with_lifetimes(db()) -> #{generation_rank() => generation_info()}.
+list_generations_with_lifetimes(DB) ->
+    Mod = ?module(DB),
+    case erlang:function_exported(Mod, list_generations_with_lifetimes, 1) of
+        true ->
+            Mod:list_generations_with_lifetimes(DB);
+        false ->
+            #{}
+    end.
+
+-spec drop_generation(db(), generation_rank()) -> ok | {error, _}.
+drop_generation(DB, GenId) ->
+    Mod = ?module(DB),
+    case erlang:function_exported(Mod, drop_generation, 2) of
+        true ->
+            Mod:drop_generation(DB, GenId);
+        false ->
+            {error, not_implemented}
+    end.
 
 %% @doc TODO: currently if one or a few shards are down, they won't be
 

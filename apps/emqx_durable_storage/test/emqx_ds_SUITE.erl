@@ -155,7 +155,7 @@ t_05_update_iterator(_Config) ->
     ?assertEqual(Msgs, AllMsgs, #{from_key => Iter1, final_iter => FinalIter}),
     ok.
 
-t_05_update_config(_Config) ->
+t_06_update_config(_Config) ->
     DB = ?FUNCTION_NAME,
     ?assertMatch(ok, emqx_ds:open_db(DB, opts())),
     TopicFilter = ['#'],
@@ -199,7 +199,7 @@ t_05_update_config(_Config) ->
     end,
     lists:foldl(Checker, [], lists:zip(StartTimes, MsgsList)).
 
-t_06_add_generation(_Config) ->
+t_07_add_generation(_Config) ->
     DB = ?FUNCTION_NAME,
     ?assertMatch(ok, emqx_ds:open_db(DB, opts())),
     TopicFilter = ['#'],
@@ -242,6 +242,250 @@ t_06_add_generation(_Config) ->
         Msgs
     end,
     lists:foldl(Checker, [], lists:zip(StartTimes, MsgsList)).
+
+%% Verifies the basic usage of `list_generations_with_lifetimes' and `drop_generation'...
+%%   1) Cannot drop current generation.
+%%   2) All existing generations are returned by `list_generation_with_lifetimes'.
+%%   3) Dropping a generation removes it from the list.
+%%   4) Dropped generations stay dropped even after restarting the application.
+t_08_smoke_list_drop_generation(_Config) ->
+    DB = ?FUNCTION_NAME,
+    ?check_trace(
+        begin
+            ?assertMatch(ok, emqx_ds:open_db(DB, opts())),
+            %% Exactly one generation at first.
+            Generations0 = emqx_ds:list_generations_with_lifetimes(DB),
+            ?assertMatch(
+                [{_GenId, #{since := _, until := _}}],
+                maps:to_list(Generations0),
+                #{gens => Generations0}
+            ),
+            [{GenId0, _}] = maps:to_list(Generations0),
+            %% Cannot delete current generation
+            ?assertEqual({error, current_generation}, emqx_ds:drop_generation(DB, GenId0)),
+
+            %% New gen
+            ok = emqx_ds:add_generation(DB),
+            Generations1 = emqx_ds:list_generations_with_lifetimes(DB),
+            ?assertMatch(
+                [
+                    {GenId0, #{since := _, until := _}},
+                    {_GenId1, #{since := _, until := _}}
+                ],
+                lists:sort(maps:to_list(Generations1)),
+                #{gens => Generations1}
+            ),
+            [GenId0, GenId1] = lists:sort(maps:keys(Generations1)),
+
+            %% Drop the older one
+            ?assertEqual(ok, emqx_ds:drop_generation(DB, GenId0)),
+            Generations2 = emqx_ds:list_generations_with_lifetimes(DB),
+            ?assertMatch(
+                [{GenId1, #{since := _, until := _}}],
+                lists:sort(maps:to_list(Generations2)),
+                #{gens => Generations2}
+            ),
+
+            %% Unknown gen_id, as it was already dropped
+            ?assertEqual({error, not_found}, emqx_ds:drop_generation(DB, GenId0)),
+
+            %% Should persist surviving generation list
+            ok = application:stop(emqx_durable_storage),
+            {ok, _} = application:ensure_all_started(emqx_durable_storage),
+            ok = emqx_ds:open_db(DB, opts()),
+
+            Generations3 = emqx_ds:list_generations_with_lifetimes(DB),
+            ?assertMatch(
+                [{GenId1, #{since := _, until := _}}],
+                lists:sort(maps:to_list(Generations3)),
+                #{gens => Generations3}
+            ),
+
+            ok
+        end,
+        []
+    ),
+    ok.
+
+t_drop_generation_with_never_used_iterator(_Config) ->
+    %% This test checks how the iterator behaves when:
+    %%   1) it's created at generation 1 and not consumed from.
+    %%   2) generation 2 is created and 1 dropped.
+    %%   3) iteration begins.
+    %% In this case, the iterator won't see any messages and the stream will end.
+
+    DB = ?FUNCTION_NAME,
+    ?assertMatch(ok, emqx_ds:open_db(DB, opts())),
+    [GenId0] = maps:keys(emqx_ds:list_generations_with_lifetimes(DB)),
+
+    TopicFilter = emqx_topic:words(<<"foo/+">>),
+    StartTime = 0,
+    Msgs0 = [
+        message(<<"foo/bar">>, <<"1">>, 0),
+        message(<<"foo/baz">>, <<"2">>, 1)
+    ],
+    ?assertMatch(ok, emqx_ds:store_batch(DB, Msgs0)),
+
+    [{_, Stream0}] = emqx_ds:get_streams(DB, TopicFilter, StartTime),
+    {ok, Iter0} = emqx_ds:make_iterator(DB, Stream0, TopicFilter, StartTime),
+
+    ok = emqx_ds:add_generation(DB),
+    ok = emqx_ds:drop_generation(DB, GenId0),
+
+    Now = emqx_message:timestamp_now(),
+    Msgs1 = [
+        message(<<"foo/bar">>, <<"3">>, Now + 100),
+        message(<<"foo/baz">>, <<"4">>, Now + 101)
+    ],
+    ?assertMatch(ok, emqx_ds:store_batch(DB, Msgs1)),
+
+    ?assertMatch({ok, end_of_stream, []}, iterate(DB, Iter0, 1)),
+
+    %% New iterator for the new stream will only see the later messages.
+    [{_, Stream1}] = emqx_ds:get_streams(DB, TopicFilter, StartTime),
+    ?assertNotEqual(Stream0, Stream1),
+    {ok, Iter1} = emqx_ds:make_iterator(DB, Stream1, TopicFilter, StartTime),
+
+    {ok, Iter, Batch} = iterate(DB, Iter1, 1),
+    ?assertNotEqual(end_of_stream, Iter),
+    ?assertEqual(Msgs1, [Msg || {_Key, Msg} <- Batch]),
+
+    ok.
+
+t_drop_generation_with_used_once_iterator(_Config) ->
+    %% This test checks how the iterator behaves when:
+    %%   1) it's created at generation 1 and consumes at least 1 message.
+    %%   2) generation 2 is created and 1 dropped.
+    %%   3) iteration continues.
+    %% In this case, the iterator should see no more messages and the stream will end.
+
+    DB = ?FUNCTION_NAME,
+    ?assertMatch(ok, emqx_ds:open_db(DB, opts())),
+    [GenId0] = maps:keys(emqx_ds:list_generations_with_lifetimes(DB)),
+
+    TopicFilter = emqx_topic:words(<<"foo/+">>),
+    StartTime = 0,
+    Msgs0 =
+        [Msg0 | _] = [
+            message(<<"foo/bar">>, <<"1">>, 0),
+            message(<<"foo/baz">>, <<"2">>, 1)
+        ],
+    ?assertMatch(ok, emqx_ds:store_batch(DB, Msgs0)),
+
+    [{_, Stream0}] = emqx_ds:get_streams(DB, TopicFilter, StartTime),
+    {ok, Iter0} = emqx_ds:make_iterator(DB, Stream0, TopicFilter, StartTime),
+    {ok, Iter1, Batch1} = emqx_ds:next(DB, Iter0, 1),
+    ?assertNotEqual(end_of_stream, Iter1),
+    ?assertEqual([Msg0], [Msg || {_Key, Msg} <- Batch1]),
+
+    ok = emqx_ds:add_generation(DB),
+    ok = emqx_ds:drop_generation(DB, GenId0),
+
+    Now = emqx_message:timestamp_now(),
+    Msgs1 = [
+        message(<<"foo/bar">>, <<"3">>, Now + 100),
+        message(<<"foo/baz">>, <<"4">>, Now + 101)
+    ],
+    ?assertMatch(ok, emqx_ds:store_batch(DB, Msgs1)),
+
+    ?assertMatch({ok, end_of_stream, []}, iterate(DB, Iter1, 1)),
+
+    ok.
+
+t_drop_generation_update_iterator(_Config) ->
+    %% This checks the behavior of `emqx_ds:update_iterator' after the generation
+    %% underlying the iterator has been dropped.
+
+    DB = ?FUNCTION_NAME,
+    ?assertMatch(ok, emqx_ds:open_db(DB, opts())),
+    [GenId0] = maps:keys(emqx_ds:list_generations_with_lifetimes(DB)),
+
+    TopicFilter = emqx_topic:words(<<"foo/+">>),
+    StartTime = 0,
+    Msgs0 = [
+        message(<<"foo/bar">>, <<"1">>, 0),
+        message(<<"foo/baz">>, <<"2">>, 1)
+    ],
+    ?assertMatch(ok, emqx_ds:store_batch(DB, Msgs0)),
+
+    [{_, Stream0}] = emqx_ds:get_streams(DB, TopicFilter, StartTime),
+    {ok, Iter0} = emqx_ds:make_iterator(DB, Stream0, TopicFilter, StartTime),
+    {ok, Iter1, _Batch1} = emqx_ds:next(DB, Iter0, 1),
+    {ok, _Iter2, [{Key2, _Msg}]} = emqx_ds:next(DB, Iter1, 1),
+
+    ok = emqx_ds:add_generation(DB),
+    ok = emqx_ds:drop_generation(DB, GenId0),
+
+    ?assertEqual({error, end_of_stream}, emqx_ds:update_iterator(DB, Iter1, Key2)),
+
+    ok.
+
+t_make_iterator_stale_stream(_Config) ->
+    %% This checks the behavior of `emqx_ds:make_iterator' after the generation underlying
+    %% the stream has been dropped.
+
+    DB = ?FUNCTION_NAME,
+    ?assertMatch(ok, emqx_ds:open_db(DB, opts())),
+    [GenId0] = maps:keys(emqx_ds:list_generations_with_lifetimes(DB)),
+
+    TopicFilter = emqx_topic:words(<<"foo/+">>),
+    StartTime = 0,
+    Msgs0 = [
+        message(<<"foo/bar">>, <<"1">>, 0),
+        message(<<"foo/baz">>, <<"2">>, 1)
+    ],
+    ?assertMatch(ok, emqx_ds:store_batch(DB, Msgs0)),
+
+    [{_, Stream0}] = emqx_ds:get_streams(DB, TopicFilter, StartTime),
+
+    ok = emqx_ds:add_generation(DB),
+    ok = emqx_ds:drop_generation(DB, GenId0),
+
+    ?assertEqual(
+        {error, end_of_stream},
+        emqx_ds:make_iterator(DB, Stream0, TopicFilter, StartTime)
+    ),
+
+    ok.
+
+t_get_streams_concurrently_with_drop_generation(_Config) ->
+    %% This checks that we can get all streams while a generation is dropped
+    %% mid-iteration.
+
+    DB = ?FUNCTION_NAME,
+    ?check_trace(
+        #{timetrap => 5_000},
+        begin
+            ?assertMatch(ok, emqx_ds:open_db(DB, opts())),
+
+            [GenId0] = maps:keys(emqx_ds:list_generations_with_lifetimes(DB)),
+            ok = emqx_ds:add_generation(DB),
+            ok = emqx_ds:add_generation(DB),
+
+            %% All streams
+            TopicFilter = emqx_topic:words(<<"foo/+">>),
+            StartTime = 0,
+            ?assertMatch([_, _, _], emqx_ds:get_streams(DB, TopicFilter, StartTime)),
+
+            ?force_ordering(
+                #{?snk_kind := dropped_gen},
+                #{?snk_kind := get_streams_get_gen}
+            ),
+
+            spawn_link(fun() ->
+                {ok, _} = ?block_until(#{?snk_kind := get_streams_all_gens}),
+                ok = emqx_ds:drop_generation(DB, GenId0),
+                ?tp(dropped_gen, #{})
+            end),
+
+            ?assertMatch([_, _], emqx_ds:get_streams(DB, TopicFilter, StartTime)),
+
+            ok
+        end,
+        []
+    ),
+
+    ok.
 
 update_data_set() ->
     [
@@ -295,7 +539,7 @@ iterate(DB, It0, BatchSize, Acc) ->
         {ok, It, Msgs} ->
             iterate(DB, It, BatchSize, Acc ++ Msgs);
         {ok, end_of_stream} ->
-            {ok, It0, Acc};
+            {ok, end_of_stream, Acc};
         Ret ->
             Ret
     end.
