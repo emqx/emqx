@@ -48,11 +48,16 @@ is_list_report_acceptable(_) ->
 
 enrich_report(ReportRaw, Meta) ->
     %% clientid and peername always in emqx_conn's process metadata.
-    %% topic can be put in meta using ?SLOG/3, or put in msg's report by ?SLOG/2
+    %% topic and username can be put in meta using ?SLOG/3, or put in msg's report by ?SLOG/2
     Topic =
         case maps:get(topic, Meta, undefined) of
             undefined -> maps:get(topic, ReportRaw, undefined);
             Topic0 -> Topic0
+        end,
+    Username =
+        case maps:get(username, Meta, undefined) of
+            undefined -> maps:get(username, ReportRaw, undefined);
+            Username0 -> Username0
         end,
     ClientId = maps:get(clientid, Meta, undefined),
     Peer = maps:get(peername, Meta, undefined),
@@ -64,8 +69,9 @@ enrich_report(ReportRaw, Meta) ->
             ({_, undefined}, Acc) -> Acc;
             (Item, Acc) -> [Item | Acc]
         end,
-        maps:to_list(maps:without([topic, msg, clientid], ReportRaw)),
+        maps:to_list(maps:without([topic, msg, clientid, username], ReportRaw)),
         [
+            {username, try_format_unicode(Username)},
             {topic, try_format_unicode(Topic)},
             {clientid, try_format_unicode(ClientId)},
             {peername, Peer},
