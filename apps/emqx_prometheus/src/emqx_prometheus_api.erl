@@ -21,10 +21,19 @@
 -include_lib("hocon/include/hoconsc.hrl").
 -include_lib("emqx/include/logger.hrl").
 
+-import(
+    hoconsc,
+    [
+        mk/2,
+        ref/1
+    ]
+).
+
 -export([
     api_spec/0,
     paths/0,
-    schema/1
+    schema/1,
+    fields/1
 ]).
 
 -export([
@@ -35,6 +44,8 @@
 ]).
 
 -define(TAGS, [<<"Monitor">>]).
+-define(IS_TRUE(Val), ((Val =:= true) orelse (Val =:= <<"true">>))).
+-define(IS_FALSE(Val), ((Val =:= false) orelse (Val =:= <<"false">>))).
 
 api_spec() ->
     emqx_dashboard_swagger:spec(?MODULE, #{check_schema => true}).
@@ -73,6 +84,7 @@ schema("/prometheus/auth") ->
             #{
                 description => ?DESC(get_prom_auth_data),
                 tags => ?TAGS,
+                parameters => [ref(format_mode)],
                 security => security(),
                 responses =>
                     #{200 => prometheus_data_schema()}
@@ -85,6 +97,7 @@ schema("/prometheus/stats") ->
             #{
                 description => ?DESC(get_prom_data),
                 tags => ?TAGS,
+                parameters => [ref(format_mode)],
                 security => security(),
                 responses =>
                     #{200 => prometheus_data_schema()}
@@ -97,6 +110,7 @@ schema("/prometheus/data_integration") ->
             #{
                 description => ?DESC(get_prom_data_integration_data),
                 tags => ?TAGS,
+                parameters => [ref(format_mode)],
                 security => security(),
                 responses =>
                     #{200 => prometheus_data_schema()}
@@ -108,6 +122,22 @@ security() ->
         true -> [#{'basicAuth' => []}, #{'bearerAuth' => []}];
         false -> []
     end.
+
+fields(format_mode) ->
+    [
+        {format_mode,
+            mk(
+                hoconsc:enum([node, nodes_aggregated, nodes_unaggregated]),
+                #{
+                    default => node,
+                    desc => <<"Metrics format mode.">>,
+                    in => query,
+                    required => false,
+                    example => false
+                }
+            )}
+    ].
+
 %%--------------------------------------------------------------------
 %% API Handler funcs
 %%--------------------------------------------------------------------
@@ -129,21 +159,21 @@ setting(put, #{body := Body}) ->
             {500, 'INTERNAL_ERROR', Message}
     end.
 
-stats(get, #{headers := Headers}) ->
-    collect(emqx_prometheus, Headers).
+stats(get, #{headers := Headers, query_string := Qs}) ->
+    collect(emqx_prometheus, collect_opts(Headers, Qs)).
 
-auth(get, #{headers := Headers}) ->
-    collect(emqx_prometheus_auth, Headers).
+auth(get, #{headers := Headers, query_string := Qs}) ->
+    collect(emqx_prometheus_auth, collect_opts(Headers, Qs)).
 
-data_integration(get, #{headers := Headers}) ->
-    collect(emqx_prometheus_data_integration, Headers).
+data_integration(get, #{headers := Headers, query_string := Qs}) ->
+    collect(emqx_prometheus_data_integration, collect_opts(Headers, Qs)).
 
 %%--------------------------------------------------------------------
 %% Internal funcs
 %%--------------------------------------------------------------------
 
-collect(Module, Headers) ->
-    Type = response_type(Headers),
+collect(Module, #{type := Type, format_mode := FormatMode}) ->
+    erlang:put(format_mode, FormatMode),
     Data =
         case erlang:function_exported(Module, collect, 1) of
             true ->
@@ -157,10 +187,22 @@ collect(Module, Headers) ->
         end,
     gen_response(Type, Data).
 
+collect_opts(Headers, Qs) ->
+    #{type => response_type(Headers), format_mode => format_mode(Qs)}.
+
 response_type(#{<<"accept">> := <<"application/json">>}) ->
     <<"json">>;
 response_type(_) ->
     <<"prometheus">>.
+
+format_mode(#{<<"format_mode">> := <<"node">>}) ->
+    node;
+format_mode(#{<<"format_mode">> := <<"nodes_aggregated">>}) ->
+    nodes_aggregated;
+format_mode(#{<<"format_mode">> := <<"nodes_unaggregated">>}) ->
+    nodes_unaggregated;
+format_mode(_) ->
+    node.
 
 gen_response(<<"json">>, Data) ->
     {200, Data};
