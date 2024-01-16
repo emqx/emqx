@@ -60,4 +60,11 @@ set_keepalive_seconds.desc:
 set_keepalive_seconds.label:
 """Set the online client keepalive by seconds"""
 
+get_sessions_count.desc:
+"""Get the number of sessions. By default it returns the number of non-expired sessions.
+if `broker.session_history_retain` is set to a duration greater than `0s`,
+this API can also count expired sessions by providing the `since` parameter."""
+get_sessions_count.label:
+"""Count number of sessions"""
+
 }

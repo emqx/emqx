@@ -283,4 +283,4 @@ fold_hist(F, List) ->
 %% Return the session registration history retain duration.
 -spec retain_duration() -> non_neg_integer().
 retain_duration() ->
-    emqx:get_config([broker, session_registration_history_retain]).
+    emqx:get_config([broker, session_history_retain]).

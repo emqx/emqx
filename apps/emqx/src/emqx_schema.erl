@@ -1356,13 +1356,13 @@ fields("broker") ->
                     desc => ?DESC(broker_enable_session_registry)
                 }
             )},
-        {session_registration_history_retain,
+        {session_history_retain,
             sc(
                 duration_s(),
                 #{
                     default => <<"0s">>,
                     importance => ?IMPORTANCE_LOW,
-                    desc => ?DESC("broker_session_registration_history_retain")
+                    desc => ?DESC("broker_session_history_retain")
                 }
             )},
         {session_locking_strategy,

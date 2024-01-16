@@ -15,10 +15,13 @@
 %%--------------------------------------------------------------------
 
 %% @doc This module implements the global session registry history cleaner.
--module(emqx_cm_registry_cleaner).
+-module(emqx_cm_registry_keeper).
 -behaviour(gen_server).
 
--export([start_link/0]).
+-export([
+    start_link/0,
+    count/1
+]).
 
 %% gen_server callbacks
 -export([
@@ -30,7 +33,14 @@
     code_change/3
 ]).
 
+-include_lib("stdlib/include/ms_transform.hrl").
 -include("emqx_cm.hrl").
+
+-define(CACHE_COUNT_THRESHOLD, 1000).
+-define(MIN_COUNT_INTERVAL_SECONDS, 5).
+-define(CLEANUP_CHUNK_SIZE, 10000).
+
+-define(IS_HIST_ENABLED(RETAIN), (RETAIN > 0)).
 
 start_link() ->
     gen_server:start_link({local, ?MODULE}, ?MODULE, [], []).
@@ -44,6 +54,45 @@ init(_) ->
             ignore
     end.
 
+%% @doc Count the number of sessions.
+%% Include sessions which are expired since the given timestamp if `since' is greater than 0.
+-spec count(non_neg_integer()) -> non_neg_integer().
+count(Since) ->
+    Retain = retain_duration(),
+    Now = now_ts(),
+    %% Get table size if hist is not enabled or
+    %% Since is before the earliest possible retention time.
+    IsCountAll = (not ?IS_HIST_ENABLED(Retain) orelse (Now - Retain >= Since)),
+    case IsCountAll of
+        true ->
+            mnesia:table_info(?CHAN_REG_TAB, size);
+        false ->
+            %% make a gen call to avoid many callers doing the same concurrently
+            gen_server:call(?MODULE, {count, Since}, infinity)
+    end.
+
+handle_call({count, Since}, _From, State) ->
+    {LastCountTime, LastCount} =
+        case State of
+            #{last_count_time := T, last_count := C} ->
+                {T, C};
+            _ ->
+                {0, 0}
+        end,
+    Now = now_ts(),
+    Total = mnesia:table_info(?CHAN_REG_TAB, size),
+    %% Always count if the table is small enough
+    %% or when the last count is too old
+    IsTableSmall = (Total < ?CACHE_COUNT_THRESHOLD),
+    IsLastCountOld = (Now - LastCountTime > ?MIN_COUNT_INTERVAL_SECONDS),
+    case IsTableSmall orelse IsLastCountOld of
+        true ->
+            Count = do_count(Since),
+            CountFinishedAt = now_ts(),
+            {reply, Count, State#{last_count_time => CountFinishedAt, last_count => Count}};
+        false ->
+            {reply, LastCount, State}
+    end;
 handle_call(_Request, _From, State) ->
     {reply, ok, State}.
 
@@ -84,7 +133,7 @@ cleanup_one_chunk(NextClientId) ->
     IsExpired = fun(#channel{pid = Ts}) ->
         is_integer(Ts) andalso (Ts < Now - Retain)
     end,
-    cleanup_loop(NextClientId, 10000, IsExpired).
+    cleanup_loop(NextClientId, ?CLEANUP_CHUNK_SIZE, IsExpired).
 
 cleanup_loop(ClientId, 0, _IsExpired) ->
     ClientId;
@@ -114,7 +163,7 @@ is_hist_enabled() ->
 %% Return the session registration history retain duration in seconds.
 -spec retain_duration() -> non_neg_integer().
 retain_duration() ->
-    emqx:get_config([broker, session_registration_history_retain]).
+    emqx:get_config([broker, session_history_retain]).
 
 cleanup_delay() ->
     Default = timer:minutes(2),
@@ -137,3 +186,7 @@ send_delay_start(Delay) ->
 
 now_ts() ->
     erlang:system_time(seconds).
+
+do_count(Since) ->
+    Ms = ets:fun2ms(fun(#channel{pid = V}) -> is_pid(V) orelse (is_integer(V) andalso (V >= Since)) end),
+    ets:select_count(?CHAN_REG_TAB, Ms).

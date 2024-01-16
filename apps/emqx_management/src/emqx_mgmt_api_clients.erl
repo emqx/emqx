@@ -45,7 +45,8 @@
     subscribe_batch/2,
     unsubscribe/2,
     unsubscribe_batch/2,
-    set_keepalive/2
+    set_keepalive/2,
+    sessions_count/2
 ]).
 
 -export([
@@ -96,7 +97,8 @@ paths() ->
         "/clients/:clientid/subscribe/bulk",
         "/clients/:clientid/unsubscribe",
         "/clients/:clientid/unsubscribe/bulk",
-        "/clients/:clientid/keepalive"
+        "/clients/:clientid/keepalive",
+        "/sessions_count"
     ].
 
 schema("/clients") ->
@@ -383,6 +385,30 @@ schema("/clients/:clientid/keepalive") ->
                 404 => emqx_dashboard_swagger:error_codes(
                     ['CLIENTID_NOT_FOUND'], <<"Client ID not found">>
                 )
+            }
+        }
+    };
+schema("/sessions_count") ->
+    #{
+        'operationId' => sessions_count,
+        get => #{
+            description => ?DESC(get_sessions_count),
+            tags => ?TAGS,
+            parameters => [
+                {since,
+                    hoconsc:mk(non_neg_integer(), #{
+                        in => query,
+                        required => false,
+                        default => 0,
+                        desc =>
+                            <<"Include sessions expired after this time (UNIX Epoch in seconds precesion)">>,
+                        example => 1705391625
+                    })}
+            ],
+            responses => #{
+                200 => hoconsc:mk(binary(), #{
+                    desc => <<"Number of sessions">>
+                })
             }
         }
     }.
@@ -1059,3 +1085,8 @@ client_example() ->
         <<"recv_cnt">> => 4,
         <<"recv_msg.qos0">> => 0
     }.
+
+sessions_count(get, #{query_string := QString}) ->
+    Since = maps:get(<<"since">>, QString, undefined),
+    Count = emqx_cm_registry_keeper:count(Since),
+    {200, integer_to_binary(Count)}.

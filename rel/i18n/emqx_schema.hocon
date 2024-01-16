@@ -1429,7 +1429,7 @@ Advantages of Disabling<br/>
 - Reduced Memory Usage: Turning off the session registry can lower the overall memory footprint of the system.
 - Improved Performance: Without the overhead of maintaining a global registry, the node can process client connections faster."""
 
-broker_session_registration_history_retain.desc:
+broker_session_history_retain.desc:
 """The duration to retain the session registration history. Setting this to a value greater than `0s` will increase memory usage and impact peformance.
 This retained history can be used to monitor how many sessions were registered in the past configured duration.
 Note: This config has no effect if `enable_session_registry` is set to `false`.<br/>
