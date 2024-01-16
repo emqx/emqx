@@ -61,10 +61,16 @@ force_ds() ->
     emqx_config:get([session_persistence, force_persistence]).
 
 storage_backend(#{
-    builtin := #{enable := true, n_shards := NShards, replication_factor := ReplicationFactor}
+    builtin := #{
+        enable := true,
+        data_dir := DataDir,
+        n_shards := NShards,
+        replication_factor := ReplicationFactor
+    }
 }) ->
     #{
         backend => builtin,
+        data_dir => DataDir,
         storage => {emqx_ds_storage_bitfield_lts, #{}},
         n_shards => NShards,
         replication_factor => ReplicationFactor
