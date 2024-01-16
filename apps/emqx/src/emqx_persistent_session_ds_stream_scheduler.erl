@@ -147,14 +147,14 @@ ensure_iterator(TopicFilter, StartTime, SubId, {{RankX, RankY}, Stream}, S) ->
             {ok, Iterator} = emqx_ds:make_iterator(
                 ?PERSISTENT_MESSAGE_DB, Stream, TopicFilter, StartTime
             ),
-            NewStreamState = #ifs{
+            NewStreamState = #srs{
                 rank_x = RankX,
                 rank_y = RankY,
                 it_begin = Iterator,
                 it_end = Iterator
             },
             emqx_persistent_session_ds_state:put_stream(Key, NewStreamState, S);
-        #ifs{} ->
+        #srs{} ->
             S
     end.
 
@@ -199,7 +199,7 @@ remove_fully_replayed_streams(S0) ->
     CommQos2 = emqx_persistent_session_ds_state:get_seqno(?committed(?QOS_2), S0),
     %% 1. For each subscription, find the X ranks that were fully replayed:
     Groups = emqx_persistent_session_ds_state:fold_streams(
-        fun({SubId, _Stream}, StreamState = #ifs{rank_x = RankX, rank_y = RankY}, Acc) ->
+        fun({SubId, _Stream}, StreamState = #srs{rank_x = RankX, rank_y = RankY}, Acc) ->
             Key = {SubId, RankX},
             case
                 {maps:get(Key, Acc, undefined), is_fully_replayed(CommQos1, CommQos2, StreamState)}
@@ -228,7 +228,7 @@ remove_fully_replayed_streams(S0) ->
     ),
     %% 3. Remove the fully replayed streams:
     emqx_persistent_session_ds_state:fold_streams(
-        fun(Key = {SubId, _Stream}, #ifs{rank_x = RankX, rank_y = RankY}, Acc) ->
+        fun(Key = {SubId, _Stream}, #srs{rank_x = RankX, rank_y = RankY}, Acc) ->
             case emqx_persistent_session_ds_state:get_rank({SubId, RankX}, Acc) of
                 undefined ->
                     Acc;
@@ -249,8 +249,8 @@ remove_fully_replayed_streams(S0) ->
     ).
 
 compare_streams(
-    {_KeyA, #ifs{first_seqno_qos1 = A1, first_seqno_qos2 = A2}},
-    {_KeyB, #ifs{first_seqno_qos1 = B1, first_seqno_qos2 = B2}}
+    {_KeyA, #srs{first_seqno_qos1 = A1, first_seqno_qos2 = A2}},
+    {_KeyB, #srs{first_seqno_qos1 = B1, first_seqno_qos2 = B2}}
 ) ->
     case A1 =:= B1 of
         true ->
@@ -259,10 +259,10 @@ compare_streams(
             A1 < B1
     end.
 
-is_fully_replayed(Comm1, Comm2, S = #ifs{it_end = It}) ->
+is_fully_replayed(Comm1, Comm2, S = #srs{it_end = It}) ->
     It =:= end_of_stream andalso is_fully_acked(Comm1, Comm2, S).
 
-is_fully_acked(Comm1, Comm2, #ifs{last_seqno_qos1 = S1, last_seqno_qos2 = S2}) ->
+is_fully_acked(Comm1, Comm2, #srs{last_seqno_qos1 = S1, last_seqno_qos2 = S2}) ->
     (Comm1 >= S1) andalso (Comm2 >= S2).
 
 -spec shuffle([A]) -> [A].

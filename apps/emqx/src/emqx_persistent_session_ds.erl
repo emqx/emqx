@@ -138,7 +138,7 @@
     ref :: reference()
 }).
 
--type stream_state() :: #ifs{}.
+-type stream_state() :: #srs{}.
 
 -type timestamp() :: emqx_utils_calendar:epoch_millisecond().
 -type millisecond() :: non_neg_integer().
@@ -495,15 +495,15 @@ replay(ClientInfo, [], Session0 = #{s := S0}) ->
     {ok, [], pull_now(Session)}.
 
 -spec replay_batch(stream_state(), session(), clientinfo()) -> session().
-replay_batch(Ifs0, Session, ClientInfo) ->
-    #ifs{batch_size = BatchSize} = Ifs0,
+replay_batch(Srs0, Session, ClientInfo) ->
+    #srs{batch_size = BatchSize} = Srs0,
     %% TODO: retry on errors:
-    {Ifs, Inflight} = enqueue_batch(true, BatchSize, Ifs0, Session, ClientInfo),
+    {Srs, Inflight} = enqueue_batch(true, BatchSize, Srs0, Session, ClientInfo),
     %% Assert:
-    Ifs =:= Ifs0 orelse
+    Srs =:= Srs0 orelse
         ?tp(warning, emqx_persistent_session_ds_replay_inconsistency, #{
-            expected => Ifs0,
-            got => Ifs
+            expected => Srs0,
+            got => Srs
         }),
     Session#{inflight => Inflight}.
 
@@ -678,29 +678,29 @@ fetch_new_messages([I | Streams], Session0 = #{inflight := Inflight}, ClientInfo
             fetch_new_messages(Streams, Session, ClientInfo)
     end.
 
-new_batch({StreamKey, Ifs0}, BatchSize, Session = #{s := S0}, ClientInfo) ->
+new_batch({StreamKey, Srs0}, BatchSize, Session = #{s := S0}, ClientInfo) ->
     SN1 = emqx_persistent_session_ds_state:get_seqno(?next(?QOS_1), S0),
     SN2 = emqx_persistent_session_ds_state:get_seqno(?next(?QOS_2), S0),
-    Ifs1 = Ifs0#ifs{
+    Srs1 = Srs0#srs{
         first_seqno_qos1 = SN1,
         first_seqno_qos2 = SN2,
         batch_size = 0,
         last_seqno_qos1 = SN1,
         last_seqno_qos2 = SN2
     },
-    {Ifs, Inflight} = enqueue_batch(false, BatchSize, Ifs1, Session, ClientInfo),
-    S1 = emqx_persistent_session_ds_state:put_seqno(?next(?QOS_1), Ifs#ifs.last_seqno_qos1, S0),
-    S2 = emqx_persistent_session_ds_state:put_seqno(?next(?QOS_2), Ifs#ifs.last_seqno_qos2, S1),
-    S = emqx_persistent_session_ds_state:put_stream(StreamKey, Ifs, S2),
+    {Srs, Inflight} = enqueue_batch(false, BatchSize, Srs1, Session, ClientInfo),
+    S1 = emqx_persistent_session_ds_state:put_seqno(?next(?QOS_1), Srs#srs.last_seqno_qos1, S0),
+    S2 = emqx_persistent_session_ds_state:put_seqno(?next(?QOS_2), Srs#srs.last_seqno_qos2, S1),
+    S = emqx_persistent_session_ds_state:put_stream(StreamKey, Srs, S2),
     Session#{s => S, inflight => Inflight}.
 
-enqueue_batch(IsReplay, BatchSize, Ifs0, Session = #{inflight := Inflight0}, ClientInfo) ->
-    #ifs{
+enqueue_batch(IsReplay, BatchSize, Srs0, Session = #{inflight := Inflight0}, ClientInfo) ->
+    #srs{
         it_begin = ItBegin0,
         it_end = ItEnd0,
         first_seqno_qos1 = FirstSeqnoQos1,
         first_seqno_qos2 = FirstSeqnoQos2
-    } = Ifs0,
+    } = Srs0,
     ItBegin =
         case IsReplay of
             true -> ItBegin0;
@@ -711,7 +711,7 @@ enqueue_batch(IsReplay, BatchSize, Ifs0, Session = #{inflight := Inflight0}, Cli
             {Inflight, LastSeqnoQos1, LastSeqnoQos2} = process_batch(
                 IsReplay, Session, ClientInfo, FirstSeqnoQos1, FirstSeqnoQos2, Messages, Inflight0
             ),
-            Ifs = Ifs0#ifs{
+            Srs = Srs0#srs{
                 it_begin = ItBegin,
                 it_end = ItEnd,
                 %% TODO: it should be possible to avoid calling
@@ -721,13 +721,13 @@ enqueue_batch(IsReplay, BatchSize, Ifs0, Session = #{inflight := Inflight0}, Cli
                 last_seqno_qos1 = LastSeqnoQos1,
                 last_seqno_qos2 = LastSeqnoQos2
             },
-            {Ifs, Inflight};
+            {Srs, Inflight};
         {ok, end_of_stream} ->
             %% No new messages; just update the end iterator:
-            {Ifs0#ifs{it_begin = ItBegin, it_end = end_of_stream, batch_size = 0}, Inflight0};
+            {Srs0#srs{it_begin = ItBegin, it_end = end_of_stream, batch_size = 0}, Inflight0};
         {error, _} when not IsReplay ->
             ?SLOG(info, #{msg => "failed_to_fetch_batch", iterator => ItBegin}),
-            {Ifs0, Inflight0}
+            {Srs0, Inflight0}
     end.
 
 %% key_of_iter(#{3 := #{3 := #{5 := K}}}) ->

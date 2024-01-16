@@ -48,8 +48,8 @@
 %% Last seqno assigned to a message (it may not be sent yet).
 -define(next(QOS), (30 + QOS)).
 
-%%%%% State of the stream:
--record(ifs, {
+%%%%% Stream Replay State:
+-record(srs, {
     rank_x :: emqx_ds:rank_x(),
     rank_y :: emqx_ds:rank_y(),
     %% Iterators at the beginning and the end of the last batch:
