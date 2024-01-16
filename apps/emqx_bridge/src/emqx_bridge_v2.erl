@@ -135,6 +135,7 @@
     bridge_v1_restart/2,
     bridge_v1_stop/2,
     bridge_v1_start/2,
+    bridge_v1_reset_metrics/2,
     %% For test cases only
     bridge_v1_remove/2,
     get_conf_root_key_if_only_one/2
@@ -1814,6 +1815,13 @@ bridge_v1_operation_helper(BridgeV1Type, Name, ConnectorOpFun, DoHealthCheck) ->
         false ->
             {error, not_bridge_v1_compatible}
     end.
+
+bridge_v1_reset_metrics(BridgeV1Type, BridgeName) ->
+    BridgeV2Type = bridge_v1_type_to_bridge_v2_type(BridgeV1Type),
+    ConfRootKey = get_conf_root_key_if_only_one(
+        BridgeV2Type, BridgeName
+    ),
+    ok = reset_metrics(ConfRootKey, BridgeV2Type, BridgeName).
 
 %%====================================================================
 %% Misc helper functions

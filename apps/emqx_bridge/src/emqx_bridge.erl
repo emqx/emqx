@@ -352,10 +352,10 @@ get_metrics(ActionType, Name) ->
         true ->
             case emqx_bridge_v2:bridge_v1_is_valid(ActionType, Name) of
                 true ->
-                    BridgeV2Type = emqx_bridge_v2:bridge_v2_type_to_connector_type(ActionType),
+                    BridgeV2Type = emqx_bridge_v2:bridge_v1_type_to_bridge_v2_type(ActionType),
                     try
                         ConfRootKey = emqx_bridge_v2:get_conf_root_key_if_only_one(
-                            ActionType, Name
+                            BridgeV2Type, Name
                         ),
                         emqx_bridge_v2:get_metrics(ConfRootKey, BridgeV2Type, Name)
                     catch

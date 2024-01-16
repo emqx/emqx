@@ -554,11 +554,7 @@ schema("/bridges_probe") ->
         case emqx_bridge_v2:is_bridge_v2_type(BridgeType) of
             true ->
                 try
-                    ConfRootKey = emqx_bridge_v2:get_conf_root_key_if_only_one(
-                        BridgeType, BridgeName
-                    ),
-                    BridgeV2Type = emqx_bridge_v2:bridge_v1_type_to_bridge_v2_type(BridgeType),
-                    ok = emqx_bridge_v2:reset_metrics(ConfRootKey, BridgeV2Type, BridgeName),
+                    ok = emqx_bridge_v2:bridge_v1_reset_metrics(BridgeType, BridgeName),
                     ?NO_CONTENT
                 catch
                     error:Reason ->
