@@ -39,6 +39,10 @@ services:
       - 19042:9042
       # Cassandra TLS
       - 19142:9142
+      # Cassandra No Auth
+      - 19043:9043
+      # Cassandra TLS No Auth
+      - 19143:9143
       # S3
       - 19000:19000
       # S3 TLS
