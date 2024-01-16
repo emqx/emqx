@@ -1255,7 +1255,7 @@ bridge_v1_list_and_transform() ->
     BridgesFromActions1 ++ BridgesFromSources1.
 
 bridge_v1_lookup_and_transform(ActionType, Name) ->
-    case lookup_actions_or_sources(ActionType, Name) of
+    case lookup_in_actions_or_sources(ActionType, Name) of
         {ok, ConfRootKey,
             #{raw_config := #{<<"connector">> := ConnectorName} = RawConfig} = ActionConfig} ->
             BridgeV1Type = ?MODULE:bridge_v2_type_to_bridge_v1_type(ActionType, RawConfig),
@@ -1287,7 +1287,7 @@ bridge_v1_lookup_and_transform(ActionType, Name) ->
             Error
     end.
 
-lookup_actions_or_sources(ActionType, Name) ->
+lookup_in_actions_or_sources(ActionType, Name) ->
     case lookup(?ROOT_KEY_ACTIONS, ActionType, Name) of
         {error, not_found} ->
             case lookup(?ROOT_KEY_SOURCES, ActionType, Name) of
@@ -1356,7 +1356,7 @@ bridge_v1_lookup_and_transform_helper(
 lookup_conf(Type, Name) ->
     lookup_conf(?ROOT_KEY_ACTIONS, Type, Name).
 
-lookup_conf_if_one_of_sources_actions(Type, Name) ->
+lookup_conf_if_exists_in_exactly_one_of_sources_and_actions(Type, Name) ->
     LookUpConfActions = lookup_conf(?ROOT_KEY_ACTIONS, Type, Name),
     LookUpConfSources = lookup_conf(?ROOT_KEY_SOURCES, Type, Name),
     case {LookUpConfActions, LookUpConfSources} of
@@ -1409,7 +1409,7 @@ lookup_conf(RootName, Type, Name) ->
 bridge_v1_split_config_and_create(BridgeV1Type, BridgeName, RawConf) ->
     BridgeV2Type = ?MODULE:bridge_v1_type_to_bridge_v2_type(BridgeV1Type),
     %% Check if the bridge v2 exists
-    case lookup_conf_if_one_of_sources_actions(BridgeV2Type, BridgeName) of
+    case lookup_conf_if_exists_in_exactly_one_of_sources_and_actions(BridgeV2Type, BridgeName) of
         {error, _} ->
             %% If the bridge v2 does not exist, it is a valid bridge v1
             PreviousRawConf = undefined,
@@ -1636,7 +1636,7 @@ bridge_v1_remove(BridgeV1Type, BridgeName) ->
     bridge_v1_remove(
         ActionType,
         BridgeName,
-        lookup_conf_if_one_of_sources_actions(ActionType, BridgeName)
+        lookup_conf_if_exists_in_exactly_one_of_sources_and_actions(ActionType, BridgeName)
     ).
 
 bridge_v1_remove(
@@ -1665,7 +1665,7 @@ bridge_v1_check_deps_and_remove(BridgeV1Type, BridgeName, RemoveDeps) ->
         BridgeV2Type,
         BridgeName,
         RemoveDeps,
-        lookup_conf_if_one_of_sources_actions(BridgeV2Type, BridgeName)
+        lookup_conf_if_exists_in_exactly_one_of_sources_and_actions(BridgeV2Type, BridgeName)
     ).
 
 %% Bridge v1 delegated-removal in 3 steps:
@@ -1760,7 +1760,7 @@ bridge_v1_enable_disable(Action, BridgeType, BridgeName) ->
                 Action,
                 BridgeType,
                 BridgeName,
-                lookup_conf_if_one_of_sources_actions(BridgeType, BridgeName)
+                lookup_conf_if_exists_in_exactly_one_of_sources_and_actions(BridgeType, BridgeName)
             );
         false ->
             {error, not_bridge_v1_compatible}
@@ -1808,7 +1808,7 @@ bridge_v1_operation_helper(BridgeV1Type, Name, ConnectorOpFun, DoHealthCheck) ->
                 ConfRootKey,
                 BridgeV2Type,
                 Name,
-                lookup_conf_if_one_of_sources_actions(BridgeV2Type, Name),
+                lookup_conf_if_exists_in_exactly_one_of_sources_and_actions(BridgeV2Type, Name),
                 ConnectorOpFun,
                 DoHealthCheck
             );
