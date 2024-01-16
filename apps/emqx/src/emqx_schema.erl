@@ -94,6 +94,7 @@
     non_empty_string/1,
     validations/0,
     naive_env_interpolation/1,
+    ensure_unicode_path/2,
     validate_server_ssl_opts/1,
     validate_tcp_keepalive/1,
     parse_tcp_keepalive/1
@@ -1880,6 +1881,18 @@ fields("session_storage_backend_builtin") ->
                 #{
                     desc => ?DESC(session_storage_backend_enable),
                     default => true
+                }
+            )},
+        {"data_dir",
+            sc(
+                string(),
+                #{
+                    desc => ?DESC(session_builtin_data_dir),
+                    default => <<"${EMQX_DATA_DIR}">>,
+                    importance => ?IMPORTANCE_LOW,
+                    converter => fun(Path, Opts) ->
+                        naive_env_interpolation(ensure_unicode_path(Path, Opts))
+                    end
                 }
             )},
         {"n_shards",
@@ -3836,3 +3849,20 @@ tags_schema() ->
             importance => ?IMPORTANCE_LOW
         }
     ).
+
+ensure_unicode_path(undefined, _) ->
+    undefined;
+ensure_unicode_path(Path, #{make_serializable := true}) ->
+    %% format back to serializable string
+    unicode:characters_to_binary(Path, utf8);
+ensure_unicode_path(Path, Opts) when is_binary(Path) ->
+    case unicode:characters_to_list(Path, utf8) of
+        {R, _, _} when R =:= error orelse R =:= incomplete ->
+            throw({"bad_file_path_string", Path});
+        PathStr ->
+            ensure_unicode_path(PathStr, Opts)
+    end;
+ensure_unicode_path(Path, _) when is_list(Path) ->
+    Path;
+ensure_unicode_path(Path, _) ->
+    throw({"not_string", Path}).
