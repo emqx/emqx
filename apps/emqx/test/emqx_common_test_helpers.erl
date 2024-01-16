@@ -50,8 +50,6 @@
     client_ssl/1,
     client_mtls/0,
     client_mtls/1,
-    ssl_verify_fun_allow_any_host/0,
-    ssl_verify_fun_allow_any_host_impl/3,
     ensure_mnesia_stopped/0,
     ensure_quic_listener/2,
     ensure_quic_listener/3,
