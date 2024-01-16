@@ -79,7 +79,7 @@
     do_ensure_all_iterators_closed/1
 ]).
 
--export([print_session/1]).
+-export([print_session/1, seqno_diff/4]).
 
 -ifdef(TEST).
 -export([
@@ -152,8 +152,7 @@
     inflight_cnt,
     inflight_max,
     mqueue_len,
-    mqueue_dropped,
-    awaiting_rel_cnt
+    mqueue_dropped
 ]).
 
 %%
@@ -233,8 +232,8 @@ info(mqueue_dropped, _Session) ->
 %%     PacketId;
 % info(awaiting_rel, #sessmem{awaiting_rel = AwaitingRel}) ->
 %     AwaitingRel;
-info(awaiting_rel_cnt, #{s := S}) ->
-    seqno_diff(?QOS_2, ?rec, ?committed(?QOS_2), S);
+%% info(awaiting_rel_cnt, #{s := S}) ->
+%%     seqno_diff(?QOS_2, ?rec, ?committed(?QOS_2), S);
 info(awaiting_rel_max, #{props := Conf}) ->
     maps:get(max_awaiting_rel, Conf);
 info(await_rel_timeout, #{props := Conf}) ->
@@ -271,6 +270,8 @@ subscribe(
 ) ->
     case subs_lookup(TopicFilter, S0) of
         undefined ->
+            %% TODO: max subscriptions
+
             %% N.B.: we chose to update the router before adding the
             %% subscription to the session/iterator table. The
             %% reasoning for this is as follows:
@@ -511,16 +512,21 @@ replay_batch(Srs0, Session, ClientInfo) ->
 
 -spec disconnect(session(), emqx_types:conninfo()) -> {shutdown, session()}.
 disconnect(Session = #{s := S0}, ConnInfo) ->
-    OldConnInfo = emqx_persistent_session_ds_state:get_conninfo(S0),
-    NewConnInfo = maps:merge(OldConnInfo, maps:with([expiry_interval], ConnInfo)),
     S1 = emqx_persistent_session_ds_state:set_last_alive_at(now_ms(), S0),
-    S2 = emqx_persistent_session_ds_state:set_conninfo(NewConnInfo, S1),
+    S2 =
+        case ConnInfo of
+            #{expiry_interval := EI} when is_number(EI) ->
+                emqx_persistent_session_ds_state:set_expiry_interval(EI, S1);
+            _ ->
+                S1
+        end,
     S = emqx_persistent_session_ds_state:commit(S2),
     {shutdown, Session#{s => S}}.
 
 -spec terminate(Reason :: term(), session()) -> ok.
-terminate(_Reason, _Session = #{s := S}) ->
+terminate(_Reason, _Session = #{id := Id, s := S}) ->
     _ = emqx_persistent_session_ds_state:commit(S),
+    ?tp(debug, persistent_session_ds_terminate, #{id => Id}),
     ok.
 
 %%--------------------------------------------------------------------
@@ -558,7 +564,7 @@ session_open(SessionId, NewConnInfo) ->
     NowMS = now_ms(),
     case emqx_persistent_session_ds_state:open(SessionId) of
         {ok, S0} ->
-            EI = expiry_interval(emqx_persistent_session_ds_state:get_conninfo(S0)),
+            EI = emqx_persistent_session_ds_state:get_expiry_interval(S0),
             LastAliveAt = emqx_persistent_session_ds_state:get_last_alive_at(S0),
             case NowMS >= LastAliveAt + EI of
                 true ->
@@ -567,7 +573,7 @@ session_open(SessionId, NewConnInfo) ->
                 false ->
                     ?tp(open_session, #{ei => EI, now => NowMS, laa => LastAliveAt}),
                     %% New connection being established
-                    S1 = emqx_persistent_session_ds_state:set_conninfo(NewConnInfo, S0),
+                    S1 = emqx_persistent_session_ds_state:set_expiry_interval(EI, S0),
                     S2 = emqx_persistent_session_ds_state:set_last_alive_at(NowMS, S1),
                     S = emqx_persistent_session_ds_state:commit(S2),
                     Inflight = emqx_persistent_session_ds_inflight:new(
@@ -587,9 +593,10 @@ session_open(SessionId, NewConnInfo) ->
 -spec session_ensure_new(id(), emqx_types:conninfo(), emqx_session:conf()) ->
     session().
 session_ensure_new(Id, ConnInfo, Conf) ->
+    ?tp(debug, persistent_session_ds_ensure_new, #{id => Id}),
     Now = now_ms(),
     S0 = emqx_persistent_session_ds_state:create_new(Id),
-    S1 = emqx_persistent_session_ds_state:set_conninfo(ConnInfo, S0),
+    S1 = emqx_persistent_session_ds_state:set_expiry_interval(expiry_interval(ConnInfo), S0),
     S2 = bump_last_alive(S1),
     S3 = emqx_persistent_session_ds_state:set_created_at(Now, S2),
     S4 = lists:foldl(
@@ -970,8 +977,7 @@ inc_seqno(Qos, SeqNo) ->
             NextSeqno
     end.
 
-%% Note: we use the least significant bit to store the QoS. Even
-%% packet IDs are QoS1, odd packet IDs are QoS2.
+%% Note: we use the most significant bit to store the QoS.
 seqno_to_packet_id(?QOS_1, SeqNo) ->
     SeqNo band ?PACKET_ID_MASK;
 seqno_to_packet_id(?QOS_2, SeqNo) ->

@@ -74,6 +74,7 @@ init_per_group(persistence_enabled, Config) ->
         {emqx_config,
             "session_persistence {\n"
             "  enable = true\n"
+            "  last_alive_update_interval = 100ms\n"
             "  renew_streams_interval = 100ms\n"
             "}"},
         {persistence, ds}
@@ -534,42 +535,47 @@ t_process_dies_session_expires(Config) ->
     %% Emulate an error in the connect process,
     %% or that the node of the process goes down.
     %% A persistent session should eventually expire.
-    ConnFun = ?config(conn_fun, Config),
-    ClientId = ?config(client_id, Config),
-    Topic = ?config(topic, Config),
-    STopic = ?config(stopic, Config),
-    Payload = <<"test">>,
-    {ok, Client1} = emqtt:start_link([
-        {proto_ver, v5},
-        {clientid, ClientId},
-        {properties, #{'Session-Expiry-Interval' => 1}},
-        {clean_start, true}
-        | Config
-    ]),
-    {ok, _} = emqtt:ConnFun(Client1),
-    {ok, _, [2]} = emqtt:subscribe(Client1, STopic, qos2),
-    ok = emqtt:disconnect(Client1),
+    ?check_trace(
+        begin
+            ConnFun = ?config(conn_fun, Config),
+            ClientId = ?config(client_id, Config),
+            Topic = ?config(topic, Config),
+            STopic = ?config(stopic, Config),
+            Payload = <<"test">>,
+            {ok, Client1} = emqtt:start_link([
+                {proto_ver, v5},
+                {clientid, ClientId},
+                {properties, #{'Session-Expiry-Interval' => 1}},
+                {clean_start, true}
+                | Config
+            ]),
+            {ok, _} = emqtt:ConnFun(Client1),
+            {ok, _, [2]} = emqtt:subscribe(Client1, STopic, qos2),
+            ok = emqtt:disconnect(Client1),
 
-    maybe_kill_connection_process(ClientId, Config),
+            maybe_kill_connection_process(ClientId, Config),
 
-    ok = publish(Topic, Payload),
+            ok = publish(Topic, Payload),
 
-    timer:sleep(2000),
+            timer:sleep(1500),
 
-    {ok, Client2} = emqtt:start_link([
-        {proto_ver, v5},
-        {clientid, ClientId},
-        {properties, #{'Session-Expiry-Interval' => 30}},
-        {clean_start, false}
-        | Config
-    ]),
-    {ok, _} = emqtt:ConnFun(Client2),
-    ?assertEqual(0, client_info(session_present, Client2)),
+            {ok, Client2} = emqtt:start_link([
+                {proto_ver, v5},
+                {clientid, ClientId},
+                {properties, #{'Session-Expiry-Interval' => 30}},
+                {clean_start, false}
+                | Config
+            ]),
+            {ok, _} = emqtt:ConnFun(Client2),
+            ?assertEqual(0, client_info(session_present, Client2)),
 
-    %% We should not receive the pending message
-    ?assertEqual([], receive_messages(1)),
+            %% We should not receive the pending message
+            ?assertEqual([], receive_messages(1)),
 
-    emqtt:disconnect(Client2).
+            emqtt:disconnect(Client2)
+        end,
+        []
+    ).
 
 t_publish_while_client_is_gone_qos1(Config) ->
     %% A persistent session should receive messages in its
@@ -644,7 +650,7 @@ t_publish_many_while_client_is_gone_qos1(Config) ->
         #mqtt_msg{topic = <<"loc/1/2/42">>, payload = <<"M4">>, qos = 1},
         #mqtt_msg{topic = <<"t/42/foo">>, payload = <<"M5">>, qos = 1},
         #mqtt_msg{topic = <<"loc/3/4/5">>, payload = <<"M6">>, qos = 1},
-        #mqtt_msg{topic = <<"msg/feed/me2">>, payload = <<"M7">>, qos = 1}
+        #mqtt_msg{topic = <<"msg/feed/me">>, payload = <<"M7">>, qos = 1}
     ],
     ok = publish_many(Pubs1),
     NPubs1 = length(Pubs1),

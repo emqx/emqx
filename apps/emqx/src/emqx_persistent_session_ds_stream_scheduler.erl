@@ -201,12 +201,10 @@ remove_fully_replayed_streams(S0) ->
     Groups = emqx_persistent_session_ds_state:fold_streams(
         fun({SubId, _Stream}, StreamState = #srs{rank_x = RankX, rank_y = RankY}, Acc) ->
             Key = {SubId, RankX},
-            case
-                {maps:get(Key, Acc, undefined), is_fully_replayed(CommQos1, CommQos2, StreamState)}
-            of
-                {undefined, true} ->
+            case is_fully_replayed(CommQos1, CommQos2, StreamState) of
+                true when is_map_key(Key, Acc) ->
                     Acc#{Key => {true, RankY}};
-                {_, false} ->
+                true ->
                     Acc#{Key => false};
                 _ ->
                     Acc

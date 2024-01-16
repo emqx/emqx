@@ -29,7 +29,7 @@
 -export([open/1, create_new/1, delete/1, commit/1, format/1, print_session/1, list_sessions/0]).
 -export([get_created_at/1, set_created_at/2]).
 -export([get_last_alive_at/1, set_last_alive_at/2]).
--export([get_conninfo/1, set_conninfo/2]).
+-export([get_expiry_interval/1, set_expiry_interval/2]).
 -export([new_id/1]).
 -export([get_stream/2, put_stream/3, del_stream/2, fold_streams/3]).
 -export([get_seqno/2, put_seqno/3]).
@@ -81,18 +81,11 @@
         dirty :: #{K => dirty | del}
     }.
 
-%% Session metadata:
--define(created_at, created_at).
--define(last_alive_at, last_alive_at).
--define(conninfo, conninfo).
-%% Unique integer used to create unique identities
--define(last_id, last_id).
-
 -type metadata() ::
     #{
         ?created_at => emqx_persistent_session_ds:timestamp(),
         ?last_alive_at => emqx_persistent_session_ds:timestamp(),
-        ?conninfo => emqx_types:conninfo(),
+        ?expiry_interval => emqx_types:conninfo(),
         ?last_id => integer()
     }.
 
@@ -122,6 +115,7 @@
 -define(rank_tab, emqx_ds_session_ranks).
 -define(pmap_tables, [?stream_tab, ?seqno_tab, ?rank_tab, ?subscription_tab]).
 
+%% Enable this flag if you suspect some code breaks the sequence:
 -ifndef(CHECK_SEQNO).
 -define(set_dirty, dirty => true).
 -define(unset_dirty, dirty => false).
@@ -268,13 +262,13 @@ get_last_alive_at(Rec) ->
 set_last_alive_at(Val, Rec) ->
     set_meta(?last_alive_at, Val, Rec).
 
--spec get_conninfo(t()) -> emqx_types:conninfo() | undefined.
-get_conninfo(Rec) ->
-    get_meta(?conninfo, Rec).
+-spec get_expiry_interval(t()) -> non_neg_integer() | undefined.
+get_expiry_interval(Rec) ->
+    get_meta(?expiry_interval, Rec).
 
--spec set_conninfo(emqx_types:conninfo(), t()) -> t().
-set_conninfo(Val, Rec) ->
-    set_meta(?conninfo, Val, Rec).
+-spec set_expiry_interval(non_neg_integer(), t()) -> t().
+set_expiry_interval(Val, Rec) ->
+    set_meta(?expiry_interval, Val, Rec).
 
 -spec new_id(t()) -> {emqx_persistent_session_ds:subscription_id(), t()}.
 new_id(Rec) ->

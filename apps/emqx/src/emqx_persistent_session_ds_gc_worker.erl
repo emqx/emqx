@@ -69,7 +69,7 @@ handle_info(_Info, State) ->
     {noreply, State}.
 
 %%--------------------------------------------------------------------------------
-%% Internal fns
+%% Internal functions
 %%--------------------------------------------------------------------------------
 
 ensure_gc_timer() ->
@@ -116,22 +116,21 @@ gc_loop(MinLastAlive, It0) ->
         {[], _It} ->
             ok;
         {Sessions, It} ->
-            [
-                do_gc(SessionId, MinLastAlive, LastAliveAt, EI)
-             || {SessionId, #{last_alive_at := LastAliveAt, conninfo := #{expiry_interval := EI}}} <-
-                    Sessions
-            ],
+            [do_gc(SessionId, MinLastAlive, Metadata) || {SessionId, Metadata} <- Sessions],
             gc_loop(MinLastAlive, It)
     end.
 
-do_gc(SessionId, MinLastAlive, LastAliveAt, EI) when LastAliveAt + EI < MinLastAlive ->
-    emqx_persistent_session_ds:destroy_session(SessionId),
-    ?tp(debug, ds_session_gc_cleaned, #{
-        session_id => SessionId,
-        last_alive_at => LastAliveAt,
-        expiry_interval => EI,
-        min_last_alive => MinLastAlive
-    }),
-    ok;
-do_gc(_SessionId, _MinLastAliveAt, _LastAliveAt, _EI) ->
-    ok.
+do_gc(SessionId, MinLastAlive, Metadata) ->
+    #{?last_alive_at := LastAliveAt, ?expiry_interval := EI} = Metadata,
+    case LastAliveAt + EI < MinLastAlive of
+        true ->
+            emqx_persistent_session_ds:destroy_session(SessionId),
+            ?tp(debug, ds_session_gc_cleaned, #{
+                session_id => SessionId,
+                last_alive_at => LastAliveAt,
+                expiry_interval => EI,
+                min_last_alive => MinLastAlive
+            });
+        false ->
+            ok
+    end.

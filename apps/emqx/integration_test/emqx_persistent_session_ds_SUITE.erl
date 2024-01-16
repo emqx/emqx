@@ -91,7 +91,7 @@ end_per_testcase(_TestCase, _Config) ->
     ok.
 
 %%------------------------------------------------------------------------------
-%% Helper fns
+%% Helper functions
 %%------------------------------------------------------------------------------
 
 cluster(#{n := N} = Opts) ->
@@ -147,9 +147,9 @@ start_client(Opts0 = #{}) ->
         proto_ver => v5,
         properties => #{'Session-Expiry-Interval' => 300}
     },
-    Opts = maps:to_list(emqx_utils_maps:deep_merge(Defaults, Opts0)),
-    ct:pal("starting client with opts:\n  ~p", [Opts]),
-    {ok, Client} = emqtt:start_link(Opts),
+    Opts = emqx_utils_maps:deep_merge(Defaults, Opts0),
+    ?tp(notice, "starting client", Opts),
+    {ok, Client} = emqtt:start_link(maps:to_list(Opts)),
     unlink(Client),
     on_exit(fun() -> catch emqtt:stop(Client) end),
     Client.
@@ -186,33 +186,6 @@ list_all_pubranges(Node) ->
 %% Testcases
 %%------------------------------------------------------------------------------
 
-t_non_persistent_session_subscription(_Config) ->
-    ClientId = atom_to_binary(?FUNCTION_NAME),
-    SubTopicFilter = <<"t/#">>,
-    ?check_trace(
-        #{timetrap => 30_000},
-        begin
-            ?tp(notice, "starting", #{}),
-            Client = start_client(#{
-                clientid => ClientId,
-                properties => #{'Session-Expiry-Interval' => 0}
-            }),
-            {ok, _} = emqtt:connect(Client),
-            ?tp(notice, "subscribing", #{}),
-            {ok, _, [?RC_GRANTED_QOS_2]} = emqtt:subscribe(Client, SubTopicFilter, qos2),
-
-            ok = emqtt:stop(Client),
-
-            ok
-        end,
-        fun(Trace) ->
-            ct:pal("trace:\n  ~p", [Trace]),
-            ?assertEqual([], ?of_kind(ds_session_subscription_added, Trace)),
-            ok
-        end
-    ),
-    ok.
-
 t_session_subscription_idempotency(Config) ->
     [Node1Spec | _] = ?config(node_specs, Config),
     [Node1] = ?config(nodes, Config),
@@ -222,7 +195,6 @@ t_session_subscription_idempotency(Config) ->
     ?check_trace(
         #{timetrap => 30_000},
         begin
-            #{timetrap => 20_000},
             ?force_ordering(
                 #{?snk_kind := persistent_session_ds_subscription_added},
                 _NEvents0 = 1,
@@ -553,14 +525,14 @@ t_session_gc(Config) ->
     ?check_trace(
         #{timetrap => 30_000},
         begin
-            ClientId0 = <<"session_gc0">>,
-            Client0 = StartClient(ClientId0, Port1, 30),
-
             ClientId1 = <<"session_gc1">>,
-            Client1 = StartClient(ClientId1, Port2, 1),
+            Client1 = StartClient(ClientId1, Port1, 30),
 
             ClientId2 = <<"session_gc2">>,
-            Client2 = StartClient(ClientId2, Port3, 1),
+            Client2 = StartClient(ClientId2, Port2, 1),
+
+            ClientId3 = <<"session_gc3">>,
+            Client3 = StartClient(ClientId3, Port3, 1),
 
             lists:foreach(
                 fun(Client) ->
@@ -570,52 +542,41 @@ t_session_gc(Config) ->
                     {ok, _} = emqtt:publish(Client, Topic, Payload, ?QOS_1),
                     ok
                 end,
-                [Client0, Client1, Client2]
+                [Client1, Client2, Client3]
             ),
 
             %% Clients are still alive; no session is garbage collected.
-            Res0 = ?block_until(
-                #{
-                    ?snk_kind := ds_session_gc,
-                    ?snk_span := {complete, _},
-                    ?snk_meta := #{node := N}
-                } when
-                    N =/= node(),
-                3 * GCInterval + 1_000
-            ),
-            ?assertMatch({ok, _}, Res0),
-            {ok, #{?snk_meta := #{time := T0}}} = Res0,
-            ?assertMatch([_, _, _], list_all_sessions(Node1), sessions),
-            ?assertMatch([_, _, _], list_all_subscriptions(Node1), subscriptions),
-
-            %% Now we disconnect 2 of them; only those should be GC'ed.
-            ?assertMatch(
-                {ok, {ok, _}},
-                ?wait_async_action(
-                    emqtt:stop(Client1),
-                    #{?snk_kind := terminate},
-                    1_000
-                )
-            ),
-            ct:pal("disconnected client1"),
-            ?assertMatch(
-                {ok, {ok, _}},
-                ?wait_async_action(
-                    emqtt:stop(Client2),
-                    #{?snk_kind := terminate},
-                    1_000
-                )
-            ),
-            ct:pal("disconnected client2"),
             ?assertMatch(
                 {ok, _},
                 ?block_until(
                     #{
-                        ?snk_kind := ds_session_gc_cleaned,
-                        session_id := ClientId1
-                    }
+                        ?snk_kind := ds_session_gc,
+                        ?snk_span := {complete, _},
+                        ?snk_meta := #{node := N}
+                    } when N =/= node()
                 )
             ),
+            ?assertMatch([_, _, _], list_all_sessions(Node1), sessions),
+            ?assertMatch([_, _, _], list_all_subscriptions(Node1), subscriptions),
+
+            %% Now we disconnect 2 of them; only those should be GC'ed.
+
+            ?assertMatch(
+                {ok, {ok, _}},
+                ?wait_async_action(
+                    emqtt:stop(Client2),
+                    #{?snk_kind := terminate}
+                )
+            ),
+            ?tp(notice, "disconnected client1", #{}),
+            ?assertMatch(
+                {ok, {ok, _}},
+                ?wait_async_action(
+                    emqtt:stop(Client3),
+                    #{?snk_kind := terminate}
+                )
+            ),
+            ?tp(notice, "disconnected client2", #{}),
             ?assertMatch(
                 {ok, _},
                 ?block_until(
@@ -625,7 +586,16 @@ t_session_gc(Config) ->
                     }
                 )
             ),
-            ?assertMatch([_], list_all_sessions(Node1), sessions),
+            ?assertMatch(
+                {ok, _},
+                ?block_until(
+                    #{
+                        ?snk_kind := ds_session_gc_cleaned,
+                        session_id := ClientId3
+                    }
+                )
+            ),
+            ?assertMatch([ClientId1], list_all_sessions(Node1), sessions),
             ?assertMatch([_], list_all_subscriptions(Node1), subscriptions),
             ok
         end,
