@@ -49,6 +49,9 @@
 -export([lookup_from_local_node/2]).
 -export([get_metrics_from_local_node/2]).
 
+%% used by actions/sources schema
+-export([mqtt_v1_example/1]).
+
 %% only for testing/mocking
 -export([supported_versions/1]).
 
@@ -181,7 +184,7 @@ bridge_info_examples(Method) ->
             },
             <<"mqtt_example">> => #{
                 summary => <<"MQTT Bridge">>,
-                value => info_example(mqtt, Method)
+                value => mqtt_v1_example(Method)
             }
         },
         emqx_enterprise_bridge_examples(Method)
@@ -193,6 +196,9 @@ emqx_enterprise_bridge_examples(Method) ->
 -else.
 emqx_enterprise_bridge_examples(_Method) -> #{}.
 -endif.
+
+mqtt_v1_example(Method) ->
+    info_example(mqtt, Method).
 
 info_example(Type, Method) ->
     maps:merge(

@@ -176,7 +176,7 @@ source_values(Method, SourceType, ConnectorType, SourceValues) ->
             description => <<"My example ", SourceTypeBin/binary, " source">>,
             connector => <<ConnectorTypeBin/binary, "_connector">>,
             resource_opts => #{
-                health_check_interval => "30s"
+                health_check_interval => <<"30s">>
             }
         },
         [
@@ -192,7 +192,7 @@ sources_examples(Method) ->
         end,
     Fun =
         fun(Module, Examples) ->
-            ConnectorExamples = erlang:apply(Module, bridge_v2_examples, [Method]),
+            ConnectorExamples = erlang:apply(Module, source_examples, [Method]),
             lists:foldl(MergeFun, Examples, ConnectorExamples)
         end,
     SchemaModules = [Mod || {_, Mod} <- emqx_action_info:registered_schema_modules_sources()],

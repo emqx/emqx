@@ -24,6 +24,7 @@
 
 -export([
     bridge_v2_examples/1,
+    source_examples/1,
     conn_bridge_examples/1
 ]).
 
@@ -148,12 +149,54 @@ desc("mqtt_subscriber_source") ->
 desc(_) ->
     undefined.
 
-bridge_v2_examples(_Method) ->
+bridge_v2_examples(Method) ->
     [
-        #{}
+        #{
+            <<"mqtt">> => #{
+                summary => <<"MQTT Producer Action">>,
+                value => emqx_bridge_v2_schema:action_values(
+                    Method,
+                    _ActionType = mqtt,
+                    _ConnectorType = mqtt,
+                    #{
+                        parameters => #{
+                            topic => <<"remote/topic">>,
+                            qos => 2,
+                            retain => false,
+                            payload => <<"${.payload}">>
+                        }
+                    }
+                )
+            }
+        }
     ].
 
-conn_bridge_examples(_Method) ->
+source_examples(Method) ->
     [
-        #{}
+        #{
+            <<"mqtt">> => #{
+                summary => <<"MQTT Subscriber Source">>,
+                value => emqx_bridge_v2_schema:source_values(
+                    Method,
+                    _SourceType = mqtt,
+                    _ConnectorType = mqtt,
+                    #{
+                        parameters => #{
+                            topic => <<"remote/topic">>,
+                            qos => 2
+                        }
+                    }
+                )
+            }
+        }
+    ].
+
+conn_bridge_examples(Method) ->
+    [
+        #{
+            <<"mqtt">> => #{
+                summary => <<"MQTT Producer Action">>,
+                value => emqx_bridge_api:mqtt_v1_example(Method)
+            }
+        }
     ].
