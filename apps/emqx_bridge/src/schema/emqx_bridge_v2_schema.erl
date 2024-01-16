@@ -270,6 +270,7 @@ examples(Method) ->
 top_level_common_action_keys() ->
     [
         <<"connector">>,
+        <<"tags">>,
         <<"description">>,
         <<"enable">>,
         <<"local_topic">>,
@@ -301,6 +302,7 @@ make_consumer_action_schema(ActionParametersRef, Opts) ->
             mk(binary(), #{
                 desc => ?DESC(emqx_connector_schema, "connector_field"), required => true
             })},
+        {tags, emqx_schema:tags_schema()},
         {description, emqx_schema:description_schema()},
         {parameters, ActionParametersRef},
         {resource_opts,

@@ -297,6 +297,7 @@ fields(kafka_producer_action) ->
             mk(binary(), #{
                 desc => ?DESC(emqx_connector_schema, "connector_field"), required => true
             })},
+        {tags, emqx_schema:tags_schema()},
         {description, emqx_schema:description_schema()}
     ] ++ producer_opts(action);
 fields(kafka_consumer) ->

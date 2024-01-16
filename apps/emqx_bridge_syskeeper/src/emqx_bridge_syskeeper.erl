@@ -86,6 +86,7 @@ fields(action) ->
 fields(config) ->
     [
         {enable, mk(boolean(), #{desc => ?DESC("config_enable"), default => true})},
+        {tags, emqx_schema:tags_schema()},
         {description, emqx_schema:description_schema()},
         {connector,
             mk(binary(), #{
