@@ -30,4 +30,6 @@
 -define(T_GET_INFO, 5_000).
 -define(T_TAKEOVER, 15_000).
 
+-define(CM_POOL, emqx_cm_pool).
+
 -endif.

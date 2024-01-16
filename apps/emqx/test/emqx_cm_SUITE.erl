@@ -221,7 +221,7 @@ t_open_session_race_condition(_) ->
     end,
     %% sync
     ignored = gen_server:call(?CM, ignore, infinity),
-    ok = emqx_pool:flush_async_tasks(),
+    ok = emqx_pool:flush_async_tasks(?CM_POOL),
     ?assertEqual([], emqx_cm:lookup_channels(ClientId)).
 
 t_kick_session_discard_normal(_) ->
@@ -343,7 +343,7 @@ test_stepdown_session(Action, Reason) ->
     end,
     % sync
     ignored = gen_server:call(?CM, ignore, infinity),
-    ok = flush_emqx_pool(),
+    ok = flush_emqx_cm_pool(),
     ?assertEqual([], emqx_cm:lookup_channels(ClientId)).
 
 %% Channel deregistration is delegated to emqx_pool as a sync tasks.
@@ -353,10 +353,12 @@ test_stepdown_session(Action, Reason) ->
 %% to sync with the pool workers.
 %% The number of tasks should be large enough to ensure all workers have
 %% the chance to work on at least one of the tasks.
-flush_emqx_pool() ->
+flush_emqx_cm_pool() ->
     Self = self(),
     L = lists:seq(1, 1000),
-    lists:foreach(fun(I) -> emqx_pool:async_submit(fun() -> Self ! {done, I} end, []) end, L),
+    lists:foreach(
+        fun(I) -> emqx_pool:async_submit_to_pool(?CM_POOL, fun() -> Self ! {done, I} end, []) end, L
+    ),
     lists:foreach(
         fun(I) ->
             receive
