@@ -153,7 +153,7 @@ do_authorize(ClientInfo, Action, Topic) ->
     case run_hooks('client.authorize', [ClientInfo, Action, Topic], Default) of
         AuthzResult = #{result := Result} when Result == allow; Result == deny ->
             From = maps:get(from, AuthzResult, unknown),
-            ok = log_result(ClientInfo, Topic, Action, From, NoMatch),
+            ok = log_result(ClientInfo, Topic, Action, From, Result),
             emqx_hooks:run(
                 'client.check_authz_complete',
                 [ClientInfo, Action, Topic, Result, From]
