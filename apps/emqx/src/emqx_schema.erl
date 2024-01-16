@@ -3829,7 +3829,7 @@ description_schema() ->
 
 tags_schema() ->
     sc(
-        hoconsc:array(string()),
+        hoconsc:array(binary()),
         #{
             desc => ?DESC(resource_tags),
             required => false,
