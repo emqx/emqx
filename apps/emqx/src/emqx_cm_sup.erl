@@ -25,6 +25,8 @@
 %% for test
 -export([restart_flapping/0]).
 
+-include("emqx_cm.hrl").
+
 %%--------------------------------------------------------------------
 %% API
 %%--------------------------------------------------------------------
@@ -45,6 +47,7 @@ init([]) ->
     Banned = child_spec(emqx_banned, 1000, worker),
     Flapping = child_spec(emqx_flapping, 1000, worker),
     Locker = child_spec(emqx_cm_locker, 5000, worker),
+    CmPool = emqx_pool_sup:spec(emqx_cm_pool_sup, [?CM_POOL, random, {emqx_pool, start_link, []}]),
     Registry = child_spec(emqx_cm_registry, 5000, worker),
     Manager = child_spec(emqx_cm, 5000, worker),
     DSSessionGCSup = child_spec(emqx_persistent_session_ds_sup, infinity, supervisor),
@@ -53,6 +56,7 @@ init([]) ->
             Banned,
             Flapping,
             Locker,
+            CmPool,
             Registry,
             Manager,
             DSSessionGCSup
