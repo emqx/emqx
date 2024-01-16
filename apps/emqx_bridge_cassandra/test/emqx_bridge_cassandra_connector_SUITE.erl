@@ -14,19 +14,19 @@
 -include_lib("emqx/include/emqx.hrl").
 -include_lib("stdlib/include/assert.hrl").
 
+%% To run this test locally:
+%%   ./scripts/ct/run.sh --app apps/emqx_bridge_cassandra --only-up
+%%   PROFILE=emqx-enterprise PROXY_HOST=localhost CASSA_TLS_HOST=localhost \
+%%     CASSA_TLS_PORT=9142 CASSA_TCP_HOST=localhost CASSA_TCP_NO_AUTH_HOST=localhost \
+%%     CASSA_TCP_PORT=19042 CASSA_TCP_NO_AUTH_PORT=19043 \
+%%     ./rebar3 ct --name 'test@127.0.0.1' -v --suite \
+%%     apps/emqx_bridge_cassandra/test/emqx_bridge_cassandra_connector_SUITE
+
 %% Cassandra servers are defined at `.ci/docker-compose-file/docker-compose-cassandra.yaml`
 %% You can change it to `127.0.0.1`, if you run this SUITE locally
 -define(CASSANDRA_HOST, "cassandra").
 -define(CASSANDRA_HOST_NOAUTH, "cassandra_noauth").
 -define(CASSANDRA_RESOURCE_MOD, emqx_bridge_cassandra_connector).
-
-%% This test SUITE requires a running cassandra instance. If you don't want to
-%% bring up the whole CI infrastuctucture with the `scripts/ct/run.sh` script
-%% you can create a cassandra instance with the following command (execute it
-%% from root of the EMQX directory.). You also need to set ?CASSANDRA_HOST and
-%% ?CASSANDRA_PORT to appropriate values.
-%%
-%% sudo docker run --rm -d --name cassandra --network host cassandra:3.11.14
 
 %% Cassandra default username & password once enable `authenticator: PasswordAuthenticator`
 %% in cassandra config
@@ -45,14 +45,14 @@ groups() ->
         {noauth, [t_lifecycle]}
     ].
 
-cassandra_servers(CassandraHost) ->
+cassandra_servers(CassandraHost, CassandraPort) ->
     lists:map(
         fun(#{hostname := Host, port := Port}) ->
             {Host, Port}
         end,
         emqx_schema:parse_servers(
-            iolist_to_binary([CassandraHost, ":", erlang:integer_to_list(?CASSANDRA_DEFAULT_PORT)]),
-            #{default_port => ?CASSANDRA_DEFAULT_PORT}
+            iolist_to_binary([CassandraHost, ":", erlang:integer_to_list(CassandraPort)]),
+            #{default_port => CassandraPort}
         )
     ).
 
@@ -63,25 +63,30 @@ init_per_suite(Config) ->
     Config.
 
 init_per_group(Group, Config) ->
-    {CassandraHost, AuthOpts} =
+    {CassandraHost, CassandraPort, AuthOpts} =
         case Group of
             auth ->
-                {?CASSANDRA_HOST, [{username, ?CASSA_USERNAME}, {password, ?CASSA_PASSWORD}]};
+                TcpHost = os:getenv("CASSA_TCP_HOST", "toxiproxy"),
+                TcpPort = list_to_integer(os:getenv("CASSA_TCP_PORT", "9042")),
+                {TcpHost, TcpPort, [{username, ?CASSA_USERNAME}, {password, ?CASSA_PASSWORD}]};
             noauth ->
-                {?CASSANDRA_HOST_NOAUTH, []}
+                TcpHost = os:getenv("CASSA_TCP_NO_AUTH_HOST", "toxiproxy"),
+                TcpPort = list_to_integer(os:getenv("CASSA_TCP_NO_AUTH_PORT", "9043")),
+                {TcpHost, TcpPort, []}
         end,
-    case emqx_common_test_helpers:is_tcp_server_available(CassandraHost, ?CASSANDRA_DEFAULT_PORT) of
+    case emqx_common_test_helpers:is_tcp_server_available(CassandraHost, CassandraPort) of
         true ->
             %% keyspace `mqtt` must be created in advance
             {ok, Conn} =
                 ecql:connect([
-                    {nodes, cassandra_servers(CassandraHost)},
+                    {nodes, cassandra_servers(CassandraHost, CassandraPort)},
                     {keyspace, "mqtt"}
                     | AuthOpts
                 ]),
             ecql:close(Conn),
             [
                 {cassa_host, CassandraHost},
+                {cassa_port, CassandraPort},
                 {cassa_auth_opts, AuthOpts}
                 | Config
             ];
@@ -212,6 +217,7 @@ create_local_resource(ResourceId, CheckedConfig) ->
 
 cassandra_config(Config) ->
     Host = ?config(cassa_host, Config),
+    Port = ?config(cassa_port, Config),
     AuthOpts = maps:from_list(?config(cassa_auth_opts, Config)),
     CassConfig =
         AuthOpts#{
@@ -223,7 +229,7 @@ cassandra_config(Config) ->
                     "~s:~b",
                     [
                         Host,
-                        ?CASSANDRA_DEFAULT_PORT
+                        Port
                     ]
                 )
             )

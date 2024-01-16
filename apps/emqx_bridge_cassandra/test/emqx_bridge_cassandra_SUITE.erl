@@ -11,6 +11,14 @@
 -include_lib("common_test/include/ct.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
+%% To run this test locally:
+%%   ./scripts/ct/run.sh --app apps/emqx_bridge_cassandra --only-up
+%%   PROFILE=emqx-enterprise PROXY_HOST=localhost CASSA_TLS_HOST=localhost \
+%%     CASSA_TLS_PORT=19142 CASSA_TCP_HOST=localhost CASSA_TCP_NO_AUTH_HOST=localhost \
+%%     CASSA_TCP_PORT=19042 CASSA_TCP_NO_AUTH_PORT=19043 \
+%%     ./rebar3 ct --name 'test@127.0.0.1' -v --suite \
+%%     apps/emqx_bridge_cassandra/test/emqx_bridge_cassandra_SUITE
+
 % SQL definitions
 -define(SQL_BRIDGE,
     "insert into mqtt_msg_test(topic, payload, arrived) "
