@@ -76,6 +76,7 @@ fields("http_action") ->
             mk(binary(), #{
                 desc => ?DESC(emqx_connector_schema, "connector_field"), required => true
             })},
+        {tags, emqx_schema:tags_schema()},
         {description, emqx_schema:description_schema()},
         %% Note: there's an implicit convention in `emqx_bridge' that,
         %% for egress bridges with this config, the published messages
@@ -175,6 +176,7 @@ basic_config() ->
                     default => true
                 }
             )},
+        {tags, emqx_schema:tags_schema()},
         {description, emqx_schema:description_schema()}
     ] ++ connector_opts().
 

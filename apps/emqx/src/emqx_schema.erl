@@ -167,7 +167,8 @@
     client_ssl_opts_schema/1,
     ciphers_schema/1,
     tls_versions_schema/1,
-    description_schema/0
+    description_schema/0,
+    tags_schema/0
 ]).
 -export([password_converter/2, bin_str_converter/2]).
 -export([authz_fields/0]).
@@ -3821,6 +3822,16 @@ description_schema() ->
         #{
             default => <<"">>,
             desc => ?DESC(description),
+            required => false,
+            importance => ?IMPORTANCE_LOW
+        }
+    ).
+
+tags_schema() ->
+    sc(
+        hoconsc:array(binary()),
+        #{
+            desc => ?DESC(resource_tags),
             required => false,
             importance => ?IMPORTANCE_LOW
         }
