@@ -32,31 +32,26 @@
     [
         create_mf/5,
         gauge_metric/1,
-        gauge_metrics/1
+        gauge_metrics/1,
+        counter_metrics/1
     ]
 ).
 
--type authn_metric_key() ::
+-type authn_metric_name() ::
     emqx_authn_enable
     | emqx_authn_status
     | emqx_authn_nomatch
     | emqx_authn_total
     | emqx_authn_success
-    | emqx_authn_failed
-    | emqx_authn_rate
-    | emqx_authn_rate_last5m
-    | emqx_authn_rate_max.
+    | emqx_authn_failed.
 
--type authz_metric_key() ::
+-type authz_metric_name() ::
     emqx_authz_enable
     | emqx_authz_status
     | emqx_authz_nomatch
     | emqx_authz_total
     | emqx_authz_success
-    | emqx_authz_failed
-    | emqx_authz_rate
-    | emqx_authz_rate_last5m
-    | emqx_authz_rate_max.
+    | emqx_authz_failed.
 
 %% Please don't remove this attribute, prometheus uses it to
 %% automatically register collectors.
@@ -71,6 +66,36 @@
 -define(MG(K, MAP), maps:get(K, MAP)).
 -define(MG0(K, MAP), maps:get(K, MAP, 0)).
 
+-define(AUTHNS_WITH_TYPE, [
+    {emqx_authn_enable, gauge},
+    {emqx_authn_status, gauge},
+    {emqx_authn_nomatch, counter},
+    {emqx_authn_total, counter},
+    {emqx_authn_success, counter},
+    {emqx_authn_failed, counter}
+]).
+
+-define(AUTHZS_WITH_TYPE, [
+    {emqx_authz_enable, gauge},
+    {emqx_authz_status, gauge},
+    {emqx_authz_nomatch, counter},
+    {emqx_authz_total, counter},
+    {emqx_authz_success, counter},
+    {emqx_authz_failed, counter}
+]).
+
+-define(AUTHN_USERS_COUNT_WITH_TYPE, [
+    {emqx_authn_users_count, gauge}
+]).
+
+-define(AUTHZ_RULES_COUNT_WITH_TYPE, [
+    {emqx_authz_rules_count, gauge}
+]).
+
+-define(BANNED_WITH_TYPE, [
+    {emqx_banned_count, gauge}
+]).
+
 %%--------------------------------------------------------------------
 %% Collector API
 %%--------------------------------------------------------------------
@@ -84,11 +109,11 @@ deregister_cleanup(_) -> ok.
     Callback :: prometheus_collector:collect_mf_callback().
 %% erlfmt-ignore
 collect_mf(?PROMETHEUS_AUTH_REGISTRY, Callback) ->
-    _ = [add_collect_family(Name, authn_data(), Callback, gauge) || Name <- authn()],
-    _ = [add_collect_family(Name, authn_users_count_data(), Callback, gauge) || Name <- authn_users_count()],
-    _ = [add_collect_family(Name, authz_data(), Callback, gauge) || Name <- authz()],
-    _ = [add_collect_family(Name, authz_rules_count_data(), Callback, gauge) || Name <- authz_rules_count()],
-    _ = [add_collect_family(Name, banned_count_data(), Callback, gauge) || Name <- banned()],
+    ok = add_collect_family(Callback, ?AUTHNS_WITH_TYPE, authn_data()),
+    ok = add_collect_family(Callback, ?AUTHN_USERS_COUNT_WITH_TYPE, authn_users_count_data()),
+    ok = add_collect_family(Callback, ?AUTHZS_WITH_TYPE, authz_data()),
+    ok = add_collect_family(Callback, ?AUTHZ_RULES_COUNT_WITH_TYPE, authz_rules_count_data()),
+    ok = add_collect_family(Callback, ?BANNED_WITH_TYPE, banned_count_data()),
     ok;
 collect_mf(_, _) ->
     ok.
@@ -115,6 +140,10 @@ collect_auth_data(AuthDataType) ->
 collect_banned_data() ->
     #{emqx_banned_count => banned_count_data()}.
 
+add_collect_family(Callback, MetricWithType, Data) ->
+    _ = [add_collect_family(Name, Data, Callback, Type) || {Name, Type} <- MetricWithType],
+    ok.
+
 add_collect_family(Name, Data, Callback, Type) ->
     Callback(create_mf(Name, _Help = <<"">>, Type, ?MODULE, Data)).
 
@@ -132,19 +161,13 @@ collect_auth(K = emqx_authn_enable, Data) ->
 collect_auth(K = emqx_authn_status, Data) ->
     gauge_metrics(?MG(K, Data));
 collect_auth(K = emqx_authn_nomatch, Data) ->
-    gauge_metrics(?MG(K, Data));
+    counter_metrics(?MG(K, Data));
 collect_auth(K = emqx_authn_total, Data) ->
-    gauge_metrics(?MG(K, Data));
+    counter_metrics(?MG(K, Data));
 collect_auth(K = emqx_authn_success, Data) ->
-    gauge_metrics(?MG(K, Data));
+    counter_metrics(?MG(K, Data));
 collect_auth(K = emqx_authn_failed, Data) ->
-    gauge_metrics(?MG(K, Data));
-collect_auth(K = emqx_authn_rate, Data) ->
-    gauge_metrics(?MG(K, Data));
-collect_auth(K = emqx_authn_rate_last5m, Data) ->
-    gauge_metrics(?MG(K, Data));
-collect_auth(K = emqx_authn_rate_max, Data) ->
-    gauge_metrics(?MG(K, Data));
+    counter_metrics(?MG(K, Data));
 %%====================
 %% Authn users count
 %% Only provided for `password_based:built_in_database` and `scram:built_in_database`
@@ -157,19 +180,13 @@ collect_auth(K = emqx_authz_enable, Data) ->
 collect_auth(K = emqx_authz_status, Data) ->
     gauge_metrics(?MG(K, Data));
 collect_auth(K = emqx_authz_nomatch, Data) ->
-    gauge_metrics(?MG(K, Data));
+    counter_metrics(?MG(K, Data));
 collect_auth(K = emqx_authz_total, Data) ->
-    gauge_metrics(?MG(K, Data));
+    counter_metrics(?MG(K, Data));
 collect_auth(K = emqx_authz_success, Data) ->
-    gauge_metrics(?MG(K, Data));
+    counter_metrics(?MG(K, Data));
 collect_auth(K = emqx_authz_failed, Data) ->
-    gauge_metrics(?MG(K, Data));
-collect_auth(K = emqx_authz_rate, Data) ->
-    gauge_metrics(?MG(K, Data));
-collect_auth(K = emqx_authz_rate_last5m, Data) ->
-    gauge_metrics(?MG(K, Data));
-collect_auth(K = emqx_authz_rate_max, Data) ->
-    gauge_metrics(?MG(K, Data));
+    counter_metrics(?MG(K, Data));
 %%====================
 %% Authz rules count
 %% Only provided for `file` and `built_in_database`
@@ -190,21 +207,9 @@ collect_auth(emqx_banned_count, Data) ->
 
 %%====================
 %% Authn overview
-authn() ->
-    [
-        emqx_authn_enable,
-        emqx_authn_status,
-        emqx_authn_nomatch,
-        emqx_authn_total,
-        emqx_authn_success,
-        emqx_authn_failed,
-        emqx_authn_rate,
-        emqx_authn_rate_last5m,
-        emqx_authn_rate_max
-    ].
 
 -spec authn_data() -> #{Key => [Point]} when
-    Key :: authn_metric_key(),
+    Key :: authn_metric_name(),
     Point :: {[Label], Metric},
     Label :: IdLabel,
     IdLabel :: {id, AuthnName :: binary()},
@@ -216,11 +221,11 @@ authn_data() ->
             AccIn#{Key => authn_backend_to_points(Key, Authns)}
         end,
         #{},
-        authn()
+        authn_metric_names()
     ).
 
 -spec authn_backend_to_points(Key, list(Authn)) -> list(Point) when
-    Key :: authn_metric_key(),
+    Key :: authn_metric_name(),
     Authn :: map(),
     Point :: {[Label], Metric},
     Label :: IdLabel,
@@ -238,26 +243,23 @@ do_authn_backend_to_points(K, [Authn | Rest], AccIn) ->
 
 lookup_authn_metrics_local(Id) ->
     case emqx_authn_api:lookup_from_local_node(?GLOBAL, Id) of
-        {ok, {_Node, Status, #{counters := Counters, rate := Rate}, _ResourceMetrics}} ->
+        {ok, {_Node, Status, #{counters := Counters}, _ResourceMetrics}} ->
             #{
                 emqx_authn_status => status_to_number(Status),
                 emqx_authn_nomatch => ?MG0(nomatch, Counters),
                 emqx_authn_total => ?MG0(total, Counters),
                 emqx_authn_success => ?MG0(success, Counters),
-                emqx_authn_failed => ?MG0(failed, Counters),
-                emqx_authn_rate => ?MG0(current, Rate),
-                emqx_authn_rate_last5m => ?MG0(last5m, Rate),
-                emqx_authn_rate_max => ?MG0(max, Rate)
+                emqx_authn_failed => ?MG0(failed, Counters)
             };
         {error, _Reason} ->
-            maps:from_keys(authn() -- [emqx_authn_enable], 0)
+            maps:from_keys(authn_metric_names() -- [emqx_authn_enable], 0)
     end.
+
+authn_metric_names() ->
+    metric_names(?AUTHNS_WITH_TYPE).
 
 %%====================
 %% Authn users count
-
-authn_users_count() ->
-    [emqx_authn_users_count].
 
 -define(AUTHN_MNESIA, emqx_authn_mnesia).
 -define(AUTHN_SCRAM_MNESIA, emqx_authn_scram_mnesia).
@@ -283,21 +285,9 @@ authn_users_count_data() ->
 
 %%====================
 %% Authz overview
-authz() ->
-    [
-        emqx_authz_enable,
-        emqx_authz_status,
-        emqx_authz_nomatch,
-        emqx_authz_total,
-        emqx_authz_success,
-        emqx_authz_failed,
-        emqx_authz_rate,
-        emqx_authz_rate_last5m,
-        emqx_authz_rate_max
-    ].
 
 -spec authz_data() -> #{Key => [Point]} when
-    Key :: authz_metric_key(),
+    Key :: authz_metric_name(),
     Point :: {[Label], Metric},
     Label :: TypeLabel,
     TypeLabel :: {type, AuthZType :: binary()},
@@ -309,11 +299,11 @@ authz_data() ->
             AccIn#{Key => authz_backend_to_points(Key, Authzs)}
         end,
         #{},
-        authz()
+        authz_metric_names()
     ).
 
 -spec authz_backend_to_points(Key, list(Authz)) -> list(Point) when
-    Key :: authz_metric_key(),
+    Key :: authz_metric_name(),
     Authz :: map(),
     Point :: {[Label], Metric},
     Label :: TypeLabel,
@@ -331,26 +321,23 @@ do_authz_backend_to_points(K, [Authz | Rest], AccIn) ->
 
 lookup_authz_metrics_local(Type) ->
     case emqx_authz_api_sources:lookup_from_local_node(Type) of
-        {ok, {_Node, Status, #{counters := Counters, rate := Rate}, _ResourceMetrics}} ->
+        {ok, {_Node, Status, #{counters := Counters}, _ResourceMetrics}} ->
             #{
                 emqx_authz_status => status_to_number(Status),
                 emqx_authz_nomatch => ?MG0(nomatch, Counters),
                 emqx_authz_total => ?MG0(total, Counters),
                 emqx_authz_success => ?MG0(success, Counters),
-                emqx_authz_failed => ?MG0(failed, Counters),
-                emqx_authz_rate => ?MG0(current, Rate),
-                emqx_authz_rate_last5m => ?MG0(last5m, Rate),
-                emqx_authz_rate_max => ?MG0(max, Rate)
+                emqx_authz_failed => ?MG0(failed, Counters)
             };
         {error, _Reason} ->
-            maps:from_keys(authz() -- [emqx_authz_enable], 0)
+            maps:from_keys(authz_metric_names() -- [emqx_authz_enable], 0)
     end.
+
+authz_metric_names() ->
+    metric_names(?AUTHZS_WITH_TYPE).
 
 %%====================
 %% Authz rules count
-
-authz_rules_count() ->
-    [emqx_authz_rules_count].
 
 -define(ACL_TABLE, emqx_acl).
 
@@ -377,9 +364,6 @@ authz_rules_count_data() ->
 
 %%====================
 %% Banned count
-
-banned() ->
-    [emqx_banned_count].
 
 -define(BANNED_TABLE, emqx_banned).
 banned_count_data() ->
@@ -477,3 +461,6 @@ users_or_rule_count(type, Type, #{emqx_authz_rules_count := Points} = _AuthzRule
     end;
 users_or_rule_count(_, _, _) ->
     #{}.
+
+metric_names(MetricWithType) when is_list(MetricWithType) ->
+    [Name || {Name, _Type} <- MetricWithType].
