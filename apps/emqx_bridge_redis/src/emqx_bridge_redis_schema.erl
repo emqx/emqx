@@ -76,7 +76,7 @@ fields(redis_action) ->
     [ResOpts] = emqx_connector_schema:resource_opts_ref(?MODULE, action_resource_opts),
     lists:keyreplace(resource_opts, 1, Schema, ResOpts);
 fields(action_resource_opts) ->
-    emqx_bridge_v2_schema:resource_opts_fields([
+    emqx_bridge_v2_schema:action_resource_opts_fields([
         {batch_size, #{desc => ?DESC(batch_size)}},
         {batch_time, #{desc => ?DESC(batch_time)}}
     ]);

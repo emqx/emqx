@@ -53,7 +53,8 @@
 
 -export([action_types/0, action_types_sc/0]).
 -export([source_types/0, source_types_sc/0]).
--export([resource_opts_fields/0, resource_opts_fields/1]).
+-export([action_resource_opts_fields/0, action_resource_opts_fields/1]).
+-export([source_resource_opts_fields/0, source_resource_opts_fields/1]).
 
 -export([
     api_fields/3
@@ -63,7 +64,8 @@
     make_producer_action_schema/1, make_producer_action_schema/2,
     make_consumer_action_schema/1, make_consumer_action_schema/2,
     top_level_common_action_keys/0,
-    project_to_actions_resource_opts/1
+    project_to_actions_resource_opts/1,
+    project_to_sources_resource_opts/1
 ]).
 
 -export([actions_convert_from_connectors/1]).
@@ -317,8 +319,10 @@ fields(actions) ->
     registered_schema_fields_actions();
 fields(sources) ->
     registered_schema_fields_sources();
-fields(resource_opts) ->
-    resource_opts_fields(_Overrides = []).
+fields(action_resource_opts) ->
+    action_resource_opts_fields(_Overrides = []);
+fields(source_resource_opts) ->
+    source_resource_opts_fields(_Overrides = []).
 
 registered_schema_fields_actions() ->
     [
@@ -336,7 +340,9 @@ desc(actions) ->
     ?DESC("desc_bridges_v2");
 desc(sources) ->
     ?DESC("desc_sources");
-desc(resource_opts) ->
+desc(action_resource_opts) ->
+    ?DESC(emqx_resource_schema, "resource_opts");
+desc(source_resource_opts) ->
     ?DESC(emqx_resource_schema, "resource_opts");
 desc(_) ->
     undefined.
@@ -357,10 +363,13 @@ source_types() ->
 source_types_sc() ->
     hoconsc:enum(source_types()).
 
-resource_opts_fields() ->
-    resource_opts_fields(_Overrides = []).
+action_resource_opts_fields() ->
+    action_resource_opts_fields(_Overrides = []).
 
-common_resource_opts_subfields() ->
+source_resource_opts_fields() ->
+    source_resource_opts_fields(_Overrides = []).
+
+common_action_resource_opts_subfields() ->
     [
         batch_size,
         batch_time,
@@ -376,11 +385,27 @@ common_resource_opts_subfields() ->
         worker_pool_size
     ].
 
-common_resource_opts_subfields_bin() ->
-    lists:map(fun atom_to_binary/1, common_resource_opts_subfields()).
+common_source_resource_opts_subfields() ->
+    [
+        health_check_interval,
+        resume_interval
+    ].
 
-resource_opts_fields(Overrides) ->
-    ActionROFields = common_resource_opts_subfields(),
+common_action_resource_opts_subfields_bin() ->
+    lists:map(fun atom_to_binary/1, common_action_resource_opts_subfields()).
+
+common_source_resource_opts_subfields_bin() ->
+    lists:map(fun atom_to_binary/1, common_source_resource_opts_subfields()).
+
+action_resource_opts_fields(Overrides) ->
+    ActionROFields = common_action_resource_opts_subfields(),
+    lists:filter(
+        fun({Key, _Sc}) -> lists:member(Key, ActionROFields) end,
+        emqx_resource_schema:create_opts(Overrides)
+    ).
+
+source_resource_opts_fields(Overrides) ->
+    ActionROFields = common_source_resource_opts_subfields(),
     lists:filter(
         fun({Key, _Sc}) -> lists:member(Key, ActionROFields) end,
         emqx_resource_schema:create_opts(Overrides)
@@ -404,16 +429,34 @@ make_producer_action_schema(ActionParametersRef) ->
     make_producer_action_schema(ActionParametersRef, _Opts = #{}).
 
 make_producer_action_schema(ActionParametersRef, Opts) ->
+    ResourceOptsRef = maps:get(resource_opts_ref, Opts, ref(?MODULE, action_resource_opts)),
     [
         {local_topic, mk(binary(), #{required => false, desc => ?DESC(mqtt_topic)})}
-        | make_consumer_action_schema(ActionParametersRef, Opts)
-    ].
+        | common_schema(ActionParametersRef, Opts)
+    ] ++
+        [
+            {resource_opts,
+                mk(ResourceOptsRef, #{
+                    default => #{},
+                    desc => ?DESC(emqx_resource_schema, "resource_opts")
+                })}
+        ].
 
-make_consumer_action_schema(ActionParametersRef) ->
-    make_consumer_action_schema(ActionParametersRef, _Opts = #{}).
+make_consumer_action_schema(ParametersRef) ->
+    make_consumer_action_schema(ParametersRef, _Opts = #{}).
 
-make_consumer_action_schema(ActionParametersRef, Opts) ->
-    ResourceOptsRef = maps:get(resource_opts_ref, Opts, ref(?MODULE, resource_opts)),
+make_consumer_action_schema(ParametersRef, Opts) ->
+    ResourceOptsRef = maps:get(resource_opts_ref, Opts, ref(?MODULE, source_resource_opts)),
+    common_schema(ParametersRef, Opts) ++
+        [
+            {resource_opts,
+                mk(ResourceOptsRef, #{
+                    default => #{},
+                    desc => ?DESC(emqx_resource_schema, "resource_opts")
+                })}
+        ].
+
+common_schema(ParametersRef, _Opts) ->
     [
         {enable, mk(boolean(), #{desc => ?DESC("config_enable"), default => true})},
         {connector,
@@ -421,16 +464,15 @@ make_consumer_action_schema(ActionParametersRef, Opts) ->
                 desc => ?DESC(emqx_connector_schema, "connector_field"), required => true
             })},
         {description, emqx_schema:description_schema()},
-        {parameters, ActionParametersRef},
-        {resource_opts,
-            mk(ResourceOptsRef, #{
-                default => #{},
-                desc => ?DESC(emqx_resource_schema, "resource_opts")
-            })}
+        {parameters, ParametersRef}
     ].
 
 project_to_actions_resource_opts(OldResourceOpts) ->
-    Subfields = common_resource_opts_subfields_bin(),
+    Subfields = common_action_resource_opts_subfields_bin(),
+    maps:with(Subfields, OldResourceOpts).
+
+project_to_sources_resource_opts(OldResourceOpts) ->
+    Subfields = common_source_resource_opts_subfields_bin(),
     maps:with(Subfields, OldResourceOpts).
 
 actions_convert_from_connectors(RawConf = #{<<"actions">> := Actions}) ->

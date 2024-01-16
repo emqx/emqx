@@ -105,8 +105,10 @@ fields(action_resource_opts) ->
     UnsupportedOpts = [enable_batch, batch_size, batch_time],
     lists:filter(
         fun({K, _V}) -> not lists:member(K, UnsupportedOpts) end,
-        emqx_bridge_v2_schema:resource_opts_fields()
+        emqx_bridge_v2_schema:action_resource_opts_fields()
     );
+fields(source_resource_opts) ->
+    emqx_bridge_v2_schema:source_resource_opts_fields();
 fields(Field) when
     Field == "get_bridge_v2";
     Field == "post_bridge_v2";
@@ -131,6 +133,8 @@ fields(What) ->
 desc("config") ->
     ?DESC("desc_config");
 desc(action_resource_opts) ->
+    ?DESC(emqx_resource_schema, "creation_opts");
+desc(source_resource_opts) ->
     ?DESC(emqx_resource_schema, "creation_opts");
 desc(action_parameters) ->
     ?DESC(action_parameters);

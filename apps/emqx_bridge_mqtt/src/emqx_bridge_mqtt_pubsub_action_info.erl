@@ -116,7 +116,7 @@ bridge_v1_config_to_action_config_helper(
 ) ->
     %% Transform the egress part to mqtt_publisher connector config
     SchemaFields = emqx_bridge_mqtt_pubsub_schema:fields("mqtt_subscriber_source"),
-    ResourceOptsSchemaFields = emqx_bridge_mqtt_pubsub_schema:fields(action_resource_opts),
+    ResourceOptsSchemaFields = emqx_bridge_mqtt_pubsub_schema:fields(source_resource_opts),
     ConfigMap1 = general_action_conf_map_from_bridge_v1_config(
         Config, ConnectorName, SchemaFields, ResourceOptsSchemaFields
     ),

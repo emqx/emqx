@@ -105,7 +105,7 @@ fields(action_resource_opts) ->
     UnsupportedOpts = [batch_size, batch_time],
     lists:filter(
         fun({K, _V}) -> not lists:member(K, UnsupportedOpts) end,
-        emqx_bridge_v2_schema:resource_opts_fields()
+        emqx_bridge_v2_schema:action_resource_opts_fields()
     );
 fields("parameters_opts") ->
     [

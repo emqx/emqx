@@ -52,7 +52,7 @@ fields(action_resource_opts) ->
         fun({K, _V}) ->
             not lists:member(K, unsupported_opts())
         end,
-        emqx_bridge_v2_schema:resource_opts_fields()
+        emqx_bridge_v2_schema:action_resource_opts_fields()
     );
 fields(action_create) ->
     [

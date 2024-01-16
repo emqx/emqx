@@ -455,18 +455,8 @@ source_config_base() ->
                 <<"qos">> => 2
             },
         <<"resource_opts">> => #{
-            <<"batch_size">> => 1,
-            <<"batch_time">> => <<"0ms">>,
-            <<"buffer_mode">> => <<"memory_only">>,
-            <<"buffer_seg_bytes">> => <<"10MB">>,
             <<"health_check_interval">> => <<"15s">>,
-            <<"inflight_window">> => 100,
-            <<"max_buffer_bytes">> => <<"256MB">>,
-            <<"metrics_flush_interval">> => <<"1s">>,
-            <<"query_mode">> => <<"sync">>,
-            <<"request_ttl">> => <<"45s">>,
-            <<"resume_interval">> => <<"15s">>,
-            <<"worker_pool_size">> => <<"1">>
+            <<"resume_interval">> => <<"15s">>
         }
     }.
 
