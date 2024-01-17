@@ -23,6 +23,11 @@
 
 -export([collect/1]).
 
+%% for bpapi
+-export([
+    fetch_metric_data_from_local_node/0
+]).
+
 -include("emqx_prometheus.hrl").
 -include_lib("emqx_auth/include/emqx_authn_chains.hrl").
 -include_lib("prometheus/include/prometheus.hrl").
@@ -65,6 +70,7 @@
 
 -define(MG(K, MAP), maps:get(K, MAP)).
 -define(MG0(K, MAP), maps:get(K, MAP, 0)).
+-define(PG0(K, PROPLISTS), proplists:get_value(K, PROPLISTS, 0)).
 
 -define(AUTHNS_WITH_TYPE, [
     {emqx_authn_enable, gauge},
@@ -96,6 +102,13 @@
     {emqx_banned_count, gauge}
 ]).
 
+-define(LOGICAL_SUM_METRIC_NAMES, [
+    emqx_authn_enable,
+    emqx_authn_status,
+    emqx_authz_enable,
+    emqx_authz_status
+]).
+
 %%--------------------------------------------------------------------
 %% Collector API
 %%--------------------------------------------------------------------
@@ -109,36 +122,28 @@ deregister_cleanup(_) -> ok.
     Callback :: prometheus_collector:collect_mf_callback().
 %% erlfmt-ignore
 collect_mf(?PROMETHEUS_AUTH_REGISTRY, Callback) ->
-    ok = add_collect_family(Callback, ?AUTHNS_WITH_TYPE, authn_data()),
-    ok = add_collect_family(Callback, ?AUTHN_USERS_COUNT_WITH_TYPE, authn_users_count_data()),
-    ok = add_collect_family(Callback, ?AUTHZS_WITH_TYPE, authz_data()),
-    ok = add_collect_family(Callback, ?AUTHZ_RULES_COUNT_WITH_TYPE, authz_rules_count_data()),
-    ok = add_collect_family(Callback, ?BANNED_WITH_TYPE, banned_count_data()),
+    RawData = raw_data(erlang:get(format_mode)),
+    ok = add_collect_family(Callback, ?AUTHNS_WITH_TYPE, ?MG(authn, RawData)),
+    ok = add_collect_family(Callback, ?AUTHN_USERS_COUNT_WITH_TYPE, ?MG(authn_users_count, RawData)),
+    ok = add_collect_family(Callback, ?AUTHZS_WITH_TYPE, ?MG(authz, RawData)),
+    ok = add_collect_family(Callback, ?AUTHZ_RULES_COUNT_WITH_TYPE, ?MG(authz_rules_count, RawData)),
+    ok = add_collect_family(Callback, ?BANNED_WITH_TYPE, ?MG(banned_count, RawData)),
     ok;
 collect_mf(_, _) ->
     ok.
 
 %% @private
 collect(<<"json">>) ->
+    FormatMode = erlang:get(format_mode),
+    RawData = raw_data(FormatMode),
+    %% TODO: merge node name in json format
     #{
-        emqx_authn => collect_auth_data(authn),
-        emqx_authz => collect_auth_data(authz),
+        emqx_authn => collect_json_data(?MG(authn, RawData)),
+        emqx_authz => collect_json_data(?MG(authz, RawData)),
         emqx_banned => collect_banned_data()
     };
 collect(<<"prometheus">>) ->
     prometheus_text_format:format(?PROMETHEUS_AUTH_REGISTRY).
-
-collect_auth_data(AuthDataType) ->
-    maps:fold(
-        fun(K, V, Acc) ->
-            zip_auth_metrics(AuthDataType, K, V, Acc)
-        end,
-        [],
-        auth_data(AuthDataType)
-    ).
-
-collect_banned_data() ->
-    #{emqx_banned_count => banned_count_data()}.
 
 add_collect_family(Callback, MetricWithType, Data) ->
     _ = [add_collect_family(Name, Data, Callback, Type) || {Name, Type} <- MetricWithType],
@@ -149,6 +154,38 @@ add_collect_family(Name, Data, Callback, Type) ->
 
 collect_metrics(Name, Metrics) ->
     collect_auth(Name, Metrics).
+
+%% @private
+fetch_metric_data_from_local_node() ->
+    {node(self()), #{
+        authn => authn_data(),
+        authz => authz_data()
+    }}.
+
+fetch_cluster_consistented_metric_data() ->
+    #{
+        authn_users_count => authn_users_count_data(),
+        authz_rules_count => authz_rules_count_data(),
+        banned_count => banned_count_data()
+    }.
+
+%% raw data for different format modes
+raw_data(nodes_aggregated) ->
+    AggregatedNodesMetrics = aggre_cluster(all_nodes_metrics()),
+    maps:merge(AggregatedNodesMetrics, fetch_cluster_consistented_metric_data());
+raw_data(nodes_unaggregated) ->
+    %% then fold from all nodes
+    AllNodesMetrics = with_node_name_label(all_nodes_metrics()),
+    maps:merge(AllNodesMetrics, fetch_cluster_consistented_metric_data());
+raw_data(node) ->
+    {_Node, LocalNodeMetrics} = fetch_metric_data_from_local_node(),
+    maps:merge(LocalNodeMetrics, fetch_cluster_consistented_metric_data()).
+
+all_nodes_metrics() ->
+    Nodes = mria:running_nodes(),
+    _ResL = emqx_prometheus_proto_v2:raw_prom_data(
+        Nodes, ?MODULE, fetch_metric_data_from_local_node, []
+    ).
 
 %%--------------------------------------------------------------------
 %% Collector
@@ -370,8 +407,173 @@ banned_count_data() ->
     mnesia_size(?BANNED_TABLE).
 
 %%--------------------------------------------------------------------
-%% Helper functions
+%% Collect functions
 %%--------------------------------------------------------------------
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%% merge / zip formatting funcs for type `application/json`
+collect_json_data(Data) ->
+    maps:fold(
+        fun(K, V, Acc) ->
+            zip_json_metrics(K, V, Acc)
+        end,
+        [],
+        Data
+    ).
+
+collect_banned_data() ->
+    #{emqx_banned_count => banned_count_data()}.
+
+zip_json_metrics(Key, Points, [] = _AccIn) ->
+    lists:foldl(
+        fun({Lables, Metric}, AccIn2) ->
+            LablesKVMap = maps:from_list(Lables),
+            %% for initialized empty AccIn
+            %% The following fields will be put into Result
+            %% For Authn:
+            %%     `id`, `emqx_authn_users_count`
+            %% For Authz:
+            %%     `type`, `emqx_authz_rules_count`n
+            Point = (maps:merge(LablesKVMap, users_or_rule_count(LablesKVMap)))#{Key => Metric},
+            [Point | AccIn2]
+        end,
+        [],
+        Points
+    );
+zip_json_metrics(Key, Points, AllResultedAcc) ->
+    ThisKeyResult = lists:foldl(
+        fun({Lables, Metric}, AccIn2) ->
+            LablesKVMap = maps:from_list(Lables),
+            [maps:merge(LablesKVMap, #{Key => Metric}) | AccIn2]
+        end,
+        [],
+        Points
+    ),
+    lists:zipwith(
+        fun(AllResulted, ThisKeyMetricOut) ->
+            maps:merge(AllResulted, ThisKeyMetricOut)
+        end,
+        AllResultedAcc,
+        ThisKeyResult
+    ).
+
+user_rule_data(authn) -> authn_users_count_data();
+user_rule_data(authz) -> authz_rules_count_data().
+
+users_or_rule_count(#{id := Id}) ->
+    #{emqx_authn_users_count := Points} = user_rule_data(authn),
+    case lists:keyfind([{id, Id}], 1, Points) of
+        {_, Metric} ->
+            #{emqx_authn_users_count => Metric};
+        false ->
+            #{}
+    end;
+users_or_rule_count(#{type := Type}) ->
+    #{emqx_authz_rules_count := Points} = user_rule_data(authz),
+    case lists:keyfind([{type, Type}], 1, Points) of
+        {_, Metric} ->
+            #{emqx_authz_rules_count => Metric};
+        false ->
+            #{}
+    end;
+users_or_rule_count(_) ->
+    #{}.
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%% merge / zip formatting funcs for type `text/plain`
+aggre_cluster(ResL) ->
+    do_aggre_cluster(ResL, aggre_or_zip_init_acc()).
+
+do_aggre_cluster([], AccIn) ->
+    AccIn;
+do_aggre_cluster(
+    [{ok, {_NodeName, #{authn := NodeAuthnMetrics, authz := NodeAuthzMetrics}}} | Rest],
+    #{authn := AuthnAcc, authz := AuthzAcc} = AccIn
+) ->
+    do_aggre_cluster(
+        Rest,
+        AccIn#{
+            authn => do_aggre_metric(NodeAuthnMetrics, AuthnAcc),
+            authz => do_aggre_metric(NodeAuthzMetrics, AuthzAcc)
+        }
+    );
+do_aggre_cluster([{_, _} | Rest], AccIn) ->
+    do_aggre_cluster(Rest, AccIn).
+
+do_aggre_metric(NodeMetrics, AccIn0) ->
+    lists:foldl(
+        fun(K, AccIn) ->
+            NAccL = do_aggre_metric(K, ?MG(K, NodeMetrics), ?MG(K, AccIn)),
+            AccIn#{K => NAccL}
+        end,
+        AccIn0,
+        maps:keys(NodeMetrics)
+    ).
+
+do_aggre_metric(K, NodeMetrics, AccL) ->
+    lists:foldl(
+        fun({Labels, Metric}, AccIn) ->
+            NMetric =
+                case lists:member(K, ?LOGICAL_SUM_METRIC_NAMES) of
+                    true ->
+                        logic_sum(Metric, ?PG0(Labels, AccIn));
+                    false ->
+                        Metric + ?PG0(Labels, AccIn)
+                end,
+            [{Labels, NMetric} | AccIn]
+        end,
+        AccL,
+        NodeMetrics
+    ).
+
+logic_sum(N1, N2) when
+    (N1 > 0 andalso N2 > 0)
+->
+    1;
+logic_sum(_, _) ->
+    0.
+
+with_node_name_label(ResL) ->
+    do_with_node_name_label(ResL, aggre_or_zip_init_acc()).
+
+do_with_node_name_label([], AccIn) ->
+    AccIn;
+do_with_node_name_label(
+    [{ok, {NodeName, #{authn := NodeAuthnMetrics, authz := NodeAuthzMetrics}}} | Rest],
+    #{authn := AuthnAcc, authz := AuthzAcc} = AccIn
+) ->
+    do_with_node_name_label(
+        Rest,
+        AccIn#{
+            authn => zip_with_node_name(NodeName, NodeAuthnMetrics, AuthnAcc),
+            authz => zip_with_node_name(NodeName, NodeAuthzMetrics, AuthzAcc)
+        }
+    );
+do_with_node_name_label([{_, _} | Rest], AccIn) ->
+    do_with_node_name_label(Rest, AccIn).
+
+zip_with_node_name(NodeName, NodeMetrics, AccIn0) ->
+    lists:foldl(
+        fun(K, AccIn) ->
+            NAccL = do_zip_with_node_name(NodeName, ?MG(K, NodeMetrics), ?MG(K, AccIn)),
+            AccIn#{K => NAccL}
+        end,
+        AccIn0,
+        maps:keys(NodeMetrics)
+    ).
+
+do_zip_with_node_name(NodeName, NodeMetrics, AccL) ->
+    lists:foldl(
+        fun({Labels, Metric}, AccIn) ->
+            NLabels = [{node_name, NodeName} | Labels],
+            [{NLabels, Metric} | AccIn]
+        end,
+        AccL,
+        NodeMetrics
+    ).
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%% Helper funcs
 
 authenticator_id(Authn) ->
     emqx_authn_chains:authenticator_id(Authn).
@@ -398,69 +600,11 @@ boolean_to_number(false) -> 0.
 status_to_number(connected) -> 1;
 status_to_number(stopped) -> 0.
 
-zip_auth_metrics(AuthDataType, K, V, Acc) ->
-    LabelK = label_key(AuthDataType),
-    UserOrRuleD = user_rule_data(AuthDataType),
-    do_zip_auth_metrics(LabelK, UserOrRuleD, K, V, Acc).
-
-do_zip_auth_metrics(LabelK, UserOrRuleD, Key, Points, [] = _AccIn) ->
-    lists:foldl(
-        fun({[{K, LabelV}], Metric}, AccIn2) when K =:= LabelK ->
-            %% for initialized empty AccIn
-            %% The following fields will be put into Result
-            %% For Authn:
-            %%     `id`, `emqx_authn_users_count`
-            %% For Authz:
-            %%     `type`, `emqx_authz_rules_count`
-            Point = (users_or_rule_count(LabelK, LabelV, UserOrRuleD))#{
-                LabelK => LabelV, Key => Metric
-            },
-            [Point | AccIn2]
-        end,
-        [],
-        Points
-    );
-do_zip_auth_metrics(LabelK, _UserOrRuleD, Key, Points, AllResultedAcc) ->
-    ThisKeyResult = lists:foldl(
-        fun({[{K, Id}], Metric}, AccIn2) when K =:= LabelK ->
-            [#{LabelK => Id, Key => Metric} | AccIn2]
-        end,
-        [],
-        Points
-    ),
-    lists:zipwith(
-        fun(AllResulted, ThisKeyMetricOut) ->
-            maps:merge(AllResulted, ThisKeyMetricOut)
-        end,
-        AllResultedAcc,
-        ThisKeyResult
-    ).
-
-auth_data(authn) -> authn_data();
-auth_data(authz) -> authz_data().
-
-label_key(authn) -> id;
-label_key(authz) -> type.
-
-user_rule_data(authn) -> authn_users_count_data();
-user_rule_data(authz) -> authz_rules_count_data().
-
-users_or_rule_count(id, Id, #{emqx_authn_users_count := Points} = _AuthnUsersD) ->
-    case lists:keyfind([{id, Id}], 1, Points) of
-        {_, Metric} ->
-            #{emqx_authn_users_count => Metric};
-        false ->
-            #{}
-    end;
-users_or_rule_count(type, Type, #{emqx_authz_rules_count := Points} = _AuthzRulesD) ->
-    case lists:keyfind([{type, Type}], 1, Points) of
-        {_, Metric} ->
-            #{emqx_authz_rules_count => Metric};
-        false ->
-            #{}
-    end;
-users_or_rule_count(_, _, _) ->
-    #{}.
-
 metric_names(MetricWithType) when is_list(MetricWithType) ->
     [Name || {Name, _Type} <- MetricWithType].
+
+aggre_or_zip_init_acc() ->
+    #{
+        authn => maps:from_keys(authn_metric_names(), []),
+        authz => maps:from_keys(authz_metric_names(), [])
+    }.

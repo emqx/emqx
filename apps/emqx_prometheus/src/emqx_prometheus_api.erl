@@ -43,6 +43,8 @@
     data_integration/2
 ]).
 
+-export([lookup_from_local_nodes/3]).
+
 -define(TAGS, [<<"Monitor">>]).
 -define(IS_TRUE(Val), ((Val =:= true) orelse (Val =:= <<"true">>))).
 -define(IS_FALSE(Val), ((Val =:= false) orelse (Val =:= <<"false">>))).
@@ -138,6 +140,10 @@ fields(format_mode) ->
             )}
     ].
 
+%% bpapi
+lookup_from_local_nodes(M, F, A) ->
+    erlang:apply(M, F, A).
+
 %%--------------------------------------------------------------------
 %% API Handler funcs
 %%--------------------------------------------------------------------
@@ -195,11 +201,11 @@ response_type(#{<<"accept">> := <<"application/json">>}) ->
 response_type(_) ->
     <<"prometheus">>.
 
-format_mode(#{<<"format_mode">> := <<"node">>}) ->
+format_mode(#{<<"format_mode">> := node}) ->
     node;
-format_mode(#{<<"format_mode">> := <<"nodes_aggregated">>}) ->
+format_mode(#{<<"format_mode">> := nodes_aggregated}) ->
     nodes_aggregated;
-format_mode(#{<<"format_mode">> := <<"nodes_unaggregated">>}) ->
+format_mode(#{<<"format_mode">> := nodes_unaggregated}) ->
     nodes_unaggregated;
 format_mode(_) ->
     node.
