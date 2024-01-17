@@ -152,7 +152,7 @@ jobs:
           echo "PROFILE=${PROFILE}" | tee -a .env
           echo "PKG_VSN=$(./pkg-vsn.sh ${PROFILE})" | tee -a .env
           zip -ryq -x@.github/workflows/.zipignore $PROFILE.zip .
-      - uses: actions/upload-artifact@c7d193f32edcb7bfad88892161225aeda64e9392 # v4.0.0
+      - uses: actions/upload-artifact@1eb3cb2b3e0f29609092a73eb033bb759a334595 # v4.1.0
         with:
           name: ${{ matrix.profile }}
           path: ${{ matrix.profile }}.zip
