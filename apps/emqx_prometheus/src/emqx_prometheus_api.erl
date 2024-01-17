@@ -135,7 +135,7 @@ fields(format_mode) ->
                     desc => <<"Metrics format mode.">>,
                     in => query,
                     required => false,
-                    example => false
+                    example => node
                 }
             )}
     ].
