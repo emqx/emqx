@@ -160,7 +160,9 @@ connector_type_to_bridge_types(iotdb) ->
 connector_type_to_bridge_types(elasticsearch) ->
     [elasticsearch];
 connector_type_to_bridge_types(opents) ->
-    [opents].
+    [opents];
+connector_type_to_bridge_types(greptimedb) ->
+    [greptimedb].
 
 actions_config_name(action) -> <<"actions">>;
 actions_config_name(source) -> <<"sources">>.
