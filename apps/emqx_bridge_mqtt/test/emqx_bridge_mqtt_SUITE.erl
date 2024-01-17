@@ -839,6 +839,40 @@ t_egress_mqtt_bridge_with_rules(_) ->
     {ok, 204, <<>>} = request(delete, uri(["rules", RuleId]), []),
     {ok, 204, <<>>} = request(delete, uri(["bridges", BridgeIDEgress]), []).
 
+t_egress_mqtt_bridge_with_dummy_rule(_) ->
+    BridgeIDEgress = create_bridge(
+        ?SERVER_CONF#{
+            <<"name">> => ?BRIDGE_NAME_EGRESS,
+            <<"egress">> => ?EGRESS_CONF
+        }
+    ),
+
+    {ok, 201, Rule} = request(
+        post,
+        uri(["rules"]),
+        #{
+            <<"name">> => <<"A_rule_send_empty_messages_to_a_sink_mqtt_bridge">>,
+            <<"enable">> => true,
+            <<"actions">> => [BridgeIDEgress],
+            %% select something useless from what a message cannot be composed
+            <<"sql">> => <<"SELECT x from \"t/1\"">>
+        }
+    ),
+    #{<<"id">> := RuleId} = emqx_utils_json:decode(Rule),
+
+    %% PUBLISH a message to the rule.
+    Payload = <<"hi">>,
+    RuleTopic = <<"t/1">>,
+    RemoteTopic = <<?EGRESS_REMOTE_TOPIC, "/">>,
+    emqx:subscribe(RemoteTopic),
+    timer:sleep(100),
+    emqx:publish(emqx_message:make(RuleTopic, Payload)),
+    %% we should receive a message on the "remote" broker, with specified topic
+    assert_mqtt_msg_received(RemoteTopic, <<>>),
+
+    {ok, 204, <<>>} = request(delete, uri(["rules", RuleId]), []),
+    {ok, 204, <<>>} = request(delete, uri(["bridges", BridgeIDEgress]), []).
+
 t_mqtt_conn_bridge_egress_reconnect(_) ->
     %% then we add a mqtt connector, using POST
     BridgeIDEgress = create_bridge(
