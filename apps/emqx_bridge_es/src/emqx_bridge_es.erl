@@ -98,10 +98,14 @@ action_union_member_selector({value, Value}) ->
             [?R_REF(action_delete)];
         #{<<"action">> := <<"update">>} ->
             [?R_REF(action_update)];
-        _ ->
+        #{<<"action">> := Action} when is_atom(Action) ->
+            Value1 = Value#{<<"action">> => atom_to_binary(Action)},
+            action_union_member_selector({value, Value1});
+        Actual ->
             Expected = "create | delete | update",
             throw(#{
                 field_name => action,
+                actual => Actual,
                 expected => Expected
             })
     end.

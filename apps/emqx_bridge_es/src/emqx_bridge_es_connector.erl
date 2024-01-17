@@ -200,7 +200,7 @@ on_start(InstanceId, Config) ->
             ?SLOG(info, #{
                 msg => "elasticsearch_bridge_started",
                 instance_id => InstanceId,
-                request => maps:get(request, State, <<>>)
+                request => emqx_utils:redact(maps:get(request, State, <<>>))
             }),
             ?tp(elasticsearch_bridge_started, #{instance_id => InstanceId}),
             {ok, State#{channels => #{}}};
@@ -208,7 +208,7 @@ on_start(InstanceId, Config) ->
             ?SLOG(error, #{
                 msg => "failed_to_start_elasticsearch_bridge",
                 instance_id => InstanceId,
-                request => maps:get(request, Config, <<>>),
+                request => emqx_utils:redact(maps:get(request, Config, <<>>)),
                 reason => Reason
             }),
             throw(failed_to_start_elasticsearch_bridge)
@@ -354,6 +354,7 @@ add_query_string(Keys, Param0) ->
     end.
 
 to_str(List) when is_list(List) -> List;
+to_str(Bin) when is_binary(Bin) -> binary_to_list(Bin);
 to_str(false) -> "false";
 to_str(true) -> "true";
 to_str(Atom) when is_atom(Atom) -> atom_to_list(Atom).
