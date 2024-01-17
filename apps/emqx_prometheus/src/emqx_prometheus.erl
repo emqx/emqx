@@ -746,10 +746,9 @@ emqx_certs() ->
 -spec emqx_certs_data() ->
     [_Point :: {[Label], Epoch}]
 when
-    Label :: TypeLabel | NameLabel | CertTypeLabel,
+    Label :: TypeLabel | NameLabel,
     TypeLabel :: {listener_type, ssl | wss | quic},
     NameLabel :: {listener_name, atom()},
-    CertTypeLabel :: {cert_type, cacertfile | certfile},
     Epoch :: non_neg_integer().
 emqx_certs_data() ->
     case emqx_config:get([listeners], undefined) of
@@ -769,7 +768,7 @@ emqx_certs_data() ->
 points_of_listeners(Type, AllListeners) ->
     do_points_of_listeners(Type, maps:get(Type, AllListeners, undefined)).
 
--define(CERT_TYPES, [cacertfile, certfile]).
+-define(CERT_TYPES, [certfile]).
 
 -spec do_points_of_listeners(Type, TypeOfListeners) ->
     [_Point :: {[{LabelKey, LabelValue}], Epoch}]
@@ -792,7 +791,7 @@ do_points_of_listeners(ListenerType, TypeOfListeners) ->
                         )
                     of
                         undefined -> AccIn;
-                        Path -> [gen_point(ListenerType, Name, CertType, Path) | AccIn]
+                        Path -> [gen_point(ListenerType, Name, Path) | AccIn]
                     end
                 end,
                 [],
@@ -803,13 +802,12 @@ do_points_of_listeners(ListenerType, TypeOfListeners) ->
         maps:keys(TypeOfListeners)
     ).
 
-gen_point(Type, Name, CertType, Path) ->
+gen_point(Type, Name, Path) ->
     {
         %% Labels: [{_Labelkey, _LabelValue}]
         [
             {listener_type, Type},
-            {listener_name, Name},
-            {cert_type, CertType}
+            {listener_name, Name}
         ],
         %% Value
         cert_expiry_at_from_path(Path)
