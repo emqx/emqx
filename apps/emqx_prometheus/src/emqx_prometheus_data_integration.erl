@@ -24,6 +24,10 @@
 
 -export([collect/1]).
 
+-export([
+    zip_json_data_integration_metrics/3
+]).
+
 %% for bpapi
 -export([
     fetch_metric_data_from_local_node/0
@@ -394,7 +398,7 @@ get_metric(#{id := Id, enable := Bool} = _Rule) ->
     case emqx_metrics_worker:get_metrics(rule_metrics, Id) of
         #{counters := Counters} ->
             #{
-                emqx_rule_enable => boolean_to_number(Bool),
+                emqx_rule_enable => emqx_prometheus_utils:boolean_to_number(Bool),
                 emqx_rule_matched => ?MG(matched, Counters),
                 emqx_rule_failed => ?MG(failed, Counters),
                 emqx_rule_passed => ?MG(passed, Counters),
@@ -411,7 +415,7 @@ get_metric(#{id := Id, enable := Bool} = _Rule) ->
     end.
 
 rule_specific_metric_names() ->
-    metric_names(?RULES_SPECIFIC_WITH_TYPE).
+    emqx_prometheus_utils:metric_names(?RULES_SPECIFIC_WITH_TYPE).
 
 %%====================
 %% Specific Action
@@ -465,7 +469,7 @@ get_bridge_metric(Type, Name) ->
     end.
 
 action_specific_metric_names() ->
-    metric_names(?ACTION_SPECIFIC_WITH_TYPE).
+    emqx_prometheus_utils:metric_names(?ACTION_SPECIFIC_WITH_TYPE).
 
 %%====================
 %% Specific Connector
@@ -497,12 +501,12 @@ get_connector_status(#{resource_data := ResourceData} = _Bridge) ->
     Enabled = emqx_utils_maps:deep_get([config, enable], ResourceData),
     Status = ?MG(status, ResourceData),
     #{
-        emqx_connector_enable => boolean_to_number(Enabled),
-        emqx_connector_status => status_to_number(Status)
+        emqx_connector_enable => emqx_prometheus_utils:boolean_to_number(Enabled),
+        emqx_connector_status => emqx_prometheus_utils:status_to_number(Status)
     }.
 
 connectr_specific_metric_names() ->
-    metric_names(?CONNECTOR_SPECIFIC_WITH_TYPE).
+    emqx_prometheus_utils:metric_names(?CONNECTOR_SPECIFIC_WITH_TYPE).
 
 %%--------------------------------------------------------------------
 %% Collect functions
@@ -510,7 +514,6 @@ connectr_specific_metric_names() ->
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %% merge / zip formatting funcs for type `application/json`
-
 collect_data_integration_overview(Rules, Bridges) ->
     RulesD = rules_data(Rules),
     ConnectorsD = connectors_data(Bridges),
@@ -518,198 +521,53 @@ collect_data_integration_overview(Rules, Bridges) ->
     M1 = lists:foldl(
         fun(K, AccIn) -> AccIn#{K => ?MG(K, RulesD)} end,
         #{},
-        metric_names(?RULES_WITH_TYPE)
+        emqx_prometheus_utils:metric_names(?RULES_WITH_TYPE)
     ),
     M2 = lists:foldl(
         fun(K, AccIn) -> AccIn#{K => ?MG(K, ConnectorsD)} end,
         #{},
-        metric_names(?CONNECTORS_WITH_TYPE)
+        emqx_prometheus_utils:metric_names(?CONNECTORS_WITH_TYPE)
     ),
     M3 = maybe_collect_schema_registry(),
 
     lists:foldl(fun(M, AccIn) -> maps:merge(M, AccIn) end, #{}, [M1, M2, M3]).
 
 collect_json_data(Data) ->
-    maps:fold(
-        fun(K, V, Acc) ->
-            zip_json_metrics(K, V, Acc)
-        end,
-        [],
-        Data
-    ).
+    emqx_prometheus_utils:collect_json_data(Data, fun zip_json_data_integration_metrics/3).
 
-zip_json_metrics(Key, Points, [] = _AccIn) ->
+%% for initialized empty AccIn
+%% The following fields will be put into Result
+%% For Rules:
+%%     `id` => [RULE_ID]
+%% For Actions
+%%     `id` => [ACTION_ID]
+%% FOR Connectors
+%%     `id` => [CONNECTOR_ID] %% CONNECTOR_ID = BRIDGE_ID
+%%     formatted with {type}:{name}
+zip_json_data_integration_metrics(Key, Points, [] = _AccIn) ->
     lists:foldl(
         fun({Lables, Metric}, AccIn2) ->
             LablesKVMap = maps:from_list(Lables),
-            %% for initialized empty AccIn
-            %% The following fields will be put into Result
-            %% For Rules:
-            %%     `id` => [RULE_ID]
-            %% For Actions
-            %%     `id` => [ACTION_ID]
-            %% FOR Connectors
-            %%     `id` => [CONNECTOR_ID] %% CONNECTOR_ID = BRIDGE_ID
-            %%     formatted with {type}:{name}
             Point = LablesKVMap#{Key => Metric},
             [Point | AccIn2]
         end,
         [],
         Points
     );
-zip_json_metrics(Key, Points, AllResultedAcc) ->
-    ThisKeyResult = lists:foldl(
-        fun({Lables, Metric}, AccIn2) ->
-            LablesKVMap = maps:from_list(Lables),
-            [maps:merge(LablesKVMap, #{Key => Metric}) | AccIn2]
-        end,
-        [],
-        Points
-    ),
-    lists:zipwith(
-        fun(AllResulted, ThisKeyMetricOut) ->
-            maps:merge(AllResulted, ThisKeyMetricOut)
-        end,
-        AllResultedAcc,
-        ThisKeyResult
-    ).
+zip_json_data_integration_metrics(Key, Points, AllResultedAcc) ->
+    ThisKeyResult = lists:foldl(emqx_prometheus_utils:point_to_map_fun(Key), [], Points),
+    lists:zipwith(fun maps:merge/2, AllResultedAcc, ThisKeyResult).
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %% merge / zip formatting funcs for type `text/plain`
 aggre_cluster(ResL) ->
-    do_aggre_cluster(ResL, aggre_or_zip_init_acc()).
-
-do_aggre_cluster([], AccIn) ->
-    AccIn;
-do_aggre_cluster(
-    [
-        {ok,
-            {_NodeName, #{
-                rule_specific_data := NodeRuleMetrics,
-                action_specific_data := NodeActionMetrics,
-                connector_specific_data := NodeConnectorMetrics
-            }}}
-        | Rest
-    ],
-    #{
-        rule_specific_data := RuleAcc,
-        action_specific_data := ActionAcc,
-        connector_specific_data := ConnAcc
-    } = AccIn
-) ->
-    do_aggre_cluster(
-        Rest,
-        AccIn#{
-            %% TODO
-            rule_specific_data => do_aggre_metric(NodeRuleMetrics, RuleAcc),
-            action_specific_data => do_aggre_metric(NodeActionMetrics, ActionAcc),
-            connector_specific_data => do_aggre_metric(NodeConnectorMetrics, ConnAcc)
-        }
-    );
-do_aggre_cluster([{_, _} | Rest], AccIn) ->
-    do_aggre_cluster(Rest, AccIn).
-
-do_aggre_metric(NodeMetrics, AccIn0) ->
-    lists:foldl(
-        fun(K, AccIn) ->
-            NAccL = do_aggre_metric(K, ?MG(K, NodeMetrics), ?MG(K, AccIn)),
-            AccIn#{K => NAccL}
-        end,
-        AccIn0,
-        maps:keys(NodeMetrics)
-    ).
-
--define(PG0(K, PROPLISTS), proplists:get_value(K, PROPLISTS, 0)).
-
-do_aggre_metric(K, NodeMetrics, AccL) ->
-    lists:foldl(
-        fun({Labels, Metric}, AccIn) ->
-            NMetric =
-                case lists:member(K, ?LOGICAL_SUM_METRIC_NAMES) of
-                    true ->
-                        logic_sum(Metric, ?PG0(Labels, AccIn));
-                    false ->
-                        Metric + ?PG0(Labels, AccIn)
-                end,
-            [{Labels, NMetric} | AccIn]
-        end,
-        AccL,
-        NodeMetrics
-    ).
+    emqx_prometheus_utils:aggre_cluster(?LOGICAL_SUM_METRIC_NAMES, ResL, aggre_or_zip_init_acc()).
 
 with_node_name_label(ResL) ->
-    do_with_node_name_label(
-        ResL,
-        aggre_or_zip_init_acc()
-    ).
-
-do_with_node_name_label([], AccIn) ->
-    AccIn;
-do_with_node_name_label(
-    [
-        {ok,
-            {NodeName, #{
-                rule_specific_data := NodeRuleMetrics,
-                action_specific_data := NodeActionMetrics,
-                connector_specific_data := NodeConnectorMetrics
-            }}}
-        | Rest
-    ],
-    #{
-        rule_specific_data := RuleAcc,
-        action_specific_data := ActionAcc,
-        connector_specific_data := ConnAcc
-    } = AccIn
-) ->
-    do_with_node_name_label(
-        Rest,
-        AccIn#{
-            rule_specific_data => zip_with_node_name(NodeName, NodeRuleMetrics, RuleAcc),
-            action_specific_data => zip_with_node_name(NodeName, NodeActionMetrics, ActionAcc),
-            connector_specific_data => zip_with_node_name(NodeName, NodeConnectorMetrics, ConnAcc)
-        }
-    );
-do_with_node_name_label([{_, _} | Rest], AccIn) ->
-    do_with_node_name_label(Rest, AccIn).
-
-zip_with_node_name(NodeName, NodeMetrics, AccIn0) ->
-    lists:foldl(
-        fun(K, AccIn) ->
-            NAccL = do_zip_with_node_name(NodeName, ?MG(K, NodeMetrics), ?MG(K, AccIn)),
-            AccIn#{K => NAccL}
-        end,
-        AccIn0,
-        maps:keys(NodeMetrics)
-    ).
-
-do_zip_with_node_name(NodeName, NodeMetrics, AccL) ->
-    lists:foldl(
-        fun({Labels, Metric}, AccIn) ->
-            NLabels = [{node_name, NodeName} | Labels],
-            [{NLabels, Metric} | AccIn]
-        end,
-        AccL,
-        NodeMetrics
-    ).
+    emqx_prometheus_utils:with_node_name_label(ResL, aggre_or_zip_init_acc()).
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %% Helper funcs
-
-boolean_to_number(true) -> 1;
-boolean_to_number(false) -> 0.
-
-status_to_number(connected) -> 1;
-status_to_number(disconnected) -> 0.
-
-logic_sum(N1, N2) when
-    (N1 > 0 andalso N2 > 0)
-->
-    1;
-logic_sum(_, _) ->
-    0.
-
-metric_names(MetricWithType) when is_list(MetricWithType) ->
-    [Name || {Name, _Type} <- MetricWithType].
 
 aggre_or_zip_init_acc() ->
     #{
