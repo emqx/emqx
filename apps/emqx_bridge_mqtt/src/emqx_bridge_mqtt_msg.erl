@@ -16,6 +16,8 @@
 
 -module(emqx_bridge_mqtt_msg).
 
+-include_lib("emqx/include/emqx_mqtt.hrl").
+
 -export([parse/1]).
 -export([render/2]).
 
@@ -66,8 +68,8 @@ render(
     #{
         topic => render_string(TopicToken, Msg),
         payload => render_payload(Vars, Msg),
-        qos => render_simple_var(QoSToken, Msg),
-        retain => render_simple_var(RetainToken, Msg)
+        qos => render_simple_var(QoSToken, Msg, ?QOS_0),
+        retain => render_simple_var(RetainToken, Msg, false)
     }.
 
 render_payload(From, MapMsg) ->
@@ -80,16 +82,23 @@ do_render_payload(Tks, Msg) ->
 
 %% Replace a string contains vars to another string in which the placeholders are replace by the
 %% corresponding values. For example, given "a: ${var}", if the var=1, the result string will be:
-%% "a: 1".
+%% "a: 1". Undefined vars will be replaced by empty strings.
 render_string(Tokens, Data) when is_list(Tokens) ->
-    emqx_placeholder:proc_tmpl(Tokens, Data, #{return => full_binary});
+    emqx_placeholder:proc_tmpl(Tokens, Data, #{
+        return => full_binary, var_trans => fun undefined_as_empty/1
+    });
 render_string(Val, _Data) ->
     Val.
 
+undefined_as_empty(undefined) ->
+    <<>>;
+undefined_as_empty(Val) ->
+    emqx_utils_conv:bin(Val).
+
 %% Replace a simple var to its value. For example, given "${var}", if the var=1, then the result
 %% value will be an integer 1.
-render_simple_var(Tokens, Data) when is_list(Tokens) ->
+render_simple_var(Tokens, Data, Default) when is_list(Tokens) ->
     [Var] = emqx_placeholder:proc_tmpl(Tokens, Data, #{return => rawlist}),
-    Var;
-render_simple_var(Val, _Data) ->
+    emqx_maybe:define(Var, Default);
+render_simple_var(Val, _Data, _Default) ->
     Val.
