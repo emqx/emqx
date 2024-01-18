@@ -56,7 +56,7 @@ drain_k() -> {?MODULE, drain_timestamp}.
 -spec is_enabled(emqx_types:topic()) -> boolean().
 is_enabled(Topic) ->
     case emqx:get_config([authorization, cache]) of
-        #{enable := true, excludes := Filters} ->
+        #{enable := true, excludes := Filters} when Filters =/= [] ->
             not is_excluded(Topic, Filters);
         #{enable := IsEnabled} ->
             IsEnabled
