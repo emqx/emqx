@@ -1853,6 +1853,14 @@ fields("session_persistence") ->
                     desc => ?DESC(session_ds_session_gc_batch_size)
                 }
             )},
+        {"message_retention_period",
+            sc(
+                timeout_duration(),
+                #{
+                    default => <<"1d">>,
+                    desc => ?DESC(session_ds_message_retention_period)
+                }
+            )},
         {"force_persistence",
             sc(
                 boolean(),
