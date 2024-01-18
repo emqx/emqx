@@ -169,16 +169,16 @@ post_config_update([?ROOT_KEY, Type, Name], _Req, NewConf, OldConf, _AppEnvs) ->
     ?tp(connector_post_config_update_done, #{}),
     ok.
 
-%% The config update will be failed if any task in `perform_connector_changes` failed.
 perform_connector_changes(Removed, Added, Updated) ->
     Result = perform_connector_changes([
-        #{action => fun emqx_connector_resource:remove/4, data => Removed},
+        #{action => fun emqx_connector_resource:remove/4, action_name => remove, data => Removed},
         #{
             action => fun emqx_connector_resource:create/4,
+            action_name => create,
             data => Added,
             on_exception_fn => fun emqx_connector_resource:remove/4
         },
-        #{action => fun emqx_connector_resource:update/4, data => Updated}
+        #{action => fun emqx_connector_resource:update/4, action_name => update, data => Updated}
     ]),
     ?tp(connector_post_config_update_done, #{}),
     Result.
@@ -351,28 +351,21 @@ convert_certs(ConnectorsConf) ->
     ).
 
 perform_connector_changes(Tasks) ->
-    perform_connector_changes(Tasks, ok).
+    perform_connector_changes(Tasks, []).
 
-perform_connector_changes([], Result) ->
-    Result;
-perform_connector_changes([#{action := Action, data := MapConfs} = Task | Tasks], Result0) ->
+perform_connector_changes([], Errors) ->
+    case Errors of
+        [] -> ok;
+        _ -> {error, Errors}
+    end;
+perform_connector_changes([#{action := Action, data := MapConfs} = Task | Tasks], Errors0) ->
     OnException = maps:get(on_exception_fn, Task, fun(_Type, _Name, _Conf, _Opts) -> ok end),
-    Result = maps:fold(
-        fun
-            ({_Type, _Name}, _Conf, {error, Reason}) ->
-                {error, Reason};
-            %% for emqx_connector_resource:update/4
-            ({Type, Name}, {OldConf, Conf}, _) ->
-                ResOpts = emqx_resource:fetch_creation_opts(Conf),
-                case Action(Type, Name, {OldConf, Conf}, ResOpts) of
-                    {error, Reason} -> {error, Reason};
-                    Return -> Return
-                end;
-            ({Type, Name}, Conf, _) ->
-                ResOpts = emqx_resource:fetch_creation_opts(Conf),
-                try Action(Type, Name, Conf, ResOpts) of
-                    {error, Reason} -> {error, Reason};
-                    Return -> Return
+    Results = emqx_utils:pmap(
+        fun({{Type, Name}, Conf}) ->
+            ResOpts = creation_opts(Conf),
+            Res =
+                try
+                    Action(Type, Name, Conf, ResOpts)
                 catch
                     Kind:Error:Stacktrace ->
                         ?SLOG(error, #{
@@ -384,13 +377,34 @@ perform_connector_changes([#{action := Action, data := MapConfs} = Task | Tasks]
                             stacktrace => Stacktrace
                         }),
                         OnException(Type, Name, Conf, ResOpts),
-                        erlang:raise(Kind, Error, Stacktrace)
-                end
+                        {error, Error}
+                end,
+            {{Type, Name}, Res}
         end,
-        Result0,
-        MapConfs
+        maps:to_list(MapConfs),
+        infinity
     ),
-    perform_connector_changes(Tasks, Result).
+    Errs = lists:filter(
+        fun
+            ({_TypeName, {error, _}}) -> true;
+            (_) -> false
+        end,
+        Results
+    ),
+    Errors =
+        case Errs of
+            [] ->
+                Errors0;
+            _ ->
+                #{action_name := ActionName} = Task,
+                [#{action => ActionName, errors => Errs} | Errors0]
+        end,
+    perform_connector_changes(Tasks, Errors).
+
+creation_opts({_OldConf, Conf}) ->
+    emqx_resource:fetch_creation_opts(Conf);
+creation_opts(Conf) ->
+    emqx_resource:fetch_creation_opts(Conf).
 
 diff_confs(NewConfs, OldConfs) ->
     emqx_utils_maps:diff_maps(

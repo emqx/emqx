@@ -1059,7 +1059,6 @@ post_config_update([ConfRootKey], _Req, NewConf, OldConf, _AppEnv) when
 ->
     #{added := Added, removed := Removed, changed := Updated} =
         diff_confs(NewConf, OldConf),
-    %% The config update will be failed if any task in `perform_bridge_changes` failed.
     RemoveFun = fun(Type, Name, Conf) ->
         uninstall_bridge_v2(ConfRootKey, Type, Name, Conf)
     end,
@@ -1071,13 +1070,14 @@ post_config_update([ConfRootKey], _Req, NewConf, OldConf, _AppEnv) when
         install_bridge_v2(ConfRootKey, Type, Name, Conf)
     end,
     Result = perform_bridge_changes([
-        #{action => RemoveFun, data => Removed},
+        #{action => RemoveFun, action_name => remove, data => Removed},
         #{
             action => CreateFun,
+            action_name => create,
             data => Added,
             on_exception_fn => fun emqx_bridge_resource:remove/4
         },
-        #{action => UpdateFun, data => Updated}
+        #{action => UpdateFun, action_name => update, data => Updated}
     ]),
     reload_message_publish_hook(NewConf),
     ?tp(bridge_post_config_update_done, #{}),
@@ -1141,26 +1141,20 @@ do_flatten_confs(Type, Conf0) ->
     [{{Type, Name}, Conf} || {Name, Conf} <- maps:to_list(Conf0)].
 
 perform_bridge_changes(Tasks) ->
-    perform_bridge_changes(Tasks, ok).
+    perform_bridge_changes(Tasks, []).
 
-perform_bridge_changes([], Result) ->
-    Result;
-perform_bridge_changes([#{action := Action, data := MapConfs} = Task | Tasks], Result0) ->
+perform_bridge_changes([], Errors) ->
+    case Errors of
+        [] -> ok;
+        _ -> {error, Errors}
+    end;
+perform_bridge_changes([#{action := Action, data := MapConfs} = Task | Tasks], Errors0) ->
     OnException = maps:get(on_exception_fn, Task, fun(_Type, _Name, _Conf, _Opts) -> ok end),
-    Result = maps:fold(
-        fun
-            ({_Type, _Name}, _Conf, {error, Reason}) ->
-                {error, Reason};
-            %% for update
-            ({Type, Name}, {OldConf, Conf}, _) ->
-                case Action(Type, Name, {OldConf, Conf}) of
-                    {error, Reason} -> {error, Reason};
-                    Return -> Return
-                end;
-            ({Type, Name}, Conf, _) ->
-                try Action(Type, Name, Conf) of
-                    {error, Reason} -> {error, Reason};
-                    Return -> Return
+    Results = emqx_utils:pmap(
+        fun({{Type, Name}, Conf}) ->
+            Res =
+                try
+                    Action(Type, Name, Conf)
                 catch
                     Kind:Error:Stacktrace ->
                         ?SLOG(error, #{
@@ -1172,13 +1166,29 @@ perform_bridge_changes([#{action := Action, data := MapConfs} = Task | Tasks], R
                             stacktrace => Stacktrace
                         }),
                         OnException(Type, Name, Conf),
-                        erlang:raise(Kind, Error, Stacktrace)
-                end
+                        {error, Error}
+                end,
+            {{Type, Name}, Res}
         end,
-        Result0,
-        MapConfs
+        maps:to_list(MapConfs),
+        infinity
     ),
-    perform_bridge_changes(Tasks, Result).
+    Errs = lists:filter(
+        fun
+            ({_TypeName, {error, _}}) -> true;
+            (_) -> false
+        end,
+        Results
+    ),
+    Errors =
+        case Errs of
+            [] ->
+                Errors0;
+            _ ->
+                #{action_name := ActionName} = Task,
+                [#{action => ActionName, errors => Errs} | Errors0]
+        end,
+    perform_bridge_changes(Tasks, Errors).
 
 fill_defaults(Type, RawConf, TopLevelConf, SchemaModule) ->
     PackedConf = pack_bridge_conf(Type, RawConf, TopLevelConf),
