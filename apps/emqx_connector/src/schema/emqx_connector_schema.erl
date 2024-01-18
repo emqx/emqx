@@ -90,7 +90,9 @@ api_schemas(Method) ->
     [
         %% We need to map the `type' field of a request (binary) to a
         %% connector schema module.
-        api_ref(emqx_bridge_http_schema, <<"http">>, Method ++ "_connector")
+        api_ref(emqx_bridge_http_schema, <<"http">>, Method ++ "_connector"),
+        % api_ref(emqx_bridge_mqtt_connector_schema, <<"mqtt_subscriber">>, Method ++ "_connector"),
+        api_ref(emqx_bridge_mqtt_connector_schema, <<"mqtt">>, Method ++ "_connector")
     ].
 
 api_ref(Module, Type, Method) ->
@@ -110,10 +112,11 @@ examples(Method) ->
 
 -if(?EMQX_RELEASE_EDITION == ee).
 schema_modules() ->
-    [emqx_bridge_http_schema] ++ emqx_connector_ee_schema:schema_modules().
+    [emqx_bridge_http_schema, emqx_bridge_mqtt_connector_schema] ++
+        emqx_connector_ee_schema:schema_modules().
 -else.
 schema_modules() ->
-    [emqx_bridge_http_schema].
+    [emqx_bridge_http_schema, emqx_bridge_mqtt_connector_schema].
 -endif.
 
 %% @doc Return old bridge(v1) and/or connector(v2) type
@@ -136,6 +139,8 @@ connector_type_to_bridge_types(influxdb) ->
     [influxdb, influxdb_api_v1, influxdb_api_v2];
 connector_type_to_bridge_types(mysql) ->
     [mysql];
+connector_type_to_bridge_types(mqtt) ->
+    [mqtt];
 connector_type_to_bridge_types(pgsql) ->
     [pgsql];
 connector_type_to_bridge_types(redis) ->
@@ -147,9 +152,12 @@ connector_type_to_bridge_types(syskeeper_proxy) ->
 connector_type_to_bridge_types(timescale) ->
     [timescale];
 connector_type_to_bridge_types(iotdb) ->
-    [iotdb].
+    [iotdb];
+connector_type_to_bridge_types(elasticsearch) ->
+    [elasticsearch].
 
-actions_config_name() -> <<"actions">>.
+actions_config_name(action) -> <<"actions">>;
+actions_config_name(source) -> <<"sources">>.
 
 has_connector_field(BridgeConf, ConnectorFields) ->
     lists:any(
@@ -183,40 +191,52 @@ bridge_configs_to_transform(
     end.
 
 split_bridge_to_connector_and_action(
-    {ConnectorsMap, {BridgeType, BridgeName, BridgeV1Conf, ConnectorFields, PreviousRawConfig}}
+    {
+        {ConnectorsMap, OrgConnectorType},
+        {BridgeType, BridgeName, BridgeV1Conf, ConnectorFields, PreviousRawConfig}
+    }
 ) ->
-    ConnectorMap =
+    {ConnectorMap, ConnectorType} =
         case emqx_action_info:has_custom_bridge_v1_config_to_connector_config(BridgeType) of
             true ->
-                emqx_action_info:bridge_v1_config_to_connector_config(
-                    BridgeType, BridgeV1Conf
-                );
+                case
+                    emqx_action_info:bridge_v1_config_to_connector_config(
+                        BridgeType, BridgeV1Conf
+                    )
+                of
+                    {ConType, ConMap} ->
+                        {ConMap, ConType};
+                    ConMap ->
+                        {ConMap, OrgConnectorType}
+                end;
             false ->
                 %% We do an automatic transformation to get the connector config
                 %% if the callback is not defined.
                 %% Get connector fields from bridge config
-                lists:foldl(
-                    fun({ConnectorFieldName, _Spec}, ToTransformSoFar) ->
-                        ConnectorFieldNameBin = to_bin(ConnectorFieldName),
-                        case maps:is_key(ConnectorFieldNameBin, BridgeV1Conf) of
-                            true ->
-                                PrevFieldConfig =
-                                    maybe_project_to_connector_resource_opts(
+                NewCConMap =
+                    lists:foldl(
+                        fun({ConnectorFieldName, _Spec}, ToTransformSoFar) ->
+                            ConnectorFieldNameBin = to_bin(ConnectorFieldName),
+                            case maps:is_key(ConnectorFieldNameBin, BridgeV1Conf) of
+                                true ->
+                                    PrevFieldConfig =
+                                        maybe_project_to_connector_resource_opts(
+                                            ConnectorFieldNameBin,
+                                            maps:get(ConnectorFieldNameBin, BridgeV1Conf)
+                                        ),
+                                    maps:put(
                                         ConnectorFieldNameBin,
-                                        maps:get(ConnectorFieldNameBin, BridgeV1Conf)
-                                    ),
-                                maps:put(
-                                    ConnectorFieldNameBin,
-                                    PrevFieldConfig,
+                                        PrevFieldConfig,
+                                        ToTransformSoFar
+                                    );
+                                false ->
                                     ToTransformSoFar
-                                );
-                            false ->
-                                ToTransformSoFar
-                        end
-                    end,
-                    #{},
-                    ConnectorFields
-                )
+                            end
+                        end,
+                        #{},
+                        ConnectorFields
+                    ),
+                {NewCConMap, OrgConnectorType}
         end,
     %% Generate a connector name, if needed.  Avoid doing so if there was a previous config.
     ConnectorName =
@@ -224,18 +244,29 @@ split_bridge_to_connector_and_action(
             #{<<"connector">> := ConnectorName0} -> ConnectorName0;
             _ -> generate_connector_name(ConnectorsMap, BridgeName, 0)
         end,
-    ActionMap =
+    OrgActionType = emqx_action_info:bridge_v1_type_to_action_type(BridgeType),
+    {ActionMap, ActionType, ActionOrSource} =
         case emqx_action_info:has_custom_bridge_v1_config_to_action_config(BridgeType) of
             true ->
-                emqx_action_info:bridge_v1_config_to_action_config(
-                    BridgeType, BridgeV1Conf, ConnectorName
-                );
+                case
+                    emqx_action_info:bridge_v1_config_to_action_config(
+                        BridgeType, BridgeV1Conf, ConnectorName
+                    )
+                of
+                    {ActionOrSource0, ActionType0, ActionMap0} ->
+                        {ActionMap0, ActionType0, ActionOrSource0};
+                    ActionMap0 ->
+                        {ActionMap0, OrgActionType, action}
+                end;
             false ->
-                transform_bridge_v1_config_to_action_config(
-                    BridgeV1Conf, ConnectorName, ConnectorFields
-                )
+                ActionMap0 =
+                    transform_bridge_v1_config_to_action_config(
+                        BridgeV1Conf, ConnectorName, ConnectorFields
+                    ),
+                {ActionMap0, OrgActionType, action}
         end,
-    {BridgeType, BridgeName, ActionMap, ConnectorName, ConnectorMap}.
+    {BridgeType, BridgeName, ActionMap, ActionType, ActionOrSource, ConnectorName, ConnectorMap,
+        ConnectorType}.
 
 maybe_project_to_connector_resource_opts(<<"resource_opts">>, OldResourceOpts) ->
     project_to_connector_resource_opts(OldResourceOpts);
@@ -305,9 +336,9 @@ generate_connector_name(ConnectorsMap, BridgeName, Attempt) ->
     ConnectorNameList =
         case Attempt of
             0 ->
-                io_lib:format("connector_~s", [BridgeName]);
+                io_lib:format("~s", [BridgeName]);
             _ ->
-                io_lib:format("connector_~s_~p", [BridgeName, Attempt + 1])
+                io_lib:format("~s_~p", [BridgeName, Attempt + 1])
         end,
     ConnectorName = iolist_to_binary(ConnectorNameList),
     case maps:is_key(ConnectorName, ConnectorsMap) of
@@ -338,7 +369,10 @@ transform_old_style_bridges_to_connector_and_actions_of_type(
         ),
     ConnectorsWithTypeMap = maps:get(to_bin(ConnectorType), ConnectorsConfMap, #{}),
     BridgeConfigsToTransformWithConnectorConf = lists:zip(
-        lists:duplicate(length(BridgeConfigsToTransform), ConnectorsWithTypeMap),
+        lists:duplicate(
+            length(BridgeConfigsToTransform),
+            {ConnectorsWithTypeMap, ConnectorType}
+        ),
         BridgeConfigsToTransform
     ),
     ActionConnectorTuples = lists:map(
@@ -347,10 +381,14 @@ transform_old_style_bridges_to_connector_and_actions_of_type(
     ),
     %% Add connectors and actions and remove bridges
     lists:foldl(
-        fun({BridgeType, BridgeName, ActionMap, ConnectorName, ConnectorMap}, RawConfigSoFar) ->
+        fun(
+            {BridgeType, BridgeName, ActionMap, NewActionType, ActionOrSource, ConnectorName,
+                ConnectorMap, NewConnectorType},
+            RawConfigSoFar
+        ) ->
             %% Add connector
             RawConfigSoFar1 = emqx_utils_maps:deep_put(
-                [<<"connectors">>, to_bin(ConnectorType), ConnectorName],
+                [<<"connectors">>, to_bin(NewConnectorType), ConnectorName],
                 RawConfigSoFar,
                 ConnectorMap
             ),
@@ -360,12 +398,21 @@ transform_old_style_bridges_to_connector_and_actions_of_type(
                 RawConfigSoFar1
             ),
             %% Add action
-            ActionType = emqx_action_info:bridge_v1_type_to_action_type(to_bin(BridgeType)),
-            RawConfigSoFar3 = emqx_utils_maps:deep_put(
-                [actions_config_name(), to_bin(ActionType), BridgeName],
-                RawConfigSoFar2,
-                ActionMap
-            ),
+            RawConfigSoFar3 =
+                case ActionMap of
+                    none ->
+                        RawConfigSoFar2;
+                    _ ->
+                        emqx_utils_maps:deep_put(
+                            [
+                                actions_config_name(ActionOrSource),
+                                to_bin(NewActionType),
+                                BridgeName
+                            ],
+                            RawConfigSoFar2,
+                            ActionMap
+                        )
+                end,
             RawConfigSoFar3
         end,
         RawConfig,
@@ -452,7 +499,23 @@ fields(connectors) ->
                     desc => <<"HTTP Connector Config">>,
                     required => false
                 }
+            )},
+        {mqtt,
+            mk(
+                hoconsc:map(name, ref(emqx_bridge_mqtt_connector_schema, "config_connector")),
+                #{
+                    desc => <<"MQTT Publisher Connector Config">>,
+                    required => false
+                }
             )}
+        % {mqtt_subscriber,
+        %     mk(
+        %         hoconsc:map(name, ref(emqx_bridge_mqtt_connector_schema, "config_connector")),
+        %         #{
+        %             desc => <<"MQTT Subscriber Connector Config">>,
+        %             required => false
+        %         }
+        %     )}
     ] ++ enterprise_fields_connectors();
 fields("node_status") ->
     [
@@ -501,6 +564,7 @@ api_fields("put_connector", _Type, Fields) ->
 common_fields() ->
     [
         {enable, mk(boolean(), #{desc => ?DESC("config_enable"), default => true})},
+        {tags, emqx_schema:tags_schema()},
         {description, emqx_schema:description_schema()}
     ].
 

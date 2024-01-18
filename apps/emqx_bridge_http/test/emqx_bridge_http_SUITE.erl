@@ -146,7 +146,7 @@ end_per_testcase(_TestCase, Config) ->
 
 %%------------------------------------------------------------------------------
 %% HTTP server for testing
-%% (Orginally copied from emqx_bridge_api_SUITE)
+%% (Originally copied from emqx_bridge_api_SUITE)
 %%------------------------------------------------------------------------------
 start_http_server(HTTPServerConfig) ->
     process_flag(trap_exit, true),
@@ -243,6 +243,12 @@ parse_http_request_assertive(ReqStr0) ->
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %% Helper functions
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+get_metrics(Name) ->
+    %% Note: `emqx_bridge:get_metrics/2' is currently *only* called in prod by
+    %% `emqx_bridge_api:lookup_from_local_node' with an action (not v1 bridge) type.
+    Type = <<"http">>,
+    emqx_bridge:get_metrics(Type, Name).
 
 bridge_async_config(#{port := Port} = Config) ->
     Type = maps:get(type, Config, ?BRIDGE_TYPE),
@@ -570,7 +576,7 @@ t_path_not_found(Config) ->
                             success := 0
                         }
                     },
-                    emqx_bridge:get_metrics(?BRIDGE_TYPE, ?BRIDGE_NAME)
+                    get_metrics(?BRIDGE_NAME)
                 )
             ),
             ok
@@ -611,7 +617,7 @@ t_too_many_requests(Config) ->
                             success := 1
                         }
                     },
-                    emqx_bridge:get_metrics(?BRIDGE_TYPE, ?BRIDGE_NAME)
+                    get_metrics(?BRIDGE_NAME)
                 )
             ),
             ok
@@ -654,7 +660,7 @@ t_rule_action_expired(Config) ->
                             dropped := 1
                         }
                     },
-                    emqx_bridge:get_metrics(?BRIDGE_TYPE, ?BRIDGE_NAME)
+                    get_metrics(?BRIDGE_NAME)
                 )
             ),
             ?retry(

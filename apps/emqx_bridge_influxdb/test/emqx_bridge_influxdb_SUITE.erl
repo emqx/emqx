@@ -445,6 +445,7 @@ query_by_clientid(ClientId, Config) ->
             query => Query,
             dialect => #{
                 header => true,
+                annotations => [<<"datatype">>],
                 delimiter => <<";">>
             }
         }),
@@ -456,6 +457,7 @@ query_by_clientid(ClientId, Config) ->
             _Timeout = 10_000,
             _Retry = 0
         ),
+    %ct:pal("raw body: ~p", [RawBody0]),
     RawBody1 = iolist_to_binary(string:replace(RawBody0, <<"\r\n">>, <<"\n">>, all)),
     {ok, DecodedCSV0} = erl_csv:decode(RawBody1, #{separator => <<$;>>}),
     DecodedCSV1 = [
@@ -465,21 +467,26 @@ query_by_clientid(ClientId, Config) ->
     DecodedCSV2 = csv_lines_to_maps(DecodedCSV1),
     index_by_field(DecodedCSV2).
 
-csv_lines_to_maps([Title | Rest]) ->
-    csv_lines_to_maps(Rest, Title, _Acc = []);
+csv_lines_to_maps([[<<"#datatype">> | DataType], Title | Rest]) ->
+    csv_lines_to_maps(Rest, Title, _Acc = [], DataType);
 csv_lines_to_maps([]) ->
     [].
 
-csv_lines_to_maps([[<<"_result">> | _] = Data | RestData], Title, Acc) ->
+csv_lines_to_maps([[<<"_result">> | _] = Data | RestData], Title, Acc, DataType) ->
+    %ct:pal("data: ~p, title: ~p, datatype: ~p", [Data, Title, DataType]),
     Map = maps:from_list(lists:zip(Title, Data)),
-    csv_lines_to_maps(RestData, Title, [Map | Acc]);
+    MapT = lists:zip(Title, DataType),
+    [Type] = [T || {<<"_value">>, T} <- MapT],
+    csv_lines_to_maps(RestData, Title, [Map#{'_value_type' => Type} | Acc], DataType);
 %% ignore the csv title line
 %% it's always like this:
 %% [<<"result">>,<<"table">>,<<"_start">>,<<"_stop">>,
 %% <<"_time">>,<<"_value">>,<<"_field">>,<<"_measurement">>, Measurement],
-csv_lines_to_maps([[<<"result">> | _] = _Title | RestData], Title, Acc) ->
-    csv_lines_to_maps(RestData, Title, Acc);
-csv_lines_to_maps([], _Title, Acc) ->
+csv_lines_to_maps([[<<"result">> | _] = _Title | RestData], Title, Acc, DataType) ->
+    csv_lines_to_maps(RestData, Title, Acc, DataType);
+csv_lines_to_maps([[<<"#datatype">> | DataType] | RestData], Title, Acc, _) ->
+    csv_lines_to_maps(RestData, Title, Acc, DataType);
+csv_lines_to_maps([], _Title, Acc, _DataType) ->
     lists:reverse(Acc).
 
 index_by_field(DecodedCSV) ->
@@ -494,11 +501,21 @@ assert_persisted_data(ClientId, Expected, PersistedData) ->
                     #{<<"_value">> := ExpectedValue},
                     maps:get(ClientIdIntKey, PersistedData)
                 );
+            (Key, {ExpectedValue, ExpectedType}) ->
+                ?assertMatch(
+                    #{<<"_value">> := ExpectedValue, '_value_type' := ExpectedType},
+                    maps:get(atom_to_binary(Key), PersistedData),
+                    #{
+                        key => Key,
+                        expected_value => ExpectedValue,
+                        expected_data_type => ExpectedType
+                    }
+                );
             (Key, ExpectedValue) ->
                 ?assertMatch(
                     #{<<"_value">> := ExpectedValue},
                     maps:get(atom_to_binary(Key), PersistedData),
-                    #{expected => ExpectedValue}
+                    #{key => Key, expected_value => ExpectedValue}
                 )
         end,
         Expected
@@ -689,7 +706,15 @@ t_const_timestamp(Config) ->
             Config,
             #{
                 <<"write_syntax">> =>
-                    <<"mqtt,clientid=${clientid} foo=${payload.foo}i,bar=5i ", ConstBin/binary>>
+                    <<
+                        "mqtt,clientid=${clientid} "
+                        "foo=${payload.foo}i,"
+                        "foo1=${payload.foo},"
+                        "foo2=\"${payload.foo}\","
+                        "foo3=\"${payload.foo}somestr\","
+                        "bar=5i,baz0=1.1,baz1=\"a\",baz2=\"ai\",baz3=\"au\",baz4=\"1u\" ",
+                        ConstBin/binary
+                    >>
             }
         )
     ),
@@ -709,7 +734,18 @@ t_const_timestamp(Config) ->
     end,
     ct:sleep(1500),
     PersistedData = query_by_clientid(ClientId, Config),
-    Expected = #{foo => <<"123">>},
+    Expected = #{
+        foo => {<<"123">>, <<"long">>},
+        foo1 => {<<"123">>, <<"double">>},
+        foo2 => {<<"123">>, <<"string">>},
+        foo3 => {<<"123somestr">>, <<"string">>},
+        bar => {<<"5">>, <<"long">>},
+        baz0 => {<<"1.1">>, <<"double">>},
+        baz1 => {<<"a">>, <<"string">>},
+        baz2 => {<<"ai">>, <<"string">>},
+        baz3 => {<<"au">>, <<"string">>},
+        baz4 => {<<"1u">>, <<"string">>}
+    },
     assert_persisted_data(ClientId, Expected, PersistedData),
     TimeReturned0 = maps:get(<<"_time">>, maps:get(<<"foo">>, PersistedData)),
     TimeReturned = pad_zero(TimeReturned0),
@@ -945,6 +981,7 @@ t_create_disconnected(Config) ->
                 econnrefused -> ok;
                 closed -> ok;
                 {closed, _} -> ok;
+                {shutdown, closed} -> ok;
                 _ -> ct:fail("influxdb_client_not_alive with wrong reason: ~p", [Reason])
             end,
             ok

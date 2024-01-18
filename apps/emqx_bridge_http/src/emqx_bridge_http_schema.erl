@@ -76,6 +76,7 @@ fields("http_action") ->
             mk(binary(), #{
                 desc => ?DESC(emqx_connector_schema, "connector_field"), required => true
             })},
+        {tags, emqx_schema:tags_schema()},
         {description, emqx_schema:description_schema()},
         %% Note: there's an implicit convention in `emqx_bridge' that,
         %% for egress bridges with this config, the published messages
@@ -105,7 +106,7 @@ fields(action_resource_opts) ->
     UnsupportedOpts = [batch_size, batch_time],
     lists:filter(
         fun({K, _V}) -> not lists:member(K, UnsupportedOpts) end,
-        emqx_bridge_v2_schema:resource_opts_fields()
+        emqx_bridge_v2_schema:action_resource_opts_fields()
     );
 fields("parameters_opts") ->
     [
@@ -175,6 +176,7 @@ basic_config() ->
                     default => true
                 }
             )},
+        {tags, emqx_schema:tags_schema()},
         {description, emqx_schema:description_schema()}
     ] ++ connector_opts().
 

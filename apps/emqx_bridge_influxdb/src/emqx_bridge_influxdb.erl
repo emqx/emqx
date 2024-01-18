@@ -382,7 +382,7 @@ field(Line) ->
 field_val([$" | Line]) ->
     {Val, [$" | Line1]} = unescape(?FIELD_VAL_ESC_CHARS, [$"], Line, []),
     %% Quoted val can be empty
-    {Val, strip_l(Line1, ?VAL_SEP)};
+    {{quoted, Val}, strip_l(Line1, ?VAL_SEP)};
 field_val(Line) ->
     %% Unquoted value should not be un-escaped according to InfluxDB protocol,
     %% as it can only hold float, integer, uinteger or boolean value.

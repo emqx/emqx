@@ -48,7 +48,9 @@ resource_opts_union_connector_actions_test() ->
     %% consciouly between connector and actions, in particular when/if we introduce new
     %% fields there.
     AllROFields = non_deprecated_fields(emqx_resource_schema:create_opts([])),
-    ActionROFields = non_deprecated_fields(emqx_bridge_v2_schema:resource_opts_fields()),
+    ActionROFields = non_deprecated_fields(
+        emqx_bridge_v2_schema:action_resource_opts_fields()
+    ),
     ConnectorROFields = non_deprecated_fields(emqx_connector_schema:resource_opts_fields()),
     UnionROFields = lists:usort(ConnectorROFields ++ ActionROFields),
     ?assertEqual(
@@ -108,7 +110,7 @@ connector_resource_opts_test() ->
     ok.
 
 actions_api_spec_post_fields_test() ->
-    ?UNION(Union) = emqx_bridge_v2_schema:post_request(),
+    ?UNION(Union) = emqx_bridge_v2_schema:actions_post_request(),
     Schemas =
         lists:map(
             fun(?R_REF(SchemaMod, StructName)) ->

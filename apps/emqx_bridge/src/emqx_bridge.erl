@@ -347,18 +347,26 @@ lookup(Type, Name, RawConf) ->
             }}
     end.
 
-get_metrics(Type, Name) ->
-    case emqx_bridge_v2:is_bridge_v2_type(Type) of
+get_metrics(ActionType, Name) ->
+    case emqx_bridge_v2:is_bridge_v2_type(ActionType) of
         true ->
-            case emqx_bridge_v2:bridge_v1_is_valid(Type, Name) of
+            case emqx_bridge_v2:bridge_v1_is_valid(ActionType, Name) of
                 true ->
-                    BridgeV2Type = emqx_bridge_v2:bridge_v2_type_to_connector_type(Type),
-                    emqx_bridge_v2:get_metrics(BridgeV2Type, Name);
+                    BridgeV2Type = emqx_bridge_v2:bridge_v1_type_to_bridge_v2_type(ActionType),
+                    try
+                        ConfRootKey = emqx_bridge_v2:get_conf_root_key_if_only_one(
+                            BridgeV2Type, Name
+                        ),
+                        emqx_bridge_v2:get_metrics(ConfRootKey, BridgeV2Type, Name)
+                    catch
+                        error:Reason ->
+                            {error, Reason}
+                    end;
                 false ->
                     {error, not_bridge_v1_compatible}
             end;
         false ->
-            emqx_resource:get_metrics(emqx_bridge_resource:resource_id(Type, Name))
+            emqx_resource:get_metrics(emqx_bridge_resource:resource_id(ActionType, Name))
     end.
 
 maybe_upgrade(mqtt, Config) ->

@@ -326,7 +326,7 @@ schema("/connectors_probe") ->
             create_connector(ConnectorType, ConnectorName, Conf)
     end;
 '/connectors'(get, _Params) ->
-    Nodes = mria:running_nodes(),
+    Nodes = emqx:running_nodes(),
     NodeReplies = emqx_connector_proto_v1:list_connectors_on_nodes(Nodes),
     case is_ok(NodeReplies) of
         {ok, NodeConnectors} ->
@@ -674,7 +674,10 @@ unpack_connector_conf(Type, PackedConf) ->
     RawConf.
 
 format_action(ActionId) ->
-    element(2, emqx_bridge_v2:parse_id(ActionId)).
+    case emqx_bridge_v2:parse_id(ActionId) of
+        #{name := Name} ->
+            Name
+    end.
 
 is_ok(ok) ->
     ok;

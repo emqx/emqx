@@ -1,10 +1,16 @@
 emqx_bridge_v2_schema {
 
 desc_bridges_v2.desc:
-"""Configuration for bridges."""
+"""Configuration for actions."""
 
 desc_bridges_v2.label:
-"""Bridge Configuration"""
+"""Action Configuration"""
+
+desc_sources.desc:
+"""Configuration for sources."""
+
+desc_sources.label:
+"""Source Configuration"""
 
 mqtt_topic.desc:
 """MQTT topic or topic filter as data source (action input).  If rule action is used as data source, this config should be left empty, otherwise messages will be duplicated in the remote system."""

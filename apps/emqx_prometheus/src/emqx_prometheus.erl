@@ -486,6 +486,8 @@ emqx_collect(emqx_authorization_deny, Stats) ->
     counter_metric(?C('authorization.deny', Stats));
 emqx_collect(emqx_authorization_cache_hit, Stats) ->
     counter_metric(?C('authorization.cache_hit', Stats));
+emqx_collect(emqx_authorization_cache_miss, Stats) ->
+    counter_metric(?C('authorization.cache_miss', Stats));
 emqx_collect(emqx_authorization_superuser, Stats) ->
     counter_metric(?C('authorization.superuser', Stats));
 emqx_collect(emqx_authorization_nomatch, Stats) ->
@@ -591,6 +593,7 @@ emqx_metrics_acl() ->
         emqx_authorization_allow,
         emqx_authorization_deny,
         emqx_authorization_cache_hit,
+        emqx_authorization_cache_miss,
         emqx_authorization_superuser,
         emqx_authorization_nomatch,
         emqx_authorization_matched_allow,

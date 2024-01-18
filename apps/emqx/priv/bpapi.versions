@@ -8,6 +8,7 @@
 {emqx_bridge,3}.
 {emqx_bridge,4}.
 {emqx_bridge,5}.
+{emqx_bridge,6}.
 {emqx_broker,1}.
 {emqx_cm,1}.
 {emqx_cm,2}.
@@ -41,6 +42,7 @@
 {emqx_mgmt_api_plugins,2}.
 {emqx_mgmt_cluster,1}.
 {emqx_mgmt_cluster,2}.
+{emqx_mgmt_cluster,3}.
 {emqx_mgmt_data_backup,1}.
 {emqx_mgmt_trace,1}.
 {emqx_mgmt_trace,2}.
