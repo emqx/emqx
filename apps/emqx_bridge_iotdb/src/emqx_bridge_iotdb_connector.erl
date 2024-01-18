@@ -212,7 +212,7 @@ on_start(InstanceId, #{iotdb_version := Version} = Config) ->
             ?SLOG(info, #{
                 msg => "iotdb_bridge_started",
                 instance_id => InstanceId,
-                request => maps:get(request, State, <<>>)
+                request => emqx_utils:redact(maps:get(request, State, <<>>))
             }),
             ?tp(iotdb_bridge_started, #{instance_id => InstanceId}),
             {ok, State#{iotdb_version => Version, channels => #{}}};
@@ -220,7 +220,7 @@ on_start(InstanceId, #{iotdb_version := Version} = Config) ->
             ?SLOG(error, #{
                 msg => "failed_to_start_iotdb_bridge",
                 instance_id => InstanceId,
-                request => maps:get(request, Config, <<>>),
+                request => emqx_utils:redact(maps:get(request, Config, <<>>)),
                 reason => Reason
             }),
             throw(failed_to_start_iotdb_bridge)

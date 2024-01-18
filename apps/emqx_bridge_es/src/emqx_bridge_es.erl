@@ -59,7 +59,7 @@ fields(action_create) ->
         action(create),
         index(),
         id(false),
-        doc(true),
+        doc(),
         routing(),
         require_alias(),
         overwrite()
@@ -72,7 +72,8 @@ fields(action_update) ->
         action(update),
         index(),
         id(true),
-        doc(true),
+        doc(),
+        doc_as_upsert(),
         routing(),
         require_alias()
         | http_common_opts()
@@ -98,10 +99,14 @@ action_union_member_selector({value, Value}) ->
             [?R_REF(action_delete)];
         #{<<"action">> := <<"update">>} ->
             [?R_REF(action_update)];
-        _ ->
+        #{<<"action">> := Action} when is_atom(Action) ->
+            Value1 = Value#{<<"action">> => atom_to_binary(Action)},
+            action_union_member_selector({value, Value1});
+        Actual ->
             Expected = "create | delete | update",
             throw(#{
                 field_name => action,
+                actual => Actual,
                 expected => Expected
             })
     end.
@@ -149,12 +154,12 @@ id(Required) ->
             }
         )}.
 
-doc(Required) ->
+doc() ->
     {doc,
         ?HOCON(
             binary(),
             #{
-                required => Required,
+                required => false,
                 example => <<"${payload.doc}">>,
                 desc => ?DESC("config_parameters_doc")
             }
@@ -167,6 +172,17 @@ http_common_opts() ->
         end,
         emqx_bridge_http_schema:fields("parameters_opts")
     ).
+
+doc_as_upsert() ->
+    {doc_as_upsert,
+        ?HOCON(
+            boolean(),
+            #{
+                required => false,
+                default => false,
+                desc => ?DESC("config_doc_as_upsert")
+            }
+        )}.
 
 routing() ->
     {routing,

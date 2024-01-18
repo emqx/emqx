@@ -191,5 +191,11 @@
     "listen": "0.0.0.0:636",
     "upstream": "ldap:636",
     "enabled": true
+  },
+  {
+    "name": "elasticsearch",
+    "listen": "0.0.0.0:9200",
+    "upstream": "elasticsearch:9200",
+    "enabled": true
   }
 ]
