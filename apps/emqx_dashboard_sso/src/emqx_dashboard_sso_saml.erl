@@ -163,7 +163,7 @@ convert_certs(
 ) ->
     case
         emqx_tls_lib:ensure_ssl_files(
-            Dir, #{enable => ture, certfile => Cert, keyfile => Key}, #{}
+            Dir, #{enable => true, certfile => Cert, keyfile => Key}, #{}
         )
     of
         {ok, #{certfile := CertPath, keyfile := KeyPath}} ->
