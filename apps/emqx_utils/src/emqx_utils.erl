@@ -431,7 +431,9 @@ pmap(Fun, List) when is_function(Fun, 1), is_list(List) ->
 
 -spec pmap(fun((A) -> B), list(A), timeout()) -> list(B).
 pmap(Fun, List, Timeout) when
-    is_function(Fun, 1), is_list(List), is_integer(Timeout), Timeout >= 0
+    is_function(Fun, 1),
+    is_list(List),
+    (is_integer(Timeout) andalso Timeout >= 0 orelse Timeout =:= infinity)
 ->
     nolink_apply(fun() -> do_parallel_map(Fun, List) end, Timeout).
 
