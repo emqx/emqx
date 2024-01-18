@@ -32,7 +32,8 @@
     get_streams/4,
     make_iterator/5,
     update_iterator/4,
-    next/4
+    next/4,
+    post_creation_actions/1
 ]).
 
 %% internal exports:
@@ -199,6 +200,22 @@ open(_Shard, DBHandle, GenId, CFRefs, Schema) ->
         keymappers = KeymapperCache,
         ts_offset = TSOffsetBits
     }.
+
+-spec post_creation_actions(emqx_ds_storage_layer:post_creation_context()) ->
+    s().
+post_creation_actions(
+    #{
+        db := DBHandle,
+        old_gen_id := OldGenId,
+        old_cf_refs := OldCFRefs,
+        new_gen_runtime_data := NewGenData0
+    }
+) ->
+    {_, OldTrieCF} = lists:keyfind(trie_cf(OldGenId), 1, OldCFRefs),
+    #s{trie = NewTrie0} = NewGenData0,
+    NewTrie = copy_previous_trie(DBHandle, NewTrie0, OldTrieCF),
+    ?tp(bitfield_lts_inherited_trie, #{}),
+    NewGenData0#s{trie = NewTrie}.
 
 -spec drop(
     emqx_ds_storage_layer:shard_id(),
@@ -512,6 +529,17 @@ restore_trie(TopicIndexBytes, DB, CF) ->
         Dump = read_persisted_trie(IT, rocksdb:iterator_move(IT, first)),
         TrieOpts = #{persist_callback => PersistCallback, static_key_size => TopicIndexBytes},
         emqx_ds_lts:trie_restore(TrieOpts, Dump)
+    after
+        rocksdb:iterator_close(IT)
+    end.
+
+-spec copy_previous_trie(rocksdb:db_handle(), emqx_ds_lts:trie(), rocksdb:cf_handle()) ->
+    emqx_ds_lts:trie().
+copy_previous_trie(DBHandle, NewTrie, OldCF) ->
+    {ok, IT} = rocksdb:iterator(DBHandle, OldCF, []),
+    try
+        OldDump = read_persisted_trie(IT, rocksdb:iterator_move(IT, first)),
+        emqx_ds_lts:trie_restore_existing(NewTrie, OldDump)
     after
         rocksdb:iterator_close(IT)
     end.
