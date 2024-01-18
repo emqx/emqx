@@ -24,6 +24,12 @@ emqx_bridge_opents {
     desc_name.label:
         "Bridge Name"
 
+action_parameters.desc:
+"""OpenTSDB action parameters"""
+
+action_parameters.label:
+"""Parameters"""
+
 action_parameters_data.desc:
 """OpenTSDB action parameter data"""
 
@@ -36,10 +42,10 @@ config_parameters_timestamp.desc:
 config_parameters_timestamp.label:
 """Timestamp"""
 
-config_parameters_metric.metric:
+config_parameters_metric.desc:
 """Metric. Placeholders in format of ${var} is supported"""
 
-config_parameters_metric.metric:
+config_parameters_metric.label:
 """Metric"""
 
 config_parameters_tags.desc:

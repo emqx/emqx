@@ -56,7 +56,10 @@ fields(config) ->
 
 fields("config_connector") ->
     emqx_connector_schema:common_fields() ++
-        proplists_without([auto_reconnect], fields(config));
+        proplists_without([auto_reconnect], fields(config)) ++
+        emqx_connector_schema:resource_opts_ref(?MODULE, connector_resource_opts);
+fields(connector_resource_opts) ->
+    emqx_connector_schema:resource_opts_fields();
 fields("post") ->
     emqx_connector_schema:type_and_name_fields(enum([opents])) ++ fields("config_connector");
 fields("put") ->
@@ -66,6 +69,8 @@ fields("get") ->
 
 desc(config) ->
     ?DESC("desc_config");
+desc(connector_resource_opts) ->
+    ?DESC(emqx_resource_schema, "resource_opts");
 desc("config_connector") ->
     ?DESC("desc_config");
 desc(Method) when Method =:= "get"; Method =:= "put"; Method =:= "post" ->
