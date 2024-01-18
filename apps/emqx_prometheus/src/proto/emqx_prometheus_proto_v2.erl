@@ -39,9 +39,10 @@ start(Nodes) ->
 stop(Nodes) ->
     rpc:multicall(Nodes, emqx_prometheus, do_stop, [], 5000).
 
--type key() :: atom() | binary() | [byte()].
+-type key() :: atom().
+-type arg() :: list(term()).
 
--spec raw_prom_data([node()], key(), key(), key()) -> emqx_rpc:erpc_multicall(term()).
+-spec raw_prom_data([node()], key(), key(), arg()) -> emqx_rpc:erpc_multicall(term()).
 raw_prom_data(Nodes, M, F, A) ->
     erpc:multicall(
         Nodes,
