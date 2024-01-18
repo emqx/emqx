@@ -251,6 +251,7 @@ start_pool(PoolName, PoolOpts) ->
         {error, {already_started, _}} ->
             ?SLOG(warning, #{
                 msg => "emqx_connector_on_start_already_started",
+                connector => PoolName,
                 pool_name => PoolName
             }),
             ok;
@@ -507,8 +508,8 @@ resolve_pool_worker(#{pool_name := PoolName} = State, Key) ->
 on_get_channels(ResId) ->
     emqx_bridge_v2:get_channels_for_connector(ResId).
 
-on_get_status(_InstId, #{pool_name := PoolName, connect_timeout := Timeout} = State) ->
-    case do_get_status(PoolName, Timeout) of
+on_get_status(InstId, #{pool_name := InstId, connect_timeout := Timeout} = State) ->
+    case do_get_status(InstId, Timeout) of
         ok ->
             connected;
         {error, still_connecting} ->
@@ -524,12 +525,7 @@ do_get_status(PoolName, Timeout) ->
             case ehttpc:health_check(Worker, Timeout) of
                 ok ->
                     ok;
-                {error, Reason} = Error ->
-                    ?SLOG(error, #{
-                        msg => "http_connector_get_status_failed",
-                        reason => redact(Reason),
-                        worker => Worker
-                    }),
+                {error, _} = Error ->
                     Error
             end
         end,
@@ -540,14 +536,20 @@ do_get_status(PoolName, Timeout) ->
             case [E || {error, _} = E <- Results] of
                 [] ->
                     ok;
-                Errors ->
-                    hd(Errors)
+                [{error, Reason} | _] ->
+                    ?SLOG(info, #{
+                        msg => "health_check_failed",
+                        reason => redact(Reason),
+                        connector => PoolName
+                    }),
+                    {error, Reason}
             end
     catch
         exit:timeout ->
-            ?SLOG(error, #{
-                msg => "http_connector_pmap_failed",
-                reason => timeout
+            ?SLOG(info, #{
+                msg => "health_check_failed",
+                reason => timeout,
+                connector => PoolName
             }),
             {error, timeout}
     end.
