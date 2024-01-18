@@ -38,6 +38,7 @@
 ]).
 
 -export([reply_delegator/3]).
+-export([render_template/2]).
 
 -export([
     roots/0,
@@ -266,8 +267,8 @@ on_add_channel(
 ) ->
     InstalledActions = maps:get(installed_actions, OldState, #{}),
     {ok, ActionState} = do_create_http_action(ActionConfig),
-    RenderTemplate = maps:get(render_template_func, ActionConfig, fun render_template/2),
-    ActionState1 = ActionState#{render_template_func => RenderTemplate},
+    RenderTmplFunc = maps:get(render_template_func, ActionConfig, fun ?MODULE:render_template/2),
+    ActionState1 = ActionState#{render_template_func => RenderTmplFunc},
     NewInstalledActions = maps:put(ActionId, ActionState1, InstalledActions),
     NewState = maps:put(installed_actions, NewInstalledActions, OldState),
     {ok, NewState}.

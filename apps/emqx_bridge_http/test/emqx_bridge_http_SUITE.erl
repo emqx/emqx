@@ -146,7 +146,7 @@ end_per_testcase(_TestCase, Config) ->
 
 %%------------------------------------------------------------------------------
 %% HTTP server for testing
-%% (Orginally copied from emqx_bridge_api_SUITE)
+%% (Originally copied from emqx_bridge_api_SUITE)
 %%------------------------------------------------------------------------------
 start_http_server(HTTPServerConfig) ->
     process_flag(trap_exit, true),
