@@ -135,6 +135,7 @@ is_username_defined(_) -> false.
 check_authorization_cache(ClientInfo, Action, Topic) ->
     case emqx_authz_cache:get_authz_cache(Action, Topic) of
         not_found ->
+            inc_authz_metrics(cache_miss),
             AuthzResult = do_authorize(ClientInfo, Action, Topic),
             emqx_authz_cache:put_authz_cache(Action, Topic, AuthzResult),
             AuthzResult;
@@ -219,7 +220,9 @@ inc_authz_metrics(allow) ->
 inc_authz_metrics(deny) ->
     emqx_metrics:inc('authorization.deny');
 inc_authz_metrics(cache_hit) ->
-    emqx_metrics:inc('authorization.cache_hit').
+    emqx_metrics:inc('authorization.cache_hit');
+inc_authz_metrics(cache_miss) ->
+    emqx_metrics:inc('authorization.cache_miss').
 
 inc_authn_metrics(error) ->
     emqx_metrics:inc('authentication.failure');

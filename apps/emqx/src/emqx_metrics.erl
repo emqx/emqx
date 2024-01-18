@@ -258,7 +258,8 @@
 -define(STASTS_ACL_METRICS, [
     {counter, 'authorization.allow'},
     {counter, 'authorization.deny'},
-    {counter, 'authorization.cache_hit'}
+    {counter, 'authorization.cache_hit'},
+    {counter, 'authorization.cache_miss'}
 ]).
 
 %% Statistic metrics for auth checking
@@ -702,6 +703,7 @@ reserved_idx('session.terminated') -> 224;
 reserved_idx('authorization.allow') -> 300;
 reserved_idx('authorization.deny') -> 301;
 reserved_idx('authorization.cache_hit') -> 302;
+reserved_idx('authorization.cache_miss') -> 303;
 reserved_idx('authentication.success') -> 310;
 reserved_idx('authentication.success.anonymous') -> 311;
 reserved_idx('authentication.failure') -> 312;
