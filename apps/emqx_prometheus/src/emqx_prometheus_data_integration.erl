@@ -61,6 +61,7 @@
 ]).
 
 -define(RULES_SPECIFIC_WITH_TYPE, [
+    {emqx_rule_enable, gauge},
     {emqx_rule_matched, counter},
     {emqx_rule_failed, counter},
     {emqx_rule_passed, counter},
@@ -234,6 +235,8 @@ collect_di(K = emqx_connectors_count, Data) ->
 
 %%====================
 %% Specific Rule
+collect_di(K = emqx_rule_enable, Data) ->
+    gauge_metrics(?MG(K, Data));
 collect_di(K = emqx_rule_matched, Data) ->
     counter_metrics(?MG(K, Data));
 collect_di(K = emqx_rule_failed, Data) ->
@@ -365,10 +368,11 @@ merge_acc_with_rules(Id, RuleMetrics, PointsAcc) ->
 rule_point(Id, V) ->
     {[{id, Id}], V}.
 
-get_metric(#{id := Id} = _Rule) ->
+get_metric(#{id := Id, enable := Bool} = _Rule) ->
     case emqx_metrics_worker:get_metrics(rule_metrics, Id) of
         #{counters := Counters} ->
             #{
+                emqx_rule_enable => boolean_to_number(Bool),
                 emqx_rule_matched => ?MG(matched, Counters),
                 emqx_rule_failed => ?MG(failed, Counters),
                 emqx_rule_passed => ?MG(passed, Counters),
