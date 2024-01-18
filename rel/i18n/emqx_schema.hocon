@@ -1608,5 +1608,8 @@ The session will query the DB for the new messages when the value of `FreeSpace`
 
 `FreeSpace` is calculated as `ReceiveMaximum` for the session - number of inflight messages."""
 
+session_ds_message_retention_period.desc:
+"""The minimum amount of time that messages should be retained for.  After messages have been in storage for at least this period of time, they'll be dropped."""
+
 
 }

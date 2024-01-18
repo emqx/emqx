@@ -19,6 +19,7 @@
 -include_lib("stdlib/include/assert.hrl").
 -include_lib("common_test/include/ct.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
+-include_lib("emqx/include/emqx.hrl").
 -include_lib("emqx/include/emqx_mqtt.hrl").
 
 -compile(export_all).
@@ -45,10 +46,20 @@ init_per_testcase(t_session_subscription_iterators = TestCase, Config) ->
     Cluster = cluster(),
     Nodes = emqx_cth_cluster:start(Cluster, #{work_dir => emqx_cth_suite:work_dir(TestCase, Config)}),
     [{nodes, Nodes} | Config];
+init_per_testcase(t_message_gc = TestCase, Config) ->
+    Opts = #{
+        extra_emqx_conf =>
+            "\n  session_persistence.message_retention_period = 1s"
+            "\n  session_persistence.storage.builtin.n_shards = 3"
+    },
+    common_init_per_testcase(TestCase, [{n_shards, 3} | Config], Opts);
 init_per_testcase(TestCase, Config) ->
+    common_init_per_testcase(TestCase, Config, _Opts = #{}).
+
+common_init_per_testcase(TestCase, Config, Opts) ->
     ok = emqx_ds:drop_db(?PERSISTENT_MESSAGE_DB),
     Apps = emqx_cth_suite:start(
-        app_specs(),
+        app_specs(Opts),
         #{work_dir => emqx_cth_suite:work_dir(TestCase, Config)}
     ),
     [{apps, Apps} | Config].
@@ -379,6 +390,66 @@ t_publish_empty_topic_levels(_Config) ->
         emqtt:stop(Pub)
     end.
 
+t_message_gc_too_young(_Config) ->
+    %% Check that GC doesn't attempt to create a new generation if there are fresh enough
+    %% generations around.  The stability of this test relies on the default value for
+    %% message retention being long enough.  Currently, the default is 1 hour.
+    ?check_trace(
+        ok = emqx_persistent_message_ds_gc_worker:gc(),
+        fun(Trace) ->
+            ?assertMatch([_], ?of_kind(ps_message_gc_too_early, Trace)),
+            ok
+        end
+    ),
+    ok.
+
+t_message_gc(Config) ->
+    %% Check that, after GC runs, a new generation is created, retaining messages, and
+    %% older messages no longer are accessible.
+    NShards = ?config(n_shards, Config),
+    ?check_trace(
+        #{timetrap => 10_000},
+        begin
+            %% ensure some messages are in the first generation
+            ?force_ordering(
+                #{?snk_kind := inserted_batch},
+                #{?snk_kind := ps_message_gc_added_gen}
+            ),
+            Msgs0 = [
+                message(<<"foo/bar">>, <<"1">>, 0),
+                message(<<"foo/baz">>, <<"2">>, 1)
+            ],
+            ok = emqx_ds:store_batch(?PERSISTENT_MESSAGE_DB, Msgs0),
+            ?tp(inserted_batch, #{}),
+            {ok, _} = ?block_until(#{?snk_kind := ps_message_gc_added_gen}),
+
+            Now = emqx_message:timestamp_now(),
+            Msgs1 = [
+                message(<<"foo/bar">>, <<"3">>, Now + 100),
+                message(<<"foo/baz">>, <<"4">>, Now + 101)
+            ],
+            ok = emqx_ds:store_batch(?PERSISTENT_MESSAGE_DB, Msgs1),
+
+            {ok, _} = snabbkaffe:block_until(
+                ?match_n_events(NShards, #{?snk_kind := message_gc_generation_dropped}),
+                infinity
+            ),
+
+            TopicFilter = emqx_topic:words(<<"#">>),
+            StartTime = 0,
+            Msgs = consume(TopicFilter, StartTime),
+            %% only "1" and "2" should have been GC'ed
+            ?assertEqual(
+                sets:from_list([<<"3">>, <<"4">>], [{version, 2}]),
+                sets:from_list([emqx_message:payload(Msg) || Msg <- Msgs], [{version, 2}])
+            ),
+
+            ok
+        end,
+        []
+    ),
+    ok.
+
 %%
 
 connect(ClientId, CleanStart, EI) ->
@@ -438,9 +509,13 @@ publish(Node, Message) ->
     erpc:call(Node, emqx, publish, [Message]).
 
 app_specs() ->
+    app_specs(_Opts = #{}).
+
+app_specs(Opts) ->
+    ExtraEMQXConf = maps:get(extra_emqx_conf, Opts, ""),
     [
         emqx_durable_storage,
-        {emqx, "session_persistence {enable = true}"}
+        {emqx, "session_persistence {enable = true}" ++ ExtraEMQXConf}
     ].
 
 cluster() ->
@@ -459,3 +534,11 @@ clear_db() ->
     mria:stop(),
     ok = mnesia:delete_schema([node()]),
     ok.
+
+message(Topic, Payload, PublishedAt) ->
+    #message{
+        topic = Topic,
+        payload = Payload,
+        timestamp = PublishedAt,
+        id = emqx_guid:gen()
+    }.
