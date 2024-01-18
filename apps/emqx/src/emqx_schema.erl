@@ -468,7 +468,7 @@ fields(authz_cache) ->
                 }
             )},
         {excludes,
-            sc(hoconsc:array(string()), #{
+            sc(hoconsc:array(binary()), #{
                 default => [],
                 desc => ?DESC(fields_authz_cache_excludes)
             })}
