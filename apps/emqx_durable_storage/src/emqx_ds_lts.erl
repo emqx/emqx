@@ -18,7 +18,12 @@
 
 %% API:
 -export([
-    trie_create/1, trie_create/0, trie_restore/2, topic_key/3, match_topics/2, lookup_topic_key/2
+    trie_create/1, trie_create/0,
+    trie_restore/2,
+    trie_restore_existing/2,
+    topic_key/3,
+    match_topics/2,
+    lookup_topic_key/2
 ]).
 
 %% Debug:
@@ -115,6 +120,10 @@ trie_create() ->
 -spec trie_restore(options(), [{_Key, _Val}]) -> trie().
 trie_restore(Options, Dump) ->
     Trie = trie_create(Options),
+    trie_restore_existing(Trie, Dump).
+
+-spec trie_restore_existing(trie(), [{_Key, _Val}]) -> trie().
+trie_restore_existing(Trie, Dump) ->
     lists:foreach(
         fun({{StateFrom, Token}, StateTo}) ->
             trie_insert(Trie, StateFrom, Token, StateTo)

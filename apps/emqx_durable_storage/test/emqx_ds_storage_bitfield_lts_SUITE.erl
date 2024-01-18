@@ -131,6 +131,39 @@ t_get_streams(_Config) ->
     ?assert(lists:member(A, AllStreams)),
     ok.
 
+t_new_generation_inherit_trie(_Config) ->
+    %% This test checks that we inherit the previous generation's LTS when creating a new
+    %% generation.
+    ?check_trace(
+        begin
+            %% Create a bunch of topics to be learned in the first generation
+            Timestamps = lists:seq(1, 10_000, 100),
+            Batch = [
+                begin
+                    B = integer_to_binary(I),
+                    make_message(
+                        TS,
+                        <<"wildcard/", B/binary, "/suffix/", Suffix/binary>>,
+                        integer_to_binary(TS)
+                    )
+                end
+             || I <- lists:seq(1, 200),
+                TS <- Timestamps,
+                Suffix <- [<<"foo">>, <<"bar">>]
+            ],
+            ok = emqx_ds_storage_layer:store_batch(?SHARD, Batch, []),
+            %% Now we create a new generation with the same LTS module.  It should inherit the
+            %% learned trie.
+            ok = emqx_ds_storage_layer:add_generation(?SHARD),
+            ok
+        end,
+        fun(Trace) ->
+            ?assertMatch([_], ?of_kind(bitfield_lts_inherited_trie, Trace)),
+            ok
+        end
+    ),
+    ok.
+
 t_replay(_Config) ->
     %% Create concrete topics:
     Topics = [<<"foo/bar">>, <<"foo/bar/baz">>],
