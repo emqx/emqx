@@ -32,7 +32,9 @@ init_per_suite(Config) ->
             emqx_conf,
             emqx_connector,
             emqx_bridge_http,
-            emqx_bridge
+            emqx_bridge_mqtt,
+            emqx_bridge,
+            emqx_rule_engine
         ],
         #{work_dir => ?config(priv_dir, Config)}
     ),
@@ -154,14 +156,18 @@ setup_fake_telemetry_data() ->
     ok.
 
 t_update_ssl_conf(Config) ->
-    Path = proplists:get_value(config_path, Config),
-    CertDir = filename:join([emqx:mutable_certs_dir() | Path]),
+    [_Root, Type, Name] = proplists:get_value(config_path, Config),
+    CertDir = filename:join([emqx:mutable_certs_dir(), connectors, Type, Name]),
     EnableSSLConf = #{
         <<"bridge_mode">> => false,
         <<"clean_start">> => true,
         <<"keepalive">> => <<"60s">>,
         <<"proto_ver">> => <<"v4">>,
         <<"server">> => <<"127.0.0.1:1883">>,
+        <<"egress">> => #{
+            <<"local">> => #{<<"topic">> => <<"t">>},
+            <<"remote">> => #{<<"topic">> => <<"remote/t">>}
+        },
         <<"ssl">> =>
             #{
                 <<"cacertfile">> => cert_file("cafile"),
@@ -171,10 +177,15 @@ t_update_ssl_conf(Config) ->
                 <<"verify">> => <<"verify_peer">>
             }
     },
-    {ok, _} = emqx:update_config(Path, EnableSSLConf),
+    CreateCfg = [
+        {bridge_name, Name},
+        {bridge_type, Type},
+        {bridge_config, #{}}
+    ],
+    {ok, _} = emqx_bridge_testlib:create_bridge_api(CreateCfg, EnableSSLConf),
     ?assertMatch({ok, [_, _, _]}, file:list_dir(CertDir)),
     NoSSLConf = EnableSSLConf#{<<"ssl">> := #{<<"enable">> => false}},
-    {ok, _} = emqx:update_config(Path, NoSSLConf),
+    {ok, _} = emqx_bridge_testlib:update_bridge_api(CreateCfg, NoSSLConf),
     {ok, _} = emqx_tls_certfile_gc:force(),
     ?assertMatch({error, enoent}, file:list_dir(CertDir)),
     ok.

@@ -1387,29 +1387,40 @@ matrix_to_groups(Module, Cases) ->
         Cases
     ).
 
-add_case_matrix(Module, Case, Acc0) ->
-    {RootGroup, Matrix} = Module:Case(matrix),
+add_case_matrix(Module, TestCase, Acc0) ->
+    {MaybeRootGroup, Matrix} =
+        case Module:TestCase(matrix) of
+            {RootGroup0, Matrix0} ->
+                {RootGroup0, Matrix0};
+            Matrix0 ->
+                {undefined, Matrix0}
+        end,
     lists:foldr(
         fun(Row, Acc) ->
-            add_group([RootGroup | Row], Acc, Case)
+            case MaybeRootGroup of
+                undefined ->
+                    add_group(Row, Acc, TestCase);
+                RootGroup ->
+                    add_group([RootGroup | Row], Acc, TestCase)
+            end
         end,
         Acc0,
         Matrix
     ).
 
-add_group([], Acc, Case) ->
-    case lists:member(Case, Acc) of
+add_group([], Acc, TestCase) ->
+    case lists:member(TestCase, Acc) of
         true ->
             Acc;
         false ->
-            [Case | Acc]
+            [TestCase | Acc]
     end;
-add_group([Name | More], Acc, Cases) ->
+add_group([Name | More], Acc, TestCases) ->
     case lists:keyfind(Name, 1, Acc) of
         false ->
-            [{Name, [], add_group(More, [], Cases)} | Acc];
+            [{Name, [], add_group(More, [], TestCases)} | Acc];
         {Name, [], SubGroup} ->
-            New = {Name, [], add_group(More, SubGroup, Cases)},
+            New = {Name, [], add_group(More, SubGroup, TestCases)},
             lists:keystore(Name, 1, Acc, New)
     end.
 

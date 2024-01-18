@@ -17,129 +17,190 @@
 -module(emqx_bridge_mqtt_ingress).
 
 -include_lib("emqx/include/logger.hrl").
-
--behaviour(ecpool_worker).
-
-%% ecpool
--export([connect/1]).
+-include_lib("emqx/include/emqx_mqtt.hrl").
 
 %% management APIs
 -export([
     status/1,
-    info/1
+    info/1,
+    subscribe_channel/2,
+    unsubscribe_channel/4,
+    config/3
 ]).
 
--export([handle_publish/5]).
--export([handle_disconnect/1]).
+-export([handle_publish/3]).
 
--type name() :: term().
+subscribe_channel(PoolName, ChannelConfig) ->
+    Workers = ecpool:workers(PoolName),
+    PoolSize = length(Workers),
+    Results = [
+        subscribe_channel(Pid, Name, ChannelConfig, Idx, PoolSize)
+     || {{Name, Idx}, Pid} <- Workers
+    ],
+    case proplists:get_value(error, Results, ok) of
+        ok ->
+            ok;
+        Error ->
+            Error
+    end.
 
--type option() ::
-    {name, name()}
-    | {ingress, map()}
-    %% see `emqtt:option()`
-    | {client_opts, map()}.
+subscribe_channel(WorkerPid, Name, Ingress, WorkerIdx, PoolSize) ->
+    case ecpool_worker:client(WorkerPid) of
+        {ok, Client} ->
+            subscribe_channel_helper(Client, Name, Ingress, WorkerIdx, PoolSize);
+        {error, Reason} ->
+            error({client_not_found, Reason})
+    end.
 
--type ingress() :: #{
-    server := string(),
-    remote := #{
-        topic := emqx_types:topic(),
-        qos => emqx_types:qos()
-    },
-    local := emqx_bridge_mqtt_msg:msgvars(),
-    on_message_received := {module(), atom(), [term()]}
-}.
-
-%% @doc Start an ingress bridge worker.
--spec connect([option() | {ecpool_worker_id, pos_integer()}]) ->
-    {ok, pid()} | {error, _Reason}.
-connect(Options) ->
-    ?SLOG(debug, #{
-        msg => "ingress_client_starting",
-        options => emqx_utils:redact(Options)
-    }),
-    Name = proplists:get_value(name, Options),
-    WorkerId = proplists:get_value(ecpool_worker_id, Options),
-    Ingress = config(proplists:get_value(ingress, Options), Name),
-    ClientOpts = proplists:get_value(client_opts, Options),
-    case emqtt:start_link(mk_client_opts(Name, WorkerId, Ingress, ClientOpts)) of
-        {ok, Pid} ->
-            connect(Pid, Name, Ingress);
+subscribe_channel_helper(Client, Name, Ingress, WorkerIdx, PoolSize) ->
+    IngressList = maps:get(ingress_list, Ingress, []),
+    SubscribeResults = subscribe_remote_topics(
+        Client, IngressList, WorkerIdx, PoolSize, Name
+    ),
+    %% Find error if any using proplists:get_value/2
+    case proplists:get_value(error, SubscribeResults, ok) of
+        ok ->
+            ok;
         {error, Reason} = Error ->
             ?SLOG(error, #{
-                msg => "client_start_failed",
-                config => emqx_utils:redact(ClientOpts),
+                msg => "ingress_client_subscribe_failed",
+                ingress => Ingress,
+                name => Name,
                 reason => Reason
             }),
             Error
     end.
 
-mk_client_opts(Name, WorkerId, Ingress, ClientOpts = #{clientid := ClientId}) ->
-    ClientOpts#{
-        clientid := mk_clientid(WorkerId, ClientId),
-        msg_handler => mk_client_event_handler(Name, Ingress)
-    }.
+subscribe_remote_topics(Pid, IngressList, WorkerIdx, PoolSize, Name) ->
+    [subscribe_remote_topic(Pid, Ingress, WorkerIdx, PoolSize, Name) || Ingress <- IngressList].
 
-mk_clientid(WorkerId, ClientId) ->
-    emqx_bridge_mqtt_lib:bytes23(ClientId, WorkerId).
-
-mk_client_event_handler(Name, Ingress = #{}) ->
-    IngressVars = maps:with([server], Ingress),
-    OnMessage = maps:get(on_message_received, Ingress, undefined),
-    LocalPublish =
-        case Ingress of
-            #{local := Local = #{topic := _}} ->
-                Local;
-            #{} ->
-                undefined
-        end,
-    #{
-        publish => {fun ?MODULE:handle_publish/5, [Name, OnMessage, LocalPublish, IngressVars]},
-        disconnected => {fun ?MODULE:handle_disconnect/1, []}
-    }.
-
--spec connect(pid(), name(), ingress()) ->
-    {ok, pid()} | {error, _Reason}.
-connect(Pid, Name, Ingress) ->
-    case emqtt:connect(Pid) of
-        {ok, _Props} ->
-            case subscribe_remote_topic(Pid, Ingress) of
-                {ok, _, _RCs} ->
-                    {ok, Pid};
-                {error, Reason} = Error ->
-                    ?SLOG(error, #{
-                        msg => "ingress_client_subscribe_failed",
-                        ingress => Ingress,
-                        name => Name,
-                        reason => Reason
-                    }),
-                    _ = catch emqtt:stop(Pid),
-                    Error
-            end;
-        {error, Reason} = Error ->
-            ?SLOG(warning, #{
-                msg => "ingress_client_connect_failed",
-                reason => Reason,
-                name => Name
-            }),
-            _ = catch emqtt:stop(Pid),
-            Error
+subscribe_remote_topic(
+    Pid, #{remote := #{topic := RemoteTopic, qos := QoS}} = _Remote, WorkerIdx, PoolSize, Name
+) ->
+    case should_subscribe(RemoteTopic, WorkerIdx, PoolSize, Name, _LogWarn = true) of
+        true ->
+            emqtt:subscribe(Pid, RemoteTopic, QoS);
+        false ->
+            ok
     end.
 
-subscribe_remote_topic(Pid, #{remote := #{topic := RemoteTopic, qos := QoS}}) ->
-    emqtt:subscribe(Pid, RemoteTopic, QoS).
+should_subscribe(RemoteTopic, WorkerIdx, PoolSize, Name, LogWarn) ->
+    IsFirstWorker = WorkerIdx == 1,
+    case emqx_topic:parse(RemoteTopic) of
+        {#share{} = _Filter, _SubOpts} ->
+            % NOTE: this is shared subscription, many workers may subscribe
+            true;
+        {_Filter, #{}} when PoolSize > 1, IsFirstWorker, LogWarn ->
+            % NOTE: this is regular subscription, only one worker should subscribe
+            ?SLOG(warning, #{
+                msg => "mqtt_pool_size_ignored",
+                connector => Name,
+                reason =>
+                    "Remote topic filter is not a shared subscription, "
+                    "only a single connection will be used from the connection pool",
+                config_pool_size => PoolSize,
+                pool_size => PoolSize
+            }),
+            IsFirstWorker;
+        {_Filter, #{}} ->
+            % NOTE: this is regular subscription, only one worker should subscribe
+            IsFirstWorker
+    end.
 
-%%
+unsubscribe_channel(PoolName, ChannelConfig, ChannelId, TopicToHandlerIndex) ->
+    Workers = ecpool:workers(PoolName),
+    PoolSize = length(Workers),
+    _ = [
+        unsubscribe_channel(Pid, Name, ChannelConfig, Idx, PoolSize, ChannelId, TopicToHandlerIndex)
+     || {{Name, Idx}, Pid} <- Workers
+    ],
+    ok.
 
--spec config(map(), name()) ->
-    ingress().
-config(#{remote := RC, local := LC} = Conf, BridgeName) ->
-    Conf#{
-        remote => parse_remote(RC, BridgeName),
-        local => emqx_bridge_mqtt_msg:parse(LC)
-    }.
+unsubscribe_channel(WorkerPid, Name, Ingress, WorkerIdx, PoolSize, ChannelId, TopicToHandlerIndex) ->
+    case ecpool_worker:client(WorkerPid) of
+        {ok, Client} ->
+            unsubscribe_channel_helper(
+                Client, Name, Ingress, WorkerIdx, PoolSize, ChannelId, TopicToHandlerIndex
+            );
+        {error, Reason} ->
+            error({client_not_found, Reason})
+    end.
 
-parse_remote(#{qos := QoSIn} = Conf, BridgeName) ->
+unsubscribe_channel_helper(
+    Client, Name, Ingress, WorkerIdx, PoolSize, ChannelId, TopicToHandlerIndex
+) ->
+    IngressList = maps:get(ingress_list, Ingress, []),
+    unsubscribe_remote_topics(
+        Client, IngressList, WorkerIdx, PoolSize, Name, ChannelId, TopicToHandlerIndex
+    ).
+
+unsubscribe_remote_topics(
+    Pid, IngressList, WorkerIdx, PoolSize, Name, ChannelId, TopicToHandlerIndex
+) ->
+    [
+        unsubscribe_remote_topic(
+            Pid, Ingress, WorkerIdx, PoolSize, Name, ChannelId, TopicToHandlerIndex
+        )
+     || Ingress <- IngressList
+    ].
+
+unsubscribe_remote_topic(
+    Pid,
+    #{remote := #{topic := RemoteTopic}} = _Remote,
+    WorkerIdx,
+    PoolSize,
+    Name,
+    ChannelId,
+    TopicToHandlerIndex
+) ->
+    emqx_topic_index:delete(RemoteTopic, ChannelId, TopicToHandlerIndex),
+    case should_subscribe(RemoteTopic, WorkerIdx, PoolSize, Name, _NoWarn = false) of
+        true ->
+            case emqtt:unsubscribe(Pid, RemoteTopic) of
+                {ok, _Properties, _ReasonCodes} ->
+                    ok;
+                {error, Reason} ->
+                    ?SLOG(warning, #{
+                        msg => "unsubscribe_mqtt_topic_failed",
+                        channel_id => Name,
+                        reason => Reason
+                    }),
+                    ok
+            end;
+        false ->
+            ok
+    end.
+
+config(#{ingress_list := IngressList} = Conf, Name, TopicToHandlerIndex) ->
+    NewIngressList = [
+        fix_remote_config(Ingress, Name, TopicToHandlerIndex, Conf)
+     || Ingress <- IngressList
+    ],
+    Conf#{ingress_list => NewIngressList}.
+
+fix_remote_config(#{remote := RC}, BridgeName, TopicToHandlerIndex, Conf) ->
+    FixedConf0 = Conf#{
+        remote => parse_remote(RC, BridgeName)
+    },
+    FixedConf = emqx_utils_maps:update_if_present(
+        local, fun emqx_bridge_mqtt_msg:parse/1, FixedConf0
+    ),
+    insert_to_topic_to_handler_index(FixedConf, TopicToHandlerIndex, BridgeName),
+    FixedConf.
+
+insert_to_topic_to_handler_index(
+    #{remote := #{topic := Topic}} = Conf, TopicToHandlerIndex, BridgeName
+) ->
+    TopicPattern =
+        case emqx_topic:parse(Topic) of
+            {#share{group = _Group, topic = TP}, _} ->
+                TP;
+            _ ->
+                Topic
+        end,
+    emqx_topic_index:insert(TopicPattern, BridgeName, Conf, TopicToHandlerIndex).
+
+parse_remote(#{qos := QoSIn} = Remote, BridgeName) ->
     QoS = downgrade_ingress_qos(QoSIn),
     case QoS of
         QoSIn ->
@@ -152,7 +213,7 @@ parse_remote(#{qos := QoSIn} = Conf, BridgeName) ->
                 name => BridgeName
             })
     end,
-    Conf#{qos => QoS}.
+    Remote#{qos => QoS}.
 
 downgrade_ingress_qos(2) ->
     1;
@@ -183,17 +244,39 @@ status(Pid) ->
 
 %%
 
-handle_publish(#{properties := Props} = MsgIn, Name, OnMessage, LocalPublish, IngressVars) ->
-    Msg = import_msg(MsgIn, IngressVars),
+handle_publish(
+    #{properties := Props, topic := Topic} = MsgIn,
+    Name,
+    TopicToHandlerIndex
+) ->
     ?SLOG(debug, #{
         msg => "ingress_publish_local",
-        message => Msg,
+        message => MsgIn,
         name => Name
     }),
-    maybe_on_message_received(Msg, OnMessage),
-    maybe_publish_local(Msg, LocalPublish, Props).
+    Matches = emqx_topic_index:matches(Topic, TopicToHandlerIndex, []),
+    lists:foreach(
+        fun(Match) ->
+            handle_match(TopicToHandlerIndex, Match, MsgIn, Name, Props)
+        end,
+        Matches
+    ),
+    ok.
 
-handle_disconnect(_Reason) ->
+handle_match(
+    TopicToHandlerIndex,
+    Match,
+    MsgIn,
+    _Name,
+    Props
+) ->
+    [ChannelConfig] = emqx_topic_index:get_record(Match, TopicToHandlerIndex),
+    #{on_message_received := OnMessage} = ChannelConfig,
+    Msg = import_msg(MsgIn, ChannelConfig),
+
+    maybe_on_message_received(Msg, OnMessage),
+    LocalPublish = maps:get(local, ChannelConfig, undefined),
+    _ = maybe_publish_local(Msg, LocalPublish, Props),
     ok.
 
 maybe_on_message_received(Msg, {Mod, Func, Args}) ->

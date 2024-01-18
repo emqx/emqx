@@ -97,7 +97,7 @@ fields(action_parameters) ->
 fields(connector_resource_opts) ->
     emqx_connector_schema:resource_opts_fields();
 fields(action_resource_opts) ->
-    emqx_bridge_v2_schema:resource_opts_fields([
+    emqx_bridge_v2_schema:action_resource_opts_fields([
         {batch_size, #{
             importance => ?IMPORTANCE_HIDDEN,
             converter => fun(_, _) -> 1 end,

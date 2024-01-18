@@ -51,11 +51,11 @@
 
 -export([parse_url/1]).
 
--callback connector_config(ParsedConfig) ->
+-callback connector_config(ParsedConfig, Context) ->
     ParsedConfig
 when
-    ParsedConfig :: #{atom() => any()}.
--optional_callbacks([connector_config/1]).
+    ParsedConfig :: #{atom() => any()}, Context :: #{atom() => any()}.
+-optional_callbacks([connector_config/2]).
 
 -if(?EMQX_RELEASE_EDITION == ee).
 connector_to_resource_type(ConnectorType) ->
@@ -81,6 +81,10 @@ connector_impl_module(_ConnectorType) ->
 
 connector_to_resource_type_ce(http) ->
     emqx_bridge_http_connector;
+connector_to_resource_type_ce(mqtt) ->
+    emqx_bridge_mqtt_connector;
+% connector_to_resource_type_ce(mqtt_subscriber) ->
+%     emqx_bridge_mqtt_subscriber_connector;
 connector_to_resource_type_ce(ConnectorType) ->
     error({no_bridge_v2, ConnectorType}).
 
@@ -277,6 +281,12 @@ remove(Type, Name, _Conf, _Opts) ->
 
 %% convert connector configs to what the connector modules want
 parse_confs(
+    <<"mqtt">> = Type,
+    Name,
+    Conf
+) ->
+    insert_hookpoints(Type, Name, Conf);
+parse_confs(
     <<"http">>,
     _Name,
     #{
@@ -306,6 +316,13 @@ parse_confs(
     };
 parse_confs(ConnectorType, Name, Config) ->
     connector_config(ConnectorType, Name, Config).
+
+insert_hookpoints(Type, Name, Conf) ->
+    BId = emqx_bridge_resource:bridge_id(Type, Name),
+    BridgeHookpoint = emqx_bridge_resource:bridge_hookpoint(BId),
+    ConnectorHookpoint = connector_hookpoint(BId),
+    HookPoints = [BridgeHookpoint, ConnectorHookpoint],
+    Conf#{hookpoints => HookPoints}.
 
 connector_config(ConnectorType, Name, Config) ->
     Mod = connector_impl_module(ConnectorType),

@@ -412,7 +412,7 @@ t_create_webhook_v1_bridges_api(Config) ->
                 #{
                     <<"webhook_name">> =>
                         #{
-                            <<"connector">> => <<"connector_webhook_name">>,
+                            <<"connector">> => <<"webhook_name">>,
                             <<"description">> => <<>>,
                             <<"enable">> => true,
                             <<"parameters">> =>
@@ -440,7 +440,7 @@ t_create_webhook_v1_bridges_api(Config) ->
         #{
             <<"http">> =>
                 #{
-                    <<"connector_webhook_name">> =>
+                    <<"webhook_name">> =>
                         #{
                             <<"connect_timeout">> => <<"15s">>,
                             <<"description">> => <<>>,

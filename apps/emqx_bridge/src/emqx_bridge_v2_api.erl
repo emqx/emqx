@@ -26,6 +26,9 @@
 -import(hoconsc, [mk/2, array/1, enum/1]).
 -import(emqx_utils, [redact/1]).
 
+-define(ROOT_KEY_ACTIONS, actions).
+-define(ROOT_KEY_SOURCES, sources).
+
 %% Swagger specs from hocon schema
 -export([
     api_spec/0,
@@ -34,7 +37,7 @@
     namespace/0
 ]).
 
-%% API callbacks
+%% API callbacks : actions
 -export([
     '/actions'/2,
     '/actions/:id'/2,
@@ -46,9 +49,28 @@
     '/actions_probe'/2,
     '/action_types'/2
 ]).
+%% API callbacks : sources
+-export([
+    '/sources'/2,
+    '/sources/:id'/2,
+    '/sources/:id/metrics'/2,
+    '/sources/:id/metrics/reset'/2,
+    '/sources/:id/enable/:enable'/2,
+    '/sources/:id/:operation'/2,
+    '/nodes/:node/sources/:id/:operation'/2,
+    '/sources_probe'/2,
+    '/source_types'/2
+]).
 
 %% BpAPI / RPC Targets
--export([lookup_from_local_node/2, get_metrics_from_local_node/2]).
+-export([
+    lookup_from_local_node/2,
+    get_metrics_from_local_node/2,
+    lookup_from_local_node_v6/3,
+    get_metrics_from_local_node_v6/3
+]).
+
+-define(BPAPI_NAME, emqx_bridge).
 
 -define(BRIDGE_NOT_FOUND(BRIDGE_TYPE, BRIDGE_NAME),
     ?NOT_FOUND(
@@ -71,13 +93,16 @@
     end
 ).
 
-namespace() -> "actions".
+namespace() -> "actions_and_sources".
 
 api_spec() ->
     emqx_dashboard_swagger:spec(?MODULE, #{check_schema => true}).
 
 paths() ->
     [
+        %%=============
+        %% Actions
+        %%=============
         "/actions",
         "/actions/:id",
         "/actions/:id/enable/:enable",
@@ -88,7 +113,21 @@ paths() ->
         "/actions/:id/metrics",
         "/actions/:id/metrics/reset",
         "/actions_probe",
-        "/action_types"
+        "/action_types",
+        %%=============
+        %% Sources
+        %%=============
+        "/sources",
+        "/sources/:id",
+        "/sources/:id/enable/:enable",
+        "/sources/:id/:operation",
+        "/nodes/:node/sources/:id/:operation",
+        %% %% Caveat: metrics paths must come *after* `/:operation', otherwise minirest will
+        %% %% try to match the latter first, trying to interpret `metrics' as an operation...
+        "/sources/:id/metrics",
+        "/sources/:id/metrics/reset",
+        "/sources_probe"
+        %% "/source_types"
     ].
 
 error_schema(Code, Message) ->
@@ -101,17 +140,28 @@ error_schema(Codes, Message, ExtraFields) when is_list(Message) ->
 error_schema(Codes, Message, ExtraFields) when is_list(Codes) andalso is_binary(Message) ->
     ExtraFields ++ emqx_dashboard_swagger:error_codes(Codes, Message).
 
-get_response_body_schema() ->
+actions_get_response_body_schema() ->
     emqx_dashboard_swagger:schema_with_examples(
-        emqx_bridge_v2_schema:get_response(),
-        bridge_info_examples(get)
+        emqx_bridge_v2_schema:actions_get_response(),
+        bridge_info_examples(get, ?ROOT_KEY_ACTIONS)
     ).
 
-bridge_info_examples(Method) ->
-    emqx_bridge_v2_schema:examples(Method).
+sources_get_response_body_schema() ->
+    emqx_dashboard_swagger:schema_with_examples(
+        emqx_bridge_v2_schema:sources_get_response(),
+        bridge_info_examples(get, ?ROOT_KEY_SOURCES)
+    ).
 
-bridge_info_array_example(Method) ->
-    lists:map(fun(#{value := Config}) -> Config end, maps:values(bridge_info_examples(Method))).
+bridge_info_examples(Method, ?ROOT_KEY_ACTIONS) ->
+    emqx_bridge_v2_schema:actions_examples(Method);
+bridge_info_examples(Method, ?ROOT_KEY_SOURCES) ->
+    emqx_bridge_v2_schema:sources_examples(Method).
+
+bridge_info_array_example(Method, ConfRootKey) ->
+    lists:map(
+        fun(#{value := Config}) -> Config end,
+        maps:values(bridge_info_examples(Method, ConfRootKey))
+    ).
 
 param_path_id() ->
     {id,
@@ -185,6 +235,9 @@ param_path_enable() ->
             }
         )}.
 
+%%================================================================================
+%% Actions
+%%================================================================================
 schema("/actions") ->
     #{
         'operationId' => '/actions',
@@ -194,8 +247,8 @@ schema("/actions") ->
             description => ?DESC("desc_api1"),
             responses => #{
                 200 => emqx_dashboard_swagger:schema_with_example(
-                    array(emqx_bridge_v2_schema:get_response()),
-                    bridge_info_array_example(get)
+                    array(emqx_bridge_v2_schema:actions_get_response()),
+                    bridge_info_array_example(get, ?ROOT_KEY_ACTIONS)
                 )
             }
         },
@@ -204,11 +257,11 @@ schema("/actions") ->
             summary => <<"Create bridge">>,
             description => ?DESC("desc_api2"),
             'requestBody' => emqx_dashboard_swagger:schema_with_examples(
-                emqx_bridge_v2_schema:post_request(),
-                bridge_info_examples(post)
+                emqx_bridge_v2_schema:actions_post_request(),
+                bridge_info_examples(post, ?ROOT_KEY_ACTIONS)
             ),
             responses => #{
-                201 => get_response_body_schema(),
+                201 => actions_get_response_body_schema(),
                 400 => error_schema('ALREADY_EXISTS', "Bridge already exists")
             }
         }
@@ -222,7 +275,7 @@ schema("/actions/:id") ->
             description => ?DESC("desc_api3"),
             parameters => [param_path_id()],
             responses => #{
-                200 => get_response_body_schema(),
+                200 => actions_get_response_body_schema(),
                 404 => error_schema('NOT_FOUND', "Bridge not found")
             }
         },
@@ -232,11 +285,11 @@ schema("/actions/:id") ->
             description => ?DESC("desc_api4"),
             parameters => [param_path_id()],
             'requestBody' => emqx_dashboard_swagger:schema_with_examples(
-                emqx_bridge_v2_schema:put_request(),
-                bridge_info_examples(put)
+                emqx_bridge_v2_schema:actions_put_request(),
+                bridge_info_examples(put, ?ROOT_KEY_ACTIONS)
             ),
             responses => #{
-                200 => get_response_body_schema(),
+                200 => actions_get_response_body_schema(),
                 404 => error_schema('NOT_FOUND', "Bridge not found"),
                 400 => error_schema('BAD_REQUEST', "Update bridge failed")
             }
@@ -361,8 +414,8 @@ schema("/actions_probe") ->
             desc => ?DESC("desc_api9"),
             summary => <<"Test creating bridge">>,
             'requestBody' => emqx_dashboard_swagger:schema_with_examples(
-                emqx_bridge_v2_schema:post_request(),
-                bridge_info_examples(post)
+                emqx_bridge_v2_schema:actions_post_request(),
+                bridge_info_examples(post, ?ROOT_KEY_ACTIONS)
             ),
             responses => #{
                 204 => <<"Test bridge OK">>,
@@ -379,12 +432,223 @@ schema("/action_types") ->
             summary => <<"List available action types">>,
             responses => #{
                 200 => emqx_dashboard_swagger:schema_with_examples(
-                    array(emqx_bridge_v2_schema:types_sc()),
+                    array(emqx_bridge_v2_schema:action_types_sc()),
                     #{
                         <<"types">> =>
                             #{
                                 summary => <<"Action types">>,
-                                value => emqx_bridge_v2_schema:types()
+                                value => emqx_bridge_v2_schema:action_types()
+                            }
+                    }
+                )
+            }
+        }
+    };
+%%================================================================================
+%% Sources
+%%================================================================================
+schema("/sources") ->
+    #{
+        'operationId' => '/sources',
+        get => #{
+            tags => [<<"sources">>],
+            summary => <<"List sources">>,
+            description => ?DESC("desc_api1"),
+            responses => #{
+                %% FIXME: examples
+                200 => emqx_dashboard_swagger:schema_with_example(
+                    array(emqx_bridge_v2_schema:sources_get_response()),
+                    bridge_info_array_example(get, ?ROOT_KEY_SOURCES)
+                )
+            }
+        },
+        post => #{
+            tags => [<<"sources">>],
+            summary => <<"Create source">>,
+            description => ?DESC("desc_api2"),
+            %% FIXME: examples
+            'requestBody' => emqx_dashboard_swagger:schema_with_examples(
+                emqx_bridge_v2_schema:sources_post_request(),
+                bridge_info_examples(post, ?ROOT_KEY_SOURCES)
+            ),
+            responses => #{
+                201 => sources_get_response_body_schema(),
+                400 => error_schema('ALREADY_EXISTS', "Source already exists")
+            }
+        }
+    };
+schema("/sources/:id") ->
+    #{
+        'operationId' => '/sources/:id',
+        get => #{
+            tags => [<<"sources">>],
+            summary => <<"Get source">>,
+            description => ?DESC("desc_api3"),
+            parameters => [param_path_id()],
+            responses => #{
+                200 => sources_get_response_body_schema(),
+                404 => error_schema('NOT_FOUND', "Source not found")
+            }
+        },
+        put => #{
+            tags => [<<"sources">>],
+            summary => <<"Update source">>,
+            description => ?DESC("desc_api4"),
+            parameters => [param_path_id()],
+            'requestBody' => emqx_dashboard_swagger:schema_with_examples(
+                emqx_bridge_v2_schema:sources_put_request(),
+                bridge_info_examples(put, ?ROOT_KEY_SOURCES)
+            ),
+            responses => #{
+                200 => sources_get_response_body_schema(),
+                404 => error_schema('NOT_FOUND', "Source not found"),
+                400 => error_schema('BAD_REQUEST', "Update source failed")
+            }
+        },
+        delete => #{
+            tags => [<<"sources">>],
+            summary => <<"Delete source">>,
+            description => ?DESC("desc_api5"),
+            parameters => [param_path_id(), param_qs_delete_cascade()],
+            responses => #{
+                204 => <<"Source deleted">>,
+                400 => error_schema(
+                    'BAD_REQUEST',
+                    "Cannot delete bridge while active rules are defined for this source",
+                    [{rules, mk(array(string()), #{desc => "Dependent Rule IDs"})}]
+                ),
+                404 => error_schema('NOT_FOUND', "Source not found"),
+                503 => error_schema('SERVICE_UNAVAILABLE', "Service unavailable")
+            }
+        }
+    };
+schema("/sources/:id/metrics") ->
+    #{
+        'operationId' => '/sources/:id/metrics',
+        get => #{
+            tags => [<<"sources">>],
+            summary => <<"Get source metrics">>,
+            description => ?DESC("desc_bridge_metrics"),
+            parameters => [param_path_id()],
+            responses => #{
+                200 => emqx_bridge_schema:metrics_fields(),
+                404 => error_schema('NOT_FOUND', "Source not found")
+            }
+        }
+    };
+schema("/sources/:id/metrics/reset") ->
+    #{
+        'operationId' => '/sources/:id/metrics/reset',
+        put => #{
+            tags => [<<"sources">>],
+            summary => <<"Reset source metrics">>,
+            description => ?DESC("desc_api6"),
+            parameters => [param_path_id()],
+            responses => #{
+                204 => <<"Reset success">>,
+                404 => error_schema('NOT_FOUND', "Source not found")
+            }
+        }
+    };
+schema("/sources/:id/enable/:enable") ->
+    #{
+        'operationId' => '/sources/:id/enable/:enable',
+        put =>
+            #{
+                tags => [<<"sources">>],
+                summary => <<"Enable or disable bridge">>,
+                desc => ?DESC("desc_enable_bridge"),
+                parameters => [param_path_id(), param_path_enable()],
+                responses =>
+                    #{
+                        204 => <<"Success">>,
+                        404 => error_schema(
+                            'NOT_FOUND', "Bridge not found or invalid operation"
+                        ),
+                        503 => error_schema('SERVICE_UNAVAILABLE', "Service unavailable")
+                    }
+            }
+    };
+schema("/sources/:id/:operation") ->
+    #{
+        'operationId' => '/sources/:id/:operation',
+        post => #{
+            tags => [<<"sources">>],
+            summary => <<"Manually start a bridge">>,
+            description => ?DESC("desc_api7"),
+            parameters => [
+                param_path_id(),
+                param_path_operation_cluster()
+            ],
+            responses => #{
+                204 => <<"Operation success">>,
+                400 => error_schema(
+                    'BAD_REQUEST', "Problem with configuration of external service"
+                ),
+                404 => error_schema('NOT_FOUND', "Bridge not found or invalid operation"),
+                501 => error_schema('NOT_IMPLEMENTED', "Not Implemented"),
+                503 => error_schema('SERVICE_UNAVAILABLE', "Service unavailable")
+            }
+        }
+    };
+schema("/nodes/:node/sources/:id/:operation") ->
+    #{
+        'operationId' => '/nodes/:node/sources/:id/:operation',
+        post => #{
+            tags => [<<"sources">>],
+            summary => <<"Manually start a bridge on a given node">>,
+            description => ?DESC("desc_api8"),
+            parameters => [
+                param_path_node(),
+                param_path_id(),
+                param_path_operation_on_node()
+            ],
+            responses => #{
+                204 => <<"Operation success">>,
+                400 => error_schema(
+                    'BAD_REQUEST',
+                    "Problem with configuration of external service or bridge not enabled"
+                ),
+                404 => error_schema(
+                    'NOT_FOUND', "Bridge or node not found or invalid operation"
+                ),
+                501 => error_schema('NOT_IMPLEMENTED', "Not Implemented"),
+                503 => error_schema('SERVICE_UNAVAILABLE', "Service unavailable")
+            }
+        }
+    };
+schema("/sources_probe") ->
+    #{
+        'operationId' => '/sources_probe',
+        post => #{
+            tags => [<<"sources">>],
+            desc => ?DESC("desc_api9"),
+            summary => <<"Test creating bridge">>,
+            'requestBody' => emqx_dashboard_swagger:schema_with_examples(
+                emqx_bridge_v2_schema:sources_post_request(),
+                bridge_info_examples(post, ?ROOT_KEY_SOURCES)
+            ),
+            responses => #{
+                204 => <<"Test bridge OK">>,
+                400 => error_schema(['TEST_FAILED'], "bridge test failed")
+            }
+        }
+    };
+schema("/source_types") ->
+    #{
+        'operationId' => '/source_types',
+        get => #{
+            tags => [<<"sources">>],
+            desc => ?DESC("desc_api10"),
+            summary => <<"List available source types">>,
+            responses => #{
+                200 => emqx_dashboard_swagger:schema_with_examples(
+                    array(emqx_bridge_v2_schema:action_types_sc()),
+                    #{
+                        <<"types">> =>
+                            #{
+                                summary => <<"Source types">>,
+                                value => emqx_bridge_v2_schema:action_types()
                             }
                     }
                 )
@@ -392,21 +656,103 @@ schema("/action_types") ->
         }
     }.
 
+%%------------------------------------------------------------------------------
+%% Thin Handlers
+%%------------------------------------------------------------------------------
+%%================================================================================
+%% Actions
+%%================================================================================
 '/actions'(post, #{body := #{<<"type">> := BridgeType, <<"name">> := BridgeName} = Conf0}) ->
-    case emqx_bridge_v2:lookup(BridgeType, BridgeName) of
-        {ok, _} ->
-            ?BAD_REQUEST('ALREADY_EXISTS', <<"bridge already exists">>);
-        {error, not_found} ->
-            Conf = filter_out_request_body(Conf0),
-            create_bridge(BridgeType, BridgeName, Conf)
-    end;
+    handle_create(?ROOT_KEY_ACTIONS, BridgeType, BridgeName, Conf0);
 '/actions'(get, _Params) ->
-    Nodes = mria:running_nodes(),
-    NodeReplies = emqx_bridge_proto_v5:v2_list_bridges_on_nodes(Nodes),
+    handle_list(?ROOT_KEY_ACTIONS).
+
+'/actions/:id'(get, #{bindings := #{id := Id}}) ->
+    ?TRY_PARSE_ID(Id, lookup_from_all_nodes(?ROOT_KEY_ACTIONS, BridgeType, BridgeName, 200));
+'/actions/:id'(put, #{bindings := #{id := Id}, body := Conf0}) ->
+    handle_update(?ROOT_KEY_ACTIONS, Id, Conf0);
+'/actions/:id'(delete, #{bindings := #{id := Id}, query_string := Qs}) ->
+    handle_delete(?ROOT_KEY_ACTIONS, Id, Qs).
+
+'/actions/:id/metrics'(get, #{bindings := #{id := Id}}) ->
+    ?TRY_PARSE_ID(Id, get_metrics_from_all_nodes(?ROOT_KEY_ACTIONS, BridgeType, BridgeName)).
+
+'/actions/:id/metrics/reset'(put, #{bindings := #{id := Id}}) ->
+    handle_reset_metrics(?ROOT_KEY_ACTIONS, Id).
+
+'/actions/:id/enable/:enable'(put, #{bindings := #{id := Id, enable := Enable}}) ->
+    handle_disable_enable(?ROOT_KEY_ACTIONS, Id, Enable).
+
+'/actions/:id/:operation'(post, #{
+    bindings :=
+        #{id := Id, operation := Op}
+}) ->
+    handle_operation(?ROOT_KEY_ACTIONS, Id, Op).
+
+'/nodes/:node/actions/:id/:operation'(post, #{
+    bindings :=
+        #{id := Id, operation := Op, node := Node}
+}) ->
+    handle_node_operation(?ROOT_KEY_ACTIONS, Node, Id, Op).
+
+'/actions_probe'(post, Request) ->
+    handle_probe(?ROOT_KEY_ACTIONS, Request).
+
+'/action_types'(get, _Request) ->
+    ?OK(emqx_bridge_v2_schema:action_types()).
+%%================================================================================
+%% Sources
+%%================================================================================
+'/sources'(post, #{body := #{<<"type">> := BridgeType, <<"name">> := BridgeName} = Conf0}) ->
+    handle_create(?ROOT_KEY_SOURCES, BridgeType, BridgeName, Conf0);
+'/sources'(get, _Params) ->
+    handle_list(?ROOT_KEY_SOURCES).
+
+'/sources/:id'(get, #{bindings := #{id := Id}}) ->
+    ?TRY_PARSE_ID(Id, lookup_from_all_nodes(?ROOT_KEY_SOURCES, BridgeType, BridgeName, 200));
+'/sources/:id'(put, #{bindings := #{id := Id}, body := Conf0}) ->
+    handle_update(?ROOT_KEY_SOURCES, Id, Conf0);
+'/sources/:id'(delete, #{bindings := #{id := Id}, query_string := Qs}) ->
+    handle_delete(?ROOT_KEY_SOURCES, Id, Qs).
+
+'/sources/:id/metrics'(get, #{bindings := #{id := Id}}) ->
+    ?TRY_PARSE_ID(Id, get_metrics_from_all_nodes(?ROOT_KEY_SOURCES, BridgeType, BridgeName)).
+
+'/sources/:id/metrics/reset'(put, #{bindings := #{id := Id}}) ->
+    handle_reset_metrics(?ROOT_KEY_SOURCES, Id).
+
+'/sources/:id/enable/:enable'(put, #{bindings := #{id := Id, enable := Enable}}) ->
+    handle_disable_enable(?ROOT_KEY_SOURCES, Id, Enable).
+
+'/sources/:id/:operation'(post, #{
+    bindings :=
+        #{id := Id, operation := Op}
+}) ->
+    handle_operation(?ROOT_KEY_SOURCES, Id, Op).
+
+'/nodes/:node/sources/:id/:operation'(post, #{
+    bindings :=
+        #{id := Id, operation := Op, node := Node}
+}) ->
+    handle_node_operation(?ROOT_KEY_SOURCES, Node, Id, Op).
+
+'/sources_probe'(post, Request) ->
+    handle_probe(?ROOT_KEY_SOURCES, Request).
+
+'/source_types'(get, _Request) ->
+    ?OK(emqx_bridge_v2_schema:source_types()).
+
+%%------------------------------------------------------------------------------
+%% Handlers
+%%------------------------------------------------------------------------------
+
+handle_list(ConfRootKey) ->
+    Nodes = emqx:running_nodes(),
+    NodeReplies = emqx_bridge_proto_v6:v2_list_bridges_on_nodes_v6(Nodes, ConfRootKey),
     case is_ok(NodeReplies) of
         {ok, NodeBridges} ->
             AllBridges = [
-                [format_resource(Data, Node) || Data <- Bridges]
+                [format_resource(ConfRootKey, Data, Node) || Data <- Bridges]
              || {Node, Bridges} <- lists:zip(Nodes, NodeBridges)
             ],
             ?OK(zip_bridges(AllBridges));
@@ -414,34 +760,44 @@ schema("/action_types") ->
             ?INTERNAL_ERROR(Reason)
     end.
 
-'/actions/:id'(get, #{bindings := #{id := Id}}) ->
-    ?TRY_PARSE_ID(Id, lookup_from_all_nodes(BridgeType, BridgeName, 200));
-'/actions/:id'(put, #{bindings := #{id := Id}, body := Conf0}) ->
+handle_create(ConfRootKey, Type, Name, Conf0) ->
+    case emqx_bridge_v2:lookup(ConfRootKey, Type, Name) of
+        {ok, _} ->
+            ?BAD_REQUEST('ALREADY_EXISTS', <<"bridge already exists">>);
+        {error, not_found} ->
+            Conf = filter_out_request_body(Conf0),
+            create_bridge(ConfRootKey, Type, Name, Conf)
+    end.
+
+handle_update(ConfRootKey, Id, Conf0) ->
     Conf1 = filter_out_request_body(Conf0),
     ?TRY_PARSE_ID(
         Id,
-        case emqx_bridge_v2:lookup(BridgeType, BridgeName) of
+        case emqx_bridge_v2:lookup(ConfRootKey, BridgeType, BridgeName) of
             {ok, _} ->
                 RawConf = emqx:get_raw_config([bridges, BridgeType, BridgeName], #{}),
                 Conf = emqx_utils:deobfuscate(Conf1, RawConf),
-                update_bridge(BridgeType, BridgeName, Conf);
+                update_bridge(ConfRootKey, BridgeType, BridgeName, Conf);
             {error, not_found} ->
                 ?BRIDGE_NOT_FOUND(BridgeType, BridgeName)
         end
-    );
-'/actions/:id'(delete, #{bindings := #{id := Id}, query_string := Qs}) ->
+    ).
+
+handle_delete(ConfRootKey, Id, QueryStringOpts) ->
     ?TRY_PARSE_ID(
         Id,
-        case emqx_bridge_v2:lookup(BridgeType, BridgeName) of
+        case emqx_bridge_v2:lookup(ConfRootKey, BridgeType, BridgeName) of
             {ok, _} ->
                 AlsoDeleteActions =
-                    case maps:get(<<"also_delete_dep_actions">>, Qs, <<"false">>) of
+                    case maps:get(<<"also_delete_dep_actions">>, QueryStringOpts, <<"false">>) of
                         <<"true">> -> true;
                         true -> true;
                         _ -> false
                     end,
                 case
-                    emqx_bridge_v2:check_deps_and_remove(BridgeType, BridgeName, AlsoDeleteActions)
+                    emqx_bridge_v2:check_deps_and_remove(
+                        ConfRootKey, BridgeType, BridgeName, AlsoDeleteActions
+                    )
                 of
                     ok ->
                         ?NO_CONTENT;
@@ -465,23 +821,22 @@ schema("/action_types") ->
         end
     ).
 
-'/actions/:id/metrics'(get, #{bindings := #{id := Id}}) ->
-    ?TRY_PARSE_ID(Id, get_metrics_from_all_nodes(BridgeType, BridgeName)).
-
-'/actions/:id/metrics/reset'(put, #{bindings := #{id := Id}}) ->
+handle_reset_metrics(ConfRootKey, Id) ->
     ?TRY_PARSE_ID(
         Id,
         begin
             ActionType = emqx_bridge_v2:bridge_v2_type_to_connector_type(BridgeType),
-            ok = emqx_bridge_v2:reset_metrics(ActionType, BridgeName),
+            ok = emqx_bridge_v2:reset_metrics(ConfRootKey, ActionType, BridgeName),
             ?NO_CONTENT
         end
     ).
 
-'/actions/:id/enable/:enable'(put, #{bindings := #{id := Id, enable := Enable}}) ->
+handle_disable_enable(ConfRootKey, Id, Enable) ->
     ?TRY_PARSE_ID(
         Id,
-        case emqx_bridge_v2:disable_enable(enable_func(Enable), BridgeType, BridgeName) of
+        case
+            emqx_bridge_v2:disable_enable(ConfRootKey, enable_func(Enable), BridgeType, BridgeName)
+        of
             {ok, _} ->
                 ?NO_CONTENT;
             {error, {pre_config_update, _, bridge_not_found}} ->
@@ -495,41 +850,42 @@ schema("/action_types") ->
         end
     ).
 
-'/actions/:id/:operation'(post, #{
-    bindings :=
-        #{id := Id, operation := Op}
-}) ->
+handle_operation(ConfRootKey, Id, Op) ->
     ?TRY_PARSE_ID(
         Id,
         begin
             OperFunc = operation_func(all, Op),
-            Nodes = mria:running_nodes(),
-            call_operation_if_enabled(all, OperFunc, [Nodes, BridgeType, BridgeName])
+            Nodes = emqx:running_nodes(),
+            call_operation_if_enabled(all, OperFunc, [Nodes, ConfRootKey, BridgeType, BridgeName])
         end
     ).
 
-'/nodes/:node/actions/:id/:operation'(post, #{
-    bindings :=
-        #{id := Id, operation := Op, node := Node}
-}) ->
+handle_node_operation(ConfRootKey, Node, Id, Op) ->
     ?TRY_PARSE_ID(
         Id,
         case emqx_utils:safe_to_existing_atom(Node, utf8) of
             {ok, TargetNode} ->
                 OperFunc = operation_func(TargetNode, Op),
-                call_operation_if_enabled(TargetNode, OperFunc, [TargetNode, BridgeType, BridgeName]);
+                call_operation_if_enabled(TargetNode, OperFunc, [
+                    TargetNode, ConfRootKey, BridgeType, BridgeName
+                ]);
             {error, _} ->
                 ?NOT_FOUND(<<"Invalid node name: ", Node/binary>>)
         end
     ).
 
-'/actions_probe'(post, Request) ->
-    RequestMeta = #{module => ?MODULE, method => post, path => "/actions_probe"},
+handle_probe(ConfRootKey, Request) ->
+    Path =
+        case ConfRootKey of
+            ?ROOT_KEY_ACTIONS -> "/actions_probe";
+            ?ROOT_KEY_SOURCES -> "/sources_probe"
+        end,
+    RequestMeta = #{module => ?MODULE, method => post, path => Path},
     case emqx_dashboard_swagger:filter_check_request_and_translate_body(Request, RequestMeta) of
-        {ok, #{body := #{<<"type">> := ConnType} = Params}} ->
+        {ok, #{body := #{<<"type">> := Type} = Params}} ->
             Params1 = maybe_deobfuscate_bridge_probe(Params),
             Params2 = maps:remove(<<"type">>, Params1),
-            case emqx_bridge_v2:create_dry_run(ConnType, Params2) of
+            case emqx_bridge_v2:create_dry_run(ConfRootKey, Type, Params2) of
                 ok ->
                     ?NO_CONTENT;
                 {error, #{kind := validation_error} = Reason0} ->
@@ -548,9 +904,7 @@ schema("/action_types") ->
             redact(BadRequest)
     end.
 
-'/action_types'(get, _Request) ->
-    ?OK(emqx_bridge_v2_schema:types()).
-
+%%% API helpers
 maybe_deobfuscate_bridge_probe(#{<<"type">> := ActionType, <<"name">> := BridgeName} = Params) ->
     case emqx_bridge_v2:lookup(ActionType, BridgeName) of
         {ok, #{raw_config := RawConf}} ->
@@ -564,7 +918,6 @@ maybe_deobfuscate_bridge_probe(#{<<"type">> := ActionType, <<"name">> := BridgeN
 maybe_deobfuscate_bridge_probe(Params) ->
     Params.
 
-%%% API helpers
 is_ok(ok) ->
     ok;
 is_ok(OkResult = {ok, _}) ->
@@ -587,9 +940,16 @@ is_ok(ResL) ->
     end.
 
 %% bridge helpers
-lookup_from_all_nodes(BridgeType, BridgeName, SuccCode) ->
-    Nodes = mria:running_nodes(),
-    case is_ok(emqx_bridge_proto_v5:v2_lookup_from_all_nodes(Nodes, BridgeType, BridgeName)) of
+-spec lookup_from_all_nodes(emqx_bridge_v2:root_cfg_key(), _, _, _) -> _.
+lookup_from_all_nodes(ConfRootKey, BridgeType, BridgeName, SuccCode) ->
+    Nodes = emqx:running_nodes(),
+    case
+        is_ok(
+            emqx_bridge_proto_v6:v2_lookup_from_all_nodes_v6(
+                Nodes, ConfRootKey, BridgeType, BridgeName
+            )
+        )
+    of
         {ok, [{ok, _} | _] = Results} ->
             {SuccCode, format_bridge_info([R || {ok, R} <- Results])};
         {ok, [{error, not_found} | _]} ->
@@ -598,10 +958,10 @@ lookup_from_all_nodes(BridgeType, BridgeName, SuccCode) ->
             ?INTERNAL_ERROR(Reason)
     end.
 
-get_metrics_from_all_nodes(ActionType, ActionName) ->
+get_metrics_from_all_nodes(ConfRootKey, Type, Name) ->
     Nodes = emqx:running_nodes(),
     Result = maybe_unwrap(
-        emqx_bridge_proto_v5:v2_get_metrics_from_all_nodes(Nodes, ActionType, ActionName)
+        emqx_bridge_proto_v6:v2_get_metrics_from_all_nodes_v6(Nodes, ConfRootKey, Type, Name)
     ),
     case Result of
         Metrics when is_list(Metrics) ->
@@ -610,22 +970,25 @@ get_metrics_from_all_nodes(ActionType, ActionName) ->
             ?INTERNAL_ERROR(Reason)
     end.
 
-operation_func(all, start) -> v2_start_bridge_to_all_nodes;
-operation_func(_Node, start) -> v2_start_bridge_to_node.
+operation_func(all, start) -> v2_start_bridge_on_all_nodes_v6;
+operation_func(_Node, start) -> v2_start_bridge_on_node_v6;
+operation_func(all, lookup) -> v2_lookup_from_all_nodes_v6;
+operation_func(all, list) -> v2_list_bridges_on_nodes_v6;
+operation_func(all, get_metrics) -> v2_get_metrics_from_all_nodes_v6.
 
-call_operation_if_enabled(NodeOrAll, OperFunc, [Nodes, BridgeType, BridgeName]) ->
-    try is_enabled_bridge(BridgeType, BridgeName) of
+call_operation_if_enabled(NodeOrAll, OperFunc, [Nodes, ConfRootKey, BridgeType, BridgeName]) ->
+    try is_enabled_bridge(ConfRootKey, BridgeType, BridgeName) of
         false ->
             ?BRIDGE_NOT_ENABLED;
         true ->
-            call_operation(NodeOrAll, OperFunc, [Nodes, BridgeType, BridgeName])
+            call_operation(NodeOrAll, OperFunc, [Nodes, ConfRootKey, BridgeType, BridgeName])
     catch
         throw:not_found ->
             ?BRIDGE_NOT_FOUND(BridgeType, BridgeName)
     end.
 
-is_enabled_bridge(BridgeType, BridgeName) ->
-    try emqx_bridge_v2:lookup(BridgeType, binary_to_existing_atom(BridgeName)) of
+is_enabled_bridge(ConfRootKey, BridgeType, BridgeName) ->
+    try emqx_bridge_v2:lookup(ConfRootKey, BridgeType, binary_to_existing_atom(BridgeName)) of
         {ok, #{raw_config := ConfMap}} ->
             maps:get(<<"enable">>, ConfMap, false);
         {error, not_found} ->
@@ -637,7 +1000,7 @@ is_enabled_bridge(BridgeType, BridgeName) ->
             throw(not_found)
     end.
 
-call_operation(NodeOrAll, OperFunc, Args = [_Nodes, BridgeType, BridgeName]) ->
+call_operation(NodeOrAll, OperFunc, Args = [_Nodes, _ConfRootKey, BridgeType, BridgeName]) ->
     case is_ok(do_bpapi_call(NodeOrAll, OperFunc, Args)) of
         Ok when Ok =:= ok; is_tuple(Ok), element(1, Ok) =:= ok ->
             ?NO_CONTENT;
@@ -668,12 +1031,12 @@ call_operation(NodeOrAll, OperFunc, Args = [_Nodes, BridgeType, BridgeName]) ->
 
 do_bpapi_call(all, Call, Args) ->
     maybe_unwrap(
-        do_bpapi_call_vsn(emqx_bpapi:supported_version(emqx_bridge), Call, Args)
+        do_bpapi_call_vsn(emqx_bpapi:supported_version(?BPAPI_NAME), Call, Args)
     );
 do_bpapi_call(Node, Call, Args) ->
-    case lists:member(Node, mria:running_nodes()) of
+    case lists:member(Node, emqx:running_nodes()) of
         true ->
-            do_bpapi_call_vsn(emqx_bpapi:supported_version(Node, emqx_bridge), Call, Args);
+            do_bpapi_call_vsn(emqx_bpapi:supported_version(Node, ?BPAPI_NAME), Call, Args);
         false ->
             {error, {node_not_found, Node}}
     end.
@@ -681,7 +1044,7 @@ do_bpapi_call(Node, Call, Args) ->
 do_bpapi_call_vsn(Version, Call, Args) ->
     case is_supported_version(Version, Call) of
         true ->
-            apply(emqx_bridge_proto_v5, Call, Args);
+            apply(emqx_bridge_proto_v6, Call, Args);
         false ->
             {error, not_implemented}
     end.
@@ -689,7 +1052,12 @@ do_bpapi_call_vsn(Version, Call, Args) ->
 is_supported_version(Version, Call) ->
     lists:member(Version, supported_versions(Call)).
 
-supported_versions(_Call) -> [5].
+supported_versions(_Call) -> bpapi_version_range(6, latest).
+
+%% [From, To] (inclusive on both ends)
+bpapi_version_range(From, latest) ->
+    ThisNodeVsn = emqx_bpapi:supported_version(node(), ?BPAPI_NAME),
+    lists:seq(From, ThisNodeVsn).
 
 maybe_unwrap({error, not_implemented}) ->
     {error, not_implemented};
@@ -763,7 +1131,15 @@ aggregate_status(AllStatus) ->
 %% RPC Target
 lookup_from_local_node(BridgeType, BridgeName) ->
     case emqx_bridge_v2:lookup(BridgeType, BridgeName) of
-        {ok, Res} -> {ok, format_resource(Res, node())};
+        {ok, Res} -> {ok, format_resource(?ROOT_KEY_ACTIONS, Res, node())};
+        Error -> Error
+    end.
+
+%% RPC Target
+-spec lookup_from_local_node_v6(emqx_bridge_v2:root_cfg_key(), _, _) -> _.
+lookup_from_local_node_v6(ConfRootKey, BridgeType, BridgeName) ->
+    case emqx_bridge_v2:lookup(ConfRootKey, BridgeType, BridgeName) of
+        {ok, Res} -> {ok, format_resource(ConfRootKey, Res, node())};
         Error -> Error
     end.
 
@@ -771,8 +1147,13 @@ lookup_from_local_node(BridgeType, BridgeName) ->
 get_metrics_from_local_node(ActionType, ActionName) ->
     format_metrics(emqx_bridge_v2:get_metrics(ActionType, ActionName)).
 
+%% RPC Target
+get_metrics_from_local_node_v6(ConfRootKey, Type, Name) ->
+    format_metrics(emqx_bridge_v2:get_metrics(ConfRootKey, Type, Name)).
+
 %% resource
 format_resource(
+    ConfRootKey,
     #{
         type := Type,
         name := Name,
@@ -783,7 +1164,7 @@ format_resource(
     },
     Node
 ) ->
-    RawConf = fill_defaults(Type, RawConf0),
+    RawConf = fill_defaults(ConfRootKey, Type, RawConf0),
     redact(
         maps:merge(
             RawConf#{
@@ -914,17 +1295,18 @@ aggregate_metrics(
         M17 + N17
     ).
 
-fill_defaults(Type, RawConf) ->
-    PackedConf = pack_bridge_conf(Type, RawConf),
+fill_defaults(ConfRootKey, Type, RawConf) ->
+    PackedConf = pack_bridge_conf(ConfRootKey, Type, RawConf),
     FullConf = emqx_config:fill_defaults(emqx_bridge_v2_schema, PackedConf, #{}),
-    unpack_bridge_conf(Type, FullConf).
+    unpack_bridge_conf(ConfRootKey, Type, FullConf).
 
-pack_bridge_conf(Type, RawConf) ->
-    #{<<"actions">> => #{bin(Type) => #{<<"foo">> => RawConf}}}.
+pack_bridge_conf(ConfRootKey, Type, RawConf) ->
+    #{bin(ConfRootKey) => #{bin(Type) => #{<<"foo">> => RawConf}}}.
 
-unpack_bridge_conf(Type, PackedConf) ->
+unpack_bridge_conf(ConfRootKey, Type, PackedConf) ->
+    ConfRootKeyBin = bin(ConfRootKey),
     TypeBin = bin(Type),
-    #{<<"actions">> := Bridges} = PackedConf,
+    #{ConfRootKeyBin := Bridges} = PackedConf,
     #{<<"foo">> := RawConf} = maps:get(TypeBin, Bridges),
     RawConf.
 
@@ -938,13 +1320,13 @@ format_resource_data(error, Error, Result) ->
 format_resource_data(K, V, Result) ->
     Result#{K => V}.
 
-create_bridge(BridgeType, BridgeName, Conf) ->
-    create_or_update_bridge(BridgeType, BridgeName, Conf, 201).
+create_bridge(ConfRootKey, BridgeType, BridgeName, Conf) ->
+    create_or_update_bridge(ConfRootKey, BridgeType, BridgeName, Conf, 201).
 
-update_bridge(BridgeType, BridgeName, Conf) ->
-    create_or_update_bridge(BridgeType, BridgeName, Conf, 200).
+update_bridge(ConfRootKey, BridgeType, BridgeName, Conf) ->
+    create_or_update_bridge(ConfRootKey, BridgeType, BridgeName, Conf, 200).
 
-create_or_update_bridge(BridgeType, BridgeName, Conf, HttpStatusCode) ->
+create_or_update_bridge(ConfRootKey, BridgeType, BridgeName, Conf, HttpStatusCode) ->
     Check =
         try
             is_binary(BridgeType) andalso emqx_resource:validate_type(BridgeType),
@@ -955,15 +1337,15 @@ create_or_update_bridge(BridgeType, BridgeName, Conf, HttpStatusCode) ->
         end,
     case Check of
         ok ->
-            do_create_or_update_bridge(BridgeType, BridgeName, Conf, HttpStatusCode);
+            do_create_or_update_bridge(ConfRootKey, BridgeType, BridgeName, Conf, HttpStatusCode);
         BadRequest ->
             BadRequest
     end.
 
-do_create_or_update_bridge(BridgeType, BridgeName, Conf, HttpStatusCode) ->
-    case emqx_bridge_v2:create(BridgeType, BridgeName, Conf) of
+do_create_or_update_bridge(ConfRootKey, BridgeType, BridgeName, Conf, HttpStatusCode) ->
+    case emqx_bridge_v2:create(ConfRootKey, BridgeType, BridgeName, Conf) of
         {ok, _} ->
-            lookup_from_all_nodes(BridgeType, BridgeName, HttpStatusCode);
+            lookup_from_all_nodes(ConfRootKey, BridgeType, BridgeName, HttpStatusCode);
         {error, {PreOrPostConfigUpdate, _HandlerMod, Reason}} when
             PreOrPostConfigUpdate =:= pre_config_update;
             PreOrPostConfigUpdate =:= post_config_update

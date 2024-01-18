@@ -1,0 +1,22 @@
+emqx_bridge_mqtt_pubsub_schema {
+  action_parameters.desc:
+  """Action specific configs."""
+  action_parameters.label:
+  """Action"""
+
+  ingress_parameters.desc:
+  """Source specific configs."""
+  ingress_parameters.label:
+  """Source"""
+
+  mqtt_publisher_action.desc:
+  """Action configs."""
+  mqtt_publisher_action.label:
+  """Action"""
+
+  mqtt_subscriber_source.desc:
+  """Source configs."""
+  mqtt_subscriber_source.label:
+  """Source"""
+
+}

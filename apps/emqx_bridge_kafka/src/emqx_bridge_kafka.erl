@@ -553,7 +553,7 @@ fields(connector_resource_opts) ->
     emqx_connector_schema:resource_opts_fields();
 fields(resource_opts) ->
     SupportedFields = [health_check_interval],
-    CreationOpts = emqx_bridge_v2_schema:resource_opts_fields(),
+    CreationOpts = emqx_bridge_v2_schema:action_resource_opts_fields(),
     lists:filter(fun({Field, _}) -> lists:member(Field, SupportedFields) end, CreationOpts);
 fields(action_field) ->
     {kafka_producer,

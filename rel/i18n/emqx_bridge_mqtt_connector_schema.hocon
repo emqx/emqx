@@ -194,4 +194,9 @@ username.desc:
 username.label:
 """Username"""
 
+config_connector.desc:
+"""Configurations for an MQTT connector."""
+config_connector.label:
+"""MQTT connector"""
+
 }
