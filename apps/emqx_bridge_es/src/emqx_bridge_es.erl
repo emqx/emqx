@@ -59,7 +59,7 @@ fields(action_create) ->
         action(create),
         index(),
         id(false),
-        doc(true),
+        doc(),
         routing(),
         require_alias(),
         overwrite()
@@ -72,7 +72,7 @@ fields(action_update) ->
         action(update),
         index(),
         id(true),
-        doc(true),
+        doc(),
         routing(),
         require_alias()
         | http_common_opts()
@@ -153,12 +153,12 @@ id(Required) ->
             }
         )}.
 
-doc(Required) ->
+doc() ->
     {doc,
         ?HOCON(
             binary(),
             #{
-                required => Required,
+                required => false,
                 example => <<"${payload.doc}">>,
                 desc => ?DESC("config_parameters_doc")
             }

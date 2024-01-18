@@ -246,6 +246,9 @@ for dep in ${CT_DEPS}; do
         otel)
             FILES+=( '.ci/docker-compose-file/docker-compose-otel.yaml' )
             ;;
+	elasticsearch)
+	    FILES+=( '.ci/docker-compose-file/docker-compose-elastic-search-tls.yaml' )
+	    ;;
         *)
             echo "unknown_ct_dependency $dep"
             exit 1

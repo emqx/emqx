@@ -36,6 +36,8 @@ services:
       setup:
         condition: service_healthy
     image: public.ecr.aws/elastic/elasticsearch:${ELASTIC_TAG}
+    container_name: elasticsearch
+    hostname: elasticsearch
     volumes:
       - ./elastic:/usr/share/elasticsearch/config/certs
       - esdata01:/usr/share/elasticsearch/data
@@ -66,6 +68,9 @@ services:
       interval: 10s
       timeout: 10s
       retries: 120
+    restart: always
+    networks:
+      - emqx_bridge
 
   kibana:
     depends_on:
@@ -93,6 +98,9 @@ services:
       interval: 10s
       timeout: 10s
       retries: 120
+    restart: always
+    networks:
+      - emqx_bridge
 
 volumes:
   esdata01:

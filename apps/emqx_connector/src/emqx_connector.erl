@@ -150,6 +150,9 @@ post_config_update([?ROOT_KEY, Type, Name], '$remove', _, _OldConf, _AppEnvs) ->
             ok = emqx_connector_resource:remove(Type, Name),
             ?tp(connector_post_config_update_done, #{}),
             ok;
+        {error, not_found} ->
+            ?tp(connector_post_config_update_done, #{}),
+            ok;
         {ok, Channels} ->
             {error, {active_channels, Channels}}
     end;

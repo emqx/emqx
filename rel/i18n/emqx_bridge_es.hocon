@@ -97,7 +97,7 @@ config_parameters_require_alias.label:
 """_require_alias"""
 
 config_parameters_doc.desc:
-"""JSON document"""
+"""JSON document. If undefined, rule engine will use JSON format to serialize all visible inputs, such as clientid, topic, payload etc."""
 config_parameters_doc.label:
 """doc"""
 
