@@ -33,6 +33,8 @@
     connector_example_values/0
 ]).
 
+-export([render_template/2]).
+
 %% emqx_connector_resource behaviour callbacks
 -export([connector_config/2]).
 
@@ -286,8 +288,12 @@ on_add_channel(
                 method => method(Parameter),
                 body => get_body_template(Parameter)
             },
+            ChannelConfig = #{
+                parameters => Parameter1,
+                render_template_func => fun ?MODULE:render_template/2
+            },
             {ok, State} = emqx_bridge_http_connector:on_add_channel(
-                InstanceId, State0, ChannelId, #{parameters => Parameter1}
+                InstanceId, State0, ChannelId, ChannelConfig
             ),
             Channel = Parameter1,
             Channels2 = Channels#{ChannelId => Channel},
@@ -310,9 +316,23 @@ on_get_channel_status(_InstanceId, ChannelId, #{channels := Channels}) ->
             {error, not_exists}
     end.
 
+render_template(Template, Msg) ->
+    % Ignoring errors here, undefined bindings will be replaced with empty string.
+    Opts = #{var_trans => fun to_string/2},
+    {String, _Errors} = emqx_template:render(Template, {emqx_jsonish, Msg}, Opts),
+    String.
+
 %%--------------------------------------------------------------------
 %% Internal Functions
 %%--------------------------------------------------------------------
+
+to_string(Name, Value) ->
+    emqx_template:to_string(render_var(Name, Value)).
+render_var(_, undefined) ->
+    % NOTE Any allowed but undefined binding will be replaced with empty string
+    <<>>;
+render_var(_Name, Value) ->
+    Value.
 %% delete DELETE /<index>/_doc/<_id>
 path(#{action := delete, id := Id, index := Index} = Action) ->
     BasePath = ["/", Index, "/_doc/", Id],
@@ -370,5 +390,12 @@ handle_response({ok, Code, Body}) ->
 handle_response({error, _} = Error) ->
     Error.
 
-get_body_template(#{doc := Doc}) -> Doc;
-get_body_template(_) -> undefined.
+get_body_template(#{action := update, doc := Doc} = Template) ->
+    case maps:get(doc_as_upsert, Template, false) of
+        false -> <<"{\"doc\":", Doc/binary, "}">>;
+        true -> <<"{\"doc\":", Doc/binary, ",\"doc_as_upsert\": true}">>
+    end;
+get_body_template(#{doc := Doc}) ->
+    Doc;
+get_body_template(_) ->
+    undefined.

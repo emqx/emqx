@@ -73,6 +73,7 @@ fields(action_update) ->
         index(),
         id(true),
         doc(),
+        doc_as_upsert(),
         routing(),
         require_alias()
         | http_common_opts()
@@ -171,6 +172,17 @@ http_common_opts() ->
         end,
         emqx_bridge_http_schema:fields("parameters_opts")
     ).
+
+doc_as_upsert() ->
+    {doc_as_upsert,
+        ?HOCON(
+            boolean(),
+            #{
+                required => false,
+                default => false,
+                desc => ?DESC("config_doc_as_upsert")
+            }
+        )}.
 
 routing() ->
     {routing,

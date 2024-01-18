@@ -103,45 +103,46 @@ end_per_testcase(_TestCase, _Config) ->
 %% Helper fns
 %%-------------------------------------------------------------------------------------
 
-check_send_message_with_action(ActionName, ConnectorName) ->
-    #{payload := _Payload} = send_message(ActionName),
+check_send_message_with_action(Topic, ActionName, ConnectorName) ->
+    send_message(Topic),
     %% ######################################
     %% Check if message is sent to es
     %% ######################################
+    timer:sleep(500),
     check_action_metrics(ActionName, ConnectorName).
 
-send_message(ActionName) ->
-    %% ######################################
-    %% Create message
-    %% ######################################
-    Time = erlang:unique_integer(),
-    BinTime = integer_to_binary(Time),
-    Payload = #{<<"name">> => <<"emqx">>, <<"release_time">> => BinTime},
+send_message(Topic) ->
+    Now = emqx_utils_calendar:now_to_rfc3339(microsecond),
+    Doc = #{<<"name">> => <<"emqx">>, <<"release_date">> => Now},
     Index = <<"emqx-test-index">>,
-    Msg = #{
-        clientid => BinTime,
-        payload => Payload,
-        timestamp => Time,
-        index => Index
-    },
-    %% ######################################
-    %% Send message
-    %% ######################################
-    emqx_bridge_v2:send_message(?TYPE, ActionName, Msg, #{}),
-    #{payload => Payload}.
+    Payload = emqx_utils_json:encode(#{doc => Doc, index => Index}),
+
+    ClientId = emqx_guid:to_hexstr(emqx_guid:gen()),
+    {ok, Client} = emqtt:start_link([{clientid, ClientId}, {port, 1883}]),
+    {ok, _} = emqtt:connect(Client),
+    ok = emqtt:publish(Client, Topic, Payload, [{qos, 0}]),
+    ok.
 
 check_action_metrics(ActionName, ConnectorName) ->
     ActionId = emqx_bridge_v2:id(?TYPE, ActionName, ConnectorName),
     Metrics =
         #{
             match => emqx_resource_metrics:matched_get(ActionId),
+            success => emqx_resource_metrics:success_get(ActionId),
             failed => emqx_resource_metrics:failed_get(ActionId),
             queuing => emqx_resource_metrics:queuing_get(ActionId),
             dropped => emqx_resource_metrics:dropped_get(ActionId)
         },
     ?assertEqual(
-        #{match => 1, dropped => 0, failed => 0, queuing => 0},
-        Metrics
+        #{
+            match => 1,
+            success => 1,
+            dropped => 0,
+            failed => 0,
+            queuing => 0
+        },
+        Metrics,
+        {ActionName, ConnectorName, ActionId}
     ).
 
 action_config(ConnectorName) ->
@@ -164,7 +165,7 @@ action(ConnectorName) ->
         <<"connector">> => ConnectorName,
         <<"resource_opts">> => #{
             <<"health_check_interval">> => <<"30s">>,
-            <<"query_mode">> => <<"async">>
+            <<"query_mode">> => <<"sync">>
         }
     }.
 
@@ -235,7 +236,8 @@ t_create_remove_list(Config) ->
     #{
         name := <<"test_action_1">>,
         type := <<"elasticsearch">>,
-        raw_config := _RawConfig
+        raw_config := _,
+        status := connected
     } = ActionInfo,
     {ok, _} = emqx_bridge_v2:create(?TYPE, test_action_2, ActionConfig),
     2 = length(emqx_bridge_v2:list()),
@@ -252,39 +254,44 @@ t_send_message(Config) ->
     {ok, _} = emqx_connector:create(?TYPE, test_connector2, ConnectorConfig),
     ActionConfig = action(<<"test_connector2">>),
     {ok, _} = emqx_bridge_v2:create(?TYPE, test_action_1, ActionConfig),
+    Rule = #{
+        id => <<"rule:t_es">>,
+        sql => <<"SELECT\n  *\nFROM\n  \"es/#\"">>,
+        actions => [<<"elasticsearch:test_action_1">>],
+        description => <<"sink doc to elasticsearch">>
+    },
+    {ok, _} = emqx_rule_engine:create_rule(Rule),
     %% Use the action to send a message
-    check_send_message_with_action(test_action_1, test_connector2),
+    check_send_message_with_action(<<"es/1">>, test_action_1, test_connector2),
     %% Create a few more bridges with the same connector and test them
-    BridgeNames1 = [
-        list_to_atom("test_bridge_v2_" ++ integer_to_list(I))
-     || I <- lists:seq(2, 10)
-    ],
-    lists:foreach(
-        fun(BridgeName) ->
-            {ok, _} = emqx_bridge_v2:create(?TYPE, BridgeName, ActionConfig),
-            check_send_message_with_action(BridgeName, test_connector2)
-        end,
-        BridgeNames1
-    ),
-    BridgeNames = [test_bridge_v2_1 | BridgeNames1],
-    %% Send more messages to the bridges
-    lists:foreach(
-        fun(BridgeName) ->
-            lists:foreach(
-                fun(_) ->
-                    check_send_message_with_action(BridgeName, test_connector2)
-                end,
-                lists:seq(1, 10)
-            )
-        end,
-        BridgeNames
-    ),
+    ActionNames1 =
+        lists:foldl(
+            fun(I, Acc) ->
+                Seq = integer_to_binary(I),
+                ActionNameStr = "test_action_" ++ integer_to_list(I),
+                ActionName = list_to_atom(ActionNameStr),
+                {ok, _} = emqx_bridge_v2:create(?TYPE, ActionName, ActionConfig),
+                Rule1 = #{
+                    id => <<"rule:t_es", Seq/binary>>,
+                    sql => <<"SELECT\n  *\nFROM\n  \"es/", Seq/binary, "\"">>,
+                    actions => [<<"elasticsearch:", (list_to_binary(ActionNameStr))/binary>>],
+                    description => <<"sink doc to elasticsearch">>
+                },
+                {ok, _} = emqx_rule_engine:create_rule(Rule1),
+                Topic = <<"es/", Seq/binary>>,
+                check_send_message_with_action(Topic, ActionName, test_connector2),
+                [ActionName | Acc]
+            end,
+            [],
+            lists:seq(2, 10)
+        ),
+    ActionNames = [test_action_1 | ActionNames1],
     %% Remove all the bridges
     lists:foreach(
         fun(BridgeName) ->
             ok = emqx_bridge_v2:remove(?TYPE, BridgeName)
         end,
-        BridgeNames
+        ActionNames
     ),
     emqx_connector:remove(?TYPE, test_connector2),
     ok.
@@ -361,7 +368,7 @@ t_http_api_get(Config) ->
                             <<"max_retries">> := 2,
                             <<"overwrite">> := true
                         },
-                    <<"resource_opts">> := #{<<"query_mode">> := <<"async">>},
+                    <<"resource_opts">> := #{<<"query_mode">> := <<"sync">>},
                     <<"status">> := <<"connected">>,
                     <<"status_reason">> := <<>>,
                     <<"type">> := <<"elasticsearch">>
