@@ -66,6 +66,7 @@
 
 -export([
     is_expired/2,
+    set_timestamp/2,
     update_expiry/1,
     timestamp_now/0
 ]).
@@ -287,6 +288,10 @@ is_expired(#message{timestamp = CreatedAt}, Zone) ->
         infinity -> false;
         Interval -> elapsed(CreatedAt) > Interval
     end.
+
+-spec set_timestamp(integer(), emqx_types:message()) -> emqx_types:message().
+set_timestamp(Timestamp, Msg) ->
+    Msg#message{timestamp = Timestamp}.
 
 -spec update_expiry(emqx_types:message()) -> emqx_types:message().
 update_expiry(

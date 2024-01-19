@@ -56,7 +56,16 @@
     do_drop_generation_v3/3,
     do_get_delete_streams_v4/4,
     do_make_delete_iterator_v4/5,
-    do_delete_next_v4/5
+    do_delete_next_v4/5,
+
+    %% FIXME
+    ra_start_shard/2,
+    ra_store_batch/3
+]).
+
+-export([
+    init/1,
+    apply/3
 ]).
 
 -export_type([
@@ -208,10 +217,9 @@ get_streams(DB, TopicFilter, StartTime) ->
     Shards = list_shards(DB),
     lists:flatmap(
         fun(Shard) ->
-            Node = node_of_shard(DB, Shard),
             Streams =
                 try
-                    emqx_ds_proto_v4:get_streams(Node, DB, Shard, TopicFilter, StartTime)
+                    ra_get_streams(DB, Shard, TopicFilter, StartTime)
                 catch
                     error:{erpc, _} ->
                         %% TODO: log?
@@ -251,8 +259,7 @@ get_delete_streams(DB, TopicFilter, StartTime) ->
     emqx_ds:make_iterator_result(iterator()).
 make_iterator(DB, Stream, TopicFilter, StartTime) ->
     ?stream_v2(Shard, StorageStream) = Stream,
-    Node = node_of_shard(DB, Shard),
-    try emqx_ds_proto_v4:make_iterator(Node, DB, Shard, StorageStream, TopicFilter, StartTime) of
+    try ra_make_iterator(DB, Shard, StorageStream, TopicFilter, StartTime) of
         {ok, Iter} ->
             {ok, #{?tag => ?IT, ?shard => Shard, ?enc => Iter}};
         Error = {error, _, _} ->
@@ -282,8 +289,7 @@ make_delete_iterator(DB, Stream, TopicFilter, StartTime) ->
     emqx_ds:make_iterator_result(iterator()).
 update_iterator(DB, OldIter, DSKey) ->
     #{?tag := ?IT, ?shard := Shard, ?enc := StorageIter} = OldIter,
-    Node = node_of_shard(DB, Shard),
-    try emqx_ds_proto_v4:update_iterator(Node, DB, Shard, StorageIter, DSKey) of
+    try ra_update_iterator(DB, Shard, StorageIter, DSKey) of
         {ok, Iter} ->
             {ok, #{?tag => ?IT, ?shard => Shard, ?enc => Iter}};
         Error = {error, _, _} ->
@@ -296,7 +302,6 @@ update_iterator(DB, OldIter, DSKey) ->
 -spec next(emqx_ds:db(), iterator(), pos_integer()) -> emqx_ds:next_result(iterator()).
 next(DB, Iter0, BatchSize) ->
     #{?tag := ?IT, ?shard := Shard, ?enc := StorageIter0} = Iter0,
-    Node = node_of_shard(DB, Shard),
     %% TODO: iterator can contain information that is useful for
     %% reconstructing messages sent over the network. For example,
     %% when we send messages with the learned topic index, we could
@@ -305,7 +310,7 @@ next(DB, Iter0, BatchSize) ->
     %%
     %% This kind of trickery should be probably done here in the
     %% replication layer. Or, perhaps, in the logic layer.
-    case emqx_ds_proto_v4:next(Node, DB, Shard, StorageIter0, BatchSize) of
+    case ra_next(DB, Shard, StorageIter0, BatchSize) of
         {ok, StorageIter, Batch} ->
             Iter = Iter0#{?enc := StorageIter},
             {ok, Iter, Batch};
@@ -379,7 +384,8 @@ do_drop_db_v1(DB) ->
     emqx_ds_builtin_sup:stop_db(DB),
     lists:foreach(
         fun(Shard) ->
-            emqx_ds_storage_layer:drop_shard({DB, Shard})
+            emqx_ds_storage_layer:drop_shard({DB, Shard}),
+            ra_drop_shard(DB, Shard)
         end,
         MyShards
     ).
@@ -510,3 +516,163 @@ do_get_delete_streams_v4(DB, Shard, TopicFilter, StartTime) ->
 
 list_nodes() ->
     mria:running_nodes().
+
+%%
+
+ra_start_shard(DB, Shard) ->
+    System = default,
+    Site = emqx_ds_replication_layer_meta:this_site(),
+    ClusterName = ra_cluster_name(DB, Shard),
+    LocalServer = ra_local_server(DB, Shard),
+    Servers = ra_shard_servers(DB, Shard),
+    case ra:restart_server(System, LocalServer) of
+        ok ->
+            ok;
+        {error, name_not_registered} ->
+            ok = ra:start_server(System, #{
+                id => LocalServer,
+                uid => <<ClusterName/binary, "_", Site/binary>>,
+                cluster_name => ClusterName,
+                initial_members => Servers,
+                machine => {module, ?MODULE, #{db => DB, shard => Shard}},
+                log_init_args => #{}
+            })
+    end,
+    case Servers of
+        [LocalServer | _] ->
+            %% TODO
+            %% Not super robust, but we probably don't expect nodes to be down
+            %% when we bring up a fresh consensus group. Triggering election
+            %% is not really required otherwise.
+            %% TODO
+            %% Ensure that doing that on node restart does not disrupt consensus.
+            ok = ra:trigger_election(LocalServer);
+        _ ->
+            ok
+    end,
+    ignore.
+
+ra_store_batch(DB, Shard, Messages) ->
+    Command = #{
+        ?tag => ?BATCH,
+        ?batch_messages => Messages,
+        ?timestamp => emqx_ds:timestamp_us()
+    },
+    case ra:process_command(ra_leader_servers(DB, Shard), Command) of
+        {ok, Result, _Leader} ->
+            Result;
+        Error ->
+            error(Error, [DB, Shard])
+    end.
+
+ra_get_streams(DB, Shard, TopicFilter, Time) ->
+    {_Name, Node} = ra_random_replica(DB, Shard),
+    emqx_ds_proto_v4:get_streams(Node, DB, Shard, TopicFilter, Time).
+
+ra_make_iterator(DB, Shard, Stream, TopicFilter, StartTime) ->
+    {_Name, Node} = ra_random_replica(DB, Shard),
+    emqx_ds_proto_v4:make_iterator(Node, DB, Shard, Stream, TopicFilter, StartTime).
+
+ra_update_iterator(DB, Shard, Iter, DSKey) ->
+    {_Name, Node} = ra_random_replica(DB, Shard),
+    emqx_ds_proto_v4:update_iterator(Node, DB, Shard, Iter, DSKey).
+
+ra_next(DB, Shard, Iter, BatchSize) ->
+    {_Name, Node} = ra_random_replica(DB, Shard),
+    emqx_ds_proto_v4:next(Node, DB, Shard, Iter, BatchSize).
+
+ra_drop_shard(DB, Shard) ->
+    %% TODO: clean dsrepl state
+    ra:stop_server(_System = default, ra_local_server(DB, Shard)).
+
+ra_shard_servers(DB, Shard) ->
+    {ok, ReplicaSet} = emqx_ds_replication_layer_meta:replica_set(DB, Shard),
+    [
+        {ra_server_name(DB, Shard, Site), emqx_ds_replication_layer_meta:node(Site)}
+     || Site <- ReplicaSet
+    ].
+
+ra_local_server(DB, Shard) ->
+    Site = emqx_ds_replication_layer_meta:this_site(),
+    {ra_server_name(DB, Shard, Site), node()}.
+
+ra_leader_servers(DB, Shard) ->
+    %% NOTE: Contact last known leader first, then rest of shard servers.
+    ClusterName = ra_cluster_name(DB, Shard),
+    case ra_leaderboard:lookup_leader(ClusterName) of
+        Leader when Leader /= undefined ->
+            Servers = ra_leaderboard:lookup_members(ClusterName),
+            [Leader | lists:delete(Leader, Servers)];
+        undefined ->
+            %% TODO: Dynamic membership.
+            ra_shard_servers(DB, Shard)
+    end.
+
+ra_random_replica(DB, Shard) ->
+    %% NOTE: Contact random replica that is not a known leader.
+    %% TODO: Replica may be down, so we may need to retry.
+    ClusterName = ra_cluster_name(DB, Shard),
+    case ra_leaderboard:lookup_members(ClusterName) of
+        Servers when is_list(Servers) ->
+            Leader = ra_leaderboard:lookup_leader(ClusterName),
+            ra_pick_replica(Servers, Leader);
+        undefined ->
+            %% TODO
+            %% Leader is unkonwn if there are no servers of this group on the
+            %% local node. We want to pick a replica in that case as well.
+            %% TODO: Dynamic membership.
+            ra_pick_server(ra_shard_servers(DB, Shard))
+    end.
+
+ra_pick_replica(Servers, Leader) ->
+    case lists:delete(Leader, Servers) of
+        [] ->
+            Leader;
+        Followers ->
+            ra_pick_server(Followers)
+    end.
+
+ra_pick_server(Servers) ->
+    lists:nth(rand:uniform(length(Servers)), Servers).
+
+ra_cluster_name(DB, Shard) ->
+    iolist_to_binary(io_lib:format("~s_~s", [DB, Shard])).
+
+ra_server_name(DB, Shard, Site) ->
+    DBBin = atom_to_binary(DB),
+    binary_to_atom(<<"ds_", DBBin/binary, Shard/binary, "_", Site/binary>>).
+
+%%
+
+init(#{db := DB, shard := Shard}) ->
+    _ = erlang:put(emqx_ds_db_shard, {DB, Shard}),
+    #{latest => 0}.
+
+apply(
+    #{index := RaftIdx},
+    #{
+        ?tag := ?BATCH,
+        ?batch_messages := MessagesIn,
+        ?timestamp := TimestampLocal
+    },
+    #{latest := Latest} = State
+) ->
+    %% NOTE
+    %% Unique timestamp tracking real time closely.
+    %% With microsecond granularity it should be nearly impossible for it to run
+    %% too far ahead than the real time clock.
+    Timestamp = max(Latest + 1, TimestampLocal),
+    Messages = assign_timestamps(Timestamp, MessagesIn),
+    Result = emqx_ds_storage_layer:store_batch(erlang:get(emqx_ds_db_shard), Messages, #{}),
+    %% NOTE: Last assigned timestamp.
+    NLatest = Timestamp + length(Messages) - 1,
+    NState = State#{latest := NLatest},
+    %% TODO: Need to measure effects of changing frequency of `release_cursor`.
+    Effect = {release_cursor, RaftIdx, NState},
+    {NState, Result, Effect}.
+
+assign_timestamps(Timestamp, [MessageIn | Rest]) ->
+    Message = emqx_message:set_timestamp(Timestamp, MessageIn),
+    [Message | assign_timestamps(Timestamp + 1, Rest)];
+assign_timestamps(_Timestamp, []) ->
+    [].

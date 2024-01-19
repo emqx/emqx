@@ -40,7 +40,6 @@
 
 -export_type([]).
 
--include("emqx_ds_replication_layer.hrl").
 -include_lib("snabbkaffe/include/trace.hrl").
 
 %%================================================================================
@@ -109,7 +108,6 @@ store_batch(DB, Messages, Opts) ->
 -record(s, {
     db :: emqx_ds:db(),
     shard :: emqx_ds_replication_layer:shard_id(),
-    leader :: node(),
     n = 0 :: non_neg_integer(),
     tref :: reference(),
     batch = [] :: [emqx_types:message()],
@@ -119,12 +117,9 @@ store_batch(DB, Messages, Opts) ->
 init([DB, Shard]) ->
     process_flag(trap_exit, true),
     process_flag(message_queue_data, off_heap),
-    %% TODO: adjust leader dynamically
-    Leader = shard_leader(DB, Shard),
     S = #s{
         db = DB,
         shard = Shard,
-        leader = Leader,
         tref = start_timer()
     },
     {ok, S}.
@@ -159,10 +154,10 @@ terminate(_Reason, _S) ->
 do_flush(S = #s{batch = []}) ->
     S#s{tref = start_timer()};
 do_flush(
-    S = #s{batch = Messages, pending_replies = Replies, db = DB, shard = Shard, leader = Leader}
+    S = #s{batch = Messages, pending_replies = Replies, db = DB, shard = Shard}
 ) ->
-    Batch = #{?tag => ?BATCH, ?batch_messages => lists:reverse(Messages)},
-    ok = emqx_ds_proto_v2:store_batch(Leader, DB, Shard, Batch, #{}),
+    %% FIXME
+    ok = emqx_ds_replication_layer:ra_store_batch(DB, Shard, lists:reverse(Messages)),
     [gen_server:reply(From, ok) || From <- lists:reverse(Replies)],
     ?tp(emqx_ds_replication_layer_egress_flush, #{db => DB, shard => Shard, batch => Messages}),
     erlang:garbage_collect(),
@@ -212,13 +207,3 @@ do_enqueue(From, Sync, MsgOrBatch, S0 = #s{n = N, batch = Batch, pending_replies
 start_timer() ->
     Interval = application:get_env(emqx_durable_storage, egress_flush_interval, 100),
     erlang:send_after(Interval, self(), ?flush).
-
-shard_leader(DB, Shard) ->
-    %% TODO: use optvar
-    case emqx_ds_replication_layer_meta:shard_leader(DB, Shard) of
-        {ok, Leader} ->
-            Leader;
-        {error, no_leader_for_shard} ->
-            timer:sleep(500),
-            shard_leader(DB, Shard)
-    end.

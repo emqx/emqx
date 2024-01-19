@@ -160,8 +160,8 @@ create(_ShardId, DBHandle, GenId, Options) ->
     %% Get options:
     BitsPerTopicLevel = maps:get(bits_per_wildcard_level, Options, 64),
     TopicIndexBytes = maps:get(topic_index_bytes, Options, 4),
-    %% 10 bits -> 1024 ms -> ~1 sec
-    TSOffsetBits = maps:get(epoch_bits, Options, 10),
+    %% 20 bits -> 1048576 us -> ~1 sec
+    TSOffsetBits = maps:get(epoch_bits, Options, 20),
     %% Create column families:
     DataCFName = data_cf(GenId),
     TrieCFName = trie_cf(GenId),
@@ -345,7 +345,7 @@ next(_Shard, Schema = #s{ts_offset = TSOffset}, It, BatchSize) ->
     %% Compute safe cutoff time.
     %% It's the point in time where the last complete epoch ends, so we need to know
     %% the current time to compute it.
-    Now = emqx_message:timestamp_now(),
+    Now = emqx_ds:timestamp_us(),
     SafeCutoffTime = (Now bsr TSOffset) bsl TSOffset,
     next_until(Schema, It, SafeCutoffTime, BatchSize).
 
@@ -436,9 +436,7 @@ prepare_loop_context(DB, CF, TopicIndex, StartTime, SafeCutoffTime, Varying, Key
     %% Make filter:
     Inequations = [
         {'=', TopicIndex},
-        {StartTime, '..', SafeCutoffTime - 1},
-        %% Unique integer:
-        any
+        {StartTime, '..', SafeCutoffTime - 1}
         %% Varying topic levels:
         | lists:map(
             fun
@@ -666,11 +664,10 @@ make_key(#s{keymappers = KeyMappers, trie = Trie}, #message{timestamp = Timestam
 ]) ->
     binary().
 make_key(KeyMapper, TopicIndex, Timestamp, Varying) ->
-    UniqueInteger = erlang:unique_integer([monotonic, positive]),
     emqx_ds_bitmask_keymapper:key_to_bitstring(
         KeyMapper,
         emqx_ds_bitmask_keymapper:vector_to_key(KeyMapper, [
-            TopicIndex, Timestamp, UniqueInteger | Varying
+            TopicIndex, Timestamp | Varying
         ])
     ).
 
@@ -726,10 +723,9 @@ make_keymapper(TopicIndexBytes, BitsPerTopicLevel, TSBits, TSOffsetBits, N) ->
     %% Dimension Offset        Bitsize
         [{1,     0,            TopicIndexBytes * ?BYTE_SIZE},      %% Topic index
          {2,     TSOffsetBits, TSBits - TSOffsetBits       }] ++   %% Timestamp epoch
-        [{3 + I, 0,            BitsPerTopicLevel           }       %% Varying topic levels
+        [{2 + I, 0,            BitsPerTopicLevel           }       %% Varying topic levels
                                                            || I <- lists:seq(1, N)] ++
-        [{2,     0,            TSOffsetBits                },      %% Timestamp offset
-         {3,     0,            64                          }],     %% Unique integer
+        [{2,     0,            TSOffsetBits                }],     %% Timestamp offset
     Keymapper = emqx_ds_bitmask_keymapper:make_keymapper(lists:reverse(Bitsources)),
     %% Assert:
     case emqx_ds_bitmask_keymapper:bitsize(Keymapper) rem 8 of

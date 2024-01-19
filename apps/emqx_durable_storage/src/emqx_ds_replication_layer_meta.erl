@@ -34,6 +34,7 @@
     replica_set/2,
     in_sync_replicas/2,
     sites/0,
+    node/1,
     open_db/2,
     get_options/1,
     update_db_config/2,
@@ -113,7 +114,7 @@
 
 -spec print_status() -> ok.
 print_status() ->
-    io:format("THIS SITE:~n~s~n", [base64:encode(this_site())]),
+    io:format("THIS SITE:~n~s~n", [this_site()]),
     io:format("~nSITES:~n", []),
     Nodes = [node() | nodes()],
     lists:foreach(
@@ -123,28 +124,18 @@ print_status() ->
                     true -> up;
                     false -> down
                 end,
-            io:format("~s    ~p    ~p~n", [base64:encode(Site), Node, Status])
+            io:format("~s    ~p    ~p~n", [Site, Node, Status])
         end,
         eval_qlc(mnesia:table(?NODE_TAB))
     ),
     io:format(
-        "~nSHARDS:~nId                             Leader                            Status~n", []
+        "~nSHARDS:~nId                             Replicas~n", []
     ),
     lists:foreach(
-        fun(#?SHARD_TAB{shard = {DB, Shard}, leader = Leader}) ->
+        fun(#?SHARD_TAB{shard = {DB, Shard}, replica_set = RS}) ->
             ShardStr = string:pad(io_lib:format("~p/~s", [DB, Shard]), 30),
-            LeaderStr = string:pad(atom_to_list(Leader), 33),
-            Status =
-                case lists:member(Leader, Nodes) of
-                    true ->
-                        case node() of
-                            Leader -> "up *";
-                            _ -> "up"
-                        end;
-                    false ->
-                        "down"
-                end,
-            io:format("~s ~s ~s~n", [ShardStr, LeaderStr, Status])
+            ReplicasStr = string:pad(io_lib:format("~p", [RS]), 40),
+            io:format("~s ~s~n", [ShardStr, ReplicasStr])
         end,
         eval_qlc(mnesia:table(?SHARD_TAB))
     ).
@@ -169,8 +160,8 @@ shards(DB) ->
 -spec my_shards(emqx_ds:db()) -> [emqx_ds_replication_layer:shard_id()].
 my_shards(DB) ->
     Site = this_site(),
-    filter_shards(DB, fun(#?SHARD_TAB{replica_set = ReplicaSet, in_sync_replicas = InSync}) ->
-        lists:member(Site, ReplicaSet) orelse lists:member(Site, InSync)
+    filter_shards(DB, fun(#?SHARD_TAB{replica_set = ReplicaSet}) ->
+        lists:member(Site, ReplicaSet)
     end).
 
 -spec my_owned_shards(emqx_ds:db()) -> [emqx_ds_replication_layer:shard_id()].
@@ -219,6 +210,15 @@ in_sync_replicas(DB, ShardId) ->
 sites() ->
     eval_qlc(qlc:q([Site || #?NODE_TAB{site = Site} <- mnesia:table(?NODE_TAB)])).
 
+-spec node(site()) -> node() | undefined.
+node(Site) ->
+    case mnesia:dirty_read(?NODE_TAB, Site) of
+        [#?NODE_TAB{node = Node}] ->
+            Node;
+        [] ->
+            undefined
+    end.
+
 -spec shard_leader(emqx_ds:db(), emqx_ds_replication_layer:shard_id()) ->
     {ok, node()} | {error, no_leader_for_shard}.
 shard_leader(DB, Shard) ->
@@ -248,8 +248,17 @@ get_options(DB) ->
 -spec open_db(emqx_ds:db(), emqx_ds_replication_layer:builtin_db_opts()) ->
     emqx_ds_replication_layer:builtin_db_opts().
 open_db(DB, DefaultOpts) ->
-    {atomic, Opts} = mria:transaction(?SHARD, fun ?MODULE:open_db_trans/2, [DB, DefaultOpts]),
-    Opts.
+    case mria:transaction(?SHARD, fun ?MODULE:open_db_trans/2, [DB, DefaultOpts]) of
+        {atomic, Opts} ->
+            Opts;
+        {aborted, {siteless_nodes, Nodes}} ->
+            %% TODO
+            %% This is ugly. We need a good story of how to fairly allocate shards in a
+            %% fresh cluster.
+            logger:notice("Aborting shard allocation, siteless nodes found: ~p", [Nodes]),
+            ok = timer:sleep(1000),
+            open_db(DB, DefaultOpts)
+    end.
 
 -spec update_db_config(emqx_ds:db(), emqx_ds_replication_layer:builtin_db_opts()) ->
     ok | {error, _}.
@@ -273,11 +282,25 @@ drop_db(DB) ->
 init([]) ->
     process_flag(trap_exit, true),
     logger:set_process_metadata(#{domain => [ds, meta]}),
+    init_ra(),
     ensure_tables(),
     ensure_site(),
     {ok, _} = mnesia:subscribe({table, ?META_TAB, detailed}),
     S = #s{},
     {ok, S}.
+
+init_ra() ->
+    DataDir = filename:join([emqx:data_dir(), "dsrepl"]),
+    Config = maps:merge(ra_system:default_config(), #{
+        data_dir => DataDir,
+        wal_data_dir => DataDir
+    }),
+    case ra_system:start(Config) of
+        {ok, _System} ->
+            ok;
+        {error, {already_started, _System}} ->
+            ok
+    end.
 
 handle_call(_Call, _From, S) ->
     {reply, {error, unknown_call}, S}.
@@ -431,8 +454,8 @@ ensure_site() ->
         {ok, [Site]} ->
             ok;
         _ ->
-            Site = crypto:strong_rand_bytes(8),
-            logger:notice("Creating a new site with ID=~s", [base64:encode(Site)]),
+            Site = binary:encode_hex(crypto:strong_rand_bytes(4)),
+            logger:notice("Creating a new site with ID=~s", [Site]),
             ok = filelib:ensure_dir(Filename),
             {ok, FD} = file:open(Filename, [write]),
             io:format(FD, "~p.", [Site]),
@@ -445,17 +468,23 @@ ensure_site() ->
 -spec create_shards(emqx_ds:db(), pos_integer(), pos_integer()) -> ok.
 create_shards(DB, NShards, ReplicationFactor) ->
     Shards = [integer_to_binary(I) || I <- lists:seq(0, NShards - 1)],
-    AllSites = sites(),
+    AllSites = mnesia:match_object(?NODE_TAB, #?NODE_TAB{_ = '_'}, read),
+    Nodes = mria_mnesia:running_nodes(),
+    case Nodes -- [N || #?NODE_TAB{node = N} <- AllSites] of
+        [] ->
+            ok;
+        NodesSiteless ->
+            mnesia:abort({siteless_nodes, NodesSiteless})
+    end,
     lists:foreach(
         fun(Shard) ->
-            Hashes0 = [{hash(Shard, Site), Site} || Site <- AllSites],
+            Hashes0 = [{hash(Shard, Site), Site} || #?NODE_TAB{site = Site} <- AllSites],
             Hashes = lists:sort(Hashes0),
             {_, Sites} = lists:unzip(Hashes),
-            [First | ReplicaSet] = lists:sublist(Sites, 1, ReplicationFactor),
+            ReplicaSet = lists:sublist(Sites, 1, ReplicationFactor),
             Record = #?SHARD_TAB{
                 shard = {DB, Shard},
-                replica_set = ReplicaSet,
-                in_sync_replicas = [First]
+                replica_set = ReplicaSet
             },
             mnesia:write(Record)
         end,

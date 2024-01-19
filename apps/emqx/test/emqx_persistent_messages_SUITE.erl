@@ -33,10 +33,6 @@ all() ->
     emqx_common_test_helpers:all(?MODULE).
 
 init_per_suite(Config) ->
-    %% avoid inter-suite flakiness...
-    %% TODO: remove after other suites start to use `emx_cth_suite'
-    application:stop(emqx),
-    application:stop(emqx_durable_storage),
     Config.
 
 end_per_suite(_Config) ->

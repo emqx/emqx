@@ -28,6 +28,7 @@
 %% keys:
 -define(tag, 1).
 -define(shard, 2).
+-define(timestamp, 3).
 -define(enc, 3).
 -define(batch_messages, 2).
 

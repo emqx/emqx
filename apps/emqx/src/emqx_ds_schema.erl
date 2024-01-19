@@ -201,7 +201,7 @@ fields(layout_builtin_wildcard_optimized) ->
             sc(
                 range(0, 64),
                 #{
-                    default => 10,
+                    default => 20,
                     importance => ?IMPORTANCE_HIDDEN,
                     desc => ?DESC(wildcard_optimized_epoch_bits)
                 }

@@ -87,14 +87,6 @@ init({#?db_sup{db = DB}, DefaultOpts}) ->
     %% Spec for the top-level supervisor for the database:
     logger:notice("Starting DS DB ~p", [DB]),
     _ = emqx_ds_replication_layer_meta:open_db(DB, DefaultOpts),
-    %% TODO: before the leader election is implemented, we set ourselves as the leader for all shards:
-    MyShards = emqx_ds_replication_layer_meta:my_shards(DB),
-    lists:foreach(
-        fun(Shard) ->
-            emqx_ds_replication_layer:maybe_set_myself_as_leader(DB, Shard)
-        end,
-        MyShards
-    ),
     Children = [sup_spec(#?shard_sup{db = DB}, []), sup_spec(#?egress_sup{db = DB}, [])],
     SupFlags = #{
         strategy => one_for_all,
@@ -106,7 +98,11 @@ init({#?shard_sup{db = DB}, _}) ->
     %% Spec for the supervisor that manages the worker processes for
     %% each local shard of the DB:
     MyShards = emqx_ds_replication_layer_meta:my_shards(DB),
-    Children = [shard_spec(DB, Shard) || Shard <- MyShards],
+    Children = [
+        Child
+     || Shard <- MyShards,
+        Child <- [shard_spec(DB, Shard), shard_replication_spec(DB, Shard)]
+    ],
     SupFlags = #{
         strategy => one_for_one,
         intensity => 10,
@@ -151,6 +147,14 @@ shard_spec(DB, Shard) ->
         start => {emqx_ds_storage_layer, start_link, [{DB, Shard}, Options]},
         shutdown => 5_000,
         restart => permanent,
+        type => worker
+    }.
+
+shard_replication_spec(DB, Shard) ->
+    #{
+        id => {Shard, replication},
+        start => {emqx_ds_replication_layer, ra_start_shard, [DB, Shard]},
+        restart => transient,
         type => worker
     }.
 
