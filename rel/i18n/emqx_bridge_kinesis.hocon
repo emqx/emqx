@@ -82,4 +82,23 @@ max_retries.desc:
 max_retries.label:
 """Max Retries"""
 
+action_parameters.desc:
+"""Action specific configuration."""
+
+action_parameters.label:
+"""Action"""
+
+kinesis_action.desc:
+"""Configuration for Kinesis Action"""
+
+kinesis_action.label:
+"""Kinesis Action Configuration"""
+
+
+config_connector.desc:
+"""Configuration for a Kinesis Client."""
+
+config_connector.label:
+"""Kinesis Client Configuration"""
+
 }

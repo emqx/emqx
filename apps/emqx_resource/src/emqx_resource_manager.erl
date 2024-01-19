@@ -1247,6 +1247,11 @@ channel_status({?status_connecting, Error}) ->
         status => ?status_connecting,
         error => Error
     };
+channel_status({?status_disconnected, Error}) ->
+    #{
+        status => ?status_disconnected,
+        error => Error
+    };
 channel_status(?status_disconnected) ->
     #{
         status => ?status_disconnected,
