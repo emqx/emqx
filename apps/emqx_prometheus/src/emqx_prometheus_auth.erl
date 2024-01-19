@@ -81,43 +81,6 @@
 -define(MG0(K, MAP), maps:get(K, MAP, 0)).
 -define(PG0(K, PROPLISTS), proplists:get_value(K, PROPLISTS, 0)).
 
--define(AUTHNS_WITH_TYPE, [
-    {emqx_authn_enable, gauge},
-    {emqx_authn_status, gauge},
-    {emqx_authn_nomatch, counter},
-    {emqx_authn_total, counter},
-    {emqx_authn_success, counter},
-    {emqx_authn_failed, counter}
-]).
-
--define(AUTHZS_WITH_TYPE, [
-    {emqx_authz_enable, gauge},
-    {emqx_authz_status, gauge},
-    {emqx_authz_nomatch, counter},
-    {emqx_authz_total, counter},
-    {emqx_authz_success, counter},
-    {emqx_authz_failed, counter}
-]).
-
--define(AUTHN_USERS_COUNT_WITH_TYPE, [
-    {emqx_authn_users_count, gauge}
-]).
-
--define(AUTHZ_RULES_COUNT_WITH_TYPE, [
-    {emqx_authz_rules_count, gauge}
-]).
-
--define(BANNED_WITH_TYPE, [
-    {emqx_banned_count, gauge}
-]).
-
--define(LOGICAL_SUM_METRIC_NAMES, [
-    emqx_authn_enable,
-    emqx_authn_status,
-    emqx_authz_enable,
-    emqx_authz_status
-]).
-
 %%--------------------------------------------------------------------
 %% Collector API
 %%--------------------------------------------------------------------
@@ -132,11 +95,11 @@ deregister_cleanup(_) -> ok.
 %% erlfmt-ignore
 collect_mf(?PROMETHEUS_AUTH_REGISTRY, Callback) ->
     RawData = emqx_prometheus_cluster:raw_data(?MODULE, ?GET_PROM_DATA_MODE()),
-    ok = add_collect_family(Callback, ?AUTHNS_WITH_TYPE, ?MG(authn, RawData)),
-    ok = add_collect_family(Callback, ?AUTHN_USERS_COUNT_WITH_TYPE, ?MG(authn_users_count, RawData)),
-    ok = add_collect_family(Callback, ?AUTHZS_WITH_TYPE, ?MG(authz, RawData)),
-    ok = add_collect_family(Callback, ?AUTHZ_RULES_COUNT_WITH_TYPE, ?MG(authz_rules_count, RawData)),
-    ok = add_collect_family(Callback, ?BANNED_WITH_TYPE, ?MG(banned_count, RawData)),
+    ok = add_collect_family(Callback, authn_metric_meta(), ?MG(authn_data, RawData)),
+    ok = add_collect_family(Callback, authn_users_count_metric_meta(), ?MG(authn_users_count_data, RawData)),
+    ok = add_collect_family(Callback, authz_metric_meta(), ?MG(authz_data, RawData)),
+    ok = add_collect_family(Callback, authz_rules_count_metric_meta(), ?MG(authz_rules_count_data, RawData)),
+    ok = add_collect_family(Callback, banned_count_metric_meta(), ?MG(banned_count_data, RawData)),
     ok;
 collect_mf(_, _) ->
     ok.
@@ -145,8 +108,8 @@ collect_mf(_, _) ->
 collect(<<"json">>) ->
     RawData = emqx_prometheus_cluster:raw_data(?MODULE, ?GET_PROM_DATA_MODE()),
     #{
-        emqx_authn => collect_json_data(?MG(authn, RawData)),
-        emqx_authz => collect_json_data(?MG(authz, RawData)),
+        emqx_authn => collect_json_data(?MG(authn_data, RawData)),
+        emqx_authz => collect_json_data(?MG(authz_data, RawData)),
         emqx_banned => collect_banned_data()
     };
 collect(<<"prometheus">>) ->
@@ -165,25 +128,30 @@ collect_metrics(Name, Metrics) ->
 %% behaviour
 fetch_data_from_local_node() ->
     {node(self()), #{
-        authn => authn_data(),
-        authz => authz_data()
+        authn_data => authn_data(),
+        authz_data => authz_data()
     }}.
 
 fetch_cluster_consistented_data() ->
     #{
-        authn_users_count => authn_users_count_data(),
-        authz_rules_count => authz_rules_count_data(),
-        banned_count => banned_count_data()
+        authn_users_count_data => authn_users_count_data(),
+        authz_rules_count_data => authz_rules_count_data(),
+        banned_count_data => banned_count_data()
     }.
 
 aggre_or_zip_init_acc() ->
     #{
-        authn => maps:from_keys(authn_metric_names(), []),
-        authz => maps:from_keys(authz_metric_names(), [])
+        authn_data => maps:from_keys(authn_metric(names), []),
+        authz_data => maps:from_keys(authz_metric(names), [])
     }.
 
 logic_sum_metrics() ->
-    ?LOGICAL_SUM_METRIC_NAMES.
+    [
+        emqx_authn_enable,
+        emqx_authn_status,
+        emqx_authz_enable,
+        emqx_authz_status
+    ].
 
 %%--------------------------------------------------------------------
 %% Collector
@@ -243,6 +211,19 @@ collect_auth(emqx_banned_count, Data) ->
 %%====================
 %% Authn overview
 
+authn_metric_meta() ->
+    [
+        {emqx_authn_enable, gauge},
+        {emqx_authn_status, gauge},
+        {emqx_authn_nomatch, counter},
+        {emqx_authn_total, counter},
+        {emqx_authn_success, counter},
+        {emqx_authn_failed, counter}
+    ].
+
+authn_metric(names) ->
+    emqx_prometheus_cluster:metric_names(authn_metric_meta()).
+
 -spec authn_data() -> #{Key => [Point]} when
     Key :: authn_metric_name(),
     Point :: {[Label], Metric},
@@ -256,7 +237,7 @@ authn_data() ->
             AccIn#{Key => authn_backend_to_points(Key, Authns)}
         end,
         #{},
-        authn_metric_names()
+        authn_metric(names)
     ).
 
 -spec authn_backend_to_points(Key, list(Authn)) -> list(Point) when
@@ -287,14 +268,16 @@ lookup_authn_metrics_local(Id) ->
                 emqx_authn_failed => ?MG0(failed, Counters)
             };
         {error, _Reason} ->
-            maps:from_keys(authn_metric_names() -- [emqx_authn_enable], 0)
+            maps:from_keys(authn_metric(names) -- [emqx_authn_enable], 0)
     end.
-
-authn_metric_names() ->
-    emqx_prometheus_cluster:metric_names(?AUTHNS_WITH_TYPE).
 
 %%====================
 %% Authn users count
+
+authn_users_count_metric_meta() ->
+    [
+        {emqx_authn_users_count, gauge}
+    ].
 
 -define(AUTHN_MNESIA, emqx_authn_mnesia).
 -define(AUTHN_SCRAM_MNESIA, emqx_authn_scram_mnesia).
@@ -321,6 +304,19 @@ authn_users_count_data() ->
 %%====================
 %% Authz overview
 
+authz_metric_meta() ->
+    [
+        {emqx_authz_enable, gauge},
+        {emqx_authz_status, gauge},
+        {emqx_authz_nomatch, counter},
+        {emqx_authz_total, counter},
+        {emqx_authz_success, counter},
+        {emqx_authz_failed, counter}
+    ].
+
+authz_metric(names) ->
+    emqx_prometheus_cluster:metric_names(authz_metric_meta()).
+
 -spec authz_data() -> #{Key => [Point]} when
     Key :: authz_metric_name(),
     Point :: {[Label], Metric},
@@ -334,7 +330,7 @@ authz_data() ->
             AccIn#{Key => authz_backend_to_points(Key, Authzs)}
         end,
         #{},
-        authz_metric_names()
+        authz_metric(names)
     ).
 
 -spec authz_backend_to_points(Key, list(Authz)) -> list(Point) when
@@ -365,14 +361,16 @@ lookup_authz_metrics_local(Type) ->
                 emqx_authz_failed => ?MG0(failed, Counters)
             };
         {error, _Reason} ->
-            maps:from_keys(authz_metric_names() -- [emqx_authz_enable], 0)
+            maps:from_keys(authz_metric(names) -- [emqx_authz_enable], 0)
     end.
-
-authz_metric_names() ->
-    emqx_prometheus_cluster:metric_names(?AUTHZS_WITH_TYPE).
 
 %%====================
 %% Authz rules count
+
+authz_rules_count_metric_meta() ->
+    [
+        {emqx_authz_rules_count, gauge}
+    ].
 
 -define(ACL_TABLE, emqx_acl).
 
@@ -400,7 +398,13 @@ authz_rules_count_data() ->
 %%====================
 %% Banned count
 
--define(BANNED_TABLE, emqx_banned).
+banned_count_metric_meta() ->
+    [
+        {emqx_banned_count, gauge}
+    ].
+-define(BANNED_TABLE,
+    emqx_banned
+).
 banned_count_data() ->
     mnesia_size(?BANNED_TABLE).
 

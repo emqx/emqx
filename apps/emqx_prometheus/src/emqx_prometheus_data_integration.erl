@@ -65,65 +65,6 @@
 -define(MG(K, MAP), maps:get(K, MAP)).
 -define(MG0(K, MAP), maps:get(K, MAP, 0)).
 
--define(RULES_WITH_TYPE, [
-    {emqx_rules_count, gauge}
-]).
-
--define(CONNECTORS_WITH_TYPE, [
-    {emqx_connectors_count, gauge}
-]).
-
--define(RULES_SPECIFIC_WITH_TYPE, [
-    {emqx_rule_enable, gauge},
-    {emqx_rule_matched, counter},
-    {emqx_rule_failed, counter},
-    {emqx_rule_passed, counter},
-    {emqx_rule_failed_exception, counter},
-    {emqx_rule_failed_no_result, counter},
-    {emqx_rule_actions_total, counter},
-    {emqx_rule_actions_success, counter},
-    {emqx_rule_actions_failed, counter},
-    {emqx_rule_actions_failed_out_of_service, counter},
-    {emqx_rule_actions_failed_unknown, counter}
-]).
-
--define(ACTION_SPECIFIC_WITH_TYPE, [
-    {emqx_action_matched, counter},
-    {emqx_action_dropped, counter},
-    {emqx_action_success, counter},
-    {emqx_action_failed, counter},
-    {emqx_action_inflight, gauge},
-    {emqx_action_received, counter},
-    {emqx_action_late_reply, counter},
-    {emqx_action_retried, counter},
-    {emqx_action_retried_success, counter},
-    {emqx_action_retried_failed, counter},
-    {emqx_action_dropped_resource_stopped, counter},
-    {emqx_action_dropped_resource_not_found, counter},
-    {emqx_action_dropped_queue_full, counter},
-    {emqx_action_dropped_other, counter},
-    {emqx_action_dropped_expired, counter},
-    {emqx_action_queuing, gauge}
-]).
-
--define(CONNECTOR_SPECIFIC_WITH_TYPE, [
-    {emqx_connector_enable, gauge},
-    {emqx_connector_status, gauge}
-]).
-
--if(?EMQX_RELEASE_EDITION == ee).
--define(SCHEMA_REGISTRY_WITH_TYPE, [
-    emqx_schema_registrys_count
-]).
--else.
--endif.
-
--define(LOGICAL_SUM_METRIC_NAMES, [
-    emqx_rule_enable,
-    emqx_connector_enable,
-    emqx_connector_status
-]).
-
 %%--------------------------------------------------------------------
 %% Callback for emqx_prometheus_cluster
 %%--------------------------------------------------------------------
@@ -132,28 +73,32 @@ fetch_data_from_local_node() ->
     Rules = emqx_rule_engine:get_rules(),
     Bridges = emqx_bridge:list(),
     {node(self()), #{
-        rule_specific_data => rule_specific_data(Rules),
-        action_specific_data => action_specific_data(Bridges),
-        connector_specific_data => connector_specific_data(Bridges)
+        rule_metric_data => rule_metric_data(Rules),
+        action_metric_data => action_metric_data(Bridges),
+        connector_metric_data => connector_metric_data(Bridges)
     }}.
 
 fetch_cluster_consistented_data() ->
     Rules = emqx_rule_engine:get_rules(),
     Bridges = emqx_bridge:list(),
     (maybe_collect_schema_registry())#{
-        rules_data => rules_data(Rules),
-        connectors_data => connectors_data(Bridges)
+        rules_ov_data => rules_ov_data(Rules),
+        connectors_ov_data => connectors_ov_data(Bridges)
     }.
 
 aggre_or_zip_init_acc() ->
     #{
-        rule_specific_data => maps:from_keys(rule_specific_metric_names(), []),
-        action_specific_data => maps:from_keys(action_specific_metric_names(), []),
-        connector_specific_data => maps:from_keys(connectr_specific_metric_names(), [])
+        rule_metric_data => maps:from_keys(rule_metric(names), []),
+        action_metric_data => maps:from_keys(action_metric(names), []),
+        connector_metric_data => maps:from_keys(connectr_metric(names), [])
     }.
 
 logic_sum_metrics() ->
-    ?LOGICAL_SUM_METRIC_NAMES.
+    [
+        emqx_rule_enable,
+        emqx_connector_enable,
+        emqx_connector_status
+    ].
 
 %%--------------------------------------------------------------------
 %% Collector API
@@ -170,21 +115,23 @@ collect_mf(?PROMETHEUS_DATA_INTEGRATION_REGISTRY, Callback) ->
     RawData = emqx_prometheus_cluster:raw_data(?MODULE, ?GET_PROM_DATA_MODE()),
 
     %% Data Integration Overview
-    ok = add_collect_family(Callback, ?RULES_WITH_TYPE, ?MG(rules_data, RawData)),
-    ok = add_collect_family(Callback, ?CONNECTORS_WITH_TYPE, ?MG(connectors_data, RawData)),
+    ok = add_collect_family(Callback, rules_ov_metric_meta(), ?MG(rules_ov_data, RawData)),
+    ok = add_collect_family(
+        Callback, connectors_ov_metric_meta(), ?MG(connectors_ov_data, RawData)
+    ),
     ok = maybe_collect_family_schema_registry(Callback),
 
-    %% Rule Specific
-    RuleSpecificDs = ?MG(rule_specific_data, RawData),
-    ok = add_collect_family(Callback, ?RULES_SPECIFIC_WITH_TYPE, RuleSpecificDs),
+    %% Rule Metric
+    RuleMetricDs = ?MG(rule_metric_data, RawData),
+    ok = add_collect_family(Callback, rule_metric_meta(), RuleMetricDs),
 
-    %% Action Specific
-    ActionSpecificDs = ?MG(action_specific_data, RawData),
-    ok = add_collect_family(Callback, ?ACTION_SPECIFIC_WITH_TYPE, ActionSpecificDs),
+    %% Action Metric
+    ActionMetricDs = ?MG(action_metric_data, RawData),
+    ok = add_collect_family(Callback, action_metric_meta(), ActionMetricDs),
 
-    %% Connector Specific
-    ConnectorSpecificDs = ?MG(connector_specific_data, RawData),
-    ok = add_collect_family(Callback, ?CONNECTOR_SPECIFIC_WITH_TYPE, ConnectorSpecificDs),
+    %% Connector Metric
+    ConnectorMetricDs = ?MG(connector_metric_data, RawData),
+    ok = add_collect_family(Callback, connector_metric_meta(), ConnectorMetricDs),
 
     ok;
 collect_mf(_, _) ->
@@ -197,9 +144,9 @@ collect(<<"json">>) ->
     Bridges = emqx_bridge:list(),
     #{
         data_integration_overview => collect_data_integration_overview(Rules, Bridges),
-        rules => collect_json_data(?MG(rule_specific_data, RawData)),
-        actions => collect_json_data(?MG(action_specific_data, RawData)),
-        connectors => collect_json_data(?MG(connector_specific_data, RawData))
+        rules => collect_json_data(?MG(rule_metric_data, RawData)),
+        actions => collect_json_data(?MG(action_metric_data, RawData)),
+        connectors => collect_json_data(?MG(connector_metric_data, RawData))
     };
 collect(<<"prometheus">>) ->
     prometheus_text_format:format(?PROMETHEUS_DATA_INTEGRATION_REGISTRY).
@@ -218,21 +165,6 @@ add_collect_family(Name, Data, Callback, Type) ->
 collect_metrics(Name, Metrics) ->
     collect_di(Name, Metrics).
 
--if(?EMQX_RELEASE_EDITION == ee).
-maybe_collect_family_schema_registry(Callback) ->
-    ok = add_collect_family(Callback, ?SCHEMA_REGISTRY_WITH_TYPE, schema_registry_data()),
-    ok.
-
-maybe_collect_schema_registry() ->
-    schema_registry_data().
--else.
-maybe_collect_family_schema_registry(_) ->
-    ok.
-
-maybe_collect_schema_registry() ->
-    #{}.
--endif.
-
 %%--------------------------------------------------------------------
 %% Collector
 %%--------------------------------------------------------------------
@@ -244,88 +176,54 @@ maybe_collect_schema_registry() ->
 %%====================
 %% All Rules
 %% Rules
-collect_di(K = emqx_rules_count, Data) ->
-    gauge_metric(?MG(K, Data));
+collect_di(K = emqx_rules_count, Data) -> gauge_metric(?MG(K, Data));
 %%====================
 %% Schema Registry
-collect_di(K = emqx_schema_registrys_count, Data) ->
-    gauge_metric(?MG(K, Data));
+collect_di(K = emqx_schema_registrys_count, Data) -> gauge_metric(?MG(K, Data));
 %%====================
 %% Connectors
-collect_di(K = emqx_connectors_count, Data) ->
-    gauge_metric(?MG(K, Data));
+collect_di(K = emqx_connectors_count, Data) -> gauge_metric(?MG(K, Data));
 %%========================================
-%% Data Integration for Specific: Rule && Action && Connector
+%% Data Integration Metric for: Rule && Action && Connector
 %%========================================
 
 %%====================
-%% Specific Rule
-collect_di(K = emqx_rule_enable, Data) ->
-    gauge_metrics(?MG(K, Data));
-collect_di(K = emqx_rule_matched, Data) ->
-    counter_metrics(?MG(K, Data));
-collect_di(K = emqx_rule_failed, Data) ->
-    counter_metrics(?MG(K, Data));
-collect_di(K = emqx_rule_passed, Data) ->
-    counter_metrics(?MG(K, Data));
-collect_di(K = emqx_rule_failed_exception, Data) ->
-    counter_metrics(?MG(K, Data));
-collect_di(K = emqx_rule_failed_no_result, Data) ->
-    counter_metrics(?MG(K, Data));
-collect_di(K = emqx_rule_actions_total, Data) ->
-    counter_metrics(?MG(K, Data));
-collect_di(K = emqx_rule_actions_success, Data) ->
-    counter_metrics(?MG(K, Data));
-collect_di(K = emqx_rule_actions_failed, Data) ->
-    counter_metrics(?MG(K, Data));
-collect_di(K = emqx_rule_actions_failed_out_of_service, Data) ->
-    counter_metrics(?MG(K, Data));
-collect_di(K = emqx_rule_actions_failed_unknown, Data) ->
-    counter_metrics(?MG(K, Data));
+%% Rule Metric
+collect_di(K = emqx_rule_enable, Data) -> gauge_metrics(?MG(K, Data));
+collect_di(K = emqx_rule_matched, Data) -> counter_metrics(?MG(K, Data));
+collect_di(K = emqx_rule_failed, Data) -> counter_metrics(?MG(K, Data));
+collect_di(K = emqx_rule_passed, Data) -> counter_metrics(?MG(K, Data));
+collect_di(K = emqx_rule_failed_exception, Data) -> counter_metrics(?MG(K, Data));
+collect_di(K = emqx_rule_failed_no_result, Data) -> counter_metrics(?MG(K, Data));
+collect_di(K = emqx_rule_actions_total, Data) -> counter_metrics(?MG(K, Data));
+collect_di(K = emqx_rule_actions_success, Data) -> counter_metrics(?MG(K, Data));
+collect_di(K = emqx_rule_actions_failed, Data) -> counter_metrics(?MG(K, Data));
+collect_di(K = emqx_rule_actions_failed_out_of_service, Data) -> counter_metrics(?MG(K, Data));
+collect_di(K = emqx_rule_actions_failed_unknown, Data) -> counter_metrics(?MG(K, Data));
 %%====================
-%% Specific Action
-
-collect_di(K = emqx_action_matched, Data) ->
-    counter_metrics(?MG(K, Data));
-collect_di(K = emqx_action_dropped, Data) ->
-    counter_metrics(?MG(K, Data));
-collect_di(K = emqx_action_success, Data) ->
-    counter_metrics(?MG(K, Data));
-collect_di(K = emqx_action_failed, Data) ->
-    counter_metrics(?MG(K, Data));
-collect_di(K = emqx_action_inflight, Data) ->
-    %% inflight type: gauge
-    gauge_metrics(?MG(K, Data));
-collect_di(K = emqx_action_received, Data) ->
-    counter_metrics(?MG(K, Data));
-collect_di(K = emqx_action_late_reply, Data) ->
-    counter_metrics(?MG(K, Data));
-collect_di(K = emqx_action_retried, Data) ->
-    counter_metrics(?MG(K, Data));
-collect_di(K = emqx_action_retried_success, Data) ->
-    counter_metrics(?MG(K, Data));
-collect_di(K = emqx_action_retried_failed, Data) ->
-    counter_metrics(?MG(K, Data));
-collect_di(K = emqx_action_dropped_resource_stopped, Data) ->
-    counter_metrics(?MG(K, Data));
-collect_di(K = emqx_action_dropped_resource_not_found, Data) ->
-    counter_metrics(?MG(K, Data));
-collect_di(K = emqx_action_dropped_queue_full, Data) ->
-    counter_metrics(?MG(K, Data));
-collect_di(K = emqx_action_dropped_other, Data) ->
-    counter_metrics(?MG(K, Data));
-collect_di(K = emqx_action_dropped_expired, Data) ->
-    counter_metrics(?MG(K, Data));
-collect_di(K = emqx_action_queuing, Data) ->
-    %% queuing type: gauge
-    gauge_metrics(?MG(K, Data));
+%% Action Metric
+collect_di(K = emqx_action_matched, Data) -> counter_metrics(?MG(K, Data));
+collect_di(K = emqx_action_dropped, Data) -> counter_metrics(?MG(K, Data));
+collect_di(K = emqx_action_success, Data) -> counter_metrics(?MG(K, Data));
+collect_di(K = emqx_action_failed, Data) -> counter_metrics(?MG(K, Data));
+%% inflight type: gauge
+collect_di(K = emqx_action_inflight, Data) -> gauge_metrics(?MG(K, Data));
+collect_di(K = emqx_action_received, Data) -> counter_metrics(?MG(K, Data));
+collect_di(K = emqx_action_late_reply, Data) -> counter_metrics(?MG(K, Data));
+collect_di(K = emqx_action_retried, Data) -> counter_metrics(?MG(K, Data));
+collect_di(K = emqx_action_retried_success, Data) -> counter_metrics(?MG(K, Data));
+collect_di(K = emqx_action_retried_failed, Data) -> counter_metrics(?MG(K, Data));
+collect_di(K = emqx_action_dropped_resource_stopped, Data) -> counter_metrics(?MG(K, Data));
+collect_di(K = emqx_action_dropped_resource_not_found, Data) -> counter_metrics(?MG(K, Data));
+collect_di(K = emqx_action_dropped_queue_full, Data) -> counter_metrics(?MG(K, Data));
+collect_di(K = emqx_action_dropped_other, Data) -> counter_metrics(?MG(K, Data));
+collect_di(K = emqx_action_dropped_expired, Data) -> counter_metrics(?MG(K, Data));
+%% queuing type: gauge
+collect_di(K = emqx_action_queuing, Data) -> gauge_metrics(?MG(K, Data));
 %%====================
-%% Specific Connector
-
-collect_di(K = emqx_connector_enable, Data) ->
-    gauge_metrics(?MG(K, Data));
-collect_di(K = emqx_connector_status, Data) ->
-    gauge_metrics(?MG(K, Data)).
+%% Connector Metric
+collect_di(K = emqx_connector_enable, Data) -> gauge_metrics(?MG(K, Data));
+collect_di(K = emqx_connector_status, Data) -> gauge_metrics(?MG(K, Data)).
 
 %%--------------------------------------------------------------------
 %% Internal functions
@@ -338,8 +236,16 @@ collect_di(K = emqx_connector_status, Data) ->
 %%====================
 %% All Rules
 
+rules_ov_metric_meta() ->
+    [
+        {emqx_rules_count, gauge}
+    ].
+
+rules_ov_metric(names) ->
+    emqx_prometheus_cluster:metric_names(rules_ov_metric_meta()).
+
 -define(RULE_TAB, emqx_rule_engine).
-rules_data(_Rules) ->
+rules_ov_data(_Rules) ->
     #{
         emqx_rules_count => ets:info(?RULE_TAB, size)
     }.
@@ -348,36 +254,83 @@ rules_data(_Rules) ->
 %% Schema Registry
 
 -if(?EMQX_RELEASE_EDITION == ee).
+
+maybe_collect_family_schema_registry(Callback) ->
+    ok = add_collect_family(Callback, schema_registry_metric_meta(), schema_registry_data()),
+    ok.
+
+schema_registry_metric_meta() ->
+    [
+        {emqx_schema_registrys_count, gauge}
+    ].
+
 schema_registry_data() ->
     #{
         emqx_schema_registrys_count => erlang:map_size(emqx_schema_registry:list_schemas())
     }.
+
+maybe_collect_schema_registry() ->
+    schema_registry_data().
+
 -else.
+
+maybe_collect_family_schema_registry(_) ->
+    ok.
+
+maybe_collect_schema_registry() ->
+    #{}.
+
 -endif.
 
 %%====================
 %% Connectors
 
-connectors_data(Brdiges) ->
+connectors_ov_metric_meta() ->
+    [
+        {emqx_connectors_count, gauge}
+    ].
+
+connectors_ov_metric(names) ->
+    emqx_prometheus_cluster:metric_names(connectors_ov_metric_meta()).
+
+connectors_ov_data(Brdiges) ->
     #{
         %% Both Bridge V1 and V2
         emqx_connectors_count => erlang:length(Brdiges)
     }.
 
 %%========================================
-%% Data Integration for Specific: Rule && Action && Connector
+%% Data Integration Metric for: Rule && Action && Connector
 %%========================================
 
 %%====================
-%% Specific Rule
+%% Rule Metric
 %% With rule_id as label key: `rule_id`
 
-rule_specific_data(Rules) ->
+rule_metric_meta() ->
+    [
+        {emqx_rule_enable, gauge},
+        {emqx_rule_matched, counter},
+        {emqx_rule_failed, counter},
+        {emqx_rule_passed, counter},
+        {emqx_rule_failed_exception, counter},
+        {emqx_rule_failed_no_result, counter},
+        {emqx_rule_actions_total, counter},
+        {emqx_rule_actions_success, counter},
+        {emqx_rule_actions_failed, counter},
+        {emqx_rule_actions_failed_out_of_service, counter},
+        {emqx_rule_actions_failed_unknown, counter}
+    ].
+
+rule_metric(names) ->
+    emqx_prometheus_cluster:metric_names(rule_metric_meta()).
+
+rule_metric_data(Rules) ->
     lists:foldl(
         fun(#{id := Id} = Rule, AccIn) ->
             merge_acc_with_rules(Id, get_metric(Rule), AccIn)
         end,
-        maps:from_keys(rule_specific_metric_names(), []),
+        maps:from_keys(rule_metric(names), []),
         Rules
     ).
 
@@ -413,20 +366,40 @@ get_metric(#{id := Id, enable := Bool} = _Rule) ->
             }
     end.
 
-rule_specific_metric_names() ->
-    emqx_prometheus_cluster:metric_names(?RULES_SPECIFIC_WITH_TYPE).
-
 %%====================
-%% Specific Action
+%% Action Metric
 %% With action_id: `{type}:{name}` as label key: `action_id`
 
-action_specific_data(Bridges) ->
+action_metric_meta() ->
+    [
+        {emqx_action_matched, counter},
+        {emqx_action_dropped, counter},
+        {emqx_action_success, counter},
+        {emqx_action_failed, counter},
+        {emqx_action_inflight, gauge},
+        {emqx_action_received, counter},
+        {emqx_action_late_reply, counter},
+        {emqx_action_retried, counter},
+        {emqx_action_retried_success, counter},
+        {emqx_action_retried_failed, counter},
+        {emqx_action_dropped_resource_stopped, counter},
+        {emqx_action_dropped_resource_not_found, counter},
+        {emqx_action_dropped_queue_full, counter},
+        {emqx_action_dropped_other, counter},
+        {emqx_action_dropped_expired, counter},
+        {emqx_action_queuing, gauge}
+    ].
+
+action_metric(names) ->
+    emqx_prometheus_cluster:metric_names(action_metric_meta()).
+
+action_metric_data(Bridges) ->
     lists:foldl(
         fun(#{type := Type, name := Name} = _Bridge, AccIn) ->
             Id = emqx_bridge_resource:bridge_id(Type, Name),
             merge_acc_with_bridges(Id, get_bridge_metric(Type, Name), AccIn)
         end,
-        maps:from_keys(action_specific_metric_names(), []),
+        maps:from_keys(action_metric(names), []),
         Bridges
     ).
 
@@ -467,20 +440,26 @@ get_bridge_metric(Type, Name) ->
             }
     end.
 
-action_specific_metric_names() ->
-    emqx_prometheus_cluster:metric_names(?ACTION_SPECIFIC_WITH_TYPE).
-
 %%====================
-%% Specific Connector
+%% Connector Metric
 %% With connector_id: `{type}:{name}` as label key: `connector_id`
 
-connector_specific_data(Bridges) ->
+connector_metric_meta() ->
+    [
+        {emqx_connector_enable, gauge},
+        {emqx_connector_status, gauge}
+    ].
+
+connectr_metric(names) ->
+    emqx_prometheus_cluster:metric_names(connector_metric_meta()).
+
+connector_metric_data(Bridges) ->
     lists:foldl(
         fun(#{type := Type, name := Name} = Bridge, AccIn) ->
             Id = emqx_bridge_resource:bridge_id(Type, Name),
             merge_acc_with_connectors(Id, get_connector_status(Bridge), AccIn)
         end,
-        maps:from_keys(connectr_specific_metric_names(), []),
+        maps:from_keys(connectr_metric(names), []),
         Bridges
     ).
 
@@ -504,9 +483,6 @@ get_connector_status(#{resource_data := ResourceData} = _Bridge) ->
         emqx_connector_status => emqx_prometheus_cluster:status_to_number(Status)
     }.
 
-connectr_specific_metric_names() ->
-    emqx_prometheus_cluster:metric_names(?CONNECTOR_SPECIFIC_WITH_TYPE).
-
 %%--------------------------------------------------------------------
 %% Collect functions
 %%--------------------------------------------------------------------
@@ -514,18 +490,18 @@ connectr_specific_metric_names() ->
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %% merge / zip formatting funcs for type `application/json`
 collect_data_integration_overview(Rules, Bridges) ->
-    RulesD = rules_data(Rules),
-    ConnectorsD = connectors_data(Bridges),
+    RulesD = rules_ov_data(Rules),
+    ConnectorsD = connectors_ov_data(Bridges),
 
     M1 = lists:foldl(
         fun(K, AccIn) -> AccIn#{K => ?MG(K, RulesD)} end,
         #{},
-        emqx_prometheus_cluster:metric_names(?RULES_WITH_TYPE)
+        rules_ov_metric(names)
     ),
     M2 = lists:foldl(
         fun(K, AccIn) -> AccIn#{K => ?MG(K, ConnectorsD)} end,
         #{},
-        emqx_prometheus_cluster:metric_names(?CONNECTORS_WITH_TYPE)
+        connectors_ov_metric(names)
     ),
     M3 = maybe_collect_schema_registry(),
 
