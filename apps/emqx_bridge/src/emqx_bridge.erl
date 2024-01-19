@@ -103,33 +103,37 @@
 
 load() ->
     Bridges = emqx:get_config([?ROOT_KEY], #{}),
-    lists:foreach(
+    emqx_utils:pforeach(
         fun({Type, NamedConf}) ->
-            lists:foreach(
+            emqx_utils:pforeach(
                 fun({Name, Conf}) ->
                     %% fetch opts for `emqx_resource_buffer_worker`
                     ResOpts = emqx_resource:fetch_creation_opts(Conf),
                     safe_load_bridge(Type, Name, Conf, ResOpts)
                 end,
-                maps:to_list(NamedConf)
+                maps:to_list(NamedConf),
+                infinity
             )
         end,
-        maps:to_list(Bridges)
+        maps:to_list(Bridges),
+        infinity
     ).
 
 unload() ->
     unload_hook(),
     Bridges = emqx:get_config([?ROOT_KEY], #{}),
-    lists:foreach(
+    emqx_utils:pforeach(
         fun({Type, NamedConf}) ->
-            lists:foreach(
+            emqx_utils:pforeach(
                 fun({Name, _Conf}) ->
                     _ = emqx_bridge_resource:stop(Type, Name)
                 end,
-                maps:to_list(NamedConf)
+                maps:to_list(NamedConf),
+                infinity
             )
         end,
-        maps:to_list(Bridges)
+        maps:to_list(Bridges),
+        infinity
     ).
 
 safe_load_bridge(Type, Name, Conf, Opts) ->

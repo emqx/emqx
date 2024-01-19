@@ -54,30 +54,34 @@
 
 load() ->
     Connectors = emqx:get_config([?ROOT_KEY], #{}),
-    lists:foreach(
+    emqx_utils:pforeach(
         fun({Type, NamedConf}) ->
-            lists:foreach(
+            emqx_utils:pforeach(
                 fun({Name, Conf}) ->
                     safe_load_connector(Type, Name, Conf)
                 end,
-                maps:to_list(NamedConf)
+                maps:to_list(NamedConf),
+                infinity
             )
         end,
-        maps:to_list(Connectors)
+        maps:to_list(Connectors),
+        infinity
     ).
 
 unload() ->
     Connectors = emqx:get_config([?ROOT_KEY], #{}),
-    lists:foreach(
+    emqx_utils:pforeach(
         fun({Type, NamedConf}) ->
-            lists:foreach(
+            emqx_utils:pforeach(
                 fun({Name, _Conf}) ->
                     _ = emqx_connector_resource:stop(Type, Name)
                 end,
-                maps:to_list(NamedConf)
+                maps:to_list(NamedConf),
+                infinity
             )
         end,
-        maps:to_list(Connectors)
+        maps:to_list(Connectors),
+        infinity
     ).
 
 safe_load_connector(Type, Name, Conf) ->

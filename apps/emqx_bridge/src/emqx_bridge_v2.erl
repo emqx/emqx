@@ -182,17 +182,20 @@ load() ->
 
 load_bridges(RootName) ->
     Bridges = emqx:get_config([RootName], #{}),
-    lists:foreach(
+    _ = emqx_utils:pmap(
         fun({Type, Bridge}) ->
-            lists:foreach(
+            emqx_utils:pmap(
                 fun({Name, BridgeConf}) ->
                     install_bridge_v2(RootName, Type, Name, BridgeConf)
                 end,
-                maps:to_list(Bridge)
+                maps:to_list(Bridge),
+                infinity
             )
         end,
-        maps:to_list(Bridges)
-    ).
+        maps:to_list(Bridges),
+        infinity
+    ),
+    ok.
 
 unload() ->
     unload_bridges(?ROOT_KEY_ACTIONS),
@@ -204,17 +207,20 @@ unload() ->
 
 unload_bridges(ConfRooKey) ->
     Bridges = emqx:get_config([ConfRooKey], #{}),
-    lists:foreach(
+    _ = emqx_utils:pmap(
         fun({Type, Bridge}) ->
-            lists:foreach(
+            emqx_utils:pmap(
                 fun({Name, BridgeConf}) ->
                     uninstall_bridge_v2(ConfRooKey, Type, Name, BridgeConf)
                 end,
-                maps:to_list(Bridge)
+                maps:to_list(Bridge),
+                infinity
             )
         end,
-        maps:to_list(Bridges)
-    ).
+        maps:to_list(Bridges),
+        infinity
+    ),
+    ok.
 
 %%====================================================================
 %% CRUD API
