@@ -1132,15 +1132,14 @@ maybe_unwrap({error, not_implemented}) ->
 maybe_unwrap(RpcMulticallResult) ->
     emqx_rpc:unwrap_erpc(RpcMulticallResult).
 
-supported_versions(start_bridge_to_node) -> bpapi_version_range(2, latest);
-supported_versions(start_bridges_to_all_nodes) -> bpapi_version_range(2, latest);
-supported_versions(get_metrics_from_all_nodes) -> bpapi_version_range(4, latest);
-supported_versions(_Call) -> bpapi_version_range(1, latest).
+supported_versions(start_bridge_to_node) -> bpapi_version_range(2, 6);
+supported_versions(start_bridges_to_all_nodes) -> bpapi_version_range(2, 6);
+supported_versions(get_metrics_from_all_nodes) -> bpapi_version_range(4, 6);
+supported_versions(_Call) -> bpapi_version_range(1, 6).
 
 %% [From, To] (inclusive on both ends)
-bpapi_version_range(From, latest) ->
-    ThisNodeVsn = emqx_bpapi:supported_version(node(), ?BPAPI_NAME),
-    lists:seq(From, ThisNodeVsn).
+bpapi_version_range(From, To) ->
+    lists:seq(From, To).
 
 redact(Term) ->
     emqx_utils:redact(Term).

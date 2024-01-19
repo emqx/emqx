@@ -1052,12 +1052,11 @@ do_bpapi_call_vsn(Version, Call, Args) ->
 is_supported_version(Version, Call) ->
     lists:member(Version, supported_versions(Call)).
 
-supported_versions(_Call) -> bpapi_version_range(6, latest).
+supported_versions(_Call) -> bpapi_version_range(6, 6).
 
 %% [From, To] (inclusive on both ends)
-bpapi_version_range(From, latest) ->
-    ThisNodeVsn = emqx_bpapi:supported_version(node(), ?BPAPI_NAME),
-    lists:seq(From, ThisNodeVsn).
+bpapi_version_range(From, To) ->
+    lists:seq(From, To).
 
 maybe_unwrap({error, not_implemented}) ->
     {error, not_implemented};
