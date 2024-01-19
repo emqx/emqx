@@ -238,6 +238,9 @@ t_receive_via_rule(Config) ->
         end,
         fun(Trace) ->
             ?assertEqual([], ?of_kind("action_references_nonexistent_bridges", Trace)),
+            %% We don't have the hidden, legacy `local' config set, so we shouldn't
+            %% attempt to publish directly.
+            ?assertEqual([], ?of_kind(mqtt_ingress_publish_local, Trace)),
             ok
         end
     ),
