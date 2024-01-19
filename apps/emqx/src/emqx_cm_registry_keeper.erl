@@ -172,7 +172,7 @@ cleanup_delay() ->
             %% prepare for online config change
             Default;
         RetainSeconds ->
-            Min = max(1, timer:seconds(RetainSeconds div 4)),
+            Min = max(timer:seconds(1), timer:seconds(RetainSeconds) div 4),
             min(Min, Default)
     end.
 
@@ -188,5 +188,7 @@ now_ts() ->
     erlang:system_time(seconds).
 
 do_count(Since) ->
-    Ms = ets:fun2ms(fun(#channel{pid = V}) -> is_pid(V) orelse (is_integer(V) andalso (V >= Since)) end),
+    Ms = ets:fun2ms(fun(#channel{pid = V}) ->
+        is_pid(V) orelse (is_integer(V) andalso (V >= Since))
+    end),
     ets:select_count(?CHAN_REG_TAB, Ms).

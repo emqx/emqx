@@ -303,6 +303,9 @@ active_plugins() ->
 num_clients() ->
     emqx_stats:getstat('live_connections.count').
 
+num_cluster_sessions() ->
+    emqx_stats:getstat('cluster_sessions.count').
+
 messages_sent() ->
     emqx_metrics:val('messages.sent').
 
@@ -348,6 +351,7 @@ get_telemetry(State0 = #state{node_uuid = NodeUUID, cluster_uuid = ClusterUUID})
         {nodes_uuid, nodes_uuid()},
         {active_plugins, active_plugins()},
         {num_clients, num_clients()},
+        {num_cluster_sessions, num_cluster_sessions()},
         {messages_received, messages_received()},
         {messages_sent, messages_sent()},
         {build_info, build_info()},

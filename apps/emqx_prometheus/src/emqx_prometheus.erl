@@ -251,7 +251,7 @@ add_collect_family(Name, Data, Callback, Type) ->
 
 %% behaviour
 fetch_from_local_node(Mode) ->
-    {node(self()), #{
+    {node(), #{
         stats_data => stats_data(Mode),
         vm_data => vm_data(Mode),
         cluster_data => cluster_data(Mode),
@@ -308,6 +308,8 @@ emqx_collect(K = emqx_sessions_count, D) -> gauge_metrics(?MG(K, D));
 emqx_collect(K = emqx_sessions_max, D) -> gauge_metrics(?MG(K, D));
 emqx_collect(K = emqx_channels_count, D) -> gauge_metrics(?MG(K, D));
 emqx_collect(K = emqx_channels_max, D) -> gauge_metrics(?MG(K, D));
+emqx_collect(K = emqx_cluster_sessions_count, D) -> gauge_metrics(?MG(K, D));
+emqx_collect(K = emqx_cluster_sessions_max, D) -> gauge_metrics(?MG(K, D));
 %% pub/sub stats
 emqx_collect(K = emqx_topics_count, D) -> gauge_metrics(?MG(K, D));
 emqx_collect(K = emqx_topics_max, D) -> gauge_metrics(?MG(K, D));
@@ -500,6 +502,8 @@ stats_metric_meta() ->
         {emqx_sessions_max, gauge, 'sessions.max'},
         {emqx_channels_count, gauge, 'channels.count'},
         {emqx_channels_max, gauge, 'channels.max'},
+        {emqx_cluster_sessions_count, gauge, 'cluster_sessions.count'},
+        {emqx_cluster_sessions_max, gauge, 'cluster_sessions.max'},
         %% pub/sub stats
         {emqx_suboptions_count, gauge, 'suboptions.count'},
         {emqx_suboptions_max, gauge, 'suboptions.max'},

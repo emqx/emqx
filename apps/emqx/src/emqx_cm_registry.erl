@@ -99,7 +99,7 @@ unregister_channel({ClientId, ChanPid}) when is_binary(ClientId), is_pid(ChanPid
     case is_enabled() of
         true ->
             mria:dirty_delete_object(?CHAN_REG_TAB, record(ClientId, ChanPid)),
-            %% insert unregistration history after unrestration
+            %% insert unregistration history after unregstration
             ok = when_hist_enabled(fun() -> insert_hist_d(ClientId) end);
         false ->
             ok
