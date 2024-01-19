@@ -187,7 +187,7 @@ source_examples(Method) ->
                     #{
                         parameters => #{
                             topic => <<"remote/topic">>,
-                            qos => 2
+                            qos => 1
                         }
                     }
                 )
