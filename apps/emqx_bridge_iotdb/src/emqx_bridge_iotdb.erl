@@ -70,7 +70,7 @@ fields(action_resource_opts) ->
         fun({K, _V}) ->
             not lists:member(K, unsupported_opts())
         end,
-        emqx_bridge_v2_schema:resource_opts_fields()
+        emqx_bridge_v2_schema:action_resource_opts_fields()
     );
 fields(action_parameters) ->
     [
@@ -93,7 +93,8 @@ fields(action_parameters) ->
             mk(
                 array(ref(?MODULE, action_parameters_data)),
                 #{
-                    desc => ?DESC("action_parameters_data")
+                    desc => ?DESC("action_parameters_data"),
+                    required => true
                 }
             )}
     ] ++

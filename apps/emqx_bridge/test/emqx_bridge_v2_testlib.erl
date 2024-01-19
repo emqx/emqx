@@ -12,6 +12,9 @@
 
 -import(emqx_common_test_helpers, [on_exit/1]).
 
+-define(ROOT_KEY_ACTIONS, actions).
+-define(ROOT_KEY_SOURCES, sources).
+
 %% ct setup helpers
 
 init_per_suite(Config, Apps) ->
@@ -96,9 +99,15 @@ delete_all_bridges_and_connectors() ->
 delete_all_bridges() ->
     lists:foreach(
         fun(#{name := Name, type := Type}) ->
-            emqx_bridge_v2:remove(Type, Name)
+            emqx_bridge_v2:remove(actions, Type, Name)
         end,
-        emqx_bridge_v2:list()
+        emqx_bridge_v2:list(actions)
+    ),
+    lists:foreach(
+        fun(#{name := Name, type := Type}) ->
+            emqx_bridge_v2:remove(sources, Type, Name)
+        end,
+        emqx_bridge_v2:list(sources)
     ).
 
 delete_all_connectors() ->
@@ -145,6 +154,49 @@ create_bridge(Config, Overrides) ->
 
     ct:pal("creating bridge with config: ~p", [BridgeConfig]),
     emqx_bridge_v2:create(BridgeType, BridgeName, BridgeConfig).
+
+get_ct_config_with_fallback(Config, [Key]) ->
+    ?config(Key, Config);
+get_ct_config_with_fallback(Config, [Key | Rest]) ->
+    case ?config(Key, Config) of
+        undefined ->
+            get_ct_config_with_fallback(Config, Rest);
+        X ->
+            X
+    end.
+
+get_config_by_kind(Config, Overrides) ->
+    Kind = ?config(bridge_kind, Config),
+    get_config_by_kind(Kind, Config, Overrides).
+
+get_config_by_kind(Kind, Config, Overrides) ->
+    case Kind of
+        action ->
+            %% TODO: refactor tests to use action_type...
+            ActionType = get_ct_config_with_fallback(Config, [action_type, bridge_type]),
+            ActionName = get_ct_config_with_fallback(Config, [action_name, bridge_name]),
+            ActionConfig0 = get_ct_config_with_fallback(Config, [action_config, bridge_config]),
+            ActionConfig = emqx_utils_maps:deep_merge(ActionConfig0, Overrides),
+            #{type => ActionType, name => ActionName, config => ActionConfig};
+        source ->
+            SourceType = ?config(source_type, Config),
+            SourceName = ?config(source_name, Config),
+            SourceConfig0 = ?config(source_config, Config),
+            SourceConfig = emqx_utils_maps:deep_merge(SourceConfig0, Overrides),
+            #{type => SourceType, name => SourceName, config => SourceConfig}
+    end.
+
+api_path_root(Kind) ->
+    case Kind of
+        action -> "actions";
+        source -> "sources"
+    end.
+
+conf_root_key(Kind) ->
+    case Kind of
+        action -> ?ROOT_KEY_ACTIONS;
+        source -> ?ROOT_KEY_SOURCES
+    end.
 
 maybe_json_decode(X) ->
     case emqx_utils_json:safe_decode(X, [return_maps]) of
@@ -212,26 +264,26 @@ create_bridge_api(Config) ->
     create_bridge_api(Config, _Overrides = #{}).
 
 create_bridge_api(Config, Overrides) ->
-    BridgeType = ?config(bridge_type, Config),
-    BridgeName = ?config(bridge_name, Config),
-    BridgeConfig0 = ?config(bridge_config, Config),
-    BridgeConfig = emqx_utils_maps:deep_merge(BridgeConfig0, Overrides),
-
     {ok, {{_, 201, _}, _, _}} = create_connector_api(Config),
+    create_kind_api(Config, Overrides).
 
-    Params = BridgeConfig#{<<"type">> => BridgeType, <<"name">> => BridgeName},
-    Path = emqx_mgmt_api_test_util:api_path(["actions"]),
-    AuthHeader = emqx_mgmt_api_test_util:auth_header_(),
-    Opts = #{return_all => true},
-    ct:pal("creating bridge (via http): ~p", [Params]),
-    Res =
-        case emqx_mgmt_api_test_util:request_api(post, Path, "", AuthHeader, Params, Opts) of
-            {ok, {Status, Headers, Body0}} ->
-                {ok, {Status, Headers, emqx_utils_json:decode(Body0, [return_maps])}};
-            Error ->
-                Error
-        end,
-    ct:pal("bridge create result: ~p", [Res]),
+create_kind_api(Config) ->
+    create_kind_api(Config, _Overrides = #{}).
+
+create_kind_api(Config, Overrides) ->
+    Kind = proplists:get_value(bridge_kind, Config, action),
+    #{
+        type := Type,
+        name := Name,
+        config := BridgeConfig
+    } = get_config_by_kind(Kind, Config, Overrides),
+    Params = BridgeConfig#{<<"type">> => Type, <<"name">> => Name},
+    PathRoot = api_path_root(Kind),
+    Path = emqx_mgmt_api_test_util:api_path([PathRoot]),
+    ct:pal("creating bridge (~s, http):\n  ~p", [Kind, Params]),
+    Method = post,
+    Res = request(Method, Path, Params),
+    ct:pal("bridge create (~s, http) result:\n  ~p", [Kind, Res]),
     Res.
 
 create_connector_api(Config) ->
@@ -282,41 +334,33 @@ update_bridge_api(Config) ->
     update_bridge_api(Config, _Overrides = #{}).
 
 update_bridge_api(Config, Overrides) ->
-    BridgeType = ?config(bridge_type, Config),
-    Name = ?config(bridge_name, Config),
-    BridgeConfig0 = ?config(bridge_config, Config),
-    BridgeConfig = emqx_utils_maps:deep_merge(BridgeConfig0, Overrides),
-    BridgeId = emqx_bridge_resource:bridge_id(BridgeType, Name),
-    Path = emqx_mgmt_api_test_util:api_path(["actions", BridgeId]),
-    AuthHeader = emqx_mgmt_api_test_util:auth_header_(),
-    Opts = #{return_all => true},
-    ct:pal("updating bridge (via http): ~p", [BridgeConfig]),
-    Res =
-        case emqx_mgmt_api_test_util:request_api(put, Path, "", AuthHeader, BridgeConfig, Opts) of
-            {ok, {_Status, _Headers, Body0}} -> {ok, emqx_utils_json:decode(Body0, [return_maps])};
-            Error -> Error
-        end,
-    ct:pal("bridge update result: ~p", [Res]),
+    Kind = proplists:get_value(bridge_kind, Config, action),
+    #{
+        type := Type,
+        name := Name,
+        config := Params
+    } = get_config_by_kind(Kind, Config, Overrides),
+    BridgeId = emqx_bridge_resource:bridge_id(Type, Name),
+    PathRoot = api_path_root(Kind),
+    Path = emqx_mgmt_api_test_util:api_path([PathRoot, BridgeId]),
+    ct:pal("updating bridge (~s, http):\n  ~p", [Kind, Params]),
+    Method = put,
+    Res = request(Method, Path, Params),
+    ct:pal("update bridge (~s, http) result:\n  ~p", [Kind, Res]),
     Res.
 
 op_bridge_api(Op, BridgeType, BridgeName) ->
+    op_bridge_api(_Kind = action, Op, BridgeType, BridgeName).
+
+op_bridge_api(Kind, Op, BridgeType, BridgeName) ->
     BridgeId = emqx_bridge_resource:bridge_id(BridgeType, BridgeName),
-    Path = emqx_mgmt_api_test_util:api_path(["actions", BridgeId, Op]),
-    AuthHeader = emqx_mgmt_api_test_util:auth_header_(),
-    Opts = #{return_all => true},
-    ct:pal("calling bridge ~p (via http): ~p", [BridgeId, Op]),
-    Res =
-        case emqx_mgmt_api_test_util:request_api(post, Path, "", AuthHeader, "", Opts) of
-            {ok, {Status = {_, 204, _}, Headers, Body}} ->
-                {ok, {Status, Headers, Body}};
-            {ok, {Status, Headers, Body}} ->
-                {ok, {Status, Headers, emqx_utils_json:decode(Body, [return_maps])}};
-            {error, {Status, Headers, Body}} ->
-                {error, {Status, Headers, emqx_utils_json:decode(Body, [return_maps])}};
-            Error ->
-                Error
-        end,
-    ct:pal("bridge op result: ~p", [Res]),
+    PathRoot = api_path_root(Kind),
+    Path = emqx_mgmt_api_test_util:api_path([PathRoot, BridgeId, Op]),
+    ct:pal("calling bridge ~p (~s, http):\n  ~p", [BridgeId, Kind, Op]),
+    Method = post,
+    Params = [],
+    Res = request(Method, Path, Params),
+    ct:pal("bridge op result:\n  ~p", [Res]),
     Res.
 
 probe_bridge_api(Config) ->
@@ -330,17 +374,16 @@ probe_bridge_api(Config, Overrides) ->
     probe_bridge_api(BridgeType, BridgeName, BridgeConfig).
 
 probe_bridge_api(BridgeType, BridgeName, BridgeConfig) ->
+    probe_bridge_api(action, BridgeType, BridgeName, BridgeConfig).
+
+probe_bridge_api(Kind, BridgeType, BridgeName, BridgeConfig) ->
     Params = BridgeConfig#{<<"type">> => BridgeType, <<"name">> => BridgeName},
-    Path = emqx_mgmt_api_test_util:api_path(["actions_probe"]),
-    AuthHeader = emqx_mgmt_api_test_util:auth_header_(),
-    Opts = #{return_all => true},
-    ct:pal("probing bridge (via http): ~p", [Params]),
-    Res =
-        case emqx_mgmt_api_test_util:request_api(post, Path, "", AuthHeader, Params, Opts) of
-            {ok, {{_, 204, _}, _Headers, _Body0} = Res0} -> {ok, Res0};
-            Error -> Error
-        end,
-    ct:pal("bridge probe result: ~p", [Res]),
+    PathRoot = api_path_root(Kind),
+    Path = emqx_mgmt_api_test_util:api_path([PathRoot ++ "_probe"]),
+    ct:pal("probing bridge (~s, http):\n  ~p", [Kind, Params]),
+    Method = post,
+    Res = request(Method, Path, Params),
+    ct:pal("bridge probe (~s, http) result:\n  ~p", [Kind, Res]),
     Res.
 
 list_bridges_http_api_v1() ->
@@ -355,6 +398,13 @@ list_actions_http_api() ->
     ct:pal("list actions (http v2)"),
     Res = request(get, Path, _Params = []),
     ct:pal("list actions (http v2) result:\n  ~p", [Res]),
+    Res.
+
+list_sources_http_api() ->
+    Path = emqx_mgmt_api_test_util:api_path(["sources"]),
+    ct:pal("list sources (http v2)"),
+    Res = request(get, Path, _Params = []),
+    ct:pal("list sources (http v2) result:\n  ~p", [Res]),
     Res.
 
 list_connectors_http_api() ->
@@ -391,6 +441,23 @@ try_decode_error(Body0) ->
         {error, _} ->
             Body0
     end.
+
+create_rule_api(Opts) ->
+    #{
+        sql := SQL,
+        actions := RuleActions
+    } = Opts,
+    Params = #{
+        enable => true,
+        sql => SQL,
+        actions => RuleActions
+    },
+    Path = emqx_mgmt_api_test_util:api_path(["rules"]),
+    ct:pal("create rule:\n  ~p", [Params]),
+    Method = post,
+    Res = request(Method, Path, Params),
+    ct:pal("create rule results:\n  ~p", [Res]),
+    Res.
 
 create_rule_and_action_http(BridgeType, RuleTopic, Config) ->
     create_rule_and_action_http(BridgeType, RuleTopic, Config, _Opts = #{}).
@@ -510,13 +577,6 @@ t_create_via_http(Config) ->
         begin
             ?assertMatch({ok, _}, create_bridge_api(Config)),
 
-            %% lightweight matrix testing some configs
-            ?assertMatch(
-                {ok, _},
-                update_bridge_api(
-                    Config
-                )
-            ),
             ?assertMatch(
                 {ok, _},
                 update_bridge_api(
@@ -530,23 +590,26 @@ t_create_via_http(Config) ->
     ok.
 
 t_start_stop(Config, StopTracePoint) ->
-    BridgeType = ?config(bridge_type, Config),
-    BridgeName = ?config(bridge_name, Config),
-    BridgeConfig = ?config(bridge_config, Config),
+    Kind = proplists:get_value(bridge_kind, Config, action),
     ConnectorName = ?config(connector_name, Config),
     ConnectorType = ?config(connector_type, Config),
-    ConnectorConfig = ?config(connector_config, Config),
+    #{
+        type := Type,
+        name := Name,
+        config := BridgeConfig
+    } = get_config_by_kind(Kind, Config, _Overrides = #{}),
 
     ?assertMatch(
-        {ok, _},
-        emqx_connector:create(ConnectorType, ConnectorName, ConnectorConfig)
+        {ok, {{_, 201, _}, _, _}},
+        create_connector_api(Config)
     ),
 
     ?check_trace(
         begin
             ProbeRes0 = probe_bridge_api(
-                BridgeType,
-                BridgeName,
+                Kind,
+                Type,
+                Name,
                 BridgeConfig
             ),
             ?assertMatch({ok, {{_, 204, _}, _Headers, _Body}}, ProbeRes0),
@@ -554,8 +617,9 @@ t_start_stop(Config, StopTracePoint) ->
             AtomsBefore = erlang:system_info(atom_count),
             %% Probe again; shouldn't have created more atoms.
             ProbeRes1 = probe_bridge_api(
-                BridgeType,
-                BridgeName,
+                Kind,
+                Type,
+                Name,
                 BridgeConfig
             ),
 
@@ -563,9 +627,9 @@ t_start_stop(Config, StopTracePoint) ->
             AtomsAfter = erlang:system_info(atom_count),
             ?assertEqual(AtomsBefore, AtomsAfter),
 
-            ?assertMatch({ok, _}, emqx_bridge_v2:create(BridgeType, BridgeName, BridgeConfig)),
+            ?assertMatch({ok, _}, create_kind_api(Config)),
 
-            ResourceId = emqx_bridge_resource:resource_id(BridgeType, BridgeName),
+            ResourceId = emqx_bridge_resource:resource_id(conf_root_key(Kind), Type, Name),
 
             %% Since the connection process is async, we give it some time to
             %% stabilize and avoid flakiness.
@@ -578,7 +642,7 @@ t_start_stop(Config, StopTracePoint) ->
             %% `start` bridge to trigger `already_started`
             ?assertMatch(
                 {ok, {{_, 204, _}, _Headers, []}},
-                emqx_bridge_v2_testlib:op_bridge_api("start", BridgeType, BridgeName)
+                op_bridge_api(Kind, "start", Type, Name)
             ),
 
             ?assertEqual({ok, connected}, emqx_resource_manager:health_check(ResourceId)),
@@ -628,10 +692,10 @@ t_start_stop(Config, StopTracePoint) ->
                 )
             ),
 
-            ok
+            #{resource_id => ResourceId}
         end,
-        fun(Trace) ->
-            ResourceId = emqx_bridge_resource:resource_id(BridgeType, BridgeName),
+        fun(Res, Trace) ->
+            #{resource_id := ResourceId} = Res,
             %% one for each probe, one for real
             ?assertMatch(
                 [_, _, #{instance_id := ResourceId}],

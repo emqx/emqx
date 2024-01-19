@@ -72,7 +72,7 @@ parse(Hocon) ->
     Conf.
 
 check(SchemaMod, Conf) when is_map(Conf) ->
-    hocon_tconf:check_plain(SchemaMod, Conf).
+    hocon_tconf:check_plain(SchemaMod, Conf, #{required => false}).
 
 check_action(Conf) when is_map(Conf) ->
     check(emqx_bridge_v2_schema, Conf).

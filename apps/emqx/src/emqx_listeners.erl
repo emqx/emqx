@@ -469,26 +469,23 @@ do_update_listener(Type, Name, OldConf, NewConf) when
     ok = ranch:set_protocol_options(Id, WsOpts),
     %% No-op if the listener was not suspended.
     ranch:resume_listener(Id);
-do_update_listener(quic = Type, Name, _OldConf, NewConf) ->
+do_update_listener(quic = Type, Name, OldConf, NewConf) ->
     case quicer:listener(listener_id(Type, Name)) of
         {ok, ListenerPid} ->
-            case quicer_listener:reload(ListenerPid, to_quicer_listener_opts(NewConf)) of
+            ListenOn = quic_listen_on(maps:get(bind, NewConf)),
+            case quicer_listener:reload(ListenerPid, ListenOn, to_quicer_listener_opts(NewConf)) of
                 ok ->
                     ok;
-                {error, _} = Error ->
-                    %% @TODO: prefer: case quicer_listener:reload(ListenerPid, to_quicer_listener_opts(OldConf)) of
-                    case quicer_listener:unlock(ListenerPid, 3000) of
+                Error ->
+                    case
+                        quic_listener_conf_rollback(
+                            ListenerPid, to_quicer_listener_opts(OldConf), Error
+                        )
+                    of
                         ok ->
-                            ?ELOG("Failed to reload QUIC listener ~p, but Rollback success\n", [
-                                Error
-                            ]),
                             {skip, Error};
-                        RestoreErr ->
-                            ?ELOG(
-                                "Failed to reload QUIC listener ~p, and Rollback failed as well\n",
-                                [Error]
-                            ),
-                            {error, {rollback_fail, RestoreErr}}
+                        E ->
+                            E
                     end
             end;
         E ->
@@ -991,7 +988,7 @@ quic_listen_on(Bind) ->
             Port
     end.
 
--spec to_quicer_listener_opts(map()) -> quicer:listener_opts().
+-spec to_quicer_listener_opts(map()) -> map().
 to_quicer_listener_opts(Opts) ->
     DefAcceptors = erlang:system_info(schedulers_online) * 8,
     SSLOpts = maps:from_list(ssl_opts(Opts)),
@@ -1018,3 +1015,27 @@ to_quicer_listener_opts(Opts) ->
     ),
     %% @NOTE: Optional options take precedence over required options
     maps:merge(Opts2, optional_quic_listener_opts(Opts)).
+
+-spec quic_listener_conf_rollback(
+    pid(),
+    map(),
+    Error :: {error, _, _} | {error, _}
+) -> ok | {error, any()}.
+quic_listener_conf_rollback(ListenerPid, #{bind := Bind} = Conf, Error) ->
+    ListenOn = quic_listen_on(Bind),
+    case quicer_listener:reload(ListenerPid, ListenOn, Conf) of
+        ok ->
+            ?ELOG(
+                "Failed to reload QUIC listener ~p, but Rollback success\n",
+                [
+                    Error
+                ]
+            ),
+            ok;
+        RestoreErr ->
+            ?ELOG(
+                "Failed to reload QUIC listener ~p, and Rollback failed as well\n",
+                [Error]
+            ),
+            {error, {rollback_fail, RestoreErr}}
+    end.

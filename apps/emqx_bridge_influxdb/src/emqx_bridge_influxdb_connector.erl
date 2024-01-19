@@ -59,6 +59,11 @@
 
 -define(DEFAULT_TIMESTAMP_TMPL, "${timestamp}").
 
+-define(IS_HTTP_ERROR(STATUS_CODE),
+    (is_integer(STATUS_CODE) andalso
+        (STATUS_CODE < 200 orelse STATUS_CODE >= 300))
+).
+
 %% -------------------------------------------------------------------------------------------------
 %% resource callback
 callback_mode() -> async_if_possible.
@@ -541,7 +546,12 @@ reply_callback(ReplyFunAndArgs, {ok, 401, _, _}) ->
     ?tp(influxdb_connector_do_query_failure, #{error => <<"authorization failure">>}),
     Result = {error, {unrecoverable_error, <<"authorization failure">>}},
     emqx_resource:apply_reply_fun(ReplyFunAndArgs, Result);
+reply_callback(ReplyFunAndArgs, {ok, Code, _, Body}) when ?IS_HTTP_ERROR(Code) ->
+    ?tp(influxdb_connector_do_query_failure, #{error => Body}),
+    Result = {error, {unrecoverable_error, Body}},
+    emqx_resource:apply_reply_fun(ReplyFunAndArgs, Result);
 reply_callback(ReplyFunAndArgs, Result) ->
+    ?tp(influxdb_connector_do_query_ok, #{result => Result}),
     emqx_resource:apply_reply_fun(ReplyFunAndArgs, Result).
 
 %% -------------------------------------------------------------------------------------------------
@@ -589,8 +599,17 @@ to_kv_config(KVfields) ->
 
 to_maps_config(K, V, Res) ->
     NK = emqx_placeholder:preproc_tmpl(bin(K)),
-    NV = emqx_placeholder:preproc_tmpl(bin(V)),
-    Res#{NK => NV}.
+    Res#{NK => preproc_quoted(V)}.
+
+preproc_quoted({quoted, V}) ->
+    {quoted, emqx_placeholder:preproc_tmpl(bin(V))};
+preproc_quoted(V) ->
+    emqx_placeholder:preproc_tmpl(bin(V)).
+
+proc_quoted({quoted, V}, Data, TransOpts) ->
+    {quoted, emqx_placeholder:proc_tmpl(V, Data, TransOpts)};
+proc_quoted(V, Data, TransOpts) ->
+    emqx_placeholder:proc_tmpl(V, Data, TransOpts).
 
 %% -------------------------------------------------------------------------------------------------
 %% Tags & Fields Data Trans
@@ -711,56 +730,115 @@ time_unit(ns) -> nanosecond.
 maps_config_to_data(K, V, {Data, Res}) ->
     KTransOptions = #{return => rawlist, var_trans => fun key_filter/1},
     VTransOptions = #{return => rawlist, var_trans => fun data_filter/1},
-    NK0 = emqx_placeholder:proc_tmpl(K, Data, KTransOptions),
-    NV = emqx_placeholder:proc_tmpl(V, Data, VTransOptions),
-    case {NK0, NV} of
+    NK = emqx_placeholder:proc_tmpl(K, Data, KTransOptions),
+    NV = proc_quoted(V, Data, VTransOptions),
+    case {NK, NV} of
         {[undefined], _} ->
             {Data, Res};
         %% undefined value in normal format [undefined] or int/uint format [undefined, <<"i">>]
         {_, [undefined | _]} ->
             {Data, Res};
+        {_, {quoted, [undefined | _]}} ->
+            {Data, Res};
         _ ->
-            NK = list_to_binary(NK0),
-            {Data, Res#{NK => value_type(NV)}}
+            {Data, Res#{
+                list_to_binary(NK) => value_type(NV, tmpl_type(V))
+            }}
     end.
 
-value_type([Int, <<"i">>]) when
-    is_integer(Int)
-->
+value_type({quoted, ValList}, _) ->
+    {string_list, ValList};
+value_type([Int, <<"i">>], mixed) when is_integer(Int) ->
     {int, Int};
-value_type([UInt, <<"u">>]) when
-    is_integer(UInt)
-->
+value_type([UInt, <<"u">>], mixed) when is_integer(UInt) ->
     {uint, UInt};
 %% write `1`, `1.0`, `-1.0` all as float
 %% see also: https://docs.influxdata.com/influxdb/v2.7/reference/syntax/line-protocol/#float
-value_type([Number]) when is_number(Number) ->
-    Number;
-value_type([<<"t">>]) ->
+value_type([Number], _) when is_number(Number) ->
+    {float, Number};
+value_type([<<"t">>], _) ->
     't';
-value_type([<<"T">>]) ->
+value_type([<<"T">>], _) ->
     'T';
-value_type([true]) ->
+value_type([true], _) ->
     'true';
-value_type([<<"TRUE">>]) ->
+value_type([<<"TRUE">>], _) ->
     'TRUE';
-value_type([<<"True">>]) ->
+value_type([<<"True">>], _) ->
     'True';
-value_type([<<"f">>]) ->
+value_type([<<"f">>], _) ->
     'f';
-value_type([<<"F">>]) ->
+value_type([<<"F">>], _) ->
     'F';
-value_type([false]) ->
+value_type([false], _) ->
     'false';
-value_type([<<"FALSE">>]) ->
+value_type([<<"FALSE">>], _) ->
     'FALSE';
-value_type([<<"False">>]) ->
+value_type([<<"False">>], _) ->
     'False';
-value_type(Val) ->
-    Val.
+value_type([Str], variable) when is_binary(Str) ->
+    Str;
+value_type([Str], literal) when is_binary(Str) ->
+    %% if Str is a literal string suffixed with `i` or `u`, we should convert it to int/uint.
+    %% otherwise, we should convert it to float.
+    NumStr = binary:part(Str, 0, byte_size(Str) - 1),
+    case binary:part(Str, byte_size(Str), -1) of
+        <<"i">> ->
+            maybe_convert_to_integer(NumStr, Str, int);
+        <<"u">> ->
+            maybe_convert_to_integer(NumStr, Str, uint);
+        _ ->
+            maybe_convert_to_float_str(Str)
+    end;
+value_type(Str, _) ->
+    Str.
+
+tmpl_type([{str, _}]) ->
+    literal;
+tmpl_type([{var, _}]) ->
+    variable;
+tmpl_type(_) ->
+    mixed.
+
+maybe_convert_to_integer(NumStr, String, Type) ->
+    try
+        Int = binary_to_integer(NumStr),
+        {Type, Int}
+    catch
+        error:badarg ->
+            maybe_convert_to_integer_f(NumStr, String, Type)
+    end.
+
+maybe_convert_to_integer_f(NumStr, String, Type) ->
+    try
+        Float = binary_to_float(NumStr),
+        {Type, erlang:floor(Float)}
+    catch
+        error:badarg ->
+            String
+    end.
+
+maybe_convert_to_float_str(NumStr) ->
+    try
+        _ = binary_to_float(NumStr),
+        %% NOTE: return a {float, String} to avoid precision loss when converting to float
+        {float, NumStr}
+    catch
+        error:badarg ->
+            maybe_convert_to_float_str_i(NumStr)
+    end.
+
+maybe_convert_to_float_str_i(NumStr) ->
+    try
+        _ = binary_to_integer(NumStr),
+        {float, NumStr}
+    catch
+        error:badarg ->
+            NumStr
+    end.
 
 key_filter(undefined) -> undefined;
-key_filter(Value) -> emqx_utils_conv:bin(Value).
+key_filter(Value) -> bin(Value).
 
 data_filter(undefined) -> undefined;
 data_filter(Int) when is_integer(Int) -> Int;
@@ -798,6 +876,10 @@ str(S) when is_list(S) ->
     S.
 
 is_unrecoverable_error({error, {unrecoverable_error, _}}) ->
+    true;
+is_unrecoverable_error({error, {Code, _}}) when ?IS_HTTP_ERROR(Code) ->
+    true;
+is_unrecoverable_error({error, {Code, _, _Body}}) when ?IS_HTTP_ERROR(Code) ->
     true;
 is_unrecoverable_error(_) ->
     false.

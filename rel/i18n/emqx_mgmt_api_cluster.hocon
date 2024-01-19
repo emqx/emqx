@@ -15,9 +15,19 @@ invite_node.desc:
 invite_node.label:
 """Invite node to cluster"""
 
+invite_node_async.desc:
+"""Send a join invitation to a node to join the cluster but do not wait for the join result. Join status can be retrieved with `GET api/<version>/invitation`"""
+invite_node_async.label:
+"""Asynchronously invite"""
+
 force_remove_node.desc:
 """Force leave node from cluster"""
 force_remove_node.label:
 """Force leave node from cluster"""
+
+get_invitation_status.desc:
+"""Get the execution status of all asynchronous invite status per node"""
+get_invitation_status.label:
+"""Get invitation statuses"""
 
 }

@@ -166,11 +166,6 @@ common_init(Config0) ->
                 #{work_dir => emqx_cth_suite:work_dir(Config0)}
             ),
             {ok, _Api} = emqx_common_test_http:create_default_app(),
-
-            %% ok = emqx_common_test_helpers:start_apps([emqx, emqx_postgresql, emqx_conf, emqx_bridge]),
-            %% _ = emqx_bridge_enterprise:module_info(),
-            %% emqx_mgmt_api_test_util:init_suite(),
-
             % Connect to pgsql directly and create the table
             connect_and_create_table(Config0),
             {Name, PGConf} = pgsql_config(BridgeType, Config0),

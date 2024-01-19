@@ -664,7 +664,16 @@ t_sync_query_invalid_type(Config) ->
     DeviceId = iotdb_device(Config),
     Payload = make_iotdb_payload(DeviceId, "temp", "IxT32", "36"),
     MakeMessageFun = make_message_fun(iotdb_topic(Config), Payload),
-    IsInvalidType = fun(Result) -> ?assertMatch({error, {invalid_type, _}}, Result) end,
+    IsInvalidType = fun(Result) -> ?assertMatch({error, #{reason := invalid_type}}, Result) end,
+    ok = emqx_bridge_v2_testlib:t_sync_query(
+        Config, MakeMessageFun, IsInvalidType, iotdb_bridge_on_query
+    ).
+
+t_sync_query_unmatched_type(Config) ->
+    DeviceId = iotdb_device(Config),
+    Payload = make_iotdb_payload(DeviceId, "temp", "BOOLEAN", "not boolean"),
+    MakeMessageFun = make_message_fun(iotdb_topic(Config), Payload),
+    IsInvalidType = fun(Result) -> ?assertMatch({error, invalid_data}, Result) end,
     ok = emqx_bridge_v2_testlib:t_sync_query(
         Config, MakeMessageFun, IsInvalidType, iotdb_bridge_on_query
     ).

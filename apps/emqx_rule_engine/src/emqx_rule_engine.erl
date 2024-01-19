@@ -23,6 +23,7 @@
 -include("rule_engine.hrl").
 -include_lib("emqx/include/logger.hrl").
 -include_lib("stdlib/include/qlc.hrl").
+-include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
 -export([start_link/0]).
 
@@ -482,8 +483,7 @@ with_parsed_rule(Params = #{id := RuleId, sql := Sql, actions := Actions}, Creat
                 ok ->
                     ok;
                 {error, NonExistentBridgeIDs} ->
-                    ?SLOG(error, #{
-                        msg => "action_references_nonexistent_bridges",
+                    ?tp(error, "action_references_nonexistent_bridges", #{
                         rule_id => RuleId,
                         nonexistent_bridge_ids => NonExistentBridgeIDs,
                         hint => "this rule will be disabled"
@@ -626,7 +626,7 @@ validate_bridge_existence_in_actions(#{actions := Actions, from := Froms} = _Rul
                 {Type, Name} =
                     emqx_bridge_resource:parse_bridge_id(BridgeID, #{atom_name => false}),
                 case emqx_action_info:is_action_type(Type) of
-                    true -> {action, Type, Name};
+                    true -> {source, Type, Name};
                     false -> {bridge_v1, Type, Name}
                 end
             end,
@@ -646,7 +646,8 @@ validate_bridge_existence_in_actions(#{actions := Actions, from := Froms} = _Rul
             fun({Kind, Type, Name}) ->
                 LookupFn =
                     case Kind of
-                        action -> fun emqx_bridge_v2:lookup/2;
+                        action -> fun emqx_bridge_v2:lookup_action/2;
+                        source -> fun emqx_bridge_v2:lookup_source/2;
                         bridge_v1 -> fun emqx_bridge:lookup/2
                     end,
                 try

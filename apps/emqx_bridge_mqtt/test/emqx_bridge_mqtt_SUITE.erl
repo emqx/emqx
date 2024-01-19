@@ -238,7 +238,8 @@ t_conf_bridge_authn_passfile(Config) ->
             post,
             uri(["bridges"]),
             ?SERVER_CONF(<<>>, <<"file://im/pretty/sure/theres/no/such/file">>)#{
-                <<"name">> => <<"t_conf_bridge_authn_no_passfile">>
+                <<"name">> => <<"t_conf_bridge_authn_no_passfile">>,
+                <<"ingress">> => ?INGRESS_CONF#{<<"pool_size">> => 1}
             }
         ),
     ?assertMatch({match, _}, re:run(Reason, <<"failed_to_read_secret_file">>)).
@@ -397,32 +398,28 @@ t_mqtt_conn_bridge_ingress_shared_subscription(_) ->
     {ok, 204, <<>>} = request(delete, uri(["bridges", BridgeID]), []),
     ok.
 
-t_mqtt_egress_bridge_ignores_clean_start(_) ->
+t_mqtt_egress_bridge_warns_clean_start(_) ->
     BridgeName = atom_to_binary(?FUNCTION_NAME),
-    BridgeID = create_bridge(
-        ?SERVER_CONF#{
-            <<"name">> => BridgeName,
-            <<"egress">> => ?EGRESS_CONF,
-            <<"clean_start">> => false
-        }
-    ),
+    Action = fun() ->
+        BridgeID = create_bridge(
+            ?SERVER_CONF#{
+                <<"name">> => BridgeName,
+                <<"egress">> => ?EGRESS_CONF,
+                <<"clean_start">> => false
+            }
+        ),
 
-    ResourceID = emqx_bridge_resource:resource_id(BridgeID),
-    {ok, _Group, #{state := #{egress_pool_name := EgressPoolName}}} =
-        emqx_resource_manager:lookup_cached(ResourceID),
-    ClientInfo = ecpool:pick_and_do(
-        EgressPoolName,
-        {emqx_bridge_mqtt_egress, info, []},
-        no_handover
-    ),
-    ?assertMatch(
-        #{clean_start := true},
-        maps:from_list(ClientInfo)
-    ),
+        %% delete the bridge
+        {ok, 204, <<>>} = request(delete, uri(["bridges", BridgeID]), []),
 
-    %% delete the bridge
-    {ok, 204, <<>>} = request(delete, uri(["bridges", BridgeID]), []),
-
+        ok
+    end,
+    {ok, {ok, _}} =
+        ?wait_async_action(
+            Action(),
+            #{?snk_kind := mqtt_clean_start_egress_action_warning},
+            10000
+        ),
     ok.
 
 t_mqtt_conn_bridge_ingress_downgrades_qos_2(_) ->
@@ -567,17 +564,17 @@ t_mqtt_conn_bridge_egress_no_payload_template(_) ->
 
 t_egress_short_clientid(_Config) ->
     %% Name is short, expect the actual client ID in use is hashed from
-    %% <name>E<nodename-hash>:<pool_worker_id>
-    Name = "abc01234",
-    BaseId = emqx_bridge_mqtt_lib:clientid_base([Name, "E"]),
+    %% <name><nodename-hash>:<pool_worker_id>
+    Name = <<"abc01234">>,
+    BaseId = emqx_bridge_mqtt_lib:clientid_base([Name]),
     ExpectedClientId = iolist_to_binary([BaseId, $:, "1"]),
     test_egress_clientid(Name, ExpectedClientId).
 
 t_egress_long_clientid(_Config) ->
     %% Expect the actual client ID in use is hashed from
-    %% <name>E<nodename-hash>:<pool_worker_id>
-    Name = "abc01234567890123456789",
-    BaseId = emqx_bridge_mqtt_lib:clientid_base([Name, "E"]),
+    %% <name><nodename-hash>:<pool_worker_id>
+    Name = <<"abc012345678901234567890">>,
+    BaseId = emqx_bridge_mqtt_lib:clientid_base([Name]),
     ExpectedClientId = emqx_bridge_mqtt_lib:bytes23(BaseId, 1),
     test_egress_clientid(Name, ExpectedClientId).
 
@@ -1086,7 +1083,8 @@ create_bridge(Config = #{<<"type">> := Type, <<"name">> := Name}) ->
             <<"type">> := Type,
             <<"name">> := Name
         },
-        emqx_utils_json:decode(Bridge)
+        emqx_utils_json:decode(Bridge),
+        #{expected_type => Type, expected_name => Name}
     ),
     emqx_bridge_resource:bridge_id(Type, Name).
 

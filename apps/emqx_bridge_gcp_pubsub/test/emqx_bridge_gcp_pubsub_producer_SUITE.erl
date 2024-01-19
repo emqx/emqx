@@ -159,7 +159,7 @@ generate_config(Config0) ->
     } = gcp_pubsub_config(Config0),
     %% FIXME
     %% `emqx_bridge_resource:resource_id' requires an existing connector in the config.....
-    ConnectorName = <<"connector_", ActionName/binary>>,
+    ConnectorName = ActionName,
     ConnectorResourceId = <<"connector:", ?CONNECTOR_TYPE_BIN/binary, ":", ConnectorName/binary>>,
     ActionResourceId = emqx_bridge_v2:id(?ACTION_TYPE_BIN, ActionName, ConnectorName),
     BridgeId = emqx_bridge_resource:bridge_id(?BRIDGE_V1_TYPE_BIN, ActionName),
@@ -1228,7 +1228,11 @@ do_econnrefused_or_timeout_test(Config, Error) ->
                             %% _Msg = "The connection was lost."
                             ok;
                         Trace0 ->
-                            error({unexpected_trace, Trace0})
+                            error(
+                                {unexpected_trace, Trace0, #{
+                                    expected_connector_id => ConnectorResourceId
+                                }}
+                            )
                     end;
                 timeout ->
                     ?assertMatch(

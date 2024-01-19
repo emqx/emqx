@@ -241,6 +241,12 @@ parse_user_properties(<<"${pub_props.'User-Property'}">>) ->
     %% we do not want to force users to select the value
     %% the value will be taken from Env.pub_props directly
     ?ORIGINAL_USER_PROPERTIES;
+parse_user_properties(<<"${.pub_props.'User-Property'}">>) ->
+    %% keep the original
+    %% avoid processing this special variable because
+    %% we do not want to force users to select the value
+    %% the value will be taken from Env.pub_props directly
+    ?ORIGINAL_USER_PROPERTIES;
 parse_user_properties(<<"${", _/binary>> = V) ->
     %% use a variable
     emqx_template:parse(V);

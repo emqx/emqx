@@ -13,6 +13,7 @@
 %% See the License for the specific language governing permissions and
 %% limitations under the License.
 %%--------------------------------------------------------------------
+
 -module(emqx_bridge_mqtt_schema).
 
 -include_lib("typerefl/include/types.hrl").

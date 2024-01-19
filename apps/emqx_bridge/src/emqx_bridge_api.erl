@@ -49,6 +49,14 @@
 -export([lookup_from_local_node/2]).
 -export([get_metrics_from_local_node/2]).
 
+%% used by actions/sources schema
+-export([mqtt_v1_example/1]).
+
+%% only for testing/mocking
+-export([supported_versions/1]).
+
+-define(BPAPI_NAME, emqx_bridge).
+
 -define(BRIDGE_NOT_ENABLED,
     ?BAD_REQUEST(<<"Forbidden operation, bridge not enabled">>)
 ).
@@ -176,7 +184,7 @@ bridge_info_examples(Method) ->
             },
             <<"mqtt_example">> => #{
                 summary => <<"MQTT Bridge">>,
-                value => info_example(mqtt, Method)
+                value => mqtt_v1_example(Method)
             }
         },
         emqx_enterprise_bridge_examples(Method)
@@ -188,6 +196,9 @@ emqx_enterprise_bridge_examples(Method) ->
 -else.
 emqx_enterprise_bridge_examples(_Method) -> #{}.
 -endif.
+
+mqtt_v1_example(Method) ->
+    info_example(mqtt, Method).
 
 info_example(Type, Method) ->
     maps:merge(
@@ -548,9 +559,13 @@ schema("/bridges_probe") ->
         Id,
         case emqx_bridge_v2:is_bridge_v2_type(BridgeType) of
             true ->
-                BridgeV2Type = emqx_bridge_v2:bridge_v2_type_to_connector_type(BridgeType),
-                ok = emqx_bridge_v2:reset_metrics(BridgeV2Type, BridgeName),
-                ?NO_CONTENT;
+                try
+                    ok = emqx_bridge_v2:bridge_v1_reset_metrics(BridgeType, BridgeName),
+                    ?NO_CONTENT
+                catch
+                    error:Reason ->
+                        ?BAD_REQUEST(Reason)
+                end;
             false ->
                 ok = emqx_bridge_resource:reset_metrics(
                     emqx_bridge_resource:resource_id(BridgeType, BridgeName)
@@ -1094,18 +1109,18 @@ maybe_try_restart(_, _, _) ->
 
 do_bpapi_call(all, Call, Args) ->
     maybe_unwrap(
-        do_bpapi_call_vsn(emqx_bpapi:supported_version(emqx_bridge), Call, Args)
+        do_bpapi_call_vsn(emqx_bpapi:supported_version(?BPAPI_NAME), Call, Args)
     );
 do_bpapi_call(Node, Call, Args) ->
     case lists:member(Node, mria:running_nodes()) of
         true ->
-            do_bpapi_call_vsn(emqx_bpapi:supported_version(Node, emqx_bridge), Call, Args);
+            do_bpapi_call_vsn(emqx_bpapi:supported_version(Node, ?BPAPI_NAME), Call, Args);
         false ->
             {error, {node_not_found, Node}}
     end.
 
 do_bpapi_call_vsn(SupportedVersion, Call, Args) ->
-    case lists:member(SupportedVersion, supported_versions(Call)) of
+    case lists:member(SupportedVersion, ?MODULE:supported_versions(Call)) of
         true ->
             apply(emqx_bridge_proto_v4, Call, Args);
         false ->
@@ -1117,10 +1132,15 @@ maybe_unwrap({error, not_implemented}) ->
 maybe_unwrap(RpcMulticallResult) ->
     emqx_rpc:unwrap_erpc(RpcMulticallResult).
 
-supported_versions(start_bridge_to_node) -> [2, 3, 4, 5];
-supported_versions(start_bridges_to_all_nodes) -> [2, 3, 4, 5];
-supported_versions(get_metrics_from_all_nodes) -> [4, 5];
-supported_versions(_Call) -> [1, 2, 3, 4, 5].
+supported_versions(start_bridge_to_node) -> bpapi_version_range(2, latest);
+supported_versions(start_bridges_to_all_nodes) -> bpapi_version_range(2, latest);
+supported_versions(get_metrics_from_all_nodes) -> bpapi_version_range(4, latest);
+supported_versions(_Call) -> bpapi_version_range(1, latest).
+
+%% [From, To] (inclusive on both ends)
+bpapi_version_range(From, latest) ->
+    ThisNodeVsn = emqx_bpapi:supported_version(node(), ?BPAPI_NAME),
+    lists:seq(From, ThisNodeVsn).
 
 redact(Term) ->
     emqx_utils:redact(Term).

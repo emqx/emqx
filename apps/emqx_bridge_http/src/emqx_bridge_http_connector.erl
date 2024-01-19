@@ -38,6 +38,7 @@
 ]).
 
 -export([reply_delegator/3]).
+-export([render_template/2]).
 
 -export([
     roots/0,
@@ -266,7 +267,9 @@ on_add_channel(
 ) ->
     InstalledActions = maps:get(installed_actions, OldState, #{}),
     {ok, ActionState} = do_create_http_action(ActionConfig),
-    NewInstalledActions = maps:put(ActionId, ActionState, InstalledActions),
+    RenderTmplFunc = maps:get(render_template_func, ActionConfig, fun ?MODULE:render_template/2),
+    ActionState1 = ActionState#{render_template_func => RenderTmplFunc},
+    NewInstalledActions = maps:put(ActionId, ActionState1, InstalledActions),
     NewState = maps:put(installed_actions, NewInstalledActions, OldState),
     {ok, NewState}.
 
@@ -337,7 +340,7 @@ on_query(
             } = process_request_and_action(Request, ActionState, Msg),
             %% bridge buffer worker has retry, do not let ehttpc retry
             Retry = 2,
-            ClientId = maps:get(clientid, Msg, undefined),
+            ClientId = clientid(Msg),
             on_query(
                 InstId,
                 {ClientId, Method, {Path, Headers, Body}, Timeout, Retry},
@@ -449,7 +452,7 @@ on_query_async(
                 headers := Headers,
                 request_timeout := Timeout
             } = process_request_and_action(Request, ActionState, Msg),
-            ClientId = maps:get(clientid, Msg, undefined),
+            ClientId = clientid(Msg),
             on_query_async(
                 InstId,
                 {ClientId, Method, {Path, Headers, Body}, Timeout},
@@ -631,12 +634,10 @@ parse_template(String) ->
 
 process_request_and_action(Request, ActionState, Msg) ->
     MethodTemplate = maps:get(method, ActionState),
-    Method = make_method(render_template_string(MethodTemplate, Msg)),
-    BodyTemplate = maps:get(body, ActionState),
-    Body = render_request_body(BodyTemplate, Msg),
-
-    PathPrefix = unicode:characters_to_list(render_template(maps:get(path, Request), Msg)),
-    PathSuffix = unicode:characters_to_list(render_template(maps:get(path, ActionState), Msg)),
+    RenderTmplFunc = maps:get(render_template_func, ActionState),
+    Method = make_method(render_template_string(MethodTemplate, RenderTmplFunc, Msg)),
+    PathPrefix = unicode:characters_to_list(RenderTmplFunc(maps:get(path, Request), Msg)),
+    PathSuffix = unicode:characters_to_list(RenderTmplFunc(maps:get(path, ActionState), Msg)),
 
     Path =
         case PathSuffix of
@@ -647,9 +648,11 @@ process_request_and_action(Request, ActionState, Msg) ->
     HeadersTemplate1 = maps:get(headers, Request),
     HeadersTemplate2 = maps:get(headers, ActionState),
     Headers = merge_proplist(
-        render_headers(HeadersTemplate1, Msg),
-        render_headers(HeadersTemplate2, Msg)
+        render_headers(HeadersTemplate1, RenderTmplFunc, Msg),
+        render_headers(HeadersTemplate2, RenderTmplFunc, Msg)
     ),
+    BodyTemplate = maps:get(body, ActionState),
+    Body = render_request_body(BodyTemplate, RenderTmplFunc, Msg),
     #{
         method => Method,
         path => Path,
@@ -682,25 +685,26 @@ process_request(
     } = Conf,
     Msg
 ) ->
+    RenderTemplateFun = fun render_template/2,
     Conf#{
-        method => make_method(render_template_string(MethodTemplate, Msg)),
-        path => unicode:characters_to_list(render_template(PathTemplate, Msg)),
-        body => render_request_body(BodyTemplate, Msg),
-        headers => render_headers(HeadersTemplate, Msg),
+        method => make_method(render_template_string(MethodTemplate, RenderTemplateFun, Msg)),
+        path => unicode:characters_to_list(RenderTemplateFun(PathTemplate, Msg)),
+        body => render_request_body(BodyTemplate, RenderTemplateFun, Msg),
+        headers => render_headers(HeadersTemplate, RenderTemplateFun, Msg),
         request_timeout => ReqTimeout
     }.
 
-render_request_body(undefined, Msg) ->
+render_request_body(undefined, _, Msg) ->
     emqx_utils_json:encode(Msg);
-render_request_body(BodyTks, Msg) ->
-    render_template(BodyTks, Msg).
+render_request_body(BodyTks, RenderTmplFunc, Msg) ->
+    RenderTmplFunc(BodyTks, Msg).
 
-render_headers(HeaderTks, Msg) ->
+render_headers(HeaderTks, RenderTmplFunc, Msg) ->
     lists:map(
         fun({K, V}) ->
             {
-                render_template_string(K, Msg),
-                render_template_string(emqx_secret:unwrap(V), Msg)
+                render_template_string(K, RenderTmplFunc, Msg),
+                render_template_string(emqx_secret:unwrap(V), RenderTmplFunc, Msg)
             }
         end,
         HeaderTks
@@ -711,8 +715,8 @@ render_template(Template, Msg) ->
     {String, _Errors} = emqx_template:render(Template, {emqx_jsonish, Msg}),
     String.
 
-render_template_string(Template, Msg) ->
-    unicode:characters_to_binary(render_template(Template, Msg)).
+render_template_string(Template, RenderTmplFunc, Msg) ->
+    unicode:characters_to_binary(RenderTmplFunc(Template, Msg)).
 
 make_method(M) when M == <<"POST">>; M == <<"post">> -> post;
 make_method(M) when M == <<"PUT">>; M == <<"put">> -> put;
@@ -732,7 +736,7 @@ formalize_request(_Method, BasePath, {Path, Headers}) ->
 %% because an HTTP server may handle paths like
 %% "/a/b/c/", "/a/b/c" and "/a//b/c" differently.
 %%
-%% So we try to avoid unneccessary path normalization.
+%% So we try to avoid unnecessary path normalization.
 %%
 %% See also: `join_paths_test_/0`
 join_paths(Path1, Path2) ->
@@ -875,6 +879,8 @@ redact_request({Path, Headers}) ->
     {Path, Headers};
 redact_request({Path, Headers, _Body}) ->
     {Path, Headers, <<"******">>}.
+
+clientid(Msg) -> maps:get(clientid, Msg, undefined).
 
 -ifdef(TEST).
 -include_lib("eunit/include/eunit.hrl").

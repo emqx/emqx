@@ -126,6 +126,7 @@ common_bridge_fields() ->
                     default => true
                 }
             )},
+        {tags, emqx_schema:tags_schema()},
         %% Create v2 connector then usr v1 /bridges_probe api to test connector
         %% /bridges_probe should pass through v2 connector's description.
         {description, emqx_schema:description_schema()}

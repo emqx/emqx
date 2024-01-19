@@ -137,7 +137,7 @@ secret_base64_encoded(_) -> undefined.
 
 public_key(type) -> string();
 public_key(desc) -> ?DESC(?FUNCTION_NAME);
-public_key(required) -> ture;
+public_key(required) -> true;
 public_key(_) -> undefined.
 
 endpoint(type) -> string();

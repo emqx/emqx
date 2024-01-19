@@ -134,6 +134,7 @@ fields(actions) ->
                     mk(binary(), #{
                         desc => ?DESC(emqx_connector_schema, "connector_field"), required => true
                     })},
+                {tags, emqx_schema:tags_schema()},
                 {description, emqx_schema:description_schema()}
             ],
     override_documentations(Fields);
