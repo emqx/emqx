@@ -10,8 +10,7 @@
     {applications, [
         kernel,
         stdlib,
-        emqx_resource,
-        emqx_connector
+        emqx_resource
     ]},
     {env, []},
     {licenses, ["Business Source License 1.1"]},

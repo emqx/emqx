@@ -178,6 +178,11 @@ app_deps(App, RebootApps) ->
 %% `emqx_bridge' is special in that it needs all the bridges apps to
 %% be started before it, so that, when it loads the bridges from
 %% configuration, the bridge app and its dependencies need to be up.
+%%
+%% `emqx_connector' also needs to start all connector dependencies for the same reason.
+%% Since standalone apps like `emqx_mongodb' are already dependencies of `emqx_bridge_*'
+%% apps, we may apply the same tactic for `emqx_connector' and inject individual bridges
+%% as its dependencies.
 inject_bridge_deps(RebootAppDeps) ->
     BridgeApps = [
         App
@@ -188,6 +193,8 @@ inject_bridge_deps(RebootAppDeps) ->
         fun
             ({emqx_bridge, Deps0}) when is_list(Deps0) ->
                 {emqx_bridge, Deps0 ++ BridgeApps};
+            ({emqx_connector, Deps0}) when is_list(Deps0) ->
+                {emqx_connector, Deps0 ++ BridgeApps};
             (App) ->
                 App
         end,

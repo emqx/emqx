@@ -392,7 +392,7 @@ t_create_webhook_v1_bridges_api({'init', Config}) ->
     lists:foreach(
         fun(App) ->
             _ = application:stop(App),
-            {ok, [App]} = application:ensure_all_started(App)
+            {ok, _} = application:ensure_all_started(App)
         end,
         [emqx_connector, emqx_bridge]
     ),
