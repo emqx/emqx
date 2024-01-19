@@ -29,8 +29,12 @@
 ]).
 
 %% for bpapi
+-behaviour(emqx_prometheus_cluster).
 -export([
-    fetch_metric_data_from_local_node/0
+    fetch_data_from_local_node/0,
+    fetch_cluster_consistented_data/0,
+    aggre_or_zip_init_acc/0,
+    logic_sum_metrics/0
 ]).
 
 -export([add_collect_family/4]).
@@ -121,6 +125,37 @@
 ]).
 
 %%--------------------------------------------------------------------
+%% Callback for emqx_prometheus_cluster
+%%--------------------------------------------------------------------
+
+fetch_data_from_local_node() ->
+    Rules = emqx_rule_engine:get_rules(),
+    Bridges = emqx_bridge:list(),
+    {node(self()), #{
+        rule_specific_data => rule_specific_data(Rules),
+        action_specific_data => action_specific_data(Bridges),
+        connector_specific_data => connector_specific_data(Bridges)
+    }}.
+
+fetch_cluster_consistented_data() ->
+    Rules = emqx_rule_engine:get_rules(),
+    Bridges = emqx_bridge:list(),
+    (maybe_collect_schema_registry())#{
+        rules_data => rules_data(Rules),
+        connectors_data => connectors_data(Bridges)
+    }.
+
+aggre_or_zip_init_acc() ->
+    #{
+        rule_specific_data => maps:from_keys(rule_specific_metric_names(), []),
+        action_specific_data => maps:from_keys(action_specific_metric_names(), []),
+        connector_specific_data => maps:from_keys(connectr_specific_metric_names(), [])
+    }.
+
+logic_sum_metrics() ->
+    ?LOGICAL_SUM_METRIC_NAMES.
+
+%%--------------------------------------------------------------------
 %% Collector API
 %%--------------------------------------------------------------------
 
@@ -132,7 +167,7 @@ deregister_cleanup(_) -> ok.
     _Registry :: prometheus_registry:registry(),
     Callback :: prometheus_collector:collect_mf_callback().
 collect_mf(?PROMETHEUS_DATA_INTEGRATION_REGISTRY, Callback) ->
-    RawData = raw_data(?GET_PROM_DATA_MODE()),
+    RawData = emqx_prometheus_cluster:raw_data(?MODULE, ?GET_PROM_DATA_MODE()),
 
     %% Data Integration Overview
     ok = add_collect_family(Callback, ?RULES_WITH_TYPE, ?MG(rules_data, RawData)),
@@ -157,7 +192,7 @@ collect_mf(_, _) ->
 
 %% @private
 collect(<<"json">>) ->
-    RawData = raw_data(?GET_PROM_DATA_MODE()),
+    RawData = emqx_prometheus_cluster:raw_data(?MODULE, ?GET_PROM_DATA_MODE()),
     Rules = emqx_rule_engine:get_rules(),
     Bridges = emqx_bridge:list(),
     #{
@@ -183,24 +218,6 @@ add_collect_family(Name, Data, Callback, Type) ->
 collect_metrics(Name, Metrics) ->
     collect_di(Name, Metrics).
 
-%% @private
-fetch_metric_data_from_local_node() ->
-    Rules = emqx_rule_engine:get_rules(),
-    Bridges = emqx_bridge:list(),
-    {node(self()), #{
-        rule_specific_data => rule_specific_data(Rules),
-        action_specific_data => action_specific_data(Bridges),
-        connector_specific_data => connector_specific_data(Bridges)
-    }}.
-
-fetch_cluster_consistented_metric_data() ->
-    Rules = emqx_rule_engine:get_rules(),
-    Bridges = emqx_bridge:list(),
-    (maybe_collect_schema_registry())#{
-        rules_data => rules_data(Rules),
-        connectors_data => connectors_data(Bridges)
-    }.
-
 -if(?EMQX_RELEASE_EDITION == ee).
 maybe_collect_family_schema_registry(Callback) ->
     ok = add_collect_family(Callback, ?SCHEMA_REGISTRY_WITH_TYPE, schema_registry_data()),
@@ -215,24 +232,6 @@ maybe_collect_family_schema_registry(_) ->
 maybe_collect_schema_registry() ->
     #{}.
 -endif.
-
-%% raw data for different format modes
-raw_data(?PROM_DATA_MODE__ALL_NODES_AGGREGATED) ->
-    AggregatedNodesMetrics = aggre_cluster(metrics_data_from_all_nodes()),
-    maps:merge(AggregatedNodesMetrics, fetch_cluster_consistented_metric_data());
-raw_data(?PROM_DATA_MODE__ALL_NODES_UNAGGREGATED) ->
-    %% then fold from all nodes
-    AllNodesMetrics = with_node_name_label(metrics_data_from_all_nodes()),
-    maps:merge(AllNodesMetrics, fetch_cluster_consistented_metric_data());
-raw_data(?PROM_DATA_MODE__NODE) ->
-    {_Node, LocalNodeMetrics} = fetch_metric_data_from_local_node(),
-    maps:merge(LocalNodeMetrics, fetch_cluster_consistented_metric_data()).
-
-metrics_data_from_all_nodes() ->
-    Nodes = mria:running_nodes(),
-    _ResL = emqx_prometheus_proto_v2:raw_prom_data(
-        Nodes, ?MODULE, fetch_metric_data_from_local_node, []
-    ).
 
 %%--------------------------------------------------------------------
 %% Collector
@@ -398,7 +397,7 @@ get_metric(#{id := Id, enable := Bool} = _Rule) ->
     case emqx_metrics_worker:get_metrics(rule_metrics, Id) of
         #{counters := Counters} ->
             #{
-                emqx_rule_enable => emqx_prometheus_utils:boolean_to_number(Bool),
+                emqx_rule_enable => emqx_prometheus_cluster:boolean_to_number(Bool),
                 emqx_rule_matched => ?MG(matched, Counters),
                 emqx_rule_failed => ?MG(failed, Counters),
                 emqx_rule_passed => ?MG(passed, Counters),
@@ -415,7 +414,7 @@ get_metric(#{id := Id, enable := Bool} = _Rule) ->
     end.
 
 rule_specific_metric_names() ->
-    emqx_prometheus_utils:metric_names(?RULES_SPECIFIC_WITH_TYPE).
+    emqx_prometheus_cluster:metric_names(?RULES_SPECIFIC_WITH_TYPE).
 
 %%====================
 %% Specific Action
@@ -469,7 +468,7 @@ get_bridge_metric(Type, Name) ->
     end.
 
 action_specific_metric_names() ->
-    emqx_prometheus_utils:metric_names(?ACTION_SPECIFIC_WITH_TYPE).
+    emqx_prometheus_cluster:metric_names(?ACTION_SPECIFIC_WITH_TYPE).
 
 %%====================
 %% Specific Connector
@@ -501,12 +500,12 @@ get_connector_status(#{resource_data := ResourceData} = _Bridge) ->
     Enabled = emqx_utils_maps:deep_get([config, enable], ResourceData),
     Status = ?MG(status, ResourceData),
     #{
-        emqx_connector_enable => emqx_prometheus_utils:boolean_to_number(Enabled),
-        emqx_connector_status => emqx_prometheus_utils:status_to_number(Status)
+        emqx_connector_enable => emqx_prometheus_cluster:boolean_to_number(Enabled),
+        emqx_connector_status => emqx_prometheus_cluster:status_to_number(Status)
     }.
 
 connectr_specific_metric_names() ->
-    emqx_prometheus_utils:metric_names(?CONNECTOR_SPECIFIC_WITH_TYPE).
+    emqx_prometheus_cluster:metric_names(?CONNECTOR_SPECIFIC_WITH_TYPE).
 
 %%--------------------------------------------------------------------
 %% Collect functions
@@ -521,19 +520,19 @@ collect_data_integration_overview(Rules, Bridges) ->
     M1 = lists:foldl(
         fun(K, AccIn) -> AccIn#{K => ?MG(K, RulesD)} end,
         #{},
-        emqx_prometheus_utils:metric_names(?RULES_WITH_TYPE)
+        emqx_prometheus_cluster:metric_names(?RULES_WITH_TYPE)
     ),
     M2 = lists:foldl(
         fun(K, AccIn) -> AccIn#{K => ?MG(K, ConnectorsD)} end,
         #{},
-        emqx_prometheus_utils:metric_names(?CONNECTORS_WITH_TYPE)
+        emqx_prometheus_cluster:metric_names(?CONNECTORS_WITH_TYPE)
     ),
     M3 = maybe_collect_schema_registry(),
 
     lists:foldl(fun(M, AccIn) -> maps:merge(M, AccIn) end, #{}, [M1, M2, M3]).
 
 collect_json_data(Data) ->
-    emqx_prometheus_utils:collect_json_data(Data, fun zip_json_data_integration_metrics/3).
+    emqx_prometheus_cluster:collect_json_data(Data, fun zip_json_data_integration_metrics/3).
 
 %% for initialized empty AccIn
 %% The following fields will be put into Result
@@ -555,23 +554,5 @@ zip_json_data_integration_metrics(Key, Points, [] = _AccIn) ->
         Points
     );
 zip_json_data_integration_metrics(Key, Points, AllResultedAcc) ->
-    ThisKeyResult = lists:foldl(emqx_prometheus_utils:point_to_map_fun(Key), [], Points),
+    ThisKeyResult = lists:foldl(emqx_prometheus_cluster:point_to_map_fun(Key), [], Points),
     lists:zipwith(fun maps:merge/2, AllResultedAcc, ThisKeyResult).
-
-%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-%% merge / zip formatting funcs for type `text/plain`
-aggre_cluster(ResL) ->
-    emqx_prometheus_utils:aggre_cluster(?LOGICAL_SUM_METRIC_NAMES, ResL, aggre_or_zip_init_acc()).
-
-with_node_name_label(ResL) ->
-    emqx_prometheus_utils:with_node_name_label(ResL, aggre_or_zip_init_acc()).
-
-%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-%% Helper funcs
-
-aggre_or_zip_init_acc() ->
-    #{
-        rule_specific_data => maps:from_keys(rule_specific_metric_names(), []),
-        action_specific_data => maps:from_keys(action_specific_metric_names(), []),
-        connector_specific_data => maps:from_keys(connectr_specific_metric_names(), [])
-    }.

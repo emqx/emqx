@@ -24,8 +24,12 @@
 -export([collect/1]).
 
 %% for bpapi
+-behaviour(emqx_prometheus_cluster).
 -export([
-    fetch_metric_data_from_local_node/0
+    fetch_data_from_local_node/0,
+    fetch_cluster_consistented_data/0,
+    aggre_or_zip_init_acc/0,
+    logic_sum_metrics/0
 ]).
 
 %% %% @private
@@ -127,7 +131,7 @@ deregister_cleanup(_) -> ok.
     Callback :: prometheus_collector:collect_mf_callback().
 %% erlfmt-ignore
 collect_mf(?PROMETHEUS_AUTH_REGISTRY, Callback) ->
-    RawData = raw_data(?GET_PROM_DATA_MODE()),
+    RawData = emqx_prometheus_cluster:raw_data(?MODULE, ?GET_PROM_DATA_MODE()),
     ok = add_collect_family(Callback, ?AUTHNS_WITH_TYPE, ?MG(authn, RawData)),
     ok = add_collect_family(Callback, ?AUTHN_USERS_COUNT_WITH_TYPE, ?MG(authn_users_count, RawData)),
     ok = add_collect_family(Callback, ?AUTHZS_WITH_TYPE, ?MG(authz, RawData)),
@@ -139,8 +143,7 @@ collect_mf(_, _) ->
 
 %% @private
 collect(<<"json">>) ->
-    RawData = raw_data(?GET_PROM_DATA_MODE()),
-    %% TODO: merge node name in json format
+    RawData = emqx_prometheus_cluster:raw_data(?MODULE, ?GET_PROM_DATA_MODE()),
     #{
         emqx_authn => collect_json_data(?MG(authn, RawData)),
         emqx_authz => collect_json_data(?MG(authz, RawData)),
@@ -159,37 +162,28 @@ add_collect_family(Name, Data, Callback, Type) ->
 collect_metrics(Name, Metrics) ->
     collect_auth(Name, Metrics).
 
-%% @private
-fetch_metric_data_from_local_node() ->
+%% behaviour
+fetch_data_from_local_node() ->
     {node(self()), #{
         authn => authn_data(),
         authz => authz_data()
     }}.
 
-fetch_cluster_consistented_metric_data() ->
+fetch_cluster_consistented_data() ->
     #{
         authn_users_count => authn_users_count_data(),
         authz_rules_count => authz_rules_count_data(),
         banned_count => banned_count_data()
     }.
 
-%% raw data for different format modes
-raw_data(?PROM_DATA_MODE__ALL_NODES_AGGREGATED) ->
-    AggregatedNodesMetrics = aggre_cluster(all_nodes_metrics()),
-    maps:merge(AggregatedNodesMetrics, fetch_cluster_consistented_metric_data());
-raw_data(?PROM_DATA_MODE__ALL_NODES_UNAGGREGATED) ->
-    %% then fold from all nodes
-    AllNodesMetrics = with_node_name_label(all_nodes_metrics()),
-    maps:merge(AllNodesMetrics, fetch_cluster_consistented_metric_data());
-raw_data(?PROM_DATA_MODE__NODE) ->
-    {_Node, LocalNodeMetrics} = fetch_metric_data_from_local_node(),
-    maps:merge(LocalNodeMetrics, fetch_cluster_consistented_metric_data()).
+aggre_or_zip_init_acc() ->
+    #{
+        authn => maps:from_keys(authn_metric_names(), []),
+        authz => maps:from_keys(authz_metric_names(), [])
+    }.
 
-all_nodes_metrics() ->
-    Nodes = mria:running_nodes(),
-    _ResL = emqx_prometheus_proto_v2:raw_prom_data(
-        Nodes, ?MODULE, fetch_metric_data_from_local_node, []
-    ).
+logic_sum_metrics() ->
+    ?LOGICAL_SUM_METRIC_NAMES.
 
 %%--------------------------------------------------------------------
 %% Collector
@@ -286,7 +280,7 @@ lookup_authn_metrics_local(Id) ->
     case emqx_authn_api:lookup_from_local_node(?GLOBAL, Id) of
         {ok, {_Node, Status, #{counters := Counters}, _ResourceMetrics}} ->
             #{
-                emqx_authn_status => emqx_prometheus_utils:status_to_number(Status),
+                emqx_authn_status => emqx_prometheus_cluster:status_to_number(Status),
                 emqx_authn_nomatch => ?MG0(nomatch, Counters),
                 emqx_authn_total => ?MG0(total, Counters),
                 emqx_authn_success => ?MG0(success, Counters),
@@ -297,7 +291,7 @@ lookup_authn_metrics_local(Id) ->
     end.
 
 authn_metric_names() ->
-    emqx_prometheus_utils:metric_names(?AUTHNS_WITH_TYPE).
+    emqx_prometheus_cluster:metric_names(?AUTHNS_WITH_TYPE).
 
 %%====================
 %% Authn users count
@@ -364,7 +358,7 @@ lookup_authz_metrics_local(Type) ->
     case emqx_authz_api_sources:lookup_from_local_node(Type) of
         {ok, {_Node, Status, #{counters := Counters}, _ResourceMetrics}} ->
             #{
-                emqx_authz_status => emqx_prometheus_utils:status_to_number(Status),
+                emqx_authz_status => emqx_prometheus_cluster:status_to_number(Status),
                 emqx_authz_nomatch => ?MG0(nomatch, Counters),
                 emqx_authz_total => ?MG0(total, Counters),
                 emqx_authz_success => ?MG0(success, Counters),
@@ -375,7 +369,7 @@ lookup_authz_metrics_local(Type) ->
     end.
 
 authz_metric_names() ->
-    emqx_prometheus_utils:metric_names(?AUTHZS_WITH_TYPE).
+    emqx_prometheus_cluster:metric_names(?AUTHZS_WITH_TYPE).
 
 %%====================
 %% Authz rules count
@@ -418,7 +412,7 @@ banned_count_data() ->
 %% merge / zip formatting funcs for type `application/json`
 
 collect_json_data(Data) ->
-    emqx_prometheus_utils:collect_json_data(Data, fun zip_json_auth_metrics/3).
+    emqx_prometheus_cluster:collect_json_data(Data, fun zip_json_auth_metrics/3).
 
 collect_banned_data() ->
     #{emqx_banned_count => banned_count_data()}.
@@ -440,7 +434,7 @@ zip_json_auth_metrics(Key, Points, [] = _AccIn) ->
         Points
     );
 zip_json_auth_metrics(Key, Points, AllResultedAcc) ->
-    ThisKeyResult = lists:foldl(emqx_prometheus_utils:point_to_map_fun(Key), [], Points),
+    ThisKeyResult = lists:foldl(emqx_prometheus_cluster:point_to_map_fun(Key), [], Points),
     lists:zipwith(fun maps:merge/2, AllResultedAcc, ThisKeyResult).
 
 users_or_rule_count(#{id := Id}) ->
@@ -463,14 +457,6 @@ users_or_rule_count(_) ->
     #{}.
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-%% merge / zip formatting funcs for type `text/plain`
-aggre_cluster(ResL) ->
-    emqx_prometheus_utils:aggre_cluster(?LOGICAL_SUM_METRIC_NAMES, ResL, aggre_or_zip_init_acc()).
-
-with_node_name_label(ResL) ->
-    emqx_prometheus_utils:with_node_name_label(ResL, aggre_or_zip_init_acc()).
-
-%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %% Helper funcs
 
 authenticator_id(Authn) ->
@@ -488,12 +474,6 @@ mnesia_size(Tab) ->
     mnesia:table_info(Tab, size).
 
 do_metric(emqx_authn_enable, #{enable := B}, _) ->
-    emqx_prometheus_utils:boolean_to_number(B);
+    emqx_prometheus_cluster:boolean_to_number(B);
 do_metric(K, _, Metrics) ->
     ?MG0(K, Metrics).
-
-aggre_or_zip_init_acc() ->
-    #{
-        authn => maps:from_keys(authn_metric_names(), []),
-        authz => maps:from_keys(authz_metric_names(), [])
-    }.

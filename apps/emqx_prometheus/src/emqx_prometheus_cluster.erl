@@ -13,9 +13,13 @@
 %% See the License for the specific language governing permissions and
 %% limitations under the License.
 %%--------------------------------------------------------------------
--module(emqx_prometheus_utils).
+-module(emqx_prometheus_cluster).
+
+-include("emqx_prometheus.hrl").
 
 -export([
+    raw_data/2,
+
     collect_json_data/2,
 
     aggre_cluster/3,
@@ -28,8 +32,33 @@
     metric_names/1
 ]).
 
+-callback fetch_cluster_consistented_data() -> map().
+
+-callback fetch_data_from_local_node() -> {node(), map()}.
+
+-callback aggre_or_zip_init_acc() -> map().
+
 -define(MG(K, MAP), maps:get(K, MAP)).
 -define(PG0(K, PROPLISTS), proplists:get_value(K, PROPLISTS, 0)).
+
+raw_data(Module, ?PROM_DATA_MODE__ALL_NODES_AGGREGATED) ->
+    AllNodesMetrics = aggre_cluster(Module),
+    Cluster = Module:fetch_cluster_consistented_data(),
+    maps:merge(AllNodesMetrics, Cluster);
+raw_data(Module, ?PROM_DATA_MODE__ALL_NODES_UNAGGREGATED) ->
+    AllNodesMetrics = with_node_name_label(Module),
+    Cluster = Module:fetch_cluster_consistented_data(),
+    maps:merge(AllNodesMetrics, Cluster);
+raw_data(Module, ?PROM_DATA_MODE__NODE) ->
+    {_Node, LocalNodeMetrics} = Module:fetch_data_from_local_node(),
+    Cluster = Module:fetch_cluster_consistented_data(),
+    maps:merge(LocalNodeMetrics, Cluster).
+
+metrics_data_from_all_nodes(Module) ->
+    Nodes = mria:running_nodes(),
+    _ResL = emqx_prometheus_proto_v2:raw_prom_data(
+        Nodes, Module, fetch_data_from_local_node, []
+    ).
 
 collect_json_data(Data, Func) when is_function(Func, 3) ->
     maps:fold(
@@ -41,6 +70,17 @@ collect_json_data(Data, Func) when is_function(Func, 3) ->
     );
 collect_json_data(_, _) ->
     error(badarg).
+
+aggre_cluster(Module) ->
+    do_aggre_cluster(
+        Module:logic_sum_metrics(),
+        metrics_data_from_all_nodes(Module),
+        Module:aggre_or_zip_init_acc()
+    ).
+
+with_node_name_label(Module) ->
+    ResL = metrics_data_from_all_nodes(Module),
+    do_with_node_name_label(ResL, Module:aggre_or_zip_init_acc()).
 
 aggre_cluster(LogicSumKs, ResL, Init) ->
     do_aggre_cluster(LogicSumKs, ResL, Init).
@@ -58,7 +98,6 @@ do_aggre_cluster(LogicSumKs, [{ok, {_NodeName, NodeMetric}} | Rest], AccIn) ->
             AccIn,
             NodeMetric
         )
-        %% merge_node_and_acc()
     );
 do_aggre_cluster(LogicSumKs, [{_, _} | Rest], AccIn) ->
     do_aggre_cluster(LogicSumKs, Rest, AccIn).
