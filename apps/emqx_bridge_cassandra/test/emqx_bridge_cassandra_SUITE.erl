@@ -301,17 +301,28 @@ send_message(Config, Payload) ->
 query_resource(Config, Request) ->
     Name = ?config(cassa_name, Config),
     BridgeType = ?config(cassa_bridge_type, Config),
-    ResourceID = emqx_bridge_resource:resource_id(BridgeType, Name),
-    emqx_resource:query(ResourceID, Request, #{timeout => 1_000}).
+    BridgeV2Id = emqx_bridge_v2:id(BridgeType, Name),
+    ConnectorResId = emqx_connector_resource:resource_id(
+        cassandra, <<"connector_emqx_bridge_cassandra_SUITE">>
+    ),
+    emqx_resource:query(BridgeV2Id, Request, #{
+        timeout => 1_000, connector_resource_id => ConnectorResId
+    }).
 
 query_resource_async(Config, Request) ->
     Name = ?config(cassa_name, Config),
     BridgeType = ?config(cassa_bridge_type, Config),
     Ref = alias([reply]),
     AsyncReplyFun = fun(Result) -> Ref ! {result, Ref, Result} end,
-    ResourceID = emqx_bridge_resource:resource_id(BridgeType, Name),
-    Return = emqx_resource:query(ResourceID, Request, #{
-        timeout => 500, async_reply_fun => {AsyncReplyFun, []}
+    BridgeV2Id = emqx_bridge_v2:id(BridgeType, Name),
+    ConnectorResId = emqx_connector_resource:resource_id(
+        cassandra, <<"connector_emqx_bridge_cassandra_SUITE">>
+    ),
+    Return = emqx_resource:query(BridgeV2Id, Request, #{
+        timeout => 500,
+        async_reply_fun => {AsyncReplyFun, []},
+        connector_resource_id => ConnectorResId,
+        query_mode => async
     }),
     {Return, Ref}.
 

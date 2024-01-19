@@ -1,6 +1,6 @@
 {application, emqx_bridge_cassandra, [
     {description, "EMQX Enterprise Cassandra Bridge"},
-    {vsn, "0.1.6"},
+    {vsn, "0.2.0"},
     {registered, []},
     {applications, [
         kernel,
@@ -8,7 +8,7 @@
         emqx_resource,
         ecql
     ]},
-    {env, []},
+    {env, [{emqx_action_info_modules, [emqx_bridge_cassandra_action_info]}]},
     {modules, []},
     {links, []}
 ]}.
