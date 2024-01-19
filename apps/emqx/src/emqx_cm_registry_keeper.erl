@@ -46,12 +46,12 @@ start_link() ->
     gen_server:start_link({local, ?MODULE}, ?MODULE, [], []).
 
 init(_) ->
-    case mria_config:whoami() =:= core of
+    case mria_config:whoami() =:= replicant of
         true ->
-            ok = send_delay_start(),
-            {ok, #{next_clientid => undefined}};
+            ignore;
         false ->
-            ignore
+            ok = send_delay_start(),
+            {ok, #{next_clientid => undefined}}
     end.
 
 %% @doc Count the number of sessions.
