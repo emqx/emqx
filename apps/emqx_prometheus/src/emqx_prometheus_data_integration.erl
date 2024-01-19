@@ -132,7 +132,7 @@ deregister_cleanup(_) -> ok.
     _Registry :: prometheus_registry:registry(),
     Callback :: prometheus_collector:collect_mf_callback().
 collect_mf(?PROMETHEUS_DATA_INTEGRATION_REGISTRY, Callback) ->
-    RawData = raw_data(erlang:get(format_mode)),
+    RawData = raw_data(?GET_PROM_DATA_MODE()),
 
     %% Data Integration Overview
     ok = add_collect_family(Callback, ?RULES_WITH_TYPE, ?MG(rules_data, RawData)),
@@ -157,7 +157,7 @@ collect_mf(_, _) ->
 
 %% @private
 collect(<<"json">>) ->
-    RawData = raw_data(erlang:get(format_mode)),
+    RawData = raw_data(?GET_PROM_DATA_MODE()),
     Rules = emqx_rule_engine:get_rules(),
     Bridges = emqx_bridge:list(),
     #{
@@ -217,14 +217,14 @@ maybe_collect_schema_registry() ->
 -endif.
 
 %% raw data for different format modes
-raw_data(nodes_aggregated) ->
+raw_data(?PROM_DATA_MODE__ALL_NODES_AGGREGATED) ->
     AggregatedNodesMetrics = aggre_cluster(metrics_data_from_all_nodes()),
     maps:merge(AggregatedNodesMetrics, fetch_cluster_consistented_metric_data());
-raw_data(nodes_unaggregated) ->
+raw_data(?PROM_DATA_MODE__ALL_NODES_UNAGGREGATED) ->
     %% then fold from all nodes
     AllNodesMetrics = with_node_name_label(metrics_data_from_all_nodes()),
     maps:merge(AllNodesMetrics, fetch_cluster_consistented_metric_data());
-raw_data(node) ->
+raw_data(?PROM_DATA_MODE__NODE) ->
     {_Node, LocalNodeMetrics} = fetch_metric_data_from_local_node(),
     maps:merge(LocalNodeMetrics, fetch_cluster_consistented_metric_data()).
 

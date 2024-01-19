@@ -18,6 +18,7 @@
 
 -behaviour(minirest_api).
 
+-include("emqx_prometheus.hrl").
 -include_lib("hocon/include/hoconsc.hrl").
 -include_lib("emqx/include/logger.hrl").
 
@@ -86,7 +87,7 @@ schema("/prometheus/auth") ->
             #{
                 description => ?DESC(get_prom_auth_data),
                 tags => ?TAGS,
-                parameters => [ref(format_mode)],
+                parameters => [ref(mode)],
                 security => security(),
                 responses =>
                     #{200 => prometheus_data_schema()}
@@ -99,7 +100,7 @@ schema("/prometheus/stats") ->
             #{
                 description => ?DESC(get_prom_data),
                 tags => ?TAGS,
-                parameters => [ref(format_mode)],
+                parameters => [ref(mode)],
                 security => security(),
                 responses =>
                     #{200 => prometheus_data_schema()}
@@ -112,7 +113,7 @@ schema("/prometheus/data_integration") ->
             #{
                 description => ?DESC(get_prom_data_integration_data),
                 tags => ?TAGS,
-                parameters => [ref(format_mode)],
+                parameters => [ref(mode)],
                 security => security(),
                 responses =>
                     #{200 => prometheus_data_schema()}
@@ -125,11 +126,11 @@ security() ->
         false -> []
     end.
 
-fields(format_mode) ->
+fields(mode) ->
     [
-        {format_mode,
+        {mode,
             mk(
-                hoconsc:enum([node, nodes_aggregated, nodes_unaggregated]),
+                hoconsc:enum(?PROM_DATA_MODES),
                 #{
                     default => node,
                     desc => <<"Metrics format mode.">>,
@@ -178,8 +179,13 @@ data_integration(get, #{headers := Headers, query_string := Qs}) ->
 %% Internal funcs
 %%--------------------------------------------------------------------
 
-collect(Module, #{type := Type, format_mode := FormatMode}) ->
-    erlang:put(format_mode, FormatMode),
+collect(Module, #{type := Type, mode := Mode}) ->
+    %% `Mode` is used to control the format of the returned data
+    %% It will used in callback `Module:collect_mf/1` to fetch data from node or cluster
+    %% And use this mode parameter to determine the formatting method of the returned information.
+    %% Since the arity of the callback function has been fixed.
+    %% so it is placed in the process dictionary of the current process.
+    ?PUT_PROM_DATA_MODE(Mode),
     Data =
         case erlang:function_exported(Module, collect, 1) of
             true ->
@@ -194,21 +200,20 @@ collect(Module, #{type := Type, format_mode := FormatMode}) ->
     gen_response(Type, Data).
 
 collect_opts(Headers, Qs) ->
-    #{type => response_type(Headers), format_mode => format_mode(Qs)}.
+    #{type => response_type(Headers), mode => mode(Qs)}.
 
 response_type(#{<<"accept">> := <<"application/json">>}) ->
     <<"json">>;
 response_type(_) ->
     <<"prometheus">>.
 
-format_mode(#{<<"format_mode">> := node}) ->
-    node;
-format_mode(#{<<"format_mode">> := nodes_aggregated}) ->
-    nodes_aggregated;
-format_mode(#{<<"format_mode">> := nodes_unaggregated}) ->
-    nodes_unaggregated;
-format_mode(_) ->
-    node.
+mode(#{<<"mode">> := Mode}) ->
+    case lists:member(Mode, ?PROM_DATA_MODES) of
+        true -> Mode;
+        false -> ?PROM_DATA_MODE__NODE
+    end;
+mode(_) ->
+    ?PROM_DATA_MODE__NODE.
 
 gen_response(<<"json">>, Data) ->
     {200, Data};

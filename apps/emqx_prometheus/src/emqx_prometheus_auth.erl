@@ -127,7 +127,7 @@ deregister_cleanup(_) -> ok.
     Callback :: prometheus_collector:collect_mf_callback().
 %% erlfmt-ignore
 collect_mf(?PROMETHEUS_AUTH_REGISTRY, Callback) ->
-    RawData = raw_data(erlang:get(format_mode)),
+    RawData = raw_data(?GET_PROM_DATA_MODE()),
     ok = add_collect_family(Callback, ?AUTHNS_WITH_TYPE, ?MG(authn, RawData)),
     ok = add_collect_family(Callback, ?AUTHN_USERS_COUNT_WITH_TYPE, ?MG(authn_users_count, RawData)),
     ok = add_collect_family(Callback, ?AUTHZS_WITH_TYPE, ?MG(authz, RawData)),
@@ -139,8 +139,7 @@ collect_mf(_, _) ->
 
 %% @private
 collect(<<"json">>) ->
-    FormatMode = erlang:get(format_mode),
-    RawData = raw_data(FormatMode),
+    RawData = raw_data(?GET_PROM_DATA_MODE()),
     %% TODO: merge node name in json format
     #{
         emqx_authn => collect_json_data(?MG(authn, RawData)),
@@ -175,14 +174,14 @@ fetch_cluster_consistented_metric_data() ->
     }.
 
 %% raw data for different format modes
-raw_data(nodes_aggregated) ->
+raw_data(?PROM_DATA_MODE__ALL_NODES_AGGREGATED) ->
     AggregatedNodesMetrics = aggre_cluster(all_nodes_metrics()),
     maps:merge(AggregatedNodesMetrics, fetch_cluster_consistented_metric_data());
-raw_data(nodes_unaggregated) ->
+raw_data(?PROM_DATA_MODE__ALL_NODES_UNAGGREGATED) ->
     %% then fold from all nodes
     AllNodesMetrics = with_node_name_label(all_nodes_metrics()),
     maps:merge(AllNodesMetrics, fetch_cluster_consistented_metric_data());
-raw_data(node) ->
+raw_data(?PROM_DATA_MODE__NODE) ->
     {_Node, LocalNodeMetrics} = fetch_metric_data_from_local_node(),
     maps:merge(LocalNodeMetrics, fetch_cluster_consistented_metric_data()).
 

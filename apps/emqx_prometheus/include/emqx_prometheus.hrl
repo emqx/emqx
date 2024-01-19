@@ -28,3 +28,18 @@
     ?PROMETHEUS_AUTH_REGISTRY,
     ?PROMETHEUS_DATA_INTEGRATION_REGISTRY
 ]).
+
+-define(PROM_DATA_MODE__NODE, node).
+-define(PROM_DATA_MODE__ALL_NODES_AGGREGATED, all_nodes_aggregated).
+-define(PROM_DATA_MODE__ALL_NODES_UNAGGREGATED, all_nodes_unaggregated).
+
+-define(PROM_DATA_MODES, [
+    ?PROM_DATA_MODE__NODE,
+    ?PROM_DATA_MODE__ALL_NODES_AGGREGATED,
+    ?PROM_DATA_MODE__ALL_NODES_UNAGGREGATED
+]).
+
+-define(PROM_DATA_MODE_KEY__, prom_data_mode).
+
+-define(PUT_PROM_DATA_MODE(MODE__), erlang:put(?PROM_DATA_MODE_KEY__, MODE__)).
+-define(GET_PROM_DATA_MODE(), erlang:get(?PROM_DATA_MODE_KEY__)).
