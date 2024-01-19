@@ -22,10 +22,6 @@
 %%     ./rebar3 ct --name 'test@127.0.0.1' -v --suite \
 %%     apps/emqx_bridge_cassandra/test/emqx_bridge_cassandra_connector_SUITE
 
-%% Cassandra servers are defined at `.ci/docker-compose-file/docker-compose-cassandra.yaml`
-%% You can change it to `127.0.0.1`, if you run this SUITE locally
--define(CASSANDRA_HOST, "cassandra").
--define(CASSANDRA_HOST_NOAUTH, "cassandra_noauth").
 -define(CASSANDRA_RESOURCE_MOD, emqx_bridge_cassandra_connector).
 
 %% Cassandra default username & password once enable `authenticator: PasswordAuthenticator`

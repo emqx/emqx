@@ -1,5 +1,15 @@
 emqx_bridge_cassandra {
 
+action_parameters.desc:
+"""Action specific configs."""
+action_parameters.label:
+"""Action"""
+
+cassandra_action.desc:
+"""Action configs."""
+cassandra_action.label:
+"""Action"""
+
 config_enable.desc:
 """Enable or disable this bridge"""
 

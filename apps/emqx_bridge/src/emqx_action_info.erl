@@ -92,6 +92,7 @@ hard_coded_action_info_modules_ee() ->
         emqx_bridge_matrix_action_info,
         emqx_bridge_mongodb_action_info,
         emqx_bridge_influxdb_action_info,
+        emqx_bridge_cassandra_action_info,
         emqx_bridge_mysql_action_info,
         emqx_bridge_pgsql_action_info,
         emqx_bridge_syskeeper_action_info,
