@@ -41,6 +41,9 @@
 -define(MG(K, MAP), maps:get(K, MAP)).
 -define(PG0(K, PROPLISTS), proplists:get_value(K, PROPLISTS, 0)).
 
+raw_data(Module, undefined) ->
+    %% TODO: for push gateway, the format mode should be configurable
+    raw_data(Module, ?PROM_DATA_MODE__NODE);
 raw_data(Module, ?PROM_DATA_MODE__ALL_NODES_AGGREGATED) ->
     AllNodesMetrics = aggre_cluster(Module),
     Cluster = Module:fetch_cluster_consistented_data(),
