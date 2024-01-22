@@ -88,13 +88,13 @@ jobs:
       run: |
         make ${EMQX_NAME}-elixir-pkg
         ./scripts/pkg-tests.sh ${EMQX_NAME}-elixir-pkg
-    - uses: actions/upload-artifact@1eb3cb2b3e0f29609092a73eb033bb759a334595 # v4.1.0
+    - uses: actions/upload-artifact@694cdabd8bdb0f10b2cea11669e1bf5453eed0a6 # v4.2.0
       with:
         name: "${{ matrix.profile[0] }}-${{ matrix.profile[1] }}-${{ matrix.profile[2] }}-${{ matrix.profile[3] }}-${{ matrix.profile[4] }}"
         path: _packages/${{ matrix.profile[0] }}/*
         retention-days: 7
         compression-level: 0
-    - uses: actions/upload-artifact@1eb3cb2b3e0f29609092a73eb033bb759a334595 # v4.1.0
+    - uses: actions/upload-artifact@694cdabd8bdb0f10b2cea11669e1bf5453eed0a6 # v4.2.0
       with:
         name: "${{ matrix.profile[0] }}-schema-dump-${{ matrix.profile[1] }}-${{ matrix.profile[2] }}-${{ matrix.profile[3] }}-${{ matrix.profile[4] }}"
         path: |
@@ -128,7 +128,7 @@ jobs:
         apple_developer_identity: ${{ secrets.APPLE_DEVELOPER_IDENTITY }}
         apple_developer_id_bundle: ${{ secrets.APPLE_DEVELOPER_ID_BUNDLE }}
         apple_developer_id_bundle_password: ${{ secrets.APPLE_DEVELOPER_ID_BUNDLE_PASSWORD }}
-    - uses: actions/upload-artifact@1eb3cb2b3e0f29609092a73eb033bb759a334595 # v4.1.0
+    - uses: actions/upload-artifact@694cdabd8bdb0f10b2cea11669e1bf5453eed0a6 # v4.2.0
       with:
         name: ${{ matrix.os }}
         path: _packages/**/*

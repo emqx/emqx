@@ -58,7 +58,7 @@ jobs:
         ./rebar3 eunit -v --name 'eunit@127.0.0.1'
         ./rebar3 as standalone_test ct --name 'test@127.0.0.1' -v --readable=true
         ./rebar3 proper -d test/props
-    - uses: actions/upload-artifact@1eb3cb2b3e0f29609092a73eb033bb759a334595 # v4.1.0
+    - uses: actions/upload-artifact@694cdabd8bdb0f10b2cea11669e1bf5453eed0a6 # v4.2.0
       if: failure()
       with:
         name: logs-emqx-app-tests

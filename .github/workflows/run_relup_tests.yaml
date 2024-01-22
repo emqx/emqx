@@ -45,7 +45,7 @@ jobs:
       run: |
         export PROFILE='emqx-enterprise'
         make emqx-enterprise-tgz
-    - uses: actions/upload-artifact@1eb3cb2b3e0f29609092a73eb033bb759a334595 # v4.1.0
+    - uses: actions/upload-artifact@694cdabd8bdb0f10b2cea11669e1bf5453eed0a6 # v4.2.0
       name: Upload built emqx and test scenario
       with:
         name: relup_tests_emqx_built
@@ -72,7 +72,7 @@ jobs:
       run:
         shell: bash
     steps:
-    - uses: erlef/setup-beam@a34c98fd51e370b4d4981854aba1eb817ce4e483 # v1.17.0
+    - uses: erlef/setup-beam@b60baf47530760859821edca21cbcd3a1bd366cd # v1.17.1
       with:
         otp-version: 26.2.1
     - uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11 # v4.1.1
@@ -111,7 +111,7 @@ jobs:
           docker logs node2.emqx.io | tee lux_logs/emqx2.log
           exit 1
         fi
-    - uses: actions/upload-artifact@1eb3cb2b3e0f29609092a73eb033bb759a334595 # v4.1.0
+    - uses: actions/upload-artifact@694cdabd8bdb0f10b2cea11669e1bf5453eed0a6 # v4.2.0
       name: Save debug data
       if: failure()
       with:

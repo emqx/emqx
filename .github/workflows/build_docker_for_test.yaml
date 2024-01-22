@@ -57,7 +57,7 @@ jobs:
       - name: export docker image
         run: |
           docker save $EMQX_IMAGE_TAG | gzip > $EMQX_NAME-docker-$PKG_VSN.tar.gz
-      - uses: actions/upload-artifact@1eb3cb2b3e0f29609092a73eb033bb759a334595 # v4.1.0
+      - uses: actions/upload-artifact@694cdabd8bdb0f10b2cea11669e1bf5453eed0a6 # v4.2.0
         with:
           name: "${{ env.EMQX_NAME }}-docker"
           path: "${{ env.EMQX_NAME }}-docker-${{ env.PKG_VSN }}.tar.gz"
