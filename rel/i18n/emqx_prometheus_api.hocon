@@ -15,4 +15,14 @@ get_prom_data.desc:
 get_prom_data.label:
 """Prometheus Metrics"""
 
+get_prom_auth_data.desc:
+"""Get Prometheus Metrics for AuthN, AuthZ and Banned"""
+get_prom_auth_data.label:
+"""Prometheus Metrics for Auth"""
+
+get_prom_data_integration_data.desc:
+"""Get Prometheus Metrics for Data Integration"""
+get_prom_data_integration_data.label:
+"""Prometheus Metrics for Data Integration"""
+
 }

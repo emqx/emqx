@@ -18,20 +18,37 @@
 
 -behaviour(minirest_api).
 
+-include("emqx_prometheus.hrl").
 -include_lib("hocon/include/hoconsc.hrl").
+-include_lib("emqx/include/logger.hrl").
+
+-import(
+    hoconsc,
+    [
+        mk/2,
+        ref/1
+    ]
+).
 
 -export([
     api_spec/0,
     paths/0,
-    schema/1
+    schema/1,
+    fields/1
 ]).
 
 -export([
     setting/2,
-    stats/2
+    stats/2,
+    auth/2,
+    data_integration/2
 ]).
 
+-export([lookup_from_local_nodes/3]).
+
 -define(TAGS, [<<"Monitor">>]).
+-define(IS_TRUE(Val), ((Val =:= true) orelse (Val =:= <<"true">>))).
+-define(IS_FALSE(Val), ((Val =:= false) orelse (Val =:= <<"false">>))).
 
 api_spec() ->
     emqx_dashboard_swagger:spec(?MODULE, #{check_schema => true}).
@@ -39,7 +56,9 @@ api_spec() ->
 paths() ->
     [
         "/prometheus",
-        "/prometheus/stats"
+        "/prometheus/auth",
+        "/prometheus/stats",
+        "/prometheus/data_integration"
     ].
 
 schema("/prometheus") ->
@@ -61,6 +80,19 @@ schema("/prometheus") ->
                     #{200 => prometheus_setting_response()}
             }
     };
+schema("/prometheus/auth") ->
+    #{
+        'operationId' => auth,
+        get =>
+            #{
+                description => ?DESC(get_prom_auth_data),
+                tags => ?TAGS,
+                parameters => [ref(mode)],
+                security => security(),
+                responses =>
+                    #{200 => prometheus_data_schema()}
+            }
+    };
 schema("/prometheus/stats") ->
     #{
         'operationId' => stats,
@@ -68,6 +100,20 @@ schema("/prometheus/stats") ->
             #{
                 description => ?DESC(get_prom_data),
                 tags => ?TAGS,
+                parameters => [ref(mode)],
+                security => security(),
+                responses =>
+                    #{200 => prometheus_data_schema()}
+            }
+    };
+schema("/prometheus/data_integration") ->
+    #{
+        'operationId' => data_integration,
+        get =>
+            #{
+                description => ?DESC(get_prom_data_integration_data),
+                tags => ?TAGS,
+                parameters => [ref(mode)],
                 security => security(),
                 responses =>
                     #{200 => prometheus_data_schema()}
@@ -79,6 +125,41 @@ security() ->
         true -> [#{'basicAuth' => []}, #{'bearerAuth' => []}];
         false -> []
     end.
+
+%% erlfmt-ignore
+fields(mode) ->
+    [
+        {mode,
+            mk(
+                hoconsc:enum(?PROM_DATA_MODES),
+                #{
+                    default => node,
+                    desc => <<"
+Metrics format mode.
+
+`node`:
+Return metrics from local node. And it is the default behaviour if `mode` not specified.
+
+`all_nodes_aggregated`:
+Return metrics for all nodes.
+And if possible, calculate the arithmetic sum or logical sum of the indicators of all nodes.
+
+`all_nodes_unaggregated`:
+Return metrics from all nodes, and the metrics are not aggregated.
+The node name will be included in the returned results to
+indicate that certain metrics were returned on a certain node.
+">>,
+                    in => query,
+                    required => false,
+                    example => node
+                }
+            )}
+    ].
+
+%% bpapi
+lookup_from_local_nodes(M, F, A) ->
+    erlang:apply(M, F, A).
+
 %%--------------------------------------------------------------------
 %% API Handler funcs
 %%--------------------------------------------------------------------
@@ -100,23 +181,59 @@ setting(put, #{body := Body}) ->
             {500, 'INTERNAL_ERROR', Message}
     end.
 
-stats(get, #{headers := Headers}) ->
-    Type =
-        case maps:get(<<"accept">>, Headers, <<"text/plain">>) of
-            <<"application/json">> -> <<"json">>;
-            _ -> <<"prometheus">>
-        end,
-    Data = emqx_prometheus:collect(Type),
-    case Type of
-        <<"json">> ->
-            {200, Data};
-        <<"prometheus">> ->
-            {200, #{<<"content-type">> => <<"text/plain">>}, Data}
-    end.
+stats(get, #{headers := Headers, query_string := Qs}) ->
+    collect(emqx_prometheus, collect_opts(Headers, Qs)).
+
+auth(get, #{headers := Headers, query_string := Qs}) ->
+    collect(emqx_prometheus_auth, collect_opts(Headers, Qs)).
+
+data_integration(get, #{headers := Headers, query_string := Qs}) ->
+    collect(emqx_prometheus_data_integration, collect_opts(Headers, Qs)).
 
 %%--------------------------------------------------------------------
 %% Internal funcs
 %%--------------------------------------------------------------------
+
+collect(Module, #{type := Type, mode := Mode}) ->
+    %% `Mode` is used to control the format of the returned data
+    %% It will used in callback `Module:collect_mf/1` to fetch data from node or cluster
+    %% And use this mode parameter to determine the formatting method of the returned information.
+    %% Since the arity of the callback function has been fixed.
+    %% so it is placed in the process dictionary of the current process.
+    ?PUT_PROM_DATA_MODE(Mode),
+    Data =
+        case erlang:function_exported(Module, collect, 1) of
+            true ->
+                erlang:apply(Module, collect, [Type]);
+            false ->
+                ?SLOG(error, #{
+                    msg => "prometheus callback module not found, empty data responded",
+                    module_name => Module
+                }),
+                <<>>
+        end,
+    gen_response(Type, Data).
+
+collect_opts(Headers, Qs) ->
+    #{type => response_type(Headers), mode => mode(Qs)}.
+
+response_type(#{<<"accept">> := <<"application/json">>}) ->
+    <<"json">>;
+response_type(_) ->
+    <<"prometheus">>.
+
+mode(#{<<"mode">> := Mode}) ->
+    case lists:member(Mode, ?PROM_DATA_MODES) of
+        true -> Mode;
+        false -> ?PROM_DATA_MODE__NODE
+    end;
+mode(_) ->
+    ?PROM_DATA_MODE__NODE.
+
+gen_response(<<"json">>, Data) ->
+    {200, Data};
+gen_response(<<"prometheus">>, Data) ->
+    {200, #{<<"content-type">> => <<"text/plain">>}, Data}.
 
 prometheus_setting_request() ->
     [{prometheus, #{type := Setting}}] = emqx_prometheus_schema:roots(),
@@ -181,7 +298,7 @@ recommend_setting_example() ->
 prometheus_data_schema() ->
     #{
         description =>
-            <<"Get Prometheus Data. Note that support for JSON output is deprecated and will be removed in v5.2.">>,
+            <<"Get Prometheus Data.">>,
         content =>
             [
                 {'text/plain', #{schema => #{type => string}}},
