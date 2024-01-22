@@ -30,6 +30,7 @@
 -export([
     create/4,
     open/5,
+    drop/5,
     store_batch/4,
     get_streams/4,
     make_iterator/5,
@@ -84,6 +85,10 @@ create(_ShardId, DBHandle, GenId, _Options) ->
 open(_Shard, DBHandle, GenId, CFRefs, #schema{}) ->
     {_, CF} = lists:keyfind(data_cf(GenId), 1, CFRefs),
     #s{db = DBHandle, cf = CF}.
+
+drop(_ShardId, DBHandle, _GenId, _CFRefs, #s{cf = CFHandle}) ->
+    ok = rocksdb:drop_column_family(DBHandle, CFHandle),
+    ok.
 
 store_batch(_ShardId, #s{db = DB, cf = CF}, Messages, _Options) ->
     lists:foreach(
@@ -142,7 +147,8 @@ do_next(TopicFilter, StartTime, IT, Action, NLeft, Key0, Acc) ->
     case rocksdb:iterator_move(IT, Action) of
         {ok, Key, Blob} ->
             Msg = #message{topic = Topic, timestamp = TS} = binary_to_term(Blob),
-            case emqx_topic:match(Topic, TopicFilter) andalso TS >= StartTime of
+            TopicWords = emqx_topic:words(Topic),
+            case emqx_topic:match(TopicWords, TopicFilter) andalso TS >= StartTime of
                 true ->
                     do_next(TopicFilter, StartTime, IT, next, NLeft - 1, Key, [{Key, Msg} | Acc]);
                 false ->
