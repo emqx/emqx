@@ -205,17 +205,15 @@ open(_Shard, DBHandle, GenId, CFRefs, Schema) ->
     s().
 post_creation_actions(
     #{
-        db := DBHandle,
-        old_gen_id := OldGenId,
-        old_cf_refs := OldCFRefs,
-        new_gen_runtime_data := NewGenData0
+        new_gen_runtime_data := NewGenData,
+        old_gen_runtime_data := OldGenData
     }
 ) ->
-    {_, OldTrieCF} = lists:keyfind(trie_cf(OldGenId), 1, OldCFRefs),
-    #s{trie = NewTrie0} = NewGenData0,
-    NewTrie = copy_previous_trie(DBHandle, NewTrie0, OldTrieCF),
+    #s{trie = OldTrie} = OldGenData,
+    #s{trie = NewTrie0} = NewGenData,
+    NewTrie = copy_previous_trie(OldTrie, NewTrie0),
     ?tp(bitfield_lts_inherited_trie, #{}),
-    NewGenData0#s{trie = NewTrie}.
+    NewGenData#s{trie = NewTrie}.
 
 -spec drop(
     emqx_ds_storage_layer:shard_id(),
@@ -533,16 +531,9 @@ restore_trie(TopicIndexBytes, DB, CF) ->
         rocksdb:iterator_close(IT)
     end.
 
--spec copy_previous_trie(rocksdb:db_handle(), emqx_ds_lts:trie(), rocksdb:cf_handle()) ->
-    emqx_ds_lts:trie().
-copy_previous_trie(DBHandle, NewTrie, OldCF) ->
-    {ok, IT} = rocksdb:iterator(DBHandle, OldCF, []),
-    try
-        OldDump = read_persisted_trie(IT, rocksdb:iterator_move(IT, first)),
-        emqx_ds_lts:trie_restore_existing(NewTrie, OldDump)
-    after
-        rocksdb:iterator_close(IT)
-    end.
+-spec copy_previous_trie(emqx_ds_lts:trie(), emqx_ds_lts:trie()) -> emqx_ds_lts:trie().
+copy_previous_trie(OldTrie, NewTrie) ->
+    emqx_ds_lts:trie_copy_learned_paths(OldTrie, NewTrie).
 
 read_persisted_trie(IT, {ok, KeyB, ValB}) ->
     [
