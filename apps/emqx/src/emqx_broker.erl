@@ -249,7 +249,7 @@ publish(Msg) when is_record(Msg, message) ->
             [];
         Msg1 = #message{topic = Topic} ->
             PersistRes = persist_publish(Msg1),
-            PersistRes ++ route(aggre(emqx_router:match_routes(Topic)), delivery(Msg1))
+            route(aggre(emqx_router:match_routes(Topic)), delivery(Msg1), PersistRes)
     end.
 
 persist_publish(Msg) ->
@@ -289,18 +289,20 @@ delivery(Msg) -> #delivery{sender = self(), message = Msg}.
 %% Route
 %%--------------------------------------------------------------------
 
--spec route([emqx_types:route_entry()], emqx_types:delivery()) ->
+-spec route([emqx_types:route_entry()], emqx_types:delivery(), nil() | [persisted]) ->
     emqx_types:publish_result().
-route([], #delivery{message = Msg}) ->
+route([], #delivery{message = Msg}, _PersistRes = []) ->
     ok = emqx_hooks:run('message.dropped', [Msg, #{node => node()}, no_subscribers]),
     ok = inc_dropped_cnt(Msg),
     [];
-route(Routes, Delivery) ->
+route([], _Delivery, PersistRes = [_ | _]) ->
+    PersistRes;
+route(Routes, Delivery, PersistRes) ->
     lists:foldl(
         fun(Route, Acc) ->
             [do_route(Route, Delivery) | Acc]
         end,
-        [],
+        PersistRes,
         Routes
     ).
 

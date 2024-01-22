@@ -450,6 +450,32 @@ t_message_gc(Config) ->
     ),
     ok.
 
+t_metrics_not_dropped(_Config) ->
+    %% Asserts that, if only persisted sessions are subscribed to a topic being published
+    %% to, we don't bump the `message.dropped' metric, nor we run the equivalent hook.
+    Sub = connect(<<?MODULE_STRING "1">>, true, 30),
+    on_exit(fun() -> emqtt:stop(Sub) end),
+    Pub = connect(<<?MODULE_STRING "2">>, true, 30),
+    on_exit(fun() -> emqtt:stop(Pub) end),
+    Hookpoint = 'message.dropped',
+    emqx_hooks:add(Hookpoint, {?MODULE, on_message_dropped, [self()]}, 1_000),
+    on_exit(fun() -> emqx_hooks:del(Hookpoint, {?MODULE, on_message_dropped}) end),
+
+    DroppedBefore = emqx_metrics:val('messages.dropped'),
+    DroppedNoSubBefore = emqx_metrics:val('messages.dropped.no_subscribers'),
+
+    {ok, _, [?RC_GRANTED_QOS_1]} = emqtt:subscribe(Sub, <<"t/+">>, ?QOS_1),
+    emqtt:publish(Pub, <<"t/ps">>, <<"payload">>, ?QOS_1),
+    ?assertMatch([_], receive_messages(1, 1_500)),
+
+    DroppedAfter = emqx_metrics:val('messages.dropped'),
+    DroppedNoSubAfter = emqx_metrics:val('messages.dropped.no_subscribers'),
+
+    ?assertEqual(DroppedBefore, DroppedAfter),
+    ?assertEqual(DroppedNoSubBefore, DroppedNoSubAfter),
+
+    ok.
+
 %%
 
 connect(ClientId, CleanStart, EI) ->
@@ -542,3 +568,8 @@ message(Topic, Payload, PublishedAt) ->
         timestamp = PublishedAt,
         id = emqx_guid:gen()
     }.
+
+on_message_dropped(Msg, Context, Res, TestPid) ->
+    ErrCtx = #{msg => Msg, ctx => Context, res => Res},
+    ct:pal("this hook should not be called.\n  ~p", [ErrCtx]),
+    exit(TestPid, {hookpoint_called, ErrCtx}).
