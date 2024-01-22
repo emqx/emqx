@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2023 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2023-2024 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -199,7 +199,6 @@ open_shard(Shard, Options) ->
 
 -spec drop_shard(shard_id()) -> ok.
 drop_shard(Shard) ->
-    catch emqx_ds_storage_layer_sup:stop_shard(Shard),
     case persistent_term:get({?MODULE, Shard, data_dir}, undefined) of
         undefined ->
             ok;
@@ -586,7 +585,8 @@ commit_metadata(#s{shard_id = ShardId, schema = Schema, shard = Runtime, db = DB
 rocksdb_open(Shard, Options) ->
     DBOptions = [
         {create_if_missing, true},
-        {create_missing_column_families, true}
+        {create_missing_column_families, true},
+        {enable_write_thread_adaptive_yield, false}
         | maps:get(db_options, Options, [])
     ],
     DataDir = maps:get(data_dir, Options, emqx:data_dir()),

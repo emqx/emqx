@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2023 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2023-2024 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -376,7 +376,7 @@ t_publish_empty_topic_levels(_Config) ->
             {<<"t/3/bar">>, <<"6">>}
         ],
         [emqtt:publish(Pub, Topic, Payload, ?QOS_1) || {Topic, Payload} <- Messages],
-        Received = receive_messages(length(Messages), 1_500),
+        Received = receive_messages(length(Messages)),
         ?assertMatch(
             [
                 #{topic := <<"t//1/">>, payload := <<"2">>},

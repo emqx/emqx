@@ -32,7 +32,10 @@
     get_streams/3,
     make_iterator/4,
     update_iterator/3,
-    next/3
+    next/3,
+    node_of_shard/2,
+    shard_of_message/3,
+    maybe_set_myself_as_leader/2
 ]).
 
 %% internal exports:
@@ -51,23 +54,11 @@
 -export_type([shard_id/0, builtin_db_opts/0, stream/0, iterator/0, message_id/0, batch/0]).
 
 -include_lib("emqx_utils/include/emqx_message.hrl").
+-include("emqx_ds_replication_layer.hrl").
 
 %%================================================================================
 %% Type declarations
 %%================================================================================
-
-%% # "Record" integer keys.  We use maps with integer keys to avoid persisting and sending
-%% records over the wire.
-
-%% tags:
--define(STREAM, 1).
--define(IT, 2).
--define(BATCH, 3).
-
-%% keys:
--define(tag, 1).
--define(shard, 2).
--define(enc, 3).
 
 -type shard_id() :: binary().
 
@@ -101,8 +92,6 @@
 
 -type message_id() :: emqx_ds:message_id().
 
--define(batch_messages, 2).
-
 -type batch() :: #{
     ?tag := ?BATCH,
     ?batch_messages := [emqx_types:message()]
@@ -120,16 +109,14 @@ list_shards(DB) ->
 
 -spec open_db(emqx_ds:db(), builtin_db_opts()) -> ok | {error, _}.
 open_db(DB, CreateOpts) ->
-    ok = emqx_ds_sup:ensure_workers(),
-    Opts = emqx_ds_replication_layer_meta:open_db(DB, CreateOpts),
-    MyShards = emqx_ds_replication_layer_meta:my_shards(DB),
-    lists:foreach(
-        fun(Shard) ->
-            emqx_ds_storage_layer:open_shard({DB, Shard}, Opts),
-            maybe_set_myself_as_leader(DB, Shard)
-        end,
-        MyShards
-    ).
+    case emqx_ds_builtin_sup:start_db(DB, CreateOpts) of
+        {ok, _} ->
+            ok;
+        {error, {already_started, _}} ->
+            ok;
+        {error, Err} ->
+            {error, Err}
+    end.
 
 -spec add_generation(emqx_ds:db()) -> ok | {error, _}.
 add_generation(DB) ->
@@ -170,17 +157,15 @@ drop_generation(DB, {Shard, GenId}) ->
 -spec drop_db(emqx_ds:db()) -> ok | {error, _}.
 drop_db(DB) ->
     Nodes = list_nodes(),
-    _ = emqx_ds_proto_v1:drop_db(Nodes, DB),
+    _ = emqx_ds_proto_v2:drop_db(Nodes, DB),
     _ = emqx_ds_replication_layer_meta:drop_db(DB),
+    emqx_ds_builtin_sup:stop_db(DB),
     ok.
 
 -spec store_batch(emqx_ds:db(), [emqx_types:message(), ...], emqx_ds:message_store_opts()) ->
     emqx_ds:store_batch_result().
 store_batch(DB, Messages, Opts) ->
-    Shard = shard_of_messages(DB, Messages),
-    Node = node_of_shard(DB, Shard),
-    Batch = #{?tag => ?BATCH, ?batch_messages => Messages},
-    emqx_ds_proto_v1:store_batch(Node, DB, Shard, Batch, Opts).
+    emqx_ds_replication_layer_egress:store_batch(DB, Messages, Opts).
 
 -spec get_streams(emqx_ds:db(), emqx_ds:topic_filter(), emqx_ds:time()) ->
     [{emqx_ds:stream_rank(), stream()}].
@@ -262,6 +247,41 @@ next(DB, Iter0, BatchSize) ->
             Other
     end.
 
+-spec node_of_shard(emqx_ds:db(), shard_id()) -> node().
+node_of_shard(DB, Shard) ->
+    case emqx_ds_replication_layer_meta:shard_leader(DB, Shard) of
+        {ok, Leader} ->
+            Leader;
+        {error, no_leader_for_shard} ->
+            %% TODO: use optvar
+            timer:sleep(500),
+            node_of_shard(DB, Shard)
+    end.
+
+-spec shard_of_message(emqx_ds:db(), emqx_types:message(), clientid | topic) ->
+    emqx_ds_replication_layer:shard_id().
+shard_of_message(DB, #message{from = From, topic = Topic}, SerializeBy) ->
+    N = emqx_ds_replication_layer_meta:n_shards(DB),
+    Hash =
+        case SerializeBy of
+            clientid -> erlang:phash2(From, N);
+            topic -> erlang:phash2(Topic, N)
+        end,
+    integer_to_binary(Hash).
+
+%% TODO: there's no real leader election right now
+-spec maybe_set_myself_as_leader(emqx_ds:db(), shard_id()) -> ok.
+maybe_set_myself_as_leader(DB, Shard) ->
+    Site = emqx_ds_replication_layer_meta:this_site(),
+    case emqx_ds_replication_layer_meta:in_sync_replicas(DB, Shard) of
+        [Site | _] ->
+            %% Currently the first in-sync replica always becomes the
+            %% leader
+            ok = emqx_ds_replication_layer_meta:set_leader(DB, Shard, node());
+        _Sites ->
+            ok
+    end.
+
 %%================================================================================
 %% behavior callbacks
 %%================================================================================
@@ -273,6 +293,7 @@ next(DB, Iter0, BatchSize) ->
 -spec do_drop_db_v1(emqx_ds:db()) -> ok | {error, _}.
 do_drop_db_v1(DB) ->
     MyShards = emqx_ds_replication_layer_meta:my_shards(DB),
+    emqx_ds_builtin_sup:stop_db(DB),
     lists:foreach(
         fun(Shard) ->
             emqx_ds_storage_layer:drop_shard({DB, Shard})
@@ -353,35 +374,6 @@ do_drop_generation_v3(DB, ShardId, GenId) ->
 %%================================================================================
 %% Internal functions
 %%================================================================================
-
-%% TODO: there's no real leader election right now
--spec maybe_set_myself_as_leader(emqx_ds:db(), shard_id()) -> ok.
-maybe_set_myself_as_leader(DB, Shard) ->
-    Site = emqx_ds_replication_layer_meta:this_site(),
-    case emqx_ds_replication_layer_meta:in_sync_replicas(DB, Shard) of
-        [Site | _] ->
-            %% Currently the first in-sync replica always becomes the
-            %% leader
-            ok = emqx_ds_replication_layer_meta:set_leader(DB, Shard, node());
-        _Sites ->
-            ok
-    end.
-
--spec node_of_shard(emqx_ds:db(), shard_id()) -> node().
-node_of_shard(DB, Shard) ->
-    case emqx_ds_replication_layer_meta:shard_leader(DB, Shard) of
-        {ok, Leader} ->
-            Leader;
-        {error, no_leader_for_shard} ->
-            %% TODO: use optvar
-            timer:sleep(500),
-            node_of_shard(DB, Shard)
-    end.
-
-%% Here we assume that all messages in the batch come from the same client
-shard_of_messages(DB, [#message{from = From} | _]) ->
-    N = emqx_ds_replication_layer_meta:n_shards(DB),
-    integer_to_binary(erlang:phash2(From, N)).
 
 list_nodes() ->
     mria:running_nodes().
