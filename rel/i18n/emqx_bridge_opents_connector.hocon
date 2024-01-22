@@ -17,4 +17,10 @@ emqx_bridge_opents_connector {
 
     details.label:
         "Details"
+
+desc_config.desc:
+"""Configuration for OpenTSDB Connector."""
+
+desc_config.label:
+"""OpenTSDB Connector Configuration"""
 }

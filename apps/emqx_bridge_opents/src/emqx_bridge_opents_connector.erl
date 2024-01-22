@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2023 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2023-2024 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
 
 -module(emqx_bridge_opents_connector).
@@ -12,7 +12,7 @@
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 -include_lib("hocon/include/hoconsc.hrl").
 
--export([roots/0, fields/1]).
+-export([namespace/0, roots/0, fields/1, desc/1]).
 
 %% `emqx_resource' API
 -export([
@@ -21,15 +21,25 @@
     on_stop/2,
     on_query/3,
     on_batch_query/3,
-    on_get_status/2
+    on_get_status/2,
+    on_add_channel/4,
+    on_remove_channel/3,
+    on_get_channels/1,
+    on_get_channel_status/3
 ]).
+
+-export([connector_examples/1]).
 
 -export([connect/1]).
 
 -import(hoconsc, [mk/2, enum/1, ref/2]).
 
+-define(CONNECTOR_TYPE, opents).
+
+namespace() -> "opents_connector".
+
 %%=====================================================================
-%% Hocon schema
+%% V1 Hocon schema
 roots() ->
     [{config, #{type => hoconsc:ref(?MODULE, config)}}].
 
@@ -40,7 +50,55 @@ fields(config) ->
         {summary, mk(boolean(), #{default => true, desc => ?DESC("summary")})},
         {details, mk(boolean(), #{default => false, desc => ?DESC("details")})},
         {auto_reconnect, fun emqx_connector_schema_lib:auto_reconnect/1}
+    ];
+%%=====================================================================
+%% V2 Hocon schema
+
+fields("config_connector") ->
+    emqx_connector_schema:common_fields() ++
+        proplists_without([auto_reconnect], fields(config));
+fields("post") ->
+    emqx_connector_schema:type_and_name_fields(enum([opents])) ++ fields("config_connector");
+fields("put") ->
+    fields("config_connector");
+fields("get") ->
+    emqx_bridge_schema:status_fields() ++ fields("post").
+
+desc(config) ->
+    ?DESC("desc_config");
+desc("config_connector") ->
+    ?DESC("desc_config");
+desc(Method) when Method =:= "get"; Method =:= "put"; Method =:= "post" ->
+    ["Configuration for IoTDB using `", string:to_upper(Method), "` method."];
+desc(_) ->
+    undefined.
+
+proplists_without(Keys, List) ->
+    [El || El = {K, _} <- List, not lists:member(K, Keys)].
+
+%%=====================================================================
+%% V2 examples
+connector_examples(Method) ->
+    [
+        #{
+            <<"opents">> =>
+                #{
+                    summary => <<"OpenTSDB Connector">>,
+                    value => emqx_connector_schema:connector_values(
+                        Method, ?CONNECTOR_TYPE, connector_example_values()
+                    )
+                }
+        }
     ].
+
+connector_example_values() ->
+    #{
+        name => <<"opents_connector">>,
+        type => opents,
+        enable => true,
+        server => <<"http://localhost:4242/">>,
+        pool_size => 8
+    }.
 
 %%========================================================================================
 %% `emqx_resource' API
@@ -56,8 +114,7 @@ on_start(
         server := Server,
         pool_size := PoolSize,
         summary := Summary,
-        details := Details,
-        resource_opts := #{batch_size := BatchSize}
+        details := Details
     } = Config
 ) ->
     ?SLOG(info, #{
@@ -70,11 +127,10 @@ on_start(
         {server, to_str(Server)},
         {summary, Summary},
         {details, Details},
-        {max_batch_size, BatchSize},
         {pool_size, PoolSize}
     ],
 
-    State = #{pool_name => InstanceId, server => Server},
+    State = #{pool_name => InstanceId, server => Server, channels => #{}},
     case opentsdb_connectivity(Server) of
         ok ->
             case emqx_resource_pool:start(InstanceId, ?MODULE, Options) of
@@ -93,6 +149,7 @@ on_stop(InstanceId, _State) ->
         msg => "stopping_opents_connector",
         connector => InstanceId
     }),
+    ?tp(opents_bridge_stopped, #{instance_id => InstanceId}),
     emqx_resource_pool:stop(InstanceId).
 
 on_query(InstanceId, Request, State) ->
@@ -101,10 +158,14 @@ on_query(InstanceId, Request, State) ->
 on_batch_query(
     InstanceId,
     BatchReq,
-    State
+    #{channels := Channels} = State
 ) ->
-    Datas = [format_opentsdb_msg(Msg) || {_Key, Msg} <- BatchReq],
-    do_query(InstanceId, Datas, State).
+    case try_render_messages(BatchReq, Channels) of
+        {ok, Datas} ->
+            do_query(InstanceId, Datas, State);
+        Error ->
+            Error
+    end.
 
 on_get_status(_InstanceId, #{server := Server}) ->
     Result =
@@ -117,6 +178,39 @@ on_get_status(_InstanceId, #{server := Server}) ->
         end,
     Result.
 
+on_add_channel(
+    _InstanceId,
+    #{channels := Channels} = OldState,
+    ChannelId,
+    #{
+        parameters := #{data := Data} = Parameter
+    }
+) ->
+    case maps:is_key(ChannelId, Channels) of
+        true ->
+            {error, already_exists};
+        _ ->
+            Channel = Parameter#{
+                data := preproc_data_template(Data)
+            },
+            Channels2 = Channels#{ChannelId => Channel},
+            {ok, OldState#{channels := Channels2}}
+    end.
+
+on_remove_channel(_InstanceId, #{channels := Channels} = OldState, ChannelId) ->
+    {ok, OldState#{channels => maps:remove(ChannelId, Channels)}}.
+
+on_get_channels(InstanceId) ->
+    emqx_bridge_v2:get_channels_for_connector(InstanceId).
+
+on_get_channel_status(InstanceId, ChannelId, #{channels := Channels} = State) ->
+    case maps:is_key(ChannelId, Channels) of
+        true ->
+            on_get_status(InstanceId, State);
+        _ ->
+            {error, not_exists}
+    end.
+
 %%========================================================================================
 %% Helper fns
 %%========================================================================================
@@ -127,6 +221,9 @@ do_query(InstanceId, Query, #{pool_name := PoolName} = State) ->
         "opents_connector_received",
         #{connector => InstanceId, query => Query, state => State}
     ),
+
+    ?tp(opents_bridge_on_query, #{instance_id => InstanceId}),
+
     Result = ecpool:pick_and_do(PoolName, {opentsdb, put, [Query]}, no_handover),
 
     case Result of
@@ -172,17 +269,66 @@ opentsdb_connectivity(Server) ->
         end,
     emqx_connector_lib:http_connectivity(SvrUrl, ?HTTP_CONNECT_TIMEOUT).
 
-format_opentsdb_msg(Msg) ->
-    maps:with(
-        [
-            timestamp,
-            metric,
-            tags,
-            value,
-            <<"timestamp">>,
-            <<"metric">>,
-            <<"tags">>,
-            <<"value">>
-        ],
-        Msg
+try_render_messages([{ChannelId, _} | _] = BatchReq, Channels) ->
+    case maps:find(ChannelId, Channels) of
+        {ok, Channel} ->
+            {ok,
+                lists:foldl(
+                    fun({_, Message}, Acc) ->
+                        render_channel_message(Message, Channel, Acc)
+                    end,
+                    [],
+                    BatchReq
+                )};
+        _ ->
+            {error, {unrecoverable_error, {invalid_channel_id, ChannelId}}}
+    end.
+
+render_channel_message(Msg, #{data := DataList}, Acc) ->
+    RawOpts = #{return => rawlist, var_trans => fun(X) -> X end},
+    lists:foldl(
+        fun(#{metric := MetricTk, tags := TagsTk, value := ValueTk} = Data, InAcc) ->
+            MetricVal = emqx_placeholder:proc_tmpl(MetricTk, Msg),
+            TagsVal =
+                case emqx_placeholder:proc_tmpl(TagsTk, Msg, RawOpts) of
+                    [undefined] ->
+                        #{};
+                    [Any] ->
+                        Any
+                end,
+            ValueVal =
+                case ValueTk of
+                    [_] ->
+                        erlang:hd(emqx_placeholder:proc_tmpl(ValueTk, Msg, RawOpts));
+                    _ ->
+                        emqx_placeholder:proc_tmpl(ValueTk, Msg)
+                end,
+            Base = #{metric => MetricVal, tags => TagsVal, value => ValueVal},
+            [
+                case maps:get(timestamp, Data, undefined) of
+                    undefined ->
+                        Base;
+                    TimestampTk ->
+                        Base#{timestamp => emqx_placeholder:proc_tmpl(TimestampTk, Msg)}
+                end
+                | InAcc
+            ]
+        end,
+        Acc,
+        DataList
+    ).
+
+preproc_data_template([]) ->
+    preproc_data_template(emqx_bridge_opents:default_data_template());
+preproc_data_template(DataList) ->
+    lists:map(
+        fun(Data) ->
+            maps:map(
+                fun(_Key, Value) ->
+                    emqx_placeholder:preproc_tmpl(Value)
+                end,
+                Data
+            )
+        end,
+        DataList
     ).

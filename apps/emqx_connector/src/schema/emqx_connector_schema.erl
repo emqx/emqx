@@ -154,7 +154,9 @@ connector_type_to_bridge_types(timescale) ->
 connector_type_to_bridge_types(iotdb) ->
     [iotdb];
 connector_type_to_bridge_types(elasticsearch) ->
-    [elasticsearch].
+    [elasticsearch];
+connector_type_to_bridge_types(opents) ->
+    [opents].
 
 actions_config_name(action) -> <<"actions">>;
 actions_config_name(source) -> <<"sources">>.

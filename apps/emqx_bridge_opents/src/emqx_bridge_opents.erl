@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2023 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2023-2024 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
 -module(emqx_bridge_opents).
 
@@ -7,10 +7,12 @@
 -include_lib("hocon/include/hoconsc.hrl").
 -include_lib("emqx_resource/include/emqx_resource.hrl").
 
--import(hoconsc, [mk/2, enum/1, ref/2]).
+-import(hoconsc, [mk/2, enum/1, ref/2, array/1]).
 
 -export([
-    conn_bridge_examples/1
+    conn_bridge_examples/1,
+    bridge_v2_examples/1,
+    default_data_template/0
 ]).
 
 -export([
@@ -20,8 +22,11 @@
     desc/1
 ]).
 
+-define(CONNECTOR_TYPE, opents).
+-define(ACTION_TYPE, ?CONNECTOR_TYPE).
+
 %% -------------------------------------------------------------------------------------------------
-%% api
+%% v1 examples
 conn_bridge_examples(Method) ->
     [
         #{
@@ -34,7 +39,7 @@ conn_bridge_examples(Method) ->
 
 values(_Method) ->
     #{
-        enable => true,
+        enabledb => true,
         type => opents,
         name => <<"foo">>,
         server => <<"http://127.0.0.1:4242">>,
@@ -50,7 +55,37 @@ values(_Method) ->
     }.
 
 %% -------------------------------------------------------------------------------------------------
-%% Hocon Schema Definitions
+%% v2 examples
+bridge_v2_examples(Method) ->
+    [
+        #{
+            <<"opents">> => #{
+                summary => <<"OpenTSDB Action">>,
+                value => emqx_bridge_v2_schema:action_values(
+                    Method, ?ACTION_TYPE, ?CONNECTOR_TYPE, action_values()
+                )
+            }
+        }
+    ].
+
+action_values() ->
+    #{
+        parameters => #{
+            data => default_data_template()
+        }
+    }.
+
+default_data_template() ->
+    [
+        #{
+            metric => <<"${metric}">>,
+            tags => <<"${tags}">>,
+            value => <<"${value}">>
+        }
+    ].
+
+%% -------------------------------------------------------------------------------------------------
+%% V1 Schema Definitions
 namespace() -> "bridge_opents".
 
 roots() -> [].
@@ -65,10 +100,89 @@ fields("post") ->
 fields("put") ->
     fields("config");
 fields("get") ->
-    emqx_bridge_schema:status_fields() ++ fields("post").
+    emqx_bridge_schema:status_fields() ++ fields("post");
+%% -------------------------------------------------------------------------------------------------
+%% V2 Schema Definitions
+
+fields(action) ->
+    {opents,
+        mk(
+            hoconsc:map(name, ref(?MODULE, action_config)),
+            #{
+                desc => <<"OpenTSDB Action Config">>,
+                required => false
+            }
+        )};
+fields(action_config) ->
+    emqx_bridge_v2_schema:make_producer_action_schema(
+        mk(
+            ref(?MODULE, action_parameters),
+            #{
+                required => true, desc => ?DESC("action_parameters")
+            }
+        )
+    );
+fields(action_parameters) ->
+    [
+        {data,
+            mk(
+                array(ref(?MODULE, action_parameters_data)),
+                #{
+                    desc => ?DESC("action_parameters_data"),
+                    default => <<"[]">>
+                }
+            )}
+    ];
+fields(action_parameters_data) ->
+    [
+        {timestamp,
+            mk(
+                binary(),
+                #{
+                    desc => ?DESC("config_parameters_timestamp"),
+                    required => false
+                }
+            )},
+        {metric,
+            mk(
+                binary(),
+                #{
+                    required => true,
+                    desc => ?DESC("config_parameters_metric")
+                }
+            )},
+        {tags,
+            mk(
+                binary(),
+                #{
+                    required => true,
+                    desc => ?DESC("config_parameters_tags")
+                }
+            )},
+        {value,
+            mk(
+                binary(),
+                #{
+                    required => true,
+                    desc => ?DESC("config_parameters_value")
+                }
+            )}
+    ];
+fields("post_bridge_v2") ->
+    emqx_bridge_schema:type_and_name_fields(enum([opents])) ++ fields(action_config);
+fields("put_bridge_v2") ->
+    fields(action_config);
+fields("get_bridge_v2") ->
+    emqx_bridge_schema:status_fields() ++ fields("post_bridge_v2").
 
 desc("config") ->
     ?DESC("desc_config");
+desc(action_config) ->
+    ?DESC("desc_config");
+desc(action_parameters) ->
+    ?DESC("action_parameters");
+desc(action_parameters_data) ->
+    ?DESC("action_parameters_data");
 desc(Method) when Method =:= "get"; Method =:= "put"; Method =:= "post" ->
     ["Configuration for OpenTSDB using `", string:to_upper(Method), "` method."];
 desc(_) ->
