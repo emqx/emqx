@@ -67,11 +67,17 @@ on_start(
         {tcp_options, [{mode, binary}, {reuseaddr, true}, {nodelay, true}]}
     ],
     MFArgs = {?MODULE, start_link, [maps:with([handshake_timeout], Config)]},
-    ok = emqx_resource:allocate_resource(InstanceId, listen_on, ListenOn),
 
+    %% Since the esockd only supports atomic name and we don't want to introduce a new atom per each instance
+    %% when the port is same for two instance/connector, them will reference to a same esockd listener
+    %% to prevent the failed one dealloctes the listener which created by a earlier instance
+    %% we need record only when the listen is successed
     case esockd:open(?MODULE, ListenOn, Options, MFArgs) of
         {ok, _} ->
+            ok = emqx_resource:allocate_resource(InstanceId, listen_on, ListenOn),
             {ok, #{listen_on => ListenOn}};
+        {error, {already_started, _}} ->
+            {error, eaddrinuse};
         Error ->
             Error
     end.
@@ -83,7 +89,12 @@ on_stop(InstanceId, _State) ->
     }),
     case emqx_resource:get_allocated_resources(InstanceId) of
         #{listen_on := ListenOn} ->
-            esockd:close(?MODULE, ListenOn);
+            case esockd:close(?MODULE, ListenOn) of
+                {error, not_found} ->
+                    ok;
+                Result ->
+                    Result
+            end;
         _ ->
             ok
     end.

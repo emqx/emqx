@@ -229,7 +229,10 @@ create_dry_run(Type, Conf0, Callback) ->
     TypeBin = bin(Type),
     TypeAtom = safe_atom(Type),
     %% We use a fixed name here to avoid creating an atom
-    TmpName = iolist_to_binary([?TEST_ID_PREFIX, TypeBin, ":", <<"probedryrun">>]),
+    %% to avoid potential race condition, the resource id should be unique
+    UID = integer_to_binary(erlang:unique_integer([monotonic, positive])),
+    TmpName =
+        iolist_to_binary([?TEST_ID_PREFIX, TypeBin, ":", <<"probedryrun">>, UID]),
     TmpPath = emqx_utils:safe_filename(TmpName),
     Conf1 = maps:without([<<"name">>], Conf0),
     RawConf = #{<<"connectors">> => #{TypeBin => #{<<"temp_name">> => Conf1}}},
