@@ -34,7 +34,7 @@
 -export([start_link/2, init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2]).
 
 %% internal exports:
--export([db_dir/1]).
+-export([db_dir/2]).
 
 -export_type([
     gen_id/0,
@@ -168,7 +168,13 @@ open_shard(Shard, Options) ->
 -spec drop_shard(shard_id()) -> ok.
 drop_shard(Shard) ->
     catch emqx_ds_storage_layer_sup:stop_shard(Shard),
-    ok = rocksdb:destroy(db_dir(Shard), []).
+    case persistent_term:get({?MODULE, Shard, data_dir}, undefined) of
+        undefined ->
+            ok;
+        BaseDir ->
+            ok = rocksdb:destroy(db_dir(BaseDir, Shard), []),
+            persistent_term:erase({?MODULE, Shard, base_dir})
+    end.
 
 -spec store_batch(shard_id(), [emqx_types:message()], emqx_ds:message_store_opts()) ->
     emqx_ds:store_batch_result().
@@ -424,7 +430,8 @@ rocksdb_open(Shard, Options) ->
         {create_missing_column_families, true}
         | maps:get(db_options, Options, [])
     ],
-    DBDir = db_dir(Shard),
+    DataDir = maps:get(data_dir, Options, emqx:data_dir()),
+    DBDir = db_dir(DataDir, Shard),
     _ = filelib:ensure_dir(DBDir),
     ExistingCFs =
         case rocksdb:list_column_families(DBDir, DBOptions) of
@@ -440,15 +447,16 @@ rocksdb_open(Shard, Options) ->
     ],
     case rocksdb:open(DBDir, DBOptions, ColumnFamilies) of
         {ok, DBHandle, [_CFDefault | CFRefs]} ->
+            persistent_term:put({?MODULE, Shard, data_dir}, DataDir),
             {CFNames, _} = lists:unzip(ExistingCFs),
             {ok, DBHandle, lists:zip(CFNames, CFRefs)};
         Error ->
             Error
     end.
 
--spec db_dir(shard_id()) -> file:filename().
-db_dir({DB, ShardId}) ->
-    filename:join([emqx:data_dir(), atom_to_list(DB), binary_to_list(ShardId)]).
+-spec db_dir(file:filename(), shard_id()) -> file:filename().
+db_dir(BaseDir, {DB, ShardId}) ->
+    filename:join([BaseDir, atom_to_list(DB), binary_to_list(ShardId)]).
 
 -spec update_last_until(Schema, emqx_ds:time()) -> Schema when Schema :: shard_schema() | shard().
 update_last_until(Schema, Until) ->

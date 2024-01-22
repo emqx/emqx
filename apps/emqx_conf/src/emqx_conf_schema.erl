@@ -1430,22 +1430,8 @@ convert_rotation(#{} = Rotation, _Opts) -> maps:get(<<"count">>, Rotation, 10);
 convert_rotation(Count, _Opts) when is_integer(Count) -> Count;
 convert_rotation(Count, _Opts) -> throw({"bad_rotation", Count}).
 
-ensure_unicode_path(undefined, _) ->
-    undefined;
-ensure_unicode_path(Path, #{make_serializable := true}) ->
-    %% format back to serializable string
-    unicode:characters_to_binary(Path, utf8);
-ensure_unicode_path(Path, Opts) when is_binary(Path) ->
-    case unicode:characters_to_list(Path, utf8) of
-        {R, _, _} when R =:= error orelse R =:= incomplete ->
-            throw({"bad_file_path_string", Path});
-        PathStr ->
-            ensure_unicode_path(PathStr, Opts)
-    end;
-ensure_unicode_path(Path, _) when is_list(Path) ->
-    Path;
-ensure_unicode_path(Path, _) ->
-    throw({"not_string", Path}).
+ensure_unicode_path(Path, Opts) ->
+    emqx_schema:ensure_unicode_path(Path, Opts).
 
 log_level() ->
     hoconsc:enum([debug, info, notice, warning, error, critical, alert, emergency, all]).
