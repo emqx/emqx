@@ -304,9 +304,14 @@ render_channel_message(Msg, #{data := DataList}, Acc) ->
             ValueVal =
                 case ValueTk of
                     [_] ->
+                        %% just one element, maybe is a variable or a plain text
+                        %% we should keep it as it is
                         erlang:hd(emqx_placeholder:proc_tmpl(ValueTk, Msg, RawOpts));
-                    _ ->
-                        emqx_placeholder:proc_tmpl(ValueTk, Msg)
+                    Tks when is_list(Tks) ->
+                        emqx_placeholder:proc_tmpl(ValueTk, Msg);
+                    Raw ->
+                        %% not a token list, just a raw value
+                        Raw
                 end,
             Base = #{metric => MetricVal, tags => TagsVal, value => ValueVal},
             [
@@ -328,12 +333,20 @@ preproc_data_template([]) ->
 preproc_data_template(DataList) ->
     lists:map(
         fun(Data) ->
-            maps:map(
-                fun(_Key, Value) ->
-                    emqx_placeholder:preproc_tmpl(Value)
+            {Value, Data2} = maps:take(value, Data),
+            Template = maps:map(
+                fun(_Key, Val) ->
+                    emqx_placeholder:preproc_tmpl(Val)
                 end,
-                Data
-            )
+                Data2
+            ),
+
+            case Value of
+                Text when is_binary(Text) ->
+                    Template#{value => emqx_placeholder:preproc_tmpl(Text)};
+                Raw ->
+                    Template#{value => Raw}
+            end
         end,
         DataList
     ).

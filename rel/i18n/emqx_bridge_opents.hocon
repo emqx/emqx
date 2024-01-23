@@ -49,7 +49,7 @@ config_parameters_metric.label:
 """Metric"""
 
 config_parameters_tags.desc:
-"""Data Type, Placeholders in format of ${var} is supported"""
+"""Tags. Only supports with placeholder to extract tags from a variable"""
 
 config_parameters_tags.label:
 """Tags"""
