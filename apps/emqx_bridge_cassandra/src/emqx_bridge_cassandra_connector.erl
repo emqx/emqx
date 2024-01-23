@@ -159,7 +159,7 @@ on_add_channel(_InstId, #{channels := Channs} = OldState, ChannId, ChannConf0) -
     #{parameters := #{cql := CQL}} = ChannConf0,
     {PrepareCQL, ParamsTokens} = emqx_placeholder:preproc_sql(CQL, '?'),
     ParsedCql = #{
-        prepare_key => short_prepare_key(ChannId),
+        prepare_key => make_prepare_key(ChannId),
         prepare_cql => PrepareCQL,
         params_tokens => ParamsTokens
     },
@@ -462,10 +462,5 @@ maybe_assign_type(V) when is_float(V) -> {double, V};
 maybe_assign_type(V) ->
     V.
 
-short_prepare_key(Str) when is_binary(Str) ->
-    true = size(Str) > 0,
-    Sha = crypto:hash(sha, Str),
-    %% TODO: change to binary:encode_hex(X, lowercase) when OTP version is always > 25
-    Hex = string:lowercase(binary:encode_hex(Sha)),
-    <<UniqueEnough:16/binary, _/binary>> = Hex,
-    binary_to_atom(<<"cassa_prepare_key:", UniqueEnough/binary>>).
+make_prepare_key(ChannId) ->
+    ChannId.
