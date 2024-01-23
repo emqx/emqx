@@ -141,7 +141,7 @@ do_flush(
     }.
 
 do_enqueue(From, Sync, Msg, S0 = #s{n = N, batch = Batch, pending_replies = Replies}) ->
-    NMax = 1000,
+    NMax = application:get_env(emqx_durable_storage, egress_batch_size, 1000),
     S1 = S0#s{n = N + 1, batch = [Msg | Batch]},
     S2 =
         case N >= NMax of
@@ -171,5 +171,5 @@ do_enqueue(From, Sync, Msg, S0 = #s{n = N, batch = Batch, pending_replies = Repl
     {noreply, S}.
 
 start_timer() ->
-    Interval = 10,
+    Interval = application:get_env(emqx_durable_storage, egress_flush_interval, 100),
     erlang:send_after(Interval, self(), flush).

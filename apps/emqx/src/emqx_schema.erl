@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2017-2023 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2017-2024 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -1913,6 +1913,24 @@ fields("session_storage_backend_builtin") ->
                 pos_integer(),
                 #{
                     default => 3,
+                    importance => ?IMPORTANCE_HIDDEN
+                }
+            )},
+        {"egress_batch_size",
+            sc(
+                pos_integer(),
+                #{
+                    default => 1000,
+                    mapping => "emqx_durable_storage.egress_batch_size",
+                    importance => ?IMPORTANCE_HIDDEN
+                }
+            )},
+        {"egress_flush_interval",
+            sc(
+                timeout_duration_ms(),
+                #{
+                    default => 100,
+                    mapping => "emqx_durable_storage.egress_flush_interval",
                     importance => ?IMPORTANCE_HIDDEN
                 }
             )}
