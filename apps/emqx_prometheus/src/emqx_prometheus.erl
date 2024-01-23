@@ -473,37 +473,37 @@ emqx_collect(K = emqx_cert_expiry_at, D) -> gauge_metrics(?MG(K, D)).
 stats_metric_meta() ->
     [
         %% connections
-        {emqx_connections_count, counter, 'connections.count'},
-        {emqx_connections_max, counter, 'connections.max'},
-        {emqx_live_connections_count, counter, 'live_connections.count'},
-        {emqx_live_connections_max, counter, 'live_connections.max'},
+        {emqx_connections_count, gauge, 'connections.count'},
+        {emqx_connections_max, gauge, 'connections.max'},
+        {emqx_live_connections_count, gauge, 'live_connections.count'},
+        {emqx_live_connections_max, gauge, 'live_connections.max'},
         %% sessions
-        {emqx_sessions_count, counter, 'sessions.count'},
-        {emqx_sessions_max, counter, 'sessions.max'},
-        {emqx_channels_count, counter, 'channels.count'},
-        {emqx_channels_max, counter, 'channels.max'},
+        {emqx_sessions_count, gauge, 'sessions.count'},
+        {emqx_sessions_max, gauge, 'sessions.max'},
+        {emqx_channels_count, gauge, 'channels.count'},
+        {emqx_channels_max, gauge, 'channels.max'},
         %% pub/sub stats
-        {emqx_suboptions_count, counter, 'suboptions.count'},
-        {emqx_suboptions_max, counter, 'suboptions.max'},
-        {emqx_subscribers_count, counter, 'subscribers.count'},
-        {emqx_subscribers_max, counter, 'subscribers.max'},
-        {emqx_subscriptions_count, counter, 'subscriptions.count'},
-        {emqx_subscriptions_max, counter, 'subscriptions.max'},
-        {emqx_subscriptions_shared_count, counter, 'subscriptions.shared.count'},
-        {emqx_subscriptions_shared_max, counter, 'subscriptions.shared.max'},
+        {emqx_suboptions_count, gauge, 'suboptions.count'},
+        {emqx_suboptions_max, gauge, 'suboptions.max'},
+        {emqx_subscribers_count, gauge, 'subscribers.count'},
+        {emqx_subscribers_max, gauge, 'subscribers.max'},
+        {emqx_subscriptions_count, gauge, 'subscriptions.count'},
+        {emqx_subscriptions_max, gauge, 'subscriptions.max'},
+        {emqx_subscriptions_shared_count, gauge, 'subscriptions.shared.count'},
+        {emqx_subscriptions_shared_max, gauge, 'subscriptions.shared.max'},
         %% delayed
-        {emqx_delayed_count, counter, 'delayed.count'},
-        {emqx_delayed_max, counter, 'delayed.max'}
+        {emqx_delayed_count, gauge, 'delayed.count'},
+        {emqx_delayed_max, gauge, 'delayed.max'}
     ].
 
 stats_metric_cluster_consistened_meta() ->
     [
         %% topics
-        {emqx_topics_max, counter, 'topics.max'},
-        {emqx_topics_count, counter, 'topics.count'},
+        {emqx_topics_max, gauge, 'topics.max'},
+        {emqx_topics_count, gauge, 'topics.count'},
         %% retained
-        {emqx_retained_count, counter, 'retained.count'},
-        {emqx_retained_max, counter, 'retained.max'}
+        {emqx_retained_count, gauge, 'retained.count'},
+        {emqx_retained_max, gauge, 'retained.max'}
     ].
 
 stats_data(Mode) ->
