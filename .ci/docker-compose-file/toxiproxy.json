@@ -97,6 +97,18 @@
     "enabled": true
   },
   {
+    "name": "cassa_no_auth_tcp",
+    "listen": "0.0.0.0:9043",
+    "upstream": "cassandra_noauth:9042",
+    "enabled": true
+  },
+  {
+    "name": "cassa_no_auth_tls",
+    "listen": "0.0.0.0:9143",
+    "upstream": "cassandra_noauth:9142",
+    "enabled": true
+  },
+  {
     "name": "sqlserver",
     "listen": "0.0.0.0:1433",
     "upstream": "sqlserver:1433",

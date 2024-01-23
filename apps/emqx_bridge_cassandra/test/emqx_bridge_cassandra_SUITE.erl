@@ -11,6 +11,14 @@
 -include_lib("common_test/include/ct.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
+%% To run this test locally:
+%%   ./scripts/ct/run.sh --app apps/emqx_bridge_cassandra --only-up
+%%   PROFILE=emqx-enterprise PROXY_HOST=localhost CASSA_TLS_HOST=localhost \
+%%     CASSA_TLS_PORT=19142 CASSA_TCP_HOST=localhost CASSA_TCP_NO_AUTH_HOST=localhost \
+%%     CASSA_TCP_PORT=19042 CASSA_TCP_NO_AUTH_PORT=19043 \
+%%     ./rebar3 ct --name 'test@127.0.0.1' -v --suite \
+%%     apps/emqx_bridge_cassandra/test/emqx_bridge_cassandra_SUITE
+
 % SQL definitions
 -define(SQL_BRIDGE,
     "insert into mqtt_msg_test(topic, payload, arrived) "
@@ -293,17 +301,24 @@ send_message(Config, Payload) ->
 query_resource(Config, Request) ->
     Name = ?config(cassa_name, Config),
     BridgeType = ?config(cassa_bridge_type, Config),
-    ResourceID = emqx_bridge_resource:resource_id(BridgeType, Name),
-    emqx_resource:query(ResourceID, Request, #{timeout => 1_000}).
+    BridgeV2Id = emqx_bridge_v2:id(BridgeType, Name),
+    ConnectorResId = emqx_connector_resource:resource_id(BridgeType, Name),
+    emqx_resource:query(BridgeV2Id, Request, #{
+        timeout => 1_000, connector_resource_id => ConnectorResId
+    }).
 
 query_resource_async(Config, Request) ->
     Name = ?config(cassa_name, Config),
     BridgeType = ?config(cassa_bridge_type, Config),
     Ref = alias([reply]),
     AsyncReplyFun = fun(Result) -> Ref ! {result, Ref, Result} end,
-    ResourceID = emqx_bridge_resource:resource_id(BridgeType, Name),
-    Return = emqx_resource:query(ResourceID, Request, #{
-        timeout => 500, async_reply_fun => {AsyncReplyFun, []}
+    BridgeV2Id = emqx_bridge_v2:id(BridgeType, Name),
+    ConnectorResId = emqx_connector_resource:resource_id(BridgeType, Name),
+    Return = emqx_resource:query(BridgeV2Id, Request, #{
+        timeout => 500,
+        async_reply_fun => {AsyncReplyFun, []},
+        connector_resource_id => ConnectorResId,
+        query_mode => async
     }),
     {Return, Ref}.
 

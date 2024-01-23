@@ -1,5 +1,11 @@
 emqx_bridge_cassandra_connector {
 
+config.desc:
+"""Cassandra connection config"""
+
+config.label:
+"""Connection config"""
+
 keyspace.desc:
 """Keyspace name to connect to."""
 
