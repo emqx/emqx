@@ -394,8 +394,23 @@ t_authorize(_Config) ->
     {ok, _Status} = emqx_mgmt_api_test_util:request_api(get, BanPath, BasicHeader),
     ?assertEqual(Unauthorized, emqx_mgmt_api_test_util:request_api(get, BanPath, KeyError)),
     ?assertEqual(Unauthorized, emqx_mgmt_api_test_util:request_api(get, BanPath, SecretError)),
-    ?assertEqual(Unauthorized, emqx_mgmt_api_test_util:request_api(get, ApiKeyPath, BasicHeader)),
     ?assertEqual(Unauthorized, emqx_mgmt_api_test_util:request_api(get, UserPath, BasicHeader)),
+    {error, {{"HTTP/1.1", 401, "Unauthorized"}, _Headers, Body}} =
+        emqx_mgmt_api_test_util:request_api(
+            get,
+            ApiKeyPath,
+            [],
+            BasicHeader,
+            [],
+            #{return_all => true}
+        ),
+    ?assertMatch(
+        #{
+            <<"code">> := <<"API_KEY_NOT_ALLOW">>,
+            <<"message">> := _
+        },
+        emqx_utils_json:decode(Body, [return_maps])
+    ),
 
     ?assertMatch(
         {ok, #{<<"api_key">> := _, <<"enable">> := false}},

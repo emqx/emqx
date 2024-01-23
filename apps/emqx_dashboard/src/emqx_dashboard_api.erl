@@ -89,6 +89,7 @@ schema("/logout") ->
         post => #{
             tags => [<<"dashboard">>],
             desc => ?DESC(logout_api),
+            security => [#{'bearerAuth' => []}],
             parameters => sso_parameters(),
             'requestBody' => fields([username]),
             responses => #{

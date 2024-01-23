@@ -1,27 +1,27 @@
 emqx_mgmt_api_api_keys {
 
 api_key_list.desc:
-"""Return api_key list"""
+"""Return api_key list. This API can only be requested using a bearer token."""
 api_key_list.label:
 """Return api_key list"""
 
 create_new_api_key.desc:
-"""Create new api_key"""
+"""Create new api_key. This API can only be requested using a bearer token."""
 create_new_api_key.label:
 """Create new api_key"""
 
 get_api_key.desc:
-"""Return the specific api_key"""
+"""Return the specific api_key. This API can only be requested using a bearer token."""
 get_api_key.label:
 """Return the specific api_key"""
 
 update_api_key.desc:
-"""Update the specific api_key"""
+"""Update the specific api_key. This API can only be requested using a bearer token."""
 update_api_key.label:
 """Update the specific api_key"""
 
 delete_api_key.desc:
-"""Delete the specific api_key"""
+"""Delete the specific api_key. This API can only be requested using a bearer token."""
 delete_api_key.label:
 """Delete the specific api_key"""
 
