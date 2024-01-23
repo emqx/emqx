@@ -35,11 +35,6 @@ config_auth_basic_password.desc:
 config_auth_basic_password.label:
 """HTTP Basic Auth Password"""
 
-config_base_url.desc:
-"""The base URL of the external ElasticSearch service's REST interface."""
-config_base_url.label:
-"""ElasticSearch REST Service Base URL"""
-
 config_target.desc:
 """Name of the data stream, index, or index alias to perform bulk actions on"""
 

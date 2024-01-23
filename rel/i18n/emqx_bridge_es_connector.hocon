@@ -1,5 +1,13 @@
 emqx_bridge_es_connector {
 
+server.desc:
+"""The IPv4 or IPv6 address or the hostname to connect to.
+A host entry has the following form: `Host[:Port]`.
+The Elasticsearch default port 9200 is used if `[:Port]` is not specified."""
+
+server.label:
+"""Server Host"""
+
 config_authentication.desc:
 """Authentication configuration"""
 
