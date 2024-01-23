@@ -865,7 +865,8 @@ convert_server(<<"http://", Server/binary>>, HoconOpts) ->
     convert_server(Server, HoconOpts);
 convert_server(<<"https://", Server/binary>>, HoconOpts) ->
     convert_server(Server, HoconOpts);
-convert_server(Server, HoconOpts) ->
+convert_server(Server0, HoconOpts) ->
+    Server = string:trim(Server0, trailing, "/"),
     emqx_schema:convert_servers(Server, HoconOpts).
 
 str(A) when is_atom(A) ->

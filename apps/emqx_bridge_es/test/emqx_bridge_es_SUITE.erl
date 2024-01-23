@@ -169,11 +169,10 @@ action(ConnectorName) ->
         }
     }.
 
-base_url(Config) ->
+server(Config) ->
     Host = ?config(es_host, Config),
     Port = ?config(es_port, Config),
     iolist_to_binary([
-        "https://",
         Host,
         ":",
         integer_to_binary(Port)
@@ -185,7 +184,7 @@ connector_config(Config) ->
 connector_config(Overrides, Config) ->
     Defaults =
         #{
-            <<"base_url">> => base_url(Config),
+            <<"server">> => server(Config),
             <<"enable">> => true,
             <<"authentication">> => #{
                 <<"password">> => <<"emqx123">>,
@@ -314,7 +313,7 @@ t_bad_url(Config) ->
     ActionName = <<"test_action">>,
     ActionConfig = action(<<"test_connector">>),
     ConnectorConfig0 = connector_config(Config),
-    ConnectorConfig = ConnectorConfig0#{<<"base_url">> := <<"bad_host:9092">>},
+    ConnectorConfig = ConnectorConfig0#{<<"server">> := <<"bad_host:9092">>},
     ?assertMatch({ok, _}, create_connector(ConnectorName, ConnectorConfig)),
     ?assertMatch({ok, _}, create_action(ActionName, ActionConfig)),
     ?assertMatch(
