@@ -83,7 +83,7 @@ init_per_testcase(TestCase, Config0) ->
         {bridge_config, ActionConfig}
         | Config0
     ],
-    %%    iotdb_reset(Config),
+    emqx_bridge_v2_testlib:delete_all_bridges_and_connectors(),
     ok = snabbkaffe:start_trace(),
     Config.
 
@@ -253,3 +253,89 @@ t_query_invalid_data(Config) ->
     ok = emqx_bridge_v2_testlib:t_sync_query(
         Config, MakeMessageFun, fun is_error_check/1, opents_bridge_on_query
     ).
+
+t_tags_validator(Config) ->
+    %% Create without data  configured
+    ?assertMatch({ok, _}, emqx_bridge_v2_testlib:create_bridge(Config)),
+
+    ?assertMatch(
+        {ok, _},
+        emqx_bridge_v2_testlib:update_bridge_api(Config, #{
+            <<"parameters">> => #{
+                <<"data">> => [
+                    #{
+                        <<"metric">> => <<"${metric}">>,
+                        <<"tags">> => <<"${tags}">>,
+                        <<"value">> => <<"${payload.value}">>
+                    }
+                ]
+            }
+        })
+    ),
+
+    ?assertMatch(
+        {error, _},
+        emqx_bridge_v2_testlib:update_bridge_api(Config, #{
+            <<"parameters">> => #{
+                <<"data">> => [
+                    #{
+                        <<"metric">> => <<"${metric}">>,
+                        <<"tags">> => <<"text">>,
+                        <<"value">> => <<"${payload.value}">>
+                    }
+                ]
+            }
+        })
+    ).
+
+t_raw_int_value(Config) ->
+    raw_value_test(<<"t_raw_int_value">>, 42, Config).
+
+t_raw_float_value(Config) ->
+    raw_value_test(<<"t_raw_float_value">>, 42.5, Config).
+
+raw_value_test(Metric, RawValue, Config) ->
+    ?assertMatch({ok, _}, emqx_bridge_v2_testlib:create_bridge(Config)),
+    ResourceId = emqx_bridge_v2_testlib:resource_id(Config),
+    BridgeId = emqx_bridge_v2_testlib:bridge_id(Config),
+    ?retry(
+        _Sleep = 1_000,
+        _Attempts = 10,
+        ?assertEqual({ok, connected}, emqx_resource_manager:health_check(ResourceId))
+    ),
+
+    ?assertMatch(
+        {ok, _},
+        emqx_bridge_v2_testlib:update_bridge_api(Config, #{
+            <<"parameters">> => #{
+                <<"data">> => [
+                    #{
+                        <<"metric">> => <<"${metric}">>,
+                        <<"tags">> => <<"${tags}">>,
+                        <<"value">> => RawValue
+                    }
+                ]
+            }
+        })
+    ),
+
+    Value = 12,
+    MakeMessageFun = fun() -> make_data(Metric, Value) end,
+
+    is_success_check(
+        emqx_resource:simple_sync_query(ResourceId, {BridgeId, MakeMessageFun()})
+    ),
+
+    {ok, {{_, 200, _}, _, IoTDBResult}} = opentds_query(Config, Metric),
+    QResult = emqx_utils_json:decode(IoTDBResult),
+    ?assertMatch(
+        [
+            #{
+                <<"metric">> := Metric,
+                <<"dps">> := _
+            }
+        ],
+        QResult
+    ),
+    [#{<<"dps">> := Dps}] = QResult,
+    ?assertMatch([RawValue | _], maps:values(Dps)).

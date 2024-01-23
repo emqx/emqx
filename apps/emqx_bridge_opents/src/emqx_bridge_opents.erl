@@ -3,6 +3,7 @@
 %%--------------------------------------------------------------------
 -module(emqx_bridge_opents).
 
+-include_lib("emqx/include/logger.hrl").
 -include_lib("typerefl/include/types.hrl").
 -include_lib("hocon/include/hoconsc.hrl").
 -include_lib("emqx_resource/include/emqx_resource.hrl").
@@ -156,12 +157,25 @@ fields(action_parameters_data) ->
                 binary(),
                 #{
                     required => true,
-                    desc => ?DESC("config_parameters_tags")
+                    desc => ?DESC("config_parameters_tags"),
+                    validator => fun(Tmpl) ->
+                        case emqx_placeholder:preproc_tmpl(Tmpl) of
+                            [{var, _}] ->
+                                true;
+                            _ ->
+                                ?SLOG(warning, #{
+                                    msg => "invalid_tags_template",
+                                    path => "opents.parameters.data.tags",
+                                    data => Tmpl
+                                }),
+                                false
+                        end
+                    end
                 }
             )},
         {value,
             mk(
-                binary(),
+                hoconsc:union([integer(), float(), binary()]),
                 #{
                     required => true,
                     desc => ?DESC("config_parameters_value")
