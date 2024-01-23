@@ -81,6 +81,7 @@ fields("retainer") ->
                 #{
                     required => false,
                     desc => ?DESC(delivery_rate),
+                    default => <<"1000/s">>,
                     example => <<"1000/s">>,
                     aliases => [deliver_rate]
                 }
