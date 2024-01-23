@@ -40,6 +40,7 @@ schema("/api_key") ->
         get => #{
             description => ?DESC(api_key_list),
             tags => ?TAGS,
+            security => [#{'bearerAuth' => []}],
             responses => #{
                 200 => delete([api_secret], fields(app))
             }
@@ -47,6 +48,7 @@ schema("/api_key") ->
         post => #{
             description => ?DESC(create_new_api_key),
             tags => ?TAGS,
+            security => [#{'bearerAuth' => []}],
             'requestBody' => delete([created_at, api_key, api_secret], fields(app)),
             responses => #{
                 200 => hoconsc:ref(app),
