@@ -90,8 +90,6 @@
 
 -define(HTTP_OPTIONS, [{autoredirect, true}, {timeout, 60000}]).
 
--define(LOGICAL_SUM_METRIC_NAMES, []).
-
 %%--------------------------------------------------------------------
 %% APIs
 %%--------------------------------------------------------------------
@@ -280,7 +278,7 @@ aggre_or_zip_init_acc() ->
     }.
 
 logic_sum_metrics() ->
-    ?LOGICAL_SUM_METRIC_NAMES.
+    [].
 
 %%--------------------------------------------------------------------
 %% Collector

@@ -38,6 +38,8 @@
 
 -callback aggre_or_zip_init_acc() -> map().
 
+-callback logic_sum_metrics() -> list().
+
 -define(MG(K, MAP), maps:get(K, MAP)).
 -define(PG0(K, PROPLISTS), proplists:get_value(K, PROPLISTS, 0)).
 
