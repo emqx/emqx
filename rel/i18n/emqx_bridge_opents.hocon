@@ -23,4 +23,41 @@ emqx_bridge_opents {
 
     desc_name.label:
         "Bridge Name"
+
+action_parameters.desc:
+"""OpenTSDB action parameters"""
+
+action_parameters.label:
+"""Parameters"""
+
+action_parameters_data.desc:
+"""OpenTSDB action parameter data"""
+
+action_parameters_data.label:
+"""Parameter Data"""
+
+config_parameters_timestamp.desc:
+"""Timestamp. Placeholders in format of ${var} is supported"""
+
+config_parameters_timestamp.label:
+"""Timestamp"""
+
+config_parameters_metric.desc:
+"""Metric. Placeholders in format of ${var} is supported"""
+
+config_parameters_metric.label:
+"""Metric"""
+
+config_parameters_tags.desc:
+"""Tags. Only supports with placeholder to extract tags from a variable"""
+
+config_parameters_tags.label:
+"""Tags"""
+
+config_parameters_value.desc:
+"""Value. Placeholders in format of ${var} is supported"""
+
+config_parameters_value.label:
+"""Value"""
+
 }
