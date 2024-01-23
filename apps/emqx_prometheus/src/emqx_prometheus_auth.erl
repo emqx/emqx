@@ -26,7 +26,7 @@
 %% for bpapi
 -behaviour(emqx_prometheus_cluster).
 -export([
-    fetch_data_from_local_node/0,
+    fetch_from_local_node/1,
     fetch_cluster_consistented_data/0,
     aggre_or_zip_init_acc/0,
     logic_sum_metrics/0
@@ -126,10 +126,10 @@ collect_metrics(Name, Metrics) ->
     collect_auth(Name, Metrics).
 
 %% behaviour
-fetch_data_from_local_node() ->
+fetch_from_local_node(Mode) ->
     {node(self()), #{
-        authn_data => authn_data(),
-        authz_data => authz_data()
+        authn_data => authn_data(Mode),
+        authz_data => authz_data(Mode)
     }}.
 
 fetch_cluster_consistented_data() ->
@@ -224,38 +224,41 @@ authn_metric_meta() ->
 authn_metric(names) ->
     emqx_prometheus_cluster:metric_names(authn_metric_meta()).
 
--spec authn_data() -> #{Key => [Point]} when
+-spec authn_data(atom()) -> #{Key => [Point]} when
     Key :: authn_metric_name(),
     Point :: {[Label], Metric},
     Label :: IdLabel,
     IdLabel :: {id, AuthnName :: binary()},
     Metric :: number().
-authn_data() ->
+authn_data(Mode) ->
     Authns = emqx_config:get([authentication]),
     lists:foldl(
         fun(Key, AccIn) ->
-            AccIn#{Key => authn_backend_to_points(Key, Authns)}
+            AccIn#{Key => authn_backend_to_points(Mode, Key, Authns)}
         end,
         #{},
         authn_metric(names)
     ).
 
--spec authn_backend_to_points(Key, list(Authn)) -> list(Point) when
+-spec authn_backend_to_points(atom(), Key, list(Authn)) -> list(Point) when
     Key :: authn_metric_name(),
     Authn :: map(),
     Point :: {[Label], Metric},
     Label :: IdLabel,
     IdLabel :: {id, AuthnName :: binary()},
     Metric :: number().
-authn_backend_to_points(Key, Authns) ->
-    do_authn_backend_to_points(Key, Authns, []).
+authn_backend_to_points(Mode, Key, Authns) ->
+    do_authn_backend_to_points(Mode, Key, Authns, []).
 
-do_authn_backend_to_points(_K, [], AccIn) ->
+do_authn_backend_to_points(_Mode, _K, [], AccIn) ->
     lists:reverse(AccIn);
-do_authn_backend_to_points(K, [Authn | Rest], AccIn) ->
+do_authn_backend_to_points(Mode, K, [Authn | Rest], AccIn) ->
     Id = authenticator_id(Authn),
-    Point = {[{id, Id}], do_metric(K, Authn, lookup_authn_metrics_local(Id))},
-    do_authn_backend_to_points(K, Rest, [Point | AccIn]).
+    Point = {
+        with_node_label(Mode, [{id, Id}]),
+        do_metric(K, Authn, lookup_authn_metrics_local(Id))
+    },
+    do_authn_backend_to_points(Mode, K, Rest, [Point | AccIn]).
 
 lookup_authn_metrics_local(Id) ->
     case emqx_authn_api:lookup_from_local_node(?GLOBAL, Id) of
@@ -317,38 +320,41 @@ authz_metric_meta() ->
 authz_metric(names) ->
     emqx_prometheus_cluster:metric_names(authz_metric_meta()).
 
--spec authz_data() -> #{Key => [Point]} when
+-spec authz_data(atom()) -> #{Key => [Point]} when
     Key :: authz_metric_name(),
     Point :: {[Label], Metric},
     Label :: TypeLabel,
     TypeLabel :: {type, AuthZType :: binary()},
     Metric :: number().
-authz_data() ->
+authz_data(Mode) ->
     Authzs = emqx_config:get([authorization, sources]),
     lists:foldl(
         fun(Key, AccIn) ->
-            AccIn#{Key => authz_backend_to_points(Key, Authzs)}
+            AccIn#{Key => authz_backend_to_points(Mode, Key, Authzs)}
         end,
         #{},
         authz_metric(names)
     ).
 
--spec authz_backend_to_points(Key, list(Authz)) -> list(Point) when
+-spec authz_backend_to_points(atom(), Key, list(Authz)) -> list(Point) when
     Key :: authz_metric_name(),
     Authz :: map(),
     Point :: {[Label], Metric},
     Label :: TypeLabel,
     TypeLabel :: {type, AuthZType :: binary()},
     Metric :: number().
-authz_backend_to_points(Key, Authzs) ->
-    do_authz_backend_to_points(Key, Authzs, []).
+authz_backend_to_points(Mode, Key, Authzs) ->
+    do_authz_backend_to_points(Mode, Key, Authzs, []).
 
-do_authz_backend_to_points(_K, [], AccIn) ->
+do_authz_backend_to_points(_Mode, _K, [], AccIn) ->
     lists:reverse(AccIn);
-do_authz_backend_to_points(K, [Authz | Rest], AccIn) ->
+do_authz_backend_to_points(Mode, K, [Authz | Rest], AccIn) ->
     Type = maps:get(type, Authz),
-    Point = {[{type, Type}], do_metric(K, Authz, lookup_authz_metrics_local(Type))},
-    do_authz_backend_to_points(K, Rest, [Point | AccIn]).
+    Point = {
+        with_node_label(Mode, [{type, Type}]),
+        do_metric(K, Authz, lookup_authz_metrics_local(Type))
+    },
+    do_authz_backend_to_points(Mode, K, Rest, [Point | AccIn]).
 
 lookup_authz_metrics_local(Type) ->
     case emqx_authz_api_sources:lookup_from_local_node(Type) of
@@ -481,3 +487,10 @@ do_metric(emqx_authn_enable, #{enable := B}, _) ->
     emqx_prometheus_cluster:boolean_to_number(B);
 do_metric(K, _, Metrics) ->
     ?MG0(K, Metrics).
+
+with_node_label(?PROM_DATA_MODE__NODE, Labels) ->
+    Labels;
+with_node_label(?PROM_DATA_MODE__ALL_NODES_AGGREGATED, Labels) ->
+    Labels;
+with_node_label(?PROM_DATA_MODE__ALL_NODES_UNAGGREGATED, Labels) ->
+    [{node, node(self())} | Labels].

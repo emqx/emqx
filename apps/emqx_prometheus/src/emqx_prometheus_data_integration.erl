@@ -31,7 +31,7 @@
 %% for bpapi
 -behaviour(emqx_prometheus_cluster).
 -export([
-    fetch_data_from_local_node/0,
+    fetch_from_local_node/1,
     fetch_cluster_consistented_data/0,
     aggre_or_zip_init_acc/0,
     logic_sum_metrics/0
@@ -69,13 +69,13 @@
 %% Callback for emqx_prometheus_cluster
 %%--------------------------------------------------------------------
 
-fetch_data_from_local_node() ->
+fetch_from_local_node(Mode) ->
     Rules = emqx_rule_engine:get_rules(),
     Bridges = emqx_bridge:list(),
     {node(self()), #{
-        rule_metric_data => rule_metric_data(Rules),
-        action_metric_data => action_metric_data(Bridges),
-        connector_metric_data => connector_metric_data(Bridges)
+        rule_metric_data => rule_metric_data(Mode, Rules),
+        action_metric_data => action_metric_data(Mode, Bridges),
+        connector_metric_data => connector_metric_data(Mode, Bridges)
     }}.
 
 fetch_cluster_consistented_data() ->
@@ -325,26 +325,26 @@ rule_metric_meta() ->
 rule_metric(names) ->
     emqx_prometheus_cluster:metric_names(rule_metric_meta()).
 
-rule_metric_data(Rules) ->
+rule_metric_data(Mode, Rules) ->
     lists:foldl(
         fun(#{id := Id} = Rule, AccIn) ->
-            merge_acc_with_rules(Id, get_metric(Rule), AccIn)
+            merge_acc_with_rules(Mode, Id, get_metric(Rule), AccIn)
         end,
         maps:from_keys(rule_metric(names), []),
         Rules
     ).
 
-merge_acc_with_rules(Id, RuleMetrics, PointsAcc) ->
+merge_acc_with_rules(Mode, Id, RuleMetrics, PointsAcc) ->
     maps:fold(
         fun(K, V, AccIn) ->
-            AccIn#{K => [rule_point(Id, V) | ?MG(K, AccIn)]}
+            AccIn#{K => [rule_point(Mode, Id, V) | ?MG(K, AccIn)]}
         end,
         PointsAcc,
         RuleMetrics
     ).
 
-rule_point(Id, V) ->
-    {[{id, Id}], V}.
+rule_point(Mode, Id, V) ->
+    {with_node_label(Mode, [{id, Id}]), V}.
 
 get_metric(#{id := Id, enable := Bool} = _Rule) ->
     case emqx_metrics_worker:get_metrics(rule_metrics, Id) of
@@ -393,27 +393,27 @@ action_metric_meta() ->
 action_metric(names) ->
     emqx_prometheus_cluster:metric_names(action_metric_meta()).
 
-action_metric_data(Bridges) ->
+action_metric_data(Mode, Bridges) ->
     lists:foldl(
         fun(#{type := Type, name := Name} = _Bridge, AccIn) ->
             Id = emqx_bridge_resource:bridge_id(Type, Name),
-            merge_acc_with_bridges(Id, get_bridge_metric(Type, Name), AccIn)
+            merge_acc_with_bridges(Mode, Id, get_bridge_metric(Type, Name), AccIn)
         end,
         maps:from_keys(action_metric(names), []),
         Bridges
     ).
 
-merge_acc_with_bridges(Id, BridgeMetrics, PointsAcc) ->
+merge_acc_with_bridges(Mode, Id, BridgeMetrics, PointsAcc) ->
     maps:fold(
         fun(K, V, AccIn) ->
-            AccIn#{K => [action_point(Id, V) | ?MG(K, AccIn)]}
+            AccIn#{K => [action_point(Mode, Id, V) | ?MG(K, AccIn)]}
         end,
         PointsAcc,
         BridgeMetrics
     ).
 
-action_point(Id, V) ->
-    {[{id, Id}], V}.
+action_point(Mode, Id, V) ->
+    {with_node_label(Mode, [{id, Id}]), V}.
 
 get_bridge_metric(Type, Name) ->
     case emqx_bridge:get_metrics(Type, Name) of
@@ -453,27 +453,27 @@ connector_metric_meta() ->
 connectr_metric(names) ->
     emqx_prometheus_cluster:metric_names(connector_metric_meta()).
 
-connector_metric_data(Bridges) ->
+connector_metric_data(Mode, Bridges) ->
     lists:foldl(
         fun(#{type := Type, name := Name} = Bridge, AccIn) ->
             Id = emqx_bridge_resource:bridge_id(Type, Name),
-            merge_acc_with_connectors(Id, get_connector_status(Bridge), AccIn)
+            merge_acc_with_connectors(Mode, Id, get_connector_status(Bridge), AccIn)
         end,
         maps:from_keys(connectr_metric(names), []),
         Bridges
     ).
 
-merge_acc_with_connectors(Id, ConnectorMetrics, PointsAcc) ->
+merge_acc_with_connectors(Mode, Id, ConnectorMetrics, PointsAcc) ->
     maps:fold(
         fun(K, V, AccIn) ->
-            AccIn#{K => [connector_point(Id, V) | ?MG(K, AccIn)]}
+            AccIn#{K => [connector_point(Mode, Id, V) | ?MG(K, AccIn)]}
         end,
         PointsAcc,
         ConnectorMetrics
     ).
 
-connector_point(Id, V) ->
-    {[{id, Id}], V}.
+connector_point(Mode, Id, V) ->
+    {with_node_label(Mode, [{id, Id}]), V}.
 
 get_connector_status(#{resource_data := ResourceData} = _Bridge) ->
     Enabled = emqx_utils_maps:deep_get([config, enable], ResourceData),
@@ -532,3 +532,13 @@ zip_json_data_integration_metrics(Key, Points, [] = _AccIn) ->
 zip_json_data_integration_metrics(Key, Points, AllResultedAcc) ->
     ThisKeyResult = lists:foldl(emqx_prometheus_cluster:point_to_map_fun(Key), [], Points),
     lists:zipwith(fun maps:merge/2, AllResultedAcc, ThisKeyResult).
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%% Helper funcs
+
+with_node_label(?PROM_DATA_MODE__NODE, Labels) ->
+    Labels;
+with_node_label(?PROM_DATA_MODE__ALL_NODES_AGGREGATED, Labels) ->
+    Labels;
+with_node_label(?PROM_DATA_MODE__ALL_NODES_UNAGGREGATED, Labels) ->
+    [{node, node(self())} | Labels].

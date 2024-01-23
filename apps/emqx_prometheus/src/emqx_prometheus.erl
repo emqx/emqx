@@ -24,7 +24,7 @@
 
 -behaviour(emqx_prometheus_cluster).
 -export([
-    fetch_data_from_local_node/0,
+    fetch_from_local_node/1,
     fetch_cluster_consistented_data/0,
     aggre_or_zip_init_acc/0,
     logic_sum_metrics/0
@@ -241,20 +241,20 @@ add_collect_family(Name, Data, Callback, Type) ->
     Callback(create_mf(Name, _Help = <<"">>, Type, ?MODULE, Data)).
 
 %% behaviour
-fetch_data_from_local_node() ->
+fetch_from_local_node(Mode) ->
     {node(self()), #{
-        stats_data => stats_data(),
-        vm_data => vm_data(),
-        cluster_data => cluster_data(),
+        stats_data => stats_data(Mode),
+        vm_data => vm_data(Mode),
+        cluster_data => cluster_data(Mode),
         %% Metrics
-        emqx_packet_data => emqx_metric_data(emqx_packet_metric_meta()),
-        emqx_message_data => emqx_metric_data(message_metric_meta()),
-        emqx_delivery_data => emqx_metric_data(delivery_metric_meta()),
-        emqx_client_data => emqx_metric_data(client_metric_meta()),
-        emqx_session_data => emqx_metric_data(session_metric_meta()),
-        emqx_olp_data => emqx_metric_data(olp_metric_meta()),
-        emqx_acl_data => emqx_metric_data(acl_metric_meta()),
-        emqx_authn_data => emqx_metric_data(authn_metric_meta())
+        emqx_packet_data => emqx_metric_data(emqx_packet_metric_meta(), Mode),
+        emqx_message_data => emqx_metric_data(message_metric_meta(), Mode),
+        emqx_delivery_data => emqx_metric_data(delivery_metric_meta(), Mode),
+        emqx_client_data => emqx_metric_data(client_metric_meta(), Mode),
+        emqx_session_data => emqx_metric_data(session_metric_meta(), Mode),
+        emqx_olp_data => emqx_metric_data(olp_metric_meta(), Mode),
+        emqx_acl_data => emqx_metric_data(acl_metric_meta(), Mode),
+        emqx_authn_data => emqx_metric_data(authn_metric_meta(), Mode)
     }}.
 
 fetch_cluster_consistented_data() ->
@@ -495,11 +495,11 @@ stats_metric_meta() ->
         {emqx_delayed_max, counter, 'delayed.max'}
     ].
 
-stats_data() ->
+stats_data(Mode) ->
     Stats = emqx_stats:getstats(),
     lists:foldl(
         fun({Name, _Type, MetricKAtom}, AccIn) ->
-            AccIn#{Name => [{[], ?C(MetricKAtom, Stats)}]}
+            AccIn#{Name => [{with_node_label(Mode, []), ?C(MetricKAtom, Stats)}]}
         end,
         #{},
         stats_metric_meta()
@@ -519,11 +519,18 @@ vm_metric_meta() ->
         {emqx_vm_used_memory, gauge, 'used_memory'}
     ].
 
-vm_data() ->
+vm_data(Mode) ->
     VmStats = emqx_mgmt:vm_stats(),
     lists:foldl(
         fun({Name, _Type, MetricKAtom}, AccIn) ->
-            AccIn#{Name => [{[], ?C(MetricKAtom, VmStats)}]}
+            Labels =
+                case Mode of
+                    node ->
+                        [];
+                    _ ->
+                        [{node, node(self())}]
+                end,
+            AccIn#{Name => [{Labels, ?C(MetricKAtom, VmStats)}]}
         end,
         #{},
         vm_metric_meta()
@@ -539,23 +546,23 @@ cluster_metric_meta() ->
         {emqx_cluster_nodes_stopped, gauge, undefined}
     ].
 
-cluster_data() ->
+cluster_data(Mode) ->
     Running = emqx:cluster_nodes(running),
     Stopped = emqx:cluster_nodes(stopped),
     #{
-        emqx_cluster_nodes_running => [{[], length(Running)}],
-        emqx_cluster_nodes_stopped => [{[], length(Stopped)}]
+        emqx_cluster_nodes_running => [{with_node_label(Mode, []), length(Running)}],
+        emqx_cluster_nodes_stopped => [{with_node_label(Mode, []), length(Stopped)}]
     }.
 
 %%========================================
 %% Metrics
 %%========================================
 
-emqx_metric_data(MetricNameTypeKeyL) ->
+emqx_metric_data(MetricNameTypeKeyL, Mode) ->
     Metrics = emqx_metrics:all(),
     lists:foldl(
         fun({Name, _Type, MetricKAtom}, AccIn) ->
-            AccIn#{Name => [{[], ?C(MetricKAtom, Metrics)}]}
+            AccIn#{Name => [{with_node_label(Mode, []), ?C(MetricKAtom, Metrics)}]}
         end,
         #{},
         MetricNameTypeKeyL
@@ -910,6 +917,13 @@ zip_json_prom_stats_metrics(Key, Points, AllResultedAcc) ->
 
 metrics_name(MetricsAll) ->
     [Name || {Name, _, _} <- MetricsAll].
+
+with_node_label(?PROM_DATA_MODE__NODE, Labels) ->
+    Labels;
+with_node_label(?PROM_DATA_MODE__ALL_NODES_AGGREGATED, Labels) ->
+    Labels;
+with_node_label(?PROM_DATA_MODE__ALL_NODES_UNAGGREGATED, Labels) ->
+    [{node, node(self())} | Labels].
 
 %%--------------------------------------------------------------------
 %% bpapi
