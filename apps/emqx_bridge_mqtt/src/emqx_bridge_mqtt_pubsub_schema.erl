@@ -48,13 +48,14 @@ fields(action) ->
         )};
 fields("mqtt_publisher_action") ->
     emqx_bridge_v2_schema:make_producer_action_schema(
-        hoconsc:mk(
-            hoconsc:ref(?MODULE, action_parameters),
+        mk(
+            ref(?MODULE, action_parameters),
             #{
                 required => true,
                 desc => ?DESC("action_parameters")
             }
-        )
+        ),
+        #{resource_opts_ref => ref(?MODULE, action_resource_opts)}
     );
 fields(action_parameters) ->
     [
@@ -86,7 +87,8 @@ fields("mqtt_subscriber_source") ->
                 required => true,
                 desc => ?DESC("source_parameters")
             }
-        )
+        ),
+        #{resource_opts_ref => ref(?MODULE, source_resource_opts)}
     );
 fields(ingress_parameters) ->
     [
