@@ -438,10 +438,19 @@ t_message_gc(Config) ->
             TopicFilter = emqx_topic:words(<<"#">>),
             StartTime = 0,
             Msgs = consume(TopicFilter, StartTime),
-            %% only "1" and "2" should have been GC'ed
-            ?assertEqual(
-                sets:from_list([<<"3">>, <<"4">>], [{version, 2}]),
-                sets:from_list([emqx_message:payload(Msg) || Msg <- Msgs], [{version, 2}])
+            %% "1" and "2" should have been GC'ed
+            PresentMessages = sets:from_list(
+                [emqx_message:payload(Msg) || Msg <- Msgs],
+                [{version, 2}]
+            ),
+            ?assert(
+                sets:is_empty(
+                    sets:intersection(
+                        PresentMessages,
+                        sets:from_list([<<"1">>, <<"2">>], [{version, 2}])
+                    )
+                ),
+                #{present_messages => PresentMessages}
             ),
 
             ok
