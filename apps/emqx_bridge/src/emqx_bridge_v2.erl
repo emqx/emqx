@@ -647,8 +647,8 @@ reset_metrics(ConfRootKey, Type, Name) ->
 reset_metrics_helper(_ConfRootKey, _Type, _Name, #{enable := false}) ->
     ok;
 reset_metrics_helper(ConfRootKey, BridgeV2Type, BridgeName, #{connector := ConnectorName}) ->
-    BridgeV2Id = id_with_root_name(ConfRootKey, BridgeV2Type, BridgeName, ConnectorName),
-    ok = emqx_metrics_worker:reset_metrics(?RES_METRICS, BridgeV2Id);
+    ResourceId = id_with_root_name(ConfRootKey, BridgeV2Type, BridgeName, ConnectorName),
+    emqx_resource:reset_metrics(ResourceId);
 reset_metrics_helper(_, _, _, _) ->
     {error, not_found}.
 
