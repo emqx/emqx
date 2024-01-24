@@ -172,4 +172,4 @@ do_enqueue(From, Sync, Msg, S0 = #s{n = N, batch = Batch, pending_replies = Repl
 
 start_timer() ->
     Interval = application:get_env(emqx_durable_storage, egress_flush_interval, 100),
-    erlang:send_after(Interval, self(), flush).
+    erlang:send_after(Interval, self(), ?flush).
