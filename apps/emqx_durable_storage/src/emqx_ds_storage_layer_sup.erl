@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2022-2023 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2022-2024 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
 -module(emqx_ds_storage_layer_sup).
 
@@ -23,7 +23,7 @@
 
 -spec start_link() -> {ok, pid()}.
 start_link() ->
-    supervisor:start_link({local, ?SUP}, ?MODULE, []).
+    supervisor:start_link(?MODULE, []).
 
 -spec start_shard(emqx_ds_storage_layer:shard_id(), emqx_ds:create_db_opts()) ->
     supervisor:startchild_ret().

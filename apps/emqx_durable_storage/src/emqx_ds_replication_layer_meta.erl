@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2023 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2023-2024 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -35,6 +35,7 @@
     in_sync_replicas/2,
     sites/0,
     open_db/2,
+    get_options/1,
     update_db_config/2,
     drop_db/1,
     shard_leader/2,
@@ -230,6 +231,11 @@ is_leader(Node) ->
     {atomic, Result} = mria:transaction(?SHARD, fun ?MODULE:is_leader_trans/1, [Node]),
     Result.
 
+-spec get_options(emqx_ds:db()) -> emqx_ds_replication_layer:builtin_db_opts().
+get_options(DB) ->
+    {atomic, Opts} = mria:transaction(?SHARD, fun ?MODULE:open_db_trans/2, [DB, undefined]),
+    Opts.
+
 -spec open_db(emqx_ds:db(), emqx_ds_replication_layer:builtin_db_opts()) ->
     emqx_ds_replication_layer:builtin_db_opts().
 open_db(DB, DefaultOpts) ->
@@ -293,11 +299,11 @@ terminate(_Reason, #s{}) ->
 %% Internal exports
 %%================================================================================
 
--spec open_db_trans(emqx_ds:db(), emqx_ds_replication_layer:builtin_db_opts()) ->
+-spec open_db_trans(emqx_ds:db(), emqx_ds_replication_layer:builtin_db_opts() | undefined) ->
     emqx_ds_replication_layer:builtin_db_opts().
 open_db_trans(DB, CreateOpts) ->
     case mnesia:wread({?META_TAB, DB}) of
-        [] ->
+        [] when is_map(CreateOpts) ->
             NShards = maps:get(n_shards, CreateOpts),
             ReplicationFactor = maps:get(replication_factor, CreateOpts),
             mnesia:write(#?META_TAB{db = DB, db_props = CreateOpts}),

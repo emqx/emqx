@@ -16,8 +16,8 @@
 -define(DEFAULT_CONFIG, #{
     backend => builtin,
     storage => {emqx_ds_storage_bitfield_lts, #{}},
-    n_shards => 16,
-    replication_factor => 3
+    n_shards => 1,
+    replication_factor => 1
 }).
 
 -define(COMPACT_CONFIG, #{
@@ -26,14 +26,9 @@
         {emqx_ds_storage_bitfield_lts, #{
             bits_per_wildcard_level => 8
         }},
-    n_shards => 16,
-    replication_factor => 3
+    n_shards => 1,
+    replication_factor => 1
 }).
-
-%% Smoke test for opening and reopening the database
-t_open(_Config) ->
-    ok = emqx_ds_storage_layer_sup:stop_shard(?SHARD),
-    {ok, _} = emqx_ds_storage_layer_sup:start_shard(?SHARD, #{}).
 
 %% Smoke test of store function
 t_store(_Config) ->
@@ -98,8 +93,8 @@ t_get_streams(_Config) ->
     [FooBarBaz] = GetStream(<<"foo/bar/baz">>),
     [A] = GetStream(<<"a">>),
     %% Restart shard to make sure trie is persisted and restored:
-    ok = emqx_ds_storage_layer_sup:stop_shard(?SHARD),
-    {ok, _} = emqx_ds_storage_layer_sup:start_shard(?SHARD, #{}),
+    ok = emqx_ds_builtin_sup:stop_db(?FUNCTION_NAME),
+    {ok, _} = emqx_ds_builtin_sup:start_db(?FUNCTION_NAME, #{}),
     %% Verify that there are no "ghost streams" for topics that don't
     %% have any messages:
     [] = GetStream(<<"bar/foo">>),
@@ -196,9 +191,9 @@ t_replay(_Config) ->
     ?assert(check(?SHARD, <<"foo/+/+">>, 0, Messages)),
     ?assert(check(?SHARD, <<"+/+/+">>, 0, Messages)),
     ?assert(check(?SHARD, <<"+/+/baz">>, 0, Messages)),
-    %% Restart shard to make sure trie is persisted and restored:
-    ok = emqx_ds_storage_layer_sup:stop_shard(?SHARD),
-    {ok, _} = emqx_ds_storage_layer_sup:start_shard(?SHARD, #{}),
+    %% Restart the DB to make sure trie is persisted and restored:
+    ok = emqx_ds_builtin_sup:stop_db(?FUNCTION_NAME),
+    {ok, _} = emqx_ds_builtin_sup:start_db(?FUNCTION_NAME, #{}),
     %% Learned wildcard topics:
     ?assertNot(check(?SHARD, <<"wildcard/1000/suffix/foo">>, 0, [])),
     ?assert(check(?SHARD, <<"wildcard/1/suffix/foo">>, 0, Messages)),
@@ -412,21 +407,21 @@ suite() -> [{timetrap, {seconds, 20}}].
 
 init_per_suite(Config) ->
     {ok, _} = application:ensure_all_started(emqx_durable_storage),
-    emqx_ds_sup:ensure_workers(),
     Config.
 
 end_per_suite(_Config) ->
     ok = application:stop(emqx_durable_storage).
 
 init_per_testcase(TC, Config) ->
-    {ok, _} = emqx_ds_storage_layer_sup:start_shard(shard(TC), ?DEFAULT_CONFIG),
+    ok = emqx_ds:open_db(TC, ?DEFAULT_CONFIG),
     Config.
 
 end_per_testcase(TC, _Config) ->
-    ok = emqx_ds_storage_layer_sup:stop_shard(shard(TC)).
+    emqx_ds:drop_db(TC),
+    ok.
 
 shard(TC) ->
-    {?MODULE, atom_to_binary(TC)}.
+    {TC, <<"0">>}.
 
 keyspace(TC) ->
     TC.
