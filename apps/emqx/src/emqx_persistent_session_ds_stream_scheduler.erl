@@ -39,6 +39,8 @@
 %% API functions
 %%================================================================================
 
+%% @doc Find the streams that have uncommitted (in-flight) messages.
+%% Return them in the order they were previously replayed.
 -spec find_replay_streams(emqx_persistent_session_ds_state:t()) ->
     [{emqx_persistent_session_ds_state:stream_key(), emqx_persistent_session_ds:stream_state()}].
 find_replay_streams(S) ->
@@ -59,6 +61,15 @@ find_replay_streams(S) ->
     ),
     lists:sort(fun compare_streams/2, Streams).
 
+%% @doc Find streams from which the new messages can be fetched.
+%%
+%% Currently it amounts to the streams that don't have any inflight
+%% messages, since for performance reasons we keep only one record of
+%% in-flight messages per stream, and we don't want to overwrite these
+%% records prematurely.
+%%
+%% This function is non-detereministic: it randomizes the order of
+%% streams to ensure fair replay of different topics.
 -spec find_new_streams(emqx_persistent_session_ds_state:t()) ->
     [{emqx_persistent_session_ds_state:stream_key(), emqx_persistent_session_ds:stream_state()}].
 find_new_streams(S) ->
@@ -91,6 +102,23 @@ find_new_streams(S) ->
         )
     ).
 
+%% @doc This function makes the session aware of the new streams.
+%%
+%% It has the following properties:
+%%
+%% 1. For each RankX, it keeps only the streams with the same RankY.
+%%
+%% 2. For each RankX, it never advances RankY until _all_ streams with
+%% the same RankX are replayed.
+%%
+%% 3. Once all streams with the given rank are replayed, it advances
+%% the RankY to the smallest known RankY that is greater than replayed
+%% RankY.
+%%
+%% 4. If the RankX has never been replayed, it selects the streams
+%% with the smallest RankY.
+%%
+%% This way, messages from the same topic/shard are never reordered.
 -spec renew_streams(emqx_persistent_session_ds_state:t()) -> emqx_persistent_session_ds_state:t().
 renew_streams(S0) ->
     S1 = remove_fully_replayed_streams(S0),
@@ -192,6 +220,12 @@ select_streams(SubId, RankX, Streams0, S) ->
             lists:takewhile(fun({{_, Y}, _}) -> Y =:= MinRankY end, Streams)
     end.
 
+%% @doc Advance RankY for each RankX that doesn't have any unreplayed
+%% streams.
+%%
+%% Drop streams with the fully replayed rank. This function relies on
+%% the fact that all streams with the same RankX have also the same
+%% RankY.
 -spec remove_fully_replayed_streams(emqx_persistent_session_ds_state:t()) ->
     emqx_persistent_session_ds_state:t().
 remove_fully_replayed_streams(S0) ->
@@ -246,6 +280,7 @@ remove_fully_replayed_streams(S0) ->
         S1
     ).
 
+%% @doc Compare the streams by the order in which they were replayed.
 compare_streams(
     {_KeyA, #srs{first_seqno_qos1 = A1, first_seqno_qos2 = A2}},
     {_KeyB, #srs{first_seqno_qos1 = B1, first_seqno_qos2 = B2}}

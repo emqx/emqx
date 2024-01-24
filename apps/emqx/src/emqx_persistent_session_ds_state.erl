@@ -85,7 +85,7 @@
     #{
         ?created_at => emqx_persistent_session_ds:timestamp(),
         ?last_alive_at => emqx_persistent_session_ds:timestamp(),
-        ?expiry_interval => emqx_types:conninfo(),
+        ?expiry_interval => non_neg_integer(),
         ?last_id => integer()
     }.
 

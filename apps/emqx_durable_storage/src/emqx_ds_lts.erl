@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2023 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2023-2024 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -213,6 +213,10 @@ trie_next(#trie{trie = Trie}, State, ?EOT) ->
         [] -> undefined
     end;
 trie_next(#trie{trie = Trie}, State, Token) ->
+    %% NOTE: it's crucial to return the original (non-wildcard) index
+    %% for the topic, if found. Otherwise messages from the same topic
+    %% will end up in different streams, once the wildcard is learned,
+    %% and their replay order will become undefined:
     case ets:lookup(Trie, {State, Token}) of
         [#trans{next = Next}] ->
             {false, Next};

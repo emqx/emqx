@@ -27,6 +27,9 @@
 %% Type declarations
 %%================================================================================
 
+%% Note: here `committed' != `dirty'. It means "has been committed at
+%% least once since the creation", and it's used by the iteration
+%% test.
 -record(s, {subs = #{}, metadata = #{}, streams = #{}, seqno = #{}, committed = false}).
 
 -type state() :: #{emqx_persistent_session_ds:id() => #s{}}.

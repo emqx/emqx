@@ -1037,7 +1037,7 @@ next_seqno_gen() ->
     ?LET(
         {Epoch, Offset},
         {non_neg_integer(), range(0, ?EPOCH_SIZE)},
-        Epoch bsl 15 + Offset
+        Epoch bsl ?EPOCH_BITS + Offset
     ).
 
 %%%% Property-based tests:

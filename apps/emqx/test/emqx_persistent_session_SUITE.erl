@@ -928,7 +928,7 @@ t_publish_many_while_client_is_gone(Config) ->
     {ok, Client3} = emqtt:start_link([{clean_start, false} | ClientOpts]),
     {ok, _} = emqtt:ConnFun(Client3),
 
-    %% Check that the messages are retransmitted with DUP=1:
+    %% Check that we receive the rest of the messages:
     Msgs3 = receive_messages(NPubs, _Timeout = 2000),
     ct:pal("Msgs3 = ~p", [Msgs3]),
     ?assertMatch(
