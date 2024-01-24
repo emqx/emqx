@@ -169,13 +169,13 @@ esac
 
 BASE_DIR="_build/dev-run/$PROFILE"
 export EMQX_ETC_DIR="$BASE_DIR/etc"
-export EMQX_DATA_DIR="$BASE_DIR/data"
+export DATA_DIR="$BASE_DIR/data"
 export EMQX_LOG_DIR="$BASE_DIR/log"
 export EMQX_PLUGINS__INSTALL_DIR="${EMQX_PLUGINS__INSTALL_DIR:-$BASE_DIR/plugins}"
-CONFIGS_DIR="$EMQX_DATA_DIR/configs"
+CONFIGS_DIR="$DATA_DIR/configs"
 # Use your cookie so your IDE can connect to it.
 COOKIE="${EMQX_NODE__COOKIE:-${EMQX_NODE_COOKIE:-$(cat ~/.erlang.cookie 2>/dev/null || echo 'emqxsecretcookie')}}"
-mkdir -p "$EMQX_ETC_DIR" "$EMQX_DATA_DIR/patches" "$EMQX_DATA_DIR/plugins" "$EMQX_DATA_DIR/certs" "$EMQX_LOG_DIR" "$CONFIGS_DIR"
+mkdir -p "$EMQX_ETC_DIR" "$DATA_DIR/patches" "$DATA_DIR/plugins" "$DATA_DIR/certs" "$EMQX_LOG_DIR" "$CONFIGS_DIR"
 if [ $EKKA_EPMD -eq 1 ]; then
     EPMD_ARGS='-start_epmd false -epmd_module ekka_epmd'
 else
@@ -250,7 +250,7 @@ render_hocon_conf() {
     output="$EMQX_ETC_DIR/emqx.conf"
     cp "$input" "$output"
     mustache emqx_default_erlang_cookie "$COOKIE" "$output"
-    mustache platform_data_dir "${EMQX_DATA_DIR}" "$output"
+    mustache platform_data_dir "${DATA_DIR}" "$output"
     mustache platform_log_dir "${EMQX_LOG_DIR}" "$output"
     mustache platform_etc_dir "${EMQX_ETC_DIR}" "$output"
 }
@@ -298,7 +298,7 @@ generate_app_conf() {
     ## NOTE: the generate command merges environment variables to the base config (emqx.conf),
     ## but does not include the cluster-override.conf and local-override.conf
     ## meaning, certain overrides will not be mapped to app.<time>.config file
-    call_hocon -v -t "$NOW_TIME" -s "$SCHEMA_MOD" -c "$EMQX_ETC_DIR"/emqx.conf -d "$EMQX_DATA_DIR"/configs generate
+    call_hocon -v -t "$NOW_TIME" -s "$SCHEMA_MOD" -c "$EMQX_ETC_DIR"/emqx.conf -d "$DATA_DIR"/configs generate
 
     ## filenames are per-hocon convention
     CONF_FILE="$CONFIGS_DIR/app.$NOW_TIME.config"
@@ -311,14 +311,14 @@ append_args_file() {
     echo '' >> "$ARGS_FILE"
     cat <<EOF >> "$ARGS_FILE"
 $ERL_NAME_ARG $EMQX_NODE_NAME
--mnesia dir '"$EMQX_DATA_DIR/mnesia/$EMQX_NODE_NAME"'
+-mnesia dir '"$DATA_DIR/mnesia/$EMQX_NODE_NAME"'
 -stdlib restricted_shell emqx_restricted_shell
 +spp true
 +A 4
 +IOt 4
 +SDio 8
 -shutdown_time 30000
--pa '$EMQX_DATA_DIR/patches'
+-pa '$DATA_DIR/patches'
 -mnesia dump_log_write_threshold 5000
 -mnesia dump_log_time_threshold 60000
 -os_mon start_disksup false

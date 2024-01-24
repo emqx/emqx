@@ -587,10 +587,10 @@ fi
 
 DATA_DIR="$(get_boot_config 'node.data_dir')"
 # ensure no trailing /
-DATA_DIR="${DATA_DIR%/}"
+export DATA_DIR="${DATA_DIR%/}"
 if [[ $DATA_DIR != /* ]]; then
     # relative path
-    DATA_DIR="${RUNNER_ROOT_DIR}/${DATA_DIR}"
+    export DATA_DIR="${RUNNER_ROOT_DIR}/${DATA_DIR}"
 fi
 CONFIGS_DIR="$DATA_DIR/configs"
 mkdir -p "$CONFIGS_DIR"
