@@ -1896,11 +1896,8 @@ fields("session_storage_backend_builtin") ->
                 string(),
                 #{
                     desc => ?DESC(session_builtin_data_dir),
-                    default => <<"${EMQX_DATA_DIR}">>,
-                    importance => ?IMPORTANCE_LOW,
-                    converter => fun(Path, Opts) ->
-                        naive_env_interpolation(ensure_unicode_path(Path, Opts))
-                    end
+                    required => false,
+                    importance => ?IMPORTANCE_LOW
                 }
             )},
         {"n_shards",

@@ -61,13 +61,13 @@ force_ds() ->
     emqx_config:get([session_persistence, force_persistence]).
 
 storage_backend(#{
-    builtin := #{
+    builtin := Opts = #{
         enable := true,
-        data_dir := DataDir,
         n_shards := NShards,
         replication_factor := ReplicationFactor
     }
 }) ->
+    DataDir = maps:get(data_dir, Opts, emqx:data_dir()),
     #{
         backend => builtin,
         data_dir => DataDir,
