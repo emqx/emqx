@@ -116,7 +116,9 @@
 %% Data Type Validation Funcs
 -export([
     is_null/1,
+    is_null_var/1,
     is_not_null/1,
+    is_not_null_var/1,
     is_str/1,
     is_bool/1,
     is_int/1,
@@ -153,6 +155,9 @@
     ascii/1,
     find/2,
     find/3,
+    join_to_string/1,
+    join_to_string/2,
+    join_to_sql_values_string/1,
     jq/2,
     jq/3
 ]).
@@ -163,7 +168,10 @@
 -export([
     map_get/2,
     map_get/3,
-    map_put/3
+    map_put/3,
+    map_keys/1,
+    map_values/1,
+    map_to_entries/1
 ]).
 
 %% For backward compatibility
@@ -699,8 +707,15 @@ hexstr2bin(Str) when is_binary(Str) ->
 is_null(undefined) -> true;
 is_null(_Data) -> false.
 
+%% Similar to is_null/1, but also works for the JSON value 'null'
+is_null_var(null) -> true;
+is_null_var(Data) -> is_null(Data).
+
 is_not_null(Data) ->
     not is_null(Data).
+
+is_not_null_var(Data) ->
+    not is_null_var(Data).
 
 is_str(T) when is_binary(T) -> true;
 is_str(_) -> false.
@@ -847,6 +862,23 @@ find_s(S, P, Dir) ->
         SubStr -> SubStr
     end.
 
+join_to_string(List) when is_list(List) ->
+    join_to_string(<<", ">>, List).
+join_to_string(Sep, List) when is_list(List), is_binary(Sep) ->
+    iolist_to_binary(lists:join(Sep, [str(Item) || Item <- List])).
+join_to_sql_values_string(List) ->
+    QuotedList =
+        [
+            case is_list(Item) of
+                true ->
+                    emqx_placeholder:quote_sql(emqx_utils_json:encode(Item));
+                false ->
+                    emqx_placeholder:quote_sql(Item)
+            end
+         || Item <- List
+        ],
+    iolist_to_binary(lists:join(<<", ">>, QuotedList)).
+
 -spec jq(FilterProgram, JSON, TimeoutMS) -> Result when
     FilterProgram :: binary(),
     JSON :: binary() | term(),
@@ -920,7 +952,8 @@ map_put(Key, Val, Map) ->
 mget(Key, Map) ->
     mget(Key, Map, undefined).
 
-mget(Key, Map, Default) ->
+mget(Key, Map0, Default) ->
+    Map = map(Map0),
     case maps:find(Key, Map) of
         {ok, Val} ->
             Val;
@@ -947,7 +980,8 @@ mget(Key, Map, Default) ->
             Default
     end.
 
-mput(Key, Val, Map) ->
+mput(Key, Val, Map0) ->
+    Map = map(Map0),
     case maps:find(Key, Map) of
         {ok, _} ->
             maps:put(Key, Val, Map);
@@ -973,6 +1007,13 @@ mput(Key, Val, Map) ->
         error ->
             maps:put(Key, Val, Map)
     end.
+
+map_keys(Map) ->
+    maps:keys(map(Map)).
+map_values(Map) ->
+    maps:values(map(Map)).
+map_to_entries(Map) ->
+    [#{key => K, value => V} || {K, V} <- maps:to_list(map(Map))].
 
 %%------------------------------------------------------------------------------
 %% Hash Funcs
@@ -1168,16 +1209,18 @@ map_path(Key) ->
     {path, [{key, P} || P <- string:split(Key, ".", all)]}.
 
 function_literal(Fun, []) when is_atom(Fun) ->
-    atom_to_list(Fun) ++ "()";
+    iolist_to_binary(atom_to_list(Fun) ++ "()");
 function_literal(Fun, [FArg | Args]) when is_atom(Fun), is_list(Args) ->
     WithFirstArg = io_lib:format("~ts(~0p", [atom_to_list(Fun), FArg]),
-    lists:foldl(
-        fun(Arg, Literal) ->
-            io_lib:format("~ts, ~0p", [Literal, Arg])
-        end,
-        WithFirstArg,
-        Args
-    ) ++ ")";
+    FuncLiteral =
+        lists:foldl(
+            fun(Arg, Literal) ->
+                io_lib:format("~ts, ~0p", [Literal, Arg])
+            end,
+            WithFirstArg,
+            Args
+        ) ++ ")",
+    iolist_to_binary(FuncLiteral);
 function_literal(Fun, Args) ->
     {invalid_func, {Fun, Args}}.
 
