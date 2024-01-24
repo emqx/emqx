@@ -5,7 +5,6 @@
     {applications, [
         kernel,
         stdlib,
-        emqx_connector,
         emqx_resource,
         emqx_redis
     ]},
