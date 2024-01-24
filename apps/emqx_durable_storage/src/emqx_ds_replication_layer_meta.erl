@@ -388,7 +388,7 @@ ensure_tables() ->
         {rlog_shard, ?SHARD},
         {majority, Majority},
         {type, ordered_set},
-        {storage, rocksdb_copies},
+        {storage, disc_copies},
         {record_name, ?META_TAB},
         {attributes, record_info(fields, ?META_TAB)}
     ]),
@@ -396,7 +396,7 @@ ensure_tables() ->
         {rlog_shard, ?SHARD},
         {majority, Majority},
         {type, ordered_set},
-        {storage, rocksdb_copies},
+        {storage, disc_copies},
         {record_name, ?NODE_TAB},
         {attributes, record_info(fields, ?NODE_TAB)}
     ]),
