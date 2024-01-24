@@ -1104,6 +1104,14 @@ fields("ws_opts") ->
             sc(
                 ref("deflate_opts"),
                 #{}
+            )},
+        {"validate_utf8",
+            sc(
+                boolean(),
+                #{
+                    default => true,
+                    desc => ?DESC(fields_ws_opts_validate_utf8)
+                }
             )}
     ];
 fields("tcp_opts") ->

@@ -205,7 +205,8 @@ init(Req, #{listener := {Type, Listener}} = Opts) ->
         compress => get_ws_opts(Type, Listener, compress),
         deflate_opts => get_ws_opts(Type, Listener, deflate_opts),
         max_frame_size => get_ws_opts(Type, Listener, max_frame_size),
-        idle_timeout => get_ws_opts(Type, Listener, idle_timeout)
+        idle_timeout => get_ws_opts(Type, Listener, idle_timeout),
+        validate_utf8 => get_ws_opts(Type, Listener, validate_utf8)
     },
     case check_origin_header(Req, Opts) of
         {error, Reason} ->
