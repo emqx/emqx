@@ -16,6 +16,7 @@
 -module(emqx_prometheus_cluster).
 
 -include("emqx_prometheus.hrl").
+-include_lib("emqx_resource/include/emqx_resource.hrl").
 
 -export([
     raw_data/2,
@@ -194,11 +195,11 @@ logic_sum(_, _) ->
 boolean_to_number(true) -> 1;
 boolean_to_number(false) -> 0.
 
-status_to_number(connected) -> 1;
-%% for auth
-status_to_number(stopped) -> 0;
-%% for data_integration
-status_to_number(disconnected) -> 0.
+status_to_number(?status_connected) -> 1;
+status_to_number(?status_connecting) -> 0;
+status_to_number(?status_disconnected) -> 0;
+status_to_number(?rm_status_stopped) -> 0;
+status_to_number(_) -> 0.
 
 metric_names(MetricWithType) when is_list(MetricWithType) ->
     [Name || {Name, _Type} <- MetricWithType].
