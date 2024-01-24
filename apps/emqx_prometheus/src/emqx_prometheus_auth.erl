@@ -64,8 +64,8 @@
     | emqx_authz_status
     | emqx_authz_nomatch
     | emqx_authz_total
-    | emqx_authz_success
-    | emqx_authz_failed.
+    | emqx_authz_allow
+    | emqx_authz_deny.
 
 %% Please don't remove this attribute, prometheus uses it to
 %% automatically register collectors.
@@ -186,9 +186,9 @@ collect_auth(K = emqx_authz_nomatch, Data) ->
     counter_metrics(?MG(K, Data));
 collect_auth(K = emqx_authz_total, Data) ->
     counter_metrics(?MG(K, Data));
-collect_auth(K = emqx_authz_success, Data) ->
+collect_auth(K = emqx_authz_allow, Data) ->
     counter_metrics(?MG(K, Data));
-collect_auth(K = emqx_authz_failed, Data) ->
+collect_auth(K = emqx_authz_deny, Data) ->
     counter_metrics(?MG(K, Data));
 %%====================
 %% Authz rules count
@@ -313,8 +313,8 @@ authz_metric_meta() ->
         {emqx_authz_status, gauge},
         {emqx_authz_nomatch, counter},
         {emqx_authz_total, counter},
-        {emqx_authz_success, counter},
-        {emqx_authz_failed, counter}
+        {emqx_authz_allow, counter},
+        {emqx_authz_deny, counter}
     ].
 
 authz_metric(names) ->
@@ -363,8 +363,8 @@ lookup_authz_metrics_local(Type) ->
                 emqx_authz_status => emqx_prometheus_cluster:status_to_number(Status),
                 emqx_authz_nomatch => ?MG0(nomatch, Counters),
                 emqx_authz_total => ?MG0(total, Counters),
-                emqx_authz_success => ?MG0(success, Counters),
-                emqx_authz_failed => ?MG0(failed, Counters)
+                emqx_authz_allow => ?MG0(allow, Counters),
+                emqx_authz_deny => ?MG0(deny, Counters)
             };
         {error, _Reason} ->
             maps:from_keys(authz_metric(names) -- [emqx_authz_enable], 0)
