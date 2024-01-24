@@ -485,6 +485,8 @@ mnesia_size(Tab) ->
 
 do_metric(emqx_authn_enable, #{enable := B}, _) ->
     emqx_prometheus_cluster:boolean_to_number(B);
+do_metric(emqx_authz_enable, #{enable := B}, _) ->
+    emqx_prometheus_cluster:boolean_to_number(B);
 do_metric(K, _, Metrics) ->
     ?MG0(K, Metrics).
 
