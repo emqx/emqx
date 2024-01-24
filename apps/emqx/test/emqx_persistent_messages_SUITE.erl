@@ -475,7 +475,7 @@ t_metrics_not_dropped(_Config) ->
 
     {ok, _, [?RC_GRANTED_QOS_1]} = emqtt:subscribe(Sub, <<"t/+">>, ?QOS_1),
     emqtt:publish(Pub, <<"t/ps">>, <<"payload">>, ?QOS_1),
-    ?assertMatch([_], receive_messages(1, 1_500)),
+    ?assertMatch([_], receive_messages(1)),
 
     DroppedAfter = emqx_metrics:val('messages.dropped'),
     DroppedNoSubAfter = emqx_metrics:val('messages.dropped.no_subscribers'),
