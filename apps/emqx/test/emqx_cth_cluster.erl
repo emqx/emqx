@@ -381,6 +381,7 @@ node_init(Node) ->
     _ = share_load_module(Node, cthr),
     % Enable snabbkaffe trace forwarding
     ok = snabbkaffe:forward_trace(Node),
+    when_cover_enabled(fun() -> {ok, _} = cover:start([Node]) end),
     ok.
 
 %% Returns 'true' if this node should appear in running nodes list.
@@ -445,6 +446,7 @@ stop(Nodes) ->
 
 stop_node(Name) ->
     Node = node_name(Name),
+    when_cover_enabled(fun() -> cover:flush([Node]) end),
     ok = emqx_cth_peer:stop(Node).
 
 %% Ports
@@ -506,3 +508,20 @@ host() ->
 
 format(Format, Args) ->
     unicode:characters_to_binary(io_lib:format(Format, Args)).
+
+is_cover_enabled() ->
+    case os:getenv("ENABLE_COVER_COMPILE") of
+        "1" -> true;
+        "true" -> true;
+        _ -> false
+    end.
+
+when_cover_enabled(Fun) ->
+    %% We need to check if cover is enabled to avoid crashes when attempting to start it
+    %% on the peer.
+    case is_cover_enabled() of
+        true ->
+            Fun();
+        false ->
+            ok
+    end.
