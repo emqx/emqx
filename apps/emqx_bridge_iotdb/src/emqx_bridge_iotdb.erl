@@ -94,7 +94,7 @@ fields(action_parameters) ->
                 array(ref(?MODULE, action_parameters_data)),
                 #{
                     desc => ?DESC("action_parameters_data"),
-                    required => true
+                    default => []
                 }
             )}
     ] ++
