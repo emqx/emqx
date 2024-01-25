@@ -34,6 +34,7 @@
 ]).
 
 -export([render_template/2]).
+-export([convert_server/2]).
 
 %% emqx_connector_resource behaviour callbacks
 -export([connector_config/2]).
@@ -92,7 +93,7 @@ connector_example_values() ->
             <<"username">> => <<"root">>,
             <<"password">> => <<"******">>
         },
-        base_url => <<"http://127.0.0.1:9200/">>,
+        server => <<"127.0.0.1:9200">>,
         connect_timeout => <<"15s">>,
         pool_type => <<"random">>,
         pool_size => 8,
@@ -116,14 +117,7 @@ fields(config) ->
         fields("connection_fields");
 fields("connection_fields") ->
     [
-        {base_url,
-            ?HOCON(
-                emqx_schema:url(),
-                #{
-                    required => true,
-                    desc => ?DESC(emqx_bridge_es, "config_base_url")
-                }
-            )},
+        {server, server()},
         {authentication,
             ?HOCON(
                 ?UNION([?R_REF(auth_basic)]),
@@ -158,30 +152,36 @@ desc(auth_basic) ->
     "Basic Authentication";
 desc(Method) when Method =:= "get"; Method =:= "put"; Method =:= "post" ->
     ["Configuration for Elastic Search using `", string:to_upper(Method), "` method."];
+desc("server") ->
+    ?DESC("server");
 desc(_) ->
     undefined.
 
+server() ->
+    Meta = #{
+        required => true,
+        default => <<"127.0.0.1:9200">>,
+        desc => ?DESC("server"),
+        converter => fun ?MODULE:convert_server/2
+    },
+    emqx_schema:servers_sc(Meta, #{default_port => 9200}).
+
+convert_server(<<"http://", Server/binary>>, HoconOpts) ->
+    convert_server(Server, HoconOpts);
+convert_server(<<"https://", Server/binary>>, HoconOpts) ->
+    convert_server(Server, HoconOpts);
+convert_server(Server0, HoconOpts) ->
+    Server = string:trim(Server0, trailing, "/"),
+    emqx_schema:convert_servers(Server, HoconOpts).
+
 connector_config(Conf, #{name := Name, parse_confs := ParseConfs}) ->
-    #{
-        base_url := BaseUrl,
-        authentication :=
-            #{
-                username := Username,
-                password := Password0
-            }
-    } = Conf,
-
-    Password = emqx_secret:unwrap(Password0),
-    Base64 = base64:encode(<<Username/binary, ":", Password/binary>>),
-    BasicToken = <<"Basic ", Base64/binary>>,
-
     WebhookConfig =
         Conf#{
             method => <<"post">>,
-            url => BaseUrl,
+            url => base_url(Conf),
             headers => [
                 {<<"Content-type">>, <<"application/json">>},
-                {<<"Authorization">>, BasicToken}
+                {<<"Authorization">>, basic_token(Conf)}
             ]
         },
     ParseConfs(
@@ -190,6 +190,19 @@ connector_config(Conf, #{name := Name, parse_confs := ParseConfs}) ->
         WebhookConfig
     ).
 
+basic_token(#{
+    authentication :=
+        #{
+            username := Username,
+            password := Password0
+        }
+}) ->
+    Password = emqx_secret:unwrap(Password0),
+    Base64 = base64:encode(<<Username/binary, ":", Password/binary>>),
+    <<"Basic ", Base64/binary>>.
+
+base_url(#{ssl := #{enable := true}, server := Server}) -> "https://" ++ Server;
+base_url(#{server := Server}) -> "http://" ++ Server.
 %%-------------------------------------------------------------------------------------
 %% `emqx_resource' API
 %%-------------------------------------------------------------------------------------
@@ -316,6 +329,10 @@ on_get_channel_status(_InstanceId, ChannelId, #{channels := Channels}) ->
             {error, not_exists}
     end.
 
+render_template([<<"update_without_doc_template">>], Msg) ->
+    emqx_utils_json:encode(#{<<"doc">> => Msg});
+render_template([<<"create_without_doc_template">>], Msg) ->
+    emqx_utils_json:encode(#{<<"doc">> => Msg, <<"doc_as_upsert">> => true});
 render_template(Template, Msg) ->
     % Ignoring errors here, undefined bindings will be replaced with empty string.
     Opts = #{var_trans => fun to_string/2},
@@ -394,6 +411,11 @@ get_body_template(#{action := update, doc := Doc} = Template) ->
     case maps:get(doc_as_upsert, Template, false) of
         false -> <<"{\"doc\":", Doc/binary, "}">>;
         true -> <<"{\"doc\":", Doc/binary, ",\"doc_as_upsert\": true}">>
+    end;
+get_body_template(#{action := update} = Template) ->
+    case maps:get(doc_as_upsert, Template, false) of
+        false -> <<"update_without_doc_template">>;
+        true -> <<"create_without_doc_template">>
     end;
 get_body_template(#{doc := Doc}) ->
     Doc;

@@ -21,7 +21,7 @@ endif
 # Dashboard version
 # from https://github.com/emqx/emqx-dashboard5
 export EMQX_DASHBOARD_VERSION ?= v1.6.1
-export EMQX_EE_DASHBOARD_VERSION ?= e1.5.0-beta.3
+export EMQX_EE_DASHBOARD_VERSION ?= e1.5.0-beta.8
 
 PROFILE ?= emqx
 REL_PROFILES := emqx emqx-enterprise

@@ -31,10 +31,13 @@ all() ->
     emqx_common_test_helpers:all(?MODULE).
 
 init_per_suite(Config) ->
+    meck:new(emqx_retainer, [non_strict, passthrough, no_history, no_link]),
+    meck:expect(emqx_retainer, retained_count, fun() -> 0 end),
     emqx_mgmt_api_test_util:init_suite([]),
     Config.
 
 end_per_suite(_Config) ->
+    meck:unload([emqx_retainer]),
     emqx_mgmt_api_test_util:end_suite([]).
 
 t_monitor_samplers_all(_Config) ->
@@ -198,5 +201,5 @@ waiting_emqx_stats_and_monitor_update(WaitKey) ->
     end,
     meck:unload([emqx_stats]),
     %% manually call monitor update
-    _ = emqx_dashboard_monitor:current_rate(),
+    _ = emqx_dashboard_monitor:current_rate_cluster(),
     ok.

@@ -107,7 +107,7 @@ parse_connector_id(ConnectorId) ->
     {atom(), atom() | binary()}.
 parse_connector_id(<<"connector:", ConnectorId/binary>>, Opts) ->
     parse_connector_id(ConnectorId, Opts);
-parse_connector_id(<<?TEST_ID_PREFIX, ConnectorId/binary>>, Opts) ->
+parse_connector_id(<<?TEST_ID_PREFIX, _:16/binary, ConnectorId/binary>>, Opts) ->
     parse_connector_id(ConnectorId, Opts);
 parse_connector_id(ConnectorId, Opts) ->
     emqx_resource:parse_resource_id(ConnectorId, Opts).
@@ -229,7 +229,10 @@ create_dry_run(Type, Conf0, Callback) ->
     TypeBin = bin(Type),
     TypeAtom = safe_atom(Type),
     %% We use a fixed name here to avoid creating an atom
-    TmpName = iolist_to_binary([?TEST_ID_PREFIX, TypeBin, ":", <<"probedryrun">>]),
+    %% to avoid potential race condition, the resource id should be unique
+    Prefix = emqx_resource_manager:make_test_id(),
+    TmpName =
+        iolist_to_binary([Prefix, TypeBin, ":", <<"probedryrun">>]),
     TmpPath = emqx_utils:safe_filename(TmpName),
     Conf1 = maps:without([<<"name">>], Conf0),
     RawConf = #{<<"connectors">> => #{TypeBin => #{<<"temp_name">> => Conf1}}},

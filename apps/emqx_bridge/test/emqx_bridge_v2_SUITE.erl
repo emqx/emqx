@@ -606,12 +606,22 @@ t_load_no_matching_connector(_Config) ->
     },
     ?assertMatch(
         {error,
-            {post_config_update, _HandlerMod, #{
-                bridge_name := my_test_bridge_update,
-                connector_name := <<"unknown">>,
-                bridge_type := _,
-                reason := <<"connector_not_found_or_wrong_type">>
-            }}},
+            {post_config_update, _HandlerMod, [
+                #{
+                    errors := [
+                        {
+                            {_, my_test_bridge_update},
+                            {error, #{
+                                bridge_name := my_test_bridge_update,
+                                connector_name := <<"unknown">>,
+                                bridge_type := _,
+                                reason := <<"connector_not_found_or_wrong_type">>
+                            }}
+                        }
+                    ],
+                    action := update
+                }
+            ]}},
         update_root_config(RootConf0)
     ),
 
@@ -623,12 +633,22 @@ t_load_no_matching_connector(_Config) ->
     },
     ?assertMatch(
         {error,
-            {post_config_update, _HandlerMod, #{
-                bridge_name := my_test_bridge_new,
-                connector_name := <<"unknown">>,
-                bridge_type := _,
-                reason := <<"connector_not_found_or_wrong_type">>
-            }}},
+            {post_config_update, _HandlerMod, [
+                #{
+                    errors := [
+                        {
+                            {_, my_test_bridge_new},
+                            {error, #{
+                                bridge_name := my_test_bridge_new,
+                                connector_name := <<"unknown">>,
+                                bridge_type := _,
+                                reason := <<"connector_not_found_or_wrong_type">>
+                            }}
+                        }
+                    ],
+                    action := create
+                }
+            ]}},
         update_root_config(RootConf1)
     ),
 

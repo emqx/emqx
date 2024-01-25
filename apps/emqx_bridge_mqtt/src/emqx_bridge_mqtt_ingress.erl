@@ -18,6 +18,7 @@
 
 -include_lib("emqx/include/logger.hrl").
 -include_lib("emqx/include/emqx_mqtt.hrl").
+-include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
 %% management APIs
 -export([
@@ -284,9 +285,10 @@ maybe_on_message_received(Msg, {Mod, Func, Args}) ->
 maybe_on_message_received(_Msg, undefined) ->
     ok.
 
-maybe_publish_local(Msg, Local = #{}, Props) ->
+maybe_publish_local(Msg, Local = #{topic := Topic}, Props) when Topic =/= undefined ->
+    ?tp(mqtt_ingress_publish_local, #{msg => Msg, local => Local}),
     emqx_broker:publish(to_broker_msg(Msg, Local, Props));
-maybe_publish_local(_Msg, undefined, _Props) ->
+maybe_publish_local(_Msg, _Local, _Props) ->
     ok.
 
 %%

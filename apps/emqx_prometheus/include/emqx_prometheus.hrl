@@ -16,3 +16,30 @@
 
 -define(APP, emqx_prometheus).
 -define(PROMETHEUS, [prometheus]).
+
+-define(PROMETHEUS_DEFAULT_REGISTRY, default).
+-define(PROMETHEUS_AUTH_REGISTRY, '/prometheus/auth').
+-define(PROMETHEUS_AUTH_COLLECTOR, emqx_prometheus_auth).
+-define(PROMETHEUS_DATA_INTEGRATION_REGISTRY, '/prometheus/data_integration').
+-define(PROMETHEUS_DATA_INTEGRATION_COLLECTOR, emqx_prometheus_data_integration).
+
+-define(PROMETHEUS_ALL_REGISTRYS, [
+    ?PROMETHEUS_DEFAULT_REGISTRY,
+    ?PROMETHEUS_AUTH_REGISTRY,
+    ?PROMETHEUS_DATA_INTEGRATION_REGISTRY
+]).
+
+-define(PROM_DATA_MODE__NODE, node).
+-define(PROM_DATA_MODE__ALL_NODES_AGGREGATED, all_nodes_aggregated).
+-define(PROM_DATA_MODE__ALL_NODES_UNAGGREGATED, all_nodes_unaggregated).
+
+-define(PROM_DATA_MODES, [
+    ?PROM_DATA_MODE__NODE,
+    ?PROM_DATA_MODE__ALL_NODES_AGGREGATED,
+    ?PROM_DATA_MODE__ALL_NODES_UNAGGREGATED
+]).
+
+-define(PROM_DATA_MODE_KEY__, prom_data_mode).
+
+-define(PUT_PROM_DATA_MODE(MODE__), erlang:put(?PROM_DATA_MODE_KEY__, MODE__)).
+-define(GET_PROM_DATA_MODE(), erlang:get(?PROM_DATA_MODE_KEY__)).

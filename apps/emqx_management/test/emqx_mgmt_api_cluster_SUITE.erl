@@ -190,7 +190,7 @@ t_cluster_invite_async(Config) ->
         lists:sort(Core1Resp)
     ),
 
-    %% force leave the core2 and replicant
+    %% force leave the core2
     {204} = rpc:call(
         Core1,
         emqx_mgmt_api_cluster,
@@ -260,7 +260,41 @@ t_cluster_invite_async(Config) ->
             }
         ],
         lists:sort(Core1Resp3)
-    ).
+    ),
+
+    %% force leave the core2
+    {204} = rpc:call(
+        Core1,
+        emqx_mgmt_api_cluster,
+        force_leave,
+        [delete, #{bindings => #{node => atom_to_binary(Core2)}}]
+    ),
+    %% invite core2 again
+    ?assertMatch(
+        {200},
+        Invite(Core2)
+    ),
+
+    %% assert: core2 is in_progress status
+    {200, InvitationStatus1} = rpc:call(Core1, emqx_mgmt_api_cluster, get_invitation_status, [
+        get, #{}
+    ]),
+    ?assertMatch(
+        #{succeed := [], in_progress := [#{node := Core2}], failed := []},
+        InvitationStatus1
+    ),
+
+    %% waiting the async invitation_succeed
+    ?assertMatch({succeed, _}, waiting_the_async_invitation_succeed(Core1, Core2)),
+
+    {200, InvitationStatus2} = rpc:call(Core1, emqx_mgmt_api_cluster, get_invitation_status, [
+        get, #{}
+    ]),
+    ?assertMatch(
+        #{succeed := [#{node := Core2}], in_progress := [], failed := []},
+        InvitationStatus2
+    ),
+    ok.
 
 cluster(Config) ->
     NodeSpec = #{apps => ?APPS},

@@ -69,7 +69,8 @@ handle_call({invite_async, Node, JoinTo}, _From, State) ->
         undefined ->
             Caller = self(),
             Task = spawn_link_invite_worker(Node, JoinTo, Caller),
-            {reply, ok, State#{Node => Task}};
+            State1 = remove_finished_task(Node, State),
+            {reply, ok, State1#{Node => Task}};
         WorkerPid ->
             {reply, {error, {already_started, WorkerPid}}, State}
     end;
@@ -156,6 +157,11 @@ find_node_name_via_worker_pid(WorkerPid, {Key, Task, I}) ->
         _ ->
             find_node_name_via_worker_pid(WorkerPid, maps:next(I))
     end.
+
+remove_finished_task(Node, State = #{history := History}) ->
+    State#{history => maps:remove(Node, History)};
+remove_finished_task(_Node, State) ->
+    State.
 
 state_to_invitation_status(State) ->
     History = maps:get(history, State, #{}),

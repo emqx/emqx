@@ -166,6 +166,8 @@ names() ->
         emqx_live_connections_max,
         emqx_sessions_count,
         emqx_sessions_max,
+        emqx_channels_count,
+        emqx_channels_max,
         emqx_topics_count,
         emqx_topics_max,
         emqx_suboptions_count,

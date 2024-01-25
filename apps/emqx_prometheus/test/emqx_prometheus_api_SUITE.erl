@@ -128,8 +128,8 @@ t_legacy_prometheus_api(_) ->
     Conf2 = emqx_utils_json:decode(Response2, [return_maps]),
     ?assertEqual(NewConf, Conf2),
 
-    EnvCollectors = application:get_env(prometheus, collectors, []),
-    PromCollectors = prometheus_registry:collectors(default),
+    EnvCollectors = env_collectors(),
+    PromCollectors = all_collectors(),
     ?assertEqual(lists:sort(EnvCollectors), lists:sort(PromCollectors)),
     ?assert(lists:member(prometheus_vm_statistics_collector, EnvCollectors), EnvCollectors),
 
@@ -221,8 +221,8 @@ t_prometheus_api(_) ->
     Conf2 = emqx_utils_json:decode(Response2, [return_maps]),
     ?assertMatch(NewConf, Conf2),
 
-    EnvCollectors = application:get_env(prometheus, collectors, []),
-    PromCollectors = prometheus_registry:collectors(default),
+    EnvCollectors = env_collectors(),
+    PromCollectors = all_collectors(),
     ?assertEqual(lists:sort(EnvCollectors), lists:sort(PromCollectors)),
     ?assert(lists:member(prometheus_vm_statistics_collector, EnvCollectors), EnvCollectors),
 
@@ -308,3 +308,16 @@ request_stats(JsonAuth, Auth) ->
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %%% Internal Functions
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+env_collectors() ->
+    do_env_collectors(application:get_env(prometheus, collectors, []), []).
+
+do_env_collectors([], Acc) ->
+    lists:reverse(Acc);
+do_env_collectors([{_Registry, Collector} | Rest], Acc) when is_atom(Collector) ->
+    do_env_collectors(Rest, [Collector | Acc]);
+do_env_collectors([Collector | Rest], Acc) when is_atom(Collector) ->
+    do_env_collectors(Rest, [Collector | Acc]).
+
+all_collectors() ->
+    emqx_prometheus_config:all_collectors().

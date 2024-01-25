@@ -67,6 +67,9 @@ init([]) ->
     Children =
         case emqx_prometheus_config:is_push_gateway_server_enabled(Conf) of
             false -> [];
+            %% TODO: add push gateway for endpoints
+            %% `/prometheus/auth`
+            %% `/prometheus/data_integration`
             true -> [?CHILD(emqx_prometheus, Conf)]
         end,
     {ok, {{one_for_one, 10, 3600}, Children}}.

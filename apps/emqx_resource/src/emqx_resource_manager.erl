@@ -50,7 +50,8 @@
 ]).
 
 -export([
-    set_resource_status_connecting/1
+    set_resource_status_connecting/1,
+    make_test_id/0
 ]).
 
 % Server

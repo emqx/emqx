@@ -44,7 +44,11 @@ api_spec() ->
     emqx_dashboard_swagger:spec(?MODULE, #{check_schema => true}).
 
 paths() ->
-    [?PREFIX, ?PREFIX ++ "/messages", ?PREFIX ++ "/message/:topic"].
+    [
+        ?PREFIX,
+        ?PREFIX ++ "/messages",
+        ?PREFIX ++ "/message/:topic"
+    ].
 
 schema(?PREFIX) ->
     #{

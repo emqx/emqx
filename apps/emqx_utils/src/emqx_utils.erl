@@ -51,6 +51,8 @@
     gen_id/0,
     gen_id/1,
     explain_posix/1,
+    pforeach/2,
+    pforeach/3,
     pmap/2,
     pmap/3,
     readable_error_msg/1,
@@ -423,6 +425,15 @@ explain_posix(estale) -> "Stale remote file handle";
 explain_posix(exdev) -> "Cross-domain link";
 explain_posix(NotPosix) -> NotPosix.
 
+-spec pforeach(fun((A) -> term()), list(A)) -> ok.
+pforeach(Fun, List) when is_function(Fun, 1), is_list(List) ->
+    pforeach(Fun, List, ?DEFAULT_PMAP_TIMEOUT).
+
+-spec pforeach(fun((A) -> term()), list(A), timeout()) -> ok.
+pforeach(Fun, List, Timeout) ->
+    _ = pmap(Fun, List, Timeout),
+    ok.
+
 %% @doc Like lists:map/2, only the callback function is evaluated
 %% concurrently.
 -spec pmap(fun((A) -> B), list(A)) -> list(B).
@@ -431,7 +442,9 @@ pmap(Fun, List) when is_function(Fun, 1), is_list(List) ->
 
 -spec pmap(fun((A) -> B), list(A), timeout()) -> list(B).
 pmap(Fun, List, Timeout) when
-    is_function(Fun, 1), is_list(List), is_integer(Timeout), Timeout >= 0
+    is_function(Fun, 1),
+    is_list(List),
+    (is_integer(Timeout) andalso Timeout >= 0 orelse Timeout =:= infinity)
 ->
     nolink_apply(fun() -> do_parallel_map(Fun, List) end, Timeout).
 

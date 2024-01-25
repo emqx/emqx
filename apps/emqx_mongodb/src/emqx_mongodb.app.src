@@ -1,12 +1,11 @@
 {application, emqx_mongodb, [
     {description, "EMQX MongoDB Connector"},
-    {vsn, "0.1.4"},
+    {vsn, "0.1.5"},
     {registered, []},
     {applications, [
         kernel,
         stdlib,
         mongodb,
-        emqx_connector,
         emqx_resource
     ]},
     {env, []},
