@@ -205,6 +205,8 @@ collect_di(K = emqx_rule_actions_failed_out_of_service, Data) -> counter_metrics
 collect_di(K = emqx_rule_actions_failed_unknown, Data) -> counter_metrics(?MG(K, Data));
 %%====================
 %% Action Metric
+collect_di(K = emqx_action_enable, Data) -> gauge_metrics(?MG(K, Data));
+collect_di(K = emqx_action_status, Data) -> gauge_metrics(?MG(K, Data));
 collect_di(K = emqx_action_matched, Data) -> counter_metrics(?MG(K, Data));
 collect_di(K = emqx_action_dropped, Data) -> counter_metrics(?MG(K, Data));
 collect_di(K = emqx_action_success, Data) -> counter_metrics(?MG(K, Data));
@@ -375,6 +377,8 @@ get_metric(#{id := Id, enable := Bool} = _Rule) ->
 
 action_metric_meta() ->
     [
+        {emqx_action_enable, gauge},
+        {emqx_action_status, gauge},
         {emqx_action_matched, counter},
         {emqx_action_dropped, counter},
         {emqx_action_success, counter},
@@ -398,9 +402,11 @@ action_metric(names) ->
 
 action_metric_data(Mode, Bridges) ->
     lists:foldl(
-        fun(#{type := Type, name := Name} = _Bridge, AccIn) ->
+        fun(#{type := Type, name := Name} = Action, AccIn) ->
             Id = emqx_bridge_resource:bridge_id(Type, Name),
-            merge_acc_with_bridges(Mode, Id, get_bridge_metric(Type, Name), AccIn)
+            Status = get_action_status(Action),
+            Metrics = get_action_metric(Type, Name),
+            merge_acc_with_bridges(Mode, Id, maps:merge(Status, Metrics), AccIn)
         end,
         maps:from_keys(action_metric(names), []),
         Bridges
@@ -415,10 +421,18 @@ merge_acc_with_bridges(Mode, Id, BridgeMetrics, PointsAcc) ->
         BridgeMetrics
     ).
 
+get_action_status(#{resource_data := ResourceData} = _Action) ->
+    Enable = emqx_utils_maps:deep_get([config, enable], ResourceData),
+    Status = ?MG(status, ResourceData),
+    #{
+        emqx_action_enable => emqx_prometheus_cluster:boolean_to_number(Enable),
+        emqx_action_status => emqx_prometheus_cluster:status_to_number(Status)
+    }.
+
 action_point(Mode, Id, V) ->
     {with_node_label(Mode, [{id, Id}]), V}.
 
-get_bridge_metric(Type, Name) ->
+get_action_metric(Type, Name) ->
     #{counters := Counters, gauges := Gauges} = emqx_bridge_v2:get_metrics(Type, Name),
     #{
         emqx_action_matched => ?MG0(matched, Counters),
