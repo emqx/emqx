@@ -3,6 +3,7 @@
 %%--------------------------------------------------------------------
 
 -module(emqx_bridge_kinesis).
+
 -include_lib("typerefl/include/types.hrl").
 -include_lib("hocon/include/hoconsc.hrl").
 
@@ -15,8 +16,13 @@
 ]).
 
 -export([
-    conn_bridge_examples/1
+    bridge_v2_examples/1,
+    conn_bridge_examples/1,
+    connector_examples/1
 ]).
+
+-define(CONNECTOR_TYPE, kinesis).
+-define(ACTION_TYPE, ?CONNECTOR_TYPE).
 
 %%-------------------------------------------------------------------------------------------------
 %% `hocon_schema' API
@@ -28,6 +34,37 @@ namespace() ->
 roots() ->
     [].
 
+fields(Field) when
+    Field == "get_connector";
+    Field == "put_connector";
+    Field == "post_connector"
+->
+    emqx_connector_schema:api_fields(
+        Field,
+        ?CONNECTOR_TYPE,
+        connector_config_fields()
+    );
+fields(action) ->
+    {?ACTION_TYPE,
+        hoconsc:mk(
+            hoconsc:map(name, hoconsc:ref(?MODULE, kinesis_action)),
+            #{
+                desc => <<"Kinesis Action Config">>,
+                required => false
+            }
+        )};
+fields(action_parameters) ->
+    fields(producer);
+fields(kinesis_action) ->
+    emqx_bridge_v2_schema:make_producer_action_schema(
+        hoconsc:mk(
+            hoconsc:ref(?MODULE, action_parameters),
+            #{
+                required => true,
+                desc => ?DESC("action_parameters")
+            }
+        )
+    );
 fields("config_producer") ->
     emqx_bridge_schema:common_bridge_fields() ++
         fields("resource_opts") ++
@@ -134,27 +171,94 @@ fields("get_producer") ->
 fields("post_producer") ->
     [type_field_producer(), name_field() | fields("config_producer")];
 fields("put_producer") ->
-    fields("config_producer").
+    fields("config_producer");
+fields("config_connector") ->
+    emqx_connector_schema:common_fields() ++
+        connector_config_fields() ++
+        emqx_connector_schema:resource_opts_ref(?MODULE, connector_resource_opts);
+fields(connector_resource_opts) ->
+    emqx_connector_schema:resource_opts_fields();
+fields(Field) when
+    Field == "get_bridge_v2";
+    Field == "post_bridge_v2";
+    Field == "put_bridge_v2"
+->
+    emqx_bridge_v2_schema:api_fields(Field, ?ACTION_TYPE, fields(kinesis_action)).
 
 desc("config_producer") ->
     ?DESC("desc_config");
 desc("creation_opts") ->
     ?DESC(emqx_resource_schema, "creation_opts");
+desc("config_connector") ->
+    ?DESC("config_connector");
+desc(kinesis_action) ->
+    ?DESC("kinesis_action");
+desc(action_parameters) ->
+    ?DESC("action_parameters");
+desc(connector_resource_opts) ->
+    ?DESC(emqx_resource_schema, "resource_opts");
 desc(_) ->
     undefined.
 
-conn_bridge_examples(Method) ->
+conn_bridge_examples(_Method) ->
     [
         #{
             <<"kinesis_producer">> => #{
                 summary => <<"Amazon Kinesis Producer Bridge">>,
-                value => values(producer, Method)
+                value => conn_bridge_values()
             }
         }
     ].
 
-values(producer, _Method) ->
+connector_examples(Method) ->
+    [
+        #{
+            <<"kinesis">> =>
+                #{
+                    summary => <<"Kinesis Connector">>,
+                    value => emqx_connector_schema:connector_values(
+                        Method, ?CONNECTOR_TYPE, connector_values()
+                    )
+                }
+        }
+    ].
+
+connector_values() ->
     #{
+        <<"aws_access_key_id">> => <<"your_access_key">>,
+        <<"aws_secret_access_key">> => <<"aws_secret_key">>,
+        <<"endpoint">> => <<"http://localhost:4566">>,
+        <<"max_retries">> => 2,
+        <<"pool_size">> => 8
+    }.
+
+bridge_v2_examples(Method) ->
+    [
+        #{
+            <<"kinesis">> =>
+                #{
+                    summary => <<"Kinesis Action">>,
+                    value => emqx_bridge_v2_schema:action_values(
+                        Method, ?ACTION_TYPE, ?CONNECTOR_TYPE, action_values()
+                    )
+                }
+        }
+    ].
+
+action_values() ->
+    #{
+        parameters => #{
+            <<"partition_key">> => <<"any_key">>,
+            <<"payload_template">> => <<"${.}">>,
+            <<"stream_name">> => <<"my_stream">>
+        }
+    }.
+
+conn_bridge_values() ->
+    #{
+        enable => true,
+        type => kinesis_producer,
+        name => <<"foo">>,
         aws_access_key_id => <<"aws_access_key_id">>,
         aws_secret_access_key => <<"******">>,
         endpoint => <<"https://kinesis.us-east-1.amazonaws.com">>,
@@ -173,6 +277,9 @@ values(producer, _Method) ->
 %%-------------------------------------------------------------------------------------------------
 %% Helper fns
 %%-------------------------------------------------------------------------------------------------
+
+connector_config_fields() ->
+    fields(connector_config).
 
 sc(Type, Meta) -> hoconsc:mk(Type, Meta).
 

@@ -89,6 +89,7 @@ hard_coded_action_info_modules_ee() ->
         emqx_bridge_confluent_producer_action_info,
         emqx_bridge_gcp_pubsub_producer_action_info,
         emqx_bridge_kafka_action_info,
+        emqx_bridge_kinesis_action_info,
         emqx_bridge_matrix_action_info,
         emqx_bridge_mongodb_action_info,
         emqx_bridge_influxdb_action_info,

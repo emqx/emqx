@@ -30,6 +30,8 @@ resource_type(gcp_pubsub_producer) ->
     emqx_bridge_gcp_pubsub_impl_producer;
 resource_type(kafka_producer) ->
     emqx_bridge_kafka_impl_producer;
+resource_type(kinesis) ->
+    emqx_bridge_kinesis_impl_producer;
 resource_type(matrix) ->
     emqx_postgresql;
 resource_type(mongodb) ->
@@ -109,6 +111,14 @@ connector_structs() ->
                 hoconsc:map(name, ref(emqx_bridge_kafka, "config_connector")),
                 #{
                     desc => <<"Kafka Connector Config">>,
+                    required => false
+                }
+            )},
+        {kinesis,
+            mk(
+                hoconsc:map(name, ref(emqx_bridge_kinesis, "config_connector")),
+                #{
+                    desc => <<"Kinesis Connector Config">>,
                     required => false
                 }
             )},
@@ -224,6 +234,7 @@ schema_modules() ->
         emqx_bridge_confluent_producer,
         emqx_bridge_gcp_pubsub_producer_schema,
         emqx_bridge_kafka,
+        emqx_bridge_kinesis,
         emqx_bridge_matrix,
         emqx_bridge_mongodb,
         emqx_bridge_influxdb,
@@ -255,6 +266,7 @@ api_schemas(Method) ->
             Method ++ "_connector"
         ),
         api_ref(emqx_bridge_kafka, <<"kafka_producer">>, Method ++ "_connector"),
+        api_ref(emqx_bridge_kinesis, <<"kinesis">>, Method ++ "_connector"),
         api_ref(emqx_bridge_matrix, <<"matrix">>, Method ++ "_connector"),
         api_ref(emqx_bridge_mongodb, <<"mongodb">>, Method ++ "_connector"),
         api_ref(emqx_bridge_influxdb, <<"influxdb">>, Method ++ "_connector"),
