@@ -76,7 +76,8 @@ start_listeners(Listeners) ->
         security => [#{'basicAuth' => []}, #{'bearerAuth' => []}],
         swagger_global_spec => GlobalSpec,
         dispatch => dispatch(),
-        middlewares => [?EMQX_MIDDLE, cowboy_router, cowboy_handler]
+        middlewares => [?EMQX_MIDDLE, cowboy_router, cowboy_handler],
+        swagger_support => emqx:get_config([dashboard, swagger_support], true)
     },
     {OkListeners, ErrListeners} =
         lists:foldl(
