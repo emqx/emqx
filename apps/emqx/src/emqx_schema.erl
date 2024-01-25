@@ -1896,6 +1896,7 @@ fields("session_storage_backend_builtin") ->
                 string(),
                 #{
                     desc => ?DESC(session_builtin_data_dir),
+                    mapping => "emqx_durable_storage.db_data_dir",
                     required => false,
                     importance => ?IMPORTANCE_LOW
                 }
