@@ -584,7 +584,14 @@ is_tcp_server_available(Host, Port) ->
     Timeout :: integer()
 ) -> boolean.
 is_tcp_server_available(Host, Port, Timeout) ->
-    case gen_tcp:connect(Host, Port, [], Timeout) of
+    case
+        gen_tcp:connect(
+            emqx_utils_conv:str(Host),
+            emqx_utils_conv:int(Port),
+            [],
+            Timeout
+        )
+    of
         {ok, Socket} ->
             gen_tcp:close(Socket),
             true;

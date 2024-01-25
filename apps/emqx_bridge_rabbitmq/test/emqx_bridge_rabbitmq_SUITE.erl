@@ -14,7 +14,8 @@
 
 %% See comment in
 %% apps/emqx_bridge_rabbitmq/test/emqx_bridge_rabbitmq_connector_SUITE.erl for how to
-%% run this without bringing up the whole CI infrastucture
+%% run this without bringing up the whole CI infrastructure
+-define(TYPE, <<"rabbitmq">>).
 
 rabbit_mq_host() ->
     <<"rabbitmq">>.
@@ -34,8 +35,14 @@ rabbit_mq_routing_key() ->
 get_channel_connection(Config) ->
     proplists:get_value(channel_connection, Config).
 
+get_rabbitmq(Config) ->
+    proplists:get_value(rabbitmq, Config).
+
+get_tls(Config) ->
+    proplists:get_value(tls, Config).
+
 %%------------------------------------------------------------------------------
-%% Common Test Setup, Teardown and Testcase List
+%% Common Test Setup, Tear down and Testcase List
 %%------------------------------------------------------------------------------
 
 all() ->
@@ -101,35 +108,25 @@ common_init_per_group(Opts) ->
     {ok, _} = application:ensure_all_started(emqx_connector),
     {ok, _} = application:ensure_all_started(amqp_client),
     emqx_mgmt_api_test_util:init_suite(),
-    ChannelConnection = setup_rabbit_mq_exchange_and_queue(Opts),
-    [{channel_connection, ChannelConnection}].
+    #{host := Host, port := Port, tls := UseTLS} = Opts,
+    ChannelConnection = setup_rabbit_mq_exchange_and_queue(Host, Port, UseTLS),
+    [
+        {channel_connection, ChannelConnection},
+        {rabbitmq, #{server => Host, port => Port}},
+        {tls, UseTLS}
+    ].
 
-setup_rabbit_mq_exchange_and_queue(#{host := RabbitMQHost, port := RabbitMQPort, tls := UseTLS}) ->
+setup_rabbit_mq_exchange_and_queue(Host, Port, UseTLS) ->
     SSLOptions =
         case UseTLS of
-            false ->
-                none;
-            true ->
-                CertsDir = filename:join([
-                    emqx_common_test_helpers:proj_root(),
-                    ".ci",
-                    "docker-compose-file",
-                    "certs"
-                ]),
-                emqx_tls_lib:to_client_opts(
-                    #{
-                        enable => true,
-                        cacertfile => filename:join([CertsDir, "ca.crt"]),
-                        certfile => filename:join([CertsDir, "client.pem"]),
-                        keyfile => filename:join([CertsDir, "client.key"])
-                    }
-                )
+            false -> none;
+            true -> emqx_tls_lib:to_client_opts(ssl_options(UseTLS))
         end,
-    %% Create an exachange and a queue
+    %% Create an exchange and a queue
     {ok, Connection} =
         amqp_connection:start(#amqp_params_network{
-            host = RabbitMQHost,
-            port = RabbitMQPort,
+            host = Host,
+            port = Port,
             ssl_options = SSLOptions
         }),
     {ok, Channel} = amqp_connection:open_channel(Connection),
@@ -184,8 +181,7 @@ init_per_testcase(_, Config) ->
 end_per_testcase(_, _Config) ->
     ok.
 
-rabbitmq_config(Config) ->
-    %%SQL = maps:get(sql, Config, sql_insert_template_for_bridge()),
+rabbitmq_config(UseTLS, Config) ->
     BatchSize = maps:get(batch_size, Config, 1),
     BatchTime = maps:get(batch_time_ms, Config, 0),
     Name = atom_to_binary(?MODULE),
@@ -196,6 +192,7 @@ rabbitmq_config(Config) ->
         io_lib:format(
             "bridges.rabbitmq.~s {\n"
             "  enable = true\n"
+            "  ssl = ~s\n"
             "  server = \"~s\"\n"
             "  port = ~p\n"
             "  username = \"guest\"\n"
@@ -210,6 +207,7 @@ rabbitmq_config(Config) ->
             "}\n",
             [
                 Name,
+                hocon_pp:do(ssl_options(UseTLS), #{embedded => true}),
                 Server,
                 Port,
                 rabbit_mq_routing_key(),
@@ -222,80 +220,86 @@ rabbitmq_config(Config) ->
     ct:pal(ConfigString),
     parse_and_check(ConfigString, <<"rabbitmq">>, Name).
 
+ssl_options(true) ->
+    CertsDir = filename:join([
+        emqx_common_test_helpers:proj_root(),
+        ".ci",
+        "docker-compose-file",
+        "certs"
+    ]),
+    #{
+        enable => true,
+        cacertfile => filename:join([CertsDir, "ca.crt"]),
+        certfile => filename:join([CertsDir, "client.pem"]),
+        keyfile => filename:join([CertsDir, "client.key"])
+    };
+ssl_options(false) ->
+    #{
+        enable => false
+    }.
+
 parse_and_check(ConfigString, BridgeType, Name) ->
     {ok, RawConf} = hocon:binary(ConfigString, #{format => map}),
     hocon_tconf:check_plain(emqx_bridge_schema, RawConf, #{required => false, atom_key => false}),
     #{<<"bridges">> := #{BridgeType := #{Name := RetConfig}}} = RawConf,
     RetConfig.
 
-make_bridge(Config) ->
-    Type = <<"rabbitmq">>,
-    Name = atom_to_binary(?MODULE),
-    BridgeConfig = rabbitmq_config(Config),
-    {ok, _} = emqx_bridge:create(
-        Type,
-        Name,
-        BridgeConfig
-    ),
-    emqx_bridge_resource:bridge_id(Type, Name).
+create_bridge(Name, UseTLS, Config) ->
+    BridgeConfig = rabbitmq_config(UseTLS, Config),
+    {ok, _} = emqx_bridge:create(?TYPE, Name, BridgeConfig),
+    emqx_bridge_resource:bridge_id(?TYPE, Name).
 
-delete_bridge() ->
-    Type = <<"rabbitmq">>,
-    Name = atom_to_binary(?MODULE),
-    ok = emqx_bridge:remove(Type, Name).
+delete_bridge(Name) ->
+    ok = emqx_bridge:remove(?TYPE, Name).
 
 %%------------------------------------------------------------------------------
 %% Test Cases
 %%------------------------------------------------------------------------------
 
-t_make_delete_bridge(_Config) ->
-    make_bridge(#{}),
-    %% Check that the new brige is in the list of bridges
+t_create_delete_bridge(Config) ->
+    Name = atom_to_binary(?FUNCTION_NAME),
+    RabbitMQ = get_rabbitmq(Config),
+    UseTLS = get_tls(Config),
+    create_bridge(Name, UseTLS, RabbitMQ),
     Bridges = emqx_bridge:list(),
-    Name = atom_to_binary(?MODULE),
-    IsRightName =
-        fun
-            (#{name := BName}) when BName =:= Name ->
-                true;
-            (_) ->
-                false
-        end,
-    ?assert(lists:any(IsRightName, Bridges)),
-    delete_bridge(),
+    Any = fun(#{name := BName}) -> BName =:= Name end,
+    ?assert(lists:any(Any, Bridges), Bridges),
+    ok = delete_bridge(Name),
     BridgesAfterDelete = emqx_bridge:list(),
-    ?assertNot(lists:any(IsRightName, BridgesAfterDelete)),
+    ?assertNot(lists:any(Any, BridgesAfterDelete), BridgesAfterDelete),
     ok.
 
-t_make_delete_bridge_non_existing_server(_Config) ->
-    make_bridge(#{server => <<"non_existing_server">>, port => 3174}),
-    %% Check that the new brige is in the list of bridges
+t_create_delete_bridge_non_existing_server(Config) ->
+    Name = atom_to_binary(?FUNCTION_NAME),
+    UseTLS = get_tls(Config),
+    create_bridge(Name, UseTLS, #{server => <<"non_existing_server">>, port => 3174}),
+    %% Check that the new bridge is in the list of bridges
     Bridges = emqx_bridge:list(),
-    Name = atom_to_binary(?MODULE),
-    IsRightName =
-        fun
-            (#{name := BName}) when BName =:= Name ->
-                true;
-            (_) ->
-                false
-        end,
-    ?assert(lists:any(IsRightName, Bridges)),
-    delete_bridge(),
+    Any = fun(#{name := BName}) -> BName =:= Name end,
+    ?assert(lists:any(Any, Bridges)),
+    ok = delete_bridge(Name),
     BridgesAfterDelete = emqx_bridge:list(),
-    ?assertNot(lists:any(IsRightName, BridgesAfterDelete)),
+    ?assertNot(lists:any(Any, BridgesAfterDelete)),
     ok.
 
 t_send_message_query(Config) ->
-    BridgeID = make_bridge(#{batch_size => 1}),
+    Name = atom_to_binary(?FUNCTION_NAME),
+    RabbitMQ = get_rabbitmq(Config),
+    UseTLS = get_tls(Config),
+    BridgeID = create_bridge(Name, UseTLS, RabbitMQ#{batch_size => 1}),
     Payload = #{<<"key">> => 42, <<"data">> => <<"RabbitMQ">>, <<"timestamp">> => 10000},
     %% This will use the SQL template included in the bridge
     emqx_bridge:send_message(BridgeID, Payload),
     %% Check that the data got to the database
     ?assertEqual(Payload, receive_simple_test_message(Config)),
-    delete_bridge(),
+    ok = delete_bridge(Name),
     ok.
 
 t_send_message_query_with_template(Config) ->
-    BridgeID = make_bridge(#{
+    Name = atom_to_binary(?FUNCTION_NAME),
+    RabbitMQ = get_rabbitmq(Config),
+    UseTLS = get_tls(Config),
+    BridgeID = create_bridge(Name, UseTLS, RabbitMQ#{
         batch_size => 1,
         payload_template =>
             <<
@@ -318,24 +322,27 @@ t_send_message_query_with_template(Config) ->
         <<"secret">> => 42
     },
     ?assertEqual(ExpectedResult, receive_simple_test_message(Config)),
-    delete_bridge(),
+    ok = delete_bridge(Name),
     ok.
 
 t_send_simple_batch(Config) ->
-    BridgeConf =
-        #{
-            batch_size => 100
-        },
-    BridgeID = make_bridge(BridgeConf),
+    Name = atom_to_binary(?FUNCTION_NAME),
+    RabbitMQ = get_rabbitmq(Config),
+    BridgeConf = RabbitMQ#{batch_size => 100},
+    UseTLS = get_tls(Config),
+    BridgeID = create_bridge(Name, UseTLS, BridgeConf),
     Payload = #{<<"key">> => 42, <<"data">> => <<"RabbitMQ">>, <<"timestamp">> => 10000},
     emqx_bridge:send_message(BridgeID, Payload),
     ?assertEqual(Payload, receive_simple_test_message(Config)),
-    delete_bridge(),
+    ok = delete_bridge(Name),
     ok.
 
 t_send_simple_batch_with_template(Config) ->
+    Name = atom_to_binary(?FUNCTION_NAME),
+    RabbitMQ = get_rabbitmq(Config),
+    UseTLS = get_tls(Config),
     BridgeConf =
-        #{
+        RabbitMQ#{
             batch_size => 100,
             payload_template =>
                 <<
@@ -347,7 +354,7 @@ t_send_simple_batch_with_template(Config) ->
                     "}"
                 >>
         },
-    BridgeID = make_bridge(BridgeConf),
+    BridgeID = create_bridge(Name, UseTLS, BridgeConf),
     Payload = #{
         <<"key">> => 7,
         <<"data">> => <<"RabbitMQ">>,
@@ -358,20 +365,21 @@ t_send_simple_batch_with_template(Config) ->
         <<"secret">> => 42
     },
     ?assertEqual(ExpectedResult, receive_simple_test_message(Config)),
-    delete_bridge(),
+    ok = delete_bridge(Name),
     ok.
 
 t_heavy_batching(Config) ->
+    Name = atom_to_binary(?FUNCTION_NAME),
     NumberOfMessages = 20000,
-    BridgeConf = #{
+    RabbitMQ = get_rabbitmq(Config),
+    UseTLS = get_tls(Config),
+    BridgeConf = RabbitMQ#{
         batch_size => 10173,
         batch_time_ms => 50
     },
-    BridgeID = make_bridge(BridgeConf),
+    BridgeID = create_bridge(Name, UseTLS, BridgeConf),
     SendMessage = fun(Key) ->
-        Payload = #{
-            <<"key">> => Key
-        },
+        Payload = #{<<"key">> => Key},
         emqx_bridge:send_message(BridgeID, Payload)
     end,
     [SendMessage(Key) || Key <- lists:seq(1, NumberOfMessages)],
@@ -385,7 +393,7 @@ t_heavy_batching(Config) ->
         lists:seq(1, NumberOfMessages)
     ),
     ?assertEqual(NumberOfMessages, maps:size(AllMessages)),
-    delete_bridge(),
+    ok = delete_bridge(Name),
     ok.
 
 receive_simple_test_message(Config) ->
@@ -410,17 +418,6 @@ receive_simple_test_message(Config) ->
             #'basic.cancel_ok'{consumer_tag = ConsumerTag} =
                 amqp_channel:call(Channel, #'basic.cancel'{consumer_tag = ConsumerTag}),
             emqx_utils_json:decode(Content#amqp_msg.payload)
+    after 5000 ->
+        ?assert(false, "Did not receive message within 5 second")
     end.
-
-rabbitmq_config() ->
-    Config =
-        #{
-            server => rabbit_mq_host(),
-            port => 5672,
-            exchange => rabbit_mq_exchange(),
-            routing_key => rabbit_mq_routing_key()
-        },
-    #{<<"config">> => Config}.
-
-test_data() ->
-    #{<<"msg_field">> => <<"Hello">>}.

@@ -39,6 +39,7 @@
     transform_bridge_v1_config_to_action_config/4,
     action_convert_from_connector/3
 ]).
+-export([clean_cache/0]).
 
 -callback bridge_v1_type_name() ->
     atom()
@@ -77,7 +78,7 @@
 ]).
 
 %% ====================================================================
-%% Hadcoded list of info modules for actions
+%% HardCoded list of info modules for actions
 %% TODO: Remove this list once we have made sure that all relevants
 %% apps are loaded before this module is called.
 %% ====================================================================
@@ -103,6 +104,7 @@ hard_coded_action_info_modules_ee() ->
         emqx_bridge_iotdb_action_info,
         emqx_bridge_es_action_info,
         emqx_bridge_opents_action_info,
+        emqx_bridge_rabbitmq_action_info,
         emqx_bridge_greptimedb_action_info,
         emqx_bridge_tdengine_action_info
     ].
@@ -312,6 +314,9 @@ build_cache() ->
     %% Update the persistent term with the new info map
     persistent_term:put(internal_emqx_action_persistent_term_info_key(), ActionInfoMap),
     ActionInfoMap.
+
+clean_cache() ->
+    persistent_term:erase(internal_emqx_action_persistent_term_info_key()).
 
 action_info_modules() ->
     ActionInfoModules = [

@@ -14,18 +14,18 @@
 -include_lib("amqp_client/include/amqp_client.hrl").
 
 %% This test SUITE requires a running RabbitMQ instance. If you don't want to
-%% bring up the whole CI infrastuctucture with the `scripts/ct/run.sh` script
+%% bring up the whole CI infrastructure with the `scripts/ct/run.sh` script
 %% you can create a clickhouse instance with the following command.
 %% 5672 is the default port for AMQP 0-9-1 and 15672 is the default port for
-%% the HTTP managament interface.
+%% the HTTP management interface.
 %%
 %% docker run -it --rm --name rabbitmq -p 127.0.0.1:5672:5672 -p 127.0.0.1:15672:15672 rabbitmq:3.11-management
 
 rabbit_mq_host() ->
-    <<"rabbitmq">>.
+    list_to_binary(os:getenv("RABBITMQ_PLAIN_HOST", "rabbitmq")).
 
 rabbit_mq_port() ->
-    5672.
+    list_to_integer(os:getenv("RABBITMQ_PLAIN_PORT", "5672")).
 
 rabbit_mq_password() ->
     <<"guest">>.
@@ -43,17 +43,16 @@ all() ->
     emqx_common_test_helpers:all(?MODULE).
 
 init_per_suite(Config) ->
-    case
-        emqx_common_test_helpers:is_tcp_server_available(
-            erlang:binary_to_list(rabbit_mq_host()), rabbit_mq_port()
-        )
-    of
+    Host = rabbit_mq_host(),
+    Port = rabbit_mq_port(),
+    ct:pal("rabbitmq:~p~n", [{Host, Port}]),
+    case emqx_common_test_helpers:is_tcp_server_available(Host, Port) of
         true ->
             Apps = emqx_cth_suite:start(
                 [emqx_conf, emqx_connector, emqx_bridge_rabbitmq],
                 #{work_dir => emqx_cth_suite:work_dir(Config)}
             ),
-            ChannelConnection = setup_rabbit_mq_exchange_and_queue(),
+            ChannelConnection = setup_rabbit_mq_exchange_and_queue(Host, Port),
             [{channel_connection, ChannelConnection}, {suite_apps, Apps} | Config];
         false ->
             case os:getenv("IS_CI") of
@@ -64,12 +63,12 @@ init_per_suite(Config) ->
             end
     end.
 
-setup_rabbit_mq_exchange_and_queue() ->
-    %% Create an exachange and a queue
+setup_rabbit_mq_exchange_and_queue(Host, Port) ->
+    %% Create an exchange and a queue
     {ok, Connection} =
         amqp_connection:start(#amqp_params_network{
-            host = erlang:binary_to_list(rabbit_mq_host()),
-            port = rabbit_mq_port()
+            host = binary_to_list(Host),
+            port = Port
         }),
     {ok, Channel} = amqp_connection:open_channel(Connection),
     %% Create an exchange
@@ -122,7 +121,7 @@ end_per_suite(Config) ->
 
 t_lifecycle(Config) ->
     perform_lifecycle_check(
-        erlang:atom_to_binary(?MODULE),
+        erlang:atom_to_binary(?FUNCTION_NAME),
         rabbitmq_config(),
         Config
     ).
@@ -144,12 +143,11 @@ t_start_passfile(Config) ->
     ).
 
 perform_lifecycle_check(ResourceID, InitialConfig, TestConfig) ->
-    #{
-        channel := Channel
-    } = get_channel_connection(TestConfig),
+    #{channel := Channel} = get_channel_connection(TestConfig),
     CheckedConfig = check_config(InitialConfig),
     #{
-        state := #{poolname := PoolName} = State,
+        id := PoolName,
+        state := State,
         status := InitialStatus
     } = create_local_resource(ResourceID, CheckedConfig),
     ?assertEqual(InitialStatus, connected),
@@ -211,9 +209,14 @@ create_local_resource(ResourceID, CheckedConfig) ->
 
 perform_query(PoolName, Channel) ->
     %% Send message to queue:
-    ok = emqx_resource:query(PoolName, {query, test_data()}),
+    ActionConfig = rabbitmq_action_config(),
+    ChannelId = <<"test_channel">>,
+    ?assertEqual(ok, emqx_resource_manager:add_channel(PoolName, ChannelId, ActionConfig)),
+    ok = emqx_resource:query(PoolName, {ChannelId, payload()}),
     %% Get the message from queue:
-    ok = receive_simple_test_message(Channel).
+    ok = receive_simple_test_message(Channel),
+    ?assertEqual(ok, emqx_resource_manager:remove_channel(PoolName, ChannelId)),
+    ok.
 
 receive_simple_test_message(Channel) ->
     #'basic.consume_ok'{consumer_tag = ConsumerTag} =
@@ -238,6 +241,8 @@ receive_simple_test_message(Channel) ->
             #'basic.cancel_ok'{consumer_tag = ConsumerTag} =
                 amqp_channel:call(Channel, #'basic.cancel'{consumer_tag = ConsumerTag}),
             ok
+    after 5000 ->
+        ?assert(false, "Did not receive message within 5 second")
     end.
 
 rabbitmq_config() ->
@@ -255,5 +260,21 @@ rabbitmq_config(Overrides) ->
         },
     #{<<"config">> => maps:merge(Config, Overrides)}.
 
+payload() ->
+    #{<<"payload">> => test_data()}.
+
 test_data() ->
-    #{<<"msg_field">> => <<"Hello">>}.
+    #{<<"Hello">> => <<"World">>}.
+
+rabbitmq_action_config() ->
+    #{
+        config_root => actions,
+        parameters => #{
+            delivery_mode => non_persistent,
+            exchange => rabbit_mq_exchange(),
+            payload_template => <<"${.payload}">>,
+            publish_confirmation_timeout => 30000,
+            routing_key => rabbit_mq_routing_key(),
+            wait_for_publish_confirmations => true
+        }
+    }.

@@ -64,6 +64,8 @@ resource_type(greptimedb) ->
     emqx_bridge_greptimedb_connector;
 resource_type(tdengine) ->
     emqx_bridge_tdengine_connector;
+resource_type(rabbitmq) ->
+    emqx_bridge_rabbitmq_connector;
 resource_type(Type) ->
     error({unknown_connector_type, Type}).
 
@@ -82,6 +84,8 @@ connector_impl_module(opents) ->
     emqx_bridge_opents_connector;
 connector_impl_module(tdengine) ->
     emqx_bridge_tdengine_connector;
+connector_impl_module(rabbitmq) ->
+    emqx_bridge_rabbitmq_connector;
 connector_impl_module(_ConnectorType) ->
     undefined.
 
@@ -258,6 +262,14 @@ connector_structs() ->
                     desc => <<"TDengine Connector Config">>,
                     required => false
                 }
+            )},
+        {rabbitmq,
+            mk(
+                hoconsc:map(name, ref(emqx_bridge_rabbitmq_connector_schema, "config_connector")),
+                #{
+                    desc => <<"RabbitMQ Connector Config">>,
+                    required => false
+                }
             )}
     ].
 
@@ -281,6 +293,7 @@ schema_modules() ->
         emqx_bridge_redis_schema,
         emqx_bridge_iotdb_connector,
         emqx_bridge_es_connector,
+        emqx_bridge_rabbitmq_connector_schema,
         emqx_bridge_opents_connector,
         emqx_bridge_greptimedb,
         emqx_bridge_tdengine_connector
@@ -317,6 +330,7 @@ api_schemas(Method) ->
         api_ref(emqx_bridge_iotdb_connector, <<"iotdb">>, Method),
         api_ref(emqx_bridge_es_connector, <<"elasticsearch">>, Method),
         api_ref(emqx_bridge_opents_connector, <<"opents">>, Method),
+        api_ref(emqx_bridge_rabbitmq_connector_schema, <<"rabbitmq">>, Method),
         api_ref(emqx_bridge_greptimedb, <<"greptimedb">>, Method ++ "_connector"),
         api_ref(emqx_bridge_tdengine_connector, <<"tdengine">>, Method)
     ].

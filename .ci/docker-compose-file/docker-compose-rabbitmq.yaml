@@ -9,10 +9,12 @@ services:
     expose:
       - "15672"
       - "5672"
+      - "5671"
     # We don't want to take ports from the host
-    # ports:
+    #ports:
     #   - "15672:15672"
     #   - "5672:5672"
+    #   - "5671:5671"
     volumes:
       - ./certs/ca.crt:/opt/certs/ca.crt
       - ./certs/server.crt:/opt/certs/server.crt

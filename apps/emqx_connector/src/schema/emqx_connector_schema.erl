@@ -91,7 +91,6 @@ api_schemas(Method) ->
         %% We need to map the `type' field of a request (binary) to a
         %% connector schema module.
         api_ref(emqx_bridge_http_schema, <<"http">>, Method ++ "_connector"),
-        % api_ref(emqx_bridge_mqtt_connector_schema, <<"mqtt_subscriber">>, Method ++ "_connector"),
         api_ref(emqx_bridge_mqtt_connector_schema, <<"mqtt">>, Method ++ "_connector")
     ].
 
@@ -166,7 +165,9 @@ connector_type_to_bridge_types(opents) ->
 connector_type_to_bridge_types(greptimedb) ->
     [greptimedb];
 connector_type_to_bridge_types(tdengine) ->
-    [tdengine].
+    [tdengine];
+connector_type_to_bridge_types(rabbitmq) ->
+    [rabbitmq].
 
 actions_config_name(action) -> <<"actions">>;
 actions_config_name(source) -> <<"sources">>.
