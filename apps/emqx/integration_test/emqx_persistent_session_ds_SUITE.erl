@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2023 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2023-2024 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
 -module(emqx_persistent_session_ds_SUITE).
 
@@ -17,6 +17,9 @@
 %%------------------------------------------------------------------------------
 %% CT boilerplate
 %%------------------------------------------------------------------------------
+
+suite() ->
+    [{timetrap, {seconds, 60}}].
 
 all() ->
     emqx_common_test_helpers:all(?MODULE).
@@ -191,6 +194,7 @@ t_non_persistent_session_subscription(_Config) ->
     ClientId = atom_to_binary(?FUNCTION_NAME),
     SubTopicFilter = <<"t/#">>,
     ?check_trace(
+        #{timetrap => 30_000},
         begin
             ?tp(notice, "starting", #{}),
             Client = start_client(#{
@@ -220,6 +224,7 @@ t_session_subscription_idempotency(Config) ->
     SubTopicFilter = <<"t/+">>,
     ClientId = <<"myclientid">>,
     ?check_trace(
+        #{timetrap => 30_000},
         begin
             ?force_ordering(
                 #{?snk_kind := persistent_session_ds_subscription_added},
@@ -281,6 +286,7 @@ t_session_unsubscription_idempotency(Config) ->
     SubTopicFilter = <<"t/+">>,
     ClientId = <<"myclientid">>,
     ?check_trace(
+        #{timetrap => 30_000},
         begin
             ?force_ordering(
                 #{
@@ -385,6 +391,7 @@ do_t_session_discard(Params) ->
     ReconnectOpts = ReconnectOpts0#{clientid => ClientId},
     SubTopicFilter = <<"t/+">>,
     ?check_trace(
+        #{timetrap => 30_000},
         begin
             ?tp(notice, "starting", #{}),
             Client0 = start_client(#{
@@ -472,6 +479,7 @@ do_t_session_expiration(_Config, Opts) ->
     } = Opts,
     CommonParams = #{proto_ver => v5, clientid => ClientId},
     ?check_trace(
+        #{timetrap => 30_000},
         begin
             Topic = <<"some/topic">>,
             Params0 = maps:merge(CommonParams, FirstConn),
@@ -539,6 +547,7 @@ t_session_gc(Config) ->
     end,
 
     ?check_trace(
+        #{timetrap => 30_000},
         begin
             ClientId0 = <<"session_gc0">>,
             Client0 = StartClient(ClientId0, Port1, 30),

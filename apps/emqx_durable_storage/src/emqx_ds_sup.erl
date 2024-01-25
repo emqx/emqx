@@ -6,7 +6,7 @@
 -behaviour(supervisor).
 
 %% API:
--export([start_link/0, ensure_workers/0]).
+-export([start_link/0, attach_backend/2]).
 
 %% behaviour callbacks:
 -export([init/1]).
@@ -25,42 +25,36 @@
 start_link() ->
     supervisor:start_link({local, ?SUP}, ?MODULE, top).
 
--spec ensure_workers() -> ok.
-ensure_workers() ->
-    ChildSpec = #{
-        id => workers_sup,
-        restart => temporary,
-        type => supervisor,
-        start => {supervisor, start_link, [?MODULE, workers]}
+%% @doc Attach a child backend-specific supervisor to the top
+%% application supervisor, if not yet present
+-spec attach_backend(_BackendId, {module(), atom(), list()}) ->
+    {ok, pid()} | {error, _}.
+attach_backend(Backend, Start) ->
+    Spec = #{
+        id => Backend,
+        start => Start,
+        significant => false,
+        shutdown => infinity,
+        type => supervisor
     },
-    case supervisor:start_child(?SUP, ChildSpec) of
-        {ok, _} ->
-            ok;
-        {error, already_present} ->
-            ok;
-        {error, {already_started, _}} ->
-            ok
+    case supervisor:start_child(?SUP, Spec) of
+        {ok, Pid} ->
+            {ok, Pid};
+        {error, {already_started, Pid}} ->
+            {ok, Pid};
+        {error, Err} ->
+            {error, Err}
     end.
 
 %%================================================================================
 %% behaviour callbacks
 %%================================================================================
 
--dialyzer({nowarn_function, init/1}).
 init(top) ->
+    Children = [],
     SupFlags = #{
-        strategy => one_for_all,
+        strategy => one_for_one,
         intensity => 10,
-        period => 1
-    },
-    {ok, {SupFlags, []}};
-init(workers) ->
-    %% TODO: technically, we don't need rocksDB for the alternative
-    %% backends. But right now we have any:
-    Children = [meta(), storage_layer_sup()],
-    SupFlags = #{
-        strategy => one_for_all,
-        intensity => 0,
         period => 1
     },
     {ok, {SupFlags, Children}}.
@@ -68,21 +62,3 @@ init(workers) ->
 %%================================================================================
 %% Internal functions
 %%================================================================================
-
-meta() ->
-    #{
-        id => emqx_ds_replication_layer_meta,
-        start => {emqx_ds_replication_layer_meta, start_link, []},
-        restart => permanent,
-        type => worker,
-        shutdown => 5000
-    }.
-
-storage_layer_sup() ->
-    #{
-        id => local_store_shard_sup,
-        start => {emqx_ds_storage_layer_sup, start_link, []},
-        restart => permanent,
-        type => supervisor,
-        shutdown => infinity
-    }.
