@@ -604,7 +604,7 @@ rocksdb_open(Shard, Options) ->
         {?DEFAULT_CF, ?DEFAULT_CF_OPTS}
         | ExistingCFs
     ],
-    case rocksdb:open(DBDir, DBOptions, ColumnFamilies) of
+    case do_rocksdb_open(DBDir, DBOptions, ColumnFamilies) of
         {ok, DBHandle, [_CFDefault | CFRefs]} ->
             persistent_term:put({?MODULE, Shard, data_dir}, DataDir),
             {CFNames, _} = lists:unzip(ExistingCFs),
@@ -612,6 +612,39 @@ rocksdb_open(Shard, Options) ->
         Error ->
             Error
     end.
+
+do_rocksdb_open(DBDir, DBOptions, ColumnFamilies) ->
+    do_rocksdb_open(DBDir, DBOptions, ColumnFamilies, _Error = undefined, _Retries = 5).
+
+do_rocksdb_open(_DBDir, _DBOptions, _ColumnFamilies, Error, Retries) when Retries < 0 ->
+    Error;
+do_rocksdb_open(DBDir, DBOptions, ColumnFamilies, _PrevError, Retries) ->
+    case rocksdb:open(DBDir, DBOptions, ColumnFamilies) of
+        {ok, DBHandle, CFRefs} ->
+            {ok, DBHandle, CFRefs};
+        {error, {db_open, Msg}} = Error ->
+            case is_retriable_db_open_error(Msg) of
+                true ->
+                    ?tp(warning, "error opening db", #{error => Error}),
+                    timer:sleep(100),
+                    do_rocksdb_open(DBDir, DBOptions, ColumnFamilies, Error, Retries - 1);
+                false ->
+                    Error
+            end;
+        Error ->
+            ?tp(warning, "error opening db", #{error => Error}),
+            Error
+    end.
+
+is_retriable_db_open_error(Msg) when is_list(Msg) ->
+    %% Hack: there may be some flakiness when rocksdb attempts to grab a LOCK file, even
+    %% for a fresh DB...
+    case re:run(Msg, <<"While lock file:.*/LOCK:">>, [{capture, none}]) of
+        match -> true;
+        nomatch -> false
+    end;
+is_retriable_db_open_error(_Error) ->
+    false.
 
 -spec db_dir(file:filename(), shard_id()) -> file:filename().
 db_dir(BaseDir, {DB, ShardId}) ->
