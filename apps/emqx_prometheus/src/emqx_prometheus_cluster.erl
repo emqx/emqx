@@ -24,7 +24,6 @@
     collect_json_data/2,
 
     aggre_cluster/3,
-    %% with_node_name_label/2,
 
     point_to_map_fun/1,
 
