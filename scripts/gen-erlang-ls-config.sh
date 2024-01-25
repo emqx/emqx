@@ -54,6 +54,8 @@ macros:
     value: ee
 code_reload:
   node: emqx@127.0.0.1
+formatting:
+  formatter: erlfmt
 EOF
 }
 
