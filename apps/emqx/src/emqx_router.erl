@@ -184,7 +184,6 @@ do_add_route(Topic) when is_binary(Topic) ->
 
 -spec do_add_route(emqx_types:topic(), dest()) -> ok | {error, term()}.
 do_add_route(Topic, Dest) when is_binary(Topic) ->
-    ok = emqx_router_helper:monitor(Dest),
     mria_insert_route(get_schema_vsn(), Topic, Dest, single).
 
 mria_insert_route(v2, Topic, Dest, Ctx) ->
