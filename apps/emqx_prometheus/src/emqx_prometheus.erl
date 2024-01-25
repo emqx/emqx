@@ -24,7 +24,7 @@
 
 -behaviour(emqx_prometheus_cluster).
 -export([
-    fetch_data_from_local_node/0,
+    fetch_from_local_node/1,
     fetch_cluster_consistented_data/0,
     aggre_or_zip_init_acc/0,
     logic_sum_metrics/0
@@ -89,8 +89,6 @@
 -define(TIMER_MSG, '#interval').
 
 -define(HTTP_OPTIONS, [{autoredirect, true}, {timeout, 60000}]).
-
--define(LOGICAL_SUM_METRIC_NAMES, []).
 
 %%--------------------------------------------------------------------
 %% APIs
@@ -194,6 +192,11 @@ collect_mf(?PROMETHEUS_DEFAULT_REGISTRY, Callback) ->
     RawData = emqx_prometheus_cluster:raw_data(?MODULE, ?GET_PROM_DATA_MODE()),
     %% TODO: license expiry epoch and cert expiry epoch should be cached
     ok = add_collect_family(Callback, stats_metric_meta(), ?MG(stats_data, RawData)),
+    ok = add_collect_family(
+        Callback,
+        stats_metric_cluster_consistened_meta(),
+        ?MG(stats_data_cluster_consistented, RawData)
+    ),
     ok = add_collect_family(Callback, vm_metric_meta(), ?MG(vm_data, RawData)),
     ok = add_collect_family(Callback, cluster_metric_meta(), ?MG(cluster_data, RawData)),
 
@@ -216,8 +219,8 @@ collect_mf(_Registry, _Callback) ->
 collect(<<"json">>) ->
     RawData = emqx_prometheus_cluster:raw_data(?MODULE, ?GET_PROM_DATA_MODE()),
     (maybe_license_collect_json_data(RawData))#{
-        stats => collect_json_data(?MG(stats_data, RawData)),
-        metrics => collect_json_data(?MG(vm_data, RawData)),
+        stats => collect_stats_json_data(RawData),
+        metrics => collect_vm_json_data(?MG(vm_data, RawData)),
         packets => collect_json_data(?MG(emqx_packet_data, RawData)),
         messages => collect_json_data(?MG(emqx_message_data, RawData)),
         delivery => collect_json_data(?MG(emqx_delivery_data, RawData)),
@@ -243,24 +246,25 @@ add_collect_family(Name, Data, Callback, Type) ->
     Callback(create_mf(Name, _Help = <<"">>, Type, ?MODULE, Data)).
 
 %% behaviour
-fetch_data_from_local_node() ->
+fetch_from_local_node(Mode) ->
     {node(self()), #{
-        stats_data => stats_data(),
-        vm_data => vm_data(),
-        cluster_data => cluster_data(),
+        stats_data => stats_data(Mode),
+        vm_data => vm_data(Mode),
+        cluster_data => cluster_data(Mode),
         %% Metrics
-        emqx_packet_data => emqx_metric_data(emqx_packet_metric_meta()),
-        emqx_message_data => emqx_metric_data(message_metric_meta()),
-        emqx_delivery_data => emqx_metric_data(delivery_metric_meta()),
-        emqx_client_data => emqx_metric_data(client_metric_meta()),
-        emqx_session_data => emqx_metric_data(session_metric_meta()),
-        emqx_olp_data => emqx_metric_data(olp_metric_meta()),
-        emqx_acl_data => emqx_metric_data(acl_metric_meta()),
-        emqx_authn_data => emqx_metric_data(authn_metric_meta())
+        emqx_packet_data => emqx_metric_data(emqx_packet_metric_meta(), Mode),
+        emqx_message_data => emqx_metric_data(message_metric_meta(), Mode),
+        emqx_delivery_data => emqx_metric_data(delivery_metric_meta(), Mode),
+        emqx_client_data => emqx_metric_data(client_metric_meta(), Mode),
+        emqx_session_data => emqx_metric_data(session_metric_meta(), Mode),
+        emqx_olp_data => emqx_metric_data(olp_metric_meta(), Mode),
+        emqx_acl_data => emqx_metric_data(acl_metric_meta(), Mode),
+        emqx_authn_data => emqx_metric_data(authn_metric_meta(), Mode)
     }}.
 
 fetch_cluster_consistented_data() ->
     (maybe_license_fetch_data())#{
+        stats_data_cluster_consistented => stats_data_cluster_consistented(),
         cert_data => cert_data()
     }.
 
@@ -280,7 +284,7 @@ aggre_or_zip_init_acc() ->
     }.
 
 logic_sum_metrics() ->
-    ?LOGICAL_SUM_METRIC_NAMES.
+    [].
 
 %%--------------------------------------------------------------------
 %% Collector
@@ -469,42 +473,57 @@ emqx_collect(K = emqx_cert_expiry_at, D) -> gauge_metrics(?MG(K, D)).
 stats_metric_meta() ->
     [
         %% connections
-        {emqx_connections_count, counter, 'connections.count'},
-        {emqx_connections_max, counter, 'connections.max'},
-        {emqx_live_connections_count, counter, 'live_connections.count'},
-        {emqx_live_connections_max, counter, 'live_connections.max'},
+        {emqx_connections_count, gauge, 'connections.count'},
+        {emqx_connections_max, gauge, 'connections.max'},
+        {emqx_live_connections_count, gauge, 'live_connections.count'},
+        {emqx_live_connections_max, gauge, 'live_connections.max'},
         %% sessions
-        {emqx_sessions_count, counter, 'sessions.count'},
-        {emqx_sessions_max, counter, 'sessions.max'},
-        {emqx_channels_count, counter, 'channels.count'},
-        {emqx_channels_max, counter, 'channels.max'},
+        {emqx_sessions_count, gauge, 'sessions.count'},
+        {emqx_sessions_max, gauge, 'sessions.max'},
+        {emqx_channels_count, gauge, 'channels.count'},
+        {emqx_channels_max, gauge, 'channels.max'},
         %% pub/sub stats
-        {emqx_topics_count, counter, 'topics.count'},
-        {emqx_topics_max, counter, 'topics.max'},
-        {emqx_suboptions_count, counter, 'suboptions.count'},
-        {emqx_suboptions_max, counter, 'suboptions.max'},
-        {emqx_subscribers_count, counter, 'subscribers.count'},
-        {emqx_subscribers_max, counter, 'subscribers.max'},
-        {emqx_subscriptions_count, counter, 'subscriptions.count'},
-        {emqx_subscriptions_max, counter, 'subscriptions.max'},
-        {emqx_subscriptions_shared_count, counter, 'subscriptions.shared.count'},
-        {emqx_subscriptions_shared_max, counter, 'subscriptions.shared.max'},
-        %% retained
-        {emqx_retained_count, counter, 'retained.count'},
-        {emqx_retained_max, counter, 'retained.max'},
+        {emqx_suboptions_count, gauge, 'suboptions.count'},
+        {emqx_suboptions_max, gauge, 'suboptions.max'},
+        {emqx_subscribers_count, gauge, 'subscribers.count'},
+        {emqx_subscribers_max, gauge, 'subscribers.max'},
+        {emqx_subscriptions_count, gauge, 'subscriptions.count'},
+        {emqx_subscriptions_max, gauge, 'subscriptions.max'},
+        {emqx_subscriptions_shared_count, gauge, 'subscriptions.shared.count'},
+        {emqx_subscriptions_shared_max, gauge, 'subscriptions.shared.max'},
         %% delayed
-        {emqx_delayed_count, counter, 'delayed.count'},
-        {emqx_delayed_max, counter, 'delayed.max'}
+        {emqx_delayed_count, gauge, 'delayed.count'},
+        {emqx_delayed_max, gauge, 'delayed.max'}
     ].
 
-stats_data() ->
+stats_metric_cluster_consistened_meta() ->
+    [
+        %% topics
+        {emqx_topics_max, gauge, 'topics.max'},
+        {emqx_topics_count, gauge, 'topics.count'},
+        %% retained
+        {emqx_retained_count, gauge, 'retained.count'},
+        {emqx_retained_max, gauge, 'retained.max'}
+    ].
+
+stats_data(Mode) ->
+    Stats = emqx_stats:getstats(),
+    lists:foldl(
+        fun({Name, _Type, MetricKAtom}, AccIn) ->
+            AccIn#{Name => [{with_node_label(Mode, []), ?C(MetricKAtom, Stats)}]}
+        end,
+        #{},
+        stats_metric_meta()
+    ).
+
+stats_data_cluster_consistented() ->
     Stats = emqx_stats:getstats(),
     lists:foldl(
         fun({Name, _Type, MetricKAtom}, AccIn) ->
             AccIn#{Name => [{[], ?C(MetricKAtom, Stats)}]}
         end,
         #{},
-        stats_metric_meta()
+        stats_metric_cluster_consistened_meta()
     ).
 
 %%========================================
@@ -521,11 +540,18 @@ vm_metric_meta() ->
         {emqx_vm_used_memory, gauge, 'used_memory'}
     ].
 
-vm_data() ->
+vm_data(Mode) ->
     VmStats = emqx_mgmt:vm_stats(),
     lists:foldl(
         fun({Name, _Type, MetricKAtom}, AccIn) ->
-            AccIn#{Name => [{[], ?C(MetricKAtom, VmStats)}]}
+            Labels =
+                case Mode of
+                    node ->
+                        [];
+                    _ ->
+                        [{node, node(self())}]
+                end,
+            AccIn#{Name => [{Labels, ?C(MetricKAtom, VmStats)}]}
         end,
         #{},
         vm_metric_meta()
@@ -541,23 +567,23 @@ cluster_metric_meta() ->
         {emqx_cluster_nodes_stopped, gauge, undefined}
     ].
 
-cluster_data() ->
+cluster_data(Mode) ->
     Running = emqx:cluster_nodes(running),
     Stopped = emqx:cluster_nodes(stopped),
     #{
-        emqx_cluster_nodes_running => [{[], length(Running)}],
-        emqx_cluster_nodes_stopped => [{[], length(Stopped)}]
+        emqx_cluster_nodes_running => [{with_node_label(Mode, []), length(Running)}],
+        emqx_cluster_nodes_stopped => [{with_node_label(Mode, []), length(Stopped)}]
     }.
 
 %%========================================
 %% Metrics
 %%========================================
 
-emqx_metric_data(MetricNameTypeKeyL) ->
+emqx_metric_data(MetricNameTypeKeyL, Mode) ->
     Metrics = emqx_metrics:all(),
     lists:foldl(
         fun({Name, _Type, MetricKAtom}, AccIn) ->
-            AccIn#{Name => [{[], ?C(MetricKAtom, Metrics)}]}
+            AccIn#{Name => [{with_node_label(Mode, []), ?C(MetricKAtom, Metrics)}]}
         end,
         #{},
         MetricNameTypeKeyL
@@ -870,9 +896,24 @@ date_to_expiry_epoch(DateTime) ->
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %% merge / zip formatting funcs for type `application/json`
 
+collect_stats_json_data(RawData) ->
+    StatsData = ?MG(stats_data, RawData),
+    StatsClData = ?MG(stats_data_cluster_consistented, RawData),
+    D = maps:merge(StatsData, StatsClData),
+    collect_json_data(D).
+
 %% always return json array
 collect_cert_json_data(Data) ->
     collect_json_data_(Data).
+
+collect_vm_json_data(Data) ->
+    DataListPerNode = collect_json_data_(Data),
+    case {?GET_PROM_DATA_MODE(), DataListPerNode} of
+        {?PROM_DATA_MODE__NODE, [NData | _]} ->
+            NData;
+        {_, _} ->
+            DataListPerNode
+    end.
 
 collect_json_data(Data0) ->
     DataListPerNode = collect_json_data_(Data0),
@@ -912,6 +953,13 @@ zip_json_prom_stats_metrics(Key, Points, AllResultedAcc) ->
 
 metrics_name(MetricsAll) ->
     [Name || {Name, _, _} <- MetricsAll].
+
+with_node_label(?PROM_DATA_MODE__NODE, Labels) ->
+    Labels;
+with_node_label(?PROM_DATA_MODE__ALL_NODES_AGGREGATED, Labels) ->
+    Labels;
+with_node_label(?PROM_DATA_MODE__ALL_NODES_UNAGGREGATED, Labels) ->
+    [{node, node(self())} | Labels].
 
 %%--------------------------------------------------------------------
 %% bpapi

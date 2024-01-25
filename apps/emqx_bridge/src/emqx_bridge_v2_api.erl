@@ -1177,6 +1177,9 @@ format_resource(
         )
     ).
 
+%% FIXME:
+%% missing metrics:
+%% 'retried.success' and 'retried.failed'
 format_metrics(#{
     counters := #{
         'dropped' := Dropped,
