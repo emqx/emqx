@@ -58,8 +58,8 @@ schema("/authentication/:id/import_users") ->
         post => #{
             tags => ?API_TAGS_GLOBAL,
             description => ?DESC(authentication_id_import_users_post),
-            parameters => [emqx_authn_api:param_auth_id()],
-            'requestBody' => emqx_dashboard_swagger:file_schema(filename),
+            parameters => [emqx_authn_api:param_auth_id(), param_password_type()],
+            'requestBody' => request_body_schema(),
             responses => #{
                 204 => <<"Users imported">>,
                 400 => error_codes([?BAD_REQUEST], <<"Bad Request">>),
@@ -74,8 +74,12 @@ schema("/listeners/:listener_id/authentication/:id/import_users") ->
             tags => ?API_TAGS_SINGLE,
             deprecated => true,
             description => ?DESC(listeners_listener_id_authentication_id_import_users_post),
-            parameters => [emqx_authn_api:param_listener_id(), emqx_authn_api:param_auth_id()],
-            'requestBody' => emqx_dashboard_swagger:file_schema(filename),
+            parameters => [
+                emqx_authn_api:param_listener_id(),
+                emqx_authn_api:param_auth_id(),
+                param_password_type()
+            ],
+            'requestBody' => request_body_schema(),
             responses => #{
                 204 => <<"Users imported">>,
                 400 => error_codes([?BAD_REQUEST], <<"Bad Request">>),
@@ -84,37 +88,114 @@ schema("/listeners/:listener_id/authentication/:id/import_users") ->
         }
     }.
 
+request_body_schema() ->
+    #{content := Content} = emqx_dashboard_swagger:file_schema(filename),
+    Content1 =
+        Content#{
+            <<"application/json">> => #{
+                schema => #{
+                    type => object,
+                    example => [
+                        #{<<"user_id">> => <<"user1">>, <<"password">> => <<"password1">>},
+                        #{<<"user_id">> => <<"user2">>, <<"password">> => <<"password2">>}
+                    ]
+                }
+            }
+        },
+    #{
+        content => Content1,
+        description => <<"Import body">>
+    }.
+
 authenticator_import_users(
     post,
-    #{
+    Req = #{
         bindings := #{id := AuthenticatorID},
-        body := #{<<"filename">> := #{type := _} = File}
+        headers := Headers,
+        body := Body
     }
 ) ->
-    [{FileName, FileData}] = maps:to_list(maps:without([type], File)),
-    case emqx_authn_chains:import_users(?GLOBAL, AuthenticatorID, {FileName, FileData}) of
+    PasswordType = password_type(Req),
+    Result =
+        case maps:get(<<"content-type">>, Headers, undefined) of
+            <<"application/json">> ->
+                emqx_authn_chains:import_users(
+                    ?GLOBAL, AuthenticatorID, {PasswordType, prepared_user_list, Body}
+                );
+            _ ->
+                case Body of
+                    #{<<"filename">> := #{type := _} = File} ->
+                        [{Name, Data}] = maps:to_list(maps:without([type], File)),
+                        emqx_authn_chains:import_users(
+                            ?GLOBAL, AuthenticatorID, {PasswordType, Name, Data}
+                        );
+                    _ ->
+                        {error, {missing_parameter, filename}}
+                end
+        end,
+    case Result of
         ok -> {204};
         {error, Reason} -> emqx_authn_api:serialize_error(Reason)
-    end;
-authenticator_import_users(post, #{bindings := #{id := _}, body := _}) ->
-    emqx_authn_api:serialize_error({missing_parameter, filename}).
+    end.
 
 listener_authenticator_import_users(
     post,
-    #{
+    Req = #{
         bindings := #{listener_id := ListenerID, id := AuthenticatorID},
-        body := #{<<"filename">> := #{type := _} = File}
+        headers := Headers,
+        body := Body
     }
 ) ->
-    [{FileName, FileData}] = maps:to_list(maps:without([type], File)),
-    emqx_authn_api:with_chain(
-        ListenerID,
-        fun(ChainName) ->
-            case emqx_authn_chains:import_users(ChainName, AuthenticatorID, {FileName, FileData}) of
-                ok -> {204};
-                {error, Reason} -> emqx_authn_api:serialize_error(Reason)
+    PasswordType = password_type(Req),
+
+    DoImport = fun(FileName, FileData) ->
+        emqx_authn_api:with_chain(
+            ListenerID,
+            fun(ChainName) ->
+                case
+                    emqx_authn_chains:import_users(
+                        ChainName, AuthenticatorID, {PasswordType, FileName, FileData}
+                    )
+                of
+                    ok -> {204};
+                    {error, Reason} -> emqx_authn_api:serialize_error(Reason)
+                end
             end
-        end
-    );
-listener_authenticator_import_users(post, #{bindings := #{listener_id := _, id := _}, body := _}) ->
-    emqx_authn_api:serialize_error({missing_parameter, filename}).
+        )
+    end,
+    case maps:get(<<"content-type">>, Headers, undefined) of
+        <<"application/json">> ->
+            DoImport(prepared_user_list, Body);
+        _ ->
+            case Body of
+                #{<<"filename">> := #{type := _} = File} ->
+                    [{Name, Data}] = maps:to_list(maps:without([type], File)),
+                    DoImport(Name, Data);
+                _ ->
+                    emqx_authn_api:serialize_error({missing_parameter, filename})
+            end
+    end.
+
+%%--------------------------------------------------------------------
+%% helpers
+
+param_password_type() ->
+    {type,
+        hoconsc:mk(
+            binary(),
+            #{
+                in => query,
+                enum => [<<"plain">>, <<"hash">>],
+                required => true,
+                desc => <<
+                    "The import file template type, enum with `plain`,"
+                    "`hash`"
+                >>,
+                example => <<"hash">>
+            }
+        )}.
+
+password_type(_Req = #{query_string := #{<<"type">> := Type}}) ->
+    binary_to_existing_atom(Type);
+password_type(_) ->
+    hash.
