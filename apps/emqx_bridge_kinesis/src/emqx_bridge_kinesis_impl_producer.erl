@@ -88,7 +88,9 @@ on_stop(InstanceId, _State) ->
     emqx_resource_pool:stop(InstanceId).
 
 -spec on_get_status(resource_id(), state()) ->
-    connected | disconnected | {disconnected, state(), {unhealthy_target, string()}}.
+    ?status_connected
+    | ?status_disconnected
+    | {?status_disconnected, state(), {unhealthy_target, string()}}.
 on_get_status(_InstanceId, #{pool_name := Pool} = State) ->
     case
         emqx_resource_pool:health_check_workers(
@@ -99,15 +101,15 @@ on_get_status(_InstanceId, #{pool_name := Pool} = State) ->
         )
     of
         {ok, Values} ->
-            AllOk = lists:all(fun(S) -> S =:= {ok, connected} end, Values),
+            AllOk = lists:all(fun(S) -> S =:= {ok, ?status_connected} end, Values),
             case AllOk of
                 true ->
-                    connected;
+                    ?status_connected;
                 false ->
                     Unhealthy = lists:any(fun(S) -> S =:= {error, unhealthy_target} end, Values),
                     case Unhealthy of
-                        true -> {disconnected, State, {unhealthy_target, ?TOPIC_MESSAGE}};
-                        false -> disconnected
+                        true -> {?status_disconnected, State, {unhealthy_target, ?TOPIC_MESSAGE}};
+                        false -> ?status_disconnected
                     end
             end;
         {error, Reason} ->
@@ -116,7 +118,7 @@ on_get_status(_InstanceId, #{pool_name := Pool} = State) ->
                 state => State,
                 reason => Reason
             }),
-            disconnected
+            ?status_disconnected
     end.
 
 on_add_channel(
@@ -176,15 +178,15 @@ on_get_channel_status(
         )
     of
         {ok, Values} ->
-            AllOk = lists:all(fun(S) -> S =:= {ok, connected} end, Values),
+            AllOk = lists:all(fun(S) -> S =:= {ok, ?status_connected} end, Values),
             case AllOk of
                 true ->
-                    connected;
+                    ?status_connected;
                 false ->
                     Unhealthy = lists:any(fun(S) -> S =:= {error, unhealthy_target} end, Values),
                     case Unhealthy of
-                        true -> {disconnected, {unhealthy_target, ?TOPIC_MESSAGE}};
-                        false -> disconnected
+                        true -> {?status_disconnected, {unhealthy_target, ?TOPIC_MESSAGE}};
+                        false -> ?status_disconnected
                     end
             end;
         {error, Reason} ->
@@ -193,7 +195,7 @@ on_get_channel_status(
                 state => State,
                 reason => Reason
             }),
-            disconnected
+            ?status_disconnected
     end.
 
 on_get_channels(ResId) ->
