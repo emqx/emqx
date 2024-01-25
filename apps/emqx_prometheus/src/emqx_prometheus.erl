@@ -82,6 +82,7 @@
 %%--------------------------------------------------------------------
 
 -define(MG(K, MAP), maps:get(K, MAP)).
+-define(MG(K, MAP, DEFAULT), maps:get(K, MAP, DEFAULT)).
 -define(MG0(K, MAP), maps:get(K, MAP, 0)).
 
 -define(C(K, L), proplists:get_value(K, L, 0)).
@@ -210,6 +211,7 @@ collect_mf(?PROMETHEUS_DEFAULT_REGISTRY, Callback) ->
     ok = add_collect_family(Callback, authn_metric_meta(), ?MG(emqx_authn_data, RawData)),
 
     ok = add_collect_family(Callback, cert_metric_meta(), ?MG(cert_data, RawData)),
+    ok = add_collect_family(Callback, mria_metric_meta(), ?MG(mria_data, RawData)),
     ok = maybe_license_add_collect_family(Callback, RawData),
     ok;
 collect_mf(_Registry, _Callback) ->
@@ -259,7 +261,8 @@ fetch_from_local_node(Mode) ->
         emqx_session_data => emqx_metric_data(session_metric_meta(), Mode),
         emqx_olp_data => emqx_metric_data(olp_metric_meta(), Mode),
         emqx_acl_data => emqx_metric_data(acl_metric_meta(), Mode),
-        emqx_authn_data => emqx_metric_data(authn_metric_meta(), Mode)
+        emqx_authn_data => emqx_metric_data(authn_metric_meta(), Mode),
+        mria_data => mria_data(Mode)
     }}.
 
 fetch_cluster_consistented_data() ->
@@ -280,7 +283,8 @@ aggre_or_zip_init_acc() ->
         emqx_session_data => maps:from_keys(metrics_name(session_metric_meta()), []),
         emqx_olp_data => maps:from_keys(metrics_name(olp_metric_meta()), []),
         emqx_acl_data => maps:from_keys(metrics_name(acl_metric_meta()), []),
-        emqx_authn_data => maps:from_keys(metrics_name(authn_metric_meta()), [])
+        emqx_authn_data => maps:from_keys(metrics_name(authn_metric_meta()), []),
+        mria_data => maps:from_keys(metrics_name(mria_metric_meta()), [])
     }.
 
 logic_sum_metrics() ->
@@ -460,7 +464,19 @@ emqx_collect(K = emqx_authentication_failure, D) -> counter_metrics(?MG(K, D));
 emqx_collect(K = emqx_license_expiry_at, D) -> gauge_metric(?MG(K, D));
 %%--------------------------------------------------------------------
 %% Certs
-emqx_collect(K = emqx_cert_expiry_at, D) -> gauge_metrics(?MG(K, D)).
+emqx_collect(K = emqx_cert_expiry_at, D) -> gauge_metrics(?MG(K, D));
+%% Mria
+%% ========== core
+emqx_collect(K = emqx_mria_last_intercepted_trans, D) -> gauge_metrics(?MG(K, D, []));
+emqx_collect(K = emqx_mria_weight, D) -> gauge_metrics(?MG(K, D, []));
+emqx_collect(K = emqx_mria_replicants, D) -> gauge_metrics(?MG(K, D, []));
+emqx_collect(K = emqx_mria_server_mql, D) -> gauge_metrics(?MG(K, D, []));
+%% ========== replicant
+emqx_collect(K = emqx_mria_lag, D) -> gauge_metrics(?MG(K, D, []));
+emqx_collect(K = emqx_mria_bootstrap_time, D) -> gauge_metrics(?MG(K, D, []));
+emqx_collect(K = emqx_mria_bootstrap_num_keys, D) -> gauge_metrics(?MG(K, D, []));
+emqx_collect(K = emqx_mria_message_queue_len, D) -> gauge_metrics(?MG(K, D, []));
+emqx_collect(K = emqx_mria_replayq_len, D) -> gauge_metrics(?MG(K, D, [])).
 
 %%--------------------------------------------------------------------
 %% Indicators
@@ -888,6 +904,80 @@ utc_time_to_datetime(Str) ->
 -spec date_to_expiry_epoch(calendar:datetime()) -> Seconds :: non_neg_integer().
 date_to_expiry_epoch(DateTime) ->
     calendar:datetime_to_gregorian_seconds(DateTime) - ?EPOCH_START.
+
+%%========================================
+%% Mria
+%%========================================
+
+mria_metric_meta() ->
+    mria_metric_meta(core) ++ mria_metric_meta(replicant).
+
+mria_metric_meta(core) ->
+    [
+        {emqx_mria_last_intercepted_trans, gauge, last_intercepted_trans},
+        {emqx_mria_weight, gauge, weight},
+        {emqx_mria_replicants, gauge, replicants},
+        {emqx_mria_server_mql, gauge, server_mql}
+    ];
+mria_metric_meta(replicant) ->
+    [
+        {emqx_mria_lag, gauge, lag},
+        {emqx_mria_bootstrap_time, gauge, bootstrap_time},
+        {emqx_mria_bootstrap_num_keys, gauge, bootstrap_num_keys},
+        {emqx_mria_message_queue_len, gauge, message_queue_len},
+        {emqx_mria_replayq_len, gauge, replayq_len}
+    ].
+
+mria_data(Mode) ->
+    case mria_rlog:backend() of
+        rlog ->
+            mria_data(mria_rlog:role(), Mode);
+        mnesia ->
+            #{}
+    end.
+
+mria_data(Role, Mode) ->
+    lists:foldl(
+        fun({Name, _Type, MetricK}, AccIn) ->
+            %% TODO: only report shards that are up
+            DataFun = fun() -> get_shard_metrics(Mode, MetricK) end,
+            AccIn#{
+                Name => catch_all(DataFun)
+            }
+        end,
+        #{},
+        mria_metric_meta(Role)
+    ).
+
+get_shard_metrics(Mode, MetricK) ->
+    Labels =
+        case Mode of
+            node ->
+                [];
+            _ ->
+                [{node, node(self())}]
+        end,
+    [
+        {[{shard, Shard} | Labels], get_shard_metric(MetricK, Shard)}
+     || Shard <- mria_schema:shards(), Shard =/= undefined
+    ].
+
+get_shard_metric(replicants, Shard) ->
+    length(mria_status:agents(Shard));
+get_shard_metric(Metric, Shard) ->
+    case mria_status:get_shard_stats(Shard) of
+        #{Metric := Value} when is_number(Value) ->
+            Value;
+        _ ->
+            undefined
+    end.
+
+catch_all(DataFun) ->
+    try
+        DataFun()
+    catch
+        _:_ -> undefined
+    end.
 
 %%--------------------------------------------------------------------
 %% Collect functions
