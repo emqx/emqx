@@ -565,6 +565,7 @@ coveralls() ->
                 {coveralls_service_job_id, os:getenv("GITHUB_RUN_ID")},
                 {coveralls_commit_sha, os:getenv("GITHUB_SHA")},
                 {coveralls_coverdata, "_build/test/cover/*.coverdata"},
+                {coveralls_parallel, true},
                 {coveralls_service_name, "github"}
             ],
             case
