@@ -78,6 +78,8 @@
     {<<"is_superuser">>, atom}
 ]).
 
+-elvis([{elvis_style, nesting_level, disable}]).
+
 %%------------------------------------------------------------------------------
 %% Mnesia bootstrap
 %%------------------------------------------------------------------------------
@@ -175,37 +177,25 @@ import_users({PasswordType, Filename, FileData}, State) ->
     Convertor = convertor(PasswordType, State),
     try
         {_NewUsersCnt, Users} = parse_import_users(Filename, FileData, Convertor),
-        try
-            case do_import_users(Users) of
-                ok -> ok;
-                {error, Reason} -> error(Reason)
-            end
-        catch
-            error:Reason1:Stk ->
-                ?SLOG(
-                    warning,
-                    #{
-                        msg => "import_users_failed",
-                        type => PasswordType,
-                        filename => Filename,
-                        stacktrace => Stk
-                    }
-                ),
+        case do_import_users(Users) of
+            ok ->
+                ok;
+            {error, Reason} ->
                 _ = do_clean_imported_users(Users),
-                {error, Reason1}
+                error(Reason)
         end
     catch
-        error:Reason2:Stk2 ->
+        error:Reason1:Stk ->
             ?SLOG(
                 warning,
                 #{
                     msg => "import_users_failed",
                     type => PasswordType,
                     filename => Filename,
-                    stacktrace => Stk2
+                    stacktrace => Stk
                 }
             ),
-            {error, Reason2}
+            {error, Reason1}
     end.
 
 do_import_users(Users) ->
@@ -514,28 +504,27 @@ reader(json, Data, Convertor) when is_binary(Data) ->
 %% Example: data/user-credentials.csv
 reader(csv, Data, Convertor) when is_binary(Data) ->
     CSVData = csv_data(Data),
+    Reader = fun _Iter(Headers, Lines) ->
+        case csv_read_line(Lines) of
+            {ok, Line, Rest} ->
+                %% XXX: not support ' ' for a field?
+                Fields = binary:split(Line, [<<",">>, <<" ">>, <<"\n">>], [
+                    global, trim_all
+                ]),
+                case length(Fields) == length(Headers) of
+                    true ->
+                        User = maps:from_list(lists:zip(Headers, Fields)),
+                        {Convertor(User), fun() -> _Iter(Headers, Rest) end};
+                    false ->
+                        error(bad_format)
+                end;
+            eof ->
+                eof
+        end
+    end,
     case get_csv_header(CSVData) of
-        {ok, Headers, CSVLines} ->
-            Reader =
-                fun _Iter(Lines) ->
-                    case csv_read_line(Lines) of
-                        {ok, Line, Rest} ->
-                            %% XXX: not support ' ' for a field?
-                            Fields = binary:split(Line, [<<",">>, <<" ">>, <<"\n">>], [
-                                global, trim_all
-                            ]),
-                            case length(Fields) == length(Headers) of
-                                true ->
-                                    User = maps:from_list(lists:zip(Headers, Fields)),
-                                    {Convertor(User), fun() -> _Iter(Rest) end};
-                                false ->
-                                    error(bad_format)
-                            end;
-                        eof ->
-                            eof
-                    end
-                end,
-            fun() -> Reader(CSVLines) end;
+        {ok, CSVHeaders, CSVLines} ->
+            fun() -> Reader(CSVHeaders, CSVLines) end;
         {error, Reason} ->
             error(Reason)
     end;
