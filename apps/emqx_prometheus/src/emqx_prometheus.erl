@@ -283,7 +283,8 @@ aggre_or_zip_init_acc() ->
         emqx_session_data => maps:from_keys(metrics_name(session_metric_meta()), []),
         emqx_olp_data => maps:from_keys(metrics_name(olp_metric_meta()), []),
         emqx_acl_data => maps:from_keys(metrics_name(acl_metric_meta()), []),
-        emqx_authn_data => maps:from_keys(metrics_name(authn_metric_meta()), [])
+        emqx_authn_data => maps:from_keys(metrics_name(authn_metric_meta()), []),
+        mria_data => maps:from_keys(metrics_name(mria_metric_meta()), [])
     }.
 
 logic_sum_metrics() ->
