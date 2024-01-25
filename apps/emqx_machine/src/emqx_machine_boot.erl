@@ -166,8 +166,9 @@ is_app(Name) ->
 sorted_reboot_apps() ->
     RebootApps = reboot_apps(),
     Apps0 = [{App, app_deps(App, RebootApps)} || App <- RebootApps],
-    Apps = inject_bridge_deps(Apps0),
-    sorted_reboot_apps(Apps).
+    Apps1 = inject_bridge_deps(Apps0),
+    Apps2 = inject_dashboard_deps(Apps1),
+    sorted_reboot_apps(Apps2).
 
 app_deps(App, RebootApps) ->
     case application:get_key(App, applications) of
@@ -193,6 +194,18 @@ inject_bridge_deps(RebootAppDeps) ->
         end,
         RebootAppDeps
     ).
+inject_dashboard_deps(Reboots) ->
+    Apps = [emqx_license],
+    Deps = lists:filter(fun(App) -> lists:keymember(App, 1, Reboots) end, Apps),
+    lists:map(
+        fun
+            ({emqx_dashboard, Deps0}) when is_list(Deps0) ->
+                {emqx_dashboard, Deps0 ++ Deps};
+            (App) ->
+                App
+        end,
+        Reboots
+    ).
 
 sorted_reboot_apps(Apps) ->
     G = digraph:new(),
@@ -201,7 +214,8 @@ sorted_reboot_apps(Apps) ->
         case digraph_utils:topsort(G) of
             Sorted when is_list(Sorted) ->
                 %% ensure emqx_conf boot up first
-                [emqx_conf | Sorted ++ (NoDepApps -- Sorted)];
+                AllApps = Sorted ++ (NoDepApps -- Sorted),
+                [emqx_conf | lists:delete(emqx_conf, AllApps)];
             false ->
                 Loops = find_loops(G),
                 error({circular_application_dependency, Loops})
