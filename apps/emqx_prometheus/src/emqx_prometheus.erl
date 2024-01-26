@@ -991,12 +991,13 @@ catch_all(DataFun) ->
 collect_stats_json_data(StatsData, StatsClData) ->
     StatsDatas = collect_json_data_(StatsData),
     CLData = hd(collect_json_data_(StatsClData)),
-    lists:map(
+    Res = lists:map(
         fun(NodeData) ->
             maps:merge(NodeData, CLData)
         end,
         StatsDatas
-    ).
+    ),
+    json_obj_or_array(Res).
 
 %% always return json array
 collect_cert_json_data(Data) ->
@@ -1004,31 +1005,33 @@ collect_cert_json_data(Data) ->
 
 collect_vm_json_data(Data) ->
     DataListPerNode = collect_json_data_(Data),
-    case {?GET_PROM_DATA_MODE(), DataListPerNode} of
-        {?PROM_DATA_MODE__NODE, [NData | _]} ->
-            NData;
-        {_, _} ->
+    case ?GET_PROM_DATA_MODE() of
+        ?PROM_DATA_MODE__NODE ->
+            hd(DataListPerNode);
+        _ ->
             DataListPerNode
     end.
 
 collect_json_data(Data0) ->
     DataListPerNode = collect_json_data_(Data0),
-    case {?GET_PROM_DATA_MODE(), DataListPerNode} of
-        %% all nodes results unaggregated, should be a list
-        {?PROM_DATA_MODE__ALL_NODES_UNAGGREGATED, _} ->
-            DataListPerNode;
-        %% only local node result [#{...}]
-        %% To guaranteed compatibility, return a json object, not array
-        {?PROM_DATA_MODE__NODE, [NData | _]} ->
-            NData;
-        %% All nodes results aggregated
-        %% return a json object, not array
-        {?PROM_DATA_MODE__ALL_NODES_AGGREGATED, [NData | _]} ->
-            NData;
-        %% olp maybe not enabled, with empty list to empty object
-        {_, []} ->
-            #{}
+    json_obj_or_array(DataListPerNode).
+
+%% compatibility with previous api format in json mode
+json_obj_or_array(DataL) ->
+    case ?GET_PROM_DATA_MODE() of
+        ?PROM_DATA_MODE__NODE ->
+            data_list_to_json_obj(DataL);
+        ?PROM_DATA_MODE__ALL_NODES_UNAGGREGATED ->
+            DataL;
+        ?PROM_DATA_MODE__ALL_NODES_AGGREGATED ->
+            data_list_to_json_obj(DataL)
     end.
+
+data_list_to_json_obj([]) ->
+    %% olp maybe not enabled, with empty list to empty object
+    #{};
+data_list_to_json_obj(DataL) ->
+    hd(DataL).
 
 collect_json_data_(Data) ->
     emqx_prometheus_cluster:collect_json_data(Data, fun zip_json_prom_stats_metrics/3).
