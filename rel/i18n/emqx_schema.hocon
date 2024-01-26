@@ -1275,6 +1275,13 @@ fields_ws_opts_allow_origin_absence.desc:
 fields_ws_opts_allow_origin_absence.label:
 """Allow origin absence"""
 
+fields_ws_opts_validate_utf8.desc:
+"""Set to <code>false</code> to disable WebSocket Frame UTF-8
+  validation for performance"""
+
+fields_ws_opts_validate_utf8.label:
+"""Enable/Disable WebSocket Frame utf8 validation"""
+
 common_ssl_opts_schema_versions.desc:
 """All TLS/DTLS versions to be supported.<br/>
 NOTE: PSK ciphers are suppressed by 'tlsv1.3' version config.<br/>
