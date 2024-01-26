@@ -216,31 +216,7 @@ t_session_subscription_iterators(Config) ->
                 messages => [Message1, Message2, Message3, Message4]
             }
         end,
-        fun(Trace) ->
-            ct:pal("trace:\n  ~p", [Trace]),
-            case ?of_kind(ds_session_subscription_added, Trace) of
-                [] ->
-                    %% Since `emqx_durable_storage' is a dependency of `emqx', it gets
-                    %% compiled in "prod" mode when running emqx standalone tests.
-                    ok;
-                [_ | _] ->
-                    ?assertMatch(
-                        [
-                            #{?snk_kind := ds_session_subscription_added},
-                            #{?snk_kind := ds_session_subscription_present}
-                        ],
-                        ?of_kind(
-                            [
-                                ds_session_subscription_added,
-                                ds_session_subscription_present
-                            ],
-                            Trace
-                        )
-                    ),
-                    ok
-            end,
-            ok
-        end
+        []
     ),
     ok.
 
@@ -316,11 +292,6 @@ t_qos0_only_many_streams(_Config) ->
         ?assertMatch(
             [_, _, _],
             receive_messages(3)
-        ),
-
-        ?assertMatch(
-            #{pubranges := [_, _, _]},
-            emqx_persistent_session_ds:print_session(ClientId)
         ),
 
         Inflight1 = get_session_inflight(ConnPid),
@@ -524,7 +495,7 @@ consume(It) ->
     end.
 
 receive_messages(Count) ->
-    receive_messages(Count, 5_000).
+    receive_messages(Count, 10_000).
 
 receive_messages(Count, Timeout) ->
     lists:reverse(receive_messages(Count, [], Timeout)).

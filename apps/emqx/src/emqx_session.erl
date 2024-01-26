@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2017-2023 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2017-2024 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -409,12 +409,8 @@ enrich_delivers(ClientInfo, Delivers, Session) ->
 enrich_delivers(_ClientInfo, [], _UpgradeQoS, _Session) ->
     [];
 enrich_delivers(ClientInfo, [D | Rest], UpgradeQoS, Session) ->
-    case enrich_deliver(ClientInfo, D, UpgradeQoS, Session) of
-        [] ->
-            enrich_delivers(ClientInfo, Rest, UpgradeQoS, Session);
-        Msg ->
-            [Msg | enrich_delivers(ClientInfo, Rest, UpgradeQoS, Session)]
-    end.
+    enrich_deliver(ClientInfo, D, UpgradeQoS, Session) ++
+        enrich_delivers(ClientInfo, Rest, UpgradeQoS, Session).
 
 enrich_deliver(ClientInfo, {deliver, Topic, Msg}, UpgradeQoS, Session) ->
     SubOpts =
@@ -435,13 +431,15 @@ enrich_message(
     _ = emqx_session_events:handle_event(ClientInfo, {dropped, Msg, no_local}),
     [];
 enrich_message(_ClientInfo, MsgIn, SubOpts = #{}, UpgradeQoS) ->
-    maps:fold(
-        fun(SubOpt, V, Msg) -> enrich_subopts(SubOpt, V, Msg, UpgradeQoS) end,
-        MsgIn,
-        SubOpts
-    );
+    [
+        maps:fold(
+            fun(SubOpt, V, Msg) -> enrich_subopts(SubOpt, V, Msg, UpgradeQoS) end,
+            MsgIn,
+            SubOpts
+        )
+    ];
 enrich_message(_ClientInfo, Msg, undefined, _UpgradeQoS) ->
-    Msg.
+    [Msg].
 
 enrich_subopts(nl, 1, Msg, _) ->
     emqx_message:set_flag(nl, Msg);

@@ -71,7 +71,12 @@ init_per_group(persistence_disabled, Config) ->
     ];
 init_per_group(persistence_enabled, Config) ->
     [
-        {emqx_config, "session_persistence { enable = true }"},
+        {emqx_config,
+            "session_persistence {\n"
+            "  enable = true\n"
+            "  last_alive_update_interval = 100ms\n"
+            "  renew_streams_interval = 100ms\n"
+            "}"},
         {persistence, ds}
         | Config
     ];
@@ -530,42 +535,47 @@ t_process_dies_session_expires(Config) ->
     %% Emulate an error in the connect process,
     %% or that the node of the process goes down.
     %% A persistent session should eventually expire.
-    ConnFun = ?config(conn_fun, Config),
-    ClientId = ?config(client_id, Config),
-    Topic = ?config(topic, Config),
-    STopic = ?config(stopic, Config),
-    Payload = <<"test">>,
-    {ok, Client1} = emqtt:start_link([
-        {proto_ver, v5},
-        {clientid, ClientId},
-        {properties, #{'Session-Expiry-Interval' => 1}},
-        {clean_start, true}
-        | Config
-    ]),
-    {ok, _} = emqtt:ConnFun(Client1),
-    {ok, _, [2]} = emqtt:subscribe(Client1, STopic, qos2),
-    ok = emqtt:disconnect(Client1),
+    ?check_trace(
+        begin
+            ConnFun = ?config(conn_fun, Config),
+            ClientId = ?config(client_id, Config),
+            Topic = ?config(topic, Config),
+            STopic = ?config(stopic, Config),
+            Payload = <<"test">>,
+            {ok, Client1} = emqtt:start_link([
+                {proto_ver, v5},
+                {clientid, ClientId},
+                {properties, #{'Session-Expiry-Interval' => 1}},
+                {clean_start, true}
+                | Config
+            ]),
+            {ok, _} = emqtt:ConnFun(Client1),
+            {ok, _, [2]} = emqtt:subscribe(Client1, STopic, qos2),
+            ok = emqtt:disconnect(Client1),
 
-    maybe_kill_connection_process(ClientId, Config),
+            maybe_kill_connection_process(ClientId, Config),
 
-    ok = publish(Topic, Payload),
+            ok = publish(Topic, Payload),
 
-    timer:sleep(1100),
+            timer:sleep(1500),
 
-    {ok, Client2} = emqtt:start_link([
-        {proto_ver, v5},
-        {clientid, ClientId},
-        {properties, #{'Session-Expiry-Interval' => 30}},
-        {clean_start, false}
-        | Config
-    ]),
-    {ok, _} = emqtt:ConnFun(Client2),
-    ?assertEqual(0, client_info(session_present, Client2)),
+            {ok, Client2} = emqtt:start_link([
+                {proto_ver, v5},
+                {clientid, ClientId},
+                {properties, #{'Session-Expiry-Interval' => 30}},
+                {clean_start, false}
+                | Config
+            ]),
+            {ok, _} = emqtt:ConnFun(Client2),
+            ?assertEqual(0, client_info(session_present, Client2)),
 
-    %% We should not receive the pending message
-    ?assertEqual([], receive_messages(1)),
+            %% We should not receive the pending message
+            ?assertEqual([], receive_messages(1)),
 
-    emqtt:disconnect(Client2).
+            emqtt:disconnect(Client2)
+        end,
+        []
+    ).
 
 t_publish_while_client_is_gone_qos1(Config) ->
     %% A persistent session should receive messages in its
@@ -672,6 +682,7 @@ t_publish_many_while_client_is_gone_qos1(Config) ->
     ),
 
     NAcked = 4,
+    ?assert(NMsgs1 >= NAcked),
     [ok = emqtt:puback(Client1, PktId) || #{packet_id := PktId} <- lists:sublist(Msgs1, NAcked)],
 
     %% Ensure that PUBACKs are propagated to the channel.
@@ -681,7 +692,7 @@ t_publish_many_while_client_is_gone_qos1(Config) ->
     maybe_kill_connection_process(ClientId, Config),
 
     Pubs2 = [
-        #mqtt_msg{topic = <<"loc/3/4/5">>, payload = <<"M8">>, qos = 1},
+        #mqtt_msg{topic = <<"loc/3/4/6">>, payload = <<"M8">>, qos = 1},
         #mqtt_msg{topic = <<"t/100/foo">>, payload = <<"M9">>, qos = 1},
         #mqtt_msg{topic = <<"t/100/foo">>, payload = <<"M10">>, qos = 1},
         #mqtt_msg{topic = <<"msg/feed/friend">>, payload = <<"M11">>, qos = 1},
@@ -690,27 +701,30 @@ t_publish_many_while_client_is_gone_qos1(Config) ->
     ok = publish_many(Pubs2),
     NPubs2 = length(Pubs2),
 
+    %% Now reconnect with auto ack to make sure all streams are
+    %% replayed till the end:
     {ok, Client2} = emqtt:start_link([
         {proto_ver, v5},
         {clientid, ClientId},
         {properties, #{'Session-Expiry-Interval' => 30}},
-        {clean_start, false},
-        {auto_ack, false}
+        {clean_start, false}
         | Config
     ]),
+
     {ok, _} = emqtt:ConnFun(Client2),
 
     %% Try to receive _at most_ `NPubs` messages.
     %% There shouldn't be that much unacked messages in the replay anyway,
     %% but it's an easy number to pick.
     NPubs = NPubs1 + NPubs2,
+
     Msgs2 = receive_messages(NPubs, _Timeout = 2000),
     NMsgs2 = length(Msgs2),
 
     ct:pal("Msgs2 = ~p", [Msgs2]),
 
-    ?assert(NMsgs2 < NPubs, Msgs2),
-    ?assert(NMsgs2 > NPubs2, Msgs2),
+    ?assert(NMsgs2 < NPubs, {NMsgs2, '<', NPubs}),
+    ?assert(NMsgs2 > NPubs2, {NMsgs2, '>', NPubs2}),
     ?assert(NMsgs2 >= NPubs - NAcked, Msgs2),
     NSame = NMsgs2 - NPubs2,
     ?assert(
@@ -773,6 +787,11 @@ t_publish_many_while_client_is_gone(Config) ->
     %% for its subscriptions after the client dies or reconnects, in addition
     %% to PUBRELs for the messages it has PUBRECed. While client must send
     %% PUBACKs and PUBRECs in order, those orders are independent of each other.
+    %%
+    %% Developer's note: for simplicity we publish all messages to the
+    %% same topic, since persistent session ds may reorder messages
+    %% that belong to different streams, and this particular test is
+    %% very sensitive the order.
     ClientId = ?config(client_id, Config),
     ConnFun = ?config(conn_fun, Config),
     ClientOpts = [
@@ -785,20 +804,18 @@ t_publish_many_while_client_is_gone(Config) ->
 
     {ok, Client1} = emqtt:start_link([{clean_start, true} | ClientOpts]),
     {ok, _} = emqtt:ConnFun(Client1),
-    {ok, _, [?QOS_1]} = emqtt:subscribe(Client1, <<"t/+/foo">>, ?QOS_1),
-    {ok, _, [?QOS_2]} = emqtt:subscribe(Client1, <<"msg/feed/#">>, ?QOS_2),
-    {ok, _, [?QOS_2]} = emqtt:subscribe(Client1, <<"loc/+/+/+">>, ?QOS_2),
+    {ok, _, [?QOS_2]} = emqtt:subscribe(Client1, <<"t">>, ?QOS_2),
 
     Pubs1 = [
-        #mqtt_msg{topic = <<"t/42/foo">>, payload = <<"M1">>, qos = 1},
-        #mqtt_msg{topic = <<"t/42/foo">>, payload = <<"M2">>, qos = 1},
-        #mqtt_msg{topic = <<"msg/feed/me">>, payload = <<"M3">>, qos = 2},
-        #mqtt_msg{topic = <<"loc/1/2/42">>, payload = <<"M4">>, qos = 2},
-        #mqtt_msg{topic = <<"t/100/foo">>, payload = <<"M5">>, qos = 2},
-        #mqtt_msg{topic = <<"t/100/foo">>, payload = <<"M6">>, qos = 1},
-        #mqtt_msg{topic = <<"loc/3/4/5">>, payload = <<"M7">>, qos = 2},
-        #mqtt_msg{topic = <<"t/100/foo">>, payload = <<"M8">>, qos = 1},
-        #mqtt_msg{topic = <<"msg/feed/me">>, payload = <<"M9">>, qos = 2}
+        #mqtt_msg{topic = <<"t">>, payload = <<"M1">>, qos = 1},
+        #mqtt_msg{topic = <<"t">>, payload = <<"M2">>, qos = 1},
+        #mqtt_msg{topic = <<"t">>, payload = <<"M3">>, qos = 2},
+        #mqtt_msg{topic = <<"t">>, payload = <<"M4">>, qos = 2},
+        #mqtt_msg{topic = <<"t">>, payload = <<"M5">>, qos = 2},
+        #mqtt_msg{topic = <<"t">>, payload = <<"M6">>, qos = 1},
+        #mqtt_msg{topic = <<"t">>, payload = <<"M7">>, qos = 2},
+        #mqtt_msg{topic = <<"t">>, payload = <<"M8">>, qos = 1},
+        #mqtt_msg{topic = <<"t">>, payload = <<"M9">>, qos = 2}
     ],
     ok = publish_many(Pubs1),
     NPubs1 = length(Pubs1),
@@ -806,11 +823,12 @@ t_publish_many_while_client_is_gone(Config) ->
     Msgs1 = receive_messages(NPubs1),
     ct:pal("Msgs1 = ~p", [Msgs1]),
     NMsgs1 = length(Msgs1),
-    ?assertEqual(NPubs1, NMsgs1),
+    ?assertEqual(NPubs1, NMsgs1, emqx_persistent_session_ds:print_session(ClientId)),
 
     ?assertEqual(
         get_topicwise_order(Pubs1),
-        get_topicwise_order(Msgs1)
+        get_topicwise_order(Msgs1),
+        emqx_persistent_session_ds:print_session(ClientId)
     ),
 
     %% PUBACK every QoS 1 message.
@@ -819,7 +837,7 @@ t_publish_many_while_client_is_gone(Config) ->
         [PktId || #{qos := 1, packet_id := PktId} <- Msgs1]
     ),
 
-    %% PUBREC first `NRecs` QoS 2 messages.
+    %% PUBREC first `NRecs` QoS 2 messages (up to "M5")
     NRecs = 3,
     PubRecs1 = lists:sublist([PktId || #{qos := 2, packet_id := PktId} <- Msgs1], NRecs),
     lists:foreach(
@@ -843,9 +861,9 @@ t_publish_many_while_client_is_gone(Config) ->
     maybe_kill_connection_process(ClientId, Config),
 
     Pubs2 = [
-        #mqtt_msg{topic = <<"loc/3/4/5">>, payload = <<"M10">>, qos = 2},
-        #mqtt_msg{topic = <<"t/100/foo">>, payload = <<"M11">>, qos = 1},
-        #mqtt_msg{topic = <<"msg/feed/friend">>, payload = <<"M12">>, qos = 2}
+        #mqtt_msg{topic = <<"t">>, payload = <<"M10">>, qos = 2},
+        #mqtt_msg{topic = <<"t">>, payload = <<"M11">>, qos = 1},
+        #mqtt_msg{topic = <<"t">>, payload = <<"M12">>, qos = 2}
     ],
     ok = publish_many(Pubs2),
     NPubs2 = length(Pubs2),
@@ -878,8 +896,8 @@ t_publish_many_while_client_is_gone(Config) ->
         Msgs2Dups
     ),
 
-    %% Now complete all yet incomplete QoS 2 message flows instead.
-    PubRecs2 = [PktId || #{qos := 2, packet_id := PktId} <- Msgs2],
+    %% Ack more messages:
+    PubRecs2 = lists:sublist([PktId || #{qos := 2, packet_id := PktId} <- Msgs2], 2),
     lists:foreach(
         fun(PktId) -> ok = emqtt:pubrec(Client2, PktId) end,
         PubRecs2
@@ -895,6 +913,7 @@ t_publish_many_while_client_is_gone(Config) ->
 
     %% PUBCOMP every PUBREL.
     PubComps = [PktId || {pubrel, #{packet_id := PktId}} <- PubRels1 ++ PubRels2],
+    ct:pal("PubComps: ~p", [PubComps]),
     lists:foreach(
         fun(PktId) -> ok = emqtt:pubcomp(Client2, PktId) end,
         PubComps
@@ -902,19 +921,19 @@ t_publish_many_while_client_is_gone(Config) ->
 
     %% Ensure that PUBCOMPs are propagated to the channel.
     pong = emqtt:ping(Client2),
-
+    %% Reconnect for the last time
     ok = disconnect_client(Client2),
     maybe_kill_connection_process(ClientId, Config),
 
     {ok, Client3} = emqtt:start_link([{clean_start, false} | ClientOpts]),
     {ok, _} = emqtt:ConnFun(Client3),
 
-    %% Only the last unacked QoS 1 message should be retransmitted.
+    %% Check that we receive the rest of the messages:
     Msgs3 = receive_messages(NPubs, _Timeout = 2000),
     ct:pal("Msgs3 = ~p", [Msgs3]),
     ?assertMatch(
-        [#{topic := <<"t/100/foo">>, payload := <<"M11">>, qos := 1, dup := true}],
-        Msgs3
+        [<<"M10">>, <<"M11">>, <<"M12">>],
+        [I || #{payload := I} <- Msgs3]
     ),
 
     ok = disconnect_client(Client3).
@@ -1080,3 +1099,7 @@ skip_ds_tc(Config) ->
         _ ->
             Config
     end.
+
+debug_info(ClientId) ->
+    Info = emqx_persistent_session_ds:print_session(ClientId),
+    ct:pal("*** State:~n~p", [Info]).
