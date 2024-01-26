@@ -221,7 +221,9 @@ collect_mf(_Registry, _Callback) ->
 collect(<<"json">>) ->
     RawData = emqx_prometheus_cluster:raw_data(?MODULE, ?GET_PROM_DATA_MODE()),
     (maybe_license_collect_json_data(RawData))#{
-        stats => collect_stats_json_data(RawData),
+        stats => collect_stats_json_data(
+            ?MG(stats_data, RawData), ?MG(stats_data_cluster_consistented, RawData)
+        ),
         metrics => collect_vm_json_data(?MG(vm_data, RawData)),
         packets => collect_json_data(?MG(emqx_packet_data, RawData)),
         messages => collect_json_data(?MG(emqx_message_data, RawData)),
@@ -986,11 +988,15 @@ catch_all(DataFun) ->
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %% merge / zip formatting funcs for type `application/json`
 
-collect_stats_json_data(RawData) ->
-    StatsData = ?MG(stats_data, RawData),
-    StatsClData = ?MG(stats_data_cluster_consistented, RawData),
-    D = maps:merge(StatsData, StatsClData),
-    collect_json_data(D).
+collect_stats_json_data(StatsData, StatsClData) ->
+    StatsDatas = collect_json_data_(StatsData),
+    CLData = hd(collect_json_data_(StatsClData)),
+    lists:map(
+        fun(NodeData) ->
+            maps:merge(NodeData, CLData)
+        end,
+        StatsDatas
+    ).
 
 %% always return json array
 collect_cert_json_data(Data) ->
