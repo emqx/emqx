@@ -97,7 +97,7 @@ push(Action, Topic, Dest, Opts) ->
     Context = mk_push_context(Opts),
     _ = erlang:send(Worker, ?PUSH(Prio, {Action, Topic, Dest, Context})),
     case Context of
-        {MRef, _} ->
+        [{MRef, _}] ->
             MRef;
         [] ->
             ok
@@ -128,7 +128,7 @@ designate_prio(delete, #{}) ->
 
 mk_push_context(#{reply := To}) ->
     MRef = erlang:make_ref(),
-    {MRef, To};
+    [{MRef, To}];
 mk_push_context(_) ->
     [].
 
@@ -272,8 +272,8 @@ send_replies(Errors, Batch) ->
 
 replyctx_send(_Result, []) ->
     noreply;
-replyctx_send(Result, {MRef, Pid}) ->
-    _ = erlang:send(Pid, {MRef, Result}),
+replyctx_send(Result, RefsPids) ->
+    _ = lists:foreach(fun({MRef, Pid}) -> erlang:send(Pid, {MRef, Result}) end, RefsPids),
     ok.
 
 %%
@@ -316,10 +316,11 @@ stash_add(Prio, ?OP(Action, Topic, Dest, Ctx), Stash) ->
             Stash#{Route := RouteOpMerged}
     end.
 
-merge_route_op(?ROUTEOP(Action, _Prio1, Ctx1), DestOp = ?ROUTEOP(Action)) ->
-    %% NOTE: This should not happen anyway.
-    _ = replyctx_send(ignored, Ctx1),
-    DestOp;
+merge_route_op(?ROUTEOP(Action, _Prio1, Ctx1), ?ROUTEOP(Action, Prio2, Ctx2)) ->
+    %% NOTE: This can happen as topic shard can be processed concurrently
+    %% by different broker worker, see emqx_broker for more details.
+    MergedCtx = Ctx1 ++ Ctx2,
+    ?ROUTEOP(Action, Prio2, MergedCtx);
 merge_route_op(?ROUTEOP(_Action1, _Prio1, Ctx1), DestOp = ?ROUTEOP(_Action2, _Prio2, _Ctx2)) ->
     %% NOTE: Latter cancel the former.
     %% Strictly speaking, in ideal conditions we could just cancel both, because they
@@ -352,7 +353,7 @@ stash_stats(Stash) ->
 
 batch_test() ->
     Dest = node(),
-    Ctx = fun(N) -> {N, self()} end,
+    Ctx = fun(N) -> [{N, self()}] end,
     Stash = stash_add(
         [
             ?PUSH(?PRIO_BG, ?OP(delete, <<"t/2">>, Dest, Ctx(1))),
@@ -375,6 +376,7 @@ batch_test() ->
         stash_new()
     ),
     {Batch, StashLeft} = mk_batch(Stash, 5),
+
     ?assertMatch(
         #{
             {<<"t/1">>, Dest} := {add, ?PRIO_LO, _},
@@ -392,16 +394,16 @@ batch_test() ->
         },
         StashLeft
     ),
+
+    %% Replies are only sent to superseded ops:
     ?assertEqual(
         [
-            {2, ignored},
             {1, ok},
             {5, ok},
-            {7, ignored},
             {4, ok},
             {9, ok},
+            {7, ok},
             {8, ok},
-            {13, ignored},
             {11, ok}
         ],
         emqx_utils_stream:consume(emqx_utils_stream:mqueue(0))
