@@ -53,11 +53,14 @@ when
 when
     State :: state().
 
--callback import_users({Filename, FileData}, State) ->
+-callback import_users({PasswordType, Filename, FileData}, State) ->
     ok
     | {error, term()}
 when
-    Filename :: binary(), FileData :: binary(), State :: state().
+    PasswordType :: plain | hash,
+    Filename :: prepared_user_list | binary(),
+    FileData :: binary(),
+    State :: state().
 
 -callback add_user(UserInfo, State) ->
     {ok, User}

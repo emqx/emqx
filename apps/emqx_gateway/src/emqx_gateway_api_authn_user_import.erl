@@ -81,7 +81,7 @@ import_users(post, #{
                 [{FileName, FileData}] = maps:to_list(maps:without([type], File)),
                 case
                     emqx_authn_chains:import_users(
-                        ChainName, AuthId, {FileName, FileData}
+                        ChainName, AuthId, {hash, FileName, FileData}
                     )
                 of
                     ok -> {204};
@@ -105,7 +105,7 @@ import_listener_users(post, #{
                     [{FileName, FileData}] = maps:to_list(maps:without([type], File)),
                     case
                         emqx_authn_chains:import_users(
-                            ChainName, AuthId, {FileName, FileData}
+                            ChainName, AuthId, {hash, FileName, FileData}
                         )
                     of
                         ok -> {204};

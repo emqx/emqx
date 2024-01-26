@@ -216,7 +216,7 @@ t_import_users(_) ->
     ?assertMatch(
         {error, {unsupported_file_format, _}},
         emqx_authn_mnesia:import_users(
-            {<<"/file/with/unknown.extension">>, <<>>},
+            {hash, <<"/file/with/unknown.extension">>, <<>>},
             State
         )
     ),
@@ -224,7 +224,7 @@ t_import_users(_) ->
     ?assertEqual(
         {error, unknown_file_format},
         emqx_authn_mnesia:import_users(
-            {<<"/file/with/no/extension">>, <<>>},
+            {hash, <<"/file/with/no/extension">>, <<>>},
             State
         )
     ),
@@ -264,7 +264,7 @@ sample_filename(Name) ->
 sample_filename_and_data(Name) ->
     Filename = sample_filename(Name),
     {ok, Data} = file:read_file(Filename),
-    {Filename, Data}.
+    {hash, Filename, Data}.
 
 config() ->
     #{

@@ -195,7 +195,9 @@ param_password_type() ->
             }
         )}.
 
-password_type(_Req = #{query_string := #{<<"type">> := Type}}) ->
-    binary_to_existing_atom(Type);
+password_type(_Req = #{query_string := #{<<"type">> := <<"plain">>}}) ->
+    plain;
+password_type(_Req = #{query_string := #{<<"type">> := <<"hash">>}}) ->
+    hash;
 password_type(_) ->
     hash.
