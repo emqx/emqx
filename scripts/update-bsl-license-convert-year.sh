@@ -3,7 +3,6 @@
 set -euo pipefail
 
 CONVERT_DATE="$(date -d "+4 years" '+%Y-%m-%d')"
-NEWTEXT="Change Date:          $CONVERT_DATE"
 
 update() {
     local file="$1"
