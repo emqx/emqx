@@ -452,10 +452,7 @@ t_start_ok(Config) ->
             [#{points := [Point0]}] = Trace,
             {Measurement, [Point]} = Point0,
             ct:pal("sent point: ~p", [Point]),
-            ?assertMatch(
-                <<_/binary>>,
-                Measurement
-            ),
+            ?assertMatch(#{dbname := _, table := _, timeunit := _}, Measurement),
             ?assertMatch(
                 #{
                     fields := #{},
@@ -481,7 +478,6 @@ t_start_stop(Config) ->
     BridgeName = ?config(bridge_name, Config),
     BridgeConfig = ?config(bridge_config, Config),
     StopTracePoint = greptimedb_client_stopped,
-    ResourceId = emqx_bridge_resource:resource_id(BridgeType, BridgeName),
     ?check_trace(
         begin
             ProbeRes0 = emqx_bridge_testlib:probe_bridge_api(
@@ -491,6 +487,7 @@ t_start_stop(Config) ->
             ),
             ?assertMatch({ok, {{_, 204, _}, _Headers, _Body}}, ProbeRes0),
             ?assertMatch({ok, _}, emqx_bridge:create(BridgeType, BridgeName, BridgeConfig)),
+            ResourceId = emqx_bridge_resource:resource_id(BridgeType, BridgeName),
 
             %% Since the connection process is async, we give it some time to
             %% stabilize and avoid flakiness.
@@ -554,6 +551,7 @@ t_start_stop(Config) ->
             ok
         end,
         fun(Trace) ->
+            ResourceId = emqx_bridge_resource:resource_id(BridgeType, BridgeName),
             %% one for probe, two for real
             ?assertMatch(
                 [_, #{instance_id := ResourceId}, #{instance_id := ResourceId}],
@@ -568,10 +566,7 @@ t_start_already_started(Config) ->
     Type = greptimedb_type_bin(?config(greptimedb_type, Config)),
     Name = ?config(greptimedb_name, Config),
     GreptimedbConfigString = ?config(greptimedb_config_string, Config),
-    ?assertMatch(
-        {ok, _},
-        create_bridge(Config)
-    ),
+    ?assertMatch({ok, _}, create_bridge(Config)),
     ResourceId = resource_id(Config),
     TypeAtom = binary_to_atom(Type),
     NameAtom = binary_to_atom(Name),
@@ -1036,7 +1031,6 @@ t_missing_field(Config) ->
     ok.
 
 t_authentication_error_on_send_message(Config0) ->
-    ResourceId = resource_id(Config0),
     QueryMode = proplists:get_value(query_mode, Config0, sync),
     GreptimedbType = ?config(greptimedb_type, Config0),
     GreptimeConfig0 = proplists:get_value(greptimedb_config, Config0),
@@ -1055,6 +1049,7 @@ t_authentication_error_on_send_message(Config0) ->
         end,
         fun() ->
             {ok, _} = create_bridge(Config),
+            ResourceId = resource_id(Config0),
             ?retry(
                 _Sleep = 1_000,
                 _Attempts = 10,
