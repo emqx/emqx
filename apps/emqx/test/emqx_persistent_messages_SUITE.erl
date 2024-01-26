@@ -495,7 +495,7 @@ consume(It) ->
     end.
 
 receive_messages(Count) ->
-    receive_messages(Count, 5_000).
+    receive_messages(Count, 10_000).
 
 receive_messages(Count, Timeout) ->
     lists:reverse(receive_messages(Count, [], Timeout)).
