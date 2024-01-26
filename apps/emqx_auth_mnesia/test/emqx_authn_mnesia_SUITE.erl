@@ -253,6 +253,69 @@ t_import_users(_) ->
         )
     ).
 
+t_import_users_plain(_) ->
+    Config0 = config(),
+    Config = Config0#{password_hash_algorithm => #{name => sha256, salt_position => suffix}},
+    {ok, State} = emqx_authn_mnesia:create(?AUTHN_ID, Config),
+
+    ?assertEqual(
+        ok,
+        emqx_authn_mnesia:import_users(
+            sample_filename_and_data(plain, <<"user-credentials-plain.json">>),
+            State
+        )
+    ),
+
+    ?assertEqual(
+        ok,
+        emqx_authn_mnesia:import_users(
+            sample_filename_and_data(plain, <<"user-credentials-plain.csv">>),
+            State
+        )
+    ).
+
+t_import_users_prepared_list(_) ->
+    Config0 = config(),
+    Config = Config0#{password_hash_algorithm => #{name => sha256, salt_position => suffix}},
+    {ok, State} = emqx_authn_mnesia:create(?AUTHN_ID, Config),
+
+    Users1 = [
+        #{<<"user_id">> => <<"u1">>, <<"password">> => <<"p1">>, <<"is_superuser">> => true},
+        #{<<"user_id">> => <<"u2">>, <<"password">> => <<"p2">>, <<"is_superuser">> => true}
+    ],
+    Users2 = [
+        #{
+            <<"user_id">> => <<"u3">>,
+            <<"password_hash">> =>
+                <<"c5e46903df45e5dc096dc74657610dbee8deaacae656df88a1788f1847390242">>,
+            <<"salt">> => <<"e378187547bf2d6f0545a3f441aa4d8a">>,
+            <<"is_superuser">> => true
+        },
+        #{
+            <<"user_id">> => <<"u4">>,
+            <<"password_hash">> =>
+                <<"f4d17f300b11e522fd33f497c11b126ef1ea5149c74d2220f9a16dc876d4567b">>,
+            <<"salt">> => <<"6d3f9bd5b54d94b98adbcfe10b6d181f">>,
+            <<"is_superuser">> => true
+        }
+    ],
+
+    ?assertEqual(
+        ok,
+        emqx_authn_mnesia:import_users(
+            {plain, prepared_user_list, Users1},
+            State
+        )
+    ),
+
+    ?assertEqual(
+        ok,
+        emqx_authn_mnesia:import_users(
+            {hash, prepared_user_list, Users2},
+            State
+        )
+    ).
+
 %%------------------------------------------------------------------------------
 %% Helpers
 %%------------------------------------------------------------------------------
@@ -262,9 +325,12 @@ sample_filename(Name) ->
     filename:join([Dir, <<"data">>, Name]).
 
 sample_filename_and_data(Name) ->
+    sample_filename_and_data(hash, Name).
+
+sample_filename_and_data(Type, Name) ->
     Filename = sample_filename(Name),
     {ok, Data} = file:read_file(Filename),
-    {hash, Filename, Data}.
+    {Type, Filename, Data}.
 
 config() ->
     #{
