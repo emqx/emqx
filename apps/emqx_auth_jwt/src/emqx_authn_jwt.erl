@@ -349,20 +349,10 @@ handle_verify_claims([{Name, Expected0} | More], Acc) ->
     Expected = handle_placeholder(Expected0),
     handle_verify_claims(More, [{Name, Expected} | Acc]).
 
-handle_placeholder(Placeholder0) ->
-    case re:run(Placeholder0, "^\\$\\{[a-z0-9\\-]+\\}$", [{capture, all}]) of
-        {match, [{Offset, Length}]} ->
-            Placeholder1 = binary:part(Placeholder0, Offset + 2, Length - 3),
-            Placeholder2 = validate_placeholder(Placeholder1),
-            {placeholder, Placeholder2};
-        nomatch ->
-            Placeholder0
-    end.
-
-validate_placeholder(<<"clientid">>) ->
-    clientid;
-validate_placeholder(<<"username">>) ->
-    username.
+handle_placeholder(Placeholder) when is_atom(Placeholder) ->
+    {placeholder, Placeholder};
+handle_placeholder(Placeholder) when is_binary(Placeholder) ->
+    Placeholder.
 
 binary_to_number(Bin) ->
     case string:to_integer(Bin) of
