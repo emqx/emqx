@@ -104,6 +104,21 @@ iterate(DB, It0, BatchSize, Opts, Acc) ->
             Ret
     end.
 
+store_and_cache(DB, Messages) ->
+    LastMsg = lists:last(Messages),
+    {ok, {ok, _}} =
+        snabbkaffe:wait_async_action(
+            fun() -> emqx_ds:store_batch(DB, Messages) end,
+            fun
+                (#{?snk_kind := ds_cache_stored_batch, batch := Batch}) ->
+                    lists:member(LastMsg, [Msg || {_DSKey, Msg} <- Batch]);
+                (_) ->
+                    false
+            end,
+            5_000
+        ),
+    ok.
+
 %%------------------------------------------------------------------------------
 %% Testcases
 %%------------------------------------------------------------------------------
@@ -149,12 +164,7 @@ t_full_cache(_Config) ->
                 message(<<"some/topic">>, <<"2">>, NowMS + 60_001),
                 message(<<"some/topic">>, <<"3">>, NowMS + 60_002)
             ],
-            {ok, {ok, _}} =
-                ?wait_async_action(
-                    emqx_ds:store_batch(DB, Msgs),
-                    #{?snk_kind := ds_cache_stored_batch},
-                    2_000
-                ),
+            ok = store_and_cache(DB, Msgs),
             [{_Rank, Stream}] = emqx_ds:get_streams(DB, TopicFilter, NowMS),
             {ok, Iter0} = emqx_ds:make_iterator(DB, Stream, TopicFilter, NowMS),
             {ok, Iter1, Batch1} = iterate(DB, Iter0, 1, #{use_cache => true}),
@@ -206,12 +216,7 @@ t_key_deleted_while_iterating(_Config) ->
                     message(<<"some/topic">>, <<"2">>, NowMS + 60_001),
                     message(<<"some/topic">>, <<"2">>, NowMS + 60_002)
                 ],
-            {ok, {ok, _}} =
-                ?wait_async_action(
-                    emqx_ds:store_batch(DB, Msgs),
-                    #{?snk_kind := ds_cache_stored_batch},
-                    2_000
-                ),
+            ok = store_and_cache(DB, Msgs),
             [{_Rank, Stream}] = emqx_ds:get_streams(DB, TopicFilter, NowMS),
             {ok, Iter0} = emqx_ds:make_iterator(DB, Stream, TopicFilter, NowMS),
             {ok, Iter1, Batch1} = emqx_ds:next(DB, Iter0, 1, #{use_cache => false}),
@@ -245,12 +250,7 @@ t_last_seen_key_not_contained(_Config) ->
                 message(<<"some/topic">>, <<"2">>, NowMS + 60_001),
                 message(<<"some/topic">>, <<"2">>, NowMS + 60_002)
             ],
-            {ok, {ok, _}} =
-                ?wait_async_action(
-                    emqx_ds:store_batch(DB, Msgs),
-                    #{?snk_kind := ds_cache_stored_batch},
-                    2_000
-                ),
+            ok = store_and_cache(DB, Msgs),
             [{_Rank, Stream}] = emqx_ds:get_streams(DB, TopicFilter, NowMS),
             {ok, Iter0} = emqx_ds:make_iterator(DB, Stream, TopicFilter, NowMS),
             {ok, Iter1, [{DSKey1, _Msg1}] = Batch1} = emqx_ds:next(DB, Iter0, 1, #{
@@ -283,12 +283,7 @@ t_only_last_seen_key_contained(_Config) ->
                 message(<<"some/topic">>, <<"2">>, NowMS + 60_001),
                 message(<<"some/topic">>, <<"2">>, NowMS + 60_002)
             ],
-            {ok, {ok, _}} =
-                ?wait_async_action(
-                    emqx_ds:store_batch(DB, Msgs),
-                    #{?snk_kind := ds_cache_stored_batch},
-                    2_000
-                ),
+            ok = store_and_cache(DB, Msgs),
             [{_Rank, Stream}] = emqx_ds:get_streams(DB, TopicFilter, NowMS),
             {ok, Iter0} = emqx_ds:make_iterator(DB, Stream, TopicFilter, NowMS),
             {ok, Iter1, _Batch1} = emqx_ds:next(DB, Iter0, 3, #{use_cache => false}),
@@ -321,12 +316,7 @@ t_gc(_Config) ->
                 message(<<"some/topic">>, <<"2">>, NowMS + 60_001),
                 message(<<"some/topic">>, <<"2">>, NowMS + 60_002)
             ],
-            {ok, {ok, _}} =
-                ?wait_async_action(
-                    emqx_ds:store_batch(DB, Msgs),
-                    #{?snk_kind := ds_cache_stored_batch},
-                    2_000
-                ),
+            ok = store_and_cache(DB, Msgs),
             [{_Rank, Stream}] = emqx_ds:get_streams(DB, TopicFilter, NowMS),
             {ok, Iter0} = emqx_ds:make_iterator(DB, Stream, TopicFilter, NowMS),
             {ok, Iter1, Batch1} = emqx_ds:next(DB, Iter0, 1, #{use_cache => false}),
@@ -361,12 +351,7 @@ t_end_of_stream(_Config) ->
                 message(<<"some/topic">>, <<"2">>, NowMS + 60_001),
                 message(<<"some/topic">>, <<"2">>, NowMS + 60_002)
             ],
-            {ok, {ok, _}} =
-                ?wait_async_action(
-                    emqx_ds:store_batch(DB, Msgs),
-                    #{?snk_kind := ds_cache_stored_batch},
-                    2_000
-                ),
+            ok = store_and_cache(DB, Msgs),
             [{_Rank, Stream}] = emqx_ds:get_streams(DB, TopicFilter, NowMS),
             {ok, Iter0} = emqx_ds:make_iterator(DB, Stream, TopicFilter, NowMS),
             {ok, Iter1, _Batch1} = iterate(DB, Iter0, 3, #{use_cache => false}),

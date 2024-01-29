@@ -257,7 +257,6 @@ t_session_unsubscription_idempotency(Config) ->
     ?check_trace(
         #{timetrap => 30_000},
         begin
-            #{timetrap => 20_000},
             ?force_ordering(
                 #{
                     ?snk_kind := persistent_session_ds_subscription_delete
