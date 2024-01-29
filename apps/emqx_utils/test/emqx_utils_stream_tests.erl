@@ -84,13 +84,22 @@ mqueue_test() ->
     ).
 
 csv_test() ->
-    Data = <<"h1,h2,h3\r\nv1,v2,v3\r\nv4,v5,v6">>,
+    Data1 = <<"h1,h2,h3\r\nvv1,vv2,vv3\r\nvv4,vv5,vv6">>,
     ?assertEqual(
         [
-            #{<<"h1">> => <<"v1">>, <<"h2">> => <<"v2">>, <<"h3">> => <<"v3">>},
-            #{<<"h1">> => <<"v4">>, <<"h2">> => <<"v5">>, <<"h3">> => <<"v6">>}
+            #{<<"h1">> => <<"vv1">>, <<"h2">> => <<"vv2">>, <<"h3">> => <<"vv3">>},
+            #{<<"h1">> => <<"vv4">>, <<"h2">> => <<"vv5">>, <<"h3">> => <<"vv6">>}
         ],
-        emqx_utils_stream:consume(emqx_utils_stream:csv(Data))
+        emqx_utils_stream:consume(emqx_utils_stream:csv(Data1))
+    ),
+
+    Data2 = <<"h1, h2, h3\nvv1, vv2, vv3\nvv4,vv5,vv6\n">>,
+    ?assertEqual(
+        [
+            #{<<"h1">> => <<"vv1">>, <<"h2">> => <<"vv2">>, <<"h3">> => <<"vv3">>},
+            #{<<"h1">> => <<"vv4">>, <<"h2">> => <<"vv5">>, <<"h3">> => <<"vv6">>}
+        ],
+        emqx_utils_stream:consume(emqx_utils_stream:csv(Data2))
     ),
 
     ?assertEqual(
