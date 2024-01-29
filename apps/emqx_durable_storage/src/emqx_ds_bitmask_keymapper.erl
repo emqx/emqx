@@ -16,8 +16,8 @@
 -module(emqx_ds_bitmask_keymapper).
 
 %%================================================================================
-%% @doc This module is used to map N-dimensional coordinates to a
-%% 1-dimensional space.
+%% @doc This module is used to map an N-dimensional vector to a
+%% 1-dimensional scalar.
 %%
 %% Example:
 %%
@@ -59,7 +59,10 @@
 %% The resulting index is a space-filling curve that looks like
 %% this in the topic-time 2D space:
 %%
-%% T ^ ---->------   |---->------   |---->------
+%%
+%% topic
+%%
+%%   ^ ---->------   |---->------   |---->------
 %%   |       --/     /      --/     /      --/
 %%   |   -<-/       |   -<-/       |   -<-/
 %%   | -/           | -/           | -/
@@ -73,8 +76,8 @@
 %%   | -/         |   -/         |   -/
 %%   | ---->------|   ---->------|   ---------->
 %%   |
-%%  -+------------+-----------------------------> t
-%%        epoch
+%%  -+--------------+-------------+-------------> time
+%%        epoch         epoch         epoch
 %%
 %% This structure allows to quickly seek to a the first message that
 %% was recorded in a certain epoch in a certain topic or a
@@ -88,6 +91,18 @@
 %%
 %% This property doesn't hold between different topics, but it's not deemed
 %% a problem right now.
+%%
+%% Notes on the terminology:
+%%
+%% - "Coordinates" of the original message (usually topic and the
+%% timestamp, like in the example above) will be referred as the
+%% "vector".
+%%
+%% - The 1D scalar that these coordinates are transformed to will be
+%% referred as the "scalar".
+%%
+%% - Binary representation of the scalar if fixed size will be
+%% referred as the "key".
 %%
 %%================================================================================
 
@@ -128,9 +143,9 @@
 %% Type declarations
 %%================================================================================
 
--type scalar() :: integer().
+-type coord() :: integer().
 
--type vector() :: [scalar()].
+-type vector() :: [coord()].
 
 %% N-th coordinate of a vector:
 -type dimension() :: pos_integer().
@@ -147,10 +162,17 @@
     %% bit from N-th element of the input vector:
     {dimension(), offset(), bitsize()}.
 
+%% This record is used during transformation of the source vector into
+%% a key.
+%%
+%% Every dimension of the source vector has a list of `scan_action's
+%% associated with it, and the key is formed by applying the scan
+%% actions to the respective coordinate of the vector using `extract'
+%% function.
 -record(scan_action, {
-    src_bitmask :: integer(),
-    src_offset :: offset(),
-    dst_offset :: offset()
+    vec_coord_bitmask :: integer(),
+    vec_coord_offset :: offset(),
+    scalar_offset :: offset()
 }).
 
 -type scan_action() :: #scan_action{}.
@@ -158,16 +180,20 @@
 -type scanner() :: [[scan_action()]].
 
 -record(keymapper, {
+    %% The original schema of the transformation:
     schema :: [bitsource()],
-    scanner :: scanner(),
-    size :: non_neg_integer(),
+    %% List of operations used to map a vector to the scalar
+    vec_scanner :: scanner(),
+    %% Total size of the resulting key, in bits:
+    key_size :: non_neg_integer(),
+    %% Bit size of each dimenstion of the vector:
     dim_sizeof :: [non_neg_integer()]
 }).
 
 -opaque keymapper() :: #keymapper{}.
 
--type scalar_range() ::
-    any | {'=', scalar() | infinity} | {'>=', scalar()} | {scalar(), '..', scalar()}.
+-type coord_range() ::
+    any | {'=', coord() | infinity} | {'>=', coord()} | {coord(), '..', coord()}.
 
 -include("emqx_ds_bitmask.hrl").
 
@@ -192,7 +218,7 @@ make_keymapper(Bitsources) ->
         fun(DestOffset, {Dim0, Offset, Size}, Acc) ->
             Dim = Dim0 - 1,
             Action = #scan_action{
-                src_bitmask = ones(Size), src_offset = Offset, dst_offset = DestOffset
+                vec_coord_bitmask = ones(Size), vec_coord_offset = Offset, scalar_offset = DestOffset
             },
             {DimSizeof, Actions} = array:get(Dim, Acc),
             array:set(Dim, {DimSizeof + Size, [Action | Actions]}, Acc)
@@ -203,27 +229,27 @@ make_keymapper(Bitsources) ->
     {DimSizeof, Scanner} = lists:unzip(array:to_list(Arr)),
     #keymapper{
         schema = Bitsources,
-        scanner = Scanner,
-        size = Size,
+        vec_scanner = Scanner,
+        key_size = Size,
         dim_sizeof = DimSizeof
     }.
 
 -spec bitsize(keymapper()) -> pos_integer().
-bitsize(#keymapper{size = Size}) ->
+bitsize(#keymapper{key_size = Size}) ->
     Size.
 
 %% @doc Map N-dimensional vector to a scalar key.
 %%
 %% Note: this function is not injective.
 -spec vector_to_key(keymapper(), vector()) -> key().
-vector_to_key(#keymapper{scanner = []}, []) ->
+vector_to_key(#keymapper{vec_scanner = []}, []) ->
     0;
-vector_to_key(#keymapper{scanner = [Actions | Scanner]}, [Coord | Vector]) ->
+vector_to_key(#keymapper{vec_scanner = [Actions | Scanner]}, [Coord | Vector]) ->
     do_vector_to_key(Actions, Scanner, Coord, Vector, 0).
 
 %% @doc Same as `vector_to_key', but it works with binaries, and outputs a binary.
 -spec bin_vector_to_key(keymapper(), [binary()]) -> binary().
-bin_vector_to_key(Keymapper = #keymapper{dim_sizeof = DimSizeof, size = Size}, Binaries) ->
+bin_vector_to_key(Keymapper = #keymapper{dim_sizeof = DimSizeof, key_size = Size}, Binaries) ->
     Vec = lists:zipwith(
         fun(Bin, SizeOf) ->
             <<Int:SizeOf>> = Bin,
@@ -240,7 +266,7 @@ bin_vector_to_key(Keymapper = #keymapper{dim_sizeof = DimSizeof, size = Size}, B
 %% Note: `vector_to_key(key_to_vector(K)) = K' but
 %% `key_to_vector(vector_to_key(V)) = V' is not guaranteed.
 -spec key_to_vector(keymapper(), key()) -> vector().
-key_to_vector(#keymapper{scanner = Scanner}, Key) ->
+key_to_vector(#keymapper{vec_scanner = Scanner}, Key) ->
     lists:map(
         fun(Actions) ->
             lists:foldl(
@@ -256,7 +282,7 @@ key_to_vector(#keymapper{scanner = Scanner}, Key) ->
 
 %% @doc Same as `key_to_vector', but it works with binaries.
 -spec bin_key_to_vector(keymapper(), binary()) -> [binary()].
-bin_key_to_vector(Keymapper = #keymapper{dim_sizeof = DimSizeof, size = Size}, BinKey) ->
+bin_key_to_vector(Keymapper = #keymapper{dim_sizeof = DimSizeof, key_size = Size}, BinKey) ->
     <<Key:Size>> = BinKey,
     Vector = key_to_vector(Keymapper, Key),
     lists:zipwith(
@@ -269,7 +295,7 @@ bin_key_to_vector(Keymapper = #keymapper{dim_sizeof = DimSizeof, size = Size}, B
 
 %% @doc Transform a bitstring to a key
 -spec bitstring_to_key(keymapper(), bitstring()) -> key().
-bitstring_to_key(#keymapper{size = Size}, Bin) ->
+bitstring_to_key(#keymapper{key_size = Size}, Bin) ->
     case Bin of
         <<Key:Size>> ->
             Key;
@@ -279,13 +305,13 @@ bitstring_to_key(#keymapper{size = Size}, Bin) ->
 
 %% @doc Transform key to a fixed-size bistring
 -spec key_to_bitstring(keymapper(), key()) -> bitstring().
-key_to_bitstring(#keymapper{size = Size}, Key) ->
+key_to_bitstring(#keymapper{key_size = Size}, Key) ->
     <<Key:Size>>.
 
 %% @doc Create a filter object that facilitates range scans.
--spec make_filter(keymapper(), [scalar_range()]) -> filter().
+-spec make_filter(keymapper(), [coord_range()]) -> filter().
 make_filter(
-    KeyMapper = #keymapper{schema = Schema, dim_sizeof = DimSizeof, size = TotalSize}, Filter0
+    KeyMapper = #keymapper{schema = Schema, dim_sizeof = DimSizeof, key_size = TotalSize}, Filter0
 ) ->
     NDim = length(DimSizeof),
     %% Transform "symbolic" constraints to ranges:
@@ -568,14 +594,14 @@ do_vector_to_key([Action | Actions], Scanner, Coord, Vector, Acc0) ->
     Acc = Acc0 bor extract(Coord, Action),
     do_vector_to_key(Actions, Scanner, Coord, Vector, Acc).
 
--spec extract(_Source :: scalar(), scan_action()) -> integer().
-extract(Src, #scan_action{src_bitmask = SrcBitmask, src_offset = SrcOffset, dst_offset = DstOffset}) ->
+-spec extract(_Source :: coord(), scan_action()) -> integer().
+extract(Src, #scan_action{vec_coord_bitmask = SrcBitmask, vec_coord_offset = SrcOffset, scalar_offset = DstOffset}) ->
     ((Src bsr SrcOffset) band SrcBitmask) bsl DstOffset.
 
 %% extract^-1
--spec extract_inv(_Dest :: scalar(), scan_action()) -> integer().
+-spec extract_inv(_Dest :: coord(), scan_action()) -> integer().
 extract_inv(Dest, #scan_action{
-    src_bitmask = SrcBitmask, src_offset = SrcOffset, dst_offset = DestOffset
+    vec_coord_bitmask = SrcBitmask, vec_coord_offset = SrcOffset, scalar_offset = DestOffset
 }) ->
     ((Dest bsr DestOffset) band SrcBitmask) bsl SrcOffset.
 
@@ -593,8 +619,8 @@ make_keymapper0_test() ->
     ?assertEqual(
         #keymapper{
             schema = Schema,
-            scanner = [],
-            size = 0,
+            vec_scanner = [],
+            key_size = 0,
             dim_sizeof = []
         },
         make_keymapper(Schema)
@@ -605,11 +631,11 @@ make_keymapper1_test() ->
     ?assertEqual(
         #keymapper{
             schema = Schema,
-            scanner = [
-                [#scan_action{src_bitmask = 2#111, src_offset = 0, dst_offset = 0}],
-                [#scan_action{src_bitmask = 2#11111, src_offset = 0, dst_offset = 3}]
+            vec_scanner = [
+                [#scan_action{vec_coord_bitmask = 2#111, vec_coord_offset = 0, scalar_offset = 0}],
+                [#scan_action{vec_coord_bitmask = 2#11111, vec_coord_offset = 0, scalar_offset = 3}]
             ],
-            size = 8,
+            key_size = 8,
             dim_sizeof = [3, 5]
         },
         make_keymapper(Schema)
@@ -620,14 +646,14 @@ make_keymapper2_test() ->
     ?assertEqual(
         #keymapper{
             schema = Schema,
-            scanner = [
+            vec_scanner = [
                 [
-                    #scan_action{src_bitmask = 2#11111, src_offset = 3, dst_offset = 8},
-                    #scan_action{src_bitmask = 2#111, src_offset = 0, dst_offset = 0}
+                    #scan_action{vec_coord_bitmask = 2#11111, vec_coord_offset = 3, scalar_offset = 8},
+                    #scan_action{vec_coord_bitmask = 2#111, vec_coord_offset = 0, scalar_offset = 0}
                 ],
-                [#scan_action{src_bitmask = 2#11111, src_offset = 0, dst_offset = 3}]
+                [#scan_action{vec_coord_bitmask = 2#11111, vec_coord_offset = 0, scalar_offset = 3}]
             ],
-            size = 13,
+            key_size = 13,
             dim_sizeof = [8, 5]
         },
         make_keymapper(Schema)
