@@ -52,7 +52,7 @@ jobs:
       id: package_file
       run: |
         echo "PACKAGE_FILE=$(find _packages/emqx -name 'emqx-*.deb' | head -n 1 | xargs basename)" >> $GITHUB_OUTPUT
-    - uses: actions/upload-artifact@1eb3cb2b3e0f29609092a73eb033bb759a334595 # v4.1.0
+    - uses: actions/upload-artifact@26f96dfa697d77e81fd5907df203aa23a56210a8 # v4.3.0
       with:
         name: emqx-ubuntu20.04
         path: _packages/emqx/${{ steps.package_file.outputs.PACKAGE_FILE }}
@@ -105,7 +105,7 @@ jobs:
         terraform destroy -auto-approve
         aws s3 sync --exclude '*' --include '*.tar.gz' s3://$TF_VAR_s3_bucket_name/$TF_VAR_bench_id .
     - name: Send notification to Slack
-      uses: slackapi/slack-github-action@e28cf165c92ffef168d23c5c9000cffc8a25e117 # v1.24.0
+      uses: slackapi/slack-github-action@6c661ce58804a1a20f6dc5fbee7f0381b469e001 # v1.25.0
       with:
         payload-file-path: "./tf-emqx-performance-test/slack-payload.json"
     - name: terraform destroy
@@ -113,13 +113,13 @@ jobs:
       working-directory: ./tf-emqx-performance-test
       run: |
         terraform destroy -auto-approve
-    - uses: actions/upload-artifact@1eb3cb2b3e0f29609092a73eb033bb759a334595 # v4.1.0
+    - uses: actions/upload-artifact@26f96dfa697d77e81fd5907df203aa23a56210a8 # v4.3.0
       if: success()
       with:
         name: metrics
         path: |
           "./tf-emqx-performance-test/*.tar.gz"
-    - uses: actions/upload-artifact@1eb3cb2b3e0f29609092a73eb033bb759a334595 # v4.1.0
+    - uses: actions/upload-artifact@26f96dfa697d77e81fd5907df203aa23a56210a8 # v4.3.0
       if: failure()
       with:
         name: terraform
@@ -176,7 +176,7 @@ jobs:
         terraform destroy -auto-approve
         aws s3 sync --exclude '*' --include '*.tar.gz' s3://$TF_VAR_s3_bucket_name/$TF_VAR_bench_id .
     - name: Send notification to Slack
-      uses: slackapi/slack-github-action@e28cf165c92ffef168d23c5c9000cffc8a25e117 # v1.24.0
+      uses: slackapi/slack-github-action@6c661ce58804a1a20f6dc5fbee7f0381b469e001 # v1.25.0
       with:
         payload-file-path: "./tf-emqx-performance-test/slack-payload.json"
     - name: terraform destroy
@@ -184,13 +184,13 @@ jobs:
       working-directory: ./tf-emqx-performance-test
       run: |
         terraform destroy -auto-approve
-    - uses: actions/upload-artifact@1eb3cb2b3e0f29609092a73eb033bb759a334595 # v4.1.0
+    - uses: actions/upload-artifact@26f96dfa697d77e81fd5907df203aa23a56210a8 # v4.3.0
       if: success()
       with:
         name: metrics
         path: |
           "./tf-emqx-performance-test/*.tar.gz"
-    - uses: actions/upload-artifact@1eb3cb2b3e0f29609092a73eb033bb759a334595 # v4.1.0
+    - uses: actions/upload-artifact@26f96dfa697d77e81fd5907df203aa23a56210a8 # v4.3.0
       if: failure()
       with:
         name: terraform
@@ -249,7 +249,7 @@ jobs:
         terraform destroy -auto-approve
         aws s3 sync --exclude '*' --include '*.tar.gz' s3://$TF_VAR_s3_bucket_name/$TF_VAR_bench_id .
     - name: Send notification to Slack
-      uses: slackapi/slack-github-action@e28cf165c92ffef168d23c5c9000cffc8a25e117 # v1.24.0
+      uses: slackapi/slack-github-action@6c661ce58804a1a20f6dc5fbee7f0381b469e001 # v1.25.0
       with:
         payload-file-path: "./tf-emqx-performance-test/slack-payload.json"
     - name: terraform destroy
@@ -257,13 +257,13 @@ jobs:
       working-directory: ./tf-emqx-performance-test
       run: |
         terraform destroy -auto-approve
-    - uses: actions/upload-artifact@1eb3cb2b3e0f29609092a73eb033bb759a334595 # v4.1.0
+    - uses: actions/upload-artifact@26f96dfa697d77e81fd5907df203aa23a56210a8 # v4.3.0
       if: success()
       with:
         name: metrics
         path: |
           "./tf-emqx-performance-test/*.tar.gz"
-    - uses: actions/upload-artifact@1eb3cb2b3e0f29609092a73eb033bb759a334595 # v4.1.0
+    - uses: actions/upload-artifact@26f96dfa697d77e81fd5907df203aa23a56210a8 # v4.3.0
       if: failure()
       with:
         name: terraform
@@ -322,7 +322,7 @@ jobs:
         terraform destroy -auto-approve
         aws s3 sync --exclude '*' --include '*.tar.gz' s3://$TF_VAR_s3_bucket_name/$TF_VAR_bench_id .
     - name: Send notification to Slack
-      uses: slackapi/slack-github-action@e28cf165c92ffef168d23c5c9000cffc8a25e117 # v1.24.0
+      uses: slackapi/slack-github-action@6c661ce58804a1a20f6dc5fbee7f0381b469e001 # v1.25.0
       with:
         payload-file-path: "./tf-emqx-performance-test/slack-payload.json"
     - name: terraform destroy
@@ -330,13 +330,13 @@ jobs:
       working-directory: ./tf-emqx-performance-test
       run: |
         terraform destroy -auto-approve
-    - uses: actions/upload-artifact@1eb3cb2b3e0f29609092a73eb033bb759a334595 # v4.1.0
+    - uses: actions/upload-artifact@26f96dfa697d77e81fd5907df203aa23a56210a8 # v4.3.0
       if: success()
       with:
         name: metrics
         path: |
           "./tf-emqx-performance-test/*.tar.gz"
-    - uses: actions/upload-artifact@1eb3cb2b3e0f29609092a73eb033bb759a334595 # v4.1.0
+    - uses: actions/upload-artifact@26f96dfa697d77e81fd5907df203aa23a56210a8 # v4.3.0
       if: failure()
       with:
         name: terraform
